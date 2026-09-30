@@ -25,7 +25,6 @@
 namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Capabilities;
-use Newspack_Nodes\Command_Args;
 use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
@@ -64,7 +63,8 @@ class Sessions_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `create` verb handler — `create <label> [--scope=read|tune|manage] [--ttl=<seconds>]`.
+	 * `create` verb handler — `create [<label>] [<scope>] [<ttl>]`, each by
+	 * position or by name.
 	 *
 	 * The response is the ONLY place the key is ever disclosed.
 	 *
@@ -73,26 +73,21 @@ class Sessions_CI_Node extends Service_CI_Node {
 	 * to what the issuing user actually holds, so an editor asking for `manage`
 	 * receives a session that says `read`. A scope off the ladder is a typo and
 	 * is refused, because clamping a misspelling would hand back a working key
-	 * under a scope nobody asked for.
+	 * under a scope nobody asked for. The ttl is clamped to the session bounds.
 	 *
 	 * An empty label still mints a working session, and `Sessions::record()`
 	 * declines to list it: the automatic `/auth` mints are unlabelled, and
 	 * listing those buries — and at `Sessions::MAX_ROWS` evicts — the sessions
 	 * an operator issued on purpose.
 	 *
-	 * @param list<string> $args Verb arguments.
+	 * @param array<array-key,mixed> $args Bound verb arguments: label, scope, ttl.
 	 * @return array<string,mixed> The mint — handle, secret, scope, expires_in, now — plus the label.
-	 * @throws \RuntimeException On a scope off the ladder, a malformed `--ttl`, or a user holding none of the three roles.
+	 * @throws \RuntimeException On a scope off the ladder, or a user holding none of the three roles.
 	 * @throws \Newspack_Nodes\Session_Store_Unavailable When the cache cannot store the session; the reply names why.
 	 */
 	public static function cmd_create( array $args ): array {
-		$parsed = Command_Args::parse( $args );
-		$label  = Core::as_string( $parsed['positional'][0] ?? '' );
-		$scope  = Core::as_string( $parsed['options']['scope'] ?? '', Capabilities::MANAGE );
-		// `--scope=` yields '', which as_string's default never reaches.
-		if ( '' === $scope ) {
-			$scope = Capabilities::MANAGE;
-		}
+		$label = Core::as_string( $args['label'] );
+		$scope = Core::as_string( $args['scope'] );
 		if ( ! Capabilities::scope_covers( $scope, Capabilities::READ ) ) {
 			throw new \RuntimeException( \esc_html( "unknown session scope: {$scope}" ) );
 		}
@@ -101,10 +96,7 @@ class Sessions_CI_Node extends Service_CI_Node {
 		if ( null === $granted ) {
 			throw new \RuntimeException( 'no capability to mint a session with' );
 		}
-		// A credential lifetime is the last thing to guess at from `--ttl=1h`.
-		$ttl     = Command_Auth::bounded_ttl(
-			self::require_option_int( $parsed['options'], 'ttl', Command_Auth::SESSION_TTL_S, false )
-		);
+		$ttl     = Command_Auth::bounded_ttl( Core::as_int( $args['ttl'] ) );
 		$session = Command_Auth::mint_session( $granted, $ttl );
 		Sessions::record( $session['handle'], $granted, $label, $ttl );
 		return $session + [ 'label' => $label ];
@@ -115,20 +107,28 @@ class Sessions_CI_Node extends Service_CI_Node {
 	 *
 	 * `Sessions::forget()` drops the cache lease before it rewrites the
 	 * directory, so a half-failure leaves a dead listed row rather than a live
-	 * unlisted key. The reply is the same either way: a handle the directory
-	 * never held has its lease dropped too, so revoking from a stale listing
-	 * still kills the key.
+	 * unlisted key, and a handle the directory never held still has its lease
+	 * dropped. It answers `revoked: true` only when it dropped a lease or a
+	 * row. A store that did not answer refuses, because the key may still
+	 * verify. Otherwise the handle named nothing, and the refusal says so —
+	 * naming the handles of any session LABELLED with it, which is what an
+	 * operator reading the Sessions tab types.
 	 *
-	 * @param list<string> $args Verb arguments.
+	 * @param array<array-key,mixed> $args Bound verb arguments: handle.
 	 * @return array<string,mixed> The handle, and `revoked`.
-	 * @throws \RuntimeException When no handle is given.
+	 * @throws \RuntimeException When the store did not answer, or no session held the handle.
 	 */
 	public static function cmd_revoke( array $args ): array {
-		$handle = Core::as_string( Command_Args::parse( $args )['positional'][0] ?? '' );
-		if ( '' === $handle ) {
-			throw new \RuntimeException( 'handle required' );
+		$handle  = Core::as_string( $args['handle'] );
+		$revoked = Sessions::forget( $handle );
+		if ( null === $revoked ) {
+			throw new \RuntimeException( \esc_html( "session store did not answer; {$handle} may still be live" ) );
 		}
-		Sessions::forget( $handle );
+		if ( ! $revoked ) {
+			$labelled = Sessions::handles_labelled( $handle );
+			$hint     = [] === $labelled ? '' : "; the label {$handle} names " . \implode( ', ', $labelled );
+			throw new \RuntimeException( \esc_html( "no session with handle {$handle}{$hint}" ) );
+		}
 		return [
 			'handle'  => $handle,
 			'revoked' => true,
@@ -166,21 +166,21 @@ class Sessions_CI_Node extends Service_CI_Node {
 				],
 				[
 					'name'        => 'create',
-					'description' => 'Issue a session: `create <label> [--scope=read|tune|manage] [--ttl=<seconds>]`. The key is shown once.',
+					'description' => 'Issue a session: `create [<label>] [<scope>] [<ttl>]`, each by position or as `--name=value`; scope is read, tune or manage. The key is shown once.',
 					'capability'  => Capabilities::MANAGE,
 					'args'        => [
 						[ 'name' => 'label', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'scope', 'type' => 'string', 'required' => false, 'default' => Capabilities::MANAGE ],
 						[ 'name' => 'ttl', 'type' => 'int', 'required' => false, 'default' => Command_Auth::SESSION_TTL_S ],
 					],
-					'handler'     => static fn ( Command_Interpreter_Node $self, array $args = [], array $envelope = [] ): array => self::cmd_create( self::arg_strings( $args ) ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_create( $args ),
 				],
 				[
 					'name'        => 'revoke',
 					'description' => 'Revoke a session by handle; its key stops verifying immediately.',
 					'capability'  => Capabilities::MANAGE,
 					'args'        => [ [ 'name' => 'handle', 'type' => 'string', 'required' => true ] ],
-					'handler'     => static fn ( Command_Interpreter_Node $self, array $args = [], array $envelope = [] ): array => self::cmd_revoke( self::arg_strings( $args ) ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_revoke( $args ),
 				],
 			],
 		] );

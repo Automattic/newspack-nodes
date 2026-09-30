@@ -2155,18 +2155,17 @@ class ConsumerTest extends TestCase {
 		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		// The schema-synthesized toggle, via the auto-wired :config interpreter.
 		$wired = $this->read_private( $c, 'interpreter' );
-		$set   = $wired->commands()['set_line_mode'];
 
-		$set( $wired, [ 'true' ] );
+		$wired->dispatch( 'set_line_mode', [ 'true' ] );
 		$this->assertTrue( $this->read_private( $c, 'line_mode' ), 'an explicit truthy arg enables it' );
 
-		$set( $wired, [] );
+		$wired->dispatch( 'set_line_mode', [] );
 		$this->assertFalse( $this->read_private( $c, 'line_mode' ), 'a bare/empty verb disables it' );
 
-		$set( $wired, [ 'on' ] );
+		$wired->dispatch( 'set_line_mode', [ 'on' ] );
 		$this->assertTrue( $this->read_private( $c, 'line_mode' ) );
 
-		$set( $wired, [ 'false' ] );
+		$wired->dispatch( 'set_line_mode', [ 'false' ] );
 		$this->assertFalse( $this->read_private( $c, 'line_mode' ), 'an explicit falsey arg disables it' );
 	}
 
@@ -4475,7 +4474,7 @@ class ConsumerTest extends TestCase {
 		$c2->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$interp = Core::node( 'firehose2:config' );
 		$this->assertInstanceOf( Command_Interpreter_Node::class, $interp );
-		$this->read_private( $c2, 'interpreter' )->commands()['set_multi_writer']( $interp, [ $emitted_arg ] );
+		$interp->dispatch( 'set_multi_writer', [ $emitted_arg ] );
 
 		$mw = new \ReflectionProperty( $c2, 'multi_writer' );
 		$this->assertTrue( $mw->getValue( $c2 ), 'the emitted set_multi_writer arg must replay back to true' );

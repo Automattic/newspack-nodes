@@ -282,7 +282,7 @@ class VaultCINodeTest extends TestCase {
 		);
 		$this->assertIsString( $out, 'an unread option is a refusal, not a stored entry' );
 		$this->assertStringContainsString( 'unknown option --credential', $out );
-		$this->assertStringContainsString( 'this verb takes --url, --group, --user, --password', $out );
+		$this->assertStringContainsString( 'this verb takes --id, --url, --group, --user, --password', $out );
 	}
 
 	public function test_update_refuses_an_option_it_does_not_read(): void {
@@ -304,7 +304,7 @@ class VaultCINodeTest extends TestCase {
 
 		$this->assertIsString( $out, 'an unread option is a refusal, not a save that changed nothing' );
 		$this->assertStringContainsString( 'unknown option --auth_password', $out );
-		$this->assertStringContainsString( 'this verb takes --new_id, --url, --group, --user, --password', $out );
+		$this->assertStringContainsString( 'this verb takes --id, --new_id, --url, --group, --user, --password', $out );
 		Vault::get_instance()->reset_cache();
 		$stored = Vault::get_instance()->get( 'vault-unknown-6650' );
 		$this->assertSame( 'vault-pw-6650', $stored['auth_password'], 'a refused update leaves the stored credential alone' );
@@ -326,10 +326,10 @@ class VaultCINodeTest extends TestCase {
 	}
 
 	// ---------------------------------------------------------------------
-	// A valueless option is refused too. `Command_Args::parse()` reads a bare
-	// `--key` as boolean true, and every option these two verbs read carries a
+	// A valueless option is refused too. A bare `--key` is boolean true, which
+	// only a `bool` arg takes, and every arg these two verbs read carries a
 	// value — so a shell that ate the value, or an operator who forgot it,
-	// otherwise casts to the literal '1' and stores it as the credential.
+	// would otherwise cast to the literal '1' and store it as the credential.
 	// ---------------------------------------------------------------------
 
 	public function test_add_refuses_a_valueless_password(): void {
@@ -398,9 +398,9 @@ class VaultCINodeTest extends TestCase {
 	}
 
 	// ---------------------------------------------------------------------
-	// `add` reads the url as an OPTION, so an absent one is a missing option
-	// and says so — `Vault::add()`'s generic refusal names the URL format,
-	// which is the wrong cause when no url was sent at all.
+	// `add` declares the url required, so an absent one is refused by name —
+	// `Vault::add()`'s generic refusal names the URL format, which is the
+	// wrong cause when no url was sent at all.
 	// ---------------------------------------------------------------------
 
 	public function test_add_refuses_a_missing_url(): void {
@@ -412,7 +412,7 @@ class VaultCINodeTest extends TestCase {
 		);
 
 		$this->assertIsString( $out );
-		$this->assertStringContainsString( 'url required', $out );
+		$this->assertStringContainsString( 'missing required argument: url', $out );
 		$this->assertStringNotContainsString(
 			'check URL format',
 			$out,
@@ -628,7 +628,7 @@ class VaultCINodeTest extends TestCase {
 	public function test_get_throws_when_id_missing(): void {
 		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'get' );
 		$this->assertIsString( $out );
-		$this->assertStringContainsString( 'id required', $out );
+		$this->assertStringContainsString( 'missing required argument: id', $out );
 	}
 
 	public function test_add_throws_on_invalid_id(): void {
@@ -775,7 +775,7 @@ class VaultCINodeTest extends TestCase {
 	public function test_update_throws_when_id_missing(): void {
 		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', '--url=https://e.com' );
 		$this->assertIsString( $out );
-		$this->assertStringContainsString( 'id required', $out );
+		$this->assertStringContainsString( 'missing required argument: id', $out );
 	}
 
 	public function test_update_throws_on_unknown_server(): void {
@@ -971,56 +971,5 @@ class VaultCINodeTest extends TestCase {
 			$this->assertNotContains( 'auth_username', $arg_names, "'{$name}' must not declare auth_username" );
 			$this->assertNotContains( 'auth_password', $arg_names, "'{$name}' must not declare auth_password" );
 		}
-	}
-
-	public function test_declared_options_are_exactly_the_options_each_verb_accepts(): void {
-		$verbs = [];
-		foreach ( Vault_CI_Node::node_schema()['commands'] as $verb ) {
-			$verbs[ $verb['name'] ] = $verb;
-		}
-		foreach ( [ 'add' => 'vault-bind-1926', 'update' => 'vault-bind-3547' ] as $name => $id ) {
-			// Per the one command grammar, a required arg rides POSITIONALLY;
-			// everything else is a `--key=value` the handler has to read.
-			$declared = [];
-			foreach ( $verbs[ $name ]['args'] as $arg ) {
-				if ( empty( $arg['required'] ) ) {
-					$declared[] = $arg['name'];
-				}
-			}
-			$accepted = $this->accepted_options( $name, $id );
-			\sort( $declared );
-			\sort( $accepted );
-			$this->assertSame(
-				$accepted,
-				$declared,
-				"'{$name}' must declare as an option exactly what it accepts as one: a declared "
-					. 'positional the handler reads off --key is never sent, and an arg the guard '
-					. 'does not accept is offered by help and the palette and then refused'
-			);
-		}
-	}
-
-	/**
-	 * The option names a verb ACCEPTS, read out of its own refusal — firing an
-	 * option no verb reads makes `assert_known_options()` name the set it takes.
-	 *
-	 * @param string $verb Verb name.
-	 * @param string $id   Positional id; the guard runs ahead of every lookup.
-	 * @return list<string> Accepted option names.
-	 */
-	private function accepted_options( string $verb, string $id ): array {
-		// Each fire() builds a whole request-scope graph, so the previous one's
-		// `_router` has to go before the second verb is asked.
-		VerbHarness::reset();
-		$out = VerbHarness::fire(
-			new Vault_CI_Node(),
-			'vault',
-			$verb,
-			[ $id, '--vault-not-an-option-1926=x' ]
-		);
-
-		$this->assertIsString( $out, "'{$verb}' must refuse an option it does not read" );
-		$this->assertSame( 1, \preg_match( '/this verb takes --(.+)$/', $out, $m ) );
-		return \explode( ', --', $m[1] );
 	}
 }

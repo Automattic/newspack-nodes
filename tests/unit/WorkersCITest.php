@@ -497,6 +497,30 @@ class WorkersCITest extends TestCase {
 	 * The dashboard sibling of the CLI footgun: `(int) 'abc'` is 0, so a
 	 * malformed option would restart partition 0 and report a success count.
 	 */
+	/** The dialog pre-fills a declared default, so a sentinel the type refuses cannot be one. */
+	public function test_restart_partition_declares_no_default_and_absent_reaches_the_fleet_as_every_partition(): void {
+		$restart = \array_values( \array_filter( Workers_CI_Node::node_schema()['commands'], static fn ( array $v ): bool => 'restart' === $v['name'] ) )[0];
+		$partition = \array_values( \array_filter( $restart['args'], static fn ( array $a ): bool => 'partition' === $a['name'] ) )[0];
+		$this->assertArrayNotHasKey( 'default', $partition );
+
+		$fake_cli = new class {
+			public ?int $partition = null;
+			public function ls_workers(): array { return [ [ 'type' => 'tui-workers', 'partition' => 3 ] ]; }
+			public function read_probe_frames(): array { return []; }
+			public function live_position( array $index, string $type, int $partition ): ?array { return null; }
+			public function restart_workers( array $workers, array $filter = [], int $partition = 42 ): int {
+				$this->partition = $partition;
+				return 1;
+			}
+		};
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $fake_cli;
+
+		VerbHarness::fire( $interpreter, 'workers', 'restart', [ 'tui-workers' ] );
+
+		$this->assertSame( -1, $fake_cli->partition );
+	}
+
 	public function test_restart_verb_refuses_a_malformed_partition_option(): void {
 		$fake_cli = new class {
 			public ?array $called_with = null;
@@ -576,16 +600,16 @@ class WorkersCITest extends TestCase {
 	 */
 	public static function malformed_heartbeat_arguments(): array {
 		return [
-			'missing owner'       => [ [ '7' ], 'heartbeat requires exactly <slot> <owner>' ],
-			'extra client ttl'    => [ [ '7', '42424243', '89' ], 'heartbeat requires exactly <slot> <owner>' ],
-			'negative slot'       => [ [ '-7', '42424243' ], 'invalid heartbeat slot' ],
-			'non-decimal slot'    => [ [ '7x', '42424243' ], 'invalid heartbeat slot' ],
-			'non-canonical slot'  => [ [ '07', '42424243' ], 'invalid heartbeat slot' ],
+			'missing owner'       => [ [ '7' ], 'missing required argument: owner' ],
+			'extra client ttl'    => [ [ '7', '42424243', '89' ], 'too many arguments: 3 given, 2 accepted' ],
+			'negative slot'       => [ [ '-7', '42424243' ], "slot wants a whole number, got '-7'" ],
+			'non-decimal slot'    => [ [ '7x', '42424243' ], "slot wants a whole number, got '7x'" ],
+			'non-canonical slot'  => [ [ '07', '42424243' ], "slot wants a whole number, got '07'" ],
 			'zero owner'          => [ [ '7', '0' ], 'invalid heartbeat owner' ],
-			'negative owner'      => [ [ '7', '-42424243' ], 'invalid heartbeat owner' ],
-			'non-decimal owner'   => [ [ '7', '42424243x' ], 'invalid heartbeat owner' ],
-			'non-canonical owner' => [ [ '7', '042424243' ], 'invalid heartbeat owner' ],
-			'owner out of range'  => [ [ '7', \PHP_INT_MAX . '0' ], 'invalid heartbeat owner' ],
+			'negative owner'      => [ [ '7', '-42424243' ], "owner wants a whole number, got '-42424243'" ],
+			'non-decimal owner'   => [ [ '7', '42424243x' ], "owner wants a whole number, got '42424243x'" ],
+			'non-canonical owner' => [ [ '7', '042424243' ], "owner wants a whole number, got '042424243'" ],
+			'owner out of range'  => [ [ '7', \PHP_INT_MAX . '0' ], "owner wants a whole number, got '" . \PHP_INT_MAX . "0'" ],
 		];
 	}
 

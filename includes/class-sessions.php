@@ -87,18 +87,42 @@ class Sessions {
 
 	/**
 	 * Revoke a session: drop the lease FIRST, so a failure to write the option
-	 * leaves a listed-but-dead row rather than an unlisted live key.
+	 * leaves a listed-but-dead row rather than an unlisted live key. A store
+	 * that did not answer leaves the row too, because the key may still verify.
 	 *
 	 * @param string $handle Session handle. A handle absent from the directory still has its lease dropped.
+	 * @return bool|null Whether anything was revoked — the cache held a lease, or
+	 *                   the directory a row — or null when the store did not answer.
 	 */
-	public static function forget( string $handle ): void {
-		Command_Auth::revoke_session( $handle );
+	public static function forget( string $handle ): ?bool {
+		$dropped = Command_Auth::revoke_session( $handle );
+		if ( null === $dropped ) {
+			return null;
+		}
 		$rows = self::rows();
 		if ( ! isset( $rows[ $handle ] ) ) {
-			return;
+			return $dropped;
 		}
 		unset( $rows[ $handle ] );
 		\update_option( self::OPTION, $rows, false );
+		return true;
+	}
+
+	/**
+	 * The handles whose directory row carries $label, newest first — what an
+	 * operator who typed a label where a handle belongs meant to name.
+	 *
+	 * @param string $label Label to match exactly.
+	 * @return list<string>
+	 */
+	public static function handles_labelled( string $label ): array {
+		$handles = [];
+		foreach ( self::all() as $handle => $row ) {
+			if ( $row['label'] === $label ) {
+				$handles[] = $handle;
+			}
+		}
+		return $handles;
 	}
 
 	/**

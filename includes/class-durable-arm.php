@@ -111,8 +111,8 @@ abstract class Durable_Arm extends Cache_Backend {
 	abstract protected function claim( string $key, string $bytes, int $expires ): bool;
 
 	/** See Cache_Backend::delete(). */
-	public function delete( string $key ): bool {
-		return $this->attempt( fn (): bool => $this->delete_key( $key ) > 0, false );
+	public function delete( string $key ): ?bool {
+		return $this->attempt( fn (): bool => $this->delete_key( $key ) > 0, null );
 	}
 
 	/**

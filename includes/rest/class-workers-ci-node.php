@@ -30,7 +30,6 @@ use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\CLI;
 use Newspack_Nodes\Capabilities;
-use Newspack_Nodes\Command_Args;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config as RuntimeConfig;
 use Newspack_Nodes\Core;
@@ -607,31 +606,25 @@ class Workers_CI_Node extends Service_CI_Node {
 	/**
 	 * `heartbeat` verb handler — refresh the caller's own SSE slot lease.
 	 *
-	 * Both arguments are read through `Core::canonical_decimal()`, which
-	 * refuses anything but a canonical decimal. Every other coercion family
-	 * resolves a typo to a number, and a slot invented that way names someone
-	 * else's lease. `$slot` may be 0; `$owner` may not, because 0 is the
-	 * pointer's release tombstone.
+	 * Both arguments are declared `int`, so the binder reads them through
+	 * `Core::canonical_decimal()`, which refuses anything but a canonical
+	 * decimal. Every other coercion family resolves a typo to a number, and a
+	 * slot invented that way names someone else's lease. `$slot` may be 0;
+	 * `$owner` may not, because 0 is the pointer's release tombstone.
 	 *
 	 * `$owner` is the lease token `SSE_Slot_Pool::acquire()` handed this
 	 * stream, not a user id, so a refusal here means the lease is gone — never
 	 * that the caller lacks a capability. `SSE_Slot_Pool::inspect()` names
 	 * which of its six states caused it, and that name rides out in the throw.
 	 *
-	 * @param list<string> $args `[ <slot>, <owner> ]`.
+	 * @param array<array-key,mixed> $args Bound verb arguments: slot, owner.
 	 * @return array<string,mixed>
-	 * @throws \RuntimeException On a malformed argument, an unreachable cache backend, or a lease this owner no longer holds.
+	 * @throws \RuntimeException On a zero owner, an unreachable cache backend, or a lease this owner no longer holds.
 	 */
 	public static function cmd_heartbeat( array $args ): array {
-		if ( 2 !== \count( $args ) ) {
-			throw new \RuntimeException( 'heartbeat requires exactly <slot> <owner>' );
-		}
-		$slot = Core::canonical_decimal( $args[0] );
-		if ( null === $slot ) {
-			throw new \RuntimeException( 'invalid heartbeat slot' );
-		}
-		$owner = Core::canonical_decimal( $args[1], false );
-		if ( null === $owner ) {
+		$slot  = Core::as_int( $args['slot'] );
+		$owner = Core::as_int( $args['owner'] );
+		if ( 0 === $owner ) {
 			throw new \RuntimeException( 'invalid heartbeat owner' );
 		}
 		if ( null === Cache_Backend::shared_first() ) {
@@ -706,27 +699,21 @@ class Workers_CI_Node extends Service_CI_Node {
 	/**
 	 * `restart` verb handler — request a graceful restart of matching workers.
 	 *
-	 * Naming no type — or the literal `all` — matches every worker, and
-	 * `--partition` defaults to -1, every partition. The option is read
-	 * through `require_option_int()`, which throws on a malformed value. The
-	 * coercion families all resolve `--partition=abc` to 0, restarting p0 and
+	 * Naming no type — or the literal `all` — matches every worker, and an
+	 * absent `partition` binds null, which asks the CLI for every partition
+	 * (-1). It declares no default, because the console pre-fills one and
+	 * `-1` is not a whole number. It is declared `int`, so `--partition=abc`
+	 * refuses rather than collapsing to p0, restarting the wrong fleet and
 	 * reporting success.
 	 *
-	 * @param Workers_CI_Node $self The dispatching node, carrying `$cli`.
-	 * @param list<string>    $args `[ <type>…, --partition=<n> ]` tokens.
+	 * @param Workers_CI_Node        $self The dispatching node, carrying `$cli`.
+	 * @param array<array-key,mixed> $args Bound verb arguments: the types list, and partition.
 	 * @return array<string,mixed>
 	 */
 	public static function cmd_restart( Workers_CI_Node $self, array $args ): array {
-		$parsed = Command_Args::parse( $args );
-		$types  = $parsed['positional'];
-		// -1 means every partition; a malformed one must not collapse to p0.
-		$partition = self::require_option_int( $parsed['options'], 'partition', -1 );
-		$filter    = [];
-		foreach ( $types as $t ) {
-			$filter[ $t ] = true;
-		}
+		$filter    = \array_fill_keys( \array_map( Core::as_string( ... ), Core::arr( $args['types'] ) ), true );
 		$cli       = $self->cli();
-		$restarted = $cli->restart_workers( $cli->ls_workers(), $filter, $partition );
+		$restarted = $cli->restart_workers( $cli->ls_workers(), $filter, Core::as_int( $args['partition'], -1 ) );
 		return [ 'restarted' => $restarted ];
 	}
 
@@ -780,10 +767,10 @@ class Workers_CI_Node extends Service_CI_Node {
 					'name'        => 'restart',
 					'description' => 'Restart matching workers: `restart <type>… [--partition=<n>]`.',
 					'args'        => [
-						[ 'name' => 'types', 'type' => 'string', 'required' => false ],
-						[ 'name' => 'partition', 'type' => 'int', 'required' => false, 'default' => -1 ],
+						[ 'name' => 'types', 'type' => 'string', 'required' => false, 'variadic' => true ],
+						[ 'name' => 'partition', 'type' => 'int', 'required' => false ],
 					],
-					'handler'     => static fn ( Workers_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_restart( $self, self::arg_strings( $args ) ),
+					'handler'     => static fn ( Workers_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_restart( $self, $args ),
 				],
 				[
 					'name'        => 'heartbeat',
@@ -791,9 +778,9 @@ class Workers_CI_Node extends Service_CI_Node {
 					'description' => "Refresh this session's SSE slot TTL.",
 					'args'        => [
 						[ 'name' => 'slot', 'type' => 'int', 'required' => true ],
-						[ 'name' => 'owner', 'type' => 'string', 'required' => true ],
+						[ 'name' => 'owner', 'type' => 'int', 'required' => true ],
 					],
-					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_heartbeat( self::arg_strings( $args ) ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_heartbeat( $args ),
 				],
 			],
 		] );

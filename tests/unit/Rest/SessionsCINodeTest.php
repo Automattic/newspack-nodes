@@ -121,7 +121,81 @@ class SessionsCINodeTest extends TestCase {
 	}
 
 	public function test_revoke_requires_a_handle(): void {
-		$this->assertStringContainsString( 'handle required', (string) $this->fire( 'revoke' ) );
+		$this->assertSame( "missing required argument: handle\n", $this->fire( 'revoke' ) );
+	}
+
+	/**
+	 * The schema orders `label scope ttl`, so the positional form binds exactly
+	 * what the named form does, rather than reading scope and ttl from options
+	 * alone and minting `manage` for an hour.
+	 */
+	public function test_create_binds_scope_and_ttl_by_position_as_it_does_by_name(): void {
+		$positional = $this->fire( 'create', [ 'chris-claude', 'tune', '86400' ] );
+		$named      = $this->fire( 'create', [ 'chris-claude', '--scope=tune', '--ttl=86400' ] );
+
+		foreach ( [ $positional, $named ] as $created ) {
+			$this->assertIsArray( $created, \is_string( $created ) ? $created : '' );
+			$this->assertSame( Capabilities::TUNE, $created['scope'] );
+			$this->assertSame( 86400, $created['expires_in'] );
+			$this->assertSame( 'chris-claude', $created['label'] );
+		}
+	}
+
+	/** Nothing was revoked, so nothing may answer `revoked: true`. */
+	public function test_revoke_refuses_a_handle_no_session_holds(): void {
+		$this->fire( 'create', [ 'bystander-5521', '--scope=read' ] );
+
+		$this->assertSame( "no session with handle nsh-absent-5521\n", $this->fire( 'revoke', [ 'nsh-absent-5521' ] ) );
+		$this->assertCount( 1, $this->fire( 'list' )['sessions'], 'a refused revoke touches no other session' );
+	}
+
+	/** An operator reading the tab types the LABEL; the refusal names its handles. */
+	public function test_revoke_of_a_label_names_the_handles_carrying_it(): void {
+		$first  = $this->fire( 'create', [ 'kaka-5521', '--scope=read' ] );
+		$second = $this->fire( 'create', [ 'kaka-5521', '--scope=tune' ] );
+
+		$reply = $this->fire( 'revoke', [ 'kaka-5521' ] );
+
+		$this->assertIsString( $reply );
+		$this->assertStringStartsWith( 'no session with handle kaka-5521; the label kaka-5521 names ', $reply );
+		$this->assertStringContainsString( $first['handle'], $reply );
+		$this->assertStringContainsString( $second['handle'], $reply );
+		$this->assertCount( 2, $this->fire( 'list' )['sessions'], 'naming a label revokes nothing' );
+	}
+
+	/** A store that did not answer leaves the key live, so nothing may say gone. */
+	public function test_revoke_refuses_when_the_store_does_not_answer(): void {
+		$created = $this->fire( 'create', [ 'tui-6204' ] );
+		$this->memd->fail_delete( \Memcached::RES_SERVER_TEMPORARILY_DISABLED );
+
+		$this->assertSame( "session store did not answer; {$created['handle']} may still be live\n", $this->fire( 'revoke', [ $created['handle'] ] ) );
+		$this->assertCount( 1, $this->fire( 'list' )['sessions'], 'the listing keeps a key the store may still hold' );
+	}
+
+	/**
+	 * Binding runs before the verb's MANAGE check, so a READ caller with a
+	 * malformed command hears the binding refusal; it names only declared args.
+	 */
+	public function test_a_read_caller_with_malformed_args_hears_the_binding_refusal_first(): void {
+		add_filter(
+			'newspack_nodes/capability_map',
+			static fn ( array $map ): array => [ 'read' => 'read_6204', 'tune' => 'tune_6204', 'manage' => 'manage_6204' ] + $map
+		);
+		$GLOBALS['_wp_test_current_user_can'] = [ 'read_6204' => true ];
+
+		$this->assertSame( "too many arguments: 2 given, 1 accepted\n", $this->fire( 'revoke', [ 'nsh-6204', 'nsh-extra-6204' ] ) );
+		$this->assertStringContainsString( 'permission denied', (string) $this->fire( 'revoke', [ 'nsh-6204' ] ) );
+	}
+
+	/** A key whose directory row is gone still has a lease to drop, and says so. */
+	public function test_revoke_of_an_unlisted_live_lease_reports_it_revoked(): void {
+		$created = $this->fire( 'create', [ 'ruru-5521' ] );
+		\delete_option( Sessions::OPTION );
+
+		$result = $this->fire( 'revoke', [ $created['handle'] ] );
+
+		$this->assertSame( [ 'handle' => $created['handle'], 'revoked' => true ], $result );
+		$this->assertNull( Command_Auth::load_session_record( $created['handle'] ) );
 	}
 
 	/** Handing out access is `manage`, for the same reason the vault is. */

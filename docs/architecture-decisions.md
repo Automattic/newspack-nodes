@@ -35,6 +35,7 @@ supersede.
 | [22](#adr-22-a-worker-id-has-one-writer-one-reader-and-two-layout-owners) | A worker id has one writer, one reader, and two layout owners |
 | [23](#adr-23-a-request-carries-no-authority-of-its-own) | A request carries no authority of its own |
 | [24](#adr-24-a-tables-backend-is-chosen-per-table) | A Table's backend is chosen per Table |
+| [25](#adr-25-a-verbs-arguments-are-bound-by-its-schema) | A verb's arguments are bound by its schema |
 
 ---
 
@@ -1488,3 +1489,93 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
 
 **Revisit if:** a durable Table must be read from another host at volume, or a second writer
 per file appears.
+
+---
+
+## ADR-25: A verb's arguments are bound by its schema
+
+**Status:** Accepted
+
+**Context:** A verb's `args` declaration fed the console, `help` and `classes dump`, and the
+runtime ignored it. Each handler re-read its tokens by hand — `Command_Args::parse()`,
+`$args[0]`, `split_first_token()` — and was free to disagree with what it advertised.
+`sessions create chris-claude tune 86400` minted `manage` for an hour, because the handler
+read scope and ttl only as options while the schema ordered them positionally. `raw-logs
+read_message` declared `log` required and never refused its absence, and `vault` hand-rolled
+the unknown-option refusal its schema could have stated. The console's verb dialog joined its
+filled fields by position, so a blank middle field shifted every later value into the wrong
+slot.
+
+**Decision:** `Command_Interpreter_Node::dispatch()` binds a verb's tokens against the `args`
+its schema declares — a service CI's own schema, a `:config` interpreter's patron's — through
+`Command_Args::bind()`, before `$around_dispatch` runs, as the unknown-verb refusal does, and
+hands the handler the bound values by name. A handler never parses.
+
+- Each arg arrives by position, in declared order, or as `--name=value`, and the two forms
+  mix. The i-th positional binds to the i-th declared arg. A bare `--name` is `true`, which
+  only a `bool` arg takes. Any token opening `--` is an option; there is no `--`
+  end-of-options marker, so a value that itself opens `--` — a password, a body — is given
+  by name, `--password=--x`.
+- An absent arg takes its declared `default`, refuses when `required`, and otherwise binds
+  null. `Command_Args::unsupplied()` reads two blanks as absent: a blank `int`, `float` or
+  `bool` token, the placeholder an editor writes to hold a slot, and a blank for a
+  `required` arg, which names nothing. A blank optional string is a value.
+- A default is resolved by `Command_Args::default_of()`, the one rule `bind()` and
+  `Schema_Reflection::parse_schema_args()` share: a `<ns:key>` token default resolves
+  strictly through its namespace and is typed as a token would be; any other is verbatim.
+  `Core::resolve_config_token()` renders a resolver's PHP bool as `1` or `0`, so a bool
+  token binds a `bool` arg rather than reading as a blank.
+- Refused, each by name: an unknown option, a name given twice, an arg given by position and
+  by name, a surplus positional, a `secret` arg given by position, a missing required arg, a
+  bare flag for an arg taking a value, and a token not of its declared `int`, `float` or
+  `bool` type — a `bool` takes `1`, `true`, `yes`, `on`, `0`, `false`, `no` or `off`.
+- An arg declaring `variadic` collects every positional from its position on, or every
+  `--name=` repeat, as a list of typed members, and binds `[]` when absent. An arg declared
+  after it is reachable by name alone, which is how
+  `workers restart <type>… [--partition=<n>]` reads, and repeating by name is how a form
+  with one field per arg fills it.
+- `int`, `float` and `bool` are typed through `Command_Args::typed()`, the one rule
+  `Schema_Reflection::parse_schema_args()` reads for `make_node` positionals. Every other
+  declared type — `string`, `node_name`, `json`, `text` — binds as its string.
+- A `secret` arg is named, never positional, because the browser masks only `--name=`
+  tokens in its history and transcript; the command line `$around_dispatch` hands a wrapper
+  masks it as `--<name>=<redacted>`. A refused command never reaches a wrapper, so no
+  refusal is logged with its tokens.
+- A verb whose schema carries no `args` key receives its tokens as they came. A declared
+  `'args' => []` binds too, so a stray token refuses.
+- A binding refusal throws `\InvalidArgumentException`, which `interpret()` answers as the
+  verb's TM_ERROR.
+- A `toggle` or `setter` verb declares its one arg, and the synthesized handler reads it by
+  name; one declaring none refuses at wiring.
+- A request is not a verb. Its VALUE is words, answered in the addressed node's `fill()`
+  ([ADR-23](#adr-23-a-request-carries-no-authority-of-its-own)), and nothing binds it.
+
+**Alternatives considered:**
+
+- Bind in `Service_CI_Node`'s table build — rejected: it covers service CIs and misses every
+  `:config` verb. `dispatch()` is the one door both reach, and `Vault_Group_Node`'s forwarder
+  re-enters it through each child's interpreter.
+- Keep hand-parsing and hold each handler to its schema with a test — rejected: a declaration
+  the runtime ignores drifts at the next handler written.
+- Positionals fill whichever args no name claimed — rejected: `create x --ttl=9 tune` would
+  bind `tune` to whatever slot a reader re-derives. Strict order refuses the ambiguity.
+
+**Consequences:**
+
+- The handler signature changed for every consumer: `$args` is `array<string,mixed>`, one key
+  per declared arg, and a handler reads it through the `Core` coercions.
+- The declaration is load-bearing. A wrong `required`, type or order is a runtime bug, not a
+  palette blemish.
+- Binding runs before a service CI's capability check, which wraps the handler itself. A
+  malformed command from a caller without the role hears the binding refusal first. It names
+  declared arg names, which `classes dump` already publishes at READ; it echoes a caller's
+  token only in a type refusal on a non-secret arg, and counts a surplus rather than echoing
+  it, since a surplus token may be a mis-slotted secret.
+  `SessionsCINodeTest` pins the order.
+- A binding refusal is not a dispatch span: like an unknown verb, it never reaches
+  `$around_dispatch`.
+- `Command_Args::parse()`, `Service_CI_Node::split_first_token()` and `require_option_int()`
+  are gone, and with them the browser's `parseCommandArgs()`.
+
+**Revisit if:** a verb needs a grammar the declaration cannot state — a repeated named option,
+a named list — or `dispatch()` stops being the one door a verb enters through.

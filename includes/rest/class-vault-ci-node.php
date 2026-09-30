@@ -9,10 +9,10 @@
  * hands an undeclared verb the strictest role rather than the loosest.
  *
  * `add` and `update` declare `password` `'secret' => true`, the only secret
- * arguments in the system, so the command line a dispatch wrapper logs keeps
- * only the id and the option names. Both refuse a `--url` that
- * `Vault::url_carries_credentials()` refuses: a credential goes in `--user`
- * and `--password`.
+ * arguments in the system, so the command line a dispatch wrapper logs masks
+ * it wherever it binds. Both refuse a `url` that
+ * `Vault::url_carries_credentials()` refuses: a credential goes in `user` and
+ * `password`.
  *
  * A read never carries the password. `public_shape()` is the one projection
  * both reading verbs return, and it says what else it keeps and why. A write
@@ -28,7 +28,6 @@
 
 namespace Newspack_Nodes\Rest;
 
-use Newspack_Nodes\Command_Args;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\HTTP_Out_Node;
@@ -43,10 +42,9 @@ use Newspack_Nodes\Vault;
 class Vault_CI_Node extends Service_CI_Node {
 
 	/**
-	 * Credential option name => stored config key. An operator types `--user=`
-	 * and `--password=`; the store, the node arguments and the wire keep the
-	 * `auth_` spelling. This one declaration is what the parser accepts and what
-	 * the two config builders write, so a rename here moves all three.
+	 * Credential arg name => stored config key. An operator types `user` and
+	 * `password`; the store, the node arguments and the wire keep the `auth_`
+	 * spelling. The two config builders write through this one declaration.
 	 */
 	private const CREDENTIAL_OPTION_TO_KEY = [
 		'user'     => 'auth_username',
@@ -54,7 +52,7 @@ class Vault_CI_Node extends Service_CI_Node {
 	];
 
 	/**
-	 * Verb option name => stored config key, for the four fields `add` and
+	 * Verb arg name => stored config key, for the four fields `add` and
 	 * `update` write. One declaration serves both the whole blob and the partial
 	 * one; `url` and `group` are the same word on both sides.
 	 */
@@ -79,13 +77,13 @@ class Vault_CI_Node extends Service_CI_Node {
 	/**
 	 * `get` verb handler — one server's public shape, by id.
 	 *
-	 * @param list<string> $args Verb argument tokens; the id is the first positional.
+	 * @param array<array-key,mixed> $args Bound verb arguments: id.
 	 * @return array<string,mixed> The public server record.
 	 * @throws \RuntimeException When no entry claims that id.
 	 */
 	public static function cmd_get( array $args ): array {
 		$registry = Vault::fresh();
-		$id       = self::positional_id( $args );
+		$id       = Core::as_string( $args['id'] );
 		$server   = $registry->get( $id );
 		if ( null === $server ) {
 			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
@@ -115,27 +113,21 @@ class Vault_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `add` verb handler — register a server under the id the first positional
-	 * names; returns that id.
+	 * `add` verb handler — register a server under `id`; returns that id.
 	 *
-	 * @param list<string> $args Verb argument tokens: `<id> --url=<url> [--group=<g>] [--user=<u>] [--password=<p>]`.
+	 * @param array<array-key,mixed> $args Bound verb arguments: id, url, and the optional group, user, password.
 	 * @return array<string,mixed> The stored id, as `[ 'id' => <id> ]`.
-	 * @throws \RuntimeException When an option is not one this verb reads or
-	 *                           carries no value, the url is absent, the id is
-	 *                           malformed or taken, the group is malformed, or
-	 *                           the store refuses the entry.
+	 * @throws \RuntimeException When the id is malformed or taken, the group is
+	 *                           malformed, the url carries credentials, or the
+	 *                           store refuses the entry.
 	 */
 	public static function cmd_add( array $args ): array {
-		$parsed = Command_Args::parse( $args );
-		$opts   = self::assert_known_options( $parsed['options'], \array_keys( self::OPTION_TO_KEY ) );
-		if ( ! isset( $opts['url'] ) ) {
-			throw new \RuntimeException( 'url required: write --url=<https url>' );
-		}
-		$id       = $parsed['positional'][0] ?? '';
+		$id       = Core::as_string( $args['id'] );
+		$opts     = self::given( $args );
 		$registry = Vault::fresh();
 		self::assert_free_id( $id, $registry );
 		self::assert_valid_group( $opts );
-		self::assert_url_without_credentials( $opts['url'], 'url' );
+		self::assert_url_without_credentials( $opts['url'] ?? '', 'url' );
 		$config = self::extract_server_config( $opts );
 		if ( ! $registry->add( $id, $config ) ) {
 			// Registry rejected (bad/non-HTTPS URL) or hit MAX_SERVERS.
@@ -153,7 +145,7 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * from a previous entry, so the blob has to be whole; `partial_config()` is
 	 * the deliberate opposite, for the same reason.
 	 *
-	 * @param array<string,string> $opts Checked `--key=value` options.
+	 * @param array<string,string> $opts The given args, from `given()`.
 	 * @return array<string,mixed> The url, group, auth_username and auth_password quad.
 	 */
 	private static function extract_server_config( array $opts ): array {
@@ -165,31 +157,26 @@ class Vault_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `update` verb handler — merge the options actually present into an
-	 * existing entry, moving it when `--new_id` names somewhere else. Returns
-	 * the id the entry now carries.
+	 * `update` verb handler — merge the args actually given into an existing
+	 * entry, moving it when `new_id` names somewhere else. Returns the id the
+	 * entry now carries.
 	 *
-	 * @param list<string> $args Verb argument tokens: `<id> [--new_id=<id>] [--url=<url>] [--group=<g>] [--user=<u>] [--password=<p>]`.
+	 * @param array<array-key,mixed> $args Bound verb arguments: id, and the optional new_id, url, group, user, password.
 	 * @return array<string,mixed> The entry's id after the write, as `[ 'id' => <id> ]`.
-	 * @throws \RuntimeException When an option is not one this verb reads or carries
-	 *                           no value, the id is absent or unknown, the new id or
-	 *                           the group is unusable, the url it would store carries
-	 *                           credentials or will not parse, or the store refuses
-	 *                           the write.
+	 * @throws \RuntimeException When the id is unknown, the new id or the group is
+	 *                           unusable, the url it would store carries
+	 *                           credentials or will not parse, or the store
+	 *                           refuses the write.
 	 */
 	public static function cmd_update( array $args ): array {
-		$parsed = Command_Args::parse( $args );
-		$opts   = self::assert_known_options( $parsed['options'], [ 'new_id', ...\array_keys( self::OPTION_TO_KEY ) ] );
-		$id     = $parsed['positional'][0] ?? '';
-		if ( '' === $id ) {
-			throw new \RuntimeException( 'id required' );
-		}
+		$id       = Core::as_string( $args['id'] );
+		$opts     = self::given( $args );
 		$registry = Vault::fresh();
 		$existing = $registry->get( $id );
 		if ( null === $existing ) {
 			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
 		}
-		$new_id = self::renamed_to( $opts, $id, $registry );
+		$new_id = self::renamed_to( null === $args['new_id'] ? null : Core::as_string( $args['new_id'] ), $id, $registry );
 		self::assert_valid_group( $opts );
 		self::assert_url_without_credentials( $opts['url'] ?? Core::as_string( $existing['url'] ?? '' ), isset( $opts['url'] ) ? 'url' : 'stored url' );
 		$partial = self::partial_config( $opts );
@@ -206,23 +193,37 @@ class Vault_CI_Node extends Service_CI_Node {
 	}
 
 	/**
+	 * The stored fields among the bound args that were actually given: an
+	 * absent arg binds null and is left out, so `update` leaves its field
+	 * untouched and `add` stores ''.
+	 *
+	 * @param array<array-key,mixed> $args Bound verb arguments.
+	 * @return array<string,string> Arg name => given value, for the `OPTION_TO_KEY` names.
+	 */
+	private static function given( array $args ): array {
+		$given = [];
+		foreach ( \array_keys( self::OPTION_TO_KEY ) as $name ) {
+			if ( null !== ( $args[ $name ] ?? null ) ) {
+				$given[ $name ] = Core::as_string( $args[ $name ] );
+			}
+		}
+		return $given;
+	}
+
+	/**
 	 * The id `update` was asked to move an entry to, checked against everything
 	 * the store would otherwise refuse without saying why. Returns '' when the
 	 * entry keeps the id it has.
 	 *
-	 * @param array<string,string> $opts     Checked `--key=value` options.
-	 * @param string               $id       The entry's current id.
-	 * @param Vault                $registry Backing vault.
+	 * @param string|null $named    The `new_id` arg; null when none was given.
+	 * @param string      $id       The entry's current id.
+	 * @param Vault       $registry Backing vault.
 	 * @return string The new id, or '' for no rename.
-	 * @throws \RuntimeException When `--new_id` is malformed or taken.
+	 * @throws \RuntimeException When `new_id` is malformed or taken.
 	 */
-	private static function renamed_to( array $opts, string $id, Vault $registry ): string {
+	private static function renamed_to( ?string $named, string $id, Vault $registry ): string {
 		// Absent asks for no rename; present and unusable is a refusal.
-		if ( ! isset( $opts['new_id'] ) ) {
-			return '';
-		}
-		$named = $opts['new_id'];
-		if ( $named === $id ) {
+		if ( null === $named || $named === $id ) {
 			return '';
 		}
 		self::assert_free_id( $named, $registry );
@@ -247,10 +248,10 @@ class Vault_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Refuse a `--group` the store would reject, naming it, where the store
+	 * Refuse a `group` the store would reject, naming it, where the store
 	 * answers only `false`. An absent or empty group joins no group.
 	 *
-	 * @param array<string,string> $opts Checked `--key=value` options.
+	 * @param array<string,string> $opts The given args, from `given()`.
 	 * @throws \RuntimeException When the group breaks the `Vault::is_valid_id()` rule.
 	 */
 	private static function assert_valid_group( array $opts ): void {
@@ -267,7 +268,7 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * userinfo is the secret. `$which` names where the url came from.
 	 *
 	 * @param string $url   The url the write would store.
-	 * @param string $which `url` for `--url`, `stored url` for the entry's own.
+	 * @param string $which `url` for the given arg, `stored url` for the entry's own.
 	 * @throws \RuntimeException When the url carries userinfo or will not parse.
 	 */
 	private static function assert_url_without_credentials( string $url, string $which ): void {
@@ -277,11 +278,11 @@ class Vault_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Build the partial-update blob from `update`'s parsed options: only the
-	 * keys ACTUALLY PRESENT in $opts are included, so an absent --key leaves the
-	 * stored field untouched.
+	 * Build the partial-update blob from `update`'s given args: only the keys
+	 * ACTUALLY PRESENT in $opts are included, so an absent arg leaves the stored
+	 * field untouched.
 	 *
-	 * @param array<string,string> $opts Checked `--key=value` options.
+	 * @param array<string,string> $opts The given args, from `given()`.
 	 * @return array<string,mixed> Partial config for registry->update().
 	 */
 	private static function partial_config( array $opts ): array {
@@ -295,60 +296,15 @@ class Vault_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Refuse any option the verb cannot act on, naming it and the ones it takes.
-	 *
-	 * `Command_Args::parse()` admits any `--key=value`, and the schema's `args`
-	 * list is palette and help metadata that nothing validates against — so an
-	 * option the handler never looks up is dropped and the write reports
-	 * success. That is silent in opposite directions: `add` stores an empty
-	 * field and answers with the id it registered, and `update` reads the
-	 * absence as "leave it alone" and answers a save that changed nothing. A
-	 * typo, a stale spelling and an invented flag are one bug, so one rule
-	 * catches all three, ahead of any lookup or write.
-	 *
-	 * The known set is what the verb actually READS, never what the schema
-	 * renders: `id` is a positional, so `--id=` is as inert as any other
-	 * unrecognized option and is refused with them.
-	 *
-	 * A known option carrying NO value is the same silent write in a second
-	 * costume. `Command_Args::parse()` reads a bare `--key` as boolean true, and
-	 * every option in the known set names a value — a stored field, or the id an
-	 * entry moves to — so a shell that ate the value or an operator who forgot
-	 * it otherwise casts to the literal '1' and stores that as the credential.
-	 *
-	 * @param array<string,string|true> $opts  Parsed `--key=value` options.
-	 * @param list<string>              $known Option names this verb reads, each carrying a value.
-	 * @return array<string,string> The same options, every value a string.
-	 * @throws \RuntimeException When an option is not one the verb reads, or carries no value.
-	 */
-	private static function assert_known_options( array $opts, array $known ): array {
-		$unknown = \array_diff( \array_keys( $opts ), $known );
-		if ( [] !== $unknown ) {
-			throw new \RuntimeException( \esc_html(
-				'unknown option --' . \implode( ', --', $unknown )
-				. '; this verb takes --' . \implode( ', --', $known )
-			) );
-		}
-		$checked = [];
-		foreach ( $opts as $option => $value ) {
-			if ( ! \is_string( $value ) ) {
-				throw new \RuntimeException( \esc_html( "--{$option} needs a value: write --{$option}=<value>" ) );
-			}
-			$checked[ $option ] = $value;
-		}
-		return $checked;
-	}
-
-	/**
 	 * `delete` verb handler — remove a server; returns the id it had.
 	 *
-	 * @param list<string> $args Verb argument tokens; the id is the first positional.
+	 * @param array<array-key,mixed> $args Bound verb arguments: id.
 	 * @return array<string,mixed> The removed id, as `[ 'id' => <id> ]`.
 	 * @throws \RuntimeException When no entry claims that id, or the store refuses the write.
 	 */
 	public static function cmd_delete( array $args ): array {
 		$registry = Vault::fresh();
-		$id       = self::positional_id( $args );
+		$id       = Core::as_string( $args['id'] );
 		if ( null === $registry->get( $id ) ) {
 			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
 		}
@@ -387,13 +343,13 @@ class Vault_CI_Node extends Service_CI_Node {
 	/**
 	 * `test` verb handler — probe a stored spoke and report whether it answers.
 	 *
-	 * @param list<string> $args Verb argument tokens; the id is the first positional.
+	 * @param array<array-key,mixed> $args Bound verb arguments: id.
 	 * @return array{id:string,status:string} The probe verdict.
 	 * @throws \RuntimeException When no entry claims that id, or the spoke does not answer usably.
 	 */
 	public static function cmd_test( array $args ): array {
 		$registry = Vault::fresh();
-		$id       = self::positional_id( $args );
+		$id       = Core::as_string( $args['id'] );
 		$server   = $registry->get( $id );
 		if ( null === $server ) {
 			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
@@ -434,25 +390,6 @@ class Vault_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Pull the one required positional id out of the argument tokens, refusing
-	 * when it is absent.
-	 *
-	 * `get`, `delete` and `test` take nothing else. `update` parses its own
-	 * tokens, because it reads the options in the same pass.
-	 *
-	 * @param list<string> $args Verb argument tokens.
-	 * @return string Server id.
-	 * @throws \RuntimeException When no positional id is present.
-	 */
-	private static function positional_id( array $args ): string {
-		$id = Command_Args::parse( $args )['positional'][0] ?? '';
-		if ( '' === $id ) {
-			throw new \RuntimeException( 'id required' );
-		}
-		return $id;
-	}
-
-	/**
 	 * Declare the verb surface once: the console palette, `help` and the
 	 * dispatch table `Service_CI_Node` builds all read this.
 	 *
@@ -484,23 +421,23 @@ class Vault_CI_Node extends Service_CI_Node {
 					'args'        => [
 						[ 'name' => 'id', 'type' => 'string', 'required' => true ],
 					],
-					'handler'     => static fn ( Vault_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_get( self::arg_strings( $args ) ),
+					'handler'     => static fn ( Vault_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_get( $args ),
 				],
 				[
 					'name'        => 'add',
-					'description' => 'Add a new server; --url is required (manage_options).',
+					'description' => 'Add a new server under an id and an https url (manage_options).',
 					'args'        => [
 						[ 'name' => 'id', 'type' => 'string', 'required' => true ],
-						[ 'name' => 'url', 'type' => 'string', 'required' => false ],
+						[ 'name' => 'url', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'group', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'user', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'password', 'type' => 'string', 'required' => false, 'secret' => true ],
 					],
-					'handler'     => static fn ( Vault_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_add( self::arg_strings( $args ) ),
+					'handler'     => static fn ( Vault_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_add( $args ),
 				],
 				[
 					'name'        => 'update',
-					'description' => 'Partial-update of an existing server, renamed by --new_id (manage_options).',
+					'description' => 'Partial-update of an existing server, renamed by new_id (manage_options).',
 					'args'        => [
 						[ 'name' => 'id', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'new_id', 'type' => 'string', 'required' => false ],
@@ -509,7 +446,7 @@ class Vault_CI_Node extends Service_CI_Node {
 						[ 'name' => 'user', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'password', 'type' => 'string', 'required' => false, 'secret' => true ],
 					],
-					'handler'     => static fn ( Vault_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_update( self::arg_strings( $args ) ),
+					'handler'     => static fn ( Vault_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_update( $args ),
 				],
 				[
 					'name'        => 'delete',
@@ -517,7 +454,7 @@ class Vault_CI_Node extends Service_CI_Node {
 					'args'        => [
 						[ 'name' => 'id', 'type' => 'string', 'required' => true ],
 					],
-					'handler'     => static fn ( Vault_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_delete( self::arg_strings( $args ) ),
+					'handler'     => static fn ( Vault_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_delete( $args ),
 				],
 				[
 					'name'        => 'test',
@@ -525,7 +462,7 @@ class Vault_CI_Node extends Service_CI_Node {
 					'args'        => [
 						[ 'name' => 'id', 'type' => 'string', 'required' => true ],
 					],
-					'handler'     => static fn ( Vault_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_test( self::arg_strings( $args ) ),
+					'handler'     => static fn ( Vault_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_test( $args ),
 				],
 			],
 		] );

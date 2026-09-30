@@ -989,8 +989,8 @@ class CommandInterpreterTest extends TestCase {
 	 */
 	public function test_around_dispatch_logs_every_undeclared_token_verbatim(): void {
 		$this->assertSame(
-			[ "/weka:ci> search --search=wombat-7713 --password=x7713 'takahe 7713'", '/weka:ci> search' ],
-			self::command_lines( $this->weka_service_ci(), [ [ 'search', [ '--search=wombat-7713', '--password=x7713', 'takahe 7713' ] ], [ 'search', [] ] ] )
+			[ "/weka:ci> search 'takahe 7713' --password=x7713", '/weka:ci> search' ],
+			self::command_lines( $this->weka_service_ci(), [ [ 'search', [ 'takahe 7713', '--password=x7713' ] ], [ 'search', [] ] ] )
 		);
 	}
 
@@ -1000,9 +1000,44 @@ class CommandInterpreterTest extends TestCase {
 	 */
 	public function test_around_dispatch_masks_only_a_declared_secret_option(): void {
 		$this->assertSame(
-			[ "/weka:ci> rotate spoke-7713 --note=kea-7713 '--token=<redacted>' tail-7713" ],
-			self::command_lines( $this->weka_service_ci(), [ [ 'rotate', [ 'spoke-7713', '--note=kea-7713', '--token=moa-hunter7713', 'tail-7713' ] ] ] )
+			[ "/weka:ci> rotate spoke-7713 '--token=<redacted>'" ],
+			self::command_lines( $this->weka_service_ci(), [ [ 'rotate', [ 'spoke-7713', '--token=moa-hunter7713' ] ] ] )
 		);
+	}
+
+	/** Any binding refusal happens before the wrapper, as an unknown verb's does. */
+	public function test_around_dispatch_never_sees_a_command_its_binding_refuses(): void {
+		$seen = [];
+		Command_Interpreter_Node::$around_dispatch = static function ( Command_Interpreter_Node $ci, string $verb, \Closure $run, \Closure $command ) use ( &$seen ): mixed {
+			$seen[] = $command();
+			return $run();
+		};
+		try {
+			$this->weka_service_ci()->dispatch( 'search', [ 'takahe-4419', '--depth=4419' ] );
+			$this->fail( 'an undeclared option must be refused' );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertStringStartsWith( 'unknown option --depth', $e->getMessage() );
+		}
+		$this->assertSame( [], $seen );
+	}
+
+	/**
+	 * A secret given by POSITION is refused before the wrapper runs, so no
+	 * wrapper ever renders it: the wrapper masks named secrets alone.
+	 */
+	public function test_around_dispatch_never_sees_a_secret_given_by_position(): void {
+		$seen = [];
+		Command_Interpreter_Node::$around_dispatch = static function ( Command_Interpreter_Node $ci, string $verb, \Closure $run, \Closure $command ) use ( &$seen ): mixed {
+			$seen[] = $command();
+			return $run();
+		};
+		try {
+			$this->weka_service_ci()->dispatch( 'rotate', [ 'spoke-7713', 'moa-hunter7713' ] );
+			$this->fail( 'a positional secret must be refused' );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertSame( 'token must be named: write --token=&lt;value&gt;', $e->getMessage() );
+		}
+		$this->assertSame( [], $seen );
 	}
 
 	/** A class's secret options are read from its schema once, not per verb. */
@@ -1012,7 +1047,7 @@ class CommandInterpreterTest extends TestCase {
 
 			public static function node_schema(): array {
 				++self::$reads;
-				return [ 'commands' => [ [ 'name' => 'rekey', 'args' => [ [ 'name' => 'pem', 'type' => 'string', 'secret' => true ] ] ], [ 'name' => 'peek', 'args' => [] ] ] ] + parent::node_schema();
+				return [ 'commands' => [ [ 'name' => 'rekey', 'args' => [ [ 'name' => 'pem', 'type' => 'string', 'secret' => true ] ] ], [ 'name' => 'peek', 'args' => [ [ 'name' => 'pem', 'type' => 'string' ] ] ] ] ] + parent::node_schema();
 			}
 		};
 		$ci->name( 'huia:ci' );
@@ -1051,8 +1086,8 @@ class CommandInterpreterTest extends TestCase {
 		$ci->commands( [ 'rekey' => static fn (): string => 'ok' ] );
 
 		$this->assertSame(
-			[ "/moa:config> rekey kea-7713 '--pem=<redacted>'" ],
-			self::command_lines( $ci, [ [ 'rekey', [ 'kea-7713', '--pem=hunter7713' ] ] ] )
+			[ "/moa:config> rekey '--pem=<redacted>'" ],
+			self::command_lines( $ci, [ [ 'rekey', [ '--pem=hunter7713' ] ] ] )
 		);
 	}
 

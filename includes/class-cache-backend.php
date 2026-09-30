@@ -564,10 +564,17 @@ abstract class Cache_Backend {
 	/**
 	 * Remove a key.
 	 *
+	 * Three answers, as `touch()` gives three: a confirmed miss is false, and
+	 * a backend that did not answer — any memcached result but NOTFOUND, or a
+	 * durable arm whose statement failed — is null, so a caller revoking a
+	 * credential never reports a live key gone.
+	 *
 	 * @param string $key The cache key.
-	 * @return bool True when the key existed and is now gone.
+	 * @return bool|null True when the key existed and is now gone, false when
+	 *                   it is confirmed absent, null when the backend did not
+	 *                   answer.
 	 */
-	abstract public function delete( string $key ): bool;
+	abstract public function delete( string $key ): ?bool;
 
 	/**
 	 * Extend a key's expiry without rewriting its value.

@@ -500,7 +500,7 @@ jest.mock( '../components/Inspector', () => ( props ) => {
 					props.onAction( 'invoke', 'n1', {
 						verb: 'GET_HEALTH',
 						kind: 'request',
-						positional: '',
+						args: [],
 						byName: {},
 					} )
 				}
@@ -513,7 +513,7 @@ jest.mock( '../components/Inspector', () => ( props ) => {
 					props.onAction( 'invoke', 'n1', {
 						verb: 'set_is_hub',
 						kind: 'command',
-						positional: '',
+						args: [],
 						byName: {},
 					} )
 				}
@@ -3136,7 +3136,7 @@ describe( 'TopologyConsole boot', () => {
 			lastInspectorProps.onAction( 'invoke', 'request-builder', {
 				verb: 'dl_list',
 				kind: 'command',
-				positional: '',
+				args: [],
 				byName: {},
 				replyTo: '_ui',
 			} );
@@ -3146,7 +3146,7 @@ describe( 'TopologyConsole boot', () => {
 			lastInspectorProps.onAction( 'invoke', 'request-builder', {
 				verb: 'GET_HEALTH',
 				kind: 'command',
-				positional: '',
+				args: [],
 				byName: {},
 			} );
 		} );
@@ -3166,7 +3166,7 @@ describe( 'TopologyConsole boot', () => {
 			lastInspectorProps.onAction( 'invoke', 'request-builder', {
 				verb: 'GET_HEALTH',
 				kind: 'command',
-				positional: '',
+				args: [],
 				byName: {},
 			} );
 		} );
@@ -3196,7 +3196,7 @@ describe( 'TopologyConsole boot', () => {
 			lastInspectorProps.onAction( 'invoke', 'request-builder', {
 				verb: 'GET_HEALTH',
 				kind: 'request',
-				positional: '',
+				args: [],
 				byName: {},
 			} );
 		} );

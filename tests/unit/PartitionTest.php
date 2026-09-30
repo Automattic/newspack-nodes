@@ -2149,14 +2149,14 @@ class PartitionTest extends TestCase {
 		$sibling->dispatch( 'with_index', [ 'no-such-formatter' ] );
 	}
 
-	public function test_partition_with_index_verb_raises_usage_without_a_formatter_name(): void {
+	public function test_partition_with_index_verb_refuses_without_a_formatter_name(): void {
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p->name( 'my_part' );
 		$sibling = \Newspack_Nodes\Core::node( 'my_part:config' );
 
-		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessage( 'usage: with_index <formatter_name>' );
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'missing required argument: formatter' );
 		$sibling->dispatch( 'with_index' );
 	}
 

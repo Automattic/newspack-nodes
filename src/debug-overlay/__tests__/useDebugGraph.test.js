@@ -321,7 +321,7 @@ describe( 'useDebugGraph', () => {
 				'my-interpreter',
 				{
 					verb: 'help',
-					positional: '',
+					args: [],
 				}
 			)
 		);
@@ -350,7 +350,7 @@ describe( 'useDebugGraph', () => {
 		act( () =>
 			result.current.handlers.onInspectorAction( 'invoke', 'my-node', {
 				verb: 'configure',
-				positional: 'foo bar',
+				args: [ 'foo', 'bar' ],
 			} )
 		);
 		expect( configFillSpy ).toHaveBeenCalled();
@@ -684,7 +684,7 @@ describe( 'useDebugGraph', () => {
 		act( () =>
 			result.current.handlers.onInspectorAction( 'invoke', 'my-node', {
 				verb: 'configure',
-				positional: 'foo bar',
+				args: [ 'foo', 'bar' ],
 			} )
 		);
 		// Non-interpreter class ⇒ targets :config; echoes command_node.
@@ -773,7 +773,7 @@ describe( 'useDebugGraph', () => {
 		act( () =>
 			result.current.handlers.onInspectorAction( 'invoke', 'my-node', {
 				verb: 'configure',
-				positional: '',
+				args: [],
 			} )
 		);
 		expect( captured ).toHaveLength( 1 );

@@ -82,12 +82,6 @@ class TopologiesCITest extends TestCase {
 		unset( $GLOBALS['_test_outbound_posts'] );
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		$GLOBALS['_wp_actions']                = [];
-		// Restore env var to the bootstrap baseline so the next test's
-		// Config doesn't point at our now-deleted per-test config file.
-		\putenv(
-			'LOCAL_NEWSPACK_NODES_CONF=' . \dirname( __DIR__ ) . '/newspack-nodes-test-config.php'
-		);
-		Config::reset();
 		parent::tearDown();
 	}
 
@@ -156,7 +150,7 @@ class TopologiesCITest extends TestCase {
 		\file_put_contents( "{$this->stock}/kea-idle.tsl", "make_node Table lab-7:kea kea:p<partition> 777 sqlite\n" );
 		\Newspack_Nodes\Bootstrap::mount_request_graph();
 		try {
-			Topologies_CI_Node::cmd_mount_tables( [ 'kea-idle' ] );
+			Topologies_CI_Node::cmd_mount_tables( [ 'topology' => 'kea-idle' ] );
 			$this->fail( 'an inactive topology mounted its Tables' );
 		} catch ( \RuntimeException $e ) {
 			$this->assertSame( 'mount_tables: kea-idle is not active', $e->getMessage() );
@@ -405,7 +399,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			'dual make_node Echo mine'
+			[ 'dual', "make_node Echo mine\n" ]
 		);
 
 		$this->assertIsString( $result );
@@ -597,8 +591,8 @@ class TopologiesCITest extends TestCase {
 		// Arguments just over 1 MiB: a `big` name plus a padded comment-line
 		// body. The size guard measures the whole packed envelope and trips
 		// before the body is parsed.
-		$args = 'big ' . '# ' . \str_repeat( 'x', 1048577 );
-		$this->assertGreaterThan( 1048576, \strlen( $args ) );
+		$args = [ 'big', '# ' . \str_repeat( 'x', 1048577 ) ];
+		$this->assertGreaterThan( 1048576, \strlen( $args[1] ) );
 
 		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'save', $args );
 
@@ -1314,7 +1308,7 @@ class TopologiesCITest extends TestCase {
 		\file_put_contents( "{$this->stock}/wombat-base.tsl", "make_node Tee shared-tee\n" );
 		\file_put_contents( "{$this->stock}/wombat-top.tsl", "include wombat-base\nmake_node Echo top-echo\n" );
 
-		$out = Topologies_CI_Node::cmd_expand( [ 'wombat-top' ] );
+		$out = Topologies_CI_Node::cmd_expand( [ 'names' => [ 'wombat-top' ] ] );
 
 		$names = \array_column( $out['nodes'], 'name' );
 		$this->assertContains( 'shared-tee', $names );
@@ -1338,7 +1332,7 @@ class TopologiesCITest extends TestCase {
 
 	public function test_expand_verb_throws_on_unknown_topology(): void {
 		$this->expectException( \RuntimeException::class );
-		Topologies_CI_Node::cmd_expand( [ 'no-such-topology' ] );
+		Topologies_CI_Node::cmd_expand( [ 'names' => [ 'no-such-topology' ] ] );
 	}
 
 	// ── save resolves includes ──────────────────────────────────────────────

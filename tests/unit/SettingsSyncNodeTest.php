@@ -14,6 +14,16 @@ use Newspack_Nodes\Tests\TestCase;
 #[CoversClass( Settings_Sync_Node::class )]
 class SettingsSyncNodeTest extends TestCase {
 
+	/**
+	 * A spoke `set` verb's declared args, as a push must bind against them.
+	 * `value` is optional: a blank required arg reads as missing, and a push
+	 * may carry an option whose value is blank.
+	 */
+	private const SET_ARGS = [
+		[ 'name' => 'option', 'type' => 'string', 'required' => true ],
+		[ 'name' => 'value', 'type' => 'string' ],
+	];
+
 	/** wired_node() mints a real 'tw0' session; leaked, it makes a later no-session test find one. */
 	protected function tearDown(): void {
 		Command_Auth::forget_session( 'tw0' );
@@ -24,7 +34,7 @@ class SettingsSyncNodeTest extends TestCase {
 		$node = new Settings_Sync_Node();
 		$node->name( 'settings-sync' );
 
-		$result = $node->add_setting( [ 'newspack_nodes_num_partitions', 'settings', 'newspack_nodes_num_partitions' ] );
+		$result = $node->add_setting( 'newspack_nodes_num_partitions', 'settings', 'newspack_nodes_num_partitions' );
 
 		$this->assertSame( "ok\n", $result );
 
@@ -46,7 +56,7 @@ class SettingsSyncNodeTest extends TestCase {
 	public function test_dump_config_re_emits_add_setting_line(): void {
 		$node = new Settings_Sync_Node();
 		$node->name( 'settings-sync' );
-		$node->add_setting( [ 'newspack_nodes_num_partitions', 'settings', 'newspack_nodes_num_partitions' ] );
+		$node->add_setting( 'newspack_nodes_num_partitions', 'settings', 'newspack_nodes_num_partitions' );
 
 		$this->assertStringContainsString(
 			'command_node settings-sync:config add_setting newspack_nodes_num_partitions settings newspack_nodes_num_partitions',
@@ -58,11 +68,12 @@ class SettingsSyncNodeTest extends TestCase {
 		$node = new Settings_Sync_Node();
 		$node->name( 'settings-sync' );
 
-		$e = $this->caught(
-			fn () => $node->add_setting( [ 'only', 'two' ] ),
-			'add_setting accepted two tokens'
-		);
-		$this->assertStringStartsWith( 'usage: add_setting', $e->getMessage() );
+		try {
+			$node->interpreter()->dispatch( 'add_setting', [ 'only', 'two' ] );
+			$this->fail( 'add_setting accepted two tokens' );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertSame( 'missing required argument: remote_option', $e->getMessage() );
+		}
 
 		$ref = new \ReflectionProperty( $node, 'registry' );
 		$this->assertSame( [], $ref->getValue( $node ) );
@@ -118,7 +129,7 @@ class SettingsSyncNodeTest extends TestCase {
 		\update_option( 'newspack_nodes_max_segments', 8 );
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( [ 'newspack_nodes_max_segments', 'settings', 'newspack_nodes_max_segments' ] );
+		$node->add_setting( 'newspack_nodes_max_segments', 'settings', 'newspack_nodes_max_segments' );
 
 		$msg                       = Message::new_message();
 		$msg[ Message::TYPE ]      = Message::TM_STRUCT;
@@ -141,8 +152,8 @@ class SettingsSyncNodeTest extends TestCase {
 		\update_option( 'newspack_nodes_remote_max_segments', 5 );
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( [ 'newspack_nodes_remote_max_segments', 'settings', 'newspack_nodes_max_segments' ] );
-		$node->add_setting( [ 'newspack_nodes_remote_max_segments', 'settings', 'newspack_nodes_remote_max_segments' ] );
+		$node->add_setting( 'newspack_nodes_remote_max_segments', 'settings', 'newspack_nodes_max_segments' );
+		$node->add_setting( 'newspack_nodes_remote_max_segments', 'settings', 'newspack_nodes_remote_max_segments' );
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
@@ -161,8 +172,8 @@ class SettingsSyncNodeTest extends TestCase {
 	public function test_add_setting_dedupes_exact_duplicate_mappings(): void {
 		$node = new Settings_Sync_Node();
 		$node->name( 'settings-sync' );
-		$node->add_setting( [ 'a', 'settings', 'b' ] );
-		$node->add_setting( [ 'a', 'settings', 'b' ] );
+		$node->add_setting( 'a', 'settings', 'b' );
+		$node->add_setting( 'a', 'settings', 'b' );
 
 		$ref = new \ReflectionProperty( $node, 'registry' );
 		$this->assertCount( 1, $ref->getValue( $node )['a'] );
@@ -175,7 +186,7 @@ class SettingsSyncNodeTest extends TestCase {
 		\update_option( 'spoke_probe_ceiling', '2', false );
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( [ 'spoke_probe_ceiling', 'settings', 'spoke_probe_ceiling' ] );
+		$node->add_setting( 'spoke_probe_ceiling', 'settings', 'spoke_probe_ceiling' );
 
 		// The admin's save reaches the shared cache, not this worker's copy.
 		\wp_test_write_elsewhere( 'spoke_probe_ceiling', '9', false );
@@ -193,7 +204,7 @@ class SettingsSyncNodeTest extends TestCase {
 		require_once __DIR__ . '/../Helpers/wp-object-cache-stub.php';
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( [ 'spoke_probe_ceiling', 'settings', 'spoke_probe_ceiling' ] );
+		$node->add_setting( 'spoke_probe_ceiling', 'settings', 'spoke_probe_ceiling' );
 		$this->assertFalse( \get_option( 'spoke_probe_ceiling' ) );
 
 		\wp_test_write_elsewhere( 'spoke_probe_ceiling', '9', false );
@@ -212,8 +223,8 @@ class SettingsSyncNodeTest extends TestCase {
 		\update_option( 'spoke_probe_floor', '3' );
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( [ 'spoke_probe_ceiling', 'settings', 'spoke_probe_ceiling' ] );
-		$node->add_setting( [ 'spoke_probe_floor', 'settings', 'spoke_probe_floor' ] );
+		$node->add_setting( 'spoke_probe_ceiling', 'settings', 'spoke_probe_ceiling' );
+		$node->add_setting( 'spoke_probe_floor', 'settings', 'spoke_probe_floor' );
 		$node->fire();
 
 		// Both saves reach the shared `alloptions`, behind this worker's copy.
@@ -244,7 +255,7 @@ class SettingsSyncNodeTest extends TestCase {
 		);
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( [ 'spoke_probe_ceiling', 'settings', 'spoke_probe_ceiling' ] );
+		$node->add_setting( 'spoke_probe_ceiling', 'settings', 'spoke_probe_ceiling' );
 		$node->fire();
 
 		\wp_test_write_elsewhere( 'spoke_probe_hooks', 'wp_loaded', false );
@@ -262,16 +273,16 @@ class SettingsSyncNodeTest extends TestCase {
 		\update_option( 'newspack_nodes_remote_servers', [ 'a.com', 'b.com' ] );
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( [ 'newspack_nodes_remote_servers', 'settings', 'newspack_nodes_remote_servers' ] );
+		$node->add_setting( 'newspack_nodes_remote_servers', 'settings', 'newspack_nodes_remote_servers' );
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
 		$msg[ Message::VALUE ] = [ 'option' => 'newspack_nodes_remote_servers' ];
 		$node->fill( $msg );
 
-		$parsed = \Newspack_Nodes\Command_Args::parse( $sink->captured[0][ Message::VALUE ]['arguments'] );
-		$this->assertSame( 'newspack_nodes_remote_servers', $parsed['positional'][0] );
-		$this->assertSame( [ 'a.com', 'b.com' ], \json_decode( $parsed['positional'][1], true ) );
+		$bound = Command_Args::bind( self::SET_ARGS, $sink->captured[0][ Message::VALUE ]['arguments'] );
+		$this->assertSame( 'newspack_nodes_remote_servers', $bound['option'] );
+		$this->assertSame( [ 'a.com', 'b.com' ], \json_decode( $bound['value'], true ) );
 	}
 
 	public function test_fill_preserves_associative_array_keys_via_json(): void {
@@ -280,17 +291,17 @@ class SettingsSyncNodeTest extends TestCase {
 		\update_option( 'newspack_nodes_remote_servers', [ 'advancedemail' => true, 'amazons3' => true ] );
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( [ 'newspack_nodes_remote_servers', 'settings', 'newspack_nodes_remote_servers' ] );
+		$node->add_setting( 'newspack_nodes_remote_servers', 'settings', 'newspack_nodes_remote_servers' );
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
 		$msg[ Message::VALUE ] = [ 'option' => 'newspack_nodes_remote_servers' ];
 		$node->fill( $msg );
 
-		$parsed = \Newspack_Nodes\Command_Args::parse( $sink->captured[0][ Message::VALUE ]['arguments'] );
+		$bound = Command_Args::bind( self::SET_ARGS, $sink->captured[0][ Message::VALUE ]['arguments'] );
 		$this->assertSame(
 			[ 'advancedemail' => true, 'amazons3' => true ],
-			\json_decode( $parsed['positional'][1], true )
+			\json_decode( $bound['value'], true )
 		);
 	}
 
@@ -301,7 +312,7 @@ class SettingsSyncNodeTest extends TestCase {
 		\update_option( 'newspack_nodes_remote_servers', [ "bad\xB1utf8" ] );
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( [ 'newspack_nodes_remote_servers', 'settings', 'newspack_nodes_remote_servers' ] );
+		$node->add_setting( 'newspack_nodes_remote_servers', 'settings', 'newspack_nodes_remote_servers' );
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
@@ -320,8 +331,8 @@ class SettingsSyncNodeTest extends TestCase {
 		\update_option( 'newspack_nodes_remote_servers', [ "bad\xB2utf8" ] );
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( [ 'newspack_nodes_remote_servers', 'settings', 'newspack_nodes_remote_servers' ] );
-		$node->add_setting( [ 'newspack_nodes_max_segments', 'settings', 'newspack_nodes_max_segments' ] );
+		$node->add_setting( 'newspack_nodes_remote_servers', 'settings', 'newspack_nodes_remote_servers' );
+		$node->add_setting( 'newspack_nodes_max_segments', 'settings', 'newspack_nodes_max_segments' );
 
 		$e = $this->caught(
 			fn () => $node->fire(),
@@ -354,7 +365,7 @@ class SettingsSyncNodeTest extends TestCase {
 		$node = new Settings_Sync_Node();
 		$node->name( 'settings-sync' );
 		$node->sink( $sink );
-		$node->add_setting( [ 'spoke_probe_ceiling', 'settings', 'spoke_probe_ceiling' ] );
+		$node->add_setting( 'spoke_probe_ceiling', 'settings', 'spoke_probe_ceiling' );
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
@@ -380,7 +391,7 @@ class SettingsSyncNodeTest extends TestCase {
 
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( [ 'newspack_nodes_max_segments', 'settings', 'newspack_nodes_max_segments' ] );
+		$node->add_setting( 'newspack_nodes_max_segments', 'settings', 'newspack_nodes_max_segments' );
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
@@ -397,7 +408,7 @@ class SettingsSyncNodeTest extends TestCase {
 		\update_option( 'newspack_nodes_max_segments', 8 );
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( [ 'newspack_nodes_max_segments', 'settings', 'newspack_nodes_max_segments' ] );
+		$node->add_setting( 'newspack_nodes_max_segments', 'settings', 'newspack_nodes_max_segments' );
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
@@ -412,8 +423,8 @@ class SettingsSyncNodeTest extends TestCase {
 		\update_option( 'newspack_nodes_num_partitions', 4 );
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
-		$node->add_setting( [ 'newspack_nodes_max_segments', 'settings', 'newspack_nodes_max_segments' ] );
-		$node->add_setting( [ 'newspack_nodes_num_partitions', 'settings', 'newspack_nodes_num_partitions' ] );
+		$node->add_setting( 'newspack_nodes_max_segments', 'settings', 'newspack_nodes_max_segments' );
+		$node->add_setting( 'newspack_nodes_num_partitions', 'settings', 'newspack_nodes_num_partitions' );
 
 		$node->fire();
 
@@ -438,7 +449,7 @@ class SettingsSyncNodeTest extends TestCase {
 		$sink = new Capture_Sink_Node();
 		$node = $this->wired_node( $sink );
 		foreach ( [ 'newspack_nodes_max_segments', 'newspack_nodes_segment_size', 'newspack_nodes_num_partitions' ] as $option ) {
-			$node->add_setting( [ $option, 'settings', $option ] );
+			$node->add_setting( $option, 'settings', $option );
 		}
 
 		try {
@@ -473,8 +484,8 @@ class SettingsSyncNodeTest extends TestCase {
 			}
 		};
 		$node = $this->wired_node( $sink );
-		$node->add_setting( [ 'newspack_nodes_remote_max_segments', 'settings', 'newspack_nodes_max_segments' ] );
-		$node->add_setting( [ 'newspack_nodes_remote_max_segments', 'settings', 'newspack_nodes_remote_max_segments' ] );
+		$node->add_setting( 'newspack_nodes_remote_max_segments', 'settings', 'newspack_nodes_max_segments' );
+		$node->add_setting( 'newspack_nodes_remote_max_segments', 'settings', 'newspack_nodes_remote_max_segments' );
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
@@ -567,15 +578,14 @@ class SettingsSyncNodeTest extends TestCase {
 	}
 
 	/**
-	 * The spoke `set` handler parses arguments via Command_Args::parse()['positional'].
-	 * format([$remote,$value],[]) MUST round-trip back to those two positionals — including
-	 * a csv value (comma) and a value with spaces (must be quoted to survive tokenization).
+	 * A spoke `set` verb binds `<option> <value>` by position, so what the push
+	 * formats MUST bind back to both — a csv value and a spaced one included.
 	 */
 	public function test_command_args_round_trips_positional_value(): void {
 		foreach ( [ '8', 'a.com,b.com', 'has spaces here', '' ] as $value ) {
-			$args   = Command_Args::format( [ 'newspack_nodes_remote_servers', $value ], [] );
-			$parsed = Command_Args::parse( $args )['positional'];
-			$this->assertSame( [ 'newspack_nodes_remote_servers', $value ], $parsed, "round-trip failed for value: $value" );
+			$args  = Command_Args::format( [ 'newspack_nodes_remote_servers', $value ], [] );
+			$bound = Command_Args::bind( self::SET_ARGS, $args );
+			$this->assertSame( [ 'option' => 'newspack_nodes_remote_servers', 'value' => $value ], $bound, "round-trip failed for value: $value" );
 		}
 	}
 }

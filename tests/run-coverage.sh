@@ -28,8 +28,9 @@ PHPUNIT="$SCRIPT_DIR/../vendor/bin/phpunit"
 # Ensure xdebug coverage mode is enabled
 export XDEBUG_MODE=coverage
 
-# Clean up any previous test artifacts
-rm -rf /tmp/newspack-nodes-test 2>/dev/null
+# Each run's bootstrap names a per-PID base and removes it at exit; sweep
+# only bases a crashed run left, never one a concurrent suite is using.
+find /tmp -maxdepth 1 -name 'newspack-nodes-test-*' -mmin +120 -exec rm -rf {} +
 
 # Run PHPUnit with coverage
 "$PHPUNIT" --configuration phpunit.xml \
@@ -50,7 +51,6 @@ rm -rf /tmp/admin-topo-stock*            \
        /tmp/msg-slot-release*            \
        /tmp/msg-stream-cmd*              \
        /tmp/msg-stream-leak*             \
-       /tmp/newspack-nodes-test*         \
        /tmp/nodes-lifecycle*             \
        /tmp/phpunit-cache-newspack-nodes \
        /tmp/sse-sibling-patron*          \

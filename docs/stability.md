@@ -116,7 +116,15 @@ reason. Catch it, or let the surrounding controller's catch own it.
    every node the palette lists. `node_schema()` is the authority and
    `help <NodeType>` renders it. A schema declaring the category `Hidden`, no
    category at all, or a `hidden` flag sits outside the palette and outside this
-   contract.
+   contract. The verb contract a schema declares through is frozen too: a verb whose
+   `commands` entry carries `args` is bound by `Command_Args::bind()` before its
+   handler runs ([ADR-25](architecture-decisions.md#adr-25-a-verbs-arguments-are-bound-by-its-schema)),
+   and the handler receives
+   `( Command_Interpreter_Node $interpreter, array $args, array $envelope = [] )`
+   with `$args` an `array<string,mixed>` keyed by declared arg name — the typed
+   value, the declared `default`, null for an absent optional, or a list of the
+   typed members for a `variadic` arg. A verb with no `args` key receives its
+   raw token list.
 5. **CLI.** The `wp nodes` verbs and their documented arguments and output
    contracts, `--format=json` shapes included. [cli.md](cli.md) is the
    reference; an application plugin's own verbs in the same namespace —

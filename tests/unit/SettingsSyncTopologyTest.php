@@ -108,7 +108,7 @@ class SettingsSyncTopologyTest extends TestCase {
 				$expected,
 				"seed for {$option} must differ from its default"
 			);
-			Settings_CI_Node::cmd_set( [ $option, (string) $expected ] );
+			( new Settings_CI_Node() )->dispatch( 'set', [ $option, (string) $expected ] );
 			$this->assertSame(
 				$expected,
 				$GLOBALS['_wp_options'][ $option ] ?? null,

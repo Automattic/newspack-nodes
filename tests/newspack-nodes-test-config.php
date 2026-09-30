@@ -11,8 +11,8 @@
  */
 
 return [
-	// realpath'd so macOS's /tmp -> /private/tmp symlink passes the path guard.
-	'base_directory'   => \rtrim( (string) \realpath( \sys_get_temp_dir() ), '/' ) . '/newspack-nodes-test',
+	// Per test process; tests/bootstrap.php names it, realpath'd for macOS.
+	'base_directory'   => \getenv( 'NEWSPACK_TEST_BASE_DIR' ) ?: throw new \RuntimeException( 'NEWSPACK_TEST_BASE_DIR is unset: load tests/bootstrap.php' ),
 	'num_partitions'   => 1,
 	'segment_size'     => 1024,
 	'min_segments'     => 2,

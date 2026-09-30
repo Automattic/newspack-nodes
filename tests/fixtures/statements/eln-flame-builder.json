@@ -98,16 +98,14 @@
         "values": [
             "command_node",
             "flame-builder:config",
-            "configure_stats",
-            "<partition>"
+            "configure_stats"
         ],
         "spans": [
             "command_node",
             "flame-builder:config",
-            "configure_stats",
-            "<partition>"
+            "configure_stats"
         ],
-        "raw": "command_node flame-builder:config configure_stats <partition>"
+        "raw": "command_node flame-builder:config configure_stats"
     },
     {
         "verb": "command_node",

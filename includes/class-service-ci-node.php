@@ -6,10 +6,11 @@
  * A service interpreter declares each verb ONCE, in `node_schema()`, and this
  * base turns that declaration into a working command surface: a dispatch table
  * derived from the schema, `Capabilities::require()` wrapped around every
- * handler for the role the schema names, and the argument helpers the verbs
- * share (`split_first_token`, `require_valid_name`, `require_option_int`,
- * `slice_verb`). A hand-built verb table beside the schema names every verb
- * twice, and the two drift.
+ * handler for the role the schema names, and the helpers the verbs share
+ * (`require_valid_name`, `slice_verb`). Each verb's declared `args` are bound
+ * by `Command_Interpreter_Node::dispatch()` before its handler runs, so a
+ * handler reads its arguments by name. A hand-built verb table beside the
+ * schema names every verb twice, and the two drift.
  *
  * The capability wrap is the substrate's single enforcement point for command
  * authorization, so it lives in `commands()` — the one door a table can enter
@@ -179,21 +180,6 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 	}
 
 	/**
-	 * Read the name and the structured body of a verb carrying a blob —
-	 * `save <name> <tsl…>`, `<name> <positions-json>`.
-	 *
-	 * The producer hands the whole body, newlines and all, as ONE token, so the
-	 * name is the first token and the body the second, with no rest-of-line
-	 * splitting to guess at. A lone token yields an empty body.
-	 *
-	 * @param list<string> $args The verb's argument tokens.
-	 * @return array{0:string,1:string} The name and the body.
-	 */
-	protected static function split_first_token( array $args ): array {
-		return [ $args[0] ?? '', $args[1] ?? '' ];
-	}
-
-	/**
 	 * Build a read-only slice verb from a shape callable, so a CI's slice verbs
 	 * are two or three lines sharing one memoized read instead of each
 	 * repeating the JSON-encode dance.
@@ -223,7 +209,7 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 	 * what keeps `../etc/passwd` out of the path. A caller needing a wider
 	 * charset passes its own.
 	 *
-	 * @param string $name    Name token — the verb's first argument ($args[0]).
+	 * @param string $name    Name — a verb's bound `name` argument.
 	 * @param string $pattern Regex with delimiters; defaults to the file-name-safe shape.
 	 * @return string The validated name.
 	 * @throws \RuntimeException When $name does not match $pattern.
@@ -238,29 +224,5 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 			);
 		}
 		return $name;
-	}
-
-	/**
-	 * Read an operator-supplied `--key=<n>` option, throwing when it is
-	 * malformed. The throw becomes a TM_COMMAND|TM_ERROR reply, so the caller
-	 * hears which flag it fumbled instead of an answer for partition 0 — every
-	 * `Core` coercion family resolves a bad value to a number.
-	 *
-	 * @param array<string,mixed> $options    The `options` half of Command_Args::parse().
-	 * @param string              $key        Option name, without the leading `--`.
-	 * @param int                 $fallback   Value when the option is absent.
-	 * @param bool                $allow_zero Whether 0 is acceptable.
-	 * @return int The option's value, or $fallback when it is absent.
-	 * @throws \RuntimeException When the option is present but not a canonical decimal.
-	 */
-	protected static function require_option_int( array $options, string $key, int $fallback, bool $allow_zero = true ): int {
-		$value = Command_Args::option_int( $options, $key, $fallback, $allow_zero );
-		if ( null === $value ) {
-			$bound = $allow_zero ? 'non-negative' : 'positive';
-			throw new \RuntimeException(
-				\esc_html( "--{$key} must be a {$bound} integer; got: " . Core::as_string( $options[ $key ] ) )
-			);
-		}
-		return $value;
 	}
 }

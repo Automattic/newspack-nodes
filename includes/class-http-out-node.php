@@ -876,12 +876,12 @@ class HTTP_Out_Node extends Timer_Node {
 	 * `allow_replies_to` verb handler: declare a reply destination on the patron.
 	 *
 	 * @param Command_Interpreter_Node $interpreter The auto-wired `:config` sidecar.
-	 * @param array<array-key,mixed>   $args        Verb argument tail.
+	 * @param array<array-key,mixed>   $args        Bound verb arguments: path.
 	 * @return string
-	 * @throws \RuntimeException When no path is given.
+	 * @throws \RuntimeException When the path is blank.
 	 */
 	public static function cmd_allow_replies_to( Command_Interpreter_Node $interpreter, array $args ): string {
-		$path = \trim( Core::as_string( $args[0] ?? '' ) );
+		$path = \trim( Core::as_string( $args['path'] ) );
 		if ( '' === $path ) {
 			throw new \RuntimeException( 'usage: allow_replies_to <path>' );
 		}

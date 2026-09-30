@@ -40,7 +40,6 @@
 namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Capabilities;
-use Newspack_Nodes\Command_Args;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config as RuntimeConfig;
 use Newspack_Nodes\Config_System\Restart_Planner;
@@ -68,9 +67,9 @@ class Settings_CI_Node extends Service_CI_Node {
 	 * `set` verb handler — write one substrate integer setting, then return the
 	 * post-write snapshot.
 	 *
-	 * Takes `<option> <value>` positionally. The option name is accepted with
-	 * or without the `newspack_nodes_` prefix: the hub pushes the full WP
-	 * option name, while an operator at the REPL types the short key.
+	 * Takes `<option> <value>`. The option name is accepted with or without
+	 * the `newspack_nodes_` prefix: the hub pushes the full WP option name,
+	 * while an operator at the REPL types the short key.
 	 *
 	 * A write is followed by two steps before the snapshot is read back. The
 	 * substrate Config is reset, so the snapshot rebuilds from the new value
@@ -79,26 +78,21 @@ class Settings_CI_Node extends Service_CI_Node {
 	 * other live worker to re-read its config, which is what keeps a field
 	 * classified `[]` from waiting out a whole worker lifetime.
 	 *
-	 * @param list<string> $args Verb argument tokens.
+	 * @param array<array-key,mixed> $args Bound verb arguments: option, and the int value.
 	 *
 	 * @return array<string,mixed> The seven storage settings, read after the write.
 	 * @throws \RuntimeException When the name is not a bounded `int` Field, or the value falls outside its bounds.
 	 */
 	public static function cmd_set( array $args ): array {
-		[ $option, $value ] = \array_pad( Command_Args::parse( $args )['positional'], 2, null );
-
+		$option = Core::as_string( $args['option'] );
 		$prefix = Settings_Schema::get()->prefix();
-		$short  = \is_string( $option ) && \str_starts_with( $option, $prefix )
-			? \substr( $option, \strlen( $prefix ) )
-			: $option;
-		$field = \is_string( $short )
-			? Settings_Schema::get()->field_for_short( $short )
-			: null;
+		$short  = \str_starts_with( $option, $prefix ) ? \substr( $option, \strlen( $prefix ) ) : $option;
+		$field  = Settings_Schema::get()->field_for_short( $short );
 		// One declaration: same key set and same bounds as the settings page.
 		if ( null === $field || 'int' !== $field->type || null === $field->min ) {
-			throw new \RuntimeException( \esc_html( 'unknown setting: ' . (string) $option ) );
+			throw new \RuntimeException( \esc_html( "unknown setting: {$option}" ) );
 		}
-		$sanitized = self::sanitize_int( $value, $field->min, $field->max ?? \PHP_INT_MAX );
+		$sanitized = self::within( Core::as_int( $args['value'] ), $field->min, $field->max ?? \PHP_INT_MAX );
 		if ( null === $sanitized ) {
 			throw new \RuntimeException( \esc_html( "invalid value for setting: {$short}" ) );
 		}
@@ -157,24 +151,16 @@ class Settings_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Coerce to int and bounds-check, answering null so the caller words the
-	 * refusal in its own voice. Int-only because `cmd_set` rejects every Field
-	 * whose type is not `int` before reaching here.
+	 * Bounds-check a bound int, answering null so the caller words the
+	 * refusal in its own voice.
 	 *
-	 * @param mixed $value Raw input token.
-	 * @param int   $min   The Field's minimum (inclusive).
-	 * @param int   $max   The Field's maximum (inclusive), or PHP_INT_MAX when it declares none.
-	 * @return int|null Sanitized int, or null when the token is non-numeric or out of bounds.
+	 * @param int $value The bound `value` arg.
+	 * @param int $min   The Field's minimum (inclusive).
+	 * @param int $max   The Field's maximum (inclusive), or PHP_INT_MAX when it declares none.
+	 * @return int|null The value, or null when it is out of bounds.
 	 */
-	private static function sanitize_int( mixed $value, int $min, int $max ): ?int {
-		if ( ! \is_numeric( $value ) ) {
-			return null;
-		}
-		$int = (int) $value;
-		if ( $int < $min || $int > $max ) {
-			return null;
-		}
-		return $int;
+	private static function within( int $value, int $min, int $max ): ?int {
+		return $value < $min || $value > $max ? null : $value;
 	}
 
 	/**
@@ -211,7 +197,7 @@ class Settings_CI_Node extends Service_CI_Node {
 						[ 'name' => 'option', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'value', 'type' => 'int', 'required' => true ],
 					],
-					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_set( self::arg_strings( $args ) ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_set( $args ),
 				],
 			],
 		] );

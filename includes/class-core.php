@@ -269,7 +269,9 @@ class Core {
 	 * <config:is_hub> footgun — fails loud at construction rather than silently
 	 * coercing to a feature-off default. Owned-empty ('') never throws; only an
 	 * unregistered namespace, a resolver returning null (key not owned), or a
-	 * non-scalar result is "unresolvable".
+	 * non-scalar result is "unresolvable". A bool resolves to `1` or `0`,
+	 * words a `bool` arg binds, since `(string) false` would be the blank a
+	 * required arg reads as missing.
 	 *
 	 * @throws \RuntimeException In strict mode, on an unresolvable token.
 	 */
@@ -296,6 +298,9 @@ class Core {
 			}
 			self::print_less_often( 'resolve_config_token: resolver returned non-scalar for ', "<{$ns}:{$key}>" );
 			return '';
+		}
+		if ( \is_bool( $value ) ) {
+			return $value ? '1' : '0';
 		}
 		return (string) $value;
 	}

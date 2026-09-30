@@ -34,6 +34,9 @@ class InMemoryMemcached extends \Memcached {
 	/** @var array<string,int> */
 	private array $touch_failures = [];
 
+	/** Result every delete() fails with, as a dead server answers; 0 for none. */
+	private int $delete_failure = 0;
+
 	/**
 	 * One-shot seam after touch reads the old value but before it stores the
 	 * refreshed value. This models APCu's non-atomic fetch/store touch.
@@ -90,6 +93,11 @@ class InMemoryMemcached extends \Memcached {
 	/** Force every add() to fail with this result, as a dead server does. */
 	public function fail_add( int $result_code ): void {
 		$this->add_failure = $result_code;
+	}
+
+	/** Force every delete() to return false with a non-NOTFOUND result. */
+	public function fail_delete( int $result_code ): void {
+		$this->delete_failure = $result_code;
 	}
 
 	/** Force touch() to return false with a non-NOTFOUND backend result. */
@@ -217,6 +225,10 @@ class InMemoryMemcached extends \Memcached {
 
 	public function delete( string $key, int $time = 0 ): bool {
 		$this->stored( $key );
+		if ( 0 !== $this->delete_failure ) {
+			$this->result_code = $this->delete_failure;
+			return false;
+		}
 		if ( ! \array_key_exists( $key, $this->store ) ) {
 			$this->result_code = \Memcached::RES_NOTFOUND;
 			return false;

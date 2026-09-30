@@ -211,15 +211,16 @@ class ConsumerSealGraceTest extends TestCase {
 	public function test_set_multi_writer_verb_enables_only_on_truthy_arg(): void {
 		$c = new Consumer_Node();
 		$c->arguments( [ "{$this->tmp}/d", "{$this->tmp}/o" ] );
-		$interp = new \Newspack_Nodes\Command_Interpreter_Node();
-		$interp->patron( $c );
-
-		$set = $this->read_private( $c, 'interpreter' )->commands()['set_multi_writer'];
-		$this->assertSame( "ok\n", $set( $interp, [ 'true' ] ) );
+		$interp = $this->read_private( $c, 'interpreter' );
+		$this->assertSame( "ok\n", $interp->dispatch( 'set_multi_writer', [ 'true' ] ) );
 		$prop = new \ReflectionProperty( Consumer_Node::class, 'multi_writer' );
 		$this->assertTrue( $prop->getValue( $c ) );
 
-		$set( $interp, [ 'nope' ] );
-		$this->assertFalse( $prop->getValue( $c ), 'non-truthy disables' );
+		$interp->dispatch( 'set_multi_writer', [ 'off' ] );
+		$this->assertFalse( $prop->getValue( $c ), 'a falsy word disables' );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'enabled wants a bool' );
+		$interp->dispatch( 'set_multi_writer', [ 'nope' ] );
 	}
 }

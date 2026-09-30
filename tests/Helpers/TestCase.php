@@ -39,7 +39,17 @@ abstract class TestCase extends PHPUnitTestCase {
 	/** Stock topology dir write_tsl() writes into, set by stock_topology_dir(). */
 	private string $topology_dir = '';
 
+	/**
+	 * The `LOCAL_NEWSPACK_NODES_CONF` the process booted with, captured on the
+	 * first setUp before any test can repoint it, and restored in every
+	 * tearDown. A consumer suite extending this class booted with its own
+	 * config, so restoring a fixed substrate file would move it onto the
+	 * substrate's base directory and let its teardown delete that one's Tables.
+	 */
+	protected static ?string $booted_conf = null;
+
 	protected function setUp(): void {
+		self::$booted_conf ??= (string) \getenv( 'LOCAL_NEWSPACK_NODES_CONF' );
 		// Keep APCu pinned off so Memcached fixtures remain deterministic: tests
 		// that seed Core::$memd must see their claims land there even when CLI
 		// APCu is enabled.
@@ -134,7 +144,7 @@ abstract class TestCase extends PHPUnitTestCase {
 				// Unconfigured or refused base; fall through to the default.
 			}
 		}
-		return (string) \realpath( \sys_get_temp_dir() ) . '/newspack-nodes-test';
+		return (string) \getenv( 'NEWSPACK_TEST_BASE_DIR' );
 	}
 
 	/** Remove every temp dir make_temp_dir() handed out — a temp dir is only temporary if someone deletes it. */
@@ -191,10 +201,8 @@ abstract class TestCase extends PHPUnitTestCase {
 		// (now-deleted) temp config, and drop Config's memoized base/dirs. Otherwise a
 		// test that called use_base_dir() leaks its base_directory into a later test
 		// that doesn't — surfacing as wrong/empty partition + lock-dir resolution
-		// (order-dependent CLI failures). The bootstrap sets this same default.
-		\putenv(
-			'LOCAL_NEWSPACK_NODES_CONF=' . \dirname( __DIR__ ) . '/newspack-nodes-test-config.php'
-		);
+		// (order-dependent CLI failures). The value is the one the process booted with.
+		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . self::$booted_conf );
 		if ( \class_exists( '\Newspack_Nodes\Config' ) ) {
 			\Newspack_Nodes\Config::reset();
 		}

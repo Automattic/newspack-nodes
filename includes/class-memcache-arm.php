@@ -91,8 +91,11 @@ final class Memcache_Arm extends Cache_Backend {
 		return ! self::refuses_key( $key ) && $this->memd->add( $key, $value, $ttl );
 	}
 
-	public function delete( string $key ): bool {
-		return $this->memd->delete( $key );
+	public function delete( string $key ): ?bool {
+		if ( $this->memd->delete( $key ) ) {
+			return true;
+		}
+		return \Memcached::RES_NOTFOUND === $this->memd->getResultCode() ? false : null;
 	}
 
 	public function touch( string $key, int $ttl ): ?bool {

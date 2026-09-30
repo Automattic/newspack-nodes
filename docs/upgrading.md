@@ -6,6 +6,115 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **A consumer suite extending the substrate's `Tests\TestCase` names its own
+  base in `NEWSPACK_TEST_BASE_DIR`.** Its `tests/bootstrap.php` sets the env
+  var before loading anything — `<tmp>/<slug>-test-<pid>`, one per process —
+  and its baseline test config reads `base_directory` from it. The substrate
+  bootstrap keeps a base already named, and `TestCase::tearDown()` restores the
+  `LOCAL_NEWSPACK_NODES_CONF` captured on the first setUp, so the consumer stays
+  on its own config and base; the base is the consumer's to remove.
+- **Release nodes 2.77.0, event-logger-nodes 0.111.0 and intelligence 0.12.0
+  together, and deploy them together.** The binder below hands every
+  schema-declared verb its arguments by name, and the two consumers' released
+  handlers read tokens, so there is no order in which updating one plugin at a
+  time works, and no compat path bridges it. A host that updates only one of
+  the three sees these fail until the other two land:
+  - nodes alone — event-logger-nodes 0.110.0's Performance verbs (`overview`,
+    `urls`, `dump_url`, `url_breakdown`, `search_requests`, `grep_requests`,
+    `dump_request`, `ask`, `set`) and `rules delete` answer
+    `Call to undefined method Newspack_Nodes\Command_Args::parse()` or
+    `Service_CI_Node::require_option_int()` as a TM_ERROR, and
+    `request-builder:config set_inflight_target` reads no argument; intelligence
+    0.11.0's source verbs (`add_repo`, `add_url`, `set_vault_id`,
+    `set_config_version`) and LLM config verbs (`set_api_url`, `set_vault_id`,
+    `set_model`, `set_feature`, `add_profile`) read an empty argument, so each
+    stores a blank or refuses.
+  - event-logger-nodes 0.111.0 or intelligence 0.12.0 alone — the plugin's
+    `version_at_least( '2.77.0' )` floor fails against nodes 2.76.0, and it
+    stays dormant behind its admin notice, with its verbs and workers down.
+
+  Put all three zips on the host, then restart the workers once.
+- **A verb whose schema declares `args` receives them bound, by NAME.**
+  `Command_Interpreter_Node::dispatch()` binds the tokens against the declared
+  `args` before the handler runs — a service CI's verbs and every `:config`
+  verb alike
+  ([ADR-25](architecture-decisions.md#adr-25-a-verbs-arguments-are-bound-by-its-schema)).
+  The handler is still
+  `( Command_Interpreter_Node $interpreter, array $args, array $envelope = [] )`,
+  but `$args` is `array<string,mixed>`: one key per declared arg, in declared
+  order, holding its typed value (`int`, `float` and `bool` coerced, every
+  other type a string), null for an absent optional with no `default`, the
+  `default` where one is declared (a `<ns:key>` token default resolved and
+  typed), or a list of typed members for an arg declaring
+  `'variadic' => true`, which a producer fills by position or by repeating
+  `--name=`. Rewrite each handler to read `$args['<name>']` through
+  the `Core` coercions, and delete its parsing:
+  - `Command_Args::parse()` is gone, and so is the browser's
+    `parseCommandArgs()`; `Command_Args::format()` and `formatCommandArgs()`
+    stay.
+  - `Service_CI_Node::split_first_token()` is gone: declare the blob as its own
+    arg (`[ name, body ]`) and read both by name.
+  - `Service_CI_Node::require_option_int()` is gone: declare the arg
+    `'type' => 'int'`, and the binder refuses a malformed token as
+    `<name> wants a whole number, got '<token>'`. Check a bound you need beyond
+    non-negative — `> 0`, a ceiling — in the handler.
+  - A hand-rolled unknown-option, missing-argument or arity refusal is the
+    binder's now; delete it, and match the binder's wording in tests:
+    `missing required argument: <name>`, `unknown option --<name>; this verb
+    takes --<a>, --<b>`, `too many arguments: <n> given, <m> accepted`, `--<name> given
+    twice`, `<name> given both by position and as --<name>`, and
+    `--<name> needs a value: write --<name>=<value>`. Each is an
+    `\InvalidArgumentException`, not a `\RuntimeException`.
+  - Fix any declaration that disagrees with its handler: an arg read as
+    required declares `'required' => true`; a list of trailing positionals
+    declares its arg `variadic`; an int declares `'type' => 'int'`.
+  - A `toggle` or `setter` verb must declare its one arg; one declaring none
+    throws `\LogicException` when its node wires its `:config` interpreter.
+  - A test that calls a handler closure straight off `commands()` with a token
+    list now hands it raw tokens where it expects names; go through
+    `$interpreter->dispatch( '<verb>', [ …tokens ] )`, or pass the bound shape.
+  - A producer sending an option the verb does not declare, or one token too
+    many, is refused where it was ignored. Name every arg the schema declares
+    and nothing else.
+  - A `secret` arg must be named: `<name> must be named: write --<name>=<value>`.
+  - A `bool` arg refuses a word outside `1`, `true`, `yes`, `on`, `0`, `false`,
+    `no` and `off`, as a `make_node` bool positional now does too.
+  - A blank for a `required` arg is `missing required argument: <name>`. A
+    setter that clears its property on a blank declares its arg optional.
+  - `Command_Args::unsupplied()` takes the arg's spec, not its type, and
+    `Command_Args::default_of( array $spec )` is the one default rule;
+    `Schema_Reflection::resolve_default()` is gone.
+
+  A verb with no `args` key still receives its raw tokens. Raise your
+  `version_at_least()` floor to 2.77.0: an older substrate hands the new
+  handlers raw tokens.
+- **`Settings_Sync_Node::add_setting()` takes three strings:**
+  `add_setting( string $local, string $to, string $remote )`, where it took a
+  token array. The TSL verb is unchanged.
+- **`Sessions::forget()` returns `?bool`:** whether it dropped a lease or a
+  directory row, or null when the cache did not answer.
+  `Command_Auth::revoke_session()` returns `?bool` on the same terms, and
+  `Cache_Backend::delete()` does too — true removed, false confirmed absent,
+  null when the backend did not answer, as `touch()` answers. A caller
+  testing `! $arm->delete( $key )` reads null as a failure still; one
+  returning it through a `: bool` signature compares `true ===`. `sessions
+  revoke` refuses `no session with handle <h>` where it answered
+  `revoked: true` for any string, names a label's handles, and refuses
+  `session store did not answer; <h> may still be live` when the cache is
+  silent.
+- **`Schema_Reflection::truthy()` is gone.** A node that called
+  `self::truthy()` declares its arg `'type' => 'bool'` and reads the bound
+  value, or calls `Command_Args::typed( $token, 'bool' )`, which answers
+  `true`, `false`, or null for a word outside `1/true/yes/on/0/false/no/off`.
+- **A `<ns:key>` token whose resolver answers a PHP bool resolves to `1` or
+  `0`,** where `false` resolved to `''`. A `bool` arg binds both; a blank
+  would read as unsupplied.
+- **A `make_node` positional follows the verb placeholder rule.** A blank
+  token for a `required` positional is `Missing required argument: <name>`,
+  where it assigned `''`, and a blank `bool` positional takes its default, as a
+  blank `int` or `float` did. A `bool` positional refuses a word outside
+  `1/true/yes/on/0/false/no/off`, where it read false.
+
 - **A durable Table holds set members: `SADD` and `SMEMBERS`, asked through
   `Table_Client::add_members( $table, $sets, $ttl )` and
   `Table_Client::members( $table, $set_keys, $limit, $failed )`.** Nothing

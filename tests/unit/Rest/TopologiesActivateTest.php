@@ -72,10 +72,6 @@ class TopologiesActivateTest extends TestCase {
 		$GLOBALS['_wp_actions']               = [];
 		$GLOBALS['_test_outbound_posts']      = [];
 		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
-		\putenv(
-			'LOCAL_NEWSPACK_NODES_CONF=' . \dirname( __DIR__, 2 ) . '/newspack-nodes-test-config.php'
-		);
-		Config::reset();
 		parent::tearDown();
 	}
 

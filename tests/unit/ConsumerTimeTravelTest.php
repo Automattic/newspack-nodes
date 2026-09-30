@@ -805,7 +805,7 @@ class ConsumerTimeTravelTest extends TestCase {
 		$cmd[ Message::FROM ]  = 'asker';
 		$cmd[ Message::TO ]    = '';
 		$cmd[ Message::LOCAL ] = true;
-		$cmd[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => $args ];
+		$cmd[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => '' === $args ? [] : [ $args ] ];
 		$interpreter->fill( $cmd );
 
 		return $cap->captured[0][ Message::VALUE ]['payload'];

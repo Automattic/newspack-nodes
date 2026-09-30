@@ -352,9 +352,9 @@ trait Durable_Reader {
 		return [
 			[
 				'name'        => 'assume_clean_shutdown',
-				'description' => 'Treat a plain Worker_Should_Stop like Worker_Should_Stop_Clean — commit PAST the in-flight message on a cooperative stop instead of replaying it. For a durable-before-stop chain with no snapshot node (aggregator, Consumer→Partition, job-router). Only a truthy arg enables.',
+				'description' => 'Treat a plain Worker_Should_Stop like Worker_Should_Stop_Clean — commit PAST the in-flight message on a cooperative stop instead of replaying it. For a durable-before-stop chain with no snapshot node (aggregator, Consumer→Partition, job-router). Only a true word enables.',
 				'args'        => [
-					[ 'name' => 'enabled', 'type' => 'bool', 'required' => false, 'description' => 'A truthy value (1/true/yes/on) enables; anything else disables.' ],
+					[ 'name' => 'enabled', 'type' => 'bool', 'required' => false, 'description' => '1, true, yes or on enables; 0, false, no or off disables; any other word is refused.' ],
 				],
 				'toggle'      => 'assume_clean_shutdown',
 			],
@@ -1210,13 +1210,13 @@ trait Durable_Reader {
 	 * `add_snapshot_node` verb handler — append a snapshot-target node.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Owning interpreter; its patron is the reader.
-	 * @param array<array-key,mixed>   $args        Positional args; [0] is the node name.
+	 * @param array<array-key,mixed>   $args        Bound verb arguments: node.
 	 * @return string `"ok\n"`.
 	 */
 	public static function cmd_add_snapshot_node( Command_Interpreter_Node $interpreter, array $args ): string {
 		/** @var self $patron */
 		$patron = $interpreter->patron();
-		$patron->add_snapshot_node( Core::as_string( $args[0] ?? '' ) );
+		$patron->add_snapshot_node( Core::as_string( $args['node'] ) );
 		return "ok\n";
 	}
 
@@ -1224,13 +1224,13 @@ trait Durable_Reader {
 	 * `seek_frame` verb handler — seek the patron reader to a frame.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Owning interpreter; its patron is the reader.
-	 * @param array<array-key,mixed>   $args        Positional args; [0] is the offsetlog segment id.
+	 * @param array<array-key,mixed>   $args        Bound verb arguments: segment, the offsetlog segment id.
 	 * @return string seek_frame()'s `"ok\n"`; a refusal throws.
 	 */
 	public static function cmd_seek_frame( Command_Interpreter_Node $interpreter, array $args ): string {
 		/** @var self $patron */
 		$patron = $interpreter->patron();
-		return $patron->seek_frame( Core::as_int( $args[0] ?? '' ) );
+		return $patron->seek_frame( Core::as_int( $args['segment'] ) );
 	}
 
 	/**

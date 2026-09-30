@@ -173,30 +173,26 @@ class Settings_Sync_Node extends Timer_Node {
 	}
 
 	/**
-	 * Register one mapping from a local option to a spoke option, as the three
-	 * tokens `<local_option> <TO> <remote_option>`.
+	 * Register one mapping from a local option to a spoke option.
 	 *
 	 * Repeatable per local option: a hub `remote_*` setting is registered twice,
 	 * once against the spoke's stripped option and once against the spoke's own
 	 * `remote_*` copy. An exact duplicate is ignored, so re-running the topology
 	 * does not double the fan-out.
 	 *
-	 * @param array<array-key,mixed> $args Tokens `<local_option> <TO> <remote_option>`.
+	 * @param string $local  Local option name.
+	 * @param string $to     Path the push is addressed TO.
+	 * @param string $remote Option name on the spoke.
 	 * @return string "ok\n".
-	 * @throws \RuntimeException When the arity is wrong.
 	 */
-	public function add_setting( array $args ): string {
-		$parts = \array_values( \array_map( static fn ( $v ): string => Core::as_string( $v ), $args ) );
-		if ( 3 !== \count( $parts ) ) {
-			throw new \RuntimeException( 'usage: add_setting <local_option> <TO> <remote_option>' );
-		}
+	public function add_setting( string $local, string $to, string $remote ): string {
 		$spec = [
-			'to'     => $parts[1],
-			'remote' => $parts[2],
+			'to'     => $to,
+			'remote' => $remote,
 		];
-		$this->registry[ $parts[0] ] ??= [];
-		if ( ! \in_array( $spec, $this->registry[ $parts[0] ], true ) ) {
-			$this->registry[ $parts[0] ][] = $spec;
+		$this->registry[ $local ] ??= [];
+		if ( ! \in_array( $spec, $this->registry[ $local ], true ) ) {
+			$this->registry[ $local ][] = $spec;
 		}
 		return "ok\n";
 	}
@@ -224,13 +220,13 @@ class Settings_Sync_Node extends Timer_Node {
 	 * `node_schema()` stays a declaration.
 	 *
 	 * @param Command_Interpreter_Node $interpreter The sibling `:config` interpreter.
-	 * @param array<array-key,mixed>  $args        `<local_option> <TO> <remote_option>`.
+	 * @param array<array-key,mixed>   $args        Bound verb arguments: local_option, to, remote_option.
 	 * @return string Result line.
 	 */
 	public static function cmd_add_setting( Command_Interpreter_Node $interpreter, array $args ): string {
 		/** @var self $patron */
 		$patron = $interpreter->patron();
-		return $patron->add_setting( $args );
+		return $patron->add_setting( Core::as_string( $args['local_option'] ), Core::as_string( $args['to'] ), Core::as_string( $args['remote_option'] ) );
 	}
 
 	/**

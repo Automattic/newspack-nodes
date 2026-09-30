@@ -856,7 +856,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$replayed->name( 'remote-austin-replayed' );
 		$replayed->arguments( $this->remote_args( 'remote-austin-replayed' ) );
 		$interpreter = $this->read_private( $replayed, 'interpreter' );
-		$interpreter->commands()['set_multi_writer']( $interpreter, [ $matches[1] ] );
+		$interpreter->dispatch( 'set_multi_writer', [ $matches[1] ] );
 		$this->assertTrue( $this->read_private( $replayed, 'multi_writer' ), 'and replays back to on' );
 	}
 
