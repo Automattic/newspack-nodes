@@ -37,6 +37,7 @@ supersede.
 | [24](#adr-24-a-tables-backend-is-chosen-per-table) | A Table's backend is chosen per Table |
 | [25](#adr-25-a-verbs-arguments-are-bound-by-its-schema) | A verb's arguments are bound by its schema |
 | [26](#adr-26-every-verb-is-gated-by-the-role-its-schema-declares) | Every verb is gated by the role its schema declares |
+| [27](#adr-27-a-ledger-is-one-sqlite-file-every-partition-writes-and-its-rows-age-out-by-the-segment) | A Ledger is one SQLite file every partition writes, and its rows age out by the segment |
 
 ---
 
@@ -1351,14 +1352,17 @@ The request graph is built per request, so a POST that does not mount the worker
 with the site's own filesystem authority, and refuses to run as root. That mount is the
 gate, so a `node_schema()['requests']` entry declares no capability.
 
-A Table is the one node a request reaches without its worker. `topologies mount_tables`
+Tables and Ledgers are the only nodes a request reaches without their worker. `topologies mount_tables`
 mounts every Table an active topology declares into the request graph through
 `Bootstrap::mount_table()`, and it too declares MANAGE by declaring no capability. A mount
 serves reads alone: it answers `GET`, `MGET` and `SMEMBERS`, and refuses every write request, an
 INSERT, and its `:config` interpreter's `flush` and `vacuum`, because the declaring worker is the
 Table's one writer ([ADR-6](#adr-6-crc32--31-bit-mask-partition-routing)). A `sqlite` mount
 opens its file read-only, creates nothing, and reads as empty until its worker has written
-([ADR-24](#adr-24-a-tables-backend-is-chosen-per-table)).
+([ADR-24](#adr-24-a-tables-backend-is-chosen-per-table)). `Bootstrap::mount_ledger()` mounts a
+Ledger the same way, under its own name: read-only, answering `SUM`, `TOP` and `MEMBERS` and
+refusing `APPEND` and `flush`
+([ADR-27](#adr-27-a-ledger-is-one-sqlite-file-every-partition-writes-and-its-rows-age-out-by-the-segment)).
 
 A request may drive a running graph. A declared request answers TO=FROM through
 [`Schema_Reflection::answer_request()`](../includes/trait-schema-reflection.php) with
@@ -1380,7 +1384,7 @@ a set holding more than the limit, told from a member list by its type as `MGET`
 string value from an array. `topologies mount_tables` mounts Tables into a request graph and
 declares MANAGE, as `connect_worker_input` does. A Table a verb below MANAGE mounts to read
 stays mounted for the rest of that POST: a later verb or request in it reads through the same
-mount, and `Bootstrap::mount_table()` keeps a mount already there and builds nothing. A verb may mount a Table only when every row it holds is data the verb's declared role may already read, because for the rest of the POST any caller holding that role can `MGET` any key, or `SMEMBERS` any set, through the mount; a Table holding more is mounted under MANAGE alone.
+mount, and `Bootstrap::mount_table()` keeps a mount already there and builds nothing. A verb may mount a Table or a Ledger only when every row it holds is data the verb's declared role may already read, because for the rest of the POST any caller holding that role can `MGET` any key, `SMEMBERS` any set or `SUM` any Ledger key through the mount; a store holding more is mounted under MANAGE alone.
 
 **Alternatives considered:** Signing requests as commands are signed — rejected: the mount
 already demands MANAGE of every outside caller before a request can reach a worker, so a
@@ -1392,13 +1396,13 @@ rejected: the handler runs in a worker, where no WordPress user is current, so
 Inside a worker, a node filling a request into another — a Timer firing `TICK` at a source —
 acts with the authority that loaded the topology. A verb whose caller must be told apart
 from another MANAGE holder by session scope is a command, because only a command carries
-the minter's session into the worker. A verb may mount a Table only when every row it holds is data the verb's declared role may already read, because for the rest of the POST any caller holding that role can `MGET` any key, or `SMEMBERS` any set, through the mount; a Table holding more is mounted under MANAGE alone. A mounting verb's output
-is not the bound: `HTTP_In` filters no message type, so a raw `MGET` or `SMEMBERS` in the same POST names any
+the minter's session into the worker. A verb may mount a Table or a Ledger only when every row it holds is data the verb's declared role may already read, because for the rest of the POST any caller holding that role can `MGET` any key, `SMEMBERS` any set or `SUM` any Ledger key through the mount; a store holding more is mounted under MANAGE alone. A mounting verb's output
+is not the bound: `HTTP_In` filters no message type, so a raw `MGET`, `SMEMBERS` or `SUM` in the same POST names any
 key or set, including one the verb never shows.
 
 **Revisit if:** anything writes into a worker's input Partition below MANAGE — a verb that
-mounts it under a lower role, or a second writer beside the attached cli — or a Table must be
-readable below MANAGE while holding rows that role may not read, or a mount outlives the HTTP
+mounts it under a lower role, or a second writer beside the attached cli — or a Table or a Ledger
+must be readable below MANAGE while holding rows that role may not read, or a mount outlives the HTTP
 request (the POST) that made it.
 
 ---
@@ -1775,3 +1779,109 @@ refused verb never reaches `$around_dispatch`.
 **Revisit if:** a worker gains a current user — `require_verb()` would then ask that user's
 capabilities in place of the session's ceiling alone — or a verb's blast radius turns on its
 arguments in a way a second verb cannot split.
+
+---
+
+## ADR-27: A Ledger is one SQLite file every partition writes, and its rows age out by the segment
+
+**Status:** Accepted
+
+**Context:** event-logger-nodes kept its stats in `sqlite` Tables, one file per partition, and
+paid for them in WAL volume. Every Table call was its own transaction, every flush read, merged
+and rewrote the open buckets and hour keys it touched, and the purge deleted each expiring row on
+its own. A key hashed anywhere in the key space, so each row written dirtied a page of its own:
+on staging a `SADD` call wrote ~960 WAL frames and an `MSET` ~720, and each 30-second checkpoint
+wrote ~61,000 frames back, 3.2 s. A reader wanting one URL's numbers opened every partition's
+file and merged what it found.
+
+Tachikoma writes such data once and ages it out whole. A `Partition` drops segments past its
+lifespan, never records; a `Table` files each value into the window of its own timestamp; an
+`Index` maps a key to its records in the window of the record that carried it
+([`tachikoma-lineage.md`](tachikoma-lineage.md#a-ledger-is-tablepms-windows-on-disk-and-a-row-past-the-lifespan-drops)).
+
+**Decision:** `make_node Ledger <name> <segment_seconds> <num_segments> [<column>[:sum|min|max] …]`.
+
+- **One file per Ledger**, `{base}/ledgers/{name}.sqlite`, whatever the partition count. Every
+  partition's worker declaring the Ledger opens it as a writer and writes it, and a reader opens
+  that one file and merges nothing across partitions.
+- **SQLite serializes the writers.** An `APPEND` is the whole flush, one `BEGIN IMMEDIATE …
+  COMMIT`, so no transaction spans two requests. A writer finding another partition's lock
+  waits `Ledger_Node::BUSY_TIMEOUT_MS`, 5 s, the longest flush it may have to wait out.
+- **Rows are clustered by time and written once.** A row is `( t, k, x, w, s, c0… )` in a
+  `WITHOUT ROWID` table under `PRIMARY KEY ( t, k, x, w, s )`, with no other index: `t` the data
+  point's epoch second, `k` a whitespace-free key, `x` a text member, `w` the writing partition
+  and `s` a per-writer sequence, one per row, so two deltas never collide. No row is updated. A
+  second row for one `( t, k, x )` is a delta, and every read aggregates the rows it finds by
+  the aggregate each column declares, `sum`, `min` or `max`. A flush's rows land in the newest
+  few `t` ranges, a handful of contiguous pages at the key's right edge, and a late row lands in
+  its own older range. A Ledger declaring no columns is a set keyed `( t, k, x )`, written with
+  `INSERT OR IGNORE`.
+- **Retention is by segment, inside the file.** A segment is `segment_seconds` of `t`, a Ledger
+  keeps `num_segments` of them, and the lifespan, `segment_seconds × num_segments`, runs on the
+  wall clock, as a Partition's does. The Router tick deletes every `t` below the lifespan's
+  edge rounded down to a segment boundary, `Ledger_Node::DROP_BATCH_ROWS` (20,000) rows a
+  statement under the tick's budget: contiguous pages off the key's left edge, which SQLite
+  reuses for new rows. Every partition's writer runs the drop, and the second finds nothing. An
+  `APPEND` row already past the lifespan is dropped and counted, never stored. There is no TTL,
+  no expiry column or index, no per-row purge and no `VACUUM`.
+- **Reads name a `t` range.** `SUM`, `TOP` and `MEMBERS` are declared requests answered TO=FROM
+  ([ADR-23](#adr-23-a-request-carries-no-authority-of-its-own)), each over `from ≤ t < to`,
+  walking the distinct `t` in it with one primary-key seek apiece and seeking its keys at each.
+  A request graph reads through `Bootstrap::mount_ledger()`, which opens the file read-only and
+  refuses `APPEND` and `flush`. ADR-23's bound on a Table mount holds for it too: a verb below
+  MANAGE mounts a Ledger only when every row it holds is data the verb's role may already read,
+  because for the rest of the POST any caller holding that role can `SUM` any key through it.
+- **SQLite alone.** memcached, APCu and wpdb expire per key and hold no rows, so a Ledger takes
+  no backend argument, and `Table_Node` stays the key → value store with a TTL on all five
+  backends ([ADR-24](#adr-24-a-tables-backend-is-chosen-per-table)).
+
+**ADR-6's one writer.** [ADR-6](#adr-6-crc32--31-bit-mask-partition-routing) gives a partition
+one consumer, and the files that consumer keeps have one writer: its offsetlog; a Partition past
+the PIPE_BUF cap, which a second writer would tear ([ADR-4](#adr-4-pipe_buf-atomic-writes)); and a
+`sqlite` Table, whose `flush` unlinks the file. `Topology_Analyzer::write_set()` claims each, so
+two active topologies cannot both write one. That rule protects the append-by-offset logs and a
+file its writer replaces. It does not bind a store that locks itself and is never replaced: a
+Ledger's writers take SQLite's write lock for each transaction, and `flush` drops and declares
+`rows` anew inside one, leaving the file every other writer holds open. `write_set()` therefore
+claims no Ledger, and two topologies may declare one provided they declare it alike;
+`Bootstrap::node_ledgers()` refuses two that differ.
+
+**Alternatives considered:**
+
+- A file per partition per segment, each dropped by unlinking it — rejected: a reader opens
+  every file its window spans and merges them, 96 files for a day's read at four partitions ×
+  24 hourly segments.
+- Rows with a TTL, an `expires` column and an index on it, and a purge deleting them row by row
+  — rejected: it is the cost this decision removes. Every write also writes the index, and the
+  purge deletes rows wherever the key placed them, a page apiece.
+- A Table transaction held across requests, opened at the first write and committed at the
+  flush — rejected: one `APPEND` is the whole flush, so one transaction spans it with nothing
+  held between requests. ADR-24's amendment records what a held transaction would have needed.
+- Open buckets held in memory and written once each closes, as Tachikoma's `Table` holds them —
+  rejected: a reader cannot see a worker's memory, so the open bucket reads as nothing until it
+  closes; a restart carries every open bucket in the offsetlog frame; and a row arriving after
+  its bucket closed reopens it, reading, merging and rewriting what was written.
+
+**Consequences:**
+
+- The writers contend. A partition's flush waits out another's for up to `BUSY_TIMEOUT_MS`, and
+  an `APPEND` that outwaits it throws out of the Ledger's `fill()` to the node that asked, as
+  any failed write does. A segment drop waits only what the tick's budget has left, then skips
+  to the next tick, so it never holds the loop for 5 s, and no drop, whole or cut short,
+  deletes a row inside the lifespan.
+- Every writer runs a PASSIVE checkpoint once a `CHECKPOINT_INTERVAL_S`; another partition's
+  write in flight defers it to a later tick.
+- A read pays the aggregation. A `( t, k, x )` holds one row per flush that saw it, and nothing
+  ranks at write time: `TOP` ranks the rows in its range when asked.
+- A Ledger reads only on its own host and needs `pdo_sqlite`, as a `sqlite` Table does, inside
+  ADR-4's habitable zone.
+- Only the segment drop and `flush` delete rows, and `flush` drops and declares `rows` anew in
+  one transaction, never unlinking. A changed column list migrates by flush: a file holding
+  another declaration's `rows` refuses to open, naming `wp nodes tables flush`, which empties it
+  from the declaration.
+- Nothing sweeps `{base}/ledgers/`, so a Ledger no topology declares keeps its file until an
+  operator deletes it.
+
+**Revisit if:** an `APPEND` fails on the lock on a live site, so the partitions' flushes no
+longer fit between one another inside `BUSY_TIMEOUT_MS`; or a Ledger must be read from another
+host at volume; or a caller needs a row gone before its segment ages out.
