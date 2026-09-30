@@ -379,4 +379,80 @@ final class SqliteArmTest extends TestCase {
 		$this->assertSame( 4, $arm->purge( 1790000037, 4 ) );
 		$this->assertSame( [ 1, 3 ], [ $count( 'kv' ), $count( 'members' ) ], 'a limit the keyed rows fill leaves every member' );
 	}
+
+	/** A pragma as the arm's own connection answers it. */
+	private static function pragma( Sqlite_Arm $arm, string $name ): mixed {
+		$db = ( new \ReflectionProperty( Sqlite_Arm::class, 'db' ) )->getValue( $arm );
+		return $db->query( "PRAGMA {$name}" )->fetchColumn();
+	}
+
+	public function test_a_writer_leaves_the_checkpoint_to_the_tick_and_takes_the_page_cache(): void {
+		$writer = new Sqlite_Arm( $this->path() );
+		$this->assertSame( 0, (int) self::pragma( $writer, 'wal_autocheckpoint' ), 'no COMMIT runs a checkpoint' );
+		$this->assertSame( -Sqlite_Arm::CACHE_KIB, (int) self::pragma( $writer, 'cache_size' ) );
+		$this->assertSame( 65536, Sqlite_Arm::CACHE_KIB );
+	}
+
+	public function test_a_reader_takes_the_same_page_cache(): void {
+		( new Sqlite_Arm( $this->path() ) )->set( 'sku-41', 'kea-41', 0 );
+		$reader = new Sqlite_Arm( $this->path(), read_only: true );
+		$this->assertSame( -Sqlite_Arm::CACHE_KIB, (int) self::pragma( $reader, 'cache_size' ) );
+	}
+
+	public function test_commits_past_the_default_threshold_leave_every_frame_in_the_wal(): void {
+		$arm = new Sqlite_Arm( $this->path() );
+		for ( $batch = 0; $batch < 3; ++$batch ) {
+			$items = [];
+			for ( $i = 0; $i < 600; ++$i ) {
+				$items[ "sku-{$batch}-{$i}" ] = \str_repeat( 'k', 3000 );
+			}
+			$this->assertTrue( $arm->write_multi( $items, 0 ) );
+		}
+		\clearstatcache();
+		$this->assertGreaterThan( 1500 * 4120, \filesize( $this->path() . '-wal' ), 'SQLite\'s default checkpoints at 1000 frames and restarts the WAL' );
+	}
+
+	public function test_a_checkpoint_writes_every_frame_back_and_the_next_write_restarts_the_wal(): void {
+		$arm   = new Sqlite_Arm( $this->path() );
+		$items = [];
+		for ( $i = 0; $i < 400; ++$i ) {
+			$items[ "sku-{$i}" ] = \str_repeat( 'o', 2000 );
+		}
+		$arm->write_multi( $items, 0 );
+		[ $frames, $written ] = $arm->checkpoint();
+		$this->assertGreaterThan( 190, $frames );
+		$this->assertSame( $frames, $written );
+		$arm->set( 'sku-401', 'owl', 0 );
+		[ $after ] = $arm->checkpoint();
+		$this->assertLessThan( 10, $after, 'the WAL starts over once every frame is back' );
+	}
+
+	public function test_a_checkpoint_behind_an_open_reader_is_partial_not_a_failure(): void {
+		$arm = new Sqlite_Arm( $this->path() );
+		$arm->set( 'sku-41', 'kea-41', 0 );
+		$reader = new \PDO( 'sqlite:' . $this->path() );
+		$reader->exec( 'BEGIN' );
+		$reader->query( 'SELECT count(*) FROM kv' )->fetchAll();
+		try {
+			$arm->set( 'sku-42', \str_repeat( 'e', 9000 ), 0 );
+			[ $frames, $written ] = $arm->checkpoint();
+			$this->assertLessThan( $frames, $written, 'frames past the reader\'s snapshot wait for the next tick' );
+		} finally {
+			$reader->exec( 'ROLLBACK' );
+		}
+		[ $frames, $written ] = $arm->checkpoint();
+		$this->assertSame( $frames, $written );
+	}
+
+	public function test_a_checkpoint_of_a_file_not_there_answers_null(): void {
+		$logged = [];
+		\add_action(
+			'newspack_nodes/stderr',
+			static function ( string $line ) use ( &$logged ): void {
+				$logged[] = $line;
+			}
+		);
+		$this->assertNull( ( new Sqlite_Arm( $this->path(), read_only: true ) )->checkpoint() );
+		$this->assertStringContainsString( 'Table checkpoint failed: sqlite ' . $this->path() . ': no file at', \implode( "\n", $logged ) );
+	}
 }

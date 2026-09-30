@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Every Table counts its cost per verb.** `GET`, `MGET`, `MSET`, `ADD`, `TOUCH`, `RM`, fill()'s `INSERT`, `SADD`, `SMEMBERS`, the tick's `PURGE` and its `CHECKPOINT` each keep, since the node was built, `calls`, the keys or rows `asked` and `answered` (or written), the encoded `bytes` a durable arm serialized or decoded, and `total_ms` and `max_ms` on `hrtime()`. A call that throws still counts, and a request-graph mount counts its own request. `cmd <table>:config stats` answers them as a structure, and `stats reset` answers them and zeroes them; a mount refuses the reset. `dump_node` and `dump_metadata` carry them as `verb_stats`; the console's Inspector does not render them yet. `Table_Node::$hrtime` is the monotonic-clock seam, and `Durable_Arm::bytes()` the arm's running byte total.
+- **The Router tick checkpoints each worker's `sqlite` Tables.** After the timers' flushes and the purge, inside the purge's deadline, it runs one `PRAGMA wal_checkpoint(PASSIVE)` per unmounted SQLite Table (`Sqlite_Arm::checkpoint()`), counted in the Table's `CHECKPOINT` row: WAL frames asked, frames written back. Sixty consecutive checkpoints that leave frames behind while the WAL grows log `WARNING: WAL checkpoint has not completed for <n> ticks while the WAL grew from <a> to <b> frames`, rate-limited (`Table_Node::WAL_STALL_TICKS`).
+- **`Core::read_clock()` reads the live clock without refreshing `Core::$now`.** `right_now()` reads through it. The Table tick step times its purge and checkpoint deadline with it, so the step never moves the tick's own clock, which every later step of the tick, and a test driving `Core::$now`, reads.
+
+### Changed
+
+- **No COMMIT checkpoints a `sqlite` Table any more.** The writer opens with `wal_autocheckpoint = 0`, and the tick's checkpoint replaces SQLite's automatic one, which ran inside the COMMIT that crossed 1,000 pages: on staging a 38 MB rewrite spent 400–500 ms in COMMIT and 650–790 ms more in that checkpoint. On eve the same shape of rewrite went from 191–199 ms of write and COMMIT to 111–126 ms, with 45–62 ms of checkpoint moved onto the tick.
+- **Every `sqlite` connection takes a 64 MiB page cache** (`Sqlite_Arm::CACHE_KIB`), against SQLite's 2 MB default, which evicted staging's current-hour working set: 500 random keys took 46 ms there against 5.7 ms for adjacent ones. SQLite allocates cache pages as statements touch them, so a request mount pays for the pages it reads. `mmap_size` stays 0.
+- **`Table_Node::purge_expired()` is `Table_Node::purge_and_checkpoint()`,** the one step the Router's tick calls for durable Tables.
+- **`Table_Node::forget()` answers `?bool`,** as `Cache_Backend::delete()` does: true when the entry was there to delete, false when absent, null when no backend answered.
+
 ## [2.77.0] - 2026-09-29
 
 ### Changed

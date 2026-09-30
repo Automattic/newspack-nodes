@@ -12,6 +12,10 @@
  * `expires` has passed reads as absent, and `purge()` reclaims it on the
  * Router's tick. A member read is one primary-key seek per set key.
  *
+ * No COMMIT checkpoints: the writer turns `wal_autocheckpoint` off, and the
+ * Router's tick calls `checkpoint()` instead, after the tick's writes, so a
+ * write pays for its own frames and never for copying the WAL back.
+ *
  * @package Newspack_Nodes
  */
 
@@ -26,6 +30,23 @@ final class Sqlite_Arm extends Durable_Arm {
 
 	/** How long a call waits on another connection's write lock. */
 	public const BUSY_TIMEOUT_MS = 1000;
+
+	/**
+	 * Page cache per connection, in KiB: 64 MiB, against SQLite's 2 MB
+	 * default. Staging's aggregate file is ~300 MB and its worker reads back
+	 * the current hour's keys before each write, a working set the default
+	 * evicts between messages: 500 random keys took 46 ms there against
+	 * 5.7 ms for adjacent ones. The worker's long-lived connection is the one
+	 * that keeps pages; a mount's lives one request. SQLite allocates a page
+	 * only when a statement touches it, so this is a ceiling: on eve a reader
+	 * grew 4 KiB at open and 4.6 MB reading 500 random keys of a 266 MB file.
+	 * `mmap_size` stays 0: on eve it cost a fresh connection 0.5 ms per 500
+	 * random keys and paid only on a warm one, which no mount is.
+	 */
+	public const CACHE_KIB = 65536;
+
+	/** The page-cache pragma; a negative size counts KiB rather than pages. */
+	private const CACHE_PRAGMA = 'PRAGMA cache_size = -' . self::CACHE_KIB;
 
 	/** Keys bound per `IN ( … )`: under the 999 variables an older build allows. */
 	private const IN_CHUNK = 500;
@@ -111,6 +132,29 @@ final class Sqlite_Arm extends Durable_Arm {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the verb reporting it escapes at its view.
 			throw new \RuntimeException( $this->last_failure() );
 		}
+	}
+
+	/**
+	 * One PASSIVE checkpoint: copy back every WAL frame no reader's snapshot
+	 * still needs, waiting on no reader and blocking none. Frames past an
+	 * open reader's snapshot stay for the next call, which is ordinary.
+	 *
+	 * @return array{0: int, 1: int}|null The WAL's frames and the frames now
+	 *                                    written back; null when it failed,
+	 *                                    which is logged.
+	 */
+	public function checkpoint(): ?array {
+		try {
+			$stmt = $this->handle()->prepare( 'PRAGMA wal_checkpoint(PASSIVE)' );
+			$stmt->execute();
+			$row = $stmt->fetch( \PDO::FETCH_NUM );
+		} catch ( \PDOException $e ) {
+			$this->failure = $e->getMessage();
+			Core::print_less_often( 'Table checkpoint failed: ', $this->last_failure() );
+			return null;
+		}
+		$row = \is_array( $row ) ? $row : [];
+		return [ \max( 0, Core::as_int( $row[1] ?? 0 ) ), \max( 0, Core::as_int( $row[2] ?? 0 ) ) ];
 	}
 
 	/** See Cache_Backend::last_failure(). */
@@ -339,6 +383,12 @@ final class Sqlite_Arm extends Durable_Arm {
 		$db    = new \PDO( 'sqlite:' . $this->path, null, null, [ \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION ] + $flags );
 		$db->exec( 'PRAGMA busy_timeout = ' . \max( 1, $this->busy_timeout_ms ) );
 		if ( $this->read_only ) {
+			try {
+				$db->exec( self::CACHE_PRAGMA );
+			} catch ( \PDOException ) {
+				// It reads the schema; a non-database file fails each read.
+				return $db;
+			}
 			return $db;
 		}
 		$mode = $db->prepare( 'PRAGMA journal_mode = WAL' );
@@ -348,6 +398,8 @@ final class Sqlite_Arm extends Durable_Arm {
 			throw new \RuntimeException( "sqlite backend could not enter WAL mode at {$this->path}" );
 		}
 		$db->exec( 'PRAGMA synchronous = NORMAL' );
+		$db->exec( 'PRAGMA wal_autocheckpoint = 0' );
+		$db->exec( self::CACHE_PRAGMA );
 		$db->exec( 'CREATE TABLE IF NOT EXISTS kv ( "key" TEXT PRIMARY KEY, "value" BLOB NOT NULL, expires INTEGER NOT NULL )' );
 		$db->exec( 'CREATE INDEX IF NOT EXISTS kv_expires ON kv ( expires )' );
 		$db->exec( 'CREATE TABLE IF NOT EXISTS members ( set_key TEXT NOT NULL, member TEXT NOT NULL, "value" BLOB NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY ( set_key, member ) ) WITHOUT ROWID' );

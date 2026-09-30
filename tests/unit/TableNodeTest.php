@@ -1406,7 +1406,7 @@ class TableNodeTest extends TestCase {
 		Core::$clock = static function () use ( &$reads ): float {
 			return 1790000037.0 + 0.03 * $reads++;
 		};
-		Table_Node::purge_expired( 1790000037 );
+		Table_Node::purge_and_checkpoint( 1790000037 );
 		$this->assertSame( 1, $rows(), 'two full batches fit the budget; the third waits' );
 	}
 
@@ -1437,18 +1437,18 @@ class TableNodeTest extends TestCase {
 		);
 		$this->assertSame( 0.25, Table_Node::PURGE_BACKLOG_BUDGET_S );
 
-		Table_Node::purge_expired( 1790000037 );
+		Table_Node::purge_and_checkpoint( 1790000037 );
 		$this->assertSame( 10 * Table_Node::PURGE_BATCH_ROWS + 3, $rows(), 'a tick on time spends 50 ms: two batches' );
 		$this->assertStringContainsString( 'lab-7:kea: WARNING: purge is behind: its last batch came back full after 2 batches, 10000 rows', \implode( "\n", $logged ) );
 
-		Table_Node::purge_expired( 1790000097 );
+		Table_Node::purge_and_checkpoint( 1790000097 );
 		$this->assertSame( Table_Node::PURGE_BATCH_ROWS + 3, $rows(), 'a tick behind spends the backlog budget: nine batches, and stops there' );
 
-		Table_Node::purge_expired( 1790000157 );
+		Table_Node::purge_and_checkpoint( 1790000157 );
 		$this->assertSame( 0, $rows(), 'a short batch ends the tick caught up' );
 
 		$this->expiring( $table, 3, 0, 'emu' );
-		Table_Node::purge_expired( 1790000217 );
+		Table_Node::purge_and_checkpoint( 1790000217 );
 		$this->assertSame( Table_Node::PURGE_BATCH_ROWS, $rows(), 'caught up, the next tick spends 50 ms again' );
 	}
 
@@ -1475,10 +1475,10 @@ class TableNodeTest extends TestCase {
 		};
 		$batch = Table_Node::PURGE_BATCH_ROWS;
 
-		Table_Node::purge_expired( 1790000037 );
+		Table_Node::purge_and_checkpoint( 1790000037 );
 		$this->assertSame( [ 10 * $batch + 3, 2 * $batch + 5 ], [ $kea_rows(), $owl_rows() ], 'the second Table gets its one batch after the first spent the tick' );
 
-		Table_Node::purge_expired( 1790000097 );
+		Table_Node::purge_and_checkpoint( 1790000097 );
 		$this->assertSame( [ $batch + 3, $batch + 5 ], [ $kea_rows(), $owl_rows() ], 'both behind: one 250 ms deadline for the tick, not one each' );
 	}
 
@@ -1489,7 +1489,7 @@ class TableNodeTest extends TestCase {
 		$table->store( 'sku-41', 1 );
 		$table->remove_node();
 		Table_Node::mount( 'lab-7:kea', 3, [ 'namespace' => 'kea:p3', 'ttl' => 37, 'backend' => 'sqlite' ], new Capture_Sink_Node() );
-		Table_Node::purge_expired( 1790000037 );
+		Table_Node::purge_and_checkpoint( 1790000037 );
 		$this->assertSame( 1, $rows(), 'a request graph never becomes the file\'s second writer' );
 	}
 
@@ -1530,7 +1530,7 @@ class TableNodeTest extends TestCase {
 		[ $table, $rows ] = $this->durable( 37 );
 		$table->store( 'sku-41', 1 );
 		$table->remove_node();
-		Table_Node::purge_expired( 1790000037 );
+		Table_Node::purge_and_checkpoint( 1790000037 );
 		$this->assertSame( 1, $rows(), 'a removed Table is no longer its file\'s writer' );
 	}
 

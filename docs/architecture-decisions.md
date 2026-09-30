@@ -1404,8 +1404,9 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
 - A named backend opens once, in `arguments()`, and throws there naming the Table. A topology
   that cannot open its Tables fails loud at load.
 - `sqlite` is one file per Table per partition, `{base}/tables/{table}.p{N}.sqlite`, on
-  [ADR-4](#adr-4-pipe_buf-atomic-writes)'s local filesystem, in WAL with `synchronous=NORMAL`
-  and a 1000 ms `busy_timeout`. The partition's worker is its one writer
+  [ADR-4](#adr-4-pipe_buf-atomic-writes)'s local filesystem, in WAL with `synchronous=NORMAL`,
+  a 1000 ms `busy_timeout`, `wal_autocheckpoint=0` on the writer and a 64 MiB `cache_size`
+  on every connection. The partition's worker is its one writer
   ([ADR-6](#adr-6-crc32--31-bit-mask-partition-routing)), and
   `Topology_Analyzer::write_set()` claims the file, so two active topologies cannot both
   write it.
@@ -1424,6 +1425,22 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
   orphans durable rows as it orphans cached ones.
 - A read ignores an expired row. `Router_Node`'s tick purges each durable Table its worker
   declared, once a minute, and `vacuum` is an operator verb, never automatic.
+- No COMMIT checkpoints a `sqlite` file. The writer turns `wal_autocheckpoint` off, and the
+  tick runs one `wal_checkpoint(PASSIVE)` per Table, after the tick's timers have flushed and
+  after the purge, inside the purge's deadline; a mount never checkpoints. On staging a
+  38 MB rewrite spent 400–500 ms in COMMIT and 650–790 ms more in the checkpoint SQLite ran
+  inside that COMMIT, so a write paid for copying the WAL back. PASSIVE never waits on a
+  reader or blocks one: frames past an open reader's snapshot wait for the next tick, and
+  `WAL_STALL_TICKS` (60) ticks of that while the WAL grows log a rate-limited warning. On eve
+  the same 38,000-row rewrite took 191–199 ms with the checkpoint inside COMMIT, and 111–126 ms
+  of COMMIT plus 45–62 ms of tick checkpoint without.
+- `cache_size` is 64 MiB, `Sqlite_Arm::CACHE_KIB`, against SQLite's 2 MB default. Staging's
+  aggregate file is ~300 MB, and its worker reads the current hour's keys back before each
+  write; 500 random keys took 46 ms there against 5.7 ms for adjacent ones. SQLite allocates
+  a cache page when a statement touches it, so the size is a ceiling: on eve a reader grew
+  4 KiB at open and 4.6 MB reading 500 random keys of a 266 MB file. `mmap_size` stays 0: it
+  cost a fresh connection 0.5 ms per 500 random keys on eve and paid only on a warm one, and
+  a mount's connection lives one request.
 - Set members are durable-only. `SADD` and `SMEMBERS` store and read one row per member in a
   table of their own beside the keyed rows — `members` in the SQLite file,
   `{base_prefix}newspack_nodes_members` for wpdb — keyed `( set_key, member )`, so a member
@@ -1466,9 +1483,11 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
 - The PHP image needs `pdo_sqlite`. Without it a `sqlite` Table throws
   `sqlite backend needs the pdo_sqlite extension` at load.
 - A reader on another host cannot see a `sqlite` Table.
-- A long reader starves the WAL checkpoint, so the file grows until the reader ends. A reader
-  never blocks the writer under WAL; a write that waits out `busy_timeout` met a second
-  writer, and returns false.
+- A long reader starves the WAL checkpoint, so the WAL grows until the reader ends, and
+  sixty ticks of that say so. A reader never blocks the writer under WAL; a write that waits
+  out `busy_timeout` met a second writer, and returns false.
+- The WAL holds one tick's writes between checkpoints, and its file keeps the size of the
+  largest it reached: a checkpoint rewinds the WAL, and nothing truncates it.
 - A co-tenant install sharing `{base}` shares the file and becomes its second writer.
 - A Table built outside a graph, `Table_Node::table( $ns, $ttl, 'sqlite' )`, is opened by
   every web and CLI process that builds it, so its file has no one writer. Such a Table names

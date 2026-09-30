@@ -498,8 +498,19 @@ class Core {
 	 * blocking job has frozen $now.
 	 */
 	public static function right_now(): float {
-		self::$now = null !== self::$clock ? ( self::$clock )() : \microtime( true );
+		self::$now = self::read_clock();
 		return self::$now;
+	}
+
+	/**
+	 * The live hi-res clock right_now() reads, leaving `Core::$now` alone: for
+	 * a deadline inside a tick, where refreshing the tick's own clock would
+	 * move the time every later step of that tick, and a test driving it, reads.
+	 *
+	 * @return float Epoch seconds, from `$clock` when a test binds it.
+	 */
+	public static function read_clock(): float {
+		return null !== self::$clock ? ( self::$clock )() : \microtime( true );
 	}
 
 	/**

@@ -161,7 +161,8 @@ class Router_Node extends Timer_Node {
 	 * The housekeeping rides here because the tick is the one fixed cadence every
 	 * worker already pays for: `Partition_Node::flush_pending_wakes()` wakes
 	 * on-demand workers once per process instead of once per partition write,
-	 * `Table_Node::purge_expired()` deletes the rows no read of a Table reaches,
+	 * `Table_Node::purge_and_checkpoint()` deletes the rows no read of a Table
+	 * reaches and writes each SQLite Table's WAL back after the tick's flushes,
 	 * `Core::prune_logs()` re-windows the rate limiter so a recurring warning
 	 * eventually prints again, and `trim_profiles()` drops idle profile entries.
 	 *
@@ -177,7 +178,7 @@ class Router_Node extends Timer_Node {
 		$caught = Worker_Should_Stop::attempt(
 			fn () => $this->notify_timer(),
 			static fn () => Partition_Node::flush_pending_wakes(),
-			static fn () => Table_Node::purge_expired( (int) Core::$now ),
+			static fn () => Table_Node::purge_and_checkpoint( (int) Core::$now ),
 			static fn () => Core::prune_logs(),
 			fn () => null === self::$profiles ? null : $this->trim_profiles(),
 		);
