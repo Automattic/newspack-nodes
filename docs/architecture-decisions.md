@@ -1367,12 +1367,12 @@ A request may drive a running graph. A declared request answers TO=FROM through
 [`tachikoma-lineage.md`](tachikoma-lineage.md#a-declared-request-answers-in-an-envelope-tables-verbs-answer-bare)
 records.
 
-**Amendment:** a request carries a structure for a Table's `MSET`, `ADD` and `SADD` and a Ledger's `APPEND` alone. A Ledger's `APPEND` carries a list of `[ t, k, x, [ columns… ] ]` rows. A Table's
+**Amendment:** a request carries a structure for a Table's `MSET`, `ADD` and `SADD` and a Ledger's `APPEND`, `SUM`, `TOP` and `MEMBERS` alone. A Ledger's `APPEND` carries a list of `[ t, k, x, [ columns… ] ]` rows, and each of its reads a map of fields naming a `t` range, `from ≤ t < to`: `SUM` `{ from, to, ks, xs?, by_t? }`, `TOP` `{ from, to, ks, column, order, limit, offset, positive? }` and `MEMBERS` `{ from, to, k }`. A read builds its SQL from the Ledger's declaration alone: a column it names is looked up there and refused when absent, and a refusal never echoes the request's text. A Table's
 `MSET` and `ADD` carry `key => [ value, ttl ]` maps, and its `SADD` carries
 `set_key => [ [ member => value, … ], ttl ]` maps, that a string cannot hold without an
 encoding, so they travel as `TM_REQUEST | TM_STRUCT` with VALUE `[ 'MSET' => … ]`,
 `[ 'ADD' => … ]` or `[ 'SADD' => … ]`; every other request, `SMEMBERS` included, stays a
-string. Each of the four declares it on its `requests` entry, `'value' => 'struct'`, and
+string. Each of the seven declares it on its `requests` entry, `'value' => 'struct'`, and
 every sender reads that declaration: the console's verb dialog sends `TM_REQUEST | TM_STRUCT`
 for such an entry alone, and never infers one from the types of its args. `SMEMBERS` answers one message per set, as `MGET` answers one per key: `TM_STRUCT`
 with the set's `[ member, value ]` pairs, or `TM_BYTESTREAM "OVER <limit>"` and no members for

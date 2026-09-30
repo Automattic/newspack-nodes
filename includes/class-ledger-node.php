@@ -27,7 +27,10 @@
  * `arguments()`, through `Sqlite_Arm::open_database()`, the one place a SQLite
  * file opens. It answers the TM_REQUEST|TM_STRUCT `APPEND` TO its FROM
  * (ADR-23), one transaction a request; `append()` is the same write for a
- * caller outside a graph.
+ * caller outside a graph. The reads `SUM`, `TOP` and `MEMBERS` answer the
+ * same way, each over `from ≤ t < to` and every partition's rows, with SQL
+ * built from the declaration alone: a column a request names is looked up in
+ * it, and a name it does not hold is refused.
  *
  * @package Newspack_Nodes
  */
@@ -49,6 +52,9 @@ final class Ledger_Node extends Node {
 	 */
 	public const BUSY_TIMEOUT_MS = 5000;
 
+	/** Most rows one TOP answers: a page, never a dump of every member. */
+	public const TOP_LIMIT_MAX = Sqlite_Arm::IN_CHUNK;
+
 	/** What a read may apply to a column; `sum` when a column names none. */
 	public const AGGREGATES = [ 'sum', 'min', 'max' ];
 
@@ -68,8 +74,28 @@ final class Ledger_Node extends Node {
 	/** One APPEND row, as a refusal names it. */
 	private const ROW_SHAPE = '[ t, k, x, [ columns… ] ]';
 
+	/**
+	 * Each distinct `t` in `from ≤ t < to`, as `ts`, each found by one
+	 * primary-key seek past the last: a loose index scan. Binds from, to, to.
+	 */
+	private const WALK = 'WITH RECURSIVE ts ( t ) AS ( SELECT MIN( t ) FROM rows WHERE t >= ? AND t < ? UNION ALL SELECT ( SELECT MIN( t ) FROM rows WHERE t > ts.t AND t < ? ) FROM ts WHERE ts.t IS NOT NULL ) ';
+
+	/** The rows at each walked `t`; CROSS JOIN keeps the walk outer, so each `t` seeks its keys. */
+	private const AT_EACH_T = 'FROM ts CROSS JOIN rows WHERE rows.t = ts.t';
+
+	/** A key's distinct members in a `t` range; binds from, to, to, k. */
+	private const MEMBERS_READ = self::WALK . 'SELECT DISTINCT x ' . self::AT_EACH_T . ' AND k = ? ORDER BY x';
+
+	/** Keys, or members, a SUM binds per `IN ( … )` when it binds both lists. */
+	private const PAIRED_CHUNK = Sqlite_Arm::IN_CHUNK / 2;
+
 	/** The verbs a Ledger counts. */
-	private const ZERO_STATS = [ 'APPEND' => self::ZERO_ROW ];
+	private const ZERO_STATS = [
+		'APPEND'  => self::ZERO_ROW,
+		'SUM'     => self::ZERO_ROW,
+		'TOP'     => self::ZERO_ROW,
+		'MEMBERS' => self::ZERO_ROW,
+	];
 
 	/** Seconds of `t` one segment spans. */
 	private int $segment_seconds = 0;
@@ -89,6 +115,9 @@ final class Ledger_Node extends Node {
 
 	/** The one INSERT an APPEND runs per row. */
 	private ?\PDOStatement $insert = null;
+
+	/** The one SELECT a MEMBERS runs. */
+	private ?\PDOStatement $select_members = null;
 
 	/** The partition this writer's rows carry as `w`. */
 	private int $partition = 0;
@@ -125,10 +154,11 @@ final class Ledger_Node extends Node {
 		$names             = self::stored_columns( \count( $values['columns'] ) );
 		[ $db, $partition ] = $this->open( $names );
 		$this->assign_schema_args( $args, $values );
-		$this->db        = $db;
-		$this->insert    = $db->prepare( ( [] === $values['columns'] ? 'INSERT OR IGNORE' : 'INSERT' ) . ' INTO rows ( ' . \implode( ', ', \array_keys( $names ) ) . ' ) VALUES ( ' . \implode( ', ', \array_fill( 0, \count( $names ), '?' ) ) . ' )' );
-		$this->partition = $partition;
-		$this->sequence  = (int) \hrtime( true );
+		$this->db             = $db;
+		$this->insert         = $db->prepare( ( [] === $values['columns'] ? 'INSERT OR IGNORE' : 'INSERT' ) . ' INTO rows ( ' . \implode( ', ', \array_keys( $names ) ) . ' ) VALUES ( ' . self::placeholders( $names ) . ' )' );
+		$this->select_members = $db->prepare( self::MEMBERS_READ );
+		$this->partition      = $partition;
+		$this->sequence       = (int) \hrtime( true );
 		return $args;
 	}
 
@@ -271,7 +301,7 @@ final class Ledger_Node extends Node {
 		$bytes   = $this->stat_bytes();
 		$stored  = 0;
 		try {
-			$db     = $this->db ?? throw new \LogicException( \esc_html( "Ledger {$this->name} has opened no file" ) );
+			$db     = $this->db ?? throw $this->unopened();
 			$cutoff = (int) Core::right_now() - $this->segment_seconds * $this->num_segments;
 			$kept   = $this->kept_rows( \array_values( $rows ), $cutoff );
 			$stored = [] === $kept ? 0 : Sqlite_Arm::immediate( $db, fn (): int => $this->insert_rows( $kept ) );
@@ -334,13 +364,296 @@ final class Ledger_Node extends Node {
 	 * @return int Rows stored; a set's row already held stores none.
 	 */
 	private function insert_rows( array $rows ): int {
-		$insert = $this->insert ?? throw new \LogicException( \esc_html( "Ledger {$this->name} has opened no file" ) );
+		$insert = $this->insert ?? throw $this->unopened();
 		$stored = 0;
 		foreach ( $rows as [ $t, $k, $x, $columns ] ) {
 			$insert->execute( [] === $this->columns ? [ $t, $k, $x ] : [ $t, $k, $x, $this->partition, ++$this->sequence, ...$columns ] );
 			$stored += $insert->rowCount();
 		}
 		return $stored;
+	}
+
+	/**
+	 * One read request, answered and counted as one call of its verb: the
+	 * keys it asked, and the rows it answered.
+	 *
+	 * @param 'SUM'|'TOP'|'MEMBERS' $verb  The read.
+	 * @param mixed                 $query The request's map of fields.
+	 * @return array<array-key,mixed> The reply's `data`.
+	 * @throws \InvalidArgumentException On a query the read refuses.
+	 * @throws \PDOException When the read fails.
+	 */
+	private function read( string $verb, mixed $query ): array {
+		$started  = self::monotonic_ns();
+		$bytes    = $this->stat_bytes();
+		$asked    = 0;
+		$answered = 0;
+		try {
+			$query                       = \is_array( $query ) ? $query : throw new \InvalidArgumentException( 'needs a map of its fields' );
+			[ $asked, $data, $answered ] = match ( $verb ) {
+				'SUM'     => $this->read_sum( $query ),
+				'TOP'     => $this->read_top( $query ),
+				'MEMBERS' => $this->read_members( $query ),
+			};
+			return $data;
+		} finally {
+			$this->count_rows( $verb, $asked, $answered );
+			$this->count_call( $verb, $started, $bytes );
+		}
+	}
+
+	/**
+	 * `SUM`: each `( k, x )` group, or each `( k, x, t )` with `by_t`, each
+	 * column by its declared aggregate, in `( k, x[, t] )` order within each
+	 * chunk: IN_CHUNK keys, or PAIRED_CHUNK keys and members.
+	 *
+	 * @param array<array-key,mixed> $query `{ from, to, ks, xs?, by_t? }`.
+	 * @return array{0: int, 1: list<list<mixed>>, 2: int} Keys asked, the
+	 *                                                     `[ k, x, t|null,
+	 *                                                     columns… ]` rows,
+	 *                                                     and their count.
+	 * @throws \InvalidArgumentException On a query it refuses.
+	 */
+	private function read_sum( array $query ): array {
+		self::only( $query, 'from', 'to', 'ks', 'xs', 'by_t' );
+		$walk  = self::walk( $query );
+		$ks    = self::strings( $query, 'ks' );
+		$xs    = isset( $query['xs'] ) ? self::strings( $query, 'xs' ) : null;
+		$by_t  = $query['by_t'] ?? false;
+		if ( ! \is_bool( $by_t ) ) {
+			throw new \InvalidArgumentException( 'by_t is true or false' );
+		}
+		$group = $by_t ? 'k, x, rows.t' : 'k, x';
+		$pick  = \implode( ', ', [ 'k', 'x', $by_t ? 'rows.t' : 'NULL', ...$this->aggregates() ] );
+		$found = [];
+		foreach ( \array_chunk( $ks, null === $xs ? Sqlite_Arm::IN_CHUNK : self::PAIRED_CHUNK ) as $k_chunk ) {
+			foreach ( null === $xs ? [ [] ] : \array_chunk( $xs, self::PAIRED_CHUNK ) as $x_chunk ) {
+				$members = null === $xs ? '' : ' AND x IN ( ' . self::placeholders( $x_chunk ) . ' )';
+				$found[] = $this->rows( self::WALK . "SELECT {$pick} " . self::AT_EACH_T . ' AND k IN ( ' . self::placeholders( $k_chunk ) . " ){$members} GROUP BY {$group} ORDER BY {$group}", [ ...$walk, ...$k_chunk, ...$x_chunk ] );
+			}
+		}
+		$rows = \array_merge( ...$found );
+		return [ \count( $ks ), $rows, \count( $rows ) ];
+	}
+
+	/**
+	 * `TOP`: the members across every key in `ks`, grouped by `x` and ranked
+	 * by one column's aggregate, then `x`; `positive` keeps a member only when
+	 * its aggregate of that column is above 0. `total` counts the members
+	 * ranked before `offset` and `limit` page them, and one read transaction
+	 * holds the count and the page to one snapshot.
+	 *
+	 * @param array<array-key,mixed> $query `{ from, to, ks, column, order,
+	 *                                      limit, offset, positive? }`.
+	 * @return array{0: int, 1: array{total: int, rows: list<list<mixed>>}, 2: int}
+	 *         Keys asked, the page and its total, and the rows answered.
+	 * @throws \InvalidArgumentException On a query it refuses, or a Ledger
+	 *                                   with no column to rank by.
+	 */
+	private function read_top( array $query ): array {
+		self::only( $query, 'from', 'to', 'ks', 'column', 'order', 'limit', 'offset', 'positive' );
+		if ( [] === $this->columns ) {
+			throw new \InvalidArgumentException( 'a Ledger declaring no columns has none to rank by' );
+		}
+		$walk       = self::walk( $query );
+		$ks         = self::strings( $query, 'ks' );
+		$aggregates = $this->aggregates();
+		$rank       = $this->declared( $aggregates, $query, 'column' );
+		$having     = isset( $query['positive'] ) ? ' HAVING ' . $this->declared( $aggregates, $query, 'positive' ) . ' > 0' : '';
+		$order      = $query['order'] ?? null;
+		if ( 'asc' !== $order && 'desc' !== $order ) {
+			throw new \InvalidArgumentException( 'order is asc or desc' );
+		}
+		$limit      = self::whole( $query, 'limit', 1, self::TOP_LIMIT_MAX );
+		$offset     = self::whole( $query, 'offset', 0 );
+		if ( \count( $ks ) > Sqlite_Arm::IN_CHUNK ) {
+			throw new \InvalidArgumentException( 'ks names at most ' . Sqlite_Arm::IN_CHUNK . ' keys' );
+		}
+		$groups = self::AT_EACH_T . ' AND k IN ( ' . self::placeholders( $ks ) . " ) GROUP BY x{$having}";
+		$page   = self::WALK . 'SELECT ' . \implode( ', ', [ 'x', ...$aggregates ] ) . " {$groups} ORDER BY {$rank} " . \strtoupper( $order ) . ', x LIMIT ? OFFSET ?';
+		[ $total, $rows ] = Sqlite_Arm::deferred(
+			$this->db ?? throw $this->unopened(),
+			fn (): array => [
+				$this->rows( self::WALK . "SELECT COUNT(*) FROM ( SELECT x {$groups} )", [ ...$walk, ...$ks ] ),
+				$this->rows( $page, [ ...$walk, ...$ks, $limit, $offset ] ),
+			]
+		);
+		return [
+			\count( $ks ),
+			[
+				'total' => Core::as_int( $total[0][0] ),
+				'rows'  => $rows,
+			],
+			\count( $rows ),
+		];
+	}
+
+	/**
+	 * `MEMBERS`: the distinct members of one key, in member order.
+	 *
+	 * @param array<array-key,mixed> $query `{ from, to, k }`.
+	 * @return array{0: int, 1: list<string>, 2: int} The one key asked, its
+	 *                                                members, and their count.
+	 * @throws \InvalidArgumentException On a query it refuses.
+	 */
+	private function read_members( array $query ): array {
+		self::only( $query, 'from', 'to', 'k' );
+		$k       = \is_string( $query['k'] ?? null ) ? $query['k'] : throw new \InvalidArgumentException( 'k is a string' );
+		$read    = $this->select_members ?? throw $this->unopened();
+		$members = \array_map( Core::as_string( ... ), \array_column( self::fetched( $read, [ ...self::walk( $query ), $k ] ), 0 ) );
+		return [ 1, $members, \count( $members ) ];
+	}
+
+	/**
+	 * Refuse a query naming a field its read does not take.
+	 *
+	 * @param array<array-key,mixed> $query  The query.
+	 * @param string                 ...$names The fields the read takes.
+	 * @throws \InvalidArgumentException Naming the fields it takes, never the
+	 *                                   one it refused, so the reply stays
+	 *                                   one line.
+	 */
+	private static function only( array $query, string ...$names ): void {
+		if ( [] !== \array_diff_key( $query, \array_flip( $names ) ) ) {
+			$last = \array_pop( $names );
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; answered as a TM_ERROR line, never rendered.
+			throw new \InvalidArgumentException( 'takes the fields ' . \implode( ', ', $names ) . " and {$last} alone" );
+		}
+	}
+
+	/**
+	 * The values WALK binds for a query's `t` range.
+	 *
+	 * @param array<array-key,mixed> $query The query.
+	 * @return list<int> from, to, to.
+	 * @throws \InvalidArgumentException When from or to is no whole number.
+	 */
+	private static function walk( array $query ): array {
+		$to = self::whole( $query, 'to' );
+		return [ self::whole( $query, 'from' ), $to, $to ];
+	}
+
+	/**
+	 * A field holding a whole number: any, at least `$floor`, or from
+	 * `$floor` to `$ceiling`.
+	 *
+	 * @param array<array-key,mixed> $query   The query.
+	 * @param string                 $name    The field.
+	 * @param int                    $floor   The least it may be.
+	 * @param int                    $ceiling The most it may be.
+	 * @return int The number.
+	 * @throws \InvalidArgumentException On anything else, absence included.
+	 */
+	private static function whole( array $query, string $name, int $floor = \PHP_INT_MIN, int $ceiling = \PHP_INT_MAX ): int {
+		$value = $query[ $name ] ?? null;
+		if ( \is_int( $value ) && $value >= $floor && $value <= $ceiling ) {
+			return $value;
+		}
+		$bounds = match ( true ) {
+			\PHP_INT_MIN === $floor   => '',
+			\PHP_INT_MAX === $ceiling => " of at least {$floor}",
+			default                   => " from {$floor} to {$ceiling}",
+		};
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; answered as a TM_ERROR line, never rendered.
+		throw new \InvalidArgumentException( "{$name} is a whole number{$bounds}" );
+	}
+
+	/**
+	 * A field holding a list of strings, answered with each string once.
+	 *
+	 * @param array<array-key,mixed> $query The query.
+	 * @param string                 $name  The field.
+	 * @return list<string> The distinct strings, in first-seen order.
+	 * @throws \InvalidArgumentException On anything else, absence included.
+	 */
+	private static function strings( array $query, string $name ): array {
+		$value   = $query[ $name ] ?? null;
+		$strings = \is_array( $value ) && \array_is_list( $value ) ? \array_filter( $value, \is_string( ... ) ) : null;
+		if ( null !== $strings && \count( $strings ) === \count( $value ) ) {
+			return \array_values( \array_unique( $strings ) );
+		}
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; answered as a TM_ERROR line, never rendered.
+		throw new \InvalidArgumentException( "{$name} is a list of strings" );
+	}
+
+	/**
+	 * The aggregate of the declared column a field names.
+	 *
+	 * @param array<string,string>   $aggregates aggregates().
+	 * @param array<array-key,mixed> $query      The query.
+	 * @param string                 $name       The field naming the column.
+	 * @return string The column's aggregate, as SQL.
+	 * @throws \InvalidArgumentException When it names no declared column.
+	 */
+	private function declared( array $aggregates, array $query, string $name ): string {
+		$column = $query[ $name ] ?? null;
+		if ( \is_string( $column ) && isset( $aggregates[ $column ] ) ) {
+			return $aggregates[ $column ];
+		}
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; answered as a TM_ERROR line, never rendered.
+		throw new \InvalidArgumentException( "{$name} is one of " . \implode( ', ', \array_keys( $this->columns ) ) );
+	}
+
+	/**
+	 * Each declared column's aggregate over its stored column, as SQL.
+	 *
+	 * @return array<string,string> Name => `SUM(c0)`, in declaration order.
+	 */
+	private function aggregates(): array {
+		$sql = [];
+		foreach ( \array_keys( $this->columns ) as $i => $name ) {
+			$sql[ $name ] = \strtoupper( $this->columns[ $name ] ) . "(c{$i})";
+		}
+		return $sql;
+	}
+
+	/**
+	 * One `?` per value, comma-separated.
+	 *
+	 * @param array<array-key,mixed> $values The values bound.
+	 * @return string The placeholders.
+	 */
+	private static function placeholders( array $values ): string {
+		return \implode( ', ', \array_fill( 0, \count( $values ), '?' ) );
+	}
+
+	/**
+	 * Every row one statement answers, prepared for this call alone.
+	 *
+	 * @param string      $sql    The statement.
+	 * @param list<mixed> $values Bound values.
+	 * @return list<list<mixed>> The rows.
+	 */
+	private function rows( string $sql, array $values ): array {
+		$db = $this->db ?? throw $this->unopened();
+		return self::fetched( $db->prepare( $sql ), $values );
+	}
+
+	/**
+	 * The refusal of a call made before arguments() has opened the file.
+	 *
+	 * @return \LogicException Naming the Ledger.
+	 */
+	private function unopened(): \LogicException {
+		return new \LogicException( \esc_html( "Ledger {$this->name} has opened no file" ) );
+	}
+
+	/**
+	 * Run a statement, each int bound as an integer, and read it to its end,
+	 * so a cached statement holds no read snapshot open past the call.
+	 *
+	 * @param \PDOStatement $statement The statement.
+	 * @param list<mixed>   $values    Bound values.
+	 * @return list<list<mixed>> The rows.
+	 */
+	private static function fetched( \PDOStatement $statement, array $values ): array {
+		foreach ( $values as $i => $value ) {
+			$statement->bindValue( $i + 1, $value, \is_int( $value ) ? \PDO::PARAM_INT : \PDO::PARAM_STR );
+		}
+		$statement->execute();
+		/** @var list<list<mixed>> $rows FETCH_NUM answers each row as a list. */
+		$rows = $statement->fetchAll( \PDO::FETCH_NUM );
+		return $rows;
 	}
 
 	/**
@@ -374,6 +687,30 @@ final class Ledger_Node extends Node {
 					'args'        => [ [ 'name' => 'rows', 'type' => 'json', 'required' => true, 'description' => 'list of [ t, k, x, [ columns… ] ]' ] ],
 					'handler'     => static fn ( self $ledger, mixed $rows ): array => $ledger->append( \is_array( $rows ) ? $rows : throw new \InvalidArgumentException( 'needs a list of ' . self::ROW_SHAPE . ' rows' ) ),
 					'reply_shape' => 'TM_STRUCT|TM_RESPONSE { verb: APPEND, data: { stored, dropped } }, or a TM_ERROR "APPEND: <why>"',
+				],
+				[
+					'name'        => 'SUM',
+					'description' => 'Each ( k, x ) group, or each ( k, x, t ) with by_t, over from ≤ t < to, each column by its declared aggregate; xs narrows the members.',
+					'value'       => 'struct',
+					'args'        => [ [ 'name' => 'query', 'type' => 'json', 'required' => true, 'description' => '{ from, to, ks: [ k… ], xs?: [ x… ], by_t?: bool }' ] ],
+					'handler'     => static fn ( self $ledger, mixed $query ): array => $ledger->read( 'SUM', $query ),
+					'reply_shape' => 'TM_STRUCT|TM_RESPONSE { verb: SUM, data: [ [ k, x, t|null, columns… ], … ] }, or a TM_ERROR "SUM: <why>"',
+				],
+				[
+					'name'        => 'TOP',
+					'description' => 'The members across every key in ks, ranked by one column\'s aggregate over from ≤ t < to, then paged; positive keeps a member only when that column\'s aggregate is above 0.',
+					'value'       => 'struct',
+					'args'        => [ [ 'name' => 'query', 'type' => 'json', 'required' => true, 'description' => '{ from, to, ks: [ k… ], column, order: asc|desc, limit: 1 to TOP_LIMIT_MAX (500), offset, positive?: column }' ] ],
+					'handler'     => static fn ( self $ledger, mixed $query ): array => $ledger->read( 'TOP', $query ),
+					'reply_shape' => 'TM_STRUCT|TM_RESPONSE { verb: TOP, data: { total, rows: [ [ x, columns… ], … ] } }, or a TM_ERROR "TOP: <why>"',
+				],
+				[
+					'name'        => 'MEMBERS',
+					'description' => 'The distinct members of one key over from ≤ t < to, in member order.',
+					'value'       => 'struct',
+					'args'        => [ [ 'name' => 'query', 'type' => 'json', 'required' => true, 'description' => '{ from, to, k }' ] ],
+					'handler'     => static fn ( self $ledger, mixed $query ): array => $ledger->read( 'MEMBERS', $query ),
+					'reply_shape' => 'TM_STRUCT|TM_RESPONSE { verb: MEMBERS, data: [ x, … ] }, or a TM_ERROR "MEMBERS: <why>"',
 				],
 			],
 			'has_target'  => false,

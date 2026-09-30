@@ -111,7 +111,7 @@ Every `Shell3.pm` citation below is load-bearing: our tokenizer is meant to be t
 | `message.*` vars stamped at the mint | `Shell3.pm`'s `tell_node` builtin does the same for FROM and STREAM |
 | `request_node` / `request` — a TM_REQUEST at `prefix(<path>)`, VALUE the words after the path | `Shell3.pm`'s `$BUILTINS{'request_node'}`, aliased `request` |
 | `send_struct` — a TM_STRUCT at `prefix(<path>)`, VALUE the decoded JSON | `Shell3.pm`'s `$BUILTINS{'send_hash'}`, which decodes the same JSON into a TM_STORABLE; TM_STRUCT is its counterpart on a JSON wire |
-| `request_struct` / `request_struct_node` — a TM_REQUEST\|TM_STRUCT at `prefix(<path>)`, VALUE the decoded JSON as given | no single builtin: `request_node`'s TM_REQUEST carrying `send_hash`'s decoded payload, because an upstream request carries bytes alone and a Table's `MSET`, `ADD` and `SADD` and a Ledger's `APPEND` need a structure ([ADR-23](architecture-decisions.md#adr-23-a-request-carries-no-authority-of-its-own)) |
+| `request_struct` / `request_struct_node` — a TM_REQUEST\|TM_STRUCT at `prefix(<path>)`, VALUE the decoded JSON as given | no single builtin: `request_node`'s TM_REQUEST carrying `send_hash`'s decoded payload, because an upstream request carries bytes alone and a Table's `MSET`, `ADD` and `SADD` and a Ledger's `APPEND`, `SUM`, `TOP` and `MEMBERS` need a structure ([ADR-23](architecture-decisions.md#adr-23-a-request-carries-no-authority-of-its-own)) |
 | unquoted `#` comments to end of line, anywhere | `Shell3.pm`'s `tokenize`, stripping to end of line on an unescaped `#` |
 | outside a quote, `\X` is a literal X | `Shell3.pm`'s `tokenize`, minting a `string4` token |
 | double-quote escapes (`\e \n \r \t`, `\" \\ \< \>`) | `Shell3.pm` `string1` |

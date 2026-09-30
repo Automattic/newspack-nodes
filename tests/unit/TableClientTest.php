@@ -3,6 +3,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Ledger_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Node_Names;
@@ -333,6 +334,74 @@ final class TableClientTest extends TestCase {
 		$this->assertSame( [ 'sku-41' => 'kea' ], $this->asker->client->get_multi( 'lab-7:kea', [ 'sku-41' ], $failed ) );
 		$this->assertFalse( $failed );
 		$this->assertSame( [], $this->asker->folded );
+	}
+
+	/** The weka Ledger, qty summed and hi its maximum, in partition 3's worker. */
+	private function weka(): void {
+		Core::$clock            = static fn (): float => 1790000400.0;
+		Core::$var['partition'] = '3';
+		try {
+			$ledger = new Ledger_Node();
+			$ledger->name( 'lab-7:weka' );
+			$ledger->arguments( [ '600', '3', 'qty', 'hi:max' ] );
+			$ledger->sink( $this->asker->sink() );
+		} finally {
+			unset( Core::$var['partition'] );
+		}
+	}
+
+	public function test_a_ledger_round_trip_through_the_graph(): void {
+		$this->weka();
+		$client = $this->asker->client;
+		$this->assertSame(
+			[
+				'stored'  => 3,
+				'dropped' => 1,
+			],
+			$client->append(
+				'lab-7:weka',
+				[
+					[ 1790000400, 'sku-41', 'aisle-9', [ 3, 7 ] ],
+					[ 1790000400, 'sku-43', 'aisle-12', [ 5, 8 ] ],
+					[ 1790000400 - 600, 'sku-41', 'aisle-9', [ 4, 11 ] ],
+					[ 1790000400 - 1801, 'sku-41', 'aisle-9', [ 9, 99 ] ],
+				]
+			)
+		);
+		$range = [
+			'from' => 1790000400 - 600,
+			'to'   => 1790000401,
+		];
+		$this->assertSame( [ [ 'sku-41', 'aisle-9', null, 7.0, 11.0 ] ], $client->sum( 'lab-7:weka', $range + [ 'ks' => [ 'sku-41' ] ] ) );
+		$this->assertSame(
+			[
+				'total' => 2,
+				'rows'  => [ [ 'aisle-9', 7.0, 11.0 ] ],
+			],
+			$client->top( 'lab-7:weka', $range + [ 'ks' => [ 'sku-41', 'sku-43' ], 'column' => 'qty', 'order' => 'desc', 'limit' => 1, 'offset' => 0 ] )
+		);
+		$this->assertSame( [ 'aisle-9' ], $client->ledger_members( 'lab-7:weka', 1790000400 - 600, 1790000401, 'sku-41' ) );
+		$this->assertSame( [], $this->asker->folded, 'every reply went to the client' );
+	}
+
+	public function test_a_refused_or_unanswered_ledger_ask_answers_null(): void {
+		$this->weka();
+		$lines = [];
+		Core::set_stderr_handler(
+			static function ( string $line ) use ( &$lines ): void {
+				$lines[] = $line;
+			}
+		);
+		$client = $this->asker->client;
+		$this->assertNull( $client->top( 'lab-7:weka', [ 'from' => 0, 'to' => 1, 'ks' => [ 'sku-41' ], 'column' => 'price', 'order' => 'desc', 'limit' => 1, 'offset' => 0 ] ) );
+		$this->assertNull( $client->append( 'lab-7:weka', [ [ 1790000400, 'sku 41', 'aisle-9', [ 3, 7 ] ] ] ) );
+		$this->assertNull( $client->sum( 'lab-7:gone', [ 'from' => 0, 'to' => 1, 'ks' => [ 'sku-41' ] ] ) );
+		$mute = new Capture_Sink_Node();
+		$mute->name( 'lab-7:mute' );
+		$this->assertNull( $client->ledger_members( 'lab-7:mute', 0, 1, 'sku-41' ), 'no answer is no data' );
+		$log = \implode( "\n", $lines );
+		$this->assertStringContainsString( 'Table_Client: lab-7:weka refused an ask from asker-9 — TOP: column is one of qty, hi', $log );
+		$this->assertStringContainsString( 'Table_Client: lab-7:gone refused an ask from asker-9 — NOT_AVAILABLE', $log );
 	}
 
 	public function test_a_key_holding_whitespace_is_never_asked(): void {
