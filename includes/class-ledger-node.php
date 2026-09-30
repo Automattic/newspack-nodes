@@ -33,9 +33,10 @@
  * caller outside a graph. The reads `SUM`, `TOP` and `MEMBERS` answer the
  * same way, each over `from ≤ t < to` and every partition's rows, with SQL
  * built from the declaration alone: a column a request names is looked up in
- * it, and a name it does not hold is refused. A request graph reads through
- * `mount()`, a read-only connection under the Ledger's own name, which answers
- * the reads and refuses APPEND.
+ * it, and a name it does not hold, or a use its aggregate has no meaning
+ * for, is refused. A request graph reads through `mount()`, a read-only
+ * connection under the Ledger's own name, which answers the reads and
+ * refuses APPEND.
  *
  * @package Newspack_Nodes
  */
@@ -174,9 +175,10 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	/**
 	 * `<segment_seconds> <num_segments> [<column>[:sum|min|max] …]`. Both
 	 * counts are whole numbers of at least 1. Each column is named once, in
-	 * `[A-Za-z_][A-Za-z0-9_]*`, and its aggregate is one of AGGREGATES; no
-	 * column makes the Ledger a set. Every token is checked, and the file
-	 * opened, before any field moves, so a refusal leaves the node as it was.
+	 * `[A-Za-z_][A-Za-z0-9_]*` and never `x`, which a TOP orders by as the
+	 * member, and its aggregate is one of AGGREGATES; no column makes the
+	 * Ledger a set. Every token is checked, and the file opened, before any
+	 * field moves, so a refusal leaves the node as it was.
 	 * A writer prepares its writes and a mount its reads alone.
 	 *
 	 * @param list<string>|null $args
@@ -421,28 +423,37 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	}
 
 	/**
-	 * `SUM`: each `( k, x )` group, or each `( k, x, t )` with `by_t`, each
-	 * column by its declared aggregate, in `( k, x[, t] )` order within each
-	 * chunk: IN_CHUNK keys, or PAIRED_CHUNK keys and members.
+	 * `SUM`: each `( k, x )` group, or with `group: 'k'` each `k` across its
+	 * members, and each split per `t` with `by_t`, each column by its
+	 * declared aggregate, in `( k, x[, t] )` order within each chunk:
+	 * IN_CHUNK keys, or PAIRED_CHUNK keys and members. A `k` total reads
+	 * every member it names in one chunk, so it takes PAIRED_CHUNK at most.
 	 *
-	 * @param array<array-key,mixed> $query `{ from, to, ks, xs?, by_t? }`.
+	 * @param array<array-key,mixed> $query `{ from, to, ks, xs?, by_t?,
+	 *                                      group?: x|k }`.
 	 * @return array{0: int, 1: list<list<mixed>>, 2: int} Keys asked, the
-	 *                                                     `[ k, x, t|null,
-	 *                                                     columns… ]` rows,
-	 *                                                     and their count.
+	 *                                                     `[ k, x|null,
+	 *                                                     t|null, columns… ]`
+	 *                                                     rows, and their
+	 *                                                     count.
 	 * @throws \InvalidArgumentException On a query it refuses.
 	 */
 	private function read_sum( array $query ): array {
-		self::only( $query, 'from', 'to', 'ks', 'xs', 'by_t' );
+		self::only( $query, 'from', 'to', 'ks', 'xs', 'by_t', 'group' );
 		$walk  = self::walk( $query );
 		$ks    = self::strings( $query, 'ks' );
 		$xs    = isset( $query['xs'] ) ? self::strings( $query, 'xs' ) : null;
-		$by_t  = $query['by_t'] ?? false;
-		if ( ! \is_bool( $by_t ) ) {
-			throw new \InvalidArgumentException( 'by_t is true or false' );
+		$by_t  = self::boolean( $query, 'by_t' );
+		$per_x = match ( $query['group'] ?? 'x' ) {
+			'x'     => true,
+			'k'     => false,
+			default => throw new \InvalidArgumentException( 'group is x or k' ),
+		};
+		if ( ! $per_x && \count( $xs ?? [] ) > self::PAIRED_CHUNK ) {
+			throw new \InvalidArgumentException( 'xs names at most ' . self::PAIRED_CHUNK . ' members with group k' );
 		}
-		$group = $by_t ? 'k, x, rows.t' : 'k, x';
-		$pick  = \implode( ', ', [ 'k', 'x', $by_t ? 'rows.t' : 'NULL', ...$this->aggregates() ] );
+		$group = \implode( ', ', [ 'k', ...( $per_x ? [ 'x' ] : [] ), ...( $by_t ? [ 'rows.t' ] : [] ) ] );
+		$pick  = \implode( ', ', [ 'k', $per_x ? 'x' : 'NULL', $by_t ? 'rows.t' : 'NULL', ...$this->aggregates() ] );
 		$found = [];
 		foreach ( \array_chunk( $ks, null === $xs ? Sqlite_Arm::IN_CHUNK : self::PAIRED_CHUNK ) as $k_chunk ) {
 			foreach ( null === $xs ? [ [] ] : \array_chunk( $xs, self::PAIRED_CHUNK ) as $x_chunk ) {
@@ -456,39 +467,53 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 
 	/**
 	 * `TOP`: the members across every key in `ks`, grouped by `x` and ranked
-	 * by one column's aggregate, then `x`; `positive` keeps a member only when
-	 * its aggregate of that column is above 0. `total` counts the members
-	 * ranked before `offset` and `limit` page them, and one read transaction
-	 * holds the count and the page to one snapshot.
+	 * by `order_by`, then `x`: a column's aggregate, `x` itself, or the
+	 * aggregate of one `sum` column over another's, whose zero denominator
+	 * ranks last in either order. `positive` keeps a member only when its
+	 * aggregate of that column is above 0; with `positive_each_t` it filters
+	 * each `( t, x )` group instead, so only the `t` in which the member was
+	 * positive are summed. `total` counts the members ranked before `offset`
+	 * and `limit` page them, and one read transaction holds the count and the
+	 * page to one snapshot. A set ranks by `x` alone.
 	 *
-	 * @param array<array-key,mixed> $query `{ from, to, ks, column, order,
-	 *                                      limit, offset, positive? }`.
+	 * @param array<array-key,mixed> $query `{ from, to, ks, order_by, order,
+	 *                                      limit, offset, positive?,
+	 *                                      positive_each_t? }`.
 	 * @return array{0: int, 1: array{total: int, rows: list<list<mixed>>}, 2: int}
 	 *         Keys asked, the page and its total, and the rows answered.
-	 * @throws \InvalidArgumentException On a query it refuses, or a Ledger
-	 *                                   with no column to rank by.
+	 * @throws \InvalidArgumentException On a query it refuses.
 	 */
 	private function read_top( array $query ): array {
-		self::only( $query, 'from', 'to', 'ks', 'column', 'order', 'limit', 'offset', 'positive' );
-		if ( [] === $this->columns ) {
-			throw new \InvalidArgumentException( 'a Ledger declaring no columns has none to rank by' );
+		self::only( $query, 'from', 'to', 'ks', 'order_by', 'order', 'limit', 'offset', 'positive', 'positive_each_t' );
+		if ( [] === $this->columns && ( 'x' !== ( $query['order_by'] ?? null ) || isset( $query['positive'] ) ) ) {
+			throw new \InvalidArgumentException( 'a Ledger declaring no columns ranks by x alone, with no positive' );
 		}
 		$walk       = self::walk( $query );
 		$ks         = self::strings( $query, 'ks' );
 		$aggregates = $this->aggregates();
-		$rank       = $this->declared( $aggregates, $query, 'column' );
-		$having     = isset( $query['positive'] ) ? ' HAVING ' . $this->declared( $aggregates, $query, 'positive' ) . ' > 0' : '';
-		$order      = $query['order'] ?? null;
+		$rank       = $this->rank( $aggregates, $query['order_by'] ?? null );
+		$positive   = isset( $query['positive'] ) ? $this->declared( $aggregates, $query, 'positive' ) . ' > 0' : null;
+		$each_t     = self::boolean( $query, 'positive_each_t' );
+		if ( $each_t && null === $positive ) {
+			throw new \InvalidArgumentException( 'positive_each_t needs positive' );
+		}
+		$order = $query['order'] ?? null;
 		if ( 'asc' !== $order && 'desc' !== $order ) {
 			throw new \InvalidArgumentException( 'order is asc or desc' );
 		}
-		$limit      = self::whole( $query, 'limit', 1, self::TOP_LIMIT_MAX );
-		$offset     = self::whole( $query, 'offset', 0 );
+		$limit  = self::whole( $query, 'limit', 1, self::TOP_LIMIT_MAX );
+		$offset = self::whole( $query, 'offset', 0 );
 		if ( \count( $ks ) > Sqlite_Arm::IN_CHUNK ) {
 			throw new \InvalidArgumentException( 'ks names at most ' . Sqlite_Arm::IN_CHUNK . ' keys' );
 		}
-		$groups = self::AT_EACH_T . ' AND k IN ( ' . self::placeholders( $ks ) . " ) GROUP BY x{$having}";
-		$page   = self::WALK . 'SELECT ' . \implode( ', ', [ 'x', ...$aggregates ] ) . " {$groups} ORDER BY {$rank} " . \strtoupper( $order ) . ', x LIMIT ? OFFSET ?';
+		$keyed = self::AT_EACH_T . ' AND k IN ( ' . self::placeholders( $ks ) . ' )';
+		if ( $each_t ) {
+			$per_t  = 'SELECT ' . \implode( ', ', [ 'x', ...self::aliased( $aggregates ) ] ) . " {$keyed} GROUP BY rows.t, x HAVING {$positive}";
+			$groups = "FROM ( {$per_t} ) GROUP BY x";
+		} else {
+			$groups = "{$keyed} GROUP BY x" . ( null === $positive ? '' : " HAVING {$positive}" );
+		}
+		$page   = self::WALK . 'SELECT ' . \implode( ', ', [ 'x', ...$aggregates ] ) . " {$groups} ORDER BY {$rank} " . \strtoupper( $order ) . ' NULLS LAST, x LIMIT ? OFFSET ?';
 		[ $total, $rows ] = Sqlite_Arm::deferred(
 			$this->db ?? throw $this->unopened(),
 			fn (): array => [
@@ -504,6 +529,49 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 			],
 			\count( $rows ),
 		];
+	}
+
+	/**
+	 * What a TOP ranks by, as SQL over the groups: `x`, a declared column's
+	 * aggregate, or `[ numerator, denominator ]`, two distinct `sum`
+	 * columns, divided with a zero denominator answering NULL.
+	 *
+	 * @param array<string,string> $aggregates aggregates().
+	 * @param mixed                $order_by   The request's `order_by`.
+	 * @return string The ranking expression.
+	 * @throws \InvalidArgumentException On anything else, offering a ratio
+	 *                                   only where two sum columns allow one.
+	 */
+	private function rank( array $aggregates, mixed $order_by ): string {
+		if ( 'x' === $order_by ) {
+			return 'x';
+		}
+		if ( \is_string( $order_by ) && isset( $aggregates[ $order_by ] ) ) {
+			return $aggregates[ $order_by ];
+		}
+		$sums                        = \array_keys( $this->columns, self::DEFAULT_AGGREGATE, true );
+		[ $numerator, $denominator ] = \is_array( $order_by ) && [ 0, 1 ] === \array_keys( $order_by ) ? $order_by : [ null, null ];
+		if ( $numerator !== $denominator && \in_array( $numerator, $sums, true ) && \in_array( $denominator, $sums, true ) ) {
+			return "{$aggregates[ $numerator ]} / NULLIF( {$aggregates[ $denominator ]}, 0 )";
+		}
+		$columns = \implode( ', ', \array_keys( $this->columns ) );
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; answered as a TM_ERROR line, never rendered.
+		throw new \InvalidArgumentException( \count( $sums ) < 2 ? "order_by is x or one of {$columns}" : "order_by is x, one of {$columns}, or [ numerator, denominator ] naming two sum columns of " . \implode( ', ', $sums ) );
+	}
+
+	/**
+	 * Each aggregate named for the stored column it reads, so a query over
+	 * pre-aggregated groups applies the same aggregates again.
+	 *
+	 * @param array<string,string> $aggregates aggregates().
+	 * @return list<string> `SUM(c0) AS c0`, … in declaration order.
+	 */
+	private static function aliased( array $aggregates ): array {
+		$aliased = [];
+		foreach ( \array_values( $aggregates ) as $i => $sql ) {
+			$aliased[] = "{$sql} AS c{$i}";
+		}
+		return $aliased;
 	}
 
 	/**
@@ -574,6 +642,20 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 		};
 		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; answered as a TM_ERROR line, never rendered.
 		throw new \InvalidArgumentException( "{$name} is a whole number{$bounds}" );
+	}
+
+	/**
+	 * A field holding true or false, false where it is absent.
+	 *
+	 * @param array<array-key,mixed> $query The query.
+	 * @param string                 $name  The field.
+	 * @return bool The flag.
+	 * @throws \InvalidArgumentException On anything else.
+	 */
+	private static function boolean( array $query, string $name ): bool {
+		$value = $query[ $name ] ?? false;
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; answered as a TM_ERROR line, never rendered.
+		return \is_bool( $value ) ? $value : throw new \InvalidArgumentException( "{$name} is true or false" );
 	}
 
 	/**
@@ -777,15 +859,16 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	 *
 	 * @param array<string> $tokens `<name>[:sum|min|max]` each.
 	 * @return array<string,string> Name => aggregate.
-	 * @throws \InvalidArgumentException On a name out of pattern or declared
-	 *                                   twice, or an unknown aggregate.
+	 * @throws \InvalidArgumentException On a name out of pattern, `x`, or
+	 *                                   declared twice, or an unknown
+	 *                                   aggregate.
 	 */
 	private function declared_columns( array $tokens ): array {
 		$columns = [];
 		foreach ( $tokens as $token ) {
 			[ $name, $aggregate ] = \explode( ':', self::spelled( $token ), 2 );
-			if ( 1 !== \preg_match( '/^[A-Za-z_][A-Za-z0-9_]*$/D', $name ) || isset( $columns[ $name ] ) ) {
-				$this->refuse_argument( "column {$token}: a name in [A-Za-z_][A-Za-z0-9_]*, declared once" );
+			if ( 1 !== \preg_match( '/^[A-Za-z_][A-Za-z0-9_]*$/D', $name ) || 'x' === $name || isset( $columns[ $name ] ) ) {
+				$this->refuse_argument( "column {$token}: a name in [A-Za-z_][A-Za-z0-9_]* other than x, which TOP orders by as the member, declared once" );
 			}
 			if ( ! \in_array( $aggregate, self::AGGREGATES, true ) ) {
 				$this->refuse_argument( "column {$token}: the aggregate is one of " . \implode( ', ', self::AGGREGATES ) );
@@ -992,7 +1075,7 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 			'arguments'   => [
 				[ 'name' => 'segment_seconds', 'type' => 'int', 'required' => true, 'description' => 'Seconds of t one segment spans, at least 1.' ],
 				[ 'name' => 'num_segments', 'type' => 'int', 'required' => true, 'description' => 'Segments kept, at least 1: the lifespan is segment_seconds × num_segments.' ],
-				[ 'name' => 'columns', 'type' => 'string', 'variadic' => true, 'description' => 'Numeric columns, each <name>[:sum|min|max], sum by default; none makes the Ledger a set.' ],
+				[ 'name' => 'columns', 'type' => 'string', 'variadic' => true, 'description' => 'Numeric columns, each <name>[:sum|min|max], sum by default, never named x; none makes the Ledger a set.' ],
 			],
 			'commands'    => [
 				[
@@ -1017,17 +1100,17 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 				],
 				[
 					'name'        => 'SUM',
-					'description' => 'Each ( k, x ) group, or each ( k, x, t ) with by_t, over from ≤ t < to, each column by its declared aggregate; xs narrows the members.',
+					'description' => 'Each ( k, x ) group, or with group k each k across its members, and each per t with by_t, over from ≤ t < to, each column by its declared aggregate; xs narrows the members, to at most 250 with group k.',
 					'value'       => 'struct',
-					'args'        => [ [ 'name' => 'query', 'type' => 'json', 'required' => true, 'description' => '{ from, to, ks: [ k… ], xs?: [ x… ], by_t?: bool }' ] ],
+					'args'        => [ [ 'name' => 'query', 'type' => 'json', 'required' => true, 'description' => '{ from, to, ks: [ k… ], xs?: [ x… ], by_t?: bool, group?: x|k }' ] ],
 					'handler'     => static fn ( self $ledger, mixed $query ): array => $ledger->read( 'SUM', $query ),
-					'reply_shape' => 'TM_STRUCT|TM_RESPONSE { verb: SUM, data: [ [ k, x, t|null, columns… ], … ] }, or a TM_ERROR "SUM: <why>"',
+					'reply_shape' => 'TM_STRUCT|TM_RESPONSE { verb: SUM, data: [ [ k, x|null, t|null, columns… ], … ] }, x null with group k, or a TM_ERROR "SUM: <why>"',
 				],
 				[
 					'name'        => 'TOP',
-					'description' => 'The members across every key in ks, ranked by one column\'s aggregate over from ≤ t < to, then paged; positive keeps a member only when that column\'s aggregate is above 0.',
+					'description' => 'The members across every key in ks over from ≤ t < to, ranked by order_by then x, and paged: a column\'s aggregate, x itself, or [ numerator, denominator ] of two sum columns, a zero denominator last. positive keeps a member only when that column\'s aggregate is above 0, or with positive_each_t sums only the t in which it was; a set ranks by x alone.',
 					'value'       => 'struct',
-					'args'        => [ [ 'name' => 'query', 'type' => 'json', 'required' => true, 'description' => '{ from, to, ks: [ k… ], column, order: asc|desc, limit: 1 to TOP_LIMIT_MAX (500), offset, positive?: column }' ] ],
+					'args'        => [ [ 'name' => 'query', 'type' => 'json', 'required' => true, 'description' => '{ from, to, ks: [ k… ], order_by: x|column|[ sum column, sum column ], order: asc|desc, limit: 1 to TOP_LIMIT_MAX (500), offset, positive?: column, positive_each_t?: bool }' ] ],
 					'handler'     => static fn ( self $ledger, mixed $query ): array => $ledger->read( 'TOP', $query ),
 					'reply_shape' => 'TM_STRUCT|TM_RESPONSE { verb: TOP, data: { total, rows: [ [ x, columns… ], … ] } }, or a TM_ERROR "TOP: <why>"',
 				],

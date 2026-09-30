@@ -247,9 +247,11 @@ final class Table_Client {
 	 *
 	 * @api A node reading a Ledger: event-logger-nodes' stats readers.
 	 * @param string                 $ledger The Ledger's registered name.
-	 * @param array<string,mixed>    $query  `{ from, to, ks, xs?, by_t? }`.
-	 * @return array<array-key,mixed>|null `[ k, x, t|null, columns… ]` rows, or
-	 *                                     null when refused or unanswered.
+	 * @param array<string,mixed>    $query  `{ from, to, ks, xs?, by_t?,
+	 *                                       group?: x|k }`.
+	 * @return array<array-key,mixed>|null `[ k, x|null, t|null, columns… ]`
+	 *                                     rows, or null when refused or
+	 *                                     unanswered.
 	 * @throws \LogicException When an ask is in flight already.
 	 * @throws \RuntimeException When the asker has no name or no sink.
 	 */
@@ -258,12 +260,13 @@ final class Table_Client {
 	}
 
 	/**
-	 * `TOP`: a Ledger's members across keys, ranked by one column.
+	 * `TOP`: a Ledger's members across keys, ranked by `order_by`.
 	 *
 	 * @api A node reading a Ledger: event-logger-nodes' stats readers.
 	 * @param string              $ledger The Ledger's registered name.
-	 * @param array<string,mixed> $query  `{ from, to, ks, column, order,
-	 *                                    limit, offset, positive? }`.
+	 * @param array<string,mixed> $query  `{ from, to, ks, order_by, order,
+	 *                                    limit, offset, positive?,
+	 *                                    positive_each_t? }`.
 	 * @return array<array-key,mixed>|null `{ total, rows }`, or null when
 	 *                                     refused or unanswered.
 	 * @throws \LogicException When an ask is in flight already.
