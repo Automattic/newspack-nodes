@@ -1165,9 +1165,14 @@
 .topology-insp__section {
 	margin: 18px 0;
 
-	// A grid wider than the rail scrolls inside its section, not the rail.
+	// Grids take the rail's value size; one still too wide scrolls in place.
 	&:has(> .nodes-runtime__grid) {
+		font-size: 11px;
 		overflow-x: auto;
+	}
+
+	> .nodes-runtime__grid + .nodes-runtime__grid {
+		margin-top: 9px;
 	}
 
 	&-title {
