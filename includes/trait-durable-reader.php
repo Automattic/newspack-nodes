@@ -36,6 +36,15 @@ namespace Newspack_Nodes;
  * `Dead_Letter_Queue` and `Sidecar` ride in with it. The cursor decides WHEN a record
  * is quarantined and where the reader resumes afterwards, so the trait owning the
  * cursor owns the quarantine too.
+ *
+ * A snapshot node (`add_snapshot_node`) co-commits its `save_state()` in every
+ * state-carrying frame. One that also defines `settle()` has it called before the
+ * save on the INTERVAL checkpoint alone — `fire()`'s, once a CHECKPOINT_INTERVAL_S,
+ * and only when that frame commits — so it can move what it has folded to a store
+ * of its own and save what is left. Every other frame — a graceful stop's, a
+ * crawl's per-message one, a boot or cooperative-stop recommit — saves the state
+ * unsettled, and `seek_frame` restores without settling, so what a frame carries
+ * is settled once, by the next interval checkpoint after a restore.
  */
 trait Durable_Reader {
 	use Dead_Letter_Queue;
@@ -366,7 +375,7 @@ trait Durable_Reader {
 		$this->poll();
 		// poll() moves the cursor in memory; checkpoint() makes it durable.
 		if ( null !== $this->offsetlog && $this->checkpoint_due() ) {
-			$this->checkpoint();
+			$this->checkpoint( settle: true );
 			// Skip paths let an idle cursor re-throttle each interval.
 			$this->last_checkpoint = Core::$now;
 		}
@@ -803,8 +812,10 @@ trait Durable_Reader {
 	 * @param bool $graceful Final checkpoint of a clean shutdown — stamps attempts=0
 	 *                       (the cursor sits at an un-attempted message), so a respawn
 	 *                       resumes at a virgin first attempt rather than counting a strike.
+	 * @param bool $settle   The interval checkpoint: settle each snapshot node that
+	 *                       settles before its state is saved, when the frame commits.
 	 */
-	public function checkpoint( bool $graceful = false ): void {
+	public function checkpoint( bool $graceful = false, bool $settle = false ): void {
 		if ( null === $this->offsetlog || ( ! $this->poll_initialized && ! $this->offset_set ) ) {
 			return;
 		}
@@ -814,7 +825,7 @@ trait Durable_Reader {
 		if ( ! $graceful && ! $this->crawl && $this->cursor_advanced_since_boot() ) {
 			$this->reset_poison_streak();
 		}
-		$this->write_checkpoint_frame( $graceful, true );
+		$this->write_checkpoint_frame( $graceful, true, settle: $settle );
 	}
 
 	/**
@@ -826,8 +837,10 @@ trait Durable_Reader {
 	 * @param bool                   $with_state Co-commit the snapshot nodes' state as `cache`;
 	 *                                           a reader with no snapshot concern ignores it.
 	 * @param array<array-key,mixed> $extra      Per-call frame additions.
+	 * @param bool                   $settle     Settle the snapshot nodes before their state
+	 *                                           is saved; a reader with none ignores it.
 	 */
-	abstract protected function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [] ): void;
+	abstract protected function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [], bool $settle = false ): void;
 
 	/**
 	 * Last (seg,off) committed to the offsetlog (-1/-1 before the first commit). Feeds the

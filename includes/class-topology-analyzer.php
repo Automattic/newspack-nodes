@@ -895,16 +895,11 @@ class Topology_Analyzer {
 	 */
 	public static function declared_tables( string $name ): array {
 		$out = [];
-		foreach ( self::statements( $name )['statements'] as $statement ) {
-			$values = $statement['values'];
-			if ( 'make_node' !== $statement['verb'] || ! self::type_is( $values[1] ?? '', Table_Node::class ) ) {
-				continue;
-			}
-			$table         = $values[2] ?? '';
+		foreach ( self::declared( $name, Table_Node::class ) as $table => $values ) {
 			$out[ $table ] = [
-				'namespace' => $values[3] ?? '',
-				'ttl'       => $values[4] ?? throw new \RuntimeException( \esc_html( "Table {$table} declares no TTL" ) ),
-				'backend'   => $values[5] ?? self::schema_default( Table_Node::class, 'backend' ),
+				'namespace' => $values[0] ?? '',
+				'ttl'       => $values[1] ?? throw new \RuntimeException( \esc_html( "Table {$table} declares no TTL" ) ),
+				'backend'   => $values[2] ?? self::schema_default( Table_Node::class, 'backend' ),
 			];
 		}
 		return $out;
@@ -927,6 +922,49 @@ class Topology_Analyzer {
 			}
 		}
 		return '';
+	}
+
+	/**
+	 * Every Ledger a topology declares, its includes flattened in: name => its
+	 * two counts and its columns as written, each `<name>[:sum|min|max]`.
+	 * Neither count has a default, so a Ledger declaring either not at all is
+	 * refused here.
+	 *
+	 * @param string $name Topology name.
+	 * @return array<string,array{segment_seconds: string, num_segments: string, columns: list<string>}>
+	 * @throws \RuntimeException On unknown include, cycle, conflicting make_node,
+	 *                           or a Ledger declaring no count.
+	 */
+	public static function declared_ledgers( string $name ): array {
+		$out = [];
+		foreach ( self::declared( $name, Ledger_Node::class ) as $ledger => $values ) {
+			$out[ $ledger ] = [
+				'segment_seconds' => $values[0] ?? throw new \RuntimeException( \esc_html( "Ledger {$ledger} declares no segment_seconds" ) ),
+				'num_segments'    => $values[1] ?? throw new \RuntimeException( \esc_html( "Ledger {$ledger} declares no num_segments" ) ),
+				'columns'         => \array_slice( $values, 2 ),
+			];
+		}
+		return $out;
+	}
+
+	/**
+	 * Every node of one class a topology declares, its includes flattened in:
+	 * name => the `make_node` arguments after the name, as written.
+	 *
+	 * @param string             $name Topology name.
+	 * @param class-string<Node> $fqcn The node class, subclasses included.
+	 * @return array<string,list<string>>
+	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
+	 */
+	private static function declared( string $name, string $fqcn ): array {
+		$out = [];
+		foreach ( self::statements( $name )['statements'] as $statement ) {
+			$values = $statement['values'];
+			if ( 'make_node' === $statement['verb'] && self::type_is( $values[1] ?? '', $fqcn ) ) {
+				$out[ $values[2] ?? '' ] = \array_slice( $values, 3 );
+			}
+		}
+		return $out;
 	}
 
 	/**

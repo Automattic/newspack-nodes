@@ -256,6 +256,22 @@ final class Sqlite_Arm extends Durable_Arm {
 	}
 
 	/**
+	 * Refuse a reader running as root: SQLite can add `-wal` and `-shm` files
+	 * beside a WAL database, and root's would lock the file's writer out.
+	 * Running as root is the operator's to fix, never a backend to degrade
+	 * past, so the refusal is a plain \RuntimeException.
+	 *
+	 * @param string $path The file the reader would open.
+	 * @throws \RuntimeException In a process running as root.
+	 */
+	public static function refuse_root_reader( string $path ): void {
+		if ( 0 === CLI::uid() ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the node wrapping it escapes the message once.
+			throw new \RuntimeException( "a sqlite mount refuses to run as root: a root reader leaves -wal and -shm files beside {$path} that its worker cannot open" );
+		}
+	}
+
+	/**
 	 * See Durable_Arm::write_scope(): one transaction holding the write lock
 	 * from its start, so a read inside sees what it writes over. The file is
 	 * this arm's own, so no caller's transaction shares the connection.

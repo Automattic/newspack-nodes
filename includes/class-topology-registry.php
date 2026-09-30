@@ -253,12 +253,12 @@ class Topology_Registry {
 	}
 
 	/**
-	 * Drop the parsed TSL caches and the Tables resolved from them, keeping
+	 * Drop the parsed TSL caches and the stores resolved from them, keeping
 	 * the dir registrations. Wired to Config::RESET_ACTION.
 	 */
 	public static function reset_basename_cache(): void {
 		Topology_Analyzer::reset_caches();
-		\Newspack_Nodes\Bootstrap::forget_node_tables();
+		\Newspack_Nodes\Bootstrap::forget_node_stores();
 	}
 
 	/**

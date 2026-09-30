@@ -162,7 +162,7 @@ final class LedgerTickTest extends TestCase {
 		$this->seed( $this->kea( '3' ) );
 		$this->tick( self::PAST_FIRST );
 		// Each partition's worker is its own process, so each holds the name.
-		Core::unregister_node( 'lab-7:kea' );
+		$this->unregister_worker_node( 'lab-7:kea' );
 		$five = $this->kea( '5' );
 		$this->tick( self::PAST_FIRST + 5 );
 		$this->assertSame( [ self::T - 1150, self::T - 100 ], $this->times() );
@@ -306,10 +306,36 @@ final class LedgerTickTest extends TestCase {
 	public function test_a_mounted_ledger_never_drops_or_checkpoints(): void {
 		$kea = $this->kea();
 		$this->seed( $kea );
-		( new \ReflectionProperty( Ledger_Node::class, 'mounted' ) )->setValue( $kea, true );
+		$kea->remove_node();
+		$mount = Ledger_Node::mount(
+			'lab-7:kea',
+			[
+				'segment_seconds' => 600,
+				'num_segments'    => 3,
+				'columns'         => [ 'qty', 'lo:min', 'hi:max' ],
+			],
+			$this->interpreter
+		);
 		$this->tick( self::PAST_FIRST );
-		$this->assertSame( [ 0, 0 ], [ self::row( $kea, 'DROP' )['calls'], self::row( $kea, 'CHECKPOINT' )['calls'] ] );
+		$this->assertSame( [ 0, 0 ], [ self::row( $mount, 'DROP' )['calls'], self::row( $mount, 'CHECKPOINT' )['calls'] ] );
 		$this->assertCount( 4, $this->times() );
+	}
+
+	public function test_a_flush_starts_the_drop_and_the_checkpoint_schedule_over(): void {
+		$kea = $this->kea();
+		$this->seed( $kea );
+		$this->tick( self::PAST_FIRST );
+		$this->tick( self::PAST_FIRST + 1 );
+		$this->assertSame( [ 1, 1 ], [ self::row( $kea, 'DROP' )['calls'], self::row( $kea, 'CHECKPOINT' )['calls'] ] );
+		( new \ReflectionProperty( Ledger_Node::class, 'drop_behind' ) )->setValue( $kea, true );
+
+		$kea->flush( [ 'qty', 'lo:min', 'hi:max' ] );
+
+		$this->assertFalse( $kea->tick_steps( self::PAST_FIRST + 1 )['behind'] );
+		$this->tick( self::PAST_FIRST + Ledger_Node::CHECKPOINT_INTERVAL_S );
+		$this->assertSame( [ 2, 1 ], [ self::row( $kea, 'DROP' )['calls'], self::row( $kea, 'CHECKPOINT' )['calls'] ], 'the drop runs again; the checkpoint waits an interval from the flush' );
+		$this->tick( self::PAST_FIRST + 1 + Ledger_Node::CHECKPOINT_INTERVAL_S );
+		$this->assertSame( 2, self::row( $kea, 'CHECKPOINT' )['calls'] );
 	}
 
 	public function test_a_traced_ledger_writes_its_line_on_the_tick(): void {

@@ -28,7 +28,7 @@ class Offsetlog_Cursor_Double extends Node {
 	protected function get_batch(): void {}
 	protected function init_position(): void {}
 	protected function checkpoint( bool $graceful = false ): void {}
-	protected function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [] ): void {}
+	protected function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [], bool $settle = false ): void {}
 	protected function checkpoint_frame_extra(): array {
 		return [];
 	}

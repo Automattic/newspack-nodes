@@ -99,7 +99,7 @@ final class LedgerReadTest extends TestCase {
 	 */
 	private function kea(): Ledger_Node {
 		$three = $this->ledger( '3', 'lab-7:kea', '600', '3', 'qty', 'lo:min', 'hi:max' );
-		Core::unregister_node( 'lab-7:kea' );
+		$this->unregister_worker_node( 'lab-7:kea' );
 		$five = $this->ledger( '5', 'lab-7:kea', '600', '3', 'qty', 'lo:min', 'hi:max' );
 		$three->append(
 			[

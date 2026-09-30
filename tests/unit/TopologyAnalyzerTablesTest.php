@@ -1,7 +1,7 @@
 <?php
 /**
- * The analyzer's Table pass: what `make_node Table` declares, and the one
- * file a SQLite Table claims in the write set.
+ * The analyzer's store pass: what `make_node Table` and `make_node Ledger`
+ * declare, and the one file a SQLite Table claims in the write set.
  *
  * @package Newspack_Nodes
  */
@@ -34,6 +34,9 @@ final class TopologyAnalyzerTablesTest extends TestCase {
 		$this->write_tsl( 'emu-ttl', "make_node Table lab-7:emu emu:p<partition> 37\n" );
 		$this->write_tsl( 'kea-token', "make_node Table lab-7:kea kea:p<partition> 777 <lab:store>\nmake_node Table lab-7:owl owl:p<partition> 37 <lab:shelf>\n" );
 		$this->write_tsl( 'yak-token', "make_node Table lab-7:yak yak:p<partition> 37 <lab:nope>\n" );
+		$this->write_tsl( 'kea-ledger', "make_node Ledger lab-7:kea 600 3 qty lo:min hi:max\nmake_node Table lab-7:owl owl:p<partition> 37\n" );
+		$this->write_tsl( 'kea-ledger-lab', "include kea-ledger\nmake_node Ledger lab-7:heron <lab:span> 3\n" );
+		$this->write_tsl( 'kea-ledger-bare', "make_node Ledger lab-7:kea 600\n" );
 	}
 
 	protected function tearDown(): void {
@@ -89,5 +92,26 @@ final class TopologyAnalyzerTablesTest extends TestCase {
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'lab:nope' );
 		Topology_Analyzer::write_set( 'yak-token' );
+	}
+
+	public function test_a_ledger_is_declared_with_its_counts_and_columns_as_written(): void {
+		$this->assertSame(
+			[
+				'lab-7:kea'   => [ 'segment_seconds' => '600', 'num_segments' => '3', 'columns' => [ 'qty', 'lo:min', 'hi:max' ] ],
+				'lab-7:heron' => [ 'segment_seconds' => '<lab:span>', 'num_segments' => '3', 'columns' => [] ],
+			],
+			Topology_Analyzer::declared_ledgers( 'kea-ledger-lab' )
+		);
+	}
+
+	public function test_a_ledger_is_no_table_and_a_table_no_ledger(): void {
+		$this->assertSame( [ 'lab-7:owl' ], \array_keys( Topology_Analyzer::declared_tables( 'kea-ledger' ) ) );
+		$this->assertSame( [ 'lab-7:kea' ], \array_keys( Topology_Analyzer::declared_ledgers( 'kea-ledger' ) ) );
+	}
+
+	public function test_a_ledger_declaring_no_segment_count_is_refused(): void {
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'Ledger lab-7:kea declares no num_segments' );
+		Topology_Analyzer::declared_ledgers( 'kea-ledger-bare' );
 	}
 }
