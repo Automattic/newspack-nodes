@@ -2713,7 +2713,7 @@ describe( 'Inspector — Table Stats section', () => {
 			...container.querySelectorAll( '.topology-insp__section-title' ),
 		].map( ( el ) => el.textContent );
 
-	it( 'renders the verb_stats grid for a node that reports them', () => {
+	it( 'renders the verb_stats grids for a node that reports them', () => {
 		const { container, getByTestId } = renderNode( {
 			id: 'flame-stats:aggregate',
 			class: 'Table',
@@ -2730,13 +2730,17 @@ describe( 'Inspector — Table Stats section', () => {
 		} );
 		expect( sectionTitles( container ) ).toContain( 'Statsper verb' );
 		const cells = [
-			...getByTestId( 'verb-stats-grid' ).querySelectorAll( 'tbody td' ),
+			...getByTestId( 'verb-stats-counts' ).querySelectorAll(
+				'tbody td'
+			),
 		].map( ( td ) => td.textContent );
 		expect( cells.slice( 0, 4 ) ).toEqual( [ 'MSET', '23', '187', '186' ] );
-		// The section scrolls a grid that is its direct child.
-		expect(
-			getByTestId( 'verb-stats-grid' ).parentElement.classList
-		).toContain( 'topology-insp__section' );
+		// The section sizes and scrolls the grids that are its direct children.
+		for ( const id of [ 'verb-stats-counts', 'verb-stats-times' ] ) {
+			expect( getByTestId( id ).parentElement.classList ).toContain(
+				'topology-insp__section'
+			);
+		}
 	} );
 
 	it( 'omits the Stats section for a node without verb_stats', () => {
@@ -2747,6 +2751,6 @@ describe( 'Inspector — Table Stats section', () => {
 		expect(
 			sectionTitles( container ).some( ( t ) => t.startsWith( 'Stats' ) )
 		).toBe( false );
-		expect( queryByTestId( 'verb-stats-grid' ) ).toBeNull();
+		expect( queryByTestId( 'verb-stats-counts' ) ).toBeNull();
 	} );
 } );

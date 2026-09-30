@@ -68,7 +68,7 @@ export function formatCell( value ) {
  * @param {SortState} sort Column key and direction to order by.
  * @return {Row[]} The ordered rows.
  */
-function sortRows( rows, cols, sort ) {
+export function sortRows( rows, cols, sort ) {
 	const col = cols.find( ( c ) => c.key === sort.key );
 	if ( ! col ) {
 		return rows;

@@ -1553,7 +1553,13 @@ describe( 'canonical appearance ownership', () => {
 				graphStylesheet,
 				'.topology-insp__section:has(> .nodes-runtime__grid)'
 			)
-		).toEqual( { 'overflow-x': 'auto' } );
+		).toEqual( { 'font-size': '11px', 'overflow-x': 'auto' } );
+		expect(
+			declarationsForSelector(
+				graphStylesheet,
+				'.topology-insp__section > .nodes-runtime__grid + .nodes-runtime__grid'
+			)
+		).toEqual( { 'margin-top': '9px' } );
 		for ( const cellClass of [
 			'nodes-runtime__th',
 			'nodes-runtime__td',
