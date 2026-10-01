@@ -16,6 +16,22 @@
         "raw": "var num_partitions = 1"
     },
     {
+        "verb": "var",
+        "values": [
+            "var",
+            "on_demand_idle",
+            "=",
+            "30"
+        ],
+        "spans": [
+            "var",
+            "on_demand_idle",
+            "=",
+            "30"
+        ],
+        "raw": "var on_demand_idle = 30"
+    },
+    {
         "verb": "include",
         "values": [
             "include",
