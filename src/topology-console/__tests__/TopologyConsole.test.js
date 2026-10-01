@@ -807,7 +807,7 @@ const answerCommand = ( m ) => {
 };
 globalThis.__answerBatch = ( entries ) => answerBatch( entries, answerCommand );
 
-import TopologyConsole, { initialTopologyFromUrl } from '../TopologyConsole';
+import TopologyConsole, { topologyFromParam } from '../TopologyConsole';
 
 // The handle jest.setup.js issues every test's command session under.
 const HARNESS_SESSION = 'e2e11111e2e22222e2e33333e2e44444';
@@ -1507,6 +1507,41 @@ describe( 'TopologyConsole boot', () => {
 		expect( getByTestId( 'header' ).dataset.mode ).toBe( 'view' );
 		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
 		await act( async () => {} );
+	} );
+
+	it( 'URL state: mirrors the linked topology and partition back', async () => {
+		window.history.replaceState(
+			{},
+			'',
+			'/?page=station&tab=topology-console&topology=demo&partition=1'
+		);
+		render( <TopologyConsole /> );
+		await act( async () => {} );
+		expect( lastHeaderProps.path ).toBe( 'demo.p1' );
+		expect( window.location.search ).toBe(
+			'?page=station&tab=topology-console&topology=demo&partition=1'
+		);
+	} );
+
+	it( 'URL state: drops an unknown topology and a malformed partition', async () => {
+		window.history.replaceState(
+			{},
+			'',
+			'/?page=station&topology=ghost&partition=-3'
+		);
+		render( <TopologyConsole /> );
+		await act( async () => {} );
+		const params = new URLSearchParams( window.location.search );
+		expect( params.get( 'topology' ) ).not.toBe( 'ghost' );
+		expect( params.get( 'partition' ) ).toBeNull();
+		expect( params.get( 'page' ) ).toBe( 'station' );
+	} );
+
+	it( 'URL state: consumes the ?edit= deep link and keeps the rest', async () => {
+		window.history.replaceState( {}, '', '/?topology=demo&edit=1' );
+		render( <TopologyConsole /> );
+		await act( async () => {} );
+		expect( window.location.search ).toBe( '?topology=demo' );
 	} );
 
 	it( 'URL state: invalid ?topology fallback to first entry', () => {
@@ -5492,7 +5527,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 } );
 
-describe( 'initialTopologyFromUrl (deep-link validation)', () => {
+describe( 'topologyFromParam (deep-link validation)', () => {
 	afterEach( () => {
 		window.history.replaceState( {}, '', '/' );
 	} );
@@ -5506,16 +5541,14 @@ describe( 'initialTopologyFromUrl (deep-link validation)', () => {
 			};
 			// eslint-disable-next-line global-require
 			const mod = require( '../TopologyConsole' );
-			window.history.replaceState( {}, '', '/?topology=demo' );
 			// Sibling re-localized data without topologyWorkers (the clobber).
 			window.NewspackNodesData = { tree: 'event-dashboards' };
-			expect( mod.initialTopologyFromUrl( 'alpha' ) ).toBe( 'demo' );
+			expect( mod.topologyFromParam( 'demo', 'alpha' ) ).toBe( 'demo' );
 		} );
 	} );
 
 	it( 'falls back when ?topology= is not a known topology', () => {
-		window.history.replaceState( {}, '', '/?topology=ghost' );
-		expect( initialTopologyFromUrl( 'fallback-topology' ) ).toBe(
+		expect( topologyFromParam( 'ghost', 'fallback-topology' ) ).toBe(
 			'fallback-topology'
 		);
 	} );

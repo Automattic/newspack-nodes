@@ -24,6 +24,8 @@ import {
 import { __, _n, sprintf } from '@wordpress/i18n';
 
 import { useContainerRefit } from '../shared/hooks/useContainerRefit';
+import { useQueryParamState } from '../shared/hooks/useQueryParamState';
+import { getQueryParam, setQueryParams } from '../shared/utils/queryParams';
 import { formatCommandArgs } from '../runtime/command-args';
 import CanvasFrame from './components/CanvasFrame';
 import ConsoleShell from './components/ConsoleShell';
@@ -332,29 +334,15 @@ export function replCeilingFromAppHeight( appHeight ) {
 }
 
 /**
- * Read one query parameter off the current URL.
- *
- * @param {string} key Parameter name.
- * @return {?string} The value, or null when it is absent or the URL is unreadable.
- */
-function readUrlParam( key ) {
-	try {
-		return new URLSearchParams( window.location.search ).get( key );
-	} catch ( _e ) {
-		return null;
-	}
-}
-
-/**
  * Topology the page opens on, honoring a `?topology=` deep link. An unknown
  * name falls back rather than stranding the console on a topology this install
  * has never registered.
  *
- * @param {string} fallback Topology to open when the URL names none or names an unknown one.
+ * @param {?string} t        The `?topology=` value, or null when absent.
+ * @param {string}  fallback Topology to open when the link names none or names an unknown one.
  * @return {string} The topology to open.
  */
-export function initialTopologyFromUrl( fallback ) {
-	const t = readUrlParam( 'topology' );
+export function topologyFromParam( t, fallback ) {
 	if ( ! t ) {
 		return fallback;
 	}
@@ -373,10 +361,11 @@ export function initialTopologyFromUrl( fallback ) {
  * Partition the page opens on, honoring `?partition=`. Anything that is not a
  * non-negative integer opens p0, the one partition every topology has.
  *
+ * @param {?string} raw The `?partition=` value, or null when absent.
  * @return {number} The partition index.
  */
-function initialPartitionFromUrl() {
-	const p = parseInt( readUrlParam( 'partition' ) || '0', 10 );
+function partitionFromParam( raw ) {
+	const p = parseInt( raw || '0', 10 );
 	return Number.isInteger( p ) && p >= 0 ? p : 0;
 }
 
@@ -409,11 +398,16 @@ function paletteKeyFor( mode ) {
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function TopologyConsole( { headerControlsSlot } ) {
-	const [ topology, setTopology ] = useState( () =>
-		initialTopologyFromUrl( TOPOLOGIES[ 0 ] )
+	const [ topology, setTopology ] = useQueryParamState(
+		'topology',
+		( raw ) => topologyFromParam( raw, TOPOLOGIES[ 0 ] ),
+		( name ) => name || null
 	);
-	const [ partition, setPartition ] = useState( () =>
-		initialPartitionFromUrl()
+	// p0 is every topology's, so the bar leaves it out.
+	const [ partition, setPartition ] = useQueryParamState(
+		'partition',
+		partitionFromParam,
+		( p ) => ( p > 0 ? String( p ) : null )
 	);
 	// Display-only mirror of GraphView's authoritative selection.
 	const [ selectedId, setSelectedId ] = useState( null );
@@ -1060,7 +1054,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				setPartition( worker.partition );
 			}
 		},
-		[ topology, partition, shell, pathOptions ]
+		[ topology, partition, shell, pathOptions, setTopology, setPartition ]
 	);
 
 	// Reset to p0 when switching to a topology with fewer partitions.
@@ -1068,27 +1062,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		if ( partition >= partitions.length ) {
 			setPartition( 0 );
 		}
-	}, [ partitions, partition ] );
-
-	// Mirror (topology, partition) into the URL via replaceState; skip p0.
-	useEffect( () => {
-		try {
-			const url = new URL( window.location.href );
-			if ( topology ) {
-				url.searchParams.set( 'topology', topology );
-			} else {
-				url.searchParams.delete( 'topology' );
-			}
-			if ( partition > 0 ) {
-				url.searchParams.set( 'partition', String( partition ) );
-			} else {
-				url.searchParams.delete( 'partition' );
-			}
-			window.history.replaceState( null, '', url.toString() );
-		} catch ( _e ) {
-			// SSR / restricted-context fallback — URL just won't update.
-		}
-	}, [ topology, partition ] );
+	}, [ partitions, partition, setPartition ] );
 
 	// Resolve the Dumper at call time so a graph swap targets the live node.
 	const appendTranscript = useCallback( ( entry ) => {
@@ -1624,8 +1598,8 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 
 	// Honor the Topologies tab's ?new / ?edit deep-links, then consume it.
 	useEffect( () => {
-		const isNew = '1' === readUrlParam( 'new' );
-		const isEdit = '1' === readUrlParam( 'edit' );
+		const isNew = '1' === getQueryParam( 'new' );
+		const isEdit = '1' === getQueryParam( 'edit' );
 		if ( ! isNew && ! isEdit ) {
 			return;
 		}
@@ -1634,14 +1608,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		} else {
 			handleModeChange( 'edit' );
 		}
-		try {
-			const url = new URL( window.location.href );
-			url.searchParams.delete( 'new' );
-			url.searchParams.delete( 'edit' );
-			window.history.replaceState( null, '', url.toString() );
-		} catch ( _e ) {
-			// Best-effort param cleanup.
-		}
+		setQueryParams( { new: null, edit: null } );
 		// Mount-only: consume the deep-link once.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [] );
