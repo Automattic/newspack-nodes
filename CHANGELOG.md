@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.82.0] - 2026-09-30
+
 ### Changed
 
 - **A Ledger is one SQLite file per partition, read as one.** Partition N's worker writes `{base}/ledgers/{name}.p{N}.sqlite` alone, so no `APPEND`, segment drop or checkpoint waits on another partition's write lock: on 2.81.0 a rebuild's APPEND held the shared file's lock for up to 3.9 s and the next partition threw `database is locked` at `BEGIN IMMEDIATE`. Every connection attaches each other partition's file read-only (`ATTACH 'file:…?mode=ro' AS p{N}`, through the new `Sqlite_Arm::attach_read_only()`), and each `SUM`, `TOP` and `MEMBERS` is still one statement: one arm per file, each walking its own `t` with one primary-key seek apiece, joined by `UNION ALL` and aggregated as one, so totals, `TOP`'s rank and offset and `MEMBERS`' de-duplication span every partition, which the `EXPLAIN QUERY PLAN` pin now holds per arm. Before each read the connection brings its attached files to those on disk, one directory read a request, so a partition that comes up is read on its next request and a file gone reads as empty. A Ledger with more files than `Ledger_Node::ATTACH_LIMIT` (10, SQLite's default) refuses to open, naming both numbers. Requests, fields and answers are as 2.81.0 has them. The new ADR-28, [a Ledger is one SQLite file per partition, read as one](docs/architecture-decisions.md#adr-28-a-ledger-is-one-sqlite-file-per-partition-read-as-one), supersedes ADR-27's shared file and restores ADR-6's one writer.
