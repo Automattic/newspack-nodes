@@ -482,9 +482,9 @@ class Bootstrap {
 	}
 
 	/**
-	 * Mount each named Ledger's one file into this request's graph, read-only,
-	 * under the Ledger's own name, the name a worker's writer answers to, and
-	 * sinking into `_command_interpreter`. It answers SUM, TOP and MEMBERS and
+	 * Mount each named Ledger's partition files into this request's graph,
+	 * read-only, under the Ledger's own name, the name a worker's writer
+	 * answers to, and sinking into `_command_interpreter`. It answers SUM, TOP and MEMBERS and
 	 * refuses APPEND. Kept for the rest of the request, as a Table mount is,
 	 * and all or nothing, over one read of the active set.
 	 *
@@ -501,7 +501,7 @@ class Bootstrap {
 	public static function mount_ledger( array $names ): array {
 		$ci = Core::node( Node_Names::COMMAND_INTERPRETER ) ?? throw new \RuntimeException( 'mount_ledger needs a request graph' );
 		foreach ( $names as $name ) {
-			Ledger_Node::file( $name );
+			Ledger_Node::file( $name, 0 );
 		}
 		$out    = [];
 		$builds = [];
@@ -541,9 +541,9 @@ class Bootstrap {
 	 * Each named Ledger's one declaration across every ACTIVE topology
 	 * declaring it, each count and column with its config tokens resolved, as
 	 * a worker's Shell resolves them, and each column spelled whole
-	 * (`Ledger_Node::spelled()`), so `qty` and `qty:sum` are one column. Every partition of every declaring
-	 * topology writes the one file, so they must declare it alike. Resolved
-	 * once, as node_tables() resolves a Table.
+	 * (`Ledger_Node::spelled()`), so `qty` and `qty:sum` are one column. Every
+	 * read spans every partition's file, so every declaring topology must
+	 * declare it alike. Resolved once, as node_tables() resolves a Table.
 	 *
 	 * @api Called from consumer plugins (cross-repo, invisible here).
 	 *

@@ -1692,16 +1692,7 @@ class Table_Node extends Node implements Tick_Housekeeper {
 				[ 'name' => 'backend', 'type' => 'string', 'default' => 'auto', 'description' => 'auto, memcache, apcu, sqlite or wpdb; sqlite and wpdb are durable.' ],
 			],
 			'commands'    => [
-				[
-					'name'        => 'stats',
-					'capability'  => Capabilities::READ,
-					'description' => 'Per-verb counters since the Table was built: calls, keys or rows asked and answered, encoded bytes, total and max ms.',
-					'args'        => [],
-					'handler'     => static function ( Command_Interpreter_Node $interpreter ): array {
-						$patron = $interpreter->patron();
-						return $patron instanceof self ? $patron->stats() : throw new \RuntimeException( 'no table patron' );
-					},
-				],
+				self::stats_command( 'Table' ),
 				[
 					'name'        => 'reset_stats',
 					'action'      => true,

@@ -37,7 +37,8 @@ supersede.
 | [24](#adr-24-a-tables-backend-is-chosen-per-table) | A Table's backend is chosen per Table |
 | [25](#adr-25-a-verbs-arguments-are-bound-by-its-schema) | A verb's arguments are bound by its schema |
 | [26](#adr-26-every-verb-is-gated-by-the-role-its-schema-declares) | Every verb is gated by the role its schema declares |
-| [27](#adr-27-a-ledger-is-one-sqlite-file-every-partition-writes-and-its-rows-age-out-by-the-segment) | A Ledger is one SQLite file every partition writes, and its rows age out by the segment |
+| [27](#adr-27-a-ledger-is-one-sqlite-file-every-partition-writes-and-its-rows-age-out-by-the-segment) | A Ledger is one SQLite file every partition writes, and its rows age out by the segment — superseded in part by 28 |
+| [28](#adr-28-a-ledger-is-one-sqlite-file-per-partition-read-as-one) | A Ledger is one SQLite file per partition, read as one |
 
 ---
 
@@ -1361,8 +1362,8 @@ Table's one writer ([ADR-6](#adr-6-crc32--31-bit-mask-partition-routing)). A `sq
 opens its file read-only, creates nothing, and reads as empty until its worker has written
 ([ADR-24](#adr-24-a-tables-backend-is-chosen-per-table)). `Bootstrap::mount_ledger()` mounts a
 Ledger the same way, under its own name: read-only, answering `SUM`, `TOP` and `MEMBERS` and
-refusing `APPEND` and `flush`
-([ADR-27](#adr-27-a-ledger-is-one-sqlite-file-every-partition-writes-and-its-rows-age-out-by-the-segment)).
+refusing `APPEND` and `flush`, over an in-memory connection attaching every partition's file
+([ADR-28](#adr-28-a-ledger-is-one-sqlite-file-per-partition-read-as-one)).
 
 A request may drive a running graph. A declared request answers TO=FROM through
 [`Schema_Reflection::answer_request()`](../includes/trait-schema-reflection.php) with
@@ -1784,7 +1785,10 @@ arguments in a way a second verb cannot split.
 
 ## ADR-27: A Ledger is one SQLite file every partition writes, and its rows age out by the segment
 
-**Status:** Accepted
+**Status:** Superseded in part by [ADR-28](#adr-28-a-ledger-is-one-sqlite-file-per-partition-read-as-one).
+The shared file, SQLite's lock between the partitions' writers, `w` in the key, and the
+exemption from ADR-6's one writer are ADR-28's now. The rows clustered by time and written once,
+the retention by segment, the reads and SQLite alone stand as recorded here.
 
 **Context:** event-logger-nodes kept its stats in `sqlite` Tables, one file per partition, and
 paid for them in WAL volume. Every Table call was its own transaction, every flush read, merged
@@ -1901,3 +1905,84 @@ claims no Ledger, and two topologies may declare one provided they declare it al
 **Revisit if:** an `APPEND` fails on the lock on a live site, so the partitions' flushes no
 longer fit between one another inside `BUSY_TIMEOUT_MS`; or a Ledger must be read from another
 host at volume; or a caller needs a row gone before its segment ages out.
+
+---
+
+## ADR-28: A Ledger is one SQLite file per partition, read as one
+
+**Status:** Accepted. Supersedes the file layout of
+[ADR-27](#adr-27-a-ledger-is-one-sqlite-file-every-partition-writes-and-its-rows-age-out-by-the-segment).
+
+**Context:** ADR-27's tripwire fired. Every partition declaring a Ledger wrote one file, and an
+`APPEND` is one transaction holding that file's write lock for its whole span. On staging a
+firehose rebuild folded hours of backlog into each 30-second span, one `stats:search` APPEND
+held the lock for up to 3.9 s, the three other partitions queued on the 5 s busy timeout, and
+one of them threw `database is locked` at `BEGIN IMMEDIATE`, taking its flame builder down. The
+segment drop met the same lock and skipped. Sharing the file had bought one thing, a read of one
+file, and cost ADR-6's one writer.
+
+**Decision:** each partition writes its own file, and every read spans them all in one
+statement.
+
+- **One file per Ledger per partition**, `{base}/ledgers/{name}.p{N}.sqlite`, whose one writer
+  is partition N's worker ([ADR-6](#adr-6-crc32--31-bit-mask-partition-routing)), as a `sqlite`
+  Table's is. `Topology_Analyzer::write_set()` claims `ledger:<name>.p<partition>`, so two
+  active topologies cannot both declare one. No `APPEND`, drop or checkpoint waits on another
+  partition; `Ledger_Node::BUSY_TIMEOUT_MS` waits out the one other writer a file has, a
+  `wp nodes tables flush` from the CLI under the fleet hold.
+- **The key loses `w`.** A Ledger with columns keys its rows `( t, k, x, s )`, where `s`, the
+  writer's sequence, still tells two deltas for one `( t, k, x )` apart; a set keys
+  `( t, k, x )`. One `( t, k, x )` may sit in two partitions' files, and every read already
+  aggregates or de-duplicates it.
+- **A connection reads every partition.** A writer opens its own file as `main`; a mount opens
+  an empty table of the Ledger's shape in memory as `main`. Each attaches every other
+  partition's file read-only, `ATTACH 'file:…?mode=ro' AS p{N}`, through
+  `Sqlite_Arm::attach_read_only()`; the writer reads every partition too, since a settle reads
+  back what other partitions wrote. Before each read the connection brings its attached files to
+  those on disk, `Ledger_Node::partition_files()`, one directory read a request: a partition
+  that comes up is read from its first file on, a file gone from disk is detached and reads as
+  empty, and a file whose writer has not yet declared `rows` is left out until it has. Data on
+  disk is the truth, so a partition removed from the topology is read until its file is
+  flushed.
+- **At most `Ledger_Node::ATTACH_LIMIT` files, SQLite's default of 10.** A Ledger with more
+  refuses to open, naming the count and the limit, and a writer refuses before it makes its own
+  file. It never reads a subset.
+- **One arm per file, one statement per read.** Each file keeps its own loose-index walk, one
+  primary-key seek per distinct `t`, and seeks its keys at each; the arms join by `UNION ALL`,
+  and `SUM`, `TOP` and the count beside a page aggregate the union, so totals, rank and offset
+  span every partition. A key list binds once, as a one-column table each arm reads
+  (`k IN ks`), so a statement binds the same values however many files it reads. `MEMBERS`
+  streams the arms into one `DISTINCT` its `LIMIT` stops, so a member two files hold counts
+  once and a common key still costs its limit. The `MEMBERS` statement is prepared once per
+  attached set.
+- **Each writer ticks its own file.** The segment drop and the PASSIVE checkpoint name `main`
+  alone: a bare `wal_checkpoint` would take in every attached file and fail on the first.
+
+**Alternatives considered:**
+
+- Keep the shared file and shorten the transaction, by bounding each `APPEND` — rejected: it
+  narrows the window without closing it, and a rebuild's backlog still queues every partition
+  behind the one writing.
+- A raised busy timeout — rejected: a rebuild's span outlasts any timeout short enough to keep
+  the loop alive.
+- Read each partition's file with a statement of its own and merge in PHP — rejected: `TOP`'s
+  rank and offset and every `positive` filter must see the whole union, and a merge in PHP is the
+  per-scope summing ADR-27 moved into SQL.
+
+**Consequences:**
+
+- A Ledger needs PDO to read `file:` URIs, which it does unless `open_basedir` is set; under
+  `open_basedir` the attach is denied and the Ledger refuses to open, rather than attaching
+  read-write.
+- A read pays one directory read and one walk per partition. With one partition's file there is
+  one arm, as ADR-27's one file had.
+- A file of another declaration in any partition refuses every read that attaches it, naming the
+  file and `wp nodes tables flush`; a column change migrates by flushing every file under the
+  fleet hold.
+- `wp nodes tables list` shows one row per partition file, each with its own writer's counters,
+  and `flush` flushes each.
+- ADR-27's shared files, `{base}/ledgers/{name}.sqlite`, are neither read nor migrated;
+  [`upgrading.md`](upgrading.md) says to delete them.
+
+**Revisit if:** a read must span more partition files than ATTACH allows; or the attached arms
+make a read measurably slower than the shared file's single arm at staging's volume.

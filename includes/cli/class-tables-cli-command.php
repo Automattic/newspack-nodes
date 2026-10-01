@@ -2,17 +2,16 @@
 /**
  * Tables_CLI_Command: `wp nodes tables list` and `wp nodes tables flush`, the
  * operator's view of every Table the registered topologies declare, active or
- * not, partition by partition, of every Ledger once, and of the
- * command-session store.
+ * not, partition by partition, of every Ledger's partition files on disk, and
+ * of the command-session store.
  *
  * A partition's rows belong to the worker that owns it, its file's one writer
  * (ADR-6), so neither verb opens a live owner's store: `list` asks the owner
  * for its counters and `flush` asks it to flush, each over the worker's
  * command channel. A partition no worker owns is flushed from here only under
- * the fleet hold, when nothing else can be writing it, or when its topology is
- * inactive and nothing will spawn its worker. A Ledger is one file every
- * declaring worker writes, serialized by SQLite's lock: `flush` asks every live
- * one, and with none live flushes it from here.
+ * the fleet hold, when nothing else can be writing it, when its topology is
+ * inactive and nothing will spawn its worker, or, for a Ledger's file, when
+ * no topology declares its partition.
  *
  * @package Newspack_Nodes
  */
@@ -30,7 +29,7 @@ namespace Newspack_Nodes;
  *     wp nodes tables list
  *     wp nodes tables flush flame-stats:url --partition=0
  *
- * @phpstan-type Slot array{name:string,partition:int|null,backend:string,ttl:string,store:string,file:string|null,declares:list<string>,owners:list<string>,owner:string,here:\Closure(string): string}
+ * @phpstan-type Slot array{name:string,partition:int,backend:string,ttl:string,store:string,file:string|null,declares:list<string>,owners:list<string>,owner:string,here:\Closure(string): string}
  * @phpstan-type Ask array{owner:string,name:string,arguments:list<string>}
  */
 class Tables_CLI_Command {
@@ -40,6 +39,12 @@ class Tables_CLI_Command {
 
 	/** The node every command here is sent FROM, so its reply lands there. */
 	private const RECEIVER = 'tables-cli';
+
+	/** The backend a Ledger file's row names. */
+	private const LEDGER = 'ledger';
+
+	/** The owner of a Ledger file no topology's partitions reach. */
+	private const NO_OWNER = '-';
 
 	/**
 	 * List every Table the registered topologies declare, one row a partition,
@@ -52,10 +57,11 @@ class Tables_CLI_Command {
 	 * file and its size, its `-wal` and `-shm` counted, or the shared wpdb
 	 * table. A live owner is asked for its per-verb counters
 	 * over its command channel; a verb it has never run is left out, and an
-	 * owner that does not answer in time is warned about and listed without.
-	 * A Ledger lists with no partition, the backend `ledger`, its lifespan as
-	 * its TTL, its first live declaring worker as its owner, else its first,
-	 * and no counters, since each worker counts only its own calls.
+	 * owner that does not answer in time, or refuses, says so in their place.
+	 * A Ledger lists one row a partition file on disk, the backend `ledger`
+	 * and its lifespan as its TTL, owned by that partition's worker, which
+	 * counts its own calls; a file no topology's partitions reach lists as
+	 * `undeclared`, owned by none.
 	 *
 	 * ## OPTIONS
 	 *
@@ -87,8 +93,8 @@ class Tables_CLI_Command {
 		unset( $args );
 		$timeout              = CLI::require_flag_int( $assoc_args, 'timeout', self::REPLY_TIMEOUT_S );
 		[ $slots, $states ]   = $this->slots();
-		$counted              = \array_filter( $slots, static fn ( array $slot ): bool => null !== $slot['partition'] && [] !== self::live( $slot, $states ) );
-		$stats                = $this->ask( \array_map( static fn ( array $slot ): array => self::asking( $slot, $slot['owner'] ), $counted ), 'stats', $timeout );
+		$counted              = \array_filter( $slots, static fn ( array $slot ): bool => [] !== self::live( $slot, $states ) );
+		$stats                = $this->ask( \array_map( static fn ( array $slot ): array => self::asking( $slot, $slot['owner'], [] ), $counted ), 'stats', $timeout );
 		$rows                 = [];
 		foreach ( $slots as $key => $slot ) {
 			$rows[] = [
@@ -119,42 +125,41 @@ class Tables_CLI_Command {
 
 	/**
 	 * A row as the table format prints it: the size in bytes readable, a
-	 * missing size or partition a dash, and the counters on one line.
+	 * missing size or partition a dash, and the counters on one line, or why
+	 * there are none.
 	 *
 	 * @param array<string,mixed> $row A listed row.
 	 * @return array<string,mixed>
 	 */
 	private static function readable( array $row ): array {
 		$verbs = [];
-		foreach ( Core::arr( $row['Verbs'] ) as $verb => $counts ) {
+		foreach ( \is_array( $row['Verbs'] ) ? $row['Verbs'] : [] as $verb => $counts ) {
 			$counts  = Core::arr( $counts );
 			$verbs[] = "{$verb} " . Core::as_int( $counts['calls'] ) . ' ' . Core::as_float( $counts['total_ms'] ) . 'ms';
 		}
 		return [
 			'Partition' => $row['Partition'] ?? '-',
 			'Bytes'     => null === $row['Bytes'] ? '-' : CLI::format_bytes( Core::as_int( $row['Bytes'] ) ),
-			'Verbs'     => [] === $verbs ? '-' : \implode( ', ', $verbs ),
+			'Verbs'     => \is_string( $row['Verbs'] ) ? $row['Verbs'] : ( [] === $verbs ? '-' : \implode( ', ', $verbs ) ),
 		] + $row;
 	}
 
 	/**
 	 * The calls and total milliseconds of each verb a live owner's `stats`
-	 * reply shows having run, by verb; null, with a warning naming why, for no
-	 * reply or a refusal.
+	 * reply shows having run, by verb; for no reply or a refusal, the line
+	 * saying so, which the row shows where the counters go, never as none.
 	 *
 	 * @param Slot                  $slot    The slot.
 	 * @param array<int,mixed>|null $reply   The reply, or null for none.
 	 * @param int                   $timeout Seconds waited.
-	 * @return array<string,array{calls:int,total_ms:float}>|null
+	 * @return array<string,array{calls:int,total_ms:float}>|string
 	 */
-	private static function verbs( array $slot, ?array $reply, int $timeout ): ?array {
+	private static function verbs( array $slot, ?array $reply, int $timeout ): array|string {
 		if ( null === $reply ) {
-			\WP_CLI::warning( "{$slot['owner']} did not answer stats for {$slot['name']} within {$timeout}s" );
-			return null;
+			return "no answer from {$slot['owner']} within {$timeout}s";
 		}
 		if ( 0 !== ( Core::int( $reply[ Message::TYPE ] ) & Message::TM_ERROR ) ) {
-			\WP_CLI::warning( "{$slot['owner']} refused stats for {$slot['name']}: " . \trim( Core::as_string( Core::arr( $reply[ Message::VALUE ] )['payload'] ?? null ) ) );
-			return null;
+			return "{$slot['owner']} refused stats: " . \trim( Core::as_string( Core::arr( $reply[ Message::VALUE ] )['payload'] ?? null ) );
 		}
 		$verbs = [];
 		foreach ( Core::arr( Core::arr( $reply[ Message::VALUE ] )['payload'] ?? null ) as $verb => $row ) {
@@ -184,16 +189,15 @@ class Tables_CLI_Command {
 	 * command-session store is flushed only when named, and flushing it
 	 * revokes every issued session.
 	 *
-	 * A Ledger drops its rows table and declares it anew from its current
-	 * declaration, in one transaction, and reports the rows it held; the file
-	 * stays, since every partition holds it open. Every live worker declaring
-	 * it is sent `flush` with the columns its topology declares now; one
-	 * running those columns flushes, and one running others refuses, naming
-	 * the restart, and flushes nothing itself, though another on the current
-	 * columns may already have flushed. With none live this process flushes
-	 * it, needing no hold, since SQLite's lock serializes it with any writer
-	 * that starts. A Ledger whose declaration changed its columns, whose
-	 * workers refuse to open its file, opens after the flush.
+	 * A Ledger flushes each partition file on disk: it drops the rows table
+	 * and declares it anew from its current declaration, in one transaction,
+	 * and reports the rows it held; the file stays, since other partitions
+	 * attach it. A file whose worker is live is sent `flush` with the columns
+	 * its topology declares now, and a worker running others refuses, naming
+	 * the restart. One no worker writes is flushed from here on the Tables'
+	 * terms, or with no hold at all when no topology declares its partition.
+	 * A Ledger whose declaration changed its columns, whose workers refuse to
+	 * open its files, opens once every file is flushed.
 	 *
 	 * ## OPTIONS
 	 *
@@ -202,8 +206,8 @@ class Tables_CLI_Command {
 	 * `nodes-sessions`. None flushes every declared Table and asks first.
 	 *
 	 * [--partition=<partition>]
-	 * : Flush one Table partition (0-based); every partition by default. A
-	 * Ledger has none, and is left out when this is given.
+	 * : Flush one partition (0-based) of each Table and Ledger; every
+	 * partition by default.
 	 *
 	 * [--yes]
 	 * : Skip the question flushing every declared Table asks.
@@ -233,9 +237,6 @@ class Tables_CLI_Command {
 			if ( ! \in_array( $name, $known, true ) ) {
 				\WP_CLI::error( "unknown Table or Ledger {$name}; declared: " . \implode( ', ', $known ) );
 			}
-			if ( -1 !== $partition && isset( $slots[ $name ] ) && null === $slots[ $name ]['partition'] ) {
-				\WP_CLI::error( "{$name} is a Ledger, one file every partition writes; flush it without --partition" );
-			}
 		}
 		$chosen = \array_filter(
 			$slots,
@@ -247,7 +248,7 @@ class Tables_CLI_Command {
 		$asks = [];
 		foreach ( $chosen as $key => $slot ) {
 			foreach ( self::live( $slot, $states ) as $owner ) {
-				$asks[ "{$key}@{$owner}" ] = self::asking( $slot, $owner );
+				$asks[ "{$key}@{$owner}" ] = self::asking( $slot, $owner, $slot['declares'] );
 			}
 		}
 		$replies = $this->ask( $asks, 'flush', $timeout );
@@ -267,7 +268,7 @@ class Tables_CLI_Command {
 		foreach ( $steps as $name => $step ) {
 			try {
 				\WP_CLI::log( "{$name}: " . $step() );
-				$flushed[] = $chosen[ $name ] ?? [ 'partition' => 0 ];
+				$flushed[] = $chosen[ $name ] ?? [ 'backend' => Command_Auth::SESSIONS_BACKEND ];
 			} catch ( Worker_Should_Stop $stop ) {
 				throw $stop;
 			} catch ( \RuntimeException $e ) {
@@ -282,11 +283,11 @@ class Tables_CLI_Command {
 
 	/**
 	 * What the live workers a slot's `flush` went to released, summed, as the
-	 * line says it, naming them: a Table's one owner, or every live worker
-	 * declaring a Ledger, each of which flushes only while it runs the
-	 * columns sent. A worker that did not answer, or refused, fails the line,
-	 * naming itself and its reason; one running other columns names the
-	 * restart that brings the declared ones in.
+	 * line says it, naming them: the partition's one owner, or each live
+	 * worker of a topology declaring it, each Ledger file flushing only while
+	 * its writer runs the columns sent. A worker that did not answer, or
+	 * refused, fails the line, naming itself and its reason; one running
+	 * other columns names the restart that brings the declared ones in.
 	 *
 	 * @param string                         $key     The slot's key.
 	 * @param list<string>                   $owners  The live workers asked.
@@ -388,18 +389,20 @@ class Tables_CLI_Command {
 	}
 
 	/**
-	 * One worker's ask of a slot: its store's `:config` verb, carrying the
-	 * columns a Ledger's topology declares, which a Ledger's `flush` checks.
+	 * One worker's ask of a slot: its store's `:config` verb, carrying
+	 * `$arguments`: none for `stats`, and for `flush` the columns a Ledger's
+	 * topology declares, which a Ledger's `flush` checks.
 	 *
-	 * @param Slot   $slot   The slot.
-	 * @param string $worker The worker asked.
+	 * @param Slot         $slot      The slot.
+	 * @param string       $worker    The worker asked.
+	 * @param list<string> $arguments The verb's arguments.
 	 * @return Ask
 	 */
-	private static function asking( array $slot, string $worker ): array {
+	private static function asking( array $slot, string $worker, array $arguments ): array {
 		return [
 			'owner'     => $worker,
 			'name'      => $slot['name'],
-			'arguments' => $slot['declares'],
+			'arguments' => $arguments,
 		];
 	}
 
@@ -415,19 +418,19 @@ class Tables_CLI_Command {
 	}
 
 	/**
-	 * How many Table partitions and Ledgers `$slots` hold, as a line says it:
-	 * `3 Table partitions`, `1 Ledger`, or both joined by `and`.
+	 * How many Table partitions and Ledger files `$slots` hold, as a line
+	 * says it: `3 Table partitions`, `1 Ledger file`, or both joined by `and`.
 	 *
-	 * @param array<array-key,array{partition:int|null}> $slots     The slots; the session store counts as a partition.
-	 * @param string                                    $adjective Before each noun, with its trailing space.
+	 * @param array<array-key,array{backend:string}> $slots     The slots; the session store counts as a Table partition.
+	 * @param string                                $adjective Before the Tables' noun, with its trailing space.
 	 * @return string The count.
 	 */
 	private static function counted( array $slots, string $adjective = '' ): string {
-		$ledgers = \count( \array_filter( $slots, static fn ( array $slot ): bool => null === $slot['partition'] ) );
+		$ledgers = \count( \array_filter( $slots, static fn ( array $slot ): bool => self::LEDGER === $slot['backend'] ) );
 		$tables  = \count( $slots ) - $ledgers;
 		$parts   = $tables > 0 || 0 === $ledgers ? [ "{$tables} {$adjective}Table partition" . ( 1 === $tables ? '' : 's' ) ] : [];
 		if ( $ledgers > 0 ) {
-			$parts[] = "{$ledgers} {$adjective}Ledger" . ( 1 === $ledgers ? '' : 's' );
+			$parts[] = "{$ledgers} Ledger file" . ( 1 === $ledgers ? '' : 's' );
 		}
 		return \implode( ' and ', $parts );
 	}
@@ -438,9 +441,10 @@ class Tables_CLI_Command {
 	 * it: one `CLI::worker_states()` pass. A Table partition is keyed by its
 	 * stem, `{table}.p{N}`, and owned by the first active topology declaring
 	 * the Table with that partition, as `node_tables()` unions the declarers,
-	 * else the first inactive one, whose worker nothing spawns. A Ledger is
-	 * keyed by its name and owned by the first of its declaring workers that
-	 * is live, else the first. An inactive topology that will not read is
+	 * else the first inactive one, whose worker nothing spawns. A Ledger file
+	 * is keyed `{ledger}.p{N}` too and owned by the first live worker of a
+	 * topology declaring partition N, else the first, else by NO_OWNER, whose
+	 * state is `undeclared`. An inactive topology that will not read is
 	 * warned about and left out.
 	 *
 	 * @return array{0: array<string,Slot>, 1: array<string,string>} The slots, and worker id => state.
@@ -474,11 +478,14 @@ class Tables_CLI_Command {
 			$ledgers[ $name ] ??= $declaration;
 		}
 		foreach ( \array_filter( $ledgers ) as $name => $declaration ) {
-			$slots[ $name ] = self::ledger_slot( $name, $declaration, \array_merge( ...$owners[ $name ] ) );
+			foreach ( Ledger_Node::partition_files( $name ) as $p => $file ) {
+				$slots[ "{$name}.p{$p}" ] = self::ledger_slot( $name, $p, $file, $declaration, $owners[ $name ][ $p ] ?? [] );
+			}
 		}
 
 		$every  = \array_values( \array_unique( \array_merge( ...\array_column( $slots, 'owners' ) ) ) );
 		$states = \array_map( static fn ( array $worker ): string => $worker['state'], ( new CLI( Bootstrap::base_dir() ) )->worker_states( $every, Bootstrap::get_topologies(), false ) );
+		$states[ self::NO_OWNER ] = 'undeclared';
 		foreach ( $slots as $key => $slot ) {
 			$live                   = \array_values( \array_filter( $slot['owners'], static fn ( string $worker ): bool => 'live' === $states[ $worker ] ) );
 			$slots[ $key ]['owner'] = $live[0] ?? $slot['owner'];
@@ -487,28 +494,31 @@ class Tables_CLI_Command {
 	}
 
 	/**
-	 * A Ledger as one slot with no partition: its one file, its lifespan as
-	 * its TTL, and every worker declaring it. With none of them live it is
-	 * flushed from here, from its declaration alone.
+	 * One Ledger partition's file as a slot: its lifespan as its TTL, and the
+	 * workers of every topology declaring that partition. With none of them
+	 * live it is flushed from here, from its declaration alone, on the terms
+	 * flush_here() sets.
 	 *
 	 * @param string                                                             $name        The Ledger.
+	 * @param int                                                                $partition   The file's partition.
+	 * @param string                                                             $file        The file.
 	 * @param array{segment_seconds: int, num_segments: int, columns: list<string>} $declaration Its declaration.
-	 * @param list<string>                                                       $owners      Every worker declaring it.
+	 * @param list<string>                                                       $owners      The workers declaring the partition; none for a file no topology's partitions reach.
 	 * @return Slot
 	 */
-	private static function ledger_slot( string $name, array $declaration, array $owners ): array {
-		$file = Ledger_Node::file( $name );
+	private static function ledger_slot( string $name, int $partition, string $file, array $declaration, array $owners ): array {
+		$owner = $owners[0] ?? self::NO_OWNER;
 		return [
 			'name'      => $name,
-			'partition' => null,
-			'backend'   => 'ledger',
+			'partition' => $partition,
+			'backend'   => self::LEDGER,
 			'ttl'       => (string) ( $declaration['segment_seconds'] * $declaration['num_segments'] ),
 			'store'     => $file,
 			'file'      => $file,
 			'declares'  => $declaration['columns'],
 			'owners'    => $owners,
-			'owner'     => $owners[0],
-			'here'      => static fn (): string => self::released( Ledger_Node::flush_file( $name, $declaration ) ) . '; no worker declaring it is live',
+			'owner'     => $owner,
+			'here'      => static fn ( string $state ): string => self::flush_here( static fn (): array => Ledger_Node::flush_file( $name, $partition, $declaration ), $owner, $state ),
 		];
 	}
 
@@ -536,34 +546,35 @@ class Tables_CLI_Command {
 			'declares'  => [],
 			'owners'    => [ $owner ],
 			'owner'     => $owner,
-			'here'      => static fn ( string $state ): string => self::released( self::flush_here( $name, $partition, $spec, $owner, $state ) ) . ( 'inactive' === $state ? '; ' . ( CLI::parse_worker_id( $owner )[0] ?? $owner ) . ' is inactive' : ' under the hold' ),
+			'here'      => static fn ( string $state ): string => self::flush_here( static fn (): array => Table_Node::writer( $name, $partition, $spec )->flush(), $owner, $state ),
 		];
 	}
 
 	/**
-	 * Flush a Table partition no live worker owns, from this process, when the
-	 * fleet is held or its topology is inactive, and so nothing else can be
-	 * writing it.
+	 * Flush a partition no live worker owns, from this process, when nothing
+	 * else can be writing it: the fleet is held, its topology is inactive, or
+	 * no topology declares it; the line says which.
 	 *
-	 * @param string                                             $name      The Table.
-	 * @param int                                                $partition Its partition.
-	 * @param array{namespace: string, ttl: int, backend: string} $spec      Its declaration.
-	 * @param string                                             $owner     The worker owning it.
-	 * @param string                                             $state     Its owner's state.
-	 * @return array<array-key,mixed> What the flush released.
+	 * @param \Closure(): array<array-key,mixed> $flush The flush, answering what it released.
+	 * @param string                            $owner The worker owning the partition, or NO_OWNER.
+	 * @param string                            $state Its owner's state.
+	 * @return string What the flush released, and why it ran here.
 	 * @throws \RuntimeException When the fleet is not held, or the owner is stale, or the flush fails.
 	 */
-	private static function flush_here( string $name, int $partition, array $spec, string $owner, string $state ): array {
-		if ( ! \in_array( $state, [ 'held', 'inactive' ], true ) ) {
-			throw new \RuntimeException(
+	private static function flush_here( \Closure $flush, string $owner, string $state ): string {
+		$why = match ( $state ) {
+			'held'       => ' under the hold',
+			'inactive'   => '; ' . ( CLI::parse_worker_id( $owner )[0] ?? $owner ) . ' is inactive',
+			'undeclared' => '; no topology declares it',
+			default      => throw new \RuntimeException(
 				\esc_html(
 					'stale' === $state
 						? "{$owner} is stale: its lock stands with no heartbeat; restart it, or wait for its lock to clear, and flush again"
 						: "{$owner} is {$state}; run `wp nodes stop` to hold the fleet, flush again, then `wp nodes start`"
 				)
-			);
-		}
-		return Table_Node::writer( $name, $partition, $spec )->flush();
+			),
+		};
+		return self::released( $flush() ) . $why;
 	}
 
 	/**

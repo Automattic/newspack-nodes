@@ -63,8 +63,12 @@ final class Sqlite_Arm extends Durable_Arm {
 	/** The page-cache pragma; a negative size counts KiB rather than pages. */
 	private const CACHE_PRAGMA = 'PRAGMA cache_size = -' . self::CACHE_KIB;
 
-	/** The WAL checkpoint every writer runs on the tick. */
-	public const PASSIVE_CHECKPOINT = 'PRAGMA wal_checkpoint(PASSIVE)';
+	/**
+	 * The WAL checkpoint every writer runs on the tick, of its own file: a
+	 * bare `wal_checkpoint` would take in every file attached read-only too,
+	 * and fail on the first.
+	 */
+	public const PASSIVE_CHECKPOINT = 'PRAGMA main.wal_checkpoint(PASSIVE)';
 
 	/** Keys bound per `IN ( … )`: under the 999 variables an older build allows. */
 	public const IN_CHUNK = 500;
@@ -195,8 +199,8 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * One PASSIVE checkpoint: copy back every WAL frame no reader's snapshot
 	 * still needs, waiting on no reader and blocking none. Frames past an
 	 * open reader's snapshot stay for the next call, which is ordinary. While
-	 * another connection holds the checkpoint lock, as the next partition
-	 * writing a Ledger's file may, SQLite answers busy and copies nothing.
+	 * another connection holds the checkpoint lock, SQLite answers busy and
+	 * copies nothing.
 	 *
 	 * @param \PDOStatement $checkpoint PASSIVE_CHECKPOINT, prepared on a
 	 *                                  writer's connection.
@@ -226,6 +230,29 @@ final class Sqlite_Arm extends Durable_Arm {
 	 */
 	public static function deferred( \PDO $db, \Closure $work ): mixed {
 		return self::transaction( $db, 'BEGIN DEFERRED', $work );
+	}
+
+	/**
+	 * Attach the file at `$path` to `$db` as `$schema`, read-only: a `file:`
+	 * URI with `mode=ro`, which every connection PDO opens reads as a URI,
+	 * and with the page cache a reader opens with. It creates nothing and
+	 * refuses a path with no file. Under `open_basedir` PDO reads no URI and
+	 * denies the attach.
+	 *
+	 * @param \PDO   $db     The connection.
+	 * @param string $path   The database file.
+	 * @param string $schema The name the connection reads it under.
+	 * @throws \PDOException When the file will not attach.
+	 */
+	public static function attach_read_only( \PDO $db, string $path, string $schema ): void {
+		$attach = $db->prepare( "ATTACH DATABASE ? AS {$schema}" );
+		self::execute( $attach, [ 'file:' . \strtr( $path, [ '%' => '%25', '?' => '%3f', '#' => '%23' ] ) . '?mode=ro' ] );
+		try {
+			$db->exec( "PRAGMA {$schema}.cache_size = -" . self::CACHE_KIB );
+		} catch ( \PDOException $e ) {
+			$db->exec( "DETACH DATABASE {$schema}" );
+			throw $e;
+		}
 	}
 
 	/** See Durable_Arm::row_key(): `{namespace}:{key}`. */

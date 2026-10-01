@@ -1,7 +1,8 @@
 <?php
 /**
  * The analyzer's store pass: what `make_node Table` and `make_node Ledger`
- * declare, and the one file a SQLite Table claims in the write set.
+ * declare, and the file a SQLite Table and a Ledger claim per partition in
+ * the write set.
  *
  * @package Newspack_Nodes
  */
@@ -37,6 +38,7 @@ final class TopologyAnalyzerTablesTest extends TestCase {
 		$this->write_tsl( 'kea-ledger', "make_node Ledger lab-7:kea 600 3 qty lo:min hi:max\nmake_node Table lab-7:owl owl:p<partition> 37\n" );
 		$this->write_tsl( 'kea-ledger-lab', "include kea-ledger\nmake_node Ledger lab-7:heron <lab:span> 3\n" );
 		$this->write_tsl( 'kea-ledger-bare', "make_node Ledger lab-7:kea 600\n" );
+		$this->write_tsl( 'kea-ledger-twin', "make_node Ledger lab-7:kea 900 2 qty\n" );
 	}
 
 	protected function tearDown(): void {
@@ -107,6 +109,13 @@ final class TopologyAnalyzerTablesTest extends TestCase {
 	public function test_a_ledger_is_no_table_and_a_table_no_ledger(): void {
 		$this->assertSame( [ 'lab-7:owl' ], \array_keys( Topology_Analyzer::declared_tables( 'kea-ledger' ) ) );
 		$this->assertSame( [ 'lab-7:kea' ], \array_keys( Topology_Analyzer::declared_ledgers( 'kea-ledger' ) ) );
+	}
+
+	public function test_a_ledger_claims_each_partitions_file_so_two_topologies_conflict(): void {
+		$this->assertContains( 'ledger:lab-7:kea.p<partition>', Topology_Analyzer::write_set( 'kea-ledger-lab' ) );
+		$this->assertContains( 'ledger:lab-7:heron.p<partition>', Topology_Analyzer::write_set( 'kea-ledger-lab' ) );
+		$this->assertSame( [ 'ledger:lab-7:kea.p<partition>' ], Topology_Analyzer::find_conflicts( [ 'kea-ledger-lab', 'kea-ledger-twin' ] )[0]['shared'] ?? [] );
+		$this->assertSame( [], Topology_Analyzer::find_conflicts( [ 'kea-ledger', 'kea-twin' ] ), 'a Ledger and a Table of one name write different files' );
 	}
 
 	public function test_a_ledger_declaring_no_segment_count_is_refused(): void {
