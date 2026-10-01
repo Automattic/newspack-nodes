@@ -52,21 +52,6 @@ final class SqliteArmTest extends TestCase {
 		$this->assertTrue( $arm->set( 'sku-41', 'after', 0 ) );
 	}
 
-	public function test_a_cached_statement_refused_busy_runs_once_the_lock_is_released(): void {
-		$arm = new Sqlite_Arm( $this->path(), 'kea:p3', 1 );
-		Core::$clock = static fn (): float => 1790000000.0;
-		$arm->write_multi( [ 'sku-41' => 'kea-41', 'sku-43' => 'kea-43' ], 37 );
-		$other = new \PDO( 'sqlite:' . $this->path() );
-		$other->exec( 'BEGIN IMMEDIATE' );
-		try {
-			$this->assertSame( 0, $arm->purge( 1790000099, 37 ), 'the purge statement met the held lock' );
-			$this->assertStringContainsString( 'locked', $arm->last_failure() );
-		} finally {
-			$other->exec( 'ROLLBACK' );
-		}
-		$this->assertSame( 2, $arm->purge( 1790000099, 37 ), 'the same cached statement runs afresh' );
-	}
-
 	public function test_a_missing_pdo_sqlite_refuses_to_build(): void {
 		Sqlite_Arm::$available = static fn (): bool => false;
 		$this->expectExceptionMessage( 'sqlite backend needs the pdo_sqlite extension' );
@@ -507,10 +492,16 @@ final class SqliteArmTest extends TestCase {
 		$this->assertSame( $frames, $written );
 	}
 
-	public function test_a_checkpoint_of_a_file_not_there_throws_for_its_node_to_report(): void {
-		$this->expectException( \PDOException::class );
-		$this->expectExceptionMessage( 'no file at ' . $this->path() );
-		( new Sqlite_Arm( $this->path(), 'kea:p3', read_only: true ) )->checkpoint();
+	public function test_a_checkpoint_of_a_file_not_there_answers_null(): void {
+		$logged = [];
+		\add_action(
+			'newspack_nodes/stderr',
+			static function ( string $line ) use ( &$logged ): void {
+				$logged[] = $line;
+			}
+		);
+		$this->assertNull( ( new Sqlite_Arm( $this->path(), 'kea:p3', read_only: true ) )->checkpoint() );
+		$this->assertStringContainsString( 'Table checkpoint failed: sqlite ' . $this->path() . ': no file at', \implode( "\n", $logged ) );
 	}
 
 	// ── In-place writes: a rewrite updates its row rather than replacing it ──
@@ -606,53 +597,6 @@ final class SqliteArmTest extends TestCase {
 		} finally {
 			$other->exec( 'ROLLBACK' );
 		}
-	}
-
-	public function test_open_database_opens_a_writer_in_wal_and_a_reader_creates_no_file(): void {
-		\mkdir( \dirname( $this->path() ), 0700, true );
-		$writer = Sqlite_Arm::open_database( $this->path(), false, 4321 );
-		$this->assertSame(
-			[ 'wal', 4321, 1, 0, Sqlite_Arm::WAL_LIMIT_BYTES, -Sqlite_Arm::CACHE_KIB ],
-			[
-				$writer->query( 'PRAGMA journal_mode' )->fetchColumn(),
-				(int) $writer->query( 'PRAGMA busy_timeout' )->fetchColumn(),
-				(int) $writer->query( 'PRAGMA synchronous' )->fetchColumn(),
-				(int) $writer->query( 'PRAGMA wal_autocheckpoint' )->fetchColumn(),
-				(int) $writer->query( 'PRAGMA journal_size_limit' )->fetchColumn(),
-				(int) $writer->query( 'PRAGMA cache_size' )->fetchColumn(),
-			],
-			'busy_timeout, WAL, synchronous=NORMAL, no autocheckpoint, the WAL cap and the cache'
-		);
-		$this->assertSame( [], $writer->query( "SELECT name FROM sqlite_master WHERE type = 'table'" )->fetchAll( \PDO::FETCH_COLUMN ), 'the opener declares no table' );
-
-		$absent = "{$this->dir}/tables/lab-7:owl.p5.sqlite";
-		try {
-			Sqlite_Arm::open_database( $absent, true, 4321 );
-			$this->fail( 'a reader opened a file that is not there' );
-		} catch ( \PDOException $e ) {
-			$this->assertFileDoesNotExist( $absent, 'a reader creates no file' );
-		}
-		$reader = Sqlite_Arm::open_database( $this->path(), true, 4321 );
-		$this->assertSame( [ 4321, -Sqlite_Arm::CACHE_KIB ], [ (int) $reader->query( 'PRAGMA busy_timeout' )->fetchColumn(), (int) $reader->query( 'PRAGMA cache_size' )->fetchColumn() ] );
-	}
-
-	public function test_attach_read_only_reads_a_file_under_any_path_and_writes_none(): void {
-		$path = "{$this->dir}/odd ?#%2f dir/lab-7:kea.p5.sqlite";
-		\mkdir( \dirname( $path ), 0700, true );
-		$peer = Sqlite_Arm::open_database( $path, false, 4321 );
-		$peer->exec( 'CREATE TABLE rows ( t INTEGER NOT NULL )' );
-		$peer->exec( 'INSERT INTO rows VALUES ( 1790000437 )' );
-		$db = new \PDO( 'sqlite::memory:', null, null, [ \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION ] );
-
-		Sqlite_Arm::attach_read_only( $db, $path, 'p5' );
-
-		$this->assertSame( 1790000437, (int) $db->query( 'SELECT t FROM p5.rows' )->fetchColumn(), 'a ? # and %2f in the path name the file, not a query' );
-		$this->assertSame( -Sqlite_Arm::CACHE_KIB, (int) $db->query( 'PRAGMA p5.cache_size' )->fetchColumn(), 'the page cache a reader opens with' );
-		$e = $this->caught( static fn () => $db->exec( 'INSERT INTO p5.rows VALUES ( 1790000441 )' ), 'a read-only attach took a write' );
-		$this->assertStringContainsString( 'attempt to write a readonly database', $e->getMessage() );
-		$absent = "{$this->dir}/odd ?#%2f dir/lab-7:kea.p6.sqlite";
-		$this->caught( static fn () => Sqlite_Arm::attach_read_only( $db, $absent, 'p6' ), 'a missing file attached' );
-		$this->assertFileDoesNotExist( $absent, 'an attach creates nothing' );
 	}
 
 	public function test_a_batch_that_fails_lands_no_key_and_answers_none(): void {

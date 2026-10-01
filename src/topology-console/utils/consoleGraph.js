@@ -31,11 +31,8 @@ export function edgeHasConnectRole( edge ) {
 /** A whole-argument `<ns:key>` token; char classes mirror PHP Core::resolve_config_tokens. */
 const CONFIG_TOKEN_RE = /^<[a-zA-Z_]\w*:[a-zA-Z_]\w*>$/;
 
-/** The setters whose target replaces its slot, folded as an override. */
+/** The verbs whose argument names a config TARGET, so it folds into an edge. */
 export const CONFIG_TARGET_VERB_RE = /^set_\w*target$/;
-
-/** Every verb whose argument names a config target: a setter or a list. */
-const CONFIG_EDGE_VERB_RE = /^(set|add)_\w*target$/;
 
 /**
  * Attach the server-resolved config edge contract to a parsed topology.
@@ -59,7 +56,7 @@ export function withResolvedConfigEdges( graph, edges ) {
 	const ownTokenTarget = ( graph.nodes || [] ).some( ( node ) =>
 		( node.verbInvocations || [] ).some(
 			( invocation ) =>
-				CONFIG_EDGE_VERB_RE.test( invocation.verb ) &&
+				CONFIG_TARGET_VERB_RE.test( invocation.verb ) &&
 				( invocation.args || [] ).some( ( arg ) =>
 					CONFIG_TOKEN_RE.test( arg )
 				)

@@ -63,11 +63,8 @@ trait Schema_Reflection {
 	/**
 	 * Walk `node_schema()['arguments']` and answer the value each declared
 	 * positional would assign, assigning nothing — the one place defaults and
-	 * required-argument enforcement live (ADR-11). An arg declaring `variadic`,
-	 * which must be the last declared, takes every token from its position on,
-	 * each of its type, as a list, empty when none is given; tokens beyond the
-	 * declared positions are
-	 * otherwise ignored. A missing token takes the arg's schema `default`,
+	 * required-argument enforcement live (ADR-11). Tokens beyond the declared
+	 * positions are ignored; a missing token takes the arg's schema `default`,
 	 * throws when the arg is `required` (so an under-argged `make_node` fails
 	 * loudly), and otherwise leaves the property's declaration default standing
 	 * by answering no value for it.
@@ -78,9 +75,8 @@ trait Schema_Reflection {
 	 * @param list<string> $args Raw positional argument tokens.
 	 * @return array<string,mixed> Property => value.
 	 * @throws \InvalidArgumentException When a spec carries no name, names no
-	 *                                   property, or declares `variadic` before
-	 *                                   another positional, a required token is
-	 *                                   missing, or a token is not of its type.
+	 *                                   property, a required token is missing, or
+	 *                                   a token is not of its declared type.
 	 */
 	protected function schema_values( array $args ): array {
 		$values = [];
@@ -97,13 +93,6 @@ trait Schema_Reflection {
 			// A subclass cannot see its parent's private field until it is set.
 			if ( ! \property_exists( $this, $name ) && ! \property_exists( self::class, $name ) ) {
 				throw new \InvalidArgumentException( \esc_html( "Invalid argument specification: {$name}" ) );
-			}
-			if ( true === ( $arg_spec['variadic'] ?? false ) ) {
-				if ( \array_key_last( self::declared_arguments() ) !== $i ) {
-					throw new \InvalidArgumentException( \esc_html( "Invalid argument specification: variadic {$name} is not the last positional" ) );
-				}
-				$values[ $name ] = \array_map( fn ( string $token ): mixed => $this->coerce_argument( $token, $type, $name ), \array_slice( $args, (int) $i ) );
-				continue;
 			}
 			$token = $args[ $i ] ?? null;
 			if ( Command_Args::unsupplied( $token, $arg_spec ) ) {
@@ -267,23 +256,13 @@ trait Schema_Reflection {
 	 * twin of `auto_wire_interpreter()`. A node's `fill()` calls this first and
 	 * returns when it answers true, so the node itself never tests the flag.
 	 *
-	 * A string request's verb is VALUE's first space-separated word,
-	 * upper-cased, and its argument the words after it. An entry declaring
-	 * `'value' => 'struct'` takes a TM_REQUEST|TM_STRUCT map naming one verb
-	 * instead, and its argument is what the map holds under it (ADR-23). The
-	 * entry's callable `handler` — `callable( static $node, mixed $argument ):
-	 * array` — supplies the reply's `data`, and the reply is
-	 * TM_STRUCT|TM_RESPONSE, VALUE `{ verb, data }`.
-	 *
-	 * Every refusal goes on the error plane, as Tachikoma's Partition refuses a
-	 * request and as the interpreter refuses a command: TM_ERROR, one line
-	 * ending in a newline. An undeclared verb, a catalog-only entry included,
-	 * answers `unknown request verb: <VERB>`; a request in the other form, or
-	 * one whose argument its handler refuses by throwing an
-	 * \InvalidArgumentException, answers `<VERB>: <why>`, for an entry that
-	 * consumes an argument: it declares `'value' => 'struct'` or `args`. Any
-	 * other throw propagates, as a request handler's always has, so a Consumer
-	 * retries the message.
+	 * The verb is VALUE's first space-separated word, upper-cased. The entry of
+	 * that name carrying a callable `handler` — `callable( static $node ): array`
+	 * — supplies the reply's `data`, and the reply is TM_STRUCT|TM_RESPONSE,
+	 * VALUE `{ verb, data }`. Any other verb, a catalog-only entry included, is
+	 * refused on the error plane, as Tachikoma's Partition refuses a request
+	 * and as the interpreter refuses a command: TM_ERROR, VALUE
+	 * `unknown request verb: <VERB>` with one terminating newline.
 	 *
 	 * Either reply goes from this node TO the request's FROM, with ID and KEY
 	 * echoed: the address is the whole correlation, so the asker keeps no
@@ -294,58 +273,26 @@ trait Schema_Reflection {
 	 * @throws \RuntimeException When no sink is wired to carry the reply.
 	 */
 	protected function answer_request( array $message ): bool {
-		$type = Core::as_int( $message[ Message::TYPE ] );
-		if ( ! ( $type & Message::TM_REQUEST ) ) {
+		if ( ! ( Core::as_int( $message[ Message::TYPE ] ) & Message::TM_REQUEST ) ) {
 			return false;
 		}
-		$sink    = $this->require_sink();
-		$value   = $message[ Message::VALUE ];
-		$words   = \is_array( $value ) ? [] : \explode( ' ', \trim( Core::as_string( $value ) ), 2 );
-		$named   = \is_array( $value ) ? Core::as_string( \array_key_first( $value ), '' ) : $words[0];
-		$verb    = \strtoupper( $named );
-		$request = Command_Interpreter_Node::declared_verbs( static::class, 'requests' )[ $verb ] ?? [];
-		$handler = $request['handler'] ?? null;
-		$wants   = 'struct' === ( $request['value'] ?? null );
-		$struct  = \is_array( $value ) && 0 !== ( $type & Message::TM_STRUCT ) && 1 === \count( $value );
-		$reply   = Message::new_message();
+		$sink  = $this->require_sink();
+		$verb  = \strtoupper( \explode( ' ', \trim( Core::as_string( $message[ Message::VALUE ] ) ), 2 )[0] );
+		$reply = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_ERROR;
+		$reply[ Message::VALUE ] = "unknown request verb: {$verb}\n";
+		$handler = Command_Interpreter_Node::declared_verbs( static::class, 'requests' )[ $verb ]['handler'] ?? null;
+		if ( \is_callable( $handler ) ) {
+			$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
+			$reply[ Message::VALUE ] = [ 'verb' => $verb, 'data' => $handler( $this ) ];
+		}
 
-		[ $reply[ Message::TYPE ], $reply[ Message::VALUE ] ] = match ( true ) {
-			! \is_callable( $handler )        => [ Message::TM_ERROR, "unknown request verb: {$verb}\n" ],
-			$wants && ! $struct               => [ Message::TM_ERROR, "{$verb}: needs a TM_REQUEST|TM_STRUCT map naming one verb\n" ],
-			! $wants && \is_array( $value )   => [ Message::TM_ERROR, "{$verb}: takes a string request, not a structure\n" ],
-			default                           => $this->handled( $handler, $verb, \is_array( $value ) ? $value[ $named ] : $words[1] ?? '', $wants || [] !== Core::arr( $request['args'] ?? [] ) ),
-		};
 		$reply[ Message::FROM ] = $this->name;
 		$reply[ Message::TO ]   = $message[ Message::FROM ];
 		$reply[ Message::ID ]   = $message[ Message::ID ];
 		$reply[ Message::KEY ]  = $message[ Message::KEY ];
 		$sink->fill( $reply );
 		return true;
-	}
-
-	/**
-	 * A declared request's reply TYPE and VALUE: the handler's `{ verb, data }`
-	 * under TM_STRUCT|TM_RESPONSE, or, for an entry that consumes an argument,
-	 * its refusal of that argument as a TM_ERROR line. Any other throw
-	 * propagates to whatever retries the message.
-	 *
-	 * @param callable $handler   The entry's handler.
-	 * @param string   $verb      The verb, upper-cased.
-	 * @param mixed    $argument  The map's value, or the words after the verb.
-	 * @param bool     $refusable Whether the entry consumes its argument: it
-	 *                            declares `'value' => 'struct'` or `args`.
-	 * @return array{0: int, 1: mixed} TYPE, then VALUE.
-	 * @throws \Throwable What the handler threw, a refusal excepted.
-	 */
-	private function handled( callable $handler, string $verb, mixed $argument, bool $refusable ): array {
-		try {
-			return [ Message::TM_STRUCT | Message::TM_RESPONSE, [ 'verb' => $verb, 'data' => $handler( $this, $argument ) ] ];
-		} catch ( \InvalidArgumentException $e ) {
-			if ( ! $refusable ) {
-				throw $e;
-			}
-			return [ Message::TM_ERROR, "{$verb}: {$e->getMessage()}\n" ];
-		}
 	}
 
 	/**

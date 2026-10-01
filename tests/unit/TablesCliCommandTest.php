@@ -1,10 +1,9 @@
 <?php
 /**
  * `wp nodes tables list` and `wp nodes tables flush`: every declared Table,
- * partition by partition, every Ledger file on disk, plus the command-session
- * store; a live owner is asked over its command channel, and a partition no
- * worker owns is written from the CLI only under the fleet hold, while its
- * topology is inactive, or while no topology declares it.
+ * partition by partition, plus the command-session store; a live owner is
+ * asked over its command channel, and a Table no worker owns is written from
+ * the CLI only under the fleet hold.
  *
  * @package Newspack_Nodes
  */
@@ -14,11 +13,9 @@ namespace Newspack_Nodes\Tests\Unit;
 use Newspack_Nodes\Callback_Node;
 use Newspack_Nodes\CLI;
 use Newspack_Nodes\Command_Auth;
-use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
-use Newspack_Nodes\Ledger_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Spawn_Coordinator;
@@ -94,11 +91,17 @@ final class TablesCliCommandTest extends TestCase {
 	}
 
 	/**
-	 * A live `kea-t.p{partition}` holding its `lab-7:kea` Table; see answering().
+	 * A live `kea-t.p{partition}`: its lock dir with a fresh heartbeat, its
+	 * `lab-7:kea` Table, and the read of its input channel a worker runs,
+	 * verifying each command and answering it through the Table's `:config`
+	 * interpreter onto its output channel, TO the command's FROM.
 	 *
 	 * @param bool $answers False for a worker that reads commands and answers none.
 	 */
 	private function live_worker( int $partition, bool $answers = true ): Table_Node {
+		$lock = "{$this->base}/locks/kea-t.p{$partition}.lock.d";
+		\mkdir( $lock, 0755, true );
+		\file_put_contents( "{$lock}/heartbeat", '1' );
 		Core::$var['partition'] = (string) $partition;
 		try {
 			$table = new Table_Node();
@@ -108,24 +111,8 @@ final class TablesCliCommandTest extends TestCase {
 			unset( Core::$var['partition'] );
 		}
 		$table->sink( new Capture_Sink_Node() );
-		$this->answering( 'kea-t', $partition, $answers );
-		return $table;
-	}
-
-	/**
-	 * A live `{topology}.p{partition}`'s lock dir with a fresh heartbeat, and
-	 * the read of its input channel a worker runs, verifying each command and
-	 * answering it through the named node's `:config` interpreter onto its
-	 * output channel, TO the command's FROM.
-	 *
-	 * @param bool $answers False for a worker that reads commands and answers none.
-	 */
-	private function answering( string $topology, int $partition, bool $answers ): void {
-		$lock = "{$this->base}/locks/{$topology}.p{$partition}.lock.d";
-		\mkdir( $lock, 0755, true );
-		\file_put_contents( "{$lock}/heartbeat", '1' );
-		$input  = Worker_Base::ipc_dir( $this->base, $topology, $partition, Worker_Base::IPC_INPUT );
-		$output = Worker_Base::ipc_dir( $this->base, $topology, $partition, Worker_Base::IPC_OUTPUT );
+		$input  = Worker_Base::ipc_dir( $this->base, 'kea-t', $partition, Worker_Base::IPC_INPUT );
+		$output = Worker_Base::ipc_dir( $this->base, 'kea-t', $partition, Worker_Base::IPC_OUTPUT );
 		\mkdir( $input, 0755, true );
 		\mkdir( $output, 0755, true );
 		$replies = new Partition_Node();
@@ -155,7 +142,7 @@ final class TablesCliCommandTest extends TestCase {
 					$reply[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_RESPONSE;
 					$reply[ Message::TO ]   = $command[ Message::FROM ];
 					try {
-						$payload = ( Core::node( Core::as_string( $command[ Message::TO ] ) ) ?? throw new \RuntimeException( 'NOT_AVAILABLE' ) )->dispatch( $verb, Core::arr( $command[ Message::VALUE ]['arguments'] ?? [] ) );
+						$payload = ( Core::node( Core::as_string( $command[ Message::TO ] ) ) ?? throw new \RuntimeException( 'NOT_AVAILABLE' ) )->dispatch( $verb );
 					} catch ( \RuntimeException $e ) {
 						$reply[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_ERROR;
 						$payload                = $e->getMessage() . "\n";
@@ -172,6 +159,7 @@ final class TablesCliCommandTest extends TestCase {
 				}
 			)
 		);
+		return $table;
 	}
 
 	/** @return list<array<string,mixed>> The rows the last table printed. */
@@ -321,14 +309,13 @@ final class TablesCliCommandTest extends TestCase {
 		$this->assertSame( '-', $this->printed()[2]['Bytes'], 'a wpdb Table has no file to size' );
 	}
 
-	public function test_an_owner_that_does_not_answer_lists_saying_so_where_its_counters_go(): void {
+	public function test_an_owner_that_does_not_answer_lists_without_counters_and_says_so(): void {
 		$this->live_worker( 1, false );
 
 		$this->command()->list_( [], [ 'format' => 'json', 'timeout' => '3' ] );
 
-		$this->assertSame( 'no answer from kea-t.p1 within 3s', $this->printed()[1]['Verbs'] );
-		$this->command()->list_( [], [ 'timeout' => '3' ] );
-		$this->assertSame( 'no answer from kea-t.p1 within 3s', $this->printed()[1]['Verbs'], 'never a dash, which reads as no calls' );
+		$this->assertNull( $this->printed()[1]['Verbs'] );
+		$this->assertSame( [ 'kea-t.p1 did not answer stats for lab-7:kea within 3s' ], $GLOBALS['_test_wp_cli_warns'] );
 	}
 
 	public function test_an_owner_that_refuses_stats_lists_without_counters_and_says_why(): void {
@@ -338,7 +325,8 @@ final class TablesCliCommandTest extends TestCase {
 
 		$this->command()->list_( [], [ 'format' => 'json' ] );
 
-		$this->assertSame( 'kea-t.p1 refused stats: NOT_AVAILABLE', $this->printed()[1]['Verbs'] );
+		$this->assertNull( $this->printed()[1]['Verbs'] );
+		$this->assertSame( [ 'kea-t.p1 refused stats for lab-7:kea: NOT_AVAILABLE' ], $GLOBALS['_test_wp_cli_warns'] );
 	}
 
 	// ── inactive topologies ──
@@ -529,7 +517,7 @@ final class TablesCliCommandTest extends TestCase {
 
 	public function test_flush_refuses_a_table_nothing_declares(): void {
 		$e = $this->caught( fn () => $this->command()->flush( [ 'lab-7:moa' ], [] ), 'an unknown Table was accepted' );
-		$this->assertSame( 'WP_CLI::error called: unknown Table or Ledger lab-7:moa; declared: lab-7:kea, lab-7:owl, ' . Command_Auth::SESSIONS_TABLE, $e->getMessage() );
+		$this->assertSame( 'WP_CLI::error called: unknown Table lab-7:moa; declared: lab-7:kea, lab-7:owl, ' . Command_Auth::SESSIONS_TABLE, $e->getMessage() );
 	}
 
 	public function test_flush_refuses_to_run_as_root(): void {
@@ -551,201 +539,5 @@ final class TablesCliCommandTest extends TestCase {
 
 		$this->assertStringContainsString( 'lab-7:kea.p1: kea-t.p1 refused flush: Table lab-7:kea: flush failed: sqlite', $e->getMessage() );
 		$this->assertSame( 4, $this->rows_in( 1 ), 'the file it could not replace keeps its rows' );
-	}
-
-	// ── Ledgers ──
-
-	/** Activates `ibis-l`, whose six partitions declare the `lab-7:ibis` Ledger. */
-	private function ledger_topology(): void {
-		$this->write_tsl( 'ibis-l', "var num_partitions = 6\nmake_node Ledger lab-7:ibis 600 3 qty lo:min hi:max\n" );
-		\update_option( 'newspack_nodes_topologies', [ 'kea-t', 'owl-w', 'ibis-l' ] );
-		Config::reset();
-	}
-
-	/** The `lab-7:ibis` Ledger in partition `$partition`'s worker. */
-	private function ibis( int $partition, string ...$columns ): Ledger_Node {
-		Core::$var['partition'] = (string) $partition;
-		try {
-			$ledger = ( new Command_Interpreter_Node() )->make_node( 'Ledger', 'lab-7:ibis', '600', '3', ...( [] === $columns ? [ 'qty', 'lo:min', 'hi:max' ] : $columns ) );
-		} finally {
-			unset( Core::$var['partition'] );
-		}
-		$this->assertInstanceOf( Ledger_Node::class, $ledger );
-		$ledger->sink( new Capture_Sink_Node() );
-		return $ledger;
-	}
-
-	/** `$rows` rows partition `$partition`'s worker wrote before its process ended. */
-	private function seed_ibis( int $partition, int $rows ): void {
-		$writer = $this->ibis( $partition );
-		$t      = (int) Core::right_now();
-		$writer->append( \array_map( static fn ( int $i ): array => [ $t, "sku-{$i}", 'aisle-9', [ $i, 2.5, 7 ] ], \range( 1, $rows ) ) );
-		$writer->remove_node();
-	}
-
-	private function ibis_rows( int $partition ): int {
-		$db = new \PDO( 'sqlite:' . Ledger_Node::file( 'lab-7:ibis', $partition ) );
-		return (int) $db->query( 'SELECT COUNT(*) FROM rows' )->fetchColumn();
-	}
-
-	/** @return list<array<string,mixed>> The printed rows of `$name`. */
-	private function printed_of( string $name ): array {
-		return \array_values( \array_filter( $this->printed(), static fn ( array $row ): bool => $name === $row['Table'] ) );
-	}
-
-	public function test_list_shows_each_ledger_file_with_its_own_writers_counters(): void {
-		$this->ledger_topology();
-		$this->seed_ibis( 3, 2 );
-		$this->ibis( 5 )->append( [ [ (int) Core::right_now(), 'sku-43', 'aisle-12', [ 4, 1.5, 9 ] ] ] );
-		$this->answering( 'ibis-l', 3, false );
-		$this->answering( 'ibis-l', 5, true );
-		$three = Ledger_Node::file( 'lab-7:ibis', 3 );
-
-		$this->command()->list_( [], [ 'format' => 'json', 'timeout' => '2' ] );
-
-		[ $p3, $p5 ] = $this->printed_of( 'lab-7:ibis' );
-		$this->assertSame( [ 'Table' => 'lab-7:ibis', 'Partition' => 3, 'Backend' => 'ledger', 'TTL' => '1800', 'Owner' => 'ibis-l.p3', 'State' => 'live', 'Store' => $three, 'Bytes' => \array_sum( Sqlite_Arm::file_sizes( $three ) ), 'Verbs' => 'no answer from ibis-l.p3 within 2s' ], $p3 );
-		$this->assertSame( [ 5, 'ibis-l.p5', Ledger_Node::file( 'lab-7:ibis', 5 ) ], [ $p5['Partition'], $p5['Owner'], $p5['Store'] ] );
-		$this->assertSame( [ 'APPEND' ], \array_keys( $p5['Verbs'] ), 'partition 5\'s writer counts its own calls' );
-		$this->assertSame( 1, $p5['Verbs']['APPEND']['calls'] );
-		$this->assertCount( 2, $this->printed_of( 'lab-7:ibis' ), 'one row a file on disk; partitions 0, 1, 2 and 4 wrote none' );
-		$this->assertSame( [ 'lab-7:ibis:config stats', 'lab-7:ibis:config stats' ], $this->answered, 'each partition\'s owner is asked' );
-	}
-
-	public function test_list_shows_a_ledger_file_no_topology_declares_as_undeclared(): void {
-		$this->ledger_topology();
-		$this->seed_ibis( 7, 1 );
-
-		$this->command()->list_( [], [ 'format' => 'json' ] );
-
-		$this->assertSame( [ [ 7, '-', 'undeclared', null ] ], \array_map( static fn ( array $row ): array => [ $row['Partition'], $row['Owner'], $row['State'], $row['Verbs'] ], $this->printed_of( 'lab-7:ibis' ) ) );
-	}
-
-	public function test_flush_under_the_hold_empties_every_file_of_a_ledger_in_place_from_here(): void {
-		$this->ledger_topology();
-		$this->seed_ibis( 3, 2 );
-		$this->seed_ibis( 5, 3 );
-		$inode = \fileinode( Ledger_Node::file( 'lab-7:ibis', 3 ) );
-		Spawn_Coordinator::set_hold( \time() );
-
-		$this->command()->flush( [ 'lab-7:ibis' ], [] );
-
-		$this->assertSame( [ 0, 0 ], [ $this->ibis_rows( 3 ), $this->ibis_rows( 5 ) ] );
-		\clearstatcache();
-		$this->assertSame( $inode, \fileinode( Ledger_Node::file( 'lab-7:ibis', 3 ) ), 'never unlinked, since other partitions attach it' );
-		$this->assertSame( [ 'lab-7:ibis.p3: 2 rows deleted under the hold', 'lab-7:ibis.p5: 3 rows deleted under the hold' ], $GLOBALS['_test_wp_cli_logs'] );
-		$this->assertSame( [ 'Flushed 2 Ledger files.' ], $GLOBALS['_test_wp_cli_success'] );
-		$this->assertFileDoesNotExist( Ledger_Node::file( 'lab-7:ibis', 0 ), 'a partition with no file has none made' );
-	}
-
-	public function test_flush_refuses_a_ledger_file_no_worker_owns_until_the_fleet_is_held(): void {
-		$this->ledger_topology();
-		$this->seed_ibis( 3, 2 );
-
-		$e = $this->caught( fn () => $this->command()->flush( [ 'lab-7:ibis' ], [] ), 'a down owner\'s Ledger file was flushed without the hold' );
-
-		$this->assertSame( 'WP_CLI::error called: lab-7:ibis.p3: ibis-l.p3 is down; run `wp nodes stop` to hold the fleet, flush again, then `wp nodes start`', $e->getMessage() );
-		$this->assertSame( 2, $this->ibis_rows( 3 ) );
-	}
-
-	public function test_flush_sends_a_ledger_file_to_its_own_live_writer_and_it_writes_on(): void {
-		$this->ledger_topology();
-		$this->seed_ibis( 3, 1 );
-		$ibis = $this->ibis( 5 );
-		$t    = (int) Core::right_now();
-		$ibis->append( [ [ $t, 'sku-41', 'aisle-9', [ 3, 2.5, 7 ] ], [ $t, 'sku-43', 'aisle-12', [ 4, 1.5, 9 ] ] ] );
-		$this->answering( 'ibis-l', 5, true );
-		$inode = \fileinode( Ledger_Node::file( 'lab-7:ibis', 5 ) );
-
-		$this->command()->flush( [ 'lab-7:ibis' ], [ 'partition' => '5' ] );
-
-		$this->assertSame( [ 'lab-7:ibis:config flush' ], $this->answered );
-		$this->assertSame( [ 1, 0 ], [ $this->ibis_rows( 3 ), $this->ibis_rows( 5 ) ], '--partition names one file' );
-		\clearstatcache();
-		$this->assertSame( $inode, \fileinode( Ledger_Node::file( 'lab-7:ibis', 5 ) ) );
-		$this->assertSame( [ 'lab-7:ibis.p5: 2 rows deleted by ibis-l.p5' ], $GLOBALS['_test_wp_cli_logs'] );
-		$this->assertSame( [ 'Flushed 1 Ledger file.' ], $GLOBALS['_test_wp_cli_success'] );
-		$this->assertSame( [ 'stored' => 1, 'dropped' => 0 ], $ibis->append( [ [ $t, 'sku-41', 'aisle-12', [ 2, 0.5, 4 ] ] ] ) );
-	}
-
-	public function test_a_live_worker_running_the_old_columns_refuses_and_the_flush_waits_for_its_restart(): void {
-		$this->ledger_topology();
-		$old = $this->ibis( 5, 'qty' );
-		$old->append( [ [ (int) Core::right_now(), 'sku-41', 'aisle-9', [ 3 ] ] ] );
-		$this->answering( 'ibis-l', 5, true );
-
-		$e = $this->caught( fn () => $this->command()->flush( [ 'lab-7:ibis' ], [] ), 'a worker running the old columns flushed' );
-
-		$this->assertSame( 'WP_CLI::error called: lab-7:ibis.p5: ibis-l.p5 refused flush: flush: lab-7:ibis runs qty:sum where its topology declares qty:sum lo:min hi:max; restart this worker (`wp nodes restart`), or hold the fleet (`wp nodes stop`), and flush again', $e->getMessage() );
-		$this->assertSame( 1, $this->ibis_rows( 5 ), 'nothing was flushed' );
-
-		// The hold: the worker's lock goes, and it holds the old Ledger no more.
-		$old->remove_node();
-		$this->rmdir_recursive( "{$this->base}/locks/ibis-l.p5.lock.d" );
-		Spawn_Coordinator::set_hold( \time() );
-		$GLOBALS['_test_wp_cli_logs'] = [];
-		$this->command()->flush( [ 'lab-7:ibis' ], [] );
-
-		$this->assertSame( [ 'lab-7:ibis.p5: 1 rows deleted under the hold' ], $GLOBALS['_test_wp_cli_logs'] );
-		$this->assertSame( [ 'stored' => 1, 'dropped' => 0 ], $this->ibis( 5 )->append( [ [ (int) Core::right_now(), 'sku-43', 'aisle-12', [ 4, 1.5, 9 ] ] ] ), 'the Ledger as its topology declares it opens' );
-	}
-
-	public function test_a_ledger_only_an_inactive_topology_declares_lists_and_flushes_from_here(): void {
-		$this->write_tsl( 'wren-z', "var num_partitions = 2\nmake_node Ledger lab-7:wren 300 4 qty\n" );
-		Core::$var['partition'] = '1';
-		try {
-			$wren = ( new Command_Interpreter_Node() )->make_node( 'Ledger', 'lab-7:wren', '300', '4', 'qty' );
-		} finally {
-			unset( Core::$var['partition'] );
-		}
-		$wren->append( [ [ (int) Core::right_now(), 'sku-41', 'aisle-9', [ 3 ] ], [ (int) Core::right_now(), 'sku-43', 'aisle-9', [ 5 ] ] ] );
-		$wren->remove_node();
-		$file = Ledger_Node::file( 'lab-7:wren', 1 );
-
-		$this->command()->list_( [], [ 'format' => 'json' ] );
-
-		$this->assertSame(
-			[ [ 'Table' => 'lab-7:wren', 'Partition' => 1, 'Backend' => 'ledger', 'TTL' => '1200', 'Owner' => 'wren-z.p1', 'State' => 'inactive', 'Store' => $file, 'Bytes' => \array_sum( Sqlite_Arm::file_sizes( $file ) ), 'Verbs' => null ] ],
-			$this->printed_of( 'lab-7:wren' )
-		);
-
-		$GLOBALS['_test_wp_cli_logs'] = [];
-		$this->command()->flush( [ 'lab-7:wren' ], [] );
-
-		$this->assertSame( [ 'lab-7:wren.p1: 2 rows deleted; wren-z is inactive' ], $GLOBALS['_test_wp_cli_logs'] );
-		$db = new \PDO( 'sqlite:' . $file );
-		$this->assertSame( 0, (int) $db->query( 'SELECT COUNT(*) FROM rows' )->fetchColumn() );
-	}
-
-	public function test_flush_empties_a_ledger_file_no_topology_declares_without_the_hold(): void {
-		$this->ledger_topology();
-		$this->seed_ibis( 7, 2 );
-
-		$this->command()->flush( [ 'lab-7:ibis' ], [] );
-
-		$this->assertSame( 0, $this->ibis_rows( 7 ) );
-		$this->assertSame( [ 'lab-7:ibis.p7: 2 rows deleted; no topology declares it' ], $GLOBALS['_test_wp_cli_logs'] );
-	}
-
-	public function test_a_ledger_whose_columns_changed_opens_after_the_cli_flushes_it(): void {
-		$this->ledger_topology();
-		$writer = $this->ibis( 3, 'qty' );
-		$writer->append( [ [ (int) Core::right_now(), 'sku-41', 'aisle-9', [ 3 ] ] ] );
-		$writer->remove_node();
-		$this->caught( fn () => $this->ibis( 5 ), 'a three-column Ledger attached a one-column file' );
-		Spawn_Coordinator::set_hold( \time() );
-
-		$this->command()->flush( [ 'lab-7:ibis' ], [] );
-
-		$this->assertSame( [ 'stored' => 1, 'dropped' => 0 ], $this->ibis( 5 )->append( [ [ (int) Core::right_now(), 'sku-43', 'aisle-12', [ 4, 1.5, 9 ] ] ] ) );
-	}
-
-	public function test_flush_with_no_table_named_counts_the_ledger_files_apart(): void {
-		$this->ledger_topology();
-		$this->seed_ibis( 3, 1 );
-
-		$this->caught( fn () => $this->command()->flush( [], [] ), 'every store was flushed unasked' );
-
-		$this->assertSame( [ 'Flush every row of 3 declared Table partitions and 1 Ledger file? The session store is left alone.' ], $GLOBALS['_test_wp_cli_confirms'] );
 	}
 }

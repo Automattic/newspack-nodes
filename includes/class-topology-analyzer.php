@@ -27,12 +27,6 @@ class Topology_Analyzer {
 	/** @var array<string,array<string,string>> Memoized parsed `var` frontmatter by topology name. */
 	private static array $frontmatter_cache = [];
 
-	/**
-	 * A `:config` verb naming a destination, an edge in the graph:
-	 * `set_*target` replaces its slot's edge, `add_*target` adds one.
-	 */
-	private const CONFIG_EDGE_VERB = '/^(set|add)_\w*target$/D';
-
 	/** @var array<string,array{nodes:list<array<string,int|string|list<string>>>,edges:list<array{0:string,1:string}>}> Memoized structural graph by topology name (node entries carry `type` + `args`). */
 	private static array $graph_cache = [];
 
@@ -202,11 +196,11 @@ class Topology_Analyzer {
 			$has_config = \str_ends_with( $target, ':config' );
 			$node_name  = $has_config ? \substr( $target, 0, -\strlen( ':config' ) ) : $target;
 			$inner_verb = $values[2] ?? '';
-			// `:config set_*target` / `add_*target` is a routing EDGE.
-			if ( $has_config && \preg_match( self::CONFIG_EDGE_VERB, $inner_verb ) ) {
+			// `:config set_*target` is a routing EDGE, not a config verb.
+			if ( $has_config && \preg_match( '/^set_\w*target$/D', $inner_verb ) ) {
 				// One token: the runtime handler reads $args[0].
 				$edge_target = Core::resolve_config_tokens( $values[3] ?? '' );
-				self::config_edge( $edges, $node_name, $edge_target, $inner_verb, $origins );
+				self::set_config_edge( $edges, $node_name, $edge_target, $inner_verb, $origins );
 				return;
 			}
 			// Every other verb rides on the node so the console can show it.
@@ -263,7 +257,7 @@ class Topology_Analyzer {
 	 * the make_node `type` token + positional `args` list, (+ the log a
 	 * Partition/Topic writes or a Consumer reads, from the path/source ARG — never
 	 * a name suffix), and edges from `connect_node` plus
-	 * `command_node <node>:config set_*target|add_*target <target>`, with `disconnect_node` applied
+	 * `command_node <node>:config set_*target <target>`, with `disconnect_node` applied
 	 * in evaluation order. A broken include throws — the walk's memoized
 	 * failure, re-raised to every caller — rather than answering an empty
 	 * graph that reads as "declares nothing".
@@ -338,9 +332,9 @@ class Topology_Analyzer {
 				continue;
 			}
 			if ( 'command_node' === $verb && \str_ends_with( $values[1] ?? '', ':config' )
-				&& \preg_match( self::CONFIG_EDGE_VERB, $values[2] ?? '' ) ) {
+				&& \preg_match( '/^set_\w*target$/D', $values[2] ?? '' ) ) {
 				$node_name = \substr( $values[1], 0, -\strlen( ':config' ) );
-				self::config_edge( $edges, $node_name, Core::resolve_config_tokens( $values[3] ?? '' ), $values[2], [ $name ] );
+				self::set_config_edge( $edges, $node_name, Core::resolve_config_tokens( $values[3] ?? '' ), $values[2], [ $name ] );
 			}
 		}
 		return self::$graph_cache[ $name ] = [
@@ -353,21 +347,18 @@ class Topology_Analyzer {
 	}
 
 	/**
-	 * Apply one config-target verb to its named slot without disturbing other
-	 * setters. A `set_*target` replaces the slot, as a setter holds one
-	 * target; an `add_*target` adds to it, as a repeatable verb keeps a list,
-	 * so each line draws its own edge.
+	 * Replace one named config-target slot without disturbing other setters.
 	 *
 	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges Edge-state map, by reference.
 	 * @param string       $source  Node whose configuration target is being set.
-	 * @param string       $target  The target; `''` adds no edge, and a set clears the slot.
-	 * @param string       $slot    The verb naming the slot, e.g. `set_error_target`.
+	 * @param string       $target  New target; `''` clears the slot and adds no edge.
+	 * @param string       $slot    Setter verb naming the slot, e.g. `set_error_target`.
 	 * @param list<string> $origins Top-level includes providing the configuration.
 	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges
 	 */
-	private static function config_edge( array &$edges, string $source, string $target, string $slot, array $origins ): void {
+	private static function set_config_edge( array &$edges, string $source, string $target, string $slot, array $origins ): void {
 		$current_key = $source . "\0" . $target;
-		foreach ( \str_starts_with( $slot, 'set_' ) ? \array_keys( $edges ) : [] as $key ) {
+		foreach ( \array_keys( $edges ) as $key ) {
 			if ( $current_key === $key || $edges[ $key ]['from'] !== $source ) {
 				continue;
 			}
@@ -770,8 +761,6 @@ class Topology_Analyzer {
 	 * the stem of its `{base}/tables/<name>.p<partition>.sqlite` file: that
 	 * file has one writer (ADR-6), so two topologies declaring the Table
 	 * conflict whatever their lines say. Every other backend writes no file.
-	 * A `Ledger` claims `ledger:<name>.p<partition>`, its
-	 * `{base}/ledgers/<name>.p<partition>.sqlite` file, on the same rule.
 	 *
 	 * @param string $name Topology name.
 	 * @return array<string> Sorted, namespaced token-form paths.
@@ -835,10 +824,6 @@ class Topology_Analyzer {
 			// One writer per SQLite file (ADR-6).
 			if ( 'make_node' === $verb && self::type_is( $class, Table_Node::class ) && 'sqlite' === Core::resolve_config_tokens( $values[5] ?? '', true ) ) {
 				$seen[ 'table:' . ( $values[2] ?? '' ) . '.p<partition>' ] = true;
-				continue;
-			}
-			if ( 'make_node' === $verb && self::type_is( $class, Ledger_Node::class ) ) {
-				$seen[ 'ledger:' . ( $values[2] ?? '' ) . '.p<partition>' ] = true;
 				continue;
 			}
 			// offsetlog (4th value) + deadletter (5th): sole-writer logs.
@@ -910,11 +895,16 @@ class Topology_Analyzer {
 	 */
 	public static function declared_tables( string $name ): array {
 		$out = [];
-		foreach ( self::declared( $name, Table_Node::class ) as $table => $values ) {
+		foreach ( self::statements( $name )['statements'] as $statement ) {
+			$values = $statement['values'];
+			if ( 'make_node' !== $statement['verb'] || ! self::type_is( $values[1] ?? '', Table_Node::class ) ) {
+				continue;
+			}
+			$table         = $values[2] ?? '';
 			$out[ $table ] = [
-				'namespace' => $values[0] ?? '',
-				'ttl'       => $values[1] ?? throw new \RuntimeException( \esc_html( "Table {$table} declares no TTL" ) ),
-				'backend'   => $values[2] ?? self::schema_default( Table_Node::class, 'backend' ),
+				'namespace' => $values[3] ?? '',
+				'ttl'       => $values[4] ?? throw new \RuntimeException( \esc_html( "Table {$table} declares no TTL" ) ),
+				'backend'   => $values[5] ?? self::schema_default( Table_Node::class, 'backend' ),
 			];
 		}
 		return $out;
@@ -937,49 +927,6 @@ class Topology_Analyzer {
 			}
 		}
 		return '';
-	}
-
-	/**
-	 * Every Ledger a topology declares, its includes flattened in: name => its
-	 * two counts and its columns as written, each `<name>[:sum|min|max]`.
-	 * Neither count has a default, so a Ledger declaring either not at all is
-	 * refused here.
-	 *
-	 * @param string $name Topology name.
-	 * @return array<string,array{segment_seconds: string, num_segments: string, columns: list<string>}>
-	 * @throws \RuntimeException On unknown include, cycle, conflicting make_node,
-	 *                           or a Ledger declaring no count.
-	 */
-	public static function declared_ledgers( string $name ): array {
-		$out = [];
-		foreach ( self::declared( $name, Ledger_Node::class ) as $ledger => $values ) {
-			$out[ $ledger ] = [
-				'segment_seconds' => $values[0] ?? throw new \RuntimeException( \esc_html( "Ledger {$ledger} declares no segment_seconds" ) ),
-				'num_segments'    => $values[1] ?? throw new \RuntimeException( \esc_html( "Ledger {$ledger} declares no num_segments" ) ),
-				'columns'         => \array_slice( $values, 2 ),
-			];
-		}
-		return $out;
-	}
-
-	/**
-	 * Every node of one class a topology declares, its includes flattened in:
-	 * name => the `make_node` arguments after the name, as written.
-	 *
-	 * @param string             $name Topology name.
-	 * @param class-string<Node> $fqcn The node class, subclasses included.
-	 * @return array<string,list<string>>
-	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
-	 */
-	private static function declared( string $name, string $fqcn ): array {
-		$out = [];
-		foreach ( self::statements( $name )['statements'] as $statement ) {
-			$values = $statement['values'];
-			if ( 'make_node' === $statement['verb'] && self::type_is( $values[1] ?? '', $fqcn ) ) {
-				$out[ $values[2] ?? '' ] = \array_slice( $values, 3 );
-			}
-		}
-		return $out;
 	}
 
 	/**

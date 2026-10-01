@@ -45,11 +45,8 @@ namespace Newspack_Nodes;
 /**
  * Table node — `make_node Table <name> <namespace> <ttl> [ auto|memcache|apcu|sqlite|wpdb ]`.
  */
-class Table_Node extends Node implements Tick_Housekeeper {
+class Table_Node extends Node {
 	use Schema_Reflection;
-	use Verb_Stats {
-		reset_stats as private zero_stats;
-	}
 
 	/** Every backend a Table may name; `auto` is memcached, else APCu, per call. */
 	public const BACKENDS = [ 'auto', 'memcache', 'apcu', 'sqlite', 'wpdb' ];
@@ -87,6 +84,30 @@ class Table_Node extends Node implements Tick_Housekeeper {
 	 */
 	public const PURGE_BACKLOG_BUDGET_S = 0.25;
 
+	/**
+	 * Seconds between one Table's WAL checkpoints. A checkpoint copies each
+	 * page in the WAL back once, however many writes dirtied it since the
+	 * last, so a hot page costs one copy an interval rather than one a tick.
+	 * Checkpointing every tick, staging's aggregate Table spent 1,686 ms in
+	 * 133 checkpoints, 39% of its time, beside 1,879 ms of SADD and 614 ms of
+	 * MSET. At its ~630 frames a second, 30 s leaves ~19,000 frames, ~75 MB,
+	 * to one checkpoint, and bounds what a crash replays from the WAL. It is
+	 * half of PURGE_INTERVAL_S, so every other checkpoint shares a purge tick.
+	 */
+	public const CHECKPOINT_INTERVAL_S = 30;
+
+	/**
+	 * Checkpoints in a row that may leave frames behind, while the WAL grows,
+	 * before the Table warns. A PASSIVE checkpoint stops at the oldest open
+	 * reader's snapshot, and a reader here is one request's mount, which PHP
+	 * ends inside its 30-second max_execution_time. Checkpoints sit
+	 * CHECKPOINT_INTERVAL_S apart, so one request straddles two of them at
+	 * most; four in a row spans at least 90 seconds, three times what one
+	 * request can hold, so it means readers overlapping without a gap, or one
+	 * stuck, and the WAL grows until one lets go.
+	 */
+	public const WAL_STALL_CHECKPOINTS = 4;
+
 	/** Most bytes of a refused verb a log line or its throttle key shows. */
 	private const SHOWN_VERB_BYTES = 64;
 
@@ -116,26 +137,40 @@ class Table_Node extends Node implements Tick_Housekeeper {
 	/** How every write request is answered. */
 	private const WRITE_REPLY = 'one TM_RESPONSE "<VERB> <keys…>" naming the keys it took effect on';
 
+	/** A verb's calls, in its counter row. */
+	private const CALLS = 0;
+
+	/** Keys or rows a verb's calls asked for. */
+	private const ASKED = 1;
+
+	/** Keys or rows a verb's calls answered or took effect on. */
+	private const ANSWERED = 2;
+
+	/** Encoded bytes a durable arm stored or returned for a verb. */
+	private const BYTES = 3;
+
+	/** A verb's nanoseconds on the monotonic clock, all calls together. */
+	private const TOTAL_NS = 4;
+
+	/** A verb's longest call, in nanoseconds. */
+	private const MAX_NS = 5;
+
 	/**
 	 * Every counted verb's row at zero: the requests, fill()'s keyed INSERT,
-	 * and the Router tick's PURGE and CHECKPOINT. Each counts keys, except
-	 * SADD's member rows, SMEMBERS' member rows answered, PURGE's rows (asked
-	 * the batches' room, answered the rows deleted) and CHECKPOINT's WAL
-	 * frames. A volatile arm serializes inside its extension, so its bytes
-	 * read 0.
+	 * and the Router tick's PURGE and CHECKPOINT.
 	 */
 	private const ZERO_STATS = [
-		'GET'        => self::ZERO_ROW,
-		'MGET'       => self::ZERO_ROW,
-		'MSET'       => self::ZERO_ROW,
-		'ADD'        => self::ZERO_ROW,
-		'TOUCH'      => self::ZERO_ROW,
-		'RM'         => self::ZERO_ROW,
-		'INSERT'     => self::ZERO_ROW,
-		'SADD'       => self::ZERO_ROW,
-		'SMEMBERS'   => self::ZERO_ROW,
-		'PURGE'      => self::ZERO_ROW,
-		'CHECKPOINT' => self::ZERO_ROW,
+		'GET'      => [ 0, 0, 0, 0, 0, 0 ],
+		'MGET'     => [ 0, 0, 0, 0, 0, 0 ],
+		'MSET'     => [ 0, 0, 0, 0, 0, 0 ],
+		'ADD'      => [ 0, 0, 0, 0, 0, 0 ],
+		'TOUCH'    => [ 0, 0, 0, 0, 0, 0 ],
+		'RM'       => [ 0, 0, 0, 0, 0, 0 ],
+		'INSERT'   => [ 0, 0, 0, 0, 0, 0 ],
+		'SADD'     => [ 0, 0, 0, 0, 0, 0 ],
+		'SMEMBERS' => [ 0, 0, 0, 0, 0, 0 ],
+		'PURGE'      => [ 0, 0, 0, 0, 0, 0 ],
+		'CHECKPOINT' => [ 0, 0, 0, 0, 0, 0 ],
 	];
 
 	/**
@@ -145,6 +180,15 @@ class Table_Node extends Node implements Tick_Housekeeper {
 	 * @var array<string,string>|null
 	 */
 	private static ?array $struct_usage = null;
+
+	/**
+	 * Monotonic-clock seam behind the per-verb timings, replacing
+	 * `hrtime( true )`. Tests pin it to set what one verb measures.
+	 * Signature: `function (): int`, nanoseconds from an arbitrary origin.
+	 *
+	 * @var (\Closure(): int)|null
+	 */
+	public static ?\Closure $hrtime = null;
 
 	/** Key scope. Every entry key derives from it, so changing it orphans the table. */
 	private string $namespace = '';
@@ -175,6 +219,29 @@ class Table_Node extends Node implements Tick_Housekeeper {
 
 	/** Whether this Table's last purge stopped with a batch still full. */
 	private bool $purge_behind = false;
+
+	/** The tick this Table's next WAL checkpoint is due, in epoch seconds. */
+	private int $checkpoint_due = 0;
+
+	/** Consecutive WAL checkpoints that left frames behind. */
+	private int $wal_stalled = 0;
+
+	/** WAL frames at the first checkpoint of the current stall. */
+	private int $wal_stall_frames = 0;
+
+	/**
+	 * Per-verb counters since the node was built or last reset; see stats().
+	 *
+	 * @var array<string,array{int,int,int,int,int,int}>
+	 */
+	private array $verb_stats = self::ZERO_STATS;
+
+	/**
+	 * The counters as the last trace line left them, held only while traced.
+	 *
+	 * @var array<string,array{int,int,int,int,int,int}>|null
+	 */
+	private ?array $traced = null;
 
 	/**
 	 * Durable system of record behind this table, or null until backed_by()
@@ -283,7 +350,7 @@ class Table_Node extends Node implements Tick_Housekeeper {
 	 */
 	private function insert( string $key, mixed $value ): void {
 		$started = self::monotonic_ns();
-		$bytes   = $this->stat_bytes();
+		$bytes   = $this->arm_bytes();
 		try {
 			// Empty deletes (Table.pm:313); a bare terminator counts as empty.
 			$empty  = null === $value || [] === $value
@@ -335,7 +402,8 @@ class Table_Node extends Node implements Tick_Housekeeper {
 	 * the declaration before any arm opens. A mount creates nothing: it adopts
 	 * a directory that is there, and with none the mount reads as empty. A
 	 * mount refuses a process running as root, which is the operator's to fix
-	 * as a foreign `{base}/tables` is; see Sqlite_Arm::refuse_root_reader().
+	 * as a foreign `{base}/tables` is: SQLite can add `-wal` and `-shm` files
+	 * beside a WAL database, and root's would lock its worker out.
 	 *
 	 * @return string The file.
 	 * @throws \RuntimeException On a base directory or `{base}/tables` that
@@ -345,8 +413,8 @@ class Table_Node extends Node implements Tick_Housekeeper {
 	private function sqlite_file(): string {
 		try {
 			$file = self::file( $this->table_name(), $this->file_partition() );
-			if ( $this->mounted ) {
-				Sqlite_Arm::refuse_root_reader( $file );
+			if ( $this->mounted && 0 === CLI::uid() ) {
+				throw new \RuntimeException( "a sqlite mount refuses to run as root: a root reader leaves -wal and -shm files beside {$file} that its worker cannot open" );
 			}
 			if ( ! $this->mounted || \is_dir( \dirname( $file ) ) ) {
 				Config::ensure_path( \dirname( $file ) );
@@ -402,7 +470,7 @@ class Table_Node extends Node implements Tick_Housekeeper {
 		$words   = \is_array( $value ) ? [] : ( \preg_split( '/\s+/', \trim( Core::as_string( $value, '' ) ), -1, \PREG_SPLIT_NO_EMPTY ) ?: [] );
 		$verb    = \is_array( $value ) ? Core::as_string( \array_key_first( $value ), '' ) : (string) \array_shift( $words );
 		$started = self::monotonic_ns();
-		$bytes   = $this->stat_bytes();
+		$bytes   = $this->arm_bytes();
 		try {
 			$this->answer_verb( $request, $verb, $words );
 		} finally {
@@ -1326,7 +1394,7 @@ class Table_Node extends Node implements Tick_Housekeeper {
 	 *                                   separator, NUL, `..` or a leading dot.
 	 */
 	public static function stem( string $table, int $partition ): string {
-		if ( Sqlite_Arm::refuses_file_name( $table ) ) {
+		if ( 1 !== \preg_match( '/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/D', $table ) || \str_contains( $table, '..' ) ) {
 			throw new \InvalidArgumentException( "Table name {$table} cannot name a file" );
 		}
 		return "{$table}.p{$partition}";
@@ -1418,15 +1486,128 @@ class Table_Node extends Node implements Tick_Housekeeper {
 	}
 
 	/**
-	 * `reset_stats`: zero the counters, answering them as they stood. A mount
-	 * refuses it.
+	 * One Table's purge on the Router tick, in PURGE_BATCH_ROWS batches; the
+	 * rest waits a minute. A purge that stops with its last batch full leaves
+	 * the Table behind, and says so; the first short batch catches it up.
+	 *
+	 * @param Durable_Arm $arm   The Table's arm.
+	 * @param int         $now   The tick, in epoch seconds.
+	 * @param float       $until The tick's deadline, shared by every Table.
+	 */
+	private function purge_tick( Durable_Arm $arm, int $now, float $until ): void {
+		[ $purged, $batches ]   = $this->purge_batches( $arm, $now, $until, self::PURGE_BATCH_ROWS );
+		$this->purge_behind     = $batches * self::PURGE_BATCH_ROWS === $purged;
+		if ( $this->purge_behind ) {
+			$this->print_less_often( 'WARNING: purge is behind: ', "its last batch came back full after {$batches} batches, {$purged} rows; the next purge spends its backlog budget" );
+		}
+	}
+
+	/**
+	 * Delete expired rows `$batch` at a time, counted as one PURGE: a batch,
+	 * repeated while each comes back full and the deadline, read through
+	 * `Core::right_now()`, has not passed, so a spent deadline runs one. The
+	 * deadline is checked between batches, so one statement blocked on the
+	 * file's write lock can hold the tick for the arm's busy_timeout.
+	 *
+	 * @param Durable_Arm $arm   The Table's arm.
+	 * @param int         $now   Rows expired at this epoch second go.
+	 * @param float       $until The deadline.
+	 * @param int         $batch Rows one statement deletes at most.
+	 * @return array{0: int, 1: int} Rows deleted, and batches run.
+	 */
+	private function purge_batches( Durable_Arm $arm, int $now, float $until, int $batch ): array {
+		$started = self::monotonic_ns();
+		$bytes   = $this->arm_bytes();
+		$batches = 0;
+		$purged  = 0;
+		try {
+			do {
+				++$batches;
+				$rows    = $arm->purge( $now, $batch );
+				$purged += $rows;
+			} while ( Core::right_now() < $until && $batch === $rows );
+		} finally {
+			$this->count_rows( 'PURGE', $batches * $batch, $purged );
+			$this->count_call( 'PURGE', $started, $bytes );
+		}
+		return [ $purged, $batches ];
+	}
+
+	/**
+	 * One Table's WAL checkpoint, unless a purge this tick spent the deadline
+	 * (read off `Core::$now`, which the purge refreshed), or at once when no
+	 * purge was due and the tick set no deadline. One that runs dates the
+	 * next from `$now`. It is counted as CHECKPOINT: `asked` the WAL's
+	 * frames, `answered` the frames written back. A partial one is ordinary
+	 * and the next carries on; WAL_STALL_CHECKPOINTS of them in a row, with
+	 * the WAL larger than when the stall began, is warned about, rate-limited.
+	 *
+	 * @param Sqlite_Arm $arm   The Table's arm.
+	 * @param int        $now   The tick, in epoch seconds.
+	 * @param ?float     $until The tick's deadline, shared by every Table, or
+	 *                          null when no purge was due.
+	 */
+	private function checkpoint_wal( Sqlite_Arm $arm, int $now, ?float $until ): void {
+		if ( null !== $until && Core::$now >= $until ) {
+			return;
+		}
+		$this->checkpoint_due = $now + self::CHECKPOINT_INTERVAL_S;
+		$started              = self::monotonic_ns();
+		try {
+			$result = $arm->checkpoint();
+		} finally {
+			$this->count_call( 'CHECKPOINT', $started, $this->arm_bytes() );
+		}
+		if ( null === $result ) {
+			return;
+		}
+		[ $frames, $written ] = $result;
+		$this->count_rows( 'CHECKPOINT', $frames, $written );
+		if ( $written >= $frames ) {
+			$this->wal_stalled = 0;
+			return;
+		}
+		if ( 0 === $this->wal_stalled++ ) {
+			$this->wal_stall_frames = $frames;
+		}
+		if ( $this->wal_stalled >= self::WAL_STALL_CHECKPOINTS && $frames > $this->wal_stall_frames ) {
+			$this->print_less_often( 'WARNING: WAL checkpoint has not completed ', "for {$this->wal_stalled} checkpoints while the WAL grew from {$this->wal_stall_frames} to {$frames} frames; an open reader holds an old snapshot" );
+		}
+	}
+
+	/**
+	 * The node's snapshot, its per-verb counters shown as stats() reports them.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public function dump_node(): array {
+		return \array_replace( parent::dump_node(), [ 'verb_stats' => $this->stats() ] );
+	}
+
+	/**
+	 * The per-verb counters, for the console's metadata row.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public function dump_metadata(): array {
+		return [ 'verb_stats' => $this->stats() ];
+	}
+
+	/**
+	 * `reset_stats`: zero the counters, answering them as they stood, so no
+	 * call lands between the read and the reset.
 	 *
 	 * @return array<string,array{calls:int,asked:int,answered:int,bytes:int,total_ms:float,max_ms:float}>
 	 * @throws \RuntimeException On a mounted Table, which serves reads only.
 	 */
 	public function reset_stats(): array {
 		$this->refuse_if_mounted( 'reset_stats' );
-		return $this->zero_stats();
+		$stats            = $this->stats();
+		$this->verb_stats = self::ZERO_STATS;
+		if ( null !== $this->traced ) {
+			$this->traced = self::ZERO_STATS;
+		}
+		return $stats;
 	}
 
 	/**
@@ -1439,6 +1620,88 @@ class Table_Node extends Node implements Tick_Housekeeper {
 		if ( $this->mounted ) {
 			throw new \RuntimeException( \esc_html( "{$verb}: {$this->name} is a mounted Table, which serves reads only" ) );
 		}
+	}
+
+	/**
+	 * The per-verb counters since the node was built or last reset. `asked`
+	 * and `answered` count keys, except SADD's member rows, SMEMBERS' member
+	 * rows answered, and PURGE's rows: `asked` the batches' room, `answered`
+	 * the rows deleted. `bytes` is what a durable arm encoded or decoded; a
+	 * volatile arm's serializer runs inside its extension, so it reads 0. A
+	 * call that threw still counts, with its time.
+	 *
+	 * @api The `stats` verb, dump_node() and dump_metadata() answer it.
+	 * @return array<string,array{calls:int,asked:int,answered:int,bytes:int,total_ms:float,max_ms:float}>
+	 */
+	public function stats(): array {
+		$out = [];
+		foreach ( $this->verb_stats as $verb => $row ) {
+			$out[ $verb ] = [
+				'calls'    => $row[ self::CALLS ],
+				'asked'    => $row[ self::ASKED ],
+				'answered' => $row[ self::ANSWERED ],
+				'bytes'    => $row[ self::BYTES ],
+				'total_ms' => \round( $row[ self::TOTAL_NS ] / 1e6, 3 ),
+				'max_ms'   => \round( $row[ self::MAX_NS ] / 1e6, 3 ),
+			];
+		}
+		return $out;
+	}
+
+	/**
+	 * Count one call of `$verb` begun at `$started`: its time and the bytes
+	 * its arm handled since `$bytes`. A verb not counted adds no row. Callers
+	 * bracket inline, since a closure would allocate once per message.
+	 *
+	 * @param string $verb    The verb.
+	 * @param int    $started monotonic_ns() when the call began.
+	 * @param int    $bytes   arm_bytes() when the call began.
+	 */
+	private function count_call( string $verb, int $started, int $bytes ): void {
+		if ( ! isset( $this->verb_stats[ $verb ] ) ) {
+			return;
+		}
+		$ns = self::monotonic_ns() - $started;
+		++$this->verb_stats[ $verb ][ self::CALLS ];
+		$this->verb_stats[ $verb ][ self::BYTES ]    += $this->arm_bytes() - $bytes;
+		$this->verb_stats[ $verb ][ self::TOTAL_NS ] += $ns;
+		if ( $ns > $this->verb_stats[ $verb ][ self::MAX_NS ] ) {
+			$this->verb_stats[ $verb ][ self::MAX_NS ] = $ns;
+		}
+	}
+
+	/**
+	 * Add to a verb's keys or rows asked and answered; as count_call(), a
+	 * verb not counted adds no row.
+	 *
+	 * @param string $verb     The verb.
+	 * @param int    $asked    Keys or rows asked.
+	 * @param int    $answered Keys or rows answered or written.
+	 */
+	private function count_rows( string $verb, int $asked, int $answered ): void {
+		if ( ! isset( $this->verb_stats[ $verb ] ) ) {
+			return;
+		}
+		$this->verb_stats[ $verb ][ self::ASKED ]    += $asked;
+		$this->verb_stats[ $verb ][ self::ANSWERED ] += $answered;
+	}
+
+	/**
+	 * The encoded bytes the Table's durable arm has handled; 0 for any other.
+	 *
+	 * @return int Bytes.
+	 */
+	private function arm_bytes(): int {
+		return $this->arm instanceof Durable_Arm ? $this->arm->bytes() : 0;
+	}
+
+	/**
+	 * The monotonic clock: `hrtime( true )`, or the `$hrtime` seam.
+	 *
+	 * @return int Nanoseconds from an arbitrary origin.
+	 */
+	private static function monotonic_ns(): int {
+		return null === self::$hrtime ? (int) \hrtime( true ) : ( self::$hrtime )();
 	}
 
 	/**
@@ -1499,120 +1762,95 @@ class Table_Node extends Node implements Tick_Housekeeper {
 	}
 
 	/**
-	 * This Table's work on the tick at `$now`, for tick(): its purge, at most
-	 * once a PURGE_INTERVAL_S, which a durable arm alone answers; its WAL
-	 * checkpoint, at most once a CHECKPOINT_INTERVAL_S, which a SQLite arm
-	 * alone has; and its trace line while traced. A mount does neither of
-	 * the first two, since its declaring worker is the file's one writer.
-	 * See Tick_Housekeeper::tick_steps() for the steps.
+	 * Read or set the trace level. Setting it on holds the counters as they
+	 * stand, so the first trace line sums what came after; off drops them.
 	 *
-	 * @param int $now The tick, in epoch seconds.
+	 * @param int|null $level New level (null = pure getter).
+	 * @return int The level now in force.
 	 */
-	public function tick_steps( int $now ): array {
-		$arm   = $this->mounted ? null : $this->arm;
-		$purge = null;
-		if ( $arm instanceof Durable_Arm && $this->purge_due <= $now ) {
-			$this->purge_due = $now + self::PURGE_INTERVAL_S;
-			$purge           = fn ( float $until ) => $this->purge_tick( $arm, $now, $until );
+	public function debug_state( ?int $level = null ): int {
+		$state = parent::debug_state( $level );
+		if ( null !== $level ) {
+			$this->traced = $state > 0 ? $this->traced ?? $this->verb_stats : null;
 		}
-		return [
-			'purge'      => $purge,
-			'behind'     => $this->purge_behind,
-			'checkpoint' => $arm instanceof Sqlite_Arm && $this->checkpoint_due <= $now ? fn ( ?float $until ) => $this->checkpoint_wal( $arm->checkpoint( ... ), $now, $until ) : null,
-			'trace'      => $this->debug_state > 0 ? $this->trace_tick( ... ) : null,
-		];
+		return $state;
 	}
 
 	/**
-	 * One Table's purge on the Router tick, in PURGE_BATCH_ROWS batches; the
-	 * rest waits a minute. A purge that stops with its last batch full leaves
-	 * the Table behind, and says so; the first short batch catches it up.
-	 *
-	 * @param Durable_Arm $arm   The Table's arm.
-	 * @param int         $now   The tick, in epoch seconds.
-	 * @param float       $until The tick's deadline, shared by every store.
+	 * A traced Table's line for one Router tick: `DEBUG: <VERB> <calls>
+	 * <ms>ms, …` over each verb called since its last line, on the stderr
+	 * path set_state()'s DEBUG line takes, so the console's timeline reads
+	 * it; no line when nothing was called.
 	 */
-	private function purge_tick( Durable_Arm $arm, int $now, float $until ): void {
-		[ $purged, $batches ]   = $this->purge_batches( $arm, $now, $until, self::PURGE_BATCH_ROWS );
-		$this->purge_behind     = $batches * self::PURGE_BATCH_ROWS === $purged;
-		if ( $this->purge_behind ) {
-			$this->print_less_often( 'WARNING: purge is behind: ', "its last batch came back full after {$batches} batches, {$purged} rows; the next purge spends its backlog budget" );
+	private function trace_tick(): void {
+		$last  = $this->traced ?? $this->verb_stats;
+		$parts = [];
+		foreach ( $this->verb_stats as $verb => $row ) {
+			$calls = $row[ self::CALLS ] - $last[ $verb ][ self::CALLS ];
+			if ( $calls > 0 ) {
+				$parts[] = "{$verb} {$calls} " . \round( ( $row[ self::TOTAL_NS ] - $last[ $verb ][ self::TOTAL_NS ] ) / 1e6, 3 ) . 'ms';
+			}
+		}
+		$this->traced = $this->verb_stats;
+		if ( [] !== $parts ) {
+			$this->stderr( 'DEBUG: ' . \implode( ', ', $parts ) );
 		}
 	}
 
 	/**
-	 * Delete the rows expired at `$now` `$batch` at a time, counted as one
-	 * PURGE; see delete_batches().
-	 *
-	 * @param Durable_Arm $arm   The Table's arm.
-	 * @param int         $now   Rows expired at this epoch second go.
-	 * @param float       $until The deadline.
-	 * @param int         $batch Rows one statement deletes at most.
-	 * @return array{0: int, 1: int} Rows deleted, and batches run.
-	 */
-	private function purge_batches( Durable_Arm $arm, int $now, float $until, int $batch ): array {
-		return $this->delete_batches( 'PURGE', static fn (): int => $arm->purge( $now, $batch ), $batch, $until );
-	}
-
-	/**
-	 * The encoded bytes the Table's durable arm has handled; 0 for any other.
-	 *
-	 * @return int Bytes.
-	 */
-	private function stat_bytes(): int {
-		return $this->arm instanceof Durable_Arm ? $this->arm->bytes() : 0;
-	}
-
-	/**
-	 * The Router tick's step for every Tick_Housekeeper in this process's
-	 * graph, each node's work given by its tick_steps() — a durable Table's
-	 * PURGE of the rows expired at `$now` and a Ledger's DROP of the segments
-	 * past its lifespan, then each writer's WAL checkpoint. Last, every
-	 * traced store, volatile Tables too, writes its trace line. The purges
-	 * and checkpoints share one deadline, PURGE_BACKLOG_BUDGET_S while any
-	 * purge is behind and PURGE_BUDGET_S otherwise, so a tick holds the loop
-	 * for one budget plus one batch a purging store and one checkpoint begun
-	 * before the deadline; a checkpoint the purges left no time for waits a
-	 * tick, not an interval. The tick runs its timers' flushes first, so a
-	 * checkpoint never lands inside one.
+	 * The Router tick's step for every Table in this process's graph: delete
+	 * the rows expired at `$now` from each durable one, at most once a
+	 * `PURGE_INTERVAL_S` each, then checkpoint each SQLite Table's WAL, at most
+	 * once a `CHECKPOINT_INTERVAL_S` each. Last, every traced Table, volatile
+	 * ones too, writes its trace line. The purges and checkpoints share one
+	 * deadline, PURGE_BACKLOG_BUDGET_S while any purge is behind and PURGE_BUDGET_S
+	 * otherwise, so a tick holds the loop for one budget plus one batch a
+	 * purging Table and one checkpoint begun before the deadline; a checkpoint
+	 * the purges left no time for waits a tick, not an interval. The tick runs its
+	 * timers' flushes first, so a checkpoint never lands inside one. A mount
+	 * is skipped, since its declaring worker is the file's one writer.
 	 *
 	 * @param int $now The tick, in epoch seconds.
 	 * @throws \Throwable What the steps threw, after the last.
 	 */
 	public static function tick( int $now ): void {
-		$purges      = [];
-		$checkpoints = [];
-		$traces      = [];
-		$behind      = false;
+		$due    = [];
+		$wals   = [];
+		$traces = [];
+		$behind = false;
 		foreach ( Core::$nodes_by_name as $node ) {
-			if ( ! $node instanceof Tick_Housekeeper ) {
+			if ( ! $node instanceof self ) {
 				continue;
 			}
-			$steps = $node->tick_steps( $now );
-			if ( null !== $steps['purge'] ) {
-				$purges[] = $steps['purge'];
-				$behind   = $behind || $steps['behind'];
+			if ( $node->debug_state > 0 ) {
+				$traces[] = $node->trace_tick( ... );
 			}
-			if ( null !== $steps['checkpoint'] ) {
-				$checkpoints[] = $steps['checkpoint'];
+			$arm = $node->mounted ? null : $node->arm;
+			if ( ! $arm instanceof Durable_Arm ) {
+				continue;
 			}
-			if ( null !== $steps['trace'] ) {
-				$traces[] = $steps['trace'];
+			if ( $arm instanceof Sqlite_Arm && $node->checkpoint_due <= $now ) {
+				$wals[] = [ $node, $arm ];
+			}
+			if ( $node->purge_due <= $now ) {
+				$node->purge_due = $now + self::PURGE_INTERVAL_S;
+				$due[]           = [ $node, $arm ];
+				$behind          = $behind || $node->purge_behind;
 			}
 		}
-		if ( [] === $purges && [] === $checkpoints && [] === $traces ) {
+		if ( [] === $due && [] === $wals && [] === $traces ) {
 			return;
 		}
-		$until = null;
-		$runs  = [];
-		if ( [] !== $purges ) {
+		$until  = null;
+		$purges = [];
+		if ( [] !== $due ) {
 			// Only a due purge reads the live clock, refreshing Core::$now.
 			$deadline = Core::right_now() + ( $behind ? self::PURGE_BACKLOG_BUDGET_S : self::PURGE_BUDGET_S );
 			$until    = $deadline;
-			$runs     = \array_map( static fn ( \Closure $purge ): \Closure => static fn () => $purge( $deadline ), $purges );
+			$purges   = \array_map( static fn ( array $table ): \Closure => static fn () => $table[0]->purge_tick( $table[1], $now, $deadline ), $due );
 		}
-		$checks = \array_map( static fn ( \Closure $checkpoint ): \Closure => static fn () => $checkpoint( $until ), $checkpoints );
-		Worker_Should_Stop::raise( Worker_Should_Stop::attempt( ...$runs, ...$checks, ...$traces ) );
+		$checkpoints = \array_map( static fn ( array $table ): \Closure => static fn () => $table[0]->checkpoint_wal( $table[1], $now, $until ), $wals );
+		Worker_Should_Stop::raise( Worker_Should_Stop::attempt( ...$purges, ...$checkpoints, ...$traces ) );
 	}
 
 	/**
@@ -1692,7 +1930,16 @@ class Table_Node extends Node implements Tick_Housekeeper {
 				[ 'name' => 'backend', 'type' => 'string', 'default' => 'auto', 'description' => 'auto, memcache, apcu, sqlite or wpdb; sqlite and wpdb are durable.' ],
 			],
 			'commands'    => [
-				self::stats_command( 'Table' ),
+				[
+					'name'        => 'stats',
+					'capability'  => Capabilities::READ,
+					'description' => 'Per-verb counters since the Table was built: calls, keys or rows asked and answered, encoded bytes, total and max ms.',
+					'args'        => [],
+					'handler'     => static function ( Command_Interpreter_Node $interpreter ): array {
+						$patron = $interpreter->patron();
+						return $patron instanceof self ? $patron->stats() : throw new \RuntimeException( 'no table patron' );
+					},
+				],
 				[
 					'name'        => 'reset_stats',
 					'action'      => true,

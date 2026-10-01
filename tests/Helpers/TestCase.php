@@ -642,18 +642,6 @@ abstract class TestCase extends PHPUnitTestCase {
 		return null;
 	}
 
-	/**
-	 * Unregister `$name` and its `:config` interpreter, keeping both objects:
-	 * how a test stands a second partition's worker, its own process, up
-	 * beside the first under the one name both declare.
-	 *
-	 * @param string $name The node both workers declare.
-	 */
-	protected function unregister_worker_node( string $name ): void {
-		\Newspack_Nodes\Core::unregister_node( $name );
-		\Newspack_Nodes\Core::unregister_node( \Newspack_Nodes\Node::sibling_name_of( $name, 'config' ) );
-	}
-
 	protected function pump_consumer( \Newspack_Nodes\Consumer_Node $c, int $max = 5000 ): void {
 		$ref = new \ReflectionClass( \Newspack_Nodes\Consumer_Node::class );
 		$eof = $ref->getProperty( 'at_eof' );

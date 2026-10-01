@@ -6,60 +6,16 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
-- **A Ledger is one file per partition, `{base}/ledgers/{name}.p{N}.sqlite`,
-  and its rows carry no `w`.** Nothing reads the shared
-  `{base}/ledgers/{name}.sqlite` a Ledger wrote before, nor migrates it.
-  Rebuild as before — `wp nodes stop && wp nodes deactivate <topology> &&
-  wp nodes gc --force && wp nodes tables flush --yes && wp nodes memcache
-  flush && wp nodes activate <topology> && wp nodes start` — then delete each
-  old file by hand, with its `-wal` and `-shm`:
-  `rm {base}/ledgers/<name>.sqlite{,-wal,-shm}` for every Ledger. A reader of
-  a Ledger's file names it by partition: `Ledger_Node::file( $name )` becomes
-  `Ledger_Node::file( $name, $partition )`, and
-  `Ledger_Node::partition_files( $name )` lists every partition's file on
-  disk; `Ledger_Node::flush_file( $name, $declaration )` becomes
-  `flush_file( $name, $partition, $declaration )`. Two active topologies may
-  no longer declare one Ledger: `wp nodes activate` refuses the pair, as it
-  refuses two declaring one `sqlite` Table. A Ledger with more partition
-  files than `Ledger_Node::ATTACH_LIMIT` (10) refuses to open.
-  event-logger-nodes' uninstall names each partition's file.
-- **A Ledger's `MEMBERS` takes a required `limit`, and
-  `Table_Client::ledger_members()` a fifth argument, `int $limit`.** Pass the
-  most members the caller can use, from 1 to
-  `Ledger_Node::MEMBERS_LIMIT_MAX` (10,000): `ledger_members( $ledger, $from,
-  $to, $k )` becomes `ledger_members( $ledger, $from, $to, $k, $limit )`. The
-  answer is the member list, or `[ 'over' => $limit ]` when the key holds more
-  than `$limit` in the range, so test `isset( $answer['over'] )` before
-  reading it as a list. A `MEMBERS` query with no `limit` is refused with a
-  `TM_ERROR`. event-logger-nodes' URL search calls `ledger_members()` with
-  four arguments and needs the fifth, its 5,000-URL cap, which lets it drop
-  its own count of a common word's members; raise its substrate floor to the
-  release carrying this.
-- **A Ledger's `TOP` takes `order_by` where it took `column`.** Rename the
-  field in every `TOP` query, `Table_Client::top()`'s included:
-  `[ …, 'column' => 'ms' ]` becomes `[ …, 'order_by' => 'ms' ]`. A query
-  still naming `column` is refused with a `TM_ERROR` and `top()` answers
-  null. event-logger-nodes' `Stats_Store::url_page()` sends `column` and
-  needs the rename. A Ledger declaring a column named `x` no longer opens;
-  rename the column and flush the Ledger (`wp nodes tables flush`).
-- **A Ledger declaring a `min` or `max` column must be flushed once.** Such
-  a column is nullable now, so a file written before refuses to open, naming
-  `wp nodes tables flush`; run it under the fleet hold. An `APPEND` may send
-  null in a `min` or `max` slot for a value not measured, where a caller
-  sent 0, which read as a real minimum and ranked first; null in a `sum`
-  slot is refused.
-- **`Bootstrap::forget_node_tables()` is `Bootstrap::forget_node_stores()`.**
-  It drops the Ledgers `node_ledgers()` resolved as well as the Tables. Call
-  the new name; no alias remains.
-- **`Durable_Reader::write_checkpoint_frame()` takes a fourth parameter,
-  `bool $settle = false`.** A class using the trait declares it on its
-  implementation, and a reader with no snapshot nodes ignores it.
-  `checkpoint( $graceful, $settle )` passes it through; only the interval
-  checkpoint in `fire()` sets it.
+- **`Ledger_Node` is gone, with `Bootstrap::mount_ledger()`, `Table_Client`'s
+  `append()`, `sum()`, `top()` and `ledger_members()`, `Consumer_Node`'s
+  `settle()` hook and the `Tick_Housekeeper` interface.** A topology
+  declaring `make_node Ledger` no longer loads. Move its data to Tables.
+  newspack-event-logger-nodes 0.113.0 already has. Under the fleet hold,
+  delete `{base}/ledgers/` and every file in it: nothing reads them.
+
 - **`Table_Node::purge_and_checkpoint()` is `Table_Node::tick()`.** The Router's
-  tick calls it for every Tick_Housekeeper, Tables and Ledgers; it purges,
-  drops a Ledger's expired segments, checkpoints and writes a traced store's
-  trace line. Call `Table_Node::tick( $now )` where you called
+  tick calls it for every Table; it purges, checkpoints and writes a traced
+  Table's trace line. Call `Table_Node::tick( $now )` where you called
   `Table_Node::purge_and_checkpoint( $now )`; no alias remains.
 - **A cli process's reply address is `_output/_cli:<pid>/<reply-node>`.** The
   attached REPL stamps FROM `_output/_cli:<pid>/_output`, where it stamped
