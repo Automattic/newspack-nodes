@@ -4,7 +4,6 @@ namespace Newspack_Nodes\Tests\Unit;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Router_Node;
-use Newspack_Nodes\Sqlite_Arm;
 use Newspack_Nodes\Table_Node;
 use Newspack_Nodes\Timer_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
@@ -240,17 +239,6 @@ final class TableCheckpointTest extends TestCase {
 		$row = $this->checkpoint_row();
 		$this->assertSame( 2 * Table_Node::WAL_STALL_CHECKPOINTS, $row['calls'] );
 		$this->assertLessThan( $row['asked'], $row['answered'], 'every one of those checkpoints was partial' );
-	}
-
-	public function test_a_checkpoint_that_fails_is_counted_and_warned_about_rate_limited(): void {
-		$missing = "{$this->dir}/tables/lab-7:owl.p5.sqlite";
-		( new \ReflectionProperty( Table_Node::class, 'arm' ) )->setValue( $this->table, new Sqlite_Arm( $missing, 'owl:p5', read_only: true ) );
-		Table_Node::tick( 1790000000 );
-		Table_Node::tick( 1790000000 + Table_Node::CHECKPOINT_INTERVAL_S );
-		$row = $this->checkpoint_row();
-		$this->assertSame( [ 2, 0, 0 ], [ $row['calls'], $row['asked'], $row['answered'] ] );
-		$this->assertCount( 1, $this->warnings() );
-		$this->assertStringContainsString( "lab-7:kea: WARNING: WAL checkpoint failed: no file at {$missing}", $this->warnings()[0] );
 	}
 
 	/** @return list<string> The WAL warnings logged. */

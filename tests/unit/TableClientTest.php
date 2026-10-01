@@ -3,7 +3,6 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
-use Newspack_Nodes\Ledger_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Node_Names;
@@ -46,23 +45,6 @@ final class Scripted_Member_Table_Fixture_Node extends Node {
 			$reply[ Message::VALUE ] = $value;
 			$this->require_sink()->fill( $reply );
 		}
-	}
-}
-
-/** A Ledger that answers every request TO its FROM with one scripted `data`. */
-final class Scripted_Ledger_Fixture_Node extends Node {
-	public mixed $data = null;
-
-	public function fill( array $message ): void {
-		$reply                   = Message::new_message();
-		$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
-		$reply[ Message::FROM ]  = $this->name;
-		$reply[ Message::TO ]    = $message[ Message::FROM ];
-		$reply[ Message::VALUE ] = [
-			'verb' => 'MEMBERS',
-			'data' => $this->data,
-		];
-		$this->require_sink()->fill( $reply );
 	}
 }
 
@@ -351,90 +333,6 @@ final class TableClientTest extends TestCase {
 		$this->assertSame( [ 'sku-41' => 'kea' ], $this->asker->client->get_multi( 'lab-7:kea', [ 'sku-41' ], $failed ) );
 		$this->assertFalse( $failed );
 		$this->assertSame( [], $this->asker->folded );
-	}
-
-	/** The weka Ledger, qty summed and hi its maximum, in partition 3's worker. */
-	private function weka(): void {
-		Core::$clock            = static fn (): float => 1790000400.0;
-		Core::$var['partition'] = '3';
-		try {
-			$ledger = new Ledger_Node();
-			$ledger->name( 'lab-7:weka' );
-			$ledger->arguments( [ '600', '3', 'qty', 'hi:max' ] );
-			$ledger->sink( $this->asker->sink() );
-		} finally {
-			unset( Core::$var['partition'] );
-		}
-	}
-
-	public function test_a_ledger_round_trip_through_the_graph(): void {
-		$this->weka();
-		$client = $this->asker->client;
-		$this->assertSame(
-			[
-				'stored'  => 4,
-				'dropped' => 1,
-			],
-			$client->append(
-				'lab-7:weka',
-				[
-					[ 1790000400, 'sku-41', 'aisle-9', [ 3, 7 ] ],
-					[ 1790000400, 'sku-43', 'aisle-12', [ 5, 8 ] ],
-					[ 1790000400, 'sku-43', 'aisle-15', [ 1, 4 ] ],
-					[ 1790000400 - 600, 'sku-41', 'aisle-9', [ 4, 11 ] ],
-					[ 1790000400 - 1801, 'sku-41', 'aisle-9', [ 9, 99 ] ],
-				]
-			)
-		);
-		$range = [
-			'from' => 1790000400 - 600,
-			'to'   => 1790000401,
-		];
-		$this->assertSame( [ [ 'sku-41', 'aisle-9', null, 7.0, 11.0 ] ], $client->sum( 'lab-7:weka', $range + [ 'ks' => [ 'sku-41' ] ] ) );
-		$this->assertSame(
-			[
-				'total' => 3,
-				'rows'  => [ [ 'aisle-9', 7.0, 11.0 ] ],
-			],
-			$client->top( 'lab-7:weka', $range + [ 'ks' => [ 'sku-41', 'sku-43' ], 'order_by' => 'qty', 'order' => 'desc', 'limit' => 1, 'offset' => 0 ] )
-		);
-		$this->assertSame( [ 'aisle-9' ], $client->ledger_members( 'lab-7:weka', 1790000400 - 600, 1790000401, 'sku-41', 3 ) );
-		$this->assertSame( [ 'aisle-12', 'aisle-15' ], $client->ledger_members( 'lab-7:weka', 1790000400 - 600, 1790000401, 'sku-43', 2 ), 'at its limit, the members' );
-		$this->assertSame( [ 'over' => 1 ], $client->ledger_members( 'lab-7:weka', 1790000400 - 600, 1790000401, 'sku-43', 1 ), 'past its limit, over naming it' );
-		$this->assertSame( [], $this->asker->folded, 'every reply went to the client' );
-	}
-
-	public function test_a_refused_or_unanswered_ledger_ask_answers_null(): void {
-		$this->weka();
-		$lines = [];
-		Core::set_stderr_handler(
-			static function ( string $line ) use ( &$lines ): void {
-				$lines[] = $line;
-			}
-		);
-		$client = $this->asker->client;
-		$this->assertNull( $client->top( 'lab-7:weka', [ 'from' => 0, 'to' => 1, 'ks' => [ 'sku-41' ], 'order_by' => 'price', 'order' => 'desc', 'limit' => 1, 'offset' => 0 ] ) );
-		$this->assertNull( $client->append( 'lab-7:weka', [ [ 1790000400, 'sku 41', 'aisle-9', [ 3, 7 ] ] ] ) );
-		$this->assertNull( $client->sum( 'lab-7:gone', [ 'from' => 0, 'to' => 1, 'ks' => [ 'sku-41' ] ] ) );
-		$mute = new Capture_Sink_Node();
-		$mute->name( 'lab-7:mute' );
-		$this->assertNull( $client->ledger_members( 'lab-7:mute', 0, 1, 'sku-41', 3 ), 'no answer is no data' );
-		$log = \implode( "\n", $lines );
-		$this->assertStringContainsString( 'Table_Client: lab-7:weka refused an ask from asker-9 — TOP: order_by is x or one of qty, hi', $log );
-		$this->assertStringContainsString( 'Table_Client: lab-7:gone refused an ask from asker-9 — NOT_AVAILABLE', $log );
-	}
-
-	public function test_ledger_members_answers_null_for_an_over_naming_another_limit(): void {
-		$liar = new Scripted_Ledger_Fixture_Node();
-		$liar->name( 'lab-7:liar' );
-		$liar->sink( $this->asker->sink() );
-		$client     = $this->asker->client;
-		$liar->data = [ 'over' => 3 ];
-		$this->assertSame( [ 'over' => 3 ], $client->ledger_members( 'lab-7:liar', 0, 1, 'term-owl', 3 ), 'an over naming the limit asked' );
-		$liar->data = [ 'over' => 99 ];
-		$this->assertNull( $client->ledger_members( 'lab-7:liar', 0, 1, 'term-owl', 3 ), 'an over naming a limit never asked is no answer' );
-		$liar->data = [ 'url-a', 7 ];
-		$this->assertNull( $client->ledger_members( 'lab-7:liar', 0, 1, 'term-owl', 3 ), 'a member that is no string is no answer' );
 	}
 
 	public function test_a_key_holding_whitespace_is_never_asked(): void {

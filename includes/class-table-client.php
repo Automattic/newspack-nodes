@@ -1,8 +1,8 @@
 <?php
 /**
- * Table_Client: the asking half of the Table protocol, and of a Ledger's.
+ * Table_Client: the asking half of the Table protocol.
  *
- * A node sends a request TO a Table or a Ledger with its own name as FROM. In-process
+ * A node sends a request TO a Table with its own name as FROM. In-process
  * delivery is synchronous, so every reply has reached the node's `fill()` —
  * which hands it here first — before the send returns. One exchange is in
  * flight per asker, so the address is the whole correlation (ADR-7).
@@ -225,113 +225,6 @@ final class Table_Client {
 			return [];
 		}
 		return $this->written( $verb, $this->ask( $table, Message::TM_REQUEST | Message::TM_STRUCT, [ $verb => $items ] ) );
-	}
-
-	/**
-	 * `APPEND`: store rows in a Ledger, in one transaction.
-	 *
-	 * @api A node writing a Ledger: event-logger-nodes' stats flush.
-	 * @param string            $ledger The Ledger's registered name.
-	 * @param list<list<mixed>> $rows   `[ t, k, x, [ columns… ] ]` each.
-	 * @return array<array-key,mixed>|null `{ stored, dropped }`, or null when
-	 *                                     refused or unanswered.
-	 * @throws \LogicException When an ask is in flight already.
-	 * @throws \RuntimeException When the asker has no name or no sink.
-	 */
-	public function append( string $ledger, array $rows ): ?array {
-		return $this->ledger_data( $ledger, 'APPEND', $rows );
-	}
-
-	/**
-	 * `SUM`: a Ledger's groups, each column by its declared aggregate.
-	 *
-	 * @api A node reading a Ledger: event-logger-nodes' stats readers.
-	 * @param string                 $ledger The Ledger's registered name.
-	 * @param array<string,mixed>    $query  `{ from, to, ks, xs?, by_t?,
-	 *                                       group?: x|k, positive?,
-	 *                                       positive_each_t? }`.
-	 * @return array<array-key,mixed>|null `[ k, x|null, t|null, columns… ]`
-	 *                                     rows, or null when refused or
-	 *                                     unanswered.
-	 * @throws \LogicException When an ask is in flight already.
-	 * @throws \RuntimeException When the asker has no name or no sink.
-	 */
-	public function sum( string $ledger, array $query ): ?array {
-		return $this->ledger_data( $ledger, 'SUM', $query );
-	}
-
-	/**
-	 * `TOP`: a Ledger's members across keys, ranked by `order_by`.
-	 *
-	 * @api A node reading a Ledger: event-logger-nodes' stats readers.
-	 * @param string              $ledger The Ledger's registered name.
-	 * @param array<string,mixed> $query  `{ from, to, ks, order_by, order,
-	 *                                    limit, offset, positive?,
-	 *                                    positive_each_t? }`.
-	 * @return array<array-key,mixed>|null `{ total, rows }`, or null when
-	 *                                     refused or unanswered.
-	 * @throws \LogicException When an ask is in flight already.
-	 * @throws \RuntimeException When the asker has no name or no sink.
-	 */
-	public function top( string $ledger, array $query ): ?array {
-		return $this->ledger_data( $ledger, 'TOP', $query );
-	}
-
-	/**
-	 * `MEMBERS`: a Ledger key's distinct members over `from ≤ t < to`, or
-	 * `[ 'over' => $limit ]` when the key holds more than `$limit` there.
-	 *
-	 * @api A node reading a Ledger: event-logger-nodes' search.
-	 * @param string $ledger The Ledger's registered name.
-	 * @param int    $from   The first `t` read.
-	 * @param int    $to     The `t` the read stops short of.
-	 * @param string $k      The key.
-	 * @param int    $limit  Most members answered, from 1 to
-	 *                       Ledger_Node::MEMBERS_LIMIT_MAX.
-	 * @return list<string>|array{over: int}|null The members in order, the
-	 *         over answer naming `$limit`, or null when refused, unanswered or
-	 *         answered in any other shape.
-	 * @throws \LogicException When an ask is in flight already.
-	 * @throws \RuntimeException When the asker has no name or no sink.
-	 */
-	public function ledger_members( string $ledger, int $from, int $to, string $k, int $limit ): ?array {
-		$data = $this->ledger_data(
-			$ledger,
-			'MEMBERS',
-			[
-				'from'  => $from,
-				'to'    => $to,
-				'k'     => $k,
-				'limit' => $limit,
-			]
-		);
-		if ( [ 'over' => $limit ] === $data ) {
-			return $data;
-		}
-		$members = \array_values( \array_filter( $data ?? [], \is_string( ... ) ) );
-		return null !== $data && \array_is_list( $data ) && \count( $members ) === \count( $data ) ? $members : null;
-	}
-
-	/**
-	 * One Ledger request under TM_REQUEST|TM_STRUCT, and the `data` of the
-	 * TM_RESPONSE naming its verb.
-	 *
-	 * @param string                 $ledger   The Ledger's registered name.
-	 * @param string                 $verb     `APPEND`, `SUM`, `TOP` or `MEMBERS`.
-	 * @param array<array-key,mixed> $argument What the request carries.
-	 * @return array<array-key,mixed>|null The reply's `data`; null on a
-	 *                                     TM_ERROR, which ask() logs, or no answer.
-	 * @throws \LogicException When an ask is in flight already.
-	 * @throws \RuntimeException When the asker has no name or no sink.
-	 */
-	private function ledger_data( string $ledger, string $verb, array $argument ): ?array {
-		foreach ( $this->ask( $ledger, Message::TM_REQUEST | Message::TM_STRUCT, [ $verb => $argument ] ) as $reply ) {
-			$value = $reply[ Message::VALUE ];
-			if ( 0 !== ( Core::num_int( $reply[ Message::TYPE ] ) & Message::TM_RESPONSE ) && \is_array( $value ) && $verb === ( $value['verb'] ?? null ) && \is_array( $value['data'] ?? null ) ) {
-				return $value['data'];
-			}
-		}
-		return null;
 	}
 
 	/**

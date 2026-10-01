@@ -63,15 +63,8 @@ final class Sqlite_Arm extends Durable_Arm {
 	/** The page-cache pragma; a negative size counts KiB rather than pages. */
 	private const CACHE_PRAGMA = 'PRAGMA cache_size = -' . self::CACHE_KIB;
 
-	/**
-	 * The WAL checkpoint every writer runs on the tick, of its own file: a
-	 * bare `wal_checkpoint` would take in every file attached read-only too,
-	 * and fail on the first.
-	 */
-	public const PASSIVE_CHECKPOINT = 'PRAGMA main.wal_checkpoint(PASSIVE)';
-
 	/** Keys bound per `IN ( … )`: under the 999 variables an older build allows. */
-	public const IN_CHUNK = 500;
+	private const IN_CHUNK = 500;
 
 	/** SQL predicate for a live row; binds one `now`. */
 	private const LIVE = '( expires = 0 OR expires > ? )';
@@ -178,81 +171,30 @@ final class Sqlite_Arm extends Durable_Arm {
 		}
 	}
 
-	/** See Cache_Backend::last_failure(). */
-	public function last_failure(): string {
-		return "sqlite {$this->path}: {$this->failure}";
-	}
-
-	/**
-	 * This file's PASSIVE checkpoint; see passive_checkpoint().
-	 *
-	 * @return array{0: int, 1: int}|null The WAL's frames, and those written
-	 *                                    back; null while another connection
-	 *                                    checkpoints.
-	 * @throws \PDOException When the checkpoint fails.
-	 */
-	public function checkpoint(): ?array {
-		return self::passive_checkpoint( $this->statement( self::PASSIVE_CHECKPOINT ) );
-	}
-
 	/**
 	 * One PASSIVE checkpoint: copy back every WAL frame no reader's snapshot
 	 * still needs, waiting on no reader and blocking none. Frames past an
-	 * open reader's snapshot stay for the next call, which is ordinary. While
-	 * another connection holds the checkpoint lock, SQLite answers busy and
-	 * copies nothing.
+	 * open reader's snapshot stay for the next call, which is ordinary.
 	 *
-	 * @param \PDOStatement $checkpoint PASSIVE_CHECKPOINT, prepared on a
-	 *                                  writer's connection.
-	 * @return array{0: int, 1: int}|null The WAL's frames, and those written
-	 *                                    back; null when SQLite answered busy.
-	 * @throws \PDOException When the checkpoint fails.
+	 * @return array{0: int, 1: int}|null The WAL's frames and the frames now
+	 *                                    written back; null when it failed,
+	 *                                    which is logged.
 	 */
-	public static function passive_checkpoint( \PDOStatement $checkpoint ): ?array {
-		self::execute( $checkpoint );
-		$row = $checkpoint->fetchAll( \PDO::FETCH_NUM )[0] ?? [];
-		$row = \is_array( $row ) ? $row : [];
-		if ( 1 === Core::as_int( $row[0] ?? 0 ) ) {
+	public function checkpoint(): ?array {
+		try {
+			$row = $this->single_row( 'PRAGMA wal_checkpoint(PASSIVE)' );
+		} catch ( \PDOException $e ) {
+			$this->failure = $e->getMessage();
+			Core::print_less_often( 'Table checkpoint failed: ', $this->last_failure() );
 			return null;
 		}
+		$row = \is_array( $row ) ? $row : [];
 		return [ \max( 0, Core::as_int( $row[1] ?? 0 ) ), \max( 0, Core::as_int( $row[2] ?? 0 ) ) ];
 	}
 
-	/**
-	 * Run `$work` in one `BEGIN DEFERRED … COMMIT` on `$db`, so every read in
-	 * it sees the one snapshot its first read took, whatever another
-	 * connection commits meanwhile. In WAL it takes no lock a writer waits on.
-	 *
-	 * @template T
-	 * @param \PDO           $db   The connection.
-	 * @param \Closure(): T  $work What the transaction reads.
-	 * @return T What `$work` returned.
-	 */
-	public static function deferred( \PDO $db, \Closure $work ): mixed {
-		return self::transaction( $db, 'BEGIN DEFERRED', $work );
-	}
-
-	/**
-	 * Attach the file at `$path` to `$db` as `$schema`, read-only: a `file:`
-	 * URI with `mode=ro`, which every connection PDO opens reads as a URI,
-	 * and with the page cache a reader opens with. It creates nothing and
-	 * refuses a path with no file. Under `open_basedir` PDO reads no URI and
-	 * denies the attach.
-	 *
-	 * @param \PDO   $db     The connection.
-	 * @param string $path   The database file.
-	 * @param string $schema The name the connection reads it under.
-	 * @throws \PDOException When the file will not attach.
-	 */
-	public static function attach_read_only( \PDO $db, string $path, string $schema ): void {
-		$attach = $db->prepare( "ATTACH DATABASE ? AS {$schema}" );
-		self::execute( $attach, [ 'file:' . \strtr( $path, [ '%' => '%25', '?' => '%3f', '#' => '%23' ] ) . '?mode=ro' ] );
-		try {
-			$db->exec( "PRAGMA {$schema}.cache_size = -" . self::CACHE_KIB );
-		} catch ( \PDOException $e ) {
-			$db->exec( "DETACH DATABASE {$schema}" );
-			throw $e;
-		}
+	/** See Cache_Backend::last_failure(). */
+	public function last_failure(): string {
+		return "sqlite {$this->path}: {$this->failure}";
 	}
 
 	/** See Durable_Arm::row_key(): `{namespace}:{key}`. */
@@ -271,74 +213,18 @@ final class Sqlite_Arm extends Durable_Arm {
 	}
 
 	/**
-	 * Whether `$name` cannot name a SQLite file inside its directory: a path
-	 * separator, NUL, `..`, a leading dot, or any character outside
-	 * `[A-Za-z0-9_.:-]`.
-	 *
-	 * @param string $name A Table's or a Ledger's declared name.
-	 * @return bool True when it cannot.
-	 */
-	public static function refuses_file_name( string $name ): bool {
-		return 1 !== \preg_match( '/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/D', $name ) || \str_contains( $name, '..' );
-	}
-
-	/**
-	 * Refuse a reader running as root: SQLite can add `-wal` and `-shm` files
-	 * beside a WAL database, and root's would lock the file's writer out.
-	 * Running as root is the operator's to fix, never a backend to degrade
-	 * past, so the refusal is a plain \RuntimeException.
-	 *
-	 * @param string $path The file the reader would open.
-	 * @throws \RuntimeException In a process running as root.
-	 */
-	public static function refuse_root_reader( string $path ): void {
-		if ( 0 === CLI::uid() ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the node wrapping it escapes the message once.
-			throw new \RuntimeException( "a sqlite mount refuses to run as root: a root reader leaves -wal and -shm files beside {$path} that its worker cannot open" );
-		}
-	}
-
-	/**
 	 * See Durable_Arm::write_scope(): one transaction holding the write lock
 	 * from its start, so a read inside sees what it writes over. The file is
 	 * this arm's own, so no caller's transaction shares the connection.
 	 */
 	protected function write_scope( \Closure $work ): mixed {
-		return self::immediate( $this->handle(), $work );
-	}
-
-	/**
-	 * Run `$work` in one `BEGIN IMMEDIATE … COMMIT` on `$db`, which takes the
-	 * write lock at its start, waiting on busy_timeout for another writer's.
-	 * A throw rolls the transaction back and propagates.
-	 *
-	 * @template T
-	 * @param \PDO           $db   The connection.
-	 * @param \Closure(): T  $work What the transaction runs.
-	 * @return T What `$work` returned.
-	 */
-	public static function immediate( \PDO $db, \Closure $work ): mixed {
-		return self::transaction( $db, 'BEGIN IMMEDIATE', $work );
-	}
-
-	/**
-	 * Run `$work` between `$begin` and a COMMIT; a throw rolls it back and
-	 * propagates.
-	 *
-	 * @template T
-	 * @param \PDO           $db    The connection.
-	 * @param string         $begin The BEGIN statement.
-	 * @param \Closure(): T  $work  What the transaction runs.
-	 * @return T What `$work` returned.
-	 */
-	private static function transaction( \PDO $db, string $begin, \Closure $work ): mixed {
-		$db->exec( $begin );
+		$this->handle()->exec( 'BEGIN IMMEDIATE' );
 		try {
 			$out = $work();
-			$db->exec( 'COMMIT' );
+			$this->handle()->exec( 'COMMIT' );
 			return $out;
 		} catch ( \Throwable $e ) {
-			self::rollback( $db );
+			$this->rollback();
 			throw $e;
 		}
 	}
@@ -346,12 +232,10 @@ final class Sqlite_Arm extends Durable_Arm {
 	/**
 	 * End a failed transaction, whether it failed mid-way or at a COMMIT
 	 * SQLite answered BUSY, which leaves the transaction open.
-	 *
-	 * @param \PDO $db The connection.
 	 */
-	private static function rollback( \PDO $db ): void {
+	private function rollback(): void {
 		try {
-			$db->exec( 'ROLLBACK' );
+			$this->handle()->exec( 'ROLLBACK' );
 		} catch ( \PDOException ) {
 			// SQLite rolled back on its own error; nothing is left to end.
 			return;
@@ -369,7 +253,7 @@ final class Sqlite_Arm extends Durable_Arm {
 		foreach ( \array_chunk( $keys, self::IN_CHUNK ) as $chunk ) {
 			$in   = \implode( ',', \array_fill( 0, \count( $chunk ), '?' ) );
 			$stmt = $db->prepare( "SELECT \"key\", \"value\", expires FROM kv WHERE \"key\" IN ( {$in} ) AND " . self::LIVE );
-			self::execute( $stmt, [ ...$chunk, self::now() ] );
+			$stmt->execute( [ ...$chunk, self::now() ] );
 			/** @var array<array-key,array{0: string, 1: int}> $rows The key column keys each row. */
 			$rows = $stmt->fetchAll( \PDO::FETCH_UNIQUE | \PDO::FETCH_NUM );
 			$out  = $rows + $out;
@@ -403,7 +287,7 @@ final class Sqlite_Arm extends Durable_Arm {
 			$stmt->bindValue( 1, (string) $key );
 			$stmt->bindValue( 2, $bytes, \PDO::PARAM_LOB );
 			$stmt->bindValue( 3, $expires, \PDO::PARAM_INT );
-			self::execute( $stmt );
+			$stmt->execute();
 			$changed += $stmt->rowCount();
 		}
 		return $changed;
@@ -416,7 +300,7 @@ final class Sqlite_Arm extends Durable_Arm {
 		$stmt->bindValue( 2, $key );
 		$stmt->bindValue( 3, $old, \PDO::PARAM_LOB );
 		$stmt->bindValue( 4, self::now(), \PDO::PARAM_INT );
-		self::execute( $stmt );
+		$stmt->execute();
 		return 1 === $stmt->rowCount();
 	}
 
@@ -439,7 +323,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	 */
 	private function run( string $sql, array $args ): int {
 		$stmt = $this->statement( $sql );
-		self::execute( $stmt, $args );
+		$stmt->execute( $args );
 		return $stmt->rowCount();
 	}
 
@@ -516,7 +400,7 @@ final class Sqlite_Arm extends Durable_Arm {
 		$stmt = $this->statement( $sql );
 		$stmt->bindValue( 1, $now, \PDO::PARAM_INT );
 		$stmt->bindValue( 2, $limit, \PDO::PARAM_INT );
-		self::execute( $stmt );
+		$stmt->execute();
 		return $stmt->rowCount();
 	}
 
@@ -528,7 +412,7 @@ final class Sqlite_Arm extends Durable_Arm {
 			$stmt->bindValue( 2, $member );
 			$stmt->bindValue( 3, $bytes, \PDO::PARAM_LOB );
 			$stmt->bindValue( 4, $expires, \PDO::PARAM_INT );
-			self::execute( $stmt );
+			$stmt->execute();
 		}
 	}
 
@@ -547,7 +431,7 @@ final class Sqlite_Arm extends Durable_Arm {
 		$read->bindValue( 1, $set_key );
 		$read->bindValue( 2, self::now(), \PDO::PARAM_INT );
 		$read->bindValue( 3, $limit, \PDO::PARAM_INT );
-		self::execute( $read );
+		$read->execute();
 		return \array_map( Core::as_string( ... ), $read->fetchAll( \PDO::FETCH_KEY_PAIR ) );
 	}
 
@@ -560,7 +444,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	 */
 	private function single_row( string $sql ): ?array {
 		$stmt = $this->statement( $sql );
-		self::execute( $stmt );
+		$stmt->execute();
 		$rows = $stmt->fetchAll( \PDO::FETCH_NUM );
 		return \is_array( $rows[0] ?? null ) ? $rows[0] : null;
 	}
@@ -601,45 +485,18 @@ final class Sqlite_Arm extends Durable_Arm {
 	}
 
 	/**
-	 * Open the connection through `open_database()`, declaring the writer's
-	 * `kv` and `members` tables.
+	 * Open the connection: read-only, or as the writer in WAL mode with the
+	 * `kv` and `members` tables declared.
 	 *
 	 * @return \PDO The connection.
 	 * @throws \PDOException When the file cannot open.
 	 * @throws \RuntimeException When the writer cannot enter WAL mode.
 	 */
 	private function connect(): \PDO {
-		$db = self::open_database( $this->path, $this->read_only, $this->busy_timeout_ms );
+		$flags = $this->read_only ? [ \PDO::SQLITE_ATTR_OPEN_FLAGS => \PDO::SQLITE_OPEN_READONLY ] : [];
+		$db    = new \PDO( 'sqlite:' . $this->path, null, null, [ \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION ] + $flags );
+		$db->exec( 'PRAGMA busy_timeout = ' . \max( 1, $this->busy_timeout_ms ) );
 		if ( $this->read_only ) {
-			return $db;
-		}
-		$db->exec( 'CREATE TABLE IF NOT EXISTS kv ( "key" TEXT PRIMARY KEY, "value" BLOB NOT NULL, expires INTEGER NOT NULL )' );
-		$db->exec( 'CREATE INDEX IF NOT EXISTS kv_expires ON kv ( expires )' );
-		$db->exec( 'CREATE TABLE IF NOT EXISTS members ( set_key TEXT NOT NULL, member TEXT NOT NULL, "value" BLOB NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY ( set_key, member ) ) WITHOUT ROWID' );
-		$db->exec( 'CREATE INDEX IF NOT EXISTS members_expires ON members ( expires )' );
-		$this->has_members = true;
-		return $db;
-	}
-
-	/**
-	 * The one place a SQLite file opens, for a Table's arm and a Ledger alike:
-	 * `busy_timeout`, then for a writer WAL, `synchronous=NORMAL`, no
-	 * autocheckpoint, the WAL cap and the page cache, and for a reader the page
-	 * cache alone. It declares no table; each caller declares its own. A reader
-	 * creates nothing and refuses a path with no file.
-	 *
-	 * @param string $path            Database file; a writer's directory exists.
-	 * @param bool   $read_only       Open as a reader rather than a writer.
-	 * @param int    $busy_timeout_ms Wait on a held write lock, in milliseconds.
-	 * @return \PDO The connection, throwing on every error.
-	 * @throws \PDOException When the file cannot open.
-	 * @throws \RuntimeException When a writer cannot enter WAL mode.
-	 */
-	public static function open_database( string $path, bool $read_only, int $busy_timeout_ms ): \PDO {
-		$flags = $read_only ? [ \PDO::SQLITE_ATTR_OPEN_FLAGS => \PDO::SQLITE_OPEN_READONLY ] : [];
-		$db    = new \PDO( 'sqlite:' . $path, null, null, [ \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION ] + $flags );
-		self::busy_timeout( $db, $busy_timeout_ms );
-		if ( $read_only ) {
 			try {
 				$db->exec( self::CACHE_PRAGMA );
 			} catch ( \PDOException ) {
@@ -649,43 +506,20 @@ final class Sqlite_Arm extends Durable_Arm {
 			return $db;
 		}
 		$mode = $db->prepare( 'PRAGMA journal_mode = WAL' );
-		self::execute( $mode );
+		$mode->execute();
 		if ( 'wal' !== $mode->fetchColumn() ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the node wrapping it escapes the message once.
-			throw new \RuntimeException( "sqlite backend could not enter WAL mode at {$path}" );
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; Table_Node::open() escapes the wrapped message once.
+			throw new \RuntimeException( "sqlite backend could not enter WAL mode at {$this->path}" );
 		}
 		$db->exec( 'PRAGMA synchronous = NORMAL' );
 		$db->exec( 'PRAGMA wal_autocheckpoint = 0' );
 		$db->exec( 'PRAGMA journal_size_limit = ' . self::WAL_LIMIT_BYTES );
 		$db->exec( self::CACHE_PRAGMA );
+		$db->exec( 'CREATE TABLE IF NOT EXISTS kv ( "key" TEXT PRIMARY KEY, "value" BLOB NOT NULL, expires INTEGER NOT NULL )' );
+		$db->exec( 'CREATE INDEX IF NOT EXISTS kv_expires ON kv ( expires )' );
+		$db->exec( 'CREATE TABLE IF NOT EXISTS members ( set_key TEXT NOT NULL, member TEXT NOT NULL, "value" BLOB NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY ( set_key, member ) ) WITHOUT ROWID' );
+		$db->exec( 'CREATE INDEX IF NOT EXISTS members_expires ON members ( expires )' );
+		$this->has_members = true;
 		return $db;
-	}
-
-	/**
-	 * Execute `$statement`, resetting it when it fails, so its next execute
-	 * runs afresh: a statement SQLite answered BUSY fails every retry until
-	 * it is reset. Every statement on a SQLite file runs through here.
-	 *
-	 * @param \PDOStatement    $statement The statement.
-	 * @param list<mixed>|null $params    Values to bind, or null for those bound.
-	 * @throws \PDOException When the statement fails.
-	 */
-	public static function execute( \PDOStatement $statement, ?array $params = null ): void {
-		try {
-			$statement->execute( $params );
-		} catch ( \PDOException $e ) {
-			$statement->closeCursor();
-			throw $e;
-		}
-	}
-
-	/**
-	 * Set how long `$db` waits on another connection's write lock.
-	 *
-	 * @param \PDO $db              The connection.
-	 * @param int  $busy_timeout_ms Milliseconds, at least 1.
-	 */
-	public static function busy_timeout( \PDO $db, int $busy_timeout_ms ): void {
-		$db->exec( 'PRAGMA busy_timeout = ' . \max( 1, $busy_timeout_ms ) );
 	}
 }
