@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.84.0] - 2026-10-01
+
 ### Added
 
 - **`useQueryParamState`, `useQueryParamChoice` and `useQueryParamFlag` mirror dashboard state into the address bar.** The hooks in `@newspack-nodes/shared/hooks/useQueryParamState` seed a value from `?param=` once on mount, validate it through the caller's `restore` (a whitelist for a choice, `1` for a flag), write every change with `replaceState`, and leave out a default, so a bare link opens the defaults and a copied link opens the same view. When Back or Forward restores an entry a page pushed, each writes its live value back over it. `useQueryParamChoice` takes `null` for a list that arrives with a reply: it trusts and answers the link's value until the list lands, then drops a value the list lacks. An empty list judges nothing, so a refused or empty reply drops no choice. The topology console's `?topology=` and `?partition=` mirror runs on `useQueryParamState`, and `?partition=` still leaves p0 out; the replaced entry keeps its `history.state`, where the console's own mirror wiped it.
