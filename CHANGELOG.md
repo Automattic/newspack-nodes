@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The job and settings primitives idle out after 30 seconds.** `job-intake`, `job-worker` and `settings-sync` declare `var on_demand_idle = 30`, so a worker activated from one of them alone exits after 30 idle seconds and is revived on demand. A composition's own `var` still wins, since an included file's is ignored.
 
+### Fixed
+
+- The topology console reports a path that opens no stream — `/` and `/_http` — as live. It read `CONNECTING` forever there, in the Inspector subtitle and the REPL footer, and the header's LIVE button never lit. `useConsoleGraph()` reports `connecting` only while a worker's expected stream has yet to land.
+
 ## [2.83.0] - 2026-10-01
 
 ### Removed

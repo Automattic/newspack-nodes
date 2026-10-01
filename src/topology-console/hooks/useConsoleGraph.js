@@ -89,12 +89,13 @@ import { ROUTER_TICK_MS } from '../../runtime/router-node';
  * @param {number}            params.partition       Partition number.
  * @param {boolean}           params.enabled         Mount the graph; false is edit mode.
  * @param {string[]}          [params.workers]       Active worker readers (`['aggregator.p0', …]`); one RemoteIpc per entry.
- * @param {boolean}           [params.streamEnabled] Open the active worker's SSE stream (cwd is a worker). The graph stays mounted regardless; this only gates the EventSource, so cd-ing off a worker stops streaming without rebuilding. Default true.
+ * @param {boolean}           [params.streamEnabled] Open the active worker's SSE stream (cwd is a worker). The graph stays mounted regardless; this gates only the EventSource and `status`, so cd-ing off a worker stops streaming without rebuilding and reads `open`, since nothing is connecting. Default true.
  * @param {{current: number}} params.debugLevelRef   Ref holding the Dumper's verbosity dial.
  * @param {Object}            [params.catalog]       The PHP class catalog slice — `{ classes, loading, error }`. The seed waits on it: without a class's schema a custom fan-out seeds the wrong edges.
  * @return {{status: string, sseSession: ?string, shell: ?ShellNode, seedError: ?Object, outgoing: ?OutgoingGateNode}}
- *   `status` is `open`, `connecting` while no SSE session has landed, or `closed`
- *   in edit mode. `shell` is the anonymous Shell a REPL fills and `outgoing`
+ *   `status` is `connecting` while an expected SSE session has yet to land,
+ *   `closed` in edit mode, and otherwise `open` — a cwd that opens no stream
+ *   included. `shell` is the anonymous Shell a REPL fills and `outgoing`
  *   its gate. `seedError` is whatever the pre-metadata seed threw — unnarrowed,
  *   because its consumer folds it into a union with two REST error shapes.
  */
@@ -417,7 +418,7 @@ export function useConsoleGraph( {
 	let status = 'open';
 	if ( ! enabled ) {
 		status = 'closed';
-	} else if ( null === sseSession ) {
+	} else if ( streamEnabled && null === sseSession ) {
 		status = 'connecting';
 	}
 
