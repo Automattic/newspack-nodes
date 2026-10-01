@@ -1,8 +1,8 @@
 <?php
 /**
  * `Bootstrap::node_ledgers()`: each declared Ledger resolved once across the
- * active topologies; `Bootstrap::mount_ledger()`: that Ledger's one file
- * mounted read-only into the request graph, under the Ledger's own name.
+ * active topologies; `Bootstrap::mount_ledger()`: every partition's file of
+ * that Ledger mounted read-only into the request graph, under its own name.
  *
  * @package Newspack_Nodes
  */
@@ -167,7 +167,7 @@ final class LedgerMountTest extends TestCase {
 			[ Message::TM_ERROR, "APPEND: a mounted Ledger serves reads only\n" ],
 			$this->ask( 'lab-7:kea', [ 'APPEND' => [ [ self::T, 'sku-43', 'aisle-12', [ 1, 1, 1 ] ] ] ] )
 		);
-		$db = new \PDO( 'sqlite:' . Ledger_Node::file( 'lab-7:kea' ) );
+		$db = new \PDO( 'sqlite:' . Ledger_Node::file( 'lab-7:kea', 3 ) );
 		$this->assertSame( 1, (int) $db->query( 'SELECT COUNT(*) FROM rows' )->fetchColumn() );
 	}
 
@@ -188,6 +188,14 @@ final class LedgerMountTest extends TestCase {
 		$mounted = Core::node( 'lab-7:kea' );
 		Bootstrap::mount_ledger( [ 'lab-7:kea' ] );
 		$this->assertSame( $mounted, Core::node( 'lab-7:kea' ), 'the second call builds nothing' );
+	}
+
+	public function test_the_mount_waits_on_a_busy_file_as_a_writer_does(): void {
+		$this->activate( 'kea-a' );
+		Bootstrap::mount_request_graph();
+		Bootstrap::mount_ledger( [ 'lab-7:kea' ] );
+		$db = ( new \ReflectionProperty( Ledger_Node::class, 'db' ) )->getValue( Core::node( 'lab-7:kea' ) );
+		$this->assertSame( Ledger_Node::BUSY_TIMEOUT_MS, (int) $db->query( 'PRAGMA busy_timeout' )->fetchColumn() );
 	}
 
 	public function test_a_ledger_no_worker_has_written_mounts_empty_and_creates_nothing(): void {
@@ -224,7 +232,7 @@ final class LedgerMountTest extends TestCase {
 		Bootstrap::mount_request_graph();
 		CLI::$uid_provider = static fn (): int => 0;
 		$e                 = $this->caught( static fn () => Bootstrap::mount_ledger( [ 'lab-7:kea' ] ), 'a root process mounted a Ledger' );
-		$this->assertSame( 'Ledger lab-7:kea: a sqlite mount refuses to run as root: a root reader leaves -wal and -shm files beside ' . Ledger_Node::file( 'lab-7:kea' ) . ' that its worker cannot open', $e->getMessage() );
+		$this->assertSame( "Ledger lab-7:kea: a sqlite mount refuses to run as root: a root reader leaves -wal and -shm files beside {$this->base}/ledgers/lab-7:kea.p*.sqlite that its worker cannot open", $e->getMessage() );
 	}
 
 	public function test_mount_ledger_needs_a_request_graph(): void {

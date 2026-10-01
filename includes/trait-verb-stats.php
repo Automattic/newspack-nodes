@@ -153,6 +153,27 @@ trait Verb_Stats {
 	}
 
 	/**
+	 * The `stats` verb a store declares on its `{name}:config`, answering
+	 * stats() under READ.
+	 *
+	 * @param string $store The store's kind, as the verb names it: `Table`.
+	 * @return array<string,mixed> The command's declaration.
+	 */
+	private static function stats_command( string $store ): array {
+		return [
+			'name'        => 'stats',
+			'capability'  => Capabilities::READ,
+			'description' => "Per-verb counters since the {$store} was built: calls, keys or rows asked and answered, encoded bytes, total and max ms.",
+			'args'        => [],
+			'handler'     => static function ( Command_Interpreter_Node $interpreter ) use ( $store ): array {
+				$patron = $interpreter->patron();
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- a fixed noun; answered as a TM_ERROR line.
+				return $patron instanceof self ? $patron->stats() : throw new \RuntimeException( 'no ' . \strtolower( $store ) . ' patron' );
+			},
+		];
+	}
+
+	/**
 	 * Zero the counters, answering them as they stood, so no call lands
 	 * between the read and the reset; a trace sums from here on.
 	 *

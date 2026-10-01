@@ -636,6 +636,25 @@ final class SqliteArmTest extends TestCase {
 		$this->assertSame( [ 4321, -Sqlite_Arm::CACHE_KIB ], [ (int) $reader->query( 'PRAGMA busy_timeout' )->fetchColumn(), (int) $reader->query( 'PRAGMA cache_size' )->fetchColumn() ] );
 	}
 
+	public function test_attach_read_only_reads_a_file_under_any_path_and_writes_none(): void {
+		$path = "{$this->dir}/odd ?#%2f dir/lab-7:kea.p5.sqlite";
+		\mkdir( \dirname( $path ), 0700, true );
+		$peer = Sqlite_Arm::open_database( $path, false, 4321 );
+		$peer->exec( 'CREATE TABLE rows ( t INTEGER NOT NULL )' );
+		$peer->exec( 'INSERT INTO rows VALUES ( 1790000437 )' );
+		$db = new \PDO( 'sqlite::memory:', null, null, [ \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION ] );
+
+		Sqlite_Arm::attach_read_only( $db, $path, 'p5' );
+
+		$this->assertSame( 1790000437, (int) $db->query( 'SELECT t FROM p5.rows' )->fetchColumn(), 'a ? # and %2f in the path name the file, not a query' );
+		$this->assertSame( -Sqlite_Arm::CACHE_KIB, (int) $db->query( 'PRAGMA p5.cache_size' )->fetchColumn(), 'the page cache a reader opens with' );
+		$e = $this->caught( static fn () => $db->exec( 'INSERT INTO p5.rows VALUES ( 1790000441 )' ), 'a read-only attach took a write' );
+		$this->assertStringContainsString( 'attempt to write a readonly database', $e->getMessage() );
+		$absent = "{$this->dir}/odd ?#%2f dir/lab-7:kea.p6.sqlite";
+		$this->caught( static fn () => Sqlite_Arm::attach_read_only( $db, $absent, 'p6' ), 'a missing file attached' );
+		$this->assertFileDoesNotExist( $absent, 'an attach creates nothing' );
+	}
+
 	public function test_a_batch_that_fails_lands_no_key_and_answers_none(): void {
 		$arm = new Sqlite_Arm( $this->path(), 'kea:p3' );
 		$arm->write_multi( [ 'sku-41' => 'kea-41', 'sku-43' => 'kea-43' ], 0 );

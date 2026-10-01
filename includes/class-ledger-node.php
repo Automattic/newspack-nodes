@@ -2,22 +2,22 @@
 /**
  * Ledger
  *
- * Write-once rows clustered by time, in ONE SQLite file per Ledger,
- * `{base}/ledgers/{name}.sqlite`, which every partition declaring the Ledger
- * writes. A row is `( t, k, x, w, s, c0… )`: `t` the epoch second of the data
- * point, `k` a whitespace-free key, `x` a text member (`''` when unused), `w`
- * the writing partition, `s` that writer's row sequence, and one REAL per
- * declared column: NOT NULL for a `sum`, and null in a `min` or `max` for a
- * value not measured, which the aggregate skips. The primary key
- * `( t, k, x, w, s )` is the whole index, in a `WITHOUT ROWID` table, so rows
- * sit in time order and a flush's rows dirty the few pages at the right edge.
- * A row is never updated: a second row for one `( t, k, x )` is a delta, and
- * every read aggregates the rows it finds by the aggregate its column
- * declares. A Ledger declaring no columns is a set, keyed
- * `( t, k, x )` alone, where an append of a row already there stores nothing.
- * Nothing deletes a row but the segment drop and `flush()`, which drops the
- * `rows` table and declares it anew in one transaction, never unlinking the
- * file every partition holds open.
+ * Write-once rows clustered by time, in one SQLite file per partition,
+ * `{base}/ledgers/{name}.p{N}.sqlite`, whose one writer is partition N's
+ * worker (ADR-6). A row is `( t, k, x, s, c0… )`: `t` the epoch second of the
+ * data point, `k` a whitespace-free key, `x` a text member (`''` when
+ * unused), `s` the writer's row sequence, and one REAL per declared column:
+ * NOT NULL for a `sum`, and null in a `min` or `max` for a value not
+ * measured, which the aggregate skips. The primary key `( t, k, x, s )` is
+ * the whole index, in a `WITHOUT ROWID` table, so rows sit in time order and
+ * a flush's rows dirty the few pages at the right edge. A row is never
+ * updated: a second row for one `( t, k, x )`, in one file or two, is a
+ * delta, and every read aggregates the rows it finds by the aggregate its
+ * column declares. A Ledger declaring no columns is a set, keyed `( t, k, x )`
+ * alone, where an append of a row its file holds stores nothing. Nothing
+ * deletes a row but the segment drop and `flush()`, which drops the `rows`
+ * table and declares it anew in one transaction, never unlinking the file
+ * other partitions attach.
  *
  * The lineage is Tachikoma's. Its `Table` files each value into the window of
  * its own timestamp (`window_size`, `num_buckets`), which is the time
@@ -26,19 +26,21 @@
  * num_segments` on the wall clock. An APPEND row whose `t` is already past
  * the lifespan is dropped and counted, never stored.
  *
- * SQLite serializes the writers on its own lock, so the one-writer-per-file
- * rule for append-by-offset logs (ADR-6) does not bind it (ADR-27): a partition
- * finding the lock held waits BUSY_TIMEOUT_MS. The file opens as its writer in
- * `arguments()`, through `Sqlite_Arm::open_database()`, the one place a SQLite
- * file opens. It answers the TM_REQUEST|TM_STRUCT `APPEND` TO its FROM
- * (ADR-23), one transaction a request; `append()` is the same write for a
- * caller outside a graph. The reads `SUM`, `TOP` and `MEMBERS` answer the
- * same way, each over `from ≤ t < to` and every partition's rows, with SQL
- * built from the declaration alone: a column a request names is looked up in
- * it, and a name it does not hold, or a use its aggregate has no meaning
- * for, is refused. A request graph reads through `mount()`, a read-only
- * connection under the Ledger's own name, which answers the reads and
- * refuses APPEND.
+ * The writer opens its own file as `main` in `arguments()`, through
+ * `Sqlite_Arm::open_database()`, and attaches every other partition's file
+ * read-only as `p{N}`, so no write of one partition waits on another's lock.
+ * It answers the TM_REQUEST|TM_STRUCT `APPEND` TO its FROM (ADR-23), one
+ * transaction a request; `append()` is the same write for a caller outside a
+ * graph. The reads `SUM`, `TOP` and `MEMBERS` answer the same way, each over
+ * `from ≤ t < to` and every partition's rows in one statement: one arm per
+ * file, walking its own `t`, the arms joined by UNION ALL and aggregated as
+ * one. Each read first brings the attached files to those on disk, so a
+ * partition that comes up is read from its first file on, and one gone
+ * reads as empty. The SQL is built from the declaration alone: a column a
+ * request names is looked up in it, and a name it does not hold, or a use
+ * its aggregate has no meaning for, is refused. A request graph reads
+ * through `mount()`, an in-memory connection under the Ledger's own name
+ * attaching every file, which answers the reads and refuses APPEND.
  *
  * @package Newspack_Nodes
  */
@@ -55,16 +57,23 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	use Verb_Stats;
 
 	/**
-	 * How long a write waits on another partition's write lock, in
-	 * milliseconds: the longest flush it may have to wait out.
+	 * How long a write waits on another connection's write lock, in
+	 * milliseconds: a `tables flush` from the CLI under the fleet hold, the
+	 * one other writer a partition's file has.
 	 */
 	public const BUSY_TIMEOUT_MS = 5000;
 
 	/**
+	 * Partition files one connection reads at most: SQLite's default
+	 * SQLITE_MAX_ATTACHED, which a mount spends whole, one file each. A Ledger
+	 * with more refuses to open rather than read a subset.
+	 */
+	public const ATTACH_LIMIT = 10;
+
+	/**
 	 * Rows one segment-drop statement deletes at most: a batch the tick's
 	 * budget can stop between, where a whole segment in one statement would
-	 * hold the file's write lock, and every other partition's flush, for as
-	 * long as its rows take.
+	 * hold the tick for as long as its rows take.
 	 */
 	public const DROP_BATCH_ROWS = 20000;
 
@@ -91,11 +100,8 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 		'x' => 'TEXT NOT NULL',
 	];
 
-	/** The key a row of a Ledger with columns adds, naming its writer. */
-	private const WRITER_COLUMNS = [
-		'w' => 'INTEGER NOT NULL',
-		's' => 'INTEGER NOT NULL',
-	];
+	/** The key a row of a Ledger with columns adds: its writer's sequence. */
+	private const SEQUENCE_COLUMN = [ 's' => 'INTEGER NOT NULL' ];
 
 	/** Why a mount refuses an APPEND. */
 	private const READS_ONLY = 'a mounted Ledger serves reads only';
@@ -104,22 +110,24 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	private const ROW_SHAPE = '[ t, k, x, [ columns… ] ]';
 
 	/**
-	 * Each distinct `t` in `from ≤ t < to`, as `ts.at`, each found by one
-	 * primary-key seek past the last: a loose index scan. Binds from, to, to.
-	 * The walk's column is `at`, so a bare `t` beside it is the row's.
+	 * One file's walk, `ts{i}` over the file attached as `%2$s`: each distinct
+	 * `t` in `from ≤ t < to`, as `ts{i}.at`, each found by one primary-key
+	 * seek past the last, a loose index scan. Binds from, to, to. The walk's
+	 * column is `at`, so a bare `t` beside it is the row's.
 	 */
-	private const WALK = 'WITH RECURSIVE ts ( at ) AS ( SELECT MIN( t ) FROM rows WHERE t >= ? AND t < ? UNION ALL SELECT ( SELECT MIN( t ) FROM rows WHERE t > ts.at AND t < ? ) FROM ts WHERE ts.at IS NOT NULL ) ';
+	private const WALK = 'ts%1$d ( at ) AS ( SELECT MIN( t ) FROM %2$s.rows WHERE t >= ? AND t < ? UNION ALL SELECT ( SELECT MIN( t ) FROM %2$s.rows WHERE t > ts%1$d.at AND t < ? ) FROM ts%1$d WHERE ts%1$d.at IS NOT NULL )';
 
-	/** The rows at each walked `t`; CROSS JOIN keeps the walk outer, so each `t` seeks its keys. */
-	private const AT_EACH_T = 'FROM ts CROSS JOIN rows WHERE rows.t = ts.at';
+	/** One file's rows at each walked `t`; CROSS JOIN keeps the walk outer, so each `t` seeks its keys. */
+	private const AT_EACH_T = 'FROM ts%1$d CROSS JOIN %2$s.rows WHERE %2$s.rows.t = ts%1$d.at';
 
 	/**
-	 * A key's distinct members in a `t` range, at most the limit bound; binds
-	 * from, to, to, k, limit. The subquery orders nothing, so its DISTINCT
-	 * stops at the limit rather than reading the key's every member to sort
-	 * them; the outer ORDER BY sorts only what it kept.
+	 * A key's distinct members across every file, at most the limit bound,
+	 * after with_rows(): binds limit. The files' UNION ALL streams into a
+	 * DISTINCT that orders nothing, so it stops at the limit rather than
+	 * reading the key's every member; the outer ORDER BY sorts only what it
+	 * kept. A UNION would gather every member before its LIMIT applied.
 	 */
-	private const MEMBERS_READ = self::WALK . 'SELECT x FROM ( SELECT DISTINCT x ' . self::AT_EACH_T . ' AND k = ? LIMIT ? ) ORDER BY x';
+	private const MEMBERS_READ = 'SELECT x FROM ( SELECT DISTINCT x FROM r LIMIT ? ) ORDER BY x';
 
 	/** Keys, or members, a SUM binds per `IN ( … )` when it binds both lists. */
 	private const PAIRED_CHUNK = Sqlite_Arm::IN_CHUNK / 2;
@@ -151,13 +159,23 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	 */
 	private array $columns = [];
 
-	/** The writer's connection; null until arguments() opens the file. */
+	/** The connection; null until arguments() opens the file. */
 	private ?\PDO $db = null;
+
+	/** The name the Ledger's files carry, which a node renamed after keeps. */
+	private string $ledger = '';
+
+	/**
+	 * Every other partition's file the connection reads, attached as `p{N}`.
+	 *
+	 * @var array<int,string> Partition => file, in partition order.
+	 */
+	private array $attached = [];
 
 	/** The one INSERT an APPEND runs per row. */
 	private ?\PDOStatement $insert = null;
 
-	/** The one SELECT a MEMBERS runs. */
+	/** The one SELECT a MEMBERS runs over the files attached; null until one runs. */
 	private ?\PDOStatement $select_members = null;
 
 	/** The one DELETE a segment drop runs per batch; binds cutoff, limit. */
@@ -175,8 +193,8 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	/** Whether this is a request-graph mount, which only reads. */
 	private bool $mounted = false;
 
-	/** The partition this writer's rows carry as `w`. */
-	private int $partition = 0;
+	/** The partition whose file the writer writes; null for a mount. */
+	private ?int $partition = null;
 
 	/** The last `s` this writer gave a row, seeded from hrtime at open. */
 	private int $sequence = 0;
@@ -194,14 +212,15 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	 * member, and its aggregate is one of AGGREGATES; no column makes the
 	 * Ledger a set. Every token is checked, and the file opened, before any
 	 * field moves, so a refusal leaves the node as it was.
-	 * A writer prepares its writes and a mount its reads alone.
+	 * A writer prepares its writes; a mount prepares nothing.
 	 *
 	 * @param list<string>|null $args
 	 * @return list<string>
 	 * @throws \InvalidArgumentException On a count below 1, a column it cannot
 	 *                                   declare, or a missing count.
 	 * @throws \RuntimeException On a file that will not open as this Ledger's,
-	 *                           or no bound partition.
+	 *                           more files than ATTACH_LIMIT, or no bound
+	 *                           partition.
 	 */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
@@ -215,15 +234,17 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 		}
 		$values['columns'] = $this->declared_columns( \array_map( Core::as_string( ... ), Core::arr( $values['columns'] ) ) );
 		$names             = self::stored_columns( $values['columns'] );
-		[ $db, $partition ] = $this->open( $names );
+		[ $db, $partition, $attached ] = $this->open( $names );
 		$this->assign_schema_args( $args, $values );
 		$this->db             = $db;
-		$this->select_members = $db->prepare( self::MEMBERS_READ );
-		if ( ! $this->mounted ) {
-			$this->insert     = $db->prepare( ( [] === $values['columns'] ? 'INSERT OR IGNORE' : 'INSERT' ) . ' INTO rows ( ' . \implode( ', ', \array_keys( $names ) ) . ' ) VALUES ( ' . self::placeholders( $names ) . ' )' );
+		$this->ledger         = $this->name;
+		$this->attached       = $attached;
+		$this->select_members = null;
+		$this->partition      = $partition;
+		if ( null !== $partition ) {
+			$this->insert     = $db->prepare( ( [] === $values['columns'] ? 'INSERT OR IGNORE' : 'INSERT' ) . ' INTO main.rows ( ' . \implode( ', ', \array_keys( $names ) ) . ' ) VALUES ( ' . self::placeholders( $names ) . ' )' );
 			$this->checkpoint = $db->prepare( Sqlite_Arm::PASSIVE_CHECKPOINT );
-			$this->drop       = $db->prepare( 'DELETE FROM rows WHERE ( ' . self::key( $names ) . ' ) IN ( SELECT ' . self::key( $names ) . ' FROM rows WHERE t < ? LIMIT ? )' );
-			$this->partition  = $partition;
+			$this->drop       = $db->prepare( 'DELETE FROM main.rows WHERE ( ' . self::key( $names ) . ' ) IN ( SELECT ' . self::key( $names ) . ' FROM main.rows WHERE t < ? LIMIT ? )' );
 			$this->sequence   = (int) \hrtime( true );
 		}
 		return $args;
@@ -244,38 +265,41 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	}
 
 	/**
-	 * Open the file and hold its `rows` table to `$names`, refusing a table
-	 * another declaration made: this Ledger's rows would not fit it. A writer
-	 * opens the file as its writer and declares the table. A mount opens it
-	 * read-only and creates nothing; before any writer has made the file it
-	 * reads an empty table of this shape, in memory.
+	 * Open the connection and hold every `rows` table it reads to `$names`,
+	 * refusing one another declaration made: this Ledger's rows would not fit
+	 * it. A writer opens its partition's file as its writer, `main`, declaring
+	 * the table there. A mount opens an empty table of this shape in memory as
+	 * `main`, so a Ledger no writer has made answers empty down the one path.
+	 * Either then attaches every other partition's file; see attach().
 	 *
 	 * @param array<string,string> $names stored_columns().
-	 * @return array{0: \PDO, 1: int} The connection, and the bound partition a
-	 *                                writer's rows carry as `w`; 0 for a mount.
+	 * @return array{0: \PDO, 1: int|null, 2: array<int,string>} The
+	 *         connection, the writer's partition or null for a mount, and the
+	 *         files attached.
 	 * @throws \RuntimeException Naming the Ledger, on no bound partition, a
-	 *                           name no file can carry, a directory or file that
-	 *                           will not open, a mount as root, or a table of
+	 *                           name no file can carry, more files than
+	 *                           ATTACH_LIMIT, a directory or file that will
+	 *                           not open, a mount as root, or a table of
 	 *                           another shape.
 	 */
 	private function open( array $names ): array {
 		try {
-			$file  = self::file( $this->name );
 			$shape = self::shape( $names );
 			if ( $this->mounted ) {
-				Sqlite_Arm::refuse_root_reader( $file );
-				$partition = 0;
-				$db        = \is_file( $file ) ? Sqlite_Arm::open_database( $file, true, self::BUSY_TIMEOUT_MS ) : self::in_memory( $shape );
+				Sqlite_Arm::refuse_root_reader( self::directory( $this->name ) . "/{$this->name}.p*.sqlite" );
+				$partition = null;
+				$db        = self::in_memory( $shape );
 			} else {
 				$partition = $this->bound_partition();
-				$db        = self::writer_database( $file, $shape );
+				$file      = self::file( $this->name, $partition );
+				// Refuse an extra partition before its file exists.
+				self::readable_files( $this->name, $partition );
+				$db = self::writer_database( $file, $shape );
+				self::holds_rows( $db, 'main', $file, $shape );
 			}
-			$held = $db->prepare( "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'rows'" );
-			Sqlite_Arm::execute( $held );
-			if ( "CREATE TABLE {$shape}" !== $held->fetchColumn() ) {
-				throw new \UnexpectedValueException( "{$file} holds a rows table another declaration made; `wp nodes tables flush` drops the rows written under it and declares this one" );
-			}
-			return [ $db, $partition ];
+			$attached = [];
+			self::attach( $db, $this->name, $partition, $attached, $shape );
+			return [ $db, $partition, $attached ];
 		} catch ( Worker_Should_Stop $stop ) {
 			throw $stop;
 		} catch ( \RuntimeException | \LogicException $e ) {
@@ -284,21 +308,24 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	}
 
 	/**
-	 * An empty `rows` table in memory: what a mount reads before any writer
-	 * has made the file, so every read answers empty down its one path.
+	 * An empty `rows` table in memory: a mount's `main`, which every read
+	 * spans beside the files attached, so a Ledger no writer has made
+	 * answers empty down the one path. Its files wait BUSY_TIMEOUT_MS, as a
+	 * writer's do, not PDO's 60 s.
 	 *
 	 * @param string $shape shape().
 	 * @return \PDO The connection.
 	 */
 	private static function in_memory( string $shape ): \PDO {
 		$db = new \PDO( 'sqlite::memory:', null, null, [ \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION ] );
+		Sqlite_Arm::busy_timeout( $db, self::BUSY_TIMEOUT_MS );
 		$db->exec( "CREATE TABLE {$shape}" );
 		return $db;
 	}
 
 	/**
-	 * The process's bound `<partition>`, which every row this writer stores
-	 * carries: never a guess, which would write under another's.
+	 * The process's bound `<partition>`, whose file this writer writes: never
+	 * a guess, which would write another's.
 	 *
 	 * @return int The partition.
 	 * @throws \LogicException When nothing bound one.
@@ -410,21 +437,22 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 		$insert = $this->insert ?? throw $this->unopened();
 		$stored = 0;
 		foreach ( $rows as [ $t, $k, $x, $columns ] ) {
-			Sqlite_Arm::execute( $insert, [] === $this->columns ? [ $t, $k, $x ] : [ $t, $k, $x, $this->partition, ++$this->sequence, ...$columns ] );
+			Sqlite_Arm::execute( $insert, [] === $this->columns ? [ $t, $k, $x ] : [ $t, $k, $x, ++$this->sequence, ...$columns ] );
 			$stored += $insert->rowCount();
 		}
 		return $stored;
 	}
 
 	/**
-	 * One read request, answered and counted as one call of its verb: the
-	 * keys it asked, and the rows it answered.
+	 * One read request over every partition's file, answered and counted as
+	 * one call of its verb: the keys it asked, and the rows it answered.
 	 *
 	 * @param 'SUM'|'TOP'|'MEMBERS' $verb  The read.
 	 * @param mixed                 $query The request's map of fields.
 	 * @return array<array-key,mixed> The reply's `data`.
 	 * @throws \InvalidArgumentException On a query the read refuses.
-	 * @throws \PDOException When the read fails.
+	 * @throws \RuntimeException As attach_partitions(), and when the read
+	 *                           fails.
 	 */
 	private function read( string $verb, mixed $query ): array {
 		$started  = self::monotonic_ns();
@@ -432,7 +460,8 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 		$asked    = 0;
 		$answered = 0;
 		try {
-			$query                       = \is_array( $query ) ? $query : throw new \InvalidArgumentException( 'needs a map of its fields' );
+			$query = \is_array( $query ) ? $query : throw new \InvalidArgumentException( 'needs a map of its fields' );
+			$this->attach_partitions();
 			[ $asked, $data, $answered ] = match ( $verb ) {
 				'SUM'     => $this->read_sum( $query ),
 				'TOP'     => $this->read_top( $query ),
@@ -443,6 +472,129 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 			$this->count_rows( $verb, $asked, $answered );
 			$this->count_call( $verb, $started, $bytes );
 		}
+	}
+
+	/**
+	 * Bring the attached files to those on disk, as attach() does, before a
+	 * read; a set that changed drops the MEMBERS statement built over the
+	 * set before. One directory read a request, however many rows it reads.
+	 *
+	 * @throws \LogicException Before arguments() has opened the file.
+	 * @throws \RuntimeException As attach().
+	 */
+	private function attach_partitions(): void {
+		$before = $this->attached;
+		try {
+			self::attach( $this->db ?? throw $this->unopened(), $this->ledger, $this->partition, $this->attached, self::shape( self::stored_columns( $this->columns ) ) );
+		} finally {
+			if ( $before !== $this->attached ) {
+				$this->select_members = null;
+			}
+		}
+	}
+
+	/**
+	 * Bring `$attached` to the partition files on disk: each but the writer's
+	 * own attached read-only as `p{N}` once its writer has declared its `rows`
+	 * table, and each attached file gone from disk detached, so it reads as
+	 * empty. Each change lands in `$attached` as it is made, so a refusal
+	 * midway leaves the set naming what the connection holds.
+	 *
+	 * @param \PDO              $db       The connection.
+	 * @param string            $ledger   The name the Ledger's files carry.
+	 * @param int|null          $own      The writer's partition, its file read
+	 *                                    as main; null for a mount.
+	 * @param array<int,string> $attached Partition => file attached, brought
+	 *                                    up to date in partition order.
+	 * @param string            $shape    shape().
+	 * @throws \RuntimeException More files than ATTACH_LIMIT, or one holding a
+	 *                           rows table another declaration made.
+	 */
+	private static function attach( \PDO $db, string $ledger, ?int $own, array &$attached, string $shape ): void {
+		$files = self::readable_files( $ledger, $own );
+		if ( null !== $own ) {
+			unset( $files[ $own ] );
+		}
+		foreach ( \array_keys( \array_diff_key( $attached, $files ) ) as $partition ) {
+			$db->exec( "DETACH DATABASE p{$partition}" );
+			unset( $attached[ $partition ] );
+		}
+		foreach ( \array_diff_key( $files, $attached ) as $partition => $file ) {
+			if ( self::attach_file( $db, $partition, $file, $shape ) ) {
+				$attached[ $partition ] = $file;
+			}
+		}
+		\ksort( $attached );
+	}
+
+	/**
+	 * Every partition file on disk, and the writer's own, which its writer
+	 * may not have made yet.
+	 *
+	 * @param string   $ledger The name the Ledger's files carry.
+	 * @param int|null $own    The writer's partition; null for a mount.
+	 * @return array<int,string> Partition => file.
+	 * @throws \RuntimeException When they number more than ATTACH_LIMIT.
+	 */
+	private static function readable_files( string $ledger, ?int $own ): array {
+		$files = self::partition_files( $ledger ) + ( null === $own ? [] : [ $own => self::file( $ledger, $own ) ] );
+		if ( \count( $files ) > self::ATTACH_LIMIT ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- two numbers; open() escapes what it wraps.
+			throw new \RuntimeException( \count( $files ) . ' partition files, more than the ' . self::ATTACH_LIMIT . ' SQLite attaches to one connection' );
+		}
+		return $files;
+	}
+
+	/**
+	 * Attach one partition's file as `p{N}`, kept only once its writer has
+	 * declared the `rows` table this Ledger reads; one not declared yet
+	 * detaches and reads as absent until a later read.
+	 *
+	 * @param \PDO   $db        The connection.
+	 * @param int    $partition The file's partition.
+	 * @param string $file      The file.
+	 * @param string $shape     shape().
+	 * @return bool Whether it stays attached.
+	 * @throws \UnexpectedValueException When it holds a rows table another
+	 *                                   declaration made, detached.
+	 */
+	private static function attach_file( \PDO $db, int $partition, string $file, string $shape ): bool {
+		Sqlite_Arm::attach_read_only( $db, $file, "p{$partition}" );
+		$declared = false;
+		try {
+			$declared = self::holds_rows( $db, "p{$partition}", $file, $shape );
+			return $declared;
+		} finally {
+			if ( ! $declared ) {
+				$db->exec( "DETACH DATABASE p{$partition}" );
+			}
+		}
+	}
+
+	/**
+	 * Whether the database attached as `$schema` holds this Ledger's `rows`
+	 * table; false for one holding none yet, as a file its writer has made
+	 * and not yet declared.
+	 *
+	 * @param \PDO   $db     The connection.
+	 * @param string $schema `main` or `p{N}`.
+	 * @param string $file   The file, as a refusal names it.
+	 * @param string $shape  shape().
+	 * @return bool Whether it holds the table.
+	 * @throws \UnexpectedValueException When it holds one another declaration
+	 *                                   made.
+	 */
+	private static function holds_rows( \PDO $db, string $schema, string $file, string $shape ): bool {
+		$held = $db->prepare( "SELECT sql FROM {$schema}.sqlite_master WHERE type = 'table' AND name = 'rows'" );
+		Sqlite_Arm::execute( $held );
+		$sql = $held->fetchColumn();
+		// A statement still stepping locks the file against DETACH.
+		$held->closeCursor();
+		if ( false === $sql || "CREATE TABLE {$shape}" === $sql ) {
+			return false !== $sql;
+		}
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- open() escapes what it wraps; a read answers it as a line.
+		throw new \UnexpectedValueException( "{$file} holds a rows table another declaration made; `wp nodes tables flush` drops the rows written under it and declares this one" );
 	}
 
 	/**
@@ -484,11 +636,11 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 		$order                 = \implode( ', ', $by_t ? [ ...$by, 't' ] : $by );
 		$pick                  = \implode( ', ', [ 'k', $per_x ? 'x' : 'NULL', $by_t ? 't' : 'NULL', ...$this->aggregates() ] );
 		$found                 = [];
+		$test                  = null === $xs ? ' AND k IN ks' : ' AND k IN ks AND x IN xs';
 		foreach ( \array_chunk( $ks, null === $xs ? Sqlite_Arm::IN_CHUNK : self::PAIRED_CHUNK ) as $k_chunk ) {
 			foreach ( null === $xs ? [ [] ] : \array_chunk( $xs, self::PAIRED_CHUNK ) as $x_chunk ) {
-				$members = null === $xs ? '' : ' AND x IN ( ' . self::placeholders( $x_chunk ) . ' )';
-				$keyed   = self::AT_EACH_T . ' AND k IN ( ' . self::placeholders( $k_chunk ) . " ){$members}";
-				$found[] = $this->rows( self::WALK . "SELECT {$pick} " . $this->grouped( $keyed, $by, $by_t, $positive, $each_t ) . " ORDER BY {$order}", [ ...$walk, ...$k_chunk, ...$x_chunk ] );
+				[ $with, $values ] = $this->with_rows( $walk, $test, null === $xs ? [ 'ks' => $k_chunk ] : [ 'ks' => $k_chunk, 'xs' => $x_chunk ] );
+				$found[]           = $this->rows( $with . "SELECT {$pick} " . $this->grouped( $by, $by_t, $positive, $each_t ) . " ORDER BY {$order}", $values );
 			}
 		}
 		$rows = \array_merge( ...$found );
@@ -502,8 +654,8 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	 * ranks last in either order, as does a `min` or `max` never measured.
 	 * `positive` and `positive_each_t` filter the members as grouped() says.
 	 * `total` counts the members ranked before `offset` and `limit` page them,
-	 * and one read transaction holds the count and the page to one snapshot.
-	 * A set ranks by `x` alone.
+	 * and one read transaction holds the count and the page to one snapshot
+	 * of every file. A set ranks by `x` alone; no keys rank nothing.
 	 *
 	 * @param array<array-key,mixed> $query `{ from, to, ks, order_by, order,
 	 *                                      limit, offset, positive?,
@@ -531,13 +683,24 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 		if ( \count( $ks ) > Sqlite_Arm::IN_CHUNK ) {
 			throw new \InvalidArgumentException( 'ks names at most ' . Sqlite_Arm::IN_CHUNK . ' keys' );
 		}
-		$groups = $this->grouped( self::AT_EACH_T . ' AND k IN ( ' . self::placeholders( $ks ) . ' )', [ 'x' ], false, $positive, $each_t );
-		$page   = self::WALK . 'SELECT ' . \implode( ', ', [ 'x', ...$aggregates ] ) . " {$groups} ORDER BY {$rank} " . \strtoupper( $order ) . ' NULLS LAST, x LIMIT ? OFFSET ?';
-		[ $total, $rows ] = Sqlite_Arm::deferred(
+		if ( [] === $ks ) {
+			return [
+				0,
+				[
+					'total' => 0,
+					'rows'  => [],
+				],
+				0,
+			];
+		}
+		[ $with, $values ] = $this->with_rows( $walk, ' AND k IN ks', [ 'ks' => $ks ] );
+		$groups            = $this->grouped( [ 'x' ], false, $positive, $each_t );
+		$page              = $with . 'SELECT ' . \implode( ', ', [ 'x', ...$aggregates ] ) . " {$groups} ORDER BY {$rank} " . \strtoupper( $order ) . ' NULLS LAST, x LIMIT ? OFFSET ?';
+		[ $total, $rows ]  = Sqlite_Arm::deferred(
 			$this->db ?? throw $this->unopened(),
 			fn (): array => [
-				$this->rows( self::WALK . "SELECT COUNT(*) FROM ( SELECT x {$groups} )", [ ...$walk, ...$ks ] ),
-				$this->rows( $page, [ ...$walk, ...$ks, $limit, $offset ] ),
+				$this->rows( $with . "SELECT COUNT(*) FROM ( SELECT x {$groups} )", $values ),
+				$this->rows( $page, [ ...$values, $limit, $offset ] ),
 			]
 		);
 		return [
@@ -579,23 +742,23 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	}
 
 	/**
-	 * The rows a SUM or a TOP aggregates, as SQL after its SELECT list: the
-	 * keyed rows at each walked `t`, grouped by `$by`, and by `t` as well with
-	 * `$by_t`. Every form keeps each stored column's name, so aggregates()
+	 * The rows a SUM or a TOP aggregates, as SQL after its SELECT list: `r`,
+	 * with_rows()' keyed rows of every file, grouped by `$by`, and by `t` as
+	 * well with `$by_t`. Every form keeps each stored column's name, so aggregates()
 	 * selects from any of them. `$positive` keeps a group only when its
 	 * aggregate of that column over the range is above 0, every `t` of it
 	 * with `$by_t`. With `$each_t` it filters each stored `( t, k, x )`
 	 * aggregate, the row grain, and only the rows that pass are grouped: a
 	 * member counts in a key and a `t` only where it passed there itself.
 	 *
-	 * @param string       $keyed    AT_EACH_T and the read's key and member tests.
 	 * @param list<string> $by       The grouping, `t` aside.
 	 * @param bool         $by_t     Whether each group splits per `t`.
 	 * @param string|null  $positive The declared column above 0, or null.
 	 * @param bool         $each_t   Whether it is above 0 in each stored row.
 	 * @return string `FROM … GROUP BY …`, with the filter where one applies.
 	 */
-	private function grouped( string $keyed, array $by, bool $by_t, ?string $positive, bool $each_t ): string {
+	private function grouped( array $by, bool $by_t, ?string $positive, bool $each_t ): string {
+		$keyed = 'FROM r';
 		$per_t = [ ...$by, 't' ];
 		$group = ' GROUP BY ' . \implode( ', ', $by_t ? $per_t : $by );
 		if ( null === $positive ) {
@@ -653,7 +816,8 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	 * `MEMBERS`: the distinct members of one key, in member order, or
 	 * `{ over: limit }` when the key holds more than `limit` in the range,
 	 * as SMEMBERS answers `OVER <limit>`. It reads `limit + 1` members at
-	 * most, however many the key holds.
+	 * most, however many the key holds, a member two files hold counting once.
+	 * The statement is prepared once for the files attached.
 	 *
 	 * @param array<array-key,mixed> $query `{ from, to, k, limit }`.
 	 * @return array{0: int, 1: list<string>|array{over: int}, 2: int} The one
@@ -664,10 +828,46 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	private function read_members( array $query ): array {
 		self::only( $query, 'from', 'to', 'k', 'limit' );
 		$k       = \is_string( $query['k'] ?? null ) ? $query['k'] : throw new \InvalidArgumentException( 'k is a string' );
-		$limit   = self::whole( $query, 'limit', 1, self::MEMBERS_LIMIT_MAX );
-		$read    = $this->select_members ?? throw $this->unopened();
-		$members = \array_map( Core::as_string( ... ), \array_column( self::fetched( $read, [ ...self::walk( $query ), $k, $limit + 1 ] ), 0 ) );
+		$limit             = self::whole( $query, 'limit', 1, self::MEMBERS_LIMIT_MAX );
+		[ $with, $values ] = $this->with_rows( self::walk( $query ), ' AND k = ?', [], [ $k ] );
+		$read              = $this->select_members ??= ( $this->db ?? throw $this->unopened() )->prepare( $with . self::MEMBERS_READ );
+		$members           = \array_map( Core::as_string( ... ), \array_column( self::fetched( $read, [ ...$values, $limit + 1 ] ), 0 ) );
 		return \count( $members ) > $limit ? [ 1, [ 'over' => $limit ], 0 ] : [ 1, $members, \count( $members ) ];
+	}
+
+	/**
+	 * The WITH clause a read opens with: each list the read binds once, as a
+	 * one-column table its test reads (`k IN ks`), each file's walk, and `r`,
+	 * every file's rows at its walked `t` that pass `$test`, the files joined
+	 * by UNION ALL. The files are `main`, the writer's own or a mount's empty
+	 * table, and each attached.
+	 *
+	 * @param list<int>                  $walk    walk().
+	 * @param string                     $test    After each file's AT_EACH_T.
+	 * @param array<string,list<string>> $lists   Table => values, each list
+	 *                                            non-empty.
+	 * @param list<string>               $per_arm What `$test` binds in each
+	 *                                            file's arm.
+	 * @return array{0: string, 1: list<int|string>} The clause, and the values
+	 *                                               it binds, in order.
+	 */
+	private function with_rows( array $walk, string $test, array $lists = [], array $per_arm = [] ): array {
+		$tables = [];
+		$values = [];
+		foreach ( $lists as $table => $list ) {
+			$tables[] = "{$table} ( v ) AS ( VALUES " . \implode( ', ', \array_fill( 0, \count( $list ), '( ? )' ) ) . ' )';
+			\array_push( $values, ...$list );
+		}
+		$columns = \implode( ', ', \array_keys( \array_diff_key( self::stored_columns( $this->columns ), self::SEQUENCE_COLUMN ) ) );
+		$arms    = [];
+		foreach ( [ 'main', ...\array_map( static fn ( int $partition ): string => "p{$partition}", \array_keys( $this->attached ) ) ] as $i => $schema ) {
+			$tables[] = \sprintf( self::WALK, $i, $schema );
+			$arms[]   = "SELECT {$columns} " . \sprintf( self::AT_EACH_T, $i, $schema ) . $test;
+			\array_push( $values, ...$walk );
+		}
+		$tables[] = 'r AS ( ' . \implode( ' UNION ALL ', $arms ) . ' )';
+		\array_push( $values, ...\array_merge( ...\array_fill( 0, \count( $arms ), $per_arm ) ) );
+		return [ 'WITH RECURSIVE ' . \implode( ', ', $tables ) . ' ', $values ];
 	}
 
 	/**
@@ -688,7 +888,7 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	}
 
 	/**
-	 * The values WALK binds for a query's `t` range.
+	 * The values each file's WALK binds for a query's `t` range.
 	 *
 	 * @param array<array-key,mixed> $query The query.
 	 * @return list<int> from, to, to.
@@ -831,23 +1031,21 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	 * DROP of every `t` below the lifespan's edge rounded down to a segment
 	 * boundary, run once that cutoff passes the last drop's and until a drop
 	 * reaches it; its WAL checkpoint, at most once a CHECKPOINT_INTERVAL_S;
-	 * and its trace line while traced. Every partition's writer runs both on
-	 * the one file, so a second drop finds nothing and a checkpoint another
-	 * partition's write outlasts finishes on a later tick. A mount prepares
-	 * neither statement, so it does neither.
+	 * and its trace line while traced. The writer runs both on its own file
+	 * alone, never on a file it attached. A mount prepares neither statement,
+	 * so it does neither.
 	 * See Tick_Housekeeper::tick_steps() for the steps.
 	 *
 	 * @param int $now The tick, in epoch seconds.
 	 */
 	public function tick_steps( int $now ): array {
-		$db         = $this->db;
 		$drop       = $this->drop;
 		$checkpoint = $this->checkpoint;
 		$purge      = null;
-		if ( null !== $db && null !== $drop ) {
+		if ( null !== $drop ) {
 			$edge   = $now - $this->segment_seconds * $this->num_segments;
 			$cutoff = $edge - $edge % $this->segment_seconds;
-			$purge  = $cutoff > $this->dropped_below ? fn ( float $until ) => $this->drop_segments( $db, $drop, $cutoff, $until ) : null;
+			$purge  = $cutoff > $this->dropped_below ? fn ( float $until ) => $this->drop_segments( $drop, $cutoff, $until ) : null;
 		}
 		return [
 			'purge'      => $purge,
@@ -861,24 +1059,20 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	 * Delete the rows below `$cutoff` DROP_BATCH_ROWS at a time, counted as
 	 * one DROP; see delete_batches(). A drop that stops with its last batch
 	 * full leaves the Ledger behind, says so, and runs again on the next tick
-	 * under the backlog budget. Each batch meeting another partition's write
-	 * lock waits only what the tick's budget has left when it starts, at
-	 * least 1 ms, rather than BUSY_TIMEOUT_MS, which the connection takes
-	 * back after the drop; then the
-	 * drop is skipped, logged rate-limited, and the next tick tries again.
-	 * Every row below the cutoff is past the lifespan, so no drop, whole or
-	 * cut short, deletes a row inside it.
+	 * under the backlog budget. A batch that outwaits the connection's busy
+	 * timeout on a flush from the CLI, the one other writer, skips the drop,
+	 * logged rate-limited, and the next tick tries again. Every row below the
+	 * cutoff is past the lifespan, so no drop, whole or cut short, deletes a
+	 * row inside it.
 	 *
-	 * @param \PDO          $db     The writer's connection.
 	 * @param \PDOStatement $drop   The prepared DELETE.
 	 * @param int           $cutoff Every row whose `t` is below it goes.
 	 * @param float         $until  The tick's deadline, shared by every store.
 	 */
-	private function drop_segments( \PDO $db, \PDOStatement $drop, int $cutoff, float $until ): void {
+	private function drop_segments( \PDOStatement $drop, int $cutoff, float $until ): void {
 		$drop->bindValue( 1, $cutoff, \PDO::PARAM_INT );
 		$drop->bindValue( 2, self::DROP_BATCH_ROWS, \PDO::PARAM_INT );
-		$batch = static function () use ( $db, $drop, $until ): int {
-			Sqlite_Arm::busy_timeout( $db, (int) \round( ( $until - Core::right_now() ) * 1000 ) );
+		$batch = static function () use ( $drop ): int {
 			Sqlite_Arm::execute( $drop );
 			return $drop->rowCount();
 		};
@@ -887,8 +1081,6 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 		} catch ( \PDOException $e ) {
 			$this->print_less_often( 'WARNING: segment drop skipped: ', $e->getMessage() . '; the next tick tries again' );
 			return;
-		} finally {
-			Sqlite_Arm::busy_timeout( $db, self::BUSY_TIMEOUT_MS );
 		}
 		$this->drop_behind = $batches * self::DROP_BATCH_ROWS === $dropped;
 		if ( $this->drop_behind ) {
@@ -899,15 +1091,16 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	}
 
 	/**
-	 * Empty this Ledger in place: replace_rows() over the writer's connection,
-	 * declaring the table this node declares, but only while `$columns`, the
-	 * columns its topology declares now, are the ones this node runs. Every
-	 * other partition's writer writes on into the same file. The drop and the
-	 * checkpoint schedule start over, as they do for a new writer.
+	 * Empty this partition's file in place: replace_rows() over the writer's
+	 * connection, declaring the table this node declares, but only while
+	 * `$columns`, the columns its topology declares now, are the ones this
+	 * node runs. Every other partition reads the emptied table on, and its
+	 * own file is its own writer's to flush. The drop and the checkpoint
+	 * schedule start over, as they do for a new writer.
 	 * Verb-exposed (`flush <column>…`).
 	 *
 	 * @param list<string> $columns The declared columns, `<name>[:sum|min|max]`.
-	 * @return array{rows: int} The rows the Ledger held.
+	 * @return array{rows: int} The rows the file held.
 	 * @throws \RuntimeException On a mount, which serves reads only, or when
 	 *                           `$columns` are not the ones this node runs,
 	 *                           naming the restart that brings them in.
@@ -978,22 +1171,24 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	}
 
 	/**
-	 * Empty a Ledger no live worker holds, from the declaration alone, as
-	 * `wp nodes tables flush` does: replace_rows() over a writer's connection
-	 * of its own, whatever table the file held. A Ledger whose declaration
-	 * changed its columns, and so will not open, opens after it.
+	 * Empty one partition's file no live worker writes, from the declaration
+	 * alone, as `wp nodes tables flush` does: replace_rows() over a writer's
+	 * connection of its own, whatever table the file held. A Ledger whose
+	 * declaration changed its columns, and so will not open, opens after
+	 * every file is flushed.
 	 *
-	 * @api Tables_CLI_Command::flush(), for a Ledger no live worker declares.
+	 * @api Tables_CLI_Command::flush(), for a file no live worker writes.
 	 * @param string                                                             $name        The declared Ledger.
+	 * @param int                                                                $partition   The file's partition.
 	 * @param array{segment_seconds: int, num_segments: int, columns: list<string>} $declaration The resolved declaration.
 	 * @return array{rows: int} The rows the file held.
 	 * @throws \InvalidArgumentException On a name that cannot name a file.
 	 * @throws \RuntimeException On a directory or file that will not open, or
 	 *                           a write that fails.
 	 */
-	public static function flush_file( string $name, array $declaration ): array {
+	public static function flush_file( string $name, int $partition, array $declaration ): array {
 		$shape = self::shape( self::stored_columns( \array_map( static fn ( string $column ): string => self::name_and_aggregate( $column )[1], $declaration['columns'] ) ) );
-		return self::replace_rows( self::writer_database( self::file( $name ), $shape ), $shape );
+		return self::replace_rows( self::writer_database( self::file( $name, $partition ), $shape ), $shape );
 	}
 
 	/**
@@ -1022,7 +1217,7 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 
 	/**
 	 * Every column a row stores, in order, with its declaration: the key,
-	 * then for a Ledger with columns its writer and c0… as REAL, NOT NULL
+	 * then for a Ledger with columns its sequence and c0… as REAL, NOT NULL
 	 * for a sum and nullable for a min or max, which skips a null.
 	 *
 	 * @param array<array-key,string> $aggregates Each declared column's
@@ -1037,7 +1232,7 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 		foreach ( \array_values( $aggregates ) as $i => $aggregate ) {
 			$values[ "c{$i}" ] = self::DEFAULT_AGGREGATE === $aggregate ? 'REAL NOT NULL' : 'REAL';
 		}
-		return self::KEY_COLUMNS + self::WRITER_COLUMNS + $values;
+		return self::KEY_COLUMNS + self::SEQUENCE_COLUMN + $values;
 	}
 
 	/**
@@ -1069,34 +1264,77 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	}
 
 	/**
-	 * The primary key of a row storing `$names`: `t, k, x`, and `w, s` for a
+	 * The primary key of a row storing `$names`: `t, k, x`, and `s` for a
 	 * Ledger with columns.
 	 *
 	 * @param array<string,string> $names stored_columns().
 	 * @return string The key's columns, comma-separated.
 	 */
 	private static function key( array $names ): string {
-		return \implode( ', ', \array_keys( \array_intersect_key( $names, self::KEY_COLUMNS + self::WRITER_COLUMNS ) ) );
+		return \implode( ', ', \array_keys( \array_intersect_key( $names, self::KEY_COLUMNS + self::SEQUENCE_COLUMN ) ) );
 	}
 
 	/**
-	 * The one SQLite file of a Ledger, whatever the partition.
+	 * The SQLite file partition `$partition` of a Ledger writes.
 	 *
-	 * @param string $name The Ledger.
-	 * @return string `{base}/ledgers/{name}.sqlite`.
+	 * @param string $name      The Ledger.
+	 * @param int    $partition The partition.
+	 * @return string `{base}/ledgers/{name}.p{partition}.sqlite`.
 	 * @throws \InvalidArgumentException On a name that cannot name a file.
 	 */
-	public static function file( string $name ): string {
+	public static function file( string $name, int $partition ): string {
+		return self::directory( $name ) . "/{$name}.p{$partition}.sqlite";
+	}
+
+	/**
+	 * Every partition's file of a Ledger on disk, found by its name alone: the
+	 * one list every reader, the mount and `wp nodes tables` read.
+	 *
+	 * @api Tables_CLI_Command, which lists and flushes each file.
+	 * @param string $name The Ledger.
+	 * @return array<int,string> Partition => file, in partition order; none
+	 *                           before any writer has made the directory.
+	 * @throws \InvalidArgumentException On a name that cannot name a file.
+	 * @throws \RuntimeException When the directory will not read.
+	 */
+	public static function partition_files( string $name ): array {
+		$directory = self::directory( $name );
+		if ( ! \is_dir( $directory ) ) {
+			return [];
+		}
+		$entries = \scandir( $directory );
+		if ( false === $entries ) {
+			throw new \RuntimeException( \esc_html( "{$directory} will not read" ) );
+		}
+		$pattern = '/^' . \preg_quote( $name, '/' ) . '\.p(0|[1-9]\d*)\.sqlite$/D';
+		$files   = [];
+		foreach ( $entries as $entry ) {
+			if ( 1 === \preg_match( $pattern, $entry, $partition ) ) {
+				$files[ (int) $partition[1] ] = "{$directory}/{$entry}";
+			}
+		}
+		\ksort( $files );
+		return $files;
+	}
+
+	/**
+	 * The directory every file of a Ledger sits in.
+	 *
+	 * @param string $name The Ledger.
+	 * @return string `{base}/ledgers`.
+	 * @throws \InvalidArgumentException On a name that cannot name a file.
+	 */
+	private static function directory( string $name ): string {
 		if ( Sqlite_Arm::refuses_file_name( $name ) ) {
 			throw new \InvalidArgumentException( \esc_html( "Ledger name {$name} cannot name a file" ) );
 		}
-		return Bootstrap::base_dir() . "/ledgers/{$name}.sqlite";
+		return Bootstrap::base_dir() . '/ledgers';
 	}
 
 	/**
 	 * Drop `rows` and declare `$shape` in its place, in one write transaction.
-	 * The file stays, so every connection another partition holds writes on
-	 * into the new table, and the dropped pages are free for its rows.
+	 * The file stays, so every connection attaching it reads on from the new
+	 * table, and the dropped pages are free for its rows.
 	 *
 	 * @param \PDO   $db    A writer's connection.
 	 * @param string $shape shape().
@@ -1107,13 +1345,13 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 		return Sqlite_Arm::immediate(
 			$db,
 			static function () use ( $db, $shape ): array {
-				$count = $db->prepare( 'SELECT COUNT(*) FROM rows' );
+				$count = $db->prepare( 'SELECT COUNT(*) FROM main.rows' );
 				Sqlite_Arm::execute( $count );
 				$rows = Core::as_int( $count->fetchColumn() );
 				// A statement still stepping locks the table DROP removes.
 				$count->closeCursor();
-				$db->exec( 'DROP TABLE rows' );
-				$db->exec( "CREATE TABLE {$shape}" );
+				$db->exec( 'DROP TABLE main.rows' );
+				$db->exec( "CREATE TABLE main.{$shape}" );
 				return [ 'rows' => $rows ];
 			}
 		);
@@ -1129,10 +1367,11 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	}
 
 	/**
-	 * One declared Ledger's file, read-only, named `$name` and sinking into
-	 * `$sink`: how a request graph mounts a Ledger outside any topology load.
-	 * It answers SUM, TOP and MEMBERS over every partition's rows, refuses
-	 * APPEND and `flush`, and neither drops nor checkpoints.
+	 * Every partition's file of one declared Ledger, attached read-only to an
+	 * in-memory connection named `$name` and sinking into `$sink`: how a
+	 * request graph mounts a Ledger outside any topology load. It answers
+	 * SUM, TOP and MEMBERS over every partition's rows, refuses APPEND and
+	 * `flush`, and neither drops nor checkpoints.
 	 *
 	 * @api Bootstrap::mount_ledger().
 	 * @param string                                                             $name        The declared Ledger.
@@ -1164,17 +1403,18 @@ final class Ledger_Node extends Node implements Tick_Housekeeper {
 	public static function node_schema(): array {
 		return [
 			'category'    => 'Storage',
-			'description' => 'Write-once rows clustered by time, in one SQLite file every partition declaring the Ledger shares; a row past the lifespan drops.',
+			'description' => 'Write-once rows clustered by time, in one SQLite file per partition, every read spanning them all; a row past the lifespan drops.',
 			'arguments'   => [
 				[ 'name' => 'segment_seconds', 'type' => 'int', 'required' => true, 'description' => 'Seconds of t one segment spans, at least 1.' ],
 				[ 'name' => 'num_segments', 'type' => 'int', 'required' => true, 'description' => 'Segments kept, at least 1: the lifespan is segment_seconds × num_segments.' ],
 				[ 'name' => 'columns', 'type' => 'string', 'variadic' => true, 'description' => 'Numeric columns, each <name>[:sum|min|max], sum by default, never named x; a min or max takes null for a value not measured, a sum never; none makes the Ledger a set.' ],
 			],
 			'commands'    => [
+				self::stats_command( 'Ledger' ),
 				[
 					'name'        => 'flush',
 					'action'      => true,
-					'description' => 'Empty the Ledger in place: drop its rows table and declare it anew, one transaction, answering the rows it held. The file stays, since every partition holds it open. Refused, naming the restart, when the columns named are not the ones this worker runs; a mount refuses it.',
+					'description' => 'Empty this partition\'s file in place: drop its rows table and declare it anew, one transaction, answering the rows it held. The file stays, since other partitions attach it. Refused, naming the restart, when the columns named are not the ones this worker runs; a mount refuses it.',
 					'args'        => [ [ 'name' => 'columns', 'type' => 'string', 'variadic' => true, 'description' => 'The columns the topology declares now, each <name>[:sum|min|max].' ] ],
 					'handler'     => static function ( Command_Interpreter_Node $interpreter, array $args ): array {
 						$patron = $interpreter->patron();

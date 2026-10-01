@@ -59,7 +59,7 @@ final class Recording_Statement_Fixture extends \PDOStatement {
  * A Ledger's reads: `SUM` aggregates each ( k, x ) group, or each
  * ( k, x, t ), by the aggregate its column declares; `TOP` ranks the members
  * across keys by one column; `MEMBERS` lists a key's distinct members. Each
- * reads `from ≤ t < to`, across every partition's rows.
+ * reads `from ≤ t < to`, across every partition's file in one statement.
  */
 #[CoversClass( Ledger_Node::class )]
 final class LedgerReadTest extends TestCase {
@@ -525,10 +525,9 @@ final class LedgerReadTest extends TestCase {
 
 	public function test_top_counts_and_pages_one_snapshot_while_another_partition_commits(): void {
 		$kea   = $this->kea();
-		$other = new \PDO( 'sqlite:' . Ledger_Node::file( 'lab-7:kea' ), null, null, [ \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION ] );
-		$other->exec( 'PRAGMA busy_timeout = ' . Ledger_Node::BUSY_TIMEOUT_MS );
-		$late = static function () use ( $other ): void {
-			$other->exec( "INSERT INTO rows VALUES ( 1790000400, 'sku-43', 'aisle-15', 5, 7, 20, 1, 1 )" );
+		$other = new \PDO( 'sqlite:' . Ledger_Node::file( 'lab-7:kea', 5 ), null, null, [ \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION ] );
+		$late  = static function () use ( $other ): void {
+			$other->exec( "INSERT INTO rows VALUES ( 1790000400, 'sku-43', 'aisle-15', 7, 20, 1, 1 )" );
 		};
 		$db = ( new \ReflectionProperty( Ledger_Node::class, 'db' ) )->getValue( $kea );
 		$db->setAttribute( \PDO::ATTR_STATEMENT_CLASS, [ Commit_Between_Statement_Fixture::class, [ $late ] ] );
@@ -539,7 +538,7 @@ final class LedgerReadTest extends TestCase {
 		$this->assertSame( 'aisle-15', $other->query( "SELECT x FROM rows WHERE x = 'aisle-15'" )->fetchColumn(), 'the other partition committed' );
 	}
 
-	public function test_each_read_seeks_its_keys_at_each_distinct_t_rather_than_scanning_the_range(): void {
+	public function test_each_partitions_arm_seeks_its_keys_at_each_distinct_t_rather_than_scanning_the_range(): void {
 		$range = [ 'from' => self::T, 'to' => self::END ];
 		$top   = $range + [ 'order' => 'desc', 'limit' => 9, 'offset' => 0 ];
 		$reads = [
@@ -550,6 +549,7 @@ final class LedgerReadTest extends TestCase {
 				[ 'SUM', $range + [ 'ks' => [ 'sku-41' ], 'xs' => [ 'aisle-9' ], 'by_t' => true, 'group' => 'k' ] ],
 				[ 'TOP', $top + [ 'ks' => [ 'sku-41', 'sku-43' ], 'order_by' => 'qty' ] ],
 				[ 'TOP', $top + [ 'ks' => [ 'sku-41', 'sku-43' ], 'order_by' => 'x', 'positive' => 'qty', 'positive_each_t' => true ] ],
+				[ 'MEMBERS', $range + [ 'k' => 'sku-41', 'limit' => 8 ] ],
 			],
 			'lab-7:ibis' => [
 				[ 'TOP', $top + [ 'ks' => [ 'srv-2', 'srv-7' ], 'order_by' => [ 'ms', 'hits' ] ] ],
@@ -563,37 +563,53 @@ final class LedgerReadTest extends TestCase {
 			'lab-7:kea'  => $this->kea(),
 			'lab-7:ibis' => $this->ibis(),
 		];
+		// Partition 3 reads its own file as main and partition 5's as p5.
+		$arms    = [
+			'lab-7:kea'  => [ 'main', 'p5' ],
+			'lab-7:ibis' => [ 'main' ],
+		];
 		$ran     = [];
 		foreach ( $reads as $name => $asked ) {
 			$db = ( new \ReflectionProperty( Ledger_Node::class, 'db' ) )->getValue( $ledgers[ $name ] );
 			$db->setAttribute( \PDO::ATTR_STATEMENT_CLASS, [ Recording_Statement_Fixture::class, [] ] );
+			( new \ReflectionProperty( Ledger_Node::class, 'select_members' ) )->setValue( $ledgers[ $name ], null );
 			Recording_Statement_Fixture::$ran = [];
 			foreach ( $asked as [ $verb, $query ] ) {
-				$this->read( $ledgers[ $name ], $verb, $query );
+				$this->assertSame( Message::TM_STRUCT | Message::TM_RESPONSE, $this->read( $ledgers[ $name ], $verb, $query )[0] );
 			}
+			$db->setAttribute( \PDO::ATTR_STATEMENT_CLASS, [ \PDOStatement::class ] );
+			// The reads alone, not the ATTACH of partition 5 the first one makes.
 			foreach ( Recording_Statement_Fixture::$ran as [ $sql, $bound ] ) {
-				$ran[] = [ $name, $sql, $bound ];
+				if ( \str_starts_with( $sql, 'WITH RECURSIVE' ) ) {
+					$ran[] = [ $db, $name, $sql, $bound ];
+				}
 			}
 		}
-		$members = [ 'lab-7:kea', ( new \ReflectionClassConstant( Ledger_Node::class, 'MEMBERS_READ' ) )->getValue(), [ 1 => self::T, 2 => self::END, 3 => self::END, 4 => 'sku-41', 5 => 8 ] ];
-		$ran[]   = $members;
 		$this->assertCount( 15, $ran, 'eight SUMs, three TOPs of a count and a page each, and MEMBERS' );
-		$plan_of = static function ( string $name, string $sql, array $bound ): array {
-			$explain = ( new \PDO( 'sqlite:' . Ledger_Node::file( $name ) ) )->prepare( "EXPLAIN QUERY PLAN {$sql}" );
+		$plan_of = static function ( \PDO $db, string $sql, array $bound ): array {
+			$explain = $db->prepare( "EXPLAIN QUERY PLAN {$sql}" );
 			foreach ( $bound as $i => $value ) {
 				$explain->bindValue( $i, $value );
 			}
 			$explain->execute();
 			return \array_column( $explain->fetchAll( \PDO::FETCH_NUM ), 3 );
 		};
-		foreach ( $ran as [ $name, $sql, $bound ] ) {
-			$plan = $plan_of( $name, $sql, $bound );
-			$this->assertNotEmpty( \preg_grep( '/^SEARCH rows USING PRIMARY KEY \(t=\? AND k=\?/', $plan ), "each t seeks its keys:\n{$sql}\n" . \implode( "\n", $plan ) );
-			$this->assertCount( 2, \preg_grep( '/\(t>\? AND t<\?\)/', $plan ), "a range seek finds only the next distinct t:\n" . \implode( "\n", $plan ) );
-			$this->assertSame( [], \preg_grep( '/^SCAN rows/', $plan ), 'no scan of rows' );
+		$members = null;
+		foreach ( $ran as [ $db, $name, $sql, $bound ] ) {
+			$plan = $plan_of( $db, $sql, $bound );
+			$lay  = "\n{$sql}\n" . \implode( "\n", $plan );
+			foreach ( $arms[ $name ] as $schema ) {
+				$this->assertCount( 1, \preg_grep( "/^SEARCH {$schema}\\.rows USING PRIMARY KEY \\(t=\\? AND k=\\?/", $plan ), "{$schema}'s arm seeks its keys at each t:{$lay}" );
+				$this->assertCount( 2, \preg_grep( "/^SEARCH {$schema}\\.rows USING PRIMARY KEY \\(t>\\? AND t<\\?\\)/", $plan ), "{$schema}'s walk finds only the next distinct t:{$lay}" );
+			}
+			$this->assertCount( 3 * \count( $arms[ $name ] ), \preg_grep( '/^SEARCH [a-z0-9]+\\.rows /', $plan ), "no arm but the partitions':{$lay}" );
+			$this->assertSame( [], \preg_grep( '/^SCAN [a-z0-9]+\\.rows/', $plan ), "no scan of any partition's rows:{$lay}" );
+			if ( \str_contains( $sql, 'DISTINCT' ) ) {
+				$members = $plan;
+			}
 		}
-		$steps = \array_values( \preg_grep( '/^(USE TEMP B-TREE|SCAN \(subquery)/', $plan_of( ...$members ) ) );
-		$this->assertSame( [ 'USE TEMP B-TREE FOR DISTINCT', 'SCAN (subquery', 'USE TEMP B-TREE FOR ORDER BY' ], \array_map( static fn ( string $step ): string => \preg_replace( '/-\d+\)$/', '', $step ), $steps ), 'MEMBERS keeps distinct members in a subquery its LIMIT stops, then sorts only those' );
+		$steps = \array_values( \preg_grep( '/^(USE TEMP B-TREE|SCAN r$|SCAN \\(subquery|MATERIALIZE|UNION USING)/', $members ) );
+		$this->assertSame( [ 'SCAN r', 'USE TEMP B-TREE FOR DISTINCT', 'SCAN (subquery', 'USE TEMP B-TREE FOR ORDER BY' ], \array_map( static fn ( string $step ): string => \preg_replace( '/-\\d+\\)$/', '', $step ), $steps ), 'MEMBERS streams every partition\'s arm through one DISTINCT its LIMIT stops, then sorts only those' );
 	}
 
 	public function test_a_key_or_member_repeated_across_chunks_answers_its_group_once(): void {
@@ -631,7 +647,8 @@ final class LedgerReadTest extends TestCase {
 		$finch = $this->finch();
 		$db    = ( new \ReflectionProperty( Ledger_Node::class, 'db' ) )->getValue( $finch );
 		$db->setAttribute( \PDO::ATTR_STATEMENT_CLASS, [ Recording_Statement_Fixture::class, [] ] );
-		( new \ReflectionProperty( Ledger_Node::class, 'select_members' ) )->setValue( $finch, $db->prepare( ( new \ReflectionClassConstant( Ledger_Node::class, 'MEMBERS_READ' ) )->getValue() ) );
+		// The next MEMBERS prepares its statement afresh, of the recording class.
+		( new \ReflectionProperty( Ledger_Node::class, 'select_members' ) )->setValue( $finch, null );
 		Recording_Statement_Fixture::$ran     = [];
 		Recording_Statement_Fixture::$fetched = [];
 		$this->assertSame(
@@ -656,6 +673,77 @@ final class LedgerReadTest extends TestCase {
 		$this->assertSame(
 			self::answered( 'MEMBERS', [ 'aisle-12', 'aisle-9' ] ),
 			$this->read( $this->kea(), 'MEMBERS', [ 'from' => self::T, 'to' => self::END, 'k' => 'sku-41', 'limit' => 7 ] )
+		);
+	}
+
+	/** The tern Ledger, one sum column, in partition `$partition`'s worker, which then leaves the graph. */
+	private function tern( string $partition, array $rows, string ...$columns ): Ledger_Node {
+		$tern = $this->ledger( $partition, 'lab-7:tern', '600', '3', ...$columns );
+		$tern->append( $rows );
+		$this->unregister_worker_node( 'lab-7:tern' );
+		return $tern;
+	}
+
+	public function test_top_ranks_a_member_split_across_partitions_by_its_total_and_pages_the_global_order(): void {
+		$zero = $this->tern( '0', [ [ self::T, 'dock-9', 'm-split', [ 7 ] ], [ self::T, 'dock-9', 'm-solo', [ 15 ] ], [ self::T + 600, 'dock-9', 'm-tail', [ 2 ] ] ], 'qty' );
+		$this->tern( '1', [ [ self::T + 600, 'dock-9', 'm-split', [ 11 ] ] ], 'qty' );
+		$top = [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'dock-9' ], 'order_by' => 'qty', 'order' => 'desc', 'limit' => 1 ];
+		$this->assertSame( self::answered( 'TOP', [ 'total' => 3, 'rows' => [ [ 'm-split', 18.0 ] ] ] ), $this->read( $zero, 'TOP', $top + [ 'offset' => 0 ] ), '7 in p0 and 11 in p1 outrank 15 in p0 alone' );
+		$this->assertSame( self::answered( 'TOP', [ 'total' => 3, 'rows' => [ [ 'm-solo', 15.0 ] ] ] ), $this->read( $zero, 'TOP', $top + [ 'offset' => 1 ] ) );
+		$this->assertSame( self::answered( 'TOP', [ 'total' => 3, 'rows' => [ [ 'm-tail', 2.0 ] ] ] ), $this->read( $zero, 'TOP', $top + [ 'offset' => 2 ] ) );
+	}
+
+	public function test_members_counts_a_member_two_partitions_hold_once_and_stops_at_its_limit(): void {
+		$zero  = $this->tern( '0', [ [ self::T, 'term-owl', 'url-b', [] ], [ self::T, 'term-owl', 'url-a', [] ] ] );
+		$this->tern( '1', [ [ self::T + 600, 'term-owl', 'url-b', [] ], [ self::T, 'term-owl', 'url-c', [] ] ] );
+		$range = [ 'from' => self::T, 'to' => self::END, 'k' => 'term-owl' ];
+		$this->assertSame( self::answered( 'MEMBERS', [ 'url-a', 'url-b', 'url-c' ] ), $this->read( $zero, 'MEMBERS', $range + [ 'limit' => 3 ] ), 'url-b in both partitions is one member' );
+		$this->assertSame( self::answered( 'MEMBERS', [ 'over' => 2 ] ), $this->read( $zero, 'MEMBERS', $range + [ 'limit' => 2 ] ) );
+		$this->assertSame( self::answered( 'SUM', [ [ 'term-owl', 'url-a', null ], [ 'term-owl', 'url-b', null ], [ 'term-owl', 'url-c', null ] ] ), $this->read( $zero, 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'term-owl' ] ] ), 'a set\'s groups are one a member' );
+	}
+
+	public function test_a_partition_file_made_after_the_reader_opened_is_read_on_its_next_request(): void {
+		$three = $this->ledger( '3', 'lab-7:kea', '600', '3', 'qty', 'lo:min', 'hi:max' );
+		$three->append( [ [ self::T, 'sku-41', 'aisle-9', [ 3, 2.5, 7 ] ] ] );
+		$sum = [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41' ] ];
+		$this->assertSame( self::answered( 'SUM', [ [ 'sku-41', 'aisle-9', null, 3.0, 2.5, 7.0 ] ] ), $this->read( $three, 'SUM', $sum ) );
+		$this->unregister_worker_node( 'lab-7:kea' );
+		$this->ledger( '6', 'lab-7:kea', '600', '3', 'qty', 'lo:min', 'hi:max' )->append( [ [ self::T, 'sku-41', 'aisle-9', [ 6, 0.5, 11 ] ] ] );
+		$this->assertSame( self::answered( 'SUM', [ [ 'sku-41', 'aisle-9', null, 9.0, 0.5, 11.0 ] ] ), $this->read( $three, 'SUM', $sum ), 'partition 6 came up after partition 3 opened' );
+	}
+
+	public function test_a_writer_renamed_after_it_opened_reads_its_ledgers_files_still(): void {
+		$three = $this->ledger( '3', 'lab-7:kea', '600', '3', 'qty', 'lo:min', 'hi:max' );
+		$three->name( 'lab-7:kea.writer.p3' );
+		$three->append( [ [ self::T, 'sku-41', 'aisle-9', [ 3, 2.5, 7 ] ] ] );
+		$this->ledger( '6', 'lab-7:kea', '600', '3', 'qty', 'lo:min', 'hi:max' )->append( [ [ self::T, 'sku-41', 'aisle-9', [ 6, 0.5, 11 ] ] ] );
+		$this->assertSame(
+			self::answered( 'SUM', [ [ 'sku-41', 'aisle-9', null, 9.0, 0.5, 11.0 ] ] ),
+			$this->read( $three, 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-41' ] ] ),
+			'the files carry the name the Ledger opened under'
+		);
+		$this->assertSame( [ 3 => Ledger_Node::file( 'lab-7:kea', 3 ), 6 => Ledger_Node::file( 'lab-7:kea', 6 ) ], Ledger_Node::partition_files( 'lab-7:kea' ) );
+	}
+
+	public function test_a_partition_file_gone_from_disk_reads_as_empty(): void {
+		$kea = $this->kea();
+		$sum = [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-43' ] ];
+		$this->assertCount( 2, $this->read( $kea, 'SUM', $sum )[1]['data'], 'aisle-12 from partition 3, aisle-9 from partition 5' );
+		$five = Ledger_Node::file( 'lab-7:kea', 5 );
+		foreach ( [ $five, "{$five}-wal", "{$five}-shm" ] as $file ) {
+			\is_file( $file ) && \unlink( $file );
+		}
+		$this->assertSame( self::answered( 'SUM', [ [ 'sku-43', 'aisle-12', null, 5.0, 3.0, 8.0 ] ] ), $this->read( $kea, 'SUM', $sum ) );
+		$this->assertSame( self::answered( 'MEMBERS', [ 'aisle-12' ] ), $this->read( $kea, 'MEMBERS', [ 'from' => self::T, 'to' => self::END, 'k' => 'sku-43', 'limit' => 7 ] ) );
+	}
+
+	public function test_a_partition_file_its_writer_has_not_yet_declared_reads_as_empty(): void {
+		$kea = $this->kea();
+		\touch( Ledger_Node::file( 'lab-7:kea', 8 ) );
+		$this->assertSame(
+			self::answered( 'SUM', [ [ 'sku-43', 'aisle-12', null, 5.0, 3.0, 8.0 ], [ 'sku-43', 'aisle-9', null, 0.0, 1.0, 2.0 ] ] ),
+			$this->read( $kea, 'SUM', [ 'from' => self::T, 'to' => self::END, 'ks' => [ 'sku-43' ] ] ),
+			'a file made a moment before its rows table is no file yet'
 		);
 	}
 

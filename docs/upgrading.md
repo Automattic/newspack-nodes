@@ -6,6 +6,23 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **A Ledger is one file per partition, `{base}/ledgers/{name}.p{N}.sqlite`,
+  and its rows carry no `w`.** Nothing reads the shared
+  `{base}/ledgers/{name}.sqlite` a Ledger wrote before, nor migrates it.
+  Rebuild as before — `wp nodes stop && wp nodes deactivate <topology> &&
+  wp nodes gc --force && wp nodes tables flush --yes && wp nodes memcache
+  flush && wp nodes activate <topology> && wp nodes start` — then delete each
+  old file by hand, with its `-wal` and `-shm`:
+  `rm {base}/ledgers/<name>.sqlite{,-wal,-shm}` for every Ledger. A reader of
+  a Ledger's file names it by partition: `Ledger_Node::file( $name )` becomes
+  `Ledger_Node::file( $name, $partition )`, and
+  `Ledger_Node::partition_files( $name )` lists every partition's file on
+  disk; `Ledger_Node::flush_file( $name, $declaration )` becomes
+  `flush_file( $name, $partition, $declaration )`. Two active topologies may
+  no longer declare one Ledger: `wp nodes activate` refuses the pair, as it
+  refuses two declaring one `sqlite` Table. A Ledger with more partition
+  files than `Ledger_Node::ATTACH_LIMIT` (10) refuses to open.
+  event-logger-nodes' uninstall names each partition's file.
 - **A Ledger's `MEMBERS` takes a required `limit`, and
   `Table_Client::ledger_members()` a fifth argument, `int $limit`.** Pass the
   most members the caller can use, from 1 to

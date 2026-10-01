@@ -7,6 +7,7 @@ use Newspack_Nodes\Ledger_Node;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Router_Node;
+use Newspack_Nodes\Sqlite_Arm;
 use Newspack_Nodes\Table_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
@@ -119,9 +120,9 @@ final class LedgerTickTest extends TestCase {
 		$this->router->fire_cb();
 	}
 
-	/** @return list<int> Every row's `t` in the Ledger's file, in key order. */
-	private function times(): array {
-		$db = new \PDO( 'sqlite:' . Ledger_Node::file( 'lab-7:kea' ) );
+	/** @return list<int> Every row's `t` in partition `$partition`'s file, in key order. */
+	private function times( int $partition = 3 ): array {
+		$db = new \PDO( 'sqlite:' . Ledger_Node::file( 'lab-7:kea', $partition ) );
 		return \array_map( 'intval', $db->query( 'SELECT t FROM rows' )->fetchAll( \PDO::FETCH_COLUMN ) );
 	}
 
@@ -158,47 +159,39 @@ final class LedgerTickTest extends TestCase {
 		$this->assertSame( [ 2, 3 ], [ self::row( $kea, 'DROP' )['calls'], self::row( $kea, 'DROP' )['answered'] ] );
 	}
 
-	public function test_another_partition_ticking_the_same_file_finds_nothing_left_to_drop(): void {
+	public function test_each_partition_drops_the_segments_of_its_own_file_alone(): void {
 		$this->seed( $this->kea( '3' ) );
-		$this->tick( self::PAST_FIRST );
 		// Each partition's worker is its own process, so each holds the name.
 		$this->unregister_worker_node( 'lab-7:kea' );
 		$five = $this->kea( '5' );
-		$this->tick( self::PAST_FIRST + 5 );
-		$this->assertSame( [ self::T - 1150, self::T - 100 ], $this->times() );
-		$this->assertSame( [ 1, 0 ], [ self::row( $five, 'DROP' )['calls'], self::row( $five, 'DROP' )['answered'] ] );
+		$this->seed( $five );
+		$this->tick( self::PAST_FIRST );
+		$this->assertSame( [ self::T - 1150, self::T - 100 ], $this->times( 5 ) );
+		$this->assertSame( [ self::T - 1800, self::T - 1250, self::T - 1150, self::T - 100 ], $this->times( 3 ), 'partition 5 read partition 3\'s file and dropped nothing from it' );
+		$this->assertSame( [ 1, 2 ], [ self::row( $five, 'DROP' )['calls'], self::row( $five, 'DROP' )['answered'] ] );
 	}
 
-	public function test_a_drop_meeting_another_writers_lock_waits_only_the_budget_left_then_skips_to_the_next_tick(): void {
+	public function test_a_drop_meeting_a_held_lock_waits_the_connections_own_timeout_then_skips_to_the_next_tick(): void {
 		$kea = $this->kea();
 		$this->seed( $kea );
-		$db       = ( new \ReflectionProperty( Ledger_Node::class, 'db' ) )->getValue( $kea );
+		$db = ( new \ReflectionProperty( Ledger_Node::class, 'db' ) )->getValue( $kea );
+		// A flush from the CLI under the hold, and nothing else, contends.
+		Sqlite_Arm::busy_timeout( $db, 7 );
 		$timeouts = [];
 		// Each monotonic read inside a verb records the connection's busy_timeout.
 		Ledger_Node::$hrtime = static function () use ( $db, &$timeouts ): int {
 			$timeouts[] = (int) $db->query( 'PRAGMA busy_timeout' )->fetchColumn();
 			return 0;
 		};
-		$other = new \PDO( 'sqlite:' . Ledger_Node::file( 'lab-7:kea' ) );
+		$other = new \PDO( 'sqlite:' . Ledger_Node::file( 'lab-7:kea', 3 ) );
 		$other->exec( 'BEGIN IMMEDIATE' );
 		try {
-			foreach ( [ self::PAST_FIRST, self::PAST_FIRST + 1 ] as $now ) {
-				$reads       = 0;
-				// The deadline read sees $now; the drop starts with 3 ms of 50 left.
-				Core::$clock = static function () use ( $now, &$reads ): float {
-					return $now + ( 0 === $reads++ ? 0.0 : 0.047 );
-				};
-				Core::$now   = (float) $now;
-				$this->router->fire_cb();
-			}
+			$this->tick( self::PAST_FIRST );
+			$this->tick( self::PAST_FIRST + 1 );
 		} finally {
 			$other->exec( 'ROLLBACK' );
 		}
-		$full = Ledger_Node::BUSY_TIMEOUT_MS;
-		// Each drop's first read precedes its batch, which sets what is left.
-		$this->assertSame( [ $full, 3, $full, $full, $full, 3 ], $timeouts, 'each batch waits what the tick has left; the checkpoint between them is PASSIVE and waits on no lock' );
-		$this->assertSame( Ledger_Node::BUSY_TIMEOUT_MS, (int) $db->query( 'PRAGMA busy_timeout' )->fetchColumn(), 'an append waits BUSY_TIMEOUT_MS again' );
-		$this->assertSame( 1, self::row( $kea, 'CHECKPOINT' )['calls'], 'the checkpoint ran under the held lock' );
+		$this->assertSame( [ 7, 7, 7, 7, 7, 7 ], $timeouts, 'the drop takes the connection\'s timeout as it finds it and leaves it so' );
 		$this->assertSame( [ self::T - 1800, self::T - 1250, self::T - 1150, self::T - 100 ], $this->times(), 'nothing went while the lock was held' );
 		$this->assertSame( [ 2, 0 ], [ self::row( $kea, 'DROP' )['calls'], self::row( $kea, 'DROP' )['answered'] ] );
 		$skipped = $this->logged( 'segment drop' );
@@ -208,26 +201,6 @@ final class LedgerTickTest extends TestCase {
 		$this->assertSame( [ self::T - 1150, self::T - 100 ], $this->times(), 'the next tick dropped the segment and nothing inside the lifespan' );
 	}
 
-	public function test_each_batch_waits_what_the_tick_has_left_when_it_starts(): void {
-		$kea  = $this->kea();
-		$rows = \array_fill( 0, Ledger_Node::DROP_BATCH_ROWS + 1, [ self::T - 1800, 'sku-43', 'aisle-12', [ 4, 1.5, 9 ] ] );
-		$kea->append( $rows );
-		$db       = ( new \ReflectionProperty( Ledger_Node::class, 'db' ) )->getValue( $kea );
-		$timeouts = [];
-		$reads    = 0;
-		// Every clock read 10 ms on, recording the timeout the connection holds.
-		Core::$clock = static function () use ( $db, &$timeouts, &$reads ): float {
-			$timeouts[] = (int) $db->query( 'PRAGMA busy_timeout' )->fetchColumn();
-			return self::PAST_FIRST + 0.01 * $reads++;
-		};
-		Core::$now = (float) self::PAST_FIRST;
-		Table_Node::tick( self::PAST_FIRST );
-		$full = Ledger_Node::BUSY_TIMEOUT_MS;
-		$this->assertSame( [ $full, $full, 40, 40, 20 ], $timeouts, 'the deadline, then each batch sets what is left before it runs: 40 ms, then 20' );
-		$this->assertSame( [ 1, Ledger_Node::DROP_BATCH_ROWS + 1 ], [ self::row( $kea, 'DROP' )['calls'], self::row( $kea, 'DROP' )['answered'] ], 'one drop, two batches' );
-		$this->assertSame( $full, (int) $db->query( 'PRAGMA busy_timeout' )->fetchColumn() );
-	}
-
 	public function test_a_checkpoint_sqlite_answers_busy_counts_but_neither_ends_nor_extends_a_stall(): void {
 		$kea = $this->kea();
 		$this->seed( $kea );
@@ -235,7 +208,7 @@ final class LedgerTickTest extends TestCase {
 		( new \ReflectionProperty( Ledger_Node::class, 'checkpoint' ) )->setValue( $kea, $db->prepare( 'PRAGMA wal_checkpoint(PASSIVE)', [ \PDO::ATTR_STATEMENT_CLASS => [ Scripted_Checkpoint_Fixture::class, [] ] ] ) );
 		$busy                                = [ 1, -1, -1 ];
 		Scripted_Checkpoint_Fixture::$answers = [ null, null, $busy, $busy, null, null ];
-		$reader                              = new \PDO( 'sqlite:' . Ledger_Node::file( 'lab-7:kea' ) );
+		$reader                              = new \PDO( 'sqlite:' . Ledger_Node::file( 'lab-7:kea', 3 ) );
 		$reader->exec( 'BEGIN' );
 		$reader->query( 'SELECT count(*) FROM rows' )->fetchAll();
 		$interval = Ledger_Node::CHECKPOINT_INTERVAL_S;
@@ -301,6 +274,19 @@ final class LedgerTickTest extends TestCase {
 		$this->assertSame( 2, $checkpoint['calls'] );
 		$this->assertSame( $checkpoint['asked'], $checkpoint['answered'] );
 		$this->assertSame( Table_Node::CHECKPOINT_INTERVAL_S, Ledger_Node::CHECKPOINT_INTERVAL_S, 'one interval for every store' );
+	}
+
+	public function test_the_checkpoint_writes_back_its_own_wal_with_another_partition_attached(): void {
+		$this->seed( $this->kea( '5' ) );
+		$this->unregister_worker_node( 'lab-7:kea' );
+		$three = $this->kea( '3' );
+		$this->seed( $three );
+		$this->tick( self::T );
+		$checkpoint = self::row( $three, 'CHECKPOINT' );
+		$this->assertSame( 1, $checkpoint['calls'] );
+		$this->assertGreaterThan( 0, $checkpoint['asked'], 'its own append was in its WAL' );
+		$this->assertSame( $checkpoint['asked'], $checkpoint['answered'] );
+		$this->assertSame( [], $this->logged( 'WAL checkpoint' ), 'partition 5\'s file, attached read-only, is not checkpointed here' );
 	}
 
 	public function test_a_mounted_ledger_never_drops_or_checkpoints(): void {

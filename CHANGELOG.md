@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A Ledger is one SQLite file per partition, read as one.** Partition N's worker writes `{base}/ledgers/{name}.p{N}.sqlite` alone, so no `APPEND`, segment drop or checkpoint waits on another partition's write lock: on 2.81.0 a rebuild's APPEND held the shared file's lock for up to 3.9 s and the next partition threw `database is locked` at `BEGIN IMMEDIATE`. Every connection attaches each other partition's file read-only (`ATTACH 'file:…?mode=ro' AS p{N}`, through the new `Sqlite_Arm::attach_read_only()`), and each `SUM`, `TOP` and `MEMBERS` is still one statement: one arm per file, each walking its own `t` with one primary-key seek apiece, joined by `UNION ALL` and aggregated as one, so totals, `TOP`'s rank and offset and `MEMBERS`' de-duplication span every partition, which the `EXPLAIN QUERY PLAN` pin now holds per arm. Before each read the connection brings its attached files to those on disk, one directory read a request, so a partition that comes up is read on its next request and a file gone reads as empty. A Ledger with more files than `Ledger_Node::ATTACH_LIMIT` (10, SQLite's default) refuses to open, naming both numbers. Requests, fields and answers are as 2.81.0 has them. The new ADR-28, [a Ledger is one SQLite file per partition, read as one](docs/architecture-decisions.md#adr-28-a-ledger-is-one-sqlite-file-per-partition-read-as-one), supersedes ADR-27's shared file and restores ADR-6's one writer.
+- **A Ledger's rows are keyed `( t, k, x, s )`, with no `w`;** a set stays `( t, k, x )`. A file of the old shape refuses to open, naming `wp nodes tables flush`.
+- **`Ledger_Node::file()` takes the partition, and `flush_file()` too:** `file( $name, $partition )` and `flush_file( $name, $partition, $declaration )`. The new `Ledger_Node::partition_files( $name )` lists every partition's file on disk.
+- **`Topology_Analyzer::write_set()` claims `ledger:<name>.p<partition>`,** so `wp nodes activate` refuses two topologies declaring one Ledger.
+- **`wp nodes tables list` shows each Ledger file with its own writer's counters,** one row per partition file on disk, owned by that partition's worker and asked for its `APPEND`, `DROP` and `CHECKPOINT` counters, which a Ledger's new `stats` verb answers; a file no topology's partitions reach lists as `undeclared`. Where an owner does not answer, the row says `no answer from <owner> within <s>s`, and where it refuses, `<owner> refused stats: <why>`, for a Table as for a Ledger, in place of the warning and the dash.
+- **`wp nodes tables flush` flushes each Ledger file:** the live writer of each partition flushes its own; a file no live worker writes is flushed from the CLI under the fleet hold, or for an inactive topology, or with no hold when no topology declares its partition. `--partition` narrows a Ledger as it narrows a Table.
+- **A segment drop no longer narrows the busy timeout,** since no other partition writes its file; the drop keeps its batch size and its deadline. The WAL checkpoint, a Table's too, names `main` (`PRAGMA main.wal_checkpoint(PASSIVE)`), so it never reaches a file attached read-only.
+
 ## [2.81.0] - 2026-09-30
 
 ### Added

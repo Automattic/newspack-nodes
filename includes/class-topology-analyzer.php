@@ -770,6 +770,8 @@ class Topology_Analyzer {
 	 * the stem of its `{base}/tables/<name>.p<partition>.sqlite` file: that
 	 * file has one writer (ADR-6), so two topologies declaring the Table
 	 * conflict whatever their lines say. Every other backend writes no file.
+	 * A `Ledger` claims `ledger:<name>.p<partition>`, its
+	 * `{base}/ledgers/<name>.p<partition>.sqlite` file, on the same rule.
 	 *
 	 * @param string $name Topology name.
 	 * @return array<string> Sorted, namespaced token-form paths.
@@ -833,6 +835,10 @@ class Topology_Analyzer {
 			// One writer per SQLite file (ADR-6).
 			if ( 'make_node' === $verb && self::type_is( $class, Table_Node::class ) && 'sqlite' === Core::resolve_config_tokens( $values[5] ?? '', true ) ) {
 				$seen[ 'table:' . ( $values[2] ?? '' ) . '.p<partition>' ] = true;
+				continue;
+			}
+			if ( 'make_node' === $verb && self::type_is( $class, Ledger_Node::class ) ) {
+				$seen[ 'ledger:' . ( $values[2] ?? '' ) . '.p<partition>' ] = true;
 				continue;
 			}
 			// offsetlog (4th value) + deadletter (5th): sole-writer logs.
