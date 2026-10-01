@@ -415,6 +415,27 @@ describe( 'useConsoleGraph — connection state', () => {
 		expect( Core.node( 'demo.p0' ).heartbeat.slot ).toBe( 1 );
 	} );
 
+	it( 'reports open with no session when no stream is enabled', () => {
+		const { result } = renderGraph( { streamEnabled: false } );
+		expect( result.current.sseSession ).toBeNull();
+		expect( result.current.status ).toBe( 'open' );
+	} );
+
+	it( 'reports connecting on an enabled stream until its session lands', () => {
+		const { result } = renderGraph( { streamEnabled: true } );
+		expect( result.current.status ).toBe( 'connecting' );
+		act( () => lastConnector.emitConnected() );
+		expect( result.current.status ).toBe( 'open' );
+	} );
+
+	it( 'reports closed in edit mode, even with no stream enabled', () => {
+		const { result } = renderGraph( {
+			streamEnabled: false,
+			enabled: false,
+		} );
+		expect( result.current.status ).toBe( 'closed' );
+	} );
+
 	it( 'resets the displayed session when a steal closes the active worker (onClose)', async () => {
 		const { result } = renderGraph( {
 			topology: 'demo',
