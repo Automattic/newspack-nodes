@@ -1,4 +1,4 @@
-import { getQueryParam, setQueryParam } from '../queryParams';
+import { getQueryParam, setQueryParam, setQueryParams } from '../queryParams';
 
 describe( 'queryParams', () => {
 	beforeEach( () => {
@@ -67,6 +67,60 @@ describe( 'queryParams', () => {
 			expect( replaceSpy ).toHaveBeenCalled();
 			expect( pushSpy ).not.toHaveBeenCalled();
 			replaceSpy.mockRestore();
+			pushSpy.mockRestore();
+		} );
+
+		it( 'writes nothing when the URL would not change', () => {
+			window.history.replaceState( {}, '', '/?tab=console#graph' );
+			const replaceSpy = jest.spyOn( window.history, 'replaceState' );
+			setQueryParam( 'tab', 'console' );
+			setQueryParam( 'log', null );
+			expect( replaceSpy ).not.toHaveBeenCalled();
+			replaceSpy.mockRestore();
+		} );
+
+		it( 'keeps the history entry state it replaces', () => {
+			window.history.replaceState( { pane: 7 }, '', '/?page=station' );
+			setQueryParam( 'tab', 'console' );
+			expect( window.history.state ).toEqual( { pane: 7 } );
+		} );
+	} );
+
+	describe( 'setQueryParams', () => {
+		it( 'sets and removes several params in one write, keeping the rest', () => {
+			window.history.replaceState(
+				{},
+				'',
+				'/wp-admin/admin.php?page=perf&search=r9&q=feed#top'
+			);
+			const replaceSpy = jest.spyOn( window.history, 'replaceState' );
+			setQueryParams( { search: null, url: 'h1', request: 'r9' } );
+			expect( replaceSpy ).toHaveBeenCalledTimes( 1 );
+			expect( window.location.pathname ).toBe( '/wp-admin/admin.php' );
+			expect( window.location.search ).toBe(
+				'?page=perf&q=feed&url=h1&request=r9'
+			);
+			expect( window.location.hash ).toBe( '#top' );
+			replaceSpy.mockRestore();
+		} );
+
+		it( 'pushes a history entry when asked to', () => {
+			window.history.replaceState( {}, '', '/?page=perf' );
+			const pushSpy = jest.spyOn( window.history, 'pushState' );
+			const replaceSpy = jest.spyOn( window.history, 'replaceState' );
+			setQueryParams( { url: 'h1' }, { push: true } );
+			expect( pushSpy ).toHaveBeenCalledTimes( 1 );
+			expect( replaceSpy ).not.toHaveBeenCalled();
+			expect( getQueryParam( 'url' ) ).toBe( 'h1' );
+			pushSpy.mockRestore();
+			replaceSpy.mockRestore();
+		} );
+
+		it( 'pushes nothing when the URL would not change', () => {
+			window.history.replaceState( {}, '', '/?page=perf&url=h1' );
+			const pushSpy = jest.spyOn( window.history, 'pushState' );
+			setQueryParams( { url: 'h1', request: null }, { push: true } );
+			expect( pushSpy ).not.toHaveBeenCalled();
 			pushSpy.mockRestore();
 		} );
 	} );

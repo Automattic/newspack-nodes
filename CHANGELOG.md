@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`useQueryParamState`, `useQueryParamChoice` and `useQueryParamFlag` mirror dashboard state into the address bar.** The hooks in `@newspack-nodes/shared/hooks/useQueryParamState` seed a value from `?param=` once on mount, validate it through the caller's `restore` (a whitelist for a choice, `1` for a flag), write every change with `replaceState`, and leave out a default, so a bare link opens the defaults and a copied link opens the same view. When Back or Forward restores an entry a page pushed, each writes its live value back over it. `useQueryParamChoice` takes `null` for a list that arrives with a reply: it trusts and answers the link's value until the list lands, then drops a value the list lacks. An empty list judges nothing, so a refused or empty reply drops no choice. The topology console's `?topology=` and `?partition=` mirror runs on `useQueryParamState`, and `?partition=` still leaves p0 out; the replaced entry keeps its `history.state`, where the console's own mirror wiped it.
+- **`setQueryParams( params, { push } )` writes several params in one history call.** `setQueryParam()` delegates to it. A write that would leave the URL unchanged makes no history call, and `push: true` pushes an entry rather than replacing the current one.
+
 ### Changed
 
 - **The job and settings primitives idle out after 30 seconds.** `job-intake`, `job-worker` and `settings-sync` declare `var on_demand_idle = 30`, so a worker activated from one of them alone exits after 30 idle seconds and is revived on demand. A composition's own `var` still wins, since an included file's is ignored.
