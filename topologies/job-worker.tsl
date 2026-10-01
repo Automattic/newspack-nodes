@@ -9,15 +9,19 @@
 # for a while (CPU-bound work, a long query, a proc_open render) does not beat
 # at all, and at 60s a peer steals its lock mid-job and the job replays to
 # die again.
+
 var stale_timeout = 600;
+var on_demand_idle = 30
 
 include topic-probe
 
 # A throwing job handler propagates back to the Consumer, which quarantines the
 # job to its :deadletter sibling (dead-letter [42]) instead of silently dropping it.
 make_node Consumer jobs:consumer <config:logs_dir>/jobs.p<partition> <config:offsets_dir>/<topology>.jobs.p<partition> <config:deadletter_dir>/<topology>.jobs.p<partition>
-command_node jobs:consumer:config set_line_mode true
 make_node Job_Worker job-worker
+
+command_node jobs:consumer:config set_line_mode true
+
 connect_node jobs:consumer job-worker
 
 # Jobstats sweep: a 15s Job_Probe snapshots this process's Job_Workers into
@@ -25,5 +29,7 @@ connect_node jobs:consumer job-worker
 # dir is one multi-writer log every job-worker partition appends to.
 make_node Partition jobstats:log <config:logs_dir>/jobstats.p0 1048576 2 8 0 86400 86400
 make_node Job_Probe jobstats 15
+
 connect_node jobstats jobstats:log
+
 secure
