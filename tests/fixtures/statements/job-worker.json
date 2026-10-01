@@ -16,6 +16,22 @@
         "raw": "var stale_timeout = 600"
     },
     {
+        "verb": "var",
+        "values": [
+            "var",
+            "on_demand_idle",
+            "=",
+            "30"
+        ],
+        "spans": [
+            "var",
+            "on_demand_idle",
+            "=",
+            "30"
+        ],
+        "raw": "var on_demand_idle = 30"
+    },
+    {
         "verb": "include",
         "values": [
             "include",
@@ -48,6 +64,20 @@
         "raw": "make_node Consumer jobs:consumer <config:logs_dir>/jobs.p<partition> <config:offsets_dir>/<topology>.jobs.p<partition> <config:deadletter_dir>/<topology>.jobs.p<partition>"
     },
     {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Job_Worker",
+            "job-worker"
+        ],
+        "spans": [
+            "make_node",
+            "Job_Worker",
+            "job-worker"
+        ],
+        "raw": "make_node Job_Worker job-worker"
+    },
+    {
         "verb": "command_node",
         "values": [
             "command_node",
@@ -62,20 +92,6 @@
             "true"
         ],
         "raw": "command_node jobs:consumer:config set_line_mode true"
-    },
-    {
-        "verb": "make_node",
-        "values": [
-            "make_node",
-            "Job_Worker",
-            "job-worker"
-        ],
-        "spans": [
-            "make_node",
-            "Job_Worker",
-            "job-worker"
-        ],
-        "raw": "make_node Job_Worker job-worker"
     },
     {
         "verb": "connect_node",
