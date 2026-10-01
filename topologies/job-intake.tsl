@@ -5,6 +5,8 @@
 #
 #   Tail (jobintake.log) ──→ Partition (jobs:partition)
 
+var on_demand_idle = 30
+
 include topic-probe
 
 make_node Consumer jobintake:consumer <config:logs_dir>/jobintake.p<partition> <config:offsets_dir>/<topology>.jobintake.p<partition> <config:deadletter_dir>/<topology>.jobintake.p<partition>

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The job and settings primitives idle out after 30 seconds.** `job-intake`, `job-worker` and `settings-sync` declare `var on_demand_idle = 30`, so a worker activated from one of them alone exits after 30 idle seconds and is revived on demand. A composition's own `var` still wins, since an included file's is ignored.
+
 ## [2.83.0] - 2026-10-01
 
 ### Removed
