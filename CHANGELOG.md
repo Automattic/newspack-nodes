@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.83.0] - 2026-10-01
+
 ### Removed
 
 - **The Ledger, withdrawn (ADR-27 and ADR-28 retired).** `Ledger_Node`, its mount, its `Table_Client` asks, the `tables list`/`flush` rows for Ledgers, `Consumer_Node`'s `settle()` hook and `Tick_Housekeeper` are removed, and the substrate is 2.79.2's with the changes below kept. A whole-window ranking over write-once rows regrouped every row in the window: on staging a day's URL page took 75 s. The stats return to Tables in newspack-event-logger-nodes 0.113.0. `{base}/ledgers/` is left on disk for the operator to delete.
