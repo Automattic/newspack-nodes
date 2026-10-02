@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Overview's live cards count only what is live.** "Messages/s", "Backlog", "Avg Cache" and "Total Cache" count a reader only while its newest probe sample is within 60 seconds of the newest message seen — the stream head, the largest `latest.ts` across the readers (`streamHead()`, `isLiveSample()` and `LIVE_WINDOW_S` in `src/event-dashboards/liveSample.js`). Every stamp compared comes from the workers' clock, so browser clock skew cannot empty a card. The 24h replay keeps a stopped reader in the `topicprobe:view` model with its last sample, often a catch-up burst, and "Messages/s" takes each source's largest rate, so a dead co-reader held the card near 51K/s while the live readers summed to about 540 msg/s. "Backlog" judged freshness against the browser clock over 300 seconds and counted a sample with no `ts`; it takes the shared rule now. `globalMsgRate`, `backlogTotal` and `cacheSizeTotals` take the head as a required second argument, which `SummaryCards` derives once per render. A fleet gone silent keeps its last head, so its cards hold the values fresh relative to it. The Topics charts and the 24h cards still read every reader's whole retained series.
+
 ## [2.84.0] - 2026-10-01
 
 ### Added
