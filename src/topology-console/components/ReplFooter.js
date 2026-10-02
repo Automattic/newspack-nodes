@@ -146,7 +146,7 @@ function loadStoredHeight() {
  *
  * @param {Object}                      props
  * @param {string}                      props.prompt                  Text shown before `>`, and what an echoed line carrying no prompt of its own renders; both consumers pass the shell cwd.
- * @param {string}                      [props.streamStatus]          Stream state: `connecting`, `open`, `error`, or `closed`. Absent (the local overlay graph) reads as LIVE.
+ * @param {string}                      [props.streamStatus]          Stream state: `connecting`, `open`, `error`, or `closed`. Absent (the local overlay graph, which streams nothing and is always up) reads as `open`, so both hosts' footers say the same.
  * @param {boolean}                     props.canSend                 False disables the input and shows the connecting placeholder.
  * @param {(command:string)=>void}      props.onSubmit                Receives the trimmed command line on Enter.
  * @param {()=>void}                    [props.onClear]               Clears the transcript; bound to Ctrl/Cmd+L and the ✕ button.
@@ -163,7 +163,7 @@ function loadStoredHeight() {
  */
 export default function ReplFooter( {
 	prompt,
-	streamStatus,
+	streamStatus = 'open',
 	canSend,
 	onSubmit,
 	onClear,
@@ -224,10 +224,8 @@ export default function ReplFooter( {
 		inputRef.current?.focus();
 	};
 
-	// The local overlay passes no streamStatus; its graph is always LIVE.
-	const statusLabel = streamStatus
-		? STATUS_LABELS[ streamStatus ] || streamStatus.toUpperCase()
-		: __( 'LIVE', 'newspack-nodes' );
+	const statusLabel =
+		STATUS_LABELS[ streamStatus ] || streamStatus.toUpperCase();
 
 	// Auto-scroll to the newest entry when the open transcript grows.
 	useEffect( () => {

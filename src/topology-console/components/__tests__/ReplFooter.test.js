@@ -67,6 +67,19 @@ describe( 'ReplFooter', () => {
 		}
 	} );
 
+	it( "reads a footer with no stream, the overlay's, as the station's open one", () => {
+		const { streamStatus, ...overlayProps } = baseProps;
+		const { container } = render( <ReplFooter { ...overlayProps } /> );
+		expect(
+			container.querySelector( '.topology-repl__status' ).textContent
+		).toBe( 'CONNECTED' );
+		expect(
+			container
+				.querySelector( '.topology-repl__dot' )
+				.classList.contains( 'is-pulsing' )
+		).toBe( true );
+	} );
+
 	it( 'uppercases unknown statuses verbatim', () => {
 		const { container } = render(
 			<ReplFooter { ...baseProps } streamStatus="weird" />
