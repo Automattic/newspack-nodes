@@ -100,12 +100,45 @@ class VerbHarness {
 		// in-process so the client-tier authorize gate passes.
 		$message[ Message::LOCAL ] = true;
 
+		return self::payload( $interpreter, $message );
+	}
+
+	/**
+	 * Fill a TM_COMMAND into an interpreter wired to an `_http` sink and
+	 * return the reply's payload. `interpret()` replies with whatever the verb
+	 * threw, so a PHPUnit exception — the per-test time limit, an assertion
+	 * failing in a seam the verb calls — is re-raised here rather than read
+	 * back as a refusal. Shared by every plugin's harness.
+	 *
+	 * @param Command_Interpreter_Node $interpreter The interpreter, named and sunk.
+	 * @param array<int,mixed>         $message     The TM_COMMAND to fill.
+	 * @return mixed The verb's payload (structure for success verbs; error-message string for TM_ERROR).
+	 */
+	public static function payload( Command_Interpreter_Node $interpreter, array $message ): mixed {
+		$escaped = null;
+		$prior   = Command_Interpreter_Node::$around_dispatch;
+		Command_Interpreter_Node::$around_dispatch = static function ( Command_Interpreter_Node $ci, string $verb, \Closure $run, \Closure $command ) use ( $prior, &$escaped ): mixed {
+			try {
+				return null === $prior ? $run() : $prior( $ci, $verb, $run, $command );
+			} catch ( \PHPUnit\Exception | \SebastianBergmann\Invoker\Exception $e ) {
+				$escaped = $e;
+				throw $e;
+			}
+		};
 		\ob_start();
-		$interpreter->fill( $message );
-		$body = \ob_get_clean();
+		try {
+			$interpreter->fill( $message );
+		} finally {
+			$body = \ob_get_clean();
+			Command_Interpreter_Node::$around_dispatch = $prior;
+		}
+		if ( null !== $escaped ) {
+			throw $escaped;
+		}
 
 		if ( '' === $body ) {
-			throw new \RuntimeException( "verb '{$verb}' on interpreter '{$name}' produced no response" );
+			$verb = Core::as_string( Core::arr( $message[ Message::VALUE ] )['name'] ?? '' );
+			throw new \RuntimeException( "verb '{$verb}' on interpreter '{$interpreter->name()}' produced no response" );
 		}
 		// HTTP_In packs the whole response Message; unpacked() restores VALUE
 		// as the live `['name'=>,'payload'=>]` array. The verb's payload is
