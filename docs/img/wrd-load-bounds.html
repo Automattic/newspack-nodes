@@ -75,7 +75,7 @@
     <h3>Reading the probe model: who owns the metric decides the arithmetic</h3>
     <div class="chip"><b>The source owns it → dedup across co-readers.</b> Two topologies tailing <span class="mono">firehose.p0</span> describe one stream twice: <span class="mono">globalMsgRate</span> takes the largest rate per source, <span class="mono">probe24hTotals</span> integrates over the union of the readers' windows, oldest end first.</div>
     <div class="chip"><b>The reader owns it → sum every reader.</b> Backlog and offsetlog cache size are each reader's own debt and cache.</div>
-    <div class="chip"><b>Shown as current → judge by the sample's own timestamp</b>, as <span class="mono">backlogTotal</span> does over a 300-second window, because <span class="mono">ENTRY_TTL_MS</span> is measured by arrival and a 24-hour replay re-admits a reader that died hours ago as freshly seen.</div>
+    <div class="chip"><b>Shown as current → judge by the sample's own timestamp</b>, as <span class="mono">isLiveSample</span> does for the Messages/s, Backlog and cache cards, within 60 seconds of the newest message seen, because <span class="mono">ENTRY_TTL_MS</span> is measured by arrival and a 24-hour replay re-admits a reader that died hours ago as freshly seen.</div>
   </div>
   <div class="card">
     <h3>Two orders that are contracts</h3>

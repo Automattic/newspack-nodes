@@ -1,6 +1,6 @@
 /**
  * The fleet-global message rate behind the SummaryCards "Messages/s" card: the
- * sum, over distinct probe sources, of the newest rate reported for each one.
+ * sum, over distinct probe sources, of the newest LIVE rate reported for each.
  *
  * A probe record's `SOURCE` names the single log a consumer tails — one
  * PARTITION (`firehose.p0`), or the followed filename for a `File_Tail` — and
@@ -16,17 +16,23 @@
  * the series keeps the rate computed in one place.
  */
 
+import { isLiveSample } from './liveSample';
+
 /**
  * Sum the newest message rate across distinct probe sources.
  *
- * @param {Object<string,{source?:string,latest?:{msgRate?:number}}>} consumers The `topicprobe:view` consumers map, keyed by reader id.
- * @return {number} Messages per second, 0 when no entry carries both a source and a sample.
+ * Only a live sample counts (`isLiveSample`), so a reader that stopped on a
+ * burst cannot outrank the live co-reader of its source.
+ *
+ * @param {Object<string,{source?:string,latest?:{ts?:number,msgRate?:number}}>} consumers The `topicprobe:view` consumers map, keyed by reader id.
+ * @param {number}                                                               headS     The stream head, from `streamHead()`, the samples are judged against.
+ * @return {number} Messages per second, 0 when no entry carries a source and a live sample.
  */
-export function globalMsgRate( consumers ) {
+export function globalMsgRate( consumers, headS ) {
 	const bySource = new Map();
 	for ( const c of Object.values( consumers || {} ) ) {
 		const source = c.source || '';
-		if ( '' === source ) {
+		if ( '' === source || ! isLiveSample( c.latest, headS ) ) {
 			continue;
 		}
 		const rate = c.latest?.msgRate || 0;

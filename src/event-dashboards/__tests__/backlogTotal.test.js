@@ -1,24 +1,24 @@
 import { backlogTotal } from '../backlogTotal';
 
-const NOW = 1786540928;
+const HEAD = 1786540928;
 
 it( "sums each reader's latest backlog (per-READER lag, no source dedup)", () => {
 	expect(
 		backlogTotal(
 			{
-				r1: { source: 'jobs.p0', latest: { ts: NOW, backlog: 40960 } },
-				r2: { source: 'jobs.p0', latest: { ts: NOW, backlog: 20480 } },
-				r3: { source: 'firehose.p0', latest: { ts: NOW, backlog: 0 } },
+				r1: { source: 'jobs.p0', latest: { ts: HEAD, backlog: 40960 } },
+				r2: { source: 'jobs.p0', latest: { ts: HEAD, backlog: 20480 } },
+				r3: { source: 'firehose.p0', latest: { ts: HEAD, backlog: 0 } },
 			},
-			NOW
+			HEAD
 		)
 	).toBe( 61440 );
 } );
 
 it( 'yields 0 for an empty, null, or latest-less consumers map', () => {
-	expect( backlogTotal( {} ) ).toBe( 0 );
-	expect( backlogTotal( null ) ).toBe( 0 );
-	expect( backlogTotal( { r1: { source: 'jobs.p0' } } ) ).toBe( 0 );
+	expect( backlogTotal( {}, HEAD ) ).toBe( 0 );
+	expect( backlogTotal( null, HEAD ) ).toBe( 0 );
+	expect( backlogTotal( { r1: { source: 'jobs.p0' } }, HEAD ) ).toBe( 0 );
 } );
 
 // The card is a CURRENT gauge. A reader that died while behind keeps its last
@@ -28,17 +28,25 @@ it( 'yields 0 for an empty, null, or latest-less consumers map', () => {
 // `wp nodes status` showed every live reader 0B behind.
 it( 'ignores a reader whose newest sample is stale', () => {
 	const consumers = {
-		live: { source: 'jobs.p0', latest: { ts: NOW - 10, backlog: 1024 } },
+		live: { source: 'jobs.p0', latest: { ts: HEAD - 10, backlog: 1024 } },
 		dead: {
 			source: 'firehose.p0',
-			latest: { ts: NOW - 17 * 3600, backlog: 486539264 },
+			latest: { ts: HEAD - 17 * 3600, backlog: 486539264 },
 		},
 	};
-	expect( backlogTotal( consumers, NOW ) ).toBe( 1024 );
+	expect( backlogTotal( consumers, HEAD ) ).toBe( 1024 );
 } );
 
-it( 'counts a sample with no ts, so a probe that omits it is not silently zeroed', () => {
-	expect( backlogTotal( { r: { latest: { backlog: 512 } } }, NOW ) ).toBe(
-		512
+it( 'drops a reader 61s behind the head and keeps one 30s behind', () => {
+	const consumers = {
+		fresh: { source: 'jobs.p0', latest: { ts: HEAD - 30, backlog: 2048 } },
+		stale: { source: 'jobs.p0', latest: { ts: HEAD - 61, backlog: 77777 } },
+	};
+	expect( backlogTotal( consumers, HEAD ) ).toBe( 2048 );
+} );
+
+it( 'never counts a sample with no ts, because the card shows only live debt', () => {
+	expect( backlogTotal( { r: { latest: { backlog: 512 } } }, HEAD ) ).toBe(
+		0
 	);
 } );

@@ -277,7 +277,10 @@ source. Two topologies on `firehose.p0` report that one stream twice, so
 `globalMsgRate` collapses a source's co-readers to the largest rate and
 `probe24hTotals` integrates over the union of their windows. A backlog and an
 offsetlog belong to the reader instead, so `backlogTotal` and `cacheSizeTotals`
-sum every live reader and dedup nothing. Both rules ship side by side in
+sum every live reader and dedup nothing. "Live" is one rule for all three:
+`isLiveSample()` counts a reader only while its newest sample is at most
+`LIVE_WINDOW_S`, 60 seconds, behind the newest message seen (`streamHead()`),
+because the map keeps a stopped reader's 24h series for the charts. Both rules ship side by side in
 `src/event-dashboards/`, and `topicChartSeries` behind the Topics chart SUMS
 `msgRate` over the co-readers `globalMsgRate` collapses — the Overview's rate
 card and its rate chart read one field two ways. Choose which a new card wants

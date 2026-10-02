@@ -13,7 +13,10 @@
  * translated labels, which is what lets a card's rule be tested without
  * rendering anything. Those rules differ card by card — the rate cards dedup
  * co-readers of one source, the backlog and cache cards sum per reader — and
- * each derive's own header says why.
+ * each derive's own header says why. One rule is shared: the "Messages/s",
+ * "Backlog" and cache cards are LIVE, counting a reader only while its newest
+ * sample is within a minute of the newest message seen (`streamHead`,
+ * `isLiveSample`), while the 24h cards integrate every retained sample.
  */
 
 import { memo } from '@wordpress/element';
@@ -23,6 +26,7 @@ import { probe24hTotals } from './probe24hTotals';
 import { globalMsgRate } from './globalMsgRate';
 import { cacheSizeTotals } from './cacheSizeTotals';
 import { backlogTotal } from './backlogTotal';
+import { streamHead } from './liveSample';
 import {
 	formatBytes,
 	formatByteRate,
@@ -84,7 +88,8 @@ function SummaryCards( {
 } ) {
 	const fleet = fleetSummary( topologies );
 	const totals = probe24hTotals( consumers );
-	const cache = cacheSizeTotals( consumers );
+	const headS = streamHead( consumers );
+	const cache = cacheSizeTotals( consumers, headS );
 
 	/** @type {string} */
 	let healthLabel = __( 'all systems ok', 'newspack-nodes' );
@@ -152,12 +157,12 @@ function SummaryCards( {
 			/>
 			<Card
 				mod="msgrate"
-				value={ formatMsgRate( globalMsgRate( consumers ) ) }
+				value={ formatMsgRate( globalMsgRate( consumers, headS ) ) }
 				label={ __( 'Messages/s', 'newspack-nodes' ) }
 			/>
 			<Card
 				mod="backlog"
-				value={ formatBytes( backlogTotal( consumers ) ) }
+				value={ formatBytes( backlogTotal( consumers, headS ) ) }
 				label={ __( 'Backlog', 'newspack-nodes' ) }
 			/>
 			<Card
