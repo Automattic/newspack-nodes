@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.84.2] - 2026-10-02
+
 ### Changed
 
 - **The debug overlay's REPL footer matches the station's.** A footer with no stream status, the overlay's local graph, reads as `open`: `CONNECTED` with a pulsing dot, where it read `LIVE` with a still one.
