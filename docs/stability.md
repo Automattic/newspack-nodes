@@ -215,7 +215,7 @@ reason. Catch it, or let the surrounding controller's catch own it.
     to whoever resolves the name — for the companion-index formatters, to
     `Partition_Node::with_index()`.
 
-    Three [`Admin\Admin`](../includes/admin/class-admin.php) statics are the admin half of the same contract.
+    Four [`Admin\Admin`](../includes/admin/class-admin.php) statics, plus the `SCALE_CHIP_STEPS` constant, are the admin half of the same contract.
     `enqueue_react_page()` is the registrar every consumer dashboard enqueues
     through, and returns null rather than enqueueing when the build is absent.
     `css_cache_version()` versions a stylesheet on its content hash, so a
@@ -226,6 +226,13 @@ reason. Catch it, or let the surrounding controller's catch own it.
     is `Capabilities::can( MANAGE )`, item 12 below. Nuclear-gyrobase calls
     `css_cache_version()` with no `class_exists()` guard, so withdrawing one is
     a fatal rather than a degradation.
+    `scale_chip_classes()` ranks a weight map once and returns the
+    `newspack-nodes-theme np-scale-chip--N` class by key; `SCALE_CHIP_STEPS`
+    is the step count the theme's `$scale-chip-shares` list must match. Pyrobase
+    and nuclear-gyrobase call `scale_chip_classes()` unguarded, so withdrawing
+    it is a fatal on their cron pages. Renaming the class contract, or
+    emitting fewer steps than `SCALE_CHIP_STEPS`, leaves a ranked chip with no
+    rule: it renders unstyled, with nothing logged.
 11. **The cooperative stop.** [`Worker_Should_Stop`](../includes/class-worker-should-stop.php) with
     its `is_clean()` and `is_bare()` predicates; `combine()` and `raise()`, which
     take any array of throwables and ignore its keys; `attempt()` over a fixed

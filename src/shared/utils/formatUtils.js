@@ -44,15 +44,15 @@ const SYSTEM_COLORS = {
 	custom: '#FF5722',
 	hook: '#66BB6A',
 	plugin: '#AB47BC', // Purple for plugin timing.
-	command: '#905665', // Morganite 900, a chart color no other span takes.
+	command: '#905665', // Morganite 900, a hue no other span takes.
 	complete: '#4CAF50',
 	// @longform Query and outbound-HTTP spans are named `base: detail`, so
 	// they resolve here on the base. Both carry a hue of their own rather
 	// than sharing `request`'s grey, which would leave the two most
 	// expensive things in a trace the two least visible. HTTP takes the
 	// hook categorizer's own HTTP color so a span reads like the hooks
-	// around it; SQL has no category to borrow from and takes a hue the 63
-	// in hook_categories.json do not use.
+	// around it; SQL has no category to borrow from and takes a hue no hook
+	// category uses.
 	sql: '#8E24AA',
 	http: '#42A5F5',
 	aggregate: '#9e9e9e',

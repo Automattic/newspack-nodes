@@ -70,19 +70,6 @@ $health-stalled: var(--oxide-text);
 	&--health-stalled &__value {
 		color: $health-stalled;
 	}
-
-	// Distinct chart-palette inks so the three rate cards read apart at a glance.
-	&--read &__value {
-		color: var(--chart-1);
-	}
-
-	&--write &__value {
-		color: var(--chart-5);
-	}
-
-	&--msgrate &__value {
-		color: var(--chart-2);
-	}
 }
 
 // "+ New Topology" — trails the card row, right-aligned.
