@@ -1812,12 +1812,7 @@ function ComposeModal( { nodeNames, onSend, onCancel } ) {
 				{ text( 'key', __( 'Key', 'newspack-nodes' ) ) }
 				{ isCommand && text( 'name', __( 'Name', 'newspack-nodes' ) ) }
 				{ isCommand &&
-					text( 'arguments', __( 'Arguments', 'newspack-nodes' ), {
-						placeholder: __(
-							"split by the prompt's tokenizer (quotes group; no $interpolation or # comments)",
-							'newspack-nodes'
-						),
-					} ) }
+					text( 'arguments', __( 'Arguments', 'newspack-nodes' ) ) }
 				{ isCommand &&
 					text( 'payload', __( 'Payload', 'newspack-nodes' ), {
 						rows: 4,
