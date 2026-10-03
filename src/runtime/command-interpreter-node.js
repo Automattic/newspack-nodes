@@ -10,7 +10,7 @@
  * TO = the request's FROM so nothing has to correlate by id (ADR-7).
  */
 
-import { markLocal } from './command-auth';
+import { isCommandAsk, isCommandStruct, markLocal } from './command-auth';
 import { Node } from './node';
 import { TeeNode } from './tee-node';
 import { TapNode } from './tap-node';
@@ -47,6 +47,8 @@ import {
 	TM_EOF,
 	TM_NOREPLY,
 	newMessage,
+	asList,
+	asString,
 } from './message';
 
 /**
@@ -229,9 +231,7 @@ export class CommandInterpreterNode extends Node {
 		}
 
 		// TM_ERROR is a reply too: TO an empty FROM it re-enters as a command.
-		const isCommand =
-			type & TM_COMMAND && ! ( type & ( TM_RESPONSE | TM_ERROR ) );
-		if ( ! isCommand || message[ TO ] !== '' ) {
+		if ( ! isCommandAsk( message ) || message[ TO ] !== '' ) {
 			if ( this.sink ) {
 				this.sink.fill( message );
 			}
@@ -252,10 +252,12 @@ export class CommandInterpreterNode extends Node {
 	_interpret( message ) {
 		// VALUE is the structured command object directly (no parse needed).
 		const cmd = message[ VALUE ];
-		if ( ! cmd || typeof cmd !== 'object' || ! cmd.name ) {
+		if ( ! isCommandStruct( cmd ) ) {
 			this.stderr( 'WARNING: invalid command struct' );
 			return;
 		}
+		// The verb's name as PHP reads it: `Core::as_string()`, own verbs only.
+		const name = asString( cmd.name );
 
 		// Auth default: the LOCAL taint a Shell stamps; the wire has none.
 		const authorize =
@@ -263,33 +265,25 @@ export class CommandInterpreterNode extends Node {
 			CommandInterpreterNode.defaultAuthorize ??
 			( ( m ) => m[ LOCAL ] !== undefined );
 		if ( ! authorize( message ) ) {
-			this._respond(
-				message,
-				cmd.name,
-				`unauthorized: ${ cmd.name }`,
-				TM_ERROR
-			);
+			this._respond( message, name, `unauthorized: ${ name }`, TM_ERROR );
 			return;
 		}
 
-		const verb = this._commands[ cmd.name ];
+		const verb = Object.hasOwn( this._commands, name )
+			? this._commands[ name ]
+			: undefined;
 		if ( typeof verb !== 'function' ) {
-			this._respond(
-				message,
-				cmd.name,
-				`no such verb: ${ cmd.name }`,
-				TM_ERROR
-			);
+			this._respond( message, name, `no such verb: ${ name }`, TM_ERROR );
 			return;
 		}
-		// External-compat seam: coerce a non-array `arguments` to [].
-		const args = Array.isArray( cmd.arguments ) ? cmd.arguments : [];
+		// PHP's interpret(): array_values, each through Core::as_string().
+		const args = asList( cmd.arguments ).map( asString );
 		try {
 			const result = verb( this, args, message );
-			this._respond( message, cmd.name, result, TM_RESPONSE );
+			this._respond( message, name, result, TM_RESPONSE );
 		} catch ( e ) {
 			// Newline-terminated, as PHP sends it: the payload prints verbatim.
-			this._respond( message, cmd.name, `${ e.message }\n`, TM_ERROR );
+			this._respond( message, name, `${ e.message }\n`, TM_ERROR );
 		}
 	}
 
@@ -334,7 +328,7 @@ export class CommandInterpreterNode extends Node {
 			message[ VALUE ] && typeof message[ VALUE ] === 'object'
 				? message[ VALUE ].arguments
 				: undefined;
-		const reqArgs = Array.isArray( rawArgs ) ? rawArgs : [];
+		const reqArgs = asList( rawArgs ).map( asString );
 		resp[ VALUE ] = { name, arguments: reqArgs, payload };
 		if ( this.sink ) {
 			this.sink.fill( resp );

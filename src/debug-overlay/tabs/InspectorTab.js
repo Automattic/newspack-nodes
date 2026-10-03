@@ -42,7 +42,6 @@ import { useGraphReset } from '../useGraphReset';
 import { CatalogProvider } from '../../topology-console/CatalogContext';
 import { LayoutProvider } from '../../topology-console/LayoutContext';
 import { ChromeProvider } from '../../topology-console/ChromeContext';
-import { isUiBound } from '../../topology-console/hooks/useGraphHandlers';
 
 /**
  * Measure the TabHost tab bar (`.nodes-tab-host__tabbar`) that the host
@@ -159,6 +158,7 @@ export default function InspectorTab( {
 	const {
 		transcript,
 		sendLine,
+		gate,
 		append,
 		clear,
 		cwd,
@@ -169,6 +169,11 @@ export default function InspectorTab( {
 	// Layout and rate history are per-cwd: a remote cwd is another graph.
 	const cwdScope = cwd || 'local';
 	const onPositionChangeRef = useRef( null );
+	// A send the transcript echoes opens the REPL footer.
+	const onReplSend = useCallback(
+		() => setReplExpanded( true ),
+		[ setReplExpanded ]
+	);
 	// Catalog before useDebugGraph: its handlers read is_interpreter.
 	const jsCatalog = useJsCatalog();
 	const phpCatalog = useClassCatalog( { enabled: !! cwd } );
@@ -183,9 +188,10 @@ export default function InspectorTab( {
 	} = useDebugGraph(
 		buildRepl,
 		shell,
-		catalog.classes || [],
+		catalog.classes,
 		( id, p ) => onPositionChangeRef.current?.( id, p ),
-		sendLine
+		sendLine,
+		onReplSend
 	);
 	// Gate layout + render on both infra mounted AND the graph carrying nodes.
 	const ready = replReady && graphHasNodes;
@@ -252,13 +258,14 @@ export default function InspectorTab( {
 	const schemasByShellName = useMemo(
 		() =>
 			Object.fromEntries(
-				( catalog.classes || [] ).map( ( c ) => [ c.shell_name, c ] )
+				catalog.classes.map( ( c ) => [ c.shell_name, c ] )
 			),
 		[ catalog.classes ]
 	);
 
 	// Shared graph-dirty + Reset Graph logic (same as the topology console).
 	const { resetGraph, canResetGraph } = useGraphReset( {
+		gate,
 		shell,
 		nodes: graph.nodes,
 		isLocalScope: ! cwd,
@@ -362,28 +369,9 @@ export default function InspectorTab( {
 									onRemoveEdge: handlers.onRemoveEdge,
 									onRemoveNode: handlers.onRemoveNode,
 									onDropNode: handlers.onDropNode,
-									onInspectorAction: (
-										action,
-										nodeId,
-										payload,
-										flags
-									) => {
-										// Only a REPL action pops the footer.
-										if ( ! isUiBound( action, payload ) ) {
-											setReplExpanded( true );
-										}
-										// A whole REPL line; send it as typed.
-										if ( 'command' === action ) {
-											sendLine( payload );
-											return;
-										}
-										handlers.onInspectorAction(
-											action,
-											nodeId,
-											payload,
-											flags
-										);
-									},
+									onInspectorAction:
+										handlers.onInspectorAction,
+									onCompose: handlers.onCompose,
 									// Selecting auto-opens the inspector.
 									onSelectionChange: openInspectorOnSelect,
 								} }

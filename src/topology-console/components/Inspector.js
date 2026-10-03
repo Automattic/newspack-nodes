@@ -14,11 +14,23 @@
 
 import { useEffect, useRef, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
-import { ModalShell, PromptModal } from './Modal';
+import { ModalField, ModalShell, PromptModal } from './Modal';
 import InspectorViewModal from './InspectorViewModal';
 import { CtorField } from './CtorField';
 import { tokenize } from '../../runtime/shell-node';
 import { targetsOf } from '../../runtime/node';
+import {
+	typeLabels,
+	TM_BYTESTREAM,
+	TM_COMMAND,
+	TM_EOF,
+	TM_ERROR,
+	TM_INFO,
+	TM_NOREPLY,
+	TM_REQUEST,
+	TM_RESPONSE,
+	TM_STRUCT,
+} from '../../runtime/message';
 import HullPanel from './HullPanel';
 import TimeTravelPanel from './TimeTravelPanel';
 import VerbStats from './VerbStats';
@@ -1583,13 +1595,11 @@ function RegisterModal( { source, events, nodeNames, onConfirm, onCancel } ) {
 			onDismiss={ onCancel }
 		>
 			<div className="topology-modal__body">
-				<label
-					className="topology-modal__label"
-					htmlFor="nodes-register-event"
+				<ModalField
+					id="nodes-register-event"
+					label={ __( 'Event', 'newspack-nodes' ) }
 				>
-					{ __( 'Event', 'newspack-nodes' ) }
 					<select
-						id="nodes-register-event"
 						className="topology-modal__input"
 						value={ event }
 						onChange={ ( e ) => setEvent( e.target.value ) }
@@ -1600,14 +1610,12 @@ function RegisterModal( { source, events, nodeNames, onConfirm, onCancel } ) {
 							</option>
 						) ) }
 					</select>
-				</label>
-				<label
-					className="topology-modal__label"
-					htmlFor="nodes-register-target"
+				</ModalField>
+				<ModalField
+					id="nodes-register-target"
+					label={ __( 'Listener node', 'newspack-nodes' ) }
 				>
-					{ __( 'Listener node', 'newspack-nodes' ) }
 					<select
-						id="nodes-register-target"
 						className="topology-modal__input"
 						value={ target }
 						onChange={ ( e ) => setTarget( e.target.value ) }
@@ -1618,7 +1626,7 @@ function RegisterModal( { source, events, nodeNames, onConfirm, onCancel } ) {
 							</option>
 						) ) }
 					</select>
-				</label>
+				</ModalField>
 			</div>
 			<div className="topology-modal__actions">
 				<button type="button" className="button" onClick={ onCancel }>
@@ -1638,144 +1646,160 @@ function RegisterModal( { source, events, nodeNames, onConfirm, onCancel } ) {
 }
 
 /**
- * Message-composer types — `[ label, action, takesValue ]`, each mapping to the
- * CLI verb that mints that TYPE.
+ * The types the composer mints, in menu order. Each option is named by the
+ * one flags-to-names map, the same rendering the Dumper gives TYPE.
  *
- * @type {Array<[string, string, boolean]>}
+ * @type {number[]}
  */
 const COMPOSE_TYPES = [
-	[ 'TM_COMMAND (command_node)', 'cmd', true ],
-	[ 'TM_BYTESTREAM (send_node)', 'send', true ],
-	[ 'TM_REQUEST (request_node)', 'request', true ],
-	[ 'TM_INFO (tell_node)', 'tell', true ],
-	[ 'TM_STRUCT (send_struct)', 'send_struct', true ],
-	[ 'TM_EOF (send_eof)', 'send_eof', false ],
+	TM_COMMAND,
+	TM_BYTESTREAM,
+	TM_REQUEST,
+	TM_INFO,
+	TM_STRUCT,
+	TM_EOF,
 ];
 
 /**
- * Mints one message of any type at any node — the canvas's whole CLI surface.
+ * The bits a composer ORs onto the chosen type, as `[ form field, bit ]`,
+ * labelled like COMPOSE_TYPES.
  *
- * Every envelope field left blank keeps what the minting verb stamps, so the
- * ordinary case is a target and a value: FROM defaults to this session's reply
- * path, which is what brings a reply back to the console. TM_RESPONSE and
- * TM_ERROR are checkboxes rather than types because they are bits the sender
- * ORs onto whichever type the verb mints.
+ * @type {Array<[string, number]>}
+ */
+const COMPOSE_FLAGS = [
+	[ 'response', TM_RESPONSE ],
+	[ 'error', TM_ERROR ],
+	[ 'noreply', TM_NOREPLY ],
+];
+
+/**
+ * Composes one message of any type at any node, every envelope field exposed.
+ *
+ * A blank From, ID, Key or Timestamp keeps what the mint stamps, so the
+ * ordinary case is a target and a value: From defaults to this session's reply
+ * path, which is what brings a reply back to the console. TM_RESPONSE, TM_ERROR
+ * and TM_NOREPLY are checkboxes rather than types because they are bits ORed onto
+ * whichever type is chosen. A TM_COMMAND takes a Name, Arguments and a Payload
+ * in place of the Value, and TM_EOF takes no value at all.
+ *
+ * Send hands the form to `onSend`, which mints and sends it. A refusal it
+ * hands back — malformed JSON, no Shell or sink to send through, no SSE
+ * session for a worker, or a throw from the send — shows here, and the dialog
+ * stays open for the fix.
  *
  * @param {Object}                                                             props
  * @param {string[]}                                                           props.nodeNames Nodes offered as the destination.
- * @param {(action: string, to: string, value: string, flags: Object) => void} props.onConfirm Sends the message: the CLI verb, its target, the value, and the envelope overrides.
+ * @param {(form: import('../hooks/useGraphHandlers').ComposeForm) => ?string} props.onSend    Mints and sends the form; the refusal, or null once sent.
  * @param {() => void}                                                         props.onCancel  Closes without sending.
  * @return {import('react').ReactElement} The dialog.
  */
-function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
-	const [ to, setTo ] = useState( nodeNames[ 0 ] || '' );
-	const [ typeIdx, setTypeIdx ] = useState( 0 );
-	const [ value, setValue ] = useState( '' );
-	const [ responseFlag, setResponseFlag ] = useState( false );
-	const [ errorFlag, setErrorFlag ] = useState( false );
-	// Blank = keep what the mint stamped (FROM: this session's reply path).
-	const [ from, setFrom ] = useState( '' );
-	const [ id, setId ] = useState( '' );
-	const [ key, setKey ] = useState( '' );
-	const [ timestamp, setTimestamp ] = useState( '' );
-	const [ , action, takesValue ] = COMPOSE_TYPES[ typeIdx ];
+function ComposeModal( { nodeNames, onSend, onCancel } ) {
+	const [ form, setForm ] = useState( () => ( {
+		type: TM_COMMAND,
+		response: false,
+		error: false,
+		noreply: false,
+		from: '',
+		to: nodeNames[ 0 ] || '',
+		id: '',
+		key: '',
+		timestamp: '',
+		value: '',
+		name: '',
+		arguments: '',
+		payload: '',
+	} ) );
+	const [ refusal, setRefusal ] = useState( null );
+	const set = ( field, value ) =>
+		setForm( ( prev ) => ( { ...prev, [ field ]: value } ) );
+	const isCommand = TM_COMMAND === form.type;
+	/**
+	 * The `ModalField` holding the text control for one form field.
+	 *
+	 * @param {string}                                                  field  The form field it edits.
+	 * @param {string}                                                  label  Its visible label.
+	 * @param {{ placeholder?: string, rows?: number, wide?: boolean }} [opts] A placeholder; `rows` makes a textarea; `wide` spans the row.
+	 * @return {import('react').ReactElement} The labelled control.
+	 */
+	const text = ( field, label, { placeholder, rows, wide } = {} ) => {
+		const Control = rows ? 'textarea' : 'input';
+		return (
+			<ModalField
+				id={ `nodes-compose-${ field }` }
+				label={ label }
+				wide={ wide }
+			>
+				<Control
+					className="topology-modal__input"
+					type={ rows ? undefined : 'text' }
+					rows={ rows }
+					value={ form[ field ] }
+					placeholder={ placeholder }
+					onChange={ ( e ) => set( field, e.target.value ) }
+				/>
+			</ModalField>
+		);
+	};
 	return (
 		<ModalShell
 			title={ __( 'Compose a message', 'newspack-nodes' ) }
 			onDismiss={ onCancel }
 		>
 			<div className="topology-modal__body topology-modal__body--pairs">
-				<label
-					className="topology-modal__label"
-					htmlFor="nodes-compose-type"
+				<ModalField
+					id="nodes-compose-type"
+					label={ __( 'Type', 'newspack-nodes' ) }
 				>
-					{ __( 'Type', 'newspack-nodes' ) }
 					<select
-						id="nodes-compose-type"
 						className="topology-modal__input"
-						value={ typeIdx }
+						value={ form.type }
 						onChange={ ( e ) =>
-							setTypeIdx( Number( e.target.value ) )
+							set( 'type', Number( e.target.value ) )
 						}
 					>
-						{ COMPOSE_TYPES.map( ( [ label ], i ) => (
-							<option key={ label } value={ i }>
-								{ label }
+						{ COMPOSE_TYPES.map( ( type ) => (
+							<option key={ type } value={ type }>
+								{ typeLabels( type )[ 0 ] }
 							</option>
 						) ) }
 					</select>
-				</label>
-				<label
-					className="topology-modal__label"
-					htmlFor="nodes-compose-timestamp"
-				>
-					{ __( 'Timestamp', 'newspack-nodes' ) }
-					<input
-						id="nodes-compose-timestamp"
-						className="topology-modal__input"
-						type="text"
-						value={ timestamp }
-						placeholder={ __( 'now (default)', 'newspack-nodes' ) }
-						onChange={ ( e ) => setTimestamp( e.target.value ) }
-					/>
-				</label>
+				</ModalField>
+				{ text( 'timestamp', __( 'Timestamp', 'newspack-nodes' ), {
+					placeholder: __( 'now (default)', 'newspack-nodes' ),
+				} ) }
 				<div className="topology-modal__checkbox-row">
-					<label
-						className="topology-modal__label topology-modal__label--checkbox"
-						htmlFor="nodes-compose-response"
-					>
-						<input
-							id="nodes-compose-response"
-							type="checkbox"
-							checked={ responseFlag }
-							onChange={ ( e ) =>
-								setResponseFlag( e.target.checked )
-							}
-						/>
-						{ __( 'TM_RESPONSE', 'newspack-nodes' ) }
-					</label>
-					<label
-						className="topology-modal__label topology-modal__label--checkbox"
-						htmlFor="nodes-compose-error"
-					>
-						<input
-							id="nodes-compose-error"
-							type="checkbox"
-							checked={ errorFlag }
-							onChange={ ( e ) =>
-								setErrorFlag( e.target.checked )
-							}
-						/>
-						{ __( 'TM_ERROR', 'newspack-nodes' ) }
-					</label>
+					{ COMPOSE_FLAGS.map( ( [ field, bit ] ) => (
+						<label
+							key={ field }
+							className="topology-modal__label topology-modal__label--checkbox"
+							htmlFor={ `nodes-compose-${ field }` }
+						>
+							<input
+								id={ `nodes-compose-${ field }` }
+								type="checkbox"
+								checked={ form[ field ] }
+								onChange={ ( e ) =>
+									set( field, e.target.checked )
+								}
+							/>
+							{ typeLabels( bit )[ 0 ] }
+						</label>
+					) ) }
 				</div>
-				<label
-					className="topology-modal__label"
-					htmlFor="nodes-compose-from"
+				{ text( 'from', __( 'From (reply path)', 'newspack-nodes' ), {
+					placeholder: __(
+						'this session (default)',
+						'newspack-nodes'
+					),
+				} ) }
+				<ModalField
+					id="nodes-compose-to"
+					label={ __( 'To (node)', 'newspack-nodes' ) }
 				>
-					{ __( 'From (reply path)', 'newspack-nodes' ) }
-					<input
-						id="nodes-compose-from"
-						className="topology-modal__input"
-						type="text"
-						value={ from }
-						placeholder={ __(
-							'this session (default)',
-							'newspack-nodes'
-						) }
-						onChange={ ( e ) => setFrom( e.target.value ) }
-					/>
-				</label>
-				<label
-					className="topology-modal__label"
-					htmlFor="nodes-compose-to"
-				>
-					{ __( 'To (node)', 'newspack-nodes' ) }
 					<select
-						id="nodes-compose-to"
 						className="topology-modal__input"
-						value={ to }
-						onChange={ ( e ) => setTo( e.target.value ) }
+						value={ form.to }
+						onChange={ ( e ) => set( 'to', e.target.value ) }
 					>
 						{ nodeNames.map( ( n ) => (
 							<option key={ n } value={ n }>
@@ -1783,67 +1807,46 @@ function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
 							</option>
 						) ) }
 					</select>
-				</label>
-				<label
-					className="topology-modal__label"
-					htmlFor="nodes-compose-id"
-				>
-					{ __( 'ID', 'newspack-nodes' ) }
-					<input
-						id="nodes-compose-id"
-						className="topology-modal__input"
-						type="text"
-						value={ id }
-						onChange={ ( e ) => setId( e.target.value ) }
-					/>
-				</label>
-				<label
-					className="topology-modal__label"
-					htmlFor="nodes-compose-key"
-				>
-					{ __( 'Key', 'newspack-nodes' ) }
-					<input
-						id="nodes-compose-key"
-						className="topology-modal__input"
-						type="text"
-						value={ key }
-						onChange={ ( e ) => setKey( e.target.value ) }
-					/>
-				</label>
-				{ takesValue && (
-					<label
-						className="topology-modal__label topology-modal__label--wide"
-						htmlFor="nodes-compose-value"
-					>
-						{ __( 'Value', 'newspack-nodes' ) }
-						<textarea
-							id="nodes-compose-value"
-							className="topology-modal__input"
-							value={ value }
-							onChange={ ( e ) => setValue( e.target.value ) }
-							rows={ 8 }
-						/>
-					</label>
-				) }
+				</ModalField>
+				{ text( 'id', __( 'ID', 'newspack-nodes' ) ) }
+				{ text( 'key', __( 'Key', 'newspack-nodes' ) ) }
+				{ isCommand && text( 'name', __( 'Name', 'newspack-nodes' ) ) }
+				{ isCommand &&
+					text( 'arguments', __( 'Arguments', 'newspack-nodes' ), {
+						placeholder: __(
+							"split by the prompt's tokenizer (quotes group; no $interpolation or # comments)",
+							'newspack-nodes'
+						),
+					} ) }
+				{ isCommand &&
+					text( 'payload', __( 'Payload', 'newspack-nodes' ), {
+						rows: 4,
+						wide: true,
+					} ) }
+				{ ! isCommand &&
+					TM_EOF !== form.type &&
+					text( 'value', __( 'Value', 'newspack-nodes' ), {
+						rows: 8,
+						wide: true,
+					} ) }
 			</div>
+			{ refusal && (
+				<p
+					className="topology-modal__hint newspack-nodes-status is-error"
+					role="alert"
+				>
+					{ refusal }
+				</p>
+			) }
 			<div className="topology-modal__actions">
 				<button type="button" className="button" onClick={ onCancel }>
 					{ __( 'Cancel', 'newspack-nodes' ) }
 				</button>
 				<button
 					type="button"
-					className={ primaryButtonClass( ! to ) }
-					disabled={ ! to }
-					onClick={ () =>
-						onConfirm( action, to, value, {
-							response: responseFlag,
-							error: errorFlag,
-							from,
-							id,
-							key,
-							timestamp,
-						} )
-					}
+					className={ primaryButtonClass( ! form.to ) }
+					disabled={ ! form.to }
+					onClick={ () => setRefusal( onSend( form ) ) }
 				>
 					{ __( 'Send', 'newspack-nodes' ) }
 				</button>
@@ -1871,7 +1874,8 @@ function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
  * @param {Object}                  props.hullRateSeries    The same rings, scoped to the selected hull.
  * @param {boolean}                 [props.local]           Browser graph: read IoTelemetry rather than rolling up dump_metadata.
  * @param {number}                  [props.debugLevel]      Live `debug_level`; lights the debug and verbose toggles.
- * @param {Function}                [props.onAction]        (action, nodeId, value, flags) — every command this pane sends.
+ * @param {Function}                [props.onAction]        (action, nodeId, value) — every command this pane sends but a compose.
+ * @param {Function}                props.onCompose         (form) — sends the Compose modal's message; returns the refusal, or null once sent.
  * @param {(name: string) => void}  [props.onSelect]        Follows a node link.
  * @param {(name: ?string) => void} [props.onHover]         Highlights a link's target on the canvas, null on leave.
  * @param {Set<string>}             [props.nodeIds]         Ids that exist; a name outside it renders as dim text, not a link.
@@ -1903,6 +1907,7 @@ export default function Inspector( {
 	local = false,
 	debugLevel = 0,
 	onAction,
+	onCompose,
 	onSelect,
 	onHover,
 	nodeIds,
@@ -2066,7 +2071,7 @@ export default function Inspector( {
 								className="button is-compact"
 								onClick={ () => setComposeOpen( true ) }
 								title={ __(
-									'Compose a message — pick a target, type, and value (full CLI equivalence)',
+									'Compose a message — pick its type, target and every envelope field',
 									'newspack-nodes'
 								) }
 							>
@@ -2224,11 +2229,12 @@ export default function Inspector( {
 						nodeNames={
 							composeTargets ?? parsed.nodes.map( ( n ) => n.id )
 						}
-						onConfirm={ ( action, to, value, flags ) => {
-							setComposeOpen( false );
-							if ( onAction ) {
-								onAction( action, to, value, flags );
+						onSend={ ( form ) => {
+							const refusal = onCompose( form );
+							if ( null === refusal ) {
+								setComposeOpen( false );
 							}
+							return refusal;
 						} }
 						onCancel={ () => setComposeOpen( false ) }
 					/>

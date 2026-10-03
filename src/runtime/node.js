@@ -22,6 +22,7 @@ import {
 	TM_REQUEST,
 	newMessage,
 	typeLabels,
+	asString,
 } from './message';
 import names from './reserved-node-names.json';
 
@@ -107,23 +108,7 @@ function commandSummary( value ) {
 		null !== value.arguments && 'object' === typeof value.arguments
 			? Object.values( value.arguments )
 			: [];
-	return serializeArgs( [ asToken( value.name ), ...args.map( asToken ) ] );
-}
-
-/**
- * One argument as a string token, as PHP `Core::as_string()` casts it: a
- * scalar as its string, a boolean as `1` or empty, anything else empty.
- *
- * @param {*} value Any argument.
- * @return {string} The token.
- */
-function asToken( value ) {
-	if ( 'boolean' === typeof value ) {
-		return value ? '1' : '';
-	}
-	return 'string' === typeof value || 'number' === typeof value
-		? String( value )
-		: '';
+	return serializeArgs( [ asString( value.name ), ...args.map( asString ) ] );
 }
 
 /**

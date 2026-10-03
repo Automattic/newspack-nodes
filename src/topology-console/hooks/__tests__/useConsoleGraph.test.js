@@ -316,7 +316,7 @@ describe( 'useConsoleGraph — graph topology', () => {
 	/**
 	 * The gate came back as a permanently-stable ref, so a rebuild replaced it
 	 * without the consumer's configure-effect re-running: the NEW gate kept
-	 * sseGuard / beforeSend / onRefused null, and a worker-addressed command
+	 * sseGuard / onRefused null, and a worker-addressed command
 	 * went out with no SSE session instead of being refused.
 	 */
 	it( 'hands back the LIVE gate, so a rebuild is visible to the consumer', () => {

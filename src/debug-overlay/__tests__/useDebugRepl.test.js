@@ -4,14 +4,6 @@ import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
 import names from '../../runtime/reserved-node-names.json';
 import { ShellNode } from '../../runtime/shell-node';
-import {
-	newMessage,
-	FROM,
-	KEY,
-	TYPE,
-	VALUE,
-	TM_BYTESTREAM,
-} from '../../runtime/message';
 import { useDebugRepl } from '../useDebugRepl';
 
 // Build a Shell like DebugOverlay does: empty cwd, sinks into the page CI.
@@ -327,18 +319,6 @@ describe( 'useDebugRepl', () => {
 		teardown();
 	} );
 
-	it( 'routes a typed wire command through shell.dispatch so the onDispatch tap fires', () => {
-		// Bug 3: REPL and GUI rewires both funnel through Shell.dispatch.
-		const { teardown } = mountExospine();
-		const shell = makeShell();
-		const seen = [];
-		shell.onDispatch = ( m ) => seen.push( m[ VALUE ].name );
-		const { result } = renderHook( () => useDebugRepl( true, shell ) );
-		act( () => result.current.sendLine( 'connect_node a b' ) );
-		expect( seen ).toEqual( [ 'connect_node' ] );
-		teardown();
-	} );
-
 	it( 'sendLine dispatches a Message into the local interpreter', () => {
 		const { interpreter, teardown } = mountExospine();
 		const shell = makeShell();
@@ -516,44 +496,6 @@ describe( 'useDebugRepl', () => {
 		teardown();
 	} );
 
-	it( 'carries compose fields, so the flags path needs no second dispatcher', () => {
-		const { teardown } = mountExospine();
-		const shell = makeShell();
-		const seen = [];
-		Core.node( names.COMMAND_INTERPRETER ).fill = ( m ) => seen.push( m );
-		const { result } = renderHook( () => useDebugRepl( true, shell ) );
-
-		act( () =>
-			result.current.sendLine( 'send_eof _router', { key: 'k-9182' } )
-		);
-
-		expect( seen ).toHaveLength( 1 );
-		expect( seen[ 0 ][ KEY ] ).toBe( 'k-9182' );
-		teardown();
-	} );
-
-	it( 'spends the compose fields on their own statement, leaving a later mint addressed as minted', () => {
-		const { teardown } = mountExospine();
-		const shell = makeShell();
-		const seen = [];
-		Core.node( names.COMMAND_INTERPRETER ).fill = ( m ) => seen.push( m );
-		const { result } = renderHook( () => useDebugRepl( true, shell ) );
-
-		act( () =>
-			result.current.sendLine( 'send_eof _router', {
-				from: '_output/7734',
-			} )
-		);
-		// The invoke path mints into the gate itself, already addressed.
-		const later = newMessage();
-		later[ TYPE ] = TM_BYTESTREAM;
-		later[ FROM ] = '_overlay:receiver';
-		act( () => shell.sink.fill( later ) );
-
-		expect( seen[ 0 ][ FROM ] ).toBe( '_output/7734' );
-		expect( seen[ 1 ][ FROM ] ).toBe( '_overlay:receiver' );
-		teardown();
-	} );
 	/**
 	 * The echoed command carries the prompt it was typed AT, so a transcript
 	 * reads back as the session did. The overlay hard-coded `/`, so every line

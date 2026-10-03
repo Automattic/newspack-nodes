@@ -1,36 +1,48 @@
 /**
- * The unnamed node a REPL's Shell sinks into, on its way to the `_shell` Tap
- * and the interpreter behind it. It carries the two outbound-only concerns
- * that belong to the message rather than to the React caller: stamping the
- * Compose modal's fields onto the statement in flight, and refusing a send
- * addressed at a worker while no SSE session is up to carry the reply back.
+ * The unnamed node every console send passes on its way to the `_shell` Tap
+ * and the interpreter behind it: the Shell's statements, the invoke gesture's
+ * mints and the Compose modal's messages alike. It carries the two
+ * outbound-only concerns that belong to the message rather than to the React
+ * caller: refusing a send addressed at a worker while no SSE session is up to
+ * carry the reply back, and announcing each message it forwards, which is how
+ * the Reset Graph chip sees every structural edit whoever minted it.
  *
- * Both are message-level, so they belong downstream of the parse rather than
- * in the caller — and both would be wrong on anything a message could be
+ * Both are message-level, so they belong downstream of the mint rather than in
+ * the caller — and both would be wrong on anything a message could be
  * ADDRESSED to. Namelessness is what enforces that: the gate never enters the
- * registry, so no TO path resolves to it and the Shell holding the reference
- * is the only way in (ADR-7).
+ * registry, so no TO path resolves to it and a host holding the reference is
+ * the only way in (ADR-7).
  *
  * The hooks arrive as callbacks the host assigns, not as imports, because the
- * SSE predicate and the Compose fields belong to the console and reaching back
- * for them would be circular.
+ * SSE predicate and the dirty tap belong to the console and reaching back for
+ * them would be circular.
  */
 
+import { __ } from '@wordpress/i18n';
 import { Core } from '../../runtime/core';
 import { Node } from '../../runtime/node';
 import { TO, VALUE } from '../../runtime/message';
 
 /**
- * The Shell's outgoing gate: unnamed, so only its Shell can reach it, and
- * pass-through until a host assigns the hooks.
+ * Why a send at a worker was refused while no SSE session is up: the one text
+ * the console's gate refusal and the Inspector's gestures both report.
+ *
+ * @return {string} The refusal, translated when called.
+ */
+export function sseRefusal() {
+	return __( '[no SSE session yet] retry once CONNECTED', 'newspack-nodes' );
+}
+
+/**
+ * A console's outgoing gate: unnamed, so only a host holding it can reach it,
+ * and pass-through until the host assigns the hooks.
  */
 export class OutgoingGateNode extends Node {
 	/**
 	 * Build an unconfigured gate: with all three hooks null it forwards every
 	 * message to its sink untouched, which is where the debug overlay leaves
-	 * the guard. The console assigns the hooks by reference after
-	 * construction, and reassigns them whenever the state they close over —
-	 * the SSE pid, the Compose fields — changes.
+	 * the guard. A host assigns the hooks by reference after construction, and
+	 * reassigns one whenever the state it closes over — the SSE pid — changes.
 	 */
 	constructor() {
 		super();
@@ -41,11 +53,12 @@ export class OutgoingGateNode extends Node {
 		 */
 		this.sseGuard = null;
 		/**
-		 * Last mutation before the sink; the Compose fields ride here.
+		 * Observe-only tap, told each forwarded message before the sink takes
+		 * it. It must not mutate the message: the minter signed it.
 		 *
 		 * @type {?function(Array): void}
 		 */
-		this.beforeSend = null;
+		this.onForward = null;
 		/**
 		 * Told when `sseGuard` refuses, so the host can say why in its own
 		 * voice. The gate owns no transcript and writes no error of its own.
@@ -56,10 +69,13 @@ export class OutgoingGateNode extends Node {
 	}
 
 	/**
-	 * Send one message on: refuse it, stamp it, or hand it to the sink. The
-	 * order is the contract — the guard runs before `beforeSend`, so a refused
-	 * message is never mutated and the operator resends the same statement
-	 * once the session is up.
+	 * Send one message on: refuse it, or announce it and hand it to the sink.
+	 * The order is the contract — the guard runs before `onForward`, so a
+	 * refused message is never announced and the operator resends the same
+	 * statement once the session is up. A message the guard passes is
+	 * announced before the sink, because a sink that throws may still have run
+	 * it — a Tap delivers its passthrough, then raises its copies' failures —
+	 * and a missed edit hides the Reset Graph chip.
 	 *
 	 * A missing sink names the dropped verb on stderr rather than throwing as
 	 * the base `fill()` does. The gate runs under a REPL keystroke, and
@@ -84,8 +100,18 @@ export class OutgoingGateNode extends Node {
 			return;
 		}
 		this.counter++;
-		this.beforeSend?.( message );
+		this.onForward?.( message );
 		this.sink.fill( message );
+	}
+
+	/**
+	 * Whether the gate has a sink to send into: a composer refuses rather than
+	 * fill a gate that would only name the dropped verb on stderr.
+	 *
+	 * @return {boolean} True once a sink is wired.
+	 */
+	get connected() {
+		return !! this.sink;
 	}
 
 	/**

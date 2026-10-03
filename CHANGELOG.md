@@ -13,8 +13,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The topology console's Compose modal mints its own message.** It no longer types a `command_node`, `send_node` or other builtin line into the Shell: it builds the message through `ShellNode.envelope()`, signs it and fills the console's outgoing gate. A TM_COMMAND takes Name, Arguments and Payload fields in place of Value and goes out as `{ name, arguments, payload }`, its arguments split by the prompt's tokenizer and its payload left out when blank. Every field reaches the wire as typed, an empty Name or a padded ID included, and a bytestream gains no trailing newline. A No Reply checkbox sets TM_NOREPLY beside TM_RESPONSE and TM_ERROR. Malformed JSON, an unclosed quote, a missing session or an SSE refusal keeps the modal open with the reason; a send that raises says so beneath its echo.
+- **A forged TIMESTAMP is signed as forged.** A Timestamp typed in the composer, or the Shell's `message.timestamp` variable, reaches the server signed over that value, so what the server tests is its timestamp window; a value PHP would not call numeric leaves the command unsigned. A command with no forged TIMESTAMP is still signed at the server-aligned now. The runtime clock stays local.
+- **The Reset Graph chip sees every console send.** Its tap sits on the outgoing gate, which the Shell's statements, the invoke gesture and the composer all pass, and it counts `set_sink`, `move_node`, `register`, `unregister` and a `reply_to`-wrapped edit beside the verbs it counted.
+- **The JS interpreter reads a command as PHP's does.** It accepts an empty name, coerces the name and each argument as `Core::as_string()` does, and finds only its own verbs, so `constructor` is `no such verb`.
+- **An Inspector gesture opens the REPL even when its send raises,** and an invoke that cannot be sent says why instead of dropping silently. Canvas gestures (connect, disconnect, remove, a palette drop) never open it.
+
 - **The Newspack chart palette is lighter and eight steps long.** `--np-chart-1` … `--np-chart-8` are Cobalt 400, Emerald 800, Warning 400, Error 500, Cobalt 200, Morganite 700, Amber 600 and Emerald 600, each at least 2.5:1 on Surface Subtle, where the six steps were the deep end of each ramp and slots 7 and 8 fell back to the darkest accents. Both Newspack skins draw all eight, `newspack-brand` included.
 - **No text colour reads a chart token.** The station's read, write and message-rate cards show their values in ink, and `skinRamps.test.js` refuses any `color` declaration in a newspack-nodes stylesheet that reads `--chart-*` or `--np-chart-*`.
+
+### Removed
+
+- **`applyComposeFields`, `OutgoingGateNode.beforeSend`, `ShellNode.onDispatch` and `ShellNode.dispatch()`.** Nothing in a sibling plugin called them; `docs/upgrading.md` gives the replacements.
 
 ### Fixed
 

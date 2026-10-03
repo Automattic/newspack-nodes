@@ -7,7 +7,11 @@
  * node, plus the dump_node structured-render + no-[object Object] guards.
  */
 
-import { DumperNode, TRANSCRIPT_MAX } from '../dumper-node';
+import {
+	DumperNode,
+	TRANSCRIPT_MAX,
+	formatMessageEnvelope,
+} from '../dumper-node';
 import { Node } from '../node';
 import {
 	newMessage,
@@ -611,4 +615,27 @@ describe( 'Dumper — no-arg ctor + public-property dep', () => {
 			expect.objectContaining( { kind: 'recv', text: 'hello' } )
 		);
 	} );
+} );
+
+describe( 'formatMessageEnvelope', () => {
+	const envelopeAt = ( ts ) => {
+		const m = newMessage();
+		m[ TYPE ] = TM_INFO;
+		m[ TIMESTAMP ] = ts;
+		m[ VALUE ] = 'heads up';
+		return formatMessageEnvelope( m );
+	};
+
+	it( 'dates a TIMESTAMP that names a real instant', () => {
+		expect( envelopeAt( 1700000123 ) ).toContain(
+			'timestamp: 1700000123 (2023-11-14 22:15:23 UTC)'
+		);
+	} );
+
+	it.each( [ 1e13, 'abc' ] )(
+		'renders the TIMESTAMP %s raw when it makes no date',
+		( ts ) => {
+			expect( envelopeAt( ts ) ).toContain( `timestamp: ${ ts }\n` );
+		}
+	);
 } );

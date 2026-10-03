@@ -34,19 +34,41 @@ describe( 'OutgoingGateNode', () => {
 		expect( filled ).toHaveLength( 1 );
 	} );
 
+	it( 'reads connected only once a sink is wired', () => {
+		const gate = new OutgoingGateNode();
+		expect( gate.connected ).toBe( false );
+		gate.sink = new Node();
+		expect( gate.connected ).toBe( true );
+	} );
+
 	it( 'stays unnamed, so no message can be addressed to it', () => {
 		const { gate } = makeGate();
 		expect( gate.name ).toBe( '' );
 		expect( Core.node( '' ) ).toBeNull();
 	} );
 
-	it( 'runs beforeSend on the message on its way out', () => {
-		const { gate, filled } = makeGate();
-		gate.beforeSend = ( m ) => {
-			m[ VALUE ].arguments.push( '-al' );
+	it( 'tells onForward about each forwarded message before its sink', () => {
+		const order = [];
+		const gate = new OutgoingGateNode();
+		gate.sink = { fill: ( m ) => order.push( `sink:${ m[ TO ] }` ) };
+		gate.onForward = ( m ) => order.push( `tap:${ m[ VALUE ].name }` );
+		gate.fill( cmd( 'demo.p7', 'make_node' ) );
+		expect( order ).toEqual( [ 'tap:make_node', 'sink:demo.p7' ] );
+	} );
+
+	it( 'announces a message even when its sink throws, which may have run it', () => {
+		const gate = new OutgoingGateNode();
+		gate.sink = {
+			fill: () => {
+				throw new Error( 'tap copy failed after the passthrough' );
+			},
 		};
-		gate.fill( cmd( 'demo.p0' ) );
-		expect( filled[ 0 ][ VALUE ].arguments ).toEqual( [ '-al' ] );
+		const seen = [];
+		gate.onForward = ( m ) => seen.push( m[ VALUE ].name );
+		expect( () => gate.fill( cmd( 'demo.p7', 'make_node' ) ) ).toThrow(
+			'tap copy failed'
+		);
+		expect( seen ).toEqual( [ 'make_node' ] );
 	} );
 
 	it( 'drops a message the sseGuard refuses, and says so', () => {
@@ -69,11 +91,11 @@ describe( 'OutgoingGateNode', () => {
 		expect( filled ).toHaveLength( 1 );
 	} );
 
-	it( 'refuses BEFORE beforeSend, so a dropped message is never mutated', () => {
+	it( 'refuses BEFORE onForward, so a dropped message is never announced', () => {
 		const { gate } = makeGate();
 		gate.sseGuard = () => false;
-		gate.beforeSend = () => {
-			throw new Error( 'mutated a refused message' );
+		gate.onForward = () => {
+			throw new Error( 'announced a refused message' );
 		};
 		expect( () => gate.fill( cmd( 'demo.p0' ) ) ).not.toThrow();
 	} );

@@ -40,7 +40,8 @@ import { aggregateSeries } from '../utils/aggregateSeries';
  * @param {Function}               [props.onRemoveNode]       (id)
  * @param {Function}               [props.onRemoveEdge]       (from, to)
  * @param {Function}               [props.onDropNode]         ({ shellName, x, y }) — a palette class dropped on the canvas, x/y already projected into SVG space.
- * @param {Function}               [props.onInspectorAction]  (action, nodeId, value, flags) — every command the Inspector sends.
+ * @param {Function}               [props.onInspectorAction]  (action, nodeId, value) — every command the Inspector sends but a compose.
+ * @param {Function}               [props.onCompose]          (form) — sends the Compose modal's message; returns the refusal, or null once sent.
  * @param {Function}               [props.onRenameNode]       (id, next) — returns false when the name is already taken.
  * @param {Function}               [props.onUpdateArgs]       (id, args) — writes constructor args back to the draft.
  * @param {Function}               [props.onUpdateVerbs]      (id, invocations) — writes verb calls back to the draft.
@@ -76,6 +77,7 @@ export default function GraphView( {
 	onRemoveEdge,
 	onDropNode,
 	onInspectorAction,
+	onCompose,
 	onRenameNode,
 	onUpdateArgs,
 	onUpdateVerbs,
@@ -335,6 +337,7 @@ export default function GraphView( {
 							local={ local }
 							debugLevel={ debugLevel }
 							onAction={ onInspectorAction }
+							onCompose={ onCompose }
 							onSelect={ handleSelectNode }
 							onHover={ setHoveredId }
 							nodeIds={ nodeIds }

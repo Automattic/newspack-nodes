@@ -2,7 +2,7 @@
  * Inspector view-mode rendering (edit-mode paths live in a separate file).
  */
 
-import { fireEvent } from '@testing-library/react';
+import { fireEvent, renderHook } from '@testing-library/react';
 import Inspector from '../Inspector';
 import { formatActivityWindow } from '../ProcessStats';
 import { Core } from '../../../runtime/core';
@@ -12,6 +12,18 @@ import names from '../../../runtime/reserved-node-names.json';
 import { renderWithCatalog } from '../../__tests__/catalogTestUtils';
 import { RATE_HISTORY_MAX } from '../../hooks/useGraphRates';
 import { computePollIntervalMs } from '../../../runtime/metadata-node';
+import { useGraphHandlers } from '../../hooks/useGraphHandlers';
+import { ShellNode } from '../../../runtime/shell-node';
+import {
+	TYPE,
+	VALUE,
+	TM_COMMAND,
+	TM_REQUEST,
+	TM_INFO,
+	TM_STRUCT,
+	TM_EOF,
+	TM_NOREPLY,
+} from '../../../runtime/message';
 
 const baseProps = {
 	selectedId: null,
@@ -605,16 +617,16 @@ describe( 'Inspector (view mode)', () => {
 		expect( queryByText( 'Timeline' ) ).toBeNull();
 	} );
 
-	it( 'no-node Compose opens a composer that dispatches the chosen verb', () => {
-		const onAction = jest.fn();
-		const { getByText } = renderWithCatalog(
+	// Open the no-node composer over one `echo` node.
+	const openCompose = ( props = {} ) => {
+		const utils = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
-				onAction={ onAction }
 				parsed={ {
 					nodes: [ { id: 'echo', class: 'Echo' } ],
 					edges: [],
 				} }
+				{ ...props }
 			/>,
 			{
 				classes: baseProps.catalog,
@@ -624,54 +636,92 @@ describe( 'Inspector (view mode)', () => {
 				classCatalog: baseProps.classCatalog,
 			}
 		);
-		fireEvent.click( getByText( 'Compose' ) );
-		// Pick TM_INFO (tell_node) by its option label, not a fixed index.
-		const typeSelect = document.body.querySelector( '#nodes-compose-type' );
-		const infoOption = Array.from( typeSelect.options ).find( ( o ) =>
-			/TM_INFO/.test( o.textContent )
-		);
-		fireEvent.change( typeSelect, {
-			target: { value: infoOption.value },
+		fireEvent.click( utils.getByText( 'Compose' ) );
+		return utils;
+	};
+	const composeField = ( name ) =>
+		document.body.querySelector( `#nodes-compose-${ name }` );
+	const chooseType = ( value ) =>
+		fireEvent.change( composeField( 'type' ), {
+			target: { value: String( value ) },
 		} );
-		fireEvent.change(
-			document.body.querySelector( '#nodes-compose-value' ),
-			{ target: { value: 'hi' } }
+	const typeIn = ( name, value ) =>
+		fireEvent.change( composeField( name ), { target: { value } } );
+	// Send drops its primary class while disabled, so find it by place.
+	const sendButton = () =>
+		document.body.querySelector(
+			'.topology-modal__actions button:last-child'
 		);
-		fireEvent.click(
-			document.body.querySelector(
-				'.topology-modal__actions .button-primary'
+	// The modal's form as sent, with only the fields a test changes.
+	const sentForm = ( over = {} ) => ( {
+		type: TM_COMMAND,
+		response: false,
+		error: false,
+		noreply: false,
+		from: '',
+		to: 'echo',
+		id: '',
+		key: '',
+		timestamp: '',
+		value: '',
+		name: '',
+		arguments: '',
+		payload: '',
+		...over,
+	} );
+	// The console's own compose path, so a refusal is the real one.
+	const realCompose = ( sent ) => {
+		const shell = new ShellNode();
+		shell.sink = { connected: true, fill: ( m ) => sent.push( m ) };
+		const { result } = renderHook( () =>
+			useGraphHandlers( {
+				shell,
+				graph: { nodes: [], edges: [] },
+				catalogClasses: [],
+				dispatch: () => {},
+				append: () => {},
+				onReplSend: () => {},
+				onDropStage: () => {},
+			} )
+		);
+		return result.current.onCompose;
+	};
+
+	it( 'no-node Compose names each type alone', () => {
+		openCompose();
+		expect(
+			Array.from( composeField( 'type' ).options ).map(
+				( o ) => o.textContent
 			)
-		);
-		expect( onAction ).toHaveBeenCalledWith( 'tell', 'echo', 'hi', {
-			response: false,
-			error: false,
-			from: '',
-			id: '',
-			key: '',
-			timestamp: '',
-		} );
+		).toEqual( [
+			'TM_COMMAND',
+			'TM_BYTESTREAM',
+			'TM_REQUEST',
+			'TM_INFO',
+			'TM_STRUCT',
+			'TM_EOF',
+		] );
 	} );
 
-	it( 'no-node Compose Cancel button closes the composer without dispatching', () => {
+	it( 'no-node Compose sends its form through onCompose and closes', () => {
+		const onCompose = jest.fn( () => null );
 		const onAction = jest.fn();
-		const { getByText } = renderWithCatalog(
-			<Inspector
-				{ ...baseProps }
-				onAction={ onAction }
-				parsed={ {
-					nodes: [ { id: 'echo', class: 'Echo' } ],
-					edges: [],
-				} }
-			/>,
-			{
-				classes: baseProps.catalog,
-				formatters: baseProps.formatters,
-				vaults: baseProps.vaults,
-				composeTargets: baseProps.composeTargets,
-				classCatalog: baseProps.classCatalog,
-			}
+		openCompose( { onCompose, onAction } );
+		chooseType( TM_INFO );
+		typeIn( 'value', 'heads up' );
+		fireEvent.click( sendButton() );
+		expect( onCompose ).toHaveBeenCalledWith(
+			sentForm( { type: TM_INFO, value: 'heads up' } )
 		);
-		fireEvent.click( getByText( 'Compose' ) );
+		expect( onAction ).not.toHaveBeenCalled();
+		expect(
+			document.body.querySelector( '.topology-modal__body' )
+		).toBeNull();
+	} );
+
+	it( 'no-node Compose Cancel button closes the composer without sending', () => {
+		const onCompose = jest.fn( () => null );
+		openCompose( { onCompose } );
 		expect(
 			document.body.querySelector( '.topology-modal__body' )
 		).not.toBeNull();
@@ -683,7 +733,7 @@ describe( 'Inspector (view mode)', () => {
 		expect(
 			document.body.querySelector( '.topology-modal__body' )
 		).toBeNull();
-		expect( onAction ).not.toHaveBeenCalled();
+		expect( onCompose ).not.toHaveBeenCalled();
 	} );
 
 	it( 'no-node Compose "To" list uses composeTargets (the full addressable surface), not just parsed.nodes', () => {
@@ -739,186 +789,168 @@ describe( 'Inspector (view mode)', () => {
 		).toEqual( [ 'echo' ] );
 	} );
 
-	it( 'no-node Compose TM_RESPONSE / TM_ERROR checkboxes pass their flags through onConfirm', () => {
-		// Inspector only carries flags to onAction; OR-ing tested elsewhere.
-		const onAction = jest.fn();
-		const { getByText, getByLabelText } = renderWithCatalog(
-			<Inspector
-				{ ...baseProps }
-				onAction={ onAction }
-				parsed={ {
-					nodes: [ { id: 'echo', class: 'Echo' } ],
-					edges: [],
-				} }
-			/>,
-			{
-				classes: baseProps.catalog,
-				formatters: baseProps.formatters,
-				vaults: baseProps.vaults,
-				composeTargets: baseProps.composeTargets,
-				classCatalog: baseProps.classCatalog,
-			}
+	it( 'no-node Compose shows Name, Arguments and Payload for TM_COMMAND, in place of Value', () => {
+		openCompose();
+		expect( composeField( 'name' ) ).not.toBeNull();
+		expect( composeField( 'arguments' ) ).not.toBeNull();
+		expect( composeField( 'payload' ) ).not.toBeNull();
+		expect( composeField( 'value' ) ).toBeNull();
+		chooseType( TM_REQUEST );
+		expect( composeField( 'name' ) ).toBeNull();
+		expect( composeField( 'value' ) ).not.toBeNull();
+	} );
+
+	it( 'no-node Compose sends a command with no Name', () => {
+		const onCompose = jest.fn( () => null );
+		openCompose( { onCompose } );
+		expect( sendButton().disabled ).toBe( false );
+		fireEvent.click( sendButton() );
+		expect( onCompose ).toHaveBeenLastCalledWith( sentForm() );
+	} );
+
+	it( 'no-node Compose disables Send without a To', () => {
+		openCompose( {
+			onCompose: jest.fn( () => null ),
+			parsed: { nodes: [], edges: [] },
+		} );
+		expect( sendButton().disabled ).toBe( true );
+	} );
+
+	it( 'no-node Compose sends a command form with Name, Arguments and Payload', () => {
+		const onCompose = jest.fn( () => null );
+		openCompose( { onCompose } );
+		typeIn( 'name', 'add_target' );
+		typeIn( 'arguments', 'a "b c" d' );
+		typeIn( 'payload', '{"x":1}' );
+		fireEvent.click( sendButton() );
+		expect( onCompose ).toHaveBeenCalledWith(
+			sentForm( {
+				name: 'add_target',
+				arguments: 'a "b c" d',
+				payload: '{"x":1}',
+			} )
 		);
-		fireEvent.click( getByText( 'Compose' ) );
+	} );
+
+	it( 'no-node Compose offers no Value for TM_EOF', () => {
+		openCompose();
+		chooseType( TM_EOF );
+		expect( composeField( 'value' ) ).toBeNull();
+		expect( composeField( 'name' ) ).toBeNull();
+		expect( sendButton().disabled ).toBe( false );
+	} );
+
+	it( 'no-node Compose shows a JSON refusal inline and stays open', () => {
+		const sent = [];
+		openCompose( { onCompose: realCompose( sent ) } );
+		chooseType( TM_STRUCT );
+		typeIn( 'value', '{depth: 3' );
+		fireEvent.click( sendButton() );
+		expect( sent ).toEqual( [] );
+		const alert = document.body.querySelector(
+			'.topology-modal [role="alert"]'
+		);
+		expect( alert.textContent ).toMatch( /Value is not JSON/ );
+		// A fixed Value sends and closes.
+		typeIn( 'value', '{"depth":3}' );
+		fireEvent.click( sendButton() );
+		expect( sent ).toHaveLength( 1 );
+		expect( sent[ 0 ][ VALUE ] ).toEqual( { depth: 3 } );
+		expect(
+			document.body.querySelector( '.topology-modal__body' )
+		).toBeNull();
+	} );
+
+	it( 'no-node Compose TM_NOREPLY checkbox sets TM_NOREPLY', () => {
+		const sent = [];
+		const { getByLabelText } = openCompose( {
+			onCompose: realCompose( sent ),
+		} );
+		chooseType( TM_INFO );
+		typeIn( 'value', 'heads up' );
+		fireEvent.click( getByLabelText( 'TM_NOREPLY' ) );
+		fireEvent.click( sendButton() );
+		expect( sent[ 0 ][ TYPE ] ).toBe( TM_INFO | TM_NOREPLY );
+	} );
+
+	it( 'no-node Compose TM_RESPONSE / TM_ERROR / TM_NOREPLY checkboxes reach the form', () => {
+		const onCompose = jest.fn( () => null );
+		const { getByLabelText } = openCompose( { onCompose } );
 		fireEvent.click( getByLabelText( 'TM_RESPONSE' ) );
 		fireEvent.click( getByLabelText( 'TM_ERROR' ) );
-		fireEvent.change(
-			document.body.querySelector( '#nodes-compose-value' ),
-			{ target: { value: 'hi' } }
+		fireEvent.click( getByLabelText( 'TM_NOREPLY' ) );
+		typeIn( 'name', 'ls' );
+		fireEvent.click( sendButton() );
+		expect( onCompose ).toHaveBeenCalledWith(
+			sentForm( {
+				name: 'ls',
+				response: true,
+				error: true,
+				noreply: true,
+			} )
 		);
-		fireEvent.click(
-			document.body.querySelector(
-				'.topology-modal__actions .button-primary'
-			)
-		);
-		expect( onAction ).toHaveBeenCalledWith( 'cmd', 'echo', 'hi', {
-			response: true,
-			error: true,
-			from: '',
-			id: '',
-			key: '',
-			timestamp: '',
-		} );
 	} );
 
 	it( 'no-node Compose lays its controls out in Message field order', () => {
-		const { getByText } = renderWithCatalog(
-			<Inspector
-				{ ...baseProps }
-				parsed={ {
-					nodes: [ { id: 'echo', class: 'Echo' } ],
-					edges: [],
-				} }
-			/>,
-			{
-				classes: baseProps.catalog,
-				formatters: baseProps.formatters,
-				vaults: baseProps.vaults,
-				composeTargets: baseProps.composeTargets,
-				classCatalog: baseProps.classCatalog,
-			}
-		);
-		fireEvent.click( getByText( 'Compose' ) );
-		const ids = Array.from(
-			document.body.querySelectorAll(
-				'.topology-modal__body [id^="nodes-compose-"]'
-			)
-		).map( ( el ) => el.id );
-		// Laid out in two columns — TYPE|TIMESTAMP, FROM|TO, ID|KEY, then VALUE
-		// across both — so source order pairs the way the grid reads, and the
-		// TM_* flags follow the TYPE they modify rather than splitting the
-		// first pair. Tab order follows the same path.
-		expect( ids ).toEqual( [
-			'nodes-compose-type',
-			'nodes-compose-timestamp',
-			'nodes-compose-response',
-			'nodes-compose-error',
-			'nodes-compose-from',
-			'nodes-compose-to',
-			'nodes-compose-id',
-			'nodes-compose-key',
-			'nodes-compose-value',
-		] );
+		openCompose();
+		const ids = () =>
+			Array.from(
+				document.body.querySelectorAll(
+					'.topology-modal__body [id^="nodes-compose-"]'
+				)
+			).map( ( el ) => el.id.replace( 'nodes-compose-', '' ) );
+		// Two columns — TYPE|TIMESTAMP, FROM|TO, ID|KEY — then VALUE, or a
+		// command's NAME|ARGUMENTS and PAYLOAD; the TM_* flags follow TYPE.
+		const head = [
+			'type',
+			'timestamp',
+			'response',
+			'error',
+			'noreply',
+			'from',
+			'to',
+			'id',
+			'key',
+		];
+		expect( ids() ).toEqual( [ ...head, 'name', 'arguments', 'payload' ] );
+		chooseType( TM_INFO );
+		expect( ids() ).toEqual( [ ...head, 'value' ] );
 	} );
 
-	it( 'no-node Compose FROM / ID / KEY / TIMESTAMP inputs pass their values through onConfirm', () => {
-		const onAction = jest.fn();
-		const { getByText } = renderWithCatalog(
-			<Inspector
-				{ ...baseProps }
-				onAction={ onAction }
-				parsed={ {
-					nodes: [ { id: 'echo', class: 'Echo' } ],
-					edges: [],
-				} }
-			/>,
-			{
-				classes: baseProps.catalog,
-				formatters: baseProps.formatters,
-				vaults: baseProps.vaults,
-				composeTargets: baseProps.composeTargets,
-				classCatalog: baseProps.classCatalog,
-			}
+	it( 'no-node Compose FROM / ID / KEY / TIMESTAMP inputs pass their values through onCompose', () => {
+		const onCompose = jest.fn( () => null );
+		openCompose( { onCompose } );
+		typeIn( 'from', 'elsewhere/sink' );
+		typeIn( 'id', '4242' );
+		typeIn( 'key', 'trace-77' );
+		typeIn( 'timestamp', '1700000000' );
+		typeIn( 'name', 'ls' );
+		fireEvent.click( sendButton() );
+		expect( onCompose ).toHaveBeenCalledWith(
+			sentForm( {
+				name: 'ls',
+				from: 'elsewhere/sink',
+				id: '4242',
+				key: 'trace-77',
+				timestamp: '1700000000',
+			} )
 		);
-		fireEvent.click( getByText( 'Compose' ) );
-		fireEvent.change(
-			document.body.querySelector( '#nodes-compose-from' ),
-			{ target: { value: 'elsewhere/sink' } }
-		);
-		fireEvent.change( document.body.querySelector( '#nodes-compose-id' ), {
-			target: { value: '4242' },
-		} );
-		fireEvent.change( document.body.querySelector( '#nodes-compose-key' ), {
-			target: { value: 'trace-77' },
-		} );
-		fireEvent.change(
-			document.body.querySelector( '#nodes-compose-timestamp' ),
-			{ target: { value: '1700000000' } }
-		);
-		fireEvent.change(
-			document.body.querySelector( '#nodes-compose-value' ),
-			{ target: { value: 'hi' } }
-		);
-		fireEvent.click(
-			document.body.querySelector(
-				'.topology-modal__actions .button-primary'
-			)
-		);
-		expect( onAction ).toHaveBeenCalledWith( 'cmd', 'echo', 'hi', {
-			response: false,
-			error: false,
-			from: 'elsewhere/sink',
-			id: '4242',
-			key: 'trace-77',
-			timestamp: '1700000000',
-		} );
 	} );
 
 	it( 'no-node Compose leaves the flags unchecked on open, even after a prior send left them checked', () => {
-		const onAction = jest.fn();
-		const { getByText, getByLabelText } = renderWithCatalog(
-			<Inspector
-				{ ...baseProps }
-				onAction={ onAction }
-				parsed={ {
-					nodes: [ { id: 'echo', class: 'Echo' } ],
-					edges: [],
-				} }
-			/>,
-			{
-				classes: baseProps.catalog,
-				formatters: baseProps.formatters,
-				vaults: baseProps.vaults,
-				composeTargets: baseProps.composeTargets,
-				classCatalog: baseProps.classCatalog,
-			}
-		);
-		fireEvent.click( getByText( 'Compose' ) );
+		const onCompose = jest.fn( () => null );
+		const { getByText, getByLabelText } = openCompose( { onCompose } );
 		fireEvent.click( getByLabelText( 'TM_RESPONSE' ) );
-		fireEvent.click(
-			document.body.querySelector(
-				'.topology-modal__actions .button-primary'
-			)
-		);
-		// Re-open: a fresh ComposeModal mount resets both checkboxes.
+		fireEvent.click( getByLabelText( 'TM_NOREPLY' ) );
+		typeIn( 'name', 'ls' );
+		fireEvent.click( sendButton() );
+		// Re-open: a fresh ComposeModal mount resets every checkbox.
 		fireEvent.click( getByText( 'Compose' ) );
-		fireEvent.change(
-			document.body.querySelector( '#nodes-compose-value' ),
-			{ target: { value: 'again' } }
+		typeIn( 'name', 'again' );
+		fireEvent.click( sendButton() );
+		expect( onCompose ).toHaveBeenLastCalledWith(
+			sentForm( { name: 'again' } )
 		);
-		fireEvent.click(
-			document.body.querySelector(
-				'.topology-modal__actions .button-primary'
-			)
-		);
-		expect( onAction ).toHaveBeenLastCalledWith( 'cmd', 'echo', 'again', {
-			response: false,
-			error: false,
-			from: '',
-			id: '',
-			key: '',
-			timestamp: '',
-		} );
 	} );
 
 	it( 'renders the missing-node state when selectedId is absent from parsed', () => {

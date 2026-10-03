@@ -1,8 +1,9 @@
 /**
  * The dialog layer of the topology console and the debug overlay: `ModalShell`,
- * which owns the backdrop, the panel chrome and the dismiss wiring, and the
- * three stock dialogs built on it — a confirmation, a single-line prompt, and
- * the new-node form a palette drop opens.
+ * which owns the backdrop, the panel chrome and the dismiss wiring, `ModalField`,
+ * the one labelled text control a dialog body is built from, and the three
+ * stock dialogs built on them — a confirmation, a single-line prompt, and the
+ * new-node form a palette drop opens.
  *
  * Every dialog closes three ways: its × button, ESC, and a mousedown outside
  * the panel. Each focuses on mount where the answer begins — the confirm
@@ -11,6 +12,7 @@
  */
 
 import {
+	cloneElement,
 	useEffect,
 	useLayoutEffect,
 	useRef,
@@ -197,6 +199,33 @@ export function ModalShell( {
 			<span ref={ anchorRef } hidden />
 			{ portal }
 		</>
+	);
+}
+
+/**
+ * The canonical labelled field: a `topology-modal__label` wrapping whatever
+ * control it is given — an input, a textarea, a select — and giving that
+ * control the id the label names, so the id is written once. `wide` spans a
+ * two-column body.
+ *
+ * @param {Object}                       props
+ * @param {string}                       props.id       The id the control takes and the label names.
+ * @param {import('react').ReactNode}    props.label    The visible label.
+ * @param {boolean}                      [props.wide]   Spans the whole row of a paired body.
+ * @param {import('react').ReactElement} props.children The one control, without an id.
+ * @return {import('react').ReactElement} The labelled control.
+ */
+export function ModalField( { id, label, wide = false, children } ) {
+	return (
+		<label
+			className={ `topology-modal__label${
+				wide ? ' topology-modal__label--wide' : ''
+			}` }
+			htmlFor={ id }
+		>
+			{ label }
+			{ cloneElement( children, { id } ) }
+		</label>
 	);
 }
 
@@ -410,21 +439,19 @@ export function NewNodeModal( {
 	return (
 		<ModalShell title={ title } onDismiss={ onCancel }>
 			<div className="topology-modal__body">
-				<label
-					className="topology-modal__label"
-					htmlFor="newspack-nodes-newnode-name"
-				>
-					{ __( 'name', 'newspack-nodes' ) }
-				</label>
-				<input
+				<ModalField
 					id="newspack-nodes-newnode-name"
-					ref={ nameRef }
-					type="text"
-					className="topology-modal__input"
-					value={ name }
-					onChange={ ( e ) => setName( e.target.value ) }
-					onKeyDown={ onKey }
-				/>
+					label={ __( 'name', 'newspack-nodes' ) }
+				>
+					<input
+						ref={ nameRef }
+						type="text"
+						className="topology-modal__input"
+						value={ name }
+						onChange={ ( e ) => setName( e.target.value ) }
+						onKeyDown={ onKey }
+					/>
+				</ModalField>
 				{ argSchema.length > 0 && (
 					// eslint-disable-next-line jsx-a11y/no-static-element-interactions
 					<div className="topology-modal__ctor" onKeyDown={ onKey }>

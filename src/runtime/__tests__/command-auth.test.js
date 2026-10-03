@@ -1,6 +1,8 @@
 import apiFetch from '@wordpress/api-fetch';
 import {
 	signCommand,
+	isCommandStruct,
+	isRequestCommand,
 	ensureSession,
 	hasSession,
 	renewSession,
@@ -12,6 +14,7 @@ import {
 } from '../command-auth';
 import { Core } from '../core';
 import { RouterNode } from '../router-node';
+import { CommandInterpreterNode } from '../command-interpreter-node';
 import names from '../reserved-node-names.json';
 import {
 	newMessage,
@@ -23,6 +26,7 @@ import {
 	TM_ERROR,
 	TM_NOREPLY,
 	TM_BYTESTREAM,
+	TM_STRUCT,
 } from '../message';
 
 /**
@@ -341,14 +345,64 @@ describe( 'clock alignment', () => {
 		__setAuthFetch( null );
 	} );
 
-	it( 'stamps a server-aligned timestamp, not the local clock', async () => {
+	// The local clock runs a day behind the server's.
+	const LOCAL_NOW = SERVER_NOW - 86400;
+
+	it( 'signs a fresh command at local time plus the offset', async () => {
+		jest.spyOn( Date, 'now' ).mockReturnValue( LOCAL_NOW * 1000 );
 		await ensureSession();
 		const m = aCommand();
-		m[ TIMESTAMP ] = 1; // a wildly wrong local clock
 
 		signCommand( m );
 
-		expect( Math.abs( m[ TIMESTAMP ] - SERVER_NOW ) ).toBeLessThan( 5 );
+		expect( m[ TIMESTAMP ] ).toBe( SERVER_NOW );
+		expect( m[ VALUE ].auth.sig ).toMatch( /^[0-9a-f]{64}$/ );
+		Date.now.mockRestore();
+	} );
+
+	it( 'keeps and signs the TIMESTAMP a forger carries', async () => {
+		await ensureSession();
+		const m = aCommand();
+		m[ TIMESTAMP ] = '1700000123';
+
+		signCommand( m, true );
+
+		expect( m[ TIMESTAMP ] ).toBe( '1700000123' );
+		expect( m[ VALUE ].auth.sig ).toMatch( /^[0-9a-f]{64}$/ );
+	} );
+
+	it( 'stamps a non-numeric forged TIMESTAMP and leaves the command unsigned', async () => {
+		await ensureSession();
+		const m = aCommand();
+		m[ TIMESTAMP ] = 'abc';
+
+		signCommand( m, true );
+
+		expect( m[ TIMESTAMP ] ).toBe( 'abc' );
+		expect( m[ VALUE ] ).not.toHaveProperty( 'auth' );
+	} );
+
+	it( 'leaves the runtime clock local while the session is aligned', async () => {
+		jest.spyOn( Date, 'now' ).mockReturnValue( LOCAL_NOW * 1000 );
+		await ensureSession();
+
+		expect( Core.now() ).toBe( LOCAL_NOW );
+		expect( newMessage()[ TIMESTAMP ] ).toBe( LOCAL_NOW );
+		Date.now.mockRestore();
+	} );
+
+	it( 'keeps uptime non-negative once an offset lands', async () => {
+		// The server's clock runs a day behind ours this time.
+		__setAuthFetch( async () => ( {
+			handle: HANDLE,
+			secret: KEY,
+			expires_in: 3600,
+			now: Math.floor( Date.now() / 1000 ) - 86400,
+		} ) );
+		Core.reset();
+		await ensureSession();
+
+		expect( CommandInterpreterNode._cmdUptime() ).toMatch( /up 0\ds/ );
 	} );
 } );
 
@@ -654,5 +708,93 @@ describe( 'an answered but unusable /auth', () => {
 		signCommand( m );
 
 		expect( m[ VALUE ].auth ).toBeUndefined();
+	} );
+} );
+
+/**
+ * The one request-command predicate, PHP's is_request_command(): the signer
+ * signs exactly these, and a forged TIMESTAMP PHP would not call numeric
+ * leaves the command unsigned, as PHP's stamp() does.
+ */
+describe( 'isRequestCommand', () => {
+	const msg = ( type, value, ts = 1700000123 ) => {
+		const m = newMessage();
+		m[ TYPE ] = type;
+		m[ TIMESTAMP ] = ts;
+		m[ VALUE ] = value;
+		return m;
+	};
+	const command = { name: 'add_target', arguments: [ 'b' ] };
+
+	it.each( [
+		[ 'a request command', TM_COMMAND, command, 1700000123, true ],
+		[
+			'a fire-and-forget one',
+			TM_COMMAND | TM_NOREPLY,
+			command,
+			1700000123,
+			true,
+		],
+		[
+			'a numeric-string TIMESTAMP',
+			TM_COMMAND,
+			command,
+			'1700000123',
+			true,
+		],
+		[ 'an exponent TIMESTAMP', TM_COMMAND, command, '1.7e9', true ],
+		[
+			'a command response',
+			TM_COMMAND | TM_RESPONSE,
+			command,
+			1700000123,
+			false,
+		],
+		[
+			'a command error',
+			TM_COMMAND | TM_ERROR,
+			command,
+			1700000123,
+			false,
+		],
+		[ 'a string VALUE', TM_COMMAND, 'add_target b', 1700000123, false ],
+		[ 'a non-numeric TIMESTAMP', TM_COMMAND, command, 'abc', false ],
+		[ 'a blank TIMESTAMP', TM_COMMAND, command, '', false ],
+		[ 'a hex TIMESTAMP', TM_COMMAND, command, '0x1A', false ],
+		[
+			'a TIMESTAMP padded in PHP whitespace',
+			TM_COMMAND,
+			command,
+			' \t1700000000\n',
+			true,
+		],
+		[
+			'a TIMESTAMP padded in NBSP',
+			TM_COMMAND,
+			command,
+			'\u00a01700000000',
+			false,
+		],
+		[ 'a NaN TIMESTAMP', TM_COMMAND, command, NaN, false ],
+		[ 'a struct', TM_STRUCT, command, 1700000123, false ],
+	] )( 'answers %s', ( label, type, value, ts, expected ) => {
+		expect( isRequestCommand( msg( type, value, ts ) ) ).toBe( expected );
+	} );
+} );
+
+/**
+ * PHP's interpret() reads a command struct as `is_array( $cmd ) && isset(
+ * $cmd['name'] )`: any name but null, an empty one included.
+ */
+describe( 'isCommandStruct', () => {
+	it.each( [
+		[ 'a named struct', { name: 'ls', arguments: [] }, true ],
+		[ 'an empty name', { name: '', arguments: [] }, true ],
+		[ 'a null name', { name: null }, false ],
+		[ 'no name', { arguments: [] }, false ],
+		[ 'a string', 'ls', false ],
+		[ 'null', null, false ],
+	] )( 'answers %s', ( label, value, expected ) => {
+		expect( isCommandStruct( value ) ).toBe( expected );
 	} );
 } );

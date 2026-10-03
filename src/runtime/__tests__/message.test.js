@@ -26,7 +26,6 @@ import {
 	unpack,
 	valueSize,
 	byteLength,
-	applyComposeFields,
 } from '../message';
 
 test( 'byteLength counts UTF-8 bytes and treats nullish as zero', () => {
@@ -148,68 +147,6 @@ test( 'valueSize on multibyte string returns UTF-8 byte count, not char count', 
 	expect( valueSize( m ) ).toBe( 2 );
 	m[ VALUE ] = '日本'; // 2 JS chars, 6 UTF-8 bytes (3 each)
 	expect( valueSize( m ) ).toBe( 6 );
-} );
-
-test( 'applyComposeFields stamps FROM / ID / KEY / TIMESTAMP from the composer fields', () => {
-	const m = newMessage();
-	m[ TYPE ] = TM_COMMAND;
-	m[ FROM ] = '_output/9';
-	applyComposeFields( m, {
-		from: 'elsewhere/sink',
-		id: '4242',
-		key: 'trace-77',
-		timestamp: '1700000000',
-	} );
-	expect( m[ FROM ] ).toBe( 'elsewhere/sink' );
-	expect( m[ ID ] ).toBe( '4242' );
-	expect( m[ KEY ] ).toBe( 'trace-77' );
-	expect( m[ TIMESTAMP ] ).toBe( '1700000000' );
-} );
-
-test( 'applyComposeFields leaves a field alone when its composer input is blank', () => {
-	const m = newMessage();
-	m[ FROM ] = '_output/9';
-	m[ KEY ] = 'preset';
-	const clock = m[ TIMESTAMP ];
-	applyComposeFields( m, { from: '', id: '', key: '', timestamp: '' } );
-	expect( m[ FROM ] ).toBe( '_output/9' );
-	expect( m[ ID ] ).toBe( '' );
-	expect( m[ KEY ] ).toBe( 'preset' );
-	expect( m[ TIMESTAMP ] ).toBe( clock );
-} );
-
-test( 'applyComposeFields ORs TM_RESPONSE / TM_ERROR onto TYPE per the flags object', () => {
-	const m = newMessage();
-	m[ TYPE ] = TM_COMMAND;
-	applyComposeFields( m, { response: true, error: false } );
-	expect( m[ TYPE ] ).toBe( TM_COMMAND | TM_RESPONSE );
-
-	const m2 = newMessage();
-	m2[ TYPE ] = TM_COMMAND;
-	applyComposeFields( m2, { response: false, error: true } );
-	expect( m2[ TYPE ] ).toBe( TM_COMMAND | TM_ERROR );
-
-	const m3 = newMessage();
-	m3[ TYPE ] = TM_COMMAND;
-	applyComposeFields( m3, { response: true, error: true } );
-	expect( m3[ TYPE ] ).toBe( TM_COMMAND | TM_RESPONSE | TM_ERROR );
-} );
-
-test( 'applyComposeFields is a no-op when flags is null/undefined or both false', () => {
-	const m = newMessage();
-	m[ TYPE ] = TM_COMMAND;
-	applyComposeFields( m, null );
-	expect( m[ TYPE ] ).toBe( TM_COMMAND );
-	applyComposeFields( m, undefined );
-	expect( m[ TYPE ] ).toBe( TM_COMMAND );
-	applyComposeFields( m, { response: false, error: false } );
-	expect( m[ TYPE ] ).toBe( TM_COMMAND );
-} );
-
-test( 'applyComposeFields returns the same message it mutated', () => {
-	const m = newMessage();
-	m[ TYPE ] = TM_COMMAND;
-	expect( applyComposeFields( m, { response: true } ) ).toBe( m );
 } );
 
 // The ONE flags-to-names map lives beside the constants it names, as in PHP

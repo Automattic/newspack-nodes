@@ -11,6 +11,21 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   (pyrobase). Nothing to change in your plugin unless it styles an ordered
   chip: pass a weight map and put the returned `np-scale-chip--N` class on the
   chip.
+- **`applyComposeFields` is gone from `@newspack-nodes/runtime`.** The Compose
+  modal mints its own message, so nothing stamps envelope fields onto a Shell
+  statement any more. Set FROM, ID, KEY and TIMESTAMP on a message you mint
+  yourself, then sign it with `markLocal()`. `OutgoingGateNode.beforeSend` is
+  gone with it; its observe-only `onForward` tap is told each forwarded
+  message and must not mutate it.
+- **`signCommand( message, keepTimestamp )` and `markLocal( message,
+  keepTimestamp )` can keep a forged TIMESTAMP.** Without the flag, signing
+  stamps the server-aligned now, as before; with it, the TIMESTAMP the message
+  carries is signed as forged, and one PHP would not call numeric leaves the
+  command unsigned. `ShellNode.envelope()` returns that decision for its
+  caller to pass on. The runtime clock stays local: `Core.now()` and
+  `newMessage()` never carry the session's offset. `isCommandAsk()` and
+  `isRequestCommand()` join the barrel: the first judges a command by TYPE
+  alone, the second whether it can be signed.
 - **`topicprobe.p0` carries Partition records beside Consumer records.** A
   Partition record leaves `Probe_Record::READER` blank and fills `SOURCE` with
   the log's SSE stamp: bare for a `logs/` dir (`ingest.p0`), `{group}/{dir}`
@@ -1613,7 +1628,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
   Anything that sends through a Shell must hold its reference or sink into it;
   the Shell stays unnamed, so no message can reach it by routing. Outbound
-  per-send work — the equivalent of the console's Compose fields — belongs in
+  per-send work — the equivalent of the console's reply-path guard — belongs in
   an unnamed node between the Shell and its sink, not in the caller. Nothing in
   any sibling plugin used either API.
 

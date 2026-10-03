@@ -34,6 +34,7 @@ import {
 	TM_EOF,
 	TM_REQUEST,
 	TM_NOREPLY,
+	newMessage,
 } from '../message';
 
 // The graph is process-global; a leaked `_output` from a previous test would
@@ -1178,6 +1179,89 @@ describe( 'Shell node — message.from / message.key / message.id vars', () => {
 		const m = shell.parse( 'send node bytes' );
 		expect( m[ KEY ] ).toBe( '' );
 		expect( m[ ID ] ).toBe( '' );
+	} );
+} );
+
+/**
+ * The one envelope stamp both minters share: the Shell's builtins with its
+ * `message.*` vars, and the Compose modal with its form.
+ */
+describe( 'Shell node — envelope()', () => {
+	it( 'stamps every filled override as given, TO against the cwd', () => {
+		const { shell } = makeShell( { path: 'demo.p3' } );
+		const m = newMessage();
+		shell.envelope( m, 'echo', {
+			from: 'elsewhere/sink-9',
+			key: 'key-77',
+			id: 'id-4242',
+			timestamp: 1700000123.5,
+		} );
+		expect( m[ FROM ] ).toBe( 'elsewhere/sink-9' );
+		expect( m[ TO ] ).toBe( 'demo.p3/echo' );
+		expect( m[ KEY ] ).toBe( 'key-77' );
+		expect( m[ ID ] ).toBe( 'id-4242' );
+		expect( m[ TIMESTAMP ] ).toBe( 1700000123.5 );
+	} );
+
+	it( 'keeps the mint values for blank overrides', () => {
+		const { shell } = makeShell( { path: 'demo.p3' } );
+		shell.replyFrom = ( node ) => `_sse:abc123/${ node }`;
+		const m = newMessage();
+		m[ TIMESTAMP ] = 1690000000;
+		shell.envelope( m, '', {
+			from: '',
+			key: null,
+			id: undefined,
+			timestamp: '',
+		} );
+		expect( m[ FROM ] ).toBe( `_sse:abc123/${ names.OUTPUT }` );
+		expect( m[ TO ] ).toBe( 'demo.p3' );
+		expect( m[ KEY ] ).toBe( '' );
+		expect( m[ ID ] ).toBe( '' );
+		expect( m[ TIMESTAMP ] ).toBe( 1690000000 );
+	} );
+} );
+
+describe( 'Shell node — envelope() blanks', () => {
+	it( 'reports whether it forged TIMESTAMP, and only then', () => {
+		const { shell } = makeShell( { path: 'demo.p3' } );
+		const forged = newMessage();
+		expect(
+			shell.envelope( forged, 'echo', { timestamp: '1700000123' } )
+		).toBe( true );
+		expect( forged[ TIMESTAMP ] ).toBe( '1700000123' );
+		expect(
+			shell.envelope( newMessage(), 'echo', { timestamp: '' } )
+		).toBe( false );
+	} );
+
+	it( 'mints the seven fields plus LOCAL, and nothing past them', () => {
+		const { shell } = makeShell( { path: 'demo.p3' } );
+		shell.parse( 'var message.timestamp = 1700000123' );
+		const m = shell.parse( 'cmd node ls' );
+		expect( m ).toHaveLength( LOCAL + 1 );
+		expect( m[ TIMESTAMP ] ).toBe( '1700000123' );
+	} );
+
+	it( "blanks FROM as PHP's `?:` does, so '0' keeps the reply path", () => {
+		const { shell } = makeShell( { path: 'demo.p3' } );
+		shell.replyFrom = ( node ) => `_sse:abc123/${ node }`;
+		shell.parse( 'var message.from = 0' );
+		shell.parse( 'var message.key = 0' );
+		const m = shell.parse( 'send node bytes' );
+		expect( m[ FROM ] ).toBe( `_sse:abc123/${ names.OUTPUT }` );
+		expect( m[ KEY ] ).toBe( '0' );
+	} );
+
+	it( 'stamps a whitespace override as given; only empty is blank', () => {
+		const { shell } = makeShell( { path: 'demo.p3' } );
+		const m = newMessage();
+		shell.envelope( m, 'echo', {
+			from: ' ',
+			key: '\t',
+		} );
+		expect( m[ FROM ] ).toBe( ' ' );
+		expect( m[ KEY ] ).toBe( '\t' );
 	} );
 } );
 
