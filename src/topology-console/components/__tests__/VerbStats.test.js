@@ -1,6 +1,7 @@
 /**
  * VerbStats tests — a Table's `verb_stats` as the Inspector's two Stats grids,
- * the counts (CALLS, ASKED, ANSWERED, BYTES) and the times (TOTAL, AVG, MAX):
+ * the counts (CALLS, ASKED, ANSWERED, BYTES, ERRORS) and the times (TOTAL, AVG,
+ * MAX):
  * one row per verb that has been called, bytes and times in human units, AVG
  * derived from TOTAL over CALLS, both grids sharing one sort, TOTAL descending
  * until a header in either says otherwise, and a one-line empty state for a
@@ -12,20 +13,21 @@ import VerbStats from '../VerbStats';
 
 // Every counter distinct from its neighbours and from zero, and each column
 // ranking the verbs differently, so a grid sorted by the wrong key fails.
-const row = ( calls, asked, answered, bytes, totalMs, maxMs ) => ( {
+const row = ( calls, asked, answered, bytes, totalMs, maxMs, errors ) => ( {
 	calls,
 	asked,
 	answered,
 	bytes,
 	total_ms: totalMs,
 	max_ms: maxMs,
+	errors,
 } );
 const STATS = {
-	GET: row( 3, 17, 11, 2048, 4.5, 2.4 ),
-	MGET: row( 50000, 40960, 39001, 12582912, 3200, 730.5 ),
-	SADD: row( 0, 0, 0, 0, 0, 0 ),
-	PURGE: row( 8, 4000, 312, 0, 60, 19.5 ),
-	CHECKPOINT: row( 0, 0, 0, 0, 0, 0 ),
+	GET: row( 3, 17, 11, 2048, 4.5, 2.4, 2 ),
+	MGET: row( 50000, 40960, 39001, 12582912, 3200, 730.5, 4471 ),
+	SADD: row( 0, 0, 0, 0, 0, 0, 0 ),
+	PURGE: row( 8, 4000, 312, 0, 60, 19.5, 0 ),
+	CHECKPOINT: row( 0, 0, 0, 0, 0, 0, 0 ),
 };
 
 const cells = ( grid, selector ) =>
@@ -47,6 +49,7 @@ test( 'splits the counters into a counts grid and a times grid, TOTAL descending
 		'ASKED',
 		'ANSWERED',
 		'BYTES',
+		'ERRORS',
 	] );
 	expect( cells( times, 'thead th' ) ).toEqual( [
 		'VERB',
@@ -61,9 +64,10 @@ test( 'splits the counters into a counts grid and a times grid, TOTAL descending
 			( 40960 ).toLocaleString(),
 			( 39001 ).toLocaleString(),
 			'12 MB',
+			( 4471 ).toLocaleString(),
 		],
-		[ 'PURGE', '8', ( 4000 ).toLocaleString(), '312', '0 B' ],
-		[ 'GET', '3', '17', '11', '2 KB' ],
+		[ 'PURGE', '8', ( 4000 ).toLocaleString(), '312', '0 B', '0' ],
+		[ 'GET', '3', '17', '11', '2 KB', '2' ],
 	] );
 	expect( bodyRows( times ) ).toEqual( [
 		[ 'MGET', '3.20s', '64us', '730.5ms' ],
@@ -99,7 +103,7 @@ test( 'a header click in the times grid re-sorts both grids', () => {
 test( 'a Table with no calls shows a one-line empty state and no grid', () => {
 	const { queryByTestId, getByText } = render(
 		<VerbStats
-			stats={ { GET: row( 0, 0, 0, 0, 0, 0 ), SADD: STATS.SADD } }
+			stats={ { GET: row( 0, 0, 0, 0, 0, 0, 0 ), SADD: STATS.SADD } }
 		/>
 	);
 	expect( queryByTestId( 'verb-stats-counts' ) ).toBeNull();

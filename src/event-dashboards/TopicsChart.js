@@ -8,9 +8,11 @@
  * rate, miss rate, latency, size), and the debug overlay's two. The metric
  * arrives as data: the `series` to draw, each carrying the `mode` saying how a
  * bucket aggregates its samples and what an empty one holds, the `yLabel`
- * naming the quantity, and the `formatValue` its axis ticks and tooltip rows
- * print through. `topicChartSeries` builds the series on the dashboards,
- * `overviewChartSeries` in the overlay.
+ * naming the quantity, and the formatter its axis ticks and tooltip rows
+ * print through: a fixed `formatValue`, or a `formatFor( peak )` that picks
+ * one unit for the whole axis from what the panel draws, as `axisDuration`
+ * does for a latency. `topicChartSeries` builds the series on the
+ * dashboards, `overviewChartSeries` in the overlay.
  *
  * `ProbeTable` beside it renders the probe tabs' per-identity tables from a
  * column declaration, so Jobs and Tables write out no table shell.
@@ -64,13 +66,14 @@ export const TopicsChart = memo(
 	 * formatters — so a panel whose own inputs did not move skips the draw
 	 * entirely.
 	 *
-	 * @param {Object}        props             Component props.
-	 * @param {string}        props.title       Panel heading, e.g. "Topics Message Rate".
-	 * @param {string}        props.yLabel      Y-axis title naming the quantity, e.g. "Messages"; the ticks carry the unit.
-	 * @param {?Object}       props.series      `{ [topic]: { points:[{ts,value,weight}], max, mode? } }` (ts in seconds); empty or absent wipes the panel.
-	 * @param {AxisFormatter} props.formatValue Formats a value for the Y-axis ticks and the tooltip rows; a `tickValues` property on it ticks the axis in its own unit.
-	 * @param {boolean}       [props.stacked]   Stack the series by default, for series that add up into a total; the corner toggle still flips it.
-	 * @param {boolean}       [props.stackable] Offer the stack toggle; `false` for means, which never add up.
+	 * @param {Object}                            props               Component props.
+	 * @param {string}                            props.title         Panel heading, e.g. "Topics Message Rate".
+	 * @param {string}                            props.yLabel        Y-axis title naming the quantity, e.g. "Messages"; the ticks carry the unit.
+	 * @param {?Object}                           props.series        `{ [topic]: { points:[{ts,value,weight}], max, mode? } }` (ts in seconds); empty or absent wipes the panel.
+	 * @param {AxisFormatter}                     [props.formatValue] Formats a value for the Y-axis ticks and the tooltip rows, whatever the peak; a `tickValues` property on it ticks the axis in its own unit.
+	 * @param {( peak: number ) => AxisFormatter} [props.formatFor]   Builds that formatter from the peak drawn, in place of `formatValue`.
+	 * @param {boolean}                           [props.stacked]     Stack the series by default, for series that add up into a total; the corner toggle still flips it.
+	 * @param {boolean}                           [props.stackable]   Offer the stack toggle; `false` for means, which never add up.
 	 * @return {import('react').ReactElement} The rendered panel.
 	 */
 	function TopicsChart( {
@@ -78,6 +81,7 @@ export const TopicsChart = memo(
 		yLabel,
 		series,
 		formatValue,
+		formatFor,
 		stacked = false,
 		stackable = true,
 	} ) {
@@ -85,8 +89,8 @@ export const TopicsChart = memo(
 			() => buildAlignedSeries( series, MAX_POINTS ),
 			[ series ]
 		);
-		// One unit for the whole panel, whatever the peak.
-		const yFormatFor = useCallback( () => formatValue, [ formatValue ] );
+		const fixed = useCallback( () => formatValue, [ formatValue ] );
+		const yFormatFor = formatFor ?? fixed;
 
 		return (
 			<div className="newspack-nodes-card nodes-topics">
@@ -109,9 +113,10 @@ export const TopicsChart = memo(
 /**
  * A tab's Topics panels, one `TopicsChart` per declaration.
  *
- * A declaration is `{ title, yLabel, series, formatValue, stacked?,
- * stackable? }`. The array may be rebuilt per render, but each `series` must
- * stay a memoized object, or the chart's memo redraws.
+ * A declaration is `{ title, yLabel, series, formatValue | formatFor,
+ * stacked?, stackable? }`. The array may be rebuilt per render, but each
+ * `series` must stay a memoized object, and a `formatFor` a module-level
+ * function, or the chart's memo redraws.
  *
  * @param {Object}        props        Component props.
  * @param {Array<Object>} props.panels Panel declarations, drawn in order.

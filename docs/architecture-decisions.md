@@ -1312,13 +1312,17 @@ directory, never an id to parse, because a second grammar accepts what the first
 
 **A worker in a FROM trail has one reader.** A writer appending to a log many workers
 share (`topicprobe.p0`, `jobstats.p0`, `tablestats.p0`) stamps FROM `{worker-id}/{name}`
-through `CLI::worker_id()`, because no per-worker boundary exists to stamp it; with no
-worker bound it stamps its bare name. The browser's SSE reader prepends its own stamp, the
-log's dir name (one segment, two when the first is `offsets` or `deadletter`).
+through `CLI::worker_id()`, because no per-worker boundary exists to stamp it. Only a worker
+runs such a writer, and `Topology_Loader` binds its topology and partition there, so a probe
+built with either unbound is refused by `arguments()`, as `make_node`'s TM_ERROR, rather than
+stamp a FROM no reader can attribute. The browser's
+SSE reader prepends its own stamp, the log's dir name (one segment, two when the first is a
+group name: `stamp_for()` refuses a log dir named `logs`, `offsets` or `deadletter`, so no
+bare stamp is one).
 [`workerOfFrom()`](../src/shared/utils/workerId.js) strips that stamp through
 [`splitStamp()`](../src/runtime/log-stamp.js), which `tests/fixtures/log-stamps.json` holds
-to PHP `SSE_Out_Node::dir_from_stamp()`, and reads what remains, `{worker}/{name}` or `{name}`, validating the worker through
-`parseWorkerId()`; any other shape names no worker. It is the one reader of a FROM trail's
+to PHP `SSE_Out_Node::dir_from_stamp()`, and reads what remains, `{worker}/{name}`, validating the worker through
+`parseWorkerId()`; any other shape — a malformed or foreign FROM — names no worker. It is the one reader of a FROM trail's
 worker, as `workerOfPath()` is of a TO path's. Rejected: a WORKER slot in each record layout,
 which costs three layout changes and their parity pins for what FROM already carries.
 

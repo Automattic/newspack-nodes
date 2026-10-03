@@ -2,7 +2,7 @@
  * The fleet-vitals card row across the top of the Overview station tab:
  * topology and active counts, worker liveness, on-disk partitions, worst
  * health, global read and write rates, current message rate and backlog, the
- * 24h produced totals, and the total offsetlog cache size.
+ * 24h totals, and the total offsetlog cache size.
  *
  * Every number is computed outside this component. `readRate`, `writeRate` and
  * `logPartitions` arrive as props from `useTopologyManager`; the pure
@@ -14,12 +14,12 @@
  * rendering anything.
  *
  * Every card is a sum. A reader card sums per reader, co-readers of one
- * partition each counted, so it reads the column total of its stacked Overview
- * chart; the Write card counts each partition's head once. The "Messages/s",
- * "Backlog" and "Total Cache" cards are LIVE, counting a reader only while it
- * names a source and its newest sample is within a minute of the newest
- * message seen (`streamHead`, `liveTotal`), while the 24h cards sum every
- * retained sample.
+ * partition each counted; the Write card counts each partition's head once.
+ * The "Messages/s", "Backlog" and "Total Cache" cards are LIVE: each sums
+ * every live reader's newest sample, the same series its Overview chart
+ * stacks, counting a reader only while it names a source and that sample is
+ * within a minute of the newest message seen (`streamHead`, `liveTotal`).
+ * The 24h cards sum every reader's consumption over every retained sample.
  */
 
 import { memo } from '@wordpress/element';

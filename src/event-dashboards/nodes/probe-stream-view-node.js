@@ -5,7 +5,7 @@ import { workerOfFrom } from '@newspack-nodes/shared/utils/workerId';
 
 // Fixed 24h live window, in seconds; an older record is dropped or pruned.
 const RETENTION_S = 86400;
-// Per-key ring cap above the 24h window at the 15s cadence; prune is the bound.
+// Per-worker ring cap above the 24h window at the 15s cadence; prune bounds.
 const MAX_SAMPLES = RETENTION_S / 15 + 1; // 5761
 // Throttle publish (a full-replay burst thrashes React): leading + trailing.
 const PUBLISH_THROTTLE_MS = 500;
@@ -45,11 +45,13 @@ const ENTRY_TTL_MS = 300000; // 5 min
  * keys, never a walk of a series; every walk — the prune, the snapshot's
  * per-key copies — waits for a publish, and the `view` publish is
  * time-throttled so a 24h replay burst does not thrash React. The series is
- * bounded two ways: a hard ring cap at `maxSamples`, and the live 24h window (a
- * record older than RETENTION_S is dropped on arrival, and a sample is pruned
- * as wall-clock advances past it).
+ * bounded two ways: a hard ring cap at `maxSamples` per worker the key has
+ * heard from, and the live 24h window (a record older than RETENTION_S is
+ * dropped on arrival, and a sample is pruned as wall-clock advances past it).
+ * The cap scales by worker because one key may be swept by every partition:
+ * a job identity with no id yields one record per worker per sweep.
  *
- * @param {number} [maxSamples] Per-key ring cap (defaults to MAX_SAMPLES).
+ * @param {number} [maxSamples] Per-worker ring cap (defaults to MAX_SAMPLES).
  * @param {number} [ttlMs]      Per-key liveness TTL (defaults to ENTRY_TTL_MS).
  */
 export class ProbeStreamViewNode extends ReactBridge( Node ) {
@@ -69,14 +71,14 @@ export class ProbeStreamViewNode extends ReactBridge( Node ) {
 	 * A subclass declares `modelKey` and `identitySlot` as class fields, which
 	 * initialize after this runs.
 	 *
-	 * @param {number} [maxSamples] Per-key ring cap; MAX_SAMPLES when omitted.
+	 * @param {number} [maxSamples] Per-worker ring cap; MAX_SAMPLES when omitted.
 	 * @param {number} [ttlMs]      Per-key liveness TTL in ms; ENTRY_TTL_MS when omitted.
 	 */
 	constructor( maxSamples, ttlMs ) {
 		super();
 		this.maxSamples = maxSamples || MAX_SAMPLES;
 		this.ttlMs = ttlMs || ENTRY_TTL_MS;
-		// key → subclass-shaped entry (always carries series + _lastSeen).
+		// key → subclass-shaped entry (always series, workers and _lastSeen).
 		this.entries = {};
 		this._lastPublish = 0;
 		this._flushTimer = null;
@@ -107,7 +109,7 @@ export class ProbeStreamViewNode extends ReactBridge( Node ) {
 	 *
 	 * The probe stamps FROM `<worker-id>/<probe>` and the SSE reader prepends
 	 * its own stamp, so a frame arrives as `jobstats.p0/job-worker.p2/jobstats`.
-	 * `workerOfFrom()` reads the worker, `''` when the probe is bound to none;
+	 * `workerOfFrom()` reads the worker, `''` for a malformed or foreign FROM;
 	 * `_fold` receives it so a chart can plot each worker's stream apart.
 	 *
 	 * @this {ProbeStreamSubclass}
@@ -142,15 +144,15 @@ export class ProbeStreamViewNode extends ReactBridge( Node ) {
 		if ( ts >= now / 1000 - RETENTION_S ) {
 			let c = this.entries[ key ];
 			if ( ! c ) {
-				c = { key, series: [], _lastSeen: 0 };
+				c = { key, series: [], workers: new Set(), _lastSeen: 0 };
 				this.entries[ key ] = c;
 			}
 			c._lastSeen = now;
-			c.series.push(
-				this._fold( c, value, ts, workerOfFrom( message[ FROM ] ) )
-			);
+			const worker = workerOfFrom( message[ FROM ] );
+			c.workers.add( worker );
+			c.series.push( this._fold( c, value, ts, worker ) );
 			// Cap sits above the window, so this only bounds a fast stream.
-			if ( c.series.length > this.maxSamples ) {
+			if ( c.series.length > this.maxSamples * c.workers.size ) {
 				c.series.shift();
 			}
 		}

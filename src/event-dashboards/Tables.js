@@ -33,10 +33,14 @@ import {
 	formatMsgRate,
 } from '@newspack-nodes/shared/utils/formatters';
 import { formatDuration } from '@newspack-nodes/shared/utils/formatUtils';
+import { axisDuration } from '@newspack-nodes/shared/utils/axis-ticks';
 import './styles/probe-tab.scss';
 
 /** One shared empty model, so an unready view keeps the memos' inputs stable. */
 const NO_TABLES = {};
+
+/** A Table identity names its worker already, so its series never split. */
+const WHOLE = { byWorker: false };
 
 /**
  * A Table's window-max line plots beside its mean.
@@ -51,6 +55,12 @@ const byMaxKey = ( t ) => `${ t.key } max`;
  * the operation's rate over every Table that worker sweeps. Tables in one
  * worker are swept at one instant, so `topicChartSeries`' same-ts sum is exact.
  *
+ * A Table's record names only the operations called in its window, so every
+ * operation the Table has ever reported plots a 0 on each sample without it,
+ * weighted by that sample's elapsed. Without the zeros a widened bucket would
+ * average an operation over the sweeps that called it and read its burst
+ * rate as its mean.
+ *
  * @param {Object<string,Object>} tables `view.tables`.
  * @return {Object<string,Object>} `<op> · <worker>` => series, as topicChartSeries returns.
  */
@@ -58,18 +68,22 @@ function operationSeries( tables ) {
 	/** @type {Object<string,{key:string,series:Array<Object>}>} */
 	const byOp = {};
 	for ( const t of Object.values( tables ) ) {
-		for ( const s of t.series || [] ) {
-			for ( const [ op, rate ] of Object.entries( s.opRates || {} ) ) {
+		const series = t.series || [];
+		const ops = new Set(
+			series.flatMap( ( s ) => Object.keys( s.opRates || {} ) )
+		);
+		for ( const s of series ) {
+			for ( const op of ops ) {
 				( byOp[ op ] ||= { key: op, series: [] } ).series.push( {
 					ts: s.ts,
 					elapsed: s.elapsed,
 					worker: s.worker,
-					value: rate,
+					value: s.opRates?.[ op ] ?? 0,
 				} );
 			}
 		}
 	}
-	return topicChartSeries( byOp, 'value', byKey );
+	return topicChartSeries( byOp, 'value', byKey, { byWorker: true } );
 }
 
 /**
@@ -184,24 +198,24 @@ export default function Tables() {
 	const deferred = useDeferredValue( view?.tables ?? NO_TABLES );
 
 	const opsSeries = useMemo(
-		() => topicChartSeries( deferred, 'opsRate', byKey ),
+		() => topicChartSeries( deferred, 'opsRate', byKey, WHOLE ),
 		[ deferred ]
 	);
 	const opSeries = useMemo( () => operationSeries( deferred ), [ deferred ] );
 	const missSeries = useMemo(
-		() => topicChartSeries( deferred, 'missRate', byKey ),
+		() => topicChartSeries( deferred, 'missRate', byKey, WHOLE ),
 		[ deferred ]
 	);
 	// Mean per Table beside its window max, each series in its own mode.
 	const latency = useMemo(
 		() => ( {
-			...topicChartSeries( deferred, 'meanMs', byKey ),
-			...topicChartSeries( deferred, 'maxMs', byMaxKey ),
+			...topicChartSeries( deferred, 'meanMs', byKey, WHOLE ),
+			...topicChartSeries( deferred, 'maxMs', byMaxKey, WHOLE ),
 		} ),
 		[ deferred ]
 	);
 	const sizeSeries = useMemo(
-		() => topicChartSeries( deferred, 'fileBytes', byKey ),
+		() => topicChartSeries( deferred, 'fileBytes', byKey, WHOLE ),
 		[ deferred ]
 	);
 	const panels = [
@@ -230,7 +244,7 @@ export default function Tables() {
 			title: __( 'Table Latency', 'newspack-nodes' ),
 			yLabel: __( 'Latency', 'newspack-nodes' ),
 			series: latency,
-			formatValue: formatDuration,
+			formatFor: axisDuration,
 			stackable: false,
 		},
 		{

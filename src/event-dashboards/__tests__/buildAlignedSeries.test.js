@@ -130,6 +130,35 @@ describe( 'buildAlignedSeries', () => {
 		).toBe( 4100 );
 	} );
 
+	it( 'stops holding across a gap in the middle of a LEVEL series, then resumes', () => {
+		// A 3 h fleet hold between two runs of samples.
+		const resume = 1500 + 3 * 3600;
+		const out = buildAlignedSeries(
+			withMode(
+				{
+					'held.p2': {
+						points: [
+							{ ts: 1485, value: 6100, weight: 15 },
+							{ ts: 1500, value: 6300, weight: 15 },
+							{ ts: resume, value: 7700, weight: 15 },
+						],
+						max: 7700,
+					},
+				},
+				HOLD
+			),
+			0
+		);
+		const at = ( ts ) =>
+			out.series[ 0 ].values.find(
+				( v ) => ts * 1000 === v.date.getTime()
+			).value;
+		expect( at( 1545 ) ).toBe( 6300 );
+		expect( at( 1575 ) ).toBe( 0 );
+		expect( at( 1500 + 3600 ) ).toBe( 0 );
+		expect( at( resume ) ).toBe( 7700 );
+	} );
+
 	it( 'a LEVEL topic reads 0 for buckets before its first sample', () => {
 		const out = buildAlignedSeries(
 			withMode(
@@ -340,5 +369,23 @@ describe( 'buildAlignedSeries', () => {
 		);
 		expect( byLabel.mean ).toBe( 6.5 );
 		expect( byLabel.peak ).toBe( 11 );
+	} );
+
+	it( 'a MEAN bucket re-divides its samples by their weight', () => {
+		const out = buildAlignedSeries(
+			{
+				'lab-7:kea.p3': {
+					points: [
+						{ ts: 1500, value: 40, weight: 3 },
+						{ ts: 1505, value: 80, weight: 1 },
+						{ ts: 1510, value: 900, weight: 0 },
+					],
+					max: 900,
+					mode: { fill: 'zero', agg: 'mean' },
+				},
+			},
+			0
+		);
+		expect( out.series[ 0 ].values[ 0 ].value ).toBe( 50 );
 	} );
 } );

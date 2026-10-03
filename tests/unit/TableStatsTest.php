@@ -312,6 +312,16 @@ final class TableStatsTest extends TestCase {
 		$this->assertSame( [ 'lab-7:kea: DEBUG: GET 1 0.75ms' ], $this->stderr_of( static fn () => Table_Node::tick( 1790000001 ) ) );
 	}
 
+	public function test_a_trace_line_carries_the_calls_a_reset_landed_between(): void {
+		Table_Node::tick( 1790000000 );
+		$this->table->debug_state( 1 );
+		$this->ask( 2500000, "MGET sku-41\n" );
+		$this->ask( 2500000, "MGET sku-43\n" );
+		$this->table->reset_stats();
+		$this->ask( 750000, "MGET sku-47\n" );
+		$this->assertSame( [ 'lab-7:kea: DEBUG: MGET 3 5.75ms' ], $this->stderr_of( static fn () => Table_Node::tick( 1790000001 ) ) );
+	}
+
 	public function test_a_trace_across_a_reset_sums_what_came_after_it(): void {
 		Table_Node::tick( 1790000000 );
 		$this->table->debug_state( 1 );
@@ -433,7 +443,32 @@ final class TableStatsTest extends TestCase {
 		$this->assertSame( 1, $this->drained_verbs()['GET'][ Tablestats_Record::ROW_CALLS ] );
 	}
 
-	public function test_a_reset_between_sweeps_restarts_the_window_rather_than_going_negative(): void {
+	public function test_a_reset_carries_the_unswept_window_into_the_next_sweep(): void {
+		Core::$now = 1790000100.0;
+		$this->drained_verbs();
+		for ( $i = 1; $i <= 900; $i++ ) {
+			$this->ask( 450 === $i ? 7300000 : 1000000, "GET kea-{$i}\n" );
+		}
+		Core::$now = 1790000114.0;
+		$this->table->reset_stats();
+		for ( $i = 901; $i <= 903; $i++ ) {
+			$this->ask( 2000000, "GET kea-{$i}\n" );
+		}
+		Core::$now = 1790000127.5;
+		$record = $this->table->probe_stats()[0];
+		$get    = $record[ Tablestats_Record::VERBS ]['GET'];
+
+		$this->assertSame( 903, $get[ Tablestats_Record::ROW_CALLS ] );
+		$this->assertSame( 903, $get[ Tablestats_Record::ROW_ASKED ] );
+		$this->assertSame( 912.3, $get[ Tablestats_Record::ROW_MS ] );
+		$this->assertSame( 7.3, $get[ Tablestats_Record::ROW_MAX_MS ], 'the window max spans the reset' );
+		$this->assertSame( 27500, $record[ Tablestats_Record::ELAPSED_MS ], 'the window opened at the last sweep' );
+		$this->assertSame( 3, $this->table->stats()['GET']['calls'], 'stats() counts from the reset' );
+	}
+
+	public function test_a_reset_right_after_a_sweep_carries_nothing_into_the_next(): void {
+		// Nothing was pending at the reset, so the next window holds only what
+		// came after it: the carry adds nothing, and nothing goes negative.
 		$this->ask( 4000000, "GET kea-41\n" );
 		$this->ask( 4000000, "GET kea-42\n" );
 		$this->drained_verbs();

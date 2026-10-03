@@ -24,10 +24,15 @@ const BUCKET_BASE_S = 15;
 /** RATE: a bucket re-divides Σwork by Σweight, and a gap reads 0. */
 export const RATE_MODE = { fill: 'zero', agg: 'rate' };
 
-/** Each aggregate's per-bucket reducer, by `mode.agg`. */
+/**
+ * Each aggregate's per-bucket reducer, by `mode.agg`. A weighted MEAN
+ * re-divides its bucket exactly as a rate does; the two part only where
+ * `topicChartSeries` combines the samples of one instant.
+ */
 const AGGREGATES = {
 	last: lastPerBucket,
 	rate: ratePerBucket,
+	mean: ratePerBucket,
 	max: maxPerBucket,
 };
 
@@ -42,13 +47,17 @@ const AGGREGATES = {
  *
  * - LEVEL (`fill:'hold'`, `agg:'last'`): a bucket keeps its latest-ts value,
  *   and an empty bucket carries the topic's last known value forward — 0
- *   before its first sample, and its final reading until LIVE_WINDOW_S past
- *   it, then 0, the freshness rule the live cards apply. A smooth decline
- *   stays smooth, and a reader that stopped leaves a stacked total.
+ *   before its first sample, and each reading only until LIVE_WINDOW_S past
+ *   it, then 0, the freshness rule the live cards apply. That bound holds
+ *   after any point, so a gap mid-series (a fleet hold, an on-demand worker
+ *   idling out) reads 0 until the series resumes. A smooth decline stays
+ *   smooth, and a reader that stopped leaves a stacked total.
  * - RATE (`fill:'zero'`, `agg:'rate'`): a bucket re-divides its samples,
  *   Σ(value × weight) / Σweight, which is Σwork / Σelapsed because each
  *   sample's value is its own work over its own weight. A zero-weight sample
  *   counts only in a bucket that holds no weight at all. An empty bucket is 0.
+ * - MEAN (`fill:'zero'`, `agg:'mean'`): a per-unit mean such as a latency,
+ *   weighted by the units it averages over, re-divided as a RATE is.
  * - MAX (`fill:'zero'`, `agg:'max'`): a bucket keeps its largest sample.
  *   An empty bucket is 0.
  *
@@ -59,7 +68,7 @@ const AGGREGATES = {
  * @param {?Object} series    One panel's topics from `topicChartSeries`:
  *                            `{ [topic]: { points:[{ts,value,weight}], max, mode? } }`,
  *                            ts in seconds and sorted; `mode.fill` is `'hold'` or
- *                            `'zero'`, `mode.agg` is `'last'`, `'rate'` or `'max'`.
+ *                            `'zero'`, `mode.agg` is `'last'`, `'rate'`, `'mean'` or `'max'`.
  * @param {number}  maxPoints Cap on the rendered axis length; 0 or less holds the base bucket however long the axis grows.
  * @return {{series:Array<{label:string,values:Array<{date:Date,value:number}>}>,dates:Array<Date>}}
  *   The topics busiest-first, plus the bucket instants they are aligned onto.
@@ -109,15 +118,19 @@ export function buildAlignedSeries( series, maxPoints ) {
 	const aligned = ranked.map( ( s ) => {
 		const { fill, agg } = s.mode || RATE_MODE;
 		const acc = AGGREGATES[ agg ]( s.points, bucketOf );
-		// Points are ts-sorted, so the last one is the newest.
-		const holdUntil =
-			'hold' === fill ? s.points.at( -1 ).ts + LIVE_WINDOW_S : -Infinity;
+		// Each bucket's newest ts; points are ts-sorted, so the last one wins.
+		const newest = new Map(
+			s.points.map( ( p ) => [ bucketOf( p.ts ), p.ts ] )
+		);
+		const hold = 'hold' === fill ? LIVE_WINDOW_S : -Infinity;
 		let carried = 0;
+		let holdUntil = -Infinity;
 		return {
 			label: s.key,
 			values: buckets.map( ( b, i ) => {
 				if ( acc.has( b ) ) {
 					carried = acc.get( b );
+					holdUntil = newest.get( b ) + hold;
 					return { date: dates[ i ], value: carried };
 				}
 				// Empty bucket: HOLD carries last value forward; ZERO reads 0.

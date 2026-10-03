@@ -23,6 +23,7 @@ import {
 	chartColor,
 	setupTooltip,
 } from '@newspack-nodes/shared/hooks/useTimeChart';
+import { axisDuration } from '@newspack-nodes/shared/utils/axis-ticks';
 
 const legendRows = ( container ) => [
 	...container.querySelectorAll( '.newspack-nodes-chart-legend li' ),
@@ -186,6 +187,36 @@ describe( 'TopicsChart', () => {
 			'high.p0',
 			'low.p0',
 		] );
+	} );
+
+	it( 'ticks a latency panel peaking at 1.4 s in one unit, from its formatFor', () => {
+		const { container } = render(
+			<TopicsChart
+				title="Latency"
+				series={ {
+					'cron:films': {
+						points: [
+							{ ts: 100, value: 250 },
+							{ ts: 115, value: 1400 },
+						],
+						max: 1400,
+					},
+				} }
+				formatFor={ axisDuration }
+			/>
+		);
+		const yAxis = [ ...container.querySelectorAll( 'svg g' ) ].find(
+			( g ) =>
+				! g.getAttribute( 'transform' ) &&
+				g.querySelector( ':scope > .tick' )
+		);
+		const ticks = [ ...yAxis.querySelectorAll( '.tick text' ) ].map(
+			( t ) => t.textContent
+		);
+		expect( ticks.length ).toBeGreaterThan( 2 );
+		for ( const tick of ticks ) {
+			expect( tick ).toMatch( /^\d+(\.\d)?s$/ );
+		}
 	} );
 
 	it( 'offers no stack toggle when the caller marks the series unstackable', () => {

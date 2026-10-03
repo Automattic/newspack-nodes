@@ -20,7 +20,8 @@ import { ProbeStreamViewNode } from './probe-stream-view-node';
  * The windowed rollup — runs, failures, items, mean and longest duration and
  * mean queue wait — is summed over the retained series in `_entryView`, so it
  * shrinks with the series as the base prunes samples out of the live window.
- * Last-run detail comes from the newest record.
+ * Last-run detail comes from the record naming the newest run, so a worker
+ * whose frame arrives late cannot replace a newer run with an older one.
  *
  * @param {number} [maxSamples] Per-identity ring cap.
  * @param {number} [ttlMs]      Identity liveness TTL.
@@ -117,7 +118,7 @@ export class JobstatsViewNode extends ProbeStreamViewNode {
 	 * are their quotient — 0 for an empty window rather than a division by zero.
 	 * Queue latency is the exception, dividing by the window's runs rather than
 	 * its seconds, because it is a mean wait per run. The last-run detail rides
-	 * as the entry's newest values.
+	 * on the entry, replaced only by a run at least as new as the one it holds.
 	 *
 	 * @param {Object}               c      The identity's entry, keyed by `IDENTITY`.
 	 * @param {Array<string|number>} value  The positional `Jobstats_Record` VALUE.
@@ -128,11 +129,14 @@ export class JobstatsViewNode extends ProbeStreamViewNode {
 	_fold( c, value, ts, worker ) {
 		c.handler = String( value[ Job.HANDLER ] ?? c.handler ?? '' );
 
-		// Last-run detail — the newest table columns.
-		c.lastTs = Number( value[ Job.LAST_TS ] ) || 0;
-		c.lastDurationMs = Number( value[ Job.LAST_DURATION_MS ] ) || 0;
-		c.lastStatus = String( value[ Job.LAST_STATUS ] || '' );
-		c.lastMessage = String( value[ Job.LAST_MESSAGE ] || '' );
+		// Last run: the newest any worker reported, not the newest frame.
+		const lastTs = Number( value[ Job.LAST_TS ] ) || 0;
+		if ( lastTs >= ( c.lastTs ?? 0 ) ) {
+			c.lastTs = lastTs;
+			c.lastDurationMs = Number( value[ Job.LAST_DURATION_MS ] ) || 0;
+			c.lastStatus = String( value[ Job.LAST_STATUS ] || '' );
+			c.lastMessage = String( value[ Job.LAST_MESSAGE ] || '' );
+		}
 
 		const runsDelta = this._delta( value[ Job.RUNS_DELTA ] );
 		const queueDelta = this._delta( value[ Job.QUEUE_MS_DELTA ] );

@@ -9,7 +9,23 @@
  * digits and collide with the axis title beside them.
  */
 
+import * as d3 from 'd3';
 import { axisDuration } from '../axis-ticks';
+
+/**
+ * The labels an axis built as `drawAxes` builds one would print.
+ *
+ * @param {number} peak The largest value the axis shows, in ms.
+ * @return {string[]} Every tick label.
+ */
+const tickLabels = ( peak ) => {
+	const format = axisDuration( peak );
+	const scale = d3.scaleLinear().domain( [ 0, peak ] );
+	const ticks = format.tickValues
+		? format.tickValues( scale, 5 )
+		: scale.ticks( 5 );
+	return ticks.map( format );
+};
 
 describe( 'axisDuration', () => {
 	it( 'keeps a sub-second axis in milliseconds', () => {
@@ -47,5 +63,42 @@ describe( 'axisDuration', () => {
 
 	it( 'carries the integer tick ladder, so ticks land on whole values', () => {
 		expect( typeof axisDuration( 1000 ).tickValues ).toBe( 'function' );
+	} );
+
+	it( 'reads a sub-millisecond axis in microseconds, every tick its own label', () => {
+		const labels = tickLabels( 0.42 );
+		expect( labels ).toEqual( [
+			'0us',
+			'100us',
+			'200us',
+			'300us',
+			'400us',
+		] );
+		expect( new Set( labels ).size ).toBe( labels.length );
+	} );
+
+	it( 'ticks a few-microsecond axis on whole microseconds, never repeating a label', () => {
+		const labels = tickLabels( 0.0025 );
+		expect( labels ).toEqual( [ '0us', '1us', '2us' ] );
+		expect( new Set( labels ).size ).toBe( labels.length );
+	} );
+
+	it( 'reads a 1.4 s peak in one unit', () => {
+		for ( const label of tickLabels( 1400 ) ) {
+			expect( label ).toMatch( /^\d+(\.\d)?s$/ );
+		}
+	} );
+
+	it( 'keeps an axis peaking at a millisecond or more in whole milliseconds', () => {
+		expect( tickLabels( 7 ) ).toEqual( [
+			'0ms',
+			'1ms',
+			'2ms',
+			'3ms',
+			'4ms',
+			'5ms',
+			'6ms',
+			'7ms',
+		] );
 	} );
 } );

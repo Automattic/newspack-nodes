@@ -545,6 +545,58 @@ describe( 'JobstatsViewNode', () => {
 		).toEqual( [ 'job-worker.p2', '' ] );
 	} );
 
+	it( 'caps an identity per worker, so four workers keep a whole day each', () => {
+		// 1500 sweeps a worker passes 5761 / 4: one shared cap would trim it.
+		const v = new JobstatsViewNode();
+		const sweeps = 1500;
+		for ( let i = 0; i < sweeps; i++ ) {
+			for ( const p of [ 0, 1, 2, 3 ] ) {
+				v.fill(
+					jobstatsMsg( {
+						key: 'cron:films',
+						runs: 1,
+						ts: -12500 + i * 15,
+						from: `jobstats.p0/job-worker.p${ p }/jobstats`,
+					} )
+				);
+			}
+		}
+		const series = v.snapshot()[ 'cron:films' ].series;
+		v.removeNode();
+		expect( series.length ).toBe( 4 * sweeps );
+		expect( series[ 0 ].ts ).toBe( TS_BASE - 12500 );
+	} );
+
+	it( 'keeps the newest last run when an older run arrives later', () => {
+		const v = new JobstatsViewNode();
+		v.fill(
+			jobstatsMsg( {
+				ts: 300,
+				lastTs: 1_790_036_000,
+				lastStatus: 'error',
+				lastMessage: 'Job failed: 4 error(s)',
+				lastDurationMs: 811,
+				from: 'jobstats.p0/job-worker.p0/jobstats',
+			} )
+		);
+		v.fill(
+			jobstatsMsg( {
+				ts: 301,
+				lastTs: 1_790_032_400,
+				lastStatus: 'success',
+				lastMessage: 'Job completed successfully',
+				lastDurationMs: 37,
+				from: 'jobstats.p0/job-worker.p1/jobstats',
+			} )
+		);
+		expect( v.snapshot().evtemplate.latest ).toEqual( {
+			lastTs: 1_790_036_000,
+			lastDurationMs: 811,
+			lastStatus: 'error',
+			lastMessage: 'Job failed: 4 error(s)',
+		} );
+	} );
+
 	it( 'indexes handlers by identity key, carrying the handler name', () => {
 		const v = new JobstatsViewNode();
 		v.fill( jobstatsMsg( { key: 'cron:films', handler: 'cron' } ) );

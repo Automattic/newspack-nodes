@@ -5,16 +5,17 @@
  * Tachikoma's Grafana Topics dashboard, which charts rate and backlog ranked
  * by peak.
  *
- * The grouping belongs to the caller, the metric's handling to `METRICS`.
- * Nothing here knows any stream: an entry needs a `series` and a group key,
- * and a metric is any numeric field a sample carries.
+ * The grouping belongs to the caller — the group key, and whether it splits
+ * per worker — the metric's handling to `METRICS`. Nothing here knows any
+ * stream: an entry needs a `series` and a group key, and a metric is any
+ * numeric field a sample carries.
  *
  * One probe sweep stamps every identity in its worker with the same `ts`, so
- * those samples sum cleanly; identities swept by workers on different phases
- * stay separate points until `buildAlignedSeries` floors them into a shared
- * bucket. Each point also carries the WEIGHT its metric is a quotient of, so
- * that bucket can re-divide the samples it holds (Σwork / Σweight) instead of
- * letting one of them win.
+ * those samples combine at that instant as the metric's `agg` says;
+ * identities swept by workers on different phases stay separate points until
+ * `buildAlignedSeries` floors them into a shared bucket. Each point also
+ * carries the WEIGHT its metric is a quotient of, so that bucket can re-divide
+ * the samples it holds (Σwork / Σweight) instead of letting one of them win.
  */
 
 import { RATE_MODE } from './buildAlignedSeries';
@@ -25,13 +26,9 @@ const LEVEL = { fill: 'hold', agg: 'last' };
 /**
  * How each metric charts, where it departs from the default: a RATE that
  * zero-fills gaps and re-divides a bucket, weighted by the sample's `elapsed`
- * seconds, and ADDITIVE. An additive metric's samples of one key from two
- * workers add up, so each worker charts apart as `<key> · <worker>`: two
- * workers sweep on independent phases, and summing them per `ts` is exact
- * only inside one. A mean or a max never adds, and a Table's key names one
- * worker's Table already, so neither splits.
+ * seconds.
  *
- * `queueLatencyMs` and `meanMs` are per-unit means, weighted by the runs and
+ * `queueLatencyMs` and `meanMs` are per-unit MEANs, weighted by the runs and
  * operations they average over, so a busy window and an idle one never weigh
  * the same. `queueLatencyMs` is an event metric, so it zero-fills: holding it
  * would paint the last job across idle hours.
@@ -40,12 +37,10 @@ const METRICS = Object.fromEntries(
 	Object.entries( {
 		backlog: LEVEL,
 		cacheSize: LEVEL,
-		fileBytes: { ...LEVEL, additive: false },
-		maxMs: { fill: 'zero', agg: 'max', additive: false },
-		queueLatencyMs: { weight: 'runsDelta', additive: false },
-		meanMs: { weight: 'opsDelta', additive: false },
-		opsRate: { additive: false },
-		missRate: { additive: false },
+		fileBytes: LEVEL,
+		maxMs: { fill: 'zero', agg: 'max' },
+		queueLatencyMs: { agg: 'mean', weight: 'runsDelta' },
+		meanMs: { agg: 'mean', weight: 'opsDelta' },
 	} ).map( ( [ metric, spec ] ) => [ metric, metricSpec( spec ) ] )
 );
 
@@ -57,17 +52,43 @@ const DEFAULT_METRIC = metricSpec( {} );
  * every series of that metric shares it.
  *
  * @param {Object} spec What the metric overrides.
- * @return {{mode:{fill:string,agg:string},weight:string,additive:boolean}} The declaration.
+ * @return {{mode:{fill:string,agg:string},weight:string}} The declaration.
  */
 function metricSpec( spec ) {
-	const { fill, agg, weight, additive } = {
+	const { fill, agg, weight } = {
 		...RATE_MODE,
 		weight: 'elapsed',
-		additive: true,
 		...spec,
 	};
-	return { mode: { fill, agg }, weight, additive };
+	return { mode: { fill, agg }, weight };
 }
+
+/**
+ * One group's samples at one `ts`, tallied every way a metric may combine
+ * them: Σvalue, the largest value, the widest weight and the count, beside
+ * Σ(value × weight) and Σweight over the samples that carry a weight.
+ *
+ * @typedef {{sum:number,max:number,widest:number,count:number,work:number,weight:number}} InstantTally
+ */
+
+/**
+ * How the samples one group holds at one `ts` combine into its point, by the
+ * metric's `agg`. A rate adds, since the identities sampling one instant share
+ * its window, and takes the widest weight; a level adds; a max keeps the
+ * largest; a mean re-divides, ignoring a zero weight beside a positive one and
+ * reading the plain mean when none carries any.
+ *
+ * @type {Object<string,( t: InstantTally ) => {value:number,weight:number}>}
+ */
+const COMBINE = {
+	rate: ( t ) => ( { value: t.sum, weight: t.widest } ),
+	last: ( t ) => ( { value: t.sum, weight: t.widest } ),
+	max: ( t ) => ( { value: t.max, weight: t.widest } ),
+	mean: ( t ) => ( {
+		value: t.weight > 0 ? t.work / t.weight : t.sum / t.count,
+		weight: t.weight,
+	} ),
+};
 
 /**
  * Each entry plots under its own key.
@@ -76,6 +97,14 @@ function metricSpec( spec ) {
  * @return {string} Its key.
  */
 export const byKey = ( c ) => c.key;
+
+/**
+ * Each consumer plots under the partition it reads.
+ *
+ * @param {{source:string}} c A `topicprobe:view` consumer.
+ * @return {string} Its source partition.
+ */
+export const bySource = ( c ) => c.source;
 
 /**
  * The largest value among some points, the max a chart ranks its series by.
@@ -87,24 +116,36 @@ export const maxOf = ( points ) =>
 	points.reduce( ( m, p ) => Math.max( m, p.value ), 0 );
 
 /**
- * Per-group time series for ONE metric, summed across the group's samples by
- * `ts`. An entry whose group key is empty is skipped rather than collected
- * under `''`, because a nameless series has nothing for the legend to show.
- * A sample whose metric is null, a figure that does not apply to it, charts
- * no point, and a group with no point charts no series. An additive metric
- * groups by the key and the sample's `worker`; a sample naming no worker
- * keeps the bare key.
+ * Per-group time series for ONE metric, its samples at each `ts` combined as
+ * the metric's `agg` says. An entry whose group key is empty is skipped rather
+ * than collected under `''`, because a nameless series has nothing for the
+ * legend to show. A sample whose metric is null, a figure that does not apply
+ * to it, charts no point, and a group with no point charts no series.
  *
- * @param {?Object<string,{series?:Array<Object>}>} entries Probe-stream entries keyed by identity — `topicprobe:view` consumers, `jobstats:view` handlers, `tablestats:view` Tables.
- * @param {string}                                  metric  The sample field to plot, such as `msgRate`, `backlog` or `queueLatencyMs`.
- * @param {(entry:*)=>string}                       [keyOf] Group key per entry; the default groups by `source`, and Jobs and Tables pass `byKey`.
+ * Whether a group splits per worker is the caller's to say, because it
+ * depends on the key, not the metric: a job identity or an Overview source
+ * names no worker, so two workers' samples of it sweep on independent phases
+ * and chart apart as `<key> · <worker>`, while a Table identity names its
+ * worker already. A sample naming no worker keeps the bare key.
+ *
+ * @param {?Object<string,{series?:Array<Object>}>} entries          Probe-stream entries keyed by identity — `topicprobe:view` consumers, `jobstats:view` handlers, `tablestats:view` Tables.
+ * @param {string}                                  metric           The sample field to plot, such as `msgRate`, `backlog` or `queueLatencyMs`.
+ * @param {(entry:*)=>string}                       keyOf            Group key per entry: `bySource`, `byKey`, or the caller's own.
+ * @param {Object}                                  options          How the caller groups.
+ * @param {boolean}                                 options.byWorker Chart each worker of a key apart.
  * @return {Object<string,{points:Array<{ts:number,value:number,weight:number}>,max:number,mode:{fill:string,agg:string}}>}
  *   Per group key: the ts-sorted points, the series max the chart ranks by,
  *   and the metric's mode.
+ * @throws {TypeError} When the caller does not say whether to split by worker.
  */
-export function topicChartSeries( entries, metric, keyOf = ( c ) => c.source ) {
-	const { mode, weight, additive } = METRICS[ metric ] || DEFAULT_METRIC;
-	/** @type {Object<string,Map<number,{value:number,weight:number}>>} */
+export function topicChartSeries( entries, metric, keyOf, { byWorker } ) {
+	if ( 'boolean' !== typeof byWorker ) {
+		throw new TypeError(
+			`topicChartSeries( ${ metric } ): byWorker must be a boolean`
+		);
+	}
+	const { mode, weight } = METRICS[ metric ] || DEFAULT_METRIC;
+	/** @type {Object<string,Map<number,InstantTally>>} */
 	const groups = {};
 	for ( const c of Object.values( entries || {} ) ) {
 		const base = keyOf( c ) || '';
@@ -116,24 +157,33 @@ export function topicChartSeries( entries, metric, keyOf = ( c ) => c.source ) {
 				continue;
 			}
 			const key =
-				additive && s.worker ? `${ base } · ${ s.worker }` : base;
+				byWorker && s.worker ? `${ base } · ${ s.worker }` : base;
 			const byTs = ( groups[ key ] ||= new Map() );
-			const prev = byTs.get( s.ts ) || { value: 0, weight: 0 };
-			byTs.set( s.ts, {
-				// Rates ADD across the identities sampling one instant...
-				value: prev.value + ( s[ metric ] || 0 ),
-				// ...but share that window, so take the widest.
-				weight: Math.max( prev.weight, s[ weight ] || 0 ),
-			} );
+			let t = byTs.get( s.ts );
+			if ( ! t ) {
+				t = { sum: 0, max: 0, widest: 0, count: 0, work: 0, weight: 0 };
+				byTs.set( s.ts, t );
+			}
+			const v = s[ metric ] || 0;
+			const w = s[ weight ] || 0;
+			t.max = 0 === t.count ? v : Math.max( t.max, v );
+			t.sum += v;
+			t.widest = Math.max( t.widest, w );
+			t.count += 1;
+			if ( w > 0 ) {
+				t.work += v * w;
+				t.weight += w;
+			}
 		}
 	}
 
+	const combine = COMBINE[ mode.agg ];
 	/** @type {Object<string,{points:Array<{ts:number,value:number,weight:number}>,max:number,mode:{fill:string,agg:string}}>} */
 	const out = {};
 	for ( const [ key, byTs ] of Object.entries( groups ) ) {
 		const points = [ ...byTs.keys() ]
 			.sort( ( a, b ) => a - b )
-			.map( ( ts ) => ( { ts, ...byTs.get( ts ) } ) );
+			.map( ( ts ) => ( { ts, ...combine( byTs.get( ts ) ) } ) );
 		out[ key ] = { points, max: maxOf( points ), mode };
 	}
 	return out;
