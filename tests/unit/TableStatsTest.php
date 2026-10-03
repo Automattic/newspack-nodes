@@ -90,8 +90,8 @@ final class TableStatsTest extends TestCase {
 		return (int) $db->query( "SELECT SUM( length( CAST( value AS BLOB ) ) ) FROM {$sql_table}" )->fetchColumn();
 	}
 
-	/** @return array{calls:int,asked:int,answered:int,bytes:int,total_ms:float,max_ms:float} */
-	private static function row( int $calls, int $asked, int $answered, float $total_ms, float $max_ms, int $bytes = 0 ): array {
+	/** @return array{calls:int,asked:int,answered:int,bytes:int,total_ms:float,max_ms:float,errors:int} */
+	private static function row( int $calls, int $asked, int $answered, float $total_ms, float $max_ms, int $bytes = 0, int $errors = 0 ): array {
 		return [
 			'calls'    => $calls,
 			'asked'    => $asked,
@@ -99,6 +99,7 @@ final class TableStatsTest extends TestCase {
 			'bytes'    => $bytes,
 			'total_ms' => $total_ms,
 			'max_ms'   => $max_ms,
+			'errors'   => $errors,
 		];
 	}
 
@@ -113,6 +114,46 @@ final class TableStatsTest extends TestCase {
 	 */
 	private static function without_bytes( array $stats ): array {
 		return \array_map( static fn ( array $row ): array => \array_replace( $row, [ 'bytes' => 0 ] ), $stats );
+	}
+
+	public function test_a_refused_request_counts_an_error_against_its_verb(): void {
+		$this->ask( 3000000, "TOUCH soon kea-41\n" );
+		$this->ask( 5000000, "TOUCH -7 kea-42\n" );
+		$this->ask( 1000000, "GET kea-43\n" );
+
+		$stats = $this->table->stats();
+		$this->assertSame( 2, $stats['TOUCH']['errors'] );
+		$this->assertSame( 2, $stats['TOUCH']['calls'] );
+		$this->assertSame( 0, $stats['GET']['errors'] );
+	}
+
+	public function test_a_failed_read_counts_an_error(): void {
+		$this->insert( 1000000, 'kea-41', 'v-41' );
+		( new \PDO( 'sqlite:' . Table_Node::file( 'lab-7:kea', 3 ) ) )->exec( 'DROP TABLE kv' );
+		$this->ask( 2000000, "MGET kea-41 kea-42\n" );
+		$this->ask( 2000000, "GET kea-41\n" );
+
+		$this->assertSame( 1, $this->table->stats()['MGET']['errors'] );
+		$this->assertSame( 1, $this->table->stats()['GET']['errors'] );
+	}
+
+	public function test_a_failed_member_read_counts_an_error(): void {
+		$this->ask( 1000000, [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => 1 ] ] ] ] );
+		( new \PDO( 'sqlite:' . Table_Node::file( 'lab-7:kea', 3 ) ) )->exec( 'DROP TABLE members' );
+		$this->ask( 2000000, "SMEMBERS 9 word:kea\n" );
+
+		$this->assertSame( 1, $this->table->stats()['SMEMBERS']['errors'] );
+	}
+
+	public function test_an_unknown_verb_counts_no_row(): void {
+		$this->ask( 1000000, "FROB kea-41\n" );
+		$this->assertSame( self::zeroes(), $this->table->stats() );
+	}
+
+	public function test_reset_stats_zeroes_the_errors(): void {
+		$this->ask( 3000000, "TOUCH soon kea-41\n" );
+		$this->table->reset_stats();
+		$this->assertSame( 0, $this->table->stats()['TOUCH']['errors'] );
 	}
 
 	public function test_every_verb_starts_at_zero(): void {
