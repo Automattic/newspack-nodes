@@ -250,6 +250,19 @@ class Table_Node extends Node {
 	private ?array $traced = null;
 
 	/**
+	 * The counters as the last probe sweep left them; null before the first.
+	 *
+	 * @var array<string,array{int,int,int,int,int,int,int,int}>|null
+	 */
+	private ?array $probed = null;
+
+	/** When the probe's window opened: construction, then each sweep. */
+	private float $probe_ts = 0.0;
+
+	/** The `<partition>` bound when the arguments arrived; null with none bound. */
+	private ?int $bound_partition = null;
+
+	/**
 	 * Durable system of record behind this table, or null until backed_by()
 	 * opts in. Invoked with the keys a read missed on.
 	 *
@@ -266,6 +279,7 @@ class Table_Node extends Node {
 	 */
 	public function __construct() {
 		parent::__construct();
+		$this->probe_ts = Core::$now;
 		$this->auto_wire_interpreter();
 	}
 
@@ -307,6 +321,7 @@ class Table_Node extends Node {
 		if ( ! \in_array( $backend, self::BACKENDS, true ) ) {
 			throw new \InvalidArgumentException( \esc_html( 'Table backend must be one of ' . \implode( ', ', self::BACKENDS ) . ", not {$backend}" ) );
 		}
+		$this->bound_partition = \array_key_exists( 'partition', Core::$var ) ? Core::canonical_decimal( Core::$var['partition'] ) : null;
 		$arm = $this->open( $backend, $namespace );
 		$this->assign_schema_args( $args, $values );
 		$this->arm = $arm;
@@ -441,22 +456,6 @@ class Table_Node extends Node {
 	 */
 	private function refusal( \Throwable $e ): string {
 		return \esc_html( "Table {$this->table_name()}: " . $e->getMessage() );
-	}
-
-	/**
-	 * The partition a `sqlite` file belongs to: the mounted one, else the
-	 * process's bound `<partition>`. Never a guess, since a guessed partition
-	 * would open another partition's file.
-	 *
-	 * @return int The partition.
-	 * @throws \LogicException When the Table is unmounted and nothing bound one.
-	 */
-	private function file_partition(): int {
-		if ( null !== $this->partition ) {
-			return $this->partition;
-		}
-		$bound = \array_key_exists( 'partition', Core::$var ) ? Core::canonical_decimal( Core::$var['partition'] ) : null;
-		return $bound ?? throw new \LogicException( 'a sqlite backend needs a bound partition' );
 	}
 
 	/**
@@ -1382,34 +1381,6 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * The SQLite file of one partition of a declared Table.
-	 *
-	 * @param string $table     The declared Table.
-	 * @param int    $partition The partition.
-	 * @return string `{base}/tables/{table}.p{partition}.sqlite`.
-	 * @throws \InvalidArgumentException On a name that cannot name a file.
-	 */
-	public static function file( string $table, int $partition ): string {
-		return Bootstrap::base_dir() . '/tables/' . self::stem( $table, $partition ) . '.sqlite';
-	}
-
-	/**
-	 * A declared Table's per-partition name: its file stem and its mount name.
-	 *
-	 * @param string $table     The declared Table.
-	 * @param int    $partition The partition.
-	 * @return string `{table}.p{partition}`.
-	 * @throws \InvalidArgumentException On a name that cannot name a file: a path
-	 *                                   separator, NUL, `..` or a leading dot.
-	 */
-	public static function stem( string $table, int $partition ): string {
-		if ( 1 !== \preg_match( '/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/D', $table ) || \str_contains( $table, '..' ) ) {
-			throw new \InvalidArgumentException( "Table name {$table} cannot name a file" );
-		}
-		return "{$table}.p{$partition}";
-	}
-
-	/**
 	 * The key this Table stores an entry under: a durable arm's row key, or
 	 * a volatile arm's salted one, which `auto` resolves to.
 	 *
@@ -1483,15 +1454,6 @@ class Table_Node extends Node {
 	 */
 	private function needs_durable(): string {
 		return "needs a durable backend; {$this->table_name()} is {$this->backend}";
-	}
-
-	/**
-	 * The declared Table this node answers for, else its own name.
-	 *
-	 * @return string The name a refusal gives.
-	 */
-	private function table_name(): string {
-		return '' !== $this->table ? $this->table : $this->name;
 	}
 
 	/**
@@ -1613,6 +1575,8 @@ class Table_Node extends Node {
 		$this->refuse_if_mounted( 'reset_stats' );
 		$stats            = $this->stats();
 		$this->verb_stats = self::ZERO_STATS;
+		$this->probed     = self::ZERO_STATS;
+		$this->probe_ts   = Core::$now;
 		if ( null !== $this->traced ) {
 			$this->traced = self::ZERO_STATS;
 		}
@@ -1656,6 +1620,113 @@ class Table_Node extends Node {
 			];
 		}
 		return $out;
+	}
+
+	/**
+	 * Probe seam: this Table's window since the previous sweep, as one
+	 * positional `Tablestats_Record`, for `Table_Probe` to write to
+	 * tablestats.p0. A DRAINING read — call it once per sweep: the window
+	 * reopens and each verb's window max resets. A mount answers nothing, since
+	 * its declaring worker is the file's one writer.
+	 *
+	 * @return list<array<int,mixed>> One record, or none for a mount.
+	 */
+	public function probe_stats(): array {
+		if ( $this->mounted ) {
+			return [];
+		}
+		$verbs = [];
+		foreach ( $this->window( $this->probed ?? self::ZERO_STATS ) as $verb => [ $calls, $asked, $answered, $bytes, $ns, $errors, $max_ns ] ) {
+			$verbs[ $verb ] = [
+				Tablestats_Record::ROW_CALLS    => $calls,
+				Tablestats_Record::ROW_ASKED    => $asked,
+				Tablestats_Record::ROW_ANSWERED => $answered,
+				Tablestats_Record::ROW_BYTES    => $bytes,
+				Tablestats_Record::ROW_MS       => \round( $ns / 1e6, 3 ),
+				Tablestats_Record::ROW_MAX_MS   => \round( $max_ns / 1e6, 3 ),
+				Tablestats_Record::ROW_ERRORS   => $errors,
+			];
+		}
+		foreach ( \array_keys( $this->verb_stats ) as $verb ) {
+			$this->verb_stats[ $verb ][ self::WINDOW_MAX_NS ] = 0;
+		}
+		$this->probed   = $this->verb_stats;
+		$elapsed        = (int) \round( \max( 0.0, Core::$now - $this->probe_ts ) * 1000 );
+		$this->probe_ts = Core::$now;
+		return [
+			[
+				Tablestats_Record::IDENTITY     => $this->probe_identity(),
+				Tablestats_Record::BACKEND      => $this->backend,
+				Tablestats_Record::VERBS        => $verbs,
+				Tablestats_Record::PURGE_BEHIND => $this->purge_behind ? 1 : 0,
+				Tablestats_Record::WAL_STALLED  => $this->wal_stalled,
+				Tablestats_Record::FILE_BYTES   => $this->arm instanceof Sqlite_Arm ? \array_sum( Sqlite_Arm::file_sizes( self::file( $this->table_name(), $this->file_partition() ) ) ) : 0,
+				Tablestats_Record::ELAPSED_MS   => $elapsed,
+			],
+		];
+	}
+
+	/**
+	 * The partition a `sqlite` file belongs to: the mounted one, else the
+	 * `<partition>` bound when its arguments arrived. Never a guess, since a
+	 * guessed partition would open another partition's file.
+	 *
+	 * @return int The partition.
+	 * @throws \LogicException When the Table is unmounted and nothing bound one.
+	 */
+	private function file_partition(): int {
+		if ( null !== $this->partition ) {
+			return $this->partition;
+		}
+		return $this->bound_partition ?? throw new \LogicException( 'a sqlite backend needs a bound partition' );
+	}
+
+	/**
+	 * The SQLite file of one partition of a declared Table.
+	 *
+	 * @param string $table     The declared Table.
+	 * @param int    $partition The partition.
+	 * @return string `{base}/tables/{table}.p{partition}.sqlite`.
+	 * @throws \InvalidArgumentException On a name that cannot name a file.
+	 */
+	public static function file( string $table, int $partition ): string {
+		return Bootstrap::base_dir() . '/tables/' . self::stem( $table, $partition ) . '.sqlite';
+	}
+
+	/**
+	 * The name a probe record files this Table under: its stem when a
+	 * partition is known, else its own name.
+	 *
+	 * @return string `{table}.p{N}`, or the node name.
+	 */
+	private function probe_identity(): string {
+		$partition = $this->partition ?? $this->bound_partition;
+		return null === $partition ? $this->table_name() : self::stem( $this->table_name(), $partition );
+	}
+
+	/**
+	 * A declared Table's per-partition name: its file stem and its mount name.
+	 *
+	 * @param string $table     The declared Table.
+	 * @param int    $partition The partition.
+	 * @return string `{table}.p{partition}`.
+	 * @throws \InvalidArgumentException On a name that cannot name a file: a path
+	 *                                   separator, NUL, `..` or a leading dot.
+	 */
+	public static function stem( string $table, int $partition ): string {
+		if ( 1 !== \preg_match( '/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/D', $table ) || \str_contains( $table, '..' ) ) {
+			throw new \InvalidArgumentException( "Table name {$table} cannot name a file" );
+		}
+		return "{$table}.p{$partition}";
+	}
+
+	/**
+	 * The declared Table this node answers for, else its own name.
+	 *
+	 * @return string The name a refusal gives.
+	 */
+	private function table_name(): string {
+		return '' !== $this->table ? $this->table : $this->name;
 	}
 
 	/**
@@ -1787,6 +1858,50 @@ class Table_Node extends Node {
 	}
 
 	/**
+	 * A traced Table's line for one Router tick: `DEBUG: <VERB> <calls>
+	 * <ms>ms, …` over each verb called since its last line, on the stderr
+	 * path set_state()'s DEBUG line takes, so the console's timeline reads
+	 * it; no line when nothing was called.
+	 */
+	private function trace_tick(): void {
+		$parts = [];
+		foreach ( $this->window( $this->traced ?? $this->verb_stats ) as $verb => [ $calls, , , , $ns ] ) {
+			$parts[] = "{$verb} {$calls} " . \round( $ns / 1e6, 3 ) . 'ms';
+		}
+		$this->traced = $this->verb_stats;
+		if ( [] !== $parts ) {
+			$this->stderr( 'DEBUG: ' . \implode( ', ', $parts ) );
+		}
+	}
+
+	/**
+	 * Each verb's counters since `$since`, for the verbs called since.
+	 *
+	 * @param array<string,array{int,int,int,int,int,int,int,int}> $since A copy of the counters.
+	 * @return array<string,array{int,int,int,int,int,int,int}> Verb => calls,
+	 *         asked, answered, bytes, ns and errors since, and the window max ns.
+	 */
+	private function window( array $since ): array {
+		$out = [];
+		foreach ( $this->verb_stats as $verb => $row ) {
+			$base  = $since[ $verb ];
+			$calls = $row[ self::CALLS ] - $base[ self::CALLS ];
+			if ( $calls > 0 ) {
+				$out[ $verb ] = [
+					$calls,
+					$row[ self::ASKED ] - $base[ self::ASKED ],
+					$row[ self::ANSWERED ] - $base[ self::ANSWERED ],
+					$row[ self::BYTES ] - $base[ self::BYTES ],
+					$row[ self::TOTAL_NS ] - $base[ self::TOTAL_NS ],
+					$row[ self::ERRORS ] - $base[ self::ERRORS ],
+					$row[ self::WINDOW_MAX_NS ],
+				];
+			}
+		}
+		return $out;
+	}
+
+	/**
 	 * Read or set the trace level. Setting it on holds the counters as they
 	 * stand, so the first trace line sums what came after; off drops them.
 	 *
@@ -1799,27 +1914,6 @@ class Table_Node extends Node {
 			$this->traced = $state > 0 ? $this->traced ?? $this->verb_stats : null;
 		}
 		return $state;
-	}
-
-	/**
-	 * A traced Table's line for one Router tick: `DEBUG: <VERB> <calls>
-	 * <ms>ms, …` over each verb called since its last line, on the stderr
-	 * path set_state()'s DEBUG line takes, so the console's timeline reads
-	 * it; no line when nothing was called.
-	 */
-	private function trace_tick(): void {
-		$last  = $this->traced ?? $this->verb_stats;
-		$parts = [];
-		foreach ( $this->verb_stats as $verb => $row ) {
-			$calls = $row[ self::CALLS ] - $last[ $verb ][ self::CALLS ];
-			if ( $calls > 0 ) {
-				$parts[] = "{$verb} {$calls} " . \round( ( $row[ self::TOTAL_NS ] - $last[ $verb ][ self::TOTAL_NS ] ) / 1e6, 3 ) . 'ms';
-			}
-		}
-		$this->traced = $this->verb_stats;
-		if ( [] !== $parts ) {
-			$this->stderr( 'DEBUG: ' . \implode( ', ', $parts ) );
-		}
 	}
 
 	/**

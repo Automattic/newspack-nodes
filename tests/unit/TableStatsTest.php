@@ -5,6 +5,7 @@ use Newspack_Nodes\Core;
 use Newspack_Nodes\Durable_Arm;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Table_Node;
+use Newspack_Nodes\Tablestats_Record;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -350,5 +351,118 @@ final class TableStatsTest extends TestCase {
 		$this->ask( 1500000, "MGET sku-41\n" );
 		$this->assertSame( [ 'verb_stats' => $this->table->stats() ], $this->table->dump_metadata() );
 		$this->assertSame( $this->table->stats(), $this->table->dump_node()['verb_stats'] );
+	}
+
+	/** @return array<string,array<int,int|float>> The one record's VERBS. */
+	private function drained_verbs( ?Table_Node $table = null ): array {
+		$records = ( $table ?? $this->table )->probe_stats();
+		$this->assertCount( 1, $records );
+		return $records[0][ Tablestats_Record::VERBS ];
+	}
+
+	/** Build a request as ask() does, without filling it. */
+	private function request_of( string $value ): array {
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_REQUEST;
+		$message[ Message::FROM ]  = 'asker-9';
+		$message[ Message::VALUE ] = $value;
+		return $message;
+	}
+
+	/** The stderr lines `$run` writes, joined into one string. */
+	private function stderr_line( \Closure $run ): string {
+		return \implode( "\n", $this->stderr_of( $run ) );
+	}
+
+	public function test_a_probe_record_names_the_table_and_its_backend(): void {
+		$this->insert( 1000000, 'kea-41', 'v-41' );
+		$record = $this->table->probe_stats()[0];
+		$this->assertSame( 'lab-7:kea.p3', $record[ Tablestats_Record::IDENTITY ] );
+		$this->assertSame( 'sqlite', $record[ Tablestats_Record::BACKEND ] );
+		$this->assertGreaterThan( 0, $record[ Tablestats_Record::FILE_BYTES ] );
+		$this->assertSame( 0, $record[ Tablestats_Record::PURGE_BEHIND ] );
+		$this->assertSame( 0, $record[ Tablestats_Record::WAL_STALLED ] );
+	}
+
+	public function test_two_drains_split_the_work_and_stats_keeps_the_running_total(): void {
+		$this->insert( 3000000, 'kea-41', 'v-41' );
+		$this->ask( 7000000, "MGET kea-41 kea-99\n" );
+		$first = $this->drained_verbs();
+		$this->ask( 2000000, "MGET kea-41\n" );
+		$second = $this->drained_verbs();
+
+		$this->assertEqualsCanonicalizing( [ 'INSERT', 'MGET' ], \array_keys( $first ) );
+		$this->assertSame( [ 1, 2, 1 ], \array_slice( $first['MGET'], 0, 3 ) );
+		$this->assertSame( 7.0, $first['MGET'][ Tablestats_Record::ROW_MS ] );
+		$this->assertSame( [ 'MGET' ], \array_keys( $second ) );
+		$this->assertSame( [ 1, 1, 1 ], \array_slice( $second['MGET'], 0, 3 ) );
+		$this->assertSame( 2.0, $second['MGET'][ Tablestats_Record::ROW_MAX_MS ] );
+		$this->assertSame( 2, $this->table->stats()['MGET']['calls'] );
+		$this->assertSame( 7.0, $this->table->stats()['MGET']['max_ms'] );
+	}
+
+	public function test_a_window_counts_its_errors(): void {
+		$this->ask( 3000000, "TOUCH soon kea-41\n" );
+		$this->assertSame( 1, $this->drained_verbs()['TOUCH'][ Tablestats_Record::ROW_ERRORS ] );
+	}
+
+	public function test_a_quiet_window_carries_no_verbs_and_its_elapsed_time(): void {
+		Core::$now = 1790000000.0;
+		$table     = $this->worker_table( 'lab-7:owl', 'owl:p3', $this->sink );
+		Core::$now = 1790000015.5;
+		$record    = $table->probe_stats()[0];
+		$this->assertSame( [], $record[ Tablestats_Record::VERBS ] );
+		$this->assertSame( 15500, $record[ Tablestats_Record::ELAPSED_MS ] );
+	}
+
+	public function test_a_mount_reports_nothing(): void {
+		$this->insert( 1000000, 'kea-41', 'v-41' );
+		$mount = Table_Node::mount( 'lab-7:kea', 3, [ 'namespace' => 'kea:p3', 'ttl' => 777, 'backend' => 'sqlite' ], $this->sink );
+		$mount->fill( $this->request_of( "GET kea-41\n" ) );
+		$this->assertSame( [], $mount->probe_stats() );
+	}
+
+	public function test_a_traced_table_keeps_the_trace_and_the_probe_windows_apart(): void {
+		$this->table->debug_state( 1 );
+		$this->ask( 4000000, "GET kea-41\n" );
+		$this->drained_verbs();
+		$this->ask( 6000000, "GET kea-42\n" );
+		$line = $this->stderr_line( static fn () => Table_Node::tick( 1790000000 ) );
+
+		$this->assertStringContainsString( 'GET 2 10ms', $line );
+		$this->assertSame( 1, $this->drained_verbs()['GET'][ Tablestats_Record::ROW_CALLS ] );
+	}
+
+	public function test_a_reset_between_sweeps_restarts_the_window_rather_than_going_negative(): void {
+		$this->ask( 4000000, "GET kea-41\n" );
+		$this->ask( 4000000, "GET kea-42\n" );
+		$this->drained_verbs();
+		$this->table->reset_stats();
+		$this->ask( 1000000, "GET kea-43\n" );
+		$this->ask( 1000000, "GET kea-44\n" );
+		$this->ask( 1000000, "GET kea-45\n" );
+		$get = $this->drained_verbs()['GET'];
+		$this->assertSame( 3, $get[ Tablestats_Record::ROW_CALLS ] );
+		$this->assertSame( 3.0, $get[ Tablestats_Record::ROW_MS ] );
+	}
+
+	public function test_a_volatile_table_reports_no_file_and_no_bytes(): void {
+		Core::$memd = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
+		$emu        = Table_Node::table( 'emu:p3', 777, 'memcache' );
+		$emu->name( 'lab-7:emu' );
+		$emu->sink( $this->sink );
+		$emu->fill( $this->request_of( "GET kea-41\n" ) );
+		$record = $emu->probe_stats()[0];
+		$this->assertSame( 0, $record[ Tablestats_Record::FILE_BYTES ] );
+		$this->assertSame( 0, $record[ Tablestats_Record::VERBS ]['GET'][ Tablestats_Record::ROW_BYTES ] );
+		$this->assertSame( 'memcache', $record[ Tablestats_Record::BACKEND ] );
+	}
+
+	public function test_a_table_built_with_no_partition_bound_reports_its_name(): void {
+		Core::$memd = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
+		$owl        = new Table_Node();
+		$owl->name( 'lab-7:owl' );
+		$owl->arguments( [ 'owl:any', '600', 'memcache' ] );
+		$this->assertSame( 'lab-7:owl', $owl->probe_stats()[0][ Tablestats_Record::IDENTITY ] );
 	}
 }
