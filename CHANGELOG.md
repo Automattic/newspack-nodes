@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.85.0] - 2026-10-02
+
 ### Added
 
 - **A Table counts errors per operation.** Its `stats` verb, `dump_node` and `dump_metadata` answer an `errors` count for each operation: the requests answered with a TM_ERROR, whether a refused request or a read the backend failed.
