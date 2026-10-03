@@ -43,7 +43,6 @@ const series = {
 			{ ts: 115, value: 2 },
 		],
 		max: 2,
-		avg: 1.5,
 	},
 	'high.p0': {
 		points: [
@@ -51,7 +50,6 @@ const series = {
 			{ ts: 115, value: 100 },
 		],
 		max: 100,
-		avg: 95,
 	},
 };
 
@@ -127,7 +125,6 @@ describe( 'TopicsChart', () => {
 						{ ts: 115, value: 0 },
 					],
 					max: 0,
-					avg: 0,
 				},
 			},
 		} );
@@ -158,5 +155,30 @@ describe( 'TopicsChart', () => {
 		act( () => fireEvent.click( toggle ) );
 		expect( toggle.getAttribute( 'aria-pressed' ) ).toBe( 'true' );
 		expect( bands( container ) ).toHaveLength( 2 );
+	} );
+
+	it( 'stacks by default when the caller says the series add up', () => {
+		const { container } = mount( { stacked: true } );
+		const toggle = container.querySelector(
+			'.newspack-nodes-chart__stack'
+		);
+		expect( toggle.getAttribute( 'aria-pressed' ) ).toBe( 'true' );
+		act( () => fireEvent.click( toggle ) );
+		expect( toggle.getAttribute( 'aria-pressed' ) ).toBe( 'false' );
+	} );
+
+	it( 'leads a stacked tooltip with the total the caller labels', () => {
+		mount( { stacked: true, totalLabel: 'Summe' } );
+		expect( tooltipRows( 1 )[ 0 ] ).toEqual( {
+			label: 'Summe',
+			value: '102/s',
+		} );
+	} );
+
+	it( 'offers no stack toggle when the caller marks the series unstackable', () => {
+		const { container } = mount( { stackable: false } );
+		expect(
+			container.querySelector( '.newspack-nodes-chart__stack' )
+		).toBeNull();
 	} );
 } );

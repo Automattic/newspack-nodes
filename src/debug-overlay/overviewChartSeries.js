@@ -2,7 +2,7 @@
  * Reshape IoTelemetry's rate ring into the series model TopicsChart draws, so
  * the debug overlay's Overview tab reuses the event dashboards' chart instead
  * of growing a second one. The shape matches `topicChartSeries` —
- * `{ [label]: { points:[{ts,value}], max, avg } }` — over two fixed labels, In
+ * `{ [label]: { points:[{ts,value}], max } }` — over two fixed labels, In
  * and Out, where the dashboards carry one label per topic, and over two panels,
  * message rate and byte rate.
  *
@@ -35,31 +35,27 @@ const BYTE_OUT = 4;
  * Build one TopicsChart series from a single ring column.
  *
  * `buildAlignedSeries` ranks a panel's series by `max`, so the busier direction
- * draws first; `avg` completes the shape. An empty ring yields empty points
- * with both at zero, which TopicsChart renders as a blank panel.
+ * draws first. An empty ring yields empty points with a zero max, which
+ * TopicsChart renders as a blank panel.
  *
  * @param {Array<Array<number>>} ring The rate ring, oldest row first.
  * @param {number}               col  Column index to read from each row.
- * @return {{points:Array<{ts:number,value:number}>,max:number,avg:number}} One chart series.
+ * @return {{points:Array<{ts:number,value:number}>,max:number}} One chart series.
  */
 function seriesFromColumn( ring, col ) {
 	const points = ring.map( ( row ) => ( {
 		ts: row[ T ],
 		value: row[ col ],
 	} ) );
-	const values = points.map( ( p ) => p.value );
-	const max = values.length ? Math.max( ...values ) : 0;
-	const avg = values.length
-		? values.reduce( ( a, b ) => a + b, 0 ) / values.length
-		: 0;
-	return { points, max, avg };
+	const max = points.reduce( ( m, p ) => Math.max( m, p.value ), 0 );
+	return { points, max };
 }
 
 /**
  * Split the rate ring into the two In/Out panels the Overview tab renders.
  *
  * @param {Array<Array<number>>} ring IoTelemetry's rate ring, from `getSeries()`.
- * @return {{msgRate:Object<string,{points:Array<{ts:number,value:number}>,max:number,avg:number}>,byteRate:Object<string,{points:Array<{ts:number,value:number}>,max:number,avg:number}>}}
+ * @return {{msgRate:Object<string,{points:Array<{ts:number,value:number}>,max:number}>,byteRate:Object<string,{points:Array<{ts:number,value:number}>,max:number}>}}
  *   The message-rate and byte-rate panels, each keyed `In` and `Out`.
  */
 export function overviewChartSeries( ring ) {

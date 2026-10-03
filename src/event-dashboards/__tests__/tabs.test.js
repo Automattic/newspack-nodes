@@ -14,6 +14,7 @@ jest.mock( '../LogViewer', () => () => null );
 jest.mock( '../ConfigAudit', () => () => null );
 jest.mock( '../Overview', () => () => null );
 jest.mock( '../Jobs', () => () => null );
+jest.mock( '../Tables', () => () => null );
 
 test( 'importing tabs registers the overview tab first (order 0) on the station host', () => {
 	const { getTabs, resetTabs } = require( '../../shared/tabs/tabRegistry' );
@@ -98,4 +99,23 @@ test( 'importing tabs registers the config-audit tab on the station host at orde
 	expect( tab.order ).toBeGreaterThan( 25 ); // after the Log Viewer
 	expect( tab.label ).toBe( __( 'Config Audit', 'newspack-nodes' ) );
 	expect( typeof tab.component ).toBe( 'function' );
+} );
+
+test( 'importing tabs registers the Tables tab on the station host after Jobs and before Partition Viewer', () => {
+	jest.resetModules();
+	require( '../tabs' );
+	const { getTabs } = require( '../../shared/tabs/tabRegistry' );
+	const stationTabs = getTabs( 'station' );
+	const tab = stationTabs.find( ( t ) => t.id === 'tables' );
+	expect( tab ).toBeTruthy();
+	expect( tab.host ).toBe( 'station' );
+	expect( tab.slug ).toBe( 'tables' );
+	expect( tab.order ).toBe( 12 );
+	expect( tab.label ).toBe( __( 'Tables', 'newspack-nodes' ) );
+	expect( typeof tab.component ).toBe( 'function' );
+	const ids = stationTabs.map( ( t ) => t.id );
+	expect( ids.indexOf( 'tables' ) ).toBe( ids.indexOf( 'jobs' ) + 1 );
+	expect( ids.indexOf( 'tables' ) ).toBeLessThan(
+		ids.indexOf( 'partition-viewer' )
+	);
 } );

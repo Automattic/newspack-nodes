@@ -1,22 +1,25 @@
 /**
- * The fleet-vitals card row across the top of the Overview station tab: topology and
- * active counts, worker liveness, on-disk partitions, worst health, global read
- * and write rates, current message rate and backlog, the 24h produced totals,
- * and offsetlog cache size.
+ * The fleet-vitals card row across the top of the Overview station tab:
+ * topology and active counts, worker liveness, on-disk partitions, worst
+ * health, global read and write rates, current message rate and backlog, the
+ * 24h produced totals, and the total offsetlog cache size.
  *
  * Every number is computed outside this component. `readRate`, `writeRate` and
  * `logPartitions` arrive as props from `useTopologyManager`; the five pure
  * modules beside this one — `fleetSummary`, `probe24hTotals`, `globalMsgRate`,
- * `cacheSizeTotals` and `backlogTotal` — roll the topology rows and the
+ * `cacheSizeTotal` and `backlogTotal` — roll the topology rows and the
  * `topicprobe:view` consumers up into the rest, and the shared formatters turn
  * each figure into its display string. What is left here is the layout and the
  * translated labels, which is what lets a card's rule be tested without
- * rendering anything. Those rules differ card by card — the rate cards dedup
- * co-readers of one source, the backlog and cache cards sum per reader — and
- * each derive's own header says why. One rule is shared: the "Messages/s",
- * "Backlog" and cache cards are LIVE, counting a reader only while its newest
- * sample is within a minute of the newest message seen (`streamHead`,
- * `isLiveSample`), while the 24h cards integrate every retained sample.
+ * rendering anything.
+ *
+ * Every card is a sum. A reader card sums per reader, co-readers of one
+ * partition each counted, so it reads the column total of its stacked Overview
+ * chart; the Write card counts each partition's head once. The "Messages/s",
+ * "Backlog" and "Total Cache" cards are LIVE, counting a reader only while it
+ * names a source and its newest sample is within a minute of the newest
+ * message seen (`streamHead`, `isLiveReader`), while the 24h cards sum every
+ * retained sample.
  */
 
 import { memo } from '@wordpress/element';
@@ -24,7 +27,7 @@ import { __, sprintf, _n } from '@wordpress/i18n';
 import { fleetSummary } from './fleetSummary';
 import { probe24hTotals } from './probe24hTotals';
 import { globalMsgRate } from './globalMsgRate';
-import { cacheSizeTotals } from './cacheSizeTotals';
+import { cacheSizeTotal } from './cacheSizeTotal';
 import { backlogTotal } from './backlogTotal';
 import { streamHead } from './liveSample';
 import {
@@ -89,7 +92,6 @@ function SummaryCards( {
 	const fleet = fleetSummary( topologies );
 	const totals = probe24hTotals( consumers );
 	const headS = streamHead( consumers );
-	const cache = cacheSizeTotals( consumers, headS );
 
 	/** @type {string} */
 	let healthLabel = __( 'all systems ok', 'newspack-nodes' );
@@ -176,13 +178,8 @@ function SummaryCards( {
 				label={ __( 'Bytes · 24h', 'newspack-nodes' ) }
 			/>
 			<Card
-				mod="cache-avg"
-				value={ formatBytes( cache.avg ) }
-				label={ __( 'Avg Cache', 'newspack-nodes' ) }
-			/>
-			<Card
 				mod="cache-total"
-				value={ formatBytes( cache.total ) }
+				value={ formatBytes( cacheSizeTotal( consumers, headS ) ) }
 				label={ __( 'Total Cache', 'newspack-nodes' ) }
 			/>
 		</div>

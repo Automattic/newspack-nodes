@@ -184,7 +184,7 @@ describe( 'Jobs', () => {
 
 		expect( getByText( 'cron:films' ) ).toBeTruthy();
 		expect(
-			getByText( 'evtemplate', { selector: '.nodes-jobs__handler' } )
+			getByText( 'evtemplate', { selector: '.nodes-probe-tab__name' } )
 		).toBeTruthy();
 		// The failing cron job's run/failure counts + message surface.
 		expect(
@@ -205,7 +205,7 @@ describe( 'Jobs', () => {
 		expect( getByText( '12' ) ).toBeTruthy();
 		// cron:films: windowed failures = 5 (latest cumulative is 1).
 		const failing = container.querySelector(
-			'.nodes-jobs__failures.is-nonzero'
+			'.nodes-probe-tab__count.is-nonzero'
 		);
 		expect( failing.textContent ).toBe( '5' );
 	} );
@@ -224,13 +224,17 @@ describe( 'Jobs', () => {
 		useNodeField.mockReturnValue( { handlers: {} } );
 		const { container, queryByRole } = render( <Jobs /> );
 		expect( queryByRole( 'table' ) ).toBeNull();
-		expect( container.querySelector( '.nodes-jobs__empty' ) ).toBeTruthy();
+		expect(
+			container.querySelector( '.nodes-probe-tab__empty' )
+		).toBeTruthy();
 	} );
 
 	it( 'tolerates an unready view model (no crash, empty state)', () => {
 		useNodeField.mockReturnValue( undefined );
 		const { container } = render( <Jobs /> );
-		expect( container.querySelector( '.nodes-jobs__empty' ) ).toBeTruthy();
+		expect(
+			container.querySelector( '.nodes-probe-tab__empty' )
+		).toBeTruthy();
 	} );
 
 	it( 'feeds runs, errors, backlog and latency panels to TopicsChart', () => {
@@ -242,6 +246,56 @@ describe( 'Jobs', () => {
 		expect( titles.some( ( t ) => /error/i.test( t ) ) ).toBe( true );
 		expect( titles.some( ( t ) => /backlog/i.test( t ) ) ).toBe( true );
 		expect( titles.some( ( t ) => /latency/i.test( t ) ) ).toBe( true );
+	} );
+
+	it( 'charts each job identity on each worker as its own stacked series', () => {
+		const m = model();
+		m.handlers[ 'cron:films' ].series = [
+			{
+				ts: 100,
+				runsRate: 3,
+				errorsRate: 1,
+				queueLatencyMs: 40,
+				runsDelta: 2,
+				worker: 'job-worker-4417.p2',
+			},
+			{
+				ts: 107,
+				runsRate: 5,
+				errorsRate: 0,
+				queueLatencyMs: 80,
+				runsDelta: 6,
+				worker: 'job-worker-4417.p6',
+			},
+		];
+		useNodeField.mockReturnValue( m );
+		render( <Jobs /> );
+		const [ runs, errors, backlog, latency ] = globalThis.__jobsPanels;
+		for ( const panel of [ runs, errors ] ) {
+			expect( panel.stacked ).toBe( true );
+			expect( Object.keys( panel.series ) ).toEqual(
+				expect.arrayContaining( [
+					'cron:films · job-worker-4417.p2',
+					'cron:films · job-worker-4417.p6',
+				] )
+			);
+			expect( panel.series ).not.toHaveProperty( 'cron' );
+		}
+		expect(
+			runs.series[ 'cron:films · job-worker-4417.p6' ].points.map(
+				( p ) => p.value
+			)
+		).toEqual( [ 5 ] );
+		// A mean over two workers' samples is one series per identity.
+		expect( latency.stacked ).toBeFalsy();
+		expect( Object.keys( latency.series ) ).toContain( 'cron:films' );
+		expect( latency.series[ 'cron:films' ].points ).toHaveLength( 2 );
+		expect( latency.stackable ).toBe( false );
+		// Each jobs.pN backlog is its own debt, so the column sums them.
+		expect( backlog.stacked ).toBe( true );
+		for ( const panel of [ runs, errors, backlog ] ) {
+			expect( panel.totalLabel ).toBe( 'Total' );
+		}
 	} );
 
 	it( 'titles each panel Y-axis with the quantity it plots', () => {
@@ -261,12 +315,106 @@ describe( 'Jobs', () => {
 		// pin its column, the other redraw to fit what was left, and every
 		// poll ratchet the imbalance. `minmax(0, …)` takes content out of it.
 		const source = readFileSync(
-			resolvePath( __dirname, '../styles/jobs.scss' ),
+			resolvePath( __dirname, '../styles/probe-tab.scss' ),
 			'utf8'
 		);
-		const panels = source.slice( source.indexOf( '.nodes-jobs__panels' ) );
+		const panels = source.slice(
+			source.indexOf( '.nodes-probe-tab__panels' )
+		);
 		expect( panels ).toMatch(
 			/grid-template-columns:\s*minmax\(0, 1fr\) minmax\(0, 1fr\);/
+		);
+	} );
+
+	it( 'sorts the most failing identity first, by failures then by name', () => {
+		const row = ( key, errors ) => ( {
+			key,
+			handler: key,
+			windowed: { runs: 9, errors, avgDurationMs: 12, avgQueueMs: 3 },
+			latest: {
+				lastTs: 0,
+				lastDurationMs: 12,
+				lastStatus: 'success',
+				lastMessage: '',
+			},
+			series: [],
+		} );
+		useNodeField.mockReturnValue( {
+			handlers: {
+				'alpha:low': row( 'alpha:low', 0 ),
+				'mid:two': row( 'mid:two', 2 ),
+				'zulu:worst': row( 'zulu:worst', 7 ),
+			},
+		} );
+		const { container } = render( <Jobs /> );
+		expect(
+			[ ...container.querySelectorAll( 'tbody tr' ) ].map(
+				( r ) => r.dataset.jobKey
+			)
+		).toEqual( [ 'zulu:worst', 'mid:two', 'alpha:low' ] );
+	} );
+
+	it( 'shows the window’s longest run in a Max column after Avg', () => {
+		const m = model();
+		m.handlers[ 'cron:films' ].windowed.maxDurationMs = 4870;
+		useNodeField.mockReturnValue( m );
+		const { container } = render( <Jobs /> );
+		const heads = [ ...container.querySelectorAll( 'th' ) ].map(
+			( h ) => h.textContent
+		);
+		expect( heads.slice( 3, 6 ) ).toEqual( [ 'Avg', 'Max', 'Last' ] );
+		const cells = [
+			...container.querySelector( '[data-job-key="cron:films"]' )
+				.children,
+		].map( ( c ) => c.textContent );
+		expect( cells[ 4 ] ).toBe( '4.9s' );
+	} );
+
+	it( 'reads a mean or max with no runs behind it as -', () => {
+		const m = model();
+		Object.assign( m.handlers.evtemplate.windowed, {
+			runs: 0,
+			avgDurationMs: null,
+			maxDurationMs: null,
+			avgQueueMs: null,
+		} );
+		useNodeField.mockReturnValue( m );
+		const { container } = render( <Jobs /> );
+		const cells = [
+			...container.querySelector( '[data-job-key="evtemplate"]' )
+				.children,
+		].map( ( c ) => c.textContent );
+		// Avg (3), Max (4) and Queued (6).
+		expect( [ cells[ 3 ], cells[ 4 ], cells[ 6 ] ] ).toEqual( [
+			'-',
+			'-',
+			'-',
+		] );
+	} );
+
+	it( 'prints counts whole, grouped by locale', () => {
+		const m = model();
+		Object.assign( m.handlers[ 'cron:films' ].windowed, {
+			runs: 12345,
+			errors: 4321,
+		} );
+		useNodeField.mockReturnValue( m );
+		const { container } = render( <Jobs /> );
+		const cells = [
+			...container.querySelector( '[data-job-key="cron:films"]' )
+				.children,
+		].map( ( c ) => c.textContent );
+		expect( cells.slice( 1, 3 ) ).toEqual( [ '12,345', '4,321' ] );
+	} );
+
+	it( 'keeps its panel series stable across renders of an unready model', () => {
+		useNodeField.mockReturnValue( undefined );
+		const { rerender } = render( <Jobs /> );
+		const first = globalThis.__jobsPanels.slice( 0, 4 );
+		rerender( <Jobs /> );
+		const second = globalThis.__jobsPanels.slice( -4 );
+		second.forEach( ( panel, i ) =>
+			expect( panel.series ).toBe( first[ i ].series )
 		);
 	} );
 } );

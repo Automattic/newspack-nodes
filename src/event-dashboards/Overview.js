@@ -25,7 +25,9 @@
  * probe link at the start of the retained log, so the panels draw the real 24h
  * history rather than the thin ring a live tail accumulates while the tab is
  * open.
- * `topicChartSeries` rolls each metric's per-reader samples up per topic.
+ * Each panel plots one series per partition per worker, `<source> · <worker>`,
+ * through `perWorker`: co-readers of a partition inside one worker sum, since
+ * one sweep stamps them together, and the stacked chart sums the workers.
  *
  * Deep links go through `consoleHref`, keeping Console navigation
  * single-sourced.
@@ -50,7 +52,11 @@ import AlertModal from './AlertModal';
 import { useTopologyManager } from './hooks/useTopologyManager';
 import { useProbeStream } from './hooks/useProbeStream';
 import { useNodeField } from '../runtime/react';
-import { topicChartSeries, fillModeForMetric } from './topicProbeSeries';
+import {
+	topicChartSeries,
+	fillModeForMetric,
+	perWorker,
+} from './topicProbeSeries';
 import { TopicsChart } from './TopicsChart';
 import { consoleHref, TopologyRow } from './TopologyRow';
 import {
@@ -73,6 +79,22 @@ import {
 	writeCollapsed,
 } from './overviewPrefs';
 import './styles/overview.scss';
+
+/**
+ * A reader plots under the partition it tails.
+ *
+ * @param {{source?:string}} c A `topicprobe:view` consumer.
+ * @return {string} Its source.
+ */
+const bySource = ( c ) => c.source || '';
+
+/**
+ * A per-worker stream plots under its own key.
+ *
+ * @param {{key:string}} c A `perWorker` pseudo-entry.
+ * @return {string} Its key.
+ */
+const byKey = ( c ) => c.key;
 
 /**
  * The rendered active rows' vertical bounds, in display order — the geometry
@@ -294,24 +316,29 @@ export default function Overview( { headerControlsSlot } ) {
 		setDragName( null );
 	}, [] );
 
-	// Per-topic 24h series, deferred so heavy rollups/redraws stay off INP.
+	// Per-partition 24h series, deferred so heavy rollups stay off INP.
 	const consumers = useDeferredValue( probeView?.consumers );
-	const msgRateSeries = useMemo(
-		() => topicChartSeries( consumers, 'msgRate' ),
+	const streams = useMemo(
+		() => perWorker( consumers, bySource ),
 		[ consumers ]
+	);
+	const msgRateSeries = useMemo(
+		() => topicChartSeries( streams, 'msgRate', byKey ),
+		[ streams ]
 	);
 	const byteRateSeries = useMemo(
-		() => topicChartSeries( consumers, 'byteRate' ),
-		[ consumers ]
+		() => topicChartSeries( streams, 'byteRate', byKey ),
+		[ streams ]
 	);
 	const backlogSeries = useMemo(
-		() => topicChartSeries( consumers, 'backlog' ),
-		[ consumers ]
+		() => topicChartSeries( streams, 'backlog', byKey ),
+		[ streams ]
 	);
 	const cacheSizeSeries = useMemo(
-		() => topicChartSeries( consumers, 'cacheSize' ),
-		[ consumers ]
+		() => topicChartSeries( streams, 'cacheSize', byKey ),
+		[ streams ]
 	);
+	const total = __( 'Total', 'newspack-nodes' );
 
 	// "+ New Topology" portals into the station header; undefined = inline.
 	const newTopologyControl = (
@@ -389,6 +416,8 @@ export default function Overview( { headerControlsSlot } ) {
 					series={ msgRateSeries }
 					formatValue={ formatMsgRate }
 					fillMode={ fillModeForMetric( 'msgRate' ) }
+					stacked
+					totalLabel={ total }
 				/>
 				<TopicsChart
 					title={ __( 'Topics Byte Rate', 'newspack-nodes' ) }
@@ -396,6 +425,8 @@ export default function Overview( { headerControlsSlot } ) {
 					series={ byteRateSeries }
 					formatValue={ formatByteRate }
 					fillMode={ fillModeForMetric( 'byteRate' ) }
+					stacked
+					totalLabel={ total }
 				/>
 				<TopicsChart
 					title={ __( 'Topics Backlog', 'newspack-nodes' ) }
@@ -403,6 +434,8 @@ export default function Overview( { headerControlsSlot } ) {
 					series={ backlogSeries }
 					formatValue={ formatBytes }
 					fillMode={ fillModeForMetric( 'backlog' ) }
+					stacked
+					totalLabel={ total }
 				/>
 				<TopicsChart
 					title={ __( 'Topics Cache Size', 'newspack-nodes' ) }
@@ -410,6 +443,8 @@ export default function Overview( { headerControlsSlot } ) {
 					series={ cacheSizeSeries }
 					formatValue={ formatBytes }
 					fillMode={ fillModeForMetric( 'cacheSize' ) }
+					stacked
+					totalLabel={ total }
 				/>
 			</div>
 			{ actives.length > 0 && (

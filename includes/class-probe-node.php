@@ -10,7 +10,8 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * Probe_Node: the sweep itself, shared by `Topic_Probe` and `Job_Probe`.
+ * Probe_Node: the sweep itself, shared by `Topic_Probe`, `Job_Probe` and
+ * `Table_Probe`.
  *
  * Each worker process runs one probe, sweeping ITS local nodes
  * (`Core::$nodes_by_name`, our analog of Tachikoma's `%Tachikoma::Nodes`) and
@@ -89,22 +90,44 @@ abstract class Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 		if ( null === $sink ) {
 			return;
 		}
+		$from = $this->from();
 		Worker_Should_Stop::raise(
-			Worker_Should_Stop::attempt_each( Core::$nodes_by_name, fn ( Node $node ) => $this->sweep( $node, $sink ) )
+			Worker_Should_Stop::attempt_each( Core::$nodes_by_name, fn ( Node $node ) => $this->sweep( $node, $sink, $from ) )
 		);
 	}
 
 	/**
-	 * Emit one TM_STRUCT per record this probe takes from `$node`.
+	 * The FROM every record carries: `{worker-id}/{probe-name}`, such as
+	 * `job-worker.p2/jobstats`, so a reader charts each worker's stream apart
+	 * while the record layout stays as it is. `Topology_Loader` binds the
+	 * topology and partition in a worker; with either unbound, as in a unit
+	 * test or a REPL, or a partition `Core::canonical_decimal()` refuses, FROM
+	 * is the bare probe name.
 	 *
-	 * @param Node $node A node from this process's registry.
-	 * @param Node $sink Where the records go.
+	 * @return string The FROM stamp.
 	 */
-	private function sweep( Node $node, Node $sink ): void {
+	private function from(): string {
+		$topology  = Core::$var['topology'] ?? null;
+		$partition = Core::canonical_decimal( Core::$var['partition'] ?? null );
+		if ( ! \is_string( $topology ) || '' === $topology || null === $partition ) {
+			return $this->name;
+		}
+		return CLI::worker_id( $topology, $partition ) . '/' . $this->name;
+	}
+
+	/**
+	 * Emit one TM_STRUCT per record this probe takes from `$node`, each
+	 * stamped FROM `{worker-id}/{probe-name}` as `from()` spells it.
+	 *
+	 * @param Node   $node A node from this process's registry.
+	 * @param Node   $sink Where the records go.
+	 * @param string $from The FROM each record carries, from `from()`.
+	 */
+	private function sweep( Node $node, Node $sink, string $from ): void {
 		foreach ( $this->probe( $node ) as $record ) {
 			$message                   = Message::new_message();
 			$message[ Message::TYPE ]  = Message::TM_STRUCT;
-			$message[ Message::FROM ]  = $this->name;
+			$message[ Message::FROM ]  = $from;
 			$message[ Message::TO ]    = $this->target;
 			$message[ Message::VALUE ] = $record;
 			$fitted                    = $this->fit_to_line( $message );

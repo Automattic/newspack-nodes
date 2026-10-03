@@ -127,7 +127,7 @@ const REQUIRED_ROLE_PAIRS = [
 	[ 'nodes-station__lazy-loading', 'newspack-nodes-performance-loading' ],
 	[ 'aggregator-status-loading', 'newspack-nodes-performance-loading' ],
 	[ 'aggregator-status-empty', 'newspack-nodes-empty-state' ],
-	[ 'nodes-jobs__empty', 'newspack-nodes-empty-state' ],
+	[ 'nodes-probe-tab__empty', 'newspack-nodes-empty-state' ],
 	[ 'nodes-config-audit__empty', 'newspack-nodes-empty-state' ],
 	[ 'newspack-nodes-log-browser__empty', 'newspack-nodes-empty-state' ],
 	[ 'newspack-nodes-log-browser__empty', 'is-quiet' ],
@@ -1433,8 +1433,8 @@ describe( 'canonical appearance ownership', () => {
 				{ padding: '48px 24px', 'text-align': 'center' },
 			],
 			[
-				'event-dashboards/styles/jobs.scss',
-				'nodes-jobs__empty',
+				'event-dashboards/styles/probe-tab.scss',
+				'nodes-probe-tab__empty',
 				{ padding: '24px', 'text-align': 'center' },
 			],
 			[

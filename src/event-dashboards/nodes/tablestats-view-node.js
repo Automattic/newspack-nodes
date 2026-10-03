@@ -46,12 +46,14 @@ export class TablestatsViewNode extends ProbeStreamViewNode {
 	/**
 	 * Fold one record into its Table's entry and yield its sample.
 	 *
-	 * @param {Object}               c     The Table's entry, keyed by `IDENTITY`.
-	 * @param {Array<string|number>} value The positional `Tablestats_Record` VALUE.
-	 * @param {number}               ts    Snapshot instant (epoch seconds).
+	 * @param {Object}               c      The Table's entry, keyed by `IDENTITY`.
+	 * @param {Array<string|number>} value  The positional `Tablestats_Record` VALUE.
+	 * @param {number}               ts     Snapshot instant (epoch seconds).
+	 * @param {string}               worker The worker that swept it, or `''`.
 	 * @return {Object} The sample to push onto the entry's series.
 	 */
-	_fold( c, value, ts ) {
+	_fold( c, value, ts, worker ) {
+		c.ts = ts;
 		c.backend = String( value[ Tbl.BACKEND ] ?? c.backend ?? '' );
 		c.purgeBehind = Number( value[ Tbl.PURGE_BEHIND ] ) || 0;
 		c.walStalled = Number( value[ Tbl.WAL_STALLED ] ) || 0;
@@ -76,6 +78,7 @@ export class TablestatsViewNode extends ProbeStreamViewNode {
 		const per = ( n ) => ( elapsed > 0 ? n / elapsed : 0 );
 		return {
 			ts,
+			worker,
 			elapsed,
 			verbs,
 			opsDelta: t.ops,
@@ -102,7 +105,8 @@ export class TablestatsViewNode extends ProbeStreamViewNode {
 
 	/**
 	 * The published per-Table snapshot: its identity and backend, the window
-	 * rollup the table reads, the newest levels, and a copy of the series.
+	 * rollup the table reads, the newest levels with the instant they were
+	 * swept, and a copy of the series.
 	 *
 	 * @param {Object} c The internal entry.
 	 * @return {Object} { key, backend, windowed, latest, series }.
@@ -113,6 +117,7 @@ export class TablestatsViewNode extends ProbeStreamViewNode {
 			backend: c.backend,
 			windowed: this._windowed( c.series ),
 			latest: {
+				ts: c.ts,
 				fileBytes: c.fileBytes,
 				purgeBehind: c.purgeBehind,
 				walStalled: c.walStalled,
@@ -123,8 +128,8 @@ export class TablestatsViewNode extends ProbeStreamViewNode {
 
 	/**
 	 * Sum the retained series per operation, then roll the sums up. Hit % is
-	 * null when the window read no keys, so the cell can say so rather than
-	 * claim 0% or 100%.
+	 * null when the window read no keys, and the mean and max ms are null when
+	 * it made no call, so a cell can say so rather than claim 0.
 	 *
 	 * @param {Array<Object>} series The per-Table ring of samples.
 	 * @return {Object} The rollup.
@@ -151,8 +156,8 @@ export class TablestatsViewNode extends ProbeStreamViewNode {
 			readKeys: t.readKeys,
 			hitKeys: t.hitKeys,
 			hitPct: t.readKeys > 0 ? ( 100 * t.hitKeys ) / t.readKeys : null,
-			meanMs: t.ops > 0 ? t.ms / t.ops : 0,
-			maxMs: t.maxMs,
+			meanMs: t.ops > 0 ? t.ms / t.ops : null,
+			maxMs: t.ops > 0 ? t.maxMs : null,
 			errors: t.errors,
 			purged: t.purged,
 			walWritten: t.walWritten,

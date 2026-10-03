@@ -20,10 +20,11 @@ namespace Newspack_Nodes;
  * and never differences across records — a worker recycles every ~595s, and
  * differencing reads that recycle as a counter reset. Fields 8..11 are the
  * last-run detail, which survives the drain so an idle identity keeps its row.
- * The Message's TIMESTAMP is the sweep instant, never duplicated here.
+ * MAX_DURATION_MS rides last, so the slots before it keep their indexes. The
+ * Message's TIMESTAMP is the sweep instant, never duplicated here.
  *
  * Indices mirror `src/runtime/jobstats-record.js`, and
- * `tests/unit/ProbeRecordLayoutsTest.php` pins both halves plus the dense 0..12
+ * `tests/unit/ProbeRecordLayoutsTest.php` pins both halves plus the dense 0..13
  * ordering: a browser reading one slot off misreads every field after it.
  */
 class Jobstats_Record {
@@ -92,5 +93,12 @@ class Jobstats_Record {
 
 	/** Milliseconds the deltas above cover — the interval since this identity's previous sweep, which opens at its first run. */
 	public const ELAPSED_MS = 12;
+
+	/**
+	 * Longest run during ELAPSED_MS, milliseconds; 0 when the window ran
+	 * nothing. A long run between short ones would hide inside
+	 * DURATION_MS_DELTA's sum and LAST_DURATION_MS alike.
+	 */
+	public const MAX_DURATION_MS = 13;
 
 }

@@ -5,7 +5,7 @@
  */
 
 import { __ } from '@wordpress/i18n';
-import { workerId } from '../utils/scope';
+import { workerId } from '@newspack-nodes/shared/utils/workerId';
 
 /**
  * The slice of the PHP-localized payload this file reads. Admin localizes many

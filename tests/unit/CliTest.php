@@ -361,7 +361,7 @@ class CliTest extends TestCase {
 	// ── worker_id() / parse_worker_id() / attach_to_worker() ───────────────────
 
 	/**
-	 * The case list `parseWorkerId()` in `src/topology-console/utils/scope.js`
+	 * The case list `parseWorkerId()` in `src/shared/utils/workerId.js`
 	 * reads too, so the two grammars cannot drift apart. A valid id also
 	 * round-trips through `worker_id()`, the one writer.
 	 *

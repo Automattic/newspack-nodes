@@ -1294,7 +1294,7 @@ disagree let one pass retire a directory another pass never sees.
 and `CLI::parse_worker_id()` the only reader. The reader accepts exactly the strings the
 writer can produce — a type holding no `/` or NUL, then the final `.p{N}` with no leading
 zero — and answers null for anything else. Their JS twins, `workerId()` and
-`parseWorkerId()` in [`src/topology-console/utils/scope.js`](../src/topology-console/utils/scope.js),
+`parseWorkerId()` in [`src/shared/utils/workerId.js`](../src/shared/utils/workerId.js),
 read one case list with the PHP pair, [`tests/fixtures/worker-ids.json`](../tests/fixtures/worker-ids.json).
 
 Two layouts hang off the id, and each has one owner.

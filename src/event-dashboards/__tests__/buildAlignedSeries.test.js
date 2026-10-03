@@ -79,6 +79,42 @@ describe( 'buildAlignedSeries', () => {
 		] );
 	} );
 
+	it( 'stops holding a LEVEL topic once it falls out of the live window', () => {
+		const out = buildAlignedSeries(
+			{
+				// Its newest sample sits 120 s behind the live series.
+				'departed.p0': {
+					points: [ { ts: 1365, value: 4100, weight: 15 } ],
+					max: 4100,
+				},
+				'live.p0': {
+					points: [
+						{ ts: 1365, value: 2700, weight: 15 },
+						{ ts: 1485, value: 2900, weight: 15 },
+					],
+					max: 2900,
+				},
+				// Its newest sample sits 45 s behind, inside the window.
+				'recent.p0': {
+					points: [ { ts: 1440, value: 3300, weight: 15 } ],
+					max: 3300,
+				},
+			},
+			100,
+			HOLD
+		);
+		const at = ( label ) =>
+			out.series.find( ( s ) => s.label === label ).values.at( -1 ).value;
+		expect( at( 'departed.p0' ) ).toBe( 0 );
+		expect( at( 'live.p0' ) ).toBe( 2900 );
+		expect( at( 'recent.p0' ) ).toBe( 3300 );
+		// Held while still inside the window: bucket 1425 reads 4100.
+		const departed = out.series.find( ( s ) => s.label === 'departed.p0' );
+		expect(
+			departed.values.find( ( v ) => 1425000 === v.date.getTime() ).value
+		).toBe( 4100 );
+	} );
+
 	it( 'a LEVEL topic reads 0 for buckets before its first sample', () => {
 		const out = buildAlignedSeries(
 			{
@@ -161,6 +197,26 @@ describe( 'buildAlignedSeries', () => {
 		expect( out.series[ 0 ].values[ 0 ].value ).toBe( 25 );
 	} );
 
+	it( 'ignores idle zero-weight samples beside a weighted one in a RATE bucket', () => {
+		// A 10 ms mean over 4 ops plus three idle windows: the mean is 10 ms.
+		const out = buildAlignedSeries(
+			{
+				a: {
+					points: [
+						{ ts: 0, value: 10, weight: 4 },
+						{ ts: 1, value: 0, weight: 0 },
+						{ ts: 2, value: 0, weight: 0 },
+						{ ts: 3, value: 0, weight: 0 },
+					],
+					max: 10,
+				},
+			},
+			100,
+			ZERO
+		);
+		expect( out.series[ 0 ].values[ 0 ].value ).toBe( 10 );
+	} );
+
 	it( 'defaults to RATE behavior (zero-fill + re-divide) when no mode is given', () => {
 		const out = buildAlignedSeries(
 			{
@@ -219,7 +275,6 @@ describe( 'buildAlignedSeries', () => {
 						{ ts: 1530, value: 2.5, weight: 15 },
 					],
 					max: 9.75,
-					avg: 5.5,
 				},
 			},
 			0,
@@ -239,7 +294,6 @@ describe( 'buildAlignedSeries', () => {
 						{ ts: 1505, value: 8, weight: 3 },
 					],
 					max: 8,
-					avg: 5,
 				},
 				peak: {
 					points: [
@@ -247,7 +301,6 @@ describe( 'buildAlignedSeries', () => {
 						{ ts: 1505, value: 11, weight: 1 },
 					],
 					max: 11,
-					avg: 7,
 					mode: { fill: 'zero', agg: 'max' },
 				},
 			},

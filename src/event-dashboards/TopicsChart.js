@@ -4,7 +4,8 @@
  *
  * Nothing here knows which metric it draws, so one component serves the
  * Overview dashboard's four panels (message rate, byte rate, backlog, cache
- * size), the Jobs dashboard's four, and the debug overlay's two. The metric
+ * size), the Jobs dashboard's four, the Tables tab's five (ops rate, operation
+ * rate, miss rate, latency, size), and the debug overlay's two. The metric
  * arrives as data: the `series` to draw, the `yLabel` naming the quantity, the
  * `formatValue` its axis ticks and tooltip rows print through, and the
  * `fillMode` saying how a bucket aggregates its samples and what an empty one
@@ -58,15 +59,27 @@ export const TopicsChart = memo(
 	 * formatters, the shared `fillModeForMetric` constants — so a panel whose
 	 * own inputs did not move skips the draw entirely.
 	 *
-	 * @param {Object}        props             Component props.
-	 * @param {string}        props.title       Panel heading, e.g. "Topics Message Rate".
-	 * @param {string}        props.yLabel      Y-axis title naming the quantity, e.g. "Messages"; the ticks carry the unit.
-	 * @param {?Object}       props.series      `{ [topic]: { points:[{ts,value,weight}], max, avg } }` (ts in seconds); empty or absent wipes the panel.
-	 * @param {AxisFormatter} props.formatValue Formats a value for the Y-axis ticks and the tooltip rows; a `tickValues` property on it ticks the axis in its own unit.
-	 * @param {Object}        [props.fillMode]  Fill/aggregate mode from `fillModeForMetric`; an omitted mode zero-fills and re-divides per bucket, as a rate wants.
+	 * @param {Object}        props              Component props.
+	 * @param {string}        props.title        Panel heading, e.g. "Topics Message Rate".
+	 * @param {string}        props.yLabel       Y-axis title naming the quantity, e.g. "Messages"; the ticks carry the unit.
+	 * @param {?Object}       props.series       `{ [topic]: { points:[{ts,value,weight}], max } }` (ts in seconds); empty or absent wipes the panel.
+	 * @param {AxisFormatter} props.formatValue  Formats a value for the Y-axis ticks and the tooltip rows; a `tickValues` property on it ticks the axis in its own unit.
+	 * @param {Object}        [props.fillMode]   Fill/aggregate mode from `fillModeForMetric`; an omitted mode zero-fills and re-divides per bucket, as a rate wants.
+	 * @param {boolean}       [props.stacked]    Stack the series by default, for series that add up into a total; the corner toggle still flips it.
+	 * @param {boolean}       [props.stackable]  Offer the stack toggle; `false` for means, which never add up.
+	 * @param {string}        [props.totalLabel] Translated label for the stacked tooltip's leading total row; omitted drops the row.
 	 * @return {import('react').ReactElement} The rendered panel.
 	 */
-	function TopicsChart( { title, yLabel, series, formatValue, fillMode } ) {
+	function TopicsChart( {
+		title,
+		yLabel,
+		series,
+		formatValue,
+		fillMode,
+		stacked = false,
+		stackable = true,
+		totalLabel = '',
+	} ) {
 		const chartState = useMemo(
 			() => buildAlignedSeries( series, MAX_POINTS, fillMode ),
 			[ series, fillMode ]
@@ -83,6 +96,9 @@ export const TopicsChart = memo(
 					title={ title }
 					yLabel={ yLabel }
 					height={ HEIGHT }
+					stacked={ stacked }
+					stackable={ stackable }
+					totalLabel={ totalLabel }
 				/>
 			</div>
 		);

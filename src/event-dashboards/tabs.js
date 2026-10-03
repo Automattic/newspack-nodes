@@ -1,7 +1,7 @@
 /**
- * Register the five station tabs the event-dashboards bundle owns:
- * Overview (order 0), Jobs (10), Partition Viewer (20), Log Viewer (25) and
- * Config Audit (30). The bundle entry imports this module for its side effect
+ * Register the six station tabs the event-dashboards bundle owns:
+ * Overview (order 0), Jobs (10), Tables (12), Partition Viewer (20), Log Viewer
+ * (25) and Config Audit (30). The bundle entry imports this module for its side effect
  * alone, so the tabs register wherever the bundle loads.
  *
  * Order 0 makes Overview the station's landing tab, ahead of the Console at 15,
@@ -23,6 +23,7 @@ import { __ } from '@wordpress/i18n';
 import { registerTab } from '@newspack-nodes/shared/tabs/tabRegistry';
 import Overview from './Overview';
 import Jobs from './Jobs';
+import Tables from './Tables';
 import PartitionViewer from './PartitionViewer';
 import LogViewer from './LogViewer';
 import ConfigAudit from './ConfigAudit';
@@ -43,6 +44,15 @@ registerTab( {
 	slug: 'jobs',
 	order: 10,
 	component: Jobs,
+} );
+
+registerTab( {
+	id: 'tables',
+	label: __( 'Tables', 'newspack-nodes' ),
+	host: 'station',
+	slug: 'tables',
+	order: 12,
+	component: Tables,
 } );
 
 registerTab( {

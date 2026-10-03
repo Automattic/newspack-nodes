@@ -6,6 +6,7 @@ import {
 	newMessage,
 	TYPE,
 	TIMESTAMP,
+	FROM,
 	VALUE,
 	TM_STRUCT,
 } from '../../../runtime/message';
@@ -65,6 +66,40 @@ describe( 'ProbeStreamViewNode (the entry-lifecycle contract)', () => {
 		expect( snap[ 'zeta-7' ].label ).toBe( 'zeta' );
 		expect( snap[ 'zeta-7' ].series ).toEqual( [
 			{ ts: TS_BASE + 500, weight: 19 },
+		] );
+	} );
+
+	it( 'hands _fold the worker in the second-to-last FROM segment, or none', () => {
+		const workers = [];
+		class WorkerSpyView extends WidgetProbeView {
+			_fold( entry, value, ts, worker ) {
+				workers.push( worker );
+				return super._fold( entry, value, ts );
+			}
+		}
+		const v = new WorkerSpyView();
+		const froms = [
+			'widgets.p4/lab-9.p7/widgets',
+			'offsets/x.p0/job-worker.p2/jobstats',
+			'widgets.p4/widgets',
+			'x.p01',
+			'widgets.p4/x.p01/widgets',
+			'jobstats.p0/foo.p1',
+			'widgets.p4/lab-9.p7/x.p5/widgets',
+		];
+		for ( const from of froms ) {
+			const m = widgetMsg();
+			m[ FROM ] = from;
+			v.fill( m );
+		}
+		expect( workers ).toEqual( [
+			'lab-9.p7',
+			'job-worker.p2',
+			'',
+			'',
+			'',
+			'',
+			'x.p5',
 		] );
 	} );
 
@@ -137,10 +172,12 @@ function probeMsg( {
 	bytes = 0,
 	cacheSize = 0,
 	elapsedMs = 15000,
+	from = 'topicprobe.p0/topicprobe',
 } = {} ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
 	m[ TIMESTAMP ] = null !== absTs ? absTs : TS_BASE + ts;
+	m[ FROM ] = from;
 	const v = [];
 	v[ Probe.SOURCE ] = source;
 	v[ Probe.READER ] = reader;
@@ -154,6 +191,20 @@ function probeMsg( {
 }
 
 describe( 'TopicProbeViewNode', () => {
+	it( 'carries the worker FROM names on each sample', () => {
+		const v = new TopicProbeViewNode();
+		v.fill(
+			probeMsg( {
+				ts: 115,
+				from: 'topicprobe.p0/request-builder-6612.p4/topicprobe',
+			} )
+		);
+		v.fill( probeMsg( { ts: 130 } ) );
+		expect(
+			v.snapshot()[ 'firehose.p0' ].series.map( ( s ) => s.worker )
+		).toEqual( [ 'request-builder-6612.p4', '' ] );
+	} );
+
 	it( 'indexes samples by reader, carrying the source', () => {
 		const v = new TopicProbeViewNode();
 		v.fill( probeMsg( { reader: 'firehose.p0', source: 'firehose.p0' } ) );
@@ -434,10 +485,13 @@ function jobstatsMsg( {
 	lastStatus = 'success',
 	lastMessage = 'Job completed successfully',
 	elapsedMs = 15000,
+	maxDurationMs = 0,
+	from = 'jobstats.p0/jobstats',
 } = {} ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
 	m[ TIMESTAMP ] = TS_BASE + ts;
+	m[ FROM ] = from;
 	const v = [];
 	v[ Job.IDENTITY ] = key;
 	v[ Job.HANDLER ] = handler;
@@ -452,11 +506,43 @@ function jobstatsMsg( {
 	v[ Job.LAST_STATUS ] = lastStatus;
 	v[ Job.LAST_MESSAGE ] = lastMessage;
 	v[ Job.ELAPSED_MS ] = elapsedMs;
+	v[ Job.MAX_DURATION_MS ] = maxDurationMs;
 	m[ VALUE ] = v;
 	return m;
 }
 
 describe( 'JobstatsViewNode', () => {
+	it( 'carries each window’s longest run, and the window max across them', () => {
+		const v = new JobstatsViewNode();
+		v.fill( jobstatsMsg( { runs: 3, maxDurationMs: 211, ts: 200 } ) );
+		v.fill( jobstatsMsg( { runs: 2, maxDurationMs: 53, ts: 215 } ) );
+		const snap = v.snapshot().evtemplate;
+		expect( snap.series.map( ( s ) => s.maxDurationMs ) ).toEqual( [
+			211, 53,
+		] );
+		expect( snap.windowed.maxDurationMs ).toBe( 211 );
+	} );
+
+	it( 'reads no window max when the window ran nothing', () => {
+		const v = new JobstatsViewNode();
+		v.fill( jobstatsMsg( { runs: 0, maxDurationMs: 0, ts: 200 } ) );
+		expect( v.snapshot().evtemplate.windowed.maxDurationMs ).toBeNull();
+	} );
+
+	it( 'carries the worker FROM names on each sample', () => {
+		const v = new JobstatsViewNode();
+		v.fill(
+			jobstatsMsg( {
+				ts: 115,
+				from: 'jobstats.p0/job-worker.p2/jobstats',
+			} )
+		);
+		v.fill( jobstatsMsg( { ts: 130, from: 'jobstats.p0/jobstats' } ) );
+		expect(
+			v.snapshot().evtemplate.series.map( ( s ) => s.worker )
+		).toEqual( [ 'job-worker.p2', '' ] );
+	} );
+
 	it( 'indexes handlers by identity key, carrying the handler name', () => {
 		const v = new JobstatsViewNode();
 		v.fill( jobstatsMsg( { key: 'cron:films', handler: 'cron' } ) );
@@ -567,10 +653,14 @@ describe( 'JobstatsViewNode', () => {
 		expect( v.snapshot().evtemplate.windowed.avgQueueMs ).toBe( 150 );
 	} );
 
-	it( 'guards divide-by-zero in windowed avg duration when no runs recorded', () => {
+	it( 'reads no average for a window with no runs, rather than 0', () => {
 		const v = new JobstatsViewNode();
-		v.fill( jobstatsMsg( { runs: 0, durationMs: 0, ts: 200 } ) );
-		expect( v.snapshot().evtemplate.windowed.avgDurationMs ).toBe( 0 );
+		v.fill(
+			jobstatsMsg( { runs: 0, durationMs: 0, queueMs: 0, ts: 200 } )
+		);
+		const { windowed } = v.snapshot().evtemplate;
+		expect( windowed.avgDurationMs ).toBeNull();
+		expect( windowed.avgQueueMs ).toBeNull();
 	} );
 
 	it( 'shrinks windowed totals as old samples age out of the retention window', () => {
@@ -657,10 +747,12 @@ function tablestatsMsg( {
 	walStalled = 0,
 	fileBytes = 0,
 	elapsedMs = 15000,
+	from = 'tablestats.p0/tablestats',
 } = {} ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
 	m[ TIMESTAMP ] = TS_BASE + ts;
+	m[ FROM ] = from;
 	const v = [];
 	v[ Tbl.IDENTITY ] = id;
 	v[ Tbl.BACKEND ] = backend;
@@ -677,6 +769,20 @@ function tablestatsMsg( {
 const row = ( ...r ) => r;
 
 describe( 'TablestatsViewNode', () => {
+	it( 'carries the worker FROM names on each sample', () => {
+		const v = new TablestatsViewNode();
+		v.fill(
+			tablestatsMsg( {
+				ts: 115,
+				from: 'tablestats.p0/flame-builder.p3/tablestats',
+			} )
+		);
+		v.fill( tablestatsMsg( { ts: 130 } ) );
+		expect(
+			v.snapshot()[ 'lab-7:kea.p3' ].series.map( ( s ) => s.worker )
+		).toEqual( [ 'flame-builder.p3', '' ] );
+	} );
+
 	it( 'counts every operation, upkeep included, into one ops rate', () => {
 		const v = new TablestatsViewNode();
 		v.fill(
@@ -740,6 +846,7 @@ describe( 'TablestatsViewNode', () => {
 		expect( t.windowed.maxMs ).toBe( 3.5 );
 		expect( t.windowed.verbs.GET.calls ).toBe( 10 );
 		expect( t.latest ).toEqual( {
+			ts: TS_BASE + 115,
 			fileBytes: 8192,
 			purgeBehind: 0,
 			walStalled: 3,
@@ -756,6 +863,8 @@ describe( 'TablestatsViewNode', () => {
 		expect( s.missRate ).toBe( 0 );
 		expect( s.meanMs ).toBe( 0 );
 		expect( t.windowed.hitPct ).toBeNull();
+		expect( t.windowed.meanMs ).toBeNull();
+		expect( t.windowed.maxMs ).toBeNull();
 		for ( const n of [
 			...Object.values( s ).filter( ( x ) => 'number' === typeof x ),
 			...Object.values( t.windowed ).filter(

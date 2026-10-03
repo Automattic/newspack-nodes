@@ -60,7 +60,8 @@ import { primeExpandedIncludes } from './useExpandedIncludes';
 const EMPTY_EXPANSION = { nodes: [], edges: [], tree: {}, hulls: {} };
 import { withReplAnchor, withResolvedConfigEdges } from '../utils/consoleGraph';
 import { augmentWithVirtualEdges } from '../utils/virtualEdges';
-import { scopeFromCwd, workerId } from '../utils/scope';
+import { scopeFromCwd } from '../utils/scope';
+import { workerId } from '@newspack-nodes/shared/utils/workerId';
 import { makeSkinHost } from '../core/skinCommands';
 import { THEMES, getStoredTheme, applySkin } from '../themes';
 import {
