@@ -13,6 +13,12 @@
  * whole axis reads in, which a per-value formatter cannot do.
  */
 
+/**
+ * Milliseconds in a microsecond, the rung below a millisecond. Its suffix is
+ * the `us` `formatUtils.formatDuration` prints, so an axis and a readout agree.
+ */
+const MS_PER_MICROSECOND = 0.001;
+
 /** Milliseconds in a second, the first rung `durationUnit` climbs to. */
 const MS_PER_SECOND = 1000;
 
@@ -49,7 +55,10 @@ const durationUnit = ( maxMs ) => {
 	if ( maxMs >= MS_PER_SECOND ) {
 		return { divisor: MS_PER_SECOND, suffix: 's', decimals: 1 };
 	}
-	return { divisor: 1, suffix: 'ms', decimals: 0 };
+	if ( maxMs >= 1 ) {
+		return { divisor: 1, suffix: 'ms', decimals: 0 };
+	}
+	return { divisor: MS_PER_MICROSECOND, suffix: 'us', decimals: 0 };
 };
 
 /**
@@ -59,12 +68,13 @@ const durationUnit = ( maxMs ) => {
  * which a detail panel wants and an axis must not have. Build this once from
  * the domain and hand it to every tick.
  *
- * The formatter carries `integerTicks`, because a narrow axis reading in
- * milliseconds would otherwise tick at half a millisecond and round two
- * neighbouring ticks to the same label.
+ * The formatter carries a tick ladder of whole steps of what its unit prints
+ * — a microsecond, a millisecond, a tenth of a second — because a narrow
+ * axis would otherwise tick between them and round two neighbouring ticks to
+ * the same label: a 5 µs axis ticked at half a microsecond reads `1us` twice.
  *
  * @param {number} maxMs Largest value the axis has to show, in milliseconds.
- * @return {AxisFormatter} Formatter, e.g. `0ms`/`250ms` or `0s`/`140s`.
+ * @return {AxisFormatter} Formatter, e.g. `0us`/`400us`, `0ms`/`250ms` or `0s`/`140s`.
  */
 export const axisDuration = ( maxMs ) => {
 	const { divisor, suffix, decimals } = durationUnit( maxMs );
@@ -81,7 +91,7 @@ export const axisDuration = ( maxMs ) => {
 			0 === decimals ? Math.round( value ) : value.toFixed( decimals );
 		return `${ Number( shown ) }${ suffix }`;
 	};
-	format.tickValues = integerTicks;
+	format.tickValues = wholeTicks( divisor / 10 ** decimals );
 	return format;
 };
 
@@ -114,12 +124,24 @@ export const binaryTicks = ( scale, count ) => {
 };
 
 /**
+ * A tick ladder keeping d3's own tick values that land on a whole number of
+ * `step`, within float error — for a formatter that prints whole steps and
+ * would otherwise repeat a label.
+ *
+ * @param {number} step The smallest value the formatter tells apart.
+ * @return {( scale: *, count: number ) => number[]} The ladder.
+ */
+const wholeTicks = ( step ) => ( scale, count ) =>
+	scale
+		.ticks( count )
+		.filter(
+			( t ) => Math.abs( t / step - Math.round( t / step ) ) < 1e-9
+		);
+
+/**
  * d3's own tick values, less the fractional ones — for a formatter that prints
  * whole units (requests, milliseconds) and would otherwise repeat a label.
  *
- * @param {Object} scale D3 linear scale.
- * @param {number} count Target tick count.
- * @return {number[]} Whole-numbered tick values.
+ * @type {( scale: *, count: number ) => number[]}
  */
-export const integerTicks = ( scale, count ) =>
-	scale.ticks( count ).filter( Number.isInteger );
+export const integerTicks = wholeTicks( 1 );

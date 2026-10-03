@@ -8,10 +8,16 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 - **A probe record's FROM is `<worker-id>/<probe>`.** `topicprobe.p0`,
   `jobstats.p0` and `tablestats.p0` records carry `job-worker.p2/jobstats` where
-  they carried the bare `jobstats`; with no topology and partition bound the
-  bare probe name remains. A reader that matched FROM exactly matches its last
+  they carried the bare `jobstats`. A probe with no topology or no canonical
+  partition bound refuses its arguments, so `make_node` answers a TM_ERROR; a
+  test builds one as a worker does — `Core::$var['topology']` and
+  `Core::$var['partition']` bound, a `_router` standing — and hands it its
+  arguments before it fires. A reader that matched FROM exactly matches its last
   segment, and one that needs the worker reads the segment before it through
   `parseWorkerId()`.
+- **A log dir named `logs`, `offsets` or `deadletter` cannot be streamed.** Its
+  bare stamp would read back as a group prefix, so `/messages/stream` refuses
+  the subscription naming the dir. Rename the Partition's directory.
 
 - **`Ledger_Node` is gone, with `Bootstrap::mount_ledger()`, `Table_Client`'s
   `append()`, `sum()`, `top()` and `ledger_members()`, `Consumer_Node`'s

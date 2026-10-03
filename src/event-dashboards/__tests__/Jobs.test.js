@@ -7,6 +7,7 @@
 import { readFileSync } from 'fs';
 import { resolve as resolvePath } from 'path';
 import { render } from '@testing-library/react';
+import { axisDuration } from '@newspack-nodes/shared/utils/axis-ticks';
 import Jobs from '../Jobs';
 import { useProbeStream } from '../hooks/useProbeStream';
 import { Core } from '../../runtime/core';
@@ -325,6 +326,9 @@ describe( 'Jobs', () => {
 		expect( Object.keys( latency.series ) ).toContain( 'cron:films' );
 		expect( latency.series[ 'cron:films' ].points ).toHaveLength( 2 );
 		expect( latency.stackable ).toBe( false );
+		// A duration axis picks one unit from the panel's peak.
+		expect( latency.formatFor ).toBe( axisDuration );
+		expect( latency ).not.toHaveProperty( 'formatValue' );
 		// Each jobs.pN backlog is its own debt, so the column sums them.
 		expect( backlog.stacked ).toBe( true );
 		// Each series says how it charts; the panel names no metric.

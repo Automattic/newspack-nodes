@@ -6,7 +6,7 @@
  * A live view over `useTopologyManager` and the `topicprobe.p0` stream:
  *  - the shared `SummaryCards` row (topology and active counts, worker
  *    liveness, on-disk partitions, health, global read/write rates and 24h
- *    produced totals),
+ *    totals),
  *  - four Topics panels modeled on Tachikoma's Grafana Topics dashboard —
  *    message rate, byte rate, backlog and cache size — each a multi-series 24h
  *    chart carrying one series per topic and a ranked max/avg legend, and
@@ -26,9 +26,9 @@
  * history rather than the thin ring a live tail accumulates while the tab is
  * open.
  * Each panel plots one series per partition per worker, `<source> · <worker>`,
- * as `topicChartSeries` splits every additive metric: co-readers of a
- * partition inside one worker sum, since one sweep stamps them together, and
- * the stacked chart sums the workers.
+ * because a source names no worker and so the panels ask `topicChartSeries`
+ * to split by one: co-readers of a partition inside one worker sum, since one
+ * sweep stamps them together, and the stacked chart sums the workers.
  *
  * Deep links go through `consoleHref`, keeping Console navigation
  * single-sourced.
@@ -53,7 +53,7 @@ import AlertModal from './AlertModal';
 import { useTopologyManager } from './hooks/useTopologyManager';
 import { useProbeStream } from './hooks/useProbeStream';
 import { useNodeField } from '../runtime/react';
-import { topicChartSeries } from './topicProbeSeries';
+import { topicChartSeries, bySource } from './topicProbeSeries';
 import { TopicsPanels } from './TopicsChart';
 import { consoleHref, TopologyRow } from './TopologyRow';
 import {
@@ -300,19 +300,31 @@ export default function Overview( { headerControlsSlot } ) {
 	// Per-partition 24h series, deferred so heavy rollups stay off INP.
 	const consumers = useDeferredValue( probeView?.consumers );
 	const msgRateSeries = useMemo(
-		() => topicChartSeries( consumers, 'msgRate' ),
+		() =>
+			topicChartSeries( consumers, 'msgRate', bySource, {
+				byWorker: true,
+			} ),
 		[ consumers ]
 	);
 	const byteRateSeries = useMemo(
-		() => topicChartSeries( consumers, 'byteRate' ),
+		() =>
+			topicChartSeries( consumers, 'byteRate', bySource, {
+				byWorker: true,
+			} ),
 		[ consumers ]
 	);
 	const backlogSeries = useMemo(
-		() => topicChartSeries( consumers, 'backlog' ),
+		() =>
+			topicChartSeries( consumers, 'backlog', bySource, {
+				byWorker: true,
+			} ),
 		[ consumers ]
 	);
 	const cacheSizeSeries = useMemo(
-		() => topicChartSeries( consumers, 'cacheSize' ),
+		() =>
+			topicChartSeries( consumers, 'cacheSize', bySource, {
+				byWorker: true,
+			} ),
 		[ consumers ]
 	);
 	const panels = [

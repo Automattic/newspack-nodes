@@ -218,6 +218,31 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$ctrl->open_subscription( 'logs/firehose.p0', null );
 	}
 
+	public function test_a_log_dir_named_like_a_group_is_refused_by_name(): void {
+		// Bare, it would stamp as a group prefix and every frame would misread.
+		foreach ( [ 'offsets', 'deadletter', 'logs' ] as $group ) {
+			\mkdir( "{$this->tmp}/logs/{$group}", 0755, true );
+			$ctrl = new SSE_Out_Node();
+			$ctrl->set_base_dir( $this->tmp );
+			try {
+				$ctrl->open_subscription( $group, null );
+				$this->fail( "logs/{$group} opened" );
+			} catch ( \InvalidArgumentException $e ) {
+				$this->assertSame( "log dir {$group} is named like a group; rename it", $e->getMessage() );
+			}
+		}
+	}
+
+	public function test_a_glob_matching_a_log_dir_named_like_a_group_is_refused(): void {
+		\mkdir( "{$this->tmp}/logs/orders.p0", 0755, true );
+		\mkdir( "{$this->tmp}/logs/offsets", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+
+		$this->expectExceptionMessage( 'log dir offsets is named like a group; rename it' );
+		$ctrl->open_subscription( 'o*', null );
+	}
+
 	public function test_unknown_group_prefix_is_rejected(): void {
 		\mkdir( "{$this->tmp}/secrets/x.p0", 0755, true );
 		$ctrl = new SSE_Out_Node();

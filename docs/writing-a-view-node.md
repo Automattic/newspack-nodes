@@ -273,18 +273,19 @@ reply before the view stores it.
 
 The `consumers` map `TopicProbeViewNode` publishes is keyed by READER, and
 several readers can tail one source. Each sample carries the worker that swept
-it, so the Overview's charts plot one series per partition per worker, as
-`topicChartSeries()` splits every additive metric: co-readers of a partition
-inside one worker sum, and the stacked
-chart sums the workers. Every card is the column total of its chart, so
+it, so the Overview's charts plot one series per partition per worker, since a
+source names no worker and Overview asks `topicChartSeries()` to split by one:
+co-readers of a partition inside one worker sum, and the stacked
+chart sums the workers. Every card sums the same series its chart stacks, so
 `liveTotal` (rate, backlog, cache size) and `probe24hTotals` sum
 every reader and dedup nothing, two topologies on `firehose.p0` each counted.
 "Live" is one rule for the current cards: `liveTotal()` counts a reader only
 while it names a source and its newest sample is at most `LIVE_WINDOW_S`, 60
 seconds, behind the newest message seen (`streamHead()`), because the map keeps
 a stopped reader's 24h series for the charts. The charts apply the same window:
-`buildAlignedSeries` holds a level gauge's last reading for `LIVE_WINDOW_S`
-past its newest sample, then reads 0, so a stopped reader leaves the stack.
+`buildAlignedSeries` holds each reading of a level gauge for `LIVE_WINDOW_S`
+past its sample, then reads 0, so a stopped reader leaves the stack and a gap
+mid-series reads 0 until the series resumes.
 
 ## The one-shot mirror
 

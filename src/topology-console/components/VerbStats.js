@@ -29,6 +29,12 @@ const COUNT_COLS = [
 		format: formatGroupedCount,
 	},
 	{ key: 'bytes', label: 'BYTES', numeric: true, format: formatBytes },
+	{
+		key: 'errors',
+		label: 'ERRORS',
+		numeric: true,
+		format: formatGroupedCount,
+	},
 ];
 
 /** The times grid's columns; every one but VERB sorts numerically. */

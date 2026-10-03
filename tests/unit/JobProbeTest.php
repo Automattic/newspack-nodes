@@ -49,6 +49,11 @@ class JobProbeTest extends TestCase {
 		parent::setUp();
 		// A real clock instant so the first fire clears the interval gate.
 		Core::$now = 1000;
+		// Topology_Loader binds both halves of the worker id, as in a worker.
+		Core::$var['topology']  = 'probe-worker-6118';
+		Core::$var['partition'] = '2';
+		// Every worker graph holds the `_router` a probe's sweep timer rides.
+		( new \Newspack_Nodes\Router_Node() )->name( '_router' );
 	}
 
 	/** @return array<int,int|string> A filled 12-slot Jobstats_Record. */
@@ -93,6 +98,7 @@ class JobProbeTest extends TestCase {
 		$capture = new Capture_Sink_Node();
 		$probe   = new Job_Probe_Node();
 		$probe->name( '_jobstats' );
+		$probe->arguments( [] );
 		$probe->target( '_jobstats:log' );
 		$probe->sink( $capture );
 		$probe->fire_cb();
@@ -116,6 +122,7 @@ class JobProbeTest extends TestCase {
 		$capture = new Capture_Sink_Node();
 		$probe   = new Job_Probe_Node();
 		$probe->name( '_jobstats' );
+		$probe->arguments( [] );
 		$probe->sink( $capture );
 		$probe->fire_cb();
 
@@ -128,6 +135,7 @@ class JobProbeTest extends TestCase {
 		$capture = new Capture_Sink_Node();
 		$probe   = new Job_Probe_Node();
 		$probe->name( '_jobstats' );
+		$probe->arguments( [] );
 		$probe->sink( $capture );
 		$probe->fire_cb();
 		$this->assertCount( 0, $capture->captured );
@@ -139,6 +147,7 @@ class JobProbeTest extends TestCase {
 		$capture = new Capture_Sink_Node();
 		$probe   = new Job_Probe_Node();
 		$probe->name( '_jobstats' );
+		$probe->arguments( [] );
 		$probe->sink( $capture );
 		$probe->fire_cb();
 		$this->assertCount( 0, $capture->captured );
@@ -151,6 +160,7 @@ class JobProbeTest extends TestCase {
 
 		$probe = new Job_Probe_Node();
 		$probe->name( '_jobstats' );
+		$probe->arguments( [] );
 		$probe->sink( $capture );
 		$probe->fire_cb();
 
@@ -173,6 +183,7 @@ class JobProbeTest extends TestCase {
 		$capture = new Capture_Sink_Node();
 		$probe   = new Job_Probe_Node();
 		$probe->name( '_jobstats' );
+		$probe->arguments( [] );
 		$probe->sink( $capture );
 		$caught = null;
 		try {
@@ -196,6 +207,7 @@ class JobProbeTest extends TestCase {
 		$capture = new Capture_Sink_Node();
 		$probe   = new Job_Probe_Node();
 		$probe->name( '_jobstats' );
+		$probe->arguments( [] );
 		$probe->sink( $capture );
 		$probe->fire_cb();
 
@@ -221,6 +233,7 @@ class JobProbeTest extends TestCase {
 		$capture = new Capture_Sink_Node();
 		$probe   = new Job_Probe_Node();
 		$probe->name( '_jobstats' );
+		$probe->arguments( [] );
 		$probe->sink( $capture );
 		$probe->fire_cb();
 
@@ -229,7 +242,6 @@ class JobProbeTest extends TestCase {
 	}
 
 	public function test_arguments_sets_interval_and_returns_raw_string(): void {
-		( new \Newspack_Nodes\Router_Node() )->name( '_router' );
 		$probe = new Job_Probe_Node();
 		$probe->name( '_jobstats' );
 		$this->assertSame( [ '30' ], $probe->arguments( [ '30' ] ) );
@@ -238,7 +250,6 @@ class JobProbeTest extends TestCase {
 	}
 
 	public function test_arguments_empty_keeps_default_interval(): void {
-		( new \Newspack_Nodes\Router_Node() )->name( '_router' );
 		$probe = new Job_Probe_Node();
 		$probe->name( '_jobstats' );
 		$probe->arguments( [] );

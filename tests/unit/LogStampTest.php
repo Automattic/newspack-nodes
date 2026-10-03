@@ -10,8 +10,8 @@ use Newspack_Nodes\Rest\SSE_Out_Node;
 /**
  * The reader stamp a FROM trail opens with, read back by
  * `SSE_Out_Node::dir_from_stamp()`, held to `src/runtime/log-stamp.js` by one
- * case list: `stamp_for()` writes a `logs` dir bare, so only `offsets/` and
- * `deadletter/` take a second segment.
+ * case list: a stamp opening with a group name takes a second segment,
+ * because `stamp_for()` refuses a log dir named like a group.
  */
 final class LogStampTest extends TestCase {
 

@@ -4,12 +4,12 @@
  * `tests/fixtures/log-stamps.json`.
  *
  * `SSE_Out_Node::stamp_for()` writes a `logs` dir bare and an `offsets` or
- * `deadletter` dir as `{group}/{dir}`, so only those two groups take a second
- * segment; a log dir that happens to be named `logs` is one segment.
+ * `deadletter` dir as `{group}/{dir}`, and refuses a log dir named like a
+ * group, so a stamp opening with a group name always takes a second segment.
  */
 
-/** The `Log_Discovery::GROUPS` roots a stamp keeps its prefix under. */
-const GROUP_PREFIXES = new Set( [ 'offsets', 'deadletter' ] );
+/** `Log_Discovery::GROUPS`, the names no bare stamp may be. */
+const GROUPS = new Set( [ 'logs', 'offsets', 'deadletter' ] );
 
 /**
  * Split a FROM into the reader stamp and the segments after it.
@@ -20,7 +20,7 @@ const GROUP_PREFIXES = new Set( [ 'offsets', 'deadletter' ] );
  */
 export function splitStamp( from ) {
 	const parts = String( from ?? '' ).split( '/' );
-	const width = GROUP_PREFIXES.has( parts[ 0 ] ) && parts[ 1 ] ? 2 : 1;
+	const width = GROUPS.has( parts[ 0 ] ) && parts[ 1 ] ? 2 : 1;
 	return {
 		dir: parts.slice( 0, width ).join( '/' ),
 		rest: parts.slice( width ),

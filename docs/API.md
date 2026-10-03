@@ -862,7 +862,9 @@ total_ms, max_ms, errors }`. `errors` counts the requests the Table answered wit
 a `TM_ERROR`: a refused request, or a read its backend failed. A write that lands
 fewer keys than it asked adds no error; `asked` less `answered` shows it.
 `dump_node` and `dump_metadata` carry the same map as `verb_stats`, and
-`reset_stats` (`manage`) answers it and zeroes it.
+`reset_stats` (`manage`) answers it and zeroes it. The calls since the last
+probe sweep carry across the reset, so the next `tablestats.p0` record still
+counts them.
 
 ### Test mode
 

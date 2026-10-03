@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Probe_Node;
@@ -23,6 +24,11 @@ final class TableProbeTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Core::$now = 1000;
+		// Topology_Loader binds both halves of the worker id, as in a worker.
+		Core::$var['topology']  = 'table-probe-2291';
+		Core::$var['partition'] = '4';
+		// Every worker graph holds the `_router` a probe's sweep timer rides.
+		( new \Newspack_Nodes\Router_Node() )->name( '_router' );
 	}
 
 	/** A registered Table whose probe_stats() answers canned records. */
@@ -54,6 +60,7 @@ final class TableProbeTest extends TestCase {
 	private function probe( Capture_Sink_Node $capture ): Table_Probe_Node {
 		$probe = new Table_Probe_Node();
 		$probe->name( 'tablestats' );
+		$probe->arguments( [] );
 		$probe->target( 'tablestats:log' );
 		$probe->sink( $capture );
 		return $probe;
@@ -86,31 +93,40 @@ final class TableProbeTest extends TestCase {
 		$this->assertSame( 'job-worker-4417.p3/tablestats', $capture->captured[0][ Message::FROM ] );
 	}
 
-	public function test_a_record_outside_a_worker_carries_the_bare_probe_name(): void {
-		$this->stub_table( 'flame-stats:url', [ self::record( 'flame-stats:url' ) ] );
-		$capture = new Capture_Sink_Node();
-		$this->probe( $capture )->fire_cb();
-
-		$this->assertSame( 'tablestats', $capture->captured[0][ Message::FROM ] );
+	/**
+	 * A probe runs only in a worker, where `Topology_Loader` binds both halves
+	 * of the worker id before `make_node` hands the probe its arguments, so a
+	 * missing or non-canonical one is refused there, by name, before a timer
+	 * is armed — never on a later tick.
+	 *
+	 * @return array<string,array{array<string,string>,string}>
+	 */
+	public static function unbound_workers(): array {
+		return [
+			'no topology'               => [ [ 'partition' => '5' ], 'tablestats: no topology bound; a probe runs only in a worker' ],
+			'an empty topology'         => [ [ 'topology' => '', 'partition' => '5' ], 'tablestats: no topology bound; a probe runs only in a worker' ],
+			'no partition'              => [ [ 'topology' => 'job-worker-4417' ], 'tablestats: no partition bound; a probe runs only in a worker' ],
+			'a non-canonical partition' => [ [ 'topology' => 'job-worker-4417', 'partition' => '1e2' ], 'tablestats: partition 1e2 is not canonical; a probe runs only in a worker' ],
+		];
 	}
 
-	public function test_a_record_with_only_a_partition_bound_carries_the_bare_probe_name(): void {
-		$this->stub_table( 'flame-stats:url', [ self::record( 'flame-stats:url.p5' ) ] );
-		Core::$var['partition'] = '5';
-		$capture                = new Capture_Sink_Node();
-		$this->probe( $capture )->fire_cb();
+	/** @param array<string,string> $bound */
+	#[DataProvider( 'unbound_workers' )]
+	public function test_a_probe_refuses_its_arguments_outside_a_worker( array $bound, string $refusal ): void {
+		unset( Core::$var['topology'], Core::$var['partition'] );
+		foreach ( $bound as $key => $value ) {
+			Core::$var[ $key ] = $value;
+		}
+		$probe = new Table_Probe_Node();
+		$probe->name( 'tablestats' );
 
-		$this->assertSame( 'tablestats', $capture->captured[0][ Message::FROM ] );
-	}
-
-	public function test_a_record_with_a_non_canonical_partition_carries_the_bare_probe_name(): void {
-		$this->stub_table( 'flame-stats:url', [ self::record( 'flame-stats:url.p7' ) ] );
-		Core::$var['topology']  = 'job-worker-4417';
-		Core::$var['partition'] = '1e2';
-		$capture                = new Capture_Sink_Node();
-		$this->probe( $capture )->fire_cb();
-
-		$this->assertSame( 'tablestats', $capture->captured[0][ Message::FROM ] );
+		try {
+			$probe->arguments( [ '37' ] );
+			$this->fail( 'a probe took its arguments with no worker bound' );
+		} catch ( \LogicException $e ) {
+			$this->assertSame( $refusal, $e->getMessage() );
+		}
+		$this->assertSame( [], $probe->arguments(), 'a refusal sets nothing' );
 	}
 
 	public function test_a_table_answering_nothing_and_a_non_table_emit_nothing(): void {
@@ -147,14 +163,11 @@ final class TableProbeTest extends TestCase {
 	public function test_a_real_table_sweeps_into_a_record_that_fits_the_line(): void {
 		$dir = $this->make_temp_dir( 'table-probe-' );
 		$this->use_base_dir( $dir );
+		// The worker's own partition, which stays bound for the sweep.
 		Core::$var['partition'] = '2';
-		try {
-			$table = new Table_Node();
-			$table->name( 'lab-9:moa' );
-			$table->arguments( [ 'moa:p2', '600', 'sqlite' ] );
-		} finally {
-			unset( Core::$var['partition'] );
-		}
+		$table                  = new Table_Node();
+		$table->name( 'lab-9:moa' );
+		$table->arguments( [ 'moa:p2', '600', 'sqlite' ] );
 		$table->sink( new Capture_Sink_Node() );
 		$capture = new Capture_Sink_Node();
 		$this->probe( $capture )->fire_cb();

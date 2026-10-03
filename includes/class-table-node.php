@@ -243,20 +243,22 @@ class Table_Node extends Node {
 	private array $verb_stats = self::ZERO_STATS;
 
 	/**
-	 * The counters as the last trace line left them, held only while traced.
+	 * The counters as the last trace line left them, held only while traced,
+	 * carried negative across a reset.
 	 *
 	 * @var array<string,array{int,int,int,int,int,int,int,int}>|null
 	 */
 	private ?array $traced = null;
 
 	/**
-	 * The counters as the last probe sweep left them; null before the first.
+	 * The counters as the last probe sweep left them, carried negative across
+	 * a reset; null before the first sweep.
 	 *
 	 * @var array<string,array{int,int,int,int,int,int,int,int}>|null
 	 */
 	private ?array $probed = null;
 
-	/** When the probe's window opened: construction, then each sweep. */
+	/** When the probe's window opened: construction, then each sweep; a reset leaves it. */
 	private float $probe_ts = 0.0;
 
 	/** The `<partition>` bound when the arguments arrived; null with none bound. */
@@ -1571,19 +1573,43 @@ class Table_Node extends Node {
 	 * `reset_stats`: zero the counters, answering them as they stood, so no
 	 * call lands between the read and the reset.
 	 *
+	 * The reset zeroes what `stats()` reports and nothing a window still
+	 * owes: the calls since the last probe sweep, and since a traced Table's
+	 * last trace line, carry across it as a negative baseline, so the next
+	 * `probe_stats()` and the next trace line report them beside the calls
+	 * after. Each verb's window max survives too, and the probe window keeps
+	 * the instant it opened, so `tablestats.p0` loses no call to a reset.
+	 *
 	 * @return array<string,array{calls:int,asked:int,answered:int,bytes:int,total_ms:float,max_ms:float,errors:int}>
 	 * @throws \RuntimeException On a mounted Table, which serves reads only.
 	 */
 	public function reset_stats(): array {
 		$this->refuse_if_mounted( 'reset_stats' );
-		$stats            = $this->stats();
-		$this->verb_stats = self::ZERO_STATS;
-		$this->probed     = self::ZERO_STATS;
-		$this->probe_ts   = Core::$now;
+		$stats        = $this->stats();
+		$this->probed = $this->carried( $this->probed ?? self::ZERO_STATS );
 		if ( null !== $this->traced ) {
-			$this->traced = self::ZERO_STATS;
+			$this->traced = $this->carried( $this->traced );
 		}
+		$this->verb_stats = \array_map( static fn ( array $row ): array => [ 0, 0, 0, 0, 0, 0, 0, $row[ self::WINDOW_MAX_NS ] ], $this->verb_stats );
 		return $stats;
+	}
+
+	/**
+	 * The baseline that, against counters about to zero, still yields the
+	 * window open since `$since`: each counter's pending delta, negated.
+	 * `window()` subtracts it, so zero minus it is that delta again.
+	 *
+	 * @param array<string,array{int,int,int,int,int,int,int,int}> $since The window's baseline.
+	 * @return array<string,array{int,int,int,int,int,int,int,int}> The carried baseline.
+	 */
+	private function carried( array $since ): array {
+		$out = [];
+		foreach ( $this->verb_stats as $verb => $row ) {
+			foreach ( $row as $i => $count ) {
+				$out[ $verb ][ $i ] = $since[ $verb ][ $i ] - $count;
+			}
+		}
+		return $out;
 	}
 
 	/**
@@ -1878,7 +1904,9 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * Each verb's counters since `$since`, for the verbs called since.
+	 * Each verb's counters since `$since`, for the verbs called since. A
+	 * baseline `reset_stats()` carried is negative, which the subtraction
+	 * reads as the calls the reset landed between.
 	 *
 	 * @param array<string,array{int,int,int,int,int,int,int,int}> $since A copy of the counters.
 	 * @return array<string,array{int,int,int,int,int,int,int}> Verb => calls,

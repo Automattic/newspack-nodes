@@ -48,6 +48,9 @@ abstract class Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 	 */
 	protected int $interval_s = self::DEFAULT_INTERVAL_S;
 
+	/** The worker this probe sweeps in, `{topology}.p{N}`, read when its arguments arrive. */
+	private string $worker_id;
+
 	/**
 	 * Read the positional tokens, or apply them and arm the sweep timer.
 	 *
@@ -57,13 +60,19 @@ abstract class Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 	 * A probe hand-parsing its own cadence beside the schema that already
 	 * declares it is the duplication that ADR exists to prevent.
 	 *
+	 * The worker id is read first, so a probe built outside a worker — a bare
+	 * `wp nodes cli` binds nothing — is refused here, as `make_node`'s
+	 * TM_ERROR, before a timer is armed, rather than throwing on a later tick.
+	 *
 	 * @param list<string>|null $args New argument tokens (null = pure getter).
 	 * @return list<string> Last-set argument tokens.
+	 * @throws \LogicException Outside a worker, from `bound_worker_id()`.
 	 */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
 			return $this->arguments;
 		}
+		$this->worker_id = $this->bound_worker_id();
 		$this->parse_schema_args( $args );
 		$this->set_timer( $this->cadence_ms( $this->interval_s ) );
 		return $this->arguments;
@@ -90,38 +99,47 @@ abstract class Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 		if ( null === $sink ) {
 			return;
 		}
-		$from = $this->from();
+		$from = "{$this->worker_id}/{$this->name}";
 		Worker_Should_Stop::raise(
 			Worker_Should_Stop::attempt_each( Core::$nodes_by_name, fn ( Node $node ) => $this->sweep( $node, $sink, $from ) )
 		);
 	}
 
 	/**
-	 * The FROM every record carries: `{worker-id}/{probe-name}`, such as
-	 * `job-worker.p2/jobstats`, so a reader charts each worker's stream apart
-	 * while the record layout stays as it is. `Topology_Loader` binds the
-	 * topology and partition in a worker; with either unbound, as in a unit
-	 * test or a REPL, or a partition `Core::canonical_decimal()` refuses, FROM
-	 * is the bare probe name.
+	 * The worker id every record's FROM opens with, `{worker-id}/{probe-name}`
+	 * such as `job-worker.p2/jobstats`, so a reader charts each worker's
+	 * stream apart while the record layout stays as it is. A probe runs only
+	 * in a worker, where `Topology_Loader` binds the topology and the
+	 * partition before the graph is built, so either missing, or a partition
+	 * `Core::canonical_decimal()` refuses, is refused by name.
 	 *
-	 * @return string The FROM stamp.
+	 * @return string The worker id.
+	 * @throws \LogicException Naming the half of the worker id not bound, or
+	 *                         the partition that is not canonical.
 	 */
-	private function from(): string {
-		$topology  = Core::$var['topology'] ?? null;
-		$partition = Core::canonical_decimal( Core::$var['partition'] ?? null );
-		if ( ! \is_string( $topology ) || '' === $topology || null === $partition ) {
-			return $this->name;
+	private function bound_worker_id(): string {
+		$topology = Core::$var['topology'] ?? null;
+		if ( ! \is_string( $topology ) || '' === $topology ) {
+			throw new \LogicException( \esc_html( "{$this->name}: no topology bound; a probe runs only in a worker" ) );
 		}
-		return CLI::worker_id( $topology, $partition ) . '/' . $this->name;
+		$bound = Core::$var['partition'] ?? null;
+		if ( null === $bound ) {
+			throw new \LogicException( \esc_html( "{$this->name}: no partition bound; a probe runs only in a worker" ) );
+		}
+		$partition = Core::canonical_decimal( $bound );
+		if ( null === $partition ) {
+			throw new \LogicException( \esc_html( "{$this->name}: partition " . Core::as_string( $bound ) . ' is not canonical; a probe runs only in a worker' ) );
+		}
+		return CLI::worker_id( $topology, $partition );
 	}
 
 	/**
 	 * Emit one TM_STRUCT per record this probe takes from `$node`, each
-	 * stamped FROM `{worker-id}/{probe-name}` as `from()` spells it.
+	 * stamped FROM `{worker-id}/{probe-name}`.
 	 *
 	 * @param Node   $node A node from this process's registry.
 	 * @param Node   $sink Where the records go.
-	 * @param string $from The FROM each record carries, from `from()`.
+	 * @param string $from The FROM each record carries, `{worker-id}/{probe-name}`.
 	 */
 	private function sweep( Node $node, Node $sink, string $from ): void {
 		foreach ( $this->probe( $node ) as $record ) {

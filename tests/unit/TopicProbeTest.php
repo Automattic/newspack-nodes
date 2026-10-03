@@ -27,6 +27,11 @@ class TopicProbeTest extends TestCase {
 		// A real clock instant so the first fire clears the interval gate
 		// (last_fire_time starts at 0).
 		Core::$now = 1000;
+		// Topology_Loader binds both halves of the worker id, as in a worker.
+		Core::$var['topology']  = 'probe-worker-6118';
+		Core::$var['partition'] = '2';
+		// Every worker graph holds the `_router` a probe's sweep timer rides.
+		( new \Newspack_Nodes\Router_Node() )->name( '_router' );
 	}
 
 	/**
@@ -48,6 +53,7 @@ class TopicProbeTest extends TestCase {
 			}
 		};
 		$probe->name( 'stopprobe' );
+		$probe->arguments( [] );
 		$probe->sink( new Capture_Sink_Node() );
 
 		$this->expectException( \Newspack_Nodes\Worker_Should_Stop::class );
@@ -161,6 +167,53 @@ class TopicProbeTest extends TestCase {
 		return $c;
 	}
 
+	/** An interpreter answering into `$replies`, over setUp's `_router`. */
+	private static function interpreter( Capture_Sink_Node $replies ): \Newspack_Nodes\Command_Interpreter_Node {
+		$interpreter = new \Newspack_Nodes\Command_Interpreter_Node();
+		$interpreter->sink( $replies );
+		return $interpreter;
+	}
+
+	/** Build a TM_COMMAND the way a REPL line reaches the interpreter. */
+	private static function command( string $name, string $args ): array {
+		$m                    = Message::new_message();
+		$m[ Message::TYPE ]   = Message::TM_COMMAND;
+		$m[ Message::FROM ]   = '_output/1';
+		$m[ Message::VALUE ]  = [ 'name' => $name, 'arguments' => \explode( ' ', $args ) ];
+		$m[ Message::LOCAL ]  = true;
+		return $m;
+	}
+
+	public function test_make_node_outside_a_worker_answers_TM_ERROR_and_registers_no_probe(): void {
+		// A bare `wp nodes cli` binds nothing, so the probe would throw on a tick.
+		unset( Core::$var['topology'], Core::$var['partition'] );
+		$replies     = new Capture_Sink_Node();
+		$interpreter = self::interpreter( $replies );
+
+		$interpreter->fill( self::command( 'make_node', 'Topic_Probe topicprobe-8817 15' ) );
+
+		$this->assertSame( Message::TM_COMMAND | Message::TM_ERROR, $replies->captured[0][ Message::TYPE ] );
+		$this->assertSame( "topicprobe-8817: no topology bound; a probe runs only in a worker\n", (string) $replies->captured[0][ Message::VALUE ]['payload'] );
+		$this->assertNull( Core::node( 'topicprobe-8817' ), 'the refused probe is removed' );
+	}
+
+	public function test_make_node_in_a_worker_builds_a_probe_that_fires_named_for_it(): void {
+		$this->stub_consumer( 'firehose', 300 );
+		$replies     = new Capture_Sink_Node();
+		$interpreter = self::interpreter( $replies );
+
+		$interpreter->fill( self::command( 'make_node', 'Topic_Probe topicprobe-8817 15' ) );
+		$probe   = Core::node( 'topicprobe-8817' );
+		$capture = new Capture_Sink_Node();
+		$probe->sink( $capture );
+		$probe->fire_cb();
+
+		$this->assertSame( 0, $replies->captured[0][ Message::TYPE ] & Message::TM_ERROR, 'make_node answered no error' );
+		$this->assertInstanceOf( Topic_Probe_Node::class, $probe );
+		$this->assertCount( 1, $capture->captured );
+		$this->assertSame( 'probe-worker-6118.p2/topicprobe-8817', $capture->captured[0][ Message::FROM ] );
+	}
+
 	public function test_fire_emits_one_lean_positional_record_per_consumer(): void {
 		// One small POSITIONAL record per consumer (not a batch) so every append
 		// stays under PIPE_BUF and the shared log is multi-writer atomic. The
@@ -171,6 +224,7 @@ class TopicProbeTest extends TestCase {
 		$capture = new Capture_Sink_Node();
 		$probe   = new Topic_Probe_Node();
 		$probe->name( 'topicprobe' );
+		$probe->arguments( [] );
 		$probe->sink( $capture );
 		$probe->fire_cb();
 
@@ -200,6 +254,7 @@ class TopicProbeTest extends TestCase {
 		$capture = new Capture_Sink_Node();
 		$probe   = new Topic_Probe_Node();
 		$probe->name( 'topicprobe' );
+		$probe->arguments( [] );
 		$probe->sink( $capture );
 		$probe->fire_cb(); // the regular tick
 
@@ -219,6 +274,7 @@ class TopicProbeTest extends TestCase {
 		$capture = new Capture_Sink_Node();
 		$probe   = new Topic_Probe_Node();
 		$probe->name( 'topicprobe' );
+		$probe->arguments( [] );
 		$probe->sink( $capture );
 		$probe->fire_cb();
 
@@ -238,6 +294,7 @@ class TopicProbeTest extends TestCase {
 		$capture = new Capture_Sink_Node();
 		$probe   = new Topic_Probe_Node();
 		$probe->name( 'topicprobe' );
+		$probe->arguments( [] );
 		$probe->sink( $capture );
 		$probe->fire_cb();
 		$this->assertCount( 0, $capture->captured );
@@ -251,6 +308,7 @@ class TopicProbeTest extends TestCase {
 
 		$probe = new Topic_Probe_Node();
 		$probe->name( 'topicprobe' );
+		$probe->arguments( [] );
 		$probe->sink( $capture );
 		$probe->fire_cb();
 
@@ -262,7 +320,6 @@ class TopicProbeTest extends TestCase {
 	}
 
 	public function test_arguments_sets_interval_and_returns_raw_string(): void {
-		( new \Newspack_Nodes\Router_Node() )->name( '_router' ); // set_timer hitchhikes the Router TIMER
 		$probe = new Topic_Probe_Node();
 		$probe->name( 'topicprobe' );
 		$this->assertSame( [ '5' ], $probe->arguments( [ '5' ] ) );
@@ -273,7 +330,6 @@ class TopicProbeTest extends TestCase {
 	}
 
 	public function test_arguments_empty_string_keeps_default_interval(): void {
-		( new \Newspack_Nodes\Router_Node() )->name( '_router' );
 		$probe = new Topic_Probe_Node();
 		$probe->name( 'topicprobe' );
 		$this->assertSame( [], $probe->arguments( [] ) );
@@ -304,9 +360,9 @@ class TopicProbeTest extends TestCase {
 
 	/** A zero cadence must never take an own 0 ms slot: the floor puts it on the Router hitchhike. */
 	public function test_arguments_floors_zero_interval_onto_the_router_hitchhike(): void {
-		( new \Newspack_Nodes\Router_Node() )->name( '_router' );
 		$probe = new Topic_Probe_Node();
 		$probe->name( 'topicprobe' );
+		$probe->arguments( [] );
 
 		$probe->arguments( [ '0' ] );
 
@@ -322,6 +378,7 @@ class TopicProbeTest extends TestCase {
 		$this->stub_consumer( 'firehose' );
 		$probe = new Topic_Probe_Node();
 		$probe->name( 'topicprobe' );
+		$probe->arguments( [] );
 
 		$fired = [];
 		$probe->register( 'FIRE', 'cb', function ( $payload ) use ( &$fired ): void {
@@ -354,6 +411,7 @@ class TopicProbeTest extends TestCase {
 		$capture = new Capture_Sink_Node();
 		$probe   = new Topic_Probe_Node();
 		$probe->name( 'topicprobe' );
+		$probe->arguments( [] );
 		$probe->sink( $capture );
 		$caught = null;
 		try {
@@ -377,10 +435,10 @@ class TopicProbeTest extends TestCase {
 		$capture = new Capture_Sink_Node();
 		$probe   = new Topic_Probe_Node();
 		$probe->name( 'topicprobe' );
+		$probe->arguments( [] );
 		$probe->sink( $capture );
 		// Arm the way production does — the gate belongs to the hitchhike, so
 		// the node has to be IN it, not merely carry a matching interval_ms.
-		( new \Newspack_Nodes\Router_Node() )->name( '_router' );
 		$probe->set_timer( 15000 );
 		$this->assertSame( 'router', $probe->timer_mode() );
 

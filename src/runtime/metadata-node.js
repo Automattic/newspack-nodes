@@ -117,6 +117,7 @@ const SCAFFOLDING = new Set( [
  * @property {number} bytes    Bytes a durable arm encoded or decoded.
  * @property {number} total_ms Time across every call, in milliseconds.
  * @property {number} max_ms   The longest call, in milliseconds.
+ * @property {number} errors   Requests answered with a TM_ERROR.
  */
 
 /**

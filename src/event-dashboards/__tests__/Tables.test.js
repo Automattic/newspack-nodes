@@ -6,6 +6,8 @@
 
 import { render } from '@testing-library/react';
 import Tables from '../Tables';
+import { buildAlignedSeries } from '../buildAlignedSeries';
+import { axisDuration } from '@newspack-nodes/shared/utils/axis-ticks';
 import { useProbeStream } from '../hooks/useProbeStream';
 import { Core } from '../../runtime/core';
 import { publishSkippedLines } from '@newspack-nodes/shared/test-utils/skippedLines';
@@ -167,6 +169,40 @@ describe( 'Tables', () => {
 		).toEqual( [ 1.5, 1.5 ] );
 	} );
 
+	it( 'reads an operation idle in a sweep as 0, so a widened bucket averages every sweep', () => {
+		const m = model();
+		const sweep = ( ts, opRates ) => ( {
+			ts,
+			elapsed: 15,
+			worker: 'flame-builder-4417.p0',
+			opRates,
+		} );
+		// GET is called 30 times in one of six sweeps; MSET in every one.
+		m.tables = {
+			'flame-stats:url.p0': {
+				...m.tables[ 'flame-stats:url.p0' ],
+				series: [ 1800, 1815, 1830, 1845, 1860, 1875 ].map( ( ts ) =>
+					sweep(
+						ts,
+						1830 === ts ? { GET: 2, MSET: 0.25 } : { MSET: 0.25 }
+					)
+				),
+			},
+			// A later sweep widens the axis, so one bucket holds all six.
+			'flame-stats:aggregate.p0': {
+				...m.tables[ 'flame-stats:aggregate.p0' ],
+				series: [ sweep( 3600, { MSET: 0.25 } ) ],
+			},
+		};
+		useNodeField.mockReturnValue( m );
+		render( <Tables /> );
+		const ops = globalThis.__tablesPanels[ 1 ].series;
+		const get = buildAlignedSeries( ops, 4 ).series.find(
+			( x ) => 'GET · flame-builder-4417.p0' === x.label
+		).values;
+		expect( get[ 0 ].value ).toBeCloseTo( 30 / 90, 10 );
+	} );
+
 	it( 'stacks every panel but latency, whose means never sum', () => {
 		useNodeField.mockReturnValue( model() );
 		render( <Tables /> );
@@ -192,12 +228,17 @@ describe( 'Tables', () => {
 		const latency = globalThis.__tablesPanels[ 3 ].series;
 		expect( latency[ 'flame-stats:url.p0' ].mode ).toEqual( {
 			fill: 'zero',
-			agg: 'rate',
+			agg: 'mean',
 		} );
 		expect( latency[ 'flame-stats:url.p0 max' ].mode ).toEqual( {
 			fill: 'zero',
 			agg: 'max',
 		} );
+		// A duration axis picks one unit from the panel's peak.
+		expect( globalThis.__tablesPanels[ 3 ].formatFor ).toBe( axisDuration );
+		expect( globalThis.__tablesPanels[ 3 ] ).not.toHaveProperty(
+			'formatValue'
+		);
 	} );
 
 	it( 'tabulates each Table worst first, with the agreed columns', () => {

@@ -656,18 +656,19 @@ class SSE_Out_Node extends Node {
 
 	/**
 	 * The subscription dir a FROM breadcrumb names, and the inverse of
-	 * `stamp_for()`: a grouped stamp keeps its `{group}/` prefix, a bare-logs
-	 * one is the first path segment alone, so a log dir named `logs` reads as
-	 * that one segment. Reading the leading segments rather than the whole
-	 * string is what lets a full routing path resolve too.
-	 * `tests/fixtures/log-stamps.json` holds it to `src/runtime/log-stamp.js`.
+	 * `stamp_for()`: a stamp opening with a group name keeps its second
+	 * segment, any other is the first path segment alone. No bare stamp is a
+	 * group name, because `stamp_for()` refuses that dir. Reading the leading
+	 * segments rather than the whole string is what lets a full routing path
+	 * resolve too. `tests/fixtures/log-stamps.json` holds it to
+	 * `src/runtime/log-stamp.js`.
 	 *
 	 * @param string $from A stamp, or a FROM path beginning with one.
 	 * @return string The dir name that stamp addresses.
 	 */
 	private static function dir_from_stamp( string $from ): string {
 		$parts = \explode( '/', $from );
-		if ( isset( $parts[1] ) && '' !== $parts[1] && 'logs' !== $parts[0] && \in_array( $parts[0], Log_Discovery::GROUPS, true ) ) {
+		if ( isset( $parts[1] ) && '' !== $parts[1] && \in_array( $parts[0], Log_Discovery::GROUPS, true ) ) {
 			return "{$parts[0]}/{$parts[1]}";
 		}
 		return $parts[0];
@@ -903,9 +904,24 @@ class SSE_Out_Node extends Node {
 		return [ $group, \substr( $sub, $slash + 1 ) ];
 	}
 
-	/** The stamp for a matched dir: bare-logs stays bare; grouped keeps its prefix. */
+	/**
+	 * The stamp for a matched dir: bare-logs stays bare; grouped keeps its
+	 * prefix. A bare stamp that is a group name would read back as that
+	 * group's prefix, so a log dir named like a group is refused by name.
+	 *
+	 * @param string $group    The root group the dir sits under.
+	 * @param string $basename The dir's basename.
+	 * @return string The stamp its frames open their FROM with.
+	 * @throws \InvalidArgumentException On a log dir named like a group.
+	 */
 	private static function stamp_for( string $group, string $basename ): string {
-		return 'logs' === $group ? $basename : "{$group}/{$basename}";
+		if ( 'logs' !== $group ) {
+			return "{$group}/{$basename}";
+		}
+		if ( \in_array( $basename, Log_Discovery::GROUPS, true ) ) {
+			throw new \InvalidArgumentException( \esc_html( "log dir {$basename} is named like a group; rename it" ) );
+		}
+		return $basename;
 	}
 
 	/**

@@ -27,7 +27,7 @@ import { __ } from '@wordpress/i18n';
 import { useProbeStream } from './hooks/useProbeStream';
 import { useNodeField } from '../runtime/react';
 import UnparseableLinesNotice from '@newspack-nodes/shared/components/UnparseableLinesNotice';
-import { topicChartSeries, byKey } from './topicProbeSeries';
+import { topicChartSeries, byKey, bySource } from './topicProbeSeries';
 import { TopicsPanels, ProbeTable, errorsColumn } from './TopicsChart';
 import {
 	formatBytes,
@@ -36,6 +36,7 @@ import {
 	formatAge,
 } from '@newspack-nodes/shared/utils/formatters';
 import { formatDuration } from '@newspack-nodes/shared/utils/formatUtils';
+import { axisDuration } from '@newspack-nodes/shared/utils/axis-ticks';
 import './styles/probe-tab.scss';
 import './styles/jobs.scss';
 
@@ -133,15 +134,22 @@ export default function Jobs() {
 	// Deferred so redraws stay off INP.
 	const deferred = useDeferredValue( handlers );
 	const runsSeries = useMemo(
-		() => topicChartSeries( deferred, 'runsRate', byKey ),
+		() =>
+			topicChartSeries( deferred, 'runsRate', byKey, { byWorker: true } ),
 		[ deferred ]
 	);
 	const errorsSeries = useMemo(
-		() => topicChartSeries( deferred, 'errorsRate', byKey ),
+		() =>
+			topicChartSeries( deferred, 'errorsRate', byKey, {
+				byWorker: true,
+			} ),
 		[ deferred ]
 	);
 	const latencySeries = useMemo(
-		() => topicChartSeries( deferred, 'queueLatencyMs', byKey ),
+		() =>
+			topicChartSeries( deferred, 'queueLatencyMs', byKey, {
+				byWorker: false,
+			} ),
 		[ deferred ]
 	);
 	const deferredProbe = useDeferredValue(
@@ -155,7 +163,9 @@ export default function Jobs() {
 						isJobsSource( c.source )
 					)
 				),
-				'backlog'
+				'backlog',
+				bySource,
+				{ byWorker: true }
 			),
 		[ deferredProbe ]
 	);
@@ -195,7 +205,7 @@ export default function Jobs() {
 			title: __( 'Job Queue Latency', 'newspack-nodes' ),
 			yLabel: __( 'Latency', 'newspack-nodes' ),
 			series: latencySeries,
-			formatValue: formatDuration,
+			formatFor: axisDuration,
 			stackable: false,
 		},
 	];
