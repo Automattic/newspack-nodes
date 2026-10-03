@@ -9,6 +9,7 @@
 
 import { render, fireEvent, act } from '@testing-library/react';
 import Overview from '../Overview';
+import { useProbeStream } from '../hooks/useProbeStream';
 import { Core } from '../../runtime/core';
 import { publishSkippedLines } from '@newspack-nodes/shared/test-utils/skippedLines';
 
@@ -25,8 +26,8 @@ jest.mock( '../overviewPrefs', () => ( {
 	writeCollapsed: jest.fn(),
 } ) );
 // Probe stream is its own suite; link no-op, view model fed via useNodeField.
-jest.mock( '../hooks/useTopicProbeStream', () => ( {
-	useTopicProbeStream: jest.fn(),
+jest.mock( '../hooks/useProbeStream', () => ( {
+	useProbeStream: jest.fn(),
 } ) );
 jest.mock( '../../runtime/react', () => ( {
 	...jest.requireActual( '../../runtime/react' ),
@@ -172,6 +173,14 @@ function rowProps( name ) {
 }
 
 describe( 'Overview fleet board', () => {
+	it( 'replays the topic probe log from its start', () => {
+		useTopologyManager.mockReturnValue( hookValue() );
+		render( <Overview /> );
+		expect( useProbeStream ).toHaveBeenCalledWith( 'topicprobe', {
+			mode: 'history',
+		} );
+	} );
+
 	it( 'feeds SummaryCards the fleet topologies and the hook R/W rates + partition count', () => {
 		const topologies = [
 			active( 'alpha', 'ok', [

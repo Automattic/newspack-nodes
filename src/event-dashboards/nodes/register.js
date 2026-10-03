@@ -10,6 +10,7 @@ import { CommandInterpreterNode } from '../../runtime/command-interpreter-node';
 import { registerSliceViews } from '@newspack-nodes/shared/nodes/slice-view-node';
 import { JobstatsViewNode } from './jobstats-view-node';
 import { TopicProbeViewNode } from './topic-probe-view-node';
+import { TablestatsViewNode } from './tablestats-view-node';
 import { PartitionViewerViewNode } from './partition-viewer-view-node';
 import { LogViewerViewNode } from './logviewer-view-node';
 import { SettingsAuditViewNode } from './settings-audit-view-node';
@@ -27,6 +28,7 @@ const OWN_CLASSES = {
 	PartitionViewerView: PartitionViewerViewNode,
 	LogViewerView: LogViewerViewNode,
 	SettingsAuditView: SettingsAuditViewNode,
+	TablestatsView: TablestatsViewNode,
 	TopicProbeView: TopicProbeViewNode,
 	WorkerStatusTransform: WorkerStatusTransformNode,
 	WorkerStatusView: WorkerStatusViewNode,

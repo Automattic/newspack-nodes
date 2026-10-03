@@ -21,9 +21,10 @@
  * "behind" badge cannot reshuffle the list under the pointer. That order and
  * the fold state persist to localStorage through `overviewPrefs`.
  *
- * `useTopicProbeStream` runs in 'history' mode, which opens the probe link at
- * the start of the retained log, so the panels draw the real 24h history rather
- * than the thin ring a live tail accumulates while the tab is open.
+ * `useProbeStream( 'topicprobe' )` runs in 'history' mode, which opens the
+ * probe link at the start of the retained log, so the panels draw the real 24h
+ * history rather than the thin ring a live tail accumulates while the tab is
+ * open.
  * `topicChartSeries` rolls each metric's per-reader samples up per topic.
  *
  * Deep links go through `consoleHref`, keeping Console navigation
@@ -47,7 +48,7 @@ import SummaryCards from './SummaryCards';
 import TopologyControls from './TopologyControls';
 import AlertModal from './AlertModal';
 import { useTopologyManager } from './hooks/useTopologyManager';
-import { useTopicProbeStream } from './hooks/useTopicProbeStream';
+import { useProbeStream } from './hooks/useProbeStream';
 import { useNodeField } from '../runtime/react';
 import { topicChartSeries, fillModeForMetric } from './topicProbeSeries';
 import { TopicsChart } from './TopicsChart';
@@ -153,7 +154,7 @@ export default function Overview( { headerControlsSlot } ) {
 	);
 
 	// Replay topicprobe.p0 (24h) into topicprobe:view; frozen during a drag.
-	useTopicProbeStream( { mode: 'history' } );
+	useProbeStream( 'topicprobe', { mode: 'history' } );
 	const probeLive = useNodeField( 'topicprobe:view', 'view' );
 	const frozenProbeRef = useRef( probeLive );
 	if ( ! dragging ) {

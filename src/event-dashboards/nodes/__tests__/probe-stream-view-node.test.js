@@ -1,6 +1,7 @@
 import { ProbeStreamViewNode } from '../probe-stream-view-node';
 import { JobstatsViewNode } from '../jobstats-view-node';
 import { TopicProbeViewNode } from '../topic-probe-view-node';
+import { TablestatsViewNode } from '../tablestats-view-node';
 import {
 	newMessage,
 	TYPE,
@@ -11,6 +12,7 @@ import {
 // Namespaced: the two record layouts both export ELAPSED_MS.
 import * as Job from '../../../runtime/jobstats-record';
 import * as Probe from '../../../runtime/probe-record';
+import * as Tbl from '../../../runtime/tablestats-record';
 
 // A layout sharing no slot with either real record, so nothing can pass by luck.
 const WIDGET_ID = 2;
@@ -643,6 +645,180 @@ describe( 'JobstatsViewNode', () => {
 		const b = v.snapshot().evtemplate.series;
 		expect( a ).not.toBe( b );
 		expect( a ).toEqual( b );
+	} );
+} );
+
+function tablestatsMsg( {
+	ts = 1000,
+	id = 'lab-7:kea.p3',
+	backend = 'sqlite',
+	verbs = {},
+	purgeBehind = 0,
+	walStalled = 0,
+	fileBytes = 0,
+	elapsedMs = 15000,
+} = {} ) {
+	const m = newMessage();
+	m[ TYPE ] = TM_STRUCT;
+	m[ TIMESTAMP ] = TS_BASE + ts;
+	const v = [];
+	v[ Tbl.IDENTITY ] = id;
+	v[ Tbl.BACKEND ] = backend;
+	v[ Tbl.VERBS ] = verbs;
+	v[ Tbl.PURGE_BEHIND ] = purgeBehind;
+	v[ Tbl.WAL_STALLED ] = walStalled;
+	v[ Tbl.FILE_BYTES ] = fileBytes;
+	v[ Tbl.ELAPSED_MS ] = elapsedMs;
+	m[ VALUE ] = v;
+	return m;
+}
+
+// calls, asked, answered, bytes, ms, max ms, errors
+const row = ( ...r ) => r;
+
+describe( 'TablestatsViewNode', () => {
+	it( 'counts every operation, upkeep included, into one ops rate', () => {
+		const v = new TablestatsViewNode();
+		v.fill(
+			tablestatsMsg( {
+				verbs: {
+					MGET: row( 9, 40, 31, 0, 18, 6.5, 0 ),
+					PURGE: row( 2, 10000, 4210, 0, 30, 21, 0 ),
+					CHECKPOINT: row( 1, 3712, 3700, 0, 12, 12, 0 ),
+				},
+				elapsedMs: 3000,
+			} )
+		);
+		const s = v.snapshot()[ 'lab-7:kea.p3' ].series.at( -1 );
+		expect( s.opsRate ).toBe( 4 );
+		expect( s.opRates.MGET ).toBe( 3 );
+		expect( s.missRate ).toBe( 3 );
+		expect( s.meanMs ).toBe( 5 );
+		expect( s.maxMs ).toBe( 21 );
+		expect( s.purgedDelta ).toBe( 4210 );
+		expect( s.walWritten ).toBe( 3700 );
+		expect( s.walFrames ).toBe( 3712 );
+	} );
+
+	it( 'reads a missing operation as zeros and no reads as no hit rate', () => {
+		const v = new TablestatsViewNode();
+		v.fill(
+			tablestatsMsg( {
+				verbs: { SADD: row( 3, 12, 12, 940, 1.5, 0.75, 1 ) },
+			} )
+		);
+		const t = v.snapshot()[ 'lab-7:kea.p3' ];
+		expect( t.series.at( -1 ).missRate ).toBe( 0 );
+		expect( t.series.at( -1 ).opRates.GET ).toBeUndefined();
+		expect( t.windowed.hitPct ).toBeNull();
+		expect( t.windowed.errors ).toBe( 1 );
+		expect( Number.isNaN( t.windowed.meanMs ) ).toBe( false );
+	} );
+
+	it( 'sums the window per operation and in total, and takes levels from the newest', () => {
+		const v = new TablestatsViewNode();
+		v.fill(
+			tablestatsMsg( {
+				ts: 100,
+				verbs: { GET: row( 4, 4, 3, 0, 8, 3.5, 0 ) },
+				fileBytes: 4096,
+				purgeBehind: 1,
+			} )
+		);
+		v.fill(
+			tablestatsMsg( {
+				ts: 115,
+				verbs: { GET: row( 6, 6, 6, 0, 4, 1.25, 2 ) },
+				fileBytes: 8192,
+				walStalled: 3,
+			} )
+		);
+		const t = v.snapshot()[ 'lab-7:kea.p3' ];
+		expect( t.windowed.ops ).toBe( 10 );
+		expect( t.windowed.hitPct ).toBe( 90 );
+		expect( t.windowed.meanMs ).toBe( 1.2 );
+		expect( t.windowed.maxMs ).toBe( 3.5 );
+		expect( t.windowed.verbs.GET.calls ).toBe( 10 );
+		expect( t.latest ).toEqual( {
+			fileBytes: 8192,
+			purgeBehind: 0,
+			walStalled: 3,
+		} );
+		expect( t.backend ).toBe( 'sqlite' );
+	} );
+
+	it( 'reads an idle frame, an empty VERBS array, as zeros without NaN', () => {
+		const v = new TablestatsViewNode();
+		v.fill( tablestatsMsg( { verbs: [] } ) );
+		const t = v.snapshot()[ 'lab-7:kea.p3' ];
+		const s = t.series.at( -1 );
+		expect( t.windowed.ops ).toBe( 0 );
+		expect( s.missRate ).toBe( 0 );
+		expect( s.meanMs ).toBe( 0 );
+		expect( t.windowed.hitPct ).toBeNull();
+		for ( const n of [
+			...Object.values( s ).filter( ( x ) => 'number' === typeof x ),
+			...Object.values( t.windowed ).filter(
+				( x ) => 'number' === typeof x
+			),
+		] ) {
+			expect( Number.isNaN( n ) ).toBe( false );
+		}
+	} );
+
+	it( 'sums upkeep across the window and keeps the longest call a max', () => {
+		const v = new TablestatsViewNode();
+		v.fill(
+			tablestatsMsg( {
+				ts: 100,
+				verbs: {
+					GET: row( 4, 4, 3, 0, 8, 3.5, 0 ),
+					PURGE: row( 1, 50, 41, 0, 2, 2, 0 ),
+					CHECKPOINT: row( 1, 70, 66, 0, 3, 3, 0 ),
+				},
+			} )
+		);
+		v.fill(
+			tablestatsMsg( {
+				ts: 115,
+				verbs: {
+					GET: row( 6, 6, 6, 0, 4, 1.25, 0 ),
+					PURGE: row( 1, 50, 9, 0, 2, 2, 0 ),
+					CHECKPOINT: row( 1, 30, 24, 0, 3, 3, 0 ),
+				},
+			} )
+		);
+		const w = v.snapshot()[ 'lab-7:kea.p3' ].windowed;
+		expect( w.verbs.GET.maxMs ).toBe( 3.5 );
+		expect( w.purged ).toBe( 50 );
+		expect( w.walWritten ).toBe( 90 );
+		expect( w.walFrames ).toBe( 100 );
+	} );
+
+	it( 'shrinks the window sums as samples age out', () => {
+		const v = new TablestatsViewNode();
+		v.fill(
+			tablestatsMsg( {
+				ts: 100,
+				verbs: { GET: row( 4, 4, 4, 0, 1, 1, 0 ) },
+			} )
+		);
+		v.fill(
+			tablestatsMsg( {
+				ts: 200,
+				verbs: { GET: row( 3, 3, 3, 0, 1, 1, 0 ) },
+			} )
+		);
+		v._pruneExpired( ( TS_BASE + 150 + RETENTION_S ) * 1000 );
+		expect( v.snapshot()[ 'lab-7:kea.p3' ].windowed.ops ).toBe( 3 );
+	} );
+
+	it( "publishes under a 'tables' key", () => {
+		const v = new TablestatsViewNode();
+		const published = [];
+		v.notify = ( key ) => published.push( [ key, v.view ] );
+		v.fill( tablestatsMsg() );
+		expect( published[ 0 ][ 1 ].tables[ 'lab-7:kea.p3' ] ).toBeTruthy();
 	} );
 } );
 
