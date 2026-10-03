@@ -102,9 +102,14 @@ abstract class Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 		$from = "{$this->worker_id}/{$this->name}";
 		// Swept work re-pins Core::$now; read the sweep instant once.
 		$instant = Core::$now;
+		$this->sweep_started();
 		Worker_Should_Stop::raise(
 			Worker_Should_Stop::attempt_each( Core::$nodes_by_name, fn ( Node $node ) => $this->sweep( $node, $sink, $from, $instant ) )
 		);
+	}
+
+	/** Hook: a probe clears its per-sweep state here, before the first node. */
+	protected function sweep_started(): void {
 	}
 
 	/**

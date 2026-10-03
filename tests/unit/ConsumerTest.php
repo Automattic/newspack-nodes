@@ -532,7 +532,7 @@ class ConsumerTest extends TestCase {
 		$this->pump_consumer( $c );
 
 		$stats = $c->probe_stats();
-		$this->assertCount( 12, $stats, 'lean positional record' );
+		$this->assertCount( 13, $stats, 'lean positional record' );
 		// READER = offsetlog dir basename; SOURCE = partition tailed (its basename).
 		$this->assertSame( 'firehose.job-router.p0', $stats[ Probe_Record::READER ] );
 		$this->assertSame( 'data.p0', $stats[ Probe_Record::SOURCE ] );
@@ -543,8 +543,9 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( 0, $stats[ Probe_Record::END_SEGMENT ] );
 		$this->assertGreaterThan( 0, $stats[ Probe_Record::END_SIZE ] );
 		$this->assertSame( 2, $stats[ Probe_Record::MSGS_DELTA ] );
-		// END_BYTES = the partition's total bytes; caught up → equals what we consumed.
-		$this->assertSame( $stats[ Probe_Record::END_SIZE ], $stats[ Probe_Record::END_BYTES ] );
+		// The partition's size rides the Partition record, never the reader's.
+		$this->assertSame( 0, $stats[ Probe_Record::END_BYTES ] );
+		$this->assertSame( 0, $stats[ Probe_Record::END_DISK_BYTES ] );
 	}
 
 	public function test_lag_from_disk_sees_an_external_append_with_no_live_consumer(): void {
@@ -585,6 +586,7 @@ class ConsumerTest extends TestCase {
 
 		$this->assertSame( 700, $lag['bytes_behind'] );
 		$this->assertFalse( $lag['caught_up'] );
+		$this->assertArrayNotHasKey( 'end_bytes', $lag, 'the footprint is the Partition record\'s' );
 	}
 
 	public function test_probe_stats_reports_offsetlog_cache_size_after_checkpoint(): void {

@@ -626,7 +626,7 @@ class TailFileFollowTest extends TestCase {
 		$this->assertSame( 0, $lag['segments_behind'], 'a single file has no segment backlog' );
 		$this->assertFalse( $lag['caught_up'] );
 		$this->assertSame( 12, $lag['end_size'] );
-		$this->assertSame( 12, $lag['end_bytes'] );
+		$this->assertArrayNotHasKey( 'end_bytes', $lag, 'a partition stat, not a reader one' );
 	}
 
 	public function test_file_mode_compute_lag_reports_caught_up_after_draining(): void {
@@ -693,7 +693,7 @@ class TailFileFollowTest extends TestCase {
 		$this->assertSame( 'debug.log', $stats[ \Newspack_Nodes\Probe_Record::SOURCE ], 'source is the followed filename basename' );
 		$this->assertSame( 'off', $stats[ \Newspack_Nodes\Probe_Record::READER ], 'reader is the offsetlog dir basename' );
 		$this->assertSame( 8, $stats[ \Newspack_Nodes\Probe_Record::END_SIZE ], 'end size is the live file size' );
-		$this->assertSame( 8, $stats[ \Newspack_Nodes\Probe_Record::END_BYTES ] );
+		$this->assertSame( 0, $stats[ \Newspack_Nodes\Probe_Record::END_BYTES ], 'a partition stat, not a reader one' );
 		$this->assertSame( 0, $stats[ \Newspack_Nodes\Probe_Record::DISTANCE ], 'a fully-read file has no distance' );
 		$this->assertSame( 0, $stats[ \Newspack_Nodes\Probe_Record::CACHE_SIZE ] );
 	}

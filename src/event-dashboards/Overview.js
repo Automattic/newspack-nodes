@@ -9,7 +9,9 @@
  *    totals),
  *  - four Topics panels modeled on Tachikoma's Grafana Topics dashboard —
  *    message rate, byte rate, backlog and cache size — each a multi-series 24h
- *    chart carrying one series per topic and a ranked max/avg legend, and
+ *    chart carrying one series per topic and a ranked max/avg legend,
+ *  - two partition panels, Partition Size and On Disk, each carrying one
+ *    series per partition, and
  *  - one `TopologyRow` per active topology, foldable between a compact summary
  *    and the full live detail tree, then a de-emphasized group of the stopped
  *    ones.
@@ -28,7 +30,9 @@
  * Each panel plots one series per partition per worker, `<source> · <worker>`,
  * because a source names no worker and so the panels ask `topicChartSeries`
  * to split by one: co-readers of a partition inside one worker sum, since one
- * sweep stamps them together, and the stacked chart sums the workers.
+ * sweep stamps them together, and the stacked chart sums the workers. The two
+ * partition panels do not split: size belongs to the directory, so every
+ * worker's reading is one series, and a bucket shows the newest of them.
  *
  * Deep links go through `consoleHref`, keeping Console navigation
  * single-sourced.
@@ -299,6 +303,7 @@ export default function Overview( { headerControlsSlot } ) {
 
 	// Per-partition 24h series, deferred so heavy rollups stay off INP.
 	const consumers = useDeferredValue( probeView?.consumers );
+	const partitions = useDeferredValue( probeView?.partitions );
 	const msgRateSeries = useMemo(
 		() =>
 			topicChartSeries( consumers, 'msgRate', bySource, {
@@ -327,6 +332,20 @@ export default function Overview( { headerControlsSlot } ) {
 			} ),
 		[ consumers ]
 	);
+	const sizeSeries = useMemo(
+		() =>
+			topicChartSeries( partitions, 'endBytes', bySource, {
+				byWorker: false,
+			} ),
+		[ partitions ]
+	);
+	const diskSeries = useMemo(
+		() =>
+			topicChartSeries( partitions, 'diskBytes', bySource, {
+				byWorker: false,
+			} ),
+		[ partitions ]
+	);
 	const panels = [
 		{
 			title: __( 'Topics Message Rate', 'newspack-nodes' ),
@@ -353,6 +372,20 @@ export default function Overview( { headerControlsSlot } ) {
 			title: __( 'Topics Cache Size', 'newspack-nodes' ),
 			yLabel: __( 'Cache Size', 'newspack-nodes' ),
 			series: cacheSizeSeries,
+			formatValue: formatBytes,
+			stacked: true,
+		},
+		{
+			title: __( 'Partition Size', 'newspack-nodes' ),
+			yLabel: __( 'Size', 'newspack-nodes' ),
+			series: sizeSeries,
+			formatValue: formatBytes,
+			stacked: true,
+		},
+		{
+			title: __( 'On Disk', 'newspack-nodes' ),
+			yLabel: __( 'Disk', 'newspack-nodes' ),
+			series: diskSeries,
 			formatValue: formatBytes,
 			stacked: true,
 		},
@@ -426,6 +459,7 @@ export default function Overview( { headerControlsSlot } ) {
 				writeRate={ writeRate }
 				logPartitions={ logPartitions }
 				consumers={ consumers }
+				partitions={ partitions }
 			/>
 			<div className="nodes-overview__panels">
 				<TopicsPanels panels={ panels } />

@@ -785,6 +785,26 @@ class Core {
 	}
 
 	/**
+	 * A file's byte length and the disk the filesystem allocates it, from one
+	 * `stat()`. A compressing filesystem holds the disk below the length; a
+	 * small file's last block can hold it above. Null when the file is gone,
+	 * which each caller decides how to treat.
+	 *
+	 * @param string $path The file.
+	 * @return array{bytes:int,disk:int}|null
+	 */
+	public static function file_footprint( string $path ): ?array {
+		// Another writer's append leaves the stat cache reporting the old size.
+		\clearstatcache( true, $path );
+		$stat = @\stat( $path );
+		if ( false === $stat ) {
+			return null;
+		}
+		// stat() counts 512-byte blocks, whatever the filesystem's own.
+		return [ 'bytes' => $stat['size'], 'disk' => $stat['blocks'] * 512 ];
+	}
+
+	/**
 	 * The logged-in WordPress user's id: 0 when nobody is logged in — a worker,
 	 * WP-Cron, WP-CLI without `--user` — and 0 where WordPress is not loaded.
 	 */

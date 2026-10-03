@@ -911,6 +911,34 @@ class CoreTest extends TestCase {
 			\ini_set( 'pcre.backtrack_limit', false === $limit ? '1000000' : $limit );
 		}
 	}
+
+	/**
+	 * One `stat()` gives a file's byte length and the disk the filesystem
+	 * allocates it, read back here rather than assumed equal.
+	 */
+	public function test_file_footprint_reads_bytes_and_allocated_disk(): void {
+		$file = $this->make_temp_dir( 'footprint-' ) . '/seg.log';
+		\file_put_contents( $file, \str_repeat( 'q', 6113 ) );
+		$disk = (int) \stat( $file )['blocks'] * 512;
+		$this->assertNotSame( 6113, $disk, 'disk must not equal bytes here, or the test proves nothing' );
+
+		$this->assertSame( [ 'bytes' => 6113, 'disk' => $disk ], Core::file_footprint( $file ) );
+	}
+
+	/** A file grown since an earlier read is sized as it stands, not as cached. */
+	public function test_file_footprint_reads_past_the_stat_cache(): void {
+		$file = $this->make_temp_dir( 'footprint-' ) . '/seg.log';
+		\file_put_contents( $file, \str_repeat( 'q', 41 ) );
+		Core::file_footprint( $file );
+		\file_put_contents( $file, \str_repeat( 'r', 59 ), \FILE_APPEND );
+
+		$this->assertSame( 100, Core::file_footprint( $file )['bytes'] ?? null );
+	}
+
+	/** A file that is gone has no footprint, never a zero one. */
+	public function test_file_footprint_is_null_for_a_missing_file(): void {
+		$this->assertNull( Core::file_footprint( $this->make_temp_dir( 'footprint-' ) . '/gone.log' ) );
+	}
 }
 
 /**

@@ -21,7 +21,7 @@ final class ProbeRecordLayoutsTest extends TestCase {
 
 	/**
 	 * Each layout, its JS mirror, and the names the mirror must export: null
-	 * when it mirrors every slot. `probe-record.js` declares only the seven
+	 * when it mirrors every slot. `probe-record.js` declares only the nine
 	 * slots a browser reads, and `tablestats-record.js` every slot but the
 	 * row's bytes, which no browser view reads.
 	 *
@@ -29,9 +29,9 @@ final class ProbeRecordLayoutsTest extends TestCase {
 	 */
 	public static function layouts(): array {
 		return [
-			'topicprobe' => [ Probe_Record::class, 'src/runtime/probe-record.js', [ 'SOURCE', 'READER', 'DISTANCE', 'MSGS_DELTA', 'CACHE_SIZE', 'BYTES_READ_DELTA', 'ELAPSED_MS' ] ],
+			'topicprobe' => [ Probe_Record::class, 'src/runtime/probe-record.js', [ 'SOURCE', 'READER', 'DISTANCE', 'MSGS_DELTA', 'END_BYTES', 'CACHE_SIZE', 'BYTES_READ_DELTA', 'ELAPSED_MS', 'END_DISK_BYTES' ] ],
 			'jobstats'   => [ Jobstats_Record::class, 'src/runtime/jobstats-record.js', null ],
-			'tablestats' => [ Tablestats_Record::class, 'src/runtime/tablestats-record.js', [ 'IDENTITY', 'BACKEND', 'VERBS', 'PURGE_BEHIND', 'WAL_STALLED', 'FILE_BYTES', 'ELAPSED_MS', 'ROW_CALLS', 'ROW_ASKED', 'ROW_ANSWERED', 'ROW_MS', 'ROW_MAX_MS', 'ROW_ERRORS' ] ],
+			'tablestats' => [ Tablestats_Record::class, 'src/runtime/tablestats-record.js', [ 'IDENTITY', 'BACKEND', 'VERBS', 'PURGE_BEHIND', 'WAL_STALLED', 'FILE_BYTES', 'ELAPSED_MS', 'FILE_DISK_BYTES', 'ROW_CALLS', 'ROW_ASKED', 'ROW_ANSWERED', 'ROW_MS', 'ROW_MAX_MS', 'ROW_ERRORS' ] ],
 		];
 	}
 
@@ -43,13 +43,27 @@ final class ProbeRecordLayoutsTest extends TestCase {
 	/** @param class-string $layout */
 	#[DataProvider( 'layout_classes' )]
 	public function test_php_slots_run_dense_from_zero( string $layout ): void {
-		$constants = ( new \ReflectionClass( $layout ) )->getConstants();
+		$constants = \array_filter( ( new \ReflectionClass( $layout ) )->getConstants(), '\is_int' );
 		$rows      = \array_filter( $constants, static fn ( string $name ): bool => \str_starts_with( $name, 'ROW_' ), \ARRAY_FILTER_USE_KEY );
 		$slots     = \array_diff_key( $constants, $rows );
 		$this->assertSame( \range( 0, \count( $slots ) - 1 ), \array_values( $slots ) );
 		if ( [] !== $rows ) {
 			$this->assertSame( \range( 0, \count( $rows ) - 1 ), \array_values( $rows ) );
 		}
+	}
+
+	/**
+	 * The record both `probe_stats()` builders start from: one slot per
+	 * index in layout order, blank for the two names and 0 for every count,
+	 * so each builder states only the slots its kind fills.
+	 */
+	public function test_a_blank_probe_record_fills_every_slot_in_order(): void {
+		$slots    = \array_filter( ( new \ReflectionClass( Probe_Record::class ) )->getConstants(), '\is_int' );
+		$expected = \array_fill( 0, \count( $slots ), 0 );
+		$expected[ Probe_Record::SOURCE ] = '';
+		$expected[ Probe_Record::READER ] = '';
+
+		$this->assertSame( $expected, Probe_Record::BLANK );
 	}
 
 	/**

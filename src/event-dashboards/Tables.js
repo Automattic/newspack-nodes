@@ -5,9 +5,10 @@
  *
  * A thin view over one replayed stream: `useProbeStream( 'tablestats' )` in
  * history mode replays a day of the Table_Probe sweep into `tablestats:view`.
- * Five panels chart it — ops per second per Table, each operation's rate
+ * Six panels chart it — ops per second per Table, each operation's rate
  * per worker summed over that worker's Tables, keys missed per second, mean
- * and longest call per Table, and each SQLite Table's file size — and one row
+ * and longest call per Table, and each SQLite Table's file size and the disk
+ * it takes, side by side so the two-column grid stays even — and one row
  * per Table carries the window's totals, summed over the same per-sweep
  * samples the charts plot. Every panel but latency stacks, so its column reads
  * as the total.
@@ -20,7 +21,7 @@
  */
 
 import { useMemo, useDeferredValue } from '@wordpress/element';
-import { __ } from '@wordpress/i18n';
+import { __, sprintf } from '@wordpress/i18n';
 import { useProbeStream } from './hooks/useProbeStream';
 import { isLiveSample, streamHead } from './liveSample';
 import { useNodeField } from '../runtime/react';
@@ -165,7 +166,12 @@ const COLUMNS = [
 		label: __( 'Size', 'newspack-nodes' ),
 		cell: ( t, ctx ) =>
 			null !== t.latest.fileBytes && isLiveSample( t.latest, ctx.head )
-				? formatBytes( t.latest.fileBytes )
+				? sprintf(
+						// translators: 1: bytes the files hold, 2: disk they take.
+						__( '%1$s (%2$s on disk)', 'newspack-nodes' ),
+						formatBytes( t.latest.fileBytes ),
+						formatBytes( t.latest.fileDiskBytes )
+				  )
 				: '-',
 	},
 	errorsColumn( __( 'Errors', 'newspack-nodes' ) ),
@@ -218,6 +224,10 @@ export default function Tables() {
 		() => topicChartSeries( deferred, 'fileBytes', byKey, WHOLE ),
 		[ deferred ]
 	);
+	const diskSeries = useMemo(
+		() => topicChartSeries( deferred, 'fileDiskBytes', byKey, WHOLE ),
+		[ deferred ]
+	);
 	const panels = [
 		{
 			title: __( 'Table Ops Rate', 'newspack-nodes' ),
@@ -251,6 +261,13 @@ export default function Tables() {
 			title: __( 'Table Size', 'newspack-nodes' ),
 			yLabel: __( 'Size', 'newspack-nodes' ),
 			series: sizeSeries,
+			formatValue: formatBytes,
+			stacked: true,
+		},
+		{
+			title: __( 'Table On Disk', 'newspack-nodes' ),
+			yLabel: __( 'On Disk', 'newspack-nodes' ),
+			series: diskSeries,
 			formatValue: formatBytes,
 			stacked: true,
 		},

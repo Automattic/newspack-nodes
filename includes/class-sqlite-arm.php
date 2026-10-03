@@ -197,6 +197,17 @@ final class Sqlite_Arm extends Durable_Arm {
 		return "sqlite {$this->path}: {$this->failure}";
 	}
 
+	/**
+	 * What one SQLite database takes in all: the byte length and the allocated
+	 * disk, each summed over the files `file_sizes()` names.
+	 *
+	 * @param string $path The database file.
+	 * @return array{bytes:int,disk:int}
+	 */
+	public static function footprint( string $path ): array {
+		return self::totals( self::file_sizes( $path ) );
+	}
+
 	/** See Durable_Arm::row_key(): `{namespace}:{key}`. */
 	public function row_key( string $key ): string {
 		return "{$this->namespace}:{$key}";
@@ -362,22 +373,35 @@ final class Sqlite_Arm extends Durable_Arm {
 			$this->db          = null;
 			$this->db          = $this->connect();
 		}
-		return [ 'bytes' => \array_sum( $sizes ) ];
+		return [ 'bytes' => self::totals( $sizes )['bytes'] ];
+	}
+
+	/**
+	 * Sum a `file_sizes()` map.
+	 *
+	 * @param array<string,array{bytes:int,disk:int}> $sizes File => sizes.
+	 * @return array{bytes:int,disk:int}
+	 */
+	private static function totals( array $sizes ): array {
+		return [
+			'bytes' => \array_sum( \array_column( $sizes, 'bytes' ) ),
+			'disk'  => \array_sum( \array_column( $sizes, 'disk' ) ),
+		];
 	}
 
 	/**
 	 * The files one SQLite database is made of — the database, its `-wal` and
-	 * its `-shm` — each on disk now, with its bytes.
+	 * its `-shm` — each on disk now, with its `Core::file_footprint()`.
 	 *
 	 * @param string $path The database file.
-	 * @return array<string,int> File => bytes; a file not on disk is absent.
+	 * @return array<string,array{bytes:int,disk:int}> File => sizes; a file not on disk is absent.
 	 */
 	public static function file_sizes( string $path ): array {
 		$sizes = [];
 		foreach ( [ $path, "{$path}-wal", "{$path}-shm" ] as $file ) {
-			\clearstatcache( true, $file );
-			if ( \is_file( $file ) ) {
-				$sizes[ $file ] = (int) \filesize( $file );
+			$footprint = Core::file_footprint( $file );
+			if ( null !== $footprint ) {
+				$sizes[ $file ] = $footprint;
 			}
 		}
 		return $sizes;

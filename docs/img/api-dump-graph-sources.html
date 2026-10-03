@@ -30,7 +30,7 @@
     <div class="chips"><span>type</span><span>partition</span><span>state</span><span>started_at</span><span>heartbeat_age</span><span>heartbeat_at</span><span>restart_pending</span></div></div>
   <div class="cav"><span class="mono">state</span> is <span class="mono">CLI::worker_states()</span>'s word, the one <span class="mono">wp nodes status</span> prints: <span class="mono">live</span>, <span class="mono">stale</span>, <span class="mono">held</span>, <span class="mono">idle</span> or <span class="mono">down</span>.</div>
 
-  <div class="src"><b>The topicprobe log</b>The last 128 KiB of <span class="mono">topicprobe.p0</span>'s newest segment, one <span class="mono">Probe_Record</span> per reader, through <span class="mono">CLI::consumer_rows()</span>.</div>
+  <div class="src"><b>The topicprobe log</b>The last 512 KiB of <span class="mono">topicprobe.p0</span>'s newest segment, one <span class="mono">Probe_Record</span> per reader, through <span class="mono">CLI::consumer_rows()</span>.</div>
   <div class="ar">→</div>
   <div class="key"><span class="k">consumers[]</span>one row per reader that reported inside the window
     <div class="chips"><span>reader</span><span>source</span><span>partition</span><span>cursor_segment</span><span>cursor_offset</span><span>end_segment</span><span>end_size</span><span>distance</span><span>msgs</span></div>

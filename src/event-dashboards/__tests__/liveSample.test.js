@@ -293,7 +293,7 @@ describe( 'liveTotal msgRate', () => {
 				view.fill( probeMsg( reader, ts, msgs ) );
 			}
 
-			const consumers = view.snapshot();
+			const consumers = view.snapshot( 'consumers' );
 			expect( consumers[ 'dead.p0' ].latest.msgRate ).toBe( 51000 );
 			expect( consumers[ 'dead.p0' ].series.length ).toBe( deadCount );
 			expect( globalMsgRate( consumers, streamHead( consumers ) ) ).toBe(

@@ -1,7 +1,7 @@
 /**
  * The one freshness rule every live SummaryCards card applies to a reader's
- * `latest` probe sample: "Messages/s", "Backlog" and "Total Cache", summed by
- * `liveTotal`.
+ * or a partition's `latest` probe sample: "Messages/s", "Backlog", "Total
+ * Cache", "Total Size" and "Total On Disk", summed by `liveTotal`.
  *
  * A live card shows the fleet as of the newest message seen, so a sample counts
  * only while it is within a minute of the stream head: the newest `latest.ts`
@@ -43,11 +43,12 @@ export function streamHead( consumers ) {
  * rate, backlog and offsetlog, so two topologies tailing `firehose.p0` are
  * two distinct values and both count, as both stack in the Overview's charts.
  * A reader that died keeps its last sample in the map, and the live test
- * keeps that stale burst or debt out of the card.
+ * keeps that stale burst or debt out of the card. The partitions map is keyed
+ * by source already, so each live directory counts once.
  *
- * @param {?Object<string,{source?:string,latest?:Object<string,number>}>} consumers The `topicprobe:view` consumers map; a missing map counts as empty.
+ * @param {?Object<string,{source?:string,latest?:Object<string,number>}>} consumers The `topicprobe:view` consumers or partitions map; a missing map counts as empty.
  * @param {number}                                                         headS     The stream head, from `streamHead()`.
- * @param {string}                                                         field     The `latest` field to sum: `msgRate`, `backlog` or `cacheSize`.
+ * @param {string}                                                         field     The `latest` field to sum: `msgRate`, `backlog`, `cacheSize`, `endBytes` or `diskBytes`.
  * @return {number} The summed field; 0 when no reader is live.
  */
 export function liveTotal( consumers, headS, field ) {

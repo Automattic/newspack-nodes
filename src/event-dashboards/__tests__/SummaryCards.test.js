@@ -23,6 +23,7 @@ function renderCards( props = {} ) {
 		writeRate: 1.6 * 1024 * 1024,
 		logPartitions: 11,
 		consumers: {},
+		partitions: {},
 	};
 	return render( <SummaryCards { ...base } { ...props } /> );
 }
@@ -31,7 +32,7 @@ it( 'marks every fleet metric as a canonical card surface', () => {
 	const { container } = renderCards();
 	const cards = [ ...container.querySelectorAll( '.nodes-card' ) ];
 
-	expect( cards ).toHaveLength( 11 );
+	expect( cards ).toHaveLength( 13 );
 	expect(
 		cards.every( ( item ) =>
 			item.classList.contains( 'newspack-nodes-card' )
@@ -109,6 +110,29 @@ it( 'shows the summed offsetlog cache size, and no average, from the probe consu
 	expect( card( container, 'cache-total' ) ).toContain( '3.9 KB' );
 	expect( container.querySelector( '.nodes-card--cache-avg' ) ).toBeNull();
 	expect( container.textContent ).not.toContain( 'Avg Cache' );
+} );
+
+it( "sums each live partition's newest size and disk, the stale one left out", () => {
+	const { container } = renderCards( {
+		partitions: {
+			'ledger.p4': {
+				source: 'ledger.p4',
+				latest: { ts: NOW, endBytes: 3 * 1048576, diskBytes: 1048576 },
+			},
+			'jobs.p0': {
+				source: 'jobs.p0',
+				latest: { ts: NOW - 30, endBytes: 1048576, diskBytes: 1048576 },
+			},
+			'gone.p0': {
+				source: 'gone.p0',
+				latest: { ts: NOW - 61, endBytes: 9e9, diskBytes: 9e9 },
+			},
+		},
+	} );
+	expect( card( container, 'size-total' ) ).toContain( '4 MB' );
+	expect( card( container, 'size-total' ) ).toContain( 'Total Size' );
+	expect( card( container, 'disk-total' ) ).toContain( '2 MB' );
+	expect( card( container, 'disk-total' ) ).toContain( 'Total On Disk' );
 } );
 
 it( 'sums the current backlog across readers from the probe consumers', () => {

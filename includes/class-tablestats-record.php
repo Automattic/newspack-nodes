@@ -50,6 +50,9 @@ class Tablestats_Record {
 	/** Milliseconds the window covers, from the Table's construction for the first. */
 	public const ELAPSED_MS = 6;
 
+	/** Disk the db, -wal and -shm take, Σ `blocks × 512`; null off SQLite. */
+	public const FILE_DISK_BYTES = 7;
+
 	/** A row's calls in the window. */
 	public const ROW_CALLS = 0;
 

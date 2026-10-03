@@ -38,7 +38,7 @@ const level = ( raw ) => ( null === raw ? null : Number( raw ) || 0 );
  * the view pushes one sample of scalars: the record's totals over every
  * operation, each operation's calls per second, and the figures the charts
  * plot — calls per second, keys missed per second, mean and longest ms, and
- * the file size. Every value is read off THAT record and nothing is
+ * the file size and the disk it takes. Every value is read off THAT record and nothing is
  * differenced across records. A level the record carries as null, a figure
  * its backend has no such thing for, stays null. The window rollup the table
  * renders is summed over the retained samples in `_entryView`, so it shrinks
@@ -71,6 +71,7 @@ export class TablestatsViewNode extends ProbeStreamViewNode {
 			latest: {
 				ts: c.ts,
 				fileBytes: c.fileBytes,
+				fileDiskBytes: c.fileDiskBytes,
 				purgeBehind: c.purgeBehind,
 				walStalled: c.walStalled,
 			},
@@ -125,6 +126,7 @@ export class TablestatsViewNode extends ProbeStreamViewNode {
 		c.purgeBehind = level( value[ Tbl.PURGE_BEHIND ] );
 		c.walStalled = level( value[ Tbl.WAL_STALLED ] );
 		c.fileBytes = level( value[ Tbl.FILE_BYTES ] );
+		c.fileDiskBytes = level( value[ Tbl.FILE_DISK_BYTES ] );
 
 		const elapsed = this._delta( value[ Tbl.ELAPSED_MS ] ) / 1000;
 		const per = ( n ) => ( elapsed > 0 ? n / elapsed : 0 );
@@ -142,6 +144,7 @@ export class TablestatsViewNode extends ProbeStreamViewNode {
 			ms: 0,
 			maxMs: 0,
 			fileBytes: c.fileBytes,
+			fileDiskBytes: c.fileDiskBytes,
 			opRates: {},
 		};
 		const raw = value[ Tbl.VERBS ];

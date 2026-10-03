@@ -6,6 +6,38 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`topicprobe.p0` carries Partition records beside Consumer records.** A
+  Partition record leaves `Probe_Record::READER` blank and fills `SOURCE` with
+  the log's SSE stamp: bare for a `logs/` dir (`ingest.p0`), `{group}/{dir}`
+  under `offsets/` or `deadletter/`, and the path under the runtime base
+  elsewhere (`ipc/<worker-id>/output`). A Consumer record's SOURCE stays the
+  basename. A Partition record also fills the end pair, `END_BYTES` (8) and
+  the new `END_DISK_BYTES` (12); every other slot is 0. A Consumer record
+  writes 0 at `END_BYTES` and `END_DISK_BYTES`, and a Consumer with no
+  offsetlog sends no record. A reader that assumed every record names a READER
+  skips a blank one; a reader of `END_BYTES` off a Consumer record reads the
+  Partition record for the log it tails, whose SOURCE is the Consumer's own
+  for a `logs/` partition. A record is thirteen slots, so a test counting
+  twelve counts thirteen.
+- **`Consumer_Node::lag_of()` and `compute_lag()` no longer answer
+  `end_bytes`.** Read `Partition_Node::probe_stats()[ Probe_Record::END_BYTES ]`.
+- **`get_segments()` skips a segment whose `stat()` fails,** one retention
+  deleted between `scandir` and `stat`, where it listed it at size 0. Read a
+  log's byte length and allocated disk through `Partition_Node::footprint()`.
+- **`Sqlite_Arm::file_sizes()` answers `file => [ 'bytes' => …, 'disk' => … ]`**
+  where it answered `file => bytes`. Sum `array_column( $sizes, 'bytes' )`.
+  `Tablestats_Record` gains `FILE_DISK_BYTES` (7), null off SQLite.
+- **`topic-probe.tsl` declares `topicprobe.p0` with 16 MiB segments**
+  (`16777216 2 8 0 86400 86400`), sized for a day of both record kinds. A
+  topology of your own that declares `topicprobe.p0` with the old
+  `1048576 2 8 0 86400 86400` now conflicts with every `include topic-probe`
+  at activation; `include topic-probe` instead.
+- **`Partition_Node::read_tail_frames_by()` takes `$max_bytes` with no
+  default.** Name the window; `CLI::PROBE_TAIL_BYTES` (512 KiB) is the status
+  tail's.
+- **The `Partition_Node::write_quarantine_key()` seam is the public
+  `identity_path()`.** A subclass overriding it renames the override and makes
+  it public; its path under the runtime base names the log's Partition record.
 - **A probe record's FROM is `<worker-id>/<probe>`.** `topicprobe.p0`,
   `jobstats.p0` and `tablestats.p0` records carry `job-worker.p2/jobstats` where
   they carried the bare `jobstats`. A probe with no topology or no canonical

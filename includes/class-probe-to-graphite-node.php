@@ -113,9 +113,9 @@ class Probe_To_Graphite_Node extends Timer_Node {
 	 *
 	 * Only TM_STRUCT carries a record, so a bytestream line or a command reply
 	 * is ignored rather than parsed, and so is a struct whose VALUE is not an
-	 * array or whose READER slot is blank — an ephemeral reader has no
-	 * offsetlog dir and writes that slot blank, so a blank id admitted here
-	 * would merge every such reader into one series. The two SUMMED fields
+	 * array or whose READER slot is blank — a Partition record, which
+	 * carries a log's size rather than a reader's work, so a blank id admitted
+	 * here would merge every log into one reader's series. The two SUMMED fields
 	 * accumulate onto the prior record; every other slot takes the newest
 	 * record's value.
 	 *

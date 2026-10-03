@@ -394,6 +394,22 @@ final class TableStatsTest extends TestCase {
 		$this->assertSame( 0, $record[ Tablestats_Record::WAL_STALLED ] );
 	}
 
+	/** A SQLite Table reports the disk its db, -wal and -shm take, read back. */
+	public function test_a_probe_record_carries_the_disk_its_files_take(): void {
+		$this->insert( 1000000, 'kea-41', 'v-41' );
+		$path = Table_Node::file( 'lab-7:kea', 3 );
+		$disk = 0;
+		foreach ( [ $path, "{$path}-wal", "{$path}-shm" ] as $file ) {
+			\clearstatcache( true, $file );
+			$disk += \is_file( $file ) ? (int) \stat( $file )['blocks'] * 512 : 0;
+		}
+
+		$record = $this->table->probe_stats()[0];
+
+		$this->assertNotSame( $record[ Tablestats_Record::FILE_BYTES ], $disk, 'bytes must differ from blocks here, or the test proves nothing' );
+		$this->assertSame( $disk, $record[ Tablestats_Record::FILE_DISK_BYTES ] );
+	}
+
 	public function test_two_drains_split_the_work_and_stats_keeps_the_running_total(): void {
 		$this->insert( 3000000, 'kea-41', 'v-41' );
 		$this->ask( 7000000, "MGET kea-41 kea-99\n" );
@@ -489,6 +505,7 @@ final class TableStatsTest extends TestCase {
 		$emu->fill( $this->request_of( "GET kea-41\n" ) );
 		$record = $emu->probe_stats()[0];
 		$this->assertNull( $record[ Tablestats_Record::FILE_BYTES ], 'no file to size' );
+		$this->assertNull( $record[ Tablestats_Record::FILE_DISK_BYTES ], 'no file to allocate' );
 		$this->assertNull( $record[ Tablestats_Record::PURGE_BEHIND ], 'no purge to fall behind' );
 		$this->assertNull( $record[ Tablestats_Record::WAL_STALLED ], 'no WAL to stall' );
 		$this->assertSame( 0, $record[ Tablestats_Record::VERBS ]['GET'][ Tablestats_Record::ROW_BYTES ] );
@@ -503,6 +520,7 @@ final class TableStatsTest extends TestCase {
 		$this->assertSame( 0, $record[ Tablestats_Record::PURGE_BEHIND ] );
 		$this->assertNull( $record[ Tablestats_Record::WAL_STALLED ] );
 		$this->assertNull( $record[ Tablestats_Record::FILE_BYTES ] );
+		$this->assertNull( $record[ Tablestats_Record::FILE_DISK_BYTES ] );
 	}
 
 	public function test_the_probe_sizes_the_file_the_table_opened(): void {

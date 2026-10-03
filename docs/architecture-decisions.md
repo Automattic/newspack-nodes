@@ -1318,7 +1318,7 @@ built with either unbound is refused by `arguments()`, as `make_node`'s TM_ERROR
 stamp a FROM no reader can attribute. The browser's
 SSE reader prepends its own stamp, the log's dir name (one segment, two when the first is a
 group name: `stamp_for()` refuses a log dir named `logs`, `offsets` or `deadletter`, so no
-bare stamp is one).
+bare stamp is one, and a Partition or Log declaration refuses it too).
 [`workerOfFrom()`](../src/shared/utils/workerId.js) strips that stamp through
 [`splitStamp()`](../src/runtime/log-stamp.js), which `tests/fixtures/log-stamps.json` holds
 to PHP `SSE_Out_Node::dir_from_stamp()`, and reads what remains, `{worker}/{name}`, validating the worker through

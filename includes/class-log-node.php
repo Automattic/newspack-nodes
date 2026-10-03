@@ -155,14 +155,14 @@ class Log_Node extends Partition_Node {
 	}
 
 	/**
-	 * Path seam: the writer identity behind the write quarantine directory, which
-	 * holds a batch whose segment would not open. Sibling Logs share a
-	 * directory, so the FILE keys the quarantine and two Logs cannot quarantine
-	 * into each other.
+	 * Path seam: the identity behind the write quarantine directory, which
+	 * holds a batch whose segment would not open, and behind a probe record's
+	 * SOURCE. Sibling Logs share a directory, so the FILE keys both, and two
+	 * Logs can neither quarantine into each other nor report as one.
 	 *
-	 * @return string Path identifying this writer.
+	 * @return string Path identifying this Log.
 	 */
-	protected function write_quarantine_key(): string {
+	public function identity_path(): string {
 		return $this->file;
 	}
 

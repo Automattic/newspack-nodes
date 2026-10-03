@@ -84,6 +84,34 @@ class LogDiscoveryTest extends TestCase {
 		$this->assertSame( [ 'job-worker.jobs.p0' ], $groups['deadletter'] );
 	}
 
+	/** A `logs` dir stamps bare; every other root keeps its prefix. */
+	public function test_stamp_for_writes_logs_bare_and_other_roots_grouped(): void {
+		$this->assertSame( 'ledger.p6', Log_Discovery::stamp_for( 'logs', 'ledger.p6' ) );
+		$this->assertSame( 'offsets/ledger.p6', Log_Discovery::stamp_for( 'offsets', 'ledger.p6' ) );
+		$this->assertSame( 'deadletter/ledger.p6', Log_Discovery::stamp_for( 'deadletter', 'ledger.p6' ) );
+	}
+
+	/** A bare stamp named like a group would read back as that group's prefix. */
+	public function test_stamp_for_refuses_a_log_dir_named_like_a_group(): void {
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'log dir deadletter is named like a group; rename it' );
+		Log_Discovery::stamp_for( 'logs', 'deadletter' );
+	}
+
+	/** A record's name is the stamp under a group root and the path elsewhere. */
+	public function test_source_for_stamps_group_dirs_and_keeps_other_paths(): void {
+		$this->assertSame( 'ledger.p6', Log_Discovery::source_for( 'logs/ledger.p6' ) );
+		$this->assertSame( 'offsets/ledger.p6', Log_Discovery::source_for( 'offsets/ledger.p6' ) );
+		$this->assertSame( 'ipc/web.p2/output', Log_Discovery::source_for( 'ipc/web.p2/output' ) );
+		$this->assertSame( 'logs/gate/offsets', Log_Discovery::source_for( 'logs/gate/offsets' ) );
+	}
+
+	public function test_source_for_refuses_a_log_dir_named_like_a_group(): void {
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'log dir logs is named like a group; rename it' );
+		Log_Discovery::source_for( 'logs/logs' );
+	}
+
 	public function test_groups_returns_empty_lists_for_missing_roots(): void {
 		\mkdir( "{$this->tmp}/logs/solo.p0", 0755, true );
 

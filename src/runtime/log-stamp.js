@@ -3,7 +3,7 @@
  * with, the twin of PHP `SSE_Out_Node::dir_from_stamp()`, held to it by
  * `tests/fixtures/log-stamps.json`.
  *
- * `SSE_Out_Node::stamp_for()` writes a `logs` dir bare and an `offsets` or
+ * `Log_Discovery::stamp_for()` writes a `logs` dir bare and an `offsets` or
  * `deadletter` dir as `{group}/{dir}`, and refuses a log dir named like a
  * group, so a stamp opening with a group name always takes a second segment.
  */

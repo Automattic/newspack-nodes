@@ -662,6 +662,20 @@ class ConfigTest extends TestCase {
 		$this->assertTrue( true, 'no throw is the assertion' );
 	}
 
+	/** A path under the base is named from the base, which a basename cannot do. */
+	public function test_relative_to_base_names_a_path_from_the_base(): void {
+		$this->use_base_dir( $this->temp_dir );
+
+		$this->assertSame( 'ipc/job-worker.p2/output', Config::relative_to_base( $this->temp_dir . '/ipc/job-worker.p2/output' ) );
+	}
+
+	/** A path outside the base keeps its own, less the leading slash. */
+	public function test_relative_to_base_keeps_a_path_outside_the_base(): void {
+		$this->use_base_dir( $this->temp_dir );
+
+		$this->assertSame( 'srv/elsewhere/ledger.p7', Config::relative_to_base( '/srv/elsewhere/ledger.p7' ) );
+	}
+
 	// ── validate_config_values ────────────────────────────────────────────
 
 	public function test_validate_config_values_rejects_objects(): void {

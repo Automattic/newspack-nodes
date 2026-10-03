@@ -838,6 +838,32 @@ class CliTest extends TestCase {
 		$this->assertGreaterThan( 0, $index['firehose.p0']['timestamp'] );
 	}
 
+	/**
+	 * The status tail reads 512 KiB of the newest segment: a reader whose
+	 * record sits 300 KiB back is still found, one 600 KiB back is not.
+	 */
+	public function test_read_probe_frames_reads_half_a_mebibyte_of_tail(): void {
+		$this->seed_probe_record( [ 'reader' => 'distant.p0' ] );
+		$this->seed_probe_filler( 300 * 1024 );
+		$this->seed_probe_record( [ 'reader' => 'recent.p0' ] );
+		$this->seed_probe_filler( 600 * 1024 - 300 * 1024 );
+
+		$index = ( new CLI( $this->tmp ) )->read_probe_frames()['records'];
+
+		$this->assertArrayHasKey( 'recent.p0', $index, '300 KiB back is inside the window' );
+		$this->assertArrayNotHasKey( 'distant.p0', $index, '600 KiB back is past it' );
+	}
+
+	/** Append Partition records, which name no reader, until $bytes are written. */
+	private function seed_probe_filler( int $bytes ): void {
+		$path    = "{$this->tmp}/logs/topicprobe.p0/0.log";
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_STRUCT;
+		$message[ Message::VALUE ] = [ 'logs/filler.p0', '', 0, 0, 3, 7331, 0, 0, 7331, 0, 0, 0, 8192 ];
+		$line    = Message::packed( $message ) . "\n";
+		file_put_contents( $path, str_repeat( $line, (int) \ceil( $bytes / \strlen( $line ) ) ), FILE_APPEND );
+	}
+
 	public function test_read_probe_frames_empty_when_no_log(): void {
 		$this->assertSame( [ 'records' => [], 'unparseable_lines' => 0 ], ( new CLI( $this->tmp ) )->read_probe_frames() );
 	}
@@ -864,6 +890,16 @@ class CliTest extends TestCase {
 		$this->assertSame( 2048, $row['end_size'] );
 		$this->assertSame( 4096, $row['distance'] );
 		$this->assertSame( 31, $row['msgs'] );
+	}
+
+	/** A Partition record names no reader, so it is no Consumer row. */
+	public function test_consumer_rows_skip_a_partition_record(): void {
+		$this->seed_probe_record( [ 'reader' => '', 'source' => 'ledger.p4', 'end_segment' => 6, 'end_size' => 3371 ] );
+		$this->seed_probe_record( [ 'reader' => 'jobs.ledger.p4', 'source' => 'ledger.p4' ] );
+
+		$rows = ( new CLI( $this->tmp ) )->consumer_rows()['rows'];
+
+		$this->assertSame( [ 'jobs.ledger.p4' ], \array_column( $rows, 'reader' ) );
 	}
 
 	public function test_consumer_rows_parses_partition_from_the_reader_name(): void {

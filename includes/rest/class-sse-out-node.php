@@ -656,11 +656,11 @@ class SSE_Out_Node extends Node {
 
 	/**
 	 * The subscription dir a FROM breadcrumb names, and the inverse of
-	 * `stamp_for()`: a stamp opening with a group name keeps its second
-	 * segment, any other is the first path segment alone. No bare stamp is a
-	 * group name, because `stamp_for()` refuses that dir. Reading the leading
-	 * segments rather than the whole string is what lets a full routing path
-	 * resolve too. `tests/fixtures/log-stamps.json` holds it to
+	 * `Log_Discovery::stamp_for()`: a stamp opening with a group name keeps
+	 * its second segment, any other is the first path segment alone. No bare
+	 * stamp is a group name, because `stamp_for()` refuses that dir. Reading
+	 * the leading segments rather than the whole string is what lets a full
+	 * routing path resolve too. `tests/fixtures/log-stamps.json` holds it to
 	 * `src/runtime/log-stamp.js`.
 	 *
 	 * @param string $from A stamp, or a FROM path beginning with one.
@@ -755,9 +755,9 @@ class SSE_Out_Node extends Node {
 	 * that channel. Everything else globs `{base}/{group}/{rest}` and yields
 	 * one Consumer per matched dir — itself for an exact name, every partition
 	 * dir for `firehose.*` — each stamped and resume-keyed by the stamp
-	 * `stamp_for()` builds from its dir basename. The IPC reader resumes the
-	 * same way, keyed by `$sub`, so a reconnecting console keeps the replies
-	 * written while it was away.
+	 * `Log_Discovery::stamp_for()` builds from its dir basename. The IPC
+	 * reader resumes the same way, keyed by `$sub`, so a reconnecting console
+	 * keeps the replies written while it was away.
 	 *
 	 * A bare sub `CLI::parse_worker_id()` reads as a worker, whatever its case,
 	 * attaches to that worker's IPC channel when one exists. Every other sub's
@@ -803,7 +803,7 @@ class SSE_Out_Node extends Node {
 		// Partition feed: one Consumer per matched dir.
 		$consumers = [];
 		foreach ( self::matched_dirs( $base, $sub )[1] as $dir ) {
-			$name        = self::stamp_for( $group, \basename( $dir ) );
+			$name        = Log_Discovery::stamp_for( $group, \basename( $dir ) );
 			$consumers[] = $this->log_consumer_for( $dir, $name, $positions );
 		}
 		return $consumers;
@@ -856,7 +856,7 @@ class SSE_Out_Node extends Node {
 				continue;
 			}
 			foreach ( $matches as $dir ) {
-				$wanted[ self::stamp_for( $group, \basename( $dir ) ) ] = $dir;
+				$wanted[ Log_Discovery::stamp_for( $group, \basename( $dir ) ) ] = $dir;
 			}
 		}
 		foreach ( $wanted as $name => $dir ) {
@@ -902,26 +902,6 @@ class SSE_Out_Node extends Node {
 			);
 		}
 		return [ $group, \substr( $sub, $slash + 1 ) ];
-	}
-
-	/**
-	 * The stamp for a matched dir: bare-logs stays bare; grouped keeps its
-	 * prefix. A bare stamp that is a group name would read back as that
-	 * group's prefix, so a log dir named like a group is refused by name.
-	 *
-	 * @param string $group    The root group the dir sits under.
-	 * @param string $basename The dir's basename.
-	 * @return string The stamp its frames open their FROM with.
-	 * @throws \InvalidArgumentException On a log dir named like a group.
-	 */
-	private static function stamp_for( string $group, string $basename ): string {
-		if ( 'logs' !== $group ) {
-			return "{$group}/{$basename}";
-		}
-		if ( \in_array( $basename, Log_Discovery::GROUPS, true ) ) {
-			throw new \InvalidArgumentException( \esc_html( "log dir {$basename} is named like a group; rename it" ) );
-		}
-		return $basename;
 	}
 
 	/**

@@ -1682,15 +1682,17 @@ class Table_Node extends Node {
 		$this->probed   = $this->verb_stats;
 		$elapsed        = (int) \round( \max( 0.0, Core::$now - $this->probe_ts ) * 1000 );
 		$this->probe_ts = Core::$now;
+		$files          = $this->arm instanceof Sqlite_Arm ? Sqlite_Arm::footprint( $this->sqlite_path ) : null;
 		return [
 			[
-				Tablestats_Record::IDENTITY     => $this->probe_identity(),
-				Tablestats_Record::BACKEND      => $this->backend,
-				Tablestats_Record::VERBS        => $verbs,
-				Tablestats_Record::PURGE_BEHIND => $this->arm instanceof Durable_Arm ? (int) $this->purge_behind : null,
-				Tablestats_Record::WAL_STALLED  => $this->arm instanceof Sqlite_Arm ? $this->wal_stalled : null,
-				Tablestats_Record::FILE_BYTES   => $this->arm instanceof Sqlite_Arm ? \array_sum( Sqlite_Arm::file_sizes( $this->sqlite_path ) ) : null,
-				Tablestats_Record::ELAPSED_MS   => $elapsed,
+				Tablestats_Record::IDENTITY        => $this->probe_identity(),
+				Tablestats_Record::BACKEND         => $this->backend,
+				Tablestats_Record::VERBS           => $verbs,
+				Tablestats_Record::PURGE_BEHIND    => $this->arm instanceof Durable_Arm ? (int) $this->purge_behind : null,
+				Tablestats_Record::WAL_STALLED     => $this->arm instanceof Sqlite_Arm ? $this->wal_stalled : null,
+				Tablestats_Record::FILE_BYTES      => null === $files ? null : $files['bytes'],
+				Tablestats_Record::ELAPSED_MS      => $elapsed,
+				Tablestats_Record::FILE_DISK_BYTES => null === $files ? null : $files['disk'],
 			],
 		];
 	}

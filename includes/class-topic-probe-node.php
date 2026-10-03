@@ -1,6 +1,7 @@
 <?php
 /**
- * Topic_Probe: the Consumer-stats sweep. See Probe_Node for the sweep itself.
+ * Topic_Probe: the Consumer and Partition stats sweep. See Probe_Node for the
+ * sweep itself.
  *
  * @package Newspack_Nodes
  */
@@ -10,12 +11,18 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * Topic_Probe: the Consumer-stats sweep, our port of Tachikoma's `TopicProbe.pm`
- * (consumer branch). Consumer and partition state ride together at one instant:
- * the cursor's segment and offset, the `bytes_behind` backlog measured from real
- * on-disk segment sizes, and the messages and bytes the reader moved since its
- * previous sweep. Each READY Consumer yields ONE `Probe_Record` into the shared
- * `topicprobe` log.
+ * Topic_Probe: the Consumer and Partition stats sweep, our port of
+ * Tachikoma's `TopicProbe.pm`, which sweeps `Partition` nodes beside
+ * `Consumer` nodes. Things that need Consumer stats read Consumer records, and
+ * things that need partition stats read Partition records, both in the one
+ * `Probe_Record` layout written into the shared `topicprobe` log.
+ *
+ * Each READY Consumer yields ONE Consumer record: the cursor's segment and
+ * offset, the `bytes_behind` backlog measured from real on-disk segment sizes,
+ * and the messages and bytes the reader moved since its previous sweep. Each
+ * Partition with a live segment yields ONE Partition record, with a blank
+ * READER: its size and the disk it takes. A log two nodes of this process
+ * cover — a writer and a Consumer's `:source` — reports once a sweep.
  *
  * That log is the sole live-position source: `wp nodes status` and the dashboards
  * read it, never memcache. A record therefore exists only while a worker is
@@ -40,6 +47,9 @@ class Topic_Probe_Node extends Probe_Node {
 
 	/** The memoized cadence: null before the first read, and after a forget. */
 	private static ?int $declared_interval_s = null;
+
+	/** @var array<string,true> Identity paths reported this sweep. */
+	private array $swept = [];
 
 	/**
 	 * Seconds a probe record may age before it means nobody is reporting rather
@@ -82,17 +92,48 @@ class Topic_Probe_Node extends Probe_Node {
 	}
 
 	/**
-	 * Claim every Consumer in this process that has reached READY. One still
-	 * initializing holds no cursor, so it has no position to report.
+	 * Claim every Consumer in this process that has reached READY and names a
+	 * reader, and every Partition with a live segment. A Consumer still
+	 * initializing holds no cursor, and one with no offsetlog has no READER,
+	 * which would read as a Partition record. A Partition over a log an
+	 * earlier-registered Partition already covers is that log again.
 	 *
 	 * @param Node $node A node from this process's registry.
 	 * @return array<int,array<int,int|string>> One Probe_Record, or none.
 	 */
 	protected function probe( Node $node ): array {
+		if ( $node instanceof Partition_Node ) {
+			return $this->partition_record( $node );
+		}
 		if ( ! $node instanceof Consumer_Node || null === $node->get_state( 'READY' ) ) {
 			return [];
 		}
-		return [ $node->probe_stats() ];
+		$record = $node->probe_stats();
+		return '' === $record[ Probe_Record::READER ] ? [] : [ $record ];
+	}
+
+	/**
+	 * A Partition's record, unless a Partition swept before it this sweep
+	 * covers the same log — a writer and a Consumer's `:source` over one
+	 * directory — so each log reports once a sweep. The sweep walks the
+	 * registry in order, so the first registered reports.
+	 *
+	 * @param Partition_Node $partition A Partition from this process's registry.
+	 * @return array<int,array<int,int|string>> One Probe_Record, or none.
+	 */
+	private function partition_record( Partition_Node $partition ): array {
+		$identity = $partition->identity_path();
+		if ( isset( $this->swept[ $identity ] ) ) {
+			return [];
+		}
+		$this->swept[ $identity ] = true;
+		$record                   = $partition->probe_stats();
+		return null === $record ? [] : [ $record ];
+	}
+
+	/** Sweep afresh: a log reported in an earlier sweep reports again. */
+	protected function sweep_started(): void {
+		$this->swept = [];
 	}
 
 	/**
@@ -112,7 +153,7 @@ class Topic_Probe_Node extends Probe_Node {
 	 */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
-			'description' => 'Sweeps every Consumer in this process every N seconds; emits one stats snapshot (seg:off, bytes_read, backlog) into the topicprobe log.',
+			'description' => 'Sweeps every Consumer and Partition in this process every N seconds; emits one stats snapshot per reader (seg:off, bytes_read, backlog) and per partition (size, disk) into the topicprobe log.',
 		] );
 	}
 }

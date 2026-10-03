@@ -167,6 +167,16 @@ final class TablesCliCommandTest extends TestCase {
 		return \end( $GLOBALS['_test_wp_cli_tables'] )['items'] ?? [];
 	}
 
+	/** What the filesystem allocates a SQLite database's files, read back. */
+	private static function disk_of( string $file ): int {
+		$disk = 0;
+		foreach ( [ $file, "{$file}-wal", "{$file}-shm" ] as $part ) {
+			\clearstatcache( true, $part );
+			$disk += \is_file( $part ) ? (int) \stat( $part )['blocks'] * 512 : 0;
+		}
+		return $disk;
+	}
+
 	private function command(): Tables_CLI_Command {
 		return new Tables_CLI_Command();
 	}
@@ -183,10 +193,10 @@ final class TablesCliCommandTest extends TestCase {
 
 		$this->assertSame(
 			[
-				[ 'Table' => 'lab-7:kea', 'Partition' => 0, 'Backend' => 'sqlite', 'TTL' => '777', 'Owner' => 'kea-t.p0', 'State' => 'down', 'Store' => $file, 'Bytes' => $size, 'Verbs' => null ],
-				[ 'Table' => 'lab-7:kea', 'Partition' => 1, 'Backend' => 'sqlite', 'TTL' => '777', 'Owner' => 'kea-t.p1', 'State' => 'down', 'Store' => Table_Node::file( 'lab-7:kea', 1 ), 'Bytes' => 0, 'Verbs' => null ],
-				[ 'Table' => 'lab-7:owl', 'Partition' => 0, 'Backend' => 'wpdb', 'TTL' => '37', 'Owner' => 'owl-w.p0', 'State' => 'down', 'Store' => 'wp_newspack_nodes_table', 'Bytes' => null, 'Verbs' => null ],
-				[ 'Table' => Command_Auth::SESSIONS_TABLE, 'Partition' => 0, 'Backend' => 'wpdb', 'TTL' => '60-86400', 'Owner' => '-', 'State' => '-', 'Store' => 'wp_newspack_nodes_table', 'Bytes' => null, 'Verbs' => null ],
+				[ 'Table' => 'lab-7:kea', 'Partition' => 0, 'Backend' => 'sqlite', 'TTL' => '777', 'Owner' => 'kea-t.p0', 'State' => 'down', 'Store' => $file, 'Bytes' => $size, 'Disk' => self::disk_of( $file ), 'Verbs' => null ],
+				[ 'Table' => 'lab-7:kea', 'Partition' => 1, 'Backend' => 'sqlite', 'TTL' => '777', 'Owner' => 'kea-t.p1', 'State' => 'down', 'Store' => Table_Node::file( 'lab-7:kea', 1 ), 'Bytes' => 0, 'Disk' => 0, 'Verbs' => null ],
+				[ 'Table' => 'lab-7:owl', 'Partition' => 0, 'Backend' => 'wpdb', 'TTL' => '37', 'Owner' => 'owl-w.p0', 'State' => 'down', 'Store' => 'wp_newspack_nodes_table', 'Bytes' => null, 'Disk' => null, 'Verbs' => null ],
+				[ 'Table' => Command_Auth::SESSIONS_TABLE, 'Partition' => 0, 'Backend' => 'wpdb', 'TTL' => '60-86400', 'Owner' => '-', 'State' => '-', 'Store' => 'wp_newspack_nodes_table', 'Bytes' => null, 'Disk' => null, 'Verbs' => null ],
 			],
 			$this->printed()
 		);
@@ -199,7 +209,7 @@ final class TablesCliCommandTest extends TestCase {
 
 		$this->command()->list_( [], [ 'format' => 'json' ] );
 
-		$this->assertSame( [ 'Table' => Command_Auth::SESSIONS_TABLE, 'Partition' => 0, 'Backend' => 'wpdb', 'TTL' => '60-86400', 'Owner' => '-', 'State' => '-', 'Store' => 'wp_newspack_nodes_table', 'Bytes' => null, 'Verbs' => null ], \array_slice( $this->printed(), -1 )[0] );
+		$this->assertSame( [ 'Table' => Command_Auth::SESSIONS_TABLE, 'Partition' => 0, 'Backend' => 'wpdb', 'TTL' => '60-86400', 'Owner' => '-', 'State' => '-', 'Store' => 'wp_newspack_nodes_table', 'Bytes' => null, 'Disk' => null, 'Verbs' => null ], \array_slice( $this->printed(), -1 )[0] );
 	}
 
 	public function test_list_counts_a_sqlite_partitions_shm_in_its_bytes(): void {
@@ -212,6 +222,8 @@ final class TablesCliCommandTest extends TestCase {
 		$this->command()->list_( [], [ 'format' => 'json' ] );
 
 		$this->assertSame( $size, $this->printed()[0]['Bytes'] );
+		$this->assertSame( self::disk_of( $file ), $this->printed()[0]['Disk'] );
+		$this->assertNotSame( $size, $this->printed()[0]['Disk'], 'blocks must differ from bytes here, or the test proves nothing' );
 	}
 
 	public function test_list_reads_an_on_demand_owner_with_no_lock_as_idle(): void {
@@ -307,6 +319,8 @@ final class TablesCliCommandTest extends TestCase {
 		$this->assertSame( 'table', \end( $GLOBALS['_test_wp_cli_tables'] )['format'] );
 		$this->assertMatchesRegularExpression( '/^GET 1 [\d.]+ms$/', $row['Verbs'] );
 		$this->assertSame( '-', $this->printed()[2]['Bytes'], 'a wpdb Table has no file to size' );
+		$this->assertSame( '-', $this->printed()[2]['Disk'], 'a wpdb Table has no file to size' );
+		$this->assertMatchesRegularExpression( '/\d/', $this->printed()[1]['Disk'], 'a SQLite partition shows its disk readable' );
 	}
 
 	public function test_an_owner_that_does_not_answer_lists_without_counters_and_says_so(): void {
@@ -361,8 +375,8 @@ final class TablesCliCommandTest extends TestCase {
 		$emu = \array_values( \array_filter( $this->printed(), static fn ( array $row ): bool => 'lab-7:emu' === $row['Table'] ) );
 		$this->assertSame(
 			[
-				[ 'Table' => 'lab-7:emu', 'Partition' => 0, 'Backend' => 'sqlite', 'TTL' => '4242', 'Owner' => 'emu-z.p0', 'State' => 'inactive', 'Store' => Table_Node::file( 'lab-7:emu', 0 ), 'Bytes' => 0, 'Verbs' => null ],
-				[ 'Table' => 'lab-7:emu', 'Partition' => 1, 'Backend' => 'sqlite', 'TTL' => '4242', 'Owner' => 'emu-z.p1', 'State' => 'inactive', 'Store' => $file, 'Bytes' => $size, 'Verbs' => null ],
+				[ 'Table' => 'lab-7:emu', 'Partition' => 0, 'Backend' => 'sqlite', 'TTL' => '4242', 'Owner' => 'emu-z.p0', 'State' => 'inactive', 'Store' => Table_Node::file( 'lab-7:emu', 0 ), 'Bytes' => 0, 'Disk' => 0, 'Verbs' => null ],
+				[ 'Table' => 'lab-7:emu', 'Partition' => 1, 'Backend' => 'sqlite', 'TTL' => '4242', 'Owner' => 'emu-z.p1', 'State' => 'inactive', 'Store' => $file, 'Bytes' => $size, 'Disk' => self::disk_of( $file ), 'Verbs' => null ],
 			],
 			$emu
 		);

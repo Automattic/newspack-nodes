@@ -45,8 +45,8 @@ class Tables_CLI_Command {
 	 * partition and its state as `wp nodes status` reads it — `live`,
 	 * `stale`, `held`, `idle`, `down` or `inactive` for a topology outside the
 	 * active set — and where the rows live: the SQLite
-	 * file and its size, its `-wal` and `-shm` counted, or the shared wpdb
-	 * table. A live owner is asked for its per-verb counters
+	 * file and its size, its `-wal` and `-shm` counted, in bytes and in the disk
+	 * the filesystem allocates it, or the shared wpdb table. A live owner is asked for its per-verb counters
 	 * over its command channel; a verb it has never run is left out, and an
 	 * owner that does not answer in time is warned about and listed without.
 	 *
@@ -84,6 +84,8 @@ class Tables_CLI_Command {
 		$stats   = $this->ask( $this->owned_by_live( $slots, $states ), 'stats', $timeout );
 		$rows    = [];
 		foreach ( $slots as $stem => $slot ) {
+			$file   = Table_Node::file( $slot['name'], $slot['partition'] );
+			$size   = 'sqlite' === $slot['spec']['backend'] ? Sqlite_Arm::footprint( $file ) : null;
 			$rows[] = [
 				'Table'     => $slot['name'],
 				'Partition' => $slot['partition'],
@@ -91,8 +93,9 @@ class Tables_CLI_Command {
 				'TTL'       => (string) $slot['spec']['ttl'],
 				'Owner'     => $slot['owner'],
 				'State'     => $states[ $slot['owner'] ],
-				'Store'     => 'sqlite' === $slot['spec']['backend'] ? Table_Node::file( $slot['name'], $slot['partition'] ) : Wpdb_Arm::table(),
-				'Bytes'     => 'sqlite' === $slot['spec']['backend'] ? \array_sum( Sqlite_Arm::file_sizes( Table_Node::file( $slot['name'], $slot['partition'] ) ) ) : null,
+				'Store'     => null === $size ? Wpdb_Arm::table() : $file,
+				'Bytes'     => $size['bytes'] ?? null,
+				'Disk'      => $size['disk'] ?? null,
 				'Verbs'     => 'live' === $states[ $slot['owner'] ] ? self::verbs( $slot, $stats[ $stem ] ?? null, $timeout ) : null,
 			];
 		}
@@ -105,6 +108,7 @@ class Tables_CLI_Command {
 			'State'     => '-',
 			'Store'     => Wpdb_Arm::table(),
 			'Bytes'     => null,
+			'Disk'      => null,
 			'Verbs'     => null,
 		];
 		CLI::print_rows( $assoc_args, $rows, \array_keys( $rows[0] ), self::readable( ... ) );
@@ -125,6 +129,7 @@ class Tables_CLI_Command {
 		}
 		return [
 			'Bytes' => null === $row['Bytes'] ? '-' : CLI::format_bytes( Core::as_int( $row['Bytes'] ) ),
+			'Disk'  => null === $row['Disk'] ? '-' : CLI::format_bytes( Core::as_int( $row['Disk'] ) ),
 			'Verbs' => [] === $verbs ? '-' : \implode( ', ', $verbs ),
 		] + $row;
 	}

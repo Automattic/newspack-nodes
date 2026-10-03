@@ -550,7 +550,7 @@ template that declares no dir under `<config:logs_dir>` to its message, and
 `logs[]` omits its dirs. Both are `[]` when nothing failed, and the Overview
 tab renders each entry as an error banner.
 
-![Where each dump_graph key comes from, one row per source: the lock dirs to workers[] with its seven fields, the last 128 KiB of the topicprobe log to consumers[] with its nine fields, the stale re-measure and the unparseable_lines count, the log catalog to logs[] and its join key, the logs root to log_partitions, the dead-letter dirs to the two dead-letter keys, config to the five scalars, and the active topologies to graph; beneath, the two readers of the one snapshot, the dashboard's dump_graph and Alerts::evaluate().](img/api-dump-graph-sources.png)
+![Where each dump_graph key comes from, one row per source: the lock dirs to workers[] with its seven fields, the last 512 KiB of the topicprobe log to consumers[] with its nine fields, the stale re-measure and the unparseable_lines count, the log catalog to logs[] and its join key, the logs root to log_partitions, the dead-letter dirs to the two dead-letter keys, config to the five scalars, and the active topologies to graph; beneath, the two readers of the one snapshot, the dashboard's dump_graph and Alerts::evaluate().](img/api-dump-graph-sources.png)
 
 `consumers[]` is a report, not an inventory: [`CLI::consumer_rows()`](../includes/class-cli.php)
 builds it from one [`Probe_Record`](../includes/class-probe-record.php) per
@@ -563,6 +563,12 @@ that would not unpack and were skipped, and `wp nodes status` warns with the
 same count. [`Alerts::evaluate()`](../includes/class-alerts.php) reads
 the same snapshot, so an alert can never name a fleet the dashboard does not
 show.
+
+The same log carries one Partition record per log a worker covers, its READER
+blank and its SOURCE the log's SSE stamp (`ingest.p0`, `offsets/ingest.p0`),
+or its path under the runtime base outside those roots, holding the log's byte length (`END_BYTES`) and the disk it takes
+(`END_DISK_BYTES`). `consumers[]` keys by READER and skips them; the
+Overview's Partition Size and On Disk panels read them off the stream.
 
 **`workers dump_cleanup` names candidates, not casualties.** It answers
 `{ logs_dir, on_disk_basenames, expected_basenames, orphans }` — every

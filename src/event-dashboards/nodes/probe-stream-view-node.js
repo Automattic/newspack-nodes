@@ -21,10 +21,17 @@ const ENTRY_TTL_MS = 300000; // 5 min
  * record folds into an entry, and what the published per-key snapshot is.
  *
  * @typedef  {Object} ProbeStreamMapping
- * @property {number}                                                                               identitySlot Record slot carrying the per-key identity.
- * @property {string}                                                                               modelKey     Wrapper key the published model uses.
- * @property {( entry: Object, value: Array<string|number>, ts: number, worker: string ) => Object} _fold        Folds one record into its entry and returns the sample to push.
- * @property {( entry: Object ) => Object}                                                          _entryView   Builds the published snapshot for one key's entry.
+ * @property {number}                                                                                              identitySlot Record slot carrying the per-key identity.
+ * @property {string}                                                                                              modelKey     Wrapper key the published model uses.
+ * @property {( entry: Object, value: Array<string|number>, ts: number, worker: string, model: string ) => Object} _fold        Folds one record into its entry and returns the sample to push.
+ * @property {( entry: Object ) => Object}                                                                         _entryView   Builds the published snapshot for one key's entry.
+ */
+
+/**
+ * Where one record files: the published model it belongs to and its key
+ * there.
+ *
+ * @typedef {{model:string,key:string}} ProbeIdentity
  */
 
 /**
@@ -40,14 +47,18 @@ const ENTRY_TTL_MS = 300000; // 5 min
  *
  * Owns everything a probe stream needs that is not its record layout: the
  * per-key entries, the ring, the throttle, the TTL, the eviction and the prune.
- * A subclass supplies `identitySlot`, `modelKey`, `_fold(entry, value, ts, worker)` and
- * `_entryView(entry)`. Folding a record costs one push and a sweep of the live
- * keys, never a walk of a series; every walk — the prune, the snapshot's
- * per-key copies — waits for a publish, and the `view` publish is
- * time-throttled so a 24h replay burst does not thrash React. The series is
- * bounded two ways: a hard ring cap at `maxSamples` per worker the key has
- * heard from, and the live 24h window (a record older than RETENTION_S is
- * dropped on arrival, and a sample is pruned as wall-clock advances past it).
+ * A subclass supplies `identitySlot`, `modelKey`,
+ * `_fold(entry, value, ts, worker, model)` and `_entryView(entry)`. One whose
+ * stream carries a second kind of record routes it into a model of its own by
+ * overriding `_identify(value)` and `_models()`; the entries nest by model,
+ * and `_fold` is told which it folds into. Folding a record costs one push
+ * and a sweep of the live keys, never a walk of a series; every walk — the
+ * prune, the snapshot's per-key copies — waits for a publish, and the `view`
+ * publish is time-throttled so a 24h replay burst does not thrash React. The
+ * series is bounded two ways: a hard ring cap at `maxSamples` per worker the
+ * key has heard from, and the live 24h window (a record older than
+ * RETENTION_S is dropped on arrival, and a sample is pruned as wall-clock
+ * advances past it).
  * The cap scales by worker because one key may be swept by every partition:
  * a job identity with no id yields one record per worker per sweep.
  *
@@ -78,14 +89,14 @@ export class ProbeStreamViewNode extends ReactBridge( Node ) {
 		super();
 		this.maxSamples = maxSamples || MAX_SAMPLES;
 		this.ttlMs = ttlMs || ENTRY_TTL_MS;
-		// key → subclass-shaped entry (always series, workers and _lastSeen).
+		// model → key → entry: key, series, workers, _lastSeen.
 		this.entries = {};
 		this._lastPublish = 0;
 		this._flushTimer = null;
 		this._lastFill = 0;
 		/**
-		 * The published model React reads, keyed by `modelKey`; null until
-		 * the first publish.
+		 * The published model React reads: one key per `_models()` entry,
+		 * `modelKey` first; null until the first publish.
 		 *
 		 * @type {?Object}
 		 */
@@ -96,10 +107,13 @@ export class ProbeStreamViewNode extends ReactBridge( Node ) {
 	 * Fold one probe record into its key's entry, then evict stale keys and
 	 * publish (throttled).
 	 *
-	 * Anything that is not a positional record, or whose identity slot is not a
-	 * non-empty string, is ignored rather than refused: `fill()` runs in the
+	 * Anything that is not a positional record, or that `_identify()` files
+	 * nowhere (null), is ignored rather than refused: `fill()` runs in the
 	 * drain with no per-message try/catch, so a throw here aborts the whole
-	 * message turn.
+	 * message turn. `_identify()` is the subclass hook that decides; by default
+	 * a record files under `modelKey` when its `identitySlot` is a non-empty
+	 * string, and `TopicProbeViewNode` also routes a blank-READER record into
+	 * its `partitions` model.
 	 *
 	 * A gap longer than the TTL means the stream was hidden rather than every
 	 * producer dying, so each entry's lease shifts forward by the outage instead
@@ -125,16 +139,17 @@ export class ProbeStreamViewNode extends ReactBridge( Node ) {
 		if ( ! Array.isArray( value ) ) {
 			return; // not a positional probe record — ignore.
 		}
-		const key = value[ this.identitySlot ];
-		if ( 'string' !== typeof key || '' === key ) {
+		const identity = this._identify( value );
+		if ( null === identity ) {
 			return;
 		}
+		const { model, key } = identity;
 
 		const now = Date.now();
 		// A long gap means the stream was hidden: shift leases, don't evict.
 		if ( this._lastFill && now - this._lastFill > this.ttlMs ) {
 			const outage = now - this._lastFill;
-			for ( const c of Object.values( this.entries ) ) {
+			for ( const c of this._allEntries() ) {
 				c._lastSeen += outage;
 			}
 		}
@@ -142,15 +157,17 @@ export class ProbeStreamViewNode extends ReactBridge( Node ) {
 
 		const ts = Number( message[ TIMESTAMP ] ) || 0;
 		if ( ts >= now / 1000 - RETENTION_S ) {
-			let c = this.entries[ key ];
-			if ( ! c ) {
-				c = { key, series: [], workers: new Set(), _lastSeen: 0 };
-				this.entries[ key ] = c;
-			}
+			const keyed = ( this.entries[ model ] ||= {} );
+			const c = ( keyed[ key ] ||= {
+				key,
+				series: [],
+				workers: new Set(),
+				_lastSeen: 0,
+			} );
 			c._lastSeen = now;
 			const worker = workerOfFrom( message[ FROM ] );
 			c.workers.add( worker );
-			c.series.push( this._fold( c, value, ts, worker ) );
+			c.series.push( this._fold( c, value, ts, worker, model ) );
 			// Cap sits above the window, so this only bounds a fast stream.
 			if ( c.series.length > this.maxSamples * c.workers.size ) {
 				c.series.shift();
@@ -158,6 +175,21 @@ export class ProbeStreamViewNode extends ReactBridge( Node ) {
 		}
 		this._evictStale();
 		this._maybePublish();
+	}
+
+	/**
+	 * Where a record files: under `modelKey`, keyed by its `identitySlot`,
+	 * when that slot is a non-empty string, else nowhere.
+	 *
+	 * @this {ProbeStreamSubclass}
+	 * @param {Array<string|number>} value The positional record.
+	 * @return {?ProbeIdentity} Its model and key, or null to ignore it.
+	 */
+	_identify( value ) {
+		const key = value[ this.identitySlot ];
+		return 'string' === typeof key && '' !== key
+			? { model: this.modelKey, key }
+			: null;
 	}
 
 	/**
@@ -169,9 +201,11 @@ export class ProbeStreamViewNode extends ReactBridge( Node ) {
 	 */
 	_evictStale() {
 		const cutoff = Date.now() - this.ttlMs;
-		for ( const [ key, c ] of Object.entries( this.entries ) ) {
-			if ( c._lastSeen < cutoff ) {
-				delete this.entries[ key ];
+		for ( const keyed of Object.values( this.entries ) ) {
+			for ( const [ key, c ] of Object.entries( keyed ) ) {
+				if ( c._lastSeen < cutoff ) {
+					delete keyed[ key ];
+				}
 			}
 		}
 	}
@@ -199,8 +233,8 @@ export class ProbeStreamViewNode extends ReactBridge( Node ) {
 	}
 
 	/**
-	 * Cancel any pending flush, prune the aged-out tail, and push the snapshot
-	 * under `modelKey` into the `view` field. The one place that publishes.
+	 * Cancel any pending flush, prune the aged-out tail, and push one snapshot
+	 * per published model into the `view` field. The one place that publishes.
 	 *
 	 * @this {ProbeStreamSubclass}
 	 * @return {void}
@@ -213,7 +247,25 @@ export class ProbeStreamViewNode extends ReactBridge( Node ) {
 		const now = Date.now();
 		this._lastPublish = now;
 		this._pruneExpired( now );
-		this.setField( 'view', { [ this.modelKey ]: this.snapshot() } );
+		this.setField(
+			'view',
+			Object.fromEntries(
+				this._models().map( ( model ) => [
+					model,
+					this.snapshot( model ),
+				] )
+			)
+		);
+	}
+
+	/**
+	 * Every model the view publishes, `modelKey` first.
+	 *
+	 * @this {ProbeStreamSubclass}
+	 * @return {Array<string>} The published model keys.
+	 */
+	_models() {
+		return [ this.modelKey ];
 	}
 
 	/**
@@ -227,7 +279,7 @@ export class ProbeStreamViewNode extends ReactBridge( Node ) {
 	 */
 	_pruneExpired( now ) {
 		const cutoff = now / 1000 - RETENTION_S;
-		for ( const c of Object.values( this.entries ) ) {
+		for ( const c of this._allEntries() ) {
 			while ( c.series.length > 0 && c.series[ 0 ].ts < cutoff ) {
 				c.series.shift();
 			}
@@ -235,19 +287,30 @@ export class ProbeStreamViewNode extends ReactBridge( Node ) {
 	}
 
 	/**
-	 * The published model: one subclass-shaped view per key. A key whose series
-	 * has fully aged out is skipped rather than published empty.
+	 * Every entry of every model.
+	 *
+	 * @return {Array<Object>} The entries.
+	 */
+	_allEntries() {
+		return Object.values( this.entries ).flatMap( Object.values );
+	}
+
+	/**
+	 * One published model: one subclass-shaped view per key. A key whose
+	 * series has fully aged out is skipped rather than published empty.
 	 *
 	 * @this {ProbeStreamSubclass}
+	 * @param {string} model The model to read.
 	 * @return {Object} Key to the subclass's per-key snapshot object.
 	 */
-	snapshot() {
+	snapshot( model ) {
 		const out = {};
-		for ( const [ key, c ] of Object.entries( this.entries ) ) {
-			if ( 0 === c.series.length ) {
-				continue;
+		for ( const [ key, c ] of Object.entries(
+			this.entries[ model ] || {}
+		) ) {
+			if ( c.series.length > 0 ) {
+				out[ key ] = this._entryView( c );
 			}
-			out[ key ] = this._entryView( c );
 		}
 		return out;
 	}

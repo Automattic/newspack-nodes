@@ -43,7 +43,7 @@ if ( ! \defined( 'ABSPATH' ) ) {
  * The methods marked "Seam (Log overrides)" are the entire subclass surface:
  * `serialize_record()`, `segment_dir()`, `get_segment_path()`,
  * `get_index_path()`, `segment_pattern()`, `rotate_lock_path()`,
- * `write_lock_path()` and `write_quarantine_key()`. `Log_Node` redeclares them
+ * `write_lock_path()` and `identity_path()`. `Log_Node` redeclares them
  * to write VALUEs into `{file}.{seg}` and inherits the rest unchanged.
  */
 class Partition_Node extends Timer_Node {
@@ -276,6 +276,9 @@ class Partition_Node extends Timer_Node {
 	/** Resolved segment directory ( = the rtrim'd $dir ); segments live at {partition_dir}/{seg}.log. */
 	protected string $partition_dir = '';
 
+	/** The log's name in a probe record: its SSE stamp, or path under the base. */
+	private string $probe_source = '';
+
 	/** Rotation threshold in bytes: a write that would exceed it starts a new segment. */
 	protected int $segment_size     = self::DEFAULT_SEGMENT_SIZE;
 
@@ -317,6 +320,7 @@ class Partition_Node extends Timer_Node {
 		$this->partition_dir  = \rtrim( $this->partition_dir, '/' );
 		// The seam, not the field: Log fills `file`, not partition_dir.
 		Config::assert_within_base( $this->segment_dir() );
+		$this->probe_source = Log_Discovery::source_for( Config::relative_to_base( $this->identity_path() ) );
 		// Fail LOUD: 0 floored to 1 is a ONE-BYTE segment; every write rotates.
 		if ( $this->segment_size < 1 ) {
 			throw new \InvalidArgumentException(
@@ -326,7 +330,7 @@ class Partition_Node extends Timer_Node {
 		$this->min_segments   = \max( self::MIN_SEGMENTS_FLOOR, $this->min_segments );
 		$this->num_segments   = \max( $this->min_segments, $this->num_segments );
 		$this->max_segments   = self::derive_max_segments( $this->num_segments, $this->max_segments );
-		$this->deadletter_dir = self::derive_write_deadletter_dir( $this->write_quarantine_key() );
+		$this->deadletter_dir = self::derive_write_deadletter_dir( $this->identity_path() );
 		return $args;
 	}
 
@@ -501,17 +505,6 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * Seam (Log overrides): the on-disk path identifying this writer, which
-	 * derive_write_deadletter_dir() turns into its quarantine dir. Partition =
-	 * the segment dir, one writer identity per dir.
-	 *
-	 * @return string
-	 */
-	protected function write_quarantine_key(): string {
-		return $this->partition_dir;
-	}
-
-	/**
 	 * Write quarantine dir: `{base}/deadletter/{dir-under-base,dotted}` —
 	 * unique per partition dir, beside the read-side consumer DLQs. Anything
 	 * already under deadletter/ gets NONE, because a quarantine quarantining into
@@ -524,12 +517,11 @@ class Partition_Node extends Timer_Node {
 		if ( '' === $dir ) {
 			return '';
 		}
-		$base = \rtrim( Config::get_base_directory(), '/' );
-		$rel  = \str_starts_with( $dir, "{$base}/" ) ? \substr( $dir, \strlen( $base ) + 1 ) : \ltrim( $dir, '/' );
+		$rel = Config::relative_to_base( $dir );
 		if ( \str_starts_with( $rel, Config::DEADLETTER_SUBDIR . '/' ) ) {
 			return '';
 		}
-		return Config::deadletter_dir( $base ) . '/' . \str_replace( '/', '.', $rel );
+		return Config::deadletter_dir( Config::get_base_directory() ) . '/' . \str_replace( '/', '.', $rel );
 	}
 
 	/**
@@ -1831,6 +1823,65 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
+	 * Probe seam: the Partition record `Topic_Probe` sends for this log — its
+	 * name, then its `footprint()`. READER stays blank, which marks the record
+	 * a Partition's, and every slot a Partition does not fill keeps
+	 * `Probe_Record::BLANK`'s 0.
+	 *
+	 * @return array<int,int|string>|null A `Probe_Record`, or null for a log
+	 *                                    with no live segment and so no size.
+	 */
+	public function probe_stats(): ?array {
+		$footprint = $this->footprint();
+		if ( null === $footprint ) {
+			return null;
+		}
+		return \array_replace( Probe_Record::BLANK, [
+			Probe_Record::SOURCE         => $this->probe_source,
+			Probe_Record::END_SEGMENT    => $footprint['end_segment'],
+			Probe_Record::END_SIZE       => $footprint['end_size'],
+			Probe_Record::END_BYTES      => $footprint['bytes'],
+			Probe_Record::END_DISK_BYTES => $footprint['disk'],
+		] );
+	}
+
+	/**
+	 * This log's size off one forced scan: its newest segment and that
+	 * segment's size, then the byte length and the allocated disk summed over
+	 * every live segment, beside the scan's own segment list. The scan
+	 * freshens the segment cache as it goes.
+	 *
+	 * @return array{end_segment:int,end_size:int,bytes:int,disk:int,segments:array<int,array{id:int,size:int}>}|null
+	 *         Null for a log with no live segment.
+	 */
+	public function footprint(): ?array {
+		$scan = $this->scan_segments( Core::$now ?: Core::right_now() );
+		if ( [] === $scan['segments'] ) {
+			return null;
+		}
+		$last = \end( $scan['segments'] );
+		return [
+			'end_segment' => $last['id'],
+			'end_size'    => $last['size'],
+			'bytes'       => \array_sum( \array_column( $scan['segments'], 'size' ) ),
+			'disk'        => $scan['disk'],
+			'segments'    => $scan['segments'],
+		];
+	}
+
+	/**
+	 * Seam (Log overrides): the on-disk path identifying this log, which
+	 * derive_write_deadletter_dir() turns into its quarantine dir and which,
+	 * relative to the runtime base, names it in a probe record. Partition =
+	 * the segment dir, one log per dir.
+	 *
+	 * @return string
+	 */
+	public function identity_path(): string {
+		return $this->partition_dir;
+	}
+
+	/**
 	 * List segments on disk sorted by id, cached for SEGMENT_CACHE_TTL.
 	 *
 	 * An allow_large_writes (single-writer) log skips the TTL: with no peer able to
@@ -1847,34 +1898,41 @@ class Partition_Node extends Timer_Node {
 		if ( ! $force_refresh && null !== $this->segments_cache && $cache_fresh ) {
 			return $this->segments_cache;
 		}
+		return $this->scan_segments( $now )['segments'];
+	}
+
+	/**
+	 * Stat every segment on disk once: the segments sorted by id, which the
+	 * cache takes, and the disk they take together. A segment retention
+	 * deletes between `scandir` and `stat` is gone, so it is skipped rather
+	 * than listed at size 0.
+	 *
+	 * @param float $now Clock the cache is filled at.
+	 * @return array{segments:array<int,array{id:int,size:int}>,disk:int}
+	 */
+	private function scan_segments( float $now ): array {
 		$segments = [];
+		$disk     = 0;
 		$dir      = $this->segment_dir();
-		if ( ! \is_dir( $dir ) ) {
-			$this->segments_cache      = [];
-			$this->segments_cache_time = $now;
-			return [];
-		}
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_scandir
 		$scan  = self::$scandir ?? static fn ( string $d ) => @\scandir( $d );
-		$files = $scan( $dir );
-		if ( ! $files ) {
-			$this->segments_cache      = [];
-			$this->segments_cache_time = $now;
-			return [];
-		}
+		$files = \is_dir( $dir ) ? $scan( $dir ) : false;
 		$pattern = $this->segment_pattern();
-		foreach ( $files as $f ) {
-			if ( \preg_match( $pattern, $f, $m ) ) {
-				$path = "{$dir}/{$f}";
-				// A peer's append leaves our stat cache reporting the old size.
-				\clearstatcache( true, $path );
-				$segments[] = [ 'id' => (int) $m[1], 'size' => @\filesize( $path ) ?: 0 ];
+		foreach ( $files ?: [] as $f ) {
+			if ( ! \preg_match( $pattern, $f, $m ) ) {
+				continue;
 			}
+			$footprint = Core::file_footprint( "{$dir}/{$f}" );
+			if ( null === $footprint ) {
+				continue;
+			}
+			$segments[] = [ 'id' => (int) $m[1], 'size' => $footprint['bytes'] ];
+			$disk      += $footprint['disk'];
 		}
 		\usort( $segments, fn ( $a, $b ) => $a['id'] <=> $b['id'] );
 		$this->segments_cache      = $segments;
 		$this->segments_cache_time = $now;
-		return $segments;
+		return [ 'segments' => $segments, 'disk' => $disk ];
 	}
 
 	/** Seam (Log overrides): regex matching a data filename in segment_dir(); group 1 = id. */
@@ -2249,11 +2307,11 @@ class Partition_Node extends Timer_Node {
 	 *
 	 * @param string     $dir       The partition dir.
 	 * @param int|string $key_field VALUE field to index by (an int for a positional record).
-	 * @param int        $max_bytes Max tail bytes to scan (default 128 KiB).
+	 * @param int        $max_bytes Max tail bytes to scan.
 	 * @return array{records: array<string,array{value: array<mixed>, timestamp: int}>, unparseable_lines: int} Key → the latest record, and how many lines were skipped.
 	 * @throws \RuntimeException When the directory is not a readable log, e.g. outside the base.
 	 */
-	public static function read_tail_frames_by( string $dir, int|string $key_field, int $max_bytes = 131072 ): array {
+	public static function read_tail_frames_by( string $dir, int|string $key_field, int $max_bytes ): array {
 		$log = new self();
 		$log->arguments( [ $dir ] );
 		$tail     = [ 'records' => [], 'unparseable_lines' => 0 ];

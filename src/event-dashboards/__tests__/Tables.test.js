@@ -51,6 +51,7 @@ function model() {
 		meanMs: 1.25,
 		maxMs: 4.5,
 		fileBytes: 8192,
+		fileDiskBytes: 12288,
 		opRates: { GET: 1.5, MSET: 0.5 },
 		worker: 'flame-builder-4417.p0',
 		...extra,
@@ -71,6 +72,7 @@ function model() {
 		latest: {
 			ts: 1515,
 			fileBytes: 8192,
+			fileDiskBytes: 12288,
 			purgeBehind: 0,
 			walStalled: 0,
 			...extra,
@@ -103,10 +105,15 @@ function volatile( m, key, backend ) {
 		latest: {
 			...base.latest,
 			fileBytes: null,
+			fileDiskBytes: null,
 			purgeBehind: null,
 			walStalled: null,
 		},
-		series: base.series.map( ( s ) => ( { ...s, fileBytes: null } ) ),
+		series: base.series.map( ( s ) => ( {
+			...s,
+			fileBytes: null,
+			fileDiskBytes: null,
+		} ) ),
 	};
 }
 
@@ -129,7 +136,7 @@ describe( 'Tables', () => {
 		} );
 	} );
 
-	it( 'draws five panels, the operation chart one series per operation per worker', () => {
+	it( 'draws six panels, the operation chart one series per operation per worker', () => {
 		useNodeField.mockReturnValue( model() );
 		render( <Tables /> );
 		expect( globalThis.__tablesPanels.map( ( p ) => p.yLabel ) ).toEqual( [
@@ -138,6 +145,7 @@ describe( 'Tables', () => {
 			'Misses',
 			'Latency',
 			'Size',
+			'On Disk',
 		] );
 		const ops = globalThis.__tablesPanels[ 1 ].series;
 		expect( Object.keys( ops ).sort() ).toEqual( [
@@ -208,7 +216,7 @@ describe( 'Tables', () => {
 		render( <Tables /> );
 		expect(
 			globalThis.__tablesPanels.map( ( p ) => Boolean( p.stacked ) )
-		).toEqual( [ true, true, true, false, true ] );
+		).toEqual( [ true, true, true, false, true, true ] );
 		for ( const p of globalThis.__tablesPanels ) {
 			expect( p ).not.toHaveProperty( 'metric' );
 			expect( p ).not.toHaveProperty( 'totalLabel' );
@@ -295,7 +303,7 @@ describe( 'Tables', () => {
 		useNodeField.mockReturnValue( m );
 		const { container } = render( <Tables /> );
 		const cells = cellsOf( container, 'kea:auto.p3' );
-		expect( cells[ 6 ] ).toBe( '8 KB' );
+		expect( cells[ 6 ] ).toBe( '8 KB (12 KB on disk)' );
 		expect( cells.slice( 8 ) ).toEqual( [
 			'4,210',
 			'no',
@@ -330,9 +338,17 @@ describe( 'Tables', () => {
 		expect( cells[ 6 ] ).toBe( '-' );
 		expect( cells[ 9 ] ).toBe( 'no' );
 		expect( cells[ 10 ] ).toBe( '-' );
-		expect( Object.keys( globalThis.__tablesPanels[ 4 ].series ) ).toEqual(
-			[ 'flame-stats:aggregate.p0', 'flame-stats:url.p0' ]
-		);
+		for ( const panel of globalThis.__tablesPanels.slice( 4 ) ) {
+			expect( Object.keys( panel.series ) ).toEqual( [
+				'flame-stats:aggregate.p0',
+				'flame-stats:url.p0',
+			] );
+		}
+		expect(
+			globalThis.__tablesPanels[ 5 ].series[
+				'flame-stats:url.p0'
+			].points.map( ( p ) => p.value )
+		).toEqual( [ 12288, 12288 ] );
 	} );
 
 	it( 'shows no level a departed Table last reported', () => {
@@ -355,7 +371,7 @@ describe( 'Tables', () => {
 				'[data-table-key="flame-stats:aggregate.p0"]'
 			).children,
 		].map( ( c ) => c.textContent );
-		expect( fresh[ 6 ] ).toBe( '8 KB' );
+		expect( fresh[ 6 ] ).toBe( '8 KB (12 KB on disk)' );
 	} );
 
 	it( 'keeps its panel series stable across renders of an unready model', () => {
@@ -363,7 +379,7 @@ describe( 'Tables', () => {
 		const { rerender } = render( <Tables /> );
 		const first = globalThis.__tablesPanels[ 0 ].series;
 		rerender( <Tables /> );
-		expect( globalThis.__tablesPanels.at( -5 ).series ).toBe( first );
+		expect( globalThis.__tablesPanels.at( -6 ).series ).toBe( first );
 	} );
 
 	it( 'shows an empty state before any Table reports', () => {
