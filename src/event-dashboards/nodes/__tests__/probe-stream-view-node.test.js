@@ -69,7 +69,7 @@ describe( 'ProbeStreamViewNode (the entry-lifecycle contract)', () => {
 		] );
 	} );
 
-	it( 'hands _fold the worker in the second-to-last FROM segment, or none', () => {
+	it( 'hands _fold the worker workerOfFrom() reads, or none', () => {
 		const workers = [];
 		class WorkerSpyView extends WidgetProbeView {
 			_fold( entry, value, ts, worker ) {
@@ -86,6 +86,7 @@ describe( 'ProbeStreamViewNode (the entry-lifecycle contract)', () => {
 			'widgets.p4/x.p01/widgets',
 			'jobstats.p0/foo.p1',
 			'widgets.p4/lab-9.p7/x.p5/widgets',
+			'offsets/x.p0/widgets',
 		];
 		for ( const from of froms ) {
 			const m = widgetMsg();
@@ -99,7 +100,8 @@ describe( 'ProbeStreamViewNode (the entry-lifecycle contract)', () => {
 			'',
 			'',
 			'',
-			'x.p5',
+			'',
+			'',
 		] );
 	} );
 

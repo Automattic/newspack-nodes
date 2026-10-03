@@ -5,6 +5,8 @@
  * dashboards' probe streams both read worker ids through here.
  */
 
+import { GROUP_PREFIXES } from '../../runtime/sse-in-node';
+
 /**
  * A worker id split into its two halves.
  *
@@ -40,4 +42,20 @@ export function workerId( topology, partition ) {
 export function parseWorkerId( id ) {
 	const m = String( id ?? '' ).match( /^([^/\0]+)\.p(0|[1-9]\d*)$/ );
 	return m ? { topology: m[ 1 ], partition: Number( m[ 2 ] ) } : null;
+}
+
+/**
+ * The worker a frame's FROM names, `''` when none. The reader's stamp comes
+ * off first, one segment (the log's dir name), or two when the first is a
+ * `GROUP_PREFIXES` group. What remains is `{worker-id}/{name}` for a writer
+ * bound to a worker (`Probe_Node::from()`, ADR-22) or `{name}` for one bound
+ * to none; any other shape names no worker.
+ *
+ * @param {?string} from A frame's FROM, stamp included.
+ * @return {string} The worker id, such as `job-worker.p2`.
+ */
+export function workerOfFrom( from ) {
+	const parts = String( from ?? '' ).split( '/' );
+	const rest = parts.slice( GROUP_PREFIXES.has( parts[ 0 ] ) ? 2 : 1 );
+	return 2 === rest.length && parseWorkerId( rest[ 0 ] ) ? rest[ 0 ] : '';
 }

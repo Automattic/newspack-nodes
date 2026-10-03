@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **A probe record's FROM names its worker, `<worker-id>/<probe>`,** which the browser reads through the shared `parseWorkerId()`.
+- **A probe record's FROM names its worker, `<worker-id>/<probe>`,** which the browser reads through the shared `workerOfFrom()`, stripping the reader's stamp by the same rule the stream applies.
 - **The Overview charts each worker's value per partition, stacked, and its cards sum those values across partitions,** co-readers of one partition each counted. A topicprobe sample carries its worker; "Messages/s" sums every live reader rather than the largest per source, and the 24h cards sum every reader's deltas rather than a union of co-readers' windows. The "Avg Cache" card is gone, since every Overview card is a sum; "Total Cache" stays. A reader naming no source counts toward no card, as no chart plots it. A stacked level chart (backlog, cache size, Table size) holds a series' last reading for 60 seconds past its newest sample, the live cards' window, then reads 0, so a reader that stopped leaves the total.
 - **A stacked chart's tooltip prints its total.** Rate and level panels stack, one series per worker's stream (Jobs per identity and worker, Tables per Table and per operation and worker, the Overview per partition and worker); mean panels (Jobs' queue latency, Tables' latency) stay unstacked.
 - **A cell with nothing to show reads '-'**: a mean or max over a window with no runs or calls, a size off SQLite, and a level a departed Table last reported. A durable Table whose purge is caught up reads "no".

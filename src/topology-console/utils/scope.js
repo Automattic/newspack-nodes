@@ -58,9 +58,10 @@ export function scopeFromCwd( cwd ) {
 }
 
 /**
- * The worker a path is mounted on, read off its first segment. A worker id
- * holds no `/`, so no later segment can name one: `_http/foo.p3` is a node
- * under a view boundary, never a worker.
+ * The worker a TO path or shell cwd is mounted on, read off its first
+ * segment. A worker id holds no `/`, so no later segment of a TO path names
+ * one: `_http/foo.p3` is a node under a view boundary, never a worker. A FROM
+ * trail carries its worker mid-path; `workerOfFrom()` reads that.
  *
  * @param {?string} path Node path or shell cwd.
  * @return {?AttachedWorker} The worker, or null when the path mounts none.

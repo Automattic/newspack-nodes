@@ -1,7 +1,7 @@
 import { Node } from '../../runtime/node';
 import { ReactBridge } from '../../runtime/react-bridge';
 import { TIMESTAMP, FROM, VALUE } from '../../runtime/message';
-import { parseWorkerId } from '@newspack-nodes/shared/utils/workerId';
+import { workerOfFrom } from '@newspack-nodes/shared/utils/workerId';
 
 // Fixed 24h live window, in seconds; an older record is dropped or pruned.
 const RETENTION_S = 86400;
@@ -107,9 +107,8 @@ export class ProbeStreamViewNode extends ReactBridge( Node ) {
 	 *
 	 * The probe stamps FROM `<worker-id>/<probe>` and the SSE reader prepends
 	 * its own stamp, so a frame arrives as `jobstats.p0/job-worker.p2/jobstats`.
-	 * The worker is the second-to-last segment of a FROM holding at least
-	 * three, when `parseWorkerId()` accepts it, and `''` otherwise; `_fold`
-	 * receives it so a chart can plot each worker's stream apart.
+	 * `workerOfFrom()` reads the worker, `''` when the probe is bound to none;
+	 * `_fold` receives it so a chart can plot each worker's stream apart.
 	 *
 	 * @this {ProbeStreamSubclass}
 	 * @param {Array} message The 7-field positional message; VALUE is the
@@ -148,7 +147,7 @@ export class ProbeStreamViewNode extends ReactBridge( Node ) {
 			}
 			c._lastSeen = now;
 			c.series.push(
-				this._fold( c, value, ts, this._workerOf( message ) )
+				this._fold( c, value, ts, workerOfFrom( message[ FROM ] ) )
 			);
 			// Cap sits above the window, so this only bounds a fast stream.
 			if ( c.series.length > this.maxSamples ) {
@@ -157,19 +156,6 @@ export class ProbeStreamViewNode extends ReactBridge( Node ) {
 		}
 		this._evictStale();
 		this._maybePublish();
-	}
-
-	/**
-	 * The worker a frame's FROM names: the segment before the probe's own
-	 * name, behind at least one stamp, or `''`.
-	 *
-	 * @param {Array} message The 7-field positional message.
-	 * @return {string} The worker id, such as `job-worker.p2`.
-	 */
-	_workerOf( message ) {
-		const parts = String( message[ FROM ] || '' ).split( '/' );
-		const worker = parts.length >= 3 ? parts.at( -2 ) : '';
-		return parseWorkerId( worker ) ? worker : '';
 	}
 
 	/**

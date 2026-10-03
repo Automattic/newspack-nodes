@@ -6,7 +6,7 @@
 
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { parseWorkerId, workerId } from '../workerId';
+import { parseWorkerId, workerId, workerOfFrom } from '../workerId';
 
 describe( 'parseWorkerId parity with CLI::parse_worker_id()', () => {
 	const cases = JSON.parse(
@@ -33,5 +33,37 @@ describe( 'parseWorkerId parity with CLI::parse_worker_id()', () => {
 	it( 'tolerates a null or undefined id', () => {
 		expect( parseWorkerId( null ) ).toBeNull();
 		expect( parseWorkerId( undefined ) ).toBeNull();
+	} );
+} );
+
+describe( 'workerOfFrom', () => {
+	it.each( [
+		[
+			'a worker behind a plain stamp',
+			'jobstats.p0/job-worker.p2/jobstats',
+			'job-worker.p2',
+		],
+		[
+			'a worker behind a grouped stamp',
+			'offsets/x.p0/job-worker.p2/jobstats',
+			'job-worker.p2',
+		],
+		[ 'a bare probe behind a plain stamp', 'jobstats.p0/jobstats', '' ],
+		[ 'a bare probe behind a grouped stamp', 'offsets/x.p0/jobstats', '' ],
+		[ 'a padded partition', 'jobstats.p0/foo.p01/jobstats', '' ],
+		[ 'a longer trail', 'jobstats.p0/a/b/c', '' ],
+		[ 'a stamp alone', 'jobstats.p0', '' ],
+		[ 'an empty FROM', '', '' ],
+		[
+			'a deadletter group',
+			'deadletter/x.p0/tablestats.p7/tablestats',
+			'tablestats.p7',
+		],
+	] )( '%s', ( _label, from, expected ) => {
+		expect( workerOfFrom( from ) ).toBe( expected );
+	} );
+
+	it( 'tolerates a null FROM', () => {
+		expect( workerOfFrom( null ) ).toBe( '' );
 	} );
 } );

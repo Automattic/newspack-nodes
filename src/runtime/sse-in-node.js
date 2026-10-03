@@ -92,7 +92,7 @@ function flatInfo( value ) {
  * `{group}/{basename}` for these two, so a position under one keys on the full
  * stamp rather than on its first path segment alone.
  */
-const GROUP_PREFIXES = new Set( [ 'offsets', 'deadletter' ] );
+export const GROUP_PREFIXES = new Set( [ 'offsets', 'deadletter' ] );
 
 /**
  * REST route opened unless a patron overrides `endpoint`. RemoteLink points a
