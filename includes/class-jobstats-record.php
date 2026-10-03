@@ -23,7 +23,7 @@ namespace Newspack_Nodes;
  * The Message's TIMESTAMP is the sweep instant, never duplicated here.
  *
  * Indices mirror `src/runtime/jobstats-record.js`, and
- * `tests/unit/JobstatsRecordTest.php` pins both halves plus the dense 0..12
+ * `tests/unit/ProbeRecordLayoutsTest.php` pins both halves plus the dense 0..12
  * ordering: a browser reading one slot off misreads every field after it.
  */
 class Jobstats_Record {
