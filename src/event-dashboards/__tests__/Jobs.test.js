@@ -21,15 +21,24 @@ jest.mock( '../../runtime/react', () => ( {
 } ) );
 jest.mock( '../TopicsChart', () => {
 	const el = require( '@wordpress/element' );
+	const TopicsChart = ( props ) => {
+		( globalThis.__jobsPanels ||= [] ).push( props );
+		return el.createElement(
+			'div',
+			{ className: 'nodes-topics' },
+			props.title
+		);
+	};
 	return {
-		TopicsChart: ( props ) => {
-			( globalThis.__jobsPanels ||= [] ).push( props );
-			return el.createElement(
-				'div',
-				{ className: 'nodes-topics' },
-				props.title
-			);
-		},
+		TopicsChart,
+		TopicsPanels: ( { panels, totalLabel } ) =>
+			panels.map( ( p ) =>
+				el.createElement( TopicsChart, {
+					key: p.title,
+					...p,
+					totalLabel: p.stacked ? totalLabel : undefined,
+				} )
+			),
 	};
 } );
 

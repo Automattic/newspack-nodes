@@ -1,6 +1,7 @@
 /**
  * The one freshness rule every live SummaryCards card applies to a reader's
- * `latest` probe sample: "Messages/s", "Backlog" and "Total Cache".
+ * `latest` probe sample: "Messages/s", "Backlog" and "Total Cache", summed by
+ * `liveTotal`.
  *
  * A live card shows the fleet as of the newest message seen, so a sample counts
  * only while it is within a minute of the stream head: the newest `latest.ts`
@@ -42,8 +43,32 @@ export function streamHead( consumers ) {
  * @param {number}                                headS The stream head, from `streamHead()`.
  * @return {boolean} True when the card counts it.
  */
-export function isLiveReader( c, headS ) {
+function isLiveReader( c, headS ) {
 	return Boolean( c.source ) && isLiveSample( c.latest, headS );
+}
+
+/**
+ * Sum one numeric field of every live reader's newest sample.
+ *
+ * Nothing is deduped by source: each reader owns its rate, backlog and
+ * offsetlog, so two topologies tailing `firehose.p0` are two distinct values
+ * and both count, as both stack in the Overview's charts. A reader that died
+ * keeps its last sample in the map, and `isLiveReader` keeps that stale burst
+ * or debt out of the card.
+ *
+ * @param {?Object<string,{source?:string,latest?:Object<string,number>}>} consumers The `topicprobe:view` consumers map; a missing map counts as empty.
+ * @param {number}                                                         headS     The stream head, from `streamHead()`.
+ * @param {string}                                                         field     The `latest` field to sum: `msgRate`, `backlog` or `cacheSize`.
+ * @return {number} The summed field; 0 when no reader is live.
+ */
+export function liveTotal( consumers, headS, field ) {
+	let total = 0;
+	for ( const c of Object.values( consumers || {} ) ) {
+		if ( isLiveReader( c, headS ) ) {
+			total += c.latest[ field ] || 0;
+		}
+	}
+	return total;
 }
 
 /**

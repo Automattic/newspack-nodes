@@ -36,19 +36,28 @@ jest.mock( '../../runtime/react', () => ( {
 // TopicsChart (d3, own suite) stubbed to capture the props each panel is fed.
 jest.mock( '../TopicsChart', () => {
 	const el = require( '@wordpress/element' );
-	return {
-		TopicsChart: ( props ) => {
-			( globalThis.__topicsPanels ||= [] ).push( props );
-			return el.createElement(
+	const TopicsChart = ( props ) => {
+		( globalThis.__topicsPanels ||= [] ).push( props );
+		return el.createElement(
+			'div',
+			{ className: 'nodes-topics' },
+			el.createElement(
 				'div',
-				{ className: 'nodes-topics' },
-				el.createElement(
-					'div',
-					{ className: 'newspack-nodes-chart__title' },
-					props.title
-				)
-			);
-		},
+				{ className: 'newspack-nodes-chart__title' },
+				props.title
+			)
+		);
+	};
+	return {
+		TopicsChart,
+		TopicsPanels: ( { panels, totalLabel } ) =>
+			panels.map( ( p ) =>
+				el.createElement( TopicsChart, {
+					key: p.title,
+					...p,
+					totalLabel: p.stacked ? totalLabel : undefined,
+				} )
+			),
 	};
 } );
 // SummaryCards has its own suite; stubbed to capture the props the tab feeds.

@@ -29,13 +29,13 @@ namespace Newspack_Nodes;
  * would split every window between them and each report half the work.
  *
  * A subclass declares `probe()` — which nodes it claims, and how many records
- * each yields — a `node_schema()` naming `interval_s` as positional 0, and
+ * each yields — a `node_schema()` description, and
  * `fit_to_line()` when its record carries a field that can overflow the cap.
  * Everything else below is the sweep.
  */
 abstract class Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 
-	/** Sweep cadence a topology may omit; each subclass's node_schema() names it as the `interval_s` default. */
+	/** Sweep cadence a topology may omit; `node_schema()` names it as the `interval_s` default. */
 	protected const DEFAULT_INTERVAL_S = 15;
 
 	/**
@@ -171,5 +171,21 @@ abstract class Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 	 */
 	public function shutdown_sweep(): void {
 		$this->fire();
+	}
+	/**
+	 * Topology console manifest shared by every probe: the `Monitor` palette
+	 * entry and the one `interval_s` positional. Declaring it here is the whole
+	 * parse — ADR-11 puts defaults and coercion in `parse_schema_args()`. A
+	 * subclass merges its own `description` over it.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public static function node_schema(): array {
+		return \array_merge( parent::node_schema(), [
+			'category'  => 'Monitor',
+			'arguments' => [
+				[ 'name' => 'interval_s', 'type' => 'int', 'default' => self::DEFAULT_INTERVAL_S, 'description' => 'Sweep cadence in seconds; empty or absent defaults to 15.' ],
+			],
+		] );
 	}
 }

@@ -281,6 +281,21 @@ class TopicProbeTest extends TestCase {
 		$this->assertSame( 15000, $ref->getValue( $probe ) );
 	}
 
+	/** Every probe palettes as a Monitor with the one shared `interval_s` positional, and names only its own description. */
+	public function test_every_probe_shares_the_monitor_interval_schema(): void {
+		$interval = [ 'name' => 'interval_s', 'type' => 'int', 'default' => 15, 'description' => 'Sweep cadence in seconds; empty or absent defaults to 15.' ];
+		$seen     = [];
+		foreach ( [ Topic_Probe_Node::class, \Newspack_Nodes\Job_Probe_Node::class, \Newspack_Nodes\Table_Probe_Node::class ] as $class ) {
+			$schema = $class::node_schema();
+			$this->assertSame( 'Monitor', $schema['category'], $class );
+			$this->assertSame( [ $interval ], $schema['arguments'], $class );
+			$this->assertNotSame( '', $schema['description'], $class );
+			$seen[] = $schema['description'];
+		}
+		$this->assertCount( 3, \array_unique( $seen ) );
+		$this->assertSame( [ $interval ], \Newspack_Nodes\Probe_Node::node_schema()['arguments'] );
+	}
+
 	public function test_arguments_rejects_non_numeric(): void {
 		$probe = new Topic_Probe_Node();
 		$this->expectException( \InvalidArgumentException::class );

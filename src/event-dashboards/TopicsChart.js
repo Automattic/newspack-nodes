@@ -24,6 +24,7 @@ import { memo, useCallback, useMemo } from '@wordpress/element';
 import { chartColor } from '@newspack-nodes/shared/hooks/useTimeChart';
 import AreaTimeChart from '@newspack-nodes/shared/components/AreaTimeChart';
 import { buildAlignedSeries } from './buildAlignedSeries';
+import { fillModeForMetric } from './topicProbeSeries';
 
 /** @typedef {import('@newspack-nodes/shared/utils/axis-ticks').AxisFormatter} AxisFormatter */
 
@@ -104,3 +105,27 @@ export const TopicsChart = memo(
 		);
 	}
 );
+
+/**
+ * A tab's Topics panels, one `TopicsChart` per declaration.
+ *
+ * A declaration is `{ title, yLabel, series, formatValue, metric, stacked?,
+ * stackable? }`: the `metric` picks the fill mode, and only a stacked panel
+ * takes the total label. The array may be rebuilt per render, but each
+ * `series` must stay a memoized object, or the chart's memo redraws.
+ *
+ * @param {Object}        props            Component props.
+ * @param {Array<Object>} props.panels     Panel declarations, drawn in order.
+ * @param {string}        props.totalLabel Translated label for each stacked panel's total row.
+ * @return {import('react').ReactElement[]} One chart per declaration.
+ */
+export function TopicsPanels( { panels, totalLabel } ) {
+	return panels.map( ( { metric, ...panel } ) => (
+		<TopicsChart
+			key={ panel.title }
+			{ ...panel }
+			fillMode={ fillModeForMetric( metric ) }
+			totalLabel={ panel.stacked ? totalLabel : undefined }
+		/>
+	) );
+}

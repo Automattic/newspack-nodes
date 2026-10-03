@@ -276,9 +276,9 @@ several readers can tail one source. Each sample carries the worker that swept
 it, so the Overview's charts plot one series per partition per worker through
 `perWorker()`: co-readers of a partition inside one worker sum, and the stacked
 chart sums the workers. Every card is the column total of its chart, so
-`globalMsgRate`, `probe24hTotals`, `backlogTotal` and `cacheSizeTotal` all sum
+`liveTotal` (rate, backlog, cache size) and `probe24hTotals` sum
 every reader and dedup nothing, two topologies on `firehose.p0` each counted.
-"Live" is one rule for the current cards: `isLiveReader()` counts a reader only
+"Live" is one rule for the current cards: `liveTotal()` counts a reader only
 while it names a source and its newest sample is at most `LIVE_WINDOW_S`, 60
 seconds, behind the newest message seen (`streamHead()`), because the map keeps
 a stopped reader's 24h series for the charts. The charts apply the same window:

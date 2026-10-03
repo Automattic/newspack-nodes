@@ -26,12 +26,8 @@ import { __ } from '@wordpress/i18n';
 import { useProbeStream } from './hooks/useProbeStream';
 import { useNodeField } from '../runtime/react';
 import UnparseableLinesNotice from '@newspack-nodes/shared/components/UnparseableLinesNotice';
-import {
-	topicChartSeries,
-	fillModeForMetric,
-	perWorker,
-} from './topicProbeSeries';
-import { TopicsChart } from './TopicsChart';
+import { topicChartSeries, perWorker } from './topicProbeSeries';
+import { TopicsPanels } from './TopicsChart';
 import {
 	formatBytes,
 	formatGroupedCount,
@@ -133,6 +129,40 @@ export default function Jobs() {
 
 	const nowSec = Math.floor( Date.now() / 1000 );
 	const total = __( 'Total', 'newspack-nodes' );
+	const panels = [
+		{
+			title: __( 'Job Runs Rate', 'newspack-nodes' ),
+			yLabel: __( 'Runs', 'newspack-nodes' ),
+			series: runsSeries,
+			formatValue: formatMsgRate,
+			metric: 'runsRate',
+			stacked: true,
+		},
+		{
+			title: __( 'Job Errors Rate', 'newspack-nodes' ),
+			yLabel: __( 'Errors', 'newspack-nodes' ),
+			series: errorsSeries,
+			formatValue: formatMsgRate,
+			metric: 'errorsRate',
+			stacked: true,
+		},
+		{
+			title: __( 'Job Backlog', 'newspack-nodes' ),
+			yLabel: __( 'Backlog', 'newspack-nodes' ),
+			series: backlogSeries,
+			formatValue: formatBytes,
+			metric: 'backlog',
+			stacked: true,
+		},
+		{
+			title: __( 'Job Queue Latency', 'newspack-nodes' ),
+			yLabel: __( 'Latency', 'newspack-nodes' ),
+			series: latencySeries,
+			formatValue: formatMs,
+			metric: 'queueLatencyMs',
+			stackable: false,
+		},
+	];
 
 	return (
 		<div className="nodes-probe-tab">
@@ -145,41 +175,7 @@ export default function Jobs() {
 				node="topicprobe:link"
 			/>
 			<div className="nodes-probe-tab__panels">
-				<TopicsChart
-					title={ __( 'Job Runs Rate', 'newspack-nodes' ) }
-					yLabel={ __( 'Runs', 'newspack-nodes' ) }
-					series={ runsSeries }
-					formatValue={ formatMsgRate }
-					fillMode={ fillModeForMetric( 'runsRate' ) }
-					stacked
-					totalLabel={ total }
-				/>
-				<TopicsChart
-					title={ __( 'Job Errors Rate', 'newspack-nodes' ) }
-					yLabel={ __( 'Errors', 'newspack-nodes' ) }
-					series={ errorsSeries }
-					formatValue={ formatMsgRate }
-					fillMode={ fillModeForMetric( 'errorsRate' ) }
-					stacked
-					totalLabel={ total }
-				/>
-				<TopicsChart
-					title={ __( 'Job Backlog', 'newspack-nodes' ) }
-					yLabel={ __( 'Backlog', 'newspack-nodes' ) }
-					series={ backlogSeries }
-					formatValue={ formatBytes }
-					fillMode={ fillModeForMetric( 'backlog' ) }
-					stacked
-					totalLabel={ total }
-				/>
-				<TopicsChart
-					title={ __( 'Job Queue Latency', 'newspack-nodes' ) }
-					yLabel={ __( 'Latency', 'newspack-nodes' ) }
-					series={ latencySeries }
-					formatValue={ formatMs }
-					fillMode={ fillModeForMetric( 'queueLatencyMs' ) }
-					stackable={ false }
-				/>
+				<TopicsPanels panels={ panels } totalLabel={ total } />
 			</div>
 
 			{ 0 === rows.length ? (

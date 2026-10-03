@@ -5,10 +5,10 @@
  * 24h produced totals, and the total offsetlog cache size.
  *
  * Every number is computed outside this component. `readRate`, `writeRate` and
- * `logPartitions` arrive as props from `useTopologyManager`; the five pure
- * modules beside this one — `fleetSummary`, `probe24hTotals`, `globalMsgRate`,
- * `cacheSizeTotal` and `backlogTotal` — roll the topology rows and the
- * `topicprobe:view` consumers up into the rest, and the shared formatters turn
+ * `logPartitions` arrive as props from `useTopologyManager`; the pure
+ * modules beside this one — `fleetSummary`, `probe24hTotals` and `liveTotal`
+ * — roll the topology rows and the `topicprobe:view` consumers up into the
+ * rest, and the shared formatters turn
  * each figure into its display string. What is left here is the layout and the
  * translated labels, which is what lets a card's rule be tested without
  * rendering anything.
@@ -18,7 +18,7 @@
  * chart; the Write card counts each partition's head once. The "Messages/s",
  * "Backlog" and "Total Cache" cards are LIVE, counting a reader only while it
  * names a source and its newest sample is within a minute of the newest
- * message seen (`streamHead`, `isLiveReader`), while the 24h cards sum every
+ * message seen (`streamHead`, `liveTotal`), while the 24h cards sum every
  * retained sample.
  */
 
@@ -26,10 +26,7 @@ import { memo } from '@wordpress/element';
 import { __, sprintf, _n } from '@wordpress/i18n';
 import { fleetSummary } from './fleetSummary';
 import { probe24hTotals } from './probe24hTotals';
-import { globalMsgRate } from './globalMsgRate';
-import { cacheSizeTotal } from './cacheSizeTotal';
-import { backlogTotal } from './backlogTotal';
-import { streamHead } from './liveSample';
+import { liveTotal, streamHead } from './liveSample';
 import {
 	formatBytes,
 	formatByteRate,
@@ -159,12 +156,16 @@ function SummaryCards( {
 			/>
 			<Card
 				mod="msgrate"
-				value={ formatMsgRate( globalMsgRate( consumers, headS ) ) }
+				value={ formatMsgRate(
+					liveTotal( consumers, headS, 'msgRate' )
+				) }
 				label={ __( 'Messages/s', 'newspack-nodes' ) }
 			/>
 			<Card
 				mod="backlog"
-				value={ formatBytes( backlogTotal( consumers, headS ) ) }
+				value={ formatBytes(
+					liveTotal( consumers, headS, 'backlog' )
+				) }
 				label={ __( 'Backlog', 'newspack-nodes' ) }
 			/>
 			<Card
@@ -179,7 +180,9 @@ function SummaryCards( {
 			/>
 			<Card
 				mod="cache-total"
-				value={ formatBytes( cacheSizeTotal( consumers, headS ) ) }
+				value={ formatBytes(
+					liveTotal( consumers, headS, 'cacheSize' )
+				) }
 				label={ __( 'Total Cache', 'newspack-nodes' ) }
 			/>
 		</div>

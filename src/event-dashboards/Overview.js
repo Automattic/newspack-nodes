@@ -52,12 +52,8 @@ import AlertModal from './AlertModal';
 import { useTopologyManager } from './hooks/useTopologyManager';
 import { useProbeStream } from './hooks/useProbeStream';
 import { useNodeField } from '../runtime/react';
-import {
-	topicChartSeries,
-	fillModeForMetric,
-	perWorker,
-} from './topicProbeSeries';
-import { TopicsChart } from './TopicsChart';
+import { topicChartSeries, perWorker } from './topicProbeSeries';
+import { TopicsPanels } from './TopicsChart';
 import { consoleHref, TopologyRow } from './TopologyRow';
 import {
 	formatBytes,
@@ -339,6 +335,40 @@ export default function Overview( { headerControlsSlot } ) {
 		[ streams ]
 	);
 	const total = __( 'Total', 'newspack-nodes' );
+	const panels = [
+		{
+			title: __( 'Topics Message Rate', 'newspack-nodes' ),
+			yLabel: __( 'Messages', 'newspack-nodes' ),
+			series: msgRateSeries,
+			formatValue: formatMsgRate,
+			metric: 'msgRate',
+			stacked: true,
+		},
+		{
+			title: __( 'Topics Byte Rate', 'newspack-nodes' ),
+			yLabel: __( 'Bytes', 'newspack-nodes' ),
+			series: byteRateSeries,
+			formatValue: formatByteRate,
+			metric: 'byteRate',
+			stacked: true,
+		},
+		{
+			title: __( 'Topics Backlog', 'newspack-nodes' ),
+			yLabel: __( 'Backlog', 'newspack-nodes' ),
+			series: backlogSeries,
+			formatValue: formatBytes,
+			metric: 'backlog',
+			stacked: true,
+		},
+		{
+			title: __( 'Topics Cache Size', 'newspack-nodes' ),
+			yLabel: __( 'Cache Size', 'newspack-nodes' ),
+			series: cacheSizeSeries,
+			formatValue: formatBytes,
+			metric: 'cacheSize',
+			stacked: true,
+		},
+	];
 
 	// "+ New Topology" portals into the station header; undefined = inline.
 	const newTopologyControl = (
@@ -410,42 +440,7 @@ export default function Overview( { headerControlsSlot } ) {
 				consumers={ consumers }
 			/>
 			<div className="nodes-overview__panels">
-				<TopicsChart
-					title={ __( 'Topics Message Rate', 'newspack-nodes' ) }
-					yLabel={ __( 'Messages', 'newspack-nodes' ) }
-					series={ msgRateSeries }
-					formatValue={ formatMsgRate }
-					fillMode={ fillModeForMetric( 'msgRate' ) }
-					stacked
-					totalLabel={ total }
-				/>
-				<TopicsChart
-					title={ __( 'Topics Byte Rate', 'newspack-nodes' ) }
-					yLabel={ __( 'Bytes', 'newspack-nodes' ) }
-					series={ byteRateSeries }
-					formatValue={ formatByteRate }
-					fillMode={ fillModeForMetric( 'byteRate' ) }
-					stacked
-					totalLabel={ total }
-				/>
-				<TopicsChart
-					title={ __( 'Topics Backlog', 'newspack-nodes' ) }
-					yLabel={ __( 'Backlog', 'newspack-nodes' ) }
-					series={ backlogSeries }
-					formatValue={ formatBytes }
-					fillMode={ fillModeForMetric( 'backlog' ) }
-					stacked
-					totalLabel={ total }
-				/>
-				<TopicsChart
-					title={ __( 'Topics Cache Size', 'newspack-nodes' ) }
-					yLabel={ __( 'Cache Size', 'newspack-nodes' ) }
-					series={ cacheSizeSeries }
-					formatValue={ formatBytes }
-					fillMode={ fillModeForMetric( 'cacheSize' ) }
-					stacked
-					totalLabel={ total }
-				/>
+				<TopicsPanels panels={ panels } totalLabel={ total } />
 			</div>
 			{ actives.length > 0 && (
 				<div className="nodes-overview__toolbar">
