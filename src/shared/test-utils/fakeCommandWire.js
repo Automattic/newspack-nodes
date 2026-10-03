@@ -22,6 +22,10 @@
 /* eslint-env jest */
 import {
 	ensureSession,
+	asString,
+	isCommandAsk,
+	isCommandStruct,
+	isRequestCommand,
 	__setAuthFetch,
 	newMessage,
 	pack,
@@ -35,24 +39,8 @@ import {
 	TM_COMMAND,
 	TM_RESPONSE,
 	TM_ERROR,
+	TM_NOREPLY,
 } from '@newspack-nodes/runtime';
-
-/**
- * Whether the message is a command ASKING for something — the shape
- * `signCommand()` signs and the server authorizes. A TM_RESPONSE or TM_ERROR
- * envelope is an answer: it carries no signature and must not be refused for
- * lacking one.
- *
- * @param {Array} message A posted Message.
- * @return {boolean} True for a command awaiting an answer.
- */
-function isRequestCommand( message ) {
-	const type = message[ TYPE ] || 0;
-	return (
-		0 !== ( type & TM_COMMAND ) &&
-		0 === ( type & ( TM_RESPONSE | TM_ERROR ) )
-	);
-}
 
 /**
  * Server behaviours a suite can switch. Setting `requireSignature` false
@@ -70,7 +58,12 @@ function isRequestCommand( message ) {
  * An unsigned request command is REFUSED, the way the controller's
  * `authorize_and_latch()` refuses one — a signature the minter forgot is the
  * regression this double exists to make loud (ADR-15). Only the presence of
- * `auth.sig` is checked; the double holds no key, so it verifies nothing.
+ * `auth.sig` is checked; the double holds no key, so it verifies nothing. The
+ * order is PHP's: `interpret()` drops a VALUE that is no command struct
+ * (`isCommandStruct()`), signed or not, unanswered; `check()` then refuses an
+ * unsigned command, or one it cannot verify at all ("wrong type", a
+ * non-numeric TIMESTAMP), and `interpret()` answers it `unauthorized: <name>`
+ * with PHP's one terminator, or throws and answers nothing for a TM_NOREPLY one.
  *
  * @param {Array<Array>}              messages  Posted command Messages.
  * @param {( message: Array ) => any} replyFor  Maps one to its reply payload.
@@ -84,16 +77,33 @@ export async function answerBatch( messages, replyFor, options = {} ) {
 	// hides the rest: a test holding the first reply open would see the second
 	// as never sent, when the wire carried both in the same body.
 	const asked = messages.map( ( sent ) => {
-		// An unsigned request never reaches the verb; its answer IS a refusal.
-		const unsigned =
-			requireSignature &&
-			! sent[ VALUE ]?.auth?.sig &&
-			isRequestCommand( sent );
+		const value = sent[ VALUE ];
+		if ( isCommandAsk( sent ) ) {
+			// interpret(): no command struct, no answer, signed or not.
+			if ( ! isCommandStruct( value ) ) {
+				return { sent, answer: undefined };
+			}
+			// check(): unverifiable or unsigned is unauthorized, never run.
+			if (
+				requireSignature &&
+				( ! isRequestCommand( sent ) || ! value.auth?.sig )
+			) {
+				const noreply = 0 !== ( sent[ TYPE ] & TM_NOREPLY );
+				return {
+					sent,
+					answer: noreply
+						? undefined
+						: new Error(
+								`unauthorized: ${ asString( value.name ) }\n`
+						  ),
+				};
+			}
+		}
+		// interpret() answers a TM_NOREPLY command with nothing, run or not.
+		const answer = replyFor( sent );
 		return {
 			sent,
-			answer: unsigned
-				? new Error( `unauthorized: ${ sent[ VALUE ]?.name }` )
-				: replyFor( sent ),
+			answer: 0 !== ( sent[ TYPE ] & TM_NOREPLY ) ? undefined : answer,
 		};
 	} );
 	const replies = [];
@@ -118,7 +128,7 @@ export async function answerBatch( messages, replyFor, options = {} ) {
 
 /**
  * The server's reply envelope, as both interpreters build it: TO = FROM, with
- * ID, KEY and the request's `arguments` echoed back. Exported because a suite
+ * ID, KEY and the request's `name` and `arguments` echoed back as PHP strings. Exported because a suite
  * that builds its own transport double must still answer like the server: a
  * reply without TO = FROM never reaches the node that minted the command, and
  * the test sees silence rather than a failure it can read.
@@ -137,8 +147,8 @@ export function commandReply( sent, payload, kind = TM_RESPONSE ) {
 	reply[ KEY ] = sent[ KEY ];
 	const args = sent[ VALUE ]?.arguments;
 	reply[ VALUE ] = {
-		name: sent[ VALUE ]?.name,
-		arguments: Array.isArray( args ) ? args : [],
+		name: asString( sent[ VALUE ]?.name ),
+		arguments: Array.isArray( args ) ? args.map( asString ) : [],
 		payload,
 	};
 	return reply;

@@ -63,5 +63,8 @@ export {
 	invalidateAuth,
 	markLocal,
 	signCommand,
+	isCommandAsk,
+	isCommandStruct,
+	isRequestCommand,
 	__setAuthFetch,
 } from './command-auth';

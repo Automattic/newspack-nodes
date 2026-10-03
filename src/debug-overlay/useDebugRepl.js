@@ -35,13 +35,7 @@ import {
 	useNodeField,
 	useNodeState,
 } from '../runtime/react';
-import {
-	newMessage,
-	TYPE,
-	VALUE,
-	TM_BYTESTREAM,
-	applyComposeFields,
-} from '../runtime/message';
+import { newMessage, TYPE, VALUE, TM_BYTESTREAM } from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
 import { THEMES, getStoredTheme } from '../topology-console/themes';
 import {
@@ -63,24 +57,22 @@ import {
 const EMPTY_TRANSCRIPT = [];
 
 /**
- * Build the gate the overlay's Shell sinks into: the `_shell` Tap when the
- * backbone has one, else the bare interpreter. The Tap is preferred because
- * every command in the graph is observed there; the interpreter is the fallback
- * for a page whose Tap is gone.
+ * Build the gate every overlay send passes: the Shell's statements, the invoke
+ * gesture's mints and the Compose modal's messages. It sinks into the `_shell`
+ * Tap when the backbone has one, else the bare interpreter. The Tap is
+ * preferred because every command in the graph is observed there; the
+ * interpreter is the fallback for a page whose Tap is gone.
  *
- * The gate is unnamed, so nothing can address it and the Shell's reference is
- * the only way in. That is what makes it the safe place to stamp the Compose
- * modal's fields, which would be wrong on anything a message could be sent to.
+ * The gate is unnamed, so nothing can address it and the overlay's reference is
+ * the only way in. That is what makes its forward tap a safe place for the
+ * Reset Graph chip to watch, since nothing routed can reach it.
  *
  * @param {Object} interpreter Fallback sink when no `_shell` Tap is mounted.
- * @param {Object} fieldsRef   Ref holding the Compose fields for the statement
- *                             in flight; `dispatchStatement` fills and clears it.
  * @return {OutgoingGateNode} The gate, sunk and ready for `shell.sink`.
  */
-function makeGate( interpreter, fieldsRef ) {
+function makeGate( interpreter ) {
 	const gate = new OutgoingGateNode();
 	gate.sink = Core.node( names.CONSOLE_TAP ) || interpreter;
-	gate.beforeSend = ( m ) => applyComposeFields( m, fieldsRef.current );
 	return gate;
 }
 
@@ -150,22 +142,21 @@ function aimHttp( target ) {
  * @param {Object}   debugLevelRef Ref carrying the restored REPL verbosity; the
  *                                 Dumper reads it per delivered message.
  * @param {Function} onSetSkin     Applies a resolved skin slug.
- * @param {Object}   fieldsRef     Ref holding the Compose fields for the
- *                                 statement in flight.
- * @return {{ dumper: Object, teardown: Function }} The `_output` Dumper, and a
- *   teardown that drops its persistence listeners and removes every node this
- *   build mounted.
+ * @return {{ dumper: Object, gate: OutgoingGateNode, teardown: Function }} The
+ *   `_output` Dumper, the gate bound as `shell.sink`, and a teardown that drops
+ *   its persistence listeners and removes every node this build mounted.
  */
-function buildInfra( shell, debugLevelRef, onSetSkin, fieldsRef ) {
+function buildInfra( shell, debugLevelRef, onSetSkin ) {
 	const interpreter = Core.node( names.COMMAND_INTERPRETER );
 	// Idempotent under StrictMode's double-invoke: reuse an existing Dumper.
 	const existing = Core.node( names.OUTPUT );
 	if ( existing ) {
-		shell.sink = makeGate( interpreter, fieldsRef );
+		shell.sink = makeGate( interpreter );
 		wireStdout( shell, existing, onSetSkin );
 		aimHttp( names.OUTPUT );
 		return {
 			dumper: existing,
+			gate: shell.sink,
 			teardown: () => {
 				aimHttp( names.NULL );
 				existing.removeNode();
@@ -218,7 +209,7 @@ function buildInfra( shell, debugLevelRef, onSetSkin, fieldsRef ) {
 		cwdNode.target = shell.path;
 	}
 	// Bind shell.sink here, so a line typed on open never finds it null.
-	shell.sink = makeGate( interpreter, fieldsRef );
+	shell.sink = makeGate( interpreter );
 	const stdout = wireStdout( shell, dumper, onSetSkin );
 	aimHttp( names.OUTPUT );
 	const teardown = () => {
@@ -233,7 +224,7 @@ function buildInfra( shell, debugLevelRef, onSetSkin, fieldsRef ) {
 		metadata?.removeNode();
 		cwdNode?.removeNode();
 	};
-	return { dumper, teardown };
+	return { dumper, gate: shell.sink, teardown };
 }
 
 /**
@@ -253,12 +244,13 @@ function buildInfra( shell, debugLevelRef, onSetSkin, fieldsRef ) {
  *                               interpreter.
  * @param {Function} [onSetSkin] Apply a skin slug — drives the `set_skin`
  *                               builtin.
- * @return {{ transcript: Array, sendLine: Function, append: Function, clear: Function, cwd: string, setPath: Function, ready: boolean, debugLevel: number }}
- *   The reactive transcript, plus a `sendLine( line, fields )` that splits the
- *   line and fills each statement into the Shell; `append` and `clear` write
- *   the transcript directly, `cwd` mirrors `shell.path` and `setPath` changes
- *   it, `ready` is true once the infra nodes are mounted, and `debugLevel` is
- *   the persisted REPL verbosity.
+ * @return {{ transcript: Array, sendLine: (line: string) => void, gate: ?OutgoingGateNode, append: Function, clear: Function, cwd: string, setPath: Function, ready: boolean, debugLevel: number }}
+ *   The reactive transcript, plus a `sendLine( line )` that splits the line
+ *   and fills each statement into the Shell; `gate` is the Shell's sink, null
+ *   until mounted, for the Reset Graph tap; `append` and `clear` write the
+ *   transcript directly, `cwd` mirrors `shell.path` and `setPath` changes it,
+ *   `ready` is true once the infra nodes are mounted, and `debugLevel` is the
+ *   persisted REPL verbosity.
  */
 export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 	// Stable refs so re-renders don't rebuild the Shell or remap the Dumper.
@@ -271,8 +263,6 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 	// A ref, so the memoized build always calls the live skin applier.
 	const onSetSkinRef = useRef( onSetSkin );
 	onSetSkinRef.current = onSetSkin;
-	// Compose fields for the statement in flight, read by the outgoing gate.
-	const fieldsRef = useRef( null );
 	// The Dumper owns the transcript; read it where every other slice is read.
 	const transcript =
 		useNodeField( names.OUTPUT, 'transcript' ) ?? EMPTY_TRANSCRIPT;
@@ -283,8 +273,10 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 	const [ cwd, setCwd ] = useState( '' );
 	// One extra render, so the node hooks resolve the just-mounted Dumper.
 	const [ , bumpRemount ] = useState( 0 );
-	// True once infra nodes (_output/_completion/_metadata/_cwd) are mounted.
-	const [ ready, setReady ] = useState( false );
+	// The live gate; STATE, so a rebuild reaches useGraphReset's tap.
+	const [ gate, setGate ] = useState( null );
+	// The infra (_output/_completion/_metadata/_cwd) is mounted with its gate.
+	const ready = null !== gate;
 	// Full-rebuild signal: a bump rebuilds the infra on a fresh backbone.
 	const generation = useGraphGeneration();
 
@@ -296,11 +288,8 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 	 * `shell` dependency is what keeps the effect from rebuilding each render.
 	 */
 	const buildNow = useCallback( () => {
-		const infra = buildInfra(
-			shell,
-			debugLevelRef,
-			( slug ) => onSetSkinRef.current( slug ),
-			fieldsRef
+		const infra = buildInfra( shell, debugLevelRef, ( slug ) =>
+			onSetSkinRef.current( slug )
 		);
 		dumperRef.current = infra.dumper;
 		shellRef.current = shell;
@@ -316,7 +305,6 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 	useEffect( () => {
 		if ( ! active ) {
 			// No clear needed: the Dumper goes, so the node hooks read empty.
-			setReady( false );
 			return undefined;
 		}
 		// Rebuild off the (possibly fresh) backbone after the prior teardown.
@@ -324,14 +312,14 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 			buildNow();
 		}
 		setCwd( shell.path );
-		setReady( true );
+		setGate( infraRef.current.gate );
 		bumpRemount( ( n ) => n + 1 );
 		return () => {
 			infraRef.current?.teardown();
 			dumperRef.current = null;
 			shellRef.current = null;
 			infraRef.current = null;
-			setReady( false );
+			setGate( null );
 		};
 	}, [ active, shell, generation, buildNow ] );
 
@@ -361,12 +349,8 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 	 *
 	 * @param {string} statement One statement, already split off the line; a
 	 *                           blank one dispatches without echoing.
-	 * @param {Object} [fields]  Compose-modal fields for this mint. The gate
-	 *                           spends them on the way out, and the `finally`
-	 *                           clears them so a later mint is addressed as it
-	 *                           was minted.
 	 */
-	const dispatchStatement = useCallback( ( statement, fields ) => {
+	const dispatchStatement = useCallback( ( statement ) => {
 		const s = shellRef.current;
 		const dumper = dumperRef.current;
 		if ( ! s || ! dumper ) {
@@ -381,17 +365,10 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 				prompt: `/${ s.path }`,
 			} );
 		}
-		// Applied on the way out by the gate this hook owns.
-		fieldsRef.current = fields;
 		const line = newMessage();
 		line[ TYPE ] = TM_BYTESTREAM;
 		line[ VALUE ] = statement;
-		try {
-			s.fill( line );
-		} finally {
-			// One-shot: this statement's fields, never a later mint's.
-			fieldsRef.current = null;
-		}
+		s.fill( line );
 	}, [] );
 
 	/**
@@ -403,18 +380,16 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 	 * whole next line, so the line is not split on `;`. That semicolon is part
 	 * of the statement the user is still typing.
 	 *
-	 * @param {string} line     One raw line from the REPL input.
-	 * @param {Object} [fields] Compose-modal fields applied to every statement
-	 *                          this line mints.
+	 * @param {string} line One raw line from the REPL input.
 	 */
 	const sendLine = useCallback(
-		( line, fields ) => {
+		( line ) => {
 			const shellNode = shellRef.current;
 			const stmts = shellNode?.hasPending()
 				? [ line ]
 				: splitStatements( line );
 			for ( const stmt of stmts ) {
-				dispatchStatement( stmt, fields );
+				dispatchStatement( stmt );
 			}
 			// Mirror a `cd` onto `_cwd`'s target and the reactive cwd.
 			const s = shellRef.current;
@@ -456,6 +431,7 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 		() => ( {
 			transcript,
 			sendLine,
+			gate,
 			append,
 			clear,
 			cwd,
@@ -463,6 +439,16 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 			ready,
 			debugLevel,
 		} ),
-		[ transcript, sendLine, append, clear, cwd, setPath, ready, debugLevel ]
+		[
+			transcript,
+			sendLine,
+			gate,
+			append,
+			clear,
+			cwd,
+			setPath,
+			ready,
+			debugLevel,
+		]
 	);
 }

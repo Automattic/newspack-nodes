@@ -3,7 +3,15 @@ import { Core } from '../../runtime/core';
 import { Node } from '../../runtime/node';
 import { mountExospine } from '../../runtime/exospine';
 import { getTabs, resetTabs } from '@newspack-nodes/shared/tabs/tabRegistry';
-import { TYPE, TM_RESPONSE, TM_ERROR } from '../../runtime/message';
+import {
+	TYPE,
+	TO,
+	TM_COMMAND,
+	TM_INFO,
+	TM_STRUCT,
+	TM_RESPONSE,
+	TM_ERROR,
+} from '../../runtime/message';
 import { replMaxHeight, measureTabBarHeight } from '../tabs/InspectorTab';
 
 // mock-prefixed holder: a ref the jest.mock factory can close over.
@@ -353,7 +361,24 @@ describe( 'InspectorTab interactions', () => {
 		expect( output.transcript.length ).toBeGreaterThan( before );
 	} );
 
-	it( 'a structured inspector action with Compose reply-flags ORs TM_RESPONSE / TM_ERROR onto the dispatched TYPE', () => {
+	const composeForm = ( over = {} ) => ( {
+		type: TM_INFO,
+		response: true,
+		error: true,
+		noreply: false,
+		from: '',
+		to: 'no-such-node',
+		id: '',
+		key: '',
+		timestamp: '',
+		value: 'heads up',
+		name: '',
+		arguments: '',
+		payload: '',
+		...over,
+	} );
+
+	it( 'a compose fills the gate with the composed TYPE and opens the transcript', () => {
 		renderInspector();
 		const ci = Core.node( '_command_interpreter' );
 		const seen = [];
@@ -362,18 +387,71 @@ describe( 'InspectorTab interactions', () => {
 			seen.push( m.slice() );
 			return realFill( m );
 		};
+		expect( mockCaptured.consoleShell.replProps.expanded ).toBe( false );
+		let refusal;
 		// Nonexistent target + TM_ERROR → Router drops it silently.
+		act( () => {
+			refusal = mockCaptured.consoleShell.canvasProps.onCompose(
+				composeForm()
+			);
+		} );
+		expect( refusal ).toBeNull();
+		expect( seen ).toHaveLength( 1 );
+		expect( seen[ 0 ][ TYPE ] ).toBe( TM_INFO | TM_RESPONSE | TM_ERROR );
+		expect( seen[ 0 ][ TO ] ).toBe( 'no-such-node' );
+		expect( mockCaptured.consoleShell.replProps.expanded ).toBe( true );
+	} );
+
+	it( 'a canvas gesture leaves the transcript closed', () => {
+		renderInspector();
 		act( () =>
-			mockCaptured.consoleShell.canvasProps.onInspectorAction(
-				'cmd',
-				'no-such-node',
-				'dmesg',
-				{ response: true, error: true }
+			mockCaptured.consoleShell.canvasProps.onConnect(
+				'_router',
+				'_null'
 			)
 		);
-		expect( seen ).toHaveLength( 1 );
-		expect( seen[ 0 ][ TYPE ] & TM_RESPONSE ).toBeTruthy();
-		expect( seen[ 0 ][ TYPE ] & TM_ERROR ).toBeTruthy();
+		expect( mockCaptured.consoleShell.replProps.expanded ).toBe( false );
+	} );
+
+	it.each( [
+		[
+			'a fire-and-forget verb the interpreter refuses',
+			'',
+			/no_such_verb/,
+		],
+		[
+			'a fire-and-forget send no node answers',
+			'nowhere-7',
+			/NOT_AVAILABLE/,
+		],
+	] )( 'a compose of %s hands its refusal back', ( label, to, refused ) => {
+		renderInspector();
+		let refusal;
+		act( () => {
+			refusal = mockCaptured.consoleShell.canvasProps.onCompose(
+				composeForm( {
+					type: TM_COMMAND,
+					response: false,
+					error: false,
+					noreply: true,
+					to,
+					name: 'no_such_verb',
+				} )
+			);
+		} );
+		expect( refusal ).toMatch( refused );
+	} );
+
+	it( 'a refused compose hands back its reason and leaves the transcript closed', () => {
+		renderInspector();
+		let refusal;
+		act( () => {
+			refusal = mockCaptured.consoleShell.canvasProps.onCompose(
+				composeForm( { type: TM_STRUCT, value: '{nope' } )
+			);
+		} );
+		expect( refusal ).toMatch( /JSON/ );
+		expect( mockCaptured.consoleShell.replProps.expanded ).toBe( false );
 	} );
 
 	it( 'passes composeTargets derived from the local graph (_command_interpreter first; a node offers its :config sidecar only when it has one, NOT Core.nodes)', () => {

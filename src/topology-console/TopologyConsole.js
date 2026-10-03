@@ -51,7 +51,8 @@ import { useCanonicalNodes, driftNodeIds } from './hooks/useCanonicalNodes';
 import { useGraphSource } from './hooks/useGraphSource';
 import { buildComposeTargets } from './utils/composeTargets';
 import { useCompletion } from './hooks/useCompletion';
-import { isUiBound, useGraphHandlers } from './hooks/useGraphHandlers';
+import { useGraphHandlers } from './hooks/useGraphHandlers';
+import { sseRefusal } from './core/outgoingGate';
 import { useGraphSurface } from './hooks/useGraphSurface';
 import { useCanvasLayout } from './hooks/useCanvasLayout';
 import { useGraphReset } from '../debug-overlay/useGraphReset';
@@ -82,13 +83,7 @@ import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
 import { scopeFromCwd, workerOfPath } from './utils/scope';
 import { parseWorkerId, workerId } from '@newspack-nodes/shared/utils/workerId';
 import { Core } from '../runtime/core';
-import {
-	newMessage,
-	TYPE,
-	VALUE,
-	TM_BYTESTREAM,
-	applyComposeFields,
-} from '../runtime/message';
+import { newMessage, TYPE, VALUE, TM_BYTESTREAM } from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
 import {
 	initSkin,
@@ -647,7 +642,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	const schemasByShellName = useMemo(
 		() =>
 			Object.fromEntries(
-				( catalog.classes || [] ).map( ( c ) => [ c.shell_name, c ] )
+				catalog.classes.map( ( c ) => [ c.shell_name, c ] )
 			),
 		[ catalog.classes ]
 	);
@@ -930,6 +925,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 
 	// Shared graph-dirty + Reset Graph logic (identical to the debug overlay).
 	const { resetGraph: resetLocalGraphCore, canResetGraph } = useGraphReset( {
+		gate: outgoing,
 		shell,
 		nodes: parsed.nodes,
 		isLocalScope: '' === cwd,
@@ -1078,28 +1074,24 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		Core.node( names.METADATA )?.setField( 'metadata', null );
 	}, [ scope.key ] );
 
+	// The one SSE predicate: the gate, the gestures and completion all ask it.
+	const sseGuard = useCallback(
+		( to ) => ! ( toNeedsSseSession( to ) && ! sseSession ),
+		[ sseSession ]
+	);
+
 	// The gate is a node, so the console configures it by reference.
-	const fieldsRef = useRef( null );
 	useEffect( () => {
 		if ( ! outgoing ) {
 			return;
 		}
-		outgoing.sseGuard = ( to ) =>
-			! ( toNeedsSseSession( to ) && ! sseSession );
-		outgoing.beforeSend = ( m ) =>
-			applyComposeFields( m, fieldsRef.current );
+		outgoing.sseGuard = sseGuard;
 		outgoing.onRefused = () =>
-			appendTranscript( {
-				kind: 'error',
-				text: __(
-					'[no SSE session yet] retry once CONNECTED',
-					'newspack-nodes'
-				),
-			} );
-	}, [ outgoing, sseSession, appendTranscript ] );
+			appendTranscript( { kind: 'error', text: sseRefusal() } );
+	}, [ outgoing, sseGuard, appendTranscript ] );
 
 	const dispatchStatement = useCallback(
-		( statement, fields ) => {
+		( statement ) => {
 			if ( ! shell ) {
 				return;
 			}
@@ -1112,18 +1104,11 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 					prompt: promptAtSend,
 				} );
 			}
-			// Applied on the way out by the gate the console owns.
-			fieldsRef.current = fields;
 			// The one door (ADR-1): the typed line rides in a TM_BYTESTREAM.
 			const line = newMessage();
 			line[ TYPE ] = TM_BYTESTREAM;
 			line[ VALUE ] = statement;
-			try {
-				shell.fill( line );
-			} finally {
-				// One-shot: this statement's fields, never a later mint's.
-				fieldsRef.current = null;
-			}
+			shell.fill( line );
 			// cd mutates shell.path; route the new path like a Path-menu pick.
 			handlePathChange( shell.path );
 		},
@@ -1154,17 +1139,17 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		cwd,
 		fill: fillCommandInterpreter,
 		append: appendTranscript,
-		skip: () => toNeedsSseSession( cwd ) && ! sseSession,
+		skip: () => ! sseGuard( cwd ),
 	} );
 
 	// Unquoted ';' splits; a held continuation owns the whole next line.
 	const sendLine = useCallback(
-		( line, fields ) => {
+		( line ) => {
 			const stmts = shell?.hasPending()
 				? [ line ]
 				: splitStatements( line );
 			for ( const stmt of stmts ) {
-				dispatchStatement( stmt, fields );
+				dispatchStatement( stmt );
 			}
 			if ( shell?.hasPending() ) {
 				appendTranscript( {
@@ -1177,32 +1162,23 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		[ dispatchStatement, shell, appendTranscript ]
 	);
 
+	// A send the transcript echoes opens it and focuses the prompt.
+	const onReplSend = useCallback( () => {
+		setReplExpanded( true );
+		window.requestAnimationFrame( () => replInputRef.current?.focus() );
+	}, [ setReplExpanded, replInputRef ] );
+
 	// Shared live-mode handlers (connect/remove/send/trace/invoke/drop).
 	const liveHandlers = useGraphHandlers( {
 		shell,
 		graph: parsed,
 		catalogClasses: catalog.classes,
-		dispatch: ( echoLine, name, args, fields ) =>
-			sendLine( echoLine, fields ),
+		dispatch: sendLine,
 		append: appendTranscript,
+		onReplSend,
 		onDropStage: setPendingDrop,
-		prefix: ( target ) => shell?.prefix( target ),
-		replyFrom: ( node ) => shell?.replyFrom( node ),
-		sseGuard: ( to ) => ! ( toNeedsSseSession( to ) && ! sseSession ),
+		sseGuard,
 	} );
-
-	// Route Inspector actions through the shared handler; a REPL one opens it.
-	const handleInspectorAction = useCallback(
-		( action, nodeId, payload, fields ) => {
-			liveHandlers.onInspectorAction( action, nodeId, payload, fields );
-			if ( isUiBound( action, payload ) ) {
-				return;
-			}
-			setReplExpanded( true );
-			window.requestAnimationFrame( () => replInputRef.current?.focus() );
-		},
-		[ liveHandlers, setReplExpanded, replInputRef ]
-	);
 
 	// Edit-mode toggle. Draft is authoritative; SSE pushes don't clobber it.
 	const handleModeChange = useCallback(
@@ -1912,7 +1888,9 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 									onRemoveNode: handleRemoveNode,
 									onRemoveEdge: handleRemoveEdge,
 									onDropNode: handleDropNode,
-									onInspectorAction: handleInspectorAction,
+									onInspectorAction:
+										liveHandlers.onInspectorAction,
+									onCompose: liveHandlers.onCompose,
 									// Verbose toggle reads it.
 									debugLevel,
 									onRenameNode: handleRenameNode,

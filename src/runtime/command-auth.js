@@ -42,6 +42,8 @@ import {
 	TM_COMMAND,
 	TM_RESPONSE,
 	TM_ERROR,
+	asList,
+	asString,
 } from './message';
 
 /**
@@ -53,23 +55,20 @@ import {
  * PHP encodes this with JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
  * precisely so it matches JSON.stringify. Do not "normalize" either side.
  *
- * A command whose VALUE carries no name or no arguments signs as `''` and `[]`.
- * PHP's canonical() falls back to the same two values. Change one side's
- * fallback alone and the signature never verifies.
+ * The name and arguments take PHP canonical()'s casts: the name through
+ * `Core::as_string()` (`asString()`), the arguments as `is_array ? array_values
+ * : []` (`asList()`), each element encoded as it stands. A VALUE with no name
+ * or no arguments therefore signs as `''` and `[]` on both sides. Change one
+ * side's cast alone and the signature never verifies.
  *
- * @param {number}   ts    Unix seconds.
- * @param {string}   name  Command verb.
- * @param {string[]} args  Argument tokens.
- * @param {string}   nonce Single-use nonce (hex).
+ * @param {number} ts    Unix seconds.
+ * @param {*}      name  Command verb, as the VALUE carries it.
+ * @param {*}      args  Arguments, as the VALUE carries them.
+ * @param {string} nonce Single-use nonce (hex).
  * @return {string} The string to HMAC.
  */
 function canonical( ts, name, args, nonce ) {
-	return JSON.stringify( [
-		ts,
-		String( name ?? '' ),
-		Array.isArray( args ) ? args : [],
-		nonce,
-	] );
+	return JSON.stringify( [ ts, asString( name ), asList( args ), nonce ] );
 }
 
 /**
@@ -192,7 +191,9 @@ function clock() {
  * The server's clock minus ours, in seconds, learned from /auth's `now`.
  * signCommand() adds it to TIMESTAMP: the minter signs TIMESTAMP, so the
  * ingress cannot re-anchor a skewed client, and aligning here is what keeps a
- * skewed browser inside the verifier's MAX_PAST_S / MAX_FUTURE_S window.
+ * skewed browser inside the verifier's MAX_PAST_S / MAX_FUTURE_S window. Only
+ * signing aligns; the runtime clock stays local, so nothing reading `Core.now()`
+ * steps when a session lands.
  */
 let clockOffset = 0;
 
@@ -442,29 +443,100 @@ export async function ensureSession() {
 }
 
 /**
+ * A numeric string as PHP's `is_numeric()` reads one: PHP's own whitespace set
+ * (space, tab, newline, carriage return, vertical tab, form feed) around a
+ * sign, decimal digits with an optional point, and an optional exponent. Hex,
+ * a blank string and any other whitespace — JS's `\s` would admit NBSP — fail.
+ */
+const PHP_NUMERIC =
+	/^[ \t\n\r\v\f]*[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?[ \t\n\r\v\f]*$/;
+
+/**
+ * Whether a message is a command asking for something, judged by TYPE alone:
+ * TM_COMMAND set, TM_RESPONSE and TM_ERROR clear, as PHP's interpreter tests
+ * in `fill()`. An answer — a refusal echoing a verb's name — is never one. The
+ * interpreter dispatches on it and the Reset Graph tap counts edits by it.
+ *
+ * @param {Array} message Positional Message.
+ * @return {boolean} True for a command, not an answer to one.
+ */
+export function isCommandAsk( message ) {
+	const type = message[ TYPE ];
+	return (
+		0 !== ( type & TM_COMMAND ) &&
+		0 === ( type & ( TM_RESPONSE | TM_ERROR ) )
+	);
+}
+
+/**
+ * Whether a VALUE is a command struct, as PHP's `interpret()` reads one:
+ * `is_array( $cmd ) && isset( $cmd['name'] )`. Any name but null counts, an
+ * empty one included; anything else is dropped unanswered.
+ *
+ * @param {*} value A message VALUE.
+ * @return {boolean} True for a struct a verb can be looked up from.
+ */
+export function isCommandStruct( value ) {
+	return (
+		!! value &&
+		'object' === typeof value &&
+		undefined !== value.name &&
+		null !== value.name
+	);
+}
+
+/**
+ * Whether a message can be signed, mirroring PHP's
+ * `Command_Auth::is_request_command()`: a command ask (`isCommandAsk()`) with a
+ * numeric TIMESTAMP and an object VALUE. TM_NOREPLY rides along. The signer
+ * signs exactly these.
+ *
+ * @param {Array} message Positional Message.
+ * @return {boolean} True for a signable command.
+ */
+export function isRequestCommand( message ) {
+	const ts = message[ TIMESTAMP ];
+	const value = message[ VALUE ];
+	return (
+		isCommandAsk( message ) &&
+		( 'number' === typeof ts
+			? Number.isFinite( ts )
+			: 'string' === typeof ts && PHP_NUMERIC.test( ts ) ) &&
+		!! value &&
+		'object' === typeof value
+	);
+}
+
+/**
  * Sign a freshly-minted command in place. SYNCHRONOUS — it reads the session
  * ensureSession() established at mount, so a caller mid-graph-mutation never
- * has to yield. No-op unless TYPE is a request command — TM_COMMAND without
- * TM_RESPONSE or TM_ERROR, carrying an object VALUE — mirroring PHP's
- * is_request_command(). TM_NOREPLY rides along fine.
+ * has to yield. No-op on anything but a command ask.
+ *
+ * TIMESTAMP is signed material, so it is stamped first: the server-aligned now,
+ * unless `keepTimestamp` says the minter forged it — the decision
+ * `ShellNode.envelope()` reports — in which case it is kept as forged. It is
+ * then signed only when `isRequestCommand()` holds, so a forged TIMESTAMP PHP
+ * would not call numeric goes out unsigned, as PHP's stamp() leaves it. Like
+ * PHP, the signature covers whole seconds.
  *
  * Without a session the command is left UNSIGNED and the server refuses it.
  * That is the correct failure: better a refused command than one that looks
  * authorized.
  *
- * @param {Array} message Positional Message, mutated in place.
+ * @param {Array}   message         Positional Message, mutated in place.
+ * @param {boolean} [keepTimestamp] Sign the TIMESTAMP carried, as forged.
  */
-export function signCommand( message ) {
-	const type = message[ TYPE ];
-	const value = message[ VALUE ];
-	if (
-		! ( type & TM_COMMAND ) ||
-		type & ( TM_RESPONSE | TM_ERROR ) ||
-		! value ||
-		'object' !== typeof value
-	) {
+export function signCommand( message, keepTimestamp = false ) {
+	if ( ! isCommandAsk( message ) ) {
 		return;
 	}
+	if ( ! keepTimestamp ) {
+		message[ TIMESTAMP ] = Math.floor( Date.now() / 1000 ) + clockOffset;
+	}
+	if ( ! isRequestCommand( message ) ) {
+		return;
+	}
+	const value = message[ VALUE ];
 
 	const live = session;
 	if ( ! live ) {
@@ -477,12 +549,9 @@ export function signCommand( message ) {
 		return;
 	}
 
-	// Server-aligned: TIMESTAMP is signed, so ingress cannot re-anchor it.
-	message[ TIMESTAMP ] = Math.floor( Date.now() / 1000 ) + clockOffset;
-
 	const nonce = newNonce();
 	const string = canonical(
-		message[ TIMESTAMP ],
+		Math.trunc( Number( message[ TIMESTAMP ] ) ),
 		value.name,
 		value.arguments,
 		nonce
@@ -502,11 +571,12 @@ export function signCommand( message ) {
  * refused by the server, and the two gates disagreeing stays invisible until a
  * command crosses the wire.
  *
- * @param {Array} message Positional Message, mutated in place.
+ * @param {Array}   message         Positional Message, mutated in place.
+ * @param {boolean} [keepTimestamp] Sign the TIMESTAMP carried, as forged.
  * @return {Array} The same message.
  */
-export function markLocal( message ) {
+export function markLocal( message, keepTimestamp = false ) {
 	message[ LOCAL ] = true;
-	signCommand( message );
+	signCommand( message, keepTimestamp );
 	return message;
 }

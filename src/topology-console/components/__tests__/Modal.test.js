@@ -5,7 +5,13 @@
  */
 
 import { render, fireEvent, act } from '@testing-library/react';
-import { ConfirmModal, PromptModal, ModalShell, NewNodeModal } from '../Modal';
+import {
+	ConfirmModal,
+	PromptModal,
+	ModalShell,
+	ModalField,
+	NewNodeModal,
+} from '../Modal';
 
 describe( 'ModalShell', () => {
 	// A failed assertion skips the rest of its test, so the stub panel a
@@ -650,5 +656,38 @@ describe( 'NewNodeModal', () => {
 		expect( document.activeElement ).toBe(
 			baseElement.querySelector( '#newspack-nodes-newnode-name' )
 		);
+	} );
+} );
+
+describe( 'ModalField', () => {
+	it( 'labels the control it wraps and gives it the one id', () => {
+		const { container } = render(
+			<ModalField id="nodes-field-route" label="Route">
+				<select defaultValue="demo.p3">
+					<option value="demo.p3">demo.p3</option>
+				</select>
+			</ModalField>
+		);
+		const label = container.querySelector( 'label' );
+		expect( label.className ).toBe( 'topology-modal__label' );
+		expect( label.htmlFor ).toBe( 'nodes-field-route' );
+		expect( label.textContent ).toBe( 'Route' + 'demo.p3' );
+		expect( label.querySelector( 'select' ).id ).toBe(
+			'nodes-field-route'
+		);
+	} );
+
+	it( 'spans the row when wide', () => {
+		const { container } = render(
+			<ModalField id="nodes-field-body" label="Body" wide>
+				<textarea rows={ 6 } readOnly />
+			</ModalField>
+		);
+		expect( container.querySelector( 'label' ).className ).toBe(
+			'topology-modal__label topology-modal__label--wide'
+		);
+		const control = container.querySelector( 'label > textarea' );
+		expect( control.id ).toBe( 'nodes-field-body' );
+		expect( control.rows ).toBe( 6 );
 	} );
 } );

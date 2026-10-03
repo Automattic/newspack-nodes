@@ -538,6 +538,102 @@ test( 'empty verb payload suppresses the routed response', () => {
 	expect( got ).toHaveLength( 0 );
 } );
 
+test( "an empty name is a command struct, as PHP's isset() reads it", () => {
+	const sink = new Node();
+	const got = [];
+	sink.fill = ( m ) => got.push( [ ...m ] );
+	const interpreter = new CommandInterpreterNode();
+	interpreter.name = 'empty_name_interpreter';
+	interpreter.sink = sink;
+	interpreter.commands( {} );
+
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND;
+	m[ FROM ] = 'asker';
+	m[ VALUE ] = { name: '', arguments: [] };
+	m[ LOCAL ] = true;
+	interpreter.fill( m );
+
+	expect( got ).toHaveLength( 1 );
+	expect( got[ 0 ][ TYPE ] & TM_ERROR ).toBeTruthy();
+	expect( got[ 0 ][ TO ] ).toBe( 'asker' );
+} );
+
+test.each( [
+	[ 'an inherited property', 'constructor', 'no such verb: constructor\n' ],
+	[ 'an array name', [ 'make_node' ], 'no such verb: \n' ],
+	[ 'a true name', true, 'no such verb: 1\n' ],
+] )(
+	'looks up %s as PHP does, an own verb by its string',
+	( label, name, payload ) => {
+		const sink = new Node();
+		const got = [];
+		sink.fill = ( m ) => got.push( [ ...m ] );
+		const interpreter = new CommandInterpreterNode();
+		interpreter.name = 'lookup_interpreter';
+		interpreter.sink = sink;
+		interpreter.commands( {} );
+
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ FROM ] = 'asker';
+		m[ VALUE ] = { name, arguments: [] };
+		m[ LOCAL ] = true;
+		interpreter.fill( m );
+
+		expect( got ).toHaveLength( 1 );
+		expect( got[ 0 ][ TYPE ] ).toBe( TM_COMMAND | TM_ERROR );
+		expect( got[ 0 ][ VALUE ].payload ).toBe( payload );
+	}
+);
+
+test( 'hands the verb and the reply its arguments as PHP strings', () => {
+	const sink = new Node();
+	const got = [];
+	sink.fill = ( m ) => got.push( [ ...m ] );
+	const interpreter = new CommandInterpreterNode();
+	interpreter.name = 'args_interpreter';
+	interpreter.sink = sink;
+	const seen = [];
+	interpreter.commands( {
+		takes: ( self, args ) => {
+			seen.push( args );
+			return 'ok';
+		},
+	} );
+
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND;
+	m[ FROM ] = 'asker';
+	m[ VALUE ] = { name: 'takes', arguments: [ 'Tee', 3, true ] };
+	m[ LOCAL ] = true;
+	interpreter.fill( m );
+
+	expect( seen ).toEqual( [ [ 'Tee', '3', '1' ] ] );
+	expect( got[ 0 ][ VALUE ].arguments ).toEqual( [ 'Tee', '3', '1' ] );
+} );
+
+test( 'a struct with a null name drops the message', () => {
+	const warnSpy = jest
+		.spyOn( console, 'warn' )
+		.mockImplementation( () => {} );
+	const sink = new Node();
+	const got = [];
+	sink.fill = ( m ) => got.push( [ ...m ] );
+	const interpreter = new CommandInterpreterNode();
+	interpreter.sink = sink;
+	interpreter.commands( {} );
+
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND;
+	m[ VALUE ] = { name: null, arguments: [] };
+	m[ LOCAL ] = true;
+	interpreter.fill( m );
+
+	expect( got ).toHaveLength( 0 );
+	warnSpy.mockRestore();
+} );
+
 test( 'malformed command struct (non-object VALUE) drops the message silently', () => {
 	const warnSpy = jest
 		.spyOn( console, 'warn' )

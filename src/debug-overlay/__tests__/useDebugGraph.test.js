@@ -2,7 +2,7 @@ import { renderHook, act } from '@testing-library/react';
 import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
 import { Node } from '../../runtime/node';
-import { DumperNode } from '../../runtime/dumper-node';
+import { DumperNode, formatMessageEnvelope } from '../../runtime/dumper-node';
 import { ShellNode } from '../../runtime/shell-node';
 import names from '../../runtime/reserved-node-names.json';
 import {
@@ -13,8 +13,6 @@ import {
 	VALUE,
 	TM_PING,
 	TM_BYTESTREAM,
-	TM_RESPONSE,
-	TM_ERROR,
 } from '../../runtime/message';
 import { useDebugGraph } from '../useDebugGraph';
 import { useDebugRepl } from '../useDebugRepl';
@@ -45,7 +43,8 @@ function withRepl( shell, classes = [], onPositionChange = null ) {
 			shell,
 			classes,
 			onPositionChange,
-			sendLine
+			sendLine,
+			() => {}
 		);
 	};
 }
@@ -244,8 +243,8 @@ describe( 'useDebugGraph', () => {
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const calls = [];
 		const onPositionChange = ( id, pos ) => calls.push( { id, pos } );
-		const { result } = renderHook( () =>
-			useDebugGraph( true, shell, [], onPositionChange )
+		const { result } = renderHook(
+			withRepl( shell, [], onPositionChange )
 		);
 		act( () =>
 			result.current.handlers.onDropNode( {
@@ -377,8 +376,8 @@ describe( 'useDebugGraph', () => {
 		a.name = 'a';
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
-		// Every parsed message routes through shell.dispatch — spy there.
-		const spy = jest.spyOn( shell, 'dispatch' );
+		// Every parsed message passes the gate into the `_shell` Tap.
+		const spy = jest.spyOn( Core.node( names.CONSOLE_TAP ), 'fill' );
 		const { result } = renderHook( withRepl( shell ) );
 		act( () =>
 			result.current.handlers.onInspectorAction( 'dump', 'a', null )
@@ -410,48 +409,13 @@ describe( 'useDebugGraph', () => {
 		teardown();
 	} );
 
-	it( 'onInspectorAction `cmd` with reply-flags ORs TM_RESPONSE / TM_ERROR onto the dispatched TYPE (Compose modal)', () => {
-		const { teardown } = mountExospine();
-		const captured = [];
-		const shell = new ShellNode();
-		const { result } = renderHook( withRepl( shell ) );
-		// useDebugRepl binds shell.sink to the `_shell` Tap; capture there.
-		Core.node( names.CONSOLE_TAP ).fill = ( m ) => captured.push( m );
-		act( () =>
-			result.current.handlers.onInspectorAction( 'cmd', 'a', 'hi', {
-				response: true,
-				error: true,
-			} )
-		);
-		expect( captured ).toHaveLength( 1 );
-		expect( captured[ 0 ][ TYPE ] & TM_RESPONSE ).toBeTruthy();
-		expect( captured[ 0 ][ TYPE ] & TM_ERROR ).toBeTruthy();
-		teardown();
-	} );
-
-	it( 'onInspectorAction `cmd` with no flags leaves TYPE unmodified (no accidental TM_RESPONSE/TM_ERROR)', () => {
-		const { teardown } = mountExospine();
-		const captured = [];
-		const shell = new ShellNode();
-		const { result } = renderHook( withRepl( shell ) );
-		// useDebugRepl binds shell.sink to the `_shell` Tap; capture there.
-		Core.node( names.CONSOLE_TAP ).fill = ( m ) => captured.push( m );
-		act( () =>
-			result.current.handlers.onInspectorAction( 'cmd', 'a', 'hi' )
-		);
-		expect( captured ).toHaveLength( 1 );
-		expect( captured[ 0 ][ TYPE ] & TM_RESPONSE ).toBeFalsy();
-		expect( captured[ 0 ][ TYPE ] & TM_ERROR ).toBeFalsy();
-		teardown();
-	} );
-
 	it( 'onInspectorAction `trace` defaults level to 1 when payload is not numeric', () => {
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.name = 'a';
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
-		const spy = jest.spyOn( shell, 'dispatch' );
+		const spy = jest.spyOn( Core.node( names.CONSOLE_TAP ), 'fill' );
 		const { result } = renderHook( withRepl( shell ) );
 		// Non-numeric payload triggers the `level = 1` default branch.
 		act( () =>
@@ -732,8 +696,8 @@ describe( 'useDebugGraph', () => {
 		teardown();
 	} );
 
-	it( 'dispatches via the passed-in Shell.dispatch (not a separate local dispatch)', () => {
-		// Every gesture routes through the passed-in shell.dispatch.
+	it( 'routes a gesture through the passed-in Shell and its gate', () => {
+		// The Shell parses the line; its gate hands it to the `_shell` Tap.
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.name = 'a';
@@ -741,7 +705,7 @@ describe( 'useDebugGraph', () => {
 		b.name = 'b';
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
-		const spy = jest.spyOn( shell, 'dispatch' );
+		const spy = jest.spyOn( Core.node( names.CONSOLE_TAP ), 'fill' );
 		const { result } = renderHook( withRepl( shell ) );
 		act( () => result.current.handlers.onConnect( 'a', 'b' ) );
 		expect( spy ).toHaveBeenCalledTimes( 1 );
@@ -816,6 +780,46 @@ describe( 'useDebugGraph', () => {
 		expect( shell.sink.name ).toBe( '' );
 		expect( tap.counter ).toBeGreaterThan( before );
 		expect( Core.node( 'a' ).target ).toBe( 'b' );
+		teardown();
+	} );
+
+	it( 'onCompose sends a bytestream through the gate, unparsed and echoed', () => {
+		const { teardown } = mountExospine();
+		const shell = new ShellNode();
+		shell.path = '_http';
+		const { result } = renderHook( withRepl( shell ) );
+		const shellFill = jest.spyOn( shell, 'fill' );
+		const captured = [];
+		Core.node( names.CONSOLE_TAP ).fill = ( m ) => captured.push( m );
+		let refusal;
+		act( () => {
+			refusal = result.current.handlers.onCompose( {
+				type: TM_BYTESTREAM,
+				response: false,
+				error: false,
+				noreply: false,
+				from: '',
+				to: 'echo-7',
+				id: '',
+				key: '',
+				timestamp: '',
+				value: 'make_node Tee not-a-statement',
+				name: '',
+				arguments: '',
+				payload: '',
+			} );
+		} );
+		expect( refusal ).toBeNull();
+		expect( shellFill ).not.toHaveBeenCalled();
+		expect( captured ).toHaveLength( 1 );
+		expect( captured[ 0 ][ TYPE ] ).toBe( TM_BYTESTREAM );
+		expect( captured[ 0 ][ TO ] ).toBe( '_http/echo-7' );
+		expect( captured[ 0 ][ VALUE ] ).toBe(
+			'make_node Tee not-a-statement'
+		);
+		expect( sentLines( Core.node( names.OUTPUT ) ) ).toContain(
+			formatMessageEnvelope( captured[ 0 ] )
+		);
 		teardown();
 	} );
 } );

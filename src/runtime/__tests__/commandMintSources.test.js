@@ -32,7 +32,7 @@ const ALLOWED = {
 		'not a command: notify() stamps the event name into KEY (STREAM)',
 	'runtime/timer-node.js': 'not a command: the heartbeat tag (STREAM)',
 	'runtime/shell-node.js':
-		'REPL affordance: `var message.id` / `message.key`, empty unless set',
+		'REPL and Compose affordance: a forged ID / KEY, empty unless set',
 	'topology-console/hooks/useCompletion.js':
 		"not a correlation id: KEY='completion' marks the request kind",
 };

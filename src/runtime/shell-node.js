@@ -93,7 +93,7 @@ const ESCAPES = {
  * @return {{tokens: Array<{value: string, raw: string}>, openQuote: ?string}}
  *         Token pairs, plus the quote char of a run left open at EOL (or null).
  */
-function scanTokens( line ) {
+export function scanTokens( line ) {
 	const tokens = [];
 	let buf = '';
 	let raw = '';
@@ -167,8 +167,8 @@ export function tokenize( line ) {
 
 /**
  * Inverse of tokenize() for a SINGLE token: quote and escape a value so
- * tokenize() delivers it back as one intact token — how the message composer
- * hands JSON to `send_struct` without escaping it itself. It is exactly
+ * tokenize() delivers it back as one intact token — how the Inspector's Struct
+ * prompt hands JSON to `send_struct` without escaping it itself. It is exactly
  * serializeArg, because the tokenizer resolves escapes: every value round-trips,
  * including one carrying every quote character.
  *
@@ -552,6 +552,25 @@ export function serializeDraftArg( value ) {
 }
 
 /**
+ * Whether an envelope override is set, as PHP Shell_Node's mint reads KEY, ID
+ * and TIMESTAMP: empty, null and absent are blank, and anything else,
+ * whitespace and '0' included, is a value.
+ *
+ * @param {*} value An override.
+ * @return {boolean} True when it should be stamped.
+ */
+const filled = ( value ) => '' !== ( value ?? '' );
+
+/**
+ * Whether a FROM override is set, as PHP Shell_Node's mint reads it with `?:`:
+ * blank as `filled()` is, and '0' too, because PHP's '0' is falsy.
+ *
+ * @param {*} value A FROM override.
+ * @return {boolean} True when it should be stamped.
+ */
+const filledFrom = ( value ) => filled( value ) && '0' !== value;
+
+/**
  * The REPL front-end Node: `fill( message )` turns the typed line carried in a
  * TM_BYTESTREAM VALUE into positional Messages filled into the sink. It holds
  * the state a line is parsed against — the cwd, the `var` namespace, the held
@@ -565,8 +584,7 @@ export class ShellNode extends Node {
 	/**
 	 * Build an unwired shell — empty cwd, no vars, replies wanted, nothing
 	 * pending. The host supplies the rest after construction: `path`, `config`,
-	 * `statusLines`, `host`, the `onDispatch` tap, and the `sink` the graph
-	 * wires.
+	 * `statusLines`, `host`, and the `sink` the graph wires.
 	 */
 	constructor() {
 		super();
@@ -601,8 +619,6 @@ export class ShellNode extends Node {
 		 * so a broken line never builds half a graph. Mirrors PHP's setter.
 		 */
 		this._fatalErrors = false;
-		/** Dispatch tap: called with every outgoing Message before the sink. */
-		this.onDispatch = null;
 		/** Skin callbacks; the host owns the stylesheet and its storage. */
 		this.host = {};
 	}
@@ -654,7 +670,7 @@ export class ShellNode extends Node {
 				if ( '' === parsed[ KEY ] ) {
 					parsed[ KEY ] = message[ KEY ];
 				}
-				this.dispatch( parsed );
+				this.sink.fill( parsed );
 			} )
 		);
 	}
@@ -806,18 +822,16 @@ export class ShellNode extends Node {
 			return null;
 		}
 
-		const message = newMessage();
 		const to = args[ 0 ] ?? '';
 		// Shell3:2240-2242 — var scope; overriding FROM re-routes the reply.
-		message[ FROM ] =
-			this.vars[ 'message.from' ] || this.replyFrom( names.OUTPUT );
-		message[ KEY ] = this.vars[ 'message.key' ] ?? '';
-		message[ ID ] = this.vars[ 'message.id' ] ?? ''; // contract-ok: a REPL forges ID on purpose
-		// A forged TIMESTAMP is a debugging tool; unset keeps the mint clock.
-		if ( this.vars[ 'message.timestamp' ] ) {
-			message[ TIMESTAMP ] = this.vars[ 'message.timestamp' ];
-		}
-		message[ TO ] = this.prefix( to );
+		const message = newMessage();
+		// eslint-disable-next-line @wordpress/no-unused-vars-before-return -- envelope() stamps every branch's message here
+		const forged = this.envelope( message, to, {
+			from: this.vars[ 'message.from' ],
+			key: this.vars[ 'message.key' ],
+			id: this.vars[ 'message.id' ],
+			timestamp: this.vars[ 'message.timestamp' ],
+		} );
 
 		if ( 'cmd' === verb || 'command' === verb || 'command_node' === verb ) {
 			const name = args[ 1 ] ?? '';
@@ -827,7 +841,7 @@ export class ShellNode extends Node {
 			}
 			message[ TYPE ] = TM_COMMAND;
 			message[ VALUE ] = { name, arguments: args.slice( 2 ) };
-			return this.stampNoreply( message );
+			return this.stampNoreply( message, forged );
 		}
 
 		if ( 'send' === verb || 'send_node' === verb ) {
@@ -838,7 +852,7 @@ export class ShellNode extends Node {
 			message[ TYPE ] = TM_BYTESTREAM;
 			// Line-terminate so line-oriented nodes don't merge sends.
 			message[ VALUE ] = `${ join( 1 ) }\n`;
-			return this.stampNoreply( message );
+			return this.stampNoreply( message, forged );
 		}
 
 		if ( 'request' === verb || 'request_node' === verb ) {
@@ -848,7 +862,7 @@ export class ShellNode extends Node {
 			}
 			message[ TYPE ] = TM_REQUEST;
 			message[ VALUE ] = join( 1 );
-			return this.stampNoreply( message );
+			return this.stampNoreply( message, forged );
 		}
 
 		if ( 'tell' === verb || 'tell_node' === verb ) {
@@ -858,7 +872,7 @@ export class ShellNode extends Node {
 			}
 			message[ TYPE ] = TM_INFO;
 			message[ VALUE ] = join( 1 );
-			return this.stampNoreply( message );
+			return this.stampNoreply( message, forged );
 		}
 
 		if ( /^(send|request)_struct(_node)?$/.test( verb ) ) {
@@ -879,7 +893,7 @@ export class ShellNode extends Node {
 					? TM_REQUEST | TM_STRUCT
 					: TM_STRUCT;
 			message[ VALUE ] = value;
-			return this.stampNoreply( message );
+			return this.stampNoreply( message, forged );
 		}
 
 		if ( 'send_eof' === verb ) {
@@ -888,14 +902,14 @@ export class ShellNode extends Node {
 				return null;
 			}
 			message[ TYPE ] = TM_EOF;
-			return this.stampNoreply( message );
+			return this.stampNoreply( message, forged );
 		}
 
 		if ( 'ping' === verb ) {
 			message[ TYPE ] = TM_PING;
 			// Receiver bounces TO=FROM; VALUE is the send timestamp for RTT.
 			message[ VALUE ] = Date.now() / 1000;
-			return this.stampNoreply( message );
+			return this.stampNoreply( message, forged );
 		}
 
 		if ( 'pwd' === verb ) {
@@ -906,14 +920,14 @@ export class ShellNode extends Node {
 				name: 'pwd',
 				arguments: '' === this.path ? [] : [ this.path ],
 			};
-			return this.stampNoreply( message );
+			return this.stampNoreply( message, forged );
 		}
 
 		// Bare verb: TM_COMMAND at the cwd (path); args are the token tail.
 		message[ TYPE ] = TM_COMMAND;
 		message[ TO ] = this.prefix( '' );
 		message[ VALUE ] = { name: verb, arguments: args };
-		return this.stampNoreply( message );
+		return this.stampNoreply( message, forged );
 	}
 
 	/**
@@ -1201,6 +1215,44 @@ export class ShellNode extends Node {
 	}
 
 	/**
+	 * Stamp a fresh Message's envelope: FROM is the override or else this
+	 * session's reply path, TO is `prefix( to )`, and KEY, ID and TIMESTAMP take
+	 * their overrides only when filled, so a blank one keeps the mint's value.
+	 * Blank is PHP's: empty, null or absent; whitespace is a value.
+	 * The one stamp both minters share — the builtins with the `message.*` vars,
+	 * the Compose modal with its form — so a forged field means one thing.
+	 * Forging ID and TIMESTAMP is deliberate: replaying a message is how a
+	 * correlation- or time-dependent node is debugged.
+	 *
+	 * @param {Array}         message               Positional Message, stamped in place.
+	 * @param {string}        to                    Path relative to the cwd; '' is the bare cwd.
+	 * @param {Object}        overrides             Each blank or absent one keeps the default.
+	 * @param {string}        [overrides.from]      FROM, the reply path.
+	 * @param {string}        [overrides.key]       KEY.
+	 * @param {string}        [overrides.id]        ID.
+	 * @param {string|number} [overrides.timestamp] TIMESTAMP, Unix seconds.
+	 * @return {boolean} Whether TIMESTAMP was forged, for the signer to keep.
+	 */
+	envelope( message, to, { from, key, id, timestamp } ) {
+		message[ FROM ] = filledFrom( from )
+			? from
+			: this.replyFrom( names.OUTPUT );
+		message[ TO ] = this.prefix( to );
+		if ( filled( key ) ) {
+			message[ KEY ] = key;
+		}
+		if ( filled( id ) ) {
+			message[ ID ] = id; // contract-ok: a forged ID is a debugging tool
+		}
+		// The one decision a TIMESTAMP is forged; the minter hands it on.
+		if ( ! filled( timestamp ) ) {
+			return false;
+		}
+		message[ TIMESTAMP ] = timestamp;
+		return true;
+	}
+
+	/**
 	 * The FROM this session stamps: the bare reply node, unwrapped. A private
 	 * per-session address is `_sse:{session}`'s job downstream, not the Shell's.
 	 *
@@ -1237,28 +1289,16 @@ export class ShellNode extends Node {
 	 * Mirrors PHP Shell_Node::stamp_noreply plus the `Command_Auth::sign()` PHP
 	 * makes in `fill()`.
 	 *
-	 * @param {Array} message Message to stamp in place.
+	 * @param {Array}   message       Message to stamp in place.
+	 * @param {boolean} keepTimestamp Whether `envelope()` forged TIMESTAMP.
 	 * @return {Array} The same message, so a mint branch can return it.
 	 */
-	stampNoreply( message ) {
+	stampNoreply( message, keepTimestamp ) {
 		const type = message[ TYPE ] ?? 0;
 		if ( ! this._wantReply && type & TM_COMMAND ) {
 			message[ TYPE ] = type | TM_NOREPLY;
 		}
-		return markLocal( message );
-	}
-
-	/**
-	 * The single send chokepoint: announce the Message to the `onDispatch` tap,
-	 * then fill it into the sink. Every outgoing Message routes through here,
-	 * so the tap sees them all. An internal of `fill()` (ADR-1).
-	 *
-	 * @param {Array} message Positional Message to send.
-	 * @return {void}
-	 */
-	dispatch( message ) {
-		this.onDispatch?.( message );
-		this.sink?.fill( message );
+		return markLocal( message, keepTimestamp );
 	}
 
 	/**

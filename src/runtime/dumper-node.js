@@ -153,9 +153,11 @@ function buildDebugHeader1( message ) {
  */
 export function formatMessageEnvelope( message ) {
 	const ts = message[ TIMESTAMP ] ?? '';
+	// A forged TIMESTAMP can name no instant; then it renders raw.
+	const date = new Date( ts * 1000 );
 	const tsHuman =
-		typeof ts === 'number' && Number.isFinite( ts )
-			? ` (${ new Date( ts * 1000 )
+		typeof ts === 'number' && ! Number.isNaN( date.getTime() )
+			? ` (${ date
 					.toISOString()
 					.replace( 'T', ' ' )
 					.replace( /\.\d+Z$/, ' UTC' ) })`

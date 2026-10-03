@@ -23,6 +23,7 @@ import {
 	TM_EOF,
 	TM_ERROR,
 	TM_INFO,
+	TM_NOREPLY,
 	TM_PING,
 	TM_REQUEST,
 	TM_RESPONSE,
@@ -1685,7 +1686,10 @@ describe( 'TopologyConsole boot', () => {
 		} );
 		// Capture the routed command so we can assert its TO.
 		const captured = [];
-		globalThis.__shell.sink = { fill: ( m ) => captured.push( m ) };
+		globalThis.__shell.sink = {
+			connected: true,
+			fill: ( m ) => captured.push( m ),
+		};
 
 		fireEvent.click( getByText( 'select-n1' ) );
 		fireEvent.click( getByText( 'action-command' ) );
@@ -1716,7 +1720,10 @@ describe( 'TopologyConsole boot', () => {
 			value: { n1: { class: 'Partition', counter: 1 } },
 		} );
 		const captured = [];
-		globalThis.__shell.sink = { fill: ( m ) => captured.push( m ) };
+		globalThis.__shell.sink = {
+			connected: true,
+			fill: ( m ) => captured.push( m ),
+		};
 
 		fireEvent.click( getByText( 'select-n1' ) );
 		fireEvent.click( getByText( 'action-command' ) );
@@ -2280,7 +2287,7 @@ describe( 'TopologyConsole boot', () => {
 		act( () => {
 			lastReplProps.onSubmit( 'cd /' );
 		} );
-		// A shell-made node surfaces reset-graph; markDirty no-ops until
+		// A console-made node surfaces reset-graph; markDirty no-ops until
 		// positions exist, so reset-layout stays hidden until the click.
 		act( () => {
 			lastReplProps.onSubmit( 'make_node Echo n1' );
@@ -3248,59 +3255,108 @@ describe( 'TopologyConsole boot', () => {
 		);
 	} );
 
-	it( 'handleInspectorAction cmd with Compose reply-flags ORs TM_RESPONSE / TM_ERROR onto the posted TYPE', async () => {
-		globalThis.__httpPosts = [];
-		window.history.replaceState( {}, '', '/?topology=demo' );
-		const { getByText } = render( <TopologyConsole /> );
-		await publishMeta();
-		await act( async () => {
-			fireEvent.click( getByText( 'select-n1' ) );
-		} );
-		await act( async () => {
-			lastInspectorProps.onAction(
-				'cmd',
-				'request-builder',
-				'GET_HEALTH',
-				{
-					response: true,
-					error: true,
-				}
-			);
-		} );
-		const posted = globalThis.__httpPosts.find(
-			( m ) => m[ VALUE ] && m[ VALUE ].name === 'GET_HEALTH'
-		);
-		expect( posted ).not.toBeUndefined();
-		expect( posted[ TYPE ] & TM_COMMAND ).toBeTruthy();
-		expect( posted[ TYPE ] & TM_RESPONSE ).toBeTruthy();
-		expect( posted[ TYPE ] & TM_ERROR ).toBeTruthy();
+	const composeForm = ( over = {} ) => ( {
+		type: TM_COMMAND,
+		response: false,
+		error: false,
+		noreply: true,
+		from: '_output/7734',
+		to: 'request-builder',
+		id: '',
+		key: 'k-31',
+		timestamp: '',
+		value: '',
+		name: 'GET_HEALTH',
+		arguments: '"two words" x',
+		payload: '',
+		...over,
 	} );
 
-	it( 'handleInspectorAction cmd with a Compose From stamps that reply path on the posted FROM', async () => {
+	it( 'onCompose posts the composed message through the gate, never the Shell, and echoes it', async () => {
 		globalThis.__httpPosts = [];
 		window.history.replaceState( {}, '', '/?topology=demo' );
-		const { getByText } = render( <TopologyConsole /> );
+		const { container, getByTestId, getByText } = render(
+			<TopologyConsole />
+		);
 		await publishMeta();
 		await act( async () => {
 			fireEvent.click( getByText( 'select-n1' ) );
 		} );
+		const shellFill = jest.spyOn( globalThis.__shell, 'fill' );
+		expect( getByTestId( 'repl' ).dataset.expanded ).toBe( '0' );
+		let refusal;
 		await act( async () => {
-			lastInspectorProps.onAction(
-				'cmd',
-				'request-builder',
-				'GET_HEALTH',
-				{
-					from: '_output/7734',
-				}
-			);
+			refusal = lastInspectorProps.onCompose( composeForm() );
 		} );
+		expect( refusal ).toBeNull();
+		expect( shellFill ).not.toHaveBeenCalled();
+		shellFill.mockRestore();
 		const posted = globalThis.__httpPosts.find(
 			( m ) => m[ VALUE ] && m[ VALUE ].name === 'GET_HEALTH'
 		);
-		expect( posted ).not.toBeUndefined();
+		expect( posted[ TYPE ] ).toBe( TM_COMMAND | TM_NOREPLY );
+		expect( posted[ TO ] ).toBe( 'demo.p0/request-builder' );
 		expect( posted[ FROM ] ).toBe(
 			`${ names.SSE }:${ HARNESS_SESSION }/_output/7734`
 		);
+		expect( posted[ KEY ] ).toBe( 'k-31' );
+		expect( posted[ VALUE ].arguments ).toEqual( [ 'two words', 'x' ] );
+		const sent = Array.from(
+			container.querySelectorAll( '[data-testid="repl-transcript"] li' )
+		).filter( ( i ) => i.dataset.kind === 'sent' );
+		expect( sent.at( -1 ).textContent ).toMatch( /"GET_HEALTH"/ );
+		// The echo is the message as minted; only the wire copy is signed.
+		expect( sent.at( -1 ).textContent ).not.toMatch( /auth|sig|nonce/ );
+		expect( posted[ VALUE ].auth.sig ).toMatch( /^[0-9a-f]{64}$/ );
+		expect( getByTestId( 'repl' ).dataset.expanded ).toBe( '1' );
+	} );
+
+	it( 'onCompose hands the SSE refusal back to the modal and echoes nothing', async () => {
+		globalThis.__httpPosts = [];
+		globalThis.__connecting = true;
+		try {
+			window.history.replaceState( {}, '', '/?topology=demo' );
+			const { container, getByTestId, getByText } = render(
+				<TopologyConsole />
+			);
+			await publishMeta();
+			await act( async () => {
+				fireEvent.click( getByText( 'select-n1' ) );
+			} );
+			const transcript = () =>
+				Array.from(
+					container.querySelectorAll(
+						'[data-testid="repl-transcript"] li'
+					)
+				).map( ( i ) => i.textContent );
+			const before = transcript();
+			let refusal;
+			await act( async () => {
+				refusal = lastInspectorProps.onCompose( composeForm() );
+			} );
+			expect( refusal ).toBe(
+				'[no SSE session yet] retry once CONNECTED'
+			);
+			expect(
+				globalThis.__httpPosts.find(
+					( m ) => m[ VALUE ] && m[ VALUE ].name === 'GET_HEALTH'
+				)
+			).toBeUndefined();
+			expect( transcript() ).toEqual( before );
+			expect( getByTestId( 'repl' ).dataset.expanded ).toBe( '0' );
+		} finally {
+			globalThis.__connecting = false;
+		}
+	} );
+
+	it( 'a canvas gesture leaves the REPL closed', async () => {
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByTestId, getByText } = render( <TopologyConsole /> );
+		await publishMeta();
+		await act( async () => {
+			fireEvent.click( getByText( 'connect-a-b' ) );
+		} );
+		expect( getByTestId( 'repl' ).dataset.expanded ).toBe( '0' );
 	} );
 
 	it( 'handleSave: PromptModal mounts in edit mode; confirm triggers saveTopology', async () => {

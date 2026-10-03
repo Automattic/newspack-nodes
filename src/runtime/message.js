@@ -216,6 +216,40 @@ export function unpack( s ) {
 }
 
 /**
+ * A mixed message field as PHP's `Core::as_string()` reads it: a string or a
+ * number as its string, a boolean as `1` or empty, anything else empty. The
+ * one JS spelling of that cast, so every port of a PHP read agrees.
+ *
+ * @param {*} value A raw message field.
+ * @return {string} Its PHP string.
+ */
+export function asString( value ) {
+	if ( 'boolean' === typeof value ) {
+		return value ? '1' : '';
+	}
+	return 'string' === typeof value || 'number' === typeof value
+		? String( value )
+		: '';
+}
+
+/**
+ * A mixed message field as PHP reads a list: `is_array ? array_values : []`.
+ * An array passes through, an object yields its values, anything else is
+ * empty; the elements stand as they are.
+ *
+ * @param {*} value A raw message field.
+ * @return {Array} Its PHP list.
+ */
+export function asList( value ) {
+	if ( Array.isArray( value ) ) {
+		return value;
+	}
+	return null !== value && 'object' === typeof value
+		? Object.values( value )
+		: [];
+}
+
+/**
  * UTF-8 byte length of a string, matching what PHP's `strlen()` reports.
  *
  * Measured via `Blob` rather than `TextEncoder`, which jsdom lacks.
@@ -228,51 +262,6 @@ export function byteLength( str ) {
 		return 0;
 	}
 	return new Blob( [ str ] ).size;
-}
-
-/**
- * The Compose modal's inputs for one mint. Every field is optional, and a blank
- * one means "leave the minted value alone" rather than "clear it".
- *
- * @typedef {Object} ComposeFields
- * @property {boolean}       [response]  ORs TM_RESPONSE onto TYPE.
- * @property {boolean}       [error]     ORs TM_ERROR onto TYPE.
- * @property {string}        [from]      Replaces FROM.
- * @property {string}        [id]        Replaces ID.
- * @property {string}        [key]       Replaces KEY.
- * @property {string|number} [timestamp] Replaces TIMESTAMP.
- */
-
-/**
- * Stamp the Compose modal's inputs onto a minted message: `response` and
- * `error` OR their TYPE bits on, and FROM, ID, KEY and TIMESTAMP each take the
- * field that names them.
- *
- * The stamp is one-shot per mint. The Shell's `message.*` vars are shell state
- * and persist across statements; these do not, so the modal addresses the one
- * message the operator composed and nothing after it.
- *
- * @param {Array}          m      Parsed message, mutated in place.
- * @param {?ComposeFields} fields Compose inputs; nullish is a no-op.
- * @return {Array} The same message.
- */
-export function applyComposeFields( m, fields ) {
-	if ( ! fields ) {
-		return m;
-	}
-	m[ TYPE ] |=
-		( fields.response ? TM_RESPONSE : 0 ) | ( fields.error ? TM_ERROR : 0 );
-	for ( const [ name, index ] of [
-		[ 'from', FROM ],
-		[ 'id', ID ],
-		[ 'key', KEY ],
-		[ 'timestamp', TIMESTAMP ],
-	] ) {
-		if ( fields[ name ] ) {
-			m[ index ] = fields[ name ];
-		}
-	}
-	return m;
 }
 
 /**
