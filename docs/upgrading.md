@@ -6,6 +6,13 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **A probe record's FROM is `<worker-id>/<probe>`.** `topicprobe.p0`,
+  `jobstats.p0` and `tablestats.p0` records carry `job-worker.p2/jobstats` where
+  they carried the bare `jobstats`; with no topology and partition bound the
+  bare probe name remains. A reader that matched FROM exactly matches its last
+  segment, and one that needs the worker reads the segment before it through
+  `parseWorkerId()`.
+
 - **`Ledger_Node` is gone, with `Bootstrap::mount_ledger()`, `Table_Client`'s
   `append()`, `sum()`, `top()` and `ledger_members()`, `Consumer_Node`'s
   `settle()` hook and the `Tick_Housekeeper` interface.** A topology

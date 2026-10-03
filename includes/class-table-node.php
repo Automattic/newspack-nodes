@@ -2052,7 +2052,7 @@ class Table_Node extends Node {
 				[
 					'name'        => 'stats',
 					'capability'  => Capabilities::READ,
-					'description' => 'Per-verb counters since the Table was built: calls, keys or rows asked and answered, encoded bytes, total and max ms.',
+					'description' => 'Per-verb counters since the Table was built: calls, keys or rows asked and answered, encoded bytes, total and max ms, errors.',
 					'args'        => [],
 					'handler'     => static function ( Command_Interpreter_Node $interpreter ): array {
 						$patron = $interpreter->patron();
