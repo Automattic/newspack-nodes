@@ -254,9 +254,9 @@ head -c 300 "$( ls -t {base}/logs/topicprobe.p0/*.log | head -1 )"
 ```
 
 ```
-[16,1788357700.338393,"topicprobe","","","",["ingest.p0","ingest.p0",0,421267,0,0,0,0,0,292,0,15046]]
+[16,1788357700.338393,"job-worker.p0/topicprobe","","","",["ingest.p0","ingest.p0",0,421267,0,0,0,0,0,292,0,15046]]
 ```
 
 `16` is `TM_STRUCT`, so the VALUE is a decoded array rather than a string. Beware that the type bits are renumbered against Tachikoma's: ours are `TM_BYTESTREAM 1, TM_EOF 2, TM_PING 4, TM_COMMAND 8, TM_STRUCT 16, TM_ERROR 32, TM_INFO 64, TM_REQUEST 128, TM_RESPONSE 256, TM_NOREPLY 512, TM_UNTYPED 1024`. See [tachikoma-lineage.md](tachikoma-lineage.md) for the full comparison.
 
-The VALUE here is a [`Probe_Record`](../includes/class-probe-record.php), whose twelve slots run SOURCE, READER, cursor segment, cursor offset, the partition's last segment and its size, DISTANCE, MSGS_DELTA, END_BYTES, CACHE_SIZE, BYTES_READ_DELTA and ELAPSED_MS. So this reader tails `ingest.p0` and is itself named for it, holds a cursor at byte 421267 of segment 0, and forwarded no messages and read no bytes across the 15046 ms the deltas cover, with 292 bytes in its newest offsetlog segment.
+FROM is `<worker-id>/<probe>`, the worker that swept the record and the probe that wrote it. The VALUE here is a [`Probe_Record`](../includes/class-probe-record.php), whose twelve slots run SOURCE, READER, cursor segment, cursor offset, the partition's last segment and its size, DISTANCE, MSGS_DELTA, END_BYTES, CACHE_SIZE, BYTES_READ_DELTA and ELAPSED_MS. So this reader tails `ingest.p0` and is itself named for it, holds a cursor at byte 421267 of segment 0, and forwarded no messages and read no bytes across the 15046 ms the deltas cover, with 292 bytes in its newest offsetlog segment.

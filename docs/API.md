@@ -76,12 +76,13 @@ separate repository.
 
 Topology owners hook `newspack_nodes/spawn_worker` to build the right worker for `$type` and call
 `->execute()`. The substrate registers [`Topology_Registry::spawn_worker`](../includes/class-topology-registry.php) on it
-at load, which spawns any worker in the active set, and the runtime ships four
+at load, which spawns any worker in the active set, and the runtime ships five
 topologies under [`topologies/`](../topologies/) — [`job-worker`](../topologies/job-worker.tsl) (the generic `Job_Worker_Node`
 pool, per-partition), [`job-intake`](../topologies/job-intake.tsl) (drains the large-write job ingress on
 substrate-only installs), [`settings-sync`](../topologies/settings-sync.tsl) (a single-instance hub control plane,
-`num_partitions = 1`) and [`topic-probe`](../topologies/topic-probe.tsl) (the per-worker stats sweep, `include`d
-by the others). Application plugins register the rest. **Every active topology,
+`num_partitions = 1`), [`topic-probe`](../topologies/topic-probe.tsl) (the per-worker consumer-stats sweep, `include`d
+by the others) and [`table-probe`](../topologies/table-probe.tsl) (the per-worker Table-stats sweep, `include`d by a
+topology that declares Tables). Application plugins register the rest. **Every active topology,
 builtin or application, spawns through this one hook** — there is no separate
 control-plane spawn path.
 
@@ -854,6 +855,14 @@ single-step readers are one exception a caller must handle: `raw-logs
 read_message` returns `array|string`, answering the teaching error as its
 successful TM_RESPONSE value rather than a thrown error (see
 [Log Stream](#log-stream)).
+
+A Table's `stats` verb (`read`, no arguments) answers one map per counted
+operation, `GET` to `CHECKPOINT`, each `{ calls, asked, answered, bytes,
+total_ms, max_ms, errors }`. `errors` counts the requests the Table answered with
+a `TM_ERROR`: a refused request, or a read its backend failed. A write that lands
+fewer keys than it asked adds no error; `asked` less `answered` shows it.
+`dump_node` and `dump_metadata` carry the same map as `verb_stats`, and
+`reset_stats` (`manage`) answers it and zeroes it.
 
 ### Test mode
 

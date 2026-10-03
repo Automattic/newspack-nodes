@@ -76,7 +76,7 @@ For a new browser-runtime node (`src/runtime/`):
 
 For a new or changed topology (`topologies/*.tsl`):
 
-1. A `.tsl` is a Shell script — `var`, `make_node`, `connect_node` and `cmd`, with `include <name>` pulling another topology in under a `#pragma once` and a cycle guard. End it with `secure`, a ratchet that climbs 1 to 3 and never descends: level 1 disables the `make_node` class (`make_node`, `move_node`, `remove_node` and their aliases), level 2 adds the `command_node` class (`reply_to`), and level 3 adds the `connect_node` class (`connect_node`, `disconnect_node`, `set_sink`, `register`, `unregister`). A bare `secure` climbs one level, and that is where all four stock topologies stop. The line belongs to the topology being loaded: a `secure` inside an INCLUDED file is skipped, or it would refuse its parent's remaining `make_node` lines. A node classifies its own verbs into those classes through `node_schema()['verb_classes']`.
+1. A `.tsl` is a Shell script — `var`, `make_node`, `connect_node` and `cmd`, with `include <name>` pulling another topology in under a `#pragma once` and a cycle guard. End it with `secure`, a ratchet that climbs 1 to 3 and never descends: level 1 disables the `make_node` class (`make_node`, `move_node`, `remove_node` and their aliases), level 2 adds the `command_node` class (`reply_to`), and level 3 adds the `connect_node` class (`connect_node`, `disconnect_node`, `set_sink`, `register`, `unregister`). A bare `secure` climbs one level, and that is where all five stock topologies stop. The line belongs to the topology being loaded: a `secure` inside an INCLUDED file is skipped, or it would refuse its parent's remaining `make_node` lines. A node classifies its own verbs into those classes through `node_schema()['verb_classes']`.
 2. Never hardcode a path. `Topology_Loader` binds `<partition>` and `<topology>` into `Core::$var` before the eval, and every `<config:key>` token resolves through the registered namespace. `<topology>` names the FLEET, which is why it belongs in an offsetlog path: two fleets tailing one log need two cursors. Read `topologies/job-worker.tsl` as the reference.
 3. The substrate appends its own dir LAST, as the lowest-priority fallback, so a consumer overrides a stock topology by shipping a same-named `.tsl` and registering its dir through `Topology_Registry::register_plugin( $namespace_prefix, $topologies_dir )`.
 4. A topology stays inert until it is activated. `wp nodes activate <topology>` runs `Topology_Analyzer::find_conflicts()` over the resulting set first and refuses when two of them write the same file, then writes the option, invalidates the config cache and spawns the fleet. A partition both declare with the identical `make_node` line and the PIPE_BUF cap intact is the deliberate multi-writer exception every `include topic-probe` relies on; offsetlogs and dead-letter dirs stay sole-writer, so any overlap there conflicts.
@@ -97,11 +97,11 @@ Push runs the full gate for you (`scripts/pre-push`): the JS suite with coverage
 # Xdebug and the instrumentation pushes the heaviest cases past PHPUnit's own
 # one second. failOnRisky="true" makes breaking it fail the run rather than
 # warn, where the abort escapes the test: php-invoker throws from a SIGALRM
-# handler inside it, so a broad catch in the code under test can absorb it. Buying
-# time with #[Medium] or #[Large] is not the way out, and no class declares
-# either: a test must not wait in real time. It calls use_loop_time() instead,
-# which binds Core::$clock and Event_Framework::$sleep so a drain wait advances
-# the clock rather than blocking. Filter while iterating.
+# handler inside it, so a broad catch in the code under test can absorb it.
+# Buying time with #[Medium] or #[Large] is not the way out, and no class
+# declares either: a test must not wait in real time. It calls use_loop_time()
+# instead, which binds Core::$clock and Event_Framework::$sleep so a drain
+# wait advances the clock rather than blocking. Filter while iterating.
 # tests/run-coverage.sh runs the same configuration under XDEBUG_MODE=coverage
 # and writes the clover the per-class gate reads.
 cd tests && ../vendor/bin/phpunit --enforce-time-limit --filter FooNodeTest
@@ -143,15 +143,16 @@ npm run lint:deadcode:js
 npm run release:archive
 docker exec eve-pyrobase1-1 /services/pyrobase/setup/newspack-nodes.sh
 
-# Restart workers to pick up the new code; otherwise the old class lives in the
-# running process for the rest of its 595-second budget (DEFAULT_MAX_RUNTIME,
-# declared in the Cooperative_Stop trait). `all` restarts every type; a named
-# target must be an ACTIVE topology, which is deployment-specific — the four
-# stock topologies (`job-worker`, `job-intake`, `settings-sync`, `topic-probe`)
-# are only the ones the substrate bundles, and application plugins register
-# their own. `wp nodes types` and `wp nodes status` are the source of truth.
-# Every partition restarts unless `--partition=<n>` names one, and a type is a
-# fleet: restarting one of six leaves five running the old code.
+# Restart workers to pick up the new code; otherwise the old class lives in
+# the running process for the rest of its 595-second budget
+# (DEFAULT_MAX_RUNTIME, declared in the Cooperative_Stop trait). `all`
+# restarts every type; a named target must be an ACTIVE topology, which is
+# deployment-specific — the five stock topologies (`job-worker`, `job-intake`,
+# `settings-sync`, `topic-probe`, `table-probe`) are only the ones the
+# substrate bundles, and application plugins register their own. `wp nodes
+# types` and `wp nodes status` are the source of truth. Every partition
+# restarts unless `--partition=<n>` names one, and a type is a fleet:
+# restarting one of six leaves five running the old code.
 docker exec -u bend eve-pyrobase1-1 wp nodes types --path=/var/www/html
 docker exec -u bend eve-pyrobase1-1 wp nodes restart all --path=/var/www/html
 
