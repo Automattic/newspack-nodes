@@ -13,7 +13,12 @@ jest.mock( '@newspack-nodes/shared/hooks/useTimeChart', () => ( {
 } ) );
 
 import { render, fireEvent, act } from '@testing-library/react';
-import { TopicsChart, TopicsPanels } from '../TopicsChart';
+import {
+	TopicsChart,
+	TopicsPanels,
+	ProbeTable,
+	errorsColumn,
+} from '../TopicsChart';
 import {
 	chartColor,
 	setupTooltip,
@@ -167,12 +172,20 @@ describe( 'TopicsChart', () => {
 		expect( toggle.getAttribute( 'aria-pressed' ) ).toBe( 'false' );
 	} );
 
-	it( 'leads a stacked tooltip with the total the caller labels', () => {
-		mount( { stacked: true, totalLabel: 'Summe' } );
+	it( 'leads a stacked tooltip with its own total row', () => {
+		mount( { stacked: true } );
 		expect( tooltipRows( 1 )[ 0 ] ).toEqual( {
-			label: 'Summe',
+			label: 'Total',
 			value: '102/s',
 		} );
+	} );
+
+	it( 'prints no total row while the bands overlay', () => {
+		mount();
+		expect( tooltipRows( 1 ).map( ( e ) => e.label ) ).toEqual( [
+			'high.p0',
+			'low.p0',
+		] );
 	} );
 
 	it( 'offers no stack toggle when the caller marks the series unstackable', () => {
@@ -184,25 +197,25 @@ describe( 'TopicsChart', () => {
 } );
 
 describe( 'TopicsPanels', () => {
-	const gapped = {
+	const gapped = ( mode ) => ( {
 		'gap.p0': {
 			points: [
 				{ ts: 100, value: 50 },
 				{ ts: 160, value: 70 },
 			],
 			max: 70,
+			mode,
 		},
-	};
+	} );
 	const panel = ( over ) => ( {
 		title: 'Held',
 		yLabel: 'Bytes',
-		series: gapped,
+		series: gapped( { fill: 'hold', agg: 'last' } ),
 		formatValue: fmt,
-		metric: 'backlog',
 		...over,
 	} );
-	const mountPanels = ( panels, totalLabel = 'Summe' ) =>
-		render( <TopicsPanels panels={ panels } totalLabel={ totalLabel } /> );
+	const mountPanels = ( panels ) =>
+		render( <TopicsPanels panels={ panels } /> );
 	const midRows = () => {
 		const { formatEntry } = setupTooltip.mock.calls.at( -1 )[ 1 ];
 		return formatEntry( 1 );
@@ -220,17 +233,19 @@ describe( 'TopicsPanels', () => {
 		).toEqual( [ 'First', 'Second' ] );
 	} );
 
-	it( 'derives each panel fill mode from its metric', () => {
-		mountPanels( [ panel( { metric: 'backlog' } ) ] );
+	it( 'fills each gap the way its series’ own mode says', () => {
+		mountPanels( [ panel() ] );
 		expect( midRows() ).toEqual( [
 			{ label: 'gap.p0', value: '50/s', raw: 50 },
 		] );
 		setupTooltip.mockClear();
-		mountPanels( [ panel( { metric: 'msgRate' } ) ] );
+		mountPanels( [
+			panel( { series: gapped( { fill: 'zero', agg: 'rate' } ) } ),
+		] );
 		expect( midRows() ).toEqual( [] );
 	} );
 
-	it( 'labels the total on stacked panels alone', () => {
+	it( 'totals stacked panels alone', () => {
 		mountPanels( [
 			panel( { stacked: true } ),
 			panel( { title: 'Mean', stackable: false } ),
@@ -238,7 +253,85 @@ describe( 'TopicsPanels', () => {
 		const [ stacked, mean ] = setupTooltip.mock.calls.map(
 			( c ) => c[ 1 ].formatEntry( 0 )[ 0 ].label
 		);
-		expect( stacked ).toBe( 'Summe' );
+		expect( stacked ).toBe( 'Total' );
 		expect( mean ).toBe( 'gap.p0' );
+	} );
+} );
+
+describe( 'ProbeTable', () => {
+	const columns = [
+		{
+			label: 'Name',
+			cell: ( row ) => row.key,
+			td: () => ( { className: 'nodes-probe-tab__name' } ),
+		},
+		{
+			label: 'Age',
+			cell: ( row, ctx ) => `${ ctx.now - row.ts }s`,
+			td: ( row ) => ( { title: `at ${ row.ts }` } ),
+		},
+	];
+	const rows = [
+		{ key: 'lab-7:kea.p3', ts: 4400 },
+		{ key: 'lab-7:owl.p3', ts: 4471 },
+	];
+	const mountTable = ( over = {} ) =>
+		render(
+			<ProbeTable
+				columns={ columns }
+				rows={ rows }
+				rowKey={ ( row ) => row.key }
+				keyAttr="data-kea-key"
+				context={ { now: 4500 } }
+				emptyText="Nothing swept yet."
+				{ ...over }
+			/>
+		);
+
+	it( 'heads the canonical table with each column label', () => {
+		const { container } = mountTable();
+		const table = container.querySelector( 'table' );
+		expect( table.className ).toBe(
+			'nodes-probe-tab__table newspack-nodes-table'
+		);
+		expect(
+			[ ...table.querySelectorAll( 'th' ) ].map( ( h ) => h.textContent )
+		).toEqual( [ 'Name', 'Age' ] );
+	} );
+
+	it( 'renders a row per entry, keyed on the attribute it names', () => {
+		const { container } = mountTable();
+		const row = container.querySelector( '[data-kea-key="lab-7:owl.p3"]' );
+		const cells = [ ...row.children ];
+		expect( cells.map( ( c ) => c.textContent ) ).toEqual( [
+			'lab-7:owl.p3',
+			'29s',
+		] );
+		expect( cells[ 0 ].className ).toBe( 'nodes-probe-tab__name' );
+		expect( cells[ 1 ].title ).toBe( 'at 4471' );
+	} );
+
+	it( 'shows its empty text in place of a table with no rows', () => {
+		const { container } = mountTable( { rows: [] } );
+		expect( container.querySelector( 'table' ) ).toBeNull();
+		const empty = container.querySelector( '.nodes-probe-tab__empty' );
+		expect( empty.className ).toBe(
+			'newspack-nodes-empty-state nodes-probe-tab__empty'
+		);
+		expect( empty.textContent ).toBe( 'Nothing swept yet.' );
+	} );
+} );
+
+describe( 'errorsColumn', () => {
+	it( 'marks a nonzero count, and only a nonzero one', () => {
+		const col = errorsColumn( 'Failures' );
+		expect( col.label ).toBe( 'Failures' );
+		expect( col.cell( { windowed: { errors: 4321 } } ) ).toBe( '4,321' );
+		expect( col.td( { windowed: { errors: 7 } } ).className ).toBe(
+			'nodes-probe-tab__count is-nonzero'
+		);
+		expect( col.td( { windowed: { errors: 0 } } ).className ).toBe(
+			'nodes-probe-tab__count'
+		);
 	} );
 } );

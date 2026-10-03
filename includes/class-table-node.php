@@ -262,6 +262,9 @@ class Table_Node extends Node {
 	/** The `<partition>` bound when the arguments arrived; null with none bound. */
 	private ?int $bound_partition = null;
 
+	/** The SQLite file the arm opened; '' on any other backend. */
+	private string $sqlite_path = '';
+
 	/**
 	 * Durable system of record behind this table, or null until backed_by()
 	 * opts in. Invoked with the keys a read missed on.
@@ -322,9 +325,11 @@ class Table_Node extends Node {
 			throw new \InvalidArgumentException( \esc_html( 'Table backend must be one of ' . \implode( ', ', self::BACKENDS ) . ", not {$backend}" ) );
 		}
 		$this->bound_partition = \array_key_exists( 'partition', Core::$var ) ? Core::canonical_decimal( Core::$var['partition'] ) : null;
-		$arm = $this->open( $backend, $namespace );
+		$file              = 'sqlite' === $backend ? $this->sqlite_file() : '';
+		$arm               = $this->open( $backend, $namespace, $file );
 		$this->assign_schema_args( $args, $values );
-		$this->arm = $arm;
+		$this->arm         = $arm;
+		$this->sqlite_path = $file;
 		return $args;
 	}
 
@@ -391,14 +396,12 @@ class Table_Node extends Node {
 	 *
 	 * @param string $backend   One of BACKENDS.
 	 * @param string $namespace The namespace a `wpdb` arm scopes its rows by.
+	 * @param string $file      The `sqlite` file `sqlite_file()` resolved; '' otherwise.
 	 * @return Cache_Backend|null The arm; null for `auto`, which resolves per call.
-	 * @throws \RuntimeException On a base directory or `{base}/tables` that
-	 *                           will not resolve, a name no file can carry, no
-	 *                           bound partition, or a namespace the arm cannot hold.
+	 * @throws \RuntimeException On a namespace the arm cannot hold.
 	 * @throws Table_Unavailable When the backend cannot open on this host.
 	 */
-	private function open( string $backend, string $namespace ): ?Cache_Backend {
-		$file = 'sqlite' === $backend ? $this->sqlite_file() : '';
+	private function open( string $backend, string $namespace, string $file ): ?Cache_Backend {
 		try {
 			// arguments() admits BACKENDS alone, so the default arm is `auto`.
 			return match ( $backend ) {
@@ -1658,9 +1661,9 @@ class Table_Node extends Node {
 				Tablestats_Record::IDENTITY     => $this->probe_identity(),
 				Tablestats_Record::BACKEND      => $this->backend,
 				Tablestats_Record::VERBS        => $verbs,
-				Tablestats_Record::PURGE_BEHIND => $this->purge_behind ? 1 : 0,
-				Tablestats_Record::WAL_STALLED  => $this->wal_stalled,
-				Tablestats_Record::FILE_BYTES   => $this->arm instanceof Sqlite_Arm ? \array_sum( Sqlite_Arm::file_sizes( self::file( $this->table_name(), $this->file_partition() ) ) ) : 0,
+				Tablestats_Record::PURGE_BEHIND => $this->arm instanceof Durable_Arm ? (int) $this->purge_behind : null,
+				Tablestats_Record::WAL_STALLED  => $this->arm instanceof Sqlite_Arm ? $this->wal_stalled : null,
+				Tablestats_Record::FILE_BYTES   => $this->arm instanceof Sqlite_Arm ? \array_sum( Sqlite_Arm::file_sizes( $this->sqlite_path ) ) : null,
 				Tablestats_Record::ELAPSED_MS   => $elapsed,
 			],
 		];

@@ -7,14 +7,17 @@
  * message rate and byte rate.
  *
  * A ring row is `[ t, msgInRate, msgOutRate, byteInRate, byteOutRate ]`: one
- * row per 5-second sample, each rate already divided by IoTelemetry. The points
- * carry no `weight`, so a chart bucket spanning several samples takes their
- * plain mean, which is what one fixed cadence wants.
+ * row per 5-second sample, each rate already divided by IoTelemetry. The series
+ * carry no `mode`, so the chart reads them as RATEs, and the points no `weight`,
+ * so a bucket spanning several samples takes their plain mean, which is what
+ * one fixed cadence wants.
  *
  * Reading nothing but the ring is what lets `useOverviewStats` memoize on
  * `IoTelemetry.revision`: the sampler appends in place, so a memo keyed on the
  * array itself would never see a new sample.
  */
+
+import { maxOf } from '../event-dashboards/topicProbeSeries';
 
 /** Ring column: the sample instant, in whole seconds. */
 const T = 0;
@@ -47,8 +50,7 @@ function seriesFromColumn( ring, col ) {
 		ts: row[ T ],
 		value: row[ col ],
 	} ) );
-	const max = points.reduce( ( m, p ) => Math.max( m, p.value ), 0 );
-	return { points, max };
+	return { points, max: maxOf( points ) };
 }
 
 /**

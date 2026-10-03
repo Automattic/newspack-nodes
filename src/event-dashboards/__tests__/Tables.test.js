@@ -28,14 +28,11 @@ jest.mock( '../TopicsChart', () => {
 		);
 	};
 	return {
+		...jest.requireActual( '../TopicsChart' ),
 		TopicsChart,
-		TopicsPanels: ( { panels, totalLabel } ) =>
+		TopicsPanels: ( { panels } ) =>
 			panels.map( ( p ) =>
-				el.createElement( TopicsChart, {
-					key: p.title,
-					...p,
-					totalLabel: p.stacked ? totalLabel : undefined,
-				} )
+				el.createElement( TopicsChart, { key: p.title, ...p } )
 			),
 	};
 } );
@@ -93,6 +90,28 @@ function model() {
 		},
 	};
 }
+
+// A Table whose record says no size, no WAL and no purge apply.
+function volatile( m, key, backend ) {
+	const base = m.tables[ 'flame-stats:aggregate.p0' ];
+	return {
+		...base,
+		key,
+		backend,
+		latest: {
+			...base.latest,
+			fileBytes: null,
+			purgeBehind: null,
+			walStalled: null,
+		},
+		series: base.series.map( ( s ) => ( { ...s, fileBytes: null } ) ),
+	};
+}
+
+const cellsOf = ( container, key ) =>
+	[
+		...container.querySelector( `[data-table-key="${ key }"]` ).children,
+	].map( ( c ) => c.textContent );
 
 beforeEach( () => {
 	Core.reset();
@@ -154,9 +173,10 @@ describe( 'Tables', () => {
 		expect(
 			globalThis.__tablesPanels.map( ( p ) => Boolean( p.stacked ) )
 		).toEqual( [ true, true, true, false, true ] );
-		expect(
-			globalThis.__tablesPanels.map( ( p ) => p.totalLabel )
-		).toEqual( [ 'Total', 'Total', 'Total', undefined, 'Total' ] );
+		for ( const p of globalThis.__tablesPanels ) {
+			expect( p ).not.toHaveProperty( 'metric' );
+			expect( p ).not.toHaveProperty( 'totalLabel' );
+		}
 		expect( globalThis.__tablesPanels[ 3 ].stackable ).toBe( false );
 		expect( Object.keys( globalThis.__tablesPanels[ 0 ].series ) ).toEqual(
 			expect.arrayContaining( [
@@ -170,7 +190,10 @@ describe( 'Tables', () => {
 		useNodeField.mockReturnValue( model() );
 		render( <Tables /> );
 		const latency = globalThis.__tablesPanels[ 3 ].series;
-		expect( latency[ 'flame-stats:url.p0' ].mode ).toBeUndefined();
+		expect( latency[ 'flame-stats:url.p0' ].mode ).toEqual( {
+			fill: 'zero',
+			agg: 'rate',
+		} );
 		expect( latency[ 'flame-stats:url.p0 max' ].mode ).toEqual( {
 			fill: 'zero',
 			agg: 'max',
@@ -202,29 +225,41 @@ describe( 'Tables', () => {
 		expect( first.textContent ).toContain( '3,700 / 3,712 · stalled 4' );
 	} );
 
-	it( 'marks upkeep columns a volatile Table has none of', () => {
+	it( 'marks the upkeep a volatile Table’s record says it has none of', () => {
 		const m = model();
-		m.tables[ 'memo:x.p0' ] = {
-			...m.tables[ 'flame-stats:aggregate.p0' ],
-			key: 'memo:x.p0',
-			backend: 'memcache',
-		};
+		m.tables[ 'memo:x.p0' ] = volatile( m, 'memo:x.p0', 'memcache' );
 		useNodeField.mockReturnValue( m );
 		const { container } = render( <Tables /> );
-		const cells = [
-			...container.querySelector( '[data-table-key="memo:x.p0"]' )
-				.children,
-		].map( ( c ) => c.textContent );
-		// Purged (index 8), Purge behind (9) and WAL (10) all read '-'.
-		expect( cells.slice( 8 ) ).toEqual( [ '-', '-', '-' ] );
-		const durable = [
-			...container.querySelector(
-				'[data-table-key="flame-stats:aggregate.p0"]'
-			).children,
-		].map( ( c ) => c.textContent );
+		const cells = cellsOf( container, 'memo:x.p0' );
+		// Size (6), Purged (8), Purge behind (9) and WAL (10) all read '-'.
+		expect( [ cells[ 6 ], ...cells.slice( 8 ) ] ).toEqual( [
+			'-',
+			'-',
+			'-',
+			'-',
+		] );
+		const durable = cellsOf( container, 'flame-stats:aggregate.p0' );
 		expect( durable[ 8 ] ).toBe( '4,210' );
 		// A durable Table that is caught up says so; '-' is "does not apply".
 		expect( durable[ 9 ] ).toBe( 'no' );
+	} );
+
+	it( 'reads what applies off the record, not off the backend name', () => {
+		const m = model();
+		m.tables[ 'kea:auto.p3' ] = {
+			...m.tables[ 'flame-stats:aggregate.p0' ],
+			key: 'kea:auto.p3',
+			backend: 'auto',
+		};
+		useNodeField.mockReturnValue( m );
+		const { container } = render( <Tables /> );
+		const cells = cellsOf( container, 'kea:auto.p3' );
+		expect( cells[ 6 ] ).toBe( '8 KB' );
+		expect( cells.slice( 8 ) ).toEqual( [
+			'4,210',
+			'no',
+			'3,700 / 3,712',
+		] );
 	} );
 
 	it( 'reads a mean or max with no calls behind it as -', () => {
@@ -244,20 +279,16 @@ describe( 'Tables', () => {
 		expect( cells.slice( 4, 6 ) ).toEqual( [ '-', '-' ] );
 	} );
 
-	it( 'sizes only a SQLite Table, and charts no flat zero for the rest', () => {
+	it( 'sizes only a Table that reports a size, and charts no flat zero for the rest', () => {
 		const m = model();
-		m.tables[ 'sess:w.p0' ] = {
-			...m.tables[ 'flame-stats:aggregate.p0' ],
-			key: 'sess:w.p0',
-			backend: 'wpdb',
-		};
+		m.tables[ 'sess:w.p0' ] = volatile( m, 'sess:w.p0', 'wpdb' );
+		m.tables[ 'sess:w.p0' ].latest.purgeBehind = 0;
 		useNodeField.mockReturnValue( m );
 		const { container } = render( <Tables /> );
-		const cells = [
-			...container.querySelector( '[data-table-key="sess:w.p0"]' )
-				.children,
-		].map( ( c ) => c.textContent );
+		const cells = cellsOf( container, 'sess:w.p0' );
 		expect( cells[ 6 ] ).toBe( '-' );
+		expect( cells[ 9 ] ).toBe( 'no' );
+		expect( cells[ 10 ] ).toBe( '-' );
 		expect( Object.keys( globalThis.__tablesPanels[ 4 ].series ) ).toEqual(
 			[ 'flame-stats:aggregate.p0', 'flame-stats:url.p0' ]
 		);

@@ -453,9 +453,27 @@ final class TableStatsTest extends TestCase {
 		$emu->sink( $this->sink );
 		$emu->fill( $this->request_of( "GET kea-41\n" ) );
 		$record = $emu->probe_stats()[0];
-		$this->assertSame( 0, $record[ Tablestats_Record::FILE_BYTES ] );
+		$this->assertNull( $record[ Tablestats_Record::FILE_BYTES ], 'no file to size' );
+		$this->assertNull( $record[ Tablestats_Record::PURGE_BEHIND ], 'no purge to fall behind' );
+		$this->assertNull( $record[ Tablestats_Record::WAL_STALLED ], 'no WAL to stall' );
 		$this->assertSame( 0, $record[ Tablestats_Record::VERBS ]['GET'][ Tablestats_Record::ROW_BYTES ] );
 		$this->assertSame( 'memcache', $record[ Tablestats_Record::BACKEND ] );
+	}
+
+	public function test_a_wpdb_table_reports_its_purge_and_no_file_or_wal(): void {
+		$this->use_wpdb();
+		$owl = Table_Node::table( 'owl-wpdb-4471', 900, 'wpdb' );
+		$owl->name( 'lab-7:owl' );
+		$record = $owl->probe_stats()[0];
+		$this->assertSame( 0, $record[ Tablestats_Record::PURGE_BEHIND ] );
+		$this->assertNull( $record[ Tablestats_Record::WAL_STALLED ] );
+		$this->assertNull( $record[ Tablestats_Record::FILE_BYTES ] );
+	}
+
+	public function test_the_probe_sizes_the_file_the_table_opened(): void {
+		$this->insert( 1000000, 'kea-41', 'v-41' );
+		$this->use_base_dir( $this->make_temp_dir( 'table-stats-moved-' ) );
+		$this->assertGreaterThan( 0, $this->table->probe_stats()[0][ Tablestats_Record::FILE_BYTES ] );
 	}
 
 	public function test_a_table_built_with_no_partition_bound_reports_its_name(): void {

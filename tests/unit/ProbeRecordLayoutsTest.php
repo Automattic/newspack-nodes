@@ -22,7 +22,8 @@ final class ProbeRecordLayoutsTest extends TestCase {
 	/**
 	 * Each layout, its JS mirror, and the names the mirror must export: null
 	 * when it mirrors every slot. `probe-record.js` declares only the seven
-	 * slots a browser reads.
+	 * slots a browser reads, and `tablestats-record.js` every slot but the
+	 * row's bytes, which no browser view reads.
 	 *
 	 * @return array<string,array{class-string,string,list<string>|null}>
 	 */
@@ -30,7 +31,7 @@ final class ProbeRecordLayoutsTest extends TestCase {
 		return [
 			'topicprobe' => [ Probe_Record::class, 'src/runtime/probe-record.js', [ 'SOURCE', 'READER', 'DISTANCE', 'MSGS_DELTA', 'CACHE_SIZE', 'BYTES_READ_DELTA', 'ELAPSED_MS' ] ],
 			'jobstats'   => [ Jobstats_Record::class, 'src/runtime/jobstats-record.js', null ],
-			'tablestats' => [ Tablestats_Record::class, 'src/runtime/tablestats-record.js', null ],
+			'tablestats' => [ Tablestats_Record::class, 'src/runtime/tablestats-record.js', [ 'IDENTITY', 'BACKEND', 'VERBS', 'PURGE_BEHIND', 'WAL_STALLED', 'FILE_BYTES', 'ELAPSED_MS', 'ROW_CALLS', 'ROW_ASKED', 'ROW_ANSWERED', 'ROW_MS', 'ROW_MAX_MS', 'ROW_ERRORS' ] ],
 		];
 	}
 

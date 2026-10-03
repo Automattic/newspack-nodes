@@ -373,9 +373,9 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * @return array<string,int> File => bytes; a file not on disk is absent.
 	 */
 	public static function file_sizes( string $path ): array {
-		\clearstatcache();
 		$sizes = [];
 		foreach ( [ $path, "{$path}-wal", "{$path}-shm" ] as $file ) {
+			\clearstatcache( true, $file );
 			if ( \is_file( $file ) ) {
 				$sizes[ $file ] = (int) \filesize( $file );
 			}

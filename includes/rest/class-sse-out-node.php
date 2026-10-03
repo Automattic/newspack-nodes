@@ -657,15 +657,17 @@ class SSE_Out_Node extends Node {
 	/**
 	 * The subscription dir a FROM breadcrumb names, and the inverse of
 	 * `stamp_for()`: a grouped stamp keeps its `{group}/` prefix, a bare-logs
-	 * one is the first path segment alone. Reading the leading segments rather
-	 * than the whole string is what lets a full routing path resolve too.
+	 * one is the first path segment alone, so a log dir named `logs` reads as
+	 * that one segment. Reading the leading segments rather than the whole
+	 * string is what lets a full routing path resolve too.
+	 * `tests/fixtures/log-stamps.json` holds it to `src/runtime/log-stamp.js`.
 	 *
 	 * @param string $from A stamp, or a FROM path beginning with one.
 	 * @return string The dir name that stamp addresses.
 	 */
 	private static function dir_from_stamp( string $from ): string {
 		$parts = \explode( '/', $from );
-		if ( isset( $parts[1] ) && '' !== $parts[1] && \in_array( $parts[0], Log_Discovery::GROUPS, true ) ) {
+		if ( isset( $parts[1] ) && '' !== $parts[1] && 'logs' !== $parts[0] && \in_array( $parts[0], Log_Discovery::GROUPS, true ) ) {
 			return "{$parts[0]}/{$parts[1]}";
 		}
 		return $parts[0];

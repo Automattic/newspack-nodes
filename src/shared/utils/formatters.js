@@ -243,24 +243,3 @@ export function formatEtaSeconds( seconds ) {
 export function formatEta( bytesBehind, readRate ) {
 	return formatEtaSeconds( etaSeconds( bytesBehind, readRate ) );
 }
-
-/**
- * Format a millisecond duration: "N.NNms" below 10, whole ms below a second,
- * seconds above. A non-finite or non-positive value, such as a window with no
- * calls, reads "0ms" rather than as a gap.
- *
- * @param {number} ms A duration in milliseconds.
- * @return {string} The label.
- */
-export function formatMs( ms ) {
-	if ( ! Number.isFinite( ms ) || ms <= 0 ) {
-		return '0ms';
-	}
-	if ( ms < 10 ) {
-		return `${ ms.toFixed( 2 ) }ms`;
-	}
-	if ( ms < 1000 ) {
-		return `${ Math.round( ms ) }ms`;
-	}
-	return `${ ( ms / 1000 ).toFixed( 1 ) }s`;
-}

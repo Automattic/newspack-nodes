@@ -30,14 +30,11 @@ jest.mock( '../TopicsChart', () => {
 		);
 	};
 	return {
+		...jest.requireActual( '../TopicsChart' ),
 		TopicsChart,
-		TopicsPanels: ( { panels, totalLabel } ) =>
+		TopicsPanels: ( { panels } ) =>
 			panels.map( ( p ) =>
-				el.createElement( TopicsChart, {
-					key: p.title,
-					...p,
-					totalLabel: p.stacked ? totalLabel : undefined,
-				} )
+				el.createElement( TopicsChart, { key: p.title, ...p } )
 			),
 	};
 } );
@@ -103,7 +100,7 @@ function model() {
 				windowed: {
 					runs: 6,
 					errors: 0,
-					// Exercises formatMs's zero branch on the Avg column.
+					// A zero mean prints, unlike a null one.
 					avgDurationMs: 0,
 					itemsOk: 6,
 					itemsErr: 0,
@@ -187,6 +184,34 @@ describe( 'Jobs', () => {
 		expect( Object.keys( backlog.series ) ).not.toContain( 'firehose.p0' );
 	} );
 
+	it( 'charts each worker’s jobs backlog apart, as the Overview does', () => {
+		useNodeField.mockImplementation( ( node ) =>
+			'topicprobe:view' === node
+				? {
+						consumers: {
+							'job-worker.jobs.p2': {
+								source: 'jobs.p2',
+								series: [
+									{
+										ts: 1,
+										backlog: 4471,
+										worker: 'job-worker-4417.p2',
+									},
+								],
+							},
+						},
+				  }
+				: model()
+		);
+		render( <Jobs /> );
+		const backlog = globalThis.__jobsPanels.find(
+			( p ) => 'Job Backlog' === p.title
+		);
+		expect( Object.keys( backlog.series ) ).toEqual( [
+			'jobs.p2 · job-worker-4417.p2',
+		] );
+	} );
+
 	it( 'renders a row per job identity with runs, failures, status and message', () => {
 		useNodeField.mockReturnValue( model() );
 		const { getByText, getAllByText } = render( <Jobs /> );
@@ -203,7 +228,7 @@ describe( 'Jobs', () => {
 		expect( getByText( 'error' ) ).toBeTruthy();
 		expect( getAllByText( 'success' ).length ).toBeGreaterThanOrEqual( 1 );
 		// Sub-second durations show ms; ≥1s shows seconds; a never-run job shows "-".
-		expect( getByText( '1.5s' ) ).toBeTruthy();
+		expect( getByText( '1.50s' ) ).toBeTruthy();
 		expect( getAllByText( '-' ).length ).toBeGreaterThanOrEqual( 1 );
 	} );
 
@@ -302,8 +327,10 @@ describe( 'Jobs', () => {
 		expect( latency.stackable ).toBe( false );
 		// Each jobs.pN backlog is its own debt, so the column sums them.
 		expect( backlog.stacked ).toBe( true );
-		for ( const panel of [ runs, errors, backlog ] ) {
-			expect( panel.totalLabel ).toBe( 'Total' );
+		// Each series says how it charts; the panel names no metric.
+		for ( const panel of [ runs, errors, backlog, latency ] ) {
+			expect( panel ).not.toHaveProperty( 'metric' );
+			expect( panel ).not.toHaveProperty( 'totalLabel' );
 		}
 	} );
 
@@ -376,7 +403,7 @@ describe( 'Jobs', () => {
 			...container.querySelector( '[data-job-key="cron:films"]' )
 				.children,
 		].map( ( c ) => c.textContent );
-		expect( cells[ 4 ] ).toBe( '4.9s' );
+		expect( cells[ 4 ] ).toBe( '4.87s' );
 	} );
 
 	it( 'reads a mean or max with no runs behind it as -', () => {

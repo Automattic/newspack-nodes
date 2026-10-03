@@ -49,14 +49,11 @@ jest.mock( '../TopicsChart', () => {
 		);
 	};
 	return {
+		...jest.requireActual( '../TopicsChart' ),
 		TopicsChart,
-		TopicsPanels: ( { panels, totalLabel } ) =>
+		TopicsPanels: ( { panels } ) =>
 			panels.map( ( p ) =>
-				el.createElement( TopicsChart, {
-					key: p.title,
-					...p,
-					totalLabel: p.stacked ? totalLabel : undefined,
-				} )
+				el.createElement( TopicsChart, { key: p.title, ...p } )
 			),
 	};
 } );
@@ -460,7 +457,8 @@ describe( 'Overview fleet board', () => {
 		const panels = globalThis.__topicsPanels.slice( -4 );
 		for ( const p of panels ) {
 			expect( p.stacked ).toBe( true );
-			expect( p.totalLabel ).toBe( 'Total' );
+			expect( p ).not.toHaveProperty( 'metric' );
+			expect( p ).not.toHaveProperty( 'totalLabel' );
 			expect( Object.keys( p.series ).sort() ).toEqual( [
 				'firehose.p3 · job-router-6612.p3',
 				'firehose.p3 · request-builder-6612.p3',

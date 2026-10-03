@@ -13,9 +13,10 @@
  * as the total.
  *
  * A cell reads '-' where its figure does not apply: a mean or max with no
- * calls, a size off SQLite, upkeep a volatile Table never does, and a level
- * (size, purge backlog, WAL stall) from a Table whose newest record has
- * fallen out of the live window.
+ * calls, and a size, WAL or purge the Table's own record carries as null —
+ * `Table_Node::probe_stats()` writes null for a slot its backend has no such
+ * thing for. A level (size, purge backlog, WAL stall) also reads '-' from a
+ * Table whose newest record has fallen out of the live window.
  */
 
 import { useMemo, useDeferredValue } from '@wordpress/element';
@@ -24,49 +25,26 @@ import { useProbeStream } from './hooks/useProbeStream';
 import { isLiveSample, streamHead } from './liveSample';
 import { useNodeField } from '../runtime/react';
 import UnparseableLinesNotice from '@newspack-nodes/shared/components/UnparseableLinesNotice';
-import {
-	topicChartSeries,
-	fillModeForMetric,
-	perWorker,
-} from './topicProbeSeries';
-import { TopicsPanels } from './TopicsChart';
+import { topicChartSeries, byKey } from './topicProbeSeries';
+import { TopicsPanels, ProbeTable, errorsColumn } from './TopicsChart';
 import {
 	formatBytes,
 	formatGroupedCount,
-	formatMs,
 	formatMsgRate,
 } from '@newspack-nodes/shared/utils/formatters';
+import { formatDuration } from '@newspack-nodes/shared/utils/formatUtils';
 import './styles/probe-tab.scss';
-
-/**
- * Each entry groups by its own identity.
- *
- * @param {{key:string}} c A Table or operation entry.
- * @return {string} Its key.
- */
-const byKey = ( c ) => c.key;
-
-/**
- * Does this Table report a file size? Only SQLite keeps one file per Table.
- *
- * @param {{backend:string}} t A Table entry.
- * @return {boolean} True for sqlite.
- */
-const isSqlite = ( t ) => 'sqlite' === t.backend;
-
-/**
- * A duration cell: '-' where the window made no call to measure.
- *
- * @param {?number} ms Milliseconds, or null.
- * @return {string} The label.
- */
-const msCell = ( ms ) => ( null === ms ? '-' : formatMs( ms ) );
 
 /** One shared empty model, so an unready view keeps the memos' inputs stable. */
 const NO_TABLES = {};
 
-/** The max line's mode, fixed so the chart's memo holds. */
-const MAX_MODE = fillModeForMetric( 'maxMs' );
+/**
+ * A Table's window-max line plots beside its mean.
+ *
+ * @param {{key:string}} t A Table entry.
+ * @return {string} `<id> max`.
+ */
+const byMaxKey = ( t ) => `${ t.key } max`;
 
 /**
  * Per-operation series per worker: one series per `<op> · <worker>`, summing
@@ -91,88 +69,109 @@ function operationSeries( tables ) {
 			}
 		}
 	}
-	return topicChartSeries( perWorker( byOp ), 'value', byKey );
+	return topicChartSeries( byOp, 'value', byKey );
 }
-
-/**
- * Mean latency per Table beside its window max, the max a MAX series.
- *
- * @param {Object<string,Object>} tables `view.tables`.
- * @return {Object<string,Object>} `<id>` and `<id> max` => series.
- */
-function latencySeries( tables ) {
-	/** @type {Object<string,Object>} */
-	const out = topicChartSeries( tables, 'meanMs', byKey );
-	for ( const [ id, s ] of Object.entries(
-		topicChartSeries( tables, 'maxMs', byKey )
-	) ) {
-		out[ `${ id } max` ] = { ...s, mode: MAX_MODE };
-	}
-	return out;
-}
-
-/**
- * Does this backend keep its rows on disk? Only a durable Table purges its
- * rows or checkpoints a WAL, so a volatile one has no such upkeep to show.
- *
- * @param {{backend:string}} t A Table entry.
- * @return {boolean} True for sqlite and wpdb.
- */
-const isDurable = ( t ) => 'sqlite' === t.backend || 'wpdb' === t.backend;
 
 /**
  * The WAL cell: frames written of frames asked, and a stall count when a live
- * Table's checkpoint is stuck. Only a SQLite Table has a WAL.
+ * Table's checkpoint is stuck. '-' where the record carries no WAL.
  *
- * @param {{backend:string,windowed:Object,latest:Object}} t    A Table entry.
- * @param {boolean}                                        live Its newest record is current.
+ * @param {{windowed:Object,latest:Object}} t    A Table entry.
+ * @param {boolean}                         live Its newest record is current.
  * @return {string} The label.
  */
 function walLabel( t, live ) {
-	if ( ! isSqlite( t ) ) {
+	const { walStalled } = t.latest;
+	if ( null === walStalled ) {
 		return '-';
 	}
 	const { walWritten, walFrames } = t.windowed;
 	const base = `${ formatGroupedCount( walWritten ) } / ${ formatGroupedCount(
 		walFrames
 	) }`;
-	return live && t.latest.walStalled > 0
+	return live && walStalled > 0
 		? `${ base } · ${ __(
 				'stalled',
 				'newspack-nodes'
-		  ) } ${ formatGroupedCount( t.latest.walStalled ) }`
+		  ) } ${ formatGroupedCount( walStalled ) }`
 		: base;
 }
 
-const COLUMNS = [
-	__( 'Table', 'newspack-nodes' ),
-	__( 'Backend', 'newspack-nodes' ),
-	__( 'Ops', 'newspack-nodes' ),
-	__( 'Hit %', 'newspack-nodes' ),
-	__( 'Avg', 'newspack-nodes' ),
-	__( 'Max', 'newspack-nodes' ),
-	__( 'Size', 'newspack-nodes' ),
-	__( 'Errors', 'newspack-nodes' ),
-	__( 'Purged', 'newspack-nodes' ),
-	__( 'Purge behind', 'newspack-nodes' ),
-	__( 'WAL', 'newspack-nodes' ),
-];
-
 /**
- * The purge-backlog cell: whether a live durable Table's purge is behind.
+ * The purge-backlog cell: whether a live Table's purge is behind, '-' where
+ * the record says it purges nothing.
  *
- * @param {{backend:string,latest:Object}} t    A Table entry.
- * @param {boolean}                        live Its newest record is current.
+ * @param {{latest:Object}} t    A Table entry.
+ * @param {boolean}         live Its newest record is current.
  * @return {string} The label.
  */
 function purgeBehindLabel( t, live ) {
-	if ( ! isDurable( t ) || ! live ) {
+	const { purgeBehind } = t.latest;
+	if ( null === purgeBehind || ! live ) {
 		return '-';
 	}
-	return t.latest.purgeBehind
+	return purgeBehind
 		? __( 'behind', 'newspack-nodes' )
 		: __( 'no', 'newspack-nodes' );
 }
+
+/**
+ * The Table table's columns. `ctx.head` is the stream head a level's
+ * freshness is judged against.
+ *
+ * @type {Array<import('./TopicsChart').ProbeColumn>}
+ */
+const COLUMNS = [
+	{
+		label: __( 'Table', 'newspack-nodes' ),
+		cell: byKey,
+		td: () => ( { className: 'nodes-probe-tab__name' } ),
+	},
+	{ label: __( 'Backend', 'newspack-nodes' ), cell: ( t ) => t.backend },
+	{
+		label: __( 'Ops', 'newspack-nodes' ),
+		cell: ( t ) => formatGroupedCount( t.windowed.ops ),
+	},
+	{
+		label: __( 'Hit %', 'newspack-nodes' ),
+		cell: ( t ) =>
+			null === t.windowed.hitPct
+				? '-'
+				: `${ t.windowed.hitPct.toFixed( 1 ) }%`,
+	},
+	{
+		label: __( 'Avg', 'newspack-nodes' ),
+		cell: ( t ) => formatDuration( t.windowed.meanMs ),
+	},
+	{
+		label: __( 'Max', 'newspack-nodes' ),
+		cell: ( t ) => formatDuration( t.windowed.maxMs ),
+	},
+	{
+		label: __( 'Size', 'newspack-nodes' ),
+		cell: ( t, ctx ) =>
+			null !== t.latest.fileBytes && isLiveSample( t.latest, ctx.head )
+				? formatBytes( t.latest.fileBytes )
+				: '-',
+	},
+	errorsColumn( __( 'Errors', 'newspack-nodes' ) ),
+	{
+		label: __( 'Purged', 'newspack-nodes' ),
+		cell: ( t ) =>
+			null === t.latest.purgeBehind
+				? '-'
+				: formatGroupedCount( t.windowed.purged ),
+	},
+	{
+		label: __( 'Purge behind', 'newspack-nodes' ),
+		cell: ( t, ctx ) =>
+			purgeBehindLabel( t, isLiveSample( t.latest, ctx.head ) ),
+	},
+	{
+		label: __( 'WAL', 'newspack-nodes' ),
+		cell: ( t, ctx ) => walLabel( t, isLiveSample( t.latest, ctx.head ) ),
+	},
+];
 
 /**
  * Tables station tab.
@@ -182,8 +181,7 @@ function purgeBehindLabel( t, live ) {
 export default function Tables() {
 	useProbeStream( 'tablestats', { mode: 'history' } );
 	const view = useNodeField( 'tablestats:view', 'view' );
-	const tables = view?.tables ?? NO_TABLES;
-	const deferred = useDeferredValue( tables );
+	const deferred = useDeferredValue( view?.tables ?? NO_TABLES );
 
 	const opsSeries = useMemo(
 		() => topicChartSeries( deferred, 'opsRate', byKey ),
@@ -194,28 +192,24 @@ export default function Tables() {
 		() => topicChartSeries( deferred, 'missRate', byKey ),
 		[ deferred ]
 	);
-	const latency = useMemo( () => latencySeries( deferred ), [ deferred ] );
-	const sizeSeries = useMemo(
-		() =>
-			topicChartSeries(
-				Object.fromEntries(
-					Object.entries( deferred ).filter( ( [ , t ] ) =>
-						isSqlite( t )
-					)
-				),
-				'fileBytes',
-				byKey
-			),
+	// Mean per Table beside its window max, each series in its own mode.
+	const latency = useMemo(
+		() => ( {
+			...topicChartSeries( deferred, 'meanMs', byKey ),
+			...topicChartSeries( deferred, 'maxMs', byMaxKey ),
+		} ),
 		[ deferred ]
 	);
-	const total = __( 'Total', 'newspack-nodes' );
+	const sizeSeries = useMemo(
+		() => topicChartSeries( deferred, 'fileBytes', byKey ),
+		[ deferred ]
+	);
 	const panels = [
 		{
 			title: __( 'Table Ops Rate', 'newspack-nodes' ),
 			yLabel: __( 'Ops', 'newspack-nodes' ),
 			series: opsSeries,
 			formatValue: formatMsgRate,
-			metric: 'opsRate',
 			stacked: true,
 		},
 		{
@@ -223,7 +217,6 @@ export default function Tables() {
 			yLabel: __( 'Ops', 'newspack-nodes' ),
 			series: opSeries,
 			formatValue: formatMsgRate,
-			metric: 'opsRate',
 			stacked: true,
 		},
 		{
@@ -231,15 +224,13 @@ export default function Tables() {
 			yLabel: __( 'Misses', 'newspack-nodes' ),
 			series: missSeries,
 			formatValue: formatMsgRate,
-			metric: 'missRate',
 			stacked: true,
 		},
 		{
 			title: __( 'Table Latency', 'newspack-nodes' ),
 			yLabel: __( 'Latency', 'newspack-nodes' ),
 			series: latency,
-			formatValue: formatMs,
-			metric: 'meanMs',
+			formatValue: formatDuration,
 			stackable: false,
 		},
 		{
@@ -247,18 +238,24 @@ export default function Tables() {
 			yLabel: __( 'Size', 'newspack-nodes' ),
 			series: sizeSeries,
 			formatValue: formatBytes,
-			metric: 'fileBytes',
 			stacked: true,
 		},
 	];
 
 	// Worst first by windowed errors, then by name.
-	const rows = Object.values( tables ).sort(
-		( a, b ) =>
-			b.windowed.errors - a.windowed.errors ||
-			a.key.localeCompare( b.key )
+	const rows = useMemo(
+		() =>
+			Object.values( deferred ).sort(
+				( a, b ) =>
+					b.windowed.errors - a.windowed.errors ||
+					a.key.localeCompare( b.key )
+			),
+		[ deferred ]
 	);
-	const head = streamHead( tables );
+	const context = useMemo(
+		() => ( { head: streamHead( deferred ) } ),
+		[ deferred ]
+	);
 
 	return (
 		<div className="nodes-probe-tab">
@@ -267,66 +264,19 @@ export default function Tables() {
 				node="tablestats:link"
 			/>
 			<div className="nodes-probe-tab__panels">
-				<TopicsPanels panels={ panels } totalLabel={ total } />
+				<TopicsPanels panels={ panels } />
 			</div>
-			{ 0 === rows.length ? (
-				<p className="newspack-nodes-empty-state nodes-probe-tab__empty">
-					{ __( 'No Table has reported yet.', 'newspack-nodes' ) }
-				</p>
-			) : (
-				<table className="nodes-probe-tab__table newspack-nodes-table">
-					<thead>
-						<tr>
-							{ COLUMNS.map( ( h ) => (
-								<th key={ h }>{ h }</th>
-							) ) }
-						</tr>
-					</thead>
-					<tbody>
-						{ rows.map( ( t ) => {
-							const w = t.windowed;
-							const live = isLiveSample( t.latest, head );
-							return (
-								<tr key={ t.key } data-table-key={ t.key }>
-									<td className="nodes-probe-tab__name">
-										{ t.key }
-									</td>
-									<td>{ t.backend }</td>
-									<td>{ formatGroupedCount( w.ops ) }</td>
-									<td>
-										{ null === w.hitPct
-											? '-'
-											: `${ w.hitPct.toFixed( 1 ) }%` }
-									</td>
-									<td>{ msCell( w.meanMs ) }</td>
-									<td>{ msCell( w.maxMs ) }</td>
-									<td>
-										{ isSqlite( t ) && live
-											? formatBytes( t.latest.fileBytes )
-											: '-' }
-									</td>
-									<td
-										className={
-											w.errors > 0
-												? 'nodes-probe-tab__count is-nonzero'
-												: 'nodes-probe-tab__count'
-										}
-									>
-										{ formatGroupedCount( w.errors ) }
-									</td>
-									<td>
-										{ isDurable( t )
-											? formatGroupedCount( w.purged )
-											: '-' }
-									</td>
-									<td>{ purgeBehindLabel( t, live ) }</td>
-									<td>{ walLabel( t, live ) }</td>
-								</tr>
-							);
-						} ) }
-					</tbody>
-				</table>
-			) }
+			<ProbeTable
+				columns={ COLUMNS }
+				rows={ rows }
+				rowKey={ byKey }
+				keyAttr="data-table-key"
+				context={ context }
+				emptyText={ __(
+					'No Table has reported yet.',
+					'newspack-nodes'
+				) }
+			/>
 		</div>
 	);
 }

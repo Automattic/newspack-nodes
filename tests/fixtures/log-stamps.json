@@ -1,0 +1,10 @@
+[
+  ["a bare log stamp", "jobstats.p0", "jobstats.p0"],
+  ["a bare stamp before a worker trail", "jobstats.p0/job-worker.p2/jobstats", "jobstats.p0"],
+  ["an offsets stamp keeps its group", "offsets/kea-7713.p3/job-worker.p2/jobstats", "offsets/kea-7713.p3"],
+  ["a deadletter stamp keeps its group", "deadletter/kea-7713.p3/tablestats", "deadletter/kea-7713.p3"],
+  ["a log named logs stamps bare", "logs/kea-7713.p3/jobstats", "logs"],
+  ["a group with no dir after it", "offsets/", "offsets"],
+  ["a group alone", "deadletter", "deadletter"],
+  ["an empty FROM", "", ""]
+]
