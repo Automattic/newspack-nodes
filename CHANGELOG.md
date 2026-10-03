@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Every record of one probe sweep carries the sweep's one instant.** A swept node's work moved the clock mid-sweep, so one worker's Tables, job identities and co-readers were stamped a few milliseconds apart and averaged on the charts instead of summing; the Table Operation Rate read about a third of the Table Ops Rate. `Probe_Node::fire()` now reads the tick instant (`Core::$now`) once and stamps every record with it.
+
 ## [2.85.1] - 2026-10-02
 
 ### Added

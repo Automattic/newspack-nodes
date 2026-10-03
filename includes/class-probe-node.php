@@ -100,8 +100,10 @@ abstract class Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 			return;
 		}
 		$from = "{$this->worker_id}/{$this->name}";
+		// Swept work re-pins Core::$now; read the sweep instant once.
+		$instant = Core::$now;
 		Worker_Should_Stop::raise(
-			Worker_Should_Stop::attempt_each( Core::$nodes_by_name, fn ( Node $node ) => $this->sweep( $node, $sink, $from ) )
+			Worker_Should_Stop::attempt_each( Core::$nodes_by_name, fn ( Node $node ) => $this->sweep( $node, $sink, $from, $instant ) )
 		);
 	}
 
@@ -140,11 +142,13 @@ abstract class Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 	 * @param Node   $node A node from this process's registry.
 	 * @param Node   $sink Where the records go.
 	 * @param string $from The FROM each record carries, `{worker-id}/{probe-name}`.
+	 * @param float  $instant The sweep's one instant, every record's TIMESTAMP.
 	 */
-	private function sweep( Node $node, Node $sink, string $from ): void {
+	private function sweep( Node $node, Node $sink, string $from, float $instant ): void {
 		foreach ( $this->probe( $node ) as $record ) {
 			$message                   = Message::new_message();
 			$message[ Message::TYPE ]  = Message::TM_STRUCT;
+			$message[ Message::TIMESTAMP ] = $instant;
 			$message[ Message::FROM ]  = $from;
 			$message[ Message::TO ]    = $this->target;
 			$message[ Message::VALUE ] = $record;
