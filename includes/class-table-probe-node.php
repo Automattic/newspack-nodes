@@ -32,18 +32,14 @@ class Table_Probe_Node extends Probe_Node {
 	}
 
 	/**
-	 * Topology console manifest: the `Monitor` palette entry and the one
-	 * `interval_s` positional, which `Probe_Node::arguments()` parses.
+	 * Topology console manifest: this probe's description over the `Monitor`
+	 * palette entry and `interval_s` positional `Probe_Node` declares.
 	 *
 	 * @return array<string,mixed>
 	 */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
-			'category'    => 'Monitor',
 			'description' => 'Sweeps every Table in this process every N seconds; emits one per-operation window (calls, keys, bytes, ms, errors) per Table into the tablestats log.',
-			'arguments'   => [
-				[ 'name' => 'interval_s', 'type' => 'int', 'default' => self::DEFAULT_INTERVAL_S, 'description' => 'Sweep cadence in seconds between Table-stats snapshots; empty or absent defaults to 15.' ],
-			],
 		] );
 	}
 }

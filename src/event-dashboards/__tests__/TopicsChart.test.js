@@ -13,7 +13,7 @@ jest.mock( '@newspack-nodes/shared/hooks/useTimeChart', () => ( {
 } ) );
 
 import { render, fireEvent, act } from '@testing-library/react';
-import { TopicsChart } from '../TopicsChart';
+import { TopicsChart, TopicsPanels } from '../TopicsChart';
 import {
 	chartColor,
 	setupTooltip,
@@ -180,5 +180,65 @@ describe( 'TopicsChart', () => {
 		expect(
 			container.querySelector( '.newspack-nodes-chart__stack' )
 		).toBeNull();
+	} );
+} );
+
+describe( 'TopicsPanels', () => {
+	const gapped = {
+		'gap.p0': {
+			points: [
+				{ ts: 100, value: 50 },
+				{ ts: 160, value: 70 },
+			],
+			max: 70,
+		},
+	};
+	const panel = ( over ) => ( {
+		title: 'Held',
+		yLabel: 'Bytes',
+		series: gapped,
+		formatValue: fmt,
+		metric: 'backlog',
+		...over,
+	} );
+	const mountPanels = ( panels, totalLabel = 'Summe' ) =>
+		render( <TopicsPanels panels={ panels } totalLabel={ totalLabel } /> );
+	const midRows = () => {
+		const { formatEntry } = setupTooltip.mock.calls.at( -1 )[ 1 ];
+		return formatEntry( 1 );
+	};
+
+	it( 'draws one titled chart per declaration, in order', () => {
+		const { container } = mountPanels( [
+			panel( { title: 'First' } ),
+			panel( { title: 'Second' } ),
+		] );
+		expect(
+			[
+				...container.querySelectorAll( '.newspack-nodes-chart__title' ),
+			].map( ( t ) => t.textContent )
+		).toEqual( [ 'First', 'Second' ] );
+	} );
+
+	it( 'derives each panel fill mode from its metric', () => {
+		mountPanels( [ panel( { metric: 'backlog' } ) ] );
+		expect( midRows() ).toEqual( [
+			{ label: 'gap.p0', value: '50/s', raw: 50 },
+		] );
+		setupTooltip.mockClear();
+		mountPanels( [ panel( { metric: 'msgRate' } ) ] );
+		expect( midRows() ).toEqual( [] );
+	} );
+
+	it( 'labels the total on stacked panels alone', () => {
+		mountPanels( [
+			panel( { stacked: true } ),
+			panel( { title: 'Mean', stackable: false } ),
+		] );
+		const [ stacked, mean ] = setupTooltip.mock.calls.map(
+			( c ) => c[ 1 ].formatEntry( 0 )[ 0 ].label
+		);
+		expect( stacked ).toBe( 'Summe' );
+		expect( mean ).toBe( 'gap.p0' );
 	} );
 } );

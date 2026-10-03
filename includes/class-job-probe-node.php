@@ -57,22 +57,14 @@ class Job_Probe_Node extends Probe_Node {
 	}
 
 	/**
-	 * Topology console manifest: the `Monitor` palette entry and the one
-	 * `interval_s` positional, which replaces the `interval_ms` Timer_Node
-	 * declares because the merge takes `arguments` whole. Declaring it here is
-	 * the whole parse — ADR-11 puts defaults and coercion in
-	 * `parse_schema_args()`, and `Probe_Node::arguments()` calls that before
-	 * arming the sweep timer.
+	 * Topology console manifest: this probe's description over the `Monitor`
+	 * palette entry and `interval_s` positional `Probe_Node` declares.
 	 *
 	 * @return array<string,mixed>
 	 */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
-			'category'    => 'Monitor',
 			'description' => 'Sweeps every Job_Worker in this process every N seconds; emits one stats snapshot (runs, errors, durations, last-run) per job identity into the jobstats log.',
-			'arguments'   => [
-				[ 'name' => 'interval_s', 'type' => 'int', 'default' => self::DEFAULT_INTERVAL_S, 'description' => 'Sweep cadence in seconds between Job_Worker-stats snapshots; empty or absent defaults to 15.' ],
-			],
 		] );
 	}
 }

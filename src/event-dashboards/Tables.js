@@ -29,7 +29,7 @@ import {
 	fillModeForMetric,
 	perWorker,
 } from './topicProbeSeries';
-import { TopicsChart } from './TopicsChart';
+import { TopicsPanels } from './TopicsChart';
 import {
 	formatBytes,
 	formatGroupedCount,
@@ -209,6 +209,48 @@ export default function Tables() {
 		[ deferred ]
 	);
 	const total = __( 'Total', 'newspack-nodes' );
+	const panels = [
+		{
+			title: __( 'Table Ops Rate', 'newspack-nodes' ),
+			yLabel: __( 'Ops', 'newspack-nodes' ),
+			series: opsSeries,
+			formatValue: formatMsgRate,
+			metric: 'opsRate',
+			stacked: true,
+		},
+		{
+			title: __( 'Table Operation Rate', 'newspack-nodes' ),
+			yLabel: __( 'Ops', 'newspack-nodes' ),
+			series: opSeries,
+			formatValue: formatMsgRate,
+			metric: 'opsRate',
+			stacked: true,
+		},
+		{
+			title: __( 'Table Miss Rate', 'newspack-nodes' ),
+			yLabel: __( 'Misses', 'newspack-nodes' ),
+			series: missSeries,
+			formatValue: formatMsgRate,
+			metric: 'missRate',
+			stacked: true,
+		},
+		{
+			title: __( 'Table Latency', 'newspack-nodes' ),
+			yLabel: __( 'Latency', 'newspack-nodes' ),
+			series: latency,
+			formatValue: formatMs,
+			metric: 'meanMs',
+			stackable: false,
+		},
+		{
+			title: __( 'Table Size', 'newspack-nodes' ),
+			yLabel: __( 'Size', 'newspack-nodes' ),
+			series: sizeSeries,
+			formatValue: formatBytes,
+			metric: 'fileBytes',
+			stacked: true,
+		},
+	];
 
 	// Worst first by windowed errors, then by name.
 	const rows = Object.values( tables ).sort(
@@ -225,50 +267,7 @@ export default function Tables() {
 				node="tablestats:link"
 			/>
 			<div className="nodes-probe-tab__panels">
-				<TopicsChart
-					title={ __( 'Table Ops Rate', 'newspack-nodes' ) }
-					yLabel={ __( 'Ops', 'newspack-nodes' ) }
-					series={ opsSeries }
-					formatValue={ formatMsgRate }
-					fillMode={ fillModeForMetric( 'opsRate' ) }
-					stacked
-					totalLabel={ total }
-				/>
-				<TopicsChart
-					title={ __( 'Table Operation Rate', 'newspack-nodes' ) }
-					yLabel={ __( 'Ops', 'newspack-nodes' ) }
-					series={ opSeries }
-					formatValue={ formatMsgRate }
-					fillMode={ fillModeForMetric( 'opsRate' ) }
-					stacked
-					totalLabel={ total }
-				/>
-				<TopicsChart
-					title={ __( 'Table Miss Rate', 'newspack-nodes' ) }
-					yLabel={ __( 'Misses', 'newspack-nodes' ) }
-					series={ missSeries }
-					formatValue={ formatMsgRate }
-					fillMode={ fillModeForMetric( 'missRate' ) }
-					stacked
-					totalLabel={ total }
-				/>
-				<TopicsChart
-					title={ __( 'Table Latency', 'newspack-nodes' ) }
-					yLabel={ __( 'Latency', 'newspack-nodes' ) }
-					series={ latency }
-					formatValue={ formatMs }
-					fillMode={ fillModeForMetric( 'meanMs' ) }
-					stackable={ false }
-				/>
-				<TopicsChart
-					title={ __( 'Table Size', 'newspack-nodes' ) }
-					yLabel={ __( 'Size', 'newspack-nodes' ) }
-					series={ sizeSeries }
-					formatValue={ formatBytes }
-					fillMode={ fillModeForMetric( 'fileBytes' ) }
-					stacked
-					totalLabel={ total }
-				/>
+				<TopicsPanels panels={ panels } totalLabel={ total } />
 			</div>
 			{ 0 === rows.length ? (
 				<p className="newspack-nodes-empty-state nodes-probe-tab__empty">

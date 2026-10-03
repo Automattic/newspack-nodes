@@ -105,20 +105,14 @@ class Topic_Probe_Node extends Probe_Node {
 	}
 
 	/**
-	 * Topology console manifest: the `Monitor` palette entry and the one
-	 * `interval_s` positional. Declaring it here is the whole parse — ADR-11 puts
-	 * defaults and coercion in `parse_schema_args()`, which `Probe_Node` calls to
-	 * arm the sweep timer.
+	 * Topology console manifest: this probe's description over the `Monitor`
+	 * palette entry and `interval_s` positional `Probe_Node` declares.
 	 *
 	 * @return array<string,mixed>
 	 */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
-			'category'    => 'Monitor',
 			'description' => 'Sweeps every Consumer in this process every N seconds; emits one stats snapshot (seg:off, bytes_read, backlog) into the topicprobe log.',
-			'arguments'   => [
-				[ 'name' => 'interval_s', 'type' => 'int', 'default' => self::DEFAULT_INTERVAL_S, 'description' => 'Sweep cadence in seconds between Consumer-stats snapshots; empty or absent defaults to 15.' ],
-			],
 		] );
 	}
 }
