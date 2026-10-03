@@ -396,3 +396,44 @@ describe( 'byKey, bySource and maxOf', () => {
 		expect( maxOf( [] ) ).toBe( 0 );
 	} );
 } );
+
+describe( 'a worker’s Tables swept at one instant', () => {
+	it( 'sum into one point, where staggered stamps chart apart', () => {
+		const table = ( ts, opsRate ) => ( {
+			key: 'flame-stats',
+			series: [
+				{ ts, opsRate, elapsed: 15000, worker: 'job-worker-4417.p3' },
+			],
+		} );
+		const shared = topicChartSeries(
+			{
+				a: table( 1790000123.25, 7 ),
+				b: table( 1790000123.25, 11 ),
+				c: table( 1790000123.25, 13 ),
+			},
+			'opsRate',
+			byKey,
+			SPLIT
+		);
+		expect(
+			shared[ 'flame-stats · job-worker-4417.p3' ].points.map( ( p ) => [
+				p.ts,
+				p.value,
+			] )
+		).toEqual( [ [ 1790000123.25, 31 ] ] );
+
+		const staggered = topicChartSeries(
+			{
+				a: table( 1790000123.25, 7 ),
+				b: table( 1790000123.2637, 11 ),
+				c: table( 1790000123.2774, 13 ),
+			},
+			'opsRate',
+			byKey,
+			SPLIT
+		);
+		expect(
+			staggered[ 'flame-stats · job-worker-4417.p3' ].points
+		).toHaveLength( 3 );
+	} );
+} );

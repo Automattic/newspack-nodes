@@ -83,6 +83,46 @@ final class TableProbeTest extends TestCase {
 		$this->assertSame( [ 'flame-stats:aggregate.p2', 'flame-stats:url.p2' ], $ids );
 	}
 
+	public function test_every_record_of_one_sweep_carries_the_sweep_instant(): void {
+		$reads       = 0;
+		Core::$clock = static function () use ( &$reads ): float {
+			return 1790000123.25 + 0.0137 * $reads++;
+		};
+		foreach ( [ 'flame-stats:a', 'flame-stats:b', 'flame-stats:c' ] as $name ) {
+			$t = new class() extends Table_Node {
+				public string $identity = '';
+				public function probe_stats(): array {
+					// Swept work reads the clock, moving Core::$now mid-sweep.
+					Core::right_now();
+					return [ [ Tablestats_Record::IDENTITY => $this->identity ] + $this->canned_record() ];
+				}
+				/** @return array<int,mixed> */
+				private function canned_record(): array {
+					return [
+						Tablestats_Record::BACKEND      => 'sqlite',
+						Tablestats_Record::VERBS        => [],
+						Tablestats_Record::PURGE_BEHIND => 0,
+						Tablestats_Record::WAL_STALLED  => 0,
+						Tablestats_Record::FILE_BYTES   => 1,
+						Tablestats_Record::ELAPSED_MS   => 1,
+					];
+				}
+			};
+			$t->identity = $name;
+			$t->name( $name );
+		}
+		Core::$now = 1790000000.5;
+		$capture   = new Capture_Sink_Node();
+		$probe     = $this->probe( $capture );
+		$probe->fire_cb();
+		Core::$clock = null;
+
+		$this->assertCount( 3, $capture->captured );
+		$stamps = \array_unique( \array_map( static fn ( $m ) => $m[ Message::TIMESTAMP ], $capture->captured ) );
+		$this->assertCount( 1, $stamps );
+		$this->assertSame( 1790000000.5, \reset( $stamps ) );
+	}
+
 	public function test_a_record_names_its_worker_in_from(): void {
 		$this->stub_table( 'flame-stats:url', [ self::record( 'flame-stats:url.p3' ) ] );
 		Core::$var['topology']  = 'job-worker-4417';
