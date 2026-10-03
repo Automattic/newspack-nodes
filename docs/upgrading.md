@@ -6,6 +6,11 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`Admin::scale_chip_classes()` is new.** Pyrobase and nuclear-gyrobase
+  call it, so each declares a 2.87.0 floor (nuclear) or deploys with it
+  (pyrobase). Nothing to change in your plugin unless it styles an ordered
+  chip: pass a weight map and put the returned `np-scale-chip--N` class on the
+  chip.
 - **`topicprobe.p0` carries Partition records beside Consumer records.** A
   Partition record leaves `Probe_Record::READER` blank and fills `SOURCE` with
   the log's SSE stamp: bare for a `logs/` dir (`ingest.p0`), `{group}/{dir}`

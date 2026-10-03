@@ -1,3 +1,4 @@
+@use "sass:map";
 @use "sass:meta";
 
 $skin-root: ":is(.topology-app, .newspack-nodes-skin-root).newspack-nodes-theme";
@@ -38,12 +39,6 @@ $skins: (
 		status-text: #666,
 		muted-text: #717171,
 		on-brass: var(--ink),
-		chart-1: var(--np-chart-1),
-		chart-2: var(--np-chart-2),
-		chart-3: var(--np-chart-3),
-		chart-4: var(--np-chart-4),
-		chart-5: var(--np-chart-5),
-		chart-6: var(--np-chart-6),
 		repl-bg: #1e1e1e,
 		repl-fg: #f7f7f7,
 		font-mono: var(--np-font),
@@ -628,6 +623,13 @@ $skins: (
 		),
 	),
 );
+
+// Both Newspack skins draw the one `--np-chart-*` palette.
+@each $slug in (newspack, newspack-brand) {
+	@for $i from 1 through 8 {
+		$skins: map.set($skins, $slug, chart-#{$i}, var(--np-chart-#{$i}));
+	}
+}
 
 #{$skin-root} {
 	--modal-radius: 5px;

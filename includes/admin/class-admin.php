@@ -78,6 +78,9 @@ class Admin {
 	/** Nonce field name on the flush form; FLUSH_ACTION is the action it verifies. */
 	public const FLUSH_NONCE  = 'newspack_nodes_flush_nonce';
 
+	/** Steps of the ordinal Cobalt scale chip; `_scale-chip.scss` emits this many. */
+	public const SCALE_CHIP_STEPS = 6;
+
 	/** Settings page slug for add_settings_field() / do_settings_sections(). */
 	public const SETTINGS_PAGE = 'newspack_nodes';
 
@@ -901,6 +904,43 @@ class Admin {
 	private static function default_int( array $defaults, string $key, int $fallback ): int {
 		$value = $defaults[ $key ] ?? $fallback;
 		return Core::as_int( $value, $fallback );
+	}
+
+	/**
+	 * Classes for scale chips on a weighted list, ranked once: keys rank by
+	 * weight, the heaviest key lightest (step 1), and the ranks spread evenly
+	 * onto 1..SCALE_CHIP_STEPS, `1 + round( rank x ( STEPS - 1 ) / ( count - 1 ) )`;
+	 * a lone key takes step 1. Keys of equal weight share the lighter rank (the
+	 * number of strictly heavier keys). A chip carries the theme class itself,
+	 * so its `--np-*` tokens resolve with no wrapper scope.
+	 *
+	 * @api Pyrobase and nuclear-gyrobase rank their cron cadences through this.
+	 * @param array<string,int|float> $weights Weight by key, every ranked key.
+	 * @return array<string,string> Class attribute value by key.
+	 */
+	public static function scale_chip_classes( array $weights ): array {
+		$count  = \count( $weights );
+		$sorted = $weights;
+		\arsort( $sorted );
+		// One pass: a key's rank is its count of strictly heavier keys.
+		$ranks = [];
+		$rank  = 0;
+		$seen  = 0;
+		$last  = null;
+		foreach ( $sorted as $key => $weight ) {
+			if ( null !== $last && $weight < $last ) {
+				$rank = $seen;
+			}
+			$ranks[ $key ] = $rank;
+			$last          = $weight;
+			++$seen;
+		}
+		$classes = [];
+		foreach ( \array_keys( $weights ) as $key ) {
+			$step            = 1 === $count ? 1 : 1 + (int) \round( $ranks[ $key ] * ( self::SCALE_CHIP_STEPS - 1 ) / ( $count - 1 ) );
+			$classes[ $key ] = 'newspack-nodes-theme np-scale-chip--' . $step;
+		}
+		return $classes;
 	}
 
 	/**

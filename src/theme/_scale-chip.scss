@@ -1,0 +1,17 @@
+@use "sass:list";
+
+// Ordinal Cobalt scale, lightest first; ink holds 4.5:1 and steps sit 8 ΔE apart.
+$scale-chip-shares: 5%, 16%, 27%, 38%, 49%, 60%;
+
+@for $step from 1 through list.length($scale-chip-shares) {
+	$share: list.nth($scale-chip-shares, $step);
+
+	.newspack-nodes-theme.np-scale-chip--#{$step} {
+		background: color-mix(
+			in srgb,
+			var(--np-primary) $share,
+			var(--np-surface-subtle)
+		);
+		color: var(--np-text);
+	}
+}

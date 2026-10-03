@@ -11,12 +11,13 @@
  * shared skin maps below translate those product tokens and every decorative
  * palette into the universal `--paper/--ink/--cyan/…` vocabulary.
  *
- * Apart from the narrowly scoped legacy focus bridge for public token-only
- * consumers, this entry emits no component appearance.
+ * Beyond the legacy focus bridge and the `np-scale-chip--1…N` Cobalt scale (N is
+ * `Admin::SCALE_CHIP_STEPS`), no appearance.
  */
 
 @use "skins";
 @use "legacy-focus";
+@use "scale-chip";
 
 .newspack-nodes-theme {
 	/* Primary — Cobalt */
@@ -80,12 +81,14 @@
 	--np-space-lg: 24px;
 	--np-space-xl: 32px;
 
-	/* Categorical chart palette — functional colors + the brand accents
-	   DESIGN.brand sanctions for data series (the one in-product brand use). */
-	--np-chart-1: #003da5;
-	--np-chart-2: #117644;
+	/* Categorical chart palette, eight steps: Cobalt, Warning and Error, and
+	   the Emerald, Morganite and Amber ramps DESIGN.brand sanctions for series. */
+	--np-chart-1: #406ebc;
+	--np-chart-2: #178e53;
 	--np-chart-3: #bd8600;
-	--np-chart-4: #b32d2e;
-	--np-chart-5: #2055b0;
-	--np-chart-6: #905665;
+	--np-chart-4: #d63638;
+	--np-chart-5: #809ed2;
+	--np-chart-6: #c5788b;
+	--np-chart-7: #dc8c00;
+	--np-chart-8: #1fb36a;
 }

@@ -124,6 +124,8 @@ const ALLOWED_DERIVED_OVERRIDES = {
 		'--chart-4': 'var(--np-chart-4)',
 		'--chart-5': 'var(--np-chart-5)',
 		'--chart-6': 'var(--np-chart-6)',
+		'--chart-7': 'var(--np-chart-7)',
+		'--chart-8': 'var(--np-chart-8)',
 		'--font-terminal': 'var(--np-font-mono)',
 		'--modal-radius': '6px',
 		'--modal-shadow': '0 3px 30px rgba(0, 0, 0, 0.7019607843137254)',
@@ -131,6 +133,14 @@ const ALLOWED_DERIVED_OVERRIDES = {
 		'--status-text': '#666',
 	},
 	'newspack-brand': {
+		'--chart-1': 'var(--np-chart-1)',
+		'--chart-2': 'var(--np-chart-2)',
+		'--chart-3': 'var(--np-chart-3)',
+		'--chart-4': 'var(--np-chart-4)',
+		'--chart-5': 'var(--np-chart-5)',
+		'--chart-6': 'var(--np-chart-6)',
+		'--chart-7': 'var(--np-chart-7)',
+		'--chart-8': 'var(--np-chart-8)',
 		'--font-terminal': '"jetbrains mono", ui-monospace, monospace',
 		'--modal-radius': '6px',
 		'--modal-shadow': '0 3px 30px rgba(0, 0, 0, 0.7019607843137254)',
@@ -631,13 +641,14 @@ const colorKey = ( color ) =>
 		.map( ( value ) => Number( value.toFixed( 6 ) ) )
 		.join( ',' );
 
+const linear = ( channel ) => {
+	const value = channel / 255;
+	return 0.04045 >= value
+		? value / 12.92
+		: ( ( value + 0.055 ) / 1.055 ) ** 2.4;
+};
+
 const luminance = ( color ) => {
-	const linear = ( channel ) => {
-		const value = channel / 255;
-		return 0.04045 >= value
-			? value / 12.92
-			: ( ( value + 0.055 ) / 1.055 ) ** 2.4;
-	};
 	return (
 		0.2126 * linear( color.r ) +
 		0.7152 * linear( color.g ) +
@@ -1394,6 +1405,124 @@ describe( 'theme skin ramps', () => {
 				).toBeGreaterThanOrEqual( expected.minimumContrast );
 			}
 		}
+	} );
+
+	it( 'draws one eight-slot Newspack chart palette in both Newspack skins', () => {
+		const expected = [
+			'#406ebc',
+			'#178e53',
+			'#bd8600',
+			'#d63638',
+			'#809ed2',
+			'#c5788b',
+			'#dc8c00',
+			'#1fb36a',
+		];
+		for ( const slug of [ 'newspack', 'newspack-brand' ] ) {
+			const skin = effectiveSkin( slug );
+			const paper = resolvedColor( skin, '--paper-2' );
+			expect( paper ).toEqual( parseColor( '#f7f7f7' ) );
+			expected.forEach( ( hex, index ) => {
+				const role = `--chart-${ index + 1 }`;
+				const color = resolvedColor( skin, role );
+				expect( [ slug, role, color ] ).toEqual( [
+					slug,
+					role,
+					parseColor( hex ),
+				] );
+				expect( contrast( color, paper ) ).toBeGreaterThanOrEqual(
+					2.5
+				);
+			} );
+		}
+	} );
+
+	it( 'resolves the legacy focus ring to --np-text where no skin sets --ink', () => {
+		let outline = null;
+		stylesheet.walkRules( ( rule ) => {
+			if ( /:focus-visible/.test( rule.selector ) ) {
+				outline = allDeclarations( rule ).outline ?? outline;
+			}
+		} );
+		expect( outline ).not.toBeNull();
+		const ring = /^2px solid (.+)$/.exec( outline )?.[ 1 ];
+		expect( resolveCssColor( ring, {} ) ).toEqual(
+			parseColor( themeTokens[ '--np-text' ] )
+		);
+	} );
+
+	it( 'draws the Cobalt scale chip, as many steps as Admin::SCALE_CHIP_STEPS, with ink at 4.5:1 or more, ΔE of 8 or more between steps, and falling lightness', () => {
+		const chipRules = stylesheet.nodes.filter(
+			( node ) =>
+				'rule' === node.type &&
+				/^\.newspack-nodes-theme\.np-scale-chip--\d+$/.test(
+					normalizeSelector( node.selector )
+				)
+		);
+		const phpSteps = Number(
+			/const SCALE_CHIP_STEPS\s*=\s*(\d+);/.exec(
+				fs.readFileSync(
+					path.join( ROOT, 'includes/admin/class-admin.php' ),
+					'utf8'
+				)
+			)?.[ 1 ]
+		);
+		expect( chipRules.length ).toBe( phpSteps );
+		const steps = chipRules.map( ( rule, index ) => {
+			expect( normalizeSelector( rule.selector ) ).toBe(
+				`.newspack-nodes-theme.np-scale-chip--${ index + 1 }`
+			);
+			const declared = allDeclarations( rule );
+			expect( resolveCssColor( declared.color, {} ) ).toEqual(
+				parseColor( themeTokens[ '--np-text' ] )
+			);
+			return resolveCssColor( declared.background, {} );
+		} );
+		const ink = parseColor( themeTokens[ '--np-text' ] );
+		const lab = ( { r, g, b } ) => {
+			const [ x, y, z ] = [
+				[ 0.4124, 0.3576, 0.1805 ],
+				[ 0.2126, 0.7152, 0.0722 ],
+				[ 0.0193, 0.1192, 0.9505 ],
+			].map(
+				( row, index ) =>
+					( row[ 0 ] * linear( r ) +
+						row[ 1 ] * linear( g ) +
+						row[ 2 ] * linear( b ) ) /
+					[ 0.95047, 1, 1.08883 ][ index ]
+			);
+			const f = ( t ) =>
+				0.008856 < t ? Math.cbrt( t ) : 7.787 * t + 16 / 116;
+			return [
+				116 * f( y ) - 16,
+				500 * ( f( x ) - f( y ) ),
+				200 * ( f( y ) - f( z ) ),
+			];
+		};
+		const labs = steps.map( lab );
+		const pairs = labs
+			.slice( 1 )
+			.map( ( next, index ) => [ labs[ index ], next ] );
+		steps.forEach( ( step ) =>
+			expect( contrast( ink, step ) ).toBeGreaterThanOrEqual( 4.5 )
+		);
+		pairs.forEach( ( [ lighter, darker ] ) => {
+			expect( darker[ 0 ] ).toBeLessThan( lighter[ 0 ] );
+			expect(
+				Math.hypot( ...darker.map( ( v, i ) => v - lighter[ i ] ) )
+			).toBeGreaterThanOrEqual( 8 );
+		} );
+	} );
+
+	it( 'never reads a chart token from a text color declaration', () => {
+		const offenders = productionRules
+			.filter( ( rule ) =>
+				/--(?:np-)?chart-/.test( rule.declarations.color || '' )
+			)
+			.map(
+				( rule ) => `${ rule.selector }: ${ rule.declarations.color }`
+			);
+		expect( offenders ).toEqual( [] );
 	} );
 
 	it( 'preserves distinct contrast-safe semantic colors in both Newspack skins', () => {

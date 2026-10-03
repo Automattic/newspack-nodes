@@ -12,7 +12,7 @@
 		}
 
 		&:focus-visible {
-			outline: 2px solid var(--ink, currentcolor);
+			outline: 2px solid var(--ink, var(--np-text));
 			outline-offset: 1px;
 			box-shadow: none;
 		}

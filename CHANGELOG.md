@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`Admin::scale_chip_classes( $weights )` styles an ordered chip.** It ranks a weight map once, heaviest lightest, and returns each key's `newspack-nodes-theme np-scale-chip--N` class, N spread evenly across `Admin::SCALE_CHIP_STEPS`. The theme stylesheet emits the steps as Cobalt mixed into Surface Subtle with body ink, every step at least 4.5:1, and the chip carries the theme class itself, so its tokens resolve with no wrapper scope. Pyrobase's and nuclear-gyrobase's cron pages rank their cadences through it.
+
+### Changed
+
+- **The Newspack chart palette is lighter and eight steps long.** `--np-chart-1` … `--np-chart-8` are Cobalt 400, Emerald 800, Warning 400, Error 500, Cobalt 200, Morganite 700, Amber 600 and Emerald 600, each at least 2.5:1 on Surface Subtle, where the six steps were the deep end of each ramp and slots 7 and 8 fell back to the darkest accents. Both Newspack skins draw all eight, `newspack-brand` included.
+- **No text colour reads a chart token.** The station's read, write and message-rate cards show their values in ink, and `skinRamps.test.js` refuses any `color` declaration in a newspack-nodes stylesheet that reads `--chart-*` or `--np-chart-*`.
+
+### Fixed
+
+- **The legacy focus ring is visible on a token-only page.** Its outline fell back to `currentcolor` where no skin sets `--ink`, which drew a white ring around a primary button; it falls back to `--np-text`.
+
 ## [2.86.0] - 2026-10-03
 
 ### Added
