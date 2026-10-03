@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.87.0] - 2026-10-03
+
 ### Added
 
 - **`Admin::scale_chip_classes( $weights )` styles an ordered chip.** It ranks a weight map once, heaviest lightest, and returns each key's `newspack-nodes-theme np-scale-chip--N` class, N spread evenly across `Admin::SCALE_CHIP_STEPS`. The theme stylesheet emits the steps as Cobalt mixed into Surface Subtle with body ink, every step at least 4.5:1, and the chip carries the theme class itself, so its tokens resolve with no wrapper scope. Pyrobase's and nuclear-gyrobase's cron pages rank their cadences through it.
