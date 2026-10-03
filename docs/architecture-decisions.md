@@ -1310,6 +1310,17 @@ which wakes a sleeping on-demand worker and hands the `id` back with the channel
 strips either tree. A process outside PHP receives type, partition and the resolved
 directory, never an id to parse, because a second grammar accepts what the first refuses.
 
+**A worker in a FROM trail has one reader.** A writer appending to a log many workers
+share (`topicprobe.p0`, `jobstats.p0`, `tablestats.p0`) stamps FROM `{worker-id}/{name}`
+through `CLI::worker_id()`, because no per-worker boundary exists to stamp it; with no
+worker bound it stamps its bare name. The browser's SSE reader prepends its own stamp, the
+log's dir name (one segment, two when the first is a `GROUP_PREFIXES` group).
+[`workerOfFrom()`](../src/shared/utils/workerId.js) strips that stamp by the same rule and
+reads what remains, `{worker}/{name}` or `{name}`, validating the worker through
+`parseWorkerId()`; any other shape names no worker. It is the one reader of a FROM trail's
+worker, as `workerOfPath()` is of a TO path's. Rejected: a WORKER slot in each record layout,
+which costs three layout changes and their parity pins for what FROM already carries.
+
 **Alternatives considered:** One regex constant shared by every site — rejected: it shares a
 pattern, not the decision, and each site still wraps it in its own trim, cast and fallback,
 which is where `kea.p03` became `kea.p3`. A lenient reader that normalizes a padded partition
@@ -1325,7 +1336,8 @@ match with no filesystem call.
 
 **Revisit if:** the lock or IPC layout becomes operator-configurable, at which point the
 owners read a template rather than a constant and an id stops being recoverable from a
-path alone.
+path alone; or a shared log's name stops sharing the `{name}.p{N}` spelling with worker ids,
+at which point a stamp and a worker id can no longer be told apart by position.
 
 ---
 
