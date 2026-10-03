@@ -141,6 +141,7 @@ class DiagnosticEntrypointTest extends TestCase {
 				'job-intake'            => 6,
 				'job-worker'            => 6,
 				'settings-sync'         => 1,
+				'table-probe'           => 6,
 				'topic-probe'           => 6,
 			],
 			$result['topology_workers']

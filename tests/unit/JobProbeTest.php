@@ -23,13 +23,13 @@ use Newspack_Nodes\Tests\TestCase;
 class JobProbeTest extends TestCase {
 
 	/**
-	 * Job_Probe and Topic_Probe are ONE mechanism with two filters. The cadence
+	 * Every probe is ONE mechanism with its own filter. The cadence
 	 * argument, the timer default, the sweep loop and the clean-shutdown flush
 	 * live in `Probe_Node`; a subclass that redeclares any of them is the
 	 * copy-paste coming back.
 	 */
-	public function test_both_probes_inherit_one_sweep_implementation(): void {
-		foreach ( [ Job_Probe_Node::class, Topic_Probe_Node::class ] as $probe ) {
+	public function test_every_probe_inherits_one_sweep_implementation(): void {
+		foreach ( [ Job_Probe_Node::class, Topic_Probe_Node::class, \Newspack_Nodes\Table_Probe_Node::class ] as $probe ) {
 			foreach ( [ 'arguments', 'fire', 'shutdown_sweep' ] as $method ) {
 				$this->assertSame(
 					Probe_Node::class,
