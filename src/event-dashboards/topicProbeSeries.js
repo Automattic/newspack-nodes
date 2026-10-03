@@ -25,29 +25,35 @@ const LEVEL_MODE = { fill: 'hold', agg: 'last' };
 /** RATE metric: a bucket re-divides Σwork by Σweight, and a gap reads 0. */
 const RATE_MODE = { fill: 'zero', agg: 'rate' };
 
+/** MAX metric: a bucket keeps its largest sample, and a gap reads 0. */
+const MAX_MODE = { fill: 'zero', agg: 'max' };
+
 /**
- * Fill/aggregate mode per metric. RATE is the fallback, so only a LEVEL gauge
- * needs an entry: Jobs' `runsRate` and `errorsRate` are absent and still chart
- * correctly. `queueLatencyMs` is listed to record the judgement, not to change
- * the outcome.
+ * Fill/aggregate mode per metric. RATE is the fallback, so only non-RATE metrics
+ * need an entry. LEVEL gauges (`backlog`, `cacheSize`, `fileBytes`) hold across
+ * gaps; MAX metrics (`maxMs`) zero-fill gaps and keep the largest sample.
  */
 const FILL_MODES = {
 	msgRate: RATE_MODE,
 	byteRate: RATE_MODE,
 	backlog: LEVEL_MODE,
 	cacheSize: LEVEL_MODE,
+	fileBytes: LEVEL_MODE,
+	maxMs: MAX_MODE,
 	// An event metric, not a gauge: hold paints the last job across idle hours.
 	queueLatencyMs: RATE_MODE,
 };
 
 /**
  * The sample field each metric is a per-unit quotient OF, so a bucket aggregate
- * can weight by it. Per-second rates divide by seconds; queue latency is a
- * per-RUN mean, so weighting it by seconds would treat a busy window and an idle
- * one as equals. A per-run mean only sums within ONE identity, which is why Jobs
- * groups its latency panel by job key rather than by handler.
+ * can weight by it. Per-second rates divide by seconds; `queueLatencyMs` and
+ * `meanMs` are per-unit means (per run and per operation, respectively), so
+ * weighting them by seconds would treat a busy window and an idle one as equals.
  */
-const WEIGHT_FIELDS = { queueLatencyMs: 'runsDelta' };
+const WEIGHT_FIELDS = {
+	queueLatencyMs: 'runsDelta',
+	meanMs: 'opsDelta',
+};
 
 /** Weight for every metric the table omits: the sample's own window, in seconds. */
 const DEFAULT_WEIGHT_FIELD = 'elapsed';
@@ -55,11 +61,12 @@ const DEFAULT_WEIGHT_FIELD = 'elapsed';
 /**
  * Fill/aggregate mode for a Topics metric: LEVEL gauges hold across gaps and
  * keep the last reading per bucket; RATE metrics zero-fill gaps and re-divide
- * the bucket's summed work by its summed weight. `backlog` and `cacheSize` are
- * the LEVEL gauges; every other metric, named in the table or not, is a RATE.
+ * the bucket's summed work by its summed weight; MAX metrics zero-fill gaps and
+ * keep the largest sample. `backlog`, `cacheSize` and `fileBytes` are LEVEL
+ * gauges; `maxMs` is a MAX metric; every other metric is a RATE.
  *
  * @param {string} metric A sample field name, such as `msgRate` or `backlog`.
- * @return {{fill:('hold'|'zero'),agg:('last'|'rate')}} The fill/aggregate mode.
+ * @return {{fill:('hold'|'zero'),agg:('last'|'rate'|'max')}} The fill/aggregate mode.
  */
 export function fillModeForMetric( metric ) {
 	return FILL_MODES[ metric ] || RATE_MODE;

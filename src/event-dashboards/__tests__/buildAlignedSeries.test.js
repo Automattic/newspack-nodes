@@ -208,4 +208,56 @@ describe( 'buildAlignedSeries', () => {
 		expect( out.dates.length ).toBeLessThanOrEqual( 100 );
 		expect( out.series[ 0 ].values.length ).toBe( out.dates.length );
 	} );
+
+	it( 'a MAX bucket keeps its largest sample and an empty one reads 0', () => {
+		const out = buildAlignedSeries(
+			{
+				'lab-7:kea.p3 max': {
+					points: [
+						{ ts: 1500, value: 4.25, weight: 15 },
+						{ ts: 1505, value: 9.75, weight: 15 },
+						{ ts: 1530, value: 2.5, weight: 15 },
+					],
+					max: 9.75,
+					avg: 5.5,
+				},
+			},
+			0,
+			{ fill: 'zero', agg: 'max' }
+		);
+		expect( out.series[ 0 ].values.map( ( v ) => v.value ) ).toEqual( [
+			9.75, 0, 2.5,
+		] );
+	} );
+
+	it( 'a series carrying its own mode overrides the panel mode', () => {
+		const out = buildAlignedSeries(
+			{
+				mean: {
+					points: [
+						{ ts: 1500, value: 2, weight: 1 },
+						{ ts: 1505, value: 8, weight: 3 },
+					],
+					max: 8,
+					avg: 5,
+				},
+				peak: {
+					points: [
+						{ ts: 1500, value: 3, weight: 1 },
+						{ ts: 1505, value: 11, weight: 1 },
+					],
+					max: 11,
+					avg: 7,
+					mode: { fill: 'zero', agg: 'max' },
+				},
+			},
+			0,
+			{ fill: 'zero', agg: 'rate' }
+		);
+		const byLabel = Object.fromEntries(
+			out.series.map( ( s ) => [ s.label, s.values[ 0 ].value ] )
+		);
+		expect( byLabel.mean ).toBe( 6.5 );
+		expect( byLabel.peak ).toBe( 11 );
+	} );
 } );
