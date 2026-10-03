@@ -498,6 +498,11 @@
 			flex: 1 1 auto;
 			min-width: 0;
 
+			// A toggling plot is a button; the shared focus role rings it.
+			&[role="button"] {
+				cursor: pointer;
+			}
+
 			// d3 axis ink and type size on the panel.
 			.tick text {
 				fill: var(--ink-3, var(--np-text-secondary));
