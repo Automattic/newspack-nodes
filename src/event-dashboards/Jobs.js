@@ -11,8 +11,9 @@
  *
  * Four Tachikoma-style panels chart that window: runs/s and errors/s per job
  * IDENTITY per worker, stacked so the column reads as the fleet's total; the
- * jobs Topic's backlog in bytes, stacked because each partition's is its own
- * debt; and queue latency per job IDENTITY, a mean that never stacks.
+ * jobs Topic's backlog in bytes per partition per worker, stacked because each
+ * is its own debt; and queue latency per job IDENTITY, a mean that never
+ * stacks.
  * One table row per identity then carries the windowed run and failure totals,
  * the average, longest and last durations, the average queue wait, the last
  * outcome (a status badge plus its one-line message) and when it last ran. A
@@ -26,15 +27,15 @@ import { __ } from '@wordpress/i18n';
 import { useProbeStream } from './hooks/useProbeStream';
 import { useNodeField } from '../runtime/react';
 import UnparseableLinesNotice from '@newspack-nodes/shared/components/UnparseableLinesNotice';
-import { topicChartSeries, perWorker } from './topicProbeSeries';
-import { TopicsPanels } from './TopicsChart';
+import { topicChartSeries, byKey } from './topicProbeSeries';
+import { TopicsPanels, ProbeTable, errorsColumn } from './TopicsChart';
 import {
 	formatBytes,
 	formatGroupedCount,
-	formatMs,
 	formatMsgRate,
 	formatAge,
 } from '@newspack-nodes/shared/utils/formatters';
+import { formatDuration } from '@newspack-nodes/shared/utils/formatUtils';
 import './styles/probe-tab.scss';
 import './styles/jobs.scss';
 
@@ -50,25 +51,69 @@ import './styles/jobs.scss';
  */
 const isJobsSource = ( source ) => /^jobs(\.p\d+)?$/.test( source || '' );
 
-/**
- * Each entry plots under its own key.
- *
- * @param {{key:string}} c A job identity or a per-worker pseudo-entry.
- * @return {string} Its key.
- */
-const byKey = ( c ) => c.key;
-
-/**
- * A duration cell: '-' where the window ran nothing to measure.
- *
- * @param {?number} ms Milliseconds, or null.
- * @return {string} The label.
- */
-const msCell = ( ms ) => ( null === ms ? '-' : formatMs( ms ) );
-
 /** Shared empty models, so an unready view keeps the memos' inputs stable. */
 const NO_HANDLERS = {};
 const NO_CONSUMERS = {};
+
+/**
+ * The identity table's columns. A mean or max over a window with no runs is
+ * null, which `formatDuration` reads as '-'; `ctx.nowSec` dates the last run.
+ *
+ * @type {Array<import('./TopicsChart').ProbeColumn>}
+ */
+const COLUMNS = [
+	{
+		label: __( 'Job', 'newspack-nodes' ),
+		cell: byKey,
+		td: () => ( { className: 'nodes-probe-tab__name' } ),
+	},
+	{
+		label: __( 'Runs', 'newspack-nodes' ),
+		cell: ( row ) => formatGroupedCount( row.windowed.runs ),
+	},
+	errorsColumn( __( 'Failures', 'newspack-nodes' ) ),
+	{
+		label: __( 'Avg', 'newspack-nodes' ),
+		cell: ( row ) => formatDuration( row.windowed.avgDurationMs ),
+	},
+	{
+		label: __( 'Max', 'newspack-nodes' ),
+		cell: ( row ) => formatDuration( row.windowed.maxDurationMs ),
+	},
+	{
+		label: __( 'Last', 'newspack-nodes' ),
+		cell: ( row ) => formatDuration( row.latest.lastDurationMs ),
+	},
+	{
+		label: __( 'Queued', 'newspack-nodes' ),
+		cell: ( row ) => formatDuration( row.windowed.avgQueueMs ),
+	},
+	{
+		label: __( 'Status', 'newspack-nodes' ),
+		cell: ( row ) => (
+			<span
+				className={ `newspack-nodes-status-badge nodes-jobs__status is-${ row.latest.lastStatus }` }
+			>
+				{ row.latest.lastStatus }
+			</span>
+		),
+	},
+	{
+		label: __( 'Message', 'newspack-nodes' ),
+		cell: ( row ) => row.latest.lastMessage,
+		td: ( row ) => ( {
+			className: 'nodes-jobs__message',
+			title: row.latest.lastMessage,
+		} ),
+	},
+	{
+		label: __( 'Last run', 'newspack-nodes' ),
+		cell: ( row, ctx ) =>
+			row.latest.lastTs
+				? formatAge( row.latest.lastTs, ctx.nowSec )
+				: '-',
+	},
+];
 
 /**
  * Jobs station tab.
@@ -87,17 +132,14 @@ export default function Jobs() {
 
 	// Deferred so redraws stay off INP.
 	const deferred = useDeferredValue( handlers );
-	// One stream per identity per worker; the stacked chart sums them.
-	const streams = useMemo( () => perWorker( deferred ), [ deferred ] );
 	const runsSeries = useMemo(
-		() => topicChartSeries( streams, 'runsRate', byKey ),
-		[ streams ]
+		() => topicChartSeries( deferred, 'runsRate', byKey ),
+		[ deferred ]
 	);
 	const errorsSeries = useMemo(
-		() => topicChartSeries( streams, 'errorsRate', byKey ),
-		[ streams ]
+		() => topicChartSeries( deferred, 'errorsRate', byKey ),
+		[ deferred ]
 	);
-	// Per IDENTITY: a mean over its workers' samples, never a sum.
 	const latencySeries = useMemo(
 		() => topicChartSeries( deferred, 'queueLatencyMs', byKey ),
 		[ deferred ]
@@ -127,15 +169,12 @@ export default function Jobs() {
 				a.key.localeCompare( b.key )
 		);
 
-	const nowSec = Math.floor( Date.now() / 1000 );
-	const total = __( 'Total', 'newspack-nodes' );
 	const panels = [
 		{
 			title: __( 'Job Runs Rate', 'newspack-nodes' ),
 			yLabel: __( 'Runs', 'newspack-nodes' ),
 			series: runsSeries,
 			formatValue: formatMsgRate,
-			metric: 'runsRate',
 			stacked: true,
 		},
 		{
@@ -143,7 +182,6 @@ export default function Jobs() {
 			yLabel: __( 'Errors', 'newspack-nodes' ),
 			series: errorsSeries,
 			formatValue: formatMsgRate,
-			metric: 'errorsRate',
 			stacked: true,
 		},
 		{
@@ -151,15 +189,13 @@ export default function Jobs() {
 			yLabel: __( 'Backlog', 'newspack-nodes' ),
 			series: backlogSeries,
 			formatValue: formatBytes,
-			metric: 'backlog',
 			stacked: true,
 		},
 		{
 			title: __( 'Job Queue Latency', 'newspack-nodes' ),
 			yLabel: __( 'Latency', 'newspack-nodes' ),
 			series: latencySeries,
-			formatValue: formatMs,
-			metric: 'queueLatencyMs',
+			formatValue: formatDuration,
 			stackable: false,
 		},
 	];
@@ -175,76 +211,16 @@ export default function Jobs() {
 				node="topicprobe:link"
 			/>
 			<div className="nodes-probe-tab__panels">
-				<TopicsPanels panels={ panels } totalLabel={ total } />
+				<TopicsPanels panels={ panels } />
 			</div>
-
-			{ 0 === rows.length ? (
-				<p className="newspack-nodes-empty-state nodes-probe-tab__empty">
-					{ __( 'No job activity yet.', 'newspack-nodes' ) }
-				</p>
-			) : (
-				<table className="nodes-probe-tab__table newspack-nodes-table">
-					<thead>
-						<tr>
-							<th>{ __( 'Job', 'newspack-nodes' ) }</th>
-							<th>{ __( 'Runs', 'newspack-nodes' ) }</th>
-							<th>{ __( 'Failures', 'newspack-nodes' ) }</th>
-							<th>{ __( 'Avg', 'newspack-nodes' ) }</th>
-							<th>{ __( 'Max', 'newspack-nodes' ) }</th>
-							<th>{ __( 'Last', 'newspack-nodes' ) }</th>
-							<th>{ __( 'Queued', 'newspack-nodes' ) }</th>
-							<th>{ __( 'Status', 'newspack-nodes' ) }</th>
-							<th>{ __( 'Message', 'newspack-nodes' ) }</th>
-							<th>{ __( 'Last run', 'newspack-nodes' ) }</th>
-						</tr>
-					</thead>
-					<tbody>
-						{ rows.map( ( row ) => {
-							const l = row.latest;
-							const w = row.windowed;
-							return (
-								<tr key={ row.key } data-job-key={ row.key }>
-									<td className="nodes-probe-tab__name">
-										{ row.key }
-									</td>
-									<td>{ formatGroupedCount( w.runs ) }</td>
-									<td
-										className={
-											w.errors > 0
-												? 'nodes-probe-tab__count is-nonzero'
-												: 'nodes-probe-tab__count'
-										}
-									>
-										{ formatGroupedCount( w.errors ) }
-									</td>
-									<td>{ msCell( w.avgDurationMs ) }</td>
-									<td>{ msCell( w.maxDurationMs ) }</td>
-									<td>{ formatMs( l.lastDurationMs ) }</td>
-									<td>{ msCell( w.avgQueueMs ) }</td>
-									<td>
-										<span
-											className={ `newspack-nodes-status-badge nodes-jobs__status is-${ l.lastStatus }` }
-										>
-											{ l.lastStatus }
-										</span>
-									</td>
-									<td
-										className="nodes-jobs__message"
-										title={ l.lastMessage }
-									>
-										{ l.lastMessage }
-									</td>
-									<td>
-										{ l.lastTs
-											? formatAge( l.lastTs, nowSec )
-											: '-' }
-									</td>
-								</tr>
-							);
-						} ) }
-					</tbody>
-				</table>
-			) }
+			<ProbeTable
+				columns={ COLUMNS }
+				rows={ rows }
+				rowKey={ byKey }
+				keyAttr="data-job-key"
+				context={ { nowSec: Math.floor( Date.now() / 1000 ) } }
+				emptyText={ __( 'No job activity yet.', 'newspack-nodes' ) }
+			/>
 		</div>
 	);
 }

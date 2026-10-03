@@ -21,15 +21,16 @@ import { useLogTailStream } from './useLogTailStream';
 import { views } from '../nodes/register';
 
 /**
- * Every probe log a dashboard tails, by stream name. The subscription IS the
- * log's dir name; each log has one partition and no worker owns the name.
+ * Every probe log a dashboard tails: its view class, by stream name. The
+ * subscription is `<name>.p0`, the log's dir name; each log has one partition
+ * and no worker owns the name.
  *
- * @type {Object<string,{subscribe:string,viewClass:any}>}
+ * @type {Object<string,any>}
  */
 const PROBE_STREAMS = {
-	topicprobe: { subscribe: 'topicprobe.p0', viewClass: views.TopicProbeView },
-	jobstats: { subscribe: 'jobstats.p0', viewClass: views.JobstatsView },
-	tablestats: { subscribe: 'tablestats.p0', viewClass: views.TablestatsView },
+	topicprobe: views.TopicProbeView,
+	jobstats: views.JobstatsView,
+	tablestats: views.TablestatsView,
 };
 
 /**
@@ -42,9 +43,9 @@ const PROBE_STREAMS = {
  * @throws {TypeError} On a name PROBE_STREAMS does not declare.
  */
 export function useProbeStream( name, { mode = 'follow' } = {} ) {
-	const declared = PROBE_STREAMS[ name ];
-	if ( ! declared ) {
+	const viewClass = PROBE_STREAMS[ name ];
+	if ( ! viewClass ) {
 		throw new TypeError( `useProbeStream: no probe stream '${ name }'` );
 	}
-	useLogTailStream( { name, ...declared, mode } );
+	useLogTailStream( { name, subscribe: `${ name }.p0`, viewClass, mode } );
 }

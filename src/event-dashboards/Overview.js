@@ -26,8 +26,9 @@
  * history rather than the thin ring a live tail accumulates while the tab is
  * open.
  * Each panel plots one series per partition per worker, `<source> · <worker>`,
- * through `perWorker`: co-readers of a partition inside one worker sum, since
- * one sweep stamps them together, and the stacked chart sums the workers.
+ * as `topicChartSeries` splits every additive metric: co-readers of a
+ * partition inside one worker sum, since one sweep stamps them together, and
+ * the stacked chart sums the workers.
  *
  * Deep links go through `consoleHref`, keeping Console navigation
  * single-sourced.
@@ -52,7 +53,7 @@ import AlertModal from './AlertModal';
 import { useTopologyManager } from './hooks/useTopologyManager';
 import { useProbeStream } from './hooks/useProbeStream';
 import { useNodeField } from '../runtime/react';
-import { topicChartSeries, perWorker } from './topicProbeSeries';
+import { topicChartSeries } from './topicProbeSeries';
 import { TopicsPanels } from './TopicsChart';
 import { consoleHref, TopologyRow } from './TopologyRow';
 import {
@@ -75,22 +76,6 @@ import {
 	writeCollapsed,
 } from './overviewPrefs';
 import './styles/overview.scss';
-
-/**
- * A reader plots under the partition it tails.
- *
- * @param {{source?:string}} c A `topicprobe:view` consumer.
- * @return {string} Its source.
- */
-const bySource = ( c ) => c.source || '';
-
-/**
- * A per-worker stream plots under its own key.
- *
- * @param {{key:string}} c A `perWorker` pseudo-entry.
- * @return {string} Its key.
- */
-const byKey = ( c ) => c.key;
 
 /**
  * The rendered active rows' vertical bounds, in display order — the geometry
@@ -314,34 +299,28 @@ export default function Overview( { headerControlsSlot } ) {
 
 	// Per-partition 24h series, deferred so heavy rollups stay off INP.
 	const consumers = useDeferredValue( probeView?.consumers );
-	const streams = useMemo(
-		() => perWorker( consumers, bySource ),
+	const msgRateSeries = useMemo(
+		() => topicChartSeries( consumers, 'msgRate' ),
 		[ consumers ]
 	);
-	const msgRateSeries = useMemo(
-		() => topicChartSeries( streams, 'msgRate', byKey ),
-		[ streams ]
-	);
 	const byteRateSeries = useMemo(
-		() => topicChartSeries( streams, 'byteRate', byKey ),
-		[ streams ]
+		() => topicChartSeries( consumers, 'byteRate' ),
+		[ consumers ]
 	);
 	const backlogSeries = useMemo(
-		() => topicChartSeries( streams, 'backlog', byKey ),
-		[ streams ]
+		() => topicChartSeries( consumers, 'backlog' ),
+		[ consumers ]
 	);
 	const cacheSizeSeries = useMemo(
-		() => topicChartSeries( streams, 'cacheSize', byKey ),
-		[ streams ]
+		() => topicChartSeries( consumers, 'cacheSize' ),
+		[ consumers ]
 	);
-	const total = __( 'Total', 'newspack-nodes' );
 	const panels = [
 		{
 			title: __( 'Topics Message Rate', 'newspack-nodes' ),
 			yLabel: __( 'Messages', 'newspack-nodes' ),
 			series: msgRateSeries,
 			formatValue: formatMsgRate,
-			metric: 'msgRate',
 			stacked: true,
 		},
 		{
@@ -349,7 +328,6 @@ export default function Overview( { headerControlsSlot } ) {
 			yLabel: __( 'Bytes', 'newspack-nodes' ),
 			series: byteRateSeries,
 			formatValue: formatByteRate,
-			metric: 'byteRate',
 			stacked: true,
 		},
 		{
@@ -357,7 +335,6 @@ export default function Overview( { headerControlsSlot } ) {
 			yLabel: __( 'Backlog', 'newspack-nodes' ),
 			series: backlogSeries,
 			formatValue: formatBytes,
-			metric: 'backlog',
 			stacked: true,
 		},
 		{
@@ -365,7 +342,6 @@ export default function Overview( { headerControlsSlot } ) {
 			yLabel: __( 'Cache Size', 'newspack-nodes' ),
 			series: cacheSizeSeries,
 			formatValue: formatBytes,
-			metric: 'cacheSize',
 			stacked: true,
 		},
 	];
@@ -440,7 +416,7 @@ export default function Overview( { headerControlsSlot } ) {
 				consumers={ consumers }
 			/>
 			<div className="nodes-overview__panels">
-				<TopicsPanels panels={ panels } totalLabel={ total } />
+				<TopicsPanels panels={ panels } />
 			</div>
 			{ actives.length > 0 && (
 				<div className="nodes-overview__toolbar">

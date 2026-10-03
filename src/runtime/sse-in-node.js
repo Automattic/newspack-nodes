@@ -45,6 +45,7 @@ import {
 	TM_COMMAND,
 	unpack,
 } from './message';
+import { splitStamp } from './log-stamp';
 
 /**
  * The `segment:offset:length` breadcrumb a record carries in its ID.
@@ -85,14 +86,6 @@ function flatInfo( value ) {
 	}
 	return info;
 }
-
-/**
- * The `Log_Discovery::GROUPS` roots a stamp keeps its prefix under.
- * `SSE_Out_Node::stamp_for()` returns a bare basename for the `logs` group and
- * `{group}/{basename}` for these two, so a position under one keys on the full
- * stamp rather than on its first path segment alone.
- */
-export const GROUP_PREFIXES = new Set( [ 'offsets', 'deadletter' ] );
 
 /**
  * REST route opened unless a patron overrides `endpoint`. RemoteLink points a
@@ -892,11 +885,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 		if ( ! idMatch ) {
 			return;
 		}
-		const parts = String( message[ FROM ] || '' ).split( '/' );
-		const dir =
-			GROUP_PREFIXES.has( parts[ 0 ] ) && parts[ 1 ]
-				? `${ parts[ 0 ] }/${ parts[ 1 ] }`
-				: parts[ 0 ];
+		const { dir } = splitStamp( message[ FROM ] );
 		if ( '' === dir ) {
 			return;
 		}

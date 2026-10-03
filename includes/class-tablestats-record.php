@@ -19,8 +19,10 @@ namespace Newspack_Nodes;
  * so a reader divides ONE record and never differences across records — a
  * worker recycles every ~595s. `VERBS` maps an operation name to a
  * positional row the `ROW_*` constants index; an operation with no call in
- * the window is absent. The other slots are levels read at the sweep. The
- * Message TIMESTAMP is the sweep instant, never duplicated here.
+ * the window is absent. The other slots are levels read at the sweep, each
+ * null where the Table's backend has no such thing, so a reader learns what
+ * applies from the record rather than from the backend's name. The Message
+ * TIMESTAMP is the sweep instant, never duplicated here.
  *
  * Indices mirror `src/runtime/tablestats-record.js`, and
  * `tests/unit/ProbeRecordLayoutsTest.php` pins both halves.
@@ -36,13 +38,13 @@ class Tablestats_Record {
 	/** Operation name => its window's row, indexed by the ROW_* constants. */
 	public const VERBS = 2;
 
-	/** 1 while the Table's last purge came back with a full batch, else 0. */
+	/** 1 while the last purge came back with a full batch, else 0; null off a durable arm. */
 	public const PURGE_BEHIND = 3;
 
-	/** WAL checkpoints in a row that left frames behind; 0 off SQLite. */
+	/** WAL checkpoints in a row that left frames behind; null off SQLite. */
 	public const WAL_STALLED = 4;
 
-	/** db + -wal + -shm bytes of a SQLite Table; 0 for any other backend. */
+	/** db + -wal + -shm bytes of a SQLite Table; null for any other backend. */
 	public const FILE_BYTES = 5;
 
 	/** Milliseconds the window covers, from the Table's construction for the first. */

@@ -36,25 +36,14 @@ export function streamHead( consumers ) {
 }
 
 /**
- * Whether a reader counts toward a live card: it names the source the charts
- * plot it under, and its newest sample is live.
- *
- * @param {{source?:string,latest?:{ts?:number}}} c     A `topicprobe:view` consumer.
- * @param {number}                                headS The stream head, from `streamHead()`.
- * @return {boolean} True when the card counts it.
- */
-function isLiveReader( c, headS ) {
-	return Boolean( c.source ) && isLiveSample( c.latest, headS );
-}
-
-/**
  * Sum one numeric field of every live reader's newest sample.
  *
- * Nothing is deduped by source: each reader owns its rate, backlog and
- * offsetlog, so two topologies tailing `firehose.p0` are two distinct values
- * and both count, as both stack in the Overview's charts. A reader that died
- * keeps its last sample in the map, and `isLiveReader` keeps that stale burst
- * or debt out of the card.
+ * A reader counts when it names the source the charts plot it under and its
+ * newest sample is live. Nothing is deduped by source: each reader owns its
+ * rate, backlog and offsetlog, so two topologies tailing `firehose.p0` are
+ * two distinct values and both count, as both stack in the Overview's charts.
+ * A reader that died keeps its last sample in the map, and the live test
+ * keeps that stale burst or debt out of the card.
  *
  * @param {?Object<string,{source?:string,latest?:Object<string,number>}>} consumers The `topicprobe:view` consumers map; a missing map counts as empty.
  * @param {number}                                                         headS     The stream head, from `streamHead()`.
@@ -64,7 +53,7 @@ function isLiveReader( c, headS ) {
 export function liveTotal( consumers, headS, field ) {
 	let total = 0;
 	for ( const c of Object.values( consumers || {} ) ) {
-		if ( isLiveReader( c, headS ) ) {
+		if ( c.source && isLiveSample( c.latest, headS ) ) {
 			total += c.latest[ field ] || 0;
 		}
 	}

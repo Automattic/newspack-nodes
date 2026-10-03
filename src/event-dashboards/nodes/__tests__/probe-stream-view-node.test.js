@@ -846,7 +846,7 @@ describe( 'TablestatsViewNode', () => {
 		expect( t.windowed.hitPct ).toBe( 90 );
 		expect( t.windowed.meanMs ).toBe( 1.2 );
 		expect( t.windowed.maxMs ).toBe( 3.5 );
-		expect( t.windowed.verbs.GET.calls ).toBe( 10 );
+		expect( t.windowed ).not.toHaveProperty( 'verbs' );
 		expect( t.latest ).toEqual( {
 			ts: TS_BASE + 115,
 			fileBytes: 8192,
@@ -854,6 +854,68 @@ describe( 'TablestatsViewNode', () => {
 			walStalled: 3,
 		} );
 		expect( t.backend ).toBe( 'sqlite' );
+	} );
+
+	it( 'keeps each sample to its scalars and its operation rates', () => {
+		const v = new TablestatsViewNode();
+		v.fill(
+			tablestatsMsg( {
+				verbs: {
+					GET: row( 4, 4, 3, 0, 8, 3.5, 0 ),
+					MSET: row( 2, 2, 2, 940, 6, 4.25, 1 ),
+				},
+				fileBytes: 4471,
+				elapsedMs: 2000,
+			} )
+		);
+		const s = v.snapshot()[ 'lab-7:kea.p3' ].series.at( -1 );
+		expect( Object.keys( s ).sort() ).toEqual(
+			[
+				'ts',
+				'worker',
+				'elapsed',
+				'opsDelta',
+				'readKeys',
+				'hitKeys',
+				'errorsDelta',
+				'purgedDelta',
+				'walWritten',
+				'walFrames',
+				'ms',
+				'maxMs',
+				'fileBytes',
+				'opRates',
+				'opsRate',
+				'missRate',
+				'errorsRate',
+				'meanMs',
+			].sort()
+		);
+		expect( s.ms ).toBe( 14 );
+		expect( s.maxMs ).toBe( 4.25 );
+		expect( s.opRates ).toEqual( { GET: 2, MSET: 1 } );
+		expect( s.fileBytes ).toBe( 4471 );
+	} );
+
+	it( 'keeps a slot the record says does not apply as null', () => {
+		const v = new TablestatsViewNode();
+		v.fill(
+			tablestatsMsg( {
+				backend: 'memcache',
+				verbs: { GET: row( 4, 4, 3, 0, 8, 3.5, 0 ) },
+				purgeBehind: null,
+				walStalled: null,
+				fileBytes: null,
+			} )
+		);
+		const t = v.snapshot()[ 'lab-7:kea.p3' ];
+		expect( t.latest ).toEqual( {
+			ts: TS_BASE + 1000,
+			fileBytes: null,
+			purgeBehind: null,
+			walStalled: null,
+		} );
+		expect( t.series.at( -1 ).fileBytes ).toBeNull();
 	} );
 
 	it( 'reads an idle frame, an empty VERBS array, as zeros without NaN', () => {
@@ -900,7 +962,8 @@ describe( 'TablestatsViewNode', () => {
 			} )
 		);
 		const w = v.snapshot()[ 'lab-7:kea.p3' ].windowed;
-		expect( w.verbs.GET.maxMs ).toBe( 3.5 );
+		expect( w.maxMs ).toBe( 3.5 );
+		expect( w.meanMs ).toBe( 22 / 14 );
 		expect( w.purged ).toBe( 50 );
 		expect( w.walWritten ).toBe( 90 );
 		expect( w.walFrames ).toBe( 100 );

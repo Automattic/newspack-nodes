@@ -10,27 +10,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **A Table counts errors per operation.** Its `stats` verb, `dump_node` and `dump_metadata` answer an `errors` count for each operation: the requests answered with a TM_ERROR, whether a refused request or a read the backend failed.
-- **A Table's `probe_stats()` drains a per-operation window** (`Tablestats_Record`), for the Table probe.
+- **A Table's `probe_stats()` drains a per-operation window** (`Tablestats_Record`), for the Table probe. A level slot is null where the backend has no such thing: `FILE_BYTES` and `WAL_STALLED` off SQLite, `PURGE_BEHIND` off a durable arm.
 - **The `Table_Probe` node and the stock `table-probe` topology** sweep each named Table every 15 s into `tablestats.p0`, a day long.
-- **A `tablestats:view` folds each Table's operation window into per-Table rates, latency and window sums.** It is the browser node behind the Tables tab.
+- **A `tablestats:view` folds each Table's operation window into per-Table rates, latency and window sums.** It is the browser node behind the Tables tab. Each sample keeps its scalars and its per-operation rates, and a level the record carries as null stays null.
 - **The station's Tables tab charts each Table's ops rate, each operation's rate, miss rate, mean and max latency and size over a day, and tabulates its window.**
-- **A dashboard chart series can carry its own fill mode and aggregate mode, so a peak survives a widened bucket.** `buildAlignedSeries` honours each series' optional `mode` property with `fill` and `agg` fields. A `max` aggregate keeps the largest sample per bucket instead of averaging, `fileBytes` holds its last reading across gaps like a gauge.
+- **A dashboard chart series carries its own fill mode and aggregate mode, so a peak survives a widened bucket.** `topicChartSeries` stamps each series with its metric's `mode` from one metric table, and `buildAlignedSeries` reads each series' own, taking no mode argument; a series with none reads as a rate. A `max` aggregate keeps the largest sample per bucket instead of averaging, `fileBytes` holds its last reading across gaps like a gauge, and a sample whose metric is null charts no point.
+- **`ProbeTable` renders the Jobs and Tables tables from a column declaration,** beside `TopicsPanels` in `TopicsChart.js`.
+- **`splitStamp()` in `src/runtime/log-stamp.js` is the one JS reader of a FROM trail's reader stamp,** held to PHP `SSE_Out_Node::dir_from_stamp()` by `tests/fixtures/log-stamps.json`; the SSE reader's resume positions and `workerOfFrom()` both read through it.
 - **The Jobs tab's Max column shows each identity's longest run in the window,** read off a new `Jobstats_Record::MAX_DURATION_MS` slot (13), which a long run between short ones can no longer hide inside the summed duration.
 
 ### Changed
 
 - **A probe record's FROM names its worker, `<worker-id>/<probe>`,** which the browser reads through the shared `workerOfFrom()`, stripping the reader's stamp by the same rule the stream applies.
 - **The Overview charts each worker's value per partition, stacked, and its cards sum those values across partitions,** co-readers of one partition each counted. A topicprobe sample carries its worker; "Messages/s" sums every live reader rather than the largest per source, and the 24h cards sum every reader's deltas rather than a union of co-readers' windows. The "Avg Cache" card is gone, since every Overview card is a sum; "Total Cache" stays. A reader naming no source counts toward no card, as no chart plots it. A stacked level chart (backlog, cache size, Table size) holds a series' last reading for 60 seconds past its newest sample, the live cards' window, then reads 0, so a reader that stopped leaves the total.
-- **A stacked chart's tooltip prints its total.** Rate and level panels stack, one series per worker's stream (Jobs per identity and worker, Tables per Table and per operation and worker, the Overview per partition and worker); mean panels (Jobs' queue latency, Tables' latency) stay unstacked.
-- **A cell with nothing to show reads '-'**: a mean or max over a window with no runs or calls, a size off SQLite, and a level a departed Table last reported. A durable Table whose purge is caught up reads "no".
+- **A stacked chart's tooltip prints its total,** the debug overlay's In and Out panels included once stacked. Rate and level panels stack, one series per worker's stream (Jobs per identity and worker and its backlog per partition and worker, Tables per Table and per operation and worker, the Overview per partition and worker); mean panels (Jobs' queue latency, Tables' latency) stay unstacked.
+- **A cell with nothing to show reads '-'**: a mean or max over a window with no runs or calls, a size, WAL or purge the Table's own record carries as null, and a level a departed Table last reported. A durable Table whose purge is caught up reads "no".
 - **`useProbeStream( name, { mode } )` replaces `useTopicProbeStream` and `useJobstatsStream`,** reading each probe log from one declaration.
-- **Jobs' durations print two decimals below 10 ms,** through the shared `formatMs`.
+- **Jobs' and Tables' durations print through the shared `formatDuration`:** microseconds below 0.1 ms, two decimals below 1 ms, one below a second, and seconds to two decimals.
 - **`ProbeRecordLayoutsTest` replaces `ProbeRecordTest` and `JobstatsRecordTest`,** holding all three record layouts to their JS twins.
 
 ### Fixed
 
 - **Jobs' runs and errors charts and the Overview's rate charts plot each worker's stream as its own stacked series,** where they averaged concurrent workers' samples, so their total reads as the sum across workers.
 - **An idle window no longer dilutes Jobs' mean queue latency.**
+- **A stream's `CURSORS` token keys a log dir named `logs` by that one segment,** as the browser does; `SSE_Out_Node::dir_from_stamp()` read it as a `logs/` group, which `stamp_for()` never writes.
 
 ## [2.84.2] - 2026-10-02
 

@@ -1,60 +1,37 @@
-import {
-	topicChartSeries,
-	fillModeForMetric,
-	perWorker,
-} from '../topicProbeSeries';
+import { topicChartSeries, byKey, maxOf } from '../topicProbeSeries';
 
 // Build a topicprobe:view consumers entry: keyed by reader, source + series.
 function consumer( source, series ) {
 	return { source, series };
 }
 
-describe( 'fillModeForMetric', () => {
-	it( 'maps LEVEL gauges to hold/last', () => {
-		expect( fillModeForMetric( 'backlog' ) ).toEqual( {
-			fill: 'hold',
-			agg: 'last',
-		} );
-		expect( fillModeForMetric( 'cacheSize' ) ).toEqual( {
-			fill: 'hold',
-			agg: 'last',
-		} );
+describe( 'the mode topicChartSeries stamps on each series', () => {
+	const modeOf = ( metric ) =>
+		topicChartSeries(
+			{ a: { source: 'kea.p3', series: [ { ts: 9, [ metric ]: 41 } ] } },
+			metric
+		)[ 'kea.p3' ].mode;
+
+	it( 'holds a LEVEL gauge and keeps its last reading', () => {
+		for ( const metric of [ 'backlog', 'cacheSize', 'fileBytes' ] ) {
+			expect( modeOf( metric ) ).toEqual( { fill: 'hold', agg: 'last' } );
+		}
 	} );
 
-	it( 'maps RATE metrics to zero/rate — a bucket re-divides Σwork by Σelapsed', () => {
-		expect( fillModeForMetric( 'msgRate' ) ).toEqual( {
-			fill: 'zero',
-			agg: 'rate',
-		} );
-		expect( fillModeForMetric( 'byteRate' ) ).toEqual( {
-			fill: 'zero',
-			agg: 'rate',
-		} );
+	it( 'zero-fills a RATE and re-divides its bucket, the default', () => {
+		for ( const metric of [
+			'msgRate',
+			'byteRate',
+			'queueLatencyMs',
+			'meanMs',
+			'whatever',
+		] ) {
+			expect( modeOf( metric ) ).toEqual( { fill: 'zero', agg: 'rate' } );
+		}
 	} );
 
-	it( 'maps queue latency to RATE (an event metric — holding it painted the last job across idle hours)', () => {
-		expect( fillModeForMetric( 'queueLatencyMs' ) ).toEqual( {
-			fill: 'zero',
-			agg: 'rate',
-		} );
-	} );
-
-	it( 'defaults an unknown metric to RATE (zero/rate)', () => {
-		expect( fillModeForMetric( 'whatever' ) ).toEqual( {
-			fill: 'zero',
-			agg: 'rate',
-		} );
-	} );
-
-	it( 'maxMs takes a MAX bucket and fileBytes holds as a level', () => {
-		expect( fillModeForMetric( 'maxMs' ) ).toEqual( {
-			fill: 'zero',
-			agg: 'max',
-		} );
-		expect( fillModeForMetric( 'fileBytes' ) ).toEqual( {
-			fill: 'hold',
-			agg: 'last',
-		} );
+	it( 'keeps the largest sample of a MAX metric', () => {
+		expect( modeOf( 'maxMs' ) ).toEqual( { fill: 'zero', agg: 'max' } );
 	} );
 } );
 
@@ -186,7 +163,7 @@ describe( 'topicChartSeries', () => {
 	} );
 } );
 
-describe( 'perWorker', () => {
+describe( 'topicChartSeries per worker', () => {
 	const entries = {
 		'cron:films': {
 			key: 'cron:films',
@@ -199,57 +176,75 @@ describe( 'perWorker', () => {
 			],
 		},
 	};
+	const values = ( out, key ) => out[ key ].points.map( ( p ) => p.value );
 
-	it( 'splits an entry into one pseudo-entry per worker', () => {
-		const out = perWorker( entries );
-		expect( out ).toEqual( {
-			'cron:films · job-worker-4417.p2': {
-				key: 'cron:films · job-worker-4417.p2',
-				series: [
-					entries[ 'cron:films' ].series[ 0 ],
-					entries[ 'cron:films' ].series[ 2 ],
-				],
-			},
-			'cron:films · job-worker-4417.p6': {
-				key: 'cron:films · job-worker-4417.p6',
-				series: [ entries[ 'cron:films' ].series[ 1 ] ],
-			},
-			'cron:films': {
-				key: 'cron:films',
-				series: [ entries[ 'cron:films' ].series[ 3 ] ],
-			},
-		} );
-	} );
-
-	it( 'keys by the keyOf it is given', () => {
-		const out = perWorker( entries, ( c ) => c.handler );
+	it( 'charts each worker of an additive metric apart, so two never sum', () => {
+		const out = topicChartSeries( entries, 'runsRate', byKey );
 		expect( Object.keys( out ).sort() ).toEqual( [
-			'cron',
-			'cron · job-worker-4417.p2',
-			'cron · job-worker-4417.p6',
+			'cron:films',
+			'cron:films · job-worker-4417.p2',
+			'cron:films · job-worker-4417.p6',
 		] );
+		expect( values( out, 'cron:films · job-worker-4417.p2' ) ).toEqual( [
+			3, 7,
+		] );
+		expect( values( out, 'cron:films · job-worker-4417.p6' ) ).toEqual( [
+			5,
+		] );
+		expect( values( out, 'cron:films' ) ).toEqual( [ 11 ] );
 	} );
 
-	it( 'charts each worker apart, so two workers at one instant never sum', () => {
+	it( 'splits a LEVEL gauge per worker too, each worker its own debt', () => {
 		const out = topicChartSeries(
-			perWorker( entries ),
-			'runsRate',
-			( c ) => c.key
+			{
+				'job-worker.jobs.p0': {
+					source: 'jobs.p0',
+					series: [ { ts: 9, backlog: 4096, worker: 'kea-7713.p3' } ],
+				},
+			},
+			'backlog'
 		);
-		expect(
-			out[ 'cron:films · job-worker-4417.p2' ].points.map(
-				( p ) => p.value
-			)
-		).toEqual( [ 3, 7 ] );
-		expect(
-			out[ 'cron:films · job-worker-4417.p6' ].points.map(
-				( p ) => p.value
-			)
-		).toEqual( [ 5 ] );
+		expect( Object.keys( out ) ).toEqual( [ 'jobs.p0 · kea-7713.p3' ] );
+	} );
+
+	it( 'keeps a mean or a max whole per key, never split by worker', () => {
+		for ( const metric of [ 'queueLatencyMs', 'meanMs', 'maxMs' ] ) {
+			const out = topicChartSeries(
+				{
+					a: {
+						key: 'cron:films',
+						series: [
+							{ ts: 100, [ metric ]: 40, worker: 'w.p2' },
+							{ ts: 107, [ metric ]: 80, worker: 'w.p6' },
+						],
+					},
+				},
+				metric,
+				byKey
+			);
+			expect( Object.keys( out ) ).toEqual( [ 'cron:films' ] );
+			expect( values( out, 'cron:films' ) ).toEqual( [ 40, 80 ] );
+		}
+	} );
+
+	it( 'keeps a Table metric whole, its key already naming one worker', () => {
+		for ( const metric of [ 'opsRate', 'missRate', 'fileBytes' ] ) {
+			const out = topicChartSeries(
+				{
+					a: {
+						key: 'lab-7:kea.p3',
+						series: [ { ts: 9, [ metric ]: 41, worker: 'w.p3' } ],
+					},
+				},
+				metric,
+				byKey
+			);
+			expect( Object.keys( out ) ).toEqual( [ 'lab-7:kea.p3' ] );
+		}
 	} );
 
 	it( 'merges entries that share a key and a worker into one stream', () => {
-		const out = perWorker(
+		const out = topicChartSeries(
 			{
 				a: {
 					op: 'GET',
@@ -260,30 +255,53 @@ describe( 'perWorker', () => {
 					series: [ { ts: 9, value: 4, worker: 'w.p1' } ],
 				},
 			},
+			'value',
 			( c ) => c.op
 		);
 		expect( Object.keys( out ) ).toEqual( [ 'GET · w.p1' ] );
-		expect(
-			topicChartSeries( out, 'value', ( c ) => c.key )[ 'GET · w.p1' ]
-				.points
-		).toEqual( [ { ts: 9, value: 6, weight: 0 } ] );
+		expect( out[ 'GET · w.p1' ].points ).toEqual( [
+			{ ts: 9, value: 6, weight: 0 },
+		] );
 	} );
+} );
 
-	it( 'skips an entry with no key, as topicChartSeries does', () => {
-		const out = perWorker(
+describe( 'topicChartSeries and a figure that does not apply', () => {
+	it( 'charts no point for a null sample, and no series of none', () => {
+		const out = topicChartSeries(
 			{
-				'nowhere.p0': {
-					source: '',
-					series: [ { ts: 9, msgRate: 4, worker: 'w.p1' } ],
+				'lab-7:kea.p3': {
+					key: 'lab-7:kea.p3',
+					series: [
+						{ ts: 9, fileBytes: 8192 },
+						{ ts: 24, fileBytes: null },
+					],
+				},
+				'lab-7:emu.p3': {
+					key: 'lab-7:emu.p3',
+					series: [ { ts: 9, fileBytes: null } ],
 				},
 			},
-			( c ) => c.source
+			'fileBytes',
+			byKey
 		);
-		expect( out ).toEqual( {} );
+		expect( Object.keys( out ) ).toEqual( [ 'lab-7:kea.p3' ] );
+		expect( out[ 'lab-7:kea.p3' ].points ).toEqual( [
+			{ ts: 9, value: 8192, weight: 0 },
+		] );
+	} );
+} );
+
+describe( 'byKey and maxOf', () => {
+	it( 'byKey reads an entry’s own key', () => {
+		expect( byKey( { key: 'cron:films', source: 'jobs.p0' } ) ).toBe(
+			'cron:films'
+		);
 	} );
 
-	it( 'tolerates an empty or unready map', () => {
-		expect( perWorker( {} ) ).toEqual( {} );
-		expect( perWorker( undefined ) ).toEqual( {} );
+	it( 'maxOf is the largest value, 0 for none', () => {
+		expect( maxOf( [ { value: 3 }, { value: 4471 }, { value: 9 } ] ) ).toBe(
+			4471
+		);
+		expect( maxOf( [] ) ).toBe( 0 );
 	} );
 } );

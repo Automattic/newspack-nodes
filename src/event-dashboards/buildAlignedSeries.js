@@ -11,15 +11,25 @@
  * `floor(ts/bucket)*bucket` lands two sweeps 15s out of phase in the SAME
  * bucket.
  *
- * How an empty bucket reads belongs to the metric, so the mode arrives from the
- * call site as `fillModeForMetric( metric )`; nothing here infers it from a
- * metric name.
+ * How an empty bucket reads belongs to the metric, so each series carries its
+ * own `mode`, which `topicChartSeries` stamps from its metric table; nothing
+ * here infers it from a metric name. A series with none reads as a RATE.
  */
 
 import { LIVE_WINDOW_S } from './liveSample';
 
 /** The Topic_Probe sweep cadence, and so the narrowest useful bucket. */
 const BUCKET_BASE_S = 15;
+
+/** RATE: a bucket re-divides Σwork by Σweight, and a gap reads 0. */
+export const RATE_MODE = { fill: 'zero', agg: 'rate' };
+
+/** Each aggregate's per-bucket reducer, by `mode.agg`. */
+const AGGREGATES = {
+	last: lastPerBucket,
+	rate: ratePerBucket,
+	max: maxPerBucket,
+};
 
 /**
  * Build one Topics panel's draw-ready model: rank the topics by peak, then fill
@@ -46,20 +56,15 @@ const BUCKET_BASE_S = 15;
  * under `maxPoints`: a panel is ~1800px wide, so a denser axis is sub-pixel,
  * and the cap is what keeps the d3 redraw cheap.
  *
- * @param {?Object} series      One panel's topics from `topicChartSeries`:
- *                              `{ [topic]: { points:[{ts,value,weight}], max, mode? } }`, ts in seconds.
- * @param {number}  maxPoints   Cap on the rendered axis length; 0 or less holds the base bucket however long the axis grows.
- * @param {Object}  [mode]      Fill/aggregate mode, from `fillModeForMetric`.
- * @param {string}  [mode.fill] `'hold'` (carry forward) or `'zero'` (default).
- * @param {string}  [mode.agg]  `'last'` (latest-ts in bucket), `'rate'` (default), or `'max'` (largest sample).
+ * @param {?Object} series    One panel's topics from `topicChartSeries`:
+ *                            `{ [topic]: { points:[{ts,value,weight}], max, mode? } }`,
+ *                            ts in seconds and sorted; `mode.fill` is `'hold'` or
+ *                            `'zero'`, `mode.agg` is `'last'`, `'rate'` or `'max'`.
+ * @param {number}  maxPoints Cap on the rendered axis length; 0 or less holds the base bucket however long the axis grows.
  * @return {{series:Array<{label:string,values:Array<{date:Date,value:number}>}>,dates:Array<Date>}}
  *   The topics busiest-first, plus the bucket instants they are aligned onto.
  */
-export function buildAlignedSeries(
-	series,
-	maxPoints,
-	{ fill = 'zero', agg = 'rate' } = {}
-) {
+export function buildAlignedSeries( series, maxPoints ) {
 	const ranked = Object.keys( series || {} )
 		.map( ( key ) => ( { key, ...series[ key ] } ) )
 		.filter( ( s ) => ( s.points || [] ).length > 0 )
@@ -102,12 +107,11 @@ export function buildAlignedSeries(
 	}
 
 	const aligned = ranked.map( ( s ) => {
-		const own = s.mode || { fill, agg };
-		const acc = aggregate( own.agg, s.points, bucketOf );
-		const hold = 'hold' === own.fill;
+		const { fill, agg } = s.mode || RATE_MODE;
+		const acc = AGGREGATES[ agg ]( s.points, bucketOf );
+		// Points are ts-sorted, so the last one is the newest.
 		const holdUntil =
-			s.points.reduce( ( m, p ) => Math.max( m, p.ts ), -Infinity ) +
-			LIVE_WINDOW_S;
+			'hold' === fill ? s.points.at( -1 ).ts + LIVE_WINDOW_S : -Infinity;
 		let carried = 0;
 		return {
 			label: s.key,
@@ -117,31 +121,15 @@ export function buildAlignedSeries(
 					return { date: dates[ i ], value: carried };
 				}
 				// Empty bucket: HOLD carries last value forward; ZERO reads 0.
-				const held = hold && b <= holdUntil;
-				return { date: dates[ i ], value: held ? carried : 0 };
+				return {
+					date: dates[ i ],
+					value: b <= holdUntil ? carried : 0,
+				};
 			} ),
 		};
 	} );
 
 	return { series: aligned, dates };
-}
-
-/**
- * One series' buckets under its aggregate.
- *
- * @param {string}                                        agg      The aggregate: 'last', 'rate', or 'max'.
- * @param {Array<{ts:number,value:number,weight:number}>} points   One topic's points.
- * @param {(ts:number)=>number}                           bucketOf Floors a ts onto its bucket instant.
- * @return {Map<number,number>} Each bucket instant to its value.
- */
-function aggregate( agg, points, bucketOf ) {
-	if ( 'last' === agg ) {
-		return lastPerBucket( points, bucketOf );
-	}
-	if ( 'max' === agg ) {
-		return maxPerBucket( points, bucketOf );
-	}
-	return ratePerBucket( points, bucketOf );
 }
 
 /**
