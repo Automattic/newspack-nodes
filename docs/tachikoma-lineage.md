@@ -85,7 +85,7 @@ Paths below are relative to `lib/Tachikoma/`, with one exception worth knowing: 
 | `Struct_To_JSON_Node` / `JSON_To_Struct_Node` | the `Nodes/StorableToJSON.pm` / `Nodes/JSONtoStorable.pm` pair, minus the pretty-printing. Upstream encodes with `canonical(1)` and `pretty(1)`, so one record is sorted-key JSON spread over many lines; ours is compact, in PHP's own insertion order, with `JSON_UNESCAPED_SLASHES` and exactly one trailing newline, which is what lets a `Tail` hand `JSON_To_Struct` one record at a time. Upstream also ASSIGNS `TM_BYTESTREAM \| $persist`, keeping TM_PERSIST and nothing else; ours masks the STRUCT bit off and leaves every other flag standing |
 | `Probe_To_Graphite_Node` | `Nodes/TopicProbeToGraphite.pm`; both the input shape and the accumulation diverge (see below) |
 | `Graphite_Node` | no node of its own upstream — `TopicProbeToGraphite` sinks its lines into whatever egress the operator wired; the transport diverges (see below) |
-| `Topic_Probe_Node` | `Nodes/TopicProbe.pm`, consumer branch; FROM carries the worker (see below) |
+| `Topic_Probe_Node` | `Nodes/TopicProbe.pm`, both branches: it sweeps `Partition` nodes as well as `Consumer` nodes. Upstream's partition line carries `p_offset` under the node's name; ours carries the newest segment, the byte length and the allocated disk, in the shared `Probe_Record` layout with READER blank, and names the log by its SSE stamp (see below). A log two Partitions of one process cover reports once, and a follower partition has no counterpart to skip, since no Partition here follows a leader. FROM carries the worker (see below) |
 | `Table_Probe_Node` | `Nodes/BufferProbe.pm`; FROM carries the worker as `Topic_Probe_Node`'s does (see below), which reports a buffer's fills, errors passed, messages held and message counters. A Table's sweep measures the same kinds of thing, a store's fills, errors and size, and adds a row per operation with its latency. It reports as `Probe_Node` does: one self-contained window per Table with its own `ELAPSED_MS`, where upstream sends running counters that `BufferProbeToGraphite` passes through |
 | `Callback_Node` — a closure as a terminal, so a one-off consumer needs no subclass | `Nodes/Callback.pm`, which takes the closure in its constructor too and dies on `arguments()`. Ours needs no such refusal: a constructor with a required argument is one `make_node` cannot call ([ADR-11](architecture-decisions.md#adr-11-make_node-construction-sequence)) |
 | `Dumper_Node` rendering any message to one human-readable line | `Nodes/Dumper.pm` |
@@ -306,6 +306,16 @@ Upstream has no Graphite node: `TopicProbeToGraphite.pm` formats the lines and s
 `TopicProbe.pm` stamps FROM with the bare node name and puts the writer's location in the payload: a `hostname:` field and the prefix argument. [`Probe_Node`](../includes/class-probe-node.php) stamps FROM `{worker-id}/{probe-name}` through `Probe_Node::from()` when a worker is bound, and the bare name when none is. This applies to `Topic_Probe_Node`, `Job_Probe_Node` and `Table_Probe_Node` alike.
 
 **Why:** every worker's probe appends to one shared log, so no per-worker boundary exists to stamp the record. The worker id is also the path the console already uses to address that node, so FROM names it without a second spelling. A positional record keeps no location slot, and adding one would change three layouts and their parity pins for what FROM already carries. [`workerOfFrom()`](../src/shared/utils/workerId.js) is the one reader (ADR-22).
+
+### A Partition record names its log by stamp
+
+`TopicProbe.pm` sends a partition line carrying `p_offset`, the last commit offset, and names the partition by its node name, the same `partition:` field a consumer line carries. [`Partition_Node::probe_stats()`](../includes/class-partition-node.php) sends the newest segment, the byte length and the allocated disk, and names the log by the stamp an SSE frame opens its FROM with, [`Log_Discovery::stamp_for()`](../includes/class-log-discovery.php): bare for a `logs/` dir, `{group}/{dir}` for an `offsets/` or `deadletter/` one, and the path under the runtime base outside those roots (`ipc/<worker-id>/output`).
+
+**Why:** no Partition here follows a leader or commits an offset, so there is no `p_offset` to report; the size and the disk are what a reader of a partition record wants. A node name or a basename cannot name the log either: `output` names every worker's IPC dir, and `ingest.p0` names a reader's offsetlog and its quarantine as well as the log itself.
+
+**Consequence:** a `logs/` partition's SOURCE equals the SOURCE its Consumers' records carry, so the two kinds of record about one log share a key, as upstream's lines share `partition:`.
+
+**Revisit if** a reader must join an `ipc/` Consumer to its partition: that Consumer's SOURCE is the basename `input`, which the Partition record's base-relative path does not equal.
 
 ### Zero takes the default where Tachikoma keeps the zero
 

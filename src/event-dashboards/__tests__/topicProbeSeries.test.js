@@ -19,7 +19,14 @@ describe( 'the mode topicChartSeries stamps on each series', () => {
 		)[ 'kea.p3' ].mode;
 
 	it( 'holds a LEVEL gauge and keeps its last reading', () => {
-		for ( const metric of [ 'backlog', 'cacheSize', 'fileBytes' ] ) {
+		for ( const metric of [
+			'backlog',
+			'cacheSize',
+			'fileBytes',
+			'fileDiskBytes',
+			'endBytes',
+			'diskBytes',
+		] ) {
 			expect( modeOf( metric ) ).toEqual( { fill: 'hold', agg: 'last' } );
 		}
 	} );

@@ -2,13 +2,14 @@
  * The fleet-vitals card row across the top of the Overview station tab:
  * topology and active counts, worker liveness, on-disk partitions, worst
  * health, global read and write rates, current message rate and backlog, the
- * 24h totals, and the total offsetlog cache size.
+ * 24h totals, the total offsetlog cache size, and the partitions' total size
+ * and the disk it takes.
  *
  * Every number is computed outside this component. `readRate`, `writeRate` and
  * `logPartitions` arrive as props from `useTopologyManager`; the pure
  * modules beside this one — `fleetSummary`, `probe24hTotals` and `liveTotal`
- * — roll the topology rows and the `topicprobe:view` consumers up into the
- * rest, and the shared formatters turn
+ * — roll the topology rows and the `topicprobe:view` consumers and partitions
+ * up into the rest, and the shared formatters turn
  * each figure into its display string. What is left here is the layout and the
  * translated labels, which is what lets a card's rule be tested without
  * rendering anything.
@@ -19,6 +20,8 @@
  * every live reader's newest sample, the same series its Overview chart
  * stacks, counting a reader only while it names a source and that sample is
  * within a minute of the newest message seen (`streamHead`, `liveTotal`).
+ * "Total Size" and "Total On Disk" apply the same rule per partition: each
+ * live partition's newest reading counts once, whichever worker took it.
  * The 24h cards sum every reader's consumption over every retained sample.
  */
 
@@ -77,6 +80,7 @@ function Card( { mod, value, label, extraClass = '' } ) {
  * @param {number}  props.writeRate     Fleet-global write bytes/sec.
  * @param {?number} props.logPartitions On-disk log-partition count; absent renders 0.
  * @param {?Object} props.consumers     The `topicprobe:view` consumers map behind the rate, backlog, cache and 24h cards.
+ * @param {?Object} props.partitions    The `topicprobe:view` partitions map behind the size and disk cards.
  * @return {import('react').ReactElement} The card row.
  */
 function SummaryCards( {
@@ -85,10 +89,12 @@ function SummaryCards( {
 	writeRate,
 	logPartitions,
 	consumers,
+	partitions,
 } ) {
 	const fleet = fleetSummary( topologies );
 	const totals = probe24hTotals( consumers );
 	const headS = streamHead( consumers );
+	const partitionHeadS = streamHead( partitions );
 
 	/** @type {string} */
 	let healthLabel = __( 'all systems ok', 'newspack-nodes' );
@@ -184,6 +190,20 @@ function SummaryCards( {
 					liveTotal( consumers, headS, 'cacheSize' )
 				) }
 				label={ __( 'Total Cache', 'newspack-nodes' ) }
+			/>
+			<Card
+				mod="size-total"
+				value={ formatBytes(
+					liveTotal( partitions, partitionHeadS, 'endBytes' )
+				) }
+				label={ __( 'Total Size', 'newspack-nodes' ) }
+			/>
+			<Card
+				mod="disk-total"
+				value={ formatBytes(
+					liveTotal( partitions, partitionHeadS, 'diskBytes' )
+				) }
+				label={ __( 'Total On Disk', 'newspack-nodes' ) }
 			/>
 		</div>
 	);

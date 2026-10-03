@@ -1,17 +1,25 @@
 /**
- * TopicProbeViewNode — the per-consumer throughput and backlog stream behind the
- * Overview's Topics panels and summary cards. See ProbeStreamViewNode for the
- * ring, the retention window and the eviction it shares.
+ * TopicProbeViewNode — the per-consumer throughput and backlog stream, and the
+ * per-partition size stream, behind the Overview's panels and summary cards.
+ * See ProbeStreamViewNode for the ring, the retention window and the eviction
+ * it shares.
  */
 
 import * as Probe from '../../runtime/probe-record';
 import { ProbeStreamViewNode } from './probe-stream-view-node';
 
+/** The model Partition records publish under, beside `consumers`. */
+const PARTITIONS = 'partitions';
+
 /**
  * `topicprobe:view` — owns the Topic_Probe stream view model.
  *
- * Each inbound frame is one Consumer's lean POSITIONAL probe record (the
- * `Probe_Record` layout), and the snapshot instant is the Message TIMESTAMP. Per
+ * Each inbound frame is one lean POSITIONAL probe record (the `Probe_Record`
+ * layout), and the snapshot instant is the Message TIMESTAMP. A Consumer
+ * record names its reader; a Partition record leaves READER blank and files
+ * under `view.partitions` by its SOURCE, one sample `{ ts, worker, endBytes,
+ * diskBytes }` a record. Several workers report one directory, so a
+ * partition's series holds every worker's readings. Per
  * reader the view pushes one sample onto a bounded series of
  * `{ ts, worker, elapsed, msgs, bytes, msgRate, byteRate, backlog, cacheSize }`: the raw
  * deltas `probe24hTotals` integrates into the 24h cards, beside the rates and
@@ -41,24 +49,60 @@ export class TopicProbeViewNode extends ProbeStreamViewNode {
 		'Topic_Probe stream render-model sink (the React view node).';
 
 	/**
+	 * A Partition record, READER blank, files under `partitions` by its
+	 * SOURCE; a Consumer record files under `consumers` by its READER.
+	 *
+	 * @param {Array<string|number>} value The positional `Probe_Record` VALUE.
+	 * @return {?import('./probe-stream-view-node').ProbeIdentity} Its model and key, or null.
+	 */
+	_identify( value ) {
+		if ( '' !== value[ Probe.READER ] ) {
+			return super._identify( value );
+		}
+		const source = value[ Probe.SOURCE ];
+		return 'string' === typeof source && '' !== source
+			? { model: PARTITIONS, key: source }
+			: null;
+	}
+
+	/**
+	 * The consumers, then the partitions.
+	 *
+	 * @return {Array<string>} The published model keys.
+	 */
+	_models() {
+		return [ this.modelKey, PARTITIONS ];
+	}
+
+	/**
 	 * Fold one probe record into its consumer's entry and yield its sample.
 	 *
 	 * Every field is read off THIS record: `msgs`/`bytes` are its deltas (clamped
 	 * non-negative), `elapsed` the seconds they cover, the rates their quotient —
 	 * 0 when the window is empty rather than a division by zero — and `backlog`
-	 * and `cacheSize` its levels verbatim. The source partition rides on the entry
-	 * rather than the sample, because it names the topic every one of that
-	 * reader's samples came from; the worker rides on each sample, so a chart
-	 * can plot each worker's stream apart.
+	 * and `cacheSize` its levels verbatim. A Partition record's sample is its
+	 * two sizes, read verbatim. The source rides on the entry rather than
+	 * the sample, because it names the log every one of that entry's samples
+	 * came from; the worker rides on each sample, so a chart can plot each
+	 * worker's stream apart.
 	 *
-	 * @param {Object}               c      The consumer's entry, keyed by `READER`.
+	 * @param {Object}               c      The entry, keyed by `READER` or, for a partition, `SOURCE`.
 	 * @param {Array<string|number>} value  The positional `Probe_Record` VALUE.
 	 * @param {number}               ts     Snapshot instant (epoch seconds) from TIMESTAMP.
 	 * @param {string}               worker The worker that swept it, or `''`.
+	 * @param {string}               model  The model the entry files under.
 	 * @return {Object} The sample to push onto the entry's series.
 	 */
-	_fold( c, value, ts, worker ) {
+	_fold( c, value, ts, worker, model ) {
 		c.source = String( value[ Probe.SOURCE ] ?? c.source ?? '' );
+		if ( PARTITIONS === model ) {
+			return {
+				ts,
+				worker,
+				endBytes: Number( value[ Probe.END_BYTES ] ) || 0,
+				diskBytes: Number( value[ Probe.END_DISK_BYTES ] ) || 0,
+			};
+		}
 
 		const msgs = this._delta( value[ Probe.MSGS_DELTA ] );
 		const bytes = this._delta( value[ Probe.BYTES_READ_DELTA ] );
@@ -77,7 +121,7 @@ export class TopicProbeViewNode extends ProbeStreamViewNode {
 	}
 
 	/**
-	 * The published per-consumer snapshot: the source partition, a copy of the newest
+	 * The published per-key snapshot: the source, a copy of the newest
 	 * sample, and a copy of the series the charts plot.
 	 *
 	 * @param {Object} c The internal entry (its series plus liveness bookkeeping).

@@ -6,6 +6,7 @@ use Newspack_Nodes\Core;
 use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition_Node;
+use Newspack_Nodes\Probe_Record;
 use Newspack_Nodes\Timer_Node;
 use Newspack_Nodes\Worker_Should_Stop;
 use Newspack_Nodes\Worker_Should_Stop_Clean;
@@ -2236,6 +2237,189 @@ class PartitionTest extends TestCase {
 		$this->assertFalse( \is_dir( "{$this->tmp}.p0" ), 'get_segments must not create the dir' );
 	}
 
+	/** The segment list is ids and byte lengths; the disk is footprint()'s. */
+	public function test_get_segments_lists_each_segments_id_and_size(): void {
+		$dir = "{$this->tmp}/sized.p0";
+		\mkdir( $dir );
+		\file_put_contents( "{$dir}/3.log", \str_repeat( 'd', 9173 ) );
+		\file_put_contents( "{$dir}/4.log", \str_repeat( 'e', 211 ) );
+		$p = new Partition_Node();
+		$p->arguments( [ $dir ] );
+
+		$this->assertSame( [ [ 'id' => 3, 'size' => 9173 ], [ 'id' => 4, 'size' => 211 ] ], $p->get_segments( true ) );
+	}
+
+	/**
+	 * One forced scan yields the newest segment, the byte length and the
+	 * allocated disk over every live segment, the disk read back rather than
+	 * assumed equal to the length.
+	 */
+	public function test_footprint_sums_bytes_and_allocated_disk_over_live_segments(): void {
+		$dir = "{$this->tmp}/sized.p0";
+		\mkdir( $dir );
+		\file_put_contents( "{$dir}/3.log", \str_repeat( 'd', 9173 ) );
+		\file_put_contents( "{$dir}/4.log", \str_repeat( 'e', 211 ) );
+		$p = new Partition_Node();
+		$p->arguments( [ $dir ] );
+		$disk = self::allocated( "{$dir}/3.log" ) + self::allocated( "{$dir}/4.log" );
+		$this->assertNotSame( 9384, $disk, 'disk must not equal bytes here, or the test proves nothing' );
+
+		$this->assertSame(
+			[
+				'end_segment' => 4,
+				'end_size'    => 211,
+				'bytes'       => 9384,
+				'disk'        => $disk,
+				'segments'    => [ [ 'id' => 3, 'size' => 9173 ], [ 'id' => 4, 'size' => 211 ] ],
+			],
+			$p->footprint()
+		);
+	}
+
+	/** footprint() rescans, so a segment written since a warm cache is counted. */
+	public function test_footprint_reads_past_a_warm_segment_cache(): void {
+		$dir = "{$this->tmp}/sized.p0";
+		\mkdir( $dir );
+		\file_put_contents( "{$dir}/3.log", \str_repeat( 'd', 9173 ) );
+		$p = new Partition_Node();
+		$p->arguments( [ $dir ] );
+		$p->get_segments();
+		\file_put_contents( "{$dir}/5.log", \str_repeat( 'e', 337 ) );
+
+		$this->assertSame( 9510, $p->footprint()['bytes'] ?? null );
+		$this->assertSame( [ 3, 5 ], \array_column( $p->get_segments(), 'id' ), 'the rescan freshens the cache' );
+	}
+
+	/** A Partition with no live segment has no footprint. */
+	public function test_footprint_is_null_for_a_partition_never_written(): void {
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}/unwritten.p0" ] );
+
+		$this->assertNull( $p->footprint() );
+	}
+
+	/**
+	 * A segment retention deletes between `scandir` and `stat` is gone: it is
+	 * skipped, never listed at size 0, which would also count it as a segment
+	 * a reader is behind.
+	 */
+	public function test_a_segment_gone_before_its_stat_is_skipped(): void {
+		$dir = "{$this->tmp}/sized.p0";
+		\mkdir( $dir );
+		\file_put_contents( "{$dir}/3.log", \str_repeat( 'd', 9173 ) );
+		Partition_Node::$scandir = static fn ( string $d ) => [ '.', '..', '2.log', '3.log' ];
+		try {
+			$p = new Partition_Node();
+			$p->arguments( [ $dir ] );
+
+			$this->assertSame( [ [ 'id' => 3, 'size' => 9173 ] ], $p->get_segments( true ) );
+			$this->assertSame( 9173, $p->footprint()['bytes'] ?? null );
+		} finally {
+			Partition_Node::$scandir = null;
+		}
+	}
+
+	/**
+	 * A Partition record carries the directory's size: its newest segment,
+	 * the byte length and the allocated disk over every live segment, and a
+	 * blank READER, which is what marks it a Partition record.
+	 */
+	public function test_probe_stats_reports_the_partition_size_and_its_disk(): void {
+		$this->use_base_dir( $this->tmp );
+		$dir = "{$this->tmp}/logs/firehose.p3";
+		\mkdir( $dir, 0755, true );
+		\file_put_contents( "{$dir}/7.log", \str_repeat( 'f', 5003 ) );
+		\file_put_contents( "{$dir}/8.log", \str_repeat( 'g', 777 ) );
+		$p = new Partition_Node();
+		$p->arguments( [ $dir ] );
+
+		$this->assertSame(
+			[
+				Probe_Record::SOURCE           => 'firehose.p3',
+				Probe_Record::READER           => '',
+				Probe_Record::CURSOR_SEGMENT   => 0,
+				Probe_Record::CURSOR_OFF       => 0,
+				Probe_Record::END_SEGMENT      => 8,
+				Probe_Record::END_SIZE         => 777,
+				Probe_Record::DISTANCE         => 0,
+				Probe_Record::MSGS_DELTA       => 0,
+				Probe_Record::END_BYTES        => 5780,
+				Probe_Record::CACHE_SIZE       => 0,
+				Probe_Record::BYTES_READ_DELTA => 0,
+				Probe_Record::ELAPSED_MS       => 0,
+				Probe_Record::END_DISK_BYTES   => self::allocated( "{$dir}/7.log" ) + self::allocated( "{$dir}/8.log" ),
+			],
+			$p->probe_stats()
+		);
+	}
+
+	/**
+	 * A `logs` dir named like a group has no stamp that reads back as itself,
+	 * so the declaration is refused by name, before any sweep reaches it.
+	 */
+	public function test_declaring_a_logs_dir_named_like_a_group_is_refused(): void {
+		$this->use_base_dir( $this->tmp );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'log dir offsets is named like a group; rename it' );
+		( new Partition_Node() )->arguments( [ "{$this->tmp}/logs/offsets" ] );
+	}
+
+	/** A Log file directly under `logs/` is refused by the same rule. */
+	public function test_declaring_a_log_file_named_like_a_group_is_refused(): void {
+		$this->use_base_dir( $this->tmp );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'log dir deadletter is named like a group; rename it' );
+		( new \Newspack_Nodes\Log_Node() )->arguments( [ "{$this->tmp}/logs/deadletter" ] );
+	}
+
+	/** Only a first-level `logs` dir is refused; the same name elsewhere is fine. */
+	public function test_group_names_are_accepted_outside_the_logs_root(): void {
+		$this->use_base_dir( $this->tmp );
+
+		$grouped = new Partition_Node();
+		$grouped->arguments( [ "{$this->tmp}/offsets/offsets" ] );
+		$plain = new Partition_Node();
+		$plain->arguments( [ "{$this->tmp}/logs/ingest.p0" ] );
+		$nested = new Partition_Node();
+		$nested->arguments( [ "{$this->tmp}/logs/gate/offsets" ] );
+
+		$this->assertSame( "{$this->tmp}/logs/ingest.p0", $plain->identity_path() );
+		$this->assertSame( "{$this->tmp}/offsets/offsets", $grouped->identity_path() );
+		$this->assertSame( "{$this->tmp}/logs/gate/offsets", $nested->identity_path() );
+	}
+
+	/** A Log's identity is its file, not the directory its segments share. */
+	public function test_probe_stats_names_a_log_by_its_file(): void {
+		$this->use_base_dir( $this->tmp );
+		\mkdir( "{$this->tmp}/logs/gate", 0755, true );
+		\file_put_contents( "{$this->tmp}/logs/gate/digest.md.2", \str_repeat( 'h', 613 ) );
+		\file_put_contents( "{$this->tmp}/logs/gate/other.md.5", \str_repeat( 'i', 4099 ) );
+		$log = new \Newspack_Nodes\Log_Node();
+		$log->arguments( [ "{$this->tmp}/logs/gate/digest.md" ] );
+
+		$record = $log->probe_stats();
+
+		$this->assertSame( 'logs/gate/digest.md', $record[ Probe_Record::SOURCE ] );
+		$this->assertSame( 2, $record[ Probe_Record::END_SEGMENT ] );
+		$this->assertSame( 613, $record[ Probe_Record::END_BYTES ], 'a sibling Log is not this one' );
+	}
+
+	/** A Partition with no live segment has no size to report. */
+	public function test_probe_stats_is_null_for_a_partition_never_written(): void {
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}/unwritten.p0" ] );
+
+		$this->assertNull( $p->probe_stats() );
+	}
+
+	/** What the filesystem allocates for a file, read back rather than assumed. */
+	private static function allocated( string $file ): int {
+		\clearstatcache( true, $file );
+		return (int) \stat( $file )['blocks'] * 512;
+	}
+
 	public function test_get_segments_cache_hit_within_ttl(): void {
 		// First call populates the cache; create a new segment file BEHIND the
 		// cache and verify a non-force-refresh call still returns the cached
@@ -3686,7 +3870,7 @@ class PartitionTest extends TestCase {
 		}
 		$log->flush();
 
-		$index = Partition_Node::read_tail_frames_by( $dir, 'offsetlog_dir' )['records'];
+		$index = Partition_Node::read_tail_frames_by( $dir, 'offsetlog_dir', 65536 )['records'];
 		$this->assertSame( [ 'a.p0', 'b.p0' ], \array_keys( $index ) );
 		$this->assertSame( 9, $index['a.p0']['value']['cursor_offset'], 'latest record per key wins' );
 		$this->assertSame( 2, $index['b.p0']['value']['cursor_offset'] );
@@ -3711,7 +3895,7 @@ class PartitionTest extends TestCase {
 		\file_put_contents( "{$dir}/0.log", "[1,2,\"torn-4417\n[\"also torn\n", \FILE_APPEND );
 		$write( [ 'offsetlog_dir' => 'b.p0', 'cursor_offset' => 58 ] );
 
-		$tail = Partition_Node::read_tail_frames_by( $dir, 'offsetlog_dir' );
+		$tail = Partition_Node::read_tail_frames_by( $dir, 'offsetlog_dir', 65536 );
 
 		$this->assertSame( 2, $tail['unparseable_lines'], 'each torn line is counted' );
 		$this->assertSame( 31, $tail['records']['a.p0']['value']['cursor_offset'] );
@@ -3722,7 +3906,7 @@ class PartitionTest extends TestCase {
 		$this->use_base_dir( $this->tmp );
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'outside the runtime base directory' );
-		Partition_Node::read_tail_frames_by( "{$this->tmp}-elsewhere/logs/topicprobe.p0", 'offsetlog_dir' );
+		Partition_Node::read_tail_frames_by( "{$this->tmp}-elsewhere/logs/topicprobe.p0", 'offsetlog_dir', 65536 );
 	}
 
 	/**

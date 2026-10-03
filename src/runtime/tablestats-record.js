@@ -36,6 +36,9 @@ export const FILE_BYTES = 5;
 /** Milliseconds the window covers. */
 export const ELAPSED_MS = 6;
 
+/** Disk the db, -wal and -shm take, Σ `blocks × 512`; null off SQLite. */
+export const FILE_DISK_BYTES = 7;
+
 /** A row's calls in the window. */
 export const ROW_CALLS = 0;
 

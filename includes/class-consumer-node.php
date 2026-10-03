@@ -235,34 +235,35 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	}
 
 	/**
-	 * Probe seam: the snapshot `Topic_Probe` reads from outside this Consumer, as
-	 * the POSITIONAL `Probe_Record` array (kept tiny for 24h SSE replay). A
-	 * DRAINING read — call it once per sweep. Positions and levels ride verbatim
-	 * (`SOURCE`, `READER`, the cursor, the partition END, `END_BYTES`, `DISTANCE`
-	 * and `CACHE_SIZE`); the counters ride as the work done since the previous call,
-	 * with the interval that work covers, so a reader divides ONE record instead
-	 * of differencing across records (which read a ~595s worker recycle as a
-	 * counter reset).
+	 * Probe seam: the Consumer record `Topic_Probe` reads from outside this
+	 * Consumer, as the POSITIONAL `Probe_Record` array (kept tiny for 24h SSE
+	 * replay). A DRAINING read — call it once per sweep. Positions and levels
+	 * ride verbatim (`SOURCE`, `READER`, the cursor, the partition END the lag
+	 * pairs with it, `DISTANCE` and `CACHE_SIZE`); the counters ride as the
+	 * work done since the previous call, with the interval that work covers, so
+	 * a reader divides ONE record instead of differencing across records (which
+	 * read a ~595s worker recycle as a counter reset). The partition's own size
+	 * is a Partition record's, so `END_BYTES` and `END_DISK_BYTES` keep
+	 * `Probe_Record::BLANK`'s 0.
 	 *
 	 * @return array<int,int|string> A `Probe_Record`-indexed positional array.
 	 */
 	public function probe_stats(): array {
-		$lag                                    = $this->compute_lag();
-		$window                                 = $this->drain_probe_window();
-		$record                                 = [];
-		$record[ Probe_Record::SOURCE ]         = '' !== $this->source_dir ? \basename( $this->source_dir ) : '';
-		$record[ Probe_Record::READER ]         = '' !== $this->offsetlog_dir ? \basename( $this->offsetlog_dir ) : '';
-		$record[ Probe_Record::CURSOR_SEGMENT ] = $this->cursor_segment;
-		$record[ Probe_Record::CURSOR_OFF ]     = $this->cursor_offset;
-		$record[ Probe_Record::END_SEGMENT ]    = $lag['end_segment'];
-		$record[ Probe_Record::END_SIZE ]       = $lag['end_size'];
-		$record[ Probe_Record::DISTANCE ]       = $lag['bytes_behind'];
-		$record[ Probe_Record::MSGS_DELTA ]     = $window['msgs'];
-		$record[ Probe_Record::END_BYTES ]      = $lag['end_bytes'];
-		$record[ Probe_Record::CACHE_SIZE ]     = $this->offsetlog_cache_size();
-		$record[ Probe_Record::BYTES_READ_DELTA ] = $window['bytes'];
-		$record[ Probe_Record::ELAPSED_MS ]     = $window['elapsed_ms'];
-		return $record;
+		$lag    = $this->compute_lag();
+		$window = $this->drain_probe_window();
+		return \array_replace( Probe_Record::BLANK, [
+			Probe_Record::SOURCE           => '' !== $this->source_dir ? \basename( $this->source_dir ) : '',
+			Probe_Record::READER           => '' !== $this->offsetlog_dir ? \basename( $this->offsetlog_dir ) : '',
+			Probe_Record::CURSOR_SEGMENT   => $this->cursor_segment,
+			Probe_Record::CURSOR_OFF       => $this->cursor_offset,
+			Probe_Record::END_SEGMENT      => $lag['end_segment'],
+			Probe_Record::END_SIZE         => $lag['end_size'],
+			Probe_Record::DISTANCE         => $lag['bytes_behind'],
+			Probe_Record::MSGS_DELTA       => $window['msgs'],
+			Probe_Record::CACHE_SIZE       => $this->offsetlog_cache_size(),
+			Probe_Record::BYTES_READ_DELTA => $window['bytes'],
+			Probe_Record::ELAPSED_MS       => $window['elapsed_ms'],
+		] );
 	}
 
 	/**
@@ -307,7 +308,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * byte source for another overrides this alone, so the probe record and the
 	 * idle check can never disagree.
 	 *
-	 * @return array{bytes_behind: int, segments_behind: int, caught_up: bool, end_segment: int, end_size: int, end_bytes: int, cursor_segment: int, cursor_offset: int}
+	 * @return array{bytes_behind: int, segments_behind: int, caught_up: bool, end_segment: int, end_size: int, cursor_segment: int, cursor_offset: int}
 	 */
 	protected function compute_lag(): array {
 		\clearstatcache( true, $this->source()->partition_dir() );
@@ -339,7 +340,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 *
 	 * @param string $source_dir    Partition directory the reader tails.
 	 * @param string $offsetlog_dir Its durable cursor dir; empty = no cursor at all.
-	 * @return array{bytes_behind: int, segments_behind: int, caught_up: bool, end_segment: int, end_size: int, end_bytes: int, cursor_segment: int, cursor_offset: int, cursor_known: bool}
+	 * @return array{bytes_behind: int, segments_behind: int, caught_up: bool, end_segment: int, end_size: int, cursor_segment: int, cursor_offset: int, cursor_known: bool}
 	 */
 	public static function lag_from_disk( string $source_dir, string $offsetlog_dir ): array {
 		\clearstatcache( true, $source_dir );
@@ -382,7 +383,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * @param array<int,array{id: int, size: int}> $segments       Ascending segment list.
 	 * @param int                                  $cursor_segment Committed segment id.
 	 * @param int                                  $cursor_offset  Committed offset within it.
-	 * @return array{bytes_behind: int, segments_behind: int, caught_up: bool, end_segment: int, end_size: int, end_bytes: int, cursor_segment: int, cursor_offset: int}
+	 * @return array{bytes_behind: int, segments_behind: int, caught_up: bool, end_segment: int, end_size: int, cursor_segment: int, cursor_offset: int}
 	 */
 	public static function lag_of( array $segments, int $cursor_segment, int $cursor_offset ): array {
 		if ( empty( $segments ) ) {
@@ -392,7 +393,6 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 				'caught_up' => true,
 				'end_segment' => 0,
 				'end_size' => 0,
-				'end_bytes' => 0,
 				'cursor_segment' => $cursor_segment,
 				'cursor_offset' => $cursor_offset,
 			];
@@ -408,12 +408,9 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 		}
 		$bytes_behind    = 0;
 		$segments_behind = 0;
-		$end_bytes       = 0;
 		foreach ( $segments as $s ) {
 			$id   = $s['id'];
 			$size = $s['size'];
-			// Summed over EVERY live segment, cursor or not: the footprint.
-			$end_bytes += $size;
 			if ( $id < $cursor_segment ) {
 				continue;
 			}
@@ -432,7 +429,6 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 			'caught_up'       => 0 === $bytes_behind,
 			'end_segment'     => $last['id'],
 			'end_size'        => $last['size'],
-			'end_bytes'       => $end_bytes,
 			// Carried so a distance and the cursor it measured travel together.
 			'cursor_segment'  => $cursor_segment,
 			'cursor_offset'   => $cursor_offset,

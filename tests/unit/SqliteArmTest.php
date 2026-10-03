@@ -203,17 +203,36 @@ final class SqliteArmTest extends TestCase {
 		$this->assertSame( 'weka-4473', ( new Sqlite_Arm( $this->path(), 'kea:p3', read_only: true ) )->get( 'sku-4473' ) );
 	}
 
-	/** A database is its file, `-wal` and `-shm`: each on disk, with its bytes. */
+	/**
+	 * A database is its file, `-wal` and `-shm`: each on disk, with its bytes
+	 * and the disk the filesystem allocates it, both from one stat().
+	 */
 	public function test_file_sizes_names_each_file_of_the_database_on_disk(): void {
 		\mkdir( \dirname( $this->path() ), 0755, true );
 		\file_put_contents( $this->path(), \str_repeat( 'k', 4471 ) );
 		\file_put_contents( $this->path() . '-shm', \str_repeat( 's', 3301 ) );
 		\file_put_contents( "{$this->dir}/tables/lab-7:kea.p4.sqlite-wal", 'another partition' );
+		$disk = static function ( string $file ): int {
+			\clearstatcache( true, $file );
+			return (int) \stat( $file )['blocks'] * 512;
+		};
 
-		$this->assertSame( [ $this->path() => 4471, $this->path() . '-shm' => 3301 ], Sqlite_Arm::file_sizes( $this->path() ) );
+		$this->assertNotSame( 4471, $disk( $this->path() ), 'blocks must differ from bytes here, or the test proves nothing' );
+		$this->assertSame(
+			[
+				$this->path()          => [ 'bytes' => 4471, 'disk' => $disk( $this->path() ) ],
+				$this->path() . '-shm' => [ 'bytes' => 3301, 'disk' => $disk( $this->path() . '-shm' ) ],
+			],
+			Sqlite_Arm::file_sizes( $this->path() )
+		);
 
 		\file_put_contents( $this->path() . '-wal', \str_repeat( 'w', 997 ) );
-		$this->assertSame( 997, Sqlite_Arm::file_sizes( $this->path() )[ $this->path() . '-wal' ], 'a file written since is sized, not a stat cached' );
+		$this->assertSame(
+			[ 'bytes' => 4471 + 3301 + 997, 'disk' => $disk( $this->path() ) + $disk( $this->path() . '-shm' ) + $disk( $this->path() . '-wal' ) ],
+			Sqlite_Arm::footprint( $this->path() ),
+			'the totals are the sums of file_sizes()'
+		);
+		$this->assertSame( 997, Sqlite_Arm::file_sizes( $this->path() )[ $this->path() . '-wal' ]['bytes'], 'a file written since is sized, not a stat cached' );
 	}
 
 	public function test_a_reader_cannot_flush_and_answers_null(): void {

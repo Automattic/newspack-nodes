@@ -102,17 +102,18 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 			if ( null !== self::$on_probe ) {
 				( self::$on_probe )( $partition );
 			}
-			$segments = $partition->get_segments( true );
-			$size     = \array_sum( \array_column( $segments, 'size' ) );
+			$footprint = $partition->footprint();
 		} finally {
 			$partition->remove_node();
 		}
+
+		$segments = null === $footprint ? [] : $footprint['segments'];
 
 		return [
 			'log_id'        => $log_key,
 			'segments'      => $segments,
 			'segment_count' => \count( $segments ),
-			'total_size'    => $size,
+			'total_size'    => null === $footprint ? 0 : $footprint['bytes'],
 		];
 	}
 

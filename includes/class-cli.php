@@ -29,6 +29,13 @@ class CLI {
 	public const WORKER_STATES = [ 'live', 'stale', 'held', 'idle', 'down' ];
 
 	/**
+	 * Bytes of the newest topicprobe segment `read_probe_frames()` scans: 512
+	 * KiB, which at the ~18 KB an 8-worker fleet's sweep writes is about seven
+	 * minutes of sweeps, against a staleness bound of 30 seconds.
+	 */
+	public const PROBE_TAIL_BYTES = 524288;
+
+	/**
 	 * uid-source seam replacing the one `posix_geteuid()` call. Every uid
 	 * question in the substrate resolves through `uid()`: the root refusal on
 	 * `wp nodes cli` and `run`, `Config`'s base-directory ownership assertion
@@ -215,14 +222,16 @@ class CLI {
 	 * the snapshot time it was written at.
 	 *
 	 * The sole live-position source behind the dashboard and `wp nodes status`.
-	 * `Topic_Probe` appends one record per READY Consumer every
+	 * `Topic_Probe` appends one Consumer record per READY reader, and one
+	 * Partition record per log, every
 	 * `Topic_Probe_Node::declared_interval_s()` seconds, 15 by default, and a
-	 * record exists only while a worker is running to write one. The timestamp
+	 * record exists only while a worker is running to write one. A Partition
+	 * record names no reader, so the index leaves it out. The timestamp
 	 * is therefore the only thing separating a reporting reader from a departed
 	 * one, and departed is what `consumer_rows()` falls back on.
 	 *
 	 * `Partition_Node::read_tail_frames_by()` scans the newest segment's last
-	 * 128 KiB, so a reader with no record inside that window is absent from the
+	 * `PROBE_TAIL_BYTES`, so a reader with no record inside that window is absent from the
 	 * map rather than stale: it drops out of the status table instead of being
 	 * re-measured off disk. Every Topic_Probe in the fleet appends to that one
 	 * log, so a line a short write tore is expected; it is skipped and counted.
@@ -232,7 +241,8 @@ class CLI {
 	public function read_probe_frames(): array {
 		return Partition_Node::read_tail_frames_by(
 			"{$this->base_dir}/logs/" . Topic_Probe_Node::LOG_DIR,
-			Probe_Record::READER
+			Probe_Record::READER,
+			self::PROBE_TAIL_BYTES
 		);
 	}
 

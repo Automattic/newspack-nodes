@@ -63,6 +63,48 @@ final class Log_Discovery {
 	private static ?array $cached_groups = null;
 
 	/**
+	 * The name a log's record gives it, from its path relative to the runtime
+	 * base: the stamp when it is a first-level dir under one of `GROUPS`, so a
+	 * `logs` dir reads as its Consumers name it, and the relative path
+	 * otherwise (`ipc/<worker>/output`), since a basename names many dirs.
+	 * A Partition or Log declaration calls it too, so a name `stamp_for()`
+	 * refuses is refused where it is declared.
+	 *
+	 * @param string $relative The log's path under the runtime base.
+	 * @return string The record's SOURCE.
+	 * @throws \InvalidArgumentException On a log dir named like a group.
+	 */
+	public static function source_for( string $relative ): string {
+		$parts = \explode( '/', $relative );
+		if ( 2 === \count( $parts ) && \in_array( $parts[0], self::GROUPS, true ) ) {
+			return self::stamp_for( $parts[0], $parts[1] );
+		}
+		return $relative;
+	}
+
+	/**
+	 * The stamp naming a dir under one of `GROUPS`: a `logs` dir stays bare
+	 * and a grouped one keeps its prefix, so one directory has one spelling
+	 * wherever it is named — an SSE frame's FROM and a Partition record's
+	 * SOURCE alike. A bare stamp that is a group name would read back as that
+	 * group's prefix, so a log dir named like a group is refused by name.
+	 *
+	 * @param string $group    The root group the dir sits under.
+	 * @param string $basename The dir's basename.
+	 * @return string The stamp.
+	 * @throws \InvalidArgumentException On a log dir named like a group.
+	 */
+	public static function stamp_for( string $group, string $basename ): string {
+		if ( 'logs' !== $group ) {
+			return "{$group}/{$basename}";
+		}
+		if ( \in_array( $basename, self::GROUPS, true ) ) {
+			throw new \InvalidArgumentException( \esc_html( "log dir {$basename} is named like a group; rename it" ) );
+		}
+		return $basename;
+	}
+
+	/**
 	 * Sorted basenames of every first-level directory under `{base}/logs`,
 	 * returned verbatim. The flat layout carries the partition in the name, so
 	 * `firehose.p0` is one entry and nothing strips a suffix; `GLOB_ONLYDIR`

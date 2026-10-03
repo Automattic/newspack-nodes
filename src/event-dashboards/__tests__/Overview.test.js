@@ -349,7 +349,7 @@ describe( 'Overview fleet board', () => {
 		expect( ctl.editHref ).toContain( 'edit=1' );
 	} );
 
-	it( 'renders the four Topics panels (message rate, byte rate, backlog, cache size)', () => {
+	it( 'renders the four Topics panels, then Partition Size and On Disk', () => {
 		useTopologyManager.mockReturnValue(
 			hookValue( {
 				topologies: [ active( 'alpha', 'ok', [ worker() ] ) ],
@@ -364,6 +364,8 @@ describe( 'Overview fleet board', () => {
 			'Topics Byte Rate',
 			'Topics Backlog',
 			'Topics Cache Size',
+			'Partition Size',
+			'On Disk',
 		] );
 	} );
 
@@ -379,7 +381,93 @@ describe( 'Overview fleet board', () => {
 			'Bytes',
 			'Backlog',
 			'Cache Size',
+			'Size',
+			'Disk',
 		] );
+	} );
+
+	it( 'charts each partition as one level series, whichever worker took the reading', () => {
+		const reading = ( ts, workerId, endBytes, diskBytes ) => ( {
+			ts,
+			worker: workerId,
+			endBytes,
+			diskBytes,
+		} );
+		const partitions = {
+			'ledger.p4': {
+				source: 'ledger.p4',
+				series: [
+					reading( 100.21, 'job-worker-6612.p2', 5003, 8192 ),
+					reading( 100.84, 'job-intake-6612.p0', 5003, 8192 ),
+					reading( 107.06, 'job-intake-6612.p0', 5780, 12288 ),
+				],
+			},
+		};
+		useNodeField.mockReturnValue( { consumers: {}, partitions } );
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				topologies: [ active( 'alpha', 'ok', [ worker() ] ) ],
+			} )
+		);
+		render( <Overview /> );
+		const panel = ( title ) =>
+			globalThis.__topicsPanels.find( ( p ) => p.title === title );
+		const points = ( title ) =>
+			panel( title ).series[ 'ledger.p4' ].points.map( ( p ) => [
+				p.ts,
+				p.value,
+			] );
+		for ( const title of [ 'Partition Size', 'On Disk' ] ) {
+			expect( Object.keys( panel( title ).series ) ).toEqual( [
+				'ledger.p4',
+			] );
+			expect( panel( title ).stacked ).toBe( true );
+			expect( panel( title ).series[ 'ledger.p4' ].mode ).toEqual( {
+				fill: 'hold',
+				agg: 'last',
+			} );
+		}
+		expect( points( 'Partition Size' ) ).toEqual( [
+			[ 100.21, 5003 ],
+			[ 100.84, 5003 ],
+			[ 107.06, 5780 ],
+		] );
+		expect( points( 'On Disk' ) ).toEqual( [
+			[ 100.21, 8192 ],
+			[ 100.84, 8192 ],
+			[ 107.06, 12288 ],
+		] );
+		expect( globalThis.__summaryCards.at( -1 ).partitions ).toBe(
+			partitions
+		);
+	} );
+
+	it( 'charts two directories that share a basename as two series', () => {
+		const sized = ( source, endBytes ) => ( {
+			source,
+			series: [ { ts: 100, worker: 'job-worker-6612.p2', endBytes } ],
+		} );
+		useNodeField.mockReturnValue( {
+			consumers: {},
+			partitions: {
+				'offsets/ingest.p0': sized( 'offsets/ingest.p0', 292 ),
+				'deadletter/ingest.p0': sized( 'deadletter/ingest.p0', 5113 ),
+			},
+		} );
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				topologies: [ active( 'alpha', 'ok', [ worker() ] ) ],
+			} )
+		);
+		render( <Overview /> );
+		const size = globalThis.__topicsPanels.find(
+			( p ) => p.title === 'Partition Size'
+		).series;
+		expect( Object.keys( size ).sort() ).toEqual( [
+			'deadletter/ingest.p0',
+			'offsets/ingest.p0',
+		] );
+		expect( size[ 'deadletter/ingest.p0' ].points[ 0 ].value ).toBe( 5113 );
 	} );
 
 	it( 'feeds each panel its per-topic 24h series rolled up from the probe view', () => {
@@ -454,7 +542,7 @@ describe( 'Overview fleet board', () => {
 			} )
 		);
 		render( <Overview /> );
-		const panels = globalThis.__topicsPanels.slice( -4 );
+		const panels = globalThis.__topicsPanels.slice( -6, -2 );
 		for ( const p of panels ) {
 			expect( p.stacked ).toBe( true );
 			expect( p ).not.toHaveProperty( 'metric' );

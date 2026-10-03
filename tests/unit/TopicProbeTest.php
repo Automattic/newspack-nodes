@@ -128,6 +128,30 @@ class TopicProbeTest extends TestCase {
 		$this->rmdir_recursive( $stock );
 	}
 
+	/**
+	 * The stock probe log holds a day of an 8-worker fleet's sweeps, both
+	 * record kinds: about 18 KB a 15 s sweep, 5760 sweeps, ~104 MB. Its count
+	 * target holds that and its hard cap twice that, both kept a day.
+	 */
+	public function test_the_stock_probe_log_holds_a_day_of_a_fleets_sweeps(): void {
+		\Newspack_Nodes\Topology_Registry::reset();
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( \dirname( __DIR__, 2 ) . '/topologies' );
+		$log = null;
+		foreach ( \Newspack_Nodes\Topology_Analyzer::graph_for( 'topic-probe' )['nodes'] as $node ) {
+			if ( 'Partition' === $node['type'] ) {
+				$log = $node['args'];
+			}
+		}
+		\Newspack_Nodes\Topology_Registry::reset();
+		$this->assertIsArray( $log );
+		[ , $segment_size, , $num_segments, $max_segments, $min_lifetime, $lifetime ] = \array_map( 'intval', $log );
+		$day = 18000 * 5760;
+
+		$this->assertGreaterThanOrEqual( $day, $segment_size * $num_segments, 'the count target holds a day' );
+		$this->assertGreaterThanOrEqual( 2 * $day, $segment_size * \Newspack_Nodes\Partition_Node::derive_max_segments( $num_segments, $max_segments ), 'the hard cap holds two' );
+		$this->assertSame( [ 86400, 86400 ], [ $min_lifetime, $lifetime ], 'each kept a day' );
+	}
+
 	public function test_stale_after_falls_back_to_the_default_cadence(): void {
 		// No topic-probe topology reachable at all: the default is the only
 		// honest answer, and it must not become "never stale".
@@ -157,10 +181,11 @@ class TopicProbeTest extends TestCase {
 		$record[ Probe_Record::END_SIZE ]   = 100 + $distance;
 		$record[ Probe_Record::DISTANCE ]   = $distance;
 		$record[ Probe_Record::MSGS_DELTA ] = 42;
-		$record[ Probe_Record::END_BYTES ]  = 100 + $distance;
+		$record[ Probe_Record::END_BYTES ]  = 0;
 		$record[ Probe_Record::CACHE_SIZE ] = 0;
 		$record[ Probe_Record::BYTES_READ_DELTA ] = 512;
 		$record[ Probe_Record::ELAPSED_MS ] = 15000;
+		$record[ Probe_Record::END_DISK_BYTES ] = 0;
 		$c->canned = $record;
 		$c->name( $name ); // registers into Core::$nodes_by_name (the sweep set)
 		$c->make_ready();
@@ -233,7 +258,7 @@ class TopicProbeTest extends TestCase {
 			$this->assertSame( Message::TM_STRUCT, $msg[ Message::TYPE ] );
 			$this->assertSame( Core::$now, $msg[ Message::TIMESTAMP ] );
 			$this->assertCount(
-				12,
+				13,
 				$msg[ Message::VALUE ],
 				'lean positional record — no ts/host/derived fields'
 			);
@@ -244,6 +269,110 @@ class TopicProbeTest extends TestCase {
 		);
 		\sort( $readers );
 		$this->assertSame( [ 'firehose.p0', 'gyroscope.p0' ], $readers );
+	}
+
+	/** A registered Partition over `$dir`, its segments written as given. */
+	private function partition( string $name, string $dir, array $segments ): \Newspack_Nodes\Partition_Node {
+		if ( [] !== $segments ) {
+			\mkdir( $dir, 0755, true );
+		}
+		foreach ( $segments as $id => $bytes ) {
+			\file_put_contents( "{$dir}/{$id}.log", \str_repeat( 'x', $bytes ) );
+		}
+		$p = new \Newspack_Nodes\Partition_Node();
+		$p->name( $name );
+		$p->arguments( [ $dir ] );
+		return $p;
+	}
+
+	/** A swept probe wired into a capture, ready to fire. */
+	private static function probe_into( Capture_Sink_Node $capture ): Topic_Probe_Node {
+		$probe = new Topic_Probe_Node();
+		$probe->name( 'topicprobe' );
+		$probe->arguments( [] );
+		$probe->sink( $capture );
+		return $probe;
+	}
+
+	/** A runtime base of its own, so a Partition record's SOURCE is known. */
+	private function base(): string {
+		$base = $this->make_temp_dir( 'probe-base-' );
+		$this->use_base_dir( $base );
+		return $base;
+	}
+
+	/** Tachikoma's `TopicProbe.pm` sweeps Partitions as well as Consumers. */
+	public function test_fire_emits_a_partition_record_with_a_blank_reader(): void {
+		$dir = $this->base() . '/logs/ledger.p4';
+		$this->partition( 'ledger:partition', $dir, [ 6 => 3371 ] );
+		$this->stub_consumer( 'firehose' );
+		$capture = new Capture_Sink_Node();
+
+		self::probe_into( $capture )->fire_cb();
+
+		$records = \array_column( $capture->captured, Message::VALUE );
+		$this->assertCount( 2, $records );
+		$partition = \array_values( \array_filter( $records, static fn ( array $r ): bool => '' === $r[ Probe_Record::READER ] ) );
+		$this->assertCount( 1, $partition );
+		$this->assertSame( 'ledger.p4', $partition[0][ Probe_Record::SOURCE ], 'a logs dir is named as its Consumers name it' );
+		$this->assertSame( 3371, $partition[0][ Probe_Record::END_BYTES ] );
+		$this->assertSame( (int) \stat( "{$dir}/6.log" )['blocks'] * 512, $partition[0][ Probe_Record::END_DISK_BYTES ] );
+	}
+
+	/** Two nodes over one directory are one directory: one record a sweep. */
+	public function test_two_partitions_over_one_directory_yield_one_record_a_sweep(): void {
+		$base = $this->base();
+		$this->partition( 'ledger:partition', "{$base}/logs/ledger.p4", [ 0 => 1201 ] );
+		$this->partition( 'ledger:consumer:source', "{$base}/logs/ledger.p4", [] );
+		$this->partition( 'jobs:partition', "{$base}/logs/jobs.p4", [ 2 => 877 ] );
+		$capture = new Capture_Sink_Node();
+		$probe   = self::probe_into( $capture );
+
+		$probe->fire_cb();
+		Core::$now = 1015;
+		$probe->fire_cb();
+
+		$sources = \array_map( static fn ( array $m ): string => $m[ Message::VALUE ][ Probe_Record::SOURCE ], $capture->captured );
+		$this->assertSame( [ 'ledger.p4', 'jobs.p4', 'ledger.p4', 'jobs.p4' ], $sources, 'each directory once per sweep, every sweep' );
+	}
+
+	/**
+	 * Directories sharing a basename are distinct logs, each its own SOURCE,
+	 * spelled as the SSE stamp spells it: bare under `logs/`, grouped under
+	 * another root, and base-relative outside the roots.
+	 */
+	public function test_directories_sharing_a_basename_report_apart(): void {
+		$base = $this->base();
+		$this->partition( 'ingest:partition', "{$base}/logs/ingest.p0", [ 0 => 4421 ] );
+		$this->partition( 'ingest:consumer:offsetlog', "{$base}/offsets/ingest.p0", [ 0 => 292 ] );
+		$this->partition( 'ingest:consumer:deadletter', "{$base}/deadletter/ingest.p0", [ 0 => 5113 ] );
+		$this->partition( 'output', "{$base}/ipc/job-worker.p2/output", [ 1 => 64 ] );
+		$capture = new Capture_Sink_Node();
+
+		self::probe_into( $capture )->fire_cb();
+
+		$sources = \array_map( static fn ( array $m ): string => $m[ Message::VALUE ][ Probe_Record::SOURCE ], $capture->captured );
+		$this->assertSame( [ 'ingest.p0', 'offsets/ingest.p0', 'deadletter/ingest.p0', 'ipc/job-worker.p2/output' ], $sources );
+	}
+
+	/** A Partition never written has no directory and nothing to report. */
+	public function test_a_partition_never_written_yields_no_record(): void {
+		$this->partition( 'ledger:partition', $this->base() . '/logs/ledger.p4', [] );
+		$capture = new Capture_Sink_Node();
+
+		self::probe_into( $capture )->fire_cb();
+
+		$this->assertSame( [], $capture->captured );
+	}
+
+	/** A blank READER marks a Partition record, so a reader with none is not sent. */
+	public function test_an_ephemeral_consumer_yields_no_record(): void {
+		$this->stub_consumer( 'ephemeral' )->canned[ Probe_Record::READER ] = '';
+		$capture = new Capture_Sink_Node();
+
+		self::probe_into( $capture )->fire_cb();
+
+		$this->assertSame( [], $capture->captured );
 	}
 
 	public function test_shutdown_sweep_emits_the_final_partial_interval(): void {

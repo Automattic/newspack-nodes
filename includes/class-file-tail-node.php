@@ -266,7 +266,7 @@ class File_Tail_Node extends Tail_Node {
 	 * holding a partial line has consumed it — so `bytes_behind` here is what the
 	 * probe's DISTANCE reports, one definition for both.
 	 *
-	 * @return array{bytes_behind:int,segments_behind:int,caught_up:bool,end_segment:int,end_size:int,end_bytes:int,cursor_segment:int,cursor_offset:int}
+	 * @return array{bytes_behind:int,segments_behind:int,caught_up:bool,end_segment:int,end_size:int,cursor_segment:int,cursor_offset:int}
 	 */
 	protected function compute_lag(): array {
 		$size         = $this->file_current_size();
@@ -277,7 +277,6 @@ class File_Tail_Node extends Tail_Node {
 			'caught_up'       => 0 === $bytes_behind,
 			'end_segment'     => $this->cursor_segment,
 			'end_size'        => $size,
-			'end_bytes'       => $size,
 			'cursor_segment'  => $this->cursor_segment,
 			'cursor_offset'   => $this->cursor_offset,
 		];

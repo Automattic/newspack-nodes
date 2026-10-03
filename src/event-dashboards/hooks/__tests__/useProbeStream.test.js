@@ -24,6 +24,17 @@ import * as Job from '../../../runtime/jobstats-record';
 import * as Tbl from '../../../runtime/tablestats-record';
 import { useProbeStream } from '../useProbeStream';
 
+/**
+ * A mounted probe view's own model, keyed by identity.
+ *
+ * @param {string} name The view node's name.
+ * @return {Object} Its `snapshot()` of its `modelKey`.
+ */
+const modelOf = ( name ) => {
+	const view = Core.node( name );
+	return view.snapshot( view.modelKey );
+};
+
 class FakeEventSource {
 	constructor( url ) {
 		this.url = url;
@@ -204,9 +215,7 @@ describe.each( Object.keys( FRAMES ) )( 'useProbeStream( %s )', ( name ) => {
 		expect( seen ).toEqual( [
 			JSON.parse( JSON.stringify( FRAMES[ name ].value() ) ),
 		] );
-		expect(
-			Core.node( VIEW ).snapshot()[ FRAMES[ name ].key ]
-		).toBeTruthy();
+		expect( modelOf( VIEW )[ FRAMES[ name ].key ] ).toBeTruthy();
 	} );
 
 	it( 'routes a frame through the link into the view, keyed', async () => {
@@ -218,7 +227,7 @@ describe.each( Object.keys( FRAMES ) )( 'useProbeStream( %s )', ( name ) => {
 				JSON.stringify( frame( name ) )
 			);
 		} );
-		const entry = Core.node( VIEW ).snapshot()[ FRAMES[ name ].key ];
+		const entry = modelOf( VIEW )[ FRAMES[ name ].key ];
 		expect( entry ).toBeTruthy();
 		FRAMES[ name ].detail( entry );
 	} );
@@ -254,8 +263,7 @@ describe( 'useProbeStream( topicprobe ) series', () => {
 			);
 			FakeEventSource.last.dispatch( 'msg', JSON.stringify( second ) );
 		} );
-		const entry =
-			Core.node( 'topicprobe:view' ).snapshot()[ 'firehose.p0' ];
+		const entry = modelOf( 'topicprobe:view' )[ 'firehose.p0' ];
 		expect( entry.latest.msgRate ).toBe( 1000 );
 		expect( entry.latest.backlog ).toBe( 7800 );
 	} );

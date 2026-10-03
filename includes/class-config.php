@@ -159,6 +159,20 @@ class Config {
 	}
 
 	/**
+	 * A path relative to the runtime base, `ipc/job-worker.p2/output`, which
+	 * names one log apart from every other where a basename does not. A path
+	 * outside the base keeps its own, less the leading slash.
+	 *
+	 * @param string $path An absolute path.
+	 * @return string The path under the base.
+	 * @throws \RuntimeException When the base directory will not resolve.
+	 */
+	public static function relative_to_base( string $path ): string {
+		$base = \rtrim( self::get_base_directory(), '/' );
+		return \str_starts_with( $path, "{$base}/" ) ? \substr( $path, \strlen( $base ) + 1 ) : \ltrim( $path, '/' );
+	}
+
+	/**
 	 * Get the offsets directory path ({base}/offsets).
 	 *
 	 * @api

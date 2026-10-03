@@ -179,6 +179,15 @@ class ProbeToGraphiteTest extends TestCase {
 		$this->assertCount( 12, explode( "\n", rtrim( $this->sink->captured[4][ Message::VALUE ], "\n" ) ) );
 	}
 
+	/** A Partition record names no reader, so it is no reader's metric. */
+	public function test_a_partition_record_is_ignored(): void {
+		$this->node->fill( $this->probe_message( '', 0, 0 ) );
+
+		$this->node->fire();
+
+		$this->assertSame( [], $this->sink->captured );
+	}
+
 	public function test_non_struct_and_malformed_records_are_ignored(): void {
 		$bytes                       = Message::new_message();
 		$bytes[ Message::TYPE ]      = Message::TM_BYTESTREAM;
