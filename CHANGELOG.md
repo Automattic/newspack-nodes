@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A Table counts errors per operation.** Its `stats` verb, `dump_node` and `dump_metadata` answer an `errors` count for each operation: the requests answered with a TM_ERROR, whether a refused request or a read the backend failed.
 - **A Table's `probe_stats()` drains a per-operation window** (`Tablestats_Record`), for the Table probe.
 - **The `Table_Probe` node and the stock `table-probe` topology** sweep each named Table every 15 s into `tablestats.p0`, a day long.
+- **A dashboard chart series can carry its own fill mode and aggregate mode, so a peak survives a widened bucket.** `buildAlignedSeries` honours each series' optional `mode` property with `fill` and `agg` fields. A `max` aggregate keeps the largest sample per bucket instead of averaging, `fileBytes` holds its last reading across gaps like a gauge, and `meanMs` weights by operations instead of elapsed time.
 
 ## [2.84.2] - 2026-10-02
 

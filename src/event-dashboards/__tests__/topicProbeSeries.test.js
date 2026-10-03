@@ -41,6 +41,17 @@ describe( 'fillModeForMetric', () => {
 			agg: 'rate',
 		} );
 	} );
+
+	it( 'maxMs takes a MAX bucket and fileBytes holds as a level', () => {
+		expect( fillModeForMetric( 'maxMs' ) ).toEqual( {
+			fill: 'zero',
+			agg: 'max',
+		} );
+		expect( fillModeForMetric( 'fileBytes' ) ).toEqual( {
+			fill: 'hold',
+			agg: 'last',
+		} );
+	} );
 } );
 
 describe( 'topicChartSeries', () => {
@@ -155,5 +166,18 @@ describe( 'topicChartSeries', () => {
 				'backlog'
 			)
 		).toEqual( {} );
+	} );
+
+	it( 'weights meanMs by the window ops, not its seconds', () => {
+		const out = topicChartSeries(
+			{
+				a: {
+					source: 'lab-7:kea.p3',
+					series: [ { ts: 9, meanMs: 4, opsDelta: 37, elapsed: 15 } ],
+				},
+			},
+			'meanMs'
+		);
+		expect( out[ 'lab-7:kea.p3' ].points[ 0 ].weight ).toBe( 37 );
 	} );
 } );

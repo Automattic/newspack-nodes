@@ -35,17 +35,19 @@ const BUCKET_BASE_S = 15;
  * - RATE (`fill:'zero'`, `agg:'rate'`): a bucket re-divides its samples,
  *   Σ(value × weight) / Σweight, which is Σwork / Σelapsed because each
  *   sample's value is its own work over its own weight. An empty bucket is 0.
+ * - MAX (`fill:'zero'`, `agg:'max'`): a bucket keeps its largest sample.
+ *   An empty bucket is 0.
  *
  * Bucket width is the probe cadence, widened only enough to hold the axis at or
  * under `maxPoints`: a panel is ~1800px wide, so a denser axis is sub-pixel,
  * and the cap is what keeps the d3 redraw cheap.
  *
  * @param {?Object} series      One panel's topics from `topicChartSeries`:
- *                              `{ [topic]: { points:[{ts,value,weight}], max, avg } }`, ts in seconds.
+ *                              `{ [topic]: { points:[{ts,value,weight}], max, avg, mode? } }`, ts in seconds.
  * @param {number}  maxPoints   Cap on the rendered axis length; 0 or less holds the base bucket however long the axis grows.
  * @param {Object}  [mode]      Fill/aggregate mode, from `fillModeForMetric`.
  * @param {string}  [mode.fill] `'hold'` (carry forward) or `'zero'` (default).
- * @param {string}  [mode.agg]  `'last'` (latest-ts in bucket) or `'rate'` (default).
+ * @param {string}  [mode.agg]  `'last'` (latest-ts in bucket), `'rate'` (default), or `'max'` (largest sample).
  * @return {{series:Array<{label:string,values:Array<{date:Date,value:number}>}>,dates:Array<Date>}}
  *   The topics busiest-first, plus the bucket instants they are aligned onto.
  */
@@ -95,12 +97,10 @@ export function buildAlignedSeries(
 		dates.push( new Date( b * 1000 ) );
 	}
 
-	const hold = 'hold' === fill;
-	const last = 'last' === agg;
 	const aligned = ranked.map( ( s ) => {
-		const acc = last
-			? lastPerBucket( s.points, bucketOf )
-			: ratePerBucket( s.points, bucketOf );
+		const own = s.mode || { fill, agg };
+		const acc = aggregate( own.agg, s.points, bucketOf );
+		const hold = 'hold' === own.fill;
 		let carried = 0;
 		return {
 			label: s.key,
@@ -116,6 +116,24 @@ export function buildAlignedSeries(
 	} );
 
 	return { series: aligned, dates };
+}
+
+/**
+ * One series' buckets under its aggregate.
+ *
+ * @param {string}                                        agg      The aggregate: 'last', 'rate', or 'max'.
+ * @param {Array<{ts:number,value:number,weight:number}>} points   One topic's points.
+ * @param {(ts:number)=>number}                           bucketOf Floors a ts onto its bucket instant.
+ * @return {Map<number,number>} Each bucket instant to its value.
+ */
+function aggregate( agg, points, bucketOf ) {
+	if ( 'last' === agg ) {
+		return lastPerBucket( points, bucketOf );
+	}
+	if ( 'max' === agg ) {
+		return maxPerBucket( points, bucketOf );
+	}
+	return ratePerBucket( points, bucketOf );
 }
 
 /**
@@ -162,6 +180,23 @@ function ratePerBucket( points, bucketOf ) {
 	const out = new Map();
 	for ( const [ b, { work, weight } ] of sums ) {
 		out.set( b, weight > 0 ? work / weight : 0 );
+	}
+	return out;
+}
+
+/**
+ * PEAK aggregate: a bucket keeps its largest sample, so one slow call in a
+ * widened bucket still shows.
+ *
+ * @param {Array<{ts:number,value:number}>} points   One topic's points.
+ * @param {(ts:number)=>number}             bucketOf Floors a ts onto its bucket instant.
+ * @return {Map<number,number>} Each bucket instant to its largest value.
+ */
+function maxPerBucket( points, bucketOf ) {
+	const out = new Map();
+	for ( const p of points ) {
+		const b = bucketOf( p.ts );
+		out.set( b, Math.max( out.get( b ) ?? -Infinity, p.value ) );
 	}
 	return out;
 }
