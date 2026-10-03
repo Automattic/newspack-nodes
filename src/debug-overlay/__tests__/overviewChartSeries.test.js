@@ -27,10 +27,10 @@ describe( 'overviewChartSeries', () => {
 		] );
 	} );
 
-	test( 'each series carries the max + avg the chart legend ranks on', () => {
+	test( 'each series carries the max the chart ranks on, and nothing unread', () => {
 		const { msgRate } = overviewChartSeries( RING );
 		expect( msgRate.In.max ).toBe( 3 );
-		expect( msgRate.In.avg ).toBeCloseTo( 2 );
+		expect( msgRate.In ).not.toHaveProperty( 'avg' );
 		expect( msgRate.Out.max ).toBe( 4 );
 	} );
 

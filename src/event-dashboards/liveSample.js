@@ -1,6 +1,6 @@
 /**
  * The one freshness rule every live SummaryCards card applies to a reader's
- * `latest` probe sample: "Messages/s", "Backlog", "Avg Cache" and "Total Cache".
+ * `latest` probe sample: "Messages/s", "Backlog" and "Total Cache".
  *
  * A live card shows the fleet as of the newest message seen, so a sample counts
  * only while it is within a minute of the stream head: the newest `latest.ts`
@@ -15,7 +15,7 @@
  */
 
 /** Seconds a probe sample stays current, four 15-second probe sweeps. */
-const LIVE_WINDOW_S = 60;
+export const LIVE_WINDOW_S = 60;
 
 /**
  * The stream head: the newest sample timestamp any reader in the map reports.
@@ -32,6 +32,18 @@ export function streamHead( consumers ) {
 		}
 	}
 	return head;
+}
+
+/**
+ * Whether a reader counts toward a live card: it names the source the charts
+ * plot it under, and its newest sample is live.
+ *
+ * @param {{source?:string,latest?:{ts?:number}}} c     A `topicprobe:view` consumer.
+ * @param {number}                                headS The stream head, from `streamHead()`.
+ * @return {boolean} True when the card counts it.
+ */
+export function isLiveReader( c, headS ) {
+	return Boolean( c.source ) && isLiveSample( c.latest, headS );
 }
 
 /**

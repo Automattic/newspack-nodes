@@ -6,6 +6,7 @@ import {
 	formatEta,
 	etaSeconds,
 	formatGroupedCount,
+	formatMs,
 } from '../formatters';
 
 describe( 'formatters', () => {
@@ -106,5 +107,14 @@ describe( 'formatGroupedCount', () => {
 		expect( formatGroupedCount( undefined ) ).toBe( '—' );
 		expect( formatGroupedCount( NaN ) ).toBe( '—' );
 		expect( formatGroupedCount( '42' ) ).toBe( '—' );
+	} );
+	it( 'formatMs', () => {
+		expect( formatMs( 0 ) ).toBe( '0ms' );
+		expect( formatMs( NaN ) ).toBe( '0ms' );
+		expect( formatMs( -3 ) ).toBe( '0ms' );
+		expect( formatMs( 1.257 ) ).toBe( '1.26ms' );
+		expect( formatMs( 9.99 ) ).toBe( '9.99ms' );
+		expect( formatMs( 210.4 ) ).toBe( '210ms' );
+		expect( formatMs( 1550 ) ).toBe( '1.6s' );
 	} );
 } );

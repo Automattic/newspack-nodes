@@ -25,13 +25,13 @@ describe( 'globalMsgRate', () => {
 		expect( globalMsgRate( consumers, HEAD ) ).toBe( 10 );
 	} );
 
-	it( 'does not double-count co-readers of one (per-partition) source', () => {
-		// firehose.p0 read by two topologies: same rate → dedup (max) to ONE.
+	it( 'counts each co-reader of one partition, as the stacked chart does', () => {
+		// firehose.p3 read by two topologies in two workers: each counts.
 		const consumers = {
-			r1: live( 'firehose.p0', 7 ),
-			r2: live( 'firehose.p0', 7 ),
+			'request-builder.firehose.p3': live( 'firehose.p3', 7 ),
+			'job-router.firehose.p3': live( 'firehose.p3', 11 ),
 		};
-		expect( globalMsgRate( consumers, HEAD ) ).toBe( 7 );
+		expect( globalMsgRate( consumers, HEAD ) ).toBe( 18 );
 	} );
 
 	it( 'sums across a topic’s distinct per-partition sources', () => {
@@ -41,14 +41,6 @@ describe( 'globalMsgRate', () => {
 			r2: live( 'firehose.p1', 6 ),
 		};
 		expect( globalMsgRate( consumers, HEAD ) ).toBe( 10 );
-	} );
-
-	it( 'takes the max on a co-reader rate skew', () => {
-		const consumers = {
-			r1: live( 'firehose.p0', 4 ),
-			r2: live( 'firehose.p0', 9 ),
-		};
-		expect( globalMsgRate( consumers, HEAD ) ).toBe( 9 );
 	} );
 
 	it( 'ignores consumers with an empty source or no latest sample', () => {
@@ -73,7 +65,7 @@ describe( 'globalMsgRate', () => {
 		expect( globalMsgRate( consumers, HEAD ) ).toBe( 23 );
 	} );
 
-	it( 'a dead co-reader’s stale burst cannot outrank the live reader of its source', () => {
+	it( 'a dead co-reader’s stale burst never joins the live reader’s rate', () => {
 		const consumers = {
 			alive: live( 'firehose.p0', 540, 9 ),
 			dead: live( 'firehose.p0', 51000, 7200 ),

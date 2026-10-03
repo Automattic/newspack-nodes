@@ -31,7 +31,7 @@ it( 'marks every fleet metric as a canonical card surface', () => {
 	const { container } = renderCards();
 	const cards = [ ...container.querySelectorAll( '.nodes-card' ) ];
 
-	expect( cards ).toHaveLength( 12 );
+	expect( cards ).toHaveLength( 11 );
 	expect(
 		cards.every( ( item ) =>
 			item.classList.contains( 'newspack-nodes-card' )
@@ -92,7 +92,7 @@ it( 'shows the global produced message rate from the probe consumers', () => {
 	expect( card( container, 'msgrate' ) ).toContain( '10/s' );
 } );
 
-it( 'shows average and total offsetlog cache size from the probe consumers', () => {
+it( 'shows the summed offsetlog cache size, and no average, from the probe consumers', () => {
 	const { container } = renderCards( {
 		consumers: {
 			'a.p0': {
@@ -106,7 +106,9 @@ it( 'shows average and total offsetlog cache size from the probe consumers', () 
 		},
 	} );
 	expect( card( container, 'cache-total' ) ).toContain( 'Total Cache' );
-	expect( card( container, 'cache-avg' ) ).toContain( 'Avg Cache' );
+	expect( card( container, 'cache-total' ) ).toContain( '3.9 KB' );
+	expect( container.querySelector( '.nodes-card--cache-avg' ) ).toBeNull();
+	expect( container.textContent ).not.toContain( 'Avg Cache' );
 } );
 
 it( 'sums the current backlog across readers from the probe consumers', () => {
@@ -151,7 +153,6 @@ it.each( [
 			expect( card( container, 'msgrate' ) ).toContain( '37/s' );
 			expect( card( container, 'backlog' ) ).toContain( '4 KB' );
 			expect( card( container, 'cache-total' ) ).toContain( '4 KB' );
-			expect( card( container, 'cache-avg' ) ).toContain( '2 KB' );
 		} finally {
 			clock.mockRestore();
 		}

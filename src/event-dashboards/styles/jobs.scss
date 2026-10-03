@@ -1,61 +1,14 @@
 /**
- * Jobs tab — per-handler job-outcome table + the two rate panels.
+ * Jobs tab — the message column and the status badge; the panel grid, the
+ * empty state and the shared table rules live in probe-tab.scss.
  */
 
-@use "base";
-
-.nodes-jobs {
-	padding: 16px;
-	color: var(--ink);
-	font-family: base.$system-font;
-}
-
-.nodes-jobs__panels {
-	display: grid;
-	// minmax(0, …): a drawn SVG's own width must not pin its column.
-	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-	gap: 12px;
-	margin-bottom: 16px;
-}
-
-.nodes-jobs__empty {
-	padding: 24px;
-	text-align: center;
-}
-
-.newspack-nodes-empty-state.nodes-jobs__empty {
-	padding: 24px;
-	text-align: center;
-
-	&::before {
-		display: none;
-	}
-}
-
-.nodes-jobs__table {
-	th,
-	td {
-		vertical-align: middle;
-	}
-
-	.nodes-jobs__handler {
-		font-family: base.$mono-font;
-		font-weight: 600;
-		color: var(--ink);
-	}
-
-	.nodes-jobs__failures.is-nonzero {
-		color: var(--oxide-text);
-		font-weight: 600;
-	}
-
-	.nodes-jobs__message {
-		max-width: 340px;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		color: var(--ink-3);
-	}
+.nodes-probe-tab__table .nodes-jobs__message {
+	max-width: 340px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--ink-3);
 }
 
 .nodes-jobs__status {

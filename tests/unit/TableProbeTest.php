@@ -76,6 +76,43 @@ final class TableProbeTest extends TestCase {
 		$this->assertSame( [ 'flame-stats:aggregate.p2', 'flame-stats:url.p2' ], $ids );
 	}
 
+	public function test_a_record_names_its_worker_in_from(): void {
+		$this->stub_table( 'flame-stats:url', [ self::record( 'flame-stats:url.p3' ) ] );
+		Core::$var['topology']  = 'job-worker-4417';
+		Core::$var['partition'] = '3';
+		$capture                = new Capture_Sink_Node();
+		$this->probe( $capture )->fire_cb();
+
+		$this->assertSame( 'job-worker-4417.p3/tablestats', $capture->captured[0][ Message::FROM ] );
+	}
+
+	public function test_a_record_outside_a_worker_carries_the_bare_probe_name(): void {
+		$this->stub_table( 'flame-stats:url', [ self::record( 'flame-stats:url' ) ] );
+		$capture = new Capture_Sink_Node();
+		$this->probe( $capture )->fire_cb();
+
+		$this->assertSame( 'tablestats', $capture->captured[0][ Message::FROM ] );
+	}
+
+	public function test_a_record_with_only_a_partition_bound_carries_the_bare_probe_name(): void {
+		$this->stub_table( 'flame-stats:url', [ self::record( 'flame-stats:url.p5' ) ] );
+		Core::$var['partition'] = '5';
+		$capture                = new Capture_Sink_Node();
+		$this->probe( $capture )->fire_cb();
+
+		$this->assertSame( 'tablestats', $capture->captured[0][ Message::FROM ] );
+	}
+
+	public function test_a_record_with_a_non_canonical_partition_carries_the_bare_probe_name(): void {
+		$this->stub_table( 'flame-stats:url', [ self::record( 'flame-stats:url.p7' ) ] );
+		Core::$var['topology']  = 'job-worker-4417';
+		Core::$var['partition'] = '1e2';
+		$capture                = new Capture_Sink_Node();
+		$this->probe( $capture )->fire_cb();
+
+		$this->assertSame( 'tablestats', $capture->captured[0][ Message::FROM ] );
+	}
+
 	public function test_a_table_answering_nothing_and_a_non_table_emit_nothing(): void {
 		$this->stub_table( 'mounted-4417', [] );
 		( new Capture_Sink_Node() )->name( 'not-a-table-4417' );

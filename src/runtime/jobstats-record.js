@@ -9,8 +9,9 @@
  * so a reader divides ONE record and never differences across records — a
  * worker recycles roughly every 595 seconds, and differencing reads that
  * recycle as a counter reset. Fields 8..11 are the last-run detail, which
- * survives the drain so an idle identity keeps its row. The Message TIMESTAMP
- * is the sweep instant, never duplicated here.
+ * survives the drain so an idle identity keeps its row. MAX_DURATION_MS rides
+ * last, so the slots before it keep their indexes. The Message TIMESTAMP is
+ * the sweep instant, never duplicated here.
  *
  * Indices mirror `includes/class-jobstats-record.php`, and
  * `tests/unit/ProbeRecordLayoutsTest.php` pins both halves: a reader one slot off
@@ -89,3 +90,9 @@ export const LAST_MESSAGE = 11;
  * previous sweep, which opens at its first run.
  */
 export const ELAPSED_MS = 12;
+
+/**
+ * Longest run during ELAPSED_MS, in milliseconds; 0 when the window ran
+ * nothing.
+ */
+export const MAX_DURATION_MS = 13;

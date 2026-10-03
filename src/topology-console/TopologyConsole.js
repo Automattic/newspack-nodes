@@ -79,12 +79,8 @@ import {
 	verbUsesConfig,
 } from './utils/editorLines';
 import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
-import {
-	parseWorkerId,
-	scopeFromCwd,
-	workerId,
-	workerOfPath,
-} from './utils/scope';
+import { scopeFromCwd, workerOfPath } from './utils/scope';
+import { parseWorkerId, workerId } from '@newspack-nodes/shared/utils/workerId';
 import { Core } from '../runtime/core';
 import {
 	newMessage,
@@ -202,7 +198,7 @@ const TOPOLOGIES = sortTopologies(
 		[]
 );
 
-/** @typedef {import('./utils/scope').AttachedWorker} AttachedWorker */
+/** @typedef {import('@newspack-nodes/shared/utils/workerId').AttachedWorker} AttachedWorker */
 
 /**
  * Re-exported so the console's surface still carries it. The implementation

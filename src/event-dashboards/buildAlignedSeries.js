@@ -16,6 +16,8 @@
  * metric name.
  */
 
+import { LIVE_WINDOW_S } from './liveSample';
+
 /** The Topic_Probe sweep cadence, and so the narrowest useful bucket. */
 const BUCKET_BASE_S = 15;
 
@@ -30,11 +32,13 @@ const BUCKET_BASE_S = 15;
  *
  * - LEVEL (`fill:'hold'`, `agg:'last'`): a bucket keeps its latest-ts value,
  *   and an empty bucket carries the topic's last known value forward — 0
- *   before its first sample, and its final reading on to the right edge of the
- *   grid. A smooth decline stays smooth.
+ *   before its first sample, and its final reading until LIVE_WINDOW_S past
+ *   it, then 0, the freshness rule the live cards apply. A smooth decline
+ *   stays smooth, and a reader that stopped leaves a stacked total.
  * - RATE (`fill:'zero'`, `agg:'rate'`): a bucket re-divides its samples,
  *   Σ(value × weight) / Σweight, which is Σwork / Σelapsed because each
- *   sample's value is its own work over its own weight. An empty bucket is 0.
+ *   sample's value is its own work over its own weight. A zero-weight sample
+ *   counts only in a bucket that holds no weight at all. An empty bucket is 0.
  * - MAX (`fill:'zero'`, `agg:'max'`): a bucket keeps its largest sample.
  *   An empty bucket is 0.
  *
@@ -43,7 +47,7 @@ const BUCKET_BASE_S = 15;
  * and the cap is what keeps the d3 redraw cheap.
  *
  * @param {?Object} series      One panel's topics from `topicChartSeries`:
- *                              `{ [topic]: { points:[{ts,value,weight}], max, avg, mode? } }`, ts in seconds.
+ *                              `{ [topic]: { points:[{ts,value,weight}], max, mode? } }`, ts in seconds.
  * @param {number}  maxPoints   Cap on the rendered axis length; 0 or less holds the base bucket however long the axis grows.
  * @param {Object}  [mode]      Fill/aggregate mode, from `fillModeForMetric`.
  * @param {string}  [mode.fill] `'hold'` (carry forward) or `'zero'` (default).
@@ -101,6 +105,9 @@ export function buildAlignedSeries(
 		const own = s.mode || { fill, agg };
 		const acc = aggregate( own.agg, s.points, bucketOf );
 		const hold = 'hold' === own.fill;
+		const holdUntil =
+			s.points.reduce( ( m, p ) => Math.max( m, p.ts ), -Infinity ) +
+			LIVE_WINDOW_S;
 		let carried = 0;
 		return {
 			label: s.key,
@@ -110,7 +117,8 @@ export function buildAlignedSeries(
 					return { date: dates[ i ], value: carried };
 				}
 				// Empty bucket: HOLD carries last value forward; ZERO reads 0.
-				return { date: dates[ i ], value: hold ? carried : 0 };
+				const held = hold && b <= holdUntil;
+				return { date: dates[ i ], value: held ? carried : 0 };
 			} ),
 		};
 	} );
@@ -158,10 +166,13 @@ function lastPerBucket( points, bucketOf ) {
 
 /**
  * RATE aggregate: a bucket re-divides its samples' work by their weight,
- * Σ(value×weight) / Σweight. A sample with no weight counts as 1, degrading to
- * a plain mean — every sample still counted, unlike a bucket MAX, which throws
- * away the work of all but one whenever two samples from one source land
- * together, as wide downsampled buckets make routine.
+ * Σ(value×weight) / Σweight — every sample counted, unlike a bucket MAX, which
+ * throws away the work of all but one whenever two samples from one source
+ * land together, as wide downsampled buckets make routine.
+ *
+ * A sample with no weight is an idle window: it is ignored when the bucket
+ * holds positive weight, and the bucket reads the plain mean of its samples
+ * only when none of them carries any.
  *
  * @param {Array<{ts:number,value:number,weight:number}>} points   One topic's points.
  * @param {(ts:number)=>number}                           bucketOf Floors a ts onto its bucket instant.
@@ -171,15 +182,18 @@ function ratePerBucket( points, bucketOf ) {
 	const sums = new Map();
 	for ( const p of points ) {
 		const b = bucketOf( p.ts );
-		const weight = p.weight > 0 ? p.weight : 1;
-		const cur = sums.get( b ) || { work: 0, weight: 0 };
-		cur.work += p.value * weight;
-		cur.weight += weight;
+		const cur = sums.get( b ) || { work: 0, weight: 0, total: 0, count: 0 };
+		if ( p.weight > 0 ) {
+			cur.work += p.value * p.weight;
+			cur.weight += p.weight;
+		}
+		cur.total += p.value;
+		cur.count += 1;
 		sums.set( b, cur );
 	}
 	const out = new Map();
-	for ( const [ b, { work, weight } ] of sums ) {
-		out.set( b, weight > 0 ? work / weight : 0 );
+	for ( const [ b, { work, weight, total, count } ] of sums ) {
+		out.set( b, weight > 0 ? work / weight : total / count );
 	}
 	return out;
 }

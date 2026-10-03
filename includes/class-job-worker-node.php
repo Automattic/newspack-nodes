@@ -82,7 +82,7 @@ if ( ! \defined( 'ABSPATH' ) ) {
  * the GET_HEALTH reply back out. Per-identity run stats accumulate in memory and
  * leave through the probe_stats() seam a `Job_Probe` sweeps.
  *
- * @phpstan-type Job_Stat array{handler:string,runs:int,errors:int,duration_ms:float,queue_ms:float,items_ok:int,items_err:int,last_ts:int,last_duration_ms:int,last_status:string,last_message:string,probe_ts:float}
+ * @phpstan-type Job_Stat array{handler:string,runs:int,errors:int,duration_ms:float,queue_ms:float,items_ok:int,items_err:int,last_ts:int,last_duration_ms:int,max_duration_ms:int,last_status:string,last_message:string,probe_ts:float}
  */
 class Job_Worker_Node extends Node {
 	use Schema_Reflection;
@@ -458,6 +458,7 @@ class Job_Worker_Node extends Node {
 			'items_err'        => 0,
 			'last_ts'          => 0,
 			'last_duration_ms' => 0,
+			'max_duration_ms'  => 0,
 			'last_status'      => '',
 			'last_message'     => '',
 			// Window opens at the first run, not at worker start.
@@ -474,6 +475,7 @@ class Job_Worker_Node extends Node {
 		$s['items_err']       += $outcome['items_err'];
 		$s['last_ts']          = (int) Core::$now;
 		$s['last_duration_ms'] = (int) \round( $duration_ms );
+		$s['max_duration_ms']  = \max( $s['max_duration_ms'], $s['last_duration_ms'] );
 		$s['last_status']      = $outcome['status'];
 		$s['last_message']     = \mb_substr( $outcome['message'], 0, self::MAX_STAT_MESSAGE_LEN );
 
@@ -595,6 +597,7 @@ class Job_Worker_Node extends Node {
 			$record[ Jobstats_Record::LAST_STATUS ]      = $s['last_status'];
 			$record[ Jobstats_Record::LAST_MESSAGE ]     = $s['last_message'];
 			$record[ Jobstats_Record::ELAPSED_MS ]       = (int) \round( \max( 0.0, Core::$now - $s['probe_ts'] ) * 1000 );
+			$record[ Jobstats_Record::MAX_DURATION_MS ]  = $s['max_duration_ms'];
 			$records[]                                   = $record;
 			$this->job_stats[ $identity ]                = $this->drained( $s );
 		}
@@ -602,21 +605,23 @@ class Job_Worker_Node extends Node {
 	}
 
 	/**
-	 * Re-baseline one identity's accumulator after its record ships: the counters
-	 * reset to zero and the window reopens at now. Last-run detail is untouched —
-	 * the table shows it whether or not the identity ran this interval.
+	 * Re-baseline one identity's accumulator after its record ships: the
+	 * counters and the window's longest run reset to zero and the window
+	 * reopens at now. Last-run detail is untouched — the table shows it
+	 * whether or not the identity ran this interval.
 	 *
 	 * @param Job_Stat $s The identity's accumulator entry.
 	 * @return Job_Stat The same entry with a fresh window.
 	 */
 	private function drained( array $s ): array {
-		$s['runs']        = 0;
-		$s['errors']      = 0;
-		$s['duration_ms'] = 0.0;
-		$s['queue_ms']    = 0.0;
-		$s['items_ok']    = 0;
-		$s['items_err']   = 0;
-		$s['probe_ts']    = Core::$now;
+		$s['runs']            = 0;
+		$s['errors']          = 0;
+		$s['duration_ms']     = 0.0;
+		$s['queue_ms']        = 0.0;
+		$s['items_ok']        = 0;
+		$s['items_err']       = 0;
+		$s['max_duration_ms'] = 0;
+		$s['probe_ts']        = Core::$now;
 		return $s;
 	}
 

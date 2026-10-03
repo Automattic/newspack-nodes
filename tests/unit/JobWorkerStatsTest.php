@@ -255,6 +255,53 @@ class JobWorkerStatsTest extends TestCase {
 		$this->assertSame( 'success', $idle[ Jobstats_Record::LAST_STATUS ], 'last-run detail survives the drain' );
 	}
 
+	/**
+	 * A handler whose runs take $spans seconds each on the clock seam, so
+	 * every duration the worker records is exact.
+	 *
+	 * @param list<float> $spans Seconds each successive run takes.
+	 */
+	private function timed_worker( array $spans ): Job_Worker_Node {
+		$t           = 1_700_000_500.0;
+		Core::$clock = static function () use ( &$t ): float {
+			return $t;
+		};
+		$jw = new Job_Worker_Node();
+		$this->register_job_handler(
+			$jw,
+			'timed',
+			function () use ( &$t, &$spans ) {
+				$t += (float) \array_shift( $spans );
+				return null;
+			}
+		);
+		return $jw;
+	}
+
+	public function test_durations_are_measured_off_the_clock(): void {
+		$jw = $this->timed_worker( [ 0.211, 0.037 ] );
+
+		$jw->fill( $this->job_message( 'timed' ) );
+		$jw->fill( $this->job_message( 'timed' ) );
+
+		$record = $this->record_for( $jw, 'timed' );
+		$this->assertSame( 248, $record[ Jobstats_Record::DURATION_MS_DELTA ] );
+		$this->assertSame( 37, $record[ Jobstats_Record::LAST_DURATION_MS ] );
+	}
+
+	public function test_the_window_keeps_its_longest_run_and_the_drain_resets_it(): void {
+		$jw = $this->timed_worker( [ 0.211, 0.037, 0.053 ] );
+
+		$jw->fill( $this->job_message( 'timed' ) );
+		$jw->fill( $this->job_message( 'timed' ) );
+		$this->assertSame( 211, $this->record_for( $jw, 'timed' )[ Jobstats_Record::MAX_DURATION_MS ] );
+
+		$this->assertSame( 0, $this->record_for( $jw, 'timed' )[ Jobstats_Record::MAX_DURATION_MS ], 'an idle window ran nothing' );
+
+		$jw->fill( $this->job_message( 'timed' ) );
+		$this->assertSame( 53, $this->record_for( $jw, 'timed' )[ Jobstats_Record::MAX_DURATION_MS ] );
+	}
+
 	public function test_queue_latency_is_derived_from_the_enqueue_ts(): void {
 		$jw = new Job_Worker_Node();
 		$this->register_job_handler( $jw, 'lag', fn () => null );

@@ -271,20 +271,19 @@ registers is an import and nothing more: no TSL line can name it.
 them and is **not** a view: it rides the receiver-Tee → view edge, enriching the
 reply before the view stores it.
 
-Reading the `consumers` map `TopicProbeViewNode` publishes takes a decision no
-card escapes, because an entry is keyed by READER and several readers tail one
-source. Two topologies on `firehose.p0` report that one stream twice, so
-`globalMsgRate` collapses a source's co-readers to the largest rate and
-`probe24hTotals` integrates over the union of their windows. A backlog and an
-offsetlog belong to the reader instead, so `backlogTotal` and `cacheSizeTotals`
-sum every live reader and dedup nothing. "Live" is one rule for all three:
-`isLiveSample()` counts a reader only while its newest sample is at most
-`LIVE_WINDOW_S`, 60 seconds, behind the newest message seen (`streamHead()`),
-because the map keeps a stopped reader's 24h series for the charts. Both rules ship side by side in
-`src/event-dashboards/`, and `topicChartSeries` behind the Topics chart SUMS
-`msgRate` over the co-readers `globalMsgRate` collapses — the Overview's rate
-card and its rate chart read one field two ways. Choose which a new card wants
-rather than copying the sibling you happen to read first.
+The `consumers` map `TopicProbeViewNode` publishes is keyed by READER, and
+several readers can tail one source. Each sample carries the worker that swept
+it, so the Overview's charts plot one series per partition per worker through
+`perWorker()`: co-readers of a partition inside one worker sum, and the stacked
+chart sums the workers. Every card is the column total of its chart, so
+`globalMsgRate`, `probe24hTotals`, `backlogTotal` and `cacheSizeTotal` all sum
+every reader and dedup nothing, two topologies on `firehose.p0` each counted.
+"Live" is one rule for the current cards: `isLiveReader()` counts a reader only
+while it names a source and its newest sample is at most `LIVE_WINDOW_S`, 60
+seconds, behind the newest message seen (`streamHead()`), because the map keeps
+a stopped reader's 24h series for the charts. The charts apply the same window:
+`buildAlignedSeries` holds a level gauge's last reading for `LIVE_WINDOW_S`
+past its newest sample, then reads 0, so a stopped reader leaves the stack.
 
 ## The one-shot mirror
 

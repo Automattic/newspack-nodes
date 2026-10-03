@@ -17,10 +17,10 @@ import { ProbeStreamViewNode } from './probe-stream-view-node';
  * nothing is differenced across records, so a worker recycle is another window
  * rather than a counter reset the reader has to detect.
  *
- * The windowed rollup — runs, failures, items, mean duration and mean queue
- * wait — is summed over the retained series in `_entryView`, so it shrinks with
- * the series as the base prunes samples out of the live window. Last-run
- * detail comes from the newest record.
+ * The windowed rollup — runs, failures, items, mean and longest duration and
+ * mean queue wait — is summed over the retained series in `_entryView`, so it
+ * shrinks with the series as the base prunes samples out of the live window.
+ * Last-run detail comes from the newest record.
  *
  * @param {number} [maxSamples] Per-identity ring cap.
  * @param {number} [ttlMs]      Identity liveness TTL.
@@ -70,16 +70,16 @@ export class JobstatsViewNode extends ProbeStreamViewNode {
 
 	/**
 	 * Sum the retained series' deltas into the rollup the table renders: the
-	 * run, failure and item totals, plus a mean run duration and a mean queue
-	 * wait, each the summed milliseconds over the summed runs — 0 for a window
-	 * with no runs rather than a division by zero.
+	 * run, failure and item totals, the longest run, plus a mean run duration
+	 * and a mean queue wait, each the summed milliseconds over the summed runs.
+	 * All three are null for a window with no runs, which has none to show.
 	 *
 	 * Derived on every snapshot rather than running-summed, so the base's prune
 	 * (which shifts aged-out samples off `series`) shrinks these totals for
 	 * free, with no eviction bookkeeping to keep in step.
 	 *
 	 * @param {Array<Object>} series The per-identity ring of samples.
-	 * @return {Object} { runs, errors, itemsOk, itemsErr, avgDurationMs, avgQueueMs }.
+	 * @return {Object} { runs, errors, itemsOk, itemsErr, avgDurationMs, maxDurationMs, avgQueueMs }.
 	 */
 	_windowedTotals( series ) {
 		let runs = 0;
@@ -88,6 +88,7 @@ export class JobstatsViewNode extends ProbeStreamViewNode {
 		let itemsErr = 0;
 		let durationMs = 0;
 		let queueMs = 0;
+		let maxMs = 0;
 		for ( const s of series ) {
 			runs += s.runsDelta;
 			errors += s.errorsDelta;
@@ -95,14 +96,16 @@ export class JobstatsViewNode extends ProbeStreamViewNode {
 			itemsErr += s.itemsErrDelta;
 			durationMs += s.durationDelta;
 			queueMs += s.queueDelta;
+			maxMs = Math.max( maxMs, s.maxDurationMs );
 		}
 		return {
 			runs,
 			errors,
 			itemsOk,
 			itemsErr,
-			avgDurationMs: runs > 0 ? durationMs / runs : 0,
-			avgQueueMs: runs > 0 ? queueMs / runs : 0,
+			avgDurationMs: runs > 0 ? durationMs / runs : null,
+			maxDurationMs: runs > 0 ? maxMs : null,
+			avgQueueMs: runs > 0 ? queueMs / runs : null,
 		};
 	}
 
@@ -116,12 +119,13 @@ export class JobstatsViewNode extends ProbeStreamViewNode {
 	 * its seconds, because it is a mean wait per run. The last-run detail rides
 	 * as the entry's newest values.
 	 *
-	 * @param {Object}               c     The identity's entry, keyed by `IDENTITY`.
-	 * @param {Array<string|number>} value The positional `Jobstats_Record` VALUE.
-	 * @param {number}               ts    Snapshot instant (epoch seconds) from TIMESTAMP.
+	 * @param {Object}               c      The identity's entry, keyed by `IDENTITY`.
+	 * @param {Array<string|number>} value  The positional `Jobstats_Record` VALUE.
+	 * @param {number}               ts     Snapshot instant (epoch seconds) from TIMESTAMP.
+	 * @param {string}               worker The worker that swept it, or `''`.
 	 * @return {Object} The sample to push onto the entry's series.
 	 */
-	_fold( c, value, ts ) {
+	_fold( c, value, ts, worker ) {
 		c.handler = String( value[ Job.HANDLER ] ?? c.handler ?? '' );
 
 		// Last-run detail — the newest table columns.
@@ -137,6 +141,7 @@ export class JobstatsViewNode extends ProbeStreamViewNode {
 		const elapsed = this._delta( value[ Job.ELAPSED_MS ] ) / 1000;
 		return {
 			ts,
+			worker,
 			elapsed,
 			runsDelta,
 			errorsDelta,
@@ -144,6 +149,7 @@ export class JobstatsViewNode extends ProbeStreamViewNode {
 			queueDelta,
 			itemsErrDelta: this._delta( value[ Job.ITEMS_ERR_DELTA ] ),
 			durationDelta: this._delta( value[ Job.DURATION_MS_DELTA ] ),
+			maxDurationMs: this._delta( value[ Job.MAX_DURATION_MS ] ),
 			runsRate: elapsed > 0 ? runsDelta / elapsed : 0,
 			errorsRate: elapsed > 0 ? errorsDelta / elapsed : 0,
 			itemsRate: elapsed > 0 ? itemsOkDelta / elapsed : 0,

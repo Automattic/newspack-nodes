@@ -1,15 +1,14 @@
 /**
  * Roll a probe stream's per-identity samples up into per-GROUP time series for
- * the Topics panels: one series of points per group, plus the `max` and `avg`
- * the ranked legend reads. Modeled on Tachikoma's Grafana Topics dashboard,
+ * the Topics panels: one series of points per group, plus the `max` the chart
+ * ranks its series by. Modeled on Tachikoma's Grafana Topics dashboard,
  * which charts rate and backlog ranked by peak.
  *
  * The grouping belongs to the caller. The Overview rolls `topicprobe:view`
- * consumers up per `source`, the topic a consumer tails; Jobs rolls
- * `jobstats:view` entries up per handler for the rate panels and per job
- * identity for queue latency. Nothing here knows either stream: an entry needs
- * a `series` and a group key, and a metric is any numeric field a sample
- * carries.
+ * consumers up per `source` and worker; Jobs and Tables split their rate
+ * panels per worker the same way, through `perWorker`, and chart a mean per
+ * identity. Nothing here knows any stream: an entry needs a `series` and a
+ * group key, and a metric is any numeric field a sample carries.
  *
  * One probe sweep stamps every identity in its worker with the same `ts`, so
  * those samples sum cleanly; identities swept by workers on different phases
@@ -73,16 +72,48 @@ export function fillModeForMetric( metric ) {
 }
 
 /**
- * Per-group time series for ONE metric, summed across the group's identities by
- * `ts`. An entry whose group key is empty is skipped rather than collected under
- * `''`, because a nameless series has nothing for the legend to show.
+ * Split each entry's samples into one entry per worker, keyed by
+ * `<key> · <worker>`, so a chart plots each worker's stream on its own
+ * and stacking sums them. A sample with no worker keeps the entry's key.
+ * Entries sharing a key and a worker merge into one stream, and an entry
+ * with no key is skipped.
+ *
+ * @param {?Object<string,{series?:Array<Object>}>} entries Probe-stream entries keyed by identity, each sample carrying `worker`.
+ * @param {(entry:*)=>string}                       [keyOf] The key each entry plots under; the default is its own `key`.
+ * @return {Object<string,{key:string,series:Array<Object>}>} Pseudo-entries for `topicChartSeries( out, metric, ( c ) => c.key )`.
+ */
+export function perWorker( entries, keyOf = ( c ) => c.key ) {
+	/** @type {Object<string,{key:string,series:Array<Object>}>} */
+	const out = {};
+	for ( const c of Object.values( entries || {} ) ) {
+		const base = keyOf( c ) || '';
+		if ( '' === base ) {
+			continue;
+		}
+		for ( const s of c.series || [] ) {
+			const key = s.worker ? `${ base } · ${ s.worker }` : base;
+			( out[ key ] ||= { key, series: [] } ).series.push( s );
+		}
+	}
+	return out;
+}
+
+/**
+ * Per-group time series for ONE metric, summed across the group's samples by
+ * `ts`. An entry whose group key is empty is skipped rather than collected
+ * under `''`, because a nameless series has nothing for the legend to show.
+ *
+ * The same-ts sum is exact only for samples one sweep stamped, which share a
+ * worker. Two workers sweep on independent phases, so a rate chart hands this
+ * `perWorker` entries: each worker's stream is its own series, and the chart
+ * stacks them into the total.
  *
  * @param {Object<string,{source?:string,series?:Array<Object<string,number>>}>} consumers
- *                                                                                         Probe-stream entries keyed by identity — `topicprobe:view` consumers, or `jobstats:view` handlers.
+ *                                                                                         Probe-stream entries keyed by identity — `topicprobe:view` consumers, `jobstats:view` handlers, or `perWorker` pseudo-entries.
  * @param {string}                                                               metric    The sample field to plot, such as `msgRate`, `backlog` or `queueLatencyMs`.
- * @param {(entry:*)=>string}                                                    [keyOf]   Group key per entry; the default groups by `source`, and Jobs passes `handler` or the job `key`.
- * @return {Object<string,{points:Array<{ts:number,value:number,weight:number}>,max:number,avg:number}>}
- *   Per group key: the ts-sorted points, plus the series max and avg the ranked legend reads.
+ * @param {(entry:*)=>string}                                                    [keyOf]   Group key per entry; the default groups by `source`, and Jobs and Tables pass the entry's own `key`.
+ * @return {Object<string,{points:Array<{ts:number,value:number,weight:number}>,max:number}>}
+ *   Per group key: the ts-sorted points, plus the series max the chart ranks by.
  */
 export function topicChartSeries(
 	consumers,
@@ -99,7 +130,7 @@ export function topicChartSeries(
 		( byKey[ key ] ||= [] ).push( c );
 	}
 
-	/** @type {Object<string,{points:Array<{ts:number,value:number,weight:number}>,max:number,avg:number}>} */
+	/** @type {Object<string,{points:Array<{ts:number,value:number,weight:number}>,max:number}>} */
 	const out = {};
 	for ( const [ key, list ] of Object.entries( byKey ) ) {
 		const byTs = new Map();
@@ -116,12 +147,8 @@ export function topicChartSeries(
 		}
 		const tss = [ ...byTs.keys() ].sort( ( a, b ) => a - b );
 		const points = tss.map( ( ts ) => ( { ts, ...byTs.get( ts ) } ) );
-		const values = points.map( ( p ) => p.value );
-		const max = values.length ? Math.max( ...values ) : 0;
-		const avg = values.length
-			? values.reduce( ( a, b ) => a + b, 0 ) / values.length
-			: 0;
-		out[ key ] = { points, max, avg };
+		const max = points.reduce( ( m, p ) => Math.max( m, p.value ), 0 );
+		out[ key ] = { points, max };
 	}
 	return out;
 }

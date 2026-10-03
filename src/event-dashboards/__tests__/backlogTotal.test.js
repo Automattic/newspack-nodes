@@ -50,3 +50,15 @@ it( 'never counts a sample with no ts, because the card shows only live debt', (
 		0
 	);
 } );
+
+it( 'skips a reader that names no source, which no chart plots either', () => {
+	expect(
+		backlogTotal(
+			{
+				nameless: { source: '', latest: { ts: HEAD, backlog: 7777 } },
+				r1: { source: 'jobs.p2', latest: { ts: HEAD, backlog: 3131 } },
+			},
+			HEAD
+		)
+	).toBe( 3131 );
+} );

@@ -408,6 +408,67 @@ describe( 'Overview fleet board', () => {
 		).toEqual( [ 0, 0 ] );
 	} );
 
+	it( 'charts each worker’s readers of a partition as their own stacked series', () => {
+		const reader = ( workerId, msgRate, backlog ) => ( {
+			source: 'firehose.p3',
+			series: [
+				{
+					ts: 100,
+					msgRate,
+					byteRate: msgRate * 64,
+					backlog,
+					cacheSize: backlog / 2,
+					worker: workerId,
+				},
+			],
+		} );
+		useNodeField.mockReturnValue( {
+			consumers: {
+				'request-builder.firehose.p3': reader(
+					'request-builder-6612.p3',
+					7,
+					300
+				),
+				'job-router.firehose.p3': reader(
+					'job-router-6612.p3',
+					11,
+					500
+				),
+				// A co-reader inside the same process sums into its series.
+				'flame-builder.firehose.p3': reader(
+					'job-router-6612.p3',
+					13,
+					900
+				),
+			},
+		} );
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				topologies: [ active( 'alpha', 'ok', [ worker() ] ) ],
+			} )
+		);
+		render( <Overview /> );
+		const panels = globalThis.__topicsPanels.slice( -4 );
+		for ( const p of panels ) {
+			expect( p.stacked ).toBe( true );
+			expect( p.totalLabel ).toBe( 'Total' );
+			expect( Object.keys( p.series ).sort() ).toEqual( [
+				'firehose.p3 · job-router-6612.p3',
+				'firehose.p3 · request-builder-6612.p3',
+			] );
+		}
+		const value = ( p, key ) => p.series[ key ].points[ 0 ].value;
+		expect( value( panels[ 0 ], 'firehose.p3 · job-router-6612.p3' ) ).toBe(
+			24
+		);
+		expect(
+			value( panels[ 2 ], 'firehose.p3 · request-builder-6612.p3' )
+		).toBe( 300 );
+		expect( value( panels[ 2 ], 'firehose.p3 · job-router-6612.p3' ) ).toBe(
+			1400
+		);
+	} );
+
 	it( 'offers a New Topology deep-link in the header controls', () => {
 		useTopologyManager.mockReturnValue( hookValue() );
 		// No headerControlsSlot (standalone) → the control renders inline.

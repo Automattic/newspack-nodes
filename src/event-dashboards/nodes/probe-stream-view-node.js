@@ -1,6 +1,7 @@
 import { Node } from '../../runtime/node';
 import { ReactBridge } from '../../runtime/react-bridge';
-import { TIMESTAMP, VALUE } from '../../runtime/message';
+import { TIMESTAMP, FROM, VALUE } from '../../runtime/message';
+import { parseWorkerId } from '@newspack-nodes/shared/utils/workerId';
 
 // Fixed 24h live window, in seconds; an older record is dropped or pruned.
 const RETENTION_S = 86400;
@@ -20,10 +21,10 @@ const ENTRY_TTL_MS = 300000; // 5 min
  * record folds into an entry, and what the published per-key snapshot is.
  *
  * @typedef  {Object} ProbeStreamMapping
- * @property {number}                                                               identitySlot Record slot carrying the per-key identity.
- * @property {string}                                                               modelKey     Wrapper key the published model uses.
- * @property {( entry: Object, value: Array<string|number>, ts: number ) => Object} _fold        Folds one record into its entry and returns the sample to push.
- * @property {( entry: Object ) => Object}                                          _entryView   Builds the published snapshot for one key's entry.
+ * @property {number}                                                                               identitySlot Record slot carrying the per-key identity.
+ * @property {string}                                                                               modelKey     Wrapper key the published model uses.
+ * @property {( entry: Object, value: Array<string|number>, ts: number, worker: string ) => Object} _fold        Folds one record into its entry and returns the sample to push.
+ * @property {( entry: Object ) => Object}                                                          _entryView   Builds the published snapshot for one key's entry.
  */
 
 /**
@@ -39,7 +40,7 @@ const ENTRY_TTL_MS = 300000; // 5 min
  *
  * Owns everything a probe stream needs that is not its record layout: the
  * per-key entries, the ring, the throttle, the TTL, the eviction and the prune.
- * A subclass supplies `identitySlot`, `modelKey`, `_fold(entry, value, ts)` and
+ * A subclass supplies `identitySlot`, `modelKey`, `_fold(entry, value, ts, worker)` and
  * `_entryView(entry)`. Folding a record costs one push and a sweep of the live
  * keys, never a walk of a series; every walk — the prune, the snapshot's
  * per-key copies — waits for a publish, and the `view` publish is
@@ -104,6 +105,12 @@ export class ProbeStreamViewNode extends ReactBridge( Node ) {
 	 * window is not folded at all: the durable replay tail is longer than the
 	 * window, so dropping it on arrival beats carrying it until the next prune.
 	 *
+	 * The probe stamps FROM `<worker-id>/<probe>` and the SSE reader prepends
+	 * its own stamp, so a frame arrives as `jobstats.p0/job-worker.p2/jobstats`.
+	 * The worker is the second-to-last segment of a FROM holding at least
+	 * three, when `parseWorkerId()` accepts it, and `''` otherwise; `_fold`
+	 * receives it so a chart can plot each worker's stream apart.
+	 *
 	 * @this {ProbeStreamSubclass}
 	 * @param {Array} message The 7-field positional message; VALUE is the
 	 *                        subclass's positional probe record.
@@ -140,7 +147,9 @@ export class ProbeStreamViewNode extends ReactBridge( Node ) {
 				this.entries[ key ] = c;
 			}
 			c._lastSeen = now;
-			c.series.push( this._fold( c, value, ts ) );
+			c.series.push(
+				this._fold( c, value, ts, this._workerOf( message ) )
+			);
 			// Cap sits above the window, so this only bounds a fast stream.
 			if ( c.series.length > this.maxSamples ) {
 				c.series.shift();
@@ -148,6 +157,19 @@ export class ProbeStreamViewNode extends ReactBridge( Node ) {
 		}
 		this._evictStale();
 		this._maybePublish();
+	}
+
+	/**
+	 * The worker a frame's FROM names: the segment before the probe's own
+	 * name, behind at least one stamp, or `''`.
+	 *
+	 * @param {Array} message The 7-field positional message.
+	 * @return {string} The worker id, such as `job-worker.p2`.
+	 */
+	_workerOf( message ) {
+		const parts = String( message[ FROM ] || '' ).split( '/' );
+		const worker = parts.length >= 3 ? parts.at( -2 ) : '';
+		return parseWorkerId( worker ) ? worker : '';
 	}
 
 	/**

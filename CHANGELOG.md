@@ -13,11 +13,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A Table's `probe_stats()` drains a per-operation window** (`Tablestats_Record`), for the Table probe.
 - **The `Table_Probe` node and the stock `table-probe` topology** sweep each named Table every 15 s into `tablestats.p0`, a day long.
 - **A `tablestats:view` folds each Table's operation window into per-Table rates, latency and window sums.** It is the browser node behind the coming Tables tab.
+- **The station's Tables tab charts each Table's ops rate, each operation's rate, miss rate, mean and max latency and size over a day, and tabulates its window.**
 - **A dashboard chart series can carry its own fill mode and aggregate mode, so a peak survives a widened bucket.** `buildAlignedSeries` honours each series' optional `mode` property with `fill` and `agg` fields. A `max` aggregate keeps the largest sample per bucket instead of averaging, `fileBytes` holds its last reading across gaps like a gauge, and `meanMs` weights by operations instead of elapsed time.
+- **The Jobs tab's Max column shows each identity's longest run in the window,** read off a new `Jobstats_Record::MAX_DURATION_MS` slot (13), which a long run between short ones can no longer hide inside the summed duration.
 
 ### Changed
 
+- **A probe record's FROM names its worker, `<worker-id>/<probe>`.**
+- **The Overview charts each worker's value per partition, stacked, and its cards sum those values across partitions,** co-readers of one partition each counted. A topicprobe sample carries its worker; "Messages/s" sums every live reader rather than the largest per source, and the 24h cards sum every reader's deltas rather than a union of co-readers' windows. The "Avg Cache" card is gone, since every Overview card is a sum; "Total Cache" stays. A reader naming no source counts toward no card, as no chart plots it. A stacked level chart (backlog, cache size, Table size) holds a series' last reading for 60 seconds past its newest sample, the live cards' window, then reads 0, so a reader that stopped leaves the total.
+- **A stacked chart's tooltip prints its total.**
+- **A cell with nothing to show reads '-'**: a mean or max over a window with no runs or calls, a size off SQLite, and a level a departed Table last reported. A durable Table whose purge is caught up reads "no".
 - **`useProbeStream( name, { mode } )` replaces `useTopicProbeStream` and `useJobstatsStream`,** reading each probe log from one declaration.
+- **Jobs' durations print two decimals below 10 ms,** through the shared `formatMs`.
+
+### Fixed
+
+- **Jobs and Tables rate charts plot each worker's stream as its own stacked series, so their total reads as the sum across workers; an idle window no longer dilutes a mean latency.**
 
 ## [2.84.2] - 2026-10-02
 

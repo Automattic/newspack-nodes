@@ -13,7 +13,7 @@ import { ProbeStreamViewNode } from './probe-stream-view-node';
  * Each inbound frame is one Consumer's lean POSITIONAL probe record (the
  * `Probe_Record` layout), and the snapshot instant is the Message TIMESTAMP. Per
  * reader the view pushes one sample onto a bounded series of
- * `{ ts, elapsed, msgs, bytes, msgRate, byteRate, backlog, cacheSize }`: the raw
+ * `{ ts, worker, elapsed, msgs, bytes, msgRate, byteRate, backlog, cacheSize }`: the raw
  * deltas `probe24hTotals` integrates into the 24h cards, beside the rates and
  * levels `topicChartSeries` plots. Every value is read off THAT record and
  * nothing is differenced across records, so a worker recycle is another window
@@ -48,14 +48,16 @@ export class TopicProbeViewNode extends ProbeStreamViewNode {
 	 * 0 when the window is empty rather than a division by zero — and `backlog`
 	 * and `cacheSize` its levels verbatim. The source partition rides on the entry
 	 * rather than the sample, because it names the topic every one of that
-	 * reader's samples came from.
+	 * reader's samples came from; the worker rides on each sample, so a chart
+	 * can plot each worker's stream apart.
 	 *
-	 * @param {Object}               c     The consumer's entry, keyed by `READER`.
-	 * @param {Array<string|number>} value The positional `Probe_Record` VALUE.
-	 * @param {number}               ts    Snapshot instant (epoch seconds) from TIMESTAMP.
+	 * @param {Object}               c      The consumer's entry, keyed by `READER`.
+	 * @param {Array<string|number>} value  The positional `Probe_Record` VALUE.
+	 * @param {number}               ts     Snapshot instant (epoch seconds) from TIMESTAMP.
+	 * @param {string}               worker The worker that swept it, or `''`.
 	 * @return {Object} The sample to push onto the entry's series.
 	 */
-	_fold( c, value, ts ) {
+	_fold( c, value, ts, worker ) {
 		c.source = String( value[ Probe.SOURCE ] ?? c.source ?? '' );
 
 		const msgs = this._delta( value[ Probe.MSGS_DELTA ] );
@@ -63,6 +65,7 @@ export class TopicProbeViewNode extends ProbeStreamViewNode {
 		const elapsed = this._delta( value[ Probe.ELAPSED_MS ] ) / 1000;
 		return {
 			ts,
+			worker,
 			elapsed,
 			msgs,
 			bytes,

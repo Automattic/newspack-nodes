@@ -1,4 +1,8 @@
-import { topicChartSeries, fillModeForMetric } from '../topicProbeSeries';
+import {
+	topicChartSeries,
+	fillModeForMetric,
+	perWorker,
+} from '../topicProbeSeries';
 
 // Build a topicprobe:view consumers entry: keyed by reader, source + series.
 function consumer( source, series ) {
@@ -55,7 +59,7 @@ describe( 'fillModeForMetric', () => {
 } );
 
 describe( 'topicChartSeries', () => {
-	it( 'sums the chosen metric across a source’s readers per ts, with max/avg', () => {
+	it( 'sums the chosen metric across a source’s readers per ts, with max', () => {
 		const consumers = {
 			// Two readers of the SAME source sum per ts.
 			'firehose.p0': consumer( 'firehose.p0', [
@@ -78,7 +82,7 @@ describe( 'topicChartSeries', () => {
 			[ 115, 2500 ], // 2000 + 500
 		] );
 		expect( byteRate[ 'firehose.p0' ].max ).toBe( 2500 );
-		expect( byteRate[ 'firehose.p0' ].avg ).toBe( 2000 );
+		expect( byteRate[ 'firehose.p0' ] ).not.toHaveProperty( 'avg' );
 		expect(
 			byteRate[ 'jobs.p0' ].points.map( ( p ) => [ p.ts, p.value ] )
 		).toEqual( [ [ 100, 50 ] ] );
@@ -179,5 +183,107 @@ describe( 'topicChartSeries', () => {
 			'meanMs'
 		);
 		expect( out[ 'lab-7:kea.p3' ].points[ 0 ].weight ).toBe( 37 );
+	} );
+} );
+
+describe( 'perWorker', () => {
+	const entries = {
+		'cron:films': {
+			key: 'cron:films',
+			handler: 'cron',
+			series: [
+				{ ts: 100, runsRate: 3, worker: 'job-worker-4417.p2' },
+				{ ts: 100, runsRate: 5, worker: 'job-worker-4417.p6' },
+				{ ts: 115, runsRate: 7, worker: 'job-worker-4417.p2' },
+				{ ts: 115, runsRate: 11, worker: '' },
+			],
+		},
+	};
+
+	it( 'splits an entry into one pseudo-entry per worker', () => {
+		const out = perWorker( entries );
+		expect( out ).toEqual( {
+			'cron:films · job-worker-4417.p2': {
+				key: 'cron:films · job-worker-4417.p2',
+				series: [
+					entries[ 'cron:films' ].series[ 0 ],
+					entries[ 'cron:films' ].series[ 2 ],
+				],
+			},
+			'cron:films · job-worker-4417.p6': {
+				key: 'cron:films · job-worker-4417.p6',
+				series: [ entries[ 'cron:films' ].series[ 1 ] ],
+			},
+			'cron:films': {
+				key: 'cron:films',
+				series: [ entries[ 'cron:films' ].series[ 3 ] ],
+			},
+		} );
+	} );
+
+	it( 'keys by the keyOf it is given', () => {
+		const out = perWorker( entries, ( c ) => c.handler );
+		expect( Object.keys( out ).sort() ).toEqual( [
+			'cron',
+			'cron · job-worker-4417.p2',
+			'cron · job-worker-4417.p6',
+		] );
+	} );
+
+	it( 'charts each worker apart, so two workers at one instant never sum', () => {
+		const out = topicChartSeries(
+			perWorker( entries ),
+			'runsRate',
+			( c ) => c.key
+		);
+		expect(
+			out[ 'cron:films · job-worker-4417.p2' ].points.map(
+				( p ) => p.value
+			)
+		).toEqual( [ 3, 7 ] );
+		expect(
+			out[ 'cron:films · job-worker-4417.p6' ].points.map(
+				( p ) => p.value
+			)
+		).toEqual( [ 5 ] );
+	} );
+
+	it( 'merges entries that share a key and a worker into one stream', () => {
+		const out = perWorker(
+			{
+				a: {
+					op: 'GET',
+					series: [ { ts: 9, value: 2, worker: 'w.p1' } ],
+				},
+				b: {
+					op: 'GET',
+					series: [ { ts: 9, value: 4, worker: 'w.p1' } ],
+				},
+			},
+			( c ) => c.op
+		);
+		expect( Object.keys( out ) ).toEqual( [ 'GET · w.p1' ] );
+		expect(
+			topicChartSeries( out, 'value', ( c ) => c.key )[ 'GET · w.p1' ]
+				.points
+		).toEqual( [ { ts: 9, value: 6, weight: 0 } ] );
+	} );
+
+	it( 'skips an entry with no key, as topicChartSeries does', () => {
+		const out = perWorker(
+			{
+				'nowhere.p0': {
+					source: '',
+					series: [ { ts: 9, msgRate: 4, worker: 'w.p1' } ],
+				},
+			},
+			( c ) => c.source
+		);
+		expect( out ).toEqual( {} );
+	} );
+
+	it( 'tolerates an empty or unready map', () => {
+		expect( perWorker( {} ) ).toEqual( {} );
+		expect( perWorker( undefined ) ).toEqual( {} );
 	} );
 } );

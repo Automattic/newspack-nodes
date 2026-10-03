@@ -1,0 +1,47 @@
+/**
+ * Shared chrome of the probe tabs (Jobs, Tables): the root, the panel grid,
+ * the empty state and the table rules.
+ */
+
+@use "base";
+
+.nodes-probe-tab {
+	padding: 16px;
+	color: var(--ink);
+	font-family: base.$system-font;
+}
+
+.nodes-probe-tab__panels {
+	display: grid;
+	// minmax(0, …): a drawn SVG's own width must not pin its column.
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	gap: 12px;
+	margin-bottom: 16px;
+}
+
+.newspack-nodes-empty-state.nodes-probe-tab__empty {
+	padding: 24px;
+	text-align: center;
+
+	&::before {
+		display: none;
+	}
+}
+
+.nodes-probe-tab__table {
+	th,
+	td {
+		vertical-align: middle;
+	}
+
+	.nodes-probe-tab__name {
+		font-family: base.$mono-font;
+		font-weight: 600;
+		color: var(--ink);
+	}
+
+	.nodes-probe-tab__count.is-nonzero {
+		color: var(--oxide-text);
+		font-weight: 600;
+	}
+}

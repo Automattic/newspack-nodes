@@ -1,16 +1,10 @@
 /**
- * workerId — the one spelling of a worker's `{topology}.p{N}` id in the
- * console, and parseWorkerId the one reading of it.
+ * The console's reads of a worker id: a scope round-trips through the shared
+ * `workerId()`, and `workerOfPath()` reads a path's first segment.
  */
 
-import { readFileSync } from 'fs';
-import { join } from 'path';
-import {
-	parseWorkerId,
-	scopeFromCwd,
-	workerId,
-	workerOfPath,
-} from '../utils/scope';
+import { workerId } from '@newspack-nodes/shared/utils/workerId';
+import { scopeFromCwd, workerOfPath } from '../utils/scope';
 
 describe( 'workerId', () => {
 	it( 'round-trips through scopeFromCwd', () => {
@@ -21,38 +15,6 @@ describe( 'workerId', () => {
 			partition: 3,
 			isWorker: true,
 		} );
-	} );
-} );
-
-/**
- * The case list PHP `CLI::parse_worker_id()` reads too, so the two grammars
- * cannot drift apart.
- */
-describe( 'parseWorkerId parity with CLI::parse_worker_id()', () => {
-	const cases = JSON.parse(
-		readFileSync(
-			join( __dirname, '../../../tests/fixtures/worker-ids.json' ),
-			'utf8'
-		)
-	);
-
-	const workers = cases.filter( ( [ , , expected ] ) => expected );
-
-	it.each( cases )( '%s', ( _label, id, expected ) => {
-		const worker = expected && {
-			topology: expected[ 0 ],
-			partition: expected[ 1 ],
-		};
-		expect( parseWorkerId( id ) ).toEqual( worker );
-	} );
-
-	it.each( workers )( '%s round-trips through workerId', ( _l, id, w ) => {
-		expect( workerId( w[ 0 ], w[ 1 ] ) ).toBe( id );
-	} );
-
-	it( 'tolerates a null or undefined id', () => {
-		expect( parseWorkerId( null ) ).toBeNull();
-		expect( parseWorkerId( undefined ) ).toBeNull();
 	} );
 } );
 
