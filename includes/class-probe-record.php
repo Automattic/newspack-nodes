@@ -25,8 +25,8 @@ namespace Newspack_Nodes;
  * instant, never duplicated here.
  *
  * Indices mirror `src/runtime/probe-record.js`, which declares only the seven
- * slots the browser reads; `tests/unit/ProbeRecordTest.php` pins those on both
- * sides plus the dense 0..11 ordering here, because a reader one slot off
+ * slots the browser reads; `tests/unit/ProbeRecordLayoutsTest.php` pins those
+ * on both sides plus the dense 0..11 ordering here, because a reader one slot off
  * misreads every field after it. The cursor and partition-end pairs stay
  * PHP-side, where `CLI::consumer_rows()` renders them for `wp nodes status`
  * and the Workers dashboard.

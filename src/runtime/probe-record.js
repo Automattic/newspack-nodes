@@ -17,7 +17,7 @@
  * slots. The five missing here — the cursor pair, the partition-end pair and
  * END_BYTES — are PHP-write-only, rendered by `CLI::consumer_rows()` for `wp
  * nodes status`, which is why this file's numbering has gaps. The seven shared
- * values are pinned on both sides by `tests/unit/ProbeRecordTest.php`, because
+ * values are pinned on both sides by `tests/unit/ProbeRecordLayoutsTest.php`, because
  * a reader one slot off misreads every field after it.
  */
 

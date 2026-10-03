@@ -13,7 +13,7 @@
  * is the sweep instant, never duplicated here.
  *
  * Indices mirror `includes/class-jobstats-record.php`, and
- * `tests/unit/JobstatsRecordTest.php` pins both halves: a reader one slot off
+ * `tests/unit/ProbeRecordLayoutsTest.php` pins both halves: a reader one slot off
  * misreads every field after it.
  */
 
