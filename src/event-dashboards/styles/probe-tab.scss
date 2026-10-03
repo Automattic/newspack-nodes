@@ -17,6 +17,8 @@
 	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 	gap: 12px;
 	margin-bottom: 16px;
+	// An expanded panel grows alone instead of stretching its row neighbour.
+	align-items: start;
 }
 
 .newspack-nodes-empty-state.nodes-probe-tab__empty {

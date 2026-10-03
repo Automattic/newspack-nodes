@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A chart's plot toggles to double height.** Clicking the plot area, or pressing Enter or Space on it, expands any time chart to twice its height and a second time restores it. The legend, the title and the stack button keep their own behaviour. The shared `AreaTimeChart` carries it through `useChartExpand`, so the station panels, the debug overlay and the event logger's charts all gain it; the Topics panels no longer stretch their row neighbour when one grows.
+
 ## [2.85.0] - 2026-10-02
 
 ### Added

@@ -31,6 +31,7 @@ import {
 	setupTooltip,
 	useTimeChart,
 } from '../hooks/useTimeChart';
+import { useChartExpand } from '../hooks/useChartExpand';
 import { useLegend } from '../hooks/useSeriesSelection';
 import ChartLegend from './ChartLegend';
 
@@ -97,7 +98,7 @@ const StackIcon = () => (
  * @param {( peak: number ) => import('../utils/axis-ticks').AxisFormatter}      props.yFormatFor   Builds a formatter for a peak. Called for the DRAWN peak, which the axis and the series rows read, so a picked series takes its own unit; and, where `totalLabel` is set, once more for the whole list's peak, which the tooltip's total row reads.
  * @param {( label: string, index: number ) => string}                           props.colorAt      The colour for a series at its place in the full list: area, stroke and legend swatch.
  * @param {string}                                                               props.title        Translated heading.
- * @param {number}                                                               props.height       Total SVG height in pixels.
+ * @param {number}                                                               props.height       Collapsed SVG height in pixels; clicking the plot doubles it.
  * @param {string}                                                               props.yLabel       Translated Y-axis title naming the quantity; the ticks carry the unit.
  * @param {boolean}                                                              [props.stacked]    Stack the series by default; the corner toggle overrides it until the default moves.
  * @param {boolean}                                                              [props.stackable]  Offer the toggle at all; `false` for bands that must not be summed.
@@ -110,13 +111,14 @@ function AreaTimeChart( {
 	yFormatFor,
 	colorAt,
 	title,
-	height,
+	height: collapsedHeight,
 	yLabel,
 	stacked: stackedDefault = false,
 	stackable = true,
 	totalLabel = '',
 	className,
 } ) {
+	const { height, plotProps } = useChartExpand( collapsedHeight, title );
 	// The pick and the default it answered; a moved default retires it.
 	const [ pick, setPick ] = useState( null );
 	// In render, so the chart never draws once against the stale pick.
@@ -308,6 +310,7 @@ function AreaTimeChart( {
 					ref={ containerRef }
 					className="newspack-nodes-chart__plot"
 					style={ { minHeight: `${ height }px` } }
+					{ ...( 0 < drawn.length ? plotProps : {} ) }
 				/>
 				<ChartLegend
 					items={ legendItems }
