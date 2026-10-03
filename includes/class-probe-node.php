@@ -123,7 +123,7 @@ abstract class Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 	 * re-baselines, which is what makes each record a self-contained window.
 	 *
 	 * @param Node $node A node from this process's registry.
-	 * @return array<int,array<int,int|string>> Positional records.
+	 * @return array<int,array<int,mixed>> Positional records.
 	 */
 	abstract protected function probe( Node $node ): array;
 

@@ -1,0 +1,6 @@
+make_node Table_Probe tablestats 15
+make_node Partition  tablestats:log <config:logs_dir>/tablestats.p0 1048576 2 8 0 86400 86400
+
+connect_node tablestats tablestats:log
+
+secure

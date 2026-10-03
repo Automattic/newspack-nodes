@@ -1,0 +1,70 @@
+[
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Table_Probe",
+            "tablestats",
+            "15"
+        ],
+        "spans": [
+            "make_node",
+            "Table_Probe",
+            "tablestats",
+            "15"
+        ],
+        "raw": "make_node Table_Probe tablestats 15"
+    },
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Partition",
+            "tablestats:log",
+            "<config:logs_dir>/tablestats.p0",
+            "1048576",
+            "2",
+            "8",
+            "0",
+            "86400",
+            "86400"
+        ],
+        "spans": [
+            "make_node",
+            "Partition",
+            "tablestats:log",
+            "<config:logs_dir>/tablestats.p0",
+            "1048576",
+            "2",
+            "8",
+            "0",
+            "86400",
+            "86400"
+        ],
+        "raw": "make_node Partition tablestats:log <config:logs_dir>/tablestats.p0 1048576 2 8 0 86400 86400"
+    },
+    {
+        "verb": "connect_node",
+        "values": [
+            "connect_node",
+            "tablestats",
+            "tablestats:log"
+        ],
+        "spans": [
+            "connect_node",
+            "tablestats",
+            "tablestats:log"
+        ],
+        "raw": "connect_node tablestats tablestats:log"
+    },
+    {
+        "verb": "secure",
+        "values": [
+            "secure"
+        ],
+        "spans": [
+            "secure"
+        ],
+        "raw": "secure"
+    }
+]
