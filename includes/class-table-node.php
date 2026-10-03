@@ -155,22 +155,28 @@ class Table_Node extends Node {
 	/** A verb's longest call, in nanoseconds. */
 	private const MAX_NS = 5;
 
+	/** Requests a verb answered with a TM_ERROR. */
+	private const ERRORS = 6;
+
+	/** A verb's longest call since the probe last drained, in nanoseconds. */
+	private const WINDOW_MAX_NS = 7;
+
 	/**
 	 * Every counted verb's row at zero: the requests, fill()'s keyed INSERT,
 	 * and the Router tick's PURGE and CHECKPOINT.
 	 */
 	private const ZERO_STATS = [
-		'GET'      => [ 0, 0, 0, 0, 0, 0 ],
-		'MGET'     => [ 0, 0, 0, 0, 0, 0 ],
-		'MSET'     => [ 0, 0, 0, 0, 0, 0 ],
-		'ADD'      => [ 0, 0, 0, 0, 0, 0 ],
-		'TOUCH'    => [ 0, 0, 0, 0, 0, 0 ],
-		'RM'       => [ 0, 0, 0, 0, 0, 0 ],
-		'INSERT'   => [ 0, 0, 0, 0, 0, 0 ],
-		'SADD'     => [ 0, 0, 0, 0, 0, 0 ],
-		'SMEMBERS' => [ 0, 0, 0, 0, 0, 0 ],
-		'PURGE'      => [ 0, 0, 0, 0, 0, 0 ],
-		'CHECKPOINT' => [ 0, 0, 0, 0, 0, 0 ],
+		'GET'        => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
+		'MGET'       => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
+		'MSET'       => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
+		'ADD'        => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
+		'TOUCH'      => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
+		'RM'         => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
+		'INSERT'     => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
+		'SADD'       => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
+		'SMEMBERS'   => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
+		'PURGE'      => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
+		'CHECKPOINT' => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
 	];
 
 	/**
@@ -232,14 +238,14 @@ class Table_Node extends Node {
 	/**
 	 * Per-verb counters since the node was built or last reset; see stats().
 	 *
-	 * @var array<string,array{int,int,int,int,int,int}>
+	 * @var array<string,array{int,int,int,int,int,int,int,int}>
 	 */
 	private array $verb_stats = self::ZERO_STATS;
 
 	/**
 	 * The counters as the last trace line left them, held only while traced.
 	 *
-	 * @var array<string,array{int,int,int,int,int,int}>|null
+	 * @var array<string,array{int,int,int,int,int,int,int,int}>|null
 	 */
 	private ?array $traced = null;
 
@@ -669,6 +675,7 @@ class Table_Node extends Node {
 		}
 		$found = $this->read_members( $this->arm, $words, $limit );
 		if ( false === $found ) {
+			$this->count_error( 'SMEMBERS' );
 			$this->reply( $request, Message::TM_ERROR, '', "SMEMBERS: backend read failed\n" );
 			return;
 		}
@@ -745,6 +752,7 @@ class Table_Node extends Node {
 		$found    = [] === $keys ? [] : $this->read_keys( $keys, $failed, $answered );
 		$this->count_rows( $verb, \count( $keys ), \count( $found ) );
 		if ( $failed && ! $answered ) {
+			$this->count_error( $verb );
 			$this->reply( $request, Message::TM_ERROR, '', "{$verb}: backend read failed\n" );
 			return;
 		}
@@ -832,6 +840,7 @@ class Table_Node extends Node {
 	 */
 	private function refuse( array $request, string $verb, string $why ): void {
 		$shown = '' === $verb ? '(empty)' : \substr( $verb, 0, self::SHOWN_VERB_BYTES );
+		$this->count_error( $verb );
 		$this->print_less_often( "ERROR: bad request: {$shown}", ": {$why} - from: ", Core::as_string( $request[ Message::FROM ], '' ) );
 		$this->reply( $request, Message::TM_ERROR, '', "{$shown}: {$why}\n" );
 	}
@@ -1597,7 +1606,7 @@ class Table_Node extends Node {
 	 * `reset_stats`: zero the counters, answering them as they stood, so no
 	 * call lands between the read and the reset.
 	 *
-	 * @return array<string,array{calls:int,asked:int,answered:int,bytes:int,total_ms:float,max_ms:float}>
+	 * @return array<string,array{calls:int,asked:int,answered:int,bytes:int,total_ms:float,max_ms:float,errors:int}>
 	 * @throws \RuntimeException On a mounted Table, which serves reads only.
 	 */
 	public function reset_stats(): array {
@@ -1631,7 +1640,7 @@ class Table_Node extends Node {
 	 * call that threw still counts, with its time.
 	 *
 	 * @api The `stats` verb, dump_node() and dump_metadata() answer it.
-	 * @return array<string,array{calls:int,asked:int,answered:int,bytes:int,total_ms:float,max_ms:float}>
+	 * @return array<string,array{calls:int,asked:int,answered:int,bytes:int,total_ms:float,max_ms:float,errors:int}>
 	 */
 	public function stats(): array {
 		$out = [];
@@ -1643,6 +1652,7 @@ class Table_Node extends Node {
 				'bytes'    => $row[ self::BYTES ],
 				'total_ms' => \round( $row[ self::TOTAL_NS ] / 1e6, 3 ),
 				'max_ms'   => \round( $row[ self::MAX_NS ] / 1e6, 3 ),
+				'errors'   => $row[ self::ERRORS ],
 			];
 		}
 		return $out;
@@ -1668,6 +1678,9 @@ class Table_Node extends Node {
 		if ( $ns > $this->verb_stats[ $verb ][ self::MAX_NS ] ) {
 			$this->verb_stats[ $verb ][ self::MAX_NS ] = $ns;
 		}
+		if ( $ns > $this->verb_stats[ $verb ][ self::WINDOW_MAX_NS ] ) {
+			$this->verb_stats[ $verb ][ self::WINDOW_MAX_NS ] = $ns;
+		}
 	}
 
 	/**
@@ -1684,6 +1697,18 @@ class Table_Node extends Node {
 		}
 		$this->verb_stats[ $verb ][ self::ASKED ]    += $asked;
 		$this->verb_stats[ $verb ][ self::ANSWERED ] += $answered;
+	}
+
+	/**
+	 * Count one request `$verb` answered with a TM_ERROR; a verb not counted
+	 * adds no row.
+	 *
+	 * @param string $verb The verb.
+	 */
+	private function count_error( string $verb ): void {
+		if ( isset( $this->verb_stats[ $verb ] ) ) {
+			++$this->verb_stats[ $verb ][ self::ERRORS ];
+		}
 	}
 
 	/**
