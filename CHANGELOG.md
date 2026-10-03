@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.86.0] - 2026-10-03
+
 ### Added
 
 - **`Topic_Probe` sweeps Partitions as well as Consumers, as Tachikoma's `TopicProbe.pm` does.** Each log a worker covers writes one Partition record into `topicprobe.p0`, its READER blank and its SOURCE the log's SSE stamp (`ingest.p0`, the SOURCE its Consumers carry; `offsets/ingest.p0`), or its path under the runtime base outside the stamped roots (`ipc/<worker-id>/output`), so directories sharing a basename chart apart. It carries `Partition_Node::footprint()`: the newest segment, the byte length (`END_BYTES`) and the disk the live segments take (`END_DISK_BYTES`, a new slot 12, Σ `blocks × 512`), off one forced scan reading both from one `stat()` a segment through `Core::file_footprint()`. A log a writer and a Consumer's `:source` both cover in one worker reports once a sweep, the first registered reporting; a Partition with no live segment, and a Consumer with no offsetlog, send none. Both record builders start from `Probe_Record::BLANK`, so a slot a kind never fills is 0.
