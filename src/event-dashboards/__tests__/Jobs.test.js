@@ -1,6 +1,6 @@
 /**
  * Jobs — the station's per-handler job-outcome board over the durable jobstats.p0 log.
- * useJobstatsStream (link) is stubbed; the view model is fed via useNodeField.
+ * useProbeStream (link) is stubbed; the view model is fed via useNodeField.
  * TopicsChart (d3) is stubbed to capture the rate panels each metric is fed.
  */
 
@@ -8,14 +8,12 @@ import { readFileSync } from 'fs';
 import { resolve as resolvePath } from 'path';
 import { render } from '@testing-library/react';
 import Jobs from '../Jobs';
+import { useProbeStream } from '../hooks/useProbeStream';
 import { Core } from '../../runtime/core';
 import { publishSkippedLines } from '@newspack-nodes/shared/test-utils/skippedLines';
 
-jest.mock( '../hooks/useJobstatsStream', () => ( {
-	useJobstatsStream: jest.fn(),
-} ) );
-jest.mock( '../hooks/useTopicProbeStream', () => ( {
-	useTopicProbeStream: jest.fn(),
+jest.mock( '../hooks/useProbeStream', () => ( {
+	useProbeStream: jest.fn(),
 } ) );
 jest.mock( '../../runtime/react', () => ( {
 	...jest.requireActual( '../../runtime/react' ),
@@ -124,6 +122,16 @@ beforeEach( () => {
 } );
 
 describe( 'Jobs', () => {
+	it( 'replays both probe logs from their start', () => {
+		render( <Jobs /> );
+		expect( useProbeStream ).toHaveBeenCalledWith( 'jobstats', {
+			mode: 'history',
+		} );
+		expect( useProbeStream ).toHaveBeenCalledWith( 'topicprobe', {
+			mode: 'history',
+		} );
+	} );
+
 	it( 'shows the lines each of its streams skipped as its own named notice', () => {
 		publishSkippedLines( 'jobstats:link', 2 );
 		publishSkippedLines( 'topicprobe:link', 3 );

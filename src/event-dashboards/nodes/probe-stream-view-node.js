@@ -33,8 +33,9 @@ const ENTRY_TTL_MS = 300000; // 5 min
  */
 
 /**
- * Shared base for the durable-probe stream view nodes — `TopicProbeViewNode`
- * and `JobstatsViewNode`, each in its own file beside this one.
+ * Shared base for the durable-probe stream view nodes — `TopicProbeViewNode`,
+ * `JobstatsViewNode` and `TablestatsViewNode`, each in its own file beside
+ * this one.
  *
  * Owns everything a probe stream needs that is not its record layout: the
  * per-key entries, the ring, the throttle, the TTL, the eviction and the prune.

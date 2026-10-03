@@ -3,11 +3,11 @@
  * log. The batteries-included answer to "are my background jobs running, and are
  * they failing?".
  *
- * A thin view over two replayed streams. `useJobstatsStream` in history mode
- * replays 24h of `jobstats.p0` into the `jobstats:view` model, the source of every
- * run, failure, duration and outcome below; `useTopicProbeStream` supplies the
- * backlog, which belongs to the Consumer tailing the jobs Topic rather than to any
- * job identity.
+ * A thin view over two replayed streams. `useProbeStream( 'jobstats' )` in
+ * history mode replays 24h of `jobstats.p0` into the `jobstats:view` model, the
+ * source of every run, failure, duration and outcome below;
+ * `useProbeStream( 'topicprobe' )` supplies the backlog, which belongs to the
+ * Consumer tailing the jobs Topic rather than to any job identity.
  *
  * Four Tachikoma-style panels chart that window: runs/s and errors/s rolled up per
  * HANDLER, the jobs Topic's backlog in bytes, and queue latency per job IDENTITY.
@@ -20,8 +20,7 @@
 
 import { useMemo, useDeferredValue } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
-import { useJobstatsStream } from './hooks/useJobstatsStream';
-import { useTopicProbeStream } from './hooks/useTopicProbeStream';
+import { useProbeStream } from './hooks/useProbeStream';
 import { useNodeField } from '../runtime/react';
 import UnparseableLinesNotice from '@newspack-nodes/shared/components/UnparseableLinesNotice';
 import { topicChartSeries, fillModeForMetric } from './topicProbeSeries';
@@ -73,12 +72,12 @@ function formatMs( ms ) {
  */
 export default function Jobs() {
 	// Replay jobstats.p0 (24h) into jobstats:view.
-	useJobstatsStream( { mode: 'history' } );
+	useProbeStream( 'jobstats', { mode: 'history' } );
 	const view = useNodeField( 'jobstats:view', 'view' );
 	const handlers = view?.handlers ?? {};
 
 	// The jobs Consumer's lag rides the topicprobe stream the Overview replays.
-	useTopicProbeStream( { mode: 'history' } );
+	useProbeStream( 'topicprobe', { mode: 'history' } );
 	const probeView = useNodeField( 'topicprobe:view', 'view' );
 
 	// Per-handler rate rollups, deferred so redraws stay off INP.
