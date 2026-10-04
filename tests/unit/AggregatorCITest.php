@@ -154,6 +154,17 @@ class AggregatorCITest extends TestCase {
 		$this->assertSame( 'https://lone.example/', \array_column( $decoded, 'url', 'id' )['spoke-x9'] );
 	}
 
+	public function test_list_servers_lists_a_remote_source_subclass(): void {
+		require_once \dirname( __DIR__ ) . '/Helpers/fixtures/class-okapi-pull-node.php';
+		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\Fixtures\\' );
+		$this->seed_group_topology( [], 1, 'aggregator', [ 'make_node Okapi_Pull pull-x4 brisk lone firehose.p<partition>' ] );
+
+		$decoded = self::list_servers();
+
+		$this->assertSame( [ 'pull-x4' ], \array_column( $decoded, 'id' ) );
+		$this->assertSame( 'lone', $decoded[0]['vault_id'] );
+	}
+
 	public function test_list_servers_skips_a_config_vault_id(): void {
 		$this->seed_group_topology( [ 'config', 'tw9' ] );
 

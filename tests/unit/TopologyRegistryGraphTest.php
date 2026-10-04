@@ -314,6 +314,53 @@ class TopologyRegistryGraphTest extends TestCase {
 		);
 	}
 
+	/** A type match asks the type system: a subclass counts, a lookalike token does not. */
+	public function test_nodes_of_type_matches_the_class_and_its_subclasses_in_order(): void {
+		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
+		$this->write_tsl( 'vicuna-readers-base', "make_node Tail zebra:tail /var/vicuna/zebra.log /var/vicuna/zebra-offset.p<partition>\n" );
+		$this->write_tsl(
+			'vicuna-readers',
+			"make_node Consumer okapi:consumer /var/vicuna/okapi.p<partition> /var/vicuna/okapi-offset.p<partition>\n"
+			. "include vicuna-readers-base\n"
+			. "make_node Echo consumer-ish\n"
+		);
+
+		$this->assertSame(
+			[ 'okapi:consumer', 'zebra:tail' ],
+			\array_column( Topology_Analyzer::nodes_of_type( 'vicuna-readers', \Newspack_Nodes\Consumer_Node::class ), 'name' )
+		);
+		$this->assertSame( [], Topology_Analyzer::nodes_of_type( 'vicuna-readers', \Newspack_Nodes\Tee_Node::class ) );
+		$this->assertSame(
+			[ 'okapi:consumer', 'zebra:tail', 'consumer-ish' ],
+			\array_column( Topology_Analyzer::nodes_of_type( 'vicuna-readers', \Newspack_Nodes\Echo_Node::class, \Newspack_Nodes\Consumer_Node::class ), 'name' ),
+			'any of several classes, in declaration order'
+		);
+	}
+
+	/** A remote link's spoke and partition are read by their schema names, quotes stripped. */
+	public function test_graph_for_names_what_a_remote_link_pulls(): void {
+		$this->write_tsl( 'vicuna-pull', "make_node Remote_Source pull:okapi okapi-7 \"ledger.p<partition>\" /var/vicuna/off\n" );
+
+		$node = Topology_Analyzer::graph_for( 'vicuna-pull' )['nodes'][0];
+
+		$this->assertSame( 'okapi-7', $node['vault_id'] );
+		$this->assertSame( 'ledger.p<partition>', $node['remote_partition'] );
+		$this->assertArrayNotHasKey( 'reads', $node, 'a remote pull reads no local log' );
+	}
+
+	/** A remote link subclass binds its arguments by its OWN schema, as the runtime does. */
+	public function test_graph_for_reads_a_remote_link_subclass_by_its_own_schema(): void {
+		require_once \dirname( __DIR__ ) . '/Helpers/fixtures/class-okapi-pull-node.php';
+		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\Fixtures\\' );
+		$this->write_tsl( 'vicuna-pull-sub', "make_node Okapi_Pull pull:okapi brisk okapi-7 firehose.p<partition>\n" );
+
+		$nodes = Topology_Analyzer::nodes_of_type( 'vicuna-pull-sub', \Newspack_Nodes\Remote_Source_Node::class );
+
+		$this->assertSame( [ 'pull:okapi' ], \array_column( $nodes, 'name' ) );
+		$this->assertSame( 'okapi-7', $nodes[0]['vault_id'] );
+		$this->assertSame( 'firehose.p<partition>', $nodes[0]['remote_partition'] );
+	}
+
 	public function test_graph_for_one_arg_disconnect_removes_included_edges_before_rewire(): void {
 		$this->write_tsl(
 			'wombat-base',
