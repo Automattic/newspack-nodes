@@ -760,7 +760,9 @@ class Topology_Analyzer {
 	 * config token, resolved strictly — claims `table:<name>.p<partition>`,
 	 * the stem of its `{base}/tables/<name>.p<partition>.sqlite` file: that
 	 * file has one writer (ADR-6), so two topologies declaring the Table
-	 * conflict whatever their lines say. Every other backend writes no file.
+	 * conflict whatever their lines say. Every other backend writes no file. A
+	 * `Crawler` claims the file of the sqlite Table it builds, as
+	 * `Crawler_Node::seen_table()` names it.
 	 *
 	 * @param string $name Topology name.
 	 * @return array<string> Sorted, namespaced token-form paths.
@@ -826,6 +828,10 @@ class Topology_Analyzer {
 				$seen[ 'table:' . ( $values[2] ?? '' ) . '.p<partition>' ] = true;
 				continue;
 			}
+			if ( 'make_node' === $verb && self::type_is( $class, Crawler_Node::class ) ) {
+				$seen[ 'table:' . Crawler_Node::seen_table( $values[2] ?? '', $values[3] ?? '' )['name'] . '.p<partition>' ] = true;
+				continue;
+			}
 			// offsetlog (4th value) + deadletter (5th): sole-writer logs.
 			if ( 'make_node' === $verb && self::type_is( $class, Consumer_Node::class ) && isset( $values[4] ) ) {
 				$seen[ 'offsetlog:' . $values[4] ] = true;
@@ -864,7 +870,8 @@ class Topology_Analyzer {
 	}
 
 	/**
-	 * Every node a topology declares, its own includes flattened in.
+	 * Every node a topology declares, its own includes flattened in, and the
+	 * `{name}:seen` Table each Crawler builds.
 	 *
 	 * @param string $name Topology name.
 	 * @return list<string> Node names, in declaration order.
@@ -873,8 +880,13 @@ class Topology_Analyzer {
 	private static function declared_node_names( string $name ): array {
 		$names = [];
 		foreach ( self::statements( $name )['statements'] as $statement ) {
-			if ( 'make_node' === $statement['verb'] ) {
-				$names[ $statement['values'][2] ?? '' ] = true;
+			if ( 'make_node' !== $statement['verb'] ) {
+				continue;
+			}
+			$node_name           = $statement['values'][2] ?? '';
+			$names[ $node_name ] = true;
+			if ( self::type_is( $statement['values'][1] ?? '', Crawler_Node::class ) ) {
+				$names[ Crawler_Node::seen_table( $node_name, '' )['name'] ] = true;
 			}
 		}
 		return \array_keys( $names );
@@ -885,8 +897,11 @@ class Topology_Analyzer {
 	 * namespace, TTL and backend as written, an omitted backend read off
 	 * `Table_Node::node_schema()`. A Table's TTL has no default — the
 	 * `make_node` line is the one place it lives — so one declaring none is
-	 * refused here. Keyed by the name as written, as declares_node() reads it;
-	 * write_set() claims the file under the name with `<topology>` substituted.
+	 * refused here. A `Crawler` contributes the Table it builds, as
+	 * `Crawler_Node::seen_table()` declares it, and one declaring no TTL is
+	 * refused too. Keyed by the name as written, as declares_node() reads
+	 * it; write_set() claims the file under the name with `<topology>`
+	 * substituted.
 	 *
 	 * @param string $name Topology name.
 	 * @return array<string,array{namespace: string, ttl: string, backend: string}>
@@ -897,7 +912,16 @@ class Topology_Analyzer {
 		$out = [];
 		foreach ( self::statements( $name )['statements'] as $statement ) {
 			$values = $statement['values'];
-			if ( 'make_node' !== $statement['verb'] || ! self::type_is( $values[1] ?? '', Table_Node::class ) ) {
+			if ( 'make_node' !== $statement['verb'] ) {
+				continue;
+			}
+			if ( self::type_is( $values[1] ?? '', Crawler_Node::class ) ) {
+				$crawler = $values[2] ?? '';
+				$seen    = Crawler_Node::seen_table( $crawler, $values[3] ?? throw new \RuntimeException( \esc_html( "Crawler {$crawler} declares no TTL" ) ) );
+				$out[ $seen['name'] ] = $seen['table'];
+				continue;
+			}
+			if ( ! self::type_is( $values[1] ?? '', Table_Node::class ) ) {
 				continue;
 			}
 			$table         = $values[2] ?? '';

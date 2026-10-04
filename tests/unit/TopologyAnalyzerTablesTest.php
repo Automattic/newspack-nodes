@@ -33,6 +33,11 @@ final class TopologyAnalyzerTablesTest extends TestCase {
 		$this->write_tsl( 'emu-bare', "make_node Table lab-7:emu emu:p<partition>\n" );
 		$this->write_tsl( 'emu-ttl', "make_node Table lab-7:emu emu:p<partition> 37\n" );
 		$this->write_tsl( 'kea-token', "make_node Table lab-7:kea kea:p<partition> 777 <lab:store>\nmake_node Table lab-7:owl owl:p<partition> 37 <lab:shelf>\n" );
+		$this->write_tsl( 'crawl-a', "make_node Crawler crawl-8821 4407\n" );
+		$this->write_tsl( 'crawl-b', "make_node Crawler crawl-8821 4407 vault-3\n" );
+		$this->write_tsl( 'crawl-table', "make_node Table crawl-8821:seen crawl-8821 4407 sqlite\n" );
+		$this->write_tsl( 'crawl-bare', "make_node Crawler crawl-8821\n" );
+		$this->write_tsl( 'crawl-tokened', "make_node Crawler <topology>-crawl 4407\n" );
 		$this->write_tsl( 'yak-token', "make_node Table lab-7:yak yak:p<partition> 37 <lab:nope>\n" );
 	}
 
@@ -89,5 +94,31 @@ final class TopologyAnalyzerTablesTest extends TestCase {
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'lab:nope' );
 		Topology_Analyzer::write_set( 'yak-token' );
+	}
+
+	public function test_a_crawler_claims_its_seen_table_file(): void {
+		$this->assertContains( 'table:crawl-8821:seen.p<partition>', Topology_Analyzer::write_set( 'crawl-a' ) );
+		$this->assertContains( 'table:crawl-tokened-crawl:seen.p<partition>', Topology_Analyzer::write_set( 'crawl-tokened' ), 'the topology token is substituted as for a Table' );
+	}
+
+	public function test_two_topologies_declaring_one_crawler_conflict(): void {
+		$this->assertSame( [ 'table:crawl-8821:seen.p<partition>' ], Topology_Analyzer::find_conflicts( [ 'crawl-a', 'crawl-b' ] )[0]['shared'] ?? [] );
+	}
+
+	public function test_a_crawler_and_a_literal_table_on_its_file_conflict(): void {
+		$this->assertSame( [ 'table:crawl-8821:seen.p<partition>' ], Topology_Analyzer::find_conflicts( [ 'crawl-a', 'crawl-table' ] )[0]['shared'] ?? [] );
+	}
+
+	public function test_a_crawler_declares_its_seen_table(): void {
+		$this->assertSame(
+			[ 'crawl-8821:seen' => [ 'namespace' => 'crawl-8821', 'ttl' => '4407', 'backend' => 'sqlite' ] ],
+			Topology_Analyzer::declared_tables( 'crawl-a' )
+		);
+	}
+
+	public function test_a_crawler_declaring_no_ttl_is_refused(): void {
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'Crawler crawl-8821 declares no TTL' );
+		Topology_Analyzer::declared_tables( 'crawl-bare' );
 	}
 }
