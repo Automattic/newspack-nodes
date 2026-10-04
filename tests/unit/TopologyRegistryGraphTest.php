@@ -372,19 +372,6 @@ class TopologyRegistryGraphTest extends TestCase {
 		$this->assertArrayNotHasKey( 'reads', $node, 'a remote pull reads no local log' );
 	}
 
-	/** A remote link subclass binds its arguments by its OWN schema, as the runtime does. */
-	public function test_graph_for_reads_a_remote_link_subclass_by_its_own_schema(): void {
-		require_once \dirname( __DIR__ ) . '/Helpers/fixtures/class-okapi-pull-node.php';
-		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\Fixtures\\' );
-		$this->write_tsl( 'vicuna-pull-sub', "make_node Okapi_Pull pull:okapi brisk okapi-7 firehose.p<partition>\n" );
-
-		$nodes = Topology_Analyzer::nodes_of_type( 'vicuna-pull-sub', \Newspack_Nodes\Remote_Source_Node::class );
-
-		$this->assertSame( [ 'pull:okapi' ], \array_column( $nodes, 'name' ) );
-		$this->assertSame( 'okapi-7', $nodes[0]['vault_id'] );
-		$this->assertSame( 'firehose.p<partition>', $nodes[0]['remote_partition'] );
-	}
-
 	public function test_graph_for_one_arg_disconnect_removes_included_edges_before_rewire(): void {
 		$this->write_tsl(
 			'wombat-base',

@@ -157,7 +157,7 @@ class AggregatorCITest extends TestCase {
 	public function test_list_servers_lists_a_remote_source_subclass(): void {
 		require_once \dirname( __DIR__ ) . '/Helpers/fixtures/class-okapi-pull-node.php';
 		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\Fixtures\\' );
-		$this->seed_group_topology( [], 1, 'aggregator', [ 'make_node Okapi_Pull pull-x4 brisk lone firehose.p<partition>' ] );
+		$this->seed_group_topology( [], 1, 'aggregator', [ 'make_node Okapi_Pull pull-x4 lone firehose.p<partition>' ] );
 
 		$decoded = self::list_servers();
 
