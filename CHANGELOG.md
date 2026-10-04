@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.88.0] - 2026-10-03
+
 ### Added
 
 - **`Curl_Node` fetches the url a message carries.** `make_node Curl <name> [vault_id]` starts a GET on the shared cURL multi for each TM_BYTESTREAM VALUE and emits a copy of that message, FROM, ID and KEY intact, carrying the body as TM_BYTESTREAM, or a TM_ERROR whose VALUE names the url and why: `HTTP <code>`, `curl error <n> (<reason>)`, `invalid url`, `no vault entry`, `no url for vault entry`, `url outside vault origin`, `vault_require_ssl set but url is not https`, `no event loop`, `busy: 16 requests in flight` or `curl_init failed`. The copy goes to `target`, not back along FROM, and a transfer still in flight at teardown is lost with one log line counting the discards. Under a vault id a `/path` joins the server's url, an absolute url must share its scheme, host and port, and the server's credential rides as `Authorization`, which libcurl drops on a redirect that changes host, port or scheme. Sixteen transfers run at once, each bounded at 30 seconds, five redirects over http and https alone (https alone under a vault while `vault_require_ssl` is set), and an 8 MiB body, verified as `vault_verify_ssl` says; a struct is dropped with one log line. It ports Tachikoma's `Nodes/LWP.pm`.
