@@ -156,7 +156,7 @@ final class VaultGroupNodeTest extends TestCase {
 
 	protected function tearDown(): void {
 		Core::$memd                 = null;
-		SSE_In_Node::$curl_dispatch = null;
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = null;
 		Event_Framework::reset();
 		Vault::get_instance()->reset_cache();
 		parent::tearDown();
@@ -617,7 +617,7 @@ final class VaultGroupNodeTest extends TestCase {
 	}
 
 	public function test_a_retracted_remote_source_hands_its_cursor_off_and_throws_nothing(): void {
-		SSE_In_Node::$curl_dispatch = static function ( array $opts ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
 		};

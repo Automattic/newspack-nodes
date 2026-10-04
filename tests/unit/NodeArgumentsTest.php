@@ -15,19 +15,10 @@ class Test_Args_Node extends Node {
 	public int    $count      = 0;
 	public bool   $flag       = false;
 
-	/** Standard override: store the tokens, then walk the schema via the trait. */
-	public function arguments( ?array $args = null ): array {
-		if ( null === $args ) {
-			return parent::arguments();
-		}
-		$this->parse_schema_args( $args );
-		return $args;
-	}
-
 	public static function node_schema(): array {
 		return [
 			'category'     => 'Test',
-			'description'  => 'Sibling fixture exercising parse_schema_args() via its arguments() override.',
+			'description'  => 'Sibling fixture exercising parse_schema_args() via the trait arguments().',
 			'arguments'    => [
 				[ 'name' => 'name_field', 'type' => 'string', 'required' => true ],
 				[ 'name' => 'count',      'type' => 'int',    'default'  => 0 ],

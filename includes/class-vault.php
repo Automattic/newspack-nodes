@@ -653,6 +653,50 @@ class Vault {
 	}
 
 	/**
+	 * The libcurl TLS opts for a transfer to a server: verify the peer and its
+	 * name, or neither, as `vault_verify_ssl` says. Applied where a transport
+	 * resolves its destination.
+	 *
+	 * @return array<int,bool|int>
+	 */
+	public static function tls_opts(): array {
+		$verify = self::verify_ssl();
+		return [
+			\CURLOPT_SSL_VERIFYPEER => $verify,
+			\CURLOPT_SSL_VERIFYHOST => $verify ? 2 : 0,
+		];
+	}
+
+	/** Whether to verify a server's TLS certificate. Read by every transport. */
+	public static function verify_ssl(): bool {
+		return (bool) Config::value( 'vault_verify_ssl' );
+	}
+
+	/**
+	 * Whether this url violates the `vault_require_ssl` posture: the operator
+	 * requires https and the url is plaintext. Each caller decides what a
+	 * violation costs — HTTP_Out drops its batch, its blocking probe throws,
+	 * and Curl refuses the fetch.
+	 *
+	 * @param string $url The url about to be fetched or posted to.
+	 * @return bool True when the operator requires https and this url is not.
+	 */
+	public static function https_required( string $url ): bool {
+		return self::require_ssl() && ! \str_starts_with( $url, 'https://' );
+	}
+
+	/**
+	 * The operator's posture itself: are plaintext servers refused? Distinct
+	 * from `https_required()`, which asks whether ONE url violates it —
+	 * Remote_Link takes the policy for SSE_In, which drives CURLOPT_PROTOCOLS.
+	 *
+	 * @return bool True when the operator refuses plaintext servers.
+	 */
+	public static function require_ssl(): bool {
+		return (bool) Config::value( 'vault_require_ssl' );
+	}
+
+	/**
 	 * The singleton with its memo dropped — for request-scope readers (the
 	 * service CIs) that must see a write from earlier in the same request.
 	 *
@@ -676,6 +720,17 @@ class Vault {
 			self::$instance = new self();
 		}
 		return self::$instance;
+	}
+
+	/**
+	 * A server's base url, as `validate_config()` stored it: https and with no
+	 * trailing slash. '' for no entry, or one without a url.
+	 *
+	 * @param array<array-key,mixed>|null $server Decrypted vault entry, or null.
+	 * @return string
+	 */
+	public static function url_of( ?array $server ): string {
+		return Core::as_string( $server['url'] ?? '' );
 	}
 
 	/**

@@ -30,7 +30,7 @@ class HttpOutSessionTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
-		HTTP_Out_Node::$curl_dispatch = null;
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = null;
 		HTTP_Out_Node::$curl_result   = null;
 		Command_Auth::forget_session( self::SPOKE );
 		Vault::get_instance()->reset_cache();
@@ -56,14 +56,14 @@ class HttpOutSessionTest extends TestCase {
 	}
 
 	private function last_handle( HTTP_Out_Node $node ): \CurlHandle {
-		$inflight = $this->read_private( $node, 'inflight' );
+		$inflight = \Newspack_Nodes\Event_Framework::instance()->handles_of( $node );
 		$entry    = \end( $inflight );
-		return $entry['handle'];
+		return $entry;
 	}
 
 	/** @param array<int,array<int,mixed>> $captured */
 	private function capture( array &$captured ): void {
-		HTTP_Out_Node::$curl_dispatch = static function ( array $opts ) use ( &$captured ): \CurlHandle|false {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ) use ( &$captured ): \CurlHandle|false {
 			$captured[] = $opts;
 			return \curl_init();
 		};
@@ -120,7 +120,7 @@ class HttpOutSessionTest extends TestCase {
 		$easy = $this->last_handle( $node );
 
 		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 401, 'body' => '' ];
-		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $easy, 'result' => \CURLE_OK ] );
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $easy, 'result' => \CURLE_OK ] ] );
 
 		$this->assertFalse(
 			Command_Auth::has_session( self::SPOKE ),
@@ -175,8 +175,8 @@ class HttpOutSessionTest extends TestCase {
 		$node = $this->make_node( self::SPOKE );
 		$node->fill( $this->a_command() );
 		$node->fire();
-		foreach ( $this->read_private( $node, 'inflight' ) as $entry ) {
-			$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $entry['handle'], 'result' => \CURLE_OK ] );
+		foreach ( \Newspack_Nodes\Event_Framework::instance()->handles_of( $node ) as $entry ) {
+			$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $entry, 'result' => \CURLE_OK ] ] );
 		}
 
 		Command_Auth::remember_session( self::SPOKE, \str_repeat( 'b', 32 ), 'session-key-9999' );
@@ -207,8 +207,8 @@ class HttpOutSessionTest extends TestCase {
 		$node = $this->make_node( self::SPOKE );
 		$node->fill( $this->a_command() );
 		$node->fire();
-		foreach ( $this->read_private( $node, 'inflight' ) as $entry ) {
-			$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $entry['handle'], 'result' => \CURLE_OK ] );
+		foreach ( \Newspack_Nodes\Event_Framework::instance()->handles_of( $node ) as $entry ) {
+			$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $entry, 'result' => \CURLE_OK ] ] );
 		}
 
 		$this->assertNotEmpty(
@@ -238,8 +238,8 @@ class HttpOutSessionTest extends TestCase {
 		$node = $this->make_node( self::SPOKE );
 		$node->fill( $this->a_command() );
 		$node->fire();
-		foreach ( $this->read_private( $node, 'inflight' ) as $entry ) {
-			$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $entry['handle'], 'result' => \CURLE_OK ] );
+		foreach ( \Newspack_Nodes\Event_Framework::instance()->handles_of( $node ) as $entry ) {
+			$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $entry, 'result' => \CURLE_OK ] ] );
 		}
 
 		$lines = \array_values( \array_filter( $logged, static fn ( string $l ): bool => \str_contains( $l, 'auth failed at spoke' ) ) );
@@ -264,7 +264,7 @@ class HttpOutSessionTest extends TestCase {
 		$node = $this->make_node( self::SPOKE );
 		$node->fill( $this->a_command() );
 		$node->fire();
-		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $this->last_handle( $node ), 'result' => \CURLE_OK ] );
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $this->last_handle( $node ), 'result' => \CURLE_OK ] ] );
 
 		$this->assertFalse( Command_Auth::has_session( self::SPOKE ) );
 	}

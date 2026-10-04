@@ -25,6 +25,27 @@ namespace Newspack_Nodes;
 trait Schema_Reflection {
 
 	/**
+	 * Read the tokens in force, or assign new ones onto the declared
+	 * positionals through `parse_schema_args()` (ADR-11), which applies each
+	 * schema `default`, refuses a missing `required` token, and leaves the node
+	 * unchanged when it refuses. The tokens are then stored as Node stores them,
+	 * so `dump_config()` replays them.
+	 *
+	 * A node that derives state from its positionals — a cadence to arm, a
+	 * handle to open — declares its own `arguments()`, which wins over this one.
+	 *
+	 * @param list<string>|null $args New argument tokens; null reads.
+	 * @return list<string> The tokens now in force.
+	 * @throws \InvalidArgumentException When `parse_schema_args()` refuses a token.
+	 */
+	public function arguments( ?array $args = null ): array {
+		if ( null !== $args ) {
+			$this->parse_schema_args( $args );
+		}
+		return parent::arguments( $args );
+	}
+
+	/**
 	 * Assign each declared positional to the matching `$this->{$name}` property,
 	 * coerced to its declared type — the assignment half of Tachikoma's per-node
 	 * `arguments()` parsing (ADR-11). `schema_values()` checks every token first,

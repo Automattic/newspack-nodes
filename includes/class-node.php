@@ -148,9 +148,9 @@ class Node {
 
 	/**
 	 * Get/set the node's raw argument tokens — Tachikoma's plain getter/setter,
-	 * which does NOT parse them. A node wanting positional config runs the
-	 * tokens through the Schema_Reflection trait's parse_schema_args() from its
-	 * own arguments() override, then derives.
+	 * which does NOT parse them. A node wanting positional config uses the
+	 * Schema_Reflection trait, whose arguments() runs the tokens through
+	 * parse_schema_args(); only a node deriving state from them overrides it.
 	 *
 	 * @param list<string>|null $args New argument tokens (null = pure getter).
 	 * @return list<string> Last-set argument tokens.

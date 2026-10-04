@@ -1040,7 +1040,7 @@ normal client of the endpoints below, published as an owned sibling named
 
 ### `HTTP_Out_Node` — `/command` and `/auth`
 
-![The push side in four steps: fill() buffering under a one-shot timer with the three in-tree minters, fire() dropping an unaddressable batch or holding one while /auth runs, the JSONL POST with its 15-second timeout and 8 MiB reply cap, and on_curl_message() branching on transport error, 401, 202, other non-200 and 200; beneath, the blocking probe_command() bounds and what an operator reads off a flapping spoke.](img/api-http-out-push.png)
+![The push side in four steps: fill() buffering under a one-shot timer with the three in-tree minters, fire() dropping an unaddressable batch or holding one while /auth runs, the JSONL POST with its 15-second timeout and 8 MiB reply cap, and on_transfer_done() branching on transport error, 401, 202, other non-200 and 200; beneath, the blocking probe_command() bounds and what an operator reads off a flapping spoke.](img/api-http-out-push.png)
 
 A batch lost past [`fire()`](../includes/class-http-out-node.php) has no retry and no dead letter
 ([ADR-3](architecture-decisions.md#adr-3-fire-and-forget-messaging)); a minter
@@ -1082,6 +1082,46 @@ start of the log from being collapsed to a single live point by a stream the
 slot pool refused before its first frame, and a glob's dirs tail-seek on the
 first connect and resume from the positions they themselves reported
 thereafter.
+
+### `Curl_Node` — any http(s) url
+
+[`Curl_Node`](../includes/class-curl-node.php) calls no endpoint of ours: it
+fetches the url a TM_BYTESTREAM carries with a GET on the same shared multi,
+through the [`Curl_Transfer`](../includes/trait-curl-transfer.php) mechanism
+`HTTP_Out_Node` runs on. `make_node Curl <name> [vault_id]`. The completion
+emits a copy of the input message, FROM, ID and KEY intact and TO stamped from
+`target`, with its whole TYPE replaced: TM_BYTESTREAM carrying the body below
+status 400, and otherwise a TM_ERROR whose VALUE opens with a fixed prefix a
+consumer can match.
+
+| VALUE | When |
+|---|---|
+| `HTTP <code> <url>` | The response's status is 400 or more. |
+| `curl error <n> (<curl_strerror>) <url>` | The transfer failed: a timeout, a refused connection, a redirect past the limit or a scheme outside it, or the body cap's short write. |
+| `invalid url <value>` | VALUE is not an absolute http(s) url with a host, nor a `/path` under a vault id. |
+| `no vault entry <id>` | The vault id names no server. |
+| `no url for vault entry <id>` | The vault server it names carries no url. |
+| `url outside vault origin <url>` | An absolute url's scheme, host or effective port differs from the vault server's. |
+| `vault_require_ssl set but url is not https <url>` | The resolved url is plaintext under `vault_require_ssl`. |
+| `no event loop <url>` | The process is not inside a drain loop, so no transfer could ever complete. |
+| `busy: <N> requests in flight <url>` | `MAX_IN_FLIGHT` transfers are already running; nothing is queued. |
+| `curl_init failed <url>` | libcurl yielded no handle, so no transfer started. |
+
+The output goes to `target` like any forwarded message, never back along FROM.
+Anything but a TM_BYTESTREAM is dropped with one rate-limited line. A transfer
+still in flight when the node is removed is lost, and one rate-limited line
+counts the discards ([ADR-3](architecture-decisions.md#adr-3-fire-and-forget-messaging)). Under a
+vault id a `/path` joins the server's url and the server's credential rides as
+`Authorization`; libcurl drops that header itself when a redirect changes host,
+port or scheme. Every fetch, vault id or not, verifies TLS as `vault_verify_ssl`
+says, through `Vault::tls_opts()`.
+
+| Constant | Value | Bounds |
+|---|---|---|
+| `MAX_IN_FLIGHT` | 16 | Transfers one node runs at once. |
+| `REQUEST_TIMEOUT` | 30 seconds | One fetch, redirects included, as `CURLOPT_TIMEOUT`. |
+| `MAX_REDIRECTS` | 5 | `CURLOPT_MAXREDIRS`, with `CURLOPT_PROTOCOLS` and `CURLOPT_REDIR_PROTOCOLS` both http and https alone, or https alone under a vault id while `vault_require_ssl` is set. |
+| `MAX_REPLY_BYTES` | 8388608 (8 MiB) | One response body, buffered into the PHP heap. |
 
 ## Extensibility hooks
 

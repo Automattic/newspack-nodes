@@ -26,6 +26,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use Newspack_Nodes\Callback_Node;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Consumer_Node;
+use Newspack_Nodes\Curl_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Dumper_Node;
 use Newspack_Nodes\Echo_Node;
@@ -64,6 +65,24 @@ class NodeLifecycleTest extends TestCase {
 			'Callback'           => [ static fn () => new Callback_Node( static fn () => true ) ],
 			'CommandInterpreter' => [ static fn () => new Command_Interpreter_Node() ],
 			'Consumer'           => [ static fn () => new Consumer_Node() ],
+			'Curl'               => [
+				static function () {
+					// One fetch in flight, so teardown has a handle to release.
+					\Newspack_Nodes\Event_Framework::$curl_dispatch = static fn ( array $o ): \CurlHandle => \curl_init();
+					$c = new Curl_Node();
+					$c->sink( new Capture_Sink_Node() );
+					$m                   = Message::new_message();
+					$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+					$m[ Message::VALUE ] = 'https://lifecycle-27.example:8443/in-flight';
+					\Newspack_Nodes\Event_Framework::instance()->drain(
+						static function () use ( $c, $m ): bool {
+							$c->fill( $m );
+							return false;
+						}
+					);
+					return $c;
+				},
+			],
 			'Dumper'             => [ static fn () => new Dumper_Node() ],
 			'Echo_Node'          => [ static fn () => new Echo_Node() ],
 			'Hook'               => [

@@ -54,15 +54,27 @@ class Event_Framework {
 	/**
 	 * cURL-multi poll seam, defaulted lazily to the real `curl_multi_exec` plus a
 	 * drain of `curl_multi_info_read`. Tests reassign it to feed synthetic
-	 * CURLMSG_DONE infos, so the owner lookup, the completion tally and the
-	 * dispatch into `on_curl_message()` all run as production code with no
-	 * network transfer.
+	 * CURLMSG_DONE infos, so the record lookup, the dispatch into
+	 * `Curl_Owner::on_curl_done()` and the release all run as production code
+	 * with no network transfer.
 	 *
 	 * Signature: `function ( \CurlMultiHandle $multi ): array<int,array<string,mixed>>`.
 	 *
 	 * @var \Closure|null
 	 */
 	public static ?\Closure $curl_poll = null;
+
+	/**
+	 * libcurl dispatch seam, the ONE place an easy handle is made. Lazily
+	 * defaulted to `curl_init()` plus `curl_setopt_array()`. Tests reassign it
+	 * to capture the opts a node assembles and hand back an idle handle, so
+	 * everything around the transfer runs as production code with no network.
+	 *
+	 * Signature: `function ( array $opts ): \CurlHandle|false`.
+	 *
+	 * @var (\Closure(array<int,mixed>): (\CurlHandle|false))|null
+	 */
+	public static ?\Closure $curl_dispatch = null;
 
 	/**
 	 * Wait seam replacing the `usleep()` a tick with no cURL handle blocks on.
@@ -87,8 +99,14 @@ class Event_Framework {
 	/** The one multi handle every registered easy handle attaches to; created on first register. */
 	private ?\CurlMultiHandle $curl_multi = null;
 
-	/** @var array<int,Node> Owning node, keyed by `spl_object_id` of its easy handle. */
-	private array $curl_owners = [];
+	/**
+	 * Every transfer on the multi, keyed by `spl_object_id` of its easy handle.
+	 * The record holds the handle as well as the multi does, so its id cannot
+	 * be reused while the record stands.
+	 *
+	 * @var array<int,array{node:Node&Curl_Owner<mixed>,handle:\CurlHandle,context:mixed}>
+	 */
+	private array $curl_transfers = [];
 
 	/** True while inside `drain()`; how a node asks whether an event loop exists here (false in request scope). */
 	private bool $draining = false;
@@ -164,7 +182,7 @@ class Event_Framework {
 			$timeout_us = $this->next_timer_timeout_us();
 
 			// The tick's one blocking wait: the shared multi, or a usleep.
-			if ( ! empty( $this->curl_owners ) && null !== $this->curl_multi ) {
+			if ( [] !== $this->curl_transfers && null !== $this->curl_multi ) {
 				// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_multi_select
 				\curl_multi_select( $this->curl_multi, $timeout_us / 1_000_000.0 );
 				$this->drain_curl_multi();
@@ -228,28 +246,31 @@ class Event_Framework {
 	}
 
 	/**
-	 * Route one completion to the node owning its easy handle.
+	 * Hand one finished transfer to the node that started it, then release it.
 	 *
-	 * Ownership is keyed by the handle's `spl_object_id`, so a node never has to
-	 * recognize its own transfer and a handle unregistered mid-tick simply finds
-	 * no owner. A node without `on_curl_message()` is skipped rather than fataled:
-	 * `Node` does not declare the method, so only the nodes that register handles
-	 * implement it.
+	 * Only a CURLMSG_DONE row for a handle with a record goes anywhere: the
+	 * record is keyed by the handle's `spl_object_id`, so a node never has to
+	 * recognize its own transfer, and a handle released mid-tick finds none.
+	 * The release runs in a `finally`, so a throwing owner cannot strand its
+	 * handle on the multi.
 	 *
 	 * @param array<mixed,mixed> $info One `curl_multi_info_read()` row, carrying
-	 *   `handle`, `msg` and `result`. The owning node decides what CURLMSG_DONE
-	 *   means for it.
+	 *   `handle`, `msg` and `result`.
 	 */
 	private function dispatch_curl_info( array $info ): void {
 		$handle = $info['handle'] ?? null;
-		if ( ! ( $handle instanceof \CurlHandle ) ) {
+		if ( \CURLMSG_DONE !== ( $info['msg'] ?? null ) || ! ( $handle instanceof \CurlHandle ) ) {
 			return;
 		}
-		$node = $this->curl_owners[ \spl_object_id( $handle ) ] ?? null;
-		if ( null === $node || ! \method_exists( $node, 'on_curl_message' ) ) {
+		$transfer = $this->curl_transfers[ \spl_object_id( $handle ) ] ?? null;
+		if ( null === $transfer ) {
 			return;
 		}
-		$node->on_curl_message( $info );
+		try {
+			$transfer['node']->on_curl_done( $handle, Core::num_int( $info['result'] ?? \CURLE_OK ), $transfer['context'] );
+		} finally {
+			$this->unregister_curl_easy( $handle );
+		}
 	}
 
 	/**
@@ -275,18 +296,54 @@ class Event_Framework {
 	}
 
 	/**
-	 * Attach an easy handle to the shared multi and record its owner. The next
-	 * tick services it and routes its completion to `$node->on_curl_message()`.
+	 * Make an easy handle from `$opts`, attach it to the shared multi, and hold
+	 * it under `$owner` and `$context` until it completes or is released. The
+	 * next tick services it, and its completion reaches
+	 * `$owner->on_curl_done()` with that context.
 	 *
-	 * @param Node        $node The node completions belong to.
-	 * @param \CurlHandle $easy The easy handle it owns.
+	 * @param Node&Curl_Owner<mixed> $owner The node the completion belongs to.
+	 * @param array<int,mixed> $opts    The transfer's libcurl options.
+	 * @param mixed            $context Handed back to `on_curl_done()`.
+	 * @return \CurlHandle|null The handle, or null when none could be made.
+	 */
+	public function start_curl( Node&Curl_Owner $owner, array $opts, mixed $context ): ?\CurlHandle {
+		$dispatch = self::$curl_dispatch ?? static function ( array $o ): \CurlHandle|false {
+			// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_init, WordPress.WP.AlternativeFunctions.curl_curl_setopt_array
+			$ch = \curl_init();
+			if ( false === $ch ) {
+				return false;
+			}
+			\curl_setopt_array( $ch, $o );
+			return $ch;
+			// phpcs:enable
+		};
+		$easy = $dispatch( $opts );
+		if ( ! $easy instanceof \CurlHandle ) {
+			return null;
+		}
+		$this->register_curl_easy( $owner, $easy, $context );
+		return $easy;
+	}
+
+	/**
+	 * Attach a handle that already exists to the shared multi and hold it under
+	 * `$owner` and `$context`. `start_curl()` comes here; so does a streaming
+	 * owner resuming a handle it paused with `unregister_curl_easy()`.
+	 *
+	 * @param Node&Curl_Owner<mixed> $owner The node the completion belongs to.
+	 * @param \CurlHandle     $easy    The easy handle it owns.
+	 * @param mixed           $context Handed back to `on_curl_done()`.
 	 *
 	 * @api Support for SSE streams + outbound HTTP.
 	 */
-	public function register_curl_easy( Node $node, \CurlHandle $easy ): void {
+	public function register_curl_easy( Node&Curl_Owner $owner, \CurlHandle $easy, mixed $context ): void {
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_multi_add_handle
 		\curl_multi_add_handle( $this->ensure_curl_multi(), $easy );
-		$this->curl_owners[ \spl_object_id( $easy ) ] = $node;
+		$this->curl_transfers[ \spl_object_id( $easy ) ] = [
+			'node'    => $owner,
+			'handle'  => $easy,
+			'context' => $context,
+		];
 	}
 
 	/**
@@ -371,6 +428,56 @@ class Event_Framework {
 		if ( ! ( $this->continue_predicate )( true ) ) {
 			throw new Worker_Should_Stop();
 		}
+	}
+
+	/**
+	 * Release every handle one node holds — its teardown, or a stop.
+	 *
+	 * @param Node $owner The node whose transfers go.
+	 * @return int How many were released.
+	 */
+	public function release_curl( Node $owner ): int {
+		$handles = $this->handles_of( $owner );
+		foreach ( $handles as $easy ) {
+			$this->unregister_curl_easy( $easy );
+		}
+		return \count( $handles );
+	}
+
+	/**
+	 * Detach an easy handle from the shared multi and drop its owner, so
+	 * `list_handles` lists live handles only. Idempotent.
+	 *
+	 * @param \CurlHandle $easy The handle to release.
+	 *
+	 * @api Support for SSE streams + outbound HTTP.
+	 */
+	public function unregister_curl_easy( \CurlHandle $easy ): void {
+		$id = \spl_object_id( $easy );
+		if ( ! isset( $this->curl_transfers[ $id ] ) ) {
+			return;
+		}
+		if ( null !== $this->curl_multi ) {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_multi_remove_handle
+			\curl_multi_remove_handle( $this->curl_multi, $easy );
+		}
+		unset( $this->curl_transfers[ $id ] );
+	}
+
+	/**
+	 * The handles one node holds on the multi, in the order it started them.
+	 *
+	 * @param Node $owner The node to ask about.
+	 * @return list<\CurlHandle>
+	 */
+	public function handles_of( Node $owner ): array {
+		$handles = [];
+		foreach ( $this->curl_transfers as $transfer ) {
+			if ( $transfer['node'] === $owner ) {
+				$handles[] = $transfer['handle'];
+			}
+		}
+		return $handles;
 	}
 
 	/**
@@ -459,27 +566,6 @@ class Event_Framework {
 	}
 
 	/**
-	 * Detach an easy handle from the shared multi and drop its owner, so
-	 * `list_handles` lists live handles only. Idempotent.
-	 *
-	 * @param \CurlHandle $easy The handle to release.
-	 *
-	 * @api Support for SSE streams + outbound HTTP.
-	 */
-	public function unregister_curl_easy( \CurlHandle $easy ): void {
-		$id   = \spl_object_id( $easy );
-		$node = $this->curl_owners[ $id ] ?? null;
-		if ( null === $node ) {
-			return;
-		}
-		if ( null !== $this->curl_multi ) {
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_multi_remove_handle
-			\curl_multi_remove_handle( $this->curl_multi, $easy );
-		}
-		unset( $this->curl_owners[ $id ] );
-	}
-
-	/**
 	 * The nodes holding a registered easy handle, for the `list_handles` verb:
 	 * one entry per node, however many handles it holds.
 	 *
@@ -487,8 +573,8 @@ class Event_Framework {
 	 */
 	public function curl_handles(): array {
 		$nodes = [];
-		foreach ( $this->curl_owners as $node ) {
-			$nodes[ \spl_object_id( $node ) ] = $node;
+		foreach ( $this->curl_transfers as $transfer ) {
+			$nodes[ \spl_object_id( $transfer['node'] ) ] = $transfer['node'];
 		}
 		return $nodes;
 	}

@@ -5,7 +5,7 @@
  * and arms a one-shot timer; on the next drain tick `fire()` POSTs the whole
  * batch as one JSONL body to a remote spoke's `/command`, on the
  * Event_Framework's cURL-multi, so neither `fill()` nor `fire()` blocks.
- * `on_curl_message()` forwards each reply Message in a 200 body to the sink,
+ * `on_transfer_done()` forwards each reply Message in a 200 body to the sink,
  * where it self-routes by TO=FROM through `_command_interpreter` and then
  * `_router` (ADR-7). The JS mirror is `src/runtime/http-out-node.js`.
  *
@@ -31,14 +31,17 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-class HTTP_Out_Node extends Timer_Node {
+/**
+ * @implements Curl_Owner<array{context:string,body:\Closure(): string}>
+ */
+class HTTP_Out_Node extends Timer_Node implements Curl_Owner {
 	use Schema_Reflection;
+
+	/** @use Curl_Transfer<string> */
+	use Curl_Transfer;
 
 	/** Transfer timeout for one non-blocking POST, in seconds; the blocking class API bounds itself tighter. */
 	public const REQUEST_TIMEOUT = 15;
-
-	/** Cap on a spoke's reply body, 8 MiB; it is buffered into the PHP heap. */
-	public const MAX_REPLY_BYTES = 8388608;
 
 	/**
 	 * Spoke endpoints appended to the Vault url. `COMMAND_PATH` takes the
@@ -60,39 +63,11 @@ class HTTP_Out_Node extends Timer_Node {
 	 */
 	public static ?\Closure $http_call = null;
 
-	/**
-	 * libcurl dispatch seam. Lazily defaulted to a closure that creates the easy
-	 * handle and applies `$opts` through `curl_setopt_array`; the Event_Framework
-	 * owns the shared multi and the add. Tests reassign it to capture `$opts`
-	 * without transferring, so the envelope build, the auth-header assembly and
-	 * the SSL and timeout opts run as real production code.
-	 *
-	 * Signature: `function ( array $opts ): \CurlHandle|false`.
-	 *
-	 * @var \Closure|null
-	 */
-	public static ?\Closure $curl_dispatch = null;
-
-	/**
-	 * libcurl result-read seam. Null reads the easy handle's HTTP code and its
-	 * buffered body directly. Tests reassign it to inject a synthetic result, so
-	 * the classification, the JSONL unpack and the reply forwarding run as real
-	 * production code without a network transfer.
-	 *
-	 * Signature: `function ( \CurlHandle $easy ): array{code:int,body:string}`.
-	 *
-	 * @var \Closure|null
-	 */
-	public static ?\Closure $curl_result = null;
-
 	/** @var array<int,array<int,mixed>> Message arrays buffered between fill() and the next fire(), which packs them. */
 	protected array $batch = [];
 
 	/** Whether the one-shot flush timer is already armed; gates re-arming without coupling to Timer_Node internals. */
 	protected bool $batch_timer_armed = false;
-
-	/** @var array<int,array{handle:\CurlHandle,vault_id:string,url:string,kind:string}> Easy-handle id to its context, for completion attribution. Holds the handle so it is not collected: a freed handle's spl_object_id gets reused, and the new key collides. */
-	protected array $inflight = [];
 
 	/** Vault id whose url and credentials this node POSTs to. */
 	protected string $vault_id = '';
@@ -115,17 +90,6 @@ class HTTP_Out_Node extends Timer_Node {
 	protected bool $auth_in_flight = false;
 
 	/**
-	 * Reply bodies accumulated by the write callback, keyed by easy-handle id.
-	 *
-	 * Cleared wherever the handle is dropped, never where the body is read: a
-	 * transport error never reads one, and a buffer outliving its handle is
-	 * appended to by whichever new handle inherits that reused id.
-	 *
-	 * @var array<int,string>
-	 */
-	private static array $bodies = [];
-
-	/**
 	 * Tachikoma-parity: no-arg ctor. Wires the sibling `:config` interpreter that
 	 * carries `allow_replies_to`; positional config arrives via arguments(); no
 	 * I/O here (ADR-5).
@@ -133,22 +97,6 @@ class HTTP_Out_Node extends Timer_Node {
 	public function __construct() {
 		parent::__construct();
 		$this->auto_wire_interpreter();
-	}
-
-	/**
-	 * Read the stored tokens, or assign `vault_id` from the sole positional
-	 * through the schema, which marks it required — an under-argged `make_node`
-	 * throws there instead of yielding an egress addressed at nothing.
-	 *
-	 * @param list<string>|null $args New argument tokens; null reads.
-	 * @return list<string> The tokens now held.
-	 */
-	public function arguments( ?array $args = null ): array {
-		if ( null === $args ) {
-			return parent::arguments();
-		}
-		$this->parse_schema_args( $args );
-		return $args;
 	}
 
 	/**
@@ -203,19 +151,14 @@ class HTTP_Out_Node extends Timer_Node {
 		}
 
 		$server = Vault::get_instance()->get( $this->vault_id );
-		$url    = \is_array( $server ) ? \rtrim( Core::as_string( $server['url'] ?? '' ), '/' ) : '';
-		if ( '' === $url ) {
+		$url    = Vault::url_of( $server );
+		if ( null === $server || '' === $url ) {
 			$this->drop_batch( $batch, 'no Vault entry / url' );
 			return;
 		}
 
-		if ( self::https_required( $url ) ) {
+		if ( Vault::https_required( $url ) ) {
 			$this->drop_batch( $batch, 'vault_require_ssl set but url is not https' );
-			return;
-		}
-
-		// Narrowing only: a missing entry left $url empty and dropped above.
-		if ( ! \is_array( $server ) ) {
 			return;
 		}
 		// Held, not dropped: the /auth reply re-arms this flush.
@@ -270,10 +213,10 @@ class HTTP_Out_Node extends Timer_Node {
 	}
 
 	/**
-	 * Assemble the opts, dispatch on the shared multi, and record the handle
-	 * under its kind so the completion callback knows what it is answering. A
-	 * failed dispatch releases the auth flag; without that the node holds a
-	 * handshake that never completes and never attempts another.
+	 * Assemble the opts and start the transfer, recording its kind so the
+	 * completion knows what it is answering. A failed dispatch releases the
+	 * auth flag; without that the node holds a handshake that never completes
+	 * and never attempts another.
 	 *
 	 * @param array<string,mixed> $server   Decrypted vault entry.
 	 * @param string              $endpoint Absolute spoke url: base plus path.
@@ -282,115 +225,66 @@ class HTTP_Out_Node extends Timer_Node {
 	 */
 	private function send( array $server, string $endpoint, string $body, string $kind ): void {
 		$headers       = [ 'Content-Type: text/plain; charset=UTF-8' ];
-		$authorization = self::authorization( $server );
+		$authorization = Vault::credential_header_for( $server );
 		if ( '' !== $authorization ) {
 			$headers[] = 'Authorization: ' . $authorization;
 		}
 
-		$verify = self::verify_ssl();
-		$opts   = [
-			\CURLOPT_URL            => $endpoint,
-			\CURLOPT_POST           => true,
-			\CURLOPT_POSTFIELDS     => $body,
-			\CURLOPT_HTTPHEADER     => $headers,
-			\CURLOPT_RETURNTRANSFER => true,
-			\CURLOPT_TIMEOUT        => self::REQUEST_TIMEOUT,
-			\CURLOPT_SSL_VERIFYPEER => $verify,
-			\CURLOPT_SSL_VERIFYHOST => $verify ? 2 : 0,
-			// MAXFILESIZE needs a declared length; the callback does the work.
-			\CURLOPT_MAXFILESIZE    => self::MAX_REPLY_BYTES,
-			\CURLOPT_WRITEFUNCTION  => self::body_cap(),
-		];
+		$opts = [
+			\CURLOPT_URL        => $endpoint,
+			\CURLOPT_POST       => true,
+			\CURLOPT_POSTFIELDS => $body,
+			\CURLOPT_HTTPHEADER => $headers,
+			\CURLOPT_TIMEOUT    => self::REQUEST_TIMEOUT,
+		] + Vault::tls_opts();
+		if ( $this->start_transfer( $opts, $kind ) ) {
+			return;
+		}
+		$this->print_less_often( 'curl_init failed' );
+		if ( 'auth' === $kind ) {
+			$this->auth_in_flight = false;
+		}
+	}
 
-		$dispatch = self::$curl_dispatch ?? static function ( array $o ): \CurlHandle|false {
-			// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_init, WordPress.WP.AlternativeFunctions.curl_curl_setopt_array
-			$ch = \curl_init();
-			if ( false === $ch ) {
-				return false;
-			}
-			\curl_setopt_array( $ch, $o );
-			return $ch;
-			// phpcs:enable
-		};
-
-		$easy = $dispatch( $opts );
-		if ( ! $easy instanceof \CurlHandle ) {
-			$this->print_less_often( "curl_init failed" );
+	/**
+	 * One completed POST. A handle recorded as `auth` goes to
+	 * `on_session_reply()`. A command handle forwards each reply Message in a
+	 * 200 body to the sink, where it self-routes by TO=FROM through
+	 * `_command_interpreter` and then `_router`; the JS mirror is `_post` in
+	 * `src/runtime/http-out-node.js`. Transport errors and non-200 codes are
+	 * reported rate-limited — bar HTTP_In's 202, which acks an async dispatch
+	 * instead of reporting a failure. Every reply line is attempted, and what
+	 * any of them threw is raised after the last.
+	 *
+	 * @param int                         $result The transfer's CURLE_* code.
+	 * @param array{code:int,body:string} $res    The reply's status and body.
+	 * @param string                      $kind   'command' or 'auth', as send() recorded it.
+	 * @throws \Throwable Every reply's failure, combined, raised after the last reply.
+	 */
+	protected function on_transfer_done( int $result, array $res, mixed $kind ): void {
+		if ( \CURLE_OK !== $result ) {
+			$this->print_less_often( 'transport error ', (string) $result );
 			if ( 'auth' === $kind ) {
 				$this->auth_in_flight = false;
 			}
 			return;
 		}
-		// Hold the handle: a freed id is reused and the keys collide.
-		$this->inflight[ \spl_object_id( $easy ) ] = [
-			'handle'   => $easy,
-			'vault_id' => $this->vault_id,
-			'url'      => $endpoint,
-			'kind'     => $kind,
-		];
-		Event_Framework::instance()->register_curl_easy( $this, $easy );
-	}
-
-	/**
-	 * Event_Framework completion callback, invoked once per CURLMSG_DONE. A
-	 * handle recorded as `auth` goes to `on_session_reply()`. A command handle
-	 * forwards each reply Message in a 200 body to the sink, where it self-routes
-	 * by TO=FROM through `_command_interpreter` and then `_router`; the JS mirror
-	 * is `_post` in `src/runtime/http-out-node.js`. Transport errors and non-200
-	 * codes are reported rate-limited — bar HTTP_In's 202, which acks an async
-	 * dispatch instead of reporting a failure. Every reply line is attempted, and
-	 * what any of them threw is raised after the last; the handle detaches in a
-	 * `finally`, so a throw never strands it in the drain loop.
-	 *
-	 * @api Used by substrate.
-	 *
-	 * @param array{msg?:int,handle?:\CurlHandle,result?:int} $info One `curl_multi_info_read()` row.
-	 * @throws \Throwable Every reply's failure, combined, raised after the last reply.
-	 */
-	public function on_curl_message( array $info ): void {
-		if ( \CURLMSG_DONE !== ( $info['msg'] ?? 0 ) ) {
-			return;
-		}
-		$easy = $info['handle'] ?? null;
-		if ( ! ( $easy instanceof \CurlHandle ) ) {
-			return;
-		}
-
-		$id = \spl_object_id( $easy );
-
-		$kind = Core::as_string( $this->inflight[ $id ]['kind'] ?? 'command' );
-
-		try {
-			$result = $info['result'] ?? \CURLE_OK;
-			if ( \CURLE_OK !== $result ) {
-				$this->print_less_often( 'transport error ', (string) $result );
-				if ( 'auth' === $kind ) {
-					$this->auth_in_flight = false;
-				}
-			} elseif ( 'auth' === $kind ) {
-				$res = $this->read_result( $easy );
-				$this->on_session_reply( $res['code'], $res['body'] );
-			} else {
-				$res = $this->read_result( $easy );
-				if ( 200 !== $res['code'] ) {
-					// 401: the spoke dropped this handle; every send now fails.
-					if ( 401 === $res['code'] ) {
-						Command_Auth::forget_session( $this->vault_id );
-					}
-					if ( 202 !== $res['code'] ) {
-						$this->print_less_often( 'HTTP ', (string) $res['code'] );
-					}
-				} elseif ( null !== $this->sink && '' !== $res['body'] ) {
-					$caught = Worker_Should_Stop::attempt_each(
-						\explode( "\n", $res['body'] ),
-						fn ( string $line ) => $this->deliver_reply( $line )
-					);
-					Worker_Should_Stop::raise( $caught );
-				}
+		if ( 'auth' === $kind ) {
+			$this->on_session_reply( $res['code'], $res['body'] );
+		} elseif ( 200 !== $res['code'] ) {
+			// 401: the spoke dropped this handle; every send now fails.
+			if ( 401 === $res['code'] ) {
+				Command_Auth::forget_session( $this->vault_id );
 			}
-		} finally {
-			$this->detach( $easy );
-			unset( $this->inflight[ $id ], self::$bodies[ $id ] );
+			if ( 202 !== $res['code'] ) {
+				$this->print_less_often( 'HTTP ', (string) $res['code'] );
+			}
+		} elseif ( null !== $this->sink && '' !== $res['body'] ) {
+			$caught = Worker_Should_Stop::attempt_each(
+				\explode( "\n", $res['body'] ),
+				fn ( string $line ) => $this->deliver_reply( $line )
+			);
+			Worker_Should_Stop::raise( $caught );
 		}
 	}
 
@@ -506,83 +400,6 @@ class HTTP_Out_Node extends Timer_Node {
 	}
 
 	/**
-	 * A libcurl write callback that buffers the reply and aborts once it passes
-	 * MAX_REPLY_BYTES — returning anything but the chunk length makes libcurl
-	 * fail the transfer. Buffers per handle, and read_result() reads it back:
-	 * setting WRITEFUNCTION supersedes RETURNTRANSFER's own buffering.
-	 *
-	 * @return \Closure(mixed, string): int
-	 */
-	private static function body_cap(): \Closure {
-		return static function ( $easy, string $chunk ) : int {
-			$key = \is_object( $easy ) ? \spl_object_id( $easy ) : 0;
-			$len = \strlen( $chunk );
-			$has = \strlen( self::$bodies[ $key ] ?? '' );
-			if ( $has + $len > self::MAX_REPLY_BYTES ) {
-				return 0; // short write: libcurl aborts the transfer
-			}
-			self::$bodies[ $key ] = ( self::$bodies[ $key ] ?? '' ) . $chunk;
-			return $len;
-		};
-	}
-
-	/**
-	 * Read a completed handle's HTTP code and body. Routes through the
-	 * `$curl_result` seam when a test has set one, and otherwise reads libcurl
-	 * directly; the typed return narrows the seam's mixed result at this
-	 * boundary. Reads the buffer without clearing it, because the caller owns
-	 * that lifetime — see `self::$bodies`.
-	 *
-	 * @param \CurlHandle $easy The completed easy handle.
-	 * @return array{code:int,body:string}
-	 */
-	private function read_result( \CurlHandle $easy ): array {
-		$seam = self::$curl_result;
-		if ( null !== $seam ) {
-			$res  = $seam( $easy );
-			$code = \is_array( $res ) && isset( $res['code'] ) && \is_int( $res['code'] ) ? $res['code'] : 0;
-			$body = \is_array( $res ) && isset( $res['body'] ) && \is_string( $res['body'] ) ? $res['body'] : '';
-			return [
-				'code' => $code,
-				'body' => $body,
-			];
-		}
-		// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_getinfo, WordPress.WP.AlternativeFunctions.curl_curl_multi_getcontent
-		$key  = \spl_object_id( $easy );
-		$body = self::$bodies[ $key ] ?? (string) \curl_multi_getcontent( $easy );
-		return [
-			'code' => \curl_getinfo( $easy, \CURLINFO_HTTP_CODE ),
-			'body' => $body,
-		];
-		// phpcs:enable
-	}
-
-	/**
-	 * Teardown: drop the pending batch, then detach every in-flight easy handle,
-	 * which unregisters it from the shared multi and frees it once the last
-	 * reference goes.
-	 *
-	 * @api Used by substrate.
-	 */
-	public function remove_node(): void {
-		$this->batch = [];
-		foreach ( $this->inflight as $id => $context ) {
-			$this->detach( $context['handle'] );
-			unset( $this->inflight[ $id ], self::$bodies[ $id ] );
-		}
-		parent::remove_node();
-	}
-
-	/**
-	 * Unregister an easy handle from the shared multi. Idempotent.
-	 *
-	 * @param \CurlHandle $easy The handle to detach.
-	 */
-	protected function detach( \CurlHandle $easy ): void {
-		Event_Framework::instance()->unregister_curl_easy( $easy );
-	}
-
-	/**
 	 * POST a packed TM_COMMAND to a spoke's `/command` and return the reply's
 	 * decoded `payload`. Blocking, for an operator action that needs a verdict
 	 * in-band: a plaintext url under `vault_require_ssl`, a spoke that will not
@@ -601,8 +418,8 @@ class HTTP_Out_Node extends Timer_Node {
 	 * @throws \RuntimeException On any transport, auth, or envelope failure.
 	 */
 	public static function probe_command( string $dest, array $server, string $to, string $verb, array $verb_args = [] ): array {
-		$base = \rtrim( Core::as_string( $server['url'] ?? '' ), '/' );
-		if ( self::https_required( $base ) ) {
+		$base = Vault::url_of( $server );
+		if ( Vault::https_required( $base ) ) {
 			throw new \RuntimeException( 'vault_require_ssl is set but the server url is not https' );
 		}
 
@@ -739,13 +556,13 @@ class HTTP_Out_Node extends Timer_Node {
 			// 5s bound: the UI blocks on the probe and 1s misses slow spokes.
 			// phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout
 			'timeout'             => 5,
-			'sslverify'           => self::verify_ssl(),
+			'sslverify'           => Vault::verify_ssl(),
 			'redirection'         => 0,
 			'limit_response_size' => 1048576,
 			'headers'             => [ 'Content-Type' => 'text/plain; charset=UTF-8' ],
 			'body'                => $body,
 		];
-		$authorization = self::authorization( $server );
+		$authorization = Vault::credential_header_for( $server );
 		if ( '' !== $authorization ) {
 			$args['headers']['Authorization'] = $authorization;
 		}
@@ -768,46 +585,6 @@ class HTTP_Out_Node extends Timer_Node {
 	}
 
 	/**
-	 * Whether this url violates the `vault_require_ssl` posture. The push side
-	 * drops the batch with its own diagnostic; the blocking side throws.
-	 *
-	 * @param string $url The spoke base url.
-	 * @return bool True when the operator requires https and this url is not.
-	 */
-	public static function https_required( string $url ): bool {
-		return self::require_ssl() && ! \str_starts_with( $url, 'https://' );
-	}
-
-	/**
-	 * The operator's posture itself: are plaintext spokes refused? Distinct
-	 * from `https_required()`, which asks whether ONE url violates it —
-	 * SSE_In takes the policy, because it drives CURLOPT_PROTOCOLS.
-	 *
-	 * @return bool True when the operator refuses plaintext spokes.
-	 */
-	public static function require_ssl(): bool {
-		return (bool) Config::value( 'vault_require_ssl' );
-	}
-
-	/** Whether to verify the spoke's TLS certificate. Read by every transport. */
-	public static function verify_ssl(): bool {
-		return (bool) Config::value( 'vault_verify_ssl' );
-	}
-
-	/**
-	 * The credential header value for a spoke, or '' when it needs none. The
-	 * rule for choosing between Basic and Bearer belongs to the Vault, which
-	 * owns credentials; this is the local name for that lookup, so the push and
-	 * blocking paths cannot spell it two ways.
-	 *
-	 * @param array<array-key,mixed> $server Decrypted vault server config.
-	 * @return string e.g. `Basic <base64 of user:pass>`, or ''.
-	 */
-	private static function authorization( array $server ): string {
-		return Vault::credential_header_for( $server );
-	}
-
-	/**
 	 * Admit an ADDRESSED inbound message only to a destination `allow_replies_to`
 	 * declares, in full; anything else is dropped with one throttled audit line.
 	 *
@@ -823,6 +600,19 @@ class HTTP_Out_Node extends Timer_Node {
 		// Constant: drop_message keys its throttle on the reason.
 		$this->drop_message( $message, 'addressed outside allow_replies_to' );
 		return false;
+	}
+
+	/**
+	 * Teardown: drop the pending batch, then release every in-flight easy
+	 * handle, which unregisters it from the shared multi and frees it once the
+	 * last reference goes.
+	 *
+	 * @api Used by substrate.
+	 */
+	public function remove_node(): void {
+		$this->batch = [];
+		$this->release_all();
+		parent::remove_node();
 	}
 
 	/**

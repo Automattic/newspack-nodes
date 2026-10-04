@@ -36,8 +36,7 @@ class RemoteSourceTimeTravelTest extends TestCase {
 
 	protected function tearDown(): void {
 		Core::$memd                   = null;
-		SSE_In_Node::$curl_dispatch   = null;
-		HTTP_Out_Node::$curl_dispatch = null;
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = null;
 		Event_Framework::reset();
 		Vault::get_instance()->reset_cache();
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF' );
@@ -47,7 +46,7 @@ class RemoteSourceTimeTravelTest extends TestCase {
 
 	/** Stub the SSE dispatch; optionally capture each connect's opts. */
 	private function stub_sse_connect( ?array &$captured = null ): void {
-		SSE_In_Node::$curl_dispatch = static function ( array $opts ) use ( &$captured ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ) use ( &$captured ): \CurlHandle {
 			if ( null !== $captured ) {
 				$captured[] = $opts;
 			}

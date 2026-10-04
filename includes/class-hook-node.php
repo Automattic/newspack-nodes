@@ -50,27 +50,6 @@ class Hook_Node extends Node {
 	}
 
 	/**
-	 * Read the tokens in force, or assign `hook_name` and `filter` from new ones.
-	 *
-	 * `parse_schema_args()` writes both properties by their schema names and is
-	 * the one place the `filter` default and the missing-token refusal live
-	 * (ADR-11). Neither property feeds a derived one, so there is no second step
-	 * to keep in sync: `fill()` reads them exactly as assigned.
-	 *
-	 * @param list<string>|null $args Positional tokens, or null to read.
-	 * @return list<string> The tokens now in force.
-	 * @throws \InvalidArgumentException When the required `hook_name` token is
-	 *                                   missing.
-	 */
-	public function arguments( ?array $args = null ): array {
-		if ( null === $args ) {
-			return parent::arguments();
-		}
-		$this->parse_schema_args( $args );
-		return $args;
-	}
-
-	/**
 	 * Fire the hook for this message, then forward the message to the sink.
 	 *
 	 * The sink and the hook name are both checked before the hook fires, so a

@@ -15,8 +15,49 @@ final class VaultTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
+		\putenv( 'LOCAL_NEWSPACK_NODES_CONF' );
 		\Newspack_Nodes\Config::reset();
 		parent::tearDown();
+	}
+
+	public function test_the_tls_posture_reads_both_settings(): void {
+		$this->use_base_dir( $this->make_temp_dir(), [ 'vault_require_ssl' => false, 'vault_verify_ssl' => false ] );
+
+		$this->assertFalse( Vault::require_ssl() );
+		$this->assertFalse( Vault::verify_ssl() );
+		$this->assertFalse( Vault::https_required( 'http://plain-71.example/x' ), 'a plaintext url passes while ssl is optional' );
+	}
+
+	public function test_https_required_refuses_only_a_plaintext_url_under_require_ssl(): void {
+		$this->use_base_dir( $this->make_temp_dir(), [ 'vault_require_ssl' => true ] );
+
+		$this->assertTrue( Vault::require_ssl() );
+		$this->assertTrue( Vault::https_required( 'http://plain-72.example/x' ) );
+		$this->assertFalse( Vault::https_required( 'https://sealed-72.example/x' ) );
+	}
+
+	public function test_tls_opts_turn_both_checks_off_when_verification_is(): void {
+		$this->use_base_dir( $this->make_temp_dir(), [ 'vault_verify_ssl' => false ] );
+
+		$this->assertSame(
+			[ \CURLOPT_SSL_VERIFYPEER => false, \CURLOPT_SSL_VERIFYHOST => 0 ],
+			Vault::tls_opts()
+		);
+	}
+
+	public function test_tls_opts_verify_the_peer_and_its_name_by_default(): void {
+		$this->use_base_dir( $this->make_temp_dir() );
+
+		$this->assertSame(
+			[ \CURLOPT_SSL_VERIFYPEER => true, \CURLOPT_SSL_VERIFYHOST => 2 ],
+			Vault::tls_opts()
+		);
+	}
+
+	public function test_url_of_reads_an_entrys_url_and_nothing_from_none(): void {
+		$this->assertSame( 'https://u-81.example/base-81', Vault::url_of( [ 'url' => 'https://u-81.example/base-81' ] ) );
+		$this->assertSame( '', Vault::url_of( [ 'auth_username' => 'no-url-82' ] ) );
+		$this->assertSame( '', Vault::url_of( null ) );
 	}
 
 	public function test_option_key_is_substrate_namespaced(): void {
