@@ -453,15 +453,11 @@ class Remote_Link_Node extends Timer_Node {
 			$this->print_less_often( "no Vault entry; staying disconnected" );
 			return null;
 		}
-		$url = \rtrim( Core::as_string( $entry['url'] ?? '' ), '/' );
+		$url = Vault::url_of( $entry );
 		if ( '' === $url ) {
 			$this->print_less_often( "Vault entry has no url; staying disconnected" );
 			return null;
 		}
-
-		// One owner for the spoke TLS posture; three transports read it.
-		$verify_ssl  = HTTP_Out_Node::verify_ssl();
-		$require_ssl = HTTP_Out_Node::require_ssl();
 
 		// Restore the cursor before connect so it seeds SSE_In.
 		$restored = $this->restore_position();
@@ -479,8 +475,8 @@ class Remote_Link_Node extends Timer_Node {
 			Core::as_string( $entry['token'] ?? '' ),
 			"{$this->remote_partition}",
 			$restored,
-			$verify_ssl,
-			$require_ssl
+			Vault::tls_opts(),
+			Vault::require_ssl()
 		);
 
 		$http = new HTTP_Out_Node();

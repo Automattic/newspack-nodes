@@ -83,7 +83,7 @@
   </div>
   <div class="card">
     <h3>cURL handles ride the same wait</h3>
-    <p>Each node registers its own EASY handle with <span class="mono">register_curl_easy( $node, $easy )</span>; all attach to one lazily-created multi. While any is registered the tick sleeps in <span class="mono">curl_multi_select</span> instead of <span class="mono">usleep</span>, and a completion is routed by the handle's <span class="mono">spl_object_id</span> to its owner's <span class="mono">on_curl_message()</span>; a node without that method is skipped. <span class="mono">Event_Framework::$curl_poll</span> is the test seam standing in for <span class="mono">curl_multi_exec</span> + <span class="mono">curl_multi_info_read</span>. There is no FD registration path: file polling is timers.</p>
+    <p>Each node starts its own EASY handle with <span class="mono">start_curl( $owner, $opts, $context )</span>; all attach to one lazily-created multi. While any is registered the tick sleeps in <span class="mono">curl_multi_select</span> instead of <span class="mono">usleep</span>, and a completion is routed by the handle's <span class="mono">spl_object_id</span> to its owner's <span class="mono">on_curl_done()</span>, the <span class="mono">Curl_Owner</span> method, and released after it. <span class="mono">Event_Framework::$curl_poll</span> is the test seam standing in for <span class="mono">curl_multi_exec</span> + <span class="mono">curl_multi_info_read</span>. There is no FD registration path: file polling is timers.</p>
   </div>
 </div>
 </div>

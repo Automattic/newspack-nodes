@@ -18,7 +18,7 @@ class HttpOutTest extends TestCase {
 
 	/** Install a $curl_dispatch seam that records the opts and returns a real idle handle (never executed). */
 	private function capture_dispatch( array &$captured ): void {
-		HTTP_Out_Node::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
 			$captured[] = $opts;
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init(); // idle handle as an opaque token; never transferred.
@@ -26,7 +26,7 @@ class HttpOutTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
-		HTTP_Out_Node::$curl_dispatch = null;
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = null;
 		HTTP_Out_Node::$curl_result   = null;
 		Command_Auth::forget_session( 'austin' );
 		Command_Auth::forget_session( 'ghost' );
@@ -100,8 +100,8 @@ class HttpOutTest extends TestCase {
 			'in flight: registered'
 		);
 
-		foreach ( $this->read_private( $node, 'inflight' ) as $entry ) {
-			$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $entry['handle'], 'result' => \CURLE_OK ] );
+		foreach ( \Newspack_Nodes\Event_Framework::instance()->handles_of( $node ) as $entry ) {
+			$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $entry, 'result' => \CURLE_OK ] ] );
 		}
 		$this->assertSame( [], Event_Framework::instance()->curl_handles(), 'idle again: unregistered' );
 	}
@@ -162,7 +162,7 @@ class HttpOutTest extends TestCase {
 		$node = $this->make_node( 'austin' );
 		$node->fire();
 		$this->assertCount( 0, $captured );
-		$this->assertCount( 0, $this->read_private( $node, 'inflight' ) ); // nothing registered
+		$this->assertCount( 0, \Newspack_Nodes\Event_Framework::instance()->handles_of( $node ) ); // nothing registered
 	}
 
 	public function test_fire_clears_armed_flag_for_next_cycle(): void {
@@ -237,7 +237,7 @@ class HttpOutTest extends TestCase {
 		$node->fill( $msg );
 		$node->fire();
 		$this->assertCount( 0, $captured ); // dropped, no throw
-		$this->assertCount( 0, $this->read_private( $node, 'inflight' ) ); // nothing registered
+		$this->assertCount( 0, \Newspack_Nodes\Event_Framework::instance()->handles_of( $node ) ); // nothing registered
 	}
 
 	public function test_fire_drops_when_url_empty(): void {
@@ -278,7 +278,7 @@ class HttpOutTest extends TestCase {
 		$node->fill( $second );
 		$node->fire();
 		$this->assertCount( 1, Event_Framework::instance()->curl_handles() ); // one node row
-		$this->assertCount( 2, $this->read_private( $node, 'inflight' ) );     // two in-flight
+		$this->assertCount( 2, \Newspack_Nodes\Event_Framework::instance()->handles_of( $node ) );     // two in-flight
 	}
 
 	public function test_arguments_round_trip_via_dump_config(): void {
@@ -317,7 +317,7 @@ class HttpOutTest extends TestCase {
 		$this->assertSame( 'remote:austin', $envelope[ Message::FROM ] );
 	}
 
-	public function test_on_curl_message_strips_output_prefix_from_reply_to(): void {
+	public function test_on_curl_done_strips_output_prefix_from_reply_to(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		$node->allow_replies_to( 'spoke-austin' );
 
@@ -331,7 +331,7 @@ class HttpOutTest extends TestCase {
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );
 
-		$node->on_curl_message( $this->done_info( $easy ) );
+		$this->deliver_curl_rows( [ $this->done_info( $easy ) ] );
 
 		$this->assertSame( 'spoke-austin', $sink->captured[0][ Message::TO ] );
 	}
@@ -341,7 +341,7 @@ class HttpOutTest extends TestCase {
 	 * TM_RESPONSE self-routes; anything else on the reply leg is the remote
 	 * addressing OUR graph, and `target` decides what that means.
 	 */
-	public function test_on_curl_message_stamps_target_on_an_unaddressed_non_response(): void {
+	public function test_on_curl_done_stamps_target_on_an_unaddressed_non_response(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 
 		$reply                   = Message::new_message();
@@ -354,12 +354,12 @@ class HttpOutTest extends TestCase {
 		$node->sink( $sink );
 		$node->target( 'spoke:view' );
 
-		$node->on_curl_message( $this->done_info( $easy ) );
+		$this->deliver_curl_rows( [ $this->done_info( $easy ) ] );
 
 		$this->assertSame( 'spoke:view', $sink->captured[0][ Message::TO ] );
 	}
 
-	public function test_on_curl_message_refuses_a_non_response_that_addressed_our_graph(): void {
+	public function test_on_curl_done_refuses_a_non_response_that_addressed_our_graph(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 
 		$reply                   = Message::new_message();
@@ -373,7 +373,7 @@ class HttpOutTest extends TestCase {
 		$node->sink( $sink );
 		$node->target( 'spoke:view' );
 
-		$node->on_curl_message( $this->done_info( $easy ) );
+		$this->deliver_curl_rows( [ $this->done_info( $easy ) ] );
 
 		$this->assertSame( [], $sink->captured );
 	}
@@ -389,7 +389,7 @@ class HttpOutTest extends TestCase {
 	 * routed: on a live aggregator hub that is thirty names, `_router`,
 	 * `_command_interpreter` and `_fleet` among them.
 	 */
-	public function test_on_curl_message_refuses_a_reply_addressed_outside_the_allowlist(): void {
+	public function test_on_curl_done_refuses_a_reply_addressed_outside_the_allowlist(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		$node->target( 'settings:tw0:null' );
 
@@ -406,13 +406,13 @@ class HttpOutTest extends TestCase {
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );
 
-		$node->on_curl_message( $this->done_info( $easy ) );
+		$this->deliver_curl_rows( [ $this->done_info( $easy ) ] );
 
 		$this->assertSame( [], $sink->captured, 'an undeclared destination is refused' );
 	}
 
 	/** A path the graph DECLARED still self-routes, which is the whole point. */
-	public function test_on_curl_message_admits_a_reply_on_a_declared_path(): void {
+	public function test_on_curl_done_admits_a_reply_on_a_declared_path(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		$node->target( 'settings:tw0:null' );
 		$node->allow_replies_to( 'discovery-collector' );
@@ -430,7 +430,7 @@ class HttpOutTest extends TestCase {
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );
 
-		$node->on_curl_message( $this->done_info( $easy ) );
+		$this->deliver_curl_rows( [ $this->done_info( $easy ) ] );
 
 		$this->assertSame( 'discovery-collector', $sink->captured[0][ Message::TO ] ?? null );
 	}
@@ -445,7 +445,7 @@ class HttpOutTest extends TestCase {
 	 * `_router` (ADR-7). Once a link has DECLARED its destinations, they bound
 	 * anything addressed, whatever type bits it carries.
 	 */
-	public function test_on_curl_message_refuses_an_undeclared_address_with_no_reply_bit(): void {
+	public function test_on_curl_done_refuses_an_undeclared_address_with_no_reply_bit(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		$node->allow_replies_to( 'settings-sync' );
 
@@ -462,7 +462,7 @@ class HttpOutTest extends TestCase {
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );
 
-		$node->on_curl_message( $this->done_info( $easy ) );
+		$this->deliver_curl_rows( [ $this->done_info( $easy ) ] );
 
 		$this->assertSame( [], $sink->captured, 'no target, no reply bit — still not a destination it may name' );
 	}
@@ -475,7 +475,7 @@ class HttpOutTest extends TestCase {
 	 * dispatches on the rest, so one `allow_replies_to _router` re-opened the
 	 * whole graph through the list that exists to bound it.
 	 */
-	public function test_on_curl_message_refuses_a_deeper_path_than_was_declared(): void {
+	public function test_on_curl_done_refuses_a_deeper_path_than_was_declared(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		$node->allow_replies_to( 'vault:test:in' );
 
@@ -492,13 +492,13 @@ class HttpOutTest extends TestCase {
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );
 
-		$node->on_curl_message( $this->done_info( $easy ) );
+		$this->deliver_curl_rows( [ $this->done_info( $easy ) ] );
 
 		$this->assertSame( [], $sink->captured, 'the head is not the declaration' );
 	}
 
 	/** A remote that answers on a deeper path is declared AT that path. */
-	public function test_on_curl_message_admits_the_deeper_path_when_it_is_declared_in_full(): void {
+	public function test_on_curl_done_admits_the_deeper_path_when_it_is_declared_in_full(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		$node->allow_replies_to( 'vault:test:in/spoke-01' );
 
@@ -515,13 +515,13 @@ class HttpOutTest extends TestCase {
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );
 
-		$node->on_curl_message( $this->done_info( $easy ) );
+		$this->deliver_curl_rows( [ $this->done_info( $easy ) ] );
 
 		$this->assertSame( 'vault:test:in/spoke-01', $sink->captured[0][ Message::TO ] ?? null );
 	}
 
 	/** No target: neither arm engages, so existing graphs are untouched. */
-	public function test_on_curl_message_passes_an_unaddressed_non_response_when_no_target(): void {
+	public function test_on_curl_done_passes_an_unaddressed_non_response_when_no_target(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 
 		$reply                   = Message::new_message();
@@ -533,12 +533,12 @@ class HttpOutTest extends TestCase {
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );
 
-		$node->on_curl_message( $this->done_info( $easy ) );
+		$this->deliver_curl_rows( [ $this->done_info( $easy ) ] );
 
 		$this->assertSame( '', $sink->captured[0][ Message::TO ] );
 	}
 
-	public function test_on_curl_message_leaves_reply_to_without_prefix_unchanged(): void {
+	public function test_on_curl_done_leaves_reply_to_without_prefix_unchanged(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		$node->allow_replies_to( 'settings-sync' );
 
@@ -552,7 +552,7 @@ class HttpOutTest extends TestCase {
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );
 
-		$node->on_curl_message( $this->done_info( $easy ) );
+		$this->deliver_curl_rows( [ $this->done_info( $easy ) ] );
 
 		$this->assertSame( 'settings-sync', $sink->captured[0][ Message::TO ] );
 	}
@@ -563,7 +563,7 @@ class HttpOutTest extends TestCase {
 	 * it: a reply from `settings-sync` is `remote:austin/settings-sync` here,
 	 * which routes, where the bare name addresses a node this graph lacks.
 	 */
-	public function test_on_curl_message_stamps_our_name_on_an_inbound_from(): void {
+	public function test_on_curl_done_stamps_our_name_on_an_inbound_from(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		$node->allow_replies_to( 'hub-control' );
 
@@ -578,13 +578,13 @@ class HttpOutTest extends TestCase {
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );
 
-		$node->on_curl_message( $this->done_info( $easy ) );
+		$this->deliver_curl_rows( [ $this->done_info( $easy ) ] );
 
 		$this->assertSame( 'remote:austin/settings-sync', $sink->captured[0][ Message::FROM ] );
 	}
 
 	/** An error is a reply too, and needs the same path back out. */
-	public function test_on_curl_message_stamps_our_name_on_an_inbound_error_from(): void {
+	public function test_on_curl_done_stamps_our_name_on_an_inbound_error_from(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		$node->allow_replies_to( 'hub-control' );
 
@@ -599,13 +599,13 @@ class HttpOutTest extends TestCase {
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );
 
-		$node->on_curl_message( $this->done_info( $easy ) );
+		$this->deliver_curl_rows( [ $this->done_info( $easy ) ] );
 
 		$this->assertSame( 'remote:austin/settings-sync', $sink->captured[0][ Message::FROM ] );
 	}
 
 	/** An empty FROM takes our name alone, never a leading separator. */
-	public function test_on_curl_message_stamps_our_name_alone_on_an_empty_inbound_from(): void {
+	public function test_on_curl_done_stamps_our_name_alone_on_an_empty_inbound_from(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 
 		$reply                   = Message::new_message();
@@ -617,7 +617,7 @@ class HttpOutTest extends TestCase {
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );
 
-		$node->on_curl_message( $this->done_info( $easy ) );
+		$this->deliver_curl_rows( [ $this->done_info( $easy ) ] );
 
 		$this->assertSame( 'remote:austin', $sink->captured[0][ Message::FROM ] );
 	}
@@ -629,7 +629,7 @@ class HttpOutTest extends TestCase {
 	 * bound, and the Router would drop it a layer later naming no transport,
 	 * where the guard names this one at the boundary that overflowed it.
 	 */
-	public function test_on_curl_message_drops_a_reply_whose_stamped_path_is_too_long(): void {
+	public function test_on_curl_done_drops_a_reply_whose_stamped_path_is_too_long(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 
 		$reply                   = Message::new_message();
@@ -643,7 +643,7 @@ class HttpOutTest extends TestCase {
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );
 
-		$node->on_curl_message( $this->done_info( $easy ) );
+		$this->deliver_curl_rows( [ $this->done_info( $easy ) ] );
 
 		$this->assertSame( [], $sink->captured );
 	}
@@ -824,14 +824,14 @@ class HttpOutTest extends TestCase {
 		Event_Framework::reset();
 		$node = new HTTP_Out_Node();
 		$this->assertNull( $this->read_private( Event_Framework::instance(), 'curl_multi' ) );
-		$this->assertCount( 0, $this->read_private( $node, 'inflight' ) );
+		$this->assertCount( 0, \Newspack_Nodes\Event_Framework::instance()->handles_of( $node ) );
 	}
 
 	/** Drive a node to one in-flight handle, then return [node, easy-handle]. */
 	private function node_with_one_inflight(): array {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p', 'enabled' => true ] );
 		$easies = [];
-		HTTP_Out_Node::$curl_dispatch = function ( array $o ) use ( &$easies ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $o ) use ( &$easies ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			$ch       = \curl_init();
 			$easies[] = $ch;
@@ -848,7 +848,7 @@ class HttpOutTest extends TestCase {
 		return [ 'msg' => \CURLMSG_DONE, 'handle' => $easy, 'result' => $result ];
 	}
 
-	public function test_on_curl_message_forwards_reply_messages_to_sink(): void {
+	public function test_on_curl_done_forwards_reply_messages_to_sink(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		$node->allow_replies_to( 'settings-sync' );
 
@@ -868,12 +868,12 @@ class HttpOutTest extends TestCase {
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );
 
-		$node->on_curl_message( $this->done_info( $easy ) );
+		$this->deliver_curl_rows( [ $this->done_info( $easy ) ] );
 
 		$this->assertCount( 2, $sink->captured );
 		$this->assertSame( 'ok-1', $sink->captured[0][ Message::VALUE ] );
 		$this->assertSame( 'ok-2', $sink->captured[1][ Message::VALUE ] );
-		$this->assertCount( 0, $this->read_private( $node, 'inflight' ) ); // cleaned up
+		$this->assertCount( 0, \Newspack_Nodes\Event_Framework::instance()->handles_of( $node ) ); // cleaned up
 	}
 
 	public function test_a_reply_whose_fill_throws_still_detaches_and_delivers_the_rest(): void {
@@ -903,7 +903,7 @@ class HttpOutTest extends TestCase {
 		$node->sink( $sink );
 
 		try {
-			$node->on_curl_message( $this->done_info( $easy ) );
+			$this->deliver_curl_rows( [ $this->done_info( $easy ) ] );
 			$this->fail( 'the failed replies must still raise' );
 		} catch ( \Newspack_Nodes\Failures $e ) {
 			$this->assertSame(
@@ -913,7 +913,7 @@ class HttpOutTest extends TestCase {
 		}
 
 		$this->assertSame( [ 'ok-2' ], \array_map( static fn ( array $m ) => $m[ Message::VALUE ], $sink->captured ), 'the reply after the throw still arrives' );
-		$this->assertCount( 0, $this->read_private( $node, 'inflight' ), 'the handle is released despite the throw' );
+		$this->assertCount( 0, \Newspack_Nodes\Event_Framework::instance()->handles_of( $node ), 'the handle is released despite the throw' );
 		$this->assertSame( [], Event_Framework::instance()->curl_handles(), 'and detached from the drain loop' );
 	}
 
@@ -923,7 +923,7 @@ class HttpOutTest extends TestCase {
 	 * trip's reply leg, so the error must reach the sink too — the clause used
 	 * to pass the success and drop the error with a spurious warning.
 	 */
-	public function test_on_curl_message_forwards_a_command_error_reply(): void {
+	public function test_on_curl_done_forwards_a_command_error_reply(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		$node->target( 'settings:tw0:null' );
 		$node->allow_replies_to( 'settings-sync' );
@@ -941,7 +941,7 @@ class HttpOutTest extends TestCase {
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );
 
-		$node->on_curl_message( $this->done_info( $easy ) );
+		$this->deliver_curl_rows( [ $this->done_info( $easy ) ] );
 
 		$this->assertCount( 1, $sink->captured, 'a command-error reply must reach the sink' );
 		$this->assertSame( 'settings-sync', $sink->captured[0][ Message::TO ] );
@@ -953,7 +953,7 @@ class HttpOutTest extends TestCase {
 	 * belongs to the target. Passing it through undirected drops it on the local
 	 * interpreter, which answers a remote-supplied FROM with `unauthorized:`.
 	 */
-	public function test_on_curl_message_stamps_an_undirected_error_onto_the_target(): void {
+	public function test_on_curl_done_stamps_an_undirected_error_onto_the_target(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		$node->target( 'settings:tw0:null' );
 		$node->allow_replies_to( 'settings-sync' );
@@ -971,14 +971,14 @@ class HttpOutTest extends TestCase {
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );
 
-		$node->on_curl_message( $this->done_info( $easy ) );
+		$this->deliver_curl_rows( [ $this->done_info( $easy ) ] );
 
 		$this->assertCount( 1, $sink->captured );
 		$this->assertSame( 'settings:tw0:null', $sink->captured[0][ Message::TO ] );
 	}
 
 	/** A directed error is a reply too — TM_ERROR passes like TM_RESPONSE, however paired. */
-	public function test_on_curl_message_forwards_a_bare_error_reply(): void {
+	public function test_on_curl_done_forwards_a_bare_error_reply(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		$node->target( 'settings:tw0:null' );
 		$node->allow_replies_to( 'settings-sync' );
@@ -996,50 +996,50 @@ class HttpOutTest extends TestCase {
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );
 
-		$node->on_curl_message( $this->done_info( $easy ) );
+		$this->deliver_curl_rows( [ $this->done_info( $easy ) ] );
 
 		$this->assertCount( 1, $sink->captured, 'a directed error reply must reach the sink' );
 		$this->assertSame( 'settings-sync', $sink->captured[0][ Message::TO ] );
 	}
 
-	public function test_on_curl_message_empty_body_forwards_nothing(): void {
+	public function test_on_curl_done_empty_body_forwards_nothing(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 202, 'body' => '' ];
 		$sink = new Capture_Sink_Node();
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );
-		$node->on_curl_message( $this->done_info( $easy ) );
+		$this->deliver_curl_rows( [ $this->done_info( $easy ) ] );
 		$this->assertCount( 0, $sink->captured );
-		$this->assertCount( 0, $this->read_private( $node, 'inflight' ) );
+		$this->assertCount( 0, \Newspack_Nodes\Event_Framework::instance()->handles_of( $node ) );
 	}
 
-	public function test_on_curl_message_non_200_logs_and_cleans_up(): void {
+	public function test_on_curl_done_non_200_logs_and_cleans_up(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 503, 'body' => 'down' ];
-		$node->on_curl_message( $this->done_info( $easy ) ); // no sink wired — must not throw
-		$this->assertCount( 0, $this->read_private( $node, 'inflight' ) );
+		$this->deliver_curl_rows( [ $this->done_info( $easy ) ] ); // no sink wired — must not throw
+		$this->assertCount( 0, \Newspack_Nodes\Event_Framework::instance()->handles_of( $node ) );
 	}
 
-	public function test_on_curl_message_transport_error_logs_and_cleans_up(): void {
+	public function test_on_curl_done_transport_error_logs_and_cleans_up(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		// curl_result not consulted on transport error.
-		$node->on_curl_message( $this->done_info( $easy, \CURLE_COULDNT_CONNECT ) );
-		$this->assertCount( 0, $this->read_private( $node, 'inflight' ) );
+		$this->deliver_curl_rows( [ $this->done_info( $easy, \CURLE_COULDNT_CONNECT ) ] );
+		$this->assertCount( 0, \Newspack_Nodes\Event_Framework::instance()->handles_of( $node ) );
 	}
 
-	public function test_on_curl_message_ignores_non_done(): void {
+	public function test_on_curl_done_ignores_non_done(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
-		$node->on_curl_message( [ 'msg' => 0, 'handle' => $easy, 'result' => \CURLE_OK ] );
-		$this->assertCount( 1, $this->read_private( $node, 'inflight' ) ); // untouched
+		$this->deliver_curl_rows( [ [ 'msg' => 0, 'handle' => $easy, 'result' => \CURLE_OK ] ] );
+		$this->assertCount( 1, \Newspack_Nodes\Event_Framework::instance()->handles_of( $node ) ); // untouched
 	}
 
-	public function test_on_curl_message_no_sink_does_not_throw_on_200_body(): void {
+	public function test_on_curl_done_no_sink_does_not_throw_on_200_body(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		$reply                   = Message::new_message();
 		$reply[ Message::VALUE ] = 'x';
 		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n" ];
-		$node->on_curl_message( $this->done_info( $easy ) ); // sink is null
-		$this->assertCount( 0, $this->read_private( $node, 'inflight' ) );
+		$this->deliver_curl_rows( [ $this->done_info( $easy ) ] ); // sink is null
+		$this->assertCount( 0, \Newspack_Nodes\Event_Framework::instance()->handles_of( $node ) );
 	}
 
 	public function test_remove_node_unregisters_inflight_handles(): void {
@@ -1055,7 +1055,7 @@ class HttpOutTest extends TestCase {
 
 		$node->remove_node();
 		$this->assertSame( [], Event_Framework::instance()->curl_handles() );
-		$this->assertCount( 0, $this->read_private( $node, 'inflight' ) );
+		$this->assertCount( 0, \Newspack_Nodes\Event_Framework::instance()->handles_of( $node ) );
 	}
 
 	public function test_remove_node_clears_pending_batch(): void {
@@ -1081,7 +1081,7 @@ class HttpOutTest extends TestCase {
 		// curl_setopt_array (the EF adds it to the shared multi). No transfer happens
 		// (the EF drain never runs in unit tests), so the handle sits in-flight until teardown.
 		Event_Framework::reset();
-		HTTP_Out_Node::$curl_dispatch = null;
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = null;
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$node = $this->make_node( 'austin' );
 		$msg  = $this->command_message( 'settings', 'set', 'k v' );
@@ -1089,49 +1089,53 @@ class HttpOutTest extends TestCase {
 		$node->fire();
 
 		$this->assertArrayHasKey( \spl_object_id( $node ), Event_Framework::instance()->curl_handles() );
-		$this->assertCount( 1, $this->read_private( $node, 'inflight' ) );
+		$this->assertCount( 1, \Newspack_Nodes\Event_Framework::instance()->handles_of( $node ) );
 		$node->remove_node(); // detach + close the real handle (no network transfer occurred)
 	}
 
 	public function test_fire_logs_and_tracks_nothing_when_dispatch_returns_false(): void {
 		// A dispatch seam that fails to produce a CurlHandle is logged rate-limited;
 		// fire() returns without tracking an in-flight handle (and never throws).
-		HTTP_Out_Node::$curl_dispatch = static fn ( array $o ): bool => false;
+		$lines = [];
+		Core::set_stderr_handler( static function ( $line ) use ( &$lines ): void {
+			$lines[] = $line;
+		} );
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static fn ( array $o ): bool => false;
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$node = $this->make_node( 'austin' );
 		$msg  = $this->command_message( 'settings', 'set', 'k v' );
 		$node->fill( $msg );
 		$node->fire();
-		$this->assertCount( 0, $this->read_private( $node, 'inflight' ) );
+		$this->assertCount( 0, \Newspack_Nodes\Event_Framework::instance()->handles_of( $node ) );
+		$this->assertCount( 1, \array_filter( $lines, static fn ( string $line ): bool => \str_contains( $line, 'curl_init failed' ) ) );
 	}
 
-	public function test_on_curl_message_done_without_handle_is_ignored(): void {
+	public function test_on_curl_done_done_without_handle_is_ignored(): void {
 		// A CURLMSG_DONE info lacking a CurlHandle returns early. Seed one in-flight
 		// request first so the guard has something to leave alone: the no-handle
 		// message must NOT touch it (a regression that unset by a null/zero id, or
 		// cleared inflight on this path, would drop the live request).
 		[ $node, $easy ] = $this->node_with_one_inflight();
-		$before          = $this->read_private( $node, 'inflight' );
+		$before          = \Newspack_Nodes\Event_Framework::instance()->handles_of( $node );
 		$this->assertCount( 1, $before );
 
-		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE ] );
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE ] ] );
 
-		$after = $this->read_private( $node, 'inflight' );
-		$this->assertSame( $before, $after );
-		$this->assertArrayHasKey( \spl_object_id( $easy ), $after );
+		$after = \Newspack_Nodes\Event_Framework::instance()->handles_of( $node );
+		$this->assertSame( [ $easy ], $after );
 		$node->remove_node(); // detach + close the real handle (no transfer occurred)
 	}
 
-	public function test_on_curl_message_reads_real_curl_result_when_no_seam(): void {
-		// With no $curl_result seam, read_result reads libcurl directly. An
+	public function test_on_curl_done_reads_real_curl_result_when_no_seam(): void {
+		// With no $curl_result seam, the trait reads libcurl directly. An
 		// un-transferred handle reports HTTP 0 → non-200 logged, handle cleaned up.
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		HTTP_Out_Node::$curl_result = null;
-		$node->on_curl_message( $this->done_info( $easy ) );
-		$this->assertCount( 0, $this->read_private( $node, 'inflight' ) );
+		$this->deliver_curl_rows( [ $this->done_info( $easy ) ] );
+		$this->assertCount( 0, \Newspack_Nodes\Event_Framework::instance()->handles_of( $node ) );
 	}
 
-	public function test_on_curl_message_delivers_every_line_then_raises_the_malformed_one(): void {
+	public function test_on_curl_done_delivers_every_line_then_raises_the_malformed_one(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		$reply                   = Message::new_message();
 		$reply[ Message::VALUE ] = 'good-after-bad-3309';
@@ -1143,7 +1147,7 @@ class HttpOutTest extends TestCase {
 		$node->sink( $sink );
 
 		try {
-			$node->on_curl_message( $this->done_info( $easy ) );
+			$this->deliver_curl_rows( [ $this->done_info( $easy ) ] );
 			$this->fail( 'a malformed reply line must raise after the rest are delivered' );
 		} catch ( \InvalidArgumentException $e ) {
 			$this->assertStringContainsString( 'positional array 3309', $e->getMessage() );
@@ -1151,46 +1155,6 @@ class HttpOutTest extends TestCase {
 
 		$this->assertCount( 1, $sink->captured, 'the line after the bad one is still delivered' );
 		$this->assertSame( 'good-after-bad-3309', $sink->captured[0][ Message::VALUE ] );
-		$this->assertCount( 0, $this->read_private( $node, 'inflight' ), 'the handle detaches all the same' );
-	}
-
-	/** The process-static reply buffers, keyed by easy-handle id. */
-	private function reply_buffers(): array {
-		return ( new \ReflectionProperty( HTTP_Out_Node::class, 'bodies' ) )->getValue();
-	}
-
-	/** Drive one in-flight handle with $bytes already buffered by the write callback. */
-	private function inflight_with_buffered_body( string $bytes ): array {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$captured = [];
-		$this->capture_dispatch( $captured );
-		$node = $this->make_node( 'austin' );
-		$node->fill( $this->command_message( 'settings', 'set', 'newspack_nodes_max_segments 9' ) );
-		$node->fire();
-
-		$inflight = $this->read_private( $node, 'inflight' );
-		$easy     = \reset( $inflight )['handle'];
-		$write    = $captured[0][ \CURLOPT_WRITEFUNCTION ];
-		$write( $easy, $bytes );
-		$this->assertSame( $bytes, $this->reply_buffers()[ \spl_object_id( $easy ) ] ?? '' );
-		return [ $node, $easy ];
-	}
-
-	public function test_transport_error_does_not_orphan_the_reply_buffer(): void {
-		// A freed handle's spl_object_id is reused, so bytes left behind by a
-		// failed transfer prefix the next handle's reply.
-		[ $node, $easy ] = $this->inflight_with_buffered_body( 'half-a-reply-then-the-wire-died' );
-
-		$node->on_curl_message( $this->done_info( $easy, \CURLE_COULDNT_CONNECT ) );
-
-		$this->assertArrayNotHasKey( \spl_object_id( $easy ), $this->reply_buffers() );
-	}
-
-	public function test_remove_node_does_not_orphan_reply_buffers(): void {
-		[ $node, $easy ] = $this->inflight_with_buffered_body( 'partial-body-at-teardown' );
-
-		$node->remove_node();
-
-		$this->assertArrayNotHasKey( \spl_object_id( $easy ), $this->reply_buffers() );
+		$this->assertCount( 0, \Newspack_Nodes\Event_Framework::instance()->handles_of( $node ), 'the handle detaches all the same' );
 	}
 }

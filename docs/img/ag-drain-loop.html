@@ -37,7 +37,7 @@
     <div class="steps">
       <div class="st"><span class="n">0</span><span class="mono">should_continue()</span> at the top; false or <span class="mono">Core::$shutting_down</span> ends the loop.</div>
       <div class="st"><span class="n">1</span>Timeout = the soonest timer's deadline.<span class="sub2">no timers: 100 ms idle; one overdue: 0, no wait</span></div>
-      <div class="st wait"><span class="n">2</span>Sleep once: <span class="mono">curl_multi_select</span> while any cURL easy handle is registered, else <span class="mono">usleep</span>.<span class="sub2">then drain the multi: completions route to the owner's <span class="mono">on_curl_message()</span></span></div>
+      <div class="st wait"><span class="n">2</span>Sleep once: <span class="mono">curl_multi_select</span> while any cURL easy handle is registered, else <span class="mono">usleep</span>.<span class="sub2">then drain the multi: completions route to the owner's <span class="mono">on_curl_done()</span></span></div>
       <div class="st"><span class="n">3</span><span class="mono">pcntl_signal_dispatch()</span>.<span class="sub2">SIGTERM / SIGINT set <span class="mono">Core::$shutting_down</span> where handlers are installed</span></div>
       <div class="st"><span class="n">4</span>Refresh <span class="mono">Core::$now</span>, the clock every node reads this tick.</div>
       <div class="st"><span class="n">5</span>Fire every timer whose <span class="mono">next_fire</span> has passed.<span class="sub2">oneshot unregisters; recurring re-schedules from <span class="mono">Core::$now</span></span></div>

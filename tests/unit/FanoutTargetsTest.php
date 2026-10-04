@@ -181,7 +181,7 @@ class FanoutTargetsTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
-		HTTP_Out_Node::$curl_dispatch = null;
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = null;
 		Command_Auth::forget_session( 'tw0' );
 		Command_Auth::forget_session( 'tw1' );
 		Command_Auth::forget_session( 'tw9' );
@@ -197,7 +197,7 @@ class FanoutTargetsTest extends TestCase {
 
 	/** Count the `/auth` handshakes an egress starts, without any real HTTP. */
 	private function count_handshakes( int &$posts ): void {
-		HTTP_Out_Node::$curl_dispatch = static function ( array $opts ) use ( &$posts ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ) use ( &$posts ): \CurlHandle {
 			++$posts;
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();

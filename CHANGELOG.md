@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`Curl_Node` fetches the url a message carries.** `make_node Curl <name> [vault_id]` starts a GET on the shared cURL multi for each TM_BYTESTREAM VALUE and emits a copy of that message, FROM, ID and KEY intact, carrying the body as TM_BYTESTREAM, or a TM_ERROR whose VALUE names the url and why: `HTTP <code>`, `curl error <n> (<reason>)`, `invalid url`, `no vault entry`, `no url for vault entry`, `url outside vault origin`, `vault_require_ssl set but url is not https`, `no event loop`, `busy: 16 requests in flight` or `curl_init failed`. The copy goes to `target`, not back along FROM, and a transfer still in flight at teardown is lost with one log line counting the discards. Under a vault id a `/path` joins the server's url, an absolute url must share its scheme, host and port, and the server's credential rides as `Authorization`, which libcurl drops on a redirect that changes host, port or scheme. Sixteen transfers run at once, each bounded at 30 seconds, five redirects over http and https alone (https alone under a vault while `vault_require_ssl` is set), and an 8 MiB body, verified as `vault_verify_ssl` says; a struct is dropped with one log line. It ports Tachikoma's `Nodes/LWP.pm`.
+
+### Changed
+
+- **The TLS posture is the Vault's.** `HTTP_Out_Node::verify_ssl()`, `require_ssl()` and `https_required()` are now `Vault::verify_ssl()`, `Vault::require_ssl()` and `Vault::https_required()`, reading the same two settings; the old names are removed. `Vault::tls_opts()` builds the verify opts each transport applies where it resolves its destination, and `Vault::url_of()` reads a server's stored url. `docs/upgrading.md` lists the rename.
+- **`Schema_Reflection` supplies `arguments()`,** parsing the tokens through `parse_schema_args()` and storing them. `Hook_Node`, `HTTP_Out_Node` and `Curl_Node` drop the identical overrides they carried; a node whose override derives state keeps it.
+- **The Event_Framework owns every cURL transfer.** `start_curl()` makes a handle through the one `Event_Framework::$curl_dispatch` seam, attaches it and records `{ node, handle, context }`; the drain hands each CURLMSG_DONE to the owner's `Curl_Owner::on_curl_done()` and releases the handle in a `finally`. `handles_of()` and `release_curl()` answer per owner. `SSE_In_Node`, `HTTP_Out_Node` and `Curl_Node` start their transfers there, and `on_curl_message()`, the per-class `$curl_dispatch` seams and each owner's DONE and handle checks are gone.
+- **`HTTP_Out_Node` and `Curl_Node` buffer through the `Curl_Transfer` trait.** Each transfer appends to a buffer of its own, in place, where every handle shared one static map rebuilt per chunk; the trait declares `MAX_REPLY_BYTES` once, and `on_transfer_done()` receives the status and body read for it, never a handle.
+
 ## [2.87.0] - 2026-10-03
 
 ### Added

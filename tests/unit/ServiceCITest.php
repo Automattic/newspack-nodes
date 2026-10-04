@@ -258,18 +258,6 @@ class ServiceCITest extends TestCase {
 		$this->assertSame( [ 'lag' => 3 ], $result );
 	}
 
-	public function test_probe_command_composes_url_from_trailing_slash(): void {
-		$seen_url = null;
-		HTTP_Out_Node::$http_call = function ( string $url, array $args ) use ( &$seen_url ): array {
-			$seen_url = $url;
-			return [ 'response' => [ 'code' => 200 ], 'body' => $this->reply_body( [] ) ];
-		};
-
-		ServiceCITestProbe::probe_command_probe( [ 'url' => 'https://e.com/' ], 'discovery', 'get' );
-
-		$this->assertSame( 'https://e.com/wp-json/newspack-nodes/v1/command', $seen_url );
-	}
-
 	public function test_probe_command_adds_basic_auth_header_when_credentials_present(): void {
 		$seen_headers = null;
 		HTTP_Out_Node::$http_call = function ( string $url, array $args ) use ( &$seen_headers ): array {

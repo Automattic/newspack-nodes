@@ -91,6 +91,7 @@ Paths below are relative to `lib/Tachikoma/`, with one exception worth knowing: 
 | `Dumper_Node` rendering any message to one human-readable line | `Nodes/Dumper.pm` |
 | `Stdin_Node` / `Stdout_Node`, and the `TTY_In_Node` / `TTY_Out_Node` pair that adds readline and prompts | `Nodes/STDIO.pm` and its `Nodes/TTY.pm` subclass — but the prompt redraw moves from the reader to the writer. Upstream it is `Dumper.pm`'s `update_prompt`, which returns unless readline is driving and otherwise calls `prompt` on the `_stdin` node; here `TTY_Out_Node::write()` owns it, wiping and redrawing under both the readline and the `fgets` line editors with a different escape sequence for each. Only the trailing-newline gate deciding whether a prompt is due crossed over unchanged |
 | `Stderr_Node` writing a TM_BYTESTREAM VALUE through the node stderr chain | `Nodes/StdErr.pm`, which forwards to its sink when `owner` is set and `cancel()`s the message otherwise, so upstream StdErr can sit mid-chain as a logging pass-through. Ours is a strict terminal: `fill()` never chains to `parent::fill()` and `node_schema()` declares `has_target => false`, so the canvas draws no out-port and a tap must END here. The counter placement, before the type test, does match upstream |
+| `Curl_Node` — fetch the url a TM_BYTESTREAM carries and emit the body as a copy of it | `Nodes/LWP.pm`, run on the shared cURL multi rather than as a Job, and emitting a failure in-band as TM_ERROR rather than on stderr ([below](#curl-fetches-on-the-shared-multi-and-emits-a-failure-in-band)) |
 | `HTTP_Out_Node`'s wire-inbound clause | the FROM-stamping and owner-routing clause inside `Nodes/Socket.pm`'s `drain_buffer_normal` |
 
 ### Shell and TSL
@@ -244,9 +245,9 @@ Perl's `fill` returns values (`return $self->SUPER::fill(...)`, `return $self->c
 
 ### The event loop waits on timers, and on cURL alone
 
-`EventFrameworks/Select.pm` and `EventFrameworks/KQueue.pm` register reader, writer and watcher nodes and select over their descriptors. [`Event_Framework`](../includes/class-event-framework.php) registers timers, and the only descriptors it waits on are the cURL easy handles `register_curl_easy()` adds to one shared multi handle.
+`EventFrameworks/Select.pm` and `EventFrameworks/KQueue.pm` register reader, writer and watcher nodes and select over their descriptors. [`Event_Framework`](../includes/class-event-framework.php) registers timers, and the only descriptors it waits on are the cURL easy handles `start_curl()` adds to one shared multi handle.
 
-**Why:** every local source here reads a file it can seek into — `Tail_Node`, `Consumer_Node`, the cli's stdin reader — so a `Timer_Node` expresses it, and the loop holds exactly one blocking waiter however many sources are active. cURL is the one source that cannot be expressed that way, because an easy handle keeps its socket behind cURL's own API; a registered handle moves the wait from `usleep` to `curl_multi_select`. `set_timer()` and `stop_timer()` keep upstream's names, and `register_curl_easy()` / `unregister_curl_easy()` stand in for the three `register_*_node` pairs.
+**Why:** every local source here reads a file it can seek into — `Tail_Node`, `Consumer_Node`, the cli's stdin reader — so a `Timer_Node` expresses it, and the loop holds exactly one blocking waiter however many sources are active. cURL is the one source that cannot be expressed that way, because an easy handle keeps its socket behind cURL's own API; a registered handle moves the wait from `usleep` to `curl_multi_select`. `set_timer()` and `stop_timer()` keep upstream's names, and `start_curl()` / `register_curl_easy()` / `unregister_curl_easy()` stand in for the three `register_*_node` pairs.
 
 ### Secure level 0 means only "undeclared"
 
@@ -288,6 +289,12 @@ Two request conventions run side by side. A node declaring its verbs under `node
 Every reply goes TO the request's FROM, with the Table as FROM and the request's ID echoed. Table declares its eight verbs under `requests` with no `handler`, so `help Table` and the Inspector list them while `answer_request()` never touches them.
 
 **Why:** the envelope is new work, the uniform shape a console reads for any node's verb without knowing the node. Table is a port, and its `GET` is the one request a Tachikoma operator already knows, answering with a value another Table-shaped reader can store unchanged. Wrapping it would buy uniformity by breaking the port, so the two shapes stay distinct and this entry names both. The count and the key list are what the port adds: a synchronous asker reads them after its own send returns and knows the exchange is whole, with no correlation id ([ADR-7](architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies)).
+
+### Curl fetches on the shared multi and emits a failure in-band
+
+`Nodes/LWP.pm` runs `LWP::UserAgent->request` inside `fill()`, which blocks, so upstream runs it in a Job: a forked process the operator spawns for it. A response with content goes on as a copy of the input carrying the body, and a status of 400 or more is also printed to stderr. [`Curl_Node`](../includes/class-curl-node.php) starts the GET on the Event_Framework's shared cURL multi instead, and emits a failure as a TM_ERROR copy of the input naming the status or the curl error with the url.
+
+**Why:** the shared multi already runs `HTTP_Out` and `SSE_In` without blocking the drain loop, so a fetch needs no process of its own, and `MAX_IN_FLIGHT` turns load away at the entry where a Job's queue would grow. A failure on stderr reaches an operator but not the graph; in-band, it takes the same path to `target` as a success, so whatever consumes the node's output sees both.
 
 ### Graphite ships datagrams, not a reconnecting socket
 

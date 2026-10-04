@@ -378,10 +378,10 @@ class CommandInterpreterTest extends TestCase {
 
 	public function test_list_handles_lists_registered_curl_handles(): void {
 		Event_Framework::reset();
-		$node = new Echo_Node();
+		$node = new \Newspack_Nodes\SSE_In_Node();
 		$node->name( 'sse0' );
 		$easy = \curl_init();
-		Event_Framework::instance()->register_curl_easy( $node, $easy );
+		Event_Framework::instance()->register_curl_easy( $node, $easy, null );
 
 		$out = ( new Command_Interpreter_Node() )->dispatch( 'list_handles' );
 
@@ -394,10 +394,9 @@ class CommandInterpreterTest extends TestCase {
 		// transfer that never completes while it lives, so a completion tally
 		// reads 0 for as long as the row is there to show it.
 		Event_Framework::reset();
-		$node = new Echo_Node();
+		$node = new \Newspack_Nodes\SSE_In_Node();
 		$node->name( 'sse0' );
-		$node->sink( new Capture_Sink_Node() );
-		Event_Framework::instance()->register_curl_easy( $node, \curl_init() );
+		Event_Framework::instance()->register_curl_easy( $node, \curl_init(), null );
 		for ( $i = 0; $i < 3; $i++ ) {
 			$node->fill( Message::new_message() );
 		}
@@ -418,10 +417,10 @@ class CommandInterpreterTest extends TestCase {
 		$hitch->name( 'hitch0' );
 		$hitch->set_timer( 15000 ); // hitchhike: no own next_fire -> next_ms null
 
-		$sse = new Echo_Node();
+		$sse = new \Newspack_Nodes\SSE_In_Node();
 		$sse->name( 'sse0' );
 		$easy = \curl_init();
-		Event_Framework::instance()->register_curl_easy( $sse, $easy );
+		Event_Framework::instance()->register_curl_easy( $sse, $easy, null );
 
 		$ci      = new Command_Interpreter_Node();
 		$timers  = $ci->dispatch( 'list_timers', [ '-s' ] );

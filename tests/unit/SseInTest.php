@@ -15,7 +15,7 @@ use Newspack_Nodes\Tests\TestCase;
 class SseInTest extends TestCase {
 
 	protected function tearDown(): void {
-		SSE_In_Node::$curl_dispatch = null;
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = null;
 		parent::tearDown();
 	}
 
@@ -34,7 +34,7 @@ class SseInTest extends TestCase {
 			'',
 			'firehose.p0',
 			$positions,
-			true,
+			[],
 			false
 		);
 		return [ $node, $sink ];
@@ -210,7 +210,7 @@ class SseInTest extends TestCase {
 
 	public function test_open_handle_awaiting_handshake_is_connecting_not_connected(): void {
 		[ $node ] = $this->configured_node();
-		SSE_In_Node::$curl_dispatch = static function ( array $opts ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
 		};
@@ -223,7 +223,7 @@ class SseInTest extends TestCase {
 
 	public function test_completed_handshake_reports_connected_and_no_longer_connecting(): void {
 		[ $node ] = $this->configured_node();
-		SSE_In_Node::$curl_dispatch = static function ( array $opts ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
 		};
@@ -238,7 +238,7 @@ class SseInTest extends TestCase {
 
 	public function test_failed_open_reaches_disconnected_without_passing_through_connected(): void {
 		[ $node ] = $this->configured_node();
-		SSE_In_Node::$curl_dispatch = static fn ( array $opts ): bool => false;
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static fn ( array $opts ): bool => false;
 
 		$this->assertFalse( $node->maybe_connect() );
 
@@ -351,7 +351,7 @@ class SseInTest extends TestCase {
 
 	public function test_unparseable_lines_frames_accumulate_across_a_reconnect(): void {
 		[ $node, $sink ] = $this->configured_node();
-		SSE_In_Node::$curl_dispatch = static function ( array $opts ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
 		};
@@ -422,7 +422,7 @@ class SseInTest extends TestCase {
 		$node->process_sse_chunk( "event: heartbeat\ndata: {}\n\n" );
 		$this->assertSame( 1748960000, $node->connection()['last_sse_heartbeat'] );
 
-		SSE_In_Node::$curl_dispatch = static function ( array $opts ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
 		};
@@ -439,7 +439,7 @@ class SseInTest extends TestCase {
 
 	public function test_connection_exposes_actual_attempt_time(): void {
 		[ $node ] = $this->configured_node();
-		SSE_In_Node::$curl_dispatch = static function ( array $opts ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
 		};
@@ -455,7 +455,7 @@ class SseInTest extends TestCase {
 		// during reconnect backoff. Disconnect must unregister.
 		Event_Framework::reset();
 		[ $node ] = $this->configured_node();
-		SSE_In_Node::$curl_dispatch = static function ( array $opts ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
 		};
@@ -476,7 +476,7 @@ class SseInTest extends TestCase {
 		// base Remote_Link channel reconnects but is never serviced.
 		Event_Framework::reset();
 		[ $node ] = $this->configured_node();
-		SSE_In_Node::$curl_dispatch = static function ( array $opts ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
 		};
@@ -515,7 +515,7 @@ class SseInTest extends TestCase {
 		$node->restore_position( 5, 10 );
 
 		$captured = [];
-		SSE_In_Node::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
 			$captured[] = $opts;
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
@@ -541,7 +541,7 @@ class SseInTest extends TestCase {
 			$node->restore_position( 6, 606 );
 		};
 		$captured = [];
-		SSE_In_Node::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
 			$captured[] = $opts;
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
@@ -564,7 +564,7 @@ class SseInTest extends TestCase {
 		[ $node ] = $this->configured_node();
 
 		$captured = [];
-		SSE_In_Node::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
 			$captured[] = $opts;
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
@@ -581,7 +581,7 @@ class SseInTest extends TestCase {
 		$node->restore_position( 0, 0 );
 
 		$captured = [];
-		SSE_In_Node::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
 			$captured[] = $opts;
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
@@ -604,7 +604,7 @@ class SseInTest extends TestCase {
 		$node->set_multi_writer( true );
 
 		$captured = [];
-		SSE_In_Node::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
 			$captured[] = $opts;
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
@@ -619,7 +619,7 @@ class SseInTest extends TestCase {
 		[ $node ] = $this->configured_node();
 
 		$captured = [];
-		SSE_In_Node::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
 			$captured[] = $opts;
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
@@ -635,10 +635,10 @@ class SseInTest extends TestCase {
 		$node->name( 'sse-in' );
 		$sink = new Capture_Sink_Node();
 		$node->sink( $sink );
-		$node->configure( 'http://austin.example', 'u', 'p', '', 'firehose.p0', [], true, true );
+		$node->configure( 'http://austin.example', 'u', 'p', '', 'firehose.p0', [], [], true );
 
 		$captured = [];
-		SSE_In_Node::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
 			$captured[] = $opts;
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();

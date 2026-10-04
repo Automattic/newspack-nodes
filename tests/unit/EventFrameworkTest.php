@@ -80,80 +80,116 @@ class EventFrameworkTest extends TestCase {
 		$this->assertSame( 1, $timer_node->fired, 'Oneshot fires exactly once' );
 	}
 
-	public function test_register_curl_easy_tracks_node_for_multi_dispatch(): void {
-		$ef = Event_Framework::instance();
-
-		$node = new class extends \Newspack_Nodes\Node {
-			public int $curl_events = 0;
-			public function on_curl_message( array $info ): void { ++$this->curl_events; }
+	/** A Curl_Owner double recording each completion it is handed. */
+	private function curl_owner(): object {
+		return new class extends \Newspack_Nodes\Node implements \Newspack_Nodes\Curl_Owner {
+			/** @var list<array{0:\CurlHandle,1:int,2:mixed}> */
+			public array $done = [];
+			public function on_curl_done( \CurlHandle $handle, int $result, mixed $context ): void {
+				$this->done[] = [ $handle, $result, $context ];
+			}
 		};
-
-		$easy = \curl_init();
-		$ef->register_curl_easy( $node, $easy );
-
-		$ef->drain( $this->boundedTicks( 1 ) );
-
-		$this->assertTrue( true, 'drain with an idle easy handle did not crash' );
-
-		$ef->unregister_curl_easy( $easy );
 	}
 
-	public function test_unregister_curl_easy_removes_registered_handle(): void {
-		$ef = Event_Framework::instance();
-
-		$node = new class extends \Newspack_Nodes\Node {};
-		$easy = \curl_init();
-		$ef->register_curl_easy( $node, $easy );
-
-		$ef->unregister_curl_easy( $easy );
-
-		$this->assertSame( [], $this->read_private( $ef, 'curl_owners' ) );
-		$this->assertSame( [], $ef->curl_handles() );
-
+	/** Install a dispatch seam handing back idle handles and recording the opts. */
+	private function capture_curl( array &$opts ): void {
+		Event_Framework::$curl_dispatch = static function ( array $o ) use ( &$opts ): \CurlHandle {
+			$opts[] = $o;
+			return \curl_init();
+		};
 	}
 
-	public function test_drain_dispatches_curl_completions_to_the_owning_node(): void {
-		// The shared-multi contract: two nodes' easy handles are registered on ONE
-		// multi; a single drain tick must route each completion to the handle's owner,
-		// keyed by the easy handle — never by registration order.
-		$ef = Event_Framework::instance();
+	public function test_start_curl_dispatches_the_opts_and_holds_the_handle_for_its_owner(): void {
+		$ef   = Event_Framework::instance();
+		$opts = [];
+		$this->capture_curl( $opts );
+		$owner = $this->curl_owner();
 
-		$recorder = static function (): object {
-			return new class extends \Newspack_Nodes\Node {
-				public ?\CurlHandle $seen = null;
-				public function on_curl_message( array $info ): void {
-					$this->seen = $info['handle'] ?? null;
-				}
-			};
-		};
-		$node_a = $recorder();
-		$node_b = $recorder();
+		$easy = $ef->start_curl( $owner, [ \CURLOPT_URL => 'https://ef-61.example/start' ], 'ctx-61' );
 
-		$easy_a = \curl_init();
-		$easy_b = \curl_init();
-		$ef->register_curl_easy( $node_a, $easy_a );
-		$ef->register_curl_easy( $node_b, $easy_b );
+		$this->assertInstanceOf( \CurlHandle::class, $easy );
+		$this->assertSame( 'https://ef-61.example/start', $opts[0][ \CURLOPT_URL ] );
+		$this->assertSame( [ $easy ], $ef->handles_of( $owner ) );
+		$this->assertArrayHasKey( \spl_object_id( $owner ), $ef->curl_handles() );
+		$ef->release_curl( $owner );
+	}
 
-		// Shuffle the completion order to prove routing is by handle, not order.
-		Event_Framework::$curl_poll = static function ( \CurlMultiHandle $m ) use ( $easy_a, $easy_b ): array {
-			return [
-				[ 'msg' => \CURLMSG_DONE, 'handle' => $easy_b, 'result' => \CURLE_OK ],
-				[ 'msg' => \CURLMSG_DONE, 'handle' => $easy_a, 'result' => \CURLE_OK ],
-			];
-		};
+	public function test_start_curl_answers_null_when_no_handle_could_be_made(): void {
+		$ef                             = Event_Framework::instance();
+		Event_Framework::$curl_dispatch = static fn ( array $o ): bool => false;
+		$owner                          = $this->curl_owner();
 
+		$this->assertNull( $ef->start_curl( $owner, [ \CURLOPT_URL => 'https://ef-62.example/' ], 'ctx-62' ) );
+		$this->assertSame( [], $ef->handles_of( $owner ) );
+	}
+
+	public function test_a_completion_reaches_its_owner_with_its_context_and_releases_the_handle(): void {
+		// One multi, two owners; routing is by handle, never by completion order.
+		$ef   = Event_Framework::instance();
+		$opts = [];
+		$this->capture_curl( $opts );
+		$owner_a = $this->curl_owner();
+		$owner_b = $this->curl_owner();
+		$easy_a  = $ef->start_curl( $owner_a, [ \CURLOPT_URL => 'https://a-63.example/' ], 'ctx-a-63' );
+		$easy_b  = $ef->start_curl( $owner_b, [ \CURLOPT_URL => 'https://b-64.example/' ], 'ctx-b-64' );
+
+		Event_Framework::$curl_poll = static fn ( \CurlMultiHandle $m ): array => [
+			[ 'msg' => \CURLMSG_DONE, 'handle' => $easy_b, 'result' => \CURLE_OK ],
+			[ 'msg' => \CURLMSG_DONE, 'handle' => $easy_a, 'result' => \CURLE_OPERATION_TIMEDOUT ],
+		];
 		$ticks = 0;
 		$ef->drain( function () use ( &$ticks ): bool {
 			Core::$now = \microtime( true );
 			return 0 === $ticks++;
 		} );
 
-		$this->assertSame( $easy_a, $node_a->seen, 'node A got its own handle back' );
-		$this->assertSame( $easy_b, $node_b->seen, 'node B got its own handle back' );
+		$this->assertSame( [ [ $easy_a, \CURLE_OPERATION_TIMEDOUT, 'ctx-a-63' ] ], $owner_a->done );
+		$this->assertSame( [ [ $easy_b, \CURLE_OK, 'ctx-b-64' ] ], $owner_b->done );
+		$this->assertSame( [], $ef->handles_of( $owner_a ), 'a completed handle is released' );
+		$this->assertSame( [], $ef->curl_handles() );
+	}
 
-		Event_Framework::$curl_poll = null;
-		$ef->unregister_curl_easy( $easy_a );
-		$ef->unregister_curl_easy( $easy_b );
+	public function test_a_row_that_is_not_done_reaches_no_owner(): void {
+		$ef   = Event_Framework::instance();
+		$opts = [];
+		$this->capture_curl( $opts );
+		$owner = $this->curl_owner();
+		$easy  = $ef->start_curl( $owner, [ \CURLOPT_URL => 'https://ef-65.example/' ], 'ctx-65' );
+
+		$this->complete_curl( $easy, \CURLE_OK, 0 );
+
+		$this->assertSame( [], $owner->done );
+		$this->assertSame( [ $easy ], $ef->handles_of( $owner ), 'still in flight' );
+		$ef->release_curl( $owner );
+	}
+
+	public function test_release_curl_releases_one_owners_handles_and_counts_them(): void {
+		$ef   = Event_Framework::instance();
+		$opts = [];
+		$this->capture_curl( $opts );
+		$owner = $this->curl_owner();
+		$other = $this->curl_owner();
+		$ef->start_curl( $owner, [ \CURLOPT_URL => 'https://ef-66.example/1' ], 'ctx-66' );
+		$ef->start_curl( $owner, [ \CURLOPT_URL => 'https://ef-66.example/2' ], 'ctx-67' );
+		$kept = $ef->start_curl( $other, [ \CURLOPT_URL => 'https://ef-68.example/' ], 'ctx-68' );
+
+		$this->assertSame( 2, $ef->release_curl( $owner ) );
+
+		$this->assertSame( [], $ef->handles_of( $owner ) );
+		$this->assertSame( [ $kept ], $ef->handles_of( $other ) );
+		$ef->release_curl( $other );
+	}
+
+	public function test_unregister_curl_easy_removes_registered_handle(): void {
+		$ef    = Event_Framework::instance();
+		$owner = $this->curl_owner();
+		$easy  = \curl_init();
+		$ef->register_curl_easy( $owner, $easy, 'ctx-69' );
+
+		$ef->unregister_curl_easy( $easy );
+
+		$this->assertSame( [], $this->read_private( $ef, 'curl_transfers' ) );
+		$this->assertSame( [], $ef->curl_handles() );
 	}
 
 	public function test_drain_exits_when_shutting_down_flag_is_set(): void {
@@ -185,11 +221,9 @@ class EventFrameworkTest extends TestCase {
 		// (~100ms) and we exit on the should_continue gate.
 		$ef = Event_Framework::instance();
 
-		$curl_node = new class extends \Newspack_Nodes\Node {
-			public function on_curl_message( array $info ): void {}
-		};
-		$easy = \curl_init();
-		$ef->register_curl_easy( $curl_node, $easy );
+		$curl_node = $this->curl_owner();
+		$easy      = \curl_init();
+		$ef->register_curl_easy( $curl_node, $easy, 'ctx-70' );
 
 		$start = \microtime( true );
 		$ef->drain( $this->boundedTicks( 1 ) );

@@ -19,7 +19,7 @@ use Newspack_Nodes\Tests\TestCase;
 class SseInCoverageTest extends TestCase {
 
 	protected function tearDown(): void {
-		SSE_In_Node::$curl_dispatch = null;
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = null;
 		Event_Framework::reset();
 		parent::tearDown();
 	}
@@ -32,13 +32,13 @@ class SseInCoverageTest extends TestCase {
 		$sink->name( 'merger' );
 		$node->sink( $sink );
 		$node->target( 'merger' );
-		$node->configure( 'https://austin.example', 'u', 'p', '', 'firehose.p0', [], true, false );
+		$node->configure( 'https://austin.example', 'u', 'p', '', 'firehose.p0', [], [], false );
 		return [ $node, $sink ];
 	}
 
 	/** Install a dispatch seam that hands back a real idle easy handle (never transferred). */
 	private function dispatch_returns_handle(): void {
-		SSE_In_Node::$curl_dispatch = static function ( array $opts ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
 		};
@@ -90,7 +90,7 @@ class SseInCoverageTest extends TestCase {
 		$handle    = $this->connect( $node );
 
 		// Server-side close detaches the handle and grows the backoff.
-		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] );
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] ] );
 		$this->assertNull( $node->test_get_handle() );
 		$this->assertGreaterThan( 1, $node->connection()['current_backoff'] );
 
@@ -100,7 +100,7 @@ class SseInCoverageTest extends TestCase {
 
 	public function test_maybe_connect_dispatch_failure_sets_error_and_backoff(): void {
 		[ $node ] = $this->configured_node();
-		SSE_In_Node::$curl_dispatch = static fn ( array $o ): bool => false;
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static fn ( array $o ): bool => false;
 
 		$this->assertFalse( $node->maybe_connect() );
 		$this->assertNull( $node->test_get_handle() );
@@ -112,10 +112,10 @@ class SseInCoverageTest extends TestCase {
 		$node = new SSE_In_Node();
 		$node->name( 'sse-in' );
 		$node->sink( new Capture_Sink_Node() );
-		$node->configure( 'https://austin.example', '', '', 'tok-123', 'firehose.p0', [], true, false );
+		$node->configure( 'https://austin.example', '', '', 'tok-123', 'firehose.p0', [], [], false );
 
 		$captured = [];
-		SSE_In_Node::$curl_dispatch = function ( array $o ) use ( &$captured ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $o ) use ( &$captured ): \CurlHandle {
 			$captured[] = $o;
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
@@ -131,10 +131,10 @@ class SseInCoverageTest extends TestCase {
 		$node = new SSE_In_Node();
 		$node->name( 'sse-in' );
 		$node->sink( new Capture_Sink_Node() );
-		$node->configure( 'https://austin.example', '', '', 'tok-123', 'firehose.p0', [], true, false );
+		$node->configure( 'https://austin.example', '', '', 'tok-123', 'firehose.p0', [], [], false );
 
 		$captured = [];
-		SSE_In_Node::$curl_dispatch = function ( array $o ) use ( &$captured ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $o ) use ( &$captured ): \CurlHandle {
 			$captured[] = $o;
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
@@ -190,34 +190,34 @@ class SseInCoverageTest extends TestCase {
 		$this->assertCount( 1, $captured );
 	}
 
-	// ----- on_curl_message -----
+	// ----- on_curl_done -----
 
-	public function test_on_curl_message_ignores_non_done(): void {
+	public function test_on_curl_done_ignores_non_done(): void {
 		[ $node ] = $this->configured_node();
 		$handle   = $this->establish( $node );
-		$node->on_curl_message( [ 'msg' => 0, 'handle' => $handle, 'result' => \CURLE_OK ] );
+		$this->deliver_curl_rows( [ [ 'msg' => 0, 'handle' => $handle, 'result' => \CURLE_OK ] ] );
 		$this->assertTrue( $node->connection()['connected'] );
 		$this->assertSame( $handle, $node->test_get_handle() );
 	}
 
-	public function test_on_curl_message_foreign_handle_is_cleaned_up_without_state_change(): void {
+	public function test_a_completion_for_a_handle_no_node_holds_changes_nothing(): void {
 		[ $node ] = $this->configured_node();
 		$this->establish( $node );
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 		$foreign = \curl_init();
 
-		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $foreign, 'result' => \CURLE_OK ] );
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $foreign, 'result' => \CURLE_OK ] ] );
 
-		// Our handle survives; the foreign one was best-effort closed.
+		// No record holds the foreign handle, so its completion reaches no one.
 		$this->assertInstanceOf( \CurlHandle::class, $node->test_get_handle() );
 		$this->assertTrue( $node->connection()['connected'] );
 	}
 
-	public function test_on_curl_message_transport_error_disconnects_and_backs_off(): void {
+	public function test_on_curl_done_transport_error_disconnects_and_backs_off(): void {
 		[ $node ] = $this->configured_node();
 		$handle   = $this->connect( $node );
 
-		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_COULDNT_CONNECT ] );
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_COULDNT_CONNECT ] ] );
 
 		$this->assertNull( $node->test_get_handle() );
 		$this->assertFalse( $node->connection()['connected'] );
@@ -228,7 +228,7 @@ class SseInCoverageTest extends TestCase {
 		$this->assertSame( 2, $node->connection()['current_backoff'] );
 	}
 
-	public function test_on_curl_message_includes_safe_libcurl_detail_when_available(): void {
+	public function test_on_curl_done_includes_safe_libcurl_detail_when_available(): void {
 		[ $node ] = $this->configured_node();
 		$handle   = $this->connect( $node );
 		Event_Framework::instance()->unregister_curl_easy( $handle );
@@ -240,7 +240,7 @@ class SseInCoverageTest extends TestCase {
 		$detail = \curl_error( $handle );
 		$this->assertNotSame( '', $detail, 'fixture must produce a real libcurl detail' );
 
-		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_URL_MALFORMAT ] );
+		$node->on_curl_done( $handle, \CURLE_URL_MALFORMAT, null );
 
 		$this->assertSame(
 			'cURL error 3 (URL using bad/illegal format or missing URL): ' . $detail,
@@ -255,7 +255,7 @@ class SseInCoverageTest extends TestCase {
 			self::disconnect_frame( 'slot_lease_lost', 'SSE slot lease lost' )
 		);
 
-		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_COULDNT_CONNECT ] );
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_COULDNT_CONNECT ] ] );
 
 		$this->assertFalse( $node->connection()['connected'] );
 		$this->assertSame(
@@ -272,7 +272,7 @@ class SseInCoverageTest extends TestCase {
 			self::disconnect_frame( 'slot_lease_lost', 'SSE slot lease lost' )
 		);
 
-		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_COULDNT_CONNECT ] );
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_COULDNT_CONNECT ] ] );
 
 		$this->assertSame(
 			'Buffer overflow (no newline in ' . SSE_In_Node::MAX_BUFFER_SIZE . ' bytes)',
@@ -285,7 +285,7 @@ class SseInCoverageTest extends TestCase {
 		$handle   = $this->connect( $node );
 		$this->set_http_code( $node, 503 );
 
-		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] );
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] ] );
 
 		$this->assertSame( 'HTTP 503', $node->connection()['last_error'] );
 	}
@@ -300,7 +300,7 @@ class SseInCoverageTest extends TestCase {
 		$this->set_http_code( $node, 200 );
 		Core::$now = 1748960012.59;
 
-		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] );
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] ] );
 
 		$this->assertSame(
 			'HTTP 200 SSE stream ended without a server disconnect reason (connected 12.34s)',
@@ -323,7 +323,7 @@ class SseInCoverageTest extends TestCase {
 		$this->set_http_code( $node, 200 );
 		Core::$now = 1748960100.0;
 
-		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] );
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] ] );
 
 		$connection = $node->connection();
 		$this->assertNull( $connection['last_error'], 'a scheduled close is not a transport failure' );
@@ -344,7 +344,7 @@ class SseInCoverageTest extends TestCase {
 		$this->set_http_code( $node, 200 );
 		Core::$now = 1748960100.0;
 
-		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] );
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] ] );
 
 		$this->assertSame( 1748960105, $node->connection()['scheduled_reconnect_at'] );
 	}
@@ -354,7 +354,7 @@ class SseInCoverageTest extends TestCase {
 		$handle   = $this->connect( $node );
 		$node->process_sse_chunk( "retry: 4500\n\n" );
 
-		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_COULDNT_CONNECT ] );
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_COULDNT_CONNECT ] ] );
 
 		$this->assertNull( $node->connection()['scheduled_reconnect_at'] );
 	}
@@ -367,7 +367,7 @@ class SseInCoverageTest extends TestCase {
 		$this->set_http_code( $node, 200 );
 		// The stream lived far longer than the delay before closing.
 		Core::$now = 1748960100.0;
-		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] );
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] ] );
 
 		Core::$now = 1748960102.0;
 		$this->assertFalse( $node->maybe_connect(), 'the reopen waits out the advertised delay' );
@@ -383,7 +383,7 @@ class SseInCoverageTest extends TestCase {
 		$node->process_sse_chunk( self::retry_frame( '0' ) );
 		$this->set_http_code( $node, 200 );
 		Core::$now = 1748960030.0;
-		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] );
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] ] );
 
 		$this->assertNull( $node->connection()['last_error'], 'a lifetime close is not a failure' );
 		$this->assertSame( 1748960030, $node->connection()['scheduled_reconnect_at'] );
@@ -395,7 +395,7 @@ class SseInCoverageTest extends TestCase {
 		$handle   = $this->connect( $node );
 		$node->process_sse_chunk( "retry: 4500\n\n" );
 
-		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_COULDNT_CONNECT ] );
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_COULDNT_CONNECT ] ] );
 
 		$this->assertSame(
 			'cURL error 7 (Could not connect to server)',
@@ -410,7 +410,7 @@ class SseInCoverageTest extends TestCase {
 		$node->process_sse_chunk( "retry: soon\n\n" );
 		$this->set_http_code( $node, 200 );
 
-		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] );
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] ] );
 
 		$this->assertStringContainsString(
 			'ended without a server disconnect reason',
@@ -424,14 +424,14 @@ class SseInCoverageTest extends TestCase {
 		$handle    = $this->connect( $node );
 		$node->process_sse_chunk( "retry: 4500\n\n" );
 		$this->set_http_code( $node, 200 );
-		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] );
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] ] );
 
 		Core::$now = 1748960010.0;
 		$this->assertTrue( $node->maybe_connect() );
 		$reopened = $node->test_get_handle();
 		$this->assertInstanceOf( \CurlHandle::class, $reopened );
 		$this->set_http_code( $node, 200 );
-		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $reopened, 'result' => \CURLE_OK ] );
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $reopened, 'result' => \CURLE_OK ] ] );
 
 		$this->assertStringContainsString(
 			'ended without a server disconnect reason',
@@ -533,7 +533,7 @@ class SseInCoverageTest extends TestCase {
 		// silent drop — never a throw (the null-sink fail-loud now lives in the owner's forward_line).
 		$node = new SSE_In_Node();
 		$node->name( 'sse-in' );
-		$node->configure( 'https://austin.example', '', '', '', 'firehose.p0', [], true, false );
+		$node->configure( 'https://austin.example', '', '', '', 'firehose.p0', [], [], false );
 
 		$this->assertTrue( $node->process_sse_chunk( self::msg_frame( '1:0', 'req', [ 'x' => 1 ] ) ) );
 	}

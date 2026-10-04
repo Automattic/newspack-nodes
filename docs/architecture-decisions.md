@@ -157,6 +157,22 @@ defect. Slot-based flow control belongs at the producer that needs it, never gra
 single-threaded, **or** offset advance is decoupled from delivery (async handlers, in-flight
 windows) — each breaks the "delivered = safe to advance" coincidence the removal rests on.
 
+**Amendment:** a node that owns non-blocking I/O may hold an in-flight window, because its
+`fill()` returns before the transfer it starts completes, so delivery and completion are no
+longer one call stack. The node chooses how the window is bounded, and says so.
+[`Curl_Node`](../includes/class-curl-node.php) caps it by count, which is flow control at the
+producer: it holds at most `MAX_IN_FLIGHT` fetches and answers the next with a `busy:`
+TM_ERROR, queueing nothing. [`HTTP_Out_Node`](../includes/class-http-out-node.php) caps it
+by time alone: each flush tick starts its own POST, so several may be in flight to one
+spoke at once, each bounded by `REQUEST_TIMEOUT`. A transfer still in flight at stop is
+lost: [`Curl_Transfer::release_all()`](../includes/trait-curl-transfer.php) releases every
+handle and logs one rate-limited line counting the transfers it discarded. A cursor upstream
+has already advanced past the message that started it, so durability belongs upstream of such
+a node — a producer that must not lose a fetch writes it to a log and replays what it never
+saw answered. The revisit condition above stands for every other node; for a window-holding
+node it reopens when a caller needs the window to survive a stop, or needs its cursor held
+until the transfer completes rather than until `fill()` returns.
+
 ---
 
 ## ADR-4: PIPE_BUF atomic writes

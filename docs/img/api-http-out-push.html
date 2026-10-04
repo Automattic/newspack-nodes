@@ -45,13 +45,13 @@ h2 { font-size:15px; margin:0 0 8px; }
   <div class="out"><div class="o silent"><b>In flight.</b> The buffer is already empty: a batch lost from here has no retry and no dead letter, fire-and-forget by design.</div></div>
 
   <div class="n">4</div>
-  <div class="st"><b><span class="mono">on_curl_message()</span></b> branches on the spoke's answer.</div>
+  <div class="st"><b><span class="mono">on_transfer_done()</span></b> branches on the spoke's answer.</div>
   <div class="out">
     <div class="o drop"><b>transport error &lt;n&gt;</b> one rate-limited line; the batch is gone.</div>
     <div class="o drop"><b>401</b> <span class="mono">Command_Auth::forget_session()</span>, so the next tick re-runs <span class="mono">/auth</span> and an expired session or a restarted spoke self-heals behind one log line. Because <span class="mono">HTTP_In</span> latches its refusal across the WHOLE batch, one badly-signed envelope costs the hub its live session for every other message in that POST.</div>
     <div class="o silent"><b>202</b> the spoke's ack that the batch routed onward with its replies due on the SSE stream: deliberately not reported.</div>
     <div class="o drop"><b>any other non-200</b> <span class="mono">HTTP &lt;code&gt;</span>, rate-limited, nothing forwarded.</div>
-    <div class="o ok"><b>200</b> the body is unpacked line by line into the sink; a line <span class="mono">Message::unpacked()</span> rejects is skipped so the rest still lands, and the <span class="mono">_output/</span> prefix <span class="mono">HTTP_In</span> stamped onto the reply's TO is stripped.</div>
+    <div class="o ok"><b>200</b> the body is unpacked line by line into the sink; every line is attempted and a line <span class="mono">Message::unpacked()</span> rejects is raised after the last, so the rest still lands; and the <span class="mono">_output/</span> prefix <span class="mono">HTTP_In</span> stamped onto the reply's TO is stripped.</div>
   </div>
 </div>
 

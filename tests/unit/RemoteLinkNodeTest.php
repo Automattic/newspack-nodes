@@ -45,8 +45,7 @@ class RemoteLinkNodeTest extends TestCase {
 	protected function tearDown(): void {
 		Command_Auth::forget_session( 'austin' );
 		Core::$memd                   = null;
-		SSE_In_Node::$curl_dispatch   = null;
-		HTTP_Out_Node::$curl_dispatch = null;
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = null;
 		// The SSE_In patrons register easy cURL handles on the process-lifetime
 		// Event_Framework singleton; reset it so handles don't leak into later suites.
 		Event_Framework::reset();
@@ -67,7 +66,7 @@ class RemoteLinkNodeTest extends TestCase {
 
 	/** Install an SSE_In connect seam returning a real idle handle (never transferred). */
 	private function stub_sse_connect(): void {
-		SSE_In_Node::$curl_dispatch = static function ( array $opts ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
 		};
@@ -133,7 +132,7 @@ class RemoteLinkNodeTest extends TestCase {
 		[ $node ] = $this->make_link();
 
 		$captured = [];
-		SSE_In_Node::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
 			$captured[] = $opts;
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
@@ -148,6 +147,25 @@ class RemoteLinkNodeTest extends TestCase {
 			Consumer_Node::SEEK_END,
 			\json_decode( $query['positions'], true )['firehose.p0']
 		);
+	}
+
+	public function test_the_stream_carries_the_vaults_tls_opts(): void {
+		$this->use_base_dir( $this->make_temp_dir(), [ 'vault_verify_ssl' => false ] );
+		$this->seed_vault();
+		[ $node ] = $this->make_link();
+
+		$captured = [];
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
+			$captured[] = $opts;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+		$node->fire();
+		$this->assertTrue( Core::node( 'link-austin:sse-in' )->maybe_connect() );
+
+		$stream = \array_values( \array_filter( $captured, static fn ( array $o ): bool => \str_contains( $o[ \CURLOPT_URL ], '/messages/stream' ) ) );
+		$this->assertFalse( $stream[0][ \CURLOPT_SSL_VERIFYPEER ] );
+		$this->assertSame( 0, $stream[0][ \CURLOPT_SSL_VERIFYHOST ] );
 	}
 
 	public function test_tick_is_100ms_but_housekeeping_latches_to_once_per_second(): void {
@@ -639,7 +657,7 @@ class RemoteLinkNodeTest extends TestCase {
 		\update_option( Vault::OPTION_KEY, [ 'austin' => [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p', 'token' => 't' ] ] );
 		Vault::get_instance()->reset_cache();
 		$this->stub_sse_connect();
-		HTTP_Out_Node::$curl_dispatch = static function ( array $opts ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
 		};
@@ -684,7 +702,7 @@ class RemoteLinkNodeTest extends TestCase {
 		// heartbeat a whole extra cadence out (22.5s, not 15s). The session
 		// request rides its own clock and must not touch the heartbeat one.
 		$this->stub_sse_connect();
-		HTTP_Out_Node::$curl_dispatch = static function ( array $opts ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
 		};
@@ -718,7 +736,7 @@ class RemoteLinkNodeTest extends TestCase {
 		// SSE connects are exactly what the spoke answers with HTTP 429. Ported
 		// from Tachikoma's JobSpawnTimer: one connect per timer fire.
 		$connects = [];
-		SSE_In_Node::$curl_dispatch = static function ( array $opts ) use ( &$connects ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ) use ( &$connects ): \CurlHandle {
 			$connects[] = $opts[ \CURLOPT_URL ];
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
@@ -768,7 +786,7 @@ class RemoteLinkNodeTest extends TestCase {
 		// long past its retry gate — so all N POST /v1/auth on one tick, which is
 		// the burst the whole change exists to prevent.
 		$this->stub_sse_connect();
-		HTTP_Out_Node::$curl_dispatch = static function ( array $opts ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
 		};
@@ -854,7 +872,7 @@ class RemoteLinkNodeTest extends TestCase {
 		$sse = Core::node( 'link-austin:sse-in' );
 		self::set_slot( $sse, 8, 51515153 );
 		$sse->disconnect();
-		SSE_In_Node::$curl_dispatch = static fn ( array $opts ): bool => false;
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static fn ( array $opts ): bool => false;
 
 		Core::$now = 2000.0 + Remote_Link_Node::HEARTBEAT_INTERVAL + 1;
 		$node->fire();
@@ -1214,7 +1232,7 @@ class RemoteLinkNodeTest extends TestCase {
 		] );
 		Vault::get_instance()->reset_cache();
 		$urls                       = [];
-		SSE_In_Node::$curl_dispatch = static function ( array $opts ) use ( &$urls ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ) use ( &$urls ): \CurlHandle {
 			$urls[] = (string) $opts[ \CURLOPT_URL ];
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
@@ -1246,7 +1264,7 @@ class RemoteLinkNodeTest extends TestCase {
 		] );
 		Vault::get_instance()->reset_cache();
 		$urls                       = [];
-		SSE_In_Node::$curl_dispatch = static function ( array $opts ) use ( &$urls ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ) use ( &$urls ): \CurlHandle {
 			$urls[] = (string) $opts[ \CURLOPT_URL ];
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();

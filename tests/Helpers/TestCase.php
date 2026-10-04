@@ -235,7 +235,11 @@ abstract class TestCase extends PHPUnitTestCase {
 			Core::$clock = null;
 		}
 		if ( \class_exists( '\Newspack_Nodes\Event_Framework', false ) ) {
-			\Newspack_Nodes\Event_Framework::$sleep = null;
+			\Newspack_Nodes\Event_Framework::$sleep         = null;
+			\Newspack_Nodes\Event_Framework::$curl_dispatch = null;
+			\Newspack_Nodes\Event_Framework::$curl_poll     = null;
+			\Newspack_Nodes\HTTP_Out_Node::$curl_result     = null;
+			\Newspack_Nodes\Curl_Node::$curl_result         = null;
 		}
 		$this->reset_health_test_state();
 		\Newspack_Nodes\Remote_Link_Node::reset_connect_queue();
@@ -601,6 +605,30 @@ abstract class TestCase extends PHPUnitTestCase {
 	protected function read_private( object $obj, string $prop ): mixed {
 		$ref = new \ReflectionProperty( $obj, $prop );
 		return $ref->getValue( $obj );
+	}
+
+	/**
+	 * Hand the shared multi one completion row for $easy, through the real
+	 * owner lookup, dispatch and release, without a network transfer.
+	 */
+	protected function complete_curl( \CurlHandle $easy, int $result = \CURLE_OK, int $msg = \CURLMSG_DONE ): void {
+		$this->deliver_curl_rows( [ [ 'msg' => $msg, 'handle' => $easy, 'result' => $result ] ] );
+	}
+
+	/**
+	 * Feed the shared multi these `curl_multi_info_read` rows and run its
+	 * completion pass once, as a drain tick does.
+	 *
+	 * @param list<array<string,mixed>> $rows The rows the poll reports.
+	 */
+	protected function deliver_curl_rows( array $rows ): void {
+		\Newspack_Nodes\Event_Framework::$curl_poll = static fn ( \CurlMultiHandle $m ): array => $rows;
+		try {
+			( new \ReflectionMethod( \Newspack_Nodes\Event_Framework::class, 'drain_curl_multi' ) )
+				->invoke( \Newspack_Nodes\Event_Framework::instance() );
+		} finally {
+			\Newspack_Nodes\Event_Framework::$curl_poll = null;
+		}
 	}
 
 	/** Worker's private executed-job counter (increments even when a handler throws; no public accessor by design). */

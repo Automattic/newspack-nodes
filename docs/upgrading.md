@@ -6,6 +6,35 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **The TLS posture moved from `HTTP_Out_Node` to `Vault`.**
+  `HTTP_Out_Node::verify_ssl()` is now `Vault::verify_ssl()`,
+  `HTTP_Out_Node::require_ssl()` is now `Vault::require_ssl()`, and
+  `HTTP_Out_Node::https_required( $url )` is now `Vault::https_required( $url )`.
+  Each reads the same `vault_verify_ssl` / `vault_require_ssl` setting as
+  before; the old names are gone, so rename every call. Build a transfer's
+  verify opts with `Vault::tls_opts()`, and read a server's url with
+  `Vault::url_of( $entry )`.
+- **The Event_Framework owns every cURL transfer.** Start one with
+  `Event_Framework::instance()->start_curl( $owner, $opts, $context )`, which
+  makes the handle, attaches it and returns it, or null. The owner implements
+  `Curl_Owner`, and its `on_curl_done( $handle, $result, $context )` is called
+  for CURLMSG_DONE alone, the handle released after it returns.
+  `on_curl_message( $info )` is gone; so are `SSE_In_Node::$curl_dispatch` and
+  `HTTP_Out_Node::$curl_dispatch`, replaced by the one
+  `Event_Framework::$curl_dispatch`. `register_curl_easy( $owner, $easy,
+  $context )` now takes the context too, and `handles_of( $owner )` and
+  `release_curl( $owner )` are new. `HTTP_Out_Node::MAX_REPLY_BYTES` still
+  resolves, declared by the `Curl_Transfer` trait.
+- **`SSE_In_Node::configure()` takes TLS opts, not a flag.** Its seventh
+  argument is the `Vault::tls_opts()` array where it was the `verify_ssl`
+  bool.
+- **`Schema_Reflection` supplies `arguments()`.** It runs the tokens through
+  `parse_schema_args()` and stores them. A node whose override only did that
+  can delete it; an override that derives state still wins over the trait's.
+  A node using the trait with no override now stores its tokens through the
+  trait, which for a node declaring no arguments is what `Node::arguments()`
+  did.
+
 - **`Admin::scale_chip_classes()` is new.** Pyrobase and nuclear-gyrobase
   call it, so each declares a 2.87.0 floor (nuclear) or deploys with it
   (pyrobase). Nothing to change in your plugin unless it styles an ordered

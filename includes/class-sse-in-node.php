@@ -12,7 +12,7 @@
  * neither `sink` nor `target`.
  *
  * It is passive: it owns NO timer. Inbound bytes flow via the Event_Framework's
- * cURL polling (`register_curl_easy` + `on_curl_message`, like HTTP_Out).
+ * cURL polling (`start_curl` + `on_curl_done`, like HTTP_Out).
  * Connect / reconnect / stale are driven by a *patron* calling `maybe_connect()`
  * and `check_stale()`. The patron owns durable position persistence and any status
  * memcache write — SSE_In keeps only the in-memory cursor + connection state.
@@ -28,8 +28,6 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_init
-// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_setopt_array
 // phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_getinfo
 // phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_error
 // phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_strerror
@@ -38,8 +36,10 @@ namespace Newspack_Nodes;
 /**
  * SSE_In node — `make_node SSE_In <name>` takes no arguments; the patron
  * configures it through `configure()`.
+ *
+ * @implements Curl_Owner<null>
  */
-class SSE_In_Node extends Node {
+class SSE_In_Node extends Node implements Curl_Owner {
 	/** Seconds allowed to connect. The transfer itself is untimed (CURLOPT_TIMEOUT 0). */
 	public const CONNECT_TIMEOUT   = 5;
 
@@ -60,19 +60,6 @@ class SSE_In_Node extends Node {
 
 	/** Ceiling on one event's accumulated `data:`, 32 MiB. Either overflow retires the lease. */
 	public const MAX_EVENT_SIZE    = 33554432;
-
-	/**
-	 * libcurl dispatch seam. Lazily-defaulted to a closure that creates the easy
-	 * handle and applies $opts via curl_setopt_array (the Event_Framework owns the
-	 * shared multi + the add). Tests reassign to capture $opts without transferring —
-	 * so the URL build, auth-header assembly, and SSL/timeout opts run as real
-	 * production code.
-	 *
-	 * Signature: `function ( array $opts ): \CurlHandle|false`.
-	 *
-	 * @var \Closure|null
-	 */
-	public static ?\Closure $curl_dispatch = null;
 
 	/**
 	 * Delivery seam, set by the patron. Every `msg` SSE event hands its RAW `data:`
@@ -213,8 +200,12 @@ class SSE_In_Node extends Node {
 	/** Operator-facing reason from a terminal `disconnect`; becomes `$last_error` at close. */
 	private ?string $terminal_disconnect_reason = null;
 
-	/** Verify the remote's TLS certificate. */
-	private bool $verify_ssl            = true;
+	/**
+	 * The TLS opts the patron resolved with the destination.
+	 *
+	 * @var array<int,bool|int>
+	 */
+	private array $tls_opts             = [];
 
 	/** Tachikoma-parity: no-arg ctor. Config arrives via configure(); no I/O here (ADR-5). */
 	public function __construct() {
@@ -237,7 +228,7 @@ class SSE_In_Node extends Node {
 	/**
 	 * Open an easy handle when there is none and the backoff window has passed.
 	 * Builds the stream URL from `$subscribe` and the cursor, adds the credential
-	 * header, clears every per-connection field, and registers the handle on the
+	 * header, clears every per-connection field, and starts the transfer on the
 	 * Event_Framework's shared multi. A refusal — a non-HTTPS URL under
 	 * `$require_ssl`, or `curl_init()` failing — records `$last_error`, doubles the
 	 * backoff and reports DISCONNECTED.
@@ -311,25 +302,14 @@ class SSE_In_Node extends Node {
 			\CURLOPT_TIMEOUT        => 0,
 			\CURLOPT_CONNECTTIMEOUT => self::CONNECT_TIMEOUT,
 			\CURLOPT_HTTPHEADER     => $headers,
-			\CURLOPT_SSL_VERIFYPEER => $this->verify_ssl,
-			\CURLOPT_SSL_VERIFYHOST => $this->verify_ssl ? 2 : 0,
 			\CURLOPT_PROTOCOLS      => $this->require_ssl ? \CURLPROTO_HTTPS : ( \CURLPROTO_HTTPS | \CURLPROTO_HTTP ),
 			\CURLOPT_WRITEFUNCTION  => function ( \CurlHandle $h, string $bytes ): int {
 				return $this->on_curl_data( $h, $bytes );
 			},
-		];
+		] + $this->tls_opts;
 
-		$dispatch = self::$curl_dispatch ?? static function ( array $o ): \CurlHandle|false {
-			$ch = \curl_init();
-			if ( false === $ch ) {
-				return false;
-			}
-			\curl_setopt_array( $ch, $o );
-			return $ch;
-		};
-
-		$ch = $dispatch( $opts );
-		if ( ! $ch instanceof \CurlHandle ) {
+		$ch = Event_Framework::instance()->start_curl( $this, $opts, null );
+		if ( null === $ch ) {
 			$this->last_error = 'curl_init failed';
 			$this->increase_backoff();
 			$this->set_state( 'DISCONNECTED', $this->last_error ?? '' );
@@ -353,7 +333,6 @@ class SSE_In_Node extends Node {
 		$this->slot               = null;
 		$this->terminal_disconnect_key    = null;
 		$this->terminal_disconnect_reason = null;
-		Event_Framework::instance()->register_curl_easy( $this, $ch );
 		// Opened; awaiting 'connected' handshake (CONNECTED replaces this).
 		$this->set_state( 'CONNECTING', $this->subscribe );
 		return true;
@@ -389,28 +368,18 @@ class SSE_In_Node extends Node {
 	}
 
 	/**
-	 * Called by Event_Framework when curl_multi_info_read returns CURLMSG_DONE for
-	 * this node's easy handle. Reconnect/backoff on completion — except for a
-	 * clean EOF from a server that advertised `retry:`, which is the close it
-	 * scheduled and not a failure at all (see `schedule_reconnect`).
+	 * The stream ended. Reconnect/backoff on completion — except for a clean
+	 * EOF from a server that advertised `retry:`, which is the close it
+	 * scheduled and not a failure at all (see `schedule_reconnect`). The handle
+	 * is read for its final status and libcurl's error detail, which a stream
+	 * has no buffered body to carry.
 	 *
-	 * @api Dynamic entrypoint.
-	 * @param array{msg?:int, handle?:\CurlHandle, result?:int} $info
+	 * @api Called by the Event_Framework.
+	 * @param \CurlHandle $handle  The stream's easy handle, released after this returns.
+	 * @param int         $result  The transfer's CURLE_* code.
+	 * @param null        $context The stream starts under none.
 	 */
-	public function on_curl_message( array $info ): void {
-		if ( ! isset( $info['msg'] ) || \CURLMSG_DONE !== $info['msg'] ) {
-			return;
-		}
-		$handle = $info['handle'] ?? null;
-		if ( ! ( $handle instanceof \CurlHandle ) || $handle !== $this->handle ) {
-			// Stale handle — best-effort cleanup off the shared multi.
-			if ( $handle instanceof \CurlHandle ) {
-				Event_Framework::instance()->unregister_curl_easy( $handle );
-			}
-			return;
-		}
-
-		$result             = $info['result'] ?? \CURLE_OK;
+	public function on_curl_done( \CurlHandle $handle, int $result, mixed $context ): void {
 		$observed_http_code = \curl_getinfo( $handle, \CURLINFO_HTTP_CODE );
 		if ( $observed_http_code > 0 ) {
 			$this->last_http_code = $observed_http_code;
@@ -794,7 +763,7 @@ class SSE_In_Node extends Node {
 	/**
 	 * Factual clean-EOF message, augmented only by a valid handshake's context.
 	 *
-	 * @return string The error text `on_curl_message()` records and reports.
+	 * @return string The error text `on_curl_done()` records and reports.
 	 */
 	private function clean_eof_error(): string {
 		$error = 'HTTP 200 SSE stream ended without a server disconnect reason';
@@ -905,7 +874,7 @@ class SSE_In_Node extends Node {
 	public function arm(): void {
 		// Only register with a live handle; arming while disconnected respins.
 		if ( $this->handle instanceof \CurlHandle ) {
-			Event_Framework::instance()->register_curl_easy( $this, $this->handle );
+			Event_Framework::instance()->register_curl_easy( $this, $this->handle, null );
 		}
 	}
 
@@ -934,7 +903,7 @@ class SSE_In_Node extends Node {
 	 * @param string             $auth_token    Optional Bearer token fallback.
 	 * @param string             $subscribe     Subscription name (`<topic>.p<N>`).
 	 * @param array{segment?:int,offset?:int} $positions Initial cursor; empty asks the remote for SEEK_END.
-	 * @param bool               $verify_ssl    Verify the remote SSL cert.
+	 * @param array<int,bool|int> $tls_opts     The TLS opts `Vault::tls_opts()` resolved.
 	 * @param bool               $require_ssl   Refuse non-HTTPS remote URLs.
 	 */
 	public function configure(
@@ -944,7 +913,7 @@ class SSE_In_Node extends Node {
 		string $auth_token    = '',
 		string $subscribe     = '',
 		array $positions      = [],
-		bool $verify_ssl      = true,
+		array $tls_opts       = [],
 		bool $require_ssl     = false
 	): void {
 		$this->url           = \rtrim( $url, '/' );
@@ -952,7 +921,7 @@ class SSE_In_Node extends Node {
 		$this->auth_password = $auth_password;
 		$this->auth_token    = $auth_token;
 		$this->subscribe     = $subscribe;
-		$this->verify_ssl    = $verify_ssl;
+		$this->tls_opts      = $tls_opts;
 		$this->require_ssl   = $require_ssl;
 		$this->position      = [
 			'segment' => \max( 0, $positions['segment'] ?? 0 ),

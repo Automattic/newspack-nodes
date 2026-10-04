@@ -68,8 +68,7 @@ class RemoteSourceNodeTest extends TestCase {
 	protected function tearDown(): void {
 		Command_Auth::forget_session( 'austin' );
 		Core::$memd                = null;
-		SSE_In_Node::$curl_dispatch = null;
-		HTTP_Out_Node::$curl_dispatch = null;
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = null;
 		// The SSE_In patrons register easy cURL handles on the process-lifetime
 		// Event_Framework singleton; reset it so handles don't leak into later suites.
 		Event_Framework::reset();
@@ -397,7 +396,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$node->fire();
 
 		$captured = [];
-		SSE_In_Node::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
 			$captured[] = $opts;
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
@@ -419,7 +418,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$node->next_offset( 'end' );
 
 		$captured = [];
-		SSE_In_Node::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
 			$captured[] = $opts;
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
@@ -503,7 +502,7 @@ class RemoteSourceNodeTest extends TestCase {
 		// request asks for the end of the buffer, so the buffered copies drain once.
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$captured = [];
-		SSE_In_Node::$curl_dispatch = static function ( array $opts ) use ( &$captured ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ) use ( &$captured ): \CurlHandle {
 			$captured[] = $opts;
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
@@ -547,7 +546,7 @@ class RemoteSourceNodeTest extends TestCase {
 	public function test_a_reconnect_asks_past_the_last_buffered_record_with_a_crumb(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$captured = [];
-		SSE_In_Node::$curl_dispatch = static function ( array $opts ) use ( &$captured ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ) use ( &$captured ): \CurlHandle {
 			$captured[] = $opts;
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
@@ -575,7 +574,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 	/** A connect seam recording each request's asked position for firehose.p0. */
 	private function capture_asked_positions( array &$asked ): void {
-		SSE_In_Node::$curl_dispatch = static function ( array $opts ) use ( &$asked ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ) use ( &$asked ): \CurlHandle {
 			\parse_str( (string) \parse_url( Core::as_string( $opts[ \CURLOPT_URL ] ), PHP_URL_QUERY ), $query );
 			$asked[] = \json_decode( Core::as_string( $query['positions'] ?? '' ), true )['firehose.p0'] ?? null;
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
@@ -1677,7 +1676,7 @@ class RemoteSourceNodeTest extends TestCase {
 		// drifted 27 bytes into the next record on every reconnect.
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$captured_urls = [];
-		SSE_In_Node::$curl_dispatch = static function ( array $opts ) use ( &$captured_urls ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ) use ( &$captured_urls ): \CurlHandle {
 			$captured_urls[] = Core::as_string( $opts[ \CURLOPT_URL ] );
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
@@ -2316,7 +2315,7 @@ class RemoteSourceNodeTest extends TestCase {
 		// The stub handle never transferred, so seed the status a live 200
 		// stream would have observed while its bytes arrived.
 		( new \ReflectionProperty( SSE_In_Node::class, 'last_http_code' ) )->setValue( $sse, 200 );
-		$sse->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] );
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] ] );
 		Core::$now = 1748970001.0;
 		$node->fire();
 
@@ -2529,7 +2528,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 	/** Install an SSE_In connect seam returning a real idle handle (never transferred). */
 	private function stub_sse_connect(): void {
-		SSE_In_Node::$curl_dispatch = static function ( array $opts ): \CurlHandle {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
 		};
