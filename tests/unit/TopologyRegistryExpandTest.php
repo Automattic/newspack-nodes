@@ -95,21 +95,6 @@ class TopologyRegistryExpandTest extends TestCase {
 		);
 	}
 
-	public function test_graph_for_keeps_quoted_ctor_args_as_raw_spans(): void {
-		$this->write_tsl(
-			'vicuna-graphed',
-			"make_node Hook vicuna-hook wp_loaded \"a b c\"\n"
-		);
-
-		$graph  = Topology_Analyzer::graph_for( 'vicuna-graphed' );
-		$byName = [];
-		foreach ( $graph['nodes'] as $node ) {
-			$byName[ $node['name'] ] = $node;
-		}
-
-		$this->assertSame( [ 'wp_loaded', '"a b c"' ], $byName['vicuna-hook']['args'] );
-	}
-
 	public function test_frontmatter_splices_a_backslash_continuation_with_nothing(): void {
 		// bash semantics: the backslash-newline is removed outright, so `1\` +
 		// `6` reads 16 — a space join would corrupt it to `1 6`.

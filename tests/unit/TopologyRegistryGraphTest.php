@@ -125,11 +125,10 @@ class TopologyRegistryGraphTest extends TestCase {
 		$this->assertSame( 'out.log', $g['nodes'][0]['writes'] );
 	}
 
-	public function test_graph_for_log_sink_emits_kind_writes_path_segment_size_and_max_segments(): void {
-		// A Log file-sink: make_node Log <name> <file> [segment_size] [min_segments] [max_segments].
-		// kind 'log'; writes = basename; path/segment_size/max_segments carried so
-		// dump_graph can stat the flat `{file}.{seg}` segments (max_segments is the
-		// retained count, token 6).
+	public function test_graph_for_log_sink_emits_kind_writes_path_and_segment_size(): void {
+		// A Log file-sink: make_node Log <name> <file> [segment_size] [min_segments] [num_segments].
+		// kind 'log'; writes = basename; path and segment_size carried so
+		// dump_graph can stat the flat `{file}.{seg}` segments.
 		$this->write_tsl( 'l', "make_node Log lg /tmp/x.md 100 2 3\n" );
 		$g = \Newspack_Nodes\Topology_Analyzer::graph_for( 'l' );
 		$node = $g['nodes'][0];
@@ -138,7 +137,7 @@ class TopologyRegistryGraphTest extends TestCase {
 		$this->assertSame( 'x.md', $node['writes'] );
 		$this->assertSame( '/tmp/x.md', $node['path'] );
 		$this->assertSame( 100, $node['segment_size'] );
-		$this->assertSame( 3, $node['max_segments'] );
+		$this->assertArrayNotHasKey( 'max_segments', $node );
 	}
 
 	public function test_graph_for_topic_kind_and_cache_by_topology_name(): void {
@@ -311,6 +310,31 @@ class TopologyRegistryGraphTest extends TestCase {
 				],
 			],
 			Topology_Analyzer::consumer_positions( 'vicuna-tail-reader' )
+		);
+	}
+
+	/** A quoted argument reads as the value the runtime binds, never its quotes. */
+	public function test_graph_for_reads_quoted_arguments_as_their_values(): void {
+		$this->write_tsl(
+			'vicuna-quoted',
+			"make_node Log zebra:log '/var/vicuna/zebra.p<partition>' '8192'\n"
+			. "make_node Partition quokka:partition '/var/vicuna/quokka.p<partition>'\n"
+			. "make_node Consumer okapi:consumer \"/var/vicuna/okapi.p<partition>\" '/var/vicuna/okapi-offset.p<partition>'\n"
+			. "make_node Hook vicuna-hook wp_loaded \"a b c\"\n"
+		);
+
+		$by_name = \array_column( Topology_Analyzer::graph_for( 'vicuna-quoted' )['nodes'], null, 'name' );
+
+		$this->assertSame( 'zebra.p<partition>', $by_name['zebra:log']['writes'] );
+		$this->assertSame( '/var/vicuna/zebra.p<partition>', $by_name['zebra:log']['path'] );
+		$this->assertSame( 8192, $by_name['zebra:log']['segment_size'] );
+		$this->assertSame( 'quokka.p<partition>', $by_name['quokka:partition']['writes'] );
+		$this->assertSame( 'okapi.p<partition>', $by_name['okapi:consumer']['reads'] );
+		$this->assertSame( 'okapi-offset.p<partition>', $by_name['okapi:consumer']['reader'] );
+		$this->assertSame( [ 'wp_loaded', 'a b c' ], $by_name['vicuna-hook']['args'] );
+		$this->assertSame(
+			[ [ 'source' => '/var/vicuna/okapi.p<partition>', 'offsetlog' => '/var/vicuna/okapi-offset.p<partition>' ] ],
+			Topology_Analyzer::consumer_positions( 'vicuna-quoted' )
 		);
 	}
 

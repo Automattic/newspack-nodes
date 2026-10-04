@@ -25,7 +25,7 @@
  * Both spellings a partition token takes in a `.tsl` path.
  *
  * A Consumer's path argument carries `<partition>`, while a Topic names its
- * own partitions with `{partition}`. Both reach the dashboard verbatim, so
+ * own partitions with `{partition}`. Both reach the dashboard unsubstituted, so
  * every reader here matches either.
  */
 const PARTITION_TOKENS = [ '<partition>', '{partition}' ];
@@ -72,8 +72,9 @@ export function substituteTokens( template, { partition, topology } ) {
  * The concrete catalog entries a log VERTEX resolves to, each with its
  * partition NUMBER.
  *
- * `Topology_Analyzer::graph_for` emits the `reads`/`writes` basename verbatim
- * from the `.tsl` path argument, so a partitioned vertex carries the literal
+ * `Topology_Analyzer::graph_for` emits the `reads`/`writes` basename of the
+ * `.tsl` path argument as the runtime binds it, quotes stripped and tokens
+ * intact, so a partitioned vertex carries the literal
  * partition token wherever the author put it: `firehose.p<partition>`,
  * `<partition>-req`, and anything else. A catalog entry matches when the text
  * on either side of the token brackets it AND the middle it substitutes for is
