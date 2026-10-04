@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.90.0] - 2026-10-04
+
 ### Added
 
 - **`Topology_Analyzer::nodes_of_type( $topology, ...$fqcns )` lists a topology's nodes of any of several classes.** It answers the graph nodes whose `make_node` token resolves to one of the classes or a subclass, in declaration order, Vault_Group children included, as `graph_for()` draws them. `Restart_Planner`'s classification, the `aggregator` dashboard's spoke snapshot and `Topic_Probe`'s declared interval all read through it.
