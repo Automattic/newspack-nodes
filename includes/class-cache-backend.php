@@ -440,11 +440,17 @@ abstract class Cache_Backend {
 	 * the database refused moves nothing, so no process holds a salt the
 	 * others never see.
 	 *
+	 * This is `rotate_salt()` without the restart: every other process keeps
+	 * its old scope until it respawns. Call it only where no worker serves the
+	 * install, as a consumer's test suite flushing its own keys does.
+	 *
+	 * @api
 	 * @return string The new salt.
 	 * @throws \RuntimeException When the option write is refused.
+	 * @throws \Random\RandomException When no entropy source is available.
 	 */
-	private static function move_salt(): string {
-		$salt = \function_exists( 'wp_generate_password' ) ? \wp_generate_password( 12, false ) : (string) \time();
+	public static function move_salt(): string {
+		$salt = \bin2hex( \random_bytes( 9 ) );
 		if ( ! \update_option( self::SALT_OPTION, $salt, true ) ) {
 			throw new \RuntimeException( 'cache salt write refused' );
 		}

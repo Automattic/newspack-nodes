@@ -6,6 +6,10 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`Cache_Backend::move_salt()` is public.** It rotates the cache salt
+  without asking the fleet to restart, for a process no worker serves, such as
+  a consumer's test suite flushing its own keys between tests. `rotate_salt()`
+  is unchanged. A consumer that calls `move_salt()` needs this release.
 - **The TLS posture moved from `HTTP_Out_Node` to `Vault`.**
   `HTTP_Out_Node::verify_ssl()` is now `Vault::verify_ssl()`,
   `HTTP_Out_Node::require_ssl()` is now `Vault::require_ssl()`, and

@@ -743,6 +743,50 @@ class CacheBackendTest extends TestCase {
 		}
 	}
 
+	/**
+	 * `move_salt()` is the rotation without the restart, for a process that
+	 * runs no worker, such as a consumer's test suite.
+	 */
+	public function test_moving_the_salt_asks_no_worker_to_restart(): void {
+		$lock = $this->live_fleet();
+		try {
+			\update_option( Cache_Backend::SALT_OPTION, 'kea-salt-6612' );
+			Cache_Backend::$salt = null;
+			Cache_Backend::$site = '';
+			$before              = Cache_Backend::site_key( 'table:prices:sku-9' );
+
+			$moved = Cache_Backend::move_salt();
+
+			$this->assertNotSame( 'kea-salt-6612', $moved );
+			$this->assertSame( $moved, Cache_Backend::salt() );
+			$this->assertNotSame( $before, Cache_Backend::site_key( 'table:prices:sku-9' ) );
+			$this->assertFileDoesNotExist( "{$lock}/" . Lock_Node::RESTART_FLAG );
+		} finally {
+			\delete_option( Cache_Backend::SALT_OPTION );
+			Cache_Backend::$salt = null;
+			Cache_Backend::$site = '';
+			$this->forget_fleet( $lock );
+		}
+	}
+
+	/**
+	 * Two rotations in one second still move the scope twice: the salt is
+	 * random, never derived from the clock.
+	 */
+	public function test_back_to_back_rotations_mint_distinct_salts(): void {
+		try {
+			$first  = Cache_Backend::move_salt();
+			$second = Cache_Backend::move_salt();
+
+			$this->assertNotSame( $first, $second );
+			$this->assertMatchesRegularExpression( '/^[0-9a-f]{18}$/', $second );
+		} finally {
+			\delete_option( Cache_Backend::SALT_OPTION );
+			Cache_Backend::$salt = null;
+			Cache_Backend::$site = '';
+		}
+	}
+
 	/** A worker running before the first salt holds the unsalted scope. */
 	public function test_seeding_the_first_salt_asks_every_live_worker_to_restart(): void {
 		$lock = $this->live_fleet();
