@@ -30,6 +30,9 @@ class Topology_Analyzer {
 	/** @var array<string,array{nodes:list<array<string,int|string|list<string>>>,edges:list<array{0:string,1:string}>}> Memoized structural graph by topology name (node entries carry `type` + `args`). */
 	private static array $graph_cache = [];
 
+	/** @var array<class-string<Remote_Link_Node>,array{vault_id:int,remote_partition:int}> A schema's fixed positions, by remote link class. */
+	private static array $link_positions = [];
+
 	/** @var array<string,array<string,int>> Memoized per-Partition segment_size overrides, by topology name + partition count. */
 	private static array $segment_size_overrides_cache = [];
 
@@ -252,11 +255,36 @@ class Topology_Analyzer {
 	}
 
 	/**
+	 * The nodes of `$topology`'s graph whose class token resolves to any of
+	 * `$fqcns` or a subclass, in declaration order, Vault_Group children
+	 * included.
+	 *
+	 * @param string             $topology Topology name.
+	 * @param class-string<Node> ...$fqcns Node classes to match.
+	 * @return list<array<string,int|string|list<string>>> Graph nodes, as graph_for() draws them.
+	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
+	 */
+	public static function nodes_of_type( string $topology, string ...$fqcns ): array {
+		$out = [];
+		foreach ( self::graph_for( $topology )['nodes'] as $node ) {
+			$type = Core::as_string( $node['type'] ?? '' );
+			foreach ( $fqcns as $fqcn ) {
+				if ( self::type_is( $type, $fqcn ) ) {
+					$out[] = $node;
+					break;
+				}
+			}
+		}
+		return $out;
+	}
+
+	/**
 	 * Raw structural graph for `$name` from its TSL (+ every topology it
 	 * `include`s, flattened via statements()): nodes with a class-derived kind,
 	 * the make_node `type` token + positional `args` list, (+ the log a
 	 * Partition/Topic writes or a Consumer reads, from the path/source ARG — never
-	 * a name suffix), and edges from `connect_node` plus
+	 * a name suffix; + a remote link's `vault_id` and `remote_partition`, found
+	 * by schema name), and edges from `connect_node` plus
 	 * `command_node <node>:config set_*target <target>`, with `disconnect_node` applied
 	 * in evaluation order. A broken include throws — the walk's memoized
 	 * failure, re-raised to every caller — rather than answering an empty
@@ -315,6 +343,13 @@ class Topology_Analyzer {
 					$node['segment_size'] = isset( $spans[4] ) && \ctype_digit( $spans[4] ) ? (int) $spans[4] : 0;
 					// Count target = num_segments, span 6 of Log args.
 					$node['max_segments'] = isset( $spans[6] ) && \ctype_digit( $spans[6] ) ? (int) $spans[6] : 0;
+				}
+				$link = Command_Interpreter_Node::resolve_class( $class );
+				if ( null !== $link && \is_a( $link, Remote_Link_Node::class, true ) ) {
+					// It pulls a REMOTE log, so it claims no `reads`.
+					foreach ( self::link_positions( $link ) as $argument => $position ) {
+						$node[ $argument ] = $values[ 3 + $position ] ?? '';
+					}
 				}
 				$nodes[] = $node;
 				continue;
@@ -529,6 +564,26 @@ class Topology_Analyzer {
 				'config'  => $edge['origins']['config'],
 			],
 		];
+	}
+
+	/**
+	 * Where a remote link's `vault_id` and `remote_partition` sit among its
+	 * positionals, by the class's own schema: the order the runtime binds.
+	 *
+	 * @param class-string<Remote_Link_Node> $link Remote link class.
+	 * @return array{vault_id: int, remote_partition: int}
+	 * @throws \RuntimeException When the schema declares either one nowhere.
+	 */
+	private static function link_positions( string $link ): array {
+		if ( ! isset( self::$link_positions[ $link ] ) ) {
+			$positions = [];
+			foreach ( [ 'vault_id', 'remote_partition' ] as $argument ) {
+				$positions[ $argument ] = self::declared_argument( $link, $argument )[0]
+					?? throw new \RuntimeException( \esc_html( "{$link} declares no {$argument}" ) );
+			}
+			self::$link_positions[ $link ] = $positions;
+		}
+		return self::$link_positions[ $link ];
 	}
 
 	/**
@@ -944,13 +999,25 @@ class Topology_Analyzer {
 	 * @return string The schema default, or `''` when the schema declares none.
 	 */
 	private static function schema_default( string $fqcn, string $argument ): string {
-		foreach ( Core::arr( $fqcn::node_schema()['arguments'] ?? [] ) as $declared ) {
+		return Core::as_string( self::declared_argument( $fqcn, $argument )[1]['default'] ?? '' );
+	}
+
+	/**
+	 * Where `$fqcn`'s `node_schema()` declares `$argument` among its positionals,
+	 * and the declaration itself.
+	 *
+	 * @param class-string<Node> $fqcn     Node class declaring the argument.
+	 * @param string             $argument Argument name.
+	 * @return array{0: int, 1: array<array-key,mixed>}|null Position, then declaration; null when undeclared.
+	 */
+	private static function declared_argument( string $fqcn, string $argument ): ?array {
+		foreach ( \array_values( Core::arr( $fqcn::node_schema()['arguments'] ?? [] ) ) as $position => $declared ) {
 			$declared = Core::arr( $declared );
 			if ( $argument === ( $declared['name'] ?? '' ) ) {
-				return Core::as_string( $declared['default'] ?? '' );
+				return [ $position, $declared ];
 			}
 		}
-		return '';
+		return null;
 	}
 
 	/**

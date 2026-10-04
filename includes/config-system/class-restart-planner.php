@@ -25,6 +25,7 @@ use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Lock_Node;
+use Newspack_Nodes\Node;
 use Newspack_Nodes\Spawn_Coordinator;
 use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Topology_Registry;
@@ -186,27 +187,12 @@ class Restart_Planner {
 	 * declared type (so a declared `Partition` catches a `Log` node), NOT the
 	 * reverse — declaring a subclass will not catch a parent node.
 	 *
-	 * @param string            $name Topology name.
-	 * @param array<int,string> $want FQCNs.
+	 * @param string                   $name Topology name.
+	 * @param list<class-string<Node>> $want FQCNs.
 	 * @return bool
 	 */
 	private static function topology_has_consumer( string $name, array $want ): bool {
-		foreach ( Topology_Analyzer::graph_for( $name )['nodes'] as $node ) {
-			$type = $node['type'] ?? '';
-			if ( ! \is_string( $type ) || '' === $type ) {
-				continue;
-			}
-			$fqcn = Command_Interpreter_Node::resolve_class( $type );
-			if ( null === $fqcn ) {
-				continue;
-			}
-			foreach ( $want as $want_fqcn ) {
-				if ( \is_a( $fqcn, $want_fqcn, true ) ) {
-					return true;
-				}
-			}
-		}
-		return false;
+		return [] !== Topology_Analyzer::nodes_of_type( $name, ...$want );
 	}
 
 	/**
@@ -216,7 +202,7 @@ class Restart_Planner {
 	 * topology instead of the whole fleet.
 	 *
 	 * @param array<int,string> $types Node-type tokens to resolve.
-	 * @return array<int,string> FQCNs (unknowns dropped).
+	 * @return list<class-string<Node>> FQCNs (unknowns dropped).
 	 */
 	private static function resolve_types( array $types ): array {
 		$out = [];

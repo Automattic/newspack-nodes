@@ -22,6 +22,15 @@ abstract class TestCase extends PHPUnitTestCase {
 	private array $saved_config_resolvers = [];
 
 	/**
+	 * Snapshot of `make_node` class resolution — the registered namespaces and
+	 * the resolved-class memo — restored in tearDown, so a test registering a
+	 * fixture namespace leaks neither into a later test.
+	 *
+	 * @var array{namespaces: mixed, resolve_cache: mixed}|null
+	 */
+	private ?array $saved_resolution = null;
+
+	/**
 	 * Snapshot of the hook table at setUp, restored in tearDown. The shim's
 	 * add_filter() only ever appends, and nothing defines remove_filter, so a
 	 * per-test callback outlives its test: one FleetNodeTest filter that THROWS
@@ -72,6 +81,10 @@ abstract class TestCase extends PHPUnitTestCase {
 			// tearDown can restore it — a test that wipes it would otherwise break
 			// `<config:...>` resolution for every later test.
 			$this->saved_config_resolvers = Core::$config_resolvers;
+			$this->saved_resolution       = [
+				'namespaces'    => self::resolution( 'namespaces' )->getValue(),
+				'resolve_cache' => self::resolution( 'resolve_cache' )->getValue(),
+			];
 			// Core's default stderr handler routes through PHP error_log(),
 			// which the bootstrap redirects to /dev/null — no further swallow
 			// needed here. Tests that need to assert on emitted text set their
@@ -157,6 +170,15 @@ abstract class TestCase extends PHPUnitTestCase {
 		return (string) \getenv( 'NEWSPACK_TEST_BASE_DIR' );
 	}
 
+	/**
+	 * One static of `make_node` class resolution, which tearDown restores.
+	 *
+	 * @param string $property `namespaces` or `resolve_cache`.
+	 */
+	private static function resolution( string $property ): \ReflectionProperty {
+		return new \ReflectionProperty( \Newspack_Nodes\Command_Interpreter_Node::class, $property );
+	}
+
 	/** Remove every temp dir make_temp_dir() handed out — a temp dir is only temporary if someone deletes it. */
 	protected function tearDown(): void {
 		$GLOBALS['wpdb'] = self::$booted_wpdb;
@@ -169,6 +191,9 @@ abstract class TestCase extends PHPUnitTestCase {
 		// token namespace from every later test.
 		if ( \class_exists( '\Newspack_Nodes\Core' ) ) {
 			Core::$config_resolvers = $this->saved_config_resolvers;
+		}
+		foreach ( $this->saved_resolution ?? [] as $property => $value ) {
+			self::resolution( $property )->setValue( null, $value );
 		}
 		// A direct Command_Auth::verify() installs a capability ceiling that
 		// only interpret() restores; a test calling it raw would otherwise

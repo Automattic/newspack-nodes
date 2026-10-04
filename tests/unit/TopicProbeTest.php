@@ -111,6 +111,23 @@ class TopicProbeTest extends TestCase {
 		}
 	}
 
+	public function test_the_cadence_is_read_off_a_topic_probe_subclass(): void {
+		require_once \dirname( __DIR__ ) . '/Helpers/fixtures/class-quokka-probe-node.php';
+		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\Fixtures\\' );
+		$stock = $this->make_temp_dir( 'probe-sub-' );
+		\file_put_contents( "{$stock}/topic-probe.tsl", "make_node Quokka_Probe topicprobe 37\n" );
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		Topic_Probe_Node::forget_interval();
+
+		try {
+			$this->assertSame( 37, Topic_Probe_Node::declared_interval_s() );
+		} finally {
+			Topic_Probe_Node::forget_interval();
+			\Newspack_Nodes\Topology_Registry::reset();
+			$this->rmdir_recursive( $stock );
+		}
+	}
+
 	public function test_the_cadence_is_read_once_and_memoized(): void {
 		// Read per request, off a graph the analyzer caches — a status poll must
 		// not re-parse the TSL for every reader row.

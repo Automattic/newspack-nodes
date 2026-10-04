@@ -79,15 +79,9 @@ class Topic_Probe_Node extends Probe_Node {
 		if ( null !== self::$declared_interval_s ) {
 			return self::$declared_interval_s;
 		}
-		$declared = 0;
-		foreach ( Topology_Analyzer::graph_for( self::TOPOLOGY )['nodes'] as $node ) {
-			if ( 'Topic_Probe' !== ( $node['type'] ?? '' ) ) {
-				continue;
-			}
-			$args     = \is_array( $node['args'] ?? null ) ? $node['args'] : [];
-			$declared = Core::num_int( $args[0] ?? 0, 0 );
-			break;
-		}
+		$probe    = Topology_Analyzer::nodes_of_type( self::TOPOLOGY, self::class )[0] ?? [];
+		$args     = \is_array( $probe['args'] ?? null ) ? $probe['args'] : [];
+		$declared = Core::num_int( $args[0] ?? 0, 0 );
 		return self::$declared_interval_s = $declared > 0 ? $declared : self::DEFAULT_INTERVAL_S;
 	}
 

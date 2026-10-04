@@ -131,8 +131,8 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	 *
 	 * Discovery covers every active topology, since an operator wires spokes
 	 * into whatever topology suits and the substrate names none. Each
-	 * `Remote_Source` found declares two schema arguments, the Vault id and the
-	 * `remote_partition` template, and the row that comes out reads that node's
+	 * `Remote_Source` found names its Vault id and `remote_partition` template
+	 * in the graph, and the row that comes out reads that node's
 	 * status snapshot for every configured partition. The spoke URL comes from
 	 * the `Vault` singleton, keyed by that Vault id.
 	 *
@@ -156,18 +156,14 @@ class Aggregator_CI_Node extends Service_CI_Node {
 			$topology = Core::as_string( $topology );
 			// The remote_partition token fans across the partition count.
 			$num_partitions = Bootstrap::partitions_of( $entry );
-			foreach ( Topology_Analyzer::graph_for( $topology )['nodes'] as $node ) {
-				if ( 'Remote_Source' !== ( $node['type'] ?? '' ) ) {
-					continue;
-				}
+			foreach ( Topology_Analyzer::nodes_of_type( $topology, Remote_Source_Node::class ) as $node ) {
 				$name_v = $node['name'] ?? '';
 				$name   = Core::as_string( $name_v );
 				if ( '' === $name ) {
 					continue;
 				}
-				$node_args = $node['args'] ?? [];
-				$vault_id  = $node_args[0] ?? '';
-				$template  = $node_args[1] ?? '';
+				$vault_id = Core::as_string( $node['vault_id'] ?? '' );
+				$template = Core::as_string( $node['remote_partition'] ?? '' );
 
 				// The writer builds this key too; the two cannot drift.
 				$partitions = [];

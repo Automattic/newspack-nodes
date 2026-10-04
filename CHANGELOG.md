@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`Topology_Analyzer::nodes_of_type( $topology, ...$fqcns )` lists a topology's nodes of any of several classes.** It answers the graph nodes whose `make_node` token resolves to one of the classes or a subclass, in declaration order, Vault_Group children included, as `graph_for()` draws them. `Restart_Planner`'s classification, the `aggregator` dashboard's spoke snapshot and `Topic_Probe`'s declared interval all read through it.
+- **`graph_for()` names what a remote link pulls.** Each `Remote_Link_Node` in the graph carries its `vault_id` and `remote_partition`, located by name in its own class's `node_schema()`, the order the runtime binds, and quote-stripped, so a reader never counts positionals. It claims no `reads`: the log it pulls is the spoke's. The `aggregator` dashboard reads both.
+
+### Changed
+
+- **A `Remote_Source` or `Topic_Probe` subclass counts as its base.** The `aggregator` dashboard listed only nodes whose token read `Remote_Source`, and `Topic_Probe::declared_interval_s()` only a token reading `Topic_Probe`; both match by lineage now, as the write set and the restart planner already did.
+
 ## [2.89.0] - 2026-10-04
 
 ### Added
