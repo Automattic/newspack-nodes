@@ -575,6 +575,69 @@ final class TableProtocolTest extends TestCase {
 		}
 	}
 
+	public function test_smove_answers_the_moved_members_as_one_set_then_srem_the_members_that_were_there(): void {
+		$this->ask( [ 'SADD' => [ 'pend-3307' => [ [ 'x-2' => [ 'n' => 2 ], 'x-1' => 'one', 'x-3' => 3 ] ] ] ], self::STRUCT );
+		$this->assertSame(
+			[ [ Message::TM_STRUCT, 'pend-3307', [ [ 'x-1', 'one' ], [ 'x-2', [ 'n' => 2 ] ] ] ], [ Message::TM_INFO, '', "SMOVE 1\n" ] ],
+			self::shape( $this->ask( "SMOVE 2 pend-3307 fly-3307\n" ) )
+		);
+		$this->assertSame( [ [ Message::TM_RESPONSE, '', "SREM x-1\n" ] ], self::shape( $this->ask( "SREM fly-3307 x-1 x-8 x-1\n" ) ), 'each member named once, and only those that were there' );
+		$this->assertSame(
+			[ [ Message::TM_STRUCT, 'pend-3307', [ [ 'x-3', 3 ] ] ], [ Message::TM_STRUCT, 'fly-3307', [ [ 'x-2', [ 'n' => 2 ] ] ] ], [ Message::TM_INFO, '', "SMEMBERS 2\n" ] ],
+			self::shape( $this->ask( "SMEMBERS 9 pend-3307 fly-3307\n" ) )
+		);
+	}
+
+	public function test_smove_and_srem_count_their_calls_and_keys(): void {
+		$this->ask( [ 'SADD' => [ 'pend-3307' => [ [ 'x-1' => 1, 'x-2' => 2, 'x-3' => 3 ] ] ] ], self::STRUCT );
+		$this->ask( "SMOVE 2 pend-3307 fly-3307\n" );
+		$this->ask( "SREM fly-3307 x-1 x-8 x-1\n" );
+		$keys = [ 'calls' => 0, 'asked' => 0, 'answered' => 0 ];
+		$this->assertSame( [ 'calls' => 1, 'asked' => 2, 'answered' => 2 ], \array_intersect_key( $this->table->stats()['SMOVE'], $keys ) );
+		$this->ask( "SMOVE 7 pend-3307 fly-3307\n" );
+		$this->assertSame( [ 'calls' => 2, 'asked' => 9, 'answered' => 3 ], \array_intersect_key( $this->table->stats()['SMOVE'], $keys ), 'asked counts the members requested, as SREM counts those named' );
+		$this->assertSame( [ 'calls' => 1, 'asked' => 2, 'answered' => 1 ], \array_intersect_key( $this->table->stats()['SREM'], $keys ) );
+	}
+
+	public function test_a_smove_from_an_empty_set_answers_an_empty_struct_and_a_count_of_one(): void {
+		$this->assertSame( [ [ Message::TM_STRUCT, 'void-5521', [] ], [ Message::TM_INFO, '', "SMOVE 1\n" ] ], self::shape( $this->ask( "SMOVE 3 void-5521 fly-5521\n" ) ) );
+	}
+
+	public function test_a_smove_naming_one_set_twice_is_refused(): void {
+		$this->ask( [ 'SADD' => [ 'pend-3307' => [ [ 'x-1' => 1 ] ] ] ], self::STRUCT );
+
+		$this->assertSame( [ [ Message::TM_ERROR, '', "SMOVE: from_set and to_set must differ\n" ] ], self::shape( $this->ask( "SMOVE 2 pend-3307 pend-3307\n" ) ) );
+		$this->assertSame( [ [ Message::TM_STRUCT, 'pend-3307', [ [ 'x-1', 1 ] ] ], [ Message::TM_INFO, '', "SMEMBERS 1\n" ] ], self::shape( $this->ask( "SMEMBERS 9 pend-3307\n" ) ), 'nothing moved' );
+	}
+
+	public function test_a_malformed_smove_or_srem_is_refused_with_its_usage(): void {
+		$smove = 'SMOVE: usage: SMOVE <count> <from_set> <to_set>, count a whole number from 1 to 10000';
+		foreach ( [ "SMOVE 0 a b\n", "SMOVE 10001 a b\n", "SMOVE 2 a\n", "SMOVE\n", "SMOVE two a b\n" ] as $request ) {
+			$this->assertSame( [ [ Message::TM_ERROR, '', "{$smove}\n" ] ], self::shape( $this->ask( $request ) ), $request );
+		}
+		foreach ( [ "SREM\n", "SREM fly-3307\n" ] as $request ) {
+			$this->assertSame( [ [ Message::TM_ERROR, '', "SREM: usage: SREM <set_key> <member>…\n" ] ], self::shape( $this->ask( $request ) ), $request );
+		}
+		$this->assertSame( 2, $this->table->stats()['SREM']['errors'] );
+	}
+
+	public function test_a_volatile_table_refuses_smove_and_srem_naming_itself_and_its_backend(): void {
+		Core::$memd = new InMemoryMemcached();
+		$owl        = $this->worker_table( 'lab-7:owl-memcache', 'owl:p3', 'memcache' );
+		Core::$memd = null;
+		foreach ( [ 'SMOVE' => "SMOVE 2 a b\n", 'SREM' => "SREM a x-1\n" ] as $verb => $request ) {
+			$this->assertSame( [ [ Message::TM_ERROR, '', "{$verb}: needs a durable backend; lab-7:owl-memcache is memcache\n" ] ], self::shape( $this->ask( $request, Message::TM_REQUEST, $owl ) ) );
+		}
+	}
+
+	public function test_a_failed_smove_or_srem_answers_an_error_and_counts_it(): void {
+		$this->ask( [ 'SADD' => [ 'pend-3307' => [ [ 'x-1' => 1 ] ] ] ], self::STRUCT );
+		( new \PDO( 'sqlite:' . Table_Node::file( 'lab-7:kea', 3 ) ) )->exec( 'DROP TABLE members' );
+		$this->assertSame( [ [ Message::TM_ERROR, '', "SMOVE: backend write failed\n" ] ], self::shape( $this->ask( "SMOVE 2 pend-3307 fly-3307\n" ) ) );
+		$this->assertSame( [ [ Message::TM_ERROR, '', "SREM: backend write failed\n" ] ], self::shape( $this->ask( "SREM pend-3307 x-1\n" ) ) );
+		$this->assertSame( [ 1, 1 ], [ $this->table->stats()['SMOVE']['errors'], $this->table->stats()['SREM']['errors'] ] );
+	}
+
 	public function test_a_failed_wpdb_set_add_is_retried_set_by_set(): void {
 		$this->use_wpdb();
 		$owl     = $this->worker_table( 'lab-7:owl', 'owl:p3', 'wpdb' );
@@ -752,7 +815,7 @@ final class TableProtocolTest extends TestCase {
 		$this->table->store( 'sku-41', 'kea-41' );
 		$mount  = $this->mounted_kea();
 		$struct = Message::TM_REQUEST | Message::TM_STRUCT;
-		foreach ( [ 'RM' => [ "RM sku-41\n", Message::TM_REQUEST ], 'TOUCH' => [ "TOUCH 37 sku-41\n", Message::TM_REQUEST ], 'MSET' => [ [ 'MSET' => [ 'sku-41' => [ 'owl' ] ] ], $struct ], 'ADD' => [ [ 'ADD' => [ 'sku-44' => [ 'owl' ] ] ], $struct ], 'SADD' => [ [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => 'owl' ] ] ] ], $struct ] ] as $verb => [ $value, $type ] ) {
+		foreach ( [ 'RM' => [ "RM sku-41\n", Message::TM_REQUEST ], 'TOUCH' => [ "TOUCH 37 sku-41\n", Message::TM_REQUEST ], 'MSET' => [ [ 'MSET' => [ 'sku-41' => [ 'owl' ] ] ], $struct ], 'ADD' => [ [ 'ADD' => [ 'sku-44' => [ 'owl' ] ] ], $struct ], 'SADD' => [ [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => 'owl' ] ] ] ], $struct ], 'SMOVE' => [ "SMOVE 2 word:kea word:owl\n", Message::TM_REQUEST ], 'SREM' => [ "SREM word:kea u-41\n", Message::TM_REQUEST ] ] as $verb => [ $value, $type ] ) {
 			$replies = $this->ask( $value, $type, $mount );
 			$this->assertSame( [ [ Message::TM_ERROR, '', "{$verb}: a mounted Table serves reads only\n" ] ], self::shape( $replies ) );
 			$this->assertSame( [ 'lab-7:kea.p3', 'asker-9', 'ask-17' ], [ $replies[0][ Message::FROM ], $replies[0][ Message::TO ], $replies[0][ Message::ID ] ] );

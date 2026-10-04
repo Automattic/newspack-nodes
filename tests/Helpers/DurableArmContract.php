@@ -120,4 +120,44 @@ abstract class DurableArmContract extends CacheBackendContract {
 		$this->assertSame( 0, $arm->purge( (int) $this->clock, 4 ) );
 		$this->assertSame( [ 'owl:set-11' => [ 'm-4' => 4 ] ], $arm->members( [ 'owl:set-11' ], 9 ) );
 	}
+
+	public function test_move_members_takes_the_lowest_members_and_keeps_value_and_expiry(): void {
+		$arm = $this->arm();
+		$this->assertTrue( $arm->add_members( [ 'pend-8812' => [ [ 'm-c' => 'vc-31', 'm-a' => 'va-17', 'm-b' => 'vb-23' ], 4321 ] ] ) );
+		$moved = $arm->move_members( 'pend-8812', 'fly-8812', 2 );
+		$this->assertSame( [ 'm-a' => 'va-17', 'm-b' => 'vb-23' ], $moved );
+		$this->assertSame( [ 'pend-8812' => [ 'm-c' => 'vc-31' ], 'fly-8812' => [ 'm-a' => 'va-17', 'm-b' => 'vb-23' ] ], $arm->members( [ 'pend-8812', 'fly-8812' ], 10 ) );
+		$this->clock += 4320;
+		$this->assertSame( [ 'm-a' => 'va-17', 'm-b' => 'vb-23' ], $arm->members( [ 'fly-8812' ], 10 )['fly-8812'], 'the moved rows keep the add\'s expiry' );
+		$this->clock += 1;
+		$this->assertSame( [], $arm->members( [ 'pend-8812', 'fly-8812' ], 10 ), 'and expire with it' );
+	}
+
+	public function test_move_members_skips_expired_members_and_overwrites_a_member_already_there(): void {
+		$arm = $this->arm();
+		$arm->add_members( [ 'pend-3305' => [ [ 'm-a' => 'old-1' ], 37 ] ] );
+		$arm->add_members( [ 'pend-3305' => [ [ 'm-b' => 'vb-5', 'm-c' => 'vc-6' ], 777 ] ] );
+		$arm->add_members( [ 'fly-3305' => [ [ 'm-b' => 'stale-9' ], 777 ] ] );
+		$this->clock += 37;
+		$this->assertSame( [ 'm-b' => 'vb-5', 'm-c' => 'vc-6' ], $arm->move_members( 'pend-3305', 'fly-3305', 9 ) );
+		$this->assertSame( [ 'fly-3305' => [ 'm-b' => 'vb-5', 'm-c' => 'vc-6' ] ], $arm->members( [ 'pend-3305', 'fly-3305' ], 10 ) );
+	}
+
+	public function test_move_members_of_an_empty_set_or_a_refused_request_moves_nothing(): void {
+		$arm = $this->arm();
+		$this->assertSame( [], $arm->move_members( 'none-4471', 'fly-4471', 5 ) );
+		$arm->add_members( [ 'pend-4471' => [ [ 'm-1' => 1 ], 600 ] ] );
+		$this->assertSame( [], $arm->move_members( 'pend-4471', 'fly-4471', 0 ) );
+		$this->assertSame( [], $arm->move_members( 'pend-4471', 'fly 4471', 3 ) );
+		$this->assertSame( [ 'pend-4471' => [ 'm-1' => 1 ] ], $arm->members( [ 'pend-4471', 'fly-4471' ], 10 ) );
+	}
+
+	public function test_remove_members_names_what_was_there(): void {
+		$arm = $this->arm();
+		$arm->add_members( [ 'fly-6630' => [ [ 'u-1' => 1, 'u-2' => 1 ], 600 ] ] );
+		$this->assertSame( [ 'u-2' ], $arm->remove_members( 'fly-6630', [ 'u-2', 'u-9' ] ) );
+		$this->assertSame( [ 'fly-6630' => [ 'u-1' => 1 ] ], $arm->members( [ 'fly-6630' ], 10 ) );
+		$this->assertSame( [], $arm->remove_members( 'fly-6630', [] ) );
+		$this->assertSame( [], $arm->remove_members( 'fly 6630', [ 'u-1' ] ) );
+	}
 }

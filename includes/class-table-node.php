@@ -117,6 +117,9 @@ class Table_Node extends Node {
 	/** How a SMEMBERS request is answered. */
 	private const MEMBERS_REPLY = 'one message per set holding a live member, KEY the set key: TM_STRUCT, VALUE a list of [ member, value ] in member order, or TM_BYTESTREAM "OVER <limit>" past the limit; then TM_INFO "SMEMBERS <n>", or one TM_ERROR "SMEMBERS: backend read failed"';
 
+	/** How a SMOVE request is answered. */
+	private const MOVED_REPLY = 'one TM_STRUCT, KEY the from set, VALUE a list of [ member, value ] moved, lowest member first, then TM_INFO "SMOVE 1", or one TM_ERROR "SMOVE: backend write failed"';
+
 	/**
 	 * The word a SMEMBERS reply gives a set holding more than its limit, as
 	 * `OVER <limit>\n` under TM_BYTESTREAM: the set's answer as MGET gives a
@@ -175,6 +178,8 @@ class Table_Node extends Node {
 		'INSERT'     => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
 		'SADD'       => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
 		'SMEMBERS'   => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
+		'SMOVE'      => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
+		'SREM'       => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
 		'PURGE'      => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
 		'CHECKPOINT' => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
 	];
@@ -516,6 +521,8 @@ class Table_Node extends Node {
 			'GET'                 => $this->reply_values( $request, $verb, \array_slice( $words, 0, 1 ) ),
 			'MGET'                => $this->reply_values( $request, $verb, $words ),
 			'SMEMBERS'            => $this->reply_members( $request, $words ),
+			'SMOVE'               => $this->reply_moved( $request, $words ),
+			'SREM'                => $this->reply_unmembered( $request, $words ),
 			'TOUCH'               => $this->reply_touch( $request, $words ),
 			'RM'                  => $this->reply_removed( $request, $words ),
 			default               => $this->refuse( $request, $verb, self::struct_usage()[ $verb ] ?? 'unknown verb' ),
@@ -688,13 +695,91 @@ class Table_Node extends Node {
 				$this->reply( $request, Message::TM_BYTESTREAM, (string) $set_key, self::OVER_LIMIT . " {$limit}\n" );
 				continue;
 			}
-			$pairs = [];
-			foreach ( $members as $member => $stored ) {
-				$pairs[] = [ (string) $member, $stored ];
-			}
-			$this->reply( $request, Message::TM_STRUCT, (string) $set_key, $pairs );
+			$this->reply( $request, Message::TM_STRUCT, (string) $set_key, self::member_pairs( $members ) );
 		}
 		$this->reply( $request, Message::TM_INFO, '', 'SMEMBERS ' . \count( $found ) . "\n" );
+	}
+
+	/**
+	 * `SMOVE <count> <from_set> <to_set>`: move up to count members, lowest
+	 * first, and answer them as SMEMBERS answers one set, then the count of
+	 * value messages sent. A count that is not a whole number from 1 to
+	 * MAX_MEMBERS_LIMIT is refused, and so are a move naming one set twice
+	 * and a backend that is not durable; a failed write answers one error.
+	 * Counted as SMOVE: the members asked for, the members moved.
+	 *
+	 * @param array<int,mixed> $request The TM_REQUEST.
+	 * @param list<string>     $words   Count, from set, to set.
+	 * @throws \RuntimeException With no wired sink to reply through.
+	 */
+	private function reply_moved( array $request, array $words ): void {
+		$count = Core::canonical_decimal( $words[0] ?? '', false );
+		$from  = $words[1] ?? '';
+		$to    = $words[2] ?? '';
+		if ( null === $count || $count > self::MAX_MEMBERS_LIMIT || '' === $from || '' === $to ) {
+			$this->refuse( $request, 'SMOVE', 'usage: SMOVE <count> <from_set> <to_set>, count ' . self::MEMBERS_LIMIT_RANGE );
+			return;
+		}
+		if ( $from === $to ) {
+			$this->refuse( $request, 'SMOVE', 'from_set and to_set must differ' );
+			return;
+		}
+		if ( ! $this->arm instanceof Durable_Arm ) {
+			$this->refuse( $request, 'SMOVE', $this->needs_durable() );
+			return;
+		}
+		$moved = $this->arm->move_members( $this->key( $from ), $this->key( $to ), $count );
+		if ( false === $moved ) {
+			$this->count_error( 'SMOVE' );
+			$this->reply( $request, Message::TM_ERROR, '', "SMOVE: backend write failed\n" );
+			return;
+		}
+		$this->count_rows( 'SMOVE', $count, \count( $moved ) );
+		$this->reply( $request, Message::TM_STRUCT, $from, self::member_pairs( $moved ) );
+		$this->reply( $request, Message::TM_INFO, '', "SMOVE 1\n" );
+	}
+
+	/**
+	 * A set's members as the `[ member, value ]` pairs a TM_STRUCT answer
+	 * carries, in the order given.
+	 *
+	 * @param array<array-key,mixed> $members Member => value.
+	 * @return list<array{0: string, 1: mixed}>
+	 */
+	private static function member_pairs( array $members ): array {
+		$pairs = [];
+		foreach ( $members as $member => $stored ) {
+			$pairs[] = [ (string) $member, $stored ];
+		}
+		return $pairs;
+	}
+
+	/**
+	 * `SREM <set_key> <member>…`: the members that were there to delete.
+	 *
+	 * @param array<int,mixed> $request The TM_REQUEST.
+	 * @param list<string>     $words   Set key, then members.
+	 * @throws \RuntimeException With no wired sink to reply through.
+	 */
+	private function reply_unmembered( array $request, array $words ): void {
+		$set_key = (string) \array_shift( $words );
+		$members = \array_values( \array_unique( $words ) );
+		if ( '' === $set_key || [] === $members ) {
+			$this->refuse( $request, 'SREM', 'usage: SREM <set_key> <member>…' );
+			return;
+		}
+		if ( ! $this->arm instanceof Durable_Arm ) {
+			$this->refuse( $request, 'SREM', $this->needs_durable() );
+			return;
+		}
+		$removed = $this->arm->remove_members( $this->key( $set_key ), $members );
+		if ( false === $removed ) {
+			$this->count_error( 'SREM' );
+			$this->reply( $request, Message::TM_ERROR, '', "SREM: backend write failed\n" );
+			return;
+		}
+		$this->count_rows( 'SREM', \count( $members ), \count( $removed ) );
+		$this->reply_written( $request, 'SREM', $removed );
 	}
 
 	/**
@@ -2145,6 +2230,25 @@ class Table_Node extends Node {
 						[ 'name' => 'set_keys', 'type' => 'string', 'required' => true, 'description' => 'Whitespace-separated set keys.' ],
 					],
 					'reply_shape' => self::MEMBERS_REPLY,
+				],
+				[
+					'name'        => 'SMOVE',
+					'description' => 'Move up to <count> members, lowest first, from one set to another, each keeping its value and expiry; sqlite and wpdb alone hold members.',
+					'args'        => [
+						[ 'name' => 'count', 'type' => 'int', 'required' => true, 'description' => 'Most members moved, from 1 to MAX_MEMBERS_LIMIT (10000).' ],
+						[ 'name' => 'from_set', 'type' => 'string', 'required' => true ],
+						[ 'name' => 'to_set', 'type' => 'string', 'required' => true ],
+					],
+					'reply_shape' => self::MOVED_REPLY,
+				],
+				[
+					'name'        => 'SREM',
+					'description' => 'Delete the named members of one set; sqlite and wpdb alone hold members.',
+					'args'        => [
+						[ 'name' => 'set_key', 'type' => 'string', 'required' => true ],
+						[ 'name' => 'members', 'type' => 'string', 'required' => true, 'description' => 'Whitespace-separated members.' ],
+					],
+					'reply_shape' => self::WRITE_REPLY,
 				],
 				[
 					'name'        => 'TOUCH',

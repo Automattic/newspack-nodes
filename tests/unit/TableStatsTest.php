@@ -18,7 +18,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 #[CoversClass( Table_Node::class )]
 #[CoversClass( Durable_Arm::class )]
 final class TableStatsTest extends TestCase {
-	private const VERBS = [ 'GET', 'MGET', 'MSET', 'ADD', 'TOUCH', 'RM', 'INSERT', 'SADD', 'SMEMBERS', 'PURGE', 'CHECKPOINT' ];
+	private const VERBS = [ 'GET', 'MGET', 'MSET', 'ADD', 'TOUCH', 'RM', 'INSERT', 'SADD', 'SMEMBERS', 'SMOVE', 'SREM', 'PURGE', 'CHECKPOINT' ];
 
 	private string $dir = '';
 	private Table_Node $table;
@@ -195,6 +195,8 @@ final class TableStatsTest extends TestCase {
 				'INSERT'   => self::row( 2, 2, 2, 0.3, 0.175 ),
 				'SADD'     => self::row( 1, 3, 3, 3.0, 3.0 ),
 				'SMEMBERS' => self::row( 1, 2, 2, 1.1, 1.1 ),
+				'SMOVE'    => self::row( 0, 0, 0, 0.0, 0.0 ),
+				'SREM'     => self::row( 0, 0, 0, 0.0, 0.0 ),
 				'PURGE'    => self::row( 1, Table_Node::PURGE_BATCH_ROWS, 1, 6.0, 6.0 ),
 			],
 			self::without_bytes( $stats ),

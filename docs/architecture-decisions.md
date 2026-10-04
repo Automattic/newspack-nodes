@@ -1553,11 +1553,13 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
   read is an exact set-key seek, `ORDER BY member` with a LIMIT one past the asked limit,
   at most `Table_Node::MAX_MEMBERS_LIMIT` + 1, and never a range. Each set is read and let
   go before the next, so a set past its limit costs its rows once, never all sets' at once,
-  and a row no serializer wrote fails the read as it fails a keyed read. `add_members()` and `members()` are
-  `Durable_Arm`'s alone, and a Table whose backend is not durable refuses both verbs as it
-  refuses `vacuum`, on `instanceof Durable_Arm`:
-  `<VERB>: needs a durable backend; <table> is <backend>`. Nothing is caught around the arm
-  call, so anything an arm throws while it works escapes
+  and a row no serializer wrote fails the read as it fails a keyed read. `add_members()`,
+  `members()`, `move_members()` and `remove_members()` are `Durable_Arm`'s alone, and a Table
+  whose backend is not durable refuses all four verbs as it refuses `vacuum`, on
+  `instanceof Durable_Arm`: `<VERB>: needs a durable backend; <table> is <backend>`. `SMOVE`
+  and `SREM`, which move and delete members, are one transaction on sqlite; `SMOVE` on wpdb
+  holds none, so a racing caller or a mid-move failure can leave a member in both sets. Nothing
+  is caught around the arm call, so anything an arm throws while it works escapes
   ([ADR-14](#adr-14-cooperative-stop-propagates-through-broad-catches)). A `sqlite`
   mount of a file its writer declared before members reads every set as empty, as it reads
   a file that is not there. The purge deletes expired members inside the same per-batch
