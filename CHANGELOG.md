@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.89.0] - 2026-10-04
+
 ### Added
 
 - **`Cache_Backend::move_salt()` is public: the salt rotation without the fleet restart.** `rotate_salt()` runs it, then asks every live worker to restart. A process no worker serves, such as a consumer's test suite flushing its own keys, calls `move_salt()` alone. A refused option write still throws.
