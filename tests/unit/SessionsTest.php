@@ -237,7 +237,7 @@ class SessionsTest extends TestCase {
 	/** Past the index read's ceiling the listing refuses by name, never answers a part. */
 	public function test_an_index_past_the_members_limit_refuses_the_listing(): void {
 		Sessions::issue( 'huia-9001', Capabilities::READ, 900 );
-		$this->db->canned['FROM `wp_newspack_nodes_members`'] = \array_map( static fn ( int $n ): array => [ 'member' => "m-{$n}", 'value' => '' ], \range( 0, Table_Node::MAX_MEMBERS_LIMIT ) );
+		$this->db->canned['FROM `wp_newspack_nodes_members`'] = \array_map( static fn ( int $n ): array => [ 'member' => "m-{$n}", 'value' => '', 'expires' => 1999999999 ], \range( 0, Table_Node::MAX_MEMBERS_LIMIT ) );
 
 		$this->expectException( Session_Store_Unavailable::class );
 		$this->expectExceptionMessage( 'more than 10000 labelled sessions are indexed; `wp nodes tables flush nodes-sessions` revokes every session' );

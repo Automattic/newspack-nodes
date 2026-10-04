@@ -236,7 +236,7 @@ class CurlNodeTest extends TestCase {
 	public function test_a_success_emits_the_body_as_a_bytestream(): void {
 		$node = $this->curl();
 		$this->fetch( $node, $this->url_message( 'http://body.example:8090/doc-61', Message::TM_BYTESTREAM | Message::TM_RESPONSE ) );
-		Curl_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 203, 'body' => "body-text-9172\n" ];
+		Curl_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 203, 'body' => "body-text-9172\n", 'redirect' => '' ];
 
 		$this->deliver_curl_rows( [ $this->done( $this->handles[0] ) ] );
 
@@ -249,6 +249,57 @@ class CurlNodeTest extends TestCase {
 		$this->assertSame( 'fetched-4402', $out[ Message::TO ] );
 		$this->assertSame( [], \Newspack_Nodes\Event_Framework::instance()->handles_of( $node ), 'the handle is released' );
 		$this->assertSame( [], Event_Framework::instance()->curl_handles(), 'and detached' );
+	}
+
+	public function test_follow_off_fetches_without_following(): void {
+		$node = $this->curl();
+		$node->follow_redirects( false );
+
+		$this->fetch( $node, $this->url_message( 'http://hop.example:8090/start-31' ) );
+
+		$this->assertFalse( $this->captured[0][ \CURLOPT_FOLLOWLOCATION ] );
+	}
+
+	public function test_with_follow_off_a_redirect_answers_its_location_as_a_response(): void {
+		$node = $this->curl();
+		$node->follow_redirects( false );
+		$this->fetch( $node, $this->url_message( 'http://hop.example:8090/start-31' ) );
+		Curl_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 301, 'body' => 'moved text', 'redirect' => 'http://hop.example:8090/landed-32' ];
+
+		$this->deliver_curl_rows( [ $this->done( $this->handles[0] ) ] );
+
+		$out = $this->only_emitted();
+		$this->assertSame( Message::TM_RESPONSE, $out[ Message::TYPE ] );
+		$this->assertSame( 'http://hop.example:8090/landed-32', $out[ Message::VALUE ] );
+		$this->assertSame( 'asker-5519/reply', $out[ Message::FROM ] );
+		$this->assertSame( 'corr-6081', $out[ Message::ID ] );
+		$this->assertSame( 'key-2297', $out[ Message::KEY ] );
+		$this->assertSame( 'fetched-4402', $out[ Message::TO ] );
+	}
+
+	public function test_with_follow_off_a_redirect_without_a_location_answers_an_http_error(): void {
+		$node = $this->curl();
+		$node->follow_redirects( false );
+		$this->fetch( $node, $this->url_message( 'http://hop.example:8090/start-31' ) );
+		Curl_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 302, 'body' => '', 'redirect' => '' ];
+
+		$this->deliver_curl_rows( [ $this->done( $this->handles[0] ) ] );
+
+		$out = $this->only_emitted();
+		$this->assertSame( Message::TM_ERROR, $out[ Message::TYPE ] );
+		$this->assertSame( 'HTTP 302 http://hop.example:8090/start-31', $out[ Message::VALUE ] );
+	}
+
+	public function test_with_follow_on_a_3xx_that_completes_is_a_body(): void {
+		$node = $this->curl();
+		$this->fetch( $node, $this->url_message( 'http://hop.example:8090/start-31' ) );
+		Curl_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 304, 'body' => 'not modified 61', 'redirect' => 'http://hop.example:8090/ignored-33' ];
+
+		$this->deliver_curl_rows( [ $this->done( $this->handles[0] ) ] );
+
+		$out = $this->only_emitted();
+		$this->assertSame( Message::TM_BYTESTREAM, $out[ Message::TYPE ] );
+		$this->assertSame( 'not modified 61', $out[ Message::VALUE ] );
 	}
 
 	public function test_each_transfer_buffers_its_own_body(): void {
@@ -268,7 +319,7 @@ class CurlNodeTest extends TestCase {
 	public function test_a_status_of_400_or_more_emits_an_http_error(): void {
 		$node = $this->curl();
 		$this->fetch( $node, $this->url_message( 'http://teapot.example:8090/brew-418' ) );
-		Curl_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 418, 'body' => 'short and stout' ];
+		Curl_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 418, 'body' => 'short and stout', 'redirect' => '' ];
 
 		$this->deliver_curl_rows( [ $this->done( $this->handles[0] ) ] );
 
@@ -281,7 +332,7 @@ class CurlNodeTest extends TestCase {
 	public function test_a_404_emits_an_http_error(): void {
 		$node = $this->curl();
 		$this->fetch( $node, $this->url_message( 'http://gone.example:8090/missing-404' ) );
-		Curl_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 404, 'body' => '' ];
+		Curl_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 404, 'body' => '', 'redirect' => '' ];
 
 		$this->deliver_curl_rows( [ $this->done( $this->handles[0] ) ] );
 
@@ -291,7 +342,7 @@ class CurlNodeTest extends TestCase {
 	public function test_a_curl_error_emits_its_number_and_reason(): void {
 		$node = $this->curl();
 		$this->fetch( $node, $this->url_message( 'http://slow.example:8090/stall-28' ) );
-		Curl_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 200, 'body' => 'never read' ];
+		Curl_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 200, 'body' => 'never read', 'redirect' => '' ];
 
 		$this->deliver_curl_rows( [ $this->done( $this->handles[0], \CURLE_OPERATION_TIMEDOUT ) ] );
 
@@ -318,7 +369,7 @@ class CurlNodeTest extends TestCase {
 		$this->assertSame( Message::TM_ERROR, $out[ Message::TYPE ] );
 		$this->assertSame( 'busy: 16 requests in flight http://busy.example:8090/n-17', $out[ Message::VALUE ] );
 
-		Curl_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 200, 'body' => 'n-1 body' ];
+		Curl_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 200, 'body' => 'n-1 body', 'redirect' => '' ];
 		$this->deliver_curl_rows( [ $this->done( $this->handles[0] ) ] );
 		$this->fetch( $node, $this->url_message( 'http://busy.example:8090/n-18' ) );
 

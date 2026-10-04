@@ -117,6 +117,48 @@ final class TableClientTest extends TestCase {
 		$this->assertSame( [], $this->asker->folded, 'every reply went to the client' );
 	}
 
+	public function test_members_move_between_sets_through_the_graph(): void {
+		$client = $this->asker->client;
+		$client->add_members( 'lab-7:kea', [ 'pend-3307' => [ 'x-2' => 1, 'x-1' => 1, 'x-3' => 1 ] ], 900 );
+		$this->assertSame( [ 'x-1', 'x-2' ], $client->move_members( 'lab-7:kea', 'pend-3307', 'fly-3307', 2, $failed ) );
+		$this->assertFalse( $failed );
+		$this->assertSame( [ 'x-2' ], $client->remove_members( 'lab-7:kea', 'fly-3307', [ 'x-2', 'x-8' ] ) );
+		$this->assertSame( [ 'pend-3307' => [ 'x-3' => 1 ], 'fly-3307' => [ 'x-1' => 1 ] ], $client->members( 'lab-7:kea', [ 'pend-3307', 'fly-3307' ], 10 ) );
+		$this->assertSame( [], $this->asker->folded, 'every reply went to the client' );
+	}
+
+	public function test_a_move_from_an_empty_set_answers_nothing_and_does_not_fail(): void {
+		$failed = null;
+		$this->assertSame( [], $this->asker->client->move_members( 'lab-7:kea', 'void-5521', 'fly-5521', 3, $failed ) );
+		$this->assertFalse( $failed );
+	}
+
+	public function test_a_move_the_table_refuses_fails(): void {
+		$this->assertSame( [], $this->asker->client->move_members( 'lab-7:kea', 'pend-3307', 'fly-3307', 0, $failed ) );
+		$this->assertTrue( $failed, 'a count below 1 is refused, never read as empty' );
+	}
+
+	public function test_a_move_naming_an_unnameable_set_is_never_asked(): void {
+		$client = $this->asker->client;
+		$client->add_members( 'lab-7:kea', [ 'pend-3307' => [ 'x-1' => 1 ] ], 900 );
+		foreach ( [ [ 'pend-3307', 'fly 3307' ], [ 'pend 3307', 'fly-3307' ], [ '', 'fly-3307' ] ] as [ $from, $to ] ) {
+			$failed = null;
+			$this->assertSame( [], $client->move_members( 'lab-7:kea', $from, $to, 2, $failed ) );
+			$this->assertFalse( $failed, 'a refused ask is not a failed one' );
+		}
+		$this->assertSame( [ 'pend-3307' => [ 'x-1' => 1 ] ], $client->members( 'lab-7:kea', [ 'pend-3307' ], 9 ), 'nothing moved' );
+	}
+
+	public function test_a_move_naming_one_set_twice_is_refused_by_the_table(): void {
+		$client = $this->asker->client;
+		$client->add_members( 'lab-7:kea', [ 'pend-3307' => [ 'x-1' => 1 ] ], 900 );
+
+		$this->assertSame( [], $client->move_members( 'lab-7:kea', 'pend-3307', 'pend-3307', 2, $failed ) );
+
+		$this->assertTrue( $failed, 'the Table refuses it' );
+		$this->assertSame( [ 'pend-3307' => [ 'x-1' => 1 ] ], $client->members( 'lab-7:kea', [ 'pend-3307' ], 9 ) );
+	}
+
 	public function test_members_expire_on_the_ttl_the_add_named(): void {
 		$client      = $this->asker->client;
 		Core::$clock = static fn (): float => 1790000000.0;
@@ -339,5 +381,8 @@ final class TableClientTest extends TestCase {
 		$this->assertSame( [], $this->asker->client->get_multi( 'lab-7:kea', [ 'sku 41' ], $failed ) );
 		$this->assertFalse( $failed );
 		$this->assertSame( [], $this->asker->client->remove( 'lab-7:kea', [ "sku-41\t" ] ) );
+		$this->asker->client->add_members( 'lab-7:kea', [ 'pend' => [ 'x-1' => 1 ] ], 900 );
+		$this->assertSame( [], $this->asker->client->remove_members( 'lab-7:kea', 'pend 3307', [ 'x-1' ] ), 'a set key holding whitespace would split into the set pend and members' );
+		$this->assertSame( [ 'pend' => [ 'x-1' => 1 ] ], $this->asker->client->members( 'lab-7:kea', [ 'pend' ], 9 ) );
 	}
 }

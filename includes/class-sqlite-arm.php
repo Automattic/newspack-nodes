@@ -72,8 +72,11 @@ final class Sqlite_Arm extends Durable_Arm {
 	/** SQL predicate for an expired row; binds one `now`. */
 	private const EXPIRED = '( expires > 0 AND expires <= ? )';
 
-	/** One set's live members: a primary-key seek, in its order; binds set, now, limit. */
-	private const MEMBERS_READ = 'SELECT member, "value" FROM members WHERE set_key = ? AND expires > ? ORDER BY member LIMIT ?';
+	/** One set's live rows with expiry, in member order; binds set, now, limit. */
+	private const MEMBERS_ROWS = 'SELECT member, "value", expires FROM members WHERE set_key = ? AND expires > ? ORDER BY member LIMIT ?';
+
+	/** One member's row; binds set, member. */
+	private const MEMBER_DELETE = 'DELETE FROM members WHERE set_key = ? AND member = ?';
 
 	/** A row when the file declares a `members` table. */
 	private const MEMBERS_TABLE = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'members'";
@@ -325,19 +328,6 @@ final class Sqlite_Arm extends Durable_Arm {
 		return $this->run( 'DELETE FROM kv WHERE "key" = ? AND ' . self::LIVE, [ $key, self::now() ] );
 	}
 
-	/**
-	 * Run one statement.
-	 *
-	 * @param string      $sql  Statement.
-	 * @param list<mixed> $args Bound values.
-	 * @return int Rows changed.
-	 */
-	private function run( string $sql, array $args ): int {
-		$stmt = $this->statement( $sql );
-		$stmt->execute( $args );
-		return $stmt->rowCount();
-	}
-
 	/** See Durable_Arm::purge_rows(). */
 	protected function purge_rows( int $now, int $limit ): int {
 		return $this->delete_expired( self::KV_PURGE, $now, $limit );
@@ -440,8 +430,8 @@ final class Sqlite_Arm extends Durable_Arm {
 		}
 	}
 
-	/** See Durable_Arm::select_set(). */
-	protected function select_set( string $set_key, int $limit ): array {
+	/** See Durable_Arm::select_member_rows(). */
+	protected function select_member_rows( string $set_key, int $limit ): array {
 		if ( null === $this->db() ) {
 			// No file: its writer has not written, so there is nothing to read.
 			return [];
@@ -451,12 +441,17 @@ final class Sqlite_Arm extends Durable_Arm {
 		if ( ! $this->has_members ) {
 			return [];
 		}
-		$read = $this->statement( self::MEMBERS_READ );
+		$read = $this->statement( self::MEMBERS_ROWS );
 		$read->bindValue( 1, $set_key );
 		$read->bindValue( 2, self::now(), \PDO::PARAM_INT );
 		$read->bindValue( 3, $limit, \PDO::PARAM_INT );
 		$read->execute();
-		return \array_map( Core::as_string( ... ), $read->fetchAll( \PDO::FETCH_KEY_PAIR ) );
+		$rows = [];
+		foreach ( $read->fetchAll( \PDO::FETCH_NUM ) as $row ) {
+			$row    = Core::arr( $row );
+			$rows[] = [ Core::as_string( $row[0] ?? null ), Core::as_string( $row[1] ?? null ), Core::as_int( $row[2] ?? null ) ];
+		}
+		return $rows;
 	}
 
 	/**
@@ -471,6 +466,24 @@ final class Sqlite_Arm extends Durable_Arm {
 		$stmt->execute();
 		$rows = $stmt->fetchAll( \PDO::FETCH_NUM );
 		return \is_array( $rows[0] ?? null ) ? $rows[0] : null;
+	}
+
+	/** See Durable_Arm::delete_member(). */
+	protected function delete_member( string $set_key, string $member ): int {
+		return $this->run( self::MEMBER_DELETE, [ $set_key, $member ] );
+	}
+
+	/**
+	 * Run one statement.
+	 *
+	 * @param string      $sql  Statement.
+	 * @param list<mixed> $args Bound values.
+	 * @return int Rows changed.
+	 */
+	private function run( string $sql, array $args ): int {
+		$stmt = $this->statement( $sql );
+		$stmt->execute( $args );
+		return $stmt->rowCount();
 	}
 
 	/**

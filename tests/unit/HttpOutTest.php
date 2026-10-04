@@ -87,7 +87,7 @@ class HttpOutTest extends TestCase {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$captured = [];
 		$this->capture_dispatch( $captured );
-		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 200, 'body' => '' ];
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 200, 'body' => '', 'redirect' => '' ];
 		$node = $this->make_node( 'austin' );
 
 		$this->assertSame( [], Event_Framework::instance()->curl_handles(), 'idle: not registered' );
@@ -326,7 +326,7 @@ class HttpOutTest extends TestCase {
 		$reply[ Message::TO ]    = '_output/spoke-austin';
 		$reply[ Message::VALUE ] = 'status';
 
-		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n" ];
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n", 'redirect' => '' ];
 		$sink                       = new Capture_Sink_Node();
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );
@@ -348,7 +348,7 @@ class HttpOutTest extends TestCase {
 		$reply[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 		$reply[ Message::VALUE ] = 'hello world';
 
-		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n" ];
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n", 'redirect' => '' ];
 		$sink                       = new Capture_Sink_Node();
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );
@@ -367,7 +367,7 @@ class HttpOutTest extends TestCase {
 		$reply[ Message::TO ]    = '_command_interpreter';
 		$reply[ Message::VALUE ] = 'make_node Tee pwned';
 
-		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n" ];
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n", 'redirect' => '' ];
 		$sink                       = new Capture_Sink_Node();
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );
@@ -401,6 +401,7 @@ class HttpOutTest extends TestCase {
 		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [
 			'code' => 200,
 			'body' => Message::packed( $reply ) . "\n",
+			'redirect' => '',
 		];
 		$sink = new Capture_Sink_Node();
 		$sink->name( '_command_interpreter' );
@@ -425,6 +426,7 @@ class HttpOutTest extends TestCase {
 		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [
 			'code' => 200,
 			'body' => Message::packed( $reply ) . "\n",
+			'redirect' => '',
 		];
 		$sink = new Capture_Sink_Node();
 		$sink->name( '_command_interpreter' );
@@ -457,6 +459,7 @@ class HttpOutTest extends TestCase {
 		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [
 			'code' => 200,
 			'body' => Message::packed( $reply ) . "\n",
+			'redirect' => '',
 		];
 		$sink = new Capture_Sink_Node();
 		$sink->name( '_command_interpreter' );
@@ -487,6 +490,7 @@ class HttpOutTest extends TestCase {
 		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [
 			'code' => 200,
 			'body' => Message::packed( $reply ) . "\n",
+			'redirect' => '',
 		];
 		$sink = new Capture_Sink_Node();
 		$sink->name( '_command_interpreter' );
@@ -510,6 +514,7 @@ class HttpOutTest extends TestCase {
 		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [
 			'code' => 200,
 			'body' => Message::packed( $reply ) . "\n",
+			'redirect' => '',
 		];
 		$sink = new Capture_Sink_Node();
 		$sink->name( '_command_interpreter' );
@@ -528,7 +533,7 @@ class HttpOutTest extends TestCase {
 		$reply[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 		$reply[ Message::VALUE ] = 'hello world';
 
-		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n" ];
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n", 'redirect' => '' ];
 		$sink                       = new Capture_Sink_Node();
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );
@@ -547,7 +552,7 @@ class HttpOutTest extends TestCase {
 		$reply[ Message::TO ]    = 'settings-sync';
 		$reply[ Message::VALUE ] = 'ok';
 
-		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n" ];
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n", 'redirect' => '' ];
 		$sink                       = new Capture_Sink_Node();
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );
@@ -573,7 +578,7 @@ class HttpOutTest extends TestCase {
 		$reply[ Message::TO ]    = 'hub-control';
 		$reply[ Message::VALUE ] = 'ok';
 
-		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n" ];
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n", 'redirect' => '' ];
 		$sink                       = new Capture_Sink_Node();
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );
@@ -594,7 +599,7 @@ class HttpOutTest extends TestCase {
 		$reply[ Message::TO ]    = 'hub-control';
 		$reply[ Message::VALUE ] = "no such verb\n";
 
-		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n" ];
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n", 'redirect' => '' ];
 		$sink                       = new Capture_Sink_Node();
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );
@@ -612,7 +617,7 @@ class HttpOutTest extends TestCase {
 		$reply[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 		$reply[ Message::VALUE ] = 'hello world';
 
-		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n" ];
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n", 'redirect' => '' ];
 		$sink                       = new Capture_Sink_Node();
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );
@@ -638,7 +643,7 @@ class HttpOutTest extends TestCase {
 		$reply[ Message::TO ]    = 'hub-control';
 		$reply[ Message::VALUE ] = 'ok';
 
-		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n" ];
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n", 'redirect' => '' ];
 		$sink                       = new Capture_Sink_Node();
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );
@@ -862,7 +867,7 @@ class HttpOutTest extends TestCase {
 		$reply2[ Message::VALUE ] = 'ok-2';
 		$body = Message::packed( $reply1 ) . "\n" . Message::packed( $reply2 ) . "\n";
 
-		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => $body ];
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => $body, 'redirect' => '' ];
 
 		$sink = new Capture_Sink_Node();
 		$sink->name( '_command_interpreter' );
@@ -889,7 +894,7 @@ class HttpOutTest extends TestCase {
 			$reply[ Message::VALUE ] = $value;
 			$replies                .= Message::packed( $reply ) . "\n";
 		}
-		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => $replies ];
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => $replies, 'redirect' => '' ];
 
 		$sink = new class() extends Capture_Sink_Node {
 			public function fill( array $message ): void {
@@ -936,6 +941,7 @@ class HttpOutTest extends TestCase {
 		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [
 			'code' => 200,
 			'body' => Message::packed( $reply ) . "\n",
+			'redirect' => '',
 		];
 		$sink = new Capture_Sink_Node();
 		$sink->name( '_command_interpreter' );
@@ -966,6 +972,7 @@ class HttpOutTest extends TestCase {
 		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [
 			'code' => 200,
 			'body' => Message::packed( $reply ) . "\n",
+			'redirect' => '',
 		];
 		$sink = new Capture_Sink_Node();
 		$sink->name( '_command_interpreter' );
@@ -991,6 +998,7 @@ class HttpOutTest extends TestCase {
 		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [
 			'code' => 200,
 			'body' => Message::packed( $reply ) . "\n",
+			'redirect' => '',
 		];
 		$sink = new Capture_Sink_Node();
 		$sink->name( '_command_interpreter' );
@@ -1004,7 +1012,7 @@ class HttpOutTest extends TestCase {
 
 	public function test_on_curl_done_empty_body_forwards_nothing(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
-		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 202, 'body' => '' ];
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 202, 'body' => '', 'redirect' => '' ];
 		$sink = new Capture_Sink_Node();
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );
@@ -1015,7 +1023,7 @@ class HttpOutTest extends TestCase {
 
 	public function test_on_curl_done_non_200_logs_and_cleans_up(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
-		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 503, 'body' => 'down' ];
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 503, 'body' => 'down', 'redirect' => '' ];
 		$this->deliver_curl_rows( [ $this->done_info( $easy ) ] ); // no sink wired — must not throw
 		$this->assertCount( 0, \Newspack_Nodes\Event_Framework::instance()->handles_of( $node ) );
 	}
@@ -1037,7 +1045,7 @@ class HttpOutTest extends TestCase {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		$reply                   = Message::new_message();
 		$reply[ Message::VALUE ] = 'x';
-		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n" ];
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n", 'redirect' => '' ];
 		$this->deliver_curl_rows( [ $this->done_info( $easy ) ] ); // sink is null
 		$this->assertCount( 0, \Newspack_Nodes\Event_Framework::instance()->handles_of( $node ) );
 	}
@@ -1141,7 +1149,7 @@ class HttpOutTest extends TestCase {
 		$reply[ Message::VALUE ] = 'good-after-bad-3309';
 		// First line is not a 7-element positional array; Message::unpacked() throws on it.
 		$body = '{"not":"a positional array 3309"}' . "\n" . Message::packed( $reply ) . "\n";
-		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => $body ];
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => $body, 'redirect' => '' ];
 		$sink = new Capture_Sink_Node();
 		$sink->name( '_command_interpreter' );
 		$node->sink( $sink );

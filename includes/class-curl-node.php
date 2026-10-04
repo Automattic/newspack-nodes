@@ -15,6 +15,10 @@
  * credential on its host; a redirect may still take the GET elsewhere, and
  * libcurl drops the header when it changes host, port or scheme.
  *
+ * With `follow_redirects( false )` a fetch follows no redirect: a 3xx naming
+ * a Location answers a TM_RESPONSE copy whose VALUE is that absolute url, and
+ * a 3xx naming none answers a TM_ERROR as a status of 400 or more does.
+ *
  * @package Newspack_Nodes
  */
 
@@ -45,14 +49,21 @@ class Curl_Node extends Node implements Curl_Owner {
 	/** The schemes a fetch and its redirects may use; https alone under a vault requiring it. */
 	private const PROTOCOLS = \CURLPROTO_HTTP | \CURLPROTO_HTTPS;
 
-	/** The port a url names when it names none, by scheme. */
-	private const DEFAULT_PORTS = [
+	/**
+	 * The port a url names when it names none, by scheme.
+	 *
+	 * @api Crawler_Node
+	 */
+	public const DEFAULT_PORTS = [
 		'http'  => 80,
 		'https' => 443,
 	];
 
 	/** Vault server id whose url and credential this node fetches with; '' for none. */
 	protected string $vault_id = '';
+
+	/** Whether a fetch follows redirects; `follow_redirects()` sets it. */
+	private bool $follow = true;
 
 	/**
 	 * Resolve the url VALUE carries and start a GET for it, or emit a TM_ERROR
@@ -129,11 +140,13 @@ class Curl_Node extends Node implements Curl_Owner {
 	 * An absolute http(s) url's origin as `scheme://host:port`, lowercased,
 	 * with the scheme's default port when the url names none.
 	 *
+	 * @api Crawler_Node
+	 *
 	 * @param string $url The url to read.
 	 * @return string
 	 * @throws \UnexpectedValueException When it is not an absolute http(s) url with a host.
 	 */
-	private static function origin_of( string $url ): string {
+	public static function origin_of( string $url ): string {
 		$parts  = \wp_parse_url( $url );
 		$scheme = \strtolower( Core::as_string( $parts['scheme'] ?? '' ) );
 		$host   = \strtolower( Core::as_string( $parts['host'] ?? '' ) );
@@ -174,7 +187,7 @@ class Curl_Node extends Node implements Curl_Owner {
 			\CURLOPT_HTTPGET         => true,
 			\CURLOPT_PROTOCOLS       => $protocols,
 			\CURLOPT_REDIR_PROTOCOLS => $protocols,
-			\CURLOPT_FOLLOWLOCATION  => true,
+			\CURLOPT_FOLLOWLOCATION  => $this->follow,
 			\CURLOPT_MAXREDIRS       => self::MAX_REDIRECTS,
 			\CURLOPT_TIMEOUT         => self::REQUEST_TIMEOUT,
 		] + Vault::tls_opts();
@@ -197,10 +210,11 @@ class Curl_Node extends Node implements Curl_Owner {
 	 * Emit the completed fetch as a copy of its input message: the body below
 	 * status 400, a TM_ERROR naming the status at or above it, and a TM_ERROR
 	 * naming the curl error when the transfer failed — a timeout, a refused
-	 * connection, or the body cap's short write.
+	 * connection, or the body cap's short write. Following no redirects, a
+	 * 3xx answers its Location as a TM_RESPONSE, or with none, a TM_ERROR.
 	 *
 	 * @param int                                         $result   The transfer's CURLE_* code.
-	 * @param array{code:int,body:string}                 $response Its status and body.
+	 * @param array{code:int,body:string,redirect:string} $response Its status, body and unfollowed Location.
 	 * @param array{message:array<int,mixed>,url:string} $request  The input message and the url.
 	 */
 	protected function on_transfer_done( int $result, array $response, mixed $request ): void {
@@ -211,7 +225,12 @@ class Curl_Node extends Node implements Curl_Owner {
 			$this->emit( $request['message'], Message::TM_ERROR, "curl error {$result} ({$reason}) {$url}" );
 			return;
 		}
-		if ( $response['code'] >= 400 ) {
+		$redirected = ! $this->follow && $response['code'] >= 300 && $response['code'] < 400;
+		if ( $redirected && '' !== $response['redirect'] ) {
+			$this->emit( $request['message'], Message::TM_RESPONSE, $response['redirect'] );
+			return;
+		}
+		if ( $redirected || $response['code'] >= 400 ) {
 			$this->emit( $request['message'], Message::TM_ERROR, "HTTP {$response['code']} {$url}" );
 			return;
 		}
@@ -223,13 +242,23 @@ class Curl_Node extends Node implements Curl_Owner {
 	 * replaced; `Node::fill()` stamps TO from `target`.
 	 *
 	 * @param array<int,mixed> $message The input message.
-	 * @param int              $type    TM_BYTESTREAM or TM_ERROR.
-	 * @param string           $value   The body, or the error text.
+	 * @param int              $type    TM_BYTESTREAM, TM_RESPONSE or TM_ERROR.
+	 * @param string           $value   The body, the Location, or the error text.
 	 */
 	private function emit( array $message, int $type, string $value ): void {
 		$message[ Message::TYPE ]  = $type;
 		$message[ Message::VALUE ] = $value;
 		parent::fill( $message );
+	}
+
+	/**
+	 * Follow redirects, the default, or answer each 3xx with its Location.
+	 *
+	 * @api Crawler_Node
+	 * @param bool $follow Whether a fetch follows redirects.
+	 */
+	public function follow_redirects( bool $follow ): void {
+		$this->follow = $follow;
 	}
 
 	/**

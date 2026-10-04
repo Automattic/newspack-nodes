@@ -531,4 +531,21 @@ final class WpdbArmTest extends TestCase {
 		$counts = \array_map( fn ( string $t ): int => (int) $this->db->get_results( "SELECT COUNT(*) AS n FROM kea7_newspack_nodes_{$t}" )[0]['n'], [ 'table', 'members' ] );
 		$this->assertSame( [ 1, 3 ], $counts, 'a limit the keyed rows fill leaves every member' );
 	}
+
+	public function test_a_member_removed_between_the_select_and_the_delete_is_not_returned_as_moved(): void {
+		$arm = new Wpdb_Arm( 'kea:p3' );
+		$arm->add_members( [ 'pend-5521' => [ [ 'm-a' => 'va-1', 'm-b' => 'vb-2' ], 600 ] ] );
+		$this->db->query( "CREATE TRIGGER rival AFTER INSERT ON kea7_newspack_nodes_members WHEN new.set_key = 'fly-5521' AND new.member = 'm-a' BEGIN DELETE FROM kea7_newspack_nodes_members WHERE set_key = 'pend-5521' AND member = 'm-a'; END" );
+		$this->assertSame( [ 'm-b' => 'vb-2' ], $arm->move_members( 'pend-5521', 'fly-5521', 2 ), 'the rival that deleted m-a owns it' );
+	}
+
+	public function test_a_poison_member_row_fails_a_move_with_nothing_moved(): void {
+		$arm = new Wpdb_Arm( 'kea:p3' );
+		$arm->add_members( [ 'pend-5522' => [ [ 'm-b' => 'vb-2' ], 600 ] ] );
+		$this->db->query( "INSERT INTO kea7_newspack_nodes_members ( namespace, set_key, member, `value`, expires ) VALUES ( 'kea:p3', 'pend-5522', 'm-a', '!!not-base64!!', 1999999999 )" );
+		$this->assertFalse( $arm->move_members( 'pend-5522', 'fly-5522', 2 ) );
+		$this->assertStringContainsString( 'undecodable row', $arm->last_failure() );
+		$this->assertSame( [], $arm->members( [ 'fly-5522' ], 9 ) );
+		$this->assertFalse( $arm->members( [ 'pend-5522' ], 9 ), 'the poison row and its neighbour are still in the source' );
+	}
 }

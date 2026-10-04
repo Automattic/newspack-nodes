@@ -109,6 +109,39 @@ final class Table_Client {
 	}
 
 	/**
+	 * `SMOVE`: move up to `$count` members of `$from` into `$to`. A set that
+	 * cannot be named is refused with a rate-limited line and asks nothing; a
+	 * move naming one set twice is the Table's to refuse, and fails.
+	 *
+	 * @api A node moving members between sets: the Crawler_Node.
+	 * @param string   $table  The Table's registered name.
+	 * @param string   $from   Set key taken from.
+	 * @param string   $to     Set key moved into.
+	 * @param int      $count  Most members, from 1 to `Table_Node::MAX_MEMBERS_LIMIT`.
+	 * @param ?bool    $failed Set true when the move did not answer.
+	 * @param-out bool $failed
+	 * @return list<string> The members moved, lowest first.
+	 * @throws \LogicException When an ask is in flight already.
+	 * @throws \RuntimeException When the asker has no name or no sink.
+	 */
+	public function move_members( string $table, string $from, string $to, int $count, ?bool &$failed = null ): array {
+		$failed = false;
+		if ( [] === $this->nameable( [ $from ] ) || [] === $this->nameable( [ $to ] ) ) {
+			Core::print_less_often( 'Table_Client: a move needs two nameable sets' );
+			return [];
+		}
+		foreach ( $this->counted( 'SMOVE', $this->ask( $table, Message::TM_REQUEST, "SMOVE {$count} {$from} {$to}\n" ), $failed ) as $reply ) {
+			$members = self::member_map( $reply, '' );
+			if ( ! \is_array( $members ) ) {
+				$failed = true;
+				return [];
+			}
+			return \array_map( 'strval', \array_keys( $members ) );
+		}
+		return [];
+	}
+
+	/**
 	 * One set's SMEMBERS answer: a TM_STRUCT list of `[ member, value ]`
 	 * pairs, or the over-limit marker naming the limit asked.
 	 *
@@ -164,6 +197,24 @@ final class Table_Client {
 			return [];
 		}
 		return $values;
+	}
+
+	/**
+	 * `SREM`: delete members of one set.
+	 *
+	 * @api A node moving members between sets: the Crawler_Node.
+	 * @param string       $table   The Table's registered name.
+	 * @param string       $set_key Set key.
+	 * @param list<string> $members Members.
+	 * @return list<string> The members that were there to delete.
+	 * @throws \LogicException When an ask is in flight already.
+	 * @throws \RuntimeException When the asker has no name or no sink.
+	 */
+	public function remove_members( string $table, string $set_key, array $members ): array {
+		if ( [] === $this->nameable( [ $set_key ] ) ) {
+			return [];
+		}
+		return $this->write_keys( $table, 'SREM', [ $set_key ], $members );
 	}
 
 	/**

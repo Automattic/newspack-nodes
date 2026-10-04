@@ -119,7 +119,7 @@ class HttpOutSessionTest extends TestCase {
 		$node->fire(); // POSTs /command with the stale handle
 		$easy = $this->last_handle( $node );
 
-		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 401, 'body' => '' ];
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 401, 'body' => '', 'redirect' => '' ];
 		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $easy, 'result' => \CURLE_OK ] ] );
 
 		$this->assertFalse(
@@ -170,7 +170,7 @@ class HttpOutSessionTest extends TestCase {
 		$this->seed_vault( self::SPOKE, [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$captured = [];
 		$this->capture( $captured );
-		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 403, 'body' => '' ];
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 403, 'body' => '', 'redirect' => '' ];
 
 		$node = $this->make_node( self::SPOKE );
 		$node->fill( $this->a_command() );
@@ -196,6 +196,7 @@ class HttpOutSessionTest extends TestCase {
 		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [
 			'code' => 503,
 			'body' => '{"code":"session_store_unavailable","data":{"status":503}}',
+			'redirect' => '',
 		];
 		$logged = [];
 		Core::set_stderr_handler(
@@ -227,7 +228,7 @@ class HttpOutSessionTest extends TestCase {
 		$this->seed_vault( self::SPOKE, [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$captured = [];
 		$this->capture( $captured );
-		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 502, 'body' => '<html>Bad Gateway 8813</html>' ];
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [ 'code' => 502, 'body' => '<html>Bad Gateway 8813</html>', 'redirect' => '' ];
 		$logged = [];
 		Core::set_stderr_handler(
 			static function ( string $message ) use ( &$logged ): void {
@@ -259,6 +260,7 @@ class HttpOutSessionTest extends TestCase {
 		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [
 			'code' => 200,
 			'body' => '{"handle":"handle-without-a-key"}',
+			'redirect' => '',
 		];
 
 		$node = $this->make_node( self::SPOKE );

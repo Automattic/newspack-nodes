@@ -361,23 +361,6 @@ abstract class Durable_Arm extends Cache_Backend {
 	}
 
 	/**
-	 * Insert or replace member rows.
-	 *
-	 * @param list<array{0: string, 1: string, 2: string, 3: int}> $rows Set key,
-	 *        member, tagged bytes, the `expires` column.
-	 */
-	abstract protected function upsert_members( array $rows ): void;
-
-	/**
-	 * Run a write's statements the way this arm holds them together.
-	 *
-	 * @template T
-	 * @param \Closure(): T $work The statements.
-	 * @return T What `$work` returned.
-	 */
-	abstract protected function write_scope( \Closure $work ): mixed;
-
-	/**
 	 * A value as a durable arm stores it: the serializer's tag, then its bytes,
 	 * so a row reads back under whichever serializer is in force later. Its
 	 * size joins bytes().
@@ -448,9 +431,9 @@ abstract class Durable_Arm extends Cache_Backend {
 			function () use ( $set_keys, $limit ): array {
 				$out = [];
 				foreach ( \array_unique( $set_keys ) as $set_key ) {
-					$rows = $this->select_set( $set_key, $limit + 1 );
+					$rows = $this->select_member_rows( $set_key, $limit + 1 );
 					if ( [] !== $rows ) {
-						$out[ $set_key ] = \count( $rows ) > $limit ? null : \array_map( $this->decode( ... ), $rows );
+						$out[ $set_key ] = \count( $rows ) > $limit ? null : $this->decoded( $rows );
 					}
 					unset( $rows );
 				}
@@ -465,15 +448,120 @@ abstract class Durable_Arm extends Cache_Backend {
 	}
 
 	/**
-	 * Up to `$limit` live member rows of one set, lowest member first, by an
-	 * exact set-key seek; one set at a time, so a set past its limit is let
-	 * go before the next is read.
+	 * `SMOVE`: move up to `$count` live members of `$from` into `$to`, lowest
+	 * member first, each keeping its value and expiry. A member already in
+	 * `$to` is replaced. Rows are decoded before the first write, and only the
+	 * members this call deleted from `$from` are answered, so of two callers
+	 * racing for one member, the delete names its owner.
 	 *
-	 * @param string $set_key The set key.
-	 * @param int    $limit   Most rows, at least 2.
-	 * @return array<array-key,string> Member => tagged bytes.
+	 * The writes run in `write_scope()`, which on `Sqlite_Arm` is one
+	 * transaction and on `Wpdb_Arm` is none. On wpdb a racing caller's upsert
+	 * can re-add a member to `$to` after its owner removed it, and a failure
+	 * between the upsert and the delete can leave a member in both sets; each
+	 * costs one extra fetch to whoever drains the set. A move naming one set
+	 * as both `$from` and `$to` upserts its members and then deletes them, so
+	 * the set loses them; `Table_Node::reply_moved()` refuses that case first.
+	 *
+	 * @param string $from  Entry key of the set taken from.
+	 * @param string $to    Entry key of the set moved into.
+	 * @param int    $count Most members to move, at least 1.
+	 * @return array<array-key,mixed>|false Member => value moved; false when the store failed.
 	 */
-	abstract protected function select_set( string $set_key, int $limit ): array;
+	public function move_members( string $from, string $to, int $count ): array|false {
+		if ( $count < 1 || self::refuses_key( $from ) || self::refuses_key( $to ) ) {
+			return [];
+		}
+		return $this->attempt(
+			fn (): array => $this->write_scope(
+				function () use ( $from, $to, $count ): array {
+					$rows = $this->select_member_rows( $from, $count );
+					if ( [] === $rows ) {
+						return [];
+					}
+					$values = $this->decoded( $rows );
+					$this->upsert_members( \array_map( static fn ( array $row ): array => [ $to, $row[0], $row[1], $row[2] ], $rows ) );
+					$gone = $this->delete_members( $from, \array_column( $rows, 0 ) );
+					return \array_intersect_key( $values, \array_flip( $gone ) );
+				}
+			),
+			false
+		);
+	}
+
+	/**
+	 * Insert or replace member rows.
+	 *
+	 * @param list<array{0: string, 1: string, 2: string, 3: int}> $rows Set key,
+	 *        member, tagged bytes, the `expires` column.
+	 */
+	abstract protected function upsert_members( array $rows ): void;
+
+	/**
+	 * Member rows as member => decoded value, every row decoded.
+	 *
+	 * @param list<array{0:string,1:string,2:int}> $rows [ member, bytes, expires ].
+	 * @return array<array-key,mixed>
+	 */
+	private function decoded( array $rows ): array {
+		$out = [];
+		foreach ( $rows as [ $member, $bytes ] ) {
+			$out[ $member ] = $this->decode( $bytes );
+		}
+		return $out;
+	}
+
+	/**
+	 * Up to `$limit` live rows of one set in member order, raw stored bytes.
+	 *
+	 * @param string $set_key Entry key of the set.
+	 * @param int    $limit   Most rows.
+	 * @return list<array{0:string,1:string,2:int}> [ member, bytes, expires ].
+	 */
+	abstract protected function select_member_rows( string $set_key, int $limit ): array;
+
+	/**
+	 * `SREM`: delete the named members of one set. An expired member the
+	 * purge has not yet reclaimed counts as there.
+	 *
+	 * @param string       $set_key Entry key of the set.
+	 * @param list<string> $members Members to delete.
+	 * @return list<string>|false The members that were there; false when the store failed.
+	 */
+	public function remove_members( string $set_key, array $members ): array|false {
+		if ( [] === $members || self::refuses_key( $set_key ) ) {
+			return [];
+		}
+		return $this->attempt( fn (): array => $this->write_scope( fn (): array => $this->delete_members( $set_key, $members ) ), false );
+	}
+
+	/**
+	 * Delete members of one set; the ones that were there.
+	 *
+	 * @param string       $set_key Entry key of the set.
+	 * @param list<string> $members Members.
+	 * @return list<string>
+	 */
+	private function delete_members( string $set_key, array $members ): array {
+		return $this->taking( $members, fn ( string $member ): bool => $this->delete_member( $set_key, $member ) > 0 );
+	}
+
+	/**
+	 * Delete one member of one set.
+	 *
+	 * @param string $set_key Entry key of the set.
+	 * @param string $member  Member.
+	 * @return int Rows deleted.
+	 */
+	abstract protected function delete_member( string $set_key, string $member ): int;
+
+	/**
+	 * Run a write's statements the way this arm holds them together.
+	 *
+	 * @template T
+	 * @param \Closure(): T $work The statements.
+	 * @return T What `$work` returned.
+	 */
+	abstract protected function write_scope( \Closure $work ): mixed;
 
 	/**
 	 * Each live row among `$keys` with the life it has left, in one read: the

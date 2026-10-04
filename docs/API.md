@@ -1094,9 +1094,20 @@ emits a copy of the input message, FROM, ID and KEY intact and TO stamped from
 status 400, and otherwise a TM_ERROR whose VALUE opens with a fixed prefix a
 consumer can match.
 
+A fetch follows redirects, up to `MAX_REDIRECTS`. `follow_redirects( false )`
+turns that off for one node, and is a method rather than a positional because
+the optional `vault_id` has no empty placeholder. Following none, a fetch sets
+`CURLOPT_FOLLOWLOCATION` off, and a 3xx naming a Location answers a
+TM_RESPONSE copy whose VALUE is that Location, absolute as libcurl reports it
+(`CURLINFO_REDIRECT_URL`).
+
+| TYPE | VALUE | When |
+|---|---|---|
+| TM_RESPONSE | `<absolute url>` | Following no redirects, the status is 300-399 and names a Location. |
+
 | VALUE | When |
 |---|---|
-| `HTTP <code> <url>` | The response's status is 400 or more. |
+| `HTTP <code> <url>` | The response's status is 400 or more, or, following no redirects, 300-399 with no Location. |
 | `curl error <n> (<curl_strerror>) <url>` | The transfer failed: a timeout, a refused connection, a redirect past the limit or a scheme outside it, or the body cap's short write. |
 | `invalid url <value>` | VALUE is not an absolute http(s) url with a host, nor a `/path` under a vault id. |
 | `no vault entry <id>` | The vault id names no server. |
@@ -1116,12 +1127,108 @@ vault id a `/path` joins the server's url and the server's credential rides as
 port or scheme. Every fetch, vault id or not, verifies TLS as `vault_verify_ssl`
 says, through `Vault::tls_opts()`.
 
+`Curl_Node::origin_of()` and `DEFAULT_PORTS` are public: [`Crawler_Node`](#crawler_node--one-site-link-by-link)
+reads a link's origin and default port through them, so a link is kept by the
+rule a fetch is held to. `transfers_in_flight()` is public too: the crawler
+sizes each refill by Curl's own count.
+
 | Constant | Value | Bounds |
 |---|---|---|
 | `MAX_IN_FLIGHT` | 16 | Transfers one node runs at once. |
 | `REQUEST_TIMEOUT` | 30 seconds | One fetch, redirects included, as `CURLOPT_TIMEOUT`. |
 | `MAX_REDIRECTS` | 5 | `CURLOPT_MAXREDIRS`, with `CURLOPT_PROTOCOLS` and `CURLOPT_REDIR_PROTOCOLS` both http and https alone, or https alone under a vault id while `vault_require_ssl` is set. |
 | `MAX_REPLY_BYTES` | 8388608 (8 MiB) | One response body, buffered into the PHP heap. |
+
+### `Crawler_Node` — one site, link by link
+
+[`Crawler_Node`](../includes/class-crawler-node.php) crawls one site. It
+fetches each url through a [`Curl_Node`](#curl_node--any-https-url) it owns,
+which follows no redirect, follows the same-origin links every page carries
+and the same-origin Location every redirect names, and sends each answer to
+`target`. `make_node Crawler <name> <ttl> [vault_id]`: `ttl` is a whole number
+of seconds, at least 1, that a url counts as seen, so a url may be crawled
+again once it expires; `vault_id` goes to the Curl sibling, and a seed must
+then be on that Vault server's origin or Curl answers a TM_ERROR. It extends
+`Timer_Node` and refills on a recurring one-second tick.
+
+The crawler owns two siblings, built when its arguments arrive and torn down
+with it:
+
+| Sibling | Node | Wiring |
+|---|---|---|
+| `{name}:curl` | `Curl_Node [vault_id]`, `follow_redirects( false )` | Its sink is the crawler's own sink; its target is the crawler, so every answer comes back TO the crawler's name. |
+| `{name}:seen` | `Table {name}:seen <name> <ttl> sqlite` | Its sink is the crawler's own sink; it answers the crawler's `Table_Client`. The second `<name>` is the Table's namespace and its file stem. |
+
+The Table keeps a key per url seen, written with `ADD` under the `ttl`, and
+two sets: `pending`, the frontier, and `inflight`, the urls handed to Curl and
+not yet answered. A url in either set lives `FRONTIER_TTL`, one year, however
+short the `ttl`, so a frontier waiting longer than the `ttl` keeps its urls.
+When `pending` takes none of the urls an `ADD` reported new, their seen keys
+are removed again with `RM`, and one rate-limited line says so, so a later
+sighting finds them new.
+Its sqlite file is `{base}/tables/{name}.p{N}.sqlite`, so the crawler must be
+built where a `<partition>` is bound, as a topology load binds it; built
+anywhere else it throws `Table_Unavailable`, `Table <name>: a sqlite backend needs a bound partition`.
+
+| Message | What the crawler does |
+|---|---|
+| A TM_BYTESTREAM whose FROM is not the crawler's name (a seed) | Its trimmed VALUE must be an absolute http(s) url with a host and no whitespace. A url that is not draws the TM_ERROR below. A valid one is normalized exactly as a link is, resolved against itself, so `HTTP://Example.com#top` and a page's link to `/` are one url; it is `ADD`ed, joins `pending` when the Table reports it new, and is skipped when seen within the `ttl`. Then the crawler refills. |
+| A TM_BYTESTREAM, TM_RESPONSE or TM_ERROR whose FROM is the crawler's name (Curl's answer) | The url fetched is its KEY. A body's same-origin links, or a redirect's Location resolved against KEY and kept only on KEY's origin, are `ADD`ed and the new ones join `pending`; the answer goes to `target` unchanged, an off-site redirect included; the url leaves `inflight`, last, so a forward that throws leaves it for the next start to fetch again; and the crawler refills. |
+| A reply from the `{name}:seen` Table | Collected by the crawler's `Table_Client`. |
+| Anything else | Dropped with one rate-limited line. |
+
+A refill moves up to `Curl_Node::MAX_IN_FLIGHT` (16) less Curl's
+`transfers_in_flight()` from `pending` to `inflight` in one `SMOVE`. An answer
+Curl sends synchronously, a refusal such as `curl_init failed`, refills
+nothing, so its slot waits for the next tick; an answer that completes later
+refills on its own. It hands
+each url moved to Curl as a TM_BYTESTREAM whose VALUE and KEY are the url and
+whose FROM is the crawler's name, which Curl copies into its answer. It runs
+only inside a drain loop, and moves nothing while a recovery is owed. The
+first refill after the node is built moves everything left in `inflight`
+back to `pending`, `Table_Node::MAX_MEMBERS_LIMIT` at a time, so a restart
+fetches again what the last process had in flight; a move the Table does not
+answer retries on the next tick. A rename builds a new Curl sibling, since the
+old one's answers carry the old name, and recovery fetches its urls again.
+
+A 3xx answers a TM_RESPONSE whose VALUE is the absolute Location, KEY the url
+fetched. The crawler discovers that Location by the rule a link meets,
+resolved, normalized and kept only on the fetched url's origin, so a redirect
+to another host, scheme or port is forwarded to `target` and not followed. A
+seed on `http://` that redirects to `https://` leaves its origin, so seed the
+final url.
+
+The crawler sends one TM_ERROR of its own:
+
+| VALUE | When |
+|---|---|
+| `invalid url <value>` | A seed's trimmed VALUE is not an absolute http(s) url with a host, holds whitespace or carries userinfo (`https://u:p@host/`). |
+
+It is a copy of the seed with its whole TYPE replaced by TM_ERROR, sent to
+`target`. Every TM_ERROR Curl answers (see [`Curl_Node`](#curl_node--any-https-url))
+reaches `target` as well, KEY set to the url. An answered url is done, TM_ERROR
+included: it is never retried, so a permanent 404 cannot loop, and it is not
+fetched again until its `ttl` expires.
+
+`Crawler_Node::links( $html, $page_url )` reads a page's links. It parses the
+body with `\DOMDocument::loadHTML()` and takes every `<a href>`, resolving each
+against the first `<base href>` or else the page url by RFC 3986 section 5.2:
+dot segments removed, the fragment dropped, an empty path read as `/` and a
+default port dropped. A link is kept when its origin, from the public
+`Curl_Node::origin_of()`, equals the page's: the same scheme, host and
+effective port. A link that is not http(s), carries userinfo or holds
+whitespace is skipped, and each url is returned once, in document order.
+
+One Crawler runs per name per host: its Table's namespace and file are its
+name, so two workers running one crawler share the file and re-queue each
+other's `inflight`. It honors no robots.txt, keeps no depth limit, checks no
+content type and retries nothing; the `ttl` and the same-origin rule bound the
+crawl.
+
+| Constant | Value | Bounds |
+|---|---|---|
+| `TICK_MS` | 1000 | The refill tick, which also carries the first tick's recovery. |
+| `FRONTIER_TTL` | 31536000 (one year) | How long a url waits in `pending` or `inflight`. |
 
 ## Extensibility hooks
 

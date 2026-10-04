@@ -318,7 +318,7 @@ final class SqliteArmTest extends TestCase {
 		foreach ( \array_keys( $read['word:w17'] ) as $member ) {
 			$this->assertStringStartsWith( 'https://kea.example/17/', (string) $member );
 		}
-		$sql  = ( new \ReflectionClassConstant( Sqlite_Arm::class, 'MEMBERS_READ' ) )->getValue();
+		$sql  = ( new \ReflectionClassConstant( Sqlite_Arm::class, 'MEMBERS_ROWS' ) )->getValue();
 		$plan = ( new \PDO( 'sqlite:' . $this->path() ) )->prepare( "EXPLAIN QUERY PLAN {$sql}" );
 		$plan->execute( [ 'word:w17', 1, 7 ] );
 		$detail = \implode( "\n", \array_column( $plan->fetchAll( \PDO::FETCH_ASSOC ), 'detail' ) );
@@ -625,5 +625,22 @@ final class SqliteArmTest extends TestCase {
 		$this->assertSame( [], $arm->delete_multi( [ 'sku-41', 'sku-43' ] ) );
 		$this->assertMatchesRegularExpression( '/no 43$/', $arm->last_failure() );
 		$this->assertSame( [ 'sku-41', 'sku-43' ], ( new \PDO( 'sqlite:' . $this->path() ) )->query( 'SELECT "key" FROM kv ORDER BY "key"' )->fetchAll( \PDO::FETCH_COLUMN ), 'sku-41 rolled back with the batch' );
+	}
+
+	public function test_a_member_removed_between_the_select_and_the_delete_is_not_returned_as_moved(): void {
+		$arm = new Sqlite_Arm( $this->path(), 'kea:p3' );
+		$arm->add_members( [ 'pend-5521' => [ [ 'm-a' => 'va-1', 'm-b' => 'vb-2' ], 600 ] ] );
+		( new \PDO( 'sqlite:' . $this->path() ) )->exec( "CREATE TRIGGER rival AFTER INSERT ON members WHEN new.set_key = 'fly-5521' AND new.member = 'm-a' BEGIN DELETE FROM members WHERE set_key = 'pend-5521' AND member = 'm-a'; END" );
+		$this->assertSame( [ 'm-b' => 'vb-2' ], $arm->move_members( 'pend-5521', 'fly-5521', 2 ), 'the rival that deleted m-a owns it' );
+	}
+
+	public function test_a_poison_member_row_fails_a_move_with_nothing_moved(): void {
+		$arm = new Sqlite_Arm( $this->path(), 'kea:p3' );
+		$arm->add_members( [ 'pend-5522' => [ [ 'm-b' => 'vb-2' ], 600 ] ] );
+		( new \PDO( 'sqlite:' . $this->path() ) )->exec( "INSERT INTO members VALUES ( 'pend-5522', 'm-a', 'zz-not-tagged', 1999999999 )" );
+		$this->assertFalse( $arm->move_members( 'pend-5522', 'fly-5522', 2 ) );
+		$this->assertStringContainsString( 'undecodable row', $arm->last_failure() );
+		$this->assertSame( [], $arm->members( [ 'fly-5522' ], 9 ) );
+		$this->assertFalse( $arm->members( [ 'pend-5522' ], 9 ), 'the poison row and its neighbour are still in the source' );
 	}
 }

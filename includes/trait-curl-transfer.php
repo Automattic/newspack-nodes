@@ -35,9 +35,11 @@ trait Curl_Transfer {
 	 * so the classification and the forwarding run as real production code
 	 * without a network transfer.
 	 *
-	 * Signature: `function ( \CurlHandle $easy ): array{code:int,body:string}`.
+	 * Signature: `function ( \CurlHandle $easy ): array{code:int,body:string,redirect:string}`,
+	 * `redirect` the absolute Location libcurl reports for a 3xx it did not
+	 * follow, '' for none.
 	 *
-	 * @var (\Closure(\CurlHandle): array{code:int,body:string})|null
+	 * @var (\Closure(\CurlHandle): array{code:int,body:string,redirect:string})|null
 	 */
 	public static ?\Closure $curl_result = null;
 
@@ -93,15 +95,18 @@ trait Curl_Transfer {
 	public function on_curl_done( \CurlHandle $handle, int $result, mixed $transfer ): void {
 		--$this->in_flight;
 		$response = [
-			'code' => 0,
-			'body' => '',
+			'code'     => 0,
+			'body'     => '',
+			'redirect' => '',
 		];
 		if ( \CURLE_OK === $result ) {
-			$read     = self::$curl_result ?? static fn ( \CurlHandle $easy ): array => [
-				// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_getinfo
-				'code' => \curl_getinfo( $easy, \CURLINFO_HTTP_CODE ),
-				'body' => ( $transfer['body'] )(),
+			// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_getinfo
+			$read = self::$curl_result ?? static fn ( \CurlHandle $easy ): array => [
+				'code'     => \curl_getinfo( $easy, \CURLINFO_HTTP_CODE ),
+				'body'     => ( $transfer['body'] )(),
+				'redirect' => Core::as_string( \curl_getinfo( $easy, \CURLINFO_REDIRECT_URL ) ),
 			];
+			// phpcs:enable
 			$response = $read( $handle );
 		}
 		$this->on_transfer_done( $result, $response, $transfer['context'] );
@@ -111,7 +116,7 @@ trait Curl_Transfer {
 	 * Act on one finished transfer.
 	 *
 	 * @param int                         $result   The transfer's CURLE_* code.
-	 * @param array{code:int,body:string} $response Its status and body; zero and '' unless CURLE_OK.
+	 * @param array{code:int,body:string,redirect:string} $response Its status, body and unfollowed Location; zero and '' unless CURLE_OK.
 	 * @param TContext                    $context  What `start_transfer()` was handed.
 	 */
 	abstract protected function on_transfer_done( int $result, array $response, mixed $context ): void;
@@ -119,8 +124,10 @@ trait Curl_Transfer {
 	/**
 	 * How many transfers this node has in flight, kept as a count so a check
 	 * per fill costs nothing.
+	 *
+	 * @api Crawler_Node
 	 */
-	protected function transfers_in_flight(): int {
+	public function transfers_in_flight(): int {
 		return $this->in_flight;
 	}
 
