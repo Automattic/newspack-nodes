@@ -36,6 +36,9 @@ final class Crawler_Node extends Timer_Node {
 	/** Refill tick, in ms; the first tick also recovers `inflight`. */
 	public const TICK_MS = 1000;
 
+	/** Sibling kind of the Table that holds the seen keys and the frontier. */
+	private const SEEN = 'seen';
+
 	/** The frontier set: URLs discovered and not yet fetched. */
 	private const PENDING = 'pending';
 
@@ -144,8 +147,9 @@ final class Crawler_Node extends Timer_Node {
 		$seen->patron( $this );
 		try {
 			$this->curl = $this->publish_curl();
-			$this->publish_sibling( 'seen', $seen );
-			$seen->arguments( [ $this->name, (string) $this->ttl, 'sqlite' ] );
+			$this->publish_sibling( self::SEEN, $seen );
+			$table = self::seen_table( $this->name, (string) $this->ttl );
+			$seen->arguments( \array_values( $table['table'] ) );
 		} catch ( \Throwable $e ) {
 			$this->drop_siblings();
 			throw $e;
@@ -153,11 +157,31 @@ final class Crawler_Node extends Timer_Node {
 		$seen->sink( $this->sink );
 	}
 
+	/**
+	 * The `{name}:seen` Table a Crawler named `$name` builds, as the analyzer
+	 * declares and claims it without building a node: its name, and the
+	 * namespace, ttl and backend its arguments carry, in that order.
+	 *
+	 * @param string $name Crawler name.
+	 * @param string $ttl  Seconds a url counts as seen, as written.
+	 * @return array{name: string, table: array{namespace: string, ttl: string, backend: string}}
+	 */
+	public static function seen_table( string $name, string $ttl ): array {
+		return [
+			'name'  => self::sibling_name_of( $name, self::SEEN ),
+			'table' => [
+				'namespace' => $name,
+				'ttl'       => $ttl,
+				'backend'   => 'sqlite',
+			],
+		];
+	}
+
 	/** Disarm and tear both siblings down. */
 	private function drop_siblings(): void {
 		$this->stop_timer();
 		$this->drop_curl();
-		$this->retract_sibling( 'seen' );
+		$this->retract_sibling( self::SEEN );
 	}
 
 	/**
@@ -215,7 +239,7 @@ final class Crawler_Node extends Timer_Node {
 			$this->discover( self::location( $value, $url ) );
 		}
 		parent::fill( $message );
-		$this->tables->remove_members( $this->sibling_name( 'seen' ), self::INFLIGHT, [ $url ] );
+		$this->tables->remove_members( $this->sibling_name( self::SEEN ), self::INFLIGHT, [ $url ] );
 		$this->refill();
 	}
 
@@ -227,7 +251,7 @@ final class Crawler_Node extends Timer_Node {
 	 * @param list<string> $urls Absolute urls.
 	 */
 	private function discover( array $urls ): void {
-		$table = $this->sibling_name( 'seen' );
+		$table = $this->sibling_name( self::SEEN );
 		$new   = $this->tables->add_multi( $table, \array_fill_keys( $urls, [ '1' ] ) );
 		if ( [] === $new || [] !== $this->tables->add_members( $table, [ self::PENDING => \array_fill_keys( $new, 1 ) ], self::FRONTIER_TTL ) ) {
 			return;
@@ -263,7 +287,7 @@ final class Crawler_Node extends Timer_Node {
 			if ( $free < 1 ) {
 				return;
 			}
-			foreach ( $this->tables->move_members( $this->sibling_name( 'seen' ), self::PENDING, self::INFLIGHT, $free ) as $url ) {
+			foreach ( $this->tables->move_members( $this->sibling_name( self::SEEN ), self::PENDING, self::INFLIGHT, $free ) as $url ) {
 				$curl->fill( $this->fetch_message( $url ) );
 			}
 		} finally {
@@ -278,7 +302,7 @@ final class Crawler_Node extends Timer_Node {
 	 *              leaves it for the next tick.
 	 */
 	private function recover(): bool {
-		$table = $this->sibling_name( 'seen' );
+		$table = $this->sibling_name( self::SEEN );
 		do {
 			$moved = \count( $this->tables->move_members( $table, self::INFLIGHT, self::PENDING, Table_Node::MAX_MEMBERS_LIMIT, $failed ) );
 			if ( $failed ) {

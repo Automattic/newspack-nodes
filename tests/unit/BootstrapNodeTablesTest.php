@@ -52,6 +52,7 @@ final class BootstrapNodeTablesTest extends TestCase {
 		$this->write_tsl( 'emu-b', "var num_partitions = 2\nmake_node Table lab-7:emu emu:<topology>:p<partition> 37 wpdb\n" );
 		$this->write_tsl( 'ibis-bare', "var num_partitions = 2\nmake_node Table lab-7:ibis ibis:p<partition> 37\n" );
 		$this->write_tsl( 'ibis-spelled', "var num_partitions = 3\nmake_node Table lab-7:ibis ibis:p<partition> 37 auto\n" );
+		$this->write_tsl( 'crawl-a', "var num_partitions = 2\nmake_node Crawler crawl-8821 4407\n" );
 		$this->write_tsl( 'yak-a', "make_node Table lab-7:yak yak:p<partition> 3x7 wpdb\n" );
 		$this->write_tsl( 'yak-zero', "make_node Table lab-7:yak yak:p<partition> 0 wpdb\n" );
 		$this->write_tsl( 'yak-negative', "make_node Table lab-7:yak yak:p<partition> -3 wpdb\n" );
@@ -104,6 +105,19 @@ final class BootstrapNodeTablesTest extends TestCase {
 				],
 			],
 			Bootstrap::node_tables( 'lab-7:kea' )
+		);
+	}
+
+	public function test_a_crawler_s_seen_table_resolves_per_partition(): void {
+		$this->activate( 'crawl-a' );
+		$this->assertSame(
+			[
+				'crawl-8821:seen' => [
+					0 => [ 'namespace' => 'crawl-8821', 'ttl' => 4407, 'backend' => 'sqlite' ],
+					1 => [ 'namespace' => 'crawl-8821', 'ttl' => 4407, 'backend' => 'sqlite' ],
+				],
+			],
+			Bootstrap::node_tables( 'crawl-8821:seen' )
 		);
 	}
 

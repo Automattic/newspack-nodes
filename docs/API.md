@@ -1221,7 +1221,9 @@ whitespace is skipped, and each url is returned once, in document order.
 
 One Crawler runs per name per host: its Table's namespace and file are its
 name, so two workers running one crawler share the file and re-queue each
-other's `inflight`. It honors no robots.txt, keeps no depth limit, checks no
+other's `inflight`. `Topology_Analyzer` claims that file in the write set, so
+two active topologies declaring one crawler conflict, and lists the Table in
+`declared_tables()`. It honors no robots.txt, keeps no depth limit, checks no
 content type and retries nothing; the `ttl` and the same-origin rule bound the
 crawl.
 
