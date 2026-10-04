@@ -131,7 +131,7 @@ TSL;
 		$this->assertSame( $written['spans'], $derived['spans'] );
 		$this->assertContains( 'offsetlog:<config:offsets_dir>/my cursor.tw9.p<partition>', Topology_Analyzer::write_set( 'pull-lab' ) );
 		$nodes = \array_column( Topology_Analyzer::graph_for( 'pull-lab' )['nodes'], null, 'name' );
-		$this->assertSame( [ 'tw9', "'fire hose.p<partition>'", "'<config:offsets_dir>/my cursor.tw9.p<partition>'" ], $nodes['firehose:tw9']['args'] );
+		$this->assertSame( [ 'tw9', 'fire hose.p<partition>', '<config:offsets_dir>/my cursor.tw9.p<partition>' ], $nodes['firehose:tw9']['args'] );
 	}
 
 	public function test_a_derived_record_reads_like_a_written_one(): void {

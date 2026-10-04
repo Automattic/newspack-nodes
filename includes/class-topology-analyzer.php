@@ -281,10 +281,11 @@ class Topology_Analyzer {
 	/**
 	 * Raw structural graph for `$name` from its TSL (+ every topology it
 	 * `include`s, flattened via statements()): nodes with a class-derived kind,
-	 * the make_node `type` token + positional `args` list, (+ the log a
-	 * Partition/Topic writes or a Consumer reads, from the path/source ARG — never
-	 * a name suffix; + a remote link's `vault_id` and `remote_partition`, found
-	 * by schema name), and edges from `connect_node` plus
+	 * the make_node `type` token and positional `args` list, quotes stripped as
+	 * the runtime binds them (+ the log a Partition/Topic writes or a Consumer
+	 * reads, from the path/source ARG — never a name suffix; + a remote link's
+	 * `vault_id` and `remote_partition`, found by schema name), and edges from
+	 * `connect_node` plus
 	 * `command_node <node>:config set_*target <target>`, with `disconnect_node` applied
 	 * in evaluation order. A broken include throws — the walk's memoized
 	 * failure, re-raised to every caller — rather than answering an empty
@@ -314,35 +315,32 @@ class Topology_Analyzer {
 		foreach ( self::statements( $name )['statements'] as $statement ) {
 			$verb   = $statement['verb'];
 			$values = $statement['values'];
-			$spans  = $statement['spans'];
 			if ( 'make_node' === $verb ) {
 				$class          = $values[1] ?? '';
 				$node_name      = $values[2] ?? '';
 				$kind           = self::node_kind( $class );
 				$types[ $node_name ] = $class;
-				// Spans 3.. = positional args; a CI reads the node's config.
-				$path   = $spans[3] ?? null;
+				// Values 3.. = positional args, as the runtime binds them.
+				$path   = $values[3] ?? null;
 				$node   = [
 					'name' => $node_name,
 					'kind' => $kind,
 					'type' => $class,
-					'args' => \array_slice( $spans, 3 ),
+					'args' => \array_slice( $values, 3 ),
 				];
 				if ( ( 'partition' === $kind || 'topic' === $kind ) && null !== $path ) {
 					$node['writes'] = $basename( $path );
 				} elseif ( 'consumer' === $kind && null !== $path ) {
 					$node['reads'] = $basename( $path );
-					// span 4 = consumer's READER id; disambiguates source.
-					if ( isset( $spans[4] ) ) {
-						$node['reader'] = $basename( $spans[4] );
+					// Value 4 = offsetlog_dir; its basename is the reader id.
+					if ( isset( $values[4] ) ) {
+						$node['reader'] = $basename( $values[4] );
 					}
 				} elseif ( 'log' === $kind && null !== $path ) {
-					// Carry raw path + sizes so dump_graph stats flat segments.
+					// Carry path + size so dump_graph stats flat segments.
 					$node['writes']       = $basename( $path );
 					$node['path']         = $path;
-					$node['segment_size'] = isset( $spans[4] ) && \ctype_digit( $spans[4] ) ? (int) $spans[4] : 0;
-					// Count target = num_segments, span 6 of Log args.
-					$node['max_segments'] = isset( $spans[6] ) && \ctype_digit( $spans[6] ) ? (int) $spans[6] : 0;
+					$node['segment_size'] = self::literal_segment_size( $values ) ?? 0;
 				}
 				$link = Command_Interpreter_Node::resolve_class( $class );
 				if ( null !== $link && \is_a( $link, Remote_Link_Node::class, true ) ) {
@@ -1056,14 +1054,14 @@ class Topology_Analyzer {
 			if ( 'make_node' !== $statement['verb'] || ! self::type_is( $values[1] ?? '', Partition_Node::class ) ) {
 				continue;
 			}
-			$size = $values[4] ?? '';
-			if ( ! \ctype_digit( $size ) ) {
+			$size = self::literal_segment_size( $values );
+			if ( null === $size ) {
 				continue;
 			}
 			foreach ( self::expand_template( $values[3] ?? '', $name, $num_partitions ) as $concrete ) {
 				$dir = Core::first_level_dir( $concrete, $logs_root );
 				if ( '' !== $dir ) {
-					$overrides[ $dir ] = (int) $size;
+					$overrides[ $dir ] = $size;
 				}
 			}
 		}
@@ -1094,6 +1092,18 @@ class Topology_Analyzer {
 			}
 		}
 		return $paths;
+	}
+
+	/**
+	 * A Partition-family line's `segment_size`, when it is written as a literal
+	 * byte count; a token or an omitted argument takes the configured default.
+	 *
+	 * @param list<string> $values A `make_node` statement's values.
+	 * @return int|null Bytes, or null when the line names no literal size.
+	 */
+	private static function literal_segment_size( array $values ): ?int {
+		$size = $values[4] ?? '';
+		return \ctype_digit( $size ) ? (int) $size : null;
 	}
 
 	/**
