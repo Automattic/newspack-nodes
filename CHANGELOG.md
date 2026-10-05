@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.91.0] - 2026-10-05
+
 ### Added
 
 - **`FetcherNode#answers( reply )` says whether a reply is still wanted, and `asks( path, args )` whether a question stands.** A reply answers the ask carrying its remaining TO as the path (null for none) and exactly the tokens it echoes, compared one by one as both interpreters echo them, so `[ 'a b' ]` is not `[ 'a', 'b' ]`; a reply echoing none answers nothing. The slice's gate reads `answers()`, and `useCommandOnce` reads `asks()`.
