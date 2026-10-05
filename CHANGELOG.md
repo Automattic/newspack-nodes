@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.92.0] - 2026-10-05
+
 ### Added
 
 - **`AreaTimeChart` reports a plain click's slot.** An optional `onSlotClick( index )` receives the nearest slot's index into `series[0].values`, through the same prop on `setupTooltip`; a chart given no callback does nothing on a plain click. `isDragSelection( event )`, exported from `useChartExpand.js`, is the one test both click handlers use to skip the click ending a drag-selection.
