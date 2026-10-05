@@ -54,8 +54,8 @@ class Table_Node extends Node {
 	/**
 	 * Most members one SMEMBERS answers for a set before it answers OVER_LIMIT:
 	 * a ceiling on what a read through a mount may cost, as the arm reads one
-	 * row past it, set at twice the largest reader's need, event-logger-nodes'
-	 * URL search, which shows at most 5,000.
+	 * row past it, set at the largest reader's need, event-logger-nodes'
+	 * bucket page, which reads 10,000.
 	 */
 	public const MAX_MEMBERS_LIMIT = 10000;
 

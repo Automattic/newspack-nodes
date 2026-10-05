@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useRef } from '@wordpress/element';
 import * as d3 from 'd3';
 
+import { isDragSelection } from './useChartExpand';
 import { useContainerRefit } from './useContainerRefit';
 
 /**
@@ -271,7 +272,9 @@ export const drawAxes = ( g, { x, y, innerH, tickCount, yFormat, yLabel } ) => {
 
 /**
  * Bind the hover: a highlight column on the nearest bucket, and a tooltip
- * listing that bucket's rows.
+ * listing that bucket's rows. A plain click on the plot hands that bucket's
+ * index to `onSlotClick`; a shift+click, which resizes the chart, and the
+ * click ending a drag-selection report nothing.
  *
  * A transparent rectangle over the whole plot takes the pointer, so every
  * column is hoverable, the empty ones included. The move handler records the
@@ -285,16 +288,17 @@ export const drawAxes = ( g, { x, y, innerH, tickCount, yFormat, yLabel } ) => {
  * panel on a long dashboard from opening its tooltip off-screen. Flipped, it
  * clears the row's title too, since the wrapper is what it measures against.
  *
- * @param {Object}         g                    D3 group selection (inner chart area).
- * @param {Object}         params               Configuration.
- * @param {number}         params.innerW        Chart inner width.
- * @param {number}         params.innerH        Chart inner height.
- * @param {Array}          params.dates         One `Date` per slot, ascending; the hover snaps to the nearest.
- * @param {Object}         params.x             D3 x scale over `dates`.
- * @param {EntryFormatter} params.formatEntry   Rows to list for the hovered slot.
- * @param {Object}         params.tooltipRef    React ref to tooltip div.
- * @param {Object}         params.lastMouseXRef React ref tracking mouse x.
- * @param {Object}         params.containerRef  React ref to container div.
+ * @param {Object}                    g                    D3 group selection (inner chart area).
+ * @param {Object}                    params               Configuration.
+ * @param {number}                    params.innerW        Chart inner width.
+ * @param {number}                    params.innerH        Chart inner height.
+ * @param {Array}                     params.dates         One `Date` per slot, ascending; the hover snaps to the nearest.
+ * @param {Object}                    params.x             D3 x scale over `dates`.
+ * @param {EntryFormatter}            params.formatEntry   Rows to list for the hovered slot.
+ * @param {Object}                    params.tooltipRef    React ref to tooltip div.
+ * @param {Object}                    params.lastMouseXRef React ref tracking mouse x.
+ * @param {Object}                    params.containerRef  React ref to container div.
+ * @param {( index: number ) => void} [params.onSlotClick] Takes the clicked slot's index into `dates`.
  */
 export const setupTooltip = (
 	g,
@@ -307,6 +311,7 @@ export const setupTooltip = (
 		tooltipRef,
 		lastMouseXRef,
 		containerRef,
+		onSlotClick,
 	}
 ) => {
 	const bucketWidth = innerW / dates.length;
@@ -325,12 +330,15 @@ export const setupTooltip = (
 
 	const tooltip = tooltipRef.current;
 
-	const showTooltip = ( mx ) => {
+	const slotAt = ( mx ) => {
 		const dateAtMouse = x.invert( mx );
 		const i1 = Math.min( bisect( dates, dateAtMouse ), dates.length - 1 );
 		const i0 = Math.max( 0, i1 - 1 );
-		const idx =
-			dateAtMouse - dates[ i0 ] < dates[ i1 ] - dateAtMouse ? i0 : i1;
+		return dateAtMouse - dates[ i0 ] < dates[ i1 ] - dateAtMouse ? i0 : i1;
+	};
+
+	const showTooltip = ( mx ) => {
+		const idx = slotAt( mx );
 		const xPos = x( dates[ idx ] );
 
 		highlight.attr( 'x', xPos - bucketWidth / 2 ).attr( 'opacity', 1 );
@@ -396,7 +404,16 @@ export const setupTooltip = (
 				showTooltip( lastMouseXRef.current );
 			} );
 		} )
-		.on( 'mouseleave', hideTooltip );
+		.on( 'mouseleave', hideTooltip )
+		.on( 'click', ( event ) => {
+			if (
+				onSlotClick &&
+				! event.shiftKey &&
+				! isDragSelection( event )
+			) {
+				onSlotClick( slotAt( d3.pointer( event )[ 0 ] ) );
+			}
+		} );
 
 	// Restore the hover this redraw would otherwise have dropped.
 	if ( lastMouseXRef.current !== null ) {
