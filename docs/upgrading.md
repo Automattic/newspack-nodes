@@ -6,6 +6,26 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **A reply settles a `Fetcher` ask by its path AND its echoed arguments.**
+  A reply echoing `VALUE.arguments` settles the ask with its remaining TO as
+  the path and exactly those tokens; one echoing none settles the first ask
+  on its path, as every reply did before. So a reply to a different question
+  on the same address, such as a send minted straight from the receiver,
+  settles nothing.
+- **`FetcherNode#isAsking( path )` is removed.** Read `answers( reply )` to
+  judge whether a reply is still wanted, `asks( path, args )` for whether a
+  question stands, or `fetcher.outbox.some( ( ask ) => ask.path === path )` to
+  know whether a subject still waits.
+- **Every `addSliceFetcher` slice is gated.** It inserts a `Current` gate named
+  `<receiver>:current` ahead of the transform or view, so delete any node that
+  compares a reply's arguments to the Fetcher's `outbox`. The receiver Tee's
+  first target is the gate, not the transform or view. A transform no longer
+  sees a TM_ERROR, which the gate sends to the view, so delete a transform's
+  own pass-through. A send minted straight from a slice's receiver reaches its
+  view only when the Fetcher asked the same question; mint it from a receiver
+  of its own. Ask a question at once with `fetcher.askNow( args )` rather than
+  `send( args, path, true )` followed by a trigger, and pass no path when the
+  arguments identify the question.
 - **`Cache_Backend::move_salt()` is public.** It rotates the cache salt
   without asking the fleet to restart, for a process no worker serves, such as
   a consumer's test suite flushing its own keys between tests. `rotate_salt()`

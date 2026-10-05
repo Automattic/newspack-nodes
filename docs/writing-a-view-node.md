@@ -100,10 +100,10 @@ alone. A folded row unmounts and takes its departures with it.
 
 ## 3 routing facts
 
-![A slice drawn three ways, every node named <subject>:<role>. A polled slice runs <subject>:timer, :tee and :fetch, which sends the verb to the server CI with FROM = <subject>:in; the reply comes back TO = FROM to the :in receiver Tee, through an optional :transform, to the :view, which publishes its view field with setField( 'view', … ) for the React widget's useNodeField. A one-shot, useCommandOnce under the default scope <ci>:<command>, runs vault:add:fetch, vault:add:in and vault:add:result, a CommandResultNode. A stream, useStreamGraph under a prefix, runs <prefix>:link (a RemoteLink opening the SSE connection), <prefix>:stream and <prefix>:view, a LogStreamViewNode, beside the <prefix>-catalog:* and <prefix>-step:* slices. Beneath: the subject is the noun and never the verb, the three routing facts, and the rule that a node playing none of the fixed roles is a second slice with a subject of its own.](img/wvn-slice-path.png)
+![A slice drawn three ways, every node named <subject>:<role>. A polled slice runs <subject>:timer, :tee and :fetch, which sends the verb to the server CI with FROM = <subject>:in; the reply comes back TO = FROM to the :in receiver Tee, through its :in:current gate and an optional :transform, to the :view, which publishes its view field with setField( 'view', … ) for the React widget's useNodeField. A one-shot, useCommandOnce under the default scope <ci>:<command>, runs vault:add:fetch, vault:add:in and vault:add:result, a CommandResultNode. A stream, useStreamGraph under a prefix, runs <prefix>:link (a RemoteLink opening the SSE connection), <prefix>:stream and <prefix>:view, a LogStreamViewNode, beside the <prefix>-catalog:* and <prefix>-step:* slices. Beneath: the subject is the noun and never the verb, the three routing facts, and the rule that a node playing none of the fixed roles is a second slice with a subject of its own.](img/wvn-slice-path.png)
 
 1. **A view is a terminal — no `target`, no `sink`** (`has_target: false`). A
-   per-slice merge or dedup rides the receiver-Tee → view edge, in
+   per-slice merge or dedup rides the gate → view edge, in
    `addSliceFetcher`'s `transform` slot; `WorkerStatusTransform` is the shipped
    example.
 
@@ -187,7 +187,7 @@ reply. Both halves live in
 A control is recognised by **who sent it**, never by what its payload looks
 like, and the view trusts one origin, `controlFrom`, which the graph builder
 assigns: `addSliceFetcher` from its own `controlFrom` option, `useStreamGraph`
-from the view's own name. A transform on the receiver-Tee → view edge takes one
+from the view's own name. A transform on the gate → view edge takes one
 the same way, through `transform.controlFrom`, for a dashboard driving the
 transform rather than the view. A node that declares none takes no controls, and
 `controlMsg()` throws rather than stamp an empty origin, so a forgotten
@@ -268,7 +268,7 @@ registers is an import and nothing more: no TSL line can name it.
 | `SourceCountsViewNode`, `TopTableViewNode`, `AccumulatedViewNode` | `SourceCountsView`, `TopTableView`, `AccumulatedView` | [`examples/example-ai-newsletter/src/dashboard/nodes/`](../examples/example-ai-newsletter/src/dashboard/nodes/) | `SliceViewNode`; one `emptySlice()` each, for the walkthrough's three slices |
 
 `WorkerStatusTransformNode`, registered as `WorkerStatusTransform`, sits beside
-them and is **not** a view: it rides the receiver-Tee → view edge, enriching the
+them and is **not** a view: it rides the gate → view edge, enriching the
 reply before the view stores it.
 
 The `consumers` map `TopicProbeViewNode` publishes is keyed by READER, and

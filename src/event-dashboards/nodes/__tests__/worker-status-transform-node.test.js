@@ -26,7 +26,6 @@ import {
 	TM_STRUCT,
 	TM_COMMAND,
 	TM_RESPONSE,
-	TM_ERROR,
 	newMessage,
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
@@ -901,19 +900,6 @@ describe( 'worker-status:transform — non-metadata replies', () => {
 		t.fill( reply );
 		expect( sink.got ).toHaveLength( 0 );
 		void TM_STRUCT;
-	} );
-
-	test( 'forwards a TM_ERROR reply to the view (un-correlated poll failure)', () => {
-		const sink = capture();
-		const t = makeTransform( 'worker-status:transform' );
-		t.sink = sink.node;
-		t.target = 'worker-status:view';
-		const err = newMessage();
-		err[ TYPE ] = TM_COMMAND | TM_RESPONSE | TM_ERROR;
-		err[ VALUE ] = { name: 'dump_graph', payload: 'Server disconnected' };
-		t.fill( err );
-		expect( sink.got ).toHaveLength( 1 );
-		expect( sink.got[ 0 ][ TO ] ).toBe( 'worker-status:view' );
 	} );
 } );
 

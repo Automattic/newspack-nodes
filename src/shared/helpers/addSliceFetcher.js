@@ -1,6 +1,11 @@
+import { CommandInterpreterNode } from '@newspack-nodes/runtime';
+import { CurrentNode } from '../nodes/current-node';
+
 /** @typedef {import('../../runtime/node').NodeClass} NodeClass */
 /** @typedef {import('../../runtime/tee-node').TeeNode} TeeNode */
 /** @typedef {import('../../runtime/node').Node} Node */
+
+CommandInterpreterNode.registerNodeClasses( { Current: CurrentNode } );
 
 /**
  * The transform node a slice inserts between its receiver Tee and its view.
@@ -16,7 +21,8 @@
  * addSliceFetcher — wire ONE dashboard slice in one call.
  *
  *   tee ─> <fetcher> (Fetcher) ─> <target>            the tick fans out to it
- *   <receiver> (Tee) ─> [<transform> ─>] <view>       the reply routes back here
+ *   <receiver> (Tee) ─> <receiver>:current
+ *                       ─> [<transform> ─>] <view>    the reply routes back here
  *                    ─> <fetcher>                     …and settles the ask
  *
  * A Fetcher emits its ONE configured command (`<receiver> <command>`) toward
@@ -31,15 +37,13 @@
  * ask so the next tick may make a new one — the view cannot do it, because a
  * transform that drops an unchanged reply means the view never hears about it.
  * The Fetcher goes LAST, after the view: a consumer that acts once per ANSWER
- * asks `isAsking()` as the reply renders, and a settled ask is gone by then. A
+ * asks `answers()` as the reply renders, and a settled ask is gone by then. A
  * Tee fans out in CONNECT order, and that order is contractual — which is what
  * makes LAST mean last.
  *
- * A receiver that ALSO takes out-of-band sends — a dashboard minting straight
- * from it rather than through the Fetcher — sees those replies settle whatever
- * the Fetcher had outstanding, since a pathless ask matches any pathless reply.
- * That costs one extra command in flight and levels out on the next tick; give
- * such a send its own receiver if one ask at a time has to be exact.
+ * Every reply first meets the slice's gate, a `CurrentNode` named
+ * `<receiver>:current`, which passes only the answer to a standing ask and
+ * sends a refusal to the view itself.
  *
  * Pair it with `useBatchedPoll`, whose `build` calls this once per slice and
  * which owns the `_shell`/`_http`/Timer/lock-flush boilerplate.
@@ -54,7 +58,7 @@
  * @param {TeeNode|Node}     slice.tee           The node the tick fans out from. A Tee for a slice hanging off a shared poll; a Timer for one that owns its own cadence, as the URL-detail modal does. All this needs is `connectNode`, which both carry — declaring the Tee alone refuses the second shape the toolkit was built for.
  * @param {string}           slice.target        Egress path the Fetcher targets (`_shell/_http/<ci>`).
  * @param {string}           [slice.controlFrom] Control origin for a view that takes local controls: the FROM its dashboard mints under. Omitted for the majority, whose view class owns no control path — stamping every view plants an inert field on them, and the wrong name on any view whose controls come from its transform rather than itself.
- * @param {SliceTransform}   [slice.transform]   Node inserted on the receiver-Tee → view edge.
+ * @param {SliceTransform}   [slice.transform]   Node inserted on the gate → view edge.
  * @param {() => ?string[]}  [slice.argsFn]      Fire-time getter assigned to the Fetcher's `command_args`, so each tick emits live, UI-state-driven args (filter / sort / page) without re-wiring the graph. A null return sends nothing that tick.
  * @return {string} The receiver Tee name.
  */
@@ -84,6 +88,10 @@ export function addSliceFetcher(
 
 	// Receiver Tee: reply routes back here, then fans to view (or transform).
 	const recv = interpreter.makeNode( 'Tee', receiver );
+	const gate = `${ receiver }:current`;
+	interpreter
+		.makeNode( CurrentNode, gate, [ fetcher, view ] )
+		.connectNode( transform?.name ?? view );
 	if ( transform ) {
 		const t = interpreter.makeNode(
 			transform.nodeClass,
@@ -96,7 +104,7 @@ export function addSliceFetcher(
 		}
 	}
 	// The Fetcher goes LAST: the ask must still stand while the reply renders.
-	for ( const next of [ transform?.name ?? view, fetcher ] ) {
+	for ( const next of [ gate, fetcher ] ) {
 		recv.connectNode( next );
 	}
 	const v = interpreter.makeNode( viewClass, view );

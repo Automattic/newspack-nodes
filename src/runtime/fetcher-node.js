@@ -2,6 +2,7 @@ import { markLocal, readyToMint } from './command-auth';
 import { Core } from './core';
 import { Node } from './node';
 import {
+	asString,
 	newMessage,
 	TYPE,
 	FROM,
@@ -241,6 +242,19 @@ export class FetcherNode extends Node {
 	}
 
 	/**
+	 * `send( args, path, true )`, then trigger it now.
+	 *
+	 * @param {*}       args   The verb's argument tokens.
+	 * @param {?string} [path] The subject, as `send()` takes it.
+	 * @return {Ask} The ask just parked.
+	 */
+	askNow( args, path = null ) {
+		const ask = this.send( args, path, true );
+		this.fill( newMessage() );
+		return ask;
+	}
+
+	/**
 	 * Park an ask for the next trigger to send.
 	 *
 	 * @param {*}       args        The verb's argument tokens; a non-array sends none.
@@ -266,15 +280,25 @@ export class FetcherNode extends Node {
 	}
 
 	/**
-	 * Whether an ask about `path` is still waiting for its answer. A consumer
-	 * that acts once per answer asks this before acting: a reply naming a
-	 * subject nothing is asking about is a second answer to a settled question.
+	 * Whether a reply answers a standing ask: its remaining TO and the
+	 * arguments it echoes, as `asks()` reads them.
+	 *
+	 * @param {Array} reply The reply as it reached the receiver.
+	 * @return {boolean} True when it answers a standing ask.
+	 */
+	answers( reply ) {
+		return this.asks( reply[ TO ], reply[ VALUE ]?.arguments );
+	}
+
+	/**
+	 * Whether an ask with that path and exactly those tokens stands.
 	 *
 	 * @param {?string} path The subject, as `send()` was given it.
+	 * @param {*}       args The argument tokens; anything else asks nothing.
 	 * @return {boolean} True while that ask stands.
 	 */
-	isAsking( path ) {
-		return 0 <= this._indexOf( path || null );
+	asks( path, args ) {
+		return Array.isArray( args ) && 0 <= this._indexOf( path, args );
 	}
 
 	/**
@@ -330,12 +354,13 @@ export class FetcherNode extends Node {
 	 * than left to wait out its window. One that may not — a write — settles,
 	 * because the caller waiting on it needs the refusal.
 	 *
-	 * @param {Array} message The reply; its remaining TO names what it answers.
+	 * @param {Array} message The reply; its remaining TO names what it answers,
+	 *                        with the arguments it echoes when it echoes them.
 	 */
 	_settle( message ) {
 		// Terminal for this message (no sink): count the answer here.
 		this.counter++;
-		const at = this._indexOf( message[ TO ] || null );
+		const at = this._indexOf( message[ TO ], message[ VALUE ]?.arguments );
 		if ( 0 > at ) {
 			return;
 		}
@@ -352,10 +377,21 @@ export class FetcherNode extends Node {
 
 	/**
 	 * @param {?string} path The subject an ask is about.
+	 * @param {*}       args Its tokens, compared as strings; anything but an
+	 *                       array matches the first ask on the path.
 	 * @return {number} Its outbox position, or -1.
 	 */
-	_indexOf( path ) {
-		return this.outbox.findIndex( ( ask ) => ask.path === path );
+	_indexOf( path, args ) {
+		return this.outbox.findIndex(
+			( ask ) =>
+				ask.path === ( path || null ) &&
+				( ! Array.isArray( args ) ||
+					( ask.args?.length === args.length &&
+						ask.args.every(
+							( token, i ) =>
+								asString( token ) === asString( args[ i ] )
+						) ) )
+		);
 	}
 
 	/**

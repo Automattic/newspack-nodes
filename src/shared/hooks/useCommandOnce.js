@@ -203,10 +203,6 @@ export function useCommandOnce( {
 		if ( retry && reply.undelivered ) {
 			return;
 		}
-		// A second answer to a settled question must not run `onDone` again.
-		if ( ! Core.node( fetcher )?.isAsking( reply.subject || null ) ) {
-			return;
-		}
 		setModel( reply );
 		onDone?.( {
 			result: reply.ok ? reply.payload : null,
@@ -246,23 +242,18 @@ export function useCommandOnce( {
 					`ERROR: useCommandOnce(${ command }): subject of ${ encoded.length } chars is a body, not an address — pass subjectOf`
 				);
 			}
-			// @longform Re-asking for the subject ALREADY OUTSTANDING says
+			const path = tooLong ? null : encoded;
+			// @longform Re-asking the question ALREADY OUTSTANDING says
 			// nothing new — the retry window owns "ask again for this". Taking
 			// it as a fresh ask resets that window and pokes a tick, so a
 			// caller whose dep identity churns (an object literal rebuilt each
 			// render) would put a command and a whole router tick on the wire
 			// per render.
-			const [ inFlight ] = node.outbox;
-			if (
-				retry &&
-				inFlight &&
-				// NUL, not a space: `[ 'a b' ]` is not `[ 'a', 'b' ]`.
-				inFlight.args.join( '\u0000' ) === tokens.join( '\u0000' )
-			) {
+			if ( retry && node.asks( path, tokens ) ) {
 				return;
 			}
 			// A read supersedes: nobody wants the answer to the older ask.
-			node.send( tokens, tooLong ? null : encoded, retry );
+			node.send( tokens, path, retry );
 			publishOutstanding();
 			// A click waits for a tick, not for the heartbeat to come round.
 			pollNow();

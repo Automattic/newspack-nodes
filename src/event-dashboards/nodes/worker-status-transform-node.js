@@ -5,7 +5,6 @@ import {
 	FROM,
 	TYPE,
 	TM_STRUCT,
-	TM_ERROR,
 	newMessage,
 } from '../../runtime/message';
 import { reconstructWorkers } from './reconstructWorkers';
@@ -140,10 +139,8 @@ export class WorkerStatusTransformNode extends Node {
 	/**
 	 * Absorb one poll reply and emit the render model.
 	 *
-	 * A TM_ERROR is re-addressed to the view and forwarded untouched, so the
-	 * disconnect banner surfaces without this node inventing a model. A
-	 * `dump_graph` reply is transformed; anything else is dropped, because the
-	 * mutation replies it would otherwise see belong to the view.
+	 * A `dump_graph` reply is transformed and anything else dropped. A refusal
+	 * never arrives: the slice's gate sends it to the view, around this node.
 	 *
 	 * @param {Array} message The 7-field positional message; VALUE is `{ name,
 	 *                        payload }` where `payload` is the snapshot.
@@ -154,15 +151,6 @@ export class WorkerStatusTransformNode extends Node {
 		this.counter += 1;
 		const value = message[ VALUE ];
 		if ( ! value || 'object' !== typeof value ) {
-			return;
-		}
-		const type = message[ TYPE ] || 0;
-		// A TM_ERROR (poll failure) re-routes to the view's error path.
-		if ( 0 !== ( type & TM_ERROR ) ) {
-			if ( this.sink ) {
-				message[ TO ] = this.target;
-				this.sink.fill( message );
-			}
 			return;
 		}
 		// Only act on dump_graph replies; the view handles restart/error.
