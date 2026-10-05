@@ -18,7 +18,7 @@
 
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
-import { TO, VALUE } from '../../runtime/message';
+import { TO, TYPE, VALUE, TM_ERROR, newMessage } from '../../runtime/message';
 import { Core } from '../../runtime/core';
 import { useTopologyManager } from '../hooks/useTopologyManager';
 
@@ -396,7 +396,7 @@ describe( 'useTopologyManager', () => {
 		}
 	} );
 
-	it( 'puts WorkerStatusTransform on a graph edge: the receiver Tee fans to the transform, the transform targets the worker view', async () => {
+	it( 'puts WorkerStatusTransform on a graph edge: the gate fans to the transform, the transform targets the worker view', async () => {
 		buildClient();
 		renderHook( () => useTopologyManager( {} ) );
 		await act( async () => {} );
@@ -405,9 +405,33 @@ describe( 'useTopologyManager', () => {
 		const transform = Core.node( 'worker-status:transform' );
 		expect( transform ).toBeTruthy();
 		expect( transform.target ).toBe( 'worker-status:view' );
-		// The worker-status receiver Tee fans its reply into the transform.
-		expect( Core.node( 'worker-status:in' ).target ).toEqual(
-			expect.arrayContaining( [ 'worker-status:transform' ] )
+		// The worker-status gate fans an answer into the transform.
+		expect( Core.node( 'worker-status:in:current' ).target ).toEqual( [
+			'worker-status:transform',
+		] );
+	} );
+
+	// @longform A Router bounces a poll aimed at a missing CI as a bare string
+	// that echoes no arguments. The gate sends it to the view itself, around
+	// the transform, so the board shows why instead of a model frozen silent.
+	it( 'shows a NOT_AVAILABLE bounce for the standing poll on the worker view', async () => {
+		installFakeCommandWire( ( m ) =>
+			'dump' === m[ VALUE ]?.name ? TOPOLOGIES_LIST : undefined
+		);
+		renderHook( () => useTopologyManager( {} ) );
+		await act( async () => {} );
+		expect( Core.node( 'worker-status:fetch' ).outbox ).toHaveLength( 1 );
+
+		const bounce = newMessage();
+		bounce[ TYPE ] = TM_ERROR;
+		bounce[ TO ] = 'worker-status:in';
+		bounce[ VALUE ] = 'NOT_AVAILABLE\n';
+		await act( async () => {
+			Core.node( '_command_interpreter' ).fill( bounce );
+		} );
+
+		expect( Core.node( 'worker-status:view' ).view.error ).toMatch(
+			/NOT_AVAILABLE/
 		);
 	} );
 

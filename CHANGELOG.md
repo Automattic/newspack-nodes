@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`FetcherNode#answers( reply )` says whether a reply is still wanted, and `asks( path, args )` whether a question stands.** A reply answers the ask carrying its remaining TO as the path (null for none) and exactly the tokens it echoes, compared one by one as both interpreters echo them, so `[ 'a b' ]` is not `[ 'a', 'b' ]`; a reply echoing none answers nothing. The slice's gate reads `answers()`, and `useCommandOnce` reads `asks()`.
+- **`FetcherNode#askNow( args, path = null )` asks at once.** It parks the ask superseding every older one and triggers the send in the same call, returning the ask. A question its arguments identify needs no path.
+- **A `Current` gate on every slice.** `CurrentNode` (`src/shared/nodes/current-node.js`, registered `Current`, Hidden) is a Tee taking `<fetcher> <view>`. It looks that Fetcher up in its own registry and forwards a reply only when the Fetcher `answers()` it, counting and dropping any other: an answer goes on as a Tee sends it, and a refusal goes to the view itself, its TO stamped with the view, around any transform, when it refuses a standing ask or echoes no arguments, as the Router's bare `NOT_AVAILABLE` does, so a refusal of a superseded question, `Command not delivered` included, is dropped like its answer. `addSliceFetcher` builds one for every slice, named `<receiver>:current`, first on the receiver's edge to the view, with the Fetcher still the Tee's last target.
+
+### Changed
+
+- **A reply settles by its address and the arguments it echoes.** `_settle()` takes out the ask carrying the reply's remaining TO and exactly its echoed tokens, or, for a reply echoing none such as the Router's `NOT_AVAILABLE`, the first ask on that address; a transport refusal re-arms the ask it names, as before.
+- **Every slice is gated, so its view hears only the answer to a standing ask.** A late reply to a superseded question, a page turn or a filter change, no longer renders over the newer one, and a refusal of a standing ask reaches the view around any transform. `useCommandOnce`'s result node, and `onDone` with it, hears only a reply the Fetcher `answers()` and a refusal echoing no arguments; the hook keeps no check of its own beyond skipping a read's transport refusal, and `run()`'s already-asking check reads `asks()` in place of a NUL-joined comparison.
+- **`WorkerStatusTransformNode` no longer forwards a TM_ERROR.** The gate sends a refusal to `worker-status:view` itself, so a bare `NOT_AVAILABLE` bounce, which the transform's object guard dropped, now reaches the board.
+
+### Removed
+
+- **`FetcherNode#isAsking( path )`.** Nothing outside its tests read it. A consumer judging whether a reply is still wanted reads `answers( reply )`, or `asks( path, args )` for a question; one asking which subject still waits reads the paths in the Fetcher's `outbox`, as `useCommandOnce`'s `isPending()` does.
+
+### Fixed
+
+- **A late reply to a refreshed live ask no longer settles its successor.** A live ask re-asked past `retry_after_s` re-reads its getter, and the Fetcher settled by address alone, so the late answer to the old arguments settled the new ask; a gate dropping that answer by its arguments then found nothing standing for the fresh one, and the view skipped a refresh. The same held for a `useCommandOnce` read superseded under the same subject, whose stale answer also ran `onDone`.
+
 ## [2.90.0] - 2026-10-04
 
 ### Added

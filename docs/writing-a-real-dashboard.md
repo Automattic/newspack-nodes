@@ -505,7 +505,7 @@ A dashboard whose subscription is *declared* — the two probe charts, the Confi
 
 **A catalog is a slow slice, and the tick is its retry**, which is also how a session that turns over recovers without a reload. A bad tick keeps what is on screen, because an empty palette is the worse answer.
 
-**Tee fan-out order is contractual, and the Fetcher goes last:** [`addSliceFetcher`](../src/shared/helpers/addSliceFetcher.js) connects the receiver Tee to the transform-or-view before the Fetcher, for the reason the sheet's *The Fetcher connects last* box gives.
+**Tee fan-out order is contractual, and the Fetcher goes last:** [`addSliceFetcher`](../src/shared/helpers/addSliceFetcher.js) connects the receiver Tee to the slice's gate before the Fetcher, for the reason the sheet's *The Fetcher connects last* box gives.
 
 **Publish is throttled, the series is bounded twice, and the key set is bounded once more.** [`ProbeStreamViewNode`](../src/event-dashboards/nodes/probe-stream-view-node.js), the base under `TopicProbeViewNode` and `JobstatsViewNode`, holds the bounds in the sheet's left column. Folding a record costs one push and a sweep of the live keys, and every walk waits for a publish. `WorkerStatusTransformNode` meets the hidden tab from the other side: across a gap of `GAP_INTERVALS` — six heartbeat intervals, about a minute — between two `dump_graph` snapshots it drops its rate baselines and segment history, so the first poll after the tab returns reads zero rates and animates nothing, and the poll after it is normal again.
 

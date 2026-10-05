@@ -15,6 +15,7 @@ import {
 	VALUE,
 	TM_COMMAND,
 	TM_RESPONSE,
+	TM_ERROR,
 	TM_BYTESTREAM,
 	TM_STRUCT,
 } from '../message';
@@ -112,6 +113,7 @@ test( 'command_args may be a FUNCTION, called at fire time to get current args',
 	// The ask that reply settled is done; the next one reads the getter again.
 	const answer = newMessage();
 	answer[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+	answer[ VALUE ] = { arguments: [ '--sort', 'count' ] };
 	f.fill( answer );
 	live = [ '--sort', 'avg_ms', '--order', 'asc' ];
 	f.fill( newMessage() );
@@ -301,15 +303,25 @@ test( 'an unauthenticated tick does not consume the pending arguments', () => {
 } );
 
 /**
- * @param {string} path  The reply's remaining TO — the subject it answers.
- * @param {Object} value The reply VALUE.
+ * Whether an ask about `path` still waits in the outbox, whatever it asked.
+ *
+ * @param {FetcherNode} f    The Fetcher.
+ * @param {string}      path The subject, as `send()` was given it.
+ * @return {boolean} True while that ask stands.
+ */
+const waiting = ( f, path ) => f.outbox.some( ( ask ) => ask.path === path );
+
+/**
+ * @param {string}   path  The reply's remaining TO — the subject it answers.
+ * @param {string[]} args  The argument tokens it echoes, as both interpreters do.
+ * @param {Object}   value The rest of the reply VALUE.
  * @return {Array} A positional reply message, as the server's echo delivers it.
  */
-const replyNaming = ( path = '', value = {} ) => {
+const replyNaming = ( path = '', args = [], value = {} ) => {
 	const m = newMessage();
 	m[ TYPE ] = TM_COMMAND | TM_RESPONSE;
 	m[ TO ] = path;
-	m[ VALUE ] = value;
+	m[ VALUE ] = { arguments: args, ...value };
 	return m;
 };
 
@@ -354,7 +366,7 @@ describe( 'FetcherNode — the outbox', () => {
 		f.command_args = () => live;
 		f.fill( newMessage() );
 		live = [ '--sort', 'avg_ms' ];
-		f.fill( replyNaming() );
+		f.fill( replyNaming( '', [ '--sort', 'count' ] ) );
 		f.fill( newMessage() );
 		expect( sent[ 1 ][ VALUE ].arguments ).toEqual( [
 			'--sort',
@@ -416,7 +428,7 @@ describe( 'FetcherNode — the outbox', () => {
 		f.fill( newMessage() );
 
 		expect( sent ).toHaveLength( 1 );
-		expect( f.isAsking( null ) ).toBe( false );
+		expect( f.outbox ).toEqual( [] );
 		at.mockRestore();
 	} );
 
@@ -460,7 +472,7 @@ describe( 'FetcherNode — the outbox', () => {
 	it( 're-asks on the next trigger when the batch never landed', () => {
 		const { f, sent } = mount();
 		f.fill( newMessage() );
-		f.fill( replyNaming( '', { undelivered: true } ) );
+		f.fill( replyNaming( '', [], { undelivered: true } ) );
 		f.fill( newMessage() );
 		expect( sent ).toHaveLength( 2 );
 	} );
@@ -510,9 +522,9 @@ describe( 'FetcherNode — queued asks', () => {
 		f.send( [ 'wombat-4471' ], 'wombat-4471' );
 		f.send( [ 'quokka-8823' ], 'quokka-8823' );
 		f.fill( newMessage() );
-		f.fill( replyNaming( 'quokka-8823' ) );
-		expect( f.isAsking( 'wombat-4471' ) ).toBe( true );
-		expect( f.isAsking( 'quokka-8823' ) ).toBe( false );
+		f.fill( replyNaming( 'quokka-8823', [ 'quokka-8823' ] ) );
+		expect( waiting( f, 'wombat-4471' ) ).toBe( true );
+		expect( waiting( f, 'quokka-8823' ) ).toBe( false );
 	} );
 
 	it( 'displaces what is waiting when the caller supersedes', () => {
@@ -538,15 +550,15 @@ describe( 'FetcherNode — queued asks', () => {
 		at.mockReturnValue( 1771000000 );
 		f.send( [ 'wombat-4471' ], 'wombat-4471' );
 		f.fill( newMessage() );
-		expect( f.isAsking( 'wombat-4471' ) ).toBe( true );
+		expect( waiting( f, 'wombat-4471' ) ).toBe( true );
 
 		at.mockReturnValue( 1771000119 );
 		f.fill( newMessage() );
-		expect( f.isAsking( 'wombat-4471' ) ).toBe( true );
+		expect( waiting( f, 'wombat-4471' ) ).toBe( true );
 
 		at.mockReturnValue( 1771000121 );
 		f.fill( newMessage() );
-		expect( f.isAsking( 'wombat-4471' ) ).toBe( false );
+		expect( waiting( f, 'wombat-4471' ) ).toBe( false );
 		at.mockRestore();
 	} );
 
@@ -554,7 +566,11 @@ describe( 'FetcherNode — queued asks', () => {
 		const { f, sent } = mount();
 		f.send( [ 'wombat-4471' ], 'wombat-4471' );
 		f.fill( newMessage() );
-		f.fill( replyNaming( 'wombat-4471', { undelivered: true } ) );
+		f.fill(
+			replyNaming( 'wombat-4471', [ 'wombat-4471' ], {
+				undelivered: true,
+			} )
+		);
 		f.fill( newMessage() );
 		expect( sent ).toHaveLength( 1 );
 	} );
@@ -569,7 +585,7 @@ describe( 'FetcherNode — queued asks', () => {
 		} );
 		f.send( [ 'wombat-4471' ], 'wombat-4471' );
 		f.fill( newMessage() );
-		f.fill( replyNaming( 'wombat-4471' ) );
+		f.fill( replyNaming( 'wombat-4471', [ 'wombat-4471' ] ) );
 		expect( settled ).toEqual( [ 'wombat-4471' ] );
 	} );
 
@@ -577,7 +593,7 @@ describe( 'FetcherNode — queued asks', () => {
 		const { f } = mount();
 		f.send( [ 'quokka-3390' ], 'quokka-3390' );
 		f.fill( newMessage() );
-		f.fill( replyNaming( 'quokka-3390' ) );
+		f.fill( replyNaming( 'quokka-3390', [ 'quokka-3390' ] ) );
 		const late = [];
 		f.registrations.settled ??= {};
 		f.register( 'settled', 'late', ( ask ) => {
@@ -587,6 +603,238 @@ describe( 'FetcherNode — queued asks', () => {
 		expect( late ).toEqual( [] );
 		expect( f ).not.toHaveProperty( 'settled' );
 		expect( f.setStateCache.settled ).toBeUndefined();
+	} );
+} );
+
+/**
+ * `answers()` is the one test of whether a reply is still wanted: an ask in
+ * the outbox carries that path AND exactly those argument tokens. Settling,
+ * the transport re-arm and every gate downstream read it, so a reply to a
+ * question the outbox no longer asks cannot pass for the answer to one it does.
+ */
+describe( 'FetcherNode — answers', () => {
+	const mount = () => {
+		const f = new FetcherNode();
+		f.arguments = [ 'urls:in', 'urls' ];
+		f.target = '_http/perf';
+		const sent = [];
+		f.sink = { fill: ( m ) => sent.push( m ) };
+		return { f, sent };
+	};
+
+	it( 'names an ask by its path and its argument tokens together', () => {
+		const { f } = mount();
+		f.send( [ '--search', 'wombat-4471' ], 'row-17' );
+		expect( f.asks( 'row-17', [ '--search', 'wombat-4471' ] ) ).toBe(
+			true
+		);
+		expect( f.asks( 'row-17', [ '--search', 'quokka-8823' ] ) ).toBe(
+			false
+		);
+		expect( f.asks( 'row-18', [ '--search', 'wombat-4471' ] ) ).toBe(
+			false
+		);
+		expect( f.asks( null, [ '--search', 'wombat-4471' ] ) ).toBe( false );
+	} );
+
+	it( 'compares token by token, so a space inside one is not two', () => {
+		const { f } = mount();
+		f.send( [ 'wombat 4471' ] );
+		expect( f.asks( null, [ 'wombat', '4471' ] ) ).toBe( false );
+		expect( f.asks( null, [ 'wombat 4471' ] ) ).toBe( true );
+		expect( f.asks( null, [ 'wombat 4471', '' ] ) ).toBe( false );
+	} );
+
+	it( 'reads a token as both interpreters echo it, a string', () => {
+		const { f } = mount();
+		f.send( [ 'offset', 300 ] );
+		expect( f.asks( null, [ 'offset', '300' ] ) ).toBe( true );
+	} );
+
+	it( 'answers a reply by its remaining TO and the arguments it echoes', () => {
+		const { f } = mount();
+		f.send( [ '--search', 'wombat-4471' ], 'row-17' );
+		expect(
+			f.answers( replyNaming( 'row-17', [ '--search', 'wombat-4471' ] ) )
+		).toBe( true );
+		expect(
+			f.answers( replyNaming( 'row-17', [ '--search', 'quokka-8823' ] ) )
+		).toBe( false );
+	} );
+
+	it( 'answers nothing for a reply that echoes no arguments', () => {
+		const { f } = mount();
+		f.send( [] );
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+		m[ VALUE ] = { payload: 'kea-ok' };
+		expect( f.answers( m ) ).toBe( false );
+		m[ TYPE ] = TM_ERROR;
+		m[ VALUE ] = 'NOT_AVAILABLE\n';
+		expect( f.answers( m ) ).toBe( false );
+	} );
+
+	/**
+	 * A live ask re-asked past its window re-reads the getter, so the ask
+	 * standing is the NEW question. The late answer to the old one must not
+	 * settle it: that leaves the fresh answer finding nothing standing, and a
+	 * gate reading the outbox drops it, so the view skips a refresh.
+	 */
+	it( 'leaves a refreshed ask standing for the late answer to its old args', () => {
+		const { f, sent } = mount();
+		let live = [ '--search', 'wombat-4471' ];
+		f.command_args = () => live;
+		const at = jest.spyOn( Core, 'now' );
+		at.mockReturnValue( 1771000000 );
+		f.fill( newMessage() );
+		live = [ '--search', 'quokka-8823' ];
+		at.mockReturnValue( 1771000015 );
+		f.fill( newMessage() );
+		expect( sent ).toHaveLength( 2 );
+
+		f.fill( replyNaming( '', [ '--search', 'wombat-4471' ] ) );
+		expect( f.asks( null, [ '--search', 'quokka-8823' ] ) ).toBe( true );
+
+		f.fill( replyNaming( '', [ '--search', 'quokka-8823' ] ) );
+		expect( f.outbox ).toEqual( [] );
+		at.mockRestore();
+	} );
+
+	it( 'leaves a refreshed ask armed when the OLD ask comes back undelivered', () => {
+		const { f, sent } = mount();
+		let live = [ '--search', 'wombat-4471' ];
+		f.command_args = () => live;
+		const at = jest.spyOn( Core, 'now' );
+		at.mockReturnValue( 1771000000 );
+		f.fill( newMessage() );
+		live = [ '--search', 'quokka-8823' ];
+		at.mockReturnValue( 1771000015 );
+		f.fill( newMessage() );
+
+		f.fill(
+			replyNaming( '', [ '--search', 'wombat-4471' ], {
+				undelivered: true,
+			} )
+		);
+		f.fill( newMessage() );
+		// The refreshed ask is on the wire; a refusal of another is not its.
+		expect( sent ).toHaveLength( 2 );
+		at.mockRestore();
+	} );
+} );
+
+/**
+ * A reply that echoes no arguments — the Router's bare `NOT_AVAILABLE\n`
+ * bounce — settles by its address alone, the oldest ask on that path, so a
+ * write to a missing CI hears the refusal instead of standing until it
+ * expires.
+ */
+describe( 'FetcherNode — a reply that echoes no arguments', () => {
+	/**
+	 * @param {string} path  The remaining TO.
+	 * @param {*}      value The bounce's VALUE.
+	 * @return {Array} A bare TM_ERROR, as the Router bounces a miss.
+	 */
+	const bounce = ( path, value = 'NOT_AVAILABLE\n' ) => {
+		const m = newMessage();
+		m[ TYPE ] = TM_ERROR;
+		m[ TO ] = path;
+		m[ VALUE ] = value;
+		return m;
+	};
+	const mountWrite = () => {
+		const f = new FetcherNode();
+		f.arguments = [ 'vault:remove:in', 'remove' ];
+		f.command_args = () => null;
+		f.retry_after_s = 0;
+		const sent = [];
+		f.sink = { fill: ( m ) => sent.push( m ) };
+		return { f, sent };
+	};
+
+	it( 'settles the write a NOT_AVAILABLE bounce names', () => {
+		const { f } = mountWrite();
+		const settled = [];
+		f.registrations.settled ??= {};
+		f.register( 'settled', 'spy', ( ask ) => {
+			settled.push( ask.args );
+			return true;
+		} );
+		f.send( [ 'spoke-4471' ], 'spoke-4471' );
+		f.fill( newMessage() );
+
+		f.fill( bounce( 'spoke-4471' ) );
+
+		expect( waiting( f, 'spoke-4471' ) ).toBe( false );
+		expect( settled ).toEqual( [ [ 'spoke-4471' ] ] );
+	} );
+
+	it( 'settles the oldest ask on its path, and only that one', () => {
+		const { f } = mountWrite();
+		f.send( [ 'spoke-4471', 'rev-3' ], 'spoke-4471' );
+		f.send( [ 'spoke-4471', 'rev-9' ], 'spoke-4471' );
+		f.send( [ 'spoke-0932' ], 'spoke-0932' );
+		f.fill( newMessage() );
+
+		f.fill( bounce( 'spoke-4471' ) );
+
+		expect( f.outbox.map( ( ask ) => ask.args ) ).toEqual( [
+			[ 'spoke-4471', 'rev-9' ],
+			[ 'spoke-0932' ],
+		] );
+	} );
+
+	it( 're-arms a read it names when the batch never landed', () => {
+		const f = new FetcherNode();
+		f.arguments = [ 'counts:in', 'counts' ];
+		const sent = [];
+		f.sink = { fill: ( m ) => sent.push( m ) };
+		f.fill( newMessage() );
+
+		f.fill( bounce( '', { undelivered: true } ) );
+		f.fill( newMessage() );
+
+		expect( sent ).toHaveLength( 2 );
+	} );
+} );
+
+/**
+ * `askNow()` asks a question at once: it supersedes every older ask and sends
+ * in the same breath, rather than waiting for the next trigger.
+ */
+describe( 'FetcherNode — askNow', () => {
+	it( 'replaces what stands and puts the new question on the wire', () => {
+		const f = new FetcherNode();
+		f.arguments = [ 'urls:in', 'urls' ];
+		f.command_args = () => [ '--search', 'wombat-4471' ];
+		const sent = [];
+		f.sink = { fill: ( m ) => sent.push( m ) };
+		f.fill( newMessage() );
+
+		const ask = f.askNow( [ '--search', 'quokka-8823' ] );
+
+		expect( sent ).toHaveLength( 2 );
+		expect( sent[ 1 ][ FROM ] ).toBe( 'urls:in' );
+		expect( sent[ 1 ][ VALUE ].arguments ).toEqual( [
+			'--search',
+			'quokka-8823',
+		] );
+		expect( f.outbox ).toEqual( [ ask ] );
+		expect( f.asks( null, [ '--search', 'wombat-4471' ] ) ).toBe( false );
+	} );
+
+	it( 'addresses the ask by the path it is given', () => {
+		const f = new FetcherNode();
+		f.arguments = [ 'vault:test:in', 'test' ];
+		f.command_args = () => null;
+		const sent = [];
+		f.sink = { fill: ( m ) => sent.push( m ) };
+
+		f.askNow( [ 'spoke-0417' ], 'spoke-0417' );
+
+		expect( sent ).toHaveLength( 1 );
+		expect( sent[ 0 ][ FROM ] ).toBe( 'vault:test:in/spoke-0417' );
+		expect( f.asks( 'spoke-0417', [ 'spoke-0417' ] ) ).toBe( true );
 	} );
 } );
 

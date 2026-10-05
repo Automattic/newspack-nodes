@@ -49,7 +49,7 @@ test( 'fill stamps TO with each owner and forwards N times', () => {
 	expect( routed ).toHaveLength( 2 );
 	// @longform Connect order IS delivery order, and consumers depend on it: a
 	// receiver Tee reaches its readers before its settler, which is what lets a
-	// consumer acting once per ANSWER read `isAsking()` while the reply still
+	// consumer acting once per ANSWER read `answers()` while the reply still
 	// renders. Sorting here would say that does not matter.
 	expect( routed.map( ( r ) => r[ TO ] ) ).toEqual( [ 'a', 'b' ] );
 } );

@@ -92,14 +92,17 @@ describe( 'useVaultGraph — exospine + per-concern view wiring', () => {
 		}
 	} );
 
-	test( 'the table receiver fans to the list view, and back to its Fetcher', async () => {
+	test( 'the table receiver fans through its gate to the list view, and back to its Fetcher', async () => {
 		installWire();
 		renderHook( () => useVaultGraph() );
 		await act( async () => {} );
 		// …and back to the Fetcher, which settles the ask the reply answers.
 		expect( Core.node( LIST_RECV ).target ).toEqual( [
-			LIST_VIEW,
+			`${ LIST_RECV }:current`,
 			'vault:fetch',
+		] );
+		expect( Core.node( `${ LIST_RECV }:current` ).target ).toEqual( [
+			LIST_VIEW,
 		] );
 	} );
 

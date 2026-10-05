@@ -9,7 +9,15 @@
  */
 
 import { renderHook, act, waitFor } from '@testing-library/react';
-import { Core, FROM, VALUE } from '@newspack-nodes/runtime';
+import {
+	Core,
+	FROM,
+	TO,
+	TYPE,
+	VALUE,
+	TM_ERROR,
+	newMessage,
+} from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { useCommandOnce } from '../useCommandOnce';
 
@@ -110,6 +118,19 @@ describe( 'useCommandOnce', () => {
 			'_shell/_http/topologies'
 		);
 		expect( Core.node( 'topologies:save:result' ) ).toBeTruthy();
+	} );
+
+	// The graph decides which reply is wanted, ahead of the result node.
+	it( 'gates its result node on the Fetcher, ahead of the settle', async () => {
+		mount( { ci: 'vault', command: 'rotate', scope: 'kea-rotate' } );
+		await act( async () => {} );
+		expect( Core.node( 'kea-rotate:in' ).target ).toEqual( [
+			'kea-rotate:in:current',
+			'kea-rotate:fetch',
+		] );
+		expect( Core.node( 'kea-rotate:in:current' ).target ).toEqual( [
+			'kea-rotate:result',
+		] );
 	} );
 
 	// A stale `target` used to be silently ignored, which pointed a Fetcher at
@@ -393,6 +414,38 @@ describe( 'useCommandOnce', () => {
 		expect( result.current.answeredArgs ).toEqual( [ 'spoke-4471' ] );
 	} );
 
+	// @longform A Router bounces a miss as a bare `NOT_AVAILABLE` string that
+	// echoes no arguments. It still names the write by its address, so the
+	// caller hears the refusal and the row's button comes back, instead of the
+	// write standing until it expires.
+	it( 'settles a WRITE a NOT_AVAILABLE bounce names, and says so', async () => {
+		replyFor.mockImplementation( () => undefined );
+		const onDone = jest.fn();
+		const { result } = mount( { ci: 'vault', command: 'remove', onDone } );
+		act( () => {
+			result.current.run( [ 'spoke-4471' ] );
+		} );
+		await waitFor( () => expect( replyFor ).toHaveBeenCalledTimes( 1 ) );
+		expect( result.current.pending ).toBe( true );
+
+		const bounce = newMessage();
+		bounce[ TYPE ] = TM_ERROR;
+		bounce[ TO ] = 'vault:remove:in/spoke-4471';
+		bounce[ VALUE ] = 'NOT_AVAILABLE\n';
+		await act( async () => {
+			Core.node( '_command_interpreter' ).fill( bounce );
+		} );
+
+		expect( onDone ).toHaveBeenCalledTimes( 1 );
+		expect( onDone.mock.calls[ 0 ][ 0 ] ).toMatchObject( {
+			result: null,
+			subject: 'spoke-4471',
+			args: [],
+		} );
+		expect( onDone.mock.calls[ 0 ][ 0 ].error ).toMatch( /NOT_AVAILABLE/ );
+		expect( result.current.pending ).toBe( false );
+	} );
+
 	// A write that got no reply may already have been applied; sending it
 	// again would write twice.
 	it( 'never retries an unanswered WRITE', async () => {
@@ -652,6 +705,49 @@ describe( 'useCommandOnce', () => {
 
 		held?.( { ok: 1 } );
 		await waitFor( () => expect( result.current.pending ).toBe( false ) );
+	} );
+
+	// @longform A read superseded under the SAME subject asks a new question
+	// about the same row. The late answer to the old question is not the
+	// answer to the new one: it must neither run `onDone` nor settle the ask,
+	// or the new answer arrives to find nothing standing and is dropped.
+	it( 'answers a superseded read only with the reply to its new arguments', async () => {
+		const held = [];
+		replyFor.mockImplementation(
+			( m ) =>
+				new Promise( ( resolve ) =>
+					held.push( () =>
+						resolve( { asked: m[ VALUE ].arguments[ 1 ] } )
+					)
+				)
+		);
+		const onDone = jest.fn();
+		const { result } = renderGet( { onDone } );
+		act( () => {
+			result.current.run( [ 'wombat-4471', 'rev-3' ] );
+		} );
+		await waitFor( () => expect( held.length ).toBe( 1 ) );
+		act( () => {
+			result.current.run( [ 'wombat-4471', 'rev-9' ] );
+		} );
+		await waitFor( () => expect( held.length ).toBe( 2 ) );
+
+		await act( async () => {
+			held[ 0 ]();
+		} );
+		await settle();
+		expect( onDone ).not.toHaveBeenCalled();
+		expect( result.current.isPending( 'wombat-4471' ) ).toBe( true );
+
+		await act( async () => {
+			held[ 1 ]();
+		} );
+		await waitFor( () => expect( onDone ).toHaveBeenCalledTimes( 1 ) );
+		expect( onDone.mock.calls[ 0 ][ 0 ].args ).toEqual( [
+			'wombat-4471',
+			'rev-9',
+		] );
+		expect( result.current.pending ).toBe( false );
 	} );
 
 	// A read is the opposite: opening one topology and then another must not

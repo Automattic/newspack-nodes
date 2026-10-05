@@ -78,7 +78,7 @@
   </div>
   <div class="card">
     <h3>Two orders that are contracts</h3>
-    <div class="chip"><b>The Fetcher connects last.</b> <span class="mono">addSliceFetcher</span> wires the receiver Tee to the view first and the Fetcher second: a consumer acting once per answer asks <span class="mono">isAsking()</span> as the reply renders, and a settled ask is gone by then. A Tee fans out in connect order.</div>
+    <div class="chip"><b>The Fetcher connects last.</b> <span class="mono">addSliceFetcher</span> wires the receiver Tee to the slice's gate first and the Fetcher second: a consumer acting once per answer asks <span class="mono">answers()</span> as the reply renders, and a settled ask is gone by then. A Tee fans out in connect order.</div>
     <div class="chip"><b>The one 50 ms interval</b> is the overlay's Overview cards: <span class="mono">useOverviewStats</span> samples the page-global <span class="mono">IoTelemetry</span> accumulator on a bare <span class="mono">setInterval</span>, registered with no Router and invisible to <span class="mono">list_timers</span>, because a Router-borne timer would be torn down with the very graph it measures.</div>
   </div>
 </div>
