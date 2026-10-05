@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`AreaTimeChart` reports a plain click's slot.** An optional `onSlotClick( index )` receives the nearest slot's index into `series[0].values`, through the same prop on `setupTooltip`; a chart given no callback does nothing on a plain click. `isDragSelection( event )`, exported from `useChartExpand.js`, is the one test both click handlers use to skip the click ending a drag-selection.
+
+### Changed
+
+- **A chart resizes from a corner button, or a shift+click on the plot.** `AreaTimeChart` puts a native expand button beside the stack toggle, carrying `aria-expanded` and an "Expand <title>" or "Shrink <title>" label; it doubles the chart's height, and the same again restores it. Shift+clicking the plot is the mouse shortcut for the same toggle, and a shift+press there no longer extends the page's text selection, which would have cancelled the click. The plot itself is no longer a button: it drops `role`, `tabIndex`, `aria-expanded`, `aria-label` and the Enter and Space keys, because a screen reader activates a button by dispatching a plain click, which the plot hands to the chart. `useChartExpand()` returns `buttonProps` for the button beside `plotProps` for the plot, and the shared styles add the `newspack-nodes-chart__corner` group and the `newspack-nodes-chart__expand` button role.
+
 ## [2.91.0] - 2026-10-05
 
 ### Added

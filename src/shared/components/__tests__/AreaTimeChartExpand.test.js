@@ -1,12 +1,11 @@
 /**
- * AreaTimeChart — clicking the plot toggles the chart to double its height.
+ * AreaTimeChart — the corner expand button, or a shift+click on the plot,
+ * toggles the chart to double its height; a plain click on the plot reports
+ * the nearest slot's index.
+ *
+ * Real d3 and the real tooltip against jsdom, so a click lands on the overlay
+ * rect the hover binds, exactly as a pointer would.
  */
-
-jest.mock( '../../hooks/useTimeChart', () => ( {
-	__esModule: true,
-	...jest.requireActual( '../../hooks/useTimeChart' ),
-	setupTooltip: jest.fn(),
-} ) );
 
 import { render, fireEvent } from '@testing-library/react';
 import AreaTimeChart from '../AreaTimeChart';
@@ -24,7 +23,7 @@ const SERIES = [
 	},
 ];
 
-const mount = ( series = SERIES ) =>
+const mount = ( series = SERIES, props = {} ) =>
 	render(
 		<AreaTimeChart
 			series={ series }
@@ -32,8 +31,15 @@ const mount = ( series = SERIES ) =>
 			colorAt={ ( _l, i ) => [ '#111111', '#222222' ][ i ] }
 			title="Backlog"
 			height={ HEIGHT }
+			{ ...props }
 		/>
 	);
+
+// The transparent rect over the plot that takes the pointer.
+const overlay = ( c ) =>
+	c.querySelector( '.newspack-nodes-chart__plot rect[pointer-events="all"]' );
+// An unlaid container draws 800px wide, so the plot box is 708px.
+const LAST_SLOT_X = 700;
 
 const plot = ( c ) => c.querySelector( '.newspack-nodes-chart__plot' );
 const svgHeight = ( c ) =>
@@ -42,52 +48,134 @@ const svgHeight = ( c ) =>
 			.querySelector( '.newspack-nodes-chart__plot svg' )
 			.getAttribute( 'height' )
 	);
+const expandButton = ( c ) =>
+	c.querySelector( '.newspack-nodes-chart__expand' );
 const legendMax = ( c ) =>
 	c.querySelector( '.newspack-nodes-chart-legend' ).style.maxHeight;
 
 describe( 'AreaTimeChart expand', () => {
-	it( 'doubles the draw, the plot and the legend on a plot click, and restores them on the next', () => {
+	it( 'doubles the draw, the plot and the legend from the corner button, and restores them on the next press', () => {
 		const { container } = mount();
+		const button = expandButton( container );
+		expect( button.tagName ).toBe( 'BUTTON' );
+		expect( button.getAttribute( 'type' ) ).toBe( 'button' );
+		expect( button.parentElement ).toBe(
+			container.querySelector( '.newspack-nodes-chart__stack' )
+				.parentElement
+		);
+		expect( button.getAttribute( 'aria-expanded' ) ).toBe( 'false' );
+		expect( button.getAttribute( 'aria-label' ) ).toBe( 'Expand Backlog' );
+		expect( button.getAttribute( 'title' ) ).toBe( 'Expand Backlog' );
 		expect( svgHeight( container ) ).toBe( HEIGHT );
 		expect( plot( container ).style.minHeight ).toBe( '173px' );
 		expect( legendMax( container ) ).toBe( '173px' );
 
-		fireEvent.click( plot( container ) );
+		fireEvent.click( button );
+		expect( button.getAttribute( 'aria-expanded' ) ).toBe( 'true' );
+		expect( button.getAttribute( 'aria-label' ) ).toBe( 'Shrink Backlog' );
+		expect( button.getAttribute( 'title' ) ).toBe( 'Shrink Backlog' );
 		expect( svgHeight( container ) ).toBe( 346 );
 		expect( plot( container ).style.minHeight ).toBe( '346px' );
 		expect( legendMax( container ) ).toBe( '346px' );
 
-		fireEvent.click( plot( container ) );
+		fireEvent.click( button );
+		expect( button.getAttribute( 'aria-expanded' ) ).toBe( 'false' );
+		expect( button.getAttribute( 'aria-label' ) ).toBe( 'Expand Backlog' );
 		expect( svgHeight( container ) ).toBe( HEIGHT );
 		expect( legendMax( container ) ).toBe( '173px' );
 	} );
 
-	it( 'is a keyboard button whose aria-expanded and label track the state', () => {
+	it( 'keeps the corner button when the chart declines the stack toggle', () => {
+		const { container } = mount( SERIES, { stackable: false } );
+		expect(
+			container.querySelector( '.newspack-nodes-chart__stack' )
+		).toBeNull();
+		fireEvent.click( expandButton( container ) );
+		expect( svgHeight( container ) ).toBe( 346 );
+	} );
+
+	it( 'leaves the plot a plain element, not a button', () => {
 		const { container } = mount();
 		const p = plot( container );
-		expect( p.getAttribute( 'role' ) ).toBe( 'button' );
-		expect( p.tabIndex ).toBe( 0 );
-		expect( p.getAttribute( 'aria-expanded' ) ).toBe( 'false' );
-		expect( p.getAttribute( 'aria-label' ) ).toBe( 'Expand Backlog' );
-		expect( p.hasAttribute( 'title' ) ).toBe( false );
-
+		expect( p.hasAttribute( 'role' ) ).toBe( false );
+		expect( p.hasAttribute( 'tabindex' ) ).toBe( false );
+		expect( p.hasAttribute( 'aria-expanded' ) ).toBe( false );
+		expect( p.hasAttribute( 'aria-label' ) ).toBe( false );
 		fireEvent.keyDown( p, { key: 'Enter' } );
-		expect( p.getAttribute( 'aria-expanded' ) ).toBe( 'true' );
-		expect( p.getAttribute( 'aria-label' ) ).toBe( 'Shrink Backlog' );
-		expect( svgHeight( container ) ).toBe( 346 );
-
 		fireEvent.keyDown( p, { key: ' ' } );
-		expect( p.getAttribute( 'aria-expanded' ) ).toBe( 'false' );
 		expect( svgHeight( container ) ).toBe( HEIGHT );
 	} );
 
-	it( 'ignores other keys', () => {
+	it( 'toggles on a shift+click on the plot, which the corner button tracks', () => {
 		const { container } = mount();
-		fireEvent.keyDown( plot( container ), { key: 'a' } );
+		fireEvent.click( plot( container ), { shiftKey: true } );
+		expect( svgHeight( container ) ).toBe( 346 );
+		expect(
+			expandButton( container ).getAttribute( 'aria-expanded' )
+		).toBe( 'true' );
+
+		fireEvent.click( plot( container ), { shiftKey: true } );
+		expect( svgHeight( container ) ).toBe( HEIGHT );
+		expect(
+			expandButton( container ).getAttribute( 'aria-expanded' )
+		).toBe( 'false' );
+	} );
+
+	it( 'keeps its size on a plain click', () => {
+		const { container } = mount();
+		fireEvent.click( plot( container ) );
+		expect( svgHeight( container ) ).toBe( HEIGHT );
+		expect(
+			expandButton( container ).getAttribute( 'aria-expanded' )
+		).toBe( 'false' );
+	} );
+
+	it( "keeps a shift+mousedown from extending the page's text selection", () => {
+		const { container } = mount();
+		expect(
+			fireEvent.mouseDown( plot( container ), { shiftKey: true } )
+		).toBe( false );
+		// A plain press still starts a drag-selection over the labels.
+		expect( fireEvent.mouseDown( plot( container ) ) ).toBe( true );
+	} );
+
+	it( "hands a plain click's nearest slot index to onSlotClick, and keeps its size", () => {
+		const onSlotClick = jest.fn();
+		const { container } = mount( SERIES, { onSlotClick } );
+		fireEvent.click( overlay( container ), { clientX: LAST_SLOT_X } );
+		expect( onSlotClick ).toHaveBeenCalledTimes( 1 );
+		expect( onSlotClick ).toHaveBeenCalledWith( 2 );
 		expect( svgHeight( container ) ).toBe( HEIGHT );
 	} );
 
-	it( 'does not toggle from the legend or the stack button', () => {
+	it( 'reports no slot when the corner button is pressed', () => {
+		const onSlotClick = jest.fn();
+		const { container } = mount( SERIES, { onSlotClick } );
+		fireEvent.click( expandButton( container ) );
+		expect( svgHeight( container ) ).toBe( 346 );
+		expect( onSlotClick ).not.toHaveBeenCalled();
+	} );
+
+	it( 'resizes on a shift+click and reports no slot', () => {
+		const onSlotClick = jest.fn();
+		const { container } = mount( SERIES, { onSlotClick } );
+		fireEvent.click( overlay( container ), {
+			clientX: LAST_SLOT_X,
+			shiftKey: true,
+		} );
+		expect( svgHeight( container ) ).toBe( 346 );
+		expect( onSlotClick ).not.toHaveBeenCalled();
+	} );
+
+	it( 'does nothing on a plain click when no onSlotClick is given', () => {
+		const { container } = mount();
+		expect( () =>
+			fireEvent.click( overlay( container ), { clientX: LAST_SLOT_X } )
+		).not.toThrow();
+		expect( svgHeight( container ) ).toBe( HEIGHT );
+	} );
+
+	it( 'does not toggle from the legend, the stack button or the title', () => {
 		const { container } = mount();
 		fireEvent.click(
 			container.querySelector( '.newspack-nodes-chart-legend button' )
@@ -99,29 +187,34 @@ describe( 'AreaTimeChart expand', () => {
 			container.querySelector( '.newspack-nodes-chart__title' )
 		);
 		expect( svgHeight( container ) ).toBe( HEIGHT );
-		expect( plot( container ).getAttribute( 'aria-expanded' ) ).toBe(
-			'false'
-		);
+		expect(
+			expandButton( container ).getAttribute( 'aria-expanded' )
+		).toBe( 'false' );
 	} );
 
-	it( 'keeps a drag-selection over the labels from toggling', () => {
-		const { container } = mount();
+	it( 'keeps a drag-selection over the labels from toggling or reporting a slot', () => {
+		const onSlotClick = jest.fn();
+		const { container } = mount( SERIES, { onSlotClick } );
 		const spy = jest
 			.spyOn( window, 'getSelection' )
 			.mockReturnValue( { isCollapsed: false } );
-		fireEvent.click( plot( container ) );
+		fireEvent.click( overlay( container ), {
+			clientX: LAST_SLOT_X,
+			shiftKey: true,
+		} );
+		fireEvent.click( overlay( container ), { clientX: LAST_SLOT_X } );
 		spy.mockRestore();
 		expect( svgHeight( container ) ).toBe( HEIGHT );
-		fireEvent.click( plot( container ) );
+		expect( onSlotClick ).not.toHaveBeenCalled();
+		fireEvent.click( plot( container ), { shiftKey: true } );
 		expect( svgHeight( container ) ).toBe( 346 );
 	} );
 
-	it( 'is no button while nothing is drawn', () => {
+	it( 'offers no expand button and no shortcut while nothing is drawn', () => {
 		const { container } = mount( [] );
+		expect( expandButton( container ) ).toBeNull();
 		const p = plot( container );
-		expect( p.hasAttribute( 'role' ) ).toBe( false );
-		expect( p.hasAttribute( 'tabindex' ) ).toBe( false );
-		fireEvent.click( p );
-		expect( p.hasAttribute( 'aria-expanded' ) ).toBe( false );
+		fireEvent.click( p, { shiftKey: true } );
+		expect( p.style.minHeight ).toBe( '173px' );
 	} );
 } );

@@ -15,8 +15,14 @@
  * through the shared `useLegend`; a picked series is drawn alone, the axis
  * rescaled to it, in the colour its place in the full list gave it.
  *
+ * The expand button beside the stack toggle doubles the chart's height, and
+ * the same again restores it; shift+clicking the plot is its mouse shortcut
+ * (`useChartExpand`). A plain click on the plot hands the nearest slot's index
+ * to `onSlotClick`, so a caller can map it to its own bucket; without the
+ * callback a plain click does nothing.
+ *
  * Every label arrives already translated. The component words only its own
- * toggle, so `__()` keeps its literal arguments at each call site. That is
+ * two toggles, so `__()` keeps its literal arguments at each call site. That is
  * also why the tooltip's column total rides on `totalLabel` rather than on a
  * flag: naming the row is the caller's job, and the row prints only while the
  * bands are stacked, since a sum of overlaid averages is not a total.
@@ -93,17 +99,29 @@ const StackIcon = () => (
 );
 
 /**
- * @param {Object}                                                               props              Component props.
- * @param {Array<{label: string, values: Array<{date: Date, value?: ?number}>}>} props.series       Every series shares one slot list; a null value is unmeasured and draws as a gap.
- * @param {( peak: number ) => import('../utils/axis-ticks').AxisFormatter}      props.yFormatFor   Builds a formatter for a peak. Called for the DRAWN peak, which the axis and the series rows read, so a picked series takes its own unit; and, where `totalLabel` is set, once more for the whole list's peak, which the tooltip's total row reads.
- * @param {( label: string, index: number ) => string}                           props.colorAt      The colour for a series at its place in the full list: area, stroke and legend swatch.
- * @param {string}                                                               props.title        Translated heading.
- * @param {number}                                                               props.height       Collapsed SVG height in pixels; clicking the plot doubles it.
- * @param {string}                                                               props.yLabel       Translated Y-axis title naming the quantity; the ticks carry the unit.
- * @param {boolean}                                                              [props.stacked]    Stack the series by default; the corner toggle overrides it until the default moves.
- * @param {boolean}                                                              [props.stackable]  Offer the toggle at all; `false` for bands that must not be summed.
- * @param {string}                                                               [props.totalLabel] Translated label for the tooltip's leading column-total row, printed while the bands are stacked; omitted drops the row.
- * @param {string}                                                               [props.className]  Class for the chart element, beside the shared role.
+ * The expand glyph: a double arrow spanning the chart's height.
+ *
+ * @return {import('react').ReactElement} A 12px icon.
+ */
+const ExpandIcon = () => (
+	<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+		<path d="M6 0 L10 4 H7 V8 H10 L6 12 L2 8 H5 V4 H2 Z" />
+	</svg>
+);
+
+/**
+ * @param {Object}                                                               props               Component props.
+ * @param {Array<{label: string, values: Array<{date: Date, value?: ?number}>}>} props.series        Every series shares one slot list; a null value is unmeasured and draws as a gap.
+ * @param {( peak: number ) => import('../utils/axis-ticks').AxisFormatter}      props.yFormatFor    Builds a formatter for a peak. Called for the DRAWN peak, which the axis and the series rows read, so a picked series takes its own unit; and, where `totalLabel` is set, once more for the whole list's peak, which the tooltip's total row reads.
+ * @param {( label: string, index: number ) => string}                           props.colorAt       The colour for a series at its place in the full list: area, stroke and legend swatch.
+ * @param {string}                                                               props.title         Translated heading.
+ * @param {number}                                                               props.height        Collapsed SVG height in pixels; the expand button doubles it.
+ * @param {string}                                                               props.yLabel        Translated Y-axis title naming the quantity; the ticks carry the unit.
+ * @param {boolean}                                                              [props.stacked]     Stack the series by default; the corner toggle overrides it until the default moves.
+ * @param {boolean}                                                              [props.stackable]   Offer the toggle at all; `false` for bands that must not be summed.
+ * @param {string}                                                               [props.totalLabel]  Translated label for the tooltip's leading column-total row, printed while the bands are stacked; omitted drops the row.
+ * @param {string}                                                               [props.className]   Class for the chart element, beside the shared role.
+ * @param {( index: number ) => void}                                            [props.onSlotClick] Takes a plain click's nearest slot, as an index into `series[0].values`.
  * @return {import('react').ReactElement} Rendered chart.
  */
 function AreaTimeChart( {
@@ -117,8 +135,12 @@ function AreaTimeChart( {
 	stackable = true,
 	totalLabel = '',
 	className,
+	onSlotClick,
 } ) {
-	const { height, plotProps } = useChartExpand( collapsedHeight, title );
+	const { height, plotProps, buttonProps } = useChartExpand(
+		collapsedHeight,
+		title
+	);
 	// The pick and the default it answered; a moved default retires it.
 	const [ pick, setPick ] = useState( null );
 	// In render, so the chart never draws once against the stale pick.
@@ -264,6 +286,7 @@ function AreaTimeChart( {
 				tooltipRef: refs.tooltipRef,
 				lastMouseXRef: refs.lastMouseXRef,
 				containerRef: refs.containerRef,
+				onSlotClick,
 			} );
 		},
 		[
@@ -276,6 +299,7 @@ function AreaTimeChart( {
 			yLabel,
 			stacked,
 			totalLabel,
+			onSlotClick,
 		]
 	);
 
@@ -290,21 +314,32 @@ function AreaTimeChart( {
 			style={ { position: 'relative' } }
 		>
 			<h3 className="newspack-nodes-chart__title">{ title }</h3>
-			{ stackable && (
-				<button
-					type="button"
-					className="newspack-nodes-chart__stack"
-					aria-pressed={ stacked }
-					title={
-						stacked
-							? __( 'Overlay the series', 'newspack-nodes' )
-							: __( 'Stack the series', 'newspack-nodes' )
-					}
-					onClick={ toggleStack }
-				>
-					<StackIcon />
-				</button>
-			) }
+			<div className="newspack-nodes-chart__corner">
+				{ stackable && (
+					<button
+						type="button"
+						className="newspack-nodes-chart__stack"
+						aria-pressed={ stacked }
+						title={
+							stacked
+								? __( 'Overlay the series', 'newspack-nodes' )
+								: __( 'Stack the series', 'newspack-nodes' )
+						}
+						onClick={ toggleStack }
+					>
+						<StackIcon />
+					</button>
+				) }
+				{ 0 < drawn.length && (
+					<button
+						type="button"
+						className="newspack-nodes-chart__expand"
+						{ ...buttonProps }
+					>
+						<ExpandIcon />
+					</button>
+				) }
+			</div>
 			<div className="newspack-nodes-chart__row">
 				<div
 					ref={ containerRef }

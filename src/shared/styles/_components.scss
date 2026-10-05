@@ -476,7 +476,7 @@
 		}
 	}
 
-	// A dashboard time chart: the title, the stack toggle in the corner, the
+	// A dashboard time chart: the title, the two toggles in the corner, the
 	// plot beside its legend, and the tooltip. The tooltip measures against
 	// the row but is positioned by the chart, so a flip clears the title.
 	.newspack-nodes-chart {
@@ -498,11 +498,6 @@
 			flex: 1 1 auto;
 			min-width: 0;
 
-			// A toggling plot is a button; the shared focus role rings it.
-			&[role="button"] {
-				cursor: pointer;
-			}
-
 			// d3 axis ink and type size on the panel.
 			.tick text {
 				fill: var(--ink-3, var(--np-text-secondary));
@@ -519,12 +514,17 @@
 			}
 		}
 
-		// The stack toggle: a bare icon button in the corner, lit while the
-		// bands stack. `aria-pressed` carries the state; the role paints it.
-		&__stack {
+		&__corner {
 			position: absolute;
 			top: 0;
 			right: 0;
+			display: flex;
+			gap: 2px;
+		}
+
+		// Bare icon buttons, lit while the bands stack or the chart expands.
+		&__stack,
+		&__expand {
 			padding: 2px;
 			background: transparent;
 			border: 0;
@@ -537,7 +537,8 @@
 				color: var(--ink, var(--np-text));
 			}
 
-			&[aria-pressed="true"] {
+			&[aria-pressed="true"],
+			&[aria-expanded="true"] {
 				color: var(--cyan-text, var(--np-text));
 			}
 		}

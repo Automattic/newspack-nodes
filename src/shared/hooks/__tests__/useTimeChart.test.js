@@ -8,8 +8,14 @@ import { resolve as resolvePath } from 'path';
 jest.mock(
 	'd3',
 	() => ( {
-		bisector: () => ( { left: () => 0 } ),
-		pointer: () => [ 0, 0 ],
+		// A linear left bisect, enough for the few slots these cases draw.
+		bisector: ( at ) => ( {
+			left: ( list, value ) => {
+				const i = list.findIndex( ( d ) => at( d ) >= value );
+				return -1 === i ? list.length : i;
+			},
+		} ),
+		pointer: ( event ) => [ event?.offsetX ?? 0, 0 ],
 	} ),
 	{ virtual: true }
 );
@@ -374,6 +380,69 @@ describe( 'setupTooltip', () => {
 			rafSpy.mockRestore();
 			cancelSpy.mockRestore();
 		}
+	} );
+
+	describe( 'slot click', () => {
+		const SPAN = 300;
+		const t0 = new Date( 2026, 0, 1, 13, 30 ).getTime();
+		const dates = [ 0, 1, 2 ].map(
+			( i ) => new Date( t0 + i * 5 * 60000 )
+		);
+		const xScale = ( d ) => ( ( d - t0 ) / ( 10 * 60000 ) ) * SPAN;
+		xScale.invert = ( mx ) => new Date( t0 + ( mx / SPAN ) * 10 * 60000 );
+		const clickAt = ( offsetX, extra = {} ) => ( {
+			offsetX,
+			shiftKey: false,
+			currentTarget: document.createElement( 'div' ),
+			...extra,
+		} );
+		const bind = ( onSlotClick ) => {
+			const g = makeFluent();
+			setupTooltip( g, {
+				innerW: SPAN,
+				innerH: 50,
+				dates,
+				x: xScale,
+				formatEntry: () => [],
+				...refs(),
+				onSlotClick,
+			} );
+			return g;
+		};
+
+		it( "hands a plain click's nearest slot index to onSlotClick", () => {
+			const onSlotClick = jest.fn();
+			bind( onSlotClick ).handlers.click( clickAt( 290 ) );
+			expect( onSlotClick ).toHaveBeenCalledTimes( 1 );
+			expect( onSlotClick ).toHaveBeenCalledWith( 2 );
+		} );
+
+		it( 'reports nothing for a shift+click, which resizes', () => {
+			const onSlotClick = jest.fn();
+			bind( onSlotClick ).handlers.click(
+				clickAt( 290, { shiftKey: true } )
+			);
+			expect( onSlotClick ).not.toHaveBeenCalled();
+		} );
+
+		it( 'reports nothing for the click ending a drag-selection', () => {
+			const onSlotClick = jest.fn();
+			const g = bind( onSlotClick );
+			const spy = jest
+				.spyOn( window, 'getSelection' )
+				.mockReturnValue( { isCollapsed: false } );
+			try {
+				g.handlers.click( clickAt( 290 ) );
+			} finally {
+				spy.mockRestore();
+			}
+			expect( onSlotClick ).not.toHaveBeenCalled();
+		} );
+
+		it( 'ignores a plain click when no onSlotClick is given', () => {
+			const g = bind( undefined );
+			expect( () => g.handlers.click( clickAt( 290 ) ) ).not.toThrow();
+		} );
 	} );
 } );
 
