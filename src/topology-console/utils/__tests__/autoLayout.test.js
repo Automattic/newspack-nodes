@@ -171,12 +171,125 @@ describe( 'drawnCost — the one judge of a drawing', () => {
 		] );
 	} );
 
+	it( 'lists the cards under each wire column by column, top to bottom', () => {
+		// Inserted out of order; whole rows put the band's edges on a card
+		// exactly, and a card on either edge, or in an end column, is clear.
+		const at2 = ( c, r ) => ( { x: X_PAD + c * X_STEP, y: r * Y_STEP } );
+		const at = {
+			c2: at2( 2, 2 ),
+			s: at2( 0, 2 ),
+			t: at2( 3, 2 ),
+			below: at2( 1, 2.25 ),
+			above: at2( 1, 1.75 ),
+			topEdge: at2( 1, 1.5 ),
+			bottomEdge: at2( 2, 2.5 ),
+			u: at2( 1, 5 ),
+			v: at2( 3, 5 ),
+			w2: at2( 2, 5 ),
+			beside: at2( 1, 5.25 ),
+		};
+		expect(
+			drawnCost( at, [ wire( 'u', 'v' ), wire( 's', 't' ) ] ).over
+		).toEqual( [
+			's→t over above',
+			's→t over below',
+			's→t over c2',
+			'u→v over w2',
+		] );
+	} );
+
 	it( 'ignores a wire whose ends share a column', () => {
 		const at = { a: cell( 0, 0 ), b: cell( 0, 2 ), m: cell( 0, 1 ) };
 		expect( drawnCost( at, [ wire( 'a', 'b' ) ] ) ).toEqual( {
 			crossings: [],
 			over: [],
 		} );
+	} );
+
+	it( 'never crosses two wires meeting at a card off the lattice', () => {
+		// Read along a→c by its slope, c's row rounds 3e-14 off c.
+		const at = {
+			a: { x: 0, y: 912 / 7 },
+			b: { x: 120, y: 908 / 9 },
+			c: { x: 360, y: 577 / 3 },
+		};
+		expect(
+			drawnCost( at, [ wire( 'a', 'c' ), wire( 'b', 'c' ) ] ).crossings
+		).toEqual( [] );
+	} );
+
+	it( 'names the very pairs, in order, that checking every pair finds', () => {
+		// Half columns and half rows crowd the lattice with shared cards,
+		// collinear wires and crossings exactly on a column.
+		let seed = 0x5eed;
+		const rand = () => {
+			seed = ( seed + 0x6d2b79f5 ) | 0;
+			let t = Math.imul( seed ^ ( seed >>> 15 ), 1 | seed );
+			t = ( t + Math.imul( t ^ ( t >>> 7 ), 61 | t ) ) ^ t;
+			return ( ( t ^ ( t >>> 14 ) ) >>> 0 ) / 4294967296;
+		};
+		const pick = ( n ) => Math.floor( rand() * n );
+		const yAt = ( s, x ) =>
+			s.p.y + ( ( s.q.y - s.p.y ) * ( x - s.p.x ) ) / ( s.q.x - s.p.x );
+		const pairwise = ( at, wires ) => {
+			const segs = wires
+				.map( ( w ) => {
+					const [ p, q ] = [ at[ w.from ], at[ w.to ] ].sort(
+						( a, b ) => a.x - b.x
+					);
+					return { w, p, q };
+				} )
+				.filter( ( s ) => s.p.x !== s.q.x )
+				.sort( ( a, b ) => a.p.x - b.p.x );
+			const found = [];
+			segs.forEach( ( a, i ) =>
+				segs.slice( i + 1 ).forEach( ( b ) => {
+					const lo = b.p.x;
+					const hi = Math.min( a.q.x, b.q.x );
+					const shared = [ a.w.from, a.w.to ].some(
+						( id ) => id === b.w.from || id === b.w.to
+					);
+					if (
+						lo < hi &&
+						! shared &&
+						( yAt( a, lo ) - yAt( b, lo ) ) *
+							( yAt( a, hi ) - yAt( b, hi ) ) <
+							0
+					) {
+						found.push(
+							`${ a.w.from }→${ a.w.to } × ${ b.w.from }→${ b.w.to }`
+						);
+					}
+				} )
+			);
+			return found;
+		};
+		// Sparse drawings make small groups of wires sharing end columns;
+		// three columns of hundreds of wires make large ones.
+		for ( const [ trials, cards, columns, count, least ] of [
+			[ 200, 24, 9, 40, 1000 ],
+			[ 10, 90, 3, 400, 50000 ],
+		] ) {
+			let crossed = 0;
+			for ( let trial = 0; trial < trials; trial++ ) {
+				/** @type {Object<string,{x: number, y: number}>} */
+				const at = {};
+				for ( let c = 0; c < cards; c++ ) {
+					at[ `n${ c }` ] = cell(
+						pick( columns ) / 2,
+						pick( 13 ) / 2
+					);
+				}
+				const ids = Object.keys( at );
+				const wires = Array.from( { length: count }, () =>
+					wire( ids[ pick( ids.length ) ], ids[ pick( ids.length ) ] )
+				);
+				const expected = pairwise( at, wires );
+				crossed += expected.length;
+				expect( drawnCost( at, wires ).crossings ).toEqual( expected );
+			}
+			expect( crossed ).toBeGreaterThan( least );
+		}
 	} );
 } );
 
