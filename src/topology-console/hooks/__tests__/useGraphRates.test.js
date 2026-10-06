@@ -166,4 +166,36 @@ describe( 'useGraphRates', () => {
 		expect( result.current.rateRef.current.has( 'a' ) ).toBe( false );
 		expect( result.current.rateRef.current.has( 'b' ) ).toBe( true );
 	} );
+
+	it( 'takes no sample of the held graph on a reset, so the next worker baselines clean', () => {
+		let now = 1000;
+		jest.spyOn( Date, 'now' ).mockImplementation( () => now * 1000 );
+		const workerA = g( [ { id: 'tee', count: 9000, bytesRead: 70000 } ] );
+		const { result, rerender } = renderHook(
+			( { graph, key } ) => useGraphRates( graph, key ),
+			{ initialProps: { graph: workerA, key: 'worker-a' } }
+		);
+		// The console swaps workers while A's snapshot is still the one held.
+		now = 1003;
+		rerender( { graph: workerA, key: 'worker-b' } );
+		expect( result.current.rateRef.current.size ).toBe( 0 );
+		// B's first snapshot is a baseline, never a delta against A's counts.
+		now = 1006;
+		rerender( {
+			graph: g( [ { id: 'tee', count: 9420, bytesRead: 71230 } ] ),
+			key: 'worker-b',
+		} );
+		const entry = result.current.rateRef.current.get( 'tee' );
+		expect( entry.rate ).toBe( 0 );
+		expect( entry.readRate ).toBe( 0 );
+		expect( entry.history ).toEqual( [] );
+		// B's own next reading is the first real rate.
+		now = 1009;
+		rerender( {
+			graph: g( [ { id: 'tee', count: 9441, bytesRead: 71230 } ] ),
+			key: 'worker-b',
+		} );
+		expect( result.current.rateRef.current.get( 'tee' ).rate ).toBe( 7 );
+		Date.now.mockRestore();
+	} );
 } );

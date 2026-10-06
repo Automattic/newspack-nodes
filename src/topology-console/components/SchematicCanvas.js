@@ -11,6 +11,7 @@
  */
 
 import {
+	memo,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -673,6 +674,287 @@ function formatNodeRate( rate ) {
 	}
 	return `${ rate.toFixed( 2 ) } /s`;
 }
+
+const NodeCard = memo(
+	/**
+	 * One node card's frame: everything that holds still from poll to poll. It is
+	 * memoized on its structural props alone, so a poll that moves only counters
+	 * re-renders no card, and the bloom-filtered layer it sits in is left alone.
+	 * Every handler comes through `events`, one object for the canvas's lifetime.
+	 *
+	 * @param {Object}  props
+	 * @param {string}  props.id           Node id.
+	 * @param {string}  props.cls          Node class, shown in the title band.
+	 * @param {number}  props.x            Card left, in world units.
+	 * @param {number}  props.y            Card top, in world units.
+	 * @param {number}  props.w            Rendered width, floored for a tiny scale.
+	 * @param {number}  props.h            Rendered height, floored likewise.
+	 * @param {boolean} props.showDetail   Draw labels and ports, not a bare rect.
+	 * @param {boolean} props.isSelected   The selected node.
+	 * @param {boolean} props.isHovered    The hovered node.
+	 * @param {boolean} props.isFaded      Faded behind a hover or a focused hull.
+	 * @param {boolean} props.isDragging   Being dragged.
+	 * @param {boolean} props.isIdle       Live mode, and nothing moving through it.
+	 * @param {boolean} props.isDrift      Live but missing from the .tsl.
+	 * @param {boolean} props.isBorrowed   Borrowed via `include`, so locked.
+	 * @param {boolean} props.isPaused     A Consumer holding its cursor.
+	 * @param {boolean} props.hasIn        Draws an IN port: it accepts fill.
+	 * @param {boolean} props.isSnapTarget The IN port a dragged wire would land on.
+	 * @param {boolean} props.hasOut       Draws an OUT port: it carries a target.
+	 * @param {boolean} props.isEdit       Edit mode, which paints the OUT port.
+	 * @param {boolean} props.isWireSource A wire drag may start at the OUT port.
+	 * @param {Object}  props.events       The canvas's stable card handlers.
+	 * @return {import('react').ReactElement} The card's `<g>`.
+	 */
+	function NodeCard( {
+		id,
+		cls,
+		x,
+		y,
+		w,
+		h,
+		showDetail,
+		isSelected,
+		isHovered,
+		isFaded,
+		isDragging,
+		isIdle,
+		isDrift,
+		isBorrowed,
+		isPaused,
+		hasIn,
+		isSnapTarget,
+		hasOut,
+		isEdit,
+		isWireSource,
+		events,
+	} ) {
+		return (
+			<g
+				className={ `topology-node${
+					isSelected ? ' is-selected' : ''
+				}${ isHovered ? ' is-hovered' : '' }${
+					isFaded ? ' is-faded' : ''
+				}${ isDragging ? ' is-dragging' : '' }${
+					showDetail ? '' : ' is-static'
+				}${ isIdle ? ' is-idle' : '' }${ isDrift ? ' is-drift' : '' }${
+					isBorrowed ? ' is-borrowed' : ''
+				}` }
+				transform={ `translate(${ x },${ y })` }
+				onClick={ ( ev ) => events.select( ev, id ) }
+				onPointerDown={ ( ev ) => events.down( ev, id ) }
+				onMouseDown={ ( ev ) => events.down( ev, id ) }
+				onPointerMove={ events.move }
+				onPointerUp={ events.up }
+				onPointerCancel={ events.up }
+				onMouseEnter={ () => events.hover( id ) }
+				onMouseLeave={ () => events.hover( null ) }
+			>
+				<rect
+					className="topology-node__shadow"
+					x={ 3 }
+					y={ 3 }
+					width={ NODE_W }
+					height={ NODE_H }
+				/>
+				<rect className="topology-node__bg" width={ w } height={ h } />
+				{ /* Labels and ports only when zoomed in. */ }
+				{ showDetail && (
+					<>
+						{ /* Labels clipped to the card; ports sit outside. */ }
+						<g clipPath="url(#topology-node-clip)">
+							{ /* Title band behind type/id; per-skin fill. */ }
+							<rect
+								className="topology-node__header"
+								width={ NODE_W }
+								height={ 22 }
+							/>
+							<line
+								className="topology-node__divider"
+								x1={ 0 }
+								y1={ 22 }
+								x2={ NODE_W }
+								y2={ 22 }
+							/>
+							<text
+								className="topology-node__type"
+								x={ 11 }
+								y={ 15 }
+							>
+								{ cls }
+							</text>
+							<circle
+								className="topology-node__led"
+								cx={ NODE_W - 12 }
+								cy={ 13 }
+								r={ 3.5 }
+							/>
+							{ /* ⏸ badge when a Consumer holds the cursor. */ }
+							{ isPaused && (
+								<text
+									className="topology-node__paused"
+									x={ NODE_W - 24 }
+									y={ 17 }
+									textAnchor="end"
+								>
+									⏸
+								</text>
+							) }
+							{ isBorrowed && (
+								<text
+									className="topology-node__lock"
+									x={ NODE_W - 32 }
+									y={ 15 }
+								>
+									🔒
+								</text>
+							) }
+							<text
+								className="topology-node__id"
+								x={ 11 }
+								y={ 44 }
+							>
+								{ id }
+							</text>
+						</g>
+						{ hasIn && (
+							<circle
+								className={ `topology-port topology-port--in${
+									isSnapTarget ? ' is-snap-target' : ''
+								}` }
+								cx={ 0 }
+								cy={ NODE_H / 2 }
+								r={ PORT_R }
+							/>
+						) }
+						{ hasOut && (
+							<circle
+								className={ `topology-port topology-port--out${
+									isEdit ? ' is-edit' : ''
+								}${ isWireSource ? ' is-wire-source' : '' }` }
+								cx={ NODE_W }
+								cy={ NODE_H / 2 }
+								r={ PORT_R }
+								onPointerDown={ ( ev ) =>
+									events.port( ev, id )
+								}
+								onMouseDown={ ( ev ) => events.port( ev, id ) }
+							/>
+						) }
+					</>
+				) }
+			</g>
+		);
+	}
+);
+
+const NodeReadout = memo(
+	/**
+	 * One card's live readouts — sparkline, rate and counter — drawn over the card
+	 * in a layer of their own, outside the bloom filter, so a poll that moves a
+	 * counter re-renders this alone and repaints none of the filtered layer.
+	 *
+	 * @param {Object}  props
+	 * @param {number}  props.x          Card left, in world units.
+	 * @param {number}  props.y          Card top, in world units.
+	 * @param {boolean} props.isFaded    Faded with its card.
+	 * @param {boolean} props.isDragging Being dragged with its card.
+	 * @param {boolean} props.isIdle     Dimmed with its card.
+	 * @param {boolean} props.rated      Live mode, so a rate and sparkline exist.
+	 * @param {?string} props.sparkPath  Sparkline `d`, or null under two samples.
+	 * @param {?string} props.rateText   Rate label, or null below the idle floor.
+	 * @param {number}  [props.count]    Cumulative message count.
+	 * @return {import('react').ReactElement} The readouts' `<g>`.
+	 */
+	function NodeReadout( {
+		x,
+		y,
+		isFaded,
+		isDragging,
+		isIdle,
+		rated,
+		sparkPath,
+		rateText,
+		count,
+	} ) {
+		return (
+			<g
+				className={ `topology-node-readout${
+					isFaded ? ' is-faded' : ''
+				}${ isDragging ? ' is-dragging' : '' }${
+					isIdle ? ' is-idle' : ''
+				}` }
+				transform={ `translate(${ x },${ y })` }
+			>
+				<g clipPath="url(#topology-node-clip)">
+					{ sparkPath && (
+						<path
+							className="topology-node__spark"
+							d={ sparkPath }
+						/>
+					) }
+					{ /* Rate, bottom-left; quiet nodes show none. */ }
+					{ rated && (
+						<text className="topology-node__rate" x={ 11 } y={ 76 }>
+							{ rateText }
+						</text>
+					) }
+					<text
+						className="topology-node__counter"
+						x={ NODE_W - 11 }
+						y={ 76 }
+						textAnchor="end"
+					>
+						{ formatGroupedCount( count ) }
+					</text>
+				</g>
+			</g>
+		);
+	}
+);
+
+const EdgeWire = memo(
+	/**
+	 * One wire, memoized on what it draws, so a poll re-renders only the wires
+	 * whose flow, highlight or path changed.
+	 *
+	 * @param {Object}    props
+	 * @param {string}    props.d            Path `d`.
+	 * @param {string}    props.className    The path's classes.
+	 * @param {boolean}   props.stub         Clipped at the viewport, so no arrow.
+	 * @param {?string}   props.title        Registration event to title it with.
+	 * @param {string}    props.from         Source node id.
+	 * @param {string}    props.to           Destination node id.
+	 * @param {?Function} props.onSelectEdge Edit mode's hit-target handler, or
+	 *                                       null where the wire takes no click.
+	 * @return {import('react').ReactElement} The wire's `<g>`.
+	 */
+	function EdgeWire( { d, className, stub, title, from, to, onSelectEdge } ) {
+		return (
+			<g>
+				{ title && <title>{ title }</title> }
+				<path
+					className={ className }
+					d={ d }
+					markerEnd={
+						stub ? undefined : 'url(#topology-arrow-active)'
+					}
+				/>
+				{ onSelectEdge && (
+					<path
+						className="topology-edge-hit"
+						d={ d }
+						onMouseDown={ ( ev ) => {
+							ev.stopPropagation();
+							onSelectEdge( { from, to } );
+						} }
+						onPointerDown={ ( ev ) => ev.stopPropagation() }
+					/>
+				) }
+			</g>
+		);
+	}
+);
 
 /**
  * The drafting-room canvas: one raw `<svg>` holding the grid, the include
@@ -1507,205 +1789,116 @@ export default function SchematicCanvas( {
 		setHullDrag( null );
 	};
 
+	// The latest gesture handlers, read through `cardEvents` at event time.
+	const gestures = useRef( null );
+	gestures.current = {
+		beginDrag,
+		updateDrag,
+		endDrag,
+		setHovered,
+		handlePortPointerDown,
+		nodeById,
+		onSelect,
+	};
+	// One identity for the canvas's life, so no handler re-renders a card.
+	const cardEvents = useMemo(
+		() => ( {
+			select: ( ev, id ) => {
+				ev.stopPropagation();
+				// Suppress selection after a real drag.
+				if ( draggedRef.current ) {
+					draggedRef.current = false;
+					return;
+				}
+				gestures.current.onSelect?.( id );
+			},
+			down: ( ev, id ) =>
+				gestures.current.beginDrag(
+					ev,
+					gestures.current.nodeById.get( id )
+				),
+			move: ( ev ) => gestures.current.updateDrag( ev ),
+			up: ( ev ) => gestures.current.endDrag( ev ),
+			hover: ( id ) => gestures.current.setHovered( id ),
+			port: ( ev, id ) =>
+				gestures.current.handlePortPointerDown( id, ev ),
+		} ),
+		[]
+	);
+
 	/**
-	 * One node card. Every visible card renders into the one bloom-filtered
-	 * group, so the glow costs a single blur pass rather than one per card.
+	 * One visible node's frame, for the bloom-filtered layer, and its live
+	 * readouts, for the layer above it. Off-viewport nodes draw nothing,
+	 * except the one being dragged.
 	 *
 	 * @param {Object} n A positioned node from `displayNodes`.
-	 * @return {import('react').ReactElement} The card's `<g>`.
+	 * @return {?{card: import('react').ReactElement, readout: import('react').ReactElement}} The pair, or null when culled.
 	 */
 	const renderNode = ( n ) => {
-		const isSelected = n.id === selectedId;
+		const isDragging = !! drag && drag.nodeId === n.id;
+		if ( ! visibleIds.has( n.id ) && ! isDragging ) {
+			return null;
+		}
 		const isHovered = n.id === hoveredId;
 		const isFaded =
-			( hoveredId && ! isHovered ) ||
+			( !! hoveredId && ! isHovered ) ||
 			!! ( focusedHullMembers && ! focusedHullMembers.has( n.id ) );
+		const rate = rateRef?.current?.get( n.id );
 		// Idle dim: LIVE mode only, and never inside the hovered hull.
 		const isIdle =
 			! editMode &&
 			!! rateRef &&
 			! focusedHullMembers?.has( n.id ) &&
-			isIdleRate( rateRef.current?.get( n.id )?.rate );
-		const isDragging = drag && drag.nodeId === n.id;
-		// Borrowed via `include`: locked, but its wiring stays editable.
-		const isBorrowed = Array.isArray( n.origin ) && n.origin.length > 0;
-		return (
-			<g
-				key={ n.id }
-				className={ `topology-node${
-					isSelected ? ' is-selected' : ''
-				}${ isHovered ? ' is-hovered' : '' }${
-					isFaded ? ' is-faded' : ''
-				}${ isDragging ? ' is-dragging' : '' }${
-					showDetail ? '' : ' is-static'
-				}${ isIdle ? ' is-idle' : '' }${
-					driftIds?.has( n.id ) ? ' is-drift' : ''
-				}${ isBorrowed ? ' is-borrowed' : '' }` }
-				transform={ `translate(${ n.position.x },${ n.position.y })` }
-				onClick={ ( ev ) => {
-					ev.stopPropagation();
-					// Suppress selection after a real drag.
-					if ( draggedRef.current ) {
-						draggedRef.current = false;
-						return;
+			isIdleRate( rate?.rate );
+		const { x, y } = n.position;
+		return {
+			card: (
+				<NodeCard
+					key={ n.id }
+					id={ n.id }
+					cls={ n.class }
+					x={ x }
+					y={ y }
+					w={ nodeRenderW }
+					h={ nodeRenderH }
+					showDetail={ showDetail }
+					isSelected={ n.id === selectedId }
+					isHovered={ isHovered }
+					isFaded={ isFaded }
+					isDragging={ isDragging }
+					isIdle={ isIdle }
+					isDrift={ !! driftIds?.has( n.id ) }
+					isBorrowed={
+						Array.isArray( n.origin ) && n.origin.length > 0
 					}
-					if ( onSelect ) {
-						onSelect( n.id );
+					isPaused={ 'PAUSED' === n.polling }
+					hasIn={ acceptsFill( n, classCatalog ) }
+					isSnapTarget={ wireDrag?.hoveredId === n.id }
+					hasOut={ hasTarget( n, classCatalog ) }
+					isEdit={ editMode }
+					isWireSource={ interactive && !! onConnect }
+					events={ cardEvents }
+				/>
+			),
+			readout: (
+				<NodeReadout
+					key={ n.id }
+					x={ x }
+					y={ y }
+					isFaded={ isFaded }
+					isDragging={ isDragging }
+					isIdle={ isIdle }
+					rated={ !! rateRef }
+					sparkPath={
+						rateRef ? sparklinePath( rate?.history ) : null
 					}
-				} }
-				onPointerDown={ ( ev ) => beginDrag( ev, n ) }
-				onMouseDown={ ( ev ) => beginDrag( ev, n ) }
-				onPointerMove={ updateDrag }
-				onPointerUp={ endDrag }
-				onPointerCancel={ endDrag }
-				onMouseEnter={ () => setHovered( n.id ) }
-				onMouseLeave={ () => setHovered( null ) }
-			>
-				<rect
-					className="topology-node__shadow"
-					x={ 3 }
-					y={ 3 }
-					width={ NODE_W }
-					height={ NODE_H }
+					rateText={ rateRef ? formatNodeRate( rate?.rate ) : null }
+					count={ n.count }
 				/>
-				<rect
-					className="topology-node__bg"
-					width={ nodeRenderW }
-					height={ nodeRenderH }
-				/>
-				{ /* Labels/ports/spark only when zoomed in. */ }
-				{ showDetail && (
-					<>
-						{ /* Labels clipped to the card; ports sit outside. */ }
-						<g clipPath="url(#topology-node-clip)">
-							{ /* Title band behind type/id; per-skin fill. */ }
-							<rect
-								className="topology-node__header"
-								width={ NODE_W }
-								height={ 22 }
-							/>
-							<line
-								className="topology-node__divider"
-								x1={ 0 }
-								y1={ 22 }
-								x2={ NODE_W }
-								y2={ 22 }
-							/>
-							<text
-								className="topology-node__type"
-								x={ 11 }
-								y={ 15 }
-							>
-								{ n.class }
-							</text>
-							<circle
-								className="topology-node__led"
-								cx={ NODE_W - 12 }
-								cy={ 13 }
-								r={ 3.5 }
-							/>
-							{ /* ⏸ badge when a Consumer holds the cursor. */ }
-							{ 'PAUSED' === n.polling && (
-								<text
-									className="topology-node__paused"
-									x={ NODE_W - 24 }
-									y={ 17 }
-									textAnchor="end"
-								>
-									⏸
-								</text>
-							) }
-							{ isBorrowed && (
-								<text
-									className="topology-node__lock"
-									x={ NODE_W - 32 }
-									y={ 15 }
-								>
-									🔒
-								</text>
-							) }
-							<text
-								className="topology-node__id"
-								x={ 11 }
-								y={ 44 }
-							>
-								{ n.id }
-							</text>
-							{ /* Rate sparkline; hidden under two samples. */ }
-							{ rateRef &&
-								( () => {
-									const history = rateRef.current.get(
-										n.id
-									)?.history;
-									const path = sparklinePath( history );
-									if ( ! path ) {
-										return null;
-									}
-									return (
-										<path
-											className="topology-node__spark"
-											d={ path }
-										/>
-									);
-								} )() }
-							{ /* Rate, bottom-left; quiet nodes show none. */ }
-							{ rateRef && (
-								<text
-									className="topology-node__rate"
-									x={ 11 }
-									y={ 76 }
-								>
-									{ formatNodeRate(
-										rateRef.current.get( n.id )?.rate
-									) }
-								</text>
-							) }
-							<text
-								className="topology-node__counter"
-								x={ NODE_W - 11 }
-								y={ 76 }
-								textAnchor="end"
-							>
-								{ formatGroupedCount( n.count ) }
-							</text>
-						</g>
-						{ acceptsFill( n, classCatalog ) && (
-							<circle
-								className={ `topology-port topology-port--in${
-									wireDrag && wireDrag.hoveredId === n.id
-										? ' is-snap-target'
-										: ''
-								}` }
-								cx={ 0 }
-								cy={ NODE_H / 2 }
-								r={ PORT_R }
-							/>
-						) }
-						{ hasTarget( n, classCatalog ) && (
-							<circle
-								className={ `topology-port topology-port--out${
-									editMode ? ' is-edit' : ''
-								}${
-									interactive && onConnect
-										? ' is-wire-source'
-										: ''
-								}` }
-								cx={ NODE_W }
-								cy={ NODE_H / 2 }
-								r={ PORT_R }
-								onPointerDown={ ( e ) =>
-									handlePortPointerDown( n.id, e )
-								}
-								onMouseDown={ ( e ) =>
-									handlePortPointerDown( n.id, e )
-								}
-							/>
-						) }
-					</>
-				) }
-			</g>
-		);
+			),
+		};
 	};
+	const drawn = displayNodes.map( renderNode ).filter( Boolean );
 
 	return (
 		<svg
@@ -1894,9 +2087,14 @@ export default function SchematicCanvas( {
 
 			{ showDetail &&
 				( () => {
-					// Bloom only full edges; stub glow can't bleed off-screen.
+					// @longform Bloom only full, still edges: stub glow
+					// can't bleed off-screen, and a flowing edge animates,
+					// which would redraw the whole filtered layer 20 times
+					// a second.
 					const bloomEdges = [];
+					const flowEdges = [];
 					const plainEdges = [];
+					const wires = [];
 					edges.forEach( ( e, i ) => {
 						const a = nodeById.get( e.from );
 						const b = nodeById.get( e.to );
@@ -1953,12 +2151,13 @@ export default function SchematicCanvas( {
 							d = `M ${ visP.x },${ visP.y } L ${ exit.x },${ exit.y }`;
 							stub = true;
 						}
-						const el = (
-							<g key={ `edge-${ i }-${ e.from }-${ e.to }` }>
-								{ e.registration && e.event && (
-									<title>{ e.event }</title>
-								) }
-								<path
+						wires.push( {
+							stub,
+							flowing,
+							el: (
+								<EdgeWire
+									key={ `edge-${ i }-${ e.from }-${ e.to }` }
+									d={ d }
 									className={ `topology-edge topology-edge--active${
 										flowing ? ' topology-edge--flowing' : ''
 									}${ touches ? ' is-touched' : '' }${
@@ -1968,49 +2167,48 @@ export default function SchematicCanvas( {
 									}${ e.virtual ? ' is-virtual' : '' }${
 										e.registration ? ' is-registration' : ''
 									}` }
-									d={ d }
-									markerEnd={
-										stub
-											? undefined
-											: 'url(#topology-arrow-active)'
+									stub={ stub }
+									title={
+										e.registration && e.event
+											? e.event
+											: null
+									}
+									from={ e.from }
+									to={ e.to }
+									onSelectEdge={
+										editMode &&
+										onSelectEdge &&
+										edgeHasConnectRole( e ) &&
+										! e.virtual &&
+										! e.registration
+											? onSelectEdge
+											: null
 									}
 								/>
-								{ /* Edit-only hit-target; no virtual/reg. */ }
-								{ editMode &&
-									onSelectEdge &&
-									edgeHasConnectRole( e ) &&
-									! e.virtual &&
-									! e.registration && (
-										<path
-											className="topology-edge-hit"
-											d={ d }
-											onMouseDown={ ( ev ) => {
-												ev.stopPropagation();
-												onSelectEdge( {
-													from: e.from,
-													to: e.to,
-												} );
-											} }
-											onPointerDown={ ( ev ) =>
-												ev.stopPropagation()
-											}
-										/>
-									) }
-							</g>
-						);
-						( stub ? plainEdges : bloomEdges ).push( el );
+							),
+						} );
 					} );
 					// Past EDGE_FLOW_MAX the flow animation drops out.
-					const still =
-						bloomEdges.length + plainEdges.length > EDGE_FLOW_MAX
-							? ' topology-edges--still'
-							: '';
+					const isStill = wires.length > EDGE_FLOW_MAX;
+					const still = isStill ? ' topology-edges--still' : '';
+					for ( const w of wires ) {
+						if ( w.stub ) {
+							plainEdges.push( w.el );
+						} else if ( w.flowing && ! isStill ) {
+							flowEdges.push( w.el );
+						} else {
+							bloomEdges.push( w.el );
+						}
+					}
 					return (
 						<>
 							<g
 								className={ `topology-edges topology-edges--bloom${ still }` }
 							>
 								{ bloomEdges }
+							</g>
+							<g className="topology-edges topology-edges--flow">
+								{ flowEdges }
 							</g>
 							<g className={ `topology-edges${ still }` }>
 								{ plainEdges }
@@ -2025,17 +2223,14 @@ export default function SchematicCanvas( {
 					showDetail ? ' topology-nodes--bloom' : ''
 				}` }
 			>
-				{ displayNodes.map( ( n ) => {
-					// Cull off-viewport nodes (always render the dragged one).
-					if (
-						! visibleIds.has( n.id ) &&
-						! ( drag && drag.nodeId === n.id )
-					) {
-						return null;
-					}
-					return renderNode( n );
-				} ) }
+				{ drawn.map( ( pair ) => pair.card ) }
 			</g>
+			{ /* Live readouts, unfiltered, so a poll repaints no bloom. */ }
+			{ showDetail && (
+				<g className="topology-readouts">
+					{ drawn.map( ( pair ) => pair.readout ) }
+				</g>
+			) }
 			{ wireDrag && (
 				<g className="topology-wire-drag">
 					<line

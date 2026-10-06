@@ -575,6 +575,59 @@ final class TableProtocolTest extends TestCase {
 		}
 	}
 
+	// ── SSCAN: one set read a page at a time ──
+
+	public function test_sscan_pages_one_set_in_member_order_naming_where_the_next_page_starts(): void {
+		$this->ask( [ 'SADD' => [ 'word:kea' => [ [ 'u-5' => 5, 'u-3' => 3, 'u-1' => 1, 'u-4' => [ 'n' => 4 ], 'u-2' => 2 ] ], 'word:owl' => [ [ 'u-0' => 0 ] ] ] ], self::STRUCT );
+		$replies = $this->ask( "SSCAN 2 word:kea\n" );
+		$this->assertSame( [ [ Message::TM_STRUCT, 'word:kea', [ [ 'u-1', 1 ], [ 'u-2', 2 ] ] ], [ Message::TM_INFO, '', "SSCAN 1 after=u-2\n" ] ], self::shape( $replies ) );
+		foreach ( $replies as $reply ) {
+			$this->assertSame( [ 'lab-7:kea', 'asker-9', 'ask-17' ], [ $reply[ Message::FROM ], $reply[ Message::TO ], $reply[ Message::ID ] ] );
+		}
+		$this->assertSame( [ [ Message::TM_STRUCT, 'word:kea', [ [ 'u-3', 3 ], [ 'u-4', [ 'n' => 4 ] ] ] ], [ Message::TM_INFO, '', "SSCAN 1 after=u-4\n" ] ], self::shape( $this->ask( "SSCAN 2 word:kea after=u-2\n" ) ) );
+		$this->assertSame( [ [ Message::TM_STRUCT, 'word:kea', [ [ 'u-5', 5 ] ] ], [ Message::TM_INFO, '', "SSCAN 1\n" ] ], self::shape( $this->ask( "SSCAN 2 word:kea after=u-4\n" ) ), 'the last page names no next' );
+	}
+
+	public function test_a_page_that_ends_the_set_exactly_names_no_next(): void {
+		$this->ask( [ 'SADD' => [ 'word:kea' => [ [ 'u-1' => 1, 'u-2' => 2, 'u-3' => 3, 'u-4' => 4 ] ] ] ], self::STRUCT );
+		$this->assertSame( [ [ Message::TM_STRUCT, 'word:kea', [ [ 'u-3', 3 ], [ 'u-4', 4 ] ] ], [ Message::TM_INFO, '', "SSCAN 1\n" ] ], self::shape( $this->ask( "SSCAN 2 word:kea after=u-2\n" ) ) );
+		$this->assertSame( [ [ Message::TM_INFO, '', "SSCAN 0\n" ] ], self::shape( $this->ask( "SSCAN 2 word:kea after=u-4\n" ) ), 'past the last member the set is done' );
+		$this->assertSame( [ [ Message::TM_INFO, '', "SSCAN 0\n" ] ], self::shape( $this->ask( "SSCAN 2 word:emu\n" ) ), 'an absent set is empty' );
+	}
+
+	public function test_sscan_seeks_past_the_cursor_whether_or_not_the_set_holds_it(): void {
+		$this->ask( [ 'SADD' => [ 'word:kea' => [ [ 'u-1' => 1, 'u-2' => 2, 'u-3' => 3 ] ] ] ], self::STRUCT );
+		$this->assertSame( [ [ Message::TM_STRUCT, 'word:kea', [ [ 'u-3', 3 ] ] ], [ Message::TM_INFO, '', "SSCAN 1\n" ] ], self::shape( $this->ask( "SSCAN 7 word:kea after=u-25\n" ) ) );
+	}
+
+	public function test_a_cursor_carries_a_member_holding_whitespace_or_none_at_all(): void {
+		$this->ask( [ 'SADD' => [ 'word:kea' => [ [ 'u 9%' => 9, '' => 0, 'u-3' => 3 ] ] ] ], self::STRUCT );
+		$this->assertSame( [ [ Message::TM_STRUCT, 'word:kea', [ [ '', 0 ] ] ], [ Message::TM_INFO, '', "SSCAN 1 after=\n" ] ], self::shape( $this->ask( "SSCAN 1 word:kea\n" ) ) );
+		$this->assertSame( [ [ Message::TM_STRUCT, 'word:kea', [ [ 'u 9%', 9 ] ] ], [ Message::TM_INFO, '', "SSCAN 1 after=u%209%25\n" ] ], self::shape( $this->ask( "SSCAN 1 word:kea after=\n" ) ) );
+		$this->assertSame( [ [ Message::TM_STRUCT, 'word:kea', [ [ 'u-3', 3 ] ] ], [ Message::TM_INFO, '', "SSCAN 1\n" ] ], self::shape( $this->ask( "SSCAN 1 word:kea after=u%209%25\n" ) ) );
+	}
+
+	public function test_an_sscan_off_its_grammar_is_refused(): void {
+		$usage = "SSCAN: usage: SSCAN <limit> <set_key> [after=<member>], limit a whole number from 1 to 10000\n";
+		foreach ( [ "SSCAN 0 word:kea\n", "SSCAN 10001 word:kea\n", "SSCAN many word:kea\n", "SSCAN 9\n", "SSCAN 9 word:kea word:owl\n", "SSCAN 9 word:kea after=u-1 after=u-2\n" ] as $request ) {
+			$this->assertSame( [ [ Message::TM_ERROR, '', $usage ] ], self::shape( $this->ask( $request ) ), $request );
+		}
+	}
+
+	public function test_a_failed_page_read_answers_an_error_never_absence(): void {
+		( new \PDO( 'sqlite:' . Table_Node::file( 'lab-7:kea', 3 ) ) )->exec( 'DROP TABLE members' );
+		$this->assertSame( [ [ Message::TM_ERROR, '', "SSCAN: backend read failed\n" ] ], self::shape( $this->ask( "SSCAN 9 word:kea\n" ) ) );
+		$this->assertSame( 1, $this->table->stats()['SSCAN']['errors'] );
+	}
+
+	public function test_a_wpdb_table_pages_a_set_as_sqlite_does(): void {
+		$this->use_wpdb();
+		$owl = $this->worker_table( 'lab-7:owl', 'owl:p3', 'wpdb' );
+		$this->ask( [ 'SADD' => [ 'word:kea' => [ [ 'u-3' => 3, 'u-1' => 1, 'u-2' => 2 ] ] ] ], self::STRUCT, $owl );
+		$this->assertSame( [ [ Message::TM_STRUCT, 'word:kea', [ [ 'u-1', 1 ], [ 'u-2', 2 ] ] ], [ Message::TM_INFO, '', "SSCAN 1 after=u-2\n" ] ], self::shape( $this->ask( "SSCAN 2 word:kea\n", Message::TM_REQUEST, $owl ) ) );
+		$this->assertSame( [ [ Message::TM_STRUCT, 'word:kea', [ [ 'u-3', 3 ] ] ], [ Message::TM_INFO, '', "SSCAN 1\n" ] ], self::shape( $this->ask( "SSCAN 2 word:kea after=u-2\n", Message::TM_REQUEST, $owl ) ) );
+	}
+
 	public function test_smove_answers_the_moved_members_as_one_set_then_srem_the_members_that_were_there(): void {
 		$this->ask( [ 'SADD' => [ 'pend-3307' => [ [ 'x-2' => [ 'n' => 2 ], 'x-1' => 'one', 'x-3' => 3 ] ] ] ], self::STRUCT );
 		$this->assertSame(
@@ -621,11 +674,11 @@ final class TableProtocolTest extends TestCase {
 		$this->assertSame( 2, $this->table->stats()['SREM']['errors'] );
 	}
 
-	public function test_a_volatile_table_refuses_smove_and_srem_naming_itself_and_its_backend(): void {
+	public function test_a_volatile_table_refuses_smove_srem_and_sscan_naming_itself_and_its_backend(): void {
 		Core::$memd = new InMemoryMemcached();
 		$owl        = $this->worker_table( 'lab-7:owl-memcache', 'owl:p3', 'memcache' );
 		Core::$memd = null;
-		foreach ( [ 'SMOVE' => "SMOVE 2 a b\n", 'SREM' => "SREM a x-1\n" ] as $verb => $request ) {
+		foreach ( [ 'SMOVE' => "SMOVE 2 a b\n", 'SREM' => "SREM a x-1\n", 'SSCAN' => "SSCAN 2 a\n" ] as $verb => $request ) {
 			$this->assertSame( [ [ Message::TM_ERROR, '', "{$verb}: needs a durable backend; lab-7:owl-memcache is memcache\n" ] ], self::shape( $this->ask( $request, Message::TM_REQUEST, $owl ) ) );
 		}
 	}
@@ -833,6 +886,7 @@ final class TableProtocolTest extends TestCase {
 		$this->assertSame( [ $value, [ Message::TM_INFO, '', "MGET 1\n" ] ], self::shape( $this->ask( "MGET sku-41 sku-42\n", Message::TM_REQUEST, $mount ) ) );
 		$this->ask( [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => 'kea-41' ] ] ] ], Message::TM_REQUEST | Message::TM_STRUCT );
 		$this->assertSame( [ [ Message::TM_STRUCT, 'word:kea', [ [ 'u-41', 'kea-41' ] ] ], [ Message::TM_INFO, '', "SMEMBERS 1\n" ] ], self::shape( $this->ask( "SMEMBERS 9 word:kea\n", Message::TM_REQUEST, $mount ) ) );
+		$this->assertSame( [ [ Message::TM_STRUCT, 'word:kea', [ [ 'u-41', 'kea-41' ] ] ], [ Message::TM_INFO, '', "SSCAN 1\n" ] ], self::shape( $this->ask( "SSCAN 9 word:kea\n", Message::TM_REQUEST, $mount ) ) );
 	}
 
 	public function test_a_mount_of_a_file_its_writer_declared_before_members_reads_no_members(): void {

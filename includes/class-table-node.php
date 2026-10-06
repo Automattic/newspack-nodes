@@ -52,10 +52,9 @@ class Table_Node extends Node {
 	public const BACKENDS = [ 'auto', 'memcache', 'apcu', 'sqlite', 'wpdb' ];
 
 	/**
-	 * Most members one SMEMBERS answers for a set before it answers OVER_LIMIT:
-	 * a ceiling on what a read through a mount may cost, as the arm reads one
-	 * row past it, set at the largest reader's need, event-logger-nodes'
-	 * bucket page, which reads 10,000.
+	 * Most members one SMEMBERS or SSCAN page answers for a set: a ceiling on
+	 * what one read through a mount may cost, as the arm reads one row past
+	 * it. A set larger than this is read whole page by page through SSCAN.
 	 */
 	public const MAX_MEMBERS_LIMIT = 10000;
 
@@ -117,6 +116,16 @@ class Table_Node extends Node {
 	/** How a SMEMBERS request is answered. */
 	private const MEMBERS_REPLY = 'one message per set holding a live member, KEY the set key: TM_STRUCT, VALUE a list of [ member, value ] in member order, or TM_BYTESTREAM "OVER <limit>" past the limit; then TM_INFO "SMEMBERS <n>", or one TM_ERROR "SMEMBERS: backend read failed"';
 
+	/** How a SSCAN request is answered. */
+	private const PAGE_REPLY = 'one TM_STRUCT when the page holds a live member, KEY the set key, VALUE a list of [ member, value ] in member order; then TM_INFO "SSCAN <n>", with " after=<member>" when more remain, or one TM_ERROR "SSCAN: backend read failed"';
+
+	/**
+	 * The word that opens an SSCAN cursor, `after=<member>`: the member the
+	 * page starts after, percent-encoded, so a member holding whitespace, or
+	 * the empty member, is still one token. A reply names the next page's.
+	 */
+	public const AFTER = 'after=';
+
 	/** How a SMOVE request is answered. */
 	private const MOVED_REPLY = 'one TM_STRUCT, KEY the from set, VALUE a list of [ member, value ] moved, lowest member first, then TM_INFO "SMOVE 1", or one TM_ERROR "SMOVE: backend write failed"';
 
@@ -132,7 +141,7 @@ class Table_Node extends Node {
 	 * The verbs a mount answers: its declaring worker is the file's one writer
 	 * (ADR-6), and a request carries no authority beyond the mount (ADR-23).
 	 */
-	private const READ_VERBS = [ 'GET', 'MGET', 'SMEMBERS' ];
+	private const READ_VERBS = [ 'GET', 'MGET', 'SMEMBERS', 'SSCAN' ];
 
 	/** Why a mount refuses any other verb. */
 	private const READS_ONLY = 'a mounted Table serves reads only';
@@ -178,6 +187,7 @@ class Table_Node extends Node {
 		'INSERT'     => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
 		'SADD'       => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
 		'SMEMBERS'   => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
+		'SSCAN'      => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
 		'SMOVE'      => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
 		'SREM'       => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
 		'PURGE'      => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
@@ -521,6 +531,7 @@ class Table_Node extends Node {
 			'GET'                 => $this->reply_values( $request, $verb, \array_slice( $words, 0, 1 ) ),
 			'MGET'                => $this->reply_values( $request, $verb, $words ),
 			'SMEMBERS'            => $this->reply_members( $request, $words ),
+			'SSCAN'               => $this->reply_page( $request, $words ),
 			'SMOVE'               => $this->reply_moved( $request, $words ),
 			'SREM'                => $this->reply_unmembered( $request, $words ),
 			'TOUCH'               => $this->reply_touch( $request, $words ),
@@ -698,6 +709,50 @@ class Table_Node extends Node {
 			$this->reply( $request, Message::TM_STRUCT, (string) $set_key, self::member_pairs( $members ) );
 		}
 		$this->reply( $request, Message::TM_INFO, '', 'SMEMBERS ' . \count( $found ) . "\n" );
+	}
+
+	/**
+	 * `SSCAN <limit> <set_key> [after=<member>]`: one page of one set, up to
+	 * `limit` live members in member order past the cursor, as one TM_STRUCT
+	 * keyed by the set, as SMEMBERS answers a set, and none for a page with
+	 * no member; then the count, naming the next page's cursor while members
+	 * remain. A limit that is not a whole number from 1 to MAX_MEMBERS_LIMIT,
+	 * a missing set key and any word but one cursor after it are refused, and
+	 * so is a backend that is not durable; a failed read answers one error.
+	 * Counted as SSCAN: the members asked for, the members answered.
+	 *
+	 * @param array<int,mixed> $request The TM_REQUEST.
+	 * @param list<string>     $words   Limit, set key, then the cursor if any.
+	 * @throws \RuntimeException With no wired sink to reply through.
+	 */
+	private function reply_page( array $request, array $words ): void {
+		$limit   = Core::canonical_decimal( $words[0] ?? '', false );
+		$set_key = $words[1] ?? '';
+		$cursor  = $words[2] ?? null;
+		if ( null === $limit || $limit > self::MAX_MEMBERS_LIMIT || '' === $set_key || \count( $words ) > 3 || ( null !== $cursor && ! \str_starts_with( $cursor, self::AFTER ) ) ) {
+			$this->refuse( $request, 'SSCAN', 'usage: SSCAN <limit> <set_key> [' . self::AFTER . '<member>], limit ' . self::MEMBERS_LIMIT_RANGE );
+			return;
+		}
+		if ( ! $this->arm instanceof Durable_Arm ) {
+			$this->refuse( $request, 'SSCAN', $this->needs_durable() );
+			return;
+		}
+		$after = null === $cursor ? null : \rawurldecode( \substr( $cursor, \strlen( self::AFTER ) ) );
+		$page  = $this->arm->member_page( $this->key( $set_key ), $limit, $after );
+		if ( false === $page ) {
+			$this->count_error( 'SSCAN' );
+			$this->reply( $request, Message::TM_ERROR, '', "SSCAN: backend read failed\n" );
+			return;
+		}
+		[ $members, $more ] = $page;
+		$this->count_rows( 'SSCAN', $limit, \count( $members ) );
+		if ( [] === $members ) {
+			$this->reply( $request, Message::TM_INFO, '', "SSCAN 0\n" );
+			return;
+		}
+		$this->reply( $request, Message::TM_STRUCT, $set_key, self::member_pairs( $members ) );
+		$next = $more ? ' ' . self::AFTER . \rawurlencode( (string) \array_key_last( $members ) ) : '';
+		$this->reply( $request, Message::TM_INFO, '', "SSCAN 1{$next}\n" );
 	}
 
 	/**
@@ -2230,6 +2285,16 @@ class Table_Node extends Node {
 						[ 'name' => 'set_keys', 'type' => 'string', 'required' => true, 'description' => 'Whitespace-separated set keys.' ],
 					],
 					'reply_shape' => self::MEMBERS_REPLY,
+				],
+				[
+					'name'        => 'SSCAN',
+					'description' => 'One page of one set: up to <limit> live members, lowest first, past the cursor, by an exact seek on ( set_key, member ); the reply names the next page\'s cursor while members remain. sqlite and wpdb alone hold members.',
+					'args'        => [
+						[ 'name' => 'limit', 'type' => 'int', 'required' => true, 'description' => 'Most members the page answers, from 1 to MAX_MEMBERS_LIMIT (10000).' ],
+						[ 'name' => 'set_key', 'type' => 'string', 'required' => true ],
+						[ 'name' => 'after', 'type' => 'string', 'required' => false, 'description' => 'after=<member>, percent-encoded: the cursor the previous page\'s reply named.' ],
+					],
+					'reply_shape' => self::PAGE_REPLY,
 				],
 				[
 					'name'        => 'SMOVE',

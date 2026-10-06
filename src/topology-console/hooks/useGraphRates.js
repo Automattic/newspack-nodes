@@ -27,7 +27,7 @@
  * @property {boolean}  warm           A baseline reading carrying data exists, so the next reading yields a real delta.
  */
 
-import { useEffect, useRef, useState } from '@wordpress/element';
+import { useRef } from '@wordpress/element';
 
 /**
  * Samples of trailing rate history kept per series, per node.
@@ -43,7 +43,7 @@ import { useEffect, useRef, useState } from '@wordpress/element';
 export const RATE_HISTORY_MAX = 60;
 
 /**
- * Track every graph node's message and byte rates across snapshots.
+ * Fold one snapshot's counters into the rate map.
  *
  * A node's first reading carrying data is a BASELINE, never a sample. The
  * canvas paints a node before `dump_metadata` backfills its cumulative
@@ -54,14 +54,119 @@ export const RATE_HISTORY_MAX = 60;
  * floors at one second, so a snapshot arriving milliseconds after the last one
  * reads low rather than dividing a delta by nearly nothing.
  *
+ * @param {Map<string,RateEntry>}                                                           rates The map, mutated.
+ * @param {{nodes:Array<{id:string,count?:number,bytesRead?:number,bytesWritten?:number}>}} graph The snapshot.
+ * @return {boolean} Whether any entry changed.
+ */
+function sample( rates, graph ) {
+	const now = Date.now() / 1000;
+	let touched = false;
+	for ( const n of graph.nodes ) {
+		const prevEntry = rates.get( n.id );
+		const count = n.count || 0;
+		const bytesRead = n.bytesRead || 0;
+		const bytesWritten = n.bytesWritten || 0;
+		const hasMessages = ( prevEntry && prevEntry.hasMessages ) || count > 0;
+		const hasRead = ( prevEntry && prevEntry.hasRead ) || bytesRead > 0;
+		const hasWritten =
+			( prevEntry && prevEntry.hasWritten ) || bytesWritten > 0;
+		// A node warms on the first reading that carries data.
+		const warm = !! ( prevEntry && prevEntry.warm );
+		const hasData = count > 0 || bytesRead > 0 || bytesWritten > 0;
+		if ( prevEntry && warm && prevEntry.ts < now ) {
+			const rawDCount = count - prevEntry.count;
+			const dCount = rawDCount < 0 ? 0 : rawDCount;
+			const rawDRead = bytesRead - ( prevEntry.bytesRead || 0 );
+			const dRead = rawDRead < 0 ? 0 : rawDRead;
+			const rawDWritten = bytesWritten - ( prevEntry.bytesWritten || 0 );
+			const dWritten = rawDWritten < 0 ? 0 : rawDWritten;
+			const dTime = Math.max( 1, now - prevEntry.ts );
+			const rate = dCount / dTime;
+			const readRate = dRead / dTime;
+			const writtenRate = dWritten / dTime;
+			const history = prevEntry.history || [];
+			const readHistory = prevEntry.readHistory || [];
+			const writtenHistory = prevEntry.writtenHistory || [];
+			history.push( rate );
+			readHistory.push( readRate );
+			writtenHistory.push( writtenRate );
+			if ( history.length > RATE_HISTORY_MAX ) {
+				history.shift();
+			}
+			if ( readHistory.length > RATE_HISTORY_MAX ) {
+				readHistory.shift();
+			}
+			if ( writtenHistory.length > RATE_HISTORY_MAX ) {
+				writtenHistory.shift();
+			}
+			rates.set( n.id, {
+				count,
+				bytesRead,
+				bytesWritten,
+				ts: now,
+				rate,
+				readRate,
+				writtenRate,
+				lastChangedTs: dCount > 0 ? now : prevEntry.lastChangedTs,
+				history,
+				readHistory,
+				writtenHistory,
+				hasMessages,
+				hasRead,
+				hasWritten,
+				warm: true,
+			} );
+			touched = true;
+		} else if ( ! prevEntry || ! warm ) {
+			// Seed a baseline: a rate needs a second reading.
+			rates.set( n.id, {
+				count,
+				bytesRead,
+				bytesWritten,
+				ts: now,
+				rate: 0,
+				readRate: 0,
+				writtenRate: 0,
+				lastChangedTs: now,
+				history: [],
+				readHistory: [],
+				writtenHistory: [],
+				hasMessages,
+				hasRead,
+				hasWritten,
+				warm: hasData,
+			} );
+			touched = true;
+		}
+	}
+	// Drop entries for nodes that vanished from the graph.
+	const liveIds = new Set( graph.nodes.map( ( n ) => n.id ) );
+	for ( const id of rates.keys() ) {
+		if ( ! liveIds.has( id ) ) {
+			rates.delete( id );
+			touched = true;
+		}
+	}
+	return touched;
+}
+
+/**
+ * Track every graph node's message and byte rates across snapshots.
+ *
+ * Each snapshot is sampled during the render that receives it, once per graph
+ * object, so a poll costs one commit rather than a commit for the graph and a
+ * second for the rates it changed.
+ *
  * `resetKey` clears the map when the console swaps worker or topology. A node
  * id is a node NAME, and the partitions of one topology mount the same names,
  * so a delta carried across the swap would subtract one worker's counters from
- * another's.
+ * another's. The graph held at the swap still belongs to the previous worker,
+ * so it counts as seen and is never sampled: the next graph object is the new
+ * worker's first baseline.
  *
  * `rateRef` is stable and its history arrays are mutated in place, so React
- * sees nothing change: `rateVersion` is what re-renders the consumers and what
- * a derivation off `rateRef.current` lists as its dependency.
+ * sees nothing change: `rateVersion` is what a derivation off
+ * `rateRef.current` lists as its dependency.
  *
  * @param {{nodes:Array<{id:string,count?:number,bytesRead?:number,bytesWritten?:number}>}} graph    Graph whose per-node counters drive the rates.
  * @param {string}                                                                          resetKey Identity key; a change clears the accumulated map.
@@ -69,109 +174,19 @@ export const RATE_HISTORY_MAX = 60;
  */
 export function useGraphRates( graph, resetKey ) {
 	const rateRef = useRef( new Map() );
-	const [ rateVersion, setRateVersion ] = useState( 0 );
-
-	// Drop accumulated rates when the graph identity changes.
-	useEffect( () => {
+	const seen = useRef( { graph: null, resetKey, version: 0 } );
+	const last = seen.current;
+	if ( last.resetKey !== resetKey ) {
 		rateRef.current = new Map();
-		setRateVersion( ( v ) => v + 1 );
-	}, [ resetKey ] );
-
-	useEffect( () => {
-		const now = Date.now() / 1000;
-		let touched = false;
-		for ( const n of graph.nodes ) {
-			const prevEntry = rateRef.current.get( n.id );
-			const count = n.count || 0;
-			const bytesRead = n.bytesRead || 0;
-			const bytesWritten = n.bytesWritten || 0;
-			const hasMessages =
-				( prevEntry && prevEntry.hasMessages ) || count > 0;
-			const hasRead = ( prevEntry && prevEntry.hasRead ) || bytesRead > 0;
-			const hasWritten =
-				( prevEntry && prevEntry.hasWritten ) || bytesWritten > 0;
-			// A node warms on the first reading that carries data.
-			const warm = !! ( prevEntry && prevEntry.warm );
-			const hasData = count > 0 || bytesRead > 0 || bytesWritten > 0;
-			if ( prevEntry && warm && prevEntry.ts < now ) {
-				const rawDCount = count - prevEntry.count;
-				const dCount = rawDCount < 0 ? 0 : rawDCount;
-				const rawDRead = bytesRead - ( prevEntry.bytesRead || 0 );
-				const dRead = rawDRead < 0 ? 0 : rawDRead;
-				const rawDWritten =
-					bytesWritten - ( prevEntry.bytesWritten || 0 );
-				const dWritten = rawDWritten < 0 ? 0 : rawDWritten;
-				const dTime = Math.max( 1, now - prevEntry.ts );
-				const rate = dCount / dTime;
-				const readRate = dRead / dTime;
-				const writtenRate = dWritten / dTime;
-				const history = prevEntry.history || [];
-				const readHistory = prevEntry.readHistory || [];
-				const writtenHistory = prevEntry.writtenHistory || [];
-				history.push( rate );
-				readHistory.push( readRate );
-				writtenHistory.push( writtenRate );
-				if ( history.length > RATE_HISTORY_MAX ) {
-					history.shift();
-				}
-				if ( readHistory.length > RATE_HISTORY_MAX ) {
-					readHistory.shift();
-				}
-				if ( writtenHistory.length > RATE_HISTORY_MAX ) {
-					writtenHistory.shift();
-				}
-				rateRef.current.set( n.id, {
-					count,
-					bytesRead,
-					bytesWritten,
-					ts: now,
-					rate,
-					readRate,
-					writtenRate,
-					lastChangedTs: dCount > 0 ? now : prevEntry.lastChangedTs,
-					history,
-					readHistory,
-					writtenHistory,
-					hasMessages,
-					hasRead,
-					hasWritten,
-					warm: true,
-				} );
-				touched = true;
-			} else if ( ! prevEntry || ! warm ) {
-				// Seed a baseline: a rate needs a second reading.
-				rateRef.current.set( n.id, {
-					count,
-					bytesRead,
-					bytesWritten,
-					ts: now,
-					rate: 0,
-					readRate: 0,
-					writtenRate: 0,
-					lastChangedTs: now,
-					history: [],
-					readHistory: [],
-					writtenHistory: [],
-					hasMessages,
-					hasRead,
-					hasWritten,
-					warm: hasData,
-				} );
-				touched = true;
-			}
+		last.resetKey = resetKey;
+		last.version++;
+	}
+	// Once per graph object, so a re-render or StrictMode's replay adds none.
+	if ( last.graph !== graph ) {
+		last.graph = graph;
+		if ( sample( rateRef.current, graph ) ) {
+			last.version++;
 		}
-		// Drop entries for nodes that vanished from the graph.
-		const liveIds = new Set( graph.nodes.map( ( n ) => n.id ) );
-		for ( const id of rateRef.current.keys() ) {
-			if ( ! liveIds.has( id ) ) {
-				rateRef.current.delete( id );
-				touched = true;
-			}
-		}
-		if ( touched ) {
-			setRateVersion( ( v ) => v + 1 );
-		}
-	}, [ graph ] );
-
-	return { rateRef, rateVersion };
+	}
+	return { rateRef, rateVersion: last.version };
 }

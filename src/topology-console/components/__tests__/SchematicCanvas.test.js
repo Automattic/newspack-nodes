@@ -3492,6 +3492,63 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		).toHaveLength( 1 );
 	} );
 
+	it( 'draws the live readouts and a flowing wire outside every bloom layer', () => {
+		stubW = 1000;
+		stubH = 1000;
+		const rates = new Map( [
+			[ 'a', { rate: 3.25, history: [ 1, 2, 3.25 ] } ],
+			[ 'b', { rate: 4.5, history: [ 2, 4.5 ] } ],
+		] );
+		const { container } = renderWithCatalog(
+			<SchematicCanvas
+				{ ...lodProps }
+				parsed={ {
+					nodes: [
+						{ id: 'a', count: 4321 },
+						{ id: 'b', count: 8765 },
+					],
+					edges: [ { from: 'a', to: 'b' } ],
+				} }
+				rateRef={ { current: rates } }
+			/>,
+			{
+				classCatalog: lodProps.classCatalog,
+				positionOverrides: lodProps.positionOverrides,
+				onPositionChange: lodProps.onPositionChange,
+				onViewportChange: lodProps.onViewportChange,
+				viewport: { x: 0, y: 0, w: 1000, h: 800 },
+			}
+		);
+		const bloomed = [
+			...container.querySelectorAll(
+				'.topology-nodes--bloom, .topology-edges--bloom'
+			),
+		];
+		const inBloom = ( selector ) =>
+			bloomed.flatMap( ( g ) => [ ...g.querySelectorAll( selector ) ] );
+		for ( const live of [
+			'.topology-node__counter',
+			'.topology-node__rate',
+			'.topology-node__spark',
+			'.topology-edge--flowing',
+		] ) {
+			expect( [ live, inBloom( live ).length ] ).toEqual( [ live, 0 ] );
+		}
+		const readouts = container.querySelector( '.topology-readouts' );
+		expect(
+			[ ...readouts.querySelectorAll( '.topology-node__counter' ) ].map(
+				( t ) => t.textContent
+			)
+		).toEqual( [ '4,321', '8,765' ] );
+		expect(
+			container.querySelectorAll(
+				'.topology-edges--flow .topology-edge--flowing'
+			)
+		).toHaveLength( 1 );
+		// The card frames still bloom.
+		expect( inBloom( '.topology-node__bg' ) ).toHaveLength( 2 );
+	} );
+
 	it( 'defines the group-bloom SVG filters', () => {
 		const { container } = renderWithCatalog(
 			<SchematicCanvas { ...lodProps } />,

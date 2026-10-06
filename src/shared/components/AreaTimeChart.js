@@ -16,11 +16,15 @@
  * rescaled to it, in the colour its place in the full list gave it.
  *
  * The expand button beside the stack toggle doubles the chart's height, and
- * the same again restores it; shift+clicking the plot is its mouse shortcut
- * (`useChartExpand`). A click on the plot hands the nearest slot's index to
+ * the same again restores it (`useChartExpand`); it is the only resize
+ * control. A click on the plot hands the nearest slot's index to
  * `onSlotClick`, so a caller can map it to its own bucket, with `additive`
  * true when cmd or ctrl was held; without the callback a click does nothing.
- * `selectedSlots` shades the caller's selection beneath the bands.
+ * With `onSlotRange`, a left-button drag across the plot by at least one slot's
+ * width, and never under 4px, selects a span instead: it shades live, Escape cancels it, and the release
+ * hands the first and last slot to `onSlotRange` with the same `additive`,
+ * read at release, and fires no click. `selectedSlots` shades the caller's
+ * selection beneath the bands.
  *
  * Every label arrives already translated. The component words only its own
  * two toggles, so `__()` keeps its literal arguments at each call site. That is
@@ -124,6 +128,7 @@ const ExpandIcon = () => (
  * @param {string}                                                               [props.totalLabel]    Translated label for the tooltip's leading column-total row, printed while the bands are stacked; omitted drops the row.
  * @param {string}                                                               [props.className]     Class for the chart element, beside the shared role.
  * @param {import('../hooks/useTimeChart').SlotClick}                            [props.onSlotClick]   Takes a click's nearest slot, as an index into `series[0].values`, and whether cmd or ctrl made it additive.
+ * @param {import('../hooks/useTimeChart').SlotRange}                            [props.onSlotRange]   Takes a drag's first and last slot, `fromIndex <= toIndex`, as indexes into `series[0].values`, and whether cmd or ctrl held at release made it additive; absent, a drag is a click.
  * @param {ReadonlySet<number>}                                                  [props.selectedSlots] Indexes into `series[0].values` to shade; absent or empty shades none.
  * @return {import('react').ReactElement} Rendered chart.
  */
@@ -139,12 +144,10 @@ function AreaTimeChart( {
 	totalLabel = '',
 	className,
 	onSlotClick,
+	onSlotRange,
 	selectedSlots,
 } ) {
-	const { height, plotProps, buttonProps } = useChartExpand(
-		collapsedHeight,
-		title
-	);
+	const { height, buttonProps } = useChartExpand( collapsedHeight, title );
 	// The pick and the default it answered; a moved default retires it.
 	const [ pick, setPick ] = useState( null );
 	// In render, so the chart never draws once against the stale pick.
@@ -294,6 +297,8 @@ function AreaTimeChart( {
 				lastMouseXRef: refs.lastMouseXRef,
 				containerRef: refs.containerRef,
 				onSlotClick,
+				onSlotRange,
+				dragRef: refs.dragRef,
 			} );
 		},
 		[
@@ -307,6 +312,7 @@ function AreaTimeChart( {
 			stacked,
 			totalLabel,
 			onSlotClick,
+			onSlotRange,
 			selectedSlots,
 		]
 	);
@@ -353,7 +359,6 @@ function AreaTimeChart( {
 					ref={ containerRef }
 					className="newspack-nodes-chart__plot"
 					style={ { minHeight: `${ height }px` } }
-					{ ...( 0 < drawn.length ? plotProps : {} ) }
 				/>
 				<ChartLegend
 					items={ legendItems }

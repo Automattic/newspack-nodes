@@ -882,12 +882,18 @@ const createGraphFixture = ( slug, stateClass = '', hovered = false ) => {
 										<text class="topology-node__paused" y="17"></text>
 										<text class="topology-node__lock" y="15"></text>
 										<text class="topology-node__id" y="44"></text>
+										</g>
+										<circle class="topology-port topology-port--in"></circle>
+										<circle class="topology-port topology-port--out"></circle>
+									</g>
+								</g>
+								<g class="topology-readouts">
+									<g class="topology-node-readout ${ stateClass }">
+										<g clip-path="url(#topology-node-clip)">
 										<path class="topology-node__spark"></path>
 										<text class="topology-node__rate" y="76"></text>
 										<text class="topology-node__counter" y="76"></text>
 										</g>
-										<circle class="topology-port topology-port--in"></circle>
-										<circle class="topology-port topology-port--out"></circle>
 									</g>
 								</g>
 							</svg>
@@ -1946,7 +1952,9 @@ describe( 'theme skin ramps', () => {
 		};
 		const fixture = createGraphFixture( 'current' );
 		const fixtureTextRecords = [
-			...fixture.querySelectorAll( '.topology-node text' ),
+			...fixture.querySelectorAll(
+				'.topology-node text, .topology-node-readout text'
+			),
 		].map( ( element ) => ( {
 			className: element.getAttribute( 'class' ),
 			y: Number( element.getAttribute( 'y' ) ),
@@ -1962,7 +1970,7 @@ describe( 'theme skin ramps', () => {
 		];
 		const fixtureGraphics = [
 			...fixture.querySelectorAll(
-				'.topology-node rect, .topology-node line, .topology-node circle, .topology-node path'
+				'.topology-node rect, .topology-node line, .topology-node circle, .topology-node path, .topology-node-readout path'
 			),
 		].map( ( element ) => ( {
 			className: element

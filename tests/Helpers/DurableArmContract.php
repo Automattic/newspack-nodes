@@ -83,6 +83,26 @@ abstract class DurableArmContract extends CacheBackendContract {
 		$this->assertSame( [], $arm->members( [ 'owl:set-7' ], -5 ), 'a negative limit is no limit lifted' );
 	}
 
+	public function test_a_member_page_seeks_past_its_cursor_and_says_whether_more_remain(): void {
+		$arm = $this->arm();
+		$arm->add_members( [ 'owl:set-7' => [ [ 'm-5' => 5, 'm-1' => 1, 'm-4' => 4, 'm-2' => [ 'n' => 2 ], 'm-3' => 3 ], 777 ], 'owl:set-9' => [ [ 'm-0' => 0 ], 777 ] ] );
+		$this->assertSame( [ [ 'm-1' => 1, 'm-2' => [ 'n' => 2 ] ], true ], $arm->member_page( 'owl:set-7', 2, null ) );
+		$this->assertSame( [ [ 'm-3' => 3, 'm-4' => 4 ], true ], $arm->member_page( 'owl:set-7', 2, 'm-2' ) );
+		$this->assertSame( [ [ 'm-5' => 5 ], false ], $arm->member_page( 'owl:set-7', 2, 'm-4' ) );
+		$this->assertSame( [ [ 'm-3' => 3, 'm-4' => 4, 'm-5' => 5 ], false ], $arm->member_page( 'owl:set-7', 3, 'm-25' ), 'the cursor need not be a member' );
+		$this->assertSame( [ [], false ], $arm->member_page( 'owl:set-7', 2, 'm-5' ) );
+		$this->assertSame( [ [], false ], $arm->member_page( 'owl:set-8', 2, null ) );
+	}
+
+	public function test_a_member_page_hides_expired_members(): void {
+		$arm = $this->arm();
+		$arm->add_members( [ 'owl:set-7' => [ [ 'm-1' => 1, 'm-3' => 3 ], 37 ] ] );
+		$arm->add_members( [ 'owl:set-7' => [ [ 'm-2' => 2, 'm-4' => 4 ], 777 ] ] );
+		$this->clock += 37;
+		$this->assertSame( [ [ 'm-2' => 2 ], true ], $arm->member_page( 'owl:set-7', 1, null ) );
+		$this->assertSame( [ [ 'm-4' => 4 ], false ], $arm->member_page( 'owl:set-7', 1, 'm-2' ) );
+	}
+
 	public function test_members_come_back_in_member_order(): void {
 		$arm = $this->arm();
 		$arm->add_members( [ 'owl:set-7' => [ [ 'm-9' => 9, 'm-3' => 3, 'm-7' => 7, 'm-1' => 1 ], 777 ] ] );

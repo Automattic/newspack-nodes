@@ -1394,7 +1394,7 @@ gate, so a `node_schema()['requests']` entry declares no capability.
 A Table is the one node a request reaches without its worker. `topologies mount_tables`
 mounts every Table an active topology declares into the request graph through
 `Bootstrap::mount_table()`, and it too declares MANAGE by declaring no capability. A mount
-serves reads alone: it answers `GET`, `MGET` and `SMEMBERS`, and refuses every write request, an
+serves reads alone: it answers `GET`, `MGET`, `SMEMBERS` and `SSCAN`, and refuses every write request, an
 INSERT, and its `:config` interpreter's `flush` and `vacuum`, because the declaring worker is the
 Table's one writer ([ADR-6](#adr-6-crc32--31-bit-mask-partition-routing)). A `sqlite` mount
 opens its file read-only, creates nothing, and reads as empty until its worker has written
@@ -1411,7 +1411,7 @@ records.
 `MSET` and `ADD` carry `key => [ value, ttl ]` maps, and its `SADD` carries
 `set_key => [ [ member => value, … ], ttl ]` maps, that a string cannot hold without an
 encoding, so they travel as `TM_REQUEST | TM_STRUCT` with VALUE `[ 'MSET' => … ]`,
-`[ 'ADD' => … ]` or `[ 'SADD' => … ]`; every other request, `SMEMBERS` included, stays a
+`[ 'ADD' => … ]` or `[ 'SADD' => … ]`; every other request, `SMEMBERS` and `SSCAN` included, stays a
 string. Each of the three declares it on its `requests` entry, `'value' => 'struct'`, and
 every sender reads that declaration: the console's verb dialog sends `TM_REQUEST | TM_STRUCT`
 for such an entry alone, and never infers one from the types of its args. `SMEMBERS` answers one message per set, as `MGET` answers one per key: `TM_STRUCT`
@@ -1420,7 +1420,7 @@ a set holding more than the limit, told from a member list by its type as `MGET`
 string value from an array. `topologies mount_tables` mounts Tables into a request graph and
 declares MANAGE, as `connect_worker_input` does. A Table a verb below MANAGE mounts to read
 stays mounted for the rest of that POST: a later verb or request in it reads through the same
-mount, and `Bootstrap::mount_table()` keeps a mount already there and builds nothing. A verb may mount a Table only when every row it holds is data the verb's declared role may already read, because for the rest of the POST any caller holding that role can `MGET` any key, or `SMEMBERS` any set, through the mount; a Table holding more is mounted under MANAGE alone.
+mount, and `Bootstrap::mount_table()` keeps a mount already there and builds nothing. A verb may mount a Table only when every row it holds is data the verb's declared role may already read, because for the rest of the POST any caller holding that role can `MGET` any key, or `SMEMBERS` or `SSCAN` any set, through the mount; a Table holding more is mounted under MANAGE alone.
 
 **Alternatives considered:** Signing requests as commands are signed — rejected: the mount
 already demands MANAGE of every outside caller before a request can reach a worker, so a
@@ -1432,8 +1432,8 @@ rejected: the handler runs in a worker, where no WordPress user is current, so
 Inside a worker, a node filling a request into another — a Timer firing `TICK` at a source —
 acts with the authority that loaded the topology. A verb whose caller must be told apart
 from another MANAGE holder by session scope is a command, because only a command carries
-the minter's session into the worker. A verb may mount a Table only when every row it holds is data the verb's declared role may already read, because for the rest of the POST any caller holding that role can `MGET` any key, or `SMEMBERS` any set, through the mount; a Table holding more is mounted under MANAGE alone. A mounting verb's output
-is not the bound: `HTTP_In` filters no message type, so a raw `MGET` or `SMEMBERS` in the same POST names any
+the minter's session into the worker. A verb may mount a Table only when every row it holds is data the verb's declared role may already read, because for the rest of the POST any caller holding that role can `MGET` any key, or `SMEMBERS` or `SSCAN` any set, through the mount; a Table holding more is mounted under MANAGE alone. A mounting verb's output
+is not the bound: `HTTP_In` filters no message type, so a raw `MGET`, `SMEMBERS` or `SSCAN` in the same POST names any
 key or set, including one the verb never shows.
 
 **Revisit if:** anything writes into a worker's input Partition below MANAGE — a verb that
@@ -1558,9 +1558,12 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
   read is an exact set-key seek, `ORDER BY member` with a LIMIT one past the asked limit,
   at most `Table_Node::MAX_MEMBERS_LIMIT` + 1, and never a range. Each set is read and let
   go before the next, so a set past its limit costs its rows once, never all sets' at once,
-  and a row no serializer wrote fails the read as it fails a keyed read. `add_members()`,
-  `members()`, `move_members()` and `remove_members()` are `Durable_Arm`'s alone, and a Table
-  whose backend is not durable refuses all four verbs as it refuses `vacuum`, on
+  and a row no serializer wrote fails the read as it fails a keyed read. `SSCAN` pages one
+  set past that ceiling: the same seek with `member > ?` from a cursor, the page's last
+  member percent-encoded as `after=<member>`, so no set is too large to read and none is read
+  by offset. `add_members()`, `members()`, `member_page()`, `move_members()` and
+  `remove_members()` are `Durable_Arm`'s alone, and a Table whose backend is not durable
+  refuses all five verbs as it refuses `vacuum`, on
   `instanceof Durable_Arm`: `<VERB>: needs a durable backend; <table> is <backend>`. `SMOVE`
   and `SREM`, which move and delete members, are one transaction on sqlite; `SMOVE` on wpdb
   holds none, so a racing caller or a mid-move failure can leave a member in both sets. Nothing

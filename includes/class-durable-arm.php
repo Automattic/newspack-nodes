@@ -431,7 +431,7 @@ abstract class Durable_Arm extends Cache_Backend {
 			function () use ( $set_keys, $limit ): array {
 				$out = [];
 				foreach ( \array_unique( $set_keys ) as $set_key ) {
-					$rows = $this->select_member_rows( $set_key, $limit + 1 );
+					$rows = $this->select_member_rows( $set_key, $limit + 1, null );
 					if ( [] !== $rows ) {
 						$out[ $set_key ] = \count( $rows ) > $limit ? null : $this->decoded( $rows );
 					}
@@ -445,6 +445,37 @@ abstract class Durable_Arm extends Cache_Backend {
 			Core::print_less_often( 'Table member read failed: ', $this->last_failure() );
 		}
 		return $found;
+	}
+
+	/**
+	 * `SSCAN`: one page of a set, up to `$limit` live members in member order
+	 * after `$after`, by an exact seek on `( set_key, member )` that reads one
+	 * row past the page to tell whether more remain. A null `$after` starts
+	 * at the set's lowest member; any other string seeks past it, whether or
+	 * not the set holds it. A limit below 1 reads nothing, and a failed read
+	 * is logged.
+	 *
+	 * @param string  $set_key Entry key of the set.
+	 * @param int     $limit   Most members the page answers.
+	 * @param ?string $after   The member the page starts after, or null.
+	 * @return array{0: array<array-key,mixed>, 1: bool}|false Member => value,
+	 *         and whether members remain past it; false when the store failed.
+	 */
+	public function member_page( string $set_key, int $limit, ?string $after ): array|false {
+		if ( $limit < 1 ) {
+			return [ [], false ];
+		}
+		$page = $this->attempt(
+			function () use ( $set_key, $limit, $after ): array {
+				$rows = $this->select_member_rows( $set_key, $limit + 1, $after );
+				return [ $this->decoded( \array_slice( $rows, 0, $limit ) ), \count( $rows ) > $limit ];
+			},
+			false
+		);
+		if ( false === $page ) {
+			Core::print_less_often( 'Table member read failed: ', $this->last_failure() );
+		}
+		return $page;
 	}
 
 	/**
@@ -474,7 +505,7 @@ abstract class Durable_Arm extends Cache_Backend {
 		return $this->attempt(
 			fn (): array => $this->write_scope(
 				function () use ( $from, $to, $count ): array {
-					$rows = $this->select_member_rows( $from, $count );
+					$rows = $this->select_member_rows( $from, $count, null );
 					if ( [] === $rows ) {
 						return [];
 					}
@@ -511,13 +542,15 @@ abstract class Durable_Arm extends Cache_Backend {
 	}
 
 	/**
-	 * Up to `$limit` live rows of one set in member order, raw stored bytes.
+	 * Up to `$limit` live rows of one set in member order, raw stored bytes,
+	 * each past `$after` when it is not null.
 	 *
-	 * @param string $set_key Entry key of the set.
-	 * @param int    $limit   Most rows.
+	 * @param string  $set_key Entry key of the set.
+	 * @param int     $limit   Most rows.
+	 * @param ?string $after   The member the rows start after, or null.
 	 * @return list<array{0:string,1:string,2:int}> [ member, bytes, expires ].
 	 */
-	abstract protected function select_member_rows( string $set_key, int $limit ): array;
+	abstract protected function select_member_rows( string $set_key, int $limit, ?string $after ): array;
 
 	/**
 	 * `SREM`: delete the named members of one set. An expired member the

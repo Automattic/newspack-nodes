@@ -437,6 +437,19 @@ final class WpdbArmTest extends TestCase {
 		$this->assertStringEndsWith( 'ORDER BY member LIMIT 14', $reads[0], 'one row past the limit tells a full set from one over it' );
 	}
 
+	public function test_a_member_page_seeks_past_its_cursor_on_the_primary_key(): void {
+		$arm = new Wpdb_Arm( 'kea:p3' );
+		$arm->add_members( [ 'owl:set-7' => [ [ 'm-41' => 1 ], 777 ] ] );
+		$this->db->sent = [];
+		$arm->member_page( 'owl:set-7', 13, 'm-29' );
+		$arm->member_page( 'owl:set-7', 13, null );
+		$reads = $this->sent( 'SELECT' );
+		$this->assertCount( 2, $reads );
+		$this->assertStringContainsString( "WHERE namespace = 'kea:p3' AND set_key = 'owl:set-7' AND member > 'm-29' AND expires > ", $reads[0] );
+		$this->assertStringEndsWith( 'ORDER BY member LIMIT 14', $reads[0], 'one row past the page tells whether more remain' );
+		$this->assertStringNotContainsString( 'member >', $reads[1], 'the first page seeks the set alone' );
+	}
+
 	public function test_two_namespaces_never_see_each_others_members(): void {
 		Core::$clock = static fn (): float => 1790000000.0;
 		$p3          = new Wpdb_Arm( 'kea:p3' );

@@ -379,7 +379,6 @@ describe( 'setupTooltip', () => {
 		// jsdom lays out nothing, so d3.pointer() reads clientX as plot x.
 		const clickAt = ( clientX, extra = {} ) => ( {
 			clientX,
-			shiftKey: false,
 			currentTarget: document.createElement( 'div' ),
 			...extra,
 		} );
@@ -419,20 +418,14 @@ describe( 'setupTooltip', () => {
 			}
 		);
 
-		it( 'reports nothing for a shift+cmd click, which resizes', () => {
-			const onSlotClick = jest.fn();
-			bind( onSlotClick ).handlers.click(
-				clickAt( 290, { shiftKey: true, metaKey: true } )
-			);
-			expect( onSlotClick ).not.toHaveBeenCalled();
-		} );
-
-		it( 'reports nothing for a shift+click, which resizes', () => {
+		it( 'reports a shift+click as a plain click', () => {
 			const onSlotClick = jest.fn();
 			bind( onSlotClick ).handlers.click(
 				clickAt( 290, { shiftKey: true } )
 			);
-			expect( onSlotClick ).not.toHaveBeenCalled();
+			expect( onSlotClick ).toHaveBeenCalledWith( 2, {
+				additive: false,
+			} );
 		} );
 
 		it( 'reports nothing for the click ending a drag-selection', () => {

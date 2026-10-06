@@ -13,6 +13,7 @@
 
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { autoLayout, placeBelow } from '../utils/autoLayout';
+import names from '../../runtime/reserved-node-names.json';
 
 /**
  * The canvas value shapes, declared in `LayoutContext` and re-imported here so
@@ -258,11 +259,52 @@ function positionsEqual( left, right ) {
 }
 
 /**
+ * Every reserved node: the exospine, the overlay's REPL and a worker's IPC
+ * pair. A layout holding nothing else was laid out before the page's graph
+ * mounted, so the graph's arrival lays the whole canvas out again.
+ */
+const SCAFFOLDING = new Set( Object.values( names ) );
+
+/**
+ * Lay a graph out from scratch, as an id-to-position map.
+ *
+ * @param {Graph} graph The graph.
+ * @return {Object<string,Position>} Every node's position.
+ */
+function laidOut( graph ) {
+	/** @type {Object<string,Position>} */
+	const positions = {};
+	for ( const n of autoLayout( graph ).nodes ) {
+		positions[ n.id ] = n.position;
+	}
+	return positions;
+}
+
+/**
+ * Does this scope hold an untouched layout of scaffolding alone while a real
+ * node is on the canvas, so the whole graph is due a fresh layout?
+ *
+ * @param {LayoutState}         s          The scope's state.
+ * @param {?string}             storageKey The scope's current key.
+ * @param {Array<{id: string}>} nodes      The nodes on the canvas.
+ * @return {boolean} True when the full layout is pending.
+ */
+function awaitsFullLayout( s, storageKey, nodes ) {
+	return (
+		s.positions !== null &&
+		s.key === storageKey &&
+		! s.modified &&
+		Object.keys( s.positions ).every( ( id ) => SCAFFOLDING.has( id ) ) &&
+		nodes.some( ( n ) => ! SCAFFOLDING.has( n.id ) )
+	);
+}
+
+/**
  * How long the node set must stop growing before the one-shot layout runs.
  *
  * Nodes stream in a batch at a time and `autoLayout` runs once, so laying out
  * on the first batch would freeze half a topology into positions the rest has
- * to live around.
+ * to live around. The full layout that replaces scaffolding waits the same.
  */
 const LAYOUT_SETTLE_MS = 250;
 
@@ -270,7 +312,9 @@ const LAYOUT_SETTLE_MS = 250;
  * The canvas position map: built once when the complete graph is ready — by
  * `autoLayout`, or from the server layout for a worker topology — then
  * reconciled with a late server layout or mutated by drags, drops and tucks.
- * `autoLayout` never runs again except through `resetLayout`.
+ * `autoLayout` runs again only through `resetLayout`, or once real nodes join
+ * an untouched layout of reserved scaffolding and stop arriving for
+ * `LAYOUT_SETTLE_MS`.
  *
  * Dirty browser positions outrank a server layout that arrives afterwards until
  * the two maps agree, at which point the acknowledgement clears the dirty flag
@@ -364,13 +408,8 @@ export function useCanvasLayout( {
 				if ( prev.positions !== null || prev.key !== storageKey ) {
 					return prev;
 				}
-				/** @type {Object<string,Position>} */
-				const positions = {};
-				for ( const n of autoLayout( graph ).nodes ) {
-					positions[ n.id ] = n.position;
-				}
 				const next = {
-					positions,
+					positions: laidOut( graph ),
 					viewport: prev.viewport,
 					viewportDelta: prev.viewportDelta,
 					modified: false,
@@ -388,14 +427,38 @@ export function useCanvasLayout( {
 		};
 	}, [ ready, graph, serverLayout, storageKey, state.positions, state.key ] );
 
+	const fullLayoutDue = awaitsFullLayout(
+		state,
+		storageKey,
+		graph?.nodes ?? []
+	);
+
 	// New, undropped nodes tuck below the left-most-then-bottom-most node.
 	useEffect( () => {
+		const nodes = graph?.nodes ?? [];
+		// Scaffolding alone, untouched: the page's graph lays out once settled.
+		if ( fullLayoutDue ) {
+			const timer = setTimeout( () => {
+				setState( ( prev ) => {
+					if ( ! awaitsFullLayout( prev, storageKey, nodes ) ) {
+						return prev;
+					}
+					const next = { ...prev, positions: laidOut( graph ) };
+					persist( storageKey, next );
+					return next;
+				} );
+			}, LAYOUT_SETTLE_MS );
+			return () => clearTimeout( timer );
+		}
 		setState( ( prev ) => {
 			// Guard a stale-scope run: skip until the reload commits this key.
-			if ( prev.positions === null || prev.key !== storageKey ) {
+			if (
+				prev.positions === null ||
+				prev.key !== storageKey ||
+				awaitsFullLayout( prev, storageKey, nodes )
+			) {
 				return prev;
 			}
-			const nodes = graph?.nodes ?? [];
 			const positions = { ...prev.positions };
 			const visible = visiblePositions( positions, nodes );
 			let changed = false;
@@ -421,7 +484,8 @@ export function useCanvasLayout( {
 			persist( storageKey, next );
 			return next;
 		} );
-	}, [ graph, storageKey, state.key ] );
+		return undefined;
+	}, [ graph, storageKey, state.key, fullLayoutDue ] );
 
 	const onPositionChange = useCallback(
 		( id, pos ) => {

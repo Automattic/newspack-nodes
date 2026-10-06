@@ -117,6 +117,57 @@ final class TableClientTest extends TestCase {
 		$this->assertSame( [], $this->asker->folded, 'every reply went to the client' );
 	}
 
+	public function test_a_whole_set_reads_page_by_page_every_member_once_in_order(): void {
+		$members = [];
+		for ( $i = 0; $i < 25003; ++$i ) {
+			$members[ "u-{$i}" ] = $i;
+		}
+		$this->assertSame( [ 'word:kea' ], $this->asker->client->add_members( 'lab-7:kea', [ 'word:kea' => $members ], 777 ) );
+		$asked                   = [];
+		$this->asker->on_message = static function ( array $message ) use ( &$asked ): void {
+			if ( 0 !== ( $message[ Message::TYPE ] & Message::TM_INFO ) ) {
+				$asked[] = $message[ Message::VALUE ];
+			}
+		};
+		$read = $this->asker->client->all_members( 'lab-7:kea', 'word:kea', 10000, $failed );
+		$this->assertFalse( $failed );
+		$expected = \array_keys( $members );
+		\sort( $expected, \SORT_STRING );
+		$this->assertSame( [ "SSCAN 1 after={$expected[9999]}\n", "SSCAN 1 after={$expected[19999]}\n", "SSCAN 1\n" ], $asked, 'three pages of up to 10,000' );
+		$this->assertSame( $expected, \array_keys( $read ), 'all 25,003, once each, in member order' );
+		$this->assertSame( 24999, $read['u-24999'] );
+		$this->assertSame( [], $this->asker->folded, 'every reply went to the client' );
+	}
+
+	public function test_a_whole_set_read_keeps_an_all_digit_member_and_an_empty_set(): void {
+		$client = $this->asker->client;
+		$client->add_members( 'lab-7:kea', [ 'word:kea' => [ '0418' => 'kea', '4419' => 'owl', 'u-3' => 3 ] ], 777 );
+		$this->assertSame( [ '0418' => 'kea', 4419 => 'owl', 'u-3' => 3 ], $client->all_members( 'lab-7:kea', 'word:kea', 1, $failed ) );
+		$this->assertFalse( $failed );
+		$this->assertSame( [], $client->all_members( 'lab-7:kea', 'word:emu', 1, $failed ) );
+		$this->assertFalse( $failed );
+	}
+
+	public function test_a_whole_set_read_fails_whole_when_a_page_is_refused(): void {
+		$client = $this->asker->client;
+		$client->add_members( 'lab-7:kea', [ 'word:kea' => [ 'u-1' => 1, 'u-2' => 2 ] ], 777 );
+		$this->assertSame( [], $client->all_members( 'lab-7:kea', 'word:kea', 10001, $failed ), 'a page past the ceiling is refused' );
+		$this->assertTrue( $failed );
+		( new \PDO( 'sqlite:' . Table_Node::file( 'lab-7:kea', 3 ) ) )->exec( 'DROP TABLE members' );
+		$this->assertSame( [], $client->all_members( 'lab-7:kea', 'word:kea', 1, $failed ) );
+		$this->assertTrue( $failed );
+	}
+
+	public function test_a_whole_set_read_of_an_unnameable_set_asks_nothing(): void {
+		$asked                   = 0;
+		$this->asker->on_message = static function () use ( &$asked ): void {
+			++$asked;
+		};
+		$this->assertSame( [], $this->asker->client->all_members( 'lab-7:kea', 'word kea', 9, $failed ) );
+		$this->assertFalse( $failed );
+		$this->assertSame( 0, $asked );
+	}
+
 	public function test_members_move_between_sets_through_the_graph(): void {
 		$client = $this->asker->client;
 		$client->add_members( 'lab-7:kea', [ 'pend-3307' => [ 'x-2' => 1, 'x-1' => 1, 'x-3' => 1 ] ], 900 );
