@@ -4,8 +4,6 @@
  * TopicsChart (d3) is stubbed to capture the rate panels each metric is fed.
  */
 
-import { readFileSync } from 'fs';
-import { resolve as resolvePath } from 'path';
 import { render } from '@testing-library/react';
 import { axisDuration } from '@newspack-nodes/shared/utils/axis-ticks';
 import Jobs from '../Jobs';
@@ -347,23 +345,6 @@ describe( 'Jobs', () => {
 			'Backlog',
 			'Latency',
 		] );
-	} );
-
-	it( 'lays the panels in columns no drawn chart can widen', () => {
-		// A chart SVG carries the width it measured, and a `1fr` track can
-		// never be narrower than its content: the wider panel of a row would
-		// pin its column, the other redraw to fit what was left, and every
-		// poll ratchet the imbalance. `minmax(0, …)` takes content out of it.
-		const source = readFileSync(
-			resolvePath( __dirname, '../styles/probe-tab.scss' ),
-			'utf8'
-		);
-		const panels = source.slice(
-			source.indexOf( '.nodes-probe-tab__panels' )
-		);
-		expect( panels ).toMatch(
-			/grid-template-columns:\s*minmax\(0, 1fr\) minmax\(0, 1fr\);/
-		);
 	} );
 
 	it( 'sorts the most failing identity first, by failures then by name', () => {

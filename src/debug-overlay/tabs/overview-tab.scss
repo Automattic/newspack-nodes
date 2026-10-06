@@ -70,17 +70,18 @@
 			flex: 0 0 232px;
 		}
 
-		// Flex margins add where block margins collapse; keep the block gaps.
-		&__panels {
-			margin-top: 0;
-		}
-
 		// "Reset stats" button, right-aligned below the charts.
 		&__toolbar {
 			display: flex;
 			justify-content: flex-end;
 			margin: 0;
 		}
+	}
+
+	// One column of charts; flex margins add, so the gap comes from one side.
+	.nodes-topics-panels {
+		grid-template-columns: minmax(0, 1fr);
+		margin: 0 0 12px;
 	}
 
 	// In/out (↓/↑) card numbers: fixed-width right-aligned cells so the

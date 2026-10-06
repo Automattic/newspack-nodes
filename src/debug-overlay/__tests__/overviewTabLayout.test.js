@@ -33,7 +33,7 @@ function renderPanel() {
 		tab,
 		messages: getByTestId( 'overview-messages' ),
 		list: getByTestId( 'overview-messages' ).querySelector( 'ul' ),
-		panels: tab.querySelector( '.nodes-overview__panels' ),
+		panels: tab.querySelector( '.nodes-topics-panels' ),
 		toolbar: tab.querySelector( '.nodes-overview__toolbar' ),
 	};
 }
@@ -65,11 +65,21 @@ describe( 'Overview message list layout', () => {
 		expect( d ).not.toHaveProperty( 'max-height' );
 	} );
 
+	it( 'stacks its two charts in one column of the shared Topics grid', () => {
+		const { panels } = renderPanel();
+		expect( panels.querySelectorAll( '.nodes-topics' ) ).toHaveLength( 2 );
+		expect( declarations( panels ) ).toMatchObject( {
+			'grid-template-columns': 'minmax(0, 1fr)',
+		} );
+	} );
+
 	// A column's margins add rather than collapse, so the station's block
 	// gaps (cards 18px, panels 12px, messages 18px) come from one side each.
 	it( 'keeps the block-layout gaps between the sections', () => {
 		const { panels, toolbar } = renderPanel();
-		expect( declarations( panels ) ).toMatchObject( { 'margin-top': '0' } );
+		expect( declarations( panels ) ).toMatchObject( {
+			margin: '0 0 12px',
+		} );
 		expect( declarations( toolbar ) ).toMatchObject( { margin: '0' } );
 	} );
 } );

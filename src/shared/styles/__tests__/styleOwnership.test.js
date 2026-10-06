@@ -1797,7 +1797,7 @@ describe( 'canonical appearance ownership', () => {
 				'11px 15px',
 			],
 			[
-				'event-dashboards/styles/overview.scss',
+				'event-dashboards/styles/topics-chart.scss',
 				'.nodes-topics',
 				'9px 11px',
 			],

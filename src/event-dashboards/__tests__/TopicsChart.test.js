@@ -12,6 +12,10 @@ jest.mock( '@newspack-nodes/shared/hooks/useTimeChart', () => ( {
 	setupTooltip: jest.fn(),
 } ) );
 
+import { readFileSync } from 'fs';
+import { resolve as resolvePath } from 'path';
+import * as sass from 'sass';
+import postcss from 'postcss';
 import { render, fireEvent, act } from '@testing-library/react';
 import {
 	TopicsChart,
@@ -227,6 +231,20 @@ describe( 'TopicsChart', () => {
 	} );
 } );
 
+describe( 'TopicsChart axis cap', () => {
+	// A half-row panel is about 900px, so 500 slots keep each above a pixel.
+	it( 'buckets a long window into at most 500 slots', () => {
+		const points = Array.from( { length: 4000 }, ( _, i ) => ( {
+			ts: 100 + i * 15,
+			value: i % 7,
+		} ) );
+		mount( { series: { 'long.p0': { points, max: 6 } } } );
+		const { dates } = setupTooltip.mock.calls.at( -1 )[ 1 ];
+		expect( dates.length ).toBeLessThanOrEqual( 500 );
+		expect( dates.length ).toBeGreaterThan( 450 );
+	} );
+} );
+
 describe( 'TopicsPanels', () => {
 	const gapped = ( mode ) => ( {
 		'gap.p0': {
@@ -264,6 +282,19 @@ describe( 'TopicsPanels', () => {
 		).toEqual( [ 'First', 'Second' ] );
 	} );
 
+	it( 'lays every chart into the one grid wrapper it renders', () => {
+		const { container } = mountPanels( [
+			panel( { title: 'Left' } ),
+			panel( { title: 'Right' } ),
+			panel( { title: 'Below' } ),
+		] );
+		const grid = container.firstChild;
+		expect( grid.className ).toBe( 'nodes-topics-panels' );
+		expect( [ ...grid.children ].map( ( c ) => c.className ) ).toEqual(
+			Array( 3 ).fill( 'newspack-nodes-card nodes-topics' )
+		);
+	} );
+
 	it( 'fills each gap the way its series’ own mode says', () => {
 		mountPanels( [ panel() ] );
 		expect( midRows() ).toEqual( [
@@ -286,6 +317,48 @@ describe( 'TopicsPanels', () => {
 		);
 		expect( stacked ).toBe( 'Total' );
 		expect( mean ).toBe( 'gap.p0' );
+	} );
+} );
+
+describe( 'Topics panel grid', () => {
+	const sheet = resolvePath( __dirname, '../styles/topics-chart.scss' );
+	const rule = ( selector ) => {
+		const found = {};
+		postcss
+			.parse( sass.compile( sheet ).css, { from: sheet } )
+			.walkRules( selector, ( r ) =>
+				r.walkDecls( ( d ) => {
+					found[ d.prop ] = d.value;
+				} )
+			);
+		return found;
+	};
+
+	it( 'ships with the component that renders it', () => {
+		expect(
+			readFileSync(
+				resolvePath( __dirname, '../TopicsChart.js' ),
+				'utf8'
+			)
+		).toContain( "import './styles/topics-chart.scss';" );
+	} );
+
+	it( 'lays the panels in columns no drawn chart can widen', () => {
+		// A chart SVG carries the width it measured, and a `1fr` track can
+		// never be narrower than its content: the wider panel of a row would
+		// pin its column, the other redraw to fit what was left, and every
+		// poll ratchet the imbalance. `minmax(0, …)` takes content out of it.
+		expect( rule( '.nodes-topics-panels' ) ).toEqual( {
+			display: 'grid',
+			'grid-template-columns': 'minmax(0, 1fr) minmax(0, 1fr)',
+			gap: '12px',
+			margin: '0 0 16px',
+			'align-items': 'start',
+		} );
+	} );
+
+	it( 'pads each panel inside its card', () => {
+		expect( rule( '.nodes-topics' ) ).toEqual( { padding: '9px 11px' } );
 	} );
 } );
 

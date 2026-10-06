@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 // Reuse the station's d3 rate panel (pulls in d3) over a reimplementation.
-import { TopicsChart } from '../../event-dashboards/TopicsChart';
+import { TopicsPanels } from '../../event-dashboards/TopicsChart';
 import {
 	formatBytes,
 	formatByteRate,
@@ -254,20 +254,22 @@ export default function OverviewTab( { publishHeader } ) {
 					value={ sseUptime }
 				/>
 			</div>
-			<div className="nodes-overview__panels">
-				<TopicsChart
-					title={ __( 'Message Rate', 'newspack-nodes' ) }
-					yLabel={ __( 'Messages', 'newspack-nodes' ) }
-					series={ msgRateSeries }
-					formatValue={ formatMsgRate }
-				/>
-				<TopicsChart
-					title={ __( 'Byte Rate', 'newspack-nodes' ) }
-					yLabel={ __( 'Bytes', 'newspack-nodes' ) }
-					series={ byteRateSeries }
-					formatValue={ formatByteRate }
-				/>
-			</div>
+			<TopicsPanels
+				panels={ [
+					{
+						title: __( 'Message Rate', 'newspack-nodes' ),
+						yLabel: __( 'Messages', 'newspack-nodes' ),
+						series: msgRateSeries,
+						formatValue: formatMsgRate,
+					},
+					{
+						title: __( 'Byte Rate', 'newspack-nodes' ),
+						yLabel: __( 'Bytes', 'newspack-nodes' ),
+						series: byteRateSeries,
+						formatValue: formatByteRate,
+					},
+				] }
+			/>
 			<div className="nodes-overview__toolbar">
 				<button
 					type="button"

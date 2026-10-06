@@ -62,8 +62,9 @@ const AGGREGATES = {
  *   An empty bucket is 0.
  *
  * Bucket width is the probe cadence, widened only enough to hold the axis at or
- * under `maxPoints`: a panel is ~1800px wide, so a denser axis is sub-pixel,
- * and the cap is what keeps the d3 redraw cheap.
+ * under `maxPoints`, which the caller sizes to its panel's width: an axis
+ * denser than the pixels drawing it is sub-pixel, and the cap is what keeps the
+ * d3 redraw cheap.
  *
  * @param {?Object} series    One panel's topics from `topicChartSeries`:
  *                            `{ [topic]: { points:[{ts,value,weight}], max, mode? } }`,
