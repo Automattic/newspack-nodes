@@ -145,11 +145,13 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * itself would fold the body's own nodes in and make them uneditable.
 	 * `resolved_config_edges` expands the whole topology, because a config verb
 	 * pointed at a `<ns:key>` token names an edge only the server can resolve,
-	 * and the canvas draws that edge from the body's own nodes too.
+	 * and the canvas draws that edge from the body's own nodes too. `owned`
+	 * covers the whole topology as well: the nodes an owner builds for itself,
+	 * which no line declares and the console seeds beside each owner.
 	 *
 	 * @param array<array-key,mixed> $args Bound verb arguments: name.
 	 *
-	 * @return array<int|string,mixed> `{name, source, tsl, includes, expanded, resolved_config_edges}`.
+	 * @return array<int|string,mixed> `{name, source, tsl, includes, expanded, resolved_config_edges, owned}`.
 	 * @throws \RuntimeException When the name is not file-name safe, resolves to no file, or names a file that cannot be read.
 	 */
 	public static function cmd_get( array $args ): array {
@@ -189,6 +191,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 			'includes'              => $includes,
 			'expanded'              => Topology_Analyzer::expand( $includes ),
 			'resolved_config_edges' => $resolved_config_edges,
+			'owned'                 => Topology_Analyzer::owned_nodes( $name ),
 		];
 	}
 

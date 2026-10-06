@@ -5,15 +5,16 @@
  * The canvas draws only the nodes it finds in the position map, so the map has
  * to be complete: this hook seeds it once from `autoLayout` or from a worker
  * topology's server-saved layout, then mutates it on drags, palette drops and
- * tucks for nodes that arrive later. Positions and the viewport persist to
- * localStorage under one key per scope, which is what makes layout browser
- * state rather than part of the draft document; `LayoutContext` publishes the
- * result to the canvas and never writes it.
+ * tucks for nodes that arrive later. An untouched autoLayout map is laid out
+ * again instead when the graph gains a node or an edge it was not laid for.
+ * Positions and the viewport persist to localStorage under one key per scope,
+ * which is what makes layout browser state rather than part of the draft
+ * document; `LayoutContext` publishes the result to the canvas and never
+ * writes it.
  */
 
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { autoLayout, placeBelow } from '../utils/autoLayout';
-import names from '../../runtime/reserved-node-names.json';
 
 /**
  * The canvas value shapes, declared in `LayoutContext` and re-imported here so
@@ -37,13 +38,15 @@ import names from '../../runtime/reserved-node-names.json';
  * that the scope has moved on and leave the new state alone. `modified` means a
  * person changed this layout: it gates the Reset Layout chip, and it is what
  * makes the browser map outrank a server layout that lands later. Storage keeps
- * `positions`, `viewportDelta` and `modified`; the other two are per-mount.
+ * `positions`, `viewportDelta`, `modified` and `laidEdges`; the other two are
+ * per-mount.
  *
  * @typedef  {Object}                   LayoutState
  * @property {?Object<string,Position>} positions     Node id to position, or null before the one-shot init runs.
  * @property {?ViewBox}                 viewport      Live viewBox, or null while the canvas autofits.
  * @property {?ViewportDelta}           viewportDelta The viewport as an offset from autofit, which is the durable form.
  * @property {boolean}                  modified      A person moved, dropped or reset something in this scope.
+ * @property {?Array<string>}           laidEdges     `edgeKey()` of every edge an autoLayout of this map has covered; null when the record predates it.
  * @property {?string}                  key           The storage key this state was built for.
  */
 
@@ -58,7 +61,7 @@ import names from '../../runtime/reserved-node-names.json';
  * @property {boolean}                                       canReset         A person changed this scope's layout, so Reset Layout has something to undo.
  * @property {(id: string, pos: Position) => void}           onPositionChange Commit one card's new position and mark the scope modified.
  * @property {(vp: ?ViewBox, delta: ?ViewportDelta) => void} onViewportChange Commit a pan or zoom; the write to storage is debounced.
- * @property {(oldId: string, newId: string) => void}        renamePosition   Carry an entry over to a renamed node, leaving `modified` alone.
+ * @property {(oldId: string, newId: string) => void}        renamePosition   Carry an entry and its laid edges over to a renamed node, leaving `modified` alone.
  * @property {() => void}                                    markDirty        Light the Reset Layout chip without moving a card.
  * @property {() => void}                                    resetLayout      Forget the stored layout, so the graph is laid out again.
  */
@@ -74,6 +77,7 @@ const EMPTY = {
 	viewport: null,
 	viewportDelta: null,
 	modified: false,
+	laidEdges: null,
 };
 
 /**
@@ -109,6 +113,7 @@ function load( key ) {
 			viewportDelta:
 				p && p.viewportDelta !== undefined ? p.viewportDelta : null,
 			modified: !! ( p && p.modified ),
+			laidEdges: p && Array.isArray( p.laidEdges ) ? p.laidEdges : null,
 			key,
 		};
 	} catch ( _e ) {
@@ -117,7 +122,8 @@ function load( key ) {
 }
 
 /**
- * Write one scope's durable layout: positions, viewport delta and dirty flag.
+ * Write one scope's durable layout: positions, viewport delta, dirty flag and
+ * the edges its autoLayout covered.
  *
  * The live viewBox stays out of storage deliberately. Absolute coordinates
  * restore a view that no longer fits once the canvas has been resized, so the
@@ -138,6 +144,7 @@ function persist( key, s ) {
 				positions: s.positions,
 				viewportDelta: s.viewportDelta,
 				modified: s.modified,
+				laidEdges: s.laidEdges,
 			} )
 		);
 	} catch ( _e ) {
@@ -259,11 +266,25 @@ function positionsEqual( left, right ) {
 }
 
 /**
- * Every reserved node: the exospine, the overlay's REPL and a worker's IPC
- * pair. A layout holding nothing else was laid out before the page's graph
- * mounted, so the graph's arrival lays the whole canvas out again.
+ * One edge's identity in `laidEdges`: its two ends.
+ *
+ * @param {{from: string, to: string}} edge The edge.
+ * @return {string} The key.
  */
-const SCAFFOLDING = new Set( Object.values( names ) );
+const edgeKey = ( edge ) => `${ edge.from }\n${ edge.to }`;
+
+/**
+ * The keys of every edge whose two ends are both on the canvas.
+ *
+ * @param {Graph} graph The graph.
+ * @return {Array<string>} One `edgeKey()` per drawable edge.
+ */
+function edgeKeysOf( graph ) {
+	const ids = new Set( graph.nodes.map( ( n ) => n.id ) );
+	return graph.edges
+		.filter( ( e ) => ids.has( e.from ) && ids.has( e.to ) )
+		.map( edgeKey );
+}
 
 /**
  * Lay a graph out from scratch, as an id-to-position map.
@@ -281,21 +302,27 @@ function laidOut( graph ) {
 }
 
 /**
- * Does this scope hold an untouched layout of scaffolding alone while a real
- * node is on the canvas, so the whole graph is due a fresh layout?
+ * Has the graph outgrown this scope's untouched autoLayout map?
  *
- * @param {LayoutState}         s          The scope's state.
- * @param {?string}             storageKey The scope's current key.
- * @param {Array<{id: string}>} nodes      The nodes on the canvas.
- * @return {boolean} True when the full layout is pending.
+ * A node the map does not place, or an edge no autoLayout of it covered,
+ * leaves the map's columns blind to where that node belongs: tucking it
+ * below the left-most column strands an owned Table under unrelated cards,
+ * its wire crossing them. A map a person changed is theirs to keep.
+ *
+ * @param {LayoutState} s          The scope's state.
+ * @param {?string}     storageKey The scope's current key.
+ * @param {Graph}       graph      The graph on the canvas.
+ * @return {boolean} True when the whole graph is due a fresh layout.
  */
-function awaitsFullLayout( s, storageKey, nodes ) {
+function outgrows( s, storageKey, graph ) {
+	if ( s.positions === null || s.key !== storageKey || s.modified ) {
+		return false;
+	}
+	const positions = s.positions;
+	const laid = new Set( s.laidEdges ?? [] );
 	return (
-		s.positions !== null &&
-		s.key === storageKey &&
-		! s.modified &&
-		Object.keys( s.positions ).every( ( id ) => SCAFFOLDING.has( id ) ) &&
-		nodes.some( ( n ) => ! SCAFFOLDING.has( n.id ) )
+		graph.nodes.some( ( n ) => ! positions[ n.id ] ) ||
+		edgeKeysOf( graph ).some( ( key ) => ! laid.has( key ) )
 	);
 }
 
@@ -304,7 +331,7 @@ function awaitsFullLayout( s, storageKey, nodes ) {
  *
  * Nodes stream in a batch at a time and `autoLayout` runs once, so laying out
  * on the first batch would freeze half a topology into positions the rest has
- * to live around. The full layout that replaces scaffolding waits the same.
+ * to live around. Laying an outgrown map out again waits the same.
  */
 const LAYOUT_SETTLE_MS = 250;
 
@@ -312,9 +339,10 @@ const LAYOUT_SETTLE_MS = 250;
  * The canvas position map: built once when the complete graph is ready — by
  * `autoLayout`, or from the server layout for a worker topology — then
  * reconciled with a late server layout or mutated by drags, drops and tucks.
- * `autoLayout` runs again only through `resetLayout`, or once real nodes join
- * an untouched layout of reserved scaffolding and stop arriving for
- * `LAYOUT_SETTLE_MS`.
+ * `autoLayout` runs again through `resetLayout`, or once the graph outgrows an
+ * untouched autoLayout map and stops growing for `LAYOUT_SETTLE_MS`; the map
+ * then keeps every edge it has covered, so a seed and a live graph that each
+ * hold an edge the other lacks lay the canvas out once, not on every load.
  *
  * Dirty browser positions outrank a server layout that arrives afterwards until
  * the two maps agree, at which point the acknowledgement clears the dirty flag
@@ -339,6 +367,8 @@ export function useCanvasLayout( {
 	stateRef.current = state;
 	const vpTimer = useRef( null );
 	const settleTimer = useRef( null );
+	const hasServerLayout =
+		!! serverLayout && Object.keys( serverLayout ).length > 0;
 
 	// Reload on scope switch; cancel any pending viewport write.
 	useEffect( () => {
@@ -360,7 +390,7 @@ export function useCanvasLayout( {
 		}
 
 		// Dirty browser positions win until the complete server map matches.
-		if ( serverLayout && Object.keys( serverLayout ).length > 0 ) {
+		if ( hasServerLayout ) {
 			const serverPositions = materializeServerPositions(
 				serverLayout,
 				nodes
@@ -388,6 +418,7 @@ export function useCanvasLayout( {
 					viewport: prev.viewport,
 					viewportDelta: prev.viewportDelta,
 					modified: false,
+					laidEdges: null,
 					key: storageKey,
 				};
 				persist( storageKey, next );
@@ -396,7 +427,7 @@ export function useCanvasLayout( {
 			return undefined;
 		}
 
-		// Already initialized for this scope — graph growth is the tuck job.
+		// Already initialized for this scope; growth is the effect below's.
 		if ( state.positions !== null && state.key === storageKey ) {
 			return undefined;
 		}
@@ -413,6 +444,7 @@ export function useCanvasLayout( {
 					viewport: prev.viewport,
 					viewportDelta: prev.viewportDelta,
 					modified: false,
+					laidEdges: edgeKeysOf( graph ),
 					key: storageKey,
 				};
 				persist( storageKey, next );
@@ -425,25 +457,41 @@ export function useCanvasLayout( {
 				settleTimer.current = null;
 			}
 		};
-	}, [ ready, graph, serverLayout, storageKey, state.positions, state.key ] );
-
-	const fullLayoutDue = awaitsFullLayout(
-		state,
+	}, [
+		ready,
+		graph,
+		serverLayout,
+		hasServerLayout,
 		storageKey,
-		graph?.nodes ?? []
-	);
+		state.positions,
+		state.key,
+	] );
+
+	const relayoutDue =
+		ready &&
+		! hasServerLayout &&
+		outgrows( state, storageKey, graph ?? { nodes: [], edges: [] } );
 
 	// New, undropped nodes tuck below the left-most-then-bottom-most node.
 	useEffect( () => {
 		const nodes = graph?.nodes ?? [];
-		// Scaffolding alone, untouched: the page's graph lays out once settled.
-		if ( fullLayoutDue ) {
+		// An outgrown untouched map is laid out again once the graph settles.
+		if ( relayoutDue ) {
 			const timer = setTimeout( () => {
 				setState( ( prev ) => {
-					if ( ! awaitsFullLayout( prev, storageKey, nodes ) ) {
+					if ( ! outgrows( prev, storageKey, graph ) ) {
 						return prev;
 					}
-					const next = { ...prev, positions: laidOut( graph ) };
+					const next = {
+						...prev,
+						positions: { ...prev.positions, ...laidOut( graph ) },
+						laidEdges: [
+							...new Set( [
+								...( prev.laidEdges ?? [] ),
+								...edgeKeysOf( graph ),
+							] ),
+						],
+					};
 					persist( storageKey, next );
 					return next;
 				} );
@@ -452,11 +500,7 @@ export function useCanvasLayout( {
 		}
 		setState( ( prev ) => {
 			// Guard a stale-scope run: skip until the reload commits this key.
-			if (
-				prev.positions === null ||
-				prev.key !== storageKey ||
-				awaitsFullLayout( prev, storageKey, nodes )
-			) {
+			if ( prev.positions === null || prev.key !== storageKey ) {
 				return prev;
 			}
 			const positions = { ...prev.positions };
@@ -474,31 +518,23 @@ export function useCanvasLayout( {
 				return prev;
 			}
 			// Externally-added node tucked is NOT a user mod — keep the flag.
-			const next = {
-				positions,
-				viewport: prev.viewport,
-				viewportDelta: prev.viewportDelta,
-				modified: prev.modified,
-				key: prev.key,
-			};
+			const next = { ...prev, positions };
 			persist( storageKey, next );
 			return next;
 		} );
 		return undefined;
-	}, [ graph, storageKey, state.key, fullLayoutDue ] );
+	}, [ graph, storageKey, state.key, relayoutDue ] );
 
 	const onPositionChange = useCallback(
 		( id, pos ) => {
 			setState( ( prev ) => {
 				const next = {
+					...prev,
 					positions: {
 						...( prev.positions || {} ),
 						[ id ]: { x: pos.x, y: pos.y },
 					},
-					viewport: prev.viewport,
-					viewportDelta: prev.viewportDelta,
 					modified: true,
-					key: prev.key,
 				};
 				persist( storageKey, next );
 				return next;
@@ -525,7 +561,7 @@ export function useCanvasLayout( {
 		[ storageKey ]
 	);
 
-	// A rename moves no card, so `modified` stays as it was.
+	// A rename moves no card, so `modified` stays and the laid edges follow.
 	const renamePosition = useCallback(
 		( oldId, newId ) => {
 			setState( ( prev ) => {
@@ -535,7 +571,17 @@ export function useCanvasLayout( {
 				const positions = { ...prev.positions };
 				positions[ newId ] = positions[ oldId ];
 				delete positions[ oldId ];
-				const next = { ...prev, positions };
+				const renamed = ( id ) => ( id === oldId ? newId : id );
+				const laidEdges =
+					prev.laidEdges &&
+					prev.laidEdges.map( ( key ) => {
+						const [ from, to ] = key.split( '\n' );
+						return edgeKey( {
+							from: renamed( from ),
+							to: renamed( to ),
+						} );
+					} );
+				const next = { ...prev, positions, laidEdges };
 				persist( storageKey, next );
 				return next;
 			} );

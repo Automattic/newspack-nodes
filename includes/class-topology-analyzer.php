@@ -899,26 +899,55 @@ class Topology_Analyzer {
 	}
 
 	/**
-	 * Every node a topology declares, its own includes flattened in, and the
-	 * `{name}:seen` Table each Crawler builds.
+	 * Every node a topology declares, its own includes flattened in, each
+	 * followed by the nodes owned_nodes() says it builds.
 	 *
 	 * @param string $name Topology name.
 	 * @return list<string> Node names, in declaration order.
 	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
 	private static function declared_node_names( string $name ): array {
+		$owned = [];
+		foreach ( self::owned_nodes( $name ) as $node ) {
+			$owned[ $node['owner'] ][] = $node['name'];
+		}
 		$names = [];
 		foreach ( self::statements( $name )['statements'] as $statement ) {
 			if ( 'make_node' !== $statement['verb'] ) {
 				continue;
 			}
-			$node_name           = $statement['values'][2] ?? '';
-			$names[ $node_name ] = true;
-			if ( self::type_is( $statement['values'][1] ?? '', Crawler_Node::class ) ) {
-				$names[ Crawler_Node::seen_table( $node_name, '' )['name'] ] = true;
+			$node_name = $statement['values'][2] ?? '';
+			foreach ( [ $node_name, ...$owned[ $node_name ] ?? [] ] as $declared ) {
+				$names[ $declared ] = true;
 			}
 		}
 		return \array_keys( $names );
+	}
+
+	/**
+	 * The nodes an owner in a topology builds for itself, its includes
+	 * flattened in, in declaration order: each Crawler's `{name}:seen` Table,
+	 * as `Crawler_Node::seen_table()` names it. No `make_node` line declares
+	 * one, and its owner writes it, declaring it in `extra_targets()`.
+	 *
+	 * @param string $name Topology name.
+	 * @return list<array{name: string, class: string, owner: string}>
+	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
+	 */
+	public static function owned_nodes( string $name ): array {
+		$out = [];
+		foreach ( self::statements( $name )['statements'] as $statement ) {
+			if ( 'make_node' !== $statement['verb'] || ! self::type_is( $statement['values'][1] ?? '', Crawler_Node::class ) ) {
+				continue;
+			}
+			$owner = $statement['values'][2] ?? '';
+			$out[] = [
+				'name'  => Crawler_Node::seen_table( $owner, '' )['name'],
+				'class' => 'Table',
+				'owner' => $owner,
+			];
+		}
+		return $out;
 	}
 
 	/**

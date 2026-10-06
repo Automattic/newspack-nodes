@@ -8,6 +8,7 @@
 
 import {
 	withReplAnchor,
+	withOwnedNodes,
 	generateNodeName,
 	withResolvedConfigEdges,
 	withConfigEdges,
@@ -125,6 +126,44 @@ describe( 'consoleGraph', () => {
 				next.nodes.find( ( n ) => n.id === 'my-tee' )
 			).toBeDefined();
 			expect( next.edges ).toEqual( [ { from: 'my-tee', to: '_repl' } ] );
+		} );
+	} );
+	describe( 'withOwnedNodes', () => {
+		const owner = graphFromTsl( 'make_node Wombat_Owner kea-owner-512' );
+		const ledger = {
+			name: 'kea-owner-512:ledger',
+			class: 'Wombat_Ledger',
+			owner: 'kea-owner-512',
+		};
+
+		it( 'adds an owned node, owned by and wired from its owner', () => {
+			const next = withOwnedNodes( owner, [ ledger ] );
+			expect(
+				next.nodes.find( ( n ) => n.id === 'kea-owner-512:ledger' )
+			).toEqual( {
+				id: 'kea-owner-512:ledger',
+				name: 'kea-owner-512:ledger',
+				class: 'Wombat_Ledger',
+				owner: 'kea-owner-512',
+			} );
+			expect( next.edges ).toEqual( [
+				{ from: 'kea-owner-512', to: 'kea-owner-512:ledger' },
+			] );
+		} );
+
+		it( 'adds nothing for an owner the graph does not hold', () => {
+			expect( withOwnedNodes( empty, [ ledger ] ) ).toBe( empty );
+		} );
+
+		it( 'is idempotent — adds neither the node nor its edge twice', () => {
+			const once = withOwnedNodes( owner, [ ledger ] );
+			expect( withOwnedNodes( once, [ ledger ] ) ).toBe( once );
+		} );
+
+		it( 'fails loud when the reply carries no owned list', () => {
+			expect( () => withOwnedNodes( owner, undefined ) ).toThrow(
+				'Missing owned in topologies get response.'
+			);
 		} );
 	} );
 	describe( 'generateNodeName', () => {

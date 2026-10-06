@@ -1,38 +1,13 @@
 /**
  * autoLayout over event-logger-nodes' `complete` worker as the console first
  * paints it: the `topologies get complete` reply and the `classes dump`
- * catalog a live install answered, composed by the same four calls
- * `useConsoleGraph` makes before the worker's own `dump_metadata` lands —
- * `graphFromTsl`, `withResolvedConfigEdges`, `withReplAnchor` and
- * `augmentWithVirtualEdges`.
+ * catalog a live install answered, composed as `useConsoleGraph` composes it
+ * before the worker's own `dump_metadata` lands.
  */
 
-import { graphFromTsl } from '../draftToGraph';
-import { withReplAnchor, withResolvedConfigEdges } from '../consoleGraph';
-import { augmentWithVirtualEdges } from '../virtualEdges';
 import { autoLayout, drawnCost, Y_STEP } from '../autoLayout';
+import { seededGraph } from './fixtures/seededGraph';
 import SEED from './fixtures/eln-complete-seed.json';
-
-/**
- * The graph `useConsoleGraph` seeds `_metadata` with for the worker.
- *
- * @return {{nodes: Array<{id: string}>, edges: Array<{from: string, to: string}>}} The graph.
- */
-const seededGraph = () =>
-	augmentWithVirtualEdges(
-		withReplAnchor(
-			withResolvedConfigEdges(
-				graphFromTsl(
-					SEED.tsl,
-					SEED.expanded,
-					SEED.classes,
-					SEED.resolved_config_edges
-				),
-				SEED.resolved_config_edges
-			)
-		),
-		SEED.classes
-	);
 
 /**
  * Lay the seeded graph out.
@@ -40,7 +15,7 @@ const seededGraph = () =>
  * @return {{at: Object<string,{x: number, y: number}>, edges: Array<{from: string, to: string}>}} Position by id, and the wires.
  */
 const layOut = () => {
-	const graph = seededGraph();
+	const graph = seededGraph( SEED );
 	return {
 		at: Object.fromEntries(
 			autoLayout( graph ).nodes.map( ( n ) => [ n.id, n.position ] )
@@ -81,7 +56,7 @@ describe( 'autoLayout — the event logger’s complete worker', () => {
 	it( 'lays out every card the seeded graph holds', () => {
 		const { at } = layOut();
 		expect( Object.keys( at ).sort() ).toEqual(
-			seededGraph()
+			seededGraph( SEED )
 				.nodes.map( ( n ) => n.id )
 				.sort()
 		);
