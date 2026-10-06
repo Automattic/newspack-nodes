@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.95.0] - 2026-10-06
+
 ### Changed
 
 - **A topology card is idle when its counter did not move in the last poll, and an idle card dims whole.** In live mode, on the topology console and the debug overlay, a card whose message counter held still between the previous `dump_metadata` snapshot and the latest one draws its frame, its text and its readout at 55% opacity, through `opacity` on the card's group; a card whose counter moved at all draws at full ink. The switch is immediate, with no transition, and a selected or hovered card, or a member of the focused hull, is never idle; an idle card faded behind another card's hover dims by both. A card crossing between busy and idle re-renders that card alone; a poll that changes no card's state re-renders none. Rates sample `_metadata`'s poll replies alone, published as its `snapshot` field, so an optimistic edit — a rename, a trace toggle, a palette drop — repaints the graph without idling a card. An idle card's text falls below the 4.5:1 contrast the other card states hold.
