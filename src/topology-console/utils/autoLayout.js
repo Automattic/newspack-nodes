@@ -39,7 +39,7 @@
  * wire that spans two or more columns standing in for itself as a
  * placeholder in every column between, so the sweeps put a card on the
  * right side of it, and a last pass (`clearWires`) nudging any card off the
- * span such a wire is drawn across. A source whose
+ * rows such a wire is drawn across. A source whose
  * successors all sit in one column, two or more columns on, has a column to
  * choose, so its wires take no placeholder: `seatSources` seats it inside its
  * band, growing the band downward so its height covers the seat, then again
@@ -61,7 +61,10 @@
  * hubs goes with the one serving the fewest bands — a publication's own over
  * the fleet's — and a hub every band left for a closer one sits beside the
  * block holding most of its feeders. A block's hubs layer by their own
- * longest path; a hub that also feeds a band draws that edge leftward.
+ * longest path; a hub that also feeds a band draws that edge leftward. A
+ * band's last card feeding a hub, short of the column the deeper bands'
+ * feeders share and wired over one of them, moves into that column where the
+ * block draws cleaner for it, the chain into it running level.
  *
  * Half a step opens between two columns where three or more wires meet one
  * node across that boundary — into a hub, out of a Tee, or neither — so
@@ -377,7 +380,7 @@ const normalizeRows = ( ids, row ) => {
  * its members' desired rows. Centring is what makes a fan-out straddle its
  * targets instead of shunting the whole stack downward. A card takes a row; a
  * through wire's placeholder none, since `clearWires` keeps the cards off the
- * wire's whole span.
+ * rows the drawn wire holds.
  *
  * @param {Array<string>}            members Ids sharing the column.
  * @param {Object<string,number>}    row     Desired rows, mutated in place.
@@ -385,9 +388,10 @@ const normalizeRows = ( ids, row ) => {
  * @param {( id: string ) => number} size    Rows a member occupies.
  */
 const spreadColumn = ( members, row, order, size = () => 1 ) => {
-	const sorted = [ ...members ].sort(
-		( a, b ) => row[ a ] - row[ b ] || order[ a ] - order[ b ]
-	);
+	// A member taking no row has nothing to overlap, so it stays where it is.
+	const sorted = members
+		.filter( ( id ) => size( id ) > 0 )
+		.sort( ( a, b ) => row[ a ] - row[ b ] || order[ a ] - order[ b ] );
 	const blocks = [];
 	// Where a member sits inside its block, and how tall the block is.
 	const offsets = ( ids ) => {
@@ -492,16 +496,114 @@ const cardsWithin = ( ids, row, lo, hi, skip ) => {
 /** Rows a card keeps between its centre and a wire: half its own height. */
 const WIRE_CLEARANCE = 0.5;
 
+/** Canvas x a drawn wire stops short of its IN port, the arrow marker's room. */
+const ARROW_GAP = 6;
+
+/**
+ * The cubic a wire is drawn as, from the source's OUT port to the sink's IN
+ * port: it leaves and arrives horizontally, so which end is the source reads
+ * without following the line, each control point half the run out with a
+ * 60-unit floor that holds the S when the two cards nearly touch, and it ends
+ * `ARROW_GAP` short of the IN port. `SchematicCanvas` draws every wire from
+ * it and `wireRows` measures clearance on it, so the two cannot drift.
+ *
+ * @param {number} x1 The OUT port's canvas x.
+ * @param {number} y1 The OUT port's canvas y.
+ * @param {number} x2 The IN port's canvas x.
+ * @param {number} y2 The IN port's canvas y.
+ * @return {Array<[number, number]>} The start, the two control points, the end.
+ */
+export function wireCurve( x1, y1, x2, y2 ) {
+	const dx = Math.max( 60, Math.abs( x2 - x1 ) / 2 );
+	return [
+		[ x1, y1 ],
+		[ x1 + dx, y1 ],
+		[ x2 - dx, y2 ],
+		[ x2 - ARROW_GAP, y2 ],
+	];
+}
+
+/** @type {Map<string, [number, number]>} */
+const rises = new Map();
+
+/**
+ * How far along its rise a wire is where it enters and leaves a card it
+ * passes, on the `wireCurve` from the source's right edge to the sink's left
+ * edge. A wire running backward loops, so its whole rise counts.
+ *
+ * @param {number} run  Canvas x from the source card's left edge to the sink's.
+ * @param {number} left Canvas x from the source card's left edge to the card's.
+ * @return {[number, number]} The fraction of the rise at the card's left and right edges.
+ */
+const riseOver = ( run, left ) => {
+	const key = `${ run }:${ left }`;
+	const known = rises.get( key );
+	if ( known ) {
+		return known;
+	}
+	const pts = wireCurve( NODE_W, 0, run, 1 );
+	const at = ( t, k ) =>
+		pts[ 0 ][ k ] * ( 1 - t ) ** 3 +
+		3 * pts[ 1 ][ k ] * t * ( 1 - t ) ** 2 +
+		3 * pts[ 2 ][ k ] * t * t * ( 1 - t ) +
+		pts[ 3 ][ k ] * t ** 3;
+	const rise = ( x ) => {
+		let [ lo, hi ] = [ 0, 1 ];
+		for ( let i = 0; i < 40; i++ ) {
+			const mid = ( lo + hi ) / 2;
+			[ lo, hi ] = at( mid, 0 ) < x ? [ mid, hi ] : [ lo, mid ];
+		}
+		return at( lo, 1 );
+	};
+	/** @type {[number, number]} */
+	const fractions =
+		run > NODE_W ? [ rise( left ), rise( left + NODE_W ) ] : [ 0, 1 ];
+	rises.set( key, fractions );
+	return fractions;
+};
+
+/**
+ * The rows a wire holds over a card it passes, `WIRE_CLEARANCE` added each
+ * side: where the drawn curve enters and leaves the card's width, not its
+ * whole rise, since past one column the curve stays near its nearer end.
+ *
+ * @param {number} run     Canvas x from the source card to the sink card.
+ * @param {number} left    Canvas x from the source card to the passed card.
+ * @param {number} fromRow The source's row.
+ * @param {number} toRow   The sink's row.
+ * @return {[number, number]} The rows held, top then bottom.
+ */
+const wireRows = ( run, left, fromRow, toRow ) => {
+	const ys = riseOver( run, left ).map(
+		( f ) => fromRow + ( toRow - fromRow ) * f
+	);
+	return [
+		Math.min( ...ys ) - WIRE_CLEARANCE,
+		Math.max( ...ys ) + WIRE_CLEARANCE,
+	];
+};
+
+/**
+ * Canvas x of a column, from column 0, one `X_STEP` apiece: the measure a band
+ * laid out on its own has, since it cannot know the half steps the rest of
+ * its block opens.
+ *
+ * @param {number} c The column.
+ * @return {number} Its canvas x, from column 0's.
+ */
+const evenColumns = ( c ) => c * X_STEP;
+
 /**
  * Move every card off the wires that cross its column.
  *
  * A wire spanning two or more columns is drawn as one cubic from its source
- * to its sink, and over a card's width in a column between it runs nearly
- * the whole way from the one row to the other — so a card whose centre lies
- * inside that span, or within half a card of it, is drawn over. The
- * placeholders put such a card on the right SIDE of its wires; this pass
- * puts it the right DISTANCE from them, nudging it to the nearest half row
- * outside every span crossing its column and clear of every card sharing it.
+ * to its sink, so a card whose centre lies within half a card of the rows
+ * that curve holds across the card's width — `wireRows` — is drawn over.
+ * Through one column that is nearly the whole rise; through three, the curve
+ * is near its ends' rows at the columns beside them. The placeholders put
+ * such a card on the right SIDE of its wires; this pass puts it the right
+ * DISTANCE from them, nudging it to the nearest half row outside every span
+ * crossing its column and clear of every card sharing it.
  *
  * Each sweep reads the spans once, from the rows as they stand, and moves
  * every card off them. A nudged card ends wires of its own, whose spans move
@@ -510,13 +612,25 @@ const WIRE_CLEARANCE = 0.5;
  * each other's cards down the canvas without end, so two is the budget. What
  * it leaves is a card the nudge of its own neighbour put back on a wire.
  *
+ * The curve's shape follows its run, so the pass reads each column's canvas x
+ * off `xOf`. A band's own pass has only `evenColumns`, blind to the half
+ * steps its block opens, and its block passes again with every one in place.
+ *
  * @param {Array<string>}           ids      The cards to move.
  * @param {Array<[string, string]>} wires    The through wires, as `[from, to]`.
  * @param {Object<string,number>}   col      Columns.
  * @param {Object<string,number>}   row      Rows, mutated in place.
  * @param {Array<string>}           [others] Cards a nudge must also keep clear of; the movers by default.
+ * @param {( c: number ) => number} [xOf]    Canvas x of a column.
  */
-const clearWires = ( ids, wires, col, row, others = ids ) => {
+const clearWires = (
+	ids,
+	wires,
+	col,
+	row,
+	others = ids,
+	xOf = evenColumns
+) => {
 	if ( ! wires.length ) {
 		return;
 	}
@@ -564,10 +678,14 @@ const clearWires = ( ids, wires, col, row, others = ids ) => {
 							Math.min( col[ a ], col[ b ] ) < c &&
 							c < Math.max( col[ a ], col[ b ] )
 					)
-					.map( ( [ a, b ] ) => [
-						Math.min( row[ a ], row[ b ] ) - WIRE_CLEARANCE,
-						Math.max( row[ a ], row[ b ] ) + WIRE_CLEARANCE,
-					] )
+					.map( ( [ a, b ] ) =>
+						wireRows(
+							xOf( col[ b ] ) - xOf( col[ a ] ),
+							xOf( c ) - xOf( col[ a ] ),
+							row[ a ],
+							row[ b ]
+						)
+					)
 			);
 		}
 		let moved = false;
@@ -625,6 +743,7 @@ const clearWires = ( ids, wires, col, row, others = ids ) => {
  * cross fewest cards from, or failing that the nearest row no card or wire
  * holds. A source wired to a node outside its block keeps the column its band
  * gave it and chooses only its row: nothing here can see where that wire lands.
+ * A wire's clearance reads canvas x off `xOf`, as `clearWires` does.
  *
  * @param {Array<string>}                sources The sources to seat.
  * @param {Object<string,Array<string>>} next    Each source's real successors.
@@ -633,7 +752,8 @@ const clearWires = ( ids, wires, col, row, others = ids ) => {
  * @param {Array<[string, string]>}      wires   Long wires, extended in place by each seated source's own.
  * @param {Object<string,number>}        col     Columns, mutated in place.
  * @param {Object<string,number>}        row     Rows, mutated in place.
- * @param {number}                       [floor] Topmost row a seat may take; a band's own top is fixed by the stack.
+ * @param {( id: string ) => number}     [floor] Topmost row each source's seat may take; its band's own top is fixed by the stack.
+ * @param {( c: number ) => number}      [xOf]   Canvas x of a column.
  */
 const seatSources = (
 	sources,
@@ -643,7 +763,8 @@ const seatSources = (
 	wires,
 	col,
 	row,
-	floor = -Infinity
+	floor = () => -Infinity,
+	xOf = evenColumns
 ) => {
 	const rows = cards.map( ( id ) => row[ id ] );
 	// Half-row steps that walk a search past every card in the block.
@@ -663,9 +784,15 @@ const seatSources = (
 		}
 	};
 	wires.forEach( lay );
-	const onWire = ( [ a, b ], r ) =>
-		r > Math.min( row[ a ], row[ b ] ) - WIRE_CLEARANCE + 1e-9 &&
-		r < Math.max( row[ a ], row[ b ] ) + WIRE_CLEARANCE - 1e-9;
+	const onWire = ( [ a, b ], c, r ) => {
+		const [ lo, hi ] = wireRows(
+			xOf( col[ b ] ) - xOf( col[ a ] ),
+			xOf( c ) - xOf( col[ a ] ),
+			row[ a ],
+			row[ b ]
+		);
+		return r > lo + 1e-9 && r < hi - 1e-9;
+	};
 	const near = ( id, c, lo, hi ) =>
 		cardsWithin( byCol[ c ] ?? [], row, lo, hi, ( o ) => o === id );
 	const order = stableSort(
@@ -679,16 +806,20 @@ const seatSources = (
 		}
 		const want = snapHalf( midMinMax( fed.map( ( k ) => row[ k ] ) ) );
 		const free = ( c, r ) =>
-			r >= floor - 1e-9 &&
+			r >= floor( id ) - 1e-9 &&
 			! near( id, c, r - 1, r + 1 ) &&
-			! ( across[ c ] ?? [] ).some( ( w ) => onWire( w, r ) );
+			! ( across[ c ] ?? [] ).some( ( w ) => onWire( w, c, r ) );
 		// Cards between the seat and a successor, on that wire.
 		const crossings = ( c, r ) =>
 			fed.reduce( ( sum, k ) => {
-				const lo = Math.min( r, row[ k ] ) - WIRE_CLEARANCE;
-				const hi = Math.max( r, row[ k ] ) + WIRE_CLEARANCE;
 				const far = Math.max( c, col[ k ] );
 				for ( let x = Math.min( c, col[ k ] ) + 1; x < far; x++ ) {
+					const [ lo, hi ] = wireRows(
+						xOf( col[ k ] ) - xOf( c ),
+						xOf( x ) - xOf( c ),
+						r,
+						row[ k ]
+					);
 					sum += near( id, x, lo, hi );
 				}
 				return sum;
@@ -730,8 +861,8 @@ const seatSources = (
 		if ( ! seat ) {
 			const c = columns[ columns.length - 1 ];
 			// @longform Nothing in range is clear, so take the least-crossed
-			// free row rather than the nearest: dropping the count altogether
-			// ran a source's wire over three cards it could have missed.
+			// free row rather than the nearest, which can run a source's wire
+			// over cards a row further off would miss.
 			let best;
 			let fewest = Infinity;
 			for ( const at of rowsOutward( want, reach ) ) {
@@ -824,6 +955,17 @@ const componentsOf = ( ids, succ, pred ) => {
 	return out;
 };
 
+/**
+ * The id of a long wire's placeholder in one column it crosses, led by a NUL
+ * no node id carries, so it never names a card.
+ *
+ * @param {string} from The wire's source.
+ * @param {string} to   The wire's sink.
+ * @param {number} c    The column the placeholder stands in.
+ * @return {string} The placeholder's id.
+ */
+const placeholderId = ( from, to, c ) => `\0${ from }\u2192${ to }@${ c }`;
+
 /** Passes `transpose` makes, alternating strict and level swaps. */
 const TRANSPOSE_PASSES = 8;
 
@@ -912,13 +1054,16 @@ const transpose = ( columns, col, pred, succ, pos ) => {
  * @param {Object<string,Array<string>>} succ  Successors inside the component.
  * @param {Object<string,Array<string>>} pred  Predecessors inside the component.
  * @param {( id: string ) => boolean}    unfed Whether nothing in the whole graph feeds a node.
+ * @param {Object<string,number>}        [pin] A column each named sink seats in
+ *                                             at the least, once the rest are
+ *                                             relaxed without it.
  * @return {{col: Object<string,number>, row: Object<string,number>, wires: Array<[string, string]>, deferred: Array<string>, plain: ?{col: Object<string,number>, row: Object<string,number>}}}
  * Grid units, rows normalised so the topmost is 0, the wires spanning two or
  * more columns, the sources `seatSources` seats last, and — where `transpose`
  * changed the sweeps' order — the grid units for that order too, so the block
  * can judge the exchange on its drawing.
  */
-const layoutComponent = ( ids, succ, pred, unfed ) => {
+const layoutComponent = ( ids, succ, pred, unfed, pin = {} ) => {
 	/** @type {Object<string,number>} */
 	const declIdx = {};
 	ids.forEach( ( id, i ) => ( declIdx[ id ] = i ) );
@@ -1008,6 +1153,10 @@ const layoutComponent = ( ids, succ, pred, unfed ) => {
 			col[ id ] = Math.max( lo, Math.min( hi, Math.round( bary ) ) );
 		}
 	}
+	for ( const [ id, at ] of Object.entries( pin ) ) {
+		col[ id ] = Math.max( col[ id ], at );
+		maxDepth = Math.max( maxDepth, col[ id ] );
+	}
 
 	// Seated last: a source feeding one column, two or more columns on.
 	const later = new Set(
@@ -1021,12 +1170,28 @@ const layoutComponent = ( ids, succ, pred, unfed ) => {
 		)
 	);
 
+	// @longform A sink pinned past its depth rows with its nearest feeder, so
+	// the chain into it runs level; its farther feeds are long wires already,
+	// and clearing them is `clearWires`' work.
+	/** @type {Object<string,Array<string>>} */
+	const nearFeeds = {};
+	for ( const id of Object.keys( pin ) ) {
+		const near = Math.max( ...pred[ id ].map( ( p ) => col[ p ] ) );
+		nearFeeds[ id ] = pred[ id ]
+			.filter( ( p ) => col[ p ] === near )
+			.map( ( p ) =>
+				col[ id ] - col[ p ] < 2 || later.has( p )
+					? p
+					: placeholderId( p, id, col[ id ] - 1 )
+			);
+	}
+
 	// @longform Sugiyama's virtual nodes: a wire spanning two or more columns
 	// takes a placeholder in every column between, so the ordering sweeps
 	// count the crossings it makes with real cards there and the row spread
 	// keeps those cards off the rows it runs through. The wire is still drawn
-	// straight from source to sink; the placeholders only shape the rows. The
-	// wires of a source seated last take none; `seatSources` places it.
+	// as one cubic from source to sink; the placeholders only shape the rows.
+	// The wires of a source seated last take none; `seatSources` places it.
 	const laid = [ ...ids ];
 	/** @type {Array<[string, string]>} */
 	const wires = [];
@@ -1044,7 +1209,7 @@ const layoutComponent = ( ids, succ, pred, unfed ) => {
 			wires.push( [ from, to ] );
 			let tail = from;
 			for ( let c = col[ from ] + 1; c < col[ to ]; c++ ) {
-				const v = `\0${ from }\u2192${ to }@${ c }`;
+				const v = placeholderId( from, to, c );
 				laid.push( v );
 				declIdx[ v ] = laid.length - 1;
 				col[ v ] = c;
@@ -1218,7 +1383,7 @@ const layoutComponent = ( ids, succ, pred, unfed ) => {
 			}
 			for ( let c = anchor + 1; c <= maxDepth; c++ ) {
 				for ( const id of columns[ c ] ) {
-					const nb = pred[ id ].filter(
+					const nb = ( nearFeeds[ id ] ?? pred[ id ] ).filter(
 						( p ) => r[ p ] !== undefined
 					);
 					if ( nb.length ) {
@@ -1710,6 +1875,51 @@ const columnX = ( ids, col, succ, pred ) => {
 };
 
 /**
+ * Canvas position of every card in a block drawn in grid units.
+ *
+ * @param {{col: Object<string,number>, row: Object<string,number>}} d    The block's grid.
+ * @param {Object<string,Array<string>>}                             succ Successors.
+ * @param {Object<string,Array<string>>}                             pred Predecessors.
+ * @return {Object<string,{x: number, y: number}>} Position by card id.
+ */
+const drawnAt = ( d, succ, pred ) => {
+	const cards = Object.keys( d.col );
+	const xOf = columnX( cards, d.col, succ, pred );
+	/** @type {Object<string,{x: number, y: number}>} */
+	const at = {};
+	for ( const id of cards ) {
+		at[ id ] = { x: xOf( d.col[ id ] ), y: d.row[ id ] * Y_STEP };
+	}
+	return at;
+};
+
+/**
+ * What a block drawn in grid units costs to read, as `drawnCost` counts it.
+ *
+ * @param {{col: Object<string,number>, row: Object<string,number>}} d    The block's grid.
+ * @param {Object<string,Array<string>>}                             succ Successors.
+ * @param {Object<string,Array<string>>}                             pred Predecessors.
+ * @return {[number, number]} The wires crossing, then the cards a wire runs over.
+ */
+const drawingCost = ( d, succ, pred ) => {
+	const cards = Object.keys( d.col );
+	const at = drawnAt( d, succ, pred );
+	let crossings = 0;
+	let over = 0;
+	walkDrawing(
+		at,
+		cards.flatMap( ( from ) =>
+			succ[ from ]
+				.filter( ( to ) => d.col[ to ] !== undefined )
+				.map( ( to ) => ( { from, to } ) )
+		),
+		() => crossings++,
+		() => over++
+	);
+	return [ crossings, over ];
+};
+
+/**
  * Lay a graph out as packed blocks: each hub group's bands stacked with the
  * hub in the column right after them, and the blocks filling side-by-side
  * stacks toward a canvas about as wide as it is tall.
@@ -1770,6 +1980,36 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 					  ),
 			] )
 		);
+		// @longform A band's last card feeding a hub may sit short of the
+		// column the deeper bands' feeders share, and its wire to the hub then
+		// crosses theirs. Each such band pins that card to the feeders' column,
+		// for the block to lay out again and keep where it draws cleaner.
+		let feedCol = -1;
+		for ( const members of feeders ) {
+			for ( const id of members ) {
+				feedCol = Math.max( feedCol, laid.get( members ).col[ id ] );
+			}
+		}
+		/** @type {Map<Array<string>, Object<string,number>>} */
+		const pins = new Map();
+		for ( const members of feeders ) {
+			const band = laid.get( members );
+			/** @type {Object<string,number>} */
+			const pin = {};
+			for ( const id of members ) {
+				const out = succ[ id ];
+				if (
+					band.col[ id ] < feedCol &&
+					out.length &&
+					out.every( ( n ) => hubSet.has( n ) )
+				) {
+					pin[ id ] = feedCol;
+				}
+			}
+			if ( members.length > 1 && Object.keys( pin ).length ) {
+				pins.set( members, pin );
+			}
+		}
 		// The block drawn from the bands' grids `pick` chooses.
 		const draw = ( pick ) => {
 			/** @type {Object<string,number>} */
@@ -1781,6 +2021,8 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 			const bandWires = [];
 			/** @type {Array<string>} */
 			const deferred = [];
+			/** @type {Object<string,Array<string>>} */
+			const bandOf = {};
 			// Stack bands from `atCol`; returns the stack's width and height.
 			const stack = ( bands, atCol ) => {
 				let next = 0;
@@ -1789,15 +2031,15 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 					const inBand = restrictAdjacency( members, succ );
 					const grid = pick( laid.get( members ) );
 					const band = {
-						...laid.get( members ),
+						...grid,
 						col: { ...grid.col },
 						row: { ...grid.row },
 					};
 					// @longform A late source seats inside its band before the
 					// band below stacks against it: laid out with no footprint,
-					// the row its band left it was the one row between two
-					// packed bands, and where a flat wire held that row the
-					// block-level seat walked past the next band. Seated here,
+					// the row its band leaves it is the one row between two
+					// packed bands, and where a flat wire holds that row a
+					// block-level seat walks past the next band. Seated here,
 					// the band's height covers it, and it grows downward only:
 					// the band's top is the row the stack gave it. The wires it
 					// lays stay out of the band's, which the block-level pass
@@ -1812,7 +2054,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 							[ ...band.wires ],
 							band.col,
 							band.row,
-							0
+							() => 0
 						);
 					}
 					let height = 0;
@@ -1824,6 +2066,9 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 					}
 					bandWires.push( ...band.wires );
 					deferred.push( ...band.deferred );
+					for ( const id of band.deferred ) {
+						bandOf[ id ] = members;
+					}
 					next += height + 1;
 				}
 				return { width, height: next };
@@ -1858,8 +2103,8 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 				}
 			}
 			// @longform A wire to a hub is no wire inside a band, so the band's
-			// own pass never saw it: a chain's head feeding the hub directly
-			// ran its wire along the chain's row, through the chain. Each band
+			// own pass cannot see it: a chain's head feeding the hub directly
+			// runs its wire along the chain's row, through the chain. Each band
 			// clears its cards off its own hub wires here. Only its own: a
 			// hub's fan-in crosses every band between, and clearing those would
 			// scatter each band's sinks away from their sources for wires that
@@ -1883,6 +2128,8 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 				}
 			}
 			const all = Object.keys( bc );
+			// The block's columns stand, so a wire's run takes its half steps.
+			const xOf = columnX( all, bc, succ, pred );
 			// Farthest from the hubs first, so each half cascades outward.
 			const hubMid = b.hubs.length
 				? midMinMax( b.hubs.map( ( h ) => br[ h ] ) )
@@ -1903,11 +2150,22 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 					),
 					bc,
 					br,
-					all
+					all,
+					xOf
 				);
 			}
-			clearWires( b.hubs, hubWires, bc, br, all );
-			// Last, once every card and wire a seat must clear is placed.
+			clearWires( b.hubs, hubWires, bc, br, all, xOf );
+			// @longform Last, once every card and wire a seat must clear is
+			// placed, and still downward only: above its band's top a source
+			// takes the one row between two stacked bands.
+			const top = ( id ) => {
+				const rest = bandOf[ id ].filter(
+					( m ) => ! seatedLast.has( m )
+				);
+				return rest.length
+					? Math.min( ...rest.map( ( m ) => br[ m ] ) )
+					: -Infinity;
+			};
 			seatSources(
 				deferred,
 				succ,
@@ -1915,7 +2173,9 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 				all,
 				[ ...bandWires, ...hubWires ],
 				bc,
-				br
+				br,
+				top,
+				xOf
 			);
 			normalizeRows( Object.keys( br ), br );
 			let widest = 0;
@@ -1948,42 +2208,57 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 				height: bottom + 1,
 			};
 		};
+		// Whether cost `a` beats `z`: fewer wires crossing, then cards covered.
+		const fewer = ( a, z ) =>
+			a[ 0 ] < z[ 0 ] || ( a[ 0 ] === z[ 0 ] && a[ 1 ] < z[ 1 ] );
 		// @longform The exchange counts crossings between column indices, and
 		// the rows the band and block passes settle can cross more, so it is
 		// judged on the block as drawn. The sweeps' order wins a tie.
-		let drawn = draw( ( band ) => band );
+		let pick = ( band ) => band;
+		let drawn = draw( pick );
+		let cost = drawingCost( drawn, succ, pred );
 		if ( b.bands.some( ( members ) => laid.get( members ).plain ) ) {
-			const plain = draw( ( band ) => band.plain ?? band );
-			const [ mine, theirs ] = [ drawn, plain ].map( ( d ) => {
-				const cards = Object.keys( d.col );
-				const xOf = columnX( cards, d.col, succ, pred );
-				/** @type {Object<string,{x: number, y: number}>} */
-				const at = {};
-				for ( const id of cards ) {
-					at[ id ] = {
-						x: xOf( d.col[ id ] ),
-						y: d.row[ id ] * Y_STEP,
-					};
+			const plainPick = ( band ) =>
+				band.plain ? { ...band, ...band.plain } : band;
+			const plain = draw( plainPick );
+			const plainCost = drawingCost( plain, succ, pred );
+			if ( ! fewer( cost, plainCost ) ) {
+				[ drawn, cost, pick ] = [ plain, plainCost, plainPick ];
+			}
+		}
+		// @longform One band at a time, each against the block as drawn so
+		// far, and only one whose wire to a hub runs over a card feeding that
+		// hub: there the wires converging on the hub thread through each other.
+		for ( const [ members, pin ] of pins ) {
+			const movers = Object.keys( pin );
+			let crowded = false;
+			walkDrawing(
+				drawnAt( drawn, succ, pred ),
+				movers.flatMap( ( from ) =>
+					succ[ from ].map( ( to ) => ( { from, to } ) )
+				),
+				() => {},
+				( w, id ) => {
+					crowded ||= succ[ id ].includes( w.to );
 				}
-				let crossings = 0;
-				let over = 0;
-				walkDrawing(
-					at,
-					cards.flatMap( ( from ) =>
-						succ[ from ]
-							.filter( ( to ) => d.col[ to ] !== undefined )
-							.map( ( to ) => ( { from, to } ) )
-					),
-					() => crossings++,
-					() => over++
-				);
-				return [ crossings, over ];
-			} );
-			const fewer =
-				mine[ 0 ] < theirs[ 0 ] ||
-				( mine[ 0 ] === theirs[ 0 ] && mine[ 1 ] < theirs[ 1 ] );
-			if ( ! fewer ) {
-				drawn = plain;
+			);
+			if ( ! crowded ) {
+				continue;
+			}
+			const band = laid.get( members );
+			const reach = layoutComponent(
+				members,
+				restrictAdjacency( members, succ ),
+				restrictAdjacency( members, pred ),
+				unfed,
+				pin
+			);
+			const prior = pick;
+			const tried = ( entry ) => prior( entry === band ? reach : entry );
+			const moved = draw( tried );
+			const movedCost = drawingCost( moved, succ, pred );
+			if ( fewer( movedCost, cost ) ) {
+				[ drawn, cost, pick ] = [ moved, movedCost, tried ];
 			}
 		}
 		return { ...b, ...drawn };
@@ -2114,12 +2389,14 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
  * drawn cheaper than the sweeps' order — and it is exported so the layout
  * tests judge by the same rule.
  *
- * Each wire counts as the straight line between its two cards' positions, and
- * two wires sharing a card never cross. A card runs under a wire when its
- * column lies strictly between the wire's ends and it sits within
- * `WIRE_CLEARANCE` rows of the rows the wire spans, the margin `clearWires`
- * and `seatSources` keep, so the judge and the layout agree on what is clear.
- * A wire whose ends share a column counts for neither.
+ * Crossings count on straight segments and coverage on the drawn cubic. Two
+ * wires cross where the straight lines between their cards' positions do,
+ * and two wires sharing a card never cross. A card runs under a wire when
+ * its column lies strictly between the wire's ends and it sits within the
+ * rows `wireRows` gives the drawn curve across that card, the margin
+ * `clearWires` and `seatSources` keep. A block's passes measure that curve
+ * over the block's own half steps, as this does; a band's, laid out alone,
+ * cannot see them. A wire whose ends share a column counts for neither.
  *
  * @param {Object<string,{x: number, y: number}>} at    Canvas position of every card.
  * @param {Array<{from: string, to: string}>}     wires The wires drawn between them.
@@ -2196,14 +2473,18 @@ const walkDrawing = ( at, wires, onCross, onOver ) => {
 		( byX[ x ] ??= [] ).push( id );
 	}
 	const xs = Object.keys( byX ).map( Number );
-	const margin = WIRE_CLEARANCE * Y_STEP;
 	for ( const { w, p, q } of segs ) {
-		const top = Math.min( p.y, q.y ) - margin;
-		const bottom = Math.max( p.y, q.y ) + margin;
+		const [ a, b ] = [ at[ w.from ], at[ w.to ] ];
 		for ( const x of xs ) {
 			if ( x <= p.x || x >= q.x ) {
 				continue;
 			}
+			const [ top, bottom ] = wireRows(
+				b.x - a.x,
+				x - a.x,
+				a.y / Y_STEP,
+				b.y / Y_STEP
+			).map( ( r ) => r * Y_STEP );
 			for ( const id of byX[ x ] ) {
 				if ( at[ id ].y > top && at[ id ].y < bottom ) {
 					onOver( w, id );

@@ -27,6 +27,7 @@ import {
 	Y_STEP,
 	snapPosition,
 	snapClusterDelta,
+	wireCurve,
 } from '../utils/autoLayout';
 import {
 	viewportCull,
@@ -161,11 +162,8 @@ function hasTarget( n, catalog ) {
 }
 
 /**
- * The wire between two cards: a cubic bezier leaving the OUT port horizontally
- * and arriving at the IN port the same way, so which end is the source reads
- * without following the line. The 60-unit floor on the control offset holds
- * that S-curve when the two cards nearly touch, and the path stops 6 units
- * short of the IN port to leave the arrow marker its room.
+ * The wire between two cards: the `wireCurve` from the OUT port to the IN
+ * port, the one curve the layout measures a card's clearance against.
  *
  * @param {Object} a Source node, positioned.
  * @param {Object} b Destination node, positioned.
@@ -174,12 +172,8 @@ function hasTarget( n, catalog ) {
 function edgePath( a, b ) {
 	const { x: x1, y: y1 } = outPort( a );
 	const { x: x2, y: y2 } = inPort( b );
-	const dx = Math.max( 60, Math.abs( x2 - x1 ) * 0.5 );
-	const c1x = x1 + dx;
-	const c2x = x2 - dx;
-	return `M ${ x1 },${ y1 } C ${ c1x },${ y1 } ${ c2x },${ y2 } ${
-		x2 - 6
-	},${ y2 }`;
+	const [ start, ...rest ] = wireCurve( x1, y1, x2, y2 );
+	return `M ${ start } C ${ rest.join( ' ' ) }`;
 }
 
 /**
@@ -638,32 +632,20 @@ function sparklinePath( history ) {
 }
 
 /**
- * Messages per second below which a node reads as idle: no rate label, and in
- * live mode a dimmed card.
+ * Messages per second below which a card shows no rate label rather than
+ * `0.00 /s`.
  */
-const IDLE_RATE_FLOOR = 0.05;
-
-/**
- * Whether a node reads as idle: its message rate sits below the same display
- * floor that hides the per-card rate label, so nothing about it is moving.
- * Live mode dims idle cards; edit mode and hovered-hull members never dim.
- *
- * @param {number} [rate] Messages per second for one node; absent until that node has a rate entry.
- * @return {boolean} True when the card should be dimmed as idle.
- */
-export function isIdleRate( rate ) {
-	return ! rate || rate < IDLE_RATE_FLOOR;
-}
+const RATE_LABEL_FLOOR = 0.05;
 
 /**
  * The per-card rate label, at the precision the card has room for: whole
  * messages per second in the hundreds, one decimal in the tens, two below.
  *
  * @param {number} [rate] Messages per second for one node.
- * @return {?string} The label, or null below the idle floor — an idle node shows no rate rather than `0.00 /s`.
+ * @return {?string} The label, or null below `RATE_LABEL_FLOOR`.
  */
 function formatNodeRate( rate ) {
-	if ( isIdleRate( rate ) ) {
+	if ( ! rate || rate < RATE_LABEL_FLOOR ) {
 		return null;
 	}
 	if ( rate >= 100 ) {
@@ -694,7 +676,7 @@ const NodeCard = memo(
 	 * @param {boolean} props.isHovered    The hovered node.
 	 * @param {boolean} props.isFaded      Faded behind a hover or a focused hull.
 	 * @param {boolean} props.isDragging   Being dragged.
-	 * @param {boolean} props.isIdle       Live mode, and nothing moving through it.
+	 * @param {boolean} props.isIdle       Live, unselected, and its counter held still since the last poll.
 	 * @param {boolean} props.isDrift      Live but missing from the .tsl.
 	 * @param {boolean} props.isBorrowed   Borrowed via `include`, so locked.
 	 * @param {boolean} props.isPaused     A Consumer holding its cursor.
@@ -862,7 +844,7 @@ const NodeReadout = memo(
 	 * @param {boolean} props.isIdle     Dimmed with its card.
 	 * @param {boolean} props.rated      Live mode, so a rate and sparkline exist.
 	 * @param {?string} props.sparkPath  Sparkline `d`, or null under two samples.
-	 * @param {?string} props.rateText   Rate label, or null below the idle floor.
+	 * @param {?string} props.rateText   Rate label, or null below the label floor.
 	 * @param {number}  [props.count]    Cumulative message count.
 	 * @return {import('react').ReactElement} The readouts' `<g>`.
 	 */
@@ -973,7 +955,7 @@ const EdgeWire = memo(
  * @param {() => void}                              props.onDeselect     The background was clicked while something was selected — a node, an edge or a hull.
  * @param {?string}                                 props.hoveredId      Id of the hovered node; lifted so the Inspector drives the same highlight.
  * @param {(id: string|null) => void}               props.onHover        The pointer entered a card, or left one.
- * @param {Object}                                  props.rateRef        `useGraphRates` ref whose `.current` is a Map from node id to `{ rate, history, … }`. Omitted in edit mode, which has no rates to paint.
+ * @param {Object}                                  props.rateRef        `useGraphRates` ref whose `.current` is a Map from node id to `{ rate, history, … }`. Passed in edit mode too; `editMode` is what keeps a draft's cards undimmed.
  * @param {?Object}                                 props.viewportDelta  Stored `{ dcx, dcy, zoom }` offset from autofit, applied once the first autofit is known.
  * @param {Function}                                props.onConnect      (fromId, toId) — a wire was dropped on an IN port. Omitting it disables wire drags.
  * @param {boolean}                                 [props.interactive]  Gate for every gesture. Default true.
@@ -1843,13 +1825,16 @@ export default function SchematicCanvas( {
 		const isFaded =
 			( !! hoveredId && ! isHovered ) ||
 			!! ( focusedHullMembers && ! focusedHullMembers.has( n.id ) );
+		const isSelected = n.id === selectedId;
 		const rate = rateRef?.current?.get( n.id );
-		// Idle dim: LIVE mode only, and never inside the hovered hull.
+		// Idle: no count since the last poll. Focus of any kind keeps full ink.
 		const isIdle =
 			! editMode &&
 			!! rateRef &&
+			! isSelected &&
+			! isHovered &&
 			! focusedHullMembers?.has( n.id ) &&
-			isIdleRate( rate?.rate );
+			! ( rate?.rate > 0 );
 		const { x, y } = n.position;
 		return {
 			card: (
@@ -1862,7 +1847,7 @@ export default function SchematicCanvas( {
 					w={ nodeRenderW }
 					h={ nodeRenderH }
 					showDetail={ showDetail }
-					isSelected={ n.id === selectedId }
+					isSelected={ isSelected }
 					isHovered={ isHovered }
 					isFaded={ isFaded }
 					isDragging={ isDragging }

@@ -650,7 +650,7 @@ describe( 'GraphView — hull selection', () => {
 			metadata.name = names.METADATA;
 			const snapshot = ( a, b ) => hullNodesGraph( a, b );
 			let published = snapshot( 10, 100 );
-			act( () => metadata.setField( 'metadata', published ) );
+			act( () => metadata.setField( 'snapshot', published ) );
 
 			const { rerender } = renderWithCatalog( hullView( published ) );
 			// Three canvas rebuilds, seconds apart, one unchanged snapshot.
@@ -663,12 +663,45 @@ describe( 'GraphView — hull selection', () => {
 			// A real poll lands: ONE point, over the whole elapsed interval.
 			tick();
 			published = snapshot( 40, 500 );
-			act( () => metadata.setField( 'metadata', published ) );
+			act( () => metadata.setField( 'snapshot', published ) );
 			rerender( hullView( published ) );
 
 			expect( global.__inspectorProps.rateSeries.in ).toEqual( [
 				107.5,
 			] );
+			Core.reset();
+		} );
+	} );
+
+	it( 'an optimistic patch between two polls neither zeroes a rate nor idles a card', () => {
+		withClock( ( tick ) => {
+			const metadata = new MetadataNode();
+			metadata.name = names.METADATA;
+			const poll = ( a, b ) => ( {
+				inside: { class: 'Echo', counter: a, accepts_fill: false },
+				outside: { class: 'Echo', counter: b, accepts_fill: false },
+			} );
+			act( () => metadata.publish( poll( 10, 100 ) ) );
+			const { rerender } = renderWithCatalog(
+				hullView( metadata.metadata )
+			);
+			tick();
+			act( () => metadata.publish( poll( 47, 100 ) ) );
+			rerender( hullView( metadata.metadata ) );
+			const rates = global.__canvasProps.rateRef.current;
+			expect( rates.get( 'inside' ).rate ).toBe( 37 );
+
+			// A rename, a trace toggle or a palette drop, before the next poll.
+			tick();
+			act( () =>
+				metadata.optimisticPatch( 'inside', { debug_state: 3 } )
+			);
+			rerender( hullView( metadata.metadata ) );
+			act( () => metadata.optimisticPatchAll( { debug_state: 1 } ) );
+			rerender( hullView( metadata.metadata ) );
+
+			expect( rates.get( 'inside' ).rate ).toBe( 37 );
+			expect( global.__inspectorProps.rateSeries.in ).toEqual( [ 37 ] );
 			Core.reset();
 		} );
 	} );

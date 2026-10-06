@@ -1945,10 +1945,10 @@ describe( 'theme skin ramps', () => {
 			);
 		}
 		const stateOpacityProperty = [ ...nodeStateOpacityProperties ][ 0 ];
+		// An idle card dims text and all, so it holds no text to this bar.
 		const stateOpacities = {
 			'is-dragging': 0.9,
 			'is-faded': 0.4,
-			'is-idle': 0.7,
 		};
 		const fixture = createGraphFixture( 'current' );
 		const fixtureTextRecords = [
@@ -2119,6 +2119,82 @@ describe( 'theme skin ramps', () => {
 		}
 
 		expect( [ ...new Set( failures ) ] ).toEqual( [] );
+	} );
+
+	it( 'draws an idle card and its readout, frame and text, at reduced ink, switching at once', () => {
+		const effectiveOpacity = ( element ) => {
+			let opacity = 1;
+			for ( let at = element; at; at = at.parentElement ) {
+				opacity *= elementOpacity( at );
+			}
+			return opacity;
+		};
+		const parts = [
+			'.topology-node__bg',
+			'.topology-node__header',
+			'.topology-port',
+			'.topology-node__type',
+			'.topology-node__id',
+			'.topology-node__spark',
+			'.topology-node__rate',
+			'.topology-node__counter',
+		];
+		const failures = [];
+		for ( const slug of EXPECTED_SKINS ) {
+			const idle = createGraphFixture( slug, 'is-idle' );
+			const busy = createGraphFixture( slug );
+			for ( const part of parts ) {
+				const dimmed = effectiveOpacity( idle.querySelector( part ) );
+				const full = effectiveOpacity( busy.querySelector( part ) );
+				if ( 0.55 !== dimmed || 1 !== full ) {
+					failures.push(
+						`${ slug }:${ part }:idle=${ dimmed } busy=${ full }`
+					);
+				}
+			}
+			for ( const root of [
+				'.topology-node',
+				'.topology-node-readout',
+			] ) {
+				const transition = graphValue(
+					idle.querySelector( root ),
+					'transition'
+				);
+				if ( undefined !== transition && 'none' !== transition ) {
+					failures.push( `${ slug }:${ root }:eases its dim` );
+				}
+			}
+		}
+
+		expect( failures ).toEqual( [] );
+	} );
+
+	it( 'never restarts the entrance fade when a card leaves idle or faded', () => {
+		const failures = [];
+		for ( const root of [ '.topology-node', '.topology-node-readout' ] ) {
+			const entrance = graphValue(
+				createGraphFixture( 'current' ).querySelector( root ),
+				'animation'
+			);
+			// A finished `backwards` fade holds nothing, so a dim shows through.
+			if ( ! /\bbackwards\b/.test( entrance || '' ) ) {
+				failures.push( `${ root }:fill=${ entrance }` );
+			}
+			// An override that comes off re-runs the fade from opacity 0.
+			for ( const state of [ 'is-idle', 'is-faded' ] ) {
+				const animation = graphValue(
+					createGraphFixture( 'current', state ).querySelector(
+						root
+					),
+					'animation'
+				);
+				if ( animation !== entrance ) {
+					failures.push( `${ root }.${ state }:${ animation }` );
+				}
+			}
+		}
+
+		expect( failures ).toEqual( [] );
 	} );
 
 	it( 'lets the higher-specificity Newspack REPL overrides beat later generic rules', () => {

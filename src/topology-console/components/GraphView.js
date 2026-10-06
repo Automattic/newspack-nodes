@@ -121,12 +121,11 @@ export default function GraphView( {
 		setSelectedHull( null );
 	}, [ resetKey ] );
 
-	// @longform A sparkline point is a dump_metadata SNAPSHOT. The canvas graph
-	// is rebuilt far more often than one arrives — a catalog republish alone
-	// rebuilds it — so sampling per rebuild files an empty point for every
-	// rebuild in between, which reads as a spike at the poll and shrinks the
-	// ring's window to a fraction of what its label claims.
-	const snapshot = useNodeField( names.METADATA, 'metadata' );
+	// @longform A sparkline point is a dump_metadata POLL REPLY. The canvas
+	// graph is rebuilt far more often than one arrives — a catalog republish
+	// or an optimistic patch alone rebuilds it — and sampling a rebuild files a
+	// zero rate, which idles every card and dents the ring until the next poll.
+	const snapshot = useNodeField( names.METADATA, 'snapshot' );
 	const { rateRef, rateVersion } = useGraphRates(
 		snapshot ?? graph,
 		resetKey

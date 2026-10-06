@@ -14,7 +14,7 @@ import { useDebugRepl } from '../../../debug-overlay/useDebugRepl';
 import { useTopologyManager } from '../../../event-dashboards/hooks/useTopologyManager';
 import { useProbeStream } from '../../../event-dashboards/hooks/useProbeStream';
 import { coreToGraph } from '../coreToGraph';
-import { autoLayout } from '../autoLayout';
+import { autoLayout, X_STEP } from '../autoLayout';
 
 class FakeEventSource {
 	addEventListener() {}
@@ -95,34 +95,72 @@ describe( 'autoLayout — the station Overview in the debug overlay', () => {
 		expect( strays ).toEqual( [] );
 	} );
 
-	it( 'stacks every small block in one block right of the slices and hub', () => {
+	it( 'stacks every singleton in one block right of the slices and hub', () => {
 		const graph = overviewGraph();
 		const at = Object.fromEntries(
 			autoLayout( graph ).nodes.map( ( n ) => [ n.id, n.position ] )
 		);
 		const slices = shellComponent( graph );
-		const heads = [
+		const singletons = [
 			'freshness:timer',
-			'topicprobe:link',
 			'_completion',
-			'_metadata',
 			'_null',
 			'_stdout',
 			'_ui',
 		];
-		const small = [
-			...heads,
-			'topicprobe:stream',
-			'topicprobe:view',
-			'_cwd',
-		];
 		const right = Math.max( ...[ ...slices ].map( ( id ) => at[ id ].x ) );
-		expect( small.filter( ( id ) => at[ id ].x <= right ) ).toEqual( [] );
-		// One block: every head in one column, each on a row of its own.
-		expect( new Set( heads.map( ( id ) => at[ id ].x ) ).size ).toBe( 1 );
-		expect( new Set( heads.map( ( id ) => at[ id ].y ) ).size ).toBe(
-			heads.length
+		expect( singletons.filter( ( id ) => at[ id ].x <= right ) ).toEqual(
+			[]
 		);
+		// One block: every singleton in one column, each on a row of its own.
+		expect( new Set( singletons.map( ( id ) => at[ id ].x ) ).size ).toBe(
+			1
+		);
+		expect( new Set( singletons.map( ( id ) => at[ id ].y ) ).size ).toBe(
+			singletons.length
+		);
+	} );
+
+	it( 'seats every fetcher in one column, its timer and tee level with it', () => {
+		const graph = overviewGraph();
+		const at = Object.fromEntries(
+			autoLayout( graph ).nodes.map( ( n ) => [ n.id, n.position ] )
+		);
+		const fetch = at[ 'workers:restart:fetch' ];
+		expect( [
+			at[ 'topology-manager:fetch' ].x,
+			at[ 'worker-status:fetch' ].x,
+		] ).toEqual( [ fetch.x, fetch.x ] );
+		expect( [
+			at[ 'workers:restart:timer' ].y,
+			at[ 'workers:restart:tee' ].y,
+		] ).toEqual( [ fetch.y, fetch.y ] );
+	} );
+
+	it( 'leaves a fetcher whose hub wire passes no other feeder in its band', () => {
+		const graph = overviewGraph();
+		const at = Object.fromEntries(
+			autoLayout( graph ).nodes.map( ( n ) => [ n.id, n.position ] )
+		);
+		for ( const s of [ 'topologies:activate', 'topologies:deactivate' ] ) {
+			expect( [ s, at[ `${ s }:fetch` ].x ] ).toEqual( [
+				s,
+				at[ `${ s }:result` ].x,
+			] );
+		}
+	} );
+
+	it( 'opens a clear column between the fetchers and `_shell`', () => {
+		const graph = overviewGraph();
+		const at = Object.fromEntries(
+			autoLayout( graph ).nodes.map( ( n ) => [ n.id, n.position ] )
+		);
+		const fetchX = at[ 'topology-manager:fetch' ].x;
+		expect( at._shell.x - fetchX ).toBeGreaterThan( X_STEP );
+		const between = Object.keys( at ).filter(
+			( id ) => at[ id ].x > fetchX && at[ id ].x < at._shell.x
+		);
+		expect( between ).toEqual( [] );
 	} );
 
 	it( 'keeps the heartbeat chain at the bottom-left, under the slices', () => {
