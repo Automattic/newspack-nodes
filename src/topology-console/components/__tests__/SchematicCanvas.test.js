@@ -2336,10 +2336,10 @@ describe( 'SchematicCanvas', () => {
 		expect( rateText.textContent ).toBe( '1235 /s' );
 	} );
 
-	it( 'marks sub-threshold-rate nodes as idle (dimmed)', () => {
+	it( 'marks a card idle when its counter did not move in the last poll', () => {
 		const rateRef = {
 			current: new Map( [
-				[ 'a', { count: 0, rate: 0.01, history: [] } ],
+				[ 'a', { count: 9, rate: 0, history: [ 4, 0 ] } ],
 				[ 'b', { count: 0, rate: 0, history: [] } ],
 			] ),
 		};
@@ -2363,11 +2363,11 @@ describe( 'SchematicCanvas', () => {
 		expect( idle.length ).toBe( all.length );
 	} );
 
-	it( 'does not mark active (real-rate) nodes as idle', () => {
+	it( 'marks a card busy for any movement in the last poll, however slow', () => {
 		const rateRef = {
 			current: new Map( [
-				[ 'a', { count: 0, rate: 50, history: [] } ],
-				[ 'b', { count: 0, rate: 50, history: [] } ],
+				[ 'a', { count: 1, rate: 0.01, history: [ 0, 0.01 ] } ],
+				[ 'b', { count: 1, rate: 0.03, history: [ 0.03 ] } ],
 			] ),
 		};
 		const { container } = renderWithCatalog(
@@ -2388,6 +2388,66 @@ describe( 'SchematicCanvas', () => {
 		expect(
 			container.querySelectorAll( '.topology-node.is-idle' ).length
 		).toBe( 0 );
+	} );
+
+	it( "dims an idle card's readout with it", () => {
+		const rateRef = {
+			current: new Map( [
+				[ 'a', { count: 3, rate: 0, history: [ 0 ] } ],
+				[ 'b', { count: 8, rate: 2, history: [ 2 ] } ],
+			] ),
+		};
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } rateRef={ rateRef } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+			}
+		);
+		const readouts = [
+			...container.querySelectorAll( '.topology-node-readout' ),
+		];
+		expect(
+			readouts.map( ( r ) => r.classList.contains( 'is-idle' ) )
+		).toEqual( [ true, false ] );
+	} );
+
+	it( 'draws a selected or hovered idle card, and its readout, at full ink', () => {
+		const rateRef = {
+			current: new Map( [
+				[ 'a', { count: 5, rate: 0, history: [ 0 ] } ],
+				[ 'b', { count: 6, rate: 0, history: [ 0 ] } ],
+			] ),
+		};
+		const { container } = renderWithCatalog(
+			<SchematicCanvas
+				{ ...baseProps }
+				rateRef={ rateRef }
+				selectedId="a"
+				hoveredId="b"
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+			}
+		);
+		expect( container.querySelectorAll( '.is-idle' ).length ).toBe( 0 );
 	} );
 
 	// === Hover state ===

@@ -3,6 +3,8 @@
  * canvas commits it once, and re-renders only the readouts that changed: the
  * cards and wires are memoized on their structure, and the live counters,
  * rates and sparklines render beside them, outside the bloom-filtered layer.
+ * A card's frame re-renders only when it crosses between busy (its counter
+ * moved since the previous poll) and idle.
  */
 
 import { Profiler } from 'react';
@@ -36,12 +38,17 @@ const COLD = [ 'cold:a', 'cold:b', 'cold:c', 'cold:d', 'cold:e' ];
  * One poll's graph: busy nodes count up seven a poll, still nodes hold a
  * count they once reached, and cold nodes have never counted.
  *
- * @param {number} tick The poll number.
+ * @param {number}  tick    The poll number.
+ * @param {?string} [quiet] A busy node whose count holds at the previous poll's.
  * @return {{nodes: Array<Object>, edges: Array<Object>}} A fresh graph object.
  */
-const poll = ( tick ) => ( {
+const poll = ( tick, quiet = null ) => ( {
 	nodes: [
-		...BUSY.map( ( id ) => ( { id, class: 'Tee', count: 7 * tick } ) ),
+		...BUSY.map( ( id ) => ( {
+			id,
+			class: 'Tee',
+			count: 7 * ( id === quiet ? tick - 1 : tick ),
+		} ) ),
 		...STILL.map( ( id ) => ( { id, class: 'Node', count: 13 } ) ),
 		...COLD.map( ( id ) => ( { id, class: 'Node', count: 0 } ) ),
 	],
@@ -66,18 +73,24 @@ describe( 'SchematicCanvas — a metadata poll', () => {
 		Date.now = realNow;
 	} );
 
-	it( 'commits once and re-renders only the readouts that moved', () => {
+	/**
+	 * Mount the canvas and warm it past the sparkline window, so a still
+	 * node's history holds still.
+	 *
+	 * @return {{commits: string[], step: (tick: number, quiet?: string) => void, container: HTMLElement}} The commit log, a poll driver and the mount.
+	 */
+	const mountWarm = () => {
 		const positions = Object.fromEntries(
 			autoLayout( poll( 0 ) ).nodes.map( ( n ) => [ n.id, n.position ] )
 		);
 		const commits = [];
-		const view = ( tick ) => (
+		const view = ( tick, quiet ) => (
 			<Profiler
 				id="canvas"
 				onRender={ ( _id, phase ) => commits.push( phase ) }
 			>
 				<GraphView
-					graph={ poll( tick ) }
+					graph={ poll( tick, quiet ) }
 					frame={ Frame }
 					resetKey="poll"
 					inspectorCollapsed
@@ -85,21 +98,63 @@ describe( 'SchematicCanvas — a metadata poll', () => {
 			</Profiler>
 		);
 		const ambient = { positionOverrides: positions };
-		const { rerenderWithCatalog } = renderWithCatalog( view( 0 ), ambient );
-		// Past the sparkline window, so a still node's history holds still.
-		for ( let tick = 1; tick <= 62; tick++ ) {
+		const { rerenderWithCatalog, container } = renderWithCatalog(
+			view( 0 ),
+			ambient
+		);
+		const step = ( tick, quiet ) => {
 			now += 1000;
-			act( () => rerenderWithCatalog( view( tick ), ambient ) );
+			act( () => rerenderWithCatalog( view( tick, quiet ), ambient ) );
+		};
+		for ( let tick = 1; tick <= 62; tick++ ) {
+			step( tick );
 		}
 		commits.length = 0;
 		global.__memoRenders = {};
+		return { commits, step, container };
+	};
 
-		now += 1000;
-		act( () => rerenderWithCatalog( view( 63 ), ambient ) );
+	const isIdle = ( container, id ) =>
+		[ ...container.querySelectorAll( 'g.topology-node' ) ]
+			.find(
+				( n ) =>
+					id === n.querySelector( '.topology-node__id' ).textContent
+			)
+			.classList.contains( 'is-idle' );
+
+	it( 'commits once and re-renders only the readouts that moved', () => {
+		const { commits, step } = mountWarm();
+
+		step( 63 );
 
 		expect( commits ).toEqual( [ 'update' ] );
 		expect( global.__memoRenders ).toEqual( {
 			NodeReadout: BUSY.length,
+		} );
+	} );
+
+	it( 'dims a card the poll its counter stops, and lights it the poll it resumes', () => {
+		const { step, container } = mountWarm();
+		expect( isIdle( container, 'busy:b' ) ).toBe( false );
+
+		step( 63, 'busy:b' );
+
+		expect( isIdle( container, 'busy:b' ) ).toBe( true );
+		// Its two wires stop flowing and start again with it.
+		expect( global.__memoRenders ).toEqual( {
+			NodeCard: 1,
+			NodeReadout: BUSY.length,
+			EdgeWire: 2,
+		} );
+
+		global.__memoRenders = {};
+		step( 64 );
+
+		expect( isIdle( container, 'busy:b' ) ).toBe( false );
+		expect( global.__memoRenders ).toEqual( {
+			NodeCard: 1,
+			NodeReadout: BUSY.length,
+			EdgeWire: 2,
 		} );
 	} );
 } );

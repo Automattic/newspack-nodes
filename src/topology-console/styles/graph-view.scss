@@ -695,25 +695,17 @@
 .topology-node,
 .topology-node-readout {
 	--topology-node-graphic-opacity: 1;
-	animation: topology-fadein 0.35s ease-out both;
+	// `backwards`: a finished fade holds no opacity, so a state dim shows.
+	animation: topology-fadein 0.35s ease-out backwards;
 
-	// Idle (no message activity): a gentle dim, like a quiet connection. Listed
-	// before .is-faded so a hover-fade (0.4) still wins when a node is both.
-	// `animation: none` cancels the one-shot entrance fade: its `both` fill locks
-	// opacity at the 100% keyframe (1) and CSS animations beat normal declarations.
-	// Killing the animation lets the graphic-only opacity apply immediately while
-	// all node text remains fully opaque.
+	// Idle (no count since the last poll): frame and text dim together.
 	&.is-idle {
-		--topology-node-graphic-opacity: 0.7;
-		animation: none;
+		opacity: 0.55;
 	}
 
-	// `animation: none` for the same reason .is-idle does it: the entrance fade's
-	// `both` fill locks opacity at 1, and a CSS animation beats a declaration —
-	// so an ACTIVE node would ignore the dim entirely.
+	// Hover or hull focus elsewhere: the frame dims, the text keeps its ink.
 	&.is-faded {
 		--topology-node-graphic-opacity: 0.4;
-		animation: none;
 	}
 
 	&.is-dragging {

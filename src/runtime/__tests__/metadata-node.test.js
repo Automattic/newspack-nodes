@@ -92,6 +92,7 @@ describe( 'Metadata node', () => {
 		const dump = node.dumpNode();
 		expect( dump ).not.toHaveProperty( 'metadata' );
 		expect( dump ).not.toHaveProperty( 'rawMap' );
+		expect( dump ).not.toHaveProperty( 'snapshot' );
 		expect( dump ).not.toHaveProperty( 'reply' );
 		expect( dump ).toHaveProperty( 'registrations' );
 		expect( dump ).toHaveProperty( 'setStateCache' );
@@ -362,6 +363,20 @@ describe( 'Metadata node', () => {
 			m[ VALUE ] = { name: 'dump_metadata', arguments: '', payload };
 			node.fill( m );
 		}
+
+		it( 'leaves the poll snapshot alone, so rates sample real replies only', () => {
+			const node = new MetadataNode();
+			seed( node, { a: { class: 'Echo', counter: 4242, target: '' } } );
+			const polled = node.snapshot;
+			expect( polled.nodes[ 0 ].count ).toBe( 4242 );
+			let notified = 0;
+			node.register( 'snapshot', 'probe-snapshot', () => notified++ );
+			node.optimisticPatch( 'a', { debug_state: 3 } );
+			node.optimisticPatchAll( { debug_state: 1 } );
+			expect( node.snapshot ).toBe( polled );
+			expect( node.metadata ).not.toBe( polled );
+			expect( notified ).toBe( 0 );
+		} );
 
 		it( 'adds a newly-dropped node, keeping the others', () => {
 			const node = new MetadataNode();

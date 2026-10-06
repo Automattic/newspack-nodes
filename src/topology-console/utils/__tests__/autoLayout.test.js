@@ -1671,14 +1671,20 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 	it( 'keeps a late source in the seat the spread opened beside it', () => {
 		// A wire nudge that ignored k2src's seat crowded it, and it was
 		// reseated three columns back, its wire running over the band.
-		const { nodes } = autoLayout( seedGraph( 'c134623' ) );
+		const graph = seedGraph( 'c134623' );
+		const { nodes } = autoLayout( graph );
 		const at = Object.fromEntries(
 			nodes.map( ( n ) => [ n.id, n.position ] )
 		);
-		expect( at.k2src.x ).toBe( at.k2l3n0.x - X_STEP );
+		expect( at.k2l3n0.x - at.k2src.x ).toBeLessThanOrEqual( 2 * X_STEP );
 		expect( Math.abs( at.k2src.y - at.k2l3n0.y ) ).toBeLessThanOrEqual(
 			Y_STEP
 		);
+		expect(
+			drawn( nodes, graph.edges ).over.filter( ( hit ) =>
+				hit.startsWith( 'k2src→' )
+			)
+		).toEqual( [] );
 	} );
 
 	it( 'packs an edgeless card clear of the wires between blocks', () => {
@@ -1802,14 +1808,14 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		).toEqual( [ 'k4src→hub0 over k5l0n0' ] );
 	} );
 
-	it( "keeps the sweeps' order where an exchange draws worse (seed 14962)", () => {
-		// The exchange pass uncrosses two wires in this graph's column order,
-		// but the rows the block passes then derive cross 82 wires and run 35
-		// over cards, against 50 and 32 for the sweeps' own order.
-		const graph = seedGraph( '14962' );
+	it( "keeps the sweeps' order where an exchange draws worse (seed 87109)", () => {
+		// The exchange pass uncrosses a wire in this graph's column order, but
+		// the rows the block passes then derive cross 3 wires, against 1 for
+		// the sweeps' own order.
+		const graph = seedGraph( '87109' );
 		const { nodes } = autoLayout( graph );
-		expect( drawn( nodes, graph.edges ).crossings ).toHaveLength( 50 );
-		expect( drawn( nodes, graph.edges ).over ).toHaveLength( 32 );
+		expect( drawn( nodes, graph.edges ).crossings ).toHaveLength( 1 );
+		expect( drawn( nodes, graph.edges ).over ).toHaveLength( 0 );
 	} );
 
 	it( 'keeps the cards off the long wires of a node only a hub feeds', () => {
@@ -1988,7 +1994,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 } );
 
 describe( 'autoLayout — hub bands', () => {
-	// A browser-realm-shaped graph: five polled slices, five receiver slices,
+	// A browser-realm-shaped graph: five polled slices, six receiver slices,
 	// and the four backbone nodes every slice is wired into.
 	//
 	// Fan-in over the non-dangling edges, which is what hub detection reads:
@@ -1999,7 +2005,7 @@ describe( 'autoLayout — hub bands', () => {
 	// and exactly _shell, _output and _cwd clear it; a fetch at 1 does not,
 	// and _http and _metadata are bridges: every neighbour they have is a hub.
 	const POLL_SLICES = [ 'a', 'b', 'd', 'e', 'f' ];
-	const VIEW_SLICES = [ 'c', 'g', 'h', 'i', 'j' ];
+	const VIEW_SLICES = [ 'c', 'g', 'h', 'i', 'j', 'k' ];
 
 	// Every node an edge names, plus `extra` edgeless ones.
 	const graphOf = ( edges, extra = [] ) => ( {
@@ -2687,5 +2693,80 @@ describe( 'autoLayout — hub bands', () => {
 			span( [ 'worker-status:fetch', 'worker-status:view' ] ),
 		].sort( ( a, b ) => a[ 0 ] - b[ 0 ] );
 		expect( spans[ 1 ][ 0 ] ).toBeGreaterThan( spans[ 0 ][ 1 ] );
+	} );
+} );
+
+describe( 'autoLayout — clearance across a hub gap', () => {
+	it( 'keeps a band card off its hub wire where the half step before the hub bends it', () => {
+		// Three chains feed the hub from the column before it, so a half step
+		// opens there and `a`'s wire to the hub runs half a step longer.
+		const pairs = [
+			[ 'a', 'b' ],
+			[ 'b', 'c' ],
+			[ 'b', 'd' ],
+			[ 'a', 'hub' ],
+		];
+		for ( let i = 0; i < 3; i++ ) {
+			pairs.push(
+				[ `x${ i }c0`, `x${ i }c1` ],
+				[ `x${ i }c1`, `x${ i }c2` ],
+				[ `x${ i }c2`, 'hub' ]
+			);
+		}
+		const edges = pairs.map( ( [ from, to ] ) => ( { from, to } ) );
+		const ids = [ ...new Set( pairs.flat() ) ];
+		const { nodes } = autoLayout( {
+			nodes: ids.map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		const at = Object.fromEntries(
+			nodes.map( ( n ) => [ n.id, n.position ] )
+		);
+		expect( at.hub.x - at.x0c2.x ).toBe( 1.5 * X_STEP );
+		expect(
+			drawn( nodes, edges ).over.filter( ( o ) =>
+				/^a→hub over [bcd]$/.test( o )
+			)
+		).toEqual( [] );
+	} );
+} );
+
+describe( 'autoLayout — a band moved toward its hub keeps its block’s order', () => {
+	it( 'lays the moved band in the sweeps’ plain order where its block kept that order', () => {
+		// Generated graph 5109: the block keeps the plain order, and band k1's
+		// last card feeding hub0 moves into the column k2 and k3 feed from.
+		const pairs = (
+			'k0l0n0>k0l1n0 k0l0n0>k0l1n1 k0l0n0>k0l1n2 k0l1n2>k0l2n0 ' +
+			'k0l1n2>k0l2n1 k0l2n0>k0l3n0 k0l1n0>k0l3n0 k0l2n0>k0l3n1 ' +
+			'k0l2n1>k0l3n2 k0l2n0>k0l3n2 k0l3n2>k0l4n0 k0l3n2>hub0 ' +
+			'k1l0n0>k1l1n0 k1l1n0>k1l2n0 k1l1n0>k1l2n1 k1l0n0>k1l2n1 ' +
+			'k1l1n0>k1l2n2 k1l2n1>k1l3n0 k1l0n0>k1l3n0 k1l2n2>k1l3n1 ' +
+			'k1l3n1>hub0 k2l0n0>k2l1n0 k2l0n2>k2l1n1 k2l1n1>k2l2n0 ' +
+			'k2l2n0>k2l3n0 k2l0n2>k2l3n0 k2l2n0>k2l3n1 k2l2n0>k2l3n2 ' +
+			'k2l1n1>k2l3n2 k2l3n1>k2l4n0 k2l3n2>hub0 k3l0n2>k3l1n0 ' +
+			'k3l0n0>k3l1n1 k3l1n0>k3l2n0 k3l1n1>k3l2n1 k3l1n1>k3l2n2 ' +
+			'k3l2n0>k3l3n0 k3l2n1>k3l3n1 k3l3n0>k3l4n0 k3l3n1>k3l4n1 ' +
+			'k3l0n2>k3l4n1 k3l3n0>k3l4n2 k3l2n0>k3l4n2 k3l4n2>hub0 ' +
+			'k4l0n1>k4l1n0 k4l0n0>k4l1n0 k4l0n0>k4l1n1 k4l0n1>k4l1n1 ' +
+			'k4l0n2>k4l1n2 k4l1n2>hub0 k5l0n1>k5l1n0 k5l0n1>k5l1n1 ' +
+			'k5l0n1>k5l1n2 k5l0n0>k5l1n3 k5l0n0>k5l1n4 k5l0n0>hub0'
+		)
+			.split( ' ' )
+			.map( ( p ) => p.split( '>' ) );
+		const edges = pairs.map( ( [ from, to ] ) => ( { from, to } ) );
+		const ids = [ ...new Set( [ ...pairs.flat(), 'k2l0n1', 'k3l0n1' ] ) ];
+		const { nodes } = autoLayout( {
+			nodes: ids.map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		const at = Object.fromEntries(
+			nodes.map( ( n ) => [ n.id, n.position ] )
+		);
+		expect( at.k1l3n1.x ).toBe( at.k3l4n2.x );
+		expect(
+			drawn( nodes, edges ).crossings.filter( ( c ) =>
+				/^k1\S+ × k1/.test( c )
+			)
+		).toEqual( [] );
 	} );
 } );

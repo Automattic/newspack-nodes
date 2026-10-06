@@ -313,8 +313,8 @@ export function computePollIntervalMs( nodeCount ) {
  * at once because the console `markDue()`s it where it repoints `_cwd`.
  */
 export class MetadataNode extends PollerNode {
-	/** The parsed graph and its raw map: the whole worker graph, twice. */
-	static dumpOmits = [ 'metadata', 'rawMap' ];
+	/** The parsed graph, its poll snapshot and its raw map: the worker graph. */
+	static dumpOmits = [ 'metadata', 'snapshot', 'rawMap' ];
 
 	/**
 	 * Seed the `metadata` publish slot. The cadence starts at one tick and
@@ -323,6 +323,7 @@ export class MetadataNode extends PollerNode {
 	constructor() {
 		super();
 		this.registrations.metadata = {};
+		this.registrations.snapshot = {};
 		this.verb = 'dump_metadata';
 		this.pollIntervalMs = 1000;
 		/**
@@ -331,6 +332,13 @@ export class MetadataNode extends PollerNode {
 		 * @type {?{nodes: Array, edges: Array}}
 		 */
 		this.metadata = null;
+		/**
+		 * The graph the last poll reply carried. The optimistic patchers leave
+		 * it alone, so a rate sampled off it measures real counter movement.
+		 *
+		 * @type {?{nodes: Array, edges: Array}}
+		 */
+		this.snapshot = null;
 		/**
 		 * The last raw `dump_metadata` name→meta map, which the optimistic
 		 * patchers rewrite; null until the first reply.
@@ -359,7 +367,8 @@ export class MetadataNode extends PollerNode {
 	 * envelope — keep the raw name→meta map on `rawMap`, which the console's
 	 * connect and disconnect handlers read and the two optimistic patchers
 	 * rewrite, rescale the cadence to the graph size, and publish the parsed
-	 * graph. Anything that does not decode to an object is dropped.
+	 * graph as both `snapshot` and `metadata`. Anything that does not decode
+	 * to an object is dropped.
 	 *
 	 * @param {*} meta The unwrapped payload: a name→meta object, or its JSON.
 	 */
@@ -388,6 +397,7 @@ export class MetadataNode extends PollerNode {
 		) {
 			this.setTimer( this.pollIntervalMs );
 		}
+		this.setField( 'snapshot', parsed );
 		this.setField( 'metadata', parsed );
 	}
 
