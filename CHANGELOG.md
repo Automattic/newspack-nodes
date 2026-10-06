@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.96.1] - 2026-10-06
+
 ### Fixed
 
 - **An idle `Crawler_Node` asks its `{name}:seen` Table nothing.** The crawler holds one bit, whether `pending` may hold urls: a new process starts with it set, `discover()` sets it when `pending` takes a new url, `recover()` when it returns any url from `inflight`, and each refill's `SMOVE` sets it to whether it moved as many urls as it asked for, or leaves it set when the Table left the move unanswered. While the bit is clear the tick and every refill skip the `SMOVE`, so a crawler with nothing pending costs no Table round trip a tick, where each tick sent one: about one a second at delay 0, one every `delay_ms` under a delay. The first tick after a restart still recovers `inflight`, and the refill timer stays armed at its cadence.
