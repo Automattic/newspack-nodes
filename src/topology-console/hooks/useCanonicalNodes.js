@@ -2,8 +2,9 @@
  * useCanonicalNodes — the node names a topology DECLARES, and the drift test
  * that reads them.
  *
- * A topology declares its own `make_node`s plus everything its `include`s
- * bring, since `topologies get` ships the composed graph. A live node outside
+ * A topology declares its own `make_node`s, everything its `include`s
+ * bring, since `topologies get` ships the composed graph, and the nodes an
+ * owner builds for itself, which it lists as `owned`. A live node outside
  * that set, and outside the reserved `_`-prefixed console infrastructure, was
  * added at runtime through the console or a `make_node` command: the canvas
  * paints that drift distinctly (roadmap [49]).
@@ -81,6 +82,12 @@ export function useCanonicalNodes( topology ) {
 		const borrowed = ( loaded.expanded?.nodes || [] ).map(
 			( n ) => n.name
 		);
-		return new Set( [ ...parsed.nodes.map( ( n ) => n.id ), ...borrowed ] );
+		// An owned node is canonical: its owner's line builds it.
+		const owned = loaded.owned.map( ( n ) => n.name );
+		return new Set( [
+			...parsed.nodes.map( ( n ) => n.id ),
+			...borrowed,
+			...owned,
+		] );
 	}, [ topology, loaded ] );
 }

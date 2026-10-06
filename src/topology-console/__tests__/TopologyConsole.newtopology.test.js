@@ -27,9 +27,12 @@ jest.mock( '../hooks/useConsoleGraph', () => ( {
 	} ),
 } ) );
 globalThis.__newHooks = {
-	fetchTopology: jest
-		.fn()
-		.mockResolvedValue( { name: 'alpha', source: 'user', tsl: '' } ),
+	fetchTopology: jest.fn().mockResolvedValue( {
+		name: 'alpha',
+		source: 'user',
+		tsl: '',
+		owned: [],
+	} ),
 	fetchLayout: jest.fn().mockResolvedValue( { positions: null } ),
 	saveLayout: jest.fn().mockResolvedValue( null ),
 };
