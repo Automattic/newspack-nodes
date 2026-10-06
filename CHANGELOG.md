@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.94.0] - 2026-10-06
+
 ### Added
 
 - **`AreaTimeChart` selects a time span by dragging.** An optional `onSlotRange( fromIndex, toIndex, { additive } )` prop takes the first and last slot a pointer drag crossed, `fromIndex <= toIndex`, as indexes into `series[0].values`, with `additive` true when cmd or ctrl is held at release. Only a left-button press starts a drag, and only the pointer that pressed moves or releases it. A drag starts once the press travels one slot's width across the plot, and never under 4px, so a click's jitter on a dense chart stays a click; it shades the span live in the `newspack-nodes-chart__selected` role, clamps to the edge slot when the pointer leaves the plot, and fires no `onSlotClick`; a shorter movement stays a click, and Escape cancels the drag, swallowing its click without reaching a modal's own Escape handler. The press captures its pointer and lives in `useTimeChart`'s new `dragRef`, so a release off the plot and a redraw mid-drag both keep it. `setupTooltip()` takes the same `onSlotRange` beside a `dragRef`; without `onSlotRange` a drag is a click, as before.
