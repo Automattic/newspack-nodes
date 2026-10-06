@@ -1,7 +1,7 @@
 /**
- * AreaTimeChart — the corner expand button, or a shift+click on the plot,
- * toggles the chart to double its height; a plain click on the plot reports
- * the nearest slot's index.
+ * AreaTimeChart — the corner expand button toggles the chart to double its
+ * height, and is the only control that does; a click on the plot reports the
+ * nearest slot's index, shift or not.
  *
  * Real d3 and the real tooltip against jsdom, so a click lands on the overlay
  * rect the hover binds, exactly as a pointer would.
@@ -106,23 +106,9 @@ describe( 'AreaTimeChart expand', () => {
 		expect( svgHeight( container ) ).toBe( HEIGHT );
 	} );
 
-	it( 'toggles on a shift+click on the plot, which the corner button tracks', () => {
+	it( 'keeps its size on a shift+click, or a plain click, on the plot', () => {
 		const { container } = mount();
 		fireEvent.click( plot( container ), { shiftKey: true } );
-		expect( svgHeight( container ) ).toBe( 346 );
-		expect(
-			expandButton( container ).getAttribute( 'aria-expanded' )
-		).toBe( 'true' );
-
-		fireEvent.click( plot( container ), { shiftKey: true } );
-		expect( svgHeight( container ) ).toBe( HEIGHT );
-		expect(
-			expandButton( container ).getAttribute( 'aria-expanded' )
-		).toBe( 'false' );
-	} );
-
-	it( 'keeps its size on a plain click', () => {
-		const { container } = mount();
 		fireEvent.click( plot( container ) );
 		expect( svgHeight( container ) ).toBe( HEIGHT );
 		expect(
@@ -130,13 +116,11 @@ describe( 'AreaTimeChart expand', () => {
 		).toBe( 'false' );
 	} );
 
-	it( "keeps a shift+mousedown from extending the page's text selection", () => {
+	it( 'leaves a shift+mousedown on the plot its default', () => {
 		const { container } = mount();
 		expect(
 			fireEvent.mouseDown( plot( container ), { shiftKey: true } )
-		).toBe( false );
-		// A plain press still starts a drag-selection over the labels.
-		expect( fireEvent.mouseDown( plot( container ) ) ).toBe( true );
+		).toBe( true );
 	} );
 
 	it( "hands a plain click's nearest slot index to onSlotClick, and keeps its size", () => {
@@ -171,15 +155,15 @@ describe( 'AreaTimeChart expand', () => {
 		expect( onSlotClick ).not.toHaveBeenCalled();
 	} );
 
-	it( 'resizes on a shift+click and reports no slot', () => {
+	it( 'reports a shift+click as a plain click, and keeps its size', () => {
 		const onSlotClick = jest.fn();
 		const { container } = mount( SERIES, { onSlotClick } );
 		fireEvent.click( overlay( container ), {
 			clientX: LAST_SLOT_X,
 			shiftKey: true,
 		} );
-		expect( svgHeight( container ) ).toBe( 346 );
-		expect( onSlotClick ).not.toHaveBeenCalled();
+		expect( svgHeight( container ) ).toBe( HEIGHT );
+		expect( onSlotClick ).toHaveBeenCalledWith( 2, { additive: false } );
 	} );
 
 	it( 'does nothing on a plain click when no onSlotClick is given', () => {
@@ -207,29 +191,20 @@ describe( 'AreaTimeChart expand', () => {
 		).toBe( 'false' );
 	} );
 
-	it( 'keeps a drag-selection over the labels from toggling or reporting a slot', () => {
+	it( 'keeps a drag-selection over the labels from reporting a slot', () => {
 		const onSlotClick = jest.fn();
 		const { container } = mount( SERIES, { onSlotClick } );
 		const spy = jest
 			.spyOn( window, 'getSelection' )
 			.mockReturnValue( { isCollapsed: false } );
-		fireEvent.click( overlay( container ), {
-			clientX: LAST_SLOT_X,
-			shiftKey: true,
-		} );
 		fireEvent.click( overlay( container ), { clientX: LAST_SLOT_X } );
 		spy.mockRestore();
-		expect( svgHeight( container ) ).toBe( HEIGHT );
 		expect( onSlotClick ).not.toHaveBeenCalled();
-		fireEvent.click( plot( container ), { shiftKey: true } );
-		expect( svgHeight( container ) ).toBe( 346 );
 	} );
 
-	it( 'offers no expand button and no shortcut while nothing is drawn', () => {
+	it( 'offers no expand button while nothing is drawn', () => {
 		const { container } = mount( [] );
 		expect( expandButton( container ) ).toBeNull();
-		const p = plot( container );
-		fireEvent.click( p, { shiftKey: true } );
-		expect( p.style.minHeight ).toBe( '173px' );
+		expect( plot( container ).style.minHeight ).toBe( '173px' );
 	} );
 } );

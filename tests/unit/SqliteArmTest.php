@@ -328,6 +328,17 @@ final class SqliteArmTest extends TestCase {
 		$this->assertStringNotContainsString( 'TEMP B-TREE', $detail, 'the key order serves ORDER BY member for free' );
 	}
 
+	public function test_a_member_page_seeks_past_its_cursor_through_the_primary_key(): void {
+		$arm = new Sqlite_Arm( $this->path(), 'kea:p3' );
+		$arm->add_members( [ 'word:w17' => [ [ 'https://kea.example/17/1' => 1 ], 777 ] ] );
+		$sql  = ( new \ReflectionClassConstant( Sqlite_Arm::class, 'MEMBERS_AFTER' ) )->getValue();
+		$plan = ( new \PDO( 'sqlite:' . $this->path() ) )->prepare( "EXPLAIN QUERY PLAN {$sql}" );
+		$plan->execute( [ 'word:w17', 'https://kea.example/17/0', 1, 7 ] );
+		$detail = \implode( "\n", \array_column( $plan->fetchAll( \PDO::FETCH_ASSOC ), 'detail' ) );
+		$this->assertStringContainsString( 'SEARCH members USING PRIMARY KEY (set_key=? AND member>?)', $detail );
+		$this->assertStringNotContainsString( 'TEMP B-TREE', $detail );
+	}
+
 	public function test_the_member_purge_seeks_expired_rows_through_the_expires_index(): void {
 		$arm = new Sqlite_Arm( $this->path(), 'kea:p3' );
 		$arm->add_members( [ 'word:w1' => [ [ 'u-1' => 1 ], 777 ] ] );

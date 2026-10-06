@@ -1638,17 +1638,16 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		expect( drawn( nodes, graph.edges ).over ).toEqual( [] );
 	} );
 
-	it( "packs a small block into the room beside a tall block's feeders", () => {
-		// The spoke column outgrows the square, so a second stack opened past
-		// the hub for the probe pair and the REPL, far from everything else.
+	it( 'stacks the small blocks in one block past the tall one', () => {
+		// The spoke column outgrows the square; the probe pair and the REPL
+		// stack together right of it rather than in the rows beside its fan.
 		const graph = hubControl();
 		const g = gridOf( graph );
-		const spokeRows = SPOKES.map( ( id ) => g[ id ].row );
 		for ( const id of [ 'topicprobe', 'topicprobe:log', '_repl' ] ) {
-			expect( g[ id ].col ).toBeLessThan( g.null.col );
-			expect( g[ id ].row ).toBeGreaterThan( Math.min( ...spokeRows ) );
-			expect( g[ id ].row ).toBeLessThan( Math.max( ...spokeRows ) );
+			expect( g[ id ].col ).toBeGreaterThan( g.null.col );
 		}
+		expect( g._repl.col ).toBe( g.topicprobe.col );
+		expect( g._repl.row ).not.toBe( g.topicprobe.row );
 		const { nodes } = autoLayout( graph );
 		expect( minColumnGap( nodes ) ).toBeGreaterThanOrEqual( NODE_H );
 		expect( drawn( nodes, graph.edges ).over ).toEqual( [] );
@@ -2079,17 +2078,13 @@ describe( 'autoLayout — hub bands', () => {
 		expect( at._output.x ).toBeGreaterThan( at._http.x );
 		expect( at._http.x ).toBeGreaterThan( at._shell.x );
 
-		// An edgeless node is the narrowest block, so it packs last: into
-		// room the canvas already has, clear of every card, before any new
-		// stack opens past the hubs.
+		// An edgeless node past the square's height waits for every other
+		// block, then stacks right of them all rather than in their rows.
 		const others = Object.entries( at )
 			.filter( ( [ id ] ) => '_heartbeat' !== id )
 			.map( ( [ , p ] ) => p );
-		expect( at._heartbeat.x ).toBeLessThanOrEqual(
+		expect( at._heartbeat.x ).toBeGreaterThan(
 			Math.max( ...others.map( ( p ) => p.x ) )
-		);
-		expect( at._heartbeat.y ).toBeLessThanOrEqual(
-			Math.max( ...others.map( ( p ) => p.y ) )
 		);
 		expect(
 			minColumnGap( autoLayout( hubGraph() ).nodes )
@@ -2541,7 +2536,10 @@ describe( 'autoLayout — hub bands', () => {
 			nodes: [ ...ids ].map( ( id ) => ( { id } ) ),
 			edges,
 		} );
-		const columns = Object.values( at ).map( ( p ) => p.x );
+		// The edgeless pair stacks past the sheet; only the sheet counts.
+		const columns = Object.entries( at )
+			.filter( ( [ id ] ) => ! id.startsWith( 'lone' ) )
+			.map( ( [ , p ] ) => p.x );
 		const wide =
 			( Math.max( ...columns ) - Math.min( ...columns ) ) / X_STEP + 1;
 

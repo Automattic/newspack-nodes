@@ -75,6 +75,9 @@ final class Sqlite_Arm extends Durable_Arm {
 	/** One set's live rows with expiry, in member order; binds set, now, limit. */
 	private const MEMBERS_ROWS = 'SELECT member, "value", expires FROM members WHERE set_key = ? AND expires > ? ORDER BY member LIMIT ?';
 
+	/** One set's live rows past a member, in member order; binds set, member, now, limit. */
+	private const MEMBERS_AFTER = 'SELECT member, "value", expires FROM members WHERE set_key = ? AND member > ? AND expires > ? ORDER BY member LIMIT ?';
+
 	/** One member's row; binds set, member. */
 	private const MEMBER_DELETE = 'DELETE FROM members WHERE set_key = ? AND member = ?';
 
@@ -431,7 +434,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	}
 
 	/** See Durable_Arm::select_member_rows(). */
-	protected function select_member_rows( string $set_key, int $limit ): array {
+	protected function select_member_rows( string $set_key, int $limit, ?string $after ): array {
 		if ( null === $this->db() ) {
 			// No file: its writer has not written, so there is nothing to read.
 			return [];
@@ -441,10 +444,14 @@ final class Sqlite_Arm extends Durable_Arm {
 		if ( ! $this->has_members ) {
 			return [];
 		}
-		$read = $this->statement( self::MEMBERS_ROWS );
-		$read->bindValue( 1, $set_key );
-		$read->bindValue( 2, self::now(), \PDO::PARAM_INT );
-		$read->bindValue( 3, $limit, \PDO::PARAM_INT );
+		$read = $this->statement( null === $after ? self::MEMBERS_ROWS : self::MEMBERS_AFTER );
+		$at   = 1;
+		$read->bindValue( $at++, $set_key );
+		if ( null !== $after ) {
+			$read->bindValue( $at++, $after );
+		}
+		$read->bindValue( $at++, self::now(), \PDO::PARAM_INT );
+		$read->bindValue( $at, $limit, \PDO::PARAM_INT );
 		$read->execute();
 		$rows = [];
 		foreach ( $read->fetchAll( \PDO::FETCH_NUM ) as $row ) {

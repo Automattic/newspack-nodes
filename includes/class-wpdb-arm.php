@@ -204,9 +204,12 @@ final class Wpdb_Arm extends Durable_Arm {
 	}
 
 	/** See Durable_Arm::select_member_rows(). */
-	protected function select_member_rows( string $set_key, int $limit ): array {
-		$out = [];
-		foreach ( $this->rows( $this->member_statement( 'SELECT member, `value`, expires FROM %i WHERE namespace = %s AND set_key = %s AND expires > %d ORDER BY member LIMIT %d', $this->namespace, $set_key, self::now(), $limit ) ) as $row ) {
+	protected function select_member_rows( string $set_key, int $limit, ?string $after ): array {
+		$statement = null === $after
+			? $this->member_statement( 'SELECT member, `value`, expires FROM %i WHERE namespace = %s AND set_key = %s AND expires > %d ORDER BY member LIMIT %d', $this->namespace, $set_key, self::now(), $limit )
+			: $this->member_statement( 'SELECT member, `value`, expires FROM %i WHERE namespace = %s AND set_key = %s AND member > %s AND expires > %d ORDER BY member LIMIT %d', $this->namespace, $set_key, $after, self::now(), $limit );
+		$out       = [];
+		foreach ( $this->rows( $statement ) as $row ) {
 			$out[] = [ Core::as_string( $row['member'] ), self::stored( $row['value'] ), Core::as_int( $row['expires'] ) ];
 		}
 		return $out;

@@ -109,6 +109,50 @@ final class Table_Client {
 	}
 
 	/**
+	 * Every live member of one set, read `SSCAN` page by page, each page
+	 * asking from the cursor the last named, so a set of any size reads
+	 * whole however `Table_Node::MAX_MEMBERS_LIMIT` caps one page. A set that
+	 * cannot be named is refused with a rate-limited line and asks nothing. An
+	 * all-digit member comes back as an int array key, as PHP casts it.
+	 *
+	 * @api A node reading a set past one page: event-logger-nodes' bucket index.
+	 * @param string   $table   The Table's registered name.
+	 * @param string   $set_key Set key.
+	 * @param int      $page    Most members one page answers, from 1 to
+	 *                          `Table_Node::MAX_MEMBERS_LIMIT`.
+	 * @param ?bool    $failed  Set true when any page did not answer.
+	 * @param-out bool $failed
+	 * @return array<array-key,mixed> Member => value, in member order; none
+	 *                                when a page failed, which never reads as
+	 *                                a short set.
+	 * @throws \LogicException When an ask is in flight already.
+	 * @throws \RuntimeException When the asker has no name or no sink.
+	 */
+	public function all_members( string $table, string $set_key, int $page, ?bool &$failed = null ): array {
+		$failed = false;
+		if ( [] === $this->nameable( [ $set_key ] ) ) {
+			return [];
+		}
+		$all    = [];
+		$cursor = '';
+		do {
+			$asked = "SSCAN {$page} {$set_key}" . ( '' === $cursor ? '' : " {$cursor}" ) . "\n";
+			foreach ( $this->counted( 'SSCAN', $this->ask( $table, Message::TM_REQUEST, $asked ), $failed, $cursor ) as $reply ) {
+				$members = self::member_map( $reply, '' );
+				if ( ! \is_array( $members ) ) {
+					$failed = true;
+					return [];
+				}
+				$all += $members;
+			}
+			if ( $failed ) {
+				return [];
+			}
+		} while ( '' !== $cursor );
+		return $all;
+	}
+
+	/**
 	 * `SMOVE`: move up to `$count` members of `$from` into `$to`. A set that
 	 * cannot be named is refused with a rate-limited line and asks nothing; a
 	 * move naming one set twice is the Table's to refuse, and fails.
@@ -170,16 +214,19 @@ final class Table_Client {
 
 	/**
 	 * A read's value messages; none and failed on a TM_ERROR, no count, or a
-	 * count they miss.
+	 * count they miss. An `SSCAN` count may name the next page's cursor.
 	 *
 	 * @param string                 $verb    The verb the count names.
 	 * @param list<array<int,mixed>> $replies What the ask collected.
 	 * @param bool                   $failed  Set true when the read did not answer.
+	 * @param string                 $cursor  Set to the cursor the count names, or ''.
 	 * @return list<array<int,mixed>>
 	 */
-	private function counted( string $verb, array $replies, bool &$failed ): array {
+	private function counted( string $verb, array $replies, bool &$failed, string &$cursor = '' ): array {
 		$values = [];
 		$count  = null;
+		$cursor = '';
+		$next   = 'SSCAN' === $verb ? '(?: (' . \preg_quote( Table_Node::AFTER, '/' ) . '\\S*))?' : '';
 		foreach ( $replies as $reply ) {
 			$type = Core::num_int( $reply[ Message::TYPE ] );
 			if ( 0 !== ( $type & Message::TM_ERROR ) ) {
@@ -187,7 +234,8 @@ final class Table_Client {
 				return [];
 			}
 			if ( 0 !== ( $type & Message::TM_INFO ) ) {
-				$count = 1 === \preg_match( "/^{$verb} (\\d+)\\n?$/D", Core::as_string( $reply[ Message::VALUE ], '' ), $m ) ? (int) $m[1] : null;
+				$count  = 1 === \preg_match( "/^{$verb} (\\d+){$next}\\n?$/D", Core::as_string( $reply[ Message::VALUE ], '' ), $m ) ? (int) $m[1] : null;
+				$cursor = $m[2] ?? '';
 				continue;
 			}
 			$values[] = $reply;

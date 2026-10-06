@@ -424,7 +424,11 @@ PHP, `Bootstrap::mount_table()` throws
 [`Table_Unavailable`](../includes/class-table-unavailable.php) for that backend,
 and a plain `\RuntimeException` for a Table two active topologies declare
 differently or a TTL that is not a whole number of at least 1. Each
-mount is named `{table}.p{N}` and serves reads alone
+mount is named `{table}.p{N}` and serves reads alone — `GET`, `MGET`,
+`SMEMBERS`, and `SSCAN <limit> <set_key> [after=<member>]`, which pages one set
+past the `OVER <limit>` that `SMEMBERS` answers for a set holding more than
+`Table_Node::MAX_MEMBERS_LIMIT` (10,000) members, its count naming the next
+page's cursor while members remain
 ([ADR-23](architecture-decisions.md#adr-23-a-request-carries-no-authority-of-its-own));
 [Other Node Primitives](architecture-guide.md#other-node-primitives) carries the
 Table protocol.

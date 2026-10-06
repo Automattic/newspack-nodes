@@ -690,14 +690,12 @@
 	}
 }
 
-.topology-node {
+// A card and its live readouts, which ride a layer of their own above the
+// bloom-filtered cards, fade in and dim together.
+.topology-node,
+.topology-node-readout {
 	--topology-node-graphic-opacity: 1;
-	cursor: grab;
 	animation: topology-fadein 0.35s ease-out both;
-	// Drag inside the SVG should never spill into a browser text
-	// selection of surrounding chrome.
-	user-select: none;
-	-webkit-user-select: none;
 
 	// Idle (no message activity): a gentle dim, like a quiet connection. Listed
 	// before .is-faded so a hover-fade (0.4) still wins when a node is both.
@@ -709,6 +707,31 @@
 		--topology-node-graphic-opacity: 0.7;
 		animation: none;
 	}
+
+	// `animation: none` for the same reason .is-idle does it: the entrance fade's
+	// `both` fill locks opacity at 1, and a CSS animation beats a declaration —
+	// so an ACTIVE node would ignore the dim entirely.
+	&.is-faded {
+		--topology-node-graphic-opacity: 0.4;
+		animation: none;
+	}
+
+	&.is-dragging {
+		--topology-node-graphic-opacity: 0.9;
+	}
+}
+
+// Click-through, so a press on a readout lands on the card beneath it.
+.topology-readouts {
+	pointer-events: none;
+}
+
+.topology-node {
+	cursor: grab;
+	// Drag inside the SVG should never spill into a browser text
+	// selection of surrounding chrome.
+	user-select: none;
+	-webkit-user-select: none;
 
 	// Roadmap [49]: runtime DRIFT — a live node NOT in the registered .tsl
 	// (added via the console / make_node). A brass dashed outline marks the
@@ -733,14 +756,6 @@
 		}
 	}
 
-	// `animation: none` for the same reason .is-idle does it: the entrance fade's
-	// `both` fill locks opacity at 1, and a CSS animation beats a declaration —
-	// so an ACTIVE node would ignore the dim entirely.
-	&.is-faded {
-		--topology-node-graphic-opacity: 0.4;
-		animation: none;
-	}
-
 	// Overview / zoomed-out (LOD): skip the entrance fade so panning a huge graph
 	// doesn't restart an animation on every node that crosses the viewport. The
 	// bare rect is all that's drawn here, and at tiny scale the 1px stroke is
@@ -760,7 +775,6 @@
 	// rectangles. No animated transition — drag updates positions
 	// many times per second and any transition would feel laggy.
 	&.is-dragging {
-		--topology-node-graphic-opacity: 0.9;
 		cursor: grabbing;
 	}
 
@@ -2070,6 +2084,16 @@
 	.topology-edges--bloom {
 		filter: url(#topology-bloom-crt);
 	}
+
+	// @longform Readouts and flowing wires change every poll or animate, so
+	// each glows on its own small filter rather than redrawing the group blur.
+	.topology-node-readout {
+		filter: drop-shadow(0 0 3px var(--oxide));
+	}
+
+	.topology-edges--flow .topology-edge {
+		filter: drop-shadow(0 0 3px var(--cyan));
+	}
 }
 
 // 03 — Swiss Brutalist
@@ -2174,6 +2198,14 @@
 	.topology-nodes--bloom,
 	.topology-edges--bloom {
 		filter: url(#topology-bloom-neo);
+	}
+
+	.topology-node-readout {
+		filter: drop-shadow(0 0 3px var(--oxide));
+	}
+
+	.topology-edges--flow .topology-edge {
+		filter: drop-shadow(0 0 3px var(--cyan));
 	}
 }
 

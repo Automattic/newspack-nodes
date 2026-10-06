@@ -18,7 +18,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 #[CoversClass( Table_Node::class )]
 #[CoversClass( Durable_Arm::class )]
 final class TableStatsTest extends TestCase {
-	private const VERBS = [ 'GET', 'MGET', 'MSET', 'ADD', 'TOUCH', 'RM', 'INSERT', 'SADD', 'SMEMBERS', 'SMOVE', 'SREM', 'PURGE', 'CHECKPOINT' ];
+	private const VERBS = [ 'GET', 'MGET', 'MSET', 'ADD', 'TOUCH', 'RM', 'INSERT', 'SADD', 'SMEMBERS', 'SSCAN', 'SMOVE', 'SREM', 'PURGE', 'CHECKPOINT' ];
 
 	private string $dir = '';
 	private Table_Node $table;
@@ -173,6 +173,7 @@ final class TableStatsTest extends TestCase {
 		$this->insert( 175000, 'sku-47', '' );
 		$this->ask( 3000000, [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => 1, 'u-43' => 3 ] ], 'word:owl' => [ [ 'u-47' => 7 ], 777 ], 'bad set' => [ [ 'u-9' => 9 ] ] ] ] );
 		$this->ask( 1100000, "SMEMBERS 9 word:kea word:emu\n" );
+		$this->ask( 900000, "SSCAN 1 word:kea\n" );
 		$this->ask( 5000000, "SCAN urltoken 5\n" );
 		$this->step  = 6000000;
 		Core::$clock = static fn (): float => 1790000038.0;
@@ -195,6 +196,7 @@ final class TableStatsTest extends TestCase {
 				'INSERT'   => self::row( 2, 2, 2, 0.3, 0.175 ),
 				'SADD'     => self::row( 1, 3, 3, 3.0, 3.0 ),
 				'SMEMBERS' => self::row( 1, 2, 2, 1.1, 1.1 ),
+				'SSCAN'    => self::row( 1, 1, 1, 0.9, 0.9 ),
 				'SMOVE'    => self::row( 0, 0, 0, 0.0, 0.0 ),
 				'SREM'     => self::row( 0, 0, 0, 0.0, 0.0 ),
 				'PURGE'    => self::row( 1, Table_Node::PURGE_BATCH_ROWS, 1, 6.0, 6.0 ),

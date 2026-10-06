@@ -18,10 +18,13 @@
  * hub on its own, merged with every block a wire joins it to — and the blocks
  * pack into side-by-side stacks toward a canvas about as wide as it is tall,
  * widest blocks first; a small graph fills one stack. A block that would open
- * a new stack waits for every other block instead, then takes any room above
- * or below the cards in the columns it would cover, clear of every wire
- * already drawn, so a tall block's short neighbours sit beside its feeders
- * rather than past its hub. An edgeless node is a block of one.
+ * a new stack waits for every other block instead, and the waiting blocks
+ * then pack together in one block right of the stacks: each takes any room
+ * above or below the cards the waiting blocks already hold, clear of their
+ * wires and of every hub's column, and opens a stack only when none fits. So
+ * a small block never lands in the rows beside a tall block's feeders, nor
+ * in the column a hub's fan-in converges on. An edgeless node is a block of
+ * one.
  *
  * Within a band, columns come from a Coffman-Graham-flavored layering: a true
  * source starts in column 0, a true sink seats one column past its own depth
@@ -1717,10 +1720,11 @@ const columnX = ( ids, col, succ, pred ) => {
  * sits under empty columns, and alphabetically among equals; a stack takes
  * blocks until it reaches the square's height, then the next opens one gap
  * column to the right. A block past the height waits until every other block
- * is down, then looks for room above or below what the columns it would cover
- * hold, and stacks only when none fits — every wire of its own lands inside
- * it, so the room it takes crosses nothing. A small graph fills one stack,
- * which is the old single column of bands.
+ * is down, then looks for room above or below what the waiting blocks placed
+ * before it hold, and stacks only when none fits, so the waiting blocks form
+ * one block of their own right of the stacks — every wire of a block lands
+ * inside it, so the room it takes crosses nothing. A small graph fills one
+ * stack.
  *
  * @param {Array<string>}                ids  Every node, alphabetical.
  * @param {Object<string,Array<string>>} succ Successors.
@@ -2029,16 +2033,24 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 	// @longform Room for a block inside the canvas drawn so far: a row one
 	// clear of what each column it covers holds, above it or below, in the
 	// leftmost columns that fit, nearest the canvas's middle row. Only
-	// columns already holding cards qualify, so a block never lands in the
-	// gap column between two stacks.
+	// columns a waiting block already holds qualify, so a block never lands
+	// in the gap column between two stacks nor beside a stacked block's
+	// feeders, and no hub's column does, where a card would read as one more
+	// wire into the hub.
 	const roomFor = ( b, width ) => {
+		const hubCols = new Set( [ ...hubs ].map( ( h ) => col[ h ] ) );
 		const mid = ( rows - 1 ) / 2;
 		for ( let at = 0; at + b.width <= width; at++ ) {
 			const pairs = Object.entries( b.hull ).map( ( [ c, h ] ) => [
 				filled.has( at + Number( c ) ) && taken[ at + Number( c ) ],
 				h,
 			] );
-			if ( pairs.some( ( [ t ] ) => ! t ) ) {
+			if (
+				pairs.some( ( [ t ] ) => ! t ) ||
+				Object.keys( b.hull ).some( ( c ) =>
+					hubCols.has( at + Number( c ) )
+				)
+			) {
 				continue;
 			}
 			const above = Math.min(
@@ -2080,6 +2092,8 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 		}
 		stackOn( b );
 	}
+	// The waiting blocks pack among themselves, never beside the stacks.
+	filled.clear();
 	for ( const b of later ) {
 		const room = roomFor( b, stackCol + stackWidth );
 		if ( room ) {

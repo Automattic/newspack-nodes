@@ -20,7 +20,6 @@
 import { useCallback, useEffect, useRef } from '@wordpress/element';
 import * as d3 from 'd3';
 
-import { isDragSelection } from './useChartExpand';
 import { useContainerRefit } from './useContainerRefit';
 
 /**
@@ -274,12 +273,14 @@ export const drawAxes = ( g, { x, y, innerH, tickCount, yFormat, yLabel } ) => {
  * @param {number} params.innerH Chart inner height.
  * @param {Array}  params.dates  One `Date` per slot, ascending.
  * @param {Object} params.x      D3 x scale over `dates`.
- * @return {{append: () => Object, left: (idx: number) => number}} `append`
- * adds an unplaced column rect to `g`; `left` is slot `idx`'s column's x.
+ * @return {{append: () => Object, left: (idx: number) => number, width: number}}
+ * `append` adds an unplaced column rect to `g`; `left` is slot `idx`'s
+ * column's x; `width` is one column's.
  */
 const slotColumns = ( g, { innerW, innerH, dates, x } ) => {
 	const width = innerW / dates.length;
 	return {
+		width,
 		append: () =>
 			g
 				.append( 'rect' )
@@ -331,11 +332,54 @@ export const shadeSlots = ( g, { selectedSlots, ...frame } ) => {
  */
 
 /**
+ * Takes the first and last slot a drag crossed, `from <= to`, and whether cmd
+ * or ctrl, held at release, asked to add the span to the caller's selection.
+ *
+ * @typedef {( from: number, to: number, drag: {additive: boolean} ) => void} SlotRange
+ */
+
+/**
+ * Whether a click ends a drag-selection, as one over the tick labels does.
+ *
+ * @param {{currentTarget: Element}} event The click, on the element it bound.
+ * @return {boolean} True when the document holds a non-collapsed selection.
+ */
+const isDragSelection = ( event ) => {
+	const selection =
+		event.currentTarget.ownerDocument.defaultView.getSelection();
+	return Boolean( selection && ! selection.isCollapsed );
+};
+
+/**
+ * Route a pointer's events to `el` until release. A pointer already released
+ * cannot be captured, which is no fault of the gesture.
+ *
+ * @param {Element} el        The element to capture to.
+ * @param {number}  pointerId The pointer.
+ */
+const capture = ( el, pointerId ) => {
+	try {
+		el.setPointerCapture?.( pointerId );
+	} catch {
+		// The gesture carries on uncaptured.
+	}
+};
+
+/**
  * Bind the hover: a highlight column on the nearest bucket, and a tooltip
  * listing that bucket's rows. A click on the plot hands that bucket's index
- * to `onSlotClick`, with `additive` true when cmd or ctrl was held; a
- * shift+click, which resizes the chart, and the click ending a drag-selection
- * report nothing.
+ * to `onSlotClick`, with `additive` true when cmd or ctrl was held; the click
+ * ending a drag-selection reports nothing.
+ *
+ * With `onSlotRange`, a left-button press dragged at least one column wide,
+ * and never under 4px, selects the span of slots it crosses instead: the span
+ * shades live as the pointer moves, clamped to the edge slot once it leaves
+ * the plot, and the release hands it to `onSlotRange` and swallows the click
+ * that follows. The press captures its pointer, so a drag ending off the plot
+ * still releases here, and answers that pointer alone. Escape cancels the
+ * drag, through the listener `useTimeChart` holds. The
+ * press lives in `dragRef` rather than in this draw, so a redraw mid-drag —
+ * a poll landing, or the caller's own answer to the span — keeps it.
  *
  * A transparent rectangle over the whole plot takes the pointer, so every
  * column is hoverable, the empty ones included. The move handler records the
@@ -360,6 +404,8 @@ export const shadeSlots = ( g, { selectedSlots, ...frame } ) => {
  * @param {Object}         params.lastMouseXRef React ref tracking mouse x.
  * @param {Object}         params.containerRef  React ref to container div.
  * @param {SlotClick}      [params.onSlotClick] Takes the clicked slot's index into `dates`.
+ * @param {SlotRange}      [params.onSlotRange] Takes a drag's span of indexes into `dates`; absent, a drag is a click.
+ * @param {Object}         [params.dragRef]     React ref holding the press in progress; required with `onSlotRange`.
  */
 export const setupTooltip = (
 	g,
@@ -373,10 +419,13 @@ export const setupTooltip = (
 		lastMouseXRef,
 		containerRef,
 		onSlotClick,
+		onSlotRange,
+		dragRef,
 	}
 ) => {
 	const bisect = d3.bisector( ( d ) => d ).left;
-	const column = slotColumns( g, { innerW, innerH, dates, x } );
+	const frame = { innerW, innerH, dates, x };
+	const column = slotColumns( g, frame );
 
 	const highlight = column
 		.append()
@@ -385,6 +434,7 @@ export const setupTooltip = (
 		.attr( 'stroke', 'rgba(128,128,128,0.4)' )
 		.attr( 'stroke-width', 1 )
 		.attr( 'opacity', 0 );
+	const dragShade = onSlotRange ? g.append( 'g' ) : null;
 
 	const tooltip = tooltipRef.current;
 
@@ -433,6 +483,19 @@ export const setupTooltip = (
 	};
 
 	let rafId = null;
+	const scheduleHover = ( mx ) => {
+		lastMouseXRef.current = mx;
+		if ( rafId ) {
+			cancelAnimationFrame( rafId );
+		}
+		rafId = requestAnimationFrame( () => {
+			rafId = null;
+			if ( lastMouseXRef.current === null ) {
+				return;
+			}
+			showTooltip( lastMouseXRef.current );
+		} );
+	};
 	function hideTooltip() {
 		if ( rafId ) {
 			cancelAnimationFrame( rafId );
@@ -443,41 +506,163 @@ export const setupTooltip = (
 		highlight.attr( 'opacity', 0 );
 	}
 
-	g.append( 'rect' )
+	const overlay = g
+		.append( 'rect' )
 		.attr( 'width', innerW )
 		.attr( 'height', innerH )
 		.attr( 'fill', 'none' )
 		.attr( 'pointer-events', 'all' )
-		.on( 'mousemove', ( event ) => {
-			const [ mx ] = d3.pointer( event );
-			lastMouseXRef.current = mx;
-			if ( rafId ) {
-				cancelAnimationFrame( rafId );
-			}
-			rafId = requestAnimationFrame( () => {
-				rafId = null;
-				if ( lastMouseXRef.current === null ) {
-					return;
-				}
-				showTooltip( lastMouseXRef.current );
-			} );
-		} )
+		.on( 'mousemove', ( event ) =>
+			scheduleHover( d3.pointer( event )[ 0 ] )
+		)
 		.on( 'mouseleave', hideTooltip )
 		.on( 'click', ( event ) => {
-			if (
-				onSlotClick &&
-				! event.shiftKey &&
-				! isDragSelection( event )
-			) {
+			// The click a drag's release, or an Escape, already settled.
+			if ( onSlotRange && dragRef.current?.done ) {
+				dragRef.current = null;
+				return;
+			}
+			if ( onSlotClick && ! isDragSelection( event ) ) {
 				onSlotClick( slotAt( d3.pointer( event )[ 0 ] ), {
 					additive: Boolean( event.metaKey || event.ctrlKey ),
 				} );
 			}
 		} );
+	if ( onSlotRange ) {
+		bindDrag( overlay, {
+			dragRef,
+			onSlotRange,
+			slotAt,
+			scheduleHover,
+			threshold: Math.max( column.width, MIN_DRAG_PX ),
+			paint: () => paintDrag( dragShade, frame, dragRef.current ),
+		} );
+	}
 
 	// Restore the hover this redraw would otherwise have dropped.
 	if ( lastMouseXRef.current !== null ) {
 		showTooltip( lastMouseXRef.current );
+	}
+};
+
+/**
+ * A press's span as `[ from, to ]`, low to high.
+ *
+ * @param {{from: number, to: number}} press The press.
+ * @return {number[]} The first and last slot it crossed.
+ */
+const spanOf = ( press ) => [
+	Math.min( press.from, press.to ),
+	Math.max( press.from, press.to ),
+];
+
+/**
+ * Redraw a drag's live shading: the span of a live, unsettled press, or none.
+ *
+ * @param {Object}  shade D3 group the shading owns.
+ * @param {Object}  frame The plot's `innerW`, `innerH`, `dates` and `x`.
+ * @param {?Object} press The press in progress, or null.
+ */
+const paintDrag = ( shade, frame, press ) => {
+	shade.selectAll( '*' ).remove();
+	if ( press?.live && ! press.done ) {
+		const [ from, to ] = spanOf( press );
+		shadeSlots( shade, {
+			...frame,
+			selectedSlots: new Set( d3.range( from, to + 1 ) ),
+		} );
+	}
+};
+
+/**
+ * The fewest pixels a press travels to become a drag, however narrow a column
+ * is, so a click's jitter never selects a span.
+ *
+ * @type {number}
+ */
+const MIN_DRAG_PX = 4;
+
+/**
+ * Bind the drag gesture to the overlay, and resume a press a redraw cut off.
+ *
+ * @param {Object}                 overlay              The overlay rect selection.
+ * @param {Object}                 params               Configuration.
+ * @param {Object}                 params.dragRef       React ref holding the press.
+ * @param {SlotRange}              params.onSlotRange   Takes the released span.
+ * @param {(mx: number) => number} params.slotAt        The slot nearest a plot x.
+ * @param {(mx: number) => void}   params.scheduleHover Moves the hover to a plot x.
+ * @param {number}                 params.threshold     Pixels a press travels to become a drag.
+ * @param {() => void}             params.paint         Redraws the live shading.
+ */
+const bindDrag = (
+	overlay,
+	{ dragRef, onSlotRange, slotAt, scheduleHover, threshold, paint }
+) => {
+	// A press settled by Escape waits for its click; nothing moves it.
+	const pressing = () => dragRef.current && ! dragRef.current.done;
+	const pressedBy = ( event ) =>
+		pressing() && event.pointerId === dragRef.current.pointerId;
+	overlay
+		.style( 'touch-action', 'pan-y' )
+		.on( 'pointerdown', ( event ) => {
+			if ( event.button !== 0 ) {
+				return;
+			}
+			// The press would otherwise start a text selection over the labels.
+			event.preventDefault();
+			const [ mx ] = d3.pointer( event );
+			const at = slotAt( mx );
+			dragRef.current = {
+				pointerId: event.pointerId,
+				x0: mx,
+				from: at,
+				to: at,
+				live: false,
+				done: false,
+			};
+			capture( event.currentTarget, event.pointerId );
+		} )
+		.on( 'pointermove', ( event ) => {
+			if ( ! pressedBy( event ) ) {
+				return;
+			}
+			const press = dragRef.current;
+			const [ mx ] = d3.pointer( event );
+			// Mouse moves stop while a cancelled press is down; hover here.
+			scheduleHover( mx );
+			if ( Math.abs( mx - press.x0 ) >= threshold ) {
+				press.live = true;
+			}
+			press.to = slotAt( mx );
+			paint();
+		} )
+		.on( 'pointerup', ( event ) => {
+			if ( ! pressedBy( event ) ) {
+				return;
+			}
+			const press = dragRef.current;
+			if ( ! press.live ) {
+				dragRef.current = null;
+				return;
+			}
+			press.to = slotAt( d3.pointer( event )[ 0 ] );
+			press.done = true;
+			paint();
+			const [ from, to ] = spanOf( press );
+			onSlotRange( from, to, {
+				additive: Boolean( event.metaKey || event.ctrlKey ),
+			} );
+		} )
+		.on( 'pointercancel', ( event ) => {
+			if ( ! pressedBy( event ) ) {
+				return;
+			}
+			dragRef.current = null;
+			paint();
+		} );
+	if ( pressing() ) {
+		paint();
+		capture( overlay.node(), dragRef.current.pointerId );
 	}
 };
 
@@ -488,6 +673,7 @@ export const setupTooltip = (
  * @property {Object} containerRef  Ref to the element the SVG is drawn into.
  * @property {Object} tooltipRef    Ref to the tooltip element.
  * @property {Object} lastMouseXRef Ref holding the last pointer x, or null.
+ * @property {Object} dragRef       Ref holding the drag press in progress, or null.
  */
 
 /**
@@ -497,7 +683,9 @@ export const setupTooltip = (
  * `renderFn`'s own identity, which carries its data and theme, and a resize of
  * the container. It also hides the tooltip when the page scrolls, or when the
  * modal body does for a chart opened inside one: the tooltip is positioned
- * against the chart, and a scroll it does not hear about strands it.
+ * against the chart, and a scroll it does not hear about strands it. Escape
+ * cancels a drag in progress, ahead of any other Escape handler, so a chart
+ * in a modal drops the drag without closing the modal.
  *
  * Callers must memoize `renderFn`. The drawing effect depends on it, so an
  * unstable one re-renders forever.
@@ -509,10 +697,30 @@ export function useTimeChart( renderFn ) {
 	const containerRef = useRef( null );
 	const tooltipRef = useRef( null );
 	const lastMouseXRef = useRef( null );
+	const dragRef = useRef( null );
 
 	const renderChart = useCallback( () => {
-		renderFn( { containerRef, tooltipRef, lastMouseXRef } );
+		renderFn( { containerRef, tooltipRef, lastMouseXRef, dragRef } );
 	}, [ renderFn ] );
+
+	// Settled rather than cleared, so the click the release makes is swallowed.
+	useEffect( () => {
+		const cancelDrag = ( event ) => {
+			if (
+				'Escape' === event.key &&
+				dragRef.current &&
+				! dragRef.current.done
+			) {
+				event.stopPropagation();
+				dragRef.current.done = true;
+				renderChart();
+			}
+		};
+		window.addEventListener( 'keydown', cancelDrag, true );
+		return () => {
+			window.removeEventListener( 'keydown', cancelDrag, true );
+		};
+	}, [ renderChart ] );
 
 	// Draw on mount, and again each time `renderFn` re-identifies.
 	useEffect( () => {
@@ -544,5 +752,5 @@ export function useTimeChart( renderFn ) {
 		};
 	}, [] );
 
-	return { containerRef, tooltipRef, lastMouseXRef };
+	return { containerRef, tooltipRef, lastMouseXRef, dragRef };
 }
