@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.95.1] - 2026-10-06
+
 ### Changed
 
 - **`autoLayout` fills the room a tall block leaves before it widens the canvas, and stacks like-shaped chains together.** One-row blocks of one width — chains of one length, or lone cards — pack as one run in alphabetical order. A run is never split: it stacks where all but its last block fit under the square's height, and a run taller than the square packs block by block. A block past the height looks for room beside the waiting blocks placed before it, then for room the stacks leave inside the canvas, and opens a stack only when neither fits; room needs a clear row above and below and clear columns either side. On the event logger's `complete` worker, `_repl` and `_repl:input` take the top two rows of column 0, above `firehose:consumer`, `topicprobe` → `topicprobe:log` stacks under the other three two-card chains, and the canvas narrows from seven columns to five. The station Overview lays out as before: its five lone cards form one run five rows tall, and the tallest room its canvas leaves holds four and a half. Of 3,014 corpus graphs, 1,365 lay out differently and 903 change canvas size: total area falls 4.8%, the mean aspect moves nearer square, 128 canvases grow, the largest by 12%, and 3 widen. Crossings fall from 51,333 to 51,330, cards a drawn wire covers rise from 7,786 to 7,787, no node is unplaced, and layout time moves within run-to-run noise.
