@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Vault matches a server URL's `https://` scheme in any case.** `Vault::add()` and `update()` compare it with `strncasecmp()`, as `https_required()` does. Under WordPress `esc_url_raw()` already lowercases the scheme before the check, so this changes behaviour only where `sanitized_url()` runs without WordPress. The Vault admin form's own check is case-insensitive too, so it no longer refuses `HTTPS://host` before the store sees it.
+- **The build kit removes a stylesheet an entry no longer imports.** When a build emits no CSS for an entry, as its metafile shows, the stale `<base>.css` and `<base>-rtl.css` an earlier build left in `outDir` are deleted rather than kept, and the RTL step no longer regenerates the stale companion.
+- **A watch rebuild drops a removed import's handle from `<base>.asset.php`.** The wp-externals collector empties as each build starts, so the manifest lists only the handles this build reached for.
+- **`lint-styles` checks a block's final declaration even when it has no semicolon.** `.widget .button { color: red }` is now judged like `color: red;`.
+
 ## [2.96.2] - 2026-10-06
 
 ### Fixed

@@ -10,7 +10,8 @@ import zlib
 
 
 def read_png(path):
-    data = open(path, 'rb').read()
+    with open(path, 'rb') as f:
+        data = f.read()
     assert data[:8] == b'\x89PNG\r\n\x1a\n', 'not a PNG'
     pos, idat, hdr = 8, [], None
     while pos < len(data):
@@ -61,7 +62,8 @@ def write_png(path, w, h, px, bpp):
            + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 6 if bpp == 4 else 2, 0, 0, 0))
            + chunk(b'IDAT', zlib.compress(raw, 9))
            + chunk(b'IEND', b''))
-    open(path, 'wb').write(png)
+    with open(path, 'wb') as f:
+        f.write(png)
 
 
 def autocrop(path, pad=0):

@@ -236,7 +236,7 @@ function validate( id, url, group ) {
 	if ( ! url ) {
 		return __( 'Server URL is required', 'newspack-nodes' );
 	}
-	if ( ! url.startsWith( 'https://' ) ) {
+	if ( ! /^https:\/\//i.test( url ) ) {
 		return __( 'URL must start with https://', 'newspack-nodes' );
 	}
 	if ( group && ! ID_PATTERN.test( group ) ) {
