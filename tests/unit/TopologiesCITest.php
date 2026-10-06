@@ -1444,6 +1444,26 @@ class TopologiesCITest extends TestCase {
 		);
 	}
 
+	/** What a class declares it `owns` is what the topology ships as owned. */
+	public function test_get_ships_the_siblings_a_class_declares_it_owns(): void {
+		require_once __DIR__ . '/../Helpers/fixtures/class-wombat-patron-node.php';
+		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\Fixtures\\' );
+		\file_put_contents( "{$this->stock}/kea-patron.tsl", "make_node Wombat_Patron kea-patron-6620\n" );
+
+		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'get', 'kea-patron' );
+
+		$this->assertSame(
+			[
+				[
+					'name'  => 'kea-patron-6620:ledger',
+					'class' => 'Wombat_Ledger',
+					'owner' => 'kea-patron-6620',
+				],
+			],
+			$result['owned']
+		);
+	}
+
 	/** A topology no owner builds into ships an empty owned list, not a missing key. */
 	public function test_get_ships_an_empty_owned_list_when_nothing_is_owned(): void {
 		\file_put_contents( "{$this->stock}/flat-owned.tsl", "make_node Echo wombat-echo\n" );

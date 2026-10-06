@@ -9,9 +9,11 @@
 import {
 	withReplAnchor,
 	withOwnedNodes,
+	ownedOf,
 	generateNodeName,
 	withResolvedConfigEdges,
 	withConfigEdges,
+	edgeHasConnectRole,
 } from '../consoleGraph';
 import { graphFromTsl } from '../draftToGraph';
 
@@ -147,8 +149,17 @@ describe( 'consoleGraph', () => {
 				owner: 'kea-owner-512',
 			} );
 			expect( next.edges ).toEqual( [
-				{ from: 'kea-owner-512', to: 'kea-owner-512:ledger' },
+				{
+					from: 'kea-owner-512',
+					to: 'kea-owner-512:ledger',
+					roles: [ 'extra' ],
+				},
 			] );
+		} );
+
+		it( 'wires it as a declared extra, never a route an edit can drop', () => {
+			const [ edge ] = withOwnedNodes( owner, [ ledger ] ).edges;
+			expect( edgeHasConnectRole( edge ) ).toBe( false );
 		} );
 
 		it( 'adds nothing for an owner the graph does not hold', () => {
@@ -164,6 +175,32 @@ describe( 'consoleGraph', () => {
 			expect( () => withOwnedNodes( owner, undefined ) ).toThrow(
 				'Missing owned in topologies get response.'
 			);
+		} );
+	} );
+	describe( 'ownedOf', () => {
+		const catalog = [
+			{ shell_name: 'Wombat_Owner', owns: { ledger: 'Wombat_Ledger' } },
+			{ shell_name: 'Echo', owns: [] },
+		];
+
+		it( "names each sibling a node's class declares it owns", () => {
+			const graph = withNode(
+				withNode( empty, 'Wombat_Owner', 'kea-owner-512' ),
+				'Echo',
+				'kea-echo-77'
+			);
+			expect( ownedOf( graph, catalog ) ).toEqual( [
+				{
+					name: 'kea-owner-512:ledger',
+					class: 'Wombat_Ledger',
+					owner: 'kea-owner-512',
+				},
+			] );
+		} );
+
+		it( 'owns nothing for a class the catalog does not carry', () => {
+			const graph = withNode( empty, 'Okapi_Unknown', 'kea-okapi-9' );
+			expect( ownedOf( graph, catalog ) ).toEqual( [] );
 		} );
 	} );
 	describe( 'generateNodeName', () => {

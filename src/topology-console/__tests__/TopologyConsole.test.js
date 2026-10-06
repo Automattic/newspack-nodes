@@ -37,6 +37,7 @@ import {
 	installFakeCommandWire,
 } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { invalidateExpandedIncludes } from '../hooks/useExpandedIncludes';
+import { renderWithCatalog } from './catalogTestUtils';
 
 // Pre-seed window.NewspackNodesData for the module-level IIFEs.
 window.NewspackNodesData = {
@@ -4065,6 +4066,237 @@ describe( 'TopologyConsole boot', () => {
 		} );
 	} );
 
+	describe( 'owned nodes in edit mode', () => {
+		const patronClasses = [
+			{
+				shell_name: 'Wombat_Patron',
+				arguments: [],
+				commands: [],
+				owns: { ledger: 'Wombat_Ledger' },
+			},
+			{
+				shell_name: 'Wombat_Ledger',
+				arguments: [ { name: 'ledger_ns', type: 'string' } ],
+				commands: [
+					{ name: 'set_ledger_ttl', args: [ { name: 'seconds' } ] },
+				],
+			},
+		];
+
+		// `owned` is the server's list; edit mode derives its own from the draft.
+		async function openForEdit( tsl, owned = [] ) {
+			globalThis.__catalog.classes = patronClasses;
+			hooks.fetchTopology.mockResolvedValueOnce( {
+				tsl,
+				name: 'demo',
+				owned,
+			} );
+			window.history.replaceState( {}, '', '/?topology=demo' );
+			const rendered = render( <TopologyConsole /> );
+			await act( async () => {
+				fireEvent.click( rendered.getByText( 'edit' ) );
+			} );
+			return rendered;
+		}
+
+		const openPatronForEdit = () =>
+			openForEdit( 'make_node Wombat_Patron patron-5823\n' );
+
+		const paintedIds = () =>
+			mockCanvasProps.parsed.nodes.map( ( n ) => n.id );
+
+		it( "paints the owner's declared sibling, wired from its owner", async () => {
+			await openPatronForEdit();
+
+			const { nodes, edges } = mockCanvasProps.parsed;
+			expect(
+				nodes.find( ( n ) => n.id === 'patron-5823:ledger' )
+			).toMatchObject( { class: 'Wombat_Ledger', owner: 'patron-5823' } );
+			expect(
+				edges.filter(
+					( e ) =>
+						e.from === 'patron-5823' &&
+						e.to === 'patron-5823:ledger'
+				)
+			).toHaveLength( 1 );
+		} );
+
+		it( 'moves the owned node with a renamed owner', async () => {
+			await openPatronForEdit();
+			await act( async () => {
+				mockCanvasProps.onPositionChange( 'patron-5823:ledger', {
+					x: 836,
+					y: 412,
+				} );
+			} );
+			await act( async () => {
+				mockCanvasProps.onSelect( 'patron-5823' );
+			} );
+			await act( async () => {
+				lastInspectorProps.onRenameNode( 'patron-5823', 'patron-9104' );
+			} );
+
+			expect(
+				mockCanvasProps.parsed.nodes.find(
+					( n ) => n.id === 'patron-9104:ledger'
+				)
+			).toMatchObject( { owner: 'patron-9104' } );
+			expect( paintedIds() ).not.toContain( 'patron-5823:ledger' );
+			expect(
+				mockCanvasProps.positionOverrides[ 'patron-9104:ledger' ]
+			).toEqual( { x: 836, y: 412 } );
+			expect(
+				mockCanvasProps.positionOverrides[ 'patron-5823:ledger' ]
+			).toBeUndefined();
+		} );
+
+		it( 'lays nothing out in edit mode until the class catalog loads', async () => {
+			globalThis.__catalog = {
+				classes: patronClasses,
+				formatters: [],
+				loading: true,
+			};
+			const { getByText, queryByTestId } = render( <TopologyConsole /> );
+			await act( async () => {
+				fireEvent.click( getByText( 'new' ) );
+			} );
+			expect( queryByTestId( 'canvas' ) ).toBeNull();
+
+			globalThis.__catalog = {
+				classes: patronClasses,
+				formatters: [],
+				loading: false,
+			};
+			await act( async () => {
+				globalThis.__catalogBump();
+			} );
+			expect( queryByTestId( 'canvas' ) ).not.toBeNull();
+		} );
+
+		it( 'gives a newly made owner its owned node', async () => {
+			await openPatronForEdit();
+			await act( async () => {
+				lastPaletteProps.onDropNode( {
+					shellName: 'Wombat_Patron',
+					x: 412,
+					y: 236,
+				} );
+			} );
+
+			const made = mockCanvasProps.parsed.nodes.find(
+				( n ) => 'Wombat_Patron' === n.class && 'patron-5823' !== n.id
+			);
+			expect( paintedIds() ).toContain( `${ made.id }:ledger` );
+		} );
+
+		it( "gives no owned node to an Echo renamed to a former owner's name", async () => {
+			await openForEdit(
+				'make_node Wombat_Patron patron-5823\nmake_node Echo echo-3307\n',
+				[
+					{
+						name: 'patron-5823:ledger',
+						class: 'Wombat_Ledger',
+						owner: 'patron-5823',
+					},
+				]
+			);
+			await act( async () => {
+				mockCanvasProps.onSelect( 'patron-5823' );
+			} );
+			await act( async () => {
+				lastInspectorProps.onRemoveNode( 'patron-5823' );
+			} );
+			await act( async () => {
+				mockCanvasProps.onSelect( 'echo-3307' );
+			} );
+			await act( async () => {
+				lastInspectorProps.onRenameNode( 'echo-3307', 'patron-5823' );
+			} );
+
+			expect( paintedIds() ).toContain( 'patron-5823' );
+			expect( paintedIds() ).not.toContain( 'patron-5823:ledger' );
+		} );
+
+		it( "Save layout persists the owned node's position", async () => {
+			hooks.saveLayout.mockResolvedValueOnce( {
+				name: 'demo',
+				positions: { 'patron-5823:ledger': [ 712, 344 ] },
+			} );
+			const { getByText } = await openPatronForEdit();
+			await act( async () => {
+				mockCanvasProps.onPositionChange( 'patron-5823:ledger', {
+					x: 712,
+					y: 344,
+				} );
+			} );
+			await act( async () => {
+				fireEvent.click( getByText( 'save-layout' ) );
+			} );
+
+			expect(
+				hooks.saveLayout.mock.calls[ 0 ][ 0 ].positions[
+					'patron-5823:ledger'
+				]
+			).toEqual( [ 712, 344 ] );
+		} );
+
+		it( 'never writes the owned node into the saved .tsl', async () => {
+			const { getByText } = await openPatronForEdit();
+			await act( async () => {
+				fireEvent.click( getByText( 'save' ) );
+			} );
+			await act( async () => {
+				fireEvent.click( getByText( 'prompt-ok' ) );
+			} );
+
+			const tsl = hooks.saveTopology.mock.calls[ 0 ][ 0 ].tsl;
+			expect( tsl ).toContain( 'patron-5823' );
+			expect( tsl ).not.toContain( 'patron-5823:ledger' );
+		} );
+
+		it( 'saves no line for an owned node, however its Inspector is poked', async () => {
+			const { getByText } = await openPatronForEdit();
+			await act( async () => {
+				mockCanvasProps.onSelect( 'patron-5823:ledger' );
+			} );
+			expect( lastInspectorProps.selectedId ).toBe(
+				'patron-5823:ledger'
+			);
+			const { default: RealInspector } = jest.requireActual(
+				'../components/Inspector'
+			);
+			const { container } = renderWithCatalog(
+				<RealInspector { ...lastInspectorProps } />,
+				{ classes: patronClasses }
+			);
+			expect( container.textContent ).toMatch( /Owned by patron-5823/ );
+			expect( container.textContent ).not.toMatch( /Constructor/ );
+			expect( container.textContent ).not.toMatch( /Verbs/ );
+			const enabled = container.querySelectorAll(
+				'input:not([disabled]), select:not([disabled]), textarea:not([disabled])'
+			);
+			await act( async () => {
+				enabled.forEach( ( field ) =>
+					'checkbox' === field.type
+						? fireEvent.click( field )
+						: fireEvent.change( field, {
+								target: { value: 'poke-7731' },
+						  } )
+				);
+			} );
+			await act( async () => {
+				fireEvent.click( getByText( 'save' ) );
+			} );
+			await act( async () => {
+				fireEvent.click( getByText( 'prompt-ok' ) );
+			} );
+
+			const tsl = hooks.saveTopology.mock.calls[ 0 ][ 0 ].tsl;
+			expect( tsl ).toContain( 'patron-5823' );
+			expect( tsl ).not.toContain( 'patron-5823:ledger' );
+		} );
+	} );
+
 	it( 'reserves no transcript band in edit mode, even after expanding one', async () => {
 		// Edit mode renders no ReplFooter, so its last height is stale — the
 		// canvas would autofit around a transcript that is not on screen.
@@ -4793,14 +5025,15 @@ describe( 'TopologyConsole boot', () => {
 
 		// @longform The server ALWAYS ships `expanded` with a get
 		// (Topologies_CI::get), and the console now requires it — loading a
-		// document without one marks every included node as OWNED and the next
-		// save writes the borrowed graph into the file. So this refuses to
+		// document without one marks every included node as declared by this
+		// document, and the next save writes the borrowed graph into the file.
+		// So this refuses to
 		// build a reply that could not come off the wire: a TSL that declares
 		// includes must be given the expansion they resolve to. `mockExpand`
 		// is that same shape, since in production both come from one server
 		// read of one topology.
 		// `false` says the omission is DELIBERATE — the case the console must
-		// refuse loudly rather than load with every included node marked own.
+		// refuse loudly rather than load every included node as declared here.
 		function mockTopologyGet( name, tsl, mockExpand = null ) {
 			if ( false === mockExpand ) {
 				hooks.fetchTopology.mockResolvedValueOnce( {
@@ -5290,8 +5523,8 @@ describe( 'TopologyConsole boot', () => {
 		// A document whose includes could not be expanded arrives WITHOUT an
 		// expansion — `Topologies_CI::get` computes it inline, so a cycle
 		// fails there. Loading it anyway would mark every included node as
-		// owned and the next save would write the borrowed graph into the
-		// file, so the console refuses and says so.
+		// declared by this document, and the next save would write the
+		// borrowed graph into the file, so the console refuses and says so.
 		it( 'auto-loading a topology whose expansion is missing toasts the error (not a silent blank canvas)', async () => {
 			mockTopologyGet(
 				'wombat-top',

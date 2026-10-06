@@ -1166,11 +1166,41 @@ class Node {
 	}
 
 	/**
+	 * Whether a schema puts its class on the console palette: a category that
+	 * is neither empty nor `Hidden`, and no `hidden` flag. The class catalog
+	 * lists only these, so only these may declare `owns`.
+	 *
+	 * @param array<string,mixed> $schema A class's `node_schema()`.
+	 * @return bool True when the palette lists the class.
+	 */
+	public static function in_palette( array $schema ): bool {
+		$category = $schema['category'] ?? '';
+		return '' !== $category && 'Hidden' !== $category && empty( $schema['hidden'] );
+	}
+
+	/**
+	 * The arguments of the owned Table `$suffix` that a `make_node` of this
+	 * class builds, read by the analyzer without building a node. A class
+	 * whose `owns` declares a Table overrides it.
+	 *
+	 * @param string       $suffix    The owned Table's suffix in `owns`.
+	 * @param string       $owner     The owner's name, as written.
+	 * @param list<string> $arguments The owner's `make_node` arguments.
+	 * @return array{namespace: string, ttl: string, backend: string}
+	 * @throws \LogicException Always, on a class declaring no owned Table.
+	 */
+	public static function owned_table( string $suffix, string $owner, array $arguments ): array {
+		throw new \LogicException( \esc_html( static::class . " declares no owned Table {$suffix} for {$owner}" ) );
+	}
+
+	/**
 	 * Topology console manifest: the palette entry and the node's configuration
 	 * form. A subclass overrides it to declare its positional arguments, verbs,
-	 * registrations, category and description. The empty category the base
-	 * returns keeps a node out of the palette, which is what a pure plumbing node
-	 * wants.
+	 * registrations, category and description. Under `owns` it names the
+	 * siblings the console draws as owned, suffix to class; only a class
+	 * `in_palette()` may declare them, because the editor reads them off the
+	 * class catalog. The empty category the base returns keeps a node out of
+	 * the palette, which is what a pure plumbing node wants.
 	 *
 	 * @return array<string,mixed>
 	 */
@@ -1183,6 +1213,7 @@ class Node {
 			'registrations' => [],
 			'accepts_fill'  => true,
 			'has_target'    => true,
+			'owns'          => [],
 		];
 	}
 }

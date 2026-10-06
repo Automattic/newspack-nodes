@@ -582,6 +582,46 @@ class SpawnCoordinatorTest extends TestCase {
 	 * never waits, so the endpoint's own record is definitively not in yet — a
 	 * loop that skipped the local record re-posted the workers it just spawned.
 	 */
+	/**
+	 * A topology whose owned Table will not declare is unreadable on its own:
+	 * the rest of the active set still spawns, and the pass raises it after.
+	 */
+	public function test_a_ttl_less_crawler_costs_only_its_own_topology(): void {
+		$GLOBALS['_test_outbound_posts'] = [];
+		$this->use_base_dir( $this->tmp );
+		\Newspack_Nodes\Topology_Registry::reset();
+		$stock = $this->make_temp_dir( 'tsl-owned-spawn-' );
+		\file_put_contents( "{$stock}/sound-7713.tsl", "var num_partitions = 2\nmake_node Echo echo-7713\n" );
+		\file_put_contents( "{$stock}/bare-crawl-7713.tsl", "var num_partitions = 1\nmake_node Crawler crawl-7713\n" );
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'sound-7713', 'bare-crawl-7713' ];
+		\Newspack_Nodes\Config::reset();
+
+		try {
+			[ $readable, $unreadable ] = \Newspack_Nodes\Bootstrap::active_topologies();
+			$this->assertSame( [ 'sound-7713' ], \array_keys( $readable ) );
+			$this->assertSame( [ 'bare-crawl-7713' ], \array_keys( $unreadable ) );
+			$this->assertStringContainsString( 'Crawler crawl-7713 declares no TTL', $unreadable['bare-crawl-7713']->getMessage() );
+
+			$raised = null;
+			try {
+				( new Spawn_Coordinator( $this->tmp, 'OWNED_SPAWN_SALT' ) )->spawn_due_workers( 1700000000.0 );
+			} catch ( \Throwable $e ) {
+				$raised = $e;
+			}
+			$this->assertNotNull( $raised, 'the unreadable topology is raised after the pass' );
+			$spawned = \array_map(
+				static fn ( array $p ): string => $p['args']['body']['type'] . '.p' . $p['args']['body']['partition'],
+				$GLOBALS['_test_outbound_posts']
+			);
+			$this->assertContains( 'sound-7713.p0', $spawned );
+			$this->assertContains( 'sound-7713.p1', $spawned );
+		} finally {
+			\Newspack_Nodes\Topology_Registry::reset();
+			$this->rmdir_recursive( $stock );
+		}
+	}
+
 	public function test_spawn_due_workers_records_locally_so_a_second_pass_cannot_double_post(): void {
 		$this->with_active_fleet( [
 			'cold-start-workers' => [ 'num_partitions' => 3, 'topology' => '/cs.tsl', 'stale_timeout' => 45 ],

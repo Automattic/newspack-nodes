@@ -115,11 +115,11 @@ class Classes_CI_Node extends Service_CI_Node {
 					continue;
 				}
 				$schema = $fqcn::node_schema();
-				$cat    = $schema['category'] ?? '';
 				// (d) skip non-palette: Hidden, empty category, or hidden flag.
-				if ( 'Hidden' === $cat || '' === $cat || ! empty( $schema['hidden'] ) ) {
+				if ( ! Node::in_palette( $schema ) ) {
 					continue;
 				}
+				$cat = $schema['category'];
 				$seen[ $fqcn ] = true;
 				$classes[]     = [
 					'shell_name'     => \substr( $short, 0, -\strlen( '_Node' ) ),
@@ -134,6 +134,8 @@ class Classes_CI_Node extends Service_CI_Node {
 					'registrations'  => $schema['registrations'] ?? [],
 					'accepts_fill'   => (bool) ( $schema['accepts_fill'] ?? true ),
 					'has_target'     => (bool) ( $schema['has_target']   ?? true ),
+					// Siblings the console draws as owned, suffix => class.
+					'owns'           => $schema['owns'] ?? [],
 					// An interpreter is addressed directly; others via :config.
 					'is_interpreter' => \is_subclass_of( $fqcn, Command_Interpreter_Node::class ),
 					// A fan-out target is a LIST; the editor renders chips.

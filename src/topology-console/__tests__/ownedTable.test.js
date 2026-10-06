@@ -173,6 +173,77 @@ describe( 'an owned Table on the console', () => {
 		).toMatch( /owned by crawl-4471/i );
 	} );
 
+	it( 'shows an owned node no Routing, Constructor or Verbs in edit mode, its note kept', () => {
+		const ledgerSchema = {
+			shell_name: 'Table',
+			arguments: [ { name: 'ledger_ns', type: 'string' } ],
+			commands: [
+				{ name: 'set_ledger_ttl', args: [ { name: 'seconds' } ] },
+				{
+					name: 'add_ledger_tag',
+					multiple: true,
+					args: [ { name: 'tag' } ],
+				},
+			],
+		};
+		const parsed = {
+			nodes: [
+				{ id: 'patron-5823', class: 'Echo' },
+				{
+					id: 'patron-5823:ledger',
+					name: 'patron-5823:ledger',
+					class: 'Table',
+					owner: 'patron-5823',
+				},
+			],
+			edges: [
+				{
+					from: 'patron-5823',
+					to: 'patron-5823:ledger',
+					roles: [ 'extra' ],
+				},
+			],
+		};
+		const onUpdateArgs = jest.fn();
+		const onUpdateVerbs = jest.fn();
+		const { container } = renderWithCatalog(
+			<Inspector
+				selectedId="patron-5823:ledger"
+				parsed={ parsed }
+				streamStatus="open"
+				rateInfo={ null }
+				onAction={ () => {} }
+				onSelect={ () => {} }
+				onHover={ () => {} }
+				nodeIds={ new Set( parsed.nodes.map( ( n ) => n.id ) ) }
+				sseSession={ null }
+				editMode
+				onUpdateArgs={ onUpdateArgs }
+				onUpdateVerbs={ onUpdateVerbs }
+				onConnect={ () => {} }
+				onRemoveEdge={ () => {} }
+			/>,
+			{ classes: [ ledgerSchema ] }
+		);
+
+		const sections = [
+			...container.querySelectorAll( '.topology-insp__section-title' ),
+		].map( ( h ) => h.textContent );
+		expect( sections ).not.toContain( 'Routing' );
+		expect( sections ).not.toContain( 'Constructor' );
+		expect( sections ).not.toContain( 'Verbs' );
+		expect( container.textContent ).not.toMatch( /ledger_ns/ );
+		expect( container.textContent ).not.toMatch( /set_ledger_ttl/ );
+		expect(
+			container.querySelectorAll(
+				'input:not([disabled]), select:not([disabled]), textarea:not([disabled])'
+			)
+		).toHaveLength( 0 );
+		expect(
+			container.querySelector( '.topology-insp__owned' ).textContent
+		).toMatch( /owned by patron-5823/i );
+	} );
+
 	it( 'offers no delete or rename in edit mode, saying why there', () => {
 		const onRemoveNode = jest.fn();
 		const container = inspectTable( {

@@ -713,6 +713,84 @@ describe( 'SchematicCanvas', () => {
 		expect( out.classList.contains( 'is-wire-source' ) ).toBe( false );
 	} );
 
+	describe( 'an owned node as a wire source', () => {
+		const ownedParsed = {
+			nodes: [
+				{ id: 'patron-5823' },
+				{ id: 'patron-5823:ledger', owner: 'patron-5823' },
+			],
+			edges: [],
+		};
+
+		function outPortOf( editMode, id ) {
+			const { container } = renderWithCatalog(
+				<SchematicCanvas
+					{ ...baseProps }
+					parsed={ ownedParsed }
+					editMode={ editMode }
+					onConnect={ () => {} }
+				/>,
+				{
+					positionOverrides: {
+						'patron-5823': { x: 60, y: 80 },
+						'patron-5823:ledger': { x: 300, y: 80 },
+					},
+					onPositionChange: baseProps.onPositionChange,
+					viewport: baseProps.viewport,
+					onViewportChange: baseProps.onViewportChange,
+				}
+			);
+			return [ ...container.querySelectorAll( '.topology-node' ) ]
+				.find( ( card ) => card.textContent.endsWith( id ) )
+				.querySelector( '.topology-port--out' );
+		}
+
+		it( 'offers no wire drag from an owned node in edit mode', () => {
+			const port = outPortOf( true, 'patron-5823:ledger' );
+			expect( port.classList.contains( 'is-wire-source' ) ).toBe( false );
+			fireEvent.mouseDown( port, { button: 0, clientX: 0, clientY: 0 } );
+			fireEvent.mouseMove( window, { clientX: 90, clientY: 40 } );
+			expect(
+				port.ownerSVGElement.querySelector( '.topology-wire-drag' )
+			).toBeNull();
+			fireEvent.mouseUp( window, { clientX: 90, clientY: 40 } );
+
+			const ownerPort = outPortOf( true, 'patron-5823' );
+			expect( ownerPort.classList.contains( 'is-wire-source' ) ).toBe(
+				true
+			);
+			fireEvent.mouseDown( ownerPort, {
+				button: 0,
+				clientX: 0,
+				clientY: 0,
+			} );
+			fireEvent.mouseMove( window, { clientX: 90, clientY: 40 } );
+			expect(
+				ownerPort.ownerSVGElement.querySelector( '.topology-wire-drag' )
+			).not.toBeNull();
+			fireEvent.mouseUp( window, { clientX: 90, clientY: 40 } );
+		} );
+
+		it( "paints no edit-mode fill on an owned node's OUT port", () => {
+			expect(
+				outPortOf( true, 'patron-5823:ledger' ).classList.contains(
+					'is-edit'
+				)
+			).toBe( false );
+			expect(
+				outPortOf( true, 'patron-5823' ).classList.contains( 'is-edit' )
+			).toBe( true );
+		} );
+
+		it( 'keeps the owned node a wire source in view mode', () => {
+			expect(
+				outPortOf( false, 'patron-5823:ledger' ).classList.contains(
+					'is-wire-source'
+				)
+			).toBe( true );
+		} );
+	} );
+
 	it( 'honors the parent-provided viewport as the SVG viewBox', () => {
 		const { container } = renderWithCatalog(
 			<SchematicCanvas { ...baseProps } />,

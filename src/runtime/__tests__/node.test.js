@@ -134,6 +134,13 @@ test( 'counter increments on each fill', () => {
 	expect( n.counter ).toBe( 2 );
 } );
 
+// The PHP twin is Node::sibling_name_of(); the two spell one name.
+test( 'siblingNameOf names a sibling {patron}:{suffix}', () => {
+	expect( Node.siblingNameOf( 'kea-patron-6620', 'ledger' ) ).toBe(
+		'kea-patron-6620:ledger'
+	);
+} );
+
 // `target` is string|string[]; ONE reader, so no caller invents its own.
 describe( 'targetsOf', () => {
 	it( 'reads both shapes as a list, dropping the unset one', () => {

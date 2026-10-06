@@ -77,7 +77,7 @@ describe( 'Inspector (edit mode)', () => {
 		expect( onRemoveNode ).toHaveBeenCalledWith( 'echo' );
 	} );
 
-	it( "shows a borrowed node's Routing section, editable like an owned node's", () => {
+	it( "shows a borrowed node's Routing section, editable like a declared node's", () => {
 		const props = {
 			...baseProps,
 			selectedId: 'firehose:consumer',

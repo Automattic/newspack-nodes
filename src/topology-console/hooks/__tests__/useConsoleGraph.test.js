@@ -1218,6 +1218,7 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 			expect( seeded?.edges ).toContainEqual( {
 				from: 'quokka-owner-388',
 				to: 'quokka-owner-388:ledger',
+				roles: [ 'extra' ],
 			} );
 		} );
 	} );

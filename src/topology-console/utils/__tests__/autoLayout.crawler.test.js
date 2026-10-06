@@ -37,6 +37,7 @@ describe( 'autoLayout — the crawler worker and its owned Table', () => {
 		expect( graph.edges ).toContainEqual( {
 			from: 'crawler',
 			to: 'crawler:seen',
+			roles: [ 'extra' ],
 		} );
 	} );
 

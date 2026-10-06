@@ -199,8 +199,7 @@ final class Crawler_Node extends Timer_Node {
 		try {
 			$this->curl = $this->publish_curl();
 			$this->publish_sibling( self::SEEN, $seen );
-			$table = self::seen_table( $this->name, (string) $this->ttl );
-			$seen->arguments( \array_values( $table['table'] ) );
+			$seen->arguments( \array_values( self::owned_table( self::SEEN, $this->name, [ (string) $this->ttl ] ) ) );
 		} catch ( \Throwable $e ) {
 			$this->drop_siblings();
 			throw $e;
@@ -209,22 +208,22 @@ final class Crawler_Node extends Timer_Node {
 	}
 
 	/**
-	 * The `{name}:seen` Table a Crawler named `$name` builds, as the analyzer
-	 * declares and claims it without building a node: its name, and the
-	 * namespace, ttl and backend its arguments carry, in that order.
+	 * The `seen` Table a Crawler named `$owner` builds, which build_siblings()
+	 * and the analyzer both read: the namespace, ttl and backend its arguments
+	 * carry, in that order. The first argument is the TTL, which has no
+	 * default.
 	 *
-	 * @param string $name Crawler name.
-	 * @param string $ttl  Seconds a url counts as seen, as written.
-	 * @return array{name: string, table: array{namespace: string, ttl: string, backend: string}}
+	 * @param string       $suffix    The owned Table's suffix, `seen`.
+	 * @param string       $owner     Crawler name.
+	 * @param list<string> $arguments The Crawler's `make_node` arguments.
+	 * @return array{namespace: string, ttl: string, backend: string}
+	 * @throws \RuntimeException When the Crawler declares no TTL.
 	 */
-	public static function seen_table( string $name, string $ttl ): array {
+	public static function owned_table( string $suffix, string $owner, array $arguments ): array {
 		return [
-			'name'  => self::sibling_name_of( $name, self::SEEN ),
-			'table' => [
-				'namespace' => $name,
-				'ttl'       => $ttl,
-				'backend'   => 'sqlite',
-			],
+			'namespace' => $owner,
+			'ttl'       => $arguments[0] ?? throw new \RuntimeException( \esc_html( "Crawler {$owner} declares no TTL" ) ),
+			'backend'   => 'sqlite',
 		];
 	}
 
@@ -668,6 +667,8 @@ final class Crawler_Node extends Timer_Node {
 			'category'    => 'I/O',
 			'description' => 'Crawl from each seed url: fetch it, send every answer to target with KEY set to the url, and follow the links on its origin, each once per ttl; a seed already seen answers a TM_INFO.',
 			'has_target'  => true,
+			// The Table owned_table() declares, drawn on the console as owned.
+			'owns'        => [ self::SEEN => 'Table' ],
 			'arguments'   => [
 				[ 'name' => 'ttl', 'type' => 'int', 'required' => true, 'description' => 'Seconds a url counts as seen, at least 1; it may be crawled again after.' ],
 				[ 'name' => 'vault_group', 'type' => 'vault_group', 'default' => '', 'description' => 'Optional Vault group: each url is fetched with the credential of the group entry on its origin, if any.' ],
