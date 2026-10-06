@@ -220,9 +220,7 @@ export default function Jobs() {
 				source={ __( 'Job backlog', 'newspack-nodes' ) }
 				node="topicprobe:link"
 			/>
-			<div className="nodes-probe-tab__panels">
-				<TopicsPanels panels={ panels } />
-			</div>
+			<TopicsPanels panels={ panels } />
 			<ProbeTable
 				columns={ COLUMNS }
 				rows={ rows }

@@ -84,15 +84,3 @@
 		}
 	}
 }
-
-// ── Topics panels (Message Rate / Byte Rate / Backlog) — d3 via useTimeChart ─
-.nodes-overview__panels {
-	display: flex;
-	flex-direction: column;
-	gap: 12px;
-	margin: 12px 0;
-}
-
-.nodes-topics {
-	padding: 9px 11px;
-}

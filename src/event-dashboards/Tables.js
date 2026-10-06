@@ -294,9 +294,7 @@ export default function Tables() {
 				source={ __( 'Table statistics', 'newspack-nodes' ) }
 				node="tablestats:link"
 			/>
-			<div className="nodes-probe-tab__panels">
-				<TopicsPanels panels={ panels } />
-			</div>
+			<TopicsPanels panels={ panels } />
 			<ProbeTable
 				columns={ COLUMNS }
 				rows={ rows }

@@ -1,0 +1,19 @@
+/**
+ * Topics panels — TopicsChart's card and the two-column grid TopicsPanels
+ * lays them in, for every tab that draws them (Overview, Jobs, Tables) and the
+ * debug overlay, whose overview-tab.scss narrows the grid to one column.
+ */
+
+.nodes-topics-panels {
+	display: grid;
+	// minmax(0, …): a drawn SVG's own width must not pin its column.
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	gap: 12px;
+	margin: 0 0 16px;
+	// An expanded panel grows alone instead of stretching its row neighbour.
+	align-items: start;
+}
+
+.nodes-topics {
+	padding: 9px 11px;
+}

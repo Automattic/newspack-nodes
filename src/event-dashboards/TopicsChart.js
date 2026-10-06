@@ -31,6 +31,7 @@ import { chartColor } from '@newspack-nodes/shared/hooks/useTimeChart';
 import AreaTimeChart from '@newspack-nodes/shared/components/AreaTimeChart';
 import { buildAlignedSeries } from './buildAlignedSeries';
 import { formatGroupedCount } from '@newspack-nodes/shared/utils/formatters';
+import './styles/topics-chart.scss';
 
 /** @typedef {import('@newspack-nodes/shared/utils/axis-ticks').AxisFormatter} AxisFormatter */
 
@@ -40,10 +41,10 @@ const HEIGHT = 200;
 /**
  * Hard cap on the axis length `buildAlignedSeries` produces.
  *
- * A panel is about 1800px wide, so a denser axis is sub-pixel: the extra points
- * buy nothing but d3 redraw time.
+ * A panel is half a row, about 900px wide, so 500 slots keep each nearly two
+ * pixels wide; a denser axis buys nothing but d3 redraw time.
  */
-const MAX_POINTS = 1000;
+const MAX_POINTS = 500;
 
 /**
  * The colour a topic takes from its rank in the full list.
@@ -120,12 +121,16 @@ export const TopicsChart = memo(
  *
  * @param {Object}        props        Component props.
  * @param {Array<Object>} props.panels Panel declarations, drawn in order.
- * @return {import('react').ReactElement[]} One chart per declaration.
+ * @return {import('react').ReactElement} The charts, two to a grid row.
  */
 export function TopicsPanels( { panels } ) {
-	return panels.map( ( panel ) => (
-		<TopicsChart key={ panel.title } { ...panel } />
-	) );
+	return (
+		<div className="nodes-topics-panels">
+			{ panels.map( ( panel ) => (
+				<TopicsChart key={ panel.title } { ...panel } />
+			) ) }
+		</div>
+	);
 }
 
 /**

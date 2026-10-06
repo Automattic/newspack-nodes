@@ -461,9 +461,7 @@ export default function Overview( { headerControlsSlot } ) {
 				consumers={ consumers }
 				partitions={ partitions }
 			/>
-			<div className="nodes-overview__panels">
-				<TopicsPanels panels={ panels } />
-			</div>
+			<TopicsPanels panels={ panels } />
 			{ actives.length > 0 && (
 				<div className="nodes-overview__toolbar">
 					<button

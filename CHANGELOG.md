@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The Overview tab's Topics charts lay out two to a row**, as the Jobs and Tables tabs' do. `TopicsPanels` renders its own `.nodes-topics-panels` grid wrapper, styled once in `event-dashboards/styles/topics-chart.scss`, which `TopicsChart.js` imports; the per-tab `.nodes-overview__panels` and `.nodes-probe-tab__panels` wrappers and rules are gone. The debug overlay renders its two charts through `TopicsPanels` too, narrowed to one column by `.nodes-debug__panel .nodes-topics-panels`.
+- **A Topics chart draws at most 500 slots, down from 1000.** The cap tracks the panel's width, and a panel is now half a row, about 900px; `buildAlignedSeries()` widens each bucket to fit, keeping its max, so a spike still survives.
+
 ### Fixed
 
 - **The Vault matches a server URL's `https://` scheme in any case.** `Vault::add()` and `update()` compare it with `strncasecmp()`, as `https_required()` does. Under WordPress `esc_url_raw()` already lowercases the scheme before the check, so this changes behaviour only where `sanitized_url()` runs without WordPress. The Vault admin form's own check is case-insensitive too, so it no longer refuses `HTTPS://host` before the store sees it.
