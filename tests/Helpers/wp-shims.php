@@ -343,13 +343,16 @@ if ( ! function_exists( 'rest_sanitize_boolean' ) ) {
 }
 
 if ( ! function_exists( 'sanitize_text_field' ) ) {
-	// Body kept in lockstep with ELN's stub (its tests/bootstrap.php).
+	// Mirrors WordPress's _sanitize_text_fields(), percent-octet removal too.
 	function sanitize_text_field( mixed $v ): string {
 		if ( ! is_string( $v ) ) {
 			return '';
 		}
 		$v = \strip_tags( $v );
 		$v = \preg_replace( '/[\x00-\x1F\x7F]/', '', $v ) ?? $v;
+		while ( \preg_match( '/%[a-f0-9]{2}/i', $v, $octet ) ) {
+			$v = \str_replace( $octet[0], '', $v );
+		}
 		$v = \preg_replace( '/\s+/', ' ', $v ) ?? $v;
 		return \trim( $v );
 	}
