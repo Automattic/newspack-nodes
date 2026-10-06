@@ -681,7 +681,7 @@ const NodeCard = memo(
 	 * @param {boolean} props.hasIn        Draws an IN port: it accepts fill.
 	 * @param {boolean} props.isSnapTarget The IN port a dragged wire would land on.
 	 * @param {boolean} props.hasOut       Draws an OUT port: it carries a target.
-	 * @param {boolean} props.isEdit       Edit mode, which paints the OUT port.
+	 * @param {boolean} props.isEdit       Edit mode on a node no owner builds, which paints the OUT port.
 	 * @param {boolean} props.isWireSource A wire drag may start at the OUT port.
 	 * @param {Object}  props.events       The canvas's stable card handlers.
 	 * @return {import('react').ReactElement} The card's `<g>`.
@@ -816,9 +816,11 @@ const NodeCard = memo(
 								cy={ NODE_H / 2 }
 								r={ PORT_R }
 								onPointerDown={ ( ev ) =>
-									events.port( ev, id )
+									isWireSource && events.port( ev, id )
 								}
-								onMouseDown={ ( ev ) => events.port( ev, id ) }
+								onMouseDown={ ( ev ) =>
+									isWireSource && events.port( ev, id )
+								}
 							/>
 						) }
 					</>
@@ -1858,8 +1860,10 @@ export default function SchematicCanvas( {
 					hasIn={ acceptsFill( n, classCatalog ) }
 					isSnapTarget={ wireDrag?.hoveredId === n.id }
 					hasOut={ hasTarget( n, classCatalog ) }
-					isEdit={ editMode }
-					isWireSource={ interactive && !! onConnect }
+					isEdit={ editMode && ! n.owner }
+					isWireSource={
+						interactive && !! onConnect && ! ( editMode && n.owner )
+					}
 					events={ cardEvents }
 				/>
 			),

@@ -848,6 +848,18 @@ export class Node {
 			this._name = '';
 		}
 	}
+
+	/**
+	 * `{patron}:{suffix}`, a sibling's name; twin of PHP
+	 * `Node::sibling_name_of()`.
+	 *
+	 * @param {string} patron The publishing node's name.
+	 * @param {string} suffix The suffix that follows it.
+	 * @return {string} The sibling's name.
+	 */
+	static siblingNameOf( patron, suffix ) {
+		return `${ patron }:${ suffix }`;
+	}
 }
 
 /**

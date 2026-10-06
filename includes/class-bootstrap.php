@@ -498,8 +498,10 @@ class Bootstrap {
 	 *
 	 * Each consumer acts on the readable set and surfaces the failures its own
 	 * way — a row per topology in a listing, a raise after the work is done —
-	 * so one broken `.tsl` costs its own rows and nothing else. The graph walk
-	 * memoizes success and failure alike, so asking again costs no parse.
+	 * so one broken `.tsl` costs its own rows and nothing else. Readable means
+	 * both the graph and the write set build, the latter reading every owned
+	 * Table off its owner's line; the graph walk memoizes success and failure
+	 * alike, and the write set its success, so asking again costs no parse.
 	 *
 	 * @return array{0: array<string,array<array-key,mixed>>, 1: array<string,\Throwable>} Readable name => entry, then name => what it threw, in configured order.
 	 * @throws \RuntimeException When the runtime base directory is unusable.
@@ -555,6 +557,8 @@ class Bootstrap {
 					throw new \RuntimeException( \esc_html( "unknown topology '$name': no .tsl resolves" ) );
 				}
 				Topology_Analyzer::graph_for( $name );
+				// The graph reads no owner's line; the write set reads each.
+				Topology_Analyzer::write_set( $name );
 			}
 		);
 		return [ \array_map( Core::arr( ... ), \array_diff_key( $entries, $failures ) ), $failures ];

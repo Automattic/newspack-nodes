@@ -30,6 +30,9 @@ class Topology_Analyzer {
 	/** @var array<string,array{nodes:list<array<string,int|string|list<string>>>,edges:list<array{0:string,1:string}>}> Memoized structural graph by topology name (node entries carry `type` + `args`). */
 	private static array $graph_cache = [];
 
+	/** @var array<class-string<Node>,array<string,string>> Memoized palette-checked `owns`, suffix => class, by node class. */
+	private static array $owns_cache = [];
+
 	/** @var array<string,array<string,int>> Memoized per-Partition segment_size overrides, by topology name + partition count. */
 	private static array $segment_size_overrides_cache = [];
 
@@ -789,9 +792,8 @@ class Topology_Analyzer {
 	 * config token, resolved strictly — claims `table:<name>.p<partition>`,
 	 * the stem of its `{base}/tables/<name>.p<partition>.sqlite` file: that
 	 * file has one writer (ADR-6), so two topologies declaring the Table
-	 * conflict whatever their lines say. Every other backend writes no file. A
-	 * `Crawler` claims the file of the sqlite Table it builds, as
-	 * `Crawler_Node::seen_table()` names it.
+	 * conflict whatever their lines say. Every other backend writes no file. An
+	 * owned Table claims its file the same way, as owned_tables() declares it.
 	 *
 	 * @param string $name Topology name.
 	 * @return array<string> Sorted, namespaced token-form paths.
@@ -857,9 +859,10 @@ class Topology_Analyzer {
 				$seen[ 'table:' . ( $values[2] ?? '' ) . '.p<partition>' ] = true;
 				continue;
 			}
-			if ( 'make_node' === $verb && self::type_is( $class, Crawler_Node::class ) ) {
-				$seen[ 'table:' . Crawler_Node::seen_table( $values[2] ?? '', $values[3] ?? '' )['name'] . '.p<partition>' ] = true;
-				continue;
+			foreach ( self::owned_tables( $statement, $values ) as $table => $declared ) {
+				if ( 'sqlite' === Core::resolve_config_tokens( $declared['backend'], true ) ) {
+					$seen[ 'table:' . $table . '.p<partition>' ] = true;
+				}
 			}
 			// offsetlog (4th value) + deadletter (5th): sole-writer logs.
 			if ( 'make_node' === $verb && self::type_is( $class, Consumer_Node::class ) && isset( $values[4] ) ) {
@@ -926,26 +929,28 @@ class Topology_Analyzer {
 
 	/**
 	 * The nodes an owner in a topology builds for itself, its includes
-	 * flattened in, in declaration order: each Crawler's `{name}:seen` Table,
-	 * as `Crawler_Node::seen_table()` names it. No `make_node` line declares
-	 * one, and its owner writes it, declaring it in `extra_targets()`.
+	 * flattened in, in declaration order: each sibling its class's
+	 * `node_schema()['owns']` declares, suffix to class, named as
+	 * `Node::sibling_name_of()` names it, such as a `{name}:seen` Table. No
+	 * `make_node` line declares one, and its owner writes it, declaring it in
+	 * `extra_targets()`.
 	 *
 	 * @param string $name Topology name.
 	 * @return list<array{name: string, class: string, owner: string}>
-	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
+	 * @throws \RuntimeException On unknown include, cycle, conflicting
+	 *                           make_node, or an owner off the palette.
 	 */
 	public static function owned_nodes( string $name ): array {
 		$out = [];
 		foreach ( self::statements( $name )['statements'] as $statement ) {
-			if ( 'make_node' !== $statement['verb'] || ! self::type_is( $statement['values'][1] ?? '', Crawler_Node::class ) ) {
-				continue;
-			}
 			$owner = $statement['values'][2] ?? '';
-			$out[] = [
-				'name'  => Crawler_Node::seen_table( $owner, '' )['name'],
-				'class' => 'Table',
-				'owner' => $owner,
-			];
+			foreach ( self::owns( $statement ) as $suffix => $class ) {
+				$out[] = [
+					'name'  => Node::sibling_name_of( $owner, $suffix ),
+					'class' => $class,
+					'owner' => $owner,
+				];
+			}
 		}
 		return $out;
 	}
@@ -955,11 +960,10 @@ class Topology_Analyzer {
 	 * namespace, TTL and backend as written, an omitted backend read off
 	 * `Table_Node::node_schema()`. A Table's TTL has no default — the
 	 * `make_node` line is the one place it lives — so one declaring none is
-	 * refused here. A `Crawler` contributes the Table it builds, as
-	 * `Crawler_Node::seen_table()` declares it, and one declaring no TTL is
-	 * refused too. Keyed by the name as written, as declares_node() reads
-	 * it; write_set() claims the file under the name with `<topology>`
-	 * substituted.
+	 * refused here. A class whose `owns` declares a Table contributes it, with
+	 * the arguments its `owned_table()` reads off the owner's line, which may
+	 * refuse it. Keyed by the name as written, as declares_node() reads it;
+	 * write_set() claims the file under the name with `<topology>` substituted.
 	 *
 	 * @param string $name Topology name.
 	 * @return array<string,array{namespace: string, ttl: string, backend: string}>
@@ -973,12 +977,7 @@ class Topology_Analyzer {
 			if ( 'make_node' !== $statement['verb'] ) {
 				continue;
 			}
-			if ( self::type_is( $values[1] ?? '', Crawler_Node::class ) ) {
-				$crawler = $values[2] ?? '';
-				$seen    = Crawler_Node::seen_table( $crawler, $values[3] ?? throw new \RuntimeException( \esc_html( "Crawler {$crawler} declares no TTL" ) ) );
-				$out[ $seen['name'] ] = $seen['table'];
-				continue;
-			}
+			$out = \array_merge( $out, self::owned_tables( $statement, $values ) );
 			if ( ! self::type_is( $values[1] ?? '', Table_Node::class ) ) {
 				continue;
 			}
@@ -1009,6 +1008,66 @@ class Topology_Analyzer {
 			}
 		}
 		return '';
+	}
+
+	/**
+	 * The Tables a `make_node` statement's owner builds, name => arguments:
+	 * each `owns` entry whose class is a Table, its arguments read off
+	 * `$values` by the owner's `owned_table()`. Empty for any other statement.
+	 *
+	 * @param array{verb: string, values: list<string>} $statement A walked statement.
+	 * @param list<string>                              $values    Its values, as the caller reads them.
+	 * @return array<string,array{namespace: string, ttl: string, backend: string}>
+	 * @throws \RuntimeException When the owner refuses its line, or is off the palette.
+	 */
+	private static function owned_tables( array $statement, array $values ): array {
+		$suffixes = \array_keys(
+			\array_filter(
+				self::owns( $statement ),
+				static fn ( string $class ): bool => self::type_is( $class, Table_Node::class )
+			)
+		);
+		if ( [] === $suffixes ) {
+			return [];
+		}
+		$fqcn = Command_Interpreter_Node::resolve_class( $values[1] ?? '' );
+		if ( null === $fqcn ) {
+			return [];
+		}
+		$owner = $values[2] ?? '';
+		$out   = [];
+		foreach ( $suffixes as $suffix ) {
+			$out[ Node::sibling_name_of( $owner, $suffix ) ] = $fqcn::owned_table( $suffix, $owner, \array_slice( $values, 3 ) );
+		}
+		return $out;
+	}
+
+	/**
+	 * What a `make_node` statement's class declares it `owns`, suffix to
+	 * class; empty for any other statement. Memoized per class, so a walk
+	 * builds each class's schema once.
+	 *
+	 * @param array{verb: string, values: list<string>} $statement A walked statement.
+	 * @return array<string,string>
+	 * @throws \RuntimeException When a class off the palette declares owns.
+	 */
+	private static function owns( array $statement ): array {
+		$fqcn = 'make_node' === $statement['verb'] ? Command_Interpreter_Node::resolve_class( $statement['values'][1] ?? '' ) : null;
+		if ( null === $fqcn ) {
+			return [];
+		}
+		if ( isset( self::$owns_cache[ $fqcn ] ) ) {
+			return self::$owns_cache[ $fqcn ];
+		}
+		$schema = $fqcn::node_schema();
+		$owns   = [];
+		foreach ( Core::arr( $schema['owns'] ?? [] ) as $suffix => $class ) {
+			$owns[ (string) $suffix ] = Core::as_string( $class );
+		}
+		if ( [] !== $owns && ! Node::in_palette( $schema ) ) {
+			throw new \RuntimeException( \esc_html( ( $statement['values'][1] ?? '' ) . ' declares owns but is not a palette class' ) );
+		}
+		return self::$owns_cache[ $fqcn ] = $owns;
 	}
 
 	/**
@@ -1516,6 +1575,7 @@ class Topology_Analyzer {
 		self::$write_meta_cache             = [];
 		self::$write_nodes_cache            = [];
 		self::$graph_cache                  = [];
+		self::$owns_cache                   = [];
 		self::$frontmatter_cache            = [];
 		self::$statements_cache             = [];
 	}

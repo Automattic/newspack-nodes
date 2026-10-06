@@ -114,6 +114,29 @@ final class OwnedTableCanvasTest extends TestCase {
 		$this->assertSame( [], $meta['owner-6620']['targets'], 'only extra_targets() draws an edge' );
 	}
 
+	/** What the console draws as owned is exactly what the Crawler builds and wires. */
+	public function test_the_rows_the_crawler_owns_are_what_its_schema_declares(): void {
+		$meta = $this->ci->dispatch( 'dump_metadata' );
+		$this->assertIsArray( $meta );
+
+		$declared = [];
+		foreach ( Crawler_Node::node_schema()['owns'] as $suffix => $class ) {
+			$declared[ Node::sibling_name_of( 'crawl-4471', $suffix ) ] = $class;
+		}
+		$owned = [];
+		foreach ( $meta as $name => $row ) {
+			if ( 'crawl-4471' === ( $row['owner'] ?? null ) ) {
+				$owned[ $name ] = $row['class'];
+			}
+		}
+
+		$this->assertNotEmpty( $declared );
+		$this->assertSame( $declared, $owned );
+		foreach ( \array_keys( $declared ) as $name ) {
+			$this->assertContains( $name, $meta['crawl-4471']['targets'] );
+		}
+	}
+
 	public function test_an_owned_row_names_its_owner_and_an_unowned_row_names_none(): void {
 		$meta = $this->ci->dispatch( 'dump_metadata' );
 

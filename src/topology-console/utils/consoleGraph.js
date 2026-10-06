@@ -10,6 +10,7 @@
  */
 
 import names from '../../runtime/reserved-node-names.json';
+import { Node } from '../../runtime/node';
 
 /**
  * True when an edge is a physical `connect_node` connection — the only kind
@@ -139,12 +140,13 @@ export function withReplAnchor( graph ) {
  * Add the nodes an owner builds for itself, which no `.tsl` line declares, so
  * the graph drawn from a `.tsl` carries them before `dump_metadata` answers.
  *
- * Each arrives as `topologies get` names it, and is wired from its owner as
- * the owner's `extra_targets()` wire it at runtime. One whose owner the graph
- * lacks, or that the graph already holds, is skipped.
+ * Each arrives as `topologies get` or `ownedOf()` names it, and is wired from
+ * its owner as the owner's `extra_targets()` wire it at runtime: an `extra`
+ * edge, never a `connect` one, so no edit offers to disconnect it. One whose
+ * owner the graph lacks, or that the graph already holds, is skipped.
  *
  * @param {Object}                                              graph Graph whose `nodes` and `edges` receive them.
- * @param {Array<{name: string, class: string, owner: string}>} owned `topologies get.owned`.
+ * @param {Array<{name: string, class: string, owner: string}>} owned `topologies get.owned`, or `ownedOf()`.
  * @return {Object} Graph carrying every owned node and its owner's edge.
  * @throws {Error} When the reply carries no owned list.
  */
@@ -172,9 +174,37 @@ export function withOwnedNodes( graph, owned ) {
 		],
 		edges: [
 			...graph.edges,
-			...adding.map( ( o ) => ( { from: o.owner, to: o.name } ) ),
+			// A declared extra (ADR-19), never a `connect_node` an edit drops.
+			...adding.map( ( o ) => ( {
+				from: o.owner,
+				to: o.name,
+				roles: [ 'extra' ],
+			} ) ),
 		],
 	};
+}
+
+/**
+ * The owned nodes the console draws for the graph's owners, read off each
+ * class's catalog `owns` declaration (suffix to class) as `topologies get`
+ * names them from the same declaration. It follows the graph, so a renamed owner takes
+ * its siblings along and a class that declares none builds none.
+ *
+ * @param {Object}                                     graph   Graph whose `nodes` own.
+ * @param {Array<{shell_name: string, owns?: Object}>} catalog Class catalog entries.
+ * @return {Array<{name: string, class: string, owner: string}>} The owned nodes.
+ */
+export function ownedOf( graph, catalog ) {
+	const owns = new Map( catalog.map( ( c ) => [ c.shell_name, c.owns ] ) );
+	return graph.nodes.flatMap( ( n ) =>
+		Object.entries( owns.get( n.class ) ?? {} ).map(
+			( [ suffix, cls ] ) => ( {
+				name: Node.siblingNameOf( n.id, suffix ),
+				class: cls,
+				owner: n.id,
+			} )
+		)
+	);
 }
 
 /**

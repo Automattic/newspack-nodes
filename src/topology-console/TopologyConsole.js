@@ -63,7 +63,12 @@ import {
 	invalidateExpandedIncludes,
 	primeExpandedIncludes,
 } from './hooks/useExpandedIncludes';
-import { generateNodeName, withReplAnchor } from './utils/consoleGraph';
+import {
+	generateNodeName,
+	ownedOf,
+	withOwnedNodes,
+	withReplAnchor,
+} from './utils/consoleGraph';
 import { DraftProvider, useDraftInterpreter } from './DraftContext';
 import { DraftInterpreterNode } from '../runtime/draft-interpreter-node';
 import { CatalogProvider } from './CatalogContext';
@@ -420,9 +425,6 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		assertResolved,
 		revertIncludes,
 	} = draftDoc;
-	// `_repl` is a canvas anchor, not a line any topology contains.
-	const editGraph = useMemo( () => withReplAnchor( draft ), [ draft ] );
-
 	const [ editingName, setEditingName ] = useState( '' );
 	// Source of the topology being edited; drives the DELETE button.
 	const [ editingSource, setEditingSource ] = useState( '' );
@@ -471,6 +473,15 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	// Two catalogs: PHP (HTTP; workers/edit) and JS (browser make_node).
 	const phpCatalog = useClassCatalog( { enabled: true } );
 	const catalogClasses = phpCatalog.classes;
+	// `_repl` and owned nodes are canvas nodes, never lines the document holds.
+	const editGraph = useMemo(
+		() =>
+			withOwnedNodes(
+				withReplAnchor( draft ),
+				ownedOf( draft, catalogClasses )
+			),
+		[ draft, catalogClasses ]
+	);
 	const jsCatalog = useJsCatalog();
 	const vaultCatalog = useVaults( { enabled: true } );
 	// Measure .topology-app so the REPL ceiling tracks real height.
@@ -580,10 +591,11 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	}, [ topologyEntries, scope.label ] );
 	// @longform An uploaded .tsl is the one document that arrives with NO
 	// expansion — `topologies get` ships one, a file does not — and it cannot
-	// be loaded without it: every included node would read as OWNED and the
-	// next save would write them into the file. So an upload parks here, the
-	// expansion below is asked for ITS includes, and the effect beside
-	// `handleUpload` loads the document once that answer names them.
+	// be loaded without it: every included node would read as declared by
+	// this document, and the next save would write them into the file. So an
+	// upload parks here, the expansion below is asked for ITS includes, and
+	// the effect beside `handleUpload` loads the document once that answer
+	// names them.
 	const [ pendingUpload, setPendingUpload ] = useState( null );
 
 	const activeIncludes = useMemo(
@@ -670,8 +682,9 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	 *                                            declares an include, and the
 	 *                                            load throws without it: every
 	 *                                            included node would read as
-	 *                                            OWNED, and the next save would
-	 *                                            write them into the file.
+	 *                                            declared by this document,
+	 *                                            and the next save would write
+	 *                                            them into the file.
 	 * @param {Object}  [doc.resolvedConfigEdges] Server-resolved config edges.
 	 * @param {string}  doc.name                  Editor identity.
 	 * @param {string}  [doc.source]              'stock' | 'user' | '' for local.
@@ -895,8 +908,11 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		! effectiveTopologyName || currentSavedLayout !== null;
 	const graphHasContent =
 		mode === 'edit' ? layoutGraph.nodes.length > 0 : parsedHasNodes;
+	// Edit mode draws owned nodes off the catalog, so it waits for it too.
 	const layoutReady =
-		graphHasContent && ( ! isServerScope || serverFetchResolved );
+		graphHasContent &&
+		( ! isServerScope || serverFetchResolved ) &&
+		( 'edit' !== mode || ! phpCatalog.loading );
 
 	// One layout entry per scope (view) or edited topology (edit).
 	const positionStorageKey = layoutStorageKey( {
@@ -1461,8 +1477,19 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			// The interpreter rewrites every reference as part of the rename.
 			setDraftCatalog( catalog.classes );
 			runDraft( `move_node ${ oldId } ${ newName }` );
-			// Carry the position override onto the new key. Dirty-neutral.
-			renamePosition( oldId, newName );
+			// Carry each override, owned siblings' too, to its new key.
+			const node = editGraph.nodes.find( ( n ) => n.id === oldId );
+			const keysFor = ( id ) => [
+				id,
+				...ownedOf(
+					{ nodes: [ { ...node, id } ] },
+					catalog.classes
+				).map( ( o ) => o.name ),
+			];
+			const renamed = keysFor( newName );
+			keysFor( oldId ).forEach( ( key, i ) =>
+				renamePosition( key, renamed[ i ] )
+			);
 			if ( selectedId === oldId ) {
 				setSelectedId( newName );
 			}

@@ -83,7 +83,7 @@ The gate governs the PHP catalog, which is the right one wherever `make_node` ru
 
 The class-level gate is coarse. Inside a class that made the catalog, `strip_entries()` projects each `commands[]` entry down to `{ name, description, args }` — dropping the non-serializable `handler` and the `capability` the base gate enforces server-side — and carries forward the three flags the sheet's lower right lists: `hidden`, `multiple` and `action`. Ticking a verb in the editor writes a `command_node` line into the `.tsl`, which runs on every worker boot. Where that line addresses is `verbUsesConfig`'s decision ([`src/topology-console/utils/editorLines.js`](../src/topology-console/utils/editorLines.js)), and the file wins: a form the `.tsl` already recorded stands, because the operator wrote it, so editing an existing invocation never flips a bare address to `:config` or back. Only a verb the Inspector has just added falls to the class rule — an interpreter takes its verbs bare, every other class through its auto-wired `:config` sibling, the same split §2's dispatch table draws for a live send.
 
-Six more catalog fields drive the console's own editors. A class declares four of them in its schema, inheriting `Node::node_schema()`'s defaults where it declares none; `Classes_CI` derives the other two from the class itself, so no schema can misstate them:
+Seven more catalog fields drive the console's own editors. A class declares five of them in its schema, inheriting `Node::node_schema()`'s defaults where it declares none; `Classes_CI` derives the other two from the class itself, so no schema can misstate them:
 
 | Field | Where it comes from | What it decides |
 |---|---|---|
@@ -91,6 +91,7 @@ Six more catalog fields drive the console's own editors. A class declares four o
 | `accepts_fill` | the schema, default `true` | Whether the node takes an inbound message; the palette tile and the canvas both draw the IN port from it. |
 | `has_target` | the schema, default `true` | Whether the node routes outbound at all; the inspector hides the Routing row without it, and the canvas gates its OUT port on the same answer. |
 | `registrations` | the schema, default `[]` | Which register events the class accepts; the inspector offers exactly those in its "Register a listener" modal, and hides the button entirely for a class declaring none. |
+| `owns` | the schema, default `[]` | The siblings the console draws as owned, suffix to class — a Crawler names its `seen` Table and not the Curl it also builds; the editor draws each beside its owner as `{owner}:{suffix}`, read-only, and `topologies get` lists them as `owned`. Only a palette class may declare it, and a class owning a `Table` (or a subclass) must override `owned_table( $suffix, $owner, $arguments )` to give the analyzer that Table's namespace, TTL and backend from its own `make_node` arguments. |
 | `is_interpreter` | derived: the class extends `Command_Interpreter_Node` | Where §2's command buttons address — the node itself rather than its `:config` sibling. |
 | `fans_out` | derived: the class uses the `Fanout_Targets` trait | Whether the target is a LIST, which makes the inspector render target chips instead of a single field. |
 

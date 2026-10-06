@@ -116,6 +116,12 @@ final class TopologyAnalyzerTablesTest extends TestCase {
 		);
 	}
 
+	public function test_the_write_set_refuses_a_crawler_declaring_no_ttl(): void {
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'Crawler crawl-8821 declares no TTL' );
+		Topology_Analyzer::write_set( 'crawl-bare' );
+	}
+
 	public function test_a_crawler_declaring_no_ttl_is_refused(): void {
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'Crawler crawl-8821 declares no TTL' );

@@ -466,6 +466,15 @@ class ClassesCITest extends TestCase {
 		);
 	}
 
+	/** The catalog ships what each class builds for itself, suffix to class. */
+	public function test_list_carries_the_siblings_a_class_owns(): void {
+		$result  = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
+		$by_name = \array_column( $result['classes'], null, 'shell_name' );
+
+		$this->assertSame( [ 'seen' => 'Table' ], $by_name['Crawler']['owns'] );
+		$this->assertSame( [], $by_name['Echo']['owns'] );
+	}
+
 	public function test_list_carries_registration_events(): void {
 		// The register/unregister UI reads a node's valid registration events from
 		// the catalog. Timer declares FIRE in node_schema()['registrations'].

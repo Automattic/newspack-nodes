@@ -744,7 +744,7 @@ function RoutingChip( { label, virtual, onClear } ) {
  *
  * Disabled inputs rather than plain text, so a locked row occupies the same
  * space as an editable one and the pane does not reflow as the selection moves
- * between an owned node and a borrowed one.
+ * between a declared node and a borrowed one.
  *
  * @param {Object}  props
  * @param {Object}  props.spec       Verb entry from the class schema.
@@ -835,16 +835,19 @@ function LockedMultipleVerb( { spec, invocations } ) {
 }
 
 /**
- * The edit-mode form for a node this document borrows through an include.
+ * The edit-mode form for a node this document does not declare: one it
+ * borrows through an include, or one an owner builds for itself.
  *
  * The constructor is read-only and there is no rename or delete: those
  * arguments belong to the topology that defines the node, and editing them
- * here would write a line this file cannot own. Routing stays editable, and so
- * do the verb calls this document aims at the node — `VerbsSection` locks the
- * seeded half by itself.
+ * here would write a line this file cannot own. On a borrowed node Routing
+ * stays editable, and so do the verb calls this document aims at it —
+ * `VerbsSection` locks the seeded half by itself. An owned node shows its
+ * header and owner alone: its owner builds it, no line of this document names
+ * it, and the server holds every value a section would show.
  *
  * @param {Object}   props
- * @param {Object}   props.node            The selected borrowed node.
+ * @param {Object}   props.node            The selected borrowed or owned node.
  * @param {Array}    props.catalog         Class catalog entries.
  * @param {string[]} props.formatters      Registered formatter names.
  * @param {Array}    props.vaults          Vault entries.
@@ -888,72 +891,89 @@ function LockedForm( {
 		<aside className="topology-inspector">
 			<h2 className="topology-insp__title">{ node.id }</h2>
 			<div className="newspack-nodes-status is-accent topology-insp__type">
-				{ node.class || '?' } · { __( 'BORROWED', 'newspack-nodes' ) }
+				{ node.class || '?' } ·{ ' ' }
+				{ node.owner
+					? __( 'OWNED', 'newspack-nodes' )
+					: __( 'BORROWED', 'newspack-nodes' ) }
 			</div>
+			{ node.owner && <OwnedNote owner={ node.owner } /> }
 			{ node.via?.length > 0 && (
 				<div className="topology-insp__breadcrumb">
 					via { node.via.join( ' → ' ) }
 				</div>
 			) }
-			{ nodeHasTarget( node, catalog ) && (
-				<Section title={ __( 'Routing', 'newspack-nodes' ) }>
-					<TargetsField
+			{ ! node.owner && (
+				<>
+					{ nodeHasTarget( node, catalog ) && (
+						<Section title={ __( 'Routing', 'newspack-nodes' ) }>
+							<TargetsField
+								node={ node }
+								nodeNames={ ( parsed?.nodes || [] )
+									.map( ( n ) => n.id )
+									.filter( ( id ) => id !== node.id ) }
+								catalog={ catalog }
+								targets={ ( parsed?.edges || [] ).filter(
+									( e ) =>
+										e.from === node.id &&
+										edgeHasConnectRole( e )
+								) }
+								onConnect={ onConnect }
+								onRemoveEdge={ onRemoveEdge }
+							/>
+						</Section>
+					) }
+					<Section title={ __( 'Constructor', 'newspack-nodes' ) }>
+						{ argumentSpecs.length === 0 && (
+							<div className="newspack-nodes-empty-state topology-edit-empty">
+								{ __(
+									'No constructor arguments.',
+									'newspack-nodes'
+								) }
+							</div>
+						) }
+						{ argumentSpecs.map( ( spec, i ) => (
+							<div
+								className="topology-edit-row"
+								key={ spec.name }
+							>
+								<label
+									htmlFor={ `topology-locked-ctor-${ spec.name }` }
+									className="topology-edit-row__label"
+								>
+									{ spec.name }
+								</label>
+								<input
+									id={ `topology-locked-ctor-${ spec.name }` }
+									type="text"
+									className="topology-edit-row__input"
+									value={
+										argDisplayValue( ctorArgs[ i ] ) ?? ''
+									}
+									disabled
+									readOnly
+								/>
+							</div>
+						) ) }
+					</Section>
+					<VerbsSection
 						node={ node }
+						commandSpecs={ commandSpecs }
+						verbInvocations={ verbInvocations }
 						nodeNames={ ( parsed?.nodes || [] )
 							.map( ( n ) => n.id )
 							.filter( ( id ) => id !== node.id ) }
-						catalog={ catalog }
-						targets={ ( parsed?.edges || [] ).filter(
-							( e ) =>
-								e.from === node.id && edgeHasConnectRole( e )
-						) }
-						onConnect={ onConnect }
-						onRemoveEdge={ onRemoveEdge }
+						formatters={ formatters }
+						vaults={ vaults }
+						onUpdateVerbs={ onUpdateVerbs }
 					/>
-				</Section>
+				</>
 			) }
-			<Section title={ __( 'Constructor', 'newspack-nodes' ) }>
-				{ argumentSpecs.length === 0 && (
-					<div className="newspack-nodes-empty-state topology-edit-empty">
-						{ __( 'No constructor arguments.', 'newspack-nodes' ) }
-					</div>
-				) }
-				{ argumentSpecs.map( ( spec, i ) => (
-					<div className="topology-edit-row" key={ spec.name }>
-						<label
-							htmlFor={ `topology-locked-ctor-${ spec.name }` }
-							className="topology-edit-row__label"
-						>
-							{ spec.name }
-						</label>
-						<input
-							id={ `topology-locked-ctor-${ spec.name }` }
-							type="text"
-							className="topology-edit-row__input"
-							value={ argDisplayValue( ctorArgs[ i ] ) ?? '' }
-							disabled
-							readOnly
-						/>
-					</div>
-				) ) }
-			</Section>
-			<VerbsSection
-				node={ node }
-				commandSpecs={ commandSpecs }
-				verbInvocations={ verbInvocations }
-				nodeNames={ ( parsed?.nodes || [] )
-					.map( ( n ) => n.id )
-					.filter( ( id ) => id !== node.id ) }
-				formatters={ formatters }
-				vaults={ vaults }
-				onUpdateVerbs={ onUpdateVerbs }
-			/>
 		</aside>
 	);
 }
 
 /**
- * The Verbs section, shared by the owned and the borrowed form.
+ * The Verbs section, shared by the edit and the borrowed form.
  *
  * A borrowed node's INCLUDE half is read-only — that configuration belongs to
  * the topology that defines it — while the lines THIS document aims at the
@@ -1128,7 +1148,7 @@ function VerbsSection( {
 }
 
 /**
- * The edit-mode form for a node this document owns.
+ * The edit-mode form for a node this document declares.
  *
  * Identity, Routing, Constructor and Verbs, every one of them generated from
  * the class schema. A reserved anchor keeps its header alone: the runtime
@@ -1194,9 +1214,7 @@ function EditForm( {
 				{ node.class || '?' } · { __( 'EDIT', 'newspack-nodes' ) }
 			</div>
 
-			{ node.owner && <OwnedNote owner={ node.owner } /> }
-
-			{ onRemoveNode && ! isReserved( node ) && ! node.owner && (
+			{ onRemoveNode && ! isReserved( node ) && (
 				<button
 					type="button"
 					className="button button-small button-link-delete topology-edit-delete"
@@ -1206,8 +1224,8 @@ function EditForm( {
 				</button>
 			) }
 
-			{ /* A reserved anchor is auto-mounted, an owned node built: no rename. */ }
-			{ ! isReserved( node ) && ! node.owner && (
+			{ /* A reserved anchor is auto-mounted: no rename. */ }
+			{ ! isReserved( node ) && (
 				<Section title={ __( 'Identity', 'newspack-nodes' ) }>
 					<NameField
 						node={ node }
@@ -1816,7 +1834,8 @@ function ComposeModal( { nodeNames, onSend, onCancel } ) {
  * only a hull is selected, the `_command_interpreter` process view when nothing
  * is, and the node view otherwise. Edit mode swaps the node view for a
  * schema-driven config form — locked when the node is borrowed through an
- * include, since its configuration belongs to the topology that defines it.
+ * include or built by its owner, since its configuration belongs to the
+ * topology that defines it or to the owner that builds it.
  *
  * @param {Object}                  props
  * @param {?string}                 props.selectedId        Selected node id; null falls through to the hull or process view.
@@ -2222,7 +2241,7 @@ export default function Inspector( {
 	}
 
 	if ( editMode ) {
-		if ( isBorrowed( node ) ) {
+		if ( isBorrowed( node ) || node.owner ) {
 			return (
 				<LockedForm
 					node={ node }

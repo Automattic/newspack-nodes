@@ -634,9 +634,12 @@ response without that list as fatal rather than wire an edge to the literal
 token text; the console's document loader throws there, and
 [`augmentWithVirtualEdges()`](../src/topology-console/utils/virtualEdges.js) draws no edge at all for a token the server resolved
 to nothing. `owned` covers the whole topology too: one `{ name, class, owner }`
-per node an owner builds for itself and no line declares — each Crawler's
-`{name}:seen` Table — which the console seeds beside its owner, wired from it,
-and treats a response without the list as fatal.
+per node an owner builds for itself and no line declares — each sibling its
+class's `node_schema()['owns']` names, such as a Crawler's `{name}:seen` Table —
+which the console's view-mode seed draws beside its owner, wired from it, and
+treats a response without the list as fatal. The editor reads the same
+declaration off the class catalog instead, so the owned nodes it draws follow
+the draft as it is edited.
 
 **`aggregator` — one `id` field, two meanings.** `list_servers` returns one
 row per wired [`Remote_Source`](../includes/class-remote-source-node.php), keyed by the NODE name in `id` and carrying the
@@ -767,7 +770,9 @@ console flags `multiple`, `hidden` and `action`, and each arg is
 `{ name, type, required }` plus an optional `default` (for example,
 `workers restart`'s `partition`, defaulting to `-1`) and an optional `secret`.
 A node schema may also
-carry `requests`, `registrations`, `accepts_fill`, `has_target` and `hidden`.
+carry `requests`, `registrations`, `accepts_fill`, `has_target`, `owns` and
+`hidden`; `owns` names the siblings the console draws as owned, suffix to class,
+and only a class on the palette may declare it.
 A `requests` entry is `{ name, description, reply_shape }` plus an optional
 `args`, in the shape a command's take, and an optional
 `handler( static $node ): array`; `classes dump` carries every field but the
@@ -819,7 +824,8 @@ verb reference.
 class's schema for the topology-editor palette and the live-mode Inspector. It
 returns `{ classes[], formatters[] }`, each class carrying `shell_name`, `fqcn`,
 `category`, `description`, `arguments`, `commands`, `requests`,
-`registrations`, `accepts_fill`, `has_target`, `is_interpreter` and `fans_out`.
+`registrations`, `accepts_fill`, `has_target`, `owns`, `is_interpreter` and
+`fans_out`.
 The non-serializable `handler` — a command's and a request's — and the
 server-enforced `capability` are stripped on the way out. `formatters[]` is [`Formatters::list_names()`](../includes/class-formatters.php) sorted, and it is
 the option list the console renders for any `node_schema()` argument declared
