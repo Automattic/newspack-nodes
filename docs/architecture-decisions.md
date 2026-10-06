@@ -1378,8 +1378,8 @@ at which point a stamp and a worker id can no longer be told apart by position.
 
 **Context:** TM_REQUEST is the runtime plane: a trigger or a query against a running graph.
 A request may mutate — the example plugin's `TICK` emits items and its `FLUSH` writes a
-draft, and intelligence's `RESET` empties the digest's items and `REGENERATE` composes a new
-draft. Nothing verifies a request. `HTTP_In` installs its HMAC verifier as every interpreter's
+draft, and intelligence's `RESET` appends a fence to its ingest Partition, on whose return the
+digest empties its items, and `REGENERATE` composes a new draft. Nothing verifies a request. `HTTP_In` installs its HMAC verifier as every interpreter's
 default `authorize`, which `Command_Interpreter_Node::interpret()` calls for a TM_COMMAND alone, and
 `Message::packed()` slices `Message::LOCAL` off, so no taint survives an IPC hop
 ([ADR-15](#adr-15-command-authorization-local-taint--the-minter-signs)). The authority for a

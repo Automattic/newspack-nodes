@@ -23,7 +23,7 @@ The finished code is in the sibling [`newspack-intelligence`](https://github.com
 
 The toy graph and the real graph are the same boxes and arrows, plus a durable **ingest** layer the toy didn't need. (The toy's scorer and its `scored` partition arrive in [writing-a-dashboard.md](writing-a-dashboard.md#1-give-the-pipeline-something-worth-showing--score-it-and-make-it-durable) §1, so the bundled example already carries them.) Here's the production topology:
 
-![The production graph as five nested topology files. The aggregator newspack-intelligence.tsl (var on_demand_idle = 0, var num_partitions = 1, include topic-probe, four includes, secure) frames four stage bands. Ingest: github (set_vault_id github and five add_repo lines), linear (set_vault_id linear) and feed (three add_url lines, no credential) fan into ingest:partition, logs/ingest.p0 under void_warranty. Summary: ingest:consumer in line mode feeds the LLM summarizer and the scorer into scored:partition. Digest: scored:consumer, with add_snapshot_node digest, feeds digest (Digest_Builder scored:partition 3), digest:tee and digest:log (digest.md 1 2 7 0 0 0). Gate: gate:consumer tails the same ingest log under offsets/gate.p0 into gate, gate:tojson and gate:log. Dashed green lines mark each Consumer tailing a Partition under its own offsetlog.](img/wrp-production-topology.png)
+![The production graph as five nested topology files. The aggregator newspack-intelligence.tsl (var on_demand_idle = 0, var num_partitions = 1, include topic-probe, four includes, secure) frames four stage bands. Ingest: github (set_vault_id github and five add_repo lines), linear (set_vault_id linear) and feed (three add_url lines, no credential) fan into ingest:partition, logs/ingest.p0 under void_warranty. Summary: ingest:consumer in line mode feeds the LLM summarizer and the scorer into scored:partition. Digest: scored:consumer, with add_snapshot_node digest, feeds digest (Digest_Builder ingest:partition 3), digest:tee and digest:log (digest.md 1 2 7 0 0 0), and a dashed gray edge runs from digest up to ingest:partition, where RESET appends its fence. Gate: gate:consumer tails the same ingest log under offsets/gate.p0 into gate, which drops DONE and the fence, then gate:tojson and gate:log. Dashed green lines mark each Consumer tailing a Partition under its own offsetlog.](img/wrp-production-topology.png)
 
 It ships as five `.tsl` files, not one. [`topologies/newspack-intelligence.tsl`](https://github.com/Automattic/newspack-intelligence/blob/v0.9.12/topologies/newspack-intelligence.tsl) is an aggregator that `include`s a file per stage — `-ingest`, `-summary`, `-digest`, and `-gate` — and restates the resident default, `var on_demand_idle = 0`, which a stage meant to sleep between collects would raise. `register_plugin()` catalogs *every* `.tsl` in `topologies/`, so a stage can be activated alone and run as its own fleet — instead of the aggregator, never alongside it ([§6](#6-ship--operate-it)).
 
@@ -463,9 +463,9 @@ make_node Consumer scored:consumer <config:logs_dir>/scored.p<partition> <config
 # so a respawned worker restores the accumulator in lockstep with the cursor.
 cmd scored:consumer:config add_snapshot_node digest
 cmd scored:consumer:config set_line_mode true
-# Two args: the scored Partition to nudge on RESET, then the progress denominator
-# (done/total), which MUST equal the number of sources that will report DONE.
-make_node Digest_Builder digest scored:partition 3
+# Two required args: the ingest Partition RESET appends its fence to, then the
+# sources per cycle (done/total), which MUST equal the sources that report DONE.
+make_node Digest_Builder digest ingest:partition 3
 cmd digest:config set_vault_id AI-proxy
 cmd digest:config set_model gpt-oss-120b
 make_node Tee digest:tee
@@ -493,29 +493,43 @@ Three sources, one partition, one wire each — fan-in needs no special node, ju
 
 ### There is no manual FLUSH — the digest auto-composes on `DONE`
 
-Unlike the toy, the real digest is **not** flushed by hand. Each source ends its TICK with a terminal `DONE` (§2); the digest counts the *distinct* sources that have reported and composes + writes `digest:log` automatically once every source is in:
+Unlike the toy, the real digest is **not** flushed by hand. Each source ends its TICK with a terminal `DONE` (§2); the digest counts the *distinct* sources that have reported and composes + writes `digest:log` once a cycle, on the DONE that brings that count to `total`:
 
-![A sequence across five lanes: Collect, Sources, the ingest log and consumer, the enrich stage and scored log, and the Digest. One Collect sends request_node digest RESET, which empties items, seen and reported and appends a throwaway TM_INFO 'RESET' to scored:partition so the next checkpoint co-commits the emptied snapshot, then a TICK to github, linear and feed. Each source appends its items and a DONE to ingest:partition; ingest:consumer forwards one record per event cycle in line mode and prepends its name to FROM; the summarizer and scorer forward TM_INFO untouched, so DONE stays behind its items; scored:consumer prepends its name again, so the digest reads scored:consumer/ingest:consumer/github. The digest marks reported[ FROM ] and composes the draft through digest:tee into digest:log once count( reported ) reaches the literal 3 on its make_node line.](img/wrp-done-to-compose.png)
+![A sequence across five lanes: Collect, Sources, the ingest log and consumer, the enrich stage and scored log, and the Digest. One Collect sends request_node digest RESET, which clears nothing on arrival: fence() appends a TM_INFO "RESET\n" to ingest:partition, the Partition its first make_node argument names, ahead of this cycle's items and behind every DONE already in the log. Then a TICK goes to github, linear and feed, and each appends its items and a DONE to ingest:partition. ingest:consumer forwards one record per event cycle in line mode and prepends its name to FROM; the summarizer and scorer forward TM_INFO untouched, so the fence and each DONE stay in order behind what preceded them, while the gate, tailing the same log, drops both; scored:consumer prepends its name again, so the digest reads scored:consumer/ingest:consumer/github. The fence empties items, seen and reported when it arrives, and scored:consumer's next checkpoint co-commits the emptied snapshot. A DONE from a sender not yet counted marks reported[ FROM ], and the one that brings count( reported ) to the required 3 on the make_node line composes the draft through digest:tee into digest:log; a DONE from a sender already counted is ignored.](img/wrp-done-to-compose.png)
 
 ```php
-// Digest_Builder_Node::handle_info() — a DONE from each distinct source; compose when all in.
-if ( "DONE\n" === $value ) {
-	$from                    = \is_string( $message[ Message::FROM ] ?? null ) ? $message[ Message::FROM ] : '';
+private function handle_info( array $message ): void {
+	$value = \is_string( $message[ Message::VALUE ] ?? null ) ? $message[ Message::VALUE ] : '';
+	if ( self::FENCE === $value ) {
+		$this->reset();
+		return;
+	}
+	if ( "DONE\n" !== $value ) {
+		return;
+	}
+	$from = \is_string( $message[ Message::FROM ] ?? null ) ? $message[ Message::FROM ] : '';
+	if ( isset( $this->reported[ $from ] ) ) {
+		return;
+	}
 	$this->reported[ $from ] = true;
-	if ( \count( $this->reported ) >= $this->total ) {
+	if ( \count( $this->reported ) === $this->total ) {
 		$this->compose_draft();
 	}
 }
 ```
 
+Two guards hold the digest to one compose a cycle. A DONE from a sender already counted returns before it touches the tally, so a re-tick or a replayed record cannot compose twice, and the test is `===`, so exactly one DONE meets it.
+
+RESET clears nothing when the request lands. Its handler, `fence()`, appends `TM_INFO` `"RESET\n"` (`Digest_Builder_Node::FENCE`) to the Partition named by the first `make_node` argument, setting TO explicitly because the node's `target` is the draft sink. The fence then travels the whole pipeline — `ingest:consumer`, `summarizer`, `scorer`, `scored:partition`, `scored:consumer` — and `reset()` empties `items`, `seen` and `reported` only when it arrives. Every DONE already in flight when Collect fired sits ahead of the fence in that log, so it counts toward the cycle it belongs to and can complete that cycle's compose; none leaks into the next. Clearing on arrival also lands the emptied snapshot in `scored:consumer`'s next checkpoint, in lockstep with its cursor. Because the digest writes that Partition past its `target`, it declares it in `extra_targets()` ([ADR-19](architecture-decisions.md#adr-19-a-node-may-declare-a-destination-it-writes-without-routing)), and the console draws the edge. The gate stage reads the same fence and DONE lines off `ingest.p0`; `Gate_Node::fill()` drops every non-`TM_STRUCT` message, so neither lands in the decision log.
+
 So driving it by hand is a **RESET, then a TICK per source** — the dashboard's *Collect* button does exactly this:
 
 ```
-> request_node digest RESET        # empty the accumulator, zero the per-cycle DONE tally
+> request_node digest RESET        # fence ingest:partition; the digest clears when it returns
 > request_node github TICK
 > request_node linear TICK
 > request_node feed   TICK
-# …the third DONE reaches the digest and it composes + writes digest:log automatically.
+# …the fence clears the digest, then the third DONE composes and writes digest:log.
 ```
 
 ---
@@ -613,5 +627,5 @@ That was the short hop the toy guide promised: `items()` becomes `fetch()`. It t
 - **[writing-a-real-dashboard.md](writing-a-real-dashboard.md)** — this guide's sibling: the production console/dashboard surfaces (palette vs inspector, measured transcript ceilings, the icons build gotcha) and the *insights out* half §4 deferred.
 - **[writing-a-dashboard.md](writing-a-dashboard.md)** — the toy Publisher Insights React dashboard walkthrough.
 - **[architecture-guide.md](architecture-guide.md)** — the full model: drain loop, partitions, workers, fleet revival, the REPL.
-- **[architecture-decisions.md](architecture-decisions.md)** — the six ADRs this guide leans on (ADR-1 uniform `fill()`, ADR-3 fire-and-forget, ADR-4 PIPE_BUF, ADR-8 worker zombie, ADR-10 `make_node` namespace resolution, ADR-11 `make_node` construction).
+- **[architecture-decisions.md](architecture-decisions.md)** — the seven ADRs this guide leans on (ADR-1 uniform `fill()`, ADR-3 fire-and-forget, ADR-4 PIPE_BUF, ADR-8 worker zombie, ADR-10 `make_node` namespace resolution, ADR-11 `make_node` construction, ADR-19 declared destinations).
 - **[`newspack-intelligence`](https://github.com/Automattic/newspack-intelligence)** — the complete production plugin: `includes/`, the aggregator and four stage `.tsl` files under `topologies/`, the PHPUnit suite.
