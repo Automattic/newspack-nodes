@@ -1909,23 +1909,15 @@ const drawnAt = ( d, succ, pred ) => {
  * @param {Object<string,Array<string>>}                             pred Predecessors.
  * @return {[number, number]} The wires crossing, then the cards a wire runs over.
  */
-const drawingCost = ( d, succ, pred ) => {
-	const cards = Object.keys( d.col );
-	const at = drawnAt( d, succ, pred );
-	let crossings = 0;
-	let over = 0;
+const drawingCost = ( d, succ, pred ) =>
 	walkDrawing(
-		at,
-		cards.flatMap( ( from ) =>
+		drawnAt( d, succ, pred ),
+		Object.keys( d.col ).flatMap( ( from ) =>
 			succ[ from ]
 				.filter( ( to ) => d.col[ to ] !== undefined )
 				.map( ( to ) => ( { from, to } ) )
-		),
-		() => crossings++,
-		() => over++
+		)
 	);
-	return [ crossings, over ];
-};
 
 /**
  * Lay a graph out as packed blocks: each hub group's bands stacked with the
@@ -2248,7 +2240,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 				movers.flatMap( ( from ) =>
 					succ[ from ].map( ( to ) => ( { from, to } ) )
 				),
-				() => {},
+				null,
 				( w, id ) => {
 					crowded ||= succ[ id ].includes( w.to );
 				}
@@ -2458,17 +2450,19 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
  *
  * Crossings count on straight segments and coverage on the drawn cubic. Two
  * wires cross where the straight lines between their cards' positions do,
- * and two wires sharing a card never cross. A card runs under a wire when
- * its column lies strictly between the wire's ends and it sits within the
- * rows `wireRows` gives the drawn curve across that card, the margin
- * `clearWires` and `seatSources` keep. A block's passes measure that curve
+ * and two wires whose ends meet at one point never cross. A card runs under
+ * a wire when its column lies strictly between the wire's ends and it sits
+ * within the rows `wireRows` gives the drawn curve across that card, the
+ * margin `clearWires` and `seatSources` keep. A block's passes measure that curve
  * over the block's own half steps, as this does; a band's, laid out alone,
  * cannot see them. A wire whose ends share a column counts for neither.
  *
  * @param {Object<string,{x: number, y: number}>} at    Canvas position of every card.
  * @param {Array<{from: string, to: string}>}     wires The wires drawn between them.
  * @return {{crossings: Array<string>, over: Array<string>}} `a→b × c→d` for
- * each crossing pair, and `a→b over id` for each card a wire runs over.
+ * each crossing pair, in the order the wires' left ends sort, and `a→b over
+ * id` for each card a wire runs over, by wire, then column left to right,
+ * then card top to bottom.
  * @testonly The export alone; the layout counts through `walkDrawing`.
  */
 export function drawnCost( at, wires ) {
@@ -2487,13 +2481,15 @@ export function drawnCost( at, wires ) {
 }
 
 /**
- * The walk behind `drawnCost`, handing each crossing pair and each card a wire
- * runs over to a callback, so the layout counts what the tests label.
+ * The walk behind `drawnCost` and the layout's own count: the pairs of wires
+ * that cross, then each card a wire runs over, each handed to its callback
+ * when one is given, so the layout counts what the tests label.
  *
- * @param {Object<string,{x: number, y: number}>}                                    at      Canvas position of every card.
- * @param {Array<{from: string, to: string}>}                                        wires   The wires drawn between them.
- * @param {( a: {from: string, to: string}, b: {from: string, to: string} ) => void} onCross Called once per crossing pair.
- * @param {( w: {from: string, to: string}, id: string ) => void}                    onOver  Called once per card a wire runs over.
+ * @param {Object<string,{x: number, y: number}>}                                     at        Canvas position of every card.
+ * @param {Array<{from: string, to: string}>}                                         wires     The wires drawn between them.
+ * @param {?( a: {from: string, to: string}, b: {from: string, to: string} ) => void} [onCross] Called once per crossing pair, in the order the wires' left ends sort; absent or null to count only.
+ * @param {?( w: {from: string, to: string}, id: string ) => void}                    [onOver]  Called once per card a wire runs over, by wire, then column left to right, then card top to bottom; absent or null to count only.
+ * @return {[number, number]} The wires crossing, then the cards a wire runs over.
  */
 const walkDrawing = ( at, wires, onCross, onOver ) => {
 	/** @type {Array<{w: {from: string, to: string}, p: {x: number, y: number}, q: {x: number, y: number}}>} */
@@ -2506,59 +2502,133 @@ const walkDrawing = ( at, wires, onCross, onOver ) => {
 			segs.push( { w, p, q } );
 		}
 	}
-	// Sorted by left end, so a scan stops at the first wire starting past one.
 	segs.sort( ( a, b ) => a.p.x - b.p.x );
-	const yAt = ( { p, q }, x ) =>
-		p.y + ( ( q.y - p.y ) * ( x - p.x ) ) / ( q.x - p.x );
-	for ( let i = 0; i < segs.length; i++ ) {
-		const a = segs[ i ];
-		const { from, to } = a.w;
-		for ( let j = i + 1; j < segs.length; j++ ) {
-			const b = segs[ j ];
-			if ( b.p.x >= a.q.x ) {
-				break;
-			}
-			const meets =
-				from === b.w.from ||
-				from === b.w.to ||
-				to === b.w.from ||
-				to === b.w.to;
-			const hi = Math.min( a.q.x, b.q.x );
-			if (
-				! meets &&
-				( yAt( a, b.p.x ) - yAt( b, b.p.x ) ) *
-					( yAt( a, hi ) - yAt( b, hi ) ) <
-					0
-			) {
-				onCross( a.w, b.w );
-			}
-		}
-	}
+	/** @type {Array<[number, number]>} */
+	const pairs = [];
+	const crossings = countCrossings(
+		segs,
+		onCross && ( ( i, j ) => pairs.push( i < j ? [ i, j ] : [ j, i ] ) )
+	);
+	pairs
+		.sort( ( a, b ) => a[ 0 ] - b[ 0 ] || a[ 1 ] - b[ 1 ] )
+		.forEach( ( [ i, j ] ) => onCross( segs[ i ].w, segs[ j ].w ) );
 	/** @type {Object<number,Array<string>>} */
 	const byX = {};
 	for ( const [ id, { x } ] of Object.entries( at ) ) {
 		( byX[ x ] ??= [] ).push( id );
 	}
-	const xs = Object.keys( byX ).map( Number );
-	for ( const { w, p, q } of segs ) {
-		const [ a, b ] = [ at[ w.from ], at[ w.to ] ];
-		for ( const x of xs ) {
-			if ( x <= p.x || x >= q.x ) {
-				continue;
+	for ( const column of Object.values( byX ) ) {
+		column.sort( ( m, n ) => at[ m ].y - at[ n ].y );
+	}
+	/**
+	 * How many of a column's cards, sorted by row, sit above `y`.
+	 *
+	 * @param {Array<string>} column The column's cards, top first.
+	 * @param {number}        y      The canvas row to count above.
+	 * @param {boolean}       atToo  Whether a card exactly at `y` counts.
+	 * @return {number} The cards above.
+	 */
+	const above = ( column, y, atToo ) => {
+		let [ lo, hi ] = [ 0, column.length ];
+		while ( lo < hi ) {
+			const mid = ( lo + hi ) >> 1;
+			const row = at[ column[ mid ] ].y;
+			if ( row < y || ( atToo && row === y ) ) {
+				lo = mid + 1;
+			} else {
+				hi = mid;
 			}
+		}
+		return lo;
+	};
+	const xs = Object.keys( byX )
+		.map( Number )
+		.sort( ( a, b ) => a - b );
+	let over = 0;
+	let first = 0;
+	for ( const { w, p, q } of segs ) {
+		// Segments run in order of left end, so `first` only moves right.
+		while ( first < xs.length && xs[ first ] <= p.x ) {
+			first++;
+		}
+		const [ a, b ] = [ at[ w.from ], at[ w.to ] ];
+		for ( let k = first; k < xs.length && xs[ k ] < q.x; k++ ) {
 			const [ top, bottom ] = wireRows(
 				b.x - a.x,
-				x - a.x,
+				xs[ k ] - a.x,
 				a.y / Y_STEP,
 				b.y / Y_STEP
-			).map( ( r ) => r * Y_STEP );
-			for ( const id of byX[ x ] ) {
-				if ( at[ id ].y > top && at[ id ].y < bottom ) {
-					onOver( w, id );
+			);
+			const column = byX[ xs[ k ] ];
+			const start = above( column, top * Y_STEP, true );
+			const stop = above( column, bottom * Y_STEP, false );
+			over += stop - start;
+			if ( onOver ) {
+				for ( let c = start; c < stop; c++ ) {
+					onOver( w, column[ c ] );
 				}
 			}
 		}
 	}
+	return [ crossings, over ];
+};
+
+/**
+ * How many pairs of segments cross: those whose vertical order flips strictly
+ * between the ends of the span both run. Two segments sharing a card meet at
+ * an end of that span, where neither runs above the other, so never cross.
+ *
+ * Segments group by the columns they start and end in, and every pair drawn
+ * from two groups shares one span, so each segment's rows at that span's ends
+ * are read once per pair of groups, and each pair of segments compares four
+ * numbers.
+ *
+ * @param {Array<{p: {x: number, y: number}, q: {x: number, y: number}}>} segs  Segments, left end first.
+ * @param {?( i: number, j: number ) => void}                             visit Called with the indices of each crossing pair, in no set order, or null.
+ * @return {number} The pairs that cross.
+ */
+const countCrossings = ( segs, visit ) => {
+	// Exact at both ends, so two segments meeting at a card tie there.
+	const yAt = ( { p, q }, x ) =>
+		x === q.x ? q.y : p.y + ( ( q.y - p.y ) * ( x - p.x ) ) / ( q.x - p.x );
+	/** @type {Object<string,Array<number>>} */
+	const byEnds = {};
+	segs.forEach( ( { p, q }, i ) =>
+		( byEnds[ `${ p.x }:${ q.x }` ] ??= [] ).push( i )
+	);
+	// Keyed in order of first sight, so the groups run in order of left end.
+	const groups = Object.values( byEnds );
+	let count = 0;
+	for ( let g = 0; g < groups.length; g++ ) {
+		const a = segs[ groups[ g ][ 0 ] ];
+		for ( let h = g; h < groups.length; h++ ) {
+			const b = segs[ groups[ h ][ 0 ] ];
+			const lo = b.p.x;
+			// Groups run in order of left end, so no later one shares a span.
+			if ( lo >= a.q.x ) {
+				break;
+			}
+			const hi = Math.min( a.q.x, b.q.x );
+			const read = ( group ) =>
+				group.map( ( i ) => ( {
+					i,
+					enter: yAt( segs[ i ], lo ),
+					leave: yAt( segs[ i ], hi ),
+				} ) );
+			const ones = read( groups[ g ] );
+			const others = g === h ? ones : read( groups[ h ] );
+			ones.forEach( ( e, u ) => {
+				for ( let v = g === h ? u + 1 : 0; v < others.length; v++ ) {
+					const o = others[ v ];
+					if ( ( e.enter - o.enter ) * ( e.leave - o.leave ) < 0 ) {
+						count++;
+						visit?.( e.i, o.i );
+					}
+				}
+			} );
+		}
+	}
+	return count;
 };
 
 /**

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`autoLayout` judges a drawing by groups of wires that share their end columns.** Every pair drawn from two groups shares one span, so each wire's rows at the span's ends are read once per pair of groups, and each pair of wires compares four numbers; the cards a wire runs over are one binary search of each column's cards by row. A wire read at its right end gives that card's row exactly, so two wires whose ends meet at one point never cross, however the slope rounds. `drawnCost` lists the cards under each wire column by column, left to right, and top to bottom within a column, where it listed them in the order the positions were given. No layout changes: of 3,013 graphs, 13 seed graphs and 3,000 generated, none lays out differently, and total layout time holds. The 690-card seating perf graph, whose drawings each hold some 318,000 crossing pairs, lays out in 271 ms instead of 295 under Node, and in about 450 ms instead of 780 under jest's coverage run, where the old pairwise scan paid a sandboxed `Math.min` lookup per pair.
+
 ## [2.95.1] - 2026-10-06
 
 ### Changed
