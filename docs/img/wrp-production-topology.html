@@ -13,12 +13,14 @@
   svg .disk { fill: #FFF8E6; stroke: #E0C36B; }
   svg .wire { fill: none; stroke: #003DA5; stroke-width: 1.8; }
   svg .tail { fill: none; stroke: #1E5B1E; stroke-width: 1.8; stroke-dasharray: 5 4; }
+  svg .fence { fill: none; stroke: #8C9096; stroke-width: 1.6; stroke-dasharray: 3 3; }
   svg .band { fill: #fff; stroke: #C3D3EC; stroke-width: 1.2; }
   svg .agg { fill: none; stroke: #B0B3B8; stroke-width: 1.4; stroke-dasharray: 6 5; }
   .legend { display: flex; gap: 20px; font-size: 12px; color: #50575E; margin: 4px 0 0; align-items: center; flex-wrap: wrap; }
   .legend span { display: inline-flex; align-items: center; gap: 6px; }
   .sw { width: 22px; height: 0; border-top: 2px solid #003DA5; }
   .sw.g { border-top: 2px dashed #1E5B1E; }
+  .sw.f { border-top: 2px dashed #8C9096; }
   .bx { width: 14px; height: 11px; border: 1px solid #C3D3EC; background: #F0F4FB; border-radius: 3px; }
   .bx.d { background: #FFF8E6; border-color: #E0C36B; }
   .bx.l { background: #fff; border-color: #003DA5; }
@@ -33,6 +35,7 @@
 <svg width="1052" height="640" viewBox="0 0 1052 640">
   <defs>
     <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker>
+    <marker id="f" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#8C9096"/></marker>
     <marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#1E5B1E"/></marker>
   </defs>
   <!-- aggregator frame -->
@@ -83,13 +86,13 @@
   <!-- band 3: digest -->
   <rect class="band" x="18" y="316" width="1016" height="130" rx="9"/>
   <text class="band" x="30" y="334">newspack-intelligence-digest.tsl</text>
-  <text class="bandn" x="1022" y="334" text-anchor="end">no FLUSH: the digest composes itself once every source has reported DONE</text>
+  <text class="bandn" x="1022" y="334" text-anchor="end">no FLUSH: the digest composes once a cycle, on the DONE that brings its tally to 3</text>
   <rect class="node stock" x="30" y="354" width="170" height="40" rx="7"/><text class="nm" x="115" y="371" text-anchor="middle">scored:consumer</text><text class="sub" x="115" y="386" text-anchor="middle">set_line_mode true</text>
   <text class="sub" x="115" y="412" text-anchor="middle">add_snapshot_node digest</text>
   <text class="sub" x="115" y="428" text-anchor="middle">offsets/scored.p0</text>
-  <rect class="llm" x="240" y="354" width="240" height="40" rx="7"/><text class="nm" x="360" y="371" text-anchor="middle">digest</text><text class="sub" x="360" y="386" text-anchor="middle">Digest_Builder scored:partition 3</text>
+  <rect class="llm" x="240" y="354" width="240" height="40" rx="7"/><text class="nm" x="360" y="371" text-anchor="middle">digest</text><text class="sub" x="360" y="386" text-anchor="middle">Digest_Builder ingest:partition 3</text>
   <text class="note" x="240" y="412">LLM · set_vault_id AI-proxy · set_model gpt-oss-120b</text>
-  <text class="note" x="240" y="428">3 is the source count the DONE tally waits for</text>
+  <text class="note" x="240" y="428">RESET fences ingest:partition · 3 sources a cycle</text>
   <rect class="node stock" x="530" y="354" width="120" height="40" rx="7"/><text class="nm" x="590" y="378" text-anchor="middle">digest:tee</text>
   <rect class="node stock" x="690" y="354" width="200" height="40" rx="7"/><text class="nm" x="790" y="371" text-anchor="middle">digest:log</text><text class="sub" x="790" y="386" text-anchor="middle">digest.md 1 2 7 0 0 0</text>
   <text class="note" x="690" y="412">segment_size 1: every draft is its own segment,</text>
@@ -112,6 +115,10 @@
   <path class="wire" d="M440 518 H 484" marker-end="url(#a)"/>
   <path class="wire" d="M620 518 H 654" marker-end="url(#a)"/>
 
+  <!-- RESET fence: digest writes ingest:partition past its target -->
+  <path class="fence" d="M465 352 V 145 H 555 V 137" marker-end="url(#f)"/>
+  <text class="note" x="472" y="161">RESET fence</text>
+
   <!-- tails across bands -->
   <path class="tail" d="M600 132 V 177 H 11 V 242 H 24" marker-end="url(#g)"/>
   <path class="tail" d="M720 132 V 177 H 1041 V 453 H 11 V 518 H 24" marker-end="url(#g)"/>
@@ -122,6 +129,7 @@
 <div class="legend">
   <span><span class="sw"></span> <span class="mono">connect_node</span></span>
   <span><span class="sw g"></span> a Consumer tailing a Partition under its own offsetlog</span>
+  <span><span class="sw f"></span> a destination written past the target, declared in <span class="mono">extra_targets()</span></span>
   <span><span class="bx d"></span> a durable Partition on disk</span>
   <span><span class="bx l"></span> calls the LLM, blocking, in the worker (the gate only when inconclusive)</span>
   <span><span class="bx"></span> stock node</span>
@@ -134,7 +142,7 @@
   </div>
   <div class="card">
     <h3>The gate observes and moves nothing</h3>
-    <p><span class="mono">gate:consumer</span> tails the same <span class="mono">ingest.p0</span> under its own <span class="mono">offsets/gate.p0</span>, so it never advances the summarizer's cursor. <span class="mono">gate</span> runs <span class="mono">Publisher_Matcher</span> on each item to ask whether it concerns a Newspack client: the URL domain, then an exact name or alias, then the domain stem, and only when all three are inconclusive an LLM entity extraction, none when no token resolves. The decision record lands in <span class="mono">gate-decisions.jsonl</span>; nothing is filtered out of the digest.</p>
+    <p><span class="mono">gate:consumer</span> tails the same <span class="mono">ingest.p0</span> under its own <span class="mono">offsets/gate.p0</span>, so it never advances the summarizer's cursor. <span class="mono">gate</span> runs <span class="mono">Publisher_Matcher</span> on each item to ask whether it concerns a Newspack client: the URL domain, then an exact name or alias, then the domain stem, and only when all three are inconclusive an LLM entity extraction, none when no token resolves. The decision record lands in <span class="mono">gate-decisions.jsonl</span>; nothing is filtered out of the digest. DONE and the RESET fence end at <span class="mono">gate</span>, which drops every message that is not a <span class="mono">TM_STRUCT</span>.</p>
   </div>
 </div>
 </div>
