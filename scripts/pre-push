@@ -225,7 +225,7 @@ if [[ -n "$php_changed" ]]; then
 		docker exec "$CONTAINER" "$DEPLOY_SCRIPT" >/dev/null || fail "deploy script failed"
 
 		step "coverage suite in container (phpunit + clover)"
-		out=/tmp/pre-push-coverage.out
+		out="/tmp/${PLUGIN_SLUG}-pre-push-coverage.out"
 		if docker exec -u bend -e TEST_TMP=/volumes/pyrobase/tmp "$CONTAINER" \
 			"${TEST_DIR_IN_CONTAINER}/run-coverage.sh" >"$out" 2>&1; then
 			cov_rc=0
