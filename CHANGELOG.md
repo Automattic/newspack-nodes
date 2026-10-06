@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.96.0] - 2026-10-06
+
 ### Added
 
 - **A seed the crawler has already seen answers a TM_INFO.** `Crawler_Node` sends target a copy of the seed whose TYPE is TM_INFO, VALUE `already seen <url>` and KEY the normalized url, when the `{name}:seen` Table's `ADD` reports that url seen within the `ttl`; nothing is fetched. FROM and ID stay the seeder's, as on the `invalid url` TM_ERROR. A seed whose `ADD` the Table refuses or leaves unanswered answers a TM_ERROR copy instead, VALUE `ADD to <name>:seen failed <url>` and KEY the url, and is not fetched: `Table_Client::add_multi()` takes the `?bool &$failed` out-parameter `move_members()` carries, so a failed write never reads as a url already seen. A link or a redirect Location already seen is skipped without a word.
