@@ -10,6 +10,7 @@
 #
 #   PHP changed  → npm run lint:php  + deploy + coverage suite + per-class 90% gate
 #   JS changed   → npm run lint:js   + npm run build
+#   TS changed   → npm run lint:types
 #   SCSS changed → npm run lint:scss + npm run build
 #
 # Skips the SCOPED gates when the push is only docs / CHANGELOG / config-only
@@ -43,34 +44,42 @@ ok()   { printf '%s %s\n' "$(green '✓')" "$*" >&2; }
 fail() { printf '%s %s\n' "$(red   '✗')" "$*" >&2; exit 1; }
 
 # git's native pre-push protocol delivers one "<local_ref> <local_sha>
-# <remote_ref> <remote_sha>" line per pushed ref on stdin. Find the diff
-# range vs what the remote already has.
-range=""
-# shellcheck disable=SC2034 # git's stdin protocol: 4 fields, 2 unused.
+# <remote_ref> <remote_sha>" line per pushed ref on stdin. Every non-delete ref
+# adds the paths it changes against what the remote already has. A new ref with
+# no remote merge base, or a remote sha this clone never fetched, diffs from the
+# empty tree, so the scoped gates judge its whole tree rather than nothing, and
+# a diff git refuses fails the push.
+empty_tree="$(git hash-object -t tree /dev/null)"
+changed=""
+refs=0
+# shellcheck disable=SC2034 # git's stdin protocol: remote_ref unused.
 while read -r local_ref local_sha remote_ref remote_sha; do
 	[[ -z "${local_sha:-}" ]] && continue
 	if [[ "$local_sha" =~ ^0+$ ]]; then
 		continue  # branch delete — nothing to gate
 	fi
 	if [[ "$remote_sha" =~ ^0+$ ]]; then
-		# New branch — compare against main/trunk merge-base.
 		base="$(git merge-base "$local_sha" origin/main 2>/dev/null \
 		     || git merge-base "$local_sha" origin/trunk 2>/dev/null \
 		     || git merge-base "$local_sha" origin/HEAD 2>/dev/null \
-		     || echo "${local_sha}~10")"
-		range="${base}..${local_sha}"
+		     || echo "$empty_tree")"
+	elif git rev-parse -q --verify "${remote_sha}^{commit}" >/dev/null; then
+		base="$remote_sha"
 	else
-		range="${remote_sha}..${local_sha}"
+		base="$empty_tree"  # a force-push over work this clone never fetched
 	fi
-	break  # scope to the first ref-update line; multi-ref pushes are rare
+	step "checking $(dim "${local_ref} ${base}..${local_sha}")"
+	ref_changed="$(git diff --name-only "$base" "$local_sha")" \
+		|| fail "git diff ${base} ${local_sha} failed — cannot scope the push"
+	changed+="${ref_changed}"$'\n'
+	refs=$((refs + 1))
 done
 
-if [[ -z "$range" ]]; then
+if [[ "$refs" -eq 0 ]]; then
 	step "$(dim 'nothing on stdin — skipping')"
 	exit 0
 fi
-
-step "checking $(dim "$range")"
+changed="$(printf '%s' "$changed" | sort -u)"
 
 # JS tests run WITH COVERAGE on every push — they're fast, and a sibling
 # shared-runtime change this push never touched can still break them (the
@@ -167,9 +176,9 @@ for gatetest in test-coverage-gate.sh test-coverage-gate-js.sh; do
 done
 
 # Classify the diff by file type. Exclude generated / vendored paths.
-changed="$(git diff --name-only "$range" 2>/dev/null || true)"
 php_changed="$(echo  "$changed" | grep -E '\.php$'           | grep -v -E '^(vendor/|release/)'          || true)"
-js_changed="$(echo   "$changed" | grep -E '\.(js|jsx|tsx)$'  | grep -v -E '^(node_modules/|build/|release/)' || true)"
+js_changed="$(echo   "$changed" | grep -E '\.(js|jsx|mjs|cjs|ts|tsx)$' | grep -v -E '^(node_modules/|build/|release/)' || true)"
+ts_changed="$(echo   "$changed" | grep -E '\.(ts|tsx)$'       | grep -v -E '^(node_modules/|build/|release/)' || true)"
 scss_changed="$(echo "$changed" | grep -E '\.scss$'          | grep -v -E '^(node_modules/|build/|release/)' || true)"
 
 if [[ -z "$php_changed" && -z "$js_changed" && -z "$scss_changed" ]]; then
@@ -190,6 +199,11 @@ if [[ -n "$js_changed" ]]; then
 	step "lint:js ($(echo "$js_changed" | wc -l | tr -d ' ') file(s) changed)"
 	npm run lint:js --silent || fail "lint:js failed — fix or push --no-verify"
 	ok "lint:js clean"
+fi
+if [[ -n "$ts_changed" ]]; then
+	step "lint:types ($(echo "$ts_changed" | wc -l | tr -d ' ') file(s) changed)"
+	npm run lint:types --silent || fail "lint:types failed — fix or push --no-verify"
+	ok "lint:types clean"
 fi
 if [[ -n "$scss_changed" ]]; then
 	step "lint:scss ($(echo "$scss_changed" | wc -l | tr -d ' ') file(s) changed)"
