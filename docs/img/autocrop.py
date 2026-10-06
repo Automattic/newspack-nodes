@@ -1,8 +1,8 @@
-"""Crop trailing uniform-background rows/columns off a Chrome screenshot.
+"""Crop trailing uniform-background rows off the bottom of a Chrome screenshot.
 
 Pure stdlib PNG decode/encode so there is no dependency to install. Chrome
-writes 8-bit RGBA, filter method 0, non-interlaced, which is the only shape
-this handles — it asserts rather than guessing.
+writes 8-bit RGB or RGBA, filter method 0, non-interlaced, which is the only
+shape this handles — it raises ValueError on anything else rather than guess.
 """
 import struct
 import sys
@@ -10,9 +10,10 @@ import zlib
 
 
 def read_png(path):
-    with open(path, 'rb') as f:
-        data = f.read()
-    assert data[:8] == b'\x89PNG\r\n\x1a\n', 'not a PNG'
+    with open(path, 'rb') as fh:
+        data = fh.read()
+    if data[:8] != b'\x89PNG\r\n\x1a\n':
+        raise ValueError(f'{path}: not a PNG')
     pos, idat, hdr = 8, [], None
     while pos < len(data):
         ln = struct.unpack('>I', data[pos:pos + 4])[0]
@@ -23,15 +24,20 @@ def read_png(path):
         elif typ == b'IDAT':
             idat.append(body)
         pos += 12 + ln
+    if hdr is None:
+        raise ValueError(f'{path}: PNG has no IHDR chunk')
     w, h, depth, color, comp, filt, inter = hdr
-    assert depth == 8 and inter == 0 and color in (2, 6), f'unsupported PNG {hdr}'
+    if depth != 8 or inter != 0 or comp != 0 or filt != 0 or color not in (2, 6):
+        raise ValueError(f'{path}: unsupported PNG {hdr}')
     bpp = 3 if color == 2 else 4
     raw = zlib.decompress(b''.join(idat))
     stride = w * bpp
     out, prev = bytearray(), bytearray(stride)
     p = 0
-    for _ in range(h):
+    for y in range(h):
         f = raw[p]
+        if f > 4:
+            raise ValueError(f'{path}: row {y} has unknown filter {f}')
         line = bytearray(raw[p + 1:p + 1 + stride])
         p += 1 + stride
         for i in range(stride):
@@ -62,8 +68,8 @@ def write_png(path, w, h, px, bpp):
            + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 6 if bpp == 4 else 2, 0, 0, 0))
            + chunk(b'IDAT', zlib.compress(raw, 9))
            + chunk(b'IEND', b''))
-    with open(path, 'wb') as f:
-        f.write(png)
+    with open(path, 'wb') as fh:
+        fh.write(png)
 
 
 def autocrop(path, pad=0):
