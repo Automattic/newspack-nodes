@@ -43,7 +43,7 @@
 		"@testing-library/react": "^16.3.2",
 		"@types/node": "20.19.40",
 		"@types/react": "18.3.28",
-		"@wordpress/components": "32.2.1",
+		"@wordpress/components": "41.0.0",
 		"@wordpress/eslint-plugin": "^24.5.0",
 		"@wordpress/prettier-config": "^4.46.0",
 		"@wordpress/stylelint-config": "^23.38.0",
