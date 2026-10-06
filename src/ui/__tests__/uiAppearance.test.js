@@ -265,21 +265,20 @@ describe( 'canonical UI appearance', () => {
 		);
 		expect( native?.declarations[ 'box-shadow' ] ).toBe( 'none' );
 
-		const wrapper = rules.find(
-			( rule ) =>
-				rule.selector.includes(
-					'.components-input-control__container'
-				) &&
-				'1px solid var(--np-field-border)' === rule.declarations.border
+		const wrapper = exactSelectorRule(
+			`${ STOCK_UI_ROOT } .components-input-control__container`
 		);
 		expect( wrapper?.declarations[ 'border-radius' ] ).toBe(
 			'var(--field-radius,0)'
 		);
 		expect( wrapper?.declarations[ 'box-shadow' ] ).toBe( 'none' );
-		const backdrop = rules.find( ( rule ) =>
-			rule.selector.includes( '.components-input-control__backdrop' )
+		expect( wrapper?.declarations.border ).toBeUndefined();
+		const backdrop = exactSelectorRule(
+			`${ STOCK_UI_ROOT } .components-input-control__backdrop`
 		);
-		expect( backdrop?.declarations.display ).toBe( 'none' );
+		expect( backdrop?.declarations ).toEqual( {
+			'border-color': 'var(--np-field-border)',
+		} );
 	} );
 
 	it( 'keeps generic native-field paint from resetting select artwork', () => {
@@ -433,15 +432,12 @@ describe( 'canonical UI appearance', () => {
 			'line-height': '1.4',
 		} );
 
-		const backdrop = rules.find(
-			( rule ) =>
-				rule.selector.includes(
-					'.components-input-control__backdrop'
-				) && 'none' === rule.declarations.display
-		);
-		const backdropSelector = selectorMember( backdrop, ( selector ) =>
-			selector.endsWith( ' .components-input-control__backdrop' )
-		);
+		// The backdrop draws the border; InputControl paints it at `&&&`
+		// (0,3,0) at rest and, focused, from a (0,5,0) `:focus-within` rule.
+		const backdropSelector = `${ STOCK_UI_ROOT } .components-input-control__backdrop`;
+		const focusedBackdropSelector = `${ STOCK_UI_ROOT } .components-input-control__container:focus-within .components-input-control__backdrop`;
+		const backdrop = exactSelectorRule( backdropSelector );
+		const focusedBackdrop = exactSelectorRule( focusedBackdropSelector );
 		expect( backdrop ).toBeDefined();
 		expect(
 			compareSpecificity(
@@ -449,8 +445,22 @@ describe( 'canonical UI appearance', () => {
 				[ 0, 3, 0 ]
 			)
 		).toBeGreaterThan( 0 );
+		expect(
+			compareSpecificity(
+				stateSpecificity( focusedBackdropSelector ),
+				[ 0, 5, 0 ]
+			)
+		).toBeGreaterThan( 0 );
 		expect( backdrop?.importantProperties ).toEqual( [] );
-		expect( backdrop?.declarations ).toEqual( { display: 'none' } );
+		expect( backdrop?.declarations ).toEqual( {
+			'border-color': 'var(--np-field-border)',
+		} );
+		expect( focusedBackdrop?.importantProperties ).toEqual( [] );
+		expect( focusedBackdrop?.declarations ).toEqual( {
+			'border-color': 'var(--np-field-border)',
+			outline: 'none',
+			'box-shadow': 'none',
+		} );
 
 		const container = exactSelectorRule(
 			`${ STOCK_UI_ROOT } .components-input-control__container`
@@ -464,10 +474,10 @@ describe( 'canonical UI appearance', () => {
 		expect( container.importantProperties ).toEqual( [] );
 		expect( container.declarations ).toMatchObject( {
 			background: 'var(--np-field-surface)',
-			border: '1px solid var(--np-field-border)',
 			'border-radius': 'var(--field-radius,0)',
 			'box-shadow': 'none',
 		} );
+		expect( container.declarations.border ).toBeUndefined();
 
 		const select = rules.find(
 			( rule ) =>
@@ -485,6 +495,14 @@ describe( 'canonical UI appearance', () => {
 			)
 		).toBeGreaterThanOrEqual( 0 );
 		expect( select?.importantProperties ).toEqual( [] );
+		// The native select paint borders it; the backdrop is the one border.
+		expect(
+			compareSpecificity(
+				classOnlySpecificity( selectSelector ),
+				[ 0, 3, 1 ]
+			)
+		).toBeGreaterThan( 0 );
+		expect( select?.declarations.border ).toBe( '0' );
 	} );
 
 	it( 'out-specifies runtime WordPress component paint without important declarations', () => {

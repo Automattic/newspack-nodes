@@ -17,9 +17,10 @@
  *
  * The expand button beside the stack toggle doubles the chart's height, and
  * the same again restores it; shift+clicking the plot is its mouse shortcut
- * (`useChartExpand`). A plain click on the plot hands the nearest slot's index
- * to `onSlotClick`, so a caller can map it to its own bucket; without the
- * callback a plain click does nothing.
+ * (`useChartExpand`). A click on the plot hands the nearest slot's index to
+ * `onSlotClick`, so a caller can map it to its own bucket, with `additive`
+ * true when cmd or ctrl was held; without the callback a click does nothing.
+ * `selectedSlots` shades the caller's selection beneath the bands.
  *
  * Every label arrives already translated. The component words only its own
  * two toggles, so `__()` keeps its literal arguments at each call site. That is
@@ -35,6 +36,7 @@ import {
 	drawAxes,
 	openFrame,
 	setupTooltip,
+	shadeSlots,
 	useTimeChart,
 } from '../hooks/useTimeChart';
 import { useChartExpand } from '../hooks/useChartExpand';
@@ -110,18 +112,19 @@ const ExpandIcon = () => (
 );
 
 /**
- * @param {Object}                                                               props               Component props.
- * @param {Array<{label: string, values: Array<{date: Date, value?: ?number}>}>} props.series        Every series shares one slot list; a null value is unmeasured and draws as a gap.
- * @param {( peak: number ) => import('../utils/axis-ticks').AxisFormatter}      props.yFormatFor    Builds a formatter for a peak. Called for the DRAWN peak, which the axis and the series rows read, so a picked series takes its own unit; and, where `totalLabel` is set, once more for the whole list's peak, which the tooltip's total row reads.
- * @param {( label: string, index: number ) => string}                           props.colorAt       The colour for a series at its place in the full list: area, stroke and legend swatch.
- * @param {string}                                                               props.title         Translated heading.
- * @param {number}                                                               props.height        Collapsed SVG height in pixels; the expand button doubles it.
- * @param {string}                                                               props.yLabel        Translated Y-axis title naming the quantity; the ticks carry the unit.
- * @param {boolean}                                                              [props.stacked]     Stack the series by default; the corner toggle overrides it until the default moves.
- * @param {boolean}                                                              [props.stackable]   Offer the toggle at all; `false` for bands that must not be summed.
- * @param {string}                                                               [props.totalLabel]  Translated label for the tooltip's leading column-total row, printed while the bands are stacked; omitted drops the row.
- * @param {string}                                                               [props.className]   Class for the chart element, beside the shared role.
- * @param {( index: number ) => void}                                            [props.onSlotClick] Takes a plain click's nearest slot, as an index into `series[0].values`.
+ * @param {Object}                                                               props                 Component props.
+ * @param {Array<{label: string, values: Array<{date: Date, value?: ?number}>}>} props.series          Every series shares one slot list; a null value is unmeasured and draws as a gap.
+ * @param {( peak: number ) => import('../utils/axis-ticks').AxisFormatter}      props.yFormatFor      Builds a formatter for a peak. Called for the DRAWN peak, which the axis and the series rows read, so a picked series takes its own unit; and, where `totalLabel` is set, once more for the whole list's peak, which the tooltip's total row reads.
+ * @param {( label: string, index: number ) => string}                           props.colorAt         The colour for a series at its place in the full list: area, stroke and legend swatch.
+ * @param {string}                                                               props.title           Translated heading.
+ * @param {number}                                                               props.height          Collapsed SVG height in pixels; the expand button doubles it.
+ * @param {string}                                                               props.yLabel          Translated Y-axis title naming the quantity; the ticks carry the unit.
+ * @param {boolean}                                                              [props.stacked]       Stack the series by default; the corner toggle overrides it until the default moves.
+ * @param {boolean}                                                              [props.stackable]     Offer the toggle at all; `false` for bands that must not be summed.
+ * @param {string}                                                               [props.totalLabel]    Translated label for the tooltip's leading column-total row, printed while the bands are stacked; omitted drops the row.
+ * @param {string}                                                               [props.className]     Class for the chart element, beside the shared role.
+ * @param {import('../hooks/useTimeChart').SlotClick}                            [props.onSlotClick]   Takes a click's nearest slot, as an index into `series[0].values`, and whether cmd or ctrl made it additive.
+ * @param {ReadonlySet<number>}                                                  [props.selectedSlots] Indexes into `series[0].values` to shade; absent or empty shades none.
  * @return {import('react').ReactElement} Rendered chart.
  */
 function AreaTimeChart( {
@@ -136,6 +139,7 @@ function AreaTimeChart( {
 	totalLabel = '',
 	className,
 	onSlotClick,
+	selectedSlots,
 } ) {
 	const { height, plotProps, buttonProps } = useChartExpand(
 		collapsedHeight,
@@ -209,6 +213,9 @@ function AreaTimeChart( {
 				yFormat,
 				yLabel,
 			} );
+			if ( selectedSlots ) {
+				shadeSlots( g, { innerW, innerH, dates, x, selectedSlots } );
+			}
 
 			// Stacked bands ride on the running baseline; overlaid ones on 0.
 			const baseline = dates.map( () => 0 );
@@ -300,6 +307,7 @@ function AreaTimeChart( {
 			stacked,
 			totalLabel,
 			onSlotClick,
+			selectedSlots,
 		]
 	);
 

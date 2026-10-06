@@ -799,6 +799,81 @@ describe( 'FetcherNode — a reply that echoes no arguments', () => {
 } );
 
 /**
+ * `withdraw()` is how a view stops wanting an answer without asking anew: the
+ * operator emptied the search box, so there is no newer question to supersede
+ * the old one. It sends nothing and cancels nothing on the wire; the request
+ * completes, and its answer finds no ask standing.
+ */
+describe( 'FetcherNode — withdraw', () => {
+	const mount = () => {
+		const f = new FetcherNode();
+		f.arguments = [ 'search:in', 'search' ];
+		f.command_args = () => null;
+		const sent = [];
+		f.sink = { fill: ( m ) => sent.push( m ) };
+		return { f, sent };
+	};
+
+	it( 'withdraws every standing ask, so none is asked any more', () => {
+		const { f, sent } = mount();
+		f.send( [ 'kakapo-3317' ], 'kakapo-3317' );
+		f.send( [ 'takahe-0912' ], 'takahe-0912' );
+		f.fill( newMessage() );
+		expect( sent ).toHaveLength( 2 );
+
+		f.withdraw();
+
+		expect( f.outbox ).toEqual( [] );
+		expect( f.asks( 'kakapo-3317', [ 'kakapo-3317' ] ) ).toBe( false );
+		expect( f.asks( 'takahe-0912', [ 'takahe-0912' ] ) ).toBe( false );
+		expect( sent ).toHaveLength( 2 );
+	} );
+
+	it( 'notifies `settled` for each ask it withdraws', () => {
+		const { f } = mount();
+		const settled = [];
+		f.registrations.settled ??= {};
+		f.register( 'settled', 'spy', ( ask ) => {
+			settled.push( ask.path );
+			return true;
+		} );
+		f.send( [ 'kakapo-3317' ], 'kakapo-3317' );
+		f.send( [ 'takahe-0912' ], 'takahe-0912' );
+
+		f.withdraw();
+
+		expect( settled ).toEqual( [ 'kakapo-3317', 'takahe-0912' ] );
+	} );
+
+	it( 'never sends an ask withdrawn before its trigger', () => {
+		const { f, sent } = mount();
+		f.send( [ 'kakapo-3317' ] );
+		f.withdraw();
+		f.fill( newMessage() );
+		expect( sent ).toEqual( [] );
+	} );
+
+	it( 'settles nothing when the late answer lands, and asks nothing again', () => {
+		const { f, sent } = mount();
+		f.retry_after_s = 5;
+		const at = jest.spyOn( Core, 'now' );
+		at.mockReturnValue( 1771000000 );
+		f.send( [ 'kakapo-3317' ] );
+		f.fill( newMessage() );
+		f.withdraw();
+
+		f.fill( replyNaming( '', [ 'kakapo-3317' ] ) );
+		f.fill( replyNaming( '', [ 'kakapo-3317' ], { undelivered: true } ) );
+		at.mockReturnValue( 1771000060 );
+		f.fill( newMessage() );
+
+		expect( f.outbox ).toEqual( [] );
+		expect( sent ).toHaveLength( 1 );
+		at.mockRestore();
+	} );
+} );
+
+/**
  * `askNow()` asks a question at once: it supersedes every older ask and sends
  * in the same breath, rather than waiting for the next trigger.
  */

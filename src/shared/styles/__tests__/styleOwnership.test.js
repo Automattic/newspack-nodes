@@ -526,6 +526,20 @@ describe( 'canonical appearance ownership', () => {
 		] );
 	} );
 
+	/**
+	 * WordPress 7.0's `.wp-core-ui .button`, its admin text field and a
+	 * `__next40pxDefaultSize` component all stand 40px tall; the control
+	 * height token names that, so a chip sized by it lines up beside them.
+	 */
+	it( "names WordPress's 40px control height as the control-height token", () => {
+		const css = sass.compileString(
+			'@use "tokens"; a { min-height: tokens.$control-height; }',
+			{ loadPaths: [ path.join( NODES_SRC, 'shared/styles' ) ] }
+		).css;
+
+		expect( css ).toContain( 'min-height: 40px;' );
+	} );
+
 	it( 'exports only live aggregator Sass tokens and compiles their consumer', () => {
 		const stylesDir = path.join( NODES_SRC, 'event-aggregator/styles' );
 		const basePath = path.join( stylesDir, 'base.scss' );
@@ -661,6 +675,18 @@ describe( 'canonical appearance ownership', () => {
 				selector.endsWith( '.newspack-nodes-chart__plot .y-label' )
 		);
 		expect( declarations?.fill ).toBe( 'var(--ink, var(--np-text))' );
+	} );
+
+	it( 'shades selected chart slots in the accent at low opacity', () => {
+		const declarations = mergedDeclarationsForSelectors(
+			compile( UI_ENTRY ),
+			( selector ) =>
+				selector.endsWith( '.newspack-nodes-chart__selected' )
+		);
+		expect( declarations?.fill ).toBe( 'var(--cyan, var(--np-primary))' );
+		expect( Number( declarations?.[ 'fill-opacity' ] ) ).toBeLessThan(
+			0.3
+		);
 	} );
 
 	it( 'lays a button out above WordPress own display, once, for everyone', () => {
@@ -1682,7 +1708,6 @@ describe( 'canonical appearance ownership', () => {
 			[ 'topology-edit-delete', 'auto' ],
 			[ 'topology-edit-verb__add', 'auto' ],
 			[ 'topology-insp__listener-x', 'auto' ],
-			[ 'topology-palette__search-clear', 'auto' ],
 			[ 'topology-tt__transport-btn', 'auto' ],
 		];
 		for ( const [ className, height ] of graphButtonHeights ) {
@@ -2044,7 +2069,6 @@ describe( 'canonical appearance ownership', () => {
 	it( 'reserves the danger role for controls that destroy something', () => {
 		const CLEARS = [
 			'topology-edit-row__reset',
-			'topology-palette__search-clear',
 			'topology-edit-chip__clear',
 			'topology-settings-panel__close',
 		];

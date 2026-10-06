@@ -35,6 +35,17 @@ const baseProps = {
 	formatters: [],
 };
 
+/**
+ * The values a combobox input offers through its `<datalist>`.
+ *
+ * @param {HTMLInputElement} input The `<input list>`.
+ * @return {string[]} The suggested values, in order.
+ */
+function suggestionsOf( input ) {
+	const list = document.getElementById( input.getAttribute( 'list' ) );
+	return [ ...list.querySelectorAll( 'option' ) ].map( ( o ) => o.value );
+}
+
 describe( 'Inspector (edit mode)', () => {
 	it( 'renders EDIT badge in the type row', () => {
 		const { container } = renderWithCatalog(
@@ -550,7 +561,7 @@ describe( 'Inspector (edit mode)', () => {
 		expect( container.textContent ).toMatch( /Letters, digits, dot, dash/ );
 	} );
 
-	it( 'NameField: snaps back when the caller refuses a rename', () => {
+	it( 'NameField: keeps the refused name with its refusal, to edit', () => {
 		const onRenameNode = jest.fn().mockReturnValue( false );
 		const { container } = renderWithCatalog(
 			<Inspector { ...baseProps } onRenameNode={ onRenameNode } />,
@@ -565,13 +576,16 @@ describe( 'Inspector (edit mode)', () => {
 		const input = container.querySelector( '#topology-name-field' );
 		fireEvent.change( input, { target: { value: 'raced' } } );
 		fireEvent.blur( input );
-		expect( input.value ).toBe( 'echo' );
+		expect( input.value ).toBe( 'raced' );
 		expect( container.textContent ).toMatch( /Rename refused/ );
+		fireEvent.keyDown( input, { key: 'Escape' } );
+		expect( input.value ).toBe( 'echo' );
 	} );
 
-	it( 'NameField: Escape reverts the input to the original id', () => {
+	it( 'NameField: Escape restores the name and dispatches no rename', () => {
+		const onRenameNode = jest.fn().mockReturnValue( true );
 		const { container } = renderWithCatalog(
-			<Inspector { ...baseProps } />,
+			<Inspector { ...baseProps } onRenameNode={ onRenameNode } />,
 			{
 				classes: baseProps.catalog,
 				formatters: baseProps.formatters,
@@ -581,14 +595,19 @@ describe( 'Inspector (edit mode)', () => {
 			}
 		);
 		const input = container.querySelector( '#topology-name-field' );
+		input.focus();
 		fireEvent.change( input, { target: { value: 'wip' } } );
 		fireEvent.keyDown( input, { key: 'Escape' } );
+		expect( onRenameNode ).not.toHaveBeenCalled();
 		expect( input.value ).toBe( 'echo' );
+		fireEvent.blur( input );
+		expect( onRenameNode ).not.toHaveBeenCalled();
 	} );
 
-	it( 'NameField: Enter preventDefaults and tries to blur', () => {
+	it( 'NameField: Enter renames the node', () => {
+		const onRenameNode = jest.fn().mockReturnValue( true );
 		const { container } = renderWithCatalog(
-			<Inspector { ...baseProps } />,
+			<Inspector { ...baseProps } onRenameNode={ onRenameNode } />,
 			{
 				classes: baseProps.catalog,
 				formatters: baseProps.formatters,
@@ -600,9 +619,10 @@ describe( 'Inspector (edit mode)', () => {
 		const input = container.querySelector( '#topology-name-field' );
 		input.focus();
 		fireEvent.change( input, { target: { value: 'beta' } } );
-		const event = fireEvent.keyDown( input, { key: 'Enter' } );
-		// Verify the keyDown handler ran without throwing.
-		expect( event ).toBe( false );
+		const notPrevented = fireEvent.keyDown( input, { key: 'Enter' } );
+		expect( notPrevented ).toBe( false );
+		expect( onRenameNode ).toHaveBeenCalledTimes( 1 );
+		expect( onRenameNode ).toHaveBeenCalledWith( 'echo', 'beta' );
 	} );
 
 	describe( 'multiple verb (1 vs N invocations)', () => {
@@ -1028,7 +1048,7 @@ describe( 'Inspector (edit mode)', () => {
 		expect( onUpdateArgs ).toHaveBeenCalledWith( 'echo', [ 'Plain' ] );
 	} );
 
-	it( 'CtorField node_name: renders a select listing other draft nodes', () => {
+	it( 'CtorField node_name: a text input suggesting the other draft nodes', () => {
 		const onUpdateArgs = jest.fn();
 		const catalog = [
 			{
@@ -1041,12 +1061,38 @@ describe( 'Inspector (edit mode)', () => {
 			<Inspector { ...baseProps } onUpdateArgs={ onUpdateArgs } />,
 			{ classes: catalog }
 		);
-		const select = container.querySelector( '#topology-ctor-route' );
-		expect( select.tagName ).toBe( 'SELECT' );
-		// (pick a node) + sink (excludes the current node 'echo').
-		expect( select.options.length ).toBe( 2 );
-		fireEvent.change( select, { target: { value: 'sink' } } );
-		expect( onUpdateArgs ).toHaveBeenCalledWith( 'echo', [ 'sink' ] );
+		const input = container.querySelector( '#topology-ctor-route' );
+		expect( input.tagName ).toBe( 'INPUT' );
+		// The current node 'echo' is never its own suggestion.
+		expect( suggestionsOf( input ) ).toEqual( [ 'sink' ] );
+		fireEvent.change( input, { target: { value: 'sink' } } );
+		expect( onUpdateArgs ).toHaveBeenLastCalledWith( 'echo', [ 'sink' ] );
+	} );
+
+	it( 'CtorField node_name: accepts a remote path and refuses a space', () => {
+		const onUpdateArgs = jest.fn();
+		const catalog = [
+			{
+				shell_name: 'Echo',
+				arguments: [ { name: 'route', type: 'node_name' } ],
+				commands: [],
+			},
+		];
+		const { container } = renderWithCatalog(
+			<Inspector { ...baseProps } onUpdateArgs={ onUpdateArgs } />,
+			{ classes: catalog }
+		);
+		const input = container.querySelector( '#topology-ctor-route' );
+		fireEvent.change( input, {
+			target: { value: ' _shell/_http/performance ' },
+		} );
+		expect( onUpdateArgs ).toHaveBeenLastCalledWith( 'echo', [
+			'_shell/_http/performance',
+		] );
+		onUpdateArgs.mockClear();
+		fireEvent.change( input, { target: { value: 'two words' } } );
+		expect( onUpdateArgs ).not.toHaveBeenCalled();
+		expect( container.textContent ).toMatch( /cannot hold a space/ );
 	} );
 
 	it( 'CtorField vault_id: threads the vaults prop through to render a select', () => {
@@ -1192,120 +1238,130 @@ describe( 'Inspector (edit mode)', () => {
 		] );
 	} );
 
-	it( 'SingleTargetField: select onChange fires onConnect when picking a new target', () => {
-		const onConnect = jest.fn();
-		const { container } = renderWithCatalog(
+	/**
+	 * Renders the edit-mode Inspector on `echo` with one physical edge.
+	 *
+	 * @param {Object} props Extra Inspector props.
+	 * @param {Array}  edges Draft edges.
+	 * @return {Object} The render result.
+	 */
+	function renderSingle(
+		props = {},
+		edges = [ { from: 'echo', to: 'sink' } ]
+	) {
+		return renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				parsed={ {
 					nodes: [
 						{ id: 'echo', class: 'Echo' },
 						{ id: 'sink', class: 'Echo' },
+						{ id: 'spare', class: 'Echo' },
 					],
-					edges: [],
+					edges,
 				} }
-				onConnect={ onConnect }
+				{ ...props }
 			/>,
-			{
-				classes: baseProps.catalog,
-				formatters: baseProps.formatters,
-				vaults: baseProps.vaults,
-				composeTargets: baseProps.composeTargets,
-				classCatalog: baseProps.classCatalog,
-			}
+			{ classes: baseProps.catalog }
 		);
-		const select = container.querySelector( '#topology-target-input-echo' );
-		fireEvent.change( select, { target: { value: 'sink' } } );
-		expect( onConnect ).toHaveBeenCalledWith( 'echo', 'sink' );
+	}
+
+	it( 'SingleTargetField: Enter on a typed remote path connects to it', () => {
+		const onConnect = jest.fn();
+		const { container } = renderSingle( { onConnect } );
+		const input = container.querySelector( '#topology-target-input-echo' );
+		expect( input.value ).toBe( 'sink' );
+		fireEvent.change( input, {
+			target: { value: '  _shell/_http/performance ' },
+		} );
+		expect( onConnect ).not.toHaveBeenCalled();
+		fireEvent.keyDown( input, { key: 'Enter' } );
+		expect( onConnect ).toHaveBeenCalledWith(
+			'echo',
+			'_shell/_http/performance'
+		);
 	} );
 
-	it( 'SingleTargetField: select onChange to empty fires onRemoveEdge for the physical edge', () => {
+	it( 'SingleTargetField: suggests the other nodes and connects a pick at once', () => {
+		const onConnect = jest.fn();
+		const { container } = renderSingle( { onConnect } );
+		const input = container.querySelector( '#topology-target-input-echo' );
+		expect( suggestionsOf( input ) ).toEqual( [ 'sink', 'spare' ] );
+		fireEvent.input( input, {
+			target: { value: 'spare' },
+			inputType: 'insertReplacementText',
+		} );
+		expect( onConnect ).toHaveBeenCalledWith( 'echo', 'spare' );
+		fireEvent.blur( input );
+		expect( onConnect ).toHaveBeenCalledTimes( 1 );
+	} );
+
+	it( 'SingleTargetField: an unchanged value dispatches nothing', () => {
+		const onConnect = jest.fn();
 		const onRemoveEdge = jest.fn();
-		const { container } = renderWithCatalog(
-			<Inspector
-				{ ...baseProps }
-				parsed={ {
-					nodes: [
-						{ id: 'echo', class: 'Echo' },
-						{ id: 'sink', class: 'Echo' },
-					],
-					edges: [ { from: 'echo', to: 'sink' } ],
-				} }
-				onRemoveEdge={ onRemoveEdge }
-			/>,
-			{
-				classes: baseProps.catalog,
-				formatters: baseProps.formatters,
-				vaults: baseProps.vaults,
-				composeTargets: baseProps.composeTargets,
-				classCatalog: baseProps.classCatalog,
-			}
-		);
-		const select = container.querySelector( '#topology-target-input-echo' );
-		fireEvent.change( select, { target: { value: '' } } );
+		const { container } = renderSingle( { onConnect, onRemoveEdge } );
+		const input = container.querySelector( '#topology-target-input-echo' );
+		fireEvent.keyDown( input, { key: 'Enter' } );
+		fireEvent.blur( input );
+		expect( onConnect ).not.toHaveBeenCalled();
+		expect( onRemoveEdge ).not.toHaveBeenCalled();
+	} );
+
+	it( 'SingleTargetField: clearing the input removes the physical edge', () => {
+		const onRemoveEdge = jest.fn();
+		const { container } = renderSingle( { onRemoveEdge } );
+		const input = container.querySelector( '#topology-target-input-echo' );
+		fireEvent.change( input, { target: { value: '' } } );
+		fireEvent.keyDown( input, { key: 'Enter' } );
 		expect( onRemoveEdge ).toHaveBeenCalledWith( 'echo', 'sink' );
+	} );
+
+	it( 'SingleTargetField: Escape restores the current target', () => {
+		const onConnect = jest.fn();
+		const { container } = renderSingle( { onConnect } );
+		const input = container.querySelector( '#topology-target-input-echo' );
+		fireEvent.change( input, { target: { value: 'half/typed' } } );
+		fireEvent.keyDown( input, { key: 'Escape' } );
+		expect( input.value ).toBe( 'sink' );
+		fireEvent.blur( input );
+		expect( onConnect ).not.toHaveBeenCalled();
+	} );
+
+	it( 'SingleTargetField: refuses a value holding a space, with a hint', () => {
+		const onConnect = jest.fn();
+		const { container } = renderSingle( { onConnect } );
+		const input = container.querySelector( '#topology-target-input-echo' );
+		fireEvent.change( input, { target: { value: '_shell/_http perf' } } );
+		fireEvent.keyDown( input, { key: 'Enter' } );
+		fireEvent.blur( input );
+		expect( onConnect ).not.toHaveBeenCalled();
+		expect( input.value ).toBe( '_shell/_http perf' );
+		expect( container.textContent ).toMatch( /cannot hold a space/ );
 	} );
 
 	it( 'SingleTargetField: does not offer a config-only edge as its removable connection', () => {
 		const onRemoveEdge = jest.fn();
-		const { container } = renderWithCatalog(
-			<Inspector
-				{ ...baseProps }
-				parsed={ {
-					nodes: [
-						{ id: 'echo', class: 'Echo' },
-						{ id: 'ibex-config', class: 'Echo' },
-					],
-					edges: [
-						{
-							from: 'echo',
-							to: 'ibex-config',
-							roles: [ 'config' ],
-						},
-					],
-				} }
-				onRemoveEdge={ onRemoveEdge }
-			/>,
-			{
-				classes: baseProps.catalog,
-				formatters: baseProps.formatters,
-				vaults: baseProps.vaults,
-				composeTargets: baseProps.composeTargets,
-				classCatalog: baseProps.classCatalog,
-			}
-		);
-		const select = container.querySelector( '#topology-target-input-echo' );
-		expect( select.value ).toBe( '' );
-		fireEvent.change( select, { target: { value: '' } } );
+		const { container } = renderSingle( { onRemoveEdge }, [
+			{ from: 'echo', to: 'sink', roles: [ 'config' ] },
+		] );
+		const input = container.querySelector( '#topology-target-input-echo' );
+		expect( input.value ).toBe( '' );
+		fireEvent.keyDown( input, { key: 'Enter' } );
 		expect( onRemoveEdge ).not.toHaveBeenCalled();
 	} );
 
-	it( 'SingleTargetField: includes a current target missing from the draft node list', () => {
-		const { container } = renderWithCatalog(
-			<Inspector
-				{ ...baseProps }
-				parsed={ {
-					nodes: [ { id: 'echo', class: 'Echo' } ],
-					edges: [ { from: 'echo', to: 'external' } ],
-				} }
-			/>,
-			{
-				classes: baseProps.catalog,
-				formatters: baseProps.formatters,
-				vaults: baseProps.vaults,
-				composeTargets: baseProps.composeTargets,
-				classCatalog: baseProps.classCatalog,
-			}
-		);
-		const values = [
-			...container.querySelector( '#topology-target-input-echo' ).options,
-		].map( ( option ) => option.value );
-		expect( values ).toContain( 'external' );
+	it( 'SingleTargetField: shows a current target the draft does not hold', () => {
+		const { container } = renderSingle( {}, [
+			{ from: 'echo', to: '_shell/_http/performance' },
+		] );
+		expect(
+			container.querySelector( '#topology-target-input-echo' ).value
+		).toBe( '_shell/_http/performance' );
 	} );
 
-	it( 'Tee TargetsField: renders chips per wired target + an add-target select', () => {
+	it( 'Tee TargetsField: renders chips per wired target + an add-target input', () => {
 		const onConnect = jest.fn();
-		const { container } = renderWithCatalog(
+		const { container, getByPlaceholderText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="tee_a"
@@ -1324,10 +1380,83 @@ describe( 'Inspector (edit mode)', () => {
 		expect(
 			container.querySelectorAll( '.topology-edit-chip' )
 		).toHaveLength( 1 );
-		const select = container.querySelector( '.topology-edit-add-chip' );
-		// Adds 'b' (a is already wired).
-		fireEvent.change( select, { target: { value: 'b' } } );
+		const input = getByPlaceholderText( '+ add target…' );
+		// 'a' is already wired, so only 'b' is suggested.
+		expect( suggestionsOf( input ) ).toEqual( [ 'b' ] );
+		fireEvent.change( input, { target: { value: 'b' } } );
+		fireEvent.keyDown( input, { key: 'Enter' } );
 		expect( onConnect ).toHaveBeenCalledWith( 'tee_a', 'b' );
+	} );
+
+	it( 'Tee TargetsField: Enter adds a typed remote path and clears the input', () => {
+		const onConnect = jest.fn();
+		const { getByPlaceholderText } = renderWithCatalog(
+			<Inspector
+				{ ...baseProps }
+				selectedId="tee_a"
+				parsed={ {
+					nodes: [ { id: 'tee_a', class: 'Tee', target: [] } ],
+					edges: [],
+				} }
+				onConnect={ onConnect }
+			/>,
+			{ classes: [ { shell_name: 'Tee', arguments: [], commands: [] } ] }
+		);
+		const input = getByPlaceholderText( '+ add target…' );
+		fireEvent.change( input, {
+			target: { value: '_shell/_http/performance' },
+		} );
+		fireEvent.keyDown( input, { key: 'Enter' } );
+		expect( onConnect ).toHaveBeenCalledWith(
+			'tee_a',
+			'_shell/_http/performance'
+		);
+		expect( input.value ).toBe( '' );
+	} );
+
+	it( 'Tee TargetsField: a blurred half-typed path wires nothing; Enter wires it', () => {
+		const onConnect = jest.fn();
+		const { getByPlaceholderText } = renderWithCatalog(
+			<Inspector
+				{ ...baseProps }
+				selectedId="tee_a"
+				parsed={ {
+					nodes: [ { id: 'tee_a', class: 'Tee', target: [] } ],
+					edges: [],
+				} }
+				onConnect={ onConnect }
+			/>,
+			{ classes: [ { shell_name: 'Tee', arguments: [], commands: [] } ] }
+		);
+		const input = getByPlaceholderText( '+ add target…' );
+		fireEvent.change( input, { target: { value: 'egret:par' } } );
+		fireEvent.blur( input );
+		expect( onConnect ).not.toHaveBeenCalled();
+		expect( input.value ).toBe( 'egret:par' );
+		fireEvent.change( input, { target: { value: 'egret:partition' } } );
+		fireEvent.keyDown( input, { key: 'Enter' } );
+		expect( onConnect ).toHaveBeenCalledWith( 'tee_a', 'egret:partition' );
+	} );
+
+	it( 'Tee TargetsField: refuses a path holding a space', () => {
+		const onConnect = jest.fn();
+		const { container, getByPlaceholderText } = renderWithCatalog(
+			<Inspector
+				{ ...baseProps }
+				selectedId="tee_a"
+				parsed={ {
+					nodes: [ { id: 'tee_a', class: 'Tee', target: [] } ],
+					edges: [],
+				} }
+				onConnect={ onConnect }
+			/>,
+			{ classes: [ { shell_name: 'Tee', arguments: [], commands: [] } ] }
+		);
+		const input = getByPlaceholderText( '+ add target…' );
+		fireEvent.change( input, { target: { value: 'two words' } } );
+		fireEvent.keyDown( input, { key: 'Enter' } );
+		expect( onConnect ).not.toHaveBeenCalled();
+		expect( container.textContent ).toMatch( /cannot hold a space/ );
 	} );
 
 	it( 'Tee TargetsField: clears a wired target via chip × button', () => {
@@ -1355,7 +1484,7 @@ describe( 'Inspector (edit mode)', () => {
 	it( 'TargetsField: a Tee SUBCLASS renders the multi-chip field driven by the catalog fans_out flag (edit-mode string target)', () => {
 		// Edit-mode target is a STRING; multi-chip editor keys off fans_out.
 		const onConnect = jest.fn();
-		const { container } = renderWithCatalog(
+		const { container, getByPlaceholderText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="tap_a"
@@ -1383,8 +1512,9 @@ describe( 'Inspector (edit mode)', () => {
 		expect(
 			container.querySelectorAll( '.topology-edit-chip' )
 		).toHaveLength( 1 );
-		const select = container.querySelector( '.topology-edit-add-chip' );
-		fireEvent.change( select, { target: { value: 'b' } } );
+		const input = getByPlaceholderText( '+ add target…' );
+		fireEvent.change( input, { target: { value: 'b' } } );
+		fireEvent.keyDown( input, { key: 'Enter' } );
 		expect( onConnect ).toHaveBeenCalledWith( 'tap_a', 'b' );
 	} );
 
@@ -1413,21 +1543,6 @@ describe( 'Inspector (edit mode)', () => {
 		expect(
 			screen.queryByRole( 'button', { name: /delete/i } )
 		).toBeNull();
-	} );
-
-	it( 'Tee TargetsField: shows an empty hint when there are no available targets', () => {
-		const { container } = renderWithCatalog(
-			<Inspector
-				{ ...baseProps }
-				selectedId="tee_a"
-				parsed={ {
-					nodes: [ { id: 'tee_a', class: 'Tee', target: [] } ],
-					edges: [],
-				} }
-			/>,
-			{ classes: [ { shell_name: 'Tee', arguments: [], commands: [] } ] }
-		);
-		expect( container.textContent ).toMatch( /No other nodes to wire/ );
 	} );
 
 	// The include tree is FILE-scoped ("the authoritative include structure for

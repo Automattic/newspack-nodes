@@ -433,6 +433,42 @@ describe( 'hitchhike + throttle (setTimer(ms) with ms >= 1000)', () => {
 		t.stopTimer();
 	} );
 
+	// @longform A retune keeps the last fire, as PHP's `Timer_Node` does: the
+	// re-armed hitchhiker waits for the grid boundary after that fire rather
+	// than firing on the very next Router tick.
+	test.each( [
+		[ 'a throttled 5s cadence', 5000 ],
+		[ 'an every-tick 1s cadence', 1000 ],
+	] )(
+		'a hitchhiker retuned from %s to 10s waits out the grid from its last fire',
+		( _, firstMs ) => {
+			// 1790000000 is a multiple of 10, so this is a 10s grid boundary.
+			const boundary = 1_790_000_000_000 + GRID_PHASE_MS;
+			const r = makeRouter();
+			const t = new TimerNode();
+			t.name = 'retuned-heron';
+			const fired = [];
+			t.sink = { fill: () => fired.push( Core.now() ) };
+			t.target = '_output';
+			t.setTimer( firstMs );
+
+			jest.setSystemTime( boundary + 10 );
+			r.notifyTimer();
+			expect( fired ).toHaveLength( 1 );
+
+			jest.setSystemTime( boundary + 500 );
+			t.setTimer( 10000 );
+			jest.setSystemTime( boundary + 1010 );
+			r.notifyTimer();
+			expect( fired ).toHaveLength( 1 );
+
+			jest.setSystemTime( boundary + 10010 );
+			r.notifyTimer();
+			expect( fired ).toHaveLength( 2 );
+			t.stopTimer();
+		}
+	);
+
 	test( 'setTimer(ms < 1000) still uses an own setInterval slot', () => {
 		const t = new TimerNode();
 		t.name = 'fast';

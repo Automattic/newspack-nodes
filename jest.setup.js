@@ -16,6 +16,20 @@ if ( ! global.crypto?.subtle ) {
 	} );
 }
 
+// jsdom has no matchMedia, which @wordpress/components reads for breakpoints.
+if ( 'undefined' !== typeof window && ! window.matchMedia ) {
+	window.matchMedia = ( query ) => ( {
+		matches: false,
+		media: query,
+		onchange: null,
+		addListener: () => {},
+		removeListener: () => {},
+		addEventListener: () => {},
+		removeEventListener: () => {},
+		dispatchEvent: () => false,
+	} );
+}
+
 /* eslint-env jest */
 // @longform
 // jsdom has no fetch, and a graph under test posts its command batch for real

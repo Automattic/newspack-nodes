@@ -145,3 +145,50 @@ test( 'puts backdropClassName on the backdrop, not the dialog', () => {
 	expect( backdrop.className ).not.toContain( 'on-the-box' );
 	expect( screen.getByRole( 'dialog' ).className ).toContain( 'on-the-box' );
 } );
+
+// Enter in a text field submits the dialog's form natively, so a dialog with a
+// default action wears its box as that form rather than wrapping one inside.
+test( 'with onSubmit the dialog box is a noValidate form whose submit acts', () => {
+	const onSubmit = jest.fn();
+	render(
+		<Modal ariaLabel="x" onClose={ () => {} } onSubmit={ onSubmit }>
+			<input type="url" defaultValue="not a url" />
+		</Modal>
+	);
+
+	const dialog = screen.getByRole( 'dialog' );
+	expect( dialog.tagName ).toBe( 'FORM' );
+	expect( dialog.noValidate ).toBe( true );
+	expect( dialog.className ).toBe( 'newspack-nodes-modal' );
+	// The return is false when the handler prevented the default.
+	expect( fireEvent.submit( dialog ) ).toBe( false );
+	expect( onSubmit ).toHaveBeenCalledTimes( 1 );
+} );
+
+test( 'without onSubmit the dialog box stays a div', () => {
+	render(
+		<Modal ariaLabel="x" onClose={ () => {} }>
+			b
+		</Modal>
+	);
+
+	expect( screen.getByRole( 'dialog' ).tagName ).toBe( 'DIV' );
+} );
+
+// React bubbles a submit through the portal to every form above it in the
+// tree, so the dialog's own form is where it stops.
+test( 'a submit stops at its own dialog', () => {
+	const outer = jest.fn();
+	const inner = jest.fn();
+	render(
+		<form onSubmit={ outer }>
+			<Modal ariaLabel="x" onClose={ () => {} } onSubmit={ inner }>
+				b
+			</Modal>
+		</form>
+	);
+
+	fireEvent.submit( screen.getByRole( 'dialog' ) );
+	expect( inner ).toHaveBeenCalledTimes( 1 );
+	expect( outer ).not.toHaveBeenCalled();
+} );

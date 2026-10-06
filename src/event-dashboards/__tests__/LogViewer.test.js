@@ -278,7 +278,9 @@ describe( 'LogViewer', () => {
 	it( 'gates ingest on the filter and renders raw rows with no partition column', () => {
 		const node = registerViewFixture( { selected: 'php' } );
 		const { container } = render( <LogViewer /> );
-		const input = container.querySelector( '.newspack-nodes-search-input' );
+		const input = container.querySelector(
+			'.newspack-nodes-search-input input'
+		);
 		fireEvent.change( input, { target: { value: 'oops' } } );
 		expect( node.filter ).toBe( 'oops' );
 
@@ -347,7 +349,7 @@ describe( 'LogViewer', () => {
 		expect( step ).toHaveBeenCalled();
 	} );
 
-	it( 'garbage in the offset input is ignored', () => {
+	it( 'garbage in the offset input is refused where it was typed', () => {
 		registerViewFixture( { selected: 'gate' } );
 		const { container } = render( <LogViewer /> );
 		const input = container.querySelector( '.newspack-nodes-offset-input' );
@@ -355,6 +357,7 @@ describe( 'LogViewer', () => {
 		fireEvent.keyDown( input, { key: 'Enter' } );
 		expect( seek ).not.toHaveBeenCalled();
 		expect( setPaused ).not.toHaveBeenCalled();
+		expect( input.getAttribute( 'aria-invalid' ) ).toBe( 'true' );
 	} );
 
 	it( 'the pause button toggles through the graph callback', () => {

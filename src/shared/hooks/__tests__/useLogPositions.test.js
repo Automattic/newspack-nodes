@@ -277,11 +277,29 @@ describe( 'useSegmentBrowse', () => {
 		);
 	} );
 
-	it( 'garbage in the offset input seeks nothing', () => {
+	it.each( [
+		[ 'garbage', 'nonsense-9x' ],
+		[ 'a bare offset with no segment being read', '8191' ],
+	] )( 'refuses %s aloud, and seeks nothing', ( _, text ) => {
 		const { result, seek, setPaused } = browse();
-		act( () => result.current.jump( 'nonsense-9x' ) );
+		let refusal;
+		act( () => {
+			refusal = result.current.jump( text );
+		} );
+		expect( refusal ).toBe(
+			'Nothing to jump to: paste a message ID (seg:offset:len), or a bare offset once a segment is streaming.'
+		);
 		expect( seek ).not.toHaveBeenCalled();
 		expect( setPaused ).not.toHaveBeenCalled();
+	} );
+
+	it( 'answers nothing for a jump it takes', () => {
+		const { result } = browse();
+		let refusal = 'unset';
+		act( () => {
+			refusal = result.current.jump( '41:8191:12' );
+		} );
+		expect( refusal ).toBeNull();
 	} );
 
 	// An empty `sub` is the whole-glob view: there is no dir to seek within,
@@ -293,7 +311,11 @@ describe( 'useSegmentBrowse', () => {
 		act( () => result.current.sidebar.props.onFollow() );
 		act( () => result.current.sidebar.props.onReplay() );
 		act( () => result.current.sidebar.props.onSelectItem( { id: 41 } ) );
-		act( () => result.current.jump( '7:120' ) );
+		let refusal;
+		act( () => {
+			refusal = result.current.jump( '7:120' );
+		} );
+		expect( refusal ).toBe( 'Pick a source to jump within.' );
 		expect( seek ).not.toHaveBeenCalled();
 		expect( setPaused ).not.toHaveBeenCalled();
 	} );

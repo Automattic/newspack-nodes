@@ -176,11 +176,7 @@ it( 'refuses to issue a session with no label, and says why', () => {
 	const { container } = render( <SessionsAdmin /> );
 	openCreate( container );
 
-	act( () =>
-		dialogButton( /issue session/i ).dispatchEvent(
-			new Event( 'click', { bubbles: true } )
-		)
-	);
+	act( () => dialogButton( /issue session/i ).click() );
 
 	expect( createSession ).not.toHaveBeenCalled();
 	expect( document.querySelector( '[role="dialog"]' ).textContent ).toMatch(
@@ -194,11 +190,7 @@ it( 'issues with the label, scope and lifetime the form holds', () => {
 	setInput( document.querySelector( '#new-session-label' ), 'laptop mcp' );
 	setInput( document.querySelector( '#new-session-ttl' ), '4471' );
 
-	act( () =>
-		dialogButton( /issue session/i ).dispatchEvent(
-			new Event( 'click', { bubbles: true } )
-		)
-	);
+	act( () => dialogButton( /issue session/i ).click() );
 
 	expect( createSession ).toHaveBeenCalledWith( {
 		label: 'laptop mcp',
@@ -207,17 +199,44 @@ it( 'issues with the label, scope and lifetime the form holds', () => {
 	} );
 } );
 
+// jsdom performs no implicit submission, so Enter is the form's submit; the
+// key panel that replaces the form has no default action to submit.
+it( 'issues when the dialog form submits, Issue Session being its submit', () => {
+	const { container } = render( <SessionsAdmin /> );
+	openCreate( container );
+	const dialog = document.querySelector( '[role="dialog"]' );
+	expect( dialog.tagName ).toBe( 'FORM' );
+	expect( dialog.noValidate ).toBe( true );
+	expect( dialogButton( /issue session/i ).type ).toBe( 'submit' );
+	expect( dialogButton( /cancel/i ).type ).toBe( 'button' );
+	setInput( document.querySelector( '#new-session-label' ), 'egret relay' );
+	setInput( document.querySelector( '#new-session-ttl' ), '30' );
+
+	act( () => {
+		dialog.dispatchEvent(
+			new Event( 'submit', { bubbles: true, cancelable: true } )
+		);
+	} );
+
+	expect( createSession ).toHaveBeenCalledWith( {
+		label: 'egret relay',
+		scope: 'read',
+		ttl: 30,
+	} );
+	answer( 'create', {
+		subject: 'egret relay',
+		result: { handle: 'h-5', secret: 's', scope: 'read', expires_in: 30 },
+	} );
+	expect( document.querySelector( '[role="dialog"]' ).tagName ).toBe( 'DIV' );
+} );
+
 // The key is recoverable from nothing: the create answer is the only place it
 // is ever shown, so the panel replaces the form rather than closing it.
 it( 'discloses the issued key once, in place of the form', () => {
 	const { container } = render( <SessionsAdmin /> );
 	openCreate( container );
 	setInput( document.querySelector( '#new-session-label' ), 'laptop mcp' );
-	act( () =>
-		dialogButton( /issue session/i ).dispatchEvent(
-			new Event( 'click', { bubbles: true } )
-		)
-	);
+	act( () => dialogButton( /issue session/i ).click() );
 
 	answer( 'create', {
 		subject: 'laptop mcp',
@@ -240,11 +259,7 @@ it( 'keeps the form open on a refusal, with the reason on it', () => {
 	const { container } = render( <SessionsAdmin /> );
 	openCreate( container );
 	setInput( document.querySelector( '#new-session-label' ), 'laptop mcp' );
-	act( () =>
-		dialogButton( /issue session/i ).dispatchEvent(
-			new Event( 'click', { bubbles: true } )
-		)
-	);
+	act( () => dialogButton( /issue session/i ).click() );
 
 	answer( 'create', { subject: 'laptop mcp', error: 'scope refused' } );
 

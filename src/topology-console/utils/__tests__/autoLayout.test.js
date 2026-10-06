@@ -4,6 +4,7 @@
 
 import {
 	autoLayout,
+	drawnCost,
 	placeBelow,
 	snapToGrid,
 	X_PAD,
@@ -99,39 +100,85 @@ describe( 'autoLayout — no overlapping nodes', () => {
 } );
 
 /**
- * The cards a wire sweeps through. A wire spanning two or more columns
- * crosses every column between as a cubic that, over a card's width,
- * runs nearly the whole way from its source row to its sink row, so a
- * card in a between column whose centre lies inside that span, within
- * half a card of it, is drawn over. The margin is a card's half height.
+ * The drawn cost of a laid-out graph, read off its positioned nodes.
  *
  * @param {Array<Object>} nodes Positioned nodes.
  * @param {Array<Object>} edges The wires.
- * @return {Array<string>} `from→to over id` for every card a wire crosses.
+ * @return {{crossings: string[], over: string[]}} What `drawnCost` reports.
  */
-function wiresThroughCards( nodes, edges ) {
-	const by = Object.fromEntries( nodes.map( ( n ) => [ n.id, n ] ) );
-	const hits = [];
-	for ( const { from, to } of edges ) {
-		const a = by[ from ].position;
-		const b = by[ to ].position;
-		const lo = Math.min( a.y, b.y );
-		const hi = Math.max( a.y, b.y );
-		for ( const n of nodes ) {
-			const between = ( n.position.x - a.x ) * ( n.position.x - b.x ) < 0;
-			if ( ! between ) {
-				continue;
-			}
-			if (
-				n.position.y > lo - NODE_H / 2 &&
-				n.position.y < hi + NODE_H / 2
-			) {
-				hits.push( `${ from }→${ to } over ${ n.id }` );
-			}
-		}
-	}
-	return hits;
-}
+const drawn = ( nodes, edges ) =>
+	drawnCost(
+		Object.fromEntries( nodes.map( ( n ) => [ n.id, n.position ] ) ),
+		edges
+	);
+
+describe( 'drawnCost — the one judge of a drawing', () => {
+	const wire = ( from, to ) => ( { from, to } );
+	// Three columns, rows half a step apart: the lattice a layout lands on.
+	const cell = ( c, r ) => ( {
+		x: X_PAD + c * X_STEP,
+		y: Y_PAD + r * Y_STEP,
+	} );
+
+	it( 'names each pair of wires whose order flips across the span both run', () => {
+		const at = {
+			a: cell( 0, 0 ),
+			b: cell( 1, 1 ),
+			c: cell( 0, 1 ),
+			d: cell( 1, 0 ),
+		};
+		expect(
+			drawnCost( at, [ wire( 'a', 'b' ), wire( 'c', 'd' ) ] ).crossings
+		).toEqual( [ 'a→b × c→d' ] );
+	} );
+
+	it( 'never crosses two wires sharing a card, nor two that keep their order', () => {
+		const at = {
+			a: cell( 0, 0 ),
+			b: cell( 1, 1 ),
+			c: cell( 1, 0 ),
+			d: cell( 0, 2 ),
+			e: cell( 1, 3 ),
+		};
+		const wires = [ wire( 'a', 'b' ), wire( 'a', 'c' ), wire( 'd', 'e' ) ];
+		expect( drawnCost( at, wires ).crossings ).toEqual( [] );
+	} );
+
+	it( 'reads a backward wire as the segment it draws', () => {
+		const at = {
+			a: cell( 1, 0 ),
+			b: cell( 0, 1 ),
+			c: cell( 0, 0 ),
+			d: cell( 1, 1 ),
+		};
+		expect(
+			drawnCost( at, [ wire( 'a', 'b' ), wire( 'c', 'd' ) ] ).crossings
+		).toEqual( [ 'a→b × c→d' ] );
+	} );
+
+	it( 'runs a wire over a card within the clearance the layout keeps', () => {
+		// The layout keeps a card half a row off a wire, so 50px is on it
+		// and a half row (55px) is clear: the judge holds the same margin.
+		const at = {
+			s: cell( 0, 0 ),
+			t: cell( 2, 0 ),
+			near: { x: X_PAD + X_STEP, y: Y_PAD + 50 },
+			clear: cell( 1, 0.5 ),
+			end: cell( 2, 0.25 ),
+		};
+		expect( drawnCost( at, [ wire( 's', 't' ) ] ).over ).toEqual( [
+			's→t over near',
+		] );
+	} );
+
+	it( 'ignores a wire whose ends share a column', () => {
+		const at = { a: cell( 0, 0 ), b: cell( 0, 2 ), m: cell( 0, 1 ) };
+		expect( drawnCost( at, [ wire( 'a', 'b' ) ] ) ).toEqual( {
+			crossings: [],
+			over: [],
+		} );
+	} );
+} );
 
 describe( 'autoLayout — no wire through a card', () => {
 	it( 'routes a fan-out past a tee in the column between', () => {
@@ -155,7 +202,7 @@ describe( 'autoLayout — no wire through a card', () => {
 			nodes: ids.map( ( id ) => ( { id } ) ),
 			edges,
 		} );
-		expect( wiresThroughCards( nodes, edges ) ).toEqual( [] );
+		expect( drawn( nodes, edges ).over ).toEqual( [] );
 		expect( minColumnGap( nodes ) ).toBeGreaterThanOrEqual( NODE_H );
 	} );
 
@@ -179,7 +226,7 @@ describe( 'autoLayout — no wire through a card', () => {
 			nodes: ids.map( ( id ) => ( { id } ) ),
 			edges,
 		} );
-		expect( wiresThroughCards( nodes, edges ) ).toEqual( [] );
+		expect( drawn( nodes, edges ).over ).toEqual( [] );
 		const y = Object.fromEntries(
 			nodes.map( ( n ) => [ n.id, n.position.y ] )
 		);
@@ -254,7 +301,7 @@ describe( 'autoLayout — no wire through a card', () => {
 			nodes: ids.map( ( id ) => ( { id } ) ),
 			edges,
 		} );
-		expect( wiresThroughCards( nodes, edges ) ).toEqual( [] );
+		expect( drawn( nodes, edges ).over ).toEqual( [] );
 	} );
 } );
 
@@ -1305,7 +1352,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		expect( width / height ).toBeGreaterThan( 0.5 );
 		expect( width / height ).toBeLessThan( 2 );
 		expect( minColumnGap( nodes ) ).toBeGreaterThanOrEqual( NODE_H );
-		expect( wiresThroughCards( nodes, edges ) ).toEqual( [] );
+		expect( drawn( nodes, edges ).over ).toEqual( [] );
 	} );
 
 	it( "keeps a wire from a band straight to its hub off the band's own chain", () => {
@@ -1337,7 +1384,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		// The hub's fan-in still crosses the bands between it and the
 		// router's; what must not happen is the wire through its own chain.
 		expect(
-			wiresThroughCards( nodes, edges ).filter( ( hit ) =>
+			drawn( nodes, edges ).over.filter( ( hit ) =>
 				/over (pub:balancer|korell:template)$/.test( hit )
 			)
 		).toEqual( [] );
@@ -1448,9 +1495,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		const g = gridOf( graph );
 		// The buffers' wires to the hub cross the bridge's column: it is
 		// seated off their path, not on the hub's row in front of it.
-		expect( wiresThroughCards( autoLayout( graph ).nodes, edges ) ).toEqual(
-			[]
-		);
+		expect( drawn( autoLayout( graph ).nodes, edges ).over ).toEqual( [] );
 		const buffers = JOBS.map( ( job ) => g[ `pub:${ job }:buffer` ].col );
 		// The timeout's every neighbour is the hub, so it is a bridge: it
 		// leads the hub chain, right after the buffers.
@@ -1533,7 +1578,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 			edges,
 		} );
 		expect(
-			wiresThroughCards( nodes, edges ).filter( ( hit ) =>
+			drawn( nodes, edges ).over.filter( ( hit ) =>
 				/over c:/.test( hit )
 			)
 		).toEqual( [] );
@@ -1590,7 +1635,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 			Math.max( ...spokeRows )
 		);
 		const { nodes } = autoLayout( graph );
-		expect( wiresThroughCards( nodes, graph.edges ) ).toEqual( [] );
+		expect( drawn( nodes, graph.edges ).over ).toEqual( [] );
 	} );
 
 	it( "packs a small block into the room beside a tall block's feeders", () => {
@@ -1606,7 +1651,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		}
 		const { nodes } = autoLayout( graph );
 		expect( minColumnGap( nodes ) ).toBeGreaterThanOrEqual( NODE_H );
-		expect( wiresThroughCards( nodes, graph.edges ) ).toEqual( [] );
+		expect( drawn( nodes, graph.edges ).over ).toEqual( [] );
 	} );
 
 	// Seeded random graphs whose packing once stacked a block onto one that
@@ -1641,7 +1686,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		const graph = seedGraph( '134623' );
 		const { nodes } = autoLayout( graph );
 		expect(
-			wiresThroughCards( nodes, graph.edges ).filter( ( hit ) =>
+			drawn( nodes, graph.edges ).over.filter( ( hit ) =>
 				/ over lone\d+$/.test( hit )
 			)
 		).toEqual( [] );
@@ -1663,7 +1708,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 			).toBeLessThanOrEqual( 3 );
 			const { nodes } = autoLayout( graph );
 			expect(
-				wiresThroughCards( nodes, graph.edges ).filter( ( hit ) =>
+				drawn( nodes, graph.edges ).over.filter( ( hit ) =>
 					hit.startsWith( `${ source }→` )
 				)
 			).toEqual( [] );
@@ -1676,7 +1721,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		const graph = seedGraph( '52367' );
 		const { nodes } = autoLayout( graph );
 		expect(
-			wiresThroughCards( nodes, graph.edges ).filter( ( hit ) =>
+			drawn( nodes, graph.edges ).over.filter( ( hit ) =>
 				/ over k1src$/.test( hit )
 			)
 		).toEqual( [] );
@@ -1688,7 +1733,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		const graph = seedGraph( '14962' );
 		const { nodes } = autoLayout( graph );
 		expect(
-			wiresThroughCards( nodes, graph.edges ).filter( ( hit ) =>
+			drawn( nodes, graph.edges ).over.filter( ( hit ) =>
 				hit.startsWith( 'k2src→' )
 			)
 		).toEqual( [] );
@@ -1746,16 +1791,26 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 	it( "runs a consumer band's source wire back to its hub clear of the band", () => {
 		// k4src feeds hub0 and a node in the band hub0 feeds, so its wire runs
 		// back across that band. Its legal columns are 5 to 8, and the fewest
-		// cards a free row there crosses are 4, 5, 6 and 1, so one card is the
+		// cards a free row there crosses are 4, 4, 5 and 1, so one card is the
 		// optimum and no seat clears every card. Pin which one: a count alone
 		// passes just as well when the wire goes missing, or crosses another.
 		const graph = seedGraph( 'c71271' );
 		const { nodes } = autoLayout( graph );
 		expect(
-			wiresThroughCards( nodes, graph.edges ).filter( ( hit ) =>
+			drawn( nodes, graph.edges ).over.filter( ( hit ) =>
 				hit.startsWith( 'k4src→' )
 			)
-		).toEqual( [ 'k4src→hub0 over k5l1n0' ] );
+		).toEqual( [ 'k4src→hub0 over k5l0n0' ] );
+	} );
+
+	it( "keeps the sweeps' order where an exchange draws worse (seed 14962)", () => {
+		// The exchange pass uncrosses two wires in this graph's column order,
+		// but the rows the block passes then derive cross 82 wires and run 35
+		// over cards, against 50 and 32 for the sweeps' own order.
+		const graph = seedGraph( '14962' );
+		const { nodes } = autoLayout( graph );
+		expect( drawn( nodes, graph.edges ).crossings ).toHaveLength( 50 );
+		expect( drawn( nodes, graph.edges ).over ).toHaveLength( 32 );
 	} );
 
 	it( 'keeps the cards off the long wires of a node only a hub feeds', () => {
@@ -1781,7 +1836,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 			nodes: [ ...ids ].map( ( id ) => ( { id } ) ),
 			edges,
 		} );
-		expect( wiresThroughCards( nodes, edges ) ).toEqual( [] );
+		expect( drawn( nodes, edges ).over ).toEqual( [] );
 	} );
 
 	it( 'keeps a source wired out of its block in the column its band gave it', () => {
@@ -1790,7 +1845,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		const graph = seedGraph( 'c134623' );
 		const { nodes } = autoLayout( graph );
 		expect(
-			wiresThroughCards( nodes, graph.edges ).filter( ( hit ) =>
+			drawn( nodes, graph.edges ).over.filter( ( hit ) =>
 				hit.startsWith( 'k6src→' )
 			)
 		).toEqual( [] );
@@ -1803,7 +1858,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		const graph = seedGraph( '703214' );
 		const { nodes } = autoLayout( graph );
 		expect(
-			wiresThroughCards( nodes, graph.edges ).filter( ( hit ) =>
+			drawn( nodes, graph.edges ).over.filter( ( hit ) =>
 				hit.startsWith( 'k3l0n0→hub0' )
 			)
 		).toEqual( [] );
@@ -1822,7 +1877,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		const graph = seedGraph( '82291' );
 		const { nodes } = autoLayout( graph );
 		expect(
-			wiresThroughCards( nodes, graph.edges ).filter( ( hit ) =>
+			drawn( nodes, graph.edges ).over.filter( ( hit ) =>
 				hit.startsWith( 'k2l0n0→' )
 			)
 		).toEqual( [] );
@@ -1855,7 +1910,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 			[ 'b1', 'b2' ],
 		] );
 		const { nodes } = autoLayout( graph );
-		expect( wiresThroughCards( nodes, graph.edges ) ).toEqual( [] );
+		expect( drawn( nodes, graph.edges ).over ).toEqual( [] );
 	} );
 
 	it( 'keeps a source in a band its hub feeds right of that hub', () => {

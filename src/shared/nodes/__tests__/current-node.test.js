@@ -139,6 +139,16 @@ describe( 'CurrentNode', () => {
 		expect( gate.counter ).toBe( 1 );
 	} );
 
+	// The view stopped wanting it: no newer question replaced this one.
+	it( 'drops the answer to an ask its Fetcher withdrew', () => {
+		fetcher.send( [ '--search', 'kakapo-3317' ] );
+		fetcher.withdraw();
+		gate.fill( reply( '', [ '--search', 'kakapo-3317' ] ) );
+		gate.fill( reply( '', [ '--search', 'kakapo-3317' ], TM_ERROR ) );
+		expect( forwarded ).toEqual( [] );
+		expect( gate.counter ).toBe( 2 );
+	} );
+
 	it( 'drops an interpreter refusal of a replaced ask', () => {
 		fetcher.send( [ 'spoke-0417' ], 'spoke-0417' );
 		fetcher.send( [ 'spoke-0932' ], 'spoke-0932', true );

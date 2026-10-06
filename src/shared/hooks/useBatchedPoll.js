@@ -11,7 +11,7 @@
  *    reaches every slice,
  *  - the page-visibility gate. A hidden tab unregisters the Timer from the
  *    Router's TIMER channel, so nothing fans out and nothing POSTs; a visible
- *    one registers it again.
+ *    one registers it again and polls at once, as an unpause does.
  *
  * It brackets nothing itself. The Router owns the `HttpOut` lock and flush
  * around a tick, so every command that tick mints leaves in ONE POST; opening a
@@ -40,14 +40,13 @@
 
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import {
-	Core,
 	mountExospine,
 	hasSession,
 	useNodeField,
 } from '@newspack-nodes/runtime';
 import { addSliceFetcher } from '../helpers/addSliceFetcher';
+import { armTimer, pollTimerNow } from '../helpers/armTimer';
 import { egressPath } from '../helpers/egressPath';
-import names from '../../runtime/reserved-node-names.json';
 import usePageVisibility from './usePageVisibility';
 
 /** @typedef {import('../../runtime/tee-node').TeeNode} TeeNode */
@@ -108,7 +107,8 @@ function isFirstLoadPending( timer ) {
 
 /**
  * Arm or disarm the owned Timer against the gates deciding whether this mount
- * should be polling at all.
+ * should be polling at all. Arming a disarmed Timer polls at once: a resume or
+ * an owed first load.
  *
  * A paused mount stays armed while its first load is still owed, because pause
  * suspends a CADENCE and a surface that has never shown its data has no cadence
@@ -128,7 +128,7 @@ function syncTimer( timer, isPageVisible, paused, intervalMs, enabled = true ) {
 		isPageVisible &&
 		( ! paused || isFirstLoadPending( timer ) )
 	) {
-		timer.setTimer( intervalMs );
+		armTimer( timer, intervalMs );
 	} else {
 		timer.stopTimer();
 	}
@@ -142,7 +142,7 @@ function syncTimer( timer, isPageVisible, paused, intervalMs, enabled = true ) {
  * @param {( spine: BatchedPollSpine ) => *} opts.build       Adds the dashboard's slice nodes onto the owned Tee. A function it returns runs as cleanup, before those nodes are removed.
  * @param {string}                           opts.timerName   Name for the owned router-hitchhike Timer.
  * @param {string}                           opts.teeName     Name for the owned fan-out Tee.
- * @param {boolean}                          [opts.paused]    Suspend polling while true (stops the Timer hitchhike, like a hidden tab); resumes when false. A paused mount STILL delivers its one first load — see `enabled` for the gate that does not.
+ * @param {boolean}                          [opts.paused]    Suspend polling while true (stops the Timer hitchhike, like a hidden tab); going false polls at once, then resumes the cadence. A paused mount STILL delivers its one first load — see `enabled` for the gate that does not.
  * @param {boolean}                          [opts.enabled]   False costs nothing at all: no first load, no timer. `paused` suspends a surface that is open; this is for one that was never opened. Flipping it true delivers the first load then.
  * @param {boolean}                          [opts.passenger] True to clip onto a backbone somebody else owns — a poll that is a PART of a page rather than its graph. The owner keeps Reset Graph and the full rebuild; a passenger re-attaches when the backbone comes back.
  * @param {number}                           opts.intervalMs  Poll cadence in ms, REQUIRED and >= 1000 — TimerNode's hitchhike threshold, so the tick stays inside the lock/flush bracket. 1000 rides every router tick; above that `fireCb` throttles to the interval against the shared wall-clock grid (ADR-17), so two surfaces on one cadence meet on the same tick and share the POST. Changing it re-arms the Timer.
@@ -205,20 +205,8 @@ export function useBatchedPoll( opts ) {
 
 			interpreterRef.current = interpreter;
 
-			// @longform
-			// Ask to be included in THIS tick, then let the ROUTER run it.
-			// The Router is the page's one heartbeat and the only thing
-			// bracketing a tick; a lock/flush opened here would make this
-			// mount a second bracket owner, and whatever else was due on
-			// the same tick would pay for a second POST. Zeroing
-			// `lastFireTime` is how a slice slower than the tick says it
-			// is due, since `fireCb` throttles a hitchhiker whose interval
-			// exceeds the 1s tick. `requestTick` coalesces, so three
-			// mounts in one commit are one tick.
-			const fireTick = () => {
-				timer.markDue();
-				Core.node( names.ROUTER )?.requestTick();
-			};
+			// Ask into THIS tick and let the Router run it; see pollTimerNow.
+			const fireTick = () => pollTimerNow( timer );
 			fireTickRef.current = fireTick;
 
 			// An unsigned tick minted nothing, so re-offer it on the next.
@@ -275,31 +263,6 @@ export function useBatchedPoll( opts ) {
 		return teardown;
 	}, [ enabled ] );
 
-	// Sync visibility/pause/cadence; a pending first load overrides pause.
-	useEffect( () => {
-		const timer = timerRef.current;
-		if ( ! timer ) {
-			return;
-		}
-		const owed =
-			enabled &&
-			isPageVisible &&
-			isFirstLoadPending( timer ) &&
-			'inactive' === timer.mode;
-		// ARM first: the Router fires only what is registered on its TIMER.
-		syncTimer(
-			timer,
-			isPageVisible,
-			opts.paused,
-			opts.intervalMs,
-			enabled
-		);
-		// The one-time load, when a hidden or unopened surface finally shows.
-		if ( owed ) {
-			fireTickRef.current?.();
-		}
-	}, [ isPageVisible, opts.paused, opts.intervalMs, enabled ] );
-
 	/**
 	 * Run the ROUTER's tick NOW, off-cadence, having marked this poll due —
 	 * one batched POST of every slice, with each `argsFn()` reading the
@@ -313,6 +276,21 @@ export function useBatchedPoll( opts ) {
 	 * @return {void}
 	 */
 	const pollNow = useCallback( () => fireTickRef.current?.(), [] );
+
+	// Sync visibility/pause/cadence; a pending first load overrides pause.
+	useEffect( () => {
+		const timer = timerRef.current;
+		if ( ! timer ) {
+			return;
+		}
+		syncTimer(
+			timer,
+			isPageVisible,
+			opts.paused,
+			opts.intervalMs,
+			enabled
+		);
+	}, [ isPageVisible, opts.paused, opts.intervalMs, enabled ] );
 
 	return { interpreterRef, pollNow };
 }

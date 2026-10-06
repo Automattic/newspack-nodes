@@ -264,6 +264,59 @@ export const drawAxes = ( g, { x, y, innerH, tickCount, yFormat, yLabel } ) => {
 };
 
 /**
+ * A slot's column: one bucket wide, the plot tall, centred on the slot. The
+ * hover highlight and the selected-slot shading both draw it, so the two
+ * cover the same strip.
+ *
+ * @param {Object} g             D3 group selection (inner chart area).
+ * @param {Object} params        Configuration.
+ * @param {number} params.innerW Chart inner width.
+ * @param {number} params.innerH Chart inner height.
+ * @param {Array}  params.dates  One `Date` per slot, ascending.
+ * @param {Object} params.x      D3 x scale over `dates`.
+ * @return {{append: () => Object, left: (idx: number) => number}} `append`
+ * adds an unplaced column rect to `g`; `left` is slot `idx`'s column's x.
+ */
+const slotColumns = ( g, { innerW, innerH, dates, x } ) => {
+	const width = innerW / dates.length;
+	return {
+		append: () =>
+			g
+				.append( 'rect' )
+				.attr( 'y', 0 )
+				.attr( 'width', width )
+				.attr( 'height', innerH ),
+		left: ( idx ) => x( dates[ idx ] ) - width / 2,
+	};
+};
+
+/**
+ * Shade the selected slots' columns, in the geometry the hover highlight
+ * takes. Draw it before the marks, so the bands stay legible over it; the
+ * `newspack-nodes-chart__selected` role paints it, so the accent re-skins with
+ * the page.
+ *
+ * @param {Object}              g                    D3 group selection (inner chart area).
+ * @param {Object}              params               Configuration.
+ * @param {number}              params.innerW        Chart inner width.
+ * @param {number}              params.innerH        Chart inner height.
+ * @param {Array}               params.dates         One `Date` per slot, ascending.
+ * @param {Object}              params.x             D3 x scale over `dates`.
+ * @param {ReadonlySet<number>} params.selectedSlots Indexes into `dates` to shade; one outside it shades nothing.
+ */
+export const shadeSlots = ( g, { selectedSlots, ...frame } ) => {
+	const column = slotColumns( g, frame );
+	frame.dates.forEach( ( date, idx ) => {
+		if ( selectedSlots.has( idx ) ) {
+			column
+				.append()
+				.attr( 'class', 'newspack-nodes-chart__selected' )
+				.attr( 'x', column.left( idx ) );
+		}
+	} );
+};
+
+/**
  * The rows a tooltip lists for the hovered bucket, in display order. Values
  * arrive already formatted, because only the caller knows the unit.
  *
@@ -271,10 +324,18 @@ export const drawAxes = ( g, { x, y, innerH, tickCount, yFormat, yLabel } ) => {
  */
 
 /**
+ * Takes a clicked slot's index, and whether cmd or ctrl asked to add it to
+ * the caller's selection rather than replace it.
+ *
+ * @typedef {( index: number, click: {additive: boolean} ) => void} SlotClick
+ */
+
+/**
  * Bind the hover: a highlight column on the nearest bucket, and a tooltip
- * listing that bucket's rows. A plain click on the plot hands that bucket's
- * index to `onSlotClick`; a shift+click, which resizes the chart, and the
- * click ending a drag-selection report nothing.
+ * listing that bucket's rows. A click on the plot hands that bucket's index
+ * to `onSlotClick`, with `additive` true when cmd or ctrl was held; a
+ * shift+click, which resizes the chart, and the click ending a drag-selection
+ * report nothing.
  *
  * A transparent rectangle over the whole plot takes the pointer, so every
  * column is hoverable, the empty ones included. The move handler records the
@@ -288,17 +349,17 @@ export const drawAxes = ( g, { x, y, innerH, tickCount, yFormat, yLabel } ) => {
  * panel on a long dashboard from opening its tooltip off-screen. Flipped, it
  * clears the row's title too, since the wrapper is what it measures against.
  *
- * @param {Object}                    g                    D3 group selection (inner chart area).
- * @param {Object}                    params               Configuration.
- * @param {number}                    params.innerW        Chart inner width.
- * @param {number}                    params.innerH        Chart inner height.
- * @param {Array}                     params.dates         One `Date` per slot, ascending; the hover snaps to the nearest.
- * @param {Object}                    params.x             D3 x scale over `dates`.
- * @param {EntryFormatter}            params.formatEntry   Rows to list for the hovered slot.
- * @param {Object}                    params.tooltipRef    React ref to tooltip div.
- * @param {Object}                    params.lastMouseXRef React ref tracking mouse x.
- * @param {Object}                    params.containerRef  React ref to container div.
- * @param {( index: number ) => void} [params.onSlotClick] Takes the clicked slot's index into `dates`.
+ * @param {Object}         g                    D3 group selection (inner chart area).
+ * @param {Object}         params               Configuration.
+ * @param {number}         params.innerW        Chart inner width.
+ * @param {number}         params.innerH        Chart inner height.
+ * @param {Array}          params.dates         One `Date` per slot, ascending; the hover snaps to the nearest.
+ * @param {Object}         params.x             D3 x scale over `dates`.
+ * @param {EntryFormatter} params.formatEntry   Rows to list for the hovered slot.
+ * @param {Object}         params.tooltipRef    React ref to tooltip div.
+ * @param {Object}         params.lastMouseXRef React ref tracking mouse x.
+ * @param {Object}         params.containerRef  React ref to container div.
+ * @param {SlotClick}      [params.onSlotClick] Takes the clicked slot's index into `dates`.
  */
 export const setupTooltip = (
 	g,
@@ -314,14 +375,11 @@ export const setupTooltip = (
 		onSlotClick,
 	}
 ) => {
-	const bucketWidth = innerW / dates.length;
 	const bisect = d3.bisector( ( d ) => d ).left;
+	const column = slotColumns( g, { innerW, innerH, dates, x } );
 
-	const highlight = g
-		.append( 'rect' )
-		.attr( 'y', 0 )
-		.attr( 'height', innerH )
-		.attr( 'width', bucketWidth )
+	const highlight = column
+		.append()
 		// Neutral grey so the hover column reads on light AND dark panels.
 		.attr( 'fill', 'rgba(128,128,128,0.18)' )
 		.attr( 'stroke', 'rgba(128,128,128,0.4)' )
@@ -341,7 +399,7 @@ export const setupTooltip = (
 		const idx = slotAt( mx );
 		const xPos = x( dates[ idx ] );
 
-		highlight.attr( 'x', xPos - bucketWidth / 2 ).attr( 'opacity', 1 );
+		highlight.attr( 'x', column.left( idx ) ).attr( 'opacity', 1 );
 
 		// Labels are wire data: build with textContent, never innerHTML.
 		tooltip.textContent = '';
@@ -411,7 +469,9 @@ export const setupTooltip = (
 				! event.shiftKey &&
 				! isDragSelection( event )
 			) {
-				onSlotClick( slotAt( d3.pointer( event )[ 0 ] ) );
+				onSlotClick( slotAt( d3.pointer( event )[ 0 ] ), {
+					additive: Boolean( event.metaKey || event.ctrlKey ),
+				} );
 			}
 		} );
 

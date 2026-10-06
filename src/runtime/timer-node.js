@@ -108,7 +108,7 @@ export class TimerNode extends Node {
 		this.oneshot = false;
 		// Router can't hitchhike its own TIMER; RouterNode self-arms instead.
 		this.isRouter = false;
-		// Grid clock of a hitchhiker over 1000ms; seconds, Core.now() scale.
+		// Last fire in either mode, kept on re-arm; seconds, Core.now() scale.
 		this.lastFireTime = 0;
 		// Asked for by markDue() and not yet served by a fire or markFired().
 		this.due = false;
@@ -163,7 +163,9 @@ export class TimerNode extends Node {
 	 * its own last fire (ADR-17): the tick that reaches `fire()` is the first at
 	 * or past the next boundary, so two nodes on one cadence fire on the same
 	 * tick however far apart they were armed. An own slot already fires at
-	 * `interval_ms` and skips the test.
+	 * `interval_ms` and skips the test. Every dispatch records `lastFireTime`,
+	 * which `setTimer()` keeps, so a retuned hitchhiker waits for the boundary
+	 * after its last fire rather than firing on the next tick.
 	 */
 	fireCb() {
 		if ( this.oneshot ) {
@@ -172,14 +174,16 @@ export class TimerNode extends Node {
 		if ( ! this.sink ) {
 			return;
 		}
+		const now = Core.now();
 		// Paces the 1s router tick; an own slot already fires at interval_ms.
-		if ( 'router' === this.mode && this.interval_ms > 1000 ) {
-			const now = Core.now();
-			if ( now < nextBoundary( this.lastFireTime, this.interval_ms ) ) {
-				return;
-			}
-			this.lastFireTime = now;
+		if (
+			'router' === this.mode &&
+			this.interval_ms > 1000 &&
+			now < nextBoundary( this.lastFireTime, this.interval_ms )
+		) {
+			return;
 		}
+		this.lastFireTime = now;
 		this.due = false;
 		this.fireCount++;
 		this.fire();
@@ -263,7 +267,6 @@ export class TimerNode extends Node {
 			router.register( 'TIMER', this.name );
 			// No ms = the router's own cadence; list_timers prints this.
 			this.interval_ms = null === ms ? router.interval_ms : ms;
-			this.lastFireTime = 0;
 			this.mode = 'router';
 			// After the mode-switch stopTimer above, which resets the flag.
 			this.oneshot = oneshot;

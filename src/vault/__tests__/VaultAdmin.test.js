@@ -330,9 +330,7 @@ describe( 'VaultAdmin', () => {
 			'https://spoke.example'
 		);
 		await act( async () => {
-			container
-				.querySelector( '#vault-server-save' )
-				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
+			container.querySelector( '#vault-server-save' ).click();
 		} );
 		expect( addServer ).toHaveBeenCalled();
 		await act( async () => answer( 'add', { subject: 'spoke-09' } ) );
@@ -359,15 +357,44 @@ describe( 'VaultAdmin', () => {
 			'secret'
 		);
 		await act( async () => {
-			container
-				.querySelector( '#vault-server-save' )
-				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
+			container.querySelector( '#vault-server-save' ).click();
 		} );
 		expect( addServer ).toHaveBeenCalledWith( {
 			id: 'spoke-09',
 			url: 'https://spoke.example',
 			auth_username: 'admin',
 			auth_password: 'secret',
+			group: '',
+		} );
+	} );
+
+	// jsdom performs no implicit submission, so Enter is the form's submit.
+	it( 'saves when the dialog form submits, Add Server being its submit', async () => {
+		registerViewFixture( { servers: [], loading: false } );
+		const { container } = mount();
+		openAddModal( container );
+		const dialog = document.querySelector( '[role="dialog"]' );
+		expect( dialog.tagName ).toBe( 'FORM' );
+		expect( dialog.noValidate ).toBe( true );
+		expect( dialog.querySelector( '#vault-server-save' ).type ).toBe(
+			'submit'
+		);
+		expect( dialogButton( 'Cancel' ).type ).toBe( 'button' );
+		setInput( dialog.querySelector( '#vault-server-id' ), 'spoke-31' );
+		setInput(
+			dialog.querySelector( '#vault-server-url' ),
+			'https://egret.example'
+		);
+		await act( async () => {
+			dialog.dispatchEvent(
+				new Event( 'submit', { bubbles: true, cancelable: true } )
+			);
+		} );
+		expect( addServer ).toHaveBeenCalledWith( {
+			id: 'spoke-31',
+			url: 'https://egret.example',
+			auth_username: '',
+			auth_password: '',
 			group: '',
 		} );
 	} );
@@ -381,9 +408,7 @@ describe( 'VaultAdmin', () => {
 			'https://spoke.example'
 		);
 		await act( async () => {
-			container
-				.querySelector( '#vault-server-save' )
-				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
+			container.querySelector( '#vault-server-save' ).click();
 		} );
 		expect( addServer ).not.toHaveBeenCalled();
 		expect( container.textContent ).toContain( 'ID is required' );
@@ -401,9 +426,7 @@ describe( 'VaultAdmin', () => {
 			'http://insecure'
 		);
 		await act( async () => {
-			container
-				.querySelector( '#vault-server-save' )
-				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
+			container.querySelector( '#vault-server-save' ).click();
 		} );
 		expect( addServer ).not.toHaveBeenCalled();
 		expect( container.textContent ).toContain( 'https://' );
@@ -419,9 +442,7 @@ describe( 'VaultAdmin', () => {
 			'https://spoke.example'
 		);
 		await act( async () => {
-			container
-				.querySelector( '#vault-server-save' )
-				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
+			container.querySelector( '#vault-server-save' ).click();
 		} );
 		expect( addServer ).not.toHaveBeenCalled();
 		expect(
@@ -443,9 +464,7 @@ describe( 'VaultAdmin', () => {
 			'edge pool!'
 		);
 		await act( async () => {
-			container
-				.querySelector( '#vault-server-save' )
-				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
+			container.querySelector( '#vault-server-save' ).click();
 		} );
 		expect( addServer ).not.toHaveBeenCalled();
 		expect(
@@ -504,9 +523,7 @@ describe( 'VaultAdmin', () => {
 			'pw-8823'
 		);
 		await act( async () => {
-			container
-				.querySelector( '#vault-server-save' )
-				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
+			container.querySelector( '#vault-server-save' ).click();
 		} );
 		expect( addServer ).not.toHaveBeenCalled();
 		expect( updateServer ).toHaveBeenCalledWith( 'spoke-01', {
@@ -527,9 +544,7 @@ describe( 'VaultAdmin', () => {
 			'https://moved.example.test'
 		);
 		await act( async () => {
-			container
-				.querySelector( '#vault-server-save' )
-				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
+			container.querySelector( '#vault-server-save' ).click();
 		} );
 		expect( updateServer ).toHaveBeenCalledWith(
 			'spoke-01',
@@ -543,9 +558,7 @@ describe( 'VaultAdmin', () => {
 		openEditModal( container, 'spoke-01' );
 		setInput( container.querySelector( '#vault-server-id' ), 'spoke-77' );
 		await act( async () => {
-			container
-				.querySelector( '#vault-server-save' )
-				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
+			container.querySelector( '#vault-server-save' ).click();
 		} );
 		await act( async () => answer( 'update', { subject: 'spoke-01' } ) );
 		expect( document.querySelector( '[role="dialog"]' ) ).toBeNull();
@@ -556,9 +569,7 @@ describe( 'VaultAdmin', () => {
 		const { container } = mount();
 		openEditModal( container, 'spoke-01' );
 		await act( async () => {
-			container
-				.querySelector( '#vault-server-save' )
-				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
+			container.querySelector( '#vault-server-save' ).click();
 		} );
 		await act( async () =>
 			answer( 'update', {

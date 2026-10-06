@@ -137,6 +137,15 @@ if [[ -f "$contracttest" ]]; then
 	ok "contract gate clean"
 fi
 
+# The style gate reports by line and honours a same-line opt-out, so its own
+# line accounting needs a test that runs.
+stylestest="$(git rev-parse --show-toplevel)/scripts/test-lint-styles.sh"
+if [[ -f "$stylestest" ]]; then
+	step "test-lint-styles (the style gate's own tests)"
+	bash "$stylestest" || fail "test-lint-styles failed — the style gate is broken (see above)"
+	ok "style gate clean"
+fi
+
 # The pin gate decides whether a @wordpress/* drift ships, so its own tests run
 # here, in the substrate, before the copy syncs downstream.
 wppintest="$(git rev-parse --show-toplevel)/scripts/test-lint-wp-pin.sh"

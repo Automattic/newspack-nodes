@@ -338,7 +338,9 @@ overwriting it would deliver the reply to the subscription's view instead of its
   past the substrate's `MAX_FROM_SIZE`. The address names the subject and a reply's echoed
   `arguments` name its question, so a Fetcher settles the ask carrying both, or, for a reply
   echoing none such as the Router's `NOT_AVAILABLE`, the first ask on its address
-  ([`FetcherNode`](../src/runtime/fetcher-node.js)).
+  ([`FetcherNode`](../src/runtime/fetcher-node.js)). Each slice's `Current` gate passes only a
+  reply its Fetcher `answers()`, and withdrawing an ask (`withdraw()`) is how a view stops
+  wanting an answer without asking anew: the request completes, and its answer stops there.
 - **Late binding.** Targets resolve at fill-time: any construction order, cyclic graphs
   wireable. Eager reference-binding breaks reordered and cyclic graphs.
 - **In practice, targets route everything — data included.** In both realms, PHP workers and

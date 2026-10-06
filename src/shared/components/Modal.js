@@ -1,5 +1,6 @@
 import { createPortal, useRef } from '@wordpress/element';
 import { useDismissable } from '../hooks/useDismissable';
+import { submitProps } from '../utils/submitProps';
 import './Modal.scss';
 
 /**
@@ -51,6 +52,11 @@ export function ModalPortal( { children } ) {
  * Callers own their own initial focus, so each dialog can focus the element
  * that fits it.
  *
+ * Given `onSubmit`, the box itself is the dialog's `<form>` (see
+ * `submitProps`), so Enter in a field runs the default action; the caller's
+ * primary button is then `type="submit"` and every other button
+ * `type="button"`.
+ *
  * @param {Object}                    props
  * @param {string}                    props.ariaLabel           Accessible dialog label.
  * @param {() => void}                props.onClose             Dismiss handler (ESC / backdrop).
@@ -59,6 +65,7 @@ export function ModalPortal( { children } ) {
  *                                                              `position`/`z-index` live, so a dialog
  *                                                              opened over another modal layer raises
  *                                                              itself here.
+ * @param {() => void}                [props.onSubmit]          The default action; makes the box a form.
  * @param {import('react').ReactNode} props.children            Dialog body.
  * @return {import('react').ReactElement} The modal.
  */
@@ -67,10 +74,12 @@ export default function Modal( {
 	onClose,
 	className = '',
 	backdropClassName = '',
+	onSubmit,
 	children,
 } ) {
 	const dialogRef = useRef( null );
 	useDismissable( dialogRef, onClose );
+	const Box = onSubmit ? 'form' : 'div';
 
 	return (
 		<ModalPortal>
@@ -78,15 +87,16 @@ export default function Modal( {
 				className={ `newspack-nodes-modal__backdrop ${ backdropClassName }`.trim() }
 				role="presentation"
 			>
-				<div
+				<Box
 					ref={ dialogRef }
 					className={ `newspack-nodes-modal ${ className }`.trim() }
 					role="dialog"
 					aria-modal="true"
 					aria-label={ ariaLabel }
+					{ ...( onSubmit && submitProps( onSubmit ) ) }
 				>
 					{ children }
-				</div>
+				</Box>
 			</div>
 		</ModalPortal>
 	);

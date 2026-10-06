@@ -14,6 +14,7 @@
 
 import { useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
+import { SearchControl } from '@wordpress/components';
 import './timeline-view.scss';
 
 /**
@@ -114,27 +115,21 @@ export default function TimelineView( { transcript = [], actions = null } ) {
 		<div className="timeline-view">
 			<div className="timeline-view__filters">
 				{ actions }
-				<input
-					type="text"
-					className="timeline-view__filter"
+				<SearchControl
+					__nextHasNoMarginBottom
+					size="compact"
 					placeholder={ __( 'filter node…', 'newspack-nodes' ) }
 					value={ nodeFilter }
-					onChange={ ( ev ) => setNodeFilter( ev.target.value ) }
-					aria-label={ __(
-						'Filter timeline by node',
-						'newspack-nodes'
-					) }
+					onChange={ setNodeFilter }
+					label={ __( 'Filter timeline by node', 'newspack-nodes' ) }
 				/>
-				<input
-					type="text"
-					className="timeline-view__filter"
+				<SearchControl
+					__nextHasNoMarginBottom
+					size="compact"
 					placeholder={ __( 'filter event…', 'newspack-nodes' ) }
 					value={ eventFilter }
-					onChange={ ( ev ) => setEventFilter( ev.target.value ) }
-					aria-label={ __(
-						'Filter timeline by event',
-						'newspack-nodes'
-					) }
+					onChange={ setEventFilter }
+					label={ __( 'Filter timeline by event', 'newspack-nodes' ) }
 				/>
 			</div>
 			{ rows.length ? (

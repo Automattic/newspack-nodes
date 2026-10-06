@@ -8,6 +8,10 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 	--np-field-ink: var(--ink, var(--np-text));
 	--np-field-muted: var(--ink-3, var(--np-text-secondary));
 	--np-field-border: var(--paper-shadow, var(--np-border-strong));
+	// WordPress components paint from these; the skin's ink and paper fill them.
+	--wp-components-color-foreground: var(--ink, var(--np-text));
+	--wp-components-color-foreground-inverted: var(--paper, var(--np-surface));
+	--wp-components-color-background: var(--paper, var(--np-surface));
 
 	input:not([type="checkbox"]):not([type="radio"]):not(
 			.components-input-control__input
@@ -125,13 +129,13 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 .newspack-nodes-ui.newspack-nodes-ui.newspack-nodes-ui {
 	.components-input-control__container {
 		background: var(--np-field-surface);
-		border: 1px solid var(--np-field-border);
 		border-radius: var(--field-radius, 0);
 		box-shadow: none;
 	}
 
+	// The absolute backdrop draws the border, so the field gains no height.
 	.components-input-control__backdrop {
-		display: none;
+		border-color: var(--np-field-border);
 	}
 
 	.components-input-control__input {
@@ -153,6 +157,7 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 	}
 
 	.components-select-control__input {
+		border: 0;
 		padding-right: 22px;
 		background-image: url("#{ $np-chevron-dark }");
 		background-repeat: no-repeat;

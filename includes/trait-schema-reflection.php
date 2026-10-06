@@ -61,7 +61,7 @@ trait Schema_Reflection {
 	 * @throws \InvalidArgumentException When `schema_values()` refuses a token.
 	 */
 	protected function parse_schema_args( array $args ): void {
-		if ( [] !== self::declared_arguments() ) {
+		if ( [] !== self::declared_arguments( static::class ) ) {
 			$this->assign_schema_args( $args, $this->schema_values( $args ) );
 		}
 	}
@@ -101,7 +101,7 @@ trait Schema_Reflection {
 	 */
 	protected function schema_values( array $args ): array {
 		$values = [];
-		foreach ( self::declared_arguments() as $i => $arg_spec ) {
+		foreach ( self::declared_arguments( static::class ) as $i => $arg_spec ) {
 			if ( ! \is_array( $arg_spec ) ) {
 				continue;
 			}
@@ -131,13 +131,14 @@ trait Schema_Reflection {
 	}
 
 	/**
-	 * The node's declared positional specs; empty when it declares none or
+	 * The positional specs $class declares; empty when it declares none or
 	 * declares something other than a list.
 	 *
+	 * @param class-string<Node> $class Class whose schema declares them.
 	 * @return array<array-key,mixed>
 	 */
-	private static function declared_arguments(): array {
-		$declared = static::node_schema()['arguments'] ?? [];
+	private static function declared_arguments( string $class ): array {
+		$declared = $class::node_schema()['arguments'] ?? [];
 		return \is_array( $declared ) ? $declared : [];
 	}
 
@@ -335,13 +336,13 @@ trait Schema_Reflection {
 		foreach ( Command_Interpreter_Node::declared_verbs( $class ) as $name => $verb ) {
 			$prop = Core::as_string( $verb['toggle'] ?? '' );
 			if ( '' !== $prop ) {
-				$table[ $name ] = self::declared_setter( $verb, $prop, static fn ( string $token ): bool => true === Command_Args::typed( $token, 'bool' ) );
+				$table[ $name ] = self::declared_setter( $class, $verb, $prop, static fn ( string $token ): bool => true === Command_Args::typed( $token, 'bool' ) );
 				continue;
 			}
 			$prop = Core::as_string( $verb['setter'] ?? '' );
 			if ( '' !== $prop ) {
 				// The string twin: trim and assign. An empty arg clears it.
-				$table[ $name ] = self::declared_setter( $verb, $prop, \trim( ... ) );
+				$table[ $name ] = self::declared_setter( $class, $verb, $prop, \trim( ... ) );
 				continue;
 			}
 			$handler = $verb['handler'] ?? null;
@@ -357,32 +358,64 @@ trait Schema_Reflection {
 	 * read the verb's one declared arg, bound by name, coerce it, then hand it
 	 * to the patron's `set_{$prop}()` — the class's own typed entry point, so
 	 * the coerced value lands under the property's declared type rather than
-	 * beside it.
+	 * beside it. A `$prop` naming one of $class's positionals replays the
+	 * patron's `arguments()` with that token replaced instead, so the node's
+	 * own parse validates the value and `dump_config()`'s `make_node` line
+	 * carries it.
 	 *
-	 * The handler refuses a patron of any other class. An interpreter re-pointed
+	 * The handler refuses a patron that is no $class. An interpreter re-pointed
 	 * at a foreign node would otherwise call a `set_` method that class never
 	 * declared, and the fatal would name the method rather than the mis-wiring.
 	 *
+	 * @param class-string<Node>      $class  Class whose schema declares the verb.
 	 * @param array<array-key,mixed>  $verb   The verb's schema entry.
 	 * @param string                  $prop   Property the verb writes, minus the `set_` prefix.
 	 * @param callable(string):mixed  $coerce The bound value, as a string, to the setter's type.
 	 * @return callable(Command_Interpreter_Node,array<array-key,mixed>):string The verb handler.
 	 * @throws \LogicException When the verb declares no arg to carry the value.
 	 */
-	private static function declared_setter( array $verb, string $prop, callable $coerce ): callable {
+	private static function declared_setter( string $class, array $verb, string $prop, callable $coerce ): callable {
 		$arg = Core::as_string( Core::arr( Core::arr( $verb['args'] ?? [] )[0] ?? [] )['name'] ?? '' );
 		if ( '' === $arg ) {
 			throw new \LogicException( \esc_html( "set_{$prop}: the verb declares no arg to carry its value" ) );
 		}
-		return static function ( Command_Interpreter_Node $interpreter, array $args ) use ( $prop, $arg, $coerce ): string {
+		$positional = \in_array( $prop, \array_column( \array_filter( self::declared_arguments( $class ), \is_array( ... ) ), 'name' ), true );
+		return static function ( Command_Interpreter_Node $interpreter, array $args ) use ( $class, $prop, $arg, $coerce, $positional ): string {
 			$patron = $interpreter->patron();
-			if ( ! $patron instanceof static ) {
+			if ( ! $patron instanceof $class ) {
 				throw new \RuntimeException(
-					\esc_html( "set_{$prop}: not a " . static::class )
+					\esc_html( "set_{$prop}: not a {$class}" )
 				);
 			}
-			$patron->{"set_{$prop}"}( $coerce( Core::as_string( $args[ $arg ] ?? '' ) ) );
+			$value = $args[ $arg ] ?? '';
+			if ( $positional ) {
+				$token = \is_bool( $value ) ? ( $value ? 'true' : 'false' ) : \trim( Core::as_string( $value ) );
+				$patron->arguments( self::replayed( $class, $patron->arguments(), $prop, $token ) );
+			} else {
+				$patron->{"set_{$prop}"}( $coerce( Core::as_string( $value ) ) );
+			}
 			return "ok\n";
 		};
+	}
+
+	/**
+	 * The tokens in force with `$name`'s replaced, each unset slot before it
+	 * written as its default, so `dump_config()` carries the value.
+	 *
+	 * @param class-string<Node> $class  Class declaring the positionals.
+	 * @param list<string>       $tokens The tokens in force.
+	 * @param string             $name   One of $class's positionals.
+	 * @param string             $token  Its new token.
+	 * @return list<string>
+	 */
+	private static function replayed( string $class, array $tokens, string $name, string $token ): array {
+		foreach ( \array_map( Core::arr( ... ), self::declared_arguments( $class ) ) as $slot => $spec ) {
+			if ( $name === $spec['name'] ) {
+				$tokens[ $slot ] = $token;
+				break;
+			}
+			$tokens[ $slot ] ??= Core::as_string( $spec['default'] ?? '' );
+		}
+		return \array_values( $tokens );
 	}
 }

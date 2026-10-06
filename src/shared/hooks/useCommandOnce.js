@@ -25,6 +25,11 @@
  * opened. A write neither retries nor supersedes: an unanswered write may
  * already have applied, and two rows deleted in the same second are two
  * commands that both have to go.
+ *
+ * `abandon()` withdraws what is outstanding without asking anything new — a
+ * search box emptied under its search has no newer question to supersede the
+ * old one. The request still completes; its answer reaches neither `onDone`
+ * nor `result`, and `pending` clears at once.
  */
 
 import { useCallback, useRef, useState } from '@wordpress/element';
@@ -129,7 +134,7 @@ const decodeSubject = ( path ) =>
  *                                  a sub-verb rather than a subject (`taillog
  *                                  read <source> <position>`) or a whole
  *                                  document (a rule as JSON).
- * @return {{run: (args: string[]) => void, isPending: (subject: ?string) => boolean, result: ?Object, error: ?string, errorData: ?Object, answeredArgs: ?string[], pending: boolean}}
+ * @return {{run: (args: string[]) => void, abandon: () => void, isPending: (subject: ?string) => boolean, result: ?Object, error: ?string, errorData: ?Object, answeredArgs: ?string[], pending: boolean}}
  *   A screen serving many rows reads each answer through `onDone`, which
  *   names the subject it was about; what is returned here is the last one.
  */
@@ -261,11 +266,21 @@ export function useCommandOnce( {
 		[ command, fetcher, pollNow, publishOutstanding, retry ]
 	);
 
+	/**
+	 * Stop wanting every answer still outstanding, asking nothing new: the
+	 * request completes, and its answer stops at the gate. The last answer
+	 * stays published; what an abandoned control shows is its owner's call.
+	 */
+	const abandon = useCallback( () => {
+		Core.node( fetcher )?.withdraw();
+	}, [ fetcher ] );
+
 	// One source for "what was answered": the reply the node published.
 	const answeredArgs = model ? model.args ?? [] : null;
 
 	return {
 		run,
+		abandon,
 		answeredArgs,
 		result: model?.ok ? model.payload : null,
 		error: model?.error ?? null,

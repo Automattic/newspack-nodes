@@ -12,6 +12,7 @@
 
 import { useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
+import { SearchControl } from '@wordpress/components';
 import { NODE_W, NODE_H, PORT_R } from './SchematicCanvas';
 import { useCatalog } from '../CatalogContext';
 import { useChrome } from '../ChromeContext';
@@ -106,12 +107,6 @@ export default function Palette( {
 	const dragRef = useRef( null );
 	// Case-insensitive filter over shell name + description; empty = full list.
 	const [ query, setQuery ] = useState( '' );
-	const searchRef = useRef( null );
-
-	const clearQuery = () => {
-		setQuery( '' );
-		searchRef.current?.focus();
-	};
 
 	// accepts_fill/has_target default true; glyph marks only an ABSENT port.
 	const acceptsFillOf = ( c ) => c.accepts_fill !== false;
@@ -264,28 +259,14 @@ export default function Palette( {
 		<div className="topology-palette-dock">
 			{ toggle }
 			<aside className="topology-palette">
-				<div className="topology-palette__search-wrap">
-					<input
-						ref={ searchRef }
-						type="search"
-						className="topology-palette__search"
-						value={ query }
-						onChange={ ( e ) => setQuery( e.target.value ) }
-						placeholder="Filter nodes…"
-						aria-label="Filter node classes"
-					/>
-					{ query.length > 0 && (
-						<button
-							type="button"
-							className="button is-plain topology-palette__search-clear"
-							onClick={ clearQuery }
-							aria-label="Clear filter"
-							title="Clear filter"
-						>
-							×
-						</button>
-					) }
-				</div>
+				<SearchControl
+					__nextHasNoMarginBottom
+					size="compact"
+					value={ query }
+					onChange={ setQuery }
+					placeholder="Filter nodes…"
+					label="Filter node classes"
+				/>
 				{ editMode && shownTopologies.length > 0 && (
 					<div className="topology-palette__section">
 						<h3 className="topology-palette__group">Topologies</h3>

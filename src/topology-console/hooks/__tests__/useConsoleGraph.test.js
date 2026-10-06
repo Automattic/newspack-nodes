@@ -530,6 +530,20 @@ describe( 'useConsoleGraph — visibility-gated streaming', () => {
 		expect( metadata.counter ).toBeGreaterThan( resumed );
 	} );
 
+	it( 'fires every slow poller at once when the tab is shown again', async () => {
+		renderGraph( { streamEnabled: true } );
+		const router = Core.node( names.ROUTER );
+		const dmesg = Core.node( names.DMESG );
+		await act( async () => router.fireCb() );
+		const before = dmesg.fireCount;
+
+		setVisibility( 'hidden' );
+		setVisibility( 'visible' );
+		await act( async () => {} );
+
+		expect( dmesg.fireCount ).toBe( before + 1 );
+	} );
+
 	it( 'gates the tick in EDIT mode too, where the catalog poller lives on', () => {
 		// `enabled` is false in edit mode (mode !== 'edit'), but
 		// useTopologyCatalog deliberately keeps its 10s router-hitchhiking

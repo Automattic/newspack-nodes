@@ -44,6 +44,51 @@ describe( 'ModalShell', () => {
 		).toBe( 'topology-modal__close newspack-nodes-modal__close' );
 	} );
 
+	it( 'renders its panel as a noValidate form when given onSubmit', () => {
+		const onSubmit = jest.fn();
+		const { baseElement } = render(
+			<ModalShell title="t" onDismiss={ () => {} } onSubmit={ onSubmit }>
+				<input type="url" defaultValue="not a url" />
+			</ModalShell>
+		);
+		const panel = baseElement.querySelector( '.topology-modal' );
+		expect( panel.tagName ).toBe( 'FORM' );
+		expect( panel.noValidate ).toBe( true );
+		expect( panel.getAttribute( 'role' ) ).toBe( 'dialog' );
+		expect( panel.parentElement.className ).toBe(
+			'topology-modal-backdrop'
+		);
+		// The return is false when the handler prevented the default.
+		expect( fireEvent.submit( panel ) ).toBe( false );
+		expect( onSubmit ).toHaveBeenCalledTimes( 1 );
+	} );
+
+	it( 'keeps its panel a div without onSubmit', () => {
+		const { baseElement } = render(
+			<ModalShell title="t" onDismiss={ () => {} }>
+				<div />
+			</ModalShell>
+		);
+		expect( baseElement.querySelector( '.topology-modal' ).tagName ).toBe(
+			'DIV'
+		);
+	} );
+
+	it( 'stops a submit at its own panel', () => {
+		const outer = jest.fn();
+		const inner = jest.fn();
+		const { baseElement } = render(
+			<form onSubmit={ outer }>
+				<ModalShell title="t" onDismiss={ () => {} } onSubmit={ inner }>
+					<div />
+				</ModalShell>
+			</form>
+		);
+		fireEvent.submit( baseElement.querySelector( '.topology-modal' ) );
+		expect( inner ).toHaveBeenCalledTimes( 1 );
+		expect( outer ).not.toHaveBeenCalled();
+	} );
+
 	it( 'renders an X close button in the corner that invokes onDismiss', () => {
 		const onDismiss = jest.fn();
 		const { baseElement } = render(
@@ -411,8 +456,12 @@ describe( 'ConfirmModal', () => {
 	} );
 } );
 
+// jsdom performs no implicit submission, so Enter is the form's submit event.
+const panelForm = ( baseElement ) =>
+	baseElement.querySelector( 'form.topology-modal' );
+
 describe( 'PromptModal', () => {
-	it( 'submits the trimmed input value on Enter', () => {
+	it( 'confirms the input value when its form submits', () => {
 		const onConfirm = jest.fn();
 		const { baseElement } = render(
 			<PromptModal
@@ -423,9 +472,46 @@ describe( 'PromptModal', () => {
 				onCancel={ () => {} }
 			/>
 		);
-		const input = baseElement.querySelector( 'input' );
-		fireEvent.keyDown( input, { key: 'Enter' } );
+		fireEvent.submit( panelForm( baseElement ) );
 		expect( onConfirm ).toHaveBeenCalledWith( 'alpha' );
+	} );
+
+	it( 'leaves Enter in the input to the form', () => {
+		const onConfirm = jest.fn();
+		const { baseElement } = render(
+			<PromptModal
+				title=""
+				body=""
+				initialValue="alpha"
+				onConfirm={ onConfirm }
+				onCancel={ () => {} }
+			/>
+		);
+		const input = baseElement.querySelector( 'input' );
+		expect( input.form ).toBe( panelForm( baseElement ) );
+		expect( fireEvent.keyDown( input, { key: 'Enter' } ) ).toBe( true );
+		expect( onConfirm ).not.toHaveBeenCalled();
+	} );
+
+	it( 'makes Save the submit and every other button plain', () => {
+		const { getByText, baseElement } = render(
+			<PromptModal
+				title=""
+				body=""
+				initialValue="alpha"
+				onConfirm={ () => {} }
+				onCancel={ () => {} }
+			/>
+		);
+		expect( getByText( 'Save' ).type ).toBe( 'submit' );
+		const others = [
+			...panelForm( baseElement ).querySelectorAll( 'button' ),
+		].filter( ( b ) => b !== getByText( 'Save' ) );
+		expect( others.map( ( b ) => b.textContent ) ).toEqual( [
+			'×',
+			'Cancel',
+		] );
+		others.forEach( ( b ) => expect( b.type ).toBe( 'button' ) );
 	} );
 
 	it( 'submits when Save is clicked', () => {
@@ -492,23 +578,6 @@ describe( 'PromptModal', () => {
 		expect( getByText( 'Save' ).disabled ).toBe( true );
 		const hint = baseElement.querySelector( '.topology-modal__hint' );
 		expect( hint.textContent ).toMatch( /Invalid/ );
-	} );
-
-	it( 'no-ops on Enter when value is empty', () => {
-		const onConfirm = jest.fn();
-		const { baseElement } = render(
-			<PromptModal
-				title=""
-				body=""
-				initialValue=""
-				onConfirm={ onConfirm }
-				onCancel={ () => {} }
-			/>
-		);
-		fireEvent.keyDown( baseElement.querySelector( 'input' ), {
-			key: 'Enter',
-		} );
-		expect( onConfirm ).not.toHaveBeenCalled();
 	} );
 
 	it( 'invokes onCancel on Cancel button click', () => {
@@ -618,17 +687,105 @@ describe( 'NewNodeModal', () => {
 		} );
 	} );
 
-	it( 'submits on Enter inside the name input', () => {
+	it( 'adds when its form submits', () => {
 		const onConfirm = jest.fn();
 		const { baseElement } = render(
 			<NewNodeModal { ...baseProps } onConfirm={ onConfirm } />
 		);
-		const nameInput = baseElement.querySelector(
-			'#newspack-nodes-newnode-name'
+		fireEvent.change(
+			baseElement.querySelector( '#newspack-nodes-newnode-name' ),
+			{ target: { value: 'heron' } }
 		);
-		fireEvent.change( nameInput, { target: { value: 'p' } } );
-		fireEvent.keyDown( nameInput, { key: 'Enter' } );
-		expect( onConfirm ).toHaveBeenCalledTimes( 1 );
+		fireEvent.change( baseElement.querySelector( '#topology-ctor-topic' ), {
+			target: { value: 'egret' },
+		} );
+		fireEvent.submit( panelForm( baseElement ) );
+		expect( onConfirm ).toHaveBeenCalledWith( {
+			name: 'heron',
+			args: 'egret 4096',
+		} );
+	} );
+
+	it( 'keeps Enter in a json argument for the newline', () => {
+		const onConfirm = jest.fn();
+		const { baseElement } = render(
+			<NewNodeModal
+				{ ...baseProps }
+				argSchema={ [ { name: 'payload', type: 'json' } ] }
+				onConfirm={ onConfirm }
+			/>
+		);
+		const payload = baseElement.querySelector( '#topology-ctor-payload' );
+		expect( payload.tagName ).toBe( 'TEXTAREA' );
+		expect( fireEvent.keyDown( payload, { key: 'Enter' } ) ).toBe( true );
+		expect( onConfirm ).not.toHaveBeenCalled();
+	} );
+
+	it( 'holds Enter in a node path field while it refuses its draft', () => {
+		const onConfirm = jest.fn();
+		const { baseElement, getByText } = render(
+			<NewNodeModal
+				{ ...baseProps }
+				argSchema={ [ { name: 'route', type: 'node_name' } ] }
+				onConfirm={ onConfirm }
+			/>
+		);
+		const route = baseElement.querySelector( '#topology-ctor-route' );
+		fireEvent.change( route, { target: { value: 'heron/p3' } } );
+		fireEvent.change( route, { target: { value: 'heron p3' } } );
+		// A prevented keydown is what cancels the browser's implicit submit.
+		expect( fireEvent.keyDown( route, { key: 'Enter' } ) ).toBe( false );
+		expect( getByText( 'Add' ).disabled ).toBe( true );
+		fireEvent.change( route, { target: { value: 'heron/p4' } } );
+		expect( fireEvent.keyDown( route, { key: 'Enter' } ) ).toBe( true );
+		fireEvent.submit( panelForm( baseElement ) );
+		expect( onConfirm ).toHaveBeenCalledWith( {
+			name: 'partition1',
+			args: 'heron/p4',
+		} );
+	} );
+
+	it( 'makes Add the submit and every other button plain', () => {
+		const { baseElement, getByText } = render(
+			<NewNodeModal { ...baseProps } />
+		);
+		fireEvent.change( baseElement.querySelector( '#topology-ctor-topic' ), {
+			target: { value: 'mytopic' },
+		} );
+		expect( getByText( 'Add' ).type ).toBe( 'submit' );
+		const others = [
+			...panelForm( baseElement ).querySelectorAll( 'button' ),
+		].filter( ( b ) => b !== getByText( 'Add' ) );
+		// ×, the filled field's reset, and Cancel.
+		expect( others ).toHaveLength( 3 );
+		others.forEach( ( b ) => expect( b.type ).toBe( 'button' ) );
+	} );
+
+	it( 'disables Add, and ignores its click, while a node path field refuses', () => {
+		const onConfirm = jest.fn();
+		const { baseElement, getByText } = render(
+			<NewNodeModal
+				{ ...baseProps }
+				argSchema={ [
+					{ name: 'route', type: 'node_name' },
+					{ name: 'segment_size', default: '4096' },
+				] }
+				onConfirm={ onConfirm }
+			/>
+		);
+		const route = baseElement.querySelector( '#topology-ctor-route' );
+		fireEvent.change( route, { target: { value: 'heron/p3' } } );
+		fireEvent.change( route, { target: { value: 'heron p3' } } );
+		expect( getByText( 'Add' ).disabled ).toBe( true );
+		fireEvent.click( getByText( 'Add' ) );
+		expect( onConfirm ).not.toHaveBeenCalled();
+		fireEvent.change( route, { target: { value: 'heron/p4' } } );
+		expect( getByText( 'Add' ).disabled ).toBe( false );
+		fireEvent.click( getByText( 'Add' ) );
+		expect( onConfirm ).toHaveBeenCalledWith( {
+			name: 'partition1',
+			args: 'heron/p4 4096',
+		} );
 	} );
 
 	it( 'disables Add when name is empty', () => {

@@ -818,6 +818,104 @@ describe( 'useCommandOnce', () => {
 		await waitFor( () => expect( held.length ).toBe( 2 ) );
 	} );
 
+	// @longform An emptied search box asks no new question, so nothing
+	// supersedes the old one. `abandon()` withdraws it: the request still
+	// completes on the wire, and its answer stops at the gate.
+	it( 'abandons a read, so its late answer reaches nobody and nothing waits', async () => {
+		const held = [];
+		replyFor.mockImplementation(
+			() => new Promise( ( resolve ) => held.push( resolve ) )
+		);
+		const onDone = jest.fn();
+		const { result } = renderGet( { onDone } );
+		act( () => {
+			result.current.run( [ 'kakapo-3317' ] );
+		} );
+		await waitFor( () => expect( held.length ).toBe( 1 ) );
+		expect( result.current.pending ).toBe( true );
+
+		act( () => {
+			result.current.abandon();
+		} );
+		expect( result.current.pending ).toBe( false );
+		expect( result.current.isPending( 'kakapo-3317' ) ).toBe( false );
+
+		await act( async () => {
+			held[ 0 ]( { name: 'kakapo-3317' } );
+		} );
+		await settle();
+		expect( onDone ).not.toHaveBeenCalled();
+		expect( result.current.result ).toBeNull();
+		expect( result.current.answeredArgs ).toBeNull();
+
+		await later();
+		expect( replyFor ).toHaveBeenCalledTimes( 1 );
+	} );
+
+	// The owner decides what an abandoned box shows; the hook keeps its last.
+	it( 'leaves the last answer standing when it abandons the next ask', async () => {
+		const held = [];
+		replyFor.mockImplementation(
+			( m ) =>
+				new Promise( ( resolve ) =>
+					held.push( () =>
+						resolve( { name: m[ VALUE ].arguments[ 0 ] } )
+					)
+				)
+		);
+		const { result } = renderGet();
+		act( () => {
+			result.current.run( [ 'kakapo-3317' ] );
+		} );
+		await waitFor( () => expect( held.length ).toBe( 1 ) );
+		await act( async () => {
+			held[ 0 ]();
+		} );
+		await waitFor( () =>
+			expect( result.current.result ).toEqual( { name: 'kakapo-3317' } )
+		);
+
+		act( () => {
+			result.current.run( [ 'takahe-0912' ] );
+		} );
+		await waitFor( () => expect( held.length ).toBe( 2 ) );
+		act( () => {
+			result.current.abandon();
+		} );
+		await act( async () => {
+			held[ 1 ]();
+		} );
+		await settle();
+		expect( result.current.result ).toEqual( { name: 'kakapo-3317' } );
+		expect( result.current.answeredArgs ).toEqual( [ 'kakapo-3317' ] );
+	} );
+
+	// Withdrawn means no longer asked, so the same question is asked afresh.
+	it( 'asks an abandoned question again when it is run again', async () => {
+		const held = [];
+		replyFor.mockImplementation(
+			() => new Promise( ( resolve ) => held.push( resolve ) )
+		);
+		const onDone = jest.fn();
+		const { result } = renderGet( { onDone } );
+		act( () => {
+			result.current.run( [ 'kakapo-3317' ] );
+		} );
+		await waitFor( () => expect( held.length ).toBe( 1 ) );
+		act( () => {
+			result.current.abandon();
+			result.current.run( [ 'kakapo-3317' ] );
+		} );
+		await waitFor( () => expect( held.length ).toBe( 2 ) );
+		expect( result.current.pending ).toBe( true );
+
+		await act( async () => {
+			held[ 1 ]( { name: 'kakapo-3317' } );
+		} );
+		await waitFor( () => expect( onDone ).toHaveBeenCalledTimes( 1 ) );
+		expect( result.current.pending ).toBe( false );
+	} );
+
 	it( 'supersedes a read rather than queueing it', async () => {
 		const { result } = renderGet();
 		act( () => {

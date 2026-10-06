@@ -8,7 +8,8 @@
  * Every dialog closes three ways: its × button, ESC, and a mousedown outside
  * the panel. Each focuses on mount where the answer begins — the confirm
  * button for a yes/no, the text input with its initial value selected for the
- * two that take typing — so a dialog can be answered without the mouse.
+ * two that take typing — so a dialog can be answered without the mouse. The
+ * two that take typing are forms, so Enter in a field submits them.
  */
 
 import {
@@ -21,9 +22,10 @@ import {
 import { useDismissable } from '@newspack-nodes/shared/hooks/useDismissable';
 import { ModalPortal } from '@newspack-nodes/shared/components/Modal';
 import { __, sprintf } from '@wordpress/i18n';
-import { CtorField } from './CtorField';
+import { CtorField, useFieldRefusals } from './CtorField';
 import { serializeCtorArgs } from '../utils/tslArgs';
 import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
+import { submitProps } from '@newspack-nodes/shared/utils/submitProps';
 
 // Breathing room between a panel-anchored dialog's edge and the panel's own.
 const PANEL_GUTTER = 16;
@@ -74,9 +76,15 @@ const MIN_ANCHOR_H = MODAL_CHROME_H + 2 * PANEL_GUTTER;
  * The dialog panel carries two class families: `topology-modal*` for the
  * console's geometry, `newspack-nodes-modal*` for the canonical shared paint.
  *
+ * Given `onSubmit`, the panel itself is the dialog's `<form>` (see
+ * `submitProps`); a wrapper inside it would break the panel's flex column and
+ * the body's `min-height: 0` scroll. The caller's primary button is then
+ * `type="submit"` and every other button `type="button"`.
+ *
  * @param {Object}                    props
  * @param {string}                    props.title       Dialog title, also its accessible name.
  * @param {() => void}                props.onDismiss   Runs on ESC, a mousedown outside the panel, and the close button.
+ * @param {() => void}                [props.onSubmit]  The default action; makes the panel a form.
  * @param {boolean}                   [props.wide]      Add the large-panel modifier class.
  * @param {string}                    [props.className] Extra classes on the panel.
  * @param {import('react').ReactNode} props.children    Body and action rows.
@@ -85,6 +93,7 @@ const MIN_ANCHOR_H = MODAL_CHROME_H + 2 * PANEL_GUTTER;
 export function ModalShell( {
 	title,
 	onDismiss,
+	onSubmit,
 	wide = false,
 	className = '',
 	children,
@@ -163,10 +172,11 @@ export function ModalShell( {
 				) }px`,
 		  } )
 		: undefined;
+	const Panel = onSubmit ? 'form' : 'div';
 	const portal = (
 		<ModalPortal>
 			<div className="topology-modal-backdrop" role="presentation">
-				<div
+				<Panel
 					className={ `topology-modal newspack-nodes-modal${
 						wide ? ' topology-modal--large' : ''
 					}${ className ? ` ${ className }` : '' }` }
@@ -175,6 +185,7 @@ export function ModalShell( {
 					aria-modal="true"
 					aria-label={ title }
 					style={ modalStyle }
+					{ ...( onSubmit && submitProps( onSubmit ) ) }
 				>
 					<header className="topology-modal__header newspack-nodes-modal__header">
 						<span className="topology-modal__title newspack-nodes-modal__title">
@@ -190,7 +201,7 @@ export function ModalShell( {
 						</button>
 					</header>
 					{ children }
-				</div>
+				</Panel>
 			</div>
 		</ModalPortal>
 	);
@@ -281,8 +292,8 @@ export function ConfirmModal( {
 
 /**
  * PromptModal — a single-line text prompt. The input takes focus and selects
- * its initial value on mount, Enter submits, and confirm stays disabled while
- * the value is empty or fails `pattern`.
+ * its initial value on mount, Enter submits, and confirm stays disabled — so
+ * Enter does nothing — while the value is empty or fails `pattern`.
  *
  * @param {Object}                    props
  * @param {string}                    props.title          Dialog title.
@@ -309,22 +320,19 @@ export function PromptModal( {
 } ) {
 	const [ value, setValue ] = useState( initialValue );
 	const inputRef = useRef( null );
-	const valid = ! pattern || pattern.test( value );
+	const ready = '' !== value && ( ! pattern || pattern.test( value ) );
 
 	useEffect( () => {
 		inputRef.current?.focus();
 		inputRef.current?.select();
 	}, [] );
 
-	const submit = () => {
-		if ( ! valid || '' === value ) {
-			return;
-		}
-		onConfirm( value );
-	};
-
 	return (
-		<ModalShell title={ title } onDismiss={ onCancel }>
+		<ModalShell
+			title={ title }
+			onDismiss={ onCancel }
+			onSubmit={ () => onConfirm( value ) }
+		>
 			<div className="topology-modal__body">
 				{ body }
 				<input
@@ -334,14 +342,8 @@ export function PromptModal( {
 					value={ value }
 					placeholder={ placeholder }
 					onChange={ ( e ) => setValue( e.target.value ) }
-					onKeyDown={ ( e ) => {
-						if ( 'Enter' === e.key ) {
-							e.preventDefault();
-							submit();
-						}
-					} }
 				/>
-				{ pattern && ! valid && '' !== value && (
+				{ ! ready && '' !== value && (
 					<div className="topology-modal__hint">
 						{ sprintf(
 							// translators: %s: the regular expression the input must match.
@@ -356,10 +358,9 @@ export function PromptModal( {
 					{ cancelLabel }
 				</button>
 				<button
-					type="button"
-					className={ primaryButtonClass( ! valid || '' === value ) }
-					onClick={ submit }
-					disabled={ ! valid || '' === value }
+					type="submit"
+					className={ primaryButtonClass( ! ready ) }
+					disabled={ ! ready }
 				>
 					{ confirmLabel }
 				</button>
@@ -375,18 +376,20 @@ export function PromptModal( {
  * class's `node_schema()` declares.
  *
  * Those rows are the `CtorField` widgets edit mode renders — typed text,
- * formatter, node and vault pickers, per-field defaults — rather than a single
- * freeform args string, so adding a node live offers the same pickers and
- * typed inputs the editor does. On confirm the per-field values
+ * formatter and vault pickers, node-path suggestions, per-field defaults —
+ * rather than a single freeform args string, so adding a node live offers the
+ * same widgets the editor does. On confirm the per-field values
  * serialize positionally with defaults filled and trailing empties dropped,
  * which is what the editor writes for the same node, and `onConfirm` receives
- * `{ name, args }` for the caller to format into its `make_node` line.
+ * `{ name, args }` for the caller to format into its `make_node` line. Enter
+ * in a text field adds, a json textarea keeps Enter for its newline, and Add
+ * stays disabled, so Enter does nothing, while a field shows a refusal.
  *
  * @param {Object}                                         props
  * @param {string}                                         props.shellName    Class shell name, such as "Partition".
  * @param {string}                                         props.defaultName  Auto-generated node id; pre-fills the name input.
  * @param {import('./CtorField').CtorArgSpec[]}            [props.argSchema]  Constructor arguments the class declares.
- * @param {string[]}                                       [props.nodeNames]  Node ids the `node_name` pickers offer.
+ * @param {string[]}                                       [props.nodeNames]  Node ids the `node_name` inputs suggest.
  * @param {string[]}                                       [props.formatters] Registered formatter names, for `formatter_name` arguments.
  * @param {import('./CtorField').VaultEntry[]}             [props.vaults]     Vault entries, for `vault_id` arguments.
  * @param {(node: { name: string, args: string }) => void} props.onConfirm    Runs with the node id and its serialized args string.
@@ -405,6 +408,7 @@ export function NewNodeModal( {
 } ) {
 	const [ name, setName ] = useState( defaultName || '' );
 	const [ values, setValues ] = useState( () => argSchema.map( () => '' ) );
+	const [ refused, reportRefusal ] = useFieldRefusals();
 	const nameRef = useRef( null );
 
 	useEffect( () => {
@@ -412,23 +416,12 @@ export function NewNodeModal( {
 		nameRef.current?.select();
 	}, [] );
 
-	const valid = '' !== name.trim();
-	const submit = () => {
-		if ( ! valid ) {
-			return;
-		}
+	const valid = '' !== name.trim() && ! refused;
+	const submit = () =>
 		onConfirm( {
 			name: name.trim(),
 			args: serializeCtorArgs( values, argSchema ),
 		} );
-	};
-
-	const onKey = ( e ) => {
-		if ( 'Enter' === e.key ) {
-			e.preventDefault();
-			submit();
-		}
-	};
 
 	const title = sprintf(
 		// translators: %s: class shell name (e.g. "Partition").
@@ -437,7 +430,7 @@ export function NewNodeModal( {
 	);
 
 	return (
-		<ModalShell title={ title } onDismiss={ onCancel }>
+		<ModalShell title={ title } onDismiss={ onCancel } onSubmit={ submit }>
 			<div className="topology-modal__body">
 				<ModalField
 					id="newspack-nodes-newnode-name"
@@ -449,12 +442,10 @@ export function NewNodeModal( {
 						className="topology-modal__input"
 						value={ name }
 						onChange={ ( e ) => setName( e.target.value ) }
-						onKeyDown={ onKey }
 					/>
 				</ModalField>
 				{ argSchema.length > 0 && (
-					// eslint-disable-next-line jsx-a11y/no-static-element-interactions
-					<div className="topology-modal__ctor" onKeyDown={ onKey }>
+					<div className="topology-modal__ctor">
 						{ argSchema.map( ( spec, i ) => (
 							<CtorField
 								key={ spec.name }
@@ -463,6 +454,7 @@ export function NewNodeModal( {
 								nodeNames={ nodeNames }
 								formatters={ formatters }
 								vaults={ vaults }
+								onRefusal={ reportRefusal( spec.name ) }
 								onChange={ ( v ) => {
 									const next = values.slice();
 									next[ i ] = v;
@@ -478,9 +470,8 @@ export function NewNodeModal( {
 					{ __( 'Cancel', 'newspack-nodes' ) }
 				</button>
 				<button
-					type="button"
+					type="submit"
 					className={ primaryButtonClass( ! valid ) }
-					onClick={ submit }
 					disabled={ ! valid }
 				>
 					{ __( 'Add', 'newspack-nodes' ) }

@@ -209,6 +209,11 @@ final class CrawlerNodeTest extends TestCase {
 		$this->assertSame( Crawler_Node::TICK_MS, $crawler->interval_ms );
 	}
 
+	/** A crawler as `crawler()` builds it, keeping Curl's whole window in flight. */
+	private function wide( string $name = 'crawl-4471' ): Crawler_Node {
+		return $this->crawler( $name, '7203', '', '0', (string) Curl_Node::MAX_IN_FLIGHT );
+	}
+
 	public function test_the_vault_id_is_optional(): void {
 		$crawler = $this->crawler();
 		$this->assertSame( [], Core::node( 'crawl-4471:curl' )?->arguments() );
@@ -340,7 +345,7 @@ final class CrawlerNodeTest extends TestCase {
 	}
 
 	public function test_a_rename_with_a_fetch_in_flight_frees_the_whole_window(): void {
-		$crawler = $this->crawler();
+		$crawler = $this->wide();
 		$this->in_drain( fn () => $this->seed( $crawler, self::SITE . '/moving-17' ) );
 
 		$crawler->name( 'crawl-renamed-88' );
@@ -469,7 +474,7 @@ final class CrawlerNodeTest extends TestCase {
 	}
 
 	public function test_a_body_reaches_target_and_its_same_origin_links_are_fetched(): void {
-		$crawler = $this->crawler();
+		$crawler = $this->wide();
 		$this->in_drain( fn () => $this->seed( $crawler, self::SITE . '/' ) );
 
 		$body = $this->links_body( '/a-11', 'b-12', self::SITE . '/c-13#frag', 'https://off-site-77.example/d' );
@@ -491,7 +496,7 @@ final class CrawlerNodeTest extends TestCase {
 	}
 
 	public function test_the_window_holds_sixteen_in_flight_and_each_answer_starts_one(): void {
-		$crawler = $this->crawler();
+		$crawler = $this->wide();
 		$this->in_drain( fn () => $this->seed( $crawler, self::SITE . '/' ) );
 		$paths = \array_map( static fn ( int $i ): string => \sprintf( '/p-%02d', $i ), \range( 1, 40 ) );
 
@@ -569,7 +574,7 @@ final class CrawlerNodeTest extends TestCase {
 			$this->depths[]     = \count( \debug_backtrace( \DEBUG_BACKTRACE_IGNORE_ARGS ) );
 			return false;
 		};
-		$crawler = $this->crawler();
+		$crawler = $this->wide();
 		$urls    = \array_map( static fn ( int $i ): string => \sprintf( '%s/q-%02d', self::SITE, $i ), \range( 1, 20 ) );
 		$this->seen( $crawler )->add_members( [ 'pending' => [ \array_fill_keys( $urls, 1 ), 900 ] ] );
 
@@ -595,7 +600,7 @@ final class CrawlerNodeTest extends TestCase {
 	}
 
 	public function test_a_rebuilt_crawler_fetches_what_was_in_flight_on_its_first_tick(): void {
-		$crawler = $this->crawler();
+		$crawler = $this->wide();
 		$this->seen( $crawler )->add_members(
 			[
 				'inflight' => [ [ self::SITE . '/f-1' => 1, self::SITE . '/f-2' => 1 ], 900 ],
@@ -604,7 +609,7 @@ final class CrawlerNodeTest extends TestCase {
 		);
 		$crawler->remove_node();
 
-		$crawler = $this->crawler();
+		$crawler = $this->wide();
 		$this->in_drain( static fn () => $crawler->fire_cb() );
 
 		$this->assertSame( [ self::SITE . '/f-1', self::SITE . '/f-2', self::SITE . '/f-3' ], $this->dispatched, 'the first tick fetches all three' );
@@ -615,7 +620,7 @@ final class CrawlerNodeTest extends TestCase {
 	}
 
 	public function test_a_recovery_the_table_does_not_answer_is_retried_next_tick(): void {
-		$crawler = $this->crawler();
+		$crawler = $this->wide();
 		$url     = self::SITE . '/stranded-63';
 		$queued  = self::SITE . '/queued-12';
 		$seen    = $this->seen( $crawler );
@@ -638,11 +643,11 @@ final class CrawlerNodeTest extends TestCase {
 	}
 
 	public function test_recovery_returns_more_than_one_move_of_inflight(): void {
-		$crawler = $this->crawler();
+		$crawler = $this->wide();
 		$urls    = \array_map( static fn ( int $i ): string => self::SITE . "/r-{$i}", \range( 1, Table_Node::MAX_MEMBERS_LIMIT + 3 ) );
 		$this->seen( $crawler )->add_members( [ 'inflight' => [ \array_fill_keys( $urls, 1 ), 900 ] ] );
 		$crawler->remove_node();
-		$crawler = $this->crawler();
+		$crawler = $this->wide();
 
 		$this->in_drain( static fn () => $crawler->fire_cb() );
 
@@ -652,10 +657,10 @@ final class CrawlerNodeTest extends TestCase {
 	}
 
 	public function test_a_seed_before_the_first_tick_is_fetched_exactly_once(): void {
-		$crawler = $this->crawler();
+		$crawler = $this->wide();
 		$this->seen( $crawler )->add_members( [ 'inflight' => [ [ self::SITE . '/f-1' => 1 ], 900 ] ] );
 		$crawler->remove_node();
-		$crawler = $this->crawler();
+		$crawler = $this->wide();
 
 		$this->in_drain( fn () => $this->seed( $crawler, self::SITE . '/s-9' ) );
 		$this->in_drain( static fn () => $crawler->fire_cb() );
@@ -700,13 +705,252 @@ final class CrawlerNodeTest extends TestCase {
 		$this->assertNull( Core::node( 'crawl-4471' ) );
 	}
 
-	public function test_node_schema_declares_the_two_arguments(): void {
+	public function test_concurrency_three_keeps_three_transfers_in_flight(): void {
+		$crawler = $this->crawler( 'crawl-4471', '7203', '', '0', '3' );
+		$this->in_drain( fn () => $this->seed( $crawler, self::SITE . '/' ) );
+		$paths = \array_map( static fn ( int $i ): string => "/c-{$i}", \range( 1, 40 ) );
+
+		$this->complete( self::SITE . '/', $this->links_body( ...$paths ) );
+
+		$curl = Core::node( 'crawl-4471:curl' );
+		$this->assertInstanceOf( Curl_Node::class, $curl );
+		$this->assertCount( 4, $this->dispatched, 'three starts after the seed' );
+		$this->assertSame( 3, $curl->transfers_in_flight(), 'three live transfers' );
+		$this->assertCount( 3, $this->members( $crawler, 'inflight' ) );
+		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->assertCount( 4, $this->dispatched, 'a tick with three in flight starts none' );
+
+		$this->complete( $this->dispatched[2] );
+
+		$this->assertCount( 5, $this->dispatched, 'one answer starts exactly one more' );
+		$this->assertSame( 3, $curl->transfers_in_flight() );
+	}
+
+	public function test_the_default_concurrency_keeps_one_transfer_in_flight(): void {
+		$crawler = $this->crawler();
+		$this->in_drain( fn () => $this->seed( $crawler, self::SITE . '/' ) );
+
+		$this->complete( self::SITE . '/', $this->links_body( '/d-1', '/d-2', '/d-3' ) );
+
+		$this->assertSame( [ self::SITE . '/', self::SITE . '/d-1' ], $this->dispatched );
+		$this->assertSame( 1, Core::node( 'crawl-4471:curl' )?->transfers_in_flight() );
+		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->assertCount( 2, $this->dispatched, 'a tick with one in flight starts none' );
+
+		$this->complete( self::SITE . '/d-1' );
+
+		$this->assertSame( [ self::SITE . '/', self::SITE . '/d-1', self::SITE . '/d-2' ], $this->dispatched );
+	}
+
+	public function test_a_delay_spaces_starts_on_the_driven_clock(): void {
+		$this->use_loop_time();
+		$starts                         = [];
+		Event_Framework::$curl_dispatch = function ( array $opts ) use ( &$starts ): bool {
+			$this->dispatched[] = (string) $opts[ \CURLOPT_URL ];
+			$starts[]           = Core::$now;
+			return false;
+		};
+		$crawler = $this->crawler( 'crawl-4471', '7203', '', '750', '3' );
+		$urls    = \array_map( static fn ( int $i ): string => self::SITE . "/t-{$i}", \range( 1, 6 ) );
+		$this->seen( $crawler )->add_members( [ 'pending' => [ \array_fill_keys( $urls, 1 ), 900 ] ] );
+		$this->assertSame( 'event_framework', $crawler->timer_mode() );
+		$this->assertSame( 750, $crawler->interval_ms );
+
+		$ticks = 0;
+		Event_Framework::instance()->drain( fn (): bool => \count( $this->dispatched ) < 4 && ++$ticks < 40 );
+
+		$this->assertCount( 4, $this->dispatched );
+		foreach ( [ 1, 2, 3 ] as $i ) {
+			$gap = $starts[ $i ] - $starts[ $i - 1 ];
+			$this->assertGreaterThanOrEqual( 0.749, $gap, "start {$i} waits the delay" );
+			$this->assertLessThan( 0.8, $gap, "start {$i} waits no longer" );
+		}
+	}
+
+	public function test_under_a_delay_only_the_tick_starts_a_fetch(): void {
+		$crawler     = $this->crawler( 'crawl-4471', '7203', '', '750', '3' );
+		Core::$clock = static fn (): float => 1790000000.0;
+
+		$this->in_drain( fn () => $this->seed( $crawler, self::SITE . '/' ) );
+		$this->assertSame( [], $this->dispatched, 'a seed waits for the tick' );
+		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->assertSame( [ self::SITE . '/' ], $this->dispatched );
+
+		Core::$clock = static fn (): float => 1790000000.75;
+		$this->complete( self::SITE . '/', $this->links_body( '/u-1', '/u-2' ) );
+		$this->assertCount( 1, $this->dispatched, 'an answer waits for the tick' );
+		$this->in_drain( static fn () => $crawler->fire_cb() );
+
+		$this->assertSame( [ self::SITE . '/', self::SITE . '/u-1' ], $this->dispatched, 'one start a tick' );
+	}
+
+	public function test_a_retuned_delay_still_spaces_the_next_start_from_the_last(): void {
+		$crawler = $this->crawler( 'crawl-4471', '7203', '', '2000', '3' );
+		$config  = Core::node( 'crawl-4471:config' );
+		$this->assertInstanceOf( Command_Interpreter_Node::class, $config );
+		$urls = \array_map( static fn ( int $i ): string => self::SITE . "/g-{$i}", \range( 1, 3 ) );
+		$this->seen( $crawler )->add_members( [ 'pending' => [ \array_fill_keys( $urls, 1 ), 900 ] ] );
+		$this->assertSame( 'router', $crawler->timer_mode() );
+		$at = static function ( float $now ): void {
+			Core::$clock = static fn (): float => $now;
+		};
+
+		$at( 1790000000.0 );
+		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$config->dispatch( 'set_delay_ms', [ '3000' ] );
+		$at( 1790000000.5 );
+		$this->in_drain( static fn () => $crawler->fire_cb() );
+
+		$this->assertCount( 1, $this->dispatched, 'the retuned timer waits 3s from its last fire' );
+		$at( 1790000003.5 );
+		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->assertCount( 2, $this->dispatched );
+	}
+
+	public function test_a_zero_delay_starts_back_to_back_on_the_refill_tick(): void {
+		$starts                         = [];
+		$inner                          = Event_Framework::$curl_dispatch;
+		Event_Framework::$curl_dispatch = static function ( array $opts ) use ( &$starts, $inner ): \CurlHandle {
+			$starts[] = Core::$now;
+			return $inner( $opts );
+		};
+		$crawler = $this->crawler( 'crawl-4471', '7203', '', '0', '3' );
+		$urls    = \array_map( static fn ( int $i ): string => self::SITE . "/z-{$i}", \range( 1, 5 ) );
+		$this->seen( $crawler )->add_members( [ 'pending' => [ \array_fill_keys( $urls, 1 ), 900 ] ] );
+
+		$this->in_drain( static fn () => $crawler->fire_cb() );
+
+		$this->assertCount( 3, $starts );
+		$this->assertCount( 1, \array_unique( $starts ), 'three starts on one tick' );
+		$this->assertSame( 'router', $crawler->timer_mode(), 'no timer of its own' );
+		$this->assertSame( Crawler_Node::TICK_MS, $crawler->interval_ms );
+	}
+
+	public function test_the_setter_verbs_change_the_running_crawler(): void {
+		$crawler = $this->crawler();
+		$curl    = Core::node( 'crawl-4471:curl' );
+		$config  = Core::node( 'crawl-4471:config' );
+		$this->assertInstanceOf( Command_Interpreter_Node::class, $config );
+		$urls = \array_map( static fn ( int $i ): string => self::SITE . "/v-{$i}", \range( 1, 5 ) );
+		$this->seen( $crawler )->add_members( [ 'pending' => [ \array_fill_keys( $urls, 1 ), 900 ] ] );
+
+		$this->assertSame( "ok\n", $config->dispatch( 'set_concurrency', [ '3' ] ) );
+		$this->assertSame( "ok\n", $config->dispatch( 'set_delay_ms', [ '750' ] ) );
+
+		$this->assertSame( $curl, Core::node( 'crawl-4471:curl' ), 'the siblings stand' );
+		$this->assertSame( 'event_framework', $crawler->timer_mode() );
+		$this->assertSame( 750, $crawler->interval_ms );
+		$config->dispatch( 'set_delay_ms', [ '0' ] );
+		$this->assertSame( 'router', $crawler->timer_mode() );
+		$this->assertSame( Crawler_Node::TICK_MS, $crawler->interval_ms );
+		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->assertCount( 3, $this->dispatched, 'the new concurrency fills the window' );
+	}
+
+	public function test_a_refused_setter_leaves_the_crawler_unchanged(): void {
+		$crawler = $this->crawler( 'crawl-4471', '7203', '', '250', '2' );
+		$config  = Core::node( 'crawl-4471:config' );
+		$this->assertInstanceOf( Command_Interpreter_Node::class, $config );
+
+		$why = $this->refusal( static fn () => $config->dispatch( 'set_concurrency', [ '17' ] ) );
+
+		$this->assertSame( "Bad arguments for Crawler 'crawl-4471': concurrency wants a whole number from 1 to 16, got '17'", $why );
+		$this->assertSame( [ '7203', '', '250', '2' ], $crawler->arguments() );
+		$this->assertSame( 250, $crawler->interval_ms );
+	}
+
+	public function test_a_delay_at_the_floor_takes_its_own_slot(): void {
+		$crawler = $this->crawler( 'crawl-4471', '7203', '', (string) Crawler_Node::MIN_DELAY_MS, '1' );
+
+		$this->assertSame( 100, Crawler_Node::MIN_DELAY_MS );
+		$this->assertSame( 'event_framework', $crawler->timer_mode() );
+		$this->assertSame( Crawler_Node::MIN_DELAY_MS, $crawler->interval_ms );
+	}
+
+	/** @return array<string,array{0:string,1:string}> */
+	public static function refused_delays(): array {
+		return [
+			'under the floor' => [ '5', "Bad arguments for Crawler 'crawl-4471': delay_ms wants 0, or a whole number from 100 up, got '5'" ],
+			'negative'        => [ '-5', "delay_ms wants a whole number, got '-5'" ],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'refused_delays' )]
+	public function test_set_delay_ms_refuses_a_delay_it_will_not_pace( string $delay, string $why ): void {
+		$crawler = $this->crawler( 'crawl-4471', '7203', '', '250', '2' );
+		$config  = Core::node( 'crawl-4471:config' );
+		$this->assertInstanceOf( Command_Interpreter_Node::class, $config );
+
+		$this->assertSame( $why, $this->refusal( static fn () => $config->dispatch( 'set_delay_ms', [ $delay ] ) ) );
+		$this->assertSame( [ '7203', '', '250', '2' ], $crawler->arguments() );
+		$this->assertSame( 250, $crawler->interval_ms );
+	}
+
+	public function test_dump_config_round_trips_both_settings(): void {
+		$crawler = $this->crawler( 'crawl-4471', '86400', 'vault-77' );
+		$config  = Core::node( 'crawl-4471:config' );
+		$this->assertInstanceOf( Command_Interpreter_Node::class, $config );
+
+		$config->dispatch( 'set_concurrency', [ '3' ] );
+		$config->dispatch( 'set_delay_ms', [ '750' ] );
+
+		$dump = $crawler->dump_config();
+		$this->assertSame( "make_node Crawler crawl-4471 86400 vault-77 750 3\nconnect_node crawl-4471 pages-6219\n", $dump );
+		$crawler->remove_node();
+		$replayed = $this->crawler( 'crawl-4471', ...\array_slice( \explode( ' ', \strtok( $dump, "\n" ) ), 3 ) );
+		$this->assertSame( $dump, $replayed->dump_config() );
+		$this->assertSame( 750, $replayed->interval_ms );
+	}
+
+	public function test_a_setter_pads_the_positionals_it_skips(): void {
+		$crawler = $this->crawler();
+
+		Core::node( 'crawl-4471:config' )?->dispatch( 'set_concurrency', [ '3' ] );
+
+		$this->assertSame( [ '7203', '', '0', '3' ], $crawler->arguments() );
+		$this->assertStringStartsWith( "make_node Crawler crawl-4471 7203 '' 0 3\n", $crawler->dump_config() );
+	}
+
+	/** The message, unescaped, of the refusal $fn throws. */
+	private function refusal( callable $fn ): string {
+		try {
+			$fn();
+		} catch ( \InvalidArgumentException $e ) {
+			return \html_entity_decode( $e->getMessage(), \ENT_QUOTES );
+		}
+		$this->fail( 'nothing was refused' );
+	}
+
+	/** @return array<string,array{0:string,1:string,2:string}> */
+	public static function bad_settings(): array {
+		return [
+			'a delay in words'      => [ 'soon', '1', "delay_ms wants a whole number, got 'soon'" ],
+			'a negative delay'      => [ '-5', '1', "delay_ms wants a whole number, got '-5'" ],
+			'a concurrency in words' => [ '0', 'many', "concurrency wants a whole number, got 'many'" ],
+			'no concurrency'        => [ '0', '0', "concurrency wants a whole number from 1 to 16, got '0'" ],
+			'too much concurrency'  => [ '0', '17', "concurrency wants a whole number from 1 to 16, got '17'" ],
+			'a delay under the floor' => [ '5', '1', "delay_ms wants 0, or a whole number from 100 up, got '5'" ],
+			'a delay just under it' => [ '99', '1', "delay_ms wants 0, or a whole number from 100 up, got '99'" ],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'bad_settings' )]
+	public function test_make_node_refuses_a_bad_setting( string $delay, string $concurrency, string $why ): void {
+		$refusal = $this->refusal( fn () => $this->crawler( 'crawl-4471', '7203', '', $delay, $concurrency ) );
+
+		$this->assertSame( "Bad arguments for Crawler 'crawl-4471': {$why}", $refusal );
+		$this->assertNull( Core::node( 'crawl-4471:seen' ) );
+	}
+
+	public function test_node_schema_declares_the_four_arguments_and_two_setters(): void {
 		$schema = Crawler_Node::node_schema();
 		$this->assertSame( 'I/O', $schema['category'] );
 		$this->assertTrue( $schema['has_target'] );
-		$this->assertSame( [], $schema['commands'] );
-		$this->assertSame( [ 'ttl', 'vault_id' ], \array_column( $schema['arguments'], 'name' ) );
-		$this->assertSame( [ 'int', 'vault_id' ], \array_column( $schema['arguments'], 'type' ) );
+		$this->assertSame( [ 'ttl', 'vault_id', 'delay_ms', 'concurrency' ], \array_column( $schema['arguments'], 'name' ) );
+		$this->assertSame( [ 'int', 'vault_id', 'int', 'int' ], \array_column( $schema['arguments'], 'type' ) );
+		$this->assertSame( [ '', 0, 1 ], \array_column( $schema['arguments'], 'default' ) );
 		$this->assertTrue( $schema['arguments'][0]['required'] );
+		$this->assertSame( [ 'set_delay_ms', 'set_concurrency' ], \array_column( $schema['commands'], 'name' ) );
+		$this->assertSame( [ 'delay_ms', 'concurrency' ], \array_column( $schema['commands'], 'setter' ) );
 	}
 }

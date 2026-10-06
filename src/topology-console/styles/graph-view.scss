@@ -185,37 +185,9 @@
 	display: flex;
 	flex-direction: column;
 
-	// Wrap so the ✕ clear can overlay the input's right edge (see edit-row).
-	&__search-wrap {
-		position: relative;
-		display: flex;
-		margin: 4px 12px 8px;
-	}
-
 	// Filter box — narrows the class list + topology tiles by name / description.
-	&__search {
-		flex: 1;
-		min-width: 0;
-		padding: 5px 22px 5px 8px;
-		background: var(--paper);
-		border: 1px solid var(--ink-3);
-		font: 12px/1.2 var(--font-mono);
-		color: var(--ink);
-
-		&::placeholder {
-			color: var(--ink-3);
-		}
-	}
-
-	// ✕ clear button — shown only when the query is non-empty.
-	&__search-clear {
-		position: absolute;
-		right: 0;
-		top: 0;
-		bottom: 0;
-		width: 22px;
-		font-size: 13px;
-		line-height: 1;
+	> .components-search-control {
+		margin: 4px 12px 8px;
 	}
 
 	// The gap belongs to the section, not the heading: every heading is the
@@ -1477,7 +1449,6 @@
 			.topology-edit-delete,
 			.topology-edit-verb__add,
 			.topology-insp__listener-x,
-			.topology-palette__search-clear,
 			.topology-tt__transport-btn
 		) {
 		min-height: 0;
@@ -1491,8 +1462,7 @@
 			.topology-edit-row__reset,
 			.topology-edit-verb__remove,
 			.topology-edit-chip__clear,
-			.topology-insp__listener-x,
-			.topology-palette__search-clear
+			.topology-insp__listener-x
 		) {
 		line-height: 1;
 	}
@@ -1508,7 +1478,7 @@
 		line-height: 1.45;
 	}
 
-	.button:where(.topology-edit-row__reset, .topology-palette__search-clear) {
+	.button:where(.topology-edit-row__reset) {
 		width: 22px;
 	}
 
@@ -1548,11 +1518,7 @@
 		padding: 3px 0;
 	}
 
-	.button:where(
-			.topology-edit-row__reset,
-			.topology-edit-verb__remove,
-			.topology-palette__search-clear
-		) {
+	.button:where(.topology-edit-row__reset, .topology-edit-verb__remove) {
 		padding: 0;
 	}
 }
@@ -1744,9 +1710,6 @@
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
-	// Match the taller "+ add target" select so a chips-only row lines up with a
-	// row that includes it (flex only equalizes within a shared row).
-	min-height: 40px;
 	box-sizing: border-box;
 	background: var(--paper-2);
 	border: 1px solid var(--ink-3);
@@ -1776,30 +1739,6 @@
 	font-size: 14px;
 	line-height: 1;
 	padding: 0 4px;
-}
-
-// Inline "+ add target…" select dropdown rendered as a chip-shaped
-// affordance at the end of the chips row. Native <select> so the
-// chevron + popdown is browser-managed (no custom positioning).
-.topology-app .topology-edit-add-chip {
-	display: inline-flex;
-	align-items: center;
-	background: var(--paper-2);
-	border: 1px dashed var(--ink-2);
-	padding: 5px 22px 5px 11px;
-	font-family: var(--font-mono);
-	font-size: 12px;
-	color: var(--ink);
-	-webkit-text-fill-color: var(--ink);
-	cursor: pointer;
-	appearance: none;
-	-webkit-appearance: none;
-	border-radius: 0;
-}
-
-.topology-app .topology-edit-add-chip:hover {
-	border-style: solid;
-	color: var(--ink);
 }
 
 .topology-edit-verb {

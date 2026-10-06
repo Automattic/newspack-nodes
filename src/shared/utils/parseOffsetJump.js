@@ -14,9 +14,9 @@
  * is matched and discarded. A bare offset means "this far into the segment I
  * am reading" and takes the caller's segment; with none to resolve against it
  * is refused, never assumed to mean segment 0, which would seek somewhere the
- * operator did not name. A refusal is null rather than a throw because the
- * caller runs this on every Enter keypress, where half-typed text has to be a
- * no-op.
+ * operator did not name. A refusal is null rather than a throw because both
+ * callers read it as a verdict: the Jump box shows a refusal where the text
+ * was typed, and `useSegmentBrowse` answers one to the box.
  *
  * @param {string}  text            The input text, already trimmed; surrounding whitespace matches neither form.
  * @param {?number} fallbackSegment Segment a bare offset resolves against; null refuses one.
