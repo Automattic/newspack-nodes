@@ -311,6 +311,22 @@ final class TableClientTest extends TestCase {
 		$this->assertSame( [], $this->asker->client->set_multi( 'lab-7:mute.p3', [ 'sku-41' => [ 'a' ] ] ) );
 	}
 
+	public function test_an_add_that_finds_every_key_present_answers_none_and_does_not_fail(): void {
+		$client = $this->asker->client;
+		$client->set_multi( 'lab-7:kea', [ 'sku-61' => [ 'kea' ] ] );
+		$this->assertSame( [], $client->add_multi( 'lab-7:kea', [ 'sku-61' => [ 'owl' ] ], $failed ) );
+		$this->assertFalse( $failed, 'a key already there is an answer, not a failure' );
+	}
+
+	public function test_an_add_refused_or_unanswered_fails(): void {
+		$mute = new Capture_Sink_Node();
+		$mute->name( 'lab-7:mute.p3' );
+		$this->assertSame( [], $this->asker->client->add_multi( 'lab-7:gone.p3', [ 'sku-62' => [ 'a' ] ], $failed ) );
+		$this->assertTrue( $failed, 'NOT_AVAILABLE refuses the ADD' );
+		$this->assertSame( [], $this->asker->client->add_multi( 'lab-7:mute.p3', [ 'sku-63' => [ 'b' ] ], $failed ) );
+		$this->assertTrue( $failed, 'no response is no answer' );
+	}
+
 	public function test_an_exchange_closes_when_the_send_returns_unanswered(): void {
 		$mute = new Capture_Sink_Node();
 		$mute->name( 'lab-7:mute.p3' );

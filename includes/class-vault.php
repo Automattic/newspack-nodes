@@ -120,7 +120,7 @@ class Vault {
 
 	/**
 	 * The ids of every server whose group is $group, sorted. The ONE membership
-	 * read: Vault_Group_Node and Topology_Analyzer both ask here.
+	 * read: Vault_Group_Node, Topology_Analyzer and Curl_Node all ask here.
 	 *
 	 * @api
 	 * @param string $group Group name; '' matches nothing.
@@ -674,7 +674,8 @@ class Vault {
 
 	/**
 	 * Whether this url violates the `vault_require_ssl` posture: the operator
-	 * requires https and the url is plaintext. Each caller decides what a
+	 * requires https and the url is plaintext. The scheme matches in any case,
+	 * as libcurl reads it. Each caller decides what a
 	 * violation costs — HTTP_Out drops its batch, its blocking probe throws,
 	 * and Curl refuses the fetch.
 	 *
@@ -682,7 +683,7 @@ class Vault {
 	 * @return bool True when the operator requires https and this url is not.
 	 */
 	public static function https_required( string $url ): bool {
-		return self::require_ssl() && ! \str_starts_with( $url, 'https://' );
+		return self::require_ssl() && 0 !== \strncasecmp( $url, 'https://', 8 );
 	}
 
 	/**

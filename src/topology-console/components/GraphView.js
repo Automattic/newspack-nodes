@@ -223,9 +223,12 @@ export default function GraphView( {
 				return;
 			}
 			if ( selectedId ) {
-				// A borrowed node is locked; not deletable from here.
+				// A borrowed or owned node is locked; not deletable from here.
 				const node = graph.nodes.find( ( n ) => n.id === selectedId );
-				if ( Array.isArray( node?.origin ) && node.origin.length > 0 ) {
+				if (
+					node?.owner ||
+					( Array.isArray( node?.origin ) && node.origin.length > 0 )
+				) {
 					return;
 				}
 				e.preventDefault();

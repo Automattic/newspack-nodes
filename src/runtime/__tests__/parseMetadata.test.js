@@ -458,4 +458,13 @@ describe( 'parseMetadata', () => {
 		expect( nodes[ 0 ].verb_stats ).toEqual( verbStats );
 		expect( 'verb_stats' in nodes[ 1 ] ).toBe( false );
 	} );
+
+	it( "carries an owned node's owner, and adds none to a node without one", () => {
+		const { nodes } = parseMetadata( {
+			'crawl-4471:seen': { class: 'Table', owner: 'crawl-4471' },
+			'crawl-4471': { class: 'Crawler' },
+		} );
+		expect( nodes[ 0 ].owner ).toBe( 'crawl-4471' );
+		expect( 'owner' in nodes[ 1 ] ).toBe( false );
+	} );
 } );

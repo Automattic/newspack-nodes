@@ -394,7 +394,7 @@ final class Vault_Group_Node extends Node {
 			'description' => 'One child per Vault server in a group; forwards config verbs and edges to each, and follows the Vault on reload.',
 			'arguments'   => [
 				[ 'name' => 'child_type', 'type' => 'string', 'required' => true, 'description' => 'Node type built once per server, e.g. HTTP_Out or Remote_Source; each child is named <name>:<vault id>.' ],
-				[ 'name' => 'group', 'type' => 'string', 'required' => true, 'description' => 'Vault group whose servers become children. Later tokens are child arguments after the vault id, with {id} replaced by it.' ],
+				[ 'name' => 'group', 'type' => 'vault_group', 'required' => true, 'description' => 'Vault group whose servers become children. Later tokens are child arguments after the vault id, with {id} replaced by it.' ],
 			],
 			'commands'    => [],
 		];

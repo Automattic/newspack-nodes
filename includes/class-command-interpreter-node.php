@@ -881,9 +881,11 @@ class Command_Interpreter_Node extends Node {
 	 *
 	 * Naming a node returns that node alone, or an empty map once it is gone, so a
 	 * refresh after one mutation costs a one-node round-trip. With no argument the
-	 * whole map comes back, carrying a `_header` row. Patron sidecars and nodes
-	 * whose schema declares `hidden` are omitted either way: they are plumbing the
-	 * canvas must not draw.
+	 * whole map comes back, carrying a `_header` row. A node `shown_on_canvas()`
+	 * refuses is omitted either way: a schema flagged `hidden`, and a patron's
+	 * sidecar unless its schema declares `shown_when_owned`, as a Table's does.
+	 * An owned row names its publisher under `owner`, because `remove_node`
+	 * and `move_node` refuse it.
 	 *
 	 * @param string $only Optional single node name to return.
 	 * @param string $pwd  Requesting session's reverse_cwd (inbound FROM); stamped into `_header` on a full snapshot.
@@ -896,16 +898,8 @@ class Command_Interpreter_Node extends Node {
 			if ( '' !== $only && $name !== $only ) {
 				continue;
 			}
-			// Patron-linked nodes are plumbing; canvas shouldn't render them.
-			if ( null !== $node->patron() ) {
-				continue;
-			}
 			$schema = $node::node_schema();
-			// @longform A shared singleton has no owner to patron it — one
-			// connect-queue timer serves every Remote_Link — so a schema
-			// saying hidden is the only signal it can give. The palette
-			// already honours it; the canvas has to as well.
-			if ( true === ( $schema['hidden'] ?? false ) ) {
+			if ( ! $node->shown_on_canvas( $schema ) ) {
 				continue;
 			}
 			// SHELL name (GUI key), not class short-name (Echo_Node -> 'Echo').
@@ -927,6 +921,11 @@ class Command_Interpreter_Node extends Node {
 				// Has a `:config` sidecar; GUI must not synthesize it.
 				'has_config'    => isset( Core::$nodes_by_name[ "{$name}:config" ] ),
 			];
+			// The console withholds delete and rename from an owned node.
+			$owner = $node->publisher();
+			if ( null !== $owner ) {
+				$out[ $name ]['owner'] = $owner->name();
+			}
 			// Emit when non-empty, matching JS producer (PHP [] vs JS {}).
 			$registrations = $node->registered_listeners();
 			if ( [] !== $registrations ) {
@@ -1654,6 +1653,8 @@ class Command_Interpreter_Node extends Node {
 	 * Node::name() owns the work: registry re-key, collision guard, and the
 	 * cascade to owned siblings. Authorised under `make_node`, as in the
 	 * reference — renaming is a construction privilege, not one of its own.
+	 * An owned sibling is refused: its owner addresses it by the name it
+	 * spells, so only renaming the owner carries it.
 	 *
 	 * @param list<string> $args
 	 */
@@ -1667,6 +1668,10 @@ class Command_Interpreter_Node extends Node {
 		if ( null === $node ) {
 			throw new \RuntimeException( \esc_html( "can't find node \"{$name}\"" ) );
 		}
+		$owner = $node->publisher();
+		if ( null !== $owner ) {
+			throw new \RuntimeException( \esc_html( "refusing to rename owned node: {$name}, owned by {$owner->name()}" ) );
+		}
 		$node->name( $new_name );
 		return "ok\n";
 	}
@@ -1674,9 +1679,10 @@ class Command_Interpreter_Node extends Node {
 	/**
 	 * `remove_node <name>...` or `remove_node -a <regex>` — tear nodes down.
 	 *
-	 * Refuses to destroy this interpreter or the session scaffolding — the
-	 * siblings a scaffolding node published included, since its own teardown
-	 * owns them — and reports each refusal beside the removals rather than
+	 * Refuses to destroy this interpreter, the session scaffolding — the
+	 * siblings a scaffolding node published included — and any other owned
+	 * sibling, since its owner's teardown owns it and its owner's slot would
+	 * keep the dead node. Reports each refusal beside the removals rather than
 	 * abandoning the rest of the batch.
 	 *
 	 * @param list<string> $args Verb arguments.
@@ -1727,6 +1733,11 @@ class Command_Interpreter_Node extends Node {
 			}
 			if ( self::is_scaffolding( $node ) ) {
 				$errors[] = "refusing to destroy baseline scaffolding: $name";
+				continue;
+			}
+			$owner = $node->publisher();
+			if ( null !== $owner ) {
+				$errors[] = "refusing to destroy owned node: {$name}, owned by {$owner->name()}";
 				continue;
 			}
 			$node->remove_node();

@@ -666,6 +666,24 @@ final class VaultGroupNodeTest extends TestCase {
 		$this->assertSame( $before, $state() );
 	}
 
+	public function test_a_child_draws_naming_its_group_as_owner_and_the_console_cannot_remove_it(): void {
+		$ci = new Command_Interpreter_Node();
+		$ci->name( Node_Names::COMMAND_INTERPRETER );
+		$ci->make_node( 'Vault_Group', 'edge', 'Echo', 'tw-edge' );
+
+		$meta = $ci->dispatch( 'dump_metadata' );
+
+		$this->assertIsArray( $meta );
+		$this->assertSame( 'edge', $meta['edge:tw9']['owner'] );
+		$this->assertArrayNotHasKey( 'owner', $meta['edge'] );
+		$this->assertSame( "refusing to destroy owned node: edge:tw9, owned by edge\n", $ci->dispatch( 'remove_node', [ 'edge:tw9' ] ) );
+		$this->assertNotNull( Core::node( 'edge:tw9' ) );
+	}
+
+	public function test_the_group_argument_is_typed_as_a_vault_group(): void {
+		$this->assertSame( [ 'string', 'vault_group' ], \array_column( Vault_Group_Node::node_schema()['arguments'], 'type' ) );
+	}
+
 	public function test_a_bare_make_node_names_the_missing_child_type(): void {
 		$ci = new Command_Interpreter_Node();
 		try {

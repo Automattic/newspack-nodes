@@ -1,6 +1,6 @@
 /**
  * useVaults — one `vault.list` round trip on first truthy `enabled`, mapped to
- * the {id,url} option shape the vault_id dropdown consumes.
+ * the {id,url,group} option shape the vault_id and vault_group pickers consume.
  *
  * Driven through the real wire: the command is minted by the hook's Request
  * node and the reply comes back addressed to it, so nothing here correlates.
@@ -16,6 +16,7 @@ const LISTED = {
 	austin: {
 		id: 'austin',
 		url: 'https://a.example',
+		group: 'crawl-g7',
 		has_credentials: true,
 	},
 	github: { id: 'github', url: '', has_credentials: true },
@@ -50,20 +51,24 @@ describe( 'useVaults', () => {
 		await waitFor(
 			() =>
 				expect( result.current.vaults ).toEqual( [
-					{ id: 'austin', url: 'https://a.example' },
-					{ id: 'github', url: '' },
+					{
+						id: 'austin',
+						url: 'https://a.example',
+						group: 'crawl-g7',
+					},
+					{ id: 'github', url: '', group: '' },
 				] ),
 			{ timeout: 4000 }
 		);
 	} );
 
-	it( 'maps the id-keyed vault.list reply to [{id,url}]', async () => {
+	it( 'maps the id-keyed vault.list reply to [{id,url,group}]', async () => {
 		const { result } = renderHook( () => useVaults( { enabled: true } ) );
 		await waitFor( () => expect( result.current.vaults.length ).toBe( 2 ) );
 
 		expect( result.current.vaults ).toEqual( [
-			{ id: 'austin', url: 'https://a.example' },
-			{ id: 'github', url: '' },
+			{ id: 'austin', url: 'https://a.example', group: 'crawl-g7' },
+			{ id: 'github', url: '', group: '' },
 		] );
 		const sent = replyFor.mock.calls[ 0 ][ 0 ];
 		expect( sent[ VALUE ].name ).toBe( 'list' );

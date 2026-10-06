@@ -119,7 +119,7 @@ class Node {
     protected array $registrations = [];   // events declared in node_schema()
     protected array $set_state = [];       // cached set_state payloads
     protected array $arguments = [];       // constructor tokens, list<string>
-    protected ?Node $patron = null;        // set = plumbing; hidden from the canvas
+    protected ?Node $patron = null;        // set = plumbing; see shown_on_canvas()
     protected ?Command_Interpreter_Node $interpreter = null;
 
     public function fill( array $message ): void;
@@ -130,7 +130,8 @@ class Node {
     public function connect_node( string $target ): void;     // sets target (Tee appends)
     public function disconnect_node( string $target = '' ): void;
     public function name( ?string $name = null ): string;
-    public function patron( ?Node $node = null ): ?Node;      // set BEFORE name(), or it refuses
+    public function patron( ?Node $node = null ): ?Node;      // drops :config, so set BEFORE name(); a Table keeps its own
+    public function shown_on_canvas( array $schema ): bool;  // no patron, or shown_when_owned; never hidden
     public function remove_node(): void;
     public function counter(): int;
     public function bytes_read(): int;
@@ -179,7 +180,7 @@ public function fill( array $message ): void {
 
 Subclasses override `fill()` with their own behavior. Of the three that address their own emits, `Shell` builds each TO from the cwd `prefix()` composes, `Callback` hands the message to a closure instead of a sink, and `Durable_Reader::forward_line()`, the read path Consumer and `Remote_Source` share, stamps TO from `target` itself before filling the sink. The terminals never call `require_sink()`, so they are legal at the end of a graph with nothing wired downstream.
 
-**Name registration**: `$node->name('foo')` registers the node in `Core::$nodes_by_name`. Renaming throws on collision (catches duplicate-node bugs at construction time), and a node that owns siblings cascades the new name to them (`Consumer` renames its `:source`, `:offsetlog`, `:deadletter` and `:config` nodes). Two more guards shape what a caller may ask. An empty name throws `name() requires a non-empty name; use remove_node() to unregister`, because a node left registered under no name is unreachable and leaving the registry is `remove_node()`'s job alone. Re-setting the name the node already answers to returns early instead of colliding with itself, which is what makes a topology reload and a `move_node` that re-spells a node to its current name idempotent. The diagram's collision pre-check is sound only because the registry is a per-process array mutated synchronously; an out-of-process registry would make it TOCTOU and bring the unwind back.
+**Name registration**: `$node->name('foo')` registers the node in `Core::$nodes_by_name`. Renaming throws on collision (catches duplicate-node bugs at construction time), and a node that owns siblings cascades the new name to them (`Consumer` renames its `:source`, `:offsetlog`, `:deadletter` and `:config` nodes). The `move_node` and `remove_node` verbs refuse an owned sibling by name, pointing at its owner, because the owner's slot holds it and the owner addresses it by the name it spells. Two more guards shape what a caller may ask. An empty name throws `name() requires a non-empty name; use remove_node() to unregister`, because a node left registered under no name is unreachable and leaving the registry is `remove_node()`'s job alone. Re-setting the name the node already answers to returns early instead of colliding with itself, which is what makes a topology reload and a `move_node` that re-spells a node to its current name idempotent. The diagram's collision pre-check is sound only because the registry is a per-process array mutated synchronously; an out-of-process registry would make it TOCTOU and bring the unwind back.
 
 The two sidecar Partitions are built once, by the [`Sidecar`](../includes/trait-sidecar.php) trait: `make_sidecar( $dir, $geometry )` constructs a patron-linked `Partition_Node`, copies the patron's sink, and opts it out of the write quarantine. `Durable_Reader` reaches it for the offsetlog and `Dead_Letter_Queue` for the quarantine — an empty `$dir` disables either. Both current callers name all six geometry positions, because an omitted one hands the sidecar the retention picked for the data partitions.
 

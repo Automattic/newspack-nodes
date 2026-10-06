@@ -1,6 +1,6 @@
 /**
  * The console's catalogs — the palette's substrate classes, the OPEN dialog's
- * saved topologies and the vault_id dropdown's vaults — plus the on-demand
+ * saved topologies and the vault pickers' entries — plus the on-demand
  * reader for one topology's body.
  *
  * Each catalog is the same slice on the batched poll: one catalog verb per tick,
@@ -87,12 +87,12 @@ export function useTopologyList( { enabled = false } = {} ) {
 }
 
 /**
- * The vault_id dropdown's servers, in option shape.
+ * The vault_id and vault_group pickers' servers, in option shape.
  *
  * @param {Object}  [o]         Options.
  * @param {boolean} [o.enabled] False, the default, costs no request at all.
- * @return {{vaults: Array<{id: string, url: string}>, loading: boolean, error: ?string, refresh: () => void}}
- *   `vaults` keeps the id and the url of each record `vault list` answers with,
+ * @return {{vaults: Array<{id: string, url: string, group: string}>, loading: boolean, error: ?string, refresh: () => void}}
+ *   `vaults` keeps the id, url and group of each record `vault list` answers with,
  *   dropping the username and the credential flags a dropdown cannot render.
  */
 export function useVaults( { enabled = false } = {} ) {
@@ -109,6 +109,7 @@ export function useVaults( { enabled = false } = {} ) {
 		vaults: ( model.servers ?? [] ).map( ( v ) => ( {
 			id: v.id,
 			url: v.url ?? '',
+			group: v.group ?? '',
 		} ) ),
 	};
 }

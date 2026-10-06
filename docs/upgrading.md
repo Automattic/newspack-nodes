@@ -6,6 +6,50 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`Curl_Node`'s `vault_id` positional is `vault_group`.** `make_node Curl
+  <name> <vault_id>` becomes `make_node Curl <name> <vault_group>`, naming a
+  Vault group in place of one entry: put the entry in a group, through the
+  Vault tab or `vault update <id> --group=<group>`, and name the group. Each
+  fetch's VALUE must be an absolute http(s) url, so rewrite a `/path` VALUE as
+  the entry's url plus that path. A url on no group entry's origin is fetched
+  with no `Authorization`, so a topology that leant on `url outside vault
+  origin` to fence its fetches to one host filters them upstream. A url on two
+  entries' origin is refused naming both. Match the TM_ERROR
+  `vault entries <id>, <id> share origin <origin> <url>` in place of
+  `no vault entry <id>`, `no url for vault entry <id>` and
+  `url outside vault origin <url>`, which are gone.
+- **`Crawler_Node`'s `vault_id` positional is `vault_group`.** `make_node
+  Crawler <name> <ttl> <vault_id> …` becomes `make_node Crawler <name> <ttl>
+  <vault_group> …`, with the group named as for `Curl_Node`.
+- **`Crawler_Node`'s `set_delay_ms` and `set_concurrency` verbs are removed,
+  and so is its `{name}:config` interpreter.** Set `delay_ms` and
+  `concurrency` on the `make_node` line, and delete any `cmd
+  <crawler>:config set_delay_ms` or `set_concurrency` line, which names no
+  node.
+- **A crawler answers a seed it has already seen.** Target receives a TM_INFO
+  `already seen <url>` keyed by the url, so a consumer reading the crawler's
+  output by TYPE tells it from a body (TM_BYTESTREAM), a redirect
+  (TM_RESPONSE) and a failure (TM_ERROR). A seed whose `ADD` the crawler's
+  `{name}:seen` Table refuses or leaves unanswered answers a TM_ERROR
+  `ADD to <name>:seen failed <url>`, also keyed by the url, and is not
+  fetched; send it again once the Table answers.
+- **`Curl_Node` refuses a url carrying userinfo.** `https://user@host/`, and
+  any url whose authority holds an `@`, answers the TM_ERROR
+  `invalid url carrying userinfo` and is not fetched. Put the credential in a
+  Vault entry on the url's origin and name its group.
+- **`remove_node` and `move_node` refuse an owned sibling.** A node another
+  node published — a Crawler's `{name}:seen` Table, a `Vault_Group` child, a
+  `:config` interpreter — answers `refusing to destroy owned node: <name>,
+  owned by <owner>` among `remove_node`'s results, and `move_node` throws
+  `refusing to rename owned node: <name>, owned by <owner>`. Remove or rename
+  the owner, which carries every sibling with it. To drop one `Vault_Group`
+  child, take its entry out of the group through the Vault,
+  `vault update <id> --group=`, and the group retracts the child on the next
+  reload. A script or topology that removed or renamed such a node directly
+  does it through the owner or the Vault instead.
+- **A `vault_group` argument renders a picker in the topology console.** A
+  plugin declaring a Vault group argument types it `vault_group`, as
+  `Vault_Group_Node`'s `group` does; `useVaults()` entries carry `group`.
 - **A reply settles a `Fetcher` ask by its path AND its echoed arguments.**
   A reply echoing `VALUE.arguments` settles the ask with its remaining TO as
   the path and exactly those tokens; one echoing none settles the first ask

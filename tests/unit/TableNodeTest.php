@@ -265,6 +265,26 @@ class TableNodeTest extends TestCase {
 		$this->assertSame( 1, $config->dispatch( 'stats' )['INSERT']['answered'], 'the sibling answers for the Table that stored inv-42' );
 	}
 
+	public function test_an_owned_table_keeps_its_config_sibling_and_follows_its_owner(): void {
+		$owner = new Capture_Sink_Node();
+		$table = new Table_Node();
+		$table->patron( $owner );
+		$table->name( 'crawl-3307:seen' );
+		$table->arguments( [ 'crawl-3307', '61' ] );
+		$table->sink( new Capture_Sink_Node() );
+		$table->fill( $this->keyed( 'inv-77', 'kea' ) );
+
+		$config = Core::node( 'crawl-3307:seen:config' );
+		$this->assertNotNull( $config, 'an owned Table answers its verbs at its own address' );
+		$this->assertSame( $owner, $table->patron(), 'the owner still hides it from the canvas' );
+		$this->assertSame( $table, $config->patron() );
+		$this->assertSame( 1, $config->dispatch( 'stats' )['INSERT']['answered'] );
+
+		$table->name( 'crawl-5150:seen' );
+		$this->assertNull( Core::node( 'crawl-3307:seen:config' ) );
+		$this->assertSame( $config, Core::node( 'crawl-5150:seen:config' ), 'a rename moves the sibling' );
+	}
+
 	public function test_verbs_refuse_a_foreign_patron(): void {
 		$ci = new \Newspack_Nodes\Command_Interpreter_Node();
 		$ci->name( 'stray:config' );

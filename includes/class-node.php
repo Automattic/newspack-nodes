@@ -76,7 +76,7 @@ class Node {
 	 */
 	protected string $name = '';
 
-	/** Non-null marks this node as plumbing for the patron; dump_metadata hides it from the canvas. */
+	/** Non-null marks this node as the patron's plumbing; see `shown_on_canvas()`. */
 	protected ?Node $patron = null;
 
 	/** The node that published this one as an owned sibling, or null. */
@@ -731,6 +731,22 @@ class Node {
 			}
 		}
 		return $value;
+	}
+
+	/**
+	 * Whether the console canvas draws this node. A schema flagged `hidden`
+	 * never draws. A node with a patron is that patron's plumbing and draws
+	 * only when its schema declares `shown_when_owned`, as `Table_Node` does;
+	 * a patron that writes it declares it in `extra_targets()` for the edge.
+	 *
+	 * @param array<string,mixed> $schema What this node's `node_schema()` answered,
+	 *                                    which the caller builds once per node.
+	 */
+	public function shown_on_canvas( array $schema ): bool {
+		if ( true === ( $schema['hidden'] ?? false ) ) {
+			return false;
+		}
+		return null === $this->patron() || true === ( $schema['shown_when_owned'] ?? false );
 	}
 
 	/**
