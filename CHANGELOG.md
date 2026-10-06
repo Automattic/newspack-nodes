@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.93.0] - 2026-10-05
+
 ### Added
 
 - **`AreaTimeChart` shades a selection of slots.** An optional `selectedSlots` prop, a `ReadonlySet<number>` of indexes into `series[0].values`, shades each slot's column persistently, one bucket wide and centred on the slot as the hover highlight is, beneath the bands so they stay legible. An absent or empty set shades nothing, and a new set redraws. `shadeSlots()`, exported from `useTimeChart.js`, draws the columns, and the shared styles add the `newspack-nodes-chart__selected` role, which paints them in the accent at 16% opacity.
