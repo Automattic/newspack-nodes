@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A node its owner builds is no runtime drift.** The console counts the `owned` nodes `topologies get` lists as declared, so a Crawler's `:seen` Table draws with a plain outline, not the brass dashed one that marks a node added at runtime.
+
 ## [2.96.1] - 2026-10-06
 
 ### Fixed

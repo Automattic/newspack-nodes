@@ -35,6 +35,7 @@ describe( 'useCanonicalNodes', () => {
 
 	it( 'fetches the topology .tsl and returns its declared node names', async () => {
 		send.mockReturnValue( {
+			owned: [],
 			name: 'combined',
 			tsl: 'make_node Echo alpha\nmake_node Tee beta\n',
 		} );
@@ -46,11 +47,27 @@ describe( 'useCanonicalNodes', () => {
 		expect( result.current.has( 'beta' ) ).toBe( true );
 	}, 15000 );
 
+	it( 'counts a node its owner builds as canonical, not as runtime drift', async () => {
+		send.mockReturnValue( {
+			name: 'crawl-k9',
+			tsl: 'make_node Crawler crawl-k9 7203\n',
+			owned: [
+				{ name: 'crawl-k9:seen', class: 'Table', owner: 'crawl-k9' },
+			],
+		} );
+		const { result } = renderHook( () => useCanonicalNodes( 'crawl-k9' ) );
+		await waitFor( () => expect( result.current.size ).toBe( 2 ), {
+			timeout: 4000,
+		} );
+		expect( result.current.has( 'crawl-k9:seen' ) ).toBe( true );
+	}, 15000 );
+
 	it( 'counts a BORROWED node as canonical, not as runtime drift', async () => {
 		// combined.tsl owns one node and `include`s the rest. Comparing live nodes
 		// against the raw file alone paints every borrowed node as drift — a
 		// "temporary node" the operator never added.
 		send.mockReturnValue( {
+			owned: [],
 			name: 'combined',
 			tsl: 'include zebra-base\nmake_node Tee wombat:tee\n',
 			includes: [ 'zebra-base' ],
@@ -84,6 +101,7 @@ describe( 'useCanonicalNodes', () => {
 			.spyOn( console, 'warn' )
 			.mockImplementation( () => {} );
 		send.mockReturnValue( {
+			owned: [],
 			name: 'combined',
 			tsl:
 				'include zebra-base\n' +
@@ -119,6 +137,7 @@ describe( 'useCanonicalNodes', () => {
 	// topology's canonical set would paint every node of the new one as drift.
 	it( 'does not count the previous topology answer as the new one', async () => {
 		send.mockReturnValue( {
+			owned: [],
 			name: 'combined',
 			tsl: 'make_node Echo alpha\n',
 		} );
@@ -140,6 +159,7 @@ describe( 'useCanonicalNodes', () => {
 
 	it( 'resets to an empty set when the topology fetch rejects', async () => {
 		send.mockReturnValueOnce( {
+			owned: [],
 			name: 'combined',
 			tsl: 'make_node Echo alpha\n',
 		} );
