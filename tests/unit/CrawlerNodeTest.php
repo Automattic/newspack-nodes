@@ -743,6 +743,112 @@ final class CrawlerNodeTest extends TestCase {
 		$this->assertCount( Table_Node::MAX_MEMBERS_LIMIT + 3 - Curl_Node::MAX_IN_FLIGHT, $this->members( $crawler, 'pending' ) );
 	}
 
+	/** Every request the crawler's Table has answered, across its verbs. */
+	private function table_calls( Crawler_Node $crawler ): int {
+		return \array_sum( \array_column( $this->seen( $crawler )->stats(), 'calls' ) );
+	}
+
+	/** Fire the crawler's tick $times times, each inside a drain. */
+	private function ticks( Crawler_Node $crawler, int $times ): void {
+		for ( $i = 0; $i < $times; $i++ ) {
+			$this->in_drain( static fn () => $crawler->fire_cb() );
+		}
+	}
+
+	/** Answer every dispatch at once with a TM_ERROR, as a failed curl_init does. */
+	private function answer_every_dispatch_at_once(): void {
+		Event_Framework::$curl_dispatch = function ( array $opts ): bool {
+			$this->dispatched[] = (string) $opts[ \CURLOPT_URL ];
+			return false;
+		};
+	}
+
+	public function test_an_idle_crawler_asks_the_table_nothing_after_its_first_tick(): void {
+		$crawler = $this->wide();
+
+		$this->ticks( $crawler, 1 );
+		$this->assertSame( 2, $this->table_calls( $crawler ), 'the recovery and one move' );
+		$this->ticks( $crawler, 37 );
+
+		$this->assertSame( 2, $this->table_calls( $crawler ), 'nothing is pending, so no tick asks' );
+		$this->assertSame( [], $this->dispatched );
+	}
+
+	public function test_seeds_are_refilled_tick_by_tick_until_pending_drains_then_the_ticks_go_quiet(): void {
+		$this->answer_every_dispatch_at_once();
+		$crawler = $this->crawler( 'crawl-4471', '7203', '', '0', '3' );
+		$urls    = \array_map( static fn ( int $i ): string => self::SITE . "/h-{$i}", \range( 1, 5 ) );
+		foreach ( $urls as $url ) {
+			$this->seed( $crawler, $url );
+		}
+
+		$this->ticks( $crawler, 2 );
+		$this->assertSame( $urls, $this->dispatched, 'two ticks drain five urls three at a time' );
+		$this->assertSame( [], $this->members( $crawler, 'pending' ) );
+		$calls = $this->table_calls( $crawler );
+		$this->ticks( $crawler, 23 );
+
+		$this->assertSame( $calls, $this->table_calls( $crawler ), 'a drained frontier asks nothing' );
+		$this->in_drain( fn () => $this->seed( $crawler, self::SITE . '/h-6' ) );
+		$this->assertSame( [ ...$urls, self::SITE . '/h-6' ], $this->dispatched, 'a new seed wakes it' );
+	}
+
+	public function test_a_restarted_crawler_recovers_inflight_on_its_first_tick_then_goes_quiet(): void {
+		$crawler = $this->wide();
+		$url     = self::SITE . '/left-71';
+		$this->seen( $crawler )->add_members( [ 'inflight' => [ [ $url => 1 ], 900 ] ] );
+		$crawler->remove_node();
+		$crawler = $this->wide();
+
+		$this->ticks( $crawler, 1 );
+		$this->assertSame( [ $url ], $this->dispatched, 'the first tick recovers and fetches it' );
+		$calls = $this->table_calls( $crawler );
+		$this->ticks( $crawler, 19 );
+
+		$this->assertSame( $calls, $this->table_calls( $crawler ) );
+	}
+
+	public function test_a_move_short_of_its_ask_stops_the_next_tick_asking(): void {
+		$crawler = $this->wide();
+		$urls    = \array_map( static fn ( int $i ): string => self::SITE . "/k-{$i}", \range( 1, 3 ) );
+		$this->seen( $crawler )->add_members( [ 'pending' => [ \array_fill_keys( $urls, 1 ), 900 ] ] );
+
+		$this->ticks( $crawler, 1 );
+		$this->assertSame( $urls, $this->dispatched, 'sixteen asked, three moved' );
+		$moves = $this->seen( $crawler )->stats()['SMOVE']['calls'];
+		$this->ticks( $crawler, 11 );
+
+		$this->assertSame( $moves, $this->seen( $crawler )->stats()['SMOVE']['calls'], 'thirteen free slots, and no ask' );
+	}
+
+	public function test_a_move_the_table_leaves_unanswered_is_asked_again_next_tick(): void {
+		$crawler = $this->wide();
+		$url     = self::SITE . '/unanswered-58';
+		$seen    = $this->seen( $crawler );
+		$seen->add_members( [ 'pending' => [ [ $url => 1 ], 900 ] ] );
+		$refill = static fn ( mixed $value ): bool => \is_string( $value ) && \str_contains( $value, ' pending inflight' );
+		Core::register_node( 'crawl-4471:seen', new Crawler_Filtering_Table_Fixture_Node( $seen, $refill ) );
+
+		$this->ticks( $crawler, 1 );
+		$this->assertSame( [], $this->dispatched, 'the move went unanswered' );
+		Core::register_node( 'crawl-4471:seen', $seen );
+		$this->ticks( $crawler, 1 );
+
+		$this->assertSame( [ $url ], $this->dispatched );
+	}
+
+	public function test_an_idle_crawler_under_a_delay_asks_the_table_nothing(): void {
+		$crawler = $this->crawler( 'crawl-4471', '7203', '', '350', '2' );
+		$this->assertSame( 'event_framework', $crawler->timer_mode() );
+
+		$this->ticks( $crawler, 1 );
+		$calls = $this->table_calls( $crawler );
+		$this->ticks( $crawler, 41 );
+
+		$this->assertSame( $calls, $this->table_calls( $crawler ) );
+		$this->assertSame( [], $this->dispatched );
+	}
+
 	public function test_a_seed_before_the_first_tick_is_fetched_exactly_once(): void {
 		$crawler = $this->wide();
 		$this->seen( $crawler )->add_members( [ 'inflight' => [ [ self::SITE . '/f-1' => 1 ], 900 ] ] );

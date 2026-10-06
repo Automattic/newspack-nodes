@@ -28,7 +28,9 @@ namespace Newspack_Nodes;
  * goes on to target with KEY set to the url; an answered url is done, never
  * retried. The first tick after the node is built returns whatever
  * `inflight` holds to `pending`, so a restart refetches what the last
- * process left in flight.
+ * process left in flight. Once an `SMOVE` moves fewer urls than it asked
+ * for, the crawler asks the Table nothing more until a discovery or a
+ * recovery puts urls in `pending`, so an idle crawler costs no round trip.
  *
  * One Crawler per name per host: the Table's namespace and file are the
  * crawler's name, so two workers running one crawler share its sqlite file
@@ -42,11 +44,10 @@ final class Crawler_Node extends Timer_Node {
 
 	/**
 	 * Least positive `delay_ms`. A delay arms the refill timer at `delay_ms`,
-	 * and every fire asks the sqlite Table to `SMOVE` whether or not anything
-	 * is pending, so 5 ms would be some 200 Table round trips a second for an
-	 * idle crawl. At 100 ms that is ten a second, and a gap that short already
-	 * starts ten fetches a second, past where a politeness delay means
-	 * anything; a faster crawl takes delay 0 and paces by `concurrency`.
+	 * which takes its own event-loop slot below the Router's tick, so 5 ms
+	 * would wake the loop some 200 times a second. A 100 ms gap already starts
+	 * ten fetches a second, past where a politeness delay means anything; a
+	 * faster crawl takes delay 0 and paces by `concurrency`.
 	 */
 	public const MIN_DELAY_MS = 100;
 
@@ -85,6 +86,14 @@ final class Crawler_Node extends Timer_Node {
 
 	/** True while refill() runs; an answer arriving inside it does not re-enter. */
 	private bool $refilling = false;
+
+	/**
+	 * Whether `pending` may hold urls. A new process cannot know what the last
+	 * left there, so it starts true; `discover()` and `recover()` set it when
+	 * they put urls there, and each refill's `SMOVE` sets it to whether it
+	 * moved all it asked for. While it is false a refill asks the Table nothing.
+	 */
+	private bool $pending_may_hold = true;
 
 	/** The Table client asks by the crawler's live name, so it outlives a rename. */
 	public function __construct() {
@@ -317,7 +326,11 @@ final class Crawler_Node extends Timer_Node {
 	private function discover( array $urls, ?bool &$failed = null ): array {
 		$table = $this->sibling_name( self::SEEN );
 		$new   = $this->tables->add_multi( $table, \array_fill_keys( $urls, [ '1' ] ), $failed );
-		if ( [] === $new || [] !== $this->tables->add_members( $table, [ self::PENDING => \array_fill_keys( $new, 1 ) ], self::FRONTIER_TTL ) ) {
+		if ( [] === $new ) {
+			return $new;
+		}
+		if ( [] !== $this->tables->add_members( $table, [ self::PENDING => \array_fill_keys( $new, 1 ) ], self::FRONTIER_TTL ) ) {
+			$this->pending_may_hold = true;
 			return $new;
 		}
 		$this->tables->remove( $table, $new );
@@ -336,7 +349,8 @@ final class Crawler_Node extends Timer_Node {
 	 * refills on its own. A throw out of Curl's `fill()` mid-batch leaves the
 	 * rest of the batch in `inflight` until the next start returns it to
 	 * `pending`. Nothing moves while a recovery is owed, or the next one would
-	 * return live urls to `pending`.
+	 * return live urls to `pending`, and nothing is asked while `pending` is
+	 * known empty.
 	 *
 	 * @param bool $tick Whether the timer asks, rather than a seed or an answer.
 	 * @throws \LogicException When no Curl sibling was built.
@@ -357,10 +371,12 @@ final class Crawler_Node extends Timer_Node {
 				return;
 			}
 			$free = \min( $paced ? 1 : $this->concurrency, $this->concurrency - $curl->transfers_in_flight() );
-			if ( $free < 1 ) {
+			if ( ! $this->pending_may_hold || $free < 1 ) {
 				return;
 			}
-			foreach ( $this->tables->move_members( $this->sibling_name( self::SEEN ), self::PENDING, self::INFLIGHT, $free ) as $url ) {
+			$urls                   = $this->tables->move_members( $this->sibling_name( self::SEEN ), self::PENDING, self::INFLIGHT, $free, $failed );
+			$this->pending_may_hold = $failed || \count( $urls ) === $free;
+			foreach ( $urls as $url ) {
 				$curl->fill( $this->fetch_message( $url ) );
 			}
 		} finally {
@@ -369,7 +385,8 @@ final class Crawler_Node extends Timer_Node {
 	}
 
 	/**
-	 * Return every url the last process left in `inflight` to `pending`.
+	 * Return every url the last process left in `inflight` to `pending`,
+	 * marking `pending` when any moved.
 	 *
 	 * @return bool Whether recovery finished; a move the Table does not answer
 	 *              leaves it for the next tick.
@@ -381,6 +398,7 @@ final class Crawler_Node extends Timer_Node {
 			if ( $failed ) {
 				return false;
 			}
+			$this->pending_may_hold = $this->pending_may_hold || 0 < $moved;
 		} while ( Table_Node::MAX_MEMBERS_LIMIT === $moved );
 		return true;
 	}
