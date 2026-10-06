@@ -155,7 +155,8 @@ function sample( rates, graph ) {
  *
  * Each snapshot is sampled during the render that receives it, once per graph
  * object, so a poll costs one commit rather than a commit for the graph and a
- * second for the rates it changed.
+ * second for the rates it changed. A null snapshot — no poll reply yet, or one
+ * carrying no node — samples nothing and keeps every history.
  *
  * `resetKey` clears the map when the console swaps worker or topology. A node
  * id is a node NAME, and the partitions of one topology mount the same names,
@@ -168,8 +169,8 @@ function sample( rates, graph ) {
  * sees nothing change: `rateVersion` is what a derivation off
  * `rateRef.current` lists as its dependency.
  *
- * @param {{nodes:Array<{id:string,count?:number,bytesRead?:number,bytesWritten?:number}>}} graph    Graph whose per-node counters drive the rates.
- * @param {string}                                                                          resetKey Identity key; a change clears the accumulated map.
+ * @param {?{nodes:Array<{id:string,count?:number,bytesRead?:number,bytesWritten?:number}>}} graph    Poll snapshot whose per-node counters drive the rates, or null.
+ * @param {string}                                                                           resetKey Identity key; a change clears the accumulated map.
  * @return {{rateRef:{current:Map<string,RateEntry>},rateVersion:number}} The rate map behind a stable ref, and the counter that ticks whenever it changes.
  */
 export function useGraphRates( graph, resetKey ) {
@@ -184,7 +185,7 @@ export function useGraphRates( graph, resetKey ) {
 	// Once per graph object, so a re-render or StrictMode's replay adds none.
 	if ( last.graph !== graph ) {
 		last.graph = graph;
-		if ( sample( rateRef.current, graph ) ) {
+		if ( graph && sample( rateRef.current, graph ) ) {
 			last.version++;
 		}
 	}

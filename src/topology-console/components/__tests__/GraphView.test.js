@@ -71,6 +71,19 @@ const withClock = ( body ) => {
 	}
 };
 
+// Land a poll reply as `_metadata`'s snapshot, the one graph rates sample.
+const landPoll = ( graph_ ) => {
+	let metadata = Core.node( names.METADATA );
+	if ( ! metadata ) {
+		metadata = new MetadataNode();
+		metadata.name = names.METADATA;
+	}
+	act( () => metadata.setField( 'snapshot', graph_ ) );
+	return graph_;
+};
+
+afterEach( () => Core.reset() );
+
 describe( 'GraphView', () => {
 	it( 'renders the canvas and forwards a connect gesture to onConnect', () => {
 		const onConnect = jest.fn();
@@ -503,11 +516,13 @@ describe( 'GraphView', () => {
 		const g0 = { nodes: [ src( 5 ) ], edges: [] };
 		const g1 = { nodes: [ src( 10 ) ], edges: [] };
 		withClock( ( tick ) => {
+			landPoll( g0 );
 			const { rerender } = renderWithCatalog(
 				<GraphView graph={ g0 } frame={ Frame } resetKey="k" />
 			);
 			// A second poll, one second on, accumulates one In-rate sample.
 			tick();
+			landPoll( g1 );
 			rerender( <GraphView graph={ g1 } frame={ Frame } resetKey="k" /> );
 			const len = global.__inspectorProps.rateSeries.in.length;
 			expect( len ).toBeGreaterThan( 0 );
@@ -593,21 +608,21 @@ describe( 'GraphView — hull selection', () => {
 			hulls={ perfHull }
 		/>
 	);
+	// One poll: the reply lands on `_metadata`, and the canvas draws it.
+	const hullPoll = ( a, b ) => hullView( landPoll( hullNodesGraph( a, b ) ) );
 
 	it( 'scopes the hull rate series to the hull MEMBERS, not the whole graph', () => {
 		withClock( ( tick ) => {
 			// Both are sources, so both feed the graph-wide In rate; only `inside`
 			// is a member. The deltas differ by an order of magnitude, so a series
 			// built from the wrong scope can't coincidentally match the right one.
-			const { rerender } = renderWithCatalog(
-				hullView( hullNodesGraph( 10, 100 ) )
-			);
+			const { rerender } = renderWithCatalog( hullPoll( 10, 100 ) );
 			act( () => {
 				global.__canvasProps.onSelectHull( 'performance' );
 			} );
 			// A second poll, one second on: `inside` +30/s, `outside` +400/s.
 			tick();
-			rerender( hullView( hullNodesGraph( 40, 500 ) ) );
+			rerender( hullPoll( 40, 500 ) );
 
 			const hullIn = global.__inspectorProps.hullRateSeries.in;
 			const graphIn = global.__inspectorProps.rateSeries.in;
@@ -625,14 +640,12 @@ describe( 'GraphView — hull selection', () => {
 	 */
 	it( 'charges a counter reset to the node that reset, not to the fleet', () => {
 		withClock( ( tick ) => {
-			const { rerender } = renderWithCatalog(
-				hullView( hullNodesGraph( 10, 100 ) )
-			);
+			const { rerender } = renderWithCatalog( hullPoll( 10, 100 ) );
 			tick();
-			rerender( hullView( hullNodesGraph( 40, 500 ) ) );
+			rerender( hullPoll( 40, 500 ) );
 			tick();
 			// `inside` respawned to 0; `outside` kept climbing by 400/s.
-			rerender( hullView( hullNodesGraph( 0, 900 ) ) );
+			rerender( hullPoll( 0, 900 ) );
 
 			const graphIn = global.__inspectorProps.rateSeries.in;
 			expect( graphIn[ graphIn.length - 1 ] ).toBe( 400 );
@@ -706,18 +719,67 @@ describe( 'GraphView — hull selection', () => {
 		} );
 	} );
 
+	it( 'files no rate sample off an optimistic patch before any poll reply', () => {
+		withClock( ( tick ) => {
+			const metadata = new MetadataNode();
+			metadata.name = names.METADATA;
+			// A palette drop and a rename land before `_metadata` hears back.
+			act( () =>
+				metadata.optimisticPatch( 'inside', {
+					class: 'Echo',
+					counter: 13,
+				} )
+			);
+			const { rerender } = renderWithCatalog(
+				hullView( metadata.metadata )
+			);
+			tick();
+			act( () => metadata.optimisticPatch( 'inside', { counter: 71 } ) );
+			rerender( hullView( metadata.metadata ) );
+
+			expect( [
+				...global.__canvasProps.rateRef.current.keys(),
+			] ).toEqual( [] );
+			expect( global.__inspectorProps.rateSeries.in ).toEqual( [] );
+		} );
+	} );
+
+	it( 'keeps every rate history through a zero-node poll reply', () => {
+		withClock( ( tick ) => {
+			const metadata = new MetadataNode();
+			metadata.name = names.METADATA;
+			const poll = ( a ) => ( {
+				inside: { class: 'Echo', counter: a, accepts_fill: false },
+			} );
+			act( () => metadata.publish( poll( 10 ) ) );
+			const { rerender } = renderWithCatalog(
+				hullView( metadata.metadata )
+			);
+			tick();
+			act( () => metadata.publish( poll( 33 ) ) );
+			rerender( hullView( metadata.metadata ) );
+
+			// Nothing has answered for this scope yet: no node, not an empty graph.
+			tick();
+			act( () => metadata.publish( {} ) );
+			rerender( hullView( hullNodesGraph( 90, 900 ) ) );
+
+			const rates = global.__canvasProps.rateRef.current;
+			expect( [ ...rates.keys() ] ).toEqual( [ 'inside' ] );
+			expect( rates.get( 'inside' ).history ).toEqual( [ 23 ] );
+		} );
+	} );
+
 	it( 'shows the history recorded BEFORE the hull was selected', () => {
 		withClock( ( tick ) => {
 			// Three polls with NO hull selected. useGraphRates is recording the
 			// whole time, so selecting the hull afterwards must reveal that
 			// history — not start a fresh accumulation from zero.
-			const { rerender } = renderWithCatalog(
-				hullView( hullNodesGraph( 10, 100 ) )
-			);
+			const { rerender } = renderWithCatalog( hullPoll( 10, 100 ) );
 			tick();
-			rerender( hullView( hullNodesGraph( 40, 500 ) ) );
+			rerender( hullPoll( 40, 500 ) );
 			tick();
-			rerender( hullView( hullNodesGraph( 90, 900 ) ) );
+			rerender( hullPoll( 90, 900 ) );
 
 			expect( global.__inspectorProps.hullRateSeries.in ).toEqual( [] );
 

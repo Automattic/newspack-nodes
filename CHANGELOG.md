@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`autoLayout` fills the room a tall block leaves before it widens the canvas, and stacks like-shaped chains together.** One-row blocks of one width — chains of one length, or lone cards — pack as one run in alphabetical order. A run is never split: it stacks where all but its last block fit under the square's height, and a run taller than the square packs block by block. A block past the height looks for room beside the waiting blocks placed before it, then for room the stacks leave inside the canvas, and opens a stack only when neither fits; room needs a clear row above and below and clear columns either side. On the event logger's `complete` worker, `_repl` and `_repl:input` take the top two rows of column 0, above `firehose:consumer`, `topicprobe` → `topicprobe:log` stacks under the other three two-card chains, and the canvas narrows from seven columns to five. The station Overview lays out as before: its five lone cards form one run five rows tall, and the tallest room its canvas leaves holds four and a half. Of 3,014 corpus graphs, 1,365 lay out differently and 903 change canvas size: total area falls 4.8%, the mean aspect moves nearer square, 128 canvases grow, the largest by 12%, and 3 widen. Crossings fall from 51,333 to 51,330, cards a drawn wire covers rise from 7,786 to 7,787, no node is unplaced, and layout time moves within run-to-run noise.
+
+### Fixed
+
+- **A topology card mounting idle fades in to its dimmed ink.** The entrance fade, `topology-fadein`, declares only its starting opacity, so it ends at whatever opacity the card's state gives it: an idle card fades from 0 to 55% and holds there, and never passes through full ink. Every cold card is idle on mount, so a quiet graph's first paint opens without a flash.
+- **A wire dimmed by a hover keeps its animation.** `.topology-edge.is-dimmed` dims through opacity alone, so the 0.8 s `topology-draw` crawl runs once, when the wire appears, and never again when the hover ends; a flowing wire keeps stepping `topology-flow` while dimmed.
+- **Rate sparklines sample only a `dump_metadata` reply that carries a node.** `GraphView` reads `_metadata`'s `snapshot` through `usePublishedGraph()`, the one emptiness rule `useGraphSource()` also applies to the canvas graph, and never falls back to the graph on screen. Before the first poll reply, and after a worker switch rebuilds `_metadata`, nothing is sampled, so an optimistic edit in that window — a palette drop, a rename — files no rate; a reply carrying no node keeps every card's rate history instead of pruning it. `useGraphRates()` takes `null` for no snapshot and samples nothing.
+- **`autoLayout` seats each late source against the columns' current x.** `seatSources` rebuilds its column-to-x map after each seat that changes a column, so the half step a seat opens or closes where three or more wires meet one card reaches every later seat's clearance test. The station Overview lays out as before. Of 312 graphs, 300 generated and the 12 seed graphs, 2 lay out differently: cards lying between a wire's two end rows fall from 2,066 to 2,052 and crossings rise from 5,263 to 5,268, with no node unplaced, and layout time moves within run-to-run noise.
+
 ## [2.95.0] - 2026-10-06
 
 ### Changed

@@ -2085,11 +2085,14 @@ describe( 'autoLayout — hub bands', () => {
 		expect( at._http.x ).toBeGreaterThan( at._shell.x );
 
 		// An edgeless node past the square's height waits for every other
-		// block, then stacks right of them all rather than in their rows.
+		// block, then takes the room column 0 leaves above the first slice
+		// rather than opening a column right of them all.
 		const others = Object.entries( at )
 			.filter( ( [ id ] ) => '_heartbeat' !== id )
 			.map( ( [ , p ] ) => p );
-		expect( at._heartbeat.x ).toBeGreaterThan(
+		expect( at._heartbeat.x ).toBe( at[ 'a:timer' ].x );
+		expect( at._heartbeat.y ).toBeLessThan( at[ 'a:timer' ].y );
+		expect( at._heartbeat.x ).toBeLessThan(
 			Math.max( ...others.map( ( p ) => p.x ) )
 		);
 		expect(
@@ -2733,8 +2736,10 @@ describe( 'autoLayout — clearance across a hub gap', () => {
 
 describe( 'autoLayout — a band moved toward its hub keeps its block’s order', () => {
 	it( 'lays the moved band in the sweeps’ plain order where its block kept that order', () => {
-		// Generated graph 5109: the block keeps the plain order, and band k1's
-		// last card feeding hub0 moves into the column k2 and k3 feed from.
+		// Six slices, two to five layers deep, feed hub0 from different
+		// layers, beside two edgeless cards. The block keeps the plain order,
+		// and band k1's last card, which feeds hub0, moves into the column k2
+		// and k3 feed from; laid out in that order, no k1 wire crosses another.
 		const pairs = (
 			'k0l0n0>k0l1n0 k0l0n0>k0l1n1 k0l0n0>k0l1n2 k0l1n2>k0l2n0 ' +
 			'k0l1n2>k0l2n1 k0l2n0>k0l3n0 k0l1n0>k0l3n0 k0l2n0>k0l3n1 ' +
@@ -2766,6 +2771,38 @@ describe( 'autoLayout — a band moved toward its hub keeps its block’s order'
 		expect(
 			drawn( nodes, edges ).crossings.filter( ( c ) =>
 				/^k1\S+ × k1/.test( c )
+			)
+		).toEqual( [] );
+	} );
+} );
+
+describe( 'autoLayout — a seat measures the half steps earlier seats opened', () => {
+	it( 'seats a late source off a hub wire, at the columns’ final x', () => {
+		// Six slices into one hub; three hold a source seated last. Each seat
+		// can open a half step, which bends `k3l0n1`'s wire to the hub.
+		const pairs = (
+			'k0l0n0>k0l1n0 k0l0n0>k0l1n1 k0l0n1>k0l1n2 k0l1n0>k0l2n0 ' +
+			'k0l1n1>k0l2n1 k0l2n1>k0l3n0 k0l1n2>k0l3n0 k0l2n0>k0l3n1 ' +
+			'k0l3n0>hub0 k1l0n1>k1l1n0 k1l0n0>k1l1n1 k2l0n1>k2l1n0 ' +
+			'k2l0n2>k2l1n1 k2l1n1>k2l2n0 k2l2n0>k2l3n0 k2l2n0>k2l3n1 ' +
+			'k2l1n1>k2l3n1 k2src>k2l3n1 k2l0n2>hub0 k3l0n1>k3l1n0 ' +
+			'k3l1n0>k3l2n0 k3l0n0>k3l2n0 k3l2n0>k3l3n0 k3l0n2>k3l3n0 ' +
+			'k3src>k3l3n0 k3l0n1>hub0 k4l0n0>k4l1n0 k4l0n0>k4l1n1 ' +
+			'k4l1n0>k4l2n0 k4l0n0>k4l2n0 k4l1n1>k4l2n1 k4l1n0>k4l2n2 ' +
+			'k4l0n0>k4l2n2 k4src>k4l2n2 k4l1n1>hub0 k5l0n1>k5l1n0 ' +
+			'k5l1n0>k5l2n0 k5l0n0>k5l2n0 k5l1n0>k5l2n1 k5l2n0>hub0'
+		)
+			.split( ' ' )
+			.map( ( p ) => p.split( '>' ) );
+		const edges = pairs.map( ( [ from, to ] ) => ( { from, to } ) );
+		const ids = [ ...new Set( [ ...pairs.flat(), 'k2l0n0', 'k5l0n2' ] ) ];
+		const { nodes } = autoLayout( {
+			nodes: ids.map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		expect(
+			drawn( nodes, edges ).over.filter( ( o ) =>
+				/ over k3src$/.test( o )
 			)
 		).toEqual( [] );
 	} );

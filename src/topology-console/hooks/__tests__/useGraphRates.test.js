@@ -151,6 +151,25 @@ describe( 'useGraphRates', () => {
 		expect( result.current.rateRef.current.has( 'b' ) ).toBe( true );
 	} );
 
+	it( 'samples nothing while no snapshot is published, and keeps every history', () => {
+		let now = 2000;
+		jest.spyOn( Date, 'now' ).mockImplementation( () => now * 1000 );
+		const { result, rerender } = renderHook(
+			( { graph } ) => useGraphRates( graph, 'k1' ),
+			{ initialProps: { graph: g( [ { id: 'a', count: 17 } ] ) } }
+		);
+		now = 2004;
+		rerender( { graph: g( [ { id: 'a', count: 61 } ] ) } );
+		const before = result.current.rateVersion;
+		now = 2009;
+		rerender( { graph: null } );
+		expect( result.current.rateVersion ).toBe( before );
+		expect( result.current.rateRef.current.get( 'a' ).history ).toEqual( [
+			11,
+		] );
+		Date.now.mockRestore();
+	} );
+
 	it( 'clears the accumulated map when resetKey changes', () => {
 		const { result, rerender } = renderHook(
 			( { graph, key } ) => useGraphRates( graph, key ),

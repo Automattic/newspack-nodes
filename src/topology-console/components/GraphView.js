@@ -4,8 +4,7 @@ import SchematicCanvas from './SchematicCanvas';
 import Inspector from './Inspector';
 import Palette from './Palette';
 import { useGraphRates } from '../hooks/useGraphRates';
-import { useNodeField } from '../../runtime/react';
-import names from '../../runtime/reserved-node-names.json';
+import { usePublishedGraph } from '../hooks/useGraphSource';
 import { hullNodes } from '../utils/hullNodes';
 import { aggregateSeries } from '../utils/aggregateSeries';
 
@@ -121,15 +120,11 @@ export default function GraphView( {
 		setSelectedHull( null );
 	}, [ resetKey ] );
 
-	// @longform A sparkline point is a dump_metadata POLL REPLY. The canvas
-	// graph is rebuilt far more often than one arrives — a catalog republish
-	// or an optimistic patch alone rebuilds it — and sampling a rebuild files a
-	// zero rate, which idles every card and dents the ring until the next poll.
-	const snapshot = useNodeField( names.METADATA, 'snapshot' );
-	const { rateRef, rateVersion } = useGraphRates(
-		snapshot ?? graph,
-		resetKey
-	);
+	// @longform A sparkline point is a dump_metadata POLL REPLY, never the
+	// canvas graph: an optimistic patch or a catalog republish rebuilds that,
+	// and sampling a rebuild files a rate no counter moved to earn.
+	const snapshot = usePublishedGraph( 'snapshot' );
+	const { rateRef, rateVersion } = useGraphRates( snapshot, resetKey );
 	// One derivation for both scopes, off the per-node rate histories.
 	const rateSeries = useMemo(
 		() => aggregateSeries( rateRef.current, graph.nodes ),

@@ -743,17 +743,20 @@ const clearWires = (
  * cross fewest cards from, or failing that the nearest row no card or wire
  * holds. A source wired to a node outside its block keeps the column its band
  * gave it and chooses only its row: nothing here can see where that wire lands.
- * A wire's clearance reads canvas x off `xOf`, as `clearWires` does.
+ * A wire's clearance reads canvas x off `xOfNow()`, as `clearWires` reads
+ * `xOf`, and the map is rebuilt after each seat that changes a column: the
+ * seat can open or close a half step where three or more wires meet one card,
+ * and the next seat measures its wires and every other across that boundary.
  *
- * @param {Array<string>}                sources The sources to seat.
- * @param {Object<string,Array<string>>} next    Each source's real successors.
- * @param {Set<string>}                  hubs    The block's hubs.
- * @param {Array<string>}                cards   Every card a seat must clear.
- * @param {Array<[string, string]>}      wires   Long wires, extended in place by each seated source's own.
- * @param {Object<string,number>}        col     Columns, mutated in place.
- * @param {Object<string,number>}        row     Rows, mutated in place.
- * @param {( id: string ) => number}     [floor] Topmost row each source's seat may take; its band's own top is fixed by the stack.
- * @param {( c: number ) => number}      [xOf]   Canvas x of a column.
+ * @param {Array<string>}                 sources  The sources to seat.
+ * @param {Object<string,Array<string>>}  next     Each source's real successors.
+ * @param {Set<string>}                   hubs     The block's hubs.
+ * @param {Array<string>}                 cards    Every card a seat must clear.
+ * @param {Array<[string, string]>}       wires    Long wires, extended in place by each seated source's own.
+ * @param {Object<string,number>}         col      Columns, mutated in place.
+ * @param {Object<string,number>}         row      Rows, mutated in place.
+ * @param {( id: string ) => number}      [floor]  Topmost row each source's seat may take; its band's own top is fixed by the stack.
+ * @param {() => ( c: number ) => number} [xOfNow] Builds the canvas x of a column from the columns as they stand.
  */
 const seatSources = (
 	sources,
@@ -764,8 +767,9 @@ const seatSources = (
 	col,
 	row,
 	floor = () => -Infinity,
-	xOf = evenColumns
+	xOfNow = () => evenColumns
 ) => {
+	let xOf = xOfNow();
 	const rows = cards.map( ( id ) => row[ id ] );
 	// Half-row steps that walk a search past every card in the block.
 	const reach = 2 * ( Math.max( ...rows ) - Math.min( ...rows ) ) + 8;
@@ -881,8 +885,12 @@ const seatSources = (
 			seat = [ c, best ?? nearestRow( want, ( at ) => free( c, at ) ) ];
 		}
 		byCol[ col[ id ] ] = byCol[ col[ id ] ].filter( ( o ) => o !== id );
+		const moved = seat[ 0 ] !== col[ id ];
 		[ col[ id ], row[ id ] ] = seat;
 		( byCol[ col[ id ] ] ??= [] ).push( id );
+		if ( moved ) {
+			xOf = xOfNow();
+		}
 		for ( const k of fed ) {
 			if ( Math.abs( col[ k ] - col[ id ] ) >= 2 ) {
 				wires.push( [ id, k ] );
@@ -1929,12 +1937,15 @@ const drawingCost = ( d, succ, pred ) => {
  * shorter than `Y_STEP`. The blocks pack widest first, so a narrow block never
  * sits under empty columns, and alphabetically among equals; a stack takes
  * blocks until it reaches the square's height, then the next opens one gap
- * column to the right. A block past the height waits until every other block
- * is down, then looks for room above or below what the waiting blocks placed
- * before it hold, and stacks only when none fits, so the waiting blocks form
- * one block of their own right of the stacks — every wire of a block lands
- * inside it, so the room it takes crosses nothing. A small graph fills one
- * stack.
+ * column to the right. One-row blocks of one width pack as one run, so the
+ * chains of one length stack together; a run stacks where all but its last
+ * block fit. A block past the height waits until every other block is down,
+ * then looks for room above or below what the waiting blocks placed before it
+ * hold, then for room the stacks leave inside the canvas, and opens a stack
+ * only when neither fits, so a small block fills the corner a tall block
+ * leaves empty before it widens the canvas. Room needs the columns either
+ * side clear across its rows, and every wire of a block lands inside it, so
+ * the room it takes crosses nothing. A small graph fills one stack.
  *
  * @param {Array<string>}                ids  Every node, alphabetical.
  * @param {Object<string,Array<string>>} succ Successors.
@@ -2175,7 +2186,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 				bc,
 				br,
 				top,
-				xOf
+				() => columnX( all, bc, succ, pred )
 			);
 			normalizeRows( Object.keys( br ), br );
 			let widest = 0;
@@ -2264,21 +2275,65 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 		return { ...b, ...drawn };
 	} );
 
+	const limit = stackRows( blocks );
+	// @longform One-row blocks of one width — chains of one length, or lone
+	// cards — pack as one run in alphabetical order, so like reads with like.
+	// A run is never split: it stacks where all but its last block fit. A run
+	// taller than the square packs block by block instead.
+	/** @type {Map<number, Array<typeof blocks[number]>>} */
+	const runs = new Map();
+	const units = [];
+	for ( const b of [ ...blocks ].sort( ( a, z ) => byId( a.key, z.key ) ) ) {
+		if ( 1 === b.height ) {
+			runs.set( b.width, [ ...( runs.get( b.width ) ?? [] ), b ] );
+		} else {
+			units.push( { ...b, lead: b.height } );
+		}
+	}
+	for ( const run of runs.values() ) {
+		if ( run.length > limit ) {
+			units.push( ...run.map( ( b ) => ( { ...b, lead: 1 } ) ) );
+			continue;
+		}
+		/** @type {Object<string,number>} */
+		const rc = {};
+		/** @type {Object<string,number>} */
+		const rr = {};
+		run.forEach( ( b, k ) => {
+			for ( const id of Object.keys( b.col ) ) {
+				rc[ id ] = b.col[ id ];
+				rr[ id ] = k;
+			}
+		} );
+		/** @type {Object<number,[number, number]>} */
+		const hull = {};
+		for ( let c = 0; c < run[ 0 ].width; c++ ) {
+			hull[ c ] = [ 0, run.length - 1 ];
+		}
+		units.push( {
+			key: run[ 0 ].key,
+			col: rc,
+			row: rr,
+			hull,
+			width: run[ 0 ].width,
+			height: run.length,
+			lead: Math.max( 1, run.length - 1 ),
+		} );
+	}
 	const order = stableSort(
-		[ ...blocks ].sort( ( a, b ) => byId( a.key, b.key ) ),
+		units.sort( ( a, z ) => byId( a.key, z.key ) ),
 		( b ) => -b.width
 	);
-	const limit = stackRows( blocks );
 	// Each canvas column's rows, top to bottom, that cards and wires take.
 	/** @type {Object<number,[number, number]>} */
 	const taken = {};
+	// The columns the waiting blocks' cards hold.
 	const filled = new Set();
 	let rows = 0;
 	const place = ( b, atCol, atRow ) => {
 		for ( const id of Object.keys( b.col ) ) {
 			col[ id ] = atCol + b.col[ id ];
 			row[ id ] = atRow + b.row[ id ];
-			filled.add( col[ id ] );
 		}
 		for ( const [ c, [ lo, hi ] ] of Object.entries( b.hull ) ) {
 			widen( taken, atCol + Number( c ), lo + atRow, hi + atRow );
@@ -2307,17 +2362,18 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 		);
 	// @longform Room for a block inside the canvas drawn so far: a row one
 	// clear of what each column it covers holds, above it or below, in the
-	// leftmost columns that fit, nearest the canvas's middle row. Only
-	// columns a waiting block already holds qualify, so a block never lands
-	// in the gap column between two stacks nor beside a stacked block's
-	// feeders, and no hub's column does, where a card would read as one more
-	// wire into the hub.
-	const roomFor = ( b, width ) => {
+	// leftmost columns `within` admits that fit, nearest the canvas's middle
+	// row. Every column it covers must already hold something, so it never
+	// lands in the gap column between two stacks, and none may be a hub's,
+	// where a card would read as one more wire into the hub. The columns either
+	// side must be clear across its rows, so it never faces another block.
+	const roomFor = ( b, width, within ) => {
 		const hubCols = new Set( [ ...hubs ].map( ( h ) => col[ h ] ) );
 		const mid = ( rows - 1 ) / 2;
+		const span = [ 0, b.height - 1 ];
 		for ( let at = 0; at + b.width <= width; at++ ) {
 			const pairs = Object.entries( b.hull ).map( ( [ c, h ] ) => [
-				filled.has( at + Number( c ) ) && taken[ at + Number( c ) ],
+				within( at + Number( c ) ) && taken[ at + Number( c ) ],
 				h,
 			] );
 			if (
@@ -2327,6 +2383,11 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 				)
 			) {
 				continue;
+			}
+			for ( const side of [ at - 1, at + b.width ] ) {
+				if ( taken[ side ] ) {
+					pairs.push( [ taken[ side ], span ] );
+				}
 			}
 			const above = Math.min(
 				...pairs.map( ( [ t, h ] ) => t[ 0 ] - 1 - h[ 1 ] )
@@ -2349,7 +2410,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 	let stackRow = 0;
 	const stackOn = ( b ) => {
 		let at = Math.max( stackRow, clearBelow( b, stackCol ) );
-		if ( stackRow > 0 && at + b.height > limit ) {
+		if ( stackRow > 0 && at + b.lead > limit ) {
 			stackCol += stackWidth + 1;
 			stackWidth = 0;
 			at = 0;
@@ -2361,20 +2422,26 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 	// A block's every wire lands inside it, so size alone decides who waits.
 	const later = [];
 	for ( const b of order ) {
-		if ( stackRow > 0 && stackRow + b.height > limit ) {
+		if ( stackRow > 0 && stackRow + b.lead > limit ) {
 			later.push( b );
 			continue;
 		}
 		stackOn( b );
 	}
-	// The waiting blocks pack among themselves, never beside the stacks.
-	filled.clear();
+	// @longform A waiting block packs beside the waiting blocks placed before
+	// it, then in room the stacks leave, and opens a stack only past both.
 	for ( const b of later ) {
-		const room = roomFor( b, stackCol + stackWidth );
+		const width = stackCol + stackWidth;
+		const room =
+			roomFor( b, width, ( c ) => filled.has( c ) ) ??
+			roomFor( b, width, () => true );
 		if ( room ) {
 			place( b, room.col, room.row );
 		} else {
 			stackOn( b );
+		}
+		for ( const id of Object.keys( b.col ) ) {
+			filled.add( col[ id ] );
 		}
 	}
 

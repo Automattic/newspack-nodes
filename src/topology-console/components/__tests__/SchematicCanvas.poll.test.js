@@ -12,6 +12,9 @@ import { act } from '@testing-library/react';
 import GraphView from '../GraphView';
 import { renderWithCatalog } from '../../__tests__/catalogTestUtils';
 import { autoLayout } from '../../utils/autoLayout';
+import { Core } from '../../../runtime/core';
+import { MetadataNode } from '../../../runtime/metadata-node';
+import names from '../../../runtime/reserved-node-names.json';
 
 // Count each memoized component's renders by the name it was declared with.
 jest.mock( '@wordpress/element', () => {
@@ -63,19 +66,24 @@ const poll = ( tick, quiet = null ) => ( {
 
 describe( 'SchematicCanvas — a metadata poll', () => {
 	let now;
+	let metadata;
 	const realNow = Date.now;
 	beforeEach( () => {
 		now = 1_700_000_000_000;
 		Date.now = () => now;
 		global.__memoRenders = {};
+		metadata = new MetadataNode();
+		metadata.name = names.METADATA;
 	} );
 	afterEach( () => {
 		Date.now = realNow;
+		Core.reset();
 	} );
 
 	/**
 	 * Mount the canvas and warm it past the sparkline window, so a still
-	 * node's history holds still.
+	 * node's history holds still. Each poll lands as `_metadata`'s snapshot
+	 * and the canvas graph together, in one commit.
 	 *
 	 * @return {{commits: string[], step: (tick: number, quiet?: string) => void, container: HTMLElement}} The commit log, a poll driver and the mount.
 	 */
@@ -84,13 +92,13 @@ describe( 'SchematicCanvas — a metadata poll', () => {
 			autoLayout( poll( 0 ) ).nodes.map( ( n ) => [ n.id, n.position ] )
 		);
 		const commits = [];
-		const view = ( tick, quiet ) => (
+		const view = ( graph ) => (
 			<Profiler
 				id="canvas"
 				onRender={ ( _id, phase ) => commits.push( phase ) }
 			>
 				<GraphView
-					graph={ poll( tick, quiet ) }
+					graph={ graph }
 					frame={ Frame }
 					resetKey="poll"
 					inspectorCollapsed
@@ -98,13 +106,19 @@ describe( 'SchematicCanvas — a metadata poll', () => {
 			</Profiler>
 		);
 		const ambient = { positionOverrides: positions };
+		const first = poll( 0 );
+		act( () => metadata.setField( 'snapshot', first ) );
 		const { rerenderWithCatalog, container } = renderWithCatalog(
-			view( 0 ),
+			view( first ),
 			ambient
 		);
 		const step = ( tick, quiet ) => {
 			now += 1000;
-			act( () => rerenderWithCatalog( view( tick, quiet ), ambient ) );
+			const graph = poll( tick, quiet );
+			act( () => {
+				metadata.setField( 'snapshot', graph );
+				rerenderWithCatalog( view( graph ), ambient );
+			} );
 		};
 		for ( let tick = 1; tick <= 62; tick++ ) {
 			step( tick );
