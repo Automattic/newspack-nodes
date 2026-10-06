@@ -136,7 +136,7 @@ export function useVaults( { enabled = false } = {} ) {
  * @return {{open: (name: string) => void, topology: ?Object, loading: boolean, error: ?string}}
  *   `open()` requests a topology by name; `topology` is the answer to the most
  *   recent one — `{name, source, tsl, includes, expanded,
- *   resolved_config_edges}` — or null while an ask is outstanding.
+ *   resolved_config_edges, owned}` — or null while an ask is outstanding.
  */
 export function useTopology( { scope, enabled = true } ) {
 	const { run, result, error, pending } = useCommandOnce( {

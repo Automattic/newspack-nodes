@@ -135,6 +135,7 @@ describe( 'useCanvasLayout', () => {
 			positions: saved,
 			viewportDelta: null,
 			modified: false,
+			laidEdges: null,
 		} );
 	} );
 
@@ -198,6 +199,7 @@ describe( 'useCanvasLayout', () => {
 			positions: expected,
 			viewportDelta,
 			modified: false,
+			laidEdges: null,
 		} );
 	} );
 
@@ -229,6 +231,7 @@ describe( 'useCanvasLayout', () => {
 			positions: browserPositions,
 			viewportDelta: null,
 			modified: true,
+			laidEdges: [ 'a\nb' ],
 		} );
 	} );
 
@@ -258,6 +261,7 @@ describe( 'useCanvasLayout', () => {
 			positions: saved,
 			viewportDelta: null,
 			modified: false,
+			laidEdges: [ 'a\nb' ],
 		} );
 	} );
 
@@ -290,22 +294,23 @@ describe( 'useCanvasLayout', () => {
 		).toEqual( { x: 500, y: 500 } );
 	} );
 
-	it( 'tucks a newly-appeared node below the left-most-then-bottom-most, WITHOUT marking modified', () => {
+	it( 'tucks a newly-appeared node below the left-most-then-bottom-most of a layout a person moved', () => {
 		const { result, rerender } = render();
 		act( () => jest.advanceTimersByTime( 300 ) ); // settle+run autoLayout
-		// autoLayout a{60,80}, b{300,80}; left x60 → node tucks to {60,190}.
+		act( () => result.current.onPositionChange( 'b', { x: 540, y: 80 } ) );
+		// a{60,80}, b{540,80}; left x60 → node tucks to {60,190}.
 		rerender( {
 			storageKey: KEY,
 			ready: true,
 			serverLayout: null,
-			graph: {
-				nodes: [ { id: 'a' }, { id: 'b' }, { id: 'c' } ],
-				edges: [ { from: 'a', to: 'b' } ],
-			},
+			graph: GRAPH_ABC,
 		} );
-		expect( result.current.positions.c ).toEqual( { x: 60, y: 190 } );
-		// Auto-tucking an external node isn't a user edit; no Reset Layout.
-		expect( result.current.canReset ).toBe( false );
+		act( () => jest.advanceTimersByTime( 300 ) );
+		expect( result.current.positions ).toEqual( {
+			a: { x: 60, y: 80 },
+			b: { x: 540, y: 80 },
+			c: { x: 60, y: 190 },
+		} );
 	} );
 
 	it( 'keeps a pre-recorded drop position instead of tucking', () => {
@@ -364,6 +369,27 @@ describe( 'useCanvasLayout', () => {
 		expect( result.current.positions.a2 ).toEqual( { x: 60, y: 80 } );
 		expect( result.current.positions.a ).toBeUndefined();
 		expect( result.current.canReset ).toBe( false );
+	} );
+
+	it( 'renamePosition carries the laid edges over, so the renamed graph lays nothing out again', () => {
+		const { result, rerender } = render();
+		act( () => jest.advanceTimersByTime( 300 ) ); // initial layout settles
+		act( () => result.current.renamePosition( 'b', 'b-ibis-417' ) );
+		const renamed = result.current.positions;
+		rerender( {
+			storageKey: KEY,
+			ready: true,
+			serverLayout: null,
+			graph: {
+				nodes: [ { id: 'a' }, { id: 'b-ibis-417' } ],
+				edges: [ { from: 'a', to: 'b-ibis-417' } ],
+			},
+		} );
+		act( () => jest.advanceTimersByTime( 300 ) );
+		expect( result.current.positions ).toBe( renamed );
+		expect(
+			JSON.parse( window.localStorage.getItem( KEY ) ).laidEdges
+		).toEqual( [ 'a\nb-ibis-417' ] );
 	} );
 
 	it( 'debounces viewport writes (200ms): persists the delta, keeps the live viewBox in memory', () => {

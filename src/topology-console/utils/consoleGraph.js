@@ -136,6 +136,48 @@ export function withReplAnchor( graph ) {
 }
 
 /**
+ * Add the nodes an owner builds for itself, which no `.tsl` line declares, so
+ * the graph drawn from a `.tsl` carries them before `dump_metadata` answers.
+ *
+ * Each arrives as `topologies get` names it, and is wired from its owner as
+ * the owner's `extra_targets()` wire it at runtime. One whose owner the graph
+ * lacks, or that the graph already holds, is skipped.
+ *
+ * @param {Object}                                              graph Graph whose `nodes` and `edges` receive them.
+ * @param {Array<{name: string, class: string, owner: string}>} owned `topologies get.owned`.
+ * @return {Object} Graph carrying every owned node and its owner's edge.
+ * @throws {Error} When the reply carries no owned list.
+ */
+export function withOwnedNodes( graph, owned ) {
+	if ( ! Array.isArray( owned ) ) {
+		throw new Error( 'Missing owned in topologies get response.' );
+	}
+	const held = new Set( graph.nodes.map( ( n ) => n.id ) );
+	const adding = owned.filter(
+		( o ) => held.has( o.owner ) && ! held.has( o.name )
+	);
+	if ( ! adding.length ) {
+		return graph;
+	}
+	return {
+		...graph,
+		nodes: [
+			...graph.nodes,
+			...adding.map( ( o ) => ( {
+				id: o.name,
+				name: o.name,
+				class: o.class,
+				owner: o.owner,
+			} ) ),
+		],
+		edges: [
+			...graph.edges,
+			...adding.map( ( o ) => ( { from: o.owner, to: o.name } ) ),
+		],
+	};
+}
+
+/**
  * The `set_*target` slots an edge stands for.
  *
  * @param {Object} edge Graph edge.

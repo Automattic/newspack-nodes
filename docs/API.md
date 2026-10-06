@@ -624,7 +624,7 @@ The whole payload is informational — the runtime is the Shell's `include` — 
 it is the topology console's edit-mode baseline.
 
 `topologies get <name>` returns `{ name, source, tsl, includes, expanded,
-resolved_config_edges }`, and its `expanded` is that same shape built from the
+resolved_config_edges, owned }`, and its `expanded` is that same shape built from the
 file's DIRECT includes alone: it holds the borrowed members and none of the
 file's own lines, which is what lets the editor render a borrowed node as
 borrowed. `resolved_config_edges` covers the whole topology instead, because a
@@ -633,7 +633,10 @@ can resolve. A client parsing a document that carries such a token must treat a
 response without that list as fatal rather than wire an edge to the literal
 token text; the console's document loader throws there, and
 [`augmentWithVirtualEdges()`](../src/topology-console/utils/virtualEdges.js) draws no edge at all for a token the server resolved
-to nothing.
+to nothing. `owned` covers the whole topology too: one `{ name, class, owner }`
+per node an owner builds for itself and no line declares — each Crawler's
+`{name}:seen` Table — which the console seeds beside its owner, wired from it,
+and treats a response without the list as fatal.
 
 **`aggregator` — one `id` field, two meanings.** `list_servers` returns one
 row per wired [`Remote_Source`](../includes/class-remote-source-node.php), keyed by the NODE name in `id` and carrying the
