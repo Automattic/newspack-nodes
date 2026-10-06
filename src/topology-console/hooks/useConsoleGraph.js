@@ -69,6 +69,7 @@ import {
 	saveStationTranscript,
 } from '../core/consolePersistence';
 import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
+import { pollTimerNow } from '@newspack-nodes/shared/helpers/armTimer';
 import names from '../../runtime/reserved-node-names.json';
 import { ROUTER_TICK_MS } from '../../runtime/router-node';
 
@@ -400,14 +401,22 @@ export function useConsoleGraph( {
 	// step. NOT gated on `enabled`: that is false in edit mode, where the
 	// catalog poller deliberately stays mounted, so honouring it would leave
 	// the leak open on the one path guaranteed to still be polling — and a
-	// router stopped while hidden would never re-arm.
+	// router stopped while hidden would never re-arm. A resume fires every
+	// poller at once rather than at its next grid boundary.
 	useEffect( () => {
 		const router = Core.node( names.ROUTER );
 		if ( ! router ) {
 			return undefined;
 		}
 		if ( isPageVisible ) {
+			const resuming = 'inactive' === router.mode;
 			router.setTimer( ROUTER_TICK_MS );
+			if ( resuming ) {
+				Object.keys( router.registrations.TIMER )
+					.map( ( name ) => Core.node( name ) )
+					.filter( Boolean )
+					.forEach( ( node ) => pollTimerNow( node ) );
+			}
 		} else {
 			router.stopTimer();
 			// stopTimer zeroes interval_ms; a bare setTimer() inherits it.

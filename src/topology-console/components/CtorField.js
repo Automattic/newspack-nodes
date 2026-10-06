@@ -2,12 +2,14 @@
  * One schema-driven argument input, shared by the edit-mode Inspector, its
  * verb-argument modals and the live-drop NewNodeModal. All of them read the
  * same `node_schema()` declaration, so all of them render the same widget for
- * a given argument: a picker for the three name types, typed text everywhere
- * else, and a reset control. A second implementation would drift from the
+ * a given argument: a picker for a formatter or a vault, a suggesting text
+ * input for a node path, typed text everywhere else, and a reset control. A second implementation would drift from the
  * schema the others read.
  */
 
+import { useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
+import { NodePathInput } from './NodePathInput';
 
 /**
  * Attributes the `<input>` for a schema type needs. Every type renders a text
@@ -78,8 +80,9 @@ export function coerceValue( type, raw ) {
  * @typedef  {Object}  CtorArgSpec
  * @property {string}  name          Argument name; labels the row and keys the
  *                                   input id.
- * @property {string}  [type]        Picks the widget: `formatter_name`,
- *                                   `vault_id` and `node_name` render pickers;
+ * @property {string}  [type]        Picks the widget: `formatter_name` and
+ *                                   `vault_id` render pickers; `node_name`
+ *                                   renders text suggesting the local nodes;
  *                                   `bool`, `int` and `float` render text with
  *                                   a narrowed keyboard; `json` renders a
  *                                   textarea.
@@ -102,33 +105,39 @@ export function coerceValue( type, raw ) {
  */
 
 /**
- * Renders one argument row. The `formatter_name`, `vault_id` and `node_name`
- * types get a picker, each falling back to free text when its list is empty so
- * an install with nothing registered can still type the value; `json` gets a
- * textarea and every other type a text input. The reset control writes an
+ * Renders one argument row. The `formatter_name` and `vault_id` types get a
+ * picker, each falling back to free text when its list is empty so an install
+ * with nothing registered can still type the value. A `node_name` gets a
+ * `NodePathInput`: the value is a path the Router resolves, which may name a
+ * node in another process, so the local nodes are suggested, never imposed.
+ * `json` gets a textarea and every other type a text input. The reset control writes an
  * empty string rather than the default itself, which is what leaves
  * `serializeCtorArgs` free to substitute the schema default when the draft
  * becomes a `make_node` line.
  *
- * @param {Object}             props              Component props.
- * @param {CtorArgSpec}        props.spec         Schema entry this field edits.
- * @param {*}                  [props.value]      Current value. A nullish
- *                                                value puts `spec.default` in
- *                                                the field; an empty string
- *                                                shows it as the placeholder.
- * @param {(value: *) => void} props.onChange     Receives the new value,
- *                                                coerced to the declared type.
- * @param {string[]}           [props.nodeNames]  Node names the `node_name`
- *                                                picker offers.
- * @param {string[]}           [props.formatters] Registered formatter names.
- * @param {VaultEntry[]}       [props.vaults]     Vault entries the `vault_id`
- *                                                picker offers.
+ * @param {Object}                     props              Component props.
+ * @param {CtorArgSpec}                props.spec         Schema entry this field edits.
+ * @param {*}                          [props.value]      Current value. A nullish
+ *                                                        value puts `spec.default` in
+ *                                                        the field; an empty string
+ *                                                        shows it as the placeholder.
+ * @param {(value: *) => void}         props.onChange     Receives the new value,
+ *                                                        coerced to the declared type.
+ * @param {string[]}                   [props.nodeNames]  Node names the `node_name`
+ *                                                        input suggests.
+ * @param {(refusal: ?string) => void} [props.onRefusal]  The refusal a
+ *                                                        `node_name` input shows, or
+ *                                                        null, as it changes.
+ * @param {string[]}                   [props.formatters] Registered formatter names.
+ * @param {VaultEntry[]}               [props.vaults]     Vault entries the `vault_id`
+ *                                                        picker offers.
  * @return {import('react').ReactElement} The field row.
  */
 export function CtorField( {
 	spec,
 	value,
 	onChange,
+	onRefusal,
 	nodeNames = [],
 	formatters = [],
 	vaults = [],
@@ -261,21 +270,14 @@ export function CtorField( {
 					{ spec.name }
 					{ spec.required ? ' *' : '' }
 				</label>
-				<select
+				<NodePathInput
 					id={ id }
-					className="topology-edit-row__input"
-					value={ value ?? '' }
-					onChange={ ( e ) => onChange( e.target.value ) }
-				>
-					<option value="">
-						{ __( '(pick a node)', 'newspack-nodes' ) }
-					</option>
-					{ nodeNames.map( ( name ) => (
-						<option key={ name } value={ name }>
-							{ name }
-						</option>
-					) ) }
-				</select>
+					value={ String( value ?? '' ) }
+					suggestions={ nodeNames }
+					placeholder={ __( '(node or path)', 'newspack-nodes' ) }
+					onChange={ onChange }
+					onRefusal={ onRefusal }
+				/>
 			</div>
 		);
 	}
@@ -345,4 +347,33 @@ export function CtorField( {
 			</div>
 		</div>
 	);
+}
+
+/**
+ * The refusals a dialog's fields show, for a dialog that submits their values.
+ *
+ * A `node_name` field hands on only the paths it accepts, so while one shows a
+ * refusal the dialog holds the last path accepted, not the one on screen. The
+ * dialog gives each field `report( spec.name )` as its `onRefusal` and refuses
+ * to submit, by click or by Enter, while `refused` is true.
+ *
+ * @return {[boolean, (name: string) => (refusal: ?string) => void]} Whether
+ *         any field refuses, and the reporter each field takes.
+ */
+export function useFieldRefusals() {
+	const [ refusing, setRefusing ] = useState( () => new Set() );
+	const report = ( name ) => ( refusal ) =>
+		setRefusing( ( prev ) => {
+			if ( Boolean( refusal ) === prev.has( name ) ) {
+				return prev;
+			}
+			const next = new Set( prev );
+			if ( refusal ) {
+				next.add( name );
+			} else {
+				next.delete( name );
+			}
+			return next;
+		} );
+	return [ refusing.size > 0, report ];
 }

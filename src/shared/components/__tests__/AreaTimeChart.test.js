@@ -342,6 +342,92 @@ describe( 'AreaTimeChart', () => {
 		).toHaveLength( 0 );
 	} );
 
+	describe( 'selected slots', () => {
+		// Five slots on an unlaid 800px container: a 708px plot box.
+		const five = [ 0, 1, 2, 3, 4 ].map(
+			( i ) => new Date( 1700000000000 + i * 60000 )
+		);
+		const FIVE = [
+			{
+				label: 'jobs.p0',
+				values: five.map( ( date ) => ( { date, value: 30 } ) ),
+			},
+		];
+		const SLOT_W = 708 / 5;
+		const PITCH = 708 / 4;
+		const shaded = ( container ) => [
+			...container.querySelectorAll(
+				'svg rect.newspack-nodes-chart__selected'
+			),
+		];
+		const at = ( rect ) => Number( rect.getAttribute( 'x' ) );
+
+		it( 'shades each selected slot one bucket wide, centred on it', () => {
+			const { container } = mount( {
+				series: FIVE,
+				selectedSlots: new Set( [ 1, 3 ] ),
+			} );
+			const rects = shaded( container );
+			expect( rects ).toHaveLength( 2 );
+			expect( at( rects[ 0 ] ) ).toBeCloseTo( PITCH - SLOT_W / 2, 3 );
+			expect( at( rects[ 1 ] ) ).toBeCloseTo( 3 * PITCH - SLOT_W / 2, 3 );
+			for ( const rect of rects ) {
+				expect( Number( rect.getAttribute( 'width' ) ) ).toBeCloseTo(
+					SLOT_W,
+					3
+				);
+				expect( Number( rect.getAttribute( 'height' ) ) ).toBe(
+					INNER_H
+				);
+			}
+		} );
+
+		it( 'draws the shading beneath the bands', () => {
+			const { container } = mount( {
+				series: FIVE,
+				selectedSlots: new Set( [ 2 ] ),
+			} );
+			const [ rect ] = shaded( container );
+			expect(
+				rect.compareDocumentPosition( bands( container )[ 0 ] ) &
+					window.Node.DOCUMENT_POSITION_FOLLOWING
+			).toBeTruthy();
+		} );
+
+		it.each( [
+			[ 'absent', undefined ],
+			[ 'empty', new Set() ],
+		] )( 'shades nothing when the set is %s', ( _case, selectedSlots ) => {
+			const { container } = mount( { series: FIVE, selectedSlots } );
+			expect( shaded( container ) ).toHaveLength( 0 );
+		} );
+
+		it( 'redraws when the selection changes', () => {
+			const props = {
+				series: FIVE,
+				yFormatFor,
+				colorAt,
+				title: 'Backlog',
+				height: HEIGHT,
+			};
+			const { container, rerender } = render(
+				<AreaTimeChart
+					{ ...props }
+					selectedSlots={ new Set( [ 1 ] ) }
+				/>
+			);
+			rerender(
+				<AreaTimeChart
+					{ ...props }
+					selectedSlots={ new Set( [ 4 ] ) }
+				/>
+			);
+			const rects = shaded( container );
+			expect( rects ).toHaveLength( 1 );
+			expect( at( rects[ 0 ] ) ).toBeCloseTo( 4 * PITCH - SLOT_W / 2, 3 );
+		} );
+	} );
+
 	it( 'draws the caller-named Y title through the shared axes', () => {
 		const { container } = mount( { yLabel: 'bytes' } );
 		expect(

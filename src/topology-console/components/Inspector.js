@@ -16,7 +16,8 @@ import { useEffect, useRef, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import { ModalField, ModalShell, PromptModal } from './Modal';
 import InspectorViewModal from './InspectorViewModal';
-import { CtorField } from './CtorField';
+import { CtorField, useFieldRefusals } from './CtorField';
+import { NodePathInput } from './NodePathInput';
 import { tokenize } from '../../runtime/shell-node';
 import { targetsOf } from '../../runtime/node';
 import {
@@ -55,6 +56,7 @@ import { useNodeField } from '../../runtime/react';
 import reservedNames from '../../runtime/reserved-node-names.json';
 import { edgeHasConnectRole } from '../utils/consoleGraph';
 import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
+import CommitInput from '@newspack-nodes/shared/components/CommitInput';
 import { useCatalog } from '../CatalogContext';
 
 /**
@@ -309,13 +311,14 @@ function formatLastSeen( ts, live ) {
 }
 
 /**
- * The draft node's name, validated as it is typed and committed on blur.
+ * The draft node's name, validated as it is typed and committed on Enter or
+ * blur.
  *
- * The input is local state so a half-typed name never reaches the draft: an
- * intermediate value collides with a sibling or fails the character rule on
- * nearly every keystroke. Enter commits by blurring, Escape restores the
- * node's current name, and a rename the caller refuses snaps back with the
- * reason, since the collision it lost to is invisible from here.
+ * The draft stays in the field so a half-typed name never reaches the graph:
+ * an intermediate value collides with a sibling or fails the character rule on
+ * nearly every keystroke. A rename the caller refuses keeps the typed name
+ * beside the reason, since the collision it lost to is invisible from here, so
+ * it can be edited; Escape restores the node's name.
  *
  * @param {Object}      props
  * @param {Object}      props.node           The selected draft node; `id` is its current name.
@@ -324,57 +327,24 @@ function formatLastSeen( ts, live ) {
  * @return {import('react').ReactElement} The name row.
  */
 function NameField( { node, takenNames, onRenameNode } ) {
-	const [ value, setValue ] = useState( node.id );
-	const [ error, setError ] = useState( '' );
-
-	// Reset the local input when the selected node changes.
-	useEffect( () => {
-		setValue( node.id );
-		setError( '' );
-	}, [ node.id ] );
-
-	const validate = ( raw ) => {
-		const trimmed = String( raw || '' ).trim();
-		if ( ! trimmed ) {
+	const validate = ( name ) => {
+		if ( ! name ) {
 			return __( 'Name cannot be empty.', 'newspack-nodes' );
 		}
-		if ( trimmed === node.id ) {
-			return '';
-		}
-		if ( takenNames.has( trimmed ) ) {
+		if ( name !== node.id && takenNames.has( name ) ) {
 			return sprintf(
 				// translators: %s: the node name the user tried to use.
 				__( "Name '%s' already in use.", 'newspack-nodes' ),
-				trimmed
+				name
 			);
 		}
-		if ( ! /^[a-zA-Z0-9._:-]+$/.test( trimmed ) ) {
+		if ( ! /^[a-zA-Z0-9._:-]+$/.test( name ) ) {
 			return __(
 				'Letters, digits, dot, dash, underscore, colon only.',
 				'newspack-nodes'
 			);
 		}
-		return '';
-	};
-
-	const commit = () => {
-		const trimmed = value.trim();
-		const err = validate( trimmed );
-		if ( err ) {
-			setError( err );
-			return;
-		}
-		if ( trimmed === node.id ) {
-			return;
-		}
-		const ok = onRenameNode && onRenameNode( node.id, trimmed );
-		if ( ! ok ) {
-			// Caller refused (collision raced in) — snap back and explain.
-			setValue( node.id );
-			setError(
-				__( 'Rename refused — name already taken.', 'newspack-nodes' )
-			);
-		}
+		return null;
 	};
 
 	return (
@@ -385,31 +355,21 @@ function NameField( { node, takenNames, onRenameNode } ) {
 			>
 				name
 			</label>
-			<input
+			<CommitInput
 				id="topology-name-field"
 				className="topology-edit-row__input"
-				type="text"
-				value={ value }
-				onChange={ ( e ) => {
-					setValue( e.target.value );
-					setError( validate( e.target.value ) );
-				} }
-				onBlur={ commit }
-				onKeyDown={ ( e ) => {
-					if ( e.key === 'Enter' ) {
-						e.preventDefault();
-						/** @type {HTMLInputElement} */ ( e.target ).blur();
-					}
-					if ( e.key === 'Escape' ) {
-						setValue( node.id );
-						setError( '' );
-						/** @type {HTMLInputElement} */ ( e.target ).blur();
-					}
-				} }
+				refusalClassName="topology-edit-row__hint"
+				value={ node.id }
+				validate={ validate }
+				onCommit={ ( name ) =>
+					onRenameNode?.( node.id, name )
+						? null
+						: __(
+								'Rename refused — name already taken.',
+								'newspack-nodes'
+						  )
+				}
 			/>
-			{ error && (
-				<span className="topology-edit-row__hint">{ error }</span>
-			) }
 		</div>
 	);
 }
@@ -546,7 +506,7 @@ function nodeFansOut( node, catalog ) {
  *
  * @param {Object}   props
  * @param {Object}   props.node           The selected node.
- * @param {string[]} props.nodeNames      Every other node, offered as a target.
+ * @param {string[]} props.nodeNames      Every other node, suggested as a target.
  * @param {Array}    props.targets        This node's outbound edges, `{ from, to, virtual? }`.
  * @param {Array}    props.catalog        Class catalog entries.
  * @param {Function} [props.onConnect]    (from, to) — adds a target.
@@ -586,16 +546,19 @@ function TargetsField( {
 }
 
 /**
- * The fan-out editor: one chip per wired target, plus a picker for the rest.
+ * The fan-out editor: one chip per wired target, plus an input adding another.
  *
- * The picker offers only nodes this one is not already wired to, since
- * re-adding an existing target is a no-op the runtime would accept silently.
- * A virtual edge comes from a verb argument rather than a `connect_node` line,
- * so its chip carries no clear button — removing it means editing the verb.
+ * Enter on the input adds the typed path, local or remote, and clears it; a
+ * blur adds nothing, so a half-typed path never reaches `connect_node`. It
+ * suggests only nodes this one is not already wired to, and adds nothing for
+ * a wired one, since re-adding an existing target is a no-op the runtime
+ * would accept silently. A virtual edge comes from a verb argument rather
+ * than a `connect_node` line, so its chip carries no clear button — removing
+ * it means editing the verb.
  *
  * @param {Object}   props
  * @param {Object}   props.node           The selected node.
- * @param {string[]} props.nodeNames      Every other node, offered as a target.
+ * @param {string[]} props.nodeNames      Every other node, suggested as a target.
  * @param {Array}    props.targets        This node's outbound edges, `{ from, to, virtual? }`.
  * @param {Function} [props.onConnect]    (from, to) — wires a new target.
  * @param {Function} [props.onRemoveEdge] (from, to) — unwires one.
@@ -608,15 +571,16 @@ function TeeTargetsField( {
 	onConnect,
 	onRemoveEdge,
 } ) {
-	// Available = every other node not already wired from this Tee.
 	const wired = new Set(
 		targets.filter( ( e ) => ! e.virtual ).map( ( e ) => e.to )
 	);
-	const available = nodeNames.filter( ( n ) => ! wired.has( n ) );
+	const addId = `topology-target-add-${ node.id }`;
 
 	return (
 		<div className="topology-edit-row">
-			<span className="topology-edit-row__label">targets</span>
+			<label htmlFor={ addId } className="topology-edit-row__label">
+				targets
+			</label>
 			<div className="topology-edit-chips">
 				{ targets.map( ( e ) => (
 					<RoutingChip
@@ -630,52 +594,37 @@ function TeeTargetsField( {
 						}
 					/>
 				) ) }
-				{ available.length > 0 && (
-					<select
-						className="topology-edit-add-chip"
-						value=""
-						onChange={ ( e ) => {
-							if ( ! e.target.value || ! onConnect ) {
-								return;
-							}
-							onConnect( node.id, e.target.value );
-						} }
-					>
-						<option value="">
-							{ __( '+ add target…', 'newspack-nodes' ) }
-						</option>
-						{ available.map( ( n ) => (
-							<option key={ n } value={ n }>
-								{ n }
-							</option>
-						) ) }
-					</select>
-				) }
-				{ available.length === 0 && targets.length === 0 && (
-					<span className="topology-edit-row__hint">
-						{ __(
-							'No other nodes to wire to yet.',
-							'newspack-nodes'
-						) }
-					</span>
-				) }
+				<NodePathInput
+					id={ addId }
+					value=""
+					suggestions={ nodeNames.filter(
+						( n ) => ! wired.has( n )
+					) }
+					placeholder={ __( '+ add target…', 'newspack-nodes' ) }
+					commitOnBlur={ false }
+					onCommit={ ( path ) => {
+						if ( onConnect && ! wired.has( path ) ) {
+							onConnect( node.id, path );
+						}
+					} }
+				/>
 			</div>
 		</div>
 	);
 }
 
 /**
- * The single-target editor: a select over every other node, plus `(none)`.
+ * The single-target editor: the target path as text, suggesting every other node.
  *
+ * Any path is accepted, local or remote, and Enter or blur commits it.
  * `connect_node` on a node that does not fan out replaces its target, so
- * switching needs no disconnect first and only `(none)` removes the edge. A
- * target the draft does not hold is appended to the options so it still
- * displays, and the verb-derived edges are named in a hint rather than
- * offered, because this control edits the one physical target.
+ * switching needs no disconnect first and only clearing the input removes the
+ * edge. The verb-derived edges are named in a hint rather than offered,
+ * because this control edits the one physical target.
  *
  * @param {Object}   props
  * @param {Object}   props.node           The selected node.
- * @param {string[]} props.nodeNames      Every other node, offered as a target.
+ * @param {string[]} props.nodeNames      Every other node, suggested as a target.
  * @param {Array}    props.targets        This node's outbound edges, `{ from, to, virtual? }`.
  * @param {Function} [props.onConnect]    (from, to) — points the node at a target.
  * @param {Function} [props.onRemoveEdge] (from, to) — clears it.
@@ -692,10 +641,7 @@ function SingleTargetField( {
 	const physical = targets.find( ( e ) => ! e.virtual ) || null;
 	const currentTarget = physical ? physical.to : '';
 
-	const handleChange = ( next ) => {
-		if ( next === currentTarget ) {
-			return;
-		}
+	const handleCommit = ( next ) => {
 		if ( next === '' ) {
 			if ( physical && onRemoveEdge ) {
 				onRemoveEdge( physical.from, physical.to );
@@ -708,12 +654,6 @@ function SingleTargetField( {
 		}
 	};
 
-	// Options = every other node, plus the current target if not in the draft.
-	const options = nodeNames.slice();
-	if ( currentTarget && ! options.includes( currentTarget ) ) {
-		options.push( currentTarget );
-	}
-
 	return (
 		<div className="topology-edit-row">
 			<label
@@ -722,19 +662,13 @@ function SingleTargetField( {
 			>
 				target
 			</label>
-			<select
+			<NodePathInput
 				id={ `topology-target-input-${ node.id }` }
-				className="topology-edit-row__input"
 				value={ currentTarget }
-				onChange={ ( e ) => handleChange( e.target.value ) }
-			>
-				<option value="">{ __( '(none)', 'newspack-nodes' ) }</option>
-				{ options.map( ( n ) => (
-					<option key={ n } value={ n }>
-						{ n }
-					</option>
-				) ) }
-			</select>
+				suggestions={ nodeNames }
+				placeholder={ __( '(none)', 'newspack-nodes' ) }
+				onCommit={ handleCommit }
+			/>
 			{ targets.some( ( e ) => e.virtual ) && (
 				<span className="topology-edit-row__hint">
 					{ __(
@@ -1352,7 +1286,9 @@ function parseStruct( text ) {
  * position; every one is required, so none is blank. A request whose schema
  * declares `value: 'struct'` sends its one `json` field parsed, as the struct
  * a TM_REQUEST|TM_STRUCT carries, and Run waits until that text parses to an
- * object or an array. The first field takes focus when the dialog opens.
+ * object or an array, and while any field shows a refusal. The first field
+ * takes focus when the dialog opens, and Enter in a text field runs, which a
+ * disabled Run blocks.
  *
  * @param {Object}     props
  * @param {string}     props.nodeId     Node the verb runs on.
@@ -1382,13 +1318,15 @@ function VerbArgModal( {
 	const [ values, setValues ] = useState( () =>
 		args.map( ( arg ) => arg.default ?? '' )
 	);
+	const [ refused, reportRefusal ] = useFieldRefusals();
 	const bodyRef = useRef( null );
 	useEffect( () => {
 		bodyRef.current?.querySelector( 'input, select, textarea' )?.focus();
 	}, [] );
 
 	const struct = 'struct' === value ? parseStruct( values[ 0 ] ) : undefined;
-	const missingRequired =
+	const unready =
+		refused ||
 		null === struct ||
 		args.some(
 			( arg, i ) =>
@@ -1396,9 +1334,6 @@ function VerbArgModal( {
 		);
 
 	const run = () => {
-		if ( missingRequired ) {
-			return;
-		}
 		if ( undefined !== struct ) {
 			onAction( 'invoke', nodeId, { verb, kind, struct } );
 			onDismiss();
@@ -1420,7 +1355,7 @@ function VerbArgModal( {
 	};
 
 	return (
-		<ModalShell title={ verb } onDismiss={ onDismiss }>
+		<ModalShell title={ verb } onDismiss={ onDismiss } onSubmit={ run }>
 			<div className="topology-modal__body" ref={ bodyRef }>
 				{ args.map( ( arg, i ) => (
 					<CtorField
@@ -1430,6 +1365,7 @@ function VerbArgModal( {
 						nodeNames={ nodeNames }
 						formatters={ formatters }
 						vaults={ vaults }
+						onRefusal={ reportRefusal( arg.name ) }
 						onChange={ ( v ) =>
 							setValues( ( prev ) => {
 								const next = prev.slice();
@@ -1445,10 +1381,9 @@ function VerbArgModal( {
 					{ __( 'Cancel', 'newspack-nodes' ) }
 				</button>
 				<button
-					type="button"
-					className={ primaryButtonClass( missingRequired ) }
-					onClick={ run }
-					disabled={ missingRequired }
+					type="submit"
+					className={ primaryButtonClass( unready ) }
+					disabled={ unready }
 				>
 					{ __( 'Run', 'newspack-nodes' ) }
 				</button>
@@ -1682,7 +1617,8 @@ const COMPOSE_FLAGS = [
  * whichever type is chosen. A TM_COMMAND takes a Name, Arguments and a Payload
  * in place of the Value, and TM_EOF takes no value at all.
  *
- * Send hands the form to `onSend`, which mints and sends it. A refusal it
+ * Send, or Enter in a text input, hands the form to `onSend`, which mints and
+ * sends it; the Value and Payload textareas keep Enter. A refusal it
  * hands back — malformed JSON, no Shell or sink to send through, no SSE
  * session for a worker, or a throw from the send — shows here, and the dialog
  * stays open for the fix.
@@ -1744,6 +1680,7 @@ function ComposeModal( { nodeNames, onSend, onCancel } ) {
 		<ModalShell
 			title={ __( 'Compose a message', 'newspack-nodes' ) }
 			onDismiss={ onCancel }
+			onSubmit={ () => setRefusal( onSend( form ) ) }
 		>
 			<div className="topology-modal__body topology-modal__body--pairs">
 				<ModalField
@@ -1838,10 +1775,9 @@ function ComposeModal( { nodeNames, onSend, onCancel } ) {
 					{ __( 'Cancel', 'newspack-nodes' ) }
 				</button>
 				<button
-					type="button"
+					type="submit"
 					className={ primaryButtonClass( ! form.to ) }
 					disabled={ ! form.to }
-					onClick={ () => setRefusal( onSend( form ) ) }
 				>
 					{ __( 'Send', 'newspack-nodes' ) }
 				</button>
@@ -2296,7 +2232,7 @@ export default function Inspector( {
 	const displayEdges = parsed.edges.filter(
 		( e ) => e.from === selectedId && ! e.registration
 	);
-	// Other live nodes, for the "+ add target…" dropdown (mirrors EditForm).
+	// Other live nodes, suggested by the target editor (mirrors EditForm).
 	const nodeNames = parsed.nodes
 		.map( ( n ) => n.id )
 		.filter( ( id ) => id !== selectedId );

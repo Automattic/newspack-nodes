@@ -36,6 +36,7 @@
 import { useEffect, useRef, useState } from '@wordpress/element';
 import { Core } from '@newspack-nodes/runtime';
 
+import { armTimer } from '../helpers/armTimer';
 import usePageVisibility from './usePageVisibility';
 
 /**
@@ -50,7 +51,9 @@ const INTERPRETER = '_command_interpreter';
  * Ride the Router heartbeat, so the poller adds no timer of its own.
  *
  * A hidden tab stops the Timer and a visible one re-arms it, so a backgrounded
- * dashboard polls nothing.
+ * dashboard polls nothing. The first arm waits out a full interval, since the
+ * adopter loads once on mount; a re-arm after a hidden tab, or an enable,
+ * fires at once.
  *
  * @param {Object}     opts              Poller configuration.
  * @param {string}     opts.name         Node name for the Timer this hook owns; unique in the graph.
@@ -70,6 +73,11 @@ export default function useRouterTick( {
 	onTickRef.current = onTick;
 
 	const timerRef = useRef( null );
+	// @longform
+	// The Timer whose every arm is a resume, firing at once: one armed since
+	// it was made, one a rebuild handed the role to, or one disabled, which
+	// the mount load does not cover.
+	const resumingRef = useRef( null );
 	const isPageVisible = usePageVisibility();
 
 	// @longform
@@ -128,22 +136,26 @@ export default function useRouterTick( {
 		}
 		if ( ! enabled || ! isPageVisible ) {
 			timer.stopTimer();
+			if ( ! enabled || resumingRef.current ) {
+				resumingRef.current = timer;
+			}
 			return;
 		}
 		// @longform
 		// Forward the interval and let TimerNode choose the mode: >=1000
 		// hitchhikes the Router tick, below 1000 takes its own slot at that
-		// exact interval. Passing no argument discards the caller's cadence.
-		if ( intervalMs > 0 ) {
-			timer.setTimer( intervalMs );
-		} else {
-			timer.setTimer();
+		// exact interval. Null takes the Router's own cadence.
+		const cadence = intervalMs > 0 ? intervalMs : null;
+		if ( resumingRef.current === timer ) {
+			armTimer( timer, cadence );
+			return;
 		}
+		resumingRef.current = timer;
 		// @longform
-		// setTimer zeroes lastFireTime, so the next Router tick passes the
-		// throttle whatever the interval. Start the window now — every adopter
-		// already loads once on mount, and re-arming on tab focus repeats it.
-		// Only the throttled hitchhike reads this.
+		// The first arm, which the adopter's own mount load already covers, so
+		// start the window now rather than let the fresh Timer's first tick
+		// pass the throttle; only the throttled hitchhike reads it.
+		timer.setTimer( cadence );
 		if ( intervalMs > 1000 ) {
 			timer.markFired();
 		}

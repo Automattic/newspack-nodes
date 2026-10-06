@@ -83,10 +83,11 @@ class Timer_Node extends Node {
 	protected string $key = '';
 
 	/**
-	 * Wall-clock second (`Core::$now` scale) of the last dispatch, throttling a
-	 * hitchhiker whose interval exceeds the Router's tick: `fire_cb()` returns
-	 * until `interval_ms` has elapsed since this. An own slot paces itself
-	 * through `next_fire` and leaves this at 0.0.
+	 * Wall-clock second (`Core::$now` scale) of the last dispatch in either
+	 * mode, throttling a hitchhiker whose interval exceeds the Router's tick:
+	 * `fire_cb()` returns until `interval_ms` has elapsed since this. A re-arm
+	 * keeps it, so a retuned hitchhiker waits its new interval out from the
+	 * last fire rather than firing on the next tick. 0.0 until the first fire.
 	 */
 	protected float $last_fire_time = 0.0;
 
@@ -159,7 +160,8 @@ class Timer_Node extends Node {
 	 *
 	 * The throttle is the price of the hitchhike. The tick arrives at the
 	 * Router's cadence, so a registrant that asked for a longer one drops the
-	 * ticks in between.
+	 * ticks in between. Every dispatch records `last_fire_time`, which the
+	 * throttle measures from.
 	 */
 	public function fire_cb(): void {
 		if ( $this->oneshot ) {
@@ -168,12 +170,11 @@ class Timer_Node extends Node {
 		if ( null === $this->sink ) {
 			return;
 		}
-		if ( 'router' === $this->mode && $this->interval_ms > self::router_interval_ms() ) {
-			if ( Core::$now - $this->last_fire_time < $this->interval_ms / 1000.0 ) {
-				return;
-			}
-			$this->last_fire_time = Core::$now;
+		if ( 'router' === $this->mode && $this->interval_ms > self::router_interval_ms()
+			&& Core::$now - $this->last_fire_time < $this->interval_ms / 1000.0 ) {
+			return;
 		}
+		$this->last_fire_time = Core::$now;
 		$this->fire_count++;
 		$this->fire();
 	}
@@ -257,12 +258,11 @@ class Timer_Node extends Node {
 				$this->_stop_timer();
 			}
 			$router->register( 'TIMER', $this->name );
-			$this->mode           = 'router';
-			$this->interval_ms    = null === $ms ? $router->interval_ms : $ms;
-			$this->last_fire_time = 0.0;
+			$this->mode        = 'router';
+			$this->interval_ms = null === $ms ? $router->interval_ms : $ms;
 			// Clear a stale own-slot next_fire; list_timers reads it.
-			$this->next_fire      = 0.0;
-			$this->oneshot        = $oneshot;
+			$this->next_fire = 0.0;
+			$this->oneshot   = $oneshot;
 			return;
 		}
 		if ( 'router' === $this->mode ) {

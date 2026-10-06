@@ -249,8 +249,8 @@ export function useLogStatusSegments( { sub, scope } ) {
  * @param {Function}                  o.seek                `( sub, positions, source? ) => void`.
  * @param {(paused: boolean) => void} o.setPaused           Pause the stream for time travel.
  * @param {() => void}                o.step                Deliver one record while paused.
- * @return {{ jump: (text: string) => void, sidebar: import('react').ReactElement }}
- *   The offset-input handler and the configured rail.
+ * @return {{ jump: (text: string) => ?string, sidebar: import('react').ReactElement }}
+ *   The offset-input handler, answering why it refuses a jump, and the rail.
  */
 export function useSegmentBrowse( {
 	sub,
@@ -303,19 +303,26 @@ export function useSegmentBrowse( {
 
 	// A full ID or a bare offset pauses and steps that one message.
 	const jump = ( text ) => {
+		if ( ! sub ) {
+			return __( 'Pick a source to jump within.', 'newspack-nodes' );
+		}
 		const position = parseOffsetJump(
 			text,
 			lastReceivedSegment ??
 				( 'number' === typeof segmentId ? segmentId : null )
 		);
-		if ( ! sub || ! position ) {
-			return;
+		if ( ! position ) {
+			return __(
+				'Nothing to jump to: paste a message ID (seg:offset:len), or a bare offset once a segment is streaming.',
+				'newspack-nodes'
+			);
 		}
 		setPaused( true );
 		// browseSegment lights the rail; the jump carries its own offset.
 		browseSegment( position.segment );
 		seekWithin( { [ sub ]: position }, source );
 		step();
+		return null;
 	};
 
 	const sidebar = (

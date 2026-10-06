@@ -148,7 +148,9 @@ it( 'sends the filter term to the consumer and honours the placeholder', () => {
 			filterPlaceholder="Filter by URL…"
 		/>
 	);
-	const input = container.querySelector( '.newspack-nodes-search-input' );
+	const input = container.querySelector(
+		'.newspack-nodes-search-input input'
+	);
 
 	fireEvent.change( input, { target: { value: 'oops' } } );
 
@@ -157,6 +159,23 @@ it( 'sends the filter term to the consumer and honours the placeholder', () => {
 	expect( onFilter ).toHaveBeenLastCalledWith( 'oops' );
 	expect( logRowListProps.filter ).toBeUndefined();
 	expect( input.placeholder ).toBe( 'Filter by URL…' );
+} );
+
+it( "the filter's reset button empties it and sends the empty term", () => {
+	const onFilter = jest.fn();
+	const { container, getByRole } = render(
+		<LogStreamViewer { ...BASE } onFilter={ onFilter } />
+	);
+	const input = container.querySelector(
+		'.newspack-nodes-search-input input'
+	);
+	fireEvent.change( input, { target: { value: 'kakapo-58' } } );
+	expect( onFilter ).toHaveBeenLastCalledWith( 'kakapo-58' );
+
+	fireEvent.click( getByRole( 'button', { name: 'Reset search' } ) );
+
+	expect( input.value ).toBe( '' );
+	expect( onFilter ).toHaveBeenLastCalledWith( '' );
 } );
 
 it( 'label overrides: renderCount and renderRate replace the defaults', () => {
@@ -233,9 +252,14 @@ it( 'names every toolbar control, and repeats none of them', () => {
 	);
 	const named = [
 		'.newspack-nodes-select',
-		'.newspack-nodes-search-input',
 		'.newspack-nodes-offset-input',
 	].map( ( sel ) => container.querySelector( sel ) );
+	// The search control names its field with a label, so no aria-label.
+	const filter = container.querySelector(
+		'.newspack-nodes-search-input input'
+	);
+	expect( filter.labels[ 0 ].textContent ).toBe( 'Filter the stream' );
+	expect( filter.getAttribute( 'title' ) ).toBeNull();
 	const glyphs = [ ...container.querySelectorAll( 'button' ) ].filter(
 		( b ) => /^[▶⏸⏭‹›]$/.test( b.textContent )
 	);
@@ -404,7 +428,7 @@ it( 're-sends the filter when the graph is rebuilt', () => {
 		<LogStreamViewer { ...BASE } onFilter={ onFilter } />
 	);
 	fireEvent.change(
-		container.querySelector( '.newspack-nodes-search-input' ),
+		container.querySelector( '.newspack-nodes-search-input input' ),
 		{ target: { value: 'zebra' } }
 	);
 	onFilter.mockClear();
@@ -423,8 +447,85 @@ it( 'types without an onFilter consumer rather than throwing', () => {
 
 	expect( () =>
 		fireEvent.change(
-			container.querySelector( '.newspack-nodes-search-input' ),
+			container.querySelector( '.newspack-nodes-search-input input' ),
 			{ target: { value: 'x' } }
 		)
 	).not.toThrow();
+} );
+
+describe( 'the jump box', () => {
+	const jumpBox = ( onJump ) => {
+		const { container } = render(
+			<LogStreamViewer { ...BASE } onJump={ onJump } />
+		);
+		return {
+			container,
+			input: container.querySelector( '.newspack-nodes-offset-input' ),
+			refusal: () => container.querySelector( '[role="alert"]' ),
+		};
+	};
+	const type = ( input, text ) =>
+		fireEvent.change( input, { target: { value: text } } );
+
+	it( 'refuses an unparseable offset where it was typed, and jumps nowhere', () => {
+		const onJump = jest.fn();
+		const { input, refusal } = jumpBox( onJump );
+		type( input, 'quartz-9x' );
+		expect( refusal() ).toBeNull();
+		fireEvent.keyDown( input, { key: 'Enter' } );
+		expect( onJump ).not.toHaveBeenCalled();
+		expect( input.value ).toBe( 'quartz-9x' );
+		expect( refusal().textContent ).toBe(
+			'Paste a message ID (seg:offset:len) or a bare offset.'
+		);
+	} );
+
+	it( 'jumps to a parseable offset on Enter, then clears for the next', () => {
+		const onJump = jest.fn();
+		const { input, refusal } = jumpBox( onJump );
+		type( input, ' 41:8191:12 ' );
+		fireEvent.keyDown( input, { key: 'Enter' } );
+		expect( onJump ).toHaveBeenCalledWith( '41:8191:12' );
+		expect( input.value ).toBe( '' );
+		expect( refusal() ).toBeNull();
+	} );
+
+	it( 'jumps on Enter alone, never on blur', () => {
+		const onJump = jest.fn();
+		const { input } = jumpBox( onJump );
+		type( input, '8191' );
+		fireEvent.blur( input );
+		expect( onJump ).not.toHaveBeenCalled();
+		expect( input.value ).toBe( '8191' );
+	} );
+
+	it( 'keeps a refused jump in the box, and asks again on Enter', () => {
+		const onJump = jest
+			.fn()
+			.mockReturnValueOnce( 'Pick a source to jump within.' )
+			.mockReturnValueOnce( null );
+		const { input, refusal } = jumpBox( onJump );
+		type( input, '12:3456:200' );
+		fireEvent.keyDown( input, { key: 'Enter' } );
+		expect( input.value ).toBe( '12:3456:200' );
+		expect( refusal().textContent ).toBe( 'Pick a source to jump within.' );
+		fireEvent.keyDown( input, { key: 'Enter' } );
+		expect( onJump.mock.calls ).toEqual( [
+			[ '12:3456:200' ],
+			[ '12:3456:200' ],
+		] );
+		expect( input.value ).toBe( '' );
+		expect( refusal() ).toBeNull();
+	} );
+
+	it( 'shows why its owner refuses a jump', () => {
+		const { input, refusal } = jumpBox(
+			() => 'Quartz has no segment for 8191.'
+		);
+		type( input, '8191' );
+		fireEvent.keyDown( input, { key: 'Enter' } );
+		expect( refusal().textContent ).toBe(
+			'Quartz has no segment for 8191.'
+		);
+	} );
 } );

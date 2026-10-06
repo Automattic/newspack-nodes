@@ -492,14 +492,21 @@ describe( 'Palette — search filter', () => {
 			container.querySelectorAll( '.topology-palette__item' )
 		).map( ( el ) => el.dataset.shellName );
 
-	it( 'renders a search input at the top of the palette', () => {
+	it( 'renders the WordPress search control at the top of the palette', () => {
 		const { container } = renderWithCatalog(
 			<Palette loading={ false } />,
 			{ classes }
 		);
+		const control = container.querySelector(
+			'.topology-palette .components-search-control'
+		);
+		expect( control ).not.toBeNull();
 		expect(
-			container.querySelector( '.topology-palette__search' )
-		).not.toBeNull();
+			control.querySelector( 'input' ).getAttribute( 'placeholder' )
+		).toBe( 'Filter nodes…' );
+		expect( control.querySelector( 'input' ).labels[ 0 ].textContent ).toBe(
+			'Filter node classes'
+		);
 	} );
 
 	it( 'shows the full list when the query is empty', () => {
@@ -521,7 +528,7 @@ describe( 'Palette — search filter', () => {
 			{ classes }
 		);
 		fireEvent.change(
-			container.querySelector( '.topology-palette__search' ),
+			container.querySelector( '.topology-palette input[type="search"]' ),
 			{ target: { value: 'PART' } }
 		);
 		expect( shellNames( container ) ).toEqual( [ 'Partition' ] );
@@ -534,7 +541,7 @@ describe( 'Palette — search filter', () => {
 		);
 		// "quack" appears only in Zeta's description, not any shell name.
 		fireEvent.change(
-			container.querySelector( '.topology-palette__search' ),
+			container.querySelector( '.topology-palette input[type="search"]' ),
 			{ target: { value: 'quack' } }
 		);
 		expect( shellNames( container ) ).toEqual( [ 'Zeta' ] );
@@ -545,7 +552,9 @@ describe( 'Palette — search filter', () => {
 			<Palette loading={ false } />,
 			{ classes }
 		);
-		const input = container.querySelector( '.topology-palette__search' );
+		const input = container.querySelector(
+			'.topology-palette input[type="search"]'
+		);
 		fireEvent.change( input, { target: { value: 'part' } } );
 		expect( shellNames( container ) ).toEqual( [ 'Partition' ] );
 		fireEvent.change( input, { target: { value: '' } } );
@@ -558,7 +567,7 @@ describe( 'Palette — search filter', () => {
 			{ classes }
 		);
 		fireEvent.change(
-			container.querySelector( '.topology-palette__search' ),
+			container.querySelector( '.topology-palette input[type="search"]' ),
 			{ target: { value: 'part' } }
 		);
 		expect(
@@ -625,7 +634,7 @@ describe( 'Palette — search filters the Topologies section', () => {
 	it( 'narrows the topology tiles by name, case-insensitively', () => {
 		const { container } = renderEditPalette();
 		fireEvent.change(
-			container.querySelector( '.topology-palette__search' ),
+			container.querySelector( '.topology-palette input[type="search"]' ),
 			{ target: { value: 'AGGRE' } }
 		);
 		expect(
@@ -642,7 +651,7 @@ describe( 'Palette — search filters the Topologies section', () => {
 	it( 'hides the Topologies header when no topology matches', () => {
 		const { container } = renderEditPalette();
 		fireEvent.change(
-			container.querySelector( '.topology-palette__search' ),
+			container.querySelector( '.topology-palette input[type="search"]' ),
 			{ target: { value: 'zzz-no-such-topology' } }
 		);
 		expect( screen.queryByText( 'Topologies' ) ).toBeNull();
@@ -703,7 +712,7 @@ describe( 'Palette — dock structure mirrors the inspector', () => {
 	} );
 } );
 
-describe( 'Palette — search clear button', () => {
+describe( 'Palette — search reset button', () => {
 	const classes = [
 		{ shell_name: 'Echo', category: 'Generic' },
 		{ shell_name: 'Tee', category: 'Generic' },
@@ -715,32 +724,34 @@ describe( 'Palette — search clear button', () => {
 			container.querySelectorAll( '.topology-palette__item' )
 		).map( ( el ) => el.dataset.shellName );
 
-	it( 'shows no clear button while the query is empty', () => {
+	it( 'shows no reset button while the query is empty', () => {
 		renderWithCatalog( <Palette loading={ false } />, {
 			classes,
 		} );
 		expect(
-			screen.queryByRole( 'button', { name: /clear filter/i } )
+			screen.queryByRole( 'button', { name: /reset search/i } )
 		).toBeNull();
 	} );
 
-	it( 'clears the query, restores the full list, and refocuses the input', () => {
+	it( 'resets the query, restores the full list, and refocuses the input', () => {
 		const { container } = renderWithCatalog(
 			<Palette loading={ false } />,
 			{ classes }
 		);
-		const input = container.querySelector( '.topology-palette__search' );
+		const input = container.querySelector(
+			'.topology-palette input[type="search"]'
+		);
 		fireEvent.change( input, { target: { value: 'part' } } );
 		expect( shellNames( container ) ).toEqual( [ 'Partition' ] );
 
-		const clear = screen.getByRole( 'button', { name: /clear filter/i } );
+		const clear = screen.getByRole( 'button', { name: /reset search/i } );
 		fireEvent.click( clear );
 
 		expect( input.value ).toBe( '' );
 		expect( shellNames( container ) ).toHaveLength( 3 );
 		expect( document.activeElement ).toBe( input );
 		expect(
-			screen.queryByRole( 'button', { name: /clear filter/i } )
+			screen.queryByRole( 'button', { name: /reset search/i } )
 		).toBeNull();
 	} );
 } );

@@ -109,12 +109,10 @@ describe( 'TimelineView', () => {
 	} );
 
 	it( 'narrows rows by a case-insensitive node substring filter', () => {
-		const { container } = render(
+		const { container, getByLabelText } = render(
 			<TimelineView transcript={ transcript } />
 		);
-		const nodeFilter = container.querySelectorAll(
-			'.timeline-view__filter'
-		)[ 0 ];
+		const nodeFilter = getByLabelText( 'Filter timeline by node' );
 		fireEvent.change( nodeFilter, { target: { value: 'FIREHOSE' } } );
 		const rows = rowsOf( container );
 		expect( rows ).toHaveLength( 1 );
@@ -124,12 +122,10 @@ describe( 'TimelineView', () => {
 	} );
 
 	it( 'narrows rows by a case-insensitive event substring filter', () => {
-		const { container } = render(
+		const { container, getByLabelText } = render(
 			<TimelineView transcript={ transcript } />
 		);
-		const eventFilter = container.querySelectorAll(
-			'.timeline-view__filter'
-		)[ 1 ];
+		const eventFilter = getByLabelText( 'Filter timeline by event' );
 		fireEvent.change( eventFilter, { target: { value: 'craw' } } );
 		const rows = rowsOf( container );
 		expect( rows ).toHaveLength( 1 );
@@ -137,6 +133,29 @@ describe( 'TimelineView', () => {
 			rows[ 0 ].querySelector( '.timeline-view__event' ).textContent
 		).toBe( 'crawl' );
 	} );
+
+	it.each( [
+		[ 'node', 'firehose' ],
+		[ 'event', 'rotate' ],
+	] )(
+		"the %s filter's reset button empties it and restores every row",
+		( column, term ) => {
+			const { container, getByLabelText } = render(
+				<TimelineView transcript={ transcript } />
+			);
+			const filter = getByLabelText( `Filter timeline by ${ column }` );
+			fireEvent.change( filter, { target: { value: term } } );
+			expect( rowsOf( container ) ).toHaveLength( 1 );
+
+			const control = filter.closest( '.components-search-control' );
+			fireEvent.click(
+				control.querySelector( 'button[aria-label="Reset search"]' )
+			);
+
+			expect( filter.value ).toBe( '' );
+			expect( rowsOf( container ) ).toHaveLength( 3 );
+		}
+	);
 
 	it( 'captures a full colon-bearing sidecar node name, not just the suffix', () => {
 		// Substrate sidecar naming puts a colon INSIDE the node name

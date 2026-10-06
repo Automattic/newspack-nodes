@@ -20,24 +20,9 @@
 		gap: 6px;
 		margin-bottom: 8px;
 
-		// Actions (Trace) sit left; the first input pushes the filters right.
-		input:first-of-type {
+		// Actions (Trace) sit left; the first filter pushes the filters right.
+		> .components-search-control:not(.components-search-control ~ *) {
 			margin-left: auto;
-		}
-	}
-
-	&__filter {
-		background: var(--paper);
-		border: 1px solid var(--ink-3);
-		color: var(--ink);
-		-webkit-text-fill-color: var(--ink);
-		font: inherit;
-		padding: 2px 6px;
-		border-radius: 0;
-		outline: none;
-
-		&::placeholder {
-			color: var(--ink-4);
 		}
 	}
 

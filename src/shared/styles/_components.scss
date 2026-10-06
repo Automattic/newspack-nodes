@@ -543,6 +543,12 @@
 			}
 		}
 
+		// The caller's selected slots, shaded beneath the bands.
+		&__selected {
+			fill: var(--cyan, var(--np-primary));
+			fill-opacity: 0.16;
+		}
+
 		&__tooltip {
 			display: none;
 			position: absolute;

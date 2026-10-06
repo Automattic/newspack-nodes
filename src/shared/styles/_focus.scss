@@ -73,4 +73,11 @@
 	.components-input-control__input:focus {
 		@include focus.no-ring;
 	}
+
+	// InputControl recolors its backdrop on focus; the ring is the container's.
+	.components-input-control__container:focus-within
+		.components-input-control__backdrop {
+		border-color: var(--np-field-border);
+		@include focus.no-ring;
+	}
 }

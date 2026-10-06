@@ -2,23 +2,8 @@ import { readFileSync } from 'fs';
 import { resolve as resolvePath } from 'path';
 /**
  * useTimeChart tests — pure helpers, constants, and the render/resize
- * lifecycle. d3 is mocked (the substrate doesn't ship it).
+ * lifecycle, against real d3.
  */
-
-jest.mock(
-	'd3',
-	() => ( {
-		// A linear left bisect, enough for the few slots these cases draw.
-		bisector: ( at ) => ( {
-			left: ( list, value ) => {
-				const i = list.findIndex( ( d ) => at( d ) >= value );
-				return -1 === i ? list.length : i;
-			},
-		} ),
-		pointer: ( event ) => [ event?.offsetX ?? 0, 0 ],
-	} ),
-	{ virtual: true }
-);
 
 import { renderHook, act } from '@testing-library/react';
 import {
@@ -33,6 +18,7 @@ import {
 	buildTimeSlots,
 	formatXTick,
 	setupTooltip,
+	shadeSlots,
 	useTimeChart,
 } from '../useTimeChart';
 
@@ -390,8 +376,9 @@ describe( 'setupTooltip', () => {
 		);
 		const xScale = ( d ) => ( ( d - t0 ) / ( 10 * 60000 ) ) * SPAN;
 		xScale.invert = ( mx ) => new Date( t0 + ( mx / SPAN ) * 10 * 60000 );
-		const clickAt = ( offsetX, extra = {} ) => ( {
-			offsetX,
+		// jsdom lays out nothing, so d3.pointer() reads clientX as plot x.
+		const clickAt = ( clientX, extra = {} ) => ( {
+			clientX,
 			shiftKey: false,
 			currentTarget: document.createElement( 'div' ),
 			...extra,
@@ -414,7 +401,30 @@ describe( 'setupTooltip', () => {
 			const onSlotClick = jest.fn();
 			bind( onSlotClick ).handlers.click( clickAt( 290 ) );
 			expect( onSlotClick ).toHaveBeenCalledTimes( 1 );
-			expect( onSlotClick ).toHaveBeenCalledWith( 2 );
+			expect( onSlotClick ).toHaveBeenCalledWith( 2, {
+				additive: false,
+			} );
+		} );
+
+		it.each( [ [ 'metaKey' ], [ 'ctrlKey' ] ] )(
+			'reports a %s click as additive',
+			( key ) => {
+				const onSlotClick = jest.fn();
+				bind( onSlotClick ).handlers.click(
+					clickAt( 10, { [ key ]: true } )
+				);
+				expect( onSlotClick ).toHaveBeenCalledWith( 0, {
+					additive: true,
+				} );
+			}
+		);
+
+		it( 'reports nothing for a shift+cmd click, which resizes', () => {
+			const onSlotClick = jest.fn();
+			bind( onSlotClick ).handlers.click(
+				clickAt( 290, { shiftKey: true, metaKey: true } )
+			);
+			expect( onSlotClick ).not.toHaveBeenCalled();
 		} );
 
 		it( 'reports nothing for a shift+click, which resizes', () => {
@@ -443,6 +453,57 @@ describe( 'setupTooltip', () => {
 			const g = bind( undefined );
 			expect( () => g.handlers.click( clickAt( 290 ) ) ).not.toThrow();
 		} );
+	} );
+
+	it( 'lights the hovered slot over the column shadeSlots shades for it', () => {
+		// Each appended rect records its own attributes.
+		const plot = () => {
+			const rects = [];
+			const append = () => {
+				const rect = { attrs: {} };
+				rect.attr = ( name, value ) => {
+					rect.attrs[ name ] = value;
+					return rect;
+				};
+				rect.on = () => rect;
+				rects.push( rect );
+				return rect;
+			};
+			return { g: { append }, rects };
+		};
+		const dates = [ 0, 1, 2 ].map(
+			( i ) => new Date( 2026, 0, 1, 0, i * 5 )
+		);
+		const xScale = ( d ) => 37 + dates.indexOf( d ) * 113;
+		xScale.invert = () => dates[ 2 ];
+		const frame = { innerW: 333, innerH: 71, dates, x: xScale };
+		const hover = plot();
+		const { tooltipRef, containerRef } = refs();
+		setupTooltip( hover.g, {
+			...frame,
+			formatEntry: () => [],
+			tooltipRef,
+			lastMouseXRef: { current: 260 },
+			containerRef,
+		} );
+		const shaded = plot();
+		shadeSlots( shaded.g, { ...frame, selectedSlots: new Set( [ 2 ] ) } );
+
+		const column = ( { attrs } ) => [
+			attrs.x,
+			attrs.y,
+			attrs.width,
+			attrs.height,
+		];
+		expect( column( hover.rects[ 0 ] ) ).toEqual( [
+			37 + 226 - 55.5,
+			0,
+			111,
+			71,
+		] );
+		expect( column( shaded.rects[ 0 ] ) ).toEqual(
+			column( hover.rects[ 0 ] )
+		);
 	} );
 } );
 

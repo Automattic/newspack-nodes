@@ -607,11 +607,9 @@ describe( 'useBatchedPoll — page-visibility gate', () => {
 		} );
 		expect( wire.batches.length ).toBe( 0 );
 
+		// Visible again: the resume polls at once, with no router tick needed.
 		await act( async () => {
 			setVisibility( 'visible' );
-		} );
-		await act( async () => {
-			Core.node( ROUTER ).fireCb();
 		} );
 		expect( wire.batches.length ).toBe( 1 );
 		expect( wire.batches[ 0 ].length ).toBe( 3 );
@@ -644,12 +642,9 @@ describe( 'useBatchedPoll — paused gate', () => {
 		} );
 		expect( wire.batches.length ).toBe( 0 );
 
-		// Resume: the tick posts one batched POST again.
+		// Resume: the unpause posts one batched POST at once.
 		await act( async () => {
 			rerender( { paused: false } );
-		} );
-		await act( async () => {
-			Core.node( ROUTER ).fireCb();
 		} );
 		expect( wire.batches.length ).toBe( 1 );
 		expect( wire.batches[ 0 ].length ).toBe( 3 );
@@ -677,7 +672,8 @@ describe( 'useBatchedPoll — intervalMs (hitchhike + throttle cadence)', () => 
 		);
 	} );
 
-	test( 'changing intervalMs re-arms the Timer to the new cadence', async () => {
+	test( 'changing intervalMs re-arms the Timer to the new cadence, posting nothing', async () => {
+		const wire = installWire();
 		const { rerender } = renderHook(
 			( { intervalMs } ) =>
 				useBatchedPoll( {
@@ -691,11 +687,14 @@ describe( 'useBatchedPoll — intervalMs (hitchhike + throttle cadence)', () => 
 		await act( async () => {} );
 		expect( Core.node( 'insights:timer' ).interval_ms ).toBe( 5000 );
 
+		wire.batches.length = 0;
+
 		await act( async () => {
 			rerender( { intervalMs: 30000 } );
 		} );
 		expect( Core.node( 'insights:timer' ).interval_ms ).toBe( 30000 );
 		expect( Core.node( 'insights:timer' ).mode ).toBe( 'router' );
+		expect( wire.batches ).toHaveLength( 0 );
 	} );
 
 	/**

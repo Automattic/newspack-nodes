@@ -117,9 +117,9 @@ const VERB_TEXTS = {
 /**
  * What the form starts from when it is adding rather than editing.
  *
- * The blank id IS the signal: `ServerForm`, `ServerModal` and `saveServer` each
- * read `'' === server.id` to tell an add from an edit, so there is no second
- * mode flag that could disagree with the seed.
+ * The blank id IS the signal: `ServerModal` and `saveServer` each read
+ * `'' === server.id` to tell an add from an edit, so there is no second mode
+ * flag that could disagree with the seed.
  */
 const BLANK_SERVER = { id: '', url: '', auth_username: '', group: '' };
 
@@ -249,25 +249,29 @@ function validate( id, url, group ) {
 }
 
 /**
- * The server form — id, url, group, username and password, plus submit. Owns
- * the field state and the validation/status line. Rendered inside the server
- * modal.
+ * The server modal — id, url, group, username and password, plus submit. Owns
+ * the field state and the validation/status line. The dialog is the form, so
+ * Enter in a field saves, as the footer button does; it closes on a successful
+ * save (the answer clears `editing`) or on ESC / backdrop / Cancel.
  *
  * The seed says which act this is: a server with no id yet is one being added.
  * The answer arrives named after the id that was SENT — the row's existing one
  * on an edit — like every other verb here, so the form reads it the way a row
  * does.
  *
- * @param {Object}                          props          Component props.
- * @param {Object}                          props.server   The row being edited, or BLANK_SERVER.
- * @param {Function}                        props.onSave   Save callback; called with the five trimmed fields.
- * @param {?{verb: string, error: ?string}} props.answer   The answer for the submitted id, if any.
- * @param {boolean}                         props.busy     Whether the save is outstanding.
- * @param {() => void}                      props.onCancel Dismisses the modal from the footer Cancel button.
- * @return {import('react').ReactElement} The rendered form.
+ * @param {Object}                          props         Component props.
+ * @param {Object}                          props.server  The row being edited, or BLANK_SERVER.
+ * @param {Function}                        props.onSave  Save callback; called with the five trimmed fields.
+ * @param {?{verb: string, error: ?string}} props.answer  The answer for the submitted id, if any.
+ * @param {boolean}                         props.busy    Whether the save is outstanding.
+ * @param {() => void}                      props.onClose Dismisses the modal.
+ * @return {import('react').ReactElement} The modal.
  */
-function ServerForm( { server, onSave, answer, busy, onCancel } ) {
+function ServerModal( { server, onSave, answer, busy, onClose } ) {
 	const isNew = '' === server.id;
+	const title = isNew
+		? __( 'Add New Server', 'newspack-nodes' )
+		: __( 'Edit Server', 'newspack-nodes' );
 	const [ id, setId ] = useState( server.id );
 	const [ url, setUrl ] = useState( server.url );
 	const [ group, setGroup ] = useState( server.group ?? '' );
@@ -306,7 +310,8 @@ function ServerForm( { server, onSave, answer, busy, onCancel } ) {
 	};
 
 	return (
-		<>
+		<Modal ariaLabel={ title } onClose={ onClose } onSubmit={ handleSave }>
+			<h4 className="newspack-nodes-modal__title">{ title }</h4>
 			<table className="form-table" style={ { maxWidth: '600px' } }>
 				<tbody>
 					<tr>
@@ -449,53 +454,20 @@ function ServerForm( { server, onSave, answer, busy, onCancel } ) {
 				>
 					{ status.text }
 				</span>
-				<button type="button" className="button" onClick={ onCancel }>
+				<button type="button" className="button" onClick={ onClose }>
 					{ __( 'Cancel', 'newspack-nodes' ) }
 				</button>
 				<button
-					type="button"
+					type="submit"
 					className={ primaryButtonClass( busy ) }
 					id="vault-server-save"
 					disabled={ busy }
-					onClick={ handleSave }
 				>
 					{ isNew
 						? __( 'Add Server', 'newspack-nodes' )
 						: __( 'Save Changes', 'newspack-nodes' ) }
 				</button>
 			</div>
-		</>
-	);
-}
-
-/**
- * The server modal: the heading + the ServerForm. Closes on a successful save
- * (the answer clears `editing`) or on ESC / backdrop / Cancel.
- *
- * @param {Object}                          props         Component props.
- * @param {Object}                          props.server  The row being edited, or BLANK_SERVER.
- * @param {Function}                        props.onSave  Save callback; called with the five trimmed fields.
- * @param {?{verb: string, error: ?string}} props.answer  The answer for the submitted id, if any.
- * @param {boolean}                         props.busy    Whether the save is outstanding.
- * @param {() => void}                      props.onClose Dismisses the modal.
- * @return {import('react').ReactElement} The modal.
- */
-function ServerModal( { server, onSave, answer, busy, onClose } ) {
-	const title =
-		'' === server.id
-			? __( 'Add New Server', 'newspack-nodes' )
-			: __( 'Edit Server', 'newspack-nodes' );
-
-	return (
-		<Modal ariaLabel={ title } onClose={ onClose }>
-			<h4 className="newspack-nodes-modal__title">{ title }</h4>
-			<ServerForm
-				server={ server }
-				onSave={ onSave }
-				answer={ answer }
-				busy={ busy }
-				onCancel={ onClose }
-			/>
 		</Modal>
 	);
 }

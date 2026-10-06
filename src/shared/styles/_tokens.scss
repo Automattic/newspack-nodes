@@ -37,8 +37,8 @@ $white: #fff;
 $system-font: var(--np-font);
 $mono-font: var(--np-font-mono);
 
-// Sizing
-$control-height: 28px;
+// Sizing. A control is WordPress's 40px button, admin field or component.
+$control-height: 40px;
 $border-radius-sm: 3px;
 $border-radius-lg: 6px;
 $border-radius: 8px;

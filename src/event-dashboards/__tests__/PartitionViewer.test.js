@@ -272,7 +272,9 @@ describe( 'PartitionViewer', () => {
 		// non-matches consuming slots, so a rare match aged out of the buffer.
 		const node = registerViewFixture( { logs: [] } );
 		const { container } = await renderViewer();
-		const input = container.querySelector( '.newspack-nodes-search-input' );
+		const input = container.querySelector(
+			'.newspack-nodes-search-input input'
+		);
 
 		fireEvent.change( input, { target: { value: 'zebra' } } );
 

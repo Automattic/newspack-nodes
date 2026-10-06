@@ -544,6 +544,151 @@ class SchemaReflectionTest extends TestCase {
 		};
 	}
 
+	/**
+	 * A setter naming a declared positional replays `arguments()` with that
+	 * slot replaced, each unset slot before it padded with its default, so
+	 * the node's own parse validates it and `dump_config()` carries it.
+	 */
+	public function test_a_setter_naming_a_positional_replays_the_arguments(): void {
+		$node = $this->positional_setter_node();
+		$node->name( 'replay-probe' );
+		$node->arguments( [ 'kiwi-9' ] );
+
+		$this->assertSame( "ok\n", $node->interpreter()->dispatch( 'set_span', [ '4417' ] ) );
+
+		$this->assertSame( [ 'kiwi-9', 'wren', '4417' ], $node->arguments() );
+		$this->assertSame( 4417, $this->read_private( $node, 'span' ) );
+		$this->assertSame( 2, $node->replays, 'the node\'s own arguments() ran' );
+		$this->assertStringStartsWith( "make_node ", $node->dump_config() );
+		$this->assertStringContainsString( 'replay-probe kiwi-9 wren 4417', $node->dump_config() );
+	}
+
+	/** The replayed tokens go through the node's own refusals. */
+	public function test_a_refused_positional_setter_leaves_the_arguments(): void {
+		$node = $this->positional_setter_node();
+		$node->name( 'replay-probe' );
+		$node->arguments( [ 'kiwi-9', 'heron', '31' ] );
+
+		try {
+			$node->interpreter()->dispatch( 'set_span', [ '9001' ] );
+			$this->fail( 'a span past the bound was taken' );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertStringContainsString( 'span wants at most 9000', \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
+		}
+		$this->assertSame( [ 'kiwi-9', 'heron', '31' ], $node->arguments() );
+		$this->assertSame( 31, $this->read_private( $node, 'span' ) );
+	}
+
+	/** A toggle naming a bool positional replays `false` as the word, not a blank default. */
+	public function test_a_toggle_naming_a_positional_replays_false_as_a_word(): void {
+		$node = new class extends Node {
+			use Schema_Reflection;
+
+			protected string $label = '';
+
+			protected bool $loud = true;
+
+			public function __construct() {
+				parent::__construct();
+				$this->auto_wire_interpreter();
+			}
+
+			public static function node_schema(): array {
+				return [
+					'arguments' => [
+						[ 'name' => 'label', 'type' => 'string', 'required' => true ],
+						[ 'name' => 'loud', 'type' => 'bool', 'default' => true ],
+					],
+					'commands'  => [
+						[
+							'name'   => 'set_loud',
+							'args'   => [ [ 'name' => 'loud', 'type' => 'bool', 'required' => true ] ],
+							'toggle' => 'loud',
+						],
+					],
+				];
+			}
+		};
+		$node->name( 'toggle-replay' );
+		$node->arguments( [ 'gull-52' ] );
+
+		$node->interpreter()->dispatch( 'set_loud', [ 'off' ] );
+
+		$this->assertSame( [ 'gull-52', 'false' ], $node->arguments() );
+		$this->assertFalse( $this->read_private( $node, 'loud' ) );
+	}
+
+	/** A node whose setter verb names its third positional and has no `set_` method. */
+	private function positional_setter_node(): object {
+		return new class extends Node {
+			use Schema_Reflection;
+
+			public int $replays = 0;
+
+			protected string $label = '';
+
+			protected string $bird = '';
+
+			protected int $span = 0;
+
+			public function __construct() {
+				parent::__construct();
+				$this->auto_wire_interpreter();
+			}
+
+			public function arguments( ?array $args = null ): array {
+				if ( null !== $args ) {
+					++$this->replays;
+					if ( Core::as_int( $this->schema_values( $args )['span'] ?? 0 ) > 9000 ) {
+						$this->refuse_argument( 'span wants at most 9000' );
+					}
+					$this->parse_schema_args( $args );
+				}
+				return parent::arguments( $args );
+			}
+
+			public static function node_schema(): array {
+				return [
+					'category'    => 'Test',
+					'description' => 'positional setter probe',
+					'arguments'   => [
+						[ 'name' => 'label', 'type' => 'string', 'required' => true ],
+						[ 'name' => 'bird', 'type' => 'string', 'default' => 'wren' ],
+						[ 'name' => 'span', 'type' => 'int', 'default' => 0 ],
+					],
+					'commands'    => [
+						[
+							'name'        => 'set_span',
+							'description' => 'Set the span.',
+							'args'        => [ [ 'name' => 'span', 'type' => 'int', 'required' => true ] ],
+							'setter'      => 'span',
+						],
+					],
+				];
+			}
+		};
+	}
+
+	/**
+	 * A verb table built for another class reads THAT class's positionals,
+	 * as `Vault_Group_Node` builds its child class's: the host declares none,
+	 * so a setter naming the subject's positional replays the subject's
+	 * arguments rather than calling a `set_` method.
+	 */
+	public function test_a_verb_table_for_another_class_reads_its_positionals(): void {
+		$subject = new Setter_Subject_Node();
+		$subject->name( 'subject-6083' );
+		$subject->arguments( [ 'plover-31' ] );
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->patron( $subject );
+
+		$verbs = Setter_Host_Node::verbs_for( Setter_Subject_Node::class );
+		$this->assertSame( "ok\n", $verbs['set_reach']( $interpreter, [ 'reach' => '5521' ] ) );
+
+		$this->assertSame( [ 'plover-31', '5521' ], $subject->arguments() );
+		$this->assertSame( 5521, $this->read_private( $subject, 'reach' ) );
+	}
+
 	public function test_schema_toggle_synthesizes_the_verb_handler(): void {
 		$node = $this->toggle_node();
 		$node->name( 'toggle-probe' );
@@ -725,6 +870,50 @@ class Private_Span_Node extends Node {
 		return [
 			'arguments' => [
 				[ 'name' => 'span', 'type' => 'int', 'required' => true ],
+			],
+		];
+	}
+}
+
+/** A trait user declaring no positionals, building verb tables for others. */
+class Setter_Host_Node extends Node {
+	use Schema_Reflection;
+
+	/**
+	 * The `{name}:config` verb table `$class` declares.
+	 *
+	 * @param class-string<Node> $class Class whose schema declares the verbs.
+	 * @return array<string,callable>
+	 */
+	public static function verbs_for( string $class ): array {
+		return self::verbs_with_handlers( $class );
+	}
+
+	public static function node_schema(): array {
+		return [ 'arguments' => [] ];
+	}
+}
+
+/** A subject, unrelated to the host, whose setter names its second positional and has no `set_` method. */
+class Setter_Subject_Node extends Node {
+	use Schema_Reflection;
+
+	protected string $label = '';
+
+	protected int $reach = 0;
+
+	public static function node_schema(): array {
+		return [
+			'arguments' => [
+				[ 'name' => 'label', 'type' => 'string', 'required' => true ],
+				[ 'name' => 'reach', 'type' => 'int', 'default' => 0 ],
+			],
+			'commands'  => [
+				[
+					'name'   => 'set_reach',
+					'args'   => [ [ 'name' => 'reach', 'type' => 'int', 'required' => true ] ],
+					'setter' => 'reach',
+				],
 			],
 		];
 	}

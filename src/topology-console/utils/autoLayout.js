@@ -30,11 +30,13 @@
  * into the range its edges allow (longest path from a source on the left,
  * longest path to a sink on the right), so a "processor tier" aligns in one
  * column instead of spreading by raw longest-path. Rows come from barycenter
- * crossing-reduction in index space, a median settle, and a symmetric spread
- * of same-column overlaps — with a wire that spans two or more columns
- * standing in for itself as a placeholder in every column between, so the
- * sweeps put a card on the right side of it, and a last pass (`clearWires`)
- * nudging any card off the span such a wire is drawn across. A source whose
+ * crossing-reduction in index space, an exchange of neighbours wherever that
+ * uncrosses a wire (kept only where its block, once drawn, crosses fewer), a
+ * median settle, and a symmetric spread of same-column overlaps — with a
+ * wire that spans two or more columns standing in for itself as a
+ * placeholder in every column between, so the sweeps put a card on the
+ * right side of it, and a last pass (`clearWires`) nudging any card off the
+ * span such a wire is drawn across. A source whose
  * successors all sit in one column, two or more columns on, has a column to
  * choose, so its wires take no placeholder: `seatSources` seats it inside its
  * band, growing the band downward so its height covers the seat, then again
@@ -520,22 +522,50 @@ const clearWires = ( ids, wires, col, row, others = ids ) => {
 	for ( const id of new Set( [ ...ids, ...others ] ) ) {
 		( byCol[ col[ id ] ] ??= [] ).push( id );
 	}
-	const inside = ( r, list ) =>
-		list.some( ( [ lo, hi ] ) => r > lo + 1e-9 && r < hi - 1e-9 );
+	// One sorted list of disjoint spans, so `inside` is a binary search.
+	const merged = ( list ) => {
+		/** @type {Array<[number, number]>} */
+		const out = [];
+		for ( const [ lo, hi ] of [ ...list ].sort(
+			( a, b ) => a[ 0 ] - b[ 0 ]
+		) ) {
+			const last = out[ out.length - 1 ];
+			if ( last && lo + 1e-9 < last[ 1 ] - 1e-9 ) {
+				last[ 1 ] = Math.max( last[ 1 ], hi );
+			} else {
+				out.push( [ lo, hi ] );
+			}
+		}
+		return out;
+	};
+	const inside = ( r, list ) => {
+		let [ at, end ] = [ -1, list.length - 1 ];
+		while ( at < end ) {
+			const mid = ( at + end + 1 ) >> 1;
+			if ( list[ mid ][ 0 ] + 1e-9 < r ) {
+				at = mid;
+			} else {
+				end = mid - 1;
+			}
+		}
+		return at >= 0 && r < list[ at ][ 1 ] - 1e-9;
+	};
 	for ( let sweep = 0; sweep < 2; sweep++ ) {
 		/** @type {Object<number,Array<[number, number]>>} */
 		const spans = {};
 		for ( const c of Object.keys( byCol ).map( Number ) ) {
-			spans[ c ] = wires
-				.filter(
-					( [ a, b ] ) =>
-						Math.min( col[ a ], col[ b ] ) < c &&
-						c < Math.max( col[ a ], col[ b ] )
-				)
-				.map( ( [ a, b ] ) => [
-					Math.min( row[ a ], row[ b ] ) - WIRE_CLEARANCE,
-					Math.max( row[ a ], row[ b ] ) + WIRE_CLEARANCE,
-				] );
+			spans[ c ] = merged(
+				wires
+					.filter(
+						( [ a, b ] ) =>
+							Math.min( col[ a ], col[ b ] ) < c &&
+							c < Math.max( col[ a ], col[ b ] )
+					)
+					.map( ( [ a, b ] ) => [
+						Math.min( row[ a ], row[ b ] ) - WIRE_CLEARANCE,
+						Math.max( row[ a ], row[ b ] ) + WIRE_CLEARANCE,
+					] )
+			);
 		}
 		let moved = false;
 		for ( const id of ids ) {
@@ -791,6 +821,82 @@ const componentsOf = ( ids, succ, pred ) => {
 	return out;
 };
 
+/** Passes `transpose` makes, alternating strict and level swaps. */
+const TRANSPOSE_PASSES = 8;
+
+/**
+ * Swap neighbouring members of a column wherever that uncrosses wires,
+ * counting EVERY wire between adjacent columns.
+ *
+ * The sweeps key a node on its least-shared neighbour, so a wire from a
+ * neighbour two cards share never weighs in their order: two cards one source
+ * feeds keep whichever order the first sweep gave them, even where the shared
+ * neighbour's wire then crosses the other card's. Swapping two neighbours
+ * changes only the crossings among their own wires, so each swap is weighed
+ * by those alone. Odd passes also take a level swap among wires that cross:
+ * uncrossing that pair takes a swap in each of two columns, and the first
+ * gains nothing alone. The pass ending on the fewest crossings wins, and the
+ * sweeps' order stands unless one has strictly fewer. Fewer here is fewer
+ * between adjacent columns' indices, not on the drawn rows, which is why
+ * `layoutBands` weighs each block against the sweeps' order once drawn.
+ *
+ * @param {Array<Array<string>>}         columns Each column's members in order, rewritten in place.
+ * @param {Object<string,number>}        col     Columns.
+ * @param {Object<string,Array<string>>} pred    Predecessors, placeholders included.
+ * @param {Object<string,Array<string>>} succ    Successors, placeholders included.
+ * @param {Object<string,number>}        pos     Index within its column, rewritten in place.
+ * @return {boolean} Whether it kept an order other than the sweeps'.
+ */
+const transpose = ( columns, col, pred, succ, pos ) => {
+	// Crossings among `u`'s and `v`'s wires to either side, `u` above `v`.
+	const crossings = ( u, v ) => {
+		let k = 0;
+		for ( const [ adj, side ] of [
+			[ pred, col[ u ] - 1 ],
+			[ succ, col[ u ] + 1 ],
+		] ) {
+			for ( const a of adj[ u ] ) {
+				if ( col[ a ] !== side ) {
+					continue;
+				}
+				for ( const b of adj[ v ] ) {
+					if ( col[ b ] === side && pos[ a ] > pos[ b ] ) {
+						k++;
+					}
+				}
+			}
+		}
+		return k;
+	};
+	let gain = 0;
+	let best = 0;
+	let kept = columns.map( ( c ) => [ ...c ] );
+	for ( let pass = 0; pass < TRANSPOSE_PASSES; pass++ ) {
+		const level = pass % 2 === 1;
+		for ( const column of columns ) {
+			for ( let i = 0; i + 1 < column.length; i++ ) {
+				const [ u, v ] = [ column[ i ], column[ i + 1 ] ];
+				const was = crossings( u, v );
+				const now = crossings( v, u );
+				if ( now < was || ( level && was > 0 && now === was ) ) {
+					[ column[ i ], column[ i + 1 ] ] = [ v, u ];
+					[ pos[ v ], pos[ u ] ] = [ i, i + 1 ];
+					gain += now - was;
+				}
+			}
+		}
+		if ( gain < best ) {
+			best = gain;
+			kept = columns.map( ( c ) => [ ...c ] );
+		}
+	}
+	kept.forEach( ( c, k ) => {
+		columns[ k ] = c;
+		c.forEach( ( id, i ) => ( pos[ id ] = i ) );
+	} );
+	return best < 0;
+};
+
 /**
  * Lay ONE component out in grid units, using the layering described at the top.
  *
@@ -803,9 +909,11 @@ const componentsOf = ( ids, succ, pred ) => {
  * @param {Object<string,Array<string>>} succ  Successors inside the component.
  * @param {Object<string,Array<string>>} pred  Predecessors inside the component.
  * @param {( id: string ) => boolean}    unfed Whether nothing in the whole graph feeds a node.
- * @return {{col: Object<string,number>, row: Object<string,number>, wires: Array<[string, string]>, deferred: Array<string>}}
+ * @return {{col: Object<string,number>, row: Object<string,number>, wires: Array<[string, string]>, deferred: Array<string>, plain: ?{col: Object<string,number>, row: Object<string,number>}}}
  * Grid units, rows normalised so the topmost is 0, the wires spanning two or
- * more columns, and the sources `seatSources` seats last.
+ * more columns, the sources `seatSources` seats last, and — where `transpose`
+ * changed the sweeps' order — the grid units for that order too, so the block
+ * can judge the exchange on its drawing.
  */
 const layoutComponent = ( ids, succ, pred, unfed ) => {
 	/** @type {Object<string,number>} */
@@ -1057,179 +1165,212 @@ const layoutComponent = ( ids, succ, pred, unfed ) => {
 			reindex();
 		}
 	}
-	// @longform A late source sweeps from column 0, then waits beside what it
-	// feeds, so the row spread straddles it with a card fanning to the same
-	// column. Only left of the anchor: right of it, rows seat from the left,
-	// and re-spreading a column once the next has centred on it bends chains.
-	for ( const id of later ) {
-		const at = col[ succ[ id ][ 0 ] ] - 1;
-		if ( at < anchor ) {
-			columns[ col[ id ] ] = columns[ col[ id ] ].filter(
-				( x ) => x !== id
+	const swept = columns.map( ( c ) => [ ...c ] );
+	const exchanged = transpose( columns, col, pred, succ, pos );
+	const sweptCol = { ...col };
+	// Rows for one column order, from the late sources to the wire clearing.
+	const settle = ( order ) => {
+		order.forEach( ( c, k ) => ( columns[ k ] = [ ...c ] ) );
+		for ( const id of Object.keys( col ) ) {
+			delete col[ id ];
+		}
+		Object.assign( col, sweptCol );
+		unseated.clear();
+		later.forEach( ( id ) => unseated.add( id ) );
+		// @longform A late source sweeps from column 0, then waits beside what
+		// it feeds, so the row spread straddles it with a card fanning to the
+		// same column. Only left of the anchor: right of it, rows seat from the
+		// left, and re-spreading a column once the next has centred on it bends
+		// chains.
+		for ( const id of later ) {
+			const at = col[ succ[ id ][ 0 ] ] - 1;
+			if ( at < anchor ) {
+				columns[ col[ id ] ] = columns[ col[ id ] ].filter(
+					( x ) => x !== id
+				);
+				col[ id ] = at;
+				columns[ at ].push( id );
+				unseated.delete( id );
+			}
+		}
+		reindex();
+
+		// Spread what a sweep seated; a card with no row has none to spread.
+		const spreadSet = ( members, r ) =>
+			spreadColumn(
+				members.filter( ( id ) => r[ id ] !== undefined ),
+				r,
+				declIdx,
+				footprint
 			);
-			col[ id ] = at;
-			columns[ at ].push( id );
-			unseated.delete( id );
-		}
-	}
-	reindex();
 
-	// Spread what a sweep seated; a card with no row yet has none to spread.
-	const spreadSet = ( members, r ) =>
-		spreadColumn(
-			members.filter( ( id ) => r[ id ] !== undefined ),
-			r,
-			declIdx,
-			footprint
-		);
+		// Stack the anchor; spring the rest to neighbour midpoints.
+		const assignRows = ( spread = false ) => {
+			/** @type {Object<string,number>} */
+			const r = {};
+			let stacked = 0;
+			for ( const id of columns[ anchor ] ) {
+				r[ id ] = stacked;
+				stacked += footprint( id );
+			}
+			for ( let c = anchor + 1; c <= maxDepth; c++ ) {
+				for ( const id of columns[ c ] ) {
+					const nb = pred[ id ].filter(
+						( p ) => r[ p ] !== undefined
+					);
+					if ( nb.length ) {
+						r[ id ] = midMinMax( nb.map( ( p ) => r[ p ] ) );
+					}
+				}
+				if ( spread ) {
+					spreadSet( columns[ c ], r );
+				}
+			}
+			for ( let c = anchor - 1; c >= 0; c-- ) {
+				for ( const id of columns[ c ] ) {
+					const nb = succ[ id ].filter(
+						( k ) => r[ k ] !== undefined
+					);
+					if ( nb.length ) {
+						r[ id ] = midMinMax( nb.map( ( k ) => r[ k ] ) );
+					}
+				}
+				if ( spread ) {
+					spreadSet( columns[ c ], r );
+				}
+			}
+			// @longform A card fed only from left of the anchor had no feeder
+			// row when the forward sweep reached it; it seats from them now, on
+			// the nearest row its column leaves free, moving no card already
+			// placed.
+			for ( let c = anchor + 1; c <= maxDepth; c++ ) {
+				for ( const id of columns[ c ] ) {
+					const nb = pred[ id ].filter(
+						( p ) => r[ p ] !== undefined
+					);
+					if ( r[ id ] !== undefined || ! nb.length ) {
+						continue;
+					}
+					const want = snapHalf(
+						midMinMax( nb.map( ( p ) => r[ p ] ) )
+					);
+					const skip = ( o ) => o === id || ! footprint( o );
+					r[ id ] = nearestRow(
+						want,
+						( at ) =>
+							! cardsWithin(
+								columns[ c ],
+								r,
+								at - 1,
+								at + 1,
+								skip
+							)
+					);
+				}
+			}
+			// @longform A component that never reaches the anchor column is
+			// seeded by neither sweep, and a card left without a row renders
+			// off-graph, silently. Stack the leftovers under their own column.
+			for ( let c = 0; c <= maxDepth; c++ ) {
+				let next = null;
+				for ( const id of columns[ c ] ) {
+					if ( r[ id ] !== undefined ) {
+						continue;
+					}
+					if ( null === next ) {
+						const taken = columns[ c ]
+							.map( ( x ) => r[ x ] )
+							.filter( ( v ) => v !== undefined );
+						next = taken.length ? Math.max( ...taken ) + 1 : 0;
+					}
+					r[ id ] = next++;
+				}
+			}
+			return r;
+		};
+		let row = assignRows();
 
-	// Stack the anchor; spring the rest to neighbour midpoints.
-	const assignRows = ( spread = false ) => {
-		/** @type {Object<string,number>} */
-		const r = {};
-		let stacked = 0;
-		for ( const id of columns[ anchor ] ) {
-			r[ id ] = stacked;
-			stacked += footprint( id );
-		}
-		for ( let c = anchor + 1; c <= maxDepth; c++ ) {
-			for ( const id of columns[ c ] ) {
-				const nb = pred[ id ].filter( ( p ) => r[ p ] !== undefined );
-				if ( nb.length ) {
-					r[ id ] = midMinMax( nb.map( ( p ) => r[ p ] ) );
-				}
-			}
-			if ( spread ) {
-				spreadSet( columns[ c ], r );
-			}
-		}
-		for ( let c = anchor - 1; c >= 0; c-- ) {
-			for ( const id of columns[ c ] ) {
-				const nb = succ[ id ].filter( ( k ) => r[ k ] !== undefined );
-				if ( nb.length ) {
-					r[ id ] = midMinMax( nb.map( ( k ) => r[ k ] ) );
-				}
-			}
-			if ( spread ) {
-				spreadSet( columns[ c ], r );
+		// Orient the anchor: the lowest-index node sits on the flow-from side.
+		const anchorKey = ( id ) =>
+			median(
+				( sinkSide ? pred[ id ] : succ[ id ] )
+					.map( ( x ) => row[ x ] )
+					.filter( ( v ) => v !== undefined )
+			);
+		const buildOrder = ( sign ) =>
+			stableSort( columns[ anchor ], ( id ) => sign * anchorKey( id ) );
+		const firstAtTop = ( ord ) => {
+			const first = ord
+				.slice()
+				.sort( ( a, b ) => declIdx[ a ] - declIdx[ b ] )[ 0 ];
+			return ord.indexOf( first ) <= ( ord.length - 1 ) / 2;
+		};
+		let chosen = buildOrder( 1 );
+		for ( const sign of [ 1, -1 ] ) {
+			const ord = buildOrder( sign );
+			if ( firstAtTop( ord ) === sinkSide ) {
+				chosen = ord;
+				break;
 			}
 		}
-		// @longform A card fed only from left of the anchor had no feeder row
-		// when the forward sweep reached it; it seats from them now, on the
-		// nearest row its column leaves free, moving no card already placed.
-		for ( let c = anchor + 1; c <= maxDepth; c++ ) {
-			for ( const id of columns[ c ] ) {
-				const nb = pred[ id ].filter( ( p ) => r[ p ] !== undefined );
-				if ( r[ id ] !== undefined || ! nb.length ) {
-					continue;
-				}
-				const want = snapHalf( midMinMax( nb.map( ( p ) => r[ p ] ) ) );
-				const skip = ( o ) => o === id || ! footprint( o );
-				r[ id ] = nearestRow(
-					want,
-					( at ) =>
-						! cardsWithin( columns[ c ], r, at - 1, at + 1, skip )
+		columns[ anchor ] = chosen;
+		row = assignRows();
+		// @longform Rows derive from the anchor's order and that order from the
+		// rows, so the pass above sorted on rows the sweep order laid. Refine
+		// until it holds. The rows now carry the chosen orientation, so a
+		// refinement sorts ascending: sorting descending again would flip the
+		// column back.
+		for ( let i = 0; i < 6; i++ ) {
+			const ord = buildOrder( 1 );
+			if ( ord.every( ( id, k ) => id === columns[ anchor ][ k ] ) ) {
+				break;
+			}
+			columns[ anchor ] = ord;
+			row = assignRows();
+		}
+
+		// @longform Settle the other columns by neighbour-row median. The last
+		// pass spreads same-column overlaps symmetrically (PAV) so a fan-out
+		// straddles, each column before the next one out reads it: a chain
+		// centred on a card the spread then moved would bend half a row.
+		const passes = 6;
+		for ( let it = 0; it < passes; it++ ) {
+			for ( let c = anchor + 1; c <= maxDepth; c++ ) {
+				columns[ c ] = stableSort( columns[ c ], ( id ) =>
+					median(
+						pred[ id ]
+							.map( ( x ) => row[ x ] )
+							.filter( ( v ) => v !== undefined )
+					)
 				);
 			}
+			for ( let c = anchor - 1; c >= 0; c-- ) {
+				columns[ c ] = stableSort( columns[ c ], ( id ) =>
+					median(
+						succ[ id ]
+							.map( ( x ) => row[ x ] )
+							.filter( ( v ) => v !== undefined )
+					)
+				);
+			}
+			row = assignRows( it === passes - 1 );
 		}
-		// @longform A component that never reaches the anchor column is
-		// seeded by neither sweep, and a card left without a row renders
-		// off-graph, silently. Stack the leftovers under their own column.
-		for ( let c = 0; c <= maxDepth; c++ ) {
-			let next = null;
-			for ( const id of columns[ c ] ) {
-				if ( r[ id ] !== undefined ) {
-					continue;
-				}
-				if ( null === next ) {
-					const taken = columns[ c ]
-						.map( ( x ) => r[ x ] )
-						.filter( ( v ) => v !== undefined );
-					next = taken.length ? Math.max( ...taken ) + 1 : 0;
-				}
-				r[ id ] = next++;
+
+		// The placeholders have done their work; only the cards leave here.
+		for ( const id of laid ) {
+			if ( ! real.has( id ) ) {
+				delete col[ id ];
+				delete row[ id ];
 			}
 		}
-		return r;
+		const stays = ids.filter( ( id ) => ! unseated.has( id ) );
+		clearWires( stays, wires, col, row );
+		normalizeRows( ids, row );
+		return { col: { ...col }, row };
 	};
-	let row = assignRows();
-
-	// Orient the anchor so the lowest-index node sits on the flow-from side.
-	const anchorKey = ( id ) =>
-		median(
-			( sinkSide ? pred[ id ] : succ[ id ] )
-				.map( ( x ) => row[ x ] )
-				.filter( ( v ) => v !== undefined )
-		);
-	const buildOrder = ( sign ) =>
-		stableSort( columns[ anchor ], ( id ) => sign * anchorKey( id ) );
-	const firstAtTop = ( ord ) => {
-		const first = ord
-			.slice()
-			.sort( ( a, b ) => declIdx[ a ] - declIdx[ b ] )[ 0 ];
-		return ord.indexOf( first ) <= ( ord.length - 1 ) / 2;
-	};
-	let chosen = buildOrder( 1 );
-	for ( const sign of [ 1, -1 ] ) {
-		const ord = buildOrder( sign );
-		if ( firstAtTop( ord ) === sinkSide ) {
-			chosen = ord;
-			break;
-		}
-	}
-	columns[ anchor ] = chosen;
-	row = assignRows();
-	// @longform Rows derive from the anchor's order and that order from the
-	// rows, so the pass above sorted on rows the sweep order laid. Refine until
-	// it holds. The rows now carry the chosen orientation, so a refinement
-	// sorts ascending: sorting descending again would flip the column back.
-	for ( let i = 0; i < 6; i++ ) {
-		const ord = buildOrder( 1 );
-		if ( ord.every( ( id, k ) => id === columns[ anchor ][ k ] ) ) {
-			break;
-		}
-		columns[ anchor ] = ord;
-		row = assignRows();
-	}
-
-	// @longform Settle the other columns by neighbour-row median. The last
-	// pass spreads same-column overlaps symmetrically (PAV) so a fan-out
-	// straddles, each column before the next one out reads it: a chain
-	// centred on a card the spread then moved would bend half a row.
-	const passes = 6;
-	for ( let it = 0; it < passes; it++ ) {
-		for ( let c = anchor + 1; c <= maxDepth; c++ ) {
-			columns[ c ] = stableSort( columns[ c ], ( id ) =>
-				median(
-					pred[ id ]
-						.map( ( x ) => row[ x ] )
-						.filter( ( v ) => v !== undefined )
-				)
-			);
-		}
-		for ( let c = anchor - 1; c >= 0; c-- ) {
-			columns[ c ] = stableSort( columns[ c ], ( id ) =>
-				median(
-					succ[ id ]
-						.map( ( x ) => row[ x ] )
-						.filter( ( v ) => v !== undefined )
-				)
-			);
-		}
-		row = assignRows( it === passes - 1 );
-	}
-
-	// The placeholders have done their work; only the cards leave here.
-	for ( const id of laid ) {
-		if ( ! real.has( id ) ) {
-			delete col[ id ];
-			delete row[ id ];
-		}
-	}
-	const stays = ids.filter( ( id ) => ! unseated.has( id ) );
-	clearWires( stays, wires, col, row );
-	normalizeRows( ids, row );
-	return { col, row, wires, deferred: [ ...later ] };
+	const band = settle( columns );
+	const plain = exchanged ? settle( swept ) : undefined;
+	return { ...band, wires, deferred: [ ...later ], plain };
 };
 
 /**
@@ -1539,6 +1680,33 @@ const stackRows = ( blocks ) => {
 };
 
 /**
+ * Canvas x of each column: one `X_STEP` apiece, plus the half step that opens
+ * at every boundary three or more wires meet one node across.
+ *
+ * @param {Array<string>}                ids  The cards whose wires count.
+ * @param {Object<string,number>}        col  Their columns; a neighbour with none counts for nothing.
+ * @param {Object<string,Array<string>>} succ Successors.
+ * @param {Object<string,Array<string>>} pred Predecessors.
+ * @return {( c: number ) => number} Column to canvas x.
+ */
+const columnX = ( ids, col, succ, pred ) => {
+	const wiresTo = ( nb, c ) => nb.filter( ( n ) => col[ n ] === c ).length;
+	const opened = new Set();
+	for ( const id of ids ) {
+		const c = col[ id ];
+		if ( wiresTo( pred[ id ], c - 1 ) >= GAP_MIN_WIRES ) {
+			opened.add( c );
+		}
+		if ( wiresTo( succ[ id ], c + 1 ) >= GAP_MIN_WIRES ) {
+			opened.add( c + 1 );
+		}
+	}
+	const gaps = [ ...opened ];
+	return ( c ) =>
+		X_PAD + ( c + gaps.filter( ( g ) => g <= c ).length / 2 ) * X_STEP;
+};
+
+/**
  * Lay a graph out as packed blocks: each hub group's bands stacked with the
  * hub in the column right after them, and the blocks filling side-by-side
  * stacks toward a canvas about as wide as it is tall.
@@ -1569,10 +1737,6 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 
 	const unfed = ( id ) => ! pred[ id ].length;
 	const blocks = blocksOf( ids, succ, pred, hubs ).map( ( b ) => {
-		/** @type {Object<string,number>} */
-		const bc = {};
-		/** @type {Object<string,number>} */
-		const br = {};
 		const hubSet = new Set( b.hubs );
 		// @longform A band a hub feeds continues the chain past it, so it
 		// goes right of the hubs; every other band feeds them from the left.
@@ -1582,177 +1746,243 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 			);
 		const feeders = b.bands.filter( ( m ) => ! fed( m ) );
 		const consumers = b.bands.filter( fed );
+		// Each band laid out once; `plain` keeps the sweeps' order apart.
+		const laid = new Map(
+			b.bands.map( ( members ) => [
+				members,
+				members.length === 1
+					? {
+							col: { [ members[ 0 ] ]: 0 },
+							row: { [ members[ 0 ] ]: 0 },
+							wires: [],
+							deferred: unfed( members[ 0 ] ) ? members : [],
+							plain: undefined,
+					  }
+					: layoutComponent(
+							members,
+							restrictAdjacency( members, succ ),
+							restrictAdjacency( members, pred ),
+							unfed
+					  ),
+			] )
+		);
+		// The block drawn from the bands' grids `pick` chooses.
+		const draw = ( pick ) => {
+			/** @type {Object<string,number>} */
+			const bc = {};
+			/** @type {Object<string,number>} */
+			const br = {};
 
-		/** @type {Array<[string, string]>} */
-		const bandWires = [];
-		/** @type {Array<string>} */
-		const deferred = [];
-		// Stack bands from `atCol`; returns the stack's width and height.
-		const stack = ( bands, atCol ) => {
-			let next = 0;
-			let width = 0;
-			for ( const members of bands ) {
-				const inBand = restrictAdjacency( members, succ );
-				const band =
-					members.length === 1
-						? {
-								col: { [ members[ 0 ] ]: 0 },
-								row: { [ members[ 0 ] ]: 0 },
-								wires: [],
-								deferred: unfed( members[ 0 ] ) ? members : [],
-						  }
-						: layoutComponent(
-								members,
-								inBand,
-								restrictAdjacency( members, pred ),
-								unfed
-						  );
-				// @longform A late source seats inside its band before the
-				// band below stacks against it: laid out with no footprint,
-				// the row its band left it was the one row between two
-				// packed bands, and where a flat wire held that row the
-				// block-level seat walked past the next band. Seated here,
-				// the band's height covers it, and it grows downward only:
-				// the band's top is the row the stack gave it. The wires it
-				// lays stay out of the band's, which the block-level pass
-				// reads before it reseats the source against every wire the
-				// block holds, or the source's own wire would refuse it.
-				if ( band.deferred.length ) {
-					seatSources(
-						band.deferred,
-						inBand,
-						hubSet,
-						members,
-						[ ...band.wires ],
-						band.col,
-						band.row,
-						0
-					);
+			/** @type {Array<[string, string]>} */
+			const bandWires = [];
+			/** @type {Array<string>} */
+			const deferred = [];
+			// Stack bands from `atCol`; returns the stack's width and height.
+			const stack = ( bands, atCol ) => {
+				let next = 0;
+				let width = 0;
+				for ( const members of bands ) {
+					const inBand = restrictAdjacency( members, succ );
+					const grid = pick( laid.get( members ) );
+					const band = {
+						...laid.get( members ),
+						col: { ...grid.col },
+						row: { ...grid.row },
+					};
+					// @longform A late source seats inside its band before the
+					// band below stacks against it: laid out with no footprint,
+					// the row its band left it was the one row between two
+					// packed bands, and where a flat wire held that row the
+					// block-level seat walked past the next band. Seated here,
+					// the band's height covers it, and it grows downward only:
+					// the band's top is the row the stack gave it. The wires it
+					// lays stay out of the band's, which the block-level pass
+					// reads before it reseats the source against every wire the
+					// block holds, or the source's own wire would refuse it.
+					if ( band.deferred.length ) {
+						seatSources(
+							band.deferred,
+							inBand,
+							hubSet,
+							members,
+							[ ...band.wires ],
+							band.col,
+							band.row,
+							0
+						);
+					}
+					let height = 0;
+					for ( const id of members ) {
+						bc[ id ] = atCol + band.col[ id ];
+						br[ id ] = band.row[ id ] + next;
+						width = Math.max( width, band.col[ id ] + 1 );
+						height = Math.max( height, band.row[ id ] );
+					}
+					bandWires.push( ...band.wires );
+					deferred.push( ...band.deferred );
+					next += height + 1;
 				}
-				let height = 0;
-				for ( const id of members ) {
-					bc[ id ] = atCol + band.col[ id ];
-					br[ id ] = band.row[ id ] + next;
-					width = Math.max( width, band.col[ id ] + 1 );
-					height = Math.max( height, band.row[ id ] );
-				}
-				bandWires.push( ...band.wires );
-				deferred.push( ...band.deferred );
-				next += height + 1;
+				return { width, height: next };
+			};
+
+			const left = stack( feeders, 0 );
+			placeBackbone( b.hubs, succ, pred, left.width, bc, br );
+			let hubRight = left.width;
+			for ( const h of b.hubs ) {
+				hubRight = Math.max( hubRight, bc[ h ] + 1 );
 			}
-			return { width, height: next };
-		};
-
-		const left = stack( feeders, 0 );
-		placeBackbone( b.hubs, succ, pred, left.width, bc, br );
-		let hubRight = left.width;
-		for ( const h of b.hubs ) {
-			hubRight = Math.max( hubRight, bc[ h ] + 1 );
-		}
-		// The consumers hang level with the hubs that feed them.
-		const right = stack( consumers, hubRight );
-		if ( consumers.length ) {
-			const hubRows = [];
-			for ( const members of consumers ) {
-				for ( const id of members ) {
-					for ( const n of pred[ id ] ) {
-						if ( hubSet.has( n ) ) {
-							hubRows.push( br[ n ] );
+			// The consumers hang level with the hubs that feed them.
+			const right = stack( consumers, hubRight );
+			if ( consumers.length ) {
+				const hubRows = [];
+				for ( const members of consumers ) {
+					for ( const id of members ) {
+						for ( const n of pred[ id ] ) {
+							if ( hubSet.has( n ) ) {
+								hubRows.push( br[ n ] );
+							}
 						}
 					}
 				}
+				const shift = snapHalf(
+					midMinMax( hubRows ) - ( right.height - 1 ) / 2
+				);
+				for ( const members of consumers ) {
+					for ( const id of members ) {
+						br[ id ] += shift;
+					}
+				}
 			}
-			const shift = snapHalf(
-				midMinMax( hubRows ) - ( right.height - 1 ) / 2
+			// @longform A wire to a hub is no wire inside a band, so the band's
+			// own pass never saw it: a chain's head feeding the hub directly
+			// ran its wire along the chain's row, through the chain. Each band
+			// clears its cards off its own hub wires here. Only its own: a
+			// hub's fan-in crosses every band between, and clearing those would
+			// scatter each band's sinks away from their sources for wires that
+			// are not theirs. The backbone clears off every hub wire: a bridge
+			// seated on its hub's row sits in the path of everything feeding
+			// that hub. A source seated last leaves its hub wire out, placed
+			// clear of all.
+			const seatedLast = new Set( deferred );
+			/** @type {Array<[string, string]>} */
+			const hubWires = [];
+			for ( const id of Object.keys( bc ) ) {
+				for ( const to of succ[ id ] ) {
+					if (
+						! seatedLast.has( id ) &&
+						( hubSet.has( to ) || hubSet.has( id ) ) &&
+						bc[ to ] !== undefined &&
+						Math.abs( bc[ to ] - bc[ id ] ) >= 2
+					) {
+						hubWires.push( [ id, to ] );
+					}
+				}
+			}
+			const all = Object.keys( bc );
+			// Farthest from the hubs first, so each half cascades outward.
+			const hubMid = b.hubs.length
+				? midMinMax( b.hubs.map( ( h ) => br[ h ] ) )
+				: 0;
+			const farFirst = stableSort(
+				b.bands,
+				( m ) =>
+					-Math.abs(
+						midMinMax( m.map( ( id ) => br[ id ] ) ) - hubMid
+					)
 			);
-			for ( const members of consumers ) {
-				for ( const id of members ) {
-					br[ id ] += shift;
-				}
+			for ( const members of farFirst ) {
+				const own = new Set( members );
+				clearWires(
+					members,
+					hubWires.filter(
+						( [ from, to ] ) => own.has( from ) || own.has( to )
+					),
+					bc,
+					br,
+					all
+				);
 			}
-		}
-		// @longform A wire to a hub is no wire inside a band, so the band's
-		// own pass never saw it: a chain's head feeding the hub directly ran
-		// its wire along the chain's row, through the chain. Each band clears
-		// its cards off its own hub wires here. Only its own: a hub's fan-in
-		// crosses every band between, and clearing those would scatter each
-		// band's sinks away from their sources for wires that are not theirs.
-		// The backbone clears off every hub wire: a bridge seated on its
-		// hub's row sits in the path of everything feeding that hub. A
-		// source seated last leaves its hub wire out, placed clear of all.
-		const seatedLast = new Set( deferred );
-		/** @type {Array<[string, string]>} */
-		const hubWires = [];
-		for ( const id of Object.keys( bc ) ) {
-			for ( const to of succ[ id ] ) {
-				if (
-					! seatedLast.has( id ) &&
-					( hubSet.has( to ) || hubSet.has( id ) ) &&
-					bc[ to ] !== undefined &&
-					Math.abs( bc[ to ] - bc[ id ] ) >= 2
-				) {
-					hubWires.push( [ id, to ] );
-				}
-			}
-		}
-		const all = Object.keys( bc );
-		// Farthest from the hubs first, so each half cascades outward.
-		const hubMid = b.hubs.length
-			? midMinMax( b.hubs.map( ( h ) => br[ h ] ) )
-			: 0;
-		const farFirst = stableSort(
-			b.bands,
-			( m ) =>
-				-Math.abs( midMinMax( m.map( ( id ) => br[ id ] ) ) - hubMid )
-		);
-		for ( const members of farFirst ) {
-			const own = new Set( members );
-			clearWires(
-				members,
-				hubWires.filter(
-					( [ from, to ] ) => own.has( from ) || own.has( to )
-				),
+			clearWires( b.hubs, hubWires, bc, br, all );
+			// Last, once every card and wire a seat must clear is placed.
+			seatSources(
+				deferred,
+				succ,
+				hubSet,
+				all,
+				[ ...bandWires, ...hubWires ],
 				bc,
-				br,
-				all
+				br
 			);
-		}
-		clearWires( b.hubs, hubWires, bc, br, all );
-		// Last, once every card and wire a seat must clear is placed.
-		seatSources(
-			deferred,
-			succ,
-			hubSet,
-			all,
-			[ ...bandWires, ...hubWires ],
-			bc,
-			br
-		);
-		normalizeRows( Object.keys( br ), br );
-		let widest = 0;
-		let bottom = 0;
-		for ( const id of Object.keys( bc ) ) {
-			widest = Math.max( widest, bc[ id ] );
-			bottom = Math.max( bottom, br[ id ] );
-		}
-		/** @type {Object<number,[number, number]>} */
-		const hull = {};
-		for ( const id of Object.keys( bc ) ) {
-			widen( hull, bc[ id ], br[ id ], br[ id ] );
-			for ( const to of succ[ id ] ) {
-				if ( bc[ to ] !== undefined ) {
-					coverWire( hull, bc[ id ], br[ id ], bc[ to ], br[ to ] );
+			normalizeRows( Object.keys( br ), br );
+			let widest = 0;
+			let bottom = 0;
+			for ( const id of Object.keys( bc ) ) {
+				widest = Math.max( widest, bc[ id ] );
+				bottom = Math.max( bottom, br[ id ] );
+			}
+			/** @type {Object<number,[number, number]>} */
+			const hull = {};
+			for ( const id of Object.keys( bc ) ) {
+				widen( hull, bc[ id ], br[ id ], br[ id ] );
+				for ( const to of succ[ id ] ) {
+					if ( bc[ to ] !== undefined ) {
+						coverWire(
+							hull,
+							bc[ id ],
+							br[ id ],
+							bc[ to ],
+							br[ to ]
+						);
+					}
 				}
 			}
-		}
-		return {
-			...b,
-			col: bc,
-			row: br,
-			hull,
-			width: widest + 1,
-			height: bottom + 1,
+			return {
+				col: bc,
+				row: br,
+				hull,
+				width: widest + 1,
+				height: bottom + 1,
+			};
 		};
+		// @longform The exchange counts crossings between column indices, and
+		// the rows the band and block passes settle can cross more, so it is
+		// judged on the block as drawn. The sweeps' order wins a tie.
+		let drawn = draw( ( band ) => band );
+		if ( b.bands.some( ( members ) => laid.get( members ).plain ) ) {
+			const plain = draw( ( band ) => band.plain ?? band );
+			const [ mine, theirs ] = [ drawn, plain ].map( ( d ) => {
+				const cards = Object.keys( d.col );
+				const xOf = columnX( cards, d.col, succ, pred );
+				/** @type {Object<string,{x: number, y: number}>} */
+				const at = {};
+				for ( const id of cards ) {
+					at[ id ] = {
+						x: xOf( d.col[ id ] ),
+						y: d.row[ id ] * Y_STEP,
+					};
+				}
+				let crossings = 0;
+				let over = 0;
+				walkDrawing(
+					at,
+					cards.flatMap( ( from ) =>
+						succ[ from ]
+							.filter( ( to ) => d.col[ to ] !== undefined )
+							.map( ( to ) => ( { from, to } ) )
+					),
+					() => crossings++,
+					() => over++
+				);
+				return [ crossings, over ];
+			} );
+			const fewer =
+				mine[ 0 ] < theirs[ 0 ] ||
+				( mine[ 0 ] === theirs[ 0 ] && mine[ 1 ] < theirs[ 1 ] );
+			if ( ! fewer ) {
+				drawn = plain;
+			}
+		}
+		return { ...b, ...drawn };
 	} );
 
 	const order = stableSort(
@@ -1861,6 +2091,112 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 
 	normalizeRows( ids, row );
 	return { col, row };
+};
+
+/**
+ * What a laid-out graph costs to read: the pairs of wires that cross, then
+ * each card a wire runs over. It is the layout's own judge —
+ * `layoutBands` keeps a block's exchange only when this scores the block as
+ * drawn cheaper than the sweeps' order — and it is exported so the layout
+ * tests judge by the same rule.
+ *
+ * Each wire counts as the straight line between its two cards' positions, and
+ * two wires sharing a card never cross. A card runs under a wire when its
+ * column lies strictly between the wire's ends and it sits within
+ * `WIRE_CLEARANCE` rows of the rows the wire spans, the margin `clearWires`
+ * and `seatSources` keep, so the judge and the layout agree on what is clear.
+ * A wire whose ends share a column counts for neither.
+ *
+ * @param {Object<string,{x: number, y: number}>} at    Canvas position of every card.
+ * @param {Array<{from: string, to: string}>}     wires The wires drawn between them.
+ * @return {{crossings: Array<string>, over: Array<string>}} `a→b × c→d` for
+ * each crossing pair, and `a→b over id` for each card a wire runs over.
+ * @testonly The export alone; the layout counts through `walkDrawing`.
+ */
+export function drawnCost( at, wires ) {
+	const label = ( w ) => `${ w.from }\u2192${ w.to }`;
+	/** @type {Array<string>} */
+	const crossings = [];
+	/** @type {Array<string>} */
+	const over = [];
+	walkDrawing(
+		at,
+		wires,
+		( a, b ) => crossings.push( `${ label( a ) } \u00d7 ${ label( b ) }` ),
+		( w, id ) => over.push( `${ label( w ) } over ${ id }` )
+	);
+	return { crossings, over };
+}
+
+/**
+ * The walk behind `drawnCost`, handing each crossing pair and each card a wire
+ * runs over to a callback, so the layout counts what the tests label.
+ *
+ * @param {Object<string,{x: number, y: number}>}                                    at      Canvas position of every card.
+ * @param {Array<{from: string, to: string}>}                                        wires   The wires drawn between them.
+ * @param {( a: {from: string, to: string}, b: {from: string, to: string} ) => void} onCross Called once per crossing pair.
+ * @param {( w: {from: string, to: string}, id: string ) => void}                    onOver  Called once per card a wire runs over.
+ */
+const walkDrawing = ( at, wires, onCross, onOver ) => {
+	/** @type {Array<{w: {from: string, to: string}, p: {x: number, y: number}, q: {x: number, y: number}}>} */
+	const segs = [];
+	for ( const w of wires ) {
+		const [ p, q ] = [ at[ w.from ], at[ w.to ] ].sort(
+			( a, b ) => a.x - b.x
+		);
+		if ( p.x !== q.x ) {
+			segs.push( { w, p, q } );
+		}
+	}
+	// Sorted by left end, so a scan stops at the first wire starting past one.
+	segs.sort( ( a, b ) => a.p.x - b.p.x );
+	const yAt = ( { p, q }, x ) =>
+		p.y + ( ( q.y - p.y ) * ( x - p.x ) ) / ( q.x - p.x );
+	for ( let i = 0; i < segs.length; i++ ) {
+		const a = segs[ i ];
+		const { from, to } = a.w;
+		for ( let j = i + 1; j < segs.length; j++ ) {
+			const b = segs[ j ];
+			if ( b.p.x >= a.q.x ) {
+				break;
+			}
+			const meets =
+				from === b.w.from ||
+				from === b.w.to ||
+				to === b.w.from ||
+				to === b.w.to;
+			const hi = Math.min( a.q.x, b.q.x );
+			if (
+				! meets &&
+				( yAt( a, b.p.x ) - yAt( b, b.p.x ) ) *
+					( yAt( a, hi ) - yAt( b, hi ) ) <
+					0
+			) {
+				onCross( a.w, b.w );
+			}
+		}
+	}
+	/** @type {Object<number,Array<string>>} */
+	const byX = {};
+	for ( const [ id, { x } ] of Object.entries( at ) ) {
+		( byX[ x ] ??= [] ).push( id );
+	}
+	const xs = Object.keys( byX ).map( Number );
+	const margin = WIRE_CLEARANCE * Y_STEP;
+	for ( const { w, p, q } of segs ) {
+		const top = Math.min( p.y, q.y ) - margin;
+		const bottom = Math.max( p.y, q.y ) + margin;
+		for ( const x of xs ) {
+			if ( x <= p.x || x >= q.x ) {
+				continue;
+			}
+			for ( const id of byX[ x ] ) {
+				if ( at[ id ].y > top && at[ id ].y < bottom ) {
+					onOver( w, id );
+				}
+			}
+		}
+	}
 };
 
 /**
@@ -1985,20 +2321,7 @@ export function autoLayout( parsed ) {
 		}
 	}
 	const { col, row } = layoutBands( ids, succ, pred, hubs );
-	const wiresTo = ( nb, c ) => nb.filter( ( n ) => col[ n ] === c ).length;
-	const opened = new Set();
-	for ( const id of ids ) {
-		const c = col[ id ];
-		if ( wiresTo( pred[ id ], c - 1 ) >= GAP_MIN_WIRES ) {
-			opened.add( c );
-		}
-		if ( wiresTo( succ[ id ], c + 1 ) >= GAP_MIN_WIRES ) {
-			opened.add( c + 1 );
-		}
-	}
-	const gaps = [ ...opened ];
-	const xOf = ( c ) =>
-		X_PAD + ( c + gaps.filter( ( g ) => g <= c ).length / 2 ) * X_STEP;
+	const xOf = columnX( ids, col, succ, pred );
 
 	const positioned = nodes.map( ( n ) => ( {
 		...n,

@@ -17,6 +17,7 @@
 
 import { createPortal, useState } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
+import { SearchControl } from '@wordpress/components';
 import { useLogTailStream } from './hooks/useLogTailStream';
 import { useNodeField } from '../runtime/react';
 import UnparseableLinesNotice from '@newspack-nodes/shared/components/UnparseableLinesNotice';
@@ -125,12 +126,13 @@ export default function ConfigAudit( { headerControlsSlot } ) {
 						  ) }
 				</span>
 			</span>
-			<input
-				type="text"
+			<SearchControl
+				__nextHasNoMarginBottom
 				className="newspack-nodes-search-input"
+				label={ __( 'Filter option names', 'newspack-nodes' ) }
 				placeholder={ __( 'Filter option names…', 'newspack-nodes' ) }
 				value={ filter }
-				onChange={ ( e ) => setFilter( e.target.value ) }
+				onChange={ setFilter }
 			/>
 		</div>
 	);

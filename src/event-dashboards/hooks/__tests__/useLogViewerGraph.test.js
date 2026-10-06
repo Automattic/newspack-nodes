@@ -84,6 +84,17 @@ function mountGraph() {
 	return renderHook( () => useLogViewerGraph() );
 }
 
+// Drive document.visibilityState, as a tab hidden or shown would.
+const setVisibility = async ( state ) => {
+	Object.defineProperty( document, 'visibilityState', {
+		value: state,
+		configurable: true,
+	} );
+	await act( async () => {
+		document.dispatchEvent( new Event( 'visibilitychange' ) );
+	} );
+};
+
 describe( 'useLogViewerGraph', () => {
 	// The shared mount is parameterised, so these values must be the Log
 	// Viewer's own — the endpoint override and the `php` subscribe placeholder
@@ -508,15 +519,6 @@ describe( 'useLogViewerGraph', () => {
 	} );
 
 	describe( 'visibility gating', () => {
-		const setVisibility = ( state ) => {
-			Object.defineProperty( document, 'visibilityState', {
-				value: state,
-				configurable: true,
-			} );
-			act( () => {
-				document.dispatchEvent( new Event( 'visibilitychange' ) );
-			} );
-		};
 		afterEach( () => setVisibility( 'visible' ) );
 
 		test( 'closes the stream when hidden and reopens the source when visible', async () => {
@@ -524,25 +526,16 @@ describe( 'useLogViewerGraph', () => {
 			mountGraph();
 			await act( async () => {} );
 			const open = FakeEventSource.last;
-			act( () => setVisibility( 'hidden' ) );
+			await setVisibility( 'hidden' );
 			expect( open.closed ).toBe( true );
 			const before = FakeEventSource.instances.length;
-			act( () => setVisibility( 'visible' ) );
+			await setVisibility( 'visible' );
 			expect( FakeEventSource.instances.length ).toBe( before + 1 );
 			expect( FakeEventSource.last.url ).toContain( 'subscribe=access' );
 		} );
 	} );
 
 	describe( 'pause disconnects / play resumes', () => {
-		const setVisibility = ( state ) => {
-			Object.defineProperty( document, 'visibilityState', {
-				value: state,
-				configurable: true,
-			} );
-			act( () => {
-				document.dispatchEvent( new Event( 'visibilitychange' ) );
-			} );
-		};
 		afterEach( () => setVisibility( 'visible' ) );
 
 		test( 'setPaused(true) closes the EventSource (frees the server slot), not just the view flag', async () => {
@@ -592,8 +585,8 @@ describe( 'useLogViewerGraph', () => {
 			act( () => result.current.setPaused( true ) );
 			expect( open.closed ).toBe( true );
 			const afterPause = FakeEventSource.instances.length;
-			act( () => setVisibility( 'hidden' ) );
-			act( () => setVisibility( 'visible' ) );
+			await setVisibility( 'hidden' );
+			await setVisibility( 'visible' );
 			expect( FakeEventSource.instances.length ).toBe( afterPause );
 			expect( FakeEventSource.last.closed ).toBe( true );
 		} );

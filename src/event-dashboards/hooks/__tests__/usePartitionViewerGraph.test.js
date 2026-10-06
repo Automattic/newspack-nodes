@@ -105,6 +105,17 @@ function mountGraph() {
 
 const oneLogReply = () => [ { key: 'firehose.p0', label: 'firehose.p0' } ];
 
+// Drive document.visibilityState, as a tab hidden or shown would.
+const setVisibility = async ( state ) => {
+	Object.defineProperty( document, 'visibilityState', {
+		value: state,
+		configurable: true,
+	} );
+	await act( async () => {
+		document.dispatchEvent( new Event( 'visibilitychange' ) );
+	} );
+};
+
 describe( 'usePartitionViewerGraph — exospine + RemoteLink wiring', () => {
 	test( 'mounts the backbone + one RemoteLink (composing three children) + the view', async () => {
 		installWire( { list_logs: oneLogReply() } );
@@ -500,16 +511,6 @@ describe( 'usePartitionViewerGraph — control callbacks', () => {
 } );
 
 describe( 'usePartitionViewerGraph — visibility-gated streaming', () => {
-	const setVisibility = ( state ) => {
-		Object.defineProperty( document, 'visibilityState', {
-			value: state,
-			configurable: true,
-		} );
-		act( () => {
-			document.dispatchEvent( new Event( 'visibilitychange' ) );
-		} );
-	};
-
 	// Other suites assume a visible tab; reset after each visibility test.
 	afterEach( () => setVisibility( 'visible' ) );
 
@@ -519,7 +520,7 @@ describe( 'usePartitionViewerGraph — visibility-gated streaming', () => {
 		await act( async () => {} );
 		const open = FakeEventSource.last;
 		expect( open.closed ).toBe( false );
-		act( () => setVisibility( 'hidden' ) );
+		await setVisibility( 'hidden' );
 		expect( open.closed ).toBe( true );
 	} );
 
@@ -527,9 +528,9 @@ describe( 'usePartitionViewerGraph — visibility-gated streaming', () => {
 		installWire( { list_logs: oneLogReply() } );
 		mountGraph();
 		await act( async () => {} );
-		act( () => setVisibility( 'hidden' ) );
+		await setVisibility( 'hidden' );
 		const before = FakeEventSource.instances.length;
-		act( () => setVisibility( 'visible' ) );
+		await setVisibility( 'visible' );
 		expect( FakeEventSource.instances.length ).toBe( before + 1 );
 		expect( FakeEventSource.last.url ).toContain( 'subscribe=firehose.p0' );
 	} );
@@ -547,8 +548,8 @@ describe( 'usePartitionViewerGraph — visibility-gated streaming', () => {
 		env[ VALUE ] = 'a real log line';
 		act( () => FakeEventSource.last.dispatch( 'msg', pack( env ) ) );
 		// Hide → close; refocus must reopen SEEKING the last offset, not tail.
-		act( () => setVisibility( 'hidden' ) );
-		act( () => setVisibility( 'visible' ) );
+		await setVisibility( 'hidden' );
+		await setVisibility( 'visible' );
 		const url = FakeEventSource.last.url;
 		expect( url ).toContain( 'positions=' );
 		const positions = JSON.parse(
@@ -563,15 +564,6 @@ describe( 'usePartitionViewerGraph — visibility-gated streaming', () => {
 } );
 
 describe( 'usePartitionViewerGraph — pause disconnects / play resumes', () => {
-	const setVisibility = ( state ) => {
-		Object.defineProperty( document, 'visibilityState', {
-			value: state,
-			configurable: true,
-		} );
-		act( () => {
-			document.dispatchEvent( new Event( 'visibilitychange' ) );
-		} );
-	};
 	afterEach( () => setVisibility( 'visible' ) );
 
 	test( 'setPaused(true) closes the EventSource (frees the server slot), not just the view flag', async () => {
@@ -704,8 +696,8 @@ describe( 'usePartitionViewerGraph — pause disconnects / play resumes', () => 
 		expect( open.closed ).toBe( true );
 		const afterPause = FakeEventSource.instances.length;
 		// Hiding then refocusing the tab must NOT reopen a user-paused stream.
-		act( () => setVisibility( 'hidden' ) );
-		act( () => setVisibility( 'visible' ) );
+		await setVisibility( 'hidden' );
+		await setVisibility( 'visible' );
 		expect( FakeEventSource.instances.length ).toBe( afterPause );
 		expect( FakeEventSource.last.closed ).toBe( true );
 	} );

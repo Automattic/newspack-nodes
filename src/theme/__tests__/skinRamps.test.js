@@ -329,6 +329,19 @@ graphStylesheet.walkRules( ( rule ) => {
 } );
 const graphCascadeRecords = cascadeRecords( graphStylesheet );
 const uiCascadeRecords = cascadeRecords( uiStylesheet );
+// WordPress's component stylesheet, which wp-admin loads ahead of the UI asset.
+const WORDPRESS_COMPONENTS_CSS = path.join(
+	ROOT,
+	'node_modules/@wordpress/components/build-style/style.css'
+);
+// jsdom cannot parse WordPress's nested :has(), and none matches a lone button.
+const wordpressUiCascadeRecords = cascadeRecords(
+	postcss.parse(
+		`${ fs.readFileSync( WORDPRESS_COMPONENTS_CSS, 'utf8' ) }\n${
+			sass.compile( UI_SCSS ).css
+		}`
+	)
+).filter( ( record ) => ! record.selector.includes( ':has(' ) );
 const skinsSource = fs.readFileSync( SKINS_SCSS, 'utf8' );
 
 const effectiveSkin = ( slug ) => ( {
@@ -2270,6 +2283,74 @@ describe( 'theme skin ramps', () => {
 			expect( skin ).toBeDefined();
 			return skin;
 		};
+
+		/**
+		 * The colour WordPress plus the UI sheet paint on an element, with the
+		 * `--wp-components-*` tokens the skin root sets resolved in the skin.
+		 *
+		 * @param {Element} root     The `.newspack-nodes-ui` root.
+		 * @param {Element} element  The element painted.
+		 * @param {string}  property The colour property read.
+		 * @return {string} The painted colour's key.
+		 */
+		const wordpressPaint = ( root, element, property ) => {
+			const tokens = { ...effectiveSkin( slug ) };
+			for ( const record of wordpressUiCascadeRecords ) {
+				if ( record.property.startsWith( '--wp-components-' ) ) {
+					tokens[ record.property ] = winningDeclaration(
+						wordpressUiCascadeRecords,
+						root,
+						record.property
+					)?.value;
+				}
+			}
+			const painted = winningDeclaration(
+				wordpressUiCascadeRecords,
+				element,
+				property
+			).value;
+			return colorKey( resolveCssColor( painted, tokens ) );
+		};
+
+		it.each( [
+			[ 'button', 'components-button', 'color', '--ink' ],
+			[ 'button', 'components-button is-pressed', 'color', '--paper' ],
+			[ 'button', 'components-button is-pressed', 'background', '--ink' ],
+			[ 'div', 'components-calendar', 'background-color', '--paper' ],
+		] )(
+			"paints a WordPress <%s class=%s>'s %s in the skin's %s",
+			( tag, className, property, role ) => {
+				const { document } = new JSDOM(
+					`<!doctype html><html class="theme-${ slug }"><body><div class="newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui"><${ tag } class="${ className }"></${ tag }></div></body></html>`
+				).window;
+				const root = document.querySelector( '.newspack-nodes-ui' );
+
+				expect(
+					wordpressPaint( root, root.firstElementChild, property )
+				).toBe(
+					colorKey( resolvedColor( effectiveSkin( slug ), role ) )
+				);
+			}
+		);
+
+		it.each( [
+			[ 'at rest', '' ],
+			[ 'hovered', ' data-cascade-hover' ],
+		] )( "inks a WordPress modal's close button %s", ( state, hover ) => {
+			const { document } = new JSDOM(
+				`<!doctype html><html class="theme-${ slug }"><body><div class="components-modal__frame newspack-nodes-modal newspack-nodes-theme newspack-nodes-ui"><div class="components-modal__content"><div class="components-modal__header"><button class="components-button has-icon is-compact"${ hover }></button></div></div></div></body></html>`
+			).window;
+
+			expect(
+				wordpressPaint(
+					document.querySelector( '.newspack-nodes-ui' ),
+					document.querySelector( '.components-button' ),
+					'color'
+				)
+			).toBe(
+				colorKey( resolvedColor( effectiveSkin( slug ), '--ink' ) )
+			);
+		} );
 
 		it( 'defines the full base-token contract', () => {
 			const tokens = requiredSkin();

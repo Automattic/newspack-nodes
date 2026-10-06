@@ -719,6 +719,26 @@ describe( 'Inspector (view mode)', () => {
 		).toBeNull();
 	} );
 
+	it( 'no-node Compose sends when its form submits; its Value keeps Enter', () => {
+		const onCompose = jest.fn( () => null );
+		openCompose( { onCompose } );
+		chooseType( TM_INFO );
+		typeIn( 'value', 'heads up' );
+		const form = document.body.querySelector( 'form.topology-modal' );
+		expect( sendButton().type ).toBe( 'submit' );
+		[ ...form.querySelectorAll( 'button' ) ]
+			.filter( ( b ) => b !== sendButton() )
+			.forEach( ( b ) => expect( b.type ).toBe( 'button' ) );
+		expect(
+			fireEvent.keyDown( composeField( 'value' ), { key: 'Enter' } )
+		).toBe( true );
+		expect( onCompose ).not.toHaveBeenCalled();
+		fireEvent.submit( form );
+		expect( onCompose ).toHaveBeenCalledWith(
+			sentForm( { type: TM_INFO, value: 'heads up' } )
+		);
+	} );
+
 	it( 'no-node Compose Cancel button closes the composer without sending', () => {
 		const onCompose = jest.fn( () => null );
 		openCompose( { onCompose } );
@@ -1122,7 +1142,7 @@ describe( 'Inspector (view mode)', () => {
 				{ from: 'tee', to: 'a', registration: true, event: 'EVT' },
 			],
 		};
-		const { getByRole, getByDisplayValue } = renderWithCatalog(
+		const { getByRole, getByPlaceholderText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="tee"
@@ -1136,10 +1156,15 @@ describe( 'Inspector (view mode)', () => {
 			getByRole( 'button', { name: /Remove _sse\/workers/i } )
 		);
 		expect( onRemoveEdge ).toHaveBeenCalledWith( 'tee', '_sse/workers' );
-		fireEvent.change( getByDisplayValue( '+ add target…' ), {
-			target: { value: 'b' },
+		const add = getByPlaceholderText( '+ add target…' );
+		fireEvent.change( add, {
+			target: { value: '_shell/_http/performance' },
 		} );
-		expect( onConnect ).toHaveBeenCalledWith( 'tee', 'b' );
+		fireEvent.keyDown( add, { key: 'Enter' } );
+		expect( onConnect ).toHaveBeenCalledWith(
+			'tee',
+			'_shell/_http/performance'
+		);
 	} );
 
 	it( 'live mode target editor reads the ROUTING target, never a declared extra', () => {
@@ -1171,12 +1196,12 @@ describe( 'Inspector (view mode)', () => {
 				onRemoveEdge={ onRemoveEdge }
 			/>
 		);
-		const select = container.querySelector(
+		const input = container.querySelector(
 			'#topology-target-input-flame-builder'
 		);
-		expect( select.value ).toBe( '' );
-		// Clearing an already-empty target dispatches nothing.
-		fireEvent.change( select, { target: { value: '' } } );
+		expect( input.value ).toBe( '' );
+		// Committing an already-empty target dispatches nothing.
+		fireEvent.keyDown( input, { key: 'Enter' } );
 		expect( onRemoveEdge ).not.toHaveBeenCalled();
 	} );
 
@@ -1905,7 +1930,7 @@ describe( 'Inspector (view mode)', () => {
 		expect( getByText( 'Connect' ) ).not.toBeNull();
 	} );
 
-	it( 'live verb modal node_name select is populated from the live graph', () => {
+	it( 'live verb modal node_name input suggests the live graph', () => {
 		const catalog = [
 			{
 				shell_name: 'Echo',
@@ -1925,10 +1950,128 @@ describe( 'Inspector (view mode)', () => {
 		];
 		const { getByText } = renderNode( { catalog } );
 		fireEvent.click( getByText( 'set_target' ) ); // opens the arg modal
-		const select = document.body.querySelector( '.topology-modal select' );
-		const opts = [ ...select.options ].map( ( o ) => o.value );
+		const input = document.body.querySelector( '.topology-modal input' );
+		const opts = [
+			...document
+				.getElementById( input.getAttribute( 'list' ) )
+				.querySelectorAll( 'option' ),
+		].map( ( o ) => o.value );
 		expect( opts ).toContain( 'tee_a' ); // a live node from parsed.nodes
 		expect( opts ).not.toContain( 'echo' ); // self excluded
+	} );
+
+	it( 'live verb modal runs a node_name arg typed as a remote path', () => {
+		const onAction = jest.fn();
+		const catalog = [
+			{
+				shell_name: 'Echo',
+				commands: [
+					{
+						name: 'set_target',
+						args: [
+							{
+								name: 'target',
+								type: 'node_name',
+								required: true,
+							},
+						],
+					},
+				],
+			},
+		];
+		const { getByText } = renderNode( { catalog, onAction } );
+		fireEvent.click( getByText( 'set_target' ) );
+		const input = document.body.querySelector( '.topology-modal input' );
+		fireEvent.change( input, {
+			target: { value: '_shell/_http/performance' },
+		} );
+		fireEvent.click( getByText( 'Run' ) );
+		expect( onAction ).toHaveBeenCalledWith( 'invoke', 'echo', {
+			verb: 'set_target',
+			kind: 'command',
+			args: [ '--target=_shell/_http/performance' ],
+		} );
+	} );
+
+	it( 'live verb modal disables Run while a node_name arg refuses its draft', () => {
+		const onAction = jest.fn();
+		const catalog = [
+			{
+				shell_name: 'Echo',
+				commands: [
+					{
+						name: 'set_target',
+						args: [
+							{
+								name: 'target',
+								type: 'node_name',
+								required: true,
+							},
+						],
+					},
+				],
+			},
+		];
+		const { getByText } = renderNode( { catalog, onAction } );
+		fireEvent.click( getByText( 'set_target' ) );
+		const input = document.body.querySelector( '.topology-modal input' );
+		fireEvent.change( input, { target: { value: 'heron/p3' } } );
+		fireEvent.change( input, { target: { value: 'heron p3' } } );
+		expect( getByText( 'Run' ).disabled ).toBe( true );
+		fireEvent.click( getByText( 'Run' ) );
+		expect( onAction ).not.toHaveBeenCalled();
+		fireEvent.change( input, { target: { value: 'heron/p4' } } );
+		fireEvent.click( getByText( 'Run' ) );
+		expect( onAction ).toHaveBeenCalledWith( 'invoke', 'echo', {
+			verb: 'set_target',
+			kind: 'command',
+			args: [ '--target=heron/p4' ],
+		} );
+	} );
+
+	// jsdom performs no implicit submission, so Enter is the form's submit.
+	it( 'live verb modal runs when its form submits, Run being its submit', () => {
+		const onAction = jest.fn();
+		const catalog = [
+			{
+				shell_name: 'Echo',
+				commands: [
+					{
+						name: 'set_target',
+						args: [
+							{
+								name: 'target',
+								type: 'node_name',
+								required: true,
+							},
+						],
+					},
+				],
+			},
+		];
+		const { getByText } = renderNode( { catalog, onAction } );
+		fireEvent.click( getByText( 'set_target' ) );
+		const form = document.body.querySelector( 'form.topology-modal' );
+		const input = form.querySelector( 'input' );
+		expect( getByText( 'Run' ).type ).toBe( 'submit' );
+		[ ...form.querySelectorAll( 'button' ) ]
+			.filter( ( b ) => b !== getByText( 'Run' ) )
+			.forEach( ( b ) => expect( b.type ).toBe( 'button' ) );
+		fireEvent.change( input, { target: { value: 'heron p3' } } );
+		// A refused path holds Enter, which cancels the implicit submit.
+		expect( fireEvent.keyDown( input, { key: 'Enter' } ) ).toBe( false );
+		expect( getByText( 'Run' ).disabled ).toBe( true );
+		fireEvent.change( input, { target: { value: 'egret/p7' } } );
+		expect( fireEvent.keyDown( input, { key: 'Enter' } ) ).toBe( true );
+		fireEvent.submit( form );
+		expect( onAction ).toHaveBeenCalledWith( 'invoke', 'echo', {
+			verb: 'set_target',
+			kind: 'command',
+			args: [ '--target=egret/p7' ],
+		} );
+		expect(
+			document.body.querySelector( 'form.topology-modal' )
+		).toBeNull();
 	} );
 
 	it( 'renders TM_REQUEST buttons from the catalog and wires onAction', () => {

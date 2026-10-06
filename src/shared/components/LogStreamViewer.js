@@ -21,17 +21,37 @@
 
 import { useEffect, useState } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
+import { SearchControl } from '@wordpress/components';
 
 import { Core } from '../../runtime/core';
 import LogRowList from './LogRowList';
 import LogListHeader from './LogListHeader';
 import ConnectionBanner from './ConnectionBanner';
+import CommitInput from './CommitInput';
 import UnparseableLinesNotice from './UnparseableLinesNotice';
 import { HeaderSlot } from './HeaderSlot';
 import { readStorage, writeStorage } from '../utils/storage';
+import parseOffsetJump from '../utils/parseOffsetJump';
 
 /** What the toolbar shows before the first frame, and after a Clear. */
 const EMPTY_STATS = { total: 0, visible: 0, lps: 0 };
+
+/**
+ * Refuse a jump neither form of the grammar reads.
+ *
+ * Grammar only: the owner resolves a bare offset against the segment it is
+ * reading, which this chrome never sees, so any segment stands in here.
+ *
+ * @param {string} draft The trimmed jump text.
+ * @return {?string} Why it is refused, or null.
+ */
+const refuseJump = ( draft ) =>
+	parseOffsetJump( draft, 0 )
+		? null
+		: __(
+				'Paste a message ID (seg:offset:len) or a bare offset.',
+				'newspack-nodes'
+		  );
 
 /**
  * The debug VALUE of one row: a struct's raw JSON pretty-printed, anything
@@ -146,7 +166,7 @@ const debugHeader = ( hasKeyColumn ) => (
  * @param {string}                    [props.linkNode]           The stream's `<prefix>:link`, whose skipped-line count the notice reads; absent shows none.
  * @param {() => void}                props.onTogglePause        Pause or resume the stream.
  * @param {() => void}                [props.onStep]             Deliver one message; absent renders no step button, and it is disabled while the stream runs.
- * @param {(offset: string) => void}  [props.onJump]             Handler for the offset input, called on Enter with the trimmed text; absent renders no input.
+ * @param {(text: string) => ?string} [props.onJump]             Takes a parseable offset on Enter, trimmed, and answers why it refuses one, or null; absent renders no input.
  * @param {() => ?Object}             props.getViewNode          The live ring node `LogRowList` reads. Read per call, so a graph rebuild is picked up.
  * @param {() => void}                props.onClear              Send the view's `clear` control.
  * @param {*}                         props.sidebar              The configured `LogBrowser` element; falsy docks no rail.
@@ -210,7 +230,6 @@ export default function LogStreamViewer( {
 	};
 	// Debug rows: ID · KEY · VALUE, pretty structs, natural heights.
 	const [ debug, setDebug ] = useState( false );
-	const [ jumpText, setJumpText ] = useState( '' );
 	// Counts LogRowList reports up (row DATA never becomes React state).
 	const [ stats, setStats ] = useState( EMPTY_STATS );
 
@@ -310,33 +329,30 @@ export default function LogStreamViewer( {
 				)
 			) }
 
-			<input
-				type="text"
+			<SearchControl
+				__nextHasNoMarginBottom
 				className="newspack-nodes-search-input"
-				aria-label={ __( 'Filter the stream', 'newspack-nodes' ) }
+				label={ __( 'Filter the stream', 'newspack-nodes' ) }
 				placeholder={
 					filterPlaceholder ?? __( 'Filter…', 'newspack-nodes' )
 				}
 				value={ filter }
-				onChange={ ( e ) => {
-					setFilter( e.target.value );
-					onFilter?.( e.target.value );
+				onChange={ ( term ) => {
+					setFilter( term );
+					onFilter?.( term );
 				} }
 			/>
 
 			{ onJump && (
-				<input
-					type="text"
+				<CommitInput
 					className="newspack-nodes-offset-input"
 					aria-label={ __( 'Jump to an offset', 'newspack-nodes' ) }
 					placeholder={ __( 'seg:offset', 'newspack-nodes' ) }
-					value={ jumpText }
-					onChange={ ( e ) => setJumpText( e.target.value ) }
-					onKeyDown={ ( e ) => {
-						if ( 'Enter' === e.key ) {
-							onJump( jumpText.trim() );
-						}
-					} }
+					value=""
+					validate={ refuseJump }
+					refuseWhileTyping={ false }
+					onCommit={ onJump }
+					commitOnBlur={ false }
 					title={ __(
 						'Jump: paste a message ID (seg:off:len) or a bare offset, Enter pauses and steps that message',
 						'newspack-nodes'

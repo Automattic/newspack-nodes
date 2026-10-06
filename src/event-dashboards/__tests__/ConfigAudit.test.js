@@ -167,7 +167,7 @@ describe( 'ConfigAudit', () => {
 		useNodeField.mockReturnValue( model() );
 		const { container, getByText, queryByText } = render( <ConfigAudit /> );
 		fireEvent.change(
-			container.querySelector( '.newspack-nodes-search-input' ),
+			container.querySelector( '.newspack-nodes-search-input input' ),
 			{
 				target: { value: 'flame' },
 			}
@@ -175,6 +175,22 @@ describe( 'ConfigAudit', () => {
 		expect( getByText( 'newspack_flame_colors' ) ).toBeTruthy();
 		expect( queryByText( 'newspack_theme_mods' ) ).toBeNull();
 		expect( getByText( /1 \/ 2/ ) ).toBeTruthy();
+	} );
+
+	it( "the filter's reset button empties it and restores every change", () => {
+		useNodeField.mockReturnValue( model() );
+		const { getByLabelText, getByRole, getByText } = render(
+			<ConfigAudit />
+		);
+		const input = getByLabelText( 'Filter option names' );
+		fireEvent.change( input, { target: { value: 'flame' } } );
+		expect( getByText( /1 \/ 2/ ) ).toBeTruthy();
+
+		fireEvent.click( getByRole( 'button', { name: 'Reset search' } ) );
+
+		expect( input.value ).toBe( '' );
+		expect( getByText( 'newspack_theme_mods' ) ).toBeTruthy();
+		expect( getByText( /2 changes/ ) ).toBeTruthy();
 	} );
 
 	it( 'shows the total count when no filter is active', () => {
@@ -187,7 +203,7 @@ describe( 'ConfigAudit', () => {
 		useNodeField.mockReturnValue( model() );
 		const { container, getByText } = render( <ConfigAudit /> );
 		fireEvent.change(
-			container.querySelector( '.newspack-nodes-search-input' ),
+			container.querySelector( '.newspack-nodes-search-input input' ),
 			{
 				target: { value: 'zzz-nomatch' },
 			}
@@ -204,14 +220,14 @@ describe( 'ConfigAudit', () => {
 		);
 		// The toolbar lives in the slot, not in the tab body.
 		expect(
-			slot.querySelector( '.newspack-nodes-search-input' )
+			slot.querySelector( '.newspack-nodes-search-input input' )
 		).toBeTruthy();
 		expect(
-			container.querySelector( '.newspack-nodes-search-input' )
+			container.querySelector( '.newspack-nodes-search-input input' )
 		).toBeNull();
 		// Filtering still drives the table from up there.
 		fireEvent.change(
-			slot.querySelector( '.newspack-nodes-search-input' ),
+			slot.querySelector( '.newspack-nodes-search-input input' ),
 			{
 				target: { value: 'flame' },
 			}
@@ -227,7 +243,7 @@ describe( 'ConfigAudit', () => {
 			<ConfigAudit headerControlsSlot={ null } />
 		);
 		expect(
-			container.querySelector( '.newspack-nodes-search-input' )
+			container.querySelector( '.newspack-nodes-search-input input' )
 		).toBeNull();
 	} );
 

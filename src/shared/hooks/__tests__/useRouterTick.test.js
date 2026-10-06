@@ -73,13 +73,12 @@ describe( 'useRouterTick', () => {
 	} );
 
 	// @longform
-	// No leading fire. TimerNode.setTimer zeroes lastFireTime, so the next router
-	// tick always passed the throttle regardless of intervalMs — every adopter
-	// that also does its own immediate load paid a duplicate request ~1s after
-	// arming, and re-armed on every tab focus. The caller owns the leading edge.
-	// The cadence is a wall-clock GRID (`nextBoundary`), so a slow tick fires
-	// on the first boundary of its own period rather than intervalMs after it
-	// was armed — which is what puts every 7s consumer on one tick.
+	// No leading fire on the first arm. A fresh Timer's lastFireTime is 0, so
+	// its first router tick would pass the throttle whatever intervalMs says,
+	// duplicating the adopter's own mount load a second later. The caller owns
+	// that leading edge. The cadence is a wall-clock GRID (`nextBoundary`), so a
+	// slow tick fires on the first boundary of its own period rather than
+	// intervalMs after it was armed — which puts every 7s consumer on one tick.
 	it( 'fires once per interval, not once per router tick', () => {
 		const onTick = jest.fn();
 
@@ -236,6 +235,95 @@ describe( 'useRouterTick', () => {
 
 		// Five 200ms fires in the span the router would have given one.
 		expect( onTick.mock.calls.length ).toBeGreaterThanOrEqual( 5 );
+	} );
+
+	describe( 'resuming', () => {
+		const setVisibility = ( state ) => {
+			Object.defineProperty( document, 'visibilityState', {
+				configurable: true,
+				get: () => state,
+			} );
+			document.dispatchEvent( new Event( 'visibilitychange' ) );
+		};
+
+		afterEach( () => act( () => setVisibility( 'visible' ) ) );
+
+		const renderSlow = ( onTick ) =>
+			renderHook(
+				( { enabled } ) =>
+					useRouterTick( {
+						name: 'test:slow',
+						onTick,
+						intervalMs: INTERVAL_MS,
+						enabled,
+					} ),
+				{ initialProps: { enabled: true } }
+			);
+
+		it( 'waits out its interval on the first arm', async () => {
+			const onTick = jest.fn();
+			mountHost();
+			renderSlow( onTick );
+			await act( async () => {} );
+			expect( onTick ).not.toHaveBeenCalled();
+		} );
+
+		it( 'fires at once when re-enabled, without waiting for the grid', async () => {
+			const onTick = jest.fn();
+			mountHost();
+			const { rerender } = renderSlow( onTick );
+			await act( async () => {} );
+
+			await act( async () => rerender( { enabled: false } ) );
+			await act( async () => rerender( { enabled: true } ) );
+
+			expect( onTick ).toHaveBeenCalledTimes( 1 );
+		} );
+
+		it( 'fires at once when the tab is shown again', async () => {
+			const onTick = jest.fn();
+			mountHost();
+			renderSlow( onTick );
+			await act( async () => {} );
+
+			await act( async () => setVisibility( 'hidden' ) );
+			await act( async () => setVisibility( 'visible' ) );
+
+			expect( onTick ).toHaveBeenCalledTimes( 1 );
+		} );
+
+		it( 'fires at once when shown after a rebuild while hidden', async () => {
+			const onTick = jest.fn();
+			mountHost();
+			renderSlow( onTick );
+			await act( async () => {} );
+
+			await act( async () => setVisibility( 'hidden' ) );
+			await act( async () => Core.bumpGraphGeneration() );
+			await act( async () => setVisibility( 'visible' ) );
+
+			expect( onTick ).toHaveBeenCalledTimes( 1 );
+		} );
+
+		it( 'fires at once when first armed by a mount that began disabled', async () => {
+			const onTick = jest.fn();
+			mountHost();
+			const { rerender } = renderHook(
+				( { enabled } ) =>
+					useRouterTick( {
+						name: 'test:slow',
+						onTick,
+						intervalMs: INTERVAL_MS,
+						enabled,
+					} ),
+				{ initialProps: { enabled: false } }
+			);
+			await act( async () => {} );
+
+			await act( async () => rerender( { enabled: true } ) );
+
+			expect( onTick ).toHaveBeenCalledTimes( 1 );
+		} );
 	} );
 
 	it( 'does not tick while disabled', () => {

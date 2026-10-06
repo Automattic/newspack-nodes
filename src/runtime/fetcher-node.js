@@ -70,7 +70,7 @@ const ASK_EXPIRY_S = 120;
  * batch as everything else instead of minting its own POST. It also parks the
  * SUBJECT the ask is about, which rides on FROM so the answer comes back
  * naming it — that is how ONE Fetcher serves many rows with nothing correlated
- * (ADR-7).
+ * (ADR-7). `withdraw()` takes every ask back without sending a new one.
  *
  * `fill()` IGNORES a trigger's payload — every message that is not a REPLY is
  * just a trigger. The command is configured on the node, never read from the
@@ -392,6 +392,21 @@ export class FetcherNode extends Node {
 								asString( token ) === asString( args[ i ] )
 						) ) )
 		);
+	}
+
+	/**
+	 * Withdraw every standing ask and send nothing: how a view stops wanting an
+	 * answer without asking anew, as `send( …, true )` drops what it replaces.
+	 * A request already on the wire still completes, but its answer finds no
+	 * ask standing, so it settles nothing and the slice's gate drops it. Each
+	 * ask leaving notifies `settled`, as an answered one does.
+	 */
+	withdraw() {
+		const withdrawn = this.outbox;
+		this.outbox = [];
+		for ( const ask of withdrawn ) {
+			this.notify( 'settled', ask );
+		}
 	}
 
 	/**

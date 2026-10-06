@@ -1145,11 +1145,28 @@ sizes each refill by Curl's own count.
 fetches each url through a [`Curl_Node`](#curl_node--any-https-url) it owns,
 which follows no redirect, follows the same-origin links every page carries
 and the same-origin Location every redirect names, and sends each answer to
-`target`. `make_node Crawler <name> <ttl> [vault_id]`: `ttl` is a whole number
-of seconds, at least 1, that a url counts as seen, so a url may be crawled
-again once it expires; `vault_id` goes to the Curl sibling, and a seed must
-then be on that Vault server's origin or Curl answers a TM_ERROR. It extends
-`Timer_Node` and refills on a recurring one-second tick.
+`target`. `make_node Crawler <name> <ttl> [vault_id] [delay_ms] [concurrency]`:
+`ttl` is a whole number of seconds, at least 1, that a url counts as seen, so
+a url may be crawled again once it expires; `vault_id` goes to the Curl
+sibling, and a seed must then be on that Vault server's origin or Curl answers
+a TM_ERROR. `delay_ms`, default 0, is the least number of milliseconds between
+two fetch starts, and 0 leaves the crawl unthrottled; any other delay is at
+least `MIN_DELAY_MS` (100). `concurrency`, default 1, is the most fetches in
+flight at once, from 1 to `Curl_Node::MAX_IN_FLIGHT` (16). `make_node` refuses
+a non-numeric or negative token for either, a `delay_ms` from 1 to 99, and a
+`concurrency` outside 1 to 16, with `Bad arguments for Crawler '<name>': …`. It
+extends `Timer_Node` and refills on a recurring timer: the one-second tick
+with no delay, every `delay_ms` with one.
+
+Two verbs on `{name}:config` change the pacing of a running crawler:
+`set_delay_ms <ms>` and `set_concurrency <n>`. Each replays the crawler's
+arguments with that one token replaced, so it is refused exactly as
+`make_node` would refuse it, keeps both siblings and their transfers, and
+leaves `dump_config()` emitting the new value on the `make_node` line; a
+skipped positional before it is written as its default (`make_node Crawler
+crawl 7203 '' 0 3`). Both are declared `setter`s naming a positional, which
+`Schema_Reflection` turns into that replay for any node. The timer re-arms only
+when its interval changes.
 
 The crawler owns two siblings, built when its arguments arrive and torn down
 with it:
@@ -1177,11 +1194,19 @@ anywhere else it throws `Table_Unavailable`, `Table <name>: a sqlite backend nee
 | A reply from the `{name}:seen` Table | Collected by the crawler's `Table_Client`. |
 | Anything else | Dropped with one rate-limited line. |
 
-A refill moves up to `Curl_Node::MAX_IN_FLIGHT` (16) less Curl's
-`transfers_in_flight()` from `pending` to `inflight` in one `SMOVE`. An answer
+A refill moves up to `concurrency` less Curl's `transfers_in_flight()` from
+`pending` to `inflight` in one `SMOVE`. The window fills only as fast as the
+frontier does: a seed is the one url in `pending` until its body is parsed, so
+a crawl starts with one fetch in flight whatever its `concurrency`, and a
+redirect queues only its one Location. An answer
 Curl sends synchronously, a refusal such as `curl_init failed`, refills
 nothing, so its slot waits for the next tick; an answer that completes later
-refills on its own. It hands
+refills on its own. Under a `delay_ms` above 0 only the timer refills: a seed
+or an answer queues what it found and starts nothing, and each fire moves one
+url. The timer measures each interval from its last fire, so one re-armed by
+`set_delay_ms` cannot fire early. A delay of at least the
+Router's tick rides that tick, so a start lands up to one tick after the
+delay ends. It hands
 each url moved to Curl as a TM_BYTESTREAM whose VALUE and KEY are the url and
 whose FROM is the crawler's name, which Curl copies into its answer. It runs
 only inside a drain loop, and moves nothing while a recovery is owed. The
@@ -1229,7 +1254,8 @@ crawl.
 
 | Constant | Value | Bounds |
 |---|---|---|
-| `TICK_MS` | 1000 | The refill tick, which also carries the first tick's recovery. |
+| `TICK_MS` | 1000 | The refill tick with no `delay_ms`, which also carries the first tick's recovery. |
+| `MIN_DELAY_MS` | 100 | The least positive `delay_ms`. Every fire asks the Table for a url whether or not one is pending, so a shorter delay costs an idle crawl a Table round trip that often. |
 | `FRONTIER_TTL` | 31536000 (one year) | How long a url waits in `pending` or `inflight`. |
 
 ## Extensibility hooks

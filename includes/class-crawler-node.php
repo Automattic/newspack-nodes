@@ -11,20 +11,22 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * Crawler node — `make_node Crawler <name> <ttl> [vault_id]`.
+ * Crawler node — `make_node Crawler <name> <ttl> [vault_id] [delay_ms] [concurrency]`.
  *
  * A seed is a TM_BYTESTREAM url from anyone but the crawler itself. It,
  * every same-origin link a fetched page carries and every same-origin
  * redirect Location are normalized and `ADD`ed to the `{name}:seen` sqlite
  * Table, and each one the Table reports new joins its `pending` set. A
- * refill moves up to `Curl_Node::MAX_IN_FLIGHT` less the fetches in flight
- * from `pending` to `inflight` and hands each url to the `{name}:curl`
- * sibling, which follows no redirect and whose answers come back here through
- * its target. An answer, the body, the redirect as TM_RESPONSE or the
- * TM_ERROR, leaves `inflight` and goes on to target with KEY set to the url;
- * an answered url is done, never retried. The first tick after the node is
- * built returns whatever `inflight` holds to `pending`, so a restart refetches
- * what the last process left in flight.
+ * refill moves up to `concurrency` less the fetches in flight from `pending`
+ * to `inflight` and hands each url to the `{name}:curl` sibling, which
+ * follows no redirect and whose answers come back here through its target.
+ * With `delay_ms` above 0 only the timer refills, one url a fire, every
+ * `delay_ms` from the last fire, a retune included. An answer, the
+ * body, the redirect as TM_RESPONSE or the TM_ERROR, leaves `inflight` and
+ * goes on to target with KEY set to the url; an answered url is done, never
+ * retried. The first tick after the node is built returns whatever
+ * `inflight` holds to `pending`, so a restart refetches what the last
+ * process left in flight.
  *
  * One Crawler per name per host: the Table's namespace and file are the
  * crawler's name, so two workers running one crawler share its sqlite file
@@ -35,6 +37,16 @@ final class Crawler_Node extends Timer_Node {
 
 	/** Refill tick, in ms; the first tick also recovers `inflight`. */
 	public const TICK_MS = 1000;
+
+	/**
+	 * Least positive `delay_ms`. A delay arms the refill timer at `delay_ms`,
+	 * and every fire asks the sqlite Table to `SMOVE` whether or not anything
+	 * is pending, so 5 ms would be some 200 Table round trips a second for an
+	 * idle crawl. At 100 ms that is ten a second, and a gap that short already
+	 * starts ten fetches a second, past where a politeness delay means
+	 * anything; a faster crawl takes delay 0 and paces by `concurrency`.
+	 */
+	public const MIN_DELAY_MS = 100;
 
 	/** Sibling kind of the Table that holds the seen keys and the frontier. */
 	private const SEEN = 'seen';
@@ -54,6 +66,12 @@ final class Crawler_Node extends Timer_Node {
 	/** Vault server id handed to the Curl sibling; '' for none. */
 	protected string $vault_id = '';
 
+	/** Least ms between two fetch starts; 0 starts them as slots free. */
+	protected int $delay_ms = 0;
+
+	/** Most fetches in flight at once, 1 to `Curl_Node::MAX_IN_FLIGHT`. */
+	protected int $concurrency = 1;
+
 	/** The `{name}:curl` sibling that fetches. */
 	private ?Curl_Node $curl = null;
 
@@ -66,20 +84,27 @@ final class Crawler_Node extends Timer_Node {
 	/** True while refill() runs; an answer arriving inside it does not re-enter. */
 	private bool $refilling = false;
 
-	/** The Table client asks by the crawler's live name, so it outlives a rename. */
+	/**
+	 * The Table client asks by the crawler's live name, so it outlives a
+	 * rename; the `{name}:config` interpreter answers the setter verbs, which
+	 * replay the arguments with one token replaced.
+	 */
 	public function __construct() {
 		parent::__construct();
 		$this->tables = new Table_Client( $this );
+		$this->auto_wire_interpreter();
 	}
 
 	/**
-	 * `<ttl> [vault_id]`: build both siblings and arm the refill tick. A
-	 * replay with new tokens tears both siblings down and builds them again;
-	 * one the siblings refuse restores the tokens and the crawler they built.
+	 * `<ttl> [vault_id] [delay_ms] [concurrency]`: build both siblings and
+	 * pace the refill timer. A replay changing `ttl` or `vault_id` tears both
+	 * siblings down and builds them again; one the siblings refuse restores
+	 * the tokens and the crawler they built. A replay changing only the
+	 * pacing keeps the siblings and their transfers.
 	 *
 	 * @param list<string>|null $args Positional tokens, or null to read the current ones.
 	 * @return list<string>
-	 * @throws \InvalidArgumentException When `ttl` is missing or not a whole number.
+	 * @throws \InvalidArgumentException When a token is missing, mistyped or out of range.
 	 * @throws \RuntimeException When a sibling refuses its name or its arguments.
 	 * @throws Failures When the restore refuses too, carrying both refusals.
 	 */
@@ -87,22 +112,31 @@ final class Crawler_Node extends Timer_Node {
 		if ( null === $args ) {
 			return parent::arguments();
 		}
-		$previous = [ $this->arguments, $this->ttl, $this->vault_id ];
-		$this->parse_schema_args( $args );
-		if ( null === $this->curl || $previous[0] !== $args ) {
+		$values      = $this->schema_values( $args );
+		$delay_ms    = Core::as_int( $values['delay_ms'] );
+		$concurrency = Core::as_int( $values['concurrency'] );
+		if ( 0 !== $delay_ms && $delay_ms < self::MIN_DELAY_MS ) {
+			$this->refuse_argument( 'delay_ms wants 0, or a whole number from ' . self::MIN_DELAY_MS . " up, got '{$delay_ms}'" );
+		}
+		if ( $concurrency < 1 || $concurrency > Curl_Node::MAX_IN_FLIGHT ) {
+			$this->refuse_argument( 'concurrency wants a whole number from 1 to ' . Curl_Node::MAX_IN_FLIGHT . ", got '{$concurrency}'" );
+		}
+		$previous = [ $this->arguments, $this->ttl, $this->vault_id, $this->delay_ms, $this->concurrency ];
+		$this->assign_schema_args( $args, $values );
+		if ( null === $this->curl || $previous[1] !== $this->ttl || $previous[2] !== $this->vault_id ) {
 			$built = null !== $this->curl;
 			try {
 				$this->build_siblings();
 			} catch ( \Throwable $e ) {
-				[ $this->arguments, $this->ttl, $this->vault_id ] = $previous;
+				[ $this->arguments, $this->ttl, $this->vault_id, $this->delay_ms, $this->concurrency ] = $previous;
 				$restore = function (): void {
 					$this->build_siblings();
-					$this->set_timer( self::TICK_MS );
+					$this->pace();
 				};
 				Worker_Should_Stop::raise( [ $e, ...( $built ? Worker_Should_Stop::attempt( $restore ) : [] ) ] );
 			}
 		}
-		$this->set_timer( self::TICK_MS );
+		$this->pace();
 		return $args;
 	}
 
@@ -128,9 +162,20 @@ final class Crawler_Node extends Timer_Node {
 		$this->seed( $message );
 	}
 
-	/** The tick refills. */
+	/** The tick refills: the window, or one url a fire under a delay. */
 	protected function fire(): void {
-		$this->refill();
+		$this->refill( tick: true );
+	}
+
+	/**
+	 * Arm the refill timer at `delay_ms`, or at `TICK_MS` with no delay,
+	 * re-arming only when that interval changes.
+	 */
+	private function pace(): void {
+		$interval = 0 < $this->delay_ms ? $this->delay_ms : self::TICK_MS;
+		if ( $interval !== $this->interval_ms ) {
+			$this->set_timer( $interval );
+		}
 	}
 
 	/**
@@ -202,7 +247,7 @@ final class Crawler_Node extends Timer_Node {
 			return;
 		}
 		$this->discover( [ $url ] );
-		$this->refill();
+		$this->refill( tick: false );
 	}
 
 	/**
@@ -240,7 +285,7 @@ final class Crawler_Node extends Timer_Node {
 		}
 		parent::fill( $message );
 		$this->tables->remove_members( $this->sibling_name( self::SEEN ), self::INFLIGHT, [ $url ] );
-		$this->refill();
+		$this->refill( tick: false );
 	}
 
 	/**
@@ -261,18 +306,26 @@ final class Crawler_Node extends Timer_Node {
 	}
 
 	/**
-	 * Move as many urls from `pending` to `inflight` as Curl has free slots
-	 * for, in one `SMOVE`, and hand each to Curl. Only inside a running event
-	 * loop, where a transfer can complete. An answer Curl sends synchronously
-	 * does not refill, so its slot waits for the next tick or the next answer;
-	 * an answer that completes later refills on its own. A throw out of Curl's
-	 * `fill()` mid-batch leaves the rest of the batch in `inflight` until the
-	 * next start returns it to `pending`. Nothing moves while a recovery is
-	 * owed, or the next one would return live urls to `pending`.
+	 * Move as many urls from `pending` to `inflight` as `concurrency` leaves
+	 * free slots for, in one `SMOVE`, and hand each to Curl. Under a delay
+	 * only a tick refills, moving one url; the timer, armed at `delay_ms`,
+	 * spaces those ticks. Only inside a running event loop, where a transfer
+	 * can complete.
+	 * An answer Curl sends synchronously does not refill, so its slot waits
+	 * for the next tick or the next answer; an answer that completes later
+	 * refills on its own. A throw out of Curl's `fill()` mid-batch leaves the
+	 * rest of the batch in `inflight` until the next start returns it to
+	 * `pending`. Nothing moves while a recovery is owed, or the next one would
+	 * return live urls to `pending`.
 	 *
+	 * @param bool $tick Whether the timer asks, rather than a seed or an answer.
 	 * @throws \LogicException When no Curl sibling was built.
 	 */
-	private function refill(): void {
+	private function refill( bool $tick ): void {
+		$paced = 0 < $this->delay_ms;
+		if ( $paced && ! $tick ) {
+			return;
+		}
 		if ( $this->refilling || ! Event_Framework::instance()->is_running() ) {
 			return;
 		}
@@ -283,7 +336,7 @@ final class Crawler_Node extends Timer_Node {
 			if ( ! $this->recovered ) {
 				return;
 			}
-			$free = Curl_Node::MAX_IN_FLIGHT - $curl->transfers_in_flight();
+			$free = \min( $paced ? 1 : $this->concurrency, $this->concurrency - $curl->transfers_in_flight() );
 			if ( $free < 1 ) {
 				return;
 			}
@@ -569,8 +622,27 @@ final class Crawler_Node extends Timer_Node {
 			'arguments'   => [
 				[ 'name' => 'ttl', 'type' => 'int', 'required' => true, 'description' => 'Seconds a url counts as seen, at least 1; it may be crawled again after.' ],
 				[ 'name' => 'vault_id', 'type' => 'vault_id', 'default' => '', 'description' => 'Optional Vault server the Curl sibling fetches through; seeds must be on its origin.' ],
+				[ 'name' => 'delay_ms', 'type' => 'int', 'default' => 0, 'description' => 'Least milliseconds between two fetch starts, 0 or at least ' . self::MIN_DELAY_MS . '; 0 starts each as a slot frees.' ],
+				[ 'name' => 'concurrency', 'type' => 'int', 'default' => 1, 'description' => 'Most fetches in flight at once, from 1 to ' . Curl_Node::MAX_IN_FLIGHT . '.' ],
 			],
-			'commands'    => [],
+			'commands'    => [
+				[
+					'name'        => 'set_delay_ms',
+					'description' => 'Set the least milliseconds between two fetch starts, 0 or at least ' . self::MIN_DELAY_MS . '; 0 unthrottles.',
+					'args'        => [
+						[ 'name' => 'delay_ms', 'type' => 'int', 'required' => true ],
+					],
+					'setter'      => 'delay_ms',
+				],
+				[
+					'name'        => 'set_concurrency',
+					'description' => 'Set the most fetches in flight at once, from 1 to ' . Curl_Node::MAX_IN_FLIGHT . '.',
+					'args'        => [
+						[ 'name' => 'concurrency', 'type' => 'int', 'required' => true ],
+					],
+					'setter'      => 'concurrency',
+				],
+			],
 		];
 	}
 }

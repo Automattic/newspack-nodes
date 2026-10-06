@@ -135,8 +135,9 @@ const APPEARANCE =
  *   One record per declaration.
  */
 const blocks = ( source ) => {
+	// Blank a block comment but keep its newlines, so lines report true.
 	const clean = source
-		.replace( /\/\*[\s\S]*?\*\//g, '' )
+		.replace( /\/\*[\s\S]*?\*\//g, ( m ) => m.replace( /[^\n]/g, '' ) )
 		.replace( /(^|\s)\/\/[^\n]*/g, '$1' );
 	const out = [];
 	const chain = [];

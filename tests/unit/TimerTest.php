@@ -303,6 +303,65 @@ class TimerTest extends TestCase {
 		$timer->stop_timer();
 	}
 
+	/**
+	 * A retune keeps the last fire: the new interval runs from it, so a timer
+	 * re-armed between ticks never fires before that interval has passed.
+	 */
+	public function test_a_retuned_hitchhike_waits_out_its_new_interval_from_the_last_fire(): void {
+		$router = new Router_Node();
+		$router->name( '_router' );
+		$router->interval_ms = 1000;
+		$timer = new Timer_Node();
+		$timer->name( 'retuned' );
+		$capture = new Capture_Sink_Node();
+		$timer->sink( $capture );
+		$timer->set_timer( 5000 );
+
+		Core::$now = 100.0;
+		$timer->fire_cb();
+		$this->assertCount( 1, $capture->captured, 'a fresh timer fires on its first tick' );
+
+		Core::$now = 101.0;
+		$timer->set_timer( 3000 );
+		Core::$now = 102.0;
+		$timer->fire_cb();
+		$this->assertCount( 1, $capture->captured, '2s after the last fire, short of the new 3s' );
+
+		Core::$now = 103.0;
+		$timer->fire_cb();
+		$this->assertCount( 2, $capture->captured, '3s after the last fire' );
+		$timer->stop_timer();
+	}
+
+	/**
+	 * An own slot's fire is a last fire too, so moving onto the hitchhike
+	 * waits the new interval out from it.
+	 */
+	public function test_an_own_slot_fire_paces_the_hitchhike_it_retunes_onto(): void {
+		$router = new Router_Node();
+		$router->name( '_router' );
+		$router->interval_ms = 1000;
+		$timer = new Timer_Node();
+		$timer->name( 'moved' );
+		$capture = new Capture_Sink_Node();
+		$timer->sink( $capture );
+		$timer->set_timer( 500 );
+
+		Core::$now = 200.0;
+		$timer->fire_cb();
+		$timer->set_timer( 4000 );
+		$this->assertSame( 'router', $timer->timer_mode() );
+
+		Core::$now = 201.0;
+		$timer->fire_cb();
+		$this->assertCount( 1, $capture->captured, '1s after the own-slot fire, short of 4s' );
+
+		Core::$now = 204.0;
+		$timer->fire_cb();
+		$this->assertCount( 2, $capture->captured, '4s after the own-slot fire' );
+		$timer->stop_timer();
+	}
+
 	public function test_set_timer_below_1000_uses_own_slot(): void {
 		$timer = new Timer_Node();
 		$timer->name( 'fast' );

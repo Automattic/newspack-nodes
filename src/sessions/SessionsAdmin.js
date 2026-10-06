@@ -191,15 +191,16 @@ function SessionRow( { session, answer, busy, onRevoke } ) {
  */
 
 /**
- * The create form: a label, a scope and a lifetime, handed to `onCreate`.
+ * The create dialog: a label, a scope and a lifetime, handed to `onCreate`.
+ * The dialog is the form, so Enter in a field issues, as the button does.
  *
  * The label is validated here and only here — an unlabelled mint works, but
  * `Sessions::issue()` declines to list it, so the operator would leave with a
  * key and no row to revoke it from. Every other refusal is the server's and
  * arrives as the answer this form shows.
  *
- * Success does not close the modal. The parent swaps this form for the key
- * panel, because the create answer is the one place the key is disclosed.
+ * Success does not close the dialog. The parent swaps it for the key dialog,
+ * because the create answer is the one place the key is disclosed.
  *
  * @param {Object}        props
  * @param {CreateHandler} props.onCreate Receives the validated fields.
@@ -208,9 +209,9 @@ function SessionRow( { session, answer, busy, onRevoke } ) {
  * @param {() => void}    props.onCancel Dismisses the modal.
  * @param {string[]}      props.scopes   Scope vocabulary from the view model.
  * @param {number}        props.ttlMax   Server-side TTL ceiling, in seconds.
- * @return {import('react').ReactElement} The rendered form.
+ * @return {import('react').ReactElement} The dialog.
  */
-function CreateSessionForm( {
+function CreateSessionModal( {
 	onCreate,
 	answer,
 	busy,
@@ -249,7 +250,14 @@ function CreateSessionForm( {
 	};
 
 	return (
-		<>
+		<Modal
+			ariaLabel={ __( 'Issue a session', 'newspack-nodes' ) }
+			onClose={ onCancel }
+			onSubmit={ handleCreate }
+		>
+			<h4 className="newspack-nodes-modal__title">
+				{ __( 'Issue a Session', 'newspack-nodes' ) }
+			</h4>
 			<table className="form-table" style={ { maxWidth: '600px' } }>
 				<tbody>
 					<tr>
@@ -330,24 +338,23 @@ function CreateSessionForm( {
 					{ __( 'Cancel', 'newspack-nodes' ) }
 				</button>
 				<button
-					type="button"
+					type="submit"
 					className={ primaryButtonClass( busy ) }
 					id="newspack-nodes-create-session"
 					disabled={ busy }
-					onClick={ handleCreate }
 				>
 					{ __( 'Issue Session', 'newspack-nodes' ) }
 				</button>
 			</div>
-		</>
+		</Modal>
 	);
 }
 
 /**
- * The one-time credential disclosure, rendered in place of the form once a
- * session is issued. Closing is final: the listing never carries the secret and
- * no verb hands it back, so a lost credential is re-issued rather than
- * recovered.
+ * The one-time credential disclosure, rendered in place of the create dialog
+ * once a session is issued. Closing is final: the listing never carries the
+ * secret and no verb hands it back, so a lost credential is re-issued rather
+ * than recovered.
  *
  * Handle and secret are shown joined by a dot, so one copy carries both. The
  * wire keeps them apart — the handle names the session in the `auth` envelope,
@@ -356,11 +363,17 @@ function CreateSessionForm( {
  * @param {Object}     props
  * @param {Object}     props.session The mint: handle, secret, scope and `expires_in`.
  * @param {() => void} props.onClose Dismisses the modal.
- * @return {import('react').ReactElement} The panel.
+ * @return {import('react').ReactElement} The dialog.
  */
-function IssuedKeyPanel( { session, onClose } ) {
+function IssuedKeyModal( { session, onClose } ) {
 	return (
-		<>
+		<Modal
+			ariaLabel={ __( 'Session key', 'newspack-nodes' ) }
+			onClose={ onClose }
+		>
+			<h4 className="newspack-nodes-modal__title">
+				{ __( 'Session key', 'newspack-nodes' ) }
+			</h4>
 			<p>
 				{ __(
 					'Copy this now. It is shown once and cannot be recovered from the listing.',
@@ -392,7 +405,7 @@ function IssuedKeyPanel( { session, onClose } ) {
 					{ __( 'Done', 'newspack-nodes' ) }
 				</button>
 			</div>
-		</>
+		</Modal>
 	);
 }
 
@@ -508,39 +521,23 @@ export default function SessionsAdmin( { headerControlsSlot } ) {
 				</tbody>
 			</table>
 
-			{ isCreateOpen && (
-				<Modal
-					ariaLabel={ __( 'Issue a session', 'newspack-nodes' ) }
-					onClose={ closeCreate }
-				>
-					<h4 className="newspack-nodes-modal__title">
-						{ issued
-							? __( 'Session key', 'newspack-nodes' )
-							: __( 'Issue a Session', 'newspack-nodes' ) }
-					</h4>
-					{ issued ? (
-						<IssuedKeyPanel
-							session={ issued }
-							onClose={ closeCreate }
-						/>
-					) : (
-						<CreateSessionForm
-							onCreate={ ( fields ) => {
-								setSubmitted( fields.label );
-								createSession( fields );
-							} }
-							answer={ answers[ submitted ] ?? null }
-							busy={ 'create' === pendingVerb( submitted ) }
-							onCancel={ closeCreate }
-							scopes={
-								scopes.length
-									? scopes
-									: [ 'read', 'tune', 'manage' ]
-							}
-							ttlMax={ ttlMax }
-						/>
-					) }
-				</Modal>
+			{ isCreateOpen && issued && (
+				<IssuedKeyModal session={ issued } onClose={ closeCreate } />
+			) }
+			{ isCreateOpen && ! issued && (
+				<CreateSessionModal
+					onCreate={ ( fields ) => {
+						setSubmitted( fields.label );
+						createSession( fields );
+					} }
+					answer={ answers[ submitted ] ?? null }
+					busy={ 'create' === pendingVerb( submitted ) }
+					onCancel={ closeCreate }
+					scopes={
+						scopes.length ? scopes : [ 'read', 'tune', 'manage' ]
+					}
+					ttlMax={ ttlMax }
+				/>
 			) }
 		</div>
 	);

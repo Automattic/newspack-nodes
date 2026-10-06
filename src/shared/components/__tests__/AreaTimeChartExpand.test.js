@@ -144,9 +144,24 @@ describe( 'AreaTimeChart expand', () => {
 		const { container } = mount( SERIES, { onSlotClick } );
 		fireEvent.click( overlay( container ), { clientX: LAST_SLOT_X } );
 		expect( onSlotClick ).toHaveBeenCalledTimes( 1 );
-		expect( onSlotClick ).toHaveBeenCalledWith( 2 );
+		expect( onSlotClick ).toHaveBeenCalledWith( 2, { additive: false } );
 		expect( svgHeight( container ) ).toBe( HEIGHT );
 	} );
+
+	it.each( [ [ 'metaKey' ], [ 'ctrlKey' ] ] )(
+		'reports a %s click on the plot as additive, and keeps its size',
+		( key ) => {
+			const onSlotClick = jest.fn();
+			const { container } = mount( SERIES, { onSlotClick } );
+			fireEvent.click( overlay( container ), {
+				clientX: LAST_SLOT_X,
+				[ key ]: true,
+			} );
+			expect( onSlotClick ).toHaveBeenCalledTimes( 1 );
+			expect( onSlotClick ).toHaveBeenCalledWith( 2, { additive: true } );
+			expect( svgHeight( container ) ).toBe( HEIGHT );
+		}
+	);
 
 	it( 'reports no slot when the corner button is pressed', () => {
 		const onSlotClick = jest.fn();
