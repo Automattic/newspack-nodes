@@ -24,7 +24,7 @@
 
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, writeFile, readFile, access } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 
 /**
@@ -142,13 +142,16 @@ export const WP_EXTERNALS = {
  * global is what an IIFE can hold.
  *
  * @param {Set<string>} usedHandles Collector each matched package's enqueue
- *                                  handle is added to as it loads.
+ *                                  handle is added to as it loads, emptied as
+ *                                  each build starts so a watch rebuild drops a
+ *                                  removed import.
  * @return {Object} esbuild plugin.
  */
 function wpExternalsPlugin( usedHandles ) {
 	return {
 		name: 'wp-externals',
 		setup( build ) {
+			build.onStart( () => usedHandles.clear() );
 			const filter = new RegExp(
 				'^(' +
 					Object.keys( WP_EXTERNALS )
@@ -270,8 +273,9 @@ export function emitAssetPhp( handles, version ) {
  *
  * Hashing the emitted JS beats stamping a build timestamp: the manifest stays
  * byte-identical when nothing changed, so a rebuild leaves the tracked `build/`
- * tree alone. A JS-only entry emits no stylesheet, which is why ENOENT is the
- * one error the RTL step swallows.
+ * tree alone. Whether the build emitted CSS is read from the metafile, never
+ * from the disk: a build whose entry no longer imports a stylesheet removes
+ * the `<base>.css` and `<base>-rtl.css` an earlier build left in `outDir`.
  *
  * @param {string}      entry       Entry path relative to `root`, for the log
  *                                  line.
@@ -306,18 +310,17 @@ function postBuildPlugin( entry, outDir, base, usedHandles, root, rtlcss ) {
 					emitAssetPhp( usedHandles, version )
 				);
 
-				const cssPath = path.join( outDir, `${ base }.css` );
-				try {
-					await access( cssPath );
+				const cssPath = path.resolve( outDir, `${ base }.css` );
+				const rtlPath = path.resolve( outDir, `${ base }-rtl.css` );
+				const emittedCss = Object.keys( result.metafile.outputs ).some(
+					( out ) => path.resolve( out ) === cssPath
+				);
+				if ( emittedCss ) {
 					const css = await readFile( cssPath, 'utf8' );
-					await writeFile(
-						path.join( outDir, `${ base }-rtl.css` ),
-						rtlcss.process( css )
-					);
-				} catch ( err ) {
-					if ( err.code !== 'ENOENT' ) {
-						throw err;
-					}
+					await writeFile( rtlPath, rtlcss.process( css ) );
+				} else {
+					await rm( cssPath, { force: true } );
+					await rm( rtlPath, { force: true } );
 				}
 
 				console.log(
@@ -383,6 +386,8 @@ export async function buildDashboards( {
 			jsx: 'automatic',
 			outfile: path.join( outDir, `${ base }.js` ),
 			banner,
+			// The post-build step reads which files this build emitted.
+			metafile: true,
 			loader: {
 				'.js': 'jsx',
 				'.svg': 'dataurl',

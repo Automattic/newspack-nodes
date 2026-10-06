@@ -174,3 +174,108 @@ describe( 'buildDashboards (integration, real esbuild)', () => {
 		expect( rtl ).toContain( 'margin-right' );
 	} );
 } );
+
+// A watch build rebuilds the SAME context; holding dispose back models that.
+describe( 'buildDashboards rebuild (integration, real esbuild)', () => {
+	const fs = require( 'node:fs/promises' );
+	const os = require( 'node:os' );
+	const path = require( 'node:path' );
+
+	let kit;
+	let esbuild;
+	let sass;
+	let rtlcss;
+	let root;
+	let outDir;
+	let contexts;
+
+	const writeEntry = ( lines ) =>
+		fs.writeFile( path.join( root, 'entry.js' ), lines.join( '\n' ) );
+	const exists = ( file ) =>
+		fs.access( path.join( outDir, file ) ).then(
+			() => true,
+			() => false
+		);
+	const rebuild = () => Promise.all( contexts.map( ( c ) => c.rebuild() ) );
+
+	beforeAll( async () => {
+		kit = await import( '../index.mjs' );
+		esbuild = ( await import( 'esbuild' ) ).default;
+		sass = await import( 'sass' );
+		rtlcss = ( await import( 'rtlcss' ) ).default;
+
+		root = await fs.mkdtemp( path.join( os.tmpdir(), 'buildkit-re-' ) );
+		outDir = path.join( root, 'build/rewidget' );
+		await fs.writeFile(
+			path.join( root, 'style.scss' ),
+			'.box-6113 { padding-left: 7px; }'
+		);
+		await writeEntry( [
+			"import { createElement } from '@wordpress/element';",
+			"import { __ } from '@wordpress/i18n';",
+			"import './style.scss';",
+			'export const x = [ createElement, __ ];',
+		] );
+
+		contexts = [];
+		const capturing = {
+			context: async ( opts ) => {
+				const ctx = await esbuild.context( opts );
+				contexts.push( ctx );
+				return {
+					rebuild: () => ctx.rebuild(),
+					dispose: async () => {},
+				};
+			},
+		};
+		await kit.buildDashboards( {
+			esbuild: capturing,
+			sass,
+			rtlcss,
+			root,
+			entries: [ { entry: 'entry.js', outDir } ],
+			alias: {},
+		} );
+	}, 30000 );
+
+	afterAll( async () => {
+		await Promise.all( contexts.map( ( c ) => c.dispose() ) );
+		await fs.rm( root, { recursive: true, force: true } );
+	} );
+
+	test( 'the first build emits both stylesheets and both handles', async () => {
+		expect( await exists( 'entry.css' ) ).toBe( true );
+		expect( await exists( 'entry-rtl.css' ) ).toBe( true );
+		const asset = await fs.readFile(
+			path.join( outDir, 'entry.asset.php' ),
+			'utf8'
+		);
+		expect( asset ).toContain( "'wp-i18n'" );
+	} );
+
+	test( 'a rebuild drops the handle of an import the entry removed', async () => {
+		await writeEntry( [
+			"import { createElement } from '@wordpress/element';",
+			"import './style.scss';",
+			'export const x = createElement;',
+		] );
+		await rebuild();
+		const asset = await fs.readFile(
+			path.join( outDir, 'entry.asset.php' ),
+			'utf8'
+		);
+		expect( asset ).toContain( "'wp-element'" );
+		expect( asset ).not.toContain( "'wp-i18n'" );
+	} );
+
+	test( 'a rebuild with no stylesheet left removes both CSS files', async () => {
+		await writeEntry( [
+			"import { createElement } from '@wordpress/element';",
+			'export const x = createElement;',
+		] );
+		await rebuild();
+		expect( await exists( 'entry.js' ) ).toBe( true );
+		expect( await exists( 'entry.css' ) ).toBe( false );
+		expect( await exists( 'entry-rtl.css' ) ).toBe( false );
+	} );
+} );

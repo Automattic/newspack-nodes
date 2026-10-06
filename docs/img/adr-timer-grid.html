@@ -33,10 +33,9 @@
 <script>
 (function () {
   var W = 1012, L = 150, R = 1000, T0 = 0, T1 = 32, px = function (t) { return L + (R - L) * (t - T0) / (T1 - T0); };
-  var rows = [];
-  function fires(interval, phase, start) { var out = [], t = start; while (t <= T1) { out.push(t); t += interval; } return out; }
+  function fires(interval, start) { var out = [], t = start; while (t <= T1) { out.push(t); t += interval; } return out; }
   function grid(interval, start) { var ph = 0.36, out = [], t = (Math.floor((start - ph) / interval) + 1) * interval + ph; while (t <= T1) { out.push(t); t += interval; } return out; }
-  var self1 = fires(5, 0, 2), self2 = fires(5, 0, 4);
+  var self1 = fires(5, 2), self2 = fires(5, 4);
   var g5 = grid(5, 2), g5b = grid(5, 4), g10 = grid(10, 3), g15 = grid(15, 1), g30 = grid(30, 0.5);
   var s = '<h3>Two self-paced 5-second polls opened at :02 and :04, then five cadences on the grid, over 32 seconds</h3>';
   s += '<svg width="' + W + '" height="330" viewBox="0 0 ' + W + ' 330" font-size="11.5">';

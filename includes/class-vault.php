@@ -283,7 +283,7 @@ class Vault {
 		if ( '' === $url || self::url_carries_credentials( $url ) ) {
 			return null;
 		}
-		if ( 0 !== \strpos( $url, 'https://' ) ) {
+		if ( 0 !== \strncasecmp( $url, 'https://', 8 ) ) {
 			return null;
 		}
 

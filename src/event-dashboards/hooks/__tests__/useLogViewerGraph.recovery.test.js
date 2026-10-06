@@ -8,7 +8,6 @@
  */
 
 import { renderHook, act } from '@testing-library/react';
-import { VALUE } from '../../../runtime/message';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { Core } from '../../../runtime/core';
 import { useLogViewerGraph } from '../useLogReaderGraph';
@@ -53,10 +52,8 @@ describe( 'useLogViewerGraph — recovery from a refused catalog', () => {
 	it( 'a later reconcile restores the picker AND opens the default source', async () => {
 		// The server refuses `taillog sources` until `refused` is cleared.
 		let refused = true;
-		installFakeCommandWire( ( m ) =>
-			refused
-				? new Error( 'verification failed' )
-				: sourcesReply( m[ VALUE ] )
+		installFakeCommandWire( () =>
+			refused ? new Error( 'verification failed' ) : sourcesReply()
 		);
 
 		const { result } = renderHook( () => useLogViewerGraph() );

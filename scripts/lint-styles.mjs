@@ -143,6 +143,18 @@ const blocks = ( source ) => {
 	const chain = [];
 	let buffer = '';
 	let line = 1;
+	const emit = () => {
+		if ( chain.length && '' !== buffer.trim() ) {
+			out.push( {
+				chain: chain.map( ( c ) => c.selector ).join( ' ' ),
+				line: chain[ chain.length - 1 ].line,
+				// A wrapped selector puts the declaration lower.
+				declarationLine: line,
+				declaration: buffer.trim() + ';',
+			} );
+		}
+		buffer = '';
+	};
 	for ( const ch of clean ) {
 		if ( '\n' === ch ) {
 			line++;
@@ -157,21 +169,13 @@ const blocks = ( source ) => {
 			continue;
 		}
 		if ( '}' === ch ) {
+			// The last declaration in a block may omit its semicolon.
+			emit();
 			chain.pop();
-			buffer = '';
 			continue;
 		}
 		if ( ';' === ch ) {
-			if ( chain.length ) {
-				out.push( {
-					chain: chain.map( ( c ) => c.selector ).join( ' ' ),
-					line: chain[ chain.length - 1 ].line,
-					// A wrapped selector puts the declaration lower.
-					declarationLine: line,
-					declaration: buffer.trim() + ';',
-				} );
-			}
-			buffer = '';
+			emit();
 			continue;
 		}
 		buffer += ch;

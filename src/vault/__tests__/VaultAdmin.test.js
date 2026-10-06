@@ -432,6 +432,28 @@ describe( 'VaultAdmin', () => {
 		expect( container.textContent ).toContain( 'https://' );
 	} );
 
+	// The store matches the scheme in any case, so the form must too.
+	it( 'submits an https URL whose scheme is uppercase', async () => {
+		registerViewFixture( { servers: [], loading: false } );
+		const { container } = mount();
+		openAddModal( container );
+		setInput( container.querySelector( '#vault-server-id' ), 'form-5521' );
+		setInput(
+			container.querySelector( '#vault-server-url' ),
+			'HTTPS://Form-5521.example'
+		);
+		await act( async () => {
+			container.querySelector( '#vault-server-save' ).click();
+		} );
+		expect( addServer ).toHaveBeenCalledWith( {
+			id: 'form-5521',
+			url: 'HTTPS://Form-5521.example',
+			auth_username: '',
+			auth_password: '',
+			group: '',
+		} );
+	} );
+
 	it( 'blocks add submission when the id holds a character the store refuses', async () => {
 		registerViewFixture( { servers: [], loading: false } );
 		const { container } = mount();

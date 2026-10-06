@@ -82,4 +82,15 @@ d=$( fixture opted-below-block '/*
 }' )
 assert_clean "a styles-ok below a block comment still opts out" "$d"
 
+d=$( fixture unterminated '.widget .button { color: red }' )
+assert_flags "a last declaration without its semicolon is still judged" "$d" "(color: red;)"
+
+d=$( fixture unterminated-nested '.widget {
+	.button {
+		margin: 4px;
+		background: #c0ffee
+	}
+}' )
+assert_flags "an unterminated declaration closing a nested block is judged" "$d" "(background: #c0ffee;)"
+
 exit $fail

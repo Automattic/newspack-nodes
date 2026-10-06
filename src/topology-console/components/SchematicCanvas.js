@@ -258,14 +258,12 @@ function isAutofitView( delta ) {
  * both sides come out of the same autofit arithmetic over the same inputs, so a
  * difference means the fit itself moved.
  *
- * @param {?{x:number,y:number,w:number,h:number}} a One box; a missing box is never equal.
- * @param {?{x:number,y:number,w:number,h:number}} b The other box.
- * @return {boolean} True when both exist and every field matches.
+ * @param {{x:number,y:number,w:number,h:number}} a One box.
+ * @param {{x:number,y:number,w:number,h:number}} b The other box.
+ * @return {boolean} True when every field matches.
  */
 function boxesEqual( a, b ) {
-	return (
-		!! a && !! b && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h
-	);
+	return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
 }
 
 /**

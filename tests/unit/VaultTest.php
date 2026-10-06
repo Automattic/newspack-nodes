@@ -365,6 +365,17 @@ final class VaultTest extends TestCase {
 		$this->assertFalse( Vault::get_instance()->add( 'insecure', [ 'url' => 'http://insecure.example' ] ) );
 	}
 
+	/**
+	 * The scheme matches in any case, as libcurl and `https_required()` read
+	 * it; an uppercase plaintext scheme is still refused.
+	 */
+	public function test_add_accepts_an_https_scheme_in_any_case(): void {
+		$vault = Vault::get_instance();
+		$this->assertTrue( $vault->add( 'upper', [ 'url' => 'HTTPS://Upper-4417.example' ] ) );
+		$this->assertSame( 'HTTPS://Upper-4417.example', Vault::url_of( $vault->get( 'upper' ) ) );
+		$this->assertFalse( $vault->add( 'upper-plain', [ 'url' => 'HTTP://Upper-4418.example' ] ) );
+	}
+
 	public function test_add_truncates_overlong_username_and_password(): void {
 		$vault = Vault::get_instance();
 		$long  = \str_repeat( 'a', 300 );
