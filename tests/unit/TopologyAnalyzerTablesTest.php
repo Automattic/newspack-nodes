@@ -34,7 +34,7 @@ final class TopologyAnalyzerTablesTest extends TestCase {
 		$this->write_tsl( 'emu-ttl', "make_node Table lab-7:emu emu:p<partition> 37\n" );
 		$this->write_tsl( 'kea-token', "make_node Table lab-7:kea kea:p<partition> 777 <lab:store>\nmake_node Table lab-7:owl owl:p<partition> 37 <lab:shelf>\n" );
 		$this->write_tsl( 'crawl-a', "make_node Crawler crawl-8821 4407\n" );
-		$this->write_tsl( 'crawl-b', "make_node Crawler crawl-8821 4407 vault-3\n" );
+		$this->write_tsl( 'crawl-b', "make_node Crawler crawl-8821 4407 crawl-g3\n" );
 		$this->write_tsl( 'crawl-table', "make_node Table crawl-8821:seen crawl-8821 4407 sqlite\n" );
 		$this->write_tsl( 'crawl-bare', "make_node Crawler crawl-8821\n" );
 		$this->write_tsl( 'crawl-tokened', "make_node Crawler <topology>-crawl 4407\n" );

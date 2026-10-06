@@ -133,86 +133,112 @@ class CurlNodeTest extends TestCase {
 		$this->assertSame( [], $this->sink->captured, 'nothing emits until the transfer completes' );
 	}
 
-	public function test_a_relative_path_is_joined_to_the_vault_url(): void {
-		$this->seed_vault( 'ledger-9', [ 'url' => 'https://Ledger.Example:8443/api' ] );
-		$node = $this->curl( 'ledger-9' );
-
-		$this->fetch( $node, $this->url_message( "/v2/items-77?id=3\n" ) );
-
-		$this->assertSame( 'https://Ledger.Example:8443/api/v2/items-77?id=3', $this->captured[0][ \CURLOPT_URL ] );
+	/** Group `crawl-g7` on two origins, a third entry on one of them in another group, and one with no url. */
+	private function seed_group(): void {
+		$this->seed_vault_servers(
+			[
+				'north-31'  => [ 'url' => 'https://North-31.Example:8443/api', 'auth_username' => 'svc-n31', 'auth_password' => 'pw-n58', 'group' => 'crawl-g7' ],
+				'south-52'  => [ 'url' => 'https://south-52.example', 'auth_username' => 'svc-s52', 'auth_password' => 'pw-s19', 'group' => 'crawl-g7' ],
+				'other-90'  => [ 'url' => 'https://south-52.example', 'auth_username' => 'svc-o90', 'auth_password' => 'pw-o44', 'group' => 'elsewhere-4' ],
+				'blank-31'  => [ 'auth_username' => 'no-url-31', 'group' => 'crawl-g7' ],
+			]
+		);
 	}
 
-	public function test_an_absolute_same_origin_url_is_accepted(): void {
-		$this->seed_vault( 'ledger-9', [ 'url' => 'https://Ledger.Example:8443/api' ] );
-		$node = $this->curl( 'ledger-9' );
-
-		$this->fetch( $node, $this->url_message( 'HTTPS://ledger.example:8443/elsewhere-12' ) );
-
-		$this->assertSame( 'HTTPS://ledger.example:8443/elsewhere-12', $this->captured[0][ \CURLOPT_URL ] );
+	/** @return list<string> The Authorization headers dispatch $i carried. */
+	private function authorization_of( int $i ): array {
+		return \array_values( \array_filter( $this->captured[ $i ][ \CURLOPT_HTTPHEADER ] ?? [], static fn ( string $h ): bool => \str_starts_with( $h, 'Authorization:' ) ) );
 	}
 
-	public function test_the_default_port_counts_as_the_effective_port(): void {
-		$this->seed_vault( 'plain-4', [ 'url' => 'https://plain-4.example' ] );
-		$node = $this->curl( 'plain-4' );
+	public function test_each_origin_in_the_group_carries_its_own_credential(): void {
+		$this->seed_group();
+		$node = $this->curl( 'crawl-g7' );
 
-		$this->fetch( $node, $this->url_message( 'https://plain-4.example:443/q-19' ) );
+		$this->fetch( $node, $this->url_message( 'https://north-31.example:8443/deep/x-1' ) );
+		$this->fetch( $node, $this->url_message( 'HTTPS://SOUTH-52.example:443/y-2' ) );
 
-		$this->assertSame( 'https://plain-4.example:443/q-19', $this->captured[0][ \CURLOPT_URL ] );
+		$this->assertSame( 'https://north-31.example:8443/deep/x-1', $this->captured[0][ \CURLOPT_URL ], 'the url is fetched as written, no path joined' );
+		$this->assertSame( [ 'Authorization: ' . Vault::credential_header( 'svc-n31', 'pw-n58' ) ], $this->authorization_of( 0 ) );
+		$this->assertSame( 'HTTPS://SOUTH-52.example:443/y-2', $this->captured[1][ \CURLOPT_URL ] );
+		$this->assertSame( [ 'Authorization: ' . Vault::credential_header( 'svc-s52', 'pw-s19' ) ], $this->authorization_of( 1 ), 'the entry in another group is not counted' );
+		$this->assertSame( [], $this->sink->captured );
 	}
 
-	public function test_a_different_host_is_refused(): void {
-		$this->seed_vault( 'ledger-9', [ 'url' => 'https://ledger.example:8443' ] );
-		$this->fetch( $this->curl( 'ledger-9' ), $this->url_message( 'https://evil-63.example:8443/x' ) );
-		$this->assert_error( 'url outside vault origin https://evil-63.example:8443/x' );
-	}
-
-	public function test_a_different_port_is_refused(): void {
-		$this->seed_vault( 'ledger-9', [ 'url' => 'https://ledger.example:8443' ] );
-		$this->fetch( $this->curl( 'ledger-9' ), $this->url_message( 'https://ledger.example/default-port-44' ) );
-		$this->assert_error( 'url outside vault origin https://ledger.example/default-port-44' );
-	}
-
-	public function test_a_different_scheme_is_refused(): void {
-		$this->seed_vault( 'ledger-9', [ 'url' => 'https://ledger.example:8443' ] );
-		$this->fetch( $this->curl( 'ledger-9' ), $this->url_message( 'http://ledger.example:8443/plain-88' ) );
-		$this->assert_error( 'url outside vault origin http://ledger.example:8443/plain-88' );
-	}
-
-	public function test_a_missing_vault_entry_is_refused(): void {
-		$this->fetch( $this->curl( 'ghost-27' ), $this->url_message( '/anything-5' ) );
-		$this->assert_error( 'no vault entry ghost-27' );
-	}
-
-	public function test_a_vault_entry_without_a_url_is_refused(): void {
-		$this->seed_vault( 'blank-31', [ 'auth_username' => 'no-url-31' ] );
-		$this->fetch( $this->curl( 'blank-31' ), $this->url_message( '/anything-6' ) );
-		$this->assert_error( 'no url for vault entry blank-31' );
-	}
-
-	public function test_vault_require_ssl_refuses_an_http_entry(): void {
+	public function test_an_origin_outside_the_group_fetches_without_authorization(): void {
 		$this->use_base_dir( $this->make_temp_dir(), [ 'vault_require_ssl' => true ] );
-		$this->seed_vault( 'plain-7', [ 'url' => 'http://plain-7.example:8081' ] );
-		$this->fetch( $this->curl( 'plain-7' ), $this->url_message( '/feed-14' ) );
+		$this->seed_group();
+		$node = $this->curl( 'crawl-g7' );
+
+		$this->fetch( $node, $this->url_message( 'http://stranger-77.example:8090/z-3' ) );
+		$this->fetch( $node, $this->url_message( 'https://north-31.example/other-port-4' ) );
+
+		$this->assertSame( 'http://stranger-77.example:8090/z-3', $this->captured[0][ \CURLOPT_URL ] );
+		$this->assertSame( [], $this->authorization_of( 0 ) );
+		$this->assertSame( \CURLPROTO_HTTP | \CURLPROTO_HTTPS, $this->captured[0][ \CURLOPT_PROTOCOLS ], 'require_ssl binds only a credentialed fetch' );
+		$this->assertSame( [], $this->authorization_of( 1 ), 'another port is another origin' );
+		$this->assertSame( [], $this->sink->captured );
+	}
+
+	public function test_two_entries_on_one_origin_refuse_naming_both(): void {
+		$this->seed_vault_servers(
+			[
+				'twin-b' => [ 'url' => 'https://twin-12.example/b', 'auth_username' => 'svc-b', 'auth_password' => 'pw-b', 'group' => 'crawl-g7' ],
+				'twin-a' => [ 'url' => 'https://Twin-12.example:443/a', 'auth_username' => 'svc-a', 'auth_password' => 'pw-a', 'group' => 'crawl-g7' ],
+			]
+		);
+
+		$this->fetch( $this->curl( 'crawl-g7' ), $this->url_message( 'https://twin-12.example/page-5' ) );
+
+		$this->assert_error( 'vault entries twin-a, twin-b share origin https://twin-12.example:443 https://twin-12.example/page-5' );
+	}
+
+	public function test_vault_require_ssl_refuses_an_http_url_on_a_matched_origin(): void {
+		$this->use_base_dir( $this->make_temp_dir(), [ 'vault_require_ssl' => true ] );
+		$this->seed_vault( 'plain-7', [ 'url' => 'http://plain-7.example:8081', 'auth_username' => 'svc-p7', 'auth_password' => 'pw-p7', 'group' => 'crawl-g7' ] );
+
+		$this->fetch( $this->curl( 'crawl-g7' ), $this->url_message( 'http://plain-7.example:8081/feed-14' ) );
+
 		$this->assert_error( 'vault_require_ssl set but url is not https http://plain-7.example:8081/feed-14' );
 	}
 
-	public function test_a_vault_requiring_ssl_narrows_both_protocol_lists_to_https(): void {
+	public function test_an_uppercase_https_url_under_require_ssl_is_fetched_with_its_credential(): void {
 		$this->use_base_dir( $this->make_temp_dir(), [ 'vault_require_ssl' => true ] );
-		$this->seed_vault( 'sealed-8', [ 'url' => 'https://sealed-8.example:9443' ] );
+		$this->seed_vault( 'loud-6', [ 'url' => 'https://loud-6.example:9443', 'auth_username' => 'svc-l6', 'auth_password' => 'pw-l6', 'group' => 'crawl-g7' ] );
 
-		$this->fetch( $this->curl( 'sealed-8' ), $this->url_message( '/only-tls-56' ) );
+		$this->fetch( $this->curl( 'crawl-g7' ), $this->url_message( 'HTTPS://loud-6.example:9443/caps-38' ) );
+
+		$this->assertSame( [], $this->sink->captured, 'the scheme matches https whatever its case' );
+		$this->assertSame( 'HTTPS://loud-6.example:9443/caps-38', $this->captured[0][ \CURLOPT_URL ] );
+		$this->assertSame( [ 'Authorization: ' . Vault::credential_header( 'svc-l6', 'pw-l6' ) ], $this->authorization_of( 0 ) );
+		$this->assertSame( \CURLPROTO_HTTPS, $this->captured[0][ \CURLOPT_PROTOCOLS ] );
+	}
+
+	public function test_a_matched_origin_under_require_ssl_narrows_both_protocol_lists_to_https(): void {
+		$this->use_base_dir( $this->make_temp_dir(), [ 'vault_require_ssl' => true ] );
+		$this->seed_vault( 'sealed-8', [ 'url' => 'https://sealed-8.example:9443', 'auth_username' => 'svc-8', 'auth_password' => 'pw-8', 'group' => 'crawl-g7' ] );
+
+		$this->fetch( $this->curl( 'crawl-g7' ), $this->url_message( 'https://sealed-8.example:9443/only-tls-56' ) );
 
 		$this->assertSame( \CURLPROTO_HTTPS, $this->captured[0][ \CURLOPT_PROTOCOLS ] );
 		$this->assertSame( \CURLPROTO_HTTPS, $this->captured[0][ \CURLOPT_REDIR_PROTOCOLS ] );
 	}
 
-	public function test_a_vault_not_requiring_ssl_keeps_http_and_https(): void {
-		$this->seed_vault( 'open-9', [ 'url' => 'https://open-9.example:9443' ] );
+	public function test_a_matched_origin_not_requiring_ssl_keeps_http_and_https(): void {
+		$this->seed_vault( 'open-9', [ 'url' => 'https://open-9.example:9443', 'auth_username' => 'svc-9', 'auth_password' => 'pw-9', 'group' => 'crawl-g7' ] );
 
-		$this->fetch( $this->curl( 'open-9' ), $this->url_message( '/either-57' ) );
+		$this->fetch( $this->curl( 'crawl-g7' ), $this->url_message( 'https://open-9.example:9443/either-57' ) );
 
 		$this->assertSame( \CURLPROTO_HTTP | \CURLPROTO_HTTPS, $this->captured[0][ \CURLOPT_PROTOCOLS ] );
 		$this->assertSame( \CURLPROTO_HTTP | \CURLPROTO_HTTPS, $this->captured[0][ \CURLOPT_REDIR_PROTOCOLS ] );
+	}
+
+	public function test_a_credential_is_not_sent_past_a_redirect_to_another_origin(): void {
+		$this->seed_group();
+
+		$this->fetch( $this->curl( 'crawl-g7' ), $this->url_message( 'https://south-52.example/hop-6' ) );
+
+		$this->assertTrue( $this->captured[0][ \CURLOPT_FOLLOWLOCATION ] );
+		$this->assertFalse( $this->captured[0][ \CURLOPT_UNRESTRICTED_AUTH ], 'libcurl drops Authorization when a redirect changes host, port or scheme' );
 	}
 
 	public function test_a_fill_outside_an_event_loop_starts_nothing(): void {
@@ -221,16 +247,6 @@ class CurlNodeTest extends TestCase {
 		$node->fill( $this->url_message( 'https://idle-loop.example:8443/no-drain-58' ) );
 
 		$this->assert_error( 'no event loop https://idle-loop.example:8443/no-drain-58' );
-	}
-
-	public function test_the_vault_credential_rides_as_authorization(): void {
-		$this->seed_vault( 'ledger-9', [ 'url' => 'https://ledger.example:8443', 'auth_username' => 'svc-31', 'auth_password' => 'pw-58' ] );
-		$this->fetch( $this->curl( 'ledger-9' ), $this->url_message( '/secured-3' ) );
-
-		$this->assertContains(
-			'Authorization: ' . Vault::credential_header( 'svc-31', 'pw-58' ),
-			$this->captured[0][ \CURLOPT_HTTPHEADER ]
-		);
 	}
 
 	public function test_a_success_emits_the_body_as_a_bytestream(): void {
@@ -452,10 +468,24 @@ class CurlNodeTest extends TestCase {
 		$this->assert_error( 'invalid url http:///no-host-35' );
 	}
 
-	public function test_garbage_under_a_vault_is_an_invalid_url(): void {
-		$this->seed_vault( 'ledger-9', [ 'url' => 'https://ledger.example:8443' ] );
-		$this->fetch( $this->curl( 'ledger-9' ), $this->url_message( 'not a url 66' ) );
+	public function test_garbage_under_a_vault_group_is_an_invalid_url(): void {
+		$this->seed_group();
+		$this->fetch( $this->curl( 'crawl-g7' ), $this->url_message( 'not a url 66' ) );
 		$this->assert_error( 'invalid url not a url 66' );
+	}
+
+	public function test_a_url_whose_authority_holds_two_at_signs_is_refused(): void {
+		$this->seed_vault( 'spoke-31', [ 'url' => 'https://spoke-31.example', 'auth_username' => 'svc-31', 'auth_password' => 'pw-31', 'group' => 'crawl-g7' ] );
+
+		$this->fetch( $this->curl( 'crawl-g7' ), $this->url_message( 'https://x@evil-44.example@spoke-31.example/steal-5' ) );
+
+		$this->assert_error( 'invalid url carrying userinfo' );
+	}
+
+	public function test_a_url_carrying_userinfo_is_refused(): void {
+		$this->fetch( $this->curl(), $this->url_message( 'https://svc-12:pw-77@plain-12.example/page-3' ) );
+
+		$this->assert_error( 'invalid url carrying userinfo' );
 	}
 
 	public function test_remove_node_detaches_every_inflight_handle(): void {
@@ -471,14 +501,21 @@ class CurlNodeTest extends TestCase {
 		$this->assertSame( [], Event_Framework::instance()->curl_handles() );
 	}
 
-	public function test_the_vault_id_round_trips(): void {
-		$node = $this->curl( 'ledger-9' );
+	public function test_the_vault_group_round_trips(): void {
+		$node = $this->curl( 'crawl-g7' );
 
-		$this->assertSame( [ 'ledger-9' ], $node->arguments() );
-		$this->assertStringContainsString( "make_node Curl fetch-7731 ledger-9\n", $node->dump_config() );
+		$this->assertSame( [ 'crawl-g7' ], $node->arguments() );
+		$this->assertStringContainsString( "make_node Curl fetch-7731 crawl-g7\n", $node->dump_config() );
 	}
 
-	public function test_the_vault_id_is_optional(): void {
+	public function test_node_schema_declares_one_vault_group_argument(): void {
+		$schema = Curl_Node::node_schema();
+
+		$this->assertSame( [ 'vault_group' ], \array_column( $schema['arguments'], 'name' ) );
+		$this->assertSame( [ 'vault_group' ], \array_column( $schema['arguments'], 'type' ) );
+	}
+
+	public function test_the_vault_group_is_optional(): void {
 		$node = $this->curl();
 
 		$this->assertSame( [], $node->arguments() );

@@ -106,6 +106,12 @@ class CrawlerLinksTest extends TestCase {
 		$this->assertSame( [], Crawler_Node::links( $html, self::PAGE ) );
 	}
 
+	/** The link is resolved without its userinfo, so `origin_of()` never sees it there. */
+	public function test_a_link_whose_authority_holds_two_at_signs_is_skipped(): void {
+		$html = '<a href="https://x@evil-44.example@site-4417.example:8443/c">c</a><a href="//svc-9:pw-9@site-4417.example:8443/d">d</a>';
+		$this->assertSame( [], Crawler_Node::links( $html, self::PAGE ) );
+	}
+
 	public function test_an_empty_base_href_leaves_the_page_url_as_the_base(): void {
 		$html = '<base href=""><a href="leaf">l</a>';
 		$this->assertSame( [ 'https://site-4417.example:8443/dir/leaf' ], Crawler_Node::links( $html, self::PAGE ) );

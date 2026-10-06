@@ -9,11 +9,11 @@
  * KEY ride along unread, and `target` stamps the empty TO as on any forwarded
  * message; the copy is never addressed back to FROM.
  *
- * Under a vault id the request starts at one Vault server: a `/path` joins
- * the entry's url, an absolute url must share its scheme, host and port, and
- * the entry's credential rides as `Authorization`. The origin check keeps that
- * credential on its host; a redirect may still take the GET elsewhere, and
- * libcurl drops the header when it changes host, port or scheme.
+ * Under a vault group each fetch looks for the group's entry on the url's
+ * origin, its scheme, host and port: none fetches with no `Authorization`,
+ * one sends that entry's credential, and two or more refuse. The credential
+ * thus starts on its own origin; a redirect may still take the GET elsewhere,
+ * and libcurl drops the header when it changes host, port or scheme.
  *
  * With `follow_redirects( false )` a fetch follows no redirect: a 3xx naming
  * a Location answers a TM_RESPONSE copy whose VALUE is that absolute url, and
@@ -27,7 +27,7 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * Curl node — `make_node Curl <name> [vault_id]`.
+ * Curl node — `make_node Curl <name> [vault_group]`.
  *
  * @implements Curl_Owner<array{context:array{message:array<int,mixed>,url:string},body:\Closure(): string}>
  */
@@ -46,7 +46,7 @@ class Curl_Node extends Node implements Curl_Owner {
 	/** Transfer timeout for one fetch, in seconds. */
 	public const REQUEST_TIMEOUT = 30;
 
-	/** The schemes a fetch and its redirects may use; https alone under a vault requiring it. */
+	/** The schemes a fetch and its redirects may use; https alone for a credential under `vault_require_ssl`. */
 	private const PROTOCOLS = \CURLPROTO_HTTP | \CURLPROTO_HTTPS;
 
 	/**
@@ -59,8 +59,8 @@ class Curl_Node extends Node implements Curl_Owner {
 		'https' => 443,
 	];
 
-	/** Vault server id whose url and credential this node fetches with; '' for none. */
-	protected string $vault_id = '';
+	/** Vault group whose entries lend each fetch on their origin a credential; '' for none. */
+	protected string $vault_group = '';
 
 	/** Whether a fetch follows redirects; `follow_redirects()` sets it. */
 	private bool $follow = true;
@@ -83,68 +83,81 @@ class Curl_Node extends Node implements Curl_Owner {
 		}
 		$value = \trim( Core::as_string( $message[ Message::VALUE ] ) );
 		try {
-			[ $url, $authorization ] = $this->resolve( $value );
+			$authorization = $this->authorization_for( $value );
 		} catch ( \UnexpectedValueException $refusal ) {
 			$this->emit( $message, Message::TM_ERROR, $refusal->getMessage() );
 			return;
 		}
 		if ( ! Event_Framework::instance()->is_running() ) {
-			$this->emit( $message, Message::TM_ERROR, "no event loop {$url}" );
+			$this->emit( $message, Message::TM_ERROR, "no event loop {$value}" );
 			return;
 		}
 		$in_flight = $this->transfers_in_flight();
 		if ( $in_flight >= self::MAX_IN_FLIGHT ) {
-			$this->emit( $message, Message::TM_ERROR, "busy: {$in_flight} requests in flight {$url}" );
+			$this->emit( $message, Message::TM_ERROR, "busy: {$in_flight} requests in flight {$value}" );
 			return;
 		}
-		$this->fetch( $message, $url, $authorization );
+		$this->fetch( $message, $value, $authorization );
 	}
 
 	/**
-	 * The url to fetch and the Authorization value to send with it ('' for
-	 * none). Without a vault id the value must be an absolute http(s) url;
-	 * with one it is a `/path` under the entry's url or an absolute url on the
-	 * entry's origin, and `vault_require_ssl` applies to the result.
+	 * The Authorization value to send with the url ('' for none): the
+	 * credential of the one vault group entry on the url's origin, under which
+	 * `vault_require_ssl` applies to the url.
 	 *
-	 * @param string $value The trimmed VALUE.
-	 * @return array{0:string,1:string}
+	 * @param string $url The trimmed VALUE.
+	 * @return string
 	 * @throws \UnexpectedValueException Naming the refusal, as the TM_ERROR carries it.
 	 */
-	private function resolve( string $value ): array {
-		if ( '' === $this->vault_id ) {
-			self::origin_of( $value );
-			return [ $value, '' ];
+	private function authorization_for( string $url ): string {
+		$origin  = self::origin_of( $url );
+		$vault   = Vault::get_instance();
+		$matched = [];
+		foreach ( $vault->in_group( $this->vault_group ) as $id ) {
+			$server = $vault->get( $id );
+			if ( null !== $server && $origin === self::origin_or_null( Vault::url_of( $server ) ) ) {
+				$matched[ $id ] = $server;
+			}
 		}
-		$server = Vault::get_instance()->get( $this->vault_id );
-		if ( null === $server ) {
-			self::refuse( "no vault entry {$this->vault_id}" );
+		if ( [] === $matched ) {
+			return '';
 		}
-		$base = Vault::url_of( $server );
-		if ( '' === $base ) {
-			self::refuse( "no url for vault entry {$this->vault_id}" );
-		}
-		if ( \str_starts_with( $value, '/' ) ) {
-			$url = $base . $value;
-		} elseif ( self::origin_of( $value ) === self::origin_of( $base ) ) {
-			$url = $value;
-		} else {
-			self::refuse( "url outside vault origin {$value}" );
+		if ( 1 < \count( $matched ) ) {
+			self::refuse( 'vault entries ' . \implode( ', ', \array_keys( $matched ) ) . " share origin {$origin} {$url}" );
 		}
 		if ( Vault::https_required( $url ) ) {
 			self::refuse( "vault_require_ssl set but url is not https {$url}" );
 		}
-		return [ $url, Vault::credential_header_for( $server ) ];
+		return Vault::credential_header_for( \reset( $matched ) );
+	}
+
+	/**
+	 * A vault entry's origin, or null for an entry whose url names none.
+	 *
+	 * @param string $url The entry's stored url.
+	 * @return string|null
+	 */
+	private static function origin_or_null( string $url ): ?string {
+		try {
+			return self::origin_of( $url );
+		} catch ( \UnexpectedValueException ) {
+			return null;
+		}
 	}
 
 	/**
 	 * An absolute http(s) url's origin as `scheme://host:port`, lowercased,
-	 * with the scheme's default port when the url names none.
+	 * with the scheme's default port when the url names none. A url carrying
+	 * userinfo is refused by `Vault::url_carries_credentials()`: PHP splits an
+	 * authority at its last `@` where libcurl splits at its first, so the host
+	 * read here need not be the host fetched. The refusal leaves the url out,
+	 * since its userinfo may be a credential.
 	 *
 	 * @api Crawler_Node
 	 *
 	 * @param string $url The url to read.
 	 * @return string
-	 * @throws \UnexpectedValueException When it is not an absolute http(s) url with a host.
+	 * @throws \UnexpectedValueException When it is not an absolute http(s) url with a host, or carries userinfo.
 	 */
 	public static function origin_of( string $url ): string {
 		$parts  = \wp_parse_url( $url );
@@ -152,6 +165,9 @@ class Curl_Node extends Node implements Curl_Owner {
 		$host   = \strtolower( Core::as_string( $parts['host'] ?? '' ) );
 		if ( ! isset( self::DEFAULT_PORTS[ $scheme ] ) || '' === $host ) {
 			self::refuse( "invalid url {$url}" );
+		}
+		if ( Vault::url_carries_credentials( $url ) ) {
+			self::refuse( 'invalid url carrying userinfo' );
 		}
 		$port = $parts['port'] ?? self::DEFAULT_PORTS[ $scheme ];
 		return "{$scheme}://{$host}:{$port}";
@@ -171,23 +187,23 @@ class Curl_Node extends Node implements Curl_Owner {
 	/**
 	 * Start the GET on the shared multi, holding the input message with the
 	 * handle, because the output is a copy of it. A dispatch that yields no
-	 * handle emits its TM_ERROR at once. Under a vault id with
-	 * `vault_require_ssl` set, the fetch and every redirect take https alone.
-	 * libcurl drops the Authorization header itself when a redirect changes
-	 * host, port or scheme.
+	 * handle emits its TM_ERROR at once. A fetch carrying a credential under
+	 * `vault_require_ssl` takes https alone, its redirects too, and no
+	 * redirect to another host, port or scheme carries the credential.
 	 *
 	 * @param array<int,mixed> $message       The input message.
-	 * @param string           $url           The resolved url.
+	 * @param string           $url           The url.
 	 * @param string           $authorization The Authorization value, or ''.
 	 */
 	private function fetch( array $message, string $url, string $authorization ): void {
-		$protocols = '' !== $this->vault_id && Vault::require_ssl() ? \CURLPROTO_HTTPS : self::PROTOCOLS;
+		$protocols = '' !== $authorization && Vault::require_ssl() ? \CURLPROTO_HTTPS : self::PROTOCOLS;
 		$opts      = [
 			\CURLOPT_URL             => $url,
 			\CURLOPT_HTTPGET         => true,
 			\CURLOPT_PROTOCOLS       => $protocols,
 			\CURLOPT_REDIR_PROTOCOLS => $protocols,
 			\CURLOPT_FOLLOWLOCATION  => $this->follow,
+			\CURLOPT_UNRESTRICTED_AUTH => false,
 			\CURLOPT_MAXREDIRS       => self::MAX_REDIRECTS,
 			\CURLOPT_TIMEOUT         => self::REQUEST_TIMEOUT,
 		] + Vault::tls_opts();
@@ -282,7 +298,7 @@ class Curl_Node extends Node implements Curl_Owner {
 			'description' => 'Fetch the URL a TM_BYTESTREAM carries (non-blocking GET) and emit the body, or a TM_ERROR naming the url and why.',
 			'has_target'  => true,
 			'arguments'   => [
-				[ 'name' => 'vault_id', 'type' => 'vault_id', 'description' => 'Optional Vault server: a /path joins its url, an absolute url must share its origin, and its credential rides as Authorization.' ],
+				[ 'name' => 'vault_group', 'type' => 'vault_group', 'description' => 'Optional Vault group: a url on one entry\'s origin carries its credential as Authorization, and one on two entries\' origin is refused.' ],
 			],
 			'commands'    => [],
 		];

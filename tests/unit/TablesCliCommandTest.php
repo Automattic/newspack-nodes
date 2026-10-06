@@ -13,11 +13,15 @@ namespace Newspack_Nodes\Tests\Unit;
 use Newspack_Nodes\Callback_Node;
 use Newspack_Nodes\CLI;
 use Newspack_Nodes\Command_Auth;
+use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Crawler_Node;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Partition_Node;
+use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\Spawn_Coordinator;
 use Newspack_Nodes\Sqlite_Arm;
 use Newspack_Nodes\Table_Node;
@@ -85,23 +89,17 @@ final class TablesCliCommandTest extends TestCase {
 	}
 
 	/** Rows left in a `sqlite` partition's file, keyed and member. */
-	private function rows_in( int $partition ): int {
-		$db = new \PDO( 'sqlite:' . Table_Node::file( 'lab-7:kea', $partition ) );
+	private function rows_in( int $partition, string $table = 'lab-7:kea' ): int {
+		$db = new \PDO( 'sqlite:' . Table_Node::file( $table, $partition ) );
 		return (int) $db->query( 'SELECT ( SELECT COUNT(*) FROM kv ) + ( SELECT COUNT(*) FROM members )' )->fetchColumn();
 	}
 
 	/**
-	 * A live `kea-t.p{partition}`: its lock dir with a fresh heartbeat, its
-	 * `lab-7:kea` Table, and the read of its input channel a worker runs,
-	 * verifying each command and answering it through the Table's `:config`
-	 * interpreter onto its output channel, TO the command's FROM.
+	 * A live `kea-t.p{partition}` holding its `lab-7:kea` Table.
 	 *
 	 * @param bool $answers False for a worker that reads commands and answers none.
 	 */
 	private function live_worker( int $partition, bool $answers = true ): Table_Node {
-		$lock = "{$this->base}/locks/kea-t.p{$partition}.lock.d";
-		\mkdir( $lock, 0755, true );
-		\file_put_contents( "{$lock}/heartbeat", '1' );
 		Core::$var['partition'] = (string) $partition;
 		try {
 			$table = new Table_Node();
@@ -111,8 +109,47 @@ final class TablesCliCommandTest extends TestCase {
 			unset( Core::$var['partition'] );
 		}
 		$table->sink( new Capture_Sink_Node() );
-		$input  = Worker_Base::ipc_dir( $this->base, 'kea-t', $partition, Worker_Base::IPC_INPUT );
-		$output = Worker_Base::ipc_dir( $this->base, 'kea-t', $partition, Worker_Base::IPC_OUTPUT );
+		$this->answer_channel( 'kea-t', $partition, $answers );
+		return $table;
+	}
+
+	/**
+	 * A live `crawl-c.p0` holding Crawler `crawl-8812`, which owns its
+	 * `crawl-8812:seen` Table. The Crawler hitchhikes `_router` as it is
+	 * built, and that Router leaves before the CLI mounts its own.
+	 */
+	private function live_crawler(): Table_Node {
+		$router = new Router_Node();
+		$router->name( Node_Names::ROUTER );
+		Core::$var['partition'] = '0';
+		try {
+			$crawler = new Crawler_Node();
+			$crawler->name( 'crawl-8812' );
+			$crawler->sink( new Capture_Sink_Node() );
+			$crawler->arguments( [ '5501' ] );
+		} finally {
+			unset( Core::$var['partition'] );
+			$router->remove_node();
+		}
+		$this->answer_channel( 'crawl-c', 0 );
+		return Core::node( 'crawl-8812:seen' );
+	}
+
+	/**
+	 * A live `{topology}.p{partition}`'s lock dir with a fresh heartbeat, and
+	 * the read of its input channel a worker runs, verifying each command and
+	 * answering it through the interpreter it addresses onto its output
+	 * channel, TO the command's FROM; an address no node answers to bounces
+	 * as the Router bounces it.
+	 *
+	 * @param bool $answers False for a worker that reads commands and answers none.
+	 */
+	private function answer_channel( string $topology, int $partition, bool $answers = true ): void {
+		$lock = "{$this->base}/locks/{$topology}.p{$partition}.lock.d";
+		\mkdir( $lock, 0755, true );
+		\file_put_contents( "{$lock}/heartbeat", '1' );
+		$input  = Worker_Base::ipc_dir( $this->base, $topology, $partition, Worker_Base::IPC_INPUT );
+		$output = Worker_Base::ipc_dir( $this->base, $topology, $partition, Worker_Base::IPC_OUTPUT );
 		\mkdir( $input, 0755, true );
 		\mkdir( $output, 0755, true );
 		$replies = new Partition_Node();
@@ -138,11 +175,21 @@ final class TablesCliCommandTest extends TestCase {
 						$note[ Message::VALUE ] = $this->broadcast;
 						$replies->fill( $note );
 					}
+					$to                     = Core::as_string( $command[ Message::TO ] );
 					$reply                  = Message::new_message();
 					$reply[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_RESPONSE;
+					$reply[ Message::FROM ] = $to;
 					$reply[ Message::TO ]   = $command[ Message::FROM ];
+					$interpreter            = Core::node( $to );
+					if ( ! $interpreter instanceof Command_Interpreter_Node ) {
+						// Router_Node::send_error()'s bounce: a bare string VALUE.
+						$reply[ Message::TYPE ]  = Message::TM_ERROR;
+						$reply[ Message::VALUE ] = "NOT_AVAILABLE\n";
+						$replies->fill( $reply );
+						return;
+					}
 					try {
-						$payload = ( Core::node( Core::as_string( $command[ Message::TO ] ) ) ?? throw new \RuntimeException( 'NOT_AVAILABLE' ) )->dispatch( $verb );
+						$payload = $interpreter->dispatch( $verb );
 					} catch ( \RuntimeException $e ) {
 						$reply[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_ERROR;
 						$payload                = $e->getMessage() . "\n";
@@ -159,7 +206,6 @@ final class TablesCliCommandTest extends TestCase {
 				}
 			)
 		);
-		return $table;
 	}
 
 	/** @return list<array<string,mixed>> The rows the last table printed. */
@@ -437,6 +483,51 @@ final class TablesCliCommandTest extends TestCase {
 		$this->assertMatchesRegularExpression( '/^lab-7:kea\.p1: [\d.]+[KM]?B released by kea-t\.p1$/', $GLOBALS['_test_wp_cli_logs'][0] );
 		$this->assertCount( 1, $GLOBALS['_test_wp_cli_logs'] );
 		$this->assertSame( [ 'Flushed 1 Table partition.' ], $GLOBALS['_test_wp_cli_success'] );
+	}
+
+	public function test_flush_reaches_a_table_its_crawler_owns_on_a_live_owner(): void {
+		$this->write_tsl( 'crawl-c', "make_node Crawler crawl-8812 5501\n" );
+		\update_option( 'newspack_nodes_topologies', [ 'kea-t', 'owl-w', 'crawl-c' ] );
+		Config::reset();
+		$seen = $this->live_crawler();
+		$seen->store( 'https://site-8812.example/a', '1' );
+		$seen->store( 'https://site-8812.example/b', '1' );
+		$this->assertSame( 2, $this->rows_in( 0, 'crawl-8812:seen' ) );
+
+		$this->command()->flush( [ 'crawl-8812:seen' ], [] );
+
+		$this->assertSame( [ 'crawl-8812:seen:config flush' ], $this->answered );
+		$this->assertSame( 0, $this->rows_in( 0, 'crawl-8812:seen' ) );
+		$this->assertMatchesRegularExpression( '/^crawl-8812:seen\.p0: [\d.]+[KM]?B released by crawl-c\.p0$/', $GLOBALS['_test_wp_cli_logs'][0] );
+		$this->assertSame( [ 'Flushed 1 Table partition.' ], $GLOBALS['_test_wp_cli_success'] );
+	}
+
+	public function test_list_reads_the_counters_of_a_table_its_crawler_owns(): void {
+		$this->write_tsl( 'crawl-c', "make_node Crawler crawl-8812 5501\n" );
+		\update_option( 'newspack_nodes_topologies', [ 'kea-t', 'owl-w', 'crawl-c' ] );
+		Config::reset();
+		$insert                    = Message::new_message();
+		$insert[ Message::TYPE ]   = Message::TM_BYTESTREAM;
+		$insert[ Message::KEY ]    = 'https://site-8812.example/c';
+		$insert[ Message::VALUE ]  = '1';
+		$this->live_crawler()->fill( $insert );
+
+		$this->command()->list_( [], [ 'format' => 'json' ] );
+
+		$rows = \array_column( $this->printed(), null, 'Table' );
+		$this->assertSame( 1, $rows['crawl-8812:seen']['Verbs']['INSERT']['calls'] ?? null, 'the owned Table answered stats' );
+		$this->assertSame( [], $GLOBALS['_test_wp_cli_warns'] );
+	}
+
+	public function test_a_live_owner_holding_no_such_table_refuses_the_flush_naming_why(): void {
+		$this->live_worker( 1 );
+		$this->seed_kea( 1, 3 );
+		Core::node( 'lab-7:kea' )->remove_node();
+
+		$e = $this->caught( fn () => $this->command()->flush( [ 'lab-7:kea' ], [ 'partition' => '1' ] ), 'a refused flush reported success' );
+
+		$this->assertSame( 'WP_CLI::error called: lab-7:kea.p1: kea-t.p1 refused flush: NOT_AVAILABLE', $e->getMessage() );
+		$this->assertSame( 4, $this->rows_in( 1 ), 'nothing was deleted' );
 	}
 
 	public function test_flush_refuses_a_partition_no_worker_owns_until_the_fleet_is_held(): void {

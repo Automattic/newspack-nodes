@@ -102,6 +102,29 @@ function isBorrowed( node ) {
 }
 
 /**
+ * Why an owned node offers no delete or rename, shown where those controls
+ * would be: its owner builds it and the server refuses both.
+ *
+ * @param {Object} props
+ * @param {string} props.owner The owner's name.
+ * @return {import('react').ReactElement} The note.
+ */
+function OwnedNote( { owner } ) {
+	return (
+		<div className="topology-insp__breadcrumb topology-insp__owned">
+			{ sprintf(
+				// translators: %s: the name of the node that owns this one.
+				__(
+					'Owned by %s, which builds it, so it cannot be deleted or renamed here.',
+					'newspack-nodes'
+				),
+				owner
+			) }
+		</div>
+	);
+}
+
+/**
  * Bind a token array to the positional slots the schema declares.
  *
  * The parser whitespace-splits a `make_node` or `cmd` line's tail with no
@@ -1171,7 +1194,9 @@ function EditForm( {
 				{ node.class || '?' } · { __( 'EDIT', 'newspack-nodes' ) }
 			</div>
 
-			{ onRemoveNode && ! isReserved( node ) && (
+			{ node.owner && <OwnedNote owner={ node.owner } /> }
+
+			{ onRemoveNode && ! isReserved( node ) && ! node.owner && (
 				<button
 					type="button"
 					className="button button-small button-link-delete topology-edit-delete"
@@ -1181,8 +1206,8 @@ function EditForm( {
 				</button>
 			) }
 
-			{ /* A reserved anchor is auto-mounted: no rename. */ }
-			{ ! isReserved( node ) && (
+			{ /* A reserved anchor is auto-mounted, an owned node built: no rename. */ }
+			{ ! isReserved( node ) && ! node.owner && (
 				<Section title={ __( 'Identity', 'newspack-nodes' ) }>
 					<NameField
 						node={ node }
@@ -2287,6 +2312,7 @@ export default function Inspector( {
 					? __( 'LIVE', 'newspack-nodes' )
 					: streamStatus.toUpperCase() }
 			</div>
+			{ node.owner && <OwnedNote owner={ node.owner } /> }
 
 			{ nodeHasTarget( node, catalog ) && (
 				<Section title={ __( 'Routing', 'newspack-nodes' ) }>

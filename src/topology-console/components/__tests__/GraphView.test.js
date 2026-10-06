@@ -412,6 +412,25 @@ describe( 'GraphView', () => {
 		expect( onRemoveNode ).not.toHaveBeenCalled();
 	} );
 
+	it( 'Delete key on a selected OWNED node does not call onRemoveNode', () => {
+		const onRemoveNode = jest.fn();
+		const ownedGraph = {
+			nodes: [ { id: 'n1', count: 0, owner: 'crawl-4471' } ],
+			edges: [],
+		};
+		const { getByText } = renderWithCatalog(
+			<GraphView
+				graph={ ownedGraph }
+				frame={ Frame }
+				onRemoveNode={ onRemoveNode }
+				resetKey="k"
+			/>
+		);
+		fireEvent.click( getByText( 'select-n1' ) );
+		fireEvent.keyDown( document, { key: 'Delete' } );
+		expect( onRemoveNode ).not.toHaveBeenCalled();
+	} );
+
 	it( 'forwards hulls through to SchematicCanvas', () => {
 		const hulls = [ { include: 'performance', nodeIds: [ 'n1' ] } ];
 		renderWithCatalog(

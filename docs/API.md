@@ -716,10 +716,18 @@ always a list, the routing target plus any destination the node declares through
 `extra_targets()`
 ([ADR-19](architecture-decisions.md#adr-19-a-node-may-declare-a-destination-it-writes-without-routing)).
 `accepts_fill` and `has_target` come from the node's `node_schema()` and tell the
-canvas which ports to draw. A node with registered listeners adds
-`registrations`, and a node's own `dump_metadata()` may add further keys — never
-clobbering a fixed one. Patron-linked nodes and schemas flagged `hidden` are
-omitted, since they are plumbing the canvas must not render. A full snapshot
+canvas which ports to draw. A node another node published adds `owner`, the
+publisher's name, and the console offers no delete or rename on its card,
+because `remove_node` and `move_node` refuse it. A node with registered
+listeners adds `registrations`, and a node's own `dump_metadata()` may add
+further keys — never clobbering a fixed one. `Node::shown_on_canvas()` decides which nodes appear,
+and the browser producer `dumpMetadataPayload()` applies the same rule: a schema
+flagged `hidden` never does, and a node with a patron is the patron's plumbing
+and is omitted unless its schema declares `shown_when_owned`. `Table_Node` is the
+one class that does, so an owned Table, such as a Crawler's `{name}:seen`, draws
+as an ordinary Table card, its `has_config` true, with an edge from a patron that
+declares it in `extra_targets()`, as `Crawler_Node` does,
+while the Crawler's `:curl` and every `:config` interpreter stay hidden. A full snapshot
 (no node named) also carries a `_header` entry holding `profiling` and, when the
 command supplied one, `pwd`.
 
@@ -1092,7 +1100,7 @@ thereafter.
 [`Curl_Node`](../includes/class-curl-node.php) calls no endpoint of ours: it
 fetches the url a TM_BYTESTREAM carries with a GET on the same shared multi,
 through the [`Curl_Transfer`](../includes/trait-curl-transfer.php) mechanism
-`HTTP_Out_Node` runs on. `make_node Curl <name> [vault_id]`. The completion
+`HTTP_Out_Node` runs on. `make_node Curl <name> [vault_group]`. The completion
 emits a copy of the input message, FROM, ID and KEY intact and TO stamped from
 `target`, with its whole TYPE replaced: TM_BYTESTREAM carrying the body below
 status 400, and otherwise a TM_ERROR whose VALUE opens with a fixed prefix a
@@ -1100,7 +1108,7 @@ consumer can match.
 
 A fetch follows redirects, up to `MAX_REDIRECTS`. `follow_redirects( false )`
 turns that off for one node, and is a method rather than a positional because
-the optional `vault_id` has no empty placeholder. Following none, a fetch sets
+the optional `vault_group` has no empty placeholder. Following none, a fetch sets
 `CURLOPT_FOLLOWLOCATION` off, and a 3xx naming a Location answers a
 TM_RESPONSE copy whose VALUE is that Location, absolute as libcurl reports it
 (`CURLINFO_REDIRECT_URL`).
@@ -1113,11 +1121,10 @@ TM_RESPONSE copy whose VALUE is that Location, absolute as libcurl reports it
 |---|---|
 | `HTTP <code> <url>` | The response's status is 400 or more, or, following no redirects, 300-399 with no Location. |
 | `curl error <n> (<curl_strerror>) <url>` | The transfer failed: a timeout, a refused connection, a redirect past the limit or a scheme outside it, or the body cap's short write. |
-| `invalid url <value>` | VALUE is not an absolute http(s) url with a host, nor a `/path` under a vault id. |
-| `no vault entry <id>` | The vault id names no server. |
-| `no url for vault entry <id>` | The vault server it names carries no url. |
-| `url outside vault origin <url>` | An absolute url's scheme, host or effective port differs from the vault server's. |
-| `vault_require_ssl set but url is not https <url>` | The resolved url is plaintext under `vault_require_ssl`. |
+| `invalid url <value>` | VALUE is not an absolute http(s) url with a host. |
+| `invalid url carrying userinfo` | VALUE carries userinfo before its host, as `Vault::url_carries_credentials()` reads it; the url, which may hold a credential, is left out. PHP and libcurl split an authority holding two `@` at different ones, so the origin read here need not be the host fetched. |
+| `vault entries <id>, <id>… share origin <origin> <url>` | Two or more entries of the vault group sit on the url's origin, so no one credential is the url's. |
+| `vault_require_ssl set but url is not https <url>` | The url is plaintext, an entry of the vault group sits on its origin, and `vault_require_ssl` is set. |
 | `no event loop <url>` | The process is not inside a drain loop, so no transfer could ever complete. |
 | `busy: <N> requests in flight <url>` | `MAX_IN_FLIGHT` transfers are already running; nothing is queued. |
 | `curl_init failed <url>` | libcurl yielded no handle, so no transfer started. |
@@ -1125,13 +1132,23 @@ TM_RESPONSE copy whose VALUE is that Location, absolute as libcurl reports it
 The output goes to `target` like any forwarded message, never back along FROM.
 Anything but a TM_BYTESTREAM is dropped with one rate-limited line. A transfer
 still in flight when the node is removed is lost, and one rate-limited line
-counts the discards ([ADR-3](architecture-decisions.md#adr-3-fire-and-forget-messaging)). Under a
-vault id a `/path` joins the server's url and the server's credential rides as
-`Authorization`; libcurl drops that header itself when a redirect changes host,
-port or scheme. Every fetch, vault id or not, verifies TLS as `vault_verify_ssl`
+counts the discards ([ADR-3](architecture-decisions.md#adr-3-fire-and-forget-messaging)).
+
+Under a vault group each fetch looks up the group's entries through
+`Vault::in_group()` and keeps those whose `Vault::url_of()` has the url's
+origin, by `Curl_Node::origin_of()`: the same scheme, host and effective port.
+None fetches the url with no `Authorization`, and an entry with no url sits on
+no origin. One sends its `Vault::credential_header_for()` as `Authorization`,
+and under `vault_require_ssl` refuses a plaintext url and takes https alone,
+redirects included. Two or more refuse, naming every one. The url is fetched as
+written; a vault entry's path plays no part. A credential starts on its own
+origin and stays there: the transfer sets `CURLOPT_UNRESTRICTED_AUTH` off, so
+libcurl (7.83.1 and later) drops the header when a redirect changes host, port
+or scheme, and a node following no redirects sends nothing past the first
+response. Every fetch, vault group or not, verifies TLS as `vault_verify_ssl`
 says, through `Vault::tls_opts()`.
 
-`Curl_Node::origin_of()` and `DEFAULT_PORTS` are public: [`Crawler_Node`](#crawler_node--one-site-link-by-link)
+`Curl_Node::origin_of()` and `DEFAULT_PORTS` are public: [`Crawler_Node`](#crawler_node--each-seeds-site-link-by-link)
 reads a link's origin and default port through them, so a link is kept by the
 rule a fetch is held to. `transfers_in_flight()` is public too: the crawler
 sizes each refill by Curl's own count.
@@ -1140,20 +1157,21 @@ sizes each refill by Curl's own count.
 |---|---|---|
 | `MAX_IN_FLIGHT` | 16 | Transfers one node runs at once. |
 | `REQUEST_TIMEOUT` | 30 seconds | One fetch, redirects included, as `CURLOPT_TIMEOUT`. |
-| `MAX_REDIRECTS` | 5 | `CURLOPT_MAXREDIRS`, with `CURLOPT_PROTOCOLS` and `CURLOPT_REDIR_PROTOCOLS` both http and https alone, or https alone under a vault id while `vault_require_ssl` is set. |
+| `MAX_REDIRECTS` | 5 | `CURLOPT_MAXREDIRS`, with `CURLOPT_PROTOCOLS` and `CURLOPT_REDIR_PROTOCOLS` both http and https alone, or https alone for a fetch carrying a credential while `vault_require_ssl` is set. |
 | `MAX_REPLY_BYTES` | 8388608 (8 MiB) | One response body, buffered into the PHP heap. |
 
-### `Crawler_Node` — one site, link by link
+### `Crawler_Node` — each seed's site, link by link
 
-[`Crawler_Node`](../includes/class-crawler-node.php) crawls one site. It
-fetches each url through a [`Curl_Node`](#curl_node--any-https-url) it owns,
-which follows no redirect, follows the same-origin links every page carries
-and the same-origin Location every redirect names, and sends each answer to
-`target`. `make_node Crawler <name> <ttl> [vault_id] [delay_ms] [concurrency]`:
+[`Crawler_Node`](../includes/class-crawler-node.php) crawls the site of each
+seed. It fetches each url through a [`Curl_Node`](#curl_node--any-https-url)
+it owns, which follows no redirect, follows the same-origin links every page
+carries and the same-origin Location every redirect names, and sends each
+answer to `target`. `make_node Crawler <name> <ttl> [vault_group] [delay_ms] [concurrency]`:
 `ttl` is a whole number of seconds, at least 1, that a url counts as seen, so
-a url may be crawled again once it expires; `vault_id` goes to the Curl
-sibling, and a seed must then be on that Vault server's origin or Curl answers
-a TM_ERROR. `delay_ms`, default 0, is the least number of milliseconds between
+a url may be crawled again once it expires; `vault_group` goes to the Curl
+sibling. A seed may be on any origin, and each url is fetched with the
+credential of the group's entry on its own origin, if any, by Curl's rule.
+`delay_ms`, default 0, is the least number of milliseconds between
 two fetch starts, and 0 leaves the crawl unthrottled; any other delay is at
 least `MIN_DELAY_MS` (100). `concurrency`, default 1, is the most fetches in
 flight at once, from 1 to `Curl_Node::MAX_IN_FLIGHT` (16). `make_node` refuses
@@ -1162,22 +1180,19 @@ a non-numeric or negative token for either, a `delay_ms` from 1 to 99, and a
 extends `Timer_Node` and refills on a recurring timer: the one-second tick
 with no delay, every `delay_ms` with one.
 
-Two verbs on `{name}:config` change the pacing of a running crawler:
-`set_delay_ms <ms>` and `set_concurrency <n>`. Each replays the crawler's
-arguments with that one token replaced, so it is refused exactly as
-`make_node` would refuse it, keeps both siblings and their transfers, and
-leaves `dump_config()` emitting the new value on the `make_node` line; a
-skipped positional before it is written as its default (`make_node Crawler
-crawl 7203 '' 0 3`). Both are declared `setter`s naming a positional, which
-`Schema_Reflection` turns into that replay for any node. The timer re-arms only
-when its interval changes.
+The crawler declares no verbs. Its pacing is set by `make_node` alone, because
+a worker rebuilds the graph from its `.tsl` at least every ten minutes and a
+change made at runtime would revert without a word. A replay of its arguments
+that changes only `delay_ms` or `concurrency` keeps both siblings and their
+transfers, and the timer re-arms only when its interval changes; one changing
+`ttl` or `vault_group` rebuilds both.
 
 The crawler owns two siblings, built when its arguments arrive and torn down
 with it:
 
 | Sibling | Node | Wiring |
 |---|---|---|
-| `{name}:curl` | `Curl_Node [vault_id]`, `follow_redirects( false )` | Its sink is the crawler's own sink; its target is the crawler, so every answer comes back TO the crawler's name. |
+| `{name}:curl` | `Curl_Node [vault_group]`, `follow_redirects( false )` | Its sink is the crawler's own sink; its target is the crawler, so every answer comes back TO the crawler's name. |
 | `{name}:seen` | `Table {name}:seen <name> <ttl> sqlite` | Its sink is the crawler's own sink; it answers the crawler's `Table_Client`. The second `<name>` is the Table's namespace and its file stem. |
 
 The Table keeps a key per url seen, written with `ADD` under the `ttl`, and
@@ -1193,7 +1208,7 @@ anywhere else it throws `Table_Unavailable`, `Table <name>: a sqlite backend nee
 
 | Message | What the crawler does |
 |---|---|
-| A TM_BYTESTREAM whose FROM is not the crawler's name (a seed) | Its trimmed VALUE must be an absolute http(s) url with a host and no whitespace. A url that is not draws the TM_ERROR below. A valid one is normalized exactly as a link is, resolved against itself, so `HTTP://Example.com#top` and a page's link to `/` are one url; it is `ADD`ed, joins `pending` when the Table reports it new, and is skipped when seen within the `ttl`. Then the crawler refills. |
+| A TM_BYTESTREAM whose FROM is not the crawler's name (a seed) | Its trimmed VALUE must be an absolute http(s) url with a host and no whitespace. A url that is not draws the TM_ERROR below. A valid one is normalized exactly as a link is, resolved against itself, so `HTTP://Example.com#top` and a page's link to `/` are one url; it is `ADD`ed and joins `pending` when the Table reports it new; one seen within the `ttl` draws the TM_INFO below. Then the crawler refills. |
 | A TM_BYTESTREAM, TM_RESPONSE or TM_ERROR whose FROM is the crawler's name (Curl's answer) | The url fetched is its KEY. A body's same-origin links, or a redirect's Location resolved against KEY and kept only on KEY's origin, are `ADD`ed and the new ones join `pending`; the answer goes to `target` unchanged, an off-site redirect included; the url leaves `inflight`, last, so a forward that throws leaves it for the next start to fetch again; and the crawler refills. |
 | A reply from the `{name}:seen` Table | Collected by the crawler's `Table_Client`. |
 | Anything else | Dropped with one rate-limited line. |
@@ -1208,7 +1223,7 @@ nothing, so its slot waits for the next tick; an answer that completes later
 refills on its own. Under a `delay_ms` above 0 only the timer refills: a seed
 or an answer queues what it found and starts nothing, and each fire moves one
 url. The timer measures each interval from its last fire, so one re-armed by
-`set_delay_ms` cannot fire early. A delay of at least the
+a replay cannot fire early. A delay of at least the
 Router's tick rides that tick, so a start lands up to one tick after the
 delay ends. It hands
 each url moved to Curl as a TM_BYTESTREAM whose VALUE and KEY are the url and
@@ -1227,14 +1242,16 @@ to another host, scheme or port is forwarded to `target` and not followed. A
 seed on `http://` that redirects to `https://` leaves its origin, so seed the
 final url.
 
-The crawler sends one TM_ERROR of its own:
+The crawler answers a seed itself in three cases:
 
-| VALUE | When |
-|---|---|
-| `invalid url <value>` | A seed's trimmed VALUE is not an absolute http(s) url with a host, holds whitespace or carries userinfo (`https://u:p@host/`). |
+| TYPE | VALUE | When |
+|---|---|---|
+| TM_ERROR | `invalid url <value>` | A seed's trimmed VALUE is not an absolute http(s) url with a host, holds whitespace or carries userinfo (`https://u:p@host/`). |
+| TM_INFO | `already seen <url>` | The Table's `ADD` reports the seed's normalized url seen within the `ttl`. KEY is that url, and nothing is fetched. A link or Location already seen is skipped without a word. |
+| TM_ERROR | `ADD to <name>:seen failed <url>` | The `{name}:seen` Table refused the seed's `ADD` or left it unanswered, so nothing shows the url seen. KEY is that url, and nothing is fetched. |
 
-It is a copy of the seed with its whole TYPE replaced by TM_ERROR, sent to
-`target`. Every TM_ERROR Curl answers (see [`Curl_Node`](#curl_node--any-https-url))
+Each is a copy of the seed with its whole TYPE and its VALUE replaced and its
+TO cleared, sent to `target`, so FROM and ID are the seeder's. Every TM_ERROR Curl answers (see [`Curl_Node`](#curl_node--any-https-url))
 reaches `target` as well, KEY set to the url. An answered url is done, TM_ERROR
 included: it is never retried, so a permanent 404 cannot loop, and it is not
 fetched again until its `ttl` expires.
@@ -1252,9 +1269,10 @@ One Crawler runs per name per host: its Table's namespace and file are its
 name, so two workers running one crawler share the file and re-queue each
 other's `inflight`. `Topology_Analyzer` claims that file in the write set, so
 two active topologies declaring one crawler conflict, and lists the Table in
-`declared_tables()`. It honors no robots.txt, keeps no depth limit, checks no
-content type and retries nothing; the `ttl` and the same-origin rule bound the
-crawl.
+`declared_tables()`. The vault group adds nothing to either: Curl reads it per
+fetch, and it builds no node. The crawler honors no robots.txt, keeps no depth
+limit, checks no content type and retries nothing; the `ttl` and the
+same-origin rule bound the crawl.
 
 | Constant | Value | Bounds |
 |---|---|---|

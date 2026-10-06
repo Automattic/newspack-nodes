@@ -1,7 +1,7 @@
 <?php
 /**
- * Crawler_Node: crawl one site, following the same-origin links each page
- * carries.
+ * Crawler_Node: crawl from each seed, following the same-origin links each
+ * page carries.
  *
  * @package Newspack_Nodes
  */
@@ -11,15 +11,17 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * Crawler node — `make_node Crawler <name> <ttl> [vault_id] [delay_ms] [concurrency]`.
+ * Crawler node — `make_node Crawler <name> <ttl> [vault_group] [delay_ms] [concurrency]`.
  *
- * A seed is a TM_BYTESTREAM url from anyone but the crawler itself. It,
- * every same-origin link a fetched page carries and every same-origin
- * redirect Location are normalized and `ADD`ed to the `{name}:seen` sqlite
- * Table, and each one the Table reports new joins its `pending` set. A
+ * A seed is a TM_BYTESTREAM url, on any origin, from anyone but the crawler
+ * itself. It, every link a fetched page carries on that page's origin and
+ * every same-origin redirect Location are normalized and `ADD`ed to the
+ * `{name}:seen` sqlite Table, and each one the Table reports new joins its
+ * `pending` set; a seed it reports seen answers a TM_INFO to target. A
  * refill moves up to `concurrency` less the fetches in flight from `pending`
- * to `inflight` and hands each url to the `{name}:curl` sibling, which
- * follows no redirect and whose answers come back here through its target.
+ * to `inflight` and hands each url to the `{name}:curl` sibling. Curl
+ * follows no redirect, sends each url the credential of the `vault_group`
+ * entry on its origin, if any, and answers back here through its target.
  * With `delay_ms` above 0 only the timer refills, one url a fire, every
  * `delay_ms` from the last fire, a retune included. An answer, the
  * body, the redirect as TM_RESPONSE or the TM_ERROR, leaves `inflight` and
@@ -63,8 +65,8 @@ final class Crawler_Node extends Timer_Node {
 	/** Seconds a URL counts as seen: the Table's TTL. */
 	protected int $ttl = 0;
 
-	/** Vault server id handed to the Curl sibling; '' for none. */
-	protected string $vault_id = '';
+	/** Vault group handed to the Curl sibling; '' for none. */
+	protected string $vault_group = '';
 
 	/** Least ms between two fetch starts; 0 starts them as slots free. */
 	protected int $delay_ms = 0;
@@ -84,20 +86,15 @@ final class Crawler_Node extends Timer_Node {
 	/** True while refill() runs; an answer arriving inside it does not re-enter. */
 	private bool $refilling = false;
 
-	/**
-	 * The Table client asks by the crawler's live name, so it outlives a
-	 * rename; the `{name}:config` interpreter answers the setter verbs, which
-	 * replay the arguments with one token replaced.
-	 */
+	/** The Table client asks by the crawler's live name, so it outlives a rename. */
 	public function __construct() {
 		parent::__construct();
 		$this->tables = new Table_Client( $this );
-		$this->auto_wire_interpreter();
 	}
 
 	/**
-	 * `<ttl> [vault_id] [delay_ms] [concurrency]`: build both siblings and
-	 * pace the refill timer. A replay changing `ttl` or `vault_id` tears both
+	 * `<ttl> [vault_group] [delay_ms] [concurrency]`: build both siblings and
+	 * pace the refill timer. A replay changing `ttl` or `vault_group` tears both
 	 * siblings down and builds them again; one the siblings refuse restores
 	 * the tokens and the crawler they built. A replay changing only the
 	 * pacing keeps the siblings and their transfers.
@@ -121,14 +118,14 @@ final class Crawler_Node extends Timer_Node {
 		if ( $concurrency < 1 || $concurrency > Curl_Node::MAX_IN_FLIGHT ) {
 			$this->refuse_argument( 'concurrency wants a whole number from 1 to ' . Curl_Node::MAX_IN_FLIGHT . ", got '{$concurrency}'" );
 		}
-		$previous = [ $this->arguments, $this->ttl, $this->vault_id, $this->delay_ms, $this->concurrency ];
+		$previous = [ $this->arguments, $this->ttl, $this->vault_group, $this->delay_ms, $this->concurrency ];
 		$this->assign_schema_args( $args, $values );
-		if ( null === $this->curl || $previous[1] !== $this->ttl || $previous[2] !== $this->vault_id ) {
+		if ( null === $this->curl || $previous[1] !== $this->ttl || $previous[2] !== $this->vault_group ) {
 			$built = null !== $this->curl;
 			try {
 				$this->build_siblings();
 			} catch ( \Throwable $e ) {
-				[ $this->arguments, $this->ttl, $this->vault_id, $this->delay_ms, $this->concurrency ] = $previous;
+				[ $this->arguments, $this->ttl, $this->vault_group, $this->delay_ms, $this->concurrency ] = $previous;
 				$restore = function (): void {
 					$this->build_siblings();
 					$this->pace();
@@ -232,7 +229,9 @@ final class Crawler_Node extends Timer_Node {
 	/**
 	 * Take a seed: one that is no absolute http(s) url, or that holds
 	 * whitespace, answers a TM_ERROR copy to target; a valid one is normalized
-	 * as a link is, discovered, and the crawler refills.
+	 * as a link is and discovered, and the crawler refills. A seen one answers
+	 * a TM_INFO copy keyed by its url, and one whose `ADD` the Table refuses
+	 * or leaves unanswered a TM_ERROR copy, since nothing shows it seen.
 	 *
 	 * @param array<int,mixed> $message The seed.
 	 */
@@ -240,14 +239,31 @@ final class Crawler_Node extends Timer_Node {
 		$value = \trim( Core::as_string( $message[ Message::VALUE ] ) );
 		$url   = self::seed_url( $value );
 		if ( null === $url ) {
-			$message[ Message::TYPE ]  = Message::TM_ERROR;
-			$message[ Message::TO ]    = '';
-			$message[ Message::VALUE ] = "invalid url {$value}";
-			parent::fill( $message );
+			$this->answer_seed( $message, Message::TM_ERROR, "invalid url {$value}" );
 			return;
 		}
-		$this->discover( [ $url ] );
+		$message[ Message::KEY ] = $url;
+		$new                     = $this->discover( [ $url ], $failed );
+		if ( $failed ) {
+			$this->answer_seed( $message, Message::TM_ERROR, 'ADD to ' . $this->sibling_name( self::SEEN ) . " failed {$url}" );
+		} elseif ( [] === $new ) {
+			$this->answer_seed( $message, Message::TM_INFO, "already seen {$url}" );
+		}
 		$this->refill( tick: false );
+	}
+
+	/**
+	 * Send target a copy of the seed with its TYPE and VALUE replaced.
+	 *
+	 * @param array<int,mixed> $message The seed.
+	 * @param int              $type    TM_ERROR or TM_INFO.
+	 * @param string           $value   What the answer says.
+	 */
+	private function answer_seed( array $message, int $type, string $value ): void {
+		$message[ Message::TYPE ]  = $type;
+		$message[ Message::TO ]    = '';
+		$message[ Message::VALUE ] = $value;
+		parent::fill( $message );
 	}
 
 	/**
@@ -293,16 +309,20 @@ final class Crawler_Node extends Timer_Node {
 	 * `pending` for `FRONTIER_TTL`. When `pending` takes none of them, their
 	 * seen keys are removed again, so a later sighting finds them new.
 	 *
-	 * @param list<string> $urls Absolute urls.
+	 * @param list<string> $urls   Absolute urls.
+	 * @param ?bool        $failed Set true when the Table refused or left the `ADD` unanswered.
+	 * @param-out bool     $failed
+	 * @return list<string> The urls the Table reported new.
 	 */
-	private function discover( array $urls ): void {
+	private function discover( array $urls, ?bool &$failed = null ): array {
 		$table = $this->sibling_name( self::SEEN );
-		$new   = $this->tables->add_multi( $table, \array_fill_keys( $urls, [ '1' ] ) );
+		$new   = $this->tables->add_multi( $table, \array_fill_keys( $urls, [ '1' ] ), $failed );
 		if ( [] === $new || [] !== $this->tables->add_members( $table, [ self::PENDING => \array_fill_keys( $new, 1 ) ], self::FRONTIER_TTL ) ) {
-			return;
+			return $new;
 		}
 		$this->tables->remove( $table, $new );
 		$this->print_less_often( 'WARNING: pending took no new url; their seen keys are removed' );
+		return $new;
 	}
 
 	/**
@@ -601,12 +621,23 @@ final class Crawler_Node extends Timer_Node {
 	private function publish_curl(): Curl_Node {
 		$curl = new Curl_Node();
 		$curl->patron( $this );
-		$curl->arguments( '' === $this->vault_id ? [] : [ $this->vault_id ] );
+		$curl->arguments( '' === $this->vault_group ? [] : [ $this->vault_group ] );
 		$curl->follow_redirects( false );
 		$this->publish_sibling( 'curl', $curl );
 		$curl->sink( $this->sink );
 		$curl->target( $this->name );
 		return $curl;
+	}
+
+	/**
+	 * The `{name}:seen` Table, which the crawler writes through its Table
+	 * client rather than its target, so the console draws an edge to it.
+	 *
+	 * @api Unioned into display_targets() by Node.
+	 * @return list<string>
+	 */
+	protected function extra_targets(): array {
+		return [ $this->sibling_name( self::SEEN ) ];
 	}
 
 	/**
@@ -617,32 +648,15 @@ final class Crawler_Node extends Timer_Node {
 	public static function node_schema(): array {
 		return [
 			'category'    => 'I/O',
-			'description' => 'Crawl one site from each seed url: fetch it, send every answer to target with KEY set to the url, and follow its same-origin links, each once per ttl.',
+			'description' => 'Crawl from each seed url: fetch it, send every answer to target with KEY set to the url, and follow the links on its origin, each once per ttl; a seed already seen answers a TM_INFO.',
 			'has_target'  => true,
 			'arguments'   => [
 				[ 'name' => 'ttl', 'type' => 'int', 'required' => true, 'description' => 'Seconds a url counts as seen, at least 1; it may be crawled again after.' ],
-				[ 'name' => 'vault_id', 'type' => 'vault_id', 'default' => '', 'description' => 'Optional Vault server the Curl sibling fetches through; seeds must be on its origin.' ],
+				[ 'name' => 'vault_group', 'type' => 'vault_group', 'default' => '', 'description' => 'Optional Vault group: each url is fetched with the credential of the group entry on its origin, if any.' ],
 				[ 'name' => 'delay_ms', 'type' => 'int', 'default' => 0, 'description' => 'Least milliseconds between two fetch starts, 0 or at least ' . self::MIN_DELAY_MS . '; 0 starts each as a slot frees.' ],
 				[ 'name' => 'concurrency', 'type' => 'int', 'default' => 1, 'description' => 'Most fetches in flight at once, from 1 to ' . Curl_Node::MAX_IN_FLIGHT . '.' ],
 			],
-			'commands'    => [
-				[
-					'name'        => 'set_delay_ms',
-					'description' => 'Set the least milliseconds between two fetch starts, 0 or at least ' . self::MIN_DELAY_MS . '; 0 unthrottles.',
-					'args'        => [
-						[ 'name' => 'delay_ms', 'type' => 'int', 'required' => true ],
-					],
-					'setter'      => 'delay_ms',
-				],
-				[
-					'name'        => 'set_concurrency',
-					'description' => 'Set the most fetches in flight at once, from 1 to ' . Curl_Node::MAX_IN_FLIGHT . '.',
-					'args'        => [
-						[ 'name' => 'concurrency', 'type' => 'int', 'required' => true ],
-					],
-					'setter'      => 'concurrency',
-				],
-			],
+			'commands'    => [],
 		];
 	}
 }

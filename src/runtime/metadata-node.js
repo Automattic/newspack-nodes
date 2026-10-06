@@ -19,9 +19,25 @@ import { RouterNode } from './router-node';
 import reservedNames from './reserved-node-names.json';
 
 /**
+ * Whether the canvas draws a node, as PHP `Node::shown_on_canvas()` decides:
+ * never under a `hidden` schema, and with a patron only when the schema
+ * declares `shown_when_owned`, as a Table's does.
+ *
+ * @param {Object}  node   Any registered node.
+ * @param {?Object} schema What its class's `nodeSchema()` returned.
+ * @return {boolean} True when the canvas draws it.
+ */
+function shownOnCanvas( node, schema ) {
+	if ( true === schema?.hidden ) {
+		return false;
+	}
+	return ! node.patron || true === schema?.shown_when_owned;
+}
+
+/**
  * Snapshot every registered node into a dump_metadata-shaped object keyed by
- * node name. Patron-linked nodes are plumbing the canvas must not draw, so
- * they are skipped.
+ * node name. A node `shownOnCanvas()` refuses is skipped: a `hidden` schema,
+ * and a patron's plumbing unless its schema declares `shown_when_owned`.
  *
  * Every entry carries `class`, `counter`, `sink`, `target`, `targets`,
  * `debug_state`, `arguments`, `lgst_msg`, `bytes_read`, `bytes_written`,
@@ -29,7 +45,9 @@ import reservedNames from './reserved-node-names.json';
  * when the node has node-name listeners, and a full snapshot adds `_header`.
  * Both `target` and `targets` ship because a flattened list cannot express a
  * Tee fan-out (ADR-19): `target` is the routing value a console mutation
- * patches, `targets` the display union the edges are drawn from.
+ * patches, `targets` the display union the edges are drawn from. An owned
+ * node adds `owner`, its patron's name, because the server refuses to remove
+ * or rename it.
  *
  * @param {string} [only]     Single node name to snapshot; '' = all nodes.
  * @param {Object} [registry] The name table to read; defaults to Core's.
@@ -41,11 +59,11 @@ export function dumpMetadataPayload( only = '', registry = Core.registry ) {
 		if ( only && name !== only ) {
 			continue;
 		}
-		if ( node.patron !== null && node.patron !== undefined ) {
-			continue;
-		}
 		// Per-node port flags from the node's schema; default true if none.
 		const schema = node.constructor?.nodeSchema?.() ?? null;
+		if ( ! shownOnCanvas( node, schema ) ) {
+			continue;
+		}
 		// A stub declares the class it STANDS FOR, so the catalog matches.
 		const ctorName = node.constructor?.name ?? 'Node';
 		out[ name ] = {
@@ -66,6 +84,10 @@ export function dumpMetadataPayload( only = '', registry = Core.registry ) {
 			// Has a `:config` sidecar iff that sibling node is registered.
 			has_config: registry.nodes.has( `${ name }:config` ),
 		};
+		// The console withholds delete and rename from an owned node.
+		if ( node.patron ) {
+			out[ name ].owner = node.patron.name;
+		}
 		// Emit registrations only when non-empty (PHP-parity: `[]` vs `{}`).
 		const registrations = node.registeredListeners();
 		if ( Object.keys( registrations ).length ) {
@@ -144,6 +166,7 @@ const SCAFFOLDING = new Set( [
  * @property {Object}          [cursor]              Consumer read cursor.
  * @property {number}          [deadletter_segments] Dead-letter segment count (Triage badge).
  * @property {Object}          [verb_stats]          A Table's per-verb `VerbStats`, keyed by verb.
+ * @property {string}          [owner]               The node that owns it; the console offers no delete or rename.
  * @property {string}          [polling]             Consumer poll state: `INIT`, `ACTIVE`, or `PAUSED`.
  * @property {?number}         [at_frame]            Frame the cursor sits on; null when unset.
  * @property {boolean}         [on_frame]            Whether the cursor is parked on a frame.
@@ -239,6 +262,10 @@ export function parseMetadata( payload ) {
 		// Dead-letter segment count (Triage badge); only when present.
 		if ( typeof meta.deadletter_segments === 'number' ) {
 			node.deadletter_segments = meta.deadletter_segments;
+		}
+		// The node's owner, whose own delete or rename carries it.
+		if ( typeof meta.owner === 'string' ) {
+			node.owner = meta.owner;
 		}
 		// A Table's per-verb counters; only when present.
 		if ( meta.verb_stats && typeof meta.verb_stats === 'object' ) {

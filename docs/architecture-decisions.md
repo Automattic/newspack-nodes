@@ -1249,7 +1249,11 @@ one of them unless the flatten knows how to see it.
 **Decision:** [`Vault_Group_Node`](../includes/class-vault-group-node.php) owns one child per
 server `Vault::in_group()` returns, each published as an owned sibling
 (`Node::publish_sibling()`) named `<group>:<vault id>`, and NOT patroned, so each keeps its own
-`:config` interpreter and draws on the canvas like a hand-written node. It rebuilds its
+`:config` interpreter and draws on the canvas. Unlike a hand-written node, a child cannot be
+removed or renamed from the console or the shell: `remove_node` and `move_node` refuse an owned
+sibling, and `dump_metadata` names the group as the child's `owner`. A child leaves through the
+Vault — `vault update <id> --group=` takes its entry out of the group, and the next reload
+retracts it — or with the group itself. It rebuilds its
 children on the fleet's RELOAD through `update_graph()`, Tachikoma's `ConsumerBroker`
 vocabulary: a new id is built and replays every recorded command and edge, a departed one hands
 its cursor off and is retracted through its normal teardown. The sibling map is the one list
@@ -1275,8 +1279,9 @@ child.
 twice, and a spoke added to the Vault stays unwired until someone regenerates, redeploys and
 restarts; the generator had also drifted, emitting `include` names no topology defines.
 Hand-written legs per spoke — rejected: that is the problem. Patroned children — rejected: a
-patroned node vanishes from the canvas and shares its patron's interpreter, so per-spoke
-state and edges become invisible exactly where an operator diagnosing one spoke looks.
+patroned node vanishes from the canvas and drops its own `:config` interpreter — only an
+owned Table keeps both — so per-spoke state and edges become invisible exactly where an
+operator diagnosing one spoke looks.
 Runtime-only expansion, leaving the flatten alone — rejected: the write set would be blind to
 every member's offsetlog and deadletter, and `wp nodes gc` would sweep live cursors once
 `Log_Cleaner::DELETE_GRACE_S` passed.

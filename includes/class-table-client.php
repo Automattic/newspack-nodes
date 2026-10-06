@@ -280,17 +280,22 @@ final class Table_Client {
 	}
 
 	/**
-	 * `ADD`: each item only where its key is absent.
+	 * `ADD`: each item only where its key is absent. A key already present is
+	 * left out of the answer; a write the Table refuses or leaves unanswered
+	 * answers none and sets `$failed`, so the two never read alike.
 	 *
-	 * @api A node asking Tables: event-logger-nodes' `Stats_Store`.
-	 * @param string                                    $table The Table's registered name.
-	 * @param array<array-key,array{0: mixed, 1?: int}> $items Key => [ value, ttl ].
+	 * @api A node asking Tables: the Crawler_Node.
+	 * @param string                                    $table  The Table's registered name.
+	 * @param array<array-key,array{0: mixed, 1?: int}> $items  Key => [ value, ttl ].
+	 * @param ?bool                                     $failed Set true when the write did not answer.
+	 * @param-out bool                                  $failed
 	 * @return list<string> The keys added.
 	 * @throws \LogicException When an ask is in flight already.
 	 * @throws \RuntimeException When the asker has no name or no sink.
 	 */
-	public function add_multi( string $table, array $items ): array {
-		return $this->write_struct( $table, 'ADD', $items );
+	public function add_multi( string $table, array $items, ?bool &$failed = null ): array {
+		$failed = false;
+		return $this->write_struct( $table, 'ADD', $items, $failed );
 	}
 
 	/**
@@ -312,18 +317,19 @@ final class Table_Client {
 	/**
 	 * A structured write: `MSET`, `ADD` or `SADD`, under TM_REQUEST|TM_STRUCT.
 	 *
-	 * @param string                 $table The Table's registered name.
-	 * @param string                 $verb  `MSET`, `ADD` or `SADD`.
-	 * @param array<array-key,mixed> $items Key => [ value, ttl ].
+	 * @param string                 $table  The Table's registered name.
+	 * @param string                 $verb   `MSET`, `ADD` or `SADD`.
+	 * @param array<array-key,mixed> $items  Key => [ value, ttl ].
+	 * @param bool                   $failed Set true when the write did not answer.
 	 * @return list<string> The keys the write took effect on.
 	 * @throws \LogicException When an ask is in flight already.
 	 * @throws \RuntimeException When the asker has no name or no sink.
 	 */
-	private function write_struct( string $table, string $verb, array $items ): array {
+	private function write_struct( string $table, string $verb, array $items, bool &$failed = false ): array {
 		if ( [] === $items ) {
 			return [];
 		}
-		return $this->written( $verb, $this->ask( $table, Message::TM_REQUEST | Message::TM_STRUCT, [ $verb => $items ] ) );
+		return $this->written( $verb, $this->ask( $table, Message::TM_REQUEST | Message::TM_STRUCT, [ $verb => $items ] ), $failed );
 	}
 
 	/**
@@ -419,13 +425,15 @@ final class Table_Client {
 	}
 
 	/**
-	 * The keys a write's TM_RESPONSE names; none when no response came.
+	 * The keys a write's TM_RESPONSE names; none, and failed, when no response
+	 * came.
 	 *
 	 * @param string                 $verb    The verb the response names.
 	 * @param list<array<int,mixed>> $replies What the ask collected.
+	 * @param bool                   $failed  Set true when no response came.
 	 * @return list<string>
 	 */
-	private function written( string $verb, array $replies ): array {
+	private function written( string $verb, array $replies, bool &$failed = false ): array {
 		foreach ( $replies as $reply ) {
 			if ( 0 === ( Core::num_int( $reply[ Message::TYPE ] ) & Message::TM_RESPONSE ) ) {
 				continue;
@@ -435,6 +443,7 @@ final class Table_Client {
 				return \array_slice( $words, 1 );
 			}
 		}
+		$failed = true;
 		return [];
 	}
 

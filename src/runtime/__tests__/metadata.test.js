@@ -4,6 +4,29 @@ import { TeeNode } from '../tee-node';
 import { RouterNode } from '../router-node';
 import { dumpMetadataPayload } from '../metadata-node';
 
+/** Stands for a server Table: an owned one still draws on the canvas. */
+class TableNode extends Node {
+	static nodeSchema() {
+		return { category: 'Storage', shown_when_owned: true };
+	}
+}
+
+/** Builds a patron owning a Table, a hidden sidecar and the Table's `:config`. */
+function ownedGraph() {
+	const crawler = new Node();
+	crawler.name = 'crawl-4471';
+	crawler.target = 'pages-6219';
+	const seen = new TableNode();
+	seen.patron = crawler;
+	seen.name = 'crawl-4471:seen';
+	const curl = new Node();
+	curl.patron = crawler;
+	curl.name = 'crawl-4471:curl';
+	const config = new Node();
+	config.patron = seen;
+	config.name = 'crawl-4471:seen:config';
+}
+
 describe( 'dumpMetadataPayload', () => {
 	beforeEach( () => {
 		Core.reset();
@@ -64,6 +87,47 @@ describe( 'dumpMetadataPayload', () => {
 		const payload = dumpMetadataPayload();
 		expect( payload.a ).toBeDefined();
 		expect( payload.b ).toBeUndefined();
+	} );
+
+	it( 'lists an owned Table and hides every other owned node', () => {
+		ownedGraph();
+		const payload = dumpMetadataPayload();
+		expect( payload[ 'crawl-4471:seen' ].class ).toBe( 'Table' );
+		expect( payload[ 'crawl-4471:seen' ].has_config ).toBe( true );
+		expect( payload[ 'crawl-4471:curl' ] ).toBeUndefined();
+		expect( payload[ 'crawl-4471:seen:config' ] ).toBeUndefined();
+	} );
+
+	it( 'names an owned Table its patron as owner, and an unowned node none', () => {
+		ownedGraph();
+		const payload = dumpMetadataPayload();
+		expect( payload[ 'crawl-4471:seen' ].owner ).toBe( 'crawl-4471' );
+		expect( 'owner' in payload[ 'crawl-4471' ] ).toBe( false );
+	} );
+
+	it( 'draws a patron no edge it does not route to', () => {
+		ownedGraph();
+		expect( dumpMetadataPayload()[ 'crawl-4471' ].targets ).toEqual( [
+			'pages-6219',
+		] );
+	} );
+
+	it( 'skips a node whose schema says hidden, as the PHP producer does', () => {
+		class QueueTimerNode extends Node {
+			static nodeSchema() {
+				return { hidden: true };
+			}
+		}
+		const timer = new QueueTimerNode();
+		timer.name = 'queue-timer-3307';
+		expect( dumpMetadataPayload()[ 'queue-timer-3307' ] ).toBeUndefined();
+	} );
+
+	it( 'returns an owned Table named alone', () => {
+		ownedGraph();
+		expect(
+			Object.keys( dumpMetadataPayload( 'crawl-4471:seen' ) )
+		).toEqual( [ 'crawl-4471:seen' ] );
 	} );
 
 	it( 'stamps the local reply path (_output) + profiling state into the _header section', () => {

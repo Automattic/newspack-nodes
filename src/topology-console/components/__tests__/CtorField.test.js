@@ -63,6 +63,64 @@ describe( 'CtorField vault_id', () => {
 	} );
 } );
 
+describe( 'CtorField vault_group', () => {
+	const groupSpec = { name: 'vault_group', type: 'vault_group' };
+	const vaults = [
+		{ id: 'north-31', url: 'https://n.example', group: 'crawl-g7' },
+		{ id: 'south-52', url: 'https://s.example', group: 'crawl-g7' },
+		{ id: 'loose-8', url: 'https://l.example', group: '' },
+		{ id: 'hub-4', url: 'https://h.example', group: 'alpha-2' },
+	];
+
+	it( 'renders a select of each group the vault entries name, once and sorted', () => {
+		const onChange = jest.fn();
+		const { container } = render(
+			<CtorField
+				spec={ groupSpec }
+				value=""
+				onChange={ onChange }
+				vaults={ vaults }
+			/>
+		);
+		const select = container.querySelector( '#topology-ctor-vault_group' );
+		expect( select.tagName ).toBe( 'SELECT' );
+		expect( [ ...select.options ].map( ( o ) => o.value ) ).toEqual( [
+			'',
+			'alpha-2',
+			'crawl-g7',
+		] );
+		fireEvent.change( select, { target: { value: 'crawl-g7' } } );
+		expect( onChange ).toHaveBeenCalledWith( 'crawl-g7' );
+	} );
+
+	it( 'falls back to a text input when no entry names a group', () => {
+		const { container } = render(
+			<CtorField
+				spec={ groupSpec }
+				value=""
+				onChange={ noop }
+				vaults={ [ { id: 'loose-8', url: '', group: '' } ] }
+			/>
+		);
+		const input = container.querySelector( '#topology-ctor-vault_group' );
+		expect( input.tagName ).toBe( 'INPUT' );
+		expect( input.placeholder ).toBe( '(no vault groups)' );
+	} );
+
+	it( 'preserves a stored group no entry names', () => {
+		const { container } = render(
+			<CtorField
+				spec={ groupSpec }
+				value="<config:crawl_group>"
+				onChange={ noop }
+				vaults={ vaults }
+			/>
+		);
+		const select = container.querySelector( '#topology-ctor-vault_group' );
+		expect( select.value ).toBe( '<config:crawl_group>' );
+	} );
+} );
+
 describe( 'CtorField description tooltip', () => {
 	const label = ( container ) =>
 		container.querySelector( 'label.topology-edit-row__label' );

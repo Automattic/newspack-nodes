@@ -2,9 +2,10 @@
  * One schema-driven argument input, shared by the edit-mode Inspector, its
  * verb-argument modals and the live-drop NewNodeModal. All of them read the
  * same `node_schema()` declaration, so all of them render the same widget for
- * a given argument: a picker for a formatter or a vault, a suggesting text
- * input for a node path, typed text everywhere else, and a reset control. A second implementation would drift from the
- * schema the others read.
+ * a given argument: a picker for a formatter, a vault or a vault group, a
+ * suggesting text input for a node path, typed text everywhere else, and a
+ * reset control. A second implementation would drift from the schema the
+ * others read.
  */
 
 import { useState } from '@wordpress/element';
@@ -80,8 +81,9 @@ export function coerceValue( type, raw ) {
  * @typedef  {Object}  CtorArgSpec
  * @property {string}  name          Argument name; labels the row and keys the
  *                                   input id.
- * @property {string}  [type]        Picks the widget: `formatter_name` and
- *                                   `vault_id` render pickers; `node_name`
+ * @property {string}  [type]        Picks the widget: `formatter_name`,
+ *                                   `vault_id` and `vault_group` render
+ *                                   pickers; `node_name`
  *                                   renders text suggesting the local nodes;
  *                                   `bool`, `int` and `float` render text with
  *                                   a narrowed keyboard; `json` renders a
@@ -96,18 +98,95 @@ export function coerceValue( type, raw ) {
  */
 
 /**
- * One entry of the credential store the `vault_id` picker offers.
+ * One entry of the credential store the `vault_id` and `vault_group`
+ * pickers offer.
  *
  * @typedef  {Object} VaultEntry
- * @property {string} id    Vault key stored as the argument value.
- * @property {string} [url] Remote URL, shown beside the id to disambiguate.
- *                          An entry without one renders as the bare id.
+ * @property {string} id      Vault key stored as a `vault_id` value.
+ * @property {string} [url]   Remote URL, shown beside the id to disambiguate.
+ *                            An entry without one renders as the bare id.
+ * @property {string} [group] Its group, offered once as a `vault_group`
+ *                            value; '' or absent offers none.
  */
 
 /**
- * Renders one argument row. The `formatter_name` and `vault_id` types get a
- * picker, each falling back to free text when its list is empty so an install
- * with nothing registered can still type the value. A `node_name` gets a
+ * One argument picked from a registry the console holds: a `<select>` over
+ * `options`, or free text while the registry is empty so an install with
+ * nothing registered can still type the value. A stored value the registry
+ * does not list stays selectable, so editing never blanks it.
+ *
+ * @param {Object}                  props           Component props.
+ * @param {string}                  props.id        Input id.
+ * @param {CtorArgSpec}             props.spec      Schema entry this field edits.
+ * @param {*}                       [props.value]   Current value.
+ * @param {(value: *) => void}      props.onChange  Receives the picked value.
+ * @param {Array<[string, string]>} props.options   Value and label pairs.
+ * @param {string}                  props.emptyText Placeholder with no options.
+ * @param {string}                  props.pickText  Label of the blank option.
+ * @return {import('react').ReactElement} The field row.
+ */
+function CatalogPicker( {
+	id,
+	spec,
+	value,
+	onChange,
+	options,
+	emptyText,
+	pickText,
+} ) {
+	const current = value ?? '';
+	const label = (
+		<label
+			htmlFor={ id }
+			className="topology-edit-row__label"
+			title={ spec.description || undefined }
+		>
+			{ spec.name }
+			{ spec.required ? ' *' : '' }
+		</label>
+	);
+	if ( options.length === 0 ) {
+		return (
+			<div className="topology-edit-row">
+				{ label }
+				<input
+					id={ id }
+					type="text"
+					className="topology-edit-row__input"
+					value={ current }
+					placeholder={ emptyText }
+					onChange={ ( e ) => onChange( e.target.value ) }
+				/>
+			</div>
+		);
+	}
+	const known = options.some( ( [ option ] ) => option === current );
+	return (
+		<div className="topology-edit-row">
+			{ label }
+			<select
+				id={ id }
+				className="topology-edit-row__input"
+				value={ current }
+				onChange={ ( e ) => onChange( e.target.value ) }
+			>
+				<option value="">{ pickText }</option>
+				{ '' !== current && ! known && (
+					<option value={ current }>{ current }</option>
+				) }
+				{ options.map( ( [ option, text ] ) => (
+					<option key={ option } value={ option }>
+						{ text }
+					</option>
+				) ) }
+			</select>
+		</div>
+	);
+}
+
+/**
+ * Renders one argument row. The `formatter_name`, `vault_id` and
+ * `vault_group` types get a `CatalogPicker`. A `node_name` gets a
  * `NodePathInput`: the value is a path the Router resolves, which may name a
  * node in another process, so the local nodes are suggested, never imposed.
  * `json` gets a textarea and every other type a text input. The reset control writes an
@@ -130,7 +209,8 @@ export function coerceValue( type, raw ) {
  *                                                        null, as it changes.
  * @param {string[]}                   [props.formatters] Registered formatter names.
  * @param {VaultEntry[]}               [props.vaults]     Vault entries the `vault_id`
- *                                                        picker offers.
+ *                                                        and `vault_group` pickers
+ *                                                        offer.
  * @return {import('react').ReactElement} The field row.
  */
 export function CtorField( {
@@ -145,117 +225,51 @@ export function CtorField( {
 	const meta = inputForType( spec.type );
 	const id = `topology-ctor-${ spec.name }`;
 	if ( 'formatter_name' === spec.type ) {
-		if ( formatters.length === 0 ) {
-			return (
-				<div className="topology-edit-row">
-					<label
-						htmlFor={ id }
-						className="topology-edit-row__label"
-						title={ spec.description || undefined }
-					>
-						{ spec.name }
-						{ spec.required ? ' *' : '' }
-					</label>
-					<input
-						id={ id }
-						type="text"
-						className="topology-edit-row__input"
-						value={ value ?? '' }
-						placeholder={ __(
-							'(no formatters registered)',
-							'newspack-nodes'
-						) }
-						onChange={ ( e ) => onChange( e.target.value ) }
-					/>
-				</div>
-			);
-		}
 		return (
-			<div className="topology-edit-row">
-				<label
-					htmlFor={ id }
-					className="topology-edit-row__label"
-					title={ spec.description || undefined }
-				>
-					{ spec.name }
-					{ spec.required ? ' *' : '' }
-				</label>
-				<select
-					id={ id }
-					className="topology-edit-row__input"
-					value={ value ?? '' }
-					onChange={ ( e ) => onChange( e.target.value ) }
-				>
-					<option value="">
-						{ __( '(pick a formatter)', 'newspack-nodes' ) }
-					</option>
-					{ formatters.map( ( name ) => (
-						<option key={ name } value={ name }>
-							{ name }
-						</option>
-					) ) }
-				</select>
-			</div>
+			<CatalogPicker
+				id={ id }
+				spec={ spec }
+				value={ value }
+				onChange={ onChange }
+				options={ formatters.map( ( name ) => [ name, name ] ) }
+				emptyText={ __(
+					'(no formatters registered)',
+					'newspack-nodes'
+				) }
+				pickText={ __( '(pick a formatter)', 'newspack-nodes' ) }
+			/>
 		);
 	}
 	if ( 'vault_id' === spec.type ) {
-		if ( vaults.length === 0 ) {
-			return (
-				<div className="topology-edit-row">
-					<label
-						htmlFor={ id }
-						className="topology-edit-row__label"
-						title={ spec.description || undefined }
-					>
-						{ spec.name }
-						{ spec.required ? ' *' : '' }
-					</label>
-					<input
-						id={ id }
-						type="text"
-						className="topology-edit-row__input"
-						value={ value ?? '' }
-						placeholder={ __(
-							'(no vault entries)',
-							'newspack-nodes'
-						) }
-						onChange={ ( e ) => onChange( e.target.value ) }
-					/>
-				</div>
-			);
-		}
-		// Preserve a stored value not in the list so editing never blanks it.
-		const current = value ?? '';
-		const known = vaults.some( ( v ) => v.id === current );
 		return (
-			<div className="topology-edit-row">
-				<label
-					htmlFor={ id }
-					className="topology-edit-row__label"
-					title={ spec.description || undefined }
-				>
-					{ spec.name }
-					{ spec.required ? ' *' : '' }
-				</label>
-				<select
-					id={ id }
-					className="topology-edit-row__input"
-					value={ current }
-					onChange={ ( e ) => onChange( e.target.value ) }
-				>
-					<option value="">
-						{ __( '(pick a vault)', 'newspack-nodes' ) }
-					</option>
-					{ '' !== current && ! known && (
-						<option value={ current }>{ current }</option>
-					) }
-					{ vaults.map( ( v ) => (
-						<option key={ v.id } value={ v.id }>
-							{ v.url ? `${ v.id } — ${ v.url }` : v.id }
-						</option>
-					) ) }
-				</select>
-			</div>
+			<CatalogPicker
+				id={ id }
+				spec={ spec }
+				value={ value }
+				onChange={ onChange }
+				options={ vaults.map( ( v ) => [
+					v.id,
+					v.url ? `${ v.id } — ${ v.url }` : v.id,
+				] ) }
+				emptyText={ __( '(no vault entries)', 'newspack-nodes' ) }
+				pickText={ __( '(pick a vault)', 'newspack-nodes' ) }
+			/>
+		);
+	}
+	if ( 'vault_group' === spec.type ) {
+		const groups = [
+			...new Set( vaults.map( ( v ) => v.group ).filter( Boolean ) ),
+		].sort();
+		return (
+			<CatalogPicker
+				id={ id }
+				spec={ spec }
+				value={ value }
+				onChange={ onChange }
+				options={ groups.map( ( group ) => [ group, group ] ) }
+				emptyText={ __( '(no vault groups)', 'newspack-nodes' ) }
+				pickText={ __( '(pick a vault group)', 'newspack-nodes' ) }
+			/>
 		);
 	}
 	if ( 'node_name' === spec.type ) {

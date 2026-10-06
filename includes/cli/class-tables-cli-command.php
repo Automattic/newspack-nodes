@@ -150,7 +150,7 @@ class Tables_CLI_Command {
 			return null;
 		}
 		if ( 0 !== ( Core::int( $reply[ Message::TYPE ] ) & Message::TM_ERROR ) ) {
-			\WP_CLI::warning( "{$slot['owner']} refused stats for {$slot['name']}: " . \trim( Core::as_string( Core::arr( $reply[ Message::VALUE ] )['payload'] ?? null ) ) );
+			\WP_CLI::warning( "{$slot['owner']} refused stats for {$slot['name']}: " . self::refusal( $reply ) );
 			return null;
 		}
 		$verbs = [];
@@ -292,11 +292,21 @@ class Tables_CLI_Command {
 		if ( null === $reply ) {
 			throw new \RuntimeException( \esc_html( "{$slot['owner']} did not answer flush within {$timeout}s" ) );
 		}
-		$payload = Core::arr( $reply[ Message::VALUE ] )['payload'] ?? null;
 		if ( 0 !== ( Core::int( $reply[ Message::TYPE ] ) & Message::TM_ERROR ) ) {
-			throw new \RuntimeException( \esc_html( "{$slot['owner']} refused flush: " . \trim( Core::as_string( $payload ) ) ) );
+			throw new \RuntimeException( \esc_html( "{$slot['owner']} refused flush: " . self::refusal( $reply ) ) );
 		}
-		return Core::arr( $payload );
+		return Core::arr( Core::arr( $reply[ Message::VALUE ] )['payload'] ?? null );
+	}
+
+	/**
+	 * Why a TM_ERROR reply refused: an interpreter carries it as its VALUE's
+	 * `payload`, and the Router's `NOT_AVAILABLE` bounce as the bare VALUE.
+	 *
+	 * @param array<int,mixed> $reply The TM_ERROR reply.
+	 */
+	private static function refusal( array $reply ): string {
+		$value = $reply[ Message::VALUE ];
+		return \trim( Core::as_string( \is_array( $value ) ? $value['payload'] ?? null : $value ) );
 	}
 
 	/**

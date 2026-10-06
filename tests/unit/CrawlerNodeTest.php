@@ -50,6 +50,27 @@ final class Crawler_Filtering_Table_Fixture_Node extends Node {
 	}
 }
 
+/** Answers every request `$refuses` picks with a TM_ERROR, as a Table refusing it. */
+final class Crawler_Refusing_Table_Fixture_Node extends Node {
+	/** @param \Closure(mixed): bool $refuses Given a request VALUE. */
+	public function __construct( private readonly Table_Node $table, private readonly \Closure $refuses ) {
+		parent::__construct();
+	}
+
+	public function fill( array $message ): void {
+		if ( ! ( $this->refuses )( $message[ Message::VALUE ] ) ) {
+			$this->table->fill( $message );
+			return;
+		}
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_ERROR;
+		$reply[ Message::FROM ]  = $this->table->name();
+		$reply[ Message::TO ]    = $message[ Message::FROM ];
+		$reply[ Message::VALUE ] = "ADD refused-7740\n";
+		$this->table->sink()->fill( $reply );
+	}
+}
+
 #[CoversClass( Crawler_Node::class )]
 final class CrawlerNodeTest extends TestCase {
 
@@ -194,11 +215,11 @@ final class CrawlerNodeTest extends TestCase {
 	}
 
 	public function test_arguments_build_the_curl_and_seen_siblings(): void {
-		$crawler = $this->crawler( 'crawl-4471', '86400', 'vault-77' );
+		$crawler = $this->crawler( 'crawl-4471', '86400', 'crawl-g7' );
 
 		$curl = Core::node( 'crawl-4471:curl' );
 		$this->assertInstanceOf( Curl_Node::class, $curl );
-		$this->assertSame( [ 'vault-77' ], $curl->arguments() );
+		$this->assertSame( [ 'crawl-g7' ], $curl->arguments() );
 		$this->assertSame( 'crawl-4471', $curl->target(), 'answers come back to the crawler' );
 		$this->assertSame( $crawler, $curl->publisher() );
 		$this->assertSame( [ 'crawl-4471', '86400', 'sqlite' ], $this->seen( $crawler )->arguments() );
@@ -214,7 +235,7 @@ final class CrawlerNodeTest extends TestCase {
 		return $this->crawler( $name, '7203', '', '0', (string) Curl_Node::MAX_IN_FLIGHT );
 	}
 
-	public function test_the_vault_id_is_optional(): void {
+	public function test_the_vault_group_is_optional(): void {
 		$crawler = $this->crawler();
 		$this->assertSame( [], Core::node( 'crawl-4471:curl' )?->arguments() );
 		$this->assertSame( [ 'crawl-4471', '7203', 'sqlite' ], $this->seen( $crawler )->arguments() );
@@ -231,11 +252,11 @@ final class CrawlerNodeTest extends TestCase {
 		$old_seen = $this->seen( $crawler );
 
 		Core::$var['partition'] = '3';
-		$crawler->arguments( [ '9100', 'vault-12' ] );
+		$crawler->arguments( [ '9100', 'group-12' ] );
 
 		$this->assertSame( '', $old_curl?->name(), 'the old Curl was removed' );
 		$this->assertSame( '', $old_seen->name(), 'the old Table was removed' );
-		$this->assertSame( [ 'vault-12' ], Core::node( 'crawl-4471:curl' )?->arguments() );
+		$this->assertSame( [ 'group-12' ], Core::node( 'crawl-4471:curl' )?->arguments() );
 		$this->assertSame( [ 'crawl-4471', '9100', 'sqlite' ], $this->seen( $crawler )->arguments() );
 		$this->assertSame( 'crawl-4471', Core::node( 'crawl-4471:curl' )?->target() );
 	}
@@ -253,25 +274,25 @@ final class CrawlerNodeTest extends TestCase {
 	}
 
 	public function test_a_refused_rebuild_restores_the_crawler_it_replaced(): void {
-		$crawler                = $this->crawler( 'crawl-4471', '7203', 'vault-41' );
+		$crawler                = $this->crawler( 'crawl-4471', '7203', 'group-41' );
 		Core::$var['partition'] = '3';
 
 		try {
-			$crawler->arguments( [ '0', 'vault-96' ] );
+			$crawler->arguments( [ '0', 'group-96' ] );
 			$this->fail( 'a ttl below 1 is refused' );
 		} catch ( \InvalidArgumentException $e ) {
 			$this->assertStringContainsString( 'crawl-4471:seen', $e->getMessage() );
 		}
 
-		$this->assertSame( [ '7203', 'vault-41' ], $crawler->arguments() );
-		$this->assertStringStartsWith( "make_node Crawler crawl-4471 7203 vault-41\n", $crawler->dump_config() );
-		$this->assertSame( [ 'vault-41' ], Core::node( 'crawl-4471:curl' )?->arguments() );
+		$this->assertSame( [ '7203', 'group-41' ], $crawler->arguments() );
+		$this->assertStringStartsWith( "make_node Crawler crawl-4471 7203 group-41\n", $crawler->dump_config() );
+		$this->assertSame( [ 'group-41' ], Core::node( 'crawl-4471:curl' )?->arguments() );
 		$this->assertSame( [ 'crawl-4471', '7203', 'sqlite' ], $this->seen( $crawler )->arguments() );
 		$this->assertTrue( $crawler->timer_is_active() );
 	}
 
-	public function test_a_replay_omitting_the_vault_id_drops_it(): void {
-		$crawler                = $this->crawler( 'crawl-4471', '7203', 'vault-41' );
+	public function test_a_replay_omitting_the_vault_group_drops_it(): void {
+		$crawler                = $this->crawler( 'crawl-4471', '7203', 'group-41' );
 		Core::$var['partition'] = '3';
 
 		$crawler->arguments( [ '9100' ] );
@@ -281,7 +302,7 @@ final class CrawlerNodeTest extends TestCase {
 	}
 
 	public function test_a_refused_rebuild_whose_restore_fails_raises_both(): void {
-		$crawler = $this->crawler( 'crawl-4471', '7203', 'vault-41' );
+		$crawler = $this->crawler( 'crawl-4471', '7203', 'group-41' );
 
 		try {
 			$crawler->arguments( [ '0' ] );
@@ -292,7 +313,7 @@ final class CrawlerNodeTest extends TestCase {
 			$this->assertStringContainsString( 'TTL of at least 1', $messages[0], 'the replay\'s own refusal' );
 			$this->assertStringContainsString( 'needs a bound partition', $messages[1], 'the restore\'s' );
 		}
-		$this->assertSame( [ '7203', 'vault-41' ], $crawler->arguments() );
+		$this->assertSame( [ '7203', 'group-41' ], $crawler->arguments() );
 	}
 
 	public function test_a_refused_first_build_leaves_nothing_registered(): void {
@@ -363,7 +384,7 @@ final class CrawlerNodeTest extends TestCase {
 		$this->in_drain( fn () => $this->seed( $crawler, self::SITE . '/' ) );
 
 		$this->assertSame( [ self::SITE . '/' ], $this->dispatched );
-		$this->assertSame( [], $this->pages->captured, 'nothing is answered until the transfer completes' );
+		$this->assertSame( [ [ Message::TM_INFO, 'already seen ' . self::SITE . '/' ] ], \array_map( static fn ( array $m ): array => [ $m[ Message::TYPE ], $m[ Message::VALUE ] ], $this->pages->captured ), 'only the repeat is answered before the transfer completes' );
 	}
 
 	public function test_a_pending_url_outlives_the_seen_ttl(): void {
@@ -398,6 +419,33 @@ final class CrawlerNodeTest extends TestCase {
 		$this->assertSame( [ $url ], $this->dispatched, 'a later sighting finds it new' );
 	}
 
+	/** @return array<string,array{0: bool}> */
+	public static function failed_adds(): array {
+		return [
+			'the Table refuses the ADD'         => [ true ],
+			'the Table leaves the ADD unanswered' => [ false ],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'failed_adds' )]
+	public function test_a_seed_whose_add_fails_answers_an_error_and_never_already_seen( bool $refuse ): void {
+		$crawler = $this->crawler();
+		$seen    = $this->seen( $crawler );
+		$url     = self::SITE . '/failed-add-29';
+		$add     = static fn ( mixed $value ): bool => \is_array( $value ) && isset( $value['ADD'] );
+		Core::register_node( 'crawl-4471:seen', $refuse ? new Crawler_Refusing_Table_Fixture_Node( $seen, $add ) : new Crawler_Filtering_Table_Fixture_Node( $seen, $add ) );
+
+		$this->in_drain( fn () => $this->seed( $crawler, $url ) );
+
+		$this->assertCount( 1, $this->pages->captured );
+		$out = $this->pages->captured[0];
+		$this->assertSame( Message::TM_ERROR, $out[ Message::TYPE ] );
+		$this->assertSame( "ADD to crawl-4471:seen failed {$url}", $out[ Message::VALUE ] );
+		$this->assertSame( $url, $out[ Message::KEY ] );
+		$this->assertSame( [], $this->dispatched );
+		$this->assertNull( $seen->lookup( $url ), 'nothing was recorded as seen' );
+	}
+
 	public function test_a_seed_is_normalized_as_a_link_is(): void {
 		$crawler = $this->crawler();
 
@@ -405,6 +453,45 @@ final class CrawlerNodeTest extends TestCase {
 		$this->complete( self::SITE . '/', $this->links_body( '/', self::SITE . '/#again' ) );
 
 		$this->assertSame( [ self::SITE . '/' ], $this->dispatched, 'the home page is fetched once' );
+	}
+
+	public function test_a_reseed_of_an_answered_url_says_it_was_already_seen(): void {
+		$crawler = $this->crawler();
+		$url     = self::SITE . '/again-63';
+		$this->in_drain( fn () => $this->seed( $crawler, $url ) );
+		$this->complete( $url, $this->links_body( '/again-63', '/again-63#self' ) );
+		$this->assertSame( [ Message::TM_BYTESTREAM ], \array_column( $this->pages->captured, Message::TYPE ), 'a link already seen stays silent' );
+
+		$message                = $this->seed_message( "  {$url}#top\n" );
+		$message[ Message::TO ] = 'leftover-31';
+		$this->in_drain( static fn () => $crawler->fill( $message ) );
+
+		$this->assertCount( 2, $this->pages->captured );
+		$out = $this->pages->captured[1];
+		$this->assertSame( Message::TM_INFO, $out[ Message::TYPE ] );
+		$this->assertSame( "already seen {$url}", $out[ Message::VALUE ] );
+		$this->assertSame( $url, $out[ Message::KEY ] );
+		$this->assertSame( 'seeder-3381', $out[ Message::FROM ] );
+		$this->assertSame( [ $url ], $this->dispatched, 'Curl fetches it once' );
+	}
+
+	public function test_seeds_on_two_origins_each_carry_their_own_groups_credential(): void {
+		$this->seed_vault_servers(
+			[
+				'site-a' => [ 'url' => self::SITE, 'auth_username' => 'svc-a19', 'auth_password' => 'pw-a28', 'group' => 'crawl-g7' ],
+				'site-b' => [ 'url' => 'https://other-7710.example:9443', 'auth_username' => 'svc-b37', 'auth_password' => 'pw-b46', 'group' => 'crawl-g7' ],
+			]
+		);
+		$crawler = $this->crawler( 'crawl-4471', '7203', 'crawl-g7', '0', '3' );
+
+		$this->in_drain( fn () => $this->seed( $crawler, self::SITE . '/a-1' ) );
+		$this->in_drain( fn () => $this->seed( $crawler, 'https://other-7710.example:9443/b-2' ) );
+		$this->in_drain( fn () => $this->seed( $crawler, 'https://bare-8820.example/c-3' ) );
+
+		$auth = fn ( string $url ): array => \array_values( \array_filter( $this->opts[ $url ][ \CURLOPT_HTTPHEADER ] ?? [], static fn ( string $h ): bool => \str_starts_with( $h, 'Authorization:' ) ) );
+		$this->assertSame( [ 'Authorization: ' . Vault::credential_header( 'svc-a19', 'pw-a28' ) ], $auth( self::SITE . '/a-1' ) );
+		$this->assertSame( [ 'Authorization: ' . Vault::credential_header( 'svc-b37', 'pw-b46' ) ], $auth( 'https://other-7710.example:9443/b-2' ) );
+		$this->assertSame( [], $auth( 'https://bare-8820.example/c-3' ), 'an origin outside the group goes bare' );
 	}
 
 	public function test_a_seed_holding_whitespace_is_an_invalid_url(): void {
@@ -686,10 +773,10 @@ final class CrawlerNodeTest extends TestCase {
 	}
 
 	public function test_dump_config_replays_the_crawler_alone(): void {
-		$crawler = $this->crawler( 'crawl-4471', '86400', 'vault-77' );
+		$crawler = $this->crawler( 'crawl-4471', '86400', 'crawl-g7' );
 
 		$this->assertSame(
-			"make_node Crawler crawl-4471 86400 vault-77\nconnect_node crawl-4471 pages-6219\n",
+			"make_node Crawler crawl-4471 86400 crawl-g7\nconnect_node crawl-4471 pages-6219\n",
 			$crawler->dump_config()
 		);
 		$this->assertStringNotContainsString( 'crawl-4471:', Core::as_string( $this->ci->dispatch( 'dump_config' ) ) );
@@ -786,9 +873,7 @@ final class CrawlerNodeTest extends TestCase {
 
 	public function test_a_retuned_delay_still_spaces_the_next_start_from_the_last(): void {
 		$crawler = $this->crawler( 'crawl-4471', '7203', '', '2000', '3' );
-		$config  = Core::node( 'crawl-4471:config' );
-		$this->assertInstanceOf( Command_Interpreter_Node::class, $config );
-		$urls = \array_map( static fn ( int $i ): string => self::SITE . "/g-{$i}", \range( 1, 3 ) );
+		$urls    = \array_map( static fn ( int $i ): string => self::SITE . "/g-{$i}", \range( 1, 3 ) );
 		$this->seen( $crawler )->add_members( [ 'pending' => [ \array_fill_keys( $urls, 1 ), 900 ] ] );
 		$this->assertSame( 'router', $crawler->timer_mode() );
 		$at = static function ( float $now ): void {
@@ -797,7 +882,7 @@ final class CrawlerNodeTest extends TestCase {
 
 		$at( 1790000000.0 );
 		$this->in_drain( static fn () => $crawler->fire_cb() );
-		$config->dispatch( 'set_delay_ms', [ '3000' ] );
+		$crawler->arguments( [ '7203', '', '3000', '3' ] );
 		$at( 1790000000.5 );
 		$this->in_drain( static fn () => $crawler->fire_cb() );
 
@@ -826,33 +911,30 @@ final class CrawlerNodeTest extends TestCase {
 		$this->assertSame( Crawler_Node::TICK_MS, $crawler->interval_ms );
 	}
 
-	public function test_the_setter_verbs_change_the_running_crawler(): void {
+	public function test_a_pacing_replay_keeps_the_siblings_and_retunes(): void {
 		$crawler = $this->crawler();
 		$curl    = Core::node( 'crawl-4471:curl' );
-		$config  = Core::node( 'crawl-4471:config' );
-		$this->assertInstanceOf( Command_Interpreter_Node::class, $config );
-		$urls = \array_map( static fn ( int $i ): string => self::SITE . "/v-{$i}", \range( 1, 5 ) );
-		$this->seen( $crawler )->add_members( [ 'pending' => [ \array_fill_keys( $urls, 1 ), 900 ] ] );
+		$seen    = $this->seen( $crawler );
+		$urls    = \array_map( static fn ( int $i ): string => self::SITE . "/v-{$i}", \range( 1, 5 ) );
+		$seen->add_members( [ 'pending' => [ \array_fill_keys( $urls, 1 ), 900 ] ] );
 
-		$this->assertSame( "ok\n", $config->dispatch( 'set_concurrency', [ '3' ] ) );
-		$this->assertSame( "ok\n", $config->dispatch( 'set_delay_ms', [ '750' ] ) );
+		$crawler->arguments( [ '7203', '', '750', '3' ] );
 
 		$this->assertSame( $curl, Core::node( 'crawl-4471:curl' ), 'the siblings stand' );
+		$this->assertSame( $seen, $this->seen( $crawler ) );
 		$this->assertSame( 'event_framework', $crawler->timer_mode() );
 		$this->assertSame( 750, $crawler->interval_ms );
-		$config->dispatch( 'set_delay_ms', [ '0' ] );
+		$crawler->arguments( [ '7203', '', '0', '3' ] );
 		$this->assertSame( 'router', $crawler->timer_mode() );
 		$this->assertSame( Crawler_Node::TICK_MS, $crawler->interval_ms );
 		$this->in_drain( static fn () => $crawler->fire_cb() );
 		$this->assertCount( 3, $this->dispatched, 'the new concurrency fills the window' );
 	}
 
-	public function test_a_refused_setter_leaves_the_crawler_unchanged(): void {
+	public function test_a_refused_replay_leaves_the_crawler_unchanged(): void {
 		$crawler = $this->crawler( 'crawl-4471', '7203', '', '250', '2' );
-		$config  = Core::node( 'crawl-4471:config' );
-		$this->assertInstanceOf( Command_Interpreter_Node::class, $config );
 
-		$why = $this->refusal( static fn () => $config->dispatch( 'set_concurrency', [ '17' ] ) );
+		$why = $this->refusal( static fn () => $crawler->arguments( [ '7203', '', '250', '17' ] ) );
 
 		$this->assertSame( "Bad arguments for Crawler 'crawl-4471': concurrency wants a whole number from 1 to 16, got '17'", $why );
 		$this->assertSame( [ '7203', '', '250', '2' ], $crawler->arguments() );
@@ -867,48 +949,15 @@ final class CrawlerNodeTest extends TestCase {
 		$this->assertSame( Crawler_Node::MIN_DELAY_MS, $crawler->interval_ms );
 	}
 
-	/** @return array<string,array{0:string,1:string}> */
-	public static function refused_delays(): array {
-		return [
-			'under the floor' => [ '5', "Bad arguments for Crawler 'crawl-4471': delay_ms wants 0, or a whole number from 100 up, got '5'" ],
-			'negative'        => [ '-5', "delay_ms wants a whole number, got '-5'" ],
-		];
-	}
-
-	#[\PHPUnit\Framework\Attributes\DataProvider( 'refused_delays' )]
-	public function test_set_delay_ms_refuses_a_delay_it_will_not_pace( string $delay, string $why ): void {
-		$crawler = $this->crawler( 'crawl-4471', '7203', '', '250', '2' );
-		$config  = Core::node( 'crawl-4471:config' );
-		$this->assertInstanceOf( Command_Interpreter_Node::class, $config );
-
-		$this->assertSame( $why, $this->refusal( static fn () => $config->dispatch( 'set_delay_ms', [ $delay ] ) ) );
-		$this->assertSame( [ '7203', '', '250', '2' ], $crawler->arguments() );
-		$this->assertSame( 250, $crawler->interval_ms );
-	}
-
 	public function test_dump_config_round_trips_both_settings(): void {
-		$crawler = $this->crawler( 'crawl-4471', '86400', 'vault-77' );
-		$config  = Core::node( 'crawl-4471:config' );
-		$this->assertInstanceOf( Command_Interpreter_Node::class, $config );
-
-		$config->dispatch( 'set_concurrency', [ '3' ] );
-		$config->dispatch( 'set_delay_ms', [ '750' ] );
+		$crawler = $this->crawler( 'crawl-4471', '86400', 'crawl-g7', '750', '3' );
 
 		$dump = $crawler->dump_config();
-		$this->assertSame( "make_node Crawler crawl-4471 86400 vault-77 750 3\nconnect_node crawl-4471 pages-6219\n", $dump );
+		$this->assertSame( "make_node Crawler crawl-4471 86400 crawl-g7 750 3\nconnect_node crawl-4471 pages-6219\n", $dump );
 		$crawler->remove_node();
 		$replayed = $this->crawler( 'crawl-4471', ...\array_slice( \explode( ' ', \strtok( $dump, "\n" ) ), 3 ) );
 		$this->assertSame( $dump, $replayed->dump_config() );
 		$this->assertSame( 750, $replayed->interval_ms );
-	}
-
-	public function test_a_setter_pads_the_positionals_it_skips(): void {
-		$crawler = $this->crawler();
-
-		Core::node( 'crawl-4471:config' )?->dispatch( 'set_concurrency', [ '3' ] );
-
-		$this->assertSame( [ '7203', '', '0', '3' ], $crawler->arguments() );
-		$this->assertStringStartsWith( "make_node Crawler crawl-4471 7203 '' 0 3\n", $crawler->dump_config() );
 	}
 
 	/** The message, unescaped, of the refusal $fn throws. */
@@ -942,15 +991,16 @@ final class CrawlerNodeTest extends TestCase {
 		$this->assertNull( Core::node( 'crawl-4471:seen' ) );
 	}
 
-	public function test_node_schema_declares_the_four_arguments_and_two_setters(): void {
-		$schema = Crawler_Node::node_schema();
+	public function test_node_schema_declares_the_four_arguments_and_no_verbs(): void {
+		$crawler = $this->crawler();
+		$schema  = Crawler_Node::node_schema();
 		$this->assertSame( 'I/O', $schema['category'] );
 		$this->assertTrue( $schema['has_target'] );
-		$this->assertSame( [ 'ttl', 'vault_id', 'delay_ms', 'concurrency' ], \array_column( $schema['arguments'], 'name' ) );
-		$this->assertSame( [ 'int', 'vault_id', 'int', 'int' ], \array_column( $schema['arguments'], 'type' ) );
+		$this->assertSame( [ 'ttl', 'vault_group', 'delay_ms', 'concurrency' ], \array_column( $schema['arguments'], 'name' ) );
+		$this->assertSame( [ 'int', 'vault_group', 'int', 'int' ], \array_column( $schema['arguments'], 'type' ) );
 		$this->assertSame( [ '', 0, 1 ], \array_column( $schema['arguments'], 'default' ) );
 		$this->assertTrue( $schema['arguments'][0]['required'] );
-		$this->assertSame( [ 'set_delay_ms', 'set_concurrency' ], \array_column( $schema['commands'], 'name' ) );
-		$this->assertSame( [ 'delay_ms', 'concurrency' ], \array_column( $schema['commands'], 'setter' ) );
+		$this->assertSame( [], $schema['commands'] );
+		$this->assertNull( Core::node( "{$crawler->name()}:config" ), 'no verb, no config interpreter' );
 	}
 }
