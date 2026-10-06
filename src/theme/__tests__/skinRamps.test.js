@@ -2197,6 +2197,80 @@ describe( 'theme skin ramps', () => {
 		expect( failures ).toEqual( [] );
 	} );
 
+	it( 'ends the entrance fade at the card’s own opacity, so an idle card never pops', () => {
+		const ends = [];
+		graphStylesheet.walkAtRules( /keyframes$/, ( atRule ) => {
+			if ( 'topology-fadein' !== atRule.params ) {
+				return;
+			}
+			atRule.walkRules( ( frame ) => {
+				const stops = frame.selector
+					.split( ',' )
+					.map( ( s ) => s.trim() );
+				if ( ! stops.some( ( s ) => 'to' === s || '100%' === s ) ) {
+					return;
+				}
+				frame.walkDecls( 'opacity', ( decl ) => {
+					ends.push( `${ frame.selector }{opacity:${ decl.value }}` );
+				} );
+			} );
+		} );
+
+		expect( ends ).toEqual( [] );
+	} );
+
+	it( 'keeps a dimmed wire on its undimmed animation, so un-dim never redraws it', () => {
+		const edgeFixture = ( group, modifiers ) =>
+			new JSDOM( `
+				<!doctype html>
+				<html class="theme-current">
+					<body>
+						<main class="topology-app newspack-nodes-theme newspack-nodes-ui">
+							<section class="topology-canvas">
+								<svg class="topology-canvas-svg">
+									<g class="topology-edges ${ group }">
+										<path class="topology-edge topology-edge--active ${ modifiers }"></path>
+									</g>
+								</svg>
+							</section>
+						</main>
+					</body>
+				</html>
+			` ).window.document.querySelector( '.topology-edge' );
+		const groups = [
+			'topology-edges--bloom',
+			'topology-edges--flow',
+			'topology-edges--bloom topology-edges--still',
+		];
+		const wires = [
+			'',
+			'topology-edge--flowing',
+			'is-virtual',
+			'is-registration',
+			'is-selected',
+		];
+		const failures = [];
+		for ( const group of groups ) {
+			for ( const wire of wires ) {
+				const lit = graphValue(
+					edgeFixture( group, wire ),
+					'animation'
+				);
+				const dimmed = graphValue(
+					edgeFixture( group, `${ wire } is-dimmed` ),
+					'animation'
+				);
+				if ( dimmed !== lit ) {
+					failures.push(
+						`${ group } ${ wire }:${ lit } → ${ dimmed }`
+					);
+				}
+			}
+		}
+
+		expect( failures ).toEqual( [] );
+	} );
+
 	it( 'lets the higher-specificity Newspack REPL overrides beat later generic rules', () => {
 		expect(
 			effectiveGraphDeclaration(

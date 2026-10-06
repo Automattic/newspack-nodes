@@ -38,6 +38,26 @@ const BACKBONE_FIXTURES = new Set( [
 ] );
 
 /**
+ * Read a graph `_metadata` publishes, or null while it carries no node.
+ *
+ * The one emptiness rule both readers share: a published graph of zero nodes
+ * means "nothing has answered yet" rather than "the graph is empty". The canvas
+ * reads `metadata`, which an optimistic patch rewrites; the rate sparklines
+ * read `snapshot`, which only a poll reply writes.
+ *
+ * @param {'metadata'|'snapshot'} field The `_metadata` field to read.
+ * @return {?{nodes: Array, edges: Array, pwd: string, profiling?: boolean}} The published graph, or null.
+ */
+export function usePublishedGraph( field ) {
+	const published = useNodeField( names.METADATA, field );
+	return published &&
+		Array.isArray( published.nodes ) &&
+		published.nodes.length > 0
+		? published
+		: null;
+}
+
+/**
  * Read the graph on screen, preferring the `metadata` state `_metadata`
  * publishes once that graph carries at least one node.
  *
@@ -66,14 +86,9 @@ export function useGraphSource( {
 	active: _active = true,
 	coreFallback = true,
 } = {} ) {
-	const metadataGraph = useNodeField( names.METADATA, 'metadata' );
-	const hasMetadata = !! (
-		metadataGraph &&
-		Array.isArray( metadataGraph.nodes ) &&
-		metadataGraph.nodes.length > 0
-	);
+	const metadataGraph = usePublishedGraph( 'metadata' );
 	let graph;
-	if ( hasMetadata ) {
+	if ( metadataGraph ) {
 		graph = metadataGraph;
 	} else {
 		graph = coreFallback ? coreToGraph() ?? EMPTY_GRAPH : EMPTY_GRAPH;

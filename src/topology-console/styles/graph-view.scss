@@ -107,13 +107,10 @@
 	}
 }
 
+// No `to`: the fade ends at the card's own opacity, an idle dim included.
 @keyframes topology-fadein {
 	from {
 		opacity: 0;
-	}
-
-	to {
-		opacity: 1;
 	}
 }
 
@@ -1025,10 +1022,7 @@
 		opacity: 1;
 	}
 
-	// Same trap as the node fade: a --flowing edge animates, and the animation
-	// beats the declaration, so it must be cancelled for the dim to land.
 	&.is-dimmed {
-		animation: none;
 		opacity: 0.15;
 	}
 }
