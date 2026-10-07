@@ -93,6 +93,28 @@ final class Log_Discovery {
 	}
 
 	/**
+	 * The absolute dir a catalog stamp names, the inverse of `stamp_for()`
+	 * over the dirs that exist. A name no catalog dir carries is refused
+	 * rather than defaulted, so a reader never opens a log it was not asked
+	 * for.
+	 *
+	 * @param string $stamp A catalog stamp: `firehose.p0`, `offsets/…`, `deadletter/…`.
+	 * @return string The absolute partition dir.
+	 * @throws \InvalidArgumentException When no catalog dir carries the stamp.
+	 */
+	public static function dir_of( string $stamp ): string {
+		foreach ( self::groups() as $group => $names ) {
+			foreach ( $names as $name ) {
+				if ( self::stamp_for( $group, $name ) === $stamp ) {
+					return Config::get_base_directory() . "/{$group}/{$name}";
+				}
+			}
+		}
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+		throw new \InvalidArgumentException( "unknown log: \"{$stamp}\"" );
+	}
+
+	/**
 	 * The stamp naming a dir under one of `GROUPS`: a `logs` dir stays bare
 	 * and a grouped one keeps its prefix, so one directory has one spelling
 	 * wherever it is named — an SSE frame's FROM and a Partition record's
@@ -112,6 +134,38 @@ final class Log_Discovery {
 			throw new \InvalidArgumentException( \esc_html( "log dir {$basename} is named like a group; rename it" ) );
 		}
 		return $basename;
+	}
+
+	/**
+	 * Sorted basenames under every root in `GROUPS`, keyed by root. The `logs`
+	 * entry repeats `on_disk()`, which a caller wanting that root alone reads
+	 * instead.
+	 *
+	 * A root with no directory and a root whose scan fails both yield an empty
+	 * list rather than a missing key, so a caller may index all three without
+	 * checking first.
+	 *
+	 * @return array<string,list<string>>
+	 * @throws \RuntimeException Through `Config::get_base_directory()`, on the
+	 *                          same conditions as `on_disk()`.
+	 */
+	public static function groups(): array {
+		if ( null !== self::$cached_groups ) {
+			return self::$cached_groups;
+		}
+		$base_dir = Config::get_base_directory();
+		$glob     = self::$glob ?? static fn ( string $pattern, int $flags ): array|false => \glob( $pattern, $flags );
+		$groups   = [];
+		foreach ( self::GROUPS as $group ) {
+			$matches = $glob( "{$base_dir}/{$group}/*", \GLOB_ONLYDIR );
+			if ( ! \is_array( $matches ) ) {
+				$groups[ $group ] = [];
+				continue;
+			}
+			\sort( $matches );
+			$groups[ $group ] = \array_map( '\basename', $matches );
+		}
+		return self::$cached_groups = $groups;
 	}
 
 	/**
@@ -161,38 +215,6 @@ final class Log_Discovery {
 		}
 		\sort( $matches );
 		return self::$cached = \array_map( '\basename', $matches );
-	}
-
-	/**
-	 * Sorted basenames under every root in `GROUPS`, keyed by root. The `logs`
-	 * entry repeats `on_disk()`, which a caller wanting that root alone reads
-	 * instead.
-	 *
-	 * A root with no directory and a root whose scan fails both yield an empty
-	 * list rather than a missing key, so a caller may index all three without
-	 * checking first.
-	 *
-	 * @return array<string,list<string>>
-	 * @throws \RuntimeException Through `Config::get_base_directory()`, on the
-	 *                          same conditions as `on_disk()`.
-	 */
-	public static function groups(): array {
-		if ( null !== self::$cached_groups ) {
-			return self::$cached_groups;
-		}
-		$base_dir = Config::get_base_directory();
-		$glob     = self::$glob ?? static fn ( string $pattern, int $flags ): array|false => \glob( $pattern, $flags );
-		$groups   = [];
-		foreach ( self::GROUPS as $group ) {
-			$matches = $glob( "{$base_dir}/{$group}/*", \GLOB_ONLYDIR );
-			if ( ! \is_array( $matches ) ) {
-				$groups[ $group ] = [];
-				continue;
-			}
-			\sort( $matches );
-			$groups[ $group ] = \array_map( '\basename', $matches );
-		}
-		return self::$cached_groups = $groups;
 	}
 
 	/**
