@@ -1319,12 +1319,13 @@ class Topology_Analyzer {
 	 * The same walk refuses a `connect_node` onto a node whose class declares
 	 * no target, as the load would refuse it, so no reader draws an edge that
 	 * never routes; a group answers for its child class, members or none, and
-	 * so does each child derived from it. It also refuses a broker pair whose
-	 * source names `<partition>`, which the load would read as fixed.
+	 * so does each child derived from it. It also asks every written line's
+	 * class to refuse an eager `<partition>`, which the load would read as
+	 * fixed.
 	 *
 	 * @param list<array{line: string,verb: string,values: list<string>,spans: list<string>,origin: ?string,origins: list<string>,via: list<string>}> $statements Walked statements.
 	 * @return list<array{line: string,verb: string,values: list<string>,spans: list<string>,origin: ?string,origins: list<string>,via: list<string>}>
-	 * @throws \RuntimeException On a connect the source's class refuses, or a broker pair naming `<partition>`.
+	 * @throws \RuntimeException On a connect the source's class refuses, or an eager `<partition>` a class refuses.
 	 */
 	private static function with_group_children( array $statements ): array {
 		$classes = [];
@@ -1364,7 +1365,7 @@ class Topology_Analyzer {
 				self::refuse_targetless( $statement['values'][1] ?? '', $targeted );
 			}
 			if ( 'make_node' === $statement['verb'] ) {
-				self::refuse_bare_partition_pairs( $statement['values'] );
+				self::refuse_eager_partition( $statement );
 			}
 			$out[] = $statement;
 			foreach ( $made[ $index ] ?? [] as $child_make ) {
@@ -1443,26 +1444,6 @@ class Topology_Analyzer {
 	}
 
 	/**
-	 * Refuse a `Remote_Source` line, written or a group's, carrying a pair
-	 * whose source names `<partition>`. A group answers for its child class,
-	 * members or none.
-	 *
-	 * @param list<string> $values A `make_node` statement's quote-stripped tokens.
-	 * @throws \RuntimeException When a pair names `<partition>`.
-	 */
-	private static function refuse_bare_partition_pairs( array $values ): void {
-		$class = $values[1] ?? '';
-		$first = 6;
-		if ( self::type_is( $class, Vault_Group_Node::class ) ) {
-			$class = $values[3] ?? '';
-			$first = 7;
-		}
-		if ( self::type_is( $class, Remote_Source_Node::class ) ) {
-			Remote_Source_Node::refuse_bare_partition( $values[2] ?? '', \array_slice( $values, $first ) );
-		}
-	}
-
-	/**
 	 * Whether a TSL class token resolves to $fqcn (or a subclass).
 	 *
 	 * Ask the type system, never string-compare the raw token. The write set is
@@ -1486,6 +1467,21 @@ class Topology_Analyzer {
 		}
 		$slash = \strrpos( $fqcn, '\\' );
 		return $type . '_Node' === ( false === $slash ? $fqcn : \substr( $fqcn, $slash + 1 ) );
+	}
+
+	/**
+	 * Ask a `make_node` line's class to refuse a source the Shell expands at
+	 * `<partition>`, judged on the line's spans (`Node::refuse_eager_partition()`).
+	 * A class token no namespace resolves refuses nothing.
+	 *
+	 * @param array{values: list<string>, spans: list<string>} $statement A walked `make_node` statement.
+	 * @throws \RuntimeException When the class refuses its spans.
+	 */
+	private static function refuse_eager_partition( array $statement ): void {
+		$fqcn = Command_Interpreter_Node::resolve_class( $statement['values'][1] ?? '' );
+		if ( null !== $fqcn ) {
+			$fqcn::refuse_eager_partition( $statement['values'][2] ?? '', \array_slice( $statement['spans'], 3 ) );
+		}
 	}
 
 	/**

@@ -217,7 +217,7 @@ class HealthProbeClientTest extends TestCase {
 			true,
 		];
 		yield 'oversized' => [
-			\array_replace( $valid, [ 'messages' => [ 'ATTACKER_OVERSIZED_8843' . \str_repeat( 'z', 513 ) ] ] ),
+			\array_replace( $valid, [ 'messages' => [ 'ATTACKER_OVERSIZED_8843' . \str_repeat( 'z', Health_Checks::MESSAGE_BYTES - 22 ) ] ] ),
 			'ATTACKER_OVERSIZED_8843',
 			true,
 		];
@@ -253,9 +253,27 @@ class HealthProbeClientTest extends TestCase {
 	}
 
 	public static function valid_statuses(): iterable {
-		yield 'good at 512 bytes' => [ Health_Checks::STATUS_GOOD, \str_repeat( 'g', 512 ) ];
+		yield 'good at the message limit' => [ Health_Checks::STATUS_GOOD, \str_repeat( 'g', Health_Checks::MESSAGE_BYTES ) ];
 		yield 'recommended' => [ Health_Checks::STATUS_RECOMMENDED, 'Cache probe recommendation 8843.' ];
 		yield 'critical' => [ Health_Checks::STATUS_CRITICAL, 'Cache probe critical result 8843.' ];
+	}
+
+	/**
+	 * The rows the route answers are the rows the client accepts, in its
+	 * order: what `Health_Checks::runtime()` returns comes back whole.
+	 */
+	public function test_the_client_accepts_the_runtime_rows_in_the_order_the_route_answers_them(): void {
+		Core::$memd                                     = null;
+		\Newspack_Nodes\Cache_Backend::$apcu_usable     = static fn (): bool => false;
+		\Newspack_Nodes\Log_Sources::$builtin_sources   = static fn (): array => [];
+		$rows                                           = Health_Checks::runtime();
+		Health_Probe_Client::$http_call                 = static fn ( string $url, array $args ): array => [
+			'response' => [ 'code' => 200 ],
+			'body'     => (string) \wp_json_encode( $rows ),
+		];
+
+		$this->assertSame( [ Health_Checks::CACHE_ID, Health_Checks::LOG_SOURCES_ID ], \array_column( $rows, 'id' ) );
+		$this->assertSame( $rows, Health_Probe_Client::runtime() );
 	}
 
 	#[DataProvider( 'transport_errors' )]

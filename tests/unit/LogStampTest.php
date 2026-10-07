@@ -43,4 +43,21 @@ final class LogStampTest extends TestCase {
 		$this->assertNull( Log_Discovery::source_name( 'logs/app-5531.log' ) );
 		$this->assertNull( Log_Discovery::source_name( 'sourcesphp' ) );
 	}
+
+	/** @return array<string,array{string}> Label => a `sources/` string naming no one source. */
+	public static function no_source_names(): array {
+		return [
+			'the bare prefix'  => [ 'sources/' ],
+			'a nested name'    => [ 'sources/php-9138/x' ],
+			'an over-long one' => [ 'sources/' . \str_repeat( 'p', Log_Discovery::MAX_STAMP_BYTES ) ],
+			'a dotted name'    => [ 'sources/..' ],
+			'a dir stamp'      => [ 'offsets/php-9138' ],
+		];
+	}
+
+	/** What a stream refuses names no source here either, and nothing throws. */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'no_source_names' )]
+	public function test_source_name_answers_null_for_what_no_stamp_names( string $stamp ): void {
+		$this->assertNull( Log_Discovery::source_name( $stamp ) );
+	}
 }

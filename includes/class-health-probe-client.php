@@ -30,12 +30,17 @@ namespace Newspack_Nodes;
  */
 final class Health_Probe_Client {
 
-	/** REST route the web runtime answers its health rows on. */
-	public const ROUTE = 'newspack-nodes/v1/health/runtime';
+	/**
+	 * REST route the web runtime answers its health rows on, under
+	 * `HTTP_In_Node::REST_NAMESPACE`: the client posts to it and
+	 * `Health_Runtime_Controller` registers it.
+	 */
+	public const ROUTE = '/health/runtime';
 
 	/**
-	 * The rows the route answers, in order: each id with its label and what
-	 * an unverified row could not verify.
+	 * The rows the route answers, in the order `Health_Checks::runtime()`
+	 * returns them: each id with its label and what an unverified row could
+	 * not verify.
 	 *
 	 * @var array<string,array{0:string,1:string}>
 	 */
@@ -74,8 +79,8 @@ final class Health_Probe_Client {
 	 * the loopback cannot be verified.
 	 *
 	 * Two bounds hold the reply: 4096 bytes off the wire and a decode depth of
-	 * 16, where the two four-key rows carry at most 512 message bytes each
-	 * across three levels.
+	 * 16, where the two four-key rows carry at most
+	 * `Health_Checks::MESSAGE_BYTES` message bytes each across three levels.
 	 *
 	 * Four rejections get their own reason because each names a different fix:
 	 * 301 through 399 is a redirect the probe declines to follow, a 401 means
@@ -95,7 +100,7 @@ final class Health_Probe_Client {
 			$now,
 			\wp_salt( 'nonce' )
 		);
-		$url  = \rest_url( self::ROUTE );
+		$url  = \rest_url( Rest\HTTP_In_Node::REST_NAMESPACE . self::ROUTE );
 		$args = [
 			// 5s bound: doctor waits for this one diagnostic response.
 			// phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout
@@ -180,8 +185,9 @@ final class Health_Probe_Client {
 	 * Doctor prints the message straight to a terminal, so this is a whitelist
 	 * rather than a sanitizer: the four keys and no others, the row's own id
 	 * and label, one of the three declared statuses, and exactly one message
-	 * of 1 to 512 bytes that is valid UTF-8 and carries no control, line- or
-	 * paragraph-separator character able to rewrite the surrounding output.
+	 * of 1 to `Health_Checks::MESSAGE_BYTES` bytes that is valid UTF-8 and
+	 * holds no `Health_Checks::WIRE_CONTROL` character able to rewrite the
+	 * surrounding output.
 	 *
 	 * @param mixed  $result Decoded row.
 	 * @param string $id     The id the row must carry.
@@ -224,9 +230,9 @@ final class Health_Probe_Client {
 		$message = $result['messages'][0];
 		return \is_string( $message )
 			&& '' !== $message
-			&& 512 >= \strlen( $message )
+			&& Health_Checks::MESSAGE_BYTES >= \strlen( $message )
 			&& 1 === \preg_match( '//u', $message )
-			&& 0 === \preg_match( '/[\p{Cc}\p{Zl}\p{Zp}]/u', $message );
+			&& 0 === \preg_match( Health_Checks::WIRE_CONTROL, $message );
 	}
 
 	/**

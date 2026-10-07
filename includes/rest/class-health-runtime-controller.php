@@ -11,6 +11,7 @@ namespace Newspack_Nodes\Rest;
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Health_Checks;
+use Newspack_Nodes\Health_Probe_Client;
 use Newspack_Nodes\Internal_Request_Token;
 
 \defined( 'ABSPATH' ) || exit;
@@ -133,7 +134,8 @@ final class Health_Runtime_Controller {
 	}
 
 	/**
-	 * Register the narrow internal runtime-health route.
+	 * Register the narrow internal runtime-health route, the
+	 * `Health_Probe_Client::ROUTE` the client posts to.
 	 *
 	 * Declaring `token` required hands the missing-token case to WordPress,
 	 * which answers 400 `rest_missing_callback_param` before the permission
@@ -142,8 +144,8 @@ final class Health_Runtime_Controller {
 	 */
 	public function register_routes(): void {
 		\register_rest_route(
-			'newspack-nodes/v1',
-			'/health/runtime',
+			HTTP_In_Node::REST_NAMESPACE,
+			Health_Probe_Client::ROUTE,
 			[
 				'methods'             => 'POST',
 				'callback'            => [ $this, 'probe' ],

@@ -138,6 +138,40 @@ class CoreTest extends TestCase {
 		}
 	}
 
+	/**
+	 * A source written with a partition token the node received whole runs in
+	 * every worker; one naming none runs where the fleet's fixed work runs.
+	 */
+	public function test_a_worker_owns_a_partitioned_source_and_a_fixed_one_only_on_partition_zero(): void {
+		try {
+			Core::$var['partition'] = '6';
+			$this->assertTrue( Core::owns( '/var/log/okapi.{partition}.log' ), 'brace token on p6' );
+			$this->assertTrue( Core::owns( '/var/log/okapi.<partition>.log' ), 'a single-quoted token reaches the node literal' );
+			$this->assertFalse( Core::owns( '/var/log/okapi.6.log' ), 'a resolved name is fixed by the time the node sees it' );
+			$this->assertFalse( Core::owns( 'sources/php' ) );
+			Core::$var['partition'] = '0';
+			$this->assertTrue( Core::owns( 'sources/php' ), 'p0 owns a fixed source' );
+			unset( Core::$var['partition'] );
+			$this->assertTrue( Core::owns( 'sources/php' ), 'so does a process bound to none' );
+		} finally {
+			unset( Core::$var['partition'] );
+		}
+	}
+
+	/** The fleet `Topology_Loader` bound, or null where none is, an empty one included. */
+	public function test_the_bound_topology_is_the_fleet_or_null(): void {
+		try {
+			unset( Core::$var['topology'] );
+			$this->assertNull( Core::bound_topology() );
+			Core::$var['topology'] = '';
+			$this->assertNull( Core::bound_topology() );
+			Core::$var['topology'] = 'egret-hub-3316';
+			$this->assertSame( 'egret-hub-3316', Core::bound_topology() );
+		} finally {
+			unset( Core::$var['topology'] );
+		}
+	}
+
 	public function test_a_partition_token_is_found_in_either_spelling(): void {
 		$this->assertTrue( Core::has_partition_token( 'firehose.p<partition>' ) );
 		$this->assertTrue( Core::has_partition_token( 'firehose.p{partition}' ) );

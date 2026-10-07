@@ -35,7 +35,8 @@ namespace Newspack_Nodes;
  * [deadletter_dir]`.
  *
  * `source_file` is the exact filename followed, or `sources/<name>`, a registry
- * file (php's `error_log`, a config `log_sources` entry) resolved at build. It
+ * file (php's `error_log`, a config `log_sources` entry) resolved at build,
+ * either one carrying `{partition}` where each worker follows its own file. It
  * is not the `{file}.{seg}` base the segmented parent reads.
  */
 class File_Tail_Node extends Tail_Node {
@@ -70,21 +71,23 @@ class File_Tail_Node extends Tail_Node {
 	private bool $pending_line_sync = false;
 
 	/**
-	 * When and why this Tail was built idle, off worker partition 0, or null
-	 * while it follows. A fixed file is read once per fleet, so every other
-	 * worker's copy of the line opens nothing, arms no timer and keeps no
-	 * offsetlog or quarantine.
+	 * When and why this Tail was built idle, or null while it follows. A fixed
+	 * file is read once per fleet, so every other worker's copy of the line
+	 * opens nothing, arms no timer, blanks its offsetlog and dead-letter dirs
+	 * and reports `POLLING` as `IDLE`.
 	 *
 	 * @var array{since:float,reason:string}|null
 	 */
 	private ?array $idle = null;
 
 	/**
-	 * Store the token array, then arm the reader, on worker partition 0 alone: a
-	 * fixed file is read once per fleet, so a Tail built anywhere else idles
-	 * and says so. There is no source Partition —
-	 * the segment model cannot identify a single inode — so the shared
-	 * Durable_Reader spine is armed directly.
+	 * Store the token array, resolve the file this worker follows, then arm
+	 * the reader where `Core::owns()` holds for the file as written: a file
+	 * written with a partition token is each worker's own, and a fixed one is
+	 * read once per fleet, so a Tail built anywhere else idles and says so
+	 * (ADR-33). There is no source Partition — the segment model cannot
+	 * identify a single inode — so the shared Durable_Reader spine is armed
+	 * directly.
 	 *
 	 * `source_file` is deliberately NOT passed through
 	 * `Config::assert_within_base()` the way Consumer's `source_dir` is: following
@@ -95,24 +98,27 @@ class File_Tail_Node extends Tail_Node {
 	 *
 	 * @param list<string>|null $args Positional tokens, or null to read the stored set back.
 	 * @return list<string> The tokens as stored.
+	 * @throws \InvalidArgumentException When no worker could follow the file as written.
 	 */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
 			return parent::arguments();
 		}
 		$this->parse_schema_args( $args );
-		$source = Log_Discovery::source_name( $this->source_file );
-		if ( null !== $source ) {
-			$this->source_file = Log_Sources::file_source_path( $source );
-		} elseif ( ! \str_starts_with( $this->source_file, '/' ) ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-			throw new \InvalidArgumentException( "File_Tail {$this->name}: source_file must be an absolute path or sources/<name>, got \"{$this->source_file}\"" );
-		}
-		if ( ! Core::owns_unpartitioned() ) {
-			$this->idle = [
+		$partition            = Core::bound_partition() ?? 0;
+		$topology             = Core::bound_topology();
+		$written              = $this->source_file;
+		$this->source_file    = self::followed_path( $this->name, $written, $partition, $topology );
+		$this->offsetlog_dir  = Core::resolve_partition_template( $this->offsetlog_dir, $partition, $topology );
+		$this->deadletter_dir = Core::resolve_partition_template( $this->deadletter_dir, $partition, $topology );
+		if ( ! Core::owns( $written ) ) {
+			$this->idle           = [
 				'since'  => Core::$now,
 				'reason' => 'idle on partition ' . Core::bound_partition() . ": {$this->source_file} is read on worker partition 0 alone",
 			];
+			$this->offsetlog_dir  = '';
+			$this->deadletter_dir = '';
+			$this->set_state( 'POLLING', 'IDLE' );
 			return $args;
 		}
 		$this->ensure_offsetlog();
@@ -122,6 +128,39 @@ class File_Tail_Node extends Tail_Node {
 		$this->set_timer( self::POLL_INTERVAL_EOF_MS );
 		$this->set_state( 'POLLING', 'ACTIVE' );
 		return $args;
+	}
+
+	/**
+	 * The file a worker follows for `source_file` as its TSL wrote it: the
+	 * partition token resolved at `$partition`, then a `sources/<name>` through
+	 * the registry's file families, whose path is resolved at `$partition` in
+	 * turn, or an absolute path as it stands. The one
+	 * reader of the argument, so the doctor's log-sources row and the load
+	 * refuse the same lines with the same words, each naming the node.
+	 *
+	 * @param string      $name      The Tail's name, which every refusal opens with.
+	 * @param string      $written   The `source_file` token as the node receives it.
+	 * @param int         $partition The worker partition it resolves at.
+	 * @param string|null $topology  The fleet, or null to leave `<topology>` alone.
+	 * @return string The absolute path followed.
+	 * @throws \InvalidArgumentException On a relative path, or a source no file family carries.
+	 */
+	public static function followed_path( string $name, string $written, int $partition, ?string $topology ): string {
+		$path   = Core::resolve_partition_template( $written, $partition, $topology );
+		$source = Log_Discovery::source_name( $path );
+		if ( null !== $source ) {
+			try {
+				return Core::resolve_partition_template( Log_Sources::file_source_path( $source ), $partition, $topology );
+			} catch ( \InvalidArgumentException $e ) {
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+				throw new \InvalidArgumentException( "File_Tail {$name}: " . $e->getMessage(), 0, $e );
+			}
+		}
+		if ( ! \str_starts_with( $path, '/' ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+			throw new \InvalidArgumentException( "File_Tail {$name}: source_file must be an absolute path or sources/<name>, got \"{$path}\"" );
+		}
+		return $path;
 	}
 
 	/** Refill seam: read the followed inode, not a Partition segment. */
@@ -575,18 +614,40 @@ class File_Tail_Node extends Tail_Node {
 		];
 	}
 
-	/** An idle Tail keeps no cursor: it names no offsetlog dir. */
-	protected function offsetlog_dir(): string {
-		return null === $this->idle ? parent::offsetlog_dir() : '';
-	}
-
-	/** An idle Tail keeps no quarantine, so the `dl_*` verbs find none to touch. */
-	protected function deadletter_dir(): string {
-		return null === $this->idle ? parent::deadletter_dir() : '';
+	/**
+	 * Refuse a `source_file` the Shell expands at `<partition>`: the Tail
+	 * would read a resolved, fixed file and idle off worker partition 0.
+	 * `{partition}`, or a single-quoted `'<partition>'`, reaches it whole, and
+	 * then every worker follows a file of its own, so a named offsetlog or
+	 * dead-letter dir must name a partition too, in any spelling, or every
+	 * worker commits one cursor and quarantines into one queue.
+	 *
+	 * @param string       $name  The Tail's name, or its group's.
+	 * @param list<string> $spans The `make_node` argument spans, the name excluded.
+	 * @throws \RuntimeException When `source_file` names an eager `<partition>`, or a per-partition one beside a shared dir.
+	 */
+	public static function refuse_eager_partition( string $name, array $spans ): void {
+		$span = $spans[0] ?? '';
+		$file = Shell_Node::value_of( $span );
+		if ( Shell_Node::expands( $span, '<partition>' ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+			throw new \RuntimeException( "{$name}: source_file \"{$file}\" names <partition>, which resolves before File_Tail sees it; write {partition}" );
+		}
+		if ( ! Core::has_partition_token( $file ) ) {
+			return;
+		}
+		foreach ( \array_slice( $spans, 1, 2 ) as $dir_span ) {
+			$dir = Shell_Node::value_of( $dir_span );
+			if ( '' !== $dir && ! Core::has_partition_token( $dir ) ) {
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+				throw new \RuntimeException( "File_Tail {$name}: a per-partition source needs per-partition offsetlog and deadletter dirs; add {partition}" );
+			}
+		}
 	}
 
 	/**
-	 * The reader's metadata, and while it idles, when and why under `idle`.
+	 * The reader's metadata, and while it idles, when and why under `idle`
+	 * beside `polling` reading `IDLE`.
 	 *
 	 * @return array{frames: array<int,array{id:int,size:int}>, cursor: array{segment:int, offset:int}, polling: string, at_frame: int|null, on_frame: bool, deadletter_segments: int, idle?: array{since:float,reason:string}}
 	 */

@@ -43,6 +43,7 @@ supersede.
 | [30](#adr-30-a-read-position-has-one-writer-and-one-reader) | A read position has one writer and one reader |
 | [31](#adr-31-a-broker-derives-its-readers-from-what-its-remote-sends) | A broker derives its readers from what its remote sends |
 | [32](#adr-32-a-transport-answers-what-it-could-not-deliver) | Proposed: a transport answers what it could not deliver |
+| [33](#adr-33-a-line-naming-no-partition-runs-once-per-fleet) | A line naming no partition runs once per fleet |
 
 ---
 
@@ -2088,28 +2089,10 @@ lag — is answered at runtime: by the probe log, where each reader reports unde
 reader to its own target, or a verb on one reader that must survive a restart — at which point
 the reader becomes a declared node and the glob a configuration-time expansion.
 
-**Amendment: a reader of a source naming no partition is owned by worker partition 0.** A
-topology mounts once per worker partition, so a pair whose source is the same in every worker —
-`sources/php`, a fixed `firehose.p0`, a glob — would build one reader per worker: every line
-relayed once per worker, and every worker writing one offsetlog at `<offsetlog_root>/<kind>`.
-[`Core::owns_unpartitioned()`](../includes/class-core.php) names the owner of such work: worker
-partition 0, or a process bound to no partition. `Remote_Source_Node::owned_pairs()` resolves each
-pair at the bound partition and keeps a pair whose source is WRITTEN with `{partition}` in
-every worker, and one written without it only where that predicate holds. Elsewhere the pair builds no reader, joins no stream request and leaves no dir,
-and a broker left with no pair holds no connection. Every pair is still parsed on every
-partition, so a bad one fails everywhere, and the analyzer still draws every pair's edge. The
-token has to reach the node unresolved: the Shell resolves `<partition>` before
-`make_node` sees it, so a topology writes `{partition}`, as a Topic line does, and
-`Topology_Analyzer` refuses a pair source naming `<partition>`, failing the topology as it fails
-a broken include. [`File_Tail_Node`](../includes/class-file-tail-node.php) follows the same rule, because
-its file is fixed: off partition 0 it is built idle, opening nothing, arming no timer, writing no
-offsetlog or quarantine, reporting itself idle since its build and, in `dump_node`, why, and
-refusing every act that would wake it, `play`, `step`, a seek and a poll, with that reason. It
-writes no stderr line: idling off p0 is normal operation, and the line would reach the error
-log once per worker per recycle. A `num_partitions = 1` pin
-on the topology was rejected, because a hub pulling a multi-partition spoke's firehose needs a
-worker per partition; a lock on the shared offsetlog was rejected, because it would serialize
-readers that should not exist.
+**Amendment: a reader of a source naming no partition runs once per fleet.** A pair whose
+source is written with no partition token builds its reader on one worker only, and a pair
+written `{partition}` builds one in every worker. [ADR-33](#adr-33-a-line-naming-no-partition-runs-once-per-fleet)
+states the rule for every node that reads a source, the broker included.
 
 ---
 
@@ -2184,4 +2167,73 @@ twice. The first four senders above are idempotent; the routed messages of the f
 since an operator's command may be a write. A bounce does not retry anything itself, but a
 sender that re-sends on one would apply such a write twice, so the fifth already decides
 between marking a bounce `undelivered` as possibly applied and keeping a per-sender clock.
+
+---
+
+## ADR-33: A line naming no partition runs once per fleet
+
+**Status:** Accepted
+
+**Context:** A topology mounts once per worker partition, so every `make_node` line builds a
+node in every worker. A line reading a source that names no partition — `sources/php`, a fixed
+file, a spoke's `firehose.p0` — therefore read it once per worker: every line relayed N times,
+and N workers committing one offsetlog. A line meant to read one source per worker names its
+partition, but the Shell resolves `<partition>` before `make_node` runs, so the node sees
+`app.2.log` and cannot tell a per-worker file from a fixed one. Two nodes decided ownership
+two ways: [`Remote_Source_Node`](../includes/class-remote-source-node.php) kept a pair written
+`{partition}` everywhere and a fixed one on partition 0, while
+[`File_Tail_Node`](../includes/class-file-tail-node.php) idled off partition 0 whatever its
+file, so `File_Tail t /var/log/app.{partition}.log` could not be written. And the analyzer's
+refusal of an eager `<partition>` named the broker and the group, counted their arguments by
+offset, and judged quote-stripped values, so a single-quoted `'<partition>'`, which the Shell
+leaves literal, was refused as eager.
+
+**Decision:** What a node reads is defined by its TSL, and one predicate reads it.
+[`Core::owns( $written )`](../includes/class-core.php) is true when the source the node
+received carries a partition token whole — `{partition}`, or a single-quoted `'<partition>'` —
+and otherwise where `Core::owns_unpartitioned()` holds: worker partition 0, or a process bound
+to no partition. A node asks `owns()` with the source as written; nothing asks the bound
+partition, and `scripts/lint-contract.mjs` refuses a call to `owns_unpartitioned(` outside
+`class-core.php` (`owns-unpartitioned-outside-core`). `Remote_Source_Node::owned_pairs()` asks
+it per pair. `File_Tail_Node` resolves `{partition}` in `source_file` through
+`Core::resolve_partition_template()`, by way of `File_Tail_Node::followed_path()`, the one
+reader of the argument, which the doctor's `log-sources` row calls too, and asks `owns()` of
+the file as written.
+
+A node that owns nothing idles in one state, as a File_Tail off partition 0 does: it builds no
+reader, opens nothing, arms no timer, blanks its offsetlog and dead-letter dirs so no sidecar
+is built and no `dl_*` verb finds a quarantine, reports `POLLING` as `IDLE` with the reason
+beside it, refuses every act that would wake it with that reason, and writes no stderr line,
+because idling is normal operation. Every line is still parsed on every partition, so a bad
+one fails everywhere.
+
+The analyzer refuses an eager `<partition>` generically.
+[`Node::refuse_eager_partition( $name, $spans )`](../includes/class-node.php) does nothing by
+default; `Remote_Source_Node` overrides it for its pair sources, `File_Tail_Node` for its
+`source_file`, and `Vault_Group_Node` hands it to its child class over the spans each child is
+built from. `Topology_Analyzer` asks it of every `make_node` line's class, judging SPANS through
+`Shell_Node::expands()`, which reads the quote rules `interpolate()` follows, so a bare or
+double-quoted `<partition>` fails the topology as a broken include does, and a single-quoted
+one loads.
+
+**Alternatives considered:** A `num_partitions = 1` pin on a topology reading a fixed source —
+rejected: a hub pulling a multi-partition spoke's firehose needs a worker per partition, and
+the pin would take them with the fixed reader. A lock on the shared offsetlog — rejected: it
+would serialize readers that should not exist, and every worker would still build its node,
+connect and hold its slot. Keeping the per-class refusal in the analyzer — rejected: it names
+classes, counts offsets the classes own, and judged values where the Shell judges quotes.
+
+**Consequences:** A per-worker source is written `{partition}`, or `'<partition>'`; a bare
+`<partition>` in a source fails the topology, in the analyzer and in `wp nodes doctor`. A fixed
+source is read on one worker only, so its reader's lag and dead letters live on partition 0.
+A per-partition source keeps per-partition state: a File_Tail resolves `{partition}` in its
+offsetlog and dead-letter dirs as in its file, and the analyzer refuses a per-partition source
+beside a named dir carrying no partition token, which every worker would commit one cursor to
+and quarantine one queue into. A new node type reading a source asks `owns()` and overrides
+`refuse_eager_partition()`; one that does neither reads its source once per worker, and
+nothing detects it.
+
+**Revisit if:** a fixed source must be read by more than one worker — split across them, or
+failed over when partition 0 is down — at which point ownership becomes a lease rather than a
+partition number; or a topology must place a fixed reader on a partition other than 0.
 

@@ -60,6 +60,13 @@ TSL;
 		Topology_Analyzer::statements( 'pull-bare' );
 	}
 
+	/** A group's single-quoted `<partition>` reaches each child literal, so it loads. */
+	public function test_a_group_pair_naming_a_quoted_partition_loads(): void {
+		$this->write_tsl( 'pull-quoted', "make_node Vault_Group yak-pulls Remote_Source no-members-33 /var/yak/off.{id} /var/yak/dl.{id} 'errors.p<partition>:yak-sink-5'\n" );
+
+		$this->assertSame( [ "make_node Vault_Group yak-pulls Remote_Source no-members-33 /var/yak/off.{id} /var/yak/dl.{id} 'errors.p<partition>:yak-sink-5'" ], self::lines( 'pull-quoted' ) );
+	}
+
 	public function test_flatten_keeps_the_group_and_derives_its_children(): void {
 		$this->write_tsl( 'pull-lab', self::PULL_LAB );
 

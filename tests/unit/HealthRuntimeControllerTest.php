@@ -62,6 +62,8 @@ class HealthRuntimeControllerTest extends TestCase {
 
 		$this->assertSame( 'newspack-nodes/v1', $route['namespace'] );
 		$this->assertSame( '/health/runtime', $route['route'] );
+		$this->assertSame( \Newspack_Nodes\Health_Probe_Client::ROUTE, $route['route'], 'the route the client posts to' );
+		$this->assertSame( \Newspack_Nodes\Rest\HTTP_In_Node::REST_NAMESPACE, $route['namespace'] );
 		$this->assertSame( 'POST', $route['args']['methods'] );
 		$this->assertSame( [ 'token' ], \array_keys( $route['args']['args'] ) );
 		$this->assertSame( [ $controller, 'probe' ], $route['args']['callback'] );

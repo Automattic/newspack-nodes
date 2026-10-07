@@ -944,61 +944,93 @@ class Shell_Node extends Node {
 	 * @return string The line with every eligible `<…>` expanded.
 	 */
 	public function interpolate( string $line ): string {
-		$out     = '';
-		$literal = null; // active quote/backtick span, suppresses expansion.
-		$length     = \strlen( $line );
-		for ( $i = 0; $i < $length; ) {
-			$ch = $line[ $i ];
-			if ( null !== $literal ) {
-				// `\'` is an escaped quote, not the span's end.
-				if ( '\\' === $ch && $i + 1 < $length ) {
-					$out .= $ch . $line[ $i + 1 ];
-					$i   += 2;
-					continue;
-				}
-				$out .= $ch;
-				if ( $ch === $literal ) {
-					$literal = null;
-				}
-				++$i;
+		$out  = '';
+		$from = 0;
+		foreach ( self::expansion_sites( $line ) as $at ) {
+			if ( ! \preg_match( '/\G<([a-zA-Z_][a-zA-Z0-9_]*(?::[a-zA-Z_][a-zA-Z0-9_]*)?)>/', $line, $m, 0, $at ) ) {
 				continue;
 			}
-			// An escape pair passes through; tokenize() resolves it later.
-			if ( '\\' === $ch && $i + 1 < $length ) {
-				$out .= $ch . $line[ $i + 1 ];
-				$i   += 2;
-				continue;
-			}
-			// A comment tail is inert — copy it verbatim, expand nothing.
-			if ( '#' === $ch ) {
-				return $out . \substr( $line, $i );
-			}
-			if ( "'" === $ch || '`' === $ch ) {
-				$literal = $ch;
-				$out    .= $ch;
-				++$i;
-				continue;
-			}
-			if ( '<' === $ch && \preg_match( '/\G<([a-zA-Z_][a-zA-Z0-9_]*(?::[a-zA-Z_][a-zA-Z0-9_]*)?)>/', $line, $m, 0, $i ) ) {
-				$key   = $m[1];
-				$colon = \strpos( $key, ':' );
-				if ( false !== $colon ) {
-					$out .= Core::resolve_config_token( \substr( $key, 0, $colon ), \substr( $key, $colon + 1 ) );
-				} else {
-					// get_shared: undefined warns, defined-empty is silent.
-					if ( ! \array_key_exists( $key, Core::$var ) ) {
-						// Raw, like Shell3's `print {*STDERR}`: no prefix.
-						Core::_stderr( "WARNING: use of uninitialized value <{$key}>\n", true );
-					}
-					$out .= Core::as_string( Core::$var[ $key ] ?? '', '' );
-				}
-				$i    += \strlen( $m[0] );
-				continue;
-			}
-			$out .= $ch;
-			++$i;
+			$out .= \substr( $line, $from, $at - $from ) . self::expansion( $m[1] );
+			$from = $at + \strlen( $m[0] );
 		}
-		return $out;
+		return $out . \substr( $line, $from );
+	}
+
+	/**
+	 * What one `<…>` token expands to: `<ns:key>` through that namespace's
+	 * resolver, a bare `<var>` through `Core::$var`, warning when unset.
+	 *
+	 * @param string $key The token's name, between the angle brackets.
+	 * @return string The expansion.
+	 */
+	private static function expansion( string $key ): string {
+		$colon = \strpos( $key, ':' );
+		if ( false !== $colon ) {
+			return Core::resolve_config_token( \substr( $key, 0, $colon ), \substr( $key, $colon + 1 ) );
+		}
+		// get_shared: undefined warns, defined-empty is silent.
+		if ( ! \array_key_exists( $key, Core::$var ) ) {
+			// Raw, like Shell3's `print {*STDERR}`: no prefix.
+			Core::_stderr( "WARNING: use of uninitialized value <{$key}>\n", true );
+		}
+		return Core::as_string( Core::$var[ $key ] ?? '', '' );
+	}
+
+	/**
+	 * Whether the Shell expands `$token` in a token as written: bare or inside
+	 * double quotes, never inside single quotes or backticks, which hand it to
+	 * the node literal. How the analyzer tells an eager `<partition>` from a
+	 * deferred one.
+	 *
+	 * @param string $span  One token's span, quote chars verbatim.
+	 * @param string $token A whole `<…>` token, such as `<partition>`.
+	 */
+	public static function expands( string $span, string $token ): bool {
+		foreach ( self::expansion_sites( $span ) as $at ) {
+			if ( \str_starts_with( \substr( $span, $at ), $token ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Every offset where interpolation may open a `<…>` token: a `<` outside
+	 * single quotes and backticks, past no escape pair, and before an unquoted
+	 * `#`, whose comment tail is inert. The one statement of the quote rules
+	 * `interpolate()` follows and `expands()` reads.
+	 *
+	 * @param string $line One statement, or one token's span.
+	 * @return \Generator<int,int>
+	 */
+	private static function expansion_sites( string $line ): \Generator {
+		$literal = null;
+		$length  = \strlen( $line );
+		for ( $i = 0; $i < $length; ++$i ) {
+			$ch = $line[ $i ];
+			if ( '\\' === $ch ) {
+				// An escape pair, quoted or not, expands nothing.
+				++$i;
+			} elseif ( null !== $literal ) {
+				$literal = $ch === $literal ? null : $literal;
+			} elseif ( '#' === $ch ) {
+				return;
+			} elseif ( "'" === $ch || '`' === $ch ) {
+				$literal = $ch;
+			} elseif ( '<' === $ch ) {
+				yield $i;
+			}
+		}
+	}
+
+	/**
+	 * The value one token's span carries, quote chars stripped and escapes
+	 * resolved, as `tokenize()` reads it.
+	 *
+	 * @param string $span One token's span.
+	 */
+	public static function value_of( string $span ): string {
+		return self::scan_tokens( $span )[0]['value'] ?? '';
 	}
 
 	/**

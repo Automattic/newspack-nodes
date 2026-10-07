@@ -146,8 +146,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$pairs                 = $this->owned_pairs( \array_slice( $args, 3 ) );
 		$previous              = $this->pairs;
 		$parsed                = parent::arguments( $args );
-		$topology              = Core::$var['topology'] ?? null;
-		$this->bound_topology  = \is_string( $topology ) && '' !== $topology ? $topology : null;
+		$this->bound_topology  = Core::bound_topology();
 		$this->pairs           = $pairs;
 		$this->glob_kinds      = null;
 		foreach ( $this->readers() as $stamp => $child ) {
@@ -170,14 +169,11 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * The pairs this worker reads, each resolved at its bound partition. A pair
-	 * whose source is written with a partition token reads in every worker; one
-	 * written without names a source read once per fleet, so it reads where
-	 * `Core::owns_unpartitioned()` holds and is skipped elsewhere: no reader, no
-	 * subscription, no dirs. Every pair is checked wherever it is skipped, so a
-	 * bad one fails on every partition. The Shell resolves `<partition>` before
-	 * the node sees it, so a topology writes `{partition}`, and the analyzer
-	 * refuses `<partition>` through `refuse_bare_partition()`.
+	 * The pairs this worker reads, each resolved at its bound partition, and
+	 * kept where `Core::owns()` holds for its source as written: a source
+	 * naming no partition reads once per fleet, and elsewhere its pair builds
+	 * no reader, joins no subscription and leaves no dir (ADR-33). Every pair
+	 * is checked wherever it is skipped, so a bad one fails on every partition.
 	 *
 	 * @param list<string> $tokens The pair tokens as written.
 	 * @return list<array{source:string,target:string}>
@@ -190,7 +186,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$owned = [];
 		foreach ( $tokens as $token ) {
 			$pair = self::parse_pair( Core::resolve_partition_template( $token, $this->bound_partition ?? 0 ) );
-			if ( Core::has_partition_token( self::split_pair( $token )['source'] ) || Core::owns_unpartitioned() ) {
+			if ( Core::owns( self::split_pair( $token )['source'] ) ) {
 				$owned[] = $pair;
 			}
 		}
@@ -769,20 +765,21 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Refuse a pair whose source names `<partition>`. The Shell resolves that
-	 * token before `make_node` runs, so the broker would read the pair as
-	 * fixed and only worker partition 0 would pull it; `{partition}` reaches
-	 * the broker whole.
+	 * Refuse a pair whose source the Shell expands at `<partition>`: the
+	 * broker would read the pair as fixed and only worker partition 0 would
+	 * pull it. `{partition}`, or a single-quoted `'<partition>'`, reaches the
+	 * broker whole.
 	 *
-	 * @param string       $broker The broker's name, or its group's.
-	 * @param list<string> $tokens Pair tokens as written.
-	 * @throws \RuntimeException When a pair's source names `<partition>`.
+	 * @param string       $name  The broker's name, or its group's.
+	 * @param list<string> $spans The `make_node` argument spans, the name excluded.
+	 * @throws \RuntimeException When a pair's source names an eager `<partition>`.
 	 */
-	public static function refuse_bare_partition( string $broker, array $tokens ): void {
-		foreach ( $tokens as $token ) {
-			if ( \str_contains( self::split_pair( $token )['source'], '<partition>' ) ) {
+	public static function refuse_eager_partition( string $name, array $spans ): void {
+		foreach ( \array_slice( $spans, 3 ) as $span ) {
+			if ( Shell_Node::expands( self::split_pair( $span )['source'], '<partition>' ) ) {
+				$pair = Shell_Node::value_of( $span );
 				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-				throw new \RuntimeException( "{$broker}: pair \"{$token}\" names <partition>, which resolves before the broker sees it; write {partition}" );
+				throw new \RuntimeException( "{$name}: pair \"{$pair}\" names <partition>, which resolves before the broker sees it; write {partition}" );
 			}
 		}
 	}

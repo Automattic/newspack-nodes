@@ -26,13 +26,17 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   before a hub runs the new line, because an older spoke refuses a `sources/`
   subscription as invalid. A consumer reading `remote_partition` off a
   `Remote_Source` row of `Topology_Analyzer::graph_for()` reads `pairs` instead.
-- **A reader of a source naming no partition runs on worker partition 0 alone.**
-  A `Remote_Source` pair whose source carries no partition token, and every
-  `File_Tail`, builds nothing off partition 0 of a multi-partition topology. The
-  Shell resolves `<partition>` before the broker sees it, so a pair meant to
-  read one stream per worker writes `firehose.p{partition}`. A pair source
-  naming `<partition>` fails the topology's analysis, and `wp nodes doctor`
-  reports it.
+- **A line naming no partition runs once per fleet (ADR-33).** A
+  `Remote_Source` pair whose source carries no partition token, and a
+  `File_Tail` of a fixed file, builds nothing off partition 0 of a
+  multi-partition topology. The Shell resolves `<partition>` before the node
+  sees it, so a line meant to read one source per worker writes `{partition}`
+  (`firehose.p{partition}`, `/var/log/app.{partition}.log`) or a single-quoted
+  `'<partition>'`. A pair source or a `File_Tail` `source_file` naming a bare or
+  double-quoted `<partition>` fails the topology's analysis, and
+  `wp nodes doctor` reports it. A node class reading a source of its own
+  overrides `Node::refuse_eager_partition()` and asks `Core::owns()`, never
+  `Core::owns_unpartitioned()`.
 - **A `sources/<name>` a topology reads must resolve, or that topology fails
   to load.** A `File_Tail` of a name the log-source registry lacks fails its
   build, and a broker's subscription to a name its spoke lacks is refused,
