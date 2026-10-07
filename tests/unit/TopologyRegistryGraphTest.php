@@ -222,7 +222,7 @@ class TopologyRegistryGraphTest extends TestCase {
 		// type token + positional args so Aggregator_CI can discover wired sources.
 		$this->write_tsl(
 			'spoke',
-			"make_node Remote_Source spoke-x austin firehose 0\n"
+			"make_node Remote_Source spoke-x austin /var/x/off /var/x/dl firehose:next-step 0\n"
 			. "connect_node spoke-x next-step\n"
 		);
 		$g    = \Newspack_Nodes\Topology_Analyzer::graph_for( 'spoke' );
@@ -231,7 +231,7 @@ class TopologyRegistryGraphTest extends TestCase {
 		$this->assertSame( 'spoke-x', $node['name'] );
 		$this->assertSame( 'logic', $node['kind'] );
 		$this->assertSame( 'Remote_Source', $node['type'] );
-		$this->assertSame( [ 'austin', 'firehose', '0' ], $node['args'] );
+		$this->assertSame( [ 'austin', '/var/x/off', '/var/x/dl', 'firehose:next-step', '0' ], $node['args'] );
 	}
 
 	public function test_graph_for_builtin_node_carries_type_and_args(): void {
@@ -361,15 +361,78 @@ class TopologyRegistryGraphTest extends TestCase {
 		);
 	}
 
-	/** A remote link's spoke and partition are read by their schema names, quotes stripped. */
-	public function test_graph_for_names_what_a_remote_link_pulls(): void {
-		$this->write_tsl( 'vicuna-pull', "make_node Remote_Source pull:okapi okapi-7 \"ledger.p<partition>\" /var/vicuna/off\n" );
+	/** A broker's spoke and pairs are read by name, quotes stripped; each pair draws an edge. */
+	public function test_graph_for_names_what_a_remote_source_pulls_and_where(): void {
+		$this->write_tsl( 'vicuna-pull', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl \"ledger.p<partition>:ledger-sink\" sources/php:php-errors:partition\n" );
 
-		$node = Topology_Analyzer::graph_for( 'vicuna-pull' )['nodes'][0];
+		$graph = Topology_Analyzer::graph_for( 'vicuna-pull' );
+		$node  = $graph['nodes'][0];
+
+		$this->assertSame( 'okapi-7', $node['vault_id'] );
+		$this->assertSame(
+			[ [ 'source' => 'ledger.p<partition>', 'target' => 'ledger-sink' ], [ 'source' => 'sources/php', 'target' => 'php-errors:partition' ] ],
+			$node['pairs']
+		);
+		$this->assertArrayNotHasKey( 'remote_partition', $node );
+		$this->assertArrayNotHasKey( 'reads', $node, 'a remote pull reads no local log' );
+		$this->assertContains( [ 'pull:okapi', 'ledger-sink' ], $graph['edges'] );
+		$this->assertContains( [ 'pull:okapi', 'php-errors:partition' ], $graph['edges'] );
+	}
+
+	public function test_graph_for_skips_a_malformed_pair_without_failing(): void {
+		$this->write_tsl( 'vicuna-bad', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl ledger.p0 sources/php:php-errors\n" );
+
+		$this->assertSame( [ [ 'source' => 'sources/php', 'target' => 'php-errors' ] ], Topology_Analyzer::graph_for( 'vicuna-bad' )['nodes'][0]['pairs'] );
+	}
+
+	public function test_graph_for_splits_a_config_token_source_outside_its_brackets(): void {
+		\Newspack_Nodes\Core::register_config_namespace(
+			'zeta_pairs',
+			static fn ( string $key ): ?string => 'lane' === $key ? 'quagga-lane' : null
+		);
+		$this->write_tsl( 'vicuna-token', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl '<zeta_pairs:lane>.p<partition>:lane-sink-3'\n" );
+
+		$graph = Topology_Analyzer::graph_for( 'vicuna-token' );
+
+		$this->assertSame( [ [ 'source' => '<zeta_pairs:lane>.p<partition>', 'target' => 'lane-sink-3' ] ], $graph['nodes'][0]['pairs'] );
+		$this->assertContains( [ 'pull:okapi', 'lane-sink-3' ], $graph['edges'] );
+	}
+
+	public function test_a_connect_onto_a_broker_adds_an_edge_beside_its_pairs(): void {
+		$this->write_tsl( 'vicuna-wired', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl ledger.p0:ledger-sink-5\nconnect_node pull:okapi tapir-sink-8\n" );
+
+		$edges = Topology_Analyzer::graph_for( 'vicuna-wired' )['edges'];
+
+		$this->assertContains( [ 'pull:okapi', 'ledger-sink-5' ], $edges );
+		$this->assertContains( [ 'pull:okapi', 'tapir-sink-8' ], $edges );
+		$expanded = \array_map( static fn ( array $e ): string => "{$e['from']}>{$e['to']}", Topology_Analyzer::expand( [ 'vicuna-wired' ] )['edges'] );
+		$this->assertContains( 'pull:okapi>ledger-sink-5', $expanded );
+		$this->assertContains( 'pull:okapi>tapir-sink-8', $expanded );
+	}
+
+	public function test_a_disconnect_from_a_broker_never_removes_a_pair_edge(): void {
+		$line = "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl ledger.p0:ledger-sink-5 errors.p0:errors-sink-6\nconnect_node pull:okapi tapir-sink-8\nconnect_node pull:okapi okapi-sink-9\n";
+		$this->write_tsl( 'vicuna-cut', $line . "disconnect_node pull:okapi\ndisconnect_node pull:okapi ledger-sink-5\ndisconnect_node pull:okapi tapir-sink-8\n" );
+
+		$edges = Topology_Analyzer::graph_for( 'vicuna-cut' )['edges'];
+
+		$this->assertContains( [ 'pull:okapi', 'ledger-sink-5' ], $edges, 'a pair routes through a reader, so a disconnect leaves it' );
+		$this->assertContains( [ 'pull:okapi', 'errors-sink-6' ], $edges );
+		$this->assertNotContains( [ 'pull:okapi', 'tapir-sink-8' ], $edges, 'a connect_node edge goes when named' );
+		$this->assertContains( [ 'pull:okapi', 'okapi-sink-9' ], $edges );
+		$expanded = \array_map( static fn ( array $e ): string => "{$e['from']}>{$e['to']}", Topology_Analyzer::expand( [ 'vicuna-cut' ] )['edges'] );
+		$this->assertContains( 'pull:okapi>ledger-sink-5', $expanded );
+		$this->assertNotContains( 'pull:okapi>tapir-sink-8', $expanded );
+	}
+
+	public function test_graph_for_keeps_a_remote_links_partition(): void {
+		$this->write_tsl( 'vicuna-link', "make_node Remote_Link link:okapi okapi-7 \"ledger.p<partition>\"\n" );
+
+		$node = Topology_Analyzer::graph_for( 'vicuna-link' )['nodes'][0];
 
 		$this->assertSame( 'okapi-7', $node['vault_id'] );
 		$this->assertSame( 'ledger.p<partition>', $node['remote_partition'] );
-		$this->assertArrayNotHasKey( 'reads', $node, 'a remote pull reads no local log' );
+		$this->assertArrayNotHasKey( 'pairs', $node );
 	}
 
 	public function test_graph_for_one_arg_disconnect_removes_included_edges_before_rewire(): void {

@@ -23,7 +23,7 @@
 <p class="sub">Remote_Link_Node patrons three hidden siblings; Remote_Source_Node extends it and adds Durable_Reader's cursor to the pull. The url and credentials come from the Vault entry the link's &lt;vault-id&gt; names, never from a caller, and every command it signs verifies at that one spoke.</p>
 
 <div class="wires">
-  <div class="colh">Hub worker — <span class="mono" style="text-transform:none">make_node Remote_Source &lt;name&gt; &lt;vault-id&gt; firehose.p0 …</span></div><div></div><div class="colh">Spoke site</div>
+  <div class="colh">Hub worker — <span class="mono" style="text-transform:none">make_node Remote_Source &lt;name&gt; &lt;vault-id&gt; &lt;offsetlog_root&gt; &lt;deadletter_root&gt; &lt;source:target&gt;…</span></div><div></div><div class="colh">Spoke site</div>
 
   <div class="nd hub"><b><span class="mono">&lt;name&gt;:sse-in</span> — SSE_In_Node</b>One cURL easy handle on the Event_Framework's shared multi, a <span class="mono">{segment, offset}</span> resume position, and the SSE parser. It hands each raw <span class="mono">data:</span> payload to the patron's <span class="mono">on_message</span> seam, which Remote_Source replaces with its pump buffer.</div>
   <div class="w"><svg><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs><line x1="96%" y1="58%" x2="4%" y2="58%" stroke="#003DA5" stroke-width="1.8" marker-end="url(#a)"/></svg><div class="lb" style="top:6px">SSE <span class="mono">msg</span> frames, one packed record each; <span class="mono">multi_writer=1</span> rides the connect when the verb is set</div></div>
@@ -62,7 +62,7 @@
   </div>
   <div class="callout">
     <h4>What the pull records, and what it cannot report</h4>
-    <p>Durably: <span class="mono">&lt;name&gt;:&lt;remote_partition&gt;:offsetlog</span> and <span class="mono">:deadletter</span>, the same contract Consumer has. The offsetlog dir must carry <span class="mono">&lt;topology&gt;</span>, because a cursor belongs to a FLEET and two hubs pulling one spoke must not share it. Records leave through <span class="mono">Durable_Reader::forward_line()</span>, stamped like a Consumer's; only the plain channel stamps <span class="mono">FROM=&lt;link&gt;:sse-in/&lt;remote trail&gt;</span>.</p>
+    <p>Durably: <span class="mono">&lt;name&gt;:&lt;kind&gt;:offsetlog</span> and <span class="mono">:deadletter</span> for each reader <span class="mono">&lt;name&gt;:&lt;kind&gt;</span>, the stamp with <span class="mono">/</span> written as <span class="mono">:</span>; the offsetlog lives at <span class="mono">&lt;offsetlog_root&gt;/&lt;kind&gt;</span>, the same contract Consumer has. The offsetlog root must carry <span class="mono">&lt;topology&gt;</span>, because a cursor belongs to a FLEET and two hubs pulling one spoke must not share it. Records leave through <span class="mono">Durable_Reader::forward_line()</span>, stamped like a Consumer's; only the plain channel stamps <span class="mono">FROM=&lt;link&gt;:sse-in/&lt;remote trail&gt;</span>.</p>
     <p>A pull is not a read: step is inert, pause disconnects, a seek forwards a sentinel to the spoke. And <span class="mono">Remote_Source_Node</span> has no <span class="mono">probe_stats()</span>, so it mints no Probe_Record: no row in <span class="mono">wp nodes status</span>, the Workers dashboard or the <span class="mono">consumer-lag</span> alert. An empty consumer table on a hub is not a caught-up aggregation.</p>
   </div>
 </div>

@@ -244,13 +244,13 @@ class TopologyRegistryConflictsTest extends TestCase {
 	public function test_write_set_reads_remote_source_offsetlog_from_its_argument(): void {
 		$this->write_tsl(
 			'zebra-agg',
-			"make_node Remote_Source spoke-a zebra-vault firehose.p0 <config:offsets_dir>/spoke-a.<topology>.p0 <config:deadletter_dir>/spoke-a.p0\n"
+			"make_node Remote_Source spoke-a zebra-vault <config:offsets_dir>/spoke-a.<topology> <config:deadletter_dir>/spoke-a firehose.p0:next\n"
 		);
 
 		$set = Topology_Analyzer::write_set( 'zebra-agg' );
 
-		$this->assertContains( 'offsetlog:<config:offsets_dir>/spoke-a.zebra-agg.p0', $set );
-		$this->assertContains( 'deadletter:<config:deadletter_dir>/spoke-a.p0', $set );
+		$this->assertContains( 'offsetlog:<config:offsets_dir>/spoke-a.zebra-agg', $set );
+		$this->assertContains( 'deadletter:<config:deadletter_dir>/spoke-a', $set );
 		// NOT the reconstructed legacy path.
 		$this->assertNotContains( 'offsetlog:<config:offsets_dir>/spoke-a.firehose.p0', $set );
 	}

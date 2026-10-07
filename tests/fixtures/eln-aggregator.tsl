@@ -6,22 +6,24 @@
 # dispatch on the hub via newspack_nodes/remote_job_handlers; non-job entries
 # pass through. The firehose Topic is the multi-partition, KEY-routed sink.
 #
-# Per-spoke Remote_Source nodes are NOT shipped in this stock topology — the
-# operator wires them on the console canvas, one per spoke/partition:
+# The Remote_Source broker is NOT shipped in this stock topology — the
+# operator wires it on the console canvas, one per spoke (or a Vault_Group):
 #
-#   make_node Remote_Source spoke-<id> <vault-id> firehose.p<partition> \
-#       <config:offsets_dir>/spoke-<id>.<topology>.p<partition> \
-#       <config:deadletter_dir>/spoke-<id>.p<partition>
-#   connect_node spoke-<id> remote-job-rewrite
+#   make_node Remote_Source spoke-<id> <vault-id> \
+#       <config:offsets_dir>/spoke-<id>.<topology> \
+#       <config:deadletter_dir>/spoke-<id> \
+#       firehose.p<partition>:remote-job-rewrite sources/php:php-errors:partition
 #
-# The offsetlog + deadletter dirs are ARGUMENTS (it reads like the Consumer it
-# is). Scope the cursor with `<topology>`: an offsetlog is a reader's cursor and
-# the reader is the FLEET, so two hubs pulling one spoke partition must not share
-# one. Omit them and you get no cursor / no quarantine — Consumer's contract.
+# Each trailing <source>:<target> pair names a stream to pull and the node it
+# feeds; the broker draws an edge to each target. The two roots are ARGUMENTS:
+# every reader the broker builds nests its offsetlog and dead letters below
+# them, as <root>/<kind>. Scope the cursor with `<topology>`: an offsetlog is a
+# reader's cursor and the reader is the FLEET, so two hubs pulling one spoke
+# must not share one.
 #
-# Each substrate Remote_Source is self-sufficient (it patrons its own SSE_In +
-# HTTP_Out, owns its offsetlog, and publishes a status snapshot to
-# np:remote:<node-name>:p<partition>). SSL/HTTPS policy comes from the substrate
+# Each Remote_Source is self-sufficient (it patrons its own SSE_In + HTTP_Out,
+# owns its readers and publishes a status snapshot per worker partition under
+# remote:<broker>:p<partition>). SSL/HTTPS policy comes from the substrate
 # vault_verify_ssl / vault_require_https config — not a per-topology setter.
 
 include topic-probe

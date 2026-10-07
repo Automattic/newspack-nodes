@@ -979,15 +979,19 @@ class LogCleanerTest extends TestCase {
 		);
 		$this->declare_topology(
 			'pull-lab',
-			"make_node Vault_Group firehose Remote_Source tw-edge firehose.p<partition> <config:offsets_dir>/<topology>.firehose.{id}.p<partition>\n"
+			"make_node Vault_Group firehose Remote_Source tw-edge <config:offsets_dir>/<topology>.{id} <config:deadletter_dir>/<topology>.{id} firehose.p<partition>:next\n"
 		);
 
-		$member   = $this->seed_offsetlog_dir( 'pull-lab.firehose.tw9', 0 );
-		$outsider = $this->seed_offsetlog_dir( 'pull-lab.firehose.lone', 0 );
+		// Readers nest under their pair-wide root: <root>/<kind>.p<n>.
+		$member   = $this->seed_offsetlog_dir( 'pull-lab.tw9/firehose', 0 );
+		$outsider = $this->seed_offsetlog_dir( 'pull-lab.lone/firehose', 0 );
+		$this->age_dir( \dirname( $member ) );
+		$this->age_dir( \dirname( $outsider ) );
 
 		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
 
 		$this->assertDirectoryExists( $member );
 		$this->assertDirectoryDoesNotExist( $outsider );
+		$this->assertDirectoryDoesNotExist( \dirname( $outsider ) );
 	}
 }

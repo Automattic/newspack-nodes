@@ -242,6 +242,66 @@ class RemoteSourceNodeTest extends TestCase {
 		);
 	}
 
+	public function test_split_pair_splits_at_the_first_colon_outside_angle_brackets(): void {
+		$this->assertSame(
+			[ 'source' => '<zeta:lane>.p<partition>', 'target' => 'lane-sink-3' ],
+			Remote_Source_Node::split_pair( '<zeta:lane>.p<partition>:lane-sink-3' )
+		);
+		$this->assertSame(
+			[ 'source' => 'sources/php', 'target' => 'php-errors:partition' ],
+			Remote_Source_Node::split_pair( 'sources/php:php-errors:partition' )
+		);
+		$this->assertSame( [ 'source' => '<zeta:lane>', 'target' => '' ], Remote_Source_Node::split_pair( '<zeta:lane>' ) );
+	}
+
+	public function test_split_pair_counts_bracket_depth_and_leaves_an_unclosed_one_whole(): void {
+		$this->assertSame(
+			[ 'source' => '<<yak:b>:c>.p<partition>', 'target' => 'sink-4' ],
+			Remote_Source_Node::split_pair( '<<yak:b>:c>.p<partition>:sink-4' )
+		);
+		$this->assertSame(
+			[ 'source' => '<yak:x:sink-4', 'target' => '' ],
+			Remote_Source_Node::split_pair( '<yak:x:sink-4' )
+		);
+		$this->assertSame(
+			[ 'source' => 'a>b', 'target' => 'sink-4' ],
+			Remote_Source_Node::split_pair( 'a>b:sink-4' ),
+			'a stray close never takes the depth below zero'
+		);
+	}
+
+	public function test_a_pair_with_an_unclosed_bracket_is_refused(): void {
+		$this->expectException( \InvalidArgumentException::class );
+		Remote_Source_Node::parse_pair( '<yak:x:sink-4' );
+	}
+
+	public function test_a_broker_fans_out_and_its_readers_keep_their_pair_targets(): void {
+		[ $node, $child ] = $this->make_remote();
+
+		$node->connect_node( 'tapir-sink-8' );
+		$node->connect_node( 'okapi-sink-9' );
+		$node->connect_node( 'tapir-sink-8' );
+		$this->assertSame( [ 'tapir-sink-8', 'okapi-sink-9' ], $node->target() );
+		$this->assertStringContainsString( "connect_node remote-austin okapi-sink-9\n", $node->dump_config() );
+
+		$node->disconnect_node();
+
+		$this->assertSame( [], $node->target() );
+		$this->assertSame( 'downstream', $child->target() );
+	}
+
+	public function test_dump_config_roundtrips_the_broker_and_its_pairs(): void {
+		$tokens = $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:downstream', 'sources/php:php-errors:partition' );
+		$node   = $this->broker( 'remote-austin', $tokens );
+		$twin   = $this->broker( 'remote-twin', $node->arguments() );
+
+		$this->assertSame( $tokens, $twin->arguments() );
+		$line = \strtok( $node->dump_config(), "\n" );
+		$this->assertStringContainsString( 'firehose.p0:downstream sources/php:php-errors:partition', (string) $line );
+		$bare = static fn ( string $l ): string => (string) \preg_replace( '/^make_node Remote_Source \S+ /', '', $l );
+		$this->assertSame( $bare( (string) $line ), $bare( (string) \strtok( $twin->dump_config(), "\n" ) ) );
+	}
+
 	public function test_valve_backpressures_only_on_buffer_water_marks(): void {
 		// Edge-triggered buffer management: DISARM only when the buffer crosses above
 		// high-water, RE-ARM only when it drains back below low-water. The valve stays

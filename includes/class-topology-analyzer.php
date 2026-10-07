@@ -27,7 +27,7 @@ class Topology_Analyzer {
 	/** @var array<string,array<string,string>> Memoized parsed `var` frontmatter by topology name. */
 	private static array $frontmatter_cache = [];
 
-	/** @var array<string,array{nodes:list<array<string,int|string|list<string>>>,edges:list<array{0:string,1:string}>}> Memoized structural graph by topology name (node entries carry `type` + `args`). */
+	/** @var array<string,array{nodes:list<array<string,int|string|list<string>|list<array{source:string,target:string}>>>,edges:list<array{0:string,1:string}>}> Memoized structural graph by topology name (node entries carry `type` + `args`). */
 	private static array $graph_cache = [];
 
 	/** @var array<class-string<Node>,array<string,string>> Memoized palette-checked `owns`, suffix => class, by node class. */
@@ -162,6 +162,9 @@ class Topology_Analyzer {
 		$spans  = $statement['spans'];
 		if ( 'make_node' === $verb ) {
 			$name = $values[2] ?? '';
+			if ( self::type_is( $values[1] ?? '', Remote_Source_Node::class ) ) {
+				self::draw_pair_edges( $edges, $values, $origins );
+			}
 			if ( isset( $nodes[ $name ] ) ) {
 				foreach ( $origins as $origin ) {
 					if ( ! \in_array( $origin, $nodes[ $name ]['origin'], true ) ) {
@@ -261,7 +264,7 @@ class Topology_Analyzer {
 	 *
 	 * @param string             $topology Topology name.
 	 * @param class-string<Node> ...$fqcns Node classes to match.
-	 * @return list<array<string,int|string|list<string>>> Graph nodes, as graph_for() draws them.
+	 * @return list<array<string,int|string|list<string>|list<array{source:string,target:string}>>> Graph nodes, as graph_for() draws them.
 	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
 	public static function nodes_of_type( string $topology, string ...$fqcns ): array {
@@ -284,16 +287,16 @@ class Topology_Analyzer {
 	 * the make_node `type` token and positional `args` list, quotes stripped as
 	 * the runtime binds them (+ the log a Partition/Topic writes or a Consumer
 	 * reads, from the path/source ARG — never a name suffix; + a remote link's
-	 * `vault_id` and `remote_partition`, so another plugin names them rather
-	 * than counting positionals), and edges from
-	 * `connect_node` plus
+	 * `vault_id`, and either its `remote_partition` (a channel) or its `pairs`
+	 * (a broker), so another plugin names them rather than counting
+	 * positionals), and edges from `connect_node` plus
 	 * `command_node <node>:config set_*target <target>`, with `disconnect_node` applied
 	 * in evaluation order. A broken include throws — the walk's memoized
 	 * failure, re-raised to every caller — rather than answering an empty
 	 * graph that reads as "declares nothing".
 	 *
 	 * @param string $name Topology name.
-	 * @return array{nodes: list<array<string,int|string|list<string>>>, edges: list<array{0:string,1:string}>}
+	 * @return array{nodes: list<array<string,int|string|list<string>|list<array{source:string,target:string}>>>, edges: list<array{0:string,1:string}>}
 	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
 	public static function graph_for( string $name ): array {
@@ -343,8 +346,11 @@ class Topology_Analyzer {
 					$node['path']         = $path;
 					$node['segment_size'] = self::literal_segment_size( $values ) ?? 0;
 				}
-				if ( self::type_is( $class, Remote_Link_Node::class ) ) {
-					// It pulls a REMOTE log, so it claims no `reads`.
+				if ( self::type_is( $class, Remote_Source_Node::class ) ) {
+					// It pulls REMOTE streams, so it claims no `reads`.
+					$node['vault_id'] = $values[3] ?? '';
+					$node['pairs']    = self::draw_pair_edges( $edges, $values, [ $name ] );
+				} elseif ( self::type_is( $class, Remote_Link_Node::class ) ) {
 					$node['vault_id']         = $values[3] ?? '';
 					$node['remote_partition'] = $values[4] ?? '';
 				}
@@ -413,24 +419,7 @@ class Topology_Analyzer {
 		if ( '' === $target ) {
 			return;
 		}
-		$key          = self::ensure_edge( $edges, $source, $target );
-		$edge         = $edges[ $key ];
-		$config       = $edge['origins']['config'];
-		$slot_origins = $config[ $slot ] ?? [];
-		foreach ( $origins as $origin ) {
-			if ( ! \in_array( $origin, $slot_origins, true ) ) {
-				$slot_origins[] = $origin;
-			}
-		}
-		$config[ $slot ] = $slot_origins;
-		$edges[ $key ]    = [
-			'from'    => $edge['from'],
-			'to'      => $edge['to'],
-			'origins' => [
-				'connect' => $edge['origins']['connect'],
-				'config'  => $config,
-			],
-		];
+		self::add_config_origins( $edges, $source, $target, $slot, $origins );
 	}
 
 	/**
@@ -490,30 +479,6 @@ class Topology_Analyzer {
 	}
 
 	/**
-	 * Ensure one insertion-ordered edge-state record and return its key.
-	 *
-	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges Edge-state map, by reference.
-	 * @param string $source Source node.
-	 * @param string $target Target node.
-	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges
-	 * @return string The edge's key in `$edges`.
-	 */
-	private static function ensure_edge( array &$edges, string $source, string $target ): string {
-		$key = $source . "\0" . $target;
-		if ( ! isset( $edges[ $key ] ) ) {
-			$edges[ $key ] = [
-				'from'    => $source,
-				'to'      => $target,
-				'origins' => [
-					'connect' => [],
-					'config'  => [],
-				],
-			];
-		}
-		return $key;
-	}
-
-	/**
 	 * Mirror runtime disconnect: regular Nodes clear their connect target;
 	 * Tees remove an explicit target, while an omitted target defaults to the
 	 * Shell envelope FROM and therefore does not clear the topology's fan-out.
@@ -561,6 +526,88 @@ class Topology_Analyzer {
 				'config'  => $edge['origins']['config'],
 			],
 		];
+	}
+
+	/**
+	 * Draw one `pair` edge from a broker to each pair's target and return the pairs as
+	 * the TSL wrote them: a source keeps its `<partition>` and config tokens,
+	 * which the runtime resolves before the node parses them, so each token is
+	 * judged resolved and split raw. A malformed token is skipped.
+	 *
+	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param list<string> $values  The broker's `make_node` values.
+	 * @param list<string> $origins Top-level includes providing the broker.
+	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges
+	 * @return list<array{source:string,target:string}>
+	 */
+	private static function draw_pair_edges( array &$edges, array $values, array $origins ): array {
+		$pairs = [];
+		foreach ( \array_slice( $values, 6 ) as $token ) {
+			if ( [] === Remote_Source_Node::pairs_of( [ Core::resolve_partition_template( $token, 0 ) ] ) ) {
+				continue;
+			}
+			$pair    = Remote_Source_Node::split_pair( $token );
+			$pairs[] = $pair;
+			// A pair routes through a reader; no disconnect reaches it.
+			self::add_config_origins( $edges, $values[2] ?? '', $pair['target'], 'pair', $origins );
+		}
+		return $pairs;
+	}
+
+	/**
+	 * Add `$origins` to one config role of an edge, creating the edge. Other
+	 * edges and other roles are left alone.
+	 *
+	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param string       $source  Source node.
+	 * @param string       $target  Target node.
+	 * @param string       $slot    The config role, e.g. `set_error_target` or `pair`.
+	 * @param list<string> $origins Top-level includes providing the role.
+	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges
+	 */
+	private static function add_config_origins( array &$edges, string $source, string $target, string $slot, array $origins ): void {
+		$key          = self::ensure_edge( $edges, $source, $target );
+		$edge         = $edges[ $key ];
+		$config       = $edge['origins']['config'];
+		$slot_origins = $config[ $slot ] ?? [];
+		foreach ( $origins as $origin ) {
+			if ( ! \in_array( $origin, $slot_origins, true ) ) {
+				$slot_origins[] = $origin;
+			}
+		}
+		$config[ $slot ] = $slot_origins;
+		$edges[ $key ]   = [
+			'from'    => $edge['from'],
+			'to'      => $edge['to'],
+			'origins' => [
+				'connect' => $edge['origins']['connect'],
+				'config'  => $config,
+			],
+		];
+	}
+
+	/**
+	 * Ensure one insertion-ordered edge-state record and return its key.
+	 *
+	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param string $source Source node.
+	 * @param string $target Target node.
+	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges
+	 * @return string The edge's key in `$edges`.
+	 */
+	private static function ensure_edge( array &$edges, string $source, string $target ): string {
+		$key = $source . "\0" . $target;
+		if ( ! isset( $edges[ $key ] ) ) {
+			$edges[ $key ] = [
+				'from'    => $source,
+				'to'      => $target,
+				'origins' => [
+					'connect' => [],
+					'config'  => [],
+				],
+			];
+		}
+		return $key;
 	}
 
 	/**
@@ -783,10 +830,8 @@ class Topology_Analyzer {
 	 * `deadletter:` so the kinds can't false-match. A Consumer's SOURCE (1st arg
 	 * after the node name) is a read, not a write, so it's excluded.
 	 *
-	 * A `Remote_Source` contributes the same pair from its own positions
-	 * (`<node> <vault> <source> [offsetlog] [dlq]`); an omitted offsetlog falls
-	 * back to the path the node derives, `<config:offsets_dir>/<node>.<source>`,
-	 * so the cursor is still claimed and still gated.
+	 * A `Remote_Source` claims its two roots (`<node> <vault> <offsetlog_root>
+	 * <deadletter_root> <pairs…>`); every reader nests below them.
 	 *
 	 * A `Table` whose backend resolves to `sqlite` — written literally or as a
 	 * config token, resolved strictly — claims `table:<name>.p<partition>`,
@@ -871,14 +916,13 @@ class Topology_Analyzer {
 					$seen[ 'deadletter:' . $values[5] ] = true;
 				}
 			}
-			// Remote_Source: <node> <vault> <source> [offsetlog] [dlq]
+			// Broker: <node> <vault> <offsetlog_root> <deadletter_root> <pairs>
 			if ( 'make_node' === $verb && self::type_is( $class, Remote_Source_Node::class ) ) {
-				// The offsetlog is an ARG; the derived path is the fallback.
-				$offsetlog = $values[5] ?? ( '<config:offsets_dir>/' . ( $values[2] ?? '' ) . '.' . ( $values[4] ?? '' ) );
-				$seen[ 'offsetlog:' . $offsetlog ] = true;
-				if ( isset( $values[6] ) ) {
-					$seen[ 'deadletter:' . $values[6] ] = true;
-				}
+				// @longform Both roots are required; every reader nests under
+				// them, so claiming the root claims each reader's cursor and
+				// dead letters, a glob's later readers included.
+				$seen[ 'offsetlog:' . ( $values[4] ?? '' ) ]   = true;
+				$seen[ 'deadletter:' . ( $values[5] ?? '' ) ] = true;
 			}
 		}
 		$out = \array_keys( $seen );
