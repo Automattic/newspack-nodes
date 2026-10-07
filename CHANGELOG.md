@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.98.0] - 2026-10-06
+
 ### Changed
 
 - **The Inspector's Stats grids for a Table render at 9px, down from 11px.** The `.topology-insp__section:has(> .nodes-runtime__grid)` rule in `graph-view.scss` sets the size, and both grids inherit it through `.newspack-nodes-table.nodes-runtime__grid { font-size: inherit }`. The Runtime and Stats modals' grids sit in no Inspector section and keep the 12px their view bodies set.
