@@ -239,7 +239,7 @@ class Timer_Node extends Node {
 	 * only while every arming site for the node is recurring too: a oneshot boot
 	 * arm leaves `interval_ms` at 0, which a busy branch wanting 0 then reads as
 	 * "no change" and never re-arms. Live examples are `Durable_Reader::fire()`,
-	 * `Remote_Source_Node::fire()` and `Stdin_Node::fire()`; the JS mirror is
+	 * `Remote_Consumer_Node::fire()` and `Stdin_Node::fire()`; the JS mirror is
 	 * `src/runtime/timer-node.js`.
 	 *
 	 * @param int|null $ms      Interval in milliseconds; null means the Router's own cadence.

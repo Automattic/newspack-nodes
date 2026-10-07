@@ -64,8 +64,8 @@ class SSE_In_Node extends Node implements Curl_Owner {
 	/**
 	 * Delivery seam, set by the patron. Every `msg` SSE event hands its RAW `data:`
 	 * payload — the packed line, byte-identical to the remote's on-disk encoding — to
-	 * this closure; `Remote_Source_Node` appends that line to the buffer its
-	 * `Durable_Reader` drains. A null seam drops the event.
+	 * this closure; `Remote_Source_Node` routes that line to the reader its FROM
+	 * stamp names, whose `Durable_Reader` drains it. A null seam drops the event.
 	 *
 	 * Signature: `function ( string $raw ): void`.
 	 *
@@ -868,10 +868,10 @@ class SSE_In_Node extends Node implements Curl_Owner {
 	/**
 	 * Backpressure valve — ARM: re-add the easy handle to the shared multi so its socket
 	 * is serviced again, resuming the paused transfer. No-op without a live handle.
-	 * The dual of disarm(); a buffering owner (Remote_Source) calls this when its buffer runs
-	 * dry of complete lines.
+	 * The dual of disarm(); a buffering owner (Remote_Source) calls this once its readers
+	 * have drained below the low-water mark.
 	 *
-	 * @api Support for the Remote_Source Durable_Reader valve.
+	 * @api Support for the Remote_Source valve.
 	 */
 	public function arm(): void {
 		// Only register with a live handle; arming while disconnected respins.
@@ -884,9 +884,9 @@ class SSE_In_Node extends Node implements Curl_Owner {
 	 * Backpressure valve — DISARM: remove the easy handle from the shared multi. libcurl
 	 * stops reading it (the handle stays open), so the kernel recv buffer fills, the TCP
 	 * window closes, and the remote SSE server blocks on write. Real end-to-end backpressure.
-	 * A buffering owner calls this once its buffer holds a line.
+	 * A buffering owner calls this once its readers' backlog crosses the high-water mark.
 	 *
-	 * @api Support for the Remote_Source Durable_Reader valve.
+	 * @api Support for the Remote_Source valve.
 	 */
 	public function disarm(): void {
 		if ( $this->handle instanceof \CurlHandle ) {

@@ -784,21 +784,21 @@ class WorkerBaseTest extends TestCase {
 		$this->assertFalse( \is_dir( "{$this->tmp}/locks/wakefail.p0.lock.d" ), 'the lock is released regardless' );
 	}
 
-	public function test_checkpoint_durable_consumers_checkpoints_remote_sources(): void {
-		// Bug C: Remote_Source isn't a Consumer_Node, so the shutdown handoff must reach
+	public function test_checkpoint_durable_consumers_checkpoints_remote_consumers(): void {
+		// A Remote_Consumer isn't a Consumer_Node, so the shutdown handoff must reach
 		// it explicitly — otherwise its healthy cursor is lost on every ~10-min recycle.
 		$w   = new TestableWorker( $this->tmp, 'test-worker', 0 );
-		$spy = new class() extends \Newspack_Nodes\Remote_Source_Node {
+		$spy = new class() extends \Newspack_Nodes\Remote_Consumer_Node {
 			public int $shutdown_calls = 0;
 			public function checkpoint_shutdown(): void {
 				++$this->shutdown_calls;
 			}
 		};
-		$spy->name( 'remote-austin' );
+		$spy->name( 'remote-austin:firehose.p0' );
 
 		$w->checkpoint_durable_consumers();
 
-		$this->assertSame( 1, $spy->shutdown_calls, 'the shutdown handoff must checkpoint Remote_Source nodes' );
+		$this->assertSame( 1, $spy->shutdown_calls, 'the shutdown handoff must checkpoint Remote_Consumer nodes' );
 	}
 
 	public function test_checkpoint_durable_consumers_hands_off_any_node_answering_the_hook(): void {
@@ -844,12 +844,12 @@ class WorkerBaseTest extends TestCase {
 		$this->assertSame( [ 'cursor-alder-1', 'cursor-cedar-3' ], $handed->getArrayCopy() );
 	}
 
-	public function test_cooperative_stop_routes_remote_source_to_the_fair_shot_rule(): void {
-		// A cooperative stop (timeout/memory) must route Remote_Source through cooperative_stop
+	public function test_cooperative_stop_routes_remote_consumer_to_the_fair_shot_rule(): void {
+		// A cooperative stop (timeout/memory) must route a Remote_Consumer through cooperative_stop
 		// — the fair-shot rule, EXACTLY like a Consumer_Node — not the plain graceful shutdown.
 		$w = new TestableWorker( $this->tmp, 'test-worker', 0 );
 		$w->set_stop_reason_for_test( 'timeout' );
-		$spy = new class() extends \Newspack_Nodes\Remote_Source_Node {
+		$spy = new class() extends \Newspack_Nodes\Remote_Consumer_Node {
 			/** @var array<int,array{0:string,1:bool}> */
 			public array $coop = [];
 			public int $shutdown_calls = 0;
@@ -860,11 +860,11 @@ class WorkerBaseTest extends TestCase {
 				++$this->shutdown_calls;
 			}
 		};
-		$spy->name( 'remote-austin' );
+		$spy->name( 'remote-austin:firehose.p0' );
 
 		$w->checkpoint_durable_consumers();
 
-		$this->assertSame( [ [ 'timeout', false ] ], $spy->coop, 'a cooperative stop routes Remote_Source to the fair-shot rule' );
+		$this->assertSame( [ [ 'timeout', false ] ], $spy->coop, 'a cooperative stop routes a Remote_Consumer to the fair-shot rule' );
 		$this->assertSame( 0, $spy->shutdown_calls, 'and NOT the plain graceful shutdown' );
 	}
 

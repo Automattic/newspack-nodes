@@ -1,49 +1,46 @@
 <?php
 /**
- * Remote_Source: pulls one spoke partition over SSE and relays it under a durable cursor.
+ * Remote_Source: one SSE connection to a spoke, carrying a durable reader per stream.
  *
  * @package Newspack_Nodes
  */
 
 namespace Newspack_Nodes;
 
+use Newspack_Nodes\Rest\SSE_Out_Node;
+
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * A self-sufficient, topology-visible SSE-pull aggregation source.
+ * An SSE-pull broker: Tachikoma's ConsumerBroker shape over the wire. One
+ * connection to a spoke carries every stream its `<source>:<target>` pairs
+ * name, and each stamp it carries is read by its own `Remote_Consumer_Node`,
+ * published as the sibling `<broker>:<kind>` — the cursor, offsetlog, dead
+ * letters and debugger all belong to that reader.
  *
- * The channel comes from `Remote_Link_Node`: the `SSE_In` and `HTTP_Out` patrons,
- * the heartbeat, the reconnect and the status snapshot. The message path comes
- * from `Durable_Reader`, the same spine `Consumer_Node` reads a disk partition
- * through — offsetlog cursor, buffered pump, dead-letter lifecycle and the
- * pause/step/seek debugger. `SSE_In` hands each raw `msg` payload to the delivery
- * seam this class installs in `ensure_patrons()`, which appends it to the pump
- * buffer, and the tick drains that buffer exactly as a Consumer drains a block it
- * read off disk.
- *
- * Two seams diverge from a disk reader. `get_batch()` arms an async cURL valve
- * instead of reading a block, and `crumb_for_line()` takes each record's position
- * from the breadcrumb it arrived with instead of measuring the local buffer chop.
- * A pull source is addressed in the SPOKE's byte space, and no local measurement
- * reaches that.
+ * The channel comes from `Remote_Link_Node`: the `SSE_In` and `HTTP_Out`
+ * patrons, the heartbeat, the reconnect and the status snapshot. This class
+ * adds the routing between them and the readers. `SSE_In` hands each raw `msg`
+ * payload to `route()`, which reads its FROM stamp and hands it to the reader
+ * the first matching pair owns, building that reader on first sight. A connect
+ * asks each live reader where its stream stands; a paused reader drops out of
+ * the request and steps through `request_read()` over the HTTP_Out instead.
+ * One valve meters the whole connection, on the bytes every reader holds.
  *
  * Credentials and URL come from the Vault entry the `<vault-id>` argument names; a
  * missing entry leaves the node disconnected rather than building mis-configured
  * patrons.
  */
 class Remote_Source_Node extends Remote_Link_Node {
-	/** Dead_Letter_Queue and Sidecar ride in with Durable_Reader, which drives both. */
-	use Durable_Reader;
-
 	/** Memcache TTL for the status snapshot (seconds). */
 	public const STATUS_TTL = 300;
 
 	/**
 	 * SSE backpressure valve water marks: re-arm at 256 KB, disarm at 512 KB.
 	 *
-	 * The buffer drains whole each tick, so it accumulates between ticks, in
-	 * on_message(): disarm once it crosses the high mark, re-arm once the drain
-	 * brings it back under the low one. The hysteresis is what keeps the valve OPEN
+	 * The readers drain between arrivals, so their buffers accumulate in route():
+	 * disarm once the sum crosses the high mark, re-arm once their drains bring
+	 * it back under the low one. The hysteresis is what keeps the valve OPEN
 	 * through normal flow. A single threshold closes it on every buffered line and
 	 * stop-starts the spoke, which is what makes a hub-aggregation pull lag.
 	 */
@@ -56,53 +53,11 @@ class Remote_Source_Node extends Remote_Link_Node {
 	/** Reason the last heartbeat failed, published as `last_error`; null on success. */
 	private ?string $last_heartbeat_error = null;
 
-	/**
-	 * The offsetlog restore_position() read its durable frame from and seeded the
-	 * cursor with.
-	 *
-	 * This is what makes restore_position() idempotent: ensure_patrons() calls it to
-	 * seed SSE_In's connect position BEFORE connect, and the Durable_Reader boot seam
-	 * (init_position) calls it again on the first poll, where it returns the
-	 * already-seeded cursor untouched. Latching the sidecar rather than a bare `true`
-	 * is what stops the latch outliving the offsetlog it describes: a replayed
-	 * `arguments()` naming a new offsetlog_dir builds a new Partition, and a bool
-	 * would leave the cursor seeded from the dir those arguments superseded.
-	 */
-	private ?Partition_Node $position_restored_from = null;
-
-	/**
-	 * A seek the spoke resolves, sent instead of the cursor until a handshake or
-	 * the first record answers it; a fresh reader asks for the end.
-	 */
-	private ?int $pending_seek = Consumer_Node::SEEK_END;
-
-	/** Mirror of the SSE_In valve state: true while armed. Only the buffer's size flips it. */
+	/** Mirror of the SSE_In valve state: true while armed. Only the readers' bytes flip it. */
 	private bool $pump_armed = true;
 
-	/** `step` clicks still waiting on the reconnected pull, one record each. */
-	private int $steps_owed = 0;
-
 	/**
-	 * Where the spoke's reader stood past the torn lines it last reported
-	 * skipping, until the cursor reaches it. Everything buffered when it arrived
-	 * lies before it, and a record arriving after it supersedes it, since that
-	 * record's own crumb is further on.
-	 *
-	 * @var array{segment:int, offset:int}|null
-	 */
-	private ?array $skipped_to = null;
-
-	/**
-	 * The breadcrumb crumb_for_line() last read off the wire, null when that line
-	 * carried none — the distinction the placeholder crumb erases, and what
-	 * drain_line() steers on.
-	 *
-	 * @var array{segment:int, offset:int, length:int}|null
-	 */
-	private ?array $parsed_crumb = null;
-
-	/**
-	 * Whether the spoke partition this pulls is appended by more than one process
+	 * Whether the spoke logs this pulls are appended by more than one process
 	 * (the firehose is, from every request). Unlike Consumer's flag of the same
 	 * name it configures the reader on the OTHER end — a pull source has no
 	 * segments of its own — because that is where the read happens. The spoke
@@ -113,6 +68,21 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 */
 	protected bool $multi_writer = false;
 
+	/** @var list<array{source:string,target:string}> The pairs this broker carries, in declaration order. */
+	private array $pairs = [];
+
+	/** @var array<string,Remote_Consumer_Node> The readers, by stamp, in the order they were built. */
+	private array $consumers = [];
+
+	/** Root under which each reader's offsetlog sits, at `<root>/<kind>`. */
+	protected string $offsetlog_root = '';
+
+	/** Root under which each reader's dead letters sit, at `<root>/<kind>`. */
+	protected string $deadletter_root = '';
+
+	/** Fanned out to every reader, present or built later. */
+	protected bool $assume_clean_shutdown = false;
+
 	/** Tachikoma-parity: no-arg ctor. Auto-wire the `{name}:config` interpreter for the verb table. */
 	public function __construct() {
 		parent::__construct();
@@ -120,342 +90,93 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Per-tick work: the Remote_Link channel housekeeping (patrons, reconnect, heartbeat,
-	 * status) via parent::fire(), then the Durable_Reader drain of whatever SSE_In accumulated
-	 * into the buffer since the last tick, plus the throttled cursor checkpoint. Defined directly
-	 * so it overrides both the inherited Remote_Link::fire and the Durable_Reader pump fire —
-	 * Remote_Source rides Remote_Link's recurring TICK_INTERVAL_MS timer, not the pump's
-	 * self-re-arming cadence.
+	 * Parse `<vault_id> <offsetlog_root> <deadletter_root> <source:target>…`
+	 * through the link, which arms the tick, then reconcile the readers with a
+	 * replay. A reader no pair matches any more hands its cursor off and is
+	 * retracted; each survivor takes its owning pair's target, and its dirs
+	 * when the roots moved. A changed pair list restarts the stream, so the
+	 * next request states the new set.
 	 *
-	 * The cadence it RE-ARMS with is the pump's, though. That 100ms tick paces the CHANNEL,
-	 * and the drain must not inherit it as its own rate: line_mode and crawl cap
-	 * `drain_buffer()` at one line, so one drain per tick would trickle a backlog at 10 lines
-	 * a second however deep it is. So this borrows the pump's rule — a line still buffered
-	 * runs at POLL_INTERVAL_BUSY_MS (0), an empty buffer returns to the channel tick — and
-	 * re-arms only on a CHANGE, leaving a RECURRING timer armed in between. line_mode then
-	 * stays GRANULARITY (one line per cycle) instead of becoming a rate limit, and the loop
-	 * keeps turning between lines, where draining the backlog inline would block every other
-	 * node.
-	 *
-	 * The method has a single exit on purpose. A patron dropped by reload() skips the drain,
-	 * and returning early there would leave a 0ms cadence armed over a buffer nothing is
-	 * draining — spinning the loop flat until housekeeping, which runs once per new wall-second,
-	 * rebuilds the patron.
-	 *
-	 * @api Dynamic entrypoint (Timer_Node::fire_cb).
+	 * @api Dynamic entrypoint.
+	 * @param list<string>|null $args Positional tokens, or null to read them.
+	 * @return list<string>
+	 * @throws \InvalidArgumentException When a pair is malformed or none is named.
 	 */
-	public function fire(): void {
-		parent::fire();
-		// No patron, no drain, no reason to hold the busy cadence.
-		$next_ms = self::TICK_INTERVAL_MS;
-		// Paused, a tick only pays owed steps; a stray one does nothing.
-		$paused = 'PAUSED' === $this->get_state( 'POLLING' );
-		if ( $this->should_connect() && null !== $this->sse_in ) {
-			if ( ! $paused ) {
-				$this->poll();
-				$this->pass_skipped_lines();
-			} elseif ( $this->steps_owed > 0 ) {
-				$this->steps_owed -= $this->poll();
+	public function arguments( ?array $args = null ): array {
+		if ( null === $args ) {
+			return parent::arguments();
+		}
+		$pairs = \array_map( self::parse_pair( ... ), \array_slice( $args, 3 ) );
+		if ( [] === $pairs ) {
+			throw new \InvalidArgumentException( 'Remote_Source: name at least one <source>:<target> pair' );
+		}
+		$previous    = $this->pairs;
+		$parsed      = parent::arguments( $args );
+		$this->pairs = $pairs;
+		foreach ( $this->consumers as $stamp => $child ) {
+			$pair = $this->pair_for( $stamp );
+			if ( null === $pair ) {
+				$child->hand_off_cursor();
+				$this->retract_sibling( Remote_Consumer_Node::kind_of( $stamp ) );
+				unset( $this->consumers[ $stamp ] );
+				continue;
 			}
-			// checkpoint() makes the cursor durable; a step never does.
-			if ( ! $paused && null !== $this->offsetlog && $this->checkpoint_due() ) {
-				$this->checkpoint();
-				$this->last_checkpoint = Core::$now;
+			$child->connect_node( $pair['target'] );
+			if ( $this->reader_args( $stamp ) !== $child->arguments() ) {
+				$child->arguments( $this->reader_args( $stamp ) );
 			}
-			$next_ms = $this->buffer_has_line() ? self::POLL_INTERVAL_BUSY_MS : self::TICK_INTERVAL_MS;
 		}
-		if ( $paused && $this->steps_owed <= 0 ) {
-			$this->pause();
-		} elseif ( $this->interval_ms !== $next_ms ) {
-			$this->set_timer( $next_ms );
+		if ( $previous !== $this->pairs ) {
+			$this->restream();
 		}
+		return $parsed;
 	}
 
 	/**
-	 * Boot seam: seed the durable read position on the first poll. Delegates to the idempotent
-	 * restore_position(). ensure_patrons() has usually already run it to seed SSE_In before
-	 * connect, in which case this second call leaves the cursor, the crawl lineage and the boot
-	 * head-skip exactly as that one set them. Then make sure the deadletter sibling exists, so
-	 * the trait's cooperative_stop() has somewhere to quarantine to.
+	 * What the next connect asks for: each exact pair whose reader is live,
+	 * from that reader's own position, and each glob, with every reader it
+	 * already owns stated — a paused one as `SSE_Out_Node::SKIP`, so the glob
+	 * keeps finding new dirs while that one stays out. A new stream opens with
+	 * its valve armed.
+	 *
+	 * @return array{0:list<string>,1:array<string,array{segment?:int,offset:int}|int|string>} Subscriptions, then per-stamp positions.
 	 */
-	protected function init_position(): void {
-		$this->restore_position();
-		$this->ensure_deadletter();
-	}
-
-	/**
-	 * Crumb seam override: a pull source is addressed by the spoke that sent it, so the record's
-	 * position and size are the breadcrumb it arrived with, never the local line's bytes. A line
-	 * carrying no crumb cannot be placed in the spoke's byte space at all — it keeps the cursor
-	 * where it stands and moves it by nothing.
-	 *
-	 * @return array{segment:int, offset:int, length:int}
-	 */
-	protected function crumb_for_line( string $line ): array {
-		$this->parsed_crumb = $this->crumb_from_line( $line );
-		return $this->parsed_crumb ?? [
-			'segment' => $this->cursor_segment,
-			'offset'  => $this->cursor_offset,
-			'length'  => 0,
-		];
-	}
-
-	/**
-	 * Drain seam override: dispatch ONE buffered line the push way. Pin the cursor to the
-	 * record's own START, taken from its breadcrumb; then, if the boot head-skip is armed,
-	 * run the 3-way crumb-vs-boot-pin compare. A push stream can resume PAST a GC'd suspect,
-	 * so an armed head is not unconditionally the first drained line — which is why the
-	 * trait's unconditional sacrifice cannot serve here. Everything else forwards through
-	 * forward_line().
-	 */
-	protected function drain_line( string $line, int $abs_offset ): void {
-		$crumb = $this->parsed_crumb;
-		if ( null !== $crumb ) {
-			$this->cursor_segment = $crumb['segment'];
-			$this->cursor_offset  = $crumb['offset'];
-			// The first record past a bare seek says where the stream began.
-			$this->pending_seek = null;
-		}
-		if ( $this->crawl_skip_head && null !== $crumb && $this->sacrifice_boot_head( $line, $crumb ) ) {
-			return; // Sacrificed — not forwarded.
-		}
-		$this->forward_line( $line, $abs_offset );
-	}
-
-	/**
-	 * Emit seam override: forward one raw line, PRESERVING both the FROM trail and the
-	 * breadcrumb ID the spoke stamped. The trait default re-stamps FROM with this node's name
-	 * and rewrites ID as seg:off:len from the LOCAL cursor; a relay has to keep the source
-	 * partition's own crumb, which is what the Aggregator reads a record's origin from.
-	 * drain_line() has already pinned the cursor from that crumb.
-	 *
-	 * `admit_inbound()` routes the line, and `admit_addressed()` here consults no allowlist: a
-	 * firehose record carries no TO, so an addressed line is refused with or without a target.
-	 * A refused line was still READ, so the cursor advances past it as a forward does, and one
-	 * bad record wedges nothing.
-	 *
-	 * Five dispositions, that refusal the first. A null sink FAILS LOUD, because a relay with
-	 * nowhere to relay is a topology error. An unparseable line carries no crumb, so it is
-	 * quarantined where the cursor stands — the next unread position, the one place it can be
-	 * put — and moves the cursor by nothing. A downstream throw dead-letters the message ON
-	 * SIGHT and marks the record disposed, so the drain loop advances past it with no
-	 * head-block and no fair-shot climb; that climb is reserved for the hard-crash lineage and
-	 * its crawl. A Worker_Should_Stop escapes as `settle_forward_stop()` settles it. When that
-	 * is clean the drain commits past the record by its crumb's length; a crumbless record has
-	 * no position of its own, so that length is zero and the cursor stays where the spoke will
-	 * resume.
-	 *
-	 * @param string $line       One complete line off the pump buffer.
-	 * @param int    $abs_offset Local drain offset, carried for the trait's signature; a push
-	 *                           source places records from the crumb instead.
-	 */
-	protected function forward_line( string $line, int $abs_offset ): void {
-		$sink = $this->sink;
-		if ( null === $sink ) {
-			throw new \RuntimeException( 'Remote_Source relay requires a wired sink' );
-		}
-		try {
-			$message = Message::unpacked( $line );
-		} catch ( \InvalidArgumentException $e ) {
-			// No crumb: place it at the cursor (SSE_In's copy is a tick old).
-			$this->dead_letter( $this->poison_from_line( $line, $this->cursor_segment, $this->cursor_offset ), 'unparseable', $e );
-			$this->disposed_record = true;
-			return;
-		}
-		if ( ! $this->admit_inbound( $message ) ) {
-			return;
-		}
-		if ( $this->crawl ) {
-			// Pre-dispatch pin: commit start before fill (crash resumes here).
-			$this->write_checkpoint_frame( false, true );
-		}
-		try {
-			$sink->fill( $message );
-			// Clear streak on forward itself (cursor at boot); not in crawl.
-			if ( ! $this->crawl && $this->attempts > 1 ) {
-				$this->reset_poison_streak();
-				$this->write_checkpoint_frame( true, true );
-			}
-		} catch ( Worker_Should_Stop $e ) {
-			throw $this->settle_forward_stop( $e );
-		} catch ( \Throwable $e ) {
-			$this->dead_letter( $message, 'throw', $e );
-			$this->disposed_record = true;
-		}
-	}
-
-	/**
-	 * Crawl-entry head sacrifice: the 3-way compare deciding the fate of the first relayed
-	 * message while the boot head-skip is armed. An EXACT crumb-start match on the boot pin is
-	 * the suspect that was in flight when the death struck — dead-lettered under reason
-	 * 'crash', or dropped when no quarantine is configured, and the caller skips the forward.
-	 * A start PAST the pin means the suspect was GC'd or the stream resumed beyond it, so
-	 * disarm without sacrificing and forward normally. Anything earlier leaves the flag armed
-	 * for the real suspect. One-shot either way, once resolved.
-	 *
-	 * @param string $line The raw line under judgment.
-	 * @param array{segment:int, offset:int} $crumb The line's parsed breadcrumb (its start).
-	 * @return bool True when the head is condemned, so the caller skips the forward.
-	 */
-	private function sacrifice_boot_head( string $line, array $crumb ): bool {
-		// Lexicographic (segment,offset) vs boot pin: 0=suspect, >0=past it.
-		$cmp = [ $crumb['segment'], $crumb['offset'] ] <=> [ $this->boot_cursor_segment, $this->boot_cursor_offset ];
-		if ( 0 === $cmp ) {
-			$this->crawl_skip_head = false;
-			$this->dead_letter( $this->poison_from_line( $line, $crumb['segment'], $crumb['offset'] ), 'crash' );
-			$this->disposed_record = true;
-			return true;
-		}
-		if ( 0 < $cmp ) {
-			$this->crawl_skip_head = false;
-			$this->print_less_often( "{$this->name} crawl head-sacrifice: suspect at ", "{$this->boot_cursor_segment}:{$this->boot_cursor_offset}", ' is gone (stream resumed past it) — not sacrificing' );
-		}
-		return false;
-	}
-
-	/**
-	 * Read the latest committed frame, seed the node cursor and the boot pin, resume the shared
-	 * poison and crash accounting (attempts+1, and a hard-crash lineage enters crawl), then arm
-	 * the boot head-skip. Idempotent: ensure_patrons() calls it to seed SSE_In's connect
-	 * position before connect, and the Durable_Reader boot seam calls it again on the first
-	 * poll. Returns empty on a fresh offsetlog.
-	 *
-	 * @return array{segment?:int,offset?:int}
-	 */
-	protected function restore_position(): array {
-		$offsetlog = $this->ensure_offsetlog();
-		if ( null === $offsetlog ) {
-			return [];
-		}
-		if ( $offsetlog === $this->position_restored_from ) {
-			return [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset ];
-		}
-		$this->position_restored_from = $offsetlog;
-		$value                        = $this->read_last_offsetlog_frame();
-		if ( null === $value ) {
-			return [];
-		}
-		$segment = $value['segment'] ?? 0;
-		$offset  = $value['offset'] ?? 0;
-		$segment = Core::as_int( $segment );
-		$offset  = Core::as_int( $offset );
-		$this->arm_skip_head_from_frame( $value );
-		$this->cursor_segment      = $segment;
-		$this->cursor_offset       = $offset;
-		$this->boot_cursor_segment = $segment;
-		$this->boot_cursor_offset  = $offset;
-		$this->pending_seek        = null;
-		return [
-			'segment' => $segment,
-			'offset'  => $offset,
-		];
-	}
-
-	/**
-	 * Final cursor handoff of an operational stop, overriding `Durable_Reader`'s. A
-	 * healthy reader commits gracefully (attempts=0), so progress survives the recycle; a
-	 * hard-crash lineage still in flight keeps its climbing, pinned frame instead. The
-	 * cooperative-stop fair-shot lives elsewhere, in Durable_Reader's cooperative_stop(),
-	 * gated on buffer_head_line() and stopped_in_fill.
-	 *
-	 * @api Invoked by Durable_Reader::hand_off_cursor() on an operational stop.
-	 */
-	public function checkpoint_shutdown(): void {
-		// Paused SEEK sets offset_set w/o poll_initialized; survives shutdown.
-		if ( null === $this->ensure_offsetlog() || ( ! $this->poll_initialized && ! $this->offset_set ) ) {
-			return;
-		}
-		$graceful = $this->attempts <= 1 && ! $this->crawl;
-		$this->write_checkpoint_frame( $graceful, true );
-	}
-
-	/**
-	 * Durable-commit seam: write one frame at the current cursor UNCONDITIONALLY (no advance-guard;
-	 * the boot/crawl sequences re-commit the same cursor on purpose). Ensures the lazy per-node
-	 * offsetlog exists first. Remote_Source has no snapshot cache to co-commit, so $with_state is
-	 * unused; the _ts wall-clock rides via checkpoint_frame_extra().
-	 *
-	 * @param array<array-key,mixed> $extra Per-call frame additions.
-	 */
-	protected function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [] ): void {
-		if ( null === $this->ensure_offsetlog() ) {
-			return;
-		}
-		$this->commit_checkpoint_frame( $this->cursor_segment, $this->cursor_offset, $graceful, $extra );
-	}
-
-	/**
-	 * `seek_frame` landing: reseed SSE_In from the frame's {segment,offset} and drop the current
-	 * stream. Seeking only ever happens while paused, so the reconnect is deferred to `play`'s tick.
-	 *
-	 * A bare SEEK sentinel is FORWARDED rather than resolved: this node holds no segments, so
-	 * `end` and `recent` mean nothing locally — the spoke owns the log and answers them. Either
-	 * way the in-flight buffer goes, since it belongs to the position being left behind.
-	 *
-	 * @param string|int|array<array-key,mixed> $position Explicit {segment,offset} from seek_frame(), or a seek sentinel / alias word.
-	 */
-	public function next_offset( $position ): void {
-		$this->steps_owed = 0;
-		$sse              = $this->ensure_patrons();
-		if ( null === $sse ) {
-			return;
-		}
-		$sse->disconnect();
-		if ( \is_array( $position ) ) {
-			$this->cursor_segment = \is_numeric( $position['segment'] ?? null ) ? (int) $position['segment'] : 0;
-			$this->cursor_offset  = \is_numeric( $position['offset'] ?? null ) ? (int) $position['offset'] : 0;
-			$this->pending_seek   = null;
-		} else {
-			$this->pending_seek = Consumer_Node::seek_sentinel( $position );
-		}
-		$this->offset_set = true;
-		$this->buffer     = '';
-		$this->skipped_to = null;
-	}
-
-	/**
-	 * Build the base patrons, seed the seal-grace flag onto SSE_In (an aggregator configures its
-	 * spokes before anything connects, so a patron built after the verb still has to carry it),
-	 * then override SSE_In's delivery seam: each raw `msg` payload is appended, with its
-	 * newline, to the Durable_Reader buffer for the tick to drain. The push source buffers where
-	 * the base channel path forwards straight downstream. An unparseable line reaches the buffer
-	 * unparsed; forward_line() owns the quarantine. pump_maybe_disarm() closes the valve here
-	 * once the buffer crosses the high-water mark.
-	 *
-	 * The arrival also takes the busy cadence itself. A push source learns of data HERE, on the
-	 * cURL drain, between fires, so leaving the schedule to fire() would put up to a full
-	 * TICK_INTERVAL_MS on the front of every burst — that re-arm runs only after a fire has
-	 * already seen the buffer. fire() drops back to the channel tick once the buffer is dry.
-	 *
-	 * @return SSE_In_Node|null The SSE_In patron once configured, else null.
-	 */
-	protected function ensure_patrons(): ?SSE_In_Node {
-		$sse = parent::ensure_patrons();
-		if ( null !== $sse ) {
-			$sse->set_multi_writer( $this->multi_writer );
-			$sse->on_connected = function ( array $cursors ): void {
-				/** @var array<string,array{segment?:int,offset:int}> $cursors */
-				$this->adopt_stream_start( $cursors[ $this->remote_partition ] ?? null );
-			};
-			// A segment-less cursor, a file source's, is not kept yet.
-			$sse->on_skipped = function ( array $cursors ): void {
-				/** @var array<string,array{segment?:int,offset:int}> $cursors */
-				$cursor = $cursors[ $this->remote_partition ] ?? null;
-				if ( isset( $cursor['segment'] ) ) {
-					$this->skipped_to = [ 'segment' => $cursor['segment'], 'offset' => $cursor['offset'] ];
+	protected function stream_request(): array {
+		$this->pump_armed = true;
+		$subscribe        = [];
+		$positions        = [];
+		foreach ( $this->pairs as $pair ) {
+			$source = $pair['source'];
+			if ( ! \str_contains( $source, '*' ) ) {
+				$child = $this->consumer_for( $source );
+				if ( null !== $child && $child->is_live() ) {
+					$subscribe[]          = $source;
+					$positions[ $source ] = $child->connect_position();
 				}
-			};
-			$sse->on_message = function ( string $raw ): void {
-				$this->skipped_to = null;
-				$this->buffer    .= $raw . "\n";
-				$this->pump_maybe_disarm();
-				// Drain on the next cycle, not up to a channel tick from now.
-				if ( self::POLL_INTERVAL_BUSY_MS !== $this->interval_ms ) {
-					$this->set_timer( self::POLL_INTERVAL_BUSY_MS );
+				continue;
+			}
+			$subscribe[] = $source;
+			foreach ( $this->consumers as $stamp => $child ) {
+				if ( $this->pair_for( $stamp ) === $pair ) {
+					$positions[ $stamp ] = $child->is_live() ? $child->connect_position() : SSE_Out_Node::SKIP;
 				}
-			};
+			}
 		}
-		return $sse;
+		return [ $subscribe, $positions ];
+	}
+
+	/**
+	 * Connect while any exact pair's reader is live, or any glob may yet find a
+	 * dir. Every exact pair is visited, so each one's reader exists from the
+	 * first tick.
+	 */
+	protected function should_connect(): bool {
+		$connect = false;
+		foreach ( $this->pairs as [ 'source' => $source ] ) {
+			$live    = \str_contains( $source, '*' ) || ( $this->consumer_for( $source )?->is_live() ?? false );
+			$connect = $connect || $live;
+		}
+		return $connect;
 	}
 
 	/** Stamp the heartbeat send-time so record_heartbeat_reply() can compute the round-trip. */
@@ -572,33 +293,193 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Refill seam: the async backpressure VALVE, dual to Consumer's synchronous disk read. The
-	 * valve is edge-triggered on the buffer's BYTE size — pump_maybe_disarm() closes it in
-	 * on_message once accumulation crosses the high-water mark; this re-opens it only once the
-	 * tick's drain has brought the buffer back below low-water. So it stays OPEN through normal
-	 * flow: no arm per poll, no disarm on an empty buffer, and the cURL multi parks an idle
-	 * stream without spinning. With no patron there is nothing to arm, so it records EOF and
-	 * returns.
+	 * Send one reader's step to the spoke as `read_message <stamp> <position>`,
+	 * from the reader's own name, so the reply returns to it by TO through this
+	 * link's HTTP_Out (whose allowlist names every reader) and `_router`. A spoke
+	 * this link holds no session with gets asked for one, and the reader retries.
+	 *
+	 * @param Remote_Consumer_Node $child    The paused reader.
+	 * @param string               $position `<segment>:<offset>` where it stands.
+	 * @return bool True once the command is queued.
 	 */
-	protected function get_batch(): void {
-		if ( null === $this->sse_in ) {
-			$this->at_eof = true;
-			return;
+	public function request_read( Remote_Consumer_Node $child, string $position ): bool {
+		$this->ensure_patrons();
+		$http = $this->http_out;
+		if ( null === $http ) {
+			return false;
 		}
-		$this->pump_maybe_arm();
-		$this->at_eof = ! $this->buffer_has_line();
+		$spoke = $http->vault_id();
+		if ( ! Command_Auth::has_session( $spoke ) ) {
+			$http->ensure_session();
+			return false;
+		}
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::FROM ]  = $child->name();
+		$message[ Message::TO ]    = Remote_Consumer_Node::STEP_SERVICE;
+		$message[ Message::VALUE ] = [
+			'name'      => 'read_message',
+			'arguments' => [ $child->stamp(), $position ],
+		];
+		Command_Auth::sign_for( $spoke, $message );
+		$http->fill( $message );
+		return true;
 	}
 
-	/** Re-open the valve once the buffer has drained back below the low-water mark (from get_batch). */
-	private function pump_maybe_arm(): void {
-		if ( ! $this->pump_armed && \strlen( $this->buffer ) <= self::PUMP_ARM_BYTES ) {
+	/**
+	 * Build the base patrons, seed the seal-grace flag onto SSE_In (an aggregator configures its
+	 * spokes before anything connects, so a patron built after the verb still has to carry it),
+	 * then wire SSE_In's seams to the readers: the handshake and skip frames hand each stamp's
+	 * cursor to the reader that owns it, and each raw `msg` payload goes through `route()`.
+	 * HTTP_Out admits each reader's step reply by its name.
+	 *
+	 * @return SSE_In_Node|null The SSE_In patron once configured, else null.
+	 */
+	protected function ensure_patrons(): ?SSE_In_Node {
+		$sse = parent::ensure_patrons();
+		if ( null === $sse ) {
+			return null;
+		}
+		$sse->set_multi_writer( $this->multi_writer );
+		$sse->on_connected = function ( array $cursors ): void {
+			/** @var array<string,array{segment?:int,offset:int}> $cursors */
+			foreach ( $cursors as $stamp => $cursor ) {
+				$this->consumer_for( $stamp )?->adopt_stream_start( $cursor );
+			}
+		};
+		$sse->on_skipped = function ( array $cursors ): void {
+			/** @var array<string,array{segment?:int,offset:int}> $cursors */
+			foreach ( $cursors as $stamp => $cursor ) {
+				( $this->consumers[ $stamp ] ?? null )?->skip_to( $cursor );
+			}
+		};
+		$sse->on_message = function ( string $raw ): void {
+			$this->route( $raw );
+		};
+		foreach ( $this->consumers as $child ) {
+			$this->http_out?->allow_replies_to( $child->name() );
+		}
+		return $sse;
+	}
+
+	/**
+	 * Route one raw `msg` payload, with its decoded message, to the reader its
+	 * FROM stamp names. A frame that will not unpack, or names no stamp, has
+	 * nothing to route by, and a stamp no pair claims is a stream nobody asked
+	 * for: each is dropped, rate-limited. An empty stamp is refused before any
+	 * pair is asked, since a bare `*` would otherwise claim it.
+	 *
+	 * @param string $raw One packed record.
+	 */
+	private function route( string $raw ): void {
+		try {
+			$message = Message::unpacked( $raw );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->print_less_often( 'dropping unparseable SSE frame' );
+			return;
+		}
+		$stamp = Log_Discovery::dir_from_stamp( Core::as_string( $message[ Message::FROM ] ) );
+		if ( '' === $stamp ) {
+			$this->print_less_often( 'dropping a line with no stamp' );
+			return;
+		}
+		$child = $this->consumer_for( $stamp );
+		if ( null === $child ) {
+			$this->print_less_often( 'dropping a line no pair claims: ', $stamp );
+			return;
+		}
+		$child->receive( $raw, $message );
+		$this->pump_maybe_disarm();
+	}
+
+	/**
+	 * The reader for a stamp, built on first sight when a pair claims it; null
+	 * when none does.
+	 *
+	 * @param string $stamp A record's stamp.
+	 */
+	private function consumer_for( string $stamp ): ?Remote_Consumer_Node {
+		if ( isset( $this->consumers[ $stamp ] ) ) {
+			return $this->consumers[ $stamp ];
+		}
+		$pair = '' === $this->name ? null : $this->pair_for( $stamp );
+		if ( null === $pair ) {
+			return null;
+		}
+		$child = new Remote_Consumer_Node();
+		$this->publish_sibling( Remote_Consumer_Node::kind_of( $stamp ), $child );
+		$child->sink( $this->sink );
+		$child->arguments( $this->reader_args( $stamp ) );
+		$child->connect_node( $pair['target'] );
+		$child->broker( $this );
+		$child->set_assume_clean_shutdown( $this->assume_clean_shutdown );
+		$this->http_out?->allow_replies_to( $child->name() );
+		return $this->consumers[ $stamp ] = $child;
+	}
+
+	/**
+	 * A reader's tokens: its stamp, then its offsetlog and dead-letter dirs,
+	 * each nested under the broker's root at the stamp's kind.
+	 *
+	 * @param string $stamp A record's stamp.
+	 * @return list<string>
+	 */
+	private function reader_args( string $stamp ): array {
+		$kind = Remote_Consumer_Node::kind_of( $stamp );
+		return [ $stamp, "{$this->offsetlog_root}/{$kind}", "{$this->deadletter_root}/{$kind}" ];
+	}
+
+	/**
+	 * The first pair, in declaration order, whose source is the stamp or a glob
+	 * matching it.
+	 *
+	 * @param string $stamp A record's stamp.
+	 * @return array{source:string,target:string}|null
+	 */
+	private function pair_for( string $stamp ): ?array {
+		foreach ( $this->pairs as $pair ) {
+			if ( Log_Discovery::carries( $pair['source'], $stamp ) ) {
+				return $pair;
+			}
+		}
+		return null;
+	}
+
+	/** Close the valve once the readers' backlog crosses the high-water mark. */
+	private function pump_maybe_disarm(): void {
+		if ( $this->pump_armed && $this->buffered_bytes() >= self::PUMP_DISARM_BYTES ) {
+			$this->sse_in?->disarm();
+			$this->pump_armed = false;
+		}
+	}
+
+	/** Re-open the valve once the readers have drained below the low-water mark (from each reader's refill). */
+	public function pump_maybe_arm(): void {
+		if ( ! $this->pump_armed && $this->buffered_bytes() <= self::PUMP_ARM_BYTES ) {
 			$this->sse_in?->arm();
 			$this->pump_armed = true;
 		}
 	}
 
+	/** Bytes buffered across every reader: one connection, one valve. */
+	private function buffered_bytes(): int {
+		$bytes = 0;
+		foreach ( $this->consumers as $child ) {
+			$bytes += $child->buffered_bytes();
+		}
+		return $bytes;
+	}
+
 	/**
-	 * Ask the spoke to read this partition with the multi-writer seal-grace
+	 * Restart the stream so the next request states the live set again. The
+	 * tick queues the reconnect, so readers that pause in one tick share one.
+	 */
+	public function restream(): void {
+		$this->drop_stream();
+	}
+
+	/**
+	 * Ask the spoke to read every stream with the multi-writer seal-grace
 	 * (`Consumer_Node::SEAL_GRACE_SECONDS`): a peer there can keep appending to
 	 * segment N for `Partition_Node::DRIFT_RESCAN_INTERVAL_SECONDS` after N+1
 	 * appears, and a reader that advances on sight orphans that straggler —
@@ -620,253 +501,144 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$this->drop_stream();
 	}
 
-	/** `pause` also stops the pull, and with it any step still waiting on it. */
-	protected function time_travel_on_pause(): void {
-		$this->steps_owed = 0;
-		$this->drop_stream();
-	}
-
 	/** Drop the live stream; what it left buffered still drains. */
 	private function drop_stream(): void {
 		$this->sse_in?->disconnect();
 	}
 
 	/**
-	 * The one stream this reader pulls, asked for from where it stands.
+	 * Every well-formed pair among `$tokens`, for a reader of the topology that
+	 * must not fail on a line the runtime would refuse.
 	 *
-	 * @return array{0:list<string>,1:array<string,array{segment?:int,offset:int}|int|string>} Subscriptions, then per-stamp positions.
+	 * @param list<string> $tokens Pair tokens.
+	 * @return list<array{source:string,target:string}>
 	 */
-	protected function stream_request(): array {
-		return [ [ $this->remote_partition ], [ $this->remote_partition => $this->connect_position() ] ];
-	}
-
-	/**
-	 * Where the request about to go out begins: past everything already held —
-	 * the spoke's skip, else the end of the last buffered record carrying a
-	 * breadcrumb — else a pending seek, else the cursor. A skip or a crumb is a
-	 * real place, so it supersedes a pending seek. A partial trailing line goes,
-	 * since the spoke re-sends it whole. A new stream opens with its valve armed.
-	 * It acts as well as answers — re-arming the pump and trimming the buffer —
-	 * so `stream_request()` calls it once per connect and nothing else should.
-	 *
-	 * @return array{segment?:int,offset:int}|int The position, or a seek sentinel.
-	 */
-	public function connect_position(): array|int {
-		$this->pump_armed = true;
-		$end              = \strrpos( $this->buffer, "\n" );
-		$this->buffer     = false === $end ? '' : \substr( $this->buffer, 0, $end + 1 );
-		if ( null !== $this->skipped_to ) {
-			$this->pending_seek = null;
-			return $this->skipped_to;
-		}
-		// Walk back line by line to the last crumb; usually the final line.
-		for ( $stop = \strlen( $this->buffer ) - 1; $stop > 0; $stop = $start - 1 ) {
-			$prev  = \strrpos( $this->buffer, "\n", $stop - \strlen( $this->buffer ) - 1 );
-			$start = false === $prev ? 0 : $prev + 1;
-			$crumb = $this->crumb_from_line( \substr( $this->buffer, $start, $stop - $start ) );
-			if ( null !== $crumb ) {
-				$this->pending_seek = null;
-				return [ 'segment' => $crumb['segment'], 'offset' => $crumb['offset'] + $crumb['length'] ];
+	public static function pairs_of( array $tokens ): array {
+		$pairs = [];
+		foreach ( $tokens as $token ) {
+			try {
+				$pairs[] = self::parse_pair( $token );
+			} catch ( \InvalidArgumentException $e ) {
+				continue;
 			}
 		}
-		return $this->pending_seek ?? [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset ];
+		return $pairs;
 	}
 
 	/**
-	 * Move the cursor past the torn lines the spoke skipped, once the records
-	 * buffered ahead of them have drained. Those lines never reach this node,
-	 * so without the move a reopen or a recycle asks the spoke to read them,
-	 * skip them and report them again.
+	 * Split one `<source>:<target>` token on its FIRST colon: a source never
+	 * carries one (a partition dir or `sources/<name>`), a target may
+	 * (`php-errors:partition`).
+	 *
+	 * @param string $token One pair token.
+	 * @return array{source:string,target:string}
+	 * @throws \InvalidArgumentException When either half is empty.
 	 */
-	private function pass_skipped_lines(): void {
-		if ( null === $this->skipped_to || $this->buffer_has_line() ) {
+	public static function parse_pair( string $token ): array {
+		$colon  = \strpos( $token, ':' );
+		$source = false === $colon ? '' : \substr( $token, 0, $colon );
+		$target = false === $colon ? '' : \substr( $token, $colon + 1 );
+		if ( '' === $source || '' === $target ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+			throw new \InvalidArgumentException( "Remote_Source: a pair is <source>:<target>, got '{$token}'" );
+		}
+		return [ 'source' => $source, 'target' => $target ];
+	}
+
+	/**
+	 * Rename the readers through the base, then admit each one's step replies
+	 * by its new name.
+	 */
+	protected function set_sibling_names(): void {
+		parent::set_sibling_names();
+		foreach ( $this->consumers as $child ) {
+			$this->http_out?->allow_replies_to( $child->name() );
+		}
+	}
+
+	/**
+	 * Fan `assume_clean_shutdown` out to every reader, and to each one built later.
+	 *
+	 * @param bool $flag True commits past a stopped message on a cooperative stop.
+	 */
+	public function set_assume_clean_shutdown( bool $flag ): void {
+		$this->assume_clean_shutdown = $flag;
+		foreach ( $this->consumers as $child ) {
+			$child->set_assume_clean_shutdown( $flag );
+		}
+	}
+
+	/**
+	 * An operational stop hands each reader's cursor off — the path a
+	 * Vault_Group retraction takes. A cooperative one does nothing here: the
+	 * worker's sweep reaches every reader itself, and a second strike would
+	 * climb a healthy reader's attempts.
+	 *
+	 * @param string $stop_reason             `timeout` or `memory` for a cooperative stop.
+	 * @param bool   $baseline_near_watermark Memory stop only.
+	 * @throws \Throwable What the readers' handoffs threw, combined.
+	 */
+	public function hand_off_cursor( string $stop_reason = '', bool $baseline_near_watermark = false ): void {
+		if ( 'timeout' === $stop_reason || 'memory' === $stop_reason ) {
 			return;
 		}
-		$this->cursor_segment = $this->skipped_to['segment'];
-		$this->cursor_offset  = $this->skipped_to['offset'];
-		$this->skipped_to     = null;
+		Worker_Should_Stop::raise(
+			Worker_Should_Stop::attempt_each( $this->consumers, static fn ( Remote_Consumer_Node $child ) => $child->checkpoint_shutdown() )
+		);
 	}
 
-	/**
-	 * Parse a raw line's breadcrumb, `segment:offset:length`, or null when the line won't unpack
-	 * or its ID is anything else. offset is the record's on-disk start; length is the spoke's
-	 * authoritative byte size, what the drain loop advances past the record by, never a local
-	 * size measured in the wrong byte space.
-	 *
-	 * @return array{segment:int, offset:int, length:int}|null
-	 */
-	private function crumb_from_line( string $line ): ?array {
-		try {
-			$message = Message::unpacked( $line );
-		} catch ( \InvalidArgumentException $e ) {
-			return null;
-		}
-		$parts = \explode( ':', Core::as_string( $message[ Message::ID ] ?? '' ) );
-		if ( 3 !== \count( $parts ) || \in_array( false, \array_map( 'ctype_digit', $parts ), true ) ) {
-			return null;
-		}
-		return [ 'segment' => (int) $parts[0], 'offset' => (int) $parts[1], 'length' => (int) $parts[2] ];
+	/** @return array<string,Remote_Consumer_Node> The readers, by stamp. */
+	public function consumers(): array {
+		return $this->consumers;
 	}
 
-	/** Paused, the pull runs only while a step is owed a record. */
-	protected function should_connect(): bool {
-		return 'PAUSED' !== $this->get_state( 'POLLING' ) || $this->steps_owed > 0;
-	}
-
-	/**
-	 * Resolve a pending seek to where the spoke's handshake says the stream
-	 * begins. Without one the handshake only names the position the connect
-	 * asked for, which ticks may since have drained past, so it is not adopted.
-	 *
-	 * @param array{segment?:int,offset:int}|null $cursor This stream's CURSORS entry, or null when absent.
-	 */
-	public function adopt_stream_start( ?array $cursor ): void {
-		if ( null === $this->pending_seek || null === $cursor ) {
-			return;
-		}
-		$this->pending_seek   = null;
-		$this->cursor_segment = $cursor['segment'] ?? 0;
-		$this->cursor_offset  = $cursor['offset'];
-	}
-
-	/** Close the valve once the buffer has accumulated past the high-water mark (from on_message). */
-	private function pump_maybe_disarm(): void {
-		if ( $this->pump_armed && \strlen( $this->buffer ) >= self::PUMP_DISARM_BYTES ) {
-			$this->sse_in?->disarm();
-			$this->pump_armed = false;
-		}
-	}
-
-	/**
-	 * A firehose relay declares its destination with its target alone: a record the spoke
-	 * ADDRESSED names a node in this graph, and the patron's `allow_replies_to` list — which
-	 * carries the link's own name for the heartbeat — must not admit it.
-	 *
-	 * @param array<int,mixed> $message The 7-field positional message array, TO non-empty.
-	 * @return bool Always false: the line is dropped.
-	 */
-	protected function admit_addressed( array $message ): bool {
-		// Constant: drop_message keys its throttle on the reason.
-		$this->drop_message( $message, 'addressed with no target' );
-		return false;
-	}
-
-	/**
-	 * Drop the slots the base cascade just tore down, so a later `ensure_offsetlog()`, which
-	 * `init_position()` reaches, rebuilds them instead of handing back a Partition whose name,
-	 * sink and patron that cascade already cleared.
-	 */
+	/** Teardown: the base cascade removes every published reader with the transports. */
 	public function remove_node(): void {
 		parent::remove_node();
-		$this->offsetlog  = null;
-		$this->deadletter = null;
+		$this->consumers = [];
 	}
 
-	/**
-	 * Put the remote partition into each SIDECAR's suffix: one node pulls one remote
-	 * partition, so its offsetlog and its quarantine are named for that partition. Only those
-	 * two are re-keyed. The transports inherited from the link keep their plain suffixes,
-	 * because `<name>:sse-in` and `<name>:http-out` are the spelling the link publishes and
-	 * the JS RemoteLinkNode mirrors, and a blanket rewrite would move them out from under it.
-	 */
-	protected function sibling_suffix( string $kind ): string {
-		return \in_array( $kind, [ 'offsetlog', 'deadletter' ], true )
-			? "{$this->remote_partition}:{$kind}"
-			: parent::sibling_suffix( $kind );
-	}
-
-	/**
-	 * Remote_Source's frame extra beyond the shared base: the commit wall-clock, carried on
-	 * every frame so an idle-vs-fresh cursor is distinguishable in the durable record.
-	 *
-	 * @return array<array-key,mixed>
-	 */
-	protected function checkpoint_frame_extra(): array {
-		return [ '_ts' => (int) Core::$now ];
-	}
-
-	/**
-	 * Fold the time-travel READ surface (frames + cursor) into the canvas-poll payload. The
-	 * reported cursor is the node-owned after-forward cursor (the single source of truth), so
-	 * no SSE_In sync is needed.
-	 *
-	 * @api Dynamic entrypoint.
-	 * @return array{frames: array<int,array{id:int,size:int}>, cursor: array{segment:int, offset:int}, polling: string, at_frame: int|null, on_frame: bool, deadletter_segments: int}
-	 */
-	public function dump_metadata(): array {
-		return $this->time_travel_metadata() + $this->deadletter_metadata();
-	}
-
-	/**
-	 * Owe a starved step one record, and arm the tick step() stopped: it pays
-	 * what is owed, and once nothing is, pause() drops the stream a live source
-	 * was stepped with.
-	 *
-	 * @param int $consumed Records the step consumed.
-	 */
-	protected function after_step( int $consumed ): void {
-		if ( 0 === $consumed ) {
-			++$this->steps_owed;
-		}
-		// Always one tick: it pays what is owed, or settles the pause.
-		$this->set_timer( self::TICK_INTERVAL_MS );
-	}
-
-	/** `play` re-arm: resume the recurring tick, which reconnects from the current position. */
-	protected function time_travel_resume(): void {
-		$this->steps_owed = 0;
-		$this->set_timer( self::TICK_INTERVAL_MS );
-	}
-
-	/**
-	 * Append the shared time-travel config lines and the schema-declared toggles
-	 * (`multi_writer`, `assume_clean_shutdown`) after the base `make_node` line, so a console
-	 * dump_config and replay round-trips this source's snapshot node and its settings rather
-	 * than rebuilding a bare one.
-	 */
+	/** Round-trip the toggles after the `make_node` line. */
 	public function dump_config(): string {
-		return parent::dump_config() . $this->dump_time_travel_config() . $this->dump_toggles();
+		return parent::dump_config() . $this->dump_toggles();
 	}
 
 	/**
-	 * Palette entry and configuration form: the link's two arguments plus the durable
-	 * reader's two directories, and the DLQ, time-travel, pump and seal-grace verbs.
+	 * Palette entry and configuration form: the vault and the two roots each
+	 * reader's dirs nest under, then the pairs, and the two verbs that reach
+	 * the whole connection.
 	 *
 	 * @api Dynamic entrypoint.
 	 * @return array<string,mixed>
 	 */
 	public static function node_schema(): array {
-		$parent = parent::node_schema();
-		/** @var list<array<string,mixed>> $parent_args */
-		$parent_args = $parent['arguments'];
-		return \array_merge( $parent, [
+		return \array_merge( parent::node_schema(), [
 			// The parent hides itself; this subclass belongs in the palette.
 			'category'    => 'I/O',
-			'description' => 'Self-sufficient SSE-pull aggregation source for one spoke partition (Vault-resolved).',
-			// Read like a Consumer: it IS one, over the wire.
-			'arguments'   => \array_merge(
-				$parent_args,
+			'description' => 'SSE-pull broker: one connection to a spoke carrying several streams, a durable reader per `source:target` pair (Vault-resolved).',
+			'arguments'   => [
+				[ 'name' => 'vault_id',        'type' => 'vault_id', 'required' => true, 'description' => 'Which spoke to connect to — a Vault-registered server (URL + credentials).' ],
+				[ 'name' => 'offsetlog_root',  'type' => 'string',   'required' => true, 'description' => 'Directory each reader\'s durable read-cursor offsetlog nests under, at <root>/<kind>. Carry `<topology>` so two fleets pulling one spoke keep separate cursors.' ],
+				[ 'name' => 'deadletter_root', 'type' => 'string',   'required' => true, 'description' => 'Directory each reader\'s quarantined poison records nest under, at <root>/<kind>. Later tokens are `<source>:<target>` pairs: a spoke partition, glob or `sources/<name>`, then the node its lines go to.' ],
+			],
+			'commands'    => [
 				[
-					[ 'name' => 'offsetlog_dir',  'type' => 'string', 'default' => '', 'description' => 'Directory for the durable read-cursor offsetlog (resume-after-restart); empty disables checkpointing. Carry `<topology>` so two fleets pulling one spoke partition keep separate cursors.' ],
-					[ 'name' => 'deadletter_dir', 'type' => 'string', 'default' => '', 'description' => 'Directory where poison/dead-letter records are quarantined; empty disables the dead-letter queue, so a message that throws or will not unpack raises instead and the reader replays it.' ],
-				]
-			),
-			// DLQ triage + time-travel + pump verbs, shared with Consumer.
-			'commands'    => \array_merge(
-				self::deadletter_verbs(),
-				self::time_travel_verbs(),
-				self::pump_verbs(),
-				[
-					[
-						'name'        => 'set_multi_writer',
-						'description' => 'Ask the spoke to read this partition with the multi-writer seal-grace (shared logs, e.g. the firehose).',
-						'args'        => [
-							[ 'name' => 'enabled', 'type' => 'bool', 'required' => false, 'description' => '1, true, yes or on enables; 0, false, no or off disables; any other word is refused.' ],
-						],
-						'toggle'      => 'multi_writer',
+					'name'        => 'set_multi_writer',
+					'description' => 'Ask the spoke to read its logs with the multi-writer seal-grace (shared logs, e.g. the firehose).',
+					'args'        => [
+						[ 'name' => 'enabled', 'type' => 'bool', 'required' => false, 'description' => '1, true, yes or on enables; 0, false, no or off disables; any other word is refused.' ],
 					],
-				]
-			),
+					'toggle'      => 'multi_writer',
+				],
+				[
+					'name'        => 'set_assume_clean_shutdown',
+					'description' => 'Treat a plain Worker_Should_Stop like Worker_Should_Stop_Clean in every reader — commit PAST the in-flight message on a cooperative stop instead of replaying it. For a durable-before-stop chain with no snapshot node (aggregator, Consumer→Partition, job-router). Only a true word enables.',
+					'args'        => [
+						[ 'name' => 'enabled', 'type' => 'bool', 'required' => false, 'description' => '1, true, yes or on enables; 0, false, no or off disables; any other word is refused.' ],
+					],
+					'toggle'      => 'assume_clean_shutdown',
+				],
+			],
 		] );
 	}
 }

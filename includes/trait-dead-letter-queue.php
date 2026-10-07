@@ -11,7 +11,7 @@
  * quarantine and forget the accounting.
  *
  * Three classes use it, in two shapes. `Durable_Reader` mixes it into Consumer_Node
- * and Remote_Source_Node, which both carry a durable cursor and use every piece.
+ * and Remote_Consumer_Node, which both carry a durable cursor and use every piece.
  * Partition_Node uses it for a case with no cursor at all: a failed segment open
  * quarantines the messages that never landed before the flush raises, so the attempt
  * fields stay at their baseline there and `requeue_deadletter()` is overridden into
@@ -65,7 +65,7 @@ trait Dead_Letter_Queue {
 	 * Crawl cadence: the forward-progress window a crawling node must survive
 	 * crash-free before it leaves crawl and returns to coarse checkpointing. It is
 	 * also the coarse cursor-checkpoint interval both readers throttle to, so the two
-	 * crawl shapes — Consumer per-line, Remote_Source per-relayed-message — agree on
+	 * crawl shapes — Consumer per-line, Remote_Consumer per-relayed-message — agree on
 	 * the exit window.
 	 */
 	public const CHECKPOINT_INTERVAL_S = 30;
@@ -527,7 +527,7 @@ trait Dead_Letter_Queue {
 	 * pinned at the threshold.
 	 *
 	 * `Durable_Reader::arm_skip_head_from_frame()` is the only caller, reached when
-	 * Consumer loads its offsetlog and when Remote_Source restores its position; it arms
+	 * Consumer loads its offsetlog and when Remote_Consumer restores its position; it arms
 	 * the boot-head sacrifice on the returned flag. poison_reason stays empty here —
 	 * only the live strike path stamps one.
 	 *
@@ -579,7 +579,7 @@ trait Dead_Letter_Queue {
 
 	/**
 	 * The triage verb table, merged into a using node's `node_schema()['commands']` so
-	 * Consumer and Remote_Source both expose dl_list, dl_show, dl_requeue and dl_purge
+	 * Consumer and Remote_Consumer both expose dl_list, dl_show, dl_requeue and dl_purge
 	 * on their `{name}:config` interpreter (auto-wired by Schema_Reflection — no CI
 	 * edits). Every verb is hidden because the Inspector's Triage modal drives them:
 	 * dl_show and dl_requeue need a sidecar locator only its listing supplies, so a

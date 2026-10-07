@@ -20,7 +20,7 @@ namespace Newspack_Nodes;
  *
  * Three sites raise it. `Deferred_Clean_Stop::deferring()` raises it once a snapshot
  * node has finished the message it held a stop around. `Durable_Reader` and
- * `Remote_Source_Node` convert a bare plain stop into it when the reader's
+ * `Remote_Consumer_Node` convert a bare plain stop into it when the reader's
  * `assume_clean_shutdown` declares a chain that writes durably before the stop and
  * has no snapshot node to speak for it. Converting at the raise keeps
  * `drain_buffer()` gating on `Worker_Should_Stop::is_clean()` alone.

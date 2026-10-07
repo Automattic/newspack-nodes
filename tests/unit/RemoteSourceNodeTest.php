@@ -10,46 +10,20 @@ use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Partition_Node;
+use Newspack_Nodes\Remote_Consumer_Node;
 use Newspack_Nodes\Remote_Source_Node;
 use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\SSE_In_Node;
 use Newspack_Nodes\Vault;
-use Newspack_Nodes\Worker_Should_Stop;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
 use Newspack_Nodes\Tests\TestCase;
 
 /**
- * Downstream relay sink: records forwards, throws on a `boom`-keyed message (poison), and
- * raises Worker_Should_Stop on a `stop`-keyed one (a cooperative deadline mid-forward).
+ * The broker: one SSE connection to a spoke carrying every stream its pairs
+ * name, a Remote_Consumer reader per stamp, the shared valve, the heartbeat
+ * and the status snapshot. Reader behaviour lives in RemoteConsumerNodeTest.
  */
-class Relay_Sink_Spy extends Node {
-	/** @var array<int,array<int,mixed>> */
-	public array $captured = [];
-	public int $fill_count = 0;
-
-	public function fill( array $message ): void {
-		++$this->fill_count;
-		$key = Core::as_string( $message[ Message::KEY ] );
-		if ( 'boom' === $key ) {
-			throw new \RuntimeException( 'downstream boom' );
-		}
-		if ( 'stop' === $key ) {
-			throw new Worker_Should_Stop( 'cooperative stop' );
-		}
-		if ( 'stop-flush-failed' === $key ) {
-			throw new Worker_Should_Stop( 'cooperative stop', 0, new \RuntimeException( 'segment write refused: ENOSPC' ) );
-		}
-		if ( 'clean-bare' === $key ) {
-			throw new \Newspack_Nodes\Worker_Should_Stop_Clean( 'clean stop 5146' );
-		}
-		if ( 'clean-flush-failed' === $key ) {
-			throw new \Newspack_Nodes\Worker_Should_Stop_Clean( 'clean stop', 0, new \RuntimeException( 'segment write refused: EIO-63' ) );
-		}
-		$this->captured[] = $message;
-	}
-}
-
 #[CoversClass( Remote_Source_Node::class )]
 class RemoteSourceNodeTest extends TestCase {
 
@@ -60,9 +34,10 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->base_dir = $this->make_temp_dir();
 		$this->use_base_dir( $this->base_dir );
 		Core::$memd = new InMemoryMemcached();
-		// Remote_Source arms a 1000ms TICK timer that router-hitchhikes (>=1000),
-		// which needs _router present — as it always is in a live graph.
+		// A live graph always has _router: the readers route through it.
 		( new Router_Node() )->name( '_router' );
+		// The tick housekeeps once per wall-second; start on a known one.
+		Core::$now = 500.0;
 	}
 
 	protected function tearDown(): void {
@@ -84,35 +59,58 @@ class RemoteSourceNodeTest extends TestCase {
 		parent::seed_vault( $id, $entry );
 	}
 
+	/** @return list<string> Broker tokens: vault, the two roots, then one pair per argument. */
+	private function remote_args( string $name = 'remote-austin', string $vault = 'austin', string ...$pairs ): array {
+		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
+		$base    = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' );
+		return [ $vault, "{$offsets}/{$name}", "{$base}/deadletter/{$name}", ...( [] === $pairs ? [ 'firehose.p0:downstream' ] : $pairs ) ];
+	}
+
+	/** A named broker sinking into _router, its first tick not yet run. */
+	private function broker( string $name = 'remote-austin', ?array $args = null ): Remote_Source_Node {
+		$node = new Remote_Source_Node();
+		$node->name( $name );
+		$node->sink( Core::node( '_router' ) );
+		$node->arguments( $args ?? $this->remote_args( $name ) );
+		return $node;
+	}
+
 	/**
-	 * Build a named Remote_Source wired to a capture sink + downstream target.
+	 * Build a named broker over one `firehose.p0:downstream` pair, its first tick
+	 * run so the exact pair's reader exists.
 	 *
-	 * @param list<string>|null $args Positional ctor tokens (null = derive via remote_args).
+	 * @return array{0:Remote_Source_Node,1:\Newspack_Nodes\Remote_Consumer_Node,2:Capture_Sink_Node}
 	 */
 	private function make_remote( string $name = 'remote-austin', ?array $args = null ): array {
-		$args ??= $this->remote_args( $name );
-		$node   = new Remote_Source_Node();
-		$node->name( $name );
 		$sink = new Capture_Sink_Node();
 		$sink->name( 'downstream' );
-		$node->sink( $sink );
-		$node->target( 'downstream' );
-		$node->arguments( $args );
-		return [ $node, $sink ];
+		$node = $this->broker( $name, $args );
+		$node->fire();
+		return [ $node, Core::node( "{$name}:firehose.p0" ), $sink ];
+	}
+
+	/** A `msg` frame from the default pair's stream, unless the fields name another FROM. */
+	private static function stream_frame( array $fields ): string {
+		return self::sse_frame( 'msg', $fields + [ Message::FROM => 'firehose.p0' ] );
+	}
+
+	/** `msg_frame()`, stamped with the default pair's stream. */
+	private static function stream_msg( string $id, string $key, mixed $value ): string {
+		return self::stream_frame( [ Message::TYPE => Message::TM_STRUCT, Message::ID => $id, Message::KEY => $key, Message::VALUE => $value ] );
+	}
+
+	/** The status snapshot the broker publishes under its own key. */
+	private function status_of( Remote_Source_Node $node ): mixed {
+		return Core::$memd->get( ( new \ReflectionMethod( $node, 'status_key' ) )->invoke( $node ) );
 	}
 
 	// ---------------------------------------------------------------------
-	// Task 4 — skeleton: args, patron creation, Vault resolution, schema.
+	// The tick, the transports and the arguments.
 	// ---------------------------------------------------------------------
 
-	public function test_poll_runs_every_tick_while_housekeeping_latches(): void {
+	public function test_the_tick_housekeeps_once_per_wall_second(): void {
 		$node = new class() extends Remote_Source_Node {
-			public int $polls = 0;
 			public int $housekeeping_runs = 0;
-			public function poll(): int {
-				++$this->polls;
-				return 0;
-			}
 			protected function publish_status(): void {
 				++$this->housekeeping_runs;
 			}
@@ -128,7 +126,6 @@ class RemoteSourceNodeTest extends TestCase {
 		$node->fire();
 		$node->fire();
 		$node->fire();
-		$this->assertSame( 3, $node->polls, '10Hz fast path: poll every tick' );
 		$this->assertSame( 1, $node->housekeeping_runs, 'housekeeping latched to the wall-second' );
 	}
 
@@ -140,7 +137,6 @@ class RemoteSourceNodeTest extends TestCase {
 	public function test_renaming_a_connected_source_moves_its_transports(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		[ $node ] = $this->make_remote( 'remote-austin' );
-		$node->fire();
 		$sse  = Core::node( 'remote-austin:sse-in' );
 		$http = Core::node( 'remote-austin:http-out' );
 		$this->assertInstanceOf( SSE_In_Node::class, $sse );
@@ -165,7 +161,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example' ] );
 		$squatter = new Capture_Sink_Node();
 		$squatter->name( 'remote-austin:http-out' );
-		[ $node ] = $this->make_remote( 'remote-austin' );
+		$node = $this->broker( 'remote-austin' );
 
 		$e = $this->caught(
 			fn () => $node->fire(),
@@ -177,15 +173,44 @@ class RemoteSourceNodeTest extends TestCase {
 	}
 
 	public function test_arguments_parses_positional_tokens(): void {
-		[ $node ] = $this->make_remote();
+		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
+		$base    = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' );
+		$node    = $this->broker( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:downstream', 'sources/php:php-errors:partition' ) );
+
 		$this->assertSame( 'austin', $this->read_private( $node, 'vault_id' ) );
-		$this->assertSame( 'firehose.p0', $this->read_private( $node, 'remote_partition' ) );
+		$this->assertSame( "{$offsets}/remote-austin", $this->read_private( $node, 'offsetlog_root' ) );
+		$this->assertSame( "{$base}/deadletter/remote-austin", $this->read_private( $node, 'deadletter_root' ) );
+		$this->assertSame(
+			[ [ 'source' => 'firehose.p0', 'target' => 'downstream' ], [ 'source' => 'sources/php', 'target' => 'php-errors:partition' ] ],
+			$this->read_private( $node, 'pairs' ),
+			'a pair splits on its first colon, so a target may carry one'
+		);
 	}
 
 	public function test_arguments_arms_recurring_timer(): void {
-		[ $node ] = $this->make_remote();
+		$node = $this->broker();
 		$this->assertGreaterThan( 0, $node->interval_ms );
 		$this->assertFalse( $node->oneshot );
+	}
+
+	public function test_a_pair_without_a_target_is_refused(): void {
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( "a pair is <source>:<target>, got 'firehose.p0'" );
+		$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0' ) );
+	}
+
+	public function test_a_broker_naming_no_pair_is_refused(): void {
+		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'name at least one <source>:<target> pair' );
+		$this->broker( 'remote-austin', [ 'austin', "{$offsets}/remote-austin", "{$offsets}/dead" ] );
+	}
+
+	public function test_pairs_of_skips_a_malformed_token(): void {
+		$this->assertSame(
+			[ [ 'source' => 'errors.*', 'target' => 'audit-77' ] ],
+			Remote_Source_Node::pairs_of( [ 'firehose.p0', ':orphan', 'errors.*:audit-77', 'sources/php:' ] )
+		);
 	}
 
 	public function test_valve_backpressures_only_on_buffer_water_marks(): void {
@@ -193,7 +218,7 @@ class RemoteSourceNodeTest extends TestCase {
 		// high-water, RE-ARM only when it drains back below low-water. The valve stays
 		// OPEN through normal flow (the old disarm-on-every-line gate stop-started the
 		// spoke and lagged the hub 10-20s). No disarm on an empty buffer, no arm per poll.
-		[ $node ] = $this->make_remote();
+		[ $node, $child ] = $this->make_remote();
 		$sse = new class() extends SSE_In_Node {
 			public int $arms    = 0;
 			public int $disarms = 0;
@@ -203,46 +228,57 @@ class RemoteSourceNodeTest extends TestCase {
 				++$this->disarms; }
 		};
 		( new \ReflectionProperty( \Newspack_Nodes\Remote_Link_Node::class, 'sse_in' ) )->setValue( $node, $sse );
-		$buffer = new \ReflectionProperty( \Newspack_Nodes\Remote_Source_Node::class, 'buffer' );
-		$armed  = new \ReflectionProperty( \Newspack_Nodes\Remote_Source_Node::class, 'pump_armed' );
+		$buffer = new \ReflectionProperty( Remote_Consumer_Node::class, 'buffer' );
+		$armed  = new \ReflectionProperty( Remote_Source_Node::class, 'pump_armed' );
 		$disarm = new \ReflectionMethod( $node, 'pump_maybe_disarm' );
-		$arm    = new \ReflectionMethod( $node, 'pump_maybe_arm' );
 
 		// Armed + below high-water: valve stays open (continuous flow).
 		$armed->setValue( $node, true );
-		$buffer->setValue( $node, \str_repeat( 'x', 100 * 1024 ) );
+		$buffer->setValue( $child, \str_repeat( 'x', 100 * 1024 ) );
 		$disarm->invoke( $node );
 		$this->assertSame( 0, $sse->disarms, 'below high-water stays armed' );
 
 		// Armed + above high-water: disarm once (backpressure).
-		$buffer->setValue( $node, \str_repeat( 'x', 600 * 1024 ) );
+		$buffer->setValue( $child, \str_repeat( 'x', 600 * 1024 ) );
 		$disarm->invoke( $node );
 		$this->assertSame( 1, $sse->disarms );
 		$this->assertFalse( $armed->getValue( $node ), 'disarm flips the valve state' );
 
 		// Disarmed + still above low-water: NO re-arm (hysteresis band).
-		$buffer->setValue( $node, \str_repeat( 'x', 300 * 1024 ) );
-		$arm->invoke( $node );
+		$buffer->setValue( $child, \str_repeat( 'x', 300 * 1024 ) );
+		$node->pump_maybe_arm();
 		$this->assertSame( 0, $sse->arms, 'above low-water does not re-arm' );
 
 		// Disarmed + drained below low-water: re-arm.
-		$buffer->setValue( $node, \str_repeat( 'x', 10 * 1024 ) );
-		$arm->invoke( $node );
+		$buffer->setValue( $child, \str_repeat( 'x', 10 * 1024 ) );
+		$node->pump_maybe_arm();
 		$this->assertSame( 1, $sse->arms, 're-arm once drained below low-water' );
 
 		// Armed + empty buffer: NO idle disarm, NO redundant arm-on-poll.
-		$buffer->setValue( $node, '' );
-		$arm->invoke( $node );
+		$buffer->setValue( $child, '' );
+		$node->pump_maybe_arm();
 		$disarm->invoke( $node );
 		$this->assertSame( 1, $sse->arms, 'no arm-on-poll when already armed' );
 		$this->assertSame( 1, $sse->disarms, 'no disarm on an empty buffer' );
 	}
 
+	public function test_the_valve_closes_on_the_connections_whole_backlog(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:downstream', 'sources/php:php-errors' ) );
+		$this->drain_connect_queue();
+		$sse  = Core::node( 'remote-austin:sse-in' );
+		$blob = \str_repeat( 'q', 270000 );
+		foreach ( [ 'firehose.p0', 'sources/php' ] as $i => $from ) {
+			$sse->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => $from, Message::ID => "1:{$i}:1", Message::VALUE => $blob ] ) );
+		}
+
+		$this->assertFalse( $this->read_private( $node, 'pump_armed' ), 'two half-full readers fill one connection' );
+	}
+
 	public function test_first_tick_creates_and_configures_sse_in_patron(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		[ $node, $sink ] = $this->make_remote( 'remote-austin' );
-
-		$node->fire();
+		[ , $child ] = $this->make_remote( 'remote-austin' );
 
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$this->assertInstanceOf( SSE_In_Node::class, $sse );
@@ -250,193 +286,341 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 'u', $this->read_private( $sse, 'auth_username' ) );
 		( $sse->on_connecting )();
 		$this->assertSame( [ 'firehose.p0' ], $this->read_private( $sse, 'subscribe' ) );
-		// SSE_In hands each raw `msg` payload to the Remote_Source's delivery seam, which
-		// appends it to the Durable_Reader buffer (a poison line is quarantined on drain).
-		// The target for forward_line's TO belongs to THIS node; SSE_In never reads one.
+		// SSE_In hands each raw `msg` payload to the broker's routing seam; the
+		// target a line takes belongs to the READER its stamp names.
 		$this->assertInstanceOf( \Closure::class, $sse->on_message, 'the raw-delivery seam is wired' );
-		$this->assertSame( 'downstream', $this->read_private( $node, 'target' ) );
+		$this->assertSame( 'downstream', $child->target() );
 	}
 
-	// ---------------------------------------------------------------------
-	// Inbound addressing — the spoke does not pick a node in the hub's graph.
-	// ---------------------------------------------------------------------
+	public function test_first_tick_creates_http_out_patron(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->make_remote( 'remote-austin' );
+
+		$http = Core::node( 'remote-austin:http-out' );
+		$this->assertInstanceOf( HTTP_Out_Node::class, $http );
+		$this->assertSame( 'austin', $this->read_private( $http, 'vault_id' ) );
+	}
+
+	public function test_delegates_counter_bytes_read_largest_msg_to_its_sse_in(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		$sse->process_sse_chunk( "event: heartbeat\ndata: {}\n\n" );
+		$sse->process_sse_chunk( self::stream_frame( [
+			Message::TYPE  => Message::TM_STRUCT,
+			Message::KEY   => 'k',
+			Message::VALUE => [ 'a' => 1 ],
+		] ) );
+
+		// The broker reports the stream stats of its SSE_In child, not its own
+		// (which never reads the wire).
+		$this->assertGreaterThan( 0, $sse->bytes_read() );
+		$this->assertSame( $sse->bytes_read(), $node->bytes_read() );
+		$this->assertSame( $sse->counter(), $node->counter() );
+		$this->assertSame( $sse->largest_msg_sent(), $node->largest_msg_sent() );
+	}
+
+	public function test_missing_vault_entry_stays_disconnected_no_patrons(): void {
+		$this->make_remote( 'remote-ghost', $this->remote_args( 'remote-ghost', 'ghost' ) );
+
+		$this->assertNull( Core::node( 'remote-ghost:sse-in' ) );
+		$this->assertNull( Core::node( 'remote-ghost:http-out' ) );
+	}
+
+	public function test_remove_node_tears_down_patrons_and_readers(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$this->assertInstanceOf( SSE_In_Node::class, Core::node( 'remote-austin:sse-in' ) );
+		$this->assertInstanceOf( HTTP_Out_Node::class, Core::node( 'remote-austin:http-out' ) );
+
+		$node->remove_node();
+
+		$this->assertNull( Core::node( 'remote-austin:sse-in' ) );
+		$this->assertNull( Core::node( 'remote-austin:http-out' ) );
+		$this->assertNull( Core::node( 'remote-austin:firehose.p0' ) );
+		$this->assertNull( Core::node( 'remote-austin:firehose.p0:offsetlog' ) );
+		$this->assertNull( Core::node( 'remote-austin:firehose.p0:deadletter' ) );
+		$this->assertSame( [], $node->consumers() );
+	}
+
+	public function test_node_schema_visible_io_with_args(): void {
+		$schema = Remote_Source_Node::node_schema();
+		$this->assertSame( 'I/O', $schema['category'] );
+		$this->assertArrayNotHasKey( 'hidden', $schema );
+		$this->assertSame( [ 'vault_id', 'offsetlog_root', 'deadletter_root' ], \array_column( $schema['arguments'], 'name' ) );
+		$this->assertSame( [ 'set_multi_writer', 'set_assume_clean_shutdown' ], \array_column( $schema['commands'], 'name' ) );
+	}
 
 	/**
-	 * Build a Remote_Source with a capture sink and NO target — the shape a
-	 * hand-wired relay takes when the operator omits the `connect_node` line.
-	 *
-	 * @return array{0:Remote_Source_Node,1:Capture_Sink_Node}
+	 * A reader's cursor dir is an ARGUMENT of the broker: the topology writes
+	 * the root, so it can carry `<topology>`, and each reader nests under it.
 	 */
-	private function make_target_less_remote( string $name = 'remote-austin' ): array {
-		$node = new Remote_Source_Node();
-		$node->name( $name );
-		$sink = new Capture_Sink_Node();
-		$sink->name( 'downstream' );
-		$node->sink( $sink );
-		$node->arguments( $this->remote_args( $name ) );
-		return [ $node, $sink ];
-	}
-
-	/** A TM_STRUCT stream message the spoke addressed to a node in OUR graph. */
-	private function addressed_message( string $id, string $to ): array {
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_STRUCT;
-		$m[ Message::ID ]    = $id;
-		$m[ Message::TO ]    = $to;
-		$m[ Message::VALUE ] = [ 'p' => 1 ];
-		return $m;
-	}
-
-	public function test_a_target_less_relay_refuses_a_line_the_spoke_addressed(): void {
-		// Every node sinks into _command_interpreter and then _router, so a TO
-		// the SPOKE wrote names any node in the hub worker's graph. A relay with
-		// no target declares no destination, so nothing addressed passes.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		[ $node, $sink ] = $this->make_target_less_remote();
+	public function test_a_readers_dirs_nest_under_the_broker_roots(): void {
+		$node = $this->broker( 'src-a', [ 'zebra-vault', "{$this->base_dir}/offsets/combined", "{$this->base_dir}/dead/combined", 'sources/php:php-errors' ] );
 		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
+		$child = Core::node( 'src-a:sources:php' );
 
-		$this->deliver_built( $sse, $this->addressed_message( '7:100:60', '_fleet' ) );
-
-		$this->assertCount( 0, $sink->captured, 'an addressed line reaches no local node' );
-	}
-
-	public function test_a_target_less_relay_refuses_a_line_addressed_to_its_own_name(): void {
-		// A firehose record carries no TO, so the relay consults no allowlist:
-		// its patron declares its own name for the heartbeat reply, and that
-		// declaration must not let a spoke address the link itself.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		[ $node, $sink ] = $this->make_target_less_remote();
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-
-		$this->deliver_built( $sse, $this->addressed_message( '7:100:60', 'remote-austin' ) );
-
-		$this->assertCount( 0, $sink->captured, 'a line addressed to the link itself reaches no node' );
-	}
-
-	public function test_a_refused_line_is_consumed_like_a_forwarded_one(): void {
-		// Refusal is not poison: the line is read, so the cursor moves past it by
-		// its own crumb length. Left pinned, the relay re-reads it every resume.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		[ $node, $sink ] = $this->make_target_less_remote();
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-
-		$this->deliver_built( $sse, $this->addressed_message( '7:100:60', '_fleet' ) );
-		$this->assertSame(
-			[ 7, 160 ],
-			[ $this->read_private( $node, 'cursor_segment' ), $this->read_private( $node, 'cursor_offset' ) ],
-			'the cursor sits PAST the refused record (100 + 60)'
-		);
-
-		// The next, unaddressed line still relays: one bad record wedges nothing.
-		$this->deliver( $sse, '7:160:40' );
-		$this->assertCount( 1, $sink->captured, 'an unaddressed line still reaches the sink' );
-		$this->assertSame( '', $sink->captured[0][ Message::TO ], 'with no target its TO is left empty' );
-	}
-
-	public function test_a_set_target_refuses_a_line_the_spoke_addressed(): void {
-		// Tachikoma's owner rule: a message addressed past a set target is the
-		// remote's attempt to route inside this graph, dropped rather than
-		// silently re-homed, so an operator sees it in the throttled audit line.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		[ $node, $sink ] = $this->make_remote( 'remote-austin' );
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-
-		$this->deliver_built( $sse, $this->addressed_message( '7:100:60', '_fleet' ) );
-
-		$this->assertCount( 0, $sink->captured, 'an addressed line is dropped even with a target set' );
+		$this->assertSame( "{$this->base_dir}/offsets/combined/sources:php", $this->read_private( $child, 'offsetlog_dir' ) );
+		$this->assertSame( "{$this->base_dir}/dead/combined/sources:php", $this->read_private( $child, 'deadletter_dir' ) );
 	}
 
 	// ---------------------------------------------------------------------
-	// Multi-writer seal-grace — Consumer's verb, asserted over the wire.
+	// Pairs: one reader per stamp, one request for all of them.
 	// ---------------------------------------------------------------------
 
-	public function test_the_committed_cursor_names_the_next_unread_record(): void {
-		// The cursor must mean what Consumer's means: the next UNREAD position.
-		// Pinned at the last-forwarded record's start instead, every resume
-		// re-delivers that one record — the hub writes it twice, adjacent, with
-		// the same crumb, while the spoke's own log holds it once.
+	public function test_each_pair_gets_a_reader_named_for_its_stamp(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		[ $node, $sink ] = $this->make_remote( 'remote-austin' );
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
+		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:downstream', 'sources/php:php-errors' ) );
 
-		// Two records, the crumbs chaining exactly as a partition lays them out.
-		$this->deliver( $sse, '7:100:60' );
-		$this->deliver( $sse, '7:160:40' );
-
-		$this->assertCount( 2, $sink->captured, 'both forwarded' );
-		$this->assertSame(
-			[ 7, 200 ],
-			[ $this->read_private( $node, 'cursor_segment' ), $this->read_private( $node, 'cursor_offset' ) ],
-			'the cursor sits PAST the last record (160 + 40), not on its start'
-		);
+		$this->assertSame( [ 'firehose.p0', 'sources/php' ], \array_keys( $node->consumers() ) );
+		$this->assertInstanceOf( Remote_Consumer_Node::class, Core::node( 'remote-austin:sources:php' ) );
+		$this->assertSame( 'php-errors', Core::node( 'remote-austin:sources:php' )->target() );
 	}
 
-	// ---------------------------------------------------------------------
-	// Seek sentinels — a push source has no segments, so it forwards the seek
-	// to the spoke, which does.
-	// ---------------------------------------------------------------------
-
-	public function test_a_bare_seek_is_forwarded_to_the_spoke(): void {
+	public function test_one_request_carries_every_pair_from_its_own_cursor(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		[ $node ] = $this->make_remote( 'remote-austin' );
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$this->assertInstanceOf( SSE_In_Node::class, $sse );
-		$node->next_offset( [ 'segment' => 3, 'offset' => 900 ] ); // a pair the seek must override
-
-		$node->next_offset( Consumer_Node::SEEK_RECENT );
-		// A seek waits for the spoke to resolve it, and the reconnect is throttled to the
-		// wall second — so the seek must survive the ticks in between. The per-tick cursor
-		// handoff would otherwise answer it with the very position it was asked to leave.
-		$node->fire();
-		$node->fire();
-
-		$captured = [];
-		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
-			$captured[] = $opts;
+		$asked = [];
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ) use ( &$asked ): \CurlHandle {
+			\parse_str( (string) \parse_url( Core::as_string( $opts[ \CURLOPT_URL ] ), PHP_URL_QUERY ), $query );
+			$asked[] = $query;
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
 		};
-		$this->assertTrue( $sse->maybe_connect() );
-		\parse_str( (string) \parse_url( $captured[0][ \CURLOPT_URL ], PHP_URL_QUERY ), $query );
-		$positions = \json_decode( $query['positions'], true );
-		$this->assertSame( Consumer_Node::SEEK_RECENT, $positions['firehose.p0'] );
-		$this->assertSame( Consumer_Node::SEEK_RECENT, $node->connect_position() );
+		$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:downstream', 'sources/php:php-errors' ) );
+		Core::node( 'remote-austin:firehose.p0' )->next_offset( [ 'segment' => 14, 'offset' => 2203 ] );
+		$this->drain_connect_queue();
+
+		$this->assertSame( 'firehose.p0,sources/php', \end( $asked )['subscribe'] );
+		$this->assertSame(
+			[ 'firehose.p0' => [ 'segment' => 14, 'offset' => 2203 ], 'sources/php' => Consumer_Node::SEEK_END ],
+			\json_decode( \end( $asked )['positions'], true )
+		);
 	}
 
-	public function test_a_seek_word_forwards_the_same_sentinel(): void {
+	public function test_each_line_reaches_the_reader_its_stamp_names(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		[ $node ] = $this->make_remote( 'remote-austin' );
-		$node->fire();
+		$php = new Capture_Sink_Node();
+		$php->name( 'php-errors' );
+		[ , , $sink ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:downstream', 'sources/php:php-errors' ) );
 		$sse = Core::node( 'remote-austin:sse-in' );
-		( new \ReflectionProperty( Remote_Source_Node::class, 'buffer' ) )
-			->setValue( $node, "stale, and about to be seeked away from\n" );
+		foreach ( [ [ 'firehose.p0/job-worker.p0', '3:0:40', 'fh-6612' ], [ 'sources/php', '91827:400:52', 'php-7715' ] ] as [ $from, $crumb, $value ] ) {
+			$sse->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => $from, Message::ID => $crumb, Message::VALUE => $value ] ) );
+		}
+		Core::node( 'remote-austin:firehose.p0' )->poll();
+		Core::node( 'remote-austin:sources:php' )->poll();
 
-		$node->next_offset( 'end' );
+		$this->assertSame( [ 'fh-6612' ], \array_column( $sink->captured, Message::VALUE ) );
+		$this->assertSame( [ 'php-7715' ], \array_column( $php->captured, Message::VALUE ) );
+		$this->assertSame( [ 'segment' => 91827, 'offset' => 452 ], Core::node( 'remote-austin:sources:php' )->connect_position() );
+	}
 
-		$captured = [];
-		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
-			$captured[] = $opts;
+	public function test_a_pair_target_naming_no_node_still_advances(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ , $child ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:nowhere-3318' ) );
+		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::stream_msg( '4:100:30', '', [ 'p' => 1 ] ) );
+
+		$child->poll();
+
+		$this->assertSame( [ 'segment' => 4, 'offset' => 130 ], $child->connect_position() );
+		$this->assertSame( 0, $this->count_log_records( $this->read_private( $child, 'deadletter_dir' ) ), 'an unrouted line is not poison' );
+	}
+
+	public function test_a_line_no_pair_matches_is_dropped(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$errors = $this->capture_stderr();
+		[ $node, $child ] = $this->make_remote();
+
+		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => 'jobstats.p5', Message::ID => '1:0:10', Message::VALUE => 'stray-5501' ] ) );
+
+		$this->assertSame( [ 'firehose.p0' ], \array_keys( $node->consumers() ) );
+		$this->assertSame( 0, $child->buffered_bytes(), 'no reader is handed it' );
+		$this->assertStringContainsString( 'dropping a line no pair claims: jobstats.p5', \implode( '', $errors->getArrayCopy() ) );
+	}
+
+	public function test_a_line_with_no_stamp_is_dropped_even_under_a_bare_glob(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$errors   = $this->capture_stderr();
+		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', '*:catchall-81' ) );
+
+		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => '', Message::ID => '1:0:10', Message::VALUE => 'unstamped-4417' ] ) );
+
+		$this->assertSame( [], $node->consumers() );
+		$this->assertNull( Core::node( 'remote-austin:' ) );
+		$this->assertStringContainsString( 'dropping a line with no stamp', \implode( '', $errors->getArrayCopy() ) );
+	}
+
+	/** Collect every stderr line the test raises. */
+	private function capture_stderr(): \ArrayObject {
+		$errors = new \ArrayObject();
+		Core::set_stderr_handler( static function ( string $text ) use ( $errors ): void {
+			$errors[] = $text;
+		} );
+		return $errors;
+	}
+
+	public function test_a_torn_frame_is_dropped_at_the_broker(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node, $child ] = $this->make_remote();
+
+		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( "event: msg\ndata: torn-frame-4410\n\n" );
+
+		$this->assertSame( 0, $child->buffered_bytes(), 'a frame with no stamp reaches no reader' );
+		$this->assertSame( [ 'firehose.p0' ], \array_keys( $node->consumers() ) );
+	}
+
+	public function test_a_relayed_line_carries_the_reader_before_the_spoke_trail(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$php = new Capture_Sink_Node();
+		$php->name( 'php-errors' );
+		$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'sources/php:php-errors' ) );
+		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => 'sources/php', Message::ID => '44120:96:58', Message::VALUE => "PHP Notice: 2290\n" ] ) );
+
+		Core::node( 'remote-austin:sources:php' )->poll();
+
+		$this->assertSame( 'remote-austin:sources:php/sources/php', $php->captured[0][ Message::FROM ] );
+		$this->assertSame( '44120:96:58', $php->captured[0][ Message::ID ], 'the crumb stays the spoke\'s' );
+	}
+
+	public function test_a_trail_past_max_from_size_is_dropped_and_passed(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$errors = [];
+		Core::set_stderr_handler( static function ( string $text ) use ( &$errors ): void {
+			$errors[] = $text;
+		} );
+		[ , $child, $sink ] = $this->make_remote();
+		$long = 'firehose.p0/' . \str_repeat( 'hop-7/', 200 );
+		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_STRUCT, Message::FROM => $long, Message::ID => '6:300:45', Message::VALUE => [ 'p' => 3 ] ] ) );
+
+		$child->poll();
+
+		$this->assertSame( [], $sink->captured );
+		$this->assertSame( [ 'segment' => 6, 'offset' => 345 ], $child->connect_position(), 'the refusal is consumed like a forward' );
+		$this->assertStringContainsString( 'path exceeded ' . Node::MAX_FROM_SIZE . ' bytes', \implode( '', $errors ) );
+		$this->assertSame( 0, $this->count_log_records( $this->read_private( $child, 'deadletter_dir' ) ), 'an over-long trail is not poison' );
+	}
+
+	public function test_a_replay_dropping_a_pair_retracts_only_its_children(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node, $kept ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:downstream', 'sources/php:php-errors' ) );
+		Core::node( 'remote-austin:sources:php' )->next_offset( [ 'segment' => 6123, 'offset' => 77 ] );
+		$kept->next_offset( [ 'segment' => 58, 'offset' => 3307 ] );
+
+		$node->arguments( $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:downstream' ) );
+
+		$this->assertNull( Core::node( 'remote-austin:sources:php' ) );
+		$this->assertSame( $kept, Core::node( 'remote-austin:firehose.p0' ), 'the surviving reader is the same instance' );
+		$this->assertSame( [ 'segment' => 58, 'offset' => 3307 ], $kept->connect_position(), 'with its cursor intact' );
+		$this->assertSame( [ 'firehose.p0' ], \array_keys( $node->consumers() ) );
+		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
+		$this->assertSame( [ 6123, 77 ], $this->frame_in( "{$offsets}/remote-austin/sources:php" ), 'the retracted reader handed its cursor off' );
+	}
+
+	public function test_a_replay_dropping_a_pair_restreams_without_it(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$asked = [];
+		$this->record_requests( $asked );
+		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:downstream', 'sources/php:php-errors' ) );
+		$this->drain_connect_queue();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$this->assertSame( 'firehose.p0,sources/php', \end( $asked )['subscribe'] );
+
+		$node->arguments( $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:downstream' ) );
+		$this->assertNull( $sse->test_get_handle(), 'the dropped source leaves the stream' );
+		Core::$now = 640.0;
+		$node->fire();
+		$this->drain_connect_queue();
+
+		$this->assertSame( 'firehose.p0', \end( $asked )['subscribe'] );
+	}
+
+	public function test_a_replay_retargets_a_surviving_reader(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node, $child ] = $this->make_remote();
+
+		$node->arguments( $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:audit-6604' ) );
+
+		$this->assertSame( $child, Core::node( 'remote-austin:firehose.p0' ) );
+		$this->assertSame( 'audit-6604', $child->target() );
+	}
+
+	public function test_a_replay_moving_the_roots_moves_each_readers_dirs_and_keeps_a_pause(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node, $child ] = $this->make_remote();
+		$child->pause();
+		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
+		$base    = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' );
+
+		$node->arguments( [ 'austin', "{$offsets}/moved-7721", "{$base}/deadletter/moved-7721", 'firehose.p0:downstream' ] );
+
+		$this->assertSame( $child, Core::node( 'remote-austin:firehose.p0' ) );
+		$this->assertSame( "{$offsets}/moved-7721/firehose.p0", $this->read_private( $child, 'offsetlog_dir' ) );
+		$this->assertSame( "{$base}/deadletter/moved-7721/firehose.p0", $this->read_private( $child, 'deadletter_dir' ) );
+		$this->assertSame( "{$offsets}/moved-7721/firehose.p0", $this->read_private( $child, 'offsetlog' )->partition_dir() );
+		$this->assertFalse( $child->is_live(), 'a paused reader stays paused across the move' );
+	}
+
+	public function test_a_broker_sink_change_reaches_every_reader(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node, $child ] = $this->make_remote();
+		$elsewhere = new Capture_Sink_Node();
+		$elsewhere->name( 'elsewhere-2209' );
+
+		$node->sink( $elsewhere );
+
+		$this->assertSame( $elsewhere, $child->sink() );
+	}
+
+	/** @return array{0:int,1:int}|null The newest frame's segment and offset in $dir. */
+	private function frame_in( string $dir ): ?array {
+		$partition = new Partition_Node();
+		$partition->arguments( [ $dir ] );
+		$frame = Remote_Consumer_Node::last_frame_of( $partition );
+		return null === $frame ? null : [ $frame['segment'], $frame['offset'] ];
+	}
+
+	/** Record each request's decoded query, through the connect seam. */
+	private function record_requests( array &$asked ): void {
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ) use ( &$asked ): \CurlHandle {
+			\parse_str( (string) \parse_url( Core::as_string( $opts[ \CURLOPT_URL ] ), PHP_URL_QUERY ), $query );
+			$asked[] = $query;
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
 		};
-		$this->assertTrue( $sse->maybe_connect() );
-		\parse_str( (string) \parse_url( $captured[0][ \CURLOPT_URL ], PHP_URL_QUERY ), $query );
-		$this->assertSame( Consumer_Node::SEEK_END, \json_decode( $query['positions'], true )['firehose.p0'] );
-		$this->assertSame( '', $this->read_private( $node, 'buffer' ), 'a seek abandons what was in flight' );
-		$this->assertSame( Consumer_Node::SEEK_END, $node->connect_position() );
 	}
+
+	public function test_an_operational_handoff_reaches_every_reader_and_a_cooperative_one_none(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node, $child ] = $this->make_remote();
+		$child->next_offset( [ 'segment' => 2, 'offset' => 9091 ] );
+
+		$node->hand_off_cursor( 'timeout' );
+		$this->assertSame( 0, $this->count_offsetlog_records( $child ), 'the worker sweep reaches the reader itself' );
+		$node->hand_off_cursor();
+		$this->assertSame( [ 2, 9091 ], [ $this->newest_offsetlog_frame( $child )['segment'], $this->newest_offsetlog_frame( $child )['offset'] ] );
+	}
+
+	public function test_a_connect_queued_before_pause_does_not_reopen_the_stream(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ , $child ] = $this->make_remote( 'remote-austin' );
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		$child->pause();
+		$this->drain_connect_queue();
+
+		$this->assertNull( $sse->test_get_handle(), 'a paused source holds no spoke slot' );
+	}
+
+	// ---------------------------------------------------------------------
+	// Multi-writer seal-grace and the fanned-out reader toggle.
+	// ---------------------------------------------------------------------
 
 	public function test_seal_grace_seeds_a_patron_created_after_the_verb(): void {
 		// The aggregator configures its spokes before anything connects, so the
 		// flag has to survive until the patron exists.
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		[ $node ] = $this->make_remote( 'remote-austin' );
+		$node = $this->broker( 'remote-austin' );
 		$node->set_multi_writer( true );
 
 		$node->fire();
@@ -449,15 +633,8 @@ class RemoteSourceNodeTest extends TestCase {
 	public function test_seal_grace_reaches_a_live_patron_and_drops_the_stream(): void {
 		// It rides a connect-time query parameter, so the current stream has to
 		// go for the far-side reader to pick the change up.
-		[ $node ] = $this->make_remote();
-		$sse = new class() extends SSE_In_Node {
-			public ?bool $seal_grace = null;
-			public int $disconnects  = 0;
-			public function set_multi_writer( bool $flag ): void {
-				$this->seal_grace = $flag; }
-			public function disconnect(): void {
-				++$this->disconnects; }
-		};
+		$node = $this->broker();
+		$sse  = $this->seal_grace_spy();
 		( new \ReflectionProperty( \Newspack_Nodes\Remote_Link_Node::class, 'sse_in' ) )->setValue( $node, $sse );
 
 		$node->set_multi_writer( true );
@@ -466,381 +643,17 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 1, $sse->disconnects, 'the stream is re-established to carry the new parameter' );
 	}
 
-	/** A spoke's `connected` handshake naming where the stream begins. */
-	private function handshake( SSE_In_Node $sse, string $cursors ): void {
-		$sse->process_sse_chunk( self::connected_frame( "SLOT 7 OWNER 42424243 CURSORS {$cursors}" ) );
-	}
-
-	public function test_the_handshake_cursor_resolves_a_pending_seek(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		[ $node ] = $this->make_remote( 'remote-austin' );
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$node->next_offset( Consumer_Node::SEEK_END );
-
-		$this->handshake( $sse, 'firehose.p0=9:4096' );
-
-		$this->assertNull( $this->read_private( $node, 'pending_seek' ), 'the spoke answered the seek' );
-		$this->assertSame( [ 'segment' => 9, 'offset' => 4096 ], $node->connect_position() );
-		$this->assertSame( [ 'segment' => 9, 'offset' => 4096 ], $node->dump_metadata()['cursor'] );
-	}
-
-	public function test_a_handshake_with_no_pending_seek_leaves_the_cursor_alone(): void {
-		// The handshake names the position the connect asked for, and ticks keep
-		// draining until it lands, so adopting it would rewind past forwarded records.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		[ $node ] = $this->make_remote( 'remote-austin' );
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$node->next_offset( [ 'segment' => 7, 'offset' => 41 ] );
-
-		$this->handshake( $sse, 'firehose.p0=7:1' );
-
-		$this->assertSame( [ 'segment' => 7, 'offset' => 41 ], $node->dump_metadata()['cursor'] );
-		$this->assertSame( [ 'segment' => 7, 'offset' => 41 ], $node->connect_position() );
-	}
-
-	public function test_a_reconnect_the_spoke_forced_asks_past_what_is_buffered(): void {
-		// The spoke closed the stream with records still buffered here. The new
-		// request asks for the end of the buffer, so the buffered copies drain once.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$captured = [];
-		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ) use ( &$captured ): \CurlHandle {
-			$captured[] = $opts;
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
-			return \curl_init();
-		};
-		[ $node, $sink ] = $this->make_remote( 'remote-austin' );
-		Core::$now = 1000.0;
-		$node->fire();
-		$this->drain_connect_queue();
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$node->set_line_mode( true );
-		foreach ( [ '5:0:30' => 'r1-121', '5:30:30' => 'r2-232', '5:60:30' => 'r3-343' ] as $crumb => $value ) {
-			$sse->process_sse_chunk( self::sse_frame( 'msg', [
-				Message::TYPE  => Message::TM_BYTESTREAM,
-				Message::ID    => $crumb,
-				Message::VALUE => $value,
-			] ) );
-		}
-		$node->poll(); // r1 forwarded; r2 and r3 still buffered
-		$sse->disconnect(); // the spoke's idle close
-
-		Core::$now = 1010.0;
-		$node->fire(); // r2 forwarded, the reconnect queued
-		$this->drain_connect_queue();
-		\parse_str( (string) \parse_url( \end( $captured )[ \CURLOPT_URL ], PHP_URL_QUERY ), $query );
-		$asked = \json_decode( $query['positions'], true )['firehose.p0'];
-		foreach ( [ '5:90:30' => 'r4-454' ] as $crumb => $value ) {
-			$sse->process_sse_chunk( self::sse_frame( 'msg', [
-				Message::TYPE  => Message::TM_BYTESTREAM,
-				Message::ID    => $crumb,
-				Message::VALUE => $value,
-			] ) );
-		}
-		for ( $i = 0; $i < 4; $i++ ) {
-			$node->poll();
-		}
-
-		$this->assertSame( [ 'segment' => 5, 'offset' => 90 ], $asked, 'the request asks for the record after the buffer' );
-		$this->assertSame( [ 'r1-121', 'r2-232', 'r3-343', 'r4-454' ], \array_column( $sink->captured, Message::VALUE ) );
-	}
-
-	public function test_a_reconnect_asks_past_the_last_buffered_record_with_a_crumb(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$captured = [];
-		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ) use ( &$captured ): \CurlHandle {
-			$captured[] = $opts;
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
-			return \curl_init();
-		};
-		[ $node ] = $this->make_remote( 'remote-austin' );
-		Core::$now = 1000.0;
-		$node->fire();
-		$this->drain_connect_queue();
-		$sse    = Core::node( 'remote-austin:sse-in' );
-		$buffer = new \ReflectionProperty( Remote_Source_Node::class, 'buffer' );
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$m[ Message::ID ]    = '8:640:64';
-		$m[ Message::VALUE ] = 'crumbed-929';
-		$buffer->setValue( $node, Message::packed( $m ) . "\nno crumb here\npartial" );
-		$sse->disconnect();
-
-		Core::$now = 1010.0;
-		$sse->maybe_connect(); // before any tick can drain the buffer
-
-		\parse_str( (string) \parse_url( \end( $captured )[ \CURLOPT_URL ], PHP_URL_QUERY ), $query );
-		$this->assertSame( [ 'segment' => 8, 'offset' => 704 ], \json_decode( $query['positions'], true )['firehose.p0'] );
-		$this->assertStringEndsWith( "no crumb here\n", $buffer->getValue( $node ), 'the partial line goes' );
-	}
-
-	/** A connect seam recording each request's asked position for firehose.p0. */
-	private function capture_asked_positions( array &$asked ): void {
-		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ) use ( &$asked ): \CurlHandle {
-			\parse_str( (string) \parse_url( Core::as_string( $opts[ \CURLOPT_URL ] ), PHP_URL_QUERY ), $query );
-			$asked[] = \json_decode( Core::as_string( $query['positions'] ?? '' ), true )['firehose.p0'] ?? null;
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
-			return \curl_init();
-		};
-	}
-
-	/** One crumbed record off the wire, unpolled. */
-	private function wire_record( SSE_In_Node $sse, string $crumb, string $value ): void {
-		$sse->process_sse_chunk( self::sse_frame( 'msg', [
-			Message::TYPE  => Message::TM_BYTESTREAM,
-			Message::ID    => $crumb,
-			Message::VALUE => $value,
-		] ) );
-	}
-
-	public function test_a_reconnect_after_skipped_lines_asks_past_them(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$asked = [];
-		$this->capture_asked_positions( $asked );
-		[ $node, $sink ] = $this->make_remote( 'remote-austin' );
-		Core::$now = 1000.0;
-		$node->fire();
-		$this->drain_connect_queue();
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$this->wire_record( $sse, '5:0:30', 'r1-161' );
-		$sse->process_sse_chunk( self::unparseable_frame( 'COUNT 2 CURSORS firehose.p0=5:95' ) );
-
-		Core::$now = 1001.0;
-		$node->fire();
-		$sse->disconnect();
-		Core::$now = 1010.0;
-		$node->fire();
-		$this->drain_connect_queue();
-
-		$this->assertSame( [ 'r1-161' ], \array_column( $sink->captured, Message::VALUE ) );
-		$this->assertSame( [ 'segment' => 5, 'offset' => 95 ], $node->dump_metadata()['cursor'] );
-		$this->assertSame( [ 'segment' => 5, 'offset' => 95 ], \end( $asked ), 'the torn lines are not read, or counted, again' );
-	}
-
-	public function test_a_reconnect_past_a_skip_supersedes_a_pending_seek(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		[ $node ] = $this->make_remote( 'remote-austin' );
-		Core::$now = 1000.0;
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$this->assertSame( Consumer_Node::SEEK_END, $node->connect_position(), 'a fresh reader asks for the end' );
-
-		( $sse->on_skipped )( [ 'firehose.p0' => [ 'segment' => 13, 'offset' => 7261 ] ] );
-		$this->assertSame( [ 'segment' => 13, 'offset' => 7261 ], $node->connect_position() );
-		( new \ReflectionMethod( $node, 'pass_skipped_lines' ) )->invoke( $node );
-
-		$this->assertSame(
-			[ 'segment' => 13, 'offset' => 7261 ],
-			$node->connect_position(),
-			'the skip was a real place, so the end is no longer asked for'
-		);
-	}
-
-	public function test_skipped_lines_wait_for_the_records_buffered_ahead_of_them(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$asked = [];
-		$this->capture_asked_positions( $asked );
-		[ $node, $sink ] = $this->make_remote( 'remote-austin' );
-		Core::$now = 1000.0;
-		$node->fire();
-		$this->drain_connect_queue();
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$node->set_line_mode( true );
-		$this->wire_record( $sse, '5:0:30', 'r1-171' );
-		$this->wire_record( $sse, '5:30:30', 'r2-282' );
-		$sse->process_sse_chunk( self::unparseable_frame( 'COUNT 1 CURSORS firehose.p0=5:95' ) );
-
-		$node->fire();
-		$this->assertSame( [ 'segment' => 5, 'offset' => 30 ], $node->dump_metadata()['cursor'], 'r2 is still ahead of the skip' );
-
-		$sse->disconnect();
-		Core::$now = 1010.0;
-		$sse->maybe_connect();
-		$this->assertSame( [ 'segment' => 5, 'offset' => 95 ], \end( $asked ), 'the reopen asks past the buffer AND the skip' );
-
-		$node->fire();
-		$this->assertSame( [ 'r1-171', 'r2-282' ], \array_column( $sink->captured, Message::VALUE ) );
-		$this->assertSame( [ 'segment' => 5, 'offset' => 95 ], $node->dump_metadata()['cursor'] );
-	}
-
-	public function test_a_record_after_the_skip_supersedes_it(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node, $sink ] = $this->make_remote( 'remote-austin' );
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$sse->process_sse_chunk( self::unparseable_frame( 'COUNT 1 CURSORS firehose.p0=5:95' ) );
-		$this->wire_record( $sse, '5:95:40', 'r3-393' );
-
-		$node->poll();
-		Core::$now = 1001.0;
-		$node->fire();
-
-		$this->assertSame( [ 'r3-393' ], \array_column( $sink->captured, Message::VALUE ) );
-		$this->assertSame( [ 'segment' => 5, 'offset' => 135 ], $node->dump_metadata()['cursor'], 'never rewound to the skip' );
-	}
-
-	public function test_a_seek_abandons_a_pending_skip(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_remote( 'remote-austin' );
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$sse->process_sse_chunk( self::unparseable_frame( 'COUNT 1 CURSORS firehose.p0=5:95' ) );
-
-		$node->pause();
-		$node->next_offset( [ 'segment' => 7, 'offset' => 41 ] );
-		$node->play();
-		Core::$now = 1001.0;
-		$node->fire();
-
-		$this->assertSame( [ 'segment' => 7, 'offset' => 41 ], $node->dump_metadata()['cursor'] );
-	}
-
-	public function test_published_status_carries_the_skipped_line_count(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_remote( 'remote-austin' );
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$sse->process_sse_chunk( self::unparseable_frame( 'COUNT 4 CURSORS firehose.p0=5:95' ) );
-
-		Core::$now = 1001.0;
-		$node->fire();
-
-		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) );
-		$this->assertSame( 4, $status['unparseable_lines'] );
-	}
-
-	public function test_a_bare_seek_resolves_on_the_first_record_even_without_cursors(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		[ $node ] = $this->make_remote( 'remote-austin' );
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$node->next_offset( Consumer_Node::SEEK_END );
-
-		$sse->process_sse_chunk( self::sse_frame( 'msg', [
-			Message::TYPE  => Message::TM_BYTESTREAM,
-			Message::ID    => '9:4096:40',
-			Message::VALUE => 'first-after-seek-525',
-		] ) );
-		$node->poll();
-
-		$this->assertNull( $this->read_private( $node, 'pending_seek' ), 'the record says where the stream began' );
-	}
-
-	public function test_a_connect_queued_before_pause_does_not_reopen_the_stream(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_remote( 'remote-austin' );
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-
-		$node->pause();
-		$this->drain_connect_queue();
-
-		$this->assertNull( $sse->test_get_handle(), 'a paused source holds no spoke slot' );
-	}
-
 	public function test_reasserting_the_same_seal_grace_leaves_the_stream_up(): void {
 		// The verb is what an operator or an idempotent apply script invokes, and
 		// re-asserting a value the source already holds should cost nothing.
-		[ $node ] = $this->make_remote();
-		$sse = $this->seal_grace_spy();
+		$node = $this->broker();
+		$sse  = $this->seal_grace_spy();
 		( new \ReflectionProperty( \Newspack_Nodes\Remote_Link_Node::class, 'sse_in' ) )->setValue( $node, $sse );
 		$node->set_multi_writer( true );
 
 		$node->set_multi_writer( true );
 
 		$this->assertSame( 1, $sse->disconnects, 'only the change drops the stream' );
-	}
-
-	public function test_an_arriving_line_takes_the_busy_cadence_immediately(): void {
-		// A push source learns of data in on_message, during the curl drain —
-		// between fires. Waiting out the channel tick to notice would put up to
-		// TICK_INTERVAL_MS on the front of every arrival burst, and the busy
-		// cadence at the bottom of fire() cannot help: it only runs after a fire
-		// has already observed the buffer.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		[ $node ] = $this->make_remote( 'remote-austin' );
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$this->assertInstanceOf( SSE_In_Node::class, $sse );
-		$tick = ( new \ReflectionClassConstant( \Newspack_Nodes\Remote_Link_Node::class, 'TICK_INTERVAL_MS' ) )->getValue();
-		$this->assertSame( $tick, $node->interval_ms, 'idle at the channel tick' );
-
-		( $sse->on_message )( 'a line off the wire' );
-
-		$this->assertSame( 0, $node->interval_ms, 'the arrival itself schedules the drain' );
-	}
-
-	public function test_a_buffered_backlog_re_arms_for_the_next_event_cycle(): void {
-		// line_mode is GRANULARITY — one line per event cycle — not a rate limit.
-		// The pump's own fire() re-arms at POLL_INTERVAL_BUSY_MS (0) whenever it is
-		// not at EOF; Remote_Source rides Remote_Link's 100ms CHANNEL timer, so
-		// leaving that cadence in place while lines are buffered would pace a
-		// backlog at 10 lines/sec however deep it is.
-		[ $node, $sink ] = $this->make_remote();
-		( new \ReflectionProperty( \Newspack_Nodes\Remote_Link_Node::class, 'sse_in' ) )
-			->setValue( $node, $this->seal_grace_spy() );
-		$node->set_line_mode( true );
-		( new \ReflectionProperty( Remote_Source_Node::class, 'buffer' ) )
-			->setValue( $node, $this->stream_lines( 5 ) );
-
-		$node->fire();
-
-		$this->assertCount( 1, $sink->captured, 'still one line per cycle' );
-		$this->assertSame( 0, $node->interval_ms, 'and the next cycle is immediate' );
-		$this->assertFalse( $node->oneshot, 'recurring, so a skipped re-arm cannot strand it' );
-	}
-
-	public function test_losing_the_patron_drops_the_busy_cadence(): void {
-		// reload() -> drop_patrons() nulls sse_in. A tick that had armed the 0ms
-		// busy cadence and then skips straight past the drain leaves the loop
-		// spinning at full speed with nothing to do until housekeeping — latched
-		// to the wall-second — rebuilds the patron.
-		[ $node ] = $this->make_remote();
-		$sse_in   = new \ReflectionProperty( \Newspack_Nodes\Remote_Link_Node::class, 'sse_in' );
-		$sse_in->setValue( $node, $this->seal_grace_spy() );
-		$node->set_line_mode( true ); // one line per cycle, so a backlog survives the tick
-		( new \ReflectionProperty( Remote_Source_Node::class, 'buffer' ) )
-			->setValue( $node, $this->stream_lines( 3 ) );
-		$node->fire();
-		$this->assertSame( 0, $node->interval_ms, 'armed busy while draining' );
-
-		$sse_in->setValue( $node, null );
-		$node->fire();
-
-		$tick = ( new \ReflectionClassConstant( \Newspack_Nodes\Remote_Link_Node::class, 'TICK_INTERVAL_MS' ) )->getValue();
-		$this->assertSame( $tick, $node->interval_ms, 'nothing to drain: back to the channel tick' );
-	}
-
-	public function test_an_empty_buffer_keeps_the_channel_cadence(): void {
-		// Nothing to drain: fall back to the recurring tick that carries the
-		// heartbeat and reconnect, rather than spinning the loop at 0ms.
-		[ $node ] = $this->make_remote();
-		( new \ReflectionProperty( \Newspack_Nodes\Remote_Link_Node::class, 'sse_in' ) )
-			->setValue( $node, $this->seal_grace_spy() );
-
-		$node->fire();
-
-		$tick = ( new \ReflectionClassConstant( \Newspack_Nodes\Remote_Link_Node::class, 'TICK_INTERVAL_MS' ) )->getValue();
-		$this->assertSame( $tick, $node->interval_ms );
-		$this->assertFalse( $node->oneshot );
-	}
-
-	/** $count packed TM_STRUCT lines with sequential breadcrumbs, as SSE_In would buffer them. */
-	private function stream_lines( int $count ): string {
-		$out = '';
-		for ( $i = 0; $i < $count; $i++ ) {
-			$m                   = Message::new_message();
-			$m[ Message::TYPE ]  = Message::TM_STRUCT;
-			$m[ Message::ID ]    = '0:' . ( $i * 100 ) . ':100';
-			$m[ Message::VALUE ] = [ 'n' => $i ];
-			$out                .= Message::packed( $m ) . "\n";
-		}
-		return $out;
 	}
 
 	/** SSE_In double recording the seal-grace pushed to it and every disconnect. */
@@ -863,7 +676,7 @@ class RemoteSourceNodeTest extends TestCase {
 	public function test_dump_config_roundtrips_set_multi_writer(): void {
 		// A console serialize → replay that dropped the flag would silently put
 		// the hub back on a reader that orphans stragglers.
-		[ $node ] = $this->make_remote( 'remote-austin' );
+		$node = $this->broker( 'remote-austin' );
 		$node->set_multi_writer( true );
 
 		$matched = \preg_match(
@@ -873,1059 +686,371 @@ class RemoteSourceNodeTest extends TestCase {
 		);
 
 		$this->assertSame( 1, $matched, 'the flag is emitted with an explicit argument' );
-		$replayed = new Remote_Source_Node();
-		$replayed->name( 'remote-austin-replayed' );
-		$replayed->arguments( $this->remote_args( 'remote-austin-replayed' ) );
+		$replayed    = $this->broker( 'remote-austin-replayed' );
 		$interpreter = $this->read_private( $replayed, 'interpreter' );
 		$interpreter->dispatch( 'set_multi_writer', [ $matches[1] ] );
 		$this->assertTrue( $this->read_private( $replayed, 'multi_writer' ), 'and replays back to on' );
 	}
 
-	/**
-	 * Renaming a Remote_Source must carry its sidecars with it. The suffix is
-	 * interpolated, so a compound one moves whole: each lands on
-	 * `{new}:{remote_partition}:offsetlog` / `:deadletter` and nothing is left
-	 * squatting the old slot.
-	 */
-	public function test_renaming_a_remote_source_moves_its_sidecars(): void {
-		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
-		$base    = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' );
-		$node    = new Remote_Source_Node();
-		$node->name( 'lighthouse-keeper' );
-		$node->arguments( [ 'galveston', 'beacon.p7', "{$offsets}/lighthouse-keeper.beacon.p7", "{$base}/deadletter/lighthouse-keeper.beacon.p7" ] );
-		( new \ReflectionMethod( $node, 'ensure_offsetlog' ) )->invoke( $node );
-		( new \ReflectionMethod( $node, 'ensure_deadletter' ) )->invoke( $node );
-
-		$node->name( 'harbourwatch' );
-
-		$offsetlog  = $this->read_private( $node, 'offsetlog' );
-		$deadletter = $this->read_private( $node, 'deadletter' );
-		$this->assertSame( 'harbourwatch:beacon.p7:offsetlog', $offsetlog->name() );
-		$this->assertSame( $offsetlog, Core::node( 'harbourwatch:beacon.p7:offsetlog' ) );
-		$this->assertSame( 'harbourwatch:beacon.p7:deadletter', $deadletter->name() );
-		$this->assertSame( $deadletter, Core::node( 'harbourwatch:beacon.p7:deadletter' ) );
-		$this->assertNull( Core::node( 'lighthouse-keeper:beacon.p7:offsetlog' ) );
-		$this->assertNull( Core::node( 'lighthouse-keeper:beacon.p7:deadletter' ) );
-	}
-
-	/**
-	 * `arguments()` is a replay setter here too, and a replay may name a new
-	 * spoke AND new dirs. The next restore_position() has to commit the cursor
-	 * into the dir the args just gave it, never into the superseded one.
-	 */
-	public function test_replayed_arguments_commits_the_cursor_into_the_new_offsetlog_dir(): void {
-		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
-		$base    = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' );
-		$stale   = "{$offsets}/quarterdeck-stale.binnacle.p5";
-		$fresh   = "{$offsets}/quarterdeck-fresh.gimbal.p9";
+	public function test_assume_clean_shutdown_fans_out_to_every_reader_present_and_later(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$node    = new Remote_Source_Node();
-		$node->name( 'quarterdeck-pull' );
-		$node->arguments( [ 'austin', 'binnacle.p5', $stale, "{$base}/deadletter/quarterdeck-stale.binnacle.p5" ] );
-		$this->seed_position( $node );
+		[ $node, $child ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:downstream', 'errors.*:audit-31' ) );
 
-		$node->arguments( [ 'austin', 'gimbal.p9', $fresh, "{$base}/deadletter/quarterdeck-fresh.gimbal.p9" ] );
-		$this->seed_position( $node );
-		$node->next_offset( 0 );
-		$node->checkpoint();
+		$this->read_private( $node, 'interpreter' )->dispatch( 'set_assume_clean_shutdown', [ 'true' ] );
+		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => 'errors.p4', Message::ID => '2:0:9', Message::VALUE => 'late-3141' ] ) );
 
-		$this->assertNotNull( $this->last_frame_in( $fresh ), 'the cursor commits into the replayed dir' );
-		$this->assertNull( $this->last_frame_in( $stale ), 'nothing reaches the superseded dir' );
-		$this->assertSame(
-			$this->read_private( $node, 'offsetlog' ),
-			Core::node( 'quarterdeck-pull:gimbal.p9:offsetlog' ),
-			'the rebuilt cursor is published under the replayed spoke key'
-		);
-		$this->assertNull(
-			Core::node( 'quarterdeck-pull:binnacle.p5:offsetlog' ),
-			'and the superseded sidecar is unregistered, not orphaned'
-		);
-	}
-
-	/**
-	 * A replay may name a new spoke while keeping the dirs. The dir guard hands
-	 * back the incumbent, so nothing rebuilds — but its registered name still
-	 * spells the superseded spoke, and the slot it occupies must not be one the
-	 * next retract computes past.
-	 */
-	public function test_replayed_spoke_renames_the_sidecar_even_when_the_dirs_are_unchanged(): void {
-		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
-		$base    = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' );
-		$dir     = "{$offsets}/sextant-pull.shared";
-		$dead    = "{$base}/deadletter/sextant-pull.shared";
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$node = new Remote_Source_Node();
-		$node->name( 'sextant-pull' );
-		$node->arguments( [ 'austin', 'astrolabe.p3', $dir, $dead ] );
-		( new \ReflectionMethod( $node, 'ensure_offsetlog' ) )->invoke( $node );
-
-		$node->arguments( [ 'austin', 'chronometer.p8', $dir, $dead ] );
-		( new \ReflectionMethod( $node, 'ensure_offsetlog' ) )->invoke( $node );
-
-		$this->assertNull( Core::node( 'sextant-pull:astrolabe.p3:offsetlog' ), 'the superseded name is released' );
-		$this->assertSame(
-			$this->read_private( $node, 'offsetlog' ),
-			Core::node( 'sextant-pull:chronometer.p8:offsetlog' ),
-			'and the incumbent answers to the replayed spoke'
-		);
-	}
-
-	/**
-	 * The quarantine is superseded the same way: a replay naming a different
-	 * deadletter_dir has to quarantine poison into the dir it was just given.
-	 */
-	public function test_replayed_arguments_quarantines_into_the_new_deadletter_dir(): void {
-		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
-		$base    = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' );
-		$stale   = "{$base}/deadletter/mizzen-stale.p2";
-		$fresh   = "{$base}/deadletter/mizzen-fresh.p2";
-		$node    = new Remote_Source_Node();
-		$node->name( 'mizzen-pull' );
-		$node->arguments( [ 'galveston', 'mizzen.p2', "{$offsets}/mizzen-pull.mizzen.p2", $stale ] );
-		( new \ReflectionMethod( $node, 'ensure_deadletter' ) )->invoke( $node );
-
-		$node->arguments( [ 'galveston', 'mizzen.p2', "{$offsets}/mizzen-pull.mizzen.p2", $fresh ] );
-		( new \ReflectionMethod( $node, 'ensure_deadletter' ) )->invoke( $node );
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$message[ Message::VALUE ] = 'brackish-water';
-		( new \ReflectionMethod( $node, 'dead_letter' ) )->invoke( $node, $message, 'throw', null );
-
-		$this->assertSame( [ 'brackish-water' ], $this->values_in( $fresh ), 'poison lands in the replayed dir' );
-		$this->assertSame( [], $this->values_in( $stale ), 'nothing reaches the superseded dir' );
-	}
-
-	/**
-	 * Committing into the replayed dir is half the invariant; RESUMING from it
-	 * is the other half. The restore latch therefore has to name the offsetlog
-	 * it read, not a bare `true` — a bool outlives the sidecar a replay
-	 * supersedes and pins the cursor to the dir the args just dropped.
-	 */
-	public function test_replayed_arguments_resumes_the_cursor_from_the_new_offsetlog_dir(): void {
-		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
-		$base    = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' );
-		$stale   = "{$offsets}/binnacle-stale.p5";
-		$fresh   = "{$offsets}/binnacle-fresh.p9";
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->commit_frame_at( $fresh, 7, 4242 );
-
-		$node = new Remote_Source_Node();
-		$node->name( 'binnacle-pull' );
-		$node->arguments( [ 'austin', 'binnacle.p5', $stale, "{$base}/deadletter/binnacle-stale.p5" ] );
-		$this->seed_position( $node );
-
-		$node->arguments( [ 'austin', 'binnacle.p9', $fresh, "{$base}/deadletter/binnacle-fresh.p9" ] );
-		$this->seed_position( $node );
-
-		$this->assertSame( 7, $this->read_private( $node, 'cursor_segment' ), 'the replayed dir seats the segment' );
-		$this->assertSame( 4242, $this->read_private( $node, 'cursor_offset' ), 'and the offset' );
-	}
-
-	/** Leave one durable frame at {segment,offset} in $dir, written by a real reader. */
-	private function commit_frame_at( string $dir, int $segment, int $offset ): void {
-		$base   = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' );
-		$scribe = new Remote_Source_Node();
-		$scribe->name( 'binnacle-scribe' );
-		$scribe->arguments( [ 'austin', 'binnacle.p9', $dir, "{$base}/deadletter/binnacle-scribe.p9" ] );
-		$scribe->next_offset( [ 'segment' => $segment, 'offset' => $offset ] );
-		$scribe->checkpoint();
-		$scribe->remove_node();
-	}
-
-	/** Seed the durable read position the way both production callers do. */
-	private function seed_position( Remote_Source_Node $node ): void {
-		( new \ReflectionMethod( $node, 'restore_position' ) )->invoke( $node );
-	}
-
-	/** @return array<array-key,mixed>|null */
-	private function last_frame_in( string $dir ): ?array {
-		$partition = new Partition_Node();
-		$partition->arguments( [ $dir ] );
-		return Remote_Source_Node::last_frame_of( $partition );
-	}
-
-	/** @return array<int,mixed> Every record VALUE written into $dir. */
-	private function values_in( string $dir ): array {
-		$partition = new Partition_Node();
-		$partition->arguments( [ $dir ] );
-		return $this->read_partition_values( $partition );
-	}
-
-	/**
-	 * Teardown cascades into the sidecars, so the slots must be cleared with
-	 * them. A slot still pointing at a torn-down node hands `ensure_offsetlog()`
-	 * a node whose name, sink and patron are gone: its writes reach disk and
-	 * nothing can address it.
-	 */
-	public function test_teardown_clears_the_sidecar_slots(): void {
-		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
-		$base    = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' );
-		$node    = new Remote_Source_Node();
-		$node->name( 'capstan-watch' );
-		$node->arguments( [ 'galveston', 'beacon.p7', "{$offsets}/capstan-watch.beacon.p7", "{$base}/deadletter/capstan-watch.beacon.p7" ] );
-		$offsetlog = ( new \ReflectionMethod( $node, 'ensure_offsetlog' ) )->invoke( $node );
-
-		$node->remove_node();
-
-		$this->assertNull( $this->read_private( $node, 'offsetlog' ), 'the torn-down offsetlog is dropped' );
-		$this->assertNull( $this->read_private( $node, 'deadletter' ), 'the torn-down quarantine is dropped' );
-		$this->assertNotSame( $offsetlog, ( new \ReflectionMethod( $node, 'ensure_offsetlog' ) )->invoke( $node ) );
+		$this->assertTrue( $this->read_private( $child, 'assume_clean_shutdown' ) );
+		$this->assertTrue( $this->read_private( Core::node( 'remote-austin:errors.p4' ), 'assume_clean_shutdown' ), 'a reader built later takes it too' );
+		$this->assertStringContainsString( 'command_node remote-austin:config set_assume_clean_shutdown true', $node->dump_config() );
 	}
 
 	// ---------------------------------------------------------------------
-	// Poison / crash lifecycle ([42]) — Consumer-style fair-shot + crawl.
+	// Heartbeat and status snapshot.
 	// ---------------------------------------------------------------------
 
-	public function test_downstream_throw_dead_letters_immediately_and_advances(): void {
-		// Consumer's model (all the way down): a downstream throw dead-letters the message ON
-		// SIGHT (won't-forward → never will) and the cursor advances PAST it — no head-block,
-		// no fair-shot climb. A following healthy message forwards normally.
+	public function test_heartbeat_skipped_when_slot_unknown(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->make_remote( 'remote-austin' );
+
+		$http = Core::node( 'remote-austin:http-out' );
+		$this->assertCount( 0, $this->read_private( $http, 'batch' ) );
+	}
+
+	public function test_heartbeat_command_contains_exact_slot_and_owner(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
-		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
+		[ $node ] = $this->make_remote( 'remote-austin' );
+
+		// Give the SSE_In a complete lease via the connected handshake.
+		$sse = Core::node( 'remote-austin:sse-in' );
+		self::set_slot( $sse, 7, 42424243 );
+
+		// Advance clock past the heartbeat interval (16s) but under the stale timeout (45s).
+		Core::$now = \microtime( true ) + 16;
 		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
 
-		$this->deliver( $sse, '7:128:44', 'boom' ); // downstream throws → dead-letter immediately.
-		$this->deliver( $sse, '7:300:40', '' );     // NOT blocked: forwards.
-
-		$dlq = \Newspack_Nodes\Config::get_base_directory() . '/deadletter/remote-austin.firehose.p0';
-		$this->assertSame( 1, $this->count_log_records( $dlq ), 'poison dead-lettered on the first throw' );
-		$this->assertCount( 1, $spy->captured, 'the following message is not head-blocked' );
-
-		// A clean shutdown commits PAST the last forwarded message — its crumb start plus the
-		// crumb's own length, which is the next unread position and never a record already read.
-		$node->checkpoint_shutdown();
-		$frame = $this->newest_offsetlog_frame( $node );
-		$this->assertSame( 7, $frame['segment'] );
-		$this->assertSame( 340, $frame['offset'] );
-		$this->assertSame( 0, $frame['attempts'], 'no fair-shot climb — a clean handoff' );
+		$http  = Core::node( 'remote-austin:http-out' );
+		$batch = $this->read_private( $http, 'batch' );
+		$this->assertCount( 1, $batch );
+		$envelope = $batch[0];
+		$this->assertSame( Message::TM_COMMAND, $envelope[ Message::TYPE ] );
+		$this->assertSame( 'remote-austin', $envelope[ Message::FROM ] );
+		$this->assertSame( 'workers', $envelope[ Message::TO ] );
+		$value = $envelope[ Message::VALUE ];
+		$this->assertSame( 'heartbeat', $value['name'] );
+		$this->assertSame( [ '7', '42424243' ], $value['arguments'] );
 	}
 
-	public function test_resume_position_uses_the_crumb_length_not_the_local_line(): void {
-		// The resume offset is in REMOTE coordinates, so only the crumb's on-disk
-		// length is authoritative. The delivered line is re-stamped in transit and
-		// runs longer, which pushed the resume INTO the next record: production saw
-		// `57:40959889:177` resumed at 40959916 — 27 bytes in — and the spoke then
-		// dead-lettered a 150-byte tail fragment, losing exactly one record.
+	public function test_heartbeat_reply_into_fill_records_rtt_and_response(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
-		[ $node ] = $this->make_remote_spy( 'remote-austin' );
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$sse = Core::node( 'remote-austin:sse-in' );
+		self::set_slot( $sse, 5 );
+		Core::$now = \microtime( true ) + 16;
+		$node->fire(); // sends heartbeat, records send-time
+
+		// Simulate the spoke's heartbeat reply routed back into fill(). The spoke's
+		// interpreter wraps a command response as TM_COMMAND|TM_RESPONSE; fill()
+		// records the RTT for that type and relays anything else to HTTP_Out.
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$reply[ Message::TO ]    = 'remote-austin';
+		$reply[ Message::VALUE ] = [
+			'name'    => 'heartbeat',
+			'payload' => [ 'success' => true, 'slot' => 5 ],
+		];
+		$node->fill( $reply );
+
+		$status = $this->status_of( $node );
+		$this->assertIsArray( $status );
+		$this->assertArrayHasKey( 'last_heartbeat_response', $status );
+		$this->assertArrayHasKey( 'last_heartbeat_rtt', $status );
+		$this->assertNotNull( $status['last_heartbeat_response'] );
+	}
+
+	public function test_heartbeat_command_error_clears_prior_success_and_records_reason(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		self::set_slot( Core::node( 'remote-austin:sse-in' ), 7, 42424243 );
+		Core::$now = 1748960000.0;
 		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
 
-		// A fat VALUE so the local line is nowhere near the 177-byte on-disk record.
-		$this->deliver( $sse, '57:40959889:177', '', [ 'pad' => \str_repeat( 'x', 400 ) ] );
+		$success                   = Message::new_message();
+		$success[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$success[ Message::VALUE ] = [
+			'name'    => 'heartbeat',
+			'payload' => [ 'success' => true, 'slot' => 7 ],
+		];
+		$node->fill( $success );
+		$this->assertNotNull( $this->status_of( $node )['last_heartbeat_response'] );
 
-		$this->assertSame(
-			40959889 + 177,
-			$this->read_private( $node, 'cursor_offset' ),
-			'the cursor must land on the next record boundary, not inside it'
-		);
-		$this->assertSame(
-			40959889 + 177,
-			$node->connect_position()['offset'],
-			'and the resume position is that same cursor — one position, not two'
-		);
-	}
-
-	public function test_crumbless_throw_dead_letters_without_moving_the_cursor(): void {
-		// A crumb-less throwing message has no position of its own: it cannot be placed in the
-		// spoke's bytes, so it moves the cursor by nothing. The disposal still commits, and that
-		// commit must land PAST the prior healthy record — never rewound onto it.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-
-		$this->deliver( $sse, '7:100:40', '' ); // healthy → cursor advances past it.
-		$this->assertSame( 140, $this->read_private( $node, 'cursor_offset' ) );
-
-		$this->deliver( $sse, '', 'boom' ); // crumb-less, downstream throws.
-
-		$dlq = \Newspack_Nodes\Config::get_base_directory() . '/deadletter/remote-austin.firehose.p0';
-		$this->assertSame( 1, $this->count_log_records( $dlq ), 'the crumb-less throw IS dead-lettered' );
-		$this->assertSame( 140, $this->read_private( $node, 'cursor_offset' ), 'an unplaceable record moves the cursor by nothing' );
-		$node->checkpoint_shutdown();
-		$frame = $this->newest_offsetlog_frame( $node );
-		$this->assertSame( 140, $frame['offset'], 'and the handoff sits past the healthy record, never rewound onto it' );
-	}
-
-	public function test_caught_throw_commits_past_the_poison_and_a_reboot_moves_on(): void {
-		// A caught-throw poison is dead-lettered ON SIGHT, so its position is resolved: the cursor
-		// advances past it by its own crumb length and the disposal commits there GRACEFULLY. A
-		// respawn therefore resumes past it — it is never re-delivered, and never re-quarantined.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-
-		$this->deliver( $sse, '7:128:44', 'boom' ); // last message → dead-lettered, then idle.
-		$dlq = \Newspack_Nodes\Config::get_base_directory() . '/deadletter/remote-austin.firehose.p0';
-		$this->assertSame( 1, $this->count_log_records( $dlq ) );
-		$this->assertSame( 172, $this->read_private( $node, 'cursor_offset' ), 'the cursor moves PAST the poison (128 + 44)' );
-
-		$node->checkpoint_shutdown();
-		$frame = $this->newest_offsetlog_frame( $node );
-		$this->assertSame( 172, $frame['offset'], 'and the handoff commits there' );
-		$this->assertSame( 0, $frame['attempts'], 'a disposed record leaves no lineage behind' );
-		$node->remove_node();
-		$spy->remove_node();
-		[ $node2, $spy2 ] = $this->make_remote_spy( 'remote-austin' );
-		$node2->fire();
-		$this->assertSame( 172, $this->read_private( $node2, 'cursor_offset' ), 'the respawn resumes past the poison' );
-		$this->assertFalse( $this->read_private( $node2, 'crawl_skip_head' ), 'and arms no head sacrifice on a resolved position' );
-
-		$sse2 = Core::node( 'remote-austin:sse-in' );
-		$this->deliver( $sse2, '7:200:40', '' );
-		$this->assertCount( 1, $spy2->captured, 'the next message forwards normally' );
-		$this->assertSame( 1, $this->count_log_records( $dlq ), 'and nothing is re-quarantined' );
-	}
-
-	public function test_a_disposal_ends_a_climbing_crash_lineage(): void {
-		// The record the lineage was climbing for is now IN the dead-letter queue — the suspect is
-		// resolved. Committing the live streak instead would leave the next boot arming a head
-		// sacrifice at a clean position, condemning whichever innocent message arrived there.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		$this->seed_offsetlog_frame( 7, 128, 2, '' ); // climbing lineage: resume -> attempts=3.
-		[ $node ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire();
-		$this->assertSame( 3, $this->read_private( $node, 'attempts' ) );
-		$sse = Core::node( 'remote-austin:sse-in' );
-
-		$this->deliver( $sse, '7:128:44', 'boom' ); // caught throw on the boot message.
-
-		$frame = $this->newest_offsetlog_frame( $node );
-		$this->assertSame( 172, $frame['offset'], 'committed past the disposed record' );
-		$this->assertSame( 0, $frame['attempts'], 'the lineage ends with the record it was about' );
-	}
-
-	public function test_unparseable_tail_is_quarantined_where_the_cursor_stands(): void {
-		// A torn frame carries no crumb, so it cannot be placed in the spoke's bytes by anything
-		// this node measures. It is dead-lettered where the cursor stands — the next unread
-		// position, the one place available — and moves it by nothing, never by a local line
-		// length, which is in the wrong byte space entirely.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		$this->seed_offsetlog_frame( 7, 128, 0, '' ); // boot = {7,128}; SSE_In is seeded there.
-		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-
-		$sse->process_sse_chunk( "event: msg\ndata: not-a-valid-message\n\n" ); // torn frame buffered.
-		$node->poll(); // drain: forward_line owns the torn-line DLQ (SSE_In no longer unpacks).
-		$dlq = \Newspack_Nodes\Config::get_base_directory() . '/deadletter/remote-austin.firehose.p0';
-		$this->assertSame( 1, $this->count_log_records( $dlq ), 'the unparseable frame is quarantined once' );
-		$this->assertSame( 128, $this->read_private( $node, 'cursor_offset' ), 'the cursor stands where the record was placed' );
-		$this->assertCount( 0, $spy->captured, 'and nothing is forwarded' );
-
-		// The stream moves on: the next crumb-bearing record places itself and forwards.
-		$this->deliver( $sse, '7:400:40', '' );
-		$this->assertCount( 1, $spy->captured );
-		$this->assertSame( 440, $this->read_private( $node, 'cursor_offset' ) );
-	}
-
-	public function test_unparseable_past_the_boot_head_is_dead_lettered(): void {
-		// A torn frame is genuinely new poison wherever it lands: the stream resuming PAST a
-		// GC'd crash suspect does not make the next torn frame that suspect.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		$this->seed_offsetlog_frame( 7, 128, Remote_Source_Node::CRASH_MAX_ATTEMPTS, '' ); // crash lineage, boot={7,128}.
-		[ $node ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire();
-		$this->assertTrue( $this->read_private( $node, 'crawl_skip_head' ) );
-		$sse = Core::node( 'remote-austin:sse-in' );
-		( new \ReflectionProperty( Remote_Source_Node::class, 'cursor_offset' ) )->setValue( $node, 500 ); // the stream resumed PAST the boot head (suspect GC'd).
-
-		$sse->process_sse_chunk( "event: msg\ndata: not-a-valid-message\n\n" );
-		$node->poll();
-
-		$dlq = \Newspack_Nodes\Config::get_base_directory() . '/deadletter/remote-austin.firehose.p0';
-		$this->assertSame( 1, $this->count_log_records( $dlq ), 'a torn frame PAST the boot head is DLQ\'d, not silently dropped' );
-	}
-
-	public function test_hard_crash_lineage_climbs_attempts_across_respawn(): void {
-		// A hard-crash lineage (NO reason — an uncatchable death, not a caught throw) restores
-		// and resumes at attempts+1: the climb that eventually reaches CRASH_MAX and crawls.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		$this->seed_offsetlog_frame( 7, 128, 1, '' );
-
-		[ $node ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire(); // restore_position applies the frame → attempts+1.
-
-		$this->assertSame( 2, $this->read_private( $node, 'attempts' ) );
-	}
-
-	public function test_transient_hard_crash_recovered_resets_streak_on_forward_progress(): void {
-		// A hard-crash lineage that turns out transient (the next message forwards fine) must
-		// clear its climbing streak the moment a message forwards successfully — else the next
-		// unclean recycle would falsely keep climbing toward the crawl threshold.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		$this->seed_offsetlog_frame( 7, 128, 1, '' ); // prior cycle's crash.
-
-		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire(); // restore → attempts = 2 (lineage in flight).
-		$this->assertSame( 2, $this->read_private( $node, 'attempts' ) );
-		$sse = Core::node( 'remote-austin:sse-in' );
-
-		$this->deliver( $sse, '7:128:44', '' ); // downstream healthy now → forwards successfully.
-
-		$this->assertCount( 1, $spy->captured );
-		$this->assertSame( 1, $this->read_private( $node, 'attempts' ), 'forward progress clears the streak' );
-		$this->assertSame( 0, $this->newest_offsetlog_frame( $node )['attempts'], 'and commits a clean handoff frame' );
-	}
-
-	public function test_hard_crash_crawl_checkpoints_each_message_then_exits(): void {
-		// A hard-crash lineage (NO reason, attempts ≥ CRASH_MAX) enters crawl: checkpoint
-		// per relayed message (pins the culprit on a re-crash), attempts pinned — until a
-		// full checkpoint interval of forward progress, then reset to the healthy baseline.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		$this->seed_offsetlog_frame( 7, 0, Remote_Source_Node::CRASH_MAX_ATTEMPTS, '' );
-
-		Core::$now = 1000.0;
-		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire(); // restore → crawl, attempts pinned at CRASH_MAX, crawl_started = 1000.
-		$this->assertTrue( $this->read_private( $node, 'crawl' ) );
-		$sse = Core::node( 'remote-austin:sse-in' );
-
-		$this->deliver( $sse, '7:100:40', '' );
-		$this->deliver( $sse, '7:200:40', '' );
-		$this->assertSame( 2, $spy->fill_count, 'crawl still forwards each message' );
-		$this->assertGreaterThanOrEqual( 2, $this->count_offsetlog_records( $node ), 'crawl checkpoints per message' );
-		$this->assertSame( Remote_Source_Node::CRASH_MAX_ATTEMPTS, $this->newest_offsetlog_frame( $node )['attempts'], 'attempts pinned during crawl' );
-
-		// A full interval elapses crash-free → the next message exits crawl to the baseline.
-		Core::$now = 1000.0 + Remote_Source_Node::CHECKPOINT_INTERVAL_S + 1.0;
-		$this->deliver( $sse, '7:300:40', '' );
-		$this->assertFalse( $this->read_private( $node, 'crawl' ) );
-		$this->assertSame( 1, $this->newest_offsetlog_frame( $node )['attempts'], 'crawl exits to the healthy baseline' );
-	}
-
-	public function test_crawl_pre_dispatch_commit_pins_line_before_fill(): void {
-		// Fix #1: in crawl, forward_line writes a FORCED checkpoint at the in-hand line's OWN start
-		// BEFORE $sink->fill — so an uncatchable crash mid-dispatch re-resumes at exactly it (the
-		// advance-on-next cursor pins the in-hand line, unlike Consumer's chop cursor). Prove the
-		// ordering: a sink that reads the newest committed frame at fill() time already sees THIS
-		// line's start committed. (The trait's poll_crawl checkpoint runs only AFTER the fill.)
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		$this->seed_offsetlog_frame( 7, 0, Remote_Source_Node::CRASH_MAX_ATTEMPTS, '' ); // boot into crawl at {7,0}.
-
-		Core::$now = 1000.0;
-		$node = new Remote_Source_Node();
-		$node->name( 'remote-austin' );
-		$probe = new class() extends Node {
-			public ?Partition_Node $offsetlog = null;
-			/** @var array<int,array{segment:int,offset:int}> */
-			public array $committed_at_fill = [];
-			public function fill( array $message ): void {
-				$segments = $this->offsetlog?->get_segments( true ) ?? [];
-				$last     = \end( $segments );
-				if ( false === $last ) {
-					$this->committed_at_fill[] = [ 'segment' => -1, 'offset' => -1 ];
-					return;
-				}
-				$content = (string) $this->offsetlog?->read_at( $last['id'], 0, $last['size'] );
-				$lines   = \array_values( \array_filter( \explode( "\n", $content ), static fn ( $l ) => '' !== $l ) );
-				$v       = Message::unpacked( \end( $lines ) )[ Message::VALUE ];
-				$this->committed_at_fill[] = [ 'segment' => (int) $v['segment'], 'offset' => (int) $v['offset'] ];
+		$lines = [];
+		Core::set_stderr_handler(
+			static function ( string $line ) use ( &$lines ): void {
+				$lines[] = $line;
 			}
-		};
-		$probe->name( 'downstream' );
-		$node->sink( $probe );
-		$node->target( 'downstream' );
-		$node->arguments( $this->remote_args() );
-		$node->fire(); // enter crawl; offsetlog materialized (newest frame is the boot seed {7,0}).
-		$probe->offsetlog = $this->read_private( $node, 'offsetlog' );
-		$sse = Core::node( 'remote-austin:sse-in' );
+		);
+		$error                   = Message::new_message();
+		$error[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_ERROR;
+		$error[ Message::VALUE ] = [
+			'name'    => 'heartbeat',
+			'payload' => 'SSE slot lease not owned',
+		];
+		$node->fill( $error );
 
-		// A line PAST the boot pin: sacrifice_boot_head disarms (stream resumed past the GC'd
-		// suspect) and forwards it in crawl — exercising the crawl FORWARD path (not the sacrifice).
-		$this->deliver( $sse, '7:100:40', '' );
-
+		$status = $this->status_of( $node );
+		$this->assertNull( $status['last_heartbeat_response'] );
+		$this->assertNull( $status['last_heartbeat_rtt'] );
 		$this->assertSame(
-			[ [ 'segment' => 7, 'offset' => 100 ] ],
-			$probe->committed_at_fill,
-			'the pinned cursor is committed BEFORE the fill in crawl'
+			'Client heartbeat failed: SSE slot lease not owned',
+			$status['last_error']
+		);
+		$this->assertStringContainsString( 'SSE slot lease not owned', \implode( '', $lines ) );
+		$this->assertStringNotContainsString( '42424243', \implode( '', $lines ) );
+	}
+
+	public function test_heartbeat_success_false_clears_prior_success_and_records_reason(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		self::set_slot( Core::node( 'remote-austin:sse-in' ), 7, 42424243 );
+		Core::$now = 1748960000.0;
+		$node->fire();
+
+		$success                   = Message::new_message();
+		$success[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$success[ Message::VALUE ] = [
+			'name'    => 'heartbeat',
+			'payload' => [ 'success' => true, 'slot' => 7 ],
+		];
+		$node->fill( $success );
+
+		$rejected                   = Message::new_message();
+		$rejected[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$rejected[ Message::VALUE ] = [
+			'name'    => 'heartbeat',
+			'payload' => [
+				'success' => false,
+				'error'   => 'slot lease ownership mismatch',
+			],
+		];
+		$node->fill( $rejected );
+
+		$status = $this->status_of( $node );
+		$this->assertNull( $status['last_heartbeat_response'] );
+		$this->assertNull( $status['last_heartbeat_rtt'] );
+		$this->assertSame(
+			'Client heartbeat failed: slot lease ownership mismatch',
+			$status['last_error']
 		);
 	}
 
-	public function test_crawl_entry_sacrifices_matching_head_to_dlq_then_forwards(): void {
-		// Consumer-parity head-sacrifice: booting into a hard-crash lineage (crawl) pins the
-		// boot cursor and arms a one-shot head-sacrifice. The first relayed message whose crumb
-		// START matches the pin is the in-flight-at-crash suspect — dead-lettered with reason
-		// 'crash' (NOT forwarded, even though it is otherwise healthy), the local cursor advances
-		// PAST it (offset+length), the flag clears, and the next message forwards normally.
+	public function test_publish_status_ages_out_stale_heartbeat_response(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
-		$this->seed_offsetlog_frame( 7, 128, Remote_Source_Node::CRASH_MAX_ATTEMPTS, '' );
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$sse = Core::node( 'remote-austin:sse-in' );
+		self::set_slot( $sse, 5 );
 
 		Core::$now = 1000.0;
-		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire(); // restore → crawl, boot pinned at {7,128}, head-sacrifice armed.
-		$this->assertTrue( $this->read_private( $node, 'crawl' ) );
-		$this->assertTrue( $this->read_private( $node, 'crawl_skip_head' ), 'crawl entry arms the head sacrifice' );
-		$sse = Core::node( 'remote-austin:sse-in' );
+		$node->fire(); // mints the heartbeat (records send-time)
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$reply[ Message::TO ]    = 'remote-austin';
+		$reply[ Message::VALUE ] = [
+			'name'    => 'heartbeat',
+			'payload' => [ 'success' => true, 'slot' => 5 ],
+		];
+		$node->fill( $reply ); // records last_heartbeat_response at t=1000
 
-		$this->deliver( $sse, '7:128:44', '' ); // matches the pin → sacrificed even though healthy.
+		// A tick right after the reply keeps the fresh response in the snapshot.
+		$node->fire();
+		$this->assertNotNull( $this->status_of( $node )['last_heartbeat_response'] );
 
-		$dlq = \Newspack_Nodes\Config::get_base_directory() . '/deadletter/remote-austin.firehose.p0';
-		$this->assertSame( 1, $this->count_log_records( $dlq ), 'suspect head dead-lettered' );
-		$this->assertCount( 0, $spy->captured, 'suspect head is NOT forwarded downstream' );
-		$this->assertFalse( $this->read_private( $node, 'crawl_skip_head' ), 'head sacrifice is one-shot' );
-		// The suspect is resolved: the cursor moves PAST it (128 + 44).
-		$this->assertSame( 7, $this->read_private( $node, 'cursor_segment' ) );
-		$this->assertSame( 172, $this->read_private( $node, 'cursor_offset' ), 'cursor lands past the sacrificed head' );
-		// And the disposal commits there, closing the sacrifice-to-next-arrival crash window: a
-		// reboot inside it resumes past the suspect instead of producing a second DLQ entry.
-		$frame = $this->newest_offsetlog_frame( $node );
-		$this->assertSame( 172, $frame['offset'] );
-		$this->assertSame( Remote_Source_Node::CRASH_MAX_ATTEMPTS, $frame['attempts'], 'crawl keeps its accounting pinned until it survives a clean interval' );
-
-		$this->deliver( $sse, '7:172:40', '' ); // past the pin, flag cleared → forwards normally.
-		$this->assertCount( 1, $spy->captured, 'the next message forwards normally' );
-		$this->assertSame( 212, $this->read_private( $node, 'cursor_offset' ), 'and the cursor lands past it' );
-		$this->assertSame( 1, $this->count_log_records( $dlq ), 'only the head was dead-lettered' );
+		// No further reply; advance past the HEARTBEAT_INTERVAL*4 staleness window.
+		// The Status badge must not latch 'success' on a stale timestamp, so the
+		// snapshot ages the response out to null (mirrors the old clear-on-disconnect).
+		Core::$now = 1000.0 + ( Remote_Source_Node::HEARTBEAT_INTERVAL * 4 ) + 5;
+		$node->fire();
+		$status = $this->status_of( $node );
+		$this->assertNull( $status['last_heartbeat_response'] );
+		$this->assertNull( $status['last_heartbeat_rtt'] );
 	}
 
-	public function test_crawl_entry_disarms_without_sacrifice_when_first_message_past_pin(): void {
-		// Stale suspect: the remote GC'd the suspect's segment (or the stream resumed beyond it),
-		// so the first relayed crumb START is PAST the boot pin. The suspect no longer exists —
-		// disarm WITHOUT sacrificing and forward the message normally. Only an exact match sacrifices.
+	public function test_publish_status_carries_the_schedule_a_stream_closed_at_eof_returns_on(): void {
+		// The dashboard must tell "closed on purpose, back at T" from "failed",
+		// and a null last_error also means "never attempted" — so the schedule
+		// itself rides the snapshot as its own field.
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
-		$this->seed_offsetlog_frame( 7, 128, Remote_Source_Node::CRASH_MAX_ATTEMPTS, '' );
+		Core::$now = 1748970000.0;
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$this->drain_connect_queue();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$this->assertInstanceOf( SSE_In_Node::class, $sse );
+		$handle = $sse->test_get_handle();
+		$this->assertInstanceOf( \CurlHandle::class, $handle );
 
+		$sse->process_sse_chunk( "retry: 9000\n\n" );
+		self::set_slot( $sse, 5 );
+		// The stub handle never transferred, so seed the status a live 200
+		// stream would have observed while its bytes arrived.
+		( new \ReflectionProperty( SSE_In_Node::class, 'last_http_code' ) )->setValue( $sse, 200 );
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] ] );
+		Core::$now = 1748970001.0;
+		$node->fire();
+
+		$status = $this->status_of( $node );
+		$this->assertFalse( $status['connected'] );
+		$this->assertNull( $status['last_error'], 'a scheduled close is not a failure' );
+		$this->assertSame( 1748970009, $status['scheduled_reconnect_at'] );
+	}
+
+	public function test_publish_status_reports_an_opening_stream_as_connecting(): void {
+		// A socket mid-open is neither up nor down; publishing it as connected
+		// is what made a card read CONNECTED seconds before it timed out.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		Core::$now = 1748970000.0;
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$this->drain_connect_queue();
+		// fire() housekeeps once per wall-second; the publish rides the next one.
+		Core::$now = 1748970001.0;
+		$node->fire();
+
+		$status = $this->status_of( $node );
+		$this->assertFalse( $status['connected'], 'no handshake yet' );
+		$this->assertTrue( $status['connecting'] );
+	}
+
+	public function test_publish_status_reports_a_handshaken_stream_as_connected(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		Core::$now = 1748970000.0;
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$this->drain_connect_queue();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$this->assertInstanceOf( SSE_In_Node::class, $sse );
+		self::set_slot( $sse, 5 );
+		Core::$now = 1748970001.0;
+		$node->fire();
+
+		$status = $this->status_of( $node );
+		$this->assertTrue( $status['connected'] );
+		$this->assertFalse( $status['connecting'] );
+	}
+
+	public function test_published_status_carries_the_skipped_line_count(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$sse->process_sse_chunk( self::unparseable_frame( 'COUNT 4 CURSORS firehose.p0=5:95' ) );
+
+		Core::$now = 1001.0;
+		$node->fire();
+
+		$this->assertSame( 4, $this->status_of( $node )['unparseable_lines'] );
+	}
+
+	public function test_a_released_slot_never_reaches_the_dashboard(): void {
+		// An idle stream ends and releases its own slot; a heartbeat already in
+		// flight lands on the tombstone. Latching that into last_error paints a
+		// healthy link with a failure banner it will never clear on its own.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node ] = $this->make_remote( 'remote-austin' );
+
+		$node->fill( $this->heartbeat_error( 'remote-austin', 'SSE slot lease not owned: slot_released' ) );
+
+		$status = $this->status_of( $node );
+		$this->assertNull( ( $status ?: [] )['last_error'] ?? null );
+	}
+
+	public function test_a_stolen_slot_still_reaches_the_dashboard(): void {
+		// The counterpart guard: an eviction is a real fault and must surface.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node ] = $this->make_remote( 'remote-austin' );
+
+		$node->fill( $this->heartbeat_error( 'remote-austin', 'SSE slot lease not owned: pointer_owner_mismatch' ) );
+
+		$this->assertStringContainsString( 'pointer_owner_mismatch', (string) $this->status_of( $node )['last_error'] );
+	}
+
+	/**
+	 * A `workers.heartbeat` error reply addressed back to the link that minted it.
+	 *
+	 * @return array<int,mixed> The 7-field positional message array.
+	 */
+	private function heartbeat_error( string $link, string $payload ): array {
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_ERROR;
+		$reply[ Message::TO ]    = $link;
+		$reply[ Message::VALUE ] = [
+			'name'    => 'heartbeat',
+			'payload' => $payload,
+		];
+		return $reply;
+	}
+
+	public function test_tick_publishes_status_snapshot(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node ] = $this->make_remote( 'remote-austin' );
+
+		$status = $this->status_of( $node );
+		$this->assertIsArray( $status );
+		$this->assertArrayHasKey( 'connected', $status );
+		$this->assertArrayHasKey( 'current_backoff', $status );
+		$this->assertArrayHasKey( 'last_connection_attempt', $status );
+		$this->assertArrayHasKey( 'last_sse_heartbeat', $status );
+	}
+
+	public function test_publish_status_noop_when_no_cache(): void {
+		Core::$memd = null;
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+
+		// Without a cache, the tick still runs cleanly — write_status short-circuits.
+		$this->make_remote( 'remote-austin' );
+
+		$this->assertInstanceOf( SSE_In_Node::class, Core::node( 'remote-austin:sse-in' ) );
+	}
+
+	public function test_connection_attempt_reflects_actual_connect_not_each_tick(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
 		Core::$now = 1000.0;
-		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire();
-		$this->assertTrue( $this->read_private( $node, 'crawl_skip_head' ) );
-		$sse = Core::node( 'remote-austin:sse-in' );
-
-		$this->deliver( $sse, '7:500:40', '' ); // start PAST the {7,128} pin → stale suspect.
-
-		$dlq = \Newspack_Nodes\Config::get_base_directory() . '/deadletter/remote-austin.firehose.p0';
-		$this->assertSame( 0, $this->count_log_records( $dlq ), 'a past-the-pin message is not sacrificed' );
-		$this->assertCount( 1, $spy->captured, 'and it forwards normally' );
-		$this->assertFalse( $this->read_private( $node, 'crawl_skip_head' ), 'a stale suspect disarms the head sacrifice' );
-	}
-
-	public function test_crawl_does_not_exit_while_head_sacrifice_armed(): void {
-		// The crawl-exit guard mirrors Consumer: an elapsed interval must NOT exit crawl while the
-		// head sacrifice is still armed, or an un-sacrificed poison re-arms the crash loop next boot.
-		// Only after the suspect is sacrificed (flag cleared) may an elapsed interval exit crawl.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		$this->seed_offsetlog_frame( 7, 128, Remote_Source_Node::CRASH_MAX_ATTEMPTS, '' );
-
-		Core::$now = 1000.0;
-		[ $node ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire(); // restore → crawl, crawl_started = 1000, head-sacrifice armed.
-		$sse = Core::node( 'remote-austin:sse-in' );
-
-		// Interval elapsed, but a message with no usable breadcrumb keeps the flag armed.
-		Core::$now = 1000.0 + Remote_Source_Node::CHECKPOINT_INTERVAL_S + 1.0;
-		$this->deliver( $sse, '', '' ); // null crumb → flag stays armed, cursor un-advanced.
-		$this->assertTrue( $this->read_private( $node, 'crawl' ), 'does not exit crawl while the head sacrifice is armed' );
-
-		// Now the suspect arrives and is sacrificed → flag clears → the elapsed interval exits crawl.
-		$this->deliver( $sse, '7:128:44', '' );
-		$this->assertFalse( $this->read_private( $node, 'crawl_skip_head' ) );
-		$this->assertFalse( $this->read_private( $node, 'crawl' ), 'exits crawl after the sacrifice once the interval has elapsed' );
-	}
-
-	public function test_cooperative_stop_below_threshold_freezes_at_message_start(): void {
-		// EXACTLY Consumer's fair-shot: a timeout on the BOOT message (the replay resumes at the
-		// boot cursor, so the in-hand start == boot — cursor not advanced past boot) below COOP_MAX
-		// records a strike at the message's OWN start with the climbing attempts/reason — no
-		// quarantine — so the respawn re-pulls exactly it and climbs.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		$this->seed_offsetlog_frame( 7, 128, 0, '' ); // boot = {7,128}; the stream replays the boot message there.
-		[ $node ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire(); // restore → attempts=1, boot cursor = {7,128}.
-		$sse = Core::node( 'remote-austin:sse-in' );
-
-		$this->deliver_built( $sse, $this->stop_message( '7:128:44' ) ); // deadline mid-forward on the boot message.
-		$node->cooperative_stop( 'timeout', false );
-
-		$dlq = \Newspack_Nodes\Config::get_base_directory() . '/deadletter/remote-austin.firehose.p0';
-		$this->assertSame( 0, $this->count_log_records( $dlq ), 'below threshold → not quarantined' );
-		$frame = $this->newest_offsetlog_frame( $node );
-		$this->assertSame( 7, $frame['segment'] );
-		$this->assertSame( 128, $frame['offset'], 'frozen at the poison message start (offset, not offset+length)' );
-		$this->assertSame( 1, $frame['attempts'] );
-		$this->assertSame( 'timeout', $frame['reason'] );
-		// New-hazard guard: a below-threshold strike frame must carry NO quarantine marker, or the
-		// successor would silently drop a message that still had fair shots left (data loss).
-		$this->assertArrayNotHasKey( 'quarantined', $frame, 'a below-threshold strike is NOT a quarantine marker' );
-	}
-
-	public function test_cooperative_stop_at_threshold_quarantines_and_hands_off_past_it(): void {
-		// At COOP_MAX the in-flight boot message is dead-lettered and the shutdown frame is a
-		// quarantine MARKER at the message's own START (advance-on-next — no offset+length), at the
-		// virgin baseline. The successor boots onto it, DROPS it (already in the DLQ), and advances.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		$this->seed_offsetlog_frame( 7, 128, Remote_Source_Node::COOP_MAX_ATTEMPTS - 1, 'timeout' );
-		[ $node ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire(); // restore → attempts = COOP_MAX, boot = {7,128}.
-		$sse = Core::node( 'remote-austin:sse-in' );
-
-		$this->deliver_built( $sse, $this->stop_message( '7:128:44' ) ); // boot message, stopped mid-forward.
-		$node->cooperative_stop( 'timeout', false );
-
-		$dlq = \Newspack_Nodes\Config::get_base_directory() . '/deadletter/remote-austin.firehose.p0';
-		$this->assertSame( 1, $this->count_log_records( $dlq ), 'quarantined at COOP_MAX' );
-		$frame = $this->newest_offsetlog_frame( $node );
-		$this->assertSame( 7, $frame['segment'] );
-		$this->assertSame( 172, $frame['offset'], 'hands off PAST the quarantined message (128 + 44)' );
-		$this->assertSame( 0, $frame['attempts'], 'clean handoff at the virgin baseline' );
-	}
-
-	public function test_cooperative_stop_clean_handoff_when_cursor_advanced(): void {
-		// A stop AFTER the cursor advanced past boot is a normal recycle, not poison: clean
-		// graceful handoff, no strike, no quarantine (EXACTLY Consumer).
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-
-		$this->deliver_built( $sse, $this->healthy_message( '7:100:40' ) ); // forwards → cursor advances past boot.
-		$this->deliver_built( $sse, $this->stop_message( '7:300:44' ) );    // a later stop.
-		$node->cooperative_stop( 'timeout', false );
-
-		$dlq = \Newspack_Nodes\Config::get_base_directory() . '/deadletter/remote-austin.firehose.p0';
-		$this->assertSame( 0, $this->count_log_records( $dlq ), 'advanced cursor → no strike' );
-		$this->assertCount( 1, $spy->captured );
-		$frame = $this->newest_offsetlog_frame( $node );
-		$this->assertSame( 300, $frame['offset'], 'graceful commit at the in-hand (stopped) message start' );
-		$this->assertSame( 0, $frame['attempts'] );
-		// Fair-shot absence: a routine cooperative stop is NEVER a quarantine — the successor
-		// re-delivers the in-flight message (that re-delivery IS the fair shot).
-		$this->assertArrayNotHasKey( 'quarantined', $frame, 'a routine cooperative stop writes no marker' );
-	}
-
-	public function test_assume_clean_shutdown_commits_past_the_stopped_message(): void {
-		// With assume_clean_shutdown, a plain cooperative stop commits PAST the in-flight
-		// message using the crumb's own LENGTH (seg:offset:length), so the restart resumes
-		// after it and the hub isn't re-sent the already-written message. Contrast the
-		// default, which commits at the message START and re-delivers it.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_remote_spy( 'remote-austin' );
-		$node->set_assume_clean_shutdown( true );
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-
-		$this->deliver_built( $sse, $this->stop_message( '7:300:44' ) ); // plain stop; crumb length 44.
-		$node->cooperative_stop( 'timeout', false );
-
-		$frame = $this->newest_offsetlog_frame( $node );
-		$this->assertSame( 344, $frame['offset'], 'commits past the message: start 300 + crumb length 44' );
-		$this->assertSame( 0, $frame['attempts'], 'a clean-shutdown stop advances the cursor — no strike' );
-	}
-
-	public function test_assume_clean_shutdown_replays_a_stop_whose_downstream_flush_failed(): void {
-		// A plain stop carrying a previous means the downstream write never landed, so
-		// assume_clean_shutdown may not commit past it: the cursor stays at the message
-		// START (300), and the stop escapes plain with the flush failure attached.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_remote_spy( 'remote-austin' );
-		$node->set_assume_clean_shutdown( true );
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-
-		$m                  = $this->stop_message( '7:300:44' );
-		$m[ Message::KEY ]  = 'stop-flush-failed';
-		$sse->process_sse_chunk( self::sse_frame( 'msg', $m ) );
-		try {
-			$node->poll();
-			$this->fail( 'expected Worker_Should_Stop' );
-		} catch ( Worker_Should_Stop $e ) {
-			$this->assertNotInstanceOf( \Newspack_Nodes\Worker_Should_Stop_Clean::class, $e, 'a failed flush never converts to clean' );
-			$this->assertSame( 'segment write refused: ENOSPC', $e->getPrevious()?->getMessage() );
-		}
-		$node->cooperative_stop( 'timeout', false );
-
-		$this->assertSame( 300, $this->newest_offsetlog_frame( $node )['offset'], 'replays from the message start, not past it' );
-	}
-
-	public function test_a_clean_stop_carrying_a_failure_replays_instead_of_committing_past(): void {
-		// A Clean stop carrying a previous is not clean: the downstream write never
-		// landed, so the cursor stays at the message START (300), not past it (344).
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-
-		$m                 = $this->stop_message( '7:300:44' );
-		$m[ Message::KEY ] = 'clean-flush-failed';
-		$sse->process_sse_chunk( self::sse_frame( 'msg', $m ) );
-		try {
-			$node->poll();
-			$this->fail( 'expected Worker_Should_Stop' );
-		} catch ( Worker_Should_Stop $e ) {
-			$this->assertFalse( Worker_Should_Stop::is_clean( $e ), 'a failed flush is never clean' );
-			$this->assertSame( 'segment write refused: EIO-63', $e->getPrevious()?->getMessage() );
-		}
-		$node->cooperative_stop( 'timeout', false );
-
-		$this->assertSame( 300, $this->newest_offsetlog_frame( $node )['offset'], 'replays from the message start, not past it' );
-	}
-
-	public function test_a_clean_stop_in_crawl_commits_past_the_record(): void {
-		// A clean stop says the record completed, crawl or not: the cursor
-		// moves past it (300 + 44), exactly as a Consumer's drain does.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		$this->seed_offsetlog_frame( 7, 0, Remote_Source_Node::CRASH_MAX_ATTEMPTS, '' );
-		Core::$now = 1000.0;
-		[ $node ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire(); // restore → crawl.
-		$this->assertTrue( $this->read_private( $node, 'crawl' ) );
-		$sse = Core::node( 'remote-austin:sse-in' );
-
-		$m                 = $this->stop_message( '7:300:44' );
-		$m[ Message::KEY ] = 'clean-bare';
-		$sse->process_sse_chunk( self::sse_frame( 'msg', $m ) );
-		try {
-			$node->poll();
-			$this->fail( 'expected Worker_Should_Stop' );
-		} catch ( Worker_Should_Stop $e ) {
-			$this->assertTrue( Worker_Should_Stop::is_clean( $e ), 'a clean stop escapes clean in crawl' );
-			$this->assertSame( 'clean stop 5146', $e->getMessage(), 'the stop raised is the one the sink threw' );
-		}
-
-		$this->assertSame( 344, $this->read_private( $node, 'cursor_offset' ), 'commits past the record' );
-	}
-
-	public function test_a_clean_stop_on_a_crumbless_record_escapes_clean_and_moves_the_cursor_by_nothing(): void {
-		// A record with no breadcrumb has no position of its own, so committing
-		// past it advances the cursor by nothing: the stop stays clean, and the
-		// cursor stays at the prior record's end (140), where the spoke resumes.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-
-		$this->deliver( $sse, '7:100:40', '' ); // healthy → cursor advances to 140.
-		$m                 = $this->stop_message( '' );
-		$m[ Message::KEY ] = 'clean-bare';
-		$sse->process_sse_chunk( self::sse_frame( 'msg', $m ) );
-		try {
-			$node->poll();
-			$this->fail( 'expected Worker_Should_Stop' );
-		} catch ( Worker_Should_Stop $e ) {
-			$this->assertTrue( Worker_Should_Stop::is_clean( $e ), 'a clean stop is never rewritten' );
-		}
-
-		$this->assertSame( 140, $this->read_private( $node, 'cursor_offset' ), 'a crumbless record moves the cursor by nothing' );
-		$this->assertStringNotContainsString( 'clean-bare', $this->read_private( $node, 'buffer' ), 'the completed line leaves the buffer' );
-	}
-
-	public function test_assume_clean_shutdown_does_not_advance_past_a_crumbless_message(): void {
-		// A crumb-less message has no position of its own — the cursor stands PAST the prior
-		// healthy record. assume_clean_shutdown commits past it by its crumb's length, which
-		// is zero, never by the local line's bytes (prior_end + this_line_len would be a bogus
-		// offset that misaligns the stream), so the cursor stays where it stands.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_remote_spy( 'remote-austin' );
-		$node->set_assume_clean_shutdown( true );
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-
-		$this->deliver( $sse, '7:100:40', '' );                  // healthy → cursor advances to 140.
-		$this->deliver_built( $sse, $this->stop_message( '' ) ); // crumb-less stop.
-		$node->cooperative_stop( 'timeout', false );
-
-		$this->assertSame( 140, $this->newest_offsetlog_frame( $node )['offset'], 'a crumb-less stop moves the cursor by nothing' );
-	}
-
-	public function test_cooperative_stop_memory_watermark_exemption_does_not_strike(): void {
-		// A memory stop with the fresh baseline already near the watermark blames a leak /
-		// undersized limit, NOT the in-flight message: clean handoff, no strike (EXACTLY Consumer).
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		$this->seed_offsetlog_frame( 7, 128, 0, '' ); // clean prior frame → resume attempts=1, boot={7,128}.
-		[ $node ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-
-		$this->deliver_built( $sse, $this->stop_message( '7:128:44' ) ); // boot message, stopped mid-forward.
-		$node->cooperative_stop( 'memory', true );
-
-		$dlq = \Newspack_Nodes\Config::get_base_directory() . '/deadletter/remote-austin.firehose.p0';
-		$this->assertSame( 0, $this->count_log_records( $dlq ), 'watermark exemption → not struck' );
-		$frame = $this->newest_offsetlog_frame( $node );
-		$this->assertSame( 128, $frame['offset'], 'graceful commit at the boot cursor' );
-		$this->assertSame( 0, $frame['attempts'], 'clean handoff, no strike' );
-	}
-
-	public function test_the_cursor_lands_past_each_forwarded_message(): void {
-		// The cursor names the next UNREAD byte, the same as Consumer's: a record's
-		// own crumb gives its start and size, and forwarding it moves the cursor
-		// past both. Pinned at the start instead, every resume re-delivers it.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-
-		$this->deliver( $sse, '7:100:40', '' );
-		$this->assertSame( 140, $this->read_private( $node, 'cursor_offset' ), 'past message N (100 + 40)' );
-
-		$this->deliver( $sse, '7:140:30', '' );
-		$this->assertSame( 170, $this->read_private( $node, 'cursor_offset' ), 'past N+1 (140 + 30)' );
-		$this->assertCount( 2, $spy->captured );
-	}
-
-	public function test_reconnect_resumes_from_the_crumb_stamped_record_end(): void {
-		// Resume at `crumb offset + crumb length` — exactly-once, no boot replay. Asserted the
-		// reverse until 2.2.1 (local strlen), which mixed a remote offset with a local length and
-		// drifted 27 bytes into the next record on every reconnect.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$captured_urls = [];
-		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ) use ( &$captured_urls ): \CurlHandle {
-			$captured_urls[] = Core::as_string( $opts[ \CURLOPT_URL ] );
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
-			return \curl_init();
-		};
-		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire(); // first connect: position is boot (0:0) → no `positions` param.
-		$sse = Core::node( 'remote-austin:sse-in' );
-
-		// The stamp (999) is what the resume must honor — it is the on-disk record size.
-		$sse->process_sse_chunk( self::sse_frame( 'msg', [
-			Message::TYPE  => Message::TM_STRUCT,
-			Message::ID    => '7:200:999',
-			Message::VALUE => [ 'p' => 1 ],
-		] ) );
-		$node->poll();
-		$this->assertCount( 1, $spy->captured );
-
-		// A reconnect: drop the handle, clear backoff, tick → maybe_connect rebuilds `positions`.
-		$sse->disconnect();
-		Core::$now = \microtime( true ) + 100;
-		$node->fire();
+		[ $node ] = $this->make_remote( 'remote-austin' ); // queues the connect at t=1000
 		$this->drain_connect_queue();
 
-		$last_url = (string) \end( $captured_urls );
-		\parse_str( (string) \parse_url( $last_url, \PHP_URL_QUERY ), $query );
-		$positions = \json_decode( (string) ( $query['positions'] ?? '' ), true );
-		$this->assertIsArray( $positions, 'the reconnect carries a positions param (not a boot replay)' );
-		$this->assertSame(
-			[ 'segment' => 7, 'offset' => 200 + 999 ],
-			$positions['firehose.p0'] ?? null,
-			'resume at the crumb-stamped record end, never a locally measured line length'
-		);
-		$this->assertCount( 1, $spy->captured, 'the reconnect itself re-forwards nothing' );
+		// Later ticks keep firing without a reconnect (the handle persists), so
+		// "Connected" must stay pinned to the real connect time — not creep with the tick clock.
+		Core::$now = 1030.0;
+		$node->fire();
+
+		$this->assertSame( 1000, $this->status_of( $node )['last_connection_attempt'] );
 	}
 
-	public function test_a_two_part_id_is_no_crumb(): void {
-		// Every producer stamps seg:off:len; seg:off is only a viewer's lookup address.
+	public function test_published_status_carries_sse_heartbeat_receipt(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
-		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+
 		$sse = Core::node( 'remote-austin:sse-in' );
-		$node->next_offset( [ 'segment' => 3, 'offset' => 333 ] );
+		Core::$now = 1748960000;
+		$sse->process_sse_chunk( "event: heartbeat\ndata: {}\n\n" );
 
-		$this->deliver( $sse, '7:200', '' );
-		$this->deliver( $sse, '7::20', '' );
-
-		$this->assertCount( 2, $spy->captured, 'the records still forward' );
-		$this->assertSame( 3, $this->read_private( $node, 'cursor_segment' ) );
-		$this->assertSame( 333, $this->read_private( $node, 'cursor_offset' ), 'but places nothing' );
-	}
-
-	public function test_relay_with_null_sink_fails_loud(): void {
-		// Bug D: a null/unwired downstream must FAIL LOUD — never silently no-op while the
-		// stream is consumed (which would advance the cursor past undelivered messages). The
-		// stream now arrives via the SSE_In buffer; forward_line throws on the null sink at drain.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		$node = new Remote_Source_Node();
-		$node->name( 'remote-austin' );
-		$node->arguments( $this->remote_args() ); // no sink wired.
 		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
 
-		$this->expectException( \RuntimeException::class );
-		$this->deliver( $sse, '7:1:20', '' ); // drain with a null sink → fail loud.
+		$this->assertSame( 1748960000, $this->status_of( $node )['last_sse_heartbeat'] );
 	}
 
-	public function test_stream_data_relayed_downstream_not_to_http_out(): void {
-		// Stream data flows via the SSE_In buffer → forward_line → downstream; it never touches
-		// the outbound send()/HTTP_Out path (that carries commands + the heartbeat only). A message
-		// whose FROM does not match the SSE_In name still relays — routing is by the buffer path,
-		// not a FROM-prefix match.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire();
-		$http = Core::node( 'remote-austin:http-out' );
-		$sse  = Core::node( 'remote-austin:sse-in' );
-
-		$sse->process_sse_chunk( self::sse_frame( 'msg', [
-			Message::TYPE  => Message::TM_STRUCT,
-			Message::FROM  => 'some-unrelated-node',
-			Message::ID    => '7:1:20',
-			Message::VALUE => [ 'p' => 1 ],
-		] ) );
-		$node->poll();
-
-		$this->assertCount( 1, $spy->captured, 'stream data is relayed downstream regardless of FROM' );
-		$this->assertCount( 0, $this->read_private( $http, 'batch' ), 'stream data must NOT be misrouted to HTTP_Out' );
-	}
-
-	public function test_checkpoint_shutdown_commits_healthy_cursor(): void {
-		// Bug C: Remote_Source isn't a Consumer, so the worker's
-		// checkpoint_durable_consumers() must commit its live cursor at shutdown — else
-		// healthy progress is lost on every ~10-min recycle. The committed cursor is the
-		// node-owned after-forward boundary (a forwarded message's END).
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$this->deliver( $sse, '9:512:40', '' ); // healthy forward → cursor lands past it.
-
-		$node->checkpoint_shutdown();
-
-		$frame = $this->newest_offsetlog_frame( $node );
-		$this->assertSame( 9, $frame['segment'] );
-		$this->assertSame( 552, $frame['offset'], 'the handoff names the next unread record (512 + 40)' );
-		$this->assertSame( 0, $frame['attempts'], 'a healthy shutdown is a clean handoff (attempts=0)' );
-	}
-
-	public function test_checkpoint_shutdown_commits_a_paused_seek_position(): void {
-		// Fix #6: a paused time-travel SEEK sets the cursor + offset_set but leaves poll_initialized
-		// false (no poll runs while paused). checkpoint_shutdown must still commit the seeked
-		// position — guarding on poll_initialized ALONE silently drops it. Aligns the guard with
-		// checkpoint() / cooperative_stop (both: ! poll_initialized && ! offset_set).
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_remote_spy( 'remote-austin' );
-		// No fire() — a SEEK issued while paused, before the first tick, so poll_initialized stays false.
-		$node->next_offset( [ 'segment' => 3, 'offset' => 256 ] );
-		$this->assertFalse( $this->read_private( $node, 'poll_initialized' ), 'no poll ran' );
-		$this->assertTrue( $this->read_private( $node, 'offset_set' ), 'the SEEK set the cursor explicitly' );
-
-		$node->checkpoint_shutdown();
-
-		$this->assertSame( 1, $this->count_offsetlog_records( $node ), 'the seeked position is committed at shutdown' );
-		$frame = $this->newest_offsetlog_frame( $node );
-		$this->assertSame( 3, $frame['segment'] );
-		$this->assertSame( 256, $frame['offset'] );
-	}
-
-	/** Build a named Remote_Source wired to a Relay_Sink_Spy downstream + target. */
-	/**
-	 * The dirs are ARGUMENTS, like Consumer's — there is no derived fallback, so a
-	 * node that wants a durable cursor or a quarantine must be told where they live.
-	 *
-	 * @return list<string> Positional ctor tokens.
-	 */
-	private function remote_args( string $name = 'remote-austin', string $vault = 'austin' ): array {
-		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
-		$base    = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' );
-		return [ $vault, 'firehose.p0', "{$offsets}/{$name}.firehose.p0", "{$base}/deadletter/{$name}.firehose.p0" ];
-	}
-
-	/** @param list<string>|null $args Positional ctor tokens (null = derive via remote_args). */
-	private function make_remote_spy( string $name = 'remote-austin', ?array $args = null ): array {
-		$args ??= $this->remote_args( $name );
-		$node = new Remote_Source_Node();
-		$node->name( $name );
-		$spy = new Relay_Sink_Spy();
-		$spy->name( 'downstream' );
-		$node->sink( $spy );
-		$node->target( 'downstream' );
-		$node->arguments( $args );
-		return [ $node, $spy ];
-	}
-
-	/**
-	 * Push one TM_STRUCT stream message through the SSE_In parser (keyed `boom` to poison the
-	 * relay), then drive one pump tick to drain it. Under the Durable_Reader pump model SSE_In's raw
-	 * `msg` payload only lands in the owner's buffer; the production tick drains it, so this makes
-	 * that tick explicit (crawl caps drain at one line per poll — one poll per delivered line).
-	 */
-	private function deliver( SSE_In_Node $sse, string $id, string $key = '', array $value = [ 'p' => 1 ] ): void {
-		$sse->process_sse_chunk( self::msg_frame( $id, $key, $value ) );
-		$patron = $sse->patron();
-		if ( $patron instanceof Remote_Source_Node ) {
-			$patron->poll();
-		}
-	}
-
-	/**
-	 * Deliver a pre-built message, then drive one pump tick — swallowing the Worker_Should_Stop a
-	 * `stop`-keyed one raises when the tick dispatches it (it propagates up like the real drain
-	 * loop; the worker then routes to cooperative_stop).
-	 */
-	private function deliver_built( SSE_In_Node $sse, array $m ): void {
-		$sse->process_sse_chunk( self::sse_frame( 'msg', $m ) );
-		$patron = $sse->patron();
-		try {
-			if ( $patron instanceof Remote_Source_Node ) {
-				$patron->poll();
-			}
-		} catch ( Worker_Should_Stop $e ) {
-			// Expected for a `stop`-keyed message.
-		}
-	}
-
-	/** A TM_STRUCT stream message keyed `stop` (downstream raises Worker_Should_Stop on it). */
-	private function stop_message( string $id ): array {
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_STRUCT;
-		$m[ Message::ID ]    = $id;
-		$m[ Message::KEY ]   = 'stop';
-		$m[ Message::VALUE ] = [ 'p' => 1 ];
-		return $m;
-	}
-
-	/** A healthy TM_STRUCT stream message (forwards cleanly). */
-	private function healthy_message( string $id ): array {
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_STRUCT;
-		$m[ Message::ID ]    = $id;
-		$m[ Message::KEY ]   = '';
-		$m[ Message::VALUE ] = [ 'p' => 1 ];
-		return $m;
-	}
-
-	/** Write a single committed offsetlog frame (with attempt accounting) for the default remote node. */
-	private function seed_offsetlog_frame( int $segment, int $offset, int $attempts, string $reason, string $name = 'remote-austin', bool $quarantined = false ): void {
-		$dir = \Newspack_Nodes\Config::get_offsets_directory() . "/{$name}.firehose.p0";
-		if ( ! \is_dir( $dir ) ) {
-			\mkdir( $dir, 0755, true );
-		}
-		$value = [ 'segment' => $segment, 'offset' => $offset, 'attempts' => $attempts, 'reason' => $reason, 'first_crash_ts' => null, '_ts' => 1 ];
-		if ( $quarantined ) {
-			$value['quarantined'] = true;
-		}
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_STRUCT;
-		$m[ Message::VALUE ] = $value;
-		\file_put_contents( "{$dir}/0.log", Message::packed( $m ) . "\n" );
-	}
+	// ---------------------------------------------------------------------
+	// Helpers.
+	// ---------------------------------------------------------------------
 
 	/** @return array<array-key,mixed> The newest committed offsetlog frame VALUE. */
-	private function newest_offsetlog_frame( Remote_Source_Node $node ): array {
+	private function newest_offsetlog_frame( Remote_Consumer_Node $node ): array {
 		$offsetlog = $this->read_private( $node, 'offsetlog' );
 		$this->assertInstanceOf( Partition_Node::class, $offsetlog );
 		$segments = $offsetlog->get_segments( true );
@@ -1935,7 +1060,7 @@ class RemoteSourceNodeTest extends TestCase {
 		return Message::unpacked( \end( $lines ) )[ Message::VALUE ];
 	}
 
-	private function count_offsetlog_records( Remote_Source_Node $node ): int {
+	private function count_offsetlog_records( Remote_Consumer_Node $node ): int {
 		$offsetlog = $this->read_private( $node, 'offsetlog' );
 		if ( ! $offsetlog instanceof Partition_Node ) {
 			return 0;
@@ -1963,657 +1088,11 @@ class RemoteSourceNodeTest extends TestCase {
 		return $count;
 	}
 
-	public function test_first_tick_creates_http_out_patron(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		[ $node ] = $this->make_remote( 'remote-austin' );
-
-		$node->fire();
-
-		$http = Core::node( 'remote-austin:http-out' );
-		$this->assertInstanceOf( HTTP_Out_Node::class, $http );
-		$this->assertSame( 'austin', $this->read_private( $http, 'vault_id' ) );
-	}
-
-	public function test_delegates_counter_bytes_read_largest_msg_to_its_sse_in(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		[ $node ] = $this->make_remote( 'remote-austin' );
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-
-		$sse->process_sse_chunk( "event: heartbeat\ndata: {}\n\n" );
-		$sse->process_sse_chunk( self::sse_frame( 'msg', [
-			Message::TYPE  => Message::TM_STRUCT,
-			Message::KEY   => 'k',
-			Message::VALUE => [ 'a' => 1 ],
-		] ) );
-
-		// The aggregator's Remote_Source reports the stream stats of its SSE_In
-		// child, not its own (which never reads the wire).
-		$this->assertGreaterThan( 0, $sse->bytes_read() );
-		$this->assertSame( $sse->bytes_read(), $node->bytes_read() );
-		$this->assertSame( $sse->counter(), $node->counter() );
-		$this->assertSame( $sse->largest_msg_sent(), $node->largest_msg_sent() );
-	}
-
-	public function test_missing_vault_entry_stays_disconnected_no_patrons(): void {
-		[ $node ] = $this->make_remote( 'remote-ghost', [ 'ghost', 'firehose.p0' ] );
-
-		$node->fire();
-
-		$this->assertNull( Core::node( 'remote-ghost:sse-in' ) );
-		$this->assertNull( Core::node( 'remote-ghost:http-out' ) );
-	}
-
-	public function test_remove_node_tears_down_patrons_and_offsetlog(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		[ $node ] = $this->make_remote( 'remote-austin' );
-		$node->fire();
-		$this->assertInstanceOf( SSE_In_Node::class, Core::node( 'remote-austin:sse-in' ) );
-		$this->assertInstanceOf( HTTP_Out_Node::class, Core::node( 'remote-austin:http-out' ) );
-
-		$node->remove_node();
-
-		$this->assertNull( Core::node( 'remote-austin:sse-in' ) );
-		$this->assertNull( Core::node( 'remote-austin:http-out' ) );
-		$this->assertNull( Core::node( 'remote-austin:firehose.p0:offsetlog' ) );
-		$this->assertNull( Core::node( 'remote-austin:firehose.p0:deadletter' ) );
-	}
-
-	public function test_node_schema_visible_io_with_args(): void {
-		$schema = Remote_Source_Node::node_schema();
-		$this->assertSame( 'I/O', $schema['category'] );
-		$this->assertArrayNotHasKey( 'hidden', $schema );
-		$names = \array_column( $schema['arguments'], 'name' );
-		// [147] Reads like the Consumer it is: the cursor + DLQ dirs are ARGS, so
-		// a topology can write them — and therefore scope them with `<topology>`.
-		$this->assertSame(
-			[ 'vault_id', 'remote_partition', 'offsetlog_dir', 'deadletter_dir' ],
-			$names
-		);
-	}
-
-	// ---------------------------------------------------------------------
-	// Task 5 — self-sufficiency: offsetlog, tick, heartbeat, status.
-	// ---------------------------------------------------------------------
-
-	public function test_committed_offsetlog_seeds_the_first_request(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-
-		// Pre-seed the per-node offsetlog with a committed {seg,off} line.
-		$offsets_dir = \Newspack_Nodes\Config::get_offsets_directory();
-		$dir         = "{$offsets_dir}/remote-austin.firehose.p0";
-		\mkdir( $dir, 0755, true );
-		$pre = new Partition_Node();
-		$pre->name( 'preseed:offsetlog' );
-		$pre->arguments( [ $dir ] );
-		$entry                       = Message::new_message();
-		$entry[ Message::TYPE ]      = Message::TM_STRUCT;
-		$entry[ Message::VALUE ]     = [ 'segment' => 4, 'offset' => 256, '_ts' => 123 ];
-		$pre->fill( $entry );
-		$pre->flush();
-
-		$asked = [];
-		$this->capture_asked_positions( $asked );
-		[ $node ] = $this->make_remote( 'remote-austin' );
-		Core::$now = 1000.0;
-		$node->fire();
-		$this->drain_connect_queue();
-
-		$this->assertSame( [ [ 'segment' => 4, 'offset' => 256 ] ], $asked );
-	}
-
-	public function test_offsetlog_inherits_its_patrons_sink(): void {
-		// A sidecar sinks where its patron sinks. make_node sinks every node into
-		// _command_interpreter and flow is steered by target(), so inheriting the
-		// patron's sink IS how the offsetlog's replies reach the interpreter.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire();
-
-		$offsetlog = $this->read_private( $node, 'offsetlog' );
-		$this->assertInstanceOf( Partition_Node::class, $offsetlog );
-		$this->assertSame( $node->sink(), $offsetlog->sink() );
-	}
-
-	public function test_fire_commits_node_cursor(): void {
-		// The throttled per-tick checkpoint commits the node-owned after-forward cursor
-		// (a forwarded message's END), not SSE_In's connection position.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire();
-
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$this->deliver( $sse, '7:99:40', '' ); // healthy forward → cursor lands PAST it (99 + 40).
-
-		// Advance clock past the commit interval and tick again.
-		Core::$now = \microtime( true ) + 100;
-		$node->fire();
-
-		$value = $this->newest_offsetlog_frame( $node );
-		$this->assertSame( 7, $value['segment'] );
-		$this->assertSame( 139, $value['offset'] );
-	}
-
-	public function test_throttled_checkpoint_does_not_recommit_an_unchanged_position(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire();
-
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$this->deliver( $sse, '5:5:40', '' ); // healthy forward advances the node cursor.
-		Core::$now = \microtime( true ) + 100;
-		$node->fire(); // commits the moved cursor
-		$baseline = $this->count_offsetlog_records( $node );
-		$this->assertGreaterThanOrEqual( 1, $baseline, 'a moved cursor is committed' );
-
-		// Idle stream: no new message, the node cursor is unchanged, another interval elapses.
-		Core::$now = \microtime( true ) + 200;
-		$node->fire();
-		$this->assertSame( $baseline, $this->count_offsetlog_records( $node ), 'an unchanged node cursor must not spam a duplicate keyframe (advance-guard, matching Consumer)' );
-	}
-
-	public function test_heartbeat_skipped_when_slot_unknown(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		[ $node ] = $this->make_remote( 'remote-austin' );
-		$node->fire();
-
-		$http = Core::node( 'remote-austin:http-out' );
-		$this->assertCount( 0, $this->read_private( $http, 'batch' ) );
-	}
-
-	public function test_heartbeat_command_contains_exact_slot_and_owner(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_remote( 'remote-austin' );
-		$node->fire();
-
-		// Give the SSE_In a complete lease via the connected handshake.
-		$sse = Core::node( 'remote-austin:sse-in' );
-		self::set_slot( $sse, 7, 42424243 );
-
-		// Advance clock past the heartbeat interval (16s) but under the stale timeout (45s).
-		Core::$now = \microtime( true ) + 16;
-		$node->fire();
-
-		$http  = Core::node( 'remote-austin:http-out' );
-		$batch = $this->read_private( $http, 'batch' );
-		$this->assertCount( 1, $batch );
-		$envelope = $batch[0];
-		$this->assertSame( Message::TM_COMMAND, $envelope[ Message::TYPE ] );
-		$this->assertSame( 'remote-austin', $envelope[ Message::FROM ] );
-		$this->assertSame( 'workers', $envelope[ Message::TO ] );
-		$value = $envelope[ Message::VALUE ];
-		$this->assertSame( 'heartbeat', $value['name'] );
-		$this->assertSame( [ '7', '42424243' ], $value['arguments'] );
-	}
-
-	public function test_heartbeat_reply_into_fill_records_rtt_and_response(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_remote( 'remote-austin' );
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-		self::set_slot( $sse, 5 );
-		Core::$now = \microtime( true ) + 16;
-		$node->fire(); // sends heartbeat, records send-time
-
-		// Simulate the spoke's heartbeat reply routed back into fill(). The spoke's
-		// interpreter wraps a command response as TM_COMMAND|TM_RESPONSE; fill()
-		// records the RTT for that type and relays anything else to HTTP_Out.
-		$reply                   = Message::new_message();
-		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
-		$reply[ Message::TO ]    = 'remote-austin';
-		$reply[ Message::VALUE ] = [
-			'name'    => 'heartbeat',
-			'payload' => [ 'success' => true, 'slot' => 5 ],
-		];
-		$node->fill( $reply );
-
-		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) );
-		$this->assertIsArray( $status );
-		$this->assertArrayHasKey( 'last_heartbeat_response', $status );
-		$this->assertArrayHasKey( 'last_heartbeat_rtt', $status );
-		$this->assertNotNull( $status['last_heartbeat_response'] );
-	}
-
-	public function test_heartbeat_command_error_clears_prior_success_and_records_reason(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_remote( 'remote-austin' );
-		$node->fire();
-		self::set_slot( Core::node( 'remote-austin:sse-in' ), 7, 42424243 );
-		Core::$now = 1748960000.0;
-		$node->fire();
-
-		$success                   = Message::new_message();
-		$success[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
-		$success[ Message::VALUE ] = [
-			'name'    => 'heartbeat',
-			'payload' => [ 'success' => true, 'slot' => 7 ],
-		];
-		$node->fill( $success );
-		$this->assertNotNull(
-			Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) )['last_heartbeat_response']
-		);
-
-		$lines = [];
-		Core::set_stderr_handler(
-			static function ( string $line ) use ( &$lines ): void {
-				$lines[] = $line;
-			}
-		);
-		$error                   = Message::new_message();
-		$error[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_ERROR;
-		$error[ Message::VALUE ] = [
-			'name'    => 'heartbeat',
-			'payload' => 'SSE slot lease not owned',
-		];
-		$node->fill( $error );
-
-		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) );
-		$this->assertNull( $status['last_heartbeat_response'] );
-		$this->assertNull( $status['last_heartbeat_rtt'] );
-		$this->assertSame(
-			'Client heartbeat failed: SSE slot lease not owned',
-			$status['last_error']
-		);
-		$this->assertStringContainsString( 'SSE slot lease not owned', \implode( '', $lines ) );
-		$this->assertStringNotContainsString( '42424243', \implode( '', $lines ) );
-	}
-
-	public function test_heartbeat_success_false_clears_prior_success_and_records_reason(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_remote( 'remote-austin' );
-		$node->fire();
-		self::set_slot( Core::node( 'remote-austin:sse-in' ), 7, 42424243 );
-		Core::$now = 1748960000.0;
-		$node->fire();
-
-		$success                   = Message::new_message();
-		$success[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
-		$success[ Message::VALUE ] = [
-			'name'    => 'heartbeat',
-			'payload' => [ 'success' => true, 'slot' => 7 ],
-		];
-		$node->fill( $success );
-
-		$rejected                   = Message::new_message();
-		$rejected[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
-		$rejected[ Message::VALUE ] = [
-			'name'    => 'heartbeat',
-			'payload' => [
-				'success' => false,
-				'error'   => 'slot lease ownership mismatch',
-			],
-		];
-		$node->fill( $rejected );
-
-		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) );
-		$this->assertNull( $status['last_heartbeat_response'] );
-		$this->assertNull( $status['last_heartbeat_rtt'] );
-		$this->assertSame(
-			'Client heartbeat failed: slot lease ownership mismatch',
-			$status['last_error']
-		);
-	}
-
-	public function test_publish_status_ages_out_stale_heartbeat_response(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_remote( 'remote-austin' );
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-		self::set_slot( $sse, 5 );
-
-		Core::$now = 1000.0;
-		$node->fire(); // mints the heartbeat (records send-time)
-		$reply                   = Message::new_message();
-		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
-		$reply[ Message::TO ]    = 'remote-austin';
-		$reply[ Message::VALUE ] = [
-			'name'    => 'heartbeat',
-			'payload' => [ 'success' => true, 'slot' => 5 ],
-		];
-		$node->fill( $reply ); // records last_heartbeat_response at t=1000
-
-		// A tick right after the reply keeps the fresh response in the snapshot.
-		$node->fire();
-		$this->assertNotNull(
-			Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) )['last_heartbeat_response']
-		);
-
-		// No further reply; advance past the HEARTBEAT_INTERVAL*4 staleness window.
-		// The Status badge must not latch 'success' on a stale timestamp, so the
-		// snapshot ages the response out to null (mirrors the old clear-on-disconnect).
-		Core::$now = 1000.0 + ( Remote_Source_Node::HEARTBEAT_INTERVAL * 4 ) + 5;
-		$node->fire();
-		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) );
-		$this->assertNull( $status['last_heartbeat_response'] );
-		$this->assertNull( $status['last_heartbeat_rtt'] );
-	}
-
-	public function test_publish_status_carries_the_schedule_a_stream_closed_at_eof_returns_on(): void {
-		// The dashboard must tell "closed on purpose, back at T" from "failed",
-		// and a null last_error also means "never attempted" — so the schedule
-		// itself rides the snapshot as its own field.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_remote( 'remote-austin' );
-		Core::$now = 1748970000.0;
-		$node->fire();
-		$this->drain_connect_queue();
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$this->assertInstanceOf( SSE_In_Node::class, $sse );
-		$handle = $sse->test_get_handle();
-		$this->assertInstanceOf( \CurlHandle::class, $handle );
-
-		$sse->process_sse_chunk( "retry: 9000\n\n" );
-		self::set_slot( $sse, 5 );
-		// The stub handle never transferred, so seed the status a live 200
-		// stream would have observed while its bytes arrived.
-		( new \ReflectionProperty( SSE_In_Node::class, 'last_http_code' ) )->setValue( $sse, 200 );
-		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] ] );
-		Core::$now = 1748970001.0;
-		$node->fire();
-
-		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) );
-		$this->assertFalse( $status['connected'] );
-		$this->assertNull( $status['last_error'], 'a scheduled close is not a failure' );
-		$this->assertSame( 1748970009, $status['scheduled_reconnect_at'] );
-	}
-
-	public function test_publish_status_reports_an_opening_stream_as_connecting(): void {
-		// A socket mid-open is neither up nor down; publishing it as connected
-		// is what made a card read CONNECTED seconds before it timed out.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_remote( 'remote-austin' );
-		Core::$now = 1748970000.0;
-		$node->fire();
-		$this->drain_connect_queue();
-		// fire() housekeeps once per wall-second; the publish rides the next one.
-		Core::$now = 1748970001.0;
-		$node->fire();
-
-		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) );
-		$this->assertFalse( $status['connected'], 'no handshake yet' );
-		$this->assertTrue( $status['connecting'] );
-	}
-
-	public function test_publish_status_reports_a_handshaken_stream_as_connected(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_remote( 'remote-austin' );
-		Core::$now = 1748970000.0;
-		$node->fire();
-		$this->drain_connect_queue();
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$this->assertInstanceOf( SSE_In_Node::class, $sse );
-		self::set_slot( $sse, 5 );
-		Core::$now = 1748970001.0;
-		$node->fire();
-
-		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) );
-		$this->assertTrue( $status['connected'] );
-		$this->assertFalse( $status['connecting'] );
-	}
-
-	public function test_a_released_slot_never_reaches_the_dashboard(): void {
-		// An idle stream ends and releases its own slot; a heartbeat already in
-		// flight lands on the tombstone. Latching that into last_error paints a
-		// healthy link with a failure banner it will never clear on its own.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		[ $node ] = $this->make_remote( 'remote-austin' );
-
-		$node->fill( $this->heartbeat_error( 'remote-austin', 'SSE slot lease not owned: slot_released' ) );
-
-		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) );
-		$this->assertNull( ( $status ?: [] )['last_error'] ?? null );
-	}
-
-	public function test_a_stolen_slot_still_reaches_the_dashboard(): void {
-		// The counterpart guard: an eviction is a real fault and must surface.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		[ $node ] = $this->make_remote( 'remote-austin' );
-
-		$node->fill( $this->heartbeat_error( 'remote-austin', 'SSE slot lease not owned: pointer_owner_mismatch' ) );
-
-		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) );
-		$this->assertStringContainsString( 'pointer_owner_mismatch', (string) $status['last_error'] );
-	}
-
-	/**
-	 * A `workers.heartbeat` error reply addressed back to the link that minted it.
-	 *
-	 * @return array<int,mixed> The 7-field positional message array.
-	 */
-	private function heartbeat_error( string $link, string $payload ): array {
-		$reply                   = Message::new_message();
-		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_ERROR;
-		$reply[ Message::TO ]    = $link;
-		$reply[ Message::VALUE ] = [
-			'name'    => 'heartbeat',
-			'payload' => $payload,
-		];
-		return $reply;
-	}
-
-	public function test_tick_publishes_status_snapshot(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		[ $node ] = $this->make_remote( 'remote-austin' );
-
-		$node->fire();
-
-		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) );
-		$this->assertIsArray( $status );
-		$this->assertArrayHasKey( 'connected', $status );
-		$this->assertArrayHasKey( 'current_backoff', $status );
-		$this->assertArrayHasKey( 'last_connection_attempt', $status );
-		$this->assertArrayHasKey( 'last_sse_heartbeat', $status );
-	}
-
-	public function test_publish_status_noop_when_no_cache(): void {
-		Core::$memd = null;
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		[ $node ] = $this->make_remote( 'remote-austin' );
-
-		// Without a cache, the tick still runs cleanly — write_status short-circuits.
-		$node->fire();
-
-		$this->assertInstanceOf( SSE_In_Node::class, Core::node( 'remote-austin:sse-in' ) );
-	}
-
-	public function test_connection_attempt_reflects_actual_connect_not_each_tick(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_remote( 'remote-austin' );
-
-		Core::$now = 1000.0;
-		$node->fire(); // queues the connect at t=1000
-		$this->drain_connect_queue();
-
-		// Later ticks keep firing without a reconnect (the handle persists), so
-		// "Connected" must stay pinned to the real connect time — not creep with the tick clock.
-		Core::$now = 1030.0;
-		$node->fire();
-
-		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) );
-		$this->assertSame( 1000, $status['last_connection_attempt'] );
-	}
-
-	public function test_published_status_carries_sse_heartbeat_receipt(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_remote( 'remote-austin' );
-		$node->fire();
-
-		$sse = Core::node( 'remote-austin:sse-in' );
-		Core::$now = 1748960000;
-		$sse->process_sse_chunk( "event: heartbeat\ndata: {}\n\n" );
-
-		$node->fire();
-
-		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) );
-		$this->assertSame( 1748960000, $status['last_sse_heartbeat'] );
-	}
-
-	public function test_restore_position_raises_an_unparseable_offsetlog_entry(): void {
-		// A junk final frame leaves the committed cursor unknown, so the restore
-		// raises rather than connecting from the default position.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->seed_offsetlog_file( "this is not a packed message\n" );
-
-		[ $node ] = $this->make_remote( 'remote-austin' );
-
-		$this->expectException( \InvalidArgumentException::class );
-		$this->expectExceptionMessage( 'this is not a packed message' );
-		$node->fire();
-	}
-
-	public function test_restore_position_ignores_non_array_value(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_STRUCT;
-		$message[ Message::VALUE ] = 'scalar-not-a-cursor';
-		$this->seed_offsetlog_file( Message::packed( $message ) . "\n" );
-
-		[ $node ] = $this->make_remote( 'remote-austin' );
-		$node->fire();
-
-		$this->assertSame( Consumer_Node::SEEK_END, $node->connect_position(), 'nothing restored asks for the end' );
-	}
-
-	public function test_restore_position_falls_back_to_prior_segment_when_last_empty(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_STRUCT;
-		$message[ Message::VALUE ] = [ 'segment' => 4, 'offset' => 256, '_ts' => 1 ];
-		// Last segment is empty (a rotated-but-unwritten tail); the committed cursor
-		// lives in the prior segment and restore must fall back to it.
-		$this->seed_offsetlog_file( Message::packed( $message ) . "\n", 0 );
-		$this->seed_offsetlog_file( '', 1 );
-
-		[ $node ] = $this->make_remote( 'remote-austin' );
-		$node->fire();
-
-		$this->assertSame( [ 'segment' => 4, 'offset' => 256 ], $node->connect_position() );
-	}
-
-	public function test_restore_position_returns_empty_when_all_segments_empty(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		// Both the tail and the prior segment are empty — nothing to restore.
-		$this->seed_offsetlog_file( '', 0 );
-		$this->seed_offsetlog_file( '', 1 );
-
-		[ $node ] = $this->make_remote( 'remote-austin' );
-		$node->fire();
-
-		$this->assertSame( Consumer_Node::SEEK_END, $node->connect_position(), 'nothing restored asks for the end' );
-	}
-
-	/** Write a raw offsetlog segment file (`<seg>.log`) for the default remote node. */
-	private function seed_offsetlog_file( string $contents, int $segment_id = 0 ): void {
-		$dir = \Newspack_Nodes\Config::get_offsets_directory() . '/remote-austin.firehose.p0';
-		if ( ! \is_dir( $dir ) ) {
-			\mkdir( $dir, 0755, true );
-		}
-		\file_put_contents( "{$dir}/{$segment_id}.log", $contents );
-	}
-
 	/** Install an SSE_In connect seam returning a real idle handle (never transferred). */
 	private function stub_sse_connect(): void {
 		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
 		};
-	}
-
-	/**
-	 * [147] Remote_Source is a Consumer that reads over the wire, so its arguments
-	 * should read like one: vault_id, remote_partition, offsetlog_dir, deadletter_dir.
-	 *
-	 * It used to HARDCODE both dirs (Config::get_offsets_directory(), and
-	 * <base>/deadletter). That is not just an asymmetry — it means the cursor path
-	 * is not something a topology can write, so it cannot carry `<topology>`, and
-	 * two aggregator fleets pulling the same spoke partition would silently share
-	 * one offsetlog. Every other Consumer got fleet-scoped cursors; this one could
-	 * not.
-	 */
-	public function test_offsetlog_dir_is_an_argument_not_a_hardcoded_config_read(): void {
-		$node = new Remote_Source_Node();
-		$node->name( 'src-a' );
-		$node->sink( new Capture_Sink_Node() );
-		$node->arguments( [ "zebra-vault", "firehose.p0", "{$this->base_dir}/offsets/firehose.combined.p0", "{$this->base_dir}/dead/firehose.combined.p0" ] );
-
-		$this->assertSame(
-			"{$this->base_dir}/offsets/firehose.combined.p0",
-			$this->read_private( $node, 'offsetlog_dir' )
-		);
-		$this->assertSame(
-			"{$this->base_dir}/dead/firehose.combined.p0",
-			$this->read_private( $node, 'deadletter_dir' )
-		);
-	}
-
-	/** The dirs are optional, like Consumer's: empty disables checkpointing / DLQ. */
-	public function test_offsetlog_dir_defaults_to_empty(): void {
-		$node = new Remote_Source_Node();
-		$node->name( 'src-b' );
-		$node->sink( new Capture_Sink_Node() );
-		$node->arguments( [ 'zebra-vault', 'firehose.p0' ] );
-
-		$this->assertSame( '', $this->read_private( $node, 'offsetlog_dir' ) );
-	}
-
-	// ── DLQ triage: list / purge on the remote-qualified sidecar; requeue is N/A ──
-
-	public function test_deadletter_triage_verbs_are_wired_into_the_schema(): void {
-		$verbs = \array_column( Remote_Source_Node::node_schema()['commands'], 'name' );
-		$this->assertContains( 'dl_list', $verbs );
-		$this->assertContains( 'dl_show', $verbs );
-		$this->assertContains( 'dl_requeue', $verbs );
-		$this->assertContains( 'dl_purge', $verbs );
-	}
-
-	public function test_list_and_purge_operate_on_the_remote_qualified_sidecar(): void {
-		[ $node ] = $this->make_remote();
-		// The sidecar is named `{name}:{remote_partition}:deadletter`; build + quarantine.
-		( new \ReflectionMethod( Remote_Source_Node::class, 'ensure_deadletter' ) )->invoke( $node );
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$message[ Message::VALUE ] = 'remote-poison';
-		$message[ Message::ID ]    = '7:12:30';
-		( new \ReflectionMethod( Remote_Source_Node::class, 'dead_letter' ) )->invoke( $node, $message, 'timeout', null );
-
-		$page = $node->list_deadletter( 50 );
-		$this->assertSame( 1, $page['total'] );
-		$this->assertSame( 'timeout', $page['rows'][0]['reason'] );
-		$this->assertSame( '7:12:30', $page['rows'][0]['source'] );
-
-		$this->assertStringStartsWith( 'ok', $node->purge_deadletter() );
-		$this->assertSame( 0, $node->list_deadletter( 50 )['total'] );
-	}
-
-	/**
-	 * Delivering rather than re-injecting gives a remote SSE pull a working
-	 * requeue: it has no local source log to append to, but it has a sink.
-	 */
-	public function test_requeue_redelivers_for_a_remote_source(): void {
-		[ $node, $sink ] = $this->make_remote();
-		( new \ReflectionMethod( Remote_Source_Node::class, 'ensure_deadletter' ) )->invoke( $node );
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$message[ Message::VALUE ] = 'remote-retry';
-		$message[ Message::ID ]    = '7:12:30';
-		( new \ReflectionMethod( Remote_Source_Node::class, 'dead_letter' ) )->invoke( $node, $message, 'timeout', null );
-
-		$loc = $node->list_deadletter( 50 )['rows'][0]['locator'];
-
-		$this->assertStringStartsWith( 'ok', $node->requeue_deadletter( $loc ) );
-		$this->assertSame( [ 'remote-retry' ], \array_column( $sink->captured, Message::VALUE ) );
 	}
 }

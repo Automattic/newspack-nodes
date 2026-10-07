@@ -7,6 +7,7 @@ use Newspack_Nodes\Core;
 use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Remote_Consumer_Node;
 use Newspack_Nodes\Remote_Source_Node;
 use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\SSE_In_Node;
@@ -16,13 +17,13 @@ use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
 use Newspack_Nodes\Tests\TestCase;
 
 /**
- * Time-travel transport on Remote_Source_Node: the same Time_Travel surface the
- * Consumer carries (frames + cursor in dump_metadata, `pause`/`play`/`seek_frame` verbs),
- * mapped onto the push-driven SSE pull — seek reconnects SSE_In from the frame's
- * committed {seg,off}; `step` forwards one record, from the buffer or a reconnected pull.
+ * Time-travel transport on Remote_Consumer_Node: the same surface the Consumer
+ * carries (frames + cursor in dump_metadata, `pause`/`play`/`seek_frame`/`step`
+ * verbs), mapped onto one stream of a broker's SSE pull — a paused reader
+ * leaves the stream, and the broker's next connect states where it stands.
  */
-#[CoversClass( Remote_Source_Node::class )]
-class RemoteSourceTimeTravelTest extends TestCase {
+#[CoversClass( Remote_Consumer_Node::class )]
+class RemoteConsumerTimeTravelTest extends TestCase {
 
 	private string $base_dir = '';
 
@@ -32,6 +33,8 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$this->use_base_dir( $this->base_dir );
 		Core::$memd = new InMemoryMemcached();
 		( new Router_Node() )->name( '_router' );
+		// The broker housekeeps once per wall-second; start on a known one.
+		Core::$now = 500.0;
 	}
 
 	protected function tearDown(): void {
@@ -55,24 +58,23 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		};
 	}
 
-	/**
-	 * Build a named, wired Remote_Source pulling firehose.p0 from the austin vault entry.
-	 *
-	 * @param list<string>|null $args Positional ctor tokens (null = derive the default set).
-	 */
-	private function make_remote( string $name = 'remote-austin', ?array $args = null ): Remote_Source_Node {
-		// The dirs are ARGUMENTS, like Consumer's — there is no derived fallback.
+	/** A broker pulling `firehose.p0:downstream` from the austin vault entry, answered by its reader. */
+	private function make_remote( string $name = 'remote-austin' ): Remote_Consumer_Node {
 		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
 		$base    = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' );
-		$args  ??= [ 'austin', 'firehose.p0', "{$offsets}/{$name}.firehose.p0", "{$base}/deadletter/{$name}.firehose.p0" ];
-		$node    = new Remote_Source_Node();
-		$node->name( $name );
-		$sink = new Capture_Sink_Node();
+		$sink    = new Capture_Sink_Node();
 		$sink->name( 'downstream' );
-		$node->sink( $sink );
-		$node->target( 'downstream' );
-		$node->arguments( $args );
-		return $node;
+		$broker = new Remote_Source_Node();
+		$broker->name( $name );
+		$broker->sink( Core::node( '_router' ) );
+		$broker->arguments( [ 'austin', "{$offsets}/{$name}", "{$base}/deadletter/{$name}", 'firehose.p0:downstream' ] );
+		$broker->fire();
+		return Core::node( "{$name}:firehose.p0" );
+	}
+
+	/** The broker the default reader belongs to. */
+	private function broker(): Remote_Source_Node {
+		return Core::node( 'remote-austin' );
 	}
 
 	/** Decode the `positions` map for a connect's opts URL, keyed by subscribe dir. */
@@ -86,14 +88,14 @@ class RemoteSourceTimeTravelTest extends TestCase {
 	}
 
 	// =========================================================================
-	// Schema: the shared time-travel verbs are registered on Remote_Source too.
+	// Schema: the shared time-travel verbs are registered on the reader too.
 	// =========================================================================
 
 	public function test_node_schema_registers_the_time_travel_verbs(): void {
-		$schema = Remote_Source_Node::node_schema();
+		$schema = Remote_Consumer_Node::node_schema();
 		$verbs  = \array_column( $schema['commands'], 'name' );
 		foreach ( [ 'add_snapshot_node', 'set_line_mode', 'seek_frame', 'pause', 'play', 'step' ] as $verb ) {
-			$this->assertContains( $verb, $verbs, "Remote_Source must register the {$verb} verb" );
+			$this->assertContains( $verb, $verbs, "Remote_Consumer must register the {$verb} verb" );
 		}
 	}
 
@@ -102,9 +104,9 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$node->add_snapshot_node( 'flame-builder' );
 
 		$this->assertStringContainsString(
-			'command_node remote-austin:config add_snapshot_node flame-builder',
+			'command_node remote-austin:firehose.p0:config add_snapshot_node flame-builder',
 			$node->dump_config(),
-			'Remote_Source shares the Time_Travel surface and must round-trip its snapshot node too'
+			'the reader shares the Time_Travel surface and must round-trip its snapshot node too'
 		);
 	}
 
@@ -117,7 +119,7 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$this->stub_sse_connect();
 		$node = $this->make_remote( 'remote-austin' );
 		Core::$now = 1000.0;
-		$node->fire(); // creates + connects SSE_In, commits a first frame.
+		$node->fire_cb(); // the first reader tick commits a first frame.
 
 		$meta = $node->dump_metadata();
 		$this->assertIsArray( $meta['frames'], 'frames must be an array so the panel renders' );
@@ -130,7 +132,7 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$this->stub_sse_connect();
 		$node = $this->make_remote( 'remote-austin' );
 		Core::$now = 1000.0;
-		$node->fire();
+		$node->fire_cb();
 
 		// The reported cursor is the node-owned after-forward cursor, set here via a seek.
 		$node->next_offset( [ 'segment' => 4, 'offset' => 42 ] );
@@ -148,7 +150,7 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$this->stub_sse_connect();
 		$node = $this->make_remote( 'remote-austin' );
 		Core::$now = 1000.0;
-		$node->fire();
+		$node->fire_cb();
 		$sse = Core::node( 'remote-austin:sse-in' );
 
 		// Commit a durable frame at a known remote {seg,off} via the node cursor.
@@ -174,7 +176,7 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$this->stub_sse_connect( $captured );
 		$node = $this->make_remote( 'remote-austin' );
 		Core::$now = 1000.0;
-		$node->fire();
+		$node->fire_cb();
 		$sse = Core::node( 'remote-austin:sse-in' );
 
 		$node->next_offset( [ 'segment' => 7, 'offset' => 128 ] );
@@ -183,6 +185,7 @@ class RemoteSourceTimeTravelTest extends TestCase {
 
 		$node->pause();
 		$node->seek_frame( $segment_id );
+		$node->play(); // a paused reader is out of the request until it rejoins
 
 		// The next reconnect must carry the seeked position in its request.
 		Core::$now = 1100.0; // past backoff so maybe_connect fires.
@@ -201,7 +204,7 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$this->stub_sse_connect();
 		$node = $this->make_remote( 'remote-austin' );
 		Core::$now = 1000.0;
-		$node->fire();
+		$node->fire_cb();
 
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'no frame at segment 9999' );
@@ -209,7 +212,7 @@ class RemoteSourceTimeTravelTest extends TestCase {
 	}
 
 	// =========================================================================
-	// `pause` / `play`: stop and resume the pull.
+	// `pause` / `play`: leave and rejoin the stream.
 	// =========================================================================
 
 	public function test_pause_disconnects_the_pull_and_flags_paused(): void {
@@ -217,14 +220,14 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$this->stub_sse_connect();
 		$node = $this->make_remote( 'remote-austin' );
 		Core::$now = 1000.0;
-		$node->fire();
+		$node->fire_cb();
 		$this->drain_connect_queue();
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$this->assertInstanceOf( \CurlHandle::class, $sse->test_get_handle(), 'precondition: connected' );
 
 		$node->pause();
 
-		$this->assertNull( $sse->test_get_handle(), 'pause drops the SSE stream (stops the pull)' );
+		$this->assertNull( $sse->test_get_handle(), 'pause drops the SSE stream for the broker to reopen without this reader' );
 		$this->assertSame( 'PAUSED', $node->dump_metadata()['polling'], 'pause flags the polling signal PAUSED' );
 		$this->assertSame( 'inactive', $this->read_private( $node, 'mode' ), 'pause stops the tick timer' );
 	}
@@ -234,25 +237,26 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$this->stub_sse_connect();
 		$node = $this->make_remote( 'remote-austin' );
 		Core::$now = 1000.0;
-		$node->fire();
+		$node->fire_cb();
 
 		$node->pause();
 		$this->assertSame( 'inactive', $this->read_private( $node, 'mode' ), 'precondition: paused' );
 
 		$node->play();
-		// 100ms tick = own framework slot (<1000ms never router-hitchhikes).
+		// 100ms cadence = own framework slot (<1000ms never router-hitchhikes).
 		$this->assertSame( 'event_framework', $this->read_private( $node, 'mode' ), '`play` re-arms the recurring tick' );
 		$this->assertSame( 'ACTIVE', $node->dump_metadata()['polling'], '`play` flags the polling signal ACTIVE' );
 	}
 
 	// =========================================================================
-	// `step`: forward exactly one record, from the buffer or the reconnected pull.
+	// `step`: forward exactly one record; a stepped reader is out of the stream.
 	// =========================================================================
 
 	/** Deliver one spoke record, breadcrumb `$seg:$off:$len`, through SSE_In. */
 	private function deliver( SSE_In_Node $sse, string $crumb, string $value ): void {
 		$sse->process_sse_chunk( self::sse_frame( 'msg', [
 			Message::TYPE  => Message::TM_BYTESTREAM,
+			Message::FROM  => 'firehose.p0',
 			Message::ID    => $crumb,
 			Message::VALUE => $value,
 		] ) );
@@ -268,93 +272,13 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		return \array_column( Core::node( 'downstream' )->captured, Message::VALUE );
 	}
 
-	public function test_a_step_taken_from_the_buffer_keeps_the_tick_paying_the_one_owed(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		$node = $this->make_remote( 'remote-austin' );
-		Core::$now = 1000.0;
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$node->next_offset( [ 'segment' => 7, 'offset' => 1 ] );
-		$node->pause();
-		$node->step(); // nothing buffered: owed one
-		Core::$now = 1001.0;
-		$node->fire();
-		$this->drain_connect_queue();
-		$this->deliver( $sse, '7:1:20', 'first-707' );
-		$this->deliver( $sse, '7:21:20', 'second-808' );
-
-		$node->step(); // a record is buffered: taken at once
-		$this->assertSame( [ 'first-707' ], $this->forwarded() );
-		$this->assertNotSame( 'inactive', $this->read_private( $node, 'mode' ), 'the owed step still has a tick to land on' );
-
-		$node->fire();
-		$this->assertSame( [ 'first-707', 'second-808' ], $this->forwarded(), 'two clicks, two records' );
-		$this->assertSame( 'inactive', $this->read_private( $node, 'mode' ) );
-		$this->assertSame( 'PAUSED', $node->dump_metadata()['polling'] );
-	}
-
-	public function test_step_with_nothing_buffered_pulls_exactly_one_record_then_holds(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		$node = $this->make_remote( 'remote-austin' );
-		Core::$now = 1000.0;
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$node->next_offset( [ 'segment' => 7, 'offset' => 1 ] );
-		$node->pause();
-
-		$node->step();
-		$this->assertSame( [], $this->forwarded(), 'nothing to forward until the pull answers' );
-		$this->assertNotSame( 'inactive', $this->read_private( $node, 'mode' ), 'the tick runs to reconnect' );
-
-		Core::$now = 1001.0;
-		$node->fire();
-		$this->drain_connect_queue();
-		$this->assertInstanceOf( \CurlHandle::class, $sse->test_get_handle(), 'the pull reconnects' );
-		$this->deliver( $sse, '7:1:20', 'pulled-909' );
-		$this->deliver( $sse, '7:21:20', 'held-1010' );
-		$node->fire();
-
-		$this->assertSame( [ 'pulled-909' ], $this->forwarded(), 'exactly one record per step' );
-		$this->assertNull( $sse->test_get_handle(), 'the pull drops again once the step lands' );
-		$this->assertSame( 'inactive', $this->read_private( $node, 'mode' ), 'and the tick stops' );
-		$this->assertSame( 'PAUSED', $node->dump_metadata()['polling'] );
-	}
-
-	public function test_two_steps_before_the_pull_answers_forward_two_records(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		$node = $this->make_remote( 'remote-austin' );
-		Core::$now = 1000.0;
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$node->next_offset( [ 'segment' => 7, 'offset' => 1 ] );
-		$node->pause();
-		$node->step();
-		$node->step();
-
-		Core::$now = 1001.0;
-		$node->fire();
-		$this->drain_connect_queue();
-		$this->deliver( $sse, '7:1:20', 'one-515' );
-		$this->deliver( $sse, '7:21:20', 'two-616' );
-		$this->deliver( $sse, '7:41:20', 'three-717' );
-		$node->fire();
-		$node->fire();
-		$node->fire();
-
-		$this->assertSame( [ 'one-515', 'two-616' ], $this->forwarded(), 'one record per click, and no more' );
-		$this->assertSame( 'inactive', $this->read_private( $node, 'mode' ) );
-	}
-
 	public function test_play_after_pause_forwards_each_record_once(): void {
 		$captured = [];
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect( $captured );
 		$node = $this->make_remote( 'remote-austin' );
 		Core::$now = 1000.0;
-		$node->fire();
+		$node->fire_cb();
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$node->next_offset( [ 'segment' => 7, 'offset' => 1 ] );
 		$this->deliver( $sse, '7:1:20', 'a-111' );
@@ -363,7 +287,7 @@ class RemoteSourceTimeTravelTest extends TestCase {
 
 		$node->play();
 		Core::$now = 1001.0;
-		$node->fire();
+		$this->broker()->fire();
 		$this->drain_connect_queue();
 
 		$this->assertSame(
@@ -382,18 +306,18 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$this->stub_sse_connect();
 		$node = $this->make_remote( 'remote-austin' );
 		Core::$now = 1000.0;
-		$node->fire();
+		$node->fire_cb();
 		$this->drain_connect_queue();
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$this->deliver( $sse, '7:1:20', 'live-626' );
 		$this->deliver( $sse, '7:21:20', 'live-727' );
 
-		$node->step(); // a live source, stepped: one record from the buffer
+		$node->step(); // a live reader, stepped: one record from the buffer
 		$this->assertSame( [ 'live-626' ], $this->forwarded() );
+		$this->assertNull( $sse->test_get_handle(), 'the stream drops, lease and all, for a reconnect without it' );
 		$this->assertNotSame( 'inactive', $this->read_private( $node, 'mode' ), 'one tick left to settle the pause' );
 
-		$node->fire();
-		$this->assertNull( $sse->test_get_handle(), 'the stream drops, lease and all' );
+		$node->fire_cb();
 		$this->assertSame( 'inactive', $this->read_private( $node, 'mode' ) );
 	}
 
@@ -402,7 +326,7 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$this->stub_sse_connect();
 		$node = $this->make_remote( 'remote-austin' );
 		Core::$now = 1000.0;
-		$node->fire();
+		$node->fire_cb();
 		$this->drain_connect_queue();
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$node->set_line_mode( true );
@@ -410,17 +334,17 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		for ( $i = 0; $i < 300; $i++ ) {
 			$this->deliver( $sse, '7:' . ( 1 + 2100 * $i ) . ':2100', $payload );
 		}
-		$this->assertFalse( $this->read_private( $node, 'pump_armed' ), 'precondition: the valve closed' );
+		$this->assertFalse( $this->read_private( $this->broker(), 'pump_armed' ), 'precondition: the valve closed' );
 		$node->pause();
 
 		$node->play();
 		Core::$now = 1001.0;
-		$node->fire();
+		$this->broker()->fire();
 		$this->drain_connect_queue();
 
-		$this->assertTrue( $this->read_private( $node, 'pump_armed' ), 'the new stream opens armed' );
+		$this->assertTrue( $this->read_private( $this->broker(), 'pump_armed' ), 'the new stream opens armed' );
 		$this->deliver( $sse, '7:630001:2100', $payload );
-		$this->assertFalse( $this->read_private( $node, 'pump_armed' ), 'and closes again over the mark' );
+		$this->assertFalse( $this->read_private( $this->broker(), 'pump_armed' ), 'and closes again over the mark' );
 	}
 
 	public function test_a_seek_without_a_patron_still_forgives_a_step(): void {
@@ -432,7 +356,7 @@ class RemoteSourceTimeTravelTest extends TestCase {
 
 		$node->next_offset( [ 'segment' => 3, 'offset' => 33 ] );
 		Core::$now = 1001.0;
-		$node->fire();
+		$node->fire_cb();
 
 		$this->assertSame( 'inactive', $this->read_private( $node, 'mode' ) );
 	}
@@ -442,14 +366,14 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$this->stub_sse_connect();
 		$node = $this->make_remote( 'remote-austin' );
 		Core::$now = 1000.0;
-		$node->fire();
+		$node->fire_cb();
 		$node->next_offset( [ 'segment' => 7, 'offset' => 1 ] );
 		$node->pause();
 		$node->step(); // owed one
 
 		$node->next_offset( [ 'segment' => 3, 'offset' => 33 ] );
 		Core::$now = 1001.0;
-		$node->fire();
+		$node->fire_cb();
 
 		$this->assertSame( 'inactive', $this->read_private( $node, 'mode' ), 'the seek leaves nothing owed' );
 	}
@@ -459,21 +383,17 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$this->stub_sse_connect();
 		$node = $this->make_remote( 'remote-austin' );
 		Core::$now = 1000.0;
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
+		$node->fire_cb();
 		$node->next_offset( [ 'segment' => 7, 'offset' => 1 ] );
 		$node->checkpoint_shutdown();
 		$node->pause();
 		$node->step(); // owed one
 		Core::$now = 5000.0; // well past the checkpoint interval
-		$node->fire();
-		$this->drain_connect_queue();
-		$this->deliver( $sse, '7:1:20', 'stepped-828' );
-		Core::$now = 9000.0; // the landing tick is due a checkpoint too
-		$node->fire();
+		$node->fire_cb();
+		Core::$now = 9000.0;
+		$node->fire_cb();
 
-		$this->assertSame( [ 'stepped-828' ], $this->forwarded() );
-		$this->assertSame( 1, $this->read_private( $node, 'checkpoint_offset' ), 'a step commits no cursor' );
+		$this->assertSame( 1, $this->read_private( $node, 'checkpoint_offset' ), 'a paused tick commits no cursor' );
 	}
 
 	public function test_pause_cancels_a_pending_step(): void {
@@ -481,7 +401,7 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$this->stub_sse_connect();
 		$node = $this->make_remote( 'remote-austin' );
 		Core::$now = 1000.0;
-		$node->fire();
+		$node->fire_cb();
 		$node->next_offset( [ 'segment' => 7, 'offset' => 1 ] );
 		$node->pause();
 		$node->step();
@@ -501,10 +421,10 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$this->stub_sse_connect();
 		$node = $this->make_remote( 'remote-austin' );
 		Core::$now = 1000.0;
-		$node->fire();
+		$node->fire_cb();
 
 		$interpreter = $this->read_private( $node, 'interpreter' );
-		$this->assertNotNull( $interpreter, 'Remote_Source auto-wires a {name}:config interpreter for its verbs' );
+		$this->assertNotNull( $interpreter, 'the reader auto-wires a {name}:config interpreter for its verbs' );
 		$cap = new Capture_Sink_Node();
 		$interpreter->sink( $cap );
 

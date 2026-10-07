@@ -1,0 +1,13 @@
+[
+  ["an exact subscription carries its own dir", "jobstats.p0", "jobstats.p0", true],
+  ["an exact subscription carries no sibling partition", "jobstats.p0", "jobstats.p1", false],
+  ["a bare topic carries no partition of it", "firehose", "firehose.p0", false],
+  ["a glob carries a dir it matches", "errors.*", "errors.p3", true],
+  ["a glob carries no other topic", "errors.*", "error-log.p3", false],
+  ["a glob star stops at a slash", "offsets/*", "offsets/kea-7713.p3", true],
+  ["a bare glob carries no grouped dir", "*", "offsets/kea-7713.p3", false],
+  ["a source stamp is exact", "sources/php", "sources/php", true],
+  ["a source stamp carries no other source", "sources/php", "sources/debug", false],
+  ["regex characters in a sub are literal", "a.p0", "aXp0", false],
+  ["a question mark is literal, not a wildcard", "errors.p?*", "errors.p3", false]
+]

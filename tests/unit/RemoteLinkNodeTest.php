@@ -125,9 +125,8 @@ class RemoteLinkNodeTest extends TestCase {
 	// ---------------------------------------------------------------------
 
 	public function test_a_cursorless_channel_asks_for_the_tail_by_name(): void {
-		// The base link keeps no durable cursor — restore_position() seeds none —
-		// so it must SAY it wants the tail rather than imply it by omission, which
-		// is what made a real 0:0 position unaskable.
+		// The base link keeps no durable cursor, so it must SAY it wants the tail
+		// rather than imply it by omission, which made a real 0:0 position unaskable.
 		$this->seed_vault();
 		[ $node ] = $this->make_link();
 
