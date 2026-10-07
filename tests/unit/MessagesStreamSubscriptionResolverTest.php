@@ -175,7 +175,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		}
 
 		\mkdir( "{$this->tmp}/logs/firehose.p1", 0755, true );
-		$ctrl->reconcile_glob_consumers( [ 'firehose.*' ], $consumers, $glob_owned, $route );
+		$ctrl->reconcile_glob_consumers( [ 'firehose.*' ], $consumers, $glob_owned, $route, null );
 
 		$this->assertTrue( $this->read_private( $consumers['firehose.p1'], 'multi_writer' ) );
 	}
@@ -354,12 +354,12 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$this->assertSame( [ 'firehose.p0' ], \array_keys( $consumers ) );
 
 		\mkdir( "{$this->tmp}/logs/firehose.p1", 0755, true );
-		$ctrl->reconcile_glob_consumers( [ 'firehose.*' ], $consumers, $glob_owned, $route );
+		$ctrl->reconcile_glob_consumers( [ 'firehose.*' ], $consumers, $glob_owned, $route, null );
 		$this->assertArrayHasKey( 'firehose.p1', $consumers, 'a new partition dir self-heals in' );
 		$this->assertCount( 2, $consumers );
 
 		$this->rmdir_recursive( "{$this->tmp}/logs/firehose.p0" );
-		$ctrl->reconcile_glob_consumers( [ 'firehose.*' ], $consumers, $glob_owned, $route );
+		$ctrl->reconcile_glob_consumers( [ 'firehose.*' ], $consumers, $glob_owned, $route, null );
 		$this->assertSame( [ 'firehose.p1' ], \array_keys( $consumers ), 'a vanished partition dir self-heals out' );
 	}
 
@@ -390,7 +390,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$exact->sink( $route );
 		$consumers['firehose.p9'] = $exact;
 
-		$ctrl->reconcile_glob_consumers( [ 'firehose.*' ], $consumers, $glob_owned, $route );
+		$ctrl->reconcile_glob_consumers( [ 'firehose.*' ], $consumers, $glob_owned, $route, null );
 
 		$this->assertArrayHasKey( 'firehose.p9', $consumers, 'an exact consumer matching the glob but not glob-owned survives' );
 		$this->assertArrayHasKey( 'firehose.p0', $consumers );
@@ -659,5 +659,106 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$offset = new \ReflectionProperty( $consumer, 'cursor_offset' );
 		$this->assertSame( 5, $segment->getValue( $consumer ) );
 		$this->assertSame( 1024, $offset->getValue( $consumer ) );
+	}
+
+	public function test_a_skipped_stamp_under_a_glob_opens_no_reader(): void {
+		\mkdir( "{$this->tmp}/logs/kea-7713.p0", 0755, true );
+		\mkdir( "{$this->tmp}/logs/kea-7713.p3", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+
+		$consumers = $ctrl->open_subscription( 'kea-7713.*', [ 'kea-7713.p3' => SSE_Out_Node::SKIP ] );
+
+		$this->assertSame( [ 'kea-7713.p0' ], \array_map( static fn ( $c ) => $c->stamped_as(), $consumers ) );
+	}
+
+	public function test_a_skipped_exact_stamp_opens_no_reader(): void {
+		\mkdir( "{$this->tmp}/logs/kea-7713.p3", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+
+		$this->assertSame( [], $ctrl->open_subscription( 'kea-7713.p3', [ 'kea-7713.p3' => SSE_Out_Node::SKIP ] ) );
+	}
+
+	public function test_a_skipped_source_stamp_opens_no_reader(): void {
+		$path = "{$this->tmp}/gyro-7713.log";
+		\file_put_contents( $path, "abcdefgh\n" );
+		\Newspack_Nodes\Log_Sources::$builtin_sources = static fn (): array => [ 'gyro' => $path ];
+		$ctrl = new SSE_Out_Node();
+
+		try {
+			$this->assertSame( [], $ctrl->open_subscription( 'sources/gyro', [ 'sources/gyro' => SSE_Out_Node::SKIP ] ) );
+		} finally {
+			\Newspack_Nodes\Log_Sources::$builtin_sources = null;
+		}
+	}
+
+	public function test_the_glob_rescan_leaves_a_skipped_stamp_out(): void {
+		\mkdir( "{$this->tmp}/logs/kea-7713.p0", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+		$route      = new Node();
+		$consumers  = [];
+		$glob_owned = [];
+		\mkdir( "{$this->tmp}/logs/kea-7713.p3", 0755, true );
+
+		$ctrl->reconcile_glob_consumers( [ 'kea-7713.*' ], $consumers, $glob_owned, $route, [ 'kea-7713.p3' => SSE_Out_Node::SKIP ] );
+
+		$this->assertSame( [ 'kea-7713.p0' ], \array_keys( $consumers ) );
+		foreach ( $consumers as $c ) {
+			$c->remove_node();
+		}
+	}
+
+	public function test_a_skipped_ipc_stamp_opens_no_reader(): void {
+		\mkdir( "{$this->tmp}/ipc/skipper-7713.p5/output", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+
+		$consumers = $ctrl->open_subscription( 'skipper-7713.p5', [ 'skipper-7713.p5' => SSE_Out_Node::SKIP ] );
+
+		$this->assertSame( [], $consumers );
+	}
+
+	public function test_the_drain_loop_hands_its_skipped_stamps_to_the_glob_rescan(): void {
+		$this->use_loop_time();
+		\mkdir( "{$this->tmp}/logs/kea-7713.p0", 0755, true );
+		$ticks = 0;
+		$dirs  = [ "{$this->tmp}/logs/kea-7713.p3", "{$this->tmp}/logs/kea-7713.p4" ];
+		SSE_Out_Node::$diagnostic_log = static function ( array $_context ): void {};
+		SSE_Out_Node::$check_slot     = function () use ( &$ticks, $dirs ): bool {
+			++$ticks;
+			if ( 1 === $ticks ) {
+				foreach ( $dirs as $dir ) {
+					\mkdir( $dir, 0755, true );
+				}
+			}
+			if ( 12 === $ticks ) {
+				foreach ( $dirs as $dir ) {
+					$partition = new \Newspack_Nodes\Partition_Node();
+					$partition->arguments( [ $dir ] );
+					$m                   = Message::new_message();
+					$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+					$m[ Message::VALUE ] = 'from-' . \basename( $dir );
+					$partition->fill( $m );
+					$partition->flush();
+				}
+			}
+			return $ticks < 40;
+		};
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+
+		\ob_start();
+		try {
+			$ctrl->run_stream_loop( [ 'kea-7713.*' ], [ 'kea-7713.p3' => SSE_Out_Node::SKIP ], 500 );
+		} finally {
+			$out = (string) \ob_get_clean();
+			SSE_Out_Node::$check_slot     = null;
+			SSE_Out_Node::$diagnostic_log = null;
+		}
+
+		$this->assertStringContainsString( 'from-kea-7713.p4', $out, 'the rescan opened the unskipped dir' );
+		$this->assertStringNotContainsString( 'from-kea-7713.p3', $out );
 	}
 }
