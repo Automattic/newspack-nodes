@@ -1017,21 +1017,27 @@ class RemoteSourceNodeTest extends TestCase {
 	}
 
 	public function test_a_move_does_not_count_as_a_crash(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		[ $node, $child ] = $this->make_remote();
-		$child->next_offset( [ 'segment' => 41, 'offset' => 2719 ] );
-		$child->hand_off_cursor();
-		$child->next_offset( [ 'segment' => 52, 'offset' => 388 ] );
-		( new \ReflectionProperty( Remote_Consumer_Node::class, 'attempts' ) )->setValue( $child, Remote_Consumer_Node::CRASH_MAX_ATTEMPTS - 1 );
-		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
-		$base    = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' );
+		$stamped = $this->move_with_strikes( 1, false, 'moved-1158', 63, 905 );
 
-		$node->arguments( [ 'austin', "{$offsets}/moved-1158", "{$base}/deadletter/moved-1158", 'firehose.p0:downstream' ] );
-		$child->connect_position();
+		$this->assertSame( 0, $stamped, 'a healthy reader that moved commits gracefully' );
+	}
 
-		$this->assertFalse( $this->read_private( $child, 'crawl' ), 'a healthy reader that moved is no crash suspect' );
-		$this->assertLessThanOrEqual( 1, $this->read_private( $child, 'attempts' ) );
-		$this->assertSame( [], \glob( "{$base}/deadletter/moved-1158/firehose.p0/*.log" ) ?: [], 'nothing was dead-lettered' );
+	public function test_a_move_of_a_crawling_reader_keeps_its_attempts(): void {
+		$stamped = $this->move_with_strikes( 3, true, 'moved-4417', 71, 2204 );
+
+		$this->assertSame( 3, $stamped, 'a crawling reader keeps its lineage across the move' );
+	}
+
+	public function test_a_move_on_the_boot_cursor_with_strikes_keeps_its_attempts(): void {
+		$stamped = $this->move_with_strikes( 3, false, 'moved-5532', 63, 905, true );
+
+		$this->assertSame( 3, $stamped, 'a reader still on the cursor it booted on keeps its strikes' );
+	}
+
+	public function test_a_move_past_the_boot_cursor_with_strikes_keeps_its_attempts(): void {
+		$stamped = $this->move_with_strikes( 4, false, 'moved-6671', 88, 1317 );
+
+		$this->assertSame( 4, $stamped, 'advancing since boot does not clear a strike the streak reset has not' );
 	}
 
 	public function test_a_move_onto_a_dir_holding_a_frame_resumes_at_that_frame_and_says_so(): void {
@@ -1099,6 +1105,40 @@ class RemoteSourceNodeTest extends TestCase {
 		$node->sink( $elsewhere );
 
 		$this->assertSame( $elsewhere, $child->sink() );
+	}
+
+	/** Assign a protected property, as read_private reads one. */
+	private function write_private( object $obj, string $prop, mixed $value ): void {
+		( new \ReflectionProperty( $obj, $prop ) )->setValue( $obj, $value );
+	}
+
+	/**
+	 * Move a reader holding `$attempts` strikes and return the attempts the new dir's frame
+	 * carries.
+	 */
+	private function move_with_strikes( int $attempts, bool $crawl, string $dir, int $segment, int $offset, bool $on_boot_cursor = false ): int {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node, $child ] = $this->make_remote();
+		$child->next_offset( [ 'segment' => 41, 'offset' => 2719 ] );
+		$child->hand_off_cursor();
+		$child->next_offset( [ 'segment' => $segment, 'offset' => $offset ] );
+		$this->write_private( $child, 'attempts', $attempts );
+		$this->write_private( $child, 'crawl', $crawl );
+		if ( $on_boot_cursor ) {
+			$this->write_private( $child, 'boot_cursor_segment', $segment );
+			$this->write_private( $child, 'boot_cursor_offset', $offset );
+		}
+		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
+		$base    = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' );
+
+		$node->arguments( [ 'austin', "{$offsets}/{$dir}", "{$base}/deadletter/{$dir}", 'firehose.p0:downstream' ] );
+
+		$partition = new Partition_Node();
+		$partition->arguments( [ "{$offsets}/{$dir}/firehose.p0" ] );
+		$frame = Remote_Consumer_Node::last_frame_of( $partition );
+		$this->assertNotNull( $frame, 'the move wrote a frame into the new dir' );
+		$this->assertSame( [ $segment, $offset ], [ $frame['segment'], $frame['offset'] ] );
+		return Core::as_int( $frame['attempts'] );
 	}
 
 	/** @return array{0:int,1:int}|null The newest frame's segment and offset in $dir. */

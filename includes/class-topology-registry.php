@@ -175,9 +175,9 @@ class Topology_Registry {
 		$spawned = \Newspack_Nodes\Bootstrap::spawn_coordinator()->spawn_fleet( $name );
 
 		return [
-			'name'      => $name,
-			'active'    => true,
-			'spawned'   => $spawned,
+			'name'    => $name,
+			'active'  => true,
+			'spawned' => $spawned,
 			'warning' => [] === $unchecked ? null : 'these active topologies could not be checked for conflicts: ' . \implode( ', ', $unchecked ),
 		];
 	}

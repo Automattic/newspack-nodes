@@ -577,24 +577,6 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	}
 
 	/**
-	 * Final cursor handoff of an operational stop, overriding `Durable_Reader`'s. A
-	 * healthy reader commits gracefully (attempts=0), so progress survives the recycle; a
-	 * hard-crash lineage still in flight keeps its climbing, pinned frame instead. The
-	 * cooperative-stop fair-shot lives elsewhere, in Durable_Reader's cooperative_stop(),
-	 * gated on buffer_head_line() and stopped_in_fill.
-	 *
-	 * @api Invoked by Durable_Reader::hand_off_cursor() on an operational stop.
-	 */
-	public function checkpoint_shutdown(): void {
-		// Paused SEEK sets offset_set w/o poll_initialized; survives shutdown.
-		if ( null === $this->ensure_offsetlog() || ( ! $this->poll_initialized && ! $this->offset_set ) ) {
-			return;
-		}
-		$graceful = $this->attempts <= 1 && ! $this->crawl;
-		$this->write_checkpoint_frame( $graceful, true );
-	}
-
-	/**
 	 * Durable-commit seam: one frame at the cursor, unconditionally. A cursor
 	 * whose generation is unknown is not written: segment 0 would name a
 	 * foreign inode on restore, so the last known frame stands instead.
@@ -679,6 +661,19 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	private function forgive_steps(): void {
 		$this->steps_owed        = 0;
 		$this->step_requested_at = null;
+	}
+
+	/**
+	 * Final cursor handoff of an operational stop, overriding `Durable_Reader`'s. A
+	 * healthy reader commits gracefully (attempts=0), so progress survives the recycle; a
+	 * hard-crash lineage still in flight keeps its climbing, pinned frame instead. The
+	 * cooperative-stop fair-shot lives elsewhere, in Durable_Reader's cooperative_stop(),
+	 * gated on buffer_head_line() and stopped_in_fill.
+	 *
+	 * @api Invoked by Durable_Reader::hand_off_cursor() on an operational stop.
+	 */
+	public function checkpoint_shutdown(): void {
+		$this->commit_healthy_frame();
 	}
 
 	/**
