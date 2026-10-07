@@ -1,44 +1,29 @@
 # shellcheck shell=bash
 # newspack-nodes' constants and gates, sourced by the shared scripts/pre-push.
 
-# The shared tooling's self-tests, run here on the one copy the sync vendors.
+# The shared tooling's self-tests, run here on the one copy the sync vendors:
+# each script, then what it tests, as the step and its verdict name it.
+SELF_TESTS=(
+	"test-reorder-node-methods.sh" "the reorder twins"
+	"test-lint-comments.sh" "the comment gate"
+	"test-fix-blank-lines.sh" "the blank-line fixer"
+	"test-lint-contract.sh" "the contract gate"
+	"test-lint-styles.sh" "the style gate"
+	"test-lint-wp-pin.sh" "the pin gate"
+	"test-render-diagram.sh" "the diagram renderer"
+	"test-coverage-gate.sh" "the per-class coverage gate"
+	"test-coverage-gate-js.sh" "the per-file JS coverage gate"
+	"test-pre-push.sh" "the pre-push hook"
+)
+
 push_gates() {
-	script_gate test-reorder-node-methods.sh \
-		"test-reorder-node-methods (the pre-commit gate's own tests)" \
-		"test-reorder-node-methods failed — the reorder twins are broken (see above)" \
-		"reorder twins clean"
-	script_gate test-lint-comments.sh \
-		"test-lint-comments (the comment gate's own tests)" \
-		"test-lint-comments failed — the comment gate is broken (see above)" \
-		"comment gate clean"
-	script_gate test-fix-blank-lines.sh \
-		"test-fix-blank-lines (the blank-line fixer's own tests)" \
-		"test-fix-blank-lines failed — the blank-line fixer is broken (see above)" \
-		"blank-line fixer clean"
-	script_gate test-lint-contract.sh \
-		"test-lint-contract (the contract gate's own tests)" \
-		"test-lint-contract failed — the contract gate is broken (see above)" \
-		"contract gate clean"
-	script_gate test-lint-styles.sh \
-		"test-lint-styles (the style gate's own tests)" \
-		"test-lint-styles failed — the style gate is broken (see above)" \
-		"style gate clean"
-	script_gate test-lint-wp-pin.sh \
-		"test-lint-wp-pin (the pin gate's own tests)" \
-		"test-lint-wp-pin failed — the pin gate is broken (see above)" \
-		"pin gate clean"
-	script_gate test-render-diagram.sh \
-		"test-render-diagram (the diagram renderer's own tests)" \
-		"test-render-diagram failed — the diagram renderer is broken (see above)" \
-		"diagram renderer clean"
-	script_gate test-coverage-gate.sh \
-		"test-coverage-gate.sh (the coverage gate's own tests)" \
-		"test-coverage-gate.sh failed — the coverage gate is broken (see above)" \
-		"test-coverage-gate clean"
-	script_gate test-coverage-gate-js.sh \
-		"test-coverage-gate-js.sh (the coverage gate's own tests)" \
-		"test-coverage-gate-js.sh failed — the coverage gate is broken (see above)" \
-		"test-coverage-gate-js clean"
+	local i
+	for (( i = 0; i < ${#SELF_TESTS[@]}; i += 2 )); do
+		script_gate "${SELF_TESTS[i]}" \
+			"${SELF_TESTS[i]} (${SELF_TESTS[i + 1]}'s own tests)" \
+			"${SELF_TESTS[i]} failed — ${SELF_TESTS[i + 1]} is broken (see above)" \
+			"${SELF_TESTS[i + 1]} clean"
+	done
 }
 
 container_gates() { :; }

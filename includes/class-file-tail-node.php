@@ -700,8 +700,13 @@ class File_Tail_Node extends Tail_Node {
 	 * @return array<string,mixed>
 	 */
 	public static function node_schema(): array {
-		return \array_merge( parent::node_schema(), [
+		$schema                    = parent::node_schema();
+		$arguments                 = Core::arr( $schema['arguments'] ?? [] );
+		$arguments[0]              = Core::arr( $arguments[0] ?? [] );
+		$arguments[0]['description'] = 'The one file to follow: an absolute path, or sources/<name> for a log-source registry file, either carrying {partition} where each worker follows its own. Each complete line is emitted.';
+		return \array_merge( $schema, [
 			'description' => 'Follows a single filename with tail -F logrotate semantics (inode + byte offset); emits each line as raw TM_BYTESTREAM bytes to its sink.',
+			'arguments'   => $arguments,
 		] );
 	}
 }

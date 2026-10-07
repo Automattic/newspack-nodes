@@ -103,6 +103,19 @@ class TopologiesActivateTest extends TestCase {
 		}
 	}
 
+	public function test_activate_reply_warns_of_an_active_topology_it_could_not_check(): void {
+		\file_put_contents( "{$this->stock}/alpha.tsl", "make_node Echo e\n" );
+		\file_put_contents( "{$this->stock}/broken-4410.tsl", "include no-such-topology\n" );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'broken-4410' ];
+		Config::reset();
+
+		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'activate', 'alpha' );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayNotHasKey( 'unchecked', $result, 'the warning carries the names' );
+		$this->assertSame( 'these active topologies could not be checked for conflicts: broken-4410', $result['warning'] );
+	}
+
 	public function test_activate_preserves_already_active_names(): void {
 		\file_put_contents( "{$this->stock}/alpha.tsl", "make_node Echo a\n" );
 		\file_put_contents( "{$this->stock}/beta.tsl",  "make_node Echo b\n" );

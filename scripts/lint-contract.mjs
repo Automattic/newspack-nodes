@@ -210,9 +210,24 @@ const RULES = [
 	{
 		id: 'stamp-grammar-outside-discovery',
 		lang: 'php',
-		test: /SOURCES_PREFIX\s*\.\s*['"]\/|Log_Discovery::(?:GROUPS|STAMP_PREFIXES)\b|'logs'\s*[!=]==\s*\$group\b|\{\$group\}\/|['"](?:sources|offsets|deadletter|remote)\//,
+		test: new RegExp(
+			[
+				/SOURCES_PREFIX\s*\.\s*['"]\//,
+				/str_starts_with\s*\([^;]*SOURCES_PREFIX/,
+				/Log_Discovery::(?:GROUPS|STAMP_PREFIXES)\b/,
+				/'logs'\s*[!=]==\s*\$group\b/,
+				/\$group\s*[!=]==\s*['"](?:logs|offsets|deadletter|sources)['"]/,
+				/['"]sources['"]\s*[!=]==|[!=]==\s*['"]sources['"]/,
+				/explode\(\s*['"]\/['"]\s*,\s*\$(?:stamp|sub|subscription)\b/,
+				/\{\$group\}\//,
+				/['"](?:sources|offsets|deadletter|remote)\//,
+				/\}\/(?:logs|offsets|deadletter)['"/]|['"]\/(?:logs|offsets|deadletter)['"]/,
+			]
+				.map( ( shape ) => shape.source )
+				.join( '|' )
+		),
 		skip: ( match, rel ) => 'includes/class-log-discovery.php' === rel,
-		why: "a log stamp written, parsed or joined to a root by hand: Log_Discovery::stamp_for() writes it and remote_for() a spoke log's name, split() reads it, dir_of() and dirs_matching() resolve it (ADR-29)",
+		why: "a log stamp written, parsed or joined to a root by hand: Log_Discovery::stamp_for() writes it and remote_for() a spoke log's name, split() reads it, dir_of() and dirs_matching() resolve it, root() joins a root (ADR-29)",
 	},
 	{
 		id: 'fanout-without-fanout',

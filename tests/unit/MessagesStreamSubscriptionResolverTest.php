@@ -89,6 +89,49 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$this->assertSame( 0, $offset->getValue( $consumers[0] ), 'replays from the start, not the tail' );
 	}
 
+	public function test_stream_refuses_a_position_word_it_does_not_know(): void {
+		$acquired = 0;
+		SSE_Out_Node::$acquire_slot = static function () use ( &$acquired ): array|false {
+			++$acquired;
+			return false;
+		};
+		$req = new \WP_REST_Request( 'GET' );
+		$req->set_param( 'subscribe', 'firehose.*' );
+		$req->set_param( 'positions', '{"firehose.p0":"skpi"}' );
+
+		$result = ( new SSE_Out_Node() )->stream( $req );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sse_positions_invalid', $result->get_error_code() );
+		$this->assertSame( 400, $result->get_error_data()['status'] ?? null );
+		$this->assertStringContainsString( 'firehose.p0', $result->get_error_message() );
+		$this->assertStringContainsString( 'skpi', $result->get_error_message() );
+		$this->assertSame( 0, $acquired, 'a refused position takes no slot' );
+	}
+
+	public function test_stream_accepts_every_position_shape_the_grammar_names(): void {
+		SSE_Out_Node::$acquire_slot = static fn (): array|false => false;
+		$req = new \WP_REST_Request( 'GET' );
+		$req->set_param( 'subscribe', 'firehose.*' );
+		$req->set_param(
+			'positions',
+			'{"firehose.p1":"skip","firehose.p2":"recent","firehose.p3":-2,"firehose.p4":"7:4096","firehose.p5":{"segment":3,"offset":12}}'
+		);
+
+		$result = ( new SSE_Out_Node() )->stream( $req );
+
+		$this->assertSame( 'too_many_connections', $result->get_error_code(), 'every shape passes to the slot' );
+	}
+
+	public function test_an_unknown_position_word_throws_rather_than_replaying_the_log(): void {
+		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$ctrl->open_subscription( 'firehose.p0', [ 'firehose.p0' => 'skpi' ] );
+	}
+
 	// ---------------------------------------------------------------------
 	// Multi-writer seal-grace: a hub pulling a shared log asks the spoke's
 	// reader to hold a superseded segment for the straggler's grace window.

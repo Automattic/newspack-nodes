@@ -38,6 +38,7 @@ namespace Newspack_Nodes;
  * configures it through `configure()`.
  *
  * @implements Curl_Owner<null>
+ * @phpstan-type Stream_Positions array<string,array{segment?:int,offset:int}|int|string>
  */
 class SSE_In_Node extends Node implements Curl_Owner {
 	/** Seconds allowed to connect. The transfer itself is untimed (CURLOPT_TIMEOUT 0). */
@@ -60,6 +61,9 @@ class SSE_In_Node extends Node implements Curl_Owner {
 
 	/** Ceiling on one event's accumulated `data:`, 32 MiB. Either overflow retires the lease. */
 	public const MAX_EVENT_SIZE    = 33554432;
+
+	/** Bytes of a refused transfer's body kept for its reason; a WP_Error fits. */
+	public const REFUSAL_MAX_BYTES = 4096;
 
 	/**
 	 * Delivery seam, set by the patron. Every `msg` SSE event hands its RAW `data:`
@@ -155,6 +159,9 @@ class SSE_In_Node extends Node implements Curl_Owner {
 	/** HTTP status of the current transfer, read once its first byte arrives. */
 	private ?int    $last_http_code     = null;
 
+	/** A refused transfer's body, at most `REFUSAL_MAX_BYTES`: the server's reason. */
+	private string  $refusal            = '';
+
 	/** Wall-second of the last `heartbeat` event, for the patron's status display. */
 	private ?int    $last_sse_heartbeat = null;
 
@@ -173,7 +180,7 @@ class SSE_In_Node extends Node implements Curl_Owner {
 	 * a `Consumer_Node::SEEK_*` sentinel, or `SSE_Out_Node::SKIP`. A file-mode
 	 * source that has not seen its generation yet carries no `segment`.
 	 *
-	 * @var array<string,array{segment?:int,offset:int}|int|string>
+	 * @var Stream_Positions
 	 */
 	private array $positions            = [];
 
@@ -316,6 +323,7 @@ class SSE_In_Node extends Node implements Curl_Owner {
 		$this->connected          = false;
 		$this->last_error         = null;
 		$this->last_http_code     = null;
+		$this->refusal            = '';
 		$this->last_sse_heartbeat = null;
 		$this->server_retry_ms    = null;
 		$this->scheduled_reconnect_at = null;
@@ -356,6 +364,10 @@ class SSE_In_Node extends Node implements Curl_Owner {
 			if ( 200 === $this->last_http_code ) {
 				$this->last_error = null;
 			}
+		}
+		if ( null !== $this->last_http_code && 200 !== $this->last_http_code ) {
+			$this->refusal .= \substr( $bytes, 0, \max( 0, self::REFUSAL_MAX_BYTES - \strlen( $this->refusal ) ) );
+			return $length;
 		}
 		return $this->process_sse_chunk( $bytes ) ? $length : 0;
 	}
@@ -398,7 +410,7 @@ class SSE_In_Node extends Node implements Curl_Owner {
 				$this->last_error = "cURL error {$result} ({$description})"
 					. ( '' !== $detail ? ": {$detail}" : '' );
 			} elseif ( 200 !== $http_code ) {
-				$this->last_error = "HTTP {$http_code}";
+				$this->last_error = "HTTP {$http_code}" . $this->refusal_reason();
 			} else {
 				$this->last_error = $this->clean_eof_error();
 			}
@@ -739,6 +751,18 @@ class SSE_In_Node extends Node implements Curl_Owner {
 	}
 
 	/**
+	 * The reason a refused transfer's body states, as WordPress writes a
+	 * `WP_Error`: ` <code>: <message>`, or nothing for any other body.
+	 */
+	private function refusal_reason(): string {
+		$body = \json_decode( $this->refusal, true );
+		if ( ! \is_array( $body ) || ! \is_string( $body['code'] ?? null ) || ! \is_string( $body['message'] ?? null ) ) {
+			return '';
+		}
+		return ' ' . self::safe_diagnostic_text( "{$body['code']}: {$body['message']}" );
+	}
+
+	/**
 	 * Single-line, bounded text safe for operator diagnostics.
 	 *
 	 * @param string $text Raw text from libcurl or the remote.
@@ -919,7 +943,7 @@ class SSE_In_Node extends Node implements Curl_Owner {
 	 * moment it goes out; nothing here keeps or advances a cursor.
 	 *
 	 * @param list<string>                                             $subscribe Subscriptions, in order.
-	 * @param array<string,array{segment?:int,offset:int}|int|string> $positions Per-stamp starting point.
+	 * @param Stream_Positions $positions Per-stamp starting point.
 	 */
 	public function streams( array $subscribe, array $positions ): void {
 		$this->subscribe = $subscribe;

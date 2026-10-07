@@ -1767,19 +1767,22 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	const { run: runActivate } = useCommandOnce( {
 		ci: 'topologies',
 		command: 'activate',
-		onDone: ( { error, args } ) => {
+		onDone: ( { error, result, args } ) => {
 			if ( error ) {
 				setToast( { kind: 'error', text: error } );
 				return;
 			}
 			reloadCatalog();
+			const activated = sprintf(
+				// translators: %s: topology name.
+				__( 'Activated %s.', 'newspack-nodes' ),
+				args[ 0 ]
+			);
 			setToast( {
 				kind: 'success',
-				text: sprintf(
-					// translators: %s: topology name.
-					__( 'Activated %s.', 'newspack-nodes' ),
-					args[ 0 ]
-				),
+				text: result?.warning
+					? `${ activated }\n${ result.warning }`
+					: activated,
 			} );
 		},
 	} );

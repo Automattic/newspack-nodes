@@ -79,11 +79,11 @@ class Log_Cleaner {
 
 		// Each bucket's KEYS are the declared dir names to keep (membership).
 		if ( null !== $declared['logs'] && ! empty( $declared['logs'] ) ) {
-			self::sweep( "{$base_dir}/logs", $declared['logs'], $base_dir, $deleted, $grace );
+			self::sweep( Log_Discovery::root( $base_dir, 'logs' ), $declared['logs'], $base_dir, $deleted, $grace );
 		}
 
 		if ( null !== $declared['offsets'] ) {
-			self::sweep( "{$base_dir}/offsets", $declared['offsets'], $base_dir, $deleted, $grace );
+			self::sweep( Log_Discovery::root( $base_dir, 'offsets' ), $declared['offsets'], $base_dir, $deleted, $grace );
 		}
 
 		return $deleted;

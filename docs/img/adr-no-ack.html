@@ -48,7 +48,7 @@
         <div class="down">↓ <span style="font-size:11.5px">fill(), one call stack</span></div>
         <div class="box"><b>fill() → fill() → … → the last sink returns</b>a slow node here slows this whole stack</div>
         <div class="down">↓</div>
-        <div class="box"><b>the cursor advances</b>Consumer chops past the record; Remote_Source commits on arrival, at each message's start</div>
+        <div class="box"><b>the cursor advances</b>Consumer chops past the record; Remote_Consumer_Node commits on arrival, at each message's start</div>
       </div>
       <p class="back blue">↺ the next <span class="mono">poll()</span> waits for all of it: a slow handler stalls its worker's drain, which is the flow control, not a defect</p>
       <p>"Delivered" and "safe to advance" coincide because both happen in the drain that dispatched the message. The reader owns its cursor entirely, so resuming is always local knowledge. Durability comes from the log and offsetlog tier; the message layer promises no at-least-once.</p>

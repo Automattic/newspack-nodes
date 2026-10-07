@@ -160,4 +160,22 @@ class SpawnFleetTest extends TestCase {
 		\Newspack_Nodes\Topology_Registry::reset();
 		$this->rmdir_recursive( $stock );
 	}
+
+	public function test_spawn_fleet_spawns_beside_an_unreadable_peer_without_raising_it(): void {
+		$stock = $this->make_temp_dir( 'spawn-fleet-unreadable-stock-' );
+		\file_put_contents( "{$stock}/alpha.tsl", "var num_partitions = 3\nmake_node Echo alpha_echo\n" );
+		\file_put_contents( "{$stock}/broken.tsl", "include no-such-topology\n" );
+		\Newspack_Nodes\Topology_Registry::reset();
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'broken', 'alpha' ];
+		\Newspack_Nodes\Config::reset();
+
+		$count = ( new Spawn_Coordinator( $this->tmp, 'NONCE_SALT_FOR_TEST' ) )->spawn_fleet( 'alpha' );
+
+		$this->assertSame( 3, $count, 'the named fleet spawns; a peer that will not read is doctor\'s to report' );
+		$this->assertCount( 3, $GLOBALS['_test_outbound_posts'] ?? [] );
+
+		\Newspack_Nodes\Topology_Registry::reset();
+		$this->rmdir_recursive( $stock );
+	}
 }

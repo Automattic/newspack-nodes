@@ -430,6 +430,22 @@ class Spawn_Coordinator {
 	}
 
 	/**
+	 * `post_due()`, raising every configured topology that will not read once
+	 * the POSTs are out.
+	 *
+	 * @param array<array-key,array<array-key,mixed>> $workers Descriptors to spawn (fleet or wake-map shape).
+	 * @param string                                  $label   Failure-report verb, e.g. 'wake failed'.
+	 * @param float                                   $now     Pass clock.
+	 * @return int Spawn POSTs fired.
+	 * @throws \Throwable Every configured topology that will not read, after the POSTs.
+	 */
+	public function spawn_each( array $workers, string $label, float $now ): int {
+		[ $posted, $unreadable ] = $this->post_due( $workers, $label, $now );
+		Worker_Should_Stop::raise( $unreadable );
+		return $posted;
+	}
+
+	/**
 	 * True when no lock dir stands for `$worker` — absent, not merely stale. A
 	 * STALE lock is a crash, and the ordinary spawn scan owns crash recovery.
 	 *
@@ -593,15 +609,21 @@ class Spawn_Coordinator {
 	 * activation. The caller must already have added $name to the active set,
 	 * or each worker's self-respawn is refused by Spawn_Controller.
 	 *
+	 * It raises only `$name`'s own read failure: a peer that will not read
+	 * boots no worker to collide with, and doctor and status report it.
+	 *
 	 * @param string $name Topology / worker type.
 	 * @return int Spawn POSTs requested — never a count of workers started.
+	 * @throws \Throwable What reading `$name` itself threw, after the POSTs.
 	 */
 	public function spawn_fleet( string $name ): int {
 		$fleet = \array_filter(
 			Bootstrap::expand_workers(),
 			static fn ( array $worker ): bool => $name === $worker['type']
 		);
-		return $this->spawn_each( $fleet, 'fleet spawn failed', (float) \time() );
+		[ $posted, $unreadable ] = $this->post_due( $fleet, 'fleet spawn failed', (float) \time() );
+		Worker_Should_Stop::raise( \array_intersect_key( $unreadable, [ $name => true ] ) );
+		return $posted;
 	}
 
 	/**
@@ -627,9 +649,10 @@ class Spawn_Coordinator {
 	 * read for the whole window.
 	 *
 	 * A configured topology that will not read — an unknown name, a broken
-	 * include — is judged out of the set, and every exit past that read raises
-	 * it: it cannot load, so it boots no worker to collide with, and the
-	 * readable fleets still come up.
+	 * include — is judged out of the set and handed back rather than raised: it
+	 * cannot load, so it boots no worker to collide with, the readable fleets
+	 * still come up, and each caller raises what concerns it — `spawn_each()`
+	 * all of it, `spawn_fleet()` its own fleet's.
 	 *
 	 * Counts POSTS REQUESTED, not workers started: `fire_and_forget_post` hangs
 	 * up before any outcome, and the endpoint records accepted spawns only after
@@ -638,10 +661,9 @@ class Spawn_Coordinator {
 	 * @param array<array-key,array<array-key,mixed>> $workers Descriptors to spawn (fleet or wake-map shape).
 	 * @param string                                  $label   Failure-report verb, e.g. 'wake failed'.
 	 * @param float                                   $now     Pass clock.
-	 * @return int Spawn POSTs fired.
-	 * @throws \Throwable Every configured topology that will not read, after the POSTs.
+	 * @return array{0: int, 1: array<string,\Throwable>} Spawn POSTs fired, then each configured topology that will not read.
 	 */
-	public function spawn_each( array $workers, string $label, float $now ): int {
+	private function post_due( array $workers, string $label, float $now ): array {
 		$due = [];
 		foreach ( $workers as $worker ) {
 			$type      = Core::as_string( $worker['type'] );
@@ -651,11 +673,11 @@ class Spawn_Coordinator {
 			}
 		}
 		if ( [] === $due ) {
-			return 0; // Nothing to POST: don't pay for the conflict walk.
+			return [ 0, [] ]; // Nothing to POST: don't pay for the conflict walk.
 		}
 		// The endpoint records neither refusal, so no throttle stops these.
 		if ( ! Bootstrap::fleet_site() || self::hold() > 0 ) {
-			return 0;
+			return [ 0, [] ];
 		}
 		[ $readable, $unreadable ] = Bootstrap::active_topologies();
 		$conflict                  = self::conflict_description( \array_keys( $readable ) );
@@ -674,8 +696,7 @@ class Spawn_Coordinator {
 			}
 			$posted = \count( $due );
 		}
-		Worker_Should_Stop::raise( $unreadable );
-		return $posted;
+		return [ $posted, $unreadable ];
 	}
 
 	/**

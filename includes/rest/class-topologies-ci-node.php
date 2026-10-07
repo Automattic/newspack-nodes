@@ -44,7 +44,9 @@
  *                (`newspack_nodes_topologies` option), invalidates the config
  *                cache and spawns the fleet, all through the shared
  *                `Topology_Registry::activate()`. Returns
- *                `{name, active:true, spawned:<int>}`.
+ *                `{name, active:true, spawned:<int>, warning}`: `warning`
+ *                names the active topologies no conflict check could read,
+ *                null when none.
  *   deactivate — args `{name}`. Removes the name from the active set, invalidates
  *                the config cache and drains the fleet, through
  *                `Topology_Registry::deactivate()`. Returns `{name, active:false}`.
@@ -536,7 +538,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 *
 	 * @param array<array-key,mixed> $args Bound verb arguments: name.
 	 *
-	 * @return array<int|string,mixed> `{name, active:true, spawned:<int>}`, `spawned` counting spawn POSTs requested.
+	 * @return array<int|string,mixed> `{name, active:true, spawned:<int>, warning}`, `spawned` counting spawn POSTs requested.
 	 * @throws \RuntimeException When the name is not file-name safe or unknown, or activating it would put two fleets on one log.
 	 */
 	public static function cmd_activate( array $args ): array {

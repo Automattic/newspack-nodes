@@ -442,6 +442,9 @@ class Worker_CLI_Command {
 			return;
 		}
 
+		if ( null !== $result['warning'] ) {
+			\WP_CLI::warning( $result['warning'] );
+		}
 		\WP_CLI::success( \sprintf( "Activated '%s' and spawned %d worker(s).", $result['name'], $result['spawned'] ) );
 	}
 
@@ -548,7 +551,7 @@ class Worker_CLI_Command {
 	 */
 	private static function warn_unreadable(): void {
 		foreach ( Bootstrap::active_topologies()[1] as $name => $e ) {
-			\WP_CLI::warning( "{$name}: " . \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
+			\WP_CLI::warning( "{$name}: " . Core::message_of( $e ) );
 		}
 	}
 

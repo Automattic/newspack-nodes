@@ -125,8 +125,12 @@ export default function Overview( { headerControlsSlot } ) {
 	const dragFromRef = useRef( -1 );
 	const dragging = null !== dragName;
 
-	// Refused activate/deactivate/restart ({name,message}) raises this alert.
+	// A refusal ({name,message}) or an activation's warning raises this alert.
 	const [ alert, setAlert ] = useState( null );
+	const onWarning = useCallback(
+		( warning ) => setAlert( { ...warning, warning: true } ),
+		[]
+	);
 
 	// PAUSE all background updates while dragging (poll + probe view).
 	const {
@@ -141,7 +145,11 @@ export default function Overview( { headerControlsSlot } ) {
 		deactivate,
 		restart,
 		connected,
-	} = useTopologyManager( { paused: dragging, onError: setAlert } );
+	} = useTopologyManager( {
+		paused: dragging,
+		onError: setAlert,
+		onWarning,
+	} );
 	// Active topology names currently UNFOLDED, restored from localStorage.
 	const [ expanded, setExpanded ] = useState( readExpanded );
 	const [ order, setOrder ] = useState( readOrder );
@@ -529,11 +537,25 @@ export default function Overview( { headerControlsSlot } ) {
 			) }
 			{ alert && (
 				<AlertModal
-					title={ sprintf(
-						// translators: %s: topology name.
-						__( 'Couldn’t update “%s”', 'newspack-nodes' ),
-						alert.name
-					) }
+					title={
+						alert.warning
+							? sprintf(
+									// translators: %s: topology name.
+									__(
+										'Activated “%s”, with a warning',
+										'newspack-nodes'
+									),
+									alert.name
+							  )
+							: sprintf(
+									// translators: %s: topology name.
+									__(
+										'Couldn’t update “%s”',
+										'newspack-nodes'
+									),
+									alert.name
+							  )
+					}
 					message={ alert.message }
 					onClose={ () => setAlert( null ) }
 				/>

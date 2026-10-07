@@ -268,14 +268,29 @@ final class Log_Discovery {
 	}
 
 	/**
-	 * A path under one root: the one place `{base}/{group}/` is spelled.
+	 * A path under one root.
 	 *
 	 * @param string $base  The runtime base.
 	 * @param string $group A `GROUPS` root.
 	 * @param string $name  A dir name or a glob.
 	 */
 	private static function path( string $base, string $group, string $name ): string {
-		return "{$base}/{$group}/{$name}";
+		return self::root( $base, $group ) . "/{$name}";
+	}
+
+	/**
+	 * One root's dir: the one place `{base}/{group}` is spelled, so a reader
+	 * outside this class names a root it cannot misspell.
+	 *
+	 * @param string $base  The runtime base.
+	 * @param string $group A `GROUPS` root.
+	 * @throws \InvalidArgumentException On a name `GROUPS` lacks.
+	 */
+	public static function root( string $base, string $group ): string {
+		if ( ! \in_array( $group, self::GROUPS, true ) ) {
+			throw new \InvalidArgumentException( \esc_html( "no log root named '{$group}'" ) );
+		}
+		return "{$base}/{$group}";
 	}
 
 	/**
@@ -346,7 +361,8 @@ final class Log_Discovery {
 	}
 
 	/**
-	 * The one reader of a stamp: its group, then the rest. A bare stamp is a
+	 * The one reader of a subscription: its group, then the rest; a FROM
+	 * trail reads through `dir_from_stamp()` instead. A bare stamp is a
 	 * `logs` dir; one opening `{prefix}/` names that root, or for `sources`
 	 * a registry entry. `logs/x` is refused rather than aliased to bare `x`,
 	 * so one log has one spelling, and so is any prefix outside
@@ -406,8 +422,6 @@ final class Log_Discovery {
 	 * exactly, or a glob whose `*` matches within one path segment, as
 	 * `dirs_matching()` globs it. Every other character is
 	 * literal, `?` and `[` included, which is why this is not `fnmatch()`.
-	 * `tests/fixtures/subscription-carries.json` holds it to the browser's
-	 * `carries()`.
 	 *
 	 * @param string $sub   A subscription, as `subscribe` lists it.
 	 * @param string $stamp A record's stamp, as `dir_from_stamp()` reads it.

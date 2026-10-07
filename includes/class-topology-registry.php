@@ -132,15 +132,22 @@ class Topology_Registry {
 	 * config cache, spawn. It materializes the effective active set from
 	 * `Bootstrap::get_topologies()` rather than the raw option, so config-file
 	 * defaults are not silently dropped, and it refuses a write-conflicting set
-	 * BEFORE writing, so such a set is never persisted or spawned. Idempotent:
+	 * BEFORE writing, so such a set is never persisted or spawned. The conflict
+	 * check reads the readable active names plus `$name`: an active topology
+	 * whose graph will not read stays configured and blocks no activation, but
+	 * no conflict with it can be seen, so the answer's `warning` names it,
+	 * which both surfaces show; `$name` itself must read.
+	 * Idempotent:
 	 * an already-active name re-spawns without duplicating.
 	 *
 	 * Callers validate the name and gate the capability. Every refusal raises,
 	 * so both surfaces report a uniform error.
 	 *
 	 * @param string $name Topology name (already validated by the caller).
-	 * @return array{name: string, active: true, spawned: int} `spawned` counts
-	 *         spawn POSTs REQUESTED — a fire-and-forget POST reports no outcome.
+	 * @return array{name: string, active: true, spawned: int, warning: string|null}
+	 *         `spawned` counts spawn POSTs REQUESTED — a fire-and-forget POST
+	 *         reports no outcome; `warning` names the active topologies no
+	 *         conflict check could read, null when none.
 	 * @throws \RuntimeException When the name is unknown or activating it would
 	 *                           put two fleets on one log or offsetlog.
 	 */
@@ -151,8 +158,11 @@ class Topology_Registry {
 			);
 		}
 
-		$next      = \array_values( \array_unique( \array_merge( \array_keys( \Newspack_Nodes\Bootstrap::get_topologies() ), [ $name ] ) ) );
-		$conflicts = Topology_Analyzer::find_conflicts( $next );
+		$configured                = \Newspack_Nodes\Bootstrap::get_topologies();
+		[ $readable, $unreadable ] = \Newspack_Nodes\Bootstrap::split_readable( $configured );
+		$next                      = \array_values( \array_unique( \array_merge( \array_keys( $configured ), [ $name ] ) ) );
+		$unchecked                 = \array_values( \array_diff( \array_map( 'strval', \array_keys( $unreadable ) ), [ $name ] ) );
+		$conflicts                 = Topology_Analyzer::find_conflicts( \array_merge( \array_keys( $readable ), [ $name ] ) );
 		if ( ! empty( $conflicts ) ) {
 			throw new \RuntimeException(
 				\esc_html( "activating '$name' conflicts: " . Topology_Analyzer::describe_conflicts( $conflicts ) )
@@ -165,9 +175,10 @@ class Topology_Registry {
 		$spawned = \Newspack_Nodes\Bootstrap::spawn_coordinator()->spawn_fleet( $name );
 
 		return [
-			'name'    => $name,
-			'active'  => true,
-			'spawned' => $spawned,
+			'name'      => $name,
+			'active'    => true,
+			'spawned'   => $spawned,
+			'warning' => [] === $unchecked ? null : 'these active topologies could not be checked for conflicts: ' . \implode( ', ', $unchecked ),
 		];
 	}
 

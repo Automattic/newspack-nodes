@@ -441,7 +441,7 @@ class Tables_CLI_Command {
 			} catch ( Worker_Should_Stop $stop ) {
 				throw $stop;
 			} catch ( \RuntimeException $e ) {
-				\WP_CLI::warning( "{$topology}: " . \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
+				\WP_CLI::warning( "{$topology}: " . Core::message_of( $e ) );
 				continue;
 			}
 			$parked[ (string) $topology ] = Core::arr( $entry );

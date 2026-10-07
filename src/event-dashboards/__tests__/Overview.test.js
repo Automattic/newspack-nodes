@@ -751,6 +751,30 @@ describe( 'Overview — remaining interactions', () => {
 		expect( container.querySelector( '.nodes-tm__alert' ) ).toBeNull();
 	} );
 
+	it( 'shows an activation warning in the alert modal, titled as a success', () => {
+		useTopologyManager.mockReturnValue(
+			hookValue( {
+				topologies: [ active( 'alpha', 'ok', [ worker() ] ) ],
+			} )
+		);
+		const { container } = render( <Overview /> );
+		const { onWarning } = useTopologyManager.mock.calls.at( -1 )[ 0 ];
+		act( () =>
+			onWarning( {
+				name: 'alpha',
+				message:
+					'these active topologies could not be checked for conflicts: broken-4410',
+			} )
+		);
+		const dialog = container.querySelector( '.nodes-tm__alert' );
+		expect( dialog.getAttribute( 'aria-label' ) ).toBe(
+			'Activated “alpha”, with a warning'
+		);
+		expect( dialog.textContent ).toContain(
+			'these active topologies could not be checked for conflicts: broken-4410'
+		);
+	} );
+
 	it( 'ignores a pointer move when no drag is in progress', () => {
 		useTopologyManager.mockReturnValue(
 			hookValue( {

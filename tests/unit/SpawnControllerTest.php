@@ -257,6 +257,18 @@ class SpawnControllerTest extends TestCase {
 		$this->assertTrue( $this->controller->check_permission( $req ) );
 	}
 
+	public function test_an_external_caller_is_still_refused_one_second_later(): void {
+		$memd = $this->cache_at( 1_700_000_000 );
+		$req  = $this->external_caller( 7 );
+		$this->controller->check_permission( $req );
+
+		$memd->clock = static fn (): int => 1_700_000_001;
+
+		$result = $this->controller->check_permission( $req );
+		$this->assertInstanceOf( \WP_Error::class, $result, 'the window outlasts one second' );
+		$this->assertSame( 'rate_limited', $result->get_error_code() );
+	}
+
 	public function test_the_spawn_rate_limit_is_per_user(): void {
 		$this->cache_at( 1_700_000_000 );
 		$this->controller->check_permission( $this->external_caller( 7 ) );

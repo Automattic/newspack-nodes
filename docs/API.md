@@ -696,7 +696,8 @@ refused. The probe's reply is the whitelisted roll-up
 deadletter_segments }`, counting the spoke's workers by the `state` each
 `workers[]` row carries — the word `wp nodes status` prints for that slot — so
 a spoke reporting any other state fails the probe naming the worker, and
-`worst_distance` is the largest `distance` across the spoke's `consumers[]`. `summary` reduces the same snapshot
+`worst_distance` is the largest known `distance` across the spoke's `consumers[]`,
+null when no reader's distance can be measured. `summary` reduces the same snapshot
 to `{ connected, idle, total, server_now, unreadable }` — `unreadable` maps each
 active topology that will not read to its message, and the Aggregator Status
 tab renders each as an error banner — and its per-server reading is best

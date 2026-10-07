@@ -41,6 +41,15 @@ class LogDiscoveryTest extends TestCase {
 		parent::tearDown();
 	}
 
+	public function test_root_joins_a_group_onto_the_base(): void {
+		$this->assertSame( '/srv/runtime-6612/offsets', Log_Discovery::root( '/srv/runtime-6612', 'offsets' ) );
+	}
+
+	public function test_root_refuses_a_name_outside_the_groups(): void {
+		$this->expectException( \InvalidArgumentException::class );
+		Log_Discovery::root( '/srv/runtime-6612', 'locks' );
+	}
+
 	public function test_returns_empty_when_logs_dir_missing(): void {
 		// No `{base}/logs/` directory at all — discovery returns empty, not error.
 		$this->assertSame( [], Log_Discovery::on_disk() );

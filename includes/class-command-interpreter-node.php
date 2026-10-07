@@ -307,7 +307,7 @@ class Command_Interpreter_Node extends Node {
 						throw $e;
 					}
 					// Handler errors are pre-escaped; the sink re-escapes.
-					$result    = \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) . "\n";
+					$result    = Core::message_of( $e ) . "\n";
 					$resp_type = Message::TM_COMMAND | Message::TM_ERROR;
 				}
 			}

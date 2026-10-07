@@ -95,7 +95,8 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	/**
 	 * Reduce a spoke's `dump_graph` reply to named fields only: the count of
 	 * its workers in each `CLI::WORKER_STATES` word, the largest consumer
-	 * distance in bytes behind its source, and the dead-letter segment total.
+	 * distance in bytes behind its source, null when no reader's distance can
+	 * be measured, and the dead-letter segment total.
 	 * A worker in any other state fails the probe naming it.
 	 *
 	 * The whitelist is the point. `dump_graph` answers the spoke's whole
@@ -105,7 +106,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	 *
 	 * @param string                 $id      The probed spoke's Vault id.
 	 * @param array<array-key,mixed> $payload The spoke's dump_graph payload.
-	 * @return array{id:string,workers:array<string,int>,worst_distance:int,deadletter_segments:int} Compact roll-up.
+	 * @return array{id:string,workers:array<string,int>,worst_distance:int|null,deadletter_segments:int} Compact roll-up.
 	 * @throws \RuntimeException When a worker's state is outside the vocabulary.
 	 */
 	private static function fleet_rollup( string $id, array $payload ): array {
@@ -121,11 +122,12 @@ class Aggregator_CI_Node extends Service_CI_Node {
 			++$counts[ $state ];
 		}
 
-		$worst_distance = 0;
+		$worst_distance = null;
 		foreach ( Core::arr( $payload['consumers'] ?? [] ) as $consumer ) {
-			$distance = Core::num_int( Core::arr( $consumer )['distance'] ?? 0 );
-			if ( $distance > $worst_distance ) {
-				$worst_distance = $distance;
+			$distance = Core::arr( $consumer )['distance'] ?? null;
+			// A reader that cannot see its end is unknown, never caught up.
+			if ( null !== $distance ) {
+				$worst_distance = \max( $worst_distance ?? 0, Core::num_int( $distance ) );
 			}
 		}
 
@@ -141,9 +143,11 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	 * Each server row with its broker's `readers`: the `CLI::consumer_rows()`
 	 * rows the Workers dashboard and `wp nodes status` read, one read of the
 	 * probe tail for every row. A row is a broker's reader when its SOURCE
-	 * names a remote log (`Log_Discovery::remote_of()`) and its READER is the
-	 * id `Remote_Source_Node::reader_id()` gives that kind under the broker in
-	 * the row's worker partition. Each reader answers its `stamp`, its worker
+	 * names a remote log (`Log_Discovery::remote_of()`) on the broker's spoke
+	 * and its READER is the id `Remote_Source_Node::reader_id()` gives that
+	 * kind under the broker in the row's worker partition. Each row's SOURCE
+	 * is read once and filed under its spoke's Vault id, so a broker weighs
+	 * only its own spoke's rows. Each reader answers its `stamp`, its worker
 	 * `partition`, its `cursor` in `Log_Position`'s grammar, and its
 	 * `distance`, null where it cannot be measured, as a hub reader's never
 	 * can. A reader that has reported no position yet, or whose worker is
@@ -153,15 +157,20 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	 * @return list<array<string,mixed>> The rows in order, each with `readers`.
 	 */
 	private static function with_readers( array $servers ): array {
-		$probed = self::probed_rows();
-		$rows   = [];
+		$by_vault = [];
+		foreach ( self::probed_rows() as $row ) {
+			$remote = Log_Discovery::remote_of( $row['source'] );
+			if ( null !== $remote ) {
+				$by_vault[ $remote['vault_id'] ][] = [ $row, $remote['kind'] ];
+			}
+		}
+		$rows = [];
 		foreach ( $servers as $server ) {
 			$readers = [];
-			foreach ( $probed as $row ) {
-				$remote = Log_Discovery::remote_of( $row['source'] );
-				if ( null !== $remote && Remote_Source_Node::reader_id( $server['topology'], $server['id'], $remote['kind'], $row['partition'] ) === $row['reader'] ) {
+			foreach ( $by_vault[ $server['vault_id'] ] ?? [] as [ $row, $kind ] ) {
+				if ( Remote_Source_Node::reader_id( $server['topology'], $server['id'], $kind, $row['partition'] ) === $row['reader'] ) {
 					$readers[] = [
-						'stamp'     => Log_Discovery::stamp_of( $remote['kind'] ),
+						'stamp'     => Log_Discovery::stamp_of( $kind ),
 						'partition' => $row['partition'],
 						'cursor'    => Log_Position::format( $row['cursor_segment'], $row['cursor_offset'], null ),
 						'distance'  => $row['distance'],
@@ -316,7 +325,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 							'idle'       => $idle,
 							'total'      => \count( $snapshot ),
 							'server_now' => \time(),
-							'unreadable' => \array_map( static fn ( \Throwable $e ): string => \html_entity_decode( $e->getMessage(), \ENT_QUOTES ), $unreadable ),
+							'unreadable' => \array_map( Core::message_of( ... ), $unreadable ),
 						];
 					} ),
 				],

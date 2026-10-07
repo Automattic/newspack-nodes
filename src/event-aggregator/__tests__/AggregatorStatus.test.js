@@ -1037,6 +1037,20 @@ describe( 'AggregatorStatus', () => {
 		expect( cards()[ 1 ].textContent ).toContain( 'could not connect' );
 	} );
 
+	it( 'renders an unknown worst lag as unknown, not as zero bytes', () => {
+		registerSlices( {
+			servers: { servers: SAMPLE_SERVERS, loading: false },
+		} );
+		const { container } = mount();
+		clickProbe( container, 0 );
+		answerProbe( 'server1-vault-cred', {
+			result: { worst_distance: null, deadletter_segments: 7 },
+		} );
+		const rollup = container.querySelector( '.aggregator-fleet-rollup' );
+		expect( rollup.textContent ).toContain( 'Worst lag unknown' );
+		expect( rollup.textContent ).not.toContain( 'Worst lag 0' );
+	} );
+
 	it( 'renders the probe error line on a failed probe', () => {
 		registerSlices( {
 			servers: { servers: SAMPLE_SERVERS, loading: false },

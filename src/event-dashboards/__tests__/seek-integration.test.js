@@ -227,10 +227,9 @@ describe( 'Log Viewer over a file source', () => {
 			render( <LogViewer /> );
 		} );
 		await waitFor(
-			() => expect( mockFakeClient.answered ).toContain( 'dump_log' ),
+			() => expect( logBrowserProps?.items?.length ).toBeGreaterThan( 0 ),
 			{ timeout: 6000 }
 		);
-		await act( async () => {} );
 	}
 
 	beforeEach( () => {

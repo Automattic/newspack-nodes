@@ -238,6 +238,17 @@ class TailTest extends TestCase {
 		$this->assertTrue( $schema['has_target'] ?? false );
 	}
 
+	public function test_file_tail_describes_its_own_source_file(): void {
+		$specs       = \array_column( \Newspack_Nodes\File_Tail_Node::node_schema()['arguments'], null, 'name' );
+		$description = $specs['source_file']['description'];
+
+		$this->assertStringNotContainsString( '{source_file}.0', $description, 'a single file, not a segmented base' );
+		$this->assertStringContainsString( 'absolute', $description );
+		$this->assertStringContainsString( 'sources/<name>', $description );
+		$this->assertStringContainsString( '{partition}', $description );
+		$this->assertSame( 'bound', $specs['source_file']['partition'] );
+	}
+
 	public function test_arguments_builds_deadletter_sibling_when_dir_given(): void {
 		// The third positional arg names the Tail's quarantine dir; it builds a
 		// `:deadletter` sibling Partition just like a Consumer, so a Tail's poison

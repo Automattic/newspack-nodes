@@ -25,7 +25,7 @@
 </style>
 <div class="sheet">
 <h1>The offsetlog frame carries the evidence a crash cannot leave</h1>
-<p class="sub">A caught throw is quarantined on sight. A death with no throw only shows as an attempt count that climbs, so the count is what the reader boots from, and a graceful stop is what keeps an innocent cursor from climbing. Shared by <span class="mono">Consumer_Node</span> and <span class="mono">Remote_Source_Node</span> through <span class="mono">Dead_Letter_Queue</span> and <span class="mono">Durable_Reader</span>.</p>
+<p class="sub">A caught throw is quarantined on sight. A death with no throw only shows as an attempt count that climbs, so the count is what the reader boots from, and a graceful stop is what keeps an innocent cursor from climbing. Shared by <span class="mono">Consumer_Node</span> and <span class="mono">Remote_Consumer_Node</span> through <span class="mono">Dead_Letter_Queue</span> and <span class="mono">Durable_Reader</span>.</p>
 
 <div class="card" style="padding-bottom:12px">
   <h3>One checkpoint frame, committed every <span class="mono">CHECKPOINT_INTERVAL_S</span> (30 s), at a clean stop, and after every message in crawl</h3>
@@ -44,7 +44,7 @@
   <div class="path a">
     <header>Caught throw: quarantined on sight</header>
     <div class="body">
-      <div class="hop"><span class="n">1</span><span>The sink's <span class="mono">fill()</span> raises inside <span class="mono">Durable_Reader::forward_line</span>, the shared emit seam (Remote_Source overrides it for its crumb-derived cursor).</span></div>
+      <div class="hop"><span class="n">1</span><span>The sink's <span class="mono">fill()</span> raises inside <span class="mono">Durable_Reader::forward_line</span>, the shared emit seam (Remote_Consumer_Node overrides it for its crumb-derived cursor).</span></div>
       <div class="hop"><span class="n">2</span><span><span class="mono">dead_letter()</span> writes the message to the <span class="k">:deadletter</span> sibling, replayable with <span class="mono">wp nodes ingest</span>. An unparseable line goes the same way with its raw bytes kept.</span></div>
       <div class="hop"><span class="n">3</span><span>The cursor advances past it and the disposal commits gracefully, so it is never re-delivered and never re-quarantined. No retry, no head block: a throw is deterministic per message, and the transient failures a retry would target are upstream.</span></div>
       <div class="out q"><span class="mono">Tail_Node</span> and <span class="mono">File_Tail_Node</span> are the third override of that seam and wrap nothing: a throw from a Tail's sink escapes the drain loop, the cursor never advances, and a Tail reaches its <span class="mono">:deadletter</span> only through the crawl-entry sacrifice.</div>
@@ -63,7 +63,7 @@
     <header>Uncatchable death: crawl</header>
     <div class="body">
       <div class="hop"><span class="n">1</span><span>OOM, fatal, SIGKILL: no catch point. The next boot sees <span class="mono">attempts</span> climb with no <span class="mono">reason</span>. Below <span class="k">CRASH_MAX_ATTEMPTS = 5</span>, the first successful forward clears the streak.</span></div>
-      <div class="hop"><span class="n">2</span><span>At the threshold, crawl: the boot-pinned suspect is sacrificed to the DLQ with reason <span class="mono">'crash'</span> and committed past, which closes the sacrifice-to-checkpoint crash window — Consumer takes the first buffered line at the boot cursor, Remote_Source matches the crumb start against the boot pin (a suspect the stream resumed past disarms without sacrificing).</span></div>
+      <div class="hop"><span class="n">2</span><span>At the threshold, crawl: the boot-pinned suspect is sacrificed to the DLQ with reason <span class="mono">'crash'</span> and committed past, which closes the sacrifice-to-checkpoint crash window — Consumer takes the first buffered line at the boot cursor, Remote_Consumer_Node matches the crumb start against the boot pin (a suspect the stream resumed past disarms without sacrificing).</span></div>
       <div class="hop"><span class="n">3</span><span>Checkpoint after EVERY message so a re-crash pins the culprit, attempts pinned at the threshold. Crawl will not exit while the sacrifice is still armed.</span></div>
       <div class="out g"><span class="k">CHECKPOINT_INTERVAL_S = 30</span> crash-free seconds exit to the healthy baseline. One accepted false positive: the entry-transition head, when the crash was deeper in the window.</div>
     </div>
