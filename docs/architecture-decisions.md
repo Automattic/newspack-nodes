@@ -1347,7 +1347,7 @@ group name: `stamp_for()` refuses a log dir named `logs`, `offsets` or `deadlett
 bare stamp is one, and a Partition or Log declaration refuses it too).
 [`workerOfFrom()`](../src/shared/utils/workerId.js) strips that stamp through
 [`splitStamp()`](../src/runtime/log-stamp.js), which `tests/fixtures/log-stamps.json` holds
-to PHP `SSE_Out_Node::dir_from_stamp()`, and reads what remains, `{worker}/{name}`, validating the worker through
+to PHP `Log_Discovery::dir_from_stamp()`, and reads what remains, `{worker}/{name}`, validating the worker through
 `parseWorkerId()`; any other shape — a malformed or foreign FROM — names no worker. It is the one reader of a FROM trail's
 worker, as `workerOfPath()` is of a TO path's. Rejected: a WORKER slot in each record layout,
 which costs three layout changes and their parity pins for what FROM already carries.

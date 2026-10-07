@@ -5,11 +5,11 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use Newspack_Nodes\Rest\SSE_Out_Node;
+use Newspack_Nodes\Log_Discovery;
 
 /**
  * The reader stamp a FROM trail opens with, read back by
- * `SSE_Out_Node::dir_from_stamp()`, held to `src/runtime/log-stamp.js` by one
+ * `Log_Discovery::dir_from_stamp()`, held to `src/runtime/log-stamp.js` by one
  * case list: a stamp opening with a group name takes a second segment,
  * because `stamp_for()` refuses a log dir named like a group.
  */
@@ -27,7 +27,13 @@ final class LogStampTest extends TestCase {
 
 	#[DataProvider( 'stamps' )]
 	public function test_dir_from_stamp_reads_the_dir_stamp_for_wrote( string $from, string $dir ): void {
-		$read = new \ReflectionMethod( SSE_Out_Node::class, 'dir_from_stamp' );
-		$this->assertSame( $dir, $read->invoke( null, $from ) );
+		$this->assertSame( $dir, Log_Discovery::dir_from_stamp( $from ) );
+	}
+
+	public function test_stamp_for_refuses_a_log_dir_named_like_the_sources_prefix(): void {
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'log dir sources is named like a group' );
+
+		Log_Discovery::stamp_for( 'logs', 'sources' );
 	}
 }

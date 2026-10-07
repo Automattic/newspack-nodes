@@ -1,13 +1,13 @@
 /**
  * splitStamp — the one JS reader of the reader stamp a FROM trail opens with,
- * held to PHP `SSE_Out_Node::dir_from_stamp()` by one case list.
+ * held to PHP `Log_Discovery::dir_from_stamp()` by one case list.
  */
 
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { splitStamp } from '../log-stamp';
 
-describe( 'splitStamp parity with SSE_Out_Node::dir_from_stamp()', () => {
+describe( 'splitStamp parity with Log_Discovery::dir_from_stamp()', () => {
 	const cases = JSON.parse(
 		readFileSync(
 			join( __dirname, '../../../tests/fixtures/log-stamps.json' ),
@@ -29,6 +29,13 @@ describe( 'splitStamp', () => {
 			'jobstats',
 		] );
 		expect( splitStamp( 'jobstats.p0' ).rest ).toEqual( [] );
+	} );
+
+	it( 'reads a sources stamp as one stamp', () => {
+		expect( splitStamp( 'sources/php/php-errors:tail' ) ).toEqual( {
+			dir: 'sources/php',
+			rest: [ 'php-errors:tail' ],
+		} );
 	} );
 
 	it( 'tolerates a null or undefined FROM', () => {

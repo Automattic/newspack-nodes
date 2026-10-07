@@ -6,5 +6,7 @@
   ["a FROM opening with a group name takes its second segment", "logs/kea-7713.p3/jobstats", "logs/kea-7713.p3"],
   ["a group with no dir after it", "offsets/", "offsets"],
   ["a group alone", "deadletter", "deadletter"],
-  ["an empty FROM", "", ""]
+  ["an empty FROM", "", ""],
+  ["a sources stamp keeps its prefix", "sources/php/php-errors:tail", "sources/php"],
+  ["a bare sources stamp", "sources/php", "sources/php"]
 ]
