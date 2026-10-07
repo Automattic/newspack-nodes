@@ -27,35 +27,36 @@ export const REPLAY = 'replay';
 
 /**
  * Derive the whole `browse` control for a source, in the shape
- * `LogStreamViewNode._control()` accepts: the newest segment id, that
- * segment's byte size, and every segment id the footprint lists, which a
- * replayed record must leave or reach the end of to count as caught up. A
- * file source lists itself as one segment, its inode at the file's size,
- * which is the slot a Tail over the file stamps its breadcrumbs with.
- * Returning half the control leaves every consumer to invent the other half,
- * and three of them invent three.
+ * `LogStreamViewNode._control()` accepts: the source's footprint, from which
+ * `SeekTracker.browse()` reads the boundary — the newest segment, its byte
+ * size, and every segment id listed, which a replayed record must leave or
+ * reach the end of to count as caught up. A file source lists itself as one
+ * segment, its inode at the file's size, which is the slot a Tail over the
+ * file stamps its breadcrumbs with.
+ *
+ * This builder is where a footprint is validated, because the view applies
+ * the control from `fill()`, where nothing would catch a throw.
  *
  * @param {Object}                           source            The source row.
  * @param {Array<{id?:number,size?:number}>} [source.segments] Segment list.
- * @return {{action:string,endSegment:number,endOffset:number,knownSegments:number[]}|{action:string}}
- *   A `browse` control, or `follow` when the source carries no boundary.
- * @throws {TypeError} When a segment newer than every segment before it carries
- *   no numeric size.
+ * @return {{action:string,segments:Array<{id?:number,size?:number}>}|{action:string}}
+ *   A `browse` control, or `follow` when no segment carries a numeric id, so
+ *   there is no boundary to catch up to.
+ * @throws {TypeError} When the newest segment carries no numeric size: the
+ *   boundary offset IS the catch-up test, so a guessed 0 would flip the replay
+ *   to live on its first record.
  */
 export function browseControl( { segments = [] } ) {
 	const boundary = endPosition( segments );
 	if ( null === boundary ) {
-		// No boundary to catch up to — replay would never flip back to live.
 		return { action: 'follow' };
 	}
-	return {
-		action: 'browse',
-		endSegment: boundary.segment,
-		endOffset: boundary.offset,
-		knownSegments: segments
-			.map( ( s ) => s?.id )
-			.filter( ( id ) => 'number' === typeof id ),
-	};
+	if ( 'number' !== typeof boundary.offset ) {
+		throw new TypeError(
+			`segment ${ boundary.segment } carries no numeric size`
+		);
+	}
+	return { action: 'browse', segments };
 }
 
 /**
@@ -63,34 +64,24 @@ export function browseControl( { segments = [] } ) {
  * id and its byte size, from a segment list (`dump_log.segments`). Null when
  * no segment carries a numeric id.
  *
- * Module-private, because `browseControl()` is the whole control and the only
- * surface a consumer needs; an exported half is a half every consumer completes
- * its own way.
+ * Module-private: `browseControl()` validates through it, and
+ * `SeekTracker.browse()` reads the boundary of the control it built.
  *
  * @param {Array<{id?:number,size?:number}>} segments The `{id, size}` segments.
- * @return {{segment:number,offset:number}|null} The boundary, or null.
- * @throws {TypeError} When a segment newer than every segment before it carries
- *   no numeric size.
+ * @return {{segment:number,offset:(number|undefined)}|null} The boundary, or
+ *   null; the offset is the newest segment's size as listed.
  */
 function endPosition( segments ) {
-	let segment = null;
-	let offset = 0;
+	let newest = null;
 	for ( const s of segments ) {
 		if (
 			'number' === typeof s?.id &&
-			( null === segment || s.id > segment )
+			( null === newest || s.id > newest.id )
 		) {
-			segment = s.id;
-			// endOffset IS the catch-up test; a 0 flips on record one.
-			if ( 'number' !== typeof s.size ) {
-				throw new TypeError(
-					`segment ${ s.id } carries no numeric size`
-				);
-			}
-			offset = s.size;
+			newest = s;
 		}
 	}
-	return null === segment ? null : { segment, offset };
+	return null === newest ? null : { segment: newest.id, offset: newest.size };
 }
 
 /**
@@ -183,29 +174,24 @@ export class SeekTracker {
 
 	/**
 	 * Enter replay, capturing the boundary a replayed record must reach to count
-	 * as caught up: the newest segment id, that segment's byte size, and every
-	 * segment id the footprint listed, which for a file source are its inode
-	 * and its size. A null segment enters a replay that never auto-flips,
-	 * leaving the flip to the caller.
+	 * as caught up, read once from the footprint: every segment id it lists, the
+	 * newest of which is the end segment, and that segment's byte size — for a
+	 * file source its inode and its size. A footprint naming no segment enters a
+	 * replay that never auto-flips, leaving the flip to the caller.
 	 *
-	 * @param {?number}  endSegment      The end segment id, or null for no boundary.
-	 * @param {number}   endOffset       The catch-up byte boundary.
-	 * @param {number[]} [knownSegments] Every segment id the footprint listed;
-	 *                                   required with an end segment.
-	 * @throws {TypeError} When an end segment comes without its footprint's
-	 *   ids, which would flip to Live on the first record.
+	 * @param {Array<{id?:number,size?:number}>} [segments] The validated footprint.
 	 */
-	browse( endSegment = null, endOffset = 0, knownSegments ) {
-		if ( null !== endSegment && ! Array.isArray( knownSegments ) ) {
-			throw new TypeError(
-				`browse to segment ${ endSegment } names no knownSegments`
-			);
-		}
+	browse( segments = [] ) {
+		const boundary = endPosition( segments );
 		this.mode = REPLAY;
 		// Pre-seek breadcrumb is stale: highlight falls to the clicked item.
 		this.lastReceivedSegment = null;
-		this.endSegment = endSegment;
-		this.endOffset = endOffset;
-		this.knownSegments = new Set( knownSegments );
+		this.endSegment = boundary?.segment ?? null;
+		this.endOffset = boundary?.offset ?? 0;
+		this.knownSegments = new Set(
+			segments
+				.map( ( s ) => s?.id )
+				.filter( ( id ) => 'number' === typeof id )
+		);
 	}
 }

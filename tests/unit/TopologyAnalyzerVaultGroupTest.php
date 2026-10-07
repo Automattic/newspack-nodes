@@ -91,6 +91,33 @@ TSL;
 		Topology_Analyzer::statements( 'pull-lab' );
 	}
 
+	/** A group with no members yet refuses the connect too, as its runtime node does. */
+	public function test_a_connect_onto_an_empty_group_of_brokers_fails_the_walk(): void {
+		$this->write_tsl( 'pull-lab', \str_replace( 'tw-edge', 'kestrel-empty', self::PULL_LAB ) . "\nconnect_node firehose audit-5\n" );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'firehose takes no target: Remote_Source declares has_target false' );
+		Topology_Analyzer::graph_for( 'pull-lab' );
+	}
+
+	/** A written connect onto one derived child of a group of brokers fails the walk, as the load would. */
+	public function test_a_connect_onto_a_derived_child_that_takes_no_target_fails_the_walk(): void {
+		$this->write_tsl( 'pull-lab', self::PULL_LAB . "\nconnect_node firehose:tw9 audit-5\n" );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'firehose:tw9 takes no target: Remote_Source declares has_target false' );
+		Topology_Analyzer::graph_for( 'pull-lab' );
+	}
+
+	/** A connect onto a node whose class takes no target fails a walk with no group in it. */
+	public function test_a_connect_onto_a_targetless_node_fails_a_walk_without_groups(): void {
+		$this->write_tsl( 'pull-lab', "make_node Null hollow-61\nconnect_node hollow-61 audit-5\n" );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'hollow-61 takes no target: Null declares has_target false' );
+		Topology_Analyzer::expand( [ 'pull-lab' ] );
+	}
+
 	public function test_only_a_fan_out_upstream_reaches_each_child(): void {
 		$this->write_tsl( 'pull-lab', self::PULL_LAB . "\nmake_node Echo relay-8\nconnect_node relay-8 firehose\n" );
 

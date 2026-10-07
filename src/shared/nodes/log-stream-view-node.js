@@ -125,7 +125,7 @@ export class LogStreamViewNode extends ReactBridge( Node ) {
 	 * segment ids would jitter the rail highlight, and disarms it. A payload
 	 * carrying no `dir` at all selects a single source and stays armed.
 	 *
-	 * @param {?{action?: string, paused?: boolean, frames?: number, connectionError?: boolean, endSegment?: ?number, endOffset?: number, knownSegments?: number[], term?: string, dir?: string}} value The control payload: `action` picks the verb, the remaining fields are that verb's arguments. An unrecognised or absent verb is a no-op.
+	 * @param {?{action?: string, paused?: boolean, frames?: number, connectionError?: boolean, segments?: Array<{id?: number, size?: number}>, term?: string, dir?: string}} value The control payload: `action` picks the verb, the remaining fields are that verb's arguments. An unrecognised or absent verb is a no-op.
 	 */
 	_control( value ) {
 		const action = value?.action;
@@ -142,11 +142,7 @@ export class LogStreamViewNode extends ReactBridge( Node ) {
 			this.connectionError = !! value.connectionError;
 		} else if ( 'browse' === action ) {
 			// Replaying: capture the live boundary to detect catch-up against.
-			this.seek.browse(
-				value.endSegment,
-				value.endOffset,
-				value.knownSegments
-			);
+			this.seek.browse( value.segments );
 			// A rewind starts clean: replays must not mix into the live tail.
 			this._clear();
 		} else if ( 'follow' === action ) {

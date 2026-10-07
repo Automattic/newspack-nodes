@@ -341,7 +341,7 @@ class Table_Node extends Node {
 		if ( ! \in_array( $backend, self::BACKENDS, true ) ) {
 			throw new \InvalidArgumentException( \esc_html( 'Table backend must be one of ' . \implode( ', ', self::BACKENDS ) . ", not {$backend}" ) );
 		}
-		$this->bound_partition = \array_key_exists( 'partition', Core::$var ) ? Core::canonical_decimal( Core::$var['partition'] ) : null;
+		$this->bound_partition = Core::bound_partition();
 		$file              = 'sqlite' === $backend ? $this->sqlite_file() : '';
 		$arm               = $this->open( $backend, $namespace, $file );
 		$this->assign_schema_args( $args, $values );

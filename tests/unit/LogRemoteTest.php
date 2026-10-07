@@ -80,15 +80,17 @@ final class LogRemoteTest extends TestCase {
 		Log_Discovery::remote_for( 'aus:tin', 'firehose.p0' );
 	}
 
-	public function test_split_reads_a_remote_name_by_its_prefix(): void {
-		$this->assertSame( [ 'remote', 'kea_41:sources:php' ], Log_Discovery::split( 'remote/kea_41:sources:php' ) );
+	/** A remote name is a probe SOURCE alone, so no stamp reader takes its prefix. */
+	public function test_split_refuses_a_remote_name(): void {
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'invalid subscription: remote/kea_41:sources:php' );
+
+		Log_Discovery::split( 'remote/kea_41:sources:php' );
 	}
 
-	public function test_no_local_log_dir_takes_the_remote_prefix(): void {
-		$this->expectException( \InvalidArgumentException::class );
-		$this->expectExceptionMessage( 'log dir remote is named like a group' );
-
-		Log_Discovery::stamp_for( 'logs', 'remote' );
+	public function test_a_local_log_dir_may_be_named_remote(): void {
+		$this->assertSame( 'remote', Log_Discovery::stamp_for( 'logs', 'remote' ) );
+		$this->assertTrue( Log_Discovery::is_stamp( 'remote' ) );
 	}
 
 	public function test_a_remote_name_is_no_stamp_or_subscription_the_wire_carries(): void {

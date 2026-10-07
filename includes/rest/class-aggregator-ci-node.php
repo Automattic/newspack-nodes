@@ -52,6 +52,7 @@ use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Log_Discovery;
 use Newspack_Nodes\Log_Position;
 use Newspack_Nodes\Remote_Source_Node;
+use Newspack_Nodes\Topic_Probe_Node;
 use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Vault;
 
@@ -61,6 +62,9 @@ use Newspack_Nodes\Vault;
  * Hub-side dashboard verbs: two polled snapshot slices and one spoke probe.
  */
 class Aggregator_CI_Node extends Service_CI_Node {
+
+	/** The logical cache key the probe log's reader rows sit under between sweeps. */
+	private const PROBED_ROWS_KEY = 'aggregator:probed_rows';
 
 	/**
 	 * `probe` verb: POST one spoke's `workers/dump_graph` through
@@ -134,6 +138,64 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	}
 
 	/**
+	 * Each server row with its broker's `readers`: the `CLI::consumer_rows()`
+	 * rows the Workers dashboard and `wp nodes status` read, one read of the
+	 * probe tail for every row. A row is a broker's reader when its SOURCE
+	 * names a remote log (`Log_Discovery::remote_of()`) and its READER is the
+	 * id `Remote_Source_Node::reader_id()` gives that kind under the broker in
+	 * the row's worker partition. Each reader answers its `stamp`, its worker
+	 * `partition`, its `cursor` in `Log_Position`'s grammar, and its
+	 * `distance`, null where it cannot be measured, as a hub reader's never
+	 * can. A reader that has reported no position yet, or whose worker is
+	 * gone, has no row.
+	 *
+	 * @param array<string,array{id:string,topology:string,vault_id:string,url:string,partitions:array<int,array<array-key,mixed>>}> $servers The snapshot's rows.
+	 * @return list<array<string,mixed>> The rows in order, each with `readers`.
+	 */
+	private static function with_readers( array $servers ): array {
+		$probed = self::probed_rows();
+		$rows   = [];
+		foreach ( $servers as $server ) {
+			$readers = [];
+			foreach ( $probed as $row ) {
+				$remote = Log_Discovery::remote_of( $row['source'] );
+				if ( null !== $remote && Remote_Source_Node::reader_id( $server['topology'], $server['id'], $remote['kind'], $row['partition'] ) === $row['reader'] ) {
+					$readers[] = [
+						'stamp'     => Log_Discovery::stamp_of( $remote['kind'] ),
+						'partition' => $row['partition'],
+						'cursor'    => Log_Position::format( $row['cursor_segment'], $row['cursor_offset'], null ),
+						'distance'  => $row['distance'],
+					];
+				}
+			}
+			$rows[] = $server + [ 'readers' => $readers ];
+		}
+		return $rows;
+	}
+
+	/**
+	 * The probe log's reader rows, `CLI::consumer_rows()`, read once a probe
+	 * cadence (`Topic_Probe_Node::declared_interval_s()`) and kept under one
+	 * install-scoped cache key between: the log moves only once a sweep, so a
+	 * poll inside one would decode the same tail again. With no cache backend
+	 * every poll reads it.
+	 *
+	 * @return list<array{reader:string,source:string,partition:int,cursor_segment:int|null,cursor_offset:int,end_segment:int|null,end_size:int|null,distance:int|null,msgs:int}>
+	 */
+	private static function probed_rows(): array {
+		$cache = Cache_Backend::shared_first();
+		$key   = Cache_Backend::site_key( self::PROBED_ROWS_KEY );
+		$rows  = $cache?->get( $key );
+		if ( \is_array( $rows ) ) {
+			/** @var list<array{reader:string,source:string,partition:int,cursor_segment:int|null,cursor_offset:int,end_segment:int|null,end_size:int|null,distance:int|null,msgs:int}> $rows */
+			return $rows;
+		}
+		$rows = ( new CLI( Config::get_base_directory() ) )->consumer_rows()['rows'];
+		$cache?->set( $key, $rows, Topic_Probe_Node::declared_interval_s() );
+		return $rows;
+	}
+
+	/**
 	 * Build the per-node partition snapshot both slices read, keyed by the
 	 * wired `Remote_Source` NODE NAME.
 	 *
@@ -191,42 +253,6 @@ class Aggregator_CI_Node extends Service_CI_Node {
 		}
 
 		return [ $result, $unreadable ];
-	}
-
-	/**
-	 * Each server row with its broker's `readers`: the `CLI::consumer_rows()`
-	 * rows the Workers dashboard and `wp nodes status` read, one read of the
-	 * probe tail for every row. A row is a broker's reader when its SOURCE
-	 * names a remote log (`Log_Discovery::remote_of()`) and its READER is the
-	 * id `Remote_Source_Node::reader_id()` gives that kind under the broker in
-	 * the row's worker partition. Each reader answers its `stamp`, its worker
-	 * `partition`, its `cursor` in `Log_Position`'s grammar, and its
-	 * `distance`, null where it cannot be measured, as a hub reader's never
-	 * can. A reader that has reported no position yet, or whose worker is
-	 * gone, has no row.
-	 *
-	 * @param array<string,array{id:string,topology:string,vault_id:string,url:string,partitions:array<int,array<array-key,mixed>>}> $servers The snapshot's rows.
-	 * @return list<array<string,mixed>> The rows in order, each with `readers`.
-	 */
-	private static function with_readers( array $servers ): array {
-		$probed = ( new CLI( Config::get_base_directory() ) )->consumer_rows()['rows'];
-		$rows   = [];
-		foreach ( $servers as $server ) {
-			$readers = [];
-			foreach ( $probed as $row ) {
-				$remote = Log_Discovery::remote_of( $row['source'] );
-				if ( null !== $remote && Remote_Source_Node::reader_id( $server['topology'], $server['id'], $remote['kind'], $row['partition'] ) === $row['reader'] ) {
-					$readers[] = [
-						'stamp'     => Log_Discovery::stamp_of( $remote['kind'] ),
-						'partition' => $row['partition'],
-						'cursor'    => Log_Position::format( $row['cursor_segment'], $row['cursor_offset'], null ),
-						'distance'  => $row['distance'],
-					];
-				}
-			}
-			$rows[] = $server + [ 'readers' => $readers ];
-		}
-		return $rows;
 	}
 
 	/**

@@ -213,8 +213,9 @@ class Log_Sources {
 	 * Single-step ONE log, by its stamp, to the record at `$position` — the
 	 * read model behind every paused single-step debugger.
 	 *
-	 * The position is what `Log_Position::parse()` reads: a word, or
-	 * `<segment>:<offset>` with a trailing `:<length>` it ignores. A file
+	 * The position is a word of `Log_Position::WORDS`, or what
+	 * `Log_Position::parse()` reads: `<segment>:<offset>` with a trailing
+	 * `:<length>` it ignores. A file
 	 * source also takes `:<offset>`, the cursor a stream states while it has
 	 * not seen the file's generation, and reads at that offset in whichever
 	 * file the path holds; a segmented log refuses it, because segment 0 is a
@@ -238,7 +239,7 @@ class Log_Sources {
 	 */
 	public static function read( string $log, string $position ): array {
 		// A word rides through to next_offset(), which speaks it.
-		$at      = Log_Position::parse( $position );
+		$at      = isset( Log_Position::WORDS[ $position ] ) ? $position : Log_Position::parse( $position );
 		$invalid = 'read_message: invalid position (want <segment>:<offset>[:<length>], :<offset> on a file source, start, recent or end)';
 		if ( null === $at ) {
 			throw new \InvalidArgumentException( $invalid );

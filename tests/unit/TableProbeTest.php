@@ -146,7 +146,7 @@ final class TableProbeTest extends TestCase {
 			'no topology'               => [ [ 'partition' => '5' ], 'tablestats: no topology bound; a probe runs only in a worker' ],
 			'an empty topology'         => [ [ 'topology' => '', 'partition' => '5' ], 'tablestats: no topology bound; a probe runs only in a worker' ],
 			'no partition'              => [ [ 'topology' => 'job-worker-4417' ], 'tablestats: no partition bound; a probe runs only in a worker' ],
-			'a non-canonical partition' => [ [ 'topology' => 'job-worker-4417', 'partition' => '1e2' ], 'tablestats: partition 1e2 is not canonical; a probe runs only in a worker' ],
+			'a non-canonical partition' => [ [ 'topology' => 'job-worker-4417', 'partition' => '1e2' ], 'bound partition 1e2 is not canonical' ],
 		];
 	}
 

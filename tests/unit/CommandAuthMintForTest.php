@@ -36,7 +36,7 @@ class CommandAuthMintForTest extends TestCase {
 		$egress = $this->egress( 'spokes:tapir', 'tapir-2' );
 		Command_Auth::remember_session( 'tapir-2', self::HANDLE, 'key-tapir-5150' );
 
-		$out = Command_Auth::mint_for( $egress, 'pull:okapi:kea.p0', 'raw-logs', 'read_message', [ 'kea.p0', '7:41' ] );
+		$out = Command_Auth::mint_for( $egress, 'pull:okapi:kea.p0', 'raw-logs', 'read_message', [ 'kea.p0', '7:41' ], static fn () => null );
 
 		$this->assertIsArray( $out );
 		$this->assertSame( Message::TM_COMMAND, $out[ Message::TYPE ] );
@@ -53,7 +53,22 @@ class CommandAuthMintForTest extends TestCase {
 		$posts  = 0;
 		$this->count_handshakes( $posts );
 
-		$this->assertNull( Command_Auth::mint_for( $egress, 'pull:okapi', 'workers', 'heartbeat', [ '3', '9' ] ), 'unsigned, so nothing may be minted' );
+		$this->assertNull( Command_Auth::mint_for( $egress, 'pull:okapi', 'workers', 'heartbeat', [ '3', '9' ], $egress->ensure_session( ... ) ), 'unsigned, so nothing may be minted' );
 		$this->assertGreaterThan( 0, $posts, 'a minter that cannot sign asks for the handshake' );
+	}
+
+	/** The minter's own throttle asks, so mint_for never handshakes past it. */
+	public function test_mint_for_with_no_session_asks_through_the_minters_throttle(): void {
+		$this->seed_vault_servers( [ 'tapir-2' => [ 'url' => 'https://tapir.example' ] ] );
+		$egress = $this->egress( 'spokes:tapir', 'tapir-2' );
+		$posts  = 0;
+		$asks   = 0;
+		$this->count_handshakes( $posts );
+
+		Command_Auth::mint_for( $egress, 'pull:okapi', 'workers', 'heartbeat', [ '3', '9' ], static function () use ( &$asks ): void {
+			++$asks;
+		} );
+
+		$this->assertSame( [ 1, 0 ], [ $asks, $posts ], 'the throttle decides, and declined to ask yet' );
 	}
 }

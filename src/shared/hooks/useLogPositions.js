@@ -222,8 +222,9 @@ export function useLogStatusSegments( { sub, scope } ) {
  * renders the rail. The source row comes from `useLogStatusSegments`, which
  * fetches `dump_log` for the selected log.
  *
- * Every seek that STATES positions carries the source row, because
- * `browseControl` reads the replay boundary out of its segments. A follow
+ * Every seek that STATES positions carries the source row, because the
+ * `browse` control carries its segments, out of which `SeekTracker.browse()`
+ * reads the replay boundary. A follow
  * states no positions and needs no row.
  *
  * @param {Object}                    o                     Controller inputs.

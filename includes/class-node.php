@@ -868,11 +868,26 @@ class Node {
 	 * sibling's own target, a partition written straight at flush. The console
 	 * draws one edge per entry, so an omitted destination renders disconnected
 	 * on the canvas while it fills. Declare the fields; empties and duplicates
-	 * are `display_targets()`'s problem, not the declaration's.
+	 * are `display_targets()`'s problem, not the declaration's. By default the
+	 * ones the class declares for its own arguments.
 	 *
 	 * @return list<string>
 	 */
 	protected function extra_targets(): array {
+		return static::declared_targets( $this->arguments );
+	}
+
+	/**
+	 * The destinations a class's `make_node` arguments name for it to write
+	 * without routing through `target`: what a running node declares through
+	 * `extra_targets()`, and what `Topology_Analyzer` reads off a statement for
+	 * every class and draws as `pair` edges, so the two cannot drift. None by
+	 * default.
+	 *
+	 * @param list<string> $args The `make_node` argument tokens, the name excluded.
+	 * @return list<string>
+	 */
+	public static function declared_targets( array $args ): array {
 		return [];
 	}
 

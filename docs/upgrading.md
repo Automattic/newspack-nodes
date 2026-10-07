@@ -6,6 +6,12 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **A `browse` control carries the footprint: `{ action: 'browse', segments }`.**
+  `SeekTracker.browse( segments )` reads the end segment, its byte size and the
+  ids it lists out of it once. A control built by hand passes the
+  `{ id, size }` segments where it passed `endSegment`, `endOffset` and
+  `knownSegments`, and gives the newest segment a numeric `size`: build it
+  through `browseControl()`, which throws when that size is missing.
 - **`Remote_Source` takes `<name> <vault_id> <offsetlog_root> <deadletter_root> <source:target>...`.**
   It was `<name> <vault_id> <remote_partition> <offsetlog_dir> <deadletter_dir>`
   with one `connect_node` target. One line now names every stream the spoke
@@ -26,24 +32,26 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `Remote_Consumer_Node::crumb_of( $message )` is `Log_Position::crumb( $id )`.
   A position or an ID breadcrumb is written by
   `Log_Position::format( ?int $segment, int $offset, ?int $length )` and read by
-  `Log_Position::parse()`. `read_message` refuses a padded number such as `047:5`.
+  `Log_Position::parse()`, which answers a place or null, never a word: a caller
+  that speaks the words looks one up in `Log_Position::WORDS` first.
+  `read_message` refuses a padded number such as `047:5`.
 - **`connect_node` refuses a class whose `node_schema()` declares
   `has_target: false`,** a `Remote_Source` among them, and so does
   `Topology_Analyzer`. A topology connecting one fails to load; drop the line.
 - **`Remote_Consumer_Node::kind_of()` is `Log_Discovery::kind_of()`,** beside its
   inverse `stamp_of()`, and **`Remote_Source_Node::consumers()` is gone:** the
   broker's sibling map holds its readers, each `<broker>:<kind>`.
-- **`Command_Auth::mint_for( $egress, $from, $to, $verb, $arguments )`**
+- **`Command_Auth::mint_for( $egress, $from, $to, $verb, $arguments, $ask_session )`**
   answers one command signed for the spoke an `HTTP_Out` speaks for, for the
-  caller to fill, or asks that egress for a session and answers null. A node
+  caller to fill, or calls `$ask_session`, the caller's throttled ask for a
+  session, and answers null; a minter with no throttle of its own passes
+  `$egress->ensure_session( ... )`. A node
   minting one signed command per destination calls it rather than building the
   command and calling `sign_for()` itself.
 - **A `Remote_Source`'s status key is `remote:<broker>:p<partition>`,** where it
   was `remote:<broker>:<remote_partition>`.
   `Remote_Source_Node::status_key_for( $name, $partition )` takes the worker
   partition as an int.
-- **A log dir named `remote` is refused,** as one named `sources` is: `remote`
-  prefixes a spoke's log on a hub, `remote/<vault_id>:<kind>`. Rename the dir.
 - **`CLI::consumer_rows()` answers a null `cursor_segment`, `end_segment`,
   `end_size` or `distance`** where the reader does not know it: a broker's reader
   never knows its spoke's end, and a file source's segment is unknown until its
@@ -893,9 +901,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   is absent or unreadable; read its boundary off `segments` as a partition's.
   `useLogStatusSegments` answers `source: { segments }` with no `bytes`, and
   `browseControl()` reads `segments` alone, so a source row carrying only
-  `bytes` follows rather than replays. A `browse` control you build by hand
-  passes `knownSegments`, the ids its footprint lists: a replayed record from a
-  segment outside them counts as caught up. A row naming no log —
+  `bytes` follows rather than replays. A row naming no log —
   an active topology that will not read, a dir named outside the stamp grammar —
   carries `label`, `available: false` and `error` but no `key`; offer it
   disabled, never as a pick.

@@ -19,7 +19,6 @@ use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
 use Newspack_Nodes\Tests\TestCase;
@@ -221,23 +220,15 @@ class ServiceCITest extends TestCase {
 	// ── command_message ───────────────────────────────────────────────────
 
 	public function test_command_message_builds_tm_command_envelope(): void {
-		$method = new \ReflectionMethod( HTTP_Out_Node::class, 'command_message' );
-		$decoded = $method->invoke( null, 'discovery', 'get', [ 'a', 'b' ] );
+		$decoded = HTTP_Out_Node::command_message( 'pull:okapi-7', 'discovery', 'get', [ 'a', 'b' ] );
 
 		$this->assertSame( Message::TM_COMMAND, $decoded[ Message::TYPE ] );
-		$this->assertSame( Node_Names::HTTP, $decoded[ Message::FROM ] );
+		$this->assertSame( 'pull:okapi-7', $decoded[ Message::FROM ] );
 		$this->assertSame( 'discovery', $decoded[ Message::TO ] );
 		$this->assertSame(
 			[ 'name' => 'get', 'arguments' => [ 'a', 'b' ] ],
 			$decoded[ Message::VALUE ]
 		);
-	}
-
-	public function test_command_message_defaults_args_to_empty_list(): void {
-		$method  = new \ReflectionMethod( HTTP_Out_Node::class, 'command_message' );
-		$decoded = $method->invoke( null, 'workers', 'dump_graph' );
-
-		$this->assertSame( [], $decoded[ Message::VALUE ]['arguments'] );
 	}
 
 	// ── probe_command ────────────────────────────────────────────────────

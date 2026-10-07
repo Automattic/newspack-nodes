@@ -231,6 +231,22 @@ class AggregatorCITest extends TestCase {
 		$this->assertSame( [ [ 'stamp' => 'firehose.p0', 'partition' => 0, 'cursor' => '3:88', 'distance' => null ] ], $readers['firehose:tw0'] );
 	}
 
+	/** A poll inside one probe cadence answers from the rows the last poll read. */
+	public function test_list_servers_reads_the_probe_log_once_a_probe_cadence(): void {
+		$this->seed_group_topology( [ 'tw9' ] );
+		$this->seed_probe( 'aggregator.firehose:tw9:firehose.p0.p0', 'remote/tw9:firehose.p0', 5, 8813, null );
+		self::list_servers();
+		$memd = Core::$memd;
+		VerbHarness::reset();
+		Core::$memd                           = $memd;
+		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
+		$this->seed_probe( 'aggregator.firehose:tw9:sources:php.p0', 'remote/tw9:sources:php', null, 61027, null );
+
+		$readers = \array_column( self::list_servers(), 'readers', 'id' );
+
+		$this->assertSame( [ 'firehose.p0' ], \array_column( $readers['firehose:tw9'], 'stamp' ), 'the second poll decodes no tail' );
+	}
+
 	public function test_summary_reads_no_probe_log_and_list_servers_does(): void {
 		$this->seed_group_topology( [ 'tw9' ] );
 		$this->seed_probe( 'aggregator.firehose:tw9:firehose.p0.p0', 'remote/tw9:firehose.p0', 5, 8813, null );

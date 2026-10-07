@@ -74,7 +74,7 @@ Intentional, load-bearing choices; "fixing" one usually reintroduces a bug alrea
 | 16 | JS node-class resolution — a NAME is the TSL and palette surface; a programmatic builder hands `makeNode` the CLASS, because `includeNodes` is per bundle |
 | 17 | Timers fire on one shared wall-clock GRID, so harmonic intervals meet and batch |
 | 18 | A Table can front a durable record (`backed_by`); Partition owns the index walk (`locate_by` / `read_many`), the app only what a line means |
-| 19 | A node may DECLARE a destination it writes without routing (`extra_targets()` → `display_targets()`); presentation only, never a route |
+| 19 | A node may DECLARE a destination it writes without routing (`extra_targets()` → `display_targets()`); presentation only, never a route; one its arguments name is declared once, in `Node::declared_targets()`, which the analyzer draws as `pair` edges for every class |
 | 20 | A config default lives in CODE (`Schema::defaults()` or `config_defaults()`); a config file only overrides, and an unknown key there is reported, never thrown |
 | 21 | A node may derive its children from the Vault (`Vault_Group`, rebuilt on RELOAD); static analysis expands every group through `Vault::in_group()`, and `dump_config` emits only the group |
 | 22 | A worker id has one writer (`CLI::worker_id()`) and one reader (`CLI::parse_worker_id()`), held to the JS twins by `tests/fixtures/worker-ids.json`; `Spawn_Coordinator` owns the lock tree, `Worker_Base::ipc_dir()` builds the IPC tree, and nothing else globs, joins or strips either |

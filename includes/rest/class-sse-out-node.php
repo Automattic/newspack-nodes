@@ -1019,10 +1019,10 @@ class SSE_Out_Node extends Node {
 	/**
 	 * Narrow one stamp's saved position to a shape `Consumer_Node::next_offset()`
 	 * accepts: an exact `{segment, offset}` pair, a numeric SEEK sentinel
-	 * (`SEEK_START` 0 / `SEEK_END` -1 / `SEEK_RECENT` -2), or a string
-	 * `Log_Position::parse()` reads, a place or a word. A stamp with no entry
-	 * tail-seeks; any other value falls back to 'start' (next_offset's
-	 * default case).
+	 * (`SEEK_START` 0 / `SEEK_END` -1 / `SEEK_RECENT` -2), a word of
+	 * `Log_Position::WORDS`, or a place `Log_Position::parse()` reads. A stamp
+	 * with no entry tail-seeks; any other value falls back to 'start'
+	 * (next_offset's default case).
 	 *
 	 * @param array<array-key,mixed>|null $positions Saved positions, keyed by stamp.
 	 * @param string                      $stamp     The stamp the reader carries.
@@ -1040,7 +1040,8 @@ class SSE_Out_Node extends Node {
 		if ( \is_numeric( $position ) ) {
 			return Core::num_int( $position, Consumer_Node::SEEK_START );
 		}
-		return Log_Position::parse( Core::as_string( $position ) ) ?? 'start';
+		$text = Core::as_string( $position );
+		return isset( Log_Position::WORDS[ $text ] ) ? $text : ( Log_Position::parse( $text ) ?? 'start' );
 	}
 
 	/**

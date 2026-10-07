@@ -384,6 +384,25 @@ class TopologyRegistryGraphTest extends TestCase {
 		$this->assertSame( [ [ 'source' => 'sources/php', 'target' => 'php-errors' ] ], Topology_Analyzer::graph_for( 'vicuna-bad' )['nodes'][0]['pairs'] );
 	}
 
+	/** A pair the load would refuse draws no edge, so the graph shows only what loads. */
+	public function test_a_pair_the_runtime_refuses_draws_no_edge(): void {
+		$this->write_tsl( 'vicuna-orphan', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl :orphan-4 sources/php: ledger.p<partition>:ledger-sink-7\n" );
+
+		$drawn = \array_map( static fn ( array $edge ): string => "{$edge[0]}>{$edge[1]}", Topology_Analyzer::graph_for( 'vicuna-orphan' )['edges'] );
+		$expanded = \array_map( static fn ( array $edge ): string => "{$edge['from']}>{$edge['to']}", Topology_Analyzer::expand( [ 'vicuna-orphan' ] )['edges'] );
+
+		$this->assertSame( [ 'pull:okapi>ledger-sink-7' ], $drawn );
+		$this->assertSame( [ 'pull:okapi>ledger-sink-7' ], $expanded );
+	}
+
+	/** A target naming `<partition>` draws its edge to the node as the TSL names it. */
+	public function test_a_pair_target_keeps_its_partition_token(): void {
+		$this->write_tsl( 'vicuna-lane', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl ledger.p<partition>:lane-sink.p<partition>\n" );
+
+		$this->assertSame( [ [ 'pull:okapi', 'lane-sink.p<partition>' ] ], Topology_Analyzer::graph_for( 'vicuna-lane' )['edges'] );
+		$this->assertSame( [ 'lane-sink.p<partition>' ], \array_column( Topology_Analyzer::expand( [ 'vicuna-lane' ] )['edges'], 'to' ) );
+	}
+
 	public function test_graph_for_splits_a_config_token_source_outside_its_brackets(): void {
 		\Newspack_Nodes\Core::register_config_namespace(
 			'zeta_pairs',

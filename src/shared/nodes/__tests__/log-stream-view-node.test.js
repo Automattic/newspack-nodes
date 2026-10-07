@@ -7,6 +7,7 @@
  */
 
 import { LogStreamViewNode } from '../log-stream-view-node';
+import { browseControl } from '../seekTracker';
 import {
 	newMessage,
 	TYPE,
@@ -102,15 +103,31 @@ test( 'browse clears the ring (rewinds start clean); follow keeps it', () => {
 	v.fill(
 		controlMsg( {
 			action: 'browse',
-			endSegment: 4,
-			endOffset: 70,
-			knownSegments: [ 3, 4 ],
+			segments: [
+				{ id: 3, size: 1 },
+				{ id: 4, size: 70 },
+			],
 		} )
 	);
 	expect( v.linesCount ).toBe( 0 );
 	v.fill( rowMsg( 'kept' ) );
 	v.fill( controlMsg( { action: 'follow' } ) );
 	expect( v.linesCount ).toBe( 1 );
+} );
+
+test( 'a browse control browseControl builds never throws from fill()', () => {
+	const v = makeView();
+	const footprints = [
+		[ { id: 7, size: 0 } ],
+		[ { id: 6 }, { id: 7, size: 512 } ],
+		[ { id: 9, size: 33 }, { size: 4 }, { id: 2, size: 81 } ],
+	];
+	for ( const segments of footprints ) {
+		const control = browseControl( { segments } );
+		expect( () => v.fill( controlMsg( control ) ) ).not.toThrow();
+	}
+	expect( v.seek.endSegment ).toBe( 9 );
+	expect( v.seek.endOffset ).toBe( 33 );
 } );
 
 test( 'clearing resets the ring, the id stamp AND the rate window', () => {

@@ -451,7 +451,10 @@ trait Dead_Letter_Queue {
 	}
 
 	/**
-	 * Read the quarantined message a `dl_list` locator names.
+	 * Read the quarantined message a `dl_list` locator names, read as a
+	 * breadcrumb through `Log_Position::crumb()`. A malformed locator is
+	 * refused, never coerced: an operator pastes it, and a coerced `abc` would
+	 * redeliver another record without complaint.
 	 *
 	 * @param string $locator `segment:offset:length` in the sidecar.
 	 * @return array<int,mixed> The message, positional.
@@ -459,33 +462,10 @@ trait Dead_Letter_Queue {
 	 */
 	private function deadletter_record( string $locator ): array {
 		$deadletter = $this->require_deadletter();
-		$loc        = $this->parse_deadletter_locator( $locator )
+		$crumb      = Log_Position::crumb( $locator )
 			?? throw new \RuntimeException( \esc_html( "malformed locator '{$locator}' — want segment:offset:length from dl_list" ) );
-		[ $segment, $offset, $length ] = $loc;
-		return $deadletter->read_message_at( $segment, $offset, $length )
+		return $deadletter->read_message_at( $crumb['segment'], $crumb['offset'], $crumb['length'] )
 			?? throw new \RuntimeException( \esc_html( "no dead-letter record at {$locator}" ) );
-	}
-
-	/**
-	 * Parse a `segment:offset:length` sidecar locator into `[segment, offset, length]`,
-	 * or null when it isn't three non-negative integers. It refuses rather than coerces
-	 * because an operator pastes this token, and a coerced `abc` reads segment 0 — a
-	 * different record, redelivered without complaint.
-	 *
-	 * @param string $locator The locator as typed or pasted.
-	 * @return array{0:int,1:int,2:int}|null Null when the token is malformed.
-	 */
-	private function parse_deadletter_locator( string $locator ): ?array {
-		$parts = \explode( ':', $locator );
-		if ( 3 !== \count( $parts ) ) {
-			return null;
-		}
-		foreach ( $parts as $part ) {
-			if ( '' === $part || ! \ctype_digit( $part ) ) {
-				return null;
-			}
-		}
-		return [ (int) $parts[0], (int) $parts[1], (int) $parts[2] ];
 	}
 
 	/**

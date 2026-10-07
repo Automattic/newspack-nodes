@@ -59,19 +59,17 @@ final class Log_Discovery {
 
 	/**
 	 * The prefix naming a spoke's log in this site's own probe channel,
-	 * `remote/<vault_id>:<kind>`, which `remote_for()` writes. It names no dir
-	 * and no registry entry here, so no resolver opens one and the wire never
-	 * carries one.
+	 * `remote/<vault_id>:<kind>`, which `remote_for()` writes and `remote_of()`
+	 * alone reads. It is no stamp prefix: a remote name is a probe record's
+	 * SOURCE, never a FROM, a subscription or a dir.
 	 */
 	public const REMOTE_PREFIX = 'remote';
 
 	/**
-	 * Every prefix a stamp may open with: the dir roots in `GROUPS`,
-	 * `SOURCES_PREFIX`, which names a registry entry rather than a dir, and
-	 * `REMOTE_PREFIX`, which names a spoke's log. A bare stamp is never one of
-	 * them, so a local log never shares a remote log's name.
+	 * Every prefix a stamp may open with: the dir roots in `GROUPS`, and
+	 * `SOURCES_PREFIX`, which names a registry entry rather than a dir.
 	 */
-	public const STAMP_PREFIXES = [ ...self::GROUPS, self::SOURCES_PREFIX, self::REMOTE_PREFIX ];
+	public const STAMP_PREFIXES = [ ...self::GROUPS, self::SOURCES_PREFIX ];
 
 	/**
 	 * The longest stamp, in bytes. A reader's directory is its stamp with `/`
@@ -212,7 +210,7 @@ final class Log_Discovery {
 		$parts = \explode( '/', $stamp );
 		return \strlen( $stamp ) <= self::MAX_STAMP_BYTES && match ( \count( $parts ) ) {
 			1 => ! \in_array( $stamp, self::STAMP_PREFIXES, true ) && Log_Sources::is_valid_name( $stamp ),
-			2 => self::is_wire_prefix( $parts[0] ) && Log_Sources::is_valid_name( $parts[1] ),
+			2 => self::is_prefix( $parts[0] ) && Log_Sources::is_valid_name( $parts[1] ),
 			default => false,
 		};
 	}
@@ -238,20 +236,9 @@ final class Log_Discovery {
 			&& Log_Sources::is_valid_name( \str_replace( '*', 'a', $last ) )
 			&& match ( \count( $parts ) ) {
 				1 => true,
-				2 => self::is_wire_prefix( $parts[0] ) && ( self::SOURCES_PREFIX !== $parts[0] || ! \str_contains( $sub, '*' ) ),
+				2 => self::is_prefix( $parts[0] ) && ( self::SOURCES_PREFIX !== $parts[0] || ! \str_contains( $sub, '*' ) ),
 				default => false,
 			};
-	}
-
-	/**
-	 * Whether a stamp's first segment opens one a record carries over the
-	 * wire: any prefix but `REMOTE_PREFIX`, whose names this site mints for
-	 * its own probe channel and no spoke sends.
-	 *
-	 * @param string $segment A stamp's first segment.
-	 */
-	private static function is_wire_prefix( string $segment ): bool {
-		return self::REMOTE_PREFIX !== $segment && self::is_prefix( $segment );
 	}
 
 	/**
@@ -369,8 +356,7 @@ final class Log_Discovery {
 	 * `remote/<vault_id>:<kind>`, the spoke's Vault id and the stamp's kind.
 	 * A spoke's `firehose.p0` and this site's own are two logs, so they carry
 	 * two names (ADR-29). Neither a Vault id nor a stamp carries `:`, so the
-	 * first `:` parts the two, and the name keeps the two segments
-	 * `dir_from_stamp()` reads.
+	 * first `:` parts the two.
 	 *
 	 * @param string $vault_id The spoke's Vault id.
 	 * @param string $stamp    The stamp the spoke gives the log.

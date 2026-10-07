@@ -451,7 +451,7 @@ describe( 'AggregatorStatus', () => {
 		const rows = [
 			...container.querySelectorAll( '.aggregator-reader' ),
 		].map( ( row ) =>
-			[ ...row.querySelectorAll( '[data-reader-field]' ) ].map(
+			[ ...row.querySelectorAll( 'span' ) ].map(
 				( cell ) => cell.textContent
 			)
 		);

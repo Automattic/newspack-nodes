@@ -3,32 +3,17 @@
  * the twin of PHP `Log_Position` (ADR-30), held to it by
  * `tests/fixtures/log-positions.json`.
  *
- * A position is `<segment>:<offset>`, the segment-less `:<offset>` of a file
- * source whose generation is not known yet, or a word the reader resolves
- * for itself. A record's ID breadcrumb is the same grammar carrying the
- * record's length. Every number is a canonical decimal.
+ * A position is `<segment>:<offset>`, or the segment-less `:<offset>` of a
+ * file source whose generation is not known yet. A record's ID breadcrumb is
+ * the same grammar carrying the record's length. Every number is a canonical
+ * decimal.
  */
-
-/** `Log_Position::WORDS`, the seeks a reader resolves for itself. */
-const WORDS = new Set( [ 'start', 'recent', 'end' ] );
-
-/** `Core::canonical_decimal()`'s grammar: no sign, no padding, no base. */
-const DECIMAL = /^(?:0|[1-9][0-9]*)$/;
 
 /**
- * One field as a number, or null when it is no canonical decimal or would
- * lose precision.
- *
- * @param {string} field A position field.
- * @return {?number} The number, or null.
+ * `Log_Position::GRAMMAR`: an optional segment, an offset and an optional
+ * length, each a canonical decimal — no sign, no padding, no base.
  */
-function decimal( field ) {
-	if ( ! DECIMAL.test( field ) ) {
-		return null;
-	}
-	const n = Number( field );
-	return Number.isSafeInteger( n ) ? n : null;
-}
+const GRAMMAR = /^(0|[1-9][0-9]*)?:(0|[1-9][0-9]*)(?::(0|[1-9][0-9]*))?$/;
 
 /**
  * Write a position, or with a length, a record's breadcrumb. A segment that
@@ -46,33 +31,27 @@ export function formatPosition( segment, offset, length ) {
 }
 
 /**
- * Read a position, or a breadcrumb with its length.
+ * Read a position, or a breadcrumb with its length, through one anchored
+ * match. A number past `Number.MAX_SAFE_INTEGER` names no position.
  *
- * @param {*} position A position or breadcrumb, or a word.
- * @return {?({segment?:number,offset:number,length?:number}|string)} The
- *   place, the word, or null for anything else.
+ * @param {*} position A position or breadcrumb.
+ * @return {?{segment?:number,offset:number,length?:number}} The place, or
+ *   null for anything else, a seek word included.
  */
 export function parsePosition( position ) {
-	const text = String( position ?? '' );
-	if ( WORDS.has( text ) ) {
-		return text;
-	}
-	const fields = text.split( ':' );
-	if ( fields.length < 2 || fields.length > 3 ) {
+	const fields = GRAMMAR.exec( String( position ?? '' ) );
+	if ( ! fields ) {
 		return null;
 	}
-	const segment = '' === fields[ 0 ] ? null : decimal( fields[ 0 ] );
-	const offset = decimal( fields[ 1 ] );
-	const length = 3 === fields.length ? decimal( fields[ 2 ] ) : null;
-	if (
-		null === offset ||
-		( '' !== fields[ 0 ] && null === segment ) ||
-		( 3 === fields.length && null === length )
-	) {
-		return null;
+	/** @type {{segment?:number,offset:number,length?:number}} */
+	const at = { offset: Number( fields[ 2 ] ) };
+	if ( undefined !== fields[ 1 ] ) {
+		at.segment = Number( fields[ 1 ] );
 	}
-	const at = null === segment ? { offset } : { segment, offset };
-	return null === length ? at : { ...at, length };
+	if ( undefined !== fields[ 3 ] ) {
+		at.length = Number( fields[ 3 ] );
+	}
+	return Object.values( at ).every( Number.isSafeInteger ) ? at : null;
 }
 
 /**
@@ -84,13 +63,7 @@ export function parsePosition( position ) {
  */
 export function parseCrumb( id ) {
 	const at = parsePosition( 'string' === typeof id ? id : '' );
-	if (
-		! at ||
-		'object' !== typeof at ||
-		undefined === at.segment ||
-		undefined === at.length
-	) {
-		return null;
-	}
-	return { segment: at.segment, offset: at.offset, length: at.length };
+	return undefined === at?.segment || undefined === at.length
+		? null
+		: { segment: at.segment, offset: at.offset, length: at.length };
 }

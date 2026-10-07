@@ -976,12 +976,6 @@ class RemoteLinkNodeTest extends TestCase {
 		);
 	}
 
-	/**
-	 * The skip path must spend the cadence, or the handshake loses its only
-	 * backoff: `ensure_session()` would run on every housekeeping tick — one
-	 * /auth per second, per link, for as long as the spoke keeps refusing.
-	 * The slot ttl is three cadences, so a beat deferred by one is free.
-	 */
 	/** The reply leg is what keeps the session: an answered beat never expires it. */
 	public function test_an_answered_heartbeat_keeps_the_session(): void {
 		$this->seed_vault();

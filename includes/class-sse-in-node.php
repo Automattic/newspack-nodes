@@ -706,7 +706,7 @@ class SSE_In_Node extends Node implements Curl_Owner {
 	 * Every `stamp=<position>` pair of a frame's CURSORS token, each position
 	 * read by `Log_Position::parse()`. A file-mode source whose generation is
 	 * not known yet writes `stamp=:offset`, so its entry carries no
-	 * `segment`; a pair naming no place, a word included, is skipped.
+	 * `segment`; a pair naming no place is skipped.
 	 *
 	 * @param string $token The token, empty when the spoke sent none.
 	 * @return array<string,array{segment?:int,offset:int}>
@@ -716,7 +716,7 @@ class SSE_In_Node extends Node implements Curl_Owner {
 		foreach ( \explode( ',', $token ) as $pair ) {
 			[ $stamp, $position ] = \array_pad( \explode( '=', $pair, 2 ), 2, '' );
 			$at                   = Log_Position::parse( $position );
-			if ( '' !== $stamp && \is_array( $at ) ) {
+			if ( '' !== $stamp && null !== $at ) {
 				$cursors[ $stamp ] = $at;
 			}
 		}
