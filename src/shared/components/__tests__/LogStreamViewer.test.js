@@ -79,33 +79,26 @@ it( 'sends Clear through the consumer, not into the node', () => {
 	expect( node.lines ).toEqual( [ { id: 1 } ] );
 } );
 
-it( 'renders the debug row with a KEY column, and drops it when keyless', () => {
+it( 'renders the shared debug row as ID, KEY and VALUE', () => {
 	const row = {
 		id: 9,
 		msgId: '3:120:44',
 		key: 'jobstats',
-		content: 'jobstats: {"n":4}',
+		raw: 'jobstats-payload-5512',
 	};
-	const keyed = render( <LogStreamViewer { ...BASE } /> );
-	fireEvent.click( keyed.getByText( 'Debug' ) );
-	const withKey = render( logRowListProps.renderRow( row ) ).container;
-	keyed.unmount();
+	const { getByText } = render( <LogStreamViewer { ...BASE } /> );
+	fireEvent.click( getByText( 'Debug' ) );
+	const cells = [
+		...render(
+			logRowListProps.renderRow( row )
+		).container.querySelectorAll( '.newspack-nodes-table__cell' ),
+	].map( ( cell ) => cell.textContent );
 
-	const bare = render(
-		<LogStreamViewer { ...BASE } hasKeyColumn={ false } />
-	);
-	fireEvent.click( bare.getByText( 'Debug' ) );
-	const keyless = render( logRowListProps.renderRow( row ) ).container;
-
-	expect(
-		withKey.querySelector( '.newspack-nodes-log-row__key' ).textContent
-	).toBe( 'jobstats' );
-	expect(
-		keyless.querySelector( '.newspack-nodes-log-row__key' )
-	).toBeNull();
-	expect(
-		keyless.querySelector( '.newspack-nodes-log-row__id' ).textContent
-	).toBe( '3:120:44' );
+	expect( cells ).toEqual( [
+		'3:120:44',
+		'jobstats',
+		'jobstats-payload-5512',
+	] );
 } );
 
 it( 'renders toolbarExtras before Clear and belowToolbar after the banner', () => {

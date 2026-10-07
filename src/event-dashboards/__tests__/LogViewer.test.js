@@ -354,6 +354,20 @@ describe( 'LogViewer', () => {
 		expect( logRowListProps.resetSignal ).toBe( before + 1 );
 	} );
 
+	// LogRowList re-maps its window whenever the renderer's identity moves.
+	it( 'hands LogRowList one renderer while the columns hold still', async () => {
+		registerViewFixture( {
+			logs: [ { key: 'kea-6118.p2', label: 'kea-6118.p2' } ],
+			selected: 'kea-6118.p2',
+		} );
+		const { rerender } = await renderViewer();
+		const first = logRowListProps.renderRow;
+		await act( async () => {
+			rerender( <LogViewer /> );
+		} );
+		expect( logRowListProps.renderRow ).toBe( first );
+	} );
+
 	// The viewer streams ONE partition at a time (`resubscribe([ log ])`), so a
 	// P<n> gutter on every row named the only thing on screen.
 	it( 'renderRow draws no partition gutter', async () => {

@@ -6,6 +6,14 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`LogStreamViewer` takes no `hasKeyColumn` prop.** Its debug row is always
+  ID, KEY and VALUE; a dashboard wanting other debug columns passes its own
+  `renderDebugRow` and `renderDebugHeader`.
+- **`/messages/stream` refuses every subscription it cannot open before it
+  takes a slot.** A name the stream's guard refuses, such as
+  `offsets/Kea-1`, answers `400 sse_subscription_invalid` with its
+  `invalid subscription: <sub>` message rather than failing after the
+  event-stream headers.
 - **The Partition Viewer is the Log Viewer.** The station tab is `?tab=log-viewer`
   (old `?tab=partition-viewer` links land on the default tab), its nodes are
   `log-viewer:*`, its view class is `LogViewerViewNode` (`LogViewerView`), and its
@@ -827,8 +835,15 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `unknown log source: "<name>" (known: …)`, and a name the stream refuses
   `invalid subscription: <log>`. Send the `key` of a `list_logs` row.
 - **`dump_log` sizes a `sources/<name>` registry source** as
-  `{ log_id, segments, segment_count, total_size }`, a file source answering no
-  segments and its file size, so pass any `list_logs` key. A row naming no log —
+  `{ log_id, segments, segment_count, total_size }`, so pass any `list_logs`
+  key. A file source answers one segment, `{ id: <inode>, size: <bytes> }`,
+  which is the slot its stream's ID breadcrumbs carry, and none while the file
+  is absent or unreadable; read its boundary off `segments` as a partition's.
+  `useLogStatusSegments` answers `source: { segments }` with no `bytes`, and
+  `browseControl()` reads `segments` alone, so a source row carrying only
+  `bytes` follows rather than replays. A `browse` control you build by hand
+  passes `knownSegments`, the ids its footprint lists: a replayed record from a
+  segment outside them counts as caught up. A row naming no log —
   an active topology that will not read, a dir named outside the stamp grammar —
   carries `label`, `available: false` and `error` but no `key`; offer it
   disabled, never as a pick.

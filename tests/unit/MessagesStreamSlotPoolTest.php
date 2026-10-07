@@ -109,7 +109,7 @@ class MessagesStreamSlotPoolTest extends TestCase {
 			return false;
 		};
 
-		foreach ( [ 'foo.bar.p41', 'kea-7713.p03', 'kea-7713.pX' ] as $sub ) {
+		foreach ( [ 'foo.bar.p41', 'kea-7713.p03', 'kea-7713.px' ] as $sub ) {
 			$req = new \WP_REST_Request( 'GET' );
 			$req->set_param( 'subscribe', $sub );
 			( new SSE_Out_Node() )->stream( $req );

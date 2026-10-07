@@ -30,10 +30,14 @@ const MAX_LINE_LENGTH = 1000;
 const MAX_RAW_LENGTH = 262144;
 
 /**
- * The `.pN` suffix a FROM path segment carries when it names a partition
- * directory; capture group 1 is the partition number.
+ * Cut a string to `max` characters, marking a cut with an ellipsis.
+ *
+ * @param {string} s   The text.
+ * @param {number} max The longest it may stay.
+ * @return {string} `s`, or its first `max` characters and `...`.
  */
-const PARTITION_RE = /\.p(\d+)$/;
+const clip = ( s, max ) =>
+	s.length > max ? s.substring( 0, max ) + '...' : s;
 
 /**
  * `log-viewer:view` — owns the Log Viewer's view model.
@@ -47,7 +51,7 @@ const PARTITION_RE = /\.p(\d+)$/;
  * - `shapeRow()`, which shapes a raw SSE envelope into a row carrying all
  *   seven positional message fields (ADR-2) — a record IS a Message, so the
  *   Cols picker draws a cell per field — plus the debug trio (`msgId`, `key`,
- *   `raw`) and a partition column;
+ *   `raw`);
  * - the `select` and `logs` controls, and the `{ logs, selected }` model
  *   fields the toolbar's log dropdown renders from.
  *
@@ -55,15 +59,6 @@ const PARTITION_RE = /\.p(\d+)$/;
  * what `has_target: false` in the schema says.
  */
 export class LogViewerViewNode extends LogStreamViewNode {
-	/**
-	 * The column each source directory was assigned, for streams whose FROM
-	 * names no partition. Built on first miss and never cleared, so a
-	 * directory keeps its column for the life of the node.
-	 *
-	 * @type {Map<string,number>|undefined}
-	 */
-	_partitionIndex;
-
 	/**
 	 * Seed the two fields this view adds to the base model: the catalog the
 	 * log dropdown lists, and the log being tailed. `useLogViewerGraph`
@@ -82,8 +77,9 @@ export class LogViewerViewNode extends LogStreamViewNode {
 	/**
 	 * Shape a raw SSE log envelope into a Log Viewer row.
 	 *
-	 * `content` carries the `KEY: VALUE` line the ingest filter matches on and
-	 * `value` the bare payload, both clipped at MAX_LINE_LENGTH; `raw` carries
+	 * `value` carries the bare payload clipped at MAX_LINE_LENGTH, and
+	 * `content` the `KEY: VALUE` line the ingest filter matches on, which
+	 * prefixes the clipped payload so the KEY survives whole; `raw` carries
 	 * the whole payload Debug mode renders, clipped at the far higher
 	 * MAX_RAW_LENGTH. A struct VALUE reaches all three JSON-encoded.
 	 *
@@ -91,7 +87,7 @@ export class LogViewerViewNode extends LogStreamViewNode {
 	 * then drops the envelope without moving the seek breadcrumb.
 	 *
 	 * @param {Array} message The 7-field positional message.
-	 * @return {?{partition: number, type: number, timestamp: number, from: string, to: string, msgId: string, key: string, struct: boolean, raw: string, value: string, content: string}} The row, or null when the VALUE is empty.
+	 * @return {?{type: number, timestamp: number, from: string, to: string, msgId: string, key: string, struct: boolean, raw: string, value: string, content: string}} The row, or null when the VALUE is empty.
 	 */
 	shapeRow( message ) {
 		const value = message[ VALUE ];
@@ -99,90 +95,46 @@ export class LogViewerViewNode extends LogStreamViewNode {
 			return null;
 		}
 		const struct = 'string' !== typeof value;
-		let raw = struct ? JSON.stringify( value ) : value;
-		// Bare VALUE column; `content` keeps the KEY prefix for the filter.
-		let bare = raw;
-		let line = raw;
-		const key = message[ KEY ];
-		if ( 'string' === typeof key && '' !== key ) {
-			line = `${ key }: ${ line }`;
-		}
-		if ( line.length > MAX_LINE_LENGTH ) {
-			line = line.substring( 0, MAX_LINE_LENGTH ) + '...';
-		}
-		if ( bare.length > MAX_LINE_LENGTH ) {
-			bare = bare.substring( 0, MAX_LINE_LENGTH ) + '...';
-		}
-		if ( raw.length > MAX_RAW_LENGTH ) {
-			raw = raw.substring( 0, MAX_RAW_LENGTH ) + '...';
-		}
+		const raw = struct ? JSON.stringify( value ) : value;
+		const bare = clip( raw, MAX_LINE_LENGTH );
+		const key = 'string' === typeof message[ KEY ] ? message[ KEY ] : '';
 		return {
-			partition: this._partitionFor( message ),
 			// All seven positional fields; the picker chooses which show.
 			type: message[ TYPE ],
 			timestamp: message[ TIMESTAMP ],
 			from: 'string' === typeof message[ FROM ] ? message[ FROM ] : '',
 			to: 'string' === typeof message[ TO ] ? message[ TO ] : '',
 			msgId: 'string' === typeof message[ ID ] ? message[ ID ] : '',
-			key: 'string' === typeof key ? key : '',
+			key,
 			struct,
-			raw,
+			raw: clip( raw, MAX_RAW_LENGTH ),
 			value: bare,
-			content: line,
+			content: '' === key ? bare : `${ key }: ${ bare }`,
 		};
-	}
-
-	/**
-	 * Resolve the partition column one envelope belongs in.
-	 *
-	 * The first FROM segment carrying a `.pN` suffix wins, so a bare
-	 * `firehose.p3` stamp and a grouped `offsets/combined.firehose.p3/reader`
-	 * one land in the same column. A FROM naming no partition falls back to a
-	 * first-seen index per source directory — its first two path segments — so
-	 * two unrelated directories never collapse into one column.
-	 *
-	 * @param {Array} message The 7-field positional message.
-	 * @return {number} The column index, which a debug row stamps as `data-p`.
-	 */
-	_partitionFor( message ) {
-		const parts = String( message[ FROM ] || '' ).split( '/' );
-		const column = parts.find( ( part ) => PARTITION_RE.test( part ) );
-		if ( column ) {
-			return parseInt( column.match( PARTITION_RE )[ 1 ], 10 );
-		}
-		const dir = parts.slice( 0, 2 ).join( '/' );
-		const index = ( this._partitionIndex ??= new Map() );
-		if ( ! index.has( dir ) ) {
-			index.set( dir, index.size );
-		}
-		return index.get( dir );
 	}
 
 	/**
 	 * Handle the Log Viewer's own control verbs, deferring every shared
 	 * one (`pause`, `step`, `connection`, `browse`, `follow`, `clear`,
-	 * `filter`) to the base.
+	 * `filter`, `select`) to the base.
 	 *
-	 * `select` records the log now tailed, resets the seek tracker and empties
-	 * the ring: rows read under the previous subscription do not belong to the
-	 * new one, and a fresh log tails live rather than from the browse cursor
-	 * the last one left.
+	 * `select` records the log now tailed, then takes the base's `select`,
+	 * which re-arms breadcrumb tracking, resets the seek tracker and empties
+	 * the ring: a fresh log tails live rather than from the browse cursor the
+	 * last one left.
 	 *
 	 * `logs` publishes the catalog and, when nothing is selected yet, adopts
 	 * its first AVAILABLE row that names a log, else its first such row,
-	 * which is the only way a fresh dashboard reaches a selection. `useLogViewerGraph` opens the stream only when this
-	 * adoption is what produced the selection, so a later catalog cannot yank
-	 * a reader out of a replay.
+	 * which is the only way a fresh dashboard reaches a selection.
+	 * `useLogViewerGraph` opens the stream only when this adoption is what
+	 * produced the selection, so a later catalog cannot yank a reader out of
+	 * a replay.
 	 *
 	 * @param {?{action?: string, log?: string, logs?: Array<{key?: string, label: string, available: boolean}>}} value The control payload; `action` picks the verb.
 	 */
 	_control( value ) {
 		const action = value?.action;
-		if ( 'select' === action ) {
-			this.selected = value.log;
-			this.seek.select();
-			this._clear();
-		} else if ( 'logs' === action ) {
+		if ( 'logs' === action ) {
 			this.logs = value.logs;
 			const keyed = value.logs.filter( ( l ) => l.key );
 			if ( ! this.selected && keyed.length > 0 ) {
@@ -190,9 +142,12 @@ export class LogViewerViewNode extends LogStreamViewNode {
 					keyed.find( ( l ) => l.available ) ?? keyed[ 0 ]
 				).key;
 			}
-		} else {
-			super._control( value );
+			return;
 		}
+		if ( 'select' === action ) {
+			this.selected = value.log;
+		}
+		super._control( value );
 	}
 
 	/**

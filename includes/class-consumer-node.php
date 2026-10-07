@@ -861,7 +861,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * names it, sinks it and seeks it; `take_unparseable_lines_of()` reports
 	 * what its scans skipped.
 	 *
-	 * @api Called by the SSE stream here, and by event-logger-nodes' reqgrep CLI and Performance_CI_Node.
+	 * @api Called by the SSE stream and Log_Sources here, and by event-logger-nodes' reqgrep CLI and Performance_CI_Node.
 	 * @param string $dir The partition directory to read.
 	 */
 	public static function scan( string $dir ): self {
@@ -875,7 +875,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * Take every reader's unparseable-line count and sum them: a draining read,
 	 * so a caller reporting per tick reports each skipped line once.
 	 *
-	 * @api Called by the SSE stream here, and by event-logger-nodes' reqgrep CLI and Performance_CI_Node.
+	 * @api Called by event-logger-nodes' reqgrep CLI and Performance_CI_Node.
 	 * @param iterable<Consumer_Node> $readers Readers built by `scan()`.
 	 * @return int Lines they skipped since the previous take.
 	 */

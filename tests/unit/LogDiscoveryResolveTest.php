@@ -142,6 +142,17 @@ final class LogDiscoveryResolveTest extends TestCase {
 		);
 	}
 
+	public function test_dirs_matching_leaves_out_a_dir_no_stamp_can_name(): void {
+		\mkdir( "{$this->tmp}/offsets/kea-5512.p4", 0755, true );
+		\mkdir( "{$this->tmp}/offsets/kea-5512.P4", 0755, true );
+		\mkdir( "{$this->tmp}/offsets/kea-5512.p4 copy", 0755, true );
+
+		$this->assertSame(
+			[ 'offsets/kea-5512.p4' => "{$this->tmp}/offsets/kea-5512.p4" ],
+			Log_Discovery::dirs_matching( 'offsets/kea-5512.*', $this->tmp )
+		);
+	}
+
 	public function test_dirs_matching_answers_an_empty_map_when_nothing_matches(): void {
 		$this->assertSame( [], Log_Discovery::dirs_matching( 'kea-7713.*', $this->tmp ) );
 	}

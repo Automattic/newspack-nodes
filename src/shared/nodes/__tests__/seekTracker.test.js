@@ -35,14 +35,14 @@ describe( 'SeekTracker', () => {
 
 	it( 'browse() enters replay and captures the live boundary', () => {
 		const t = new SeekTracker();
-		t.browse( 105, 1200 );
+		t.browse( 105, 1200, [ 98, 105 ] );
 		expect( t.mode ).toBe( 'replay' );
 		expect( t.endSegment ).toBe( 105 );
 	} );
 
 	it( 'flips to live and reports change when a record reaches the captured end', () => {
 		const t = new SeekTracker();
-		t.browse( 105, 1200 );
+		t.browse( 105, 1200, [ 98, 105 ] );
 		expect( t.track( '98:100:20' ) ).toBe( true ); // behind end segment
 		expect( t.mode ).toBe( 'replay' );
 		// 1160 + 40 = 1200 >= 1200 → caught up.
@@ -53,14 +53,14 @@ describe( 'SeekTracker', () => {
 
 	it( 'stays in replay until the captured end offset is reached', () => {
 		const t = new SeekTracker();
-		t.browse( 105, 1200 );
+		t.browse( 105, 1200, [ 98, 105 ] );
 		t.track( '105:100:20' ); // 120 < 1200
 		expect( t.mode ).toBe( 'replay' );
 	} );
 
 	it( 'flips when a rotated segment exceeds the captured end (ordering fallback)', () => {
 		const t = new SeekTracker();
-		t.browse( 105, 1200 );
+		t.browse( 105, 1200, [ 98, 105 ] );
 		// A record from a NEWER segment 106 (> 105) rotated in during replay.
 		expect( t.track( '106:0:10' ) ).toBe( true );
 		expect( t.mode ).toBe( 'live' );
@@ -69,13 +69,13 @@ describe( 'SeekTracker', () => {
 	it( 'browse() forgets the pre-seek received segment (highlight falls to the clicked one)', () => {
 		const t = new SeekTracker();
 		t.track( '98:500:40' ); // distinct from the null default
-		t.browse( 105, 1200 );
+		t.browse( 105, 1200, [ 98, 105 ] );
 		expect( t.lastReceivedSegment ).toBe( null );
 	} );
 
 	it( 'follow() returns to live and drops the boundary', () => {
 		const t = new SeekTracker();
-		t.browse( 105, 1200 );
+		t.browse( 105, 1200, [ 98, 105 ] );
 		t.follow();
 		expect( t.mode ).toBe( 'live' );
 		expect( t.endSegment ).toBe( null );
@@ -83,7 +83,7 @@ describe( 'SeekTracker', () => {
 
 	it( 'select() resets to live and clears the last-received segment', () => {
 		const t = new SeekTracker();
-		t.browse( 105, 1200 );
+		t.browse( 105, 1200, [ 98, 105 ] );
 		t.track( '98:0:20' );
 		t.select();
 		expect( t.mode ).toBe( 'live' );
@@ -91,9 +91,17 @@ describe( 'SeekTracker', () => {
 		expect( t.endSegment ).toBe( null );
 	} );
 
-	it( 'a bare (null-end) browse never auto-flips (file-mode opaque-inode contract)', () => {
+	it( 'refuses a bounded browse that names no footprint', () => {
 		const t = new SeekTracker();
-		t.browse(); // no boundary — file mode has no orderable numeric end
+		expect( () => t.browse( 105, 1200 ) ).toThrow( TypeError );
+		expect( () => t.browse( 105, 1200, new Set( [ 98 ] ) ) ).toThrow(
+			TypeError
+		);
+	} );
+
+	it( 'a bare (null-end) browse never auto-flips', () => {
+		const t = new SeekTracker();
+		t.browse(); // no boundary to catch up to
 		expect( t.mode ).toBe( 'replay' );
 		expect( t.endSegment ).toBe( null );
 		// Even a large opaque inode in the segment slot must not flip.
@@ -103,7 +111,7 @@ describe( 'SeekTracker', () => {
 
 	it( 'a non-breadcrumb ID (command-reply / opaque hash) is ignored', () => {
 		const t = new SeekTracker();
-		t.browse( 105, 1200 );
+		t.browse( 105, 1200, [ 98, 105 ] );
 		expect( t.track( 'byckewr4dozme4rx5j1erloi1tjvmo29' ) ).toBe( false );
 		expect( t.track( 123 ) ).toBe( false );
 		expect( t.track( '' ) ).toBe( false );
@@ -112,42 +120,40 @@ describe( 'SeekTracker', () => {
 	} );
 } );
 
-// File mode: the segment slot is an opaque inode (no ordering). A null end WITH a
-// positive byte size is a deterministic boundary — the first breadcrumb pins the
-// reference generation; catch up by byte size on that inode, or flip on rotation.
-// Distinct values: inode 4242, file size 977, rotation to inode 5151.
-describe( 'SeekTracker — file mode (opaque inode + byte boundary)', () => {
-	it( 'a null-end browse WITH a positive byte size enters file-mode replay', () => {
+/**
+ * Catch-up by membership: ids are not ordered across a file's generations,
+ * so a record from a segment outside the footprint captured at browse time
+ * is live, whatever its number. Distinct values: partition segments 61/62/63
+ * and newer 64; file inodes 7319 rotating DOWN to 2207, size 4410.
+ */
+describe( 'SeekTracker — catch-up against the captured footprint', () => {
+	it( 'a partition: older captured segments stay replay, a newer one flips', () => {
 		const t = new SeekTracker();
-		t.browse( null, 977 );
-		expect( t.mode ).toBe( 'replay' );
+		t.browse( 63, 900, [ 61, 62, 63 ] );
+		expect( t.track( '61:0:500' ) ).toBe( true );
+		t.track( '62:0:500' );
+		t.track( '63:0:100' );
+		expect( t.mode ).toBe( REPLAY );
+		expect( t.track( '64:0:10' ) ).toBe( true );
+		expect( t.mode ).toBe( LIVE );
 	} );
 
-	it( 'flips to live when a record on the reference inode reaches the byte size', () => {
+	it( 'a file whose inode rotates to a LOWER number flips', () => {
 		const t = new SeekTracker();
-		t.browse( null, 977 );
-		expect( t.track( '4242:0:500' ) ).toBe( true ); // pins inode 4242, 500<977
-		expect( t.mode ).toBe( 'replay' );
-		// 500 + 477 = 977 >= 977 → caught up to the seek-time file size.
-		expect( t.track( '4242:500:477' ) ).toBe( true );
-		expect( t.mode ).toBe( 'live' );
+		t.browse( 7319, 4410, [ 7319 ] );
+		t.track( '7319:0:1200' );
+		expect( t.mode ).toBe( REPLAY );
+		expect( t.track( '2207:0:80' ) ).toBe( true );
+		expect( t.mode ).toBe( LIVE );
 	} );
 
-	it( 'stays in replay until the byte size is reached', () => {
+	it( 'a file that reaches its captured size flips', () => {
 		const t = new SeekTracker();
-		t.browse( null, 977 );
-		t.track( '4242:0:500' ); // 500 < 977
-		expect( t.mode ).toBe( 'replay' );
-	} );
-
-	it( 'flips to live when the inode rotates (a different generation appeared)', () => {
-		const t = new SeekTracker();
-		t.browse( null, 977 );
-		expect( t.track( '4242:0:500' ) ).toBe( true ); // pins inode 4242
-		expect( t.mode ).toBe( 'replay' );
-		// A new inode 5151 means logrotate happened — we're on the live edge.
-		expect( t.track( '5151:0:100' ) ).toBe( true );
-		expect( t.mode ).toBe( 'live' );
+		t.browse( 7319, 4410, [ 7319 ] );
+		t.track( '7319:0:4000' );
+		expect( t.mode ).toBe( REPLAY );
+		t.track( '7319:4000:410' );
+		expect( t.mode ).toBe( LIVE );
 	} );
 } );
 
@@ -165,7 +171,12 @@ describe( 'the segmented boundary', () => {
 					{ id: 105, size: 1200 },
 				],
 			} )
-		).toEqual( { action: 'browse', endSegment: 105, endOffset: 1200 } );
+		).toEqual( {
+			action: 'browse',
+			endSegment: 105,
+			endOffset: 1200,
+			knownSegments: [ 97, 105 ],
+		} );
 	} );
 
 	it( 'spans gaps and unordered input — newest id wins, not last listed', () => {
@@ -176,10 +187,15 @@ describe( 'the segmented boundary', () => {
 					{ id: 98, size: 4000 },
 				],
 			} )
-		).toEqual( { action: 'browse', endSegment: 105, endOffset: 1200 } );
+		).toEqual( {
+			action: 'browse',
+			endSegment: 105,
+			endOffset: 1200,
+			knownSegments: [ 105, 98 ],
+		} );
 	} );
 
-	it( 'follows when no segment carries a numeric id and there are no bytes', () => {
+	it( 'follows when no segment carries a numeric id', () => {
 		expect( browseControl( { segments: [] } ) ).toEqual( {
 			action: 'follow',
 		} );
@@ -189,13 +205,10 @@ describe( 'the segmented boundary', () => {
 	} );
 
 	/**
-	 * Was "defaults a missing size to 0". Inverted deliberately: that default
-	 * was silent and load-bearing. `endOffset` IS the catch-up test, so a
-	 * boundary offset of 0 satisfies `offsetEnd >= 0` on the FIRST record of
-	 * the end segment and flips Replay→Live immediately, with no signal. The
-	 * server cannot produce the case — `class-log-sources.php:321` coerces
-	 * `false === $size ? 0 : $size` before it goes on the wire — so the default
-	 * only ever hid a contract violation.
+	 * `endOffset` IS the catch-up test, so a boundary offset of 0 satisfies
+	 * `offsetEnd >= 0` on the FIRST record of the end segment and would flip
+	 * Replay→Live immediately, with no signal. The server always states a
+	 * segment's size, so a missing one is a contract violation.
 	 */
 	it( 'throws on a segment with an id but no numeric size', () => {
 		expect( () => browseControl( { segments: [ { id: 105 } ] } ) ).toThrow(
@@ -216,14 +229,13 @@ describe( 'exported states', () => {
 } );
 
 /**
- * One cleared shape, not three. `follow()` left `endOffset` behind while the
- * constructor zeroed it, so a tracker had two different "cleared" states — inert
- * only because `_caughtUp` is gated on `fileMode` and a non-null `endSegment`.
+ * One cleared shape, not three: `follow()`, `select()` and the constructor
+ * leave one cleared state.
  */
 describe( 'reset paths agree', () => {
 	const dirty = () => {
 		const t = new SeekTracker();
-		t.browse( 105, 1200 );
+		t.browse( 105, 1200, [ 98, 105 ] );
 		t.track( '105:1000:50' );
 		return t;
 	};
@@ -242,10 +254,10 @@ describe( 'reset paths agree', () => {
 
 	it( 'the replay→live flip leaves the same shape as follow()', () => {
 		const flipped = new SeekTracker();
-		flipped.browse( 105, 1200 );
+		flipped.browse( 105, 1200, [ 98, 105 ] );
 		flipped.track( '105:1150:50' ); // reaches the boundary → flips live
 		const followed = new SeekTracker();
-		followed.browse( 105, 1200 );
+		followed.browse( 105, 1200, [ 98, 105 ] );
 		followed.track( '105:100:10' );
 		followed.follow();
 		expect( flipped.mode ).toBe( LIVE );
@@ -271,31 +283,27 @@ describe( 'browseControl', () => {
 					{ id: 105, size: 1200 },
 				],
 			} )
-		).toEqual( { action: 'browse', endSegment: 105, endOffset: 1200 } );
-	} );
-
-	it( 'maps a file-mode source to a byte boundary with a null segment', () => {
-		expect( browseControl( { segments: [], bytes: 8675309 } ) ).toEqual( {
+		).toEqual( {
 			action: 'browse',
-			endSegment: null,
-			endOffset: 8675309,
+			endSegment: 105,
+			endOffset: 1200,
+			knownSegments: [ 98, 105 ],
 		} );
 	} );
 
-	it( 'prefers a numeric segment id over a byte size when both are present', () => {
+	it( 'maps a file source, one segment, to a browse on its inode at its size', () => {
 		expect(
-			browseControl( {
-				segments: [ { id: 105, size: 1200 } ],
-				bytes: 8675309,
-			} )
-		).toEqual( { action: 'browse', endSegment: 105, endOffset: 1200 } );
+			browseControl( { segments: [ { id: 4242, size: 8675309 } ] } )
+		).toEqual( {
+			action: 'browse',
+			endSegment: 4242,
+			endOffset: 8675309,
+			knownSegments: [ 4242 ],
+		} );
 	} );
 
 	it( 'maps an empty source to follow — there is no boundary to catch up to', () => {
 		expect( browseControl( { segments: [] } ) ).toEqual( {
-			action: 'follow',
-		} );
-		expect( browseControl( { segments: [], bytes: 0 } ) ).toEqual( {
 			action: 'follow',
 		} );
 	} );

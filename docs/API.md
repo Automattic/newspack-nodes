@@ -865,8 +865,9 @@ topologies get Home` and `command_node topologies get --name=Home` reach `cmd_ge
 alike, as `[ 'name' => 'Home' ]`. `raw-logs dump_log` answers
 `{ log_id, segments: [ { id, size } ], segment_count, total_size }` for the one
 partition dir or `sources/<name>` registry source it inspects: a segmented
-source answers its segments and their summed `total_size`, a file source an
-empty `segments` and its file size as `total_size` (0 while the file is absent).
+source answers its segments and their summed `total_size`, and a file source
+one segment, `{ id: <inode>, size: <bytes> }`, the slot its stream's ID
+breadcrumbs carry, or none while the file is absent or unreadable.
 An unknown or empty `log` is refused with an error.
 `raw-logs read_message` binds the log key, then the
 position — the single-step grammar `<segment>:<offset>[:<length>]` or one of
@@ -947,16 +948,14 @@ answers:
 { "code": "sse_session_refused", "message": "The command session is not live, or belongs to another user.", "data": { "status": 401 } }
 ```
 
-The subscriptions are checked first, before the session and the slot. A
-prefix no stamp carries (`logs/x`, `secrets/x`) and a `sources/<name>` the
-registry lacks refuse the stream with the reason:
+The subscriptions are resolved first, before the session and the slot. A
+prefix no stamp carries (`logs/x`, `secrets/x`), a name the stream's guard
+refuses (`offsets/Kea-1`) and a `sources/<name>` the registry lacks refuse the
+stream with the reason; a registry that will not read is a server error:
 
 ```json
 { "code": "sse_subscription_invalid", "message": "invalid subscription: logs/kea-7713.p3", "data": { "status": 400 } }
 ```
-
-A name past that check which the stream's guard refuses, such as
-`offsets/Kea-1`, fails only when its reader opens, after the headers are out.
 
 ### Query parameters
 

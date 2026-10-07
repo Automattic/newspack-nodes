@@ -258,6 +258,20 @@ class LogSourcesTest extends TestCase {
 		$this->assertFalse( Log_Sources::is_available( [ 'path' => "{$this->tmp}/absent-31.log", 'mode' => Tail_Node::MODE_FILE ] ) );
 	}
 
+	public function test_a_file_source_no_reader_may_read_is_unavailable_and_lists_no_segment(): void {
+		$path = "{$this->tmp}/sealed-5531.log";
+		\file_put_contents( $path, \str_repeat( 's', 5531 ) );
+		\chmod( $path, 0200 );
+		Log_Sources::$builtin_sources = static fn (): array => [ 'sealed' => $path ];
+
+		try {
+			$this->assertFalse( Log_Sources::is_available( [ 'path' => $path, 'mode' => Tail_Node::MODE_FILE ] ) );
+			$this->assertSame( [ 'segments' => [], 'total_size' => 0 ], Log_Sources::footprint( 'sources/sealed' ) );
+		} finally {
+			\chmod( $path, 0600 );
+		}
+	}
+
 	public function test_is_available_checks_for_any_segment_in_segmented_mode(): void {
 		// Segments are {file}.{seg}; retention may leave only a later segment.
 		\file_put_contents( "{$this->tmp}/seg-base.7", "x\n" );

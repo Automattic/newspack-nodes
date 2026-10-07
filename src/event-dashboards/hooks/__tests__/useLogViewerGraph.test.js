@@ -706,8 +706,8 @@ describe( 'useLogViewerGraph — pause disconnects / play resumes', () => {
 			.flat()
 			.find( ( m ) => 'read_message' === m[ VALUE ]?.name );
 		expect( cmd[ VALUE ].arguments ).toEqual( [ 'firehose.p0', '7:120' ] );
-		// Stamped like a streamed frame: sub-prefixed FROM keeps the P column.
-		expect( view.lines[ 0 ].partition ).toBe( 0 );
+		// Stamped like a streamed frame: the FROM names the log it came from.
+		expect( view.lines[ 0 ].from ).toBe( 'firehose.p0' );
 
 		// The SECOND step asks for offset + length — the next record.
 		payload.read_message = {

@@ -44,6 +44,8 @@ use Newspack_Nodes\Worker_Base;
  * Consumers around it are built inside the drain's `try` and removed in its
  * `finally`, which is what leaves the process registry empty for the next
  * stream even when the drain throws.
+ *
+ * @phpstan-type Resolved_Sub array{sub:string,glob:bool,worker:array{0:string,1:int}|null,source:array{path:string,mode:string}|null,ipc:string|null,dirs:array<string,string>|null}
  */
 class SSE_Out_Node extends Node {
 
@@ -229,10 +231,9 @@ class SSE_Out_Node extends Node {
 	 *
 	 * Every refusal here happens BEFORE `init_sse_headers()` so a refused
 	 * stream can still answer with a JSON `WP_Error`; once the event-stream
-	 * headers are out, none is sayable. The subscription check refuses only a
-	 * prefix no stamp carries and a registry name the registry lacks: a name
-	 * the stream's guard refuses, such as `offsets/Kea-1`, still fails after
-	 * the headers, when its reader opens.
+	 * headers are out, none is sayable. Each subscription is resolved before
+	 * the slot, so a refusal resolving one throws refuses the whole stream;
+	 * any other throw, such as a registry that will not read, propagates.
 	 *
 	 * @param \WP_REST_Request $request Request carrying `subscribe`, `positions`, `multi_writer`, `session` and `stream`.
 	 * @return \WP_Error|void WP_Error when a subscription is refused (400 `sse_subscription_invalid`), the session is refused (401), the stream id is malformed (400 `sse_stream_invalid`) or no slot is free (429); otherwise streams and exits.
@@ -242,7 +243,7 @@ class SSE_Out_Node extends Node {
 		$positions_raw = $request->get_param( 'positions' ) ?? '';
 		$subs          = $this->parse_subscriptions( Core::as_string( $subscribe ) );
 		try {
-			self::refuse_unknown( $subs );
+			$resolved = $this->resolve_subscriptions( $subs );
 		} catch ( \InvalidArgumentException $e ) {
 			return new \WP_Error( 'sse_subscription_invalid', \html_entity_decode( $e->getMessage(), \ENT_QUOTES ), [ 'status' => 400 ] );
 		}
@@ -272,7 +273,7 @@ class SSE_Out_Node extends Node {
 		$lease_session = null === $session || '' === $stream
 			? null
 			: [ 'key' => $session['handle'] . ':' . $stream, 'ttl' => $session['ttl'] ];
-		$partition     = $this->subscription_partition( $subs );
+		$partition     = $this->subscription_partition( $resolved );
 		$acquire       = self::$acquire_slot ?? static fn ( int $_partition, ?array $_session ): array => self::UNMETERED_LEASE;
 		$lease         = $acquire( $partition, $lease_session );
 		if ( false === $lease ) {
@@ -282,7 +283,7 @@ class SSE_Out_Node extends Node {
 				[ 'status' => 429 ]
 			);
 		}
-		$this->run_acquired_stream( $subs, $positions, $interval, $lease, $partition, $session['handle'] ?? null, $lease_session['key'] ?? null, true );
+		$this->run_acquired_stream( $resolved, $positions, $interval, $lease, $partition, $session['handle'] ?? null, $lease_session['key'] ?? null, true );
 		exit;
 	}
 
@@ -344,37 +345,17 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Refuse a stream before it takes a slot when a subscription's prefix is
-	 * one no stamp carries, or it names a registry entry the registry lacks,
-	 * so a spoke without the source refuses the whole request with a reason
-	 * the hub can show rather than failing mid-stream.
-	 *
-	 * @param array<int,string> $subs Subscription names.
-	 * @throws \InvalidArgumentException The first refusal, teaching.
-	 */
-	private static function refuse_unknown( array $subs ): void {
-		foreach ( $subs as $sub ) {
-			[ $group, $name ] = Log_Discovery::split( $sub );
-			if ( Log_Discovery::SOURCES_PREFIX === $group ) {
-				Log_Sources::entry( $name );
-			}
-		}
-	}
-
-	/**
 	 * Pick the partition to hand the slot pool: the number the first IPC-shaped
 	 * (`{type}.p{N}`) dir subscription carries, or -1 when none carries one. A
 	 * grouped sub pools like its bare sibling.
 	 *
-	 * @param array<int,string> $subs Subscription names, each through `split()`.
+	 * @param list<Resolved_Sub> $resolved Resolved subscriptions.
 	 * @return int A partition number, or -1 for a stream that names no partition.
 	 */
-	private function subscription_partition( array $subs ): int {
-		foreach ( $subs as $sub ) {
-			[ $group, $name ] = Log_Discovery::split( $sub );
-			$worker           = Log_Discovery::SOURCES_PREFIX === $group ? null : CLI::parse_worker_id( $name );
-			if ( null !== $worker ) {
-				return $worker[1];
+	private function subscription_partition( array $resolved ): int {
+		foreach ( $resolved as $sub ) {
+			if ( null !== $sub['worker'] ) {
+				return $sub['worker'][1];
 			}
 		}
 		return -1;
@@ -413,7 +394,20 @@ class SSE_Out_Node extends Node {
 		?string $session = null,
 		?string $lease_key = null
 	): void {
-		$this->run_acquired_stream( $subs, $positions, $interval, $lease, $partition, $session, $lease_key, false );
+		$this->run_acquired_stream( $this->resolve_subscriptions( $subs ), $positions, $interval, $lease, $partition, $session, $lease_key, false );
+	}
+
+	/**
+	 * Resolve every subscription, in order, so a refusal surfaces before the
+	 * stream takes a slot or sends a header.
+	 *
+	 * @param array<int,string> $subs Subscription names.
+	 * @return list<Resolved_Sub> What each opens.
+	 * @throws \InvalidArgumentException The first refusal, teaching.
+	 */
+	private function resolve_subscriptions( array $subs ): array {
+		$base = $this->base_dir ?? Bootstrap::base_dir();
+		return \array_values( \array_map( fn ( string $sub ): array => $this->resolve_subscription( $sub, $base ), $subs ) );
 	}
 
 	/**
@@ -422,7 +416,7 @@ class SSE_Out_Node extends Node {
 	 * so a malformed one is reported through the same diagnostic path as any
 	 * other failure, under the lease-less context branch.
 	 *
-	 * @param array<int,string>           $subs              Subscription names.
+	 * @param list<Resolved_Sub>          $resolved          Resolved subscriptions.
 	 * @param array<array-key,mixed>|null $positions         Saved positions, keyed by stamp.
 	 * @param int                         $interval          Heartbeat cadence in milliseconds.
 	 * @param mixed                       $lease             Raw acquire result.
@@ -434,7 +428,7 @@ class SSE_Out_Node extends Node {
 	 * @throws \Throwable Whatever the stream raised, once the diagnostic line is written.
 	 */
 	private function run_acquired_stream(
-		array $subs,
+		array $resolved,
 		?array $positions,
 		int $interval,
 		mixed $lease,
@@ -446,6 +440,7 @@ class SSE_Out_Node extends Node {
 		$active_lease       = null;
 		$consumers          = [];
 		$diagnostic_written = false;
+		$subs               = \array_column( $resolved, 'sub' );
 		try {
 			// Seeds Core::$now; sse_max_lifetime counts from here.
 			$opened_at = Core::right_now();
@@ -496,20 +491,15 @@ class SSE_Out_Node extends Node {
 			$glob_owned = [];
 			// Own it: never inherit the last stream's attach classification.
 			$this->is_interactive = false;
-			foreach ( $subs as $sub ) {
-				$is_glob = \str_contains( $sub, '*' );
-				if ( $is_glob ) {
-					$glob_subs[] = $sub;
+			foreach ( $resolved as $sub ) {
+				if ( $sub['glob'] ) {
+					$glob_subs[] = $sub['sub'];
 				}
 				// Positions are a FLAT { stamp: pos } map; pass it whole.
-				$opened = $this->open_subscription(
-					$sub,
-					\is_array( $positions ) ? $positions : null
-				);
-				foreach ( $opened as $c ) {
+				foreach ( $this->open_resolved( $sub, $positions ) as $c ) {
 					$name = $c->stamped_as();
 					$this->attach_consumer( $c, $consumers, $default_route );
-					if ( $is_glob && isset( $consumers[ $name ] ) ) {
+					if ( $sub['glob'] && isset( $consumers[ $name ] ) ) {
 						$glob_owned[ $name ] = true;
 					}
 				}
@@ -605,7 +595,7 @@ class SSE_Out_Node extends Node {
 						'reason'        => 'unexpected_exception',
 						'pid'           => \getmypid(),
 						'partition'     => $partition,
-						'subscriptions' => \array_values( $subs ),
+						'subscriptions' => $subs,
 					]
 					: $this->stream_context( 'unexpected_exception', $active_lease, $partition, $subs );
 				$context['exception_class']   = $e::class;
@@ -656,39 +646,42 @@ class SSE_Out_Node extends Node {
 	 * @param array<string,Consumer_Node> $consumers Attached readers, keyed by stamp.
 	 */
 	private function report_unparseable_lines( array $consumers ): void {
-		$counts = [];
-		$total  = 0;
-		foreach ( $consumers as $stamp => $c ) {
-			$skipped = $c->take_unparseable_lines();
-			$total  += $skipped;
-			if ( $skipped > 0 && ! \strpbrk( $stamp, ' ,' ) ) {
-				$counts[] = "{$stamp}={$skipped}";
-			}
-		}
-		if ( 0 === $total ) {
+		$counts = \array_filter( \array_map( static fn ( Consumer_Node $c ): int => $c->take_unparseable_lines(), $consumers ), static fn ( int $skipped ): bool => $skipped > 0 );
+		if ( [] === $counts ) {
 			return;
 		}
+		$named   = self::stamp_pairs( $counts );
 		$cursors = self::cursor_pairs( $consumers );
-		$value   = "COUNT {$total}" . ( [] === $counts ? '' : ' COUNTS ' . \implode( ',', $counts ) ) . ( '' === $cursors ? '' : " CURSORS {$cursors}" );
+		$value   = 'COUNT ' . \array_sum( $counts ) . ( '' === $named ? '' : " COUNTS {$named}" ) . ( '' === $cursors ? '' : " CURSORS {$cursors}" );
 		$this->send_sse_event( 'unparseable_lines', $this->build_info_msg( 'unparseable_lines', $value ) );
 	}
 
 	/**
-	 * Every reader's resume point as the `CURSORS` token: comma-separated
-	 * `dir=segment:offset` pairs. A dir holding a space or a comma is left out,
-	 * because either would desync the flat `KEY VALUE` pairing it rides in.
+	 * Every reader's resume point as the `CURSORS` token, through
+	 * `stamp_pairs()`: `stamp=segment:offset`.
 	 *
 	 * @param array<string,Consumer_Node> $consumers Attached readers, keyed by stamp.
 	 * @return string The pairs, or '' when none can be stated.
 	 */
 	private static function cursor_pairs( array $consumers ): string {
+		return self::stamp_pairs( \array_map( static fn ( Consumer_Node $c ): string => $c->cursor_position(), $consumers ) );
+	}
+
+	/**
+	 * One `stamp=value` per entry, comma-separated: the shape the `COUNTS`
+	 * and `CURSORS` tokens share. A stamp holding a space or a comma is left
+	 * out, because either would desync the flat `KEY VALUE` pairing it rides
+	 * in.
+	 *
+	 * @param array<string,int|string> $values Values, keyed by stamp.
+	 * @return string The pairs, or '' when none can be stated.
+	 */
+	private static function stamp_pairs( array $values ): string {
 		$pairs = [];
-		foreach ( $consumers as $name => $c ) {
-			$dir = Log_Discovery::dir_from_stamp( $name );
-			if ( '' === $dir || \strpbrk( $dir, ' ,' ) ) {
-				continue;
+		foreach ( $values as $stamp => $value ) {
+			if ( ! \strpbrk( $stamp, ' ,' ) ) {
+				$pairs[] = "{$stamp}={$value}";
 			}
-			$pairs[] = $dir . '=' . $c->cursor_position();
 		}
 		return \implode( ',', $pairs );
 	}
@@ -766,75 +759,105 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Resolve a subscription to one-or-more `Consumer`s, layout-agnostically.
+	 * Resolve a subscription and open its readers, unattached.
 	 *
-	 * `$sub` names a concrete resource dir or globs over several; the partition
-	 * token is part of that name and is never parsed out. It branches on
-	 * `Log_Discovery::split()`. A `sources/<name>` sub opens that registry
-	 * entry's Tail through `Log_Sources::open_reader()`; the registry is fixed
-	 * for the stream's life, so it takes no glob. A bare sub
-	 * `CLI::parse_worker_id()` reads as a worker, whatever its case, tails
-	 * that worker's IPC channel (`{base}/ipc/{sub}/output`) when one exists.
-	 * Any other exact name resolves through `Log_Discovery::dir_of()`, the
-	 * step's resolver too, and a glob through `Log_Discovery::dirs_matching()`
-	 * under the same guard, yielding one Consumer per matched dir stamped by
-	 * `Log_Discovery::stamp_for()`. Each reader resumes keyed by its stamp,
-	 * so a reconnecting console keeps the replies written while it was away.
-	 *
-	 * The guard leaves `*` as the only wildcard and confines a glob to one
-	 * level under a browsable root; anything it refuses throws. A matching
-	 * `$positions` entry seeds that reader's cursor and an absent one
-	 * tail-seeks. A name or pattern no dir carries opens nothing, and a stamp
-	 * whose `$positions` entry is `SSE_Out_Node::SKIP` opens no reader.
+	 * @api The direct test entry; the stream resolves before its slot and opens through `open_resolved()`.
 	 *
 	 * @param string                      $sub       Subscription name or glob.
 	 * @param array<array-key,mixed>|null $positions Saved positions, keyed by stamp.
 	 *
-	 * @return array<int,Consumer_Node> One reader per matched dir, unattached.
+	 * @return list<Consumer_Node> One reader per matched dir, unattached.
 	 *
-	 * @throws \InvalidArgumentException When `$sub` names a root outside the
-	 *                                  browsable groups, or fails the guard.
+	 * @throws \InvalidArgumentException What resolving it throws.
 	 */
 	public function open_subscription( string $sub, ?array $positions ): array {
-		$base             = $this->base_dir ?? Bootstrap::base_dir();
-		[ $group, $rest ] = Log_Discovery::split( $sub );
+		return $this->open_resolved( $this->resolve_subscription( $sub, $this->base_dir ?? Bootstrap::base_dir() ), $positions );
+	}
 
+	/**
+	 * Resolve one subscription to what it opens, through ADR-29's resolvers.
+	 *
+	 * It branches on `Log_Discovery::split()`, once. A `sources/<name>` sub is
+	 * that registry entry, read once through `Log_Sources::entry()`; the
+	 * registry is fixed for the stream's life, so it takes no glob. A bare sub
+	 * `CLI::parse_worker_id()` reads as a worker, whatever its case, is that
+	 * worker's IPC channel (`{base}/ipc/{sub}/output`) when one exists. Any
+	 * other exact name is the dir `Log_Discovery::dir_of()` resolves, or none,
+	 * and a glob the stamp-to-dir map `Log_Discovery::dirs_matching()` answers,
+	 * null on a glob fault. `worker` names the partition a dir sub carries.
+	 *
+	 * @param string $sub  Subscription name or glob.
+	 * @param string $base The runtime base the roots sit under.
+	 * @return Resolved_Sub What it opens.
+	 * @throws \InvalidArgumentException On a subscription the guard refuses,
+	 *                                   or a source the registry lacks.
+	 */
+	private function resolve_subscription( string $sub, string $base ): array {
+		[ $group, $name ] = Log_Discovery::split( $sub );
+		$resolved         = [
+			'sub'    => $sub,
+			'glob'   => \str_contains( $sub, '*' ),
+			'worker' => null,
+			'source' => null,
+			'ipc'    => null,
+			'dirs'   => null,
+		];
 		if ( Log_Discovery::SOURCES_PREFIX === $group ) {
-			if ( self::is_skipped( $positions, $sub ) ) {
-				return [];
-			}
-			$reader = Log_Sources::open_reader( $sub );
-			$reader->next_offset( self::position_arg( $positions, $sub ) );
+			$resolved['source'] = Log_Sources::entry( $name );
+			return $resolved;
+		}
+		$resolved['worker'] = CLI::parse_worker_id( $name );
+		$worker             = $sub === $name ? $resolved['worker'] : null;
+		$ipc_output         = null === $worker ? '' : Worker_Base::ipc_dir( $base, $worker[0], $worker[1], Worker_Base::IPC_OUTPUT );
+		if ( '' !== $ipc_output && \is_dir( $ipc_output ) ) {
+			$resolved['ipc'] = $ipc_output;
+		} elseif ( $resolved['glob'] ) {
+			$resolved['dirs'] = Log_Discovery::dirs_matching( $sub, $base );
+		} else {
+			$dir              = Log_Discovery::dir_of( $sub, $base );
+			$resolved['dirs'] = null === $dir ? [] : [ $sub => $dir ];
+		}
+		return $resolved;
+	}
+
+	/**
+	 * Open the readers a resolved subscription names, layout-agnostically: a
+	 * registry entry's Tail through `Log_Sources::open_tail()`, a worker's
+	 * IPC channel, or one Consumer per dir, stamped by its stamp. Each reader
+	 * resumes keyed by its stamp, so a reconnecting console keeps the replies
+	 * written while it was away.
+	 *
+	 * A matching `$positions` entry seeds that reader's cursor and an absent
+	 * one tail-seeks. An exact subscription whose `$positions` entry is
+	 * `SSE_Out_Node::SKIP` opens nothing, and so does each stamp so marked
+	 * under a glob. A name or pattern no dir carries opens nothing.
+	 *
+	 * @param Resolved_Sub                $sub       What `resolve_subscription()` answered.
+	 * @param array<array-key,mixed>|null $positions Saved positions, keyed by stamp.
+	 *
+	 * @return list<Consumer_Node> One reader per matched dir, unattached.
+	 */
+	private function open_resolved( array $sub, ?array $positions ): array {
+		$stamp = $sub['sub'];
+		if ( ! $sub['glob'] && self::is_skipped( $positions, $stamp ) ) {
+			return [];
+		}
+		if ( null !== $sub['source'] ) {
+			$reader = Log_Sources::open_tail( $sub['source'] );
+			$reader->set_stamp_as( $stamp );
+			$reader->next_offset( self::position_arg( $positions, $stamp ) );
 			return [ $reader ];
 		}
-
-		// IPC (bare subs only): the worker-id grammar admits it, not the guard.
-		$worker = $sub === $rest ? CLI::parse_worker_id( $sub ) : null;
-		if ( null !== $worker ) {
-			if ( self::is_skipped( $positions, $sub ) ) {
-				return [];
-			}
-			$ipc_output = Worker_Base::ipc_dir( $base, $worker[0], $worker[1], Worker_Base::IPC_OUTPUT );
-			if ( \is_dir( $ipc_output ) ) {
-				$this->is_interactive = true;
-				$consumer             = Consumer_Node::scan( $ipc_output );
-				$consumer->next_offset( self::position_arg( $positions, $sub ) );
-				$consumer->set_stamp_as( $sub );
-				return [ $consumer ];
-			}
+		if ( null !== $sub['ipc'] ) {
+			$this->is_interactive = true;
+			$consumer             = Consumer_Node::scan( $sub['ipc'] );
+			$consumer->next_offset( self::position_arg( $positions, $stamp ) );
+			$consumer->set_stamp_as( $stamp );
+			return [ $consumer ];
 		}
-
-		if ( ! \str_contains( $sub, '*' ) ) {
-			$dir = Log_Discovery::dir_of( $sub, $base );
-			return null === $dir || self::is_skipped( $positions, $sub ) ? [] : [ $this->log_consumer_for( $dir, $sub, $positions ) ];
-		}
-
-		// One Consumer per matched dir; a glob fault opens none.
 		$consumers = [];
-		foreach ( Log_Discovery::dirs_matching( $sub, $base ) ?? [] as $name => $dir ) {
-			if ( ! self::is_skipped( $positions, $name ) ) {
-				$consumers[] = $this->log_consumer_for( $dir, $name, $positions );
-			}
+		foreach ( self::unskipped( $sub['dirs'], $positions ) ?? [] as $name => $dir ) {
+			$consumers[] = $this->log_consumer_for( $dir, $name, $positions );
 		}
 		return $consumers;
 	}
@@ -864,16 +887,12 @@ class SSE_Out_Node extends Node {
 		$wanted  = [];
 		$glob_ok = true;
 		foreach ( $glob_subs as $sub ) {
-			$matches = Log_Discovery::dirs_matching( $sub, $base );
+			$matches = self::unskipped( Log_Discovery::dirs_matching( $sub, $base ), $positions );
 			if ( null === $matches ) {
 				$glob_ok = false; // I/O error — not a trustworthy "nothing wanted".
 				continue;
 			}
-			foreach ( $matches as $stamp => $dir ) {
-				if ( ! self::is_skipped( $positions, $stamp ) ) {
-					$wanted[ $stamp ] = $dir;
-				}
-			}
+			$wanted += $matches;
 		}
 		foreach ( $wanted as $name => $dir ) {
 			if ( ! isset( $consumers[ $name ] ) ) {
@@ -893,6 +912,21 @@ class SSE_Out_Node extends Node {
 			$c->remove_node();
 			unset( $consumers[ $name ], $glob_owned[ $name ] );
 		}
+	}
+
+	/**
+	 * A stamp-to-dir map less every stamp the client asked to skip, so a
+	 * skipped stamp gets no reader. Null, a glob fault, stays null.
+	 *
+	 * @param array<string,string>|null   $dirs      Stamp => dir, or null.
+	 * @param array<array-key,mixed>|null $positions Saved positions, keyed by stamp.
+	 * @return array<string,string>|null
+	 */
+	private static function unskipped( ?array $dirs, ?array $positions ): ?array {
+		if ( null === $dirs ) {
+			return null;
+		}
+		return \array_filter( $dirs, static fn ( string $stamp ): bool => ! self::is_skipped( $positions, $stamp ), \ARRAY_FILTER_USE_KEY );
 	}
 
 	/**

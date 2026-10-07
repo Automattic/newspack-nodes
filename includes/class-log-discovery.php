@@ -5,10 +5,9 @@
  * Three readers share the one answer: the admin storage estimate counts
  * `on_disk()`, the Raw Logs catalog lists `groups()`, and every reader of a
  * stamp splits it through `split()` and resolves a dir through `dir_of()`
- * (ADR-29). A Partition
- * added to a topology therefore reaches all three as soon as its directory
- * exists, with no registration step and no per-application catalog to keep in
- * step with the topologies.
+ * (ADR-29). A Partition added to a topology therefore reaches all three as
+ * soon as its directory exists, with no registration step and no
+ * per-application catalog to keep in step with the topologies.
  *
  * @package Newspack_Nodes
  */
@@ -31,11 +30,12 @@ final class Log_Discovery {
 
 	/**
 	 * Seam over the `glob()` call every scan makes; `groups()` reaches it once
-	 * per root, and `dirs_matching()` once per subscription. Tests reassign it to force the error branch — `glob()` returns
-	 * false on an I/O fault where a no-match returns `[]` — without damaging a
-	 * real directory, which leaves the sort, the basename map and the
-	 * memoization under real coverage. It defaults at the call site because a
-	 * closure cannot be a constant expression.
+	 * per root, and `dirs_matching()` once per subscription. Tests reassign it
+	 * to force the error branch — `glob()` returns false on an I/O fault where
+	 * a no-match returns `[]` — without damaging a real directory, which
+	 * leaves the sort, the basename map and the memoization under real
+	 * coverage. It defaults at the call site because a closure cannot be a
+	 * constant expression.
 	 *
 	 * Signature: `function ( string $pattern, int $flags ): array|false`.
 	 *
@@ -109,16 +109,17 @@ final class Log_Discovery {
 	 * @throws \InvalidArgumentException On a stamp the guard refuses.
 	 */
 	public static function dir_of( string $stamp, string $base ): ?string {
-		[ $group, $name, $dir ] = self::guarded( $stamp, $base, false );
-		self::stamp_for( $group, $name );
+		[ , $dir ] = self::guarded( $stamp, $base, false );
 		return \is_dir( $dir ) ? $dir : null;
 	}
 
 	/**
 	 * Each dir a subscription glob matches under `$base`, keyed by the stamp
 	 * `stamp_for()` writes for it, under the guard `dir_of()` applies; `*`
-	 * matches within one path segment. A glob I/O fault answers null rather
-	 * than an empty map, so a caller never mistakes it for "nothing there".
+	 * matches within one path segment. A match whose stamp `is_stamp()`
+	 * refuses is left out, so a glob opens no dir `dir_of()` would refuse. A
+	 * glob I/O fault answers null rather than an empty map, so a caller never
+	 * mistakes it for "nothing there".
 	 *
 	 * @param string $sub  A subscription glob: `firehose.*`, `offsets/…*`.
 	 * @param string $base The runtime base the roots sit under.
@@ -127,16 +128,40 @@ final class Log_Discovery {
 	 *                                   match whose dir is named like a group.
 	 */
 	public static function dirs_matching( string $sub, string $base ): ?array {
-		[ $group, , $pattern ] = self::guarded( $sub, $base, true );
-		$matches               = self::glob( $pattern );
+		[ $group, $pattern ] = self::guarded( $sub, $base, true );
+		$matches             = self::glob( $pattern );
 		if ( null === $matches ) {
 			return null;
 		}
 		$dirs = [];
 		foreach ( $matches as $dir ) {
-			$dirs[ self::stamp_for( $group, \basename( $dir ) ) ] = $dir;
+			$stamp = self::stamp_for( $group, \basename( $dir ) );
+			if ( self::is_stamp( $stamp ) ) {
+				$dirs[ $stamp ] = $dir;
+			}
 		}
 		return $dirs;
+	}
+
+	/**
+	 * A dir subscription through the stream's guard, and the path it names:
+	 * a `GROUPS` root only, and a glob of the shape `is_subscription()` admits
+	 * or an exact stamp `stamp_for()` writes and `is_stamp()` reads, so a log
+	 * dir named like a group is refused by name.
+	 *
+	 * @param string $sub  A dir stamp or subscription glob.
+	 * @param string $base The runtime base the roots sit under.
+	 * @param bool   $glob Whether `*` may appear.
+	 * @return array{0:string,1:string} The group, then the path.
+	 * @throws \InvalidArgumentException On a subscription the guard refuses.
+	 */
+	private static function guarded( string $sub, string $base, bool $glob ): array {
+		[ $group, $name ] = self::split( $sub );
+		$shaped           = $glob ? self::is_subscription( $sub ) : self::is_stamp( self::stamp_for( $group, $name ) );
+		if ( ! $shaped || ! \in_array( $group, self::GROUPS, true ) ) {
+			throw new \InvalidArgumentException( \esc_html( "invalid subscription: {$sub}" ) );
+		}
+		return [ $group, self::path( $base, $group, $name ) ];
 	}
 
 	/**
@@ -162,22 +187,25 @@ final class Log_Discovery {
 	}
 
 	/**
-	 * A dir subscription through the stream's guard, and the path it names:
-	 * a `GROUPS` root only, the shape `is_subscription()` admits, and a `*`
-	 * only where the caller globs.
+	 * Whether a string is a stamp a record may carry: one name, or one of
+	 * `STAMP_PREFIXES` other than `logs` and one name, each name a registry
+	 * name as `Log_Sources::is_valid_name()` reads it, so it opens with a name
+	 * character and holds no `..`, and the whole at most `MAX_STAMP_BYTES`.
+	 * A bare prefix is no stamp, since `stamp_for()` refuses that dir, and nor
+	 * is `logs/<name>`, which `stamp_for()` never writes. A stamp names
+	 * directories on the hub reading it, so one from a remote is held to this
+	 * before it names any.
 	 *
-	 * @param string $sub  A dir stamp or subscription glob.
-	 * @param string $base The runtime base the roots sit under.
-	 * @param bool   $glob Whether `*` may appear.
-	 * @return array{0:string,1:string,2:string} The group, the rest, and the path.
-	 * @throws \InvalidArgumentException On a subscription the guard refuses.
+	 * @param string $stamp A candidate stamp.
+	 * @return bool True when it names one dir and nothing above it.
 	 */
-	private static function guarded( string $sub, string $base, bool $glob ): array {
-		[ $group, $name ] = self::split( $sub );
-		if ( ( ! $glob && \str_contains( $sub, '*' ) ) || ! \in_array( $group, self::GROUPS, true ) || ! self::is_subscription( $sub ) ) {
-			throw new \InvalidArgumentException( \esc_html( "invalid subscription: {$sub}" ) );
-		}
-		return [ $group, $name, self::path( $base, $group, $name ) ];
+	public static function is_stamp( string $stamp ): bool {
+		$parts = \explode( '/', $stamp );
+		return \strlen( $stamp ) <= self::MAX_STAMP_BYTES && match ( \count( $parts ) ) {
+			1 => ! \in_array( $stamp, self::STAMP_PREFIXES, true ) && Log_Sources::is_valid_name( $stamp ),
+			2 => self::is_prefix( $parts[0] ) && Log_Sources::is_valid_name( $parts[1] ),
+			default => false,
+		};
 	}
 
 	/**
@@ -228,28 +256,6 @@ final class Log_Discovery {
 			throw new \InvalidArgumentException( \esc_html( "invalid subscription: {$stamp}" ) );
 		}
 		return [ $group, \substr( $stamp, $slash + 1 ) ];
-	}
-
-	/**
-	 * Whether a string is a stamp a record may carry: one name, or one of
-	 * `STAMP_PREFIXES` other than `logs` and one name, each name a registry
-	 * name as `Log_Sources::is_valid_name()` reads it, so it opens with a name
-	 * character and holds no `..`, and the whole at most `MAX_STAMP_BYTES`.
-	 * A bare prefix is no stamp, since `stamp_for()` refuses that dir, and nor
-	 * is `logs/<name>`, which `stamp_for()` never writes. A stamp names
-	 * directories on the hub reading it, so one from a remote is held to this
-	 * before it names any.
-	 *
-	 * @param string $stamp A candidate stamp.
-	 * @return bool True when it names one dir and nothing above it.
-	 */
-	public static function is_stamp( string $stamp ): bool {
-		$parts = \explode( '/', $stamp );
-		return \strlen( $stamp ) <= self::MAX_STAMP_BYTES && match ( \count( $parts ) ) {
-			1 => ! \in_array( $stamp, self::STAMP_PREFIXES, true ) && Log_Sources::is_valid_name( $stamp ),
-			2 => self::is_prefix( $parts[0] ) && Log_Sources::is_valid_name( $parts[1] ),
-			default => false,
-		};
 	}
 
 	/**

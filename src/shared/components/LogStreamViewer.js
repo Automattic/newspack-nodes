@@ -75,53 +75,42 @@ export const debugValue = ( row ) => {
 };
 
 /**
- * Build the shared debug-row renderer for one column layout.
+ * The shared debug row: ID, KEY and VALUE.
  *
- * A factory rather than a component, because `LogRowList` memoizes its mapped
- * window on the renderer's identity: both variants are built once at module
- * scope below, so a re-render of this viewer never re-maps the rows.
+ * Declared once at module scope, because `LogRowList` memoizes its mapped
+ * window on the renderer's identity, so a re-render of this viewer never
+ * re-maps the rows.
  *
- * @param {boolean} hasKey Whether the row carries a KEY cell.
- * @return {RenderRow} The one-row renderer.
+ * @type {RenderRow}
  */
-const debugRow = ( hasKey ) => ( row ) => (
+const renderDebugRow = ( row ) => (
 	<div
 		key={ row.id }
 		className={ `newspack-nodes-table__row newspack-nodes-log-row is-debug ${
 			row.isEven ? 'row-even' : 'row-odd'
 		}` }
-		data-p={ row.partition }
 	>
 		<span className="newspack-nodes-table__cell is-muted newspack-nodes-log-row__id">
 			{ row.msgId || '?' }
 		</span>
-		{ hasKey && (
-			<span className="newspack-nodes-table__cell is-secondary newspack-nodes-log-row__key">
-				{ row.key || '' }
-			</span>
-		) }
+		<span className="newspack-nodes-table__cell is-secondary newspack-nodes-log-row__key">
+			{ row.key || '' }
+		</span>
 		<span className="newspack-nodes-table__cell newspack-nodes-log-row__value">
 			{ debugValue( row ) }
 		</span>
 	</div>
 );
 
-/** The default debug row: ID, KEY and VALUE. */
-const renderDebugRow = debugRow( true );
-
-/** The keyless variant, for a source whose raw lines carry no KEY. */
-const renderDebugRowNoKey = debugRow( false );
-
 /**
- * The debug-mode column header matching the shared debug row.
+ * The debug-mode column header matching the shared debug row, built once.
  *
  * Its cells reuse the row's classes, so header and rows take their widths
  * from one CSS rule.
  *
- * @param {boolean} hasKeyColumn Whether to include the KEY column.
- * @return {import('react').ReactElement} The header row.
+ * @type {import('react').ReactElement}
  */
-const debugHeader = ( hasKeyColumn ) => (
+const DEBUG_HEADER = (
 	<LogListHeader
 		columns={ [
 			{
@@ -129,15 +118,11 @@ const debugHeader = ( hasKeyColumn ) => (
 				label: __( 'ID', 'newspack-nodes' ),
 				className: 'newspack-nodes-log-row__id',
 			},
-			...( hasKeyColumn
-				? [
-						{
-							key: 'key',
-							label: __( 'Key', 'newspack-nodes' ),
-							className: 'newspack-nodes-log-row__key',
-						},
-				  ]
-				: [] ),
+			{
+				key: 'key',
+				label: __( 'Key', 'newspack-nodes' ),
+				className: 'newspack-nodes-log-row__key',
+			},
 			{
 				key: 'value',
 				label: __( 'Value', 'newspack-nodes' ),
@@ -180,9 +165,8 @@ const debugHeader = ( hasKeyColumn ) => (
  * @param {*}                         [props.toolbarExtras]      Extra toolbar controls, placed before Clear.
  * @param {*}                         [props.belowToolbar]       Panel under the banner, such as a column picker.
  * @param {*}                         [props.listHeader]         Header row above the list.
- * @param {RenderRow}                 [props.renderDebugRow]     Debug-mode row renderer; defaults to the shared debug row `hasKeyColumn` picks.
+ * @param {RenderRow}                 [props.renderDebugRow]     Debug-mode row renderer; defaults to the shared ID · KEY · VALUE row.
  * @param {*}                         [props.renderDebugHeader]  Debug-mode header; defaults to the header matching that row.
- * @param {boolean}                   [props.hasKeyColumn]       False drops the debug KEY column, for a source whose raw lines carry no KEY.
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function LogStreamViewer( {
@@ -215,7 +199,6 @@ export default function LogStreamViewer( {
 	listHeader,
 	renderDebugRow: renderDebugRowOverride,
 	renderDebugHeader,
-	hasKeyColumn = true,
 } ) {
 	const [ filter, setFilter ] = useState( '' );
 	// Rail visibility, per dashboard (className-keyed); folded until asked for.
@@ -414,11 +397,9 @@ export default function LogStreamViewer( {
 
 	// Debug builds its own; a column-picking consumer supplies both.
 	const activeHeader = debug
-		? renderDebugHeader ?? debugHeader( hasKeyColumn )
+		? renderDebugHeader ?? DEBUG_HEADER
 		: listHeader ?? null;
-	const activeDebugRow =
-		renderDebugRowOverride ??
-		( hasKeyColumn ? renderDebugRow : renderDebugRowNoKey );
+	const activeDebugRow = renderDebugRowOverride ?? renderDebugRow;
 	const railToggleLabel = railOpen
 		? __( 'Hide the browse rail', 'newspack-nodes' )
 		: __( 'Show the browse rail', 'newspack-nodes' );
