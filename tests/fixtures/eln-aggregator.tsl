@@ -6,13 +6,14 @@
 # dispatch on the hub via newspack_nodes/remote_job_handlers; non-job entries
 # pass through. The firehose Topic is the multi-partition, KEY-routed sink.
 #
-# The Remote_Source broker is NOT shipped in this stock topology — the
-# operator wires it on the console canvas, one per spoke (or a Vault_Group):
+# ELN's stock aggregator also ships a `spokes` Vault_Group building one
+# Remote_Source broker per spoke; this fixture leaves the group out, because
+# a parity test has no Vault to read its members from. Each broker reads:
 #
-#   make_node Remote_Source spoke-<id> <vault-id> \
-#       <config:offsets_dir>/spoke-<id>.<topology> \
-#       <config:deadletter_dir>/spoke-<id> \
-#       firehose.p<partition>:remote-job-rewrite sources/php:php-errors:partition
+#   make_node Remote_Source spokes:<id> <vault-id> \
+#       <config:offsets_dir>/<topology>.<id> \
+#       <config:deadletter_dir>/<topology>.<id> \
+#       firehose.p{partition}:remote-job-rewrite sources/php:php-errors:partition
 #
 # Each trailing <source>:<target> pair names a stream to pull and the node it
 # feeds; the broker draws an edge to each target. The two roots are ARGUMENTS:

@@ -186,7 +186,7 @@ try {
 		\do_action( 'rest_api_init' );
 		$route = null;
 		foreach ( $GLOBALS['_wp_test_registered_routes'] as $registered_route ) {
-			if ( '/health/cache' === $registered_route['route'] ) {
+			if ( '/health/runtime' === $registered_route['route'] ) {
 				$route = $registered_route;
 				break;
 			}
@@ -196,13 +196,13 @@ try {
 		$status     = null;
 		if ( null !== $route ) {
 			$now = 2_000_027;
-			\Newspack_Nodes\Rest\Health_Cache_Controller::$clock = static fn (): int => $now;
+			\Newspack_Nodes\Rest\Health_Runtime_Controller::$clock = static fn (): int => $now;
 			$token = \Newspack_Nodes\Internal_Request_Token::generate(
-				\Newspack_Nodes\Internal_Request_Token::PURPOSE_HEALTH_CACHE,
+				\Newspack_Nodes\Internal_Request_Token::PURPOSE_HEALTH_RUNTIME,
 				$now,
 				\wp_salt( 'nonce' )
 			);
-			$request = new \WP_REST_Request( 'POST', '/newspack-nodes/v1/health/cache' );
+			$request = new \WP_REST_Request( 'POST', '/newspack-nodes/v1/health/runtime' );
 			$request->set_param( 'token', $token );
 			$permission = ( $route['args']['permission_callback'] )( $request );
 			if ( true === $permission ) {

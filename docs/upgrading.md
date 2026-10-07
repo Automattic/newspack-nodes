@@ -26,6 +26,29 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   before a hub runs the new line, because an older spoke refuses a `sources/`
   subscription as invalid. A consumer reading `remote_partition` off a
   `Remote_Source` row of `Topology_Analyzer::graph_for()` reads `pairs` instead.
+- **A reader of a source naming no partition runs on worker partition 0 alone.**
+  A `Remote_Source` pair whose source carries no partition token, and every
+  `File_Tail`, builds nothing off partition 0 of a multi-partition topology. The
+  Shell resolves `<partition>` before the broker sees it, so a pair meant to
+  read one stream per worker writes `firehose.p{partition}`. A pair source
+  naming `<partition>` fails the topology's analysis, and `wp nodes doctor`
+  reports it.
+- **A `sources/<name>` a topology reads must resolve, or that topology fails
+  to load.** A `File_Tail` of a name the log-source registry lacks fails its
+  build, and a broker's subscription to a name its spoke lacks is refused,
+  whole stream included. A built-in needs something of its host: `php` needs
+  PHP's `error_log` set to an absolute file path, and the refusal says so.
+  `wp nodes doctor` reports a local source that does not resolve as
+  `log-sources`, read from the web runtime, which serves streams and runs the
+  workers.
+- **The doctor's loopback probe is `POST /newspack-nodes/v1/health/runtime`.**
+  It was `/health/cache` and answers two rows, `cache-backend` and
+  `log-sources`, where it answered one; the token purpose is
+  `Internal_Request_Token::PURPOSE_HEALTH_RUNTIME` (`health-runtime`), the
+  controller `Rest\Health_Runtime_Controller`, and the client call
+  `Health_Probe_Client::runtime()`. `Health_Checks::evaluate()` takes the
+  `runtime()` rows, a list, where it took one cache result. A request log or
+  firewall rule naming the old path names the new one.
 - **A read position's grammar moves to `Log_Position`.** `Log_Sources::MAGIC_POSITIONS`
   is `Log_Position::WORDS`, now a map from each word to its sentinel;
   `Consumer_Node::seek_sentinel()` is `Log_Position::sentinel()`;

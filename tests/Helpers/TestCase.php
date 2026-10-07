@@ -281,8 +281,8 @@ abstract class TestCase extends PHPUnitTestCase {
 			\Newspack_Nodes\Health_Probe_Client::$http_call = null;
 			\Newspack_Nodes\Health_Probe_Client::$clock     = null;
 		}
-		if ( \class_exists( '\Newspack_Nodes\Rest\Health_Cache_Controller' ) ) {
-			\Newspack_Nodes\Rest\Health_Cache_Controller::$clock = null;
+		if ( \class_exists( '\Newspack_Nodes\Rest\Health_Runtime_Controller' ) ) {
+			\Newspack_Nodes\Rest\Health_Runtime_Controller::$clock = null;
 		}
 		if ( \class_exists( '\Newspack_Nodes\Bootstrap' ) ) {
 			\Newspack_Nodes\Bootstrap::$health_report_evaluator = null;

@@ -103,7 +103,7 @@ class AggregatorCITest extends TestCase {
 		$lines = [
 			"var num_partitions = {$num_partitions}",
 			'make_node Remote_Job_Rewrite remote-job-rewrite',
-			'make_node Vault_Group firehose Remote_Source tw-edge <config:offsets_dir>/<topology>.{id} <config:deadletter_dir>/<topology>.{id} firehose.p<partition>:remote-job-rewrite',
+			'make_node Vault_Group firehose Remote_Source tw-edge <config:offsets_dir>/<topology>.{id} <config:deadletter_dir>/<topology>.{id} firehose.p{partition}:remote-job-rewrite',
 			...$written,
 		];
 		\file_put_contents( "{$this->tmp}/topologies/{$topology}.tsl", \implode( "\n", $lines ) . "\n" );
@@ -145,7 +145,7 @@ class AggregatorCITest extends TestCase {
 	}
 
 	public function test_list_servers_lists_a_written_reader_beside_the_group(): void {
-		$this->seed_group_topology( [ 'tw0', 'tw9' ], 1, 'aggregator', [ 'make_node Remote_Source spoke-x9 lone <config:offsets_dir>/x9 <config:deadletter_dir>/x9 firehose.p<partition>:remote-job-rewrite' ] );
+		$this->seed_group_topology( [ 'tw0', 'tw9' ], 1, 'aggregator', [ 'make_node Remote_Source spoke-x9 lone <config:offsets_dir>/x9 <config:deadletter_dir>/x9 firehose.p{partition}:remote-job-rewrite' ] );
 
 		$decoded = self::list_servers();
 
@@ -156,7 +156,7 @@ class AggregatorCITest extends TestCase {
 	public function test_list_servers_lists_a_remote_source_subclass(): void {
 		require_once \dirname( __DIR__ ) . '/Helpers/fixtures/class-okapi-pull-node.php';
 		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\Fixtures\\' );
-		$this->seed_group_topology( [], 1, 'aggregator', [ 'make_node Okapi_Pull pull-x4 lone <config:offsets_dir>/x4 <config:deadletter_dir>/x4 firehose.p<partition>:remote-job-rewrite' ] );
+		$this->seed_group_topology( [], 1, 'aggregator', [ 'make_node Okapi_Pull pull-x4 lone <config:offsets_dir>/x4 <config:deadletter_dir>/x4 firehose.p{partition}:remote-job-rewrite' ] );
 
 		$decoded = self::list_servers();
 

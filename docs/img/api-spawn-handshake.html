@@ -66,10 +66,10 @@ $window = floor( time() / 10 )
 $key   = hash_hmac( 'sha256', 'newspack_nodes_spawn_key',
                     wp_salt( 'nonce' ) )
 $token = hash_hmac( 'sha256', <span class="k">"newspack_nodes_spawn:{$window}"</span>, $key )
-<span class="c"># health-cache: the same shape under wp_salt( 'nonce' ) itself</span>
-$token = hash_hmac( 'sha256', <span class="k">"newspack_nodes_health-cache:{$window}"</span>,
+<span class="c"># health-runtime: the same shape under wp_salt( 'nonce' ) itself</span>
+$token = hash_hmac( 'sha256', <span class="k">"newspack_nodes_health-runtime:{$window}"</span>,
                     wp_salt( 'nonce' ) )</div>
-    <p>The purpose sits INSIDE the hashed message, so a spawn token never validates at <span class="mono">/health/cache</span> and a health-cache token never spawns. The derived spawn key is what makes it safe to hand to a process outside PHP: the raw nonce salt forges every nonce on the site. A token names neither type nor partition; until its window passes it authorizes any spawn the endpoint would otherwise accept.</p>
+    <p>The purpose sits INSIDE the hashed message, so a spawn token never validates at <span class="mono">/health/runtime</span> and a health-runtime token never spawns. The derived spawn key is what makes it safe to hand to a process outside PHP: the raw nonce salt forges every nonce on the site. A token names neither type nor partition; until its window passes it authorizes any spawn the endpoint would otherwise accept.</p>
   </div>
   <div class="callout">
     <h4>A cross-language wire contract</h4>

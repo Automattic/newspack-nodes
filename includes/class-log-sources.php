@@ -434,10 +434,10 @@ class Log_Sources {
 			}
 			// Strict: an unresolvable <ns:key> throws.
 			Core::resolve_config_tokens( $template, true );
-			$per_partition = self::has_partition_token( $template );
+			$per_partition = Core::has_partition_token( $template );
 			for ( $p = 0; $p < $partitions; $p++ ) {
 				$name = Core::resolve_partition_template( $writes, $p, $type );
-				if ( $per_partition && ! self::has_partition_token( $writes ) ) {
+				if ( $per_partition && ! Core::has_partition_token( $writes ) ) {
 					$name .= ".p{$p}";
 				}
 				if ( ! self::is_valid_name( $name ) ) {
@@ -454,11 +454,6 @@ class Log_Sources {
 			}
 		}
 		return $entries;
-	}
-
-	/** Whether $template carries a partition token in either spelling `resolve_partition_template` accepts. */
-	private static function has_partition_token( string $template ): bool {
-		return \str_contains( $template, '<partition>' ) || \str_contains( $template, '{partition}' );
 	}
 
 	/**
@@ -493,15 +488,29 @@ class Log_Sources {
 	}
 
 	/**
-	 * The ONE teaching error for a name the registry lacks.
+	 * The ONE teaching error for a name the registry lacks, saying for a
+	 * built-in what its host must provide.
 	 *
 	 * @param string       $name  The name asked for.
 	 * @param list<string> $names Every name the lookup knew.
 	 */
 	private static function unknown_source( string $name, array $names ): \InvalidArgumentException {
 		$known = \implode( ', ', $names );
+		$needs = self::builtin_need( $name );
 		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-		return new \InvalidArgumentException( "unknown log source: \"{$name}\" (known: " . ( '' === $known ? 'none' : $known ) . ')' );
+		return new \InvalidArgumentException( "unknown log source: \"{$name}\" (known: " . ( '' === $known ? 'none' : $known ) . ')' . ( '' === $needs ? '' : "; {$needs}" ) );
+	}
+
+	/**
+	 * What a built-in needs of its host, as one clause, or '' for a name no
+	 * built-in carries. The doctor's log-sources row and the teaching error
+	 * both say it this way.
+	 *
+	 * @param string $name Registry name.
+	 */
+	public static function builtin_need( string $name ): string {
+		$builtin = self::builtins()[ $name ] ?? null;
+		return null === $builtin ? '' : "the built-in \"{$name}\" needs {$builtin['needs']}";
 	}
 
 	/**
@@ -574,24 +583,41 @@ class Log_Sources {
 
 	/**
 	 * The built-in family, resolved through the `$builtin_sources` seam so a
-	 * test can supply fixtures in place of the host's ini and constants.
+	 * test can supply fixtures in place of the host's ini and constants. By
+	 * default each `builtins()` entry resolves its own path, and one whose
+	 * host leaves it unconfigured is omitted.
 	 *
 	 * @return array<string,string> Builtin name → absolute path.
 	 */
 	private static function builtin_entries(): array {
-		$resolve = self::$builtin_sources ?? static function (): array {
-			$sources = [];
-			$php     = \ini_get( 'error_log' );
-			// An absolute path is followed written yet or not; syslog is not.
-			if ( \is_string( $php ) && \str_starts_with( $php, '/' ) ) {
-				$sources['php'] = $php;
-			}
-			// Constant may be undefined in tests — then debug is unavailable.
-			if ( \defined( 'WP_CONTENT_DIR' ) ) {
-				$sources['debug'] = \WP_CONTENT_DIR . '/debug.log';
-			}
-			return $sources;
-		};
+		$resolve = self::$builtin_sources ?? static fn (): array => \array_filter(
+			\array_map( static fn ( array $builtin ): ?string => ( $builtin['path'] )(), self::builtins() ),
+			static fn ( ?string $path ): bool => null !== $path
+		);
 		return $resolve();
+	}
+
+	/**
+	 * The ONE table of built-ins, in priority order: each declares the path it
+	 * resolves, null while its host leaves it unconfigured, beside what the
+	 * host must provide for it, so neither can be added without the other.
+	 *
+	 * @return array<string,array{path: \Closure(): ?string, needs: string}>
+	 */
+	private static function builtins(): array {
+		return [
+			'php'   => [
+				// An absolute path counts before it exists; syslog never does.
+				'path'  => static function (): ?string {
+					$path = \ini_get( 'error_log' );
+					return \is_string( $path ) && \str_starts_with( $path, '/' ) ? $path : null;
+				},
+				'needs' => "PHP's error_log set to an absolute file path",
+			],
+			'debug' => [
+				'path'  => static fn (): ?string => \defined( 'WP_CONTENT_DIR' ) ? \WP_CONTENT_DIR . '/debug.log' : null,
+				'needs' => 'WP_CONTENT_DIR defined',
+			],
+		];
 	}
 }

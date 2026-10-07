@@ -37,6 +37,30 @@ class HealthProbeClientTest extends TestCase {
 		];
 	}
 
+	/** @return array{id:string,label:string,status:string,messages:array<int,string>} */
+	private static function valid_log_sources(): array {
+		return [
+			'id'       => Health_Checks::LOG_SOURCES_ID,
+			'label'    => Health_Checks::LOG_SOURCES_LABEL,
+			'status'   => Health_Checks::STATUS_GOOD,
+			'messages' => [ 'Log-source probe 8843 succeeded.' ],
+		];
+	}
+
+	/**
+	 * The cache row of the web runtime's reply, after checking the log-sources
+	 * row came back beside it.
+	 *
+	 * @return array{id:string,label:string,status:string,messages:array<int,string>}
+	 */
+	private function cache_row(): array {
+		$rows = Health_Probe_Client::runtime();
+		$this->assertCount( 2, $rows );
+		$this->assertSame( Health_Checks::LOG_SOURCES_ID, $rows[1]['id'] );
+		$this->assertSame( Health_Checks::LOG_SOURCES_LABEL, $rows[1]['label'] );
+		return $rows[0];
+	}
+
 	public function test_health_probe_client_class_exists(): void {
 		$this->assertTrue( \class_exists( 'Newspack_Nodes\\Health_Probe_Client' ) );
 	}
@@ -52,24 +76,24 @@ class HealthProbeClientTest extends TestCase {
 			$captured_args = $args;
 			return [
 				'response' => [ 'code' => 200 ],
-				'body'     => \wp_json_encode( $valid ),
+				'body'     => \wp_json_encode( [ $valid, self::valid_log_sources() ] ),
 			];
 		};
 
-		$result = Health_Probe_Client::cache_backend();
+		$result = Health_Probe_Client::runtime();
 
-		$this->assertSame( $valid, $result );
-		$this->assertSame( 'http://localhost/wp-json/newspack-nodes/v1/health/cache', $captured_url );
+		$this->assertSame( [ $valid, self::valid_log_sources() ], $result );
+		$this->assertSame( 'http://localhost/wp-json/newspack-nodes/v1/health/runtime', $captured_url );
 		$this->assertIsArray( $captured_args );
 		$this->assertSame( 5, $captured_args['timeout'] );
 		$this->assertSame( 0, $captured_args['redirection'] );
-		$this->assertSame( 2048, $captured_args['limit_response_size'] );
+		$this->assertSame( 4096, $captured_args['limit_response_size'] );
 		$this->assertSame( Core::$verify_spawn_tls, $captured_args['sslverify'] );
 		$this->assertSame( [ 'token' ], \array_keys( $captured_args['body'] ) );
 		$this->assertMatchesRegularExpression( '/\A[a-f0-9]{64}\z/', $captured_args['body']['token'] );
 		$this->assertTrue(
 			Internal_Request_Token::validate(
-				Internal_Request_Token::PURPOSE_HEALTH_CACHE,
+				Internal_Request_Token::PURPOSE_HEALTH_RUNTIME,
 				$captured_args['body']['token'],
 				$now,
 				\wp_salt( 'nonce' )
@@ -83,13 +107,13 @@ class HealthProbeClientTest extends TestCase {
 		?string $marker,
 		bool $encode
 	): void {
-		$body = $encode ? \wp_json_encode( $payload ) : $payload;
+		$body = $encode ? \wp_json_encode( [ $payload, self::valid_log_sources() ] ) : $payload;
 		Health_Probe_Client::$http_call = static fn ( string $url, array $args ): array => [
 			'response' => [ 'code' => 200 ],
 			'body'     => $body,
 		];
 
-		$result = Health_Probe_Client::cache_backend();
+		$result = $this->cache_row();
 
 		$keys = \array_keys( $result );
 		\sort( $keys );
@@ -222,10 +246,10 @@ class HealthProbeClientTest extends TestCase {
 		);
 		Health_Probe_Client::$http_call = static fn ( string $url, array $args ): array => [
 			'response' => [ 'code' => 200 ],
-			'body'     => \wp_json_encode( $expected ),
+			'body'     => \wp_json_encode( [ $expected, self::valid_log_sources() ] ),
 		];
 
-		$this->assertSame( $expected, Health_Probe_Client::cache_backend() );
+		$this->assertSame( [ $expected, self::valid_log_sources() ], Health_Probe_Client::runtime() );
 	}
 
 	public static function valid_statuses(): iterable {
@@ -243,7 +267,7 @@ class HealthProbeClientTest extends TestCase {
 		Health_Probe_Client::$http_call = static fn ( string $url, array $args ): \WP_Error =>
 			new \WP_Error( 'http_request_failed', $detail );
 
-		$result  = Health_Probe_Client::cache_backend();
+		$result  = $this->cache_row();
 		$message = $result['messages'][0];
 
 		$this->assertSame( Health_Checks::CACHE_ID, $result['id'] );
@@ -287,7 +311,7 @@ class HealthProbeClientTest extends TestCase {
 		Health_Probe_Client::$http_call = static fn ( string $url, array $args ): \WP_Error =>
 			new \WP_Error( 'http_request_failed', $detail );
 
-		$result  = Health_Probe_Client::cache_backend();
+		$result  = $this->cache_row();
 		$message = $result['messages'][0];
 
 		$this->assertSame( Health_Checks::STATUS_RECOMMENDED, $result['status'] );
@@ -301,7 +325,7 @@ class HealthProbeClientTest extends TestCase {
 		Health_Probe_Client::$http_call = static fn ( string $url, array $args ): string =>
 			'ATTACKER_RAW_RESPONSE_8843';
 
-		$result  = Health_Probe_Client::cache_backend();
+		$result  = $this->cache_row();
 		$message = $result['messages'][0];
 
 		$this->assertSame( Health_Checks::STATUS_RECOMMENDED, $result['status'] );
@@ -323,7 +347,7 @@ class HealthProbeClientTest extends TestCase {
 			'http_response' => null,
 		];
 
-		$result  = Health_Probe_Client::cache_backend();
+		$result  = $this->cache_row();
 		$message = $result['messages'][0];
 
 		$this->assertSame( Health_Checks::CACHE_ID, $result['id'] );
@@ -349,7 +373,7 @@ class HealthProbeClientTest extends TestCase {
 		];
 
 		try {
-			$result = Health_Probe_Client::cache_backend();
+			$result = $this->cache_row();
 		} catch ( \TypeError ) {
 			$this->fail( 'Array response bodies must be locally classified without a TypeError.' );
 		}
@@ -373,10 +397,10 @@ class HealthProbeClientTest extends TestCase {
 		);
 		Health_Probe_Client::$http_call = static fn ( string $url, array $args ): array => [
 			'response' => [ 'code' => $code ],
-			'body'     => \wp_json_encode( $untrusted ),
+			'body'     => \wp_json_encode( [ $untrusted, self::valid_log_sources() ] ),
 		];
 
-		$result  = Health_Probe_Client::cache_backend();
+		$result  = $this->cache_row();
 		$message = $result['messages'][0];
 
 		$this->assertSame( Health_Checks::CACHE_ID, $result['id'] );
@@ -385,6 +409,45 @@ class HealthProbeClientTest extends TestCase {
 		$this->assertStringContainsString( $expected_fragment, $message );
 		$this->assertStringNotContainsString( 'ATTACKER_HTTP_BODY_8843', $message );
 		$this->assertSame( $mentions_spawn, \str_contains( $message, 'worker respawn' ) );
+	}
+
+	/** @return iterable<string,array{0:mixed,1:string}> Label => a reply that will not stand whole, and a marker it must not echo. */
+	public static function malformed_runtime_rows(): iterable {
+		$valid = [
+			'id'       => Health_Checks::CACHE_ID,
+			'label'    => Health_Checks::CACHE_LABEL,
+			'status'   => Health_Checks::STATUS_GOOD,
+			'messages' => [ 'Valid cache result 8844.' ],
+		];
+		yield 'rows swapped' => [ [ self::valid_log_sources(), $valid ], 'probe 8843' ];
+		yield 'log-sources row missing' => [ [ $valid ], 'Valid cache result 8844' ];
+		yield 'a third row' => [ [ $valid, self::valid_log_sources(), \array_replace( $valid, [ 'id' => 'ATTACKER_THIRD_8844' ] ) ], 'ATTACKER_THIRD_8844' ];
+		yield 'wrong log-sources label' => [ [ $valid, \array_replace( self::valid_log_sources(), [ 'label' => 'ATTACKER_LABEL_8844' ] ) ], 'ATTACKER_LABEL_8844' ];
+		yield 'log-sources escape' => [ [ $valid, \array_replace( self::valid_log_sources(), [ 'messages' => [ "ATTACKER_ESCAPE_8844\x1b[31m" ] ] ) ], 'ATTACKER_ESCAPE_8844' ];
+	}
+
+	/**
+	 * The reply stands only whole: both rows, in order, each its own exact
+	 * shape. Anything else answers both rows unknown, each naming what it
+	 * could not verify and echoing nothing it was sent.
+	 *
+	 * @param mixed  $payload The decoded reply.
+	 * @param string $marker  Text the answer must not carry.
+	 */
+	#[DataProvider( 'malformed_runtime_rows' )]
+	public function test_a_reply_not_standing_whole_answers_both_rows_unknown( mixed $payload, string $marker ): void {
+		Health_Probe_Client::$http_call = static fn ( string $url, array $args ): array => [
+			'response' => [ 'code' => 200 ],
+			'body'     => \wp_json_encode( $payload ),
+		];
+
+		[ $cache, $log_sources ] = Health_Probe_Client::runtime();
+
+		$this->assertSame( [ Health_Checks::CACHE_ID, Health_Checks::LOG_SOURCES_ID ], [ $cache['id'], $log_sources['id'] ] );
+		$this->assertSame( [ Health_Checks::STATUS_RECOMMENDED, Health_Checks::STATUS_RECOMMENDED ], [ $cache['status'], $log_sources['status'] ] );
+		$this->assertStringContainsString( 'Could not verify the web cache backend because', $cache['messages'][0] );
+		$this->assertStringContainsString( "Could not verify the web runtime's log sources because", $log_sources['messages'][0] );
+		$this->assertStringNotContainsString( $marker, $cache['messages'][0] . $log_sources['messages'][0] );
 	}
 
 	public static function http_errors(): iterable {

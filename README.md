@@ -127,7 +127,7 @@ The runtime ships five REST endpoints: the worker spawn handler; a session issue
 POST  /wp-json/newspack-nodes/v1/workers/spawn
 POST  /wp-json/newspack-nodes/v1/auth
 POST  /wp-json/newspack-nodes/v1/command
-POST  /wp-json/newspack-nodes/v1/health/cache
+POST  /wp-json/newspack-nodes/v1/health/runtime
 GET   /wp-json/newspack-nodes/v1/messages/stream
 ```
 

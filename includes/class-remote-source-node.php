@@ -142,13 +142,10 @@ class Remote_Source_Node extends Remote_Link_Node {
 		if ( null === $args ) {
 			return parent::arguments();
 		}
-		$pairs = \array_map( self::parse_pair( ... ), \array_slice( $args, 3 ) );
-		if ( [] === $pairs ) {
-			throw new \InvalidArgumentException( 'Remote_Source: name at least one <source>:<target> pair' );
-		}
+		$this->bound_partition = Core::bound_partition();
+		$pairs                 = $this->owned_pairs( \array_slice( $args, 3 ) );
 		$previous              = $this->pairs;
 		$parsed                = parent::arguments( $args );
-		$this->bound_partition = Core::bound_partition();
 		$topology              = Core::$var['topology'] ?? null;
 		$this->bound_topology  = \is_string( $topology ) && '' !== $topology ? $topology : null;
 		$this->pairs           = $pairs;
@@ -170,6 +167,34 @@ class Remote_Source_Node extends Remote_Link_Node {
 			$this->restream();
 		}
 		return $parsed;
+	}
+
+	/**
+	 * The pairs this worker reads, each resolved at its bound partition. A pair
+	 * whose source is written with a partition token reads in every worker; one
+	 * written without names a source read once per fleet, so it reads where
+	 * `Core::owns_unpartitioned()` holds and is skipped elsewhere: no reader, no
+	 * subscription, no dirs. Every pair is checked wherever it is skipped, so a
+	 * bad one fails on every partition. The Shell resolves `<partition>` before
+	 * the node sees it, so a topology writes `{partition}`, and the analyzer
+	 * refuses `<partition>` through `refuse_bare_partition()`.
+	 *
+	 * @param list<string> $tokens The pair tokens as written.
+	 * @return list<array{source:string,target:string}>
+	 * @throws \InvalidArgumentException When a pair is malformed or none is named.
+	 */
+	private function owned_pairs( array $tokens ): array {
+		if ( [] === $tokens ) {
+			throw new \InvalidArgumentException( 'Remote_Source: name at least one <source>:<target> pair' );
+		}
+		$owned = [];
+		foreach ( $tokens as $token ) {
+			$pair = self::parse_pair( Core::resolve_partition_template( $token, $this->bound_partition ?? 0 ) );
+			if ( Core::has_partition_token( self::split_pair( $token )['source'] ) || Core::owns_unpartitioned() ) {
+				$owned[] = $pair;
+			}
+		}
+		return $owned;
 	}
 
 	/**
@@ -741,6 +766,25 @@ class Remote_Source_Node extends Remote_Link_Node {
 			$pairs[] = self::split_pair( $token );
 		}
 		return $pairs;
+	}
+
+	/**
+	 * Refuse a pair whose source names `<partition>`. The Shell resolves that
+	 * token before `make_node` runs, so the broker would read the pair as
+	 * fixed and only worker partition 0 would pull it; `{partition}` reaches
+	 * the broker whole.
+	 *
+	 * @param string       $broker The broker's name, or its group's.
+	 * @param list<string> $tokens Pair tokens as written.
+	 * @throws \RuntimeException When a pair's source names `<partition>`.
+	 */
+	public static function refuse_bare_partition( string $broker, array $tokens ): void {
+		foreach ( $tokens as $token ) {
+			if ( \str_contains( self::split_pair( $token )['source'], '<partition>' ) ) {
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+				throw new \RuntimeException( "{$broker}: pair \"{$token}\" names <partition>, which resolves before the broker sees it; write {partition}" );
+			}
+		}
 	}
 
 	/**

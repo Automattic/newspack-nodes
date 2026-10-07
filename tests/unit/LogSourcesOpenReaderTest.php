@@ -211,6 +211,16 @@ final class LogSourcesOpenReaderTest extends TestCase {
 		Log_Sources::read( 'sources/php', '7:x' );
 	}
 
+	/** A built-in the host leaves unconfigured says what it needs, from the registry's own data. */
+	public function test_a_missing_built_in_names_its_precondition(): void {
+		Log_Sources::$builtin_sources = static fn (): array => [ 'gyro-7731' => '/tmp/gyro-7731.log' ];
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'unknown log source: "php" (known: gyro-7731); the built-in "php" needs PHP\'s error_log set to an absolute file path' );
+
+		Log_Sources::file_source_path( 'php' );
+	}
+
 	public function test_an_unknown_source_teaches_the_known_names(): void {
 		$log                          = "{$this->tmp}/gyro.log";
 		Log_Sources::$builtin_sources = static fn (): array => [ 'gyro' => $log ];

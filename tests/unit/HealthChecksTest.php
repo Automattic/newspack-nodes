@@ -121,6 +121,19 @@ class HealthChecksTest extends TestCase {
 		];
 	}
 
+	/** @return list<array{id:string,label:string,status:string,messages:array<int,string>}> The web runtime's two rows, both good. */
+	private function good_runtime_results(): array {
+		return [
+			$this->good_cache_result(),
+			[
+				'id'       => Health_Checks::LOG_SOURCES_ID,
+				'label'    => Health_Checks::LOG_SOURCES_LABEL,
+				'status'   => Health_Checks::STATUS_GOOD,
+				'messages' => [ 'Web log-source probe 7319 succeeded.' ],
+			],
+		];
+	}
+
 	/**
 	 * @param array<int,array{id:string,label:string,status:string,messages:array<int,string>}> $results
 	 * @return array<string,array{id:string,label:string,status:string,messages:array<int,string>}>
@@ -241,7 +254,7 @@ class HealthChecksTest extends TestCase {
 		$GLOBALS['_wp_test_next_scheduled'] = 1893456789;
 		$this->activate_topologies( [ 'ledger-lab' => "make_node Echo relay\n" ] );
 
-		$result = $this->by_id( Health_Checks::evaluate( $this->good_cache_result() ) )['housekeeping'];
+		$result = $this->by_id( Health_Checks::evaluate( $this->good_runtime_results() ) )['housekeeping'];
 
 		$this->assertSame( Health_Checks::STATUS_GOOD, $result['status'] );
 		$GLOBALS['_wp_test_next_scheduled'] = false;
@@ -256,7 +269,7 @@ class HealthChecksTest extends TestCase {
 		$GLOBALS['_wp_test_next_scheduled'] = false;
 		$this->activate_topologies( [ 'ledger-lab' => "make_node Echo relay\n" ] );
 
-		$result = $this->by_id( Health_Checks::evaluate( $this->good_cache_result() ) )['housekeeping'];
+		$result = $this->by_id( Health_Checks::evaluate( $this->good_runtime_results() ) )['housekeeping'];
 
 		$this->assertSame( Health_Checks::STATUS_CRITICAL, $result['status'] );
 		$this->assertStringContainsString( 'newspack_nodes/reconcile', $result['messages'][0] );
@@ -268,7 +281,7 @@ class HealthChecksTest extends TestCase {
 		$GLOBALS['_wp_test_next_scheduled'] = false;
 		$this->activate_topologies( [] );
 
-		$result = $this->by_id( Health_Checks::evaluate( $this->good_cache_result() ) )['housekeeping'];
+		$result = $this->by_id( Health_Checks::evaluate( $this->good_runtime_results() ) )['housekeeping'];
 
 		$this->assertSame( Health_Checks::STATUS_GOOD, $result['status'] );
 	}
@@ -309,14 +322,14 @@ class HealthChecksTest extends TestCase {
 			// Refused; the tables it would have created already stand.
 		}
 
-		$this->assertNotContains( 'wpdb-schema', \array_column( Health_Checks::evaluate( $this->good_cache_result() ), 'id' ) );
+		$this->assertNotContains( 'wpdb-schema', \array_column( Health_Checks::evaluate( $this->good_runtime_results() ), 'id' ) );
 	}
 
 	/** A probe that cannot run says so in its own row rather than throwing. */
 	public function test_a_schema_probe_that_cannot_run_is_recommended_naming_why(): void {
 		$GLOBALS['wpdb'] = null;
 
-		$row = $this->by_id( Health_Checks::evaluate( $this->good_cache_result() ) )['wpdb-schema'] ?? null;
+		$row = $this->by_id( Health_Checks::evaluate( $this->good_runtime_results() ) )['wpdb-schema'] ?? null;
 
 		$this->assertSame( Health_Checks::STATUS_RECOMMENDED, $row['status'] ?? null );
 		$this->assertStringContainsString( 'wpdb backend needs $wpdb', $row['messages'][0] );
@@ -329,7 +342,7 @@ class HealthChecksTest extends TestCase {
 		\Newspack_Nodes\Wpdb_Arm::install();
 		$db->query( 'DROP TABLE `owl3_newspack_nodes_members`' );
 
-		$row = $this->by_id( Health_Checks::evaluate( $this->good_cache_result() ) )['wpdb-schema'] ?? null;
+		$row = $this->by_id( Health_Checks::evaluate( $this->good_runtime_results() ) )['wpdb-schema'] ?? null;
 
 		$this->assertSame( Health_Checks::STATUS_CRITICAL, $row['status'] ?? null );
 		$this->assertStringContainsString( 'owl3_newspack_nodes_members', $row['messages'][0] );
@@ -341,19 +354,13 @@ class HealthChecksTest extends TestCase {
 		$this->assertNotContains( 'fleet-hold', \array_column( $results, 'id' ) );
 	}
 
-	public function test_evaluate_returns_exactly_the_eight_results_in_canonical_order(): void {
-		$results = Health_Checks::evaluate(
-			[
-				'id'       => 'cache-backend',
-				'label'    => 'Cache backend',
-				'status'   => 'good',
-				'messages' => [ 'Web cache probe 7319 succeeded.' ],
-			]
-		);
+	public function test_evaluate_returns_exactly_the_nine_results_in_canonical_order(): void {
+		$results = Health_Checks::evaluate( $this->good_runtime_results() );
 
 		$this->assertSame(
 			[
 				'cache-backend',
+				'log-sources',
 				'filesystem',
 				'ownership',
 				'housekeeping',
@@ -367,6 +374,7 @@ class HealthChecksTest extends TestCase {
 		$this->assertSame(
 			[
 				'Cache backend',
+				'Log sources',
 				'Filesystem',
 				'Ownership',
 				'Housekeeping',
@@ -378,7 +386,7 @@ class HealthChecksTest extends TestCase {
 			\array_column( $results, 'label' )
 		);
 		$this->assertSame(
-			\array_fill( 0, 8, [ 'id', 'label', 'messages', 'status' ] ),
+			\array_fill( 0, 9, [ 'id', 'label', 'messages', 'status' ] ),
 			\array_map(
 				static function ( array $result ): array {
 					$keys = \array_keys( $result );
@@ -390,10 +398,130 @@ class HealthChecksTest extends TestCase {
 		);
 	}
 
+	// ── log-sources: every sources/<name> a topology reads here must resolve ──
+
+	public function test_a_source_a_topology_tails_that_does_not_resolve_here_is_critical(): void {
+		\Newspack_Nodes\Log_Sources::$builtin_sources = static fn (): array => [ 'gnu-5520' => '/tmp/gnu-5520.log' ];
+		$this->activate_topologies( [ 'tapir-hub-5521' => "make_node File_Tail tapir-tail-5521 sources/tapir-5521 /tmp/tapir-off-5521\n" ] );
+
+		$row = Health_Checks::runtime()[1];
+
+		$this->assertSame( Health_Checks::LOG_SOURCES_ID, $row['id'] );
+		$this->assertSame( Health_Checks::LOG_SOURCES_LABEL, $row['label'] );
+		$this->assertSame( Health_Checks::STATUS_CRITICAL, $row['status'] );
+		$this->assertStringContainsString( 'tapir-hub-5521', $row['messages'][0] );
+		$this->assertStringContainsString( '`sources/tapir-5521`', $row['messages'][0] );
+		$this->assertStringEndsWith( 'so it fails to load.', $row['messages'][0], 'a fixed shape, no known list' );
+	}
+
+	/** A built-in its host leaves unconfigured says what it needs, in the registry's own words. */
+	public function test_an_unconfigured_built_in_names_what_its_host_must_provide(): void {
+		\Newspack_Nodes\Log_Sources::$builtin_sources = static fn (): array => [];
+		$this->activate_topologies( [ 'tapir-hub-5527' => "make_node File_Tail tapir-tail-5527 sources/debug /tmp/tapir-off-5527\n" ] );
+
+		$row = Health_Checks::runtime()[1];
+
+		$this->assertSame( Health_Checks::STATUS_CRITICAL, $row['status'] );
+		$this->assertStringContainsString( '; ' . \Newspack_Nodes\Log_Sources::builtin_need( 'debug' ) . '.', $row['messages'][0] );
+		$this->assertStringContainsString( 'WP_CONTENT_DIR defined', $row['messages'][0] );
+	}
+
+	public function test_every_source_the_topologies_tail_resolving_here_is_good(): void {
+		\Newspack_Nodes\Log_Sources::$builtin_sources = static fn (): array => [ 'tapir-5522' => '/tmp/tapir-5522.log' ];
+		$this->activate_topologies( [ 'tapir-hub-5522' => "make_node File_Tail tapir-tail-5522 sources/tapir-5522 /tmp/tapir-off-5522\n" ] );
+
+		$row = Health_Checks::runtime()[1];
+
+		$this->assertSame( Health_Checks::STATUS_GOOD, $row['status'] );
+		$this->assertStringContainsString( 'resolves on this host', $row['messages'][0] );
+	}
+
+	/** A broker's pair names a source on its spoke, whose registry this host cannot read. */
+	public function test_a_broker_pair_source_is_the_spokes_to_resolve(): void {
+		\Newspack_Nodes\Log_Sources::$builtin_sources = static fn (): array => [];
+		$this->activate_topologies( [ 'okapi-hub-5523' => "make_node Remote_Source pull:okapi-5523 okapi-5523 /tmp/off-5523 /tmp/dl-5523 sources/okapi-5523:okapi-sink-5523\n" ] );
+
+		$row = Health_Checks::runtime()[1];
+
+		$this->assertSame( Health_Checks::STATUS_GOOD, $row['status'] );
+		$this->assertStringContainsString( 'No active topology reads a `sources/<name>` on this host', $row['messages'][0] );
+	}
+
+	/**
+	 * Hand `$rows` to `Health_Probe_Client` as the web runtime's reply, and
+	 * answer what the client accepts.
+	 *
+	 * @param list<array<string,mixed>> $rows The rows the route would return.
+	 * @return list<array<string,mixed>>
+	 */
+	private static function through_the_loopback( array $rows ): array {
+		$body = (string) \wp_json_encode( $rows );
+		\Newspack_Nodes\Health_Probe_Client::$http_call = static fn ( string $url, array $args ): array => [
+			'response' => [ 'code' => 200 ],
+			'body'     => $body,
+		];
+		try {
+			return \Newspack_Nodes\Health_Probe_Client::runtime();
+		} finally {
+			\Newspack_Nodes\Health_Probe_Client::$http_call = null;
+		}
+	}
+
+	/** A long registry and long names still give a reply the client accepts whole, so both verdicts stand. */
+	public function test_a_long_registry_keeps_the_critical_verdict_on_the_wire(): void {
+		$sources = [];
+		for ( $i = 0; $i < 12; $i++ ) {
+			$sources[] = 'gnu-registry-entry-with-a-long-name-' . \str_repeat( 'q', 40 ) . "-{$i}=/var/log/gnu-5524-{$i}.log";
+		}
+		$this->use_base_dir( $this->tmp, [ 'num_partitions' => 1, 'log_sources' => $sources ] );
+		\Newspack_Nodes\Log_Sources::$builtin_sources = static fn (): array => [];
+		$topology = 'tapir-hub-' . \str_repeat( 'w', 120 );
+		$this->activate_topologies( [ $topology => 'make_node File_Tail tapir-tail-5524 sources/tapir-' . \str_repeat( 'z', 120 ) . " /tmp/tapir-off-5524\n" ] );
+		Core::$memd                 = null;
+		Cache_Backend::$apcu_usable = static fn (): bool => false;
+		$rows                       = Health_Checks::runtime();
+
+		$this->assertSame( $rows, self::through_the_loopback( $rows ), 'the reply validates whole' );
+		$this->assertSame( [ Health_Checks::STATUS_CRITICAL, Health_Checks::STATUS_CRITICAL ], \array_column( $rows, 'status' ) );
+		$this->assertStringContainsString( 'tapir-hub-www', $rows[1]['messages'][0] );
+		$this->assertStringNotContainsString( '-11', $rows[1]['messages'][0], 'the known list is not spelled out' );
+	}
+
+	/** A multi-line exception reading the topologies still gives a reply the client accepts whole. */
+	public function test_an_unreadable_registry_says_so_on_one_bounded_line(): void {
+		\Newspack_Nodes\Log_Sources::$builtin_sources = static fn (): array => throw new \RuntimeException( "line one 5525\nline two \x1b[31m" . \str_repeat( 'x', 900 ) );
+		$this->activate_topologies( [ 'tapir-hub-5525' => "make_node File_Tail tapir-tail-5525 sources/tapir-5525 /tmp/tapir-off-5525\n" ] );
+		Core::$memd                 = null;
+		Cache_Backend::$apcu_usable = static fn (): bool => false;
+		$rows                       = Health_Checks::runtime();
+
+		$this->assertSame( $rows, self::through_the_loopback( $rows ), 'the reply validates whole' );
+		$this->assertSame( Health_Checks::STATUS_CRITICAL, $rows[0]['status'], 'the cache verdict survives' );
+		$this->assertSame( Health_Checks::STATUS_RECOMMENDED, $rows[1]['status'] );
+		$this->assertStringContainsString( 'could not be checked: line one 5525 line two', $rows[1]['messages'][0] );
+	}
+
+	/** A topology that will not read is never vouched for. */
+	public function test_an_unreadable_topology_leaves_its_sources_unverified_never_good(): void {
+		$this->activate_topologies( [ 'broken-hub-5526' => "include absent-lab-5526\n" ] );
+
+		$row = Health_Checks::runtime()[1];
+
+		$this->assertSame( Health_Checks::STATUS_RECOMMENDED, $row['status'] );
+		$this->assertStringContainsString( 'broken-hub-5526', $row['messages'][0] );
+		$this->assertStringContainsString( 'could not be checked', $row['messages'][0] );
+	}
+
+	public function test_evaluate_reports_the_runtime_rows_it_is_handed_first(): void {
+		$runtime = $this->good_runtime_results();
+
+		$this->assertSame( $runtime, \array_slice( Health_Checks::evaluate( $runtime ), 0, 2 ) );
+	}
+
 	public function test_memcached_round_trip_is_good_and_names_the_selected_backend(): void {
 		Core::$memd = new InMemoryMemcached();
 
-		$result = Health_Checks::cache_backend();
+		$result = Health_Checks::runtime()[0];
 
 		$this->assertSame( 'good', $result['status'] );
 		$this->assertStringContainsString( 'Memcached', $result['messages'][0] );
@@ -406,7 +534,7 @@ class HealthChecksTest extends TestCase {
 		Core::$memd                 = null;
 		Cache_Backend::$apcu_usable = null;
 
-		$result = Health_Checks::cache_backend();
+		$result = Health_Checks::runtime()[0];
 
 		$this->assertSame( 'good', $result['status'] );
 		$this->assertStringContainsString( 'APCu', $result['messages'][0] );
@@ -416,7 +544,7 @@ class HealthChecksTest extends TestCase {
 		Core::$memd                 = null;
 		Cache_Backend::$apcu_usable = static fn (): bool => false;
 
-		$result = Health_Checks::cache_backend();
+		$result = Health_Checks::runtime()[0];
 
 		$this->assertSame( 'critical', $result['status'] );
 		$this->assertStringContainsString( 'No cache backend', $result['messages'][0] );
@@ -429,7 +557,7 @@ class HealthChecksTest extends TestCase {
 			}
 		};
 
-		$result = Health_Checks::cache_backend();
+		$result = Health_Checks::runtime()[0];
 
 		$this->assertSame( 'critical', $result['status'] );
 		$this->assertStringContainsString( 'add', $result['messages'][0] );
@@ -450,7 +578,7 @@ class HealthChecksTest extends TestCase {
 			}
 		};
 
-		$result = Health_Checks::cache_backend();
+		$result = Health_Checks::runtime()[0];
 
 		$this->assertSame( 'critical', $result['status'] );
 		$this->assertStringContainsString( 'read', $result['messages'][0] );
@@ -471,7 +599,7 @@ class HealthChecksTest extends TestCase {
 			}
 		};
 
-		$result = Health_Checks::cache_backend();
+		$result = Health_Checks::runtime()[0];
 
 		$this->assertSame( 'critical', $result['status'] );
 		$this->assertStringContainsString( 'read', $result['messages'][0] );
@@ -488,7 +616,7 @@ class HealthChecksTest extends TestCase {
 		};
 		Core::$memd = $memd;
 
-		$result = Health_Checks::cache_backend();
+		$result = Health_Checks::runtime()[0];
 
 		$this->assertSame( 'critical', $result['status'] );
 		$this->assertStringContainsString( 'delete', $result['messages'][0] );
@@ -496,7 +624,7 @@ class HealthChecksTest extends TestCase {
 	}
 
 	public function test_clean_report_has_one_nonempty_affirmative_message_per_result(): void {
-		$results = Health_Checks::evaluate( $this->good_cache_result() );
+		$results = Health_Checks::evaluate( $this->good_runtime_results() );
 
 		foreach ( $results as $result ) {
 			$this->assertSame( 'good', $result['status'], $result['id'] );
@@ -512,7 +640,7 @@ class HealthChecksTest extends TestCase {
 			return false;
 		};
 
-		$results = $this->by_id( Health_Checks::evaluate( $this->good_cache_result() ) );
+		$results = $this->by_id( Health_Checks::evaluate( $this->good_runtime_results() ) );
 
 		$this->assertSame( 'critical', $results['filesystem']['status'] );
 		$this->assertStringContainsString( 'could not be removed', $results['filesystem']['messages'][0] );
@@ -522,7 +650,7 @@ class HealthChecksTest extends TestCase {
 	public function test_unresolved_base_directory_makes_environment_critical_and_fleet_unknown(): void {
 		$this->use_refused_base_directory( '7319' );
 
-		$results = $this->by_id( Health_Checks::evaluate( $this->good_cache_result() ) );
+		$results = $this->by_id( Health_Checks::evaluate( $this->good_runtime_results() ) );
 
 		$this->assertSame( 'critical', $results['filesystem']['status'] );
 		$this->assertSame( 'critical', $results['ownership']['status'] );
@@ -537,7 +665,7 @@ class HealthChecksTest extends TestCase {
 		CLI::$uid_provider = static fn (): int => -1;
 		Config::reset();
 
-		$results = $this->by_id( Health_Checks::evaluate( $this->good_cache_result() ) );
+		$results = $this->by_id( Health_Checks::evaluate( $this->good_runtime_results() ) );
 
 		$this->assertSame( 'critical', $results['ownership']['status'] );
 		$this->assertStringContainsString( 'could not make the configured path usable', $results['ownership']['messages'][0] );
@@ -548,7 +676,7 @@ class HealthChecksTest extends TestCase {
 		CLI::$uid_provider = static fn (): int => $owner + 40_731;
 		Config::reset();
 
-		$results = $this->by_id( Health_Checks::evaluate( $this->good_cache_result() ) );
+		$results = $this->by_id( Health_Checks::evaluate( $this->good_runtime_results() ) );
 
 		$this->assertSame( 'critical', $results['ownership']['status'] );
 		$this->assertStringContainsString( 'chown -R', $results['ownership']['messages'][0] );
@@ -558,7 +686,7 @@ class HealthChecksTest extends TestCase {
 		CLI::$uid_provider = static fn (): int => -1;
 		Config::reset();
 
-		$results = $this->by_id( Health_Checks::evaluate( $this->good_cache_result() ) );
+		$results = $this->by_id( Health_Checks::evaluate( $this->good_runtime_results() ) );
 
 		$this->assertSame( 'recommended', $results['ownership']['status'] );
 		$this->assertStringContainsString( 'could not be verified', $results['ownership']['messages'][0] );
@@ -568,7 +696,7 @@ class HealthChecksTest extends TestCase {
 		$this->seed_worker( 'health-missing-7319', null );
 		$this->seed_worker( 'health-stale-7319', 120 );
 
-		$results = $this->by_id( Health_Checks::evaluate( $this->good_cache_result() ) );
+		$results = $this->by_id( Health_Checks::evaluate( $this->good_runtime_results() ) );
 
 		$this->assertSame( 'critical', $results['worker-liveness']['status'] );
 		$this->assertCount( 2, $results['worker-liveness']['messages'] );
@@ -581,7 +709,7 @@ class HealthChecksTest extends TestCase {
 		$this->seed_consumer_probe( 'health-reader-a-7319.p0', 'health-source-a-7319.p0', 12_345_679 );
 		$this->seed_consumer_probe( 'health-reader-b-7319.p0', 'health-source-b-7319.p0', 12_345_681 );
 
-		$results = $this->by_id( Health_Checks::evaluate( $this->good_cache_result() ) );
+		$results = $this->by_id( Health_Checks::evaluate( $this->good_runtime_results() ) );
 
 		$this->assertSame( 'recommended', $results['consumer-lag']['status'] );
 		$this->assertCount( 2, $results['consumer-lag']['messages'] );
@@ -596,7 +724,7 @@ class HealthChecksTest extends TestCase {
 		$this->seed_deadletters( 'health-jobs-a-7319.p0', 6 );
 		$this->seed_deadletters( 'health-jobs-b-7319.p0', 8 );
 
-		$results = $this->by_id( Health_Checks::evaluate( $this->good_cache_result() ) );
+		$results = $this->by_id( Health_Checks::evaluate( $this->good_runtime_results() ) );
 
 		$this->assertSame( 'recommended', $results['dead-letters']['status'] );
 		$this->assertCount( 2, $results['dead-letters']['messages'] );
@@ -647,7 +775,7 @@ class HealthChecksTest extends TestCase {
 		};
 		$this->use_refused_base_directory( 'alerts-skipped-6421' );
 
-		Health_Checks::evaluate( $this->good_cache_result() );
+		Health_Checks::evaluate( $this->good_runtime_results() );
 
 		$this->assertSame( 0, $calls );
 	}
@@ -656,7 +784,7 @@ class HealthChecksTest extends TestCase {
 	public function test_an_unreadable_topology_fails_its_own_row_and_spares_the_rest(): void {
 		$this->activate_topologies( [ 'broken-lab-4417' => "include absent-lab-4417\n" ] );
 
-		$results = $this->by_id( Health_Checks::evaluate( $this->good_cache_result() ) );
+		$results = $this->by_id( Health_Checks::evaluate( $this->good_runtime_results() ) );
 
 		$this->assertSame( 'good', $results['filesystem']['status'] );
 		$this->assertSame( 'good', $results['ownership']['status'] );
@@ -673,7 +801,7 @@ class HealthChecksTest extends TestCase {
 
 		$this->expectException( \Newspack_Nodes\Worker_Should_Stop::class );
 		$this->expectExceptionMessage( 'health stop 4417' );
-		Health_Checks::evaluate( $this->good_cache_result() );
+		Health_Checks::evaluate( $this->good_runtime_results() );
 	}
 
 	public function test_a_stop_inside_the_schema_probe_propagates(): void {
@@ -685,7 +813,7 @@ class HealthChecksTest extends TestCase {
 
 		$this->expectException( \Newspack_Nodes\Worker_Should_Stop::class );
 		$this->expectExceptionMessage( 'schema stop 7731' );
-		Health_Checks::evaluate( $this->good_cache_result() );
+		Health_Checks::evaluate( $this->good_runtime_results() );
 	}
 
 	public function test_a_stop_while_reading_the_topologies_propagates(): void {
@@ -696,7 +824,7 @@ class HealthChecksTest extends TestCase {
 
 		$this->expectException( \Newspack_Nodes\Worker_Should_Stop::class );
 		$this->expectExceptionMessage( 'topologies stop 7732' );
-		Health_Checks::evaluate( $this->good_cache_result() );
+		Health_Checks::evaluate( $this->good_runtime_results() );
 	}
 
 	public function test_alerts_evaluator_is_called_exactly_once_when_base_directory_resolves(): void {
@@ -706,7 +834,7 @@ class HealthChecksTest extends TestCase {
 			return [];
 		};
 
-		Health_Checks::evaluate( $this->good_cache_result() );
+		Health_Checks::evaluate( $this->good_runtime_results() );
 
 		$this->assertSame( 1, $calls );
 	}

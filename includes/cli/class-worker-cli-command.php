@@ -763,9 +763,9 @@ class Worker_CLI_Command {
 	}
 
 	/**
-	 * Render the canonical Nodes health report. The cache result
-	 * comes from a bounded web-runtime probe; environment and fleet results are
-	 * evaluated locally. Recommendations warn; critical results exit non-zero.
+	 * Render the canonical Nodes health report. The cache and log-sources
+	 * rows come from a bounded web-runtime probe; environment and fleet results
+	 * are evaluated locally. Recommendations warn; critical results exit non-zero.
 	 *
 	 * ## EXAMPLES
 	 *
@@ -777,7 +777,7 @@ class Worker_CLI_Command {
 	 * @param array<string,mixed> $assoc_args Associative arguments (unused).
 	 */
 	public function doctor( array $args, array $assoc_args ): void {
-		$results  = Health_Checks::evaluate( Health_Probe_Client::cache_backend() );
+		$results  = Health_Checks::evaluate( Health_Probe_Client::runtime() );
 		$warnings = 0;
 		$failures = 0;
 		foreach ( $results as $result ) {

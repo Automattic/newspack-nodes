@@ -732,6 +732,17 @@ class Core {
 	}
 
 	/**
+	 * Whether this process owns work naming no partition. A source read once
+	 * per fleet rather than once per worker belongs to worker partition 0; a
+	 * process bound to no partition is the only reader there is, so it owns it.
+	 *
+	 * @throws \LogicException When the bound value is no canonical decimal.
+	 */
+	public static function owns_unpartitioned(): bool {
+		return 0 === ( self::bound_partition() ?? 0 );
+	}
+
+	/**
 	 * The worker partition `Topology_Loader` bound before building the graph,
 	 * or null outside a worker, where none is bound. The loader writes only
 	 * canonical decimals, so a bound value `canonical_decimal()` refuses is a
@@ -791,6 +802,16 @@ class Core {
 			return null;
 		}
 		return (int) $token;
+	}
+
+	/**
+	 * Whether a template carries a partition token in either spelling
+	 * `resolve_partition_template()` accepts, so it names one log per partition.
+	 *
+	 * @param string $template Path or stamp template.
+	 */
+	public static function has_partition_token( string $template ): bool {
+		return \str_contains( $template, '<partition>' ) || \str_contains( $template, '{partition}' );
 	}
 
 	/**

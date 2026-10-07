@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use Newspack_Nodes\Core;
 use Newspack_Nodes\File_Tail_Node;
 use Newspack_Nodes\Log_Sources;
 use Newspack_Nodes\Message;
@@ -772,6 +773,156 @@ class TailFileFollowTest extends TestCase {
 		$tail->arguments( [ 'sources/php' ] );
 
 		$this->assertSame( $path, $this->read_private( $tail, 'source_file' ) );
+		$tail->remove_node();
+	}
+
+	/** @return array<string,array{string}> Label => how the fixed file is written. */
+	public static function fixed_files(): array {
+		return [
+			'a registry source' => [ 'sources/php' ],
+			'an absolute path'  => [ '{tmp}/php-errors-3307.log' ],
+		];
+	}
+
+	/**
+	 * A fixed file belongs to worker p0: elsewhere the Tail is built, says once
+	 * why it idles, and opens, arms and writes nothing.
+	 */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'fixed_files' )]
+	public function test_off_partition_zero_a_file_tail_idles_and_says_why( string $source ): void {
+		$path                         = $this->tmp . '/php-errors-3307.log';
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
+		\file_put_contents( $path, "gannet-1\n" );
+		$offsets                      = "{$this->tmp}/gannet-offsets.p2";
+		Core::$recent_log             = [];
+		Core::$now                    = 6141.0;
+		Core::$var['partition']       = '2';
+		try {
+			$tail = new File_Tail_Node();
+			$tail->name( 'php-errors:tail' );
+			$tail->sink( new Capture_Sink_Node() );
+			$tail->arguments( [ \str_replace( '{tmp}', $this->tmp, $source ), $offsets, "{$this->tmp}/gannet-dead.p2" ] );
+		} finally {
+			unset( Core::$var['partition'] );
+		}
+
+		$this->assertSame( $path, $this->read_private( $tail, 'source_file' ), 'the source still resolves, so a bad one fails on every partition' );
+		$this->assertSame( 0, $tail->interval_ms, 'no timer is armed' );
+		$this->assertNull( $this->read_private( $tail, 'offsetlog' ), 'no offsetlog is built' );
+		$this->assertNull( $this->read_private( $tail, 'follow_handle' ), 'nothing is opened' );
+		$this->assertDirectoryDoesNotExist( $offsets );
+		$this->assertSame( 6141.0, $tail->idle_since(), 'idle since it was built, so it vetoes no on-demand exit' );
+		$this->assertSame( [], Core::$recent_log, 'idling off p0 is normal, so it writes no error line' );
+		$this->assertSame(
+			[ 'since' => 6141.0, 'reason' => "idle on partition 2: {$path} is read on worker partition 0 alone" ],
+			$tail->dump_metadata()['idle'] ?? null,
+			'the node reports why it idles'
+		);
+	}
+
+	/**
+	 * Off p0, the dead-letter verbs reach no quarantine: p0's own, in the same
+	 * dir, is neither redelivered from nor purged.
+	 */
+	public function test_off_partition_zero_the_dead_letter_verbs_touch_nothing_of_p0(): void {
+		$path                         = $this->tmp . '/php-errors-3310.log';
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
+		\file_put_contents( $path, "gannet-1\n" );
+		$args = [ 'sources/php', "{$this->tmp}/gannet-offsets.p0", "{$this->tmp}/gannet-dead.p0" ];
+
+		Core::$var['partition'] = '0';
+		$owner                  = new File_Tail_Node();
+		$owner->name( 'php-errors:tail' );
+		$owner->sink( new Capture_Sink_Node() );
+		$owner->arguments( $args );
+		$poison                   = Message::new_message();
+		$poison[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$poison[ Message::VALUE ] = 'poison-3310';
+		( new \ReflectionMethod( File_Tail_Node::class, 'dead_letter' ) )->invoke( $owner, $poison, 'throw', null );
+		$owner->remove_node();
+		$before  = $this->values_in( "{$this->tmp}/gannet-dead.p0" );
+		$listing = \scandir( "{$this->tmp}/gannet-dead.p0" );
+
+		Core::$var['partition'] = '2';
+		try {
+			$idle    = new File_Tail_Node();
+			$idle->name( 'php-errors:tail' );
+			$capture = new Capture_Sink_Node();
+			$idle->sink( $capture );
+			$idle->arguments( $args );
+			$requeue = $this->caught( static fn () => $idle->interpreter()?->dispatch( 'dl_requeue', [ '0:0:1' ] ), 'dl_requeue must find no queue' );
+			$purge   = $this->caught( static fn () => $idle->interpreter()?->dispatch( 'dl_purge', [] ), 'dl_purge must find no queue' );
+		} finally {
+			unset( Core::$var['partition'] );
+		}
+
+		$this->assertSame( 'no dead-letter queue configured', $requeue->getMessage() );
+		$this->assertSame( 'no dead-letter queue configured', $purge->getMessage() );
+		$this->assertSame( 'no offsetlog to seek', $this->caught( static fn () => $idle->seek_frame( 0 ), 'seek_frame must find no cursor' )->getMessage() );
+		$this->assertSame( [], $capture->captured, 'nothing is redelivered' );
+		$this->assertSame( [ 'poison-3310' ], $before );
+		$this->assertSame( $before, $this->values_in( "{$this->tmp}/gannet-dead.p0" ), "p0's quarantine keeps its record" );
+		$this->assertSame( $listing, \scandir( "{$this->tmp}/gannet-dead.p0" ), "p0's segments stay" );
+	}
+
+	/** @return array<string,array{\Closure(File_Tail_Node): mixed}> Label => an act that would arm the timer or open the file. */
+	public static function waking_acts(): array {
+		return [
+			'play'          => [ static fn ( File_Tail_Node $tail ) => $tail->interpreter()?->dispatch( 'play', [] ) ],
+			'step'          => [ static fn ( File_Tail_Node $tail ) => $tail->interpreter()?->dispatch( 'step', [] ) ],
+			'a seek to end' => [ static fn ( File_Tail_Node $tail ) => $tail->next_offset( 'end' ) ],
+			'a poll'        => [ static fn ( File_Tail_Node $tail ) => $tail->poll() ],
+		];
+	}
+
+	/**
+	 * An idle Tail refuses whatever would wake it, naming the rule, and stays
+	 * idle: no timer, no open file.
+	 *
+	 * @param \Closure(File_Tail_Node): mixed $act The act to refuse.
+	 */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'waking_acts' )]
+	public function test_off_partition_zero_an_idle_file_tail_refuses_to_wake( \Closure $act ): void {
+		$path                         = $this->tmp . '/php-errors-3309.log';
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
+		\file_put_contents( $path, "gannet-1\n" );
+		Core::$var['partition']       = '5';
+		try {
+			$tail = new File_Tail_Node();
+			$tail->name( 'php-errors:tail' );
+			$tail->sink( new Capture_Sink_Node() );
+			$tail->arguments( [ 'sources/php', "{$this->tmp}/gannet-offsets.p5" ] );
+			$caught = $this->caught( static fn () => $act( $tail ), 'an idle Tail must refuse to wake' );
+		} finally {
+			unset( Core::$var['partition'] );
+		}
+
+		$this->assertStringContainsString( "php-errors:tail is idle on partition 5: {$path} is read on worker partition 0 alone", $caught->getMessage() );
+		$this->assertSame( 0, $tail->interval_ms );
+		$this->assertNull( $this->read_private( $tail, 'follow_handle' ) );
+	}
+
+	public function test_on_partition_zero_a_file_tail_follows(): void {
+		$path                         = $this->tmp . '/php-errors-3308.log';
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
+		\file_put_contents( $path, "gannet-1\n" );
+		Core::$var['partition']       = '0';
+		try {
+			$tail = new File_Tail_Node();
+			$tail->name( 'php-errors:tail' );
+			$cap = new Capture_Sink_Node();
+			$tail->sink( $cap );
+			$tail->arguments( [ 'sources/php', "{$this->tmp}/gannet-offsets.p0" ] );
+		} finally {
+			unset( Core::$var['partition'] );
+		}
+		$this->assertGreaterThan( 0, $tail->interval_ms );
+		$this->assertNotNull( $this->read_private( $tail, 'offsetlog' ) );
+
+		$this->pump( $tail );
+		\file_put_contents( $path, "gannet-2\n", \FILE_APPEND );
+		$this->pump( $tail );
+		$this->assertSame( [ "gannet-2\n" ], $this->values( $cap ), 'only the line appended after the start' );
 		$tail->remove_node();
 	}
 

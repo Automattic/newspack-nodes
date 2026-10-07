@@ -1,6 +1,6 @@
 <?php
 /**
- * The REST route reporting the web runtime's cache posture to
+ * The REST route reporting the web runtime's own health rows to
  * `wp nodes doctor`.
  *
  * @package Newspack_Nodes
@@ -16,11 +16,13 @@ use Newspack_Nodes\Internal_Request_Token;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * Answer `POST /newspack-nodes/v1/health/cache` with the cache-backend result
- * the request-serving process sees.
+ * Answer `POST /newspack-nodes/v1/health/runtime` with the
+ * `Health_Checks::runtime()` rows the request-serving process sees: its cache
+ * backend and its log-source registry.
  *
- * `wp nodes doctor` runs under WP-CLI, which selects its own cache backend, so
- * a probe run there reports a posture no visitor ever gets.
+ * `wp nodes doctor` runs under WP-CLI, which selects its own cache backend and
+ * reads its own php.ini, so either check run there can report a posture no
+ * visitor and no worker ever gets.
  * `Health_Probe_Client` is the other half of the handshake: it mints the token
  * and POSTs across the loopback, and this controller runs the probe inside the
  * web runtime and hands the result back.
@@ -32,7 +34,7 @@ use Newspack_Nodes\Internal_Request_Token;
  * base directory or a worker, so the probe still answers on an install whose
  * runtime base is refused — the state doctor is run to diagnose.
  */
-final class Health_Cache_Controller {
+final class Health_Runtime_Controller {
 
 	/**
 	 * Wall-clock seam standing in for the `time()` call alone. Tests pin it to
@@ -59,15 +61,15 @@ final class Health_Cache_Controller {
 	 */
 	public function __construct( private readonly string $nonce_salt ) {
 		if ( '' === $nonce_salt ) {
-			throw new \InvalidArgumentException( 'Health cache controller requires a nonce salt' );
+			throw new \InvalidArgumentException( 'Health runtime controller requires a nonce salt' );
 		}
 	}
 
 	/**
-	 * Check whether a cache-health request is permitted.
+	 * Check whether a runtime-health request is permitted.
 	 *
 	 * `Bootstrap::fleet_gate()` refuses first: the fleet is network-global,
-	 * so a multisite subsite has no cache posture of its own to report,
+	 * so a multisite subsite has no runtime posture of its own to report,
 	 * whatever token it carries. The regex then rejects anything but the
 	 * exact mint shape, 64 lowercase hex characters, before an HMAC is spent.
 	 * `Internal_Request_Token::validate()` accepts the current or the previous
@@ -95,7 +97,7 @@ final class Health_Cache_Controller {
 		}
 		$now = ( self::$clock ?? static fn (): int => \time() )();
 		if ( ! Internal_Request_Token::validate(
-			Internal_Request_Token::PURPOSE_HEALTH_CACHE,
+			Internal_Request_Token::PURPOSE_HEALTH_RUNTIME,
 			$token,
 			$now,
 			$this->nonce_salt
@@ -110,27 +112,28 @@ final class Health_Cache_Controller {
 	}
 
 	/**
-	 * Return the web process's canonical cache result.
+	 * Return the web process's canonical runtime rows.
 	 *
-	 * The probe reads nothing from the request.
-	 * `Health_Checks::cache_backend()` picks its own backend, key and value,
-	 * so a caller can steer neither what gets written nor what comes back,
-	 * and a `key` or `value` sent along is used nowhere and returned nowhere.
+	 * The probe reads nothing from the request. The cache row picks its own
+	 * backend, key and value, and the log-sources row reads this process's
+	 * own registry, so a caller can steer neither what gets written nor what
+	 * comes back, and a `key` or `value` sent along is used nowhere and
+	 * returned nowhere.
 	 *
-	 * A failing cache still answers 200, because the check ran and its verdict
+	 * A failing check still answers 200, because the check ran and its verdict
 	 * is the payload. `Health_Probe_Client` reads every other status as an
 	 * unverifiable loopback and downgrades to `recommended`, which would bury a
 	 * `critical` finding behind a transport message.
 	 *
 	 * @param \WP_REST_Request $request Unused; the route reads no caller input.
-	 * @return \WP_REST_Response The cache-backend result, HTTP 200.
+	 * @return \WP_REST_Response The runtime rows, HTTP 200.
 	 */
 	public function probe( \WP_REST_Request $request ): \WP_REST_Response {
-		return new \WP_REST_Response( Health_Checks::cache_backend(), 200 );
+		return new \WP_REST_Response( Health_Checks::runtime(), 200 );
 	}
 
 	/**
-	 * Register the narrow internal cache-health route.
+	 * Register the narrow internal runtime-health route.
 	 *
 	 * Declaring `token` required hands the missing-token case to WordPress,
 	 * which answers 400 `rest_missing_callback_param` before the permission
@@ -140,7 +143,7 @@ final class Health_Cache_Controller {
 	public function register_routes(): void {
 		\register_rest_route(
 			'newspack-nodes/v1',
-			'/health/cache',
+			'/health/runtime',
 			[
 				'methods'             => 'POST',
 				'callback'            => [ $this, 'probe' ],

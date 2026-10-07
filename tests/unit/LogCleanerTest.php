@@ -979,7 +979,7 @@ class LogCleanerTest extends TestCase {
 		);
 		$this->declare_topology(
 			'pull-lab',
-			"make_node Vault_Group firehose Remote_Source tw-edge <config:offsets_dir>/<topology>.{id} <config:deadletter_dir>/<topology>.{id} firehose.p<partition>:next\n"
+			"make_node Vault_Group firehose Remote_Source tw-edge <config:offsets_dir>/<topology>.{id} <config:deadletter_dir>/<topology>.{id} firehose.p{partition}:next\n"
 		);
 
 		// Readers nest under their pair-wide root: <root>/<kind>.p<n>.

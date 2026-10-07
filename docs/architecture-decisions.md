@@ -2088,6 +2088,29 @@ lag — is answered at runtime: by the probe log, where each reader reports unde
 reader to its own target, or a verb on one reader that must survive a restart — at which point
 the reader becomes a declared node and the glob a configuration-time expansion.
 
+**Amendment: a reader of a source naming no partition is owned by worker partition 0.** A
+topology mounts once per worker partition, so a pair whose source is the same in every worker —
+`sources/php`, a fixed `firehose.p0`, a glob — would build one reader per worker: every line
+relayed once per worker, and every worker writing one offsetlog at `<offsetlog_root>/<kind>`.
+[`Core::owns_unpartitioned()`](../includes/class-core.php) names the owner of such work: worker
+partition 0, or a process bound to no partition. `Remote_Source_Node::owned_pairs()` resolves each
+pair at the bound partition and keeps a pair whose source is WRITTEN with `{partition}` in
+every worker, and one written without it only where that predicate holds. Elsewhere the pair builds no reader, joins no stream request and leaves no dir,
+and a broker left with no pair holds no connection. Every pair is still parsed on every
+partition, so a bad one fails everywhere, and the analyzer still draws every pair's edge. The
+token has to reach the node unresolved: the Shell resolves `<partition>` before
+`make_node` sees it, so a topology writes `{partition}`, as a Topic line does, and
+`Topology_Analyzer` refuses a pair source naming `<partition>`, failing the topology as it fails
+a broken include. [`File_Tail_Node`](../includes/class-file-tail-node.php) follows the same rule, because
+its file is fixed: off partition 0 it is built idle, opening nothing, arming no timer, writing no
+offsetlog or quarantine, reporting itself idle since its build and, in `dump_node`, why, and
+refusing every act that would wake it, `play`, `step`, a seek and a poll, with that reason. It
+writes no stderr line: idling off p0 is normal operation, and the line would reach the error
+log once per worker per recycle. A `num_partitions = 1` pin
+on the topology was rejected, because a hub pulling a multi-partition spoke's firehose needs a
+worker per partition; a lock on the shared offsetlog was rejected, because it would serialize
+readers that should not exist.
+
 ---
 
 ## ADR-32: A transport answers what it could not deliver

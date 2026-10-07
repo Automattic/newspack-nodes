@@ -31,7 +31,7 @@
 <div class="track">
   <h2>A command request <span class="w">— <span class="mono">POST /command</span>, or any other command door, such as event-logger-nodes' MCP route</span></h2>
   <div class="rail">
-    <div class="st"><span class="k">WordPress</span><span class="h" style="color:#101517">rest_api_init</span><span class="a"><span class="mono">register_rest_routes()</span>: <span class="mono">/health/cache</span> first, then the five</span></div><div class="gap">›</div>
+    <div class="st"><span class="k">WordPress</span><span class="h" style="color:#101517">rest_api_init</span><span class="a"><span class="mono">register_rest_routes()</span>: <span class="mono">/health/runtime</span> first, then the five</span></div><div class="gap">›</div>
     <div class="st hk"><span class="k">first Config read, inside rest_api_init at the latest; again on any miss</span><span class="h">declare_config_keys</span><span class="a"><span class="mono">ensure_diagnostics_wired()</span> reads <span class="mono">spawn_verify_ssl</span>; a callback calls <span class="mono">Config::register_keys()</span> and nothing else</span></div><div class="gap">›</div>
     <div class="st fl"><span class="k">permission</span><span class="h">capability_map</span><span class="a"><span class="mono">Capabilities::can( READ )</span> resolves the role through it; a partial map throws here and nothing catches it: a 500</span></div><div class="gap">›</div>
     <div class="st fl"><span class="k">permission</span><span class="h">command_rate_limit</span><span class="a">the per-user burst, clamped to 1 through 256</span></div><div class="gap">›</div>

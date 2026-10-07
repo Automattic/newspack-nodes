@@ -15,7 +15,7 @@ namespace Newspack_Nodes;
 
 use Newspack_Nodes\Config_System\Restart_Planner;
 use Newspack_Nodes\Rest\Auth_Controller;
-use Newspack_Nodes\Rest\Health_Cache_Controller;
+use Newspack_Nodes\Rest\Health_Runtime_Controller;
 use Newspack_Nodes\Rest\HTTP_In_Node;
 use Newspack_Nodes\Rest\SSE_Out_Node;
 use Newspack_Nodes\Rest\Spawn_Controller;
@@ -1011,8 +1011,8 @@ class Bootstrap {
 
 	/** Register substrate REST routes — wired to `rest_api_init`. */
 	public static function register_rest_routes(): void {
-		// The cache probe first: REST init must complete on a refused base.
-		( new Health_Cache_Controller( \wp_salt( 'nonce' ) ) )->register_routes();
+		// The runtime probe first: REST init must complete on a refused base.
+		( new Health_Runtime_Controller( \wp_salt( 'nonce' ) ) )->register_routes();
 		self::ensure_diagnostics_wired();
 		if ( ! self::runtime_base_is_available() ) {
 			return;

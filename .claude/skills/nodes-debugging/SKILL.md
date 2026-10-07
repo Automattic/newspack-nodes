@@ -14,7 +14,7 @@ Two companion documents carry the long form: `docs/troubleshooting.md` is the hu
 
 | Symptom | First move |
 |---|---|
-| Anything at all, on an environment you do not trust | `wp nodes doctor` — eight rows, each naming its own degradation |
+| Anything at all, on an environment you do not trust | `wp nodes doctor` — nine rows, each naming its own degradation |
 | A worker should be running and isn't | `wp nodes status`, then `wp nodes run <type> --partition=<N>` |
 | A worker spawns and immediately exits | `wp nodes run <type>` — the foreground process prints its exit status, and whatever it wrote to stderr on the way out |
 | A message enters a Topic and never reaches its Consumer | `wp nodes status`'s consumer table, then `ls -la` the segment dir |
@@ -40,9 +40,9 @@ wp nodes ingest <topic> [<file>...]            # replay packed records through a
                                                #   file reads stdin, and --dry-run only sizes them
 ```
 
-`doctor` renders one evaluator, `Health_Checks::evaluate()`, which also backs the Site Health test — so neither surface can carry a check the other lacks. Eight rows in fixed order: `cache-backend`, `filesystem`, `ownership`, `housekeeping`, `config-keys`, `worker-liveness`, `consumer-lag`, `dead-letters`. Three more appear only when they apply: `wpdb-schema` while a shared wpdb table does not answer, `fleet-hold` while a deploy hold stands, and `other-alerts` when an alert declares a family the report does not bucket.
+`doctor` renders one evaluator, `Health_Checks::evaluate()`, which also backs the Site Health test — so neither surface can carry a check the other lacks. Nine rows in fixed order: `cache-backend`, `log-sources`, `filesystem`, `ownership`, `housekeeping`, `config-keys`, `worker-liveness`, `consumer-lag`, `dead-letters`. Three more appear only when they apply: `wpdb-schema` while a shared wpdb table does not answer, `fleet-hold` while a deploy hold stands, and `other-alerts` when an alert declares a family the report does not bucket.
 
-`cache-backend` is the one row `doctor` does not evaluate in its own process. It POSTs `newspack-nodes/v1/health/cache` over the loopback and reports the backend serving requests, because a WP-CLI process picks a backend no visitor ever sees. A loopback it cannot verify comes back as a locally authored warning naming what failed — the HTTP status, or the transport — never as remote text.
+`cache-backend` and `log-sources` are the two rows `doctor` does not evaluate in its own process. It POSTs `newspack-nodes/v1/health/runtime` over the loopback and reports the backend and the log-source registry of the runtime serving requests and running workers, because a WP-CLI process picks a backend no visitor ever sees and may read another php.ini. A loopback it cannot verify comes back as two locally authored warnings naming what failed — the HTTP status, or the transport — never as remote text. `log-sources` is critical when an active topology's `File_Tail` names a `sources/<name>` that does not resolve on this host, because that topology then fails to load; the registry's reason says what a built-in needs.
 
 Read three of the rest carefully, because each fails silently everywhere else:
 
