@@ -24,6 +24,7 @@ use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Log_Discovery;
+use Newspack_Nodes\Log_Sources;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\HTTP_Filter_Node;
@@ -233,6 +234,10 @@ class SSE_Out_Node extends Node {
 		$subscribe     = $request->get_param( 'subscribe' );
 		$positions_raw = $request->get_param( 'positions' ) ?? '';
 		$subs          = $this->parse_subscriptions( Core::as_string( $subscribe ) );
+		$unknown       = Log_Sources::unknown_in( $subs );
+		if ( null !== $unknown ) {
+			return new \WP_Error( 'sse_unknown_source', $unknown, [ 'status' => 400 ] );
+		}
 		// `positions` is the ONLY resume input; the client assembles it.
 		$positions     = $this->parse_positions( Core::as_string( $positions_raw ) );
 		$interval      = self::HEARTBEAT_MS;
@@ -304,7 +309,7 @@ class SSE_Out_Node extends Node {
 	 * subscription that then fails the traversal guard.
 	 *
 	 * @param string $raw The raw query-parameter value.
-	 * @return array<int,string> Subscription names, in the order given.
+	 * @return list<string> Subscription names, in the order given.
 	 */
 	public function parse_subscriptions( string $raw ): array {
 		if ( '' === $raw ) {
@@ -739,6 +744,10 @@ class SSE_Out_Node extends Node {
 	 * reader resumes the same way, keyed by `$sub`, so a reconnecting console
 	 * keeps the replies written while it was away.
 	 *
+	 * A `sources/<name>` sub opens that registry entry's Tail through
+	 * `Log_Sources::open_reader()`, stamped and resumed by the whole stamp; the
+	 * registry is fixed for the stream's life, so it takes no glob.
+	 *
 	 * A bare sub `CLI::parse_worker_id()` reads as a worker, whatever its case,
 	 * attaches to that worker's IPC channel when one exists. Every other sub's
 	 * remainder after the group prefix must lead with a lowercase name
@@ -757,6 +766,12 @@ class SSE_Out_Node extends Node {
 	 */
 	public function open_subscription( string $sub, ?array $positions ): array {
 		$base = $this->base_dir ?? Bootstrap::base_dir();
+
+		if ( \str_starts_with( $sub, Log_Discovery::SOURCES_PREFIX . '/' ) ) {
+			$reader = Log_Sources::open_reader( $sub );
+			$reader->next_offset( self::position_arg( $positions, $sub ) );
+			return [ $reader ];
+		}
 
 		[ $group, $rest ] = self::parse_group( $sub );
 

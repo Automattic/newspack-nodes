@@ -190,22 +190,6 @@ class Log_Sources {
 	}
 
 	/**
-	 * Open a registry entry as a durable reader — the ONE place a `mode` token
-	 * becomes a class. Handing the reader its path alone leaves the offsetlog
-	 * and dead-letter dirs empty, so neither sidecar is built: these readers are
-	 * ephemeral (the single-step debugger) or client-cursored (the SSE stream),
-	 * and neither resumes from a durable cursor.
-	 *
-	 * @param array{path: string, mode: string} $entry A registry() entry.
-	 * @return Tail_Node A File_Tail_Node in file mode, a plain Tail_Node in segmented mode.
-	 */
-	public static function open_tail( array $entry ): Tail_Node {
-		$tail = Tail_Node::MODE_FILE === $entry['mode'] ? new File_Tail_Node() : new Tail_Node();
-		$tail->arguments( [ $entry['path'] ] );
-		return $tail;
-	}
-
-	/**
 	 * Single-step ONE configured durable reader to the record at `$position` —
 	 * the read model behind every paused single-step debugger.
 	 *
@@ -267,19 +251,6 @@ class Log_Sources {
 			],
 			'at_eof'  => $cursor['at_eof'],
 		];
-	}
-
-	/**
-	 * The ONE teaching error for a name the registry does not carry — the REPL,
-	 * the single-step read and the SSE stream all phrase it identically.
-	 *
-	 * @param array<string,array{path: string,mode: string}> $registry Name → entry.
-	 * @param string $name The name that missed.
-	 * @return string The error, newline-terminated, naming every source there is.
-	 */
-	public static function unknown_source( array $registry, string $name ): string {
-		$known = \implode( ', ', \array_keys( $registry ) );
-		return "unknown log source: \"$name\" (known: " . ( '' === $known ? 'none' : $known ) . ")\n";
 	}
 
 	/**
@@ -455,6 +426,89 @@ class Log_Sources {
 		} finally {
 			$log->remove_node();
 		}
+	}
+
+	/**
+	 * Open ONE named log as a durable reader stamped with that name: a
+	 * `sources/<name>` stamp as its registry entry's Tail, any other as a
+	 * Consumer over the catalog dir it names. The stream and the single-step
+	 * read both resolve here, so a name means one log wherever it is read.
+	 * The reader carries its path alone, so no sidecar is built; the caller
+	 * sets the cursor.
+	 *
+	 * @param string $log A `sources/<name>` stamp or a catalog stamp.
+	 * @return Consumer_Node The reader, stamped `$log`.
+	 * @throws \InvalidArgumentException On a name the registry or the catalog does not carry.
+	 */
+	public static function open_reader( string $log ): Consumer_Node {
+		$prefix = Log_Discovery::SOURCES_PREFIX . '/';
+		if ( \str_starts_with( $log, $prefix ) ) {
+			$name     = \substr( $log, \strlen( $prefix ) );
+			$registry = self::registry();
+			if ( ! isset( $registry[ $name ] ) ) {
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+				throw new \InvalidArgumentException( \rtrim( self::unknown_source( $registry, $name ), "\n" ) );
+			}
+			$reader = self::open_tail( $registry[ $name ] );
+		} else {
+			$reader = new Consumer_Node();
+			$reader->arguments( [ Log_Discovery::dir_of( $log ) ] );
+		}
+		$reader->set_stamp_as( $log );
+		return $reader;
+	}
+
+	/**
+	 * Open a registry entry as a durable reader — the ONE place a `mode` token
+	 * becomes a class. Handing the reader its path alone leaves the offsetlog
+	 * and dead-letter dirs empty, so neither sidecar is built: these readers are
+	 * ephemeral (the single-step debugger) or client-cursored (the SSE stream),
+	 * and neither resumes from a durable cursor.
+	 *
+	 * @param array{path: string, mode: string} $entry A registry() entry.
+	 * @return Tail_Node A File_Tail_Node in file mode, a plain Tail_Node in segmented mode.
+	 */
+	public static function open_tail( array $entry ): Tail_Node {
+		$tail = Tail_Node::MODE_FILE === $entry['mode'] ? new File_Tail_Node() : new Tail_Node();
+		$tail->arguments( [ $entry['path'] ] );
+		return $tail;
+	}
+
+	/**
+	 * The teaching error for the first `sources/<name>` subscription the
+	 * registry lacks, or null when every one resolves. A stream checks this
+	 * before it opens, so a spoke without the source refuses the whole
+	 * request with a reason the hub can show, rather than failing mid-stream.
+	 *
+	 * @param list<string> $subs Subscription names.
+	 * @return string|null The error, or null.
+	 */
+	public static function unknown_in( array $subs ): ?string {
+		$prefix   = Log_Discovery::SOURCES_PREFIX . '/';
+		$registry = null;
+		foreach ( $subs as $sub ) {
+			if ( \str_starts_with( $sub, $prefix ) ) {
+				$registry ??= self::registry();
+				$name       = \substr( $sub, \strlen( $prefix ) );
+				if ( ! isset( $registry[ $name ] ) ) {
+					return \rtrim( self::unknown_source( $registry, $name ), "\n" );
+				}
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * The ONE teaching error for a name the registry does not carry — the REPL,
+	 * the single-step read and the SSE stream all phrase it identically.
+	 *
+	 * @param array<string,array{path: string,mode: string}> $registry Name → entry.
+	 * @param string $name The name that missed.
+	 * @return string The error, newline-terminated, naming every source there is.
+	 */
+	public static function unknown_source( array $registry, string $name ): string {
+		$known = \implode( ', ', \array_keys( $registry ) );
+		return "unknown log source: \"$name\" (known: " . ( '' === $known ? 'none' : $known ) . ")\n";
 	}
 
 	/**
