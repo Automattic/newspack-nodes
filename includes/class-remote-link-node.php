@@ -39,6 +39,18 @@ class Remote_Link_Node extends Timer_Node {
 	/** Slot-keepalive heartbeat cadence (seconds). */
 	public const HEARTBEAT_INTERVAL = 15;
 
+	/** The sibling kind of the SSE_In patron. */
+	public const SSE_IN_KIND = 'sse-in';
+
+	/** The sibling kind of the HTTP_Out patron. */
+	public const HTTP_OUT_KIND = 'http-out';
+
+	/** The sibling kind of the Null sink HTTP_Out targets. */
+	public const NULL_KIND = 'null';
+
+	/** Every sibling kind a link publishes itself, its interpreter's included. */
+	public const RESERVED_KINDS = [ self::SSE_IN_KIND, self::HTTP_OUT_KIND, self::NULL_KIND, self::CONFIG_KIND ];
+
 	/** `SSE_Slot_Pool` lease state for a slot released under us — expected, not an error. */
 	public const RELEASED_SLOT = 'slot_released';
 
@@ -488,9 +500,9 @@ class Remote_Link_Node extends Timer_Node {
 		$this->null_sink = $null;
 		try {
 			// Published into their slots, so a rename carries all three.
-			$this->publish_sibling( 'sse-in', $sse );
-			$this->publish_sibling( 'http-out', $http );
-			$this->publish_sibling( 'null', $null );
+			$this->publish_sibling( self::SSE_IN_KIND, $sse );
+			$this->publish_sibling( self::HTTP_OUT_KIND, $http );
+			$this->publish_sibling( self::NULL_KIND, $null );
 			$this->address_null_sink();
 		} catch ( \Throwable $e ) {
 			// A cached unnamed patron would be served on every later tick.
@@ -563,9 +575,9 @@ class Remote_Link_Node extends Timer_Node {
 		$this->sse_in    = null;
 		$this->http_out  = null;
 		$this->null_sink = null;
-		$this->retract_sibling( 'sse-in' );
-		$this->retract_sibling( 'http-out' );
-		$this->retract_sibling( 'null' );
+		$this->retract_sibling( self::SSE_IN_KIND );
+		$this->retract_sibling( self::HTTP_OUT_KIND );
+		$this->retract_sibling( self::NULL_KIND );
 	}
 
 	/**

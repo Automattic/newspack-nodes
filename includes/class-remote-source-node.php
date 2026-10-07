@@ -47,6 +47,18 @@ class Remote_Source_Node extends Remote_Link_Node {
 	private const PUMP_ARM_BYTES    = 262144;
 	private const PUMP_DISARM_BYTES = 524288;
 
+	/**
+	 * The most stamps a broker's glob pairs claim, counting the readers built
+	 * in this process and the reader dirs a glob pair left under the offsetlog
+	 * root in an earlier one. A spoke names its stamps, so without it a glob
+	 * would build a reader and its nodes for every stamp a spoke invents, and
+	 * leave a cursor dir for each across restarts. An exact pair is bounded by
+	 * configuration and never counts. One broker carries one spoke's streams,
+	 * and a glob over a topic claims one stamp per partition: the cap is the
+	 * `num_partitions` maximum, 16, times a 16× margin for globs.
+	 */
+	public const MAX_READERS = 256;
+
 	/** Wall-second of the last heartbeat reply; 0 while none has come back. */
 	private int $last_heartbeat_response = 0;
 
@@ -73,6 +85,15 @@ class Remote_Source_Node extends Remote_Link_Node {
 
 	/** @var array<string,Remote_Consumer_Node> The readers, by stamp, in the order they were built. */
 	private array $consumers = [];
+
+	/**
+	 * The kinds a glob pair has claimed, each with a reader here or a dir under
+	 * the offsetlog root; null until a glob first builds after construction or
+	 * a replay, which counts both again.
+	 *
+	 * @var array<string,true>|null
+	 */
+	private ?array $glob_kinds = null;
 
 	/** Root under which each reader's offsetlog sits, at `<root>/<kind>`. */
 	protected string $offsetlog_root = '';
@@ -110,9 +131,10 @@ class Remote_Source_Node extends Remote_Link_Node {
 		if ( [] === $pairs ) {
 			throw new \InvalidArgumentException( 'Remote_Source: name at least one <source>:<target> pair' );
 		}
-		$previous    = $this->pairs;
-		$parsed      = parent::arguments( $args );
-		$this->pairs = $pairs;
+		$previous         = $this->pairs;
+		$parsed           = parent::arguments( $args );
+		$this->pairs      = $pairs;
+		$this->glob_kinds = null;
 		foreach ( $this->consumers as $stamp => $child ) {
 			$pair = $this->pair_for( $stamp );
 			if ( null === $pair ) {
@@ -364,10 +386,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 
 	/**
 	 * Route one raw `msg` payload, with its decoded message, to the reader its
-	 * FROM stamp names. A frame that will not unpack, or names no stamp, has
-	 * nothing to route by, and a stamp no pair claims is a stream nobody asked
-	 * for: each is dropped, rate-limited. An empty stamp is refused before any
-	 * pair is asked, since a bare `*` would otherwise claim it.
+	 * FROM stamp names. A frame that will not unpack has nothing to route by
+	 * and is dropped, rate-limited; `consumer_for()` refuses the rest.
 	 *
 	 * @param string $raw One packed record.
 	 */
@@ -378,14 +398,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 			$this->print_less_often( 'dropping unparseable SSE frame' );
 			return;
 		}
-		$stamp = Log_Discovery::dir_from_stamp( Core::as_string( $message[ Message::FROM ] ) );
-		if ( '' === $stamp ) {
-			$this->print_less_often( 'dropping a line with no stamp' );
-			return;
-		}
-		$child = $this->consumer_for( $stamp );
+		$child = $this->consumer_for( Log_Discovery::dir_from_stamp( Core::as_string( $message[ Message::FROM ] ) ) );
 		if ( null === $child ) {
-			$this->print_less_often( 'dropping a line no pair claims: ', $stamp );
 			return;
 		}
 		$child->receive( $raw, $message );
@@ -394,7 +408,11 @@ class Remote_Source_Node extends Remote_Link_Node {
 
 	/**
 	 * The reader for a stamp, built on first sight when a pair claims it; null
-	 * when none does.
+	 * when none does. A spoke names the stamps it sends, in a line's FROM and
+	 * its handshake's CURSORS alike, and a stamp names a sibling slot and a
+	 * directory here, so the one builder refuses four, rate-limited: a stamp
+	 * outside the stream name grammar, one naming a slot the broker keeps, one
+	 * no pair claims, and a glob's past `MAX_READERS`.
 	 *
 	 * @param string $stamp A record's stamp.
 	 */
@@ -402,8 +420,24 @@ class Remote_Source_Node extends Remote_Link_Node {
 		if ( isset( $this->consumers[ $stamp ] ) ) {
 			return $this->consumers[ $stamp ];
 		}
-		$pair = '' === $this->name ? null : $this->pair_for( $stamp );
+		if ( '' === $this->name ) {
+			return null;
+		}
+		if ( ! Log_Discovery::is_stamp( $stamp ) ) {
+			$this->print_less_often( 'refusing a stamp outside the stream name grammar' );
+			return null;
+		}
+		if ( self::is_reserved( $stamp ) ) {
+			$this->print_less_often( 'refusing a stamp that names a slot the broker keeps: ', $stamp );
+			return null;
+		}
+		$pair = $this->pair_for( $stamp );
 		if ( null === $pair ) {
+			$this->print_less_often( 'dropping a line no pair claims: ', $stamp );
+			return null;
+		}
+		if ( \str_contains( $pair['source'], '*' ) && ! $this->claim_glob_kind( Remote_Consumer_Node::kind_of( $stamp ) ) ) {
+			$this->print_less_often( 'refusing a reader past MAX_READERS: ', (string) self::MAX_READERS );
 			return null;
 		}
 		$child = new Remote_Consumer_Node();
@@ -427,22 +461,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 	private function reader_args( string $stamp ): array {
 		$kind = Remote_Consumer_Node::kind_of( $stamp );
 		return [ $stamp, "{$this->offsetlog_root}/{$kind}", "{$this->deadletter_root}/{$kind}" ];
-	}
-
-	/**
-	 * The first pair, in declaration order, whose source is the stamp or a glob
-	 * matching it.
-	 *
-	 * @param string $stamp A record's stamp.
-	 * @return array{source:string,target:string}|null
-	 */
-	private function pair_for( string $stamp ): ?array {
-		foreach ( $this->pairs as $pair ) {
-			if ( Log_Discovery::carries( $pair['source'], $stamp ) ) {
-				return $pair;
-			}
-		}
-		return null;
 	}
 
 	/** Close the valve once the readers' backlog crosses the high-water mark. */
@@ -528,11 +546,12 @@ class Remote_Source_Node extends Remote_Link_Node {
 	/**
 	 * Split one `<source>:<target>` token on its FIRST colon: a source never
 	 * carries one (a partition dir or `sources/<name>`), a target may
-	 * (`php-errors:partition`).
+	 * (`php-errors:partition`). A source no spoke could stream is refused
+	 * here, at configuration, rather than failing quietly on every connect.
 	 *
 	 * @param string $token One pair token.
 	 * @return array{source:string,target:string}
-	 * @throws \InvalidArgumentException When either half is empty.
+	 * @throws \InvalidArgumentException When either half is empty, or the source is no subscription.
 	 */
 	public static function parse_pair( string $token ): array {
 		$colon  = \strpos( $token, ':' );
@@ -542,7 +561,90 @@ class Remote_Source_Node extends Remote_Link_Node {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
 			throw new \InvalidArgumentException( "Remote_Source: a pair is <source>:<target>, got '{$token}'" );
 		}
+		// An exact source is the stamp of the one stream it carries.
+		$glob = \str_contains( $source, '*' );
+		if ( ! ( $glob ? Log_Discovery::is_subscription( $source ) : Log_Discovery::is_stamp( $source ) ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+			throw new \InvalidArgumentException( "Remote_Source: pair names a source no spoke can stream: '{$token}'" );
+		}
+		if ( ! $glob && self::is_reserved( $source ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+			throw new \InvalidArgumentException( "Remote_Source: pair's reader names a slot the broker keeps: '{$token}'" );
+		}
 		return [ 'source' => $source, 'target' => $target ];
+	}
+
+	/**
+	 * Whether a stamp's reader would take a sibling slot the broker publishes
+	 * itself, which `publish_sibling()` refuses.
+	 *
+	 * @param string $stamp A record's stamp.
+	 */
+	private static function is_reserved( string $stamp ): bool {
+		return \in_array( Remote_Consumer_Node::kind_of( $stamp ), self::RESERVED_KINDS, true );
+	}
+
+	/**
+	 * Claim a kind for a glob pair's reader: free when the kind holds a reader
+	 * or a dir already, refused once `MAX_READERS` kinds are claimed. The
+	 * first claim, after construction or a replay, counts the glob readers
+	 * built here and the kind dirs a glob pair left under the offsetlog root,
+	 * so the cap holds across a replay and a restart alike.
+	 *
+	 * @param string $kind The kind the reader would take.
+	 * @return bool True when the reader may be built.
+	 */
+	private function claim_glob_kind( string $kind ): bool {
+		$this->glob_kinds ??= $this->claimed_glob_kinds();
+		if ( ! isset( $this->glob_kinds[ $kind ] ) ) {
+			if ( \count( $this->glob_kinds ) >= self::MAX_READERS ) {
+				return false;
+			}
+			$this->glob_kinds[ $kind ] = true;
+		}
+		return true;
+	}
+
+	/**
+	 * The kinds a glob pair claims, among the readers built here and the kind
+	 * dirs under the offsetlog root. A reader with no checkpoint yet has no
+	 * dir, so the readers count as well as the disk.
+	 *
+	 * @return array<string,true>
+	 */
+	private function claimed_glob_kinds(): array {
+		$stamps = [];
+		foreach ( $this->consumers as $stamp => $child ) {
+			$stamps[] = $stamp;
+		}
+		foreach ( \glob( "{$this->offsetlog_root}/*", \GLOB_ONLYDIR ) ?: [] as $dir ) {
+			// A stamp holds no `:`, so the kind's `:` spells its `/`.
+			$stamps[] = \str_replace( ':', '/', \basename( $dir ) );
+		}
+		$kinds = [];
+		foreach ( $stamps as $stamp ) {
+			$pair = $this->pair_for( $stamp );
+			if ( null !== $pair && \str_contains( $pair['source'], '*' ) ) {
+				$kinds[ Remote_Consumer_Node::kind_of( $stamp ) ] = true;
+			}
+		}
+		return $kinds;
+	}
+
+	/**
+	 * The first pair, in declaration order, whose source is the stamp or a glob
+	 * matching it.
+	 *
+	 * @param string $stamp A record's stamp.
+	 * @return array{source:string,target:string}|null
+	 */
+	private function pair_for( string $stamp ): ?array {
+		foreach ( $this->pairs as $pair ) {
+			if ( Log_Discovery::carries( $pair['source'], $stamp ) ) {
+				return $pair;
+			}
+		}
+		return null;
 	}
 
 	/**

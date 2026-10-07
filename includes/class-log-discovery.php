@@ -66,6 +66,13 @@ final class Log_Discovery {
 	 */
 	public const STAMP_PREFIXES = [ ...self::GROUPS, self::SOURCES_PREFIX ];
 
+	/**
+	 * The longest stamp, in bytes. A reader's directory is its stamp with `/`
+	 * spelled `:`, one byte for one, and a directory name holds at most 255
+	 * bytes (NAME_MAX), so the `:` counts against the same limit.
+	 */
+	public const MAX_STAMP_BYTES = 255;
+
 	/** @var list<string>|null Memoized `logs` basenames; null before a scan. */
 	private static ?array $cached = null;
 
@@ -166,6 +173,64 @@ final class Log_Discovery {
 			$groups[ $group ] = \array_map( '\basename', $matches );
 		}
 		return self::$cached_groups = $groups;
+	}
+
+	/**
+	 * Whether a string is a stamp a record may carry: one name, or one of
+	 * `STAMP_PREFIXES` other than `logs` and one name, each name a registry
+	 * name as `Log_Sources::is_valid_name()` reads it, so it opens with a name
+	 * character and holds no `..`, and the whole at most `MAX_STAMP_BYTES`.
+	 * A bare prefix is no stamp, since `stamp_for()` refuses that dir, and nor
+	 * is `logs/<name>`, which `stamp_for()` never writes. A stamp names
+	 * directories on the hub reading it, so one from a remote is held to this
+	 * before it names any.
+	 *
+	 * @param string $stamp A candidate stamp.
+	 * @return bool True when it names one dir and nothing above it.
+	 */
+	public static function is_stamp( string $stamp ): bool {
+		$parts = \explode( '/', $stamp );
+		return \strlen( $stamp ) <= self::MAX_STAMP_BYTES && match ( \count( $parts ) ) {
+			1 => ! \in_array( $stamp, self::STAMP_PREFIXES, true ) && Log_Sources::is_valid_name( $stamp ),
+			2 => self::is_prefix( $parts[0] ) && Log_Sources::is_valid_name( $parts[1] ),
+			default => false,
+		};
+	}
+
+	/**
+	 * Whether a spoke's `SSE_Out_Node::open_subscription()` would read a
+	 * subscription past its group and its traversal guard: a stamp's shape,
+	 * once each `*` stands for a name character, with no `*` opening the
+	 * name and none under `sources/`, whose registry is looked up by name. A
+	 * bare group name passes, as it did the guard: `stamp_for()` refuses that
+	 * dir with a message that teaches. `sources/<name>` and a worker's IPC
+	 * channel are each served before the guard, and their own readers judge
+	 * the name.
+	 *
+	 * @param string $sub A candidate subscription.
+	 * @return bool True when the spoke would resolve it.
+	 */
+	public static function is_subscription( string $sub ): bool {
+		$parts = \explode( '/', $sub );
+		$last  = \end( $parts );
+		return \strlen( $sub ) <= self::MAX_STAMP_BYTES
+			&& ! \str_starts_with( $last, '*' )
+			&& Log_Sources::is_valid_name( \str_replace( '*', 'a', $last ) )
+			&& match ( \count( $parts ) ) {
+				1 => true,
+				2 => self::is_prefix( $parts[0] ) && ( self::SOURCES_PREFIX !== $parts[0] || ! \str_contains( $sub, '*' ) ),
+				default => false,
+			};
+	}
+
+	/**
+	 * Whether a stamp's first segment is one a stamp writes out: any of
+	 * `STAMP_PREFIXES` but `logs`, whose dirs stamp bare.
+	 *
+	 * @param string $segment A stamp's first segment.
+	 */
+	private static function is_prefix( string $segment ): bool {
+		return 'logs' !== $segment && \in_array( $segment, self::STAMP_PREFIXES, true );
 	}
 
 	/**

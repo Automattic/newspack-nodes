@@ -270,7 +270,7 @@ trait Schema_Reflection {
 		$interpreter->patron( $this );
 		$interpreter->commands( $verbs );
 		$this->interpreter = $interpreter;
-		$this->publish_sibling( 'config', $interpreter );
+		$this->publish_sibling( self::CONFIG_KIND, $interpreter );
 	}
 
 	/**
