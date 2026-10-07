@@ -899,12 +899,10 @@ Per-verb args, return shapes and error semantics are declared on each CI's
 [`includes/rest/class-{classes,layouts,topologies,raw-logs,workers,vault,aggregator,settings,status,sessions}-ci-node.php`](../includes/rest/);
 the palette and the Inspector consume the same schema. Auth gating is uniform:
 the endpoint requires the READ floor AND a valid command signature, and each
-verb's declared role decides the rest. An authorization refusal THROWS —
-`Command_Interpreter_Node::interpret()` wraps it as `TM_COMMAND|TM_ERROR`. The
-single-step readers are one exception a caller must handle: `raw-logs
-read_message` returns `array|string`, answering a bad or empty
-position's teaching error as its successful TM_RESPONSE value rather than a
-thrown error (see
+verb's declared role decides the rest. A refusal THROWS —
+`Command_Interpreter_Node::interpret()` wraps it as `TM_COMMAND|TM_ERROR`.
+`raw-logs read_message` refuses a malformed position that way too, and answers
+a position holding no record as a result whose `message` is null (see
 [Log Sources](#log-sources)).
 
 A Table's `stats` verb (`read`, no arguments) answers one map per counted
@@ -949,6 +947,17 @@ answers:
 { "code": "sse_session_refused", "message": "The command session is not live, or belongs to another user.", "data": { "status": 401 } }
 ```
 
+The subscriptions are checked first, before the session and the slot. A
+prefix no stamp carries (`logs/x`, `secrets/x`) and a `sources/<name>` the
+registry lacks refuse the stream with the reason:
+
+```json
+{ "code": "sse_subscription_invalid", "message": "invalid subscription: logs/kea-7713.p3", "data": { "status": 400 } }
+```
+
+A name past that check which the stream's guard refuses, such as
+`offsets/Kea-1`, fails only when its reader opens, after the headers are out.
+
 ### Query parameters
 
 | Field | Type | Required | Description |
@@ -956,7 +965,7 @@ answers:
 | `subscribe` | string | yes | CSV of subscription names, described below. Blank entries between commas are dropped. |
 | `session` | string | no | The handle of the [command session](#establishing-a-session) the client signs with. Its attached commands head their FROM with `_sse:{session}`, and this stream passes only the replies headed with it; a stream presenting none passes none, which is what a server-to-server pull does. |
 | `stream` | string | no | The client's own id for this stream, 1-64 characters of `[A-Za-z0-9_.:-]`; the browser sends its `SseInNode`'s name. With `session` it keys the slot lease, so a reconnect takes its own live lease over instead of claiming a second slot, while two streams on one page keep two leases. A malformed id answers `400 sse_stream_invalid`. Because the session is resolved first, a request carrying a deliberately malformed id is a probe: it answers `401 sse_session_refused` for a dead session and `400` for a live one, and opens nothing. |
-| `positions` | string | no | Optional resume positions: a JSON object keyed by the STAMP each subscription resolves to. A value is either an exact `{segment, offset}` object or a **seek sentinel** — `0` start, `-1` end (live tail), `-2` recent — Tachikoma's vocabulary (`Consumer.pm`: *"valid offsets: start (0), recent (-2), end (-1)"*), mirrored as [`Consumer_Node::SEEK_START`](../includes/class-consumer-node.php) / `SEEK_END` / `SEEK_RECENT`. The words `start`, `recent` and `end` are accepted aliases. Stating the seek as a number is what makes `{segment: 0, offset: 0}` mean the START of the log rather than an absent value: `SSE_In_Node` always sends a position, using `-1` when it has none, so a source resuming a `0:0` checkpoint replays its backlog instead of being tail-seeked past it. `-1` / `end` seeks the newest segment's current size; `-2` / `recent` seeks byte 0 of the SECOND-newest segment, or of the only segment when there is just one, so it can replay up to a whole segment. Malformed JSON, or a value decoding to anything but an array, is treated as omitted. A per-key value is handled the opposite way: `SSE_Out_Node::position_arg()` keeps a word as a string, and `Consumer_Node::seek_sentinel()` resolves any word it does not recognise to `SEEK_START`, so ONE typo'd position word replays that subscription's whole log rather than tail-seeking it. Omitting the parameter tail-seeks every subscription, which is what a browser dashboard does on a first connect. |
+| `positions` | string | no | Optional resume positions: a JSON object keyed by the STAMP each subscription resolves to. A value is either an exact `{segment, offset}` object or a **seek sentinel** — `0` start, `-1` end (live tail), `-2` recent — Tachikoma's vocabulary (`Consumer.pm`: *"valid offsets: start (0), recent (-2), end (-1)"*), mirrored as [`Consumer_Node::SEEK_START`](../includes/class-consumer-node.php) / `SEEK_END` / `SEEK_RECENT`. The words `start`, `recent` and `end` are accepted aliases. Stating the seek as a number is what makes `{segment: 0, offset: 0}` mean the START of the log rather than an absent value: `SSE_In_Node` always sends a position, using `-1` when it has none, so a source resuming a `0:0` checkpoint replays its backlog instead of being tail-seeked past it. `-1` / `end` seeks the newest segment's current size; `-2` / `recent` seeks byte 0 of the SECOND-newest segment, or of the only segment when there is just one, so it can replay up to a whole segment. Malformed JSON, or a value decoding to anything but an array, is treated as omitted. A per-key value is handled the opposite way: `SSE_Out_Node::position_arg()` keeps a word as a string, and `Consumer_Node::seek_sentinel()` resolves any word it does not recognise to `SEEK_START`, so ONE typo'd position word replays that subscription's whole log rather than tail-seeking it. Omitting the parameter tail-seeks every subscription, which is what a browser dashboard does on a first connect. A value of `skip` ([`SSE_Out_Node::SKIP`](../includes/rest/class-sse-out-node.php)) keeps that stamp out of the stream: no reader opens for it, and under a glob the stamp stays closed through every rescan while the glob's other matches open. |
 | `multi_writer` | boolean | no | Read the subscribed logs with the multi-writer seal-grace (`Consumer_Node::SEAL_GRACE_SECONDS`). Set it for a log every request process on this server appends to — the firehose — where a peer can keep writing to segment N for up to [`Partition_Node::DRIFT_RESCAN_INTERVAL_SECONDS`](../includes/class-partition-node.php) after N+1 appears; without it the reader advances off N on sight and orphans that straggler, typically a request's terminal `process (complete)`. The CLIENT asserts it, because nothing on disk records which logs are shared. It applies to log Consumers only — a worker IPC attach has one writer and never takes the grace. Default off: a single-writer log seals N the instant it creates N+1, so the grace would be pure added latency. [`Remote_Source_Node`](../includes/class-remote-source-node.php) sends it through its `set_multi_writer` config verb; browser dashboards leave it unset. |
 
 #### Subscription grammar
@@ -1040,15 +1049,19 @@ a source is a partition: same packed `msg` events, `retry` and `connected`
 envelopes, heartbeat cadence, flush framing, idle close and slot pool, with each
 frame's FROM opening with `sources/<name>`.
 
-![The Log_Sources registry: the three families merged in priority order with the tail mode each carries, the picker row Log_Sources::catalog() builds and the footprint dump_log answers, the two classes Log_Sources::open_tail() maps the mode token to, the one read model behind raw-logs read_message with the struct it answers, and the string errors it returns instead of throwing.](img/api-log-stream-sources.png)
+![The Log_Sources registry: the three families merged in priority order with the tail mode each carries, the picker row Log_Sources::catalog() builds and the footprint dump_log answers, the two classes Log_Sources::open_tail() maps the mode token to, the one read model behind raw-logs read_message with the struct it answers, the malformed position it refuses and the empty read it answers with a null message.](img/api-log-stream-sources.png)
 
 The same registry backs `raw-logs`. `list_logs` lists every source as a
 `sources/<name>` row after the partition dirs, each row carrying `available`;
 `dump_log sources/<name>` sizes one, as `{ log_id, segments, segment_count,
 total_size }`; and `read_message sources/<name> <position>` single-steps it. A
-source whose segments will not list, and an active topology that will not read,
-each take an unavailable row carrying `error` beside every readable source, so
-one failure never blanks the picker; a topology's row is named for the topology.
+source whose segments will not list takes an unavailable row carrying `error`
+beside every readable source, so one failure never blanks the picker. An active
+topology that will not read takes one too, labelled for the topology and keyed
+by no stamp, because it names no log to stream. Every reader of a stamp
+resolves it one way ([ADR-29](architecture-decisions.md#adr-29-a-log-stamp-has-one-writer-one-reader-and-one-resolver-per-kind)),
+so `read_message` and `dump_log` refuse what the stream refuses, with its
+message.
 
 **Permission**: inherited from `/messages/stream` — the fleet gate, then the
 READ role, with no nonce.
@@ -1057,7 +1070,7 @@ READ role, with no nonce.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `subscribe` | string | yes | CSV of subscriptions, any mix of partitions and `sources/<name>`. A `sources/` name the registry lacks throws the teaching `unknown log source` error listing the names that exist, and the stream is refused before it opens. No globs — registry sources are fixed for the life of a stream, and Tail's missing-file grace covers a source that appears, rotates or truncates mid-stream. |
+| `subscribe` | string | yes | CSV of subscriptions, any mix of partitions and `sources/<name>`. A `sources/` name the registry lacks is refused before the stream opens, as `400 sse_subscription_invalid` carrying the teaching `unknown log source` error that lists the names that exist. No globs — registry sources are fixed for the life of a stream, and Tail's missing-file grace covers a source that appears, rotates or truncates mid-stream. |
 | `positions` | string | no | Optional resume positions, same vocabulary as the partition subscriptions: a JSON object keyed by the whole `sources/<name>` stamp, each value a `{segment, offset}` object or a seek sentinel (`0` start, `-1` end, `-2` recent), with `start`, `recent` and `end` accepted as aliases. [`File_Tail_Node`](../includes/class-file-tail-node.php) folds `recent` to the start, because one file has no previous segment to fall back to. The shape round-trips unchanged from the client's perspective: for a segmented source `segment` is the segment id; for a file-mode source the file's inode occupies the same slot, and the cursor self-validates against the live file and degrades to 0 on mismatch. That validation happens on the FIRST POLL, not at subscribe time — `open_subscription()` seeks before the file is open, so the pair is held as a candidate, and `cursor_position()` echoes the client's own unvalidated value straight back into the `connected` envelope's CURSORS. An unchanged echo is therefore not an acknowledgement that the server accepted it. A candidate counts toward `compute_lag()` only while it still names the live generation and sits within the file: honouring a stale pre-rotation position would declare the new generation caught up and let the stream idle-close on its first tick without ever delivering it. Omit to start at `end` (live tail). |
 | `multi_writer` | boolean | no | Inert for a source: the seal-grace belongs to a Consumer, and a source resolves to a `Tail_Node`. |
 

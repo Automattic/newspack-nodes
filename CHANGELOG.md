@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The `unparseable_lines` frame names each stamp's count.** Its VALUE gains `COUNTS <stamp>=<n>,…` beside `COUNT`, so a client reading several views on one stream charges each view its own skips.
 - **`raw-logs read_message` reads `sources/<name>`, and neither it nor `dump_log` falls back.** An empty or unknown `log` is refused with an error (`unknown log: "<log>"` when named) instead of reading the firehose.
 - **`list_logs` lists every registry source as `sources/<name>`, and `dump_log` sizes one.** Each row carries `available`.
+- **A log stamp has one writer, one reader and one resolver per kind (ADR-29).** `Log_Discovery::split()` reads every subscription and `stamp_for()` writes every stamp, `sources/<name>` included. `Log_Discovery::dir_of( $stamp, $base )` resolves a dir by direct path under the stream's guard and answers null where no dir is, and `Log_Discovery::dirs_matching( $sub, $base )` maps each dir a glob matches to its stamp, null on a glob fault, through the same guard and the `$glob` seam, so `read_message` and `dump_log` refuse what `/messages/stream` refuses, with its `invalid subscription: <log>` message, and a `logs` dir named like a group no longer breaks every lookup.
+- **`raw-logs read_message` throws on a malformed position and answers no record as a result.** The position error is a `TM_ERROR` carrying the same text, and a position holding no record answers `{ source, message: null, cursor, at_eof }` where it used to answer `read_message: no record at …` as a string. `at_eof` is false when the step consumed a line that would not unpack, which the step now skips and counts as the stream does, where it used to fail on it; the cursor lands past the line, and `useSteppedRead` advances its target there. `Log_Sources::read( $log, $position )` replaces `read_at()`.
+- **`Log_Sources::footprint()` takes a stamp and answers `{ segments, total_size }` for a dir or a source alike,** read from the writer of that layout. `dump_log` calls it for both.
+- **An active topology that will not read lists with a label and an error but no `key`,** because it names no log to stream; the Log Viewer shows it disabled and never adopts it. A dir named like a group, or outside the stamp grammar, lists the same way, carrying the rename it needs.
+- **`/messages/stream` refuses a subscription with an explicit `logs/` or an unknown prefix before it takes a slot,** as `400 sse_subscription_invalid`, beside an unknown `sources/<name>`, which it checks with a registry lookup and no segment listing.
+- **`Log_Sources::is_available()` takes one argument,** dropping its public `$segments` parameter, and **`Log_Sources::entry()` and `error_row()` are public:** the stream validates a `sources/` subscription through `entry()`, and `list_logs` builds its keyless rows through `error_row()`.
 
 ### Security
 
@@ -22,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **`Log_Sources::unknown_in()`, `read_at()` and `unknown_source()`, `Raw_Logs_CI_Node::$on_probe` and `SSE_Out_Node`'s private `parse_group()` and `matched_dirs()`.** `dump_log` sizes a dir through an unnamed writer, so no probe wiring remains to observe. `Log_Sources::open_tail()` is private.
 - **The Log Viewer tab, and the `endpoint`, `argsFor`, `subjectOf` and `argsFn` options behind it.** The Partition Viewer lists every registry source as `sources/<name>` beside the partition dirs, greys out an unavailable one and defaults to the first available. `useStreamGraph`, `RemoteLinkNode` and `SseInNode` open `/messages/stream` alone, `useSteppedRead` always runs `<sub> <position>` and `useLogCatalog` sends no arguments; `useLogStatusSegments` returns `source: { segments, bytes }`. An old `?source=<name>` Log Viewer link no longer matches.
 - **`/log/stream` and `Log_Stream_Out_Node`.** `/messages/stream` opens a registry source as `sources/<name>`, so one stream carries files and partitions together.
 - **The `taillog` verb.** `raw-logs list_logs`, `dump_log` and `read_message` cover the registry.

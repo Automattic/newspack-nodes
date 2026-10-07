@@ -3,8 +3,9 @@
  * Answers "which partition directories exist on disk?" for the whole substrate.
  *
  * Three readers share the one answer: the admin storage estimate counts
- * `on_disk()`, the Raw Logs catalog lists `groups()`, and `SSE_Out_Node`
- * validates a subscription's `{group}/` prefix against `GROUPS`. A Partition
+ * `on_disk()`, the Raw Logs catalog lists `groups()`, and every reader of a
+ * stamp splits it through `split()` and resolves a dir through `dir_of()`
+ * (ADR-29). A Partition
  * added to a topology therefore reaches all three as soon as its directory
  * exists, with no registration step and no per-application catalog to keep in
  * step with the topologies.
@@ -30,7 +31,7 @@ final class Log_Discovery {
 
 	/**
 	 * Seam over the `glob()` call every scan makes; `groups()` reaches it once
-	 * per root. Tests reassign it to force the error branch — `glob()` returns
+	 * per root, and `dirs_matching()` once per subscription. Tests reassign it to force the error branch — `glob()` returns
 	 * false on an I/O fault where a no-match returns `[]` — without damaging a
 	 * real directory, which leaves the sort, the basename map and the
 	 * memoization under real coverage. It defaults at the call site because a
@@ -49,10 +50,7 @@ final class Log_Discovery {
 	 * and `deadletter` the poison quarantines and the write quarantines of
 	 * batches whose segment would not open. All three hold
 	 * packed partition dirs, so the Log Viewer renders any of them.
-	 * `SSE_Out_Node::parse_group()` accepts a `{group}/` subscription prefix
-	 * from this list and refuses every other one, an explicit `logs/` included,
-	 * because a bare name already addresses that root. That list is what keeps
-	 * a caller-supplied prefix out of the glob path the node then builds.
+	 * `dir_of()` joins a dir stamp onto one of these roots and no other.
 	 */
 	public const GROUPS = [ 'logs', 'offsets', Config::DEADLETTER_SUBDIR ];
 
@@ -100,25 +98,45 @@ final class Log_Discovery {
 	}
 
 	/**
-	 * The absolute dir a catalog stamp names, the inverse of `stamp_for()`
-	 * over the dirs that exist. A name no catalog dir carries is refused
-	 * rather than defaulted, so a reader never opens a log it was not asked
-	 * for.
+	 * The dir a stamp names under `$base`, or null when none is there: the
+	 * stream's guard, then a direct path. A glob, a registry stamp and any
+	 * name the guard refuses are refused, and a `logs` dir named like a group
+	 * is refused by name, so no stamp reaches a dir the stream would not.
 	 *
-	 * @param string $stamp A catalog stamp: `firehose.p0`, `offsets/…`, `deadletter/…`.
-	 * @return string The absolute partition dir.
-	 * @throws \InvalidArgumentException When no catalog dir carries the stamp.
+	 * @param string $stamp A dir stamp: `firehose.p0`, `offsets/…`, `deadletter/…`.
+	 * @param string $base  The runtime base the roots sit under.
+	 * @return string|null The absolute dir, or null when it does not exist.
+	 * @throws \InvalidArgumentException On a stamp the guard refuses.
 	 */
-	public static function dir_of( string $stamp ): string {
-		foreach ( self::groups() as $group => $names ) {
-			foreach ( $names as $name ) {
-				if ( self::stamp_for( $group, $name ) === $stamp ) {
-					return Config::get_base_directory() . "/{$group}/{$name}";
-				}
-			}
+	public static function dir_of( string $stamp, string $base ): ?string {
+		[ $group, $name, $dir ] = self::guarded( $stamp, $base, false );
+		self::stamp_for( $group, $name );
+		return \is_dir( $dir ) ? $dir : null;
+	}
+
+	/**
+	 * Each dir a subscription glob matches under `$base`, keyed by the stamp
+	 * `stamp_for()` writes for it, under the guard `dir_of()` applies; `*`
+	 * matches within one path segment. A glob I/O fault answers null rather
+	 * than an empty map, so a caller never mistakes it for "nothing there".
+	 *
+	 * @param string $sub  A subscription glob: `firehose.*`, `offsets/…*`.
+	 * @param string $base The runtime base the roots sit under.
+	 * @return array<string,string>|null Stamp => absolute dir, or null on a fault.
+	 * @throws \InvalidArgumentException On a glob the guard refuses, or a
+	 *                                   match whose dir is named like a group.
+	 */
+	public static function dirs_matching( string $sub, string $base ): ?array {
+		[ $group, , $pattern ] = self::guarded( $sub, $base, true );
+		$matches               = self::glob( $pattern );
+		if ( null === $matches ) {
+			return null;
 		}
-		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-		throw new \InvalidArgumentException( "unknown log: \"{$stamp}\"" );
+		$dirs = [];
+		foreach ( $matches as $dir ) {
+			$dirs[ self::stamp_for( $group, \basename( $dir ) ) ] = $dir;
+		}
+		return $dirs;
 	}
 
 	/**
@@ -144,57 +162,22 @@ final class Log_Discovery {
 	}
 
 	/**
-	 * Sorted basenames under every root in `GROUPS`, keyed by root. The `logs`
-	 * entry repeats `on_disk()`, which a caller wanting that root alone reads
-	 * instead.
+	 * A dir subscription through the stream's guard, and the path it names:
+	 * a `GROUPS` root only, the shape `is_subscription()` admits, and a `*`
+	 * only where the caller globs.
 	 *
-	 * A root with no directory and a root whose scan fails both yield an empty
-	 * list rather than a missing key, so a caller may index all three without
-	 * checking first.
-	 *
-	 * @return array<string,list<string>>
-	 * @throws \RuntimeException Through `Config::get_base_directory()`, on the
-	 *                          same conditions as `on_disk()`.
+	 * @param string $sub  A dir stamp or subscription glob.
+	 * @param string $base The runtime base the roots sit under.
+	 * @param bool   $glob Whether `*` may appear.
+	 * @return array{0:string,1:string,2:string} The group, the rest, and the path.
+	 * @throws \InvalidArgumentException On a subscription the guard refuses.
 	 */
-	public static function groups(): array {
-		if ( null !== self::$cached_groups ) {
-			return self::$cached_groups;
+	private static function guarded( string $sub, string $base, bool $glob ): array {
+		[ $group, $name ] = self::split( $sub );
+		if ( ( ! $glob && \str_contains( $sub, '*' ) ) || ! \in_array( $group, self::GROUPS, true ) || ! self::is_subscription( $sub ) ) {
+			throw new \InvalidArgumentException( \esc_html( "invalid subscription: {$sub}" ) );
 		}
-		$base_dir = Config::get_base_directory();
-		$glob     = self::$glob ?? static fn ( string $pattern, int $flags ): array|false => \glob( $pattern, $flags );
-		$groups   = [];
-		foreach ( self::GROUPS as $group ) {
-			$matches = $glob( "{$base_dir}/{$group}/*", \GLOB_ONLYDIR );
-			if ( ! \is_array( $matches ) ) {
-				$groups[ $group ] = [];
-				continue;
-			}
-			\sort( $matches );
-			$groups[ $group ] = \array_map( '\basename', $matches );
-		}
-		return self::$cached_groups = $groups;
-	}
-
-	/**
-	 * Whether a string is a stamp a record may carry: one name, or one of
-	 * `STAMP_PREFIXES` other than `logs` and one name, each name a registry
-	 * name as `Log_Sources::is_valid_name()` reads it, so it opens with a name
-	 * character and holds no `..`, and the whole at most `MAX_STAMP_BYTES`.
-	 * A bare prefix is no stamp, since `stamp_for()` refuses that dir, and nor
-	 * is `logs/<name>`, which `stamp_for()` never writes. A stamp names
-	 * directories on the hub reading it, so one from a remote is held to this
-	 * before it names any.
-	 *
-	 * @param string $stamp A candidate stamp.
-	 * @return bool True when it names one dir and nothing above it.
-	 */
-	public static function is_stamp( string $stamp ): bool {
-		$parts = \explode( '/', $stamp );
-		return \strlen( $stamp ) <= self::MAX_STAMP_BYTES && match ( \count( $parts ) ) {
-			1 => ! \in_array( $stamp, self::STAMP_PREFIXES, true ) && Log_Sources::is_valid_name( $stamp ),
-			2 => self::is_prefix( $parts[0] ) && Log_Sources::is_valid_name( $parts[1] ),
-			default => false,
-		};
+		return [ $group, $name, self::path( $base, $group, $name ) ];
 	}
 
 	/**
@@ -224,6 +207,52 @@ final class Log_Discovery {
 	}
 
 	/**
+	 * The one reader of a stamp: its group, then the rest. A bare stamp is a
+	 * `logs` dir; one opening `{prefix}/` names that root, or for `sources`
+	 * a registry entry. `logs/x` is refused rather than aliased to bare `x`,
+	 * so one log has one spelling, and so is any prefix outside
+	 * `STAMP_PREFIXES`, which keeps a caller's prefix out of every path
+	 * built from it. The rest is returned whole; the guard judges its shape.
+	 *
+	 * @param string $stamp A stamp, or a subscription glob.
+	 * @return array{0:string,1:string} The group, then the rest.
+	 * @throws \InvalidArgumentException On an explicit `logs/` or an unknown prefix.
+	 */
+	public static function split( string $stamp ): array {
+		$slash = \strpos( $stamp, '/' );
+		if ( false === $slash ) {
+			return [ 'logs', $stamp ];
+		}
+		$group = \substr( $stamp, 0, $slash );
+		if ( ! self::is_prefix( $group ) ) {
+			throw new \InvalidArgumentException( \esc_html( "invalid subscription: {$stamp}" ) );
+		}
+		return [ $group, \substr( $stamp, $slash + 1 ) ];
+	}
+
+	/**
+	 * Whether a string is a stamp a record may carry: one name, or one of
+	 * `STAMP_PREFIXES` other than `logs` and one name, each name a registry
+	 * name as `Log_Sources::is_valid_name()` reads it, so it opens with a name
+	 * character and holds no `..`, and the whole at most `MAX_STAMP_BYTES`.
+	 * A bare prefix is no stamp, since `stamp_for()` refuses that dir, and nor
+	 * is `logs/<name>`, which `stamp_for()` never writes. A stamp names
+	 * directories on the hub reading it, so one from a remote is held to this
+	 * before it names any.
+	 *
+	 * @param string $stamp A candidate stamp.
+	 * @return bool True when it names one dir and nothing above it.
+	 */
+	public static function is_stamp( string $stamp ): bool {
+		$parts = \explode( '/', $stamp );
+		return \strlen( $stamp ) <= self::MAX_STAMP_BYTES && match ( \count( $parts ) ) {
+			1 => ! \in_array( $stamp, self::STAMP_PREFIXES, true ) && Log_Sources::is_valid_name( $stamp ),
+			2 => self::is_prefix( $parts[0] ) && Log_Sources::is_valid_name( $parts[1] ),
+			default => false,
+		};
+	}
+
+	/**
 	 * Whether a stamp's first segment is one a stamp writes out: any of
 	 * `STAMP_PREFIXES` but `logs`, whose dirs stamp bare.
 	 *
@@ -234,9 +263,85 @@ final class Log_Discovery {
 	}
 
 	/**
+	 * Sorted basenames under every root in `GROUPS`, keyed by root. The `logs`
+	 * entry repeats `on_disk()`, which a caller wanting that root alone reads
+	 * instead.
+	 *
+	 * A root with no directory and a root whose scan fails both yield an empty
+	 * list rather than a missing key, so a caller may index all three without
+	 * checking first.
+	 *
+	 * @return array<string,list<string>>
+	 * @throws \RuntimeException Through `Config::get_base_directory()`, on the
+	 *                          same conditions as `on_disk()`.
+	 */
+	public static function groups(): array {
+		if ( null !== self::$cached_groups ) {
+			return self::$cached_groups;
+		}
+		$base_dir = Config::get_base_directory();
+		$groups   = [];
+		foreach ( self::GROUPS as $group ) {
+			$groups[ $group ] = \array_map( '\basename', self::glob( self::path( $base_dir, $group, '*' ) ) ?? [] );
+		}
+		return self::$cached_groups = $groups;
+	}
+
+	/**
+	 * Sorted basenames of every first-level directory under `{base}/logs`,
+	 * returned verbatim. The flat layout carries the partition in the name, so
+	 * `firehose.p0` is one entry and nothing strips a suffix; `GLOB_ONLYDIR`
+	 * keeps a `Log` file-sink's segment files out of the list.
+	 *
+	 * @return list<string>
+	 * @throws \RuntimeException Through `Config::get_base_directory()`: a
+	 *                          malformed config file, an empty or non-scalar
+	 *                          `base_directory`, or a runtime root that will
+	 *                          not resolve or that another uid owns. Nothing
+	 *                          here catches it: a substituted path would
+	 *                          report "no logs" while the writer fills the
+	 *                          real tree.
+	 */
+	public static function on_disk(): array {
+		if ( null !== self::$cached ) {
+			return self::$cached;
+		}
+		$matches = self::glob( self::path( Config::get_base_directory(), 'logs', '*' ) ) ?? [];
+		return self::$cached = \array_map( '\basename', $matches );
+	}
+
+	/**
+	 * A path under one root: the one place `{base}/{group}/` is spelled.
+	 *
+	 * @param string $base  The runtime base.
+	 * @param string $group A `GROUPS` root.
+	 * @param string $name  A dir name or a glob.
+	 */
+	private static function path( string $base, string $group, string $name ): string {
+		return "{$base}/{$group}/{$name}";
+	}
+
+	/**
+	 * The dirs a pattern matches, sorted, through the `$glob` seam; null on
+	 * an I/O fault, where `glob()` answers false and a no-match `[]`.
+	 *
+	 * @param string $pattern An absolute glob pattern.
+	 * @return list<string>|null
+	 */
+	private static function glob( string $pattern ): ?array {
+		$glob    = self::$glob ?? static fn ( string $pattern, int $flags ): array|false => \glob( $pattern, $flags );
+		$matches = $glob( $pattern, \GLOB_ONLYDIR );
+		if ( ! \is_array( $matches ) ) {
+			return null;
+		}
+		\sort( $matches );
+		return $matches;
+	}
+
+	/**
 	 * Whether a subscription brings records stamped `$stamp`: its own name
 	 * exactly, or a glob whose `*` matches within one path segment, as
-	 * `SSE_Out_Node::matched_dirs()` globs it. Every other character is
+	 * `dirs_matching()` globs it. Every other character is
 	 * literal, `?` and `[` included, which is why this is not `fnmatch()`.
 	 * `tests/fixtures/subscription-carries.json` holds it to the browser's
 	 * `carries()`.
@@ -271,35 +376,6 @@ final class Log_Discovery {
 			return "{$parts[0]}/{$parts[1]}";
 		}
 		return $parts[0];
-	}
-
-	/**
-	 * Sorted basenames of every first-level directory under `{base}/logs`,
-	 * returned verbatim. The flat layout carries the partition in the name, so
-	 * `firehose.p0` is one entry and nothing strips a suffix; `GLOB_ONLYDIR`
-	 * keeps a `Log` file-sink's segment files out of the list.
-	 *
-	 * @return list<string>
-	 * @throws \RuntimeException Through `Config::get_base_directory()`: a
-	 *                          malformed config file, an empty or non-scalar
-	 *                          `base_directory`, or a runtime root that will
-	 *                          not resolve or that another uid owns. Nothing
-	 *                          here catches it: a substituted path would
-	 *                          report "no logs" while the writer fills the
-	 *                          real tree.
-	 */
-	public static function on_disk(): array {
-		if ( null !== self::$cached ) {
-			return self::$cached;
-		}
-		$base_dir = Config::get_base_directory();
-		$glob     = self::$glob ?? static fn ( string $pattern, int $flags ): array|false => \glob( $pattern, $flags );
-		$matches  = $glob( "{$base_dir}/logs/*", \GLOB_ONLYDIR );
-		if ( ! \is_array( $matches ) ) {
-			return self::$cached = [];
-		}
-		\sort( $matches );
-		return self::$cached = \array_map( '\basename', $matches );
 	}
 
 	/**

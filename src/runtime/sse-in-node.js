@@ -734,9 +734,9 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	 * A GLOB is the one seek a client cannot state: the server expands it into
 	 * concrete dirs and keys positions by those, so an entry filed under
 	 * `firehose.*` is one nothing reads. Its dirs take the server's default,
-	 * which is this same tail. A non-glob subscription IS its dir name
-	 * (`SSE_Out_Node::matched_dirs()` globs the name and `Log_Discovery::stamp_for()` stamps the
-	 * basename), so stating it is exact.
+	 * which is this same tail. A non-glob subscription IS its dir's stamp
+	 * (`Log_Discovery::dir_of()` resolves it by direct path), so stating it
+	 * is exact.
 	 *
 	 * @return {Object<string,{segment:number,offset:number}|number|string>} Per-subscription seek.
 	 */

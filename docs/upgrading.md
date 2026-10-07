@@ -813,6 +813,25 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   sources/<name> <segment>:<offset>`. The last-N-KB tail has no replacement; the
   Partition Viewer streams the source live. `sources` and `read` are no longer
   reserved as registry names.
+- **`raw-logs read_message` answers an empty read as a result and a bad
+  position as an error.** A position holding no record answers
+  `{ source, message: null, cursor, at_eof }` where it answered the string
+  `read_message: no record at <log> <position>`: test `message` for null and
+  resume from `cursor`. With `at_eof` false the read consumed a line that would
+  not unpack, and `cursor` lies past it. A malformed position answers a
+  `TM_ERROR` carrying the same `read_message: invalid position (…)` text, so
+  read it on the error path, not off a successful reply.
+- **`read_message` and `dump_log` refuse a `log` they cannot place, and never
+  read the firehose in its place.** An empty `log` answers `missing required
+  argument: log`, an unknown dir `unknown log: "<log>"`, an unknown source
+  `unknown log source: "<name>" (known: …)`, and a name the stream refuses
+  `invalid subscription: <log>`. Send the `key` of a `list_logs` row.
+- **`dump_log` sizes a `sources/<name>` registry source** as
+  `{ log_id, segments, segment_count, total_size }`, a file source answering no
+  segments and its file size, so pass any `list_logs` key. A row naming no log —
+  an active topology that will not read, a dir named outside the stamp grammar —
+  carries `label`, `available: false` and `error` but no `key`; offer it
+  disabled, never as a pick.
 - **The Log Viewer tab is gone.** The Partition Viewer lists registry sources as
   `sources/<name>` beside the dirs; an old `?tab=log-viewer&source=<name>` link
   lands on the default tab. `useStreamGraph` takes no `endpoint`,

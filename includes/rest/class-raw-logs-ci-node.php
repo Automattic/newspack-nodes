@@ -8,8 +8,8 @@
  * (`read_message`). Every verb reads substrate state; none writes. Live
  * tailing belongs to `SSE_Out_Node`, not to this interpreter.
  *
- * A `log` the catalog does not name is refused, never defaulted: a paused
- * step handed another log's record would read the wrong stream.
+ * A `log` no dir or registry entry carries is refused, never defaulted: a
+ * paused step handed another log's record would read the wrong stream.
  *
  * @package Newspack_Nodes
  */
@@ -21,8 +21,6 @@ use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Log_Discovery;
 use Newspack_Nodes\Log_Sources;
-use Newspack_Nodes\Node_Names;
-use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Service_CI_Node;
 
 \defined( 'ABSPATH' ) || exit;
@@ -37,46 +35,39 @@ use Newspack_Nodes\Service_CI_Node;
 class Raw_Logs_CI_Node extends Service_CI_Node {
 
 	/**
-	 * Observation seam over the `dump_log` probe wiring. Production leaves it
-	 * null and nothing runs; a test assigns a closure, which `cmd_dump_log`
-	 * invokes with the inspection Partition after patron, name and sink are set
-	 * and before it reads segments or removes the node.
-	 *
-	 * A test therefore asserts that the probe is hidden from the canvas (patron),
-	 * addressable (name) and sunk into `_command_interpreter`, while the rest of
-	 * the handler — the segment read, the sum, the teardown — runs as real code.
-	 *
-	 * Signature: `function ( Partition_Node $probe ): void`.
-	 *
-	 * @var \Closure|null
-	 */
-	public static ?\Closure $on_probe = null;
-
-	/**
 	 * `list_logs` verb handler — the catalog the dashboard's log picker mounts.
+	 * A row that names no log carries no `key`.
 	 *
-	 * @return list<array{key:string,label:string,available:bool,error?:string}>
+	 * @return list<array{key?:string,label:string,available:bool,error?:string}>
 	 */
 	public static function cmd_list_logs(): array {
 		return [ ...self::catalog_keys(), ...Log_Sources::catalog() ];
 	}
 
 	/**
-	 * Every on-disk partition directory as a `{key,label,available}` row, `logs` first,
-	 * then `offsets` and `deadletter`.
+	 * Every on-disk partition directory as a `{key,label,available}` row, `logs`
+	 * first, then `offsets` and `deadletter`, keyed by the stamp
+	 * `Log_Discovery::stamp_for()` writes. `label` repeats `key`: the stamp is
+	 * the identifier, so the picker has nothing else to render. A dir named
+	 * like a group, or named outside the stamp grammar `is_stamp()` reads,
+	 * has no stamp a stream could open, so it takes an unavailable row
+	 * carrying the refusal and no key.
 	 *
-	 * A bare basename keys the `logs` root and `{group}/{basename}` keys the
-	 * other two, which is the shape `Log_Discovery::dir_of()` resolves back to a path.
-	 * `label` repeats `key`: the directory name is the identifier, so the picker has
-	 * nothing else to render.
-	 *
-	 * @return list<array{key:string,label:string,available:bool}>
+	 * @return list<array{key?:string,label:string,available:bool,error?:string}>
 	 */
 	private static function catalog_keys(): array {
 		$result = [];
 		foreach ( Log_Discovery::groups() as $group => $names ) {
 			foreach ( $names as $name ) {
-				$key      = 'logs' === $group ? $name : "{$group}/{$name}";
+				try {
+					$key = Log_Discovery::stamp_for( $group, $name );
+					if ( ! Log_Discovery::is_stamp( $key ) ) {
+						throw new \InvalidArgumentException( \esc_html( "log dir {$name} is no stamp a stream can name; rename it" ) );
+					}
+				} catch ( \InvalidArgumentException $e ) {
+					$result[] = Log_Sources::error_row( $name, $e );
+					continue;
+				}
 				$result[] = [
 					'key'       => $key,
 					'label'     => $key,
@@ -88,96 +79,35 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `dump_log` verb handler — segment count and total size for one catalog
-	 * partition directory, or for one `sources/<name>` registry source. Accepts
-	 * a bare logs key (`firehose.p0`), a group-prefixed one (`offsets/…`,
-	 * `deadletter/…`) or a source stamp.
+	 * `dump_log` verb handler — segment count and total size of one log, a
+	 * partition dir or a `sources/<name>` registry source, by its stamp.
 	 *
-	 * @param Command_Interpreter_Node $self The dispatching interpreter; names and patrons the probe.
-	 * @param array<array-key,mixed>   $args Bound verb arguments: the log key, which must name a catalog dir or a registry source; an unknown one throws.
-	 *
-	 * @return array<string,mixed> The key inspected, its `{id,size}` segment list, the segment count and the total size.
+	 * @param array<array-key,mixed> $args Bound verb arguments: the log stamp; one nothing carries throws.
+	 * @return array{log_id:string,segments:list<array{id:int,size:int}>,segment_count:int,total_size:int}
 	 */
-	public static function cmd_dump_log( Command_Interpreter_Node $self, array $args ): array {
-		$log_key   = Core::as_string( $args['log'] );
-		$prefix    = Log_Discovery::SOURCES_PREFIX . '/';
-		$footprint = \str_starts_with( $log_key, $prefix )
-			? Log_Sources::footprint( \substr( $log_key, \strlen( $prefix ) ) )
-			: self::dir_footprint( $self, Log_Discovery::dir_of( $log_key ) );
-
+	public static function cmd_dump_log( array $args ): array {
+		$log       = Core::as_string( $args['log'] );
+		$footprint = Log_Sources::footprint( $log );
 		return [
-			'log_id'        => $log_key,
+			'log_id'        => $log,
 			'segments'      => $footprint['segments'],
 			'segment_count' => \count( $footprint['segments'] ),
-			'total_size'    => $footprint['bytes'],
+			'total_size'    => $footprint['total_size'],
 		];
 	}
 
 	/**
-	 * One partition directory's segments and bytes, read through a probe
-	 * Partition.
+	 * `read_message` verb handler — the single record AT a position, decoded,
+	 * through `Log_Sources::read()`, so a dir and a registry source step
+	 * through one read model and the record carries the stamped FROM and the
+	 * `seg:offset:length` ID breadcrumb a streamed row does. A malformed
+	 * position and an unknown log throw; no record there is a result.
 	 *
-	 * The probe is plumbing, and the order it is wired in matters. `patron()`
-	 * runs first because it refuses after `name()`: a named node has already
-	 * registered its `{name}:config` interpreter, which taking a patron would
-	 * tear straight back down. The name follows, then a sink into
-	 * `_command_interpreter` so anything the probe emits has a destination. The
-	 * `finally` removes the node, because a throw that left the name registered
-	 * would collide with the next `dump_log` call in the same process.
-	 *
-	 * @param Command_Interpreter_Node $self The dispatching interpreter; names and patrons the probe.
-	 * @param string                   $dir  A resolved catalog directory.
-	 * @return array{segments:list<array{id:int,size:int}>,bytes:int}
+	 * @param array<array-key,mixed> $args Bound verb arguments: log, and the `<segment>:<offset>[:<length>]` position.
+	 * @return array<string,mixed> The record, or null, and the post-step cursor.
 	 */
-	private static function dir_footprint( Command_Interpreter_Node $self, string $dir ): array {
-		$ci        = Core::node( Node_Names::COMMAND_INTERPRETER );
-		$partition = new Partition_Node();
-		$partition->patron( $self );
-		$partition->name( "{$self->name()}:status" );
-		if ( null === $partition->sink() && null !== $ci ) {
-			$partition->sink( $ci );
-		}
-		// Flat layout: the concrete dir IS one partition — stat it directly.
-		$partition->arguments( [ $dir ] );
-		try {
-			if ( null !== self::$on_probe ) {
-				( self::$on_probe )( $partition );
-			}
-			$footprint = $partition->footprint();
-		} finally {
-			$partition->remove_node();
-		}
-
-		return null === $footprint
-			? [ 'segments' => [], 'bytes' => 0 ]
-			: [ 'segments' => \array_values( $footprint['segments'] ), 'bytes' => $footprint['bytes'] ];
-	}
-
-	/**
-	 * `read_message` verb handler — the single record AT a position, decoded.
-	 *
-	 * Drives the REAL read model: an ephemeral Consumer (one argument, so
-	 * neither the offsetlog nor the dead-letter sidecar is built) seeked to
-	 * `<segment>:<offset>` and single-stepped through the Durable_Reader
-	 * debugger. Segment rolls, torn records and oversized partials therefore
-	 * behave exactly as they do for every other reader, and the emitted record
-	 * carries the stamped FROM and the `seg:offset:length` ID breadcrumb.
-	 * Length-blind: a supplied `:<length>` token is tolerated and ignored.
-	 *
-	 * `Log_Sources::read_at()` removes the Consumer on every exit, a rejected
-	 * position included — `arguments()` armed its timer, and a reader left armed
-	 * with no sink fires forever inside the worker's drain loop. The reply's
-	 * `cursor` is the post-step position, exactly where the next step resumes.
-	 *
-	 * @param Command_Interpreter_Node $self The dispatching interpreter; unused, the handler signature is uniform.
-	 * @param array<array-key,mixed>   $args Bound verb arguments: log, and the `<segment>:<offset>[:<length>]` position.
-	 *
-	 * @return array<string,mixed>|string The record + cursor, or a position teaching error; an unknown log throws.
-	 */
-	public static function cmd_read_message( Command_Interpreter_Node $self, array $args ): array|string {
-		$log = Core::as_string( $args['log'] );
-		$reader = Log_Sources::open_reader( $log );
-		return Log_Sources::read_at( $reader, $log, Core::as_string( $args['position'] ), 'read_message' );
+	public static function cmd_read_message( array $args ): array {
+		return Log_Sources::read( Core::as_string( $args['log'] ), Core::as_string( $args['position'] ) );
 	}
 
 	/**
@@ -207,7 +137,7 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 					'capability'  => Capabilities::READ,
 					'description' => 'Segments and size of one partition dir or sources/<name> registry source.',
 					'args'        => [ [ 'name' => 'log', 'type' => 'string', 'required' => true ] ],
-					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_dump_log( $self, $args ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_dump_log( $args ),
 				],
 				[
 					'name'        => 'read_message',
@@ -217,7 +147,7 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 						[ 'name' => 'log', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'position', 'type' => 'string', 'required' => true ],
 					],
-					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array|string => self::cmd_read_message( $self, $args ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_read_message( $args ),
 				],
 			],
 		] );

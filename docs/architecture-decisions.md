@@ -1343,8 +1343,10 @@ runs such a writer, and `Topology_Loader` binds its topology and partition there
 built with either unbound is refused by `arguments()`, as `make_node`'s TM_ERROR, rather than
 stamp a FROM no reader can attribute. The browser's
 SSE reader prepends its own stamp, the log's dir name (one segment, two when the first is a
-group name: `stamp_for()` refuses a log dir named `logs`, `offsets` or `deadletter`, so no
-bare stamp is one, and a Partition or Log declaration refuses it too).
+stamp prefix: `stamp_for()` refuses a log dir named `logs`, `offsets`, `deadletter` or
+`sources`, so no bare stamp is one, and a Partition or Log declaration refuses it too; the
+first three name a root dir, while `sources` names a registry entry, not a dir). The stamp's
+own writer, reader and resolvers are [ADR-29](#adr-29-a-log-stamp-has-one-writer-one-reader-and-one-resolver-per-kind).
 [`workerOfFrom()`](../src/shared/utils/workerId.js) strips that stamp through
 [`splitStamp()`](../src/runtime/log-stamp.js), which `tests/fixtures/log-stamps.json` holds
 to PHP `Log_Discovery::dir_from_stamp()`, and reads what remains, `{worker}/{name}`, validating the worker through
@@ -1837,3 +1839,50 @@ Released in 2.80.0 and removed in 2.83.0, with the `Ledger_Node` it governed. A 
 ## ADR-28: Withdrawn: a Ledger file per partition
 
 Released in 2.82.0 and removed in 2.83.0 with ADR-27. It moved each partition's Ledger rows into a file of its own, after one shared file made every partition's APPEND wait on another's write lock. The number stays retired.
+
+---
+
+## ADR-29: A log stamp has one writer, one reader, and one resolver per kind
+
+**Status:** Accepted
+
+**Context:** A log stamp names one log everywhere: an SSE subscription, a record's FROM, a
+picker key, `read_message` and `dump_log` all use it. Eight sites wrote the `sources/<name>`
+stamp or parsed the `{group}/{name}` grammar by hand, across `Log_Sources`,
+`Raw_Logs_CI_Node` and `SSE_Out_Node`, and two resolvers turned a stamp into a dir. The
+stream split the prefix, held the name to its guard and globbed the live tree;
+`Log_Discovery::dir_of()` scanned a memoized catalog and inverted `stamp_for()` over every
+dir. They disagreed: the step accepted names the stream's guard refuses, read a scan as old
+as the process, and threw on every lookup once a `logs/sources` dir existed. Two footprints
+answered one question, and a refusal came back as a returned string in one place and a throw
+in another.
+
+**Decision:** [`Log_Discovery::stamp_for()`](../includes/class-log-discovery.php) is the one
+writer of a stamp, for the dir roots and for `sources/<name>`. A stamp has one reader of a
+subscription, `Log_Discovery::split()`, and one of a FROM trail, `dir_from_stamp()`, whose
+twin [`splitStamp()`](../src/runtime/log-stamp.js) `tests/fixtures/log-stamps.json` holds to
+it. The two differ on `logs/x`: `split()` refuses it, because a subscription has one
+spelling, while `dir_from_stamp()` reads a FROM it did not write and takes `logs/x` as that
+two-segment stamp. One resolver per kind turns a stamp into a reader: a dir by direct path
+under the stream's guard, `Log_Discovery::dir_of()`, a glob by `dirs_matching()` under the
+same guard and the same one join of `{base}/{group}/`, and a source through the registry,
+`Log_Sources::entry()`. The stream and the
+step both reach them; nothing else parses a prefix, joins a root or scans a catalog to invert
+a stamp. A refusal throws, and a position holding no record is a result whose `message` is
+null.
+
+**Alternatives considered:** A shared constant each site wraps — rejected, as ADR-22 rejected
+it for worker ids: it shares a spelling, not the decision, and each site keeps its own
+fallback. A scanning inverse beside a guarded parse — rejected: a step then reads what the
+stream refuses, from a scan that cannot see a dir made after it.
+
+**Consequences:** A name the stream refuses is refused by `read_message` and `dump_log` with
+the stream's message, and a dir named like a group is refused by name wherever it is
+addressed without breaking a lookup of any other. An unreadable topology keeps its picker row
+with a label and an error but no key, because it names no log. `scripts/lint-contract.mjs`
+holds the rule mechanically: outside `class-log-discovery.php`, no PHP joins
+`SOURCES_PREFIX` to a slash, reads `GROUPS` or `STAMP_PREFIXES`, compares `'logs'` with
+`$group`, joins `{$group}/` into a path, or spells a `sources/`, `offsets/` or `deadletter/`
+literal.
+
+**Revisit if:** a stamp must name something that is neither a dir nor a registry entry.

@@ -25,15 +25,13 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * Composes the registry and serves every read over it: the picker `catalog()`,
- * a source's `footprint()`, the single-step `read_at()`, and the reader a
- * `sources/<name>` subscription opens. Static throughout, because the registry
- * resolves per request out of the options table and the active topologies —
- * there is nothing to hold between calls.
- *
- * `read_at()` is the one member that takes no registry entry: it single-steps
- * whatever durable reader it is handed, which is how `Raw_Logs_CI_Node`'s
- * `read_message` verb reads a partition through this same model.
+ * Composes the registry and serves every read of a log by its stamp: the
+ * picker `catalog()`, a log's `footprint()`, the single-step `read()`, and
+ * the reader a subscription opens. Each branches on `Log_Discovery::split()`,
+ * so a `sources/<name>` stamp resolves through the registry and any other
+ * through `Log_Discovery::dir_of()` (ADR-29). Static throughout, because the
+ * registry resolves per request out of the options table and the active
+ * topologies — there is nothing to hold between calls.
  */
 class Log_Sources {
 
@@ -66,14 +64,14 @@ class Log_Sources {
 	/**
 	 * Every registry source as a picker row, keyed by the stamp it streams
 	 * under: `sources/<name>`, its name as the label, and whether a Tail
-	 * would find bytes there now. A source whose segments will not list,
-	 * and an active topology that will not read, each take an unavailable
-	 * row carrying `error`, so one failure never blanks the picker; a
-	 * topology's row is named for the topology. Every source is offered
-	 * its listing, and a stop among the failures escapes carrying the
-	 * rest, which is `Worker_Should_Stop`'s rule.
+	 * would find bytes there now. A source whose segments will not list
+	 * takes an unavailable row carrying `error`, and an active topology that
+	 * will not read takes one labelled for the topology and keyed by no
+	 * stamp, because it names no log; one failure never blanks the picker.
+	 * Every source is offered its listing, and a stop among the failures
+	 * escapes carrying the rest, which is `Worker_Should_Stop`'s rule.
 	 *
-	 * @return list<array{key:string,label:string,available:bool,error?:string}>
+	 * @return list<array{key?:string,label:string,available:bool,error?:string}>
 	 * @throws Worker_Should_Stop When a stop is among the failures, carrying the rest.
 	 */
 	public static function catalog(): array {
@@ -90,40 +88,28 @@ class Log_Sources {
 			throw $caught;
 		}
 		foreach ( $failed as $name => $e ) {
-			$rows[ $name ] = self::catalog_error_row( $name, $e );
+			$rows[ $name ] = [ 'key' => self::stamp( $name ) ] + self::error_row( $name, $e );
 		}
 		$rows = \array_values( \array_filter( $rows ) );
 		foreach ( $unreadable as $topology => $e ) {
-			$rows[] = self::catalog_error_row( $topology, $e );
+			$rows[] = self::error_row( $topology, $e );
 		}
 		return $rows;
 	}
 
 	/**
-	 * The unavailable picker row for a source or topology it could not read.
+	 * The unavailable picker row for what could not be read, keyed by no
+	 * stamp: the caller adds one when the row names a log.
 	 *
-	 * @param string     $name Source or topology name.
-	 * @param \Throwable $e    What reading it threw.
-	 * @return array{key:string,label:string,available:bool,error:string}
+	 * @param string     $label Source or topology name.
+	 * @param \Throwable $e     What reading it threw.
+	 * @return array{label:string,available:bool,error:string}
 	 */
-	private static function catalog_error_row( string $name, \Throwable $e ): array {
-		return self::catalog_row( $name, false ) + [
-			'error' => \html_entity_decode( $e->getMessage(), \ENT_QUOTES ),
-		];
-	}
-
-	/**
-	 * One picker row for a registry name.
-	 *
-	 * @param string $name      Source or topology name.
-	 * @param bool   $available Whether a Tail would find bytes there now.
-	 * @return array{key:string,label:string,available:bool}
-	 */
-	private static function catalog_row( string $name, bool $available ): array {
+	public static function error_row( string $label, \Throwable $e ): array {
 		return [
-			'key'       => Log_Discovery::SOURCES_PREFIX . "/{$name}",
-			'label'     => $name,
-			'available' => $available,
+			'label'     => $label,
+			'available' => false,
+			'error'     => \html_entity_decode( $e->getMessage(), \ENT_QUOTES ),
 		];
 	}
 
@@ -132,162 +118,205 @@ class Log_Sources {
 	 * itself; segmented mode checks for ANY `{path}.{seg}` segment (retention
 	 * may have pruned the early ones).
 	 *
-	 * @param array{path: string, mode: string}   $entry    A registry() entry.
-	 * @param list<array{id: int,size: int}>|null $segments A source_segments() list to reuse, or null to list here.
+	 * @param array{path: string, mode: string} $entry A registry() entry.
 	 * @return bool True when a tail would find something to read.
+	 * @throws \Throwable What listing the segments threw.
 	 */
-	public static function is_available( array $entry, ?array $segments = null ): bool {
+	public static function is_available( array $entry ): bool {
 		if ( Tail_Node::MODE_SEGMENTED === $entry['mode'] ) {
-			return [] !== ( $segments ?? self::source_segments( $entry ) );
+			return [] !== self::writer_footprint( new Log_Node(), $entry['path'] )['segments'];
 		}
 		return \is_file( $entry['path'] ) && \is_readable( $entry['path'] );
 	}
 
 	/**
-	 * One source's segments and size, the rail a reader browses: a
-	 * segmented source's `{id, size}` list and their summed bytes, a file
-	 * source's empty list and its file size, 0 while the file is absent.
-	 * A file's size is a replay's catch-up boundary, since it has no
-	 * segment to order by.
+	 * One picker row for a registry name.
 	 *
-	 * @param string $name Registry name.
-	 * @return array{segments:list<array{id:int,size:int}>,bytes:int}
-	 * @throws \InvalidArgumentException On a name the registry lacks.
+	 * @param string $name      Registry name.
+	 * @param bool   $available Whether a Tail would find bytes there now.
+	 * @return array{key:string,label:string,available:bool}
 	 */
-	public static function footprint( string $name ): array {
-		$registry = self::registry();
-		if ( ! isset( $registry[ $name ] ) ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-			throw new \InvalidArgumentException( \rtrim( self::unknown_source( $registry, $name ), "\n" ) );
-		}
-		$entry    = $registry[ $name ];
-		$segments = self::source_segments( $entry );
-		if ( Tail_Node::MODE_SEGMENTED === $entry['mode'] ) {
-			return [
-				'segments' => $segments,
-				'bytes'    => \array_sum( \array_column( $segments, 'size' ) ),
-			];
-		}
-		$size = \is_file( $entry['path'] ) ? \filesize( $entry['path'] ) : false;
+	private static function catalog_row( string $name, bool $available ): array {
 		return [
-			'segments' => [],
-			'bytes'    => false === $size ? 0 : $size,
+			'key'       => self::stamp( $name ),
+			'label'     => $name,
+			'available' => $available,
 		];
 	}
 
 	/**
-	 * The on-disk `{path}.{seg}` segments of a segmented entry as a `{id, size}`
-	 * list sorted by id — the shape a segment browser renders,
-	 * matching `dump_log.segments`.
+	 * The stamp a registry name streams under.
 	 *
-	 * Asked of the WRITER: an ephemeral `Log_Node` on the same path already
-	 * exposes exactly this list through `Partition_Node::get_segments()`, using
-	 * its own `segment_pattern()` seam — so the naming rule is declared once, by
-	 * the class that writes the files, and a companion `.idx` can never read as
-	 * a data segment. (The sibling `Raw_Logs_CI_Node::cmd_dump_log` builds an
-	 * ephemeral Partition for the same reason.) File mode has no segments: [].
-	 *
-	 * An entry that cannot be listed fails the listing that asked, because an
-	 * empty segment list would report a broken source as an empty one.
-	 *
-	 * @param array{path: string, mode: string} $entry A registry() entry.
-	 * @return list<array{id: int,size: int}>
-	 * @throws \Throwable What listing the segments threw.
+	 * @param string $name Registry name.
 	 */
-	private static function source_segments( array $entry ): array {
-		if ( Tail_Node::MODE_SEGMENTED !== $entry['mode'] ) {
-			return [];
+	private static function stamp( string $name ): string {
+		return Log_Discovery::stamp_for( Log_Discovery::SOURCES_PREFIX, $name );
+	}
+
+	/**
+	 * One log's segments and size, the rail a reader browses, by its stamp:
+	 * a dir's or a segmented source's `{id, size}` list and their summed
+	 * bytes, read from the writer of that layout, and a file source's empty
+	 * list and its file size, 0 while the file is absent. A file's size is a
+	 * replay's catch-up boundary, since it has no segment to order by.
+	 *
+	 * @param string $stamp A dir stamp or `sources/<name>`.
+	 * @return array{segments:list<array{id:int,size:int}>,total_size:int}
+	 * @throws \InvalidArgumentException On a stamp no dir or registry entry carries.
+	 */
+	public static function footprint( string $stamp ): array {
+		[ $group, $name ] = Log_Discovery::split( $stamp );
+		if ( Log_Discovery::SOURCES_PREFIX !== $group ) {
+			return self::writer_footprint( new Partition_Node(), self::dir( $stamp ) );
 		}
-		$log = new Log_Node();
+		$entry = self::entry( $name );
+		if ( Tail_Node::MODE_SEGMENTED === $entry['mode'] ) {
+			return self::writer_footprint( new Log_Node(), $entry['path'] );
+		}
+		$size = \is_file( $entry['path'] ) ? \filesize( $entry['path'] ) : false;
+		return [
+			'segments'   => [],
+			'total_size' => false === $size ? 0 : $size,
+		];
+	}
+
+	/**
+	 * The footprint the WRITER of a layout reads off `$path`, so the segment
+	 * naming rule is declared once, by the class that writes the files, and
+	 * a companion `.idx` never reads as a data segment. The writer is
+	 * ephemeral and removed on every exit. A dir `scandir()` cannot read
+	 * lists as empty, as it does to the writer; a listing that throws
+	 * propagates.
+	 *
+	 * @param Partition_Node $writer A fresh Partition for a dir, Log for a segmented source.
+	 * @param string         $path   The dir, or the segmented source's base path.
+	 * @return array{segments:list<array{id:int,size:int}>,total_size:int}
+	 * @throws \Throwable What the listing threw.
+	 */
+	private static function writer_footprint( Partition_Node $writer, string $path ): array {
 		try {
-			$log->arguments( [ $entry['path'] ] );
-			return \array_values( $log->get_segments( true ) );
+			$writer->arguments( [ $path ] );
+			$footprint = $writer->footprint();
 		} finally {
-			$log->remove_node();
+			$writer->remove_node();
 		}
+		return [
+			'segments'   => \array_values( $footprint['segments'] ?? [] ),
+			'total_size' => $footprint['bytes'] ?? 0,
+		];
+	}
+
+	/**
+	 * Single-step ONE log, by its stamp, to the record at `$position` — the
+	 * read model behind every paused single-step debugger.
+	 *
+	 * The position is a `MAGIC_POSITIONS` word, or `<segment>:<offset>` with an
+	 * optional trailing `:<length>` that is tolerated and IGNORED, because the
+	 * reader knows the record's real length. A malformed one throws before
+	 * any log is opened. The reader arrives armed, so every exit after it
+	 * opens runs `remove_node()` in the `finally`: a reader left armed with no
+	 * sink fires forever inside the worker's drain loop.
+	 *
+	 * The `cursor` returned is the POST-step position, exactly where the next
+	 * step resumes. No record there is a result, not a refusal: `message` is
+	 * null, and `at_eof` says whether the reader stopped at the end or only
+	 * consumed a line that would not unpack, with the cursor past it. `Tail_Node extends Consumer_Node`, so a dir and
+	 * both registry modes drive identically; segment rolls, torn records and
+	 * length-blindness are subtle enough that a second copy drifts.
+	 *
+	 * @param string $log      A dir stamp or `sources/<name>`.
+	 * @param string $position Magic token, or `<segment>:<offset>[:<length>]`.
+	 * @return array{source:string,message:array<array-key,mixed>|null,cursor:array{segment:int,offset:int},at_eof:bool}
+	 * @throws \InvalidArgumentException On a malformed position, or a stamp nothing carries.
+	 */
+	public static function read( string $log, string $position ): array {
+		// A magic token rides through to next_offset(), which speaks it.
+		$magic  = \in_array( $position, self::MAGIC_POSITIONS, true );
+		$tokens = \explode( ':', $position );
+		if ( ! $magic
+				&& ( \count( $tokens ) < 2 || \count( $tokens ) > 3
+					|| ! \ctype_digit( $tokens[0] ) || ! \ctype_digit( $tokens[1] ) ) ) {
+			throw new \InvalidArgumentException( 'read_message: invalid position (want <segment>:<offset>[:<length>], start, recent or end)' );
+		}
+		$captured = null;
+		$reader   = self::open_reader( $log );
+		try {
+			$reader->sink( new Callback_Node( static function ( array $message ) use ( &$captured ): void {
+				$captured = $message;
+			} ) );
+			$reader->next_offset(
+				$magic ? $position : [ 'segment' => (int) $tokens[0], 'offset' => (int) $tokens[1] ]
+			);
+			$cursor = $reader->step();
+		} finally {
+			$reader->remove_node();
+		}
+		return [
+			'source'  => $log,
+			'message' => $captured,
+			'cursor'  => [
+				'segment' => $cursor['segment'],
+				'offset'  => $cursor['offset'],
+			],
+			'at_eof'  => $cursor['at_eof'],
+		];
 	}
 
 	/**
 	 * Open ONE named log as a durable reader stamped with that name: a
-	 * `sources/<name>` stamp as its registry entry's Tail, any other as a
-	 * Consumer over the catalog dir it names. The stream and the single-step
-	 * read both resolve here, so a name means one log wherever it is read.
-	 * The reader carries its path alone, so no sidecar is built; the caller
-	 * sets the cursor.
+	 * `sources/<name>` stamp as its registry entry's Tail, any other as the
+	 * cursorless `Consumer_Node::scan()` over the dir it names, the reader the
+	 * stream opens, so a line that will not unpack is skipped and counted.
+	 * The stream and the single-step read both resolve here, so a name means
+	 * one log wherever it is read. No sidecar is built; the caller sets the
+	 * cursor.
 	 *
-	 * @param string $log A `sources/<name>` stamp or a catalog stamp.
+	 * @param string $log A dir stamp or `sources/<name>`.
 	 * @return Consumer_Node The reader, stamped `$log`.
-	 * @throws \InvalidArgumentException On a name the registry or the catalog does not carry.
+	 * @throws \InvalidArgumentException On a stamp no dir or registry entry carries.
 	 */
 	public static function open_reader( string $log ): Consumer_Node {
-		$prefix = Log_Discovery::SOURCES_PREFIX . '/';
-		if ( \str_starts_with( $log, $prefix ) ) {
-			$name     = \substr( $log, \strlen( $prefix ) );
-			$registry = self::registry();
-			if ( ! isset( $registry[ $name ] ) ) {
-				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-				throw new \InvalidArgumentException( \rtrim( self::unknown_source( $registry, $name ), "\n" ) );
-			}
-			$reader = self::open_tail( $registry[ $name ] );
+		[ $group, $name ] = Log_Discovery::split( $log );
+		if ( Log_Discovery::SOURCES_PREFIX === $group ) {
+			$reader = self::open_tail( self::entry( $name ) );
 		} else {
-			$reader = new Consumer_Node();
-			$reader->arguments( [ Log_Discovery::dir_of( $log ) ] );
+			$reader = Consumer_Node::scan( self::dir( $log ) );
 		}
 		$reader->set_stamp_as( $log );
 		return $reader;
 	}
 
 	/**
-	 * Open a registry entry as a durable reader — the ONE place a `mode` token
-	 * becomes a class. Handing the reader its path alone leaves the offsetlog
-	 * and dead-letter dirs empty, so neither sidecar is built: these readers are
-	 * ephemeral (the single-step debugger) or client-cursored (the SSE stream),
-	 * and neither resumes from a durable cursor.
+	 * The dir a dir stamp names under the runtime base, or the refusal that
+	 * names the stamp.
 	 *
-	 * @param array{path: string, mode: string} $entry A registry() entry.
-	 * @return Tail_Node A File_Tail_Node in file mode, a plain Tail_Node in segmented mode.
+	 * @param string $stamp A dir stamp.
+	 * @return string The absolute dir.
+	 * @throws \InvalidArgumentException On a stamp the guard refuses or no dir carries.
 	 */
-	public static function open_tail( array $entry ): Tail_Node {
-		$tail = Tail_Node::MODE_FILE === $entry['mode'] ? new File_Tail_Node() : new Tail_Node();
-		$tail->arguments( [ $entry['path'] ] );
-		return $tail;
+	private static function dir( string $stamp ): string {
+		return Log_Discovery::dir_of( $stamp, Config::get_base_directory() )
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+			?? throw new \InvalidArgumentException( "unknown log: \"{$stamp}\"" );
 	}
 
 	/**
-	 * The teaching error for the first `sources/<name>` subscription the
-	 * registry lacks, or null when every one resolves. A stream checks this
-	 * before it opens, so a spoke without the source refuses the whole
-	 * request with a reason the hub can show, rather than failing mid-stream.
+	 * The registry entry a name keys, or the ONE teaching error for a name
+	 * it lacks, naming every source there is — the REPL, the single-step
+	 * read and the SSE stream all phrase it identically.
 	 *
-	 * @param list<string> $subs Subscription names.
-	 * @return string|null The error, or null.
+	 * @param string $name Registry name.
+	 * @return array{path: string, mode: string}
+	 * @throws \InvalidArgumentException On a name the registry lacks.
 	 */
-	public static function unknown_in( array $subs ): ?string {
-		$prefix   = Log_Discovery::SOURCES_PREFIX . '/';
-		$registry = null;
-		foreach ( $subs as $sub ) {
-			if ( \str_starts_with( $sub, $prefix ) ) {
-				$registry ??= self::registry();
-				$name       = \substr( $sub, \strlen( $prefix ) );
-				if ( ! isset( $registry[ $name ] ) ) {
-					return \rtrim( self::unknown_source( $registry, $name ), "\n" );
-				}
-			}
+	public static function entry( string $name ): array {
+		$registry = self::registry();
+		if ( isset( $registry[ $name ] ) ) {
+			return $registry[ $name ];
 		}
-		return null;
-	}
-
-	/**
-	 * The ONE teaching error for a name the registry does not carry — the REPL,
-	 * the single-step read and the SSE stream all phrase it identically.
-	 *
-	 * @param array<string,array{path: string,mode: string}> $registry Name → entry.
-	 * @param string $name The name that missed.
-	 * @return string The error, newline-terminated, naming every source there is.
-	 */
-	public static function unknown_source( array $registry, string $name ): string {
 		$known = \implode( ', ', \array_keys( $registry ) );
-		return "unknown log source: \"$name\" (known: " . ( '' === $known ? 'none' : $known ) . ")\n";
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+		throw new \InvalidArgumentException( "unknown log source: \"{$name}\" (known: " . ( '' === $known ? 'none' : $known ) . ')' );
 	}
 
 	/**
@@ -513,66 +542,18 @@ class Log_Sources {
 	}
 
 	/**
-	 * Single-step ONE configured durable reader to the record at `$position` —
-	 * the read model behind every paused single-step debugger.
+	 * Open a registry entry as a durable reader — the ONE place a `mode` token
+	 * becomes a class. Handing the reader its path alone leaves the offsetlog
+	 * and dead-letter dirs empty, so neither sidecar is built: these readers are
+	 * ephemeral (the single-step debugger) or client-cursored (the SSE stream),
+	 * and neither resumes from a durable cursor.
 	 *
-	 * The reader arrives already ARMED — the caller's `arguments()` has run
-	 * `set_timer()` and registered it with the Event_Framework — so every exit
-	 * from here, a rejected position included, runs `remove_node()` in the
-	 * `finally`. A reader left armed with no sink fires forever inside the
-	 * worker's drain loop.
-	 *
-	 * The position is a `MAGIC_POSITIONS` word, or `<segment>:<offset>` with an
-	 * optional trailing `:<length>` that is tolerated and IGNORED, because the
-	 * reader knows the record's real length. The `cursor` returned is the
-	 * POST-step position, exactly where the next step resumes.
-	 *
-	 * `Tail_Node extends Consumer_Node`, so the segmented, file-follow and
-	 * partition readers all drive identically; only construction and the verb
-	 * name in the teaching errors differ. A copy per caller drifts: segment
-	 * rolls, torn records, length-blindness and the post-step cursor are subtle
-	 * enough that a fix reaches one copy and silently misses the other.
-	 *
-	 * @param Consumer_Node $reader   A configured, unsunk durable reader.
-	 * @param string        $label    Source name; stamped as FROM and echoed back.
-	 * @param string        $position Magic token, or `<segment>:<offset>[:<length>]`.
-	 * @param string        $verb     Verb name for the teaching errors.
-	 *
-	 * @return array{source:string,message:array<array-key,mixed>,cursor:array{segment:int,offset:int},at_eof:bool}|string The record and its cursor, or a teaching error.
+	 * @param array{path: string, mode: string} $entry A registry() entry.
+	 * @return Tail_Node A File_Tail_Node in file mode, a plain Tail_Node in segmented mode.
 	 */
-	public static function read_at( Consumer_Node $reader, string $label, string $position, string $verb ): array|string {
-		$captured = null;
-		try {
-			// A magic token rides through to next_offset(), which speaks it.
-			$magic  = \in_array( $position, self::MAGIC_POSITIONS, true );
-			$tokens = \explode( ':', $position );
-			if ( ! $magic
-					&& ( \count( $tokens ) < 2 || \count( $tokens ) > 3
-						|| ! \ctype_digit( $tokens[0] ) || ! \ctype_digit( $tokens[1] ) ) ) {
-				return "{$verb}: invalid position (want <segment>:<offset>[:<length>], start, recent or end)\n";
-			}
-			$reader->sink( new Callback_Node( static function ( array $message ) use ( &$captured ): void {
-				$captured = $message;
-			} ) );
-			$reader->set_stamp_as( $label );
-			$reader->next_offset(
-				$magic ? $position : [ 'segment' => (int) $tokens[0], 'offset' => (int) $tokens[1] ]
-			);
-			$cursor = $reader->step();
-		} finally {
-			$reader->remove_node();
-		}
-		if ( null === $captured ) {
-			return "{$verb}: no record at {$label} {$position}\n";
-		}
-		return [
-			'source'  => $label,
-			'message' => $captured,
-			'cursor'  => [
-				'segment' => $cursor['segment'],
-				'offset'  => $cursor['offset'],
-			],
-			'at_eof'  => $cursor['at_eof'],
-		];
+	private static function open_tail( array $entry ): Tail_Node {
+		$tail = Tail_Node::MODE_FILE === $entry['mode'] ? new File_Tail_Node() : new Tail_Node();
+		$tail->arguments( [ $entry['path'] ] );
+		return $tail;
 	}
 }

@@ -325,7 +325,9 @@ export function useStreamGraph( {
  * over the command channel, answered a tick later as `{ message, cursor }`,
  * admitted through the view's paused belt, and the recorded reopen target
  * advanced to the post-step cursor — so the NEXT step continues from there and
- * Play resumes streaming from the stepped point.
+ * Play resumes streaming from the stepped point. A reply with no record adds
+ * no row; its cursor still advances the target when the read consumed a line
+ * that would not unpack.
  *
  * The reply is addressed by its SUBJECT (ADR-7), which for these verbs is the
  * subscription being stepped, the first token of `<sub> <position>`.
@@ -353,14 +355,22 @@ export function useSteppedRead( { graph, ci, command, scope } ) {
 		// The reply names the dir it read; the pending target may have moved.
 		onDone: ( { result, subject } ) => {
 			if (
-				! result?.message ||
+				! result?.cursor ||
 				! viewRef.current ||
 				! isPausedRef.current
 			) {
 				return;
 			}
-			control( { action: 'step', frames: 1 } );
-			viewRef.current.fill( result.message );
+			const at = targetRef.current?.positions?.[ subject ];
+			if ( result.message ) {
+				control( { action: 'step', frames: 1 } );
+				viewRef.current.fill( result.message );
+			} else if (
+				at?.segment === result.cursor.segment &&
+				at?.offset === result.cursor.offset
+			) {
+				return;
+			}
 			resubscribe( [ subject ], {
 				[ subject ]: { ...result.cursor },
 			} );

@@ -546,3 +546,15 @@ test( 'adopts the first AVAILABLE catalog row when nothing is selected', () => {
 	} );
 	expect( node.selected ).toBe( 'kea-7713.p3' );
 } );
+
+test( 'never adopts a catalog row that names no log', () => {
+	const node = new LogViewerViewNode();
+	node._control( {
+		action: 'logs',
+		logs: [
+			{ label: 'broken-6620', available: false, error: 'no <nope:x>' },
+			{ key: 'sources/debug', label: 'debug', available: false },
+		],
+	} );
+	expect( node.selected ).toBe( 'sources/debug' );
+} );

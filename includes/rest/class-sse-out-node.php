@@ -227,20 +227,24 @@ class SSE_Out_Node extends Node {
 	 * The REST handler: read the query parameters, resolve the session, take a
 	 * slot, then run the stream to its end and exit.
 	 *
-	 * Both refusals happen BEFORE `init_sse_headers()` so a refused stream can
-	 * still answer with a JSON `WP_Error`. Once the event-stream headers are
-	 * out, neither 401 nor 429 is sayable.
+	 * Every refusal here happens BEFORE `init_sse_headers()` so a refused
+	 * stream can still answer with a JSON `WP_Error`; once the event-stream
+	 * headers are out, none is sayable. The subscription check refuses only a
+	 * prefix no stamp carries and a registry name the registry lacks: a name
+	 * the stream's guard refuses, such as `offsets/Kea-1`, still fails after
+	 * the headers, when its reader opens.
 	 *
 	 * @param \WP_REST_Request $request Request carrying `subscribe`, `positions`, `multi_writer`, `session` and `stream`.
-	 * @return \WP_Error|void WP_Error when the session is refused (401), the stream id is malformed (400) or no slot is free (429); otherwise streams and exits.
+	 * @return \WP_Error|void WP_Error when a subscription is refused (400 `sse_subscription_invalid`), the session is refused (401), the stream id is malformed (400 `sse_stream_invalid`) or no slot is free (429); otherwise streams and exits.
 	 */
 	public function stream( \WP_REST_Request $request ) {
 		$subscribe     = $request->get_param( 'subscribe' );
 		$positions_raw = $request->get_param( 'positions' ) ?? '';
 		$subs          = $this->parse_subscriptions( Core::as_string( $subscribe ) );
-		$unknown       = Log_Sources::unknown_in( $subs );
-		if ( null !== $unknown ) {
-			return new \WP_Error( 'sse_unknown_source', $unknown, [ 'status' => 400 ] );
+		try {
+			self::refuse_unknown( $subs );
+		} catch ( \InvalidArgumentException $e ) {
+			return new \WP_Error( 'sse_subscription_invalid', \html_entity_decode( $e->getMessage(), \ENT_QUOTES ), [ 'status' => 400 ] );
 		}
 		// `positions` is the ONLY resume input; the client assembles it.
 		$positions     = $this->parse_positions( Core::as_string( $positions_raw ) );
@@ -340,20 +344,35 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Pick the partition to hand the slot pool: the number the first IPC-shaped
-	 * (`{type}.p{N}`) subscription carries, or -1 when none carries one.
+	 * Refuse a stream before it takes a slot when a subscription's prefix is
+	 * one no stamp carries, or it names a registry entry the registry lacks,
+	 * so a spoke without the source refuses the whole request with a reason
+	 * the hub can show rather than failing mid-stream.
 	 *
 	 * @param array<int,string> $subs Subscription names.
+	 * @throws \InvalidArgumentException The first refusal, teaching.
+	 */
+	private static function refuse_unknown( array $subs ): void {
+		foreach ( $subs as $sub ) {
+			[ $group, $name ] = Log_Discovery::split( $sub );
+			if ( Log_Discovery::SOURCES_PREFIX === $group ) {
+				Log_Sources::entry( $name );
+			}
+		}
+	}
+
+	/**
+	 * Pick the partition to hand the slot pool: the number the first IPC-shaped
+	 * (`{type}.p{N}`) dir subscription carries, or -1 when none carries one. A
+	 * grouped sub pools like its bare sibling.
+	 *
+	 * @param array<int,string> $subs Subscription names, each through `split()`.
 	 * @return int A partition number, or -1 for a stream that names no partition.
 	 */
 	private function subscription_partition( array $subs ): int {
 		foreach ( $subs as $sub ) {
-			// A grouped sub pools like its bare sibling: strip the root prefix.
-			$slash = \strpos( $sub, '/' );
-			if ( false !== $slash && \in_array( \substr( $sub, 0, $slash ), Log_Discovery::GROUPS, true ) ) {
-				$sub = \substr( $sub, $slash + 1 );
-			}
-			$worker = CLI::parse_worker_id( $sub );
+			[ $group, $name ] = Log_Discovery::split( $sub );
+			$worker           = Log_Discovery::SOURCES_PREFIX === $group ? null : CLI::parse_worker_id( $name );
 			if ( null !== $worker ) {
 				return $worker[1];
 			}
@@ -750,27 +769,23 @@ class SSE_Out_Node extends Node {
 	 * Resolve a subscription to one-or-more `Consumer`s, layout-agnostically.
 	 *
 	 * `$sub` names a concrete resource dir or globs over several; the partition
-	 * token is part of that name and is never parsed out. A bare exact name
-	 * whose worker holds a live IPC channel (`{base}/ipc/{sub}/output`) tails
-	 * that channel. Everything else globs `{base}/{group}/{rest}` and yields
-	 * one Consumer per matched dir — itself for an exact name, every partition
-	 * dir for `firehose.*` — each stamped and resume-keyed by the stamp
-	 * `Log_Discovery::stamp_for()` builds from its dir basename. The IPC
-	 * reader resumes the same way, keyed by `$sub`, so a reconnecting console
-	 * keeps the replies written while it was away.
+	 * token is part of that name and is never parsed out. It branches on
+	 * `Log_Discovery::split()`. A `sources/<name>` sub opens that registry
+	 * entry's Tail through `Log_Sources::open_reader()`; the registry is fixed
+	 * for the stream's life, so it takes no glob. A bare sub
+	 * `CLI::parse_worker_id()` reads as a worker, whatever its case, tails
+	 * that worker's IPC channel (`{base}/ipc/{sub}/output`) when one exists.
+	 * Any other exact name resolves through `Log_Discovery::dir_of()`, the
+	 * step's resolver too, and a glob through `Log_Discovery::dirs_matching()`
+	 * under the same guard, yielding one Consumer per matched dir stamped by
+	 * `Log_Discovery::stamp_for()`. Each reader resumes keyed by its stamp,
+	 * so a reconnecting console keeps the replies written while it was away.
 	 *
-	 * A `sources/<name>` sub opens that registry entry's Tail through
-	 * `Log_Sources::open_reader()`, stamped and resumed by the whole stamp; the
-	 * registry is fixed for the stream's life, so it takes no glob.
-	 *
-	 * A bare sub `CLI::parse_worker_id()` reads as a worker, whatever its case,
-	 * attaches to that worker's IPC channel when one exists. Every other sub's
-	 * remainder after the group prefix must lead with a lowercase name
-	 * character and contain neither `/` nor `..`, which leaves `*` as the only
-	 * wildcard and confines the glob to one level under a browsable root;
-	 * anything else throws. A matching `$positions` entry seeds that reader's cursor and an
-	 * absent one tail-seeks. A valid pattern matching nothing opens nothing.
-	 * A stamp whose `$positions` entry is `SSE_Out_Node::SKIP` opens no reader.
+	 * The guard leaves `*` as the only wildcard and confines a glob to one
+	 * level under a browsable root; anything it refuses throws. A matching
+	 * `$positions` entry seeds that reader's cursor and an absent one
+	 * tail-seeks. A name or pattern no dir carries opens nothing, and a stamp
+	 * whose `$positions` entry is `SSE_Out_Node::SKIP` opens no reader.
 	 *
 	 * @param string                      $sub       Subscription name or glob.
 	 * @param array<array-key,mixed>|null $positions Saved positions, keyed by stamp.
@@ -781,9 +796,10 @@ class SSE_Out_Node extends Node {
 	 *                                  browsable groups, or fails the guard.
 	 */
 	public function open_subscription( string $sub, ?array $positions ): array {
-		$base = $this->base_dir ?? Bootstrap::base_dir();
+		$base             = $this->base_dir ?? Bootstrap::base_dir();
+		[ $group, $rest ] = Log_Discovery::split( $sub );
 
-		if ( \str_starts_with( $sub, Log_Discovery::SOURCES_PREFIX . '/' ) ) {
+		if ( Log_Discovery::SOURCES_PREFIX === $group ) {
 			if ( self::is_skipped( $positions, $sub ) ) {
 				return [];
 			}
@@ -791,8 +807,6 @@ class SSE_Out_Node extends Node {
 			$reader->next_offset( self::position_arg( $positions, $sub ) );
 			return [ $reader ];
 		}
-
-		[ $group, $rest ] = self::parse_group( $sub );
 
 		// IPC (bare subs only): the worker-id grammar admits it, not the guard.
 		$worker = $sub === $rest ? CLI::parse_worker_id( $sub ) : null;
@@ -810,39 +824,19 @@ class SSE_Out_Node extends Node {
 			}
 		}
 
-		// Traversal guard: the one subscription grammar the broker obeys too.
-		if ( ! Log_Discovery::is_subscription( $sub ) ) {
-			throw new \InvalidArgumentException(
-				\esc_html( "invalid subscription: {$sub}" )
-			);
+		if ( ! \str_contains( $sub, '*' ) ) {
+			$dir = Log_Discovery::dir_of( $sub, $base );
+			return null === $dir || self::is_skipped( $positions, $sub ) ? [] : [ $this->log_consumer_for( $dir, $sub, $positions ) ];
 		}
 
-		// Partition feed: one Consumer per matched dir.
+		// One Consumer per matched dir; a glob fault opens none.
 		$consumers = [];
-		foreach ( self::matched_dirs( $base, $sub )[1] as $dir ) {
-			$name = Log_Discovery::stamp_for( $group, \basename( $dir ) );
-			if ( self::is_skipped( $positions, $name ) ) {
-				continue;
+		foreach ( Log_Discovery::dirs_matching( $sub, $base ) ?? [] as $name => $dir ) {
+			if ( ! self::is_skipped( $positions, $name ) ) {
+				$consumers[] = $this->log_consumer_for( $dir, $name, $positions );
 			}
-			$consumers[] = $this->log_consumer_for( $dir, $name, $positions );
 		}
 		return $consumers;
-	}
-
-	/**
-	 * A subscription's root group and the concrete dirs it matches, an exact
-	 * name matching itself. Layout-agnostic: the partition token sits wherever
-	 * the producer put it in the dir name, so nothing here parses one out. A
-	 * glob I/O error yields an empty list.
-	 *
-	 * @param string $base The runtime base dir the roots sit under.
-	 * @param string $sub  Subscription name or glob.
-	 * @return array{0:string,1:array<int,string>} The group, then absolute dir paths.
-	 */
-	private static function matched_dirs( string $base, string $sub ): array {
-		[ $group, $rest ] = self::parse_group( $sub );
-		$matches          = \glob( "{$base}/{$group}/{$rest}", \GLOB_ONLYDIR );
-		return [ $group, false === $matches ? [] : $matches ];
 	}
 
 	/**
@@ -852,7 +846,7 @@ class SSE_Out_Node extends Node {
 	 * counts move in both directions, so both halves are needed.
 	 *
 	 * Only a stamp a glob opened is removable, so an exact IPC or log
-	 * subscription is never touched. A `glob()` I/O error skips the removal
+	 * subscription is never touched. A glob I/O fault skips the removal
 	 * pass and keeps what is already open: a transient read failure under
 	 * `logs/` must not tear down and re-tail every partition, so a removal
 	 * waits for a scan that came back clean.
@@ -870,14 +864,12 @@ class SSE_Out_Node extends Node {
 		$wanted  = [];
 		$glob_ok = true;
 		foreach ( $glob_subs as $sub ) {
-			[ $group, $rest ] = self::parse_group( $sub );
-			$matches          = \glob( "{$base}/{$group}/{$rest}", \GLOB_ONLYDIR );
-			if ( false === $matches ) {
+			$matches = Log_Discovery::dirs_matching( $sub, $base );
+			if ( null === $matches ) {
 				$glob_ok = false; // I/O error — not a trustworthy "nothing wanted".
 				continue;
 			}
-			foreach ( $matches as $dir ) {
-				$stamp = Log_Discovery::stamp_for( $group, \basename( $dir ) );
+			foreach ( $matches as $stamp => $dir ) {
 				if ( ! self::is_skipped( $positions, $stamp ) ) {
 					$wanted[ $stamp ] = $dir;
 				}
@@ -901,31 +893,6 @@ class SSE_Out_Node extends Node {
 			$c->remove_node();
 			unset( $consumers[ $name ], $glob_owned[ $name ] );
 		}
-	}
-
-	/**
-	 * Split an optional `{group}/` prefix off a subscription. A bare name
-	 * addresses the logs root and stamps bare; `offsets/…` and `deadletter/…`
-	 * address their sibling roots and stamp WITH the prefix. `logs/x` is
-	 * refused rather than aliased to bare `x`, so one source has one spelling.
-	 *
-	 * @param string $sub Subscription name or glob.
-	 * @return array{0:string,1:string} The root group, then the remainder.
-	 *
-	 * @throws \InvalidArgumentException On a prefix outside the browsable roots.
-	 */
-	private static function parse_group( string $sub ): array {
-		$slash = \strpos( $sub, '/' );
-		if ( false === $slash ) {
-			return [ 'logs', $sub ];
-		}
-		$group = \substr( $sub, 0, $slash );
-		if ( 'logs' === $group || ! \in_array( $group, Log_Discovery::GROUPS, true ) ) {
-			throw new \InvalidArgumentException(
-				\esc_html( "invalid subscription: {$sub}" )
-			);
-		}
-		return [ $group, \substr( $sub, $slash + 1 ) ];
 	}
 
 	/**

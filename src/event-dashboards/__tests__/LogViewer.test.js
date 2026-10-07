@@ -218,6 +218,33 @@ describe( 'LogViewer', () => {
 		expect( select.options[ 1 ].textContent ).toBe( 'debug' );
 	} );
 
+	it( 'offers a row that names no log as a disabled option', async () => {
+		const warn = jest
+			.spyOn( console, 'error' )
+			.mockImplementation( () => {} );
+		registerViewFixture( {
+			logs: [
+				{ key: 'firehose.p0', label: 'firehose.p0', available: true },
+				{ label: 'broken-6620', available: false, error: 'x' },
+				{ label: 'broken-6621', available: false, error: 'y' },
+			],
+			selected: 'firehose.p0',
+		} );
+		const { container } = await renderViewer();
+		const select = container.querySelector( '.newspack-nodes-select' );
+		expect(
+			[ ...select.options ].map( ( o ) => [ o.textContent, o.disabled ] )
+		).toEqual( [
+			[ 'firehose.p0', false ],
+			[ 'broken-6620', true ],
+			[ 'broken-6621', true ],
+		] );
+		expect(
+			warn.mock.calls.map( ( c ) => c[ 0 ] ).join( '\n' )
+		).not.toContain( 'unique "key"' );
+		warn.mockRestore();
+	} );
+
 	it( 'shows "No logs available" when the view model has no logs', async () => {
 		registerViewFixture( { logs: [] } );
 		const { container } = await renderViewer();

@@ -13,11 +13,8 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
-use Newspack_Nodes\Core;
 use Newspack_Nodes\Log_Discovery;
 use Newspack_Nodes\Log_Sources;
-use Newspack_Nodes\Node_Names;
-use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Rest\Raw_Logs_CI_Node;
@@ -43,7 +40,6 @@ class RawLogsCITest extends TestCase {
 	}
 
 	protected function tearDown(): void {
-		Raw_Logs_CI_Node::$on_probe = null;
 		Log_Sources::$builtin_sources = null;
 		Topology_Registry::reset();
 		VerbHarness::reset();
@@ -185,6 +181,44 @@ class RawLogsCITest extends TestCase {
 					'label'     => 'deadletter/job-worker.jobs.p0',
 					'available' => true,
 				],
+			],
+			$result
+		);
+	}
+
+	public function test_list_logs_shows_a_logs_dir_named_like_a_group_as_an_error_row(): void {
+		\mkdir( $this->tmp . '/logs/firehose.p0', 0755, true );
+		\mkdir( $this->tmp . '/logs/deadletter', 0755, true );
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
+
+		$this->assertSame(
+			[
+				[
+					'label'     => 'deadletter',
+					'available' => false,
+					'error'     => 'log dir deadletter is named like a group; rename it',
+				],
+				[ 'key' => 'firehose.p0', 'label' => 'firehose.p0', 'available' => true ],
+			],
+			$result
+		);
+	}
+
+	public function test_list_logs_shows_a_dir_no_stamp_can_name_as_an_error_row(): void {
+		\mkdir( $this->tmp . '/offsets/Kea-5512.p4', 0755, true );
+		\mkdir( $this->tmp . '/offsets/kea-5512.p4', 0755, true );
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
+
+		$this->assertSame(
+			[
+				[
+					'label'     => 'Kea-5512.p4',
+					'available' => false,
+					'error'     => 'log dir Kea-5512.p4 is no stamp a stream can name; rename it',
+				],
+				[ 'key' => 'offsets/kea-5512.p4', 'label' => 'offsets/kea-5512.p4', 'available' => true ],
 			],
 			$result
 		);
@@ -396,17 +430,34 @@ class RawLogsCITest extends TestCase {
 		$this->assertSame( 7, $result['cursor']['segment'] );
 	}
 
-	public function test_read_message_reports_a_missing_record_as_an_error_string(): void {
-		\mkdir( $this->tmp . '/logs/firehose.p0', 0755, true );
+	public function test_read_message_answers_no_record_as_a_result(): void {
+		[ $line1, $line2 ] = $this->seed_two_records();
+		$end               = \strlen( $line1 . $line2 );
 
 		$result = VerbHarness::fire(
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
 			'read_message',
-			[ 'firehose.p0', '0:0' ]
+			[ 'firehose.p0', "0:{$end}" ]
 		);
 
-		$this->assertSame( "read_message: no record at firehose.p0 0:0\n", $result );
+		$this->assertSame(
+			[
+				'source'  => 'firehose.p0',
+				'message' => null,
+				'cursor'  => [ 'segment' => 0, 'offset' => $end ],
+				'at_eof'  => true,
+			],
+			$result
+		);
+	}
+
+	public function test_read_message_refuses_an_explicit_logs_prefix(): void {
+		$this->seed_two_records();
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_message', [ 'logs/firehose.p0', '0:0' ] );
+
+		$this->assertSame( "invalid subscription: logs/firehose.p0\n", $result );
 	}
 
 	public function test_dump_log_verb_reflects_seeded_segments(): void {
@@ -440,51 +491,5 @@ class RawLogsCITest extends TestCase {
 
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'permission denied', $result );
-	}
-
-	// -------------------------------------------------------------------------
-	// Sibling-node discipline (Rule 2): the per-partition inspection Partition
-	// is plumbing — it must be named, patron-set to the owning interpreter, and
-	// sunk into the `_command_interpreter` while it's alive.
-	// -------------------------------------------------------------------------
-
-	public function test_dump_log_probe_partition_is_named_patron_set_and_sunk(): void {
-		\mkdir( $this->tmp . '/logs/firehose.p0', 0755, true );
-
-		$seen = [];
-		Raw_Logs_CI_Node::$on_probe = static function ( Partition_Node $probe ) use ( &$seen ): void {
-			$seen[] = [
-				'name'   => $probe->name(),
-				'patron' => $probe->patron(),
-				'sink'   => $probe->sink(),
-			];
-		};
-
-		VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'firehose.p0' );
-
-		$this->assertCount( 1, $seen, 'one probe for the single concrete dir' );
-		$ci    = Core::node( Node_Names::COMMAND_INTERPRETER );
-		$owner = Core::node( 'raw-logs' );
-		$this->assertSame( 'raw-logs:status', $seen[0]['name'] );
-		$this->assertSame( $owner, $seen[0]['patron'], 'patron is the owning interpreter (plumbing-hidden)' );
-		$this->assertSame( $ci, $seen[0]['sink'], 'sunk into the _command_interpreter' );
-	}
-
-	public function test_dump_log_probe_partition_is_removed_after_use(): void {
-		\mkdir( $this->tmp . '/logs/firehose.p0', 0755, true );
-
-		// Confirm the probe is registered in Core WHILE inspecting (alive), so
-		// the post-handler null assertion proves removal, not "never created".
-		$alive_during = null;
-		Raw_Logs_CI_Node::$on_probe = static function ( Partition_Node $probe ) use ( &$alive_during ): void {
-			$alive_during = Core::node( $probe->name() );
-		};
-
-		VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'firehose.p0' );
-
-		$this->assertInstanceOf( Partition_Node::class, $alive_during, 'probe registered during inspection' );
-		// Transient probe: registered while inspecting, unregistered before the
-		// handler returns so re-invocation in a reused process can't collide.
-		$this->assertNull( Core::node( 'raw-logs:status' ) );
 	}
 }
