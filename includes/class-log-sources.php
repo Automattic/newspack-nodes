@@ -223,10 +223,14 @@ class Log_Sources {
 	 *
 	 * The position is a `MAGIC_POSITIONS` word, or `<segment>:<offset>` with an
 	 * optional trailing `:<length>` that is tolerated and IGNORED, because the
-	 * reader knows the record's real length. A malformed one throws before
-	 * any log is opened. The reader arrives armed, so every exit after it
-	 * opens runs `remove_node()` in the `finally`: a reader left armed with no
-	 * sink fires forever inside the worker's drain loop.
+	 * reader knows the record's real length. A file source also takes
+	 * `:<offset>`, the cursor a stream states while it has not seen the file's
+	 * generation, and reads at that offset in whichever file the path holds; a
+	 * segmented log refuses it, because segment 0 is a real segment and no
+	 * other can stand in. A malformed position throws before any log is
+	 * opened. The reader arrives armed, so every exit after it opens runs
+	 * `remove_node()` in the `finally`: a reader left armed with no sink fires
+	 * forever inside the worker's drain loop.
 	 *
 	 * The `cursor` returned is the POST-step position, exactly where the next
 	 * step resumes. No record there is a result, not a refusal: `message` is
@@ -236,28 +240,35 @@ class Log_Sources {
 	 * length-blindness are subtle enough that a second copy drifts.
 	 *
 	 * @param string $log      A dir stamp or `sources/<name>`.
-	 * @param string $position Magic token, or `<segment>:<offset>[:<length>]`.
+	 * @param string $position Magic token, or `[<segment>]:<offset>[:<length>]`.
 	 * @return array{source:string,message:array<array-key,mixed>|null,cursor:array{segment:int,offset:int},at_eof:bool}
-	 * @throws \InvalidArgumentException On a malformed position, or a stamp nothing carries.
+	 * @throws \InvalidArgumentException On a malformed position, a segment-less one on a
+	 *                                   segmented log, or a stamp nothing carries.
 	 */
 	public static function read( string $log, string $position ): array {
 		// A magic token rides through to next_offset(), which speaks it.
-		$magic  = \in_array( $position, self::MAGIC_POSITIONS, true );
-		$tokens = \explode( ':', $position );
+		$magic   = \in_array( $position, self::MAGIC_POSITIONS, true );
+		$tokens  = \explode( ':', $position );
+		$invalid = 'read_message: invalid position (want <segment>:<offset>[:<length>], :<offset> on a file source, start, recent or end)';
 		if ( ! $magic
 				&& ( \count( $tokens ) < 2 || \count( $tokens ) > 3
-					|| ! \ctype_digit( $tokens[0] ) || ! \ctype_digit( $tokens[1] ) ) ) {
-			throw new \InvalidArgumentException( 'read_message: invalid position (want <segment>:<offset>[:<length>], start, recent or end)' );
+					|| ! ( '' === $tokens[0] || \ctype_digit( $tokens[0] ) ) || ! \ctype_digit( $tokens[1] ) ) ) {
+			throw new \InvalidArgumentException( $invalid );
 		}
 		$captured = null;
 		$reader   = self::open_reader( $log );
 		try {
+			if ( ! $magic && '' === $tokens[0] && ! $reader instanceof File_Tail_Node ) {
+				throw new \InvalidArgumentException( $invalid );
+			}
 			$reader->sink( new Callback_Node( static function ( array $message ) use ( &$captured ): void {
 				$captured = $message;
 			} ) );
-			$reader->next_offset(
-				$magic ? $position : [ 'segment' => (int) $tokens[0], 'offset' => (int) $tokens[1] ]
-			);
+			$reader->next_offset( match ( true ) {
+				$magic             => $position,
+				'' === $tokens[0]  => [ 'offset' => (int) $tokens[1] ],
+				default            => [ 'segment' => (int) $tokens[0], 'offset' => (int) $tokens[1] ],
+			} );
 			$cursor = $reader->step();
 		} finally {
 			$reader->remove_node();

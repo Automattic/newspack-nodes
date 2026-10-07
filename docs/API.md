@@ -870,9 +870,12 @@ one segment, `{ id: <inode>, size: <bytes> }`, the slot its stream's ID
 breadcrumbs carry, or none while the file is absent or unreadable.
 An unknown or empty `log` is refused with an error.
 `raw-logs read_message` binds the log key, then the
-position — the single-step grammar `<segment>:<offset>[:<length>]` or one of
-`start`, `recent` and `end`, never the `positions` JSON the SSE route takes; the
-two vocabularies share those three words and nothing else. It reads a partition
+position — the single-step grammar `<segment>:<offset>[:<length>]`, the
+segment-less `:<offset>` a file source's stream states before it has seen the
+file's inode, or one of `start`, `recent` and `end`, never the `positions` JSON
+the SSE route takes; the two vocabularies share those three words and nothing
+else. A segment-less position reads at that offset in the file the path holds
+now, and a partition dir refuses it as a malformed position. It reads a partition
 dir or a `sources/<name>` registry source, and an unknown or empty `log` is
 refused with an error. See
 [Log Sources](#log-sources) for the read model and the struct it answers. The

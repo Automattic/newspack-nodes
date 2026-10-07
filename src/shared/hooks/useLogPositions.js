@@ -44,7 +44,7 @@ import { useCommandOnce } from './useCommandOnce';
  * The one thing `stepPosition` asks of a RemoteLink — where its stream has
  * read to — named so a caller holding any cursor source can supply it.
  *
- * @typedef {{cursor: (sub: string) => ({segment:number,offset:number}|undefined)}} CursorSource
+ * @typedef {{cursor: (sub: string) => ({segment?:number,offset:number}|undefined)}} CursorSource
  */
 
 /** The substrate service CI that catalogs and reads the on-disk logs. */
@@ -106,7 +106,7 @@ export function replayPositions( sub ) {
  * one, else wherever the live stream left off. A token ('start' from Replay)
  * rides through verbatim, because the read verbs speak the same position
  * vocabulary as the seek transport; an explicit cursor formats as
- * `<segment>:<offset>`.
+ * `<segment>:<offset>`, or `:<offset>` when the generation is unknown.
  *
  * @param {CursorSource}                 link      The RemoteLink, for the cursor its stream has reached.
  * @param {string}                       sub       The subscription being stepped.
@@ -119,7 +119,7 @@ export function stepPosition( link, sub, positions ) {
 		return cursor;
 	}
 	if ( cursor && 'object' === typeof cursor ) {
-		return `${ cursor.segment }:${ cursor.offset }`;
+		return `${ cursor.segment ?? '' }:${ cursor.offset }`;
 	}
 	return null;
 }

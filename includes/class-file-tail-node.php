@@ -12,9 +12,10 @@
  * a segment id sits in, so the offsetlog frame's `segment` field and the
  * `<inode>:<offset>:<length>` breadcrumb on every emitted and quarantined
  * message need no new field. A resume validates the persisted cursor against
- * the current file: a foreign, zero or absent generation reads it whole, and a
- * mid-line offset in the RIGHT generation syncs forward onto the next newline —
- * never cross-generation hunting.
+ * the current file: a foreign or zero generation reads it whole, an unnamed
+ * one is the current file, an offset past the end reads it whole, and a
+ * mid-line offset syncs forward onto the next newline — never
+ * cross-generation hunting.
  *
  * Lag has ONE substitution, `compute_lag()`. The probe record and the idle check
  * both read it, so the two cannot answer the same question in different ways.
@@ -53,8 +54,8 @@ class File_Tail_Node extends Tail_Node {
 	 * The generation and offset of an array-form next_offset() seek made BEFORE
 	 * the file opens (build time), awaiting validation on the first poll once
 	 * the live inode is known. A runtime seek (handle already open) validates
-	 * immediately and leaves this null. A null `inode` names no generation, so
-	 * its offset says nothing about this file: read it whole.
+	 * immediately and leaves this null. A null `inode` names no generation, and
+	 * its offset is taken in whichever file the path holds at that poll.
 	 *
 	 * @var array{inode:int|null,offset:int}|null
 	 */
@@ -205,8 +206,9 @@ class File_Tail_Node extends Tail_Node {
 	 * Reposition the read cursor. There are no segments: SEEK_END and its `end` alias are the file
 	 * size, every other sentinel, alias or number is 0 (one file has no previous segment to fall
 	 * back to), and an explicit array {segment: inode, offset} is a RESUME CANDIDATE validated
-	 * through the same validate_resume_offset() path as a durable frame (a foreign/absent
-	 * generation or a shrunk file reads from 0; a mid-line offset syncs forward). A runtime seek
+	 * through the same validate_resume_offset() path as a durable frame (a foreign generation
+	 * or a shrunk file reads from 0; one naming no segment is the current file; a mid-line
+	 * offset syncs forward). A runtime seek
 	 * (handle already open) validates now; a build-time one defers to the first poll.
 	 *
 	 * @param string|int|array<array-key,mixed> $position Seek sentinel, alias word, or explicit {segment,offset}.
@@ -288,8 +290,9 @@ class File_Tail_Node extends Tail_Node {
 	 * The inode reaches cursor_segment only when the handle opens on the first
 	 * poll, and a stream that seeks to EOF and hangs up never polls — so ask
 	 * the path, which next_offset() already stats for its size. An unnamed
-	 * generation would be indistinguishable from a foreign one, reading the whole
-	 * file back on every reconnect. The offset is named even when it is mid-line;
+	 * generation resumes in whichever file the path holds at the reconnect, so
+	 * a rotation in between would read the new file at the old one's offset.
+	 * The offset is named even when it is mid-line;
 	 * the resume syncs forward from there.
 	 *
 	 * @return string `{inode}:{offset}`, or `:{offset}` when no generation is named.
@@ -353,10 +356,12 @@ class File_Tail_Node extends Tail_Node {
 
 	/**
 	 * Validate a persisted cursor against the CURRENT file and return the offset to
-	 * resume at. The frame's container slot is the stored inode. The current file
-	 * is read from 0, never hunted across generations, whenever the stored
-	 * generation is absent, zero or foreign, the file shrank below the cursor, or
-	 * nothing is open here to validate against. A cursor in the RIGHT generation
+	 * resume at. The frame's container slot is the stored inode. An unnamed
+	 * generation is the current one: a stream or a step that has not seen the
+	 * file's inode states its offset alone. The current file is read from 0,
+	 * never hunted across generations, whenever the stored generation is zero or
+	 * foreign, the file shrank below the cursor, or nothing is open here to
+	 * validate against. A cursor in the RIGHT generation
 	 * that is not just past a newline is mid-line: resume there and sync forward
 	 * onto the next one. cursor == size — the file ends exactly on the last
 	 * emitted newline — is valid and reads nothing until the file grows.
@@ -372,8 +377,7 @@ class File_Tail_Node extends Tail_Node {
 			return 0;
 		}
 		// Another file's offset means nothing here: read this one whole.
-		if ( null === $stored_inode || 0 === $stored_inode
-			|| $stored_inode !== $this->cursor_segment ) {
+		if ( null !== $stored_inode && $stored_inode !== $this->cursor_segment ) {
 			return 0;
 		}
 		if ( $this->file_current_size() < $cursor ) {
@@ -454,9 +458,9 @@ class File_Tail_Node extends Tail_Node {
 	 * stale one lets a client echo a pre-rotation position and have the new
 	 * generation declared caught up, so SSE_Out closes on the first tick and
 	 * never delivers it. Falling back to the raw cursor reads as behind, which
-	 * keeps the stream open long enough to validate and rewind. An unnamed
-	 * generation is one of those stale cases — the poll will read the file
-	 * whole — so only a candidate naming THIS one may be trusted.
+	 * keeps the stream open long enough to validate and rewind. Only a
+	 * candidate naming THIS generation is trusted: an unnamed one, which the
+	 * poll seats in the current file, reads as behind until that poll runs.
 	 */
 	private function lag_cursor_offset(): int {
 		$candidate = $this->file_seek_candidate;

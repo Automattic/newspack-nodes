@@ -52,8 +52,8 @@ class Remote_Consumer_Node extends Timer_Node {
 	/** Whether the cursor's segment is unknown: a file source's generation not yet seen. */
 	private bool $generation_unknown = false;
 
-	/** Whether a step's `read_message` is out and unanswered. */
-	private bool $step_requested = false;
+	/** When a step's `read_message` went out unanswered; null while none is out. */
+	private ?float $step_requested_at = null;
 
 	/** `step` clicks still waiting on a reply, one record each. */
 	private int $steps_owed = 0;
@@ -131,12 +131,54 @@ class Remote_Consumer_Node extends Timer_Node {
 	}
 
 	/**
-	 * Replies routed to this reader: a step's answer and the Router's bounce of
-	 * a line whose target names no node. Neither moves the cursor.
+	 * Replies routed to this reader: the spoke's answer to a step, and the
+	 * Router's bounce of a line whose target names no node, which is no command
+	 * and settles nothing. An answer settles the request, and is stale unless
+	 * it echoes the arguments a step would send now: a seek moved the position
+	 * since. `pause` and `play` move nothing but forgive what was owed, so an
+	 * answer nothing awaits is stale too: the stream says where the reader is.
+	 *
+	 * A record goes through `receive()` and drains as a streamed line does,
+	 * one poll per owed step; the reply's cursor is then where the reader
+	 * stands, since it places even a record carrying no crumb. No record owes
+	 * nothing more and still takes the cursor, which moves past a line the
+	 * spoke could not unpack. A payload that is no struct is a refusal: it owes
+	 * nothing and leaves the cursor where it is.
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
-	public function fill( array $message ): void {}
+	public function fill( array $message ): void {
+		$type = Core::int( $message[ Message::TYPE ] );
+		if ( ! ( $type & Message::TM_COMMAND ) || ! ( $type & ( Message::TM_RESPONSE | Message::TM_ERROR ) ) ) {
+			return;
+		}
+		$this->step_requested_at = null;
+		$value                   = Core::arr( $message[ Message::VALUE ] );
+		if ( 0 === $this->steps_owed || ( $value['arguments'] ?? null ) !== [ $this->stamp, $this->step_position() ] ) {
+			return;
+		}
+		$payload = $value['payload'] ?? null;
+		if ( ! \is_array( $payload ) ) {
+			$this->steps_owed = 0;
+			$this->print_less_often( 'step refused: ', \trim( Core::as_string( $payload ) ) );
+			return;
+		}
+		$record = $payload['message'] ?? null;
+		if ( \is_array( $record ) ) {
+			/** @var array<int,mixed> $record */
+			$this->receive( Message::packed( $record ), $record );
+			while ( $this->steps_owed > 0 && $this->buffer_has_line() ) {
+				$this->steps_owed -= $this->poll();
+			}
+		} else {
+			$this->steps_owed = 0;
+		}
+		$cursor = Core::arr( $payload['cursor'] ?? null );
+		if ( \is_int( $cursor['segment'] ?? null ) && \is_int( $cursor['offset'] ?? null ) ) {
+			$this->stand_at( [ 'segment' => $cursor['segment'], 'offset' => $cursor['offset'] ] );
+			$this->pending_seek = null;
+		}
+	}
 
 	/**
 	 * Live, the reader drains on the Durable_Reader cadence. Paused, a tick only
@@ -225,16 +267,35 @@ class Remote_Consumer_Node extends Timer_Node {
 		$this->at_eof = ! $this->buffer_has_line();
 	}
 
-	/** Ask for the record at the cursor, once; a generation not yet seen cannot be named. */
+	/**
+	 * Ask for the record where the reader stands, once per request: a reply
+	 * lost to a transport error or a refused POST never comes, so a request
+	 * older than HTTP_Out's own timeout goes out again, through a fresh
+	 * session check. A late reply to the first is a duplicate the echo check
+	 * already discards.
+	 */
 	private function request_step(): void {
-		if ( $this->step_requested || null === $this->broker ) {
+		if ( null === $this->broker
+			|| ( null !== $this->step_requested_at && Core::$now - $this->step_requested_at < HTTP_Out_Node::REQUEST_TIMEOUT ) ) {
 			return;
 		}
-		if ( $this->generation_unknown ) {
-			$this->print_less_often( "{$this->name} step waits for the source's generation" );
-			return;
+		$this->step_requested_at = $this->broker->request_read( $this, $this->step_position() ) ? Core::$now : null;
+	}
+
+	/**
+	 * Where a step reads, in `read_message`'s grammar: a pending seek's word,
+	 * which the spoke resolves; else the cursor, as `:<offset>` alone while
+	 * the generation is unknown, since segment 0 names a foreign inode.
+	 */
+	private function step_position(): string {
+		if ( null !== $this->pending_seek ) {
+			foreach ( Log_Sources::MAGIC_POSITIONS as $word ) {
+				if ( Consumer_Node::seek_sentinel( $word ) === $this->pending_seek ) {
+					return $word;
+				}
+			}
 		}
-		$this->step_requested = $this->broker->request_read( $this, "{$this->cursor_segment}:{$this->cursor_offset}" );
+		return ( $this->generation_unknown ? '' : $this->cursor_segment ) . ":{$this->cursor_offset}";
 	}
 
 	/**
@@ -248,12 +309,8 @@ class Remote_Consumer_Node extends Timer_Node {
 		if ( null === $this->skipped_to || $this->buffer_has_line() ) {
 			return;
 		}
-		$this->generation_unknown = ! isset( $this->skipped_to['segment'] );
-		if ( isset( $this->skipped_to['segment'] ) ) {
-			$this->cursor_segment = $this->skipped_to['segment'];
-		}
-		$this->cursor_offset = $this->skipped_to['offset'];
-		$this->skipped_to    = null;
+		$this->stand_at( $this->skipped_to );
+		$this->skipped_to = null;
 	}
 
 	/**
@@ -295,12 +352,10 @@ class Remote_Consumer_Node extends Timer_Node {
 		$segment = Core::as_int( $segment );
 		$offset  = Core::as_int( $offset );
 		$this->arm_skip_head_from_frame( $value );
-		$this->cursor_segment      = $segment;
-		$this->cursor_offset       = $offset;
+		$this->stand_at( [ 'segment' => $segment, 'offset' => $offset ] );
 		$this->boot_cursor_segment = $segment;
 		$this->boot_cursor_offset  = $offset;
 		$this->pending_seek        = null;
-		$this->generation_unknown  = false;
 		return [
 			'segment' => $segment,
 			'offset'  => $offset,
@@ -318,10 +373,8 @@ class Remote_Consumer_Node extends Timer_Node {
 	protected function drain_line( string $line, int $abs_offset ): void {
 		$crumb = $this->head['crumb'] ?? null;
 		if ( null !== $crumb ) {
-			$this->cursor_segment     = $crumb['segment'];
-			$this->cursor_offset      = $crumb['offset'];
-			$this->pending_seek       = null;
-			$this->generation_unknown = false;
+			$this->stand_at( $crumb );
+			$this->pending_seek = null;
 		}
 		if ( $this->crawl_skip_head && null !== $crumb && $this->sacrifice_boot_head( $line, $crumb ) ) {
 			return; // Sacrificed — not forwarded.
@@ -478,14 +531,15 @@ class Remote_Consumer_Node extends Timer_Node {
 	 * @param string|int|array<array-key,mixed> $position Explicit {segment?,offset}, or a seek sentinel / alias word.
 	 */
 	public function next_offset( $position ): void {
-		$this->steps_owed = 0;
+		$this->steps_owed        = 0;
+		$this->step_requested_at = null;
 		if ( \is_array( $position ) ) {
-			$this->generation_unknown = ! \is_numeric( $position['segment'] ?? null );
-			if ( ! $this->generation_unknown ) {
-				$this->cursor_segment = Core::as_int( $position['segment'] );
+			$at = [ 'offset' => \is_numeric( $position['offset'] ?? null ) ? Core::as_int( $position['offset'] ) : 0 ];
+			if ( \is_numeric( $position['segment'] ?? null ) ) {
+				$at['segment'] = Core::as_int( $position['segment'] );
 			}
-			$this->cursor_offset = \is_numeric( $position['offset'] ?? null ) ? Core::as_int( $position['offset'] ) : 0;
-			$this->pending_seek  = null;
+			$this->stand_at( $at );
+			$this->pending_seek = null;
 		} else {
 			$this->pending_seek = Consumer_Node::seek_sentinel( $position );
 		}
@@ -564,12 +618,23 @@ class Remote_Consumer_Node extends Timer_Node {
 		if ( null === $this->pending_seek ) {
 			return;
 		}
-		$this->pending_seek       = null;
-		$this->generation_unknown = ! isset( $cursor['segment'] );
-		if ( isset( $cursor['segment'] ) ) {
-			$this->cursor_segment = $cursor['segment'];
+		$this->pending_seek = null;
+		$this->stand_at( $cursor );
+	}
+
+	/**
+	 * Stand the cursor at a place. A place naming no segment moves the offset
+	 * alone and leaves the generation unknown, rather than writing segment 0,
+	 * which a File_Tail reads as a foreign inode.
+	 *
+	 * @param array{segment?:int,offset:int} $at Where the reader now stands.
+	 */
+	private function stand_at( array $at ): void {
+		$this->generation_unknown = ! isset( $at['segment'] );
+		if ( isset( $at['segment'] ) ) {
+			$this->cursor_segment = $at['segment'];
 		}
-		$this->cursor_offset = $cursor['offset'];
+		$this->cursor_offset = $at['offset'];
 	}
 
 	/**
@@ -615,15 +680,15 @@ class Remote_Consumer_Node extends Timer_Node {
 
 	/** `pause` leaves the stream: the broker reconnects without this reader. */
 	protected function time_travel_on_pause(): void {
-		$this->steps_owed     = 0;
-		$this->step_requested = false;
+		$this->steps_owed        = 0;
+		$this->step_requested_at = null;
 		$this->broker?->restream();
 	}
 
 	/** `play` rejoins it from where the cursor stands. */
 	protected function time_travel_resume(): void {
-		$this->steps_owed     = 0;
-		$this->step_requested = false;
+		$this->steps_owed        = 0;
+		$this->step_requested_at = null;
 		$this->set_timer( self::POLL_INTERVAL_EOF_MS );
 		$this->broker?->restream();
 	}

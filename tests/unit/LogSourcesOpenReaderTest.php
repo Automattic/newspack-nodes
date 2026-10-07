@@ -191,11 +191,22 @@ final class LogSourcesOpenReaderTest extends TestCase {
 		$this->assertSame( [ 'segment' => 5, 'offset' => \strlen( $first . $bad ) ], $result['cursor'] );
 	}
 
+	public function test_a_dir_refuses_a_segmentless_position(): void {
+		$dir = "{$this->tmp}/logs/kea-7713.p3";
+		\mkdir( $dir, 0755, true );
+		\file_put_contents( "{$dir}/6.log", self::record( 'segmented record 2817' ) . self::record( 'second 2817' ) );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'read_message: invalid position (want <segment>:<offset>[:<length>], :<offset> on a file source, start, recent or end)' );
+
+		Log_Sources::read( 'kea-7713.p3', ':42' );
+	}
+
 	public function test_a_bad_position_throws_before_any_log_is_resolved(): void {
 		Log_Sources::$builtin_sources = fn (): array => $this->fail( 'a bad position resolves no log' );
 
 		$this->expectException( \InvalidArgumentException::class );
-		$this->expectExceptionMessage( 'read_message: invalid position (want <segment>:<offset>[:<length>], start, recent or end)' );
+		$this->expectExceptionMessage( 'read_message: invalid position (want <segment>:<offset>[:<length>], :<offset> on a file source, start, recent or end)' );
 
 		Log_Sources::read( 'sources/php', '7:x' );
 	}

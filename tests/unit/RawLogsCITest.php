@@ -413,7 +413,7 @@ class RawLogsCITest extends TestCase {
 			[ 'firehose.p0', 'abc' ]
 		);
 
-		$this->assertSame( "read_message: invalid position (want <segment>:<offset>[:<length>], start, recent or end)\n", $bad );
+		$this->assertSame( "read_message: invalid position (want <segment>:<offset>[:<length>], :<offset> on a file source, start, recent or end)\n", $bad );
 	}
 
 	public function test_read_message_reads_a_grouped_deadletter_key(): void {

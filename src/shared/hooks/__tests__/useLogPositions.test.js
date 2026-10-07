@@ -110,6 +110,16 @@ describe( 'stepPosition', () => {
 		).toBe( '4:128' );
 	} );
 
+	it( 'formats a cursor naming no generation as :<offset>', () => {
+		expect(
+			stepPosition(
+				link( { 'sources/php': { offset: 6731 } } ),
+				'sources/php',
+				null
+			)
+		).toBe( ':6731' );
+	} );
+
 	it( 'falls back to the live resume position with no pending seek', () => {
 		expect(
 			stepPosition(

@@ -669,6 +669,20 @@ test( 'the connected envelope seeds positions for a zero-message stream', () => 
 	} );
 } );
 
+test( 'a cursor naming no generation seeds the offset alone', () => {
+	const { sse } = makeSseIn( { subscribe: [ 'sources/php' ] } );
+	sse.start();
+	FakeEventSource.last.dispatch(
+		'connected',
+		connectedFrame( { cursors: 'sources/php=:6731' } )
+	);
+
+	// Segment 0 would name a foreign inode, and the file would replay whole.
+	expect( sse.seekMap() ).toEqual( {
+		'sources/php': { offset: 6731 },
+	} );
+} );
+
 function unparseableFrame( value ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_INFO;

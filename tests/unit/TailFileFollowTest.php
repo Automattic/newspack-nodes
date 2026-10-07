@@ -160,14 +160,14 @@ class TailFileFollowTest extends TestCase {
 	}
 
 	/**
-	 * Rule 3: a wrong, zero or absent generation reads the CURRENT file from
-	 * the beginning — the offset belonged to something else.
+	 * Rule 3: a wrong or zero generation reads the CURRENT file from the
+	 * beginning — the offset belonged to something else.
 	 */
 	public function test_file_mode_foreign_generation_reads_from_the_beginning(): void {
 		$path = "{$this->tmp}/foreign.log";
 		\file_put_contents( $path, "alpha\nbravo\n" );
 
-		foreach ( [ 999999999, 0, null ] as $inode ) {
+		foreach ( [ 999999999, 0 ] as $inode ) {
 			$t   = $this->follow( $path );
 			$cap = new Capture_Sink_Node();
 			$t->sink( $cap );
@@ -182,22 +182,35 @@ class TailFileFollowTest extends TestCase {
 		}
 	}
 
-	public function test_file_mode_seek_without_a_container_reads_from_the_beginning(): void {
+	public function test_file_mode_seek_without_a_container_resumes_in_the_current_file(): void {
 		$path = "{$this->tmp}/resume.log";
 		\file_put_contents( $path, "alpha-7788\nbeta-991122\n" );
 
 		$cap = new Capture_Sink_Node();
 		$t   = $this->follow( $path );
 		$t->sink( $cap );
-		// No 'segment' key names no generation, and an offset without one says
-		// nothing about THIS file: read it whole rather than guess.
+		// No 'segment' key names no generation: the offset is the current file's.
 		$t->next_offset( [ 'offset' => 11 ] );
 		$this->pump( $t );
 
 		$this->assertSame(
-			[ "alpha-7788\n", "beta-991122\n" ],
+			[ "beta-991122\n" ],
 			$this->values( $cap )
 		);
+	}
+
+	public function test_file_mode_seek_without_a_container_past_a_shrunk_file_restarts(): void {
+		$path = "{$this->tmp}/shrunk-unnamed.log";
+		\file_put_contents( $path, "kilo-4410\nlima-73\n" );
+
+		$cap = new Capture_Sink_Node();
+		$t   = $this->follow( $path );
+		$t->sink( $cap );
+		// The file holds 18 bytes; an offset of 9031 belongs to a longer one.
+		$t->next_offset( [ 'offset' => 9031 ] );
+		$this->pump( $t );
+
+		$this->assertSame( [ "kilo-4410\n", "lima-73\n" ], $this->values( $cap ) );
 	}
 
 	public function test_file_mode_idle_since_reports_when_the_followed_file_last_grew(): void {

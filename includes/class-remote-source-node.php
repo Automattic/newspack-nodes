@@ -321,7 +321,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * this link holds no session with gets asked for one, and the reader retries.
 	 *
 	 * @param Remote_Consumer_Node $child    The paused reader.
-	 * @param string               $position `<segment>:<offset>` where it stands.
+	 * @param string               $position Where it reads, in `read_message`'s position grammar.
 	 * @return bool True once the command is queued.
 	 */
 	public function request_read( Remote_Consumer_Node $child, string $position ): bool {

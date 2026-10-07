@@ -501,6 +501,17 @@ class LogSourcesTest extends TestCase {
 		$this->assertSame( "alpha line\n", $stale['message'][ \Newspack_Nodes\Message::VALUE ] );
 	}
 
+	public function test_read_source_file_mode_reads_a_segmentless_position_in_the_current_file(): void {
+		$path = "{$this->tmp}/plain-6052.log";
+		\file_put_contents( $path, "alpha line\nbeta line 6052\ngamma line\n" );
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
+
+		$result = $this->read_source( 'php', ':11' );
+
+		$this->assertSame( "beta line 6052\n", $result['message'][ \Newspack_Nodes\Message::VALUE ], 'an unnamed generation is the current file' );
+		$this->assertSame( [ 'segment' => (int) \fileinode( $path ), 'offset' => 26 ], $result['cursor'], 'the reply names the generation' );
+	}
+
 	/**
 	 * The Replay control seeks with the magic 'start' token, and Step then reads
 	 * at the SAME position — so the read verb must speak the same position
@@ -526,7 +537,7 @@ class LogSourcesTest extends TestCase {
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
 
 		$this->expectException( \InvalidArgumentException::class );
-		$this->expectExceptionMessage( 'read_message: invalid position (want <segment>:<offset>[:<length>], start, recent or end)' );
+		$this->expectExceptionMessage( 'read_message: invalid position (want <segment>:<offset>[:<length>], :<offset> on a file source, start, recent or end)' );
 		$this->read_source( 'php', 'abc' );
 	}
 
