@@ -258,23 +258,41 @@ the ruleset.
 
 ## Rate Limiting
 
-The spawn endpoint's two limits are in the handshake above: the 2-second
-per-user limit ([`Spawn_Controller::RATE_LIMIT_S`](../includes/rest/class-spawn-controller.php)) on the WordPress-admin path,
-and the 15-second `{type}|{partition}` throttle
+The spawn endpoint's two limits are in the handshake above: one call per
+[`Spawn_Controller::RATE_LIMIT_S`](../includes/rest/class-spawn-controller.php) (2 seconds) per user on the WordPress-admin path,
+metered by `Rate_Limit` below and answering `429 rate_limited`, and the 15-second `{type}|{partition}` throttle
 ([`Spawn_Coordinator::MIN_SPAWN_INTERVAL_S`](../includes/class-spawn-coordinator.php)) every spawner shares, recorded by
 `Spawn_Coordinator::record_spawn()` in memory and in the shared cache, with a
-transient fallback, at twice the window's TTL.
+transient fallback, at twice the window's TTL. Spawning is how the fleet
+revives itself, so where no shared cache can meter the admin path the spawn
+is admitted unmetered, with one rate-limited warning, rather than refused.
 
-The `/command` endpoint applies its own per-user burst limit
+The `/command` endpoint applies its own per-user limit
 ([`HTTP_In_Node::check_permission`](../includes/rest/class-http-in-node.php)): `RATE_LIMIT_BURST = 30` POSTs per
-`RATE_LIMIT_WINDOW_S = 1` second per user, bucketed by clock-second and
-transient-backed, answering `429 Too Many Requests` on overflow. Independent
-per-second buckets are what keep a steady one-request-per-second client at
-count 1 forever. The budget is tunable through the
-[`newspack_nodes/command_rate_limit`](#filters) filter, clamped to a minimum of 1.
+`RATE_LIMIT_WINDOW_S = 1` second per user, answering `429 rate_limited` on
+overflow. Memcached counts expiry in whole seconds, so at one second a slot
+frees within the second it was claimed in, and the budget is close to one
+bucket per cache tick; what the limiter adds over the old transient counter
+is the atomic claim. When neither memcached nor APCu answers, the door admits
+and logs one rate-limited warning, because every dashboard, Status poll and
+hub push rides `/command`, and a dead cache must not take them all down. The
+budget is tunable through the [`newspack_nodes/command_rate_limit`](#filters)
+filter, clamped to 1 through `Rate_Limit::MAX_BURST` (256). The capability is
+checked first, so an unauthenticated flood spends no slots.
 
-Application plugins that add public-facing endpoints should layer their own
-rate limits on top.
+The limit is [`Rate_Limit::claim( $name, $burst, $window_s )`](../includes/class-rate-limit.php),
+which the spawn endpoint and an application door meter through too, as
+event-logger-nodes' MCP route does. Each admitted call claims one of `$burst`
+slots with the shared cache's atomic `add()` under a `$window_s` TTL, so two
+concurrent requests cannot both take the last slot. Each slot frees on its own
+clock, but in whole seconds: memcached frees it between `$window_s - 1` and
+`$window_s` seconds after its claim, and APCu between `$window_s` and
+`$window_s + 1`. It answers `Rate_Limit::ADMITTED`, `THROTTLED` or
+`UNAVAILABLE` — the last when there is no shared backend or the slot read
+fails — and each door decides what an unmetered call gets: `/command` and
+spawn admit it through `Rate_Limit::admit_unmetered()`, which warns once per
+door, and MCP refuses it with a 503. A burst outside 1 to `MAX_BURST`, a window
+below 1 or a name holding whitespace throws.
 
 ## Command Signing
 
@@ -1346,7 +1364,7 @@ log_level 2 or above, and `debug` is what keeps it out of the paging path.
 | `newspack_nodes/remote_job_handlers` | `array $handlers` | The same, for entries whose `k` selects the remote map. |
 | `newspack_nodes/job_worker/before_job` | `bool $run, string $handler, string $id, array $message` | `Job_Worker_Node`. Return `false` to DECLINE the job. |
 | `newspack_nodes/capability_map` | `array $map` — role => WP capability | [`Capabilities::cap_for()`](../includes/class-capabilities.php). The baseline is [`Roles::defaults()`](../includes/class-roles.php): all three roles map to `manage_options` until a site installs the granular capabilities, and then to `newspack_nodes_{read,tune,manage}`. Return all three roles — the union form `fn ( $map ) => [ 'read' => 'edit_posts' ] + $map`, never a bare `[ 'read' => … ]`; see below. |
-| `newspack_nodes/command_rate_limit` | `int $burst` | [`HTTP_In_Node::check_rate_limit()`](../includes/rest/class-http-in-node.php). Clamped to a minimum of 1. |
+| `newspack_nodes/command_rate_limit` | `int $burst` | [`HTTP_In_Node::check_permission()`](../includes/rest/class-http-in-node.php): `/command` POSTs per user per one-second window. Clamped to 1 through `Rate_Limit::MAX_BURST` (256). |
 | `newspack_nodes/registered_log_producers` | `array<int,string> $producers` — path templates | [`Log_Cleaner`](../includes/class-log-cleaner.php). Declare a log dir the retention sweep must know about. Non-string and empty entries are dropped and duplicates collapse, but a well-formed template resolving to no directory under `<config:logs_dir>` anywhere in the partition range is NOT dropped: it refuses the whole sweep, `offsets/` included, raising `log producer <template> declares no dir under the logs root <root>` before any delete, and `dump_graph` lists every other log and names the template under `refused_producers`. [`Core::resolve_partition_template`](../includes/class-core.php) expands each template over `Bootstrap::global_num_partitions()` — the global `num_partitions` clamped to `Spawn_Coordinator::MAX_PARTITIONS`, never the declaring topology's own count — so a producer writing past that range leaves undeclared dirs the sweep will take. A template carrying no `{partition}` or `<partition>` token collapses to one directory pinned across the fleet, which is how `alerts.p0` is declared. One log dir escapes this rule: `Log_Cleaner` reads `Settings_Event_Writer::SETTINGS_LOG_DIR` directly and seeds `settings.p0` at partition 0 into an already non-empty declared set, because the settings writer has no `.tsl` write-set entry and registers no template. Do not copy the settings writer as the model for a new PHP producer — one that declares nothing here is reaped. |
 | `newspack_nodes/segment_size_overrides` | `array<string,int> $overrides` — basename => bytes | [`Workers_CI_Node`](../includes/rest/class-workers-ci-node.php). Declare the geometry of a Partition built in PHP rather than by a `make_node` line, which has no literal size to read. The union keeps the left side, so the filter fills gaps and never restates. |
 | `newspack_nodes/settings_sync/value` | `mixed $value, string $option` | [`Settings_Sync_Node`](../includes/class-settings-sync-node.php). Resolve the value a hub pushes to its spokes — a requirement for any option that can be absent, not an optional refinement. `push()` reads `\get_option( $local )` with NO default and never goes through `Config::value()`, `register_setting()` defaults apply only inside `is_admin()` requests and a worker is never one, and [`Reset_Gate`](../includes/config-system/class-reset-gate.php) DELETES the row on reset-to-default. An unsaved or freshly-reset option therefore resolves to `false`, `Core::as_string()` makes that `''`, and the spoke's typed receiver refuses it with `invalid value for setting: …`. A hub syncing the substrate's own `remote_*` geometry needs a resolver mapping absent to the owning config's default; the filter runs on every push, the periodic sweep included. The substrate registers no handler of its own. |

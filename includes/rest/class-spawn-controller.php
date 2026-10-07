@@ -24,6 +24,7 @@ use Newspack_Nodes\Capabilities;
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\CLI;
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Rate_Limit;
 use Newspack_Nodes\Spawn_Coordinator;
 
 \defined( 'ABSPATH' ) || exit;
@@ -57,90 +58,6 @@ class Spawn_Controller {
 	 */
 	public function __construct( Spawn_Coordinator $coordinator ) {
 		$this->coordinator = $coordinator;
-	}
-
-	/**
-	 * Authorize a spawn request.
-	 *
-	 * A multisite subsite is refused first: locks, IPC and logs carry no blog
-	 * namespace, so the fleet runs on the main site only. Then the internal
-	 * HMAC token, accepted for the current or the previous 10-second window.
-	 * Failing that, an external caller holding the `manage` role
-	 * (`manage_options` until a site installs the granular capabilities) and
-	 * presenting a valid WordPress nonce, one request per RATE_LIMIT_S.
-	 *
-	 * @param \WP_REST_Request $req Incoming spawn request.
-	 * @return true|\WP_Error True when the caller may spawn; the refusal otherwise.
-	 */
-	public function check_permission( \WP_REST_Request $req ) {
-		$gate = Bootstrap::fleet_gate();
-		if ( null !== $gate ) {
-			return $gate;
-		}
-		$raw_nonce = $req->get_param( 'nonce' );
-		$nonce     = Core::as_string( $raw_nonce );
-		if ( '' === $nonce ) {
-			return new \WP_Error( 'invalid_token', 'Missing spawn token', [ 'status' => 403 ] );
-		}
-
-		// Internal HMAC path: no capability, no rate limit.
-		if ( $this->coordinator->validate_spawn_token( $nonce, \time() ) ) {
-			return true;
-		}
-
-		// Capability before rate limit, or any caller can write transients.
-		if ( ! Capabilities::can( Capabilities::MANAGE ) ) {
-			return new \WP_Error(
-				'invalid_token',
-				'Invalid spawn token',
-				[ 'status' => 403 ]
-			);
-		}
-
-		if ( ! \function_exists( 'wp_verify_nonce' ) || ! \wp_verify_nonce( $nonce, self::NONCE_ACTION ) ) {
-			return new \WP_Error(
-				'invalid_token',
-				'Invalid spawn token',
-				[ 'status' => 403 ]
-			);
-		}
-
-		$rate_check = $this->check_rate_limit();
-		if ( $rate_check instanceof \WP_Error ) {
-			return $rate_check;
-		}
-
-		return true;
-	}
-
-	/**
-	 * Hold external spawn requests to one per RATE_LIMIT_S per user.
-	 *
-	 * The transient lives 10 seconds so it outlives the window it guards and
-	 * then expires on its own, leaving nothing to sweep. Where the transient
-	 * API is absent the caller passes rather than fatals.
-	 *
-	 * @return true|\WP_Error True when the caller may proceed; the refusal otherwise.
-	 */
-	protected function check_rate_limit() {
-		if ( ! \function_exists( 'get_transient' ) || ! \function_exists( 'set_transient' ) ) {
-			return true;
-		}
-		$user_id = Core::current_user_id();
-		$key     = 'newspack_nodes_spawn_rate:' . $user_id;
-		$last    = \get_transient( $key );
-		if ( false !== $last && \is_scalar( $last ) ) {
-			$elapsed = \time() - (int) $last;
-			if ( $elapsed < self::RATE_LIMIT_S ) {
-				return new \WP_Error(
-					'rate_limited',
-					'Too many spawn requests; please wait a moment.',
-					[ 'status' => 429 ]
-				);
-			}
-		}
-		\set_transient( $key, \time(), 10 );
-		return true;
 	}
 
 	/**
@@ -247,6 +164,60 @@ class Spawn_Controller {
 			return false;
 		}
 		return $partition < $max;
+	}
+
+	/**
+	 * Authorize a spawn request.
+	 *
+	 * A multisite subsite is refused first: locks, IPC and logs carry no blog
+	 * namespace, so the fleet runs on the main site only. Then the internal
+	 * HMAC token, accepted for the current or the previous 10-second window.
+	 * Failing that, an external caller holding the `manage` role
+	 * (`manage_options` until a site installs the granular capabilities) and
+	 * presenting a valid WordPress nonce, one request per RATE_LIMIT_S.
+	 *
+	 * @param \WP_REST_Request $req Incoming spawn request.
+	 * @return true|\WP_Error True when the caller may spawn; the refusal otherwise.
+	 */
+	public function check_permission( \WP_REST_Request $req ) {
+		$gate = Bootstrap::fleet_gate();
+		if ( null !== $gate ) {
+			return $gate;
+		}
+		$raw_nonce = $req->get_param( 'nonce' );
+		$nonce     = Core::as_string( $raw_nonce );
+		if ( '' === $nonce ) {
+			return new \WP_Error( 'invalid_token', 'Missing spawn token', [ 'status' => 403 ] );
+		}
+
+		// Internal HMAC path: no capability, no rate limit.
+		if ( $this->coordinator->validate_spawn_token( $nonce, \time() ) ) {
+			return true;
+		}
+
+		// Capability before rate limit, or any caller can spend a user's slot.
+		if ( ! Capabilities::can( Capabilities::MANAGE ) ) {
+			return new \WP_Error(
+				'invalid_token',
+				'Invalid spawn token',
+				[ 'status' => 403 ]
+			);
+		}
+
+		if ( ! \function_exists( 'wp_verify_nonce' ) || ! \wp_verify_nonce( $nonce, self::NONCE_ACTION ) ) {
+			return new \WP_Error(
+				'invalid_token',
+				'Invalid spawn token',
+				[ 'status' => 403 ]
+			);
+		}
+
+		return match ( Rate_Limit::claim( 'spawn:' . Core::current_user_id(), 1, self::RATE_LIMIT_S ) ) {
+			Rate_Limit::ADMITTED    => true,
+			Rate_Limit::THROTTLED   => new \WP_Error( 'rate_limited', 'Too many spawn requests; please wait a moment.', [ 'status' => 429 ] ),
+			// Spawning revives the fleet; the throttle only stops hammering.
+			Rate_Limit::UNAVAILABLE => Rate_Limit::admit_unmetered( 'spawn' ),
+		};
 	}
 
 	/**

@@ -28,10 +28,10 @@
   <div></div><div class="hd">Stage, in order</div><div class="hd">What the caller gets</div>
 
   <div class="n">1</div>
-  <div class="st"><b>At the door.</b> WordPress parses an <span class="mono">application/json</span> body itself, and JSONL is not one document. The permission callback wants the fleet site, the <span class="blue">read</span> role and a free rate-limit bucket. Send <span class="mono">text/plain; charset=UTF-8</span>.</div>
+  <div class="st"><b>At the door.</b> WordPress parses an <span class="mono">application/json</span> body itself, and JSONL is not one document. The permission callback wants the fleet site, the <span class="blue">read</span> role and a free rate-limit slot. Send <span class="mono">text/plain; charset=UTF-8</span>.</div>
   <div class="out">
     <div class="o deny"><span class="code">400</span><span class="mono">rest_invalid_json</span>: the body never reaches <span class="mono">HTTP_In_Node</span> <span class="t">WP error object</span></div>
-    <div class="o deny"><span class="code">401</span><span class="mono">rest_forbidden</span> anonymously, <b>403</b> once logged in; <b>403</b> <span class="mono">newspack_nodes_not_fleet_site</span>; <b>429</b> <span class="mono">rate_limited</span> past 30 POSTs in one second <span class="t">WP error object</span></div>
+    <div class="o deny"><span class="code">401</span><span class="mono">rest_forbidden</span> anonymously, <b>403</b> once logged in; <b>403</b> <span class="mono">newspack_nodes_not_fleet_site</span>; <b>429</b> <span class="mono">rate_limited</span> while all 30 of the user's one-second slots are held. With no shared cache the door admits unmetered, so there is no 503<span class="t">WP error object</span></div>
   </div>
 
   <div class="n">2</div>

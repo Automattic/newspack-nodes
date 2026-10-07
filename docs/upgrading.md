@@ -6,6 +6,13 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`HTTP_In_Node::$clock_now_seam` and `HTTP_In_Node::$rate_limit_disabled`
+  are gone.** `/command` meters through `Rate_Limit::claim()` in the shared
+  cache, so a test that set either assigns an `InMemoryMemcached` to
+  `Core::$memd` instead and pins its `clock` to move the window. A door of
+  your own meters through `Rate_Limit::claim()` rather than a transient
+  counter, and maps `Rate_Limit::UNAVAILABLE` itself: refuse, or
+  `Rate_Limit::admit_unmetered()`.
 - **`Curl_Node`'s `vault_id` positional is `vault_group`.** `make_node Curl
   <name> <vault_id>` becomes `make_node Curl <name> <vault_group>`, naming a
   Vault group in place of one entry: put the entry in a group, through the
