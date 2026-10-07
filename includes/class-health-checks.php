@@ -375,10 +375,50 @@ final class Health_Checks {
 	 * @return list<HealthResult>
 	 */
 	public static function runtime(): array {
-		return \array_map(
-			static fn ( array $row ): array => [ ...$row, 'messages' => \array_map( self::fit( ... ), $row['messages'] ) ],
-			[ self::cache_backend(), self::log_sources() ]
-		);
+		$results = [];
+		foreach ( self::runtime_rows() as $row ) {
+			$result    = ( $row['check'] )();
+			$results[] = [ ...$result, 'messages' => \array_map( self::fit( ... ), $result['messages'] ) ];
+		}
+		return $results;
+	}
+
+	/**
+	 * A whole message fit for the runtime probe's wire: invalid UTF-8
+	 * scrubbed, each `WIRE_CONTROL` character a space, each run of spaces
+	 * one, and the whole cut to `MESSAGE_BYTES` on a character boundary.
+	 *
+	 * @param string $message The message to fit.
+	 */
+	private static function fit( string $message ): string {
+		$spaced  = (string) \preg_replace( self::WIRE_CONTROL, ' ', \mb_scrub( $message, 'UTF-8' ) );
+		$message = \trim( (string) \preg_replace( '/\s+/u', ' ', $spaced ) );
+		return \strlen( $message ) > self::MESSAGE_BYTES
+			? \mb_strcut( $message, 0, self::MESSAGE_BYTES - \strlen( '…' ), 'UTF-8' ) . '…'
+			: $message;
+	}
+
+	/**
+	 * The one table of runtime rows, in the order `runtime()` answers them:
+	 * each id with its label, what an unverified row could not verify, and the
+	 * check producing it. `Health_Probe_Client` validates a reply against it
+	 * and words its unverified rows from it, so the two sides cannot part.
+	 *
+	 * @return array<string,array{label:string,subject:string,check:\Closure():HealthResult}>
+	 */
+	public static function runtime_rows(): array {
+		return [
+			self::CACHE_ID       => [
+				'label'   => self::CACHE_LABEL,
+				'subject' => 'the web cache backend',
+				'check'   => self::cache_backend( ... ),
+			],
+			self::LOG_SOURCES_ID => [
+				'label'   => self::LOG_SOURCES_LABEL,
+				'subject' => "the web runtime's log sources",
+				'check'   => self::log_sources( ... ),
+			],
+		];
 	}
 
 	/**
@@ -401,28 +441,35 @@ final class Health_Checks {
 		} catch ( Worker_Should_Stop $e ) {
 			throw $e;
 		} catch ( \Throwable $e ) {
-			return self::result( self::LOG_SOURCES_ID, self::LOG_SOURCES_LABEL, self::STATUS_RECOMMENDED, 'The log sources the active topologies read could not be checked: ' . $e->getMessage() );
+			return self::log_sources_result( self::STATUS_RECOMMENDED, 'The log sources the active topologies read could not be checked: ' . $e->getMessage() );
 		}
 		if ( [] !== $unresolved ) {
 			[ $topology, $refusal ] = $unresolved[0];
 			$more                   = \count( $unresolved ) > 1 ? ' (' . \count( $unresolved ) . ' unresolved in all)' : '';
-			return self::result( self::LOG_SOURCES_ID, self::LOG_SOURCES_LABEL, self::STATUS_CRITICAL, "Active topology {$topology} fails to load on this host{$more}: {$refusal}" );
+			return self::log_sources_result( self::STATUS_CRITICAL, "Active topology {$topology} fails to load on this host{$more}: {$refusal}" );
 		}
 		if ( [] !== $unreadable ) {
 			$more = \count( $unreadable ) > 1 ? ' and ' . ( \count( $unreadable ) - 1 ) . ' more' : '';
-			return self::result(
-				self::LOG_SOURCES_ID,
-				self::LOG_SOURCES_LABEL,
+			return self::log_sources_result(
 				self::STATUS_RECOMMENDED,
 				"The log sources of active topology {$unreadable[0]}{$more} could not be checked, because it does not read; `worker-liveness` names why."
 			);
 		}
-		return self::result(
-			self::LOG_SOURCES_ID,
-			self::LOG_SOURCES_LABEL,
+		return self::log_sources_result(
 			self::STATUS_GOOD,
 			0 === $read ? 'No active topology declares a File_Tail on this host.' : "Every file the active topologies' File_Tails follow resolves on this host."
 		);
+	}
+
+	/**
+	 * A log-sources result: the row's id and label beside a status and a message.
+	 *
+	 * @param HealthStatus $status  Canonical result status.
+	 * @param string       $message The one message.
+	 * @return HealthResult
+	 */
+	private static function log_sources_result( string $status, string $message ): array {
+		return self::result( self::LOG_SOURCES_ID, self::LOG_SOURCES_LABEL, $status, $message );
 	}
 
 	/**
@@ -445,8 +492,10 @@ final class Health_Checks {
 				++$read;
 				$name    = Core::as_string( $tail['name'] ?? '' );
 				$written = Core::as_string( Core::arr( $tail['args'] ?? [] )[0] ?? '' );
+				// A fixed source reads the same at every partition.
+				$span = Core::has_partition_token( $written ) ? $partitions : 1;
 				try {
-					for ( $partition = 0; $partition < $partitions; $partition++ ) {
+					for ( $partition = 0; $partition < $span; $partition++ ) {
 						File_Tail_Node::followed_path( $name, $written, $partition, $topology );
 					}
 				} catch ( \InvalidArgumentException $e ) {
@@ -524,21 +573,6 @@ final class Health_Checks {
 			self::STATUS_CRITICAL,
 			"Cache backend {$name} add/read/delete round trip failed during {$operation}; transient coordination, command sessions, and SSE slot leases are unreliable."
 		);
-	}
-
-	/**
-	 * A whole message fit for the runtime probe's wire: invalid UTF-8
-	 * scrubbed, each `WIRE_CONTROL` character a space, each run of spaces
-	 * one, and the whole cut to `MESSAGE_BYTES` on a character boundary.
-	 *
-	 * @param string $message The message to fit.
-	 */
-	private static function fit( string $message ): string {
-		$spaced  = (string) \preg_replace( self::WIRE_CONTROL, ' ', \mb_scrub( $message, 'UTF-8' ) );
-		$message = \trim( (string) \preg_replace( '/\s+/u', ' ', $spaced ) );
-		return \strlen( $message ) > self::MESSAGE_BYTES
-			? \mb_strcut( $message, 0, self::MESSAGE_BYTES - \strlen( '…' ), 'UTF-8' ) . '…'
-			: $message;
 	}
 
 	/**

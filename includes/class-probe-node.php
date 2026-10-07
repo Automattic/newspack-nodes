@@ -126,10 +126,8 @@ abstract class Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 	 *                         the partition that is not canonical.
 	 */
 	private function bound_worker_id(): string {
-		$topology = Core::$var['topology'] ?? null;
-		if ( ! \is_string( $topology ) || '' === $topology ) {
-			throw new \LogicException( \esc_html( "{$this->name}: no topology bound; a probe runs only in a worker" ) );
-		}
+		$topology = Core::bound_topology()
+			?? throw new \LogicException( \esc_html( "{$this->name}: no topology bound; a probe runs only in a worker" ) );
 		$partition = Core::bound_partition()
 			?? throw new \LogicException( \esc_html( "{$this->name}: no partition bound; a probe runs only in a worker" ) );
 		return CLI::worker_id( $topology, $partition );

@@ -447,6 +447,22 @@ class HealthChecksTest extends TestCase {
 		$this->assertStringContainsString( 'File_Tail tapir-tail-5529: unknown log source: "tapir-5529.1"', $row['messages'][0] );
 	}
 
+	/** A fixed source reads the same at every partition, so the registry is asked once. */
+	public function test_a_fixed_source_is_resolved_once_however_many_partitions_run(): void {
+		$this->use_base_dir( $this->tmp, [ 'num_partitions' => 3 ] );
+		$asked                                        = 0;
+		\Newspack_Nodes\Log_Sources::$builtin_sources = static function () use ( &$asked ): array {
+			++$asked;
+			return [ 'tapir-5541' => '/tmp/tapir-5541.log' ];
+		};
+		$this->activate_topologies( [ 'tapir-hub-5541' => "make_node File_Tail tapir-tail-5541 sources/tapir-5541 /tmp/tapir-off-5541\n" ] );
+
+		$row = Health_Checks::runtime()[1];
+
+		$this->assertSame( Health_Checks::STATUS_GOOD, $row['status'], $row['messages'][0] );
+		$this->assertSame( 1, $asked );
+	}
+
 	/** A built-in its host leaves unconfigured says what it needs, in the registry's own words. */
 	public function test_an_unconfigured_built_in_names_what_its_host_must_provide(): void {
 		\Newspack_Nodes\Log_Sources::$builtin_sources = static fn (): array => [];

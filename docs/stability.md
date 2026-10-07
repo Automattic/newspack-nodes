@@ -25,8 +25,7 @@ rest do. `Table_Client`'s `@api` methods are `get_multi()`, `set_multi()`,
 `remove_members( string $table, string $set_key, array $members ): array`,
 which answer through a durable Table alone.
 
-That trio and [`Topology_Analyzer::includes()`](../includes/class-topology-analyzer.php) answer questions a consumer cannot
-answer for itself. `node_dirs()` and `node_partitions()` are how a reader finds
+That trio answers questions a consumer cannot answer for itself. `node_dirs()` and `node_partitions()` are how a reader finds
 a node's partitions across every ACTIVE topology declaring it: `node_dirs()`
 answers partition index => directory for a Partition or Topic node, and
 `node_partitions()` the ascending indices alone, for per-partition state keyed
@@ -42,26 +41,18 @@ threshold that topology's frontmatter declares and falling back to
 nuclear-gyrobase hands its Perl child. A consumer judging staleness against the
 flat default instead calls a worker on a raised-threshold topology dead while
 the peer scan correctly leaves it running.
-`Topology_Analyzer::includes( $name )` answers "does this deployment run X?",
-which the active topology NAMES cannot: a deployment routinely runs a stock
-topology through a locally-named wrapper, and the wrapper's name says nothing
-about what it composes. Event-logger-nodes' hub
-detection tests `'aggregator' === $name` and then that include set before it
-falls back to scanning the graph for a `Remote_Source` node.
 
-All four can raise, and not only for the caller's own mistake. The three
-`Bootstrap` names resolve the active topology set first, which fails when the
+Each can raise, and not only for the caller's own mistake. The `Bootstrap`
+names resolve the active topology set first, which fails when the
 runtime base directory is unusable. `node_dirs()` and `node_partitions()`
 answer from the readable active topologies declaring the node, so another
 topology's broken `.tsl` costs them nothing while a readable one declares it;
 when none does, they raise every active topology that will not read — an
 unknown include, an include cycle, a conflicting `make_node`, or a name no
 `.tsl` resolves — because the node may be what that one declares.
-`includes()` raises when the topology it walks will not read.
 Event-logger-nodes calls `node_dirs()` on dashboard request paths from
 [`Performance_CI_Node`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/includes/app/class-performance-ci-node.php) and [`Flame_Builder_Node`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/includes/class-flame-builder-node.php), where an uncaught throw is a 500
-on every dashboard request, and wraps `includes()` in a try/catch for the same
-reason. Catch it, or let the surrounding controller's catch own it.
+on every dashboard request. Catch it, or let the surrounding controller's catch own it.
 
 ## Frozen surfaces
 
