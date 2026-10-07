@@ -246,7 +246,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * synthesized one.
 	 *
 	 * @param array<array-key,mixed>                                        $logs   Existing catalog (each entry `{name,partitions,segment_size}`).
-	 * @param array<string,array{nodes: list<array<string,int|string|list<string>>>}> $graphs `collect_topology_graphs()`.
+	 * @param array<string,array{nodes: list<array<string,int|string|list<string>|list<array{source:string,target:string}>>>}> $graphs `collect_topology_graphs()`.
 	 * @return array<array-key,mixed> $logs plus one entry per Log sink.
 	 */
 	private static function append_log_sinks( array $logs, array $graphs ): array {
@@ -288,7 +288,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * envelope's `unreadable` row instead.
 	 *
 	 * @param array<string,array<array-key,mixed>> $readable The readable active topologies.
-	 * @return array<string,array{nodes: list<array<string,int|string|list<string>>>,edges: list<array{0:string,1:string}>}>
+	 * @return array<string,array{nodes: list<array<string,int|string|list<string>|list<array{source:string,target:string}>>>,edges: list<array{0:string,1:string}>}>
 	 */
 	private static function collect_topology_graphs( array $readable ): array {
 		$names = \array_keys( $readable );

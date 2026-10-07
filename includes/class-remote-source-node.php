@@ -32,6 +32,8 @@ use Newspack_Nodes\Rest\SSE_Out_Node;
  * patrons.
  */
 class Remote_Source_Node extends Remote_Link_Node {
+	use Fanout_Targets;
+
 	/** Memcache TTL for the status snapshot (seconds). */
 	public const STATUS_TTL = 300;
 
@@ -543,7 +545,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Split one `<source>:<target>` token on its FIRST colon: a source never
+	 * Read one `<source>:<target>` token on its FIRST colon: a source never
 	 * carries one (a partition dir or `sources/<name>`), a target may
 	 * (`php-errors:partition`). A source no spoke could stream is refused
 	 * here, at configuration, rather than failing quietly on every connect.
@@ -553,9 +555,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * @throws \InvalidArgumentException When either half is empty, or the source is no subscription.
 	 */
 	public static function parse_pair( string $token ): array {
-		$colon  = \strpos( $token, ':' );
-		$source = false === $colon ? '' : \substr( $token, 0, $colon );
-		$target = false === $colon ? '' : \substr( $token, $colon + 1 );
+		[ 'source' => $source, 'target' => $target ] = self::split_pair( $token );
 		if ( '' === $source || '' === $target ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
 			throw new \InvalidArgumentException( "Remote_Source: a pair is <source>:<target>, got '{$token}'" );
@@ -571,6 +571,31 @@ class Remote_Source_Node extends Remote_Link_Node {
 			throw new \InvalidArgumentException( "Remote_Source: pair's reader names a slot the broker keeps: '{$token}'" );
 		}
 		return [ 'source' => $source, 'target' => $target ];
+	}
+
+	/**
+	 * Split a token at its first colon outside `<…>`, so a `<ns:key>` config
+	 * token in the source stays whole. A token with no such colon is all
+	 * source; this validates nothing, as `parse_pair()` does.
+	 *
+	 * @param string $token One pair token.
+	 * @return array{source:string,target:string}
+	 */
+	public static function split_pair( string $token ): array {
+		$depth = 0;
+		foreach ( \str_split( $token ) as $at => $char ) {
+			if ( '<' === $char ) {
+				++$depth;
+			} elseif ( '>' === $char && $depth > 0 ) {
+				--$depth;
+			} elseif ( ':' === $char && 0 === $depth ) {
+				return [
+					'source' => \substr( $token, 0, $at ),
+					'target' => \substr( $token, $at + 1 ),
+				];
+			}
+		}
+		return [ 'source' => $token, 'target' => '' ];
 	}
 
 	/**

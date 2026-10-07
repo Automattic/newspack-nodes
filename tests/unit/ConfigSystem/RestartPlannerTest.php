@@ -67,7 +67,7 @@ class RestartPlannerTest extends TestCase {
 
 	public function test_a_vault_groups_child_type_matches_its_topology(): void {
 		$this->seed_vault_servers( [ 'tw9' => [ 'url' => 'https://tw9.example', 'group' => 'tw-edge' ] ] );
-		$this->write_tsl( 'pull-lab', "make_node Vault_Group firehose Remote_Source tw-edge firehose.p<partition>\n" );
+		$this->write_tsl( 'pull-lab', "make_node Vault_Group firehose Remote_Source tw-edge <config:offsets_dir>/<topology>.{id} <config:deadletter_dir>/<topology>.{id} firehose.p<partition>:next\n" );
 		\update_option( 'newspack_nodes_topologies', [ 'combined', 'pull-lab' ] );
 		Config::reset();
 
