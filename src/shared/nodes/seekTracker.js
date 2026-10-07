@@ -14,12 +14,7 @@
  * of once per record.
  */
 
-/**
- * Matches a record's Message ID position breadcrumb, `segment:offset:length`.
- * An ID in any other shape — a command reply, an opaque hash — carries no
- * position, so `track()` ignores it.
- */
-const ID_POSITION_RE = /^(\d+):(\d+):(\d+)$/;
+import { parseCrumb } from '../../runtime/log-position';
 
 /** The mode value for a view tailing the live head. */
 export const LIVE = 'live';
@@ -135,12 +130,12 @@ export class SeekTracker {
 	 *   flipped, which is the caller's publish-on-change gate.
 	 */
 	track( id ) {
-		const match = ID_POSITION_RE.exec( 'string' === typeof id ? id : '' );
-		if ( ! match ) {
+		const crumb = parseCrumb( id );
+		if ( ! crumb ) {
 			return false;
 		}
-		const segment = Number( match[ 1 ] );
-		const offsetEnd = Number( match[ 2 ] ) + Number( match[ 3 ] );
+		const segment = crumb.segment;
+		const offsetEnd = crumb.offset + crumb.length;
 		const segmentChanged = segment !== this.lastReceivedSegment;
 		this.lastReceivedSegment = segment;
 		// At or past the seek boundary, the record is live tail: go live.

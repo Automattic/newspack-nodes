@@ -252,11 +252,15 @@ final class Vault_Group_Node extends Node {
 	}
 
 	/**
-	 * Set every child's target along with the group's own.
+	 * Set every child's target along with the group's own. A child class
+	 * taking no target is refused before anything changes, so an empty group
+	 * stores no target its later children would refuse.
 	 *
 	 * @param string $target Path stamped into an empty TO.
+	 * @throws \RuntimeException When the child class declares no target.
 	 */
 	public function connect_node( string $target ): void {
+		Node::refuse_target_on( $this->child_class, $this->name );
 		parent::connect_node( $target );
 		foreach ( $this->members() as $child ) {
 			$child->connect_node( $target );

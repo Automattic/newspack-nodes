@@ -142,7 +142,7 @@ class MessagesStreamSlotPoolTest extends TestCase {
 	}
 
 	public function test_stream_setup_exception_is_diagnosed_released_once_and_rethrown(): void {
-		$lease              = [ 'slot' => 6, 'owner' => 62626263 ];
+		$lease              = [ 'slot' => 6, 'owner' => 626262630617 ];
 		$partition          = 5;
 		$failure            = new \RuntimeException( 'distinct header setup failure 86420' );
 		$acquired_partition = null;

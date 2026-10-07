@@ -82,14 +82,13 @@ TSL;
 		$this->assertSame( [], \preg_grep( '/^sync-4>firehose/', $edges ) );
 	}
 
-	public function test_a_later_line_on_a_child_adds_an_edge_beside_its_pair(): void {
-		$this->write_tsl( 'pull-lab', self::PULL_LAB . "\nconnect_node firehose:tw0 audit-2\n" );
+	/** A connect onto a group of brokers fails the walk, as the load would fail it. */
+	public function test_a_connect_onto_a_group_whose_child_takes_no_target_fails_the_walk(): void {
+		$this->write_tsl( 'pull-lab', self::PULL_LAB . "\nconnect_node firehose audit-2\n" );
 
-		$edges = \array_map( static fn ( array $e ): string => "{$e[0]}>{$e[1]}", Topology_Analyzer::graph_for( 'pull-lab' )['edges'] );
-
-		$this->assertContains( 'firehose:tw0>audit-2', $edges );
-		$this->assertContains( 'firehose:tw0>rewrite-17', $edges );
-		$this->assertContains( 'firehose:tw9>rewrite-17', $edges );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'firehose takes no target: Remote_Source declares has_target false' );
+		Topology_Analyzer::statements( 'pull-lab' );
 	}
 
 	public function test_only_a_fan_out_upstream_reaches_each_child(): void {

@@ -3,6 +3,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Command_Auth;
+use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Event_Framework;
@@ -99,6 +100,21 @@ class RemoteSourceNodeTest extends TestCase {
 	/** `msg_frame()`, stamped with the default pair's stream. */
 	private static function stream_msg( string $id, string $key, mixed $value ): string {
 		return self::stream_frame( [ Message::TYPE => Message::TM_STRUCT, Message::ID => $id, Message::KEY => $key, Message::VALUE => $value ] );
+	}
+
+	/**
+	 * The broker's readers, read off its sibling map and keyed by stamp.
+	 *
+	 * @return array<string,Remote_Consumer_Node>
+	 */
+	private function readers( Remote_Source_Node $node ): array {
+		$readers = [];
+		foreach ( ( new \ReflectionMethod( $node, 'siblings' ) )->invoke( $node ) as $sibling ) {
+			if ( $sibling instanceof Remote_Consumer_Node ) {
+				$readers[ $sibling->stamp() ] = $sibling;
+			}
+		}
+		return $readers;
 	}
 
 	/** The status snapshot the broker publishes under its own key. */
@@ -275,19 +291,36 @@ class RemoteSourceNodeTest extends TestCase {
 		Remote_Source_Node::parse_pair( '<yak:x:sink-4' );
 	}
 
-	public function test_a_broker_fans_out_and_its_readers_keep_their_pair_targets(): void {
+	/** Nothing reads a broker's target, so a connect onto one is refused rather than stored. */
+	public function test_a_connect_onto_a_broker_is_refused(): void {
 		[ $node, $child ] = $this->make_remote();
+		$ci               = new Command_Interpreter_Node();
+		$ci->name( '_command_interpreter' );
+		$ci->sink( Core::node( '_router' ) );
 
-		$node->connect_node( 'tapir-sink-8' );
-		$node->connect_node( 'okapi-sink-9' );
-		$node->connect_node( 'tapir-sink-8' );
-		$this->assertSame( [ 'tapir-sink-8', 'okapi-sink-9' ], $node->target() );
-		$this->assertStringContainsString( "connect_node remote-austin okapi-sink-9\n", $node->dump_config() );
+		try {
+			$ci->dispatch( 'connect_node', [ 'remote-austin', 'tapir-sink-8' ] );
+			$this->fail( 'a broker has no target to connect' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame( 'remote-austin takes no target: Remote_Source declares has_target false', $e->getMessage() );
+		}
+		$this->assertSame( '', $node->target() );
+		$this->assertSame( 'downstream', $child->target(), 'each reader keeps its pair target' );
+		$this->assertFalse( Core::class_fans_out( Remote_Source_Node::class ), 'a broker is no fan-out' );
+		$this->assertFalse( Remote_Source_Node::node_schema()['has_target'] );
+	}
 
-		$node->disconnect_node();
+	/** Each pair's target is a destination the broker writes through a reader, so the canvas draws it. */
+	public function test_the_canvas_draws_one_edge_per_pair(): void {
+		$ci = new Command_Interpreter_Node();
+		$ci->name( '_command_interpreter' );
+		$ci->sink( Core::node( '_router' ) );
+		$this->broker( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:okapi-sink-9', 'sources/php:php-errors:partition', 'errors.*:okapi-sink-9' ) );
 
-		$this->assertSame( [], $node->target() );
-		$this->assertSame( 'downstream', $child->target() );
+		$meta = $ci->dispatch( 'dump_metadata', [ 'remote-austin' ] );
+
+		$this->assertSame( [ 'okapi-sink-9', 'php-errors:partition' ], $meta['remote-austin']['targets'] );
+		$this->assertSame( '', $meta['remote-austin']['target'] );
 	}
 
 	public function test_dump_config_roundtrips_the_broker_and_its_pairs(): void {
@@ -430,7 +463,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertNull( Core::node( 'remote-austin:firehose.p0' ) );
 		$this->assertNull( Core::node( 'remote-austin:firehose.p0:offsetlog' ) );
 		$this->assertNull( Core::node( 'remote-austin:firehose.p0:deadletter' ) );
-		$this->assertSame( [], $node->consumers() );
+		$this->assertSame( [], $this->readers( $node ) );
 	}
 
 	public function test_node_schema_visible_io_with_args(): void {
@@ -462,7 +495,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:downstream', 'sources/php:php-errors' ) );
 
-		$this->assertSame( [ 'firehose.p0', 'sources/php' ], \array_keys( $node->consumers() ) );
+		$this->assertSame( [ 'firehose.p0', 'sources/php' ], \array_keys( $this->readers( $node ) ) );
 		$this->assertInstanceOf( Remote_Consumer_Node::class, Core::node( 'remote-austin:sources:php' ) );
 		$this->assertSame( 'php-errors', Core::node( 'remote-austin:sources:php' )->target() );
 	}
@@ -522,7 +555,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => 'jobstats.p5', Message::ID => '1:0:10', Message::VALUE => 'stray-5501' ] ) );
 
-		$this->assertSame( [ 'firehose.p0' ], \array_keys( $node->consumers() ) );
+		$this->assertSame( [ 'firehose.p0' ], \array_keys( $this->readers( $node ) ) );
 		$this->assertSame( 0, $child->buffered_bytes(), 'no reader is handed it' );
 		$this->assertStringContainsString( 'dropping a line no pair claims: jobstats.p5', \implode( '', $errors->getArrayCopy() ) );
 	}
@@ -534,7 +567,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => '', Message::ID => '1:0:10', Message::VALUE => 'unstamped-4417' ] ) );
 
-		$this->assertSame( [], $node->consumers() );
+		$this->assertSame( [], $this->readers( $node ) );
 		$this->assertNull( Core::node( 'remote-austin:' ) );
 		$this->assertStringContainsString( 'refusing a stamp outside the stream name grammar', \implode( '', $errors->getArrayCopy() ) );
 	}
@@ -569,13 +602,13 @@ class RemoteSourceNodeTest extends TestCase {
 		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', $pair ) );
 
 		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => $stamp, Message::ID => '4:0:30', Message::VALUE => 'hostile-6731' ] ) );
-		foreach ( $node->consumers() as $reader ) {
+		foreach ( $this->readers( $node ) as $reader ) {
 			$reader->poll();
 		}
 		$node->hand_off_cursor();
 
 		$this->assertSame( $before, [ $this->tree( $offsets ), $this->tree( $dead ) ], 'no directory or file appears for it' );
-		$this->assertSame( [], $node->consumers() );
+		$this->assertSame( [], $this->readers( $node ) );
 		$this->assertStringContainsString( $refusal, \implode( '', $errors->getArrayCopy() ) );
 		$this->assertStringNotContainsString( "\0", \implode( '', $errors->getArrayCopy() ), 'no byte of a refused stamp reaches stderr' );
 	}
@@ -586,7 +619,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::connected_frame( 'SLOT 3 OWNER 31313131 CURSORS kea..x=6:30,kea-55.p1=8:20' ) );
 
-		$this->assertSame( [ 'kea-55.p1' ], \array_keys( $node->consumers() ) );
+		$this->assertSame( [ 'kea-55.p1' ], \array_keys( $this->readers( $node ) ) );
 	}
 
 	public function test_a_handshake_naming_a_reserved_slot_builds_no_reader(): void {
@@ -595,7 +628,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::connected_frame( 'SLOT 3 OWNER 31313131 CURSORS null=4:10,nest-5.p1=2:3' ) );
 
-		$this->assertSame( [ 'nest-5.p1' ], \array_keys( $node->consumers() ) );
+		$this->assertSame( [ 'nest-5.p1' ], \array_keys( $this->readers( $node ) ) );
 		$this->assertInstanceOf( \Newspack_Nodes\Null_Node::class, Core::node( 'remote-austin:null' ), 'the broker keeps its own slot' );
 	}
 
@@ -629,7 +662,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$node->arguments( $this->remote_args( 'remote-austin', 'austin', 'kea-*:herd-61' ) );
 		$send( 'kea-' . ( Remote_Source_Node::MAX_READERS + 9 ) );
 
-		$this->assertCount( Remote_Source_Node::MAX_READERS, $node->consumers(), 'readers with no dir yet still count after a replay' );
+		$this->assertCount( Remote_Source_Node::MAX_READERS, $this->readers( $node ), 'readers with no dir yet still count after a replay' );
 	}
 
 	public function test_the_reader_cap_holds_across_a_recycle_and_spares_exact_pairs(): void {
@@ -643,7 +676,7 @@ class RemoteSourceNodeTest extends TestCase {
 		for ( $i = 1; $i <= Remote_Source_Node::MAX_READERS; $i++ ) {
 			$send( "kea-{$i}" );
 		}
-		foreach ( $node->consumers() as $reader ) {
+		foreach ( $this->readers( $node ) as $reader ) {
 			$reader->poll();
 		}
 		$node->hand_off_cursor();
@@ -654,11 +687,11 @@ class RemoteSourceNodeTest extends TestCase {
 		$node = $this->broker( 'remote-austin', $args );
 		$node->fire();
 		$send( 'kea-' . ( Remote_Source_Node::MAX_READERS + 7 ) );
-		$this->assertSame( [], $node->consumers(), 'the dirs a glob left count toward the cap' );
+		$this->assertSame( [], $this->readers( $node ), 'the dirs a glob left count toward the cap' );
 		$this->assertSame( $dirs, \glob( "{$offsets}/remote-austin/*", \GLOB_ONLYDIR ), 'and no new dir appears' );
 
 		$send( 'kea-7' );
-		$this->assertSame( [ 'kea-7' ], \array_keys( $node->consumers() ), 'a stamp whose dir is there already costs nothing new' );
+		$this->assertSame( [ 'kea-7' ], \array_keys( $this->readers( $node ) ), 'a stamp whose dir is there already costs nothing new' );
 
 		$node->arguments( $this->remote_args( 'remote-austin', 'austin', 'kea-*:herd-52', 'firehose.p0:downstream' ) );
 		$send( 'firehose.p0' );
@@ -677,10 +710,10 @@ class RemoteSourceNodeTest extends TestCase {
 		for ( $i = 1; $i <= Remote_Source_Node::MAX_READERS; $i++ ) {
 			$send( $i );
 		}
-		$this->assertCount( Remote_Source_Node::MAX_READERS, $node->consumers() );
+		$this->assertCount( Remote_Source_Node::MAX_READERS, $this->readers( $node ) );
 		$send( Remote_Source_Node::MAX_READERS + 1 );
 
-		$this->assertCount( Remote_Source_Node::MAX_READERS, $node->consumers() );
+		$this->assertCount( Remote_Source_Node::MAX_READERS, $this->readers( $node ) );
 		$this->assertNull( Core::node( 'remote-austin:kea-' . ( Remote_Source_Node::MAX_READERS + 1 ) ) );
 		$this->assertStringContainsString( 'refusing a reader past MAX_READERS', \implode( '', $errors->getArrayCopy() ) );
 	}
@@ -715,7 +748,7 @@ class RemoteSourceNodeTest extends TestCase {
 		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( "event: msg\ndata: torn-frame-4410\n\n" );
 
 		$this->assertSame( 0, $child->buffered_bytes(), 'a frame with no stamp reaches no reader' );
-		$this->assertSame( [ 'firehose.p0' ], \array_keys( $node->consumers() ) );
+		$this->assertSame( [ 'firehose.p0' ], \array_keys( $this->readers( $node ) ) );
 	}
 
 	public function test_a_relayed_line_carries_the_reader_before_the_spoke_trail(): void {
@@ -760,7 +793,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertNull( Core::node( 'remote-austin:sources:php' ) );
 		$this->assertSame( $kept, Core::node( 'remote-austin:firehose.p0' ), 'the surviving reader is the same instance' );
 		$this->assertSame( [ 'segment' => 58, 'offset' => 3307 ], $kept->connect_position(), 'with its cursor intact' );
-		$this->assertSame( [ 'firehose.p0' ], \array_keys( $node->consumers() ) );
+		$this->assertSame( [ 'firehose.p0' ], \array_keys( $this->readers( $node ) ) );
 		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
 		$this->assertSame( [ 6123, 77 ], $this->frame_in( "{$offsets}/remote-austin/sources:php" ), 'the retracted reader handed its cursor off' );
 	}
@@ -931,10 +964,10 @@ class RemoteSourceNodeTest extends TestCase {
 		Core::$now = 5000.0;
 		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'errors.*:downstream' ) );
 		$this->drain_connect_queue();
-		$this->assertSame( [], $node->consumers(), 'a glob builds nothing until a stamp appears' );
+		$this->assertSame( [], $this->readers( $node ), 'a glob builds nothing until a stamp appears' );
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$sse->process_sse_chunk( self::connected_frame( 'SLOT 3 OWNER 31313131 CURSORS errors.p0=4:10,errors.p2=8:20' ) );
-		$this->assertSame( [ 'errors.p0', 'errors.p2' ], \array_keys( $node->consumers() ) );
+		$this->assertSame( [ 'errors.p0', 'errors.p2' ], \array_keys( $this->readers( $node ) ) );
 
 		Core::node( 'remote-austin:errors.p2' )->pause();
 		Core::$now = 5001.0;
@@ -952,7 +985,7 @@ class RemoteSourceNodeTest extends TestCase {
 		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.*:audit-91', 'firehose.p0:downstream' ) );
 
 		$this->assertSame( 'audit-91', Core::node( 'remote-austin:firehose.p0' )->target() );
-		$this->assertSame( [ 'firehose.p0' ], \array_keys( $node->consumers() ) );
+		$this->assertSame( [ 'firehose.p0' ], \array_keys( $this->readers( $node ) ) );
 	}
 
 	public function test_a_live_seek_restarts_the_stream_and_a_paused_one_does_not(): void {
@@ -1145,7 +1178,8 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		[ $node ] = $this->make_remote( 'remote-austin' );
-		self::set_slot( Core::node( 'remote-austin:sse-in' ), 7, 42424243 );
+		// Twelve digits: no midfix's pid or uptime can hold the owner.
+		self::set_slot( Core::node( 'remote-austin:sse-in' ), 7, 731942580617 );
 		Core::$now = 1748960000.0;
 		$node->fire();
 
@@ -1180,7 +1214,7 @@ class RemoteSourceNodeTest extends TestCase {
 			$status['last_error']
 		);
 		$this->assertStringContainsString( 'SSE slot lease not owned', \implode( '', $lines ) );
-		$this->assertStringNotContainsString( '42424243', \implode( '', $lines ) );
+		$this->assertStringNotContainsString( '731942580617', \implode( '', $lines ) );
 	}
 
 	public function test_heartbeat_success_false_clears_prior_success_and_records_reason(): void {

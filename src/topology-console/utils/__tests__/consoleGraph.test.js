@@ -317,6 +317,30 @@ describe( 'withConfigEdges', () => {
 		] );
 	} );
 
+	it( 'keeps a broker pair edge whole under a setter on its source', () => {
+		const pair = {
+			from: 'zebra-source',
+			to: 'amber-old',
+			roles: [ 'pair' ],
+			origin: [ 'pull-lab' ],
+		};
+		const out = withConfigEdges( {
+			nodes,
+			edges: [ pair ],
+			configOverrides: [
+				{
+					from: 'zebra-source',
+					slot: 'set_stats_target',
+					to: 'violet-new',
+				},
+			],
+		} );
+
+		// A role the fold does not own passes through, and is no connection.
+		expect( out.edges ).toContainEqual( pair );
+		expect( edgeHasConnectRole( pair ) ).toBe( false );
+	} );
+
 	it( 'drops the edge entirely when its last config slot moves away', () => {
 		const out = withConfigEdges( {
 			nodes,

@@ -945,14 +945,16 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * Registered shell name for a node instance.
+	 * Registered shell name for a node instance or class.
 	 *
 	 * `make_node`/topology lines use the shell name (e.g. `Log`, `Tee`), which
 	 * is the class short name minus the `_Node` suffix (`Tee_Node` → `Tee`,
 	 * `Flame_Builder_Node` → `Flame_Builder`). A short name without `_Node`
 	 * (ad-hoc test classes) is returned unchanged.
+	 *
+	 * @param object|class-string $node A node, or its class.
 	 */
-	public static function shell_name_for( object $node ): string {
+	public static function shell_name_for( object|string $node ): string {
 		$short = ( new \ReflectionClass( $node ) )->getShortName();
 		if ( \str_ends_with( $short, '_Node' ) ) {
 			return \substr( $short, 0, -\strlen( '_Node' ) );

@@ -1,0 +1,6 @@
+[
+  ["a bare log stamp is its own kind", "kea-7713.p3", "kea-7713.p3"],
+  ["an offsets stamp spells its slash as a colon", "offsets/kea-7713.p3", "offsets:kea-7713.p3"],
+  ["a deadletter stamp spells its slash as a colon", "deadletter/okapi-41.p0", "deadletter:okapi-41.p0"],
+  ["a sources stamp spells its slash as a colon", "sources/tapir-err", "sources:tapir-err"]
+]

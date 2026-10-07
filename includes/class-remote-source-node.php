@@ -32,7 +32,6 @@ use Newspack_Nodes\Rest\SSE_Out_Node;
  * patrons.
  */
 class Remote_Source_Node extends Remote_Link_Node {
-	use Fanout_Targets;
 
 	/** Memcache TTL for the status snapshot (seconds). */
 	public const STATUS_TTL = 300;
@@ -88,9 +87,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 	/** The worker partition this broker runs in, bound at load as Table_Node binds it; null outside a worker, which publishes no status. */
 	private ?int $bound_partition = null;
 
-	/** @var array<string,Remote_Consumer_Node> The readers, by stamp, in the order they were built. */
-	private array $consumers = [];
-
 	/**
 	 * The kinds a glob pair has claimed, each with a reader here or a dir under
 	 * the offsetlog root; null until a glob first builds after construction or
@@ -141,12 +137,11 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$this->bound_partition = \array_key_exists( 'partition', Core::$var ) ? Core::canonical_decimal( Core::$var['partition'] ) : null;
 		$this->pairs           = $pairs;
 		$this->glob_kinds      = null;
-		foreach ( $this->consumers as $stamp => $child ) {
+		foreach ( $this->readers() as $stamp => $child ) {
 			$pair = $this->pair_for( $stamp );
 			if ( null === $pair ) {
 				$child->hand_off_cursor();
-				$this->retract_sibling( Remote_Consumer_Node::kind_of( $stamp ) );
-				unset( $this->consumers[ $stamp ] );
+				$this->retract_sibling( Log_Discovery::kind_of( $stamp ) );
 				continue;
 			}
 			$child->connect_node( $pair['target'] );
@@ -184,7 +179,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 				continue;
 			}
 			$subscribe[] = $source;
-			foreach ( $this->consumers as $stamp => $child ) {
+			foreach ( $this->readers() as $stamp => $child ) {
 				if ( $this->pair_for( $stamp ) === $pair ) {
 					$positions[ $stamp ] = $child->is_live() ? $child->connect_position() : SSE_Out_Node::SKIP;
 				}
@@ -279,7 +274,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 			$data['last_heartbeat_response'] = null;
 			$data['last_heartbeat_rtt']      = null;
 		}
-		$data['streams'] = \array_map( static fn ( Remote_Consumer_Node $child ): array => $child->stream_status(), $this->consumers );
+		$data['streams'] = \array_map( static fn ( Remote_Consumer_Node $child ): array => $child->stream_status(), $this->readers() );
 		$this->write_status( $data );
 	}
 
@@ -331,20 +326,10 @@ class Remote_Source_Node extends Remote_Link_Node {
 		if ( null === $http ) {
 			return false;
 		}
-		$spoke = $http->vault_id();
-		if ( ! Command_Auth::has_session( $spoke ) ) {
-			$http->ensure_session();
+		$message = Command_Auth::mint_for( $http, $child->name(), Remote_Consumer_Node::STEP_SERVICE, 'read_message', [ $child->stamp(), $position ] );
+		if ( null === $message ) {
 			return false;
 		}
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_COMMAND;
-		$message[ Message::FROM ]  = $child->name();
-		$message[ Message::TO ]    = Remote_Consumer_Node::STEP_SERVICE;
-		$message[ Message::VALUE ] = [
-			'name'      => 'read_message',
-			'arguments' => [ $child->stamp(), $position ],
-		];
-		Command_Auth::sign_for( $spoke, $message );
 		$http->fill( $message );
 		return true;
 	}
@@ -373,13 +358,13 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$sse->on_skipped = function ( array $cursors ): void {
 			/** @var array<string,array{segment?:int,offset:int}> $cursors */
 			foreach ( $cursors as $stamp => $cursor ) {
-				( $this->consumers[ $stamp ] ?? null )?->skip_to( $cursor );
+				$this->reader( $stamp )?->skip_to( $cursor );
 			}
 		};
 		$sse->on_message = function ( string $raw ): void {
 			$this->route( $raw );
 		};
-		foreach ( $this->consumers as $child ) {
+		foreach ( $this->readers() as $child ) {
 			$this->http_out?->allow_replies_to( $child->name() );
 		}
 		return $sse;
@@ -418,8 +403,9 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * @param string $stamp A record's stamp.
 	 */
 	private function consumer_for( string $stamp ): ?Remote_Consumer_Node {
-		if ( isset( $this->consumers[ $stamp ] ) ) {
-			return $this->consumers[ $stamp ];
+		$built = $this->reader( $stamp );
+		if ( null !== $built ) {
+			return $built;
 		}
 		if ( '' === $this->name ) {
 			return null;
@@ -437,19 +423,30 @@ class Remote_Source_Node extends Remote_Link_Node {
 			$this->print_less_often( 'dropping a line no pair claims: ', $stamp );
 			return null;
 		}
-		if ( \str_contains( $pair['source'], '*' ) && ! $this->claim_glob_kind( Remote_Consumer_Node::kind_of( $stamp ) ) ) {
+		if ( \str_contains( $pair['source'], '*' ) && ! $this->claim_glob_kind( Log_Discovery::kind_of( $stamp ) ) ) {
 			$this->print_less_often( 'refusing a reader past MAX_READERS: ', (string) self::MAX_READERS );
 			return null;
 		}
 		$child = new Remote_Consumer_Node();
-		$this->publish_sibling( Remote_Consumer_Node::kind_of( $stamp ), $child );
+		$this->publish_sibling( Log_Discovery::kind_of( $stamp ), $child );
 		$child->sink( $this->sink );
 		$child->arguments( $this->reader_args( $stamp ) );
 		$child->connect_node( $pair['target'] );
 		$child->broker( $this );
 		$child->set_assume_clean_shutdown( $this->assume_clean_shutdown );
 		$this->http_out?->allow_replies_to( $child->name() );
-		return $this->consumers[ $stamp ] = $child;
+		return $child;
+	}
+
+	/**
+	 * The reader a stamp's kind holds in the sibling map, or null; builds
+	 * nothing, and a slot holding anything else is no reader.
+	 *
+	 * @param string $stamp A record's stamp.
+	 */
+	private function reader( string $stamp ): ?Remote_Consumer_Node {
+		$sibling = $this->siblings()[ Log_Discovery::kind_of( $stamp ) ] ?? null;
+		return $sibling instanceof Remote_Consumer_Node ? $sibling : null;
 	}
 
 	/**
@@ -460,7 +457,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * @return list<string>
 	 */
 	private function reader_args( string $stamp ): array {
-		$kind = Remote_Consumer_Node::kind_of( $stamp );
+		$kind = Log_Discovery::kind_of( $stamp );
 		return [ $stamp, "{$this->offsetlog_root}/{$kind}", "{$this->deadletter_root}/{$kind}" ];
 	}
 
@@ -480,11 +477,13 @@ class Remote_Source_Node extends Remote_Link_Node {
 		}
 	}
 
-	/** Bytes buffered across every reader: one connection, one valve. */
+	/** Bytes buffered across every reader: one connection, one valve. Per line, so it walks the map in place. */
 	private function buffered_bytes(): int {
 		$bytes = 0;
-		foreach ( $this->consumers as $child ) {
-			$bytes += $child->buffered_bytes();
+		foreach ( $this->siblings() as $sibling ) {
+			if ( $sibling instanceof Remote_Consumer_Node ) {
+				$bytes += $sibling->buffered_bytes();
+			}
 		}
 		return $bytes;
 	}
@@ -605,7 +604,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * @param string $stamp A record's stamp.
 	 */
 	private static function is_reserved( string $stamp ): bool {
-		return \in_array( Remote_Consumer_Node::kind_of( $stamp ), self::RESERVED_KINDS, true );
+		return \in_array( Log_Discovery::kind_of( $stamp ), self::RESERVED_KINDS, true );
 	}
 
 	/**
@@ -637,19 +636,15 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * @return array<string,true>
 	 */
 	private function claimed_glob_kinds(): array {
-		$stamps = [];
-		foreach ( $this->consumers as $stamp => $child ) {
-			$stamps[] = $stamp;
-		}
+		$stamps = \array_keys( $this->readers() );
 		foreach ( \glob( "{$this->offsetlog_root}/*", \GLOB_ONLYDIR ) ?: [] as $dir ) {
-			// A stamp holds no `:`, so the kind's `:` spells its `/`.
-			$stamps[] = \str_replace( ':', '/', \basename( $dir ) );
+			$stamps[] = Log_Discovery::stamp_of( \basename( $dir ) );
 		}
 		$kinds = [];
 		foreach ( $stamps as $stamp ) {
 			$pair = $this->pair_for( $stamp );
 			if ( null !== $pair && \str_contains( $pair['source'], '*' ) ) {
-				$kinds[ Remote_Consumer_Node::kind_of( $stamp ) ] = true;
+				$kinds[ Log_Discovery::kind_of( $stamp ) ] = true;
 			}
 		}
 		return $kinds;
@@ -677,7 +672,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 */
 	protected function set_sibling_names(): void {
 		parent::set_sibling_names();
-		foreach ( $this->consumers as $child ) {
+		foreach ( $this->readers() as $child ) {
 			$this->http_out?->allow_replies_to( $child->name() );
 		}
 	}
@@ -689,7 +684,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 */
 	public function set_assume_clean_shutdown( bool $flag ): void {
 		$this->assume_clean_shutdown = $flag;
-		foreach ( $this->consumers as $child ) {
+		foreach ( $this->readers() as $child ) {
 			$child->set_assume_clean_shutdown( $flag );
 		}
 	}
@@ -709,19 +704,34 @@ class Remote_Source_Node extends Remote_Link_Node {
 			return;
 		}
 		Worker_Should_Stop::raise(
-			Worker_Should_Stop::attempt_each( $this->consumers, static fn ( Remote_Consumer_Node $child ) => $child->checkpoint_shutdown() )
+			Worker_Should_Stop::attempt_each( $this->readers(), static fn ( Remote_Consumer_Node $child ) => $child->checkpoint_shutdown() )
 		);
 	}
 
-	/** @return array<string,Remote_Consumer_Node> The readers, by stamp. */
-	public function consumers(): array {
-		return $this->consumers;
+	/**
+	 * Every reader the sibling map holds, by stamp, in the order they were
+	 * built: the map is the one list of them.
+	 *
+	 * @return array<string,Remote_Consumer_Node>
+	 */
+	private function readers(): array {
+		$readers = [];
+		foreach ( $this->siblings() as $sibling ) {
+			if ( $sibling instanceof Remote_Consumer_Node ) {
+				$readers[ $sibling->stamp() ] = $sibling;
+			}
+		}
+		return $readers;
 	}
 
-	/** Teardown: the base cascade removes every published reader with the transports. */
-	public function remove_node(): void {
-		parent::remove_node();
-		$this->consumers = [];
+	/**
+	 * Each pair's target, written through that pair's reader rather than a
+	 * target of the broker's own, so the canvas draws one edge per pair.
+	 *
+	 * @return list<string>
+	 */
+	protected function extra_targets(): array {
+		return \array_column( $this->pairs, 'target' );
 	}
 
 	/** Round-trip the toggles after the `make_node` line. */
@@ -741,6 +751,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 		return \array_merge( parent::node_schema(), [
 			// The parent hides itself; this subclass belongs in the palette.
 			'category'    => 'I/O',
+			// Each pair names its destination, so Node refuses connect_node.
+			'has_target'  => false,
 			'description' => 'SSE-pull broker: one connection to a spoke carrying several streams, a durable reader per `source:target` pair (Vault-resolved).',
 			'arguments'   => [
 				[ 'name' => 'vault_id',        'type' => 'vault_id', 'required' => true, 'description' => 'Which spoke to connect to — a Vault-registered server (URL + credentials).' ],

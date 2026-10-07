@@ -996,7 +996,7 @@ class SSEOutTest extends TestCase {
 	}
 
 	public function test_failed_lease_check_emits_one_terminal_disconnect_and_one_redacted_apcu_diagnostic(): void {
-		$lease       = [ 'slot' => 7, 'owner' => 42424243 ];
+		$lease       = [ 'slot' => 7, 'owner' => 731942580617 ];
 		$checks      = 0;
 		$inspections = 0;
 		$logged      = [];
@@ -1056,7 +1056,7 @@ class SSEOutTest extends TestCase {
 			],
 			$logged
 		);
-		$this->assertStringNotContainsString( '42424243', \wp_json_encode( $logged ) );
+		$this->assertStringNotContainsString( '731942580617', \wp_json_encode( $logged ) );
 		$this->assertStringNotContainsString( 'secret-cache-key', \wp_json_encode( $logged ) );
 	}
 

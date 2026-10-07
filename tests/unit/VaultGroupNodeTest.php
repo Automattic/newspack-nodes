@@ -413,6 +413,28 @@ final class VaultGroupNodeTest extends TestCase {
 		$this->assertStringContainsString( "connect_node edge rewrite-17\n", $group->dump_config() );
 	}
 
+	/** A group whose child class takes no target refuses the connect before it changes anything. */
+	public function test_a_connect_the_child_class_refuses_leaves_an_empty_group_untouched(): void {
+		$offsets = Config::get_offsets_directory();
+		$base    = \rtrim( Config::get_base_directory(), '/' );
+		$ci      = new Command_Interpreter_Node();
+		$group   = $ci->make_node( 'Vault_Group', 'pull', 'Remote_Source', 'arrives-later', "{$offsets}/pull.{id}", "{$base}/deadletter/pull.{id}", 'firehose.p0:downstream' );
+		$this->assertSame( [], $group->members() );
+
+		try {
+			$group->connect_node( 'rewrite-17' );
+			$this->fail( 'a Remote_Source takes no target, so its group refuses one' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame( 'pull takes no target: Remote_Source declares has_target false', $e->getMessage() );
+		}
+		$this->assertSame( '', $group->target() );
+		$this->assertStringNotContainsString( 'connect_node', $group->dump_config() );
+
+		Vault::get_instance()->add( 'tw5', [ 'url' => 'https://tw5.example', 'group' => 'arrives-later' ] );
+		$group->update_graph();
+		$this->assertInstanceOf( Remote_Source_Node::class, Core::node( 'pull:tw5' ), 'a later spoke builds' );
+	}
+
 	public function test_disconnect_node_cascades(): void {
 		$ci    = new Command_Interpreter_Node();
 		$group = $ci->make_node( 'Vault_Group', 'edge', 'Echo', 'tw-edge' );

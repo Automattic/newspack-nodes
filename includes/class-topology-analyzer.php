@@ -114,7 +114,7 @@ class Topology_Analyzer {
 	/**
 	 * Export active edge state for the topology-console baseline contract.
 	 *
-	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges Edge-state map.
+	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges Edge-state map.
 	 * @param list<string> $origin_order Top-level include declaration order.
 	 * @return list<array{from: string,to: string,origin: list<string>,roles: list<string>,config_slots?: list<string>}>
 	 */
@@ -133,7 +133,10 @@ class Topology_Analyzer {
 					$config_origins = [ ...$config_origins, ...$origins ];
 				}
 			}
-			$active_origins = \array_unique( [ ...$edge['origins']['connect'], ...$config_origins ] );
+			if ( [] !== $edge['origins']['pair'] ) {
+				$roles[] = 'pair';
+			}
+			$active_origins = \array_unique( [ ...$edge['origins']['connect'], ...$config_origins, ...$edge['origins']['pair'] ] );
 			$exported       = [
 				'from'   => $edge['from'],
 				'to'     => $edge['to'],
@@ -154,7 +157,7 @@ class Topology_Analyzer {
 	 * @param array{line: string, verb: string, values: list<string>, spans: list<string>, origin: ?string, origins: list<string>, via: list<string>} $statement Walked statement.
 	 * @param list<string>                                                            $origins   Top-level includes providing it.
 	 * @param array<string,array{name: string,class: string,fans_out: bool,args: list<string>,verbs: list<array{verb: string,args: list<string>}>,origin: list<string>,via: list<string>}> $nodes Node map, by reference.
-	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}>      $edges Edge-state map, by reference.
+	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}>      $edges Edge-state map, by reference.
 	 */
 	private static function absorb_statement( array $statement, array $origins, array &$nodes, array &$edges ): void {
 		$verb   = $statement['verb'];
@@ -387,12 +390,12 @@ class Topology_Analyzer {
 	/**
 	 * Replace one named config-target slot without disturbing other setters.
 	 *
-	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges Edge-state map, by reference.
 	 * @param string       $source  Node whose configuration target is being set.
 	 * @param string       $target  New target; `''` clears the slot and adds no edge.
 	 * @param string       $slot    Setter verb naming the slot, e.g. `set_error_target`.
 	 * @param list<string> $origins Top-level includes providing the configuration.
-	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges
+	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges
 	 */
 	private static function set_config_edge( array &$edges, string $source, string $target, string $slot, array $origins ): void {
 		$current_key = $source . "\0" . $target;
@@ -403,18 +406,11 @@ class Topology_Analyzer {
 			$edge   = $edges[ $key ];
 			$config = $edge['origins']['config'];
 			unset( $config[ $slot ] );
-			if ( [] === $edge['origins']['connect'] && [] === $config ) {
+			if ( [] === $edge['origins']['connect'] && [] === $config && [] === $edge['origins']['pair'] ) {
 				unset( $edges[ $key ] );
 				continue;
 			}
-			$edges[ $key ] = [
-				'from'    => $edge['from'],
-				'to'      => $edge['to'],
-				'origins' => [
-					'connect' => $edge['origins']['connect'],
-					'config'  => $config,
-				],
-			];
+			$edges[ $key ]['origins']['config'] = $config;
 		}
 		if ( '' === $target ) {
 			return;
@@ -423,14 +419,38 @@ class Topology_Analyzer {
 	}
 
 	/**
+	 * Add `$origins` to one config slot of an edge, creating the edge. Other
+	 * edges and other roles are left alone.
+	 *
+	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges Edge-state map, by reference.
+	 * @param string       $source  Source node.
+	 * @param string       $target  Target node.
+	 * @param string       $slot    The setter verb naming the slot, e.g. `set_error_target`.
+	 * @param list<string> $origins Top-level includes providing the slot.
+	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges
+	 */
+	private static function add_config_origins( array &$edges, string $source, string $target, string $slot, array $origins ): void {
+		$key          = self::ensure_edge( $edges, $source, $target );
+		$edge         = $edges[ $key ];
+		$slot_origins = $edge['origins']['config'][ $slot ] ?? [];
+		foreach ( $origins as $origin ) {
+			if ( ! \in_array( $origin, $slot_origins, true ) ) {
+				$slot_origins[] = $origin;
+			}
+		}
+		$edge['origins']['config'][ $slot ] = $slot_origins;
+		$edges[ $key ]                      = $edge;
+	}
+
+	/**
 	 * Mirror Node::connect_node (replace) versus Tee_Node::connect_node (append).
 	 *
-	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges Edge-state map, by reference.
 	 * @param string       $source   Source node.
 	 * @param string       $target   Target node.
 	 * @param list<string> $origins  Top-level includes providing the connection.
 	 * @param bool         $fans_out Whether the source keeps a target LIST rather than one target.
-	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges
+	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges
 	 */
 	private static function connect_edge( array &$edges, string $source, string $target, array $origins, bool $fans_out ): void {
 		if ( ! $fans_out ) {
@@ -447,48 +467,20 @@ class Topology_Analyzer {
 				$edges[ $key ] = $remaining;
 			}
 		}
-		self::add_connect_origins( $edges, $source, $target, $origins );
-	}
-
-	/**
-	 * Add one connect relationship origin.
-	 *
-	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges Edge-state map, by reference.
-	 * @param string       $source  Source node.
-	 * @param string       $target  Target node.
-	 * @param list<string> $origins Top-level includes providing the connection.
-	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges
-	 */
-	private static function add_connect_origins( array &$edges, string $source, string $target, array $origins ): void {
-		$key             = self::ensure_edge( $edges, $source, $target );
-		$edge            = $edges[ $key ];
-		$connect_origins = $edge['origins']['connect'];
-		foreach ( $origins as $origin ) {
-			if ( ! \in_array( $origin, $connect_origins, true ) ) {
-				$connect_origins[] = $origin;
-			}
-		}
-		$edges[ $key ] = [
-			'from'    => $edge['from'],
-			'to'      => $edge['to'],
-			'origins' => [
-				'connect' => $connect_origins,
-				'config'  => $edge['origins']['config'],
-			],
-		];
+		self::add_role_origins( $edges, $source, $target, 'connect', $origins );
 	}
 
 	/**
 	 * Mirror runtime disconnect: regular Nodes clear their connect target;
 	 * Tees remove an explicit target, while an omitted target defaults to the
 	 * Shell envelope FROM and therefore does not clear the topology's fan-out.
-	 * Configuration-target roles are independent and never removed here.
+	 * The config and pair roles are independent and never removed here.
 	 *
-	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges Edge-state map, by reference.
 	 * @param string      $source   Source node.
 	 * @param string|null $target   Target to remove — read only for a fan-out source; a regular Node clears its single connect target either way.
 	 * @param bool        $fans_out Whether the source keeps a target LIST rather than one target.
-	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges
+	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges
 	 */
 	private static function disconnect_edge( array &$edges, string $source, ?string $target, bool $fans_out ): void {
 		if ( $fans_out && null === $target ) {
@@ -509,23 +501,18 @@ class Topology_Analyzer {
 	}
 
 	/**
-	 * Remove the runtime connect role while preserving independent config roles.
+	 * Remove the runtime connect role while preserving the config and pair
+	 * roles, which no `connect_node` or `disconnect_node` made.
 	 *
-	 * @param array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}} $edge Edge state.
-	 * @return array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}|null
+	 * @param array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>,pair: list<string>}} $edge Edge state.
+	 * @return array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>,pair: list<string>}}|null
 	 */
 	private static function without_connect_role( array $edge ): ?array {
-		if ( [] === $edge['origins']['config'] ) {
+		if ( [] === $edge['origins']['config'] && [] === $edge['origins']['pair'] ) {
 			return null;
 		}
-		return [
-			'from'    => $edge['from'],
-			'to'      => $edge['to'],
-			'origins' => [
-				'connect' => [],
-				'config'  => $edge['origins']['config'],
-			],
-		];
+		$edge['origins']['connect'] = [];
+		return $edge;
 	}
 
 	/**
@@ -534,10 +521,10 @@ class Topology_Analyzer {
 	 * which the runtime resolves before the node parses them, so each token is
 	 * judged resolved and split raw. A malformed token is skipped.
 	 *
-	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges Edge-state map, by reference.
 	 * @param list<string> $values  The broker's `make_node` values.
 	 * @param list<string> $origins Top-level includes providing the broker.
-	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges
+	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges
 	 * @return list<array{source:string,target:string}>
 	 */
 	private static function draw_pair_edges( array &$edges, array $values, array $origins ): array {
@@ -548,51 +535,42 @@ class Topology_Analyzer {
 			}
 			$pair    = Remote_Source_Node::split_pair( $token );
 			$pairs[] = $pair;
-			// A pair routes through a reader; no disconnect reaches it.
-			self::add_config_origins( $edges, $values[2] ?? '', $pair['target'], 'pair', $origins );
+			self::add_role_origins( $edges, $values[2] ?? '', $pair['target'], 'pair', $origins );
 		}
 		return $pairs;
 	}
 
 	/**
-	 * Add `$origins` to one config role of an edge, creating the edge. Other
-	 * edges and other roles are left alone.
+	 * Add `$origins` to one role of an edge, creating the edge: `connect` for a
+	 * `connect_node`, `pair` for a broker's pair.
 	 *
-	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges Edge-state map, by reference.
-	 * @param string       $source  Source node.
-	 * @param string       $target  Target node.
-	 * @param string       $slot    The config role, e.g. `set_error_target` or `pair`.
-	 * @param list<string> $origins Top-level includes providing the role.
-	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges
+	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges Edge-state map, by reference.
+	 * @param string           $source  Source node.
+	 * @param string           $target  Target node.
+	 * @param 'connect'|'pair' $role    The role the origins provide.
+	 * @param list<string>     $origins Top-level includes providing it.
+	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges
 	 */
-	private static function add_config_origins( array &$edges, string $source, string $target, string $slot, array $origins ): void {
-		$key          = self::ensure_edge( $edges, $source, $target );
-		$edge         = $edges[ $key ];
-		$config       = $edge['origins']['config'];
-		$slot_origins = $config[ $slot ] ?? [];
+	private static function add_role_origins( array &$edges, string $source, string $target, string $role, array $origins ): void {
+		$key   = self::ensure_edge( $edges, $source, $target );
+		$edge  = $edges[ $key ];
+		$known = $edge['origins'][ $role ];
 		foreach ( $origins as $origin ) {
-			if ( ! \in_array( $origin, $slot_origins, true ) ) {
-				$slot_origins[] = $origin;
+			if ( ! \in_array( $origin, $known, true ) ) {
+				$known[] = $origin;
 			}
 		}
-		$config[ $slot ] = $slot_origins;
-		$edges[ $key ]   = [
-			'from'    => $edge['from'],
-			'to'      => $edge['to'],
-			'origins' => [
-				'connect' => $edge['origins']['connect'],
-				'config'  => $config,
-			],
-		];
+		$edge['origins'][ $role ] = $known;
+		$edges[ $key ]            = $edge;
 	}
 
 	/**
 	 * Ensure one insertion-ordered edge-state record and return its key.
 	 *
-	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges Edge-state map, by reference.
 	 * @param string $source Source node.
 	 * @param string $target Target node.
-	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges
+	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges
 	 * @return string The edge's key in `$edges`.
 	 */
 	private static function ensure_edge( array &$edges, string $source, string $target ): string {
@@ -604,6 +582,7 @@ class Topology_Analyzer {
 				'origins' => [
 					'connect' => [],
 					'config'  => [],
+					'pair'    => [],
 				],
 			];
 		}
@@ -1326,10 +1305,35 @@ class Topology_Analyzer {
 			}
 			$tree[ $include ] = self::walk( $path, $include, $include, [ $include ], [], $state );
 		}
+		$statements = self::with_group_children( $state['statements'] );
+		self::refuse_targetless_connects( $statements );
 		return [
-			'statements' => self::with_group_children( $state['statements'] ),
+			'statements' => $statements,
 			'tree'       => $tree,
 		];
+	}
+
+	/**
+	 * Refuse a `connect_node` onto a node whose class declares no target, as
+	 * the load would refuse it, so no reader draws an edge that never routes.
+	 * A `Vault_Group` answers for its child class, which is what refuses.
+	 *
+	 * @param list<array{line: string,verb: string,values: list<string>,spans: list<string>,origin: ?string,origins: list<string>,via: list<string>}> $statements Flattened statements.
+	 * @throws \RuntimeException On a connect the source's class refuses.
+	 */
+	private static function refuse_targetless_connects( array $statements ): void {
+		$classes = [];
+		foreach ( $statements as [ 'verb' => $verb, 'values' => $values ] ) {
+			if ( 'make_node' === $verb ) {
+				$type                         = self::type_is( $values[1] ?? '', Vault_Group_Node::class ) ? ( $values[3] ?? '' ) : ( $values[1] ?? '' );
+				$classes[ $values[2] ?? '' ] = Command_Interpreter_Node::resolve_class( $type );
+				continue;
+			}
+			$class = 'connect_node' === $verb ? ( $classes[ $values[1] ?? '' ] ?? null ) : null;
+			if ( null !== $class ) {
+				Node::refuse_target_on( $class, $values[1] ?? '' );
+			}
+		}
 	}
 
 	/**

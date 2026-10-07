@@ -1,0 +1,47 @@
+{
+  "format": [
+    ["a segment and an offset", 47, 3318, null, "47:3318"],
+    ["segment zero is a real segment", 0, 0, null, "0:0"],
+    ["an unknown generation states its offset alone", null, 9124, null, ":9124"],
+    ["a record's breadcrumb carries its length", 47, 3318, 206, "47:3318:206"],
+    ["a crumb at the head of segment zero", 0, 0, 1599, "0:0:1599"]
+  ],
+  "parse": [
+    ["a segment and an offset", "47:3318", {"segment": 47, "offset": 3318}],
+    ["segment zero is a real segment", "0:0", {"segment": 0, "offset": 0}],
+    ["a breadcrumb reads its length", "47:3318:206", {"segment": 47, "offset": 3318, "length": 206}],
+    ["a segment-less offset", ":9124", {"offset": 9124}],
+    ["a segment-less offset with a length", ":9124:206", {"offset": 9124, "length": 206}],
+    ["a padded length", "47:3318:0206", null],
+    ["the start word", "start", "start"],
+    ["the recent word", "recent", "recent"],
+    ["the end word", "end", "end"],
+    ["an empty string", "", null],
+    ["a bare number", "47", null],
+    ["a segment with no offset", "47:", null],
+    ["a colon alone", ":", null],
+    ["a word in the segment", "kea:5", null],
+    ["a word in the offset", "5:kea", null],
+    ["a negative segment", "-1:5", null],
+    ["a negative offset", "5:-1", null],
+    ["a padded segment", "047:5", null],
+    ["a padded offset", "47:05", null],
+    ["a hex offset", "5:0x10", null],
+    ["an empty length", "47:3318:", null],
+    ["a length that is no number", "47:3318:x", null],
+    ["four fields", "47:3318:206:9", null],
+    ["a word in the wrong case", "End", null],
+    ["an unknown word", "middle", null],
+    ["a leading space", " 5:6", null],
+    ["a segment past any integer", "99999999999999999999999:1", null]
+  ],
+  "crumb": [
+    ["a breadcrumb", "47:3318:206", {"segment": 47, "offset": 3318, "length": 206}],
+    ["a file source's inode in the segment slot", "11647:2210:9", {"segment": 11647, "offset": 2210, "length": 9}],
+    ["a padded segment", "047:3318:206", null],
+    ["a breadcrumb names its segment", ":3318:206", null],
+    ["a breadcrumb carries its length", "47:3318", null],
+    ["a word is no breadcrumb", "end", null],
+    ["a command reply's opaque ID", "byckewr4dozme4rx5j1erloi1tjvmo29", null]
+  ]
+}

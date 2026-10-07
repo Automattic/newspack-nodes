@@ -223,7 +223,6 @@ class TopologyRegistryGraphTest extends TestCase {
 		$this->write_tsl(
 			'spoke',
 			"make_node Remote_Source spoke-x austin /var/x/off /var/x/dl firehose:next-step 0\n"
-			. "connect_node spoke-x next-step\n"
 		);
 		$g    = \Newspack_Nodes\Topology_Analyzer::graph_for( 'spoke' );
 		$node = $g['nodes'][0];
@@ -398,31 +397,31 @@ class TopologyRegistryGraphTest extends TestCase {
 		$this->assertContains( [ 'pull:okapi', 'lane-sink-3' ], $graph['edges'] );
 	}
 
-	public function test_a_connect_onto_a_broker_adds_an_edge_beside_its_pairs(): void {
-		$this->write_tsl( 'vicuna-wired', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl ledger.p0:ledger-sink-5\nconnect_node pull:okapi tapir-sink-8\n" );
-
-		$edges = Topology_Analyzer::graph_for( 'vicuna-wired' )['edges'];
-
-		$this->assertContains( [ 'pull:okapi', 'ledger-sink-5' ], $edges );
-		$this->assertContains( [ 'pull:okapi', 'tapir-sink-8' ], $edges );
-		$expanded = \array_map( static fn ( array $e ): string => "{$e['from']}>{$e['to']}", Topology_Analyzer::expand( [ 'vicuna-wired' ] )['edges'] );
-		$this->assertContains( 'pull:okapi>ledger-sink-5', $expanded );
-		$this->assertContains( 'pull:okapi>tapir-sink-8', $expanded );
-	}
-
-	public function test_a_disconnect_from_a_broker_never_removes_a_pair_edge(): void {
-		$line = "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl ledger.p0:ledger-sink-5 errors.p0:errors-sink-6\nconnect_node pull:okapi tapir-sink-8\nconnect_node pull:okapi okapi-sink-9\n";
-		$this->write_tsl( 'vicuna-cut', $line . "disconnect_node pull:okapi\ndisconnect_node pull:okapi ledger-sink-5\ndisconnect_node pull:okapi tapir-sink-8\n" );
+	/** A pair edge has a role of its own, and a disconnect on the broker leaves it. */
+	public function test_a_pair_edge_carries_the_pair_role_and_outlives_a_disconnect(): void {
+		$line = "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl ledger.p0:ledger-sink-5 errors.p0:errors-sink-6\n";
+		$this->write_tsl( 'vicuna-cut', $line . "disconnect_node pull:okapi\n" );
 
 		$edges = Topology_Analyzer::graph_for( 'vicuna-cut' )['edges'];
-
-		$this->assertContains( [ 'pull:okapi', 'ledger-sink-5' ], $edges, 'a pair routes through a reader, so a disconnect leaves it' );
+		$this->assertContains( [ 'pull:okapi', 'ledger-sink-5' ], $edges );
 		$this->assertContains( [ 'pull:okapi', 'errors-sink-6' ], $edges );
-		$this->assertNotContains( [ 'pull:okapi', 'tapir-sink-8' ], $edges, 'a connect_node edge goes when named' );
-		$this->assertContains( [ 'pull:okapi', 'okapi-sink-9' ], $edges );
-		$expanded = \array_map( static fn ( array $e ): string => "{$e['from']}>{$e['to']}", Topology_Analyzer::expand( [ 'vicuna-cut' ] )['edges'] );
-		$this->assertContains( 'pull:okapi>ledger-sink-5', $expanded );
-		$this->assertNotContains( 'pull:okapi>tapir-sink-8', $expanded );
+
+		$expanded = [];
+		foreach ( Topology_Analyzer::expand( [ 'vicuna-cut' ] )['edges'] as $edge ) {
+			$expanded[ "{$edge['from']}>{$edge['to']}" ] = $edge;
+		}
+		$this->assertSame( [ 'pair' ], $expanded['pull:okapi>ledger-sink-5']['roles'] );
+		$this->assertArrayNotHasKey( 'config_slots', $expanded['pull:okapi>ledger-sink-5'], 'no setter verb made a pair edge' );
+		$this->assertSame( [ 'vicuna-cut' ], $expanded['pull:okapi>errors-sink-6']['origin'] );
+	}
+
+	/** The analyzer refuses the connect a load would refuse, so no reader draws it. */
+	public function test_a_connect_onto_a_broker_fails_the_topology(): void {
+		$this->write_tsl( 'vicuna-wired', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl ledger.p0:ledger-sink-5\nconnect_node pull:okapi tapir-sink-8\n" );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'pull:okapi takes no target: Remote_Source declares has_target false' );
+		Topology_Analyzer::graph_for( 'vicuna-wired' );
 	}
 
 	public function test_graph_for_keeps_a_remote_links_partition(): void {

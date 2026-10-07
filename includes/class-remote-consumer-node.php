@@ -206,7 +206,9 @@ class Remote_Consumer_Node extends Timer_Node {
 	/**
 	 * Take one routed line and the message the broker decoded from it, and take
 	 * the busy cadence: data arrives on the cURL drain, between fires. A line
-	 * handed over undecoded, as null, is decoded when it drains.
+	 * handed over undecoded, as null, is decoded when it drains. The broker's
+	 * drain-loop entry beside `fill()`, measured in ADR-1's amendment: through
+	 * `fill()` a line would be encoded or decoded a second time.
 	 *
 	 * @param string                $raw     One packed record.
 	 * @param array<int,mixed>|null $message Its decoded message, or null.
@@ -214,7 +216,7 @@ class Remote_Consumer_Node extends Timer_Node {
 	public function receive( string $raw, ?array $message ): void {
 		$this->skipped_to = null;
 		$this->buffer    .= $raw . "\n";
-		$this->lines->enqueue( [ 'crumb' => null === $message ? null : self::crumb_of( $message ), 'message' => $message ] );
+		$this->lines->enqueue( [ 'crumb' => null === $message ? null : Log_Position::crumb( Core::as_string( $message[ Message::ID ] ) ), 'message' => $message ] );
 		$this->at_eof = false;
 		if ( $this->is_live() && self::POLL_INTERVAL_BUSY_MS !== $this->interval_ms ) {
 			$this->set_timer( self::POLL_INTERVAL_BUSY_MS );
@@ -304,26 +306,19 @@ class Remote_Consumer_Node extends Timer_Node {
 	 * which the spoke resolves; else the cursor.
 	 */
 	private function step_position(): string {
-		if ( null !== $this->pending_seek ) {
-			foreach ( Log_Sources::MAGIC_POSITIONS as $word ) {
-				if ( Consumer_Node::seek_sentinel( $word ) === $this->pending_seek ) {
-					return $word;
-				}
-			}
-		}
-		return $this->cursor_position();
+		$word = null === $this->pending_seek ? null : Log_Position::word( $this->pending_seek );
+		return $word ?? $this->cursor_position();
 	}
 
 	/**
-	 * Where the cursor stands now, restoring and consuming nothing, in the
-	 * `{segment}:{offset}` grammar of `Consumer_Node::cursor_position()`; the
-	 * offset alone, as `:{offset}`, while the generation is unknown, since
-	 * segment 0 names a foreign inode.
+	 * Where the cursor stands now, restoring and consuming nothing, as
+	 * `Log_Position::format()` writes it: the offset alone, as `:{offset}`,
+	 * while the generation is unknown, since segment 0 names a foreign inode.
 	 *
 	 * @return string `{segment}:{offset}` or `:{offset}`.
 	 */
 	public function cursor_position(): string {
-		return ( $this->generation_unknown ? '' : $this->cursor_segment ) . ":{$this->cursor_offset}";
+		return Log_Position::format( $this->generation_unknown ? null : $this->cursor_segment, $this->cursor_offset, null );
 	}
 
 	/**
@@ -558,7 +553,7 @@ class Remote_Consumer_Node extends Timer_Node {
 			$this->stand_at( $at );
 			$this->pending_seek = null;
 		} else {
-			$this->pending_seek = Consumer_Node::seek_sentinel( $position );
+			$this->pending_seek = Log_Position::sentinel( $position );
 		}
 		$this->offset_set = true;
 		$this->buffer     = '';
@@ -604,22 +599,6 @@ class Remote_Consumer_Node extends Timer_Node {
 			return;
 		}
 		$this->commit_checkpoint_frame( $this->cursor_segment, $this->cursor_offset, $graceful, $extra );
-	}
-
-	/**
-	 * A record's `segment:offset:length` breadcrumb, or null when its ID is
-	 * anything else. A File_Tail's ID carries its inode in the segment slot,
-	 * all digits, so it reads the same way.
-	 *
-	 * @param array<int,mixed> $message The record.
-	 * @return array{segment:int,offset:int,length:int}|null
-	 */
-	public static function crumb_of( array $message ): ?array {
-		$parts = \explode( ':', Core::as_string( $message[ Message::ID ] ?? '' ) );
-		if ( 3 !== \count( $parts ) || \in_array( false, \array_map( 'ctype_digit', $parts ), true ) ) {
-			return null;
-		}
-		return [ 'segment' => (int) $parts[0], 'offset' => (int) $parts[1], 'length' => (int) $parts[2] ];
 	}
 
 	/**
@@ -738,18 +717,6 @@ class Remote_Consumer_Node extends Timer_Node {
 	/** Bytes buffered and not yet drained; the broker sums them for its valve. */
 	public function buffered_bytes(): int {
 		return \strlen( $this->buffer );
-	}
-
-	/**
-	 * The sibling slot a stamp is published under, which is also its name's
-	 * suffix and its sidecars' directory: the stamp with `/` spelled `:`. The
-	 * Router splits a TO on `/`, and a step reply returns addressed to this
-	 * reader's name; a stamp never carries `:`, so the spelling reverses.
-	 *
-	 * @param string $stamp A partition dir or `sources/<name>`.
-	 */
-	public static function kind_of( string $stamp ): string {
-		return \str_replace( '/', ':', $stamp );
 	}
 
 	/**

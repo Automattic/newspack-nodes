@@ -51,11 +51,19 @@ trait Fanout_Targets {
 	 * have to remember a constructor line, and forgetting it stays invisible
 	 * until something reads `target()` directly.
 	 *
+	 * Naming a target on a class that declares none is refused before the
+	 * list changes, as `Node::target()` refuses it; clearing one never is.
+	 *
 	 * @param string|array<int,string>|null $value New target (null = getter).
 	 * @return list<string> Every target, in connect order.
+	 * @throws \RuntimeException When the class declares no target.
 	 */
 	public function target( $value = null ) {
-		$this->target = Node::target_list( null !== $value ? $value : $this->target );
+		$list = Node::target_list( null !== $value ? $value : $this->target );
+		if ( null !== $value && [] !== $list ) {
+			Node::refuse_target_on( static::class, $this->name );
+		}
+		$this->target = $list;
 		return $this->target;
 	}
 
@@ -69,10 +77,8 @@ trait Fanout_Targets {
 	 * @param string $target Path stamped into an empty TO.
 	 */
 	public function connect_node( string $target ): void {
-		$this->target = Node::target_list( $this->target );
-		if ( ! \in_array( $target, $this->target, true ) ) {
-			$this->target[] = $target;
-		}
+		$list = Node::target_list( $this->target );
+		$this->target( \in_array( $target, $list, true ) ? $list : [ ...$list, $target ] );
 	}
 
 	/**
@@ -92,15 +98,16 @@ trait Fanout_Targets {
 
 	/**
 	 * Mint one `<verb>` command per live target, addressed `<target>/<to>` and
-	 * signed under that spoke's own session key, then fill it into the sink.
-	 * Drops silently when the node has no sink.
+	 * signed under that spoke's own session key through
+	 * `Command_Auth::mint_for()`, then fill it into the sink. Drops silently
+	 * when the node has no sink.
 	 *
 	 * Signing happens per spoke because the key chosen IS the destination
 	 * binding (ADR-15): one command re-addressed to N spokes after the mint
-	 * would verify nowhere. A spoke with no session yet is skipped AND asked to
-	 * handshake, since every minter refuses to queue unsigned and nothing else
-	 * would ask. The skip is logged only past the first 30 seconds of uptime,
-	 * while a session still being established is not worth a line.
+	 * would verify nowhere. A spoke with no session yet is skipped, and
+	 * `mint_for()` asks it to handshake. The skip is logged only past the
+	 * first 30 seconds of uptime, while a session still being established is
+	 * not worth a line.
 	 *
 	 * Every spoke is attempted, and what any of them threw is raised after the
 	 * last: one spoke's failure says nothing about the next one's delivery.
@@ -119,25 +126,14 @@ trait Fanout_Targets {
 			$this->live_targets(),
 			function ( string $target ) use ( $sink, $to, $verb, $arguments ): void {
 				$egress = $this->egress_for( $target );
-				$spoke  = $egress?->vault_id() ?? '';
-				if ( '' === $spoke || ! Command_Auth::has_session( $spoke ) ) {
-					if ( (int) ( Core::$now - Core::$init_time ) > 30 ) {
-						$this->print_less_often( 'no session for ', $target, '; skipping' );
-					}
-					// Skipping alone deadlocks: someone must ask to handshake.
-					$egress?->ensure_session();
+				$out    = null === $egress ? null : Command_Auth::mint_for( $egress, $this->name, $this->target_path( $target, $to ), $verb, $arguments );
+				if ( null !== $out ) {
+					$sink->fill( $out );
 					return;
 				}
-				$out                   = Message::new_message();
-				$out[ Message::TYPE ]  = Message::TM_COMMAND;
-				$out[ Message::FROM ]  = $this->name;
-				$out[ Message::TO ]    = $this->target_path( $target, $to );
-				$out[ Message::VALUE ] = [
-					'name'      => $verb,
-					'arguments' => $arguments,
-				];
-				Command_Auth::sign_for( $spoke, $out );
-				$sink->fill( $out );
+				if ( (int) ( Core::$now - Core::$init_time ) > 30 ) {
+					$this->print_less_often( 'no session for ', $target, '; skipping' );
+				}
 			}
 		);
 		Worker_Should_Stop::raise( $caught );

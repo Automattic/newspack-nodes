@@ -4,8 +4,11 @@
  *
  * The three-part form is a message ID verbatim: `Durable_Reader` stamps
  * `segment:offset:length` into `Message::ID`, so an operator pastes an ID out
- * of a row and lands on that record.
+ * of a row and lands on that record. `parsePosition()` reads it, so the box
+ * takes exactly the positions every other reader takes.
  */
+
+import { parsePosition } from '../../runtime/log-position';
 
 /**
  * Resolve typed input to a seek position.
@@ -23,12 +26,9 @@
  * @return {?{segment: number, offset: number}} The position, or null when the text is neither form.
  */
 export default function parseOffsetJump( text, fallbackSegment ) {
-	const full = text.match( /^(\d+):(\d+)(?::\d+)?$/ );
-	if ( full ) {
-		return {
-			segment: parseInt( full[ 1 ], 10 ),
-			offset: parseInt( full[ 2 ], 10 ),
-		};
+	const at = parsePosition( text );
+	if ( at && 'object' === typeof at && undefined !== at.segment ) {
+		return { segment: at.segment, offset: at.offset };
 	}
 	if ( /^\d+$/.test( text ) && 'number' === typeof fallbackSegment ) {
 		return { segment: fallbackSegment, offset: parseInt( text, 10 ) };

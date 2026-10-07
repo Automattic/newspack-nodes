@@ -683,6 +683,26 @@ test( 'a cursor naming no generation seeds the offset alone', () => {
 	} );
 } );
 
+test( 'a cursor no position reads seeds nothing, as PHP skips it', () => {
+	const { sse } = makeSseIn( {
+		subscribe: [ 'firehose.p0', 'errors.p2', 'sources/php' ],
+	} );
+	sse.start();
+	FakeEventSource.last.dispatch(
+		'connected',
+		connectedFrame( {
+			cursors: 'firehose.p0=07:4410,errors.p2=end,sources/php=:8831',
+		} )
+	);
+
+	// One reader of a position: the padded segment and the word name no place.
+	expect( sse.seekMap() ).toEqual( {
+		'firehose.p0': -1,
+		'errors.p2': -1,
+		'sources/php': { offset: 8831 },
+	} );
+} );
+
 function unparseableFrame( value ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_INFO;
@@ -1683,6 +1703,18 @@ test( 'a command-reply ID (not a breadcrumb) is not tracked as a position', () =
 	m[ VALUE ] = {};
 	FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );
 	expect( sse.seekMap() ).toEqual( { completed: SEEK_END } );
+} );
+
+test( 'an ID the position reader refuses moves no resume point', () => {
+	const { sse } = makeSseIn( { subscribe: [ 'completed.p3' ] } );
+	sse.start();
+	const m = newMessage();
+	m[ TYPE ] = TM_BYTESTREAM;
+	m[ FROM ] = 'completed.p3/x';
+	m[ ID ] = '04:6604:120';
+	m[ VALUE ] = {};
+	FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );
+	expect( sse.seekMap() ).toEqual( { 'completed.p3': SEEK_END } );
 } );
 
 test( 'a forced reconnect RESUMES from the last tracked offset (no gap, no replay)', () => {

@@ -39,6 +39,8 @@ supersede.
 | [26](#adr-26-every-verb-is-gated-by-the-role-its-schema-declares) | Every verb is gated by the role its schema declares |
 | [27](#adr-27-withdrawn-a-ledger-of-write-once-rows) | Withdrawn: a Ledger of write-once rows |
 | [28](#adr-28-withdrawn-a-ledger-file-per-partition) | Withdrawn: a Ledger file per partition |
+| [29](#adr-29-a-log-stamp-has-one-writer-one-reader-and-one-resolver-per-kind) | A log stamp has one writer, one reader, and one resolver per kind |
+| [30](#adr-30-a-read-position-has-one-writer-and-one-reader) | A read position has one writer and one reader |
 
 ---
 
@@ -78,6 +80,35 @@ types / verbs through an interpreter, not new methods.
 
 **Revisit if:** a node type genuinely cannot express its operation as a single message-in.
 None in the tree does: the interpreter/verb pattern absorbs every case.
+
+**Amendment: a broker's reader takes its stream through `receive()`.**
+[`Remote_Consumer_Node::receive( $raw, $message )`](../includes/class-remote-consumer-node.php)
+is a second entry point, and the drain loop is what pays for it. The broker,
+[`Remote_Source_Node`](../includes/class-remote-source-node.php), decodes each line its SSE
+connection carries to read the FROM stamp it routes by. The reader's `Durable_Reader` buffer
+holds raw lines, its dead letters and sizes are the line's bytes, and its cursor comes from the
+decoded message's breadcrumb, so it needs both forms. Through `fill()`, it gets one of them.
+A decoded hand-off re-encodes the line for the buffer, and a packed hand-off decodes it a
+second time.
+
+The cost was measured on a hub's real path. A broker's reader drained into the hub's
+downstream: `Remote_Job_Rewrite_Node::fill()`, then a four-partition `Topic`, then its
+`Partition`s writing to disk. 20,000 TM_STRUCT records of 1,599 bytes each passed through
+it, and each figure is the median of three runs. The runs used PHP 8.4.26 in
+`eve-pyrobase1-1`, with `XDEBUG_MODE=off` (the extension still loaded) and
+`opcache.enable_cli` at 0. One line cost 16.78 µs through `receive()`. A packed `fill()`
+cost 20.48 µs, 3.70 µs more and 22.1% of the path. A decoded `fill()` cost 21.99 µs,
+5.21 µs more and 31.0%. Into a `Null_Node` instead of the hub, the line cost 6.32 µs, and the
+fold added 3.57 µs (56%) or 4.78 µs (76%). The fold's own cost, about 3.6 to 5.2 µs a line, is
+the same in both. It costs more than a fifth of the real per-line path, and the budget
+for folding was 5%.
+
+Only the broker calls `receive()`, on the line it has just routed by FROM. A step reply still
+arrives through `fill()`, which takes that reply and nothing else. Nothing outside the broker
+reaches the reader's stream except the reader's own verbs.
+
+**Revisit if:** a line reaches the reader already decoded, so a hand-off through `fill()` costs
+no second encode or decode; or the reader's buffer stops holding raw lines.
 
 ---
 
@@ -849,9 +880,13 @@ unsigned and nothing else would ever ask for the handshake, so the skip branch h
 A minter resolves its egress by running the target's head segment through `Core::node()`,
 type-tests the result for `HTTP_Out_Node`, and calls
 [`HTTP_Out_Node::ensure_session()`](../includes/class-http-out-node.php), which exists for that and nothing else: it fires the node
-when `Command_Auth::has_session()` says there is none. [`Fanout_Targets::send_signed()`](../includes/trait-fanout-targets.php)
-is that loop, written once: `Settings_Sync_Node` and ELN's [`Discovery_Collector_Node`](https://github.com/Automattic/newspack-event-logger-nodes/blob/4437e383/includes/class-discovery-collector-node.php) both mint through it,
-so a third minter calls it rather than copying the shape. On the JS side [`Node.command( name, args )`](../src/runtime/node.js)
+when `Command_Auth::has_session()` says there is none. [`Command_Auth::mint_for()`](../includes/class-command-auth.php)
+is that body, written once: it checks the session, asks the egress for one when there is
+none, then mints and signs, handing the command back for the caller to fill, as
+`Node.command()` does below. [`Fanout_Targets::send_signed()`](../includes/trait-fanout-targets.php) calls it once per target
+for `Settings_Sync_Node` and ELN's [`Discovery_Collector_Node`](https://github.com/Automattic/newspack-event-logger-nodes/blob/4437e383/includes/class-discovery-collector-node.php), and a paused
+`Remote_Consumer`'s step and `Remote_Link`'s slot heartbeat call it directly, so another
+minter calls it rather than copying the shape. On the JS side [`Node.command( name, args )`](../src/runtime/node.js)
 builds the TM_COMMAND, stamps FROM from the node's name and TO from its target, and hands back
 the message signed and LOCAL-marked — or null when `readyToMint()` finds no session, having
 asked for one on the way. Signing is synchronous and cannot await `/auth`, so a null is the
@@ -1886,3 +1921,85 @@ holds the rule mechanically: outside `class-log-discovery.php`, no PHP joins
 literal.
 
 **Revisit if:** a stamp must name something that is neither a dir nor a registry entry.
+
+**Amendment: a stamp's kind has one codec.** A broker publishes each reader as a sibling
+under the stamp's KIND, which is also that reader's name suffix and the basename of its cursor
+and dead-letter dirs: the stamp with `/` spelled `:`, because the Router splits a TO on `/` and
+a step reply returns addressed to the reader's name. [`Log_Discovery::kind_of()`](../includes/class-log-discovery.php)
+writes a kind and `stamp_of()` reads one back, and `tests/fixtures/log-kinds.json` holds both
+directions to one case list. The broker builds a reader's slot through `kind_of()` and reads a
+kind dir under its offsetlog root through `stamp_of()`.
+
+---
+
+## ADR-30: A read position has one writer and one reader
+
+**Status:** Accepted
+
+**Context:** A reader's position travels as text: a `cursor_position()`, a record's ID
+breadcrumb, a `CURSORS` entry in the stream's `connected` and `unparseable_lines` frames, a
+`read_message` argument, a value in the `positions` map a stream opens with, a paused reader's
+step and a pasted Jump. The breadcrumb is the same grammar carrying the record's length,
+`<segment>:<offset>:<length>`, and that length is why a position may carry a third field.
+Eight sites wrote it:
+
+- `Consumer_Node::cursor_position()` wrote `<segment>:<offset>`.
+- `File_Tail_Node` and `Remote_Consumer_Node` wrote `:<offset>` for a generation not known yet,
+  and the browser's `stepPosition()` did the same.
+- `Tail_Node`, `Durable_Reader` and `Dead_Letter_Queue` wrote breadcrumbs, the last twice.
+
+Seven sites read it, each under a grammar of its own:
+
+- `Log_Sources::read()` took padded digits and a `:<length>`.
+- `SSE_In_Node`'s CURSORS reader took canonical decimals and no length.
+- `Remote_Consumer_Node::crumb_of()` took padded digits.
+- The browser's `_seedPositions()` took whatever `Number()` parses.
+- Its breadcrumb readers in `SseInNode` and `SeekTracker`, and the Jump box's
+  `parseOffsetJump()`, each kept a regex.
+- `SSE_Out_Node::position_arg()` passed a string through as a word.
+
+So the browser and the hub could disagree on what one entry said. The seek words lived on
+`Log_Sources`, and their resolution to a sentinel on `Consumer_Node`.
+
+**Decision:** [`Log_Position`](../includes/class-log-position.php) owns the grammar:
+`<segment>:<offset>`, the segment-less `:<offset>`, either with a `:<length>`, and the words in
+`Log_Position::WORDS`, one table from each word to its `Consumer_Node::SEEK_*` sentinel.
+`format( ?int $segment, int $offset, ?int $length )` is the one writer: a null segment writes
+`:<offset>`, because segment 0 names a real segment or a foreign inode, and a null length writes
+a position rather than a breadcrumb. `parse( string $position )` is the one reader. It answers
+the place, its length included when present, the word, or null; every number is a canonical
+decimal. `crumb()` narrows it to a breadcrumb, which names its segment and its length. Each
+caller states its own refusal, as `CLI::parse_worker_id()` lets its callers do
+([ADR-22](#adr-22-a-worker-id-has-one-writer-one-reader-and-two-layout-owners)):
+`read_message` throws, a `CURSORS` entry or an ID naming no place is skipped, and a
+`positions` string naming none seeks to the start. `sentinel()` and `word()` read the `WORDS`
+table in each direction, which is how a paused remote reader asks the spoke for a seek.
+Every `cursor_position()` and every breadcrumb writes through `format()`. `Log_Sources::read()`,
+`SSE_In_Node`'s CURSORS reader, `SSE_Out_Node::position_arg()` and `Remote_Consumer_Node`'s
+breadcrumb read through `parse()` and `crumb()`. The browser's twins, `formatPosition()`,
+`parsePosition()` and `parseCrumb()` in [`src/runtime/log-position.js`](../src/runtime/log-position.js),
+are what `stepPosition()`, `SseInNode`, `SeekTracker` and `parseOffsetJump()` call.
+`tests/fixtures/log-positions.json` holds both languages to one case list. The `positions`
+map's object and number forms are its transport, not this grammar: a `{ segment, offset }`
+object and a sentinel number pass through as they are.
+
+**Alternatives considered:** A shared regex constant each site wraps. It was rejected for the
+reason [ADR-22](#adr-22-a-worker-id-has-one-writer-one-reader-and-two-layout-owners) gives:
+it shares a pattern, not the decision, and each site keeps its own cast and fallback. A reader
+that throws on every refusal was rejected too. Its callers refuse three ways, and a reader
+catching to recover the other two has turned the throw into control flow. A breadcrumb grammar
+of its own, beside the position's, was the third: the two differ by one field, and a second
+grammar is two places to drift. `Log_Discovery` as the owner was the fourth. It owns where a
+log is, and a position is where a reader stands inside one.
+
+**Consequences:** A position one surface writes reads the same on every other: a padded number,
+a sign, another base or an empty `:<length>` names no position anywhere. So `read_message`
+refuses `047:5`, which it used to read as segment 47, and a record whose ID is `07:12:9` carries
+no breadcrumb on either side. A `CURSORS` entry carrying a length is read where it was skipped,
+and a `positions` string naming a place seeks there instead of to the start. The browser bounds
+a number at `Number.MAX_SAFE_INTEGER` and PHP at `PHP_INT_MAX`, so the fixture keeps out of
+the gap between them.
+
+**Revisit if:** a position must carry more than a segment, an offset and a length, such as a
+record's index within a batch; or the wire's `positions` map moves to the string grammar, at
+which point its object form goes and `parse()` reads every value.

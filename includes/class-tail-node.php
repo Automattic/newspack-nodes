@@ -120,7 +120,7 @@ class Tail_Node extends Consumer_Node {
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 		$message[ Message::FROM ]  = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
-		$message[ Message::ID ]    = "{$this->cursor_segment}:{$abs_offset}:{$size}";
+		$message[ Message::ID ]    = Log_Position::format( $this->cursor_segment, $abs_offset, $size );
 		$message[ Message::VALUE ] = $bytes;
 		parent::fill( $message );
 	}

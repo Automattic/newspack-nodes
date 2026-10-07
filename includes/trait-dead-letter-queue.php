@@ -231,7 +231,7 @@ trait Dead_Letter_Queue {
 			$message[ Message::VALUE ] = $line;
 		}
 		$length                 = \strlen( $line ) + 1;
-		$message[ Message::ID ] = "{$segment}:{$offset}:{$length}";
+		$message[ Message::ID ] = Log_Position::format( $segment, $offset, $length );
 		return $message;
 	}
 
@@ -304,7 +304,7 @@ trait Dead_Letter_Queue {
 			'first_crash_ts' => $this->first_crash_ts,
 			'ts'             => (int) Core::$now,
 			'source'         => Core::as_string( $message[ Message::ID ] ?? '' ),
-			'locator'        => "{$position['segment']}:{$position['offset']}:{$position['length']}",
+			'locator'        => Log_Position::format( $position['segment'], $position['offset'], $position['length'] ),
 		] );
 	}
 

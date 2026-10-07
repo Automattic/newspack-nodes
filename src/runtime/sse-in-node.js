@@ -46,12 +46,7 @@ import {
 	unpack,
 } from './message';
 import { splitStamp } from './log-stamp';
-
-/**
- * The `segment:offset:length` breadcrumb a record carries in its ID.
- * `_trackPosition` pairs it with the partition directory FROM names.
- */
-const ID_POSITION_RE = /^(\d+):(\d+):(\d+)$/;
+import { parseCrumb, parsePosition } from './log-position';
 
 /**
  * A PHP lease owner as it travels: a canonical positive decimal string.
@@ -803,31 +798,21 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	 * without this the reopen tail-seeks and drops whatever arrived in the gap.
 	 * A delivered record overwrites the seed, since its breadcrumb is newer.
 	 * A file source that has not seen its generation states `dir=:offset`,
-	 * and its seed carries no `segment`: 0 would name a foreign inode.
+	 * and its seed carries no `segment`: 0 would name a foreign inode. Each
+	 * position is read by `parsePosition()`, and one naming no place is
+	 * skipped, as PHP `SSE_In_Node::cursors_of()` skips it.
 	 *
-	 * @param {*} token `dir=segment:offset` pairs, comma-separated.
+	 * @param {*} token `dir=<position>` pairs, comma-separated.
 	 */
 	_seedPositions( token ) {
 		String( token ?? '' )
 			.split( ',' )
 			.forEach( ( pair ) => {
 				const eq = pair.indexOf( '=' );
-				if ( eq < 1 ) {
-					return;
+				const at = parsePosition( pair.slice( eq + 1 ) );
+				if ( eq > 0 && at && 'object' === typeof at ) {
+					this.lastPositions[ pair.slice( 0, eq ) ] = at;
 				}
-				const colon = pair.indexOf( ':', eq );
-				if ( colon < 0 ) {
-					return;
-				}
-				const offset = Number( pair.slice( colon + 1 ) );
-				if ( ! Number.isFinite( offset ) ) {
-					return;
-				}
-				const segment = pair.slice( eq + 1, colon );
-				this.lastPositions[ pair.slice( 0, eq ) ] =
-					'' === segment
-						? { offset }
-						: { segment: Number( segment ), offset };
 			} );
 	}
 
@@ -877,10 +862,8 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	 * @param {Array} message The positional Message just received.
 	 */
 	_trackPosition( message ) {
-		const idMatch = ID_POSITION_RE.exec(
-			'string' === typeof message[ ID ] ? message[ ID ] : ''
-		);
-		if ( ! idMatch ) {
+		const crumb = parseCrumb( message[ ID ] );
+		if ( ! crumb ) {
 			return;
 		}
 		const { dir } = splitStamp( message[ FROM ] );
@@ -889,8 +872,8 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 		}
 		// Resume at offset+length — the exact next-record boundary.
 		this.lastPositions[ dir ] = {
-			segment: Number( idMatch[ 1 ] ),
-			offset: Number( idMatch[ 2 ] ) + Number( idMatch[ 3 ] ),
+			segment: crumb.segment,
+			offset: crumb.offset + crumb.length,
 		};
 	}
 

@@ -624,7 +624,7 @@ trait Durable_Reader {
 		}
 		// ID breadcrumb = seg:offset:length (length for SSE_In's reconnect).
 		$this->crumb            = [ 'segment' => $this->cursor_segment, 'offset' => $abs_offset, 'length' => $line_size ];
-		$message[ Message::ID ] = "{$this->crumb['segment']}:{$this->crumb['offset']}:{$this->crumb['length']}";
+		$message[ Message::ID ] = Log_Position::format( $this->cursor_segment, $abs_offset, $line_size );
 		if ( \is_string( $this->target ) && '' !== $this->target ) {
 			$message[ Message::TO ] = $this->target;
 		}
