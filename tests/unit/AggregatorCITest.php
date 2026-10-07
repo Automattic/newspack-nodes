@@ -103,8 +103,7 @@ class AggregatorCITest extends TestCase {
 		$lines = [
 			"var num_partitions = {$num_partitions}",
 			'make_node Remote_Job_Rewrite remote-job-rewrite',
-			'make_node Vault_Group firehose Remote_Source tw-edge firehose.p<partition>',
-			'connect_node firehose remote-job-rewrite',
+			'make_node Vault_Group firehose Remote_Source tw-edge <config:offsets_dir>/<topology>.{id} <config:deadletter_dir>/<topology>.{id} firehose.p<partition>:remote-job-rewrite',
 			...$written,
 		];
 		\file_put_contents( "{$this->tmp}/topologies/{$topology}.tsl", \implode( "\n", $lines ) . "\n" );
@@ -118,11 +117,11 @@ class AggregatorCITest extends TestCase {
 	 * Seed one child's status snapshot, as its reader publishes it.
 	 *
 	 * @param string               $id       Vault id of the child.
-	 * @param string               $source   Concrete remote partition.
+	 * @param int                  $partition Worker partition the broker runs in.
 	 * @param array<string, mixed> $snapshot Published status.
 	 */
-	private static function seed_status( string $id, string $source, array $snapshot ): void {
-		Core::$memd->set( Remote_Source_Node::status_key_for( "firehose:{$id}", $source ), $snapshot, 60 );
+	private static function seed_status( string $id, int $partition, array $snapshot ): void {
+		Core::$memd->set( Remote_Source_Node::status_key_for( "firehose:{$id}", $partition ), $snapshot, 60 );
 	}
 
 	/** @return list<array<string, mixed>> The decoded `list_servers` slice. */
@@ -146,7 +145,7 @@ class AggregatorCITest extends TestCase {
 	}
 
 	public function test_list_servers_lists_a_written_reader_beside_the_group(): void {
-		$this->seed_group_topology( [ 'tw0', 'tw9' ], 1, 'aggregator', [ 'make_node Remote_Source spoke-x9 lone firehose.p<partition>' ] );
+		$this->seed_group_topology( [ 'tw0', 'tw9' ], 1, 'aggregator', [ 'make_node Remote_Source spoke-x9 lone <config:offsets_dir>/x9 <config:deadletter_dir>/x9 firehose.p<partition>:remote-job-rewrite' ] );
 
 		$decoded = self::list_servers();
 
@@ -157,7 +156,7 @@ class AggregatorCITest extends TestCase {
 	public function test_list_servers_lists_a_remote_source_subclass(): void {
 		require_once \dirname( __DIR__ ) . '/Helpers/fixtures/class-okapi-pull-node.php';
 		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\Fixtures\\' );
-		$this->seed_group_topology( [], 1, 'aggregator', [ 'make_node Okapi_Pull pull-x4 lone firehose.p<partition>' ] );
+		$this->seed_group_topology( [], 1, 'aggregator', [ 'make_node Okapi_Pull pull-x4 lone <config:offsets_dir>/x4 <config:deadletter_dir>/x4 firehose.p<partition>:remote-job-rewrite' ] );
 
 		$decoded = self::list_servers();
 
@@ -181,12 +180,11 @@ class AggregatorCITest extends TestCase {
 	}
 
 	public function test_list_servers_reads_every_configured_partition(): void {
-		// The remote_partition template carries `<partition>`, so with two
-		// partitions the snapshot reads firehose.p0 AND firehose.p1, keyed by
-		// partition index.
+		// One broker runs per worker partition, so with two partitions the
+		// snapshot reads each worker's status key, keyed by partition index.
 		$this->seed_group_topology( [ 'tw9' ], 2 );
-		self::seed_status( 'tw9', 'firehose.p0', [ 'connected' => true ] );
-		self::seed_status( 'tw9', 'firehose.p1', [ 'connected' => false ] );
+		self::seed_status( 'tw9', 0, [ 'connected' => true ] );
+		self::seed_status( 'tw9', 1, [ 'connected' => false ] );
 
 		$decoded = self::list_servers();
 
@@ -254,8 +252,8 @@ class AggregatorCITest extends TestCase {
 		// tw0 has one connected partition (p0) → counts as 1 connected;
 		// tw9 has no connected partitions → counts toward total only.
 		$this->seed_group_topology( [ 'tw0', 'tw9' ], 2 );
-		self::seed_status( 'tw0', 'firehose.p0', [ 'connected' => true ] );
-		self::seed_status( 'tw0', 'firehose.p1', [ 'connected' => false ] );
+		self::seed_status( 'tw0', 0, [ 'connected' => true ] );
+		self::seed_status( 'tw0', 1, [ 'connected' => false ] );
 
 		$interpreter = new Aggregator_CI_Node();
 		$decoded     = \json_decode( VerbHarness::fire( $interpreter, 'aggregator', 'summary' ), true );
@@ -269,9 +267,9 @@ class AggregatorCITest extends TestCase {
 		// header that read tw5 as missing would alarm an operator about a
 		// fleet where nothing is wrong.
 		$this->seed_group_topology( [ 'tw0', 'tw5', 'tw9' ] );
-		self::seed_status( 'tw0', 'firehose.p0', [ 'connected' => true ] );
-		self::seed_status( 'tw5', 'firehose.p0', [ 'connected' => false, 'scheduled_reconnect_at' => \time() + 9 ] );
-		self::seed_status( 'tw9', 'firehose.p0', [ 'connected' => false, 'last_error' => 'connection refused 8531' ] );
+		self::seed_status( 'tw0', 0, [ 'connected' => true ] );
+		self::seed_status( 'tw5', 0, [ 'connected' => false, 'scheduled_reconnect_at' => \time() + 9 ] );
+		self::seed_status( 'tw9', 0, [ 'connected' => false, 'last_error' => 'connection refused 8531' ] );
 
 		$interpreter = new Aggregator_CI_Node();
 		$decoded     = \json_decode( VerbHarness::fire( $interpreter, 'aggregator', 'summary' ), true );
@@ -330,7 +328,7 @@ class AggregatorCITest extends TestCase {
 
 	public function test_list_servers_verb_returns_sequential_array_of_server_snapshots(): void {
 		$this->seed_group_topology( [ 'tw9' ] );
-		self::seed_status( 'tw9', 'firehose.p0', [ 'connected' => true, 'last_http_code' => 200 ] );
+		self::seed_status( 'tw9', 0, [ 'connected' => true, 'last_http_code' => 200 ] );
 
 		$decoded = self::list_servers();
 
@@ -362,7 +360,7 @@ class AggregatorCITest extends TestCase {
 		// snapshot; the seeded topology lives in Topology_Registry and survives.
 		$reseed = function (): void {
 			Core::$memd = new InMemoryMemcached();
-			self::seed_status( 'tw0', 'firehose.p0', [ 'connected' => true ] );
+			self::seed_status( 'tw0', 0, [ 'connected' => true ] );
 			$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
 		};
 

@@ -52,6 +52,9 @@ class Remote_Consumer_Node extends Timer_Node {
 	/** Whether the cursor's segment is unknown: a file source's generation not yet seen. */
 	private bool $generation_unknown = false;
 
+	/** Whether `stand_at()`, the cursor's one deliberate writer, has placed it; the 0:0 a fresh reader holds is nowhere. */
+	private bool $stood = false;
+
 	/** When a step's `read_message` went out unanswered; null while none is out. */
 	private ?float $step_requested_at = null;
 
@@ -253,6 +256,20 @@ class Remote_Consumer_Node extends Timer_Node {
 	}
 
 	/**
+	 * What the broker publishes for this stream: the cursor, null until the
+	 * reader has been stood at a place (restored, adopted, skipped or sought),
+	 * and the polling state. Reads and restores nothing.
+	 *
+	 * @return array{cursor:string|null,polling:string}
+	 */
+	public function stream_status(): array {
+		return [
+			'cursor'  => $this->stood ? $this->cursor_position() : null,
+			'polling' => Core::as_string( $this->get_state( 'POLLING' ) ),
+		];
+	}
+
+	/**
 	 * Refill seam: nothing is read here, since lines arrive pushed. Pass the
 	 * spoke's skip once the records ahead of it drained; live, let the broker
 	 * reopen its valve; paused and dry, ask the spoke for the next record.
@@ -284,8 +301,7 @@ class Remote_Consumer_Node extends Timer_Node {
 
 	/**
 	 * Where a step reads, in `read_message`'s grammar: a pending seek's word,
-	 * which the spoke resolves; else the cursor, as `:<offset>` alone while
-	 * the generation is unknown, since segment 0 names a foreign inode.
+	 * which the spoke resolves; else the cursor.
 	 */
 	private function step_position(): string {
 		if ( null !== $this->pending_seek ) {
@@ -295,6 +311,18 @@ class Remote_Consumer_Node extends Timer_Node {
 				}
 			}
 		}
+		return $this->cursor_position();
+	}
+
+	/**
+	 * Where the cursor stands now, restoring and consuming nothing, in the
+	 * `{segment}:{offset}` grammar of `Consumer_Node::cursor_position()`; the
+	 * offset alone, as `:{offset}`, while the generation is unknown, since
+	 * segment 0 names a foreign inode.
+	 *
+	 * @return string `{segment}:{offset}` or `:{offset}`.
+	 */
+	public function cursor_position(): string {
 		return ( $this->generation_unknown ? '' : $this->cursor_segment ) . ":{$this->cursor_offset}";
 	}
 
@@ -630,6 +658,7 @@ class Remote_Consumer_Node extends Timer_Node {
 	 * @param array{segment?:int,offset:int} $at Where the reader now stands.
 	 */
 	private function stand_at( array $at ): void {
+		$this->stood              = true;
 		$this->generation_unknown = ! isset( $at['segment'] );
 		if ( isset( $at['segment'] ) ) {
 			$this->cursor_segment = $at['segment'];

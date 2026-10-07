@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A `Remote_Source` publishes its status per broker and worker partition, with each stream's cursor.** The key is `remote:<broker>:p<partition>`, where it was `remote:<broker>:<remote_partition>`; a broker with no bound worker partition publishes none. The snapshot gains `streams`: per stamp, the reader's `cursor` (`<segment>:<offset>`, or `:<offset>` for a file source with no known generation; null until the reader holds one) and its `polling` state. The snapshot now refreshes once a second, even while every reader is paused. `Remote_Source_Node::status_key_for()` takes the worker partition as an int.
 - **The Partition Viewer is renamed the Log Viewer,** now that it reads registry files beside partitions. Tab `log-viewer`, nodes `log-viewer:*`.
 - **The `unparseable_lines` frame names each stamp's count.** Its VALUE gains `COUNTS <stamp>=<n>,…` beside `COUNT`, so a client reading several views on one stream charges each view its own skips.
 - **`raw-logs read_message` reads `sources/<name>`, and neither it nor `dump_log` falls back.** An empty or unknown `log` is refused with an error (`unknown log: "<log>"` when named) instead of reading the firehose.
