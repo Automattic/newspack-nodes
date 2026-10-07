@@ -287,4 +287,60 @@ final class SseOutStreamHelpersTest extends TestCase {
 		$GLOBALS['_wp_test_current_user_can'] = [];
 	}
 
+	/** The frame states each stamp's skips beside the total. */
+	public function test_an_unparseable_lines_frame_counts_each_stamp(): void {
+		$tmp       = (string) \getenv( 'NEWSPACK_TEST_BASE_DIR' ) . '/sse-counts-' . \uniqid();
+		$consumers = [];
+		foreach ( [ 'kea-7713.p0' => "[1,2,3]\n{torn\n", 'kea-7713.p3' => "{torn\n" ] as $stamp => $torn ) {
+			\mkdir( "{$tmp}/{$stamp}", 0755, true );
+			\file_put_contents( "{$tmp}/{$stamp}/0.log", $torn );
+			$scan = \Newspack_Nodes\Consumer_Node::scan( "{$tmp}/{$stamp}" );
+			$scan->set_stamp_as( $stamp );
+			$scan->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
+			$scan->drain();
+			$consumers[ $stamp ] = $scan;
+		}
+		$report = new \ReflectionMethod( SSE_Out_Node::class, 'report_unparseable_lines' );
+
+		\ob_start();
+		$report->invoke( new SSE_Out_Node(), $consumers );
+		$out = (string) \ob_get_clean();
+
+		$this->assertStringContainsString( 'COUNT 3 COUNTS kea-7713.p0=2,kea-7713.p3=1 CURSORS ', $out );
+		foreach ( $consumers as $scan ) {
+			$scan->remove_node();
+		}
+		foreach ( \array_keys( $consumers ) as $stamp ) {
+			\unlink( "{$tmp}/{$stamp}/0.log" );
+			\rmdir( "{$tmp}/{$stamp}" );
+		}
+		\rmdir( $tmp );
+	}
+
+	/** An all-digit stamp is an int array key, and still reads as a stamp. */
+	public function test_an_unparseable_lines_frame_counts_an_all_digit_stamp(): void {
+		$tmp = (string) \getenv( 'NEWSPACK_TEST_BASE_DIR' ) . '/sse-digits-' . \uniqid();
+		\mkdir( "{$tmp}/4194", 0755, true );
+		\file_put_contents( "{$tmp}/4194/0.log", "{torn\n" );
+		$scan = \Newspack_Nodes\Consumer_Node::scan( "{$tmp}/4194" );
+		$scan->set_stamp_as( '4194' );
+		$scan->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
+		$scan->drain();
+		$consumers = [ '4194' => $scan ];
+		$report    = new \ReflectionMethod( SSE_Out_Node::class, 'report_unparseable_lines' );
+
+		\ob_start();
+		try {
+			$report->invoke( new SSE_Out_Node(), $consumers );
+		} finally {
+			$out = (string) \ob_get_clean();
+			$scan->remove_node();
+			\unlink( "{$tmp}/4194/0.log" );
+			\rmdir( "{$tmp}/4194" );
+			\rmdir( $tmp );
+		}
+
+		$this->assertStringContainsString( 'COUNT 1 COUNTS 4194=1 CURSORS 4194=', $out );
+	}
+
 }

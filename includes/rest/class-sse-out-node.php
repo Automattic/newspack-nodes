@@ -633,17 +633,28 @@ class SSE_Out_Node extends Node {
 	 * what keeps that skip visible: `COUNT` for the client to show, and
 	 * `CURSORS` in the `connected` envelope's own shape, so a reopen resumes
 	 * past the skipped lines instead of reading and counting them again. A
-	 * tick that skipped nothing sends nothing.
+	 * tick that skipped nothing sends nothing. `COUNTS` charges each stamp its
+	 * own skips, so a client reading one stream for several views shows each
+	 * view its own notice.
 	 *
 	 * @param array<string,Consumer_Node> $consumers Attached readers, keyed by stamp.
 	 */
 	private function report_unparseable_lines( array $consumers ): void {
-		$skipped = Consumer_Node::take_unparseable_lines_of( $consumers );
-		if ( 0 === $skipped ) {
+		$counts = [];
+		$total  = 0;
+		foreach ( $consumers as $stamp => $c ) {
+			$skipped = $c->take_unparseable_lines();
+			$total  += $skipped;
+			if ( $skipped > 0 && ! \strpbrk( $stamp, ' ,' ) ) {
+				$counts[] = "{$stamp}={$skipped}";
+			}
+		}
+		if ( 0 === $total ) {
 			return;
 		}
 		$cursors = self::cursor_pairs( $consumers );
-		$this->send_sse_event( 'unparseable_lines', $this->build_info_msg( 'unparseable_lines', "COUNT {$skipped}" . ( '' === $cursors ? '' : " CURSORS {$cursors}" ) ) );
+		$value   = "COUNT {$total}" . ( [] === $counts ? '' : ' COUNTS ' . \implode( ',', $counts ) ) . ( '' === $cursors ? '' : " CURSORS {$cursors}" );
+		$this->send_sse_event( 'unparseable_lines', $this->build_info_msg( 'unparseable_lines', $value ) );
 	}
 
 	/**
@@ -1232,8 +1243,9 @@ class SSE_Out_Node extends Node {
 	 *   delay after its close, and 0 means at once.
 	 * - `heartbeat` — the tick's timestamp, proving an idle stream is live. It
 	 *   does not count as data, so it never defers the idle close.
-	 * - `unparseable_lines` — `COUNT <n>`, plus `CURSORS <pairs>` in the
-	 *   `connected` envelope's shape when any reader can state one.
+	 * - `unparseable_lines` — `COUNT <n>`, plus `COUNTS <stamp>=<n>,…` for each
+	 *   stamp that skipped, plus `CURSORS <pairs>` in the `connected`
+	 *   envelope's shape when any reader can state one.
 	 * - the terminal frame of a stream whose lease is gone: `slot_lease_lost`
 	 *   means failure, `superseded` that this stream's own reconnect took the
 	 *   lease over, and the VALUE is display text. A clean idle close sends no
