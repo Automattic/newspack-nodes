@@ -137,8 +137,8 @@ pressure from contention.
 
 ## Machine pulls share the budget with browsers
 
-A hub's [`Remote_Source_Node`](../includes/class-remote-source-node.php) pulls a spoke's firehose over that spoke's
-`/messages/stream`, so an aggregation pull draws from the same host budget a
+A hub's [`Remote_Source_Node`](../includes/class-remote-source-node.php) pulls a spoke's streams over one
+`/messages/stream` connection, so an aggregation pull draws from the same host budget a
 browser tab does. Nothing gives it priority: enough dashboard tabs open on a
 spoke will refuse the hub's pull, and the hub's view of that spoke goes stale
 until a slot frees.

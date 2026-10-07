@@ -18,7 +18,7 @@ h2 { font-size:15px; margin:0 0 8px; }
 </style>
 <div class="sheet">
 <h1>The spoke's stream, pulled: six states and a 45-second watchdog</h1>
-<p class="sub"><span class="mono">SSE_In_Node</span> owns one cURL easy handle, one <span class="mono">{segment, offset}</span> cursor and one connection's parser state; its patron drives <span class="mono">maybe_connect()</span> and <span class="mono">check_stale()</span>, and every <span class="mono">data:</span> payload reaches that patron raw through the <span class="mono">on_message</span> seam. The browser mirror opens the same endpoint with numbers of its own.</p>
+<p class="sub"><span class="mono">SSE_In_Node</span> owns one cURL easy handle and one connection's parser state, and keeps no cursor; its patron states what to pull through <span class="mono">streams()</span>, drives <span class="mono">maybe_connect()</span> and <span class="mono">check_stale()</span>, and every <span class="mono">data:</span> payload reaches that patron raw through the <span class="mono">on_message</span> seam. The browser mirror opens the same endpoint with numbers of its own.</p>
 
 <div class="card">
   <h2>One connection's states, PHP side</h2>
@@ -101,16 +101,16 @@ h2 { font-size:15px; margin:0 0 8px; }
       <div><b>32 MiB</b><span class="mono">MAX_BUFFER_SIZE</span>, bytes holding no newline, and <span class="mono">MAX_EVENT_SIZE</span>, one event's <span class="mono">data:</span>. A peer that sent that much with no record boundary is broken, not slow</div>
     </div>
     <h2>What it sends</h2>
-    <p><span class="mono">positions</span> on every connect, <span class="mono">-1</span> when it holds no cursor, so a resumed <span class="mono">0:0</span> replays its backlog instead of being tail-seeked past it; and <span class="mono">X-Newspack-Nodes-Pull: 1</span>, which lets it claim the reserved TAIL of the pool, the <span class="mono">sse_reserved_slots</span> a browser stops short of. A fairness hint, not a boundary: the endpoint already requires <span class="blue">read</span>, and any holder of it could send the header.</p>
-    <h2>Which cursor wins</h2>
+    <p>the <span class="mono">subscribe</span> and <span class="mono">positions</span> its patron stated, so a reader resuming a <span class="mono">0:0</span> checkpoint replays its backlog instead of being tail-seeked past it; and <span class="mono">X-Newspack-Nodes-Pull: 1</span>, which lets it claim the reserved TAIL of the pool, the <span class="mono">sse_reserved_slots</span> a browser stops short of. A fairness hint, not a boundary: the endpoint already requires <span class="blue">read</span>, and any holder of it could send the header.</p>
+    <h2>Who states the cursor</h2>
     <div class="prec">
-      <div><b>1. a pending seek</b><span class="mono">seek( SEEK_* )</span> parks a sentinel sent on every connect until <span class="mono">restore_position()</span> replaces it: a pull source holds no segments, so <span class="mono">end</span> and <span class="mono">recent</span> travel to the spoke that owns the log</div>
+      <div><b>1. the readers</b>each live <span class="mono">Remote_Consumer_Node</span> answers <span class="mono">connect_position()</span>: the spoke's skip (<span class="mono">skipped_to</span>), else past its last buffered record, else its pending seek, else its cursor, as <span class="mono">{segment?, offset}</span> or a sentinel; no <span class="mono">segment</span> means a file whose generation is not yet known</div>
       <div class="ar">›</div>
-      <div><b>2. a restored pair</b>an explicit <span class="mono">{segment, offset}</span> written through <span class="mono">restore_position()</span></div>
+      <div><b>2. the broker</b><span class="mono">stream_request()</span> collects the live readers' subscriptions and positions, stating <span class="mono">skip</span> for a paused stamp under a glob; <span class="mono">streams()</span> hands them to this node</div>
       <div class="ar">›</div>
-      <div><b>3. nothing</b><span class="mono">-1</span>, a live tail</div>
+      <div><b>3. the handshake</b>the <span class="mono">connected</span> frame's <span class="mono">CURSORS</span> go to each reader by stamp, so a sentinel the spoke resolved lands where its stream begins</div>
     </div>
-    <p style="margin:0">A patron re-seeding the cursor each tick gates that handoff on <span class="mono">has_pending_seek()</span>, or its own write answers the seek with the position it was asked to leave. <span class="mono">Remote_Source_Node::fire()</span> carries the gate and <span class="mono">next_offset()</span> shows both branches, each after a <span class="mono">disconnect()</span>, because the sentinel is read at connect time only.</p>
+    <p style="margin:0">A live reader's cursor moves on every drain; the position stated to the spoke changes only at a connect. A paused exact stream is left out of the request and a paused glob stamp is sent as <span class="mono">skip</span>, so the broker reconnects without it and the reader steps over <span class="mono">/command</span>.</p>
   </div>
   <div style="flex:1" class="stack">
     <div class="card">

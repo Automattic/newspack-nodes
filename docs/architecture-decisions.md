@@ -537,12 +537,12 @@ refuses on replay, beats a placeholder that replays cleanly into the wrong log.
 
 ## ADR-12: Dead-letter poison / crash lifecycle
 
-**Status:** Accepted. Shared by `Consumer_Node` and `Remote_Source_Node` via the
+**Status:** Accepted. Shared by `Consumer_Node` and `Remote_Consumer_Node`, a broker's reader for one stream, via the
 [`Dead_Letter_Queue`](../includes/trait-dead-letter-queue.php) and [`Durable_Reader`](../includes/trait-durable-reader.php) traits. Roadmap item [42] (the "(dead-letter [42])"
 [CHANGELOG](../CHANGELOG.md) tags).
 
-**Context:** A durable reader (Consumer tailing a Partition; Remote_Source relaying a remote
-SSE stream) can hit a *poison* message that always fails downstream. Two failure shapes: a
+**Context:** A durable reader (Consumer tailing a Partition; Remote_Consumer reading one stream
+of a remote SSE connection) can hit a *poison* message that always fails downstream. Two failure shapes: a
 **caught throw** (downstream `fill()` raised; the exact message is in hand and can be set
 aside replayably) and an **uncatchable death** (OOM / fatal / SIGKILL — no catch point; the
 next boot only sees the attempt count climb with no reason stamped). Silently dropping loses
@@ -628,8 +628,8 @@ builds such a reader over one partition dir, and `Consumer_Node::take_unparseabl
 takes and sums the counts of every reader a caller holds. Three callers take it, each reporting it where
 its reader looks: [`SSE_Out_Node`](../includes/rest/class-sse-out-node.php) sends an
 `unparseable_lines` event down the stream — which a hub's `SSE_In_Node` totals as
-`UNPARSEABLE_LINES` and `Remote_Source_Node` publishes to the Aggregator card, moving its cursor
-past the skip — event-logger-nodes' `grep_requests` verb returns it
+`UNPARSEABLE_LINES`, which `Remote_Source_Node` publishes to the Aggregator card, while each
+`Remote_Consumer_Node` moves its cursor past the skip — event-logger-nodes' `grep_requests` verb returns it
 in its reply, and `wp nodes reqgrep` prints a warning. [`Partition_Node::read_tail_frames_by()`](../includes/class-partition-node.php)
 counts the same way for the tail read behind `wp nodes status` and the Workers dashboard,
 under `unparseable_lines`. Raising was rejected: one torn line would end every read of that
