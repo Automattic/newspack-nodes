@@ -13,7 +13,7 @@
  * enabled; a source's rows are raw lines in the VALUE cell.
  */
 
-import { useState, useCallback } from '@wordpress/element';
+import { useState, useCallback, useMemo } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 
 import { Core } from '../runtime/core';
@@ -139,9 +139,7 @@ const DEFAULT_COLUMNS = [ 'id', 'key', 'value' ];
  * TYPE is a bitmask and TIMESTAMP is epoch seconds, so neither reads as
  * itself and both go through a formatter. The default arm is the VALUE
  * column: debug rows render the whole raw payload, pretty-printed for a
- * struct, and plain rows the clipped `value` the view node shaped — falling
- * back to `content`, the `KEY: VALUE` line the filter matches on, for a row
- * carrying no bare value.
+ * struct, and plain rows the clipped `value` the view node shaped.
  *
  * @param {string}  col   The column key, one of `COLUMNS`.
  * @param {Object}  row   One row, as `log-viewer:view` shaped it.
@@ -155,15 +153,15 @@ const cellText = ( col, row, debug ) => {
 		case 'timestamp':
 			return formatLocalDateTime( row.timestamp );
 		case 'from':
-			return row.from || '';
+			return row.from;
 		case 'to':
-			return row.to || '';
+			return row.to;
 		case 'id':
-			return row.msgId || '';
+			return row.msgId;
 		case 'key':
-			return row.key || '';
+			return row.key;
 		default:
-			return debug ? debugValue( row ) : row.value ?? row.content;
+			return debug ? debugValue( row ) : row.value;
 	}
 };
 
@@ -215,9 +213,7 @@ const makeHeader = ( visibleColumns ) => (
 	<LogListHeader
 		columns={ visibleColumns.map( ( col ) => ( {
 			key: col,
-			label: COLUMNS[ col ].label,
-			tooltip: COLUMNS[ col ].tooltip,
-			className: COLUMNS[ col ].className,
+			...COLUMNS[ col ],
 		} ) ) }
 	/>
 );
@@ -237,16 +233,19 @@ export default function LogViewer( { headerControlsSlot } ) {
 		defaultVisible: DEFAULT_COLUMNS,
 	} );
 	// LogRowList memoizes its rows on the renderer's identity.
-	const renderRow = useCallback(
+	const renderRow = useMemo(
 		() => makeRenderRow( visibleColumns, false ),
 		[ visibleColumns ]
-	)();
-	const renderDebugRow = useCallback(
+	);
+	const renderDebugRow = useMemo(
 		() => makeRenderRow( visibleColumns, true ),
 		[ visibleColumns ]
-	)();
+	);
 	// Debug reuses this header; its shared default would ignore the picker.
-	const header = makeHeader( visibleColumns );
+	const header = useMemo(
+		() => makeHeader( visibleColumns ),
+		[ visibleColumns ]
+	);
 
 	// Mount the node graph; it returns the thin control callbacks.
 	const { selectLog, setPaused, seek, step, clear, setFilter } =
@@ -264,10 +263,24 @@ export default function LogViewer( { headerControlsSlot } ) {
 		lastReceivedSegment,
 	} = view;
 
+	const logKeys = useMemo(
+		() => availableLogs.map( ( l ) => l.key ),
+		[ availableLogs ]
+	);
+	const pickerOptions = useMemo(
+		() =>
+			availableLogs.map( ( l ) => ( {
+				key: l.key,
+				label: l.label,
+				disabled: ! l.available,
+			} ) ),
+		[ availableLogs ]
+	);
+
 	// `?log=` deep link: one-shot seed + reflect-on-pick.
 	const pick = useDeepLinkedSelection( {
 		param: 'log',
-		keys: availableLogs.map( ( l ) => l.key ),
+		keys: logKeys,
 		selected: selectedLog,
 		select: selectLog,
 	} );
@@ -297,11 +310,7 @@ export default function LogViewer( { headerControlsSlot } ) {
 			className="newspack-nodes-log-viewer"
 			ariaLabel={ __( 'Log Viewer', 'newspack-nodes' ) }
 			headerControlsSlot={ headerControlsSlot }
-			pickerOptions={ availableLogs.map( ( l ) => ( {
-				key: l.key,
-				label: l.label,
-				disabled: ! l.available,
-			} ) ) }
+			pickerOptions={ pickerOptions }
 			selectedKey={ selectedLog }
 			onPick={ pick }
 			pickerEmptyLabel={ __( 'No logs available', 'newspack-nodes' ) }

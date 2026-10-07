@@ -243,7 +243,7 @@ class RawLogsCITest extends TestCase {
 		);
 	}
 
-	public function test_dump_log_sizes_a_file_source_by_its_bytes(): void {
+	public function test_dump_log_lists_a_file_source_as_one_segment_its_inode_at_its_size(): void {
 		$path = $this->tmp . '/php-errors-4194.log';
 		\file_put_contents( $path, \str_repeat( 'n', 977 ) );
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
@@ -251,7 +251,12 @@ class RawLogsCITest extends TestCase {
 		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'sources/php' );
 
 		$this->assertSame(
-			[ 'log_id' => 'sources/php', 'segments' => [], 'segment_count' => 0, 'total_size' => 977 ],
+			[
+				'log_id'        => 'sources/php',
+				'segments'      => [ [ 'id' => \fileinode( $path ), 'size' => 977 ] ],
+				'segment_count' => 1,
+				'total_size'    => 977,
+			],
 			$result
 		);
 	}

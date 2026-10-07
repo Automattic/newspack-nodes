@@ -30,7 +30,9 @@ class MessagesStreamSourcesTest extends TestCase {
 
 	protected function tearDown(): void {
 		Topology_Registry::reset();
-		SSE_Out_Node::$acquire_slot = null;
+		SSE_Out_Node::$acquire_slot   = null;
+		SSE_Out_Node::$check_slot     = null;
+		SSE_Out_Node::$diagnostic_log = null;
 		parent::tearDown();
 	}
 
@@ -271,6 +273,71 @@ class MessagesStreamSourcesTest extends TestCase {
 		$this->assertSame( 'sse_subscription_invalid', $result->get_error_code() );
 		$this->assertSame( 400, $result->get_error_data()['status'] );
 		$this->assertSame( 'invalid subscription: logs/kea-7713.p3', $result->get_error_message() );
+	}
+
+	public function test_a_stream_naming_a_dir_the_guard_refuses_is_refused_before_it_opens(): void {
+		\mkdir( "{$this->tmp}/offsets/Kea-6604.p2", 0755, true );
+		$this->use_base_dir( $this->tmp );
+		SSE_Out_Node::$acquire_slot = fn (): array|false => $this->fail( 'a refused stream takes no slot' );
+		$req                        = new \WP_REST_Request( 'GET' );
+		$req->set_param( 'subscribe', 'firehose.p0,offsets/Kea-6604.p2' );
+
+		$result = ( new SSE_Out_Node() )->stream( $req );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sse_subscription_invalid', $result->get_error_code() );
+		$this->assertSame( 400, $result->get_error_data()['status'] );
+		$this->assertSame( 'invalid subscription: offsets/Kea-6604.p2', $result->get_error_message() );
+	}
+
+	public function test_a_registry_that_will_not_read_propagates_as_a_server_error(): void {
+		$broken                       = new \RuntimeException( 'registry fault 7719' );
+		Log_Sources::$builtin_sources = static function () use ( $broken ): array {
+			throw $broken;
+		};
+		SSE_Out_Node::$acquire_slot   = fn (): array|false => $this->fail( 'a failed stream takes no slot' );
+		$req                          = new \WP_REST_Request( 'GET' );
+		$req->set_param( 'subscribe', 'sources/gyro' );
+
+		try {
+			( new SSE_Out_Node() )->stream( $req );
+			$this->fail( 'the registry fault was turned into a refusal' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame( $broken, $e );
+		}
+	}
+
+	public function test_a_stream_reads_the_registry_once_for_a_source_it_opens(): void {
+		$path  = "{$this->tmp}/gyro-3308.log";
+		$reads = 0;
+		\file_put_contents( $path, "gyro-3308\n" );
+		Log_Sources::$builtin_sources = static function () use ( $path, &$reads ): array {
+			++$reads;
+			return [ 'gyro' => $path ];
+		};
+		$opened                       = new \RuntimeException( 'stop after the open 3308' );
+		SSE_Out_Node::$acquire_slot   = static fn (): array => [ 'slot' => 4, 'owner' => 33083308 ];
+		SSE_Out_Node::$check_slot     = static function () use ( $opened ): bool {
+			throw $opened;
+		};
+		SSE_Out_Node::$diagnostic_log = static function (): void {};
+		$ctrl                         = new class() extends SSE_Out_Node {
+			protected function init_sse_headers(): void {}
+		};
+		$req = new \WP_REST_Request( 'GET' );
+		$req->set_param( 'subscribe', 'sources/gyro' );
+
+		\ob_start();
+		try {
+			$ctrl->stream( $req );
+			$this->fail( 'the drain did not stop' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame( $opened, $e );
+		} finally {
+			\ob_end_clean();
+		}
+
+		$this->assertSame( 1, $reads );
 	}
 
 	public function test_a_known_source_passes_the_check_without_listing_its_segments(): void {

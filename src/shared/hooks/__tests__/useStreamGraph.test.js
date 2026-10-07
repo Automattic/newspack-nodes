@@ -313,6 +313,7 @@ describe( 'the gate', () => {
 			action: 'browse',
 			endSegment: 6,
 			endOffset: 4096,
+			knownSegments: [ 6 ],
 		} );
 	} );
 

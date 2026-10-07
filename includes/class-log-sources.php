@@ -80,7 +80,11 @@ class Log_Sources {
 		$failed                    = Worker_Should_Stop::attempt_each(
 			$registry,
 			static function ( array $entry, string $name ) use ( &$rows ): void {
-				$rows[ $name ] = self::catalog_row( $name, self::is_available( $entry ) );
+				$rows[ $name ] = [
+					'key'       => self::stamp( $name ),
+					'label'     => $name,
+					'available' => self::is_available( $entry ),
+				];
 			}
 		);
 		$caught = Worker_Should_Stop::combine( [ ...\array_values( $failed ), ...\array_values( $unreadable ) ] );
@@ -88,7 +92,7 @@ class Log_Sources {
 			throw $caught;
 		}
 		foreach ( $failed as $name => $e ) {
-			$rows[ $name ] = [ 'key' => self::stamp( $name ) ] + self::error_row( $name, $e );
+			$rows[ $name ] = self::error_row( $name, $e, self::stamp( $name ) );
 		}
 		$rows = \array_values( \array_filter( $rows ) );
 		foreach ( $unreadable as $topology => $e ) {
@@ -98,50 +102,33 @@ class Log_Sources {
 	}
 
 	/**
-	 * The unavailable picker row for what could not be read, keyed by no
-	 * stamp: the caller adds one when the row names a log.
+	 * The unavailable picker row for what could not be read, keyed by the
+	 * stamp it names, or by none when it names no log.
 	 *
-	 * @param string     $label Source or topology name.
-	 * @param \Throwable $e     What reading it threw.
-	 * @return array{label:string,available:bool,error:string}
+	 * @param string            $label Source, topology or dir name.
+	 * @param \Throwable|string $error What reading it threw, or why it was refused.
+	 * @param string|null       $key   The stamp the row names, or null.
+	 * @return array{key?:string,label:string,available:bool,error:string}
 	 */
-	public static function error_row( string $label, \Throwable $e ): array {
-		return [
+	public static function error_row( string $label, \Throwable|string $error, ?string $key = null ): array {
+		return ( null === $key ? [] : [ 'key' => $key ] ) + [
 			'label'     => $label,
 			'available' => false,
-			'error'     => \html_entity_decode( $e->getMessage(), \ENT_QUOTES ),
+			'error'     => \is_string( $error ) ? $error : \html_entity_decode( $error->getMessage(), \ENT_QUOTES ),
 		];
 	}
 
 	/**
-	 * Whether a source currently has bytes to offer: file mode checks the file
-	 * itself; segmented mode checks for ANY `{path}.{seg}` segment (retention
-	 * may have pruned the early ones).
+	 * Whether a source currently has bytes a reader may take: whether its
+	 * footprint lists a segment, which retention may have pruned to a later
+	 * one, and which a file source lists only while it is readable.
 	 *
 	 * @param array{path: string, mode: string} $entry A registry() entry.
 	 * @return bool True when a tail would find something to read.
 	 * @throws \Throwable What listing the segments threw.
 	 */
 	public static function is_available( array $entry ): bool {
-		if ( Tail_Node::MODE_SEGMENTED === $entry['mode'] ) {
-			return [] !== self::writer_footprint( new Log_Node(), $entry['path'] )['segments'];
-		}
-		return \is_file( $entry['path'] ) && \is_readable( $entry['path'] );
-	}
-
-	/**
-	 * One picker row for a registry name.
-	 *
-	 * @param string $name      Registry name.
-	 * @param bool   $available Whether a Tail would find bytes there now.
-	 * @return array{key:string,label:string,available:bool}
-	 */
-	private static function catalog_row( string $name, bool $available ): array {
-		return [
-			'key'       => self::stamp( $name ),
-			'label'     => $name,
-			'available' => $available,
-		];
+		return [] !== self::entry_footprint( $entry )['segments'];
 	}
 
 	/**
@@ -155,10 +142,11 @@ class Log_Sources {
 
 	/**
 	 * One log's segments and size, the rail a reader browses, by its stamp:
-	 * a dir's or a segmented source's `{id, size}` list and their summed
-	 * bytes, read from the writer of that layout, and a file source's empty
-	 * list and its file size, 0 while the file is absent. A file's size is a
-	 * replay's catch-up boundary, since it has no segment to order by.
+	 * its `{id, size}` list and their summed bytes. A dir and a segmented
+	 * source are read from the writer of that layout. A file source is one
+	 * segment, its inode at the file's size, which is the slot a Tail over
+	 * the file stamps its breadcrumbs with; it lists none while the file is
+	 * absent or unreadable.
 	 *
 	 * @param string $stamp A dir stamp or `sources/<name>`.
 	 * @return array{segments:list<array{id:int,size:int}>,total_size:int}
@@ -169,14 +157,37 @@ class Log_Sources {
 		if ( Log_Discovery::SOURCES_PREFIX !== $group ) {
 			return self::writer_footprint( new Partition_Node(), self::dir( $stamp ) );
 		}
-		$entry = self::entry( $name );
+		return self::entry_footprint( self::entry( $name ) );
+	}
+
+	/**
+	 * One registry entry's footprint, as `footprint()` describes it.
+	 *
+	 * @param array{path: string, mode: string} $entry A registry() entry.
+	 * @return array{segments:list<array{id:int,size:int}>,total_size:int}
+	 * @throws \Throwable What listing the segments threw.
+	 */
+	private static function entry_footprint( array $entry ): array {
+		$path = $entry['path'];
 		if ( Tail_Node::MODE_SEGMENTED === $entry['mode'] ) {
-			return self::writer_footprint( new Log_Node(), $entry['path'] );
+			return self::writer_footprint( new Log_Node(), $path );
 		}
-		$size = \is_file( $entry['path'] ) ? \filesize( $entry['path'] ) : false;
+		\clearstatcache( true, $path );
+		$stat = \is_file( $path ) && \is_readable( $path ) ? \stat( $path ) : false;
+		if ( false === $stat ) {
+			return [
+				'segments'   => [],
+				'total_size' => 0,
+			];
+		}
 		return [
-			'segments'   => [],
-			'total_size' => false === $size ? 0 : $size,
+			'segments'   => [
+				[
+					'id'   => $stat['ino'],
+					'size' => $stat['size'],
+				],
+			],
+			'total_size' => $stat['size'],
 		];
 	}
 
@@ -551,7 +562,7 @@ class Log_Sources {
 	 * @param array{path: string, mode: string} $entry A registry() entry.
 	 * @return Tail_Node A File_Tail_Node in file mode, a plain Tail_Node in segmented mode.
 	 */
-	private static function open_tail( array $entry ): Tail_Node {
+	public static function open_tail( array $entry ): Tail_Node {
 		$tail = Tail_Node::MODE_FILE === $entry['mode'] ? new File_Tail_Node() : new Tail_Node();
 		$tail->arguments( [ $entry['path'] ] );
 		return $tail;

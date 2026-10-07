@@ -46,7 +46,6 @@ export function useLogViewerGraph() {
 	// The subscription is CHOSEN: nothing opens until the catalog picks.
 	const graph = useStreamGraph( {
 		prefix: PREFIX,
-		subscribe: null,
 		viewClass: views.LogViewerView,
 	} );
 	const { viewRef, control, resubscribe, seek, setPaused, setFilter, clear } =

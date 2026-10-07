@@ -8,11 +8,10 @@
  * fake SSE + fake transport; only the two leaf presentational components are
  * stubbed so the props the component computes are readable.
  *
- * The two differ in what a boundary IS. A partition catches up on the newest
- * SEGMENT id and its size. A log source in file mode has no orderable segment —
- * a Tail over a raw file puts the opaque inode there — so it catches up on byte
- * size, or when the inode rotates. Distinct values: segments 97/98, inode 4242
- * rotating to 5151, size 977.
+ * Both catch up on the newest SEGMENT id and its size. A file source is one
+ * segment, its inode at the file's size, because a Tail over a raw file puts
+ * the inode in the segment slot. Distinct values: segments 97/98, inode 4242
+ * rotating down to 2207, size 977.
  */
 
 import { render, act, waitFor } from '@testing-library/react';
@@ -235,26 +234,39 @@ describe( 'Log Viewer over a file source', () => {
 	}
 
 	beforeEach( () => {
-		// One available file source; its current size (977 bytes) is the boundary.
+		// One available file source: inode 4242 at 977 bytes is the boundary.
 		boot( {
 			list_logs: [
 				{ key: 'sources/access', label: 'access', available: true },
 			],
 			dump_log: {
 				log_id: 'sources/access',
-				segments: [],
-				segment_count: 0,
+				segments: [ { id: 4242, size: 977 } ],
+				segment_count: 1,
 				total_size: 977,
 			},
+			// A rotation re-catalogs, and that tick carries the slot's poke.
+			heartbeat: { success: true },
 		} );
 	} );
 
-	test( 'file-mode Replay flips to Live once records reach the captured byte size', async () => {
+	test( 'the rail shows a file source as its one segment', async () => {
 		await renderWithFootprint();
-		// The source rides the toolbar dropdown; a file source has no segments.
-		expect( logBrowserProps.items ).toHaveLength( 0 );
+		expect( logBrowserProps.items ).toEqual( [ { id: 4242, size: 977 } ] );
+	} );
 
-		// Replay: enters a file-mode replay boundary from the footprint.
+	test( "Replay captures the file's inode at its size as the boundary", async () => {
+		await renderWithFootprint();
+		await act( async () => {
+			logBrowserProps.onReplay();
+		} );
+		const { seek } = Core.node( 'log-viewer:view' );
+		expect( [ seek.endSegment, seek.endOffset ] ).toEqual( [ 4242, 977 ] );
+	} );
+
+	test( 'Replay flips to Live once records reach the captured byte size', async () => {
+		await renderWithFootprint();
+
 		await act( async () => {
 			logBrowserProps.onReplay();
 		} );
@@ -283,7 +295,7 @@ describe( 'Log Viewer over a file source', () => {
 		expect( logBrowserProps.mode ).toBe( 'live' );
 	} );
 
-	test( 'file-mode Replay flips to Live when the inode rotates (logrotate)', async () => {
+	test( 'Replay flips to Live when the inode rotates, even to a lower one', async () => {
 		await renderWithFootprint();
 
 		await act( async () => {
@@ -303,11 +315,11 @@ describe( 'Log Viewer over a file source', () => {
 		} );
 		expect( logBrowserProps.mode ).toBe( 'replay' );
 
-		// A new inode 5151 means the file rotated — we're on the live edge → live.
+		// A new inode, though lower, means the file rotated: live edge → live.
 		await act( async () => {
 			FakeEventSource.last.dispatch(
 				'msg',
-				pack( fileFrame( '5151:0:100' ) )
+				pack( fileFrame( '2207:0:100' ) )
 			);
 		} );
 		expect( logBrowserProps.mode ).toBe( 'live' );

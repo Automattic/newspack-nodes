@@ -1,7 +1,7 @@
 /**
  * The browse model the log-stream dashboards share, expressed as the SSE
- * `positions` seed their transport already carries. The Log Viewer
- * browses segments; only a file-mode log source has none.
+ * `positions` seed their transport already carries. Every log browses
+ * segments: a file source is one, its inode at the file's size.
  *
  * A seek needs no transport of its own. `RemoteLink.setSubscribe( sub,
  * positions )` puts the seed on the stream URL as `&positions=`, the
@@ -11,8 +11,8 @@
  *
  * - Live and follow send no positions at all, which is what makes the server
  *   default each subscription to 'end'.
- * - Browsing a segment sends `{ [sub]: { segment, offset: 0 } }`. In file mode
- *   the segment slot holds the file's inode.
+ * - Browsing a segment sends `{ [sub]: { segment, offset: 0 } }`. For a file
+ *   source the segment slot holds the file's inode.
  * - An offset jump sends that same pair carrying the offset that was typed.
  * - Replay sends `{ [sub]: 'start' }`, the token the server resolves to the
  *   earliest retained record.
@@ -63,7 +63,7 @@ const NOOP = () => {};
 const NO_SEGMENTS = [];
 
 /** One object, so an empty footprint keeps its identity across renders. */
-const NO_FOOTPRINT = { segments: NO_SEGMENTS, bytes: 0 };
+const NO_FOOTPRINT = { segments: NO_SEGMENTS };
 
 /**
  * The live-tail positions: none at all. Sending no position for a
@@ -79,7 +79,7 @@ function tailPositions() {
  * Seek a subscription to the head of one concrete segment.
  *
  * @param {string} sub       The subscription (partition dir or log-source name).
- * @param {number} segmentId The segment to open; in file mode, the inode.
+ * @param {number} segmentId The segment to open; a file source's inode.
  * @return {Object<string,{segment:number,offset:number}>} Positions keyed by
  *   subscription, holding a `{segment, offset}` seek.
  */
@@ -168,8 +168,8 @@ export default function useLogPositions( sub ) {
 
 /**
  * One log's footprint, resolved from `dump_log` and re-resolvable on demand —
- * the `source` half of `useSegmentBrowse`. `segments` is the rail; `bytes` is a
- * file source's replay boundary, from `dump_log`'s `total_size`.
+ * the `source` half of `useSegmentBrowse`. `segments` is the rail and the
+ * replay boundary alike; a file source lists itself as one segment.
  *
  * The answer NAMES the dir it is about, so a selection that moved on while the
  * reply was in flight is dropped without a cancellation flag (ADR-7).
@@ -177,7 +177,7 @@ export default function useLogPositions( sub ) {
  * @param {Object} o       Rail inputs.
  * @param {string} o.sub   The partition dir or `sources/<name>`; '' empties the rail and asks nothing.
  * @param {string} o.scope Names this read's own nodes.
- * @return {{source: {segments: Array<{id:number,size:number}>, bytes: number}, refresh: () => void}}
+ * @return {{source: {segments: Array<{id:number,size:number}>}, refresh: () => void}}
  *   The source row for `useSegmentBrowse`, and the re-catalog its rail timer
  *   drives.
  */
@@ -193,10 +193,7 @@ export function useLogStatusSegments( { sub, scope } ) {
 		retry: true,
 		onDone: ( { result, subject } ) => {
 			if ( subRef.current === subject ) {
-				setFootprint( {
-					segments: result?.segments ?? NO_SEGMENTS,
-					bytes: result?.total_size ?? 0,
-				} );
+				setFootprint( { segments: result?.segments ?? NO_SEGMENTS } );
 			}
 		},
 	} );
@@ -225,13 +222,12 @@ export function useLogStatusSegments( { sub, scope } ) {
  * fetches `dump_log` for the selected log.
  *
  * Every seek that STATES positions carries the source row, because
- * `browseControl` reads the replay boundary out of it, and both of its shapes
- * matter: `segments` for a segmented log, `bytes` for a file-mode source that
- * has none. A follow states no positions and needs no row.
+ * `browseControl` reads the replay boundary out of its segments. A follow
+ * states no positions and needs no row.
  *
  * @param {Object}                    o                     Controller inputs.
  * @param {string}                    o.sub                 The subscription; '' disarms the rail.
- * @param {Object}                    o.source              The source row (`{segments, bytes}`).
+ * @param {Object}                    o.source              The source row (`{segments}`).
  * @param {() => void}                [o.refresh]           Re-catalog the rail, for a source whose
  *                                                          segment list is not itself polled. Omit
  *                                                          it and no rail timer is armed.

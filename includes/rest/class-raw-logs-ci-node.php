@@ -61,18 +61,17 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 			foreach ( $names as $name ) {
 				try {
 					$key = Log_Discovery::stamp_for( $group, $name );
-					if ( ! Log_Discovery::is_stamp( $key ) ) {
-						throw new \InvalidArgumentException( \esc_html( "log dir {$name} is no stamp a stream can name; rename it" ) );
-					}
 				} catch ( \InvalidArgumentException $e ) {
 					$result[] = Log_Sources::error_row( $name, $e );
 					continue;
 				}
-				$result[] = [
-					'key'       => $key,
-					'label'     => $key,
-					'available' => true,
-				];
+				$result[] = Log_Discovery::is_stamp( $key )
+					? [
+						'key'       => $key,
+						'label'     => $key,
+						'available' => true,
+					]
+					: Log_Sources::error_row( $name, "log dir {$name} is no stamp a stream can name; rename it" );
 			}
 		}
 		return $result;

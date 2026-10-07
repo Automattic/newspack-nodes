@@ -42,8 +42,8 @@ h2 { font-size:15px; margin:0 0 8px; }
 </div>
 <div class="arrowrow">▼ &nbsp; <b><span class="mono">raw-logs dump_log sources/&lt;name&gt;</span></b> sizes one, the rail a reader browses &nbsp; ▼</div>
 <div class="entry">
-  <div><b>segments</b>a segmented source's sorted <span class="mono">{ id, size }</span> list; <span class="mono">[]</span> for a file</div>
-  <div><b>total_size</b>the segments' summed bytes, or the file's size, 0 while the file is absent: a replay's catch-up boundary</div>
+  <div><b>segments</b>a segmented source's sorted <span class="mono">{ id, size }</span> list; a file's one segment, its inode at its size, none while absent or unreadable: the replay's catch-up boundary</div>
+  <div><b>total_size</b>the segments' summed bytes</div>
 </div>
 
 <h2 style="margin-top:18px"><span class="mono">Log_Sources::open_tail()</span>, the one place the mode token becomes a class</h2>

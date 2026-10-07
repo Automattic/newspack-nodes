@@ -32,44 +32,41 @@ export const REPLAY = 'replay';
 
 /**
  * Derive the whole `browse` control for a source, in the shape
- * `LogStreamViewNode._control()` accepts.
- *
- * Both boundary shapes belong here because they are one decision. A segmented
- * source catches up on the newest segment id and that segment's byte size. A
- * file-mode source has no orderable segment — a Tail over a raw file puts the
- * opaque inode in the segment slot — so it catches up on byte size alone and
- * flips when the inode rotates. Returning half the control leaves every
- * consumer to invent the other half, and three of them invent three.
+ * `LogStreamViewNode._control()` accepts: the newest segment id, that
+ * segment's byte size, and every segment id the footprint lists, which a
+ * replayed record must leave or reach the end of to count as caught up. A
+ * file source lists itself as one segment, its inode at the file's size,
+ * which is the slot a Tail over the file stamps its breadcrumbs with.
+ * Returning half the control leaves every consumer to invent the other half,
+ * and three of them invent three.
  *
  * @param {Object}                           source            The source row.
  * @param {Array<{id?:number,size?:number}>} [source.segments] Segment list.
- * @param {number}                           [source.bytes]    File-mode size.
- * @return {{action:string,endSegment:?number,endOffset:number}|{action:string}}
+ * @return {{action:string,endSegment:number,endOffset:number,knownSegments:number[]}|{action:string}}
  *   A `browse` control, or `follow` when the source carries no boundary.
  * @throws {TypeError} When a segment newer than every segment before it carries
  *   no numeric size.
  */
-export function browseControl( { segments = [], bytes = 0 } ) {
+export function browseControl( { segments = [] } ) {
 	const boundary = endPosition( segments );
-	if ( null !== boundary ) {
-		return {
-			action: 'browse',
-			endSegment: boundary.segment,
-			endOffset: boundary.offset,
-		};
+	if ( null === boundary ) {
+		// No boundary to catch up to — replay would never flip back to live.
+		return { action: 'follow' };
 	}
-	if ( bytes > 0 ) {
-		return { action: 'browse', endSegment: null, endOffset: bytes };
-	}
-	// No boundary to catch up to — replay would never flip back to live.
-	return { action: 'follow' };
+	return {
+		action: 'browse',
+		endSegment: boundary.segment,
+		endOffset: boundary.offset,
+		knownSegments: segments
+			.map( ( s ) => s?.id )
+			.filter( ( id ) => 'number' === typeof id ),
+	};
 }
 
 /**
  * The live boundary a replay must reach to be "caught up": the newest segment's
- * id and its byte size, from a segment list (`dump_log.segments`). Null when no segment carries a numeric
- * id, which is the file-mode case `browseControl()` answers with a byte
- * boundary.
+ * id and its byte size, from a segment list (`dump_log.segments`). Null when
+ * no segment carries a numeric id.
  *
  * Module-private, because `browseControl()` is the whole control and the only
  * surface a consumer needs; an exported half is a half every consumer completes
@@ -146,14 +143,6 @@ export class SeekTracker {
 		const offsetEnd = Number( match[ 2 ] ) + Number( match[ 3 ] );
 		const segmentChanged = segment !== this.lastReceivedSegment;
 		this.lastReceivedSegment = segment;
-		// File-mode replay pins the first inode as the reference generation.
-		if (
-			this.fileMode &&
-			REPLAY === this.mode &&
-			null === this.referenceSegment
-		) {
-			this.referenceSegment = segment;
-		}
 		// At or past the seek boundary, the record is live tail: go live.
 		let modeChanged = false;
 		if ( REPLAY === this.mode && this._caughtUp( segment, offsetEnd ) ) {
@@ -176,53 +165,52 @@ export class SeekTracker {
 		this.mode = LIVE;
 		this.endSegment = null;
 		this.endOffset = 0;
-		this.fileMode = false;
-		this.referenceSegment = null;
+		this.knownSegments = new Set();
 	}
 
 	/**
-	 * Whether a replayed record has reached the boundary captured at `browse()`.
+	 * Whether a replayed record has reached the boundary captured at `browse()`:
+	 * it comes from a segment the footprint did not list, which is a newer one
+	 * or a file's next generation, since ids do not order a file's inodes; or
+	 * it reaches the end segment's captured size.
 	 *
-	 * @param {number} segment   The record's segment id (an inode in file mode).
+	 * @param {number} segment   The record's segment id (a file source's inode).
 	 * @param {number} offsetEnd The record's end byte, `offset + length`.
 	 * @return {boolean} True once the record is at or past the live boundary.
 	 */
 	_caughtUp( segment, offsetEnd ) {
-		if ( this.fileMode ) {
-			// Opaque inode: caught up by size, or when a new inode rotates in.
-			return (
-				segment !== this.referenceSegment || offsetEnd >= this.endOffset
-			);
-		}
-		// Segmented: ordered ids — past the end segment, or reached its size.
 		return (
 			null !== this.endSegment &&
-			( segment > this.endSegment ||
+			( ! this.knownSegments.has( segment ) ||
 				( segment === this.endSegment && offsetEnd >= this.endOffset ) )
 		);
 	}
 
 	/**
 	 * Enter replay, capturing the boundary a replayed record must reach to count
-	 * as caught up.
+	 * as caught up: the newest segment id, that segment's byte size, and every
+	 * segment id the footprint listed, which for a file source are its inode
+	 * and its size. A null segment enters a replay that never auto-flips,
+	 * leaving the flip to the caller.
 	 *
-	 * A segmented source passes the newest segment id and that segment's byte
-	 * size. A file-mode source passes a null segment with a positive byte size,
-	 * because a Tail over a raw file puts the file's unorderable inode in the
-	 * segment slot: catch-up is by byte size on the first inode seen, or by that
-	 * inode rotating. A null segment with no size enters a replay that never
-	 * auto-flips, leaving the flip to the caller.
-	 *
-	 * @param {?number} endSegment The end segment id, or null for file mode.
-	 * @param {number}  endOffset  The catch-up byte boundary.
+	 * @param {?number}  endSegment      The end segment id, or null for no boundary.
+	 * @param {number}   endOffset       The catch-up byte boundary.
+	 * @param {number[]} [knownSegments] Every segment id the footprint listed;
+	 *                                   required with an end segment.
+	 * @throws {TypeError} When an end segment comes without its footprint's
+	 *   ids, which would flip to Live on the first record.
 	 */
-	browse( endSegment = null, endOffset = 0 ) {
+	browse( endSegment = null, endOffset = 0, knownSegments ) {
+		if ( null !== endSegment && ! Array.isArray( knownSegments ) ) {
+			throw new TypeError(
+				`browse to segment ${ endSegment } names no knownSegments`
+			);
+		}
 		this.mode = REPLAY;
 		// Pre-seek breadcrumb is stale: highlight falls to the clicked item.
 		this.lastReceivedSegment = null;
 		this.endSegment = endSegment;
 		this.endOffset = endOffset;
-		this.fileMode = null === endSegment && endOffset > 0;
-		this.referenceSegment = null;
+		this.knownSegments = new Set( knownSegments );
 	}
 }

@@ -189,8 +189,7 @@ describe( 'the actions return the seed they compute', () => {
 describe( 'useSegmentBrowse', () => {
 	const SUB = 'quartz.p7';
 	const SEGMENTS = [ { id: 41, size: 2048 } ];
-	// A segmented source carries `segments`; a file source carries `bytes`.
-	const SOURCE = { segments: SEGMENTS, bytes: 8191 };
+	const SOURCE = { segments: SEGMENTS };
 
 	function browse( overrides = {} ) {
 		const calls = {
@@ -373,13 +372,13 @@ describe( 'useLogStatusSegments', () => {
 		expect( asked[ VALUE ].arguments ).toEqual( [ DIR ] );
 	} );
 
-	it( "carries a file source's size as the replay boundary", async () => {
+	it( 'carries a file source as its one segment, the inode at its size', async () => {
 		installFakeCommandWire( ( m ) =>
 			'dump_log' === m[ VALUE ]?.name
 				? {
 						log_id: 'sources/php',
-						segments: [],
-						segment_count: 0,
+						segments: [ { id: 4242, size: 977 } ],
+						segment_count: 1,
 						total_size: 977,
 				  }
 				: null
@@ -389,20 +388,20 @@ describe( 'useLogStatusSegments', () => {
 		} );
 		await waitFor( () =>
 			expect( result.current.source ).toEqual( {
-				segments: [],
-				bytes: 977,
+				segments: [ { id: 4242, size: 977 } ],
 			} )
 		);
 	} );
 
 	it( 'reads empty on a source switch until the new reply lands', async () => {
+		const FILE = [ { id: 5151, size: 733 } ];
 		installFakeCommandWire( ( m ) => {
 			if ( 'dump_log' !== m[ VALUE ]?.name ) {
 				return null;
 			}
 			return DIR === m[ VALUE ].arguments[ 0 ]
 				? { segments: RAIL, total_size: 2048 }
-				: { segments: [], total_size: 733 };
+				: { segments: FILE, total_size: 733 };
 		} );
 		const { result, rerender } = renderHook(
 			( p ) => useLogStatusSegments( p ),
@@ -412,12 +411,9 @@ describe( 'useLogStatusSegments', () => {
 			expect( result.current.source.segments ).toEqual( RAIL )
 		);
 		rerender( { sub: 'sources/php', scope: 'quartz-segments' } );
-		expect( result.current.source ).toEqual( { segments: [], bytes: 0 } );
+		expect( result.current.source ).toEqual( { segments: [] } );
 		await waitFor( () =>
-			expect( result.current.source ).toEqual( {
-				segments: [],
-				bytes: 733,
-			} )
+			expect( result.current.source ).toEqual( { segments: FILE } )
 		);
 	} );
 

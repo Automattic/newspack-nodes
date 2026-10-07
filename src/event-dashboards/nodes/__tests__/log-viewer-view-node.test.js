@@ -143,21 +143,6 @@ test( 'raw keeps multi-line bytestreams past the 1000-char content clip, capped 
 
 // --- Envelope-shaping branches inlined from the deleted log-viewer:transform. ---
 
-test( 'a grouped stamp (offsets/x.pN) still parses its partition column', () => {
-	const v = makeView( 'log-viewer:view' );
-	v.fill(
-		envelopeMsg( { from: 'offsets/combined.firehose.p3', value: 'a' } )
-	);
-	expect( v.lines[ 0 ].partition ).toBe( 3 );
-} );
-
-test( 'distinct grouped dirs without .pN get distinct synthetic indices', () => {
-	const v = makeView( 'log-viewer:view' );
-	v.fill( envelopeMsg( { from: 'deadletter/alpha', value: 'a' } ) );
-	v.fill( envelopeMsg( { from: 'deadletter/beta', value: 'b' } ) );
-	expect( v.lines[ 1 ].partition ).not.toBe( v.lines[ 0 ].partition );
-} );
-
 test( 'string VALUE passes through verbatim as the line content', () => {
 	const v = makeView( 'log-viewer:view' );
 	v.fill( envelopeMsg( { value: 'plain text' } ) );
@@ -183,32 +168,20 @@ test( 'KEY prefix is omitted when KEY is empty', () => {
 	expect( v.lines[ 0 ].content ).toBe( '{"dur":1}' );
 } );
 
+test( 'a long VALUE is clipped before its KEY prefix, which survives whole', () => {
+	const v = makeView( 'log-viewer:view' );
+	v.fill( envelopeMsg( { key: 'rid-8812', value: 'q'.repeat( 1500 ) } ) );
+	expect( v.lines[ 0 ].content ).toBe(
+		`rid-8812: ${ 'q'.repeat( 1000 ) }...`
+	);
+	expect( v.lines[ 0 ].value ).toBe( `${ 'q'.repeat( 1000 ) }...` );
+} );
+
 test( 'lines longer than 1000 chars are clipped with a trailing ellipsis', () => {
 	const v = makeView( 'log-viewer:view' );
 	v.fill( envelopeMsg( { value: 'x'.repeat( 2000 ) } ) );
 	expect( v.lines[ 0 ].content.length ).toBe( 1003 );
 	expect( v.lines[ 0 ].content.endsWith( '...' ) ).toBe( true );
-} );
-
-test( 'partition is extracted from FROM stamp (`{sub}.pN`)', () => {
-	const v = makeView( 'log-viewer:view' );
-	v.fill( envelopeMsg( { from: 'firehose.p3', value: 'line' } ) );
-	expect( v.lines[ 0 ].partition ).toBe( 3 );
-} );
-
-test( 'partition defaults to 0 when FROM does not match `{sub}.pN`', () => {
-	const v = makeView( 'log-viewer:view' );
-	v.fill( envelopeMsg( { from: 'firehose', value: 'line' } ) );
-	expect( v.lines[ 0 ].partition ).toBe( 0 );
-} );
-
-test( 'distinct non-`.pN` FROM dirs get distinct stable partition indices (opaque)', () => {
-	// Layout-agnostic: a non-.pN dir gets a stable first-seen index.
-	const v = makeView( 'log-viewer:view' );
-	v.fill( envelopeMsg( { from: 'alpha', value: 'a' } ) );
-	v.fill( envelopeMsg( { from: 'beta', value: 'b' } ) );
-	v.fill( envelopeMsg( { from: 'alpha', value: 'a2' } ) );
-	expect( v.lines.map( ( l ) => l.partition ) ).toEqual( [ 0, 1, 0 ] );
 } );
 
 test( 'an envelope with empty VALUE is dropped (no row appended)', () => {
@@ -258,11 +231,27 @@ test( 'select sets the log and clears the buffer', () => {
 	expect( v.view.selected ).toBe( 'errors.p0' );
 } );
 
+test( 'select re-arms breadcrumb tracking a glob select disarmed', () => {
+	const v = makeView( 'log-viewer:view' );
+	v.fill( controlMsg( { action: 'select', log: 'kea-4471.*', dir: '' } ) );
+	expect( v.seekTracking() ).toBe( false );
+	v.fill( controlMsg( { action: 'select', log: 'kea-4471.p6' } ) );
+	expect( v.seekTracking() ).toBe( true );
+	expect( v.view.selected ).toBe( 'kea-4471.p6' );
+} );
+
 test( 'browse clears the buffer: a rewind starts from a clean slate', () => {
 	const v = makeView( 'log-viewer:view' );
 	v.fill( envelopeMsg( { value: 'stale-live-line' } ) );
 	// Replay / segment click / offset jump all arrive as a browse control.
-	v.fill( controlMsg( { action: 'browse', endSegment: 3, endOffset: 90 } ) );
+	v.fill(
+		controlMsg( {
+			action: 'browse',
+			endSegment: 3,
+			endOffset: 90,
+			knownSegments: [ 2, 3 ],
+		} )
+	);
 	expect( v.lines ).toHaveLength( 0 );
 	expect( v.lps ).toBe( 0 );
 } );
@@ -340,17 +329,15 @@ test( 'resume after pause lets rows through again', () => {
 	expect( v.lines[ 0 ].content ).toBe( 'kept' );
 } );
 
-test( 'rows carry the partition (from FROM) and an even/odd flag keyed off the counter', () => {
+test( 'rows carry an even/odd flag keyed off the counter', () => {
 	const v = makeView( 'log-viewer:view' );
 	v.fill( envelopeMsg( { from: 'firehose.p2', value: 'first' } ) );
 	v.fill( envelopeMsg( { from: 'firehose.p3', value: 'second' } ) );
 	expect( v.lines[ 0 ] ).toMatchObject( {
-		partition: 3,
 		content: 'second',
 		isEven: true,
 	} );
 	expect( v.lines[ 1 ] ).toMatchObject( {
-		partition: 2,
 		content: 'first',
 		isEven: false,
 	} );
@@ -496,14 +483,28 @@ test( 'does not re-publish while the received segment is unchanged (no per-recor
 
 test( 'a browse control puts the view into replay mode', () => {
 	const v = makeView( 'log-viewer:view' );
-	v.fill( controlMsg( { action: 'browse', endSegment: 9, endOffset: 500 } ) );
+	v.fill(
+		controlMsg( {
+			action: 'browse',
+			endSegment: 9,
+			endOffset: 500,
+			knownSegments: [ 5, 9 ],
+		} )
+	);
 	expect( v.mode ).toBe( 'replay' );
 	expect( v.view.mode ).toBe( 'replay' );
 } );
 
 test( 'flips to live when a replayed record reaches the captured end position', () => {
 	const v = makeView( 'log-viewer:view' );
-	v.fill( controlMsg( { action: 'browse', endSegment: 9, endOffset: 500 } ) );
+	v.fill(
+		controlMsg( {
+			action: 'browse',
+			endSegment: 9,
+			endOffset: 500,
+			knownSegments: [ 5, 9 ],
+		} )
+	);
 	v.fill( envelopeWithId( '5:100:20' ) ); // behind the end segment
 	expect( v.mode ).toBe( 'replay' );
 	v.fill( envelopeWithId( '9:460:40' ) ); // 460 + 40 = 500 >= 500 → caught up
@@ -513,21 +514,42 @@ test( 'flips to live when a replayed record reaches the captured end position', 
 
 test( 'stays in replay until the end position is reached', () => {
 	const v = makeView( 'log-viewer:view' );
-	v.fill( controlMsg( { action: 'browse', endSegment: 9, endOffset: 500 } ) );
+	v.fill(
+		controlMsg( {
+			action: 'browse',
+			endSegment: 9,
+			endOffset: 500,
+			knownSegments: [ 5, 9 ],
+		} )
+	);
 	v.fill( envelopeWithId( '9:100:20' ) ); // 120 < 500
 	expect( v.mode ).toBe( 'replay' );
 } );
 
 test( 'follow returns the view to live', () => {
 	const v = makeView( 'log-viewer:view' );
-	v.fill( controlMsg( { action: 'browse', endSegment: 9, endOffset: 500 } ) );
+	v.fill(
+		controlMsg( {
+			action: 'browse',
+			endSegment: 9,
+			endOffset: 500,
+			knownSegments: [ 5, 9 ],
+		} )
+	);
 	v.fill( controlMsg( { action: 'follow' } ) );
 	expect( v.mode ).toBe( 'live' );
 } );
 
 test( 'select resets mode to live and clears the last-received segment', () => {
 	const v = makeView( 'log-viewer:view' );
-	v.fill( controlMsg( { action: 'browse', endSegment: 9, endOffset: 500 } ) );
+	v.fill(
+		controlMsg( {
+			action: 'browse',
+			endSegment: 9,
+			endOffset: 500,
+			knownSegments: [ 5, 9 ],
+		} )
+	);
 	v.fill( envelopeWithId( '5:0:20' ) );
 	v.fill( controlMsg( { action: 'select', log: 'errors.p0' } ) );
 	expect( v.mode ).toBe( 'live' );

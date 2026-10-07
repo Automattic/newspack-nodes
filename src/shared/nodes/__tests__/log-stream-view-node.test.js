@@ -99,7 +99,14 @@ test( 'pause stops appends; a step budget admits exactly N', () => {
 test( 'browse clears the ring (rewinds start clean); follow keeps it', () => {
 	const v = makeView();
 	v.fill( rowMsg( 'stale' ) );
-	v.fill( controlMsg( { action: 'browse', endSegment: 4, endOffset: 70 } ) );
+	v.fill(
+		controlMsg( {
+			action: 'browse',
+			endSegment: 4,
+			endOffset: 70,
+			knownSegments: [ 3, 4 ],
+		} )
+	);
 	expect( v.linesCount ).toBe( 0 );
 	v.fill( rowMsg( 'kept' ) );
 	v.fill( controlMsg( { action: 'follow' } ) );
