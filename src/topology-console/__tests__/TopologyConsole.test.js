@@ -567,6 +567,10 @@ jest.mock( '../components/Inspector', () => ( props ) => {
 		</div>
 	);
 } );
+// Loaded with the file: its module graph costs ~0.5s, past a test's budget.
+const { default: RealInspector } = jest.requireActual(
+	'../components/Inspector'
+);
 // Console portals controls via the named HeaderControls export.
 jest.mock( '../../shared/components/Header', () => ( {
 	__esModule: true,
@@ -4261,9 +4265,6 @@ describe( 'TopologyConsole boot', () => {
 			} );
 			expect( lastInspectorProps.selectedId ).toBe(
 				'patron-5823:ledger'
-			);
-			const { default: RealInspector } = jest.requireActual(
-				'../components/Inspector'
 			);
 			const { container } = renderWithCatalog(
 				<RealInspector { ...lastInspectorProps } />,
