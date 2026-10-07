@@ -3,8 +3,10 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Bootstrap;
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Rest\Spawn_Controller;
 use Newspack_Nodes\Spawn_Coordinator;
+use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
 use Newspack_Nodes\Tests\TestCase;
 
 #[CoversClass( Spawn_Controller::class )]
@@ -217,29 +219,75 @@ class SpawnControllerTest extends TestCase {
 		$this->assertInstanceOf( \WP_Error::class, $result );
 	}
 
-	public function test_check_permission_rate_limits_rapid_external_calls(): void {
-		// Two rapid valid external calls — second one must be rate-limited.
+	/** A manage-role caller holding a valid WordPress nonce, as user `$user`. */
+	private function external_caller( int $user ): \WP_REST_Request {
 		$GLOBALS['_wp_test_current_user_can']['manage_options']            = true;
 		$GLOBALS['_wp_test_valid_nonces'][ Spawn_Controller::NONCE_ACTION ] = 'wp-nonce-abc';
+		$GLOBALS['_wp_test_current_user_id']                                = $user;
+		return $this->make_request( [ 'nonce' => 'wp-nonce-abc' ] );
+	}
 
-		$req = $this->make_request( [ 'nonce' => 'wp-nonce-abc' ] );
+	/** A fresh cache for the slots, its expiry clock pinned to `$now`. */
+	private function cache_at( int $now ): InMemoryMemcached {
+		$memd        = new InMemoryMemcached();
+		$memd->clock = static fn (): int => $now;
+		Core::$memd  = $memd;
+		return $memd;
+	}
+
+	public function test_check_permission_rate_limits_rapid_external_calls(): void {
+		$this->cache_at( 1_700_000_000 );
+		$req = $this->external_caller( 7 );
 
 		$this->assertTrue( $this->controller->check_permission( $req ) );
 
 		$result = $this->controller->check_permission( $req );
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'rate_limited', $result->get_error_code() );
+		$this->assertSame( 429, $result->get_error_data()['status'] );
+	}
+
+	public function test_an_external_caller_may_spawn_again_one_window_later(): void {
+		$memd = $this->cache_at( 1_700_000_000 );
+		$req  = $this->external_caller( 7 );
+		$this->controller->check_permission( $req );
+
+		$memd->clock = static fn (): int => 1_700_000_000 + Spawn_Controller::RATE_LIMIT_S;
+
+		$this->assertTrue( $this->controller->check_permission( $req ) );
+	}
+
+	public function test_the_spawn_rate_limit_is_per_user(): void {
+		$this->cache_at( 1_700_000_000 );
+		$this->controller->check_permission( $this->external_caller( 7 ) );
+
+		$this->assertTrue( $this->controller->check_permission( $this->external_caller( 9 ) ) );
+	}
+
+	/** Spawning is how the fleet revives itself, so an unmetered host still spawns. */
+	public function test_a_host_with_no_shared_cache_admits_and_warns(): void {
+		Core::$memd = null;
+		$lines      = [];
+		Core::set_stderr_handler( static function ( string $text ) use ( &$lines ): void {
+			$lines[] = $text;
+		} );
+		$req = $this->external_caller( 7 );
+
+		$this->assertTrue( $this->controller->check_permission( $req ) );
+		$this->assertTrue( $this->controller->check_permission( $req ) );
+
+		$warned = \array_filter( $lines, static fn ( string $line ): bool => \str_contains( $line, 'spawn rate limit unavailable' ) );
+		$this->assertCount( 1, $warned, 'warned once, not once a call' );
 	}
 
 	public function test_hmac_path_does_not_consume_rate_limit(): void {
-		// Internal HMAC requests must NOT trip the per-user 2s rate limit
-		// — fleet manages its own MIN_SPAWN_INTERVAL_S.
+		$memd  = $this->cache_at( 1_700_000_000 );
 		$token = $this->fleet->generate_spawn_token( \time() );
 		$req   = $this->make_request( [ 'nonce' => $token ] );
 
 		$this->assertTrue( $this->controller->check_permission( $req ) );
 		$this->assertTrue( $this->controller->check_permission( $req ) );
-		$this->assertTrue( $this->controller->check_permission( $req ) );
+		$this->assertSame( [], $memd->keys(), 'the internal path claims no slot' );
 	}
 
 	// ── validate_worker_type ──────────────────────────────────────────────

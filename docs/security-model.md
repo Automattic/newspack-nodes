@@ -121,9 +121,9 @@ Every `@wordpress/*` runtime package is pinned to the `wp-7.0` dist tag, and eac
 | Door | Who opens it | What it checks |
 |---|---|---|
 | [`POST /v1/auth`](API.md#establishing-a-session), minting a command session | `read` | Fleet gate; scope clamped to the caller's roles; lifetime 60 seconds to one day. |
-| [`POST /v1/workers/spawn`](API.md#worker-spawn) | An internal 10-second token, or `manage` with a nonce at one call per two seconds | Token, capability, rate limit, nonce, in that order; type and partition checked against the active set. |
+| [`POST /v1/workers/spawn`](API.md#worker-spawn) | An internal 10-second token, or `manage` with a nonce at one call per two seconds | Token, capability, nonce, rate limit, in that order, the limit admitting a call no shared cache can meter; type and partition checked against the active set. |
 | [`POST /v1/health/cache`](API.md#internal-cache-health) | An internal token | Shape, then HMAC with the purpose inside the hash; the handler reads nothing from the request. |
-| [`POST /v1/command`](API.md#command-dispatch) | `read`, and at most 30 requests per user per second, 429 past that | HMAC on every wire command; a role on every verb; the graph vocabulary pinned to `manage`. |
+| [`POST /v1/command`](API.md#command-dispatch) | `read`, and at most 30 requests per user per one-second slot TTL, claimed atomically, 429 past that; admitted unmetered, with one warning, when no shared cache answers | HMAC on every wire command; a role on every verb; the graph vocabulary pinned to `manage`. |
 | Both event streams, [`GET /v1/log/stream`](API.md#log-stream) and [`GET /v1/messages/stream`](API.md#sse-stream) | `read`, no nonce | Roots confined to the three log groups; `..` refused. |
 | The two `admin_post` handlers, reset settings and flush cache (the logger registers a third, its own reset) | `manage` with a nonce | Nonce, then capability. |
 | The settings page, sole writer of `log_sources`, `memcache_servers`, `base_directory` and the TLS toggles | Literal `manage_options` | WordPress enforces `manage_options` on the option group; `settings set` accepts only bounded integers. |

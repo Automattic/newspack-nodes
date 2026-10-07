@@ -4,8 +4,10 @@ namespace Newspack_Nodes\Tests\Unit;
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Capabilities;
 use Newspack_Nodes\Command_Interpreter_Node;
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Rest\HTTP_In_Node;
 use Newspack_Nodes\Router_Node;
+use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
 use Newspack_Nodes\Tests\TestCase;
 
 /**
@@ -44,10 +46,9 @@ class CommandEndpointScopeTest extends TestCase {
 		$this->relax_read();
 		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_pages' => true, 'manage_options' => false ];
 
-		$node                              = new HTTP_In_Node();
-		HTTP_In_Node::$rate_limit_disabled = true;
+		Core::$memd = new InMemoryMemcached();
 
-		$this->assertTrue( $node->check_permission( new \WP_REST_Request() ) );
+		$this->assertTrue( ( new HTTP_In_Node() )->check_permission( new \WP_REST_Request() ) );
 	}
 
 	public function test_the_door_still_refuses_a_caller_holding_nothing(): void {

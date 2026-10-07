@@ -40,6 +40,7 @@ use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Partition_Node;
+use Newspack_Nodes\Rate_Limit;
 use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\Worker_Should_Stop;
 
@@ -57,21 +58,18 @@ use Newspack_Nodes\Worker_Should_Stop;
 class HTTP_In_Node extends Node {
 
 	/**
-	 * Default per-user burst budget per RATE_LIMIT_WINDOW_S. The topology
-	 * console fans out a handful of catalog requests on mount (classes,
-	 * topologies, layouts, ...) and dispatches commands at the speed the
-	 * operator types — well under 30/s in practice. The cap exists to bound
-	 * a buggy script hammering the endpoint, not to throttle normal use.
-	 * High-throughput sites can tune via the
-	 * `newspack_nodes/command_rate_limit` filter.
+	 * Default per-user budget of `/command` calls per RATE_LIMIT_WINDOW_S. The
+	 * topology console fans out a handful of catalog requests on mount and
+	 * dispatches commands at the speed the operator types, well under 30 a
+	 * second. The cap bounds a buggy script hammering the endpoint, not normal
+	 * use; the `newspack_nodes/command_rate_limit` filter raises it.
 	 */
 	public const RATE_LIMIT_BURST = 30;
 
 	/**
-	 * Rate-limit window for the `/command` endpoint, in seconds. One-second
-	 * buckets are tight enough to bound a runaway script and generous enough
-	 * that a normal dashboard burst (mount-time fan-out + a few user clicks)
-	 * never grazes the cap.
+	 * Slot TTL, in seconds. Memcached counts expiry in whole seconds, so at 1 a
+	 * slot frees within the second it was claimed in and the budget is close
+	 * to one bucket per cache tick; the gain over a counter is the atomic claim.
 	 */
 	public const RATE_LIMIT_WINDOW_S = 1;
 
@@ -80,23 +78,6 @@ class HTTP_In_Node extends Node {
 
 	/** Route within that namespace; the full path is `/newspack-nodes/v1/command`. */
 	public const ROUTE = '/command';
-
-	/**
-	 * Clock seam for the rate limit. The PHPUnit suite assigns a fake
-	 * timestamp here so a test can simulate a 1 req/sec stream across many
-	 * seconds without sleeping. Production leaves it null and reads the live
-	 * clock via Core::right_now().
-	 *
-	 * @var float|null
-	 */
-	public static ?float $clock_now_seam = null;
-
-	/**
-	 * Test-mode bypass for the rate limit. The PHPUnit suite sets this to
-	 * true so a test run that fires >RATE_LIMIT_BURST `/command` calls in
-	 * one second isn't throttled mid-suite. Production never flips it.
-	 */
-	public static bool $rate_limit_disabled = false;
 
 	/**
 	 * Whether this request's status line has been sent. `fill()` sets it as it
@@ -173,7 +154,7 @@ class HTTP_In_Node extends Node {
 	/**
 	 * Gate the request on the fleet site, then the READ role, then the per-user
 	 * rate limit. Capability is verified before the rate limit so an
-	 * unauthenticated burst cannot poison the transient table — the ordering
+	 * unauthenticated burst cannot spend a user's slots — the ordering
 	 * `Spawn_Controller` uses.
 	 *
 	 * The door demands the LEAST any verb behind it needs, and authority is then
@@ -198,55 +179,27 @@ class HTTP_In_Node extends Node {
 	}
 
 	/**
-	 * Per-user rate limit over fixed one-second buckets. Increments a transient
-	 * counter keyed by user id and bucket, and returns
-	 * `WP_Error( 'rate_limited', 429 )` once that bucket's budget is spent.
+	 * Per-user rate limit through `Rate_Limit`, keyed by user id. With no
+	 * shared cache to claim in, or one whose slot read fails, the door admits
+	 * and warns: every dashboard, Status poll and hub push rides `/command`,
+	 * and a dead memcached must not take all of them down with it.
 	 *
-	 * Independent buckets are what keep a steady one-request-per-second client at
-	 * count 1 forever. One counter whose TTL every write renews instead climbs
-	 * monotonically, and 429s a client that never exceeded one request a second.
-	 *
-	 * No-op when `$rate_limit_disabled` is set, and no-op without the transient
-	 * API — a test context that stubs neither `get_transient` nor `set_transient`.
-	 *
-	 * @return true|\WP_Error
+	 * @return true|\WP_Error True to proceed, a 429 over budget.
 	 */
-	protected function check_rate_limit() {
-		if ( self::$rate_limit_disabled ) {
-			return true;
-		}
-		if ( ! \function_exists( 'get_transient' ) || ! \function_exists( 'set_transient' ) ) {
-			return true;
-		}
-
+	private function check_rate_limit() {
 		/**
-		 * Tunable burst budget per RATE_LIMIT_WINDOW_S. Defaults to
-		 * RATE_LIMIT_BURST; high-throughput sites raise it.
+		 * Tunable budget per RATE_LIMIT_WINDOW_S, clamped to 1 through
+		 * `Rate_Limit::MAX_BURST`. Defaults to RATE_LIMIT_BURST.
 		 *
 		 * @param int $burst Max `/command` POSTs per user per window.
 		 */
-		$burst = \apply_filters( 'newspack_nodes/command_rate_limit', self::RATE_LIMIT_BURST );
-		if ( $burst < 1 ) {
-			$burst = 1;
-		}
-
-		$user_id = Core::current_user_id();
-		// Bucket by floor(microtime): steady <BURST/s stays count=1.
-		$now     = self::$clock_now_seam ?? Core::right_now();
-		$bucket  = (int) \floor( $now );
-		$key     = "newspack_nodes_cmd_rl:{$user_id}:{$bucket}";
-		$raw_count = \get_transient( $key );
-		$count     = Core::as_int( $raw_count );
-		if ( $count >= $burst ) {
-			return new \WP_Error(
-				'rate_limited',
-				'Too many /command requests; please slow down.',
-				[ 'status' => 429 ]
-			);
-		}
-		// TTL 2x window: outlives the bucket, then the store GCs it.
-		\set_transient( $key, $count + 1, self::RATE_LIMIT_WINDOW_S * 2 );
-		return true;
+		$burst = \min( Rate_Limit::MAX_BURST, \max( 1, Core::as_int( \apply_filters( 'newspack_nodes/command_rate_limit', self::RATE_LIMIT_BURST ) ) ) );
+		return match ( Rate_Limit::claim( 'command:' . Core::current_user_id(), $burst, self::RATE_LIMIT_WINDOW_S ) ) {
+			Rate_Limit::ADMITTED    => true,
+			Rate_Limit::THROTTLED   => new \WP_Error( 'rate_limited', 'Too many /command requests; please slow down.', [ 'status' => 429 ] ),
+			// A dead cache must not take every dashboard and hub push with it.
+			Rate_Limit::UNAVAILABLE => Rate_Limit::admit_unmetered( '/command' ),
+		};
 	}
 
 	/**

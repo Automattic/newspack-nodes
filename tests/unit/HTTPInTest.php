@@ -9,8 +9,10 @@ use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition_Node;
+use Newspack_Nodes\Rate_Limit;
 use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
+use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
 use Newspack_Nodes\Tests\TestCase;
 
 #[CoversClass( HTTP_In_Node::class )]
@@ -18,6 +20,8 @@ class HTTPInTest extends TestCase {
 
 	/** @var array<int,int> status_header codes captured by HTTP_In's seam */
 	private array $status_codes = [];
+
+	private InMemoryMemcached $memd;
 
 	protected function tearDown(): void {
 		Command_Auth::$claim_nonce              = null;
@@ -876,17 +880,32 @@ class HTTPInTest extends TestCase {
 	// ── check_permission: capability + rate limit ─────────────────────────
 
 	/**
-	 * Reset rate-limit state between assertions. The rate-limit reads from /
-	 * writes to the transient store and reads `get_current_user_id()` —
-	 * clearing both keeps test cases independent.
+	 * Reset rate-limit state between assertions: a fresh cache for the slots,
+	 * pinned to a fixed second, and no user or capability yet.
 	 */
 	private function reset_rl_state(): void {
-		$GLOBALS['_wp_test_transients']       = [];
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		$GLOBALS['_wp_test_current_user_id']  = 0;
 		$GLOBALS['_wp_actions']               = [];
-		HTTP_In_Node::$rate_limit_disabled    = false;
-		HTTP_In_Node::$clock_now_seam         = null;
+		$this->memd                           = new InMemoryMemcached();
+		Core::$memd                           = $this->memd;
+		$this->at( 1_700_000_000 );
+	}
+
+	/** Pins the cache's expiry clock, which is the window's only clock. */
+	private function at( int $now ): void {
+		$this->memd->clock = static fn (): int => $now;
+	}
+
+	/** How many of `$calls` permission checks the door admits. */
+	private function admitted( HTTP_In_Node $ctrl, int $calls ): int {
+		$admitted = 0;
+		for ( $i = 0; $i < $calls; $i++ ) {
+			if ( true === $ctrl->check_permission( new \WP_REST_Request( 'POST' ) ) ) {
+				++$admitted;
+			}
+		}
+		return $admitted;
 	}
 
 	public function test_check_permission_rejects_when_user_lacks_manage_options(): void {
@@ -942,126 +961,73 @@ class HTTPInTest extends TestCase {
 		$this->reset_rl_state();
 		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
 		$GLOBALS['_wp_test_current_user_id']                    = 7;
-
 		$ctrl = new HTTP_In_Node();
-		$req  = new \WP_REST_Request( 'POST' );
 
-		// @longform The budget is per floor(second), so the burst must land in
-		// ONE bucket: left on the wall clock, 31 instrumented calls straddle a
-		// second under coverage and the 31st starts a fresh budget.
-		HTTP_In_Node::$clock_now_seam = 1700000000.25;
+		$this->assertSame( HTTP_In_Node::RATE_LIMIT_BURST, $this->admitted( $ctrl, HTTP_In_Node::RATE_LIMIT_BURST ) );
 
-		// Burn through the burst budget. Every one of these must pass.
-		for ( $i = 0; $i < HTTP_In_Node::RATE_LIMIT_BURST; $i++ ) {
-			$this->assertTrue(
-				$ctrl->check_permission( $req ),
-				"request #{$i} (under cap) must pass"
-			);
-		}
-
-		// One more in the same window must trip the limit.
-		$result = $ctrl->check_permission( $req );
+		$result = $ctrl->check_permission( new \WP_REST_Request( 'POST' ) );
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'rate_limited', $result->get_error_code() );
-		$data = $result->get_error_data();
-		$this->assertSame( 429, $data['status'] );
-		HTTP_In_Node::$clock_now_seam = null;
+		$this->assertSame( 429, $result->get_error_data()['status'] );
 	}
 
-	public function test_steady_one_request_per_second_never_trips_the_limit(): void {
-		// Repro of the production complaint: a single client polling /command
-		// at 1 req/sec eventually got a 429. The old bucket implementation
-		// re-set the transient TTL on every write, so a steady stream NEVER
-		// let the window expire — the counter just grew until it hit BURST
-		// (after ~30 seconds at 1/s). The fix is per-second buckets: each
-		// floor(microtime) gets its own counter, so 1 req/sec stays at
-		// count=1 per bucket forever.
+	public function test_each_call_frees_its_slot_one_window_later(): void {
 		$this->reset_rl_state();
 		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
 		$GLOBALS['_wp_test_current_user_id']                    = 7;
-
 		$ctrl = new HTTP_In_Node();
-		$req  = new \WP_REST_Request( 'POST' );
+		$this->admitted( $ctrl, HTTP_In_Node::RATE_LIMIT_BURST );
 
-		// Run 5 * BURST one-per-second iterations. None may 429.
-		$base = 1700000000.0;
-		for ( $i = 0; $i < HTTP_In_Node::RATE_LIMIT_BURST * 5; $i++ ) {
-			HTTP_In_Node::$clock_now_seam = $base + $i; // each iteration is a fresh second
-			$result                       = $ctrl->check_permission( $req );
-			$this->assertTrue(
-				$result,
-				"steady 1 req/sec iteration #{$i} must pass (got "
-					. ( $result instanceof \WP_Error ? $result->get_error_code() : 'non-WP_Error' )
-					. ')'
-			);
-		}
-		HTTP_In_Node::$clock_now_seam = null;
-	}
+		$this->at( 1_700_000_000 + HTTP_In_Node::RATE_LIMIT_WINDOW_S );
 
-	public function test_rate_limit_counter_resets_after_window_expires(): void {
-		$this->reset_rl_state();
-		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
-		$GLOBALS['_wp_test_current_user_id']                    = 7;
-
-		$ctrl = new HTTP_In_Node();
-		$req  = new \WP_REST_Request( 'POST' );
-
-		// Saturate the window.
-		for ( $i = 0; $i < HTTP_In_Node::RATE_LIMIT_BURST; $i++ ) {
-			$ctrl->check_permission( $req );
-		}
-		$this->assertInstanceOf( \WP_Error::class, $ctrl->check_permission( $req ) );
-
-		// Simulate window expiry by purging the per-user transient (the
-		// bootstrap's transient store is keyed by name; deleting it is
-		// observationally identical to the entry having timed out).
-		$GLOBALS['_wp_test_transients'] = [];
-
-		$this->assertTrue(
-			$ctrl->check_permission( $req ),
-			'after the window expires the counter must reset and pass again'
-		);
+		$this->assertSame( HTTP_In_Node::RATE_LIMIT_BURST, $this->admitted( $ctrl, HTTP_In_Node::RATE_LIMIT_BURST + 4 ) );
 	}
 
 	public function test_rate_limit_is_per_user(): void {
 		$this->reset_rl_state();
 		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
-
 		$ctrl = new HTTP_In_Node();
-		$req  = new \WP_REST_Request( 'POST' );
 
-		// User 7 saturates their bucket.
 		$GLOBALS['_wp_test_current_user_id'] = 7;
-		for ( $i = 0; $i < HTTP_In_Node::RATE_LIMIT_BURST; $i++ ) {
-			$ctrl->check_permission( $req );
-		}
-		$this->assertInstanceOf( \WP_Error::class, $ctrl->check_permission( $req ) );
+		$this->admitted( $ctrl, HTTP_In_Node::RATE_LIMIT_BURST + 1 );
 
-		// User 9 — separate counter — is still under the cap.
 		$GLOBALS['_wp_test_current_user_id'] = 9;
-		$this->assertTrue( $ctrl->check_permission( $req ) );
+		$this->assertTrue( $ctrl->check_permission( new \WP_REST_Request( 'POST' ) ) );
 	}
 
-	public function test_rate_limit_disabled_static_bypasses_the_limit(): void {
+	public function test_the_burst_filter_sets_the_budget(): void {
 		$this->reset_rl_state();
 		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
 		$GLOBALS['_wp_test_current_user_id']                    = 7;
+		\add_filter( 'newspack_nodes/command_rate_limit', static fn (): int => 3 );
 
-		HTTP_In_Node::$rate_limit_disabled = true;
+		$this->assertSame( 3, $this->admitted( new HTTP_In_Node(), 8 ) );
+	}
 
-		$ctrl = new HTTP_In_Node();
-		$req  = new \WP_REST_Request( 'POST' );
+	/** A dead cache must not take the dashboards down, so the door admits. */
+	public function test_a_host_with_no_shared_cache_admits_and_warns_once(): void {
+		$this->reset_rl_state();
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
+		$GLOBALS['_wp_test_current_user_id']                    = 7;
+		Core::$memd                                             = null;
+		$lines                                                  = [];
+		Core::set_stderr_handler( static function ( string $text ) use ( &$lines ): void {
+			$lines[] = $text;
+		} );
 
-		// Far past the burst cap — bypass means every call passes.
-		for ( $i = 0; $i < HTTP_In_Node::RATE_LIMIT_BURST * 5; $i++ ) {
-			$this->assertTrue(
-				$ctrl->check_permission( $req ),
-				"request #{$i} must pass while rate_limit_disabled is true"
-			);
-		}
+		$this->assertSame( HTTP_In_Node::RATE_LIMIT_BURST + 3, $this->admitted( new HTTP_In_Node(), HTTP_In_Node::RATE_LIMIT_BURST + 3 ) );
 
-		// Restore to keep other tests honest.
-		HTTP_In_Node::$rate_limit_disabled = false;
+		$warned = \array_filter( $lines, static fn ( string $line ): bool => \str_contains( $line, '/command rate limit unavailable' ) );
+		$this->assertCount( 1, $warned, 'warned once, not once a call' );
+	}
+
+	public function test_the_burst_filter_is_clamped_to_the_limiter_ceiling(): void {
+		$this->reset_rl_state();
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
+		$GLOBALS['_wp_test_current_user_id']                    = 7;
+		\add_filter( 'newspack_nodes/command_rate_limit', static fn (): int => 4000 );
+
+		$this->assertSame( Rate_Limit::MAX_BURST, $this->admitted( new HTTP_In_Node(), Rate_Limit::MAX_BURST + 4 ) );
 	}
 
 	public function test_register_routes_wires_check_permission_as_permission_callback(): void {
