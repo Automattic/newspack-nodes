@@ -396,7 +396,7 @@ const darkSkins = () => {
 
 // The scope every pick paint nests under, which keeps the page box out.
 const PICK =
-	':where(html).newspack-nodes-asking [data-ask][data-ask-picked]:not([data-ask-page])';
+	':where(html).newspack-nodes-asking :where(.newspack-nodes-ui) [data-ask][data-ask-picked]:not([data-ask-page])';
 
 // Each declaration of the LAST rule naming `selector`, with its `!important`.
 const declarationsWithImportance = ( stylesheet, selector ) => {
@@ -2228,13 +2228,13 @@ describe( 'canonical appearance ownership', () => {
 		expect(
 			declarationsForSelector(
 				ui,
-				`${ PICK }${ rows } + ${ rows }[data-ask-picked]`
+				`${ PICK }${ rows } + [data-ask-picked]`
 			)
 		).toEqual( { '--ask-edge-top': '0' } );
 		expect(
 			declarationsForSelector(
 				ui,
-				`${ PICK }${ rows }:has(+ ${ rows }[data-ask-picked])`
+				`${ PICK }${ rows }:has(+ [data-ask-picked])`
 			)
 		).toEqual( { '--ask-edge-bottom': '0' } );
 	} );

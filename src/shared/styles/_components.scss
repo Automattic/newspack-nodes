@@ -912,6 +912,7 @@ $ask-rows: "tr, .newspack-nodes-table__row";
 // pick's outline and shadow, each above this specificity. The page box is
 // left out: its fill shows behind every child, so it shows on its ring.
 :where(html).newspack-nodes-asking
+	:where(.newspack-nodes-ui)
 	[data-ask][data-ask-picked]:not([data-ask-page]) {
 	background-image: linear-gradient(
 		$ask-picked-tint,
@@ -944,11 +945,11 @@ $ask-rows: "tr, .newspack-nodes-table__row";
 		--ask-edge-right: 0;
 	}
 
-	&:is(#{$ask-rows}) + :is(#{$ask-rows})[data-ask-picked] {
+	&:is(#{$ask-rows}) + [data-ask-picked] {
 		--ask-edge-top: 0;
 	}
 
-	&:is(#{$ask-rows}):has(+ :is(#{$ask-rows})[data-ask-picked]) {
+	&:is(#{$ask-rows}):has(+ [data-ask-picked]) {
 		--ask-edge-bottom: 0;
 	}
 
