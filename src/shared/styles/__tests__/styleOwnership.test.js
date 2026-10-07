@@ -394,7 +394,12 @@ const darkSkins = () => {
 	return declaration[ 1 ].split( ',' ).map( ( skin ) => skin.trim() );
 };
 
-const declarationsForSelector = ( stylesheet, selector ) => {
+// The scope every pick paint nests under, which keeps the page box out.
+const PICK =
+	':where(html).newspack-nodes-asking [data-ask][data-ask-picked]:not([data-ask-page])';
+
+// Each declaration of the LAST rule naming `selector`, with its `!important`.
+const declarationsWithImportance = ( stylesheet, selector ) => {
 	let declarations;
 	stylesheet.walkRules( ( rule ) => {
 		if ( rule.selectors.includes( selector ) ) {
@@ -403,12 +408,28 @@ const declarationsForSelector = ( stylesheet, selector ) => {
 					.filter( ( node ) => 'decl' === node.type )
 					.map( ( declaration ) => [
 						declaration.prop,
-						declaration.value,
+						{
+							value: declaration.value,
+							important: Boolean( declaration.important ),
+						},
 					] )
 			);
 		}
 	} );
 	return declarations;
+};
+
+const declarationsForSelector = ( stylesheet, selector ) => {
+	const declarations = declarationsWithImportance( stylesheet, selector );
+	return (
+		declarations &&
+		Object.fromEntries(
+			Object.entries( declarations ).map( ( [ prop, { value } ] ) => [
+				prop,
+				value,
+			] )
+		)
+	);
 };
 
 const mergedDeclarationsForSelectors = ( stylesheet, predicate ) => {
@@ -2145,26 +2166,95 @@ describe( 'canonical appearance ownership', () => {
 	} );
 
 	// @longform A pick stands until the selection ends, so its mark persists
-	// where the hover ring comes and goes, and it fills as well as rings: a
-	// picked table row has to read as one row, not as the outlined cells
-	// Firefox draws for its own cell selection. The fill rides
-	// `background-image` because a row paints its own tint inline as
-	// `background-color`, which a stylesheet colour could not reach.
-	it( 'paints a picked element as a whole filled and ringed box', () => {
+	// where the hover ring comes and goes, and it fills as well as rings. Each
+	// paint is `!important`, because zebra stripes repaint a row's `background`
+	// and the focus reset clears the clicked pick's outline and shadow, each
+	// above the mark's specificity. A non-row pick rings with an outline, which
+	// paints above the target's own children.
+	it( 'tints every pick and rings a non-row pick above its children', () => {
 		const ui = compile( UI_ENTRY );
-		const mark = declarationsForSelector(
+		const tint = declarationsWithImportance( ui, PICK );
+		const ring = declarationsWithImportance(
 			ui,
-			':where(html).newspack-nodes-asking [data-ask-picked]:not([data-ask-page])'
+			`${ PICK }:not(tr, .newspack-nodes-table__row, g)`
 		);
 
-		expect( mark?.outline ).toBe(
-			declarationsForSelector(
+		expect( tint[ 'background-image' ] ).toEqual( {
+			value: expect.stringMatching( /^linear-gradient\(/ ),
+			important: true,
+		} );
+		expect( ring.outline ).toEqual( {
+			value: declarationsForSelector(
 				ui,
 				':where(html).newspack-nodes-asking [data-ask]:not([data-ask-page]):hover'
-			).outline
+			).outline,
+			important: true,
+		} );
+	} );
+
+	// @longform A picked row rings by its four edges, so a run of picks reads
+	// as one block rather than as rings with a doubled bar between them: each
+	// row drops the edge it shares with a picked neighbour. A table row paints
+	// on its cells, and only the outer cells keep a side edge.
+	it( 'rings a picked row by edges that adjacent picks merge', () => {
+		const ui = compile( UI_ENTRY );
+		const rows = ':is(tr, .newspack-nodes-table__row)';
+		const { 'box-shadow': shadow } = declarationsWithImportance(
+			ui,
+			`${ PICK }.newspack-nodes-table__row`
 		);
-		expect( mark[ 'background-image' ] ).toMatch( /^linear-gradient\(/ );
-		expect( mark[ 'background-color' ] ).toBeUndefined();
+
+		expect( shadow.important ).toBe( true );
+		for ( const edge of [ 'top', 'bottom', 'left', 'right' ] ) {
+			expect( shadow.value ).toContain( `var(--ask-edge-${ edge },` );
+		}
+		expect(
+			declarationsForSelector( ui, `${ PICK }:is(tr) > td` )[
+				'box-shadow'
+			]
+		).toBe( shadow.value );
+		expect(
+			declarationsForSelector(
+				ui,
+				`${ PICK }:is(tr) > td:not(:first-child)`
+			)
+		).toEqual( { '--ask-edge-left': '0' } );
+		expect(
+			declarationsForSelector(
+				ui,
+				`${ PICK }:is(tr) > td:not(:last-child)`
+			)
+		).toEqual( { '--ask-edge-right': '0' } );
+		expect(
+			declarationsForSelector(
+				ui,
+				`${ PICK }${ rows } + ${ rows }[data-ask-picked]`
+			)
+		).toEqual( { '--ask-edge-top': '0' } );
+		expect(
+			declarationsForSelector(
+				ui,
+				`${ PICK }${ rows }:has(+ ${ rows }[data-ask-picked])`
+			)
+		).toEqual( { '--ask-edge-bottom': '0' } );
+	} );
+
+	// An SVG group has no box to ring, so a picked flame frame
+	// rings by its rect's stroke, over the chart's own frame stroke.
+	it( 'strokes a picked SVG frame', () => {
+		const stroke = declarationsWithImportance(
+			compile( UI_ENTRY ),
+			`${ PICK }:is(g) > rect`
+		);
+
+		expect( stroke.stroke ).toEqual( {
+			value: 'var(--np-accent, #003da5)',
+			important: true,
+		} );
+		expect( stroke[ 'stroke-width' ] ).toEqual( {
+			value: '2px',
+			important: true,
+		} );
 	} );
 
 	// @longform The page box is the one target that cannot wear the mark: its

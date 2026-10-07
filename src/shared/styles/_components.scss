@@ -897,21 +897,66 @@
 	cursor: help !important;
 }
 
+$ask-accent: var(--np-accent, #003da5);
+$ask-picked-tint: color-mix(in srgb, $ask-accent 18%, transparent);
+
 :where(html).newspack-nodes-asking [data-ask]:not([data-ask-page]):hover {
-	outline: 2px solid var(--np-accent, #003da5);
+	outline: 2px solid $ask-accent;
 	outline-offset: -2px;
 }
 
-$ask-picked-tint: color-mix(in srgb, var(--np-accent, #003da5) 18%, transparent);
+$ask-rows: "tr, .newspack-nodes-table__row";
 
-// @longform A pick fills as well as rings, so a picked row reads as one row.
-// The fill is an image because a row paints its own tint inline as
-// `background-color`. The page box is left out: its fill shows behind every
-// child, so a picked page shows on its ring instead.
-:where(html).newspack-nodes-asking [data-ask-picked]:not([data-ask-page]) {
-	outline: 2px solid var(--np-accent, #003da5);
-	outline-offset: -2px;
-	background-image: linear-gradient($ask-picked-tint, $ask-picked-tint);
+// @longform A pick fills and rings. Each paint is `!important` because zebra
+// stripes repaint a row's background, and the focus reset clears the clicked
+// pick's outline and shadow, each above this specificity. The page box is
+// left out: its fill shows behind every child, so it shows on its ring.
+:where(html).newspack-nodes-asking
+	[data-ask][data-ask-picked]:not([data-ask-page]) {
+	background-image: linear-gradient(
+		$ask-picked-tint,
+		$ask-picked-tint
+	) !important;
+
+	// An outline paints above the target's own children; an SVG group draws none.
+	&:not(#{$ask-rows}, g) {
+		outline: 2px solid $ask-accent !important;
+		outline-offset: -2px;
+	}
+
+	// @longform A run of picked rows reads as one block: each row drops the
+	// edge it shares with a picked neighbour. A table row paints on its cells,
+	// and only the outer cells keep a side edge.
+	&.newspack-nodes-table__row,
+	&:is(tr) > td {
+		box-shadow:
+			inset 0 var(--ask-edge-top, 2px) $ask-accent,
+			inset 0 var(--ask-edge-bottom, -2px) $ask-accent,
+			inset var(--ask-edge-left, 2px) 0 $ask-accent,
+			inset var(--ask-edge-right, -2px) 0 $ask-accent !important;
+	}
+
+	&:is(tr) > td:not(:first-child) {
+		--ask-edge-left: 0;
+	}
+
+	&:is(tr) > td:not(:last-child) {
+		--ask-edge-right: 0;
+	}
+
+	&:is(#{$ask-rows}) + :is(#{$ask-rows})[data-ask-picked] {
+		--ask-edge-top: 0;
+	}
+
+	&:is(#{$ask-rows}):has(+ :is(#{$ask-rows})[data-ask-picked]) {
+		--ask-edge-bottom: 0;
+	}
+
+	// An SVG group has no box to ring; its rect strokes instead.
+	&:is(g) > rect {
+		stroke: $ask-accent !important;
+		stroke-width: 2px !important;
+	}
 }
 
 // The page ring, mounted at body level while the picker is armed. It is an
@@ -921,7 +966,7 @@ $ask-picked-tint: color-mix(in srgb, var(--np-accent, #003da5) 18%, transparent)
 // `z-index` applies at `position: static`.
 .newspack-nodes-ask-ring {
 	position: fixed;
-	outline: 2px solid var(--np-accent, #003da5);
+	outline: 2px solid $ask-accent;
 	outline-offset: -2px;
 	z-index: $layer-page-ring;
 	pointer-events: none;
