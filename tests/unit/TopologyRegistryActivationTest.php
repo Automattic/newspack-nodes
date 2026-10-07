@@ -136,6 +136,50 @@ class TopologyRegistryActivationTest extends TestCase {
 		$this->assertEmpty( $GLOBALS['_test_outbound_posts'] ?? [] );
 	}
 
+	public function test_activate_skips_an_unreadable_active_topology_and_keeps_it_configured(): void {
+		\file_put_contents( "{$this->stock}/alpha.tsl", "make_node Echo gamma_echo\n" );
+		\file_put_contents( "{$this->stock}/broken.tsl", "include no-such-topology\n" );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'broken' ];
+		Config::reset();
+
+		$result = Topology_Registry::activate( 'alpha' );
+
+		$this->assertSame( 'alpha', $result['name'] );
+		$this->assertSame( [ 'broken', 'alpha' ], \array_values( (array) \get_option( 'newspack_nodes_topologies', [] ) ) );
+	}
+
+	public function test_activate_names_the_active_topologies_it_could_not_check(): void {
+		\file_put_contents( "{$this->stock}/alpha.tsl", "make_node Echo gamma_echo\n" );
+		\file_put_contents( "{$this->stock}/broken-4410.tsl", "include no-such-topology\n" );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'broken-4410' ];
+		Config::reset();
+
+		$result = Topology_Registry::activate( 'alpha' );
+
+		$this->assertArrayNotHasKey( 'unchecked', $result, 'the warning carries the names' );
+		$this->assertSame( 'these active topologies could not be checked for conflicts: broken-4410', $result['warning'] );
+	}
+
+	public function test_activate_with_every_peer_readable_warns_of_nothing(): void {
+		\file_put_contents( "{$this->stock}/alpha.tsl", "make_node Echo a\n" );
+
+		$result = Topology_Registry::activate( 'alpha' );
+
+		$this->assertArrayNotHasKey( 'unchecked', $result );
+		$this->assertNull( $result['warning'] );
+	}
+
+	public function test_activate_still_refuses_an_unreadable_name_being_activated(): void {
+		\file_put_contents( "{$this->stock}/broken.tsl", "include no-such-topology\n" );
+
+		$e = $this->caught(
+			fn () => Topology_Registry::activate( 'broken' ),
+			'expected the unreadable topology to refuse its own activation'
+		);
+		$this->assertStringContainsString( 'no-such-topology', $e->getMessage() );
+		$this->assertArrayNotHasKey( 'newspack_nodes_topologies', $GLOBALS['_wp_options'] );
+	}
+
 	// ── deactivate ───────────────────────────────────────────────────────────
 
 	public function test_deactivate_removes_name_from_option_and_drains_fleet(): void {

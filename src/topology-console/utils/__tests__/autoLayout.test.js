@@ -2509,7 +2509,11 @@ describe( 'autoLayout — hub bands', () => {
 				{ from: `${ s }:fetch`, to: '_cwd' }
 			);
 		}
-		const ids = new Set( [ '_completion', '_stdout', 'log-rail:timer' ] );
+		const ids = new Set( [
+			'_completion',
+			'_stdout',
+			'log-viewer-rail:timer',
+		] );
 		for ( const e of edges ) {
 			ids.add( e.from );
 			ids.add( e.to );

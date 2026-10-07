@@ -2897,6 +2897,46 @@ describe( 'TopologyConsole boot', () => {
 		).toBeNull();
 	} );
 
+	it( 'confirming "Activate now?" shows the warning an activate reply carries', async () => {
+		globalThis.__activateSend.mockResolvedValueOnce( {
+			name: 'newname',
+			active: true,
+			spawned: 1,
+			warning:
+				'these active topologies could not be checked for conflicts: broken-4410',
+		} );
+		hooks.catalog = { partitions: { demo: 2 }, active: [ 'demo' ] };
+		hooks.fetchTopology.mockResolvedValueOnce( { tsl: '', name: 'demo' } );
+		hooks.saveTopology.mockResolvedValueOnce( {
+			name: 'newname',
+			restarted_fleets: [],
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText, container } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'save' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'prompt-ok' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'confirm' ) );
+		} );
+		await waitFor(
+			() =>
+				expect(
+					container.querySelector( '.topology-toast--success' )
+						?.textContent
+				).toContain(
+					'these active topologies could not be checked for conflicts: broken-4410'
+				),
+			{ timeout: 4000 }
+		);
+	} );
+
 	it( 'edits num_partitions in the settings panel and serializes it on save', async () => {
 		hooks.fetchTopology.mockResolvedValueOnce( {
 			tsl: 'make_node Echo e\n',

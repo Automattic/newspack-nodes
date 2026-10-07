@@ -166,7 +166,8 @@ trait Dead_Letter_Queue {
 	 * `deadletter` slot. Idempotent on the dir rather than on the property, for the
 	 * reason `ensure_offsetlog()` is: `arguments()` is a replay setter, so an incumbent
 	 * built for a directory the arguments have since superseded would go on
-	 * quarantining where nobody triages.
+	 * quarantining where nobody triages. A sole writer's quarantine moves with
+	 * it through `carry_sidecar_dir()`; a shared one stays for its peers.
 	 *
 	 * @return Partition_Node|null The sidecar, or null when no directory is configured.
 	 */
@@ -175,10 +176,14 @@ trait Dead_Letter_Queue {
 		if ( null !== $this->deadletter && $dir === $this->deadletter->partition_dir() ) {
 			return $this->deadletter;
 		}
+		$from = $this->deadletter?->partition_dir();
 		$this->retract_sibling( 'deadletter' );
 		$this->deadletter = null;
 		if ( '' === $dir ) {
 			return null;
+		}
+		if ( $this->deadletter_sole_writer() && ! $this->carry_sidecar_dir( $from, $dir ) ) {
+			$this->print_less_often( 'kept a superseded quarantine in place: ', "{$from} (now {$dir})" );
 		}
 		// All five axes explicit; an omitted one inherits <config:*> forever.
 		$deadletter = $this->make_sidecar( $dir, [

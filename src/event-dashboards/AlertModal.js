@@ -1,6 +1,6 @@
 /**
  * AlertModal — the one-button dialog the Overview fleet board raises when a
- * topology mutation is refused.
+ * topology mutation is refused, or an activation succeeds with a warning.
  *
  * `useTopologyManager`'s activate, deactivate and restart are fire-and-forget:
  * the refusal arrives a tick later as the verb's error text on the node that

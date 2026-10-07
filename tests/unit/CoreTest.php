@@ -41,6 +41,12 @@ class CoreTest extends TestCase {
 	// the base setUp and restored in the base tearDown — a test that registers or
 	// wipes a namespace here can't leak it into the next test class.
 
+	public function test_message_of_reads_back_what_esc_html_encoded_at_the_throw(): void {
+		$e = new \RuntimeException( \esc_html( "unknown log: \"Kea's <tail>\" & more" ) );
+
+		$this->assertSame( "unknown log: \"Kea's <tail>\" & more", Core::message_of( $e ) );
+	}
+
 	public function test_register_and_lookup_node_by_name(): void {
 		$obj = new \Newspack_Nodes\Node();
 		Core::register_node( 'foo', $obj );

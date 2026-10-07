@@ -80,6 +80,18 @@ class CliActivateCommandTest extends TestCase {
 		$this->assertCount( 2, $GLOBALS['_test_outbound_posts'] ?? [] );
 	}
 
+	public function test_activate_warns_of_an_active_topology_it_could_not_check(): void {
+		\file_put_contents( "{$this->stock}/alpha.tsl", "make_node Echo e\n" );
+		\file_put_contents( "{$this->stock}/broken-4410.tsl", "include no-such-topology\n" );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'broken-4410' ];
+		Config::reset();
+
+		( new Worker_CLI_Command() )->activate( [ 'alpha' ], [] );
+
+		$this->assertContains( 'these active topologies could not be checked for conflicts: broken-4410', $GLOBALS['_test_wp_cli_warns'] );
+		$this->assertNotEmpty( $GLOBALS['_test_wp_cli_success'] );
+	}
+
 	public function test_activate_is_idempotent_no_duplicate_entry(): void {
 		\file_put_contents( "{$this->stock}/alpha.tsl", "make_node Echo a\n" );
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'alpha' ];

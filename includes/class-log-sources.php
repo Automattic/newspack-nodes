@@ -111,7 +111,7 @@ class Log_Sources {
 		return ( null === $key ? [] : [ 'key' => $key ] ) + [
 			'label'     => $label,
 			'available' => false,
-			'error'     => \is_string( $error ) ? $error : \html_entity_decode( $error->getMessage(), \ENT_QUOTES ),
+			'error'     => \is_string( $error ) ? $error : Core::message_of( $error ),
 		];
 	}
 
@@ -306,9 +306,10 @@ class Log_Sources {
 	 * `sources/<name>` stamp as its registry entry's Tail, any other as the
 	 * cursorless `Consumer_Node::scan()` over the dir it names, the reader the
 	 * stream opens, so a line that will not unpack is skipped and counted.
-	 * The stream and the single-step read both resolve here, so a name means
-	 * one log wherever it is read. No sidecar is built; the caller sets the
-	 * cursor.
+	 * `read()`, the single-step read, opens its reader here; the stream
+	 * resolves through `SSE_Out_Node::resolve_subscription()`, and both reach
+	 * `Log_Discovery::dir_of()` and `entry()`, so a name means one log
+	 * wherever it is read. No sidecar is built; the caller sets the cursor.
 	 *
 	 * @param string $log A dir stamp or `sources/<name>`.
 	 * @return Consumer_Node The reader, stamped `$log`.

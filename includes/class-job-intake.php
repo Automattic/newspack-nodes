@@ -447,7 +447,7 @@ class Job_Intake {
 			return $this->partitions[ $slot ];
 		}
 		$dir = Core::resolve_partition_template(
-			self::log_dir_templates( $this->base_dir . '/logs' )[ $basename ],
+			self::log_dir_templates( Log_Discovery::root( $this->base_dir, 'logs' ) )[ $basename ],
 			$partition
 		);
 		// pid+object-id token: 2nd JobIntake won't clash with stale Core regs.

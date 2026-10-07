@@ -91,6 +91,12 @@ stamp_cases=(
 	'$ok = '"'"'logs'"'"' !== $group;'
 	'$path = "{$base}/{$group}/{$rest}";'
 	'$s = "remote/{$vault}:{$kind}";'
+	'$ok = $group === '"'"'logs'"'"';'
+	'$ok = '"'"'sources'"'"' === $g;'
+	'$ok = \str_starts_with( $sub, Log_Discovery::SOURCES_PREFIX );'
+	'[ $g, $n ] = \explode( '"'"'/'"'"', $stamp, 2 );'
+	'$dir = "{$base_dir}/offsets/{$reader}";'
+	'$dir = $base_dir . '"'"'/logs'"'"';'
 )
 for i in "${!stamp_cases[@]}"; do
 	d=$( fixture "stamp$i" includes/class-widget.php "${stamp_cases[$i]}" )
@@ -99,6 +105,12 @@ done
 
 d=$( fixture stamp-owner includes/class-log-discovery.php "${stamp_cases[1]}" )
 assert_clean "class-log-discovery.php may read GROUPS" "$d"
+
+d=$( fixture stamp-root includes/class-widget.php '$dir = Log_Discovery::root( $base_dir, '"'"'logs'"'"' ) . "/{$reader}";' )
+assert_clean "a root joined through Log_Discovery::root() is not flagged" "$d"
+
+d=$( fixture stamp-route includes/class-widget.php '$parts = \explode( '"'"'/'"'"', $to, 2 );' )
+assert_clean "a TO path split on its slash is not flagged" "$d"
 
 d=$( fixture stamp-writer includes/class-widget.php '$k = Log_Discovery::stamp_for( Log_Discovery::SOURCES_PREFIX, $n );' )
 assert_clean "a stamp written through stamp_for() is not flagged" "$d"

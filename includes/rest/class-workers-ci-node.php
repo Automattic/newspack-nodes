@@ -37,6 +37,7 @@ use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\SSE_Slot_Pool;
 use Newspack_Nodes\Spawn_Coordinator;
 use Newspack_Nodes\Log_Cleaner;
+use Newspack_Nodes\Log_Discovery;
 use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Worker_Base;
@@ -137,7 +138,7 @@ class Workers_CI_Node extends Service_CI_Node {
 		);
 		$segment_size   = self::to_int( RuntimeConfig::value( 'segment_size' ) );
 		$base_dir       = RuntimeConfig::get_base_directory();
-		$log_base       = $base_dir . '/logs';
+		$log_base       = Log_Discovery::root( $base_dir, 'logs' );
 
 		// workers[] is pure per-(type,partition) liveness; no per-consumer.
 		$slots   = CLI::slot_ids( $topologies );
@@ -161,7 +162,7 @@ class Workers_CI_Node extends Service_CI_Node {
 		$segment_size_overrides    = self::collect_segment_size_overrides( $readable );
 		[ $declared, $refused ]    = Log_Cleaner::declared_log_partitions( $readable );
 		$logs                      = self::enumerate_logs( $log_base, $segment_size, $segment_size_overrides, $declared );
-		$messages                  = static fn ( \Throwable $e ): string => \html_entity_decode( $e->getMessage(), \ENT_QUOTES );
+		$messages                  = Core::message_of( ... );
 
 		// On-disk log partitions: glob .pN dirs fresh (layout-agnostic).
 		$log_partitions = \count( @\glob( "{$log_base}/*", \GLOB_ONLYDIR ) ?: [] );
@@ -652,7 +653,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	public static function cmd_dump_cleanup(): array {
 		// Diagnostic: what Log_Cleaner reads deciding which dirs to delete.
 		$base_dir = RuntimeConfig::get_base_directory();
-		$logs_dir = $base_dir . '/logs';
+		$logs_dir = Log_Discovery::root( $base_dir, 'logs' );
 		$on_disk  = [];
 		// Mirror Log_Cleaner::sweep(): glob first-level dirs (layout-agnostic).
 		foreach ( @\glob( $logs_dir . '/*', \GLOB_ONLYDIR ) ?: [] as $dir ) {

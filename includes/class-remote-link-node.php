@@ -33,6 +33,12 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * The channel layer every remote reader stands on.
+ *
+ * @phpstan-import-type Stream_Positions from SSE_In_Node
+ * @phpstan-type Stream_Request array{0:list<string>,1:Stream_Positions}
+ */
 class Remote_Link_Node extends Timer_Node {
 	use Schema_Reflection;
 
@@ -548,7 +554,7 @@ class Remote_Link_Node extends Timer_Node {
 	 * What the next connect asks for: the channel tails its one partition.
 	 * Remote_Source answers for its readers instead.
 	 *
-	 * @return array{0:list<string>,1:array<string,array{segment?:int,offset:int}|int|string>} Subscriptions, then per-stamp positions.
+	 * @return Stream_Request Subscriptions, then per-stamp positions.
 	 */
 	protected function stream_request(): array {
 		return [ [ $this->remote_partition ], [ $this->remote_partition => Consumer_Node::SEEK_END ] ];

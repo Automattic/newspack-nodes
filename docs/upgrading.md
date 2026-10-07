@@ -42,8 +42,9 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   cursor at `<offsetlog_root>/<kind>` and its dead letters at
   `<deadletter_root>/<kind>`, `<kind>` being the stamp with `/` spelled `:`; the
   offsetlog root must carry `<topology>`. There is no migration: cursors at the
-  old `<topology>.firehose.<id>.p<partition>` are not read, and each stream
-  starts where its spoke places a fresh reader. A spoke must run this release
+  old `<topology>.firehose.<id>.p<partition>` are not read, and a new reader
+  starts at its spoke's end: whatever the spoke wrote between the hub's last
+  old cursor and the hub's upgrade is never pulled. A spoke must run this release
   before a hub runs the new line, because an older spoke refuses a `sources/`
   subscription as invalid. A consumer reading `remote_partition` off a
   `Remote_Source` row of `Topology_Analyzer::graph_for()` reads `pairs` instead.
@@ -118,12 +119,33 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `offsets/Kea-1`, answers `400 sse_subscription_invalid` with its
   `invalid subscription: <sub>` message rather than failing after the
   event-stream headers.
-- **The Partition Viewer is the Log Viewer.** The station tab is `?tab=log-viewer`
-  (old `?tab=partition-viewer` links land on the default tab), its nodes are
-  `log-viewer:*`, its view class is `LogViewerViewNode` (`LogViewerView`), and its
-  hook is `useLogViewerGraph`. It lists partition dirs and `sources/<name>`
-  registry files in one picker. Each viewer's saved column choice and rail fold
-  reset once.
+- **`/messages/stream` refuses a `positions` entry that names no place.** An
+  entry that is not a seek word (`start`, `recent`, `end`), a number,
+  `segment:offset`, a `{ segment, offset }` pair or `skip` answers
+  `400 sse_positions_invalid` where it replayed the log from its start. A
+  client building `positions` by hand fixes the entry the message names.
+- **`aggregator probe` answers `worst_distance: null`** when no reader of the
+  spoke can measure its distance, where it answered 0. A caller doing
+  arithmetic on it reads the null first.
+- **The Partition Viewer and the Log Viewer are one tab, the Log Viewer.** It
+  lists partition dirs and `sources/<name>` registry sources in one picker, at
+  `?tab=log-viewer&log=<key>`. An old `?tab=partition-viewer` link lands on the
+  default tab, and an old `?tab=log-viewer&source=<name>` link opens the tab
+  with nothing picked: link `log=sources/<name>` instead. Its nodes are
+  `log-viewer:*`, where the Partition Viewer's were `partition:*`. Its view
+  class is `LogViewerViewNode` (`LogViewerView`), now in
+  `nodes/log-viewer-view-node.js`; `PartitionViewerViewNode` is gone. Its hook
+  is `useLogViewerGraph`, now in `hooks/useLogViewerGraph.js`, and it answers
+  what `usePartitionViewerGraph` answered — `selectLog`, `setPaused`, `seek`,
+  `step`, `clear` and `setFilter` — so a caller of the old Log Viewer's
+  `useLogViewerGraph` reads the catalog off the view and calls `selectLog`
+  where it called `selectSource`. `useLogReaderGraph` and
+  `usePartitionViewerGraph` are gone. `useStreamGraph` takes no `endpoint`,
+  `useSteppedRead` no `argsFor` or `subjectOf`, `useLogCatalog` no `argsFn`,
+  and `RemoteLinkNode` and `SseInNode` carry no `endpoint` field. A former
+  Partition Viewer user's saved column choice and rail fold reset once; a
+  former Log Viewer user's rail fold carries over, because the tab keeps that
+  viewer's `newspack-nodes-log-viewer` class.
 - **`HTTP_In_Node::$clock_now_seam` and `HTTP_In_Node::$rate_limit_disabled`
   are gone.** `/command` meters through `Rate_Limit::claim()` in the shared
   cache, so a test that set either assigns an `InMemoryMemcached` to
@@ -923,7 +945,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   (each source is a `sources/<name>` row), size one with `cmd raw-logs dump_log
   sources/<name>`, and read one record with `cmd raw-logs read_message
   sources/<name> <segment>:<offset>`. The last-N-KB tail has no replacement; the
-  Partition Viewer streams the source live. `sources` and `read` are no longer
+  Log Viewer streams the source live. `sources` and `read` are no longer
   reserved as registry names.
 - **`raw-logs read_message` answers an empty read as a result and a bad
   position as an error.** A position holding no record answers
@@ -949,12 +971,6 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   an active topology that will not read, a dir named outside the stamp grammar —
   carries `label`, `available: false` and `error` but no `key`; offer it
   disabled, never as a pick.
-- **The Log Viewer tab is gone.** The Partition Viewer lists registry sources as
-  `sources/<name>` beside the dirs; an old `?tab=log-viewer&source=<name>` link
-  lands on the default tab. `useStreamGraph` takes no `endpoint`,
-  `useSteppedRead` no `argsFor` or `subjectOf`, `useLogCatalog` no `argsFn`, and
-  `RemoteLinkNode` and `SseInNode` carry no `endpoint` field. Replace
-  `useLogViewerGraph` with `usePartitionViewerGraph`.
 
 ## 2.65.6
 

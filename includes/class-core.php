@@ -869,6 +869,19 @@ class Core {
 	}
 
 	/**
+	 * A throwable's message as plain text, its HTML entities decoded. Most
+	 * throws here pass their message through `esc_html()`, which this
+	 * reverses; a message thrown as plain text, as `refuse_angle_partition()`
+	 * throws one, carries no entities and comes back as it was, unless it
+	 * spells one out literally.
+	 *
+	 * @param \Throwable $e What was thrown.
+	 */
+	public static function message_of( \Throwable $e ): string {
+		return \html_entity_decode( $e->getMessage(), \ENT_QUOTES );
+	}
+
+	/**
 	 * The fleet `Topology_Loader` bound beside the partition, or null outside
 	 * a worker, where none is.
 	 */

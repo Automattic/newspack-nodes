@@ -2126,6 +2126,58 @@ class RemoteConsumerNodeTest extends TestCase {
 		$this->assertSame( [ 'segment' => 31, 'offset' => 4465 ], $node->connect_position() );
 	}
 
+	public function test_a_router_bounce_leaves_the_step_in_flight(): void {
+		[ , $node ] = $this->stepping_reader();
+		$http       = Core::node( 'remote-austin:http-out' );
+		$bounce                    = Message::new_message();
+		$bounce[ Message::TYPE ]   = Message::TM_ERROR;
+		$bounce[ Message::FROM ]   = 'nowhere-6120';
+		$bounce[ Message::TO ]     = 'remote-austin:firehose.p0';
+		$bounce[ Message::VALUE ]  = "NOT_AVAILABLE\n";
+
+		$node->fill( $bounce );
+		$node->fire_cb();
+
+		$this->assertCount( 1, $this->read_private( $http, 'batch' ), 'a bounce answers no step, so none is sent again' );
+		$this->assertSame( 1, $this->read_private( $node, 'steps_owed' ) );
+	}
+
+	public function test_line_mode_turned_off_before_the_reply_sends_no_second_request(): void {
+		[ , $node, $sink ] = $this->stepping_reader();
+		$http               = Core::node( 'remote-austin:http-out' );
+		$node->set_line_mode( false );
+
+		$node->fill( self::step_reply( 'remote-austin:firehose.p0', self::stepped_record( '31:4404:61', 'stepped-5531' ), 31, 4465 ) );
+
+		$this->assertSame( [ 'stepped-5531' ], \array_column( $sink->captured, Message::VALUE ) );
+		$this->assertCount( 1, $this->read_private( $http, 'batch' ), 'the consumed reply asks for nothing more' );
+		$this->assertNull( $this->read_private( $node, 'step_requested_at' ), 'the reply settled the request' );
+	}
+
+	public function test_a_message_that_is_no_command_reply_settles_no_step(): void {
+		[ , $node, $sink ] = $this->stepping_reader();
+		$echo                     = self::step_reply( 'remote-austin:firehose.p0', self::stepped_record( '31:4404:61', 'forged-5124' ), 31, 4465 );
+		$echo[ Message::TYPE ]    = Message::TM_STRUCT;
+
+		$node->fill( $echo );
+
+		$this->assertSame( [], $sink->captured, 'only a command reply answers a step' );
+		$this->assertSame( 1, $this->read_private( $node, 'steps_owed' ) );
+	}
+
+	public function test_a_late_reply_to_a_superseded_step_leaves_the_new_step_in_flight(): void {
+		[ , $node ] = $this->stepping_reader();
+		$http       = Core::node( 'remote-austin:http-out' );
+		$node->next_offset( [ 'segment' => 52, 'offset' => 7781 ] );
+		$node->step();
+		$this->assertCount( 2, $this->read_private( $http, 'batch' ), 'the seek\'s own step went out' );
+
+		$node->fill( self::step_reply( 'remote-austin:firehose.p0', self::stepped_record( '31:4404:61', 'late-3307' ), 31, 4465 ) );
+		$node->fire_cb();
+
+		$this->assertCount( 2, $this->read_private( $http, 'batch' ), 'a stale answer settles nothing, so nothing is sent again' );
+	}
+
 	public function test_a_step_whose_reply_never_comes_is_sent_again_after_the_request_timeout(): void {
 		[ , $node ] = $this->stepping_reader();
 		$http = Core::node( 'remote-austin:http-out' );

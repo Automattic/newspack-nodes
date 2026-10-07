@@ -30,6 +30,8 @@ use Newspack_Nodes\Rest\SSE_Out_Node;
  * Credentials and URL come from the Vault entry the `<vault-id>` argument names; a
  * missing entry leaves the node disconnected rather than building mis-configured
  * patrons.
+ *
+ * @phpstan-import-type Stream_Request from Remote_Link_Node
  */
 class Remote_Source_Node extends Remote_Link_Node {
 
@@ -130,8 +132,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * through the link, which arms the tick, then reconcile the readers with a
 	 * replay. A reader no pair matches any more hands its cursor off and is
 	 * retracted; each survivor takes its owning pair's target, and its dirs
-	 * when the roots moved. A changed pair list restarts the stream, so the
-	 * next request states the new set.
+	 * when the roots moved. A changed source list restarts the stream, so the
+	 * next request states the new set; a changed target alone does not.
 	 *
 	 * @api Dynamic entrypoint.
 	 * @param list<string>|null $args Positional tokens, or null to read them.
@@ -162,7 +164,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 			}
 			$child->broker( $this );
 		}
-		if ( $previous !== $this->pairs ) {
+		// A target names no stream: only a changed source list restreams.
+		if ( \array_column( $previous, 'source' ) !== \array_column( $this->pairs, 'source' ) ) {
 			$this->restream();
 		}
 		return $parsed;
@@ -193,8 +196,13 @@ class Remote_Source_Node extends Remote_Link_Node {
 				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
 				throw new \InvalidArgumentException( "Remote_Source: pair '{$token}' names " . Core::PARTITION_TOKEN . ', but no partition is bound' );
 			}
-			$pair = self::parse_pair( Core::resolve_partition_template( $token, $this->bound_partition ?? 0 ) );
-			if ( Core::owns( self::split_pair( $token )['source'] ) ) {
+			$written = self::split_pair( $token );
+			$pair    = self::checked_pair(
+				Core::resolve_partition_template( $written['source'], $this->bound_partition ?? 0 ),
+				Core::resolve_partition_template( $written['target'], $this->bound_partition ?? 0 ),
+				$token
+			);
+			if ( Core::owns( $written['source'] ) ) {
 				$owned[] = $pair;
 			}
 		}
@@ -208,7 +216,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * keeps finding new dirs while that one stays out. A new stream opens with
 	 * its valve armed.
 	 *
-	 * @return array{0:list<string>,1:array<string,array{segment?:int,offset:int}|int|string>} Subscriptions, then per-stamp positions.
+	 * @return Stream_Request Subscriptions, then per-stamp positions.
 	 */
 	protected function stream_request(): array {
 		$this->pump_armed = true;
@@ -784,6 +792,20 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 */
 	public static function parse_pair( string $token ): array {
 		[ 'source' => $source, 'target' => $target ] = self::split_pair( $token );
+		return self::checked_pair( $source, $target, $token );
+	}
+
+	/**
+	 * Refuse a split pair `parse_pair()` would refuse, naming the token as
+	 * written.
+	 *
+	 * @param string $source The source half.
+	 * @param string $target The target half.
+	 * @param string $token  The token the halves came from.
+	 * @return array{source:string,target:string}
+	 * @throws \InvalidArgumentException When either half is empty, or the source is no subscription.
+	 */
+	private static function checked_pair( string $source, string $target, string $token ): array {
 		if ( '' === $source || '' === $target ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
 			throw new \InvalidArgumentException( "Remote_Source: a pair is <source>:<target>, got '{$token}'" );

@@ -145,10 +145,12 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	/**
 	 * Replies routed to this reader: the spoke's answer to a step, and the
 	 * Router's bounce of a line whose target names no node, which is no command
-	 * and settles nothing. An answer settles the request, and is stale unless
-	 * it echoes the arguments a step would send now: a seek moved the position
-	 * since. `pause` and `play` move nothing but forgive what was owed, so an
-	 * answer nothing awaits is stale too: the stream says where the reader is.
+	 * and settles nothing. An answer echoing the arguments a step would send
+	 * now settles the request; any other is stale, a seek having moved the
+	 * position since, and leaves the step in flight, so its late arrival
+	 * cannot free the next tick to ask again. `pause` and `play` move nothing
+	 * but forgive what was owed, so an answer nothing awaits is stale too: the
+	 * stream says where the reader is.
 	 *
 	 * A record goes through `receive()` and drains as a streamed line does,
 	 * one poll per owed step; the reply's cursor is then where the reader
@@ -164,30 +166,15 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 		if ( ! ( $type & Message::TM_COMMAND ) || ! ( $type & ( Message::TM_RESPONSE | Message::TM_ERROR ) ) ) {
 			return;
 		}
-		$this->step_requested_at = null;
-		$value                   = Core::arr( $message[ Message::VALUE ] );
+		$value = Core::arr( $message[ Message::VALUE ] );
 		if ( 0 === $this->steps_owed || ( $value['arguments'] ?? null ) !== [ $this->stamp, $this->step_position() ] ) {
 			return;
 		}
-		$payload = $value['payload'] ?? null;
-		if ( ! \is_array( $payload ) ) {
-			$this->steps_owed = 0;
-			$this->print_less_often( 'step refused: ', \trim( Core::as_string( $payload ) ) );
-			return;
-		}
-		$record = $payload['message'] ?? null;
-		if ( \is_array( $record ) ) {
-			/** @var array<int,mixed> $record */
-			$this->receive( Message::packed( $record ), $record );
-			while ( $this->steps_owed > 0 && $this->buffer_has_line() ) {
-				$this->steps_owed -= $this->poll();
-			}
-		} else {
-			$this->steps_owed = 0;
-		}
-		$cursor = Core::arr( $payload['cursor'] ?? null );
-		if ( \is_int( $cursor['segment'] ?? null ) && \is_int( $cursor['offset'] ?? null ) ) {
-			$this->stand_at( [ 'segment' => $cursor['segment'], 'offset' => $cursor['offset'] ] );
+		try {
+			$this->settle_step( $value );
+		} finally {
+			// Settled only once consumed, so the drain cannot ask again.
+			$this->step_requested_at = null;
 		}
 	}
 
@@ -209,6 +196,35 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 			return;
 		}
 		$this->stop_timer();
+	}
+
+	/**
+	 * Consume the answer to the step in flight, while its request still
+	 * counts as in flight.
+	 *
+	 * @param array<array-key,mixed> $value The reply's VALUE.
+	 */
+	private function settle_step( array $value ): void {
+		$payload = $value['payload'] ?? null;
+		if ( ! \is_array( $payload ) ) {
+			$this->steps_owed = 0;
+			$this->print_less_often( 'step refused: ', \trim( Core::as_string( $payload ) ) );
+			return;
+		}
+		$record = $payload['message'] ?? null;
+		if ( \is_array( $record ) ) {
+			/** @var array<int,mixed> $record */
+			$this->receive( Message::packed( $record ), $record );
+			while ( $this->steps_owed > 0 && $this->buffer_has_line() ) {
+				$this->steps_owed -= $this->poll();
+			}
+		} else {
+			$this->steps_owed = 0;
+		}
+		$cursor = Core::arr( $payload['cursor'] ?? null );
+		if ( \is_int( $cursor['segment'] ?? null ) && \is_int( $cursor['offset'] ?? null ) ) {
+			$this->stand_at( [ 'segment' => $cursor['segment'], 'offset' => $cursor['offset'] ] );
+		}
 	}
 
 	/**
@@ -586,7 +602,8 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * @param array<array-key,mixed> $extra Per-call frame additions.
 	 */
 	protected function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [] ): void {
-		if ( $this->generation_unknown || null === $this->ensure_offsetlog() ) {
+		// The sidecar in place: a move commits through the one it supersedes.
+		if ( $this->generation_unknown || null === ( $this->offsetlog ?? $this->ensure_offsetlog() ) ) {
 			return;
 		}
 		$this->commit_checkpoint_frame( $this->cursor_segment, $this->cursor_offset, $graceful, $extra );

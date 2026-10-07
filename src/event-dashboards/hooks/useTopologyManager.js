@@ -257,6 +257,13 @@ function deriveConnected( {
  *                                                        asked, a tick later,
  *                                                        naming the topology it
  *                                                        was about.
+ * @param {(r: TopologyRefusal) => void} [opts.onWarning] Called with each mutation
+ *                                                        that succeeded with a
+ *                                                        warning, as an activate
+ *                                                        does beside an active
+ *                                                        topology no conflict
+ *                                                        check could read; the
+ *                                                        message is the warning.
  * @param {boolean}                      [opts.paused]    Suspend polling, as the
  *                                                        Overview does while a row
  *                                                        drag is in flight.
@@ -284,6 +291,8 @@ export function useTopologyManager( opts = {} ) {
 	// Read live, so a caller's inline handler is never a stale closure.
 	const onErrorRef = useRef( opts.onError );
 	onErrorRef.current = opts.onError;
+	const onWarningRef = useRef( opts.onWarning );
+	onWarningRef.current = opts.onWarning;
 	// Parsed once here; parseInt stringifies its argument anyway.
 	const refreshMs = parseInt( String( opts.refreshMs ?? 5000 ), 10 );
 
@@ -301,14 +310,20 @@ export function useTopologyManager( opts = {} ) {
 	} );
 
 	/**
-	 * Report a refused mutation. The interpreter echoes the command's arguments
-	 * into its reply, so `args[ 0 ]` is the topology the refusal answers.
+	 * Report a refused mutation, or the warning a successful one carries. The
+	 * interpreter echoes the command's arguments into its reply, so
+	 * `args[ 0 ]` is the topology the answer is about.
 	 *
-	 * @param {{error: ?string, args: string[]}} reply One verb's answer.
+	 * @param {{error: ?string, result: ?Object, args: string[]}} reply One verb's answer.
 	 */
-	const onMutationDone = useCallback( ( { error, args } ) => {
+	const onMutationDone = useCallback( ( { error, result, args } ) => {
 		if ( error ) {
 			onErrorRef.current?.( { name: args[ 0 ], message: error } );
+		} else if ( result?.warning ) {
+			onWarningRef.current?.( {
+				name: args[ 0 ],
+				message: result.warning,
+			} );
 		}
 	}, [] );
 	const restartOnce = useCommandOnce( {

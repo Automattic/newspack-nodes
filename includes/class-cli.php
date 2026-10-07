@@ -133,7 +133,7 @@ class CLI {
 			];
 			if ( $now - $frame['timestamp'] > Topic_Probe_Node::stale_after_s() ) {
 				$active ??= Bootstrap::get_topologies();
-				if ( ! \is_dir( "{$this->base_dir}/offsets/{$reader}" ) && ! self::reader_of_active( $reader, $active ) ) {
+				if ( ! \is_dir( Log_Discovery::root( $this->base_dir, 'offsets' ) . "/{$reader}" ) && ! self::reader_of_active( $reader, $active ) ) {
 					continue;
 				}
 				$row = $this->relag_from_disk( $row );
@@ -177,8 +177,8 @@ class CLI {
 		if ( '' === $row['source'] ) {
 			return $row;
 		}
-		$source_dir    = "{$this->base_dir}/logs/{$row['source']}";
-		$offsetlog_dir = "{$this->base_dir}/offsets/{$row['reader']}";
+		$source_dir    = Log_Discovery::root( $this->base_dir, 'logs' ) . "/{$row['source']}";
+		$offsetlog_dir = Log_Discovery::root( $this->base_dir, 'offsets' ) . "/{$row['reader']}";
 		// Both, or neither: a missing offsetlog means the path didn't rebuild.
 		if ( ! \is_dir( $source_dir ) || ! \is_dir( $offsetlog_dir ) ) {
 			return $row;
@@ -252,7 +252,7 @@ class CLI {
 	 */
 	public function read_probe_frames(): array {
 		return Partition_Node::read_tail_frames_by(
-			"{$this->base_dir}/logs/" . Topic_Probe_Node::LOG_DIR,
+			Log_Discovery::root( $this->base_dir, 'logs' ) . '/' . Topic_Probe_Node::LOG_DIR,
 			Probe_Record::READER,
 			self::PROBE_TAIL_BYTES
 		);

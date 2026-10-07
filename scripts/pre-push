@@ -21,7 +21,9 @@
 # Everything else is smart-scoped by file type touched in the push range:
 #
 #   PHP changed  → npm run lint:php + deploy + coverage suite + container_gates
-#                  + per-class 90% gate
+#                  + per-class 90% gate; with the container up, a push from a
+#                  git worktree is refused before any gate, because the
+#                  container mounts the main checkout and would test that
 #   JS changed   → npm run lint:js   + npm run build
 #   TS changed   → npm run lint:types, where package.json declares it
 #   SCSS changed → npm run lint:scss + npm run build
@@ -125,6 +127,26 @@ if [[ "$refs" -eq 0 ]]; then
 fi
 changed="$(printf '%s' "$changed" | sort -u)"
 
+# Classify the diff by file type. Exclude generated / vendored paths.
+php_changed="$(echo  "$changed" | grep -E '\.php$'           | grep -v -E '^(vendor/|release/)'          || true)"
+js_changed="$(echo   "$changed" | grep -E '\.(js|jsx|mjs|cjs|ts|tsx)$' | grep -v -E '^(node_modules/|build/|release/)' || true)"
+ts_changed="$(echo   "$changed" | grep -E '\.(ts|tsx)$'       | grep -v -E '^(node_modules/|build/|release/)' || true)"
+scss_changed="$(echo "$changed" | grep -E '\.scss$'          | grep -v -E '^(node_modules/|build/|release/)' || true)"
+
+# Read the listing whole: an early grep -q exit SIGPIPEs docker under pipefail.
+container_up() {
+	local names
+	command -v docker >/dev/null 2>&1 || return 1
+	names="$(docker ps --format '{{.Names}}' 2>/dev/null)" || return 1
+	grep -qxF "$CONTAINER" <<<"$names"
+}
+
+# The container mounts the main checkout, never a worktree: refuse up front.
+if [[ -n "$php_changed" ]] && container_up \
+	&& [[ "$(git rev-parse --path-format=absolute --git-dir)" != "$(git rev-parse --path-format=absolute --git-common-dir)" ]]; then
+	fail "PHP push from the worktree ${TOPLEVEL}: ${CONTAINER} mounts the main checkout, so its deploy and coverage gates would test code this push does not contain — push from the main checkout"
+fi
+
 step "test:js (with coverage)"
 npm run test:js:coverage --silent || fail "test:js failed — fix or push --no-verify"
 ok "test:js clean"
@@ -159,12 +181,6 @@ script_gate check-substrate-floor.sh \
 	"substrate floor too low (see above)"
 
 push_gates
-
-# Classify the diff by file type. Exclude generated / vendored paths.
-php_changed="$(echo  "$changed" | grep -E '\.php$'           | grep -v -E '^(vendor/|release/)'          || true)"
-js_changed="$(echo   "$changed" | grep -E '\.(js|jsx|mjs|cjs|ts|tsx)$' | grep -v -E '^(node_modules/|build/|release/)' || true)"
-ts_changed="$(echo   "$changed" | grep -E '\.(ts|tsx)$'       | grep -v -E '^(node_modules/|build/|release/)' || true)"
-scss_changed="$(echo "$changed" | grep -E '\.scss$'          | grep -v -E '^(node_modules/|build/|release/)' || true)"
 
 if [[ -z "$php_changed" && -z "$js_changed" && -z "$scss_changed" ]]; then
 	step "$(dim 'no PHP/JS/SCSS in range — skipping')"
@@ -211,8 +227,7 @@ fi
 
 # --- PHP: deploy and the coverage suite, when the container is running. ----
 if [[ -n "$php_changed" ]]; then
-	if ! command -v docker >/dev/null 2>&1 \
-	   || ! docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${CONTAINER}$"; then
+	if ! container_up; then
 		step "$(dim "container ${CONTAINER} not available — skipping deploy + coverage")"
 	else
 		step "deploy → ${DEPLOY_CONTAINER}"

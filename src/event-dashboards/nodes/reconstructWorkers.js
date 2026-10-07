@@ -27,6 +27,7 @@
  */
 
 import { workerId } from '@newspack-nodes/shared/utils/workerId';
+import { Node } from '../../runtime/node';
 import { remoteOf } from '../../runtime/log-stamp';
 import { contractTees, substituteTokens } from '../topologyGraph';
 
@@ -60,7 +61,10 @@ const readerIsHandler = ( reader, name ) =>
  * @testonly Exported so the parity test can pin it to the PHP twin.
  */
 export const brokerReaderId = ( topology, broker, kind, partition ) =>
-	workerId( `${ topology }.${ broker }:${ kind }`, partition );
+	workerId(
+		`${ topology }.${ Node.siblingNameOf( broker, kind ) }`,
+		partition
+	);
 
 /**
  * Is a probe row one of a broker's readers?

@@ -293,6 +293,38 @@ class SseInCoverageTest extends TestCase {
 		$this->assertSame( 'HTTP 503', $node->connection()['last_error'] );
 	}
 
+	public function test_a_refused_stream_reports_the_refusal_the_spoke_answered(): void {
+		[ $node ] = $this->configured_node();
+		$handle   = $this->connect( $node );
+		$this->set_http_code( $node, 400 );
+		$body = \wp_json_encode(
+			[
+				'code'    => 'sse_subscription_invalid',
+				'message' => 'unknown log source: "php" (known: none); the built-in "php" needs PHP\'s error_log set to an absolute file path',
+				'data'    => [ 'status' => 400 ],
+			]
+		);
+
+		$node->on_curl_data( $handle, $body );
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] ] );
+
+		$this->assertSame(
+			'HTTP 400 sse_subscription_invalid: unknown log source: "php" (known: none); the built-in "php" needs PHP\'s error_log set to an absolute file path',
+			$node->connection()['last_error']
+		);
+	}
+
+	public function test_a_refusal_body_that_is_no_wp_error_reports_the_status_alone(): void {
+		[ $node ] = $this->configured_node();
+		$handle   = $this->connect( $node );
+		$this->set_http_code( $node, 502 );
+
+		$node->on_curl_data( $handle, "<html>Bad Gateway</html>\n" );
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] ] );
+
+		$this->assertSame( 'HTTP 502', $node->connection()['last_error'] );
+	}
+
 	public function test_clean_http_200_eof_reports_the_connected_duration(): void {
 		[ $node ]  = $this->configured_node();
 		Core::$now = 1748960000.25;

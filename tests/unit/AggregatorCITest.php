@@ -580,6 +580,26 @@ class AggregatorCITest extends TestCase {
 		$this->assertSame( 6, $out['deadletter_segments'] );
 	}
 
+	public function test_probe_verb_reports_an_unknown_worst_distance_when_no_reader_is_measurable(): void {
+		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		Vault::get_instance()->reset_cache();
+		$this->stub_probe_reply(
+			[
+				'workers'             => [],
+				'consumers'           => [
+					[ 'reader' => 'x.p0', 'distance' => null ],
+					[ 'reader' => 'y.p0', 'distance' => null ],
+				],
+				'deadletter_segments' => 0,
+			]
+		);
+
+		$out = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'probe', 'spoke1' );
+
+		$this->assertArrayHasKey( 'worst_distance', $out );
+		$this->assertNull( $out['worst_distance'], 'unknown, not caught up' );
+	}
+
 	public function test_probe_verb_refuses_a_worker_state_outside_the_vocabulary(): void {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		Vault::get_instance()->reset_cache();

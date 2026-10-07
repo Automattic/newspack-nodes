@@ -348,6 +348,38 @@ describe( 'useTopologyManager', () => {
 		);
 	}, 15000 );
 
+	it( 'reports an activate reply carrying a warning to onWarning, named', async () => {
+		installRecordingWire( {
+			dump_graph: DUMP_GRAPH,
+			dump: TOPOLOGIES_LIST,
+			activate: {
+				name: 'b',
+				active: true,
+				spawned: 2,
+				warning:
+					'these active topologies could not be checked for conflicts: broken-4410',
+			},
+		} );
+		const onWarning = jest.fn();
+		const { result } = renderHook( () =>
+			useTopologyManager( { onWarning } )
+		);
+		await act( async () => {} );
+
+		act( () => {
+			result.current.activate( 'b' );
+		} );
+
+		await waitFor( () => expect( onWarning ).toHaveBeenCalledTimes( 1 ), {
+			timeout: 6000,
+		} );
+		expect( onWarning.mock.calls[ 0 ][ 0 ] ).toEqual( {
+			name: 'b',
+			message:
+				'these active topologies could not be checked for conflicts: broken-4410',
+		} );
+	}, 15000 );
+
 	it( 'each poll fires both dump_graph and topologies dump', async () => {
 		const { sent } = buildClient();
 		renderHook( () => useTopologyManager( {} ) );

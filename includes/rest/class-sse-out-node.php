@@ -237,7 +237,7 @@ class SSE_Out_Node extends Node {
 	 * any other throw, such as a registry that will not read, propagates.
 	 *
 	 * @param \WP_REST_Request $request Request carrying `subscribe`, `positions`, `multi_writer`, `session` and `stream`.
-	 * @return \WP_Error|void WP_Error when a subscription is refused (400 `sse_subscription_invalid`), the session is refused (401), the stream id is malformed (400 `sse_stream_invalid`) or no slot is free (429); otherwise streams and exits.
+	 * @return \WP_Error|void WP_Error when a subscription is refused (400 `sse_subscription_invalid`), a position names no place (400 `sse_positions_invalid`), the session is refused (401), the stream id is malformed (400 `sse_stream_invalid`) or no slot is free (429); otherwise streams and exits.
 	 */
 	public function stream( \WP_REST_Request $request ) {
 		$subscribe     = $request->get_param( 'subscribe' );
@@ -246,10 +246,15 @@ class SSE_Out_Node extends Node {
 		try {
 			$resolved = $this->resolve_subscriptions( $subs );
 		} catch ( \InvalidArgumentException $e ) {
-			return new \WP_Error( 'sse_subscription_invalid', \html_entity_decode( $e->getMessage(), \ENT_QUOTES ), [ 'status' => 400 ] );
+			return new \WP_Error( 'sse_subscription_invalid', Core::message_of( $e ), [ 'status' => 400 ] );
 		}
 		// `positions` is the ONLY resume input; the client assembles it.
-		$positions     = $this->parse_positions( Core::as_string( $positions_raw ) );
+		$positions = $this->parse_positions( Core::as_string( $positions_raw ) );
+		try {
+			self::check_positions( $positions );
+		} catch ( \InvalidArgumentException $e ) {
+			return new \WP_Error( 'sse_positions_invalid', Core::message_of( $e ), [ 'status' => 400 ] );
+		}
 		$interval      = self::HEARTBEAT_MS;
 		$this->set_multi_writer(
 			\rest_sanitize_boolean( Core::as_string( $request->get_param( 'multi_writer' ) ) )
@@ -1017,16 +1022,32 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
+	 * Refuse a `positions` entry `position_arg()` would refuse, before the
+	 * stream takes a slot or writes a header. `SKIP` is the one value it never
+	 * reads, because that stamp opens no reader.
+	 *
+	 * @param array<array-key,mixed>|null $positions Saved positions, keyed by stamp.
+	 * @throws \InvalidArgumentException Naming the first entry that names no place.
+	 */
+	private static function check_positions( ?array $positions ): void {
+		foreach ( $positions ?? [] as $stamp => $position ) {
+			if ( self::SKIP !== $position ) {
+				self::position_arg( $positions, (string) $stamp );
+			}
+		}
+	}
+
+	/**
 	 * Narrow one stamp's saved position to a shape `Consumer_Node::next_offset()`
 	 * accepts: an exact `{segment, offset}` pair, a numeric SEEK sentinel
 	 * (`SEEK_START` 0 / `SEEK_END` -1 / `SEEK_RECENT` -2), a word of
 	 * `Log_Position::WORDS`, or a place `Log_Position::parse()` reads. A stamp
-	 * with no entry tail-seeks; any other value falls back to 'start'
-	 * (next_offset's default case).
+	 * with no entry tail-seeks.
 	 *
 	 * @param array<array-key,mixed>|null $positions Saved positions, keyed by stamp.
 	 * @param string                      $stamp     The stamp the reader carries.
 	 * @return array<array-key,mixed>|string|int A value `next_offset()` accepts.
+	 * @throws \InvalidArgumentException When the entry is text naming no place.
 	 */
 	protected static function position_arg( ?array $positions, string $stamp ) {
 		if ( ! isset( $positions[ $stamp ] ) ) {
@@ -1041,7 +1062,12 @@ class SSE_Out_Node extends Node {
 			return Core::num_int( $position, Consumer_Node::SEEK_START );
 		}
 		$text = Core::as_string( $position );
-		return isset( Log_Position::WORDS[ $text ] ) ? $text : ( Log_Position::parse( $text ) ?? 'start' );
+		if ( isset( Log_Position::WORDS[ $text ] ) ) {
+			return $text;
+		}
+		return Log_Position::parse( $text ) ?? throw new \InvalidArgumentException(
+			\esc_html( "positions[\"$stamp\"] = \"$text\" names no position: use a seek word, a number, segment:offset or skip" )
+		);
 	}
 
 	/**

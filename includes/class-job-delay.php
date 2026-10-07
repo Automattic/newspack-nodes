@@ -88,7 +88,7 @@ class Job_Delay {
 		$base_dir  = \rtrim( Config::get_base_directory(), '/' );
 		// Layout lives in Job_Intake's template; resolve it, don't rebuild.
 		$delay_dir = Core::resolve_partition_template(
-			Job_Intake::log_dir_templates( "{$base_dir}/logs" )[ Job_Intake::DELAY_BASENAME ],
+			Job_Intake::log_dir_templates( Log_Discovery::root( $base_dir, 'logs' ) )[ Job_Intake::DELAY_BASENAME ],
 			0
 		);
 		if ( ! \is_dir( $delay_dir ) ) {
