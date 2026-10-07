@@ -1,0 +1,2 @@
+# pre-push sources pre-push.local, so every check follows sources, as -x does.
+external-sources=true

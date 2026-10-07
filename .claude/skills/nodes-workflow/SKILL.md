@@ -109,7 +109,7 @@ cd tests && ../vendor/bin/phpunit --enforce-time-limit --filter FooNodeTest
 # Lint. lint:php is phpcs plus the PHP comment gate; lint:js is eslint, the JS
 # comment gate and the contract linter; lint:scss is stylelint plus the
 # shared-role style gate; lint:types is tsc --noEmit over the JSDoc types; and
-# lint:shell is shellcheck over pre-push and scripts/*.sh.
+# lint:shell is shellcheck over pre-push, pre-push.local and scripts/*.sh.
 npm run lint:php
 npm run lint:js
 npm run lint:scss
