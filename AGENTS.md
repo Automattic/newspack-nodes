@@ -42,7 +42,7 @@ The `nodes-workflow` skill carries the full test, deploy and restart loop. Three
 
 `pre-commit` syncs the shared tooling, then runs lint-staged (PHPStan included); `commit-msg` runs commitlint. `pre-push` runs `scripts/lint-docs.sh` — a grep gate holding `docs/`, `README.md`, this file and `.claude/skills` to the runtime — the JS suite with its 90% per-file gate, and the gates' self-tests on every push, then the PHP, JS or SCSS gates the push touched.
 
-This repo holds the **authoritative copy of the shared `scripts/`**. Every sibling vendors a copy, which `scripts/sync-shared-scripts.sh` refreshes from here in each sibling's `pre-commit` whenever `../newspack-nodes` exists. Edit the copy here. `pre-push`, `build.mjs`, `bump-version.sh` and `get-line-at-offset.sh` are never synced.
+This repo holds the **authoritative copy of the shared `scripts/`**. Every sibling vendors a copy, which `scripts/sync-shared-scripts.sh` refreshes from here in each sibling's `pre-commit` whenever `../newspack-nodes` exists. Edit the copy here. `pre-push`, `build.mjs`, `bump-version.sh`, `get-line-at-offset.sh` and `test-render-diagram.sh` are never synced, and `render-diagram.sh` (a `docs/img/*.html` sheet to PNG, every sheet when given none; `CHROME=` overrides the browser path) reaches only a sibling with `docs/img/`, beside the `autocrop.py` it calls.
 
 ## Versioning & Release
 

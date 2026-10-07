@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **One diagram renderer, `scripts/render-diagram.sh`, shared with every sibling that has `docs/img/` sheets.** With no argument it renders every sheet, sizing the window to the measured page; `docs/img/render.sh`, which guessed an 1800px window, is removed, and `autocrop.py` moves beside the renderer. Two PNGs that had drifted from their sheets are re-rendered.
 - **The Overview tab's Topics charts lay out two to a row**, as the Jobs and Tables tabs' do. `TopicsPanels` renders its own `.nodes-topics-panels` grid wrapper, styled once in `event-dashboards/styles/topics-chart.scss`, which `TopicsChart.js` imports; the per-tab `.nodes-overview__panels` and `.nodes-probe-tab__panels` wrappers and rules are gone. The debug overlay renders its two charts through `TopicsPanels` too, narrowed to one column by `.nodes-debug__panel .nodes-topics-panels`.
 - **A Topics chart draws at most 500 slots, down from 1000.** The cap tracks the panel's width, and a panel is now half a row, about 900px; `buildAlignedSeries()` widens each bucket to fit, keeping its max, so a spike still survives.
 

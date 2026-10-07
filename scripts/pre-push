@@ -164,6 +164,15 @@ if [[ -f "$wppintest" ]]; then
 	ok "pin gate clean"
 fi
 
+# Every sibling with docs/img sheets vendors the renderer, so its tests run
+# here, against a stub Chrome, before the copy syncs downstream.
+rendertest="$(git rev-parse --show-toplevel)/scripts/test-render-diagram.sh"
+if [[ -f "$rendertest" ]]; then
+	step "test-render-diagram (the diagram renderer's own tests)"
+	bash "$rendertest" || fail "test-render-diagram failed — the diagram renderer is broken (see above)"
+	ok "diagram renderer clean"
+fi
+
 # The coverage gates decide whether a push is allowed at all, so a hole in one
 # passes the whole tree silently. Both self-tests run over fixtures; neither
 # needs a real coverage run.

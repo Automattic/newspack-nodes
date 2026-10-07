@@ -36,7 +36,8 @@ SHARED="reorder-node-methods.php reorder-node-methods.js coverage-gate-js.mjs
 	lint-styles.mjs test-lint-styles.sh
 	lint-wp-pin.mjs test-lint-wp-pin.sh
 	check-substrate-floor.sh phpstan-substrate-floor.php phpstan-floor.neon
-	pre-commit commit-msg lint-docs.sh"
+	pre-commit commit-msg lint-docs.sh
+	render-diagram.sh autocrop.py"
 
 [ -d "$SUBSTRATE_DIR/scripts" ] || exit 0
 
@@ -70,6 +71,9 @@ for f in $SHARED; do
 	case "$f" in
 		reorder-node-methods.js|test-reorder-node-methods.sh)
 			[ -d "$PLUGIN_DIR/src" ] || continue ;;
+		# The renderer and its cropper serve docs/img sheets alone.
+		render-diagram.sh|autocrop.py)
+			[ -d "$PLUGIN_DIR/docs/img" ] || continue ;;
 	esac
 	refresh "$src" "$SCRIPT_DIR/$f" "scripts/$f"
 done
