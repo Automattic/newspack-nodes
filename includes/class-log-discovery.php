@@ -385,6 +385,31 @@ final class Log_Discovery {
 	}
 
 	/**
+	 * The kind a stamp's reader takes: the sibling slot a broker publishes it
+	 * under, its name's suffix and its sidecars' directory. The stamp's `/`
+	 * is spelled `:`, because the Router splits a TO on `/` and a step reply
+	 * returns addressed to that reader's name. `stamp_of()` reads it back,
+	 * and `tests/fixtures/log-kinds.json` holds the two to one case list.
+	 *
+	 * @param string $stamp A partition dir or `sources/<name>`.
+	 * @return string The kind.
+	 */
+	public static function kind_of( string $stamp ): string {
+		return \str_replace( '/', ':', $stamp );
+	}
+
+	/**
+	 * The stamp a kind names, the inverse of `kind_of()`: a stamp never
+	 * carries `:`, so every `:` in a kind spells a `/`.
+	 *
+	 * @param string $kind A reader's kind, or its directory's basename.
+	 * @return string The stamp.
+	 */
+	public static function stamp_of( string $kind ): string {
+		return \str_replace( ':', '/', $kind );
+	}
+
+	/**
 	 * Drop both memoized scans. `newspack-nodes.php` hooks this to
 	 * `Config::RESET_ACTION`, which `Config::reset()` fires.
 	 */

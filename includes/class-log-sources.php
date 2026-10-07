@@ -36,14 +36,6 @@ namespace Newspack_Nodes;
 class Log_Sources {
 
 	/**
-	 * Seek words the human-facing surfaces accept, aliasing
-	 * `Consumer_Node::SEEK_*` (start 0, recent -2, end -1). The numbers are what
-	 * travels on the wire; `Consumer_Node::seek_sentinel()` resolves the words to
-	 * them, so both spellings reach one behaviour.
-	 */
-	public const MAGIC_POSITIONS = [ 'start', 'recent', 'end' ];
-
-	/**
 	 * Built-in-source seam. Resolves the FIXED builtin name → absolute-path map
 	 * (`php` | `debug`). Lazily-defaulted to the real resolver
 	 * (`ini_get('error_log')` / `WP_CONTENT_DIR`); tests reassign it to point at
@@ -221,13 +213,12 @@ class Log_Sources {
 	 * Single-step ONE log, by its stamp, to the record at `$position` — the
 	 * read model behind every paused single-step debugger.
 	 *
-	 * The position is a `MAGIC_POSITIONS` word, or `<segment>:<offset>` with an
-	 * optional trailing `:<length>` that is tolerated and IGNORED, because the
-	 * reader knows the record's real length. A file source also takes
-	 * `:<offset>`, the cursor a stream states while it has not seen the file's
-	 * generation, and reads at that offset in whichever file the path holds; a
-	 * segmented log refuses it, because segment 0 is a real segment and no
-	 * other can stand in. A malformed position throws before any log is
+	 * The position is what `Log_Position::parse()` reads: a word, or
+	 * `<segment>:<offset>` with a trailing `:<length>` it ignores. A file
+	 * source also takes `:<offset>`, the cursor a stream states while it has
+	 * not seen the file's generation, and reads at that offset in whichever
+	 * file the path holds; a segmented log refuses it, because segment 0 is a
+	 * real segment and no other can stand in. A malformed position throws before any log is
 	 * opened. The reader arrives armed, so every exit after it opens runs
 	 * `remove_node()` in the `finally`: a reader left armed with no sink fires
 	 * forever inside the worker's drain loop.
@@ -246,29 +237,22 @@ class Log_Sources {
 	 *                                   segmented log, or a stamp nothing carries.
 	 */
 	public static function read( string $log, string $position ): array {
-		// A magic token rides through to next_offset(), which speaks it.
-		$magic   = \in_array( $position, self::MAGIC_POSITIONS, true );
-		$tokens  = \explode( ':', $position );
+		// A word rides through to next_offset(), which speaks it.
+		$at      = Log_Position::parse( $position );
 		$invalid = 'read_message: invalid position (want <segment>:<offset>[:<length>], :<offset> on a file source, start, recent or end)';
-		if ( ! $magic
-				&& ( \count( $tokens ) < 2 || \count( $tokens ) > 3
-					|| ! ( '' === $tokens[0] || \ctype_digit( $tokens[0] ) ) || ! \ctype_digit( $tokens[1] ) ) ) {
+		if ( null === $at ) {
 			throw new \InvalidArgumentException( $invalid );
 		}
 		$captured = null;
 		$reader   = self::open_reader( $log );
 		try {
-			if ( ! $magic && '' === $tokens[0] && ! $reader instanceof File_Tail_Node ) {
+			if ( \is_array( $at ) && ! isset( $at['segment'] ) && ! $reader instanceof File_Tail_Node ) {
 				throw new \InvalidArgumentException( $invalid );
 			}
 			$reader->sink( new Callback_Node( static function ( array $message ) use ( &$captured ): void {
 				$captured = $message;
 			} ) );
-			$reader->next_offset( match ( true ) {
-				$magic             => $position,
-				'' === $tokens[0]  => [ 'offset' => (int) $tokens[1] ],
-				default            => [ 'segment' => (int) $tokens[0], 'offset' => (int) $tokens[1] ],
-			} );
+			$reader->next_offset( $at );
 			$cursor = $reader->step();
 		} finally {
 			$reader->remove_node();

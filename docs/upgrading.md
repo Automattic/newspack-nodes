@@ -11,7 +11,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   with one `connect_node` target. One line now names every stream the spoke
   carries, as pairs: a source is a stamp (`firehose.p0`, `sources/php`) or a glob
   of one, and a target is the node its lines go to. `connect_node` onto the
-  broker still adds targets beside the pairs. Each stream's reader keeps its
+  broker is refused, because a pair names each destination. Each stream's reader keeps its
   cursor at `<offsetlog_root>/<kind>` and its dead letters at
   `<deadletter_root>/<kind>`, `<kind>` being the stamp with `/` spelled `:`; the
   offsetlog root must carry `<topology>`. There is no migration: cursors at the
@@ -20,6 +20,24 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   before a hub runs the new line, because an older spoke refuses a `sources/`
   subscription as invalid. A consumer reading `remote_partition` off a
   `Remote_Source` row of `Topology_Analyzer::graph_for()` reads `pairs` instead.
+- **A read position's grammar moves to `Log_Position`.** `Log_Sources::MAGIC_POSITIONS`
+  is `Log_Position::WORDS`, now a map from each word to its sentinel;
+  `Consumer_Node::seek_sentinel()` is `Log_Position::sentinel()`;
+  `Remote_Consumer_Node::crumb_of( $message )` is `Log_Position::crumb( $id )`.
+  A position or an ID breadcrumb is written by
+  `Log_Position::format( ?int $segment, int $offset, ?int $length )` and read by
+  `Log_Position::parse()`. `read_message` refuses a padded number such as `047:5`.
+- **`connect_node` refuses a class whose `node_schema()` declares
+  `has_target: false`,** a `Remote_Source` among them, and so does
+  `Topology_Analyzer`. A topology connecting one fails to load; drop the line.
+- **`Remote_Consumer_Node::kind_of()` is `Log_Discovery::kind_of()`,** beside its
+  inverse `stamp_of()`, and **`Remote_Source_Node::consumers()` is gone:** the
+  broker's sibling map holds its readers, each `<broker>:<kind>`.
+- **`Command_Auth::mint_for( $egress, $from, $to, $verb, $arguments )`**
+  answers one command signed for the spoke an `HTTP_Out` speaks for, for the
+  caller to fill, or asks that egress for a session and answers null. A node
+  minting one signed command per destination calls it rather than building the
+  command and calling `sign_for()` itself.
 - **A `Remote_Source`'s status key is `remote:<broker>:p<partition>`,** where it
   was `remote:<broker>:<remote_partition>`, and its snapshot gains `streams`.
   `Remote_Source_Node::status_key_for( $name, $partition )` takes the worker

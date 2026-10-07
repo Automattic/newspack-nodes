@@ -263,19 +263,12 @@ class Remote_Link_Node extends Timer_Node {
 			return;
 		}
 		$this->last_heartbeat_sent = $now;
-
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_COMMAND;
-		$message[ Message::FROM ]  = $this->name;
-		$message[ Message::TO ]    = 'workers';
-		$message[ Message::VALUE ] = [
-			'name'      => 'heartbeat',
-			'arguments' => [ (string) $slot, (string) $owner ],
-		];
-		Command_Auth::sign_for( $spoke, $message );
+		$message = Command_Auth::mint_for( $this->http_out, $this->name, 'workers', 'heartbeat', [ (string) $slot, (string) $owner ] );
+		if ( null === $message ) {
+			return;
+		}
 		++$this->counter;
 		$this->http_out->fill( $message );
-
 		$this->record_heartbeat_sent( $now );
 	}
 

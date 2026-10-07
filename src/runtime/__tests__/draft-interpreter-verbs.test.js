@@ -755,6 +755,32 @@ describe( 'what an include’s edges carry', () => {
 	} );
 } );
 
+describe( 'a broker’s pair edges', () => {
+	it( 'are seeded verbatim and wired as no connection', () => {
+		const baseline = {
+			nodes: [
+				{ name: 'pull:okapi', class: 'Remote_Source', origin: [ 's' ] },
+				{ name: 'ledger-sink-5', class: 'Echo', origin: [ 's' ] },
+			],
+			edges: [
+				{
+					from: 'pull:okapi',
+					to: 'ledger-sink-5',
+					origin: [ 's' ],
+					roles: [ 'pair' ],
+				},
+			],
+		};
+
+		const d = draft( 'include shared', baseline );
+
+		expect( d.childRegistry.node( 'pull:okapi' ).target ).not.toBe(
+			'ledger-sink-5'
+		);
+		expect( d.seededEdges() ).toEqual( baseline.edges );
+	} );
+} );
+
 describe( 'set_sink is a verb the document can carry', () => {
 	it( 'writes it back instead of dropping it on save', () => {
 		// The draft EXECUTES set_sink on load, so a file carrying one renders

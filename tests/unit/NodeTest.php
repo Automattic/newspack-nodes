@@ -1122,6 +1122,35 @@ class NodeTest extends TestCase {
 		$this->assertSame( 'somewhere', $n->target() );
 	}
 
+	/** A class whose schema declares `has_target: false` takes no target. */
+	public function test_connect_node_refuses_a_class_declaring_no_target(): void {
+		$sink = new \Newspack_Nodes\Null_Node();
+		$sink->name( 'hollow-4471' );
+
+		try {
+			$sink->connect_node( 'okapi-sink-9' );
+			$this->fail( 'Null declares has_target false' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame( 'hollow-4471 takes no target: Null declares has_target false', $e->getMessage() );
+		}
+		$this->assertSame( '', $sink->target() );
+	}
+
+	/** The setter refuses what connect_node refuses, and a clear stays allowed. */
+	public function test_target_setter_refuses_a_class_declaring_no_target(): void {
+		$sink = new \Newspack_Nodes\Null_Node();
+		$sink->name( 'hollow-9313' );
+
+		try {
+			$sink->target( 'okapi-sink-9' );
+			$this->fail( 'Null declares has_target false' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame( 'hollow-9313 takes no target: Null declares has_target false', $e->getMessage() );
+		}
+		$this->assertSame( '', $sink->target() );
+		$this->assertSame( '', $sink->target( '' ), 'clearing names no target' );
+	}
+
 	/**
 	 * A node that writes somewhere its target never routes — a sibling's own
 	 * target, a partition written straight at flush — declares those

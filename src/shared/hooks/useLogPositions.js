@@ -30,6 +30,7 @@ import { __, sprintf } from '@wordpress/i18n';
 import LogBrowser from '../components/LogBrowser';
 import { formatBytes } from '../utils/formatters';
 import parseOffsetJump from '../utils/parseOffsetJump';
+import { formatPosition } from '../../runtime/log-position';
 import useRouterTick from './useRouterTick';
 import { useCommandOnce } from './useCommandOnce';
 
@@ -119,7 +120,7 @@ export function stepPosition( link, sub, positions ) {
 		return cursor;
 	}
 	if ( cursor && 'object' === typeof cursor ) {
-		return `${ cursor.segment ?? '' }:${ cursor.offset }`;
+		return formatPosition( cursor.segment, cursor.offset, null );
 	}
 	return null;
 }

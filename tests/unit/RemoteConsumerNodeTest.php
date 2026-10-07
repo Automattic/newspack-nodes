@@ -1775,11 +1775,6 @@ class RemoteConsumerNodeTest extends TestCase {
 		}
 	}
 
-	public function test_kind_of_spells_a_stamps_slash_as_a_colon(): void {
-		$this->assertSame( 'sources:php', Remote_Consumer_Node::kind_of( 'sources/php' ) );
-		$this->assertSame( 'firehose.p3', Remote_Consumer_Node::kind_of( 'firehose.p3' ) );
-	}
-
 	public function test_list_and_purge_operate_on_the_readers_sidecar(): void {
 		[ , $node ] = $this->make_remote();
 		$message                   = Message::new_message();

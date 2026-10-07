@@ -301,14 +301,13 @@ class File_Tail_Node extends Tail_Node {
 		// A candidate's offset belongs to the generation the CLIENT named.
 		if ( null !== $this->file_seek_candidate ) {
 			$inode = $this->file_seek_candidate['inode'] ?? 0;
-			return ( 0 === $inode ? '' : (string) $inode ) . ':'
-				. $this->file_seek_candidate['offset'];
+			return Log_Position::format( 0 === $inode ? null : $inode, $this->file_seek_candidate['offset'], null );
 		}
 		// Fall back to the path: next_offset('end') sized that same file.
 		$inode = 0 !== $this->cursor_segment
 			? $this->cursor_segment
 			: $this->file_current_inode();
-		return ( 0 === $inode ? '' : (string) $inode ) . ':' . $this->cursor_offset;
+		return Log_Position::format( 0 === $inode ? null : $inode, $this->cursor_offset, null );
 	}
 
 	/**

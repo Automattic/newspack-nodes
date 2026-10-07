@@ -541,6 +541,16 @@ class LogSourcesTest extends TestCase {
 		$this->read_source( 'php', 'abc' );
 	}
 
+	public function test_read_source_refuses_a_padded_position(): void {
+		$path = "{$this->tmp}/plain-8831.log";
+		\file_put_contents( $path, "alpha line\nbeta line 8831\n" );
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'read_message: invalid position' );
+		$this->read_source( 'php', '0' . (int) \fileinode( $path ) . ':011' );
+	}
+
 	public function test_read_source_reports_no_line_on_an_empty_file(): void {
 		// A past-EOF offset resumes from 0 (crash-resume forgiveness, the
 		// cursor tells the truth); only a genuinely empty file has no line.

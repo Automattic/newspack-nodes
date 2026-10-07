@@ -541,9 +541,9 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * recent (-2), end (-1)"), and they are what travels on the wire — a signed
 	 * number expresses every seek, so `0` is unambiguously the START of the log
 	 * rather than doubling as "no position given". The words are the aliases the
-	 * human-facing surfaces speak — `Log_Sources::MAGIC_POSITIONS`, which the
-	 * `read_message` position grammar accepts — and `seek_sentinel()` resolves
-	 * them, so one behaviour stands behind both spellings. An exact resume keeps
+	 * human-facing surfaces speak — `Log_Position::WORDS`, which the
+	 * `read_message` position grammar accepts — and `Log_Position::sentinel()`
+	 * resolves them, so one behaviour stands behind both spellings. An exact resume keeps
 	 * the pair, because our Partition addresses a byte within a numbered segment
 	 * where Tachikoma's is absolute across the log.
 	 *
@@ -563,7 +563,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 			return;
 		}
 
-		$seek     = self::seek_sentinel( $position );
+		$seek     = Log_Position::sentinel( $position );
 		$segments = $this->source()->get_segments( true );
 
 		switch ( $seek ) {
@@ -593,24 +593,6 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 				$this->cursor_offset = 0;
 				break;
 		}
-	}
-
-	/**
-	 * Resolve a scalar position to its SEEK sentinel — the one place the alias words
-	 * map to numbers, shared with the push source, which forwards the sentinel to
-	 * whoever holds the segments rather than resolving it locally. An unknown word
-	 * reads as SEEK_START, matching `next_offset()`'s default case.
-	 *
-	 * @param string|int|float $position Sentinel or alias word.
-	 * @return int A SEEK_* constant, or the numeric position itself.
-	 */
-	public static function seek_sentinel( $position ): int {
-		return match ( $position ) {
-			'end'    => self::SEEK_END,
-			'recent' => self::SEEK_RECENT,
-			'start'  => self::SEEK_START,
-			default  => Core::num_int( $position, self::SEEK_START ),
-		};
 	}
 
 	/**
@@ -898,7 +880,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * @return string `{segment}:{offset}`.
 	 */
 	public function cursor_position(): string {
-		return "{$this->cursor_segment}:{$this->cursor_offset}";
+		return Log_Position::format( $this->cursor_segment, $this->cursor_offset, null );
 	}
 
 	/**

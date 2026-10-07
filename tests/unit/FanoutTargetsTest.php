@@ -115,6 +115,47 @@ class FanoutTargetsTest extends TestCase {
 		$this->assertSame( [ 'spoke-alpha', 'spoke-beta' ], $node->targets() );
 	}
 
+	/** A fan-out whose schema declares no target refuses one, as any node does. */
+	public function test_connect_node_refuses_a_fan_out_declaring_no_target(): void {
+		$node = new class() extends Node {
+			use Fanout_Targets;
+
+			public static function node_schema(): array {
+				return [ 'has_target' => false ] + parent::node_schema();
+			}
+		};
+		$node->name( 'spout-6604' );
+
+		try {
+			$node->connect_node( 'okapi-sink-9' );
+			$this->fail( 'the schema declares has_target false' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringStartsWith( 'spout-6604 takes no target: ', $e->getMessage() );
+		}
+		$this->assertSame( [], $node->target() );
+	}
+
+	/** The fan-out setter refuses a list the schema says it takes no part of. */
+	public function test_target_setter_refuses_a_fan_out_declaring_no_target(): void {
+		$node = new class() extends Node {
+			use Fanout_Targets;
+
+			public static function node_schema(): array {
+				return [ 'has_target' => false ] + parent::node_schema();
+			}
+		};
+		$node->name( 'spout-4410' );
+
+		try {
+			$node->target( [ 'okapi-sink-9', 'tapir-sink-8' ] );
+			$this->fail( 'the schema declares has_target false' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringStartsWith( 'spout-4410 takes no target: ', $e->getMessage() );
+		}
+		$this->assertSame( [], $node->target() );
+		$this->assertSame( [], $node->target( [] ), 'clearing names no target' );
+	}
+
 	public function test_connect_node_ignores_a_duplicate(): void {
 		$node = $this->fanout();
 		( new Echo_Node() )->name( 'spoke-alpha' );

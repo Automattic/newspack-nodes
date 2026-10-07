@@ -142,6 +142,39 @@ class Command_Auth {
 	}
 
 	/**
+	 * Mint one command for the spoke an egress speaks for, signed under that
+	 * spoke's session, for the caller to fill, as the browser's
+	 * `Node.command()` hands one back. No session means nothing is minted and
+	 * the egress is asked for one, because every minter refuses to queue
+	 * unsigned and nothing else would ask. Every per-destination signed mint
+	 * goes through here, so a minter decides only what to send and where.
+	 *
+	 * @param HTTP_Out_Node $egress    The egress whose spoke the command is for.
+	 * @param string        $from      The minter's name, where the reply returns.
+	 * @param string        $to        The path the command addresses.
+	 * @param string        $verb      Command name the spoke's interpreter runs.
+	 * @param list<string>  $arguments Command argument tokens.
+	 * @return array<int,mixed>|null The signed command, or null with no session.
+	 */
+	public static function mint_for( HTTP_Out_Node $egress, string $from, string $to, string $verb, array $arguments ): ?array {
+		$spoke = $egress->vault_id();
+		if ( ! self::has_session( $spoke ) ) {
+			$egress->ensure_session();
+			return null;
+		}
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::FROM ]  = $from;
+		$message[ Message::TO ]    = $to;
+		$message[ Message::VALUE ] = [
+			'name'      => $verb,
+			'arguments' => $arguments,
+		];
+		self::sign_for( $spoke, $message );
+		return $message;
+	}
+
+	/**
 	 * Sign for a specific remote, under the session key established with it.
 	 * Choosing the key IS the destination binding — a signature under one
 	 * remote's key verifies only there — which is how a command is pinned to its
@@ -203,6 +236,11 @@ class Command_Auth {
 		}
 		$value['auth']             = $envelope;
 		$message[ Message::VALUE ] = $value;
+	}
+
+	/** Whether a session with this remote is already established in this process. */
+	public static function has_session( string $destination ): bool {
+		return isset( self::$sessions[ $destination ] );
 	}
 
 	/**
@@ -320,11 +358,6 @@ class Command_Auth {
 	 */
 	public static function forget_session( string $destination ): void {
 		unset( self::$sessions[ $destination ] );
-	}
-
-	/** Whether a session with this remote is already established in this process. */
-	public static function has_session( string $destination ): bool {
-		return isset( self::$sessions[ $destination ] );
 	}
 
 	/**

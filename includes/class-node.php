@@ -864,31 +864,6 @@ class Node {
 	}
 
 	/**
-	 * Get/set target — the ROUTING contract. String or array (Tee uses the
-	 * array form for fan-out), so an array answer means this node fans out.
-	 *
-	 * @param string|array<int,string>|null $value New target (null = getter).
-	 * @return string|array<int,string>
-	 */
-	public function target( $value = null ) {
-		if ( null !== $value ) {
-			$this->target = $value;
-		}
-		return $this->target;
-	}
-
-	/**
-	 * A target value as a list: the array form as-is, a non-empty scalar
-	 * wrapped, an unset scalar dropped.
-	 *
-	 * @param string|array<int,string> $value Scalar or fan-out target.
-	 * @return list<string>
-	 */
-	public static function target_list( $value ): array {
-		return \is_array( $value ) ? \array_values( $value ) : ( '' !== $value ? [ $value ] : [] );
-	}
-
-	/**
 	 * The destinations this node writes to WITHOUT routing through `target` — a
 	 * sibling's own target, a partition written straight at flush. The console
 	 * draws one edge per entry, so an omitted destination renders disconnected
@@ -945,6 +920,65 @@ class Node {
 					$node?->register( $event, $to, $callback );
 				}
 			}
+		}
+	}
+
+	/**
+	 * Point the node at a target, replacing whatever it held. Tee overrides this
+	 * to append, because its target is a fan-out list.
+	 *
+	 * @param string $target Path to stamp into an empty TO.
+	 */
+	public function connect_node( string $target ): void {
+		$this->target( $target );
+	}
+
+	/**
+	 * Get/set target — the ROUTING contract. String or array (Tee uses the
+	 * array form for fan-out), so an array answer means this node fans out.
+	 * Naming a target on a class that declares none is refused before the
+	 * field changes; clearing one never is.
+	 *
+	 * @param string|array<int,string>|null $value New target (null = getter).
+	 * @return string|array<int,string>
+	 * @throws \RuntimeException When the class declares no target.
+	 */
+	public function target( $value = null ) {
+		if ( null !== $value ) {
+			if ( [] !== self::target_list( $value ) ) {
+				self::refuse_target_on( static::class, $this->name );
+			}
+			$this->target = $value;
+		}
+		return $this->target;
+	}
+
+	/**
+	 * A target value as a list: the array form as-is, a non-empty scalar
+	 * wrapped, an unset scalar dropped.
+	 *
+	 * @param string|array<int,string> $value Scalar or fan-out target.
+	 * @return list<string>
+	 */
+	public static function target_list( $value ): array {
+		return \is_array( $value ) ? \array_values( $value ) : ( '' !== $value ? [ $value ] : [] );
+	}
+
+	/**
+	 * Refuse a target to a class whose schema declares `has_target: false`:
+	 * nothing it does reads one, and the console offers it no out-port. The
+	 * two target setters, `Node::target()` and `Fanout_Targets::target()`, ask
+	 * here before they change anything, and every `connect_node()` sets through
+	 * them; a group asks for its child class, and `Topology_Analyzer` asks for
+	 * each line it walks, so a topology a load would refuse never draws the edge.
+	 *
+	 * @param class-string<Node> $class The class the target would be set on.
+	 * @param string             $name  The node's name, for the refusal.
+	 * @throws \RuntimeException When the class declares no target.
+	 */
+	public static function refuse_target_on( string $class, string $name ): void {
+		if ( false === ( $class::node_schema()['has_target'] ?? true ) ) {
+			throw new \RuntimeException( \esc_html( "{$name} takes no target: " . Command_Interpreter_Node::shell_name_for( $class ) . ' declares has_target false' ) );
 		}
 	}
 
@@ -1134,16 +1168,6 @@ class Node {
 			}
 		}
 		return $out;
-	}
-
-	/**
-	 * Point the node at a target, replacing whatever it held. Tee overrides this
-	 * to append, because its target is a fan-out list.
-	 *
-	 * @param string $target Path to stamp into an empty TO.
-	 */
-	public function connect_node( string $target ): void {
-		$this->target = $target;
 	}
 
 	/**

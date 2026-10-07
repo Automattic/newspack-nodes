@@ -26,6 +26,13 @@ describe( 'SeekTracker', () => {
 		expect( t.lastReceivedSegment ).toBe( 98 );
 	} );
 
+	it( 'ignores an ID the position reader does not read as a breadcrumb', () => {
+		const t = new SeekTracker();
+		expect( t.track( '098:500:40' ) ).toBe( false );
+		expect( t.track( '98:500' ) ).toBe( false );
+		expect( t.lastReceivedSegment ).toBe( null );
+	} );
+
 	it( 'reports no change while the received segment is unchanged', () => {
 		const t = new SeekTracker();
 		t.track( '98:0:40' );

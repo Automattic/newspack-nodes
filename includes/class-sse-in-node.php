@@ -703,10 +703,10 @@ class SSE_In_Node extends Node implements Curl_Owner {
 	}
 
 	/**
-	 * Every `stamp=segment:offset` pair of a frame's CURSORS token. A file-mode
-	 * source whose generation is not known yet writes `stamp=:offset`, so its
-	 * entry carries no `segment`; a pair whose numbers are not canonical
-	 * decimals is skipped.
+	 * Every `stamp=<position>` pair of a frame's CURSORS token, each position
+	 * read by `Log_Position::parse()`. A file-mode source whose generation is
+	 * not known yet writes `stamp=:offset`, so its entry carries no
+	 * `segment`; a pair naming no place, a word included, is skipped.
 	 *
 	 * @param string $token The token, empty when the spoke sent none.
 	 * @return array<string,array{segment?:int,offset:int}>
@@ -715,18 +715,9 @@ class SSE_In_Node extends Node implements Curl_Owner {
 		$cursors = [];
 		foreach ( \explode( ',', $token ) as $pair ) {
 			[ $stamp, $position ] = \array_pad( \explode( '=', $pair, 2 ), 2, '' );
-			[ $segment, $offset ] = \array_pad( \explode( ':', $position, 2 ), 2, null );
-			$offset               = Core::canonical_decimal( $offset );
-			if ( '' === $stamp || null === $offset ) {
-				continue;
-			}
-			if ( '' === $segment ) {
-				$cursors[ $stamp ] = [ 'offset' => $offset ];
-				continue;
-			}
-			$segment = Core::canonical_decimal( $segment );
-			if ( null !== $segment ) {
-				$cursors[ $stamp ] = [ 'segment' => $segment, 'offset' => $offset ];
+			$at                   = Log_Position::parse( $position );
+			if ( '' !== $stamp && \is_array( $at ) ) {
+				$cursors[ $stamp ] = $at;
 			}
 		}
 		return $cursors;

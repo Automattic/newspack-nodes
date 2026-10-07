@@ -34,3 +34,9 @@ it( 'returns null for garbage or a bare offset with no fallback', () => {
 	expect( parseOffsetJump( '99', null ) ).toBeNull();
 	expect( parseOffsetJump( '1:2:3:4', 3 ) ).toBeNull();
 } );
+
+it( 'reads a pasted ID as the one position reader reads it', () => {
+	expect( parseOffsetJump( '07:120:30', 3 ) ).toBeNull();
+	expect( parseOffsetJump( ':120:30', 3 ) ).toBeNull();
+	expect( parseOffsetJump( 'end', 3 ) ).toBeNull();
+} );

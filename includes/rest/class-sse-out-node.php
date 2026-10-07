@@ -24,6 +24,7 @@ use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Log_Discovery;
+use Newspack_Nodes\Log_Position;
 use Newspack_Nodes\Log_Sources;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Event_Framework;
@@ -1018,9 +1019,10 @@ class SSE_Out_Node extends Node {
 	/**
 	 * Narrow one stamp's saved position to a shape `Consumer_Node::next_offset()`
 	 * accepts: an exact `{segment, offset}` pair, a numeric SEEK sentinel
-	 * (`SEEK_START` 0 / `SEEK_END` -1 / `SEEK_RECENT` -2), or one of the alias
-	 * words. A stamp with no entry tail-seeks; any other value falls back to
-	 * 'start' (next_offset's default case).
+	 * (`SEEK_START` 0 / `SEEK_END` -1 / `SEEK_RECENT` -2), or a string
+	 * `Log_Position::parse()` reads, a place or a word. A stamp with no entry
+	 * tail-seeks; any other value falls back to 'start' (next_offset's
+	 * default case).
 	 *
 	 * @param array<array-key,mixed>|null $positions Saved positions, keyed by stamp.
 	 * @param string                      $stamp     The stamp the reader carries.
@@ -1038,7 +1040,7 @@ class SSE_Out_Node extends Node {
 		if ( \is_numeric( $position ) ) {
 			return Core::num_int( $position, Consumer_Node::SEEK_START );
 		}
-		return Core::as_string( $position, 'start' );
+		return Log_Position::parse( Core::as_string( $position ) ) ?? 'start';
 	}
 
 	/**

@@ -55,6 +55,21 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$this->assertSame( \strlen( $line ), $offset->getValue( $consumers[0] ), 'seeked to the live end' );
 	}
 
+	public function test_a_position_string_resolves_as_that_place(): void {
+		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'read past 6170';
+		$line                      = Message::packed( $message ) . "\n";
+		\file_put_contents( "{$this->tmp}/logs/firehose.p0/0.log", $line . $line );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+
+		$consumers = $ctrl->open_subscription( 'firehose.p0', [ 'firehose.p0' => '0:' . \strlen( $line ) ] );
+
+		$this->assertSame( '0:' . \strlen( $line ), $consumers[0]->cursor_position(), 'a position string reads as the place it names' );
+	}
+
 	public function test_a_zero_position_resolves_to_the_start_of_the_log(): void {
 		// The bug the sentinels close: 0 is a place, not an absent value.
 		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
