@@ -117,8 +117,9 @@ abstract class Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 	 * such as `job-worker.p2/jobstats`, so a reader charts each worker's
 	 * stream apart while the record layout stays as it is. A probe runs only
 	 * in a worker, where `Topology_Loader` binds the topology and the
-	 * partition before the graph is built, so either missing, or a partition
-	 * `Core::canonical_decimal()` refuses, is refused by name.
+	 * partition before the graph is built, so either missing is refused by
+	 * name, and `Core::bound_partition()` refuses a partition that is not
+	 * canonical.
 	 *
 	 * @return string The worker id.
 	 * @throws \LogicException Naming the half of the worker id not bound, or
@@ -129,14 +130,8 @@ abstract class Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 		if ( ! \is_string( $topology ) || '' === $topology ) {
 			throw new \LogicException( \esc_html( "{$this->name}: no topology bound; a probe runs only in a worker" ) );
 		}
-		$bound = Core::$var['partition'] ?? null;
-		if ( null === $bound ) {
-			throw new \LogicException( \esc_html( "{$this->name}: no partition bound; a probe runs only in a worker" ) );
-		}
-		$partition = Core::canonical_decimal( $bound );
-		if ( null === $partition ) {
-			throw new \LogicException( \esc_html( "{$this->name}: partition " . Core::as_string( $bound ) . ' is not canonical; a probe runs only in a worker' ) );
-		}
+		$partition = Core::bound_partition()
+			?? throw new \LogicException( \esc_html( "{$this->name}: no partition bound; a probe runs only in a worker" ) );
 		return CLI::worker_id( $topology, $partition );
 	}
 

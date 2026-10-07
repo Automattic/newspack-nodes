@@ -27,7 +27,7 @@ import { parsePosition } from '../../runtime/log-position';
  */
 export default function parseOffsetJump( text, fallbackSegment ) {
 	const at = parsePosition( text );
-	if ( at && 'object' === typeof at && undefined !== at.segment ) {
+	if ( undefined !== at?.segment ) {
 		return { segment: at.segment, offset: at.offset };
 	}
 	if ( /^\d+$/.test( text ) && 'number' === typeof fallbackSegment ) {

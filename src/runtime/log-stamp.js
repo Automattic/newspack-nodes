@@ -5,9 +5,8 @@
  *
  * `Log_Discovery::stamp_for()` writes a `logs` dir bare and an `offsets` or
  * `deadletter` dir as `{group}/{dir}`, a registry source is `sources/{name}`,
- * a spoke's log in the hub's probe channel is `remote/{vault_id}:{kind}`, and
- * a log dir named like any of those prefixes is refused, so a stamp opening
- * with one always takes a second segment.
+ * and a log dir named like any of those prefixes is refused, so a stamp
+ * opening with one always takes a second segment.
  */
 
 /** `Log_Discovery::SOURCES_PREFIX`: a registry source's stamp is `sources/<name>`. */
@@ -22,7 +21,6 @@ const STAMP_PREFIXES = new Set( [
 	'offsets',
 	'deadletter',
 	SOURCES_PREFIX,
-	REMOTE_PREFIX,
 ] );
 
 /**

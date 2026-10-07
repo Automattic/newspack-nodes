@@ -311,9 +311,7 @@ describe( 'the gate', () => {
 		// The boundary the replay catches up to rides the control.
 		expect( Core.node( VIEW ).taken.pop()[ VALUE ] ).toMatchObject( {
 			action: 'browse',
-			endSegment: 6,
-			endOffset: 4096,
-			knownSegments: [ 6 ],
+			segments: [ { id: 6, size: 4096 } ],
 		} );
 	} );
 

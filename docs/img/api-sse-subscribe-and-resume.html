@@ -70,7 +70,7 @@ h2 { font-size:15px; margin:0 0 8px; }
       <div><b>-2 · recent</b>byte 0 of the SECOND-newest segment, or of the only one, so it can replay up to a whole segment</div>
     </div>
     <p>Stating the seek as a number is what lets <span class="mono">{segment: 0, offset: 0}</span> mean the START of the log rather than an absent value: a <span class="mono">Remote_Source</span> states a position for every live reader it asks for, so a reader resuming a <span class="mono">0:0</span> checkpoint replays its backlog instead of being tail-seeked past it.</p>
-    <p style="margin:0">Malformed JSON, or a value decoding to anything but an array, is treated as omitted. A per-key value goes the other way: <span class="mono">position_arg()</span> keeps a number as a number and a word as a string, and <span class="mono">seek_sentinel()</span> resolves any word it does not recognise to <span class="mono">SEEK_START</span>, so ONE typo'd position word replays that subscription's whole log rather than tail-seeking it.</p>
+    <p style="margin:0">Malformed JSON, or a value decoding to anything but an array, is treated as omitted. A per-key value goes the other way: <span class="mono">position_arg()</span> keeps a number as a number, reads a string as a seek word or as a place <span class="mono">Log_Position::parse()</span> reads, and seeks any other string to <span class="mono">start</span>, so ONE typo'd position word replays that subscription's whole log rather than tail-seeking it.</p>
   </div>
 </div>
 </div>

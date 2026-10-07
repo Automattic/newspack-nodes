@@ -106,6 +106,24 @@ class CoreTest extends TestCase {
 		$this->assertNull( Core::canonical_decimal( "1\n", false ) );
 	}
 
+	/** Outside a worker no partition is bound; one the loader could not write is a bug. */
+	public function test_bound_partition_reads_the_worker_partition_or_refuses_it(): void {
+		try {
+			unset( Core::$var['partition'] );
+			$this->assertNull( Core::bound_partition(), 'outside a worker' );
+			Core::$var['partition'] = '11';
+			$this->assertSame( 11, Core::bound_partition() );
+			Core::$var['partition'] = '0';
+			$this->assertSame( 0, Core::bound_partition(), 'p0 is a partition' );
+			Core::$var['partition'] = '1e2';
+			$this->expectException( \LogicException::class );
+			$this->expectExceptionMessage( 'bound partition 1e2 is not canonical' );
+			Core::bound_partition();
+		} finally {
+			unset( Core::$var['partition'] );
+		}
+	}
+
 	public function test_coercion_helpers_take_an_optional_default_for_the_miss_case(): void {
 		$this->assertSame( 7, Core::as_int( null, 7 ) );
 		$this->assertSame( 42, Core::as_int( '42', 7 ), 'default only applies on a miss' );

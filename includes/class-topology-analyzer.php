@@ -165,15 +165,9 @@ class Topology_Analyzer {
 		$spans  = $statement['spans'];
 		if ( 'make_node' === $verb ) {
 			$name = $values[2] ?? '';
-			if ( self::type_is( $values[1] ?? '', Remote_Source_Node::class ) ) {
-				self::draw_pair_edges( $edges, $values, $origins );
-			}
+			self::draw_declared_targets( $edges, $values, $origins );
 			if ( isset( $nodes[ $name ] ) ) {
-				foreach ( $origins as $origin ) {
-					if ( ! \in_array( $origin, $nodes[ $name ]['origin'], true ) ) {
-						$nodes[ $name ]['origin'][] = $origin;
-					}
-				}
+				$nodes[ $name ]['origin'] = self::union_origins( $nodes[ $name ]['origin'], $origins );
 				return;
 			}
 			$class          = $values[1] ?? '';
@@ -349,10 +343,11 @@ class Topology_Analyzer {
 					$node['path']         = $path;
 					$node['segment_size'] = self::literal_segment_size( $values ) ?? 0;
 				}
+				self::draw_declared_targets( $edges, $values, [ $name ] );
 				if ( self::type_is( $class, Remote_Source_Node::class ) ) {
 					// It pulls REMOTE streams, so it claims no `reads`.
 					$node['vault_id'] = $values[3] ?? '';
-					$node['pairs']    = self::draw_pair_edges( $edges, $values, [ $name ] );
+					$node['pairs']    = Remote_Source_Node::pairs_of( \array_slice( $values, 6 ) );
 				} elseif ( self::type_is( $class, Remote_Link_Node::class ) ) {
 					$node['vault_id']         = $values[3] ?? '';
 					$node['remote_partition'] = $values[4] ?? '';
@@ -430,15 +425,9 @@ class Topology_Analyzer {
 	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges
 	 */
 	private static function add_config_origins( array &$edges, string $source, string $target, string $slot, array $origins ): void {
-		$key          = self::ensure_edge( $edges, $source, $target );
-		$edge         = $edges[ $key ];
-		$slot_origins = $edge['origins']['config'][ $slot ] ?? [];
-		foreach ( $origins as $origin ) {
-			if ( ! \in_array( $origin, $slot_origins, true ) ) {
-				$slot_origins[] = $origin;
-			}
-		}
-		$edge['origins']['config'][ $slot ] = $slot_origins;
+		$key                                = self::ensure_edge( $edges, $source, $target );
+		$edge                               = $edges[ $key ];
+		$edge['origins']['config'][ $slot ] = self::union_origins( $edge['origins']['config'][ $slot ] ?? [], $origins );
 		$edges[ $key ]                      = $edge;
 	}
 
@@ -516,28 +505,24 @@ class Topology_Analyzer {
 	}
 
 	/**
-	 * Draw one `pair` edge from a broker to each pair's target and return the pairs as
-	 * the TSL wrote them: a source keeps its `<partition>` and config tokens,
-	 * which the runtime resolves before the node parses them, so each token is
-	 * judged resolved and split raw. A malformed token is skipped.
+	 * Draw one `pair` edge from a node to each destination its class declares
+	 * for its arguments (`Node::declared_targets()`), for every class: a
+	 * broker's pair targets, and nothing for a class declaring none. The
+	 * class gets its tokens as written and judges them as a load would.
 	 *
 	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges Edge-state map, by reference.
-	 * @param list<string> $values  The broker's `make_node` values.
-	 * @param list<string> $origins Top-level includes providing the broker.
+	 * @param list<string> $values  The node's `make_node` values.
+	 * @param list<string> $origins Top-level includes providing the node.
 	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges
-	 * @return list<array{source:string,target:string}>
 	 */
-	private static function draw_pair_edges( array &$edges, array $values, array $origins ): array {
-		$pairs = [];
-		foreach ( \array_slice( $values, 6 ) as $token ) {
-			if ( [] === Remote_Source_Node::pairs_of( [ Core::resolve_partition_template( $token, 0 ) ] ) ) {
-				continue;
-			}
-			$pair    = Remote_Source_Node::split_pair( $token );
-			$pairs[] = $pair;
-			self::add_role_origins( $edges, $values[2] ?? '', $pair['target'], 'pair', $origins );
+	private static function draw_declared_targets( array &$edges, array $values, array $origins ): void {
+		$fqcn = Command_Interpreter_Node::resolve_class( $values[1] ?? '' );
+		if ( null === $fqcn ) {
+			return;
 		}
-		return $pairs;
+		foreach ( $fqcn::declared_targets( \array_slice( $values, 3 ) ) as $target ) {
+			self::add_role_origins( $edges, $values[2] ?? '', $target, 'pair', $origins );
+		}
 	}
 
 	/**
@@ -552,16 +537,21 @@ class Topology_Analyzer {
 	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges
 	 */
 	private static function add_role_origins( array &$edges, string $source, string $target, string $role, array $origins ): void {
-		$key   = self::ensure_edge( $edges, $source, $target );
-		$edge  = $edges[ $key ];
-		$known = $edge['origins'][ $role ];
-		foreach ( $origins as $origin ) {
-			if ( ! \in_array( $origin, $known, true ) ) {
-				$known[] = $origin;
-			}
-		}
-		$edge['origins'][ $role ] = $known;
+		$key                      = self::ensure_edge( $edges, $source, $target );
+		$edge                     = $edges[ $key ];
+		$edge['origins'][ $role ] = self::union_origins( $edge['origins'][ $role ], $origins );
 		$edges[ $key ]            = $edge;
+	}
+
+	/**
+	 * The origins already known, then each new one not among them, in order.
+	 *
+	 * @param list<string> $known   Origins already recorded.
+	 * @param list<string> $origins Origins providing it again.
+	 * @return list<string>
+	 */
+	private static function union_origins( array $known, array $origins ): array {
+		return \array_values( \array_unique( [ ...$known, ...$origins ] ) );
 	}
 
 	/**
@@ -1306,34 +1296,10 @@ class Topology_Analyzer {
 			$tree[ $include ] = self::walk( $path, $include, $include, [ $include ], [], $state );
 		}
 		$statements = self::with_group_children( $state['statements'] );
-		self::refuse_targetless_connects( $statements );
 		return [
 			'statements' => $statements,
 			'tree'       => $tree,
 		];
-	}
-
-	/**
-	 * Refuse a `connect_node` onto a node whose class declares no target, as
-	 * the load would refuse it, so no reader draws an edge that never routes.
-	 * A `Vault_Group` answers for its child class, which is what refuses.
-	 *
-	 * @param list<array{line: string,verb: string,values: list<string>,spans: list<string>,origin: ?string,origins: list<string>,via: list<string>}> $statements Flattened statements.
-	 * @throws \RuntimeException On a connect the source's class refuses.
-	 */
-	private static function refuse_targetless_connects( array $statements ): void {
-		$classes = [];
-		foreach ( $statements as [ 'verb' => $verb, 'values' => $values ] ) {
-			if ( 'make_node' === $verb ) {
-				$type                         = self::type_is( $values[1] ?? '', Vault_Group_Node::class ) ? ( $values[3] ?? '' ) : ( $values[1] ?? '' );
-				$classes[ $values[2] ?? '' ] = Command_Interpreter_Node::resolve_class( $type );
-				continue;
-			}
-			$class = 'connect_node' === $verb ? ( $classes[ $values[1] ?? '' ] ?? null ) : null;
-			if ( null !== $class ) {
-				Node::refuse_target_on( $class, $values[1] ?? '' );
-			}
-		}
 	}
 
 	/**
@@ -1350,8 +1316,14 @@ class Topology_Analyzer {
 	 * reaches the children. A child `make_node` carries the group statement's
 	 * provenance; a copy carries the provenance of the line it copies.
 	 *
+	 * The same walk refuses a `connect_node` onto a node whose class declares
+	 * no target, as the load would refuse it, so no reader draws an edge that
+	 * never routes; a group answers for its child class, members or none, and
+	 * so does each child derived from it.
+	 *
 	 * @param list<array{line: string,verb: string,values: list<string>,spans: list<string>,origin: ?string,origins: list<string>,via: list<string>}> $statements Walked statements.
 	 * @return list<array{line: string,verb: string,values: list<string>,spans: list<string>,origin: ?string,origins: list<string>,via: list<string>}>
+	 * @throws \RuntimeException On a connect the source's class refuses.
 	 */
 	private static function with_group_children( array $statements ): array {
 		$classes = [];
@@ -1360,6 +1332,7 @@ class Topology_Analyzer {
 				$classes[ $statement['values'][2] ?? '' ] = $statement['values'][1] ?? '';
 			}
 		}
+		$targeted = $classes;
 		$made     = [];
 		$children = [];
 		foreach ( $statements as $index => $group ) {
@@ -1367,6 +1340,7 @@ class Topology_Analyzer {
 				continue;
 			}
 			$name              = $group['values'][2] ?? '';
+			$targeted[ $name ] = $group['values'][3] ?? '';
 			$ids               = Vault::get_instance()->in_group( $group['values'][4] ?? '' );
 			$children[ $name ] = [];
 			foreach ( Vault_Group_Node::expand( $ids, \array_slice( $group['values'], 5 ), \array_slice( $group['spans'], 5 ) ) as $id => [ $tokens, $spans ] ) {
@@ -1375,6 +1349,7 @@ class Topology_Analyzer {
 					continue;
 				}
 				$children[ $name ][] = $child;
+				$targeted[ $child ]  = $targeted[ $name ];
 				$made[ $index ][]    = self::derived_statement(
 					$group,
 					[ 'make_node', $group['values'][3] ?? '', $child, ...$tokens ],
@@ -1382,11 +1357,11 @@ class Topology_Analyzer {
 				);
 			}
 		}
-		if ( [] === $children ) {
-			return $statements;
-		}
 		$out = [];
 		foreach ( $statements as $index => $statement ) {
+			if ( 'connect_node' === $statement['verb'] ) {
+				self::refuse_targetless( $statement['values'][1] ?? '', $targeted );
+			}
 			$out[] = $statement;
 			foreach ( $made[ $index ] ?? [] as $child_make ) {
 				$out[] = $child_make;
@@ -1487,6 +1462,21 @@ class Topology_Analyzer {
 		}
 		$slash = \strrpos( $fqcn, '\\' );
 		return $type . '_Node' === ( false === $slash ? $fqcn : \substr( $fqcn, $slash + 1 ) );
+	}
+
+	/**
+	 * Refuse a connect from `$source` when its class, or a group's child class,
+	 * declares no target. A class token no namespace resolves refuses nothing.
+	 *
+	 * @param string               $source   The connect's source node.
+	 * @param array<string,string> $targeted Node name => the class token a target is set on.
+	 * @throws \RuntimeException When that class declares no target.
+	 */
+	private static function refuse_targetless( string $source, array $targeted ): void {
+		$fqcn = Command_Interpreter_Node::resolve_class( $targeted[ $source ] ?? '' );
+		if ( null !== $fqcn ) {
+			Node::refuse_target_on( $fqcn, $source );
+		}
 	}
 
 	/**

@@ -145,31 +145,28 @@ class Command_Auth {
 	 * Mint one command for the spoke an egress speaks for, signed under that
 	 * spoke's session, for the caller to fill, as the browser's
 	 * `Node.command()` hands one back. No session means nothing is minted and
-	 * the egress is asked for one, because every minter refuses to queue
-	 * unsigned and nothing else would ask. Every per-destination signed mint
-	 * goes through here, so a minter decides only what to send and where.
+	 * `$ask_session` runs, because every minter refuses to queue unsigned and
+	 * nothing else would ask. The minter passes its own throttle there — a
+	 * link asks on its own second of the heartbeat cadence, a fan-out on its
+	 * send cadence — so a minter retrying every tick never handshakes every
+	 * tick. Every per-destination signed mint goes through here, so a minter
+	 * decides only what to send, where, and how often to ask.
 	 *
-	 * @param HTTP_Out_Node $egress    The egress whose spoke the command is for.
-	 * @param string        $from      The minter's name, where the reply returns.
-	 * @param string        $to        The path the command addresses.
-	 * @param string        $verb      Command name the spoke's interpreter runs.
-	 * @param list<string>  $arguments Command argument tokens.
+	 * @param HTTP_Out_Node $egress      The egress whose spoke the command is for.
+	 * @param string        $from        The minter's name, where the reply returns.
+	 * @param string        $to          The path the command addresses.
+	 * @param string        $verb        Command name the spoke's interpreter runs.
+	 * @param list<string>  $arguments   Command argument tokens.
+	 * @param \Closure      $ask_session Asks the egress for a session, at the minter's pace.
 	 * @return array<int,mixed>|null The signed command, or null with no session.
 	 */
-	public static function mint_for( HTTP_Out_Node $egress, string $from, string $to, string $verb, array $arguments ): ?array {
+	public static function mint_for( HTTP_Out_Node $egress, string $from, string $to, string $verb, array $arguments, \Closure $ask_session ): ?array {
 		$spoke = $egress->vault_id();
 		if ( ! self::has_session( $spoke ) ) {
-			$egress->ensure_session();
+			$ask_session();
 			return null;
 		}
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_COMMAND;
-		$message[ Message::FROM ]  = $from;
-		$message[ Message::TO ]    = $to;
-		$message[ Message::VALUE ] = [
-			'name'      => $verb,
-			'arguments' => $arguments,
-		];
+		$message = HTTP_Out_Node::command_message( $from, $to, $verb, $arguments );
 		self::sign_for( $spoke, $message );
 		return $message;
 	}

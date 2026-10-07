@@ -20,8 +20,9 @@ namespace Newspack_Nodes;
  * Each READY durable reader yields ONE Consumer record: the cursor's segment
  * and offset, the backlog, and the messages and bytes the reader moved since
  * its previous sweep. A Consumer measures its backlog from real on-disk
- * segment sizes; a broker's Remote_Consumer, which cannot see the spoke's
- * end, from what the spoke has sent it (`Remote_Consumer_Node::probe_stats()`). Each
+ * segment sizes; a broker's Remote_Consumer cannot see the spoke's end, so
+ * it reports its end and backlog as null, unknown
+ * (`Remote_Consumer_Node::probe_stats()`). Each
  * Partition with a live segment yields ONE Partition record, with a blank
  * READER: its size and the disk it takes. A log two nodes of this process
  * cover — a writer and a Consumer's `:source` — reports once a sweep.

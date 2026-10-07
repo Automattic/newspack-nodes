@@ -653,16 +653,6 @@ class Core {
 	}
 
 	/**
-	 * Canonical scalar→string read of a mixed Message field; a non-scalar
-	 * (array, object, null) takes $default, '' unless the caller says otherwise.
-	 *
-	 * @api Consumed by sibling plugins.
-	 */
-	public static function as_string( mixed $value, string $default = '' ): string {
-		return \is_scalar( $value ) ? (string) $value : $default;
-	}
-
-	/**
 	 * Render the control characters in untrusted text as visible `<XX>` tokens,
 	 * so a log line, a worker id or a flag value cannot drive the terminal it is
 	 * printed on. A visitor controls the URL, Referer and User-Agent a notice
@@ -739,6 +729,68 @@ class Core {
 			return \ord( $match[1] );
 		}
 		return null;
+	}
+
+	/**
+	 * The worker partition `Topology_Loader` bound before building the graph,
+	 * or null outside a worker, where none is bound. The loader writes only
+	 * canonical decimals, so a bound value `canonical_decimal()` refuses is a
+	 * bug, refused by name rather than read as no partition.
+	 *
+	 * @return int|null The bound partition, or null when none is.
+	 * @throws \LogicException When the bound value is no canonical decimal.
+	 */
+	public static function bound_partition(): ?int {
+		if ( ! \array_key_exists( 'partition', self::$var ) ) {
+			return null;
+		}
+		$bound = self::$var['partition'];
+		return self::canonical_decimal( $bound )
+			?? throw new \LogicException( \esc_html( 'bound partition ' . self::as_string( $bound ) . ' is not canonical' ) );
+	}
+
+	/**
+	 * Canonical scalar→string read of a mixed Message field; a non-scalar
+	 * (array, object, null) takes $default, '' unless the caller says otherwise.
+	 *
+	 * @api Consumed by sibling plugins.
+	 */
+	public static function as_string( mixed $value, string $default = '' ): string {
+		return \is_scalar( $value ) ? (string) $value : $default;
+	}
+
+	/**
+	 * REFUSING read of an operator- or wire-supplied integer: a non-negative
+	 * int, or a canonical non-negative decimal string inside PHP's range, else
+	 * null. A negative int is refused with everything else — it stringifies and
+	 * then fails the same pattern.
+	 *
+	 * The other families all resolve to a number, so a typo picks one silently:
+	 * `as_int('abc')` and `num_int('abc')` both return 0, naming partition 0.
+	 * Null is a refusal the caller reports — `WP_CLI::error()` on a flag, a throw
+	 * in a verb — so `--partition=2m` says so instead of restarting p2.
+	 *
+	 * @param mixed $value      Raw token.
+	 * @param bool  $allow_zero Whether '0' is acceptable.
+	 * @return int|null The parsed value, or null when the token is not canonical.
+	 */
+	public static function canonical_decimal( mixed $value, bool $allow_zero = true ): ?int {
+		$token = \is_int( $value ) ? (string) $value : $value;
+		if ( ! \is_string( $token ) ) {
+			return null;
+		}
+		$pattern = $allow_zero ? '/^(?:0|[1-9][0-9]*)$/D' : '/^[1-9][0-9]*$/D';
+		if ( 1 !== \preg_match( $pattern, $token ) ) {
+			return null;
+		}
+		$max = (string) \PHP_INT_MAX;
+		if (
+			\strlen( $token ) > \strlen( $max )
+			|| ( \strlen( $token ) === \strlen( $max ) && \strcmp( $token, $max ) > 0 )
+		) {
+			return null;
+		}
+		return (int) $token;
 	}
 
 	/**
@@ -895,40 +947,6 @@ class Core {
 	 */
 	public static function num_float( mixed $value, float $default = 0.0 ): float {
 		return \is_numeric( $value ) ? (float) $value : $default;
-	}
-
-	/**
-	 * REFUSING read of an operator- or wire-supplied integer: a non-negative
-	 * int, or a canonical non-negative decimal string inside PHP's range, else
-	 * null. A negative int is refused with everything else — it stringifies and
-	 * then fails the same pattern.
-	 *
-	 * The other families all resolve to a number, so a typo picks one silently:
-	 * `as_int('abc')` and `num_int('abc')` both return 0, naming partition 0.
-	 * Null is a refusal the caller reports — `WP_CLI::error()` on a flag, a throw
-	 * in a verb — so `--partition=2m` says so instead of restarting p2.
-	 *
-	 * @param mixed $value      Raw token.
-	 * @param bool  $allow_zero Whether '0' is acceptable.
-	 * @return int|null The parsed value, or null when the token is not canonical.
-	 */
-	public static function canonical_decimal( mixed $value, bool $allow_zero = true ): ?int {
-		$token = \is_int( $value ) ? (string) $value : $value;
-		if ( ! \is_string( $token ) ) {
-			return null;
-		}
-		$pattern = $allow_zero ? '/^(?:0|[1-9][0-9]*)$/D' : '/^[1-9][0-9]*$/D';
-		if ( 1 !== \preg_match( $pattern, $token ) ) {
-			return null;
-		}
-		$max = (string) \PHP_INT_MAX;
-		if (
-			\strlen( $token ) > \strlen( $max )
-			|| ( \strlen( $token ) === \strlen( $max ) && \strcmp( $token, $max ) > 0 )
-		) {
-			return null;
-		}
-		return (int) $token;
 	}
 
 	/** Bind $name in the process registry; `Node::name()` is the only caller. */

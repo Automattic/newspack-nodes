@@ -66,6 +66,17 @@ class Remote_Source_Node extends Remote_Link_Node {
 	/** Reason the last heartbeat failed, published as `last_error`; null on success. */
 	private ?string $last_heartbeat_error = null;
 
+	/**
+	 * The status snapshot this broker last wrote: the one copy of what it
+	 * publishes, so a write needs no read of the cache first.
+	 *
+	 * @var array<string,mixed>
+	 */
+	private array $status = [];
+
+	/** Wall-second the snapshot was last written; 0 before the first write. */
+	private int $status_written_at = 0;
+
 	/** Mirror of the SSE_In valve state: true while armed. Only the readers' bytes flip it. */
 	private bool $pump_armed = true;
 
@@ -137,7 +148,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 		}
 		$previous              = $this->pairs;
 		$parsed                = parent::arguments( $args );
-		$this->bound_partition = \array_key_exists( 'partition', Core::$var ) ? Core::canonical_decimal( Core::$var['partition'] ) : null;
+		$this->bound_partition = Core::bound_partition();
 		$topology              = Core::$var['topology'] ?? null;
 		$this->bound_topology  = \is_string( $topology ) && '' !== $topology ? $topology : null;
 		$this->pairs           = $pairs;
@@ -153,6 +164,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 			if ( $this->reader_args( $stamp ) !== $child->arguments() ) {
 				$child->arguments( $this->reader_args( $stamp ) );
 			}
+			$child->broker( $this );
 		}
 		if ( $previous !== $this->pairs ) {
 			$this->restream();
@@ -283,21 +295,27 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Merge $data into the status snapshot under the per-node key.
+	 * Merge $data into the status snapshot and write it under the per-node key
+	 * when it changed, or once a `HEARTBEAT_INTERVAL` has run since the last
+	 * write: a broker whose state stands still writes once a heartbeat rather
+	 * than once a second, and a key the cache evicted or lost on a restart is
+	 * back within one interval instead of reading as down.
 	 *
-	 * @param array<string,mixed> $data Fields to merge over whatever the snapshot holds.
+	 * @param array<string,mixed> $data Fields to merge over the snapshot.
 	 */
 	private function write_status( array $data ): void {
 		$cache = Cache_Backend::shared_first();
 		if ( null === $cache || null === $this->bound_partition ) {
 			return;
 		}
-		$key      = self::status_key_for( $this->name, $this->bound_partition );
-		$existing = $cache->get( $key );
-		if ( ! \is_array( $existing ) ) {
-			$existing = [];
+		$status = \array_merge( $this->status, $data );
+		$now    = (int) Core::$now;
+		if ( $status === $this->status && $now - $this->status_written_at < self::HEARTBEAT_INTERVAL ) {
+			return;
 		}
-		$cache->set( $key, \array_merge( $existing, $data ), self::STATUS_TTL );
+		$cache->set( self::status_key_for( $this->name, $this->bound_partition ), $status, self::STATUS_TTL );
+		$this->status            = $status;
+		$this->status_written_at = $now;
 	}
 
 	/**
@@ -356,7 +374,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * Send one reader's step to the spoke as `read_message <stamp> <position>`,
 	 * from the reader's own name, so the reply returns to it by TO through this
 	 * link's HTTP_Out (whose allowlist names every reader) and `_router`. A spoke
-	 * this link holds no session with gets asked for one, and the reader retries.
+	 * this link holds no session with gets asked for one on the link's own
+	 * cadence, and the reader retries.
 	 *
 	 * @param Remote_Consumer_Node $child    The paused reader.
 	 * @param string               $position Where it reads, in `read_message`'s position grammar.
@@ -364,15 +383,11 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 */
 	public function request_read( Remote_Consumer_Node $child, string $position ): bool {
 		$this->ensure_patrons();
-		$http = $this->http_out;
-		if ( null === $http ) {
-			return false;
-		}
-		$message = Command_Auth::mint_for( $http, $child->name(), Remote_Consumer_Node::STEP_SERVICE, 'read_message', [ $child->stamp(), $position ] );
+		$message = $this->mint( $child->name(), Remote_Consumer_Node::STEP_SERVICE, 'read_message', [ $child->stamp(), $position ] );
 		if ( null === $message ) {
 			return false;
 		}
-		$http->fill( $message );
+		$this->http_out?->fill( $message );
 		return true;
 	}
 
@@ -519,13 +534,11 @@ class Remote_Source_Node extends Remote_Link_Node {
 		}
 	}
 
-	/** Bytes buffered across every reader: one connection, one valve. Per line, so it walks the map in place. */
+	/** Bytes buffered across every reader: one connection, one valve. */
 	private function buffered_bytes(): int {
 		$bytes = 0;
-		foreach ( $this->siblings() as $sibling ) {
-			if ( $sibling instanceof Remote_Consumer_Node ) {
-				$bytes += $sibling->buffered_bytes();
-			}
+		foreach ( $this->reader_walk() as $child ) {
+			$bytes += $child->buffered_bytes();
 		}
 		return $bytes;
 	}
@@ -564,89 +577,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 	/** Drop the live stream; what it left buffered still drains. */
 	private function drop_stream(): void {
 		$this->sse_in?->disconnect();
-	}
-
-	/**
-	 * Every well-formed pair among `$tokens`, for a reader of the topology that
-	 * must not fail on a line the runtime would refuse.
-	 *
-	 * @param list<string> $tokens Pair tokens.
-	 * @return list<array{source:string,target:string}>
-	 */
-	public static function pairs_of( array $tokens ): array {
-		$pairs = [];
-		foreach ( $tokens as $token ) {
-			try {
-				$pairs[] = self::parse_pair( $token );
-			} catch ( \InvalidArgumentException $e ) {
-				continue;
-			}
-		}
-		return $pairs;
-	}
-
-	/**
-	 * Read one `<source>:<target>` token on its FIRST colon: a source never
-	 * carries one (a partition dir or `sources/<name>`), a target may
-	 * (`php-errors:partition`). A source no spoke could stream is refused
-	 * here, at configuration, rather than failing quietly on every connect.
-	 *
-	 * @param string $token One pair token.
-	 * @return array{source:string,target:string}
-	 * @throws \InvalidArgumentException When either half is empty, or the source is no subscription.
-	 */
-	public static function parse_pair( string $token ): array {
-		[ 'source' => $source, 'target' => $target ] = self::split_pair( $token );
-		if ( '' === $source || '' === $target ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-			throw new \InvalidArgumentException( "Remote_Source: a pair is <source>:<target>, got '{$token}'" );
-		}
-		// An exact source is the stamp of the one stream it carries.
-		$glob = \str_contains( $source, '*' );
-		if ( ! ( $glob ? Log_Discovery::is_subscription( $source ) : Log_Discovery::is_stamp( $source ) ) ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-			throw new \InvalidArgumentException( "Remote_Source: pair names a source no spoke can stream: '{$token}'" );
-		}
-		if ( ! $glob && self::is_reserved( $source ) ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-			throw new \InvalidArgumentException( "Remote_Source: pair's reader names a slot the broker keeps: '{$token}'" );
-		}
-		return [ 'source' => $source, 'target' => $target ];
-	}
-
-	/**
-	 * Split a token at its first colon outside `<…>`, so a `<ns:key>` config
-	 * token in the source stays whole. A token with no such colon is all
-	 * source; this validates nothing, as `parse_pair()` does.
-	 *
-	 * @param string $token One pair token.
-	 * @return array{source:string,target:string}
-	 */
-	public static function split_pair( string $token ): array {
-		$depth = 0;
-		foreach ( \str_split( $token ) as $at => $char ) {
-			if ( '<' === $char ) {
-				++$depth;
-			} elseif ( '>' === $char && $depth > 0 ) {
-				--$depth;
-			} elseif ( ':' === $char && 0 === $depth ) {
-				return [
-					'source' => \substr( $token, 0, $at ),
-					'target' => \substr( $token, $at + 1 ),
-				];
-			}
-		}
-		return [ 'source' => $token, 'target' => '' ];
-	}
-
-	/**
-	 * Whether a stamp's reader would take a sibling slot the broker publishes
-	 * itself, which `publish_sibling()` refuses.
-	 *
-	 * @param string $stamp A record's stamp.
-	 */
-	private static function is_reserved( string $stamp ): bool {
-		return \in_array( Log_Discovery::kind_of( $stamp ), self::RESERVED_KINDS, true );
 	}
 
 	/**
@@ -710,12 +640,15 @@ class Remote_Source_Node extends Remote_Link_Node {
 
 	/**
 	 * Rename the readers through the base, then admit each one's step replies
-	 * by its new name.
+	 * by its new name and hand it the names it reports under. A new name is a
+	 * new status key, which the next tick writes.
 	 */
 	protected function set_sibling_names(): void {
 		parent::set_sibling_names();
+		$this->status_written_at = 0;
 		foreach ( $this->readers() as $child ) {
 			$this->http_out?->allow_replies_to( $child->name() );
+			$child->broker( $this );
 		}
 	}
 
@@ -757,23 +690,121 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * @return array<string,Remote_Consumer_Node>
 	 */
 	private function readers(): array {
-		$readers = [];
+		return \iterator_to_array( $this->reader_walk() );
+	}
+
+	/**
+	 * The one walk of the sibling map for its readers, keyed by stamp; it
+	 * builds nothing, so the valve's per-line sum pays for no array.
+	 *
+	 * @return \Generator<string,Remote_Consumer_Node>
+	 */
+	private function reader_walk(): \Generator {
 		foreach ( $this->siblings() as $sibling ) {
 			if ( $sibling instanceof Remote_Consumer_Node ) {
-				$readers[ $sibling->stamp() ] = $sibling;
+				yield $sibling->stamp() => $sibling;
 			}
 		}
-		return $readers;
 	}
 
 	/**
 	 * Each pair's target, written through that pair's reader rather than a
-	 * target of the broker's own, so the canvas draws one edge per pair.
+	 * target of the broker's own, so the canvas and the analyzer draw one edge
+	 * per pair. Only a pair `pairs_of()` accepts names one, so the graph shows
+	 * no edge for a pair `make_node` refuses, and each target is as written.
 	 *
+	 * @param list<string> $args The `make_node` argument tokens, the name excluded.
 	 * @return list<string>
 	 */
-	protected function extra_targets(): array {
-		return \array_column( $this->pairs, 'target' );
+	public static function declared_targets( array $args ): array {
+		return \array_column( self::pairs_of( \array_slice( $args, 3 ) ), 'target' );
+	}
+
+	/**
+	 * Every pair among `$tokens` the runtime would accept, split as written,
+	 * for a reader of the topology that must not fail on a line the runtime
+	 * would refuse. A token is judged with its `<partition>` and config tokens
+	 * resolved, as `make_node` sees it, and kept with them, as the TSL names
+	 * its nodes; a token already resolved reads the same either way.
+	 *
+	 * @param list<string> $tokens Pair tokens.
+	 * @return list<array{source:string,target:string}>
+	 */
+	public static function pairs_of( array $tokens ): array {
+		$pairs = [];
+		foreach ( $tokens as $token ) {
+			try {
+				self::parse_pair( Core::resolve_partition_template( $token, 0 ) );
+			} catch ( \InvalidArgumentException $e ) {
+				continue;
+			}
+			$pairs[] = self::split_pair( $token );
+		}
+		return $pairs;
+	}
+
+	/**
+	 * Read one `<source>:<target>` token on its FIRST colon: a source never
+	 * carries one (a partition dir or `sources/<name>`), a target may
+	 * (`php-errors:partition`). A source no spoke could stream is refused
+	 * here, at configuration, rather than failing quietly on every connect.
+	 *
+	 * @param string $token One pair token.
+	 * @return array{source:string,target:string}
+	 * @throws \InvalidArgumentException When either half is empty, or the source is no subscription.
+	 */
+	public static function parse_pair( string $token ): array {
+		[ 'source' => $source, 'target' => $target ] = self::split_pair( $token );
+		if ( '' === $source || '' === $target ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+			throw new \InvalidArgumentException( "Remote_Source: a pair is <source>:<target>, got '{$token}'" );
+		}
+		// An exact source is the stamp of the one stream it carries.
+		$glob = \str_contains( $source, '*' );
+		if ( ! ( $glob ? Log_Discovery::is_subscription( $source ) : Log_Discovery::is_stamp( $source ) ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+			throw new \InvalidArgumentException( "Remote_Source: pair names a source no spoke can stream: '{$token}'" );
+		}
+		if ( ! $glob && self::is_reserved( $source ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+			throw new \InvalidArgumentException( "Remote_Source: pair's reader names a slot the broker keeps: '{$token}'" );
+		}
+		return [ 'source' => $source, 'target' => $target ];
+	}
+
+	/**
+	 * Whether a stamp's reader would take a sibling slot the broker publishes
+	 * itself, which `publish_sibling()` refuses.
+	 *
+	 * @param string $stamp A record's stamp.
+	 */
+	private static function is_reserved( string $stamp ): bool {
+		return \in_array( Log_Discovery::kind_of( $stamp ), self::RESERVED_KINDS, true );
+	}
+
+	/**
+	 * Split a token at its first colon outside `<…>`, so a `<ns:key>` config
+	 * token in the source stays whole. A token with no such colon is all
+	 * source; this validates nothing, as `parse_pair()` does.
+	 *
+	 * @param string $token One pair token.
+	 * @return array{source:string,target:string}
+	 */
+	public static function split_pair( string $token ): array {
+		$depth = 0;
+		foreach ( \str_split( $token ) as $at => $char ) {
+			if ( '<' === $char ) {
+				++$depth;
+			} elseif ( '>' === $char && $depth > 0 ) {
+				--$depth;
+			} elseif ( ':' === $char && 0 === $depth ) {
+				return [
+					'source' => \substr( $token, 0, $at ),
+					'target' => \substr( $token, $at + 1 ),
+				];
+			}
+		}
+		return [ 'source' => $token, 'target' => '' ];
 	}
 
 	/** Round-trip the toggles after the `make_node` line. */

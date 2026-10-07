@@ -362,6 +362,79 @@ class RemoteConsumerNodeTest extends TestCase {
 		$this->assertSame( [ 0, 0 ], [ $record[ Probe_Record::CURSOR_SEGMENT ], $record[ Probe_Record::CURSOR_OFF ] ] );
 	}
 
+	/** A seek asked for before the durable cursor is first restored outlives the restore. */
+	public function test_a_seek_asked_for_before_the_first_restore_survives_it(): void {
+		$this->seed_offsetlog_frame( 812, 4410, 0, '', 'remote-kea' );
+		$reader = new Remote_Consumer_Node();
+		$reader->name( 'remote-kea:firehose.p0' );
+		$reader->arguments( [ 'firehose.p0', \Newspack_Nodes\Config::get_offsets_directory() . '/remote-kea/firehose.p0', "{$this->base_dir}/d" ] );
+
+		$reader->next_offset( Consumer_Node::SEEK_RECENT );
+
+		$this->assertSame( Consumer_Node::SEEK_RECENT, $reader->connect_position(), 'the restore does not answer a seek it did not see' );
+		$this->assertNull( $reader->probe_stats(), 'still seeking, it stands nowhere' );
+	}
+
+	/**
+	 * A seek word asked for before the first restore outlives a crash-lineage
+	 * frame, so the frame's head describes no record the spoke sends: the first
+	 * record `recent` lands on is forwarded, never sacrificed as the suspect.
+	 */
+	public function test_a_pending_seek_word_arms_no_head_skip_from_the_frame(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		$this->seed_offsetlog_frame( 812, 4410, Remote_Consumer_Node::CRASH_MAX_ATTEMPTS, '' );
+		Core::$now = 1000.0;
+		[ , $node, $spy ] = $this->make_remote_spy();
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		$node->next_offset( Consumer_Node::SEEK_RECENT );
+		$this->assertSame( Consumer_Node::SEEK_RECENT, $node->connect_position(), 'the first restore leaves the seek word standing' );
+		$this->handshake( $sse, 'firehose.p0=61:7319' );
+		$this->deliver( $sse, '61:7319:44', '' );
+
+		$this->assertSame( 0, $this->count_log_records( $this->dlq() ), 'no record is sacrificed as the head' );
+		$this->assertCount( 1, $spy->captured, 'the record recent lands on is forwarded' );
+		$this->assertFalse( $this->read_private( $node, 'crawl_skip_head' ), 'no head skip stays armed' );
+		$this->assertSame( [ 'segment' => 61, 'offset' => 7363 ], $node->connect_position(), 'the cursor stands past that record, where recent put it' );
+	}
+
+	/** With no seek asked for, the restored cursor answers the fresh reader's end seek. */
+	public function test_a_restore_answers_a_fresh_readers_end_seek(): void {
+		$this->seed_offsetlog_frame( 812, 4410, 0, '', 'remote-kea' );
+		$reader = new Remote_Consumer_Node();
+		$reader->name( 'remote-kea:firehose.p0' );
+		$reader->arguments( [ 'firehose.p0', \Newspack_Nodes\Config::get_offsets_directory() . '/remote-kea/firehose.p0', "{$this->base_dir}/d" ] );
+
+		$this->assertSame( [ 'segment' => 812, 'offset' => 4410 ], $reader->connect_position() );
+	}
+
+	/** A connect that asks past a held record places nothing: the cursor has not reached it. */
+	public function test_a_reader_reports_no_probe_record_until_it_reaches_what_it_holds(): void {
+		$reader = new Remote_Consumer_Node();
+		$reader->name( 'remote-austin:firehose.p0' );
+		$reader->arguments( [ 'firehose.p0', "{$this->base_dir}/o", "{$this->base_dir}/d" ] );
+		$held = $this->healthy_message( '61:7319:44' );
+		$reader->receive( Message::packed( $held ), $held );
+
+		$this->assertSame( [ 'segment' => 61, 'offset' => 7363 ], $reader->connect_position() );
+		$this->assertNull( $reader->probe_stats(), 'standing nowhere yet, it reports nothing' );
+	}
+
+	/** A handshake answering a connect past held records leaves the cursor behind them. */
+	public function test_a_handshake_never_moves_the_cursor_past_what_it_holds(): void {
+		$reader = new Remote_Consumer_Node();
+		$reader->name( 'remote-austin:firehose.p0' );
+		$reader->arguments( [ 'firehose.p0', "{$this->base_dir}/o", "{$this->base_dir}/d" ] );
+		$held = $this->healthy_message( '61:7319:44' );
+		$reader->receive( Message::packed( $held ), $held );
+		$reader->connect_position();
+
+		$reader->adopt_stream_start( [ 'segment' => 61, 'offset' => 7363 ] );
+
+		$this->assertSame( [ 'segment' => 0, 'offset' => 0 ], $reader->dump_metadata()['cursor'], 'the cursor stays short of the held record, so a checkpoint cannot skip it' );
+	}
+
 	public function test_a_reader_far_behind_its_spoke_reports_no_end_and_no_backlog(): void {
 		$reader = new Remote_Consumer_Node();
 		$reader->name( 'remote-austin:firehose.p0' );
@@ -2080,11 +2153,41 @@ class RemoteConsumerNodeTest extends TestCase {
 		// HTTP_Out forgets the session on a 401, and its reply never comes.
 		Command_Auth::forget_session( 'austin' );
 
-		Core::$now += \Newspack_Nodes\HTTP_Out_Node::REQUEST_TIMEOUT + 4;
+		Core::$now = self::link_second( Core::$now + \Newspack_Nodes\HTTP_Out_Node::REQUEST_TIMEOUT + 4 );
 		$node->fire_cb();
 
 		$urls = \array_map( static fn ( array $opts ): string => (string) $opts[ \CURLOPT_URL ], $captured );
 		$this->assertContains( 'https://austin.example/wp-json/newspack-nodes/v1/auth', $urls );
+	}
+
+	/** A step with no session asks for one on its link's second of the cadence, never on every tick. */
+	public function test_a_step_without_a_session_asks_on_its_links_cadence(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		Command_Auth::forget_session( 'austin' );
+		[ , $node ] = $this->make_remote();
+		$auths = 0;
+		Event_Framework::$curl_dispatch = static function ( array $opts ) use ( &$auths ): \CurlHandle {
+			$auths += (int) \str_ends_with( (string) $opts[ \CURLOPT_URL ], '/auth' );
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+		$node->pause();
+		$on_cadence = self::link_second( 9000.0 );
+		Core::$now  = $on_cadence - 1;
+
+		$node->step();
+		$this->assertSame( 0, $auths, 'off its second, the step asks for nothing' );
+
+		Core::$now = $on_cadence;
+		$node->fire_cb();
+		$this->assertSame( 1, $auths, 'on its second, the retried step asks' );
+	}
+
+	/** The first wall-second at or after `$from` on which `remote-austin` asks for a session. */
+	private static function link_second( float $from ): float {
+		$interval = \Newspack_Nodes\Remote_Link_Node::HEARTBEAT_INTERVAL;
+		$at       = (int) \ceil( $from );
+		return (float) ( $at + ( ( \crc32( 'remote-austin' ) % $interval ) - $at % $interval + $interval ) % $interval );
 	}
 
 	public function test_a_seek_then_a_step_ignores_the_old_reply_and_sends_the_new_one(): void {

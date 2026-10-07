@@ -222,6 +222,52 @@ const formatCountdown = ( timestamp, now ) => {
 };
 
 /**
+ * One stat row: its label, then each value in a cell of its own, so a row
+ * carrying several values — a reader's cursor and its lag — lines up with a
+ * row carrying one.
+ *
+ * @param {Object}   props             Component props.
+ * @param {string}   props.label       The row's label.
+ * @param {Array<*>} props.values      One renderable per value cell.
+ * @param {string}   [props.className] A class beside the row's own.
+ * @return {import('react').ReactElement} Rendered component.
+ */
+function StatRow( { label, values, className = '' } ) {
+	return (
+		<div className={ `aggregator-partition-row ${ className }`.trim() }>
+			<span className="newspack-nodes-stat-label aggregator-partition-stat-label">
+				{ label }
+			</span>
+			{ values.map( ( value, index ) => (
+				<span
+					key={ index }
+					className="newspack-nodes-stat-value aggregator-partition-stat-value"
+				>
+					{ value }
+				</span>
+			) ) }
+		</div>
+	);
+}
+
+/**
+ * The label of a partition's first row: when the link reconnects while idle,
+ * when it connected while up, and when it last tried otherwise.
+ *
+ * @param {boolean} idle      Whether the partition sits closed on purpose.
+ * @param {boolean} connected Whether the partition streams.
+ * @return {string} The label.
+ */
+function attemptLabel( idle, connected ) {
+	if ( idle ) {
+		return __( 'Reconnects', 'newspack-nodes' );
+	}
+	return connected
+		? __( 'Connected', 'newspack-nodes' )
+		: __( 'Attempt', 'newspack-nodes' );
+}
+
+/**
  * One partition tile: its connection state, the timestamps behind that state,
  * and either the error that explains it or the client-heartbeat verdict.
  *
@@ -268,88 +314,74 @@ function PartitionStatus( { partition, status, now } ) {
 				</span>
 			</div>
 			<div className="aggregator-partition-stats">
-				<div className="aggregator-partition-row">
-					<span className="newspack-nodes-stat-label aggregator-partition-stat-label">
-						{ idle && __( 'Reconnects', 'newspack-nodes' ) }
-						{ connected && __( 'Connected', 'newspack-nodes' ) }
-						{ ! idle &&
-							! connected &&
-							__( 'Attempt', 'newspack-nodes' ) }
-					</span>
-					<span className="newspack-nodes-stat-value aggregator-partition-stat-value">
-						{ idle
+				<StatRow
+					label={ attemptLabel( idle, connected ) }
+					values={ [
+						idle
 							? formatCountdown(
 									status.scheduled_reconnect_at,
 									now
 							  )
-							: formatTime(
-									status.last_connection_attempt,
-									now
-							  ) }
-					</span>
-				</div>
-				<div className="aggregator-partition-row">
-					<span className="newspack-nodes-stat-label aggregator-partition-stat-label">
-						{ __( 'Server HB', 'newspack-nodes' ) }
-					</span>
-					<span className="newspack-nodes-stat-value aggregator-partition-stat-value">
-						{ formatTime( status.last_sse_heartbeat, now ) }
-					</span>
-				</div>
-				<div className="aggregator-partition-row">
-					<span className="newspack-nodes-stat-label aggregator-partition-stat-label">
-						{ __( 'Client HB', 'newspack-nodes' ) }
-					</span>
-					<span className="newspack-nodes-stat-value aggregator-partition-stat-value">
-						{ rttFormatted && (
-							<span
-								className={ `newspack-nodes-status aggregator-heartbeat-rtt small ${ getRttClass(
-									rtt
-								) }` }
-							>
-								{ rttFormatted }ms
-							</span>
-						) }
-						{ formatTime( status.last_heartbeat_response, now ) }
-					</span>
-				</div>
-				<div className="aggregator-partition-row">
-					<span className="newspack-nodes-stat-label aggregator-partition-stat-label">
-						{ __( 'Status', 'newspack-nodes' ) }
-					</span>
-					<span className="newspack-nodes-stat-value aggregator-partition-stat-value">
-						{ /* The error outranks the heartbeat it explains. */ }
-						{ errorMessage ? (
-							<span
-								className="newspack-nodes-status-badge aggregator-partition-error small is-error"
-								title={ status.last_error }
-							>
-								{ errorMessage }
-							</span>
-						) : (
-							<span
-								className={ `newspack-nodes-status-badge aggregator-heartbeat-badge small ${ heartbeatStatus }` }
-							>
-								{ heartbeatStatus.replace( /_/g, ' ' ) }
-							</span>
-						) }
-						{ /* HTTP code as a muted caption on Status line. */ }
-						{ status.last_http_code && (
-							<span className="aggregator-http-code">
-								HTTP { status.last_http_code }
-							</span>
-						) }
-					</span>
-				</div>
+							: formatTime( status.last_connection_attempt, now ),
+					] }
+				/>
+				<StatRow
+					label={ __( 'Server HB', 'newspack-nodes' ) }
+					values={ [ formatTime( status.last_sse_heartbeat, now ) ] }
+				/>
+				<StatRow
+					label={ __( 'Client HB', 'newspack-nodes' ) }
+					values={ [
+						<>
+							{ rttFormatted && (
+								<span
+									className={ `newspack-nodes-status aggregator-heartbeat-rtt small ${ getRttClass(
+										rtt
+									) }` }
+								>
+									{ rttFormatted }ms
+								</span>
+							) }
+							{ formatTime(
+								status.last_heartbeat_response,
+								now
+							) }
+						</>,
+					] }
+				/>
+				<StatRow
+					label={ __( 'Status', 'newspack-nodes' ) }
+					values={ [
+						<>
+							{ /* The error outranks the heartbeat it explains. */ }
+							{ errorMessage ? (
+								<span
+									className="newspack-nodes-status-badge aggregator-partition-error small is-error"
+									title={ status.last_error }
+								>
+									{ errorMessage }
+								</span>
+							) : (
+								<span
+									className={ `newspack-nodes-status-badge aggregator-heartbeat-badge small ${ heartbeatStatus }` }
+								>
+									{ heartbeatStatus.replace( /_/g, ' ' ) }
+								</span>
+							) }
+							{ /* HTTP code as a muted caption on Status line. */ }
+							{ status.last_http_code && (
+								<span className="aggregator-http-code">
+									HTTP { status.last_http_code }
+								</span>
+							) }
+						</>,
+					] }
+				/>
 				{ status.unparseable_lines > 0 && (
-					<div className="aggregator-partition-row">
-						<span className="newspack-nodes-stat-label aggregator-partition-stat-label">
-							{ __( 'Skipped lines', 'newspack-nodes' ) }
-						</span>
-						<span className="newspack-nodes-stat-value aggregator-partition-stat-value">
-							{ status.unparseable_lines }
-						</span>
-					</div>
+					<StatRow
+						label={ __( 'Skipped lines', 'newspack-nodes' ) }
+						values={ [ status.unparseable_lines ] }
+					/>
 				) }
 			</div>
 		</div>
@@ -444,35 +476,21 @@ function ReaderList( { readers } ) {
 	return (
 		<div className="aggregator-readers">
 			{ readers.map( ( reader ) => (
-				<div
+				<StatRow
 					key={ `${ reader.partition }:${ reader.stamp }` }
-					className="aggregator-partition-row aggregator-reader"
-				>
-					<span
-						className="newspack-nodes-stat-label aggregator-partition-stat-label"
-						data-reader-field="stamp"
-					>
-						{ `p${ reader.partition } ${ reader.stamp }` }
-					</span>
-					<span
-						className="newspack-nodes-stat-value aggregator-partition-stat-value"
-						data-reader-field="cursor"
-					>
-						{ reader.cursor }
-					</span>
-					<span
-						className="newspack-nodes-stat-value aggregator-partition-stat-value"
-						data-reader-field="lag"
-					>
-						{ null === reader.distance
+					className="aggregator-reader"
+					label={ `p${ reader.partition } ${ reader.stamp }` }
+					values={ [
+						reader.cursor,
+						null === reader.distance
 							? __( 'lag unknown', 'newspack-nodes' )
 							: sprintf(
 									// translators: %s: bytes behind, e.g. "4 MB".
 									__( '%s behind', 'newspack-nodes' ),
 									formatBytes( reader.distance )
-							  ) }
-					</span>
-				</div>
+							  ),
+					] }
+				/>
 			) ) }
 		</div>
 	);

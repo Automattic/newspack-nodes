@@ -105,7 +105,8 @@ trait Fanout_Targets {
 	 * Signing happens per spoke because the key chosen IS the destination
 	 * binding (ADR-15): one command re-addressed to N spokes after the mint
 	 * would verify nowhere. A spoke with no session yet is skipped, and
-	 * `mint_for()` asks it to handshake. The skip is logged only past the
+	 * `mint_for()` asks it to handshake; a fan-out sends on its own cadence,
+	 * which paces that ask. The skip is logged only past the
 	 * first 30 seconds of uptime, while a session still being established is
 	 * not worth a line.
 	 *
@@ -126,7 +127,7 @@ trait Fanout_Targets {
 			$this->live_targets(),
 			function ( string $target ) use ( $sink, $to, $verb, $arguments ): void {
 				$egress = $this->egress_for( $target );
-				$out    = null === $egress ? null : Command_Auth::mint_for( $egress, $this->name, $this->target_path( $target, $to ), $verb, $arguments );
+				$out    = null === $egress ? null : Command_Auth::mint_for( $egress, $this->name, $this->target_path( $target, $to ), $verb, $arguments, $egress->ensure_session( ... ) );
 				if ( null !== $out ) {
 					$sink->fill( $out );
 					return;

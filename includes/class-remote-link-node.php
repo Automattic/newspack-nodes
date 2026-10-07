@@ -233,8 +233,9 @@ class Remote_Link_Node extends Timer_Node {
 	 * patron HTTP_Out. Skips until SSE_In reports the complete lease. The slot
 	 * pool keys on (user, ip, slot, owner) — no partition.
 	 *
-	 * Signing needs a session with the spoke, so a tick that finds none asks for
-	 * one through `maybe_request_session()` and sends no heartbeat on that pass.
+	 * Signing needs a session with the spoke, so `mint()` mints nothing on a
+	 * tick that finds none, asks for one on the link's own throttle, and leaves
+	 * the heartbeat clock where it was.
 	 */
 	private function maybe_send_heartbeat(): void {
 		if ( null === $this->sse_in || null === $this->http_out ) {
@@ -251,22 +252,14 @@ class Remote_Link_Node extends Timer_Node {
 			$this->link_epoch = $now;
 		}
 		// Silence is not a refusal — HTTP_Out drops the session on a 401.
-		$spoke = $this->http_out->vault_id();
-		if ( '' === $spoke ) {
+		if ( '' === $this->http_out->vault_id() || $now - $this->last_heartbeat_sent < self::HEARTBEAT_INTERVAL ) {
 			return;
 		}
-		if ( ! Command_Auth::has_session( $spoke ) ) {
-			$this->maybe_request_session( $this->http_out, $now );
-			return;
-		}
-		if ( $now - $this->last_heartbeat_sent < self::HEARTBEAT_INTERVAL ) {
-			return;
-		}
-		$this->last_heartbeat_sent = $now;
-		$message = Command_Auth::mint_for( $this->http_out, $this->name, 'workers', 'heartbeat', [ (string) $slot, (string) $owner ] );
+		$message = $this->mint( $this->name, 'workers', 'heartbeat', [ (string) $slot, (string) $owner ] );
 		if ( null === $message ) {
 			return;
 		}
+		$this->last_heartbeat_sent = $now;
 		++$this->counter;
 		$this->http_out->fill( $message );
 		$this->record_heartbeat_sent( $now );
@@ -323,6 +316,26 @@ class Remote_Link_Node extends Timer_Node {
 	 */
 	public static function push_connect_queue( callable $connect, ?self $owner ): void {
 		self::$connect_queue[] = [ $connect, $owner ];
+	}
+
+	/**
+	 * Mint one command for this link's spoke through `Command_Auth::mint_for()`,
+	 * which asks for a missing session through `maybe_request_session()`, so
+	 * every minter on the link — the heartbeat and a broker reader's step —
+	 * asks at the link's pace. Call it with the patrons built.
+	 *
+	 * @param string       $from      Where the reply returns.
+	 * @param string       $to        The path the command addresses.
+	 * @param string       $verb      Command name the spoke's interpreter runs.
+	 * @param list<string> $arguments Command argument tokens.
+	 * @return array<int,mixed>|null The signed command, or null with no egress or session.
+	 */
+	protected function mint( string $from, string $to, string $verb, array $arguments ): ?array {
+		$http_out = $this->http_out;
+		if ( null === $http_out ) {
+			return null;
+		}
+		return Command_Auth::mint_for( $http_out, $from, $to, $verb, $arguments, fn () => $this->maybe_request_session( $http_out, (int) Core::$now ) );
 	}
 
 	/**

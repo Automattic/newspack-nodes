@@ -810,7 +810,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 			.forEach( ( pair ) => {
 				const eq = pair.indexOf( '=' );
 				const at = parsePosition( pair.slice( eq + 1 ) );
-				if ( eq > 0 && at && 'object' === typeof at ) {
+				if ( eq > 0 && at ) {
 					this.lastPositions[ pair.slice( 0, eq ) ] = at;
 				}
 			} );

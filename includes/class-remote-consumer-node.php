@@ -41,6 +41,14 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	private ?Remote_Source_Node $broker = null;
 
 	/**
+	 * The SOURCE and READER this reader's probe record names, which its broker
+	 * composes each time it names the reader; blank until then.
+	 *
+	 * @var array{0:string,1:string}
+	 */
+	private array $probe_names = [ '', '' ];
+
+	/**
 	 * One entry per buffered line, in order: its breadcrumb and the message the
 	 * broker already decoded, so a line is decoded once. A null message is a
 	 * line handed over undecoded.
@@ -51,9 +59,6 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 
 	/** Whether the cursor's segment is unknown: a file source's generation not yet seen. */
 	private bool $generation_unknown = false;
-
-	/** Whether `stand_at()`, the cursor's one deliberate writer, has placed it; a fresh reader's 0:0 is nowhere, so it sends no probe record. */
-	private bool $stood = false;
 
 	/** When a step's `read_message` went out unanswered; null while none is out. */
 	private ?float $step_requested_at = null;
@@ -76,8 +81,10 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	private ?Partition_Node $position_restored_from = null;
 
 	/**
-	 * A seek the spoke resolves, sent instead of the cursor until a handshake or
-	 * the first record answers it; a fresh reader asks for the end.
+	 * A seek the spoke resolves, sent instead of the cursor until the cursor
+	 * stands somewhere: a handshake, a step reply or the first record answers
+	 * it. A fresh reader asks for the end, and while one is pending the
+	 * cursor's 0:0 names no place.
 	 */
 	private ?int $pending_seek = Consumer_Node::SEEK_END;
 
@@ -181,7 +188,6 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 		$cursor = Core::arr( $payload['cursor'] ?? null );
 		if ( \is_int( $cursor['segment'] ?? null ) && \is_int( $cursor['offset'] ?? null ) ) {
 			$this->stand_at( [ 'segment' => $cursor['segment'], 'offset' => $cursor['offset'] ] );
-			$this->pending_seek = null;
 		}
 	}
 
@@ -232,9 +238,10 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * this reader's first poll still asks from it. Then it answers: past
 	 * everything already held — the spoke's skip, else the end of the last
 	 * buffered record carrying a breadcrumb — else a pending seek, else the
-	 * cursor. A skip or a crumb is a real place, so returning one clears a
-	 * pending seek. A cursor whose generation is unknown states its offset
-	 * alone. The broker calls it once per connect, from `stream_request()`.
+	 * cursor. A skip or a crumb is a real place, so it outranks a pending
+	 * seek, which stands until the cursor reaches what is held. A cursor
+	 * whose generation is unknown states its offset alone. The broker calls
+	 * it once per connect, from `stream_request()`.
 	 *
 	 * @return array{segment?:int,offset:int}|int The position, or a seek sentinel.
 	 */
@@ -242,7 +249,6 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 		$this->restore_position();
 		$held = $this->held_end();
 		if ( null !== $held ) {
-			$this->pending_seek = null;
 			return $held;
 		}
 		if ( null !== $this->pending_seek ) {
@@ -251,25 +257,6 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 		return $this->generation_unknown
 			? [ 'offset' => $this->cursor_offset ]
 			: [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset ];
-	}
-
-	/**
-	 * How far the spoke's stream reaches past the cursor, as far as this reader
-	 * knows: the spoke's skip, else the end of the last buffered record carrying
-	 * a breadcrumb; null when it holds neither. A skip from a file source not
-	 * yet past its first record names no segment.
-	 *
-	 * @return array{segment?:int,offset:int}|null
-	 */
-	private function held_end(): ?array {
-		if ( null !== $this->skipped_to ) {
-			return $this->skipped_to;
-		}
-		$last = null;
-		foreach ( $this->lines as $entry ) {
-			$last = $entry['crumb'] ?? $last;
-		}
-		return null === $last ? null : [ 'segment' => $last['segment'], 'offset' => $last['offset'] + $last['length'] ];
 	}
 
 	/**
@@ -352,9 +339,12 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	/**
 	 * Read the latest committed frame, seed the node cursor and the boot pin, resume the shared
 	 * poison and crash accounting (attempts+1, and a hard-crash lineage enters crawl), then arm
-	 * the boot head-skip. Idempotent: connect_position() calls it to state the cursor in the
-	 * first request, and the Durable_Reader boot seam calls it again on the first poll. Returns
-	 * empty on a fresh offsetlog.
+	 * the boot head-skip. A seek a caller asked for through `next_offset()` before this first
+	 * restore stands, and the cursor stays for the spoke to resolve it; the frame's head then
+	 * names no record the spoke will send, so no head-skip arms. Otherwise the restored
+	 * cursor answers the fresh reader's end seek. Idempotent: connect_position() calls it to
+	 * state the cursor in the first request, and the Durable_Reader boot seam calls it again on
+	 * the first poll. Returns empty on a fresh offsetlog.
 	 *
 	 * @return array{segment?:int,offset?:int}
 	 */
@@ -375,11 +365,14 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 		$offset  = $value['offset'] ?? 0;
 		$segment = Core::as_int( $segment );
 		$offset  = Core::as_int( $offset );
-		$this->arm_skip_head_from_frame( $value );
-		$this->stand_at( [ 'segment' => $segment, 'offset' => $offset ] );
+		if ( $this->offset_set && null !== $this->pending_seek ) {
+			$this->resume_attempts_from_frame( $value );
+		} else {
+			$this->arm_skip_head_from_frame( $value );
+			$this->stand_at( [ 'segment' => $segment, 'offset' => $offset ] );
+		}
 		$this->boot_cursor_segment = $segment;
 		$this->boot_cursor_offset  = $offset;
-		$this->pending_seek        = null;
 		return [
 			'segment' => $segment,
 			'offset'  => $offset,
@@ -398,7 +391,6 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 		$crumb = $this->head['crumb'] ?? null;
 		if ( null !== $crumb ) {
 			$this->stand_at( $crumb );
-			$this->pending_seek = null;
 		}
 		if ( $this->crawl_skip_head && null !== $crumb && $this->sacrifice_boot_head( $line, $crumb ) ) {
 			return; // Sacrificed — not forwarded.
@@ -544,15 +536,13 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * @param string|int|array<array-key,mixed> $position Explicit {segment?,offset}, or a seek sentinel / alias word.
 	 */
 	public function next_offset( $position ): void {
-		$this->steps_owed        = 0;
-		$this->step_requested_at = null;
+		$this->forgive_steps();
 		if ( \is_array( $position ) ) {
 			$at = [ 'offset' => \is_numeric( $position['offset'] ?? null ) ? Core::as_int( $position['offset'] ) : 0 ];
 			if ( \is_numeric( $position['segment'] ?? null ) ) {
 				$at['segment'] = Core::as_int( $position['segment'] );
 			}
 			$this->stand_at( $at );
-			$this->pending_seek = null;
 		} else {
 			$this->pending_seek = Log_Position::sentinel( $position );
 		}
@@ -605,34 +595,73 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	/**
 	 * Resolve a pending seek to where the spoke's handshake says the stream
 	 * begins. Without one the handshake only names the position the connect
-	 * asked for, which ticks may since have drained past, so it is not adopted.
-	 * A cursor naming no segment leaves the generation unknown rather than
-	 * writing segment 0.
+	 * asked for, which ticks may since have drained past, so it is not adopted;
+	 * nor while records are held, since the connect asked past them and the
+	 * cursor reaches them first. A cursor naming no segment leaves the
+	 * generation unknown rather than writing segment 0.
 	 *
 	 * @param array{segment?:int,offset:int} $cursor This stream's CURSORS entry.
 	 */
 	public function adopt_stream_start( array $cursor ): void {
-		if ( null === $this->pending_seek ) {
+		if ( null === $this->pending_seek || null !== $this->held_end() ) {
 			return;
 		}
-		$this->pending_seek = null;
 		$this->stand_at( $cursor );
 	}
 
 	/**
-	 * Stand the cursor at a place. A place naming no segment moves the offset
-	 * alone and leaves the generation unknown, rather than writing segment 0,
-	 * which a File_Tail reads as a foreign inode.
+	 * How far the spoke's stream reaches past the cursor, as far as this reader
+	 * knows: the spoke's skip, else the end of the last buffered record carrying
+	 * a breadcrumb; null when it holds neither. A skip from a file source not
+	 * yet past its first record names no segment.
+	 *
+	 * @return array{segment?:int,offset:int}|null
+	 */
+	private function held_end(): ?array {
+		if ( null !== $this->skipped_to ) {
+			return $this->skipped_to;
+		}
+		$last = null;
+		foreach ( $this->lines as $entry ) {
+			$last = $entry['crumb'] ?? $last;
+		}
+		return null === $last ? null : [ 'segment' => $last['segment'], 'offset' => $last['offset'] + $last['length'] ];
+	}
+
+	/**
+	 * Stand the cursor at a place, the cursor's one deliberate writer: a real
+	 * place answers any pending seek. A place naming no segment moves the
+	 * offset alone and leaves the generation unknown, rather than writing
+	 * segment 0, which a File_Tail reads as a foreign inode.
 	 *
 	 * @param array{segment?:int,offset:int} $at Where the reader now stands.
 	 */
 	private function stand_at( array $at ): void {
-		$this->stood              = true;
+		$this->pending_seek       = null;
 		$this->generation_unknown = ! isset( $at['segment'] );
 		if ( isset( $at['segment'] ) ) {
 			$this->cursor_segment = $at['segment'];
 		}
 		$this->cursor_offset = $at['offset'];
+	}
+
+	/** `pause` leaves the stream: the broker reconnects without this reader. */
+	protected function time_travel_on_pause(): void {
+		$this->forgive_steps();
+		$this->broker?->restream();
+	}
+
+	/** `play` rejoins it from where the cursor stands. */
+	protected function time_travel_resume(): void {
+		$this->forgive_steps();
+		$this->set_timer( self::POLL_INTERVAL_EOF_MS );
+		$this->broker?->restream();
+	}
+
+	/** Owe no step and await no reply: what a step was asked for no longer stands. */
+	private function forgive_steps(): void {
+		$this->steps_owed        = 0;
+		$this->step_requested_at = null;
 	}
 
 	/**
@@ -641,8 +670,8 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * its own. SOURCE names the spoke's log as this site does,
 	 * `remote/<vault_id>:<kind>`, never the spoke's bare stamp, which would name
 	 * a log of this site's own; READER is the id the broker composes from its
-	 * worker binding. Both come from the broker (`probe_names()`), and both are
-	 * blank without one.
+	 * worker binding. Both come from the broker (`probe_names()`) as it names
+	 * this reader, and both are blank without one.
 	 *
 	 * The spoke's log end is out of sight: nothing the spoke sends names it,
 	 * neither a record's breadcrumb nor the handshake's CURSORS. The END pair
@@ -650,15 +679,16 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * other unit, so the `consumer-lag` alert never covers a hub reader. A
 	 * segment this reader does not know — a file source's generation before
 	 * the spoke names it — is null too, never 0, which names a real segment or
-	 * a foreign inode. A reader that stands nowhere yet sends nothing.
+	 * a foreign inode. A reader whose seek is still pending stands nowhere yet,
+	 * so it sends nothing.
 	 *
 	 * @return array<int,int|string|null>|null A `Probe_Record`-indexed positional array, or null.
 	 */
 	public function probe_stats(): ?array {
-		if ( ! $this->stood ) {
+		if ( null !== $this->pending_seek ) {
 			return null;
 		}
-		[ $source, $reader ] = $this->broker?->probe_names( $this->stamp ) ?? [ '', '' ];
+		[ $source, $reader ] = $this->probe_names;
 		return $this->probe_record( $source, $reader, [
 			'cursor_segment' => $this->generation_unknown ? null : $this->cursor_segment,
 			'cursor_offset'  => $this->cursor_offset,
@@ -709,21 +739,6 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 		$this->set_timer( self::POLL_INTERVAL_EOF_MS );
 	}
 
-	/** `pause` leaves the stream: the broker reconnects without this reader. */
-	protected function time_travel_on_pause(): void {
-		$this->steps_owed        = 0;
-		$this->step_requested_at = null;
-		$this->broker?->restream();
-	}
-
-	/** `play` rejoins it from where the cursor stands. */
-	protected function time_travel_resume(): void {
-		$this->steps_owed        = 0;
-		$this->step_requested_at = null;
-		$this->set_timer( self::POLL_INTERVAL_EOF_MS );
-		$this->broker?->restream();
-	}
-
 	/**
 	 * The reader's frame extra beyond the shared base: the commit wall-clock, carried on every
 	 * frame so an idle-vs-fresh cursor is distinguishable in the durable record.
@@ -735,12 +750,16 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	}
 
 	/**
-	 * Adopt the broker whose connection carries this stream and whose HTTP_Out steps it.
+	 * Adopt the broker whose connection carries this stream and whose HTTP_Out
+	 * steps it, and take the names this reader reports under. The broker calls
+	 * it whenever it names the reader: on building it, on a rename and on a
+	 * replay, which may move the vault, the topology or the partition.
 	 *
 	 * @param Remote_Source_Node $broker The broker routing this stream's lines.
 	 */
 	public function broker( Remote_Source_Node $broker ): void {
-		$this->broker = $broker;
+		$this->broker      = $broker;
+		$this->probe_names = $broker->probe_names( $this->stamp );
 	}
 
 	/** The stamp this reader's lines carry. */

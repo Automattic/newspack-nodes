@@ -425,7 +425,7 @@ class HTTP_Out_Node extends Timer_Node implements Curl_Owner {
 
 		self::establish_session( $dest, $server, $base );
 
-		$message = self::command_message( $to, $verb, $verb_args );
+		$message = self::command_message( Node_Names::HTTP, $to, $verb, $verb_args );
 		Command_Auth::sign_for( $dest, $message );
 
 		$response = self::blocking_post(
@@ -480,21 +480,23 @@ class HTTP_Out_Node extends Timer_Node implements Curl_Owner {
 	}
 
 	/**
-	 * Mint the `/command` request Message using substrate primitives only.
-	 * Returns the Message rather than a packed line so the caller can sign it —
-	 * this is the mint site, and only a mint site may sign (ADR-15). FROM names
-	 * the `_http` boundary rather than a live node, because the blocking path
-	 * reads its reply off the response body instead of routing it.
+	 * Build one command bound for a spoke, unsigned. Returns the Message rather
+	 * than a packed line so the minter can sign it — only a mint site may sign
+	 * (ADR-15). The blocking probe names the `_http` boundary as FROM, because
+	 * it reads its reply off the response body instead of routing it;
+	 * `Command_Auth::mint_for()` names the node the reply returns to.
 	 *
+	 * @api `Command_Auth::mint_for()` builds every signed per-spoke command here.
+	 * @param string       $from Where the reply returns.
 	 * @param string       $to   Target node path.
 	 * @param string       $verb Command verb name.
 	 * @param list<string> $args Argument tail (Command_Args grammar).
 	 * @return array<int,mixed> The 7-field positional Message.
 	 */
-	private static function command_message( string $to, string $verb, array $args = [] ): array {
+	public static function command_message( string $from, string $to, string $verb, array $args ): array {
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_COMMAND;
-		$message[ Message::FROM ]  = Node_Names::HTTP;
+		$message[ Message::FROM ]  = $from;
 		$message[ Message::TO ]    = $to;
 		$message[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => $args ];
 		return $message;

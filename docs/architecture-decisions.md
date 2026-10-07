@@ -883,12 +883,14 @@ A minter resolves its egress by running the target's head segment through `Core:
 type-tests the result for `HTTP_Out_Node`, and calls
 [`HTTP_Out_Node::ensure_session()`](../includes/class-http-out-node.php), which exists for that and nothing else: it fires the node
 when `Command_Auth::has_session()` says there is none. [`Command_Auth::mint_for()`](../includes/class-command-auth.php)
-is that body, written once: it checks the session, asks the egress for one when there is
-none, then mints and signs, handing the command back for the caller to fill, as
-`Node.command()` does below. [`Fanout_Targets::send_signed()`](../includes/trait-fanout-targets.php) calls it once per target
-for `Settings_Sync_Node` and ELN's [`Discovery_Collector_Node`](https://github.com/Automattic/newspack-event-logger-nodes/blob/4437e383/includes/class-discovery-collector-node.php), and a paused
-`Remote_Consumer`'s step and `Remote_Link`'s slot heartbeat call it directly, so another
-minter calls it rather than copying the shape. On the JS side [`Node.command( name, args )`](../src/runtime/node.js)
+is that body, written once: it checks the session, asks for one through the closure its
+caller passes when there is none, then mints and signs, handing the command back for the
+caller to fill, as `Node.command()` does below. The closure is the caller's throttle, so a
+minter retrying every tick never handshakes every tick. [`Fanout_Targets::send_signed()`](../includes/trait-fanout-targets.php) calls it once per target
+for `Settings_Sync_Node` and ELN's [`Discovery_Collector_Node`](https://github.com/Automattic/newspack-event-logger-nodes/blob/4437e383/includes/class-discovery-collector-node.php), passing `ensure_session()`, which its send
+cadence paces; a paused `Remote_Consumer`'s step and `Remote_Link`'s slot heartbeat call it
+through `Remote_Link_Node::mint()`, which asks on the link's own second of the heartbeat
+cadence, so another minter calls it rather than copying the shape. On the JS side [`Node.command( name, args )`](../src/runtime/node.js)
 builds the TM_COMMAND, stamps FROM from the node's name and TO from its target, and hands back
 the message signed and LOCAL-marked — or null when `readyToMint()` finds no session, having
 asked for one on the way. Signing is synchronous and cannot await `/auth`, so a null is the
@@ -1179,7 +1181,11 @@ no inbound edge while they fill.
 A node returns the destinations it writes without going through `target`;
 `Node::display_targets()` unions them with `target_list( target() )`, primary first,
 de-duplicated, empties dropped, and only presentation reads the union: `ls`'s TARGET column
-and `dump_metadata`'s `targets` key. `fill()` reads `$this->target` alone. This licenses no
+and `dump_metadata`'s `targets` key. A class whose extras follow from its `make_node` arguments
+declares them once, in the static `Node::declared_targets( $args )`: the default
+`extra_targets()` reads it with the node's own arguments, and `Topology_Analyzer` reads it off
+every `make_node` line, whatever the class, and draws each as a `pair` edge, so the live canvas
+and the static graph cannot drift. `fill()` reads `$this->target` alone. This licenses no
 second physical output: ADR-7's reopen condition stands, and a node filling a destination
 directly, past its sink and past a TO, is the case that would trigger it.
 
@@ -1941,15 +1947,13 @@ into the hub's jobs backlog. So a remote log's name is `remote/<vault_id>:<kind>
 Vault id, then the stamp's kind — which [`Log_Discovery::remote_for()`](../includes/class-log-discovery.php)
 writes and `remote_of()` reads back, held to the browser's `remoteOf()` in
 [`src/runtime/log-stamp.js`](../src/runtime/log-stamp.js) by `tests/fixtures/log-remotes.json`.
-Neither a Vault id nor a stamp carries `:`, so the first `:` parts the two. `REMOTE_PREFIX`
-joins `STAMP_PREFIXES`, so `stamp_for()` refuses a local log dir named `remote` and no local
-stamp can be a remote name, and `dir_from_stamp()` and `splitStamp()` read one as a two-segment
-stamp (`log-stamps.json` holds the rows). It names no dir and no registry entry here: `split()`
-reads its prefix and every resolver refuses it, and `is_stamp()` and `is_subscription()` refuse
-the prefix, so the wire never carries one. The FROM trail and the SSE wire keep the spoke's
-stamp; a remote name exists only in the hub's probe channel, as a broker reader's SOURCE.
-Rejected: `remote/<vault_id>/<stamp>`, whose three or four segments `dir_from_stamp()` would cut
-at the second.
+Neither a Vault id nor a stamp carries `:`, so the first `:` parts the two. A remote name is no
+stamp: it exists only in the hub's probe channel, as a broker reader's SOURCE, and `remote_of()`
+is its one reader. The FROM trail and the SSE wire keep the spoke's stamp, so `REMOTE_PREFIX`
+stays out of `STAMP_PREFIXES`: no stamp reader, resolver or subscription ever meets one, and a
+local log dir may be named `remote`. A local stamp never opens `remote/`, because a bare stamp
+holds no `/`. Rejected: `remote/<vault_id>/<stamp>`, which a FROM reader would cut at the second
+segment if one ever met it.
 
 ---
 
@@ -1987,9 +1991,11 @@ So the browser and the hub could disagree on what one entry said. The seek words
 `Log_Position::WORDS`, one table from each word to its `Consumer_Node::SEEK_*` sentinel.
 `format( ?int $segment, int $offset, ?int $length )` is the one writer: a null segment writes
 `:<offset>`, because segment 0 names a real segment or a foreign inode, and a null length writes
-a position rather than a breadcrumb. `parse( string $position )` is the one reader. It answers
-the place, its length included when present, the word, or null; every number is a canonical
-decimal. `crumb()` narrows it to a breadcrumb, which names its segment and its length. Each
+a position rather than a breadcrumb. `parse( string $position )` is the one reader, one anchored
+match. It answers the place, its length included when present, or null; every number is a
+canonical decimal that fits an int. A word is no place: the two readers that speak the words,
+`Log_Sources::read()` and `SSE_Out_Node::position_arg()`, look one up in `WORDS` first. `crumb()`
+narrows `parse()` to a breadcrumb, which names its segment and its length. Each
 caller states its own refusal, as `CLI::parse_worker_id()` lets its callers do
 ([ADR-22](#adr-22-a-worker-id-has-one-writer-one-reader-and-two-layout-owners)):
 `read_message` throws, a `CURSORS` entry or an ID naming no place is skipped, and a

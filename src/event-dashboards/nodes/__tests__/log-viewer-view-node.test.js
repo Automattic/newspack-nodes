@@ -247,9 +247,10 @@ test( 'browse clears the buffer: a rewind starts from a clean slate', () => {
 	v.fill(
 		controlMsg( {
 			action: 'browse',
-			endSegment: 3,
-			endOffset: 90,
-			knownSegments: [ 2, 3 ],
+			segments: [
+				{ id: 2, size: 1 },
+				{ id: 3, size: 90 },
+			],
 		} )
 	);
 	expect( v.lines ).toHaveLength( 0 );
@@ -486,9 +487,10 @@ test( 'a browse control puts the view into replay mode', () => {
 	v.fill(
 		controlMsg( {
 			action: 'browse',
-			endSegment: 9,
-			endOffset: 500,
-			knownSegments: [ 5, 9 ],
+			segments: [
+				{ id: 5, size: 1 },
+				{ id: 9, size: 500 },
+			],
 		} )
 	);
 	expect( v.mode ).toBe( 'replay' );
@@ -500,9 +502,10 @@ test( 'flips to live when a replayed record reaches the captured end position', 
 	v.fill(
 		controlMsg( {
 			action: 'browse',
-			endSegment: 9,
-			endOffset: 500,
-			knownSegments: [ 5, 9 ],
+			segments: [
+				{ id: 5, size: 1 },
+				{ id: 9, size: 500 },
+			],
 		} )
 	);
 	v.fill( envelopeWithId( '5:100:20' ) ); // behind the end segment
@@ -517,9 +520,10 @@ test( 'stays in replay until the end position is reached', () => {
 	v.fill(
 		controlMsg( {
 			action: 'browse',
-			endSegment: 9,
-			endOffset: 500,
-			knownSegments: [ 5, 9 ],
+			segments: [
+				{ id: 5, size: 1 },
+				{ id: 9, size: 500 },
+			],
 		} )
 	);
 	v.fill( envelopeWithId( '9:100:20' ) ); // 120 < 500
@@ -531,9 +535,10 @@ test( 'follow returns the view to live', () => {
 	v.fill(
 		controlMsg( {
 			action: 'browse',
-			endSegment: 9,
-			endOffset: 500,
-			knownSegments: [ 5, 9 ],
+			segments: [
+				{ id: 5, size: 1 },
+				{ id: 9, size: 500 },
+			],
 		} )
 	);
 	v.fill( controlMsg( { action: 'follow' } ) );
@@ -545,9 +550,10 @@ test( 'select resets mode to live and clears the last-received segment', () => {
 	v.fill(
 		controlMsg( {
 			action: 'browse',
-			endSegment: 9,
-			endOffset: 500,
-			knownSegments: [ 5, 9 ],
+			segments: [
+				{ id: 5, size: 1 },
+				{ id: 9, size: 500 },
+			],
 		} )
 	);
 	v.fill( envelopeWithId( '5:0:20' ) );

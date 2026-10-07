@@ -1431,17 +1431,38 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertFalse( Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 0 ) ) );
 	}
 
-	public function test_status_keeps_publishing_while_every_reader_is_paused(): void {
+	/** An unchanged snapshot is rewritten once a heartbeat interval, so an evicted key is back within one. */
+	public function test_an_unchanged_status_is_written_again_once_a_heartbeat_interval(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		[ $node, $reader ] = $this->make_remote();
 		$reader->pause();
 		Core::$now = 8200.0;
 		$node->fire();
 		Core::$memd->delete( Remote_Source_Node::status_key_for( 'remote-austin', 0 ) );
+
+		Core::$now = 8201.0;
+		$node->fire();
+		$this->assertFalse( $this->status_of( $node ), 'nothing changed, so nothing is written' );
+
+		Core::$now = 8200.0 + Remote_Source_Node::HEARTBEAT_INTERVAL;
+		$node->fire();
+		$this->assertFalse( $this->status_of( $node )['connected'], 'an evicted snapshot is back within one heartbeat interval' );
+	}
+
+	/** A changed snapshot is written on the tick that changes it. */
+	public function test_a_changed_status_is_written_at_once(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote();
+		Core::$now = 8200.0;
+		$node->fire();
+		Core::$memd->delete( Remote_Source_Node::status_key_for( 'remote-austin', 0 ) );
+		self::set_slot( Core::node( 'remote-austin:sse-in' ), 5 );
+
 		Core::$now = 8201.0;
 		$node->fire();
 
-		$this->assertFalse( $this->status_of( $node )['connected'] );
+		$this->assertSame( 8201, $this->status_of( $node )['last_heartbeat_sent'] );
 	}
 
 	// ---------------------------------------------------------------------
