@@ -1104,11 +1104,13 @@ nothing else, so a caller never has to read a verdict out of a returned value.
 
 ![The pull side as a state machine: CONNECTING, CONNECTED, DISCONNECTING, ERROR, DISCONNECTED and RECONNECTING with the event behind each edge and the backoff rail back to CONNECTING, the four bounds, what the node sends on every connect, which of three cursor inputs wins, the eight keys of connection(), and the browser mirror's own watchdog, silence and backoff numbers with its five states.](img/api-sse-in-pull.png)
 
-A patron ([`Remote_Source_Node`](../includes/class-remote-source-node.php)) drives [`maybe_connect()`](../includes/class-sse-in-node.php) and `check_stale()`;
-`Remote_Source_Node::fire()` carries the `has_pending_seek()` gate, and
+A patron ([`Remote_Source_Node`](../includes/class-remote-source-node.php)) drives [`maybe_connect()`](../includes/class-sse-in-node.php) and `check_stale()`.
+The node keeps no cursor: the patron states what to pull through `streams()`
+from its `on_connecting` seam, each time a request is about to go out.
 `Remote_Source_Node::next_offset()` shows both cursor branches, a bare sentinel
-forwarded and an explicit pair written through `restore_position()`, each after
-a `disconnect()`, because the sentinel is read at connect time only.
+held as its pending seek and an explicit pair written to its own cursor, each
+after a `disconnect()`, because `connect_position()` is read at connect time
+only.
 
 | Constant | Value | Bounds |
 |---|---|---|

@@ -70,6 +70,12 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 */
 	private ?Partition_Node $position_restored_from = null;
 
+	/**
+	 * A seek the spoke resolves, sent instead of the cursor until a handshake or
+	 * the first record answers it; a fresh reader asks for the end.
+	 */
+	private ?int $pending_seek = Consumer_Node::SEEK_END;
+
 	/** Mirror of the SSE_In valve state: true while armed. Only the buffer's size flips it. */
 	private bool $pump_armed = true;
 
@@ -151,11 +157,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 			} elseif ( $this->steps_owed > 0 ) {
 				$this->steps_owed -= $this->poll();
 			}
-			// One position, not two — unless an unresolved seek outranks it.
-			$sse = $this->sse_in;
-			if ( null !== $sse && ! $sse->has_pending_seek() ) {
-				$sse->restore_position( $this->cursor_segment, $this->cursor_offset );
-			}
 			// checkpoint() makes the cursor durable; a step never does.
 			if ( ! $paused && null !== $this->offsetlog && $this->checkpoint_due() ) {
 				$this->checkpoint();
@@ -213,9 +214,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 			$this->cursor_segment = $crumb['segment'];
 			$this->cursor_offset  = $crumb['offset'];
 			// The first record past a bare seek says where the stream began.
-			if ( $this->sse_in?->has_pending_seek() ) {
-				$this->sse_in->restore_position( $crumb['segment'], $crumb['offset'] );
-			}
+			$this->pending_seek = null;
 		}
 		if ( $this->crawl_skip_head && null !== $crumb && $this->sacrifice_boot_head( $line, $crumb ) ) {
 			return; // Sacrificed — not forwarded.
@@ -345,6 +344,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$this->cursor_offset       = $offset;
 		$this->boot_cursor_segment = $segment;
 		$this->boot_cursor_offset  = $offset;
+		$this->pending_seek        = null;
 		return [
 			'segment' => $segment,
 			'offset'  => $offset,
@@ -404,9 +404,9 @@ class Remote_Source_Node extends Remote_Link_Node {
 		if ( \is_array( $position ) ) {
 			$this->cursor_segment = \is_numeric( $position['segment'] ?? null ) ? (int) $position['segment'] : 0;
 			$this->cursor_offset  = \is_numeric( $position['offset'] ?? null ) ? (int) $position['offset'] : 0;
-			$sse->restore_position( $this->cursor_segment, $this->cursor_offset );
+			$this->pending_seek   = null;
 		} else {
-			$sse->seek( Consumer_Node::seek_sentinel( $position ) );
+			$this->pending_seek = Consumer_Node::seek_sentinel( $position );
 		}
 		$this->offset_set = true;
 		$this->buffer     = '';
@@ -433,14 +433,17 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$sse = parent::ensure_patrons();
 		if ( null !== $sse ) {
 			$sse->set_multi_writer( $this->multi_writer );
-			$sse->on_connected = function ( int $segment, int $offset ): void {
-				$this->adopt_stream_start( $segment, $offset );
+			$sse->on_connected = function ( array $cursors ): void {
+				/** @var array<string,array{segment?:int,offset:int}> $cursors */
+				$this->adopt_stream_start( $cursors[ $this->remote_partition ] ?? null );
 			};
-			$sse->on_connecting = function (): void {
-				$this->resume_past_buffer();
-			};
-			$sse->on_skipped = function ( int $segment, int $offset ): void {
-				$this->skipped_to = [ 'segment' => $segment, 'offset' => $offset ];
+			// A segment-less cursor, a file source's, is not kept yet.
+			$sse->on_skipped = function ( array $cursors ): void {
+				/** @var array<string,array{segment?:int,offset:int}> $cursors */
+				$cursor = $cursors[ $this->remote_partition ] ?? null;
+				if ( isset( $cursor['segment'] ) ) {
+					$this->skipped_to = [ 'segment' => $cursor['segment'], 'offset' => $cursor['offset'] ];
+				}
 			};
 			$sse->on_message = function ( string $raw ): void {
 				$this->skipped_to = null;
@@ -629,24 +632,32 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Aim the request about to go out past everything already held: the end of
-	 * the last buffered record carrying a breadcrumb, or the cursor when none
-	 * does. A partial trailing line goes, since the spoke re-sends it whole. A
-	 * pending seek with nothing buffered stays the spoke's to resolve. A new
-	 * stream opens with its valve armed, and the next arrival closes it again
-	 * while the buffer stays over the high-water mark.
+	 * The one stream this reader pulls, asked for from where it stands.
+	 *
+	 * @return array{0:list<string>,1:array<string,array{segment?:int,offset:int}|int|string>} Subscriptions, then per-stamp positions.
 	 */
-	private function resume_past_buffer(): void {
-		$sse = $this->sse_in;
-		if ( null === $sse ) {
-			return;
-		}
+	protected function stream_request(): array {
+		return [ [ $this->remote_partition ], [ $this->remote_partition => $this->connect_position() ] ];
+	}
+
+	/**
+	 * Where the request about to go out begins: past everything already held —
+	 * the spoke's skip, else the end of the last buffered record carrying a
+	 * breadcrumb — else a pending seek, else the cursor. A skip or a crumb is a
+	 * real place, so it supersedes a pending seek. A partial trailing line goes,
+	 * since the spoke re-sends it whole. A new stream opens with its valve armed.
+	 * It acts as well as answers — re-arming the pump and trimming the buffer —
+	 * so `stream_request()` calls it once per connect and nothing else should.
+	 *
+	 * @return array{segment?:int,offset:int}|int The position, or a seek sentinel.
+	 */
+	public function connect_position(): array|int {
 		$this->pump_armed = true;
 		$end              = \strrpos( $this->buffer, "\n" );
 		$this->buffer     = false === $end ? '' : \substr( $this->buffer, 0, $end + 1 );
 		if ( null !== $this->skipped_to ) {
-			$sse->restore_position( $this->skipped_to['segment'], $this->skipped_to['offset'] );
-			return;
+			$this->pending_seek = null;
+			return $this->skipped_to;
 		}
 		// Walk back line by line to the last crumb; usually the final line.
 		for ( $stop = \strlen( $this->buffer ) - 1; $stop > 0; $stop = $start - 1 ) {
@@ -654,13 +665,11 @@ class Remote_Source_Node extends Remote_Link_Node {
 			$start = false === $prev ? 0 : $prev + 1;
 			$crumb = $this->crumb_from_line( \substr( $this->buffer, $start, $stop - $start ) );
 			if ( null !== $crumb ) {
-				$sse->restore_position( $crumb['segment'], $crumb['offset'] + $crumb['length'] );
-				return;
+				$this->pending_seek = null;
+				return [ 'segment' => $crumb['segment'], 'offset' => $crumb['offset'] + $crumb['length'] ];
 			}
 		}
-		if ( ! $sse->has_pending_seek() ) {
-			$sse->restore_position( $this->cursor_segment, $this->cursor_offset );
-		}
+		return $this->pending_seek ?? [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset ];
 	}
 
 	/**
@@ -705,20 +714,19 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Resolve a pending seek to the position the spoke's handshake says the stream
-	 * begins at. Without one the handshake only names the position the connect
+	 * Resolve a pending seek to where the spoke's handshake says the stream
+	 * begins. Without one the handshake only names the position the connect
 	 * asked for, which ticks may since have drained past, so it is not adopted.
 	 *
-	 * @param int $segment Spoke segment the stream starts in.
-	 * @param int $offset  Byte offset within it.
+	 * @param array{segment?:int,offset:int}|null $cursor This stream's CURSORS entry, or null when absent.
 	 */
-	private function adopt_stream_start( int $segment, int $offset ): void {
-		if ( ! $this->sse_in?->has_pending_seek() ) {
+	public function adopt_stream_start( ?array $cursor ): void {
+		if ( null === $this->pending_seek || null === $cursor ) {
 			return;
 		}
-		$this->cursor_segment = $segment;
-		$this->cursor_offset  = $offset;
-		$this->sse_in->restore_position( $segment, $offset );
+		$this->pending_seek   = null;
+		$this->cursor_segment = $cursor['segment'] ?? 0;
+		$this->cursor_offset  = $cursor['offset'];
 	}
 
 	/** Close the valve once the buffer has accumulated past the high-water mark (from on_message). */

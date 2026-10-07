@@ -75,11 +75,12 @@ class SSE_In_Node extends Node implements Curl_Owner {
 
 	/**
 	 * Handshake seam, set by the patron. The spoke's `connected` envelope names, in
-	 * CURSORS, where this stream actually begins, which is how a tail or sentinel
-	 * seek resolves; this hands that position for `$subscribe` to the patron, which
-	 * owns the cursor. An envelope naming none (an older spoke) calls nothing.
+	 * CURSORS, where each stream actually begins, which is how a tail or sentinel
+	 * seek resolves; this hands every `stamp => {segment?, offset}` pair to the
+	 * patron, which owns the cursors. An envelope naming none (an older spoke)
+	 * calls nothing.
 	 *
-	 * Signature: `function ( int $segment, int $offset ): void`.
+	 * Signature: `function ( array $cursors ): void`.
 	 *
 	 * @var \Closure|null
 	 */
@@ -87,7 +88,7 @@ class SSE_In_Node extends Node implements Curl_Owner {
 
 	/**
 	 * Request seam, set by the patron. Called when a connect is about to go out,
-	 * before the request reads the position, so the patron can name one past
+	 * before the request reads the streams, so the patron can state them past
 	 * everything it already holds.
 	 *
 	 * Signature: `function (): void`.
@@ -98,11 +99,12 @@ class SSE_In_Node extends Node implements Curl_Owner {
 
 	/**
 	 * Skip seam, set by the patron. An `unparseable_lines` frame names, in
-	 * CURSORS, where the spoke's reader stands past the torn lines it skipped;
-	 * this hands that position for `$subscribe` to the patron, which owns the
-	 * cursor, so a reopen resumes past those lines instead of counting them again.
+	 * CURSORS, where the spoke's readers stand past the torn lines they skipped;
+	 * this hands every `stamp => {segment?, offset}` pair to the patron, which
+	 * owns the cursors, so a reopen resumes past those lines instead of counting
+	 * them again.
 	 *
-	 * Signature: `function ( int $segment, int $offset ): void`.
+	 * Signature: `function ( array $cursors ): void`.
 	 *
 	 * @var \Closure|null
 	 */
@@ -116,9 +118,6 @@ class SSE_In_Node extends Node implements Curl_Owner {
 
 	/** Application-Password user for Basic auth against the remote. */
 	protected string $auth_username     = '';
-
-	/** Remote partition directory to open, `<topic>.p<N>`; also the `positions` map key. */
-	protected string $subscribe         = '';
 
 	/** Ask the remote to read this subscription with the multi-writer seal-grace. */
 	protected bool $multi_writer        = false;
@@ -163,17 +162,20 @@ class SSE_In_Node extends Node implements Curl_Owner {
 	private int     $unparseable_lines  = 0;
 
 	/**
-	 * Read cursor sent at connect. The patron owns it — `configure()` and
-	 * `restore_position()` are the only writers, and nothing here advances it.
+	 * Subscriptions the next connect asks for, as the patron last stated them.
 	 *
-	 * @var array{segment:int,offset:int}
+	 * @var list<string>
 	 */
-	private array $position             = [ 'segment' => 0, 'offset' => 0 ];
-	/** Whether $position is a real place we were put, vs the never-seeded default. */
-	private bool  $position_set         = false;
+	private array $subscribe            = [];
 
-	/** A SEEK sentinel to ask for instead of $position; the remote resolves it. */
-	private ?int  $pending_seek         = null;
+	/**
+	 * Where each stamp the next connect states begins: a `{segment?, offset}`,
+	 * a `Consumer_Node::SEEK_*` sentinel, or `SSE_Out_Node::SKIP`. A file-mode
+	 * source that has not seen its generation yet carries no `segment`.
+	 *
+	 * @var array<string,array{segment?:int,offset:int}|int|string>
+	 */
+	private array $positions            = [];
 
 	/** Reopen delay the server advertised — `retry` event or field; null = none. */
 	private ?int  $server_retry_ms      = null;
@@ -227,7 +229,7 @@ class SSE_In_Node extends Node implements Curl_Owner {
 
 	/**
 	 * Open an easy handle when there is none and the backoff window has passed.
-	 * Builds the stream URL from `$subscribe` and the cursor, adds the credential
+	 * Builds the stream URL from the streams the patron stated, adds the credential
 	 * header, clears every per-connection field, and starts the transfer on the
 	 * Event_Framework's shared multi. A refusal — a non-HTTPS URL under
 	 * `$require_ssl`, or `curl_init()` failing — records `$last_error`, doubles the
@@ -246,6 +248,14 @@ class SSE_In_Node extends Node implements Curl_Owner {
 			return false;
 		}
 
+		if ( null !== $this->on_connecting ) {
+			( $this->on_connecting )();
+		}
+		// Nothing to pull is no request, and no refusal worth recording.
+		if ( [] === $this->subscribe ) {
+			return false;
+		}
+
 		if ( $this->require_ssl && \stripos( $this->url, 'https://' ) !== 0 ) {
 			$this->last_error = 'refusing non-HTTPS URL';
 			$this->stderr( "ERROR: disconnected - non-HTTPS URL refused: {$this->url}" );
@@ -254,30 +264,13 @@ class SSE_In_Node extends Node implements Curl_Owner {
 			return false;
 		}
 
-		if ( null !== $this->on_connecting ) {
-			( $this->on_connecting )();
-		}
 		$endpoint = $this->url . '/wp-json/newspack-nodes/v1/messages/stream';
-		$params   = [
-			'subscribe' => $this->subscribe,
-		];
+		$params   = [ 'subscribe' => \implode( ',', $this->subscribe ) ];
 		if ( $this->multi_writer ) {
 			$params['multi_writer'] = '1';
 		}
 		// Always sent: omission means tail, so {0,0} would be unaskable.
-		$params['positions'] = (string) \wp_json_encode(
-			[
-				// Keyed by partition dir = $subscribe (<topic>.p<N>).
-				$this->subscribe => $this->pending_seek ?? (
-					$this->position_set
-						? [
-							'segment' => $this->position['segment'],
-							'offset' => $this->position['offset'],
-						]
-						: Consumer_Node::SEEK_END
-				),
-			]
-		);
+		$params['positions'] = (string) \wp_json_encode( $this->positions );
 		$endpoint .= ( false === \strpos( $endpoint, '?' ) ? '?' : '&' ) . \http_build_query( $params );
 
 		$headers = [
@@ -334,7 +327,7 @@ class SSE_In_Node extends Node implements Curl_Owner {
 		$this->terminal_disconnect_key    = null;
 		$this->terminal_disconnect_reason = null;
 		// Opened; awaiting 'connected' handshake (CONNECTED replaces this).
-		$this->set_state( 'CONNECTING', $this->subscribe );
+		$this->set_state( 'CONNECTING', \implode( ',', $this->subscribe ) );
 		return true;
 	}
 
@@ -650,17 +643,17 @@ class SSE_In_Node extends Node implements Curl_Owner {
 		$this->connected_at = Core::$now ?: Core::right_now();
 		// OWNER is a fencing token; omit it from debug/state payloads and logs.
 		$this->set_state( 'CONNECTED', "SLOT {$slot}" );
-		$cursor = $this->subscription_cursor( Core::as_string( $info['CURSORS'] ?? '' ) );
-		if ( null !== $cursor && null !== $this->on_connected ) {
-			( $this->on_connected )( $cursor[0], $cursor[1] );
+		$cursors = self::cursors_of( Core::as_string( $info['CURSORS'] ?? '' ) );
+		if ( [] !== $cursors && null !== $this->on_connected ) {
+			( $this->on_connected )( $cursors );
 		}
 		return true;
 	}
 
 	/**
 	 * Add one `unparseable_lines` frame to the running count, published as
-	 * UNPARSEABLE_LINES, and hand the patron where the spoke's reader now
-	 * stands. The spoke's readers keep no cursor, so a torn line is skipped
+	 * UNPARSEABLE_LINES, and hand the patron where the spoke's readers now
+	 * stand. The spoke's readers keep no cursor, so a torn line is skipped
 	 * rather than ending the stream, and this frame is how the hub learns of
 	 * it. A frame whose COUNT is not a positive decimal is reported as an ERROR
 	 * and counts nothing, but leaves the stream up, as the browser twin does.
@@ -683,9 +676,9 @@ class SSE_In_Node extends Node implements Curl_Owner {
 		}
 		$this->unparseable_lines += $count;
 		$this->set_state( 'UNPARSEABLE_LINES', (string) $this->unparseable_lines );
-		$cursor = $this->subscription_cursor( $info['CURSORS'] ?? '' );
-		if ( null !== $cursor && null !== $this->on_skipped ) {
-			( $this->on_skipped )( $cursor[0], $cursor[1] );
+		$cursors = self::cursors_of( $info['CURSORS'] ?? '' );
+		if ( [] !== $cursors && null !== $this->on_skipped ) {
+			( $this->on_skipped )( $cursors );
 		}
 		return true;
 	}
@@ -710,24 +703,33 @@ class SSE_In_Node extends Node implements Curl_Owner {
 	}
 
 	/**
-	 * This subscription's entry in a frame's CURSORS token,
-	 * `dir=segment:offset` pairs joined by commas.
+	 * Every `stamp=segment:offset` pair of a frame's CURSORS token. A file-mode
+	 * source whose generation is not known yet writes `stamp=:offset`, so its
+	 * entry carries no `segment`; a pair whose numbers are not canonical
+	 * decimals is skipped.
 	 *
-	 * @param string $cursors The token, empty when the spoke sent none.
-	 * @return array{0:int,1:int}|null The segment and offset, or null when absent or malformed.
+	 * @param string $token The token, empty when the spoke sent none.
+	 * @return array<string,array{segment?:int,offset:int}>
 	 */
-	private function subscription_cursor( string $cursors ): ?array {
-		foreach ( \explode( ',', $cursors ) as $pair ) {
-			[ $dir, $position ] = \array_pad( \explode( '=', $pair, 2 ), 2, '' );
-			if ( $dir !== $this->subscribe ) {
+	private static function cursors_of( string $token ): array {
+		$cursors = [];
+		foreach ( \explode( ',', $token ) as $pair ) {
+			[ $stamp, $position ] = \array_pad( \explode( '=', $pair, 2 ), 2, '' );
+			[ $segment, $offset ] = \array_pad( \explode( ':', $position, 2 ), 2, null );
+			$offset               = Core::canonical_decimal( $offset );
+			if ( '' === $stamp || null === $offset ) {
 				continue;
 			}
-			[ $segment, $offset ] = \array_pad( \explode( ':', $position, 2 ), 2, null );
-			$segment              = Core::canonical_decimal( $segment );
-			$offset               = Core::canonical_decimal( $offset );
-			return null === $segment || null === $offset ? null : [ $segment, $offset ];
+			if ( '' === $segment ) {
+				$cursors[ $stamp ] = [ 'offset' => $offset ];
+				continue;
+			}
+			$segment = Core::canonical_decimal( $segment );
+			if ( null !== $segment ) {
+				$cursors[ $stamp ] = [ 'segment' => $segment, 'offset' => $offset ];
+			}
 		}
-		return null;
+		return $cursors;
 	}
 
 	/**
@@ -895,24 +897,20 @@ class SSE_In_Node extends Node implements Curl_Owner {
 	/**
 	 * Programmatic configuration entry point for the patron. Sets every field
 	 * directly and touches no socket, so it takes effect at the next connect.
-	 * `$subscribe` is the full `<remote_topic>.p<partition>` string.
+	 * What to pull arrives separately, through `streams()`.
 	 *
-	 * @param string             $url           Base URL (no trailing slash).
-	 * @param string             $auth_username Application-Password user (Basic auth).
-	 * @param string             $auth_password Application-Password secret.
-	 * @param string             $auth_token    Optional Bearer token fallback.
-	 * @param string             $subscribe     Subscription name (`<topic>.p<N>`).
-	 * @param array{segment?:int,offset?:int} $positions Initial cursor; empty asks the remote for SEEK_END.
-	 * @param array<int,bool|int> $tls_opts     The TLS opts `Vault::tls_opts()` resolved.
-	 * @param bool               $require_ssl   Refuse non-HTTPS remote URLs.
+	 * @param string              $url           Base URL (no trailing slash).
+	 * @param string              $auth_username Application-Password user (Basic auth).
+	 * @param string              $auth_password Application-Password secret.
+	 * @param string              $auth_token    Optional Bearer token fallback.
+	 * @param array<int,bool|int> $tls_opts      The TLS opts `Vault::tls_opts()` resolved.
+	 * @param bool                $require_ssl   Refuse non-HTTPS remote URLs.
 	 */
 	public function configure(
 		string $url,
 		string $auth_username = '',
 		string $auth_password = '',
 		string $auth_token    = '',
-		string $subscribe     = '',
-		array $positions      = [],
 		array $tls_opts       = [],
 		bool $require_ssl     = false
 	): void {
@@ -920,15 +918,21 @@ class SSE_In_Node extends Node implements Curl_Owner {
 		$this->auth_username = $auth_username;
 		$this->auth_password = $auth_password;
 		$this->auth_token    = $auth_token;
-		$this->subscribe     = $subscribe;
 		$this->tls_opts      = $tls_opts;
 		$this->require_ssl   = $require_ssl;
-		$this->position      = [
-			'segment' => \max( 0, $positions['segment'] ?? 0 ),
-			'offset'     => \max( 0, $positions['offset'] ?? 0 ),
-		];
-		// An empty restore is "nowhere yet", which is NOT the same as 0:0.
-		$this->position_set  = isset( $positions['segment'] ) || isset( $positions['offset'] );
+	}
+
+	/**
+	 * State what the next connect asks for. The patron calls it from
+	 * `on_connecting`, so a request carries where each stream stands at the
+	 * moment it goes out; nothing here keeps or advances a cursor.
+	 *
+	 * @param list<string>                                             $subscribe Subscriptions, in order.
+	 * @param array<string,array{segment?:int,offset:int}|int|string> $positions Per-stamp starting point.
+	 */
+	public function streams( array $subscribe, array $positions ): void {
+		$this->subscribe = $subscribe;
+		$this->positions = $positions;
 	}
 
 	/**
@@ -942,53 +946,6 @@ class SSE_In_Node extends Node implements Curl_Owner {
 	 */
 	public function set_multi_writer( bool $flag ): void {
 		$this->multi_writer = $flag;
-	}
-
-	/**
-	 * Restore last-committed position. Called by the patron before `maybe_connect()`.
-	 *
-	 * @api Dynamic entrypoint.
-	 * @param int $segment Segment index the patron has committed through.
-	 * @param int $offset  Byte offset within that segment.
-	 */
-	public function restore_position( int $segment, int $offset ): void {
-		$this->position      = [
-			'segment' => \max( 0, $segment ),
-			'offset'     => \max( 0, $offset ),
-		];
-		$this->position_set  = true;
-		// A real place supersedes a pending seek — the seek got us here.
-		$this->pending_seek  = null;
-	}
-
-	/**
-	 * Ask the remote for a SEEK rather than a byte position (`Consumer_Node::SEEK_*`).
-	 * A pull source has no segments of its own, so it cannot resolve `end` or `recent`
-	 * locally; it forwards the sentinel to the side that holds the log. The sentinel
-	 * outranks `$position` on every connect until `restore_position()` replaces it,
-	 * which is why the patron reads `has_pending_seek()` before handing its cursor
-	 * down — the per-tick handoff would otherwise answer the seek with the very
-	 * position it was asked to leave.
-	 *
-	 * @param int $sentinel One of the `Consumer_Node::SEEK_*` values.
-	 */
-	public function seek( int $sentinel ): void {
-		$this->pending_seek = $sentinel;
-	}
-
-	/** True while a seek sentinel is waiting for the spoke to resolve it. */
-	public function has_pending_seek(): bool {
-		return null !== $this->pending_seek;
-	}
-
-	/**
-	 * Current in-memory cursor.
-	 *
-	 * @api Dynamic entrypoint.
-	 * @return array{segment:int,offset:int}
-	 */
-	public function position(): array {
-		return $this->position;
 	}
 
 	/**

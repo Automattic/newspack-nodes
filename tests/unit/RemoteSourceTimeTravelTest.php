@@ -163,7 +163,7 @@ class RemoteSourceTimeTravelTest extends TestCase {
 
 		$this->assertSame(
 			[ 'segment' => 7, 'offset' => 128 ],
-			$sse->position(),
+			$node->connect_position(),
 			'seek reconnects SSE_In from the frame offset'
 		);
 	}
