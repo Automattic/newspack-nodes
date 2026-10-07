@@ -1,0 +1,55 @@
+# shellcheck shell=bash
+# newspack-nodes' constants and gates, sourced by the shared scripts/pre-push.
+
+# The shared tooling's self-tests, run here on the one copy the sync vendors.
+push_gates() {
+	script_gate test-reorder-node-methods.sh \
+		"test-reorder-node-methods (the pre-commit gate's own tests)" \
+		"test-reorder-node-methods failed — the reorder twins are broken (see above)" \
+		"reorder twins clean"
+	script_gate test-lint-comments.sh \
+		"test-lint-comments (the comment gate's own tests)" \
+		"test-lint-comments failed — the comment gate is broken (see above)" \
+		"comment gate clean"
+	script_gate test-fix-blank-lines.sh \
+		"test-fix-blank-lines (the blank-line fixer's own tests)" \
+		"test-fix-blank-lines failed — the blank-line fixer is broken (see above)" \
+		"blank-line fixer clean"
+	script_gate test-lint-contract.sh \
+		"test-lint-contract (the contract gate's own tests)" \
+		"test-lint-contract failed — the contract gate is broken (see above)" \
+		"contract gate clean"
+	script_gate test-lint-styles.sh \
+		"test-lint-styles (the style gate's own tests)" \
+		"test-lint-styles failed — the style gate is broken (see above)" \
+		"style gate clean"
+	script_gate test-lint-wp-pin.sh \
+		"test-lint-wp-pin (the pin gate's own tests)" \
+		"test-lint-wp-pin failed — the pin gate is broken (see above)" \
+		"pin gate clean"
+	script_gate test-render-diagram.sh \
+		"test-render-diagram (the diagram renderer's own tests)" \
+		"test-render-diagram failed — the diagram renderer is broken (see above)" \
+		"diagram renderer clean"
+	script_gate test-coverage-gate.sh \
+		"test-coverage-gate.sh (the coverage gate's own tests)" \
+		"test-coverage-gate.sh failed — the coverage gate is broken (see above)" \
+		"test-coverage-gate clean"
+	script_gate test-coverage-gate-js.sh \
+		"test-coverage-gate-js.sh (the coverage gate's own tests)" \
+		"test-coverage-gate-js.sh failed — the coverage gate is broken (see above)" \
+		"test-coverage-gate-js clean"
+}
+
+container_gates() { :; }
+
+# PHPUnit runs straight from the /services mount, never /usr/src.
+# shellcheck disable=SC2034 # scripts/pre-push reads every constant
+{
+	readonly PLUGIN_SLUG="newspack-nodes"
+	readonly CONTAINER="${HOST}-pyrobase1-1"
+	readonly DEPLOY_CONTAINER="$CONTAINER"
+	readonly DEPLOY_SCRIPT="/services/pyrobase/setup/${PLUGIN_SLUG}.sh"
+	readonly TEST_DIR_IN_CONTAINER="/services/pyrobase/sources/${PLUGIN_SLUG}/tests"
+	readonly COVERAGE_DIR="${PLUGIN_SLUG}-coverage"
+}

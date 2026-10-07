@@ -26,17 +26,12 @@ PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"
 SUBSTRATE_DIR="$PLUGIN_DIR/../newspack-nodes"
 SELF="sync-shared-scripts.sh"
 
-# Everything except this script, which phase 1 owns.
+# Neither this script, which phase 1 owns, nor a test-*.sh or pre-push.local.
 SHARED="reorder-node-methods.php reorder-node-methods.js coverage-gate-js.mjs
 	coverage-gate.py lint-comments.mjs lint-comments.php fix-blank-lines.php
-	test-coverage-gate.sh test-coverage-gate-js.sh test-reorder-node-methods.sh
-	test-lint-comments.sh test-lint-contract.sh
-	test-fix-blank-lines.sh
-	lint-contract.mjs
-	lint-styles.mjs test-lint-styles.sh
-	lint-wp-pin.mjs test-lint-wp-pin.sh
+	lint-contract.mjs lint-styles.mjs lint-wp-pin.mjs
 	check-substrate-floor.sh phpstan-substrate-floor.php phpstan-floor.neon
-	pre-commit commit-msg lint-docs.sh
+	pre-commit commit-msg pre-push .shellcheckrc lint-docs.sh
 	render-diagram.sh autocrop.py"
 
 [ -d "$SUBSTRATE_DIR/scripts" ] || exit 0
@@ -64,12 +59,9 @@ fi
 for f in $SHARED; do
 	src="$SUBSTRATE_DIR/scripts/$f"
 	[ -f "$src" ] || continue
-	# A plugin with no src/ tree has nothing for the JS reorder tool, and no
-	# @babel/parser to run it with; skip rather than vendor a dead script.
-	# Its test goes with it — half the cases shell out to that twin, so
-	# vendoring the test alone leaves a suite that cannot pass.
+	# The JS reorder twin needs a src/ tree and @babel/parser to run at all.
 	case "$f" in
-		reorder-node-methods.js|test-reorder-node-methods.sh)
+		reorder-node-methods.js)
 			[ -d "$PLUGIN_DIR/src" ] || continue ;;
 		# The renderer and its cropper serve docs/img sheets alone.
 		render-diagram.sh|autocrop.py)
