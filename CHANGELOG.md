@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.97.0] - 2026-10-06
+
 ### Changed
 
 - **One diagram renderer, `scripts/render-diagram.sh`, shared with every sibling that has `docs/img/` sheets.** With no argument it renders every sheet, sizing the window to the measured page; `docs/img/render.sh`, which guessed an 1800px window, is removed, and `autocrop.py` moves beside the renderer. Two PNGs that had drifted from their sheets are re-rendered.
