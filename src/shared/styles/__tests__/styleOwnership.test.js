@@ -1580,7 +1580,7 @@ describe( 'canonical appearance ownership', () => {
 				graphStylesheet,
 				'.topology-insp__section:has(> .nodes-runtime__grid)'
 			)
-		).toEqual( { 'font-size': '11px', 'overflow-x': 'auto' } );
+		).toEqual( { 'font-size': '9px', 'overflow-x': 'auto' } );
 		expect(
 			declarationsForSelector(
 				graphStylesheet,

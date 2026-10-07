@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The Inspector's Stats grids for a Table render at 9px, down from 11px.** The `.topology-insp__section:has(> .nodes-runtime__grid)` rule in `graph-view.scss` sets the size, and both grids inherit it through `.newspack-nodes-table.nodes-runtime__grid { font-size: inherit }`. The Runtime and Stats modals' grids sit in no Inspector section and keep the 12px their view bodies set.
+
 ### Fixed
 
 - **The Ask picker's Cmd/Ctrl-click is a real toggle, and each pick is painted.** `useAskPicker` keeps the session's picked descriptors: a modified click on an element adds its target descriptor and calls `onPick`, a second one on the same element removes it and calls the new `onUnpick( descriptors )`, and a plain click on an element already picked finishes without asking about it again. Every element carrying a picked descriptor wears `data-ask-picked`, exported as `ASK_PICKED_ATTR`, which the shared stylesheet paints as an accent ring plus a `background-image` tint, so a picked table row reads as one highlighted row over its own inline tint. The page box is left out of that paint, because its fill would show behind every child: `AskPageRing` copies the page's mark onto the ring, which draws it as an inset band. The mark names the descriptor rather than the element, and a `MutationObserver` held only while armed repaints the element whose descriptor changed and the askables a render added, so a row reused for another entry gives the paint up and a newly rendered askable becomes focusable; a mutation outside every askable costs no page scan and no write. Arming, finishing and Escape clear every mark. While armed, a Cmd/Ctrl `mousedown` outside the picker's own triggers is default-prevented, so Firefox no longer selects and outlines table cells under the picking gesture, and focus moves to the askable pressed, so a following Enter reaches the pick rather than the Ask button; a plain press keeps its default, so a drag still selects text.
