@@ -58,6 +58,79 @@ class SchemaReflectionTest extends TestCase {
 		return $classes;
 	}
 
+	public function test_a_bound_argument_resolves_its_partition_token_at_the_bound_partition(): void {
+		Core::$var['partition'] = '6';
+		$node                   = new Partitioned_Subject_Node();
+
+		$node->arguments( [ '/heron/ledger.p{partition}', '/heron/fan.p{partition}', 'plain-7' ] );
+
+		$this->assertSame( '/heron/ledger.p6', $node->mine );
+	}
+
+	public function test_an_each_argument_keeps_its_partition_token_for_the_node(): void {
+		Core::$var['partition'] = '6';
+		$node                   = new Partitioned_Subject_Node();
+
+		$node->arguments( [ '/heron/ledger.p{partition}', '/heron/fan.p{partition}', 'plain-7' ] );
+
+		$this->assertSame( '/heron/fan.p{partition}', $node->fanned );
+	}
+
+	public function test_the_written_form_survives_resolution_for_ownership_and_replay(): void {
+		Core::$var['partition'] = '6';
+		$node                   = new Partitioned_Subject_Node();
+
+		$node->arguments( [ '/heron/ledger.p{partition}', '/heron/fan.p{partition}', 'plain-7' ] );
+
+		$this->assertSame( '/heron/ledger.p{partition}', $node->written( 'mine' ) );
+		$this->assertSame( [ '/heron/ledger.p{partition}', '/heron/fan.p{partition}', 'plain-7' ], $node->arguments() );
+	}
+
+	/**
+	 * Outside a worker no partition is bound, and partition 0's path would
+	 * be another process's file, so the argument is refused, not resolved.
+	 */
+	public function test_a_bound_argument_outside_a_worker_is_refused(): void {
+		$node = new Partitioned_Subject_Node();
+		$node->name( 'ledger-3341' );
+
+		try {
+			$node->arguments( [ '/heron/ledger.p{partition}', '/heron/fan', 'plain-7' ] );
+			$this->fail( 'the argument resolved' );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertStringContainsString( "'ledger-3341': mine names {partition}, but no partition is bound", \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
+		}
+		$this->assertSame( '', $node->mine, 'a refusal assigns nothing' );
+	}
+
+	/** A `{topology}` with no fleet bound would name a literal dir. */
+	public function test_a_bound_argument_naming_the_fleet_where_none_is_bound_is_refused(): void {
+		Core::$var['partition'] = '6';
+		$node                   = new Partitioned_Subject_Node();
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'mine names {topology}, but no topology is bound' );
+		$node->arguments( [ '/heron/{topology}.ledger.p{partition}', '/heron/fan', 'plain-7' ] );
+	}
+
+	public function test_an_unmarked_argument_refuses_a_partition_token(): void {
+		Core::$var['partition'] = '6';
+		$node                   = new Partitioned_Subject_Node();
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'plain takes no {partition}' );
+
+		$node->arguments( [ '/heron/ledger', '/heron/fan', 'plain.p{partition}' ] );
+	}
+
+	public function test_the_written_form_of_an_absent_argument_is_empty(): void {
+		$node = new Partitioned_Subject_Node();
+
+		$node->arguments( [ '/heron/ledger' ] );
+
+		$this->assertSame( '', $node->written( 'plain' ) );
+	}
+
 	public function test_parse_schema_args_resolves_and_coerces_a_config_token_default(): void {
 		// A <ns:key> token default is resolved via its namespace resolver and
 		// coerced to the declared type — a schema default never passes through
@@ -914,6 +987,36 @@ class Setter_Subject_Node extends Node {
 					'args'   => [ [ 'name' => 'reach', 'type' => 'int', 'required' => true ] ],
 					'setter' => 'reach',
 				],
+			],
+		];
+	}
+}
+
+/** A subject with one argument of each partition kind: bound, each and unmarked. */
+class Partitioned_Subject_Node extends Node {
+	use Schema_Reflection;
+
+	public string $mine = '';
+
+	public string $fanned = '';
+
+	public string $plain = '';
+
+	/**
+	 * The argument as the TSL wrote it.
+	 *
+	 * @param string $name A declared argument.
+	 */
+	public function written( string $name ): string {
+		return $this->written_argument( $name );
+	}
+
+	public static function node_schema(): array {
+		return [
+			'arguments' => [
+				[ 'name' => 'mine', 'type' => 'string', 'required' => true, 'partition' => 'bound' ],
+				[ 'name' => 'fanned', 'type' => 'string', 'default' => '', 'partition' => 'each' ],
+				[ 'name' => 'plain', 'type' => 'string', 'default' => '' ],
 			],
 		];
 	}

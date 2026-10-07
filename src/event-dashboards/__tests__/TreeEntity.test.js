@@ -322,12 +322,12 @@ it( 'renders each repeated handler branch with only its own source rate', () => 
 					{
 						name: 'firehose-reader',
 						kind: 'consumer',
-						reads: 'firehose.p<partition>',
+						reads: 'firehose.p{partition}',
 					},
 					{
 						name: 'jobintake-reader',
 						kind: 'consumer',
-						reads: 'jobintake.p<partition>',
+						reads: 'jobintake.p{partition}',
 					},
 					{ name: 'job-router', kind: 'logic' },
 				],

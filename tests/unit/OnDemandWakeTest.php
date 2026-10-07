@@ -89,12 +89,12 @@ class OnDemandWakeTest extends TestCase {
 	 */
 	private function activate( string $name, int $on_demand_idle = 23, string $reads = 'jobintake', ?string $cursor = null ): void {
 		// null = the stock offsetlog token; '' = an ephemeral reader, no cursor.
-		$offsetlog = null === $cursor ? "<config:offsets_dir>/{$reads}.p<partition>" : $cursor;
+		$offsetlog = null === $cursor ? "<config:offsets_dir>/{$reads}.p{partition}" : $cursor;
 		\file_put_contents(
 			"{$this->stock}/{$name}.tsl",
 			"var num_partitions = 2\n"
 			. ( $on_demand_idle > 0 ? "var on_demand_idle = {$on_demand_idle}\n" : '' )
-			. "make_node Consumer {$name}:in <config:logs_dir>/{$reads}.p<partition> "
+			. "make_node Consumer {$name}:in <config:logs_dir>/{$reads}.p{partition} "
 			. "{$offsetlog}\n"
 			. "make_node Echo {$name}:sink\n"
 			. "connect_node {$name}:in {$name}:sink\n"
@@ -749,7 +749,7 @@ class OnDemandWakeTest extends TestCase {
 		$this->assertStringContainsString( 'absent-marmot-broken-6620', $e->getMessage() );
 		\file_put_contents(
 			"{$this->stock}/marmot-broken-6620.tsl",
-			"var num_partitions = 2\nvar on_demand_idle = 31\nmake_node Consumer mended:in <config:logs_dir>/jobintake.p<partition> <config:offsets_dir>/mended.p<partition>\n"
+			"var num_partitions = 2\nvar on_demand_idle = 31\nmake_node Consumer mended:in <config:logs_dir>/jobintake.p{partition} <config:offsets_dir>/mended.p{partition}\n"
 		);
 		Bootstrap::forget_on_demand_readers();
 		Topology_Analyzer::reset_caches();

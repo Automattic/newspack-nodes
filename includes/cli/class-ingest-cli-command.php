@@ -43,9 +43,9 @@ class Ingest_CLI_Command {
 	 * ## OPTIONS
 	 *
 	 * <topic>
-	 * : Destination. Either a dir-template carrying a {partition}/<partition> token
-	 *   (e.g. <config:logs_dir>/firehose.p<partition>), used verbatim; or a bare log
-	 *   name (e.g. firehose), expanded to <config:logs_dir>/<name>.p<partition>.
+	 * : Destination. Either a dir-template carrying a {partition} token
+	 *   (e.g. <config:logs_dir>/firehose.p{partition}), used verbatim; or a bare log
+	 *   name (e.g. firehose), expanded to <config:logs_dir>/<name>.p{partition}.
 	 *
 	 * [<file>...]
 	 * : One or more packed segment files to replay. Omit to read packed records from
@@ -73,7 +73,7 @@ class Ingest_CLI_Command {
 	 * ## EXAMPLES
 	 *
 	 *     # Re-segment topicprobe.p0 down to 1 MiB segments
-	 *     wp nodes ingest '<config:logs_dir>/topicprobe.p<partition>' topicprobe.p0.old/*.log --num_partitions=1 --segment_size=1048576 --num_segments=2
+	 *     wp nodes ingest '<config:logs_dir>/topicprobe.p{partition}' topicprobe.p0.old/*.log --num_partitions=1 --segment_size=1048576 --num_segments=2
 	 *
 	 *     # Dry-run a firehose replay to check for oversize records
 	 *     wp nodes ingest firehose firehose.p0.old/*.log --dry-run
@@ -300,21 +300,24 @@ class Ingest_CLI_Command {
 	/**
 	 * Resolve the <topic> argument to [dir_template, num_partitions].
 	 *
-	 * Explicit form (carries a {partition}/<partition> token): resolve the
+	 * Explicit form (carries a {partition} token): resolve the
 	 * config tokens and default the count to 1. There is no declared-set lookup
 	 * and no mismatch check, because the template names a layout the operator
 	 * already has on disk. Shortname form: expand to
 	 * <config:logs_dir>/<name>.p{partition} with the count from
 	 * --num_partitions, or the global config num_partitions when not given.
+	 * A `<partition>` is refused, as a topology refuses it.
 	 *
 	 * @param string   $topic_arg The <topic> positional, in either form.
 	 * @param int|null $requested --num_partitions, or null when the flag is absent.
 	 * @return array{0:string,1:int} The dir template and the partition count.
 	 */
 	private function resolve_destination( string $topic_arg, ?int $requested ): array {
+		if ( \str_contains( $topic_arg, '<partition>' ) ) {
+			\WP_CLI::error( "<topic> names <partition>; write {partition}: {$topic_arg}" );
+		}
 		if ( Core::has_partition_token( $topic_arg ) ) {
-			$tpl = \str_replace( '<partition>', '{partition}', Core::resolve_config_tokens( $topic_arg ) );
-			return [ $tpl, \max( 1, $requested ?? 1 ) ];
+			return [ Core::resolve_config_tokens( $topic_arg ), \max( 1, $requested ?? 1 ) ];
 		}
 
 		$count = \max( 1, $requested ?? self::config_int( 'num_partitions', 1 ) );

@@ -100,6 +100,7 @@ trait Schema_Reflection {
 	 *                                   a token is not of its declared type.
 	 */
 	protected function schema_values( array $args ): array {
+		static::refuse_unmarked_partition( $this->name, $args );
 		$values = [];
 		foreach ( self::declared_arguments( static::class ) as $i => $arg_spec ) {
 			if ( ! \is_array( $arg_spec ) ) {
@@ -120,7 +121,7 @@ trait Schema_Reflection {
 				$token = null;
 			}
 			if ( null !== $token ) {
-				$values[ $name ] = $this->coerce_argument( $token, $type, $name );
+				$values[ $name ] = $this->coerce_argument( self::resolve_marked( $this->name, $name, $token, $arg_spec ), $type, $name );
 			} elseif ( \array_key_exists( 'default', $arg_spec ) ) {
 				$values[ $name ] = Command_Args::default_of( $arg_spec );
 			} elseif ( \array_key_exists( 'required', $arg_spec ) && $arg_spec['required'] ) {
@@ -128,6 +129,83 @@ trait Schema_Reflection {
 			}
 		}
 		return $values;
+	}
+
+	/**
+	 * Refuse `{partition}` in an argument whose spec carries no `partition`
+	 * mark, rather than let it name a literal path. Static, so the analyzer
+	 * refuses the line a load would refuse, and a refusal leaves a live node
+	 * as it was.
+	 *
+	 * @param string       $name The node's name, for the refusal.
+	 * @param list<string> $args Raw positional argument tokens.
+	 * @throws \InvalidArgumentException When an unmarked argument names a partition.
+	 */
+	public static function refuse_unmarked_partition( string $name, array $args ): void {
+		foreach ( self::declared_arguments( static::class ) as $i => $arg_spec ) {
+			$token = Core::as_string( $args[ $i ] ?? '' );
+			if ( \is_array( $arg_spec ) && ! isset( $arg_spec['partition'] ) && \str_contains( $token, Core::PARTITION_TOKEN ) ) {
+				$arg = Core::as_string( $arg_spec['name'] ?? '' );
+				self::refuse_named( $name, "{$arg} takes no " . Core::PARTITION_TOKEN . ", got '{$token}'" );
+			}
+		}
+	}
+
+	/**
+	 * A token as its spec's `partition` mark says: `bound` resolves
+	 * `{partition}` at the worker's partition and `{topology}` at its fleet;
+	 * `each` and an unmarked argument are left as written, a Topic building
+	 * one child per partition itself. Outside a worker neither is bound, and
+	 * a path resolved at partition 0 would name worker p0's own file, so a
+	 * token naming an unbound value is refused rather than guessed.
+	 *
+	 * @param string                 $node     The node's name, for the refusal.
+	 * @param string                 $arg      The argument's name, for the refusal.
+	 * @param string                 $token    Raw positional token.
+	 * @param array<array-key,mixed> $arg_spec The argument's schema spec.
+	 * @return string The token the argument takes.
+	 * @throws \InvalidArgumentException When the token names a value nothing bound.
+	 */
+	private static function resolve_marked( string $node, string $arg, string $token, array $arg_spec ): string {
+		if ( 'bound' !== ( $arg_spec['partition'] ?? null ) ) {
+			return $token;
+		}
+		$partition = Core::bound_partition();
+		$topology  = Core::bound_topology();
+		foreach ( [ 'partition' => [ Core::PARTITION_TOKEN, $partition ], 'topology' => [ Core::TOPOLOGY_TOKEN, $topology ] ] as $what => [ $spelling, $bound ] ) {
+			if ( null === $bound && \str_contains( $token, $spelling ) ) {
+				self::refuse_named( $node, "{$arg} names {$spelling}, but no {$what} is bound" );
+			}
+		}
+		// A token naming no partition ignores the index it is handed.
+		return Core::resolve_partition( $token, $partition ?? 0, $topology );
+	}
+
+	/**
+	 * The token `$name` arrived as, before `{partition}` resolved: what the
+	 * TSL wrote, which ownership is judged against. '' when none arrived.
+	 *
+	 * @param string $name A declared positional.
+	 */
+	protected function written_argument( string $name ): string {
+		return static::written_in( $this->arguments, $name );
+	}
+
+	/**
+	 * The token `$name` takes among `$args`, as written; '' when absent. The
+	 * static half of `written_argument()`, for a judge of a line no node
+	 * holds yet.
+	 *
+	 * @param list<string> $args Raw positional argument tokens.
+	 * @param string       $name A declared positional.
+	 */
+	protected static function written_in( array $args, string $name ): string {
+		foreach ( self::declared_arguments( static::class ) as $i => $arg_spec ) {
+			if ( \is_array( $arg_spec ) && $name === ( $arg_spec['name'] ?? null ) ) {
+				return Core::as_string( $args[ $i ] ?? '' );
+			}
+		}
+		return '';
 	}
 
 	/**
@@ -175,9 +253,20 @@ trait Schema_Reflection {
 	 * @throws \InvalidArgumentException Always — the caller does not continue.
 	 */
 	protected function refuse_argument( string $detail ): never {
-		$who = Command_Interpreter_Node::shell_name_for( $this );
-		if ( '' !== $this->name ) {
-			$who .= " '{$this->name}'";
+		self::refuse_named( $this->name, $detail );
+	}
+
+	/**
+	 * `refuse_argument()` for a node known by its class and name alone.
+	 *
+	 * @param string $name   The node's name; '' names the class alone.
+	 * @param string $detail What was wrong, in the caller's words.
+	 * @throws \InvalidArgumentException Always — the caller does not continue.
+	 */
+	private static function refuse_named( string $name, string $detail ): never {
+		$who = Command_Interpreter_Node::shell_name_for( static::class );
+		if ( '' !== $name ) {
+			$who .= " '{$name}'";
 		}
 		throw new \InvalidArgumentException( \esc_html( "Bad arguments for {$who}: {$detail}" ) );
 	}

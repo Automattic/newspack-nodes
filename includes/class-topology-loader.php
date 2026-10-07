@@ -2,8 +2,8 @@
 /**
  * Topology_Loader — builds a worker's node graph from its `.tsl` topology file.
  *
- * The loader binds the two tokens a topology cannot know about itself, then
- * hands the file to a Shell: `<partition>` and `<topology>` go into `Core::$var`,
+ * The loader binds the two values a topology cannot know about itself, then
+ * hands the file to a Shell: the partition and `<topology>` go into `Core::$var`,
  * while every `<ns:key>` token (`<config:logs_dir>`) resolves through its
  * namespace's registered resolver instead — see `Core::register_config_namespace()`
  * and `Config::register_token_namespace()`.
@@ -32,14 +32,15 @@ class Topology_Loader {
 	/**
 	 * Load `<name>.tsl` and execute every statement against $sink.
 	 *
-	 * `<partition>` and `<topology>` are bound into `Core::$var` before the file
-	 * is evaluated, so the Shell's interpolation already has them. The binding is
+	 * The partition and `<topology>` are bound into `Core::$var` before the file
+	 * is evaluated: the Shell interpolates `<topology>`, and a node resolves
+	 * `{partition}` in its marked arguments against the bound partition. The binding is
 	 * process-global and outlives the call. A `<ns:key>` token takes no binding at
 	 * all — it reaches the resolver its namespace registered at boot, so the
 	 * loader installs no config of its own.
 	 *
 	 * @param string $name      Topology name, without the `.tsl` suffix.
-	 * @param int    $partition Partition number bound to `<partition>`.
+	 * @param int    $partition Partition number a node resolves `{partition}` to.
 	 * @param Node   $sink      Where the dispatched Messages flow — the worker's
 	 *                          `_command_interpreter` in production.
 	 * @throws \Throwable When the name is not in the registry; otherwise every

@@ -283,7 +283,7 @@ class Topic_Node extends Node {
 	protected function partition( int $i ): Partition_Node {
 		if ( ! isset( $this->partitions[ $i ] ) ) {
 			$p         = new Partition_Node();
-			$child_dir = \str_replace( '{partition}', (string) $i, $this->dir_template );
+			$child_dir = Core::resolve_partition( $this->dir_template, $i, null );
 			$p->arguments( [ $child_dir, (string) $this->segment_size, (string) $this->min_segments, (string) $this->num_segments, (string) $this->max_segments, (string) $this->min_lifetime, (string) $this->lifetime ] );
 			// Topic's sink + patron-link, so dump_metadata hides it.
 			$p->sink( $this->sink );
@@ -456,7 +456,7 @@ class Topic_Node extends Node {
 			'category'      => 'I/O',
 			'description'   => 'Multi-partition log abstraction; routes by hash to one of N Partitions.',
 			'arguments'        => [
-				[ 'name' => 'dir_template',   'type' => 'string', 'required' => true, 'description' => 'Per-partition directory path template; the {partition} token is replaced with each index 0..N-1.' ],
+				[ 'name' => 'dir_template',   'type' => 'string', 'required' => true, 'partition' => 'each', 'description' => 'Per-partition directory path template; the {partition} token is replaced with each index 0..N-1.' ],
 				[ 'name' => 'num_partitions', 'type' => 'int',    'default'  => '<config:num_partitions>', 'description' => 'Number of partitions to spread writes across; a message\'s KEY is CRC32-routed to one (default 1).' ],
 				[ 'name' => 'segment_size',   'type' => 'int',    'default' => '<config:segment_size>', 'description' => 'Segment rotation threshold in bytes; a new segment starts once a write would exceed it (default 64 MiB).' ],
 				[ 'name' => 'min_segments',   'type' => 'int',    'default' => '<config:min_segments>', 'description' => 'Age-rule floor per partition: keep at least this many segments (hard minimum 2).' ],

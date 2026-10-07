@@ -75,9 +75,9 @@ class TopologyFrontEndParityTest extends TestCase {
 	public function test_write_set_golden_for_job_intake(): void {
 		$this->assertSame(
 			[
-				'deadletter:<config:deadletter_dir>/job-intake.jobintake.p<partition>',
-				'offsetlog:<config:offsets_dir>/job-intake.jobintake.p<partition>',
-				'partition:<config:logs_dir>/jobs.p<partition>',
+				'deadletter:<config:deadletter_dir>/job-intake.jobintake.p{partition}',
+				'offsetlog:<config:offsets_dir>/job-intake.jobintake.p{partition}',
+				'partition:<config:logs_dir>/jobs.p{partition}',
 				'partition:<config:logs_dir>/topicprobe.p0',
 			],
 			Topology_Analyzer::write_set( 'job-intake' )

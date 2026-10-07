@@ -34,10 +34,10 @@ class TopologyRegistryGraphTest extends TestCase {
 	public function test_graph_for_kinds_from_class_logs_from_args_edges_from_connect_and_targets(): void {
 		$this->write_tsl(
 			'combined',
-			"make_node Consumer firehose:consumer <config:logs_dir>/firehose.p0 <partition> <config:offsets_dir>/firehose.p<partition>\n"
+			"make_node Consumer firehose:consumer <config:logs_dir>/firehose.p0 {partition} <config:offsets_dir>/firehose.p{partition}\n"
 			. "make_node Request_Builder request-builder\n"
-			. "make_node Partition requests:partition <config:logs_dir>/requests.log <partition> 1 2 0\n"
-			. "make_node Partition errors:partition <config:logs_dir>/errors.log <partition> 1 2 0\n"
+			. "make_node Partition requests:partition <config:logs_dir>/requests.log 4096 1 2 0\n"
+			. "make_node Partition errors:partition <config:logs_dir>/errors.log 4096 1 2 0\n"
 			. "make_node Tee completed:tee\n"
 			. "cmd request-builder:config set_errors_target errors:partition\n"
 			. "connect_node firehose:consumer request-builder\n"
@@ -68,7 +68,7 @@ class TopologyRegistryGraphTest extends TestCase {
 		$this->write_tsl(
 			'wombat-config-target',
 			"make_node Echo amber-flame-builder-731\n"
-			. "make_node Partition indigo-flame-stats-863 /var/wombat/stats.p<partition> 1 2 0\n"
+			. "make_node Partition indigo-flame-stats-863 /var/wombat/stats.p{partition} 1 2 0\n"
 			. "cmd amber-flame-builder-731:config set_stats_target <wombat_graph:stats_sink>\n"
 		);
 
@@ -106,20 +106,20 @@ class TopologyRegistryGraphTest extends TestCase {
 		// tail firehose.p<N> but write distinct offsetlogs).
 		$this->write_tsl(
 			'rb',
-			"make_node Consumer firehose:consumer <config:logs_dir>/firehose.p<partition> <config:offsets_dir>/firehose.request-builder.p<partition>\n"
+			"make_node Consumer firehose:consumer <config:logs_dir>/firehose.p{partition} <config:offsets_dir>/firehose.request-builder.p{partition}\n"
 		);
 		$g      = \Newspack_Nodes\Topology_Analyzer::graph_for( 'rb' );
 		$byName = [];
 		foreach ( $g['nodes'] as $n ) {
 			$byName[ $n['name'] ] = $n;
 		}
-		$this->assertSame( 'firehose.p<partition>', $byName['firehose:consumer']['reads'] );
-		$this->assertSame( 'firehose.request-builder.p<partition>', $byName['firehose:consumer']['reader'] );
+		$this->assertSame( 'firehose.p{partition}', $byName['firehose:consumer']['reads'] );
+		$this->assertSame( 'firehose.request-builder.p{partition}', $byName['firehose:consumer']['reader'] );
 	}
 
 	public function test_graph_for_kind_ignores_name_suffix(): void {
 		// A Partition whose NAME has no :partition suffix — kind must still be 'partition' (from the class).
-		$this->write_tsl( 'x', "make_node Partition plainname <config:logs_dir>/out.log <partition> 1 2 0\n" );
+		$this->write_tsl( 'x', "make_node Partition plainname <config:logs_dir>/out.log 4096 1 2 0\n" );
 		$g = \Newspack_Nodes\Topology_Analyzer::graph_for( 'x' );
 		$this->assertSame( 'partition', $g['nodes'][0]['kind'] );
 		$this->assertSame( 'out.log', $g['nodes'][0]['writes'] );
@@ -235,13 +235,13 @@ class TopologyRegistryGraphTest extends TestCase {
 
 	public function test_graph_for_builtin_node_carries_type_and_args(): void {
 		// A built-in type likewise carries its type + positional args additively.
-		$this->write_tsl( 'b', "make_node Consumer firehose:consumer src.log <partition> off.p<partition>\n" );
+		$this->write_tsl( 'b', "make_node Consumer firehose:consumer src.log {partition} off.p{partition}\n" );
 		$g    = \Newspack_Nodes\Topology_Analyzer::graph_for( 'b' );
 		$node = $g['nodes'][0];
 
 		$this->assertSame( 'consumer', $node['kind'] );
 		$this->assertSame( 'Consumer', $node['type'] );
-		$this->assertSame( [ 'src.log', '<partition>', 'off.p<partition>' ], $node['args'] );
+		$this->assertSame( [ 'src.log', '{partition}', 'off.p{partition}' ], $node['args'] );
 	}
 
 	public function test_graph_for_node_without_args_has_empty_args_list(): void {
@@ -280,8 +280,8 @@ class TopologyRegistryGraphTest extends TestCase {
 		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
 		$this->write_tsl(
 			'vicuna-subclasses',
-			"make_node Tail zebra:tail /var/vicuna/zebra.log /var/vicuna/zebra-offset.p<partition>\n"
-			. "make_node Log giraffe:log /var/vicuna/giraffe.p<partition> 4096\n"
+			"make_node Tail zebra:tail /var/vicuna/zebra.log /var/vicuna/zebra-offset.p{partition}\n"
+			. "make_node Log giraffe:log /var/vicuna/giraffe.p{partition} 4096\n"
 		);
 
 		$by_name = [];
@@ -298,14 +298,14 @@ class TopologyRegistryGraphTest extends TestCase {
 		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
 		$this->write_tsl(
 			'vicuna-tail-reader',
-			"make_node Tail zebra:tail /var/vicuna/zebra.log /var/vicuna/zebra-offset.p<partition>\n"
+			"make_node Tail zebra:tail /var/vicuna/zebra.log /var/vicuna/zebra-offset.p{partition}\n"
 		);
 
 		$this->assertSame(
 			[
 				[
 					'source'    => '/var/vicuna/zebra.log',
-					'offsetlog' => '/var/vicuna/zebra-offset.p<partition>',
+					'offsetlog' => '/var/vicuna/zebra-offset.p{partition}',
 				],
 			],
 			Topology_Analyzer::consumer_positions( 'vicuna-tail-reader' )
@@ -316,23 +316,23 @@ class TopologyRegistryGraphTest extends TestCase {
 	public function test_graph_for_reads_quoted_arguments_as_their_values(): void {
 		$this->write_tsl(
 			'vicuna-quoted',
-			"make_node Log zebra:log '/var/vicuna/zebra.p<partition>' '8192'\n"
-			. "make_node Partition quokka:partition '/var/vicuna/quokka.p<partition>'\n"
-			. "make_node Consumer okapi:consumer \"/var/vicuna/okapi.p<partition>\" '/var/vicuna/okapi-offset.p<partition>'\n"
+			"make_node Log zebra:log '/var/vicuna/zebra.p{partition}' '8192'\n"
+			. "make_node Partition quokka:partition '/var/vicuna/quokka.p{partition}'\n"
+			. "make_node Consumer okapi:consumer \"/var/vicuna/okapi.p{partition}\" '/var/vicuna/okapi-offset.p{partition}'\n"
 			. "make_node Hook vicuna-hook wp_loaded \"a b c\"\n"
 		);
 
 		$by_name = \array_column( Topology_Analyzer::graph_for( 'vicuna-quoted' )['nodes'], null, 'name' );
 
-		$this->assertSame( 'zebra.p<partition>', $by_name['zebra:log']['writes'] );
-		$this->assertSame( '/var/vicuna/zebra.p<partition>', $by_name['zebra:log']['path'] );
+		$this->assertSame( 'zebra.p{partition}', $by_name['zebra:log']['writes'] );
+		$this->assertSame( '/var/vicuna/zebra.p{partition}', $by_name['zebra:log']['path'] );
 		$this->assertSame( 8192, $by_name['zebra:log']['segment_size'] );
-		$this->assertSame( 'quokka.p<partition>', $by_name['quokka:partition']['writes'] );
-		$this->assertSame( 'okapi.p<partition>', $by_name['okapi:consumer']['reads'] );
-		$this->assertSame( 'okapi-offset.p<partition>', $by_name['okapi:consumer']['reader'] );
+		$this->assertSame( 'quokka.p{partition}', $by_name['quokka:partition']['writes'] );
+		$this->assertSame( 'okapi.p{partition}', $by_name['okapi:consumer']['reads'] );
+		$this->assertSame( 'okapi-offset.p{partition}', $by_name['okapi:consumer']['reader'] );
 		$this->assertSame( [ 'wp_loaded', 'a b c' ], $by_name['vicuna-hook']['args'] );
 		$this->assertSame(
-			[ [ 'source' => '/var/vicuna/okapi.p<partition>', 'offsetlog' => '/var/vicuna/okapi-offset.p<partition>' ] ],
+			[ [ 'source' => '/var/vicuna/okapi.p{partition}', 'offsetlog' => '/var/vicuna/okapi-offset.p{partition}' ] ],
 			Topology_Analyzer::consumer_positions( 'vicuna-quoted' )
 		);
 	}
@@ -340,10 +340,10 @@ class TopologyRegistryGraphTest extends TestCase {
 	/** A type match asks the type system: a subclass counts, a lookalike token does not. */
 	public function test_nodes_of_type_matches_the_class_and_its_subclasses_in_order(): void {
 		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
-		$this->write_tsl( 'vicuna-readers-base', "make_node Tail zebra:tail /var/vicuna/zebra.log /var/vicuna/zebra-offset.p<partition>\n" );
+		$this->write_tsl( 'vicuna-readers-base', "make_node Tail zebra:tail /var/vicuna/zebra.log /var/vicuna/zebra-offset.p{partition}\n" );
 		$this->write_tsl(
 			'vicuna-readers',
-			"make_node Consumer okapi:consumer /var/vicuna/okapi.p<partition> /var/vicuna/okapi-offset.p<partition>\n"
+			"make_node Consumer okapi:consumer /var/vicuna/okapi.p{partition} /var/vicuna/okapi-offset.p{partition}\n"
 			. "include vicuna-readers-base\n"
 			. "make_node Echo consumer-ish\n"
 		);
@@ -395,12 +395,12 @@ class TopologyRegistryGraphTest extends TestCase {
 		$this->assertSame( [ 'pull:okapi>ledger-sink-7' ], $expanded );
 	}
 
-	/** A target naming `<partition>` draws its edge to the node as the TSL names it. */
+	/** A target naming `{partition}` draws its edge to the node as the TSL names it. */
 	public function test_a_pair_target_keeps_its_partition_token(): void {
-		$this->write_tsl( 'vicuna-lane', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl ledger.p{partition}:lane-sink.p<partition>\n" );
+		$this->write_tsl( 'vicuna-lane', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl ledger.p{partition}:lane-sink.p{partition}\n" );
 
-		$this->assertSame( [ [ 'pull:okapi', 'lane-sink.p<partition>' ] ], Topology_Analyzer::graph_for( 'vicuna-lane' )['edges'] );
-		$this->assertSame( [ 'lane-sink.p<partition>' ], \array_column( Topology_Analyzer::expand( [ 'vicuna-lane' ] )['edges'], 'to' ) );
+		$this->assertSame( [ [ 'pull:okapi', 'lane-sink.p{partition}' ] ], Topology_Analyzer::graph_for( 'vicuna-lane' )['edges'] );
+		$this->assertSame( [ 'lane-sink.p{partition}' ], \array_column( Topology_Analyzer::expand( [ 'vicuna-lane' ] )['edges'], 'to' ) );
 	}
 
 	public function test_graph_for_splits_a_config_token_source_outside_its_brackets(): void {
@@ -443,92 +443,98 @@ class TopologyRegistryGraphTest extends TestCase {
 		Topology_Analyzer::graph_for( 'vicuna-wired' );
 	}
 
-	/** A bare `<partition>` resolves before the broker sees it, so the pair would read as fixed. */
-	public function test_a_pair_source_naming_a_bare_partition_fails_the_topology(): void {
-		$this->write_tsl( 'vicuna-bare', "make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl sources/php:php-errors ledger.p<partition>:ledger-sink-5\n" );
-
-		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessage( 'pull:tapir: pair "ledger.p<partition>:ledger-sink-5" names <partition>, which resolves before the broker sees it; write {partition}' );
-		Topology_Analyzer::graph_for( 'vicuna-bare' );
-	}
-
-	/** @return array<string,array{string,string}> Label => a `make_node` line naming an eager `<partition>`, then its refusal. */
-	public static function eager_partition_lines(): array {
+	/** @return array<string,array{string,string}> Label => a `make_node` line naming `<partition>`, then the span it names. */
+	public static function angle_partition_lines(): array {
 		return [
-			'a double-quoted pair source' => [
-				"make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl \"jobs.p<partition>:jobs-sink-6\"\n",
-				'pull:tapir: pair "jobs.p<partition>:jobs-sink-6" names <partition>, which resolves before the broker sees it; write {partition}',
-			],
-			'a File_Tail source_file'     => [
-				"make_node File_Tail app:tail-6 /var/log/heron.<partition>.log /var/heron/off\n",
-				'app:tail-6: source_file "/var/log/heron.<partition>.log" names <partition>, which resolves before File_Tail sees it; write {partition}',
-			],
+			'a bare pair source'          => [ "make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl sources/php:php-errors ledger.p<partition>:ledger-sink-5\n", 'ledger.p<partition>:ledger-sink-5' ],
+			'a double-quoted pair source' => [ "make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl \"jobs.p<partition>:jobs-sink-6\"\n", '"jobs.p<partition>:jobs-sink-6"' ],
+			'a single-quoted pair'        => [ "make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl 'jobs.p<partition>:jobs-sink-7'\n", "'jobs.p<partition>:jobs-sink-7'" ],
+			'a backticked pair'           => [ "make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl `jobs.p<partition>:jobs-sink-7`\n", '`jobs.p<partition>:jobs-sink-7`' ],
+			'a File_Tail source_file'     => [ "make_node File_Tail app:tail-6 /var/log/heron.<partition>.log /var/heron/off\n", '/var/log/heron.<partition>.log' ],
+			'a target'                    => [ "make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl jobs.p{partition}:jobs-sink.p<partition>\n", 'jobs.p{partition}:jobs-sink.p<partition>' ],
 		];
 	}
 
-	/** Judged on what the Shell expands, so a double quote is as eager as none. */
-	#[\PHPUnit\Framework\Attributes\DataProvider( 'eager_partition_lines' )]
-	public function test_an_eager_partition_fails_the_topology( string $line, string $refusal ): void {
-		$this->write_tsl( 'vicuna-eager', $line );
+	/**
+	 * The analyzer reads a line as the load would, so `<partition>`, which
+	 * the Shell refuses however it is quoted, fails the topology.
+	 *
+	 * @param string $line The line.
+	 * @param string $span The span the refusal names.
+	 */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'angle_partition_lines' )]
+	public function test_angle_partition_fails_the_topology( string $line, string $span ): void {
+		$this->write_tsl( 'vicuna-angle', $line );
 
 		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessage( $refusal );
-		Topology_Analyzer::graph_for( 'vicuna-eager' );
+		$this->expectExceptionMessage( "\"{$span}\": <partition> resolves before the node sees it; write {partition}" );
+		Topology_Analyzer::graph_for( 'vicuna-angle' );
 	}
 
-	/** @return array<string,array{string}> Label => a per-partition File_Tail sharing a dir across workers. */
-	public static function shared_dir_lines(): array {
+	/** @return array<string,array{string,string}> Label => a line `make_node` refuses at load, then the refusal. */
+	public static function partition_layout_lines(): array {
 		return [
-			'a fixed offsetlog'  => [ "make_node File_Tail app:tail-8 /var/log/heron.{partition}.log /var/heron/off /var/heron/dl.{partition}\n" ],
-			'a fixed deadletter' => [ "make_node File_Tail app:tail-8 '/var/log/heron.<partition>.log' /var/heron/off.{partition} /var/heron/dl\n" ],
+			'an unmarked argument'   => [ "make_node Remote_Link link:okapi okapi-{partition} firehose.p0\n", "vault_id takes no {partition}" ],
+			'a fixed offsetlog'      => [ "make_node File_Tail app:tail-8 /var/log/heron.{partition}.log /var/heron/off /var/heron/dl.{partition}\n", 'File_Tail app:tail-8: a per-partition source needs per-partition offsetlog and deadletter dirs; add {partition}' ],
+			'a fixed deadletter'     => [ "make_node File_Tail app:tail-8 /var/log/heron.{partition}.log /var/heron/off.{partition} /var/heron/dl\n", 'File_Tail app:tail-8: a per-partition source needs per-partition offsetlog and deadletter dirs; add {partition}' ],
 		];
 	}
 
-	/** Every worker of a per-partition line would commit one cursor or quarantine one queue. */
-	#[\PHPUnit\Framework\Attributes\DataProvider( 'shared_dir_lines' )]
-	public function test_a_per_partition_file_tail_sharing_a_dir_fails_the_topology( string $line ): void {
-		$this->write_tsl( 'vicuna-shared', $line );
+	/**
+	 * The analyzer refuses what the load would refuse of a line's partition
+	 * layout, so `wp nodes activate` and `topologies save` refuse it too.
+	 *
+	 * @param string $line    The line.
+	 * @param string $refusal What it is refused with.
+	 */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'partition_layout_lines' )]
+	public function test_a_partition_layout_the_load_refuses_fails_the_topology( string $line, string $refusal ): void {
+		$this->write_tsl( 'vicuna-layout', $line );
 
-		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessage( 'File_Tail app:tail-8: a per-partition source needs per-partition offsetlog and deadletter dirs; add {partition}' );
-		Topology_Analyzer::graph_for( 'vicuna-shared' );
+		try {
+			Topology_Analyzer::graph_for( 'vicuna-layout' );
+			$this->fail( 'the topology analyzed' );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertStringContainsString( $refusal, \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
+		}
 	}
 
-	/** @return array<string,array{string}> Label => a line whose `<partition>` the Shell leaves literal. */
-	public static function deferred_partition_lines(): array {
+	/** @return array<string,array{string}> Label => a line written in `{partition}`, or naming none. */
+	public static function brace_partition_lines(): array {
 		return [
-			'a single-quoted pair'          => [ "make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl 'jobs.p<partition>:jobs-sink-7'\n" ],
-			'a pair quoting its token only' => [ "make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl jobs.p'<partition>':jobs-sink-7\n" ],
-			'a backticked pair'             => [ "make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl `jobs.p<partition>:jobs-sink-7`\n" ],
-			'a single-quoted File_Tail'     => [ "make_node File_Tail app:tail-7 '/var/log/heron.<partition>.log' /var/heron/off.{partition} '/var/heron/dl.<partition>'\n" ],
-			'a File_Tail with eager dirs'   => [ "make_node File_Tail app:tail-7 /var/log/heron.{partition}.log /var/heron/off.<partition> /var/heron/dl.<partition>\n" ],
+			'a pair source'                 => [ "make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl jobs.p{partition}:jobs-sink-7\n" ],
+			'a per-worker File_Tail'        => [ "make_node File_Tail app:tail-7 /var/log/heron.{partition}.log /var/heron/off.{partition} /var/heron/dl.{partition}\n" ],
 			'a fixed File_Tail, fixed dirs' => [ "make_node File_Tail app:tail-7 /var/log/heron.log /var/heron/off /var/heron/dl\n" ],
-			'a target naming <partition>'   => [ "make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl jobs.p{partition}:jobs-sink.p<partition>\n" ],
+			'a target naming {partition}'   => [ "make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl jobs.p{partition}:jobs-sink.p{partition}\n" ],
 		];
 	}
 
-	/** A `<partition>` that reaches the node literal runs per worker, so it loads. */
-	#[\PHPUnit\Framework\Attributes\DataProvider( 'deferred_partition_lines' )]
-	public function test_a_deferred_partition_loads( string $line ): void {
-		$this->write_tsl( 'vicuna-deferred', $line );
+	/**
+	 * `{partition}` reaches the node whole, so the line loads.
+	 *
+	 * @param string $line The line.
+	 */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'brace_partition_lines' )]
+	public function test_a_brace_partition_loads( string $line ): void {
+		$this->write_tsl( 'vicuna-brace', $line );
 
-		$this->assertCount( 1, Topology_Analyzer::graph_for( 'vicuna-deferred' )['nodes'] );
+		$this->assertCount( 1, Topology_Analyzer::graph_for( 'vicuna-brace' )['nodes'] );
 	}
 
 	public function test_graph_for_keeps_a_remote_links_partition(): void {
-		$this->write_tsl( 'vicuna-link', "make_node Remote_Link link:okapi okapi-7 \"ledger.p<partition>\"\n" );
+		$this->write_tsl( 'vicuna-link', "make_node Remote_Link link:okapi okapi-7 \"ledger.p{partition}\"\n" );
 
 		$node = Topology_Analyzer::graph_for( 'vicuna-link' )['nodes'][0];
 
 		$this->assertSame( 'okapi-7', $node['vault_id'] );
-		$this->assertSame( 'ledger.p<partition>', $node['remote_partition'] );
+		$this->assertSame( 'ledger.p{partition}', $node['remote_partition'] );
 		$this->assertArrayNotHasKey( 'pairs', $node );
 	}
 
 	public function test_graph_for_one_arg_disconnect_removes_included_edges_before_rewire(): void {
 		$this->write_tsl(
 			'wombat-base',
-			"make_node Consumer zebra:consumer /var/wombat/zebra.p<partition> /var/wombat/zebra-offset.p<partition>\n"
+			"make_node Consumer zebra:consumer /var/wombat/zebra.p{partition} /var/wombat/zebra-offset.p{partition}\n"
 			. "make_node Echo giraffe-direct\n"
 			. "connect_node zebra:consumer giraffe-direct\n"
 		);
@@ -720,7 +726,7 @@ class TopologyRegistryGraphTest extends TestCase {
 	public function test_graph_for_expands_includes_so_a_borrowed_partition_is_not_a_hole(): void {
 		$this->write_tsl(
 			'wombat-base',
-			"make_node Partition zebra:partition /var/wombat/zebra.log <partition> 1 2 0\n"
+			"make_node Partition zebra:partition /var/wombat/zebra.log 4096 1 2 0\n"
 		);
 		$this->write_tsl(
 			'wombat-top',

@@ -33,19 +33,19 @@
             "make_node",
             "Consumer",
             "jobintake:consumer",
-            "<config:logs_dir>/jobintake.p<partition>",
-            "<config:offsets_dir>/<topology>.jobintake.p<partition>",
-            "<config:deadletter_dir>/<topology>.jobintake.p<partition>"
+            "<config:logs_dir>/jobintake.p{partition}",
+            "<config:offsets_dir>/<topology>.jobintake.p{partition}",
+            "<config:deadletter_dir>/<topology>.jobintake.p{partition}"
         ],
         "spans": [
             "make_node",
             "Consumer",
             "jobintake:consumer",
-            "<config:logs_dir>/jobintake.p<partition>",
-            "<config:offsets_dir>/<topology>.jobintake.p<partition>",
-            "<config:deadletter_dir>/<topology>.jobintake.p<partition>"
+            "<config:logs_dir>/jobintake.p{partition}",
+            "<config:offsets_dir>/<topology>.jobintake.p{partition}",
+            "<config:deadletter_dir>/<topology>.jobintake.p{partition}"
         ],
-        "raw": "make_node Consumer jobintake:consumer <config:logs_dir>/jobintake.p<partition> <config:offsets_dir>/<topology>.jobintake.p<partition> <config:deadletter_dir>/<topology>.jobintake.p<partition>"
+        "raw": "make_node Consumer jobintake:consumer <config:logs_dir>/jobintake.p{partition} <config:offsets_dir>/<topology>.jobintake.p{partition} <config:deadletter_dir>/<topology>.jobintake.p{partition}"
     },
     {
         "verb": "make_node",
@@ -53,17 +53,17 @@
             "make_node",
             "Partition",
             "jobs:partition",
-            "<config:logs_dir>/jobs.p<partition>",
+            "<config:logs_dir>/jobs.p{partition}",
             "67108864"
         ],
         "spans": [
             "make_node",
             "Partition",
             "jobs:partition",
-            "<config:logs_dir>/jobs.p<partition>",
+            "<config:logs_dir>/jobs.p{partition}",
             "67108864"
         ],
-        "raw": "make_node Partition jobs:partition <config:logs_dir>/jobs.p<partition> 67108864"
+        "raw": "make_node Partition jobs:partition <config:logs_dir>/jobs.p{partition} 67108864"
     },
     {
         "verb": "command_node",

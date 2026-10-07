@@ -142,9 +142,9 @@ class SpawnFleetTest extends TestCase {
 		// find_conflicts/write_set read real .tsl from disk, so the conflicting
 		// set must be backed by a stock dir, not synthetic with_topology() descriptors.
 		$stock     = $this->make_temp_dir( 'spawn-fleet-conflict-stock-' );
-		$partition = 'make_node Partition requests:partition <config:logs_dir>/requests.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>';
+		$partition = 'make_node Partition requests:partition <config:logs_dir>/requests.p{partition} <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>';
 		\file_put_contents( "{$stock}/alpha.tsl", "var num_partitions = 2\n{$partition}\n" );
-		\file_put_contents( "{$stock}/beta.tsl", "var num_partitions = 2\nmake_node Partition requests:partition <config:logs_dir>/requests.p<partition> 1048576 2 4 0 0\n" );
+		\file_put_contents( "{$stock}/beta.tsl", "var num_partitions = 2\nmake_node Partition requests:partition <config:logs_dir>/requests.p{partition} 1048576 2 4 0 0\n" );
 		\Newspack_Nodes\Topology_Registry::reset();
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'alpha', 'beta' ];

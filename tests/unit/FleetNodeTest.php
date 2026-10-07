@@ -279,8 +279,8 @@ class FleetNodeTest extends TestCase {
 		// the conflict alive. Byte-identical declarations would instead be the
 		// sanctioned multi-writer share (topic-probe), and no conflict at all.
 		$stock = $this->make_temp_dir( 'fleet-conflict-stock-' );
-		\file_put_contents( "{$stock}/alpha.tsl", "var num_partitions = 2\nmake_node Partition requests:partition <config:logs_dir>/requests.p<partition> 1048576 2 4 0 0\n" );
-		\file_put_contents( "{$stock}/beta.tsl", "var num_partitions = 2\nmake_node Partition audit:partition <config:logs_dir>/requests.p<partition> 4194304 8 16 0 0\n" );
+		\file_put_contents( "{$stock}/alpha.tsl", "var num_partitions = 2\nmake_node Partition requests:partition <config:logs_dir>/requests.p{partition} 1048576 2 4 0 0\n" );
+		\file_put_contents( "{$stock}/beta.tsl", "var num_partitions = 2\nmake_node Partition audit:partition <config:logs_dir>/requests.p{partition} 4194304 8 16 0 0\n" );
 		Topology_Registry::reset();
 		Topology_Registry::register_stock_dir( $stock );
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'alpha', 'beta' ];

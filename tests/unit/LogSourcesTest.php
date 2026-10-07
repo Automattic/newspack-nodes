@@ -182,7 +182,7 @@ class LogSourcesTest extends TestCase {
 		$this->activate_topology(
 			'lsrc-fleet',
 			"var num_partitions = 2\n"
-			. "make_node Log beacon:log <config:logs_dir>/beacon-7e.p<partition>/beacon-7e 1 2 7\n"
+			. "make_node Log beacon:log <config:logs_dir>/beacon-7e.p{partition}/beacon-7e 1 2 7\n"
 		);
 
 		$registry = Log_Sources::registry();

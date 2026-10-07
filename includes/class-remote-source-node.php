@@ -169,15 +169,19 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * The pairs this worker reads, each resolved at its bound partition, and
-	 * kept where `Core::owns()` holds for its source as written: a source
-	 * naming no partition reads once per fleet, and elsewhere its pair builds
-	 * no reader, joins no subscription and leaves no dir (ADR-33). Every pair
-	 * is checked wherever it is skipped, so a bad one fails on every partition.
+	 * The pairs this worker reads, each with `{partition}` resolved at its
+	 * bound partition, and kept where `Core::owns()` holds for its source as
+	 * written: a source naming no partition reads once per fleet, and
+	 * elsewhere its pair builds no reader, joins no subscription and leaves no
+	 * dir (ADR-33). Every pair is checked wherever it is skipped, so a bad one
+	 * fails on every partition. Outside a worker a pair naming `{partition}`
+	 * is refused, because no partition's log is that process's own.
 	 *
 	 * @param list<string> $tokens The pair tokens as written.
 	 * @return list<array{source:string,target:string}>
-	 * @throws \InvalidArgumentException When a pair is malformed or none is named.
+	 * @throws \InvalidArgumentException When a pair is malformed, none is
+	 *                                   named, or one names `{partition}`
+	 *                                   where none is bound.
 	 */
 	private function owned_pairs( array $tokens ): array {
 		if ( [] === $tokens ) {
@@ -185,6 +189,10 @@ class Remote_Source_Node extends Remote_Link_Node {
 		}
 		$owned = [];
 		foreach ( $tokens as $token ) {
+			if ( null === $this->bound_partition && Core::has_partition_token( $token ) ) {
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+				throw new \InvalidArgumentException( "Remote_Source: pair '{$token}' names " . Core::PARTITION_TOKEN . ', but no partition is bound' );
+			}
 			$pair = self::parse_pair( Core::resolve_partition_template( $token, $this->bound_partition ?? 0 ) );
 			if ( Core::owns( self::split_pair( $token )['source'] ) ) {
 				$owned[] = $pair;
@@ -374,7 +382,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * The id a broker's reader reports under on the probe log: its node name,
 	 * `<broker>:<kind>`, scoped by the topology and spelled as a worker id at
 	 * the worker partition the broker runs in, as a stock Consumer's offsetlog
-	 * basename `<topology>.<log>.p<partition>` is. Two spokes' `firehose.p0`
+	 * basename `<topology>.<log>.p{partition}` is. Two spokes' `firehose.p0`
 	 * readers then key apart, `CLI::consumer_rows()` reads the partition back
 	 * through `CLI::parse_worker_id()`, and a stale row of an active topology
 	 * keeps its place. Public because `Aggregator_CI` matches the rows of each
@@ -744,8 +752,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 	/**
 	 * Every pair among `$tokens` the runtime would accept, split as written,
 	 * for a reader of the topology that must not fail on a line the runtime
-	 * would refuse. A token is judged with its `<partition>` and config tokens
-	 * resolved, as `make_node` sees it, and kept with them, as the TSL names
+	 * would refuse. A token is judged with its `{partition}` and config tokens
+	 * resolved, as the broker reads it, and kept with them, as the TSL names
 	 * its nodes; a token already resolved reads the same either way.
 	 *
 	 * @param list<string> $tokens Pair tokens.
@@ -762,26 +770,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 			$pairs[] = self::split_pair( $token );
 		}
 		return $pairs;
-	}
-
-	/**
-	 * Refuse a pair whose source the Shell expands at `<partition>`: the
-	 * broker would read the pair as fixed and only worker partition 0 would
-	 * pull it. `{partition}`, or a single-quoted `'<partition>'`, reaches the
-	 * broker whole.
-	 *
-	 * @param string       $name  The broker's name, or its group's.
-	 * @param list<string> $spans The `make_node` argument spans, the name excluded.
-	 * @throws \RuntimeException When a pair's source names an eager `<partition>`.
-	 */
-	public static function refuse_eager_partition( string $name, array $spans ): void {
-		foreach ( \array_slice( $spans, 3 ) as $span ) {
-			if ( Shell_Node::expands( self::split_pair( $span )['source'], '<partition>' ) ) {
-				$pair = Shell_Node::value_of( $span );
-				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-				throw new \RuntimeException( "{$name}: pair \"{$pair}\" names <partition>, which resolves before the broker sees it; write {partition}" );
-			}
-		}
 	}
 
 	/**
@@ -870,8 +858,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 			'description' => 'SSE-pull broker: one connection to a spoke carrying several streams, a durable reader per `source:target` pair (Vault-resolved).',
 			'arguments'   => [
 				[ 'name' => 'vault_id',        'type' => 'vault_id', 'required' => true, 'description' => 'Which spoke to connect to — a Vault-registered server (URL + credentials).' ],
-				[ 'name' => 'offsetlog_root',  'type' => 'string',   'required' => true, 'description' => 'Directory each reader\'s durable read-cursor offsetlog nests under, at <root>/<kind>. Carry `<topology>` so two fleets pulling one spoke keep separate cursors.' ],
-				[ 'name' => 'deadletter_root', 'type' => 'string',   'required' => true, 'description' => 'Directory each reader\'s quarantined poison records nest under, at <root>/<kind>. Later tokens are `<source>:<target>` pairs: a spoke partition, glob or `sources/<name>`, then the node its lines go to.' ],
+				[ 'name' => 'offsetlog_root',  'type' => 'string',   'required' => true, 'partition' => 'bound', 'description' => 'Directory each reader\'s durable read-cursor offsetlog nests under, at <root>/<kind>. Carry `<topology>` so two fleets pulling one spoke keep separate cursors.' ],
+				[ 'name' => 'deadletter_root', 'type' => 'string',   'required' => true, 'partition' => 'bound', 'description' => 'Directory each reader\'s quarantined poison records nest under, at <root>/<kind>. Later tokens are `<source>:<target>` pairs: a spoke partition, glob or `sources/<name>`, then the node its lines go to.' ],
 			],
 			'commands'    => [
 				[

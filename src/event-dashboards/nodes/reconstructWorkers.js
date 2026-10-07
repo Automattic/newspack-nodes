@@ -15,7 +15,7 @@
  *   end it recorded, and how far behind that leaves it.
  * - `logs` carries the live per-partition segment lists.
  *
- * A template still holds its `<partition>` and `<topology>` tokens, and
+ * A template still holds its `{partition}` and `<topology>` tokens, and
  * `topologyGraph.substituteTokens` is the one thing that resolves them, so a
  * match never parses a concrete name by position.
  *
@@ -101,7 +101,7 @@ const brokerReads = ( row, topology, broker ) => {
  * @param {Object} graphTopo One topology's `{ nodes:[{name,kind,reads?,reader?}], edges:[[from,to]] }`.
  * @return {Array<{name:string,broker?:boolean,sourceTemplate:string,readerTemplate:string,handlers:string[]}>} One entry
  *   per consumer node: its name, its source-log template, the offsetlog template that names its reader,
- *   and every handler its rows attach to. Both templates still carry their `<partition>`/`<topology>`
+ *   and every handler its rows attach to. Both templates still carry their `{partition}`/`<topology>`
  *   tokens.
  */
 function consumerHandlers( graphTopo ) {

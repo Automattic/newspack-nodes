@@ -226,7 +226,7 @@ class Table_Node extends Node {
 	/** The declared Table this node answers for; its own name unless mounted. */
 	private string $table = '';
 
-	/** The partition its file belongs to; the bound `<partition>` unless mounted. */
+	/** The partition its file belongs to; the bound partition unless mounted. */
 	private ?int $partition = null;
 
 	/** Whether this is a request-graph mount, which serves reads only. */
@@ -276,7 +276,7 @@ class Table_Node extends Node {
 	/** When the probe's window opened: construction, then each sweep; a reset leaves it. */
 	private float $probe_ts = 0.0;
 
-	/** The `<partition>` bound when the arguments arrived; null with none bound. */
+	/** The partition bound when the arguments arrived; null with none bound. */
 	private ?int $bound_partition = null;
 
 	/** The SQLite file the arm opened; '' on any other backend. */
@@ -1491,7 +1491,7 @@ class Table_Node extends Node {
 	/**
 	 * One partition of a declared Table, named `stem()`, sinking into `$sink`:
 	 * how a request graph mounts a Table outside any topology load. The table
-	 * and partition are set here because a web request binds no `<partition>`.
+	 * and partition are set here because a web request binds no partition.
 	 *
 	 * @api Request graphs mounting a declared Table's partition.
 	 * @param string                                             $table     The declared Table.
@@ -1839,7 +1839,7 @@ class Table_Node extends Node {
 
 	/**
 	 * The partition a `sqlite` file belongs to: the mounted one, else the
-	 * `<partition>` bound when its arguments arrived. Never a guess, since a
+	 * partition bound when its arguments arrived. Never a guess, since a
 	 * guessed partition would open another partition's file.
 	 *
 	 * @return int The partition.
@@ -2236,7 +2236,7 @@ class Table_Node extends Node {
 			'description'      => 'Keyed KEY→VALUE store; write-through fill, cross-process lookup().',
 			'shown_when_owned' => true,
 			'arguments'        => [
-				[ 'name' => 'namespace', 'type' => 'string', 'required' => true, 'description' => 'Scopes keys; lookup() reads by it.' ],
+				[ 'name' => 'namespace', 'type' => 'string', 'required' => true, 'partition' => 'bound', 'description' => 'Scopes keys; lookup() reads by it.' ],
 				[ 'name' => 'ttl', 'type' => 'int', 'required' => true, 'description' => 'Entry TTL in seconds, at least 1; entries a write does not time take it.' ],
 				[ 'name' => 'backend', 'type' => 'string', 'default' => 'auto', 'description' => 'auto, memcache, apcu, sqlite or wpdb; sqlite and wpdb are durable.' ],
 			],

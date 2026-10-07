@@ -138,14 +138,26 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	}
 
 	/**
-	 * Run a typed TSL line, as the Shell would.
+	 * Run a typed TSL line, as the Shell would. A line the parser refuses — an
+	 * open quote, a `<partition>` — runs nothing and is the one refusal.
 	 *
 	 * @param {string} line One statement, or several the Shell's `;` split
 	 *                      separates.
 	 */
 	run( line ) {
 		this.refusals = [];
-		for ( const statement of parseStatements( line ) ) {
+		let statements;
+		try {
+			statements = parseStatements( line );
+		} catch ( e ) {
+			this.refusals.push( {
+				line: 1,
+				statement: line.trim(),
+				message: e.message,
+			} );
+			return;
+		}
+		for ( const statement of statements ) {
 			this._runStatement( statement );
 		}
 	}

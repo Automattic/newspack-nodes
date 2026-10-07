@@ -5,19 +5,19 @@
             "make_node",
             "Consumer",
             "firehose:consumer",
-            "<config:logs_dir>/firehose.p<partition>",
-            "<config:offsets_dir>/firehose.<topology>.p<partition>",
-            "<config:deadletter_dir>/firehose.<topology>.p<partition>"
+            "<config:logs_dir>/firehose.p{partition}",
+            "<config:offsets_dir>/firehose.<topology>.p{partition}",
+            "<config:deadletter_dir>/firehose.<topology>.p{partition}"
         ],
         "spans": [
             "make_node",
             "Consumer",
             "firehose:consumer",
-            "<config:logs_dir>/firehose.p<partition>",
-            "<config:offsets_dir>/firehose.<topology>.p<partition>",
-            "<config:deadletter_dir>/firehose.<topology>.p<partition>"
+            "<config:logs_dir>/firehose.p{partition}",
+            "<config:offsets_dir>/firehose.<topology>.p{partition}",
+            "<config:deadletter_dir>/firehose.<topology>.p{partition}"
         ],
-        "raw": "make_node Consumer firehose:consumer <config:logs_dir>/firehose.p<partition> <config:offsets_dir>/firehose.<topology>.p<partition> <config:deadletter_dir>/firehose.<topology>.p<partition>"
+        "raw": "make_node Consumer firehose:consumer <config:logs_dir>/firehose.p{partition} <config:offsets_dir>/firehose.<topology>.p{partition} <config:deadletter_dir>/firehose.<topology>.p{partition}"
     },
     {
         "verb": "make_node",
@@ -53,7 +53,7 @@
             "make_node",
             "Partition",
             "requests:partition",
-            "<config:logs_dir>/requests.p<partition>",
+            "<config:logs_dir>/requests.p{partition}",
             "<config:segment_size>",
             "<config:min_segments>",
             "<config:max_segments>",
@@ -64,14 +64,14 @@
             "make_node",
             "Partition",
             "requests:partition",
-            "<config:logs_dir>/requests.p<partition>",
+            "<config:logs_dir>/requests.p{partition}",
             "<config:segment_size>",
             "<config:min_segments>",
             "<config:max_segments>",
             "<config:min_lifetime>",
             "<config:max_lifetime>"
         ],
-        "raw": "make_node Partition requests:partition <config:logs_dir>/requests.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>"
+        "raw": "make_node Partition requests:partition <config:logs_dir>/requests.p{partition} <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>"
     },
     {
         "verb": "make_node",
@@ -79,7 +79,7 @@
             "make_node",
             "Partition",
             "errors:partition",
-            "<config:logs_dir>/errors.p<partition>",
+            "<config:logs_dir>/errors.p{partition}",
             "<config:segment_size>",
             "<config:min_segments>",
             "<config:max_segments>",
@@ -90,14 +90,14 @@
             "make_node",
             "Partition",
             "errors:partition",
-            "<config:logs_dir>/errors.p<partition>",
+            "<config:logs_dir>/errors.p{partition}",
             "<config:segment_size>",
             "<config:min_segments>",
             "<config:max_segments>",
             "<config:min_lifetime>",
             "<config:max_lifetime>"
         ],
-        "raw": "make_node Partition errors:partition <config:logs_dir>/errors.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>"
+        "raw": "make_node Partition errors:partition <config:logs_dir>/errors.p{partition} <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>"
     },
     {
         "verb": "make_node",
@@ -105,7 +105,7 @@
             "make_node",
             "Partition",
             "gyroscope:partition",
-            "<config:logs_dir>/gyroscope.p<partition>",
+            "<config:logs_dir>/gyroscope.p{partition}",
             "1048576",
             "<config:min_segments>",
             "<config:max_segments>",
@@ -116,14 +116,14 @@
             "make_node",
             "Partition",
             "gyroscope:partition",
-            "<config:logs_dir>/gyroscope.p<partition>",
+            "<config:logs_dir>/gyroscope.p{partition}",
             "1048576",
             "<config:min_segments>",
             "<config:max_segments>",
             "0",
             "0"
         ],
-        "raw": "make_node Partition gyroscope:partition <config:logs_dir>/gyroscope.p<partition> 1048576 <config:min_segments> <config:max_segments> 0 0"
+        "raw": "make_node Partition gyroscope:partition <config:logs_dir>/gyroscope.p{partition} 1048576 <config:min_segments> <config:max_segments> 0 0"
     },
     {
         "verb": "make_node",
@@ -131,7 +131,7 @@
             "make_node",
             "Partition",
             "completed:partition",
-            "<config:logs_dir>/completed.p<partition>",
+            "<config:logs_dir>/completed.p{partition}",
             "1048576",
             "<config:min_segments>",
             "<config:max_segments>",
@@ -142,14 +142,14 @@
             "make_node",
             "Partition",
             "completed:partition",
-            "<config:logs_dir>/completed.p<partition>",
+            "<config:logs_dir>/completed.p{partition}",
             "1048576",
             "<config:min_segments>",
             "<config:max_segments>",
             "0",
             "0"
         ],
-        "raw": "make_node Partition completed:partition <config:logs_dir>/completed.p<partition> 1048576 <config:min_segments> <config:max_segments> 0 0"
+        "raw": "make_node Partition completed:partition <config:logs_dir>/completed.p{partition} 1048576 <config:min_segments> <config:max_segments> 0 0"
     },
     {
         "verb": "command_node",

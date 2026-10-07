@@ -207,7 +207,7 @@ Everything hangs off `base_directory`, `/tmp/newspack-nodes` by default and one 
   layouts/     {name}.layout
 ```
 
-The offsetlog and dead-letter directory names are not fixed by the substrate: they are the Consumer's second and third `make_node` arguments. The stock topologies spell them `<config:offsets_dir>/<topology>.<log>.p<partition>` and `<config:deadletter_dir>/<topology>.<log>.p<partition>`, and both stay sole-writer — which is what the topology conflict gate checks.
+The offsetlog and dead-letter directory names are not fixed by the substrate: they are the Consumer's second and third `make_node` arguments. The stock topologies spell them `<config:offsets_dir>/<topology>.<log>.p{partition}` and `<config:deadletter_dir>/<topology>.<log>.p{partition}`, and both stay sole-writer — which is what the topology conflict gate checks.
 
 `heartbeat` holds the owner's pid and its mtime is the liveness signal `status` reads; `started` is the acquisition time behind Uptime. Three flag files steer a holder from a process holding no instance: `restart` recycles it, `stop` empties the slot, `reload` re-reads config without exiting. `Lock_Node` claims a directory with `mkdir` rather than `flock`, because `mkdir` is POSIX-atomic on the NFS, tmpfs and bind mounts this runs on; a stale steal renames the old directory aside first, and a `.stealing.` leftover is scratch from an interrupted steal that the reconcile pass reaps.
 

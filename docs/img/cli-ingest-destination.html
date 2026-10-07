@@ -30,8 +30,8 @@ h2 { font-size:15px; margin:0 0 10px; }
   <div class="card">
     <h2>1. The destination is taken as written</h2>
     <div class="form">
-      <div class="f"><b>A bare log name</b><span class="mono">firehose</span> expands to <span class="mono">&lt;config:logs_dir&gt;/firehose.p&lt;partition&gt;</span>, with the configured <span class="mono">num_partitions</span>.</div>
-      <div class="f"><b>A dir-template</b>Carries a <span class="mono">&lt;partition&gt;</span> or <span class="mono">{partition}</span> token and is used verbatim once its <span class="mono">&lt;config:…&gt;</span> tokens resolve. It defaults to ONE partition, because the template names a layout already on disk.</div>
+      <div class="f"><b>A bare log name</b><span class="mono">firehose</span> expands to <span class="mono">&lt;config:logs_dir&gt;/firehose.p{partition}</span>, with the configured <span class="mono">num_partitions</span>.</div>
+      <div class="f"><b>A dir-template</b>Carries a <span class="mono">{partition}</span> token and is used verbatim once its <span class="mono">&lt;config:…&gt;</span> tokens resolve. It defaults to ONE partition, because the template names a layout already on disk.</div>
     </div>
     <div class="callout" style="margin-top:12px">
       <h4>Neither form is checked against the declared log set</h4>

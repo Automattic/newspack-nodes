@@ -180,7 +180,7 @@ class Log_Node extends Partition_Node {
 		return \array_merge( parent::node_schema(), [
 			'description' => 'Append-only segmented log of message VALUEs ({file}.{seg}).',
 			'arguments'   => [
-				[ 'name' => 'file',         'type' => 'string', 'required' => true, 'description' => 'Log file path; segments are written alongside it as {file}.0, {file}.1, … (highest suffix = current).' ],
+				[ 'name' => 'file',         'type' => 'string', 'required' => true, 'partition' => 'bound', 'description' => 'Log file path; segments are written alongside it as {file}.0, {file}.1, … (highest suffix = current).' ],
 				[ 'name' => 'segment_size', 'type' => 'int',    'default' => '<config:segment_size>', 'description' => 'Segment rotation threshold in bytes; a new segment starts once a write would exceed it (default 64 MiB).' ],
 				[ 'name' => 'min_segments', 'type' => 'int',    'default' => '<config:min_segments>', 'description' => 'Age-rule floor: keep at least this many segments (clamped to a hard minimum of 2).' ],
 				[ 'name' => 'num_segments', 'type' => 'int',    'default' => '<config:num_segments>', 'description' => 'Count-rule target: prune the oldest back to this many segments, but only ones older than min_lifetime.' ],

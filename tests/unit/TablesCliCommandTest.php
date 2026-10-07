@@ -58,8 +58,8 @@ final class TablesCliCommandTest extends TestCase {
 		$this->use_loop_time();
 		Topology_Registry::reset();
 		$this->stock = $this->stock_topology_dir( 'tables-cli-stock-' );
-		$this->write_tsl( 'kea-t', "var num_partitions = 2\nmake_node Table lab-7:kea kea:p<partition> 777 sqlite\n" );
-		$this->write_tsl( 'owl-w', "make_node Table lab-7:owl owl:p<partition> 37 wpdb\n" );
+		$this->write_tsl( 'kea-t', "var num_partitions = 2\nmake_node Table lab-7:kea kea:p{partition} 777 sqlite\n" );
+		$this->write_tsl( 'owl-w', "make_node Table lab-7:owl owl:p{partition} 37 wpdb\n" );
 		\update_option( 'newspack_nodes_topologies', [ 'kea-t', 'owl-w' ] );
 		Config::reset();
 		foreach ( [ 'lines', 'logs', 'warns', 'errors', 'success', 'tables', 'confirms' ] as $stream ) {
@@ -273,7 +273,7 @@ final class TablesCliCommandTest extends TestCase {
 	}
 
 	public function test_list_reads_an_on_demand_owner_with_no_lock_as_idle(): void {
-		$this->write_tsl( 'kea-t', "var num_partitions = 2\nvar on_demand_idle = 41\nmake_node Table lab-7:kea kea:p<partition> 777 sqlite\n" );
+		$this->write_tsl( 'kea-t', "var num_partitions = 2\nvar on_demand_idle = 41\nmake_node Table lab-7:kea kea:p{partition} 777 sqlite\n" );
 
 		$this->command()->list_( [], [ 'format' => 'json' ] );
 
@@ -393,7 +393,7 @@ final class TablesCliCommandTest extends TestCase {
 
 	/** Registers `emu-z`, a topology no option activates, declaring a `sqlite` Table over two partitions. */
 	private function register_inactive_emu(): void {
-		$this->write_tsl( 'emu-z', "var num_partitions = 2\nmake_node Table lab-7:emu emu:p<partition> 4242 sqlite\n" );
+		$this->write_tsl( 'emu-z', "var num_partitions = 2\nmake_node Table lab-7:emu emu:p{partition} 4242 sqlite\n" );
 	}
 
 	/** An `emu` partition's file, written as its worker would write it. */
@@ -451,7 +451,7 @@ final class TablesCliCommandTest extends TestCase {
 	}
 
 	public function test_a_table_an_active_and_an_inactive_topology_both_declare_is_owned_by_the_active_one(): void {
-		$this->write_tsl( 'gnu-y', "var num_partitions = 4\nmake_node Table lab-7:kea kea:p<partition> 777 sqlite\n" );
+		$this->write_tsl( 'gnu-y', "var num_partitions = 4\nmake_node Table lab-7:kea kea:p{partition} 777 sqlite\n" );
 
 		$this->command()->list_( [], [ 'format' => 'json' ] );
 
@@ -540,7 +540,7 @@ final class TablesCliCommandTest extends TestCase {
 	}
 
 	public function test_flush_refuses_an_idle_owner_naming_it_until_the_fleet_is_held(): void {
-		$this->write_tsl( 'kea-t', "var num_partitions = 2\nvar on_demand_idle = 41\nmake_node Table lab-7:kea kea:p<partition> 777 sqlite\n" );
+		$this->write_tsl( 'kea-t', "var num_partitions = 2\nvar on_demand_idle = 41\nmake_node Table lab-7:kea kea:p{partition} 777 sqlite\n" );
 		$this->seed_kea( 0, 2 );
 
 		$e = $this->caught( fn () => $this->command()->flush( [ 'lab-7:kea' ], [ 'partition' => '0' ] ), 'an idle owner, which can spawn at any moment, was flushed without the hold' );

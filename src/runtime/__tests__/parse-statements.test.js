@@ -112,15 +112,31 @@ describe( 'parseStatements', () => {
 
 	it( 'preserves a single-quoted span byte-identical (deferred token)', () => {
 		const stmts = parseStatements(
-			"make_node Topic jobs <config:logs_dir>/jobs.p'<partition>'"
+			"make_node Topic jobs <config:logs_dir>/jobs.'<topology>'"
 		);
 		// values strips quotes; spans keeps them verbatim.
 		expect( stmts[ 0 ].values[ 3 ] ).toBe(
-			'<config:logs_dir>/jobs.p<partition>'
+			'<config:logs_dir>/jobs.<topology>'
 		);
 		expect( stmts[ 0 ].spans[ 3 ] ).toBe(
-			"<config:logs_dir>/jobs.p'<partition>'"
+			"<config:logs_dir>/jobs.'<topology>'"
 		);
+	} );
+
+	// Parity-pinned to the PHP ShellParseStatementsTest of the same intent.
+	it( 'refuses <partition> however it is quoted, as the load would', () => {
+		expect( () =>
+			parseStatements( "make_node Partition p '<partition>'" )
+		).toThrow(
+			`"'<partition>'": <partition> resolves before the node sees it; write {partition}`
+		);
+	} );
+
+	it( 'keeps {partition} as written and ignores a comment naming <partition>', () => {
+		const stmts = parseStatements(
+			'# .p<partition>\nmake_node Partition p /l/p.p{partition}'
+		);
+		expect( stmts[ 0 ].spans[ 3 ] ).toBe( '/l/p.p{partition}' );
 	} );
 
 	it( 'performs NO interpolation — <config:x> survives in values', () => {

@@ -49,19 +49,19 @@
             "make_node",
             "Consumer",
             "jobs:consumer",
-            "<config:logs_dir>/jobs.p<partition>",
-            "<config:offsets_dir>/<topology>.jobs.p<partition>",
-            "<config:deadletter_dir>/<topology>.jobs.p<partition>"
+            "<config:logs_dir>/jobs.p{partition}",
+            "<config:offsets_dir>/<topology>.jobs.p{partition}",
+            "<config:deadletter_dir>/<topology>.jobs.p{partition}"
         ],
         "spans": [
             "make_node",
             "Consumer",
             "jobs:consumer",
-            "<config:logs_dir>/jobs.p<partition>",
-            "<config:offsets_dir>/<topology>.jobs.p<partition>",
-            "<config:deadletter_dir>/<topology>.jobs.p<partition>"
+            "<config:logs_dir>/jobs.p{partition}",
+            "<config:offsets_dir>/<topology>.jobs.p{partition}",
+            "<config:deadletter_dir>/<topology>.jobs.p{partition}"
         ],
-        "raw": "make_node Consumer jobs:consumer <config:logs_dir>/jobs.p<partition> <config:offsets_dir>/<topology>.jobs.p<partition> <config:deadletter_dir>/<topology>.jobs.p<partition>"
+        "raw": "make_node Consumer jobs:consumer <config:logs_dir>/jobs.p{partition} <config:offsets_dir>/<topology>.jobs.p{partition} <config:deadletter_dir>/<topology>.jobs.p{partition}"
     },
     {
         "verb": "make_node",

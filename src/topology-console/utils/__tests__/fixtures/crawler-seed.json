@@ -1,5 +1,5 @@
 {
-	"tsl": "var num_partitions = 1\nmake_node Crawler crawler 86400 crawler 0 1\nmake_node Partition curl:partition <config:logs_dir>/curl.p<partition> 1048576 2 8 0 86400 86400\ncommand_node curl:partition:config void_warranty\nmake_node Consumer curl:consumer <config:logs_dir>/curl.p<partition> <config:offsets_dir>/curl.p<partition> <config:deadletter_dir>/curl.p<partition>\nmake_node Tee curl:tee\nconnect_node crawler curl:partition\nconnect_node curl:consumer curl:tee\ninsecure\n",
+	"tsl": "var num_partitions = 1\nmake_node Crawler crawler 86400 crawler 0 1\nmake_node Partition curl:partition <config:logs_dir>/curl.p{partition} 1048576 2 8 0 86400 86400\ncommand_node curl:partition:config void_warranty\nmake_node Consumer curl:consumer <config:logs_dir>/curl.p{partition} <config:offsets_dir>/curl.p{partition} <config:deadletter_dir>/curl.p{partition}\nmake_node Tee curl:tee\nconnect_node crawler curl:partition\nconnect_node curl:consumer curl:tee\ninsecure\n",
 	"expanded": {
 		"nodes": [],
 		"edges": [],

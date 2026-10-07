@@ -128,7 +128,7 @@ class Shell_Node extends Node {
 	 * as Perl does.
 	 *
 	 * `<` and `>` are double-quote escapes because `interpolate()` runs first and
-	 * copies an escape pair verbatim: `"\<partition\>"` is how an author defers a
+	 * copies an escape pair verbatim: `"\<topology\>"` is how an author defers a
 	 * token that would otherwise expand here and now.
 	 *
 	 * @var array<string,array<string,string>>
@@ -245,7 +245,7 @@ class Shell_Node extends Node {
 	 * canonical verb; `values` the quote-stripped tokens (`values[0] === verb`,
 	 * and for `cmd` `values[1]` is the cwd-resolved path); `spans` the same tokens
 	 * with quote chars + escapes verbatim (what a round-trip must emit, so a
-	 * deferred `'<partition>'` never becomes an eager `"<partition>"`); `raw` the
+	 * deferred `'<topology>'` never becomes an eager `"<topology>"`); `raw` the
 	 * canonical single-line form (the sharing signature readers normalize); `line`
 	 * the 1-based first physical source line.
 	 *
@@ -442,6 +442,11 @@ class Shell_Node extends Node {
 		if ( empty( $scanned ) ) {
 			return null;
 		}
+		$refusal = self::eager_partition_refusal( $scanned );
+		if ( null !== $refusal ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text loader/CLI message; escape at the view, not the runtime.
+			throw new \RuntimeException( $refusal );
+		}
 		$token_values = \array_column( $scanned, 'value' );
 		$token_spans  = \array_column( $scanned, 'raw' );
 		$verb         = self::VERB_ALIASES[ $token_values[0] ] ?? $token_values[0];
@@ -542,6 +547,14 @@ class Shell_Node extends Node {
 		// Settle comments first: interpolating an inert line warns spuriously.
 		$trimmed_raw = \trim( $line );
 		if ( '' === $trimmed_raw || '#' === $trimmed_raw[0] ) {
+			return null;
+		}
+
+		// An open quote is judged once the statement closes.
+		$open_quote = null;
+		$refusal    = self::eager_partition_refusal( self::scan_tokens( $line, $open_quote ) );
+		if ( null === $open_quote && null !== $refusal ) {
+			$this->refuse( "{$refusal}\n" );
 			return null;
 		}
 
@@ -935,10 +948,9 @@ class Shell_Node extends Node {
 	 * quotes: `<ns:key>` → that namespace's registered resolver
 	 * (Core::resolve_config_token); bare `<var>` → Core::$var; unknown → ''.
 	 * Inside single quotes or backticks the `<…>` is left LITERAL (standard shell
-	 * semantics) so a token can be deferred to a downstream binder — e.g. a Topic
-	 * line writes `<config:logs_dir>/jobs.p'<partition>'`, expanding the dir now
-	 * and handing the raw `<partition>` to Topic. The quote chars survive here;
-	 * tokenize() strips them afterward.
+	 * semantics) so a token can be deferred to a downstream binder. The quote
+	 * chars survive here; tokenize() strips them afterward. `parse()` refuses
+	 * `<partition>` before this runs, however it is quoted.
 	 *
 	 * @param string $line One statement, before tokenizing.
 	 * @return string The line with every eligible `<…>` expanded.
@@ -977,24 +989,6 @@ class Shell_Node extends Node {
 	}
 
 	/**
-	 * Whether the Shell expands `$token` in a token as written: bare or inside
-	 * double quotes, never inside single quotes or backticks, which hand it to
-	 * the node literal. How the analyzer tells an eager `<partition>` from a
-	 * deferred one.
-	 *
-	 * @param string $span  One token's span, quote chars verbatim.
-	 * @param string $token A whole `<…>` token, such as `<partition>`.
-	 */
-	public static function expands( string $span, string $token ): bool {
-		foreach ( self::expansion_sites( $span ) as $at ) {
-			if ( \str_starts_with( \substr( $span, $at ), $token ) ) {
-				return true;
-			}
-		}
-		return false;
-	}
-
-	/**
 	 * Every offset where interpolation may open a `<…>` token: a `<` outside
 	 * single quotes and backticks, past no escape pair, and before an unquoted
 	 * `#`, whose comment tail is inert. The one statement of the quote rules
@@ -1024,13 +1018,20 @@ class Shell_Node extends Node {
 	}
 
 	/**
-	 * The value one token's span carries, quote chars stripped and escapes
-	 * resolved, as `tokenize()` reads it.
+	 * The refusal a statement naming `<partition>` earns, or null. The Shell
+	 * would resolve it before the node could tell the source is per-partition,
+	 * so it is refused however it is quoted or escaped; a comment is never
+	 * scanned.
 	 *
-	 * @param string $span One token's span.
+	 * @param list<array{value:string,raw:string}> $scanned The statement's tokens.
 	 */
-	public static function value_of( string $span ): string {
-		return self::scan_tokens( $span )[0]['value'] ?? '';
+	private static function eager_partition_refusal( array $scanned ): ?string {
+		foreach ( $scanned as $token ) {
+			if ( \str_contains( $token['value'], '<partition>' ) ) {
+				return "\"{$token['raw']}\": <partition> resolves before the node sees it; write " . Core::PARTITION_TOKEN;
+			}
+		}
+		return null;
 	}
 
 	/**

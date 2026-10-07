@@ -417,8 +417,8 @@ class TopologyRegistryTest extends TestCase {
 			"{$this->stock}/segments.tsl",
 			"# comments and blank lines are skipped\n\n"
 			. "make_node Echo e\n"
-			. "make_node Partition requests:p <config:logs_dir>/requests.p<partition> 4096 2\n"
-			. "make_node Partition dynamic:p <config:logs_dir>/dynamic.p<partition> <config:segment_size> 2\n"
+			. "make_node Partition requests:p <config:logs_dir>/requests.p{partition} 4096 2\n"
+			. "make_node Partition dynamic:p <config:logs_dir>/dynamic.p{partition} <config:segment_size> 2\n"
 		);
 		Topology_Registry::register_stock_dir( $this->stock );
 
@@ -429,7 +429,7 @@ class TopologyRegistryTest extends TestCase {
 
 		\file_put_contents(
 			"{$this->stock}/segments.tsl",
-			"make_node Partition changed:p <config:logs_dir>/changed.p<partition> 8192 2\n"
+			"make_node Partition changed:p <config:logs_dir>/changed.p{partition} 8192 2\n"
 		);
 
 		$this->assertSame(
@@ -446,28 +446,27 @@ class TopologyRegistryTest extends TestCase {
 	}
 
 	public function test_segment_size_overrides_are_layout_agnostic(): void {
-		// The <partition> token sits anywhere — or nowhere: a hardwired .p0
-		// journal and a quoted deferred '<partition>' Topic-style path both
-		// carry their configured size (the .p<partition>-only regex lost them).
+		// The {partition} token sits anywhere — or nowhere: a hardwired .p0
+		// journal and a {partition} path both carry their configured size.
 		\file_put_contents(
 			"{$this->stock}/vicuna-layouts.tsl",
 			"make_node Partition pinned:p <config:logs_dir>/pinned.p0 1048576 2 7 0 0\n"
-			. "make_node Partition quoted:p <config:logs_dir>/quoted.p'<partition>' 8192 2\n"
+			. "make_node Partition tokened:p <config:logs_dir>/tokened.p{partition} 8192 2\n"
 		);
 		Topology_Registry::register_stock_dir( $this->stock );
 
 		$this->assertSame(
 			[
 				'pinned.p0' => 1048576,
-				'quoted.p0' => 8192,
+				'tokened.p0' => 8192,
 			],
 			Topology_Analyzer::segment_size_overrides_for( 'vicuna-layouts' )
 		);
 	}
 
 	/**
-	 * A NESTED layout puts `<partition>` below the first level. The
-	 * `.p(?:<partition>|\d+)$` suffix regex — sitting under a comment claiming
+	 * A NESTED layout puts `{partition}` below the first level. The
+	 * `.p(?:{partition}|\d+)$` suffix regex — sitting under a comment claiming
 	 * the method is layout-agnostic — matched nothing there, so the override was
 	 * dropped and the dashboard reported the global default. The key is the
 	 * concrete first-level dir under logs_dir, the SAME reduction
@@ -476,7 +475,7 @@ class TopologyRegistryTest extends TestCase {
 	public function test_segment_size_overrides_cover_a_nested_partition_layout(): void {
 		\file_put_contents(
 			"{$this->stock}/vicuna-nested.tsl",
-			"make_node Partition nested:p <config:logs_dir>/burrow/<partition> 32768 2\n"
+			"make_node Partition nested:p <config:logs_dir>/burrow/{partition} 32768 2\n"
 		);
 		Topology_Registry::register_stock_dir( $this->stock );
 
@@ -490,7 +489,7 @@ class TopologyRegistryTest extends TestCase {
 	public function test_segment_size_overrides_span_every_partition(): void {
 		\file_put_contents(
 			"{$this->stock}/vicuna-fanned.tsl",
-			"make_node Partition fanned:p <config:logs_dir>/fanned.p<partition> 16384 2\n"
+			"make_node Partition fanned:p <config:logs_dir>/fanned.p{partition} 16384 2\n"
 		);
 		Topology_Registry::register_stock_dir( $this->stock );
 
@@ -514,8 +513,8 @@ class TopologyRegistryTest extends TestCase {
 	public function test_segment_size_overrides_honor_the_make_alias_and_partition_subclasses(): void {
 		\file_put_contents(
 			"{$this->stock}/vicuna-aliased.tsl",
-			"make Partition aliased:p <config:logs_dir>/aliased.p<partition> 2048 2\n"
-			. "make_node Log journal:l <config:logs_dir>/journal.p<partition> 65536 2\n"
+			"make Partition aliased:p <config:logs_dir>/aliased.p{partition} 2048 2\n"
+			. "make_node Log journal:l <config:logs_dir>/journal.p{partition} 65536 2\n"
 		);
 		Topology_Registry::register_stock_dir( $this->stock );
 		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );

@@ -64,15 +64,15 @@ class ShellTest extends TestCase {
 	}
 
 	/**
-	 * A stored argument can carry an UNEXPANDED `<…>`: that is exactly what the
-	 * single-quoted idiom (`<config:logs_dir>/jobs.p'<partition>'`) hands a node,
+	 * A stored argument can carry an UNEXPANDED `<…>`: that is exactly what a
+	 * single-quoted token (`<config:logs_dir>/jobs.'<topology>'`) hands a node,
 	 * and dump_config re-emits what the node holds. Re-emitting it bare loses it
 	 * — interpolate() runs BEFORE tokenize(), and an unknown marker expands to
 	 * nothing — so the whole round trip, not just tokenize, has to recover it.
 	 */
 	public function test_serialize_args_defers_an_unexpanded_interpolation_marker(): void {
 		$shell  = new Shell_Node();
-		$tokens = [ '/logs/firehose.p<partition>', '/offsets/x.<topology>' ];
+		$tokens = [ '/logs/firehose.<heron>', '/offsets/x.<topology>' ];
 		$line   = 'X Y ' . Node::serialize_args( $tokens );
 		$back   = \array_slice( $shell->tokenize( $shell->interpolate( $line ) ), 2 );
 		$this->assertSame( $tokens, $back );
@@ -85,7 +85,7 @@ class ShellTest extends TestCase {
 	 */
 	public function test_serialize_arg_defers_a_marker_following_an_escaped_quote(): void {
 		$shell  = new Shell_Node();
-		$tokens = [ "Don't use <partition>", '/logs/x.p<partition>' ];
+		$tokens = [ "Don't use <heron>", '/logs/x.<heron>' ];
 		$line   = 'X Y ' . Node::serialize_args( $tokens );
 		$back   = \array_slice( $shell->tokenize( $shell->interpolate( $line ) ), 2 );
 		$this->assertSame( $tokens, $back );
@@ -583,11 +583,11 @@ class ShellTest extends TestCase {
 	public function test_interpolate_mixed_quoting_expands_unquoted_defers_single_quoted(): void {
 		$shell = new Shell_Node();
 		\Newspack_Nodes\Core::$var[ 'base' ] = '/logs';
-		// The Topic-template idiom: <base> expands now; the single-quoted <partition>
-		// is deferred (quote chars survive interpolation, stripped later by tokenize).
-		$this->assertSame( "/logs/jobs.p'<partition>'", $shell->interpolate( "<base>/jobs.p'<partition>'" ) );
+		// <base> expands now; the single-quoted <heron> is deferred (quote chars
+		// survive interpolation, stripped later by tokenize).
+		$this->assertSame( "/logs/jobs.'<heron>'", $shell->interpolate( "<base>/jobs.'<heron>'" ) );
 		// End-to-end: after tokenize strips the quotes, the deferred token stands literal.
-		$this->assertSame( [ '/logs/jobs.p<partition>' ], $shell->tokenize( $shell->interpolate( "<base>/jobs.p'<partition>'" ) ) );
+		$this->assertSame( [ '/logs/jobs.<heron>' ], $shell->tokenize( $shell->interpolate( "<base>/jobs.'<heron>'" ) ) );
 	}
 
 	public function test_parse_tell_yields_TM_INFO(): void {
@@ -785,6 +785,56 @@ class ShellTest extends TestCase {
 
 		$this->assertCount( 1, $capture->captured, 'a quoted ; or newline must not split the statement' );
 		$this->assertSame( "foo\nbar; baz", $capture->captured[0][ Message::VALUE ] );
+	}
+
+	/**
+	 * `<partition>` would resolve before the node could tell its source is
+	 * per-partition, so a topology refuses it however it is quoted, and the
+	 * refusal names `{partition}`, the spelling the node resolves.
+	 *
+	 * @dataProvider angle_partition_lines
+	 */
+	public function test_a_topology_naming_angle_partition_fails_to_load( string $line ): void {
+		\Newspack_Nodes\Core::$var['partition'] = '4';
+		$shell = new Shell_Node();
+		$sink  = new Capture_Sink_Node();
+		$shell->sink( $sink );
+		$shell->fatal_errors( true );
+
+		try {
+			$shell->eval_script( $line );
+			$this->fail( 'the line loaded' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( '<partition> resolves before the node sees it; write {partition}', $e->getMessage() );
+		}
+		$this->assertSame( [], $sink->captured, 'the refused line minted nothing' );
+	}
+
+	/** @return array<string,array{string}> */
+	public static function angle_partition_lines(): array {
+		return [
+			'bare'          => [ 'make_node Consumer egret /logs/egret.p<partition>' ],
+			'double-quoted' => [ 'make_node Consumer egret "/logs/egret.p<partition>"' ],
+			'single-quoted' => [ "make_node Topic egret /logs/egret.p'<partition>'" ],
+			'any verb'      => [ 'tell egret <partition>' ],
+		];
+	}
+
+	/** At the REPL the refusal is the operator's answer, and nothing is minted. */
+	public function test_the_repl_answers_an_angle_partition_with_the_refusal(): void {
+		$capture = $this->register_output_capture();
+		$shell   = new Shell_Node();
+
+		$this->assertNull( $shell->parse( 'tell egret /logs/egret.p<partition>' ) );
+		$this->assertStringContainsString( 'write {partition}', Core::as_string( $capture->captured[0][ Message::VALUE ] ) );
+	}
+
+	/** `{partition}` reaches the node whole, and a comment may name anything. */
+	public function test_brace_partition_passes_through_and_a_comment_is_inert(): void {
+		$shell   = new Shell_Node();
+		$message = $shell->parse( 'tell egret /logs/egret.p{partition} # was .p<partition>' );
+
+		$this->assertSame( '/logs/egret.p{partition}', $message[ Message::VALUE ] );
 	}
 
 	public function test_flush_pending_throws_on_eof_inside_a_quote_in_script_context(): void {
@@ -1531,12 +1581,12 @@ class ShellTest extends TestCase {
 			'config',
 			static fn ( string $k ) => 'base_directory' === $k ? '/tmp/foo' : null
 		);
-		\Newspack_Nodes\Core::$var = [ 'partition' => '0' ];
+		\Newspack_Nodes\Core::$var = [ 'topology' => 'ibis' ];
 		$shell                     = new Shell_Node();
 		try {
 			$this->assertSame(
-				'make_node Partition p /tmp/foo/p0',
-				$shell->interpolate( 'make_node Partition p <config:base_directory>/p<partition>' )
+				'make_node Partition p /tmp/foo/ibis',
+				$shell->interpolate( 'make_node Partition p <config:base_directory>/<topology>' )
 			);
 		} finally {
 			\Newspack_Nodes\Core::$config_resolvers = $saved;
@@ -1588,7 +1638,7 @@ class ShellTest extends TestCase {
 		$shell = new Shell_Node();
 		$sink  = new \Newspack_Nodes\Tests\Capture_Sink_Node();
 		$shell->sink( $sink );
-		$shell->eval_script( "var partition = 3; tell foo hello; tell bar <partition>" );
+		$shell->eval_script( "var stride = 3; tell foo hello; tell bar <stride>" );
 		// `var` doesn't emit; the two `tell` statements do.
 		$this->assertCount( 2, $sink->captured );
 		$this->assertSame( 'hello', $sink->captured[0][ Message::VALUE ] );

@@ -527,12 +527,23 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 'sources/php,firehose.p0,jobstats.p0,errors.*', $query['subscribe'] );
 	}
 
-	public function test_outside_a_worker_every_pair_builds_its_reader(): void {
+	/** Outside a worker a per-partition pair names no partition's log, so it is refused. */
+	public function test_outside_a_worker_a_per_partition_pair_is_refused(): void {
 		unset( Core::$var['partition'] );
-		[ $node, $query ] = $this->owned_broker();
 
-		$this->assertSame( [ 'sources/php', 'firehose.p0', 'jobstats.p0' ], \array_keys( $this->readers( $node ) ) );
-		$this->assertSame( 'sources/php,firehose.p0,jobstats.p0,errors.*', $query['subscribe'] );
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( "Remote_Source: pair 'firehose.p{partition}:downstream' names {partition}, but no partition is bound" );
+		$this->broker( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'sources/php:php-errors', 'firehose.p{partition}:downstream' ) );
+	}
+
+	/** Outside a worker a fixed pair is owned, as ADR-33 has it. */
+	public function test_outside_a_worker_a_fixed_pair_builds_its_reader(): void {
+		unset( Core::$var['partition'] );
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$node = $this->broker( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'sources/php:php-errors', 'firehose.p3:downstream' ) );
+		$node->fire();
+
+		$this->assertSame( [ 'sources/php', 'firehose.p3' ], \array_keys( $this->readers( $node ) ) );
 	}
 
 	// ---------------------------------------------------------------------

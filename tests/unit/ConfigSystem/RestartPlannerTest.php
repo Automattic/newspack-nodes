@@ -26,9 +26,9 @@ class RestartPlannerTest extends TestCase {
 		// writing the option.
 		\update_option( 'newspack_nodes_topologies', [ 'combined', 'aggregator', 'job-worker', 'multipart' ] );
 		Config::reset();
-		$this->write_tsl( 'combined', "make_node Partition requests:partition <config:logs_dir>/requests.p<partition> 1 2 0\nmake_node Tee fanout\n" );
+		$this->write_tsl( 'combined', "make_node Partition requests:partition <config:logs_dir>/requests.p{partition} 1 2 0\nmake_node Tee fanout\n" );
 		$this->write_tsl( 'aggregator', "make_node Topic firehose:topic <config:logs_dir>/firehose.p{partition} 1 1 2 0\n" );
-		$this->write_tsl( 'job-worker', "make_node Consumer jobintake:consumer <config:logs_dir>/jobintake.p<partition> <config:offsets_dir>/ji.p<partition>\nmake_node Job_Worker job-worker\n" );
+		$this->write_tsl( 'job-worker', "make_node Consumer jobintake:consumer <config:logs_dir>/jobintake.p{partition} <config:offsets_dir>/ji.p{partition}\nmake_node Job_Worker job-worker\n" );
 		// 3-partition topology with a node type (Echo) unique to it, so a save
 		// classified for Echo restarts only multipart and fans out over .p0-.p2.
 		$this->write_tsl( 'multipart', "var num_partitions = 3\nmake_node Echo relay\n" );

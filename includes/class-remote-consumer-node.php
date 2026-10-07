@@ -813,8 +813,8 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 			'description'  => 'Durable reader for one stream a Remote_Source broker carries (built by the broker).',
 			'arguments'    => [
 				[ 'name' => 'stamp', 'type' => 'string', 'required' => true, 'description' => 'The stamp this stream\'s lines carry: a spoke partition dir or sources/<name>.' ],
-				[ 'name' => 'offsetlog_dir', 'type' => 'string', 'required' => true, 'description' => 'Directory for the durable read-cursor offsetlog.' ],
-				[ 'name' => 'deadletter_dir', 'type' => 'string', 'required' => true, 'description' => 'Directory where poison records are quarantined.' ],
+				[ 'name' => 'offsetlog_dir', 'type' => 'string', 'required' => true, 'partition' => 'bound', 'description' => 'Directory for the durable read-cursor offsetlog.' ],
+				[ 'name' => 'deadletter_dir', 'type' => 'string', 'required' => true, 'partition' => 'bound', 'description' => 'Directory where poison records are quarantined.' ],
 			],
 			'commands'     => \array_merge( self::deadletter_verbs(), self::time_travel_verbs(), self::pump_verbs() ),
 			'requests'     => [],

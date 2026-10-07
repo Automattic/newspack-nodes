@@ -39,7 +39,7 @@ class TopologyRegistryExpandTest extends TestCase {
 	public function test_expand_keeps_quoted_args_as_raw_spans(): void {
 		$this->write_tsl(
 			'vicuna-quoted',
-			"make_node Topic vicuna-jobs <config:logs_dir>/jobs.p'<partition>' 4\n"
+			"make_node Topic vicuna-jobs <config:logs_dir>/jobs.p{partition} 4\n"
 			. 'cmd vicuna-jobs:config add_profile "Engineers care about uptime"' . "\n"
 		);
 
@@ -50,7 +50,7 @@ class TopologyRegistryExpandTest extends TestCase {
 		}
 
 		$this->assertSame(
-			[ "<config:logs_dir>/jobs.p'<partition>'", '4' ],
+			[ '<config:logs_dir>/jobs.p{partition}', '4' ],
 			$byName['vicuna-jobs']['args']
 		);
 		$this->assertSame(
@@ -67,12 +67,12 @@ class TopologyRegistryExpandTest extends TestCase {
 	public function test_consumer_positions_pairs_each_source_with_its_offsetlog(): void {
 		// Knowing how far behind a reader is needs BOTH: the source gives the end
 		// of the log, the offsetlog gives the committed cursor. Templates, not
-		// resolved paths — the caller owns the `<partition>` substitution.
+		// resolved paths — the caller owns the `{partition}` substitution.
 		$this->write_tsl(
 			'vicuna-readers',
-			"make_node Consumer vicuna-in <config:logs_dir>/jobfeed.p<partition> "
-			. "<config:offsets_dir>/jobfeed.p<partition>\n"
-			. "make_node Consumer vicuna-ephemeral <config:logs_dir>/alerts.p<partition>\n"
+			"make_node Consumer vicuna-in <config:logs_dir>/jobfeed.p{partition} "
+			. "<config:offsets_dir>/jobfeed.p{partition}\n"
+			. "make_node Consumer vicuna-ephemeral <config:logs_dir>/alerts.p{partition}\n"
 			. "make_node Echo vicuna-sink\n"
 		);
 
@@ -81,13 +81,13 @@ class TopologyRegistryExpandTest extends TestCase {
 		$this->assertSame(
 			[
 				[
-					'source'    => '<config:logs_dir>/jobfeed.p<partition>',
-					'offsetlog' => '<config:offsets_dir>/jobfeed.p<partition>',
+					'source'    => '<config:logs_dir>/jobfeed.p{partition}',
+					'offsetlog' => '<config:offsets_dir>/jobfeed.p{partition}',
 				],
 				// An ephemeral reader keeps no cursor; its template is empty,
 				// which is what stops the sweep calling it permanently behind.
 				[
-					'source'    => '<config:logs_dir>/alerts.p<partition>',
+					'source'    => '<config:logs_dir>/alerts.p{partition}',
 					'offsetlog' => '',
 				],
 			],
@@ -141,7 +141,7 @@ class TopologyRegistryExpandTest extends TestCase {
 		$this->write_tsl(
 			'wombat-args',
 			"make_node Grep zebra-grep giraffe-pattern\n"
-			. "make_node Partition zebra:partition /var/wombat/zebra.log <partition> 1 2 0\n"
+			. "make_node Partition zebra:partition /var/wombat/zebra.log 4096 1 2 0\n"
 			. "cmd zebra-grep:config set_errors_target zebra:partition\n"
 		);
 
@@ -165,7 +165,7 @@ class TopologyRegistryExpandTest extends TestCase {
 		// stays an EDGE, never a verb.
 		$this->write_tsl(
 			'wombat-verbs',
-			"make_node Partition zebra:partition /var/wombat/zebra.log <partition> 1 2 0\n"
+			"make_node Partition zebra:partition /var/wombat/zebra.log 4096 1 2 0\n"
 			. "make_node Echo giraffe-errors\n"
 			. "cmd zebra:partition:config void_warranty\n"
 			. "cmd zebra:partition:config with_index quokka-idx\n"
@@ -199,7 +199,7 @@ class TopologyRegistryExpandTest extends TestCase {
 		$this->write_tsl(
 			'wombat-config-target',
 			"make_node Echo cerulean-flame-builder-619\n"
-			. "make_node Partition violet-flame-stats-947 /var/wombat/stats.p<partition> 1 2 0\n"
+			. "make_node Partition violet-flame-stats-947 /var/wombat/stats.p{partition} 1 2 0\n"
 			. "cmd cerulean-flame-builder-619:config set_stats_target <wombat_expand:stats_sink>\n"
 		);
 
@@ -571,7 +571,7 @@ class TopologyRegistryExpandTest extends TestCase {
 	public function test_both_walks_agree_on_a_config_target_with_trailing_tokens(): void {
 		$this->write_tsl(
 			'wombat-drift',
-			"make_node Partition zebra:partition /var/wombat/zebra.log <partition> 1 2 0\n"
+			"make_node Partition zebra:partition /var/wombat/zebra.log 4096 1 2 0\n"
 			. "make_node Echo giraffe-errors\n"
 			. "make_node Echo second-token\n"
 			. "cmd zebra:partition:config set_errors_target giraffe-errors second-token\n"

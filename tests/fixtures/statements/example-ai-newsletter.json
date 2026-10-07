@@ -133,7 +133,7 @@
             "make_node",
             "Partition",
             "scored:partition",
-            "<config:logs_dir>/example-scored.p<partition>",
+            "<config:logs_dir>/example-scored.p{partition}",
             "<config:segment_size>",
             "<config:min_segments>",
             "<config:num_segments>",
@@ -145,7 +145,7 @@
             "make_node",
             "Partition",
             "scored:partition",
-            "<config:logs_dir>/example-scored.p<partition>",
+            "<config:logs_dir>/example-scored.p{partition}",
             "<config:segment_size>",
             "<config:min_segments>",
             "<config:num_segments>",
@@ -153,7 +153,7 @@
             "<config:min_lifetime>",
             "<config:lifetime>"
         ],
-        "raw": "make_node Partition scored:partition <config:logs_dir>/example-scored.p<partition> <config:segment_size> <config:min_segments> <config:num_segments> <config:max_segments> <config:min_lifetime> <config:lifetime>"
+        "raw": "make_node Partition scored:partition <config:logs_dir>/example-scored.p{partition} <config:segment_size> <config:min_segments> <config:num_segments> <config:max_segments> <config:min_lifetime> <config:lifetime>"
     },
     {
         "verb": "command_node",
@@ -175,19 +175,19 @@
             "make_node",
             "Consumer",
             "scored:consumer",
-            "<config:logs_dir>/example-scored.p<partition>",
-            "<config:offsets_dir>/example-scored.p<partition>",
-            "<config:deadletter_dir>/example-scored.p<partition>"
+            "<config:logs_dir>/example-scored.p{partition}",
+            "<config:offsets_dir>/example-scored.p{partition}",
+            "<config:deadletter_dir>/example-scored.p{partition}"
         ],
         "spans": [
             "make_node",
             "Consumer",
             "scored:consumer",
-            "<config:logs_dir>/example-scored.p<partition>",
-            "<config:offsets_dir>/example-scored.p<partition>",
-            "<config:deadletter_dir>/example-scored.p<partition>"
+            "<config:logs_dir>/example-scored.p{partition}",
+            "<config:offsets_dir>/example-scored.p{partition}",
+            "<config:deadletter_dir>/example-scored.p{partition}"
         ],
-        "raw": "make_node Consumer scored:consumer <config:logs_dir>/example-scored.p<partition> <config:offsets_dir>/example-scored.p<partition> <config:deadletter_dir>/example-scored.p<partition>"
+        "raw": "make_node Consumer scored:consumer <config:logs_dir>/example-scored.p{partition} <config:offsets_dir>/example-scored.p{partition} <config:deadletter_dir>/example-scored.p{partition}"
     },
     {
         "verb": "command_node",

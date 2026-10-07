@@ -13,8 +13,8 @@ describe( 'coerceValue', () => {
 	} );
 
 	it( 'int: TSL substitution tokens pass through as strings', () => {
-		// Preserve the raw `<partition>` token (loader resolves it later).
-		expect( coerceValue( 'int', '<partition>' ) ).toBe( '<partition>' );
+		// Preserve the raw `{partition}` token (the node resolves it later).
+		expect( coerceValue( 'int', '{partition}' ) ).toBe( '{partition}' );
 		expect( coerceValue( 'int', '<config:num_partitions>' ) ).toBe(
 			'<config:num_partitions>'
 		);
@@ -59,6 +59,6 @@ describe( 'coerceValue', () => {
 
 	it( 'string type: any input is preserved as-is', () => {
 		expect( coerceValue( 'string', 'hello world' ) ).toBe( 'hello world' );
-		expect( coerceValue( 'string', '<partition>' ) ).toBe( '<partition>' );
+		expect( coerceValue( 'string', '{partition}' ) ).toBe( '{partition}' );
 	} );
 } );

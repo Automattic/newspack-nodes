@@ -224,9 +224,9 @@ class Topology_Analyzer {
 	 * A caller that wants to know how far behind a reader is needs BOTH: the
 	 * source gives the end of the log, the offsetlog gives the committed cursor.
 	 * Templates, not basenames — resolve each through
-	 * `Core::resolve_partition_template()`, the ONE place the `<partition>` token
+	 * `Core::resolve_partition_template()`, the ONE place the `{partition}` token
 	 * is substituted. Nothing here may assume the token sits in any particular
-	 * position: a `.p<partition>` suffix is one layout among several, and
+	 * position: a `.p{partition}` suffix is one layout among several, and
 	 * matching on it is how a path that puts it elsewhere stops resolving.
 	 * An offsetlog is optional (an ephemeral reader keeps no cursor), so its
 	 * template may be empty.
@@ -661,16 +661,15 @@ class Topology_Analyzer {
 	/**
 	 * First-level concrete dir names `$name` writes under logs_dir / offsets_dir,
 	 * layout-agnostic: each `write_set` token is expanded over `0..$num_partitions-1`
-	 * (substituting BOTH `<partition>` angle and `{partition}` curly), its
-	 * `<config:…>` tokens resolved, then the first path segment under the
+	 * (substituting `{partition}`), its `<config:…>` tokens resolved, then the first path segment under the
 	 * respective root is taken — wherever the partition token sits in the path.
 	 * No `.p{N}` regex. The caller passes `$num_partitions`, which keeps this
 	 * class free of a `Bootstrap` dependency.
 	 *
 	 * Each bucket is a `concrete dir name => enumerated partition index` map; the
 	 * partition number comes FROM the enumeration loop, never parsed back out of a
-	 * name. In the flat layout (`firehose.p<partition>`) every partition yields a
-	 * unique first-level name (1:1). In a nested layout (`<partition>` below the
+	 * name. In the flat layout (`firehose.p{partition}`) every partition yields a
+	 * unique first-level name (1:1). In a nested layout (`{partition}` below the
 	 * first level) several partitions collapse to one first-level dir — the FIRST
 	 * seen is kept; nested layouts aren't represented per-partition here.
 	 *
@@ -794,7 +793,7 @@ class Topology_Analyzer {
 	 * and `make_node Topic`, which both append to the log at their path arg) and
 	 * its Consumer offsetlog + deadletter paths (`make_node Consumer`'s 2nd and
 	 * optional 3rd arg after the node name, in the flat layout). Paths are kept in
-	 * raw token form (`<config:…>/<basename>.p<partition>`) — identical iff they
+	 * raw token form (`<config:…>/<basename>.p{partition}`) — identical iff they
 	 * resolve to the same file — and namespaced `partition:` / `offsetlog:` /
 	 * `deadletter:` so the kinds can't false-match. A Consumer's SOURCE (1st arg
 	 * after the node name) is a read, not a write, so it's excluded.
@@ -803,8 +802,8 @@ class Topology_Analyzer {
 	 * <deadletter_root> <pairs…>`); every reader nests below them.
 	 *
 	 * A `Table` whose backend resolves to `sqlite` — written literally or as a
-	 * config token, resolved strictly — claims `table:<name>.p<partition>`,
-	 * the stem of its `{base}/tables/<name>.p<partition>.sqlite` file: that
+	 * config token, resolved strictly — claims `table:<name>.p{partition}`,
+	 * the stem of its `{base}/tables/<name>.p{partition}.sqlite` file: that
 	 * file has one writer (ADR-6), so two topologies declaring the Table
 	 * conflict whatever their lines say. Every other backend writes no file. An
 	 * owned Table claims its file the same way, as owned_tables() declares it.
@@ -870,12 +869,12 @@ class Topology_Analyzer {
 			}
 			// One writer per SQLite file (ADR-6).
 			if ( 'make_node' === $verb && self::type_is( $class, Table_Node::class ) && 'sqlite' === Core::resolve_config_tokens( $values[5] ?? '', true ) ) {
-				$seen[ 'table:' . ( $values[2] ?? '' ) . '.p<partition>' ] = true;
+				$seen[ 'table:' . ( $values[2] ?? '' ) . '.p' . Core::PARTITION_TOKEN ] = true;
 				continue;
 			}
 			foreach ( self::owned_tables( $statement, $values ) as $table => $declared ) {
 				if ( 'sqlite' === Core::resolve_config_tokens( $declared['backend'], true ) ) {
-					$seen[ 'table:' . $table . '.p<partition>' ] = true;
+					$seen[ 'table:' . $table . '.p' . Core::PARTITION_TOKEN ] = true;
 				}
 			}
 			// offsetlog (4th value) + deadletter (5th): sole-writer logs.
@@ -1135,9 +1134,8 @@ class Topology_Analyzer {
 
 	/**
 	 * A path template expanded over `0..$count-1`, indexed by partition — the ONE
-	 * expansion every dir resolver in this class shares, so a nested layout, a
-	 * tokenless path and the `<partition>`/`{partition}` spellings are handled
-	 * identically wherever a dir is derived.
+	 * expansion every dir resolver in this class shares, so a nested layout and
+	 * a tokenless path are handled identically wherever a dir is derived.
 	 *
 	 * A template that produces no new path for a partition (tokenless, or a
 	 * nested layout collapsing several onto one dir) keeps the FIRST partition
@@ -1277,13 +1275,13 @@ class Topology_Analyzer {
 	 * The same walk refuses a `connect_node` onto a node whose class declares
 	 * no target, as the load would refuse it, so no reader draws an edge that
 	 * never routes; a group answers for its child class, members or none, and
-	 * so does each child derived from it. It also asks every written line's
-	 * class to refuse an eager `<partition>`, which the load would read as
-	 * fixed.
+	 * so does each child derived from it. It refuses a `make_node` line's
+	 * partition layout as the load would, written lines and children alike.
 	 *
 	 * @param list<array{line: string,verb: string,values: list<string>,spans: list<string>,origin: ?string,origins: list<string>,via: list<string>}> $statements Walked statements.
 	 * @return list<array{line: string,verb: string,values: list<string>,spans: list<string>,origin: ?string,origins: list<string>,via: list<string>}>
-	 * @throws \RuntimeException On a connect the source's class refuses, or an eager `<partition>` a class refuses.
+	 * @throws \RuntimeException On a connect the source's class refuses.
+	 * @throws \InvalidArgumentException On a partition layout a class refuses.
 	 */
 	private static function with_group_children( array $statements ): array {
 		$classes = [];
@@ -1322,12 +1320,12 @@ class Topology_Analyzer {
 			if ( 'connect_node' === $statement['verb'] ) {
 				self::refuse_targetless( $statement['values'][1] ?? '', $targeted );
 			}
-			if ( 'make_node' === $statement['verb'] ) {
-				self::refuse_eager_partition( $statement );
-			}
 			$out[] = $statement;
 			foreach ( $made[ $index ] ?? [] as $child_make ) {
 				$out[] = $child_make;
+			}
+			foreach ( [ $statement, ...( $made[ $index ] ?? [] ) ] as $made_line ) {
+				self::refuse_partition_layout( $made_line );
 			}
 			$fans_out = \in_array( $statement['verb'], [ 'connect_node', 'disconnect_node' ], true )
 				&& self::type_fans_out( $classes[ $statement['values'][1] ?? '' ] ?? '' );
@@ -1428,17 +1426,27 @@ class Topology_Analyzer {
 	}
 
 	/**
-	 * Ask a `make_node` line's class to refuse a source the Shell expands at
-	 * `<partition>`, judged on the line's spans (`Node::refuse_eager_partition()`).
-	 * A class token no namespace resolves refuses nothing.
+	 * Refuse a `make_node` line whose partition layout the load would refuse:
+	 * `{partition}` in an argument its class marks no partition, or a
+	 * per-worker File_Tail beside a dir every worker would share. Each check
+	 * is the class's own static, the one the load calls. A class token no
+	 * namespace resolves refuses nothing.
 	 *
-	 * @param array{values: list<string>, spans: list<string>} $statement A walked `make_node` statement.
-	 * @throws \RuntimeException When the class refuses its spans.
+	 * @param array{verb: string, values: list<string>} $statement A walked statement.
+	 * @throws \InvalidArgumentException When the class refuses the line.
 	 */
-	private static function refuse_eager_partition( array $statement ): void {
-		$fqcn = Command_Interpreter_Node::resolve_class( $statement['values'][1] ?? '' );
-		if ( null !== $fqcn ) {
-			$fqcn::refuse_eager_partition( $statement['values'][2] ?? '', \array_slice( $statement['spans'], 3 ) );
+	private static function refuse_partition_layout( array $statement ): void {
+		$fqcn = 'make_node' === $statement['verb'] ? Command_Interpreter_Node::resolve_class( $statement['values'][1] ?? '' ) : null;
+		if ( null === $fqcn ) {
+			return;
+		}
+		$name = $statement['values'][2] ?? '';
+		$args = \array_slice( $statement['values'], 3 );
+		if ( \method_exists( $fqcn, 'refuse_unmarked_partition' ) ) {
+			$fqcn::refuse_unmarked_partition( $name, $args );
+		}
+		if ( \is_a( $fqcn, File_Tail_Node::class, true ) ) {
+			$fqcn::refuse_shared_dirs( $name, $args );
 		}
 	}
 

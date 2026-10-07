@@ -79,6 +79,27 @@ describe( 'graph verbs', () => {
 	} );
 } );
 
+describe( 'a typed line the parser refuses', () => {
+	it( 'is a refusal the editor shows, and builds nothing', () => {
+		const d = draft();
+
+		expect( () =>
+			d.run( 'make_node Partition egret-5517 /l/egret.p<partition>' )
+		).not.toThrow();
+
+		expect( d.refusals ).toEqual( [
+			{
+				line: 1,
+				statement:
+					'make_node Partition egret-5517 /l/egret.p<partition>',
+				message:
+					'"/l/egret.p<partition>": <partition> resolves before the node sees it; write {partition}',
+			},
+		] );
+		expect( d.childRegistry.node( 'egret-5517' ) ).toBeNull();
+	} );
+} );
+
 describe( 'document verbs touch no node table', () => {
 	it( 'var, include, remove_include and secure', () => {
 		const d = draft();

@@ -110,9 +110,9 @@ describe( 'dumpDocument — nodes and verbs', () => {
 		expect( draft( tsl ).dumpDocument() ).toBe( tsl );
 	} );
 
-	it( 'keeps the deferred-binder Topic ctor span verbatim', () => {
+	it( 'keeps a {partition} ctor span verbatim', () => {
 		const tsl =
-			'make_node Consumer c <config:logs_dir>/firehose.p<partition>\n';
+			'make_node Consumer c <config:logs_dir>/firehose.p{partition}\n';
 
 		expect( draft( tsl ).dumpDocument() ).toBe( tsl );
 	} );

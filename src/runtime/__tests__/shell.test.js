@@ -184,13 +184,13 @@ describe( 'tokenizer escape round-trip', () => {
 		}
 	);
 
-	// A stored argument can hold an UNEXPANDED `<…>` — what the single-quoted
-	// idiom (`.p'<partition>'`) hands a node. Emitted bare, the loader
+	// A stored argument can hold an UNEXPANDED `<…>` — what a single-quoted
+	// token (`.'<topology>'`) hands a node. Emitted bare, the loader
 	// interpolates it away on reload. Parity-pinned to the PHP
 	// Node::serialize_args test of the same name.
 	it( 'quotes a stored argument carrying an unexpanded interpolation marker', () => {
-		expect( serializeArg( '/logs/firehose.p<partition>' ) ).toBe(
-			"'/logs/firehose.p<partition>'"
+		expect( serializeArg( '/logs/firehose.<heron>' ) ).toBe(
+			"'/logs/firehose.<heron>'"
 		);
 	} );
 
@@ -200,7 +200,7 @@ describe( 'tokenizer escape round-trip', () => {
 	// Parity-pinned to the PHP test of the same name.
 	it( 'defers a marker following an escaped quote', () => {
 		const { shell } = makeShell( {} );
-		const tokens = [ "Don't use <partition>", '/logs/x.p<partition>' ];
+		const tokens = [ "Don't use <heron>", '/logs/x.<heron>' ];
 		const line = 'X Y ' + tokens.map( serializeArg ).join( ' ' );
 		expect( tokenize( shell.interpolate( line ) ).slice( 2 ) ).toEqual(
 			tokens
@@ -785,18 +785,18 @@ describe( 'Shell node — var + interpolation', () => {
 		expect( shell.interpolate( 'echo "<who>"' ) ).toBe( 'echo "alice"' );
 	} );
 
-	it( 'mixed quoting: expands unquoted, defers single-quoted (Topic template idiom)', () => {
+	it( 'mixed quoting: expands unquoted, defers single-quoted', () => {
 		const { shell } = makeShell();
 		shell.config = { logs_dir: '/logs' };
-		// <config:logs_dir> expands now; '<partition>' is deferred for Topic.
-		expect(
-			shell.interpolate( "<config:logs_dir>/jobs.p'<partition>'" )
-		).toBe( "/logs/jobs.p'<partition>'" );
+		// <config:logs_dir> expands now; '<heron>' is deferred.
+		expect( shell.interpolate( "<config:logs_dir>/jobs.'<heron>'" ) ).toBe(
+			"/logs/jobs.'<heron>'"
+		);
 		expect(
 			shell.tokenize(
-				shell.interpolate( "<config:logs_dir>/jobs.p'<partition>'" )
+				shell.interpolate( "<config:logs_dir>/jobs.'<heron>'" )
 			)
-		).toEqual( [ '/logs/jobs.p<partition>' ] );
+		).toEqual( [ '/logs/jobs.<heron>' ] );
 	} );
 } );
 
@@ -1024,6 +1024,41 @@ describe( 'Shell node — fatal_errors (topology mode)', () => {
 			'after-6621',
 		] );
 		expect( printedText() ).toBe( '' );
+	} );
+
+	// Parity-pinned to the PHP ShellTest of the same intent.
+	it.each( [
+		[ 'bare', 'make_node Consumer egret /logs/egret.p<partition>' ],
+		[
+			'double-quoted',
+			'make_node Consumer egret "/logs/egret.p<partition>"',
+		],
+		[ 'single-quoted', "make_node Topic egret /logs/egret.p'<partition>'" ],
+		[ 'any verb', 'tell egret <partition>' ],
+	] )( 'refuses a %s <partition> and mints nothing', ( _kind, line ) => {
+		const { shell, filled } = makeShell( { path: '' } );
+		shell.fatalErrors( true );
+		expect( () => send( shell, line ) ).toThrow(
+			'<partition> resolves before the node sees it; write {partition}'
+		);
+		expect( filled ).toEqual( [] );
+	} );
+
+	it( 'answers a REPL <partition> with the refusal', () => {
+		const { shell, filled } = makeShell();
+		expect(
+			shell.parse( 'tell egret /logs/egret.p<partition>' )
+		).toBeNull();
+		expect( printedText() ).toContain( 'write {partition}' );
+		expect( filled ).toEqual( [] );
+	} );
+
+	it( 'passes {partition} through and leaves a comment inert', () => {
+		const { shell } = makeShell();
+		const m = shell.parse(
+			'tell egret /l/e.p{partition} # was <partition>'
+		);
+		expect( m[ VALUE ] ).toBe( '/l/e.p{partition}' );
 	} );
 
 	it( 'raises every failing line together', () => {

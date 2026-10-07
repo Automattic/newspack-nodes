@@ -152,7 +152,7 @@ class Bootstrap {
 	 *
 	 * Built by SUBSTITUTION, never by parsing: each Consumer source template is
 	 * resolved through `Core::resolve_partition_template()` for that worker's
-	 * partition — the one place `<partition>` is expanded — so a template that
+	 * partition — the one place `{partition}` is expanded — so a template that
 	 * puts the token anywhere but a `.p<N>` suffix still resolves. A partition
 	 * nothing tails is simply absent from the map, which is why no exclusion
 	 * rule is needed for offsetlogs, deadletter dirs or scratch.
@@ -461,8 +461,9 @@ class Bootstrap {
 	/**
 	 * Each named Table, partition by partition, across every ACTIVE topology
 	 * declaring it: its namespace with its config tokens resolved, then
-	 * `<partition>` and `<topology>` substituted, as a worker's Shell resolves
-	 * them; its TTL and backend with their tokens resolved. Declared
+	 * `<topology>` substituted, as a worker's Shell resolves it, and
+	 * `{partition}`, as the Table resolves it; its TTL and backend with their
+	 * tokens resolved. Declared
 	 * once in the `.tsl`, so the writer and every reader resolve the same
 	 * Table. One read of the active set serves every name not yet resolved,
 	 * and a name resolves once until `forget_node_tables()`, which every

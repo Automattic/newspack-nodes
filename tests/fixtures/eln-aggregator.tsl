@@ -24,7 +24,7 @@
 #
 # Each Remote_Source is self-sufficient (it patrons its own SSE_In + HTTP_Out,
 # owns its readers and publishes a status snapshot per worker partition under
-# remote:<broker>:p<partition>). SSL/HTTPS policy comes from the substrate
+# remote:<broker>:p{partition}). SSL/HTTPS policy comes from the substrate
 # vault_verify_ssl / vault_require_https config — not a per-topology setter.
 
 include topic-probe

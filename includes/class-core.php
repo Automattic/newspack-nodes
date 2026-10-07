@@ -27,6 +27,16 @@ namespace Newspack_Nodes;
 class Core {
 
 	/**
+	 * The one spelling of a partition in TSL. A node resolves it in the
+	 * arguments its schema marks; the Shell refuses `<partition>`, which it
+	 * would resolve before the node could tell the source is per-partition.
+	 */
+	public const PARTITION_TOKEN = '{partition}';
+
+	/** The node's spelling of the fleet, beside the Shell's `<topology>`. */
+	public const TOPOLOGY_TOKEN = '{topology}';
+
+	/**
 	 * Property-name substrings whose value is a credential. dump_node() reflects
 	 * EVERY property, so any node holding one of these would otherwise print the
 	 * raw secret to the REPL / logs — redacted here for every node by default.
@@ -232,22 +242,35 @@ class Core {
 	private const SPAWN_POST_TIMEOUT_MS = 250;
 
 	/**
-	 * Resolve `<partition>` (and `<topology>`, when the fleet is known) in a path
-	 * template, then every `<ns:key>` config token in the result. `<topology>`
-	 * names the FLEET — see Topology_Loader. Both tokens are also accepted in
-	 * the brace spelling, `{partition}` and `{topology}`.
+	 * Resolve a path template as a worker would — `resolve_partition()`, then
+	 * every `<ns:key>` config token in the result — for a reader of the TSL
+	 * as written, which no Shell has interpolated.
 	 *
 	 * @param string      $template Path template.
 	 * @param int         $p        Partition index.
-	 * @param string|null $topology Fleet name, or null to leave `<topology>` alone.
+	 * @param string|null $topology Fleet name, or null to leave its tokens alone.
 	 * @return string Concrete path.
+	 * @throws \RuntimeException When the template names `<partition>`.
 	 */
 	public static function resolve_partition_template( string $template, int $p, ?string $topology = null ): string {
-		$out = \str_replace( [ '<partition>', '{partition}' ], (string) $p, $template );
-		if ( null !== $topology ) {
-			$out = \str_replace( [ '<topology>', '{topology}' ], $topology, $out );
-		}
-		return self::resolve_config_tokens( $out );
+		return self::resolve_config_tokens( self::resolve_partition( $template, $p, $topology ) );
+	}
+
+	/**
+	 * Every `{partition}` in $template replaced by $p and, when the fleet is
+	 * known, every `{topology}` and `<topology>` by its name: what a node does
+	 * to an argument its schema marks, whose config tokens the Shell already
+	 * resolved. `<topology>` is the Shell's spelling of the fleet and
+	 * `{topology}` the node's; both name the FLEET — see Topology_Loader.
+	 *
+	 * @param string      $template A token as written.
+	 * @param int         $p        Partition index.
+	 * @param string|null $topology Fleet name, or null to leave its tokens alone.
+	 * @throws \RuntimeException When the template names `<partition>`.
+	 */
+	public static function resolve_partition( string $template, int $p, ?string $topology ): string {
+		$out = \str_replace( self::PARTITION_TOKEN, (string) $p, self::refuse_angle_partition( $template ) );
+		return null === $topology ? $out : \str_replace( [ '<topology>', self::TOPOLOGY_TOKEN ], $topology, $out );
 	}
 
 	/** Resolve every `<ns:key>` token in $path via resolve_config_token; $strict throws on an unresolvable token instead of ''. */
@@ -733,12 +756,12 @@ class Core {
 
 	/**
 	 * Whether this worker reads a source as its TSL wrote it: in every worker
-	 * when the node received a partition token whole — `{partition}`, or a
-	 * single-quoted `'<partition>'` the Shell leaves literal — and otherwise
-	 * once per fleet, where `owns_unpartitioned()` holds (ADR-33). The one
-	 * ownership predicate: a node asks this, never the bound partition.
+	 * when it names `{partition}`, and otherwise once per fleet, where
+	 * `owns_unpartitioned()` holds (ADR-33). The one ownership predicate: a
+	 * node asks this, never the bound partition.
 	 *
-	 * @param string $written The source as the node received it, unresolved.
+	 * @param string $written The source as the TSL wrote it, unresolved.
+	 * @throws \RuntimeException When the source names `<partition>`.
 	 * @throws \LogicException When the bound value is no canonical decimal.
 	 */
 	public static function owns( string $written ): bool {
@@ -820,13 +843,29 @@ class Core {
 	}
 
 	/**
-	 * Whether a template carries a partition token in either spelling
-	 * `resolve_partition_template()` accepts, so it names one log per partition.
+	 * Whether a template carries `{partition}`, so it names one log per
+	 * partition.
 	 *
 	 * @param string $template Path or stamp template.
+	 * @throws \RuntimeException When the template names `<partition>`.
 	 */
 	public static function has_partition_token( string $template ): bool {
-		return \str_contains( $template, '<partition>' ) || \str_contains( $template, '{partition}' );
+		return \str_contains( self::refuse_angle_partition( $template ), self::PARTITION_TOKEN );
+	}
+
+	/**
+	 * $template, refused when it names `<partition>`: read as a fixed name it
+	 * would declare one literal dir, and the sweep would take the live ones.
+	 *
+	 * @param string $template Path or stamp template.
+	 * @throws \RuntimeException When the template names `<partition>`.
+	 */
+	private static function refuse_angle_partition( string $template ): string {
+		if ( \str_contains( $template, '<partition>' ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+			throw new \RuntimeException( "\"{$template}\": <partition> is not a partition token; write " . self::PARTITION_TOKEN );
+		}
+		return $template;
 	}
 
 	/**

@@ -259,7 +259,7 @@ class SettingsCITest extends TestCase {
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $topologies );
 		\file_put_contents(
 			"{$topologies}/combined.tsl",
-			"make_node Partition requests:partition <config:logs_dir>/requests.p<partition> 1 2 0\n"
+			"make_node Partition requests:partition <config:logs_dir>/requests.p{partition} 1 2 0\n"
 		);
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'combined' ];
 		\Newspack_Nodes\Config::reset();

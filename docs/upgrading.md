@@ -6,6 +6,24 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **A topology writing `<partition>` fails to load; write `{partition}`.** The
+  node resolves `{partition}` in the arguments its schema marks, at the
+  worker's partition, so `<config:logs_dir>/jobs.p<partition>` becomes
+  `<config:logs_dir>/jobs.p{partition}`, and a single-quoted `'<partition>'`
+  becomes `{partition}` too. The Shell refuses `<partition>` anywhere in a
+  statement, quoted or not, so the line fails analysis, activation and the
+  load with `<partition> resolves before the node sees it; write {partition}`.
+  A node type of your own that takes a per-partition path marks the argument
+  in `node_schema()` with `'partition' => 'bound'`, or `'each'` where it builds
+  one child per partition itself; an unmarked argument refuses `{partition}`.
+  A `newspack_nodes/registered_log_producers` template, a config `log_sources`
+  path and a `wp nodes ingest` destination are written `{partition}` as well:
+  `Core::has_partition_token()`, `resolve_partition_template()` and `owns()`
+  throw on `<partition>`, so a producer still written `.p<partition>` refuses
+  the retention sweep until it moves. A marked argument resolves `{topology}`
+  at the bound fleet, as `<topology>` resolves in the Shell.
+  `Node::refuse_eager_partition()`, `Shell_Node::expands()` and
+  `Shell_Node::value_of()` are removed.
 - **`Topology_Analyzer::includes()` is removed.** Read a topology's own `var`
   lines through `Topology_Analyzer::frontmatter( $name )`, and its active names
   through `Bootstrap::active_names()`.
@@ -32,14 +50,10 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 - **A line naming no partition runs once per fleet (ADR-33).** A
   `Remote_Source` pair whose source carries no partition token, and a
   `File_Tail` of a fixed file, builds nothing off partition 0 of a
-  multi-partition topology. The Shell resolves `<partition>` before the node
-  sees it, so a line meant to read one source per worker writes `{partition}`
-  (`firehose.p{partition}`, `/var/log/app.{partition}.log`) or a single-quoted
-  `'<partition>'`. A pair source or a `File_Tail` `source_file` naming a bare or
-  double-quoted `<partition>` fails the topology's analysis, and
-  `wp nodes doctor` reports it. A node class reading a source of its own
-  overrides `Node::refuse_eager_partition()` and asks `Core::owns()`, never
-  `Core::owns_unpartitioned()`.
+  multi-partition topology. A line meant to read one source per worker writes
+  `{partition}` (`firehose.p{partition}`, `/var/log/app.{partition}.log`). A
+  node class reading a source of its own asks `Core::owns()` of the source as
+  written, never `Core::owns_unpartitioned()`.
 - **A `sources/<name>` a topology reads must resolve, or that topology fails
   to load.** A `File_Tail` of a name the log-source registry lacks fails its
   build, and a broker's subscription to a name its spoke lacks is refused,

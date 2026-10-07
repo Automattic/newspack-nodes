@@ -23,9 +23,9 @@ describe( 'graphFromTsl — request-builder.tsl fixture', () => {
 	it( 'joins a multiline backslash-continued make_node', () => {
 		const { map } = byName();
 		expect( map[ 'firehose:consumer' ].ctorArgs ).toEqual( [
-			'<config:logs_dir>/firehose.p<partition>',
-			'<config:offsets_dir>/firehose.<topology>.p<partition>',
-			'<config:deadletter_dir>/firehose.<topology>.p<partition>',
+			'<config:logs_dir>/firehose.p{partition}',
+			'<config:offsets_dir>/firehose.<topology>.p{partition}',
+			'<config:deadletter_dir>/firehose.<topology>.p{partition}',
 		] );
 		expect( Object.keys( map ) ).toEqual( [
 			'firehose:consumer',

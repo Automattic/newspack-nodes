@@ -74,8 +74,8 @@ class LogCleanerTest extends TestCase {
 	/** A topology that BOTH writes a log (Partition) and tails one (Consumer offsetlog), under `$basename`. */
 	private function log_and_offset_tsl( string $basename, int $num_partitions = 1 ): string {
 		return "var num_partitions = {$num_partitions}\n"
-			. "make_node Partition {$basename}:partition <config:logs_dir>/{$basename}.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>\n"
-			. "make_node Consumer {$basename}:consumer <config:logs_dir>/src.p<partition> <config:offsets_dir>/{$basename}.p<partition>\n";
+			. "make_node Partition {$basename}:partition <config:logs_dir>/{$basename}.p{partition} <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>\n"
+			. "make_node Consumer {$basename}:consumer <config:logs_dir>/src.p{partition} <config:offsets_dir>/{$basename}.p{partition}\n";
 	}
 
 	/** Seed a flat log partition dir `logs/{name}.p{N}/0.log`; returns the dir path. */
@@ -116,7 +116,7 @@ class LogCleanerTest extends TestCase {
 
 	private function partition_tsl( string $basename, int $num_partitions = 1 ): string {
 		return "var num_partitions = {$num_partitions}\n"
-			. "make_node Partition {$basename}:partition <config:logs_dir>/{$basename}.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>\n";
+			. "make_node Partition {$basename}:partition <config:logs_dir>/{$basename}.p{partition} <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>\n";
 	}
 
 	// ── log-dir sweep ──────────────────────────────────────────────────────
@@ -287,7 +287,7 @@ class LogCleanerTest extends TestCase {
 		// its layout is its own — the substrate no longer spells `{name}.p{N}` for it.
 		\add_filter(
 			'newspack_nodes/registered_log_producers',
-			static fn (): array => [ '<config:logs_dir>/<partition>-req' ]
+			static fn (): array => [ '<config:logs_dir>/{partition}-req' ]
 		);
 		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 3;
 		Config::reset();
@@ -309,7 +309,7 @@ class LogCleanerTest extends TestCase {
 		// them. It refuses loudly, naming the template, before any delete.
 		\add_filter(
 			'newspack_nodes/registered_log_producers',
-			static fn (): array => [ 'firehose-7702.p<partition>' ]
+			static fn (): array => [ 'firehose-7702.p{partition}' ]
 		);
 		$this->declare_topology( 'requests-workers', $this->log_and_offset_tsl( 'requests' ) );
 		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 2;
@@ -325,16 +325,29 @@ class LogCleanerTest extends TestCase {
 		);
 		$message = \html_entity_decode( $e->getMessage(), \ENT_QUOTES );
 		$this->assertStringContainsString( 'log producer', $message );
-		$this->assertStringContainsString( 'firehose-7702.p<partition>', $message );
+		$this->assertStringContainsString( 'firehose-7702.p{partition}', $message );
 		$this->assertDirectoryExists( $firehose );
 		$this->assertDirectoryExists( $ghost_log, 'the refusal lands before any log delete' );
 		$this->assertDirectoryExists( $ghost_offset, 'the refusal lands before any offset delete' );
 	}
 
+	public function test_a_producer_template_naming_angle_partition_refuses_the_sweep(): void {
+		\add_filter(
+			'newspack_nodes/registered_log_producers',
+			static fn (): array => [ '<config:logs_dir>/egret-7742.p<partition>' ]
+		);
+
+		$e = $this->caught(
+			fn () => Log_Cleaner::declared_log_dirs(),
+			'a template the sweep cannot expand refuses it'
+		);
+		$this->assertStringContainsString( '<partition> is not a partition token; write {partition}', \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
+	}
+
 	public function test_the_orphan_diagnostic_raises_a_producer_declaring_nothing(): void {
 		\add_filter(
 			'newspack_nodes/registered_log_producers',
-			static fn (): array => [ 'firehose-7703.p<partition>' ]
+			static fn (): array => [ 'firehose-7703.p{partition}' ]
 		);
 		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 2;
 		Config::reset();
@@ -343,7 +356,7 @@ class LogCleanerTest extends TestCase {
 			fn () => Log_Cleaner::declared_log_dirs(),
 			'the diagnostic names what refuses the sweep'
 		);
-		$this->assertStringContainsString( 'firehose-7703.p<partition>', \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
+		$this->assertStringContainsString( 'firehose-7703.p{partition}', \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
 	}
 
 	public function test_the_log_catalog_answers_the_rest_beside_a_producer_declaring_nothing(): void {
@@ -352,7 +365,7 @@ class LogCleanerTest extends TestCase {
 		// back beside them by template for the dashboard to name.
 		\add_filter(
 			'newspack_nodes/registered_log_producers',
-			static fn (): array => [ 'firehose-7704.p<partition>', '<config:logs_dir>/jobfeed.p<partition>' ]
+			static fn (): array => [ 'firehose-7704.p{partition}', '<config:logs_dir>/jobfeed.p{partition}' ]
 		);
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests', 2 ) );
 		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 2;
@@ -371,8 +384,8 @@ class LogCleanerTest extends TestCase {
 			],
 			$map
 		);
-		$this->assertSame( [ 'firehose-7704.p<partition>' ], \array_keys( $refused ) );
-		$this->assertStringContainsString( 'firehose-7704.p<partition>', \html_entity_decode( $refused['firehose-7704.p<partition>']->getMessage(), \ENT_QUOTES ) );
+		$this->assertSame( [ 'firehose-7704.p{partition}' ], \array_keys( $refused ) );
+		$this->assertStringContainsString( 'firehose-7704.p{partition}', \html_entity_decode( $refused['firehose-7704.p{partition}']->getMessage(), \ENT_QUOTES ) );
 	}
 
 	public function test_tokenless_producer_template_declares_exactly_one_dir(): void {
@@ -402,7 +415,7 @@ class LogCleanerTest extends TestCase {
 		// across the configured count and no further.
 		\add_filter(
 			'newspack_nodes/registered_log_producers',
-			static fn (): array => [ '<config:logs_dir>/firehose.p<partition>' ]
+			static fn (): array => [ '<config:logs_dir>/firehose.p{partition}' ]
 		);
 		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 2;
 		Config::reset();
@@ -454,7 +467,7 @@ class LogCleanerTest extends TestCase {
 		// producer names are protected. Fail closed: skip the whole log sweep.
 		\add_filter(
 			'newspack_nodes/registered_log_producers',
-			static fn (): array => [ '<config:logs_dir>/firehose.p<partition>' ]
+			static fn (): array => [ '<config:logs_dir>/firehose.p{partition}' ]
 		);
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
 
@@ -474,7 +487,7 @@ class LogCleanerTest extends TestCase {
 		// Offset-side fail-closed: unresolvable offsets_dir root → skip the offset sweep.
 		$this->declare_topology(
 			'digest',
-			"make_node Consumer scored:consumer <config:logs_dir>/scored.p<partition> <config:offsets_dir>/scored.p<partition>\n"
+			"make_node Consumer scored:consumer <config:logs_dir>/scored.p{partition} <config:offsets_dir>/scored.p{partition}\n"
 		);
 		$cursor = $this->seed_offsetlog_dir( 'scored', 0 );
 
@@ -558,12 +571,12 @@ class LogCleanerTest extends TestCase {
 	}
 
 	public function test_keeps_arbitrary_partition_placement_sweeps_ghost(): void {
-		// A topology declaring `<config:logs_dir>/<partition>-req` (token in PREFIX
+		// A topology declaring `<config:logs_dir>/{partition}-req` (token in PREFIX
 		// position) must keep `0-req`/`1-req` and sweep an undeclared `ghost.p9`.
 		$this->declare_topology(
 			'req-workers',
 			"var num_partitions = 2\n"
-			. "make_node Partition req:p <config:logs_dir>/<partition>-req 1 2 0\n"
+			. "make_node Partition req:p <config:logs_dir>/{partition}-req 1 2 0\n"
 		);
 
 		\mkdir( "{$this->tmp}/logs/0-req", 0755, true );
@@ -618,7 +631,7 @@ class LogCleanerTest extends TestCase {
 	public function test_deletes_undeclared_offsetlog_dir(): void {
 		$this->declare_topology(
 			'digest',
-			"make_node Consumer scored:consumer <config:logs_dir>/scored.p<partition> <config:offsets_dir>/scored.p<partition>\n"
+			"make_node Consumer scored:consumer <config:logs_dir>/scored.p{partition} <config:offsets_dir>/scored.p{partition}\n"
 		);
 
 		$kept   = $this->seed_offsetlog_dir( 'scored', 0 );
@@ -633,7 +646,7 @@ class LogCleanerTest extends TestCase {
 	public function test_keeps_declared_offsetlog_dir(): void {
 		$this->declare_topology(
 			'digest',
-			"make_node Consumer scored:consumer <config:logs_dir>/scored.p<partition> <config:offsets_dir>/scored.p<partition>\n"
+			"make_node Consumer scored:consumer <config:logs_dir>/scored.p{partition} <config:offsets_dir>/scored.p{partition}\n"
 		);
 
 		$kept = $this->seed_offsetlog_dir( 'scored', 0 );
@@ -664,7 +677,7 @@ class LogCleanerTest extends TestCase {
 		// means no consumer running, which is exactly when it is safe to.
 		$this->declare_inactive_topology(
 			'complete-cozy',
-			"make_node Consumer scored:consumer <config:logs_dir>/scored.p<partition> <config:offsets_dir>/scored.p<partition>\n"
+			"make_node Consumer scored:consumer <config:logs_dir>/scored.p{partition} <config:offsets_dir>/scored.p{partition}\n"
 		);
 
 		$cursor = $this->seed_offsetlog_dir( 'complete-cozy.firehose', 0 );
@@ -678,7 +691,7 @@ class LogCleanerTest extends TestCase {
 		// Layout-agnostic: an undeclared offset dir is an orphan and IS swept.
 		$this->declare_topology(
 			'digest',
-			"make_node Consumer scored:consumer <config:logs_dir>/scored.p<partition> <config:offsets_dir>/scored.p<partition>\n"
+			"make_node Consumer scored:consumer <config:logs_dir>/scored.p{partition} <config:offsets_dir>/scored.p{partition}\n"
 		);
 
 		\mkdir( "{$this->tmp}/offsets/notapartition", 0755, true );
@@ -809,7 +822,7 @@ class LogCleanerTest extends TestCase {
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests', 2 ) );
 		\add_filter(
 			'newspack_nodes/registered_log_producers',
-			static fn (): array => [ '<config:logs_dir>/firehose.p<partition>' ]
+			static fn (): array => [ '<config:logs_dir>/firehose.p{partition}' ]
 		);
 		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 1;
 		Config::reset();
@@ -830,7 +843,7 @@ class LogCleanerTest extends TestCase {
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests', 2 ) );
 		\add_filter(
 			'newspack_nodes/registered_log_producers',
-			static fn (): array => [ '<config:logs_dir>/firehose.p<partition>' ]
+			static fn (): array => [ '<config:logs_dir>/firehose.p{partition}' ]
 		);
 		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 1;
 		Config::reset();
@@ -870,7 +883,7 @@ class LogCleanerTest extends TestCase {
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
 		\add_filter(
 			'newspack_nodes/registered_log_producers',
-			static fn (): array => [ '<config:logs_dir>/firehose.p<partition>', '', 42, [ 'x' ] ]
+			static fn (): array => [ '<config:logs_dir>/firehose.p{partition}', '', 42, [ 'x' ] ]
 		);
 		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 1;
 		Config::reset();
@@ -894,8 +907,8 @@ class LogCleanerTest extends TestCase {
 
 		$this->declare_topology(
 			'widget-workers',
-			"make_node Partition widget:partition <config:logs_dir>/widget.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>\n"
-			. "make_node Consumer widget:consumer <config:logs_dir>/widget.p<partition> <config:offsets_dir>/widget-consumer.p<partition>\n"
+			"make_node Partition widget:partition <config:logs_dir>/widget.p{partition} <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>\n"
+			. "make_node Consumer widget:consumer <config:logs_dir>/widget.p{partition} <config:offsets_dir>/widget-consumer.p{partition}\n"
 		);
 
 		$log_p0 = $this->seed_log_partition( 'widget', 0 );

@@ -146,7 +146,7 @@ final class CrawlerNodeTest extends TestCase {
 		parent::tearDown();
 	}
 
-	/** Build a crawler as a worker's topology does: `<partition>` bound, target wired. */
+	/** Build a crawler as a worker's topology does: `{partition}` bound, target wired. */
 	private function crawler( string $name = 'crawl-4471', string ...$args ): Crawler_Node {
 		Core::$var['partition'] = '3';
 		try {

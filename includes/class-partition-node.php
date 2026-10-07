@@ -2440,7 +2440,7 @@ class Partition_Node extends Timer_Node {
 			'category'      => 'I/O',
 			'description'   => 'Append-only segmented log; data file + offset index per partition.',
 			'arguments'     => [
-				[ 'name' => 'partition_dir', 'type' => 'string', 'required' => true, 'description' => 'On-disk directory holding this partition\'s numbered {seg}.log segment files and .idx indexes.' ],
+				[ 'name' => 'partition_dir', 'type' => 'string', 'required' => true, 'partition' => 'bound', 'description' => 'On-disk directory holding this partition\'s numbered {seg}.log segment files and .idx indexes.' ],
 				[ 'name' => 'segment_size',  'type' => 'int',    'default'  => '<config:segment_size>', 'description' => 'Segment rotation threshold in bytes; a new segment starts once a write would exceed it (default 64 MiB).' ],
 				[ 'name' => 'min_segments',  'type' => 'int',    'default'  => '<config:min_segments>', 'description' => 'Floor for the age rule: keep at least this many segments even when pruning by lifetime (clamped to a hard minimum of 2).' ],
 				[ 'name' => 'num_segments',  'type' => 'int',    'default'  => '<config:num_segments>', 'description' => 'Count-rule target: prune the oldest back to this many segments, but only ones older than min_lifetime.' ],

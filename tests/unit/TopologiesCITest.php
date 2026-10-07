@@ -129,8 +129,8 @@ class TopologiesCITest extends TestCase {
 	// ── mount_tables verb ────────────────────────────────────────────────────
 
 	public function test_mount_tables_mounts_what_an_active_topology_declares(): void {
-		\file_put_contents( "{$this->stock}/kea-base.tsl", "make_node Table lab-7:rook rook:p<partition> 37 sqlite\n" );
-		\file_put_contents( "{$this->stock}/kea-a.tsl", "var num_partitions = 2\ninclude kea-base\nmake_node Table lab-7:kea kea:p<partition> 777 sqlite\n" );
+		\file_put_contents( "{$this->stock}/kea-base.tsl", "make_node Table lab-7:rook rook:p{partition} 37 sqlite\n" );
+		\file_put_contents( "{$this->stock}/kea-a.tsl", "var num_partitions = 2\ninclude kea-base\nmake_node Table lab-7:kea kea:p{partition} 777 sqlite\n" );
 		\update_option( 'newspack_nodes_topologies', [ 'kea-a' ] );
 		Config::reset();
 		foreach ( [ 'lab-7:kea', 'lab-7:rook' ] as $table ) {
@@ -147,7 +147,7 @@ class TopologiesCITest extends TestCase {
 	}
 
 	public function test_mount_tables_refuses_an_inactive_topology(): void {
-		\file_put_contents( "{$this->stock}/kea-idle.tsl", "make_node Table lab-7:kea kea:p<partition> 777 sqlite\n" );
+		\file_put_contents( "{$this->stock}/kea-idle.tsl", "make_node Table lab-7:kea kea:p{partition} 777 sqlite\n" );
 		\Newspack_Nodes\Bootstrap::mount_request_graph();
 		try {
 			Topologies_CI_Node::cmd_mount_tables( [ 'topology' => 'kea-idle' ] );
@@ -159,7 +159,7 @@ class TopologiesCITest extends TestCase {
 	}
 
 	public function test_mount_tables_is_refused_to_a_caller_without_manage(): void {
-		\file_put_contents( "{$this->stock}/kea-a.tsl", "make_node Table lab-7:kea kea:p<partition> 777 sqlite\n" );
+		\file_put_contents( "{$this->stock}/kea-a.tsl", "make_node Table lab-7:kea kea:p{partition} 777 sqlite\n" );
 		\update_option( 'newspack_nodes_topologies', [ 'kea-a' ] );
 		Config::reset();
 		$GLOBALS['_wp_test_current_user_can'] = [];

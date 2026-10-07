@@ -67,8 +67,8 @@ final class TopologyAnalyzerOwnedTest extends TestCase {
 
 	/** An owned sqlite Table claims its file, so two owners of one file conflict. */
 	public function test_an_owned_sqlite_table_claims_its_file(): void {
-		$this->assertContains( 'table:tally-5517:tally.p<partition>', Topology_Analyzer::write_set( 'tally-sqlite' ) );
-		$this->assertSame( [ 'table:tally-5517:tally.p<partition>' ], Topology_Analyzer::find_conflicts( [ 'tally-sqlite', 'tally-twin' ] )[0]['shared'] ?? [] );
+		$this->assertContains( 'table:tally-5517:tally.p{partition}', Topology_Analyzer::write_set( 'tally-sqlite' ) );
+		$this->assertSame( [ 'table:tally-5517:tally.p{partition}' ], Topology_Analyzer::find_conflicts( [ 'tally-sqlite', 'tally-twin' ] )[0]['shared'] ?? [] );
 	}
 
 	/** An owned Table on any other backend writes no file and claims none. */
@@ -82,7 +82,7 @@ final class TopologyAnalyzerOwnedTest extends TestCase {
 			[ 'ledger-6650:ledger' => [ 'namespace' => 'ledger-6650-ledger', 'ttl' => '4127', 'backend' => 'sqlite' ] ],
 			Topology_Analyzer::declared_tables( 'subtable-owned' )
 		);
-		$this->assertContains( 'table:ledger-6650:ledger.p<partition>', Topology_Analyzer::write_set( 'subtable-owned' ) );
+		$this->assertContains( 'table:ledger-6650:ledger.p{partition}', Topology_Analyzer::write_set( 'subtable-owned' ) );
 	}
 
 	/** A class owning a Table must say what its line gives it. */
