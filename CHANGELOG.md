@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.98.1] - 2026-10-06
+
 ### Fixed
 
 - **A run of picked rows reads as one block, and every pick shows its mark.** Each picked row drew its own outline, so two adjacent picks showed a doubled bar between them. The table's zebra rule, `tbody tr:nth-child(even)`, out-ranked the pick and its `background` shorthand wiped the tint off every even row. The focus reset for clicked controls cleared the outline of the pick the picker had just focused. A pick's tint and outline are `!important` now. A picked row, either a table row or a `.newspack-nodes-table__row`, rings by four inset-shadow edges instead of an outline, and drops the edge it shares with a picked neighbour. A table row paints those edges on its cells, and only the outer cells keep a side. A picked SVG frame, which draws neither outline nor shadow, strokes its `rect` in the accent instead.
