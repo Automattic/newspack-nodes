@@ -185,7 +185,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 		 * Optional per-subscription seek seed: an exact `{segment, offset}`, a
 		 * SEEK sentinel, or an alias word. Unseeded names take SEEK_END.
 		 *
-		 * @type {?Object<string,{segment:number,offset:number}|number|string>}
+		 * @type {?Object<string,{segment?:number,offset:number}|number|string>}
 		 */
 		this._positions = null;
 		// Last record position per `[sub][partition]`, from each ID+FROM.
@@ -738,7 +738,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	 * (`Log_Discovery::dir_of()` resolves it by direct path), so stating it
 	 * is exact.
 	 *
-	 * @return {Object<string,{segment:number,offset:number}|number|string>} Per-subscription seek.
+	 * @return {Object<string,{segment?:number,offset:number}|number|string>} Per-subscription seek.
 	 */
 	seekMap() {
 		const stated = { ...( this._positions || {} ) };
@@ -802,6 +802,8 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	 * idle close — hands the client no ID breadcrumb to advance from, so
 	 * without this the reopen tail-seeks and drops whatever arrived in the gap.
 	 * A delivered record overwrites the seed, since its breadcrumb is newer.
+	 * A file source that has not seen its generation states `dir=:offset`,
+	 * and its seed carries no `segment`: 0 would name a foreign inode.
 	 *
 	 * @param {*} token `dir=segment:offset` pairs, comma-separated.
 	 */
@@ -821,10 +823,11 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 				if ( ! Number.isFinite( offset ) ) {
 					return;
 				}
-				this.lastPositions[ pair.slice( 0, eq ) ] = {
-					segment: Number( pair.slice( eq + 1, colon ) ),
-					offset,
-				};
+				const segment = pair.slice( eq + 1, colon );
+				this.lastPositions[ pair.slice( 0, eq ) ] =
+					'' === segment
+						? { offset }
+						: { segment: Number( segment ), offset };
 			} );
 	}
 
@@ -892,7 +895,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	}
 
 	/**
-	 * @return {?Object<string,{segment:number,offset:number}|number|string>} The seek this stream was asked to open at.
+	 * @return {?Object<string,{segment?:number,offset:number}|number|string>} The seek this stream was asked to open at.
 	 */
 	get positions() {
 		return this._positions;
@@ -902,7 +905,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	 * A new seek supersedes where the old stream got to — otherwise a seek back
 	 * to the start of the log would be beaten by the resume it is replacing.
 	 *
-	 * @param {?Object<string,{segment:number,offset:number}|number|string>} value Per-subscription seek, or null to tail every name.
+	 * @param {?Object<string,{segment?:number,offset:number}|number|string>} value Per-subscription seek, or null to tail every name.
 	 */
 	set positions( value ) {
 		this._positions = value;

@@ -377,7 +377,7 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 	 * SseIn keys the positions it tracks.
 	 *
 	 * @param {string} sub The subscription to read.
-	 * @return {{segment:number,offset:number}|undefined} The next-record
+	 * @return {{segment?:number,offset:number}|undefined} The next-record
 	 *   boundary, or undefined before the stream's first record.
 	 */
 	cursor( sub ) {

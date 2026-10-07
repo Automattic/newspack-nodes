@@ -1743,12 +1743,19 @@ class RemoteConsumerNodeTest extends TestCase {
 	// A paused step asks the spoke over the broker's HTTP_Out.
 	// ---------------------------------------------------------------------
 
-	/** The spoke's answer to one step, as HTTP_Out delivers it. */
-	private static function step_reply( string $to, array $record, int $segment, int $offset ): array {
+	/**
+	 * The spoke's answer to one step, as HTTP_Out delivers it, echoing the
+	 * arguments it answers as `interpret()` does: the stamp and `$asked`.
+	 */
+	private static function step_reply( string $to, array $record, int $segment, int $offset, string $asked = '31:4404', string $stamp = 'firehose.p0' ): array {
 		$m                   = Message::new_message();
 		$m[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
 		$m[ Message::TO ]    = $to;
-		$m[ Message::VALUE ] = [ 'payload' => [ 'source' => 'firehose.p0', 'message' => $record, 'cursor' => [ 'segment' => $segment, 'offset' => $offset ], 'at_eof' => false ] ];
+		$m[ Message::VALUE ] = [
+			'name'      => 'read_message',
+			'arguments' => [ $stamp, $asked ],
+			'payload'   => [ 'source' => $stamp, 'message' => $record, 'cursor' => [ 'segment' => $segment, 'offset' => $offset ], 'at_eof' => false ],
+		];
 		return $m;
 	}
 
@@ -1787,17 +1794,238 @@ class RemoteConsumerNodeTest extends TestCase {
 		$this->assertSame( 'read_message', \end( $batch )[ Message::VALUE ]['name'] );
 	}
 
-	public function test_a_step_waits_for_a_generation_it_cannot_name(): void {
+	public function test_a_file_reader_with_an_unknown_generation_steps_at_its_offset(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		[ , $node ] = $this->make_remote();
+		$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'sources/php:downstream' ) );
+		$node = Core::node( 'remote-austin:sources:php' );
 		$http = Core::node( 'remote-austin:http-out' );
-		$node->next_offset( [ 'offset' => 77 ] );
+		$node->next_offset( [ 'segment' => 31, 'offset' => 4404 ] );
+		$node->next_offset( [ 'offset' => 3307 ] );
 		$node->pause();
 
 		$node->step();
+		$batch = $this->read_private( $http, 'batch' );
+		$this->assertSame( [ 'sources/php', ':3307' ], \end( $batch )[ Message::VALUE ]['arguments'], 'the offset alone, never segment 0' );
 
-		$this->assertSame( [], $this->read_private( $http, 'batch' ), 'no read is asked at segment 0' );
-		$this->assertSame( 1, $this->read_private( $node, 'steps_owed' ) );
+		$node->fill( self::empty_step_reply( 'remote-austin:sources:php', 918273, 3307, ':3307', 'sources/php' ) );
+		$this->assertSame( [ 'segment' => 918273, 'offset' => 3307 ], $node->connect_position(), 'the reply names the generation' );
+	}
+
+	/** A packed-able bytestream record the spoke read at `$crumb`. */
+	private static function stepped_record( string $crumb, string $value ): array {
+		$record                   = Message::new_message();
+		$record[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$record[ Message::FROM ]  = 'firehose.p0';
+		$record[ Message::ID ]    = $crumb;
+		$record[ Message::VALUE ] = $value;
+		return $record;
+	}
+
+	/** The spoke's no-record answer: `message: null`, with where its reader stopped. */
+	private static function empty_step_reply( string $to, int $segment, int $offset, string $asked = '31:4404', string $stamp = 'firehose.p0' ): array {
+		$m = self::step_reply( $to, [], $segment, $offset, $asked, $stamp );
+		$m[ Message::VALUE ]['payload']['message'] = null;
+		$m[ Message::VALUE ]['payload']['at_eof']  = true;
+		return $m;
+	}
+
+	/** A reader paused at 31:4404 with one step out and owed. */
+	private function stepping_reader( ?array $args = null ): array {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $broker, $node, $sink ] = $this->make_remote( 'remote-austin', $args );
+		$node->next_offset( [ 'segment' => 31, 'offset' => 4404 ] );
+		$node->pause();
+		$node->step();
+		return [ $broker, $node, $sink ];
+	}
+
+	public function test_a_step_reply_forwards_its_record_and_takes_its_cursor(): void {
+		[ , $node, $sink ] = $this->stepping_reader();
+
+		$node->fill( self::step_reply( 'remote-austin:firehose.p0', self::stepped_record( '31:4404:61', 'stepped-8820' ), 31, 4465 ) );
+
+		$this->assertSame( [ 'stepped-8820' ], \array_column( $sink->captured, Message::VALUE ) );
+		$this->assertSame( 'remote-austin:firehose.p0/firehose.p0', $sink->captured[0][ Message::FROM ], 'a step relays through the same hop stamp' );
+		$this->assertSame( [ 'segment' => 31, 'offset' => 4465 ], $node->connect_position() );
+		$this->assertSame( 'PAUSED', $node->get_state( 'POLLING' ), 'a step stays paused' );
+		$this->assertSame( 0, $this->read_private( $node, 'steps_owed' ) );
+		$this->assertNull( $this->read_private( $node, 'step_requested_at' ) );
+	}
+
+	public function test_a_step_reply_places_a_crumbless_record_at_the_spokes_cursor(): void {
+		[ , $node, $sink ] = $this->stepping_reader();
+
+		$node->fill( self::step_reply( 'remote-austin:firehose.p0', self::stepped_record( 'no-crumb-7', 'bare-2290' ), 31, 5120 ) );
+
+		$this->assertSame( [ 'bare-2290' ], \array_column( $sink->captured, Message::VALUE ) );
+		$this->assertSame( [ 'segment' => 31, 'offset' => 5120 ], $node->connect_position(), 'the reply names where the next step resumes' );
+	}
+
+	public function test_a_step_reply_landing_after_play_is_ignored(): void {
+		[ , $node, $sink ] = $this->stepping_reader();
+		$node->play();
+
+		$node->fill( self::step_reply( 'remote-austin:firehose.p0', self::stepped_record( '31:4404:61', 'stale-3301' ), 31, 4465 ) );
+
+		$this->assertSame( [], $sink->captured );
+		$this->assertSame( 0, $node->buffered_bytes(), 'nothing is held for the live stream to replay' );
+		$this->assertSame( [ 'segment' => 31, 'offset' => 4404 ], $node->connect_position() );
+		$this->assertNull( $this->read_private( $node, 'step_requested_at' ), 'even a stale reply settles the request' );
+	}
+
+	public function test_a_step_reply_a_paused_seek_abandoned_is_ignored(): void {
+		[ , $node, $sink ] = $this->stepping_reader();
+		$node->next_offset( [ 'segment' => 44, 'offset' => 1707 ] );
+
+		$node->fill( self::step_reply( 'remote-austin:firehose.p0', self::stepped_record( '31:4404:61', 'abandoned-6614' ), 31, 4465 ) );
+
+		$this->assertSame( [], $sink->captured );
+		$this->assertSame( [ 'segment' => 44, 'offset' => 1707 ], $node->connect_position() );
+	}
+
+	public function test_a_step_finding_no_record_owes_nothing_and_takes_the_cursor(): void {
+		[ , $node, $sink ] = $this->stepping_reader();
+		$node->step();
+
+		$node->fill( self::empty_step_reply( 'remote-austin:firehose.p0', 31, 4511 ) );
+
+		$this->assertSame( [], $sink->captured );
+		$this->assertSame( 0, $this->read_private( $node, 'steps_owed' ) );
+		$this->assertNull( $this->read_private( $node, 'step_requested_at' ) );
+		$this->assertSame( [ 'segment' => 31, 'offset' => 4511 ], $node->connect_position(), 'a line the spoke consumed moves the cursor' );
+		$this->assertSame( 'PAUSED', $node->get_state( 'POLLING' ) );
+	}
+
+	public function test_a_step_reply_cursor_answers_a_pending_seek(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ , $node ] = $this->make_remote();
+		$node->pause();
+		$node->next_offset( 'recent' );
+		$node->step();
+
+		$node->fill( self::empty_step_reply( 'remote-austin:firehose.p0', 31, 4511, 'recent' ) );
+
+		$this->assertSame( [ 'segment' => 31, 'offset' => 4511 ], $node->connect_position(), 'a real place supersedes the seek' );
+	}
+
+	public function test_a_refused_step_owes_nothing_and_logs_once(): void {
+		[ , $node, $sink ] = $this->stepping_reader();
+		$refusal                   = Message::new_message();
+		$refusal[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_ERROR;
+		$refusal[ Message::TO ]    = 'remote-austin:firehose.p0';
+		$refusal[ Message::VALUE ] = [ 'name' => 'read_message', 'arguments' => [ 'firehose.p0', '31:4404' ], 'payload' => "read_message: invalid position 9137\n" ];
+
+		$node->fill( $refusal );
+		$node->step();
+		$node->fill( $refusal );
+
+		$this->assertSame( [], $sink->captured );
+		$this->assertSame( 0, $this->read_private( $node, 'steps_owed' ) );
+		$this->assertNull( $this->read_private( $node, 'step_requested_at' ) );
+		$this->assertSame( [ 'segment' => 31, 'offset' => 4404 ], $node->connect_position() );
+		$log = \implode( '', Core::$recent_log );
+		$this->assertStringContainsString( 'read_message: invalid position 9137', $log );
+		$this->assertSame( 1, \substr_count( $log, 'invalid position 9137' ), 'rate-limited' );
+	}
+
+	public function test_an_older_spokes_string_answer_is_a_refusal(): void {
+		[ , $node, $sink ] = $this->stepping_reader();
+		$answer                   = Message::new_message();
+		$answer[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$answer[ Message::TO ]    = 'remote-austin:firehose.p0';
+		$answer[ Message::VALUE ] = [ 'name' => 'read_message', 'arguments' => [ 'firehose.p0', '31:4404' ], 'payload' => "read_message: no record at firehose.p0 31:4404-5582\n" ];
+
+		$node->fill( $answer );
+
+		$this->assertSame( [], $sink->captured );
+		$this->assertSame( 0, $this->read_private( $node, 'steps_owed' ) );
+		$this->assertNull( $this->read_private( $node, 'step_requested_at' ) );
+		$this->assertSame( [ 'segment' => 31, 'offset' => 4404 ], $node->connect_position() );
+		$this->assertStringContainsString( 'no record at firehose.p0 31:4404-5582', \implode( '', Core::$recent_log ) );
+	}
+
+	public function test_a_bounce_of_a_stepped_record_is_no_step_reply(): void {
+		[ , $node ] = $this->stepping_reader( $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:nowhere-6120' ) );
+
+		$node->fill( self::step_reply( 'remote-austin:firehose.p0', self::stepped_record( '31:4404:61', 'unrouted-4173' ), 31, 4465 ) );
+
+		$this->assertSame( 0, $this->read_private( $node, 'steps_owed' ), 'the Router bounce settles nothing' );
+		$this->assertSame( [ 'segment' => 31, 'offset' => 4465 ], $node->connect_position() );
+	}
+
+	public function test_a_step_whose_reply_never_comes_is_sent_again_after_the_request_timeout(): void {
+		[ , $node ] = $this->stepping_reader();
+		$http = Core::node( 'remote-austin:http-out' );
+		$this->assertCount( 1, $this->read_private( $http, 'batch' ) );
+
+		Core::$now += \Newspack_Nodes\HTTP_Out_Node::REQUEST_TIMEOUT - 1;
+		$node->fire_cb();
+		$this->assertCount( 1, $this->read_private( $http, 'batch' ), 'not before the timeout' );
+
+		Core::$now += 1;
+		$node->fire_cb();
+		$batch = $this->read_private( $http, 'batch' );
+		$this->assertCount( 2, $batch, 'the lost request goes out again' );
+		$this->assertSame( [ 'firehose.p0', '31:4404' ], \end( $batch )[ Message::VALUE ]['arguments'] );
+	}
+
+	public function test_a_step_lost_to_an_expired_session_asks_for_one_on_the_retry(): void {
+		[ , $node ] = $this->stepping_reader();
+		$captured = [];
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
+			$captured[] = $opts;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+		// HTTP_Out forgets the session on a 401, and its reply never comes.
+		Command_Auth::forget_session( 'austin' );
+
+		Core::$now += \Newspack_Nodes\HTTP_Out_Node::REQUEST_TIMEOUT + 4;
+		$node->fire_cb();
+
+		$urls = \array_map( static fn ( array $opts ): string => (string) $opts[ \CURLOPT_URL ], $captured );
+		$this->assertContains( 'https://austin.example/wp-json/newspack-nodes/v1/auth', $urls );
+	}
+
+	public function test_a_seek_then_a_step_ignores_the_old_reply_and_sends_the_new_one(): void {
+		[ , $node, $sink ] = $this->stepping_reader();
+		$http = Core::node( 'remote-austin:http-out' );
+		$node->next_offset( [ 'segment' => 44, 'offset' => 1707 ] );
+
+		$node->step();
+		$batch = $this->read_private( $http, 'batch' );
+		$this->assertSame( [ 'firehose.p0', '44:1707' ], \end( $batch )[ Message::VALUE ]['arguments'], 'a seek frees the next step to go out at once' );
+
+		$node->fill( self::step_reply( 'remote-austin:firehose.p0', self::stepped_record( '31:4404:61', 'superseded-9046' ), 31, 4465 ) );
+
+		$this->assertSame( [], $sink->captured );
+		$this->assertSame( [ 'segment' => 44, 'offset' => 1707 ], $node->connect_position() );
+		$this->assertSame( 1, $this->read_private( $node, 'steps_owed' ), 'the new step is still owed' );
+	}
+
+	public function test_a_pending_end_seek_steps_with_end(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ , $node ] = $this->make_remote();
+		$http = Core::node( 'remote-austin:http-out' );
+		$node->next_offset( [ 'segment' => 31, 'offset' => 4404 ] );
+		$node->pause();
+		$node->next_offset( 'end' );
+
+		$node->step();
+
+		$batch = $this->read_private( $http, 'batch' );
+		$this->assertSame( [ 'firehose.p0', 'end' ], \end( $batch )[ Message::VALUE ]['arguments'] );
+	}
+
+	public function test_renaming_the_broker_moves_children_and_their_reply_route(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $broker, $node ] = $this->make_remote();
+
+		$broker->name( 'remote-quoll' );
+
+		$this->assertSame( $node, Core::node( 'remote-quoll:firehose.p0' ) );
+		$this->assertSame( 'remote-quoll:firehose.p0:offsetlog', $this->read_private( $node, 'offsetlog' )->name() );
+		$this->assertTrue( Core::node( 'remote-quoll:http-out' )->admit_addressed( self::step_reply( 'remote-quoll:firehose.p0', [], 0, 0 ) ) );
 	}
 
 	// ---------------------------------------------------------------------
