@@ -199,6 +199,33 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0' ) );
 	}
 
+	/** @return array<string,array{string}> Label => a pair whose source no spoke can stream. */
+	public static function unsubscribable_pairs(): array {
+		return [
+			'an upper-case partition'        => [ 'Firehose.p0:audit-17' ],
+			'a parent dir'                   => [ '../x:y' ],
+			'three segments'                 => [ 'sources/php/x:audit-17' ],
+			'a glob opening the name'        => [ '*:catchall-81' ],
+			'a grouped glob opening the name' => [ 'offsets/*:audit-26' ],
+			'a glob over the source registry' => [ 'sources/ph*:audit-26' ],
+			'a space'                        => [ 'fire hose.p0:audit-17' ],
+			'an explicit logs prefix'        => [ 'logs/x:y' ],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'unsubscribable_pairs' )]
+	public function test_a_pair_no_spoke_can_stream_is_refused_at_arguments( string $pair ): void {
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( "names a source no spoke can stream: '{$pair}'" );
+		$this->broker( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:downstream', $pair ) );
+	}
+
+	public function test_a_glob_and_a_registry_source_pass(): void {
+		$node = $this->broker( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'kea-*:herd-52', 'sources/php:php-errors', 'offsets/kea-*:audit-26' ) );
+
+		$this->assertSame( [ 'kea-*', 'sources/php', 'offsets/kea-*' ], \array_column( $this->read_private( $node, 'pairs' ), 'source' ) );
+	}
+
 	public function test_a_broker_naming_no_pair_is_refused(): void {
 		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
 		$this->expectException( \InvalidArgumentException::class );
@@ -438,16 +465,176 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertStringContainsString( 'dropping a line no pair claims: jobstats.p5', \implode( '', $errors->getArrayCopy() ) );
 	}
 
-	public function test_a_line_with_no_stamp_is_dropped_even_under_a_bare_glob(): void {
+	public function test_a_line_with_no_stamp_is_dropped(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$errors   = $this->capture_stderr();
-		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', '*:catchall-81' ) );
+		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'kea*:herd-52' ) );
 
 		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => '', Message::ID => '1:0:10', Message::VALUE => 'unstamped-4417' ] ) );
 
 		$this->assertSame( [], $node->consumers() );
 		$this->assertNull( Core::node( 'remote-austin:' ) );
-		$this->assertStringContainsString( 'dropping a line with no stamp', \implode( '', $errors->getArrayCopy() ) );
+		$this->assertStringContainsString( 'refusing a stamp outside the stream name grammar', \implode( '', $errors->getArrayCopy() ) );
+	}
+
+	/**
+	 * A glob's `*` matches any run of a segment, so a spoke can send a stamp
+	 * the pair claims that no stream would be named — a doubled dot, a space,
+	 * a NUL, a name too long for a directory — or one naming a slot the
+	 * broker keeps for itself.
+	 *
+	 * @return array<string,array{string,string,string}> Label => pair, the stamp a spoke sends, the refusal logged.
+	 */
+	public static function hostile_stamps(): array {
+		$grammar = 'refusing a stamp outside the stream name grammar';
+		return [
+			'a doubled dot under a glob'          => [ 'kea*:herd-52', 'kea..', $grammar ],
+			'a grouped doubled dot under a glob'  => [ 'offsets/kea*:audit-26', 'offsets/kea..', $grammar ],
+			'a space'                             => [ 'kea*:herd-52', 'kea hose.p0', $grammar ],
+			'a NUL'                               => [ 'kea*:herd-52', "kea\0hose.p0", $grammar ],
+			'a name too long for a directory'     => [ 'kea*:herd-52', 'kea' . \str_repeat( 'w', 300 ), $grammar ],
+			'the slot of the broker\'s null sink' => [ 'n*:herd-52', 'null', 'refusing a stamp that names a slot the broker keeps: null' ],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'hostile_stamps' )]
+	public function test_a_stamp_outside_the_name_grammar_builds_no_reader( string $pair, string $stamp, string $refusal ): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$errors   = $this->capture_stderr();
+		$offsets  = \Newspack_Nodes\Config::get_offsets_directory();
+		$dead     = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' ) . '/deadletter';
+		$before   = [ $this->tree( $offsets ), $this->tree( $dead ) ];
+		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', $pair ) );
+
+		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => $stamp, Message::ID => '4:0:30', Message::VALUE => 'hostile-6731' ] ) );
+		foreach ( $node->consumers() as $reader ) {
+			$reader->poll();
+		}
+		$node->hand_off_cursor();
+
+		$this->assertSame( $before, [ $this->tree( $offsets ), $this->tree( $dead ) ], 'no directory or file appears for it' );
+		$this->assertSame( [], $node->consumers() );
+		$this->assertStringContainsString( $refusal, \implode( '', $errors->getArrayCopy() ) );
+		$this->assertStringNotContainsString( "\0", \implode( '', $errors->getArrayCopy() ), 'no byte of a refused stamp reaches stderr' );
+	}
+
+	public function test_a_handshake_naming_an_invalid_stamp_builds_no_reader(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'kea*:herd-52' ) );
+
+		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::connected_frame( 'SLOT 3 OWNER 31313131 CURSORS kea..x=6:30,kea-55.p1=8:20' ) );
+
+		$this->assertSame( [ 'kea-55.p1' ], \array_keys( $node->consumers() ) );
+	}
+
+	public function test_a_handshake_naming_a_reserved_slot_builds_no_reader(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'n*:herd-52' ) );
+
+		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::connected_frame( 'SLOT 3 OWNER 31313131 CURSORS null=4:10,nest-5.p1=2:3' ) );
+
+		$this->assertSame( [ 'nest-5.p1' ], \array_keys( $node->consumers() ) );
+		$this->assertInstanceOf( \Newspack_Nodes\Null_Node::class, Core::node( 'remote-austin:null' ), 'the broker keeps its own slot' );
+	}
+
+	/** @return array<string,array{string}> Label => an exact pair whose reader would take a slot the broker keeps. */
+	public static function reserved_pairs(): array {
+		return [
+			'the SSE_In patron'   => [ 'sse-in:audit-17' ],
+			'the HTTP_Out patron' => [ 'http-out:audit-17' ],
+			'the null sink'       => [ 'null:audit-17' ],
+			'the interpreter'     => [ 'config:audit-17' ],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'reserved_pairs' )]
+	public function test_an_exact_pair_naming_a_reserved_slot_is_refused_at_make_node( string $pair ): void {
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( "names a slot the broker keeps: '{$pair}'" );
+		( new \Newspack_Nodes\Command_Interpreter_Node() )->make_node( 'Remote_Source', 'remote-austin', ...$this->remote_args( 'remote-austin', 'austin', $pair ) );
+	}
+
+	public function test_a_replay_keeps_counting_the_glob_readers_already_built(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$send     = static function ( string $from ): void {
+			Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => $from, Message::ID => '5:0:9', Message::VALUE => "line-{$from}" ] ) );
+		};
+		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'kea-*:herd-52' ) );
+		for ( $i = 1; $i <= Remote_Source_Node::MAX_READERS; $i++ ) {
+			$send( "kea-{$i}" );
+		}
+
+		$node->arguments( $this->remote_args( 'remote-austin', 'austin', 'kea-*:herd-61' ) );
+		$send( 'kea-' . ( Remote_Source_Node::MAX_READERS + 9 ) );
+
+		$this->assertCount( Remote_Source_Node::MAX_READERS, $node->consumers(), 'readers with no dir yet still count after a replay' );
+	}
+
+	public function test_the_reader_cap_holds_across_a_recycle_and_spares_exact_pairs(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$offsets  = \Newspack_Nodes\Config::get_offsets_directory();
+		$args     = $this->remote_args( 'remote-austin', 'austin', 'kea-*:herd-52' );
+		$send     = static function ( string $from ): void {
+			Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => $from, Message::ID => '3:0:9', Message::VALUE => "line-{$from}" ] ) );
+		};
+		[ $node ] = $this->make_remote( 'remote-austin', $args );
+		for ( $i = 1; $i <= Remote_Source_Node::MAX_READERS; $i++ ) {
+			$send( "kea-{$i}" );
+		}
+		foreach ( $node->consumers() as $reader ) {
+			$reader->poll();
+		}
+		$node->hand_off_cursor();
+		$dirs = \glob( "{$offsets}/remote-austin/*", \GLOB_ONLYDIR );
+		$this->assertCount( Remote_Source_Node::MAX_READERS, $dirs, 'each reader left its cursor dir' );
+
+		$node->remove_node();
+		$node = $this->broker( 'remote-austin', $args );
+		$node->fire();
+		$send( 'kea-' . ( Remote_Source_Node::MAX_READERS + 7 ) );
+		$this->assertSame( [], $node->consumers(), 'the dirs a glob left count toward the cap' );
+		$this->assertSame( $dirs, \glob( "{$offsets}/remote-austin/*", \GLOB_ONLYDIR ), 'and no new dir appears' );
+
+		$send( 'kea-7' );
+		$this->assertSame( [ 'kea-7' ], \array_keys( $node->consumers() ), 'a stamp whose dir is there already costs nothing new' );
+
+		$node->arguments( $this->remote_args( 'remote-austin', 'austin', 'kea-*:herd-52', 'firehose.p0:downstream' ) );
+		$send( 'firehose.p0' );
+		$this->assertInstanceOf( Remote_Consumer_Node::class, Core::node( 'remote-austin:firehose.p0' ), 'an exact pair is bounded by configuration, not the cap' );
+	}
+
+	public function test_a_glob_builds_at_most_max_readers(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$errors   = $this->capture_stderr();
+		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'kea-*:herd-52' ) );
+		$sse      = Core::node( 'remote-austin:sse-in' );
+		$send     = static function ( int $i ) use ( $sse ): void {
+			$sse->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => "kea-{$i}", Message::ID => "{$i}:0:9", Message::VALUE => "kea-line-{$i}" ] ) );
+		};
+
+		for ( $i = 1; $i <= Remote_Source_Node::MAX_READERS; $i++ ) {
+			$send( $i );
+		}
+		$this->assertCount( Remote_Source_Node::MAX_READERS, $node->consumers() );
+		$send( Remote_Source_Node::MAX_READERS + 1 );
+
+		$this->assertCount( Remote_Source_Node::MAX_READERS, $node->consumers() );
+		$this->assertNull( Core::node( 'remote-austin:kea-' . ( Remote_Source_Node::MAX_READERS + 1 ) ) );
+		$this->assertStringContainsString( 'refusing a reader past MAX_READERS', \implode( '', $errors->getArrayCopy() ) );
+	}
+
+	/** @return list<string> Every path under $dir, relative to it, sorted. */
+	private function tree( string $dir ): array {
+		if ( ! \is_dir( $dir ) ) {
+			return [];
+		}
+		$paths = [];
+		$walk  = new \RecursiveIteratorIterator( new \RecursiveDirectoryIterator( $dir, \FilesystemIterator::SKIP_DOTS ), \RecursiveIteratorIterator::SELF_FIRST );
+		foreach ( $walk as $path => $info ) {
+			$paths[] = \substr( (string) $path, \strlen( $dir ) );
+		}
+		\sort( $paths );
+		return $paths;
 	}
 
 	/** Collect every stderr line the test raises. */

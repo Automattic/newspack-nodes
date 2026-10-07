@@ -38,6 +38,9 @@ class Node {
 	 */
 	public const MAX_FROM_SIZE = 1024;
 
+	/** The sibling kind of a node's `{name}:config` interpreter. */
+	public const CONFIG_KIND = 'config';
+
 	/** Message types whose payload is included in the drop_message() audit line. */
 	private const PAYLOAD_TYPES = Message::TM_INFO | Message::TM_REQUEST | Message::TM_ERROR | Message::TM_COMMAND;
 
@@ -248,13 +251,13 @@ class Node {
 	 * @throws \RuntimeException When the node's or a sibling's slot is taken.
 	 */
 	protected function check_name_availability( string $name ): void {
-		$deferred = $this->siblings['config'] ?? null;
+		$deferred = $this->siblings[ self::CONFIG_KIND ] ?? null;
 		foreach ( $this->siblings as $kind => $sibling ) {
 			if ( $sibling !== $deferred ) {
 				$sibling->check_name_availability( self::sibling_name_of( $name, $this->sibling_suffix( $kind ) ) );
 			}
 		}
-		$deferred?->check_name_availability( self::sibling_name_of( $name, $this->sibling_suffix( 'config' ) ) );
+		$deferred?->check_name_availability( self::sibling_name_of( $name, $this->sibling_suffix( self::CONFIG_KIND ) ) );
 		if ( Core::node( $name ) !== null ) {
 			throw new \RuntimeException( \esc_html( "node name collision: {$name} already registered" ) );
 		}
@@ -637,7 +640,7 @@ class Node {
 	 * @return string One newline-terminated TSL line.
 	 */
 	protected function config_line( string ...$tokens ): string {
-		return self::command_line( 'command_node', $this->sibling_name( 'config' ), ...$tokens );
+		return self::command_line( 'command_node', $this->sibling_name( self::CONFIG_KIND ), ...$tokens );
 	}
 
 	/**
@@ -766,13 +769,13 @@ class Node {
 				throw new \RuntimeException(
 					\esc_html(
 						static::class . '::patron() must be set before name(): '
-						. $this->sibling_name( 'config' )
+						. $this->sibling_name( self::CONFIG_KIND )
 						. ' is registered already and would be torn down.'
 					)
 				);
 			}
 			$this->patron = $node;
-			$this->retract_sibling( 'config' );
+			$this->retract_sibling( self::CONFIG_KIND );
 			$this->interpreter = null;
 		}
 		return $this->patron;

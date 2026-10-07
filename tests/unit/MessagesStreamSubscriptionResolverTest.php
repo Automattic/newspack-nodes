@@ -252,6 +252,26 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$ctrl->open_subscription( 'secrets/x.p0', null );
 	}
 
+	/** @return array<string,array{string}> Label => a group prefix naming no dir under it. */
+	public static function bare_group_prefixes(): array {
+		return [
+			'offsets'    => [ 'offsets/' ],
+			'deadletter' => [ 'deadletter/' ],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'bare_group_prefixes' )]
+	public function test_a_group_prefix_naming_nothing_is_rejected( string $sub ): void {
+		\mkdir( "{$this->tmp}/offsets/kea-31.p2", 0755, true );
+		\mkdir( "{$this->tmp}/deadletter/kea-31.p2", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( "invalid subscription: {$sub}" );
+		$ctrl->open_subscription( $sub, null );
+	}
+
 	public function test_group_prefix_traversal_is_rejected(): void {
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->tmp );

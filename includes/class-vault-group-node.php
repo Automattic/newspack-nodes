@@ -44,7 +44,7 @@ final class Vault_Group_Node extends Node {
 	public const ID_TOKEN = '{id}';
 
 	/** The Vault id no child takes: the group's `:config` interpreter's slot. */
-	private const RESERVED_ID = 'config';
+	private const RESERVED_ID = self::CONFIG_KIND;
 
 	/** Shell type of the children, resolved like any `make_node` type. */
 	protected string $child_type = '';

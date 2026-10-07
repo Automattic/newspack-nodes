@@ -810,8 +810,8 @@ class SSE_Out_Node extends Node {
 			}
 		}
 
-		// Traversal guard: must start with a name char (blocks `.*` / `..`).
-		if ( ! \preg_match( '/^[a-z0-9_-][a-z0-9_.*-]*$/D', $rest ) || \str_contains( $rest, '..' ) ) {
+		// Traversal guard: the one subscription grammar the broker obeys too.
+		if ( ! Log_Discovery::is_subscription( $sub ) ) {
 			throw new \InvalidArgumentException(
 				\esc_html( "invalid subscription: {$sub}" )
 			);
