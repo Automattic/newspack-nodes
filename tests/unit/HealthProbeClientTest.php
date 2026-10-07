@@ -65,6 +65,25 @@ class HealthProbeClientTest extends TestCase {
 		$this->assertTrue( \class_exists( 'Newspack_Nodes\\Health_Probe_Client' ) );
 	}
 
+	/** The client and the runtime read one table, so the rows they name cannot part. */
+	public function test_the_unverified_rows_name_the_ids_and_labels_the_runtime_checks_produce(): void {
+		Health_Probe_Client::$http_call = static fn ( string $url, array $args ): array => [
+			'response' => [ 'code' => 500 ],
+			'body'     => '',
+		];
+		$unverified = Health_Probe_Client::runtime();
+		$runtime    = Health_Checks::runtime();
+		$table      = Health_Checks::runtime_rows();
+
+		$this->assertSame( \array_keys( $table ), \array_column( $runtime, 'id' ) );
+		$this->assertSame( \array_column( $runtime, 'id' ), \array_column( $unverified, 'id' ) );
+		$this->assertSame( \array_column( $runtime, 'label' ), \array_column( $unverified, 'label' ) );
+		$this->assertSame( \array_column( $table, 'label' ), \array_column( $unverified, 'label' ) );
+		foreach ( $table as $id => $row ) {
+			$this->assertStringContainsString( "Could not verify {$row['subject']} because", $unverified[ \array_search( $id, \array_keys( $table ), true ) ]['messages'][0] );
+		}
+	}
+
 	public function test_posts_a_purpose_token_with_bounded_options(): void {
 		$now           = 3_000_027;
 		$captured_url  = null;

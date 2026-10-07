@@ -655,11 +655,12 @@ class Bootstrap {
 	}
 
 	/**
-	 * The names the `topologies` config key selects, deduplicated, in order.
+	 * The names the `topologies` config key selects, deduplicated, in order,
+	 * whether or not a `.tsl` resolves for each: no graph is read to answer.
 	 *
 	 * @return list<non-empty-string>
 	 */
-	private static function active_names(): array {
+	public static function active_names(): array {
 		$names = Config::value( 'topologies' );
 		return \array_values( \array_unique( \array_filter(
 			\is_array( $names ) ? $names : [],

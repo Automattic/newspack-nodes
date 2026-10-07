@@ -358,10 +358,8 @@ class Log_Sources {
 
 	/**
 	 * The merged registry: built-ins, then config, then topologies. First name
-	 * wins, so insertion order is priority. Two names for one file both stand
-	 * here; only `catalog()` lists the file once.
-	 * Strict: an active topology that cannot be read throws, after every other
-	 * was read.
+	 * wins, so insertion order is priority. Strict: an active topology that
+	 * cannot be read throws, after every other was read.
 	 *
 	 * @return array<string,array{path: string,mode: string}>
 	 * @throws \Throwable What the unreadable topologies threw, combined.
@@ -498,29 +496,17 @@ class Log_Sources {
 	 * @param list<string> $names Every name the lookup knew.
 	 */
 	private static function unknown_source( string $name, array $names ): \InvalidArgumentException {
-		$known = \implode( ', ', $names );
-		$needs = self::builtin_need( $name );
-		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-		return new \InvalidArgumentException( "unknown log source: \"{$name}\" (known: " . ( '' === $known ? 'none' : $known ) . ')' . ( '' === $needs ? '' : "; {$needs}" ) );
-	}
-
-	/**
-	 * What a built-in needs of its host, as one clause, or '' for a name no
-	 * built-in carries: the clause the teaching error ends with, which the
-	 * doctor's log-sources row carries as the load's own refusal.
-	 *
-	 * @param string $name Registry name.
-	 */
-	private static function builtin_need( string $name ): string {
+		$known   = \implode( ', ', $names );
 		$builtin = self::builtins()[ $name ] ?? null;
-		return null === $builtin ? '' : "the built-in \"{$name}\" needs {$builtin['needs']}";
+		$needs   = null === $builtin ? '' : "; the built-in \"{$name}\" needs {$builtin['needs']}";
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+		return new \InvalidArgumentException( "unknown log source: \"{$name}\" (known: " . ( '' === $known ? 'none' : $known ) . "){$needs}" );
 	}
 
 	/**
 	 * The file families, built-ins first so a built-in name wins a config one:
 	 * the one file table `entry()` and `file_source_path()` both read, so a
-	 * name answers the same through either, and two names for one file both
-	 * resolve to it.
+	 * name answers the same through either.
 	 *
 	 * @return array<string,string> Name → absolute path.
 	 */

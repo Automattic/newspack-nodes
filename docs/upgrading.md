@@ -6,6 +6,9 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`Topology_Analyzer::includes()` is removed.** Read a topology's own `var`
+  lines through `Topology_Analyzer::frontmatter( $name )`, and its active names
+  through `Bootstrap::active_names()`.
 - **A `browse` control carries the footprint: `{ action: 'browse', segments }`.**
   `SeekTracker.browse( segments )` reads the end segment, its byte size and the
   ids it lists out of it once. A control built by hand passes the

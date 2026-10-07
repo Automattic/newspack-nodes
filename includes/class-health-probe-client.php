@@ -38,18 +38,6 @@ final class Health_Probe_Client {
 	public const ROUTE = '/health/runtime';
 
 	/**
-	 * The rows the route answers, in the order `Health_Checks::runtime()`
-	 * returns them: each id with its label and what an unverified row could
-	 * not verify.
-	 *
-	 * @var array<string,array{0:string,1:string}>
-	 */
-	private const ROWS = [
-		Health_Checks::CACHE_ID       => [ Health_Checks::CACHE_LABEL, 'the web cache backend' ],
-		Health_Checks::LOG_SOURCES_ID => [ Health_Checks::LOG_SOURCES_LABEL, "the web runtime's log sources" ],
-	];
-
-	/**
 	 * Loopback-POST seam, standing in for the `wp_remote_post()` call alone.
 	 * Tests assign it to capture the URL and arguments and to return a chosen
 	 * response, so the token mint, the HTTP-status ladder and the result
@@ -161,18 +149,19 @@ final class Health_Probe_Client {
 	}
 
 	/**
-	 * Accept only `ROWS`, in order, each the exact shape `Health_Checks` emits.
+	 * Accept only `Health_Checks::runtime_rows()`, in order, each the exact
+	 * shape `Health_Checks` emits.
 	 *
 	 * @param mixed $rows Decoded response body.
 	 * @return bool Whether the payload may be returned verbatim.
 	 */
 	private static function valid_rows( mixed $rows ): bool {
-		if ( ! \is_array( $rows ) || ! \array_is_list( $rows ) || \count( self::ROWS ) !== \count( $rows ) ) {
+		$table = Health_Checks::runtime_rows();
+		if ( ! \is_array( $rows ) || ! \array_is_list( $rows ) || \count( $table ) !== \count( $rows ) ) {
 			return false;
 		}
-		$index = 0;
-		foreach ( self::ROWS as $id => [ $label ] ) {
-			if ( ! self::valid_result( $rows[ $index++ ], $id, $label ) ) {
+		foreach ( \array_keys( $table ) as $index => $id ) {
+			if ( ! self::valid_result( $rows[ $index ], $id, $table[ $id ]['label'] ) ) {
 				return false;
 			}
 		}
@@ -270,12 +259,12 @@ final class Health_Probe_Client {
 	 */
 	private static function unknown( string $reason ): array {
 		$rows = [];
-		foreach ( self::ROWS as $id => [ $label, $subject ] ) {
+		foreach ( Health_Checks::runtime_rows() as $id => $row ) {
 			$rows[] = [
 				'id'       => $id,
-				'label'    => $label,
+				'label'    => $row['label'],
 				'status'   => Health_Checks::STATUS_RECOMMENDED,
-				'messages' => [ "Could not verify {$subject} because {$reason}." ],
+				'messages' => [ "Could not verify {$row['subject']} because {$reason}." ],
 			];
 		}
 		return $rows;
