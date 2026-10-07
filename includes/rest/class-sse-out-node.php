@@ -59,6 +59,13 @@ class SSE_Out_Node extends Node {
 	public const FLUSH_SIZE = 4096;
 
 	/**
+	 * The `positions` value that leaves a stamp out of the stream. A paused
+	 * reader on the far side sends it for a dir a live glob still matches,
+	 * so the glob keeps opening new dirs while that one stays closed.
+	 */
+	public const SKIP = 'skip';
+
+	/**
 	 * Heartbeat cadence in milliseconds. Pending events are flushed on every
 	 * drain tick, so this paces the idle keepalive alone.
 	 */
@@ -524,7 +531,7 @@ class SSE_Out_Node extends Node {
 			$idle_timeout       = Core::num_int( Config::value( 'sse_idle_timeout' ), 0 );
 			$max_lifetime       = Core::num_int( Config::value( 'sse_max_lifetime' ), 0 );
 			Event_Framework::instance()->drain(
-				function () use ( &$last_heartbeat, &$consumers, &$glob_owned, &$diagnostic_written, $glob_subs, $default_route, $heartbeat_interval, $idle_timeout, $max_lifetime, $opened_at, $active_lease, $partition, $subs ): bool {
+				function () use ( &$last_heartbeat, &$consumers, &$glob_owned, &$diagnostic_written, $glob_subs, $positions, $default_route, $heartbeat_interval, $idle_timeout, $max_lifetime, $opened_at, $active_lease, $partition, $subs ): bool {
 					// Before any close, so no skip goes unreported.
 					$this->report_unparseable_lines( $consumers );
 					$check = self::$check_slot;
@@ -563,7 +570,7 @@ class SSE_Out_Node extends Node {
 						$this->send_sse_event( 'heartbeat', $this->build_info_msg( 'heartbeat', (string) $now ) );
 						// Self-heal glob subs against the live filesystem.
 						if ( ! empty( $glob_subs ) ) {
-							$this->reconcile_glob_consumers( $glob_subs, $consumers, $glob_owned, $default_route );
+							$this->reconcile_glob_consumers( $glob_subs, $consumers, $glob_owned, $default_route, $positions );
 						}
 						$last_heartbeat = $now;
 					}
@@ -755,6 +762,7 @@ class SSE_Out_Node extends Node {
 	 * wildcard and confines the glob to one level under a browsable root;
 	 * anything else throws. A matching `$positions` entry seeds that reader's cursor and an
 	 * absent one tail-seeks. A valid pattern matching nothing opens nothing.
+	 * A stamp whose `$positions` entry is `SSE_Out_Node::SKIP` opens no reader.
 	 *
 	 * @param string                      $sub       Subscription name or glob.
 	 * @param array<array-key,mixed>|null $positions Saved positions, keyed by stamp.
@@ -768,6 +776,9 @@ class SSE_Out_Node extends Node {
 		$base = $this->base_dir ?? Bootstrap::base_dir();
 
 		if ( \str_starts_with( $sub, Log_Discovery::SOURCES_PREFIX . '/' ) ) {
+			if ( self::is_skipped( $positions, $sub ) ) {
+				return [];
+			}
 			$reader = Log_Sources::open_reader( $sub );
 			$reader->next_offset( self::position_arg( $positions, $sub ) );
 			return [ $reader ];
@@ -778,6 +789,9 @@ class SSE_Out_Node extends Node {
 		// IPC (bare subs only): the worker-id grammar admits it, not the guard.
 		$worker = $sub === $rest ? CLI::parse_worker_id( $sub ) : null;
 		if ( null !== $worker ) {
+			if ( self::is_skipped( $positions, $sub ) ) {
+				return [];
+			}
 			$ipc_output = Worker_Base::ipc_dir( $base, $worker[0], $worker[1], Worker_Base::IPC_OUTPUT );
 			if ( \is_dir( $ipc_output ) ) {
 				$this->is_interactive = true;
@@ -798,7 +812,10 @@ class SSE_Out_Node extends Node {
 		// Partition feed: one Consumer per matched dir.
 		$consumers = [];
 		foreach ( self::matched_dirs( $base, $sub )[1] as $dir ) {
-			$name        = Log_Discovery::stamp_for( $group, \basename( $dir ) );
+			$name = Log_Discovery::stamp_for( $group, \basename( $dir ) );
+			if ( self::is_skipped( $positions, $name ) ) {
+				continue;
+			}
 			$consumers[] = $this->log_consumer_for( $dir, $name, $positions );
 		}
 		return $consumers;
@@ -838,8 +855,9 @@ class SSE_Out_Node extends Node {
 	 * @param array<string,Consumer_Node> $consumers  Live map keyed by stamp, mutated in place.
 	 * @param array<string,bool>          $glob_owned Stamps opened by a glob (removable), mutated in place.
 	 * @param Node                        $route      The `_default_route` each new Consumer sinks into.
+	 * @param array<array-key,mixed>|null $positions  The client's saved positions; a stamp marked `SKIP` there stays closed.
 	 */
-	public function reconcile_glob_consumers( array $glob_subs, array &$consumers, array &$glob_owned, Node $route ): void {
+	public function reconcile_glob_consumers( array $glob_subs, array &$consumers, array &$glob_owned, Node $route, ?array $positions ): void {
 		$base    = $this->base_dir ?? Bootstrap::base_dir();
 		$wanted  = [];
 		$glob_ok = true;
@@ -851,7 +869,10 @@ class SSE_Out_Node extends Node {
 				continue;
 			}
 			foreach ( $matches as $dir ) {
-				$wanted[ Log_Discovery::stamp_for( $group, \basename( $dir ) ) ] = $dir;
+				$stamp = Log_Discovery::stamp_for( $group, \basename( $dir ) );
+				if ( ! self::is_skipped( $positions, $stamp ) ) {
+					$wanted[ $stamp ] = $dir;
+				}
 			}
 		}
 		foreach ( $wanted as $name => $dir ) {
@@ -972,6 +993,17 @@ class SSE_Out_Node extends Node {
 		$c->name( $name );
 		$c->sink( $route );
 		$consumers[ $name ] = $c;
+	}
+
+	/**
+	 * Whether the client asked to leave one stamp out of the stream.
+	 *
+	 * @param array<array-key,mixed>|null $positions Saved positions, keyed by stamp.
+	 * @param string                      $stamp     The stamp the reader carries.
+	 * @return bool True when its entry is `SKIP`.
+	 */
+	private static function is_skipped( ?array $positions, string $stamp ): bool {
+		return self::SKIP === ( $positions[ $stamp ] ?? null );
 	}
 
 	/**
