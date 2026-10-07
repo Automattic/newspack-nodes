@@ -1,15 +1,24 @@
 /**
- * log-stamp — the one JS reader of the reader stamp a log frame's FROM opens
- * with, the twin of PHP `SSE_Out_Node::dir_from_stamp()`, held to it by
+ * log-stamp — the one JS reader of the stamp a log frame's FROM opens with,
+ * the twin of PHP `Log_Discovery::dir_from_stamp()`, held to it by
  * `tests/fixtures/log-stamps.json`.
  *
  * `Log_Discovery::stamp_for()` writes a `logs` dir bare and an `offsets` or
- * `deadletter` dir as `{group}/{dir}`, and refuses a log dir named like a
- * group, so a stamp opening with a group name always takes a second segment.
+ * `deadletter` dir as `{group}/{dir}`, a registry source is `sources/{name}`,
+ * and a log dir named like any of those prefixes is refused, so a stamp
+ * opening with one always takes a second segment.
  */
 
-/** `Log_Discovery::GROUPS`, the names no bare stamp may be. */
-const GROUPS = new Set( [ 'logs', 'offsets', 'deadletter' ] );
+/** `Log_Discovery::SOURCES_PREFIX`: a registry source's stamp is `sources/<name>`. */
+const SOURCES_PREFIX = 'sources';
+
+/** `Log_Discovery::STAMP_PREFIXES`, the names no bare stamp may be. */
+const STAMP_PREFIXES = new Set( [
+	'logs',
+	'offsets',
+	'deadletter',
+	SOURCES_PREFIX,
+] );
 
 /**
  * Split a FROM into the reader stamp and the segments after it.
@@ -20,7 +29,7 @@ const GROUPS = new Set( [ 'logs', 'offsets', 'deadletter' ] );
  */
 export function splitStamp( from ) {
 	const parts = String( from ?? '' ).split( '/' );
-	const width = GROUPS.has( parts[ 0 ] ) && parts[ 1 ] ? 2 : 1;
+	const width = STAMP_PREFIXES.has( parts[ 0 ] ) && parts[ 1 ] ? 2 : 1;
 	return {
 		dir: parts.slice( 0, width ).join( '/' ),
 		rest: parts.slice( width ),

@@ -645,33 +645,13 @@ class SSE_Out_Node extends Node {
 	private static function cursor_pairs( array $consumers ): string {
 		$pairs = [];
 		foreach ( $consumers as $name => $c ) {
-			$dir = self::dir_from_stamp( $name );
+			$dir = Log_Discovery::dir_from_stamp( $name );
 			if ( '' === $dir || \strpbrk( $dir, ' ,' ) ) {
 				continue;
 			}
 			$pairs[] = $dir . '=' . $c->cursor_position();
 		}
 		return \implode( ',', $pairs );
-	}
-
-	/**
-	 * The subscription dir a FROM breadcrumb names, and the inverse of
-	 * `Log_Discovery::stamp_for()`: a stamp opening with a group name keeps
-	 * its second segment, any other is the first path segment alone. No bare
-	 * stamp is a group name, because `stamp_for()` refuses that dir. Reading
-	 * the leading segments rather than the whole string is what lets a full
-	 * routing path resolve too. `tests/fixtures/log-stamps.json` holds it to
-	 * `src/runtime/log-stamp.js`.
-	 *
-	 * @param string $from A stamp, or a FROM path beginning with one.
-	 * @return string The dir name that stamp addresses.
-	 */
-	private static function dir_from_stamp( string $from ): string {
-		$parts = \explode( '/', $from );
-		if ( isset( $parts[1] ) && '' !== $parts[1] && \in_array( $parts[0], Log_Discovery::GROUPS, true ) ) {
-			return "{$parts[0]}/{$parts[1]}";
-		}
-		return $parts[0];
 	}
 
 	/**

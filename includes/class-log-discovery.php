@@ -56,6 +56,16 @@ final class Log_Discovery {
 	 */
 	public const GROUPS = [ 'logs', 'offsets', Config::DEADLETTER_SUBDIR ];
 
+	/** The stamp prefix naming a `Log_Sources` registry entry: `sources/<name>`. */
+	public const SOURCES_PREFIX = 'sources';
+
+	/**
+	 * Every prefix a stamp may open with: the dir roots in `GROUPS`, and
+	 * `SOURCES_PREFIX`, which names a registry entry rather than a dir. A
+	 * bare stamp is never one of them.
+	 */
+	public const STAMP_PREFIXES = [ ...self::GROUPS, self::SOURCES_PREFIX ];
+
 	/** @var list<string>|null Memoized `logs` basenames; null before a scan. */
 	private static ?array $cached = null;
 
@@ -98,10 +108,30 @@ final class Log_Discovery {
 		if ( 'logs' !== $group ) {
 			return "{$group}/{$basename}";
 		}
-		if ( \in_array( $basename, self::GROUPS, true ) ) {
+		if ( \in_array( $basename, self::STAMP_PREFIXES, true ) ) {
 			throw new \InvalidArgumentException( \esc_html( "log dir {$basename} is named like a group; rename it" ) );
 		}
 		return $basename;
+	}
+
+	/**
+	 * The stamp a FROM breadcrumb opens with, and the inverse of
+	 * `stamp_for()`: a stamp opening with one of `STAMP_PREFIXES` keeps its
+	 * second segment, any other is the first path segment alone. No bare
+	 * stamp is a prefix, because `stamp_for()` refuses that dir. Reading the
+	 * leading segments rather than the whole string is what lets a full
+	 * routing path resolve too. `tests/fixtures/log-stamps.json` holds it to
+	 * `src/runtime/log-stamp.js`.
+	 *
+	 * @param string $from A stamp, or a FROM path beginning with one.
+	 * @return string The stamp it opens with.
+	 */
+	public static function dir_from_stamp( string $from ): string {
+		$parts = \explode( '/', $from );
+		if ( isset( $parts[1] ) && '' !== $parts[1] && \in_array( $parts[0], self::STAMP_PREFIXES, true ) ) {
+			return "{$parts[0]}/{$parts[1]}";
+		}
+		return $parts[0];
 	}
 
 	/**
