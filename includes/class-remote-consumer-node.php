@@ -23,7 +23,7 @@ namespace Newspack_Nodes;
  * that as `$generation_unknown` rather than as segment 0, which a File_Tail
  * reads as a foreign inode and replays from byte 0.
  */
-class Remote_Consumer_Node extends Timer_Node {
+class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	use Schema_Reflection;
 	use Durable_Reader {
 		fire as reader_fire;
@@ -52,7 +52,7 @@ class Remote_Consumer_Node extends Timer_Node {
 	/** Whether the cursor's segment is unknown: a file source's generation not yet seen. */
 	private bool $generation_unknown = false;
 
-	/** Whether `stand_at()`, the cursor's one deliberate writer, has placed it; the 0:0 a fresh reader holds is nowhere. */
+	/** Whether `stand_at()`, the cursor's one deliberate writer, has placed it; a fresh reader's 0:0 is nowhere, so it sends no probe record. */
 	private bool $stood = false;
 
 	/** When a step's `read_message` went out unanswered; null while none is out. */
@@ -106,6 +106,8 @@ class Remote_Consumer_Node extends Timer_Node {
 	public function __construct() {
 		parent::__construct();
 		$this->lines = new \SplQueue();
+		// The first probe window opens now, so its elapsed is time-since-birth.
+		$this->probe_ts = Core::$now;
 		$this->auto_wire_interpreter();
 	}
 
@@ -214,8 +216,9 @@ class Remote_Consumer_Node extends Timer_Node {
 	 * @param array<int,mixed>|null $message Its decoded message, or null.
 	 */
 	public function receive( string $raw, ?array $message ): void {
-		$this->skipped_to = null;
-		$this->buffer    .= $raw . "\n";
+		$this->skipped_to  = null;
+		$this->buffer     .= $raw . "\n";
+		$this->bytes_read += \strlen( $raw ) + 1;
 		$this->lines->enqueue( [ 'crumb' => null === $message ? null : Log_Position::crumb( Core::as_string( $message[ Message::ID ] ) ), 'message' => $message ] );
 		$this->at_eof = false;
 		if ( $this->is_live() && self::POLL_INTERVAL_BUSY_MS !== $this->interval_ms ) {
@@ -237,17 +240,10 @@ class Remote_Consumer_Node extends Timer_Node {
 	 */
 	public function connect_position(): array|int {
 		$this->restore_position();
-		if ( null !== $this->skipped_to ) {
+		$held = $this->held_end();
+		if ( null !== $held ) {
 			$this->pending_seek = null;
-			return $this->skipped_to;
-		}
-		$last = null;
-		foreach ( $this->lines as $entry ) {
-			$last = $entry['crumb'] ?? $last;
-		}
-		if ( null !== $last ) {
-			$this->pending_seek = null;
-			return [ 'segment' => $last['segment'], 'offset' => $last['offset'] + $last['length'] ];
+			return $held;
 		}
 		if ( null !== $this->pending_seek ) {
 			return $this->pending_seek;
@@ -258,17 +254,22 @@ class Remote_Consumer_Node extends Timer_Node {
 	}
 
 	/**
-	 * What the broker publishes for this stream: the cursor, null until the
-	 * reader has been stood at a place (restored, adopted, skipped or sought),
-	 * and the polling state. Reads and restores nothing.
+	 * How far the spoke's stream reaches past the cursor, as far as this reader
+	 * knows: the spoke's skip, else the end of the last buffered record carrying
+	 * a breadcrumb; null when it holds neither. A skip from a file source not
+	 * yet past its first record names no segment.
 	 *
-	 * @return array{cursor:string|null,polling:string}
+	 * @return array{segment?:int,offset:int}|null
 	 */
-	public function stream_status(): array {
-		return [
-			'cursor'  => $this->stood ? $this->cursor_position() : null,
-			'polling' => Core::as_string( $this->get_state( 'POLLING' ) ),
-		];
+	private function held_end(): ?array {
+		if ( null !== $this->skipped_to ) {
+			return $this->skipped_to;
+		}
+		$last = null;
+		foreach ( $this->lines as $entry ) {
+			$last = $entry['crumb'] ?? $last;
+		}
+		return null === $last ? null : [ 'segment' => $last['segment'], 'offset' => $last['offset'] + $last['length'] ];
 	}
 
 	/**
@@ -632,6 +633,39 @@ class Remote_Consumer_Node extends Timer_Node {
 			$this->cursor_segment = $at['segment'];
 		}
 		$this->cursor_offset = $at['offset'];
+	}
+
+	/**
+	 * Probe seam: this reader's Consumer record, through
+	 * `Durable_Reader::probe_record()`, as `Consumer_Node::probe_stats()` sends
+	 * its own. SOURCE names the spoke's log as this site does,
+	 * `remote/<vault_id>:<kind>`, never the spoke's bare stamp, which would name
+	 * a log of this site's own; READER is the id the broker composes from its
+	 * worker binding. Both come from the broker (`probe_names()`), and both are
+	 * blank without one.
+	 *
+	 * The spoke's log end is out of sight: nothing the spoke sends names it,
+	 * neither a record's breadcrumb nor the handshake's CURSORS. The END pair
+	 * and DISTANCE are therefore null, unknown, rather than a figure in some
+	 * other unit, so the `consumer-lag` alert never covers a hub reader. A
+	 * segment this reader does not know — a file source's generation before
+	 * the spoke names it — is null too, never 0, which names a real segment or
+	 * a foreign inode. A reader that stands nowhere yet sends nothing.
+	 *
+	 * @return array<int,int|string|null>|null A `Probe_Record`-indexed positional array, or null.
+	 */
+	public function probe_stats(): ?array {
+		if ( ! $this->stood ) {
+			return null;
+		}
+		[ $source, $reader ] = $this->broker?->probe_names( $this->stamp ) ?? [ '', '' ];
+		return $this->probe_record( $source, $reader, [
+			'cursor_segment' => $this->generation_unknown ? null : $this->cursor_segment,
+			'cursor_offset'  => $this->cursor_offset,
+			'end_segment'    => null,
+			'end_size'       => null,
+			'bytes_behind'   => null,
+		] );
 	}
 
 	/**

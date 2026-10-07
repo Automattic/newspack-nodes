@@ -511,15 +511,22 @@ class File_Tail_Node extends Tail_Node {
 	}
 
 	/**
-	 * Probe snapshot: the parent's record with SOURCE relabelled. There is no
-	 * source_dir, so the inherited SOURCE would be blank — label the record by
-	 * the followed filename instead.
+	 * Probe snapshot: the parent's record with SOURCE relabelled and an
+	 * unopened generation named as unknown. There is no source_dir, so the
+	 * inherited SOURCE would be blank — label the record by the followed
+	 * filename instead. The inode rides both segment slots, and inode 0 is the
+	 * generation not yet opened, so both are null then, as a broker's reader
+	 * writes a segment it does not know.
 	 *
-	 * @return array<int,int|string>
+	 * @return array<int,int|string|null>
 	 */
 	public function probe_stats(): array {
 		$record                         = parent::probe_stats();
 		$record[ Probe_Record::SOURCE ] = '' !== $this->source_file ? \basename( $this->source_file ) : '';
+		if ( 0 === $this->cursor_segment ) {
+			$record[ Probe_Record::CURSOR_SEGMENT ] = null;
+			$record[ Probe_Record::END_SEGMENT ]    = null;
+		}
 		return $record;
 	}
 

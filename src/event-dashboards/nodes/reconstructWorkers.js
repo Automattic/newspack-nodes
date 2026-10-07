@@ -7,7 +7,8 @@
  *
  * - `graph` is the declared `.tsl` structure, one `{nodes,edges}` per topology.
  *   A `consumer` node carries `reads`, its source-log template, and `reader`,
- *   its offsetlog template.
+ *   its offsetlog template. A broker carries `pairs`; its readers are runtime
+ *   children with no node of their own, so their rows hang under the broker.
  * - `workers` carries liveness alone, one row per (type, partition): its
  *   `state` (`CLI::worker_states()`'s word), heartbeat and start times.
  * - `consumers` carries each reader's probe state: its cursor, the partition
@@ -25,6 +26,8 @@
  * recorded end here would erase that third region for every tree at once.
  */
 
+import { workerId } from '@newspack-nodes/shared/utils/workerId';
+import { remoteOf } from '../../runtime/log-stamp';
 import { contractTees, substituteTokens } from '../topologyGraph';
 
 /**
@@ -44,6 +47,42 @@ const readerIsHandler = ( reader, name ) =>
 		/^[._-]/.test( reader.slice( name.length ) ) );
 
 /**
+ * The id a broker's reader reports under on the probe log: its name,
+ * `<broker>:<kind>`, scoped by the topology and spelled as a worker id at the
+ * partition. The twin of PHP `Remote_Source_Node::reader_id()`, held to it by
+ * `tests/fixtures/log-remotes.json`.
+ *
+ * @param {string} topology  The topology the broker sits in.
+ * @param {string} broker    The broker's node name.
+ * @param {string} kind      The reader's kind.
+ * @param {number} partition The worker partition.
+ * @return {string} The reader id.
+ * @testonly Exported so the parity test can pin it to the PHP twin.
+ */
+export const brokerReaderId = ( topology, broker, kind, partition ) =>
+	workerId( `${ topology }.${ broker }:${ kind }`, partition );
+
+/**
+ * Is a probe row one of a broker's readers?
+ *
+ * Its SOURCE names a spoke's log, `remote/<vault_id>:<kind>`, and its reader
+ * id is the one `brokerReaderId()` gives that kind under this broker.
+ *
+ * @param {Object} row      A `consumers[]` probe row.
+ * @param {string} topology The topology the broker sits in.
+ * @param {string} broker   The broker's node name.
+ * @return {boolean} True when the row is that broker's reader.
+ */
+const brokerReads = ( row, topology, broker ) => {
+	const remote = remoteOf( row.source );
+	return (
+		null !== remote &&
+		brokerReaderId( topology, broker, remote.kind, row.partition ) ===
+			row.reader
+	);
+};
+
+/**
  * Resolve every logic handler each `consumer` node feeds.
  *
  * `contractTees` replaces the pair `x→tee`, `tee→y` with the direct edge `x→y`,
@@ -56,10 +95,11 @@ const readerIsHandler = ( reader, name ) =>
  * both the request-builder and the job-router — yields one handler EACH, so
  * every processor's vertex gets its own worker row. Taking only the first
  * silently drops the other processors' tree rows. A consumer feeding a log
- * directly, with no logic node between, falls back to its own name.
+ * directly, with no logic node between, falls back to its own name. A broker
+ * yields an entry too, flagged `broker`, whose handler is itself.
  *
  * @param {Object} graphTopo One topology's `{ nodes:[{name,kind,reads?,reader?}], edges:[[from,to]] }`.
- * @return {Array<{name:string,sourceTemplate:string,readerTemplate:string,handlers:string[]}>} One entry
+ * @return {Array<{name:string,broker?:boolean,sourceTemplate:string,readerTemplate:string,handlers:string[]}>} One entry
  *   per consumer node: its name, its source-log template, the offsetlog template that names its reader,
  *   and every handler its rows attach to. Both templates still carry their `<partition>`/`<topology>`
  *   tokens.
@@ -85,6 +125,16 @@ function consumerHandlers( graphTopo ) {
 
 	const out = [];
 	nodes.forEach( ( node ) => {
+		if ( Array.isArray( node.pairs ) ) {
+			out.push( {
+				name: node.name,
+				broker: true,
+				sourceTemplate: '',
+				readerTemplate: '',
+				handlers: [ node.name ],
+			} );
+			return;
+		}
 		if ( 'consumer' !== node.kind ) {
 			return;
 		}
@@ -274,13 +324,16 @@ export function reconstructWorkers( data, prior ) {
 		consumers.forEach( ( row ) => {
 			// Match by READER (unique); fall back to source when no reader.
 			const bindings = { partition: row.partition, topology };
-			const matching = handlers.filter( ( h ) =>
-				h.readerTemplate
+			const matching = handlers.filter( ( h ) => {
+				if ( h.broker ) {
+					return brokerReads( row, topology, h.name );
+				}
+				return h.readerTemplate
 					? substituteTokens( h.readerTemplate, bindings ) ===
-					  row.reader
+							row.reader
 					: substituteTokens( h.sourceTemplate, bindings ) ===
-					  row.source
-			);
+							row.source;
+			} );
 			if ( 0 === matching.length ) {
 				return;
 			}

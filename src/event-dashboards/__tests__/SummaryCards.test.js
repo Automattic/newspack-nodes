@@ -148,6 +148,37 @@ it( 'sums the current backlog across readers from the probe consumers', () => {
 	expect( card( container, 'backlog' ) ).toContain( 'Backlog' );
 } );
 
+it( 'names how many live readers the backlog card cannot count', () => {
+	const { container } = renderCards( {
+		consumers: {
+			r1: { source: 'jobs.p0', latest: { ts: NOW - 4, backlog: 40960 } },
+			h1: {
+				source: 'remote/okapi-3:firehose.p2',
+				latest: { ts: NOW - 4, backlog: null },
+			},
+			h2: {
+				source: 'remote/tapir-8:firehose.p2',
+				latest: { ts: NOW - 2, backlog: null },
+			},
+		},
+	} );
+
+	expect( card( container, 'backlog' ) ).toContain( '40 KB' );
+	expect( card( container, 'backlog' ) ).toContain(
+		'2 readers with unknown lag'
+	);
+} );
+
+it( 'names no unknown lag when every reader is measured', () => {
+	const { container } = renderCards( {
+		consumers: {
+			r1: { source: 'jobs.p0', latest: { ts: NOW - 4, backlog: 40960 } },
+		},
+	} );
+
+	expect( card( container, 'backlog' ) ).not.toContain( 'unknown' );
+} );
+
 const skewedReaders = () => ( {
 	head: {
 		source: 'requests.p0',

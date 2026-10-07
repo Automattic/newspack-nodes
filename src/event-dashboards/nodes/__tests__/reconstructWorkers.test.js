@@ -1,5 +1,7 @@
 import { globalRates } from '../../globalRates';
-import { reconstructWorkers } from '../reconstructWorkers';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import { brokerReaderId, reconstructWorkers } from '../reconstructWorkers';
 import { buildTopologySections } from '../../topologyGraph';
 
 const EMPTY_PRIOR = { read: {}, write: {} };
@@ -988,4 +990,166 @@ describe( 'reconstructWorkers — carries the server state', () => {
 		expect( workers[ 0 ].state ).toBe( 'idle' );
 		expect( workers[ 0 ] ).not.toHaveProperty( 'idle' );
 	} );
+} );
+
+describe( 'reconstructWorkers — a broker hangs its readers under its own node', () => {
+	const probeRow = ( reader, source, cursorSegment, cursorOffset ) => ( {
+		reader,
+		source,
+		partition: 2,
+		cursor_segment: cursorSegment,
+		cursor_offset: cursorOffset,
+		end_segment: cursorSegment,
+		end_size: cursorOffset + 479,
+		distance: 479,
+		msgs: 31,
+	} );
+	const BROKER_DATA = {
+		graph: {
+			'hub-7731': {
+				nodes: [
+					{
+						name: 'firehose:okapi-3',
+						kind: 'logic',
+						type: 'Remote_Source',
+						vault_id: 'okapi-3',
+						pairs: [
+							{
+								source: 'firehose.p<partition>',
+								target: 'remote-job-rewrite',
+							},
+						],
+					},
+					{
+						name: 'firehose:tapir-8',
+						kind: 'logic',
+						type: 'Remote_Source',
+						vault_id: 'tapir-8',
+						pairs: [
+							{
+								source: 'firehose.p<partition>',
+								target: 'remote-job-rewrite',
+							},
+						],
+					},
+					{ name: 'remote-job-rewrite', kind: 'logic' },
+				],
+				edges: [
+					[ 'firehose:okapi-3', 'remote-job-rewrite' ],
+					[ 'firehose:tapir-8', 'remote-job-rewrite' ],
+				],
+			},
+		},
+		workers: [
+			{
+				type: 'hub-7731',
+				partition: 2,
+				state: 'live',
+				restart_pending: false,
+				heartbeat_age: 3,
+				started_at: 1700000000,
+			},
+		],
+		consumers: [
+			probeRow(
+				'hub-7731.firehose:okapi-3:firehose.p2.p2',
+				'remote/okapi-3:firehose.p2',
+				14,
+				9021
+			),
+			probeRow(
+				'hub-7731.firehose:okapi-3:sources:php.p2',
+				'remote/okapi-3:sources:php',
+				null,
+				40913
+			),
+			probeRow(
+				'hub-7731.firehose:tapir-8:firehose.p2.p2',
+				'remote/tapir-8:firehose.p2',
+				6,
+				118
+			),
+			probeRow(
+				'zorp-55.firehose:okapi-3:firehose.p2.p2',
+				'remote/okapi-3:firehose.p2',
+				9,
+				77
+			),
+			probeRow( 'firehose.p2', 'firehose.p2', 3, 12 ),
+		],
+		logs: [],
+	};
+
+	it( 'joins each reader row to the broker its reader id names', () => {
+		const { workers } = reconstructWorkers( BROKER_DATA, EMPTY_PRIOR );
+		const readsOf = ( handler ) =>
+			workers
+				.filter( ( w ) => w.handler === handler )
+				.map( ( w ) => [
+					w.source,
+					w.cursor_segment,
+					w.cursor_offset,
+				] );
+
+		expect( readsOf( 'firehose:okapi-3' ) ).toEqual( [
+			[ 'remote/okapi-3:firehose.p2', 14, 9021 ],
+			[ 'remote/okapi-3:sources:php', null, 40913 ],
+		] );
+		expect( readsOf( 'firehose:tapir-8' ) ).toEqual( [
+			[ 'remote/tapir-8:firehose.p2', 6, 118 ],
+		] );
+	} );
+
+	it( 'draws the rows under the broker vertex in the tree', () => {
+		const { workers } = reconstructWorkers( BROKER_DATA, EMPTY_PRIOR );
+		const sections = buildTopologySections(
+			BROKER_DATA.graph,
+			workers,
+			BROKER_DATA.logs
+		);
+		const entities = flatten( sections[ 0 ].tree );
+		// Two brokers feeding one rewrite converge on one joined entity.
+		const brokers = entities.find(
+			( e ) =>
+				'node' === e.kind && e.names?.includes( 'firehose:okapi-3' )
+		);
+
+		expect( brokers.names ).toEqual( [
+			'firehose:okapi-3',
+			'firehose:tapir-8',
+		] );
+		expect( brokers.workers.map( ( w ) => w.source ) ).toEqual( [
+			'remote/okapi-3:firehose.p2',
+			'remote/okapi-3:sources:php',
+			'remote/tapir-8:firehose.p2',
+		] );
+	} );
+} );
+
+describe( 'brokerReaderId parity with Remote_Source_Node::reader_id()', () => {
+	const cases = JSON.parse(
+		readFileSync(
+			join( __dirname, '../../../../tests/fixtures/log-remotes.json' ),
+			'utf8'
+		)
+	);
+
+	it.each( cases )(
+		'%s',
+		(
+			_label,
+			_vault,
+			_stamp,
+			_name,
+			kind,
+			topology,
+			broker,
+			partition,
+			id
+		) => {
+			expect( brokerReaderId( topology, broker, kind, partition ) ).toBe(
+				id
+			);
+		}
+	);
 } );

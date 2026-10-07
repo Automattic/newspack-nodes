@@ -180,6 +180,32 @@ class ProbeToGraphiteTest extends TestCase {
 	}
 
 	/** A Partition record names no reader, so it is no reader's metric. */
+	/**
+	 * A null DISTANCE is a backlog the reader cannot know, as a broker's reader
+	 * reports it, so the window sends no distance line rather than a 0 that
+	 * charts as caught up; the reader's other metrics still go.
+	 */
+	public function test_an_unknown_distance_sends_no_distance_line_and_keeps_the_rest(): void {
+		$message = $this->probe_message( 'hub.firehose:okapi-3', 0, 61, null, 4417, 5813 );
+		$message[ Message::VALUE ][ Probe_Record::END_SEGMENT ] = null;
+		$message[ Message::VALUE ][ Probe_Record::END_SIZE ]    = null;
+		$message[ Message::VALUE ][ Probe_Record::DISTANCE ]    = null;
+		$this->node->fill( $message );
+
+		$this->node->fire();
+
+		$lines = explode( "\n", rtrim( $this->sink->captured[0][ Message::VALUE ], "\n" ) );
+		sort( $lines );
+		$this->assertSame(
+			[
+				'eve.hub_firehose_okapi_3.bytes_read_delta 4417 1000000',
+				'eve.hub_firehose_okapi_3.cache_size 5813 1000000',
+				'eve.hub_firehose_okapi_3.msgs_delta 61 1000000',
+			],
+			$lines
+		);
+	}
+
 	public function test_a_partition_record_is_ignored(): void {
 		$this->node->fill( $this->probe_message( '', 0, 0 ) );
 

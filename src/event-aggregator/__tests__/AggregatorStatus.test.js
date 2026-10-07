@@ -419,6 +419,69 @@ describe( 'AggregatorStatus', () => {
 		expect( skippedRow( clean ) ).toBeUndefined();
 	} );
 
+	it( "lists each reader's stamp, cursor and lag beside its broker", () => {
+		registerSlices( {
+			summary: { serverNow: 2000, loading: false },
+			servers: {
+				servers: [
+					{
+						id: 'firehose:okapi-3',
+						url: 'https://okapi.example.test',
+						partitions: { 2: { connected: true } },
+						readers: [
+							{
+								stamp: 'firehose.p2',
+								partition: 2,
+								cursor: '14:9021',
+								distance: null,
+							},
+							{
+								stamp: 'sources/php',
+								partition: 2,
+								cursor: ':40913',
+								distance: 70254592,
+							},
+						],
+					},
+				],
+				loading: false,
+			},
+		} );
+		const { container } = mount();
+		const rows = [
+			...container.querySelectorAll( '.aggregator-reader' ),
+		].map( ( row ) =>
+			[ ...row.querySelectorAll( '[data-reader-field]' ) ].map(
+				( cell ) => cell.textContent
+			)
+		);
+
+		expect( rows ).toEqual( [
+			[ 'p2 firehose.p2', '14:9021', 'lag unknown' ],
+			[ 'p2 sources/php', ':40913', '67 MB behind' ],
+		] );
+	} );
+
+	it( 'lists no readers for a broker the probe log names none of', () => {
+		registerSlices( {
+			summary: { serverNow: 2000, loading: false },
+			servers: {
+				servers: [
+					{
+						id: 'firehose:tapir-8',
+						url: 'https://tapir.example.test',
+						partitions: { 0: { connected: true } },
+						readers: [],
+					},
+				],
+				loading: false,
+			},
+		} );
+		const { container } = mount();
+
+		expect( container.querySelector( '.aggregator-readers' ) ).toBeNull();
+	} );
+
 	it( 'names each unreadable topology from the summary slice in an error banner', () => {
 		registerSlices( {
 			summary: {

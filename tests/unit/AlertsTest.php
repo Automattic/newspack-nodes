@@ -320,6 +320,51 @@ class AlertsTest extends TestCase {
 		$this->assertArrayHasKey( 'consumer_lag:live-workers.firehose.p0', $by_key );
 	}
 
+	/**
+	 * A null DISTANCE is a backlog no one can measure, never a 0. A threshold
+	 * below zero, which only a config file reaches because the settings page
+	 * floors it at 0, alerts on every reader the comparison sees, a caught-up
+	 * one included: under it the caught-up reader pins `distance > threshold`,
+	 * while the unknown reader must still raise nothing, because the evaluator
+	 * skips it before the comparison rather than reading it as caught up.
+	 */
+	public function test_a_hub_reader_whose_spoke_end_is_unknown_yields_no_lag_alert(): void {
+		$base = $this->arrange( [ 'live-workers' ], [ 'alert_lag_threshold' => -1 ] );
+		$this->seed_heartbeat( $base, 'live-workers', 0 );
+		$dir = "{$base}/logs/topicprobe.p0";
+		\mkdir( $dir, 0755, true );
+		$caught_up                                 = Probe_Record::BLANK;
+		$caught_up[ Probe_Record::SOURCE ]         = 'firehose.p0';
+		$caught_up[ Probe_Record::READER ]         = 'live-workers.firehose.p0';
+		$caught_up[ Probe_Record::CURSOR_SEGMENT ] = 12;
+		$caught_up[ Probe_Record::CURSOR_OFF ]     = 7311;
+		$caught_up[ Probe_Record::END_SEGMENT ]    = 12;
+		$caught_up[ Probe_Record::END_SIZE ]       = 7311;
+		$caught_up[ Probe_Record::DISTANCE ]       = 0;
+		$unknown                                   = Probe_Record::BLANK;
+		$unknown[ Probe_Record::SOURCE ]           = 'remote/okapi-3:firehose.p0';
+		$unknown[ Probe_Record::READER ]           = 'live-workers.firehose:okapi-3:firehose.p0.p0';
+		$unknown[ Probe_Record::CURSOR_SEGMENT ]   = 12;
+		$unknown[ Probe_Record::CURSOR_OFF ]       = 7311;
+		$unknown[ Probe_Record::END_SEGMENT ]      = null;
+		$unknown[ Probe_Record::END_SIZE ]         = null;
+		$unknown[ Probe_Record::DISTANCE ]         = null;
+		$lines = '';
+		foreach ( [ $caught_up, $unknown ] as $record ) {
+			$message                   = Message::new_message();
+			$message[ Message::TYPE ]  = Message::TM_STRUCT;
+			$message[ Message::VALUE ] = $record;
+			$lines                    .= Message::packed( $message ) . "\n";
+		}
+		\file_put_contents( "{$dir}/0.log", $lines );
+
+		$by_key = $this->alerts_by_key( Alerts::evaluate() );
+
+		$this->assertArrayHasKey( 'consumer_lag:live-workers.firehose.p0', $by_key );
+		$this->assertSame( 0, $by_key['consumer_lag:live-workers.firehose.p0']['distance'] );
+		$this->assertArrayNotHasKey( 'consumer_lag:live-workers.firehose:okapi-3:firehose.p0.p0', $by_key );
+	}
+
 	public function test_consumer_under_threshold_yields_no_lag_alert(): void {
 		$base = $this->arrange( [ 'live-workers' ] );
 		$this->seed_heartbeat( $base, 'live-workers', 0 );

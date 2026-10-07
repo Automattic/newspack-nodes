@@ -301,6 +301,19 @@ trait Durable_Reader {
 	 */
 	protected bool $assume_clean_shutdown = false;
 
+	/** Probe baseline: $counter as of the previous probe sweep. */
+	private int $probe_msgs = 0;
+
+	/** Probe baseline: $bytes_read as of the previous probe sweep. */
+	private int $probe_bytes = 0;
+
+	/**
+	 * Probe baseline: Core::$now as of the previous probe sweep. The reader's
+	 * constructor opens the first window, so the first record covers time since
+	 * birth.
+	 */
+	private float $probe_ts = 0.0;
+
 	/** Verb-backed toggle for assume_clean_shutdown (durable-before-stop chains commit past). */
 	public function set_assume_clean_shutdown( bool $flag ): void {
 		$this->assume_clean_shutdown = $flag;
@@ -341,6 +354,75 @@ trait Durable_Reader {
 		$skipped                 = $this->unparseable_lines;
 		$this->unparseable_lines = 0;
 		return $skipped;
+	}
+
+	/**
+	 * The CONSUMER `Probe_Record` both readers send `Topic_Probe`, as the
+	 * POSITIONAL array kept tiny for 24h SSE replay. Positions and levels ride
+	 * as the reader measured them — the cursor, the end the lag pairs with it,
+	 * the backlog, each in the log's own bytes and null where the reader cannot
+	 * know it, and the cache size — and the counters as the work done since
+	 * the previous call, with the interval it covers, so a reader divides ONE
+	 * record. The partition's own size is a Partition record's, so `END_BYTES`
+	 * and `END_DISK_BYTES` keep `Probe_Record::BLANK`'s 0. A DRAINING read.
+	 *
+	 * @param string $source What the record is about, as the reader names its log.
+	 * @param string $reader The id the reader reports under; blank for none.
+	 * @param array{cursor_segment:int|null,cursor_offset:int,end_segment:int|null,end_size:int|null,bytes_behind:int|null} $lag The positions and the backlog, each null where the reader does not know it.
+	 * @return array<int,int|string|null> A `Probe_Record`-indexed positional array.
+	 */
+	protected function probe_record( string $source, string $reader, array $lag ): array {
+		$window = $this->drain_probe_window();
+		return \array_replace( Probe_Record::BLANK, [
+			Probe_Record::SOURCE           => $source,
+			Probe_Record::READER           => $reader,
+			Probe_Record::CURSOR_SEGMENT   => $lag['cursor_segment'],
+			Probe_Record::CURSOR_OFF       => $lag['cursor_offset'],
+			Probe_Record::END_SEGMENT      => $lag['end_segment'],
+			Probe_Record::END_SIZE         => $lag['end_size'],
+			Probe_Record::DISTANCE         => $lag['bytes_behind'],
+			Probe_Record::MSGS_DELTA       => $window['msgs'],
+			Probe_Record::CACHE_SIZE       => $this->offsetlog_cache_size(),
+			Probe_Record::BYTES_READ_DELTA => $window['bytes'],
+			Probe_Record::ELAPSED_MS       => $window['elapsed_ms'],
+		] );
+	}
+
+	/**
+	 * Close the probe window: the messages sent and bytes read since the previous
+	 * sweep, plus how long that window ran, then re-baseline. Reported bytes are
+	 * the ones this reader actually READ, so retention deleting a segment cannot
+	 * make the figure fall the way the partition's on-disk size does.
+	 *
+	 * @return array{msgs:int,bytes:int,elapsed_ms:int}
+	 */
+	private function drain_probe_window(): array {
+		$window = [
+			'msgs'       => \max( 0, $this->counter - $this->probe_msgs ),
+			'bytes'      => \max( 0, $this->bytes_read - $this->probe_bytes ),
+			'elapsed_ms' => (int) \round( \max( 0.0, Core::$now - $this->probe_ts ) * 1000 ),
+		];
+		$this->probe_msgs  = $this->counter;
+		$this->probe_bytes = $this->bytes_read;
+		$this->probe_ts    = Core::$now;
+		return $window;
+	}
+
+	/**
+	 * Byte size of the reader's newest offsetlog segment — the position-cache
+	 * footprint the overview graphs. 0 for an ephemeral reader (no offsetlog) or
+	 * before the first checkpoint writes a segment.
+	 */
+	private function offsetlog_cache_size(): int {
+		if ( null === $this->offsetlog ) {
+			return 0;
+		}
+		$segments = $this->offsetlog->get_segments( true );
+		if ( [] === $segments ) {
+			return 0;
+		}
+		$last = \end( $segments );
+		return $last['size'];
 	}
 
 	/**

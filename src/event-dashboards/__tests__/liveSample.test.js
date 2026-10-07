@@ -1,4 +1,9 @@
-import { isLiveSample, liveTotal, streamHead } from '../liveSample';
+import {
+	isLiveSample,
+	liveTotal,
+	liveUnknown,
+	streamHead,
+} from '../liveSample';
 import { TopicProbeViewNode } from '../nodes/topic-probe-view-node';
 import {
 	newMessage,
@@ -301,5 +306,32 @@ describe( 'liveTotal msgRate', () => {
 			);
 			view.removeNode();
 		} );
+	} );
+} );
+
+describe( 'a backlog no reader can measure', () => {
+	const head = 5000;
+	const consumers = {
+		hub: {
+			source: 'remote/okapi-3:firehose.p2',
+			latest: { ts: head, backlog: null },
+		},
+		known: { source: 'firehose.p2', latest: { ts: head, backlog: 70913 } },
+		gone: {
+			source: 'remote/tapir-8:firehose.p2',
+			latest: { ts: head - 600, backlog: null },
+		},
+		hub2: {
+			source: 'remote/kea-41:sources:php',
+			latest: { ts: head - 3, backlog: null },
+		},
+	};
+
+	it( 'sums only the known lag', () => {
+		expect( liveTotal( consumers, head, 'backlog' ) ).toBe( 70913 );
+	} );
+
+	it( 'counts the live readers whose lag is unknown', () => {
+		expect( liveUnknown( consumers, head, 'backlog' ) ).toBe( 2 );
 	} );
 } );

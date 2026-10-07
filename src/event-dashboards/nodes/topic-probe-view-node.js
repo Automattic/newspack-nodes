@@ -80,7 +80,8 @@ export class TopicProbeViewNode extends ProbeStreamViewNode {
 	 * Every field is read off THIS record: `msgs`/`bytes` are its deltas (clamped
 	 * non-negative), `elapsed` the seconds they cover, the rates their quotient —
 	 * 0 when the window is empty rather than a division by zero — and `backlog`
-	 * and `cacheSize` its levels verbatim. A Partition record's sample is its
+	 * and `cacheSize` its levels verbatim, a backlog the reader cannot measure
+	 * staying null so the charts plot no point for it. A Partition record's sample is its
 	 * two sizes, read verbatim. The source rides on the entry rather than
 	 * the sample, because it names the log every one of that entry's samples
 	 * came from; the worker rides on each sample, so a chart can plot each
@@ -115,7 +116,11 @@ export class TopicProbeViewNode extends ProbeStreamViewNode {
 			bytes,
 			msgRate: elapsed > 0 ? msgs / elapsed : 0,
 			byteRate: elapsed > 0 ? bytes / elapsed : 0,
-			backlog: Number( value[ Probe.DISTANCE ] ) || 0,
+			// A hub reader cannot see its spoke's end: no point, never 0.
+			backlog:
+				null === value[ Probe.DISTANCE ]
+					? null
+					: Number( value[ Probe.DISTANCE ] ) || 0,
 			cacheSize: Number( value[ Probe.CACHE_SIZE ] ) || 0,
 		};
 	}

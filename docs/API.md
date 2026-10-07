@@ -663,7 +663,13 @@ the draft as it is edited.
 
 **`aggregator` — one `id` field, two meanings.** `list_servers` returns one
 row per wired [`Remote_Source`](../includes/class-remote-source-node.php), keyed by the NODE name in `id` and carrying the
-Vault credential id separately as `vault_id`. `probe <id>` wants the VAULT id,
+Vault credential id separately as `vault_id`, the `topology` it is wired in,
+its `partitions`, and its `readers`: one `{ stamp, partition, cursor, distance }`
+per stream reader the probe log reports, `stamp` as the spoke names the log,
+`partition` the hub worker's, `cursor` in the read-position grammar (a
+segment the reader does not know is `:<offset>`), and `distance` null, because
+a hub reader cannot see its spoke's end. `list_servers` alone reads the probe
+log; `summary` counts connections and never decodes it. `probe <id>` wants the VAULT id,
 answers `server not found: <id>` for anything else, and echoes it back as its
 own `id`. A client that carries `id` straight from one verb into the other is
 refused. The probe's reply is the whitelisted roll-up
