@@ -1135,9 +1135,9 @@
 .topology-insp__section {
 	margin: 18px 0;
 
-	// Grids take the rail's value size; one still too wide scrolls in place.
+	// Grids inherit 9px from here; one still too wide scrolls in place.
 	&:has(> .nodes-runtime__grid) {
-		font-size: 11px;
+		font-size: 9px;
 		overflow-x: auto;
 	}
 
