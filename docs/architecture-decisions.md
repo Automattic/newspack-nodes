@@ -2183,22 +2183,39 @@ partition, but the Shell resolves `<partition>` before `make_node` runs, so the 
 two ways: [`Remote_Source_Node`](../includes/class-remote-source-node.php) kept a pair written
 `{partition}` everywhere and a fixed one on partition 0, while
 [`File_Tail_Node`](../includes/class-file-tail-node.php) idled off partition 0 whatever its
-file, so `File_Tail t /var/log/app.{partition}.log` could not be written. And the analyzer's
-refusal of an eager `<partition>` named the broker and the group, counted their arguments by
-offset, and judged quote-stripped values, so a single-quoted `'<partition>'`, which the Shell
-leaves literal, was refused as eager.
+file, so `File_Tail t /var/log/app.{partition}.log` could not be written. And the two
+spellings, `<partition>` resolved by the Shell and `{partition}` by the node, needed a refusal
+of the first in sources, which the analyzer made per class, counting arguments by offset and
+judging quote rules a single-quoted `'<partition>'` escaped.
 
 **Decision:** What a node reads is defined by its TSL, and one predicate reads it.
-[`Core::owns( $written )`](../includes/class-core.php) is true when the source the node
-received carries a partition token whole — `{partition}`, or a single-quoted `'<partition>'` —
-and otherwise where `Core::owns_unpartitioned()` holds: worker partition 0, or a process bound
+[`Core::owns( $written )`](../includes/class-core.php) is true when the source as written
+carries `{partition}`, and otherwise where `Core::owns_unpartitioned()` holds: worker partition 0, or a process bound
 to no partition. A node asks `owns()` with the source as written; nothing asks the bound
 partition, and `scripts/lint-contract.mjs` refuses a call to `owns_unpartitioned(` outside
 `class-core.php` (`owns-unpartitioned-outside-core`). `Remote_Source_Node::owned_pairs()` asks
-it per pair. `File_Tail_Node` resolves `{partition}` in `source_file` through
-`Core::resolve_partition_template()`, by way of `File_Tail_Node::followed_path()`, the one
-reader of the argument, which the doctor's `log-sources` row calls too, and asks `owns()` of
-the file as written.
+it per pair, and `File_Tail_Node` of its `source_file` as written.
+
+`{partition}` is the one spelling, and the node resolves it. Each node type's `node_schema()`
+marks the arguments that take one: `'partition' => 'bound'` on a reader's source, an
+offsetlog or dead-letter dir, a Partition or Log path, a Table namespace and a link's
+subscription, and `'partition' => 'each'` on a Topic's `dir_template`, where the token means
+each of its N partitions rather than the worker's. `Schema_Reflection::schema_values()` is the
+one resolver: it resolves a `bound` argument's `{partition}` at the bound partition and its
+`{topology}` at the bound fleet, and leaves an `each` argument to the node. Where neither is
+bound, outside a worker, a path naming either is refused rather than resolved at partition 0,
+which would name worker p0's own file; ownership keeps its rule that an unbound process owns a
+fixed source, and a `Remote_Source` pair naming `{partition}` is refused there as well. `{partition}` in an unmarked argument is refused by
+`Schema_Reflection::refuse_unmarked_partition()`, a static the analyzer calls too, so a line
+the load would refuse fails `wp nodes activate` and `topologies save` first. The
+node keeps the tokens as written in `$this->arguments`, so `written_argument()` answers what
+the TSL said for ownership, and `dump_config()` replays `{partition}`, so a dump taken on p2
+rebuilds on p3. The Shell refuses `<partition>`, however it is quoted or escaped, in
+`parse()` and in the static `parse_statements()` alike, as does the JS twin, so the analyzer,
+the editor and a load all fail the same line with `<partition> resolves before the node sees
+it; write {partition}`. A template no Shell reads — a registered log producer, a config log
+source — reaches `Core::has_partition_token()` or `resolve_partition_template()`, which
+refuse `<partition>` rather than read it as a fixed name and declare one literal dir.
 
 A node that owns nothing idles in one state, as a File_Tail off partition 0 does: it builds no
 reader, opens nothing, arms no timer, blanks its offsetlog and dead-letter dirs so no sidecar
@@ -2207,31 +2224,25 @@ beside it, refuses every act that would wake it with that reason, and writes no 
 because idling is normal operation. Every line is still parsed on every partition, so a bad
 one fails everywhere.
 
-The analyzer refuses an eager `<partition>` generically.
-[`Node::refuse_eager_partition( $name, $spans )`](../includes/class-node.php) does nothing by
-default; `Remote_Source_Node` overrides it for its pair sources, `File_Tail_Node` for its
-`source_file`, and `Vault_Group_Node` hands it to its child class over the spans each child is
-built from. `Topology_Analyzer` asks it of every `make_node` line's class, judging SPANS through
-`Shell_Node::expands()`, which reads the quote rules `interpolate()` follows, so a bare or
-double-quoted `<partition>` fails the topology as a broken include does, and a single-quoted
-one loads.
-
 **Alternatives considered:** A `num_partitions = 1` pin on a topology reading a fixed source —
 rejected: a hub pulling a multi-partition spoke's firehose needs a worker per partition, and
 the pin would take them with the fixed reader. A lock on the shared offsetlog — rejected: it
 would serialize readers that should not exist, and every worker would still build its node,
 connect and hold its slot. Keeping the per-class refusal in the analyzer — rejected: it names
 classes, counts offsets the classes own, and judged values where the Shell judges quotes.
+Keeping both spellings with a refusal of the eager one in sources — rejected: the refusal
+needed a per-class override, an analyzer pass and a quote rule a single-quoted token escaped,
+where one spelling needs none of them.
 
-**Consequences:** A per-worker source is written `{partition}`, or `'<partition>'`; a bare
-`<partition>` in a source fails the topology, in the analyzer and in `wp nodes doctor`. A fixed
+**Consequences:** A per-worker source is written `{partition}`; a topology writing
+`<partition>` anywhere fails to load, in the analyzer, the editor and `wp nodes doctor`. A fixed
 source is read on one worker only, so its reader's lag and dead letters live on partition 0.
 A per-partition source keeps per-partition state: a File_Tail resolves `{partition}` in its
-offsetlog and dead-letter dirs as in its file, and the analyzer refuses a per-partition source
-beside a named dir carrying no partition token, which every worker would commit one cursor to
-and quarantine one queue into. A new node type reading a source asks `owns()` and overrides
-`refuse_eager_partition()`; one that does neither reads its source once per worker, and
-nothing detects it.
+offsetlog and dead-letter dirs as in its file, and `File_Tail_Node::refuse_shared_dirs()`,
+which the analyzer and the load both call, refuses a per-partition source beside a named dir
+carrying no `{partition}`, which every worker would commit one cursor to and quarantine one
+queue into. A new node type marks its partitioned arguments and
+asks `owns()`; one that does not ask reads its source once per worker, and nothing detects it.
 
 **Revisit if:** a fixed source must be read by more than one worker — split across them, or
 failed over when partition 0 is down — at which point ownership becomes a lease rather than a

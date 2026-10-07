@@ -184,7 +184,7 @@ class WorkersCITest extends TestCase {
 			$lines .= "var num_partitions = {$num_partitions}\n";
 		}
 		foreach ( $basenames as $basename ) {
-			$lines .= "make_node Partition {$basename}:partition <config:logs_dir>/{$basename}.p<partition> <config:segment_size> <config:min_segments> <config:num_segments> <config:min_lifetime> <config:lifetime>\n";
+			$lines .= "make_node Partition {$basename}:partition <config:logs_dir>/{$basename}.p{partition} <config:segment_size> <config:min_segments> <config:num_segments> <config:min_lifetime> <config:lifetime>\n";
 		}
 		\file_put_contents( "{$stock}/{$topology}.tsl", $lines );
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
@@ -730,14 +730,14 @@ class WorkersCITest extends TestCase {
 		\mkdir( "{$logs}/ghost",    0755, true );  // not declared, no `.p{N}` suffix
 		\file_put_contents( "{$logs}/req.0", 'X' ); // a Log segment FILE — GLOB_ONLYDIR skips it
 
-		// A real .tsl declares the token-in-prefix `<partition>-req` layout (2 parts),
+		// A real .tsl declares the token-in-prefix `{partition}-req` layout (2 parts),
 		// and the operator ACTIVATES it (the declared set follows the active fleet).
 		$stock = "{$base}/topologies";
 		\mkdir( $stock, 0755, true );
 		\file_put_contents(
 			"{$stock}/req-workers.tsl",
 			"var num_partitions = 2\n"
-			. "make_node Partition req:p <config:logs_dir>/<partition>-req 1 2 0\n"
+			. "make_node Partition req:p <config:logs_dir>/{partition}-req 1 2 0\n"
 		);
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 		\Newspack_Nodes\Topology_Registry::reset_basename_cache();
@@ -1135,7 +1135,7 @@ class WorkersCITest extends TestCase {
 		// The request-scope PRODUCER logs (firehose, jobintake — written by ELN's
 		// Log_Manager / Job_Intake, declared in NO .tsl) get NO topology catalog
 		// entry. They must still appear in the dump_graph `logs[]` so the React
-		// `firehose.p<partition>` vertex resolves to a concrete match instead of
+		// `firehose.p{partition}` vertex resolves to a concrete match instead of
 		// rendering the raw template. Sourced from the same
 		// `registered_log_producers` filter the GC uses, × clamped config
 		// num_partitions.
@@ -1151,7 +1151,7 @@ class WorkersCITest extends TestCase {
 		);
 		\add_filter(
 			'newspack_nodes/registered_log_producers',
-			static fn (): array => [ '<config:logs_dir>/firehose.p<partition>', '<config:logs_dir>/jobintake.p<partition>' ]
+			static fn (): array => [ '<config:logs_dir>/firehose.p{partition}', '<config:logs_dir>/jobintake.p{partition}' ]
 		);
 		$this->seed_log_segment( $base, 'firehose',  0, 0, 128 );
 		$this->seed_log_segment( $base, 'jobintake', 1, 0, 64 );
@@ -1182,7 +1182,7 @@ class WorkersCITest extends TestCase {
 		$this->use_base_dir( $base, [ 'num_partitions' => 2 ] );
 		\add_filter(
 			'newspack_nodes/registered_log_producers',
-			static fn (): array => [ 'firehose-4419.p<partition>', '<config:logs_dir>/jobintake.p<partition>' ]
+			static fn (): array => [ 'firehose-4419.p{partition}', '<config:logs_dir>/jobintake.p{partition}' ]
 		);
 
 		$interpreter      = new Workers_CI_Node();
@@ -1193,8 +1193,8 @@ class WorkersCITest extends TestCase {
 		$this->assertContains( 'jobintake.p0', $names );
 		$this->assertContains( 'jobintake.p1', $names );
 		$this->assertSame( [], $result['unreadable'], 'no topology failed' );
-		$this->assertSame( [ 'firehose-4419.p<partition>' ], \array_keys( $result['refused_producers'] ) );
-		$this->assertStringContainsString( 'log producer firehose-4419.p<partition>', $result['refused_producers']['firehose-4419.p<partition>'] );
+		$this->assertSame( [ 'firehose-4419.p{partition}' ], \array_keys( $result['refused_producers'] ) );
+		$this->assertStringContainsString( 'log producer firehose-4419.p{partition}', $result['refused_producers']['firehose-4419.p{partition}'] );
 	}
 
 	public function test_dump_metadata_logs_carry_per_partition_segment_size_overrides(): void {
@@ -1214,8 +1214,8 @@ class WorkersCITest extends TestCase {
 		\mkdir( $stock, 0755, true );
 		\file_put_contents(
 			"{$stock}/aggregator.tsl",
-			"make_node Partition completed:partition <config:logs_dir>/completed.p<partition> 1048576 <config:min_segments> <config:num_segments> <config:min_lifetime> <config:lifetime>\n"
-			. "make_node Partition requests:partition <config:logs_dir>/requests.p<partition> <config:segment_size> <config:min_segments> <config:num_segments> <config:min_lifetime> <config:lifetime>\n"
+			"make_node Partition completed:partition <config:logs_dir>/completed.p{partition} 1048576 <config:min_segments> <config:num_segments> <config:min_lifetime> <config:lifetime>\n"
+			. "make_node Partition requests:partition <config:logs_dir>/requests.p{partition} <config:segment_size> <config:min_segments> <config:num_segments> <config:min_lifetime> <config:lifetime>\n"
 		);
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 
@@ -1253,8 +1253,8 @@ class WorkersCITest extends TestCase {
 		\mkdir( $stock, 0755, true );
 		\file_put_contents(
 			"{$stock}/aggregator.tsl",
-			"make_node Partition job:partition <config:logs_dir>/job.p<partition> 2048 <config:min_segments> <config:num_segments> <config:min_lifetime> <config:lifetime>\n"
-			. "make_node Partition jobs:partition <config:logs_dir>/jobs.p<partition> <config:segment_size> <config:min_segments> <config:num_segments> <config:min_lifetime> <config:lifetime>\n"
+			"make_node Partition job:partition <config:logs_dir>/job.p{partition} 2048 <config:min_segments> <config:num_segments> <config:min_lifetime> <config:lifetime>\n"
+			. "make_node Partition jobs:partition <config:logs_dir>/jobs.p{partition} <config:segment_size> <config:min_segments> <config:num_segments> <config:min_lifetime> <config:lifetime>\n"
 		);
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 
@@ -1301,7 +1301,7 @@ class WorkersCITest extends TestCase {
 		\file_put_contents(
 			"{$stock}/aggregator.tsl",
 			"var num_partitions = 1\n"
-			. "make_node Partition scored:partition <config:logs_dir>/scored.p<partition> <config:segment_size> <config:min_segments> <config:num_segments> <config:min_lifetime> <config:lifetime>\n"
+			. "make_node Partition scored:partition <config:logs_dir>/scored.p{partition} <config:segment_size> <config:min_segments> <config:num_segments> <config:min_lifetime> <config:lifetime>\n"
 		);
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 
@@ -1532,7 +1532,7 @@ class WorkersCITest extends TestCase {
 		\is_dir( $stock ) || \mkdir( $stock, 0755, true );
 		\file_put_contents(
 			"{$stock}/demo-workers.tsl",
-			"make_node Partition sized:partition <config:logs_dir>/sized.p<partition> 7311234\n"
+			"make_node Partition sized:partition <config:logs_dir>/sized.p{partition} 7311234\n"
 		);
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'demo-workers' ];

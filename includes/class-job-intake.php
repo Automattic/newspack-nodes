@@ -67,8 +67,8 @@ class Job_Intake {
 	 * drift apart.
 	 */
 	private const DIR_TEMPLATES = [
-		self::LOG_BASENAME   => self::LOG_BASENAME . '.p<partition>',
-		self::FEED_BASENAME  => self::FEED_BASENAME . '.p<partition>',
+		self::LOG_BASENAME   => self::LOG_BASENAME . '.p' . Core::PARTITION_TOKEN,
+		self::FEED_BASENAME  => self::FEED_BASENAME . '.p' . Core::PARTITION_TOKEN,
 		self::DELAY_BASENAME => self::DELAY_BASENAME . '.p0',
 	];
 

@@ -97,8 +97,9 @@ on every dashboard request. Catch it, or let the surrounding controller's catch 
    `move_node`, `remove_node`, `register`, `unregister`, and `command_node` with
    its aliases `command` and `cmd`), the one-way `secure` ratchet every stock
    topology closes with, the `insecure` declaration refused once that level has
-   climbed, and token resolution: the `<partition>` and `<topology>` variables
-   `Topology_Loader` binds before it evaluates the file, and the `<ns:key>`
+   climbed, and token resolution: the `<topology>` variable `Topology_Loader`
+   binds before it evaluates the file, the `{partition}` a node resolves in
+   the arguments its schema marks, and the `<ns:key>`
    form each namespace resolves through the resolver it registered at boot —
    `<config:KEY>` is the substrate's, and a consumer adds its own through
    `Core::register_config_namespace()`. The grammar is one grammar in both

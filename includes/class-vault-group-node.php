@@ -372,23 +372,6 @@ final class Vault_Group_Node extends Node {
 	}
 
 	/**
-	 * Hand the judgement to the child class, resolved as `arguments()`
-	 * resolves it, over the spans each child is built from: its Vault id,
-	 * then the group's child arguments. A type no class resolves refuses
-	 * nothing here; the load names it.
-	 *
-	 * @param string       $name  The group's name.
-	 * @param list<string> $spans The group's `make_node` argument spans, the name excluded.
-	 * @throws \RuntimeException When the child class refuses its spans.
-	 */
-	public static function refuse_eager_partition( string $name, array $spans ): void {
-		$child_class = Command_Interpreter_Node::resolve_class( Shell_Node::value_of( $spans[0] ?? '' ) );
-		if ( null !== $child_class ) {
-			$child_class::refuse_eager_partition( $name, [ self::ID_TOKEN, ...\array_slice( $spans, 2 ) ] );
-		}
-	}
-
-	/**
 	 * The group's line, its target, then every recorded verb in order.
 	 *
 	 * @return string Newline-terminated TSL lines.

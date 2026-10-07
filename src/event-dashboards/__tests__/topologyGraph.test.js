@@ -192,7 +192,7 @@ it( 'each grouped partition carries its CONCRETE catalog name as the rate key (r
 		{
 			t: {
 				nodes: [
-					gn( 'r', 'consumer', { reads: 'firehose.p<partition>' } ),
+					gn( 'r', 'consumer', { reads: 'firehose.p{partition}' } ),
 					gn( 'n', 'logic' ),
 				],
 				edges: [ [ 'r', 'n' ] ],
@@ -224,7 +224,7 @@ it( 'the concrete rate key couples render and transform for a NON-.p{N} layout',
 		{
 			t: {
 				nodes: [
-					gn( 'r', 'consumer', { reads: '<partition>-req' } ),
+					gn( 'r', 'consumer', { reads: '{partition}-req' } ),
 					gn( 'n', 'logic' ),
 				],
 				edges: [ [ 'r', 'n' ] ],
@@ -251,12 +251,12 @@ it( 'the concrete rate key couples render and transform for a NON-.p{N} layout',
 } );
 
 it( 'groups a partition-token log vertex into ONE logical entity with its partitions as sub-rows', () => {
-	// A literal <partition> vertex must GROUP into ONE logical log entity.
+	// A {partition} vertex must GROUP into ONE logical log entity.
 	const [ section ] = buildTopologySections(
 		{
 			t: {
 				nodes: [
-					gn( 'r', 'consumer', { reads: 'firehose.p<partition>' } ),
+					gn( 'r', 'consumer', { reads: 'firehose.p{partition}' } ),
 					gn( 'n', 'logic' ),
 				],
 				edges: [ [ 'r', 'n' ] ],
@@ -285,8 +285,7 @@ it( 'groups a partition-token log vertex into ONE logical entity with its partit
 	expect( logs[ 0 ].partitions[ 1 ].partition ).toBe( 1 );
 } );
 
-it( 'groups a Topic vertex carrying the curly {partition} token like an angle-token log', () => {
-	// Curly {partition} token must group like <partition> (aggregator-tab bug).
+it( 'groups a Topic writes vertex into ONE logical log entity', () => {
 	const [ section ] = buildTopologySections(
 		{
 			t: {
@@ -326,14 +325,14 @@ it( 'renders a source log consumer subtree ONCE, not duplicated per partition', 
 			t: {
 				nodes: [
 					gn( 'fh-in', 'consumer', {
-						reads: 'firehose.p<partition>',
+						reads: 'firehose.p{partition}',
 					} ),
 					gn( 'request-builder', 'logic' ),
 					gn( 'completed-out', 'partition', {
-						writes: 'completed.p<partition>',
+						writes: 'completed.p{partition}',
 					} ),
 					gn( 'requests-out', 'partition', {
-						writes: 'requests.p<partition>',
+						writes: 'requests.p{partition}',
 					} ),
 				],
 				edges: [
@@ -398,7 +397,7 @@ it( 'does not over-match a sibling log that shares the partition-token prefix', 
 			t: {
 				nodes: [
 					gn( 'r', 'consumer', {
-						reads: 'firehose.p<partition>',
+						reads: 'firehose.p{partition}',
 					} ),
 					gn( 'n', 'logic' ),
 				],
@@ -438,7 +437,7 @@ it( 'matches a token at an arbitrary position and rejects a non-digit middle', (
 		{
 			t: {
 				nodes: [
-					gn( 'r', 'consumer', { reads: '<partition>-req' } ),
+					gn( 'r', 'consumer', { reads: '{partition}-req' } ),
 					gn( 'n', 'logic' ),
 				],
 				edges: [ [ 'r', 'n' ] ],
@@ -476,7 +475,7 @@ it( 'falls back to the literal partition-token vertex when no concrete catalog e
 		{
 			t: {
 				nodes: [
-					gn( 'r', 'consumer', { reads: 'missing.p<partition>' } ),
+					gn( 'r', 'consumer', { reads: 'missing.p{partition}' } ),
 					gn( 'n', 'logic' ),
 				],
 				edges: [ [ 'r', 'n' ] ],
@@ -488,7 +487,7 @@ it( 'falls back to the literal partition-token vertex when no concrete catalog e
 	const log = section.tree.find( ( e ) => e.kind === 'log' );
 	expect( log.name ).toBe( 'missing' );
 	expect( log.partitions ).toEqual( [
-		{ partition: 0, name: 'missing.p<partition>' },
+		{ partition: 0, name: 'missing.p{partition}' },
 	] );
 } );
 
@@ -767,10 +766,10 @@ it( 'shows only the worker for the input branch that reaches a repeated handler'
 			combined: {
 				nodes: [
 					gn( 'firehose-reader', 'consumer', {
-						reads: 'firehose.p<partition>',
+						reads: 'firehose.p{partition}',
 					} ),
 					gn( 'jobintake-reader', 'consumer', {
-						reads: 'jobintake.p<partition>',
+						reads: 'jobintake.p{partition}',
 					} ),
 					gn( 'job-router', 'logic' ),
 				],
@@ -1176,15 +1175,18 @@ describe( 'contractTees', () => {
 } );
 
 describe( 'substituteTokens', () => {
-	it( 'binds BOTH partition spellings and the topology', () => {
+	it( 'leaves <partition> alone: {partition} is the one spelling', () => {
 		expect(
 			substituteTokens( 'firehose.p<partition>', { partition: 3 } )
-		).toBe( 'firehose.p3' );
+		).toBe( 'firehose.p<partition>' );
+	} );
+
+	it( 'binds the partition and the topology', () => {
 		expect(
 			substituteTokens( 'firehose.p{partition}', { partition: 3 } )
 		).toBe( 'firehose.p3' );
 		expect(
-			substituteTokens( 'firehose.<topology>.p<partition>', {
+			substituteTokens( 'firehose.<topology>.p{partition}', {
 				partition: 2,
 				topology: 'combined',
 			} )
@@ -1193,7 +1195,7 @@ describe( 'substituteTokens', () => {
 
 	it( 'leaves <topology> alone when no fleet name is bound', () => {
 		expect(
-			substituteTokens( 'firehose.<topology>.p<partition>', {
+			substituteTokens( 'firehose.<topology>.p{partition}', {
 				partition: 0,
 			} )
 		).toBe( 'firehose.<topology>.p0' );

@@ -383,7 +383,7 @@ connect_node tee        log
 connect_node tee        _repl
 ```
 
-> **The shipped `.tsl` does more.** This is a teaching reduction; the lower half of §0's diagram draws the real [`topologies/example-ai-newsletter.tsl`](../examples/example-ai-newsletter/topologies/example-ai-newsletter.tsl). It inserts a `Scorer` between the summarizer and a **durable scored `Partition`** (`example-scored.p<partition>`), with a `Consumer` tailing it back into the digest and `add_snapshot_node digest` co-committing the digest's state — the durability [writing-a-dashboard.md](writing-a-dashboard.md#1-give-the-pipeline-something-worth-showing--score-it-and-make-it-durable)'s §1 reads from. Ignore that middle for now.
+> **The shipped `.tsl` does more.** This is a teaching reduction; the lower half of §0's diagram draws the real [`topologies/example-ai-newsletter.tsl`](../examples/example-ai-newsletter/topologies/example-ai-newsletter.tsl). It inserts a `Scorer` between the summarizer and a **durable scored `Partition`** (`example-scored.p{partition}`), with a `Consumer` tailing it back into the digest and `add_snapshot_node digest` co-committing the digest's state — the durability [writing-a-dashboard.md](writing-a-dashboard.md#1-give-the-pipeline-something-worth-showing--score-it-and-make-it-durable)'s §1 reads from. Ignore that middle for now.
 
 A few things this file adds that the by-hand session didn't:
 

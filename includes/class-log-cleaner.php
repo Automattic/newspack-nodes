@@ -5,7 +5,7 @@
  * Sweeps the first level of both against a config-declared set (topology .tsl
  * declarations + PHP-registered producers, both stating their own layout as a
  * path template). The declared set is built by substituting the partition
- * token — `<partition>` or `{partition}`, wherever it sits in a declared path —
+ * token — `{partition}`, wherever it sits in a declared path —
  * over 0..N-1, so there is no `.p{N}` regex and no layout this class spells
  * itself.
  *

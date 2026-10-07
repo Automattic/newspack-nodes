@@ -448,17 +448,17 @@ cmd feed:config add_url https://wordpress.org/news/feed/
 
 # ingest: raw fetched items buffer between the bursty sources and the LLM summarizer,
 # so a TICK never makes an LLM call and the per-item enrich is paced by the consumer.
-make_node Partition ingest:partition <config:logs_dir>/ingest.p<partition> <config:segment_size> <config:min_segments> <config:num_segments> <config:max_segments> <config:min_lifetime> <config:lifetime>
+make_node Partition ingest:partition <config:logs_dir>/ingest.p{partition} <config:segment_size> <config:min_segments> <config:num_segments> <config:max_segments> <config:min_lifetime> <config:lifetime>
 cmd ingest:partition:config void_warranty
 
-make_node Consumer   ingest:consumer <config:logs_dir>/ingest.p<partition> <config:offsets_dir>/ingest.p<partition> <config:deadletter_dir>/ingest.p<partition>
+make_node Consumer   ingest:consumer <config:logs_dir>/ingest.p{partition} <config:offsets_dir>/ingest.p{partition} <config:deadletter_dir>/ingest.p{partition}
 cmd ingest:consumer:config set_line_mode true
 make_node Summarizer summarizer
 make_node Scorer     scorer
-make_node Partition  scored:partition <config:logs_dir>/scored.p<partition> <config:segment_size> <config:min_segments> <config:num_segments> <config:max_segments> <config:min_lifetime> <config:lifetime>
+make_node Partition  scored:partition <config:logs_dir>/scored.p{partition} <config:segment_size> <config:min_segments> <config:num_segments> <config:max_segments> <config:min_lifetime> <config:lifetime>
 cmd scored:partition:config void_warranty
 
-make_node Consumer scored:consumer <config:logs_dir>/scored.p<partition> <config:offsets_dir>/scored.p<partition> …
+make_node Consumer scored:consumer <config:logs_dir>/scored.p{partition} <config:offsets_dir>/scored.p{partition} …
 # Co-commit the digest's save_state() into the consumer's offsetlog on every checkpoint,
 # so a respawned worker restores the accumulator in lockstep with the cursor.
 cmd scored:consumer:config add_snapshot_node digest
@@ -483,7 +483,7 @@ connect_node digest          digest:tee
 connect_node digest:tee      digest:log
 ```
 
-Those `<config:…>` tokens are resolved before the node ever sees them. [`Config::register_token_namespace()`](../includes/class-config.php) registers the `config` namespace at boot; [`Topology_Loader`](../includes/class-topology-loader.php) binds `<partition>` and `<topology>`, then runs the file through a `Shell`, whose interpolation replaces every `<ns:key>` and every bare `<var>`. A `make_node` line therefore reaches the node with plain strings, which is how a `Partition` can name its whole retention policy without hard-coding a number.
+Those `<config:…>` tokens are resolved before the node ever sees them. [`Config::register_token_namespace()`](../includes/class-config.php) registers the `config` namespace at boot; [`Topology_Loader`](../includes/class-topology-loader.php) binds the partition and `<topology>`, then runs the file through a `Shell`, whose interpolation replaces every `<ns:key>` and every bare `<var>`. A `make_node` line therefore reaches the node with plain strings, which is how a `Partition` can name its whole retention policy without hard-coding a number.
 
 The same token syntax works in a `node_schema()` argument **default** — every retention argument on `Log_Node` and `Partition_Node` declares one — but it gets there by a different route: a default lives in PHP and never passes through the Shell, so `Schema_Reflection::parse_schema_args()` resolves it itself, strictly (an unresolvable token throws rather than silently becoming `''`). Omit a positional argument and you get the runtime's configured value; supply one and it wins. `digest:log`'s `1 2 7 0 0 0` is the other extreme, every retention knob spelled out: a `segment_size` of 1 rotates before every write, so each composed draft lands in a segment of its own and `num_segments 7` keeps the last seven.
 

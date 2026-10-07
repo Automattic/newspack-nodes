@@ -926,17 +926,8 @@ class TailFileFollowTest extends TestCase {
 		$tail->remove_node();
 	}
 
-	/** @return array<string,array{string}> Label => how the per-worker file is written, as the node receives it. */
-	public static function partitioned_files(): array {
-		return [
-			'the brace token'                    => [ '{tmp}/app-3312.{partition}.log' ],
-			'a single-quoted token, left literal' => [ '{tmp}/app-3312.<partition>.log' ],
-		];
-	}
-
 	/** A file written per worker is followed in every worker, each its own. */
-	#[\PHPUnit\Framework\Attributes\DataProvider( 'partitioned_files' )]
-	public function test_a_partitioned_file_tail_follows_its_own_partitions_file_on_p2( string $written ): void {
+	public function test_a_partitioned_file_tail_follows_its_own_partitions_file_on_p2(): void {
 		\file_put_contents( "{$this->tmp}/app-3312.0.log", "heron-p0-1\n" );
 		\file_put_contents( "{$this->tmp}/app-3312.2.log", "heron-p2-1\n" );
 		Core::$var['partition'] = '2';
@@ -945,7 +936,7 @@ class TailFileFollowTest extends TestCase {
 			$tail->name( 'app:tail' );
 			$cap = new Capture_Sink_Node();
 			$tail->sink( $cap );
-			$tail->arguments( [ \str_replace( '{tmp}', $this->tmp, $written ), "{$this->tmp}/heron-offsets.p2" ] );
+			$tail->arguments( [ "{$this->tmp}/app-3312.{partition}.log", "{$this->tmp}/heron-offsets.p{partition}" ] );
 		} finally {
 			unset( Core::$var['partition'] );
 		}
@@ -987,6 +978,52 @@ class TailFileFollowTest extends TestCase {
 
 		$this->assertSame( [ "{$this->tmp}/kite-off.1", "{$this->tmp}/kite-dead.1", "{$this->tmp}/kite-off.1" ], $built[1] );
 		$this->assertSame( [ "{$this->tmp}/kite-off.2", "{$this->tmp}/kite-dead.2", "{$this->tmp}/kite-off.2" ], $built[2] );
+	}
+
+	/** @return array<string,array{list<string>}> Label => a per-worker line sharing one dir across its workers. */
+	public static function shared_dir_lines(): array {
+		return [
+			'a fixed offsetlog'  => [ [ '/var/log/heron-3321.{partition}.log', '/var/heron-3321/off', '/var/heron-3321/dl.{partition}' ] ],
+			'a fixed deadletter' => [ [ '/var/log/heron-3321.{partition}.log', '/var/heron-3321/off.{partition}', '/var/heron-3321/dl' ] ],
+		];
+	}
+
+	/**
+	 * Every worker of a per-worker line would commit one cursor or quarantine
+	 * into one queue, so the line fails to load.
+	 *
+	 * @param list<string> $args The line's arguments.
+	 */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'shared_dir_lines' )]
+	public function test_a_per_partition_file_tail_sharing_a_dir_fails_to_load( array $args ): void {
+		Core::$var['partition'] = '3';
+		$tail                   = new File_Tail_Node();
+		$tail->name( 'app:tail-3321' );
+		$tail->sink( new Capture_Sink_Node() );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'File_Tail app:tail-3321: a per-partition source needs per-partition offsetlog and deadletter dirs; add {partition}' );
+		$tail->arguments( $args );
+	}
+
+	/** A refused replay leaves the Tail as it was (ADR-11). */
+	public function test_a_refused_replay_leaves_the_file_tail_unchanged(): void {
+		Core::$var['partition'] = '0';
+		$tail                   = new File_Tail_Node();
+		$tail->name( 'app:tail-3322' );
+		$tail->sink( new Capture_Sink_Node() );
+		$args = [ "{$this->tmp}/app-3322.log", "{$this->tmp}/kite-off-3322" ];
+		$tail->arguments( $args );
+
+		try {
+			$tail->arguments( [ "{$this->tmp}/app-3322.{partition}.log", "{$this->tmp}/kite-off-shared" ] );
+			$this->fail( 'the replay was taken' );
+		} catch ( \InvalidArgumentException ) {
+			$this->assertSame( $args, $tail->arguments() );
+			$this->assertSame( "{$this->tmp}/app-3322.log", $this->read_private( $tail, 'source_file' ) );
+			$this->assertSame( "{$this->tmp}/kite-off-3322", $this->read_private( $tail, 'offsetlog_dir' ) );
+		}
+		$tail->remove_node();
 	}
 
 	/** An idle Tail is one state: no dirs, POLLING says IDLE, and the reason rides beside it. */

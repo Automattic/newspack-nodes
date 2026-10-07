@@ -42,24 +42,24 @@ final class BootstrapNodeTablesTest extends TestCase {
 			static fn ( string $key ): ?string => [ 'store' => 'sqlite', 'bin' => 'kea-bin' ][ $key ] ?? null
 		);
 		$this->stock = $this->stock_topology_dir( 'node-tables-stock-' );
-		$this->write_tsl( 'kea-a', "var num_partitions = 2\nmake_node Table lab-7:kea kea:p<partition> 777 sqlite\n" );
-		$this->write_tsl( 'kea-b', "var num_partitions = 3\nmake_node Table lab-7:kea kea:p<partition> 900 sqlite\n" );
-		$this->write_tsl( 'kea-token', "var num_partitions = 2\nmake_node Table lab-7:kea kea:p<partition> 777 <lab:store>\n" );
-		$this->write_tsl( 'owl-a', "var num_partitions = 2\nmake_node Table lab-7:owl owl:p<partition> 37 wpdb\n" );
-		$this->write_tsl( 'owl-c', "var num_partitions = 3\nmake_node Table lab-7:owl owl:p<partition> 37 wpdb\n" );
+		$this->write_tsl( 'kea-a', "var num_partitions = 2\nmake_node Table lab-7:kea kea:p{partition} 777 sqlite\n" );
+		$this->write_tsl( 'kea-b', "var num_partitions = 3\nmake_node Table lab-7:kea kea:p{partition} 900 sqlite\n" );
+		$this->write_tsl( 'kea-token', "var num_partitions = 2\nmake_node Table lab-7:kea kea:p{partition} 777 <lab:store>\n" );
+		$this->write_tsl( 'owl-a', "var num_partitions = 2\nmake_node Table lab-7:owl owl:p{partition} 37 wpdb\n" );
+		$this->write_tsl( 'owl-c', "var num_partitions = 3\nmake_node Table lab-7:owl owl:p{partition} 37 wpdb\n" );
 		$this->write_tsl( 'owl-echo', "var num_partitions = 4\nmake_node Echo lab-7:owl\n" );
-		$this->write_tsl( 'emu-a', "var num_partitions = 2\nmake_node Table lab-7:emu emu:<topology>:p<partition> 37 wpdb\n" );
-		$this->write_tsl( 'emu-b', "var num_partitions = 2\nmake_node Table lab-7:emu emu:<topology>:p<partition> 37 wpdb\n" );
-		$this->write_tsl( 'ibis-bare', "var num_partitions = 2\nmake_node Table lab-7:ibis ibis:p<partition> 37\n" );
-		$this->write_tsl( 'ibis-spelled', "var num_partitions = 3\nmake_node Table lab-7:ibis ibis:p<partition> 37 auto\n" );
+		$this->write_tsl( 'emu-a', "var num_partitions = 2\nmake_node Table lab-7:emu emu:<topology>:p{partition} 37 wpdb\n" );
+		$this->write_tsl( 'emu-b', "var num_partitions = 2\nmake_node Table lab-7:emu emu:<topology>:p{partition} 37 wpdb\n" );
+		$this->write_tsl( 'ibis-bare', "var num_partitions = 2\nmake_node Table lab-7:ibis ibis:p{partition} 37\n" );
+		$this->write_tsl( 'ibis-spelled', "var num_partitions = 3\nmake_node Table lab-7:ibis ibis:p{partition} 37 auto\n" );
 		$this->write_tsl( 'crawl-a', "var num_partitions = 2\nmake_node Crawler crawl-8821 4407\n" );
-		$this->write_tsl( 'yak-a', "make_node Table lab-7:yak yak:p<partition> 3x7 wpdb\n" );
-		$this->write_tsl( 'yak-zero', "make_node Table lab-7:yak yak:p<partition> 0 wpdb\n" );
-		$this->write_tsl( 'yak-negative', "make_node Table lab-7:yak yak:p<partition> -3 wpdb\n" );
-		$this->write_tsl( 'yak-bare', "make_node Table lab-7:yak yak:p<partition>\n" );
-		$this->write_tsl( 'heron-token', "var num_partitions = 2\nmake_node Table lab-7:heron <lab:bin>:p<partition> 37 wpdb\n" );
-		$this->write_tsl( 'heron-literal', "var num_partitions = 3\nmake_node Table lab-7:heron kea-bin:p<partition> 37 wpdb\n" );
-		$this->write_tsl( 'heron-nope', "make_node Table lab-7:heron <lab:nope>:p<partition> 37 wpdb\n" );
+		$this->write_tsl( 'yak-a', "make_node Table lab-7:yak yak:p{partition} 3x7 wpdb\n" );
+		$this->write_tsl( 'yak-zero', "make_node Table lab-7:yak yak:p{partition} 0 wpdb\n" );
+		$this->write_tsl( 'yak-negative', "make_node Table lab-7:yak yak:p{partition} -3 wpdb\n" );
+		$this->write_tsl( 'yak-bare', "make_node Table lab-7:yak yak:p{partition}\n" );
+		$this->write_tsl( 'heron-token', "var num_partitions = 2\nmake_node Table lab-7:heron <lab:bin>:p{partition} 37 wpdb\n" );
+		$this->write_tsl( 'heron-literal', "var num_partitions = 3\nmake_node Table lab-7:heron kea-bin:p{partition} 37 wpdb\n" );
+		$this->write_tsl( 'heron-nope', "make_node Table lab-7:heron <lab:nope>:p{partition} 37 wpdb\n" );
 	}
 
 	protected function tearDown(): void {
@@ -229,7 +229,7 @@ final class BootstrapNodeTablesTest extends TestCase {
 	}
 
 	public function test_mount_table_mounts_every_partition_of_every_name_once(): void {
-		$this->write_tsl( 'rook-a', "var num_partitions = 3\nmake_node Table lab-7:rook rook:p<partition> 37 sqlite\n" );
+		$this->write_tsl( 'rook-a', "var num_partitions = 3\nmake_node Table lab-7:rook rook:p{partition} 37 sqlite\n" );
 		$this->activate( 'kea-a', 'rook-a' );
 		$this->write_files( 'lab-7:kea', 0, 1 );
 		$this->write_files( 'lab-7:rook', 0, 1, 2 );
@@ -270,7 +270,7 @@ final class BootstrapNodeTablesTest extends TestCase {
 	}
 
 	public function test_mount_table_reads_the_active_set_once_for_every_name(): void {
-		$this->write_tsl( 'rook-a', "var num_partitions = 3\nmake_node Table lab-7:rook rook:p<partition> 37 sqlite\n" );
+		$this->write_tsl( 'rook-a', "var num_partitions = 3\nmake_node Table lab-7:rook rook:p{partition} 37 sqlite\n" );
 		$this->activate( 'kea-a', 'rook-a' );
 		$this->write_files( 'lab-7:kea', 0, 1 );
 		$this->write_files( 'lab-7:rook', 0, 1, 2 );
@@ -286,7 +286,7 @@ final class BootstrapNodeTablesTest extends TestCase {
 	}
 
 	public function test_mount_table_unmounts_what_it_built_before_a_partition_fails(): void {
-		$this->write_tsl( 'rook-a', "var num_partitions = 3\nmake_node Table lab-7:rook rook:p<partition> 37 sqlite\n" );
+		$this->write_tsl( 'rook-a', "var num_partitions = 3\nmake_node Table lab-7:rook rook:p{partition} 37 sqlite\n" );
 		$this->activate( 'kea-a', 'rook-a' );
 		$this->write_files( 'lab-7:kea', 0, 1 );
 		$this->write_files( 'lab-7:rook', 0 );
@@ -304,7 +304,7 @@ final class BootstrapNodeTablesTest extends TestCase {
 	}
 
 	public function test_mount_table_raises_a_backend_that_cannot_open_as_table_unavailable(): void {
-		$this->write_tsl( 'rook-a', "var num_partitions = 3\nmake_node Table lab-7:rook rook:p<partition> 37 sqlite\n" );
+		$this->write_tsl( 'rook-a', "var num_partitions = 3\nmake_node Table lab-7:rook rook:p{partition} 37 sqlite\n" );
 		$this->activate( 'rook-a' );
 		$this->write_files( 'lab-7:rook', 0, 1 );
 		Bootstrap::mount_request_graph();
@@ -315,7 +315,7 @@ final class BootstrapNodeTablesTest extends TestCase {
 	}
 
 	public function test_mount_table_raises_a_failed_teardown_beside_the_backend_that_could_not_open(): void {
-		$this->write_tsl( 'rook-a', "var num_partitions = 3\nmake_node Table lab-7:rook rook:p<partition> 37 sqlite\n" );
+		$this->write_tsl( 'rook-a', "var num_partitions = 3\nmake_node Table lab-7:rook rook:p{partition} 37 sqlite\n" );
 		$this->activate( 'rook-a' );
 		$this->write_files( 'lab-7:rook', 0, 1, 2 );
 		Bootstrap::mount_request_graph();
@@ -372,7 +372,7 @@ final class BootstrapNodeTablesTest extends TestCase {
 	}
 
 	public function test_a_failed_mount_keeps_what_an_earlier_call_mounted(): void {
-		$this->write_tsl( 'rook-a', "var num_partitions = 3\nmake_node Table lab-7:rook rook:p<partition> 37 sqlite\n" );
+		$this->write_tsl( 'rook-a', "var num_partitions = 3\nmake_node Table lab-7:rook rook:p{partition} 37 sqlite\n" );
 		$this->activate( 'kea-a', 'rook-a' );
 		$this->write_files( 'lab-7:kea', 0, 1 );
 		Bootstrap::mount_request_graph();
@@ -416,7 +416,7 @@ final class BootstrapNodeTablesTest extends TestCase {
 		Bootstrap::node_tables( 'lab-7:kea' );
 		$this->assertSame( 777, Bootstrap::node_tables( 'lab-7:kea' )['lab-7:kea'][1]['ttl'] );
 		$this->assertSame( 1, $reads, 'a name resolved in this request is not resolved again' );
-		$this->write_tsl( 'kea-a', "var num_partitions = 2\nmake_node Table lab-7:kea kea:p<partition> 555 sqlite\n" );
+		$this->write_tsl( 'kea-a', "var num_partitions = 2\nmake_node Table lab-7:kea kea:p{partition} 555 sqlite\n" );
 		Topology_Registry::reset_basename_cache();
 		$this->assertSame( 555, Bootstrap::node_tables( 'lab-7:kea' )['lab-7:kea'][1]['ttl'], 'a saved topology drops the memo' );
 		$this->activate( 'kea-b' );
@@ -503,7 +503,7 @@ final class BootstrapNodeTablesTest extends TestCase {
 	}
 
 	public function test_mount_table_escapes_a_name_that_cannot_name_a_file_once(): void {
-		$this->write_tsl( 'rook-amp', "make_node Table lab&rook rook:p<partition> 37 sqlite\n" );
+		$this->write_tsl( 'rook-amp', "make_node Table lab&rook rook:p{partition} 37 sqlite\n" );
 		$this->activate( 'rook-amp' );
 		Bootstrap::mount_request_graph();
 		$this->expectException( \InvalidArgumentException::class );

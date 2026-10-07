@@ -1713,7 +1713,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$tmp = $this->make_temp_dir( 'admin-restart-topologies-' );
 		\Newspack_Nodes\Topology_Registry::reset();
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $tmp );
-		\file_put_contents( "{$tmp}/combined.tsl", "make_node Partition requests:partition <config:logs_dir>/requests.p<partition> 1 2 0\nmake_node Tee fanout\n" );
+		\file_put_contents( "{$tmp}/combined.tsl", "make_node Partition requests:partition <config:logs_dir>/requests.p{partition} 1 2 0\nmake_node Tee fanout\n" );
 		\file_put_contents( "{$tmp}/aggregator.tsl", "make_node Topic firehose:topic <config:logs_dir>/firehose.p{partition} 1 1 2 0\n" );
 		\file_put_contents( "{$tmp}/multipart.tsl", "var num_partitions = 3\nmake_node Echo relay\n" );
 		\update_option( 'newspack_nodes_topologies', [ 'combined', 'aggregator', 'multipart' ] );

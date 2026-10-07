@@ -158,14 +158,14 @@ class ShellParseStatementsTest extends TestCase {
 	/** A trailing backslash folds the next physical line into one logical statement. */
 	public function test_backslash_continuation_joins_lines(): void {
 		$statements = $this->summarize(
-			Shell_Node::parse_statements( "make_node Consumer c \\\n  <config:logs_dir>/f.p<partition>" )
+			Shell_Node::parse_statements( "make_node Consumer c \\\n  <config:logs_dir>/f.p{partition}" )
 		);
 		$this->assertSame(
 			[
 				[
 					'verb'   => 'make_node',
-					'values' => [ 'make_node', 'Consumer', 'c', '<config:logs_dir>/f.p<partition>' ],
-					'raw'    => 'make_node Consumer c <config:logs_dir>/f.p<partition>',
+					'values' => [ 'make_node', 'Consumer', 'c', '<config:logs_dir>/f.p{partition}' ],
+					'raw'    => 'make_node Consumer c <config:logs_dir>/f.p{partition}',
 					'line'   => 1,
 				],
 			],
@@ -198,18 +198,17 @@ class ShellParseStatementsTest extends TestCase {
 		Shell_Node::parse_statements( 'make_node Tee "unterminated' );
 	}
 
-	/** A single-quoted `<partition>` survives byte-identical in spans; values strip the quotes. */
-	public function test_single_quoted_partition_token_span_is_verbatim(): void {
-		$statements = Shell_Node::parse_statements( "make_node Partition p '<partition>'" );
-		$this->assertCount( 1, $statements );
-		$this->assertSame(
-			[ 'make_node', 'Partition', 'p', "'<partition>'" ],
-			$statements[0]['spans']
-		);
-		$this->assertSame(
-			[ 'make_node', 'Partition', 'p', '<partition>' ],
-			$statements[0]['values']
-		);
+	/** A static reader refuses `<partition>` as the load would, quoted or not. */
+	public function test_angle_partition_is_refused_like_the_runtime(): void {
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( "\"'<partition>'\": <partition> resolves before the node sees it; write {partition}" );
+		Shell_Node::parse_statements( "make_node Partition p '<partition>'" );
+	}
+
+	/** A comment naming `<partition>` is inert, and `{partition}` stands as written. */
+	public function test_brace_partition_spans_stand_as_written(): void {
+		$statements = Shell_Node::parse_statements( "# .p<partition>\nmake_node Partition p /l/p.p{partition}" );
+		$this->assertSame( [ 'make_node', 'Partition', 'p', '/l/p.p{partition}' ], $statements[0]['spans'] );
 	}
 
 	public function test_trailing_continuation_at_eof_fails_loud_like_the_runtime(): void {

@@ -22,7 +22,7 @@ const FANOUT_GRAPH = {
 			{
 				name: 'firehose:consumer',
 				kind: 'consumer',
-				reads: 'firehose.p<partition>',
+				reads: 'firehose.p{partition}',
 			},
 			{ name: 'firehose:tee', kind: 'tee' },
 			{ name: 'request-builder', kind: 'logic' },
@@ -30,12 +30,12 @@ const FANOUT_GRAPH = {
 			{
 				name: 'requests:partition',
 				kind: 'partition',
-				writes: 'requests.p<partition>',
+				writes: 'requests.p{partition}',
 			},
 			{
 				name: 'jobs:partition',
 				kind: 'partition',
-				writes: 'jobs.p<partition>',
+				writes: 'jobs.p{partition}',
 			},
 		],
 		edges: [
@@ -152,14 +152,14 @@ const SHARED_SOURCE_GRAPH = {
 			{
 				name: 'firehose:consumer',
 				kind: 'consumer',
-				reads: 'firehose.p<partition>',
-				reader: 'firehose.request-builder.p<partition>',
+				reads: 'firehose.p{partition}',
+				reader: 'firehose.request-builder.p{partition}',
 			},
 			{ name: 'request-builder', kind: 'logic' },
 			{
 				name: 'requests:partition',
 				kind: 'partition',
-				writes: 'requests.p<partition>',
+				writes: 'requests.p{partition}',
 			},
 		],
 		edges: [
@@ -172,14 +172,14 @@ const SHARED_SOURCE_GRAPH = {
 			{
 				name: 'firehose:consumer',
 				kind: 'consumer',
-				reads: 'firehose.p<partition>',
-				reader: 'firehose.job-router.p<partition>',
+				reads: 'firehose.p{partition}',
+				reader: 'firehose.job-router.p{partition}',
 			},
 			{ name: 'job-router', kind: 'logic' },
 			{
 				name: 'jobs:partition',
 				kind: 'partition',
-				writes: 'jobs.p<partition>',
+				writes: 'jobs.p{partition}',
 			},
 		],
 		edges: [
@@ -668,12 +668,12 @@ const SUBSTRING_COLLISION_GRAPH = {
 			{
 				name: 'req',
 				kind: 'consumer',
-				reads: 'shared.p<partition>',
+				reads: 'shared.p{partition}',
 			},
 			{
 				name: 'prereq',
 				kind: 'consumer',
-				reads: 'shared.p<partition>',
+				reads: 'shared.p{partition}',
 			},
 			{ name: 'req-proc', kind: 'logic' },
 			{ name: 'prereq-proc', kind: 'logic' },
@@ -737,7 +737,7 @@ describe( 'reconstructWorkers — read step computed once per reader (not per to
 					{
 						name: 'c',
 						kind: 'consumer',
-						reads: 'shared.p<partition>',
+						reads: 'shared.p{partition}',
 					},
 					{ name: 'proc', kind: 'logic' },
 				],
@@ -895,7 +895,7 @@ describe( 'reconstructWorkers — hides ghost readers of an undeclared partition
 } );
 
 // The reader template carries `<topology>` now (the fleet-scoped cursor). The
-// client substituted only `<partition>`, so `firehose.<topology>.p0` never
+// client substituted only `{partition}`, so `firehose.<topology>.p0` never
 // matched the live reader `firehose.combined.p0` — no cursor, and every segment
 // bar on the topologies dashboard painted grey.
 const TOPOLOGY_TOKEN_GRAPH = {
@@ -904,8 +904,8 @@ const TOPOLOGY_TOKEN_GRAPH = {
 			{
 				name: 'firehose:consumer',
 				kind: 'consumer',
-				reads: 'firehose.p<partition>',
-				reader: 'firehose.<topology>.p<partition>',
+				reads: 'firehose.p{partition}',
+				reader: 'firehose.<topology>.p{partition}',
 			},
 			{ name: 'request-builder', kind: 'logic' },
 		],
@@ -1015,7 +1015,7 @@ describe( 'reconstructWorkers — a broker hangs its readers under its own node'
 						vault_id: 'okapi-3',
 						pairs: [
 							{
-								source: 'firehose.p<partition>',
+								source: 'firehose.p{partition}',
 								target: 'remote-job-rewrite',
 							},
 						],
@@ -1027,7 +1027,7 @@ describe( 'reconstructWorkers — a broker hangs its readers under its own node'
 						vault_id: 'tapir-8',
 						pairs: [
 							{
-								source: 'firehose.p<partition>',
+								source: 'firehose.p{partition}',
 								target: 'remote-job-rewrite',
 							},
 						],

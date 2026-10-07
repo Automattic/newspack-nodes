@@ -70,12 +70,12 @@ const firehoseGraph = () => ( {
 			{
 				name: 'firehose-in',
 				kind: 'consumer',
-				reads: 'firehose.p<partition>',
+				reads: 'firehose.p{partition}',
 			},
 			{
 				name: 'firehose-log',
 				kind: 'log',
-				writes: 'firehose.p<partition>',
+				writes: 'firehose.p{partition}',
 			},
 		],
 		edges: [ [ 'firehose-in', 'firehose-log' ] ],
@@ -89,13 +89,13 @@ const requestGraph = () => ( {
 			{
 				name: 'req-in',
 				kind: 'consumer',
-				reads: 'requests.p<partition>',
+				reads: 'requests.p{partition}',
 			},
 			{ name: 'request-builder', kind: 'logic' },
 			{
 				name: 'completed-log',
 				kind: 'log',
-				writes: 'completed.p<partition>',
+				writes: 'completed.p{partition}',
 			},
 		],
 		edges: [
@@ -112,7 +112,7 @@ const teeGraph = () => ( {
 			{
 				name: 'req-in',
 				kind: 'consumer',
-				reads: 'requests.p<partition>',
+				reads: 'requests.p{partition}',
 			},
 			{ name: 'fanout', kind: 'tee' },
 			{ name: 'request-builder', kind: 'logic' },
@@ -371,17 +371,17 @@ describe( 'worker-status:transform — reconstructs the rich workers[]', () => {
 					{
 						name: 'job-router',
 						kind: 'consumer',
-						reads: 'firehose.p<partition>',
+						reads: 'firehose.p{partition}',
 					},
 					{
 						name: 'request-builder',
 						kind: 'consumer',
-						reads: 'firehose.p<partition>',
+						reads: 'firehose.p{partition}',
 					},
 					{
 						name: 'jobs-log',
 						kind: 'log',
-						writes: 'jobs.p<partition>',
+						writes: 'jobs.p{partition}',
 					},
 				],
 				edges: [

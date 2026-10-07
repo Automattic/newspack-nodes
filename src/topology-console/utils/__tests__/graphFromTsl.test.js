@@ -162,12 +162,12 @@ describe( 'graphFromTsl', () => {
 		] );
 	} );
 
-	it( 'keeps the deferred-binder Topic pattern verbatim', () => {
+	it( 'keeps a Topic {partition} template verbatim', () => {
 		const g = graphFromTsl(
-			"make_node Topic jobs <config:logs_dir>/jobs.p'<partition>' 4\n"
+			'make_node Topic jobs <config:logs_dir>/jobs.p{partition} 4\n'
 		);
 		expect( g.nodes[ 0 ].ctorArgs ).toEqual( [
-			"<config:logs_dir>/jobs.p'<partition>'",
+			'<config:logs_dir>/jobs.p{partition}',
 			'4',
 		] );
 	} );

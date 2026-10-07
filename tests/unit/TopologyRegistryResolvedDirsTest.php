@@ -11,7 +11,7 @@ use Newspack_Nodes\Tests\TestCase;
 
 /**
  * Layout-agnostic concrete-dir resolver. `resolved_resource_dirs` expands each
- * `write_set` token over 0..N-1 (substituting `<partition>` AND `{partition}`),
+ * `write_set` token over 0..N-1 (substituting `{partition}` AND `{partition}`),
  * resolves `<config:…>` tokens, and extracts the first-level dir name under
  * logs_dir / offsets_dir — wherever the partition token sits in the path. No
  * `.p{N}` regex.
@@ -42,7 +42,7 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 	public function test_suffix_partition_token_yields_per_partition_log_dirs(): void {
 		$this->write_tsl(
 			'req',
-			"make_node Partition req:p <config:logs_dir>/req.p<partition> 1 2 0\n"
+			"make_node Partition req:p <config:logs_dir>/req.p{partition} 1 2 0\n"
 		);
 
 		$result = Topology_Analyzer::resolved_resource_dirs( 'req', 2 );
@@ -56,7 +56,7 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 	public function test_prefix_partition_token_yields_per_partition_log_dirs(): void {
 		$this->write_tsl(
 			'req',
-			"make_node Partition req:p <config:logs_dir>/<partition>-req 1 2 0\n"
+			"make_node Partition req:p <config:logs_dir>/{partition}-req 1 2 0\n"
 		);
 
 		$result = Topology_Analyzer::resolved_resource_dirs( 'req', 2 );
@@ -68,7 +68,7 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 	public function test_nested_partition_token_yields_first_level_dir_only(): void {
 		$this->write_tsl(
 			'req',
-			"make_node Partition req:p <config:logs_dir>/req/<partition> 1 2 0\n"
+			"make_node Partition req:p <config:logs_dir>/req/{partition} 1 2 0\n"
 		);
 
 		$result = Topology_Analyzer::resolved_resource_dirs( 'req', 2 );
@@ -94,7 +94,7 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 	public function test_consumer_offsetlog_lands_in_offsets_and_source_is_not_a_log(): void {
 		$this->write_tsl(
 			'digest',
-			"make_node Consumer c <config:logs_dir>/req.p<partition> <config:offsets_dir>/cur.p<partition>\n"
+			"make_node Consumer c <config:logs_dir>/req.p{partition} <config:offsets_dir>/cur.p{partition}\n"
 		);
 
 		$result = Topology_Analyzer::resolved_resource_dirs( 'digest', 2 );
@@ -167,7 +167,7 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 			'combined',
 			"make_node Partition alerts <config:logs_dir>/alerts.p0 65536\n"
 				. "make_node Partition errors <config:logs_dir>/errors.p0 65536\n"
-				. "make_node Topic requests <config:logs_dir>/requests.p<partition>\n"
+				. "make_node Topic requests <config:logs_dir>/requests.p{partition}\n"
 		);
 
 		$result = Topology_Analyzer::resolved_resource_dirs( 'combined', 4 );
@@ -280,7 +280,7 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 	public function test_resolved_node_dirs_expands_one_named_node_over_the_worker_count(): void {
 		$this->write_tsl(
 			'req',
-			"make_node Partition requests:partition <config:logs_dir>/requests.p<partition>\n"
+			"make_node Partition requests:partition <config:logs_dir>/requests.p{partition}\n"
 				. "make_node Partition alerts:partition <config:logs_dir>/alerts.p0\n"
 		);
 
@@ -297,7 +297,7 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 		// alerts is pinned to .p0 on purpose: N workers all append to it.
 		$this->write_tsl(
 			'req',
-			"make_node Partition requests:partition <config:logs_dir>/requests.p<partition>\n"
+			"make_node Partition requests:partition <config:logs_dir>/requests.p{partition}\n"
 				. "make_node Partition alerts:partition <config:logs_dir>/alerts.p0\n"
 		);
 
@@ -319,7 +319,7 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 	}
 
 	public function test_resolved_node_dirs_of_an_undeclared_node_is_empty(): void {
-		$this->write_tsl( 'req', "make_node Partition requests:partition <config:logs_dir>/requests.p<partition>\n" );
+		$this->write_tsl( 'req', "make_node Partition requests:partition <config:logs_dir>/requests.p{partition}\n" );
 
 		$this->assertSame( [], Topology_Analyzer::resolved_node_dirs( 'req', 'nope:partition', 3 ) );
 	}

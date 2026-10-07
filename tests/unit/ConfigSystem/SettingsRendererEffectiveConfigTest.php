@@ -40,9 +40,9 @@ class SettingsRendererEffectiveConfigTest extends TestCase {
 		// Partition (geometry-classified max_segments restarts it).
 		\update_option( 'newspack_nodes_topologies', [ 'combined', 'aggregator', 'job-worker' ] );
 		Config::reset();
-		$this->write_tsl( 'combined', "make_node Partition requests:partition <config:logs_dir>/requests.p<partition> 1 2 0\nmake_node Tee fanout\n" );
+		$this->write_tsl( 'combined', "make_node Partition requests:partition <config:logs_dir>/requests.p{partition} 1 2 0\nmake_node Tee fanout\n" );
 		$this->write_tsl( 'aggregator', "make_node Topic firehose:topic <config:logs_dir>/firehose.p{partition} 1 1 2 0\n" );
-		$this->write_tsl( 'job-worker', "make_node Consumer jobintake:consumer <config:logs_dir>/jobintake.p<partition> <config:offsets_dir>/ji.p<partition>\nmake_node Job_Worker job-worker\n" );
+		$this->write_tsl( 'job-worker', "make_node Consumer jobintake:consumer <config:logs_dir>/jobintake.p{partition} <config:offsets_dir>/ji.p{partition}\nmake_node Job_Worker job-worker\n" );
 	}
 
 	protected function tearDown(): void {

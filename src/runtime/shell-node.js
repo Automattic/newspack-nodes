@@ -379,6 +379,22 @@ function joinStatementContinuations( indexed ) {
 }
 
 /**
+ * The refusal a statement naming `<partition>` earns, or null — mirrors PHP
+ * Shell_Node::eager_partition_refusal. The Shell would resolve it before the
+ * node could tell the source is per-partition, so it is refused however it is
+ * quoted or escaped; a comment is never scanned.
+ *
+ * @param {Array<{value: string, raw: string}>} tokens The statement's tokens.
+ * @return {?string} The refusal, or null.
+ */
+function eagerPartitionRefusal( tokens ) {
+	const named = tokens.find( ( t ) => t.value.includes( '<partition>' ) );
+	return named
+		? `"${ named.raw }": <partition> resolves before the node sees it; write {partition}`
+		: null;
+}
+
+/**
  * Tokenize one joined statement and resolve its verb alias + cwd into the
  * canonical `{ verb, values, spans, raw, line }` record — mirrors PHP
  * Shell_Node::build_statement. Returns null for a comment/blank or a cd/chdir
@@ -413,6 +429,10 @@ function buildStatement( shell, text, line ) {
 	}
 	if ( 0 === scanned.tokens.length ) {
 		return null;
+	}
+	const refusal = eagerPartitionRefusal( scanned.tokens );
+	if ( null !== refusal ) {
+		throw new Error( refusal );
 	}
 	let [ tokenValues, tokenSpans ] = [
 		scanned.tokens.map( ( t ) => t.value ),
@@ -701,6 +721,13 @@ export class ShellNode extends Node {
 		// Settle comments first: interpolating an inert line warns spuriously.
 		const trimmedRaw = raw.trim();
 		if ( ! trimmedRaw || '#' === trimmedRaw[ 0 ] ) {
+			return null;
+		}
+		// An open quote is judged once the statement closes.
+		const rawScan = scanTokens( raw );
+		const refusal = eagerPartitionRefusal( rawScan.tokens );
+		if ( ! rawScan.openQuote && null !== refusal ) {
+			this.refuse( `${ refusal }\n` );
 			return null;
 		}
 		// Interpolate first so `<var>` can expand into leading whitespace.
@@ -1073,9 +1100,8 @@ export class ShellNode extends Node {
 	 * vars, `<ns:key>` → resolveConfigToken, unknown → '' with a warning on
 	 * stderr — neither branch may blank in silence. Inside single quotes or
 	 * backticks the `<…>` is left LITERAL (standard shell semantics) so a token
-	 * can be deferred to a downstream binder — e.g. a Topic line writes
-	 * `<config:logs_dir>/jobs.p'<partition>'`, expanding the dir now and handing
-	 * the raw `<partition>` to Topic. Quote chars survive; tokenize() strips them.
+	 * can be deferred to a downstream binder. Quote chars survive; tokenize()
+	 * strips them. `parse()` refuses `<partition>` before this runs.
 	 *
 	 * @param {string} line Raw line.
 	 * @return {string} Interpolated line.

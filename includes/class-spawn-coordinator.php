@@ -451,7 +451,7 @@ class Spawn_Coordinator {
 	 * IPC needs no map entry because the PATH names its worker: this layout is
 	 * the substrate's own (`Worker_Base::ipc_dir()` builds it), not a
 	 * user-authored template, so reading an identity out of it assumes nothing
-	 * about where a `<partition>` token sits in someone's TSL.
+	 * about where a `{partition}` token sits in someone's TSL.
 	 *
 	 * @param string $dir Resolved partition directory.
 	 * @return list<array<array-key,mixed>>|null Null when $dir is not under ipc/.

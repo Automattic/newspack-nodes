@@ -17,19 +17,19 @@
             "make_node",
             "Consumer",
             "requests:consumer",
-            "<config:logs_dir>/requests.p<partition>",
-            "<config:offsets_dir>/<topology>.requests.p<partition>",
-            "<config:deadletter_dir>/<topology>.requests.p<partition>"
+            "<config:logs_dir>/requests.p{partition}",
+            "<config:offsets_dir>/<topology>.requests.p{partition}",
+            "<config:deadletter_dir>/<topology>.requests.p{partition}"
         ],
         "spans": [
             "make_node",
             "Consumer",
             "requests:consumer",
-            "<config:logs_dir>/requests.p<partition>",
-            "<config:offsets_dir>/<topology>.requests.p<partition>",
-            "<config:deadletter_dir>/<topology>.requests.p<partition>"
+            "<config:logs_dir>/requests.p{partition}",
+            "<config:offsets_dir>/<topology>.requests.p{partition}",
+            "<config:deadletter_dir>/<topology>.requests.p{partition}"
         ],
-        "raw": "make_node Consumer requests:consumer <config:logs_dir>/requests.p<partition> <config:offsets_dir>/<topology>.requests.p<partition> <config:deadletter_dir>/<topology>.requests.p<partition>"
+        "raw": "make_node Consumer requests:consumer <config:logs_dir>/requests.p{partition} <config:offsets_dir>/<topology>.requests.p{partition} <config:deadletter_dir>/<topology>.requests.p{partition}"
     },
     {
         "verb": "make_node",
@@ -51,15 +51,15 @@
             "make_node",
             "Partition",
             "flames:partition",
-            "<config:logs_dir>/flames.p<partition>"
+            "<config:logs_dir>/flames.p{partition}"
         ],
         "spans": [
             "make_node",
             "Partition",
             "flames:partition",
-            "<config:logs_dir>/flames.p<partition>"
+            "<config:logs_dir>/flames.p{partition}"
         ],
-        "raw": "make_node Partition flames:partition <config:logs_dir>/flames.p<partition>"
+        "raw": "make_node Partition flames:partition <config:logs_dir>/flames.p{partition}"
     },
     {
         "verb": "make_node",
@@ -67,15 +67,15 @@
             "make_node",
             "Partition",
             "flame-stats:partition",
-            "<config:logs_dir>/flame-stats.p<partition>"
+            "<config:logs_dir>/flame-stats.p{partition}"
         ],
         "spans": [
             "make_node",
             "Partition",
             "flame-stats:partition",
-            "<config:logs_dir>/flame-stats.p<partition>"
+            "<config:logs_dir>/flame-stats.p{partition}"
         ],
-        "raw": "make_node Partition flame-stats:partition <config:logs_dir>/flame-stats.p<partition>"
+        "raw": "make_node Partition flame-stats:partition <config:logs_dir>/flame-stats.p{partition}"
     },
     {
         "verb": "command_node",

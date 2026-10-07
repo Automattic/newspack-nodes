@@ -86,11 +86,8 @@ class TopologyLoaderTest extends TestCase {
 		$this->assertNotNull( Core::node( 'bob' ) );
 	}
 
-	public function test_load_interpolates_partition_via_angle_bracket(): void {
-		$this->write_tsl(
-			'parted',
-			"make_node Capture_Sink consumer-p<partition>\n"
-		);
+	public function test_load_binds_the_partition_its_nodes_resolve(): void {
+		$this->write_tsl( 'parted', "make_node Capture_Sink consumer-6602\n" );
 
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
@@ -98,7 +95,20 @@ class TopologyLoaderTest extends TestCase {
 
 		Topology_Loader::load( 'parted', 7, $interpreter );
 
-		$this->assertNotNull( Core::node( 'consumer-p7' ) );
+		$this->assertNotNull( Core::node( 'consumer-6602' ) );
+		$this->assertSame( 7, Core::bound_partition() );
+	}
+
+	public function test_a_topology_naming_angle_partition_fails_to_load(): void {
+		$this->write_tsl( 'angled', "make_node Capture_Sink consumer-p<partition>\n" );
+
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		$interpreter->sink( new Capture_Sink_Node() );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( '"consumer-p<partition>": <partition> resolves before the node sees it; write {partition}' );
+		Topology_Loader::load( 'angled', 7, $interpreter );
 	}
 
 	public function test_load_interpolates_config_namespace(): void {
@@ -163,7 +173,7 @@ class TopologyLoaderTest extends TestCase {
 		// them up. Semicolons separate statements on a single line.
 		$this->write_tsl(
 			'frontmatter',
-			"var num_partitions = 4; var stale_timeout = 60\nmake_node Capture_Sink leader-p<partition>"
+			"var num_partitions = 4; var stale_timeout = 60\nmake_node Capture_Sink leader-6603"
 		);
 
 		$interpreter = new Command_Interpreter_Node();
@@ -174,7 +184,7 @@ class TopologyLoaderTest extends TestCase {
 
 		$this->assertSame( '4', Core::$var['num_partitions'] );
 		$this->assertSame( '60', Core::$var['stale_timeout'] );
-		$this->assertNotNull( Core::node( 'leader-p0' ) );
+		$this->assertNotNull( Core::node( 'leader-6603' ) );
 	}
 
 	public function test_a_failing_line_fails_the_load_after_every_other_line_ran(): void {
@@ -261,7 +271,7 @@ class TopologyLoaderTest extends TestCase {
 	public function test_binds_the_topology_name_for_the_topology_token(): void {
 		$this->write_tsl(
 			'zebra-top',
-			"make_node Consumer zebra:consumer /logs/z.p<partition> /offsets/z.<topology>.p<partition>\n"
+			"make_node Consumer zebra:consumer /logs/z.p{partition} /offsets/z.<topology>.p{partition}\n"
 		);
 
 		$sink = new Capture_Sink_Node();
@@ -276,8 +286,9 @@ class TopologyLoaderTest extends TestCase {
 		}
 
 		$this->assertContains(
-			'make_node Consumer zebra:consumer /logs/z.p3 /offsets/z.zebra-top.p3',
-			$lines
+			'make_node Consumer zebra:consumer /logs/z.p{partition} /offsets/z.zebra-top.p{partition}',
+			$lines,
+			'the Shell binds the fleet and leaves the partition to the node'
 		);
 	}
 }

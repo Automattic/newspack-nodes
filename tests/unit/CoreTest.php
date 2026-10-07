@@ -146,7 +146,6 @@ class CoreTest extends TestCase {
 		try {
 			Core::$var['partition'] = '6';
 			$this->assertTrue( Core::owns( '/var/log/okapi.{partition}.log' ), 'brace token on p6' );
-			$this->assertTrue( Core::owns( '/var/log/okapi.<partition>.log' ), 'a single-quoted token reaches the node literal' );
 			$this->assertFalse( Core::owns( '/var/log/okapi.6.log' ), 'a resolved name is fixed by the time the node sees it' );
 			$this->assertFalse( Core::owns( 'sources/php' ) );
 			Core::$var['partition'] = '0';
@@ -172,8 +171,29 @@ class CoreTest extends TestCase {
 		}
 	}
 
-	public function test_a_partition_token_is_found_in_either_spelling(): void {
-		$this->assertTrue( Core::has_partition_token( 'firehose.p<partition>' ) );
+	/** @return array<string,array{\Closure(string):mixed}> Label => a reader of a partition template. */
+	public static function partition_template_readers(): array {
+		return [
+			'has_partition_token'        => [ static fn ( string $t ): mixed => Core::has_partition_token( $t ) ],
+			'resolve_partition_template' => [ static fn ( string $t ): mixed => Core::resolve_partition_template( $t, 3 ) ],
+			'owns'                       => [ static fn ( string $t ): mixed => Core::owns( $t ) ],
+		];
+	}
+
+	/**
+	 * `<partition>` is refused rather than read as a fixed name, which would
+	 * declare one literal dir and let the sweep take the live ones.
+	 *
+	 * @param \Closure(string):mixed $read A reader of a partition template.
+	 */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'partition_template_readers' )]
+	public function test_a_template_naming_angle_partition_is_refused( \Closure $read ): void {
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( '"egret-7741.p<partition>": <partition> is not a partition token; write {partition}' );
+		$read( 'egret-7741.p<partition>' );
+	}
+
+	public function test_a_partition_token_is_found_in_its_one_spelling(): void {
 		$this->assertTrue( Core::has_partition_token( 'firehose.p{partition}' ) );
 		$this->assertFalse( Core::has_partition_token( 'firehose.p4' ) );
 		$this->assertFalse( Core::has_partition_token( 'sources/php' ) );
@@ -247,20 +267,26 @@ class CoreTest extends TestCase {
 		);
 	}
 
-	public function test_resolve_partition_template_substitutes_both_token_forms_and_config(): void {
-		// The shared partition-token resolver: both `<partition>` angle and
-		// `{partition}` curly become $p, then `<ns:key>` config tokens resolve.
+	public function test_resolve_partition_template_substitutes_the_partition_and_config(): void {
+		// `{partition}` becomes $p, then `<ns:key>` config tokens resolve.
 		Core::register_config_namespace(
 			'config',
 			static fn ( string $key ): string => 'logs_dir' === $key ? '/data/logs' : ''
 		);
 
-		$this->assertSame( 'firehose.p3', Core::resolve_partition_template( 'firehose.p<partition>', 3 ) );
 		$this->assertSame( 'firehose.p3', Core::resolve_partition_template( 'firehose.p{partition}', 3 ) );
 		$this->assertSame(
 			'/data/logs/firehose.p2',
-			Core::resolve_partition_template( '<config:logs_dir>/firehose.p<partition>', 2 )
+			Core::resolve_partition_template( '<config:logs_dir>/firehose.p{partition}', 2 )
 		);
+	}
+
+	public function test_resolve_partition_replaces_every_partition_token_and_nothing_else(): void {
+		$this->assertSame( '/q/9/ibis.p9.<config:x>.{topology}', Core::resolve_partition( '/q/{partition}/ibis.p{partition}.<config:x>.{topology}', 9, null ) );
+	}
+
+	public function test_resolve_partition_binds_the_fleet_when_one_is_known(): void {
+		$this->assertSame( '/q/heron-fleet.p9', Core::resolve_partition( '/q/{topology}.p{partition}', 9, 'heron-fleet' ) );
 	}
 
 	public function test_now_returns_float(): void {

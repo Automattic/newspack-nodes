@@ -998,21 +998,6 @@ class Node {
 	}
 
 	/**
-	 * Refuse a `make_node` line whose source the Shell resolves eagerly at
-	 * `<partition>`: the node would read a resolved, fixed name and run on
-	 * one worker alone (ADR-33). `Topology_Analyzer` asks it of every line's
-	 * class, judging spans, so a single-quoted `'<partition>'` reaches the
-	 * node literal and passes. A class whose arguments name no source refuses
-	 * nothing, the default.
-	 *
-	 * @param string       $name  The node's name.
-	 * @param list<string> $spans The `make_node` argument spans as written, the name excluded.
-	 * @throws \RuntimeException When a source names an eager `<partition>`.
-	 */
-	public static function refuse_eager_partition( string $name, array $spans ): void {
-	}
-
-	/**
 	 * The published siblings, keyed by the kind each slot was published under.
 	 * A READ of the map the four cascades walk, so a publisher enumerating what
 	 * it built keeps no second list in step by hand; `Vault_Group_Node` reads
@@ -1088,8 +1073,8 @@ class Node {
 	 * Mirror of the JS serializeArg; the inverse of tokenize().
 	 *
 	 * `<` is a metachar here for a reason that is not about tokenizing: a
-	 * stored argument may hold an UNEXPANDED `<…>`, which is what the deferred
-	 * idiom (`<config:logs_dir>/jobs.p'<partition>'`) hands a node. Emitted
+	 * stored argument may hold an UNEXPANDED `<…>`, which is what a single-quoted
+	 * token (`<config:logs_dir>/jobs.'<topology>'`) hands a node. Emitted
 	 * bare it would be expanded on the next load, because `interpolate()` runs
 	 * before `tokenize()` — so quoting is what preserves the deferral.
 	 *

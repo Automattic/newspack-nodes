@@ -35,8 +35,8 @@ class TopologyRegistryConflictsTest extends TestCase {
 	public function test_no_conflict_when_write_sets_are_disjoint(): void {
 		// The decomposed set: distinct data partitions AND distinct firehose
 		// offsetlogs — safe to run together.
-		$this->write_tsl( 'rb', "make_node Consumer firehose:consumer <config:logs_dir>/firehose.p<partition> <config:offsets_dir>/firehose.rb.p<partition>\nmake_node Partition requests:partition <config:logs_dir>/requests.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>" );
-		$this->write_tsl( 'jr', "make_node Consumer firehose:consumer <config:logs_dir>/firehose.p<partition> <config:offsets_dir>/firehose.jr.p<partition>\nmake_node Partition jobs:partition <config:logs_dir>/jobs.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>" );
+		$this->write_tsl( 'rb', "make_node Consumer firehose:consumer <config:logs_dir>/firehose.p{partition} <config:offsets_dir>/firehose.rb.p{partition}\nmake_node Partition requests:partition <config:logs_dir>/requests.p{partition} <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>" );
+		$this->write_tsl( 'jr', "make_node Consumer firehose:consumer <config:logs_dir>/firehose.p{partition} <config:offsets_dir>/firehose.jr.p{partition}\nmake_node Partition jobs:partition <config:logs_dir>/jobs.p{partition} <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>" );
 
 		$this->assertSame( [], Topology_Analyzer::find_conflicts( [ 'rb', 'jr' ] ) );
 	}
@@ -44,14 +44,14 @@ class TopologyRegistryConflictsTest extends TestCase {
 	public function test_conflict_when_two_topologies_write_the_same_partition_with_different_geometry(): void {
 		// Same path, DIFFERENT retention args: the two graphs would fight over
 		// rotation/pruning — a real conflict, refused.
-		$this->write_tsl( 'combined', "make_node Partition requests:partition <config:logs_dir>/requests.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>\nmake_node Partition jobs:partition <config:logs_dir>/jobs.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>" );
-		$this->write_tsl( 'rb', "make_node Partition requests:partition <config:logs_dir>/requests.p<partition> 1048576 2 4 0 0" );
+		$this->write_tsl( 'combined', "make_node Partition requests:partition <config:logs_dir>/requests.p{partition} <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>\nmake_node Partition jobs:partition <config:logs_dir>/jobs.p{partition} <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>" );
+		$this->write_tsl( 'rb', "make_node Partition requests:partition <config:logs_dir>/requests.p{partition} 1048576 2 4 0 0" );
 
 		$conflicts = Topology_Analyzer::find_conflicts( [ 'combined', 'rb' ] );
 		$this->assertCount( 1, $conflicts );
 		$this->assertSame( 'combined', $conflicts[0]['a'] );
 		$this->assertSame( 'rb', $conflicts[0]['b'] );
-		$this->assertContains( 'partition:<config:logs_dir>/requests.p<partition>', $conflicts[0]['shared'] );
+		$this->assertContains( 'partition:<config:logs_dir>/requests.p{partition}', $conflicts[0]['shared'] );
 	}
 
 	public function test_identical_shared_partition_declaration_is_not_a_conflict(): void {
@@ -60,8 +60,8 @@ class TopologyRegistryConflictsTest extends TestCase {
 		// args = one shared multi-writer log — atomic ≤PIPE_BUF appends and
 		// the rotate lock make that safe, so it must not refuse the fleet.
 		$probe = "make_node Partition  topicprobe:log <config:logs_dir>/topicprobe.p0 1048576 2 8 0 86400 86400";
-		$this->write_tsl( 'workers-a', "{$probe}\nmake_node Partition a:partition <config:logs_dir>/a.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>" );
-		$this->write_tsl( 'workers-b', "{$probe}\nmake_node Partition b:partition <config:logs_dir>/b.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>" );
+		$this->write_tsl( 'workers-a', "{$probe}\nmake_node Partition a:partition <config:logs_dir>/a.p{partition} <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>" );
+		$this->write_tsl( 'workers-b', "{$probe}\nmake_node Partition b:partition <config:logs_dir>/b.p{partition} <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>" );
 
 		$this->assertSame( [], Topology_Analyzer::find_conflicts( [ 'workers-a', 'workers-b' ] ) );
 	}
@@ -70,46 +70,46 @@ class TopologyRegistryConflictsTest extends TestCase {
 		// Lifting the PIPE_BUF cap (void_warranty) means non-atomic writes —
 		// safe only with a sole writer, so sharing is refused even when the
 		// declarations match byte-for-byte.
-		$line = "make_node Partition big:partition <config:logs_dir>/big.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>";
+		$line = "make_node Partition big:partition <config:logs_dir>/big.p{partition} <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>";
 		$this->write_tsl( 'writer-a', "{$line}\ncmd big:partition:config void_warranty" );
 		$this->write_tsl( 'writer-b', $line );
 
 		$conflicts = Topology_Analyzer::find_conflicts( [ 'writer-a', 'writer-b' ] );
 		$this->assertCount( 1, $conflicts );
-		$this->assertContains( 'partition:<config:logs_dir>/big.p<partition>', $conflicts[0]['shared'] );
+		$this->assertContains( 'partition:<config:logs_dir>/big.p{partition}', $conflicts[0]['shared'] );
 	}
 
 	public function test_identical_declaration_with_allow_large_writes_still_conflicts(): void {
-		$line = "make_node Partition big:partition <config:logs_dir>/big.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>";
+		$line = "make_node Partition big:partition <config:logs_dir>/big.p{partition} <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>";
 		$this->write_tsl( 'writer-a', $line );
 		$this->write_tsl( 'writer-b', "{$line}\ncmd big:partition:config allow_large_writes" );
 
 		$conflicts = Topology_Analyzer::find_conflicts( [ 'writer-a', 'writer-b' ] );
 		$this->assertCount( 1, $conflicts );
-		$this->assertContains( 'partition:<config:logs_dir>/big.p<partition>', $conflicts[0]['shared'] );
+		$this->assertContains( 'partition:<config:logs_dir>/big.p{partition}', $conflicts[0]['shared'] );
 	}
 
 	public function test_conflict_when_two_consumers_share_an_offsetlog(): void {
 		// Different data partitions, but two readers sharing one cursor file still
 		// clobber each other — the firehose-offsetlog hazard.
-		$this->write_tsl( 'reader-a', "make_node Consumer firehose:consumer <config:logs_dir>/firehose.p<partition> <config:offsets_dir>/firehose.p<partition>\nmake_node Partition a:partition <config:logs_dir>/a.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>" );
-		$this->write_tsl( 'reader-b', "make_node Consumer firehose:consumer <config:logs_dir>/firehose.p<partition> <config:offsets_dir>/firehose.p<partition>\nmake_node Partition b:partition <config:logs_dir>/b.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>" );
+		$this->write_tsl( 'reader-a', "make_node Consumer firehose:consumer <config:logs_dir>/firehose.p{partition} <config:offsets_dir>/firehose.p{partition}\nmake_node Partition a:partition <config:logs_dir>/a.p{partition} <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>" );
+		$this->write_tsl( 'reader-b', "make_node Consumer firehose:consumer <config:logs_dir>/firehose.p{partition} <config:offsets_dir>/firehose.p{partition}\nmake_node Partition b:partition <config:logs_dir>/b.p{partition} <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>" );
 
 		$conflicts = Topology_Analyzer::find_conflicts( [ 'reader-a', 'reader-b' ] );
 		$this->assertCount( 1, $conflicts );
-		$this->assertContains( 'offsetlog:<config:offsets_dir>/firehose.p<partition>', $conflicts[0]['shared'] );
+		$this->assertContains( 'offsetlog:<config:offsets_dir>/firehose.p{partition}', $conflicts[0]['shared'] );
 	}
 
 	public function test_conflict_when_two_consumers_share_a_deadletter_dir(): void {
 		// The :deadletter sibling is void_warranty'd (unlocked, sole-writer assumed),
 		// so two Consumers quarantining into the same dir corrupt the DLQ segments —
 		// same hazard as a shared offsetlog. Distinct offsetlogs, shared deadletter.
-		$this->write_tsl( 'reader-a', "make_node Consumer firehose:consumer <config:logs_dir>/firehose.p<partition> <config:offsets_dir>/firehose.a.p<partition> <config:deadletter_dir>/firehose.p<partition>" );
-		$this->write_tsl( 'reader-b', "make_node Consumer firehose:consumer <config:logs_dir>/firehose.p<partition> <config:offsets_dir>/firehose.b.p<partition> <config:deadletter_dir>/firehose.p<partition>" );
+		$this->write_tsl( 'reader-a', "make_node Consumer firehose:consumer <config:logs_dir>/firehose.p{partition} <config:offsets_dir>/firehose.a.p{partition} <config:deadletter_dir>/firehose.p{partition}" );
+		$this->write_tsl( 'reader-b', "make_node Consumer firehose:consumer <config:logs_dir>/firehose.p{partition} <config:offsets_dir>/firehose.b.p{partition} <config:deadletter_dir>/firehose.p{partition}" );
 
 		$conflicts = Topology_Analyzer::find_conflicts( [ 'reader-a', 'reader-b' ] );
 		$this->assertCount( 1, $conflicts );
-		$this->assertContains( 'deadletter:<config:deadletter_dir>/firehose.p<partition>', $conflicts[0]['shared'] );
+		$this->assertContains( 'deadletter:<config:deadletter_dir>/firehose.p{partition}', $conflicts[0]['shared'] );
 	}
 
 	public function test_topic_is_a_writer_in_the_write_set(): void {
@@ -134,18 +134,18 @@ class TopologyRegistryConflictsTest extends TestCase {
 	}
 
 	public function test_write_set_is_memoized_until_cache_reset(): void {
-		$this->write_tsl( 'w', "make_node Partition a:partition <config:logs_dir>/a.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>" );
+		$this->write_tsl( 'w', "make_node Partition a:partition <config:logs_dir>/a.p{partition} <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>" );
 		$first = Topology_Analyzer::write_set( 'w' );
-		$this->assertContains( 'partition:<config:logs_dir>/a.p<partition>', $first );
+		$this->assertContains( 'partition:<config:logs_dir>/a.p{partition}', $first );
 
 		// Rewrite the .tsl to a different path WITHOUT clearing the cache — the
 		// memoized result persists (proves the disk read is cached, not redone).
-		$this->write_tsl( 'w', "make_node Partition b:partition <config:logs_dir>/b.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>" );
+		$this->write_tsl( 'w', "make_node Partition b:partition <config:logs_dir>/b.p{partition} <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>" );
 		$this->assertSame( $first, Topology_Analyzer::write_set( 'w' ), 'cached until the per-tick reset' );
 
 		// reset_basename_cache() (Config::RESET_ACTION on each fleet tick) picks up the edit.
 		Topology_Registry::reset_basename_cache();
-		$this->assertContains( 'partition:<config:logs_dir>/b.p<partition>', Topology_Analyzer::write_set( 'w' ) );
+		$this->assertContains( 'partition:<config:logs_dir>/b.p{partition}', Topology_Analyzer::write_set( 'w' ) );
 	}
 
 	public function test_describe_conflicts_renders_pairs_with_shared_resource(): void {
@@ -172,7 +172,7 @@ class TopologyRegistryConflictsTest extends TestCase {
 	public function test_write_set_sees_through_includes(): void {
 		$this->write_tsl(
 			'zebra-base',
-			"make_node Partition zebra:partition /var/log/zebra.log <partition> 1 2 0\n"
+			"make_node Partition zebra:partition /var/log/zebra.log 4096 1 2 0\n"
 		);
 		$this->write_tsl( 'zebra-top', "include zebra-base\n" );
 
@@ -206,7 +206,7 @@ class TopologyRegistryConflictsTest extends TestCase {
 	 * unscoped, so two fleets writing one log is still a conflict.
 	 */
 	public function test_topology_token_gives_each_fleet_its_own_offsetlog(): void {
-		$consumer = "make_node Consumer shared:consumer <config:logs_dir>/firehose.p<partition> <config:offsets_dir>/firehose.<topology>.p<partition>\n";
+		$consumer = "make_node Consumer shared:consumer <config:logs_dir>/firehose.p{partition} <config:offsets_dir>/firehose.<topology>.p{partition}\n";
 		$this->write_tsl( 'alpha-fleet', $consumer );
 		$this->write_tsl( 'beta-fleet', $consumer );
 
@@ -217,7 +217,7 @@ class TopologyRegistryConflictsTest extends TestCase {
 		);
 
 		$alpha = Topology_Analyzer::write_set( 'alpha-fleet' );
-		$this->assertContains( 'offsetlog:<config:offsets_dir>/firehose.alpha-fleet.p<partition>', $alpha );
+		$this->assertContains( 'offsetlog:<config:offsets_dir>/firehose.alpha-fleet.p{partition}', $alpha );
 	}
 
 	/** Two fleets WRITING one log is still a conflict — only the cursor is fleet-scoped. */
@@ -226,8 +226,8 @@ class TopologyRegistryConflictsTest extends TestCase {
 		// token, so two fleets declaring it with DIFFERENT geometry still
 		// collide. (Byte-identical declarations are the sanctioned sharing
 		// path — see the topic-probe tests above.)
-		$this->write_tsl( 'alpha-fleet', "make_node Partition shared:partition <config:logs_dir>/requests.p<partition> 1 2 3 4 5\n" );
-		$this->write_tsl( 'beta-fleet', "make_node Partition shared:partition <config:logs_dir>/requests.p<partition> 9 2 3 4 5\n" );
+		$this->write_tsl( 'alpha-fleet', "make_node Partition shared:partition <config:logs_dir>/requests.p{partition} 1 2 3 4 5\n" );
+		$this->write_tsl( 'beta-fleet', "make_node Partition shared:partition <config:logs_dir>/requests.p{partition} 9 2 3 4 5\n" );
 
 		$this->assertNotEmpty(
 			Topology_Analyzer::find_conflicts( [ 'alpha-fleet', 'beta-fleet' ] ),

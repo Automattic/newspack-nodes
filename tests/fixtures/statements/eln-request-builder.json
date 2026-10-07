@@ -17,19 +17,19 @@
             "make_node",
             "Consumer",
             "firehose:consumer",
-            "<config:logs_dir>/firehose.p<partition>",
-            "<config:offsets_dir>/<topology>.firehose.p<partition>",
-            "<config:deadletter_dir>/<topology>.firehose.p<partition>"
+            "<config:logs_dir>/firehose.p{partition}",
+            "<config:offsets_dir>/<topology>.firehose.p{partition}",
+            "<config:deadletter_dir>/<topology>.firehose.p{partition}"
         ],
         "spans": [
             "make_node",
             "Consumer",
             "firehose:consumer",
-            "<config:logs_dir>/firehose.p<partition>",
-            "<config:offsets_dir>/<topology>.firehose.p<partition>",
-            "<config:deadletter_dir>/<topology>.firehose.p<partition>"
+            "<config:logs_dir>/firehose.p{partition}",
+            "<config:offsets_dir>/<topology>.firehose.p{partition}",
+            "<config:deadletter_dir>/<topology>.firehose.p{partition}"
         ],
-        "raw": "make_node Consumer firehose:consumer <config:logs_dir>/firehose.p<partition> <config:offsets_dir>/<topology>.firehose.p<partition> <config:deadletter_dir>/<topology>.firehose.p<partition>"
+        "raw": "make_node Consumer firehose:consumer <config:logs_dir>/firehose.p{partition} <config:offsets_dir>/<topology>.firehose.p{partition} <config:deadletter_dir>/<topology>.firehose.p{partition}"
     },
     {
         "verb": "make_node",
@@ -125,15 +125,15 @@
             "make_node",
             "Partition",
             "requests:partition",
-            "<config:logs_dir>/requests.p<partition>"
+            "<config:logs_dir>/requests.p{partition}"
         ],
         "spans": [
             "make_node",
             "Partition",
             "requests:partition",
-            "<config:logs_dir>/requests.p<partition>"
+            "<config:logs_dir>/requests.p{partition}"
         ],
-        "raw": "make_node Partition requests:partition <config:logs_dir>/requests.p<partition>"
+        "raw": "make_node Partition requests:partition <config:logs_dir>/requests.p{partition}"
     },
     {
         "verb": "make_node",

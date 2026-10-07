@@ -58,8 +58,8 @@ const TAIL = 7_340_032;
 const graph = {
 	fw: {
 		nodes: [
-			{ name: 'fw-in', kind: 'consumer', reads: 'firehose.p<partition>' },
-			{ name: 'fw-log', kind: 'log', writes: 'firehose.p<partition>' },
+			{ name: 'fw-in', kind: 'consumer', reads: 'firehose.p{partition}' },
+			{ name: 'fw-log', kind: 'log', writes: 'firehose.p{partition}' },
 		],
 		edges: [ [ 'fw-in', 'fw-log' ] ],
 	},

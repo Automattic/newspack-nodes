@@ -22,31 +22,19 @@
  */
 
 /**
- * Both spellings a partition token takes in a `.tsl` path.
- *
- * A Consumer's path argument carries `<partition>`, while a Topic names its
- * own partitions with `{partition}`. Both reach the dashboard unsubstituted, so
- * every reader here matches either.
+ * The one spelling of a partition in a `.tsl` path, which reaches the
+ * dashboard unsubstituted because the node resolves it.
  */
-const PARTITION_TOKENS = [ '<partition>', '{partition}' ];
+const PARTITION_TOKEN = '{partition}';
 
 /** The fleet-name token a reader's offsetlog path carries. */
 const TOPOLOGY_TOKEN = '<topology>';
 
 /**
- * The partition token a vertex carries, or null when it carries none.
+ * Bind a `.tsl` path template the way a worker does: every `{partition}`,
+ * plus `<topology>` when a fleet name is supplied.
  *
- * @param {string} vertex A graph vertex name or path template.
- * @return {?string} The token found, in `PARTITION_TOKENS` order.
- */
-const partitionTokenIn = ( vertex ) =>
-	PARTITION_TOKENS.find( ( t ) => vertex.includes( t ) ) ?? null;
-
-/**
- * Bind a `.tsl` path template the way `Topology_Loader` does: every partition
- * token, plus `<topology>` when a fleet name is supplied.
- *
- * ONE substituter over ONE token list. An offsetlog is a reader's cursor and
+ * ONE substituter. An offsetlog is a reader's cursor and
  * the reader is the FLEET, so a reader template carries `<topology>` too:
  * binding the partition alone leaves `firehose.<topology>.p0`, which matches
  * no live `firehose.combined.p0` and costs every segment bar its cursor.
@@ -58,10 +46,9 @@ const partitionTokenIn = ( vertex ) =>
  * @return {string} The concrete path.
  */
 export function substituteTokens( template, { partition, topology } ) {
-	let out = String( template );
-	PARTITION_TOKENS.forEach( ( token ) => {
-		out = out.split( token ).join( String( partition ) );
-	} );
+	let out = String( template )
+		.split( PARTITION_TOKEN )
+		.join( String( partition ) );
 	if ( topology ) {
 		out = out.split( TOPOLOGY_TOKEN ).join( String( topology ) );
 	}
@@ -75,13 +62,13 @@ export function substituteTokens( template, { partition, topology } ) {
  * `Topology_Analyzer::graph_for` emits the `reads`/`writes` basename of the
  * `.tsl` path argument as the runtime binds it, quotes stripped and tokens
  * intact, so a partitioned vertex carries the literal
- * partition token wherever the author put it: `firehose.p<partition>`,
- * `<partition>-req`, and anything else. A catalog entry matches when the text
+ * partition token wherever the author put it: `firehose.p{partition}`,
+ * `{partition}-req`, and anything else. A catalog entry matches when the text
  * on either side of the token brackets it AND the middle it substitutes for is
  * a non-empty run of digits, which is the partition number itself.
  *
  * The digit test, rather than a parse of the token's position, is what keeps
- * `firehose.p<partition>` from claiming a sibling `firehose.priority.p0`,
+ * `firehose.p{partition}` from claiming a sibling `firehose.priority.p0`,
  * whose middle would read `riority.p0`. It also keeps the reader free of any
  * `.p{N}` assumption: the layout lives in the `.tsl` path, never here.
  *
@@ -95,15 +82,14 @@ export function substituteTokens( template, { partition, topology } ) {
  * @return {Array<{name:string,partition:number}>} The matches, partition-ordered, or the vertex itself at partition 0.
  */
 function concreteLogNames( vertex, catalogNames ) {
-	const token = partitionTokenIn( vertex );
-	if ( null === token ) {
+	if ( ! vertex.includes( PARTITION_TOKEN ) ) {
 		return [ { name: vertex, partition: 0 } ];
 	}
 	// A multi-token vertex brackets on its first and its last token.
-	const tokenAt = vertex.indexOf( token );
-	const lastTokenAt = vertex.lastIndexOf( token );
+	const tokenAt = vertex.indexOf( PARTITION_TOKEN );
+	const lastTokenAt = vertex.lastIndexOf( PARTITION_TOKEN );
 	const pre = vertex.slice( 0, tokenAt );
-	const post = vertex.slice( lastTokenAt + token.length );
+	const post = vertex.slice( lastTokenAt + PARTITION_TOKEN.length );
 	const matches = [];
 	catalogNames.forEach( ( name ) => {
 		if (
@@ -128,7 +114,7 @@ function concreteLogNames( vertex, catalogNames ) {
  * The LOGICAL display name of a log VERTEX: the partition token removed, along
  * with the separator flanking it.
  *
- * `firehose.p<partition>` reads as `firehose`, `<partition>-req` as `req`, and
+ * `firehose.p{partition}` reads as `firehose`, `{partition}-req` as `req`, and
  * a token-free `digest.md` as itself. A partition-bearing log draws as ONE
  * entity with its concrete partitions as sub-rows, and this is that entity's
  * name — display only, never a key anything resolves by. Stripping everything
@@ -139,18 +125,17 @@ function concreteLogNames( vertex, catalogNames ) {
  * @return {string} The token-stripped logical name.
  */
 function logicalLogName( vertex ) {
-	const token = partitionTokenIn( vertex );
-	if ( null === token ) {
+	if ( ! vertex.includes( PARTITION_TOKEN ) ) {
 		return vertex;
 	}
-	const tokenAt = vertex.indexOf( token );
-	const lastTokenAt = vertex.lastIndexOf( token );
+	const tokenAt = vertex.indexOf( PARTITION_TOKEN );
+	const lastTokenAt = vertex.lastIndexOf( PARTITION_TOKEN );
 	const pre = vertex
 		.slice( 0, tokenAt )
 		// Drop a trailing `p` + separator (`firehose.p` → `firehose`).
 		.replace( /[._-]p$/, '' );
 	const post = vertex
-		.slice( lastTokenAt + token.length )
+		.slice( lastTokenAt + PARTITION_TOKEN.length )
 		// Drop a leading separator run (`-req` → `req`).
 		.replace( /^[._-]+/, '' );
 	const name = pre + post;

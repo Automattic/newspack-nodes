@@ -52,19 +52,31 @@ TSL;
 	}
 
 	/** A group's pair is refused whether or not the group has members yet. */
-	public function test_a_group_pair_naming_a_bare_partition_fails_the_topology(): void {
+	public function test_a_group_pair_naming_angle_partition_fails_the_topology(): void {
 		$this->write_tsl( 'pull-bare', "make_node Vault_Group yak-pulls Remote_Source no-members-31 /var/yak/off.{id} /var/yak/dl.{id} errors.p<partition>:yak-sink-4\n" );
 
 		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessage( 'yak-pulls: pair "errors.p<partition>:yak-sink-4" names <partition>, which resolves before the broker sees it; write {partition}' );
+		$this->expectExceptionMessage( '"errors.p<partition>:yak-sink-4": <partition> resolves before the node sees it; write {partition}' );
 		Topology_Analyzer::statements( 'pull-bare' );
 	}
 
-	/** A group's single-quoted `<partition>` reaches each child literal, so it loads. */
-	public function test_a_group_pair_naming_a_quoted_partition_loads(): void {
-		$this->write_tsl( 'pull-quoted', "make_node Vault_Group yak-pulls Remote_Source no-members-33 /var/yak/off.{id} /var/yak/dl.{id} 'errors.p<partition>:yak-sink-5'\n" );
+	/** Each child the group derives is judged as a written line would be. */
+	public function test_a_child_naming_partition_in_an_unmarked_argument_fails_the_topology(): void {
+		$this->write_tsl( 'stats-unmarked', "make_node Vault_Group stats Table tw-edge 6{partition}\n" );
 
-		$this->assertSame( [ "make_node Vault_Group yak-pulls Remote_Source no-members-33 /var/yak/off.{id} /var/yak/dl.{id} 'errors.p<partition>:yak-sink-5'" ], self::lines( 'pull-quoted' ) );
+		try {
+			Topology_Analyzer::statements( 'stats-unmarked' );
+			$this->fail( 'the topology analyzed' );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertStringContainsString( "Bad arguments for Table 'stats:tw0': ttl takes no {partition}", \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
+		}
+	}
+
+	/** A group's `{partition}` reaches each child whole, so it loads. */
+	public function test_a_group_pair_naming_brace_partition_loads(): void {
+		$this->write_tsl( 'pull-brace', "make_node Vault_Group yak-pulls Remote_Source no-members-33 /var/yak/off.{id} /var/yak/dl.{id} errors.p{partition}:yak-sink-5\n" );
+
+		$this->assertSame( [ 'make_node Vault_Group yak-pulls Remote_Source no-members-33 /var/yak/off.{id} /var/yak/dl.{id} errors.p{partition}:yak-sink-5' ], self::lines( 'pull-brace' ) );
 	}
 
 	public function test_flatten_keeps_the_group_and_derives_its_children(): void {

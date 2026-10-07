@@ -703,7 +703,7 @@ class Remote_Link_Node extends Timer_Node {
 			'description'  => 'Full-duplex SSE+HTTP channel base: composes an SSE_In + HTTP_Out and drives the slot-keepalive heartbeat tick.',
 			'arguments'    => [
 				[ 'name' => 'vault_id',         'type' => 'vault_id', 'required' => true, 'description' => 'Which spoke to connect to — a Vault-registered server (URL + credentials).' ],
-				[ 'name' => 'remote_partition', 'type' => 'string',    'required' => true, 'description' => 'The spoke partition to pull, e.g. firehose.p0.' ],
+				[ 'name' => 'remote_partition', 'type' => 'string',    'required' => true, 'partition' => 'bound', 'description' => 'The spoke partition to pull, e.g. firehose.p0, or firehose.p{partition} for this worker\'s own.' ],
 			],
 			'commands'     => [],
 			'requests'     => [],

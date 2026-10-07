@@ -83,7 +83,7 @@ class File_Tail_Node extends Tail_Node {
 	/**
 	 * Store the token array, resolve the file this worker follows, then arm
 	 * the reader where `Core::owns()` holds for the file as written: a file
-	 * written with a partition token is each worker's own, and a fixed one is
+	 * written with `{partition}` is each worker's own, and a fixed one is
 	 * read once per fleet, so a Tail built anywhere else idles and says so
 	 * (ADR-33). There is no source Partition — the segment model cannot
 	 * identify a single inode — so the shared Durable_Reader spine is armed
@@ -98,19 +98,18 @@ class File_Tail_Node extends Tail_Node {
 	 *
 	 * @param list<string>|null $args Positional tokens, or null to read the stored set back.
 	 * @return list<string> The tokens as stored.
-	 * @throws \InvalidArgumentException When no worker could follow the file as written.
+	 * @throws \InvalidArgumentException When no worker could follow the file as
+	 *                                   written, or a per-worker file names a
+	 *                                   dir every worker would share.
 	 */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
 			return parent::arguments();
 		}
+		self::refuse_shared_dirs( $this->name, $args );
 		$this->parse_schema_args( $args );
-		$partition            = Core::bound_partition() ?? 0;
-		$topology             = Core::bound_topology();
-		$written              = $this->source_file;
-		$this->source_file    = self::followed_path( $this->name, $written, $partition, $topology );
-		$this->offsetlog_dir  = Core::resolve_partition_template( $this->offsetlog_dir, $partition, $topology );
-		$this->deadletter_dir = Core::resolve_partition_template( $this->deadletter_dir, $partition, $topology );
+		$written           = $this->written_argument( 'source_file' );
+		$this->source_file = self::followed_path( $this->name, $this->source_file, Core::bound_partition() ?? 0, Core::bound_topology() );
 		if ( ! Core::owns( $written ) ) {
 			$this->idle           = [
 				'since'  => Core::$now,
@@ -128,6 +127,29 @@ class File_Tail_Node extends Tail_Node {
 		$this->set_timer( self::POLL_INTERVAL_EOF_MS );
 		$this->set_state( 'POLLING', 'ACTIVE' );
 		return $args;
+	}
+
+	/**
+	 * Refuse a per-worker file whose offsetlog or dead-letter dir names no
+	 * partition: every worker would commit one cursor and quarantine into
+	 * one queue. Judged on the tokens as written, before any field moves,
+	 * and static, so the analyzer refuses the line a load would.
+	 *
+	 * @param string       $name The Tail's name, which the refusal opens with.
+	 * @param list<string> $args The `make_node` argument tokens, the name excluded.
+	 * @throws \InvalidArgumentException When a named dir carries no `{partition}`.
+	 */
+	public static function refuse_shared_dirs( string $name, array $args ): void {
+		if ( ! Core::has_partition_token( static::written_in( $args, 'source_file' ) ) ) {
+			return;
+		}
+		foreach ( [ 'offsetlog_dir', 'deadletter_dir' ] as $arg ) {
+			$dir = static::written_in( $args, $arg );
+			if ( '' !== $dir && ! Core::has_partition_token( $dir ) ) {
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+				throw new \InvalidArgumentException( "File_Tail {$name}: a per-partition source needs per-partition offsetlog and deadletter dirs; add " . Core::PARTITION_TOKEN );
+			}
+		}
 	}
 
 	/**
@@ -612,37 +634,6 @@ class File_Tail_Node extends Tail_Node {
 			'ino'   => $stat['ino'],
 			'mtime' => $stat['mtime'],
 		];
-	}
-
-	/**
-	 * Refuse a `source_file` the Shell expands at `<partition>`: the Tail
-	 * would read a resolved, fixed file and idle off worker partition 0.
-	 * `{partition}`, or a single-quoted `'<partition>'`, reaches it whole, and
-	 * then every worker follows a file of its own, so a named offsetlog or
-	 * dead-letter dir must name a partition too, in any spelling, or every
-	 * worker commits one cursor and quarantines into one queue.
-	 *
-	 * @param string       $name  The Tail's name, or its group's.
-	 * @param list<string> $spans The `make_node` argument spans, the name excluded.
-	 * @throws \RuntimeException When `source_file` names an eager `<partition>`, or a per-partition one beside a shared dir.
-	 */
-	public static function refuse_eager_partition( string $name, array $spans ): void {
-		$span = $spans[0] ?? '';
-		$file = Shell_Node::value_of( $span );
-		if ( Shell_Node::expands( $span, '<partition>' ) ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-			throw new \RuntimeException( "{$name}: source_file \"{$file}\" names <partition>, which resolves before File_Tail sees it; write {partition}" );
-		}
-		if ( ! Core::has_partition_token( $file ) ) {
-			return;
-		}
-		foreach ( \array_slice( $spans, 1, 2 ) as $dir_span ) {
-			$dir = Shell_Node::value_of( $dir_span );
-			if ( '' !== $dir && ! Core::has_partition_token( $dir ) ) {
-				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-				throw new \RuntimeException( "File_Tail {$name}: a per-partition source needs per-partition offsetlog and deadletter dirs; add {partition}" );
-			}
-		}
 	}
 
 	/**

@@ -941,9 +941,9 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 			'category'      => 'I/O',
 			'description'   => 'Tails a Partition; emits each appended message to its sink.',
 			'arguments'     => [
-				[ 'name' => 'source_dir',     'type' => 'string', 'required' => true, 'description' => 'Partition directory to tail; each {seg}.log segment\'s appended messages are emitted to the sink.' ],
-				[ 'name' => 'offsetlog_dir',  'type' => 'string', 'default' => '', 'description' => 'Directory for the durable read-cursor offsetlog (resume-after-restart); empty disables checkpointing.' ],
-				[ 'name' => 'deadletter_dir', 'type' => 'string', 'default' => '', 'description' => 'Directory where poison/dead-letter records are quarantined; empty disables the dead-letter queue, so a message that throws or will not unpack raises instead and the reader replays it.' ],
+				[ 'name' => 'source_dir',     'type' => 'string', 'required' => true, 'partition' => 'bound', 'description' => 'Partition directory to tail; each {seg}.log segment\'s appended messages are emitted to the sink.' ],
+				[ 'name' => 'offsetlog_dir',  'type' => 'string', 'default' => '', 'partition' => 'bound', 'description' => 'Directory for the durable read-cursor offsetlog (resume-after-restart); empty disables checkpointing.' ],
+				[ 'name' => 'deadletter_dir', 'type' => 'string', 'default' => '', 'partition' => 'bound', 'description' => 'Directory where poison/dead-letter records are quarantined; empty disables the dead-letter queue, so a message that throws or will not unpack raises instead and the reader replays it.' ],
 			],
 			'commands'      => \array_merge(
 				self::deadletter_verbs(),

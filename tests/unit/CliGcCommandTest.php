@@ -56,7 +56,7 @@ class CliGcCommandTest extends TestCase {
 	private function declare_active_topology( string $name, string $log ): void {
 		\file_put_contents(
 			"{$this->stock}/{$name}.tsl",
-			"make_node Partition {$log} <config:logs_dir>/{$log}.p<partition>\n"
+			"make_node Partition {$log} <config:logs_dir>/{$log}.p{partition}\n"
 		);
 		Topology_Registry::activate( $name );
 	}

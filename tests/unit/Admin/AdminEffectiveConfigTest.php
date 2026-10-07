@@ -39,7 +39,7 @@ class AdminEffectiveConfigTest extends TestCase {
 		// live registry to consult.
 		\update_option( 'newspack_nodes_topologies', [ 'combined' ] );
 		Config::reset();
-		\file_put_contents( "{$this->tmp}/combined.tsl", "make_node Partition requests:partition <config:logs_dir>/requests.p<partition> 1 2 0\n" );
+		\file_put_contents( "{$this->tmp}/combined.tsl", "make_node Partition requests:partition <config:logs_dir>/requests.p{partition} 1 2 0\n" );
 	}
 
 	protected function tearDown(): void {

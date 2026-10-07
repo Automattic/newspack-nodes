@@ -142,6 +142,7 @@ class Tail_Node extends Consumer_Node {
 			'name'        => 'source_file',
 			'type'        => 'string',
 			'required'    => true,
+			'partition'   => 'bound',
 			'description' => 'Base path of the Log to poll ({source_file}.0, .1, …). Each complete line is emitted.',
 		];
 		return \array_merge( $schema, [

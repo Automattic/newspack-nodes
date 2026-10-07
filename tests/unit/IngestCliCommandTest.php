@@ -169,7 +169,7 @@ class IngestCliCommandTest extends TestCase {
 		$this->write_packed_records( $src, [ [ 'k1', 'a' ], [ 'k2', 'b' ], [ 'k3', 'c' ], [ 'k4', 'd' ] ] );
 
 		( new Ingest_CLI_Command() )->ingest(
-			[ '<config:logs_dir>/firehose.p<partition>', $src ],
+			[ '<config:logs_dir>/firehose.p{partition}', $src ],
 			[ 'num_partitions' => 4 ]
 		);
 
@@ -242,6 +242,19 @@ class IngestCliCommandTest extends TestCase {
 
 		$this->assertStringContainsString( 'Ingested 1 record(s)', \implode( "\n", $GLOBALS['_test_wp_cli_success'] ) );
 		$this->assertSame( [ $big ], $this->collect_destination_values( "{$this->tmp}/dest", 'firehose', 1 ) );
+	}
+
+	public function test_ingest_refuses_an_angle_partition_destination(): void {
+		$src = "{$this->tmp}/src.log";
+		$this->write_packed_records( $src, [ [ 'k1', 'a' ] ] );
+
+		try {
+			( new Ingest_CLI_Command() )->ingest( [ "{$this->tmp}/dest/egret.p<partition>", $src ], [] );
+			$this->fail( 'the destination was accepted' );
+		} catch ( \RuntimeException ) {
+			$this->assertStringContainsString( 'write {partition}', \implode( "\n", $GLOBALS['_test_wp_cli_errors'] ) );
+		}
+		$this->assertDirectoryDoesNotExist( "{$this->tmp}/dest" );
 	}
 
 	public function test_ingest_refuses_both_large_write_flags(): void {

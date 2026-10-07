@@ -47,9 +47,9 @@ class TopologyRegistryFixtureTest extends TestCase {
 		// Three backslash-continued args, not one with the rest dropped.
 		$this->assertSame(
 			[
-				'<config:logs_dir>/firehose.p<partition>',
-				'<config:offsets_dir>/firehose.<topology>.p<partition>',
-				'<config:deadletter_dir>/firehose.<topology>.p<partition>',
+				'<config:logs_dir>/firehose.p{partition}',
+				'<config:offsets_dir>/firehose.<topology>.p{partition}',
+				'<config:deadletter_dir>/firehose.<topology>.p{partition}',
 			],
 			$byName['firehose:consumer']['args']
 		);

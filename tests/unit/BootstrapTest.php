@@ -1545,7 +1545,7 @@ class BootstrapTest extends TestCase {
 		\file_put_contents(
 			"{$stock}/ledger.tsl",
 			"var num_partitions = 1\n"
-			. 'make_node Partition ledger:partition <config:logs_dir>/ledger.p<partition>'
+			. 'make_node Partition ledger:partition <config:logs_dir>/ledger.p{partition}'
 			. " <config:segment_size> <config:min_segments> <config:max_segments> 0 0\n"
 		);
 		\Newspack_Nodes\Topology_Registry::reset();
@@ -1956,7 +1956,7 @@ class BootstrapTest extends TestCase {
 	public function test_node_dirs_unions_the_partitions_of_every_active_topology(): void {
 		// combined runs 4 workers, performance 2 — the union is 0..3, and a
 		// count of 4 is distinct from the config default of 1 either way.
-		$decl  = "make_node Partition requests:partition <config:logs_dir>/requests.p<partition>\n";
+		$decl  = "make_node Partition requests:partition <config:logs_dir>/requests.p{partition}\n";
 		$stock = $this->activate_topologies(
 			[ 'combined' => $decl, 'performance' => $decl ],
 			[ 'combined' => 4, 'performance' => 2 ]
@@ -1990,7 +1990,7 @@ class BootstrapTest extends TestCase {
 		// 4 is distinct from the config default (1) and from any clamp bound.
 		\file_put_contents(
 			"{$stock}/parts.tsl",
-			"make_node Partition requests:partition <config:logs_dir>/requests.p<partition>\n"
+			"make_node Partition requests:partition <config:logs_dir>/requests.p{partition}\n"
 		);
 		\file_put_contents(
 			"{$stock}/complete-hub.tsl",
@@ -2024,7 +2024,7 @@ class BootstrapTest extends TestCase {
 
 	public function test_node_dirs_of_a_node_no_active_topology_declares_is_empty(): void {
 		$stock = $this->activate_topologies(
-			[ 'combined' => "make_node Partition requests:partition <config:logs_dir>/requests.p<partition>\n" ],
+			[ 'combined' => "make_node Partition requests:partition <config:logs_dir>/requests.p{partition}\n" ],
 			[ 'combined' => 4 ]
 		);
 
@@ -2059,7 +2059,7 @@ class BootstrapTest extends TestCase {
 	 */
 	public function test_node_readers_answer_the_readable_topologies_beside_an_unreadable_one(): void {
 		$decl  = "make_node Flame_Builder flame-builder\n"
-			. "make_node Partition requests:partition <config:logs_dir>/requests.p<partition>\n";
+			. "make_node Partition requests:partition <config:logs_dir>/requests.p{partition}\n";
 		$stock = $this->activate_topologies(
 			[ 'combined' => $decl, 'marmot-hub' => "include orphaned-topology-4417\n" ],
 			[ 'combined' => 3, 'marmot-hub' => 5 ]
@@ -2081,7 +2081,7 @@ class BootstrapTest extends TestCase {
 	 */
 	public function test_node_readers_raise_the_unreadable_topologies_when_no_readable_one_declares_the_node(): void {
 		$stock = $this->activate_topologies(
-			[ 'combined' => "make_node Partition requests:partition <config:logs_dir>/requests.p<partition>\n" ],
+			[ 'combined' => "make_node Partition requests:partition <config:logs_dir>/requests.p{partition}\n" ],
 			[ 'combined' => 3 ]
 		);
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'combined', 'vole-unregistered' ];
@@ -2106,7 +2106,7 @@ class BootstrapTest extends TestCase {
 	 */
 	public function test_node_readers_build_the_catalog_once_per_call(): void {
 		$decl  = "make_node Flame_Builder flame-builder\n"
-			. "make_node Partition requests:partition <config:logs_dir>/requests.p<partition>\n";
+			. "make_node Partition requests:partition <config:logs_dir>/requests.p{partition}\n";
 		$stock = $this->activate_topologies(
 			[ 'combined' => $decl, 'performance' => $decl, 'hub' => $decl ],
 			[ 'combined' => 3, 'performance' => 5, 'hub' => 2 ]

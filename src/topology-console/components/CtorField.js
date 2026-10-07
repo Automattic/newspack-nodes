@@ -37,7 +37,7 @@ function inputForType( type ) {
 /**
  * Coerces what the user typed to what the TSL loader expects for the declared
  * type. Only a complete number becomes a number: a `<config:...>` token, a
- * `<partition>` token, and a half-typed number all pass through as the string
+ * `{partition}` token, and a half-typed number all pass through as the string
  * they are, so editing never destroys input the loader would have accepted.
  *
  * @param {string} type Schema argument type (`bool`, `int`, `float`, …).

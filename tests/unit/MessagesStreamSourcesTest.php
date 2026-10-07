@@ -197,7 +197,7 @@ class MessagesStreamSourcesTest extends TestCase {
 		\file_put_contents(
 			"{$dir}/lstream.tsl",
 			"var num_partitions = 2\n"
-			. "make_node Log beacon:log <config:logs_dir>/beacon-7e.p<partition>/beacon-7e 1 2 7\n"
+			. "make_node Log beacon:log <config:logs_dir>/beacon-7e.p{partition}/beacon-7e 1 2 7\n"
 		);
 		Topology_Registry::register_stock_dir( $dir );
 		$this->use_base_dir( $this->tmp, [ 'topologies' => [ 'lstream' ] ] );

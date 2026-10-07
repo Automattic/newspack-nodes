@@ -9,9 +9,9 @@
 #                                                              └→ Partition (gyroscope:partition)
 
 # `make` alias + a three-line backslash continuation.
-make      Consumer  firehose:consumer   <config:logs_dir>/firehose.p<partition>                    \
-                                        <config:offsets_dir>/firehose.<topology>.p<partition>      \
-                                        <config:deadletter_dir>/firehose.<topology>.p<partition>
+make      Consumer  firehose:consumer   <config:logs_dir>/firehose.p{partition}                    \
+                                        <config:offsets_dir>/firehose.<topology>.p{partition}      \
+                                        <config:deadletter_dir>/firehose.<topology>.p{partition}
 
 make      Tap       fanout
 
@@ -19,22 +19,22 @@ make      Tap       fanout
 make      Tee       completed:tee
 
 # `make_node` canonical + continuation with config tokens.
-make_node Partition requests:partition  <config:logs_dir>/requests.p<partition>     \
+make_node Partition requests:partition  <config:logs_dir>/requests.p{partition}     \
                                         <config:segment_size>                       \
                                         <config:min_segments> <config:max_segments> \
                                         <config:min_lifetime> <config:max_lifetime>
 
-make_node Partition errors:partition    <config:logs_dir>/errors.p<partition>       \
+make_node Partition errors:partition    <config:logs_dir>/errors.p{partition}       \
                                         <config:segment_size>                       \
                                         <config:min_segments> <config:max_segments> \
                                         <config:min_lifetime> <config:max_lifetime>
 
-make_node Partition gyroscope:partition <config:logs_dir>/gyroscope.p<partition>    \
+make_node Partition gyroscope:partition <config:logs_dir>/gyroscope.p{partition}    \
                                         1048576                                     \
                                         <config:min_segments> <config:max_segments> \
                                         0                     0
 
-make_node Partition completed:partition <config:logs_dir>/completed.p<partition>    \
+make_node Partition completed:partition <config:logs_dir>/completed.p{partition}    \
                                         1048576                                     \
                                         <config:min_segments> <config:max_segments> \
                                         0                     0

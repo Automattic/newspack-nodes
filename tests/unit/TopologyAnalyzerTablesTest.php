@@ -26,19 +26,19 @@ final class TopologyAnalyzerTablesTest extends TestCase {
 			static fn ( string $key ): ?string => [ 'store' => 'sqlite', 'shelf' => 'wpdb' ][ $key ] ?? null
 		);
 		$this->stock = $this->stock_topology_dir( 'tables-stock-' );
-		$this->write_tsl( 'kea-base', "make_node Table lab-7:kea kea:p<partition> 777 sqlite\nmake_node Table lab-7:owl owl:p<partition> 37\n" );
+		$this->write_tsl( 'kea-base', "make_node Table lab-7:kea kea:p{partition} 777 sqlite\nmake_node Table lab-7:owl owl:p{partition} 37\n" );
 		$this->write_tsl( 'kea-lab', "include kea-base\nmake_node Echo hush-relay\n" );
-		$this->write_tsl( 'kea-twin', "make_node Table lab-7:kea kea:p<partition> 777 sqlite\n" );
-		$this->write_tsl( 'kea-broken', "include kea-missing\nmake_node Table lab-7:kea kea:p<partition> 777 sqlite\n" );
-		$this->write_tsl( 'emu-bare', "make_node Table lab-7:emu emu:p<partition>\n" );
-		$this->write_tsl( 'emu-ttl', "make_node Table lab-7:emu emu:p<partition> 37\n" );
-		$this->write_tsl( 'kea-token', "make_node Table lab-7:kea kea:p<partition> 777 <lab:store>\nmake_node Table lab-7:owl owl:p<partition> 37 <lab:shelf>\n" );
+		$this->write_tsl( 'kea-twin', "make_node Table lab-7:kea kea:p{partition} 777 sqlite\n" );
+		$this->write_tsl( 'kea-broken', "include kea-missing\nmake_node Table lab-7:kea kea:p{partition} 777 sqlite\n" );
+		$this->write_tsl( 'emu-bare', "make_node Table lab-7:emu emu:p{partition}\n" );
+		$this->write_tsl( 'emu-ttl', "make_node Table lab-7:emu emu:p{partition} 37\n" );
+		$this->write_tsl( 'kea-token', "make_node Table lab-7:kea kea:p{partition} 777 <lab:store>\nmake_node Table lab-7:owl owl:p{partition} 37 <lab:shelf>\n" );
 		$this->write_tsl( 'crawl-a', "make_node Crawler crawl-8821 4407\n" );
 		$this->write_tsl( 'crawl-b', "make_node Crawler crawl-8821 4407 crawl-g3\n" );
 		$this->write_tsl( 'crawl-table', "make_node Table crawl-8821:seen crawl-8821 4407 sqlite\n" );
 		$this->write_tsl( 'crawl-bare', "make_node Crawler crawl-8821\n" );
 		$this->write_tsl( 'crawl-tokened', "make_node Crawler <topology>-crawl 4407\n" );
-		$this->write_tsl( 'yak-token', "make_node Table lab-7:yak yak:p<partition> 37 <lab:nope>\n" );
+		$this->write_tsl( 'yak-token', "make_node Table lab-7:yak yak:p{partition} 37 <lab:nope>\n" );
 	}
 
 	protected function tearDown(): void {
@@ -51,8 +51,8 @@ final class TopologyAnalyzerTablesTest extends TestCase {
 	public function test_an_include_s_tables_are_declared_with_their_raw_tokens(): void {
 		$this->assertSame(
 			[
-				'lab-7:kea' => [ 'namespace' => 'kea:p<partition>', 'ttl' => '777', 'backend' => 'sqlite' ],
-				'lab-7:owl' => [ 'namespace' => 'owl:p<partition>', 'ttl' => '37', 'backend' => 'auto' ],
+				'lab-7:kea' => [ 'namespace' => 'kea:p{partition}', 'ttl' => '777', 'backend' => 'sqlite' ],
+				'lab-7:owl' => [ 'namespace' => 'owl:p{partition}', 'ttl' => '37', 'backend' => 'auto' ],
 			],
 			Topology_Analyzer::declared_tables( 'kea-lab' )
 		);
@@ -60,7 +60,7 @@ final class TopologyAnalyzerTablesTest extends TestCase {
 
 	public function test_an_omitted_backend_reads_the_schema_default(): void {
 		$this->assertSame(
-			[ 'lab-7:emu' => [ 'namespace' => 'emu:p<partition>', 'ttl' => '37', 'backend' => 'auto' ] ],
+			[ 'lab-7:emu' => [ 'namespace' => 'emu:p{partition}', 'ttl' => '37', 'backend' => 'auto' ] ],
 			Topology_Analyzer::declared_tables( 'emu-ttl' )
 		);
 	}
@@ -78,16 +78,16 @@ final class TopologyAnalyzerTablesTest extends TestCase {
 	}
 
 	public function test_a_sqlite_table_claims_its_file_so_two_topologies_conflict(): void {
-		$this->assertContains( 'table:lab-7:kea.p<partition>', Topology_Analyzer::write_set( 'kea-lab' ) );
-		$this->assertNotContains( 'table:lab-7:owl.p<partition>', Topology_Analyzer::write_set( 'kea-lab' ), 'a volatile Table writes no file' );
-		$this->assertSame( [ 'table:lab-7:kea.p<partition>' ], Topology_Analyzer::find_conflicts( [ 'kea-lab', 'kea-twin' ] )[0]['shared'] ?? [] );
+		$this->assertContains( 'table:lab-7:kea.p{partition}', Topology_Analyzer::write_set( 'kea-lab' ) );
+		$this->assertNotContains( 'table:lab-7:owl.p{partition}', Topology_Analyzer::write_set( 'kea-lab' ), 'a volatile Table writes no file' );
+		$this->assertSame( [ 'table:lab-7:kea.p{partition}' ], Topology_Analyzer::find_conflicts( [ 'kea-lab', 'kea-twin' ] )[0]['shared'] ?? [] );
 	}
 
 	public function test_a_backend_token_resolving_to_sqlite_claims_the_file(): void {
 		$set = Topology_Analyzer::write_set( 'kea-token' );
-		$this->assertContains( 'table:lab-7:kea.p<partition>', $set );
-		$this->assertNotContains( 'table:lab-7:owl.p<partition>', $set, 'a token resolving to wpdb writes no file' );
-		$this->assertSame( [ 'table:lab-7:kea.p<partition>' ], Topology_Analyzer::find_conflicts( [ 'kea-lab', 'kea-token' ] )[0]['shared'] ?? [] );
+		$this->assertContains( 'table:lab-7:kea.p{partition}', $set );
+		$this->assertNotContains( 'table:lab-7:owl.p{partition}', $set, 'a token resolving to wpdb writes no file' );
+		$this->assertSame( [ 'table:lab-7:kea.p{partition}' ], Topology_Analyzer::find_conflicts( [ 'kea-lab', 'kea-token' ] )[0]['shared'] ?? [] );
 	}
 
 	public function test_a_backend_token_no_namespace_owns_throws(): void {
@@ -97,16 +97,16 @@ final class TopologyAnalyzerTablesTest extends TestCase {
 	}
 
 	public function test_a_crawler_claims_its_seen_table_file(): void {
-		$this->assertContains( 'table:crawl-8821:seen.p<partition>', Topology_Analyzer::write_set( 'crawl-a' ) );
-		$this->assertContains( 'table:crawl-tokened-crawl:seen.p<partition>', Topology_Analyzer::write_set( 'crawl-tokened' ), 'the topology token is substituted as for a Table' );
+		$this->assertContains( 'table:crawl-8821:seen.p{partition}', Topology_Analyzer::write_set( 'crawl-a' ) );
+		$this->assertContains( 'table:crawl-tokened-crawl:seen.p{partition}', Topology_Analyzer::write_set( 'crawl-tokened' ), 'the topology token is substituted as for a Table' );
 	}
 
 	public function test_two_topologies_declaring_one_crawler_conflict(): void {
-		$this->assertSame( [ 'table:crawl-8821:seen.p<partition>' ], Topology_Analyzer::find_conflicts( [ 'crawl-a', 'crawl-b' ] )[0]['shared'] ?? [] );
+		$this->assertSame( [ 'table:crawl-8821:seen.p{partition}' ], Topology_Analyzer::find_conflicts( [ 'crawl-a', 'crawl-b' ] )[0]['shared'] ?? [] );
 	}
 
 	public function test_a_crawler_and_a_literal_table_on_its_file_conflict(): void {
-		$this->assertSame( [ 'table:crawl-8821:seen.p<partition>' ], Topology_Analyzer::find_conflicts( [ 'crawl-a', 'crawl-table' ] )[0]['shared'] ?? [] );
+		$this->assertSame( [ 'table:crawl-8821:seen.p{partition}' ], Topology_Analyzer::find_conflicts( [ 'crawl-a', 'crawl-table' ] )[0]['shared'] ?? [] );
 	}
 
 	public function test_a_crawler_declares_its_seen_table(): void {

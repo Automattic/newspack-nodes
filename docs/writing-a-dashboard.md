@@ -122,9 +122,9 @@ make_node Digest_Builder   digest
 make_node Tee              digest:tee
 make_node Log              digest:log <config:logs_dir>/digest.md 1 2 7 0 0 0
 cmd digest:log:config void_warranty
-make_node Partition        scored:partition <config:logs_dir>/example-scored.p<partition> <config:segment_size> <config:min_segments> <config:num_segments> <config:max_segments> <config:min_lifetime> <config:lifetime>
+make_node Partition        scored:partition <config:logs_dir>/example-scored.p{partition} <config:segment_size> <config:min_segments> <config:num_segments> <config:max_segments> <config:min_lifetime> <config:lifetime>
 cmd scored:partition:config void_warranty
-make_node Consumer         scored:consumer <config:logs_dir>/example-scored.p<partition> <config:offsets_dir>/example-scored.p<partition> <config:deadletter_dir>/example-scored.p<partition>
+make_node Consumer         scored:consumer <config:logs_dir>/example-scored.p{partition} <config:offsets_dir>/example-scored.p{partition} <config:deadletter_dir>/example-scored.p{partition}
 cmd scored:consumer:config add_snapshot_node digest
 make_node Scorer           scorer
 connect_node releases    summarizer
@@ -138,7 +138,7 @@ connect_node digest:tee  digest:log
 
 Three new ideas, all using nodes the substrate ships:
 
-- **`<config:...>` and `<partition>` tokens.** The `Log`/`Partition`/`Consumer` arguments interpolate runtime config (the substrate's `logs_dir`, `segment_size`, …) and the worker's partition index, so the same `.tsl` works for any partition count. They're substrate-registered token namespaces — you use them, you don't declare them. `Log` and `Partition` take the same seven positionals: the path, then `segment_size`, `min_segments`, `num_segments`, `max_segments`, `min_lifetime`, `lifetime`. Run `help Log` in the REPL for what each one prunes.
+- **`<config:...>` and `{partition}` tokens.** The `Log`/`Partition`/`Consumer` arguments interpolate runtime config (the substrate's `logs_dir`, `segment_size`, …) and the worker's partition index, so the same `.tsl` works for any partition count. They're substrate-registered token namespaces — you use them, you don't declare them. `Log` and `Partition` take the same seven positionals: the path, then `segment_size`, `min_segments`, `num_segments`, `max_segments`, `min_lifetime`, `lifetime`. Run `help Log` in the REPL for what each one prunes.
 - **`scorer → scored:partition` writes the durable log;** `scored:consumer → digest` tails it straight back into the digest. The Consumer reads each scored record and `fill()`s it into the digest, exactly as a `connect_node` would.
 - **`cmd scored:consumer:config add_snapshot_node digest`** is the key line. Each checkpoint co-commits `digest->save_state()` into the offsetlog under the frame's `cache` key, keyed by node name, so a web request reads it straight back as `$value['cache']['digest']` — the `cache['digest']['items']` §2's reader pulls. Your `save_state()` shape *is* the dashboard's read contract. Both `void_warranty` lines lift the 4 KB cap on a data log ([ADR-4](architecture-decisions.md#adr-4-pipe_buf-atomic-writes)); any node that emits a composed document into a `Log` needs the same line.
 
@@ -147,9 +147,9 @@ The sheet's lower half is the cadence to read before trusting a card: [`Durable_
 **The durable-snapshot recipe — lift these four lines.** This is the reusable pattern for *any* "make a worker's in-memory state readable from a web request" need; rename `scored` → your log name and `digest` → your state node:
 
 ```
-make_node Partition  <log>:partition <config:logs_dir>/<log>.p<partition> <config:segment_size> <config:min_segments> <config:num_segments> <config:max_segments> <config:min_lifetime> <config:lifetime>
+make_node Partition  <log>:partition <config:logs_dir>/<log>.p{partition} <config:segment_size> <config:min_segments> <config:num_segments> <config:max_segments> <config:min_lifetime> <config:lifetime>
 cmd <log>:partition:config void_warranty
-make_node Consumer   <log>:consumer  <config:logs_dir>/<log>.p<partition> <config:offsets_dir>/<log>.p<partition> <config:deadletter_dir>/<log>.p<partition>
+make_node Consumer   <log>:consumer  <config:logs_dir>/<log>.p{partition} <config:offsets_dir>/<log>.p{partition} <config:deadletter_dir>/<log>.p{partition}
 cmd <log>:consumer:config add_snapshot_node <state-node>
 ```
 

@@ -583,8 +583,8 @@ function healthDump( {
 		graph: {
 			a: {
 				nodes: [
-					{ name: 'a-in', kind: 'consumer', reads: 'a.p<partition>' },
-					{ name: 'a-log', kind: 'log', writes: 'a.p<partition>' },
+					{ name: 'a-in', kind: 'consumer', reads: 'a.p{partition}' },
+					{ name: 'a-log', kind: 'log', writes: 'a.p{partition}' },
 				],
 				edges: [ [ 'a-in', 'a-log' ] ],
 			},

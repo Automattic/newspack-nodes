@@ -678,9 +678,9 @@ class SpawnCoordinatorTest extends TestCase {
 		// Two topologies writing one partition log corrupt it. The cold-start
 		// tier must refuse the whole set, exactly as the peer scan does.
 		$stock     = $this->make_temp_dir( 'cold-start-conflict-' );
-		$partition = 'make_node Partition requests:partition <config:logs_dir>/requests.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>';
+		$partition = 'make_node Partition requests:partition <config:logs_dir>/requests.p{partition} <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>';
 		\file_put_contents( "{$stock}/alpha.tsl", "var num_partitions = 2\n{$partition}\n" );
-		\file_put_contents( "{$stock}/beta.tsl", "var num_partitions = 2\nmake_node Partition requests:partition <config:logs_dir>/requests.p<partition> 1048576 2 4 0 0\n" );
+		\file_put_contents( "{$stock}/beta.tsl", "var num_partitions = 2\nmake_node Partition requests:partition <config:logs_dir>/requests.p{partition} 1048576 2 4 0 0\n" );
 		\Newspack_Nodes\Topology_Registry::reset();
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 		$GLOBALS['_test_outbound_posts']                     = [];
