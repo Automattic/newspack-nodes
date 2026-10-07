@@ -1911,8 +1911,13 @@ spelling, while `dir_from_stamp()` reads a FROM it did not write and takes `logs
 two-segment stamp. One resolver per kind turns a stamp into a reader: a dir by direct path
 under the stream's guard, `Log_Discovery::dir_of()`, a glob by `dirs_matching()` under the
 same guard and the same one join of `{base}/{group}/`, and a source through the registry,
-`Log_Sources::entry()`. The stream and the
-step both reach them; nothing else parses a prefix, joins a root or scans a catalog to invert
+`Log_Sources::entry()`. A File_Tail a topology declares names a source as
+`sources/<name>` and reaches the narrower sibling `Log_Sources::file_source_path()`:
+built-in and config files only, because the topology family reads the active
+topologies, which a loading topology cannot depend on, and its entries are segmented
+logs, not files. Its `known:` list therefore names those files alone, where `entry()`'s
+names every source. The stream and the
+step both reach the resolvers; nothing else parses a prefix, joins a root or scans a catalog to invert
 a stamp. A refusal throws, and a position holding no record is a result whose `message` is
 null.
 

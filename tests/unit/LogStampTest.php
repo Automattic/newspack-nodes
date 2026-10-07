@@ -36,4 +36,11 @@ final class LogStampTest extends TestCase {
 
 		Log_Discovery::stamp_for( 'logs', 'sources' );
 	}
+
+	public function test_source_name_reads_the_name_after_the_sources_prefix(): void {
+		$this->assertSame( 'php-9137', Log_Discovery::source_name( 'sources/php-9137' ) );
+		$this->assertNull( Log_Discovery::source_name( '/var/log/sources/php' ) );
+		$this->assertNull( Log_Discovery::source_name( 'logs/app-5531.log' ) );
+		$this->assertNull( Log_Discovery::source_name( 'sourcesphp' ) );
+	}
 }

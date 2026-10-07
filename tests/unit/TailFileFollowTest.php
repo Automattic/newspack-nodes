@@ -3,6 +3,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\File_Tail_Node;
+use Newspack_Nodes\Log_Sources;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Tail_Node;
@@ -760,5 +761,38 @@ class TailFileFollowTest extends TestCase {
 
 		$t->remove_node();
 		$this->assertNull( $handle->getValue( $t ), 'remove_node closes and clears the follow handle' );
+	}
+
+	public function test_a_sources_path_follows_the_registry_file(): void {
+		$path                         = $this->tmp . '/php-errors-977.log';
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
+		$tail                         = new File_Tail_Node();
+		$tail->name( 'php-errors:tail' );
+
+		$tail->arguments( [ 'sources/php' ] );
+
+		$this->assertSame( $path, $this->read_private( $tail, 'source_file' ) );
+		$tail->remove_node();
+	}
+
+	public function test_an_unknown_sources_path_is_refused_at_build(): void {
+		Log_Sources::$builtin_sources = fn (): array => [ 'php' => $this->tmp . '/php.log' ];
+		$tail                         = new File_Tail_Node();
+		$tail->name( 'php-errors:tail' );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'unknown log source: "nope-4194" (known: php' );
+
+		$tail->arguments( [ 'sources/nope-4194' ] );
+	}
+
+	public function test_a_relative_source_file_is_refused_with_its_own_message(): void {
+		$tail = new File_Tail_Node();
+		$tail->name( 'php-errors:tail' );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'File_Tail php-errors:tail: source_file must be an absolute path or sources/<name>, got "logs/app-5531.log"' );
+
+		$tail->arguments( [ 'logs/app-5531.log' ] );
 	}
 }
