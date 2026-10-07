@@ -124,7 +124,7 @@ class LogSourcesTest extends TestCase {
 		$this->assertSame( '/builtin/gate-first.log', Log_Sources::registry()['gate']['path'] );
 	}
 
-	public function test_realpath_dedupe_drops_a_config_alias_of_a_builtin_file(): void {
+	public function test_realpath_dedupe_drops_a_config_alias_of_a_builtin_file_from_the_picker(): void {
 		$real = "{$this->tmp}/real-7e2.log";
 		\file_put_contents( $real, "x\n" );
 		$link = "{$this->tmp}/alias-7e2.log";
@@ -133,7 +133,25 @@ class LogSourcesTest extends TestCase {
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $real ];
 		$this->use_base_dir( $this->tmp, [ 'log_sources' => [ "phpalias={$link}" ] ] );
 
-		$this->assertSame( [ 'php' ], \array_keys( Log_Sources::registry() ) );
+		$this->assertSame( [ 'sources/php' ], \array_column( Log_Sources::catalog(), 'key' ) );
+		$this->assertSame( $link, Log_Sources::entry( 'phpalias' )['path'], 'the alias still resolves' );
+	}
+
+	/**
+	 * Where php's error_log IS wp-content/debug.log, both names resolve to
+	 * that one file, through either lookup, and the picker lists it once.
+	 */
+	public function test_two_names_for_one_file_both_resolve_and_list_once(): void {
+		$debug = "{$this->tmp}/wp-content-3317/debug.log";
+		\mkdir( \dirname( $debug ) );
+		\file_put_contents( $debug, "x\n" );
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $debug, 'debug' => $debug ];
+
+		foreach ( [ 'php', 'debug' ] as $name ) {
+			$this->assertSame( $debug, Log_Sources::file_source_path( $name ), "file lookup of {$name}" );
+			$this->assertSame( $debug, Log_Sources::entry( $name )['path'], "registry lookup of {$name}" );
+		}
+		$this->assertSame( [ 'sources/php' ], \array_column( Log_Sources::catalog(), 'key' ), 'the picker lists the file once, under the first name' );
 	}
 
 	// ── topology inference ─────────────────────────────────────────────────

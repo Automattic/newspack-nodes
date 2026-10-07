@@ -194,28 +194,6 @@ final class Log_Discovery {
 	}
 
 	/**
-	 * Whether a string is a stamp a record may carry: one name, or one of
-	 * `STAMP_PREFIXES` other than `logs` and one name, each name a registry
-	 * name as `Log_Sources::is_valid_name()` reads it, so it opens with a name
-	 * character and holds no `..`, and the whole at most `MAX_STAMP_BYTES`.
-	 * A bare prefix is no stamp, since `stamp_for()` refuses that dir, and nor
-	 * is `logs/<name>`, which `stamp_for()` never writes. A stamp names
-	 * directories on the hub reading it, so one from a remote is held to this
-	 * before it names any.
-	 *
-	 * @param string $stamp A candidate stamp.
-	 * @return bool True when it names one dir and nothing above it.
-	 */
-	public static function is_stamp( string $stamp ): bool {
-		$parts = \explode( '/', $stamp );
-		return \strlen( $stamp ) <= self::MAX_STAMP_BYTES && match ( \count( $parts ) ) {
-			1 => ! \in_array( $stamp, self::STAMP_PREFIXES, true ) && Log_Sources::is_valid_name( $stamp ),
-			2 => self::is_prefix( $parts[0] ) && Log_Sources::is_valid_name( $parts[1] ),
-			default => false,
-		};
-	}
-
-	/**
 	 * Whether a spoke's `SSE_Out_Node::open_subscription()` would read a
 	 * subscription past its group and its traversal guard: a stamp's shape,
 	 * once each `*` stands for a name character, with no `*` opening the
@@ -239,40 +217,6 @@ final class Log_Discovery {
 				2 => self::is_prefix( $parts[0] ) && ( self::SOURCES_PREFIX !== $parts[0] || ! \str_contains( $sub, '*' ) ),
 				default => false,
 			};
-	}
-
-	/**
-	 * The one reader of a stamp: its group, then the rest. A bare stamp is a
-	 * `logs` dir; one opening `{prefix}/` names that root, or for `sources`
-	 * a registry entry. `logs/x` is refused rather than aliased to bare `x`,
-	 * so one log has one spelling, and so is any prefix outside
-	 * `STAMP_PREFIXES`, which keeps a caller's prefix out of every path
-	 * built from it. The rest is returned whole; the guard judges its shape.
-	 *
-	 * @param string $stamp A stamp, or a subscription glob.
-	 * @return array{0:string,1:string} The group, then the rest.
-	 * @throws \InvalidArgumentException On an explicit `logs/` or an unknown prefix.
-	 */
-	public static function split( string $stamp ): array {
-		$slash = \strpos( $stamp, '/' );
-		if ( false === $slash ) {
-			return [ 'logs', $stamp ];
-		}
-		$group = \substr( $stamp, 0, $slash );
-		if ( ! self::is_prefix( $group ) ) {
-			throw new \InvalidArgumentException( \esc_html( "invalid subscription: {$stamp}" ) );
-		}
-		return [ $group, \substr( $stamp, $slash + 1 ) ];
-	}
-
-	/**
-	 * Whether a stamp's first segment is one a stamp writes out: any of
-	 * `STAMP_PREFIXES` but `logs`, whose dirs stamp bare.
-	 *
-	 * @param string $segment A stamp's first segment.
-	 */
-	private static function is_prefix( string $segment ): bool {
-		return 'logs' !== $segment && \in_array( $segment, self::STAMP_PREFIXES, true );
 	}
 
 	/**
@@ -386,15 +330,75 @@ final class Log_Discovery {
 
 	/**
 	 * The registry name a `sources/<name>` stamp carries, or null for anything
-	 * else. Unlike `split()` it never throws, so a caller holding a path or a
+	 * else, a string no stamp names included. It reads through `is_stamp()`
+	 * and `split()`, so it never throws, and a caller holding a path or a
 	 * stamp can ask which it has.
 	 *
 	 * @param string $stamp A path or a stamp.
 	 * @return string|null The name after the prefix, or null.
 	 */
 	public static function source_name( string $stamp ): ?string {
-		$prefix = self::SOURCES_PREFIX . '/';
-		return \str_starts_with( $stamp, $prefix ) ? \substr( $stamp, \strlen( $prefix ) ) : null;
+		if ( ! self::is_stamp( $stamp ) ) {
+			return null;
+		}
+		[ $group, $name ] = self::split( $stamp );
+		return self::SOURCES_PREFIX === $group ? $name : null;
+	}
+
+	/**
+	 * The one reader of a stamp: its group, then the rest. A bare stamp is a
+	 * `logs` dir; one opening `{prefix}/` names that root, or for `sources`
+	 * a registry entry. `logs/x` is refused rather than aliased to bare `x`,
+	 * so one log has one spelling, and so is any prefix outside
+	 * `STAMP_PREFIXES`, which keeps a caller's prefix out of every path
+	 * built from it. The rest is returned whole; the guard judges its shape.
+	 *
+	 * @param string $stamp A stamp, or a subscription glob.
+	 * @return array{0:string,1:string} The group, then the rest.
+	 * @throws \InvalidArgumentException On an explicit `logs/` or an unknown prefix.
+	 */
+	public static function split( string $stamp ): array {
+		$slash = \strpos( $stamp, '/' );
+		if ( false === $slash ) {
+			return [ 'logs', $stamp ];
+		}
+		$group = \substr( $stamp, 0, $slash );
+		if ( ! self::is_prefix( $group ) ) {
+			throw new \InvalidArgumentException( \esc_html( "invalid subscription: {$stamp}" ) );
+		}
+		return [ $group, \substr( $stamp, $slash + 1 ) ];
+	}
+
+	/**
+	 * Whether a string is a stamp a record may carry: one name, or one of
+	 * `STAMP_PREFIXES` other than `logs` and one name, each name a registry
+	 * name as `Log_Sources::is_valid_name()` reads it, so it opens with a name
+	 * character and holds no `..`, and the whole at most `MAX_STAMP_BYTES`.
+	 * A bare prefix is no stamp, since `stamp_for()` refuses that dir, and nor
+	 * is `logs/<name>`, which `stamp_for()` never writes. A stamp names
+	 * directories on the hub reading it, so one from a remote is held to this
+	 * before it names any.
+	 *
+	 * @param string $stamp A candidate stamp.
+	 * @return bool True when it names one dir and nothing above it.
+	 */
+	public static function is_stamp( string $stamp ): bool {
+		$parts = \explode( '/', $stamp );
+		return \strlen( $stamp ) <= self::MAX_STAMP_BYTES && match ( \count( $parts ) ) {
+			1 => ! \in_array( $stamp, self::STAMP_PREFIXES, true ) && Log_Sources::is_valid_name( $stamp ),
+			2 => self::is_prefix( $parts[0] ) && Log_Sources::is_valid_name( $parts[1] ),
+			default => false,
+		};
+	}
+
+	/**
+	 * Whether a stamp's first segment is one a stamp writes out: any of
+	 * `STAMP_PREFIXES` but `logs`, whose dirs stamp bare.
+	 *
+	 * @param string $segment A stamp's first segment.
+	 */
+	private static function is_prefix( string $segment ): bool {
+		return 'logs' !== $segment && \in_array( $segment, self::STAMP_PREFIXES, true );
 	}
 
 	/**

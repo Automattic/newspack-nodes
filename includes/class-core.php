@@ -732,9 +732,24 @@ class Core {
 	}
 
 	/**
+	 * Whether this worker reads a source as its TSL wrote it: in every worker
+	 * when the node received a partition token whole — `{partition}`, or a
+	 * single-quoted `'<partition>'` the Shell leaves literal — and otherwise
+	 * once per fleet, where `owns_unpartitioned()` holds (ADR-33). The one
+	 * ownership predicate: a node asks this, never the bound partition.
+	 *
+	 * @param string $written The source as the node received it, unresolved.
+	 * @throws \LogicException When the bound value is no canonical decimal.
+	 */
+	public static function owns( string $written ): bool {
+		return self::has_partition_token( $written ) || self::owns_unpartitioned();
+	}
+
+	/**
 	 * Whether this process owns work naming no partition. A source read once
 	 * per fleet rather than once per worker belongs to worker partition 0; a
 	 * process bound to no partition is the only reader there is, so it owns it.
+	 * Only `owns()` asks it.
 	 *
 	 * @throws \LogicException When the bound value is no canonical decimal.
 	 */
@@ -812,6 +827,15 @@ class Core {
 	 */
 	public static function has_partition_token( string $template ): bool {
 		return \str_contains( $template, '<partition>' ) || \str_contains( $template, '{partition}' );
+	}
+
+	/**
+	 * The fleet `Topology_Loader` bound beside the partition, or null outside
+	 * a worker, where none is.
+	 */
+	public static function bound_topology(): ?string {
+		$topology = self::$var['topology'] ?? null;
+		return \is_string( $topology ) && '' !== $topology ? $topology : null;
 	}
 
 	/**

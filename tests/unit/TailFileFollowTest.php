@@ -926,13 +926,147 @@ class TailFileFollowTest extends TestCase {
 		$tail->remove_node();
 	}
 
+	/** @return array<string,array{string}> Label => how the per-worker file is written, as the node receives it. */
+	public static function partitioned_files(): array {
+		return [
+			'the brace token'                    => [ '{tmp}/app-3312.{partition}.log' ],
+			'a single-quoted token, left literal' => [ '{tmp}/app-3312.<partition>.log' ],
+		];
+	}
+
+	/** A file written per worker is followed in every worker, each its own. */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'partitioned_files' )]
+	public function test_a_partitioned_file_tail_follows_its_own_partitions_file_on_p2( string $written ): void {
+		\file_put_contents( "{$this->tmp}/app-3312.0.log", "heron-p0-1\n" );
+		\file_put_contents( "{$this->tmp}/app-3312.2.log", "heron-p2-1\n" );
+		Core::$var['partition'] = '2';
+		try {
+			$tail = new File_Tail_Node();
+			$tail->name( 'app:tail' );
+			$cap = new Capture_Sink_Node();
+			$tail->sink( $cap );
+			$tail->arguments( [ \str_replace( '{tmp}', $this->tmp, $written ), "{$this->tmp}/heron-offsets.p2" ] );
+		} finally {
+			unset( Core::$var['partition'] );
+		}
+
+		$this->assertSame( "{$this->tmp}/app-3312.2.log", $this->read_private( $tail, 'source_file' ) );
+		$this->assertGreaterThan( 0, $tail->interval_ms, 'it arms its timer' );
+		$this->assertArrayNotHasKey( 'idle', $tail->dump_metadata() );
+		$this->pump( $tail );
+		\file_put_contents( "{$this->tmp}/app-3312.0.log", "heron-p0-2\n", \FILE_APPEND );
+		\file_put_contents( "{$this->tmp}/app-3312.2.log", "heron-p2-2\n", \FILE_APPEND );
+		$this->pump( $tail );
+		$this->assertSame( [ "heron-p2-2\n" ], $this->values( $cap ), 'p2 reads its own file alone' );
+		$tail->remove_node();
+	}
+
+	/** Two workers on one per-worker line keep two cursors and two quarantines. */
+	public function test_each_worker_on_a_partitioned_line_keeps_its_own_cursor_and_quarantine(): void {
+		\file_put_contents( "{$this->tmp}/app-3319.1.log", "kite-p1\n" );
+		\file_put_contents( "{$this->tmp}/app-3319.2.log", "kite-p2\n" );
+		$args  = [ "{$this->tmp}/app-3319.{partition}.log", "{$this->tmp}/kite-off.{partition}", "{$this->tmp}/kite-dead.{partition}" ];
+		$built = [];
+		foreach ( [ 1, 2 ] as $partition ) {
+			Core::$var['partition'] = (string) $partition;
+			try {
+				$tail = new File_Tail_Node();
+				$tail->name( "app:tail-{$partition}" );
+				$tail->sink( new Capture_Sink_Node() );
+				$tail->arguments( $args );
+			} finally {
+				unset( Core::$var['partition'] );
+			}
+			$built[ $partition ] = [
+				$this->read_private( $tail, 'offsetlog_dir' ),
+				$this->read_private( $tail, 'deadletter_dir' ),
+				$this->read_private( $tail, 'offsetlog' )->partition_dir(),
+			];
+			$tail->remove_node();
+		}
+
+		$this->assertSame( [ "{$this->tmp}/kite-off.1", "{$this->tmp}/kite-dead.1", "{$this->tmp}/kite-off.1" ], $built[1] );
+		$this->assertSame( [ "{$this->tmp}/kite-off.2", "{$this->tmp}/kite-dead.2", "{$this->tmp}/kite-off.2" ], $built[2] );
+	}
+
+	/** An idle Tail is one state: no dirs, POLLING says IDLE, and the reason rides beside it. */
+	public function test_off_partition_zero_a_fixed_file_tail_is_idle_in_one_state(): void {
+		$path = "{$this->tmp}/php-errors-3313.log";
+		\file_put_contents( $path, "gannet-1\n" );
+		Core::$var['partition'] = '2';
+		try {
+			$tail = new File_Tail_Node();
+			$tail->name( 'php-errors:tail' );
+			$tail->sink( new Capture_Sink_Node() );
+			$tail->arguments( [ $path, "{$this->tmp}/gannet-offsets.p2", "{$this->tmp}/gannet-dead.p2" ] );
+		} finally {
+			unset( Core::$var['partition'] );
+		}
+
+		$this->assertSame( '', $this->read_private( $tail, 'offsetlog_dir' ) );
+		$this->assertSame( '', $this->read_private( $tail, 'deadletter_dir' ) );
+		$this->assertSame( 'IDLE', $tail->dump_metadata()['polling'] );
+		$this->assertSame( "idle on partition 2: {$path} is read on worker partition 0 alone", $tail->dump_metadata()['idle']['reason'] ?? null );
+		$this->assertSame( [ $path, "{$this->tmp}/gannet-offsets.p2", "{$this->tmp}/gannet-dead.p2" ], $tail->arguments(), 'the line replays as written' );
+	}
+
+	/** @return array<string,array{string,int,string}> Label => written, partition, the path it follows. */
+	public static function followed_paths(): array {
+		return [
+			'an absolute path'        => [ '/var/log/ibis-3314.log', 3, '/var/log/ibis-3314.log' ],
+			'a registry source'       => [ 'sources/ibis', 3, '/var/log/ibis-3314-registry.log' ],
+			'a brace token, resolved' => [ '/var/log/ibis-3314.{partition}.log', 3, '/var/log/ibis-3314.3.log' ],
+			'a registry path carrying the token' => [ 'sources/ibis-p', 3, '/var/log/ibis-3318.3.log' ],
+		];
+	}
+
+	/** One reader turns what the TSL wrote into the file a worker follows. */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'followed_paths' )]
+	public function test_the_followed_path_is_read_off_what_the_tsl_wrote( string $written, int $partition, string $path ): void {
+		Log_Sources::$builtin_sources = static fn (): array => [
+			'ibis'   => '/var/log/ibis-3314-registry.log',
+			'ibis-p' => '/var/log/ibis-3318.{partition}.log',
+		];
+
+		$this->assertSame( $path, File_Tail_Node::followed_path( 'ibis:tail-3314', $written, $partition, null ) );
+	}
+
+	/** A `<config:…>` token the node received resolves before the path is judged. */
+	public function test_a_config_token_resolves_before_the_path_is_judged(): void {
+		$logs = Core::resolve_config_token( 'config', 'logs_dir', true );
+
+		$this->assertStringStartsWith( '/', $logs );
+		$this->assertSame( "{$logs}/ibis-3320.log", File_Tail_Node::followed_path( 'ibis:tail-3320', '<config:logs_dir>/ibis-3320.log', 0, null ) );
+	}
+
+	/** @return array<string,array{string,string}> Label => written, the refusal it earns. */
+	public static function unfollowable_paths(): array {
+		return [
+			'a relative path'       => [ 'logs/ibis-3315.log', 'File_Tail ibis:tail-3315: source_file must be an absolute path or sources/<name>, got "logs/ibis-3315.log"' ],
+			'a bare prefix'         => [ 'sources/', 'File_Tail ibis:tail-3315: source_file must be an absolute path or sources/<name>, got "sources/"' ],
+			'a nested source'       => [ 'sources/ibis/3315', 'File_Tail ibis:tail-3315: source_file must be an absolute path or sources/<name>, got "sources/ibis/3315"' ],
+			'an unknown source'     => [ 'sources/ibis-3315', 'File_Tail ibis:tail-3315: unknown log source: "ibis-3315" (known: none)' ],
+			'an unconfigured debug' => [ 'sources/debug', 'File_Tail ibis:tail-3315: unknown log source: "debug" (known: none); the built-in "debug" needs WP_CONTENT_DIR defined' ],
+		];
+	}
+
+	/** Every refusal throws naming the node, and carries what an operator needs to fix it. */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'unfollowable_paths' )]
+	public function test_a_source_file_no_worker_can_follow_is_refused( string $written, string $refusal ): void {
+		Log_Sources::$builtin_sources = static fn (): array => [];
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( $refusal );
+		File_Tail_Node::followed_path( 'ibis:tail-3315', $written, 0, null );
+	}
+
 	public function test_an_unknown_sources_path_is_refused_at_build(): void {
 		Log_Sources::$builtin_sources = fn (): array => [ 'php' => $this->tmp . '/php.log' ];
 		$tail                         = new File_Tail_Node();
 		$tail->name( 'php-errors:tail' );
 
 		$this->expectException( \InvalidArgumentException::class );
-		$this->expectExceptionMessage( 'unknown log source: "nope-4194" (known: php' );
+		$this->expectExceptionMessage( 'File_Tail php-errors:tail: unknown log source: "nope-4194" (known: php' );
 
 		$tail->arguments( [ 'sources/nope-4194' ] );
 	}

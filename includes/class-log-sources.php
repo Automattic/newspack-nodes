@@ -6,7 +6,7 @@
  *
  * A caller always addresses a source by registry NAME — never a path, so
  * there is no traversal surface. Three families compose the registry, in
- * priority order (first name wins, then realpath-dedupe keeps the first):
+ * priority order (first name wins; the picker lists a file two names reach once):
  *
  *   1. Built-ins — php `error_log` and
  *      `WP_CONTENT_DIR/debug.log`, both Tail file mode.
@@ -64,14 +64,16 @@ class Log_Sources {
 	 * will not read takes one labelled for the topology and keyed by no
 	 * stamp, because it names no log; one failure never blanks the picker.
 	 * Every source is offered its listing, and a stop among the failures
-	 * escapes carrying the rest, which is `Worker_Should_Stop`'s rule.
+	 * escapes carrying the rest, which is `Worker_Should_Stop`'s rule. A file
+	 * two names reach is listed once, under the first; both still resolve.
 	 *
 	 * @return list<array{key?:string,label:string,available:bool,error?:string}>
 	 * @throws Worker_Should_Stop When a stop is among the failures, carrying the rest.
 	 */
 	public static function catalog(): array {
-		[ $registry, $unreadable ] = self::readable_registry();
-		$rows                      = \array_fill_keys( \array_keys( $registry ), null );
+		[ $entries, $unreadable ] = self::readable_registry();
+		$registry                 = self::dedupe_by_realpath( $entries );
+		$rows                     = \array_fill_keys( \array_keys( $registry ), null );
 		$failed                    = Worker_Should_Stop::attempt_each(
 			$registry,
 			static function ( array $entry, string $name ) use ( &$rows ): void {
@@ -133,6 +135,33 @@ class Log_Sources {
 	 */
 	private static function stamp( string $name ): string {
 		return Log_Discovery::stamp_for( Log_Discovery::SOURCES_PREFIX, $name );
+	}
+
+	/**
+	 * Collapse names that resolve to the SAME real file, for the listing alone
+	 * — where php `error_log` IS `wp-content/debug.log`, the picker would
+	 * otherwise offer `php` and `debug` as two logs of identical content.
+	 * Insertion order is priority: `php` precedes `debug` in the resolver, so
+	 * the ini-configured aggregation point is the name listed. A path that
+	 * doesn't yet exist (`realpath` false) can't be a duplicate and is kept.
+	 *
+	 * @param array<string,array{path: string,mode: string}> $registry Name → entry (insertion order = priority).
+	 * @return array<string,array{path: string,mode: string}>
+	 */
+	private static function dedupe_by_realpath( array $registry ): array {
+		$deduped = [];
+		$seen    = [];
+		foreach ( $registry as $name => $entry ) {
+			$real = \realpath( $entry['path'] );
+			if ( false !== $real && isset( $seen[ $real ] ) ) {
+				continue;
+			}
+			if ( false !== $real ) {
+				$seen[ $real ] = true;
+			}
+			$deduped[ $name ] = $entry;
+		}
+		return $deduped;
 	}
 
 	/**
@@ -329,7 +358,8 @@ class Log_Sources {
 
 	/**
 	 * The merged registry: built-ins, then config, then topologies. First name
-	 * wins and realpath dedupe keeps the first, so insertion order is priority.
+	 * wins, so insertion order is priority. Two names for one file both stand
+	 * here; only `catalog()` lists the file once.
 	 * Strict: an active topology that cannot be read throws, after every other
 	 * was read.
 	 *
@@ -360,34 +390,7 @@ class Log_Sources {
 		foreach ( $topology_entries as $name => $entry ) {
 			$entries[ $name ] ??= $entry;
 		}
-		return [ self::dedupe_by_realpath( $entries ), $unreadable ];
-	}
-
-	/**
-	 * Collapse registry entries that resolve to the SAME real file — where php
-	 * `error_log` IS `wp-content/debug.log`, `php` and `debug` would otherwise
-	 * tail identical content. Insertion order is priority: `php` precedes `debug`
-	 * in the resolver, so the ini-configured aggregation point is the survivor. A
-	 * path that doesn't yet exist (`realpath` false) can't be a duplicate and is
-	 * kept.
-	 *
-	 * @param array<string,array{path: string,mode: string}> $registry Name → entry (insertion order = priority).
-	 * @return array<string,array{path: string,mode: string}>
-	 */
-	private static function dedupe_by_realpath( array $registry ): array {
-		$deduped = [];
-		$seen    = [];
-		foreach ( $registry as $name => $entry ) {
-			$real = \realpath( $entry['path'] );
-			if ( false !== $real && isset( $seen[ $real ] ) ) {
-				continue;
-			}
-			if ( false !== $real ) {
-				$seen[ $real ] = true;
-			}
-			$deduped[ $name ] = $entry;
-		}
-		return $deduped;
+		return [ $entries, $unreadable ];
 	}
 
 	/**
@@ -503,18 +506,21 @@ class Log_Sources {
 
 	/**
 	 * What a built-in needs of its host, as one clause, or '' for a name no
-	 * built-in carries. The doctor's log-sources row and the teaching error
-	 * both say it this way.
+	 * built-in carries: the clause the teaching error ends with, which the
+	 * doctor's log-sources row carries as the load's own refusal.
 	 *
 	 * @param string $name Registry name.
 	 */
-	public static function builtin_need( string $name ): string {
+	private static function builtin_need( string $name ): string {
 		$builtin = self::builtins()[ $name ] ?? null;
 		return null === $builtin ? '' : "the built-in \"{$name}\" needs {$builtin['needs']}";
 	}
 
 	/**
-	 * The file families, built-ins first so a built-in name wins a config one.
+	 * The file families, built-ins first so a built-in name wins a config one:
+	 * the one file table `entry()` and `file_source_path()` both read, so a
+	 * name answers the same through either, and two names for one file both
+	 * resolve to it.
 	 *
 	 * @return array<string,string> Name → absolute path.
 	 */

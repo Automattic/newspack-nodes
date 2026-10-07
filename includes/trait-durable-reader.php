@@ -116,11 +116,6 @@ trait Durable_Reader {
 	 */
 	protected string $offsetlog_dir = '';
 
-	/** Where the offsetlog lives. Override to derive an implicit dir. */
-	protected function offsetlog_dir(): string {
-		return $this->offsetlog_dir;
-	}
-
 	/**
 	 * Build the offsetlog Partition for the CONFIGURED dir, then publish it into
 	 * its `offsetlog` slot. The sidecar inherits its patron's sink, which
@@ -137,7 +132,7 @@ trait Durable_Reader {
 	 * @return Partition_Node|null The offsetlog, or null when the configured dir is empty.
 	 */
 	protected function ensure_offsetlog(): ?Partition_Node {
-		$dir = \rtrim( $this->offsetlog_dir(), '/' );
+		$dir = \rtrim( $this->offsetlog_dir, '/' );
 		if ( null !== $this->offsetlog && $dir === $this->offsetlog->partition_dir() ) {
 			return $this->offsetlog;
 		}
@@ -1152,7 +1147,8 @@ trait Durable_Reader {
 	 *     (the debugger ruler identifies a frame by its segment id). Empty when the
 	 *     offsetlog is disabled.
 	 *   - `cursor`: the live source read position `{segment,offset}`.
-	 *   - `polling`: the current polling state (`INIT`, `ACTIVE`, `PAUSED`).
+	 *   - `polling`: the current polling state (`INIT`, `ACTIVE`, `PAUSED`, or `IDLE` for a
+	 *     reader built not to read here).
 	 *   - `at_frame`: the offsetlog keyframe the cursor is at-or-just-past. `rewound_to`
 	 *     when seeked, else the newest frame id when live, null only with no frames yet.
 	 *   - `on_frame`: the cursor is exactly on `at_frame`'s committed position vs

@@ -50,11 +50,19 @@ final class Health_Checks {
 	/** Label of the cache-backend check, validated alongside `CACHE_ID`. */
 	public const CACHE_LABEL = 'Cache backend';
 
-	/** The most bytes a topology or source name takes in a runtime row's message. */
-	private const NAME_BYTES = 64;
+	/**
+	 * The most bytes one runtime row's message carries on the wire to
+	 * `wp nodes doctor`: `runtime()` fits every message to it, and
+	 * `Health_Probe_Client` refuses a reply holding a longer one.
+	 */
+	public const MESSAGE_BYTES = 512;
 
-	/** The most bytes an outside reason takes in a runtime row's message. */
-	private const EXCERPT_BYTES = 200;
+	/**
+	 * A character no runtime row's message carries, because doctor prints it
+	 * to a terminal it could rewrite: `runtime()` spaces each one out, and
+	 * `Health_Probe_Client` refuses a reply still holding one.
+	 */
+	public const WIRE_CONTROL = '/[\p{Cc}\p{Zl}\p{Zp}]/u';
 
 	/** Result id of the log-sources check, the other row the web runtime answers. */
 	public const LOG_SOURCES_ID = 'log-sources';
@@ -362,26 +370,27 @@ final class Health_Checks {
 	 * backend and its log-source registry, whose built-ins read the runtime's
 	 * own ini and constants. Public because the runtime health route returns
 	 * them, which is how `wp nodes doctor` learns what the request-serving
-	 * process sees.
+	 * process sees. Each message is fitted to the wire once, here.
 	 *
 	 * @return list<HealthResult>
 	 */
 	public static function runtime(): array {
-		return [ self::cache_backend(), self::log_sources() ];
+		return \array_map(
+			static fn ( array $row ): array => [ ...$row, 'messages' => \array_map( self::fit( ... ), $row['messages'] ) ],
+			[ self::cache_backend(), self::log_sources() ]
+		);
 	}
 
 	/**
-	 * Every `sources/<name>` an active topology reads on this host must
-	 * resolve through `Log_Sources`, or that topology fails to load: critical
-	 * when one does not, naming the source, the topology and what a built-in
-	 * needs. A topology that will not read leaves its sources unchecked, so
+	 * Every file an active topology's `File_Tail` follows on this host must
+	 * resolve, at every partition it runs, or that topology fails to load:
+	 * critical when one does not, in the load's own words, which say for a
+	 * built-in what its host must provide. Both read the line through
+	 * `File_Tail_Node::followed_path()`, so this row refuses what the load
+	 * refuses. A topology that will not read leaves its sources unchecked, so
 	 * the row is never good while one stands; `worker-liveness` names why. A
 	 * broker's pair names a source on its spoke, whose registry no check here
 	 * can read, so only a `File_Tail` counts.
-	 *
-	 * The row rides the runtime probe, whose client refuses a whole reply over
-	 * one long or multi-line message, so every text from outside the check
-	 * passes through `excerpt()`.
 	 *
 	 * @return HealthResult
 	 * @throws Worker_Should_Stop When reading the topologies raises a cooperative stop.
@@ -392,19 +401,12 @@ final class Health_Checks {
 		} catch ( Worker_Should_Stop $e ) {
 			throw $e;
 		} catch ( \Throwable $e ) {
-			return self::result( self::LOG_SOURCES_ID, self::LOG_SOURCES_LABEL, self::STATUS_RECOMMENDED, 'The log sources the active topologies read could not be checked: ' . self::excerpt( $e->getMessage(), self::EXCERPT_BYTES ) );
+			return self::result( self::LOG_SOURCES_ID, self::LOG_SOURCES_LABEL, self::STATUS_RECOMMENDED, 'The log sources the active topologies read could not be checked: ' . $e->getMessage() );
 		}
 		if ( [] !== $unresolved ) {
-			[ $topology, $name ] = $unresolved[0];
-			$need                = Log_Sources::builtin_need( $name );
-			$more                = \count( $unresolved ) > 1 ? ' (' . \count( $unresolved ) . ' unresolved in all)' : '';
-			return self::result(
-				self::LOG_SOURCES_ID,
-				self::LOG_SOURCES_LABEL,
-				self::STATUS_CRITICAL,
-				'Active topology ' . self::excerpt( $topology, self::NAME_BYTES ) . ' reads `sources/' . self::excerpt( $name, self::NAME_BYTES )
-					. '`, which does not resolve on this host, so it fails to load' . ( '' === $need ? '' : '; ' . self::excerpt( $need, self::EXCERPT_BYTES ) ) . ".{$more}"
-			);
+			[ $topology, $refusal ] = $unresolved[0];
+			$more                   = \count( $unresolved ) > 1 ? ' (' . \count( $unresolved ) . ' unresolved in all)' : '';
+			return self::result( self::LOG_SOURCES_ID, self::LOG_SOURCES_LABEL, self::STATUS_CRITICAL, "Active topology {$topology} fails to load on this host{$more}: {$refusal}" );
 		}
 		if ( [] !== $unreadable ) {
 			$more = \count( $unreadable ) > 1 ? ' and ' . ( \count( $unreadable ) - 1 ) . ' more' : '';
@@ -412,38 +414,23 @@ final class Health_Checks {
 				self::LOG_SOURCES_ID,
 				self::LOG_SOURCES_LABEL,
 				self::STATUS_RECOMMENDED,
-				'The log sources of active topology ' . self::excerpt( $unreadable[0], self::NAME_BYTES ) . "{$more} could not be checked, because it does not read; `worker-liveness` names why."
+				"The log sources of active topology {$unreadable[0]}{$more} could not be checked, because it does not read; `worker-liveness` names why."
 			);
 		}
 		return self::result(
 			self::LOG_SOURCES_ID,
 			self::LOG_SOURCES_LABEL,
 			self::STATUS_GOOD,
-			0 === $read ? 'No active topology reads a `sources/<name>` on this host.' : 'Every `sources/<name>` the active topologies read resolves on this host.'
+			0 === $read ? 'No active topology declares a File_Tail on this host.' : "Every file the active topologies' File_Tails follow resolves on this host."
 		);
 	}
 
 	/**
-	 * Text from outside a check, fit for a row the runtime probe carries:
-	 * invalid UTF-8 scrubbed, each run of control, separator and space
-	 * characters one space, and the whole cut to `$bytes` on a character
-	 * boundary. `Health_Probe_Client` refuses a whole reply over a message
-	 * past 512 bytes or holding a control character, which would hide both
-	 * verdicts behind "could not verify".
-	 *
-	 * @param string $text  The text to fit.
-	 * @param int    $bytes The most bytes it may take, its ellipsis included.
-	 */
-	private static function excerpt( string $text, int $bytes ): string {
-		$text = \trim( (string) \preg_replace( '/[\p{Cc}\p{Zl}\p{Zp}\s]+/u', ' ', \mb_scrub( $text, 'UTF-8' ) ) );
-		return \strlen( $text ) > $bytes ? \mb_strcut( $text, 0, $bytes - 3, 'UTF-8' ) . '…' : $text;
-	}
-
-	/**
-	 * The `sources/<name>` reads of the readable active topologies'
-	 * `File_Tail` nodes: how many there are, and each one `Log_Sources` cannot
-	 * resolve with its topology; then every active topology that will not
-	 * read, through `Bootstrap::active_topologies()`.
+	 * The readable active topologies' `File_Tail` nodes: how many there are,
+	 * and the first refusal `File_Tail_Node::followed_path()` gives each one
+	 * at any partition its topology runs, with that topology; then every
+	 * active topology that will not read, through
+	 * `Bootstrap::active_topologies()`.
 	 *
 	 * @return array{0: int, 1: list<array{0: string, 1: string}>, 2: list<string>}
 	 * @throws \RuntimeException When the runtime base directory is unusable.
@@ -452,17 +439,18 @@ final class Health_Checks {
 		[ $readable, $unreadable ] = Bootstrap::active_topologies();
 		$read                      = 0;
 		$unresolved                = [];
-		foreach ( \array_keys( $readable ) as $topology ) {
+		foreach ( $readable as $topology => $entry ) {
+			$partitions = Bootstrap::partitions_of( $entry );
 			foreach ( Topology_Analyzer::nodes_of_type( $topology, File_Tail_Node::class ) as $tail ) {
-				$name = Log_Discovery::source_name( Core::as_string( Core::arr( $tail['args'] ?? [] )[0] ?? '' ) );
-				if ( null === $name ) {
-					continue;
-				}
 				++$read;
+				$name    = Core::as_string( $tail['name'] ?? '' );
+				$written = Core::as_string( Core::arr( $tail['args'] ?? [] )[0] ?? '' );
 				try {
-					Log_Sources::file_source_path( $name );
-				} catch ( \InvalidArgumentException ) {
-					$unresolved[] = [ $topology, $name ];
+					for ( $partition = 0; $partition < $partitions; $partition++ ) {
+						File_Tail_Node::followed_path( $name, $written, $partition, $topology );
+					}
+				} catch ( \InvalidArgumentException $e ) {
+					$unresolved[] = [ $topology, $e->getMessage() ];
 				}
 			}
 		}
@@ -536,6 +524,21 @@ final class Health_Checks {
 			self::STATUS_CRITICAL,
 			"Cache backend {$name} add/read/delete round trip failed during {$operation}; transient coordination, command sessions, and SSE slot leases are unreliable."
 		);
+	}
+
+	/**
+	 * A whole message fit for the runtime probe's wire: invalid UTF-8
+	 * scrubbed, each `WIRE_CONTROL` character a space, each run of spaces
+	 * one, and the whole cut to `MESSAGE_BYTES` on a character boundary.
+	 *
+	 * @param string $message The message to fit.
+	 */
+	private static function fit( string $message ): string {
+		$spaced  = (string) \preg_replace( self::WIRE_CONTROL, ' ', \mb_scrub( $message, 'UTF-8' ) );
+		$message = \trim( (string) \preg_replace( '/\s+/u', ' ', $spaced ) );
+		return \strlen( $message ) > self::MESSAGE_BYTES
+			? \mb_strcut( $message, 0, self::MESSAGE_BYTES - \strlen( '…' ), 'UTF-8' ) . '…'
+			: $message;
 	}
 
 	/**

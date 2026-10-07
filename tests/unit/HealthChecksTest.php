@@ -409,9 +409,42 @@ class HealthChecksTest extends TestCase {
 		$this->assertSame( Health_Checks::LOG_SOURCES_ID, $row['id'] );
 		$this->assertSame( Health_Checks::LOG_SOURCES_LABEL, $row['label'] );
 		$this->assertSame( Health_Checks::STATUS_CRITICAL, $row['status'] );
-		$this->assertStringContainsString( 'tapir-hub-5521', $row['messages'][0] );
-		$this->assertStringContainsString( '`sources/tapir-5521`', $row['messages'][0] );
-		$this->assertStringEndsWith( 'so it fails to load.', $row['messages'][0], 'a fixed shape, no known list' );
+		$this->assertSame(
+			'Active topology tapir-hub-5521 fails to load on this host: File_Tail tapir-tail-5521: unknown log source: "tapir-5521" (known: gnu-5520)',
+			$row['messages'][0],
+			'the refusal the load throws, in its own words'
+		);
+	}
+
+	/** The doctor reads `source_file` as the load does, so a line the load refuses is critical here too. */
+	public function test_a_file_tail_the_load_refuses_is_critical_in_the_loads_words(): void {
+		$this->activate_topologies( [ 'tapir-hub-5528' => "make_node File_Tail tapir-tail-5528 logs/tapir-5528.log /tmp/tapir-off-5528\n" ] );
+
+		$row = Health_Checks::runtime()[1];
+
+		$this->assertSame( Health_Checks::STATUS_CRITICAL, $row['status'] );
+		$this->assertSame( 'Active topology tapir-hub-5528 fails to load on this host: File_Tail tapir-tail-5528: source_file must be an absolute path or sources/<name>, got "logs/tapir-5528.log"', $row['messages'][0] );
+	}
+
+	/** A config token resolves as the load resolves it, so a path that loads reads as good. */
+	public function test_a_config_token_in_a_file_tails_path_resolves_before_it_is_judged(): void {
+		$this->activate_topologies( [ 'tapir-hub-5530' => "make_node File_Tail tapir-tail-5530 <config:logs_dir>/tapir-5530.log <config:offsets_dir>/tapir-off-5530\n" ] );
+
+		$row = Health_Checks::runtime()[1];
+
+		$this->assertSame( Health_Checks::STATUS_GOOD, $row['status'], $row['messages'][0] );
+	}
+
+	/** A per-worker file resolves at each partition the topology runs. */
+	public function test_a_partitioned_file_tail_is_checked_at_every_partition(): void {
+		$this->use_base_dir( $this->tmp, [ 'num_partitions' => 2 ] );
+		\Newspack_Nodes\Log_Sources::$builtin_sources = static fn (): array => [ 'tapir-5529.0' => '/tmp/tapir-5529.0.log' ];
+		$this->activate_topologies( [ 'tapir-hub-5529' => "make_node File_Tail tapir-tail-5529 sources/tapir-5529.{partition} /tmp/tapir-off-5529.{partition}\n" ] );
+
+		$row = Health_Checks::runtime()[1];
+
+		$this->assertSame( Health_Checks::STATUS_CRITICAL, $row['status'], 'p1 names a source this host lacks' );
+		$this->assertStringContainsString( 'File_Tail tapir-tail-5529: unknown log source: "tapir-5529.1"', $row['messages'][0] );
 	}
 
 	/** A built-in its host leaves unconfigured says what it needs, in the registry's own words. */
@@ -422,8 +455,7 @@ class HealthChecksTest extends TestCase {
 		$row = Health_Checks::runtime()[1];
 
 		$this->assertSame( Health_Checks::STATUS_CRITICAL, $row['status'] );
-		$this->assertStringContainsString( '; ' . \Newspack_Nodes\Log_Sources::builtin_need( 'debug' ) . '.', $row['messages'][0] );
-		$this->assertStringContainsString( 'WP_CONTENT_DIR defined', $row['messages'][0] );
+		$this->assertStringEndsWith( '; the built-in "debug" needs WP_CONTENT_DIR defined', $row['messages'][0] );
 	}
 
 	public function test_every_source_the_topologies_tail_resolving_here_is_good(): void {
@@ -433,7 +465,7 @@ class HealthChecksTest extends TestCase {
 		$row = Health_Checks::runtime()[1];
 
 		$this->assertSame( Health_Checks::STATUS_GOOD, $row['status'] );
-		$this->assertStringContainsString( 'resolves on this host', $row['messages'][0] );
+		$this->assertSame( 'Every file the active topologies\' File_Tails follow resolves on this host.', $row['messages'][0] );
 	}
 
 	/** A broker's pair names a source on its spoke, whose registry this host cannot read. */
@@ -444,7 +476,7 @@ class HealthChecksTest extends TestCase {
 		$row = Health_Checks::runtime()[1];
 
 		$this->assertSame( Health_Checks::STATUS_GOOD, $row['status'] );
-		$this->assertStringContainsString( 'No active topology reads a `sources/<name>` on this host', $row['messages'][0] );
+		$this->assertSame( 'No active topology declares a File_Tail on this host.', $row['messages'][0] );
 	}
 
 	/**
@@ -484,7 +516,8 @@ class HealthChecksTest extends TestCase {
 		$this->assertSame( $rows, self::through_the_loopback( $rows ), 'the reply validates whole' );
 		$this->assertSame( [ Health_Checks::STATUS_CRITICAL, Health_Checks::STATUS_CRITICAL ], \array_column( $rows, 'status' ) );
 		$this->assertStringContainsString( 'tapir-hub-www', $rows[1]['messages'][0] );
-		$this->assertStringNotContainsString( '-11', $rows[1]['messages'][0], 'the known list is not spelled out' );
+		$this->assertSame( Health_Checks::MESSAGE_BYTES, \strlen( $rows[1]['messages'][0] ), 'cut whole to the wire limit' );
+		$this->assertStringEndsWith( '…', $rows[1]['messages'][0] );
 	}
 
 	/** A multi-line exception reading the topologies still gives a reply the client accepts whole. */

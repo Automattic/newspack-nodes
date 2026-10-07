@@ -220,17 +220,20 @@ canonical results, `Health_Checks::runtime()`, in this order:
     "label": "Log sources",
     "status": "good",
     "messages": [
-      "Every `sources/<name>` the active topologies read resolves on this host."
+      "Every file the active topologies' File_Tails follow resolves on this host."
     ]
   }
 ]
 ```
 
 The four fields of each are fixed: `id`, `label`, `status` and `messages`, and
-`messages` holds one non-empty diagnostic string. The cache row is `good` or
-`critical`. The log-sources row is `critical` when an active topology's
-`File_Tail` names a `sources/<name>` the registry cannot resolve, naming the
-source, the topology and the registry's reason, and `good` otherwise. (`wp nodes doctor` synthesizes `recommended` for both rows when the
+`messages` holds one non-empty diagnostic string of at most
+`Health_Checks::MESSAGE_BYTES` (512) bytes holding no control, line- or
+paragraph-separator character. The cache row is `good` or `critical`. The
+log-sources row is `critical` when an active topology's `File_Tail` follows a
+file that does not resolve on this host, such as a `sources/<name>` the
+registry lacks, naming the topology and carrying the load's own refusal, and
+`good` otherwise. (`wp nodes doctor` synthesizes `recommended` for both rows when the
 loopback reply cannot be verified whole.) A failed check is a canonical
 `critical` result in the same HTTP `200` response: health severity is payload
 state, not a transport failure.

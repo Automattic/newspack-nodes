@@ -29,10 +29,10 @@ namespace Newspack_Nodes;
  *
  * The class must be a `Node`, because the quarantine is a patron-owned sibling built
  * through `Sidecar`, reported through `print_less_often()` and redelivered to `sink`.
- * It supplies the directory, by assigning `$deadletter_dir` or by overriding
- * `deadletter_dir()`, and calls `ensure_deadletter()` before the first quarantine:
- * `dead_letter()` writes to the sibling that call built and never builds one, so a
- * class that skips it reports a configured quarantine as absent.
+ * It supplies the directory by assigning `$deadletter_dir`, and calls
+ * `ensure_deadletter()` before the first quarantine: `dead_letter()` writes to the
+ * sibling that call built and never builds one, so a class that skips it reports a
+ * configured quarantine as absent.
  *
  * In return it gets the quarantine and its triage index, the `dead_letter()` writer,
  * the attempt accounting a respawn resumes, and crawl mode. Two surfaces stay opt-in
@@ -128,7 +128,9 @@ trait Dead_Letter_Queue {
 
 	/**
 	 * Quarantine directory for poison messages. Empty disables the DLQ, and poison is
-	 * reported and dropped instead of stored.
+	 * reported and dropped instead of stored. The trait never computes it: a reader
+	 * takes it as a positional argument, and Partition derives it from the directory
+	 * whose segment would not open.
 	 */
 	protected string $deadletter_dir = '';
 
@@ -146,15 +148,6 @@ trait Dead_Letter_Queue {
 	 * and the position only, and the callback is bound to `$this`.
 	 */
 	protected string $deadletter_reason = '';
-
-	/**
-	 * Where the quarantine lives; empty disables it. The trait never computes this: a
-	 * reader takes it as a positional argument, Partition derives it from the directory
-	 * whose segment would not open, and an override can answer differently again.
-	 */
-	protected function deadletter_dir(): string {
-		return $this->deadletter_dir;
-	}
 
 	/**
 	 * Whether this node is the ONLY writer of its quarantine (readers are; a
@@ -178,7 +171,7 @@ trait Dead_Letter_Queue {
 	 * @return Partition_Node|null The sidecar, or null when no directory is configured.
 	 */
 	protected function ensure_deadletter(): ?Partition_Node {
-		$dir = \rtrim( $this->deadletter_dir(), '/' );
+		$dir = \rtrim( $this->deadletter_dir, '/' );
 		if ( null !== $this->deadletter && $dir === $this->deadletter->partition_dir() ) {
 			return $this->deadletter;
 		}

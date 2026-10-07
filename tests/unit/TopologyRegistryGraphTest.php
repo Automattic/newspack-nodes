@@ -452,6 +452,69 @@ class TopologyRegistryGraphTest extends TestCase {
 		Topology_Analyzer::graph_for( 'vicuna-bare' );
 	}
 
+	/** @return array<string,array{string,string}> Label => a `make_node` line naming an eager `<partition>`, then its refusal. */
+	public static function eager_partition_lines(): array {
+		return [
+			'a double-quoted pair source' => [
+				"make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl \"jobs.p<partition>:jobs-sink-6\"\n",
+				'pull:tapir: pair "jobs.p<partition>:jobs-sink-6" names <partition>, which resolves before the broker sees it; write {partition}',
+			],
+			'a File_Tail source_file'     => [
+				"make_node File_Tail app:tail-6 /var/log/heron.<partition>.log /var/heron/off\n",
+				'app:tail-6: source_file "/var/log/heron.<partition>.log" names <partition>, which resolves before File_Tail sees it; write {partition}',
+			],
+		];
+	}
+
+	/** Judged on what the Shell expands, so a double quote is as eager as none. */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'eager_partition_lines' )]
+	public function test_an_eager_partition_fails_the_topology( string $line, string $refusal ): void {
+		$this->write_tsl( 'vicuna-eager', $line );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( $refusal );
+		Topology_Analyzer::graph_for( 'vicuna-eager' );
+	}
+
+	/** @return array<string,array{string}> Label => a per-partition File_Tail sharing a dir across workers. */
+	public static function shared_dir_lines(): array {
+		return [
+			'a fixed offsetlog'  => [ "make_node File_Tail app:tail-8 /var/log/heron.{partition}.log /var/heron/off /var/heron/dl.{partition}\n" ],
+			'a fixed deadletter' => [ "make_node File_Tail app:tail-8 '/var/log/heron.<partition>.log' /var/heron/off.{partition} /var/heron/dl\n" ],
+		];
+	}
+
+	/** Every worker of a per-partition line would commit one cursor or quarantine one queue. */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'shared_dir_lines' )]
+	public function test_a_per_partition_file_tail_sharing_a_dir_fails_the_topology( string $line ): void {
+		$this->write_tsl( 'vicuna-shared', $line );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'File_Tail app:tail-8: a per-partition source needs per-partition offsetlog and deadletter dirs; add {partition}' );
+		Topology_Analyzer::graph_for( 'vicuna-shared' );
+	}
+
+	/** @return array<string,array{string}> Label => a line whose `<partition>` the Shell leaves literal. */
+	public static function deferred_partition_lines(): array {
+		return [
+			'a single-quoted pair'          => [ "make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl 'jobs.p<partition>:jobs-sink-7'\n" ],
+			'a pair quoting its token only' => [ "make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl jobs.p'<partition>':jobs-sink-7\n" ],
+			'a backticked pair'             => [ "make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl `jobs.p<partition>:jobs-sink-7`\n" ],
+			'a single-quoted File_Tail'     => [ "make_node File_Tail app:tail-7 '/var/log/heron.<partition>.log' /var/heron/off.{partition} '/var/heron/dl.<partition>'\n" ],
+			'a File_Tail with eager dirs'   => [ "make_node File_Tail app:tail-7 /var/log/heron.{partition}.log /var/heron/off.<partition> /var/heron/dl.<partition>\n" ],
+			'a fixed File_Tail, fixed dirs' => [ "make_node File_Tail app:tail-7 /var/log/heron.log /var/heron/off /var/heron/dl\n" ],
+			'a target naming <partition>'   => [ "make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl jobs.p{partition}:jobs-sink.p<partition>\n" ],
+		];
+	}
+
+	/** A `<partition>` that reaches the node literal runs per worker, so it loads. */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'deferred_partition_lines' )]
+	public function test_a_deferred_partition_loads( string $line ): void {
+		$this->write_tsl( 'vicuna-deferred', $line );
+
+		$this->assertCount( 1, Topology_Analyzer::graph_for( 'vicuna-deferred' )['nodes'] );
+	}
+
 	public function test_graph_for_keeps_a_remote_links_partition(): void {
 		$this->write_tsl( 'vicuna-link', "make_node Remote_Link link:okapi okapi-7 \"ledger.p<partition>\"\n" );
 
