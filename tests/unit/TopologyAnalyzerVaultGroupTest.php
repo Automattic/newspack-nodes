@@ -21,7 +21,7 @@ class TopologyAnalyzerVaultGroupTest extends TestCase {
 
 	private const PULL_LAB = <<<'TSL'
 make_node Tee sync-4
-make_node Vault_Group firehose Remote_Source tw-edge <config:offsets_dir>/<topology>.{id} <config:deadletter_dir>/<topology>.{id} firehose.p<partition>:rewrite-17
+make_node Vault_Group firehose Remote_Source tw-edge <config:offsets_dir>/<topology>.{id} <config:deadletter_dir>/<topology>.{id} firehose.p{partition}:rewrite-17
 command_node firehose:config set_multi_writer true
 connect_node sync-4 firehose
 TSL;
@@ -51,6 +51,15 @@ TSL;
 		return \array_column( Topology_Analyzer::statements( $name )['statements'], 'line' );
 	}
 
+	/** A group's pair is refused whether or not the group has members yet. */
+	public function test_a_group_pair_naming_a_bare_partition_fails_the_topology(): void {
+		$this->write_tsl( 'pull-bare', "make_node Vault_Group yak-pulls Remote_Source no-members-31 /var/yak/off.{id} /var/yak/dl.{id} errors.p<partition>:yak-sink-4\n" );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'yak-pulls: pair "errors.p<partition>:yak-sink-4" names <partition>, which resolves before the broker sees it; write {partition}' );
+		Topology_Analyzer::statements( 'pull-bare' );
+	}
+
 	public function test_flatten_keeps_the_group_and_derives_its_children(): void {
 		$this->write_tsl( 'pull-lab', self::PULL_LAB );
 
@@ -58,7 +67,7 @@ TSL;
 		$written = \explode( "\n", self::PULL_LAB );
 
 		$this->assertSame( $written, \array_values( \array_intersect( $lines, $written ) ) );
-		$this->assertContains( 'make_node Remote_Source firehose:tw9 tw9 <config:offsets_dir>/<topology>.tw9 <config:deadletter_dir>/<topology>.tw9 firehose.p<partition>:rewrite-17', $lines );
+		$this->assertContains( 'make_node Remote_Source firehose:tw9 tw9 <config:offsets_dir>/<topology>.tw9 <config:deadletter_dir>/<topology>.tw9 firehose.p{partition}:rewrite-17', $lines );
 		$this->assertContains( 'command_node firehose:tw9:config set_multi_writer true', $lines );
 		$edges = \array_map( static fn ( array $e ): string => "{$e[0]}>{$e[1]}", Topology_Analyzer::graph_for( 'pull-lab' )['edges'] );
 		$this->assertContains( 'firehose:tw9>rewrite-17', $edges );
@@ -149,8 +158,8 @@ TSL;
 	}
 
 	public function test_a_quoted_child_argument_splits_like_a_written_line(): void {
-		$this->write_tsl( 'pull-lab', "make_node Vault_Group firehose Remote_Source tw-edge '<config:offsets_dir>/my cursor.{id}' '<config:deadletter_dir>/my dl.{id}' 'fire hose.p<partition>:rewrite-17'\n" );
-		$written = Shell_Node::parse_statements( "make_node Remote_Source firehose:tw9 tw9 '<config:offsets_dir>/my cursor.tw9' '<config:deadletter_dir>/my dl.tw9' 'fire hose.p<partition>:rewrite-17'" )[0];
+		$this->write_tsl( 'pull-lab', "make_node Vault_Group firehose Remote_Source tw-edge '<config:offsets_dir>/my cursor.{id}' '<config:deadletter_dir>/my dl.{id}' 'fire hose.p{partition}:rewrite-17'\n" );
+		$written = Shell_Node::parse_statements( "make_node Remote_Source firehose:tw9 tw9 '<config:offsets_dir>/my cursor.tw9' '<config:deadletter_dir>/my dl.tw9' 'fire hose.p{partition}:rewrite-17'" )[0];
 
 		$derived = \array_column( Topology_Analyzer::statements( 'pull-lab' )['statements'], null, 'line' )[ $written['raw'] ];
 
@@ -158,7 +167,7 @@ TSL;
 		$this->assertSame( $written['spans'], $derived['spans'] );
 		$this->assertContains( 'offsetlog:<config:offsets_dir>/my cursor.tw9', Topology_Analyzer::write_set( 'pull-lab' ) );
 		$nodes = \array_column( Topology_Analyzer::graph_for( 'pull-lab' )['nodes'], null, 'name' );
-		$this->assertSame( [ 'tw9', '<config:offsets_dir>/my cursor.tw9', '<config:deadletter_dir>/my dl.tw9', 'fire hose.p<partition>:rewrite-17' ], $nodes['firehose:tw9']['args'] );
+		$this->assertSame( [ 'tw9', '<config:offsets_dir>/my cursor.tw9', '<config:deadletter_dir>/my dl.tw9', 'fire hose.p{partition}:rewrite-17' ], $nodes['firehose:tw9']['args'] );
 	}
 
 	public function test_a_derived_record_reads_like_a_written_one(): void {
@@ -225,7 +234,7 @@ TSL;
 	}
 
 	public function test_a_copied_edge_keeps_the_include_that_wrote_it(): void {
-		$this->write_tsl( 'pull-base', "make_node Vault_Group firehose Remote_Source tw-edge <config:offsets_dir>/<topology>.{id} <config:deadletter_dir>/<topology>.{id} firehose.p<partition>:rewrite-17\n" );
+		$this->write_tsl( 'pull-base', "make_node Vault_Group firehose Remote_Source tw-edge <config:offsets_dir>/<topology>.{id} <config:deadletter_dir>/<topology>.{id} firehose.p{partition}:rewrite-17\n" );
 		$this->write_tsl( 'sync-base', "make_node Tee sync-4\nconnect_node sync-4 firehose\n" );
 
 		$edges = \array_column(

@@ -134,7 +134,7 @@ reason. Catch it, or let the surrounding controller's catch own it.
    plugin's contract, not this one.
 6. **REST.** The routes under `newspack-nodes/v1` and their envelope shapes
    ([API.md](API.md)): `/workers/spawn`, `/auth`, `/command`,
-   `/messages/stream`, and the internal `/health/cache` probe.
+   `/messages/stream`, and the internal `/health/runtime` probe.
    That last one is gated by an [`Internal_Request_Token`](../includes/class-internal-request-token.php) rather than a
    capability, and carries the web runtime's cache posture back to
    `wp nodes doctor` — the substrate's own wire between its tiers, not a

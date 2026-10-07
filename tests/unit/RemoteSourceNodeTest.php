@@ -262,8 +262,8 @@ class RemoteSourceNodeTest extends TestCase {
 
 	public function test_split_pair_splits_at_the_first_colon_outside_angle_brackets(): void {
 		$this->assertSame(
-			[ 'source' => '<zeta:lane>.p<partition>', 'target' => 'lane-sink-3' ],
-			Remote_Source_Node::split_pair( '<zeta:lane>.p<partition>:lane-sink-3' )
+			[ 'source' => '<zeta:lane>.p{partition}', 'target' => 'lane-sink-3' ],
+			Remote_Source_Node::split_pair( '<zeta:lane>.p{partition}:lane-sink-3' )
 		);
 		$this->assertSame(
 			[ 'source' => 'sources/php', 'target' => 'php-errors:partition' ],
@@ -274,8 +274,8 @@ class RemoteSourceNodeTest extends TestCase {
 
 	public function test_split_pair_counts_bracket_depth_and_leaves_an_unclosed_one_whole(): void {
 		$this->assertSame(
-			[ 'source' => '<<yak:b>:c>.p<partition>', 'target' => 'sink-4' ],
-			Remote_Source_Node::split_pair( '<<yak:b>:c>.p<partition>:sink-4' )
+			[ 'source' => '<<yak:b>:c>.p{partition}', 'target' => 'sink-4' ],
+			Remote_Source_Node::split_pair( '<<yak:b>:c>.p{partition}:sink-4' )
 		);
 		$this->assertSame(
 			[ 'source' => '<yak:x:sink-4', 'target' => '' ],
@@ -487,6 +487,52 @@ class RemoteSourceNodeTest extends TestCase {
 
 		$this->assertSame( "{$this->base_dir}/offsets/combined/sources:php", $this->read_private( $child, 'offsetlog_dir' ) );
 		$this->assertSame( "{$this->base_dir}/dead/combined/sources:php", $this->read_private( $child, 'deadletter_dir' ) );
+	}
+
+	// ---------------------------------------------------------------------
+	// Ownership: a reader of a source naming no partition belongs to p0.
+	// ---------------------------------------------------------------------
+
+	/**
+	 * Build and connect a broker over two fixed pairs and two partitioned
+	 * ones, under whatever partition is bound.
+	 *
+	 * @return array{0:Remote_Source_Node,1:array<string,string>} The broker, then the last request's query.
+	 */
+	private function owned_broker(): array {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$asked = [];
+		$this->record_requests( $asked );
+		$node = $this->broker( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'sources/php:php-errors', 'firehose.p{partition}:downstream', 'jobstats.p{partition}:downstream', 'errors.*:downstream' ) );
+		$node->fire();
+		$this->drain_connect_queue();
+		return [ $node, \end( $asked ) ];
+	}
+
+	public function test_off_partition_zero_a_pair_naming_no_partition_builds_no_reader(): void {
+		Core::$var['partition'] = '2';
+		[ $node, $query ] = $this->owned_broker();
+
+		$this->assertSame( [ 'firehose.p2', 'jobstats.p2' ], \array_keys( $this->readers( $node ) ) );
+		$this->assertNull( Core::node( 'remote-austin:sources:php' ) );
+		$this->assertSame( 'firehose.p2,jobstats.p2', $query['subscribe'], 'neither sources/php nor the glob rides the stream' );
+		$this->assertDirectoryDoesNotExist( \Newspack_Nodes\Config::get_offsets_directory() . '/remote-austin/sources:php' );
+		$this->assertStringContainsString( "sources/php:php-errors firehose.p{partition}:downstream jobstats.p{partition}:downstream errors.*:downstream", $node->dump_config(), 'the pairs replay as written' );
+	}
+
+	public function test_on_partition_zero_every_pair_builds_its_reader(): void {
+		[ $node, $query ] = $this->owned_broker();
+
+		$this->assertSame( [ 'sources/php', 'firehose.p0', 'jobstats.p0' ], \array_keys( $this->readers( $node ) ) );
+		$this->assertSame( 'sources/php,firehose.p0,jobstats.p0,errors.*', $query['subscribe'] );
+	}
+
+	public function test_outside_a_worker_every_pair_builds_its_reader(): void {
+		unset( Core::$var['partition'] );
+		[ $node, $query ] = $this->owned_broker();
+
+		$this->assertSame( [ 'sources/php', 'firehose.p0', 'jobstats.p0' ], \array_keys( $this->readers( $node ) ) );
+		$this->assertSame( 'sources/php,firehose.p0,jobstats.p0,errors.*', $query['subscribe'] );
 	}
 
 	// ---------------------------------------------------------------------
@@ -1418,7 +1464,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		Core::$var['partition'] = '3';
 		try {
-			[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p3:downstream', 'sources/php:downstream' ) );
+			[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p{partition}:downstream', 'sources/php:downstream' ) );
 			Core::$now = 8000.0;
 			$node->fire();
 		} finally {
@@ -1501,15 +1547,13 @@ class RemoteSourceNodeTest extends TestCase {
 		Core::$var['topology']  = 'hub-4417';
 		Core::$var['partition'] = '3';
 		try {
-			$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p3:downstream', 'sources/php:downstream', 'jobstats.p3:downstream' ) );
-			$fire  = Core::node( 'remote-austin:firehose.p3' );
-			$php   = Core::node( 'remote-austin:sources:php' );
-			$jobs  = Core::node( 'remote-austin:jobstats.p3' );
-			foreach ( [ $fire, $php, $jobs ] as $reader ) {
+			$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p{partition}:downstream', 'sources/php:downstream', 'jobstats.p{partition}:downstream' ) );
+			$fire = Core::node( 'remote-austin:firehose.p3' );
+			$jobs = Core::node( 'remote-austin:jobstats.p3' );
+			foreach ( [ $fire, $jobs ] as $reader ) {
 				$reader->poll();
 			}
 			$fire->next_offset( [ 'segment' => 12, 'offset' => 7311 ] );
-			$php->next_offset( [ 'offset' => 40913 ] );
 			$received = 0;
 			foreach ( [ '12:7311:200', '12:7511:157' ] as $crumb ) {
 				[ $raw, $message ] = self::spoke_record( 'firehose.p3', $crumb );
@@ -1523,16 +1567,42 @@ class RemoteSourceNodeTest extends TestCase {
 			Core::$var['partition'] = '0';
 		}
 
-		$slots = [ Probe_Record::SOURCE, Probe_Record::CURSOR_SEGMENT, Probe_Record::CURSOR_OFF, Probe_Record::END_SEGMENT, Probe_Record::END_SIZE, Probe_Record::DISTANCE, Probe_Record::MSGS_DELTA, Probe_Record::BYTES_READ_DELTA, Probe_Record::ELAPSED_MS ];
-		$pick  = static fn ( array $record ): array => \array_map( static fn ( int $slot ) => $record[ $slot ], $slots );
 		$this->assertSame(
-			[
-				'hub-4417.remote-austin:firehose.p3.p3' => [ 'remote/austin:firehose.p3', 12, 7311, null, null, null, 0, $received, 17250 ],
-				'hub-4417.remote-austin:sources:php.p3' => [ 'remote/austin:sources:php', null, 40913, null, null, null, 0, 0, 17250 ],
-			],
-			\array_map( $pick, $records ),
-			'a reader that stands nowhere yet, jobstats.p3, sends no record'
+			[ 'hub-4417.remote-austin:firehose.p3.p3' => [ 'remote/austin:firehose.p3', 12, 7311, null, null, null, 0, $received, 17250 ] ],
+			\array_map( self::probe_slots( ... ), $records ),
+			'sources/php is read on p0 alone, and jobstats.p3 stands nowhere yet, so neither sends a record'
 		);
+	}
+
+	public function test_a_file_readers_record_names_no_generation_until_the_spoke_does(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		Core::$var['topology'] = 'hub-4417';
+		try {
+			$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'sources/php:downstream' ) );
+			$php = Core::node( 'remote-austin:sources:php' );
+			$php->poll();
+			$php->next_offset( [ 'offset' => 40913 ] );
+			Core::$now = 517.25;
+			$records   = self::sweep_readers();
+		} finally {
+			unset( Core::$var['topology'] );
+		}
+
+		$this->assertSame(
+			[ 'hub-4417.remote-austin:sources:php.p0' => [ 'remote/austin:sources:php', null, 40913, null, null, null, 0, 0, 17250 ] ],
+			\array_map( self::probe_slots( ... ), $records )
+		);
+	}
+
+	/**
+	 * A probe record's position and throughput slots, in a fixed order.
+	 *
+	 * @param array<int,mixed> $record One record VALUE.
+	 * @return list<mixed>
+	 */
+	private static function probe_slots( array $record ): array {
+		$slots = [ Probe_Record::SOURCE, Probe_Record::CURSOR_SEGMENT, Probe_Record::CURSOR_OFF, Probe_Record::END_SEGMENT, Probe_Record::END_SIZE, Probe_Record::DISTANCE, Probe_Record::MSGS_DELTA, Probe_Record::BYTES_READ_DELTA, Probe_Record::ELAPSED_MS ];
+		return \array_map( static fn ( int $slot ) => $record[ $slot ], $slots );
 	}
 
 	public function test_a_reader_id_composes_the_topology_the_reader_name_and_the_worker_partition(): void {

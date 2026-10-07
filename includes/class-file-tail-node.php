@@ -70,7 +70,19 @@ class File_Tail_Node extends Tail_Node {
 	private bool $pending_line_sync = false;
 
 	/**
-	 * Store the token array, then arm the reader. There is no source Partition —
+	 * When and why this Tail was built idle, off worker partition 0, or null
+	 * while it follows. A fixed file is read once per fleet, so every other
+	 * worker's copy of the line opens nothing, arms no timer and keeps no
+	 * offsetlog or quarantine.
+	 *
+	 * @var array{since:float,reason:string}|null
+	 */
+	private ?array $idle = null;
+
+	/**
+	 * Store the token array, then arm the reader, on worker partition 0 alone: a
+	 * fixed file is read once per fleet, so a Tail built anywhere else idles
+	 * and says so. There is no source Partition —
 	 * the segment model cannot identify a single inode — so the shared
 	 * Durable_Reader spine is armed directly.
 	 *
@@ -96,6 +108,13 @@ class File_Tail_Node extends Tail_Node {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
 			throw new \InvalidArgumentException( "File_Tail {$this->name}: source_file must be an absolute path or sources/<name>, got \"{$this->source_file}\"" );
 		}
+		if ( ! Core::owns_unpartitioned() ) {
+			$this->idle = [
+				'since'  => Core::$now,
+				'reason' => 'idle on partition ' . Core::bound_partition() . ": {$this->source_file} is read on worker partition 0 alone",
+			];
+			return $args;
+		}
 		$this->ensure_offsetlog();
 		$this->ensure_deadletter();
 		// No I/O at build time; first poll opens and seats the cursor (ADR-5).
@@ -108,6 +127,25 @@ class File_Tail_Node extends Tail_Node {
 	/** Refill seam: read the followed inode, not a Partition segment. */
 	protected function get_batch(): void {
 		$this->get_file_batch();
+	}
+
+	/**
+	 * One tick, refused while idle: the first poll opens the file, and `step`
+	 * reads through it.
+	 *
+	 * @phpstan-impure
+	 * @return int Records the tick consumed.
+	 * @throws \RuntimeException While this Tail idles off worker partition 0.
+	 */
+	public function poll(): int {
+		$this->refuse_while_idle();
+		return parent::poll();
+	}
+
+	/** `play` arms the poll timer, so an idle Tail refuses it. */
+	protected function time_travel_resume(): void {
+		$this->refuse_while_idle();
+		parent::time_travel_resume();
 	}
 
 	/**
@@ -220,8 +258,10 @@ class File_Tail_Node extends Tail_Node {
 	 * (handle already open) validates now; a build-time one defers to the first poll.
 	 *
 	 * @param string|int|array<array-key,mixed> $position Seek sentinel, alias word, or explicit {segment,offset}.
+	 * @throws \RuntimeException While this Tail idles off worker partition 0.
 	 */
 	public function next_offset( $position ): void {
+		$this->refuse_while_idle();
 		$this->offset_set          = true;
 		$this->buffer              = '';
 		$this->at_eof              = false;
@@ -248,6 +288,18 @@ class File_Tail_Node extends Tail_Node {
 	}
 
 	/**
+	 * Refuse what would wake a Tail built idle, naming why it idles.
+	 *
+	 * @throws \RuntimeException While this Tail idles off worker partition 0.
+	 */
+	private function refuse_while_idle(): void {
+		if ( null !== $this->idle ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+			throw new \RuntimeException( "{$this->name} is {$this->idle['reason']}" );
+		}
+	}
+
+	/**
 	 * One followed path, so its own mtime is the answer — the parent's
 	 * newest-segment walk has no segment list to walk.
 	 *
@@ -255,10 +307,15 @@ class File_Tail_Node extends Tail_Node {
 	 * is a moment between generations, not a stream nobody writes, and hanging up
 	 * on one would drop the reader before the new file appears.
 	 *
+	 * A Tail built idle off worker partition 0 has been idle since it was built.
+	 *
 	 * @return float|null Epoch seconds the followed file was last written, or null
 	 *                    while the path is absent or bytes are still unread.
 	 */
 	public function idle_since(): ?float {
+		if ( null !== $this->idle ) {
+			return $this->idle['since'];
+		}
 		$stat = $this->path_stat();
 		if ( null === $stat || ! $this->compute_lag()['caught_up'] ) {
 			return null;
@@ -516,6 +573,25 @@ class File_Tail_Node extends Tail_Node {
 			'ino'   => $stat['ino'],
 			'mtime' => $stat['mtime'],
 		];
+	}
+
+	/** An idle Tail keeps no cursor: it names no offsetlog dir. */
+	protected function offsetlog_dir(): string {
+		return null === $this->idle ? parent::offsetlog_dir() : '';
+	}
+
+	/** An idle Tail keeps no quarantine, so the `dl_*` verbs find none to touch. */
+	protected function deadletter_dir(): string {
+		return null === $this->idle ? parent::deadletter_dir() : '';
+	}
+
+	/**
+	 * The reader's metadata, and while it idles, when and why under `idle`.
+	 *
+	 * @return array{frames: array<int,array{id:int,size:int}>, cursor: array{segment:int, offset:int}, polling: string, at_frame: int|null, on_frame: bool, deadletter_segments: int, idle?: array{since:float,reason:string}}
+	 */
+	public function dump_metadata(): array {
+		return parent::dump_metadata() + ( null === $this->idle ? [] : [ 'idle' => $this->idle ] );
 	}
 
 	/**

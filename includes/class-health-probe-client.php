@@ -1,6 +1,6 @@
 <?php
 /**
- * The web runtime's cache posture, fetched over the loopback for `wp nodes doctor`.
+ * The web runtime's own health rows, fetched over the loopback for `wp nodes doctor`.
  *
  * @package Newspack_Nodes
  */
@@ -10,25 +10,39 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * Fetch the cache-backend health result from the WEB runtime over the loopback.
+ * Fetch the web runtime's `Health_Checks::runtime()` rows over the loopback:
+ * its cache backend and its log-source registry.
  *
- * A CLI process picks its own cache backend, so `Health_Checks::cache_backend()`
- * run under WP-CLI reports a posture no visitor ever sees — WP-CLI's APCu is not
- * the web server's. Asking the web runtime through
- * `POST /newspack-nodes/v1/health/cache` reports the backend that serves
- * requests; `Rest\Health_Cache_Controller` is the half that answers.
+ * A CLI process picks its own cache backend and reads its own php.ini, so
+ * either check run under WP-CLI can report a posture no visitor and no worker
+ * ever sees — WP-CLI's APCu is not the web server's, and a built-in source
+ * resolved from its ini may not be the one a worker resolves. Asking the web runtime through
+ * `POST /newspack-nodes/v1/health/runtime` reports the posture that serves
+ * requests and runs workers; `Rest\Health_Runtime_Controller` is the half that
+ * answers.
  *
- * The reply is untrusted. It stands only when it matches the exact shape
- * `Health_Checks` produces, and every other outcome returns a locally authored
- * result rather than remote text, because doctor prints these messages to a
- * terminal.
+ * The reply is untrusted. It stands only whole, both rows in order, each the
+ * exact shape `Health_Checks` produces, and every other outcome returns
+ * locally authored rows rather than remote text, because doctor prints these
+ * messages to a terminal.
  *
  * @phpstan-import-type HealthResult from Health_Checks
  */
 final class Health_Probe_Client {
 
-	/** REST route the web runtime answers the cache probe on. */
-	public const ROUTE = 'newspack-nodes/v1/health/cache';
+	/** REST route the web runtime answers its health rows on. */
+	public const ROUTE = 'newspack-nodes/v1/health/runtime';
+
+	/**
+	 * The rows the route answers, in order: each id with its label and what
+	 * an unverified row could not verify.
+	 *
+	 * @var array<string,array{0:string,1:string}>
+	 */
+	private const ROWS = [
+		Health_Checks::CACHE_ID       => [ Health_Checks::CACHE_LABEL, 'the web cache backend' ],
+		Health_Checks::LOG_SOURCES_ID => [ Health_Checks::LOG_SOURCES_LABEL, "the web runtime's log sources" ],
+	];
 
 	/**
 	 * Loopback-POST seam, standing in for the `wp_remote_post()` call alone.
@@ -56,14 +70,14 @@ final class Health_Probe_Client {
 	private function __construct() {}
 
 	/**
-	 * Fetch the web runtime's cache result, or a locally authored `recommended`
-	 * result when the loopback cannot be verified.
+	 * Fetch the web runtime's rows, or locally authored `recommended` rows when
+	 * the loopback cannot be verified.
 	 *
-	 * Two bounds hold the reply: 2048 bytes off the wire and a decode depth of
-	 * 16, where the four-key result carries a few hundred bytes across two
-	 * levels.
+	 * Two bounds hold the reply: 4096 bytes off the wire and a decode depth of
+	 * 16, where the two four-key rows carry at most 512 message bytes each
+	 * across three levels.
 	 *
-	 * Four rejections get their own message because each names a different fix:
+	 * Four rejections get their own reason because each names a different fix:
 	 * 301 through 399 is a redirect the probe declines to follow, a 401 means
 	 * HTTP authentication fronts the site, a 403 means the route refused the
 	 * token, and a 404 means the route is missing, as it would be when the CLI
@@ -72,12 +86,12 @@ final class Health_Probe_Client {
 	 * worker respawn, which posts across the same loopback and meets the same
 	 * HTTP-authentication gate.
 	 *
-	 * @return HealthResult
+	 * @return list<HealthResult>
 	 */
-	public static function cache_backend(): array {
+	public static function runtime(): array {
 		$now   = ( self::$clock ?? static fn (): int => \time() )();
 		$token = Internal_Request_Token::generate(
-			Internal_Request_Token::PURPOSE_HEALTH_CACHE,
+			Internal_Request_Token::PURPOSE_HEALTH_RUNTIME,
 			$now,
 			\wp_salt( 'nonce' )
 		);
@@ -87,7 +101,7 @@ final class Health_Probe_Client {
 			// phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout
 			'timeout'             => 5,
 			'redirection'         => 0,
-			'limit_response_size' => 2048,
+			'limit_response_size' => 4096,
 			// Both internal loopback calls share `spawn_verify_ssl`.
 			'sslverify'           => Core::verify_spawn_tls(),
 			'body'                => [ 'token' => $token ],
@@ -103,63 +117,78 @@ final class Health_Probe_Client {
 			return self::transport_error( $response );
 		}
 		if ( ! \is_array( $response ) ) {
-			return self::unknown( 'Could not verify the web cache backend because the loopback request returned a malformed HTTP response.' );
+			return self::unknown( 'the loopback request returned a malformed HTTP response' );
 		}
 		$code = \wp_remote_retrieve_response_code( $response );
 		if ( ! \is_int( $code ) ) {
-			return self::unknown( 'Could not verify the web cache backend because the loopback request returned a malformed HTTP response.' );
+			return self::unknown( 'the loopback request returned a malformed HTTP response' );
 		}
 		if ( 301 <= $code && 399 >= $code ) {
-			return self::unknown( "Could not verify the web cache backend because the loopback request attempted an unsafe redirect (HTTP {$code})." );
+			return self::unknown( "the loopback request attempted an unsafe redirect (HTTP {$code})" );
 		}
 		if ( 401 === $code ) {
-			return self::unknown( 'Could not verify the web cache backend because loopback HTTP authentication rejected the request (HTTP 401); normal worker respawn may also be impaired.' );
+			return self::unknown( 'loopback HTTP authentication rejected the request (HTTP 401); normal worker respawn may also be impaired' );
 		}
 		if ( 403 === $code ) {
-			return self::unknown( 'Could not verify the web cache backend because the health route rejected its purpose-specific token (HTTP 403).' );
+			return self::unknown( 'the health route rejected its purpose-specific token (HTTP 403)' );
 		}
 		if ( 404 === $code ) {
-			return self::unknown( 'Could not verify the web cache backend because the health route is unavailable (HTTP 404); the CLI and web plugin versions may differ.' );
+			return self::unknown( 'the health route is unavailable (HTTP 404); the CLI and web plugin versions may differ' );
 		}
 		if ( 200 !== $code ) {
-			return self::unknown( "Could not verify the web cache backend because the health route returned HTTP {$code}." );
+			return self::unknown( "the health route returned HTTP {$code}" );
 		}
 
 		if ( ! \array_key_exists( 'body', $response ) || ! \is_string( $response['body'] ) ) {
-			return self::unknown( 'Could not verify the web cache backend because the health route returned a malformed response body.' );
+			return self::unknown( 'the health route returned a malformed response body' );
 		}
-		$body = $response['body'];
 		try {
-			$decoded = \json_decode(
-				$body,
-				true,
-				16,
-				\JSON_THROW_ON_ERROR
-			);
+			$decoded = \json_decode( $response['body'], true, 16, \JSON_THROW_ON_ERROR );
 		} catch ( \JsonException ) {
-			return self::unknown( 'Could not verify the web cache backend because the health route returned malformed JSON.' );
+			return self::unknown( 'the health route returned malformed JSON' );
 		}
 
-		if ( self::valid_result( $decoded ) ) {
-			/** @var HealthResult $decoded */
+		if ( self::valid_rows( $decoded ) ) {
+			/** @var list<HealthResult> $decoded */
 			return $decoded;
 		}
-		return self::unknown( 'Could not verify the web cache backend because the health route returned a malformed result.' );
+		return self::unknown( 'the health route returned a malformed result' );
 	}
 
 	/**
-	 * Accept only the exact result shape `Health_Checks::cache_backend()` emits.
+	 * Accept only `ROWS`, in order, each the exact shape `Health_Checks` emits.
+	 *
+	 * @param mixed $rows Decoded response body.
+	 * @return bool Whether the payload may be returned verbatim.
+	 */
+	private static function valid_rows( mixed $rows ): bool {
+		if ( ! \is_array( $rows ) || ! \array_is_list( $rows ) || \count( self::ROWS ) !== \count( $rows ) ) {
+			return false;
+		}
+		$index = 0;
+		foreach ( self::ROWS as $id => [ $label ] ) {
+			if ( ! self::valid_result( $rows[ $index++ ], $id, $label ) ) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * Accept only the exact result shape `Health_Checks` emits for one row.
 	 *
 	 * Doctor prints the message straight to a terminal, so this is a whitelist
-	 * rather than a sanitizer: the four keys and no others, the substrate's own
-	 * id and label, one of the three declared statuses, and exactly one message
+	 * rather than a sanitizer: the four keys and no others, the row's own id
+	 * and label, one of the three declared statuses, and exactly one message
 	 * of 1 to 512 bytes that is valid UTF-8 and carries no control, line- or
 	 * paragraph-separator character able to rewrite the surrounding output.
 	 *
-	 * @param mixed $result Decoded response body.
-	 * @return bool Whether the payload may be returned verbatim.
+	 * @param mixed  $result Decoded row.
+	 * @param string $id     The id the row must carry.
+	 * @param string $label  The label the row must carry.
+	 * @return bool Whether the row may be returned verbatim.
 	 */
-	private static function valid_result( mixed $result ): bool {
+	private static function valid_result( mixed $result, string $id, string $label ): bool {
 		if ( ! \is_array( $result ) || \array_is_list( $result ) ) {
 			return false;
 		}
@@ -170,8 +199,8 @@ final class Health_Probe_Client {
 			return false;
 		}
 		if (
-			Health_Checks::CACHE_ID !== $result['id']
-			|| Health_Checks::CACHE_LABEL !== $result['label']
+			$id !== $result['id']
+			|| $label !== $result['label']
 			|| ! \in_array(
 				$result['status'],
 				[
@@ -204,41 +233,45 @@ final class Health_Probe_Client {
 	 * Classify a transport failure without surfacing its untrusted detail.
 	 *
 	 * The cURL text can carry a remote hostname or certificate subject, so the
-	 * message is chosen from the classification and never quotes the error. A
+	 * reason is chosen from the classification and never quotes the error. A
 	 * DNS, connection or TLS failure also warns about worker respawn, which
 	 * dials the same loopback. A timeout is classified first and stays silent
 	 * about respawn: a slow answer is not evidence the loopback is broken.
 	 *
 	 * @param \WP_Error $error Transport failure from the loopback request.
-	 * @return HealthResult
+	 * @return list<HealthResult>
 	 */
 	private static function transport_error( \WP_Error $error ): array {
 		$detail = \strtolower( $error->get_error_message() );
 		if ( \preg_match( '/curl error 28\b|timed out|timeout/', $detail ) ) {
-			return self::unknown( 'Could not verify the web cache backend because the health request timed out.' );
+			return self::unknown( 'the health request timed out' );
 		}
 		if ( \preg_match( '/curl error (6|7|35|51|58|60|77)\b|could not resolve host|failed to connect|ssl certificate/', $detail ) ) {
-			return self::unknown( 'Could not verify the web cache backend because loopback DNS, connection, or TLS failed; normal worker respawn may also be impaired.' );
+			return self::unknown( 'loopback DNS, connection, or TLS failed; normal worker respawn may also be impaired' );
 		}
-		return self::unknown( 'Could not verify the web cache backend because the loopback request failed.' );
+		return self::unknown( 'the loopback request failed' );
 	}
 
 	/**
-	 * Build a locally authored unknown-cache result.
+	 * Build every row as locally authored and unverified, for one reason.
 	 *
-	 * The status is `recommended`, not `critical`: an unverified cache is not a
+	 * The status is `recommended`, not `critical`: an unverified row is not a
 	 * proven-broken one, and doctor exits 0 on a recommendation. `critical`
 	 * belongs to `Health_Checks`, which reaches the backend and watches it fail.
 	 *
-	 * @param string $message Locally authored diagnostic, never remote text.
-	 * @return HealthResult
+	 * @param string $reason Locally authored diagnostic, never remote text.
+	 * @return list<HealthResult>
 	 */
-	private static function unknown( string $message ): array {
-		return [
-			'id'       => Health_Checks::CACHE_ID,
-			'label'    => Health_Checks::CACHE_LABEL,
-			'status'   => Health_Checks::STATUS_RECOMMENDED,
-			'messages' => [ $message ],
-		];
+	private static function unknown( string $reason ): array {
+		$rows = [];
+		foreach ( self::ROWS as $id => [ $label, $subject ] ) {
+			$rows[] = [
+				'id'       => $id,
+				'label'    => $label,
+				'status'   => Health_Checks::STATUS_RECOMMENDED,
+				'messages' => [ "Could not verify {$subject} because {$reason}." ],
+			];
+		}
+		return $rows;
 	}
 }

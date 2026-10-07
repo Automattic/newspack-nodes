@@ -10,7 +10,7 @@ hook.
 
 Everything lives under one namespace, `newspack-nodes/v1`, registered by
 [`Bootstrap::register_rest_routes()`](../includes/class-bootstrap.php) on [`rest_api_init`](https://developer.wordpress.org/reference/hooks/rest_api_init/). The order is
-load-bearing: `/health/cache` registers first so REST init completes even when
+load-bearing: `/health/runtime` registers first so REST init completes even when
 the runtime base directory is refused, and the other four register only once
 that base is available and `ensure_runtime_wired()` has run.
 
@@ -20,9 +20,9 @@ that base is available and `ensure_runtime_wired()` has run.
 | [`/auth`](#establishing-a-session) | POST | READ |
 | [`/command`](#command-dispatch) | POST | READ + per-user burst limit, then a per-command signature |
 | [`/messages/stream`](#sse-stream) | GET | READ |
-| [`/health/cache`](#internal-cache-health) | POST | Internal HMAC token |
+| [`/health/runtime`](#internal-runtime-health) | POST | Internal HMAC token |
 
-![A grid of the five routes against the four gates a request crosses in order: WordPress's declared-argument check, the fleet gate that answers 403 newspack_nodes_not_fleet_site on a multisite subsite, each route's own permission callback with its refusal codes, and what the handler then refuses or does; beneath it, why /health/cache registers first and the two admin-post.php entry points outside the namespace.](img/api-route-gates.png)
+![A grid of the five routes against the four gates a request crosses in order: WordPress's declared-argument check, the fleet gate that answers 403 newspack_nodes_not_fleet_site on a multisite subsite, each route's own permission callback with its refusal codes, and what the handler then refuses or does; beneath it, why /health/runtime registers first and the two admin-post.php entry points outside the namespace.](img/api-route-gates.png)
 
 The substrate is also its own client. [`HTTP_Out_Node`](../includes/class-http-out-node.php) POSTs batched JSONL
 command envelopes to a remote spoke's `/command` (`COMMAND_PATH`) and
@@ -157,28 +157,32 @@ so a site that installs the granular capabilities keeps its read-only callers
 read-only. See [`newspack-event-logger-nodes/docs/API.md`](https://github.com/Automattic/newspack-event-logger-nodes/blob/main/docs/API.md) for the
 application-side patterns.
 
-## Internal Cache Health
+## Internal Runtime Health
 
 ```
-POST  /wp-json/newspack-nodes/v1/health/cache
+POST  /wp-json/newspack-nodes/v1/health/runtime
 ```
 
-Narrow internal loopback endpoint [`wp nodes doctor`](cli.md#doctor-health-report) uses to test the cache
-backend the WEB runtime selects — a probe run under WP-CLI reports a posture no
-visitor ever gets. It is not a general cache API and not for public callers.
+Narrow internal loopback endpoint [`wp nodes doctor`](cli.md#doctor-health-report) uses to read the two
+health rows whose answer depends on the PHP runtime asking: the cache backend
+the WEB runtime selects, and whether every `sources/<name>` its active
+topologies read resolves in its log-source registry, whose built-ins read the
+runtime's own ini and constants. A probe run under WP-CLI can report a posture
+no visitor and no worker ever gets, because WP-CLI selects its own backend and
+reads its own php.ini. It is not a general cache API and not for public callers.
 
 ### Request
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `token` | string | yes | A lowercase 64-character HMAC-SHA256 token for the `health-cache` purpose. |
+| `token` | string | yes | A lowercase 64-character HMAC-SHA256 token for the `health-runtime` purpose. |
 
 The body is form-encoded and carries only `token`, which is
-`hash_hmac( 'sha256', "newspack_nodes_health-cache:{$window}", wp_salt( 'nonce' ) )`,
-built by [`Internal_Request_Token::generate()`](../includes/class-internal-request-token.php) with `PURPOSE_HEALTH_CACHE`,
+`hash_hmac( 'sha256', "newspack_nodes_health-runtime:{$window}", wp_salt( 'nonce' ) )`,
+built by [`Internal_Request_Token::generate()`](../includes/class-internal-request-token.php) with `PURPOSE_HEALTH_RUNTIME`,
 where `$window = floor( time() / 10 )`. The endpoint accepts the current and
 immediately previous windows. Purpose separation means a spawn token cannot
-authorize this route, and a health-cache token cannot authorize worker spawn.
+authorize this route, and a health-runtime token cannot authorize worker spawn.
 
 WordPress REST enforces the required `token` argument. Omitting it returns HTTP
 `400` with code `rest_missing_callback_param`, before the permission callback
@@ -187,7 +191,7 @@ and before `Bootstrap::fleet_gate()`, so no controller validation runs either.
 When a token is supplied, the fleet gate applies before controller validation:
 on multisite, only the main fleet site may use the route, and a subsite receives
 `403 Forbidden`. On the fleet site, a malformed, expired, future-window or
-wrong-purpose token receives `403 Forbidden` with code [`invalid_health_token`](../includes/rest/class-health-cache-controller.php).
+wrong-purpose token receives `403 Forbidden` with code [`invalid_health_token`](../includes/rest/class-health-runtime-controller.php).
 Both refusals answer under that one code and echo nothing of what was
 presented, so a caller learns neither which check failed nor how close its token
 came.
@@ -198,26 +202,38 @@ removes its own random probe entry.
 
 ### Response
 
-After permission succeeds, the route always returns HTTP `200` with exactly one
-canonical cache result:
+After permission succeeds, the route always returns HTTP `200` with exactly two
+canonical results, `Health_Checks::runtime()`, in this order:
 
 ```json
-{
-  "id": "cache-backend",
-  "label": "Cache backend",
-  "status": "good",
-  "messages": [
-    "Cache backend APCu add/read/delete round trip succeeded."
-  ]
-}
+[
+  {
+    "id": "cache-backend",
+    "label": "Cache backend",
+    "status": "good",
+    "messages": [
+      "Cache backend APCu add/read/delete round trip succeeded."
+    ]
+  },
+  {
+    "id": "log-sources",
+    "label": "Log sources",
+    "status": "good",
+    "messages": [
+      "Every `sources/<name>` the active topologies read resolves on this host."
+    ]
+  }
+]
 ```
 
-The four fields are fixed: `id`, `label`, `status` and `messages`. This local
-probe returns `good` or `critical`, and `messages` holds one non-empty
-diagnostic string. (`wp nodes doctor` synthesizes `recommended` when the
-loopback result cannot be verified.) A proven missing or failed backend is a
-canonical `critical` result in the same HTTP `200` response: health severity is
-payload state, not a transport failure.
+The four fields of each are fixed: `id`, `label`, `status` and `messages`, and
+`messages` holds one non-empty diagnostic string. The cache row is `good` or
+`critical`. The log-sources row is `critical` when an active topology's
+`File_Tail` names a `sources/<name>` the registry cannot resolve, naming the
+source, the topology and the registry's reason, and `good` otherwise. (`wp nodes doctor` synthesizes `recommended` for both rows when the
+loopback reply cannot be verified whole.) A failed check is a canonical
+`critical` result in the same HTTP `200` response: health severity is payload
+state, not a transport failure.
 
 ## Worker Identity Tags
 
@@ -721,7 +737,7 @@ misconfigured value makes the two disagree, and only this one names what runs.
 server list reached `Core::$memd`, or APCu is loaded and enabled. Adding a
 server connects to nothing, so a configured but unreachable memcached still
 reports true; the add/read/delete round trip that catches it is
-[`/health/cache`](#internal-cache-health) and the `cache-backend` row of
+[`/health/runtime`](#internal-runtime-health) and the `cache-backend` row of
 `wp nodes doctor`.
 
 **`layouts` backs one canvas.** The Topology Console is its only caller, one

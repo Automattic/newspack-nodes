@@ -312,9 +312,7 @@ class Ingest_CLI_Command {
 	 * @return array{0:string,1:int} The dir template and the partition count.
 	 */
 	private function resolve_destination( string $topic_arg, ?int $requested ): array {
-		$has_token = \str_contains( $topic_arg, '{partition}' ) || \str_contains( $topic_arg, '<partition>' );
-
-		if ( $has_token ) {
+		if ( Core::has_partition_token( $topic_arg ) ) {
 			$tpl = \str_replace( '<partition>', '{partition}', Core::resolve_config_tokens( $topic_arg ) );
 			return [ $tpl, \max( 1, $requested ?? 1 ) ];
 		}

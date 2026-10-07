@@ -26,7 +26,7 @@ describe( 'a broker in the file being edited', () => {
 
 	it( 'draws one pair edge per pair after its three named arguments', () => {
 		const graph = graphFromTsl(
-			'make_node Remote_Source spoke-x9 lone <config:offsets_dir>/x9 <config:deadletter_dir>/x9 firehose.p<partition>:remote-job-rewrite sources/php:php-errors:partition\n'
+			'make_node Remote_Source spoke-x9 lone <config:offsets_dir>/x9 <config:deadletter_dir>/x9 firehose.p{partition}:remote-job-rewrite sources/php:php-errors:partition\n'
 		);
 
 		expect( pairEdges( graph ) ).toEqual( [
@@ -37,7 +37,7 @@ describe( 'a broker in the file being edited', () => {
 
 	it( 'draws a group of brokers from the group, which stands for every member', () => {
 		const graph = graphFromTsl(
-			'make_node Vault_Group spokes Remote_Source spoke <config:offsets_dir>/<topology>.{id} <config:deadletter_dir>/<topology>.{id} firehose.p<partition>:remote-job-rewrite\n'
+			'make_node Vault_Group spokes Remote_Source spoke <config:offsets_dir>/<topology>.{id} <config:deadletter_dir>/<topology>.{id} firehose.p{partition}:remote-job-rewrite\n'
 		);
 
 		expect( pairEdges( graph ) ).toEqual( [

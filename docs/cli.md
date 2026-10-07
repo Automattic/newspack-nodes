@@ -6,7 +6,7 @@ Every substrate command lives under `wp nodes`. This page is the quick reference
 |---|---|
 | [`wp nodes status`](../includes/cli/class-worker-cli-command.php) (alias `ls`) | Prints two tables. The fleet table carries one row per partition of every active topology, each with heartbeat age and uptime: a slot holding a lock reads `live` or `stale`, a lock dir with no heartbeat reading `live` inside `Lock_Node::ORPHAN_GRACE_S`, while its worker is acquiring, and `stale` past it, and one holding none reads `held` while a deploy hold stands, `idle` where the topology declares an on-demand idle window, or `down` otherwise. Then comes one row per lock no active slot claims, tagged `(inactive)`, then a parked `inactive` row for every catalog topology outside the active set. The consumer table follows, one row per reader with its source, partition, bytes behind and messages in the last probe interval, which is 15 seconds by default. `--format=table\|json\|csv\|yaml` changes the container, never the cell: `Behind` is a single unit — `938B` below a kilobyte, one decimal above it (`1.4KB`, `2.1MB`), and GB at the top of the ladder, so a terabyte reads `1024GB` — while `Heartbeat` and `Uptime` are the two largest non-zero units (`3h 12m`, `1h 1s`, `0s`), with `ago` appended to the first and a bare `-` wherever the lock dir carries no heartbeat or start time. A script doing lag arithmetic off `--format=json` parses those strings; the raw byte distance is nowhere in the payload. |
 | `wp nodes types` | Lists the active topology groups the fleet spawns — name, partition count, and stale timeout (60s unless the `.tsl` frontmatter declares one) — each above a `topology:` line repeating the name. A catalog entry stores a topology's NAME in that field, not a path. |
-| `wp nodes doctor` | Renders the canonical health report: eight rows plus up to two conditional ones. Any critical result exits 1; a report of passes and warnings exits 0. |
+| `wp nodes doctor` | Renders the canonical health report: nine rows plus up to two conditional ones. Any critical result exits 1; a report of passes and warnings exits 0. |
 | `wp nodes gc [--force]` | Sweeps orphan log and offsetlog dirs now, instead of waiting for the next reconciliation pass. A dir is orphaned when nothing declares it: no active topology, and — for a log dir — no registered log producer either. Spares a dir whose newest inner mtime — the newest of the dir itself and its first-level entries, since an append touches the segment file rather than the dir — is under an hour old unless `--force` drops that grace to zero. A layout appending BELOW that first level reads as quiet, so its grace can expire while it is still being written; the flat `{name}.p{N}` layouts the substrate ships are measured correctly. Skips the log bucket when its declared set is empty, since that can mean the producer filter has not run yet, and both buckets when either set will not build — raising, naming it, when an active topology will not read; an empty offset set means no topology is active, so every cursor dir there is swept. |
 | `wp nodes run <type> [--partition=<N>]` | Runs one worker in the foreground, started directly rather than through the spawn endpoint, and blocks until it exits, then prints the worker's own exit reason. A topology that fails to load, or anything the run or its shutdown raised, surfaces as the command's error once the lock is released. The debugging tool for "spawns but immediately exits". Partition 0 by default; refuses root. |
 | `wp nodes restart <type\|all> [--partition=<N>]` | Writes a restart flag into each matched lock dir; the holders exit cleanly and their self-respawn starts them fresh. Every partition of the matched type restarts unless `--partition` narrows it. A multisite subsite writes nothing and prints `Requested restart for 0 worker(s).`, because the fleet is network-global and runs on the main site alone. A flag that would not land — every one, under root — fails the command naming its dir and flag, after every other worker was flagged — see the run-as-user rule. |
@@ -124,22 +124,25 @@ claude mcp add --transport http hub https://hub.example.com/wp-json/newspack-eve
 
 ## Doctor health report
 
-`wp nodes doctor` renders eight canonical rows, in this order:
+`wp nodes doctor` renders nine canonical rows, in this order:
 
 1. `cache-backend`
-2. `filesystem`
-3. `ownership`
-4. `housekeeping`
-5. `config-keys`
-6. `worker-liveness`
-7. `consumer-lag`
-8. `dead-letters`
+2. `log-sources`
+3. `filesystem`
+4. `ownership`
+5. `housekeeping`
+6. `config-keys`
+7. `worker-liveness`
+8. `consumer-lag`
+9. `dead-letters`
 
 Three more appear only when they apply: `wpdb-schema` follows `config-keys`, critical, while a shared wpdb table does not answer a live probe, naming the server's error; `fleet-hold` follows it while a deploy hold stands; and `other-alerts` closes the report when an alert declares a family no bucket claims.
 
 Each row starts with `ok`, `WARN` or `FAIL`: a `WARN` is a recommendation, a `FAIL` is critical. An active topology that will not read — a broken include, or a configured name no `.tsl` resolves — fails the worker-liveness row alone, naming the topology and why, and the other rows evaluate as usual. The three fleet rows read `FAIL` together only when the fleet itself cannot be read, as when the topology catalog will not build, and the environment rows above them still report.
 
-The cache row comes from a loopback POST to [`newspack-nodes/v1/health/cache`](API.md#internal-cache-health), bounded at five seconds and authenticated by a purpose-separated HMAC token, because a CLI process picks a different cache backend than the one serving requests. The reply is validated against the exact shape [`Health_Checks`](../includes/class-health-checks.php) produces before any of it reaches the terminal. An unverifiable result reports `WARN`, since cache health is then unknown; a proven missing or failed backend reports `FAIL`. Every other row is evaluated locally through the same evaluator Site Health reads.
+The cache and log-sources rows come from a loopback POST to [`newspack-nodes/v1/health/runtime`](API.md#internal-runtime-health), bounded at five seconds and authenticated by a purpose-separated HMAC token, because a CLI process picks a different cache backend, and may resolve another log-source registry, than the one serving requests and running workers. The reply is validated against the exact shape [`Health_Checks`](../includes/class-health-checks.php) produces, both rows in order, before any of it reaches the terminal. An unverifiable reply reports `WARN` on both rows, since their health is then unknown; a proven missing or failed backend reports `FAIL`. Every other row is evaluated locally through the same evaluator Site Health reads.
+
+`log-sources` holds every `sources/<name>` an active topology's `File_Tail` reads on this host to the log-source registry: a source that does not resolve fails that topology's load, so the row is `FAIL`, naming the source, the topology and the registry's reason. A built-in that needs something of its host says so in that reason; the built-in `php`, for one, needs PHP's `error_log` set to an absolute file path. A broker's pair names a source on its spoke, whose registry no check here can read, so the row leaves it to the spoke.
 
 `filesystem` does not trust the permission bits. It checks `is_writable()`, then proves the answer by writing `.health-probe-<random hex>` into the base directory and removing it again — a full filesystem passes `is_writable()` and still refuses the write, and a directory that accepts writes but refuses removals grows until partitions stall. It therefore has three distinct failures: not writable, refused the write probe, and accepted the write but could not remove the probe, which is the removal fault no other row reports. The random suffix keeps two reports running at once from deleting each other's file. Every `wp nodes doctor` writes that probe, and so does every wp-admin Site Health render — a `.health-probe-*` left in the base directory is a report that died between the write and the unlink, and neither log retention nor `wp nodes gc` sweeps it.
 

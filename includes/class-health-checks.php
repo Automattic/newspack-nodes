@@ -11,9 +11,9 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * The environment and fleet report: cache backend, runtime filesystem,
- * ownership, housekeeping cron, configuration keys, the shared wpdb tables
- * when one does not answer, and the three alert families.
+ * The environment and fleet report: cache backend, log sources, runtime
+ * filesystem, ownership, housekeeping cron, configuration keys, the shared
+ * wpdb tables when one does not answer, and the three alert families.
  *
  * Declaring a check here is what keeps the two surfaces in sync. Site Health's
  * `direct` test and `wp nodes doctor` both render whatever `evaluate()`
@@ -50,6 +50,18 @@ final class Health_Checks {
 	/** Label of the cache-backend check, validated alongside `CACHE_ID`. */
 	public const CACHE_LABEL = 'Cache backend';
 
+	/** The most bytes a topology or source name takes in a runtime row's message. */
+	private const NAME_BYTES = 64;
+
+	/** The most bytes an outside reason takes in a runtime row's message. */
+	private const EXCERPT_BYTES = 200;
+
+	/** Result id of the log-sources check, the other row the web runtime answers. */
+	public const LOG_SOURCES_ID = 'log-sources';
+
+	/** Label of the log-sources check, validated alongside `LOG_SOURCES_ID`. */
+	public const LOG_SOURCES_LABEL = 'Log sources';
+
 	/**
 	 * Probe-removal seam. Lazily-defaulted at the call site to a closure calling
 	 * `unlink()`. Tests reassign it to refuse the removal, so the writability
@@ -78,7 +90,7 @@ final class Health_Checks {
 	private function __construct() {}
 
 	/**
-	 * Evaluate the ordered health report: eight results, plus `wpdb-schema`
+	 * Evaluate the ordered health report: nine results, plus `wpdb-schema`
 	 * while a shared wpdb table does not answer, plus `fleet-hold` while a
 	 * deploy hold stands, plus `other-alerts` when an alert declares a family
 	 * this class does not bucket.
@@ -95,15 +107,16 @@ final class Health_Checks {
 	 * single topology that will not read is no such failure: `Alerts` answers
 	 * it as one critical worker-liveness row, and the rest still evaluate.
 	 *
-	 * `wp nodes doctor` passes the web runtime's cache result over the loopback,
-	 * because a CLI process sees a different cache posture than the process
-	 * serving requests.
+	 * `wp nodes doctor` passes the web runtime's two rows over the loopback,
+	 * because a CLI process may select another cache backend and resolve
+	 * another log-source registry than the process serving requests and
+	 * running workers.
 	 *
-	 * @param HealthResult|null $cache_result Validated remote cache result, or null for a local probe.
+	 * @param list<HealthResult>|null $runtime Validated remote `runtime()` rows, or null to evaluate them here.
 	 * @return list<HealthResult>
 	 * @throws \UnexpectedValueException When an alert row is not an array, omits a required field, or declares an unrecognized severity.
 	 */
-	public static function evaluate( ?array $cache_result = null ): array {
+	public static function evaluate( ?array $runtime = null ): array {
 		$configured = '';
 		$base_dir   = null;
 		$refused    = '';
@@ -118,7 +131,7 @@ final class Health_Checks {
 			? self::unavailable_fleet_results( 'the runtime base directory is unavailable', self::STATUS_RECOMMENDED )
 			: self::evaluated_fleet_results();
 		return [
-			$cache_result ?? self::cache_backend(),
+			...( $runtime ?? self::runtime() ),
 			self::filesystem( $base_dir, $refused ),
 			self::ownership( $base_dir, $configured, $refused ),
 			self::housekeeping(),
@@ -345,6 +358,118 @@ final class Health_Checks {
 	}
 
 	/**
+	 * The two rows whose answer depends on the PHP runtime asking: its cache
+	 * backend and its log-source registry, whose built-ins read the runtime's
+	 * own ini and constants. Public because the runtime health route returns
+	 * them, which is how `wp nodes doctor` learns what the request-serving
+	 * process sees.
+	 *
+	 * @return list<HealthResult>
+	 */
+	public static function runtime(): array {
+		return [ self::cache_backend(), self::log_sources() ];
+	}
+
+	/**
+	 * Every `sources/<name>` an active topology reads on this host must
+	 * resolve through `Log_Sources`, or that topology fails to load: critical
+	 * when one does not, naming the source, the topology and what a built-in
+	 * needs. A topology that will not read leaves its sources unchecked, so
+	 * the row is never good while one stands; `worker-liveness` names why. A
+	 * broker's pair names a source on its spoke, whose registry no check here
+	 * can read, so only a `File_Tail` counts.
+	 *
+	 * The row rides the runtime probe, whose client refuses a whole reply over
+	 * one long or multi-line message, so every text from outside the check
+	 * passes through `excerpt()`.
+	 *
+	 * @return HealthResult
+	 * @throws Worker_Should_Stop When reading the topologies raises a cooperative stop.
+	 */
+	private static function log_sources(): array {
+		try {
+			[ $read, $unresolved, $unreadable ] = self::local_sources();
+		} catch ( Worker_Should_Stop $e ) {
+			throw $e;
+		} catch ( \Throwable $e ) {
+			return self::result( self::LOG_SOURCES_ID, self::LOG_SOURCES_LABEL, self::STATUS_RECOMMENDED, 'The log sources the active topologies read could not be checked: ' . self::excerpt( $e->getMessage(), self::EXCERPT_BYTES ) );
+		}
+		if ( [] !== $unresolved ) {
+			[ $topology, $name ] = $unresolved[0];
+			$need                = Log_Sources::builtin_need( $name );
+			$more                = \count( $unresolved ) > 1 ? ' (' . \count( $unresolved ) . ' unresolved in all)' : '';
+			return self::result(
+				self::LOG_SOURCES_ID,
+				self::LOG_SOURCES_LABEL,
+				self::STATUS_CRITICAL,
+				'Active topology ' . self::excerpt( $topology, self::NAME_BYTES ) . ' reads `sources/' . self::excerpt( $name, self::NAME_BYTES )
+					. '`, which does not resolve on this host, so it fails to load' . ( '' === $need ? '' : '; ' . self::excerpt( $need, self::EXCERPT_BYTES ) ) . ".{$more}"
+			);
+		}
+		if ( [] !== $unreadable ) {
+			$more = \count( $unreadable ) > 1 ? ' and ' . ( \count( $unreadable ) - 1 ) . ' more' : '';
+			return self::result(
+				self::LOG_SOURCES_ID,
+				self::LOG_SOURCES_LABEL,
+				self::STATUS_RECOMMENDED,
+				'The log sources of active topology ' . self::excerpt( $unreadable[0], self::NAME_BYTES ) . "{$more} could not be checked, because it does not read; `worker-liveness` names why."
+			);
+		}
+		return self::result(
+			self::LOG_SOURCES_ID,
+			self::LOG_SOURCES_LABEL,
+			self::STATUS_GOOD,
+			0 === $read ? 'No active topology reads a `sources/<name>` on this host.' : 'Every `sources/<name>` the active topologies read resolves on this host.'
+		);
+	}
+
+	/**
+	 * Text from outside a check, fit for a row the runtime probe carries:
+	 * invalid UTF-8 scrubbed, each run of control, separator and space
+	 * characters one space, and the whole cut to `$bytes` on a character
+	 * boundary. `Health_Probe_Client` refuses a whole reply over a message
+	 * past 512 bytes or holding a control character, which would hide both
+	 * verdicts behind "could not verify".
+	 *
+	 * @param string $text  The text to fit.
+	 * @param int    $bytes The most bytes it may take, its ellipsis included.
+	 */
+	private static function excerpt( string $text, int $bytes ): string {
+		$text = \trim( (string) \preg_replace( '/[\p{Cc}\p{Zl}\p{Zp}\s]+/u', ' ', \mb_scrub( $text, 'UTF-8' ) ) );
+		return \strlen( $text ) > $bytes ? \mb_strcut( $text, 0, $bytes - 3, 'UTF-8' ) . '…' : $text;
+	}
+
+	/**
+	 * The `sources/<name>` reads of the readable active topologies'
+	 * `File_Tail` nodes: how many there are, and each one `Log_Sources` cannot
+	 * resolve with its topology; then every active topology that will not
+	 * read, through `Bootstrap::active_topologies()`.
+	 *
+	 * @return array{0: int, 1: list<array{0: string, 1: string}>, 2: list<string>}
+	 * @throws \RuntimeException When the runtime base directory is unusable.
+	 */
+	private static function local_sources(): array {
+		[ $readable, $unreadable ] = Bootstrap::active_topologies();
+		$read                      = 0;
+		$unresolved                = [];
+		foreach ( \array_keys( $readable ) as $topology ) {
+			foreach ( Topology_Analyzer::nodes_of_type( $topology, File_Tail_Node::class ) as $tail ) {
+				$name = Log_Discovery::source_name( Core::as_string( Core::arr( $tail['args'] ?? [] )[0] ?? '' ) );
+				if ( null === $name ) {
+					continue;
+				}
+				++$read;
+				try {
+					Log_Sources::file_source_path( $name );
+				} catch ( \InvalidArgumentException ) {
+					$unresolved[] = [ $topology, $name ];
+				}
+			}
+		}
+		return [ $read, $unresolved, \array_keys( $unreadable ) ];
+	}
+
+	/**
 	 * Run an add/read/delete probe through the selected production backend.
 	 *
 	 * `shared_first()` is the tier the cross-process surfaces resolve — transient
@@ -354,13 +479,9 @@ final class Health_Checks {
 	 * whatever the round trip left behind, and the 30-second expiry retires the
 	 * key even when deleting is what failed.
 	 *
-	 * Public because the health-cache REST route returns this result on its own,
-	 * which is how `wp nodes doctor` learns what the request-serving process
-	 * sees.
-	 *
 	 * @return HealthResult
 	 */
-	public static function cache_backend(): array {
+	private static function cache_backend(): array {
 		$backend = Cache_Backend::shared_first();
 		if ( null === $backend ) {
 			return self::result(

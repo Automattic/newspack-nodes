@@ -40,7 +40,7 @@ On Atomic a CPU is a PHP worker slot, and an idle worker holds one: ten resident
 
 ## What an operator reads
 
-Each [`wp nodes status`](cli.md) row is one slot in one of five states, which `wp nodes tables`, the Workers dashboard and the alerts share: live, a heartbeat younger than the stale timeout; stale, a lock whose heartbeat has aged out or was never written, which a peer or cron will steal; down, a resident slot holding no lock; idle, an on-demand slot scaled to zero; held, a deploy hold. Idle and held are deliberate, and uptime resetting every ten minutes is the routine recycle at work. [`wp nodes doctor`](cli.md#doctor-health-report) renders eight rows, and a critical row exits non-zero. Its housekeeping row asks whether the reconcile event is scheduled; when it is not, retention, alerts and cold-start revival all stop while every other check stays green, and the row names the recovery command.
+Each [`wp nodes status`](cli.md) row is one slot in one of five states, which `wp nodes tables`, the Workers dashboard and the alerts share: live, a heartbeat younger than the stale timeout; stale, a lock whose heartbeat has aged out or was never written, which a peer or cron will steal; down, a resident slot holding no lock; idle, an on-demand slot scaled to zero; held, a deploy hold. Idle and held are deliberate, and uptime resetting every ten minutes is the routine recycle at work. [`wp nodes doctor`](cli.md#doctor-health-report) renders nine rows, and a critical row exits non-zero. Its housekeeping row asks whether the reconcile event is scheduled; when it is not, retention, alerts and cold-start revival all stop while every other check stays green, and the row names the recovery command.
 
 ## Read more
 

@@ -124,6 +124,27 @@ class CoreTest extends TestCase {
 		}
 	}
 
+	/** Work naming no partition belongs to worker p0, and to a process bound to none. */
+	public function test_unpartitioned_work_is_owned_unbound_or_on_partition_zero(): void {
+		try {
+			unset( Core::$var['partition'] );
+			$this->assertTrue( Core::owns_unpartitioned(), 'outside a worker' );
+			Core::$var['partition'] = '0';
+			$this->assertTrue( Core::owns_unpartitioned(), 'worker p0' );
+			Core::$var['partition'] = '7';
+			$this->assertFalse( Core::owns_unpartitioned(), 'worker p7' );
+		} finally {
+			unset( Core::$var['partition'] );
+		}
+	}
+
+	public function test_a_partition_token_is_found_in_either_spelling(): void {
+		$this->assertTrue( Core::has_partition_token( 'firehose.p<partition>' ) );
+		$this->assertTrue( Core::has_partition_token( 'firehose.p{partition}' ) );
+		$this->assertFalse( Core::has_partition_token( 'firehose.p4' ) );
+		$this->assertFalse( Core::has_partition_token( 'sources/php' ) );
+	}
+
 	public function test_coercion_helpers_take_an_optional_default_for_the_miss_case(): void {
 		$this->assertSame( 7, Core::as_int( null, 7 ) );
 		$this->assertSame( 42, Core::as_int( '42', 7 ), 'default only applies on a miss' );

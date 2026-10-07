@@ -19,9 +19,9 @@
 </style>
 <div class="sheet">
 <h1>"Could not verify…" names its cause by the message it picked, and two of the messages mean nothing spawns</h1>
-<p class="sub"><span class="mono">wp nodes doctor</span> asks the web runtime for its cache posture, because a CLI process picks a different backend than the one serving requests. <span class="mono">Health_Probe_Client</span> never quotes the reply: it classifies it, and each classification names a different fix.</p>
+<p class="sub"><span class="mono">wp nodes doctor</span> asks the web runtime for its cache posture and its <span class="mono">error_log</span>, because a CLI process picks a different backend, and may read another php.ini, than the one serving requests. <span class="mono">Health_Probe_Client</span> never quotes the reply: it classifies it, and each classification names a different fix.</p>
 
-<div class="req"><b>The probe:</b> a loopback <span class="mono">POST newspack-nodes/v1/health/cache</span>, bounded at 5 seconds, following no redirect, reading at most 2,048 bytes of reply, and carrying an <span class="mono">Internal_Request_Token</span> minted for the <span class="mono">health-cache</span> purpose alone, valid for the current or previous 10-second window.</div>
+<div class="req"><b>The probe:</b> a loopback <span class="mono">POST newspack-nodes/v1/health/runtime</span>, bounded at 5 seconds, following no redirect, reading at most 4,096 bytes of reply, and carrying an <span class="mono">Internal_Request_Token</span> minted for the <span class="mono">health-runtime</span> purpose alone, valid for the current or previous 10-second window.</div>
 
 <div class="split">
   <div class="panel">
@@ -57,7 +57,7 @@
   </div>
   <div class="note" style="margin-top:0">
     <h4>A monitor keyed on the exit code misses every one</h4>
-    <p>Each of these results is <span class="mono">recommended</span>, so <span class="mono">doctor</span> still exits 0. Only a proven missing or failed backend reports <span class="mono">FAIL</span>; an unverifiable one reports <span class="mono">WARN</span>, since cache health is then unknown.</p>
+    <p>Each of these results is <span class="mono">recommended</span>, so <span class="mono">doctor</span> still exits 0. Only a proven failure reports <span class="mono">FAIL</span>; an unverifiable reply reports <span class="mono">WARN</span> on both rows, since their health is then unknown.</p>
   </div>
 </div>
 </div>

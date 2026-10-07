@@ -1231,7 +1231,7 @@ class BootstrapTest extends TestCase {
 		$health_routes = \array_values(
 			\array_filter(
 				$routes,
-				static fn ( array $route ): bool => '/health/cache' === $route['route']
+				static fn ( array $route ): bool => '/health/runtime' === $route['route']
 			)
 		);
 		$this->assertCount( 1, $health_routes, 'exactly one cache-health route must be registered' );

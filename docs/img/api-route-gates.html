@@ -28,7 +28,7 @@
   <div class="hd"><span class="mono">/auth</span><span class="m">POST</span></div>
   <div class="hd"><span class="mono">/command</span><span class="m">POST</span></div>
   <div class="hd"><span class="mono">/messages/stream</span><span class="m">GET</span></div>
-  <div class="hd"><span class="mono">/health/cache</span><span class="m">POST</span></div>
+  <div class="hd"><span class="mono">/health/runtime</span><span class="m">POST</span></div>
 
   <div class="rh"><span class="n">1</span>Declared args<span class="d">WordPress, before any callback. A missing required argument answers <span class="mono">400 rest_<wbr>missing_<wbr>callback_<wbr>param</span>.</span></div>
   <div class="cell"><span class="mono">type</span>, <span class="mono">partition</span>, <span class="mono">nonce</span>, all required. <span class="mono">type</span> also runs a <span class="mono">validate_<wbr>callback</span>: a type no ACTIVE topology declares is refused here.</div>
@@ -45,7 +45,7 @@
   <div class="cell"><span class="blue">read</span>. A scope is a ceiling, so a read-only user minting a manage session gets a read one. Without read WordPress answers <b>401 rest_forbidden</b> anonymously, <b>403</b> logged in.</div>
   <div class="cell"><span class="blue">read</span> as the FLOOR, then 30 slots per user, each held one second. Without read WordPress refuses before the body is read: <b>401 rest_forbidden</b> anonymously, <b>403</b> logged in; over budget <b>429 rate_limited</b>; no shared cache: admitted unmetered, never a 503.</div>
   <div class="cell"><span class="blue">read</span>. No nonce: a nonce would break the cross-server pull the aggregator lives on.</div>
-  <div class="cell">A 64-char lowercase hex token for the <span class="mono">health-cache</span> purpose, current or previous window. Anything else: <b>403 invalid_health_token</b>, one code for every refusal.</div>
+  <div class="cell">A 64-char lowercase hex token for the <span class="mono">health-runtime</span> purpose, current or previous window. Anything else: <b>403 invalid_health_token</b>, one code for every refusal.</div>
 
   <div class="rh"><span class="n">4</span>Handler<span class="d">What the route refuses on its own, then does.</span></div>
   <div class="cell run"><b>400 invalid_partition</b>, <b>409 fleet_held</b>, <b>429 spawn_throttled</b>, then the worker runs INLINE for its whole 595 s life and <i>200</i> is written when it ends.</div>
@@ -58,7 +58,7 @@
 <div class="two">
   <div class="card">
     <h3>Registration order is load-bearing</h3>
-    <p><span class="mono">Bootstrap::register_rest_routes()</span> runs on <span class="mono">rest_api_init</span>. <span class="mono">/health/cache</span> registers first, so REST init completes even when the runtime base directory is refused; the other four register only once that base is available and <span class="mono">ensure_runtime_wired()</span> has run. The slot-pool seams are wired in the same place, because reading them earlier would load the stream controller on admin and cron requests that never stream.</p>
+    <p><span class="mono">Bootstrap::register_rest_routes()</span> runs on <span class="mono">rest_api_init</span>. <span class="mono">/health/runtime</span> registers first, so REST init completes even when the runtime base directory is refused; the other four register only once that base is available and <span class="mono">ensure_runtime_wired()</span> has run. The slot-pool seams are wired in the same place, because reading them earlier would load the stream controller on admin and cron requests that never stream.</p>
   </div>
   <div class="note">
     <h4>Two entry points outside the namespace</h4>

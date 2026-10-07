@@ -362,14 +362,14 @@ class TopologyRegistryGraphTest extends TestCase {
 
 	/** A broker's spoke and pairs are read by name, quotes stripped; each pair draws an edge. */
 	public function test_graph_for_names_what_a_remote_source_pulls_and_where(): void {
-		$this->write_tsl( 'vicuna-pull', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl \"ledger.p<partition>:ledger-sink\" sources/php:php-errors:partition\n" );
+		$this->write_tsl( 'vicuna-pull', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl \"ledger.p{partition}:ledger-sink\" sources/php:php-errors:partition\n" );
 
 		$graph = Topology_Analyzer::graph_for( 'vicuna-pull' );
 		$node  = $graph['nodes'][0];
 
 		$this->assertSame( 'okapi-7', $node['vault_id'] );
 		$this->assertSame(
-			[ [ 'source' => 'ledger.p<partition>', 'target' => 'ledger-sink' ], [ 'source' => 'sources/php', 'target' => 'php-errors:partition' ] ],
+			[ [ 'source' => 'ledger.p{partition}', 'target' => 'ledger-sink' ], [ 'source' => 'sources/php', 'target' => 'php-errors:partition' ] ],
 			$node['pairs']
 		);
 		$this->assertArrayNotHasKey( 'remote_partition', $node );
@@ -386,7 +386,7 @@ class TopologyRegistryGraphTest extends TestCase {
 
 	/** A pair the load would refuse draws no edge, so the graph shows only what loads. */
 	public function test_a_pair_the_runtime_refuses_draws_no_edge(): void {
-		$this->write_tsl( 'vicuna-orphan', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl :orphan-4 sources/php: ledger.p<partition>:ledger-sink-7\n" );
+		$this->write_tsl( 'vicuna-orphan', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl :orphan-4 sources/php: ledger.p{partition}:ledger-sink-7\n" );
 
 		$drawn = \array_map( static fn ( array $edge ): string => "{$edge[0]}>{$edge[1]}", Topology_Analyzer::graph_for( 'vicuna-orphan' )['edges'] );
 		$expanded = \array_map( static fn ( array $edge ): string => "{$edge['from']}>{$edge['to']}", Topology_Analyzer::expand( [ 'vicuna-orphan' ] )['edges'] );
@@ -397,7 +397,7 @@ class TopologyRegistryGraphTest extends TestCase {
 
 	/** A target naming `<partition>` draws its edge to the node as the TSL names it. */
 	public function test_a_pair_target_keeps_its_partition_token(): void {
-		$this->write_tsl( 'vicuna-lane', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl ledger.p<partition>:lane-sink.p<partition>\n" );
+		$this->write_tsl( 'vicuna-lane', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl ledger.p{partition}:lane-sink.p<partition>\n" );
 
 		$this->assertSame( [ [ 'pull:okapi', 'lane-sink.p<partition>' ] ], Topology_Analyzer::graph_for( 'vicuna-lane' )['edges'] );
 		$this->assertSame( [ 'lane-sink.p<partition>' ], \array_column( Topology_Analyzer::expand( [ 'vicuna-lane' ] )['edges'], 'to' ) );
@@ -408,11 +408,11 @@ class TopologyRegistryGraphTest extends TestCase {
 			'zeta_pairs',
 			static fn ( string $key ): ?string => 'lane' === $key ? 'quagga-lane' : null
 		);
-		$this->write_tsl( 'vicuna-token', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl '<zeta_pairs:lane>.p<partition>:lane-sink-3'\n" );
+		$this->write_tsl( 'vicuna-token', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl '<zeta_pairs:lane>.p{partition}:lane-sink-3'\n" );
 
 		$graph = Topology_Analyzer::graph_for( 'vicuna-token' );
 
-		$this->assertSame( [ [ 'source' => '<zeta_pairs:lane>.p<partition>', 'target' => 'lane-sink-3' ] ], $graph['nodes'][0]['pairs'] );
+		$this->assertSame( [ [ 'source' => '<zeta_pairs:lane>.p{partition}', 'target' => 'lane-sink-3' ] ], $graph['nodes'][0]['pairs'] );
 		$this->assertContains( [ 'pull:okapi', 'lane-sink-3' ], $graph['edges'] );
 	}
 
@@ -441,6 +441,15 @@ class TopologyRegistryGraphTest extends TestCase {
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'pull:okapi takes no target: Remote_Source declares has_target false' );
 		Topology_Analyzer::graph_for( 'vicuna-wired' );
+	}
+
+	/** A bare `<partition>` resolves before the broker sees it, so the pair would read as fixed. */
+	public function test_a_pair_source_naming_a_bare_partition_fails_the_topology(): void {
+		$this->write_tsl( 'vicuna-bare', "make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl sources/php:php-errors ledger.p<partition>:ledger-sink-5\n" );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'pull:tapir: pair "ledger.p<partition>:ledger-sink-5" names <partition>, which resolves before the broker sees it; write {partition}' );
+		Topology_Analyzer::graph_for( 'vicuna-bare' );
 	}
 
 	public function test_graph_for_keeps_a_remote_links_partition(): void {

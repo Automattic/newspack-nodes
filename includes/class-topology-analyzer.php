@@ -1319,11 +1319,12 @@ class Topology_Analyzer {
 	 * The same walk refuses a `connect_node` onto a node whose class declares
 	 * no target, as the load would refuse it, so no reader draws an edge that
 	 * never routes; a group answers for its child class, members or none, and
-	 * so does each child derived from it.
+	 * so does each child derived from it. It also refuses a broker pair whose
+	 * source names `<partition>`, which the load would read as fixed.
 	 *
 	 * @param list<array{line: string,verb: string,values: list<string>,spans: list<string>,origin: ?string,origins: list<string>,via: list<string>}> $statements Walked statements.
 	 * @return list<array{line: string,verb: string,values: list<string>,spans: list<string>,origin: ?string,origins: list<string>,via: list<string>}>
-	 * @throws \RuntimeException On a connect the source's class refuses.
+	 * @throws \RuntimeException On a connect the source's class refuses, or a broker pair naming `<partition>`.
 	 */
 	private static function with_group_children( array $statements ): array {
 		$classes = [];
@@ -1361,6 +1362,9 @@ class Topology_Analyzer {
 		foreach ( $statements as $index => $statement ) {
 			if ( 'connect_node' === $statement['verb'] ) {
 				self::refuse_targetless( $statement['values'][1] ?? '', $targeted );
+			}
+			if ( 'make_node' === $statement['verb'] ) {
+				self::refuse_bare_partition_pairs( $statement['values'] );
 			}
 			$out[] = $statement;
 			foreach ( $made[ $index ] ?? [] as $child_make ) {
@@ -1436,6 +1440,26 @@ class Topology_Analyzer {
 		}
 		$fqcn = Command_Interpreter_Node::resolve_class( $type );
 		return null !== $fqcn && Core::class_fans_out( $fqcn );
+	}
+
+	/**
+	 * Refuse a `Remote_Source` line, written or a group's, carrying a pair
+	 * whose source names `<partition>`. A group answers for its child class,
+	 * members or none.
+	 *
+	 * @param list<string> $values A `make_node` statement's quote-stripped tokens.
+	 * @throws \RuntimeException When a pair names `<partition>`.
+	 */
+	private static function refuse_bare_partition_pairs( array $values ): void {
+		$class = $values[1] ?? '';
+		$first = 6;
+		if ( self::type_is( $class, Vault_Group_Node::class ) ) {
+			$class = $values[3] ?? '';
+			$first = 7;
+		}
+		if ( self::type_is( $class, Remote_Source_Node::class ) ) {
+			Remote_Source_Node::refuse_bare_partition( $values[2] ?? '', \array_slice( $values, $first ) );
+		}
 	}
 
 	/**

@@ -4,10 +4,10 @@
  *
  * Two endpoints take requests the site makes of itself: the spawn controller,
  * which a worker's self-respawn, a peer scan and the cold-start cron pass all
- * POST to, and the health-cache probe, which reports the web runtime's cache
- * posture to `wp nodes doctor`. No such caller carries a user session, so a
- * capability check would refuse every one of them; each presents a token minted
- * from a shared secret instead. Spawn keeps a second door beside the token, for
+ * POST to, and the health-runtime probe, which reports the web runtime's cache
+ * posture and log sources to `wp nodes doctor`. No such caller carries a user
+ * session, so a capability check would refuse every one of them; each presents
+ * a token minted from a shared secret instead. Spawn keeps a second door beside the token, for
  * a caller holding the `manage` role and a valid WordPress nonce.
  *
  * The purpose string sits INSIDE the hashed message, so a token minted for one
@@ -28,7 +28,7 @@ namespace Newspack_Nodes;
  *
  * A token is the hex SHA-256 HMAC of `newspack_nodes_{purpose}:{window}` keyed
  * by the caller's salt: 64 lowercase hex characters, the shape
- * `Health_Cache_Controller` pre-screens with a regex before spending an HMAC.
+ * `Health_Runtime_Controller` pre-screens with a regex before spending an HMAC.
  *
  * The clock and the salt are parameters rather than `time()` and `wp_salt()`
  * calls, which keeps the class free of WordPress and lets a test drive both
@@ -52,8 +52,8 @@ final class Internal_Request_Token {
 	/** Purpose for `POST /newspack-nodes/v1/workers/spawn`, minted by `Spawn_Coordinator`. */
 	public const PURPOSE_SPAWN = 'spawn';
 
-	/** Purpose for `POST /newspack-nodes/v1/health/cache`, minted by `Health_Probe_Client`. */
-	public const PURPOSE_HEALTH_CACHE = 'health-cache';
+	/** Purpose for `POST /newspack-nodes/v1/health/runtime`, minted by `Health_Probe_Client`. */
+	public const PURPOSE_HEALTH_RUNTIME = 'health-runtime';
 
 	/** Static only: a token is a pure function of its inputs, so there is nothing to hold. */
 	private function __construct() {}
