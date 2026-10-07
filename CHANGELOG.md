@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The `unparseable_lines` frame names each stamp's count.** Its VALUE gains `COUNTS <stamp>=<n>,…` beside `COUNT`, so a client reading several views on one stream charges each view its own skips.
 - **`raw-logs read_message` reads `sources/<name>`, and neither it nor `dump_log` falls back.** An empty or unknown `log` is refused with an error (`unknown log: "<log>"` when named) instead of reading the firehose.
 
 ## [2.98.1] - 2026-10-06

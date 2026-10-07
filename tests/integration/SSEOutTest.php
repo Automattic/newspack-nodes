@@ -508,7 +508,7 @@ class SSEOutTest extends TestCase {
 		$this->assertSame( Message::TM_INFO, $skipped[0][ Message::TYPE ] );
 		$this->assertSame( 'unparseable_lines', $skipped[0][ Message::KEY ] );
 		$this->assertSame(
-			'COUNT 2 CURSORS firehose.p0=0:' . \strlen( $bytes ),
+			'COUNT 2 COUNTS firehose.p0=2 CURSORS firehose.p0=0:' . \strlen( $bytes ),
 			$skipped[0][ Message::VALUE ],
 			'the count, and a resume point past the skipped lines'
 		);
