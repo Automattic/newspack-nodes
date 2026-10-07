@@ -799,6 +799,129 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertNull( $sse->test_get_handle(), 'a paused source holds no spoke slot' );
 	}
 
+	public function test_a_paused_reader_leaves_the_stream_and_play_brings_it_back(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$asked = [];
+		$this->record_requests( $asked );
+		Core::$now = 2000.0;
+		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:downstream', 'sources/php:php-errors' ) );
+		$this->drain_connect_queue();
+		$php = Core::node( 'remote-austin:sources:php' );
+		$php->next_offset( [ 'segment' => 7702, 'offset' => 88 ] );
+
+		$php->pause();
+		Core::$now = 2001.0;
+		$node->fire();
+		$this->drain_connect_queue();
+		$this->assertSame( 'firehose.p0', \end( $asked )['subscribe'] );
+
+		$php->play();
+		Core::$now = 2002.0;
+		$node->fire();
+		$this->drain_connect_queue();
+		$this->assertSame( 'firehose.p0,sources/php', \end( $asked )['subscribe'] );
+		$this->assertSame( [ 'segment' => 7702, 'offset' => 88 ], \json_decode( \end( $asked )['positions'], true )['sources/php'] );
+	}
+
+	public function test_with_every_reader_paused_the_broker_holds_no_stream(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$asked = [];
+		$this->record_requests( $asked );
+		Core::$now = 3000.0;
+		[ $node, $child ] = $this->make_remote();
+		$this->drain_connect_queue();
+		$child->pause();
+
+		Core::$now = 3001.0;
+		$node->fire();
+		$this->assertNull( \Newspack_Nodes\Remote_Link_Node::shift_connect_queue(), 'the tick queues no connect' );
+		$this->drain_connect_queue();
+
+		$this->assertCount( 1, $asked, 'no request after the last reader paused' );
+		$this->assertNull( Core::node( 'remote-austin:sse-in' )->test_get_handle() );
+	}
+
+	public function test_three_pauses_in_one_tick_reconnect_once(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$asked = [];
+		$this->record_requests( $asked );
+		Core::$now = 4000.0;
+		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'jobstats.p0:downstream', 'topicprobe.p0:downstream', 'tablestats.p0:downstream', 'firehose.p0:downstream' ) );
+		$this->drain_connect_queue();
+		foreach ( [ 'jobstats.p0', 'topicprobe.p0', 'tablestats.p0' ] as $stamp ) {
+			// Past the connect backoff, so an immediate reconnect would not be refused.
+			Core::$now += 30.0;
+			Core::node( "remote-austin:{$stamp}" )->pause();
+		}
+
+		Core::$now += 1.0;
+		$node->fire();
+		$this->drain_connect_queue();
+
+		$this->assertCount( 2, $asked, 'one connect, then one reconnect for the three pauses' );
+		$this->assertSame( 'firehose.p0', \end( $asked )['subscribe'] );
+	}
+
+	public function test_a_glob_pair_builds_a_reader_per_stamp_and_skips_a_paused_one(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$asked = [];
+		$this->record_requests( $asked );
+		Core::$now = 5000.0;
+		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'errors.*:downstream' ) );
+		$this->drain_connect_queue();
+		$this->assertSame( [], $node->consumers(), 'a glob builds nothing until a stamp appears' );
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$sse->process_sse_chunk( self::connected_frame( 'SLOT 3 OWNER 31313131 CURSORS errors.p0=4:10,errors.p2=8:20' ) );
+		$this->assertSame( [ 'errors.p0', 'errors.p2' ], \array_keys( $node->consumers() ) );
+
+		Core::node( 'remote-austin:errors.p2' )->pause();
+		Core::$now = 5001.0;
+		$node->fire();
+		$this->drain_connect_queue();
+
+		$positions = \json_decode( \end( $asked )['positions'], true );
+		$this->assertSame( 'errors.*', \end( $asked )['subscribe'] );
+		$this->assertSame( \Newspack_Nodes\Rest\SSE_Out_Node::SKIP, $positions['errors.p2'] );
+		$this->assertSame( [ 'segment' => 4, 'offset' => 10 ], $positions['errors.p0'] );
+	}
+
+	public function test_a_stamp_two_pairs_match_belongs_to_the_first(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.*:audit-91', 'firehose.p0:downstream' ) );
+
+		$this->assertSame( 'audit-91', Core::node( 'remote-austin:firehose.p0' )->target() );
+		$this->assertSame( [ 'firehose.p0' ], \array_keys( $node->consumers() ) );
+	}
+
+	public function test_a_live_seek_restarts_the_stream_and_a_paused_one_does_not(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$asked = [];
+		$this->record_requests( $asked );
+		Core::$now = 6000.0;
+		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:downstream', 'sources/php:php-errors' ) );
+		$this->drain_connect_queue();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$php = Core::node( 'remote-austin:sources:php' );
+		$this->assertNotNull( $sse->test_get_handle() );
+
+		$php->pause();
+		$php->next_offset( [ 'segment' => 3, 'offset' => 5 ] );
+		Core::$now = 6030.0;
+		$node->fire();
+		$this->drain_connect_queue();
+		$this->assertCount( 2, $asked, 'one reconnect for the pause, none for the seek' );
+		$this->assertSame( 'firehose.p0', \end( $asked )['subscribe'], 'a paused reader stays out of the request' );
+
+		$php->play();
+		Core::$now = 6060.0;
+		$node->fire();
+		$this->drain_connect_queue();
+		$this->assertSame( 'firehose.p0,sources/php', \end( $asked )['subscribe'] );
+		$this->assertNotNull( $sse->test_get_handle() );
+		$php->next_offset( [ 'segment' => 9, 'offset' => 1 ] );
+		$this->assertNull( $sse->test_get_handle(), 'live, a seek drops the stream for the tick to reopen' );
+	}
+
 	// ---------------------------------------------------------------------
 	// Multi-writer seal-grace and the fanned-out reader toggle.
 	// ---------------------------------------------------------------------
