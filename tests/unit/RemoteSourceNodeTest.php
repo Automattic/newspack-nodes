@@ -248,7 +248,8 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertInstanceOf( SSE_In_Node::class, $sse );
 		$this->assertSame( 'https://austin.example', $this->read_private( $sse, 'url' ) );
 		$this->assertSame( 'u', $this->read_private( $sse, 'auth_username' ) );
-		$this->assertSame( 'firehose.p0', $this->read_private( $sse, 'subscribe' ) );
+		( $sse->on_connecting )();
+		$this->assertSame( [ 'firehose.p0' ], $this->read_private( $sse, 'subscribe' ) );
 		// SSE_In hands each raw `msg` payload to the Remote_Source's delivery seam, which
 		// appends it to the Durable_Reader buffer (a poison line is quarantined on drain).
 		// The target for forward_line's TO belongs to THIS node; SSE_In never reads one.
@@ -386,7 +387,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$node->fire();
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$this->assertInstanceOf( SSE_In_Node::class, $sse );
-		$sse->restore_position( 3, 900 ); // a pair the seek must override
+		$node->next_offset( [ 'segment' => 3, 'offset' => 900 ] ); // a pair the seek must override
 
 		$node->next_offset( Consumer_Node::SEEK_RECENT );
 		// A seek waits for the spoke to resolve it, and the reconnect is throttled to the
@@ -405,6 +406,7 @@ class RemoteSourceNodeTest extends TestCase {
 		\parse_str( (string) \parse_url( $captured[0][ \CURLOPT_URL ], PHP_URL_QUERY ), $query );
 		$positions = \json_decode( $query['positions'], true );
 		$this->assertSame( Consumer_Node::SEEK_RECENT, $positions['firehose.p0'] );
+		$this->assertSame( Consumer_Node::SEEK_RECENT, $node->connect_position() );
 	}
 
 	public function test_a_seek_word_forwards_the_same_sentinel(): void {
@@ -427,6 +429,7 @@ class RemoteSourceNodeTest extends TestCase {
 		\parse_str( (string) \parse_url( $captured[0][ \CURLOPT_URL ], PHP_URL_QUERY ), $query );
 		$this->assertSame( Consumer_Node::SEEK_END, \json_decode( $query['positions'], true )['firehose.p0'] );
 		$this->assertSame( '', $this->read_private( $node, 'buffer' ), 'a seek abandons what was in flight' );
+		$this->assertSame( Consumer_Node::SEEK_END, $node->connect_position() );
 	}
 
 	public function test_seal_grace_seeds_a_patron_created_after_the_verb(): void {
@@ -477,8 +480,8 @@ class RemoteSourceNodeTest extends TestCase {
 
 		$this->handshake( $sse, 'firehose.p0=9:4096' );
 
-		$this->assertFalse( $sse->has_pending_seek(), 'the spoke answered the seek' );
-		$this->assertSame( [ 'segment' => 9, 'offset' => 4096 ], $sse->position() );
+		$this->assertNull( $this->read_private( $node, 'pending_seek' ), 'the spoke answered the seek' );
+		$this->assertSame( [ 'segment' => 9, 'offset' => 4096 ], $node->connect_position() );
 		$this->assertSame( [ 'segment' => 9, 'offset' => 4096 ], $node->dump_metadata()['cursor'] );
 	}
 
@@ -494,7 +497,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->handshake( $sse, 'firehose.p0=7:1' );
 
 		$this->assertSame( [ 'segment' => 7, 'offset' => 41 ], $node->dump_metadata()['cursor'] );
-		$this->assertSame( [ 'segment' => 7, 'offset' => 41 ], $sse->position() );
+		$this->assertSame( [ 'segment' => 7, 'offset' => 41 ], $node->connect_position() );
 	}
 
 	public function test_a_reconnect_the_spoke_forced_asks_past_what_is_buffered(): void {
@@ -615,6 +618,25 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( [ 'segment' => 5, 'offset' => 95 ], \end( $asked ), 'the torn lines are not read, or counted, again' );
 	}
 
+	public function test_a_reconnect_past_a_skip_supersedes_a_pending_seek(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		Core::$now = 1000.0;
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$this->assertSame( Consumer_Node::SEEK_END, $node->connect_position(), 'a fresh reader asks for the end' );
+
+		( $sse->on_skipped )( [ 'firehose.p0' => [ 'segment' => 13, 'offset' => 7261 ] ] );
+		$this->assertSame( [ 'segment' => 13, 'offset' => 7261 ], $node->connect_position() );
+		( new \ReflectionMethod( $node, 'pass_skipped_lines' ) )->invoke( $node );
+
+		$this->assertSame(
+			[ 'segment' => 13, 'offset' => 7261 ],
+			$node->connect_position(),
+			'the skip was a real place, so the end is no longer asked for'
+		);
+	}
+
 	public function test_skipped_lines_wait_for_the_records_buffered_ahead_of_them(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$asked = [];
@@ -705,7 +727,7 @@ class RemoteSourceNodeTest extends TestCase {
 		] ) );
 		$node->poll();
 
-		$this->assertFalse( $sse->has_pending_seek(), 'the record says where the stream began' );
+		$this->assertNull( $this->read_private( $node, 'pending_seek' ), 'the record says where the stream began' );
 	}
 
 	public function test_a_connect_queued_before_pause_does_not_reopen_the_stream(): void {
@@ -1100,10 +1122,9 @@ class RemoteSourceNodeTest extends TestCase {
 			$this->read_private( $node, 'cursor_offset' ),
 			'the cursor must land on the next record boundary, not inside it'
 		);
-		$node->fire(); // the tick hands the cursor to the stream for its next connect.
 		$this->assertSame(
 			40959889 + 177,
-			$sse->position()['offset'],
+			$node->connect_position()['offset'],
 			'and the resume position is that same cursor — one position, not two'
 		);
 	}
@@ -1217,7 +1238,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$node->fire();
 		$this->assertTrue( $this->read_private( $node, 'crawl_skip_head' ) );
 		$sse = Core::node( 'remote-austin:sse-in' );
-		$sse->restore_position( 7, 500 ); // the stream resumed PAST the boot head (suspect GC'd).
+		( new \ReflectionProperty( Remote_Source_Node::class, 'cursor_offset' ) )->setValue( $node, 500 ); // the stream resumed PAST the boot head (suspect GC'd).
 
 		$sse->process_sse_chunk( "event: msg\ndata: not-a-valid-message\n\n" );
 		$node->poll();
@@ -1810,28 +1831,6 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 256, $frame['offset'] );
 	}
 
-	public function test_durable_cursor_is_node_owned_not_sse_in_position(): void {
-		// Remote_Source owns cursor_segment/off, advanced AFTER a successful forward from the
-		// message's OWN breadcrumb (offset+length) — never SSE_In's connection position, which
-		// advances eagerly and can lead an in-flight message. Prove independence: forward one
-		// healthy message, then shove SSE_In's position far ahead, then commit at shutdown —
-		// the frame must record the forwarded boundary, not SSE_In's lead.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-
-		$this->deliver( $sse, '7:300:40', '' ); // healthy forward → node cursor lands past it.
-		$sse->restore_position( 9, 99999 );      // desync SSE_In's connection cursor far ahead.
-
-		$node->checkpoint_shutdown();
-
-		$frame = $this->newest_offsetlog_frame( $node );
-		$this->assertSame( 7, $frame['segment'], 'committed the node-owned cursor, not SSE_In lead' );
-		$this->assertSame( 340, $frame['offset'] );
-	}
-
 	/** Build a named Remote_Source wired to a Relay_Sink_Spy downstream + target. */
 	/**
 	 * The dirs are ARGUMENTS, like Consumer's — there is no derived fallback, so a
@@ -2037,7 +2036,7 @@ class RemoteSourceNodeTest extends TestCase {
 	// Task 5 — self-sufficiency: offsetlog, tick, heartbeat, status.
 	// ---------------------------------------------------------------------
 
-	public function test_committed_offsetlog_restored_into_sse_in_before_connect(): void {
+	public function test_committed_offsetlog_seeds_the_first_request(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 
 		// Pre-seed the per-node offsetlog with a committed {seg,off} line.
@@ -2053,12 +2052,14 @@ class RemoteSourceNodeTest extends TestCase {
 		$pre->fill( $entry );
 		$pre->flush();
 
+		$asked = [];
+		$this->capture_asked_positions( $asked );
 		[ $node ] = $this->make_remote( 'remote-austin' );
+		Core::$now = 1000.0;
 		$node->fire();
+		$this->drain_connect_queue();
 
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$this->assertInstanceOf( SSE_In_Node::class, $sse );
-		$this->assertSame( [ 'segment' => 4, 'offset' => 256 ], $sse->position() );
+		$this->assertSame( [ [ 'segment' => 4, 'offset' => 256 ] ], $asked );
 	}
 
 	public function test_offsetlog_inherits_its_patrons_sink(): void {
@@ -2483,8 +2484,7 @@ class RemoteSourceNodeTest extends TestCase {
 		[ $node ] = $this->make_remote( 'remote-austin' );
 		$node->fire();
 
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$this->assertSame( [ 'segment' => 0, 'offset' => 0 ], $sse->position() );
+		$this->assertSame( Consumer_Node::SEEK_END, $node->connect_position(), 'nothing restored asks for the end' );
 	}
 
 	public function test_restore_position_falls_back_to_prior_segment_when_last_empty(): void {
@@ -2500,8 +2500,7 @@ class RemoteSourceNodeTest extends TestCase {
 		[ $node ] = $this->make_remote( 'remote-austin' );
 		$node->fire();
 
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$this->assertSame( [ 'segment' => 4, 'offset' => 256 ], $sse->position() );
+		$this->assertSame( [ 'segment' => 4, 'offset' => 256 ], $node->connect_position() );
 	}
 
 	public function test_restore_position_returns_empty_when_all_segments_empty(): void {
@@ -2513,8 +2512,7 @@ class RemoteSourceNodeTest extends TestCase {
 		[ $node ] = $this->make_remote( 'remote-austin' );
 		$node->fire();
 
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$this->assertSame( [ 'segment' => 0, 'offset' => 0 ], $sse->position() );
+		$this->assertSame( Consumer_Node::SEEK_END, $node->connect_position(), 'nothing restored asks for the end' );
 	}
 
 	/** Write a raw offsetlog segment file (`<seg>.log`) for the default remote node. */

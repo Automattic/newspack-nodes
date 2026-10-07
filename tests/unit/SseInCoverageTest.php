@@ -32,7 +32,8 @@ class SseInCoverageTest extends TestCase {
 		$sink->name( 'merger' );
 		$node->sink( $sink );
 		$node->target( 'merger' );
-		$node->configure( 'https://austin.example', 'u', 'p', '', 'firehose.p0', [], [], false );
+		$node->configure( 'https://austin.example', 'u', 'p', '', [], false );
+		$node->streams( [ 'firehose.p0' ], [ 'firehose.p0' => \Newspack_Nodes\Consumer_Node::SEEK_END ] );
 		return [ $node, $sink ];
 	}
 
@@ -112,7 +113,8 @@ class SseInCoverageTest extends TestCase {
 		$node = new SSE_In_Node();
 		$node->name( 'sse-in' );
 		$node->sink( new Capture_Sink_Node() );
-		$node->configure( 'https://austin.example', '', '', 'tok-123', 'firehose.p0', [], [], false );
+		$node->configure( 'https://austin.example', '', '', 'tok-123', [], false );
+		$node->streams( [ 'firehose.p0' ], [ 'firehose.p0' => \Newspack_Nodes\Consumer_Node::SEEK_END ] );
 
 		$captured = [];
 		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $o ) use ( &$captured ): \CurlHandle {
@@ -131,7 +133,8 @@ class SseInCoverageTest extends TestCase {
 		$node = new SSE_In_Node();
 		$node->name( 'sse-in' );
 		$node->sink( new Capture_Sink_Node() );
-		$node->configure( 'https://austin.example', '', '', 'tok-123', 'firehose.p0', [], [], false );
+		$node->configure( 'https://austin.example', '', '', 'tok-123', [], false );
+		$node->streams( [ 'firehose.p0' ], [ 'firehose.p0' => \Newspack_Nodes\Consumer_Node::SEEK_END ] );
 
 		$captured = [];
 		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $o ) use ( &$captured ): \CurlHandle {
@@ -509,7 +512,6 @@ class SseInCoverageTest extends TestCase {
 		};
 		$node->process_sse_chunk( self::msg_frame( 'plainid', 'req', [ 'x' => 1 ] ) );
 		$this->assertCount( 1, $captured );
-		$this->assertSame( [ 'segment' => 0, 'offset' => 0 ], $node->position() );
 	}
 
 	public function test_msg_with_null_delivery_seam_is_dropped(): void {
@@ -533,7 +535,7 @@ class SseInCoverageTest extends TestCase {
 		// silent drop — never a throw (the null-sink fail-loud now lives in the owner's forward_line).
 		$node = new SSE_In_Node();
 		$node->name( 'sse-in' );
-		$node->configure( 'https://austin.example', '', '', '', 'firehose.p0', [], [], false );
+		$node->configure( 'https://austin.example', '', '', '', [], false );
 
 		$this->assertTrue( $node->process_sse_chunk( self::msg_frame( '1:0', 'req', [ 'x' => 1 ] ) ) );
 	}

@@ -20,24 +20,35 @@ class SseInTest extends TestCase {
 	}
 
 	/** Build a configured SSE_In node wired to a capture sink with a target. */
-	private function configured_node( array $positions = [] ): array {
+	private function configured_node(): array {
 		$node = new SSE_In_Node();
 		$node->name( 'sse-in' );
 		$sink = new Capture_Sink_Node();
 		$sink->name( 'merger' );
 		$node->sink( $sink );
 		$node->target( 'merger' );
-		$node->configure(
-			'https://austin.example',
-			'u',
-			'p',
-			'',
-			'firehose.p0',
-			$positions,
-			[],
-			false
-		);
+		$node->configure( 'https://austin.example', 'u', 'p', '', [], false );
 		return [ $node, $sink ];
+	}
+
+	/** A configured node that has been told to tail one stream, so it can connect. */
+	private function streaming_node(): array {
+		$pair = $this->configured_node();
+		$pair[0]->streams( [ 'firehose.p0' ], [ 'firehose.p0' => Consumer_Node::SEEK_END ] );
+		return $pair;
+	}
+
+	/** @return array<string,mixed> The query of the one request maybe_connect() made. */
+	private function connect_and_read_query( SSE_In_Node $node ): array {
+		$captured = [];
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ) use ( &$captured ): \CurlHandle {
+			$captured[] = $opts;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+		$this->assertTrue( $node->maybe_connect() );
+		\parse_str( (string) \parse_url( $captured[0][ \CURLOPT_URL ], PHP_URL_QUERY ), $query );
+		return $query;
 	}
 
 	public function test_bytes_read_accumulates_received_wire_bytes(): void {
@@ -144,7 +155,6 @@ class SseInTest extends TestCase {
 		$node->process_sse_chunk( "event: msg\ndata: {$packed}\n\n" );
 
 		$this->assertSame( [ $packed ], $captured, 'the raw packed payload is handed to the owner unparsed' );
-		$this->assertSame( [ 'segment' => 0, 'offset' => 0 ], $node->position(), 'the per-message cursor no longer advances in SSE_In' );
 	}
 
 	public function test_a_msg_frame_never_reaches_the_sink(): void {
@@ -209,7 +219,7 @@ class SseInTest extends TestCase {
 	}
 
 	public function test_open_handle_awaiting_handshake_is_connecting_not_connected(): void {
-		[ $node ] = $this->configured_node();
+		[ $node ] = $this->streaming_node();
 		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
@@ -222,7 +232,7 @@ class SseInTest extends TestCase {
 	}
 
 	public function test_completed_handshake_reports_connected_and_no_longer_connecting(): void {
-		[ $node ] = $this->configured_node();
+		[ $node ] = $this->streaming_node();
 		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
@@ -237,7 +247,7 @@ class SseInTest extends TestCase {
 	}
 
 	public function test_failed_open_reaches_disconnected_without_passing_through_connected(): void {
-		[ $node ] = $this->configured_node();
+		[ $node ] = $this->streaming_node();
 		\Newspack_Nodes\Event_Framework::$curl_dispatch = static fn ( array $opts ): bool => false;
 
 		$this->assertFalse( $node->maybe_connect() );
@@ -259,34 +269,33 @@ class SseInTest extends TestCase {
 		$this->assertTrue( $node->connection()['connected'] );
 	}
 
-	public function test_connected_handshake_reports_its_own_dirs_cursor(): void {
+	public function test_connected_handshake_hands_the_patron_every_cursor(): void {
 		[ $node ] = $this->configured_node();
 		$seen               = [];
-		$node->on_connected = static function ( int $segment, int $offset ) use ( &$seen ): void {
-			$seen[] = [ $segment, $offset ];
+		$node->on_connected = static function ( array $cursors ) use ( &$seen ): void {
+			$seen[] = $cursors;
 		};
 
-		$node->process_sse_chunk( self::connected_frame( 'SLOT 7 OWNER 42424243 CURSORS other.p3=1:2,firehose.p0=12:345' ) );
+		$node->process_sse_chunk( self::connected_frame( 'SLOT 7 OWNER 42424243 CURSORS other.p3=1:2,firehose.p0=12:345,sources/php=:9188,bad.p1=x:3,short.p2=12' ) );
 
-		$this->assertSame( [ [ 12, 345 ] ], $seen );
+		$this->assertSame(
+			[ [ 'other.p3' => [ 'segment' => 1, 'offset' => 2 ], 'firehose.p0' => [ 'segment' => 12, 'offset' => 345 ], 'sources/php' => [ 'offset' => 9188 ] ] ],
+			$seen
+		);
 		$this->assertTrue( $node->connection()['connected'] );
 	}
 
-	public function test_connected_handshake_without_a_usable_cursor_reports_none(): void {
-		foreach ( [ ' CURSORS other.p3=12:345', '', ' CURSORS firehose.p0=x:345', ' CURSORS firehose.p0=12' ] as $extra ) {
-			[ $node, $sink ] = $this->configured_node();
-			$seen               = [];
-			$node->on_connected = static function ( int $segment, int $offset ) use ( &$seen ): void {
-				$seen[] = [ $segment, $offset ];
-			};
+	public function test_a_handshake_naming_no_cursor_calls_nothing(): void {
+		[ $node ] = $this->configured_node();
+		$seen               = [];
+		$node->on_connected = static function ( array $cursors ) use ( &$seen ): void {
+			$seen[] = $cursors;
+		};
 
-			$node->process_sse_chunk( self::connected_frame( "SLOT 7 OWNER 42424243{$extra}" ) );
+		$node->process_sse_chunk( self::connected_frame( 'SLOT 7 OWNER 42424243' ) );
 
-			$this->assertSame( [], $seen, "no cursor from '{$extra}'" );
-			$this->assertTrue( $node->connection()['connected'], 'an older spoke sends no CURSORS' );
-			$node->remove_node();
-			$sink->remove_node();
-		}
+		$this->assertSame( [], $seen );
+		$this->assertTrue( $node->connection()['connected'], 'an older spoke sends no CURSORS' );
 	}
 
 	public function test_a_connected_handshake_needs_no_process_pid(): void {
@@ -350,7 +359,7 @@ class SseInTest extends TestCase {
 	}
 
 	public function test_unparseable_lines_frames_accumulate_across_a_reconnect(): void {
-		[ $node, $sink ] = $this->configured_node();
+		[ $node, $sink ] = $this->streaming_node();
 		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
@@ -366,16 +375,16 @@ class SseInTest extends TestCase {
 		$this->assertCount( 0, $sink->captured, 'a bookkeeping frame is never delivered' );
 	}
 
-	public function test_unparseable_lines_frame_hands_the_patron_its_own_dirs_cursor(): void {
+	public function test_unparseable_lines_frame_hands_the_patron_every_cursor(): void {
 		[ $node ] = $this->configured_node();
 		$seen             = [];
-		$node->on_skipped = static function ( int $segment, int $offset ) use ( &$seen ): void {
-			$seen[] = [ $segment, $offset ];
+		$node->on_skipped = static function ( array $cursors ) use ( &$seen ): void {
+			$seen[] = $cursors;
 		};
 
 		$node->process_sse_chunk( self::unparseable_frame( 'COUNT 1 CURSORS other.p3=1:2,firehose.p0=11647:2210' ) );
 
-		$this->assertSame( [ [ 11647, 2210 ] ], $seen );
+		$this->assertSame( [ [ 'other.p3' => [ 'segment' => 1, 'offset' => 2 ], 'firehose.p0' => [ 'segment' => 11647, 'offset' => 2210 ] ] ], $seen );
 	}
 
 	public function test_a_malformed_unparseable_lines_frame_is_an_error_and_counts_nothing(): void {
@@ -417,7 +426,7 @@ class SseInTest extends TestCase {
 	}
 
 	public function test_reconnect_resets_last_sse_heartbeat_to_null(): void {
-		[ $node ] = $this->configured_node();
+		[ $node ] = $this->streaming_node();
 		Core::$now = 1748960000;
 		$node->process_sse_chunk( "event: heartbeat\ndata: {}\n\n" );
 		$this->assertSame( 1748960000, $node->connection()['last_sse_heartbeat'] );
@@ -438,7 +447,7 @@ class SseInTest extends TestCase {
 	}
 
 	public function test_connection_exposes_actual_attempt_time(): void {
-		[ $node ] = $this->configured_node();
+		[ $node ] = $this->streaming_node();
 		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
@@ -454,7 +463,7 @@ class SseInTest extends TestCase {
 		// A disconnected multi has no fd; leaving it registered spins curl_multi_select
 		// during reconnect backoff. Disconnect must unregister.
 		Event_Framework::reset();
-		[ $node ] = $this->configured_node();
+		[ $node ] = $this->streaming_node();
 		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
@@ -475,7 +484,7 @@ class SseInTest extends TestCase {
 		// After detach_handle unregisters, a reconnect must re-register — else a
 		// base Remote_Link channel reconnects but is never serviced.
 		Event_Framework::reset();
-		[ $node ] = $this->configured_node();
+		[ $node ] = $this->streaming_node();
 		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ): \CurlHandle {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
@@ -510,50 +519,44 @@ class SseInTest extends TestCase {
 		$this->assertCount( 1, $captured );
 	}
 
-	public function test_restore_position_then_connect_carries_positions_and_subscribe(): void {
+	public function test_streams_states_every_subscription_and_its_position(): void {
 		[ $node ] = $this->configured_node();
-		$node->restore_position( 5, 10 );
+		$node->streams(
+			[ 'firehose.p3', 'sources/php', 'errors.*' ],
+			[ 'firehose.p3' => [ 'segment' => 41, 'offset' => 9077 ], 'sources/php' => [ 'offset' => 613 ], 'errors.p2' => 'skip' ]
+		);
 
-		$captured = [];
-		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
-			$captured[] = $opts;
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
-			return \curl_init();
-		};
+		$query = $this->connect_and_read_query( $node );
 
-		$this->assertTrue( $node->maybe_connect() );
-		$url = $captured[0][ \CURLOPT_URL ];
-		$this->assertStringContainsString( 'subscribe=' . \rawurlencode( 'firehose.p0' ), $url );
-		\parse_str( (string) \parse_url( $url, PHP_URL_QUERY ), $query );
-		// Flat `{ <concrete-dir>: {seg,off} }` — the subscription IS the dir name
-		// (`open_subscription` seeds `$positions[$dir]`), not a nested topic→index.
-		$positions = \json_decode( $query['positions'], true );
-		$this->assertSame( 5, $positions['firehose.p0']['segment'] );
-		$this->assertSame( 10, $positions['firehose.p0']['offset'] );
+		$this->assertSame( 'firehose.p3,sources/php,errors.*', $query['subscribe'] );
+		$this->assertSame(
+			[ 'firehose.p3' => [ 'segment' => 41, 'offset' => 9077 ], 'sources/php' => [ 'offset' => 613 ], 'errors.p2' => 'skip' ],
+			\json_decode( $query['positions'], true )
+		);
 	}
 
-	public function test_the_patron_is_told_before_a_request_takes_its_position(): void {
+	public function test_the_patron_states_the_streams_just_before_the_request(): void {
 		[ $node ] = $this->configured_node();
-		$node->restore_position( 5, 10 );
-		$calls              = 0;
+		$node->streams( [ 'firehose.p3' ], [ 'firehose.p3' => [ 'segment' => 5, 'offset' => 10 ] ] );
+		$calls               = 0;
 		$node->on_connecting = static function () use ( $node, &$calls ): void {
 			++$calls;
-			$node->restore_position( 6, 606 );
-		};
-		$captured = [];
-		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
-			$captured[] = $opts;
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
-			return \curl_init();
+			$node->streams( [ 'jobstats.p1' ], [ 'jobstats.p1' => [ 'segment' => 6, 'offset' => 606 ] ] );
 		};
 
-		$this->assertTrue( $node->maybe_connect() );
+		$query = $this->connect_and_read_query( $node );
+
+		$this->assertSame( 'jobstats.p1', $query['subscribe'] );
+		$this->assertSame( [ 'jobstats.p1' => [ 'segment' => 6, 'offset' => 606 ] ], \json_decode( $query['positions'], true ) );
 		$this->assertFalse( $node->maybe_connect(), 'a handle is already open' );
-
-		\parse_str( (string) \parse_url( $captured[0][ \CURLOPT_URL ], PHP_URL_QUERY ), $query );
-		$positions = \json_decode( $query['positions'], true );
-		$this->assertSame( [ 'segment' => 6, 'offset' => 606 ], $positions['firehose.p0'] );
 		$this->assertSame( 1, $calls, 'told once, for the one request made' );
+	}
+
+	public function test_a_connect_with_no_stream_stated_opens_nothing(): void {
+		[ $node ] = $this->configured_node();
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static fn ( array $opts ): \CurlHandle => $this->fail( 'no request without a stream' );
+
+		$this->assertFalse( $node->maybe_connect() );
 	}
 
 	public function test_connect_states_the_tail_seek_instead_of_omitting_it(): void {
@@ -562,6 +565,7 @@ class SseInTest extends TestCase {
 		// spoke seeked to `end`, skipping its whole backlog. The seek now rides as
 		// Tachikoma's -1.
 		[ $node ] = $this->configured_node();
+		$node->streams( [ 'firehose.p0' ], [ 'firehose.p0' => Consumer_Node::SEEK_END ] );
 
 		$captured = [];
 		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
@@ -578,7 +582,7 @@ class SseInTest extends TestCase {
 
 	public function test_connect_carries_a_restored_start_of_log_position(): void {
 		[ $node ] = $this->configured_node();
-		$node->restore_position( 0, 0 );
+		$node->streams( [ 'firehose.p0' ], [ 'firehose.p0' => [ 'segment' => 0, 'offset' => 0 ] ] );
 
 		$captured = [];
 		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
@@ -600,7 +604,7 @@ class SseInTest extends TestCase {
 	public function test_connect_asks_the_remote_to_read_a_shared_log_with_seal_grace(): void {
 		// The read happens on the far side, so the grace can only be requested
 		// at connect time — there is no other channel into that Consumer.
-		[ $node ] = $this->configured_node();
+		[ $node ] = $this->streaming_node();
 		$node->set_multi_writer( true );
 
 		$captured = [];
@@ -616,7 +620,7 @@ class SseInTest extends TestCase {
 	}
 
 	public function test_connect_omits_multi_writer_for_a_single_writer_source(): void {
-		[ $node ] = $this->configured_node();
+		[ $node ] = $this->streaming_node();
 
 		$captured = [];
 		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
@@ -635,7 +639,8 @@ class SseInTest extends TestCase {
 		$node->name( 'sse-in' );
 		$sink = new Capture_Sink_Node();
 		$node->sink( $sink );
-		$node->configure( 'http://austin.example', 'u', 'p', '', 'firehose.p0', [], [], true );
+		$node->configure( 'http://austin.example', 'u', 'p', '', [], true );
+		$node->streams( [ 'firehose.p0' ], [ 'firehose.p0' => Consumer_Node::SEEK_END ] );
 
 		$captured = [];
 		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {

@@ -459,8 +459,8 @@ class Remote_Link_Node extends Timer_Node {
 			return null;
 		}
 
-		// Restore the cursor before connect so it seeds SSE_In.
-		$restored = $this->restore_position();
+		// Restore the cursor before connect, so the first request carries it.
+		$this->restore_position();
 
 		$sse = new SSE_In_Node();
 		$sse->patron( $this );
@@ -468,13 +468,15 @@ class Remote_Link_Node extends Timer_Node {
 		$sse->on_message = function ( string $raw ): void {
 			$this->deliver_downstream( $raw );
 		};
+		$sse->on_connecting = function () use ( $sse ): void {
+			[ $subscribe, $positions ] = $this->stream_request();
+			$sse->streams( $subscribe, $positions );
+		};
 		$sse->configure(
 			$url,
 			Core::as_string( $entry['auth_username'] ?? '' ),
 			Core::as_string( $entry['auth_password'] ?? '' ),
 			Core::as_string( $entry['token'] ?? '' ),
-			"{$this->remote_partition}",
-			$restored,
 			Vault::tls_opts(),
 			Vault::require_ssl()
 		);
@@ -530,12 +532,22 @@ class Remote_Link_Node extends Timer_Node {
 	}
 
 	/**
-	 * Initial SSE_In cursor. Base seeds none; Remote_Source restores its offsetlog.
+	 * Initial cursor. Base seeds none; Remote_Source restores its offsetlog.
 	 *
-	 * @return array{segment?:int,offset?:int}
+	 * @return array{segment?:int,offset?:int} The seeded cursor, or [] when none.
 	 */
 	protected function restore_position(): array {
 		return [];
+	}
+
+	/**
+	 * What the next connect asks for: the channel tails its one partition.
+	 * Remote_Source answers for its readers instead.
+	 *
+	 * @return array{0:list<string>,1:array<string,array{segment?:int,offset:int}|int|string>} Subscriptions, then per-stamp positions.
+	 */
+	protected function stream_request(): array {
+		return [ [ $this->remote_partition ], [ $this->remote_partition => Consumer_Node::SEEK_END ] ];
 	}
 
 	/**

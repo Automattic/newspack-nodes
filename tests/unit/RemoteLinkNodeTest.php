@@ -149,6 +149,22 @@ class RemoteLinkNodeTest extends TestCase {
 		);
 	}
 
+	public function test_the_base_channel_tails_its_one_partition(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$asked = [];
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ) use ( &$asked ): \CurlHandle {
+			\parse_str( (string) \parse_url( Core::as_string( $opts[ \CURLOPT_URL ] ), PHP_URL_QUERY ), $query );
+			$asked[] = $query;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+		[ $node ] = $this->make_link( 'link-quokka', [ 'austin', 'ledger.p4' ] );
+		$node->connect();
+
+		$this->assertSame( 'ledger.p4', $asked[0]['subscribe'] );
+		$this->assertSame( [ 'ledger.p4' => \Newspack_Nodes\Consumer_Node::SEEK_END ], \json_decode( $asked[0]['positions'], true ) );
+	}
+
 	public function test_the_stream_carries_the_vaults_tls_opts(): void {
 		$this->use_base_dir( $this->make_temp_dir(), [ 'vault_verify_ssl' => false ] );
 		$this->seed_vault();
@@ -206,7 +222,8 @@ class RemoteLinkNodeTest extends TestCase {
 		$this->assertInstanceOf( SSE_In_Node::class, $sse );
 		$this->assertSame( 'https://austin.example', $this->read_private( $sse, 'url' ) );
 		$this->assertSame( 'u', $this->read_private( $sse, 'auth_username' ) );
-		$this->assertSame( 'firehose.p0', $this->read_private( $sse, 'subscribe' ) );
+		( $sse->on_connecting )();
+		$this->assertSame( [ 'firehose.p0' ], $this->read_private( $sse, 'subscribe' ) );
 		// SSE_In reads neither: delivery is its `on_message` seam, and THIS
 		// node unpacks, stamps and fills its own sink.
 		$this->assertNull( $sse->sink() );
