@@ -167,7 +167,7 @@ trait Durable_Reader {
 	private function rebuild_offsetlog( string $dir ): ?Partition_Node {
 		$from = $this->offsetlog?->partition_dir();
 		if ( null !== $from ) {
-			$this->commit_premove_frame();
+			$this->commit_healthy_frame();
 		}
 		$this->retract_sibling( 'offsetlog' );
 		$this->offsetlog = null;
@@ -192,18 +192,21 @@ trait Durable_Reader {
 	}
 
 	/**
-	 * Commit the cursor the reader holds into the incumbent before a move,
-	 * through `write_checkpoint_frame()`, which writes to the sidecar still in
-	 * place. Graceful while the reader is healthy, as a graceful stop would
-	 * be, so a move adds no strike on restore; a reader crawling, or still on
-	 * the cursor it booted on with a strike against it, keeps its lineage.
+	 * Commit the cursor as a graceful frame when the reader is `healthy()`, as
+	 * a non-graceful one otherwise, so a move or a stop adds no strike for a
+	 * healthy reader and a crawling or struck one keeps its lineage. A reader
+	 * that never polled and was never seeked holds no cursor worth writing.
 	 */
-	private function commit_premove_frame(): void {
+	protected function commit_healthy_frame(): void {
 		if ( ! $this->poll_initialized && ! $this->offset_set ) {
 			return;
 		}
-		$healthy = ! $this->crawl && ( $this->attempts <= 1 || $this->cursor_advanced_since_boot() );
-		$this->write_checkpoint_frame( $healthy, true );
+		$this->write_checkpoint_frame( $this->healthy(), true );
+	}
+
+	/** True while the reader holds no strike: at most the first attempt, and not crawling. */
+	protected function healthy(): bool {
+		return $this->attempts <= 1 && ! $this->crawl;
 	}
 
 	/**
