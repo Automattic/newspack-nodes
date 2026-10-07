@@ -83,6 +83,9 @@ class Remote_Source_Node extends Remote_Link_Node {
 	/** @var list<array{source:string,target:string}> The pairs this broker carries, in declaration order. */
 	private array $pairs = [];
 
+	/** The worker partition this broker runs in, bound at load as Table_Node binds it; null outside a worker, which publishes no status. */
+	private ?int $bound_partition = null;
+
 	/** @var array<string,Remote_Consumer_Node> The readers, by stamp, in the order they were built. */
 	private array $consumers = [];
 
@@ -131,10 +134,11 @@ class Remote_Source_Node extends Remote_Link_Node {
 		if ( [] === $pairs ) {
 			throw new \InvalidArgumentException( 'Remote_Source: name at least one <source>:<target> pair' );
 		}
-		$previous         = $this->pairs;
-		$parsed           = parent::arguments( $args );
-		$this->pairs      = $pairs;
-		$this->glob_kinds = null;
+		$previous              = $this->pairs;
+		$parsed                = parent::arguments( $args );
+		$this->bound_partition = \array_key_exists( 'partition', Core::$var ) ? Core::canonical_decimal( Core::$var['partition'] ) : null;
+		$this->pairs           = $pairs;
+		$this->glob_kinds      = null;
 		foreach ( $this->consumers as $stamp => $child ) {
 			$pair = $this->pair_for( $stamp );
 			if ( null === $pair ) {
@@ -273,6 +277,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 			$data['last_heartbeat_response'] = null;
 			$data['last_heartbeat_rtt']      = null;
 		}
+		$data['streams'] = \array_map( static fn ( Remote_Consumer_Node $child ): array => $child->stream_status(), $this->consumers );
 		$this->write_status( $data );
 	}
 
@@ -283,10 +288,10 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 */
 	private function write_status( array $data ): void {
 		$cache = Cache_Backend::shared_first();
-		if ( null === $cache ) {
+		if ( null === $cache || null === $this->bound_partition ) {
 			return;
 		}
-		$key      = $this->status_key();
+		$key      = self::status_key_for( $this->name, $this->bound_partition );
 		$existing = $cache->get( $key );
 		if ( ! \is_array( $existing ) ) {
 			$existing = [];
@@ -294,24 +299,18 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$cache->set( $key, \array_merge( $existing, $data ), self::STATUS_TTL );
 	}
 
-	/** This node's own status-snapshot key. */
-	private function status_key(): string {
-		return self::status_key_for( $this->name, $this->remote_partition );
-	}
-
 	/**
-	 * The cache key one Remote_Source publishes its status snapshot under.
+	 * The cache key one broker publishes its status snapshot under: by NODE
+	 * NAME, so two spokes do not collide; by worker PARTITION, because the same
+	 * broker line runs once per partition; site-scoped, so two hubs naming a
+	 * spoke alike do not either. Public because Aggregator_CI resolves the
+	 * writer's exact key through it.
 	 *
-	 * Keyed by NODE NAME first, so two spokes on the same partition do not collide, and
-	 * site-scoped, so two HUBS naming a spoke alike do not either. Public because the reader
-	 * (Aggregator_CI) resolves the writer's exact key through this method rather than
-	 * spelling the shape a second time.
-	 *
-	 * @param string $name      The publishing node's name.
-	 * @param string $partition The spoke partition it pulls.
+	 * @param string $name      The broker's name.
+	 * @param int    $partition The worker partition it runs in.
 	 */
-	public static function status_key_for( string $name, string $partition ): string {
-		return Cache_Backend::site_key( "remote:{$name}:{$partition}" );
+	public static function status_key_for( string $name, int $partition ): string {
+		return Cache_Backend::site_key( "remote:{$name}:p{$partition}" );
 	}
 
 	/**

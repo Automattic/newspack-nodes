@@ -131,9 +131,8 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	 *
 	 * Discovery covers every active topology, since an operator wires spokes
 	 * into whatever topology suits and the substrate names none. Each
-	 * `Remote_Source` found names its Vault id and `remote_partition` template
-	 * in the graph, and the row that comes out reads that node's
-	 * status snapshot for every configured partition. The spoke URL comes from
+	 * `Remote_Source` found names its Vault id; the row reads that broker's
+	 * snapshot for every worker partition. The spoke URL comes from
 	 * the `Vault` singleton, keyed by that Vault id.
 	 *
 	 * Reads go through `Cache_Backend::shared_first()`, and a miss yields an
@@ -154,7 +153,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 		// An operator wires spokes into ANY active topology.
 		foreach ( $readable as $topology => $entry ) {
 			$topology = Core::as_string( $topology );
-			// The remote_partition token fans across the partition count.
+			// One broker runs per worker partition.
 			$num_partitions = Bootstrap::partitions_of( $entry );
 			foreach ( Topology_Analyzer::nodes_of_type( $topology, Remote_Source_Node::class ) as $node ) {
 				$name_v = $node['name'] ?? '';
@@ -163,13 +162,11 @@ class Aggregator_CI_Node extends Service_CI_Node {
 					continue;
 				}
 				$vault_id = Core::as_string( $node['vault_id'] ?? '' );
-				$template = Core::as_string( $node['remote_partition'] ?? '' );
 
 				// The writer builds this key too; the two cannot drift.
 				$partitions = [];
 				for ( $p = 0; $p < $num_partitions; $p++ ) {
-					$key              = Remote_Source_Node::status_key_for( $name, Core::resolve_partition_template( $template, $p ) );
-					$partitions[ $p ] = Core::arr( Cache_Backend::shared_first()?->get( $key ) );
+					$partitions[ $p ] = Core::arr( Cache_Backend::shared_first()?->get( Remote_Source_Node::status_key_for( $name, $p ) ) );
 				}
 
 				$entry = '' !== $vault_id ? $registry->get( $vault_id ) : null;

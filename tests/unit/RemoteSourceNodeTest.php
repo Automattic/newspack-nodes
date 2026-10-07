@@ -33,7 +33,8 @@ class RemoteSourceNodeTest extends TestCase {
 		parent::setUp();
 		$this->base_dir = $this->make_temp_dir();
 		$this->use_base_dir( $this->base_dir );
-		Core::$memd = new InMemoryMemcached();
+		Core::$memd             = new InMemoryMemcached();
+		Core::$var['partition'] = '0';
 		// A live graph always has _router: the readers route through it.
 		( new Router_Node() )->name( '_router' );
 		// The tick housekeeps once per wall-second; start on a known one.
@@ -41,6 +42,7 @@ class RemoteSourceNodeTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
+		unset( Core::$var['partition'] );
 		Command_Auth::forget_session( 'austin' );
 		Core::$memd                = null;
 		\Newspack_Nodes\Event_Framework::$curl_dispatch = null;
@@ -101,7 +103,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 	/** The status snapshot the broker publishes under its own key. */
 	private function status_of( Remote_Source_Node $node ): mixed {
-		return Core::$memd->get( ( new \ReflectionMethod( $node, 'status_key' ) )->invoke( $node ) );
+		return Core::$memd->get( Remote_Source_Node::status_key_for( $node->name(), Core::int( $this->read_private( $node, 'bound_partition' ) ) ) );
 	}
 
 	// ---------------------------------------------------------------------
@@ -1314,6 +1316,62 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertArrayHasKey( 'current_backoff', $status );
 		$this->assertArrayHasKey( 'last_connection_attempt', $status );
 		$this->assertArrayHasKey( 'last_sse_heartbeat', $status );
+	}
+
+	public function test_status_is_keyed_by_broker_and_worker_partition_and_names_each_stream(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		Core::$var['partition'] = '3';
+		try {
+			[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p3:downstream', 'sources/php:downstream' ) );
+			Core::node( 'remote-austin:firehose.p3' )->next_offset( [ 'segment' => 12, 'offset' => 7311 ] );
+			Core::$now = 8000.0;
+			$node->fire();
+		} finally {
+			Core::$var['partition'] = '0';
+		}
+
+		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 3 ) );
+		$this->assertSame( '12:7311', $status['streams']['firehose.p3']['cursor'] );
+		$this->assertSame( 'ACTIVE', $status['streams']['sources/php']['polling'] );
+		$this->assertFalse( Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 0 ) ) );
+	}
+
+	public function test_a_segmentless_cursor_and_a_paused_reader_publish_as_they_stand(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:downstream', 'sources/php:downstream' ) );
+		Core::node( 'remote-austin:sources:php' )->next_offset( [ 'offset' => 40913 ] );
+		Core::node( 'remote-austin:firehose.p0' )->pause();
+		Core::$now = 8100.0;
+		$node->fire();
+
+		$streams = $this->status_of( $node )['streams'];
+		$this->assertSame( ':40913', $streams['sources/php']['cursor'] );
+		$this->assertSame( 'PAUSED', $streams['firehose.p0']['polling'] );
+	}
+
+	public function test_status_keeps_publishing_while_every_reader_is_paused(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node, $reader ] = $this->make_remote();
+		$reader->pause();
+		Core::$now = 8200.0;
+		$node->fire();
+		$reader->next_offset( [ 'segment' => 31, 'offset' => 6602 ] );
+		Core::$now = 8201.0;
+		$node->fire();
+
+		$this->assertSame( '31:6602', $this->status_of( $node )['streams']['firehose.p0']['cursor'] );
+	}
+
+	public function test_a_broker_with_no_worker_partition_publishes_no_status(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		unset( Core::$var['partition'] );
+		[ $node ] = $this->make_remote();
+		Core::$now = 8300.0;
+		$node->fire();
+
+		for ( $p = 0; $p < 4; $p++ ) {
+			$this->assertFalse( Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', $p ) ) );
+		}
 	}
 
 	public function test_publish_status_noop_when_no_cache(): void {

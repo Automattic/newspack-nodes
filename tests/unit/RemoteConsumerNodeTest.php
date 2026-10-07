@@ -336,6 +336,29 @@ class RemoteConsumerNodeTest extends TestCase {
 		$this->assertSame( [ 'segment' => 7, 'offset' => 41 ], $node->connect_position() );
 	}
 
+	public function test_a_reader_reports_no_cursor_until_it_holds_one(): void {
+		$reader = new Remote_Consumer_Node();
+		$reader->name( 'remote-austin:firehose.p0' );
+		$reader->arguments( [ 'firehose.p0', "{$this->base_dir}/o", "{$this->base_dir}/d" ] );
+
+		$this->assertNull( $reader->stream_status()['cursor'] );
+
+		$reader->next_offset( [ 'segment' => 47, 'offset' => 3318 ] );
+
+		$this->assertSame( '47:3318', $reader->stream_status()['cursor'] );
+		$this->assertSame( '47:3318', $reader->cursor_position() );
+	}
+
+	public function test_a_reader_standing_at_zero_reports_it(): void {
+		$reader = new Remote_Consumer_Node();
+		$reader->name( 'remote-austin:firehose.p0' );
+		$reader->arguments( [ 'firehose.p0', "{$this->base_dir}/o", "{$this->base_dir}/d" ] );
+		$reader->skip_to( [ 'segment' => 0, 'offset' => 0 ] );
+		( new \ReflectionMethod( $reader, 'pass_skipped_lines' ) )->invoke( $reader );
+
+		$this->assertSame( '0:0', $reader->stream_status()['cursor'] );
+	}
+
 	public function test_a_handshake_naming_no_segment_invents_none(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		[ , $node ] = $this->make_remote();

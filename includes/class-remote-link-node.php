@@ -191,6 +191,7 @@ class Remote_Link_Node extends Timer_Node {
 		}
 		$this->last_housekeeping_s = $now_s;
 		if ( ! $this->should_connect() ) {
+			$this->publish_status();
 			return;
 		}
 		$sse = $this->ensure_patrons();
