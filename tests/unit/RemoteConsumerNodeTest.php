@@ -6,11 +6,13 @@ use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Event_Framework;
+use Newspack_Nodes\Log_Sources;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Remote_Consumer_Node;
 use Newspack_Nodes\Remote_Source_Node;
+use Newspack_Nodes\Rest\SSE_Out_Node;
 use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\SSE_In_Node;
 use Newspack_Nodes\Vault;
@@ -74,6 +76,7 @@ class RemoteConsumerNodeTest extends TestCase {
 
 	protected function tearDown(): void {
 		Command_Auth::forget_session( 'austin' );
+		Log_Sources::$builtin_sources = null;
 		Core::$memd                = null;
 		\Newspack_Nodes\Event_Framework::$curl_dispatch = null;
 		// The SSE_In patrons register easy cURL handles on the process-lifetime
@@ -344,6 +347,56 @@ class RemoteConsumerNodeTest extends TestCase {
 
 		$this->assertSame( [ 'offset' => 6331 ], $node->connect_position(), 'an unknown generation is never segment 0' );
 		$this->assertNotSame( 0, $this->read_private( $node, 'cursor_segment' ) );
+	}
+
+	public function test_a_file_source_resumes_from_a_segmentless_cursor_without_replay(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$path = "{$this->base_dir}/php-error-6230.log";
+		\file_put_contents( $path, "line-one\nline-two\n" );
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
+		$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'sources/php:downstream' ) );
+		$reader = Core::node( 'remote-austin:sources:php' );
+
+		// The spoke's handshake named no generation: `:<offset>`.
+		$reader->next_offset( Consumer_Node::SEEK_END );
+		$this->handshake( Core::node( 'remote-austin:sse-in' ), 'sources/php=:18' );
+		$asked = $reader->connect_position();
+		$this->assertSame( [ 'offset' => 18 ], $asked, 'no segment invented for an unknown generation' );
+
+		// The reopen the spoke would open from that position replays nothing.
+		$tail = ( new SSE_Out_Node() )->open_subscription( 'sources/php', [ 'sources/php' => $asked ] )[0];
+		$cap  = new Capture_Sink_Node();
+		$tail->sink( $cap );
+		for ( $i = 0; $i < 5; $i++ ) {
+			$tail->poll();
+		}
+		$this->assertSame( [], $cap->captured, 'the reopen must not replay the file' );
+	}
+
+	public function test_an_unknown_generation_writes_no_checkpoint(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'sources/php:downstream' ) );
+		$reader = Core::node( 'remote-austin:sources:php' );
+		$reader->next_offset( Consumer_Node::SEEK_END );
+		$this->handshake( Core::node( 'remote-austin:sse-in' ), 'sources/php=:42' );
+
+		$reader->checkpoint( true );
+
+		$this->assertSame( 0, $this->count_offsetlog_records( $reader ), 'segment 0 would name a foreign inode on restore' );
+	}
+
+	public function test_the_first_record_names_the_generation(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'sources/php:downstream' ) );
+		$reader = Core::node( 'remote-austin:sources:php' );
+		$sse    = Core::node( 'remote-austin:sse-in' );
+		$reader->next_offset( Consumer_Node::SEEK_END );
+		$this->handshake( $sse, 'sources/php=:42' );
+		$sse->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => 'sources/php', Message::ID => '558213:42:30', Message::VALUE => "PHP Warning: 7741\n" ] ) );
+
+		$reader->fire_cb();
+
+		$this->assertSame( [ 'segment' => 558213, 'offset' => 72 ], $reader->connect_position() );
 	}
 
 	public function test_a_reconnect_the_spoke_forced_asks_past_what_is_buffered(): void {
