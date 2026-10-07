@@ -757,12 +757,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 					'toggle'      => 'multi_writer',
 				],
 				[
-					'name'        => 'set_assume_clean_shutdown',
+					...Remote_Consumer_Node::pump_verbs()[0],
 					'description' => 'Treat a plain Worker_Should_Stop like Worker_Should_Stop_Clean in every reader — commit PAST the in-flight message on a cooperative stop instead of replaying it. For a durable-before-stop chain with no snapshot node (aggregator, Consumer→Partition, job-router). Only a true word enables.',
-					'args'        => [
-						[ 'name' => 'enabled', 'type' => 'bool', 'required' => false, 'description' => '1, true, yes or on enables; 0, false, no or off disables; any other word is refused.' ],
-					],
-					'toggle'      => 'assume_clean_shutdown',
 				],
 			],
 		] );

@@ -460,7 +460,7 @@ class Remote_Consumer_Node extends Timer_Node {
 	 * dead-letters the message ON SIGHT and marks the record disposed, so the drain loop
 	 * advances past it with no head-block and no fair-shot climb; that climb is reserved for
 	 * the hard-crash lineage and its crawl. A Worker_Should_Stop escapes as
-	 * `settle_forward_stop()` settles it. When that is clean the drain commits past the record
+	 * `fill_sink()` settles it. When that is clean the drain commits past the record
 	 * by its crumb's length; a crumbless record has no position of its own, so that length is
 	 * zero and the cursor stays where the spoke will resume.
 	 *
@@ -469,8 +469,7 @@ class Remote_Consumer_Node extends Timer_Node {
 	 *                           source places records from the crumb instead.
 	 */
 	protected function forward_line( string $line, int $abs_offset ): void {
-		$sink = $this->sink;
-		if ( null === $sink ) {
+		if ( null === $this->sink ) {
 			throw new \RuntimeException( 'Remote_Consumer relay requires a wired sink' );
 		}
 		$this->largest_msg_sent = \max( $this->largest_msg_sent, \strlen( $line ) + 1 );
@@ -493,24 +492,14 @@ class Remote_Consumer_Node extends Timer_Node {
 			// Pre-dispatch pin: commit start before fill (crash resumes here).
 			$this->write_checkpoint_frame( false, true );
 		}
-		try {
-			$sink->fill( $message );
-			++$this->counter;
-			// Clear streak on forward itself (cursor at boot); not in crawl.
-			if ( ! $this->crawl && $this->attempts > 1 ) {
-				$this->reset_poison_streak();
-				$this->write_checkpoint_frame( true, true );
-			}
-		} catch ( Worker_Should_Stop $e ) {
-			$settled = $this->settle_forward_stop( $e );
-			if ( Worker_Should_Stop::is_clean( $settled ) ) {
-				// Forwarded before the stop, so it counts.
-				++$this->counter;
-			}
-			throw $settled;
-		} catch ( \Throwable $e ) {
-			$this->dead_letter( $message, 'throw', $e );
+		if ( ! $this->fill_sink( $message ) ) {
 			$this->disposed_record = true;
+			return;
+		}
+		// Clear streak on forward itself (cursor at boot); not in crawl.
+		if ( ! $this->crawl && $this->attempts > 1 ) {
+			$this->reset_poison_streak();
+			$this->write_checkpoint_frame( true, true );
 		}
 	}
 

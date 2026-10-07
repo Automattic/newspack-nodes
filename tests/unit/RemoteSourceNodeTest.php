@@ -438,7 +438,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 'I/O', $schema['category'] );
 		$this->assertArrayNotHasKey( 'hidden', $schema );
 		$this->assertSame( [ 'vault_id', 'offsetlog_root', 'deadletter_root' ], \array_column( $schema['arguments'], 'name' ) );
-		$this->assertSame( [ 'set_multi_writer', 'set_assume_clean_shutdown' ], \array_column( $schema['commands'], 'name' ) );
+		$this->assertSame( [ 'set_multi_writer', 'assume_clean_shutdown' ], \array_column( $schema['commands'], 'name' ) );
 	}
 
 	/**
@@ -1068,12 +1068,12 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		[ $node, $child ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:downstream', 'errors.*:audit-31' ) );
 
-		$this->read_private( $node, 'interpreter' )->dispatch( 'set_assume_clean_shutdown', [ 'true' ] );
+		$this->read_private( $node, 'interpreter' )->dispatch( 'assume_clean_shutdown', [ 'true' ] );
 		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => 'errors.p4', Message::ID => '2:0:9', Message::VALUE => 'late-3141' ] ) );
 
 		$this->assertTrue( $this->read_private( $child, 'assume_clean_shutdown' ) );
 		$this->assertTrue( $this->read_private( Core::node( 'remote-austin:errors.p4' ), 'assume_clean_shutdown' ), 'a reader built later takes it too' );
-		$this->assertStringContainsString( 'command_node remote-austin:config set_assume_clean_shutdown true', $node->dump_config() );
+		$this->assertStringContainsString( 'command_node remote-austin:config assume_clean_shutdown true', $node->dump_config() );
 	}
 
 	// ---------------------------------------------------------------------

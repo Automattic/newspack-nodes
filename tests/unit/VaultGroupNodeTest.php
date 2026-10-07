@@ -328,9 +328,9 @@ final class VaultGroupNodeTest extends TestCase {
 		$base    = \rtrim( Config::get_base_directory(), '/' );
 		$ci      = new Command_Interpreter_Node();
 		$group   = $ci->make_node( 'Vault_Group', 'pull', 'Remote_Source', 'tw-edge', "{$offsets}/pull.{id}", "{$base}/deadletter/pull.{id}", 'firehose.p0:downstream' );
-		$answers = $group->interpreter()->dispatch( 'set_assume_clean_shutdown', [ 'true' ] );
+		$answers = $group->interpreter()->dispatch( 'assume_clean_shutdown', [ 'true' ] );
 		$this->assertSame( [ 'pull:tw0', 'pull:tw9' ], \array_keys( $answers ) );
-		$this->assertStringContainsString( "command_node pull:config set_assume_clean_shutdown true\n", $group->dump_config() );
+		$this->assertStringContainsString( "command_node pull:config assume_clean_shutdown true\n", $group->dump_config() );
 		$group->interpreter()->dispatch( 'set_multi_writer', [ 'true' ] );
 		$this->assertStringContainsString( "command_node pull:config set_multi_writer true\n", $group->dump_config() );
 	}
