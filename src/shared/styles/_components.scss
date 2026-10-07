@@ -902,6 +902,18 @@
 	outline-offset: -2px;
 }
 
+$ask-picked-tint: color-mix(in srgb, var(--np-accent, #003da5) 18%, transparent);
+
+// @longform A pick fills as well as rings, so a picked row reads as one row.
+// The fill is an image because a row paints its own tint inline as
+// `background-color`. The page box is left out: its fill shows behind every
+// child, so a picked page shows on its ring instead.
+:where(html).newspack-nodes-asking [data-ask-picked]:not([data-ask-page]) {
+	outline: 2px solid var(--np-accent, #003da5);
+	outline-offset: -2px;
+	background-image: linear-gradient($ask-picked-tint, $ask-picked-tint);
+}
+
 // The page ring, mounted at body level while the picker is armed. It is an
 // overlay rather than an outline because an outline on the page box is painted
 // over by that box's own children — measured, not assumed — and a layer above
@@ -913,4 +925,8 @@
 	outline-offset: -2px;
 	z-index: $layer-page-ring;
 	pointer-events: none;
+}
+
+.newspack-nodes-ask-ring[data-ask-picked] {
+	box-shadow: inset 0 0 0 6px $ask-picked-tint;
 }

@@ -2144,6 +2144,57 @@ describe( 'canonical appearance ownership', () => {
 		);
 	} );
 
+	// @longform A pick stands until the selection ends, so its mark persists
+	// where the hover ring comes and goes, and it fills as well as rings: a
+	// picked table row has to read as one row, not as the outlined cells
+	// Firefox draws for its own cell selection. The fill rides
+	// `background-image` because a row paints its own tint inline as
+	// `background-color`, which a stylesheet colour could not reach.
+	it( 'paints a picked element as a whole filled and ringed box', () => {
+		const ui = compile( UI_ENTRY );
+		const mark = declarationsForSelector(
+			ui,
+			':where(html).newspack-nodes-asking [data-ask-picked]:not([data-ask-page])'
+		);
+
+		expect( mark?.outline ).toBe(
+			declarationsForSelector(
+				ui,
+				':where(html).newspack-nodes-asking [data-ask]:not([data-ask-page]):hover'
+			).outline
+		);
+		expect( mark[ 'background-image' ] ).toMatch( /^linear-gradient\(/ );
+		expect( mark[ 'background-color' ] ).toBeUndefined();
+	} );
+
+	// @longform The page box is the one target that cannot wear the mark: its
+	// tint shows behind every child, so the whole dashboard reads as picked.
+	// A picked page shows on the ring that already stands for it, as a band
+	// inside the ring's own line.
+	it( 'shows a picked page on its ring, not as a tint over the page', () => {
+		const ui = compile( UI_ENTRY );
+		let unscoped = false;
+		ui.walkRules( ( rule ) => {
+			if (
+				rule.selectors.some(
+					( sel ) =>
+						sel.includes( '[data-ask-picked]' ) &&
+						! sel.includes( 'ask-ring' ) &&
+						! sel.includes( ':not([data-ask-page])' )
+				)
+			) {
+				unscoped = true;
+			}
+		} );
+		const ring = declarationsForSelector(
+			ui,
+			'.newspack-nodes-ask-ring[data-ask-picked]'
+		);
+
+		expect( unscoped ).toBe( false );
+		expect( ring?.[ 'box-shadow' ] ).toMatch( /^inset / );
+	} );
+
 	// @longform Scoped to our own UI, which is all that is ever askable: the
 	// shell wears these classes and every portal carries them out to the body.
 	// Forcing a cursor onto the whole admin document reached WordPress's
