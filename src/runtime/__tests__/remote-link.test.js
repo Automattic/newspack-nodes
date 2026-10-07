@@ -377,22 +377,14 @@ describe( 'RemoteLinkNode', () => {
 		expect( link.sseIn.positions ).toBeNull();
 	} );
 
-	it( 'routes the SseIn at an overridden endpoint (e.g. /log/stream) when endpoint is set', () => {
-		const { link } = makeLink( 'php' );
-		link.endpoint = 'newspack-nodes/v1/log/stream';
+	it( 'opens every stream on /messages/stream; no link carries an endpoint', () => {
+		const { link } = makeLink( 'sources/php' );
 		link.connect();
 		expect( FakeEventSource.last.url ).toContain(
-			'newspack-nodes/v1/log/stream?subscribe=php'
+			'newspack-nodes/v1/messages/stream?subscribe=sources%2Fphp'
 		);
-		expect( FakeEventSource.last.url ).not.toContain( 'messages/stream' );
-	} );
-
-	it( 'defaults the SseIn to the messages/stream endpoint when endpoint is unset', () => {
-		const { link } = makeLink( 'errors' );
-		link.connect();
-		expect( FakeEventSource.last.url ).toContain(
-			'newspack-nodes/v1/messages/stream?subscribe=errors'
-		);
+		expect( 'endpoint' in link ).toBe( false );
+		expect( 'endpoint' in link.sseIn ).toBe( false );
 	} );
 
 	it( 'points the shared Heartbeat at the workers CI via the shared `_http`', () => {

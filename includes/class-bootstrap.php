@@ -17,7 +17,6 @@ use Newspack_Nodes\Config_System\Restart_Planner;
 use Newspack_Nodes\Rest\Auth_Controller;
 use Newspack_Nodes\Rest\Health_Cache_Controller;
 use Newspack_Nodes\Rest\HTTP_In_Node;
-use Newspack_Nodes\Rest\Log_Stream_Out_Node;
 use Newspack_Nodes\Rest\SSE_Out_Node;
 use Newspack_Nodes\Rest\Spawn_Controller;
 
@@ -1025,7 +1024,6 @@ class Bootstrap {
 		( new Spawn_Controller( self::spawn_coordinator() ) )->register_routes();
 		( new Auth_Controller() )->register_routes();
 		( new SSE_Out_Node() )->register_routes();
-		( new Log_Stream_Out_Node() )->register_routes();
 		( new HTTP_In_Node() )->register_routes();
 	}
 

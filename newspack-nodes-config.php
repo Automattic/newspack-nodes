@@ -54,7 +54,7 @@ return [
     // command auth refuses, SSE slots fail closed, stats fail soft.
     // 'memcache_servers'           => [ '127.0.0.1:11211' ],
 
-    // Extra /log/stream and taillog sources, one 'name=/absolute/path' each.
+    // Extra registry log sources, one 'name=/absolute/path' each.
     // 'log_sources'                => [],
 
     // Fleet alerts, read live on every sweep. Consumer lag in bytes past which

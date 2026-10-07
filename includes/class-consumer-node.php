@@ -542,7 +542,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * number expresses every seek, so `0` is unambiguously the START of the log
 	 * rather than doubling as "no position given". The words are the aliases the
 	 * human-facing surfaces speak — `Log_Sources::MAGIC_POSITIONS`, which the
-	 * `taillog read` position grammar accepts — and `seek_sentinel()` resolves
+	 * `read_message` position grammar accepts — and `seek_sentinel()` resolves
 	 * them, so one behaviour stands behind both spellings. An exact resume keeps
 	 * the pair, because our Partition addresses a byte within a numbered segment
 	 * where Tachikoma's is absolute across the log.

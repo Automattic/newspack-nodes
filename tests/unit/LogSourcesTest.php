@@ -11,7 +11,8 @@ use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Tests\TestCase;
 
 /**
- * The shared log-source registry `cmd_taillog` and `/log/stream` both consume.
+ * The shared log-source registry behind `list_logs`, `dump_log`, `read_message`
+ * and the `sources/<name>` stream.
  *
  * Locks the {name => {path, mode}} entry shape and the three-family merge:
  * built-ins (file mode) → config `log_sources` (file mode) → active-topology
@@ -121,7 +122,6 @@ class LogSourcesTest extends TestCase {
 				'Bad Name=/var/log/x.log',
 				'rel=not/absolute',
 				'dots=/a/../b.log',
-				'sources=/var/log/reserved.log',
 				'keeper=/var/log/keeper-4471.log',
 			],
 		] );
@@ -240,14 +240,6 @@ class LogSourcesTest extends TestCase {
 		$this->assertSame( [ 'present-55.log' ], \array_keys( Log_Sources::registry() ) );
 	}
 
-	public function test_log_node_whose_derived_name_is_the_reserved_sources_word_is_skipped(): void {
-		Log_Sources::$builtin_sources = static fn (): array => [];
-		// writes-basename of the path arg resolves to the reserved word "sources".
-		$this->activate_topology( 'lsrc-reserved', "make_node Log s:log <config:logs_dir>/sources 1 2 7\n" );
-
-		$this->assertSame( [], Log_Sources::registry() );
-	}
-
 	public function test_log_node_with_a_relative_path_is_skipped(): void {
 		Log_Sources::$builtin_sources = static fn (): array => [];
 		// No leading '/' and no <ns:key> token to resolve — stays relative.
@@ -291,30 +283,7 @@ class LogSourcesTest extends TestCase {
 		);
 	}
 
-	public function test_tail_path_resolves_the_newest_segment_for_segmented_mode(): void {
-		// `taillog` tails a single FILE; for a segmented source that is the
-		// NEWEST {file}.{seg} (numeric, not lexical: 10 > 9).
-		\file_put_contents( "{$this->tmp}/seg-base.9", "old\n" );
-		\file_put_contents( "{$this->tmp}/seg-base.10", "new\n" );
-
-		$this->assertSame(
-			"{$this->tmp}/seg-base.10",
-			Log_Sources::tail_path( [ 'path' => "{$this->tmp}/seg-base", 'mode' => Tail_Node::MODE_SEGMENTED ] )
-		);
-	}
-
-	public function test_tail_path_passes_a_file_mode_path_through_and_nulls_a_bare_segmented_base(): void {
-		$this->assertSame(
-			'/var/log/direct-6120.log',
-			Log_Sources::tail_path( [ 'path' => '/var/log/direct-6120.log', 'mode' => Tail_Node::MODE_FILE ] )
-		);
-		$this->assertNull(
-			Log_Sources::tail_path( [ 'path' => "{$this->tmp}/no-segments", 'mode' => Tail_Node::MODE_SEGMENTED ] ),
-			'a segmented source with no segments on disk has nothing to tail'
-		);
-	}
-
-	// ── taillog (moved off Command_Interpreter_Node) ─────────────────────────
+	// ── catalog, footprint and the stepped read ──────────────────────────────
 
 	/** Write $count rows of $width chars (+ newline) to a fresh temp file. */
 	private function write_fixed_width_log( int $count, int $width ): string {
@@ -327,53 +296,22 @@ class LogSourcesTest extends TestCase {
 		return $path;
 	}
 
-	public function test_taillog_tails_the_last_bytes_and_drops_the_partial_first_line(): void {
-		// 40 rows x 60 bytes = 2400 bytes; a 1KB tail lands mid-row 22, so the
-		// first WHOLE row is 0023 — distinct from the 16KB default window.
-		$path = $this->write_fixed_width_log( 40, 59 );
-		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
-
-		$out = Log_Sources::taillog( [ 'php', '1' ] );
-
-		$this->assertStringStartsWith( 'evlog-line-0023', $out );
-		$this->assertStringNotContainsString( 'evlog-line-0000', $out );
-		$this->assertStringContainsString( 'evlog-line-0039', $out );
+	/** The stepped read `raw-logs read_message` drives, over one registry source. */
+	private function read_source( string $name, string $position ): array|string {
+		return Log_Sources::read_at( Log_Sources::open_reader( "sources/{$name}" ), "sources/{$name}", $position, 'read_message' );
 	}
 
-	public function test_taillog_no_source_lists_the_registry_with_availability(): void {
+	public function test_catalog_lists_each_source_keyed_by_its_stamp(): void {
 		$present = $this->write_fixed_width_log( 3, 59 );
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $present ];
-
-		$out = Log_Sources::taillog( [] );
-
-		$this->assertStringContainsString( 'SOURCE', $out );
-		$this->assertStringContainsString( 'AVAILABLE', $out );
-		$this->assertStringContainsString( $present, $out );
-		$this->assertStringContainsString( '180', $out, '3 rows x 60 bytes' );
-	}
-
-	public function test_taillog_sources_returns_a_struct_of_rows(): void {
-		$present = $this->write_fixed_width_log( 3, 59 );
-		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $present ];
-
-		$rows = Log_Sources::taillog( [ 'sources' ] );
 
 		$this->assertSame(
-			[
-				[
-					'name'      => 'php',
-					'path'      => $present,
-					'mode'      => 'file',
-					'available' => true,
-					'bytes'     => \filesize( $present ),
-					'segments'  => [],
-				],
-			],
-			$rows
+			[ [ 'key' => 'sources/php', 'label' => 'php', 'available' => true ] ],
+			Log_Sources::catalog()
 		);
 	}
 
-	public function test_taillog_sources_lists_a_segmented_sources_segments_sorted_by_id(): void {
+	public function test_footprint_lists_a_segmented_sources_segments_sorted_by_id(): void {
 		Log_Sources::$builtin_sources = static fn (): array => [];
 		$this->activate_topology(
 			'lsrc-segs',
@@ -386,9 +324,8 @@ class LogSourcesTest extends TestCase {
 		\file_put_contents( "{$base}.3", \str_repeat( 'a', 977 ) );
 		\file_put_contents( "{$base}.3.idx", 'not-a-segment' );
 
-		$rows = Log_Sources::taillog( [ 'sources' ] );
+		$footprint = Log_Sources::footprint( 'gate-decisions.jsonl' );
 
-		$this->assertCount( 1, $rows );
 		$this->assertSame(
 			[
 				[
@@ -400,13 +337,13 @@ class LogSourcesTest extends TestCase {
 					'size' => 233,
 				],
 			],
-			$rows[0]['segments'],
+			$footprint['segments'],
 			'sorted by id, sized, .idx companions excluded'
 		);
-		$this->assertSame( 233, $rows[0]['bytes'], 'bytes = the newest segment size' );
+		$this->assertSame( 1210, $footprint['bytes'], 'bytes = the summed segment sizes' );
 	}
 
-	public function test_a_source_whose_segment_listing_throws_shows_its_failure_in_the_listing(): void {
+	public function test_a_source_whose_segment_listing_throws_shows_its_failure_in_the_catalog(): void {
 		$present                      = $this->write_fixed_width_log( 2, 59 );
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $present ];
 		$this->activate_topology(
@@ -421,19 +358,15 @@ class LogSourcesTest extends TestCase {
 		};
 
 		try {
-			$rows  = Log_Sources::taillog( [ 'sources' ] );
-			$table = Log_Sources::taillog( [] );
+			$rows = Log_Sources::catalog();
 		} finally {
 			Partition_Node::$scandir = null;
 		}
 
-		$by_name = \array_column( $rows, null, 'name' );
-		$this->assertTrue( $by_name['php']['available'] );
-		$this->assertSame( \filesize( $present ), $by_name['php']['bytes'] );
-		$this->assertFalse( $by_name['gate-decisions.jsonl']['available'] );
-		$this->assertStringContainsString( 'listing failed-9912', $by_name['gate-decisions.jsonl']['error'] );
-		$this->assertStringContainsString( $present, $table );
-		$this->assertStringContainsString( 'listing failed-9912', $table );
+		$by_key = \array_column( $rows, null, 'key' );
+		$this->assertTrue( $by_key['sources/php']['available'] );
+		$this->assertFalse( $by_key['sources/gate-decisions.jsonl']['available'] );
+		$this->assertStringContainsString( 'listing failed-9912', $by_key['sources/gate-decisions.jsonl']['error'] );
 	}
 
 	/**
@@ -457,7 +390,7 @@ class LogSourcesTest extends TestCase {
 		};
 
 		try {
-			$e = $this->caught( static fn () => Log_Sources::taillog( [ 'sources' ] ), 'the stop must escape' );
+			$e = $this->caught( static fn () => Log_Sources::catalog(), 'the stop must escape' );
 		} finally {
 			Partition_Node::$scandir = null;
 		}
@@ -472,24 +405,27 @@ class LogSourcesTest extends TestCase {
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $present ];
 		$this->activate_topology( 'lsrc-dangling', "make_node Log d:log <nope:x>/dangling-4471.log 1 2 7\n" );
 
-		$rows  = Log_Sources::taillog( [ 'sources' ] );
-		$table = Log_Sources::taillog( [] );
+		$by_key = \array_column( Log_Sources::catalog(), null, 'key' );
 
-		$by_name = \array_column( $rows, null, 'name' );
-		$this->assertTrue( $by_name['php']['available'] );
-		$this->assertFalse( $by_name['lsrc-dangling']['available'] );
-		$this->assertStringContainsString( 'nope:x', $by_name['lsrc-dangling']['error'] );
-		$this->assertStringContainsString( $present, $table );
-		$this->assertStringContainsString( 'lsrc-dangling', $table );
-		$this->assertStringContainsString( 'nope:x', $table );
+		$this->assertTrue( $by_key['sources/php']['available'] );
+		$this->assertFalse( $by_key['sources/lsrc-dangling']['available'] );
+		$this->assertStringContainsString( 'nope:x', $by_key['sources/lsrc-dangling']['error'] );
 	}
 
-	public function test_a_readable_source_tails_beside_an_unreadable_topology(): void {
+	public function test_an_unreadable_topology_named_like_a_source_keeps_both_rows(): void {
 		$present                      = $this->write_fixed_width_log( 2, 59 );
-		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $present ];
-		$this->activate_topology( 'lsrc-dangling', "make_node Log d:log <nope:x>/dangling-4471.log 1 2 7\n" );
+		Log_Sources::$builtin_sources = static fn (): array => [ 'shared-6613' => $present ];
+		$this->activate_topology( 'shared-6613', "make_node Log d:log <nope:x>/dangling-6613.log 1 2 7\n" );
 
-		$this->assertStringContainsString( 'evlog-line-0001', Log_Sources::taillog( [ 'php' ] ) );
+		$rows = Log_Sources::catalog();
+
+		$this->assertCount( 2, $rows );
+		$this->assertSame( 'sources/shared-6613', $rows[0]['key'] );
+		$this->assertTrue( $rows[0]['available'], 'the source keeps its own valid row' );
+		$this->assertArrayNotHasKey( 'error', $rows[0] );
+		$this->assertSame( 'sources/shared-6613', $rows[1]['key'] );
+		$this->assertFalse( $rows[1]['available'] );
+		$this->assertStringContainsString( 'nope:x', $rows[1]['error'] );
 	}
 
 	public function test_a_name_missing_beside_an_unreadable_topology_raises_its_failure(): void {
@@ -498,10 +434,10 @@ class LogSourcesTest extends TestCase {
 
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'nope:x' );
-		Log_Sources::taillog( [ 'dangling-4471.log' ] );
+		Log_Sources::footprint( 'dangling-4471.log' );
 	}
 
-	public function test_taillog_read_returns_the_line_at_a_position_in_a_segment(): void {
+	public function test_read_source_returns_the_line_at_a_position_in_a_segment(): void {
 		Log_Sources::$builtin_sources = static fn (): array => [];
 		$this->activate_topology(
 			'lsrc-read',
@@ -513,7 +449,7 @@ class LogSourcesTest extends TestCase {
 		$line2 = "second decision 977\n";
 		\file_put_contents( "{$this->tmp}/logs/gate-decisions.jsonl.3", $line1 . $line2 );
 
-		$result = Log_Sources::taillog( [ 'read', 'gate-decisions.jsonl', '3:0' ] );
+		$result = $this->read_source( 'gate-decisions.jsonl', '3:0' );
 
 		$this->assertSame( "first decision 4194\n", $result['message'][ \Newspack_Nodes\Message::VALUE ] );
 		// The post-step cursor IS the next-line position.
@@ -526,18 +462,18 @@ class LogSourcesTest extends TestCase {
 		);
 
 		// Stepping from the cursor yields line two; a trailing :length is ignored.
-		$next = Log_Sources::taillog( [ 'read', 'gate-decisions.jsonl', '3:' . \strlen( $line1 ) . ':555' ] );
+		$next = $this->read_source( 'gate-decisions.jsonl', '3:' . \strlen( $line1 ) . ':555' );
 		$this->assertSame( "second decision 977\n", $next['message'][ \Newspack_Nodes\Message::VALUE ] );
 	}
 
-	public function test_taillog_read_file_mode_validates_the_inode_and_reads_at_offset(): void {
+	public function test_read_source_file_mode_validates_the_inode_and_reads_at_offset(): void {
 		$path = "{$this->tmp}/plain-9313.log";
 		\file_put_contents( $path, "alpha line\nbeta line\n" );
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
 		$inode = (int) \fileinode( $path );
 
 		// The segment slot is the file's inode (the breadcrumb round-trip).
-		$result = Log_Sources::taillog( [ 'read', 'php', "{$inode}:11" ] );
+		$result = $this->read_source( 'php', "{$inode}:11" );
 
 		$this->assertSame( "beta line\n", $result['message'][ \Newspack_Nodes\Message::VALUE ] );
 		$this->assertSame( $inode, $result['cursor']['segment'] );
@@ -545,7 +481,7 @@ class LogSourcesTest extends TestCase {
 
 		// A MISMATCHED inode (rotated-away generation) re-seeks to the file
 		// start rather than reading a stale position: line one comes back.
-		$stale = Log_Sources::taillog( [ 'read', 'php', '12345:11' ] );
+		$stale = $this->read_source( 'php', '12345:11' );
 		$this->assertSame( "alpha line\n", $stale['message'][ \Newspack_Nodes\Message::VALUE ] );
 	}
 
@@ -555,11 +491,11 @@ class LogSourcesTest extends TestCase {
 	 * vocabulary as the seek transport. It used to reject the token as
 	 * malformed, which is why pause → Replay → Step did nothing.
 	 */
-	public function test_taillog_read_accepts_the_magic_start_position(): void {
+	public function test_read_source_accepts_the_magic_start_position(): void {
 		$path = $this->write_fixed_width_log( 3, 59 );
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
 
-		$result = Log_Sources::taillog( [ 'read', 'php', 'start' ] );
+		$result = $this->read_source( 'php', 'start' );
 
 		$this->assertIsArray( $result, 'start must read, not error' );
 		$this->assertStringStartsWith(
@@ -569,13 +505,13 @@ class LogSourcesTest extends TestCase {
 		);
 	}
 
-	public function test_taillog_read_rejects_a_malformed_position(): void {
+	public function test_read_source_rejects_a_malformed_position(): void {
 		$path = $this->write_fixed_width_log( 3, 59 );
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
 
 		$this->assertSame(
-			"taillog read: invalid position (want <segment>:<offset>[:<length>], start, recent or end)\n",
-			Log_Sources::taillog( [ 'read', 'php', 'abc' ] )
+			"read_message: invalid position (want <segment>:<offset>[:<length>], start, recent or end)\n",
+			$this->read_source( 'php', 'abc' )
 		);
 	}
 
@@ -592,13 +528,13 @@ class LogSourcesTest extends TestCase {
 		$reader = Log_Sources::open_tail( [ 'path' => $path, 'mode' => Tail_Node::MODE_FILE ] );
 		$this->assertTrue( $reader->timer_is_active(), 'open_tail arms the reader' );
 
-		$out = Log_Sources::read_at( $reader, 'armed', 'not-a-position', 'taillog read' );
+		$out = Log_Sources::read_at( $reader, 'armed', 'not-a-position', 'read_message' );
 
-		$this->assertStringStartsWith( 'taillog read: invalid position', $out );
+		$this->assertStringStartsWith( 'read_message: invalid position', $out );
 		$this->assertFalse( $reader->timer_is_active(), 'a rejected reader must not stay armed' );
 	}
 
-	public function test_taillog_read_reports_no_line_on_an_empty_file(): void {
+	public function test_read_source_reports_no_line_on_an_empty_file(): void {
 		// A past-EOF offset resumes from 0 (crash-resume forgiveness, the
 		// cursor tells the truth); only a genuinely empty file has no line.
 		$path = "{$this->tmp}/empty-7717.log";
@@ -607,22 +543,8 @@ class LogSourcesTest extends TestCase {
 
 		$inode = (int) \fileinode( $path );
 		$this->assertSame(
-			"taillog read: no record at php {$inode}:0\n",
-			Log_Sources::taillog( [ 'read', 'php', "{$inode}:0" ] )
+			"read_message: no record at sources/php {$inode}:0\n",
+			$this->read_source( 'php', "{$inode}:0" )
 		);
-	}
-
-	public function test_read_is_a_reserved_source_name(): void {
-		$this->assertFalse( Log_Sources::is_valid_name( 'read' ) );
-	}
-
-	public function test_taillog_rejects_an_unknown_source_name_never_a_path(): void {
-		$path = $this->write_fixed_width_log( 3, 59 );
-		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
-
-		$out = Log_Sources::taillog( [ '../../../../etc/passwd' ] );
-
-		$this->assertStringContainsString( 'unknown log source', $out );
-		$this->assertStringNotContainsString( 'root:', $out );
 	}
 }

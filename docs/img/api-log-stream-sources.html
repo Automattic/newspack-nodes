@@ -25,7 +25,7 @@ h2 { font-size:15px; margin:0 0 8px; }
 </style>
 <div class="sheet">
 <h1>A log source is a registry name, never a path</h1>
-<p class="sub"><span class="mono">GET /log/stream</span> and the REPL's <span class="mono">taillog</span> verb read the same <span class="mono">Log_Sources</span> registry, so a caller has no traversal surface. Three families merge in priority order, each entry carries one of two tail modes, and one read model answers both single-step readers.</p>
+<p class="sub">A <span class="mono">sources/&lt;name&gt;</span> subscription on <span class="mono">/messages/stream</span> and the <span class="mono">raw-logs</span> verbs read the same <span class="mono">Log_Sources</span> registry, so a caller has no traversal surface. Three families merge in priority order, each entry carries one of two tail modes, and one read model answers the single-step reader.</p>
 
 <h2>The registry: first name wins, then a realpath dedupe keeps the first</h2>
 <div class="fam">
@@ -34,14 +34,16 @@ h2 { font-size:15px; margin:0 0 8px; }
   <div class="f"><span class="n">3</span><b>Active topologies</b>Every <span class="mono">Log</span> node in an active topology's graph, its path template resolved per partition through <span class="mono">Core::resolve_partition_template</span>. Named by lowercased writes-basename, plus <span class="mono">.p{N}</span> when the template is per-partition and the basename carries no partition token. A broken topology is skipped, never a 500.<br><span class="mode">segmented</span>, <span class="mono">{file}.{seg}</span></div>
 </div>
 
-<div class="arrowrow">▼ &nbsp; <b><span class="mono">taillog sources</span></b> returns the merged catalog, one row per entry, for GUI pickers &nbsp; ▼</div>
+<div class="arrowrow">▼ &nbsp; <b><span class="mono">raw-logs list_logs</span></b> lists every source after the partition dirs, one picker row each &nbsp; ▼</div>
 <div class="entry">
-  <div><b>name</b>the registry key a caller subscribes by</div>
-  <div><b>path</b>where it reads</div>
-  <div style="flex:1.7"><b>mode</b><span class="mono">file</span> or <span class="mono">segmented</span> (<span class="mono">Tail_Node::MODE_FILE</span>, <span class="mono">MODE_SEGMENTED</span>), exactly two strings, and the whole of what a client branches on</div>
-  <div><b>available</b>readable now; readability is this field's question alone</div>
-  <div style="flex:2"><b>bytes</b>what a tail would read: the newest segment, or the file. <span class="mono">null</span> when there is nothing to SIZE: no <span class="mono">{path}.{seg}</span> yet, not a file, or a failed <span class="mono">filesize()</span>. Never a synonym for <span class="mono">available === false</span>: a present but unreadable file still reports its size</div>
-  <div><b>segments</b>sorted <span class="mono">{ id, size }</span>; <span class="mono">[]</span> in file mode</div>
+  <div><b>key</b><span class="mono">sources/&lt;name&gt;</span>, the stamp a caller subscribes by</div>
+  <div><b>label</b>the registry name</div>
+  <div><b>available</b>a Tail would find bytes there now; a source that will not list takes <span class="mono">false</span> and an <span class="mono">error</span></div>
+</div>
+<div class="arrowrow">▼ &nbsp; <b><span class="mono">raw-logs dump_log sources/&lt;name&gt;</span></b> sizes one, the rail a reader browses &nbsp; ▼</div>
+<div class="entry">
+  <div><b>segments</b>a segmented source's sorted <span class="mono">{ id, size }</span> list; <span class="mono">[]</span> for a file</div>
+  <div><b>total_size</b>the segments' summed bytes, or the file's size, 0 while the file is absent: a replay's catch-up boundary</div>
 </div>
 
 <h2 style="margin-top:18px"><span class="mono">Log_Sources::open_tail()</span>, the one place the mode token becomes a class</h2>
@@ -52,20 +54,19 @@ h2 { font-size:15px; margin:0 0 8px; }
 
 <div class="two">
   <div class="card">
-    <h2>One read model, two verbs</h2>
-    <p><span class="mono">taillog read &lt;source&gt; &lt;position&gt;</span> and <span class="mono">raw-logs read_message &lt;log&gt; &lt;position&gt;</span> both run <span class="mono">Log_Sources::read_at()</span> and answer the same struct:</p>
+    <h2>One read model</h2>
+    <p><span class="mono">raw-logs read_message &lt;log&gt; &lt;position&gt;</span> runs <span class="mono">Log_Sources::read_at()</span>, over a partition dir or a <span class="mono">sources/&lt;name&gt;</span> source, and answers:</p>
     <div class="struct">{ <span class="k">source</span>, <span class="k">message</span>, <span class="k">cursor</span>: { <span class="k">segment</span>, <span class="k">offset</span> }, <span class="k">at_eof</span> }<br><span class="c">// message: the packed 7-field Message</span><br><span class="c">// cursor: the POST-step position, where the next step resumes</span></div>
     <p>A position is <span class="mono">&lt;segment&gt;:&lt;offset&gt;</span> with an optional <span class="mono">:&lt;length&gt;</span> that is tolerated and IGNORED, the reader knowing the record's real length, or one of <span class="mono">start</span>, <span class="mono">recent</span> and <span class="mono">end</span> (<span class="mono">Log_Sources::MAGIC_POSITIONS</span>, aliasing <span class="mono">Consumer_Node::SEEK_*</span>). The reader arrives already armed, so <span class="mono">read_at()</span> sinks its own <span class="mono">Callback_Node</span> and removes it in a <span class="mono">finally</span> on every exit; a reader left armed with no sink fires forever inside the worker's drain loop.</p>
   </div>
   <div class="card">
-    <h2>Failures come back as a STRING, not a throw</h2>
+    <h2>A position failure comes back as a STRING, not a throw</h2>
     <div class="errs">
       <div>&lt;verb&gt;: invalid position (want &lt;segment&gt;:&lt;offset&gt;[:&lt;length&gt;], start, recent or end)</div>
       <div>&lt;verb&gt;: no record at &lt;source&gt; &lt;position&gt;</div>
-      <div>unknown log source … &nbsp;<span style="font-family:Inter,sans-serif">— <span class="mono">taillog read</span> only; <span class="mono">read_message</span> resolves an unknown key to a catalog key instead</span></div>
     </div>
-    <p>Every caller handles string-or-array: the teaching error is the verb's successful TM_RESPONSE value, one of the deliberate exceptions to the rule that a refusal throws. The stream route needs none of this: an unknown <span class="mono">subscribe</span> name throws the same <span class="mono">unknown log source</span> error listing the names that exist, no globs are accepted because registry sources are fixed for the life of a stream, and Tail's missing-file grace covers a source that appears, rotates or truncates mid-stream.</p>
-    <p style="margin:0"><span class="mono">multi_writer</span> is accepted and inert here: the route registration is inherited unchanged, but a subscription resolves to a Tail, and the seal grace belongs to a Consumer.</p>
+    <p>Every caller handles string-or-array: the teaching error is the verb's successful TM_RESPONSE value, one of the deliberate exceptions to the rule that a refusal throws. An unknown log or source throws. The stream route needs none of this: an unknown <span class="mono">subscribe</span> name throws the same <span class="mono">unknown log source</span> error listing the names that exist, no globs are accepted because registry sources are fixed for the life of a stream, and Tail's missing-file grace covers a source that appears, rotates or truncates mid-stream.</p>
+    <p style="margin:0"><span class="mono">multi_writer</span> is accepted and inert here: a source resolves to a Tail, and the seal grace belongs to a Consumer.</p>
   </div>
 </div>
 </div>

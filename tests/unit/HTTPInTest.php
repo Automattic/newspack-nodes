@@ -1202,7 +1202,7 @@ class HTTPInTest extends TestCase {
 	/**
 	 * The fleet is network-global — locks, IPC and logs carry no blog namespace
 	 * — so a subsite admin must not drive the main site's fleet. Spawn enforced
-	 * this; /command, /messages/stream and /log/stream did not.
+	 * this; /command and /messages/stream did not.
 	 */
 	public function test_a_multisite_subsite_is_refused(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];

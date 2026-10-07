@@ -94,7 +94,7 @@
   </div>
   <div class="card">
     <h3>A request owns the boundary, not the process</h3>
-    <p><span class="mono">HTTP_In_Node</span>, <span class="mono">SSE_Out_Node</span>, <span class="mono">Log_Stream_Out_Node</span>, <span class="mono">SSE_In_Node</span>, <span class="mono">HTTP_Filter_Node</span> and the <span class="mono">*_CI_Node</span> service interpreters live and die with one REST request, where <span class="mono">Nodes/Socket.pm</span> and the <span class="mono">HTTP_*</span> family hold a descriptor for the process's whole life. That is why <span class="mono">HTTP_Out_Node</span> borrows one clause from <span class="mono">Socket.pm</span> and nothing else.</p>
+    <p><span class="mono">HTTP_In_Node</span>, <span class="mono">SSE_Out_Node</span>, <span class="mono">SSE_In_Node</span>, <span class="mono">HTTP_Filter_Node</span> and the <span class="mono">*_CI_Node</span> service interpreters live and die with one REST request, where <span class="mono">Nodes/Socket.pm</span> and the <span class="mono">HTTP_*</span> family hold a descriptor for the process's whole life. That is why <span class="mono">HTTP_Out_Node</span> borrows one clause from <span class="mono">Socket.pm</span> and nothing else.</p>
   </div>
   <div class="card">
     <h3>Composition of our own</h3>

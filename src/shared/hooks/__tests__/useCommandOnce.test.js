@@ -149,11 +149,13 @@ describe( 'useCommandOnce', () => {
 		).toThrow( /target/ );
 	} );
 
-	// `taillog` is an interpreter builtin: there is no CI after the egress.
+	// `dump_metadata` is an interpreter builtin: there is no CI after the egress.
 	it( 'targets the bare egress for a builtin verb', async () => {
-		mount( { command: 'taillog' } );
+		mount( { command: 'dump_metadata' } );
 		await act( async () => {} );
-		expect( Core.node( 'taillog:fetch' ).target ).toBe( '_shell/_http' );
+		expect( Core.node( 'dump_metadata:fetch' ).target ).toBe(
+			'_shell/_http'
+		);
 	} );
 
 	// A one-shot clips onto whatever graph the page already has. Owning the

@@ -16,7 +16,10 @@ import { ModalShell } from '../../topology-console/components/Modal';
 const ROOT = path.resolve( __dirname, '../../..' );
 const UI_SCSS = path.join( ROOT, 'src/ui/newspack-nodes-ui.scss' );
 const THEME_SCSS = path.join( ROOT, 'src/theme/newspack-theme.scss' );
-const LOG_VIEWER = path.join( ROOT, 'src/event-dashboards/LogViewer.js' );
+const PARTITION_VIEWER = path.join(
+	ROOT,
+	'src/event-dashboards/PartitionViewer.js'
+);
 const uiStylesheet = postcss.parse( sass.compile( UI_SCSS ).css, {
 	from: UI_SCSS,
 } );
@@ -1153,7 +1156,7 @@ describe( 'distinctive canonical roles', () => {
 				'font-family'
 			]
 		).toBe( 'var(--font-terminal,var(--np-font-mono))' );
-		expect( fs.readFileSync( LOG_VIEWER, 'utf8' ) ).not.toMatch(
+		expect( fs.readFileSync( PARTITION_VIEWER, 'utf8' ) ).not.toMatch(
 			/newspack-nodes-table__row\s+newspack-nodes-table__cell\s+newspack-nodes-log-row/
 		);
 	} );

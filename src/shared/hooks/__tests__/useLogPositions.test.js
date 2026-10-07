@@ -1,6 +1,6 @@
 /**
  * useLogPositions tests — the browse-model → SSE `positions` mapping shared by
- * the Partition Viewer (segments) and Log Viewer (sources). Live tails (null
+ * the Partition Viewer over dirs (segments) and sources. Live tails (null
  * positions → server 'end'); Browse opens a segment at offset 0; Replay seeks
  * 'start'; paging back walks to the previous existing segment id from dump_log.
  */
@@ -183,9 +183,8 @@ describe( 'the actions return the seed they compute', () => {
 } );
 
 /**
- * The whole browse controller both log-stream dashboards drive: the rail's
- * maintenance, the four seek intents, and the rail itself. The Partition Viewer
- * and the Log Viewer each wrote all three out longhand, identically.
+ * The whole browse controller the Partition Viewer drives: the rail's
+ * maintenance, the four seek intents, and the rail itself.
  */
 describe( 'useSegmentBrowse', () => {
 	const SUB = 'quartz.p7';
@@ -372,6 +371,54 @@ describe( 'useLogStatusSegments', () => {
 			.find( ( m ) => 'dump_log' === m[ VALUE ]?.name );
 		expect( asked[ TO ] ).toBe( 'raw-logs' );
 		expect( asked[ VALUE ].arguments ).toEqual( [ DIR ] );
+	} );
+
+	it( "carries a file source's size as the replay boundary", async () => {
+		installFakeCommandWire( ( m ) =>
+			'dump_log' === m[ VALUE ]?.name
+				? {
+						log_id: 'sources/php',
+						segments: [],
+						segment_count: 0,
+						total_size: 977,
+				  }
+				: null
+		);
+		const { result } = renderHook( ( p ) => useLogStatusSegments( p ), {
+			initialProps: { sub: 'sources/php', scope: 'quartz-segments' },
+		} );
+		await waitFor( () =>
+			expect( result.current.source ).toEqual( {
+				segments: [],
+				bytes: 977,
+			} )
+		);
+	} );
+
+	it( 'reads empty on a source switch until the new reply lands', async () => {
+		installFakeCommandWire( ( m ) => {
+			if ( 'dump_log' !== m[ VALUE ]?.name ) {
+				return null;
+			}
+			return DIR === m[ VALUE ].arguments[ 0 ]
+				? { segments: RAIL, total_size: 2048 }
+				: { segments: [], total_size: 733 };
+		} );
+		const { result, rerender } = renderHook(
+			( p ) => useLogStatusSegments( p ),
+			{ initialProps: { sub: DIR, scope: 'quartz-segments' } }
+		);
+		await waitFor( () =>
+			expect( result.current.source.segments ).toEqual( RAIL )
+		);
+		rerender( { sub: 'sources/php', scope: 'quartz-segments' } );
+		expect( result.current.source ).toEqual( { segments: [], bytes: 0 } );
+		await waitFor( () =>
+			expect( result.current.source ).toEqual( {
+				segments: [],
+				bytes: 733,
+			} )
+		);
 	} );
 
 	it( 'asks about the dir it is on, and nothing while none is selected', async () => {

@@ -87,11 +87,8 @@ function flatInfo( value ) {
 	return info;
 }
 
-/**
- * REST route opened unless a patron overrides `endpoint`. RemoteLink points a
- * log link at `/log/stream`, which is identical on the wire.
- */
-const DEFAULT_STREAM_ENDPOINT = 'newspack-nodes/v1/messages/stream';
+/** REST route every stream opens. */
+const STREAM_ENDPOINT = 'newspack-nodes/v1/messages/stream';
 
 /**
  * Seek sentinels carried in an offset field, mirroring `Consumer_Node::SEEK_*`
@@ -181,8 +178,6 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 		super();
 		/** @type {string[]} */
 		this.subscribe = [];
-		// REST route opened; /log/stream mirrors /messages/stream on the wire.
-		this.endpoint = DEFAULT_STREAM_ENDPOINT;
 		// Empty falls back to the localized global (see the getters below).
 		this._baseUrl = '';
 		this._nonce = '';
@@ -550,7 +545,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 		const seeks = this.seekMap();
 		this.presentedSession = sessionHandle();
 		let url =
-			`${ this.baseUrl }${ this.endpoint }` +
+			`${ this.baseUrl }${ STREAM_ENDPOINT }` +
 			`?subscribe=${ encodeURIComponent( this.subscribe.join( ',' ) ) }` +
 			`&_wpnonce=${ this.nonce }`;
 		if ( this.presentedSession ) {

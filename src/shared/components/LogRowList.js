@@ -2,7 +2,7 @@
 
 /**
  * The shared, ring-aware DOM-virtualized log list the substrate's log-stream
- * dashboards render their rows through (Partition Viewer, Log Viewer).
+ * dashboards render their rows through (the Partition Viewer among them).
  *
  * It reads a ring-backed view node (`linesCount` + `lineAt( i )`, newest first,
  * both O(1)) and pulls ONLY the on-screen window each animation frame, so a

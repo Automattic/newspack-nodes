@@ -6,8 +6,7 @@
  * highlights, and whether a replay has caught up to the live tail, which flips
  * the view from Replay back to Live. Both derive from each record's
  * `segment:offset:length` ID breadcrumb, and this module owns that derivation so
- * the Partition Viewer, the Log Viewer and the ELN Request / Error Log view
- * nodes share ONE implementation instead of three.
+ * the Partition Viewer and the ELN Request / Error Log view nodes share ONE implementation instead of three.
  *
  * `SeekTracker` is deliberately not a React hook. It is plain node-side state,
  * and the view node keeps ownership of publishing: `track()` reports whether
@@ -68,8 +67,7 @@ export function browseControl( { segments = [], bytes = 0 } ) {
 
 /**
  * The live boundary a replay must reach to be "caught up": the newest segment's
- * id and its byte size, from a segment list (`dump_log.segments` or `taillog
- * sources[].segments` — the same shape). Null when no segment carries a numeric
+ * id and its byte size, from a segment list (`dump_log.segments`). Null when no segment carries a numeric
  * id, which is the file-mode case `browseControl()` answers with a byte
  * boundary.
  *

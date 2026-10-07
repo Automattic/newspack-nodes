@@ -50,7 +50,7 @@ test( 'records each POST as a batch of UNPACKED messages', async () => {
 			'\n'
 		),
 	} );
-	await wire( '/command', { body: commandLine( 'taillog' ) } );
+	await wire( '/command', { body: commandLine( 'dump_metadata' ) } );
 
 	expect( wire.batches ).toHaveLength( 2 );
 	expect( wire.batches[ 0 ].map( ( m ) => m[ VALUE ].name ) ).toEqual( [
@@ -58,7 +58,7 @@ test( 'records each POST as a batch of UNPACKED messages', async () => {
 		'dump_log',
 	] );
 	expect( wire.batches[ 1 ].map( ( m ) => m[ VALUE ].name ) ).toEqual( [
-		'taillog',
+		'dump_metadata',
 	] );
 } );
 

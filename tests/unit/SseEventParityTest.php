@@ -18,14 +18,10 @@ use Newspack_Nodes\Tests\TestCase;
 #[CoversNothing]
 class SseEventParityTest extends TestCase {
 
-	/** @return list<string> Event names SSE_Out and its subclass pass to send_sse_event(). */
+	/** @return list<string> Event names SSE_Out passes to send_sse_event(). */
 	private static function emitted_events(): array {
-		$names = [];
-		foreach ( [ 'includes/rest/class-sse-out-node.php', 'includes/rest/class-log-stream-out-node.php' ] as $file ) {
-			\preg_match_all( "/send_sse_event\(\s*'([a-z_]+)'/", (string) \file_get_contents( self::plugin_path( $file ) ), $m );
-			$names = [ ...$names, ...$m[1] ];
-		}
-		$names = \array_values( \array_unique( $names ) );
+		\preg_match_all( "/send_sse_event\(\s*'([a-z_]+)'/", (string) \file_get_contents( self::plugin_path( 'includes/rest/class-sse-out-node.php' ) ), $m );
+		$names = \array_values( \array_unique( $m[1] ) );
 		\sort( $names );
 		return $names;
 	}

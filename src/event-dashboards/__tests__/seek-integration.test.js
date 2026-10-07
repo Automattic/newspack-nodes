@@ -1,7 +1,7 @@
 /**
- * Seek-feedback INTEGRATION pins for both log-stream dashboards, over ONE
- * harness — they drive the same real chain the unit tests skip: the component
- * captures the seek-time boundary from its catalog, `seek()` fills a browse
+ * Seek-feedback INTEGRATION pins for the Partition Viewer over a partition dir
+ * and over a file source, on ONE harness — they drive the same real chain the unit tests skip: the component
+ * captures the seek-time boundary from its rail, `seek()` fills a browse
  * control into the view node, replayed records with `segment:offset:length` ID
  * breadcrumbs stream through the real `SseIn → Tee → view`, the view publishes
  * the mode change, and `useNodeState` re-feeds it to `LogBrowser`. Real hooks +
@@ -75,6 +75,7 @@ class FakeEventSource {
 function makeFakeClient( payloadByVerb ) {
 	return {
 		batches: [],
+		answered: [],
 		buildMessage( { to, verb, args = [] } ) {
 			const m = newMessage();
 			m[ TYPE ] = TM_COMMAND;
@@ -85,9 +86,13 @@ function makeFakeClient( payloadByVerb ) {
 		postBatch( messages ) {
 			this.batches.push( messages );
 			return Promise.resolve(
-				messages.map( ( m ) =>
-					commandReply( m, payloadByVerb[ m[ VALUE ]?.name ] ?? null )
-				)
+				messages.map( ( m ) => {
+					this.answered.push( m[ VALUE ]?.name );
+					return commandReply(
+						m,
+						payloadByVerb[ m[ VALUE ]?.name ] ?? null
+					);
+				} )
 			);
 		},
 	};
@@ -115,15 +120,10 @@ function boot( payloadByVerb ) {
 		'newspack-nodes-rail:newspack-nodes-partition-viewer',
 		'open'
 	);
-	window.localStorage.setItem(
-		'newspack-nodes-rail:newspack-nodes-log-viewer',
-		'open'
-	);
 }
 
 /* eslint-disable import/first */
 const PartitionViewer = require( '../PartitionViewer' ).default;
-const LogViewer = require( '../LogViewer' ).default;
 /* eslint-enable import/first */
 
 describe( 'Partition Viewer', () => {
@@ -211,40 +211,50 @@ describe( 'Partition Viewer', () => {
 	}, 20000 );
 } );
 
-describe( 'Log Viewer (file mode)', () => {
+describe( 'Partition Viewer over a file source', () => {
 	// A raw log line carrying an `inode:offset:length` breadcrumb.
 	function fileFrame( id ) {
 		const m = newMessage();
 		m[ TYPE ] = TM_BYTESTREAM;
-		m[ FROM ] = 'access';
+		m[ FROM ] = 'sources/access';
 		m[ ID ] = id;
 		m[ VALUE ] = `line ${ id }`;
 		return m;
 	}
 
+	// Render, then wait for the footprint the Replay boundary is read from.
+	async function renderWithFootprint() {
+		await act( async () => {
+			render( <PartitionViewer /> );
+		} );
+		await waitFor(
+			() => expect( mockFakeClient.answered ).toContain( 'dump_log' ),
+			{ timeout: 6000 }
+		);
+		await act( async () => {} );
+	}
+
 	beforeEach( () => {
 		// One available file source; its current size (977 bytes) is the boundary.
 		boot( {
-			taillog: [
-				{
-					name: 'access',
-					path: '/a',
-					mode: 'file',
-					available: true,
-					bytes: 977,
-				},
+			list_logs: [
+				{ key: 'sources/access', label: 'access', available: true },
 			],
+			dump_log: {
+				log_id: 'sources/access',
+				segments: [],
+				segment_count: 0,
+				total_size: 977,
+			},
 		} );
 	} );
 
 	test( 'file-mode Replay flips to Live once records reach the captured byte size', async () => {
-		await act( async () => {
-			render( <LogViewer /> );
-		} );
+		await renderWithFootprint();
 		// The source rides the toolbar dropdown; a file source has no segments.
 		expect( logBrowserProps.items ).toHaveLength( 0 );
 
-		// Replay: enters a file-mode replay boundary from the catalog row.
+		// Replay: enters a file-mode replay boundary from the footprint.
 		await act( async () => {
 			logBrowserProps.onReplay();
 		} );
@@ -254,7 +264,7 @@ describe( 'Log Viewer (file mode)', () => {
 		await act( async () => {
 			FakeEventSource.last.dispatch(
 				'connected',
-				pack( connectedEnvelope( 'access' ) )
+				pack( connectedEnvelope( 'sources/access' ) )
 			);
 			FakeEventSource.last.dispatch(
 				'msg',
@@ -274,9 +284,7 @@ describe( 'Log Viewer (file mode)', () => {
 	} );
 
 	test( 'file-mode Replay flips to Live when the inode rotates (logrotate)', async () => {
-		await act( async () => {
-			render( <LogViewer /> );
-		} );
+		await renderWithFootprint();
 
 		await act( async () => {
 			logBrowserProps.onReplay();
@@ -286,7 +294,7 @@ describe( 'Log Viewer (file mode)', () => {
 		await act( async () => {
 			FakeEventSource.last.dispatch(
 				'connected',
-				pack( connectedEnvelope( 'access' ) )
+				pack( connectedEnvelope( 'sources/access' ) )
 			);
 			FakeEventSource.last.dispatch(
 				'msg',

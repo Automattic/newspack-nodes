@@ -105,12 +105,9 @@ describe( 'the declared graph', () => {
 		expect( Core.node( VIEW ).controlFrom ).toBe( VIEW );
 	} );
 
-	test( 'an endpoint override re-points the stream', () => {
-		mount( { endpoint: 'newspack-nodes/v1/zed/stream' } );
-		expect( Core.node( LINK ).endpoint ).toBe(
-			'newspack-nodes/v1/zed/stream'
-		);
-		expect( opened() ).toContain( 'newspack-nodes/v1/zed/stream' );
+	test( 'a link carries no endpoint override', () => {
+		mount( {} );
+		expect( 'endpoint' in Core.node( LINK ) ).toBe( false );
 	} );
 
 	test( 'maxEntries caps the view ring', () => {
@@ -402,50 +399,6 @@ describe( 'useSteppedRead', () => {
 		act( () => result.current.step() );
 		await waitFor( () =>
 			expect( stepArgs() ).toEqual( [ [ 'a.p1', 'start' ] ] )
-		);
-	} );
-
-	// @longform A verb with a SUB-VERB does not carry the source at args[0] —
-	// `taillog read <sub> <pos>` puts the literal 'read' there. Reading the
-	// reply's args positionally re-pointed the stream at a source called
-	// 'read', which blanked the Log Viewer on the next Play. The partition
-	// shape hides this, because there args[0] IS the source.
-	test( 'advances the target using the SOURCE, not args[0], for a sub-verb', async () => {
-		replyFor = jest.fn( () => ( {
-			message: [ 1, 'x', '', '', 'k', 0, 'row' ],
-			cursor: { segment: 2, offset: 9 },
-		} ) );
-		installFakeCommandWire( ( m ) => replyFor( m ) );
-		const { result } = renderHook( () => {
-			const graph = useStreamGraph( {
-				prefix: PREFIX,
-				subscribe: null,
-				viewClass: ProbeViewNode,
-			} );
-			return {
-				graph,
-				step: useSteppedRead( {
-					graph,
-					command: 'taillog',
-					argsFor: ( sub, position ) => [ 'read', sub, position ],
-					subjectOf: ( args ) => args[ 1 ],
-				} ),
-			};
-		} );
-		act( () => {
-			result.current.graph.setPaused( true );
-			result.current.graph.resubscribe( [ 'a.p1' ], {
-				'a.p1': { segment: 2, offset: 0 },
-			} );
-		} );
-		act( () => result.current.step() );
-		// The post-step cursor, distinct from the seeded one: it lands under
-		// the SOURCE only if the reply was addressed by it, not by 'read'.
-		await waitFor( () =>
-			expect( result.current.graph.targetRef.current ).toEqual( {
-				subscribe: [ 'a.p1' ],
-				positions: { 'a.p1': { segment: 2, offset: 9 } },
-			} )
 		);
 	} );
 

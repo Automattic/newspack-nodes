@@ -93,11 +93,6 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 		/** Comma-separated subscription list; empty until `arguments` sets it. */
 		this.subscribe = '';
 		/**
-		 * REST route the SseIn opens, such as `newspack-nodes/v1/log/stream`.
-		 * Empty keeps SseIn's own `/messages/stream` default.
-		 */
-		this.endpoint = '';
-		/**
 		 * Whether each received record is re-homed to this node's target. A
 		 * RemoteLink is a SUBSCRIPTION, so it is; RemoteIpc clears it, keeping
 		 * the worker's TO=FROM reply addressing (ADR-7).
@@ -290,9 +285,6 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 		sse.name = `${ this.name }:sse-in`;
 		sse.patron = this;
 		sse.arguments = this.arguments; // `{subscribe}`; baseUrl/nonce from global
-		if ( this.endpoint ) {
-			sse.endpoint = this.endpoint;
-		}
 		sse.sink = this.sink;
 		if ( this.target ) {
 			sse.target = this.target;
