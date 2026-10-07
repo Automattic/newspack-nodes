@@ -628,19 +628,33 @@ trait Durable_Reader {
 		if ( \is_string( $this->target ) && '' !== $this->target ) {
 			$message[ Message::TO ] = $this->target;
 		}
+		$this->fill_sink( $message );
+	}
+
+	/**
+	 * Hand one message to the sink: a delivered one counts, a clean stop counts
+	 * too (the sink finished before stopping) and re-raises as `settle_forward_stop()`
+	 * settles it, and any other throw dead-letters the message on sight.
+	 *
+	 * @param array<int,mixed> $message The message, FROM, ID and TO already set.
+	 * @return bool True when the sink took it; false when it was dead-lettered.
+	 * @throws Worker_Should_Stop What the sink's stop settles to.
+	 */
+	protected function fill_sink( array $message ): bool {
 		try {
 			$this->sink?->fill( $message );
-			// Count only a successful forward, not a re-delivered stop/throw.
 			++$this->counter;
+			return true;
 		} catch ( Worker_Should_Stop $e ) {
 			$settled = $this->settle_forward_stop( $e );
 			if ( Worker_Should_Stop::is_clean( $settled ) ) {
-				// Forwarded before the stop (count it); not poison.
+				// Forwarded before the stop, so it counts.
 				++$this->counter;
 			}
 			throw $settled;
 		} catch ( \Throwable $e ) {
 			$this->dead_letter( $message, 'throw', $e );
+			return false;
 		}
 	}
 

@@ -1625,6 +1625,26 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( '', $entry['reason'] );
 	}
 
+	public function test_a_clean_stop_counts_as_a_forward(): void {
+		$source = new Partition_Node();
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
+		foreach ( [ 'A', 'B', 'C', 'D' ] as $value ) {
+			$this->produce_line( $source, $value );
+		}
+
+		$c = new Consumer_Node();
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
+		$c->name( 'firehose:consumer' );
+		$this->stop_clean_on_value( $c, 'C' );
+		try {
+			$this->pump_consumer( $c );
+		} catch ( \Newspack_Nodes\Worker_Should_Stop_Clean $e ) {
+			$this->addToAssertionCount( 1 );
+		}
+
+		$this->assertSame( 3, $c->counter(), 'A and B forwarded, and C forwarded before its clean stop' );
+	}
+
 	public function test_assume_clean_shutdown_commits_past_a_plain_stop(): void {
 		// A plain Consumer→Partition chain (no snapshot node to raise Clean) writes
 		// durably before the stop, so assume_clean_shutdown treats a plain
