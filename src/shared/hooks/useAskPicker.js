@@ -27,6 +27,19 @@ const ASK_ATTR = 'data-ask';
 export const ASK_TRIGGER_ATTR = 'data-ask-trigger';
 
 /**
+ * Marks each element picked in the current selection. It names a descriptor,
+ * not an element: whatever carries a picked descriptor wears it, so a row a
+ * surface re-renders onto another entry gives the mark up.
+ */
+export const ASK_PICKED_ATTR = 'data-ask-picked';
+
+/**
+ * Marks a `tabindex` the picker set itself, so disarming removes only those:
+ * a row that sets its own keeps it, and React would never put it back.
+ */
+const ASK_TABINDEX_ATTR = 'data-ask-tabindex';
+
+/**
  * Marks a target the size of the page. It rings the viewport rather than its
  * own border, which on a scrolled page is off-screen — the stylesheet owns
  * that, and names this attribute to do it.
@@ -57,6 +70,86 @@ function chainFrom( el ) {
 }
 
 /**
+ * Bring one element in line with the mode: an askable is focusable while
+ * armed, and marked while its descriptor is picked. Only a value that differs
+ * is written, because the observer repaints on every render while armed.
+ *
+ * @param {Element}     el     The element to paint.
+ * @param {boolean}     armed  Whether the picker is armed.
+ * @param {Set<string>} picked Target descriptors picked this session.
+ */
+function paintOne( el, armed, picked ) {
+	const askable = armed && el.hasAttribute( ASK_ATTR );
+	// Keyboard parity: a mouse-only picker locks out keyboard users.
+	if ( askable && ! el.hasAttribute( 'tabindex' ) ) {
+		el.setAttribute( 'tabindex', '0' );
+		el.setAttribute( ASK_TABINDEX_ATTR, '' );
+	} else if ( ! askable && el.hasAttribute( ASK_TABINDEX_ATTR ) ) {
+		el.removeAttribute( 'tabindex' );
+		el.removeAttribute( ASK_TABINDEX_ATTR );
+	}
+	const mark = askable && picked.has( el.getAttribute( ASK_ATTR ) );
+	if ( mark !== el.hasAttribute( ASK_PICKED_ATTR ) ) {
+		el.toggleAttribute( ASK_PICKED_ATTR, mark );
+	}
+}
+
+/**
+ * Paint the whole page, on arming and disarming only. Whatever the picker
+ * left behind is matched too, so it comes off with the mode.
+ *
+ * @param {boolean}     armed  Whether the picker is armed.
+ * @param {Set<string>} picked Target descriptors picked this session.
+ */
+function paintAll( armed, picked ) {
+	for ( const el of document.querySelectorAll(
+		`[${ ASK_ATTR }], [${ ASK_PICKED_ATTR }], [${ ASK_TABINDEX_ATTR }]`
+	) ) {
+		paintOne( el, armed, picked );
+	}
+}
+
+/**
+ * Every element carrying one descriptor: the picks a toggle repaints.
+ *
+ * @param {string} descriptor The descriptor, as `data-ask` spells it.
+ * @return {Iterable<Element>} Its carriers.
+ */
+function carriersOf( descriptor ) {
+	const quoted = descriptor
+		.replace( /["\\]/g, '\\$&' )
+		.replace( /\n/g, '\\a ' );
+	return document.querySelectorAll( `[${ ASK_ATTR }="${ quoted }"]` );
+}
+
+/**
+ * Repaint only what a batch of mutations touched: the element whose
+ * descriptor changed, and every askable a render added.
+ *
+ * @param {MutationRecord[]} records The batch.
+ * @param {Set<string>}      picked  Target descriptors picked this session.
+ */
+function paintChanged( records, picked ) {
+	for ( const record of records ) {
+		if ( 'attributes' === record.type ) {
+			paintOne( /** @type {Element} */ ( record.target ), true, picked );
+			continue;
+		}
+		for ( const node of record.addedNodes ) {
+			if ( ! ( node instanceof window.Element ) ) {
+				continue;
+			}
+			if ( node.hasAttribute( ASK_ATTR ) ) {
+				paintOne( node, true, picked );
+			}
+			for ( const el of node.querySelectorAll( `[${ ASK_ATTR }]` ) ) {
+				paintOne( el, true, picked );
+			}
+		}
+	}
+}
+
+/**
  * The `?` picker: click an Ask button, the cursor becomes a `?`, and the next
  * click asks about whatever you point at.
  *
@@ -71,39 +164,57 @@ function chainFrom( el ) {
  * one mode, and an unmounting one clears the root class mid-pick. Hold it once
  * and render as many triggers as there are places worth asking from.
  *
+ * A modified pick TOGGLES: Cmd/Ctrl-click adds a target to the selection and
+ * a second one on it takes it back out, each marked with `ASK_PICKED_ATTR`
+ * while it stands. A plain click finishes, asking about its target unless that
+ * is already picked; Escape abandons. Every mark goes when the mode does.
+ *
  * While picking, the target's own handler is suppressed in the CAPTURE phase,
  * for modified and unmodified clicks alike. That matters more than it looks:
  * Cmd/Ctrl-click already MEANS something on exactly these elements — reveal the
  * log entry on a flame span, fold recursively on a log row — so both forms have
  * to be intercepted, and the modifier is re-read on `mousedown` because that is
  * the convention already shipping (macOS treats Control-click as a secondary
- * click, and the mousedown read is the working answer to it).
+ * click, and the mousedown read is the working answer to it). That modified
+ * press also loses its default, or Firefox selects and outlines table cells.
  *
  * @param {Object}                                                     options
  * @param {(descriptors: string[], meta: {additive: boolean}) => void} options.onPick      Called with the descriptor chain, target first; an additive pick keeps the picker armed for the next one.
+ * @param {(descriptors: string[]) => void}                            [options.onUnpick]  Called with a pick's chain when a second modified click takes it back out.
  * @param {() => void}                                                 [options.onAbandon] Called when Escape gives the selection up, which a finished pick never is.
  * @return {{ active: boolean, start: () => void, cancel: () => void }} Picker controls.
  */
-export function useAskPicker( { onPick, onAbandon } ) {
+export function useAskPicker( { onPick, onUnpick, onAbandon } ) {
 	const [ active, setActive ] = useState( false );
 	const activeRef = useRef( false );
 	const modifierRef = useRef( false );
+	const pickedRef = useRef( new Set() );
+	const observerRef = useRef( null );
 	const onPickRef = useRef( onPick );
 	onPickRef.current = onPick;
+	const onUnpickRef = useRef( onUnpick );
+	onUnpickRef.current = onUnpick;
 	const onAbandonRef = useRef( onAbandon );
 	onAbandonRef.current = onAbandon;
 
 	const setPicking = useCallback( ( on ) => {
 		activeRef.current = on;
+		pickedRef.current.clear();
 		setActive( on );
 		document.documentElement.classList.toggle( ASKING_CLASS, on );
-		// Keyboard parity: a mouse-only picker locks out keyboard users.
-		for ( const el of document.querySelectorAll( `[${ ASK_ATTR }]` ) ) {
-			if ( on ) {
-				el.setAttribute( 'tabindex', '0' );
-			} else {
-				el.removeAttribute( 'tabindex' );
-			}
+		paintAll( on, pickedRef.current );
+		observerRef.current?.disconnect();
+		observerRef.current = null;
+		if ( on ) {
+			// A surface re-rendering while armed must not strand its paint.
+			observerRef.current = new window.MutationObserver( ( records ) =>
+				paintChanged( records, pickedRef.current )
+			);
+			observerRef.current.observe( document.body, {
+				subtree: true,
+				childList: true,
+				attributeFilter: [ ASK_ATTR ],
+			} );
 		}
 	}, [] );
 
@@ -117,10 +228,25 @@ export function useAskPicker( { onPick, onAbandon } ) {
 				// Disarming would hand the next click to what is under it.
 				return;
 			}
-			onPickRef.current?.( chain, { additive } );
-			// An additive pick keeps picking — that is what multi-select is.
+			const picked = pickedRef.current;
+			const [ descriptor ] = chain;
 			if ( ! additive ) {
+				if ( ! picked.has( descriptor ) ) {
+					onPickRef.current?.( chain, { additive } );
+				}
 				setPicking( false );
+				return;
+			}
+			// An additive pick keeps picking — that is what multi-select is.
+			if ( picked.has( descriptor ) ) {
+				picked.delete( descriptor );
+				onUnpickRef.current?.( chain );
+			} else {
+				picked.add( descriptor );
+				onPickRef.current?.( chain, { additive } );
+			}
+			for ( const el of carriersOf( descriptor ) ) {
+				paintOne( el, true, picked );
 			}
 		},
 		[ setPicking ]
@@ -129,6 +255,18 @@ export function useAskPicker( { onPick, onAbandon } ) {
 	useEffect( () => {
 		const onMouseDown = ( e ) => {
 			modifierRef.current = e.metaKey || e.ctrlKey;
+			if (
+				activeRef.current &&
+				modifierRef.current &&
+				! e.target?.closest?.( `[${ ASK_TRIGGER_ATTR }]` )
+			) {
+				// Firefox's accel-press selects table cells; this press picks.
+				e.preventDefault();
+				// A cancelled press moves no focus; Enter must reach the pick.
+				e.target
+					.closest?.( `[${ ASK_ATTR }]` )
+					?.focus( { preventScroll: true } );
+			}
 		};
 		const onClick = ( e ) => {
 			if ( ! activeRef.current ) {

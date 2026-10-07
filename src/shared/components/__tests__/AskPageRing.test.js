@@ -6,7 +6,7 @@
 
 import { render, act } from '@testing-library/react';
 import AskPageRing from '../AskPageRing';
-import { ASK_PAGE_ATTR } from '../../hooks/useAskPicker';
+import { ASK_PAGE_ATTR, ASK_PICKED_ATTR } from '../../hooks/useAskPicker';
 
 const boxes = [];
 
@@ -133,4 +133,20 @@ test( 'it re-measures when the window resizes', () => {
 	} );
 
 	expect( ring().style.left ).toBe( '163px' );
+} );
+
+// The page is picked by marking its box, which no render follows: the ring
+// watches that one attribute on that one element.
+test( 'the ring wears the mark while the page is picked', async () => {
+	const page = pageBox();
+	render( <AskPageRing active={ true } /> );
+	expect( ring().hasAttribute( ASK_PICKED_ATTR ) ).toBe( false );
+
+	page.setAttribute( ASK_PICKED_ATTR, '' );
+	await act( async () => {} );
+	expect( ring().hasAttribute( ASK_PICKED_ATTR ) ).toBe( true );
+
+	page.removeAttribute( ASK_PICKED_ATTR );
+	await act( async () => {} );
+	expect( ring().hasAttribute( ASK_PICKED_ATTR ) ).toBe( false );
 } );

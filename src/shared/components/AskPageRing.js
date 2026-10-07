@@ -9,11 +9,14 @@
  *
  * It renders at body level through `ModalPortal`, the same escape the dialogs
  * take, since the shell it rings is a stacking context of its own.
+ *
+ * A picked page shows here too. The page box cannot wear the picked fill,
+ * which would show behind every child, so the ring copies its mark instead.
  */
 
 import { useEffect, useState } from '@wordpress/element';
 import { ModalPortal } from './Modal';
-import { ASK_PAGE_ATTR } from '../hooks/useAskPicker';
+import { ASK_PAGE_ATTR, ASK_PICKED_ATTR } from '../hooks/useAskPicker';
 import useAdminMenuWidth from '../hooks/useAdminMenuWidth';
 
 /**
@@ -50,9 +53,12 @@ export default function AskPageRing( { active } ) {
 			setBox( null );
 			return undefined;
 		}
+		const page = document.querySelector( `[${ ASK_PAGE_ATTR }]` );
 		const measure = () => {
 			const el = document.querySelector( `[${ ASK_PAGE_ATTR }]` );
-			const next = el ? boxOf( el ) : null;
+			const next = el
+				? { ...boxOf( el ), picked: el.hasAttribute( ASK_PICKED_ATTR ) }
+				: null;
 			// A fresh object every call; an unchanged box must not re-render.
 			setBox( ( prev ) =>
 				JSON.stringify( prev ) === JSON.stringify( next ) ? prev : next
@@ -65,9 +71,15 @@ export default function AskPageRing( { active } ) {
 		// is the value it started from. This is where it lands; the signal
 		// above is what answers where no transition runs at all.
 		document.addEventListener( 'transitionend', measure );
+		// The picker marks the box without a render, so watch that one mark.
+		const observer = new window.MutationObserver( measure );
+		if ( page ) {
+			observer.observe( page, { attributeFilter: [ ASK_PICKED_ATTR ] } );
+		}
 		return () => {
 			window.removeEventListener( 'resize', measure );
 			document.removeEventListener( 'transitionend', measure );
+			observer.disconnect();
 		};
 	}, [ active, menuWidth ] );
 
@@ -75,9 +87,14 @@ export default function AskPageRing( { active } ) {
 		return null;
 	}
 
+	const { picked, ...geometry } = box;
 	return (
 		<ModalPortal>
-			<div className="newspack-nodes-ask-ring" style={ box } />
+			<div
+				className="newspack-nodes-ask-ring"
+				style={ geometry }
+				{ ...( picked ? { [ ASK_PICKED_ATTR ]: '' } : {} ) }
+			/>
 		</ModalPortal>
 	);
 }

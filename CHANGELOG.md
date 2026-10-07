@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Ask picker's Cmd/Ctrl-click is a real toggle, and each pick is painted.** `useAskPicker` keeps the session's picked descriptors: a modified click on an element adds its target descriptor and calls `onPick`, a second one on the same element removes it and calls the new `onUnpick( descriptors )`, and a plain click on an element already picked finishes without asking about it again. Every element carrying a picked descriptor wears `data-ask-picked`, exported as `ASK_PICKED_ATTR`, which the shared stylesheet paints as an accent ring plus a `background-image` tint, so a picked table row reads as one highlighted row over its own inline tint. The page box is left out of that paint, because its fill would show behind every child: `AskPageRing` copies the page's mark onto the ring, which draws it as an inset band. The mark names the descriptor rather than the element, and a `MutationObserver` held only while armed repaints the element whose descriptor changed and the askables a render added, so a row reused for another entry gives the paint up and a newly rendered askable becomes focusable; a mutation outside every askable costs no page scan and no write. Arming, finishing and Escape clear every mark. While armed, a Cmd/Ctrl `mousedown` outside the picker's own triggers is default-prevented, so Firefox no longer selects and outlines table cells under the picking gesture, and focus moves to the askable pressed, so a following Enter reaches the pick rather than the Ask button; a plain press keeps its default, so a drag still selects text.
+- **Disarming the Ask picker no longer strips an element's own `tabindex`.** The picker marks each `tabindex` it sets with `data-ask-tabindex` and removes only those, where it removed `tabindex` from every `[data-ask]`, including the URL table's and URL detail's rows, which set their own and never got it back.
+
 ## [2.97.0] - 2026-10-06
 
 ### Changed
