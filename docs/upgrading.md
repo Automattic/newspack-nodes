@@ -6,6 +6,33 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`Remote_Source` takes `<name> <vault_id> <offsetlog_root> <deadletter_root> <source:target>...`.**
+  It was `<name> <vault_id> <remote_partition> <offsetlog_dir> <deadletter_dir>`
+  with one `connect_node` target. One line now names every stream the spoke
+  carries, as pairs: a source is a stamp (`firehose.p0`, `sources/php`) or a glob
+  of one, and a target is the node its lines go to. `connect_node` onto the
+  broker still adds targets beside the pairs. Each stream's reader keeps its
+  cursor at `<offsetlog_root>/<kind>` and its dead letters at
+  `<deadletter_root>/<kind>`, `<kind>` being the stamp with `/` spelled `:`; the
+  offsetlog root must carry `<topology>`. There is no migration: cursors at the
+  old `<topology>.firehose.<id>.p<partition>` are not read, and each stream
+  starts where its spoke places a fresh reader. A spoke must run this release
+  before a hub runs the new line, because an older spoke refuses a `sources/`
+  subscription as invalid. A consumer reading `remote_partition` off a
+  `Remote_Source` row of `Topology_Analyzer::graph_for()` reads `pairs` instead.
+- **A `Remote_Source`'s status key is `remote:<broker>:p<partition>`,** where it
+  was `remote:<broker>:<remote_partition>`, and its snapshot gains `streams`.
+  `Remote_Source_Node::status_key_for( $name, $partition )` takes the worker
+  partition as an int.
+- **`SSE_In_Node` keeps no cursor.** `restore_position()`, `seek()`,
+  `has_pending_seek()` and `position()` are gone. `configure()` drops its
+  `$subscribe` and `$positions` parameters, which sat before `$tls_opts`, so it
+  takes `( $url, $auth_username, $auth_password, $auth_token, $tls_opts,
+  $require_ssl )`; a caller passing TLS opts positionally moves them up two
+  places. State what to pull with `streams( $subscribe, $positions )` from the
+  patron's `on_connecting` seam, each position a `{ segment?, offset }` or a seek
+  sentinel keyed by stamp. A subclass of `Remote_Link_Node` that needs a request
+  of its own overrides `stream_request()`.
 - **`LogStreamViewer` takes no `hasKeyColumn` prop.** Its debug row is always
   ID, KEY and VALUE; a dashboard wanting other debug columns passes its own
   `renderDebugRow` and `renderDebugHeader`.
