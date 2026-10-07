@@ -139,33 +139,20 @@ class RawLogsCITest extends TestCase {
 		$this->assertArrayHasKey( 'total_size', $result );
 	}
 
-	public function test_dump_log_verb_falls_back_on_unknown_log(): void {
-		// Bogus key falls through to the firehose-ish concrete key when present
-		// (str_starts_with 'firehose'), else the first discovered concrete dir.
+	public function test_dump_log_refuses_an_unknown_log(): void {
 		\mkdir( $this->tmp . '/logs/firehose.p0', 0755, true );
 
-		$result = VerbHarness::fire(
-			new Raw_Logs_CI_Node(),
-			'raw-logs',
-			'dump_log',
-			'bogus-log-name'
-		);
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'kea-7713.p9' );
 
-		$this->assertIsArray( $result );
-		$this->assertSame( 'firehose.p0', $result['log_id'] );
+		$this->assertSame( "unknown log: \"kea-7713.p9\"\n", $result );
 	}
 
-	public function test_dump_log_default_resolves_first_discovered_without_firehose(): void {
-		// De-coupled default guard: concrete dirs present but none firehose-ish,
-		// so a no-arg dump_log resolves to the first-discovered key (sorted:
-		// `jobs.p0`), proving the default isn't hardwired to firehose.
-		\mkdir( $this->tmp . '/logs/jobs.p0',     0755, true );
-		\mkdir( $this->tmp . '/logs/requests.p0', 0755, true );
+	public function test_dump_log_refuses_an_empty_log_at_the_binder(): void {
+		\mkdir( $this->tmp . '/logs/firehose.p0', 0755, true );
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log' );
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', '' );
 
-		$this->assertIsArray( $result );
-		$this->assertSame( 'jobs.p0', $result['log_id'] );
+		$this->assertSame( "missing required argument: log\n", $result );
 	}
 
 	public function test_list_logs_includes_offsets_and_deadletter_keys(): void {
@@ -225,6 +212,34 @@ class RawLogsCITest extends TestCase {
 		$line2 = Message::packed( $second ) . "\n";
 		\file_put_contents( "{$dir}/0.log", $line1 . $line2 );
 		return [ $line1, $line2 ];
+	}
+
+	public function test_read_message_refuses_an_unknown_log_instead_of_reading_another(): void {
+		$this->seed_two_records();
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_message', [ 'kea-7713.p9', '0:0' ] );
+
+		$this->assertSame( "unknown log: \"kea-7713.p9\"\n", $result );
+	}
+
+	public function test_read_message_refuses_an_empty_log_at_the_binder(): void {
+		$this->seed_two_records();
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_message', [ '', '0:0' ] );
+
+		$this->assertSame( "missing required argument: log\n", $result );
+	}
+
+	public function test_read_message_reads_a_registry_source(): void {
+		$path = $this->tmp . '/php-errors-4194.log';
+		\file_put_contents( $path, "PHP Notice: 977\nPHP Warning: 4194\n" );
+		\Newspack_Nodes\Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_message', [ 'sources/php', 'start' ] );
+
+		$this->assertSame( 'sources/php', $result['source'] );
+		$this->assertSame( "PHP Notice: 977\n", $result['message'][ Message::VALUE ] );
+		$this->assertSame( 16, $result['cursor']['offset'] );
 	}
 
 	public function test_read_message_returns_the_record_at_a_position(): void {

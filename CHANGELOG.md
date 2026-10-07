@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`raw-logs read_message` reads `sources/<name>`, and neither it nor `dump_log` falls back.** An empty or unknown `log` is refused with an error (`unknown log: "<log>"` when named) instead of reading the firehose.
+
 ## [2.98.1] - 2026-10-06
 
 ### Fixed

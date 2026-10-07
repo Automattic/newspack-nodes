@@ -865,10 +865,13 @@ null for an absent optional, or a list of typed members for a `variadic` one. So
 topologies get Home` and `command_node topologies get --name=Home` reach `cmd_get()`
 alike, as `[ 'name' => 'Home' ]`. `raw-logs dump_log` answers
 `{ log_id, segments: [ { id, size } ], segment_count, total_size }` for the one
-partition dir it inspects. `raw-logs read_message` binds the log key, then the
+partition dir it inspects; an unknown or empty `log` is refused with an error.
+`raw-logs read_message` binds the log key, then the
 position — the single-step grammar `<segment>:<offset>[:<length>]` or one of
 `start`, `recent` and `end`, never the `positions` JSON the two SSE routes take; the
-two vocabularies share those three words and nothing else. See
+two vocabularies share those three words and nothing else. It reads a partition
+dir or a `sources/<name>` registry source, and an unknown or empty `log` is
+refused with an error. See
 [Log Stream](#log-stream) for the read model and the struct it answers. The
 ownership-fenced `workers heartbeat` binds exactly `[ slot, owner ]`, both declared
 `int` and read through `Core::canonical_decimal()`, from the current SSE `connected`
@@ -897,8 +900,9 @@ the endpoint requires the READ floor AND a valid command signature, and each
 verb's declared role decides the rest. An authorization refusal THROWS —
 `Command_Interpreter_Node::interpret()` wraps it as `TM_COMMAND|TM_ERROR`. The
 single-step readers are one exception a caller must handle: `raw-logs
-read_message` returns `array|string`, answering the teaching error as its
-successful TM_RESPONSE value rather than a thrown error (see
+read_message` returns `array|string`, answering a bad or empty
+position's teaching error as its successful TM_RESPONSE value rather than a
+thrown error (see
 [Log Stream](#log-stream)).
 
 A Table's `stats` verb (`read`, no arguments) answers one map per counted
