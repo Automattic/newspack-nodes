@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The `unparseable_lines` frame names each stamp's count.** Its VALUE gains `COUNTS <stamp>=<n>,…` beside `COUNT`, so a client reading several views on one stream charges each view its own skips.
 - **`raw-logs read_message` reads `sources/<name>`, and neither it nor `dump_log` falls back.** An empty or unknown `log` is refused with an error (`unknown log: "<log>"` when named) instead of reading the firehose.
+- **`list_logs` lists every registry source as `sources/<name>`, and `dump_log` sizes one.** Each row carries `available`.
+
+### Removed
+
+- **The Log Viewer tab, and the `endpoint`, `argsFor`, `subjectOf` and `argsFn` options behind it.** The Partition Viewer lists every registry source as `sources/<name>` beside the partition dirs, greys out an unavailable one and defaults to the first available. `useStreamGraph`, `RemoteLinkNode` and `SseInNode` open `/messages/stream` alone, `useSteppedRead` always runs `<sub> <position>` and `useLogCatalog` sends no arguments; `useLogStatusSegments` returns `source: { segments, bytes }`. An old `?source=<name>` Log Viewer link no longer matches.
+- **`/log/stream` and `Log_Stream_Out_Node`.** `/messages/stream` opens a registry source as `sources/<name>`, so one stream carries files and partitions together.
+- **The `taillog` verb.** `raw-logs list_logs`, `dump_log` and `read_message` cover the registry.
 
 ## [2.98.1] - 2026-10-06
 

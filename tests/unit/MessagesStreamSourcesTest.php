@@ -25,7 +25,7 @@ class MessagesStreamSourcesTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Topology_Registry::reset();
-		$this->tmp = $this->make_temp_dir( 'log-stream-' );
+		$this->tmp = $this->make_temp_dir( 'messages-stream-' );
 	}
 
 	protected function tearDown(): void {

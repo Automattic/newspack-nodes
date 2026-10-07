@@ -1,7 +1,7 @@
 # Newspack Nodes REST API
 
 The runtime ships a small REST surface for worker lifecycle, session auth,
-command dispatch, two SSE streams, and an internal cache-health probe.
+command dispatch, an SSE stream, and an internal cache-health probe.
 Application plugins register their own endpoints (dashboards, additional
 streams) on top, and mount service [`Command_Interpreter_Node`](../includes/class-command-interpreter-node.php)s into the
 dispatch endpoint's graph through the
@@ -11,7 +11,7 @@ hook.
 Everything lives under one namespace, `newspack-nodes/v1`, registered by
 [`Bootstrap::register_rest_routes()`](../includes/class-bootstrap.php) on [`rest_api_init`](https://developer.wordpress.org/reference/hooks/rest_api_init/). The order is
 load-bearing: `/health/cache` registers first so REST init completes even when
-the runtime base directory is refused, and the other five register only once
+the runtime base directory is refused, and the other four register only once
 that base is available and `ensure_runtime_wired()` has run.
 
 | Route | Method | Permission |
@@ -20,10 +20,9 @@ that base is available and `ensure_runtime_wired()` has run.
 | [`/auth`](#establishing-a-session) | POST | READ |
 | [`/command`](#command-dispatch) | POST | READ + per-user burst limit, then a per-command signature |
 | [`/messages/stream`](#sse-stream) | GET | READ |
-| [`/log/stream`](#log-stream) | GET | READ |
 | [`/health/cache`](#internal-cache-health) | POST | Internal HMAC token |
 
-![A grid of the six routes against the four gates a request crosses in order: WordPress's declared-argument check, the fleet gate that answers 403 newspack_nodes_not_fleet_site on a multisite subsite, each route's own permission callback with its refusal codes, and what the handler then refuses or does; beneath it, why /health/cache registers first and the two admin-post.php entry points outside the namespace.](img/api-route-gates.png)
+![A grid of the five routes against the four gates a request crosses in order: WordPress's declared-argument check, the fleet gate that answers 403 newspack_nodes_not_fleet_site on a multisite subsite, each route's own permission callback with its refusal codes, and what the handler then refuses or does; beneath it, why /health/cache registers first and the two admin-post.php entry points outside the namespace.](img/api-route-gates.png)
 
 The substrate is also its own client. [`HTTP_Out_Node`](../includes/class-http-out-node.php) POSTs batched JSONL
 command envelopes to a remote spoke's `/command` (`COMMAND_PATH`) and
@@ -865,14 +864,17 @@ null for an absent optional, or a list of typed members for a `variadic` one. So
 topologies get Home` and `command_node topologies get --name=Home` reach `cmd_get()`
 alike, as `[ 'name' => 'Home' ]`. `raw-logs dump_log` answers
 `{ log_id, segments: [ { id, size } ], segment_count, total_size }` for the one
-partition dir it inspects; an unknown or empty `log` is refused with an error.
+partition dir or `sources/<name>` registry source it inspects: a segmented
+source answers its segments and their summed `total_size`, a file source an
+empty `segments` and its file size as `total_size` (0 while the file is absent).
+An unknown or empty `log` is refused with an error.
 `raw-logs read_message` binds the log key, then the
 position — the single-step grammar `<segment>:<offset>[:<length>]` or one of
-`start`, `recent` and `end`, never the `positions` JSON the two SSE routes take; the
+`start`, `recent` and `end`, never the `positions` JSON the SSE route takes; the
 two vocabularies share those three words and nothing else. It reads a partition
 dir or a `sources/<name>` registry source, and an unknown or empty `log` is
 refused with an error. See
-[Log Stream](#log-stream) for the read model and the struct it answers. The
+[Log Sources](#log-sources) for the read model and the struct it answers. The
 ownership-fenced `workers heartbeat` binds exactly `[ slot, owner ]`, both declared
 `int` and read through `Core::canonical_decimal()`, from the current SSE `connected`
 handshake, and the server — never the client — owns the lease TTL. `topologies save`
@@ -903,7 +905,7 @@ single-step readers are one exception a caller must handle: `raw-logs
 read_message` returns `array|string`, answering a bad or empty
 position's teaching error as its successful TM_RESPONSE value rather than a
 thrown error (see
-[Log Stream](#log-stream)).
+[Log Sources](#log-sources)).
 
 A Table's `stats` verb (`read`, no arguments) answers one map per counted
 operation, `GET` to `CHECKPOINT`, each `{ calls, asked, answered, bytes,
@@ -1018,53 +1020,46 @@ The application controls concurrency through four optional Closure seams on
 | `$release_slot` | `function ( array $lease, int $partition, ?string $session ): void` | Once per stream, from the drain's `finally` or from a shutdown function, whichever runs first, so no close, throw, fatal or client abort leaves the slot held until its TTL expires. `$session` is the lease key the stream acquired under, whose takeover index the pool forgets with the lease. |
 | `$inspect_slot` | `function ( array $lease, int $partition ): array<string,int\|string>` | Only once a check has already failed, to name the backend and lease state in the diagnostic line. The healthy path never pays it. |
 
-Both stream routes draw on one host-wide pool, sized by `sse_max_streams`
+The stream draws on one host-wide pool, sized by `sse_max_streams`
 (6), `sse_max_slots` (3), `sse_reserved_slots` (0) and `sse_slot_ttl` (60
 seconds). [sse-host-budget.md](sse-host-budget.md) carries the arithmetic behind
 each number.
 
-## Log Stream
+## Log Sources
 
 ```
-GET   /wp-json/newspack-nodes/v1/log/stream
+GET   /wp-json/newspack-nodes/v1/messages/stream?subscribe=sources/<name>
 ```
 
-Server-sent-events log-tail endpoint backed by [`Log_Stream_Out_Node`](../includes/rest/class-log-stream-out-node.php), an
-`SSE_Out_Node` subclass. On the wire it mirrors `/messages/stream` exactly —
-same packed `msg` events, `retry` and `connected` envelopes, heartbeat cadence,
-flush framing, idle close and slot pool — so any `/messages/stream` client works
-unchanged. It overrides exactly two members, `ROUTE` and `open_subscription()`;
-both route constants are read late-static, so declaring `ROUTE` is all a
-subclass needs to publish a second path. The one difference is what a
-subscription resolves to: a fixed
-**[`Log_Sources`](../includes/class-log-sources.php) registry NAME** opened as a [`Tail_Node`](../includes/class-tail-node.php) reader instead of a
-Consumer. A caller can never supply a path, so there is no traversal surface.
+A [`Log_Sources`](../includes/class-log-sources.php) registry entry streams from
+[`/messages/stream`](#sse-stream) as the subscription `sources/<name>`, beside
+partitions on the same stream. The name is a fixed **registry NAME**, opened as
+a [`Tail_Node`](../includes/class-tail-node.php) reader instead of a Consumer;
+a caller can never supply a path, so there is no traversal surface. On the wire
+a source is a partition: same packed `msg` events, `retry` and `connected`
+envelopes, heartbeat cadence, flush framing, idle close and slot pool, with each
+frame's FROM opening with `sources/<name>`.
 
-![The Log_Sources registry: the three families merged in priority order with the tail mode each carries, the six fields of a taillog sources row, the two classes Log_Sources::open_tail() maps the mode token to, the one read model behind taillog read and raw-logs read_message with the struct it answers, and the string errors the two verbs return instead of throwing: two shared, and unknown log source from taillog read alone.](img/api-log-stream-sources.png)
+![The Log_Sources registry: the three families merged in priority order with the tail mode each carries, the picker row Log_Sources::catalog() builds and the footprint dump_log answers, the two classes Log_Sources::open_tail() maps the mode token to, the one read model behind raw-logs read_message with the struct it answers, and the string errors it returns instead of throwing.](img/api-log-stream-sources.png)
 
-The same registry backs the REPL's `taillog` verb (`Log_Sources::taillog()`),
-and its `taillog sources` name returns the merged catalog for GUI pickers. A
+The same registry backs `raw-logs`. `list_logs` lists every source as a
+`sources/<name>` row after the partition dirs, each row carrying `available`;
+`dump_log sources/<name>` sizes one, as `{ log_id, segments, segment_count,
+total_size }`; and `read_message sources/<name> <position>` single-steps it. A
 source whose segments will not list, and an active topology that will not read,
 each take an unavailable row carrying `error` beside every readable source, so
 one failure never blanks the picker; a topology's row is named for the topology.
 
-**Permission**: inherited from `SSE_Out_Node` — the fleet gate, then the READ
-role, with no nonce.
+**Permission**: inherited from `/messages/stream` — the fleet gate, then the
+READ role, with no nonce.
 
-### Query parameters
+### Subscription parameters
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `subscribe` | string | yes | CSV of registry NAMES. An unknown name throws the teaching `unknown log source` error listing the names that exist. No globs — registry sources are fixed for the life of a stream, and Tail's missing-file grace covers a source that appears, rotates or truncates mid-stream. |
-| `positions` | string | no | Optional resume positions, same vocabulary as `/messages/stream`: a JSON object keyed by registry name, each value a `{segment, offset}` object or a seek sentinel (`0` start, `-1` end, `-2` recent), with `start`, `recent` and `end` accepted as aliases. [`File_Tail_Node`](../includes/class-file-tail-node.php) folds `recent` to the start, because one file has no previous segment to fall back to. The shape round-trips unchanged from the client's perspective: for a segmented source `segment` is the segment id; for a file-mode source the file's inode occupies the same slot, and the cursor self-validates against the live file and degrades to 0 on mismatch. That validation happens on the FIRST POLL, not at subscribe time — `open_subscription()` seeks before the file is open, so the pair is held as a candidate, and `cursor_position()` echoes the client's own unvalidated value straight back into the `connected` envelope's CURSORS. An unchanged echo is therefore not an acknowledgement that the server accepted it. A candidate counts toward `compute_lag()` only while it still names the live generation and sits within the file: honouring a stale pre-rotation position would declare the new generation caught up and let the stream idle-close on its first tick without ever delivering it. Omit to start at `end` (live tail). |
-| `multi_writer` | boolean | no | Accepted but inert. The route registration is inherited unchanged, while a subscription here resolves to a `Tail_Node`, and the seal-grace belongs to a Consumer. |
-
-### Response
-
-Identical to `/messages/stream`: each line the Tail emits arrives as an SSE
-`msg` event carrying the packed 7-field Message (`TM_BYTESTREAM`, FROM stamped
-with the registry name), with the same envelopes, heartbeat, 429 slot-gating and
-flush behavior.
+| `subscribe` | string | yes | CSV of subscriptions, any mix of partitions and `sources/<name>`. A `sources/` name the registry lacks throws the teaching `unknown log source` error listing the names that exist, and the stream is refused before it opens. No globs — registry sources are fixed for the life of a stream, and Tail's missing-file grace covers a source that appears, rotates or truncates mid-stream. |
+| `positions` | string | no | Optional resume positions, same vocabulary as the partition subscriptions: a JSON object keyed by the whole `sources/<name>` stamp, each value a `{segment, offset}` object or a seek sentinel (`0` start, `-1` end, `-2` recent), with `start`, `recent` and `end` accepted as aliases. [`File_Tail_Node`](../includes/class-file-tail-node.php) folds `recent` to the start, because one file has no previous segment to fall back to. The shape round-trips unchanged from the client's perspective: for a segmented source `segment` is the segment id; for a file-mode source the file's inode occupies the same slot, and the cursor self-validates against the live file and degrades to 0 on mismatch. That validation happens on the FIRST POLL, not at subscribe time — `open_subscription()` seeks before the file is open, so the pair is held as a candidate, and `cursor_position()` echoes the client's own unvalidated value straight back into the `connected` envelope's CURSORS. An unchanged echo is therefore not an acknowledgement that the server accepted it. A candidate counts toward `compute_lag()` only while it still names the live generation and sits within the file: honouring a stale pre-rotation position would declare the new generation caught up and let the stream idle-close on its first tick without ever delivering it. Omit to start at `end` (live tail). |
+| `multi_writer` | boolean | no | Inert for a source: the seal-grace belongs to a Consumer, and a source resolves to a `Tail_Node`. |
 
 ## The substrate as client
 

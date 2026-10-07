@@ -269,10 +269,66 @@ describe( 'usePartitionViewerGraph — exospine + RemoteLink wiring', () => {
 		// Only the subscription, and it reports the one actually streaming —
 		// the link is built bare and the catalog's pick configures it.
 		expect( Core.node( LINK ).arguments ).toEqual( [ 'firehose.p0' ] );
-		// No endpoint override: the Log Viewer's /log/stream must not leak
-		// through the mount both dashboards share.
-		expect( Core.node( LINK ).endpoint ).toBe( '' );
+		expect( 'endpoint' in Core.node( LINK ) ).toBe( false );
 	} );
+
+	test( 'lists registry sources beside the dirs, and defaults to the first AVAILABLE row', async () => {
+		installWire( {
+			list_logs: [
+				{ key: 'sources/debug', label: 'debug', available: false },
+				{ key: 'sources/php', label: 'php', available: true },
+			],
+		} );
+		mountGraph();
+		await act( async () => {} );
+		expect( Core.node( VIEW ).view.selected ).toBe( 'sources/php' );
+		expect( FakeEventSource.last.url ).toContain(
+			`subscribe=${ encodeURIComponent( 'sources/php' ) }`
+		);
+	} );
+
+	test( 'step while paused reads a source through raw-logs read_message', async () => {
+		const stepped = newMessage();
+		stepped[ TYPE ] = TM_BYTESTREAM;
+		stepped[ FROM ] = 'sources/php';
+		stepped[ ID ] = '4242:100:20';
+		stepped[ VALUE ] = 'stepped line 977\n';
+		const payload = {
+			list_logs: [
+				{ key: 'sources/php', label: 'php', available: true },
+			],
+		};
+		const wire = installWire( payload );
+		const { result } = mountGraph();
+		await act( async () => {} );
+		const live = newMessage();
+		live[ TYPE ] = TM_BYTESTREAM;
+		live[ FROM ] = 'sources/php';
+		live[ ID ] = '4242:80:20';
+		live[ VALUE ] = 'seen live';
+		act( () => FakeEventSource.last.dispatch( 'msg', pack( live ) ) );
+		act( () => result.current.setPaused( true ) );
+		payload.read_message = {
+			source: 'sources/php',
+			message: [ ...stepped ],
+			cursor: { segment: 4242, offset: 120 },
+			at_eof: false,
+		};
+		act( () => result.current.step() );
+		await waitFor( () =>
+			expect( Core.node( VIEW ).lines[ 0 ]?.content ).toBe(
+				'stepped line 977\n'
+			)
+		);
+		const cmd = wire.batches
+			.flat()
+			.find( ( m ) => 'read_message' === m[ VALUE ]?.name );
+		expect( cmd[ TO ] ).toContain( 'raw-logs' );
+		expect( cmd[ VALUE ].arguments ).toEqual( [
+			'sources/php',
+			'4242:100',
+		] );
+	}, 15000 );
 } );
 
 describe( 'usePartitionViewerGraph — end-to-end routing through the exospine', () => {

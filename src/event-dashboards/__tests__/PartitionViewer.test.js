@@ -203,6 +203,21 @@ describe( 'PartitionViewer', () => {
 		expect( select.value ).toBe( 'firehose' );
 	} );
 
+	it( 'disables a source the catalog marks unavailable', async () => {
+		registerViewFixture( {
+			logs: [
+				{ key: 'firehose.p0', label: 'firehose.p0', available: true },
+				{ key: 'sources/debug', label: 'debug', available: false },
+			],
+			selected: 'firehose.p0',
+		} );
+		const { container } = await renderViewer();
+		const select = container.querySelector( '.newspack-nodes-select' );
+		expect( select.options[ 0 ].disabled ).toBe( false );
+		expect( select.options[ 1 ].disabled ).toBe( true );
+		expect( select.options[ 1 ].textContent ).toBe( 'debug' );
+	} );
+
 	it( 'shows "No logs available" when the view model has no logs', async () => {
 		registerViewFixture( { logs: [] } );
 		const { container } = await renderViewer();

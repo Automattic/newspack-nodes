@@ -219,7 +219,7 @@ class ConsumerTest extends TestCase {
 	}
 
 	public function test_the_seek_words_are_aliases_of_the_sentinels(): void {
-		// The strings stay accepted at the human-facing boundaries (taillog, TSL),
+		// The strings stay accepted at the human-facing boundaries (read_message, TSL),
 		// resolving to the same three seeks — one behaviour, not two.
 		$dir = $this->three_segment_source();
 		foreach ( [ 'end' => -1, 'recent' => -2, 'start' => 0 ] as $word => $sentinel ) {

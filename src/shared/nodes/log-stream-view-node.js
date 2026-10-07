@@ -15,7 +15,7 @@ const MAX_LINES = 100000;
 
 /**
  * LogStreamViewNode — the shared view-node base of every log-stream dashboard
- * (Partition Viewer, Log Viewer, and downstream adopters like ELN's Request
+ * (Partition Viewer and downstream adopters like ELN's Request
  * Log / Error Log). One improvement here lands in all of them.
  *
  * Owns the whole common core:

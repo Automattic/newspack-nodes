@@ -477,9 +477,9 @@ export class CommandInterpreterNode extends Node {
 	 * Each handler takes `( self, args, envelope )`, so a static verb reads the
 	 * interpreter it was called on rather than a captured instance.
 	 *
-	 * This is PHP's `$C` less the three verbs that govern a server process:
+	 * This is PHP's `$C` less the two verbs that govern a server process:
 	 * `secure` and `insecure` ratchet a command surface a browser tab does not
-	 * have, and `taillog` reads log files it cannot reach.
+	 * have.
 	 *
 	 * @return {Object<string,Function>} Verb name to handler.
 	 */

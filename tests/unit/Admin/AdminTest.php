@@ -237,7 +237,7 @@ class AdminTest extends TestCase {
 			[ 'keeper=/var/log/keeper-4471.log' ],
 			\call_user_func(
 				$cb,
-				"keeper=/var/log/keeper-4471.log\nnoequals\nBad Name=/x/y.log\nrel=not/absolute\ndots=/a/../b.log\nsources=/x/reserved.log"
+				"keeper=/var/log/keeper-4471.log\nnoequals\nBad Name=/x/y.log\nrel=not/absolute\ndots=/a/../b.log"
 			)
 		);
 

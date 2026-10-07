@@ -3,7 +3,7 @@
  * (ELN's Request Log / Error Log): title, toolbar extras, below-toolbar
  * panel, list header, matchRow passthrough, label overrides, and optional
  * step/jump (hidden until the consumer provides handlers). The core chrome
- * is pinned through the PartitionViewer / LogViewer suites.
+ * is pinned through the PartitionViewer suite.
  */
 
 import { render, fireEvent, act } from '@testing-library/react';
@@ -409,7 +409,7 @@ it( 'the rate line always renders (0.0 included)', () => {
 } );
 
 it( 'the list keeps ONE tree position across the debug toggle', () => {
-	// Without a stable wrapper, a headerless viewer (Log Viewer live mode)
+	// Without a stable wrapper, a headerless viewer (live mode)
 	// remounts LogRowList on every debug toggle — fresh refs replayed the
 	// whole ring as a glide.
 	const { container, getByText } = render(

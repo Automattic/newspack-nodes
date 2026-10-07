@@ -15,8 +15,10 @@ namespace Newspack_Nodes\Tests\Unit;
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Log_Discovery;
+use Newspack_Nodes\Log_Sources;
 use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Partition_Node;
+use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Rest\Raw_Logs_CI_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
@@ -34,12 +36,16 @@ class RawLogsCITest extends TestCase {
 		$GLOBALS['_wp_actions']               = [];
 		$this->tmp = (string) \realpath( \sys_get_temp_dir() ) . '/raw-logs-ci-test-' . \uniqid();
 		\mkdir( $this->tmp, 0755, true );
-		$this->use_base_dir( $this->tmp, [ 'num_partitions' => 1 ] );
+		Log_Sources::$builtin_sources = static fn (): array => [];
+		Topology_Registry::reset();
+		$this->use_base_dir( $this->tmp, [ 'num_partitions' => 1, 'topologies' => [] ] );
 		Log_Discovery::reset();
 	}
 
 	protected function tearDown(): void {
 		Raw_Logs_CI_Node::$on_probe = null;
+		Log_Sources::$builtin_sources = null;
+		Topology_Registry::reset();
 		VerbHarness::reset();
 		Log_Discovery::reset();
 		$GLOBALS['_wp_options']               = [];
@@ -74,9 +80,9 @@ class RawLogsCITest extends TestCase {
 
 		$this->assertSame(
 			[
-				[ 'key' => 'firehose.p0', 'label' => 'firehose.p0' ],
-				[ 'key' => 'jobs.p0',     'label' => 'jobs.p0' ],
-				[ 'key' => 'requests.p0', 'label' => 'requests.p0' ],
+				[ 'key' => 'firehose.p0', 'label' => 'firehose.p0', 'available' => true ],
+				[ 'key' => 'jobs.p0',     'label' => 'jobs.p0', 'available' => true ],
+				[ 'key' => 'requests.p0', 'label' => 'requests.p0', 'available' => true ],
 			],
 			$result
 		);
@@ -165,20 +171,78 @@ class RawLogsCITest extends TestCase {
 		$this->assertSame(
 			[
 				[
-					'key'   => 'firehose.p0',
-					'label' => 'firehose.p0',
+					'key'       => 'firehose.p0',
+					'label'     => 'firehose.p0',
+					'available' => true,
 				],
 				[
-					'key'   => 'offsets/combined.firehose.p0',
-					'label' => 'offsets/combined.firehose.p0',
+					'key'       => 'offsets/combined.firehose.p0',
+					'label'     => 'offsets/combined.firehose.p0',
+					'available' => true,
 				],
 				[
-					'key'   => 'deadletter/job-worker.jobs.p0',
-					'label' => 'deadletter/job-worker.jobs.p0',
+					'key'       => 'deadletter/job-worker.jobs.p0',
+					'label'     => 'deadletter/job-worker.jobs.p0',
+					'available' => true,
 				],
 			],
 			$result
 		);
+	}
+
+	public function test_list_logs_lists_registry_sources_after_the_dirs(): void {
+		\mkdir( $this->tmp . '/logs/firehose.p0', 0755, true );
+		$present = $this->tmp . '/php-errors-4194.log';
+		$absent  = $this->tmp . '/absent-977.log';
+		\file_put_contents( $present, "PHP Notice: 977\n" );
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $present, 'debug' => $absent ];
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
+
+		$this->assertSame(
+			[
+				[ 'key' => 'firehose.p0', 'label' => 'firehose.p0', 'available' => true ],
+				[ 'key' => 'sources/php', 'label' => 'php', 'available' => true ],
+				[ 'key' => 'sources/debug', 'label' => 'debug', 'available' => false ],
+			],
+			$result
+		);
+	}
+
+	public function test_dump_log_sizes_a_file_source_by_its_bytes(): void {
+		$path = $this->tmp . '/php-errors-4194.log';
+		\file_put_contents( $path, \str_repeat( 'n', 977 ) );
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'sources/php' );
+
+		$this->assertSame(
+			[ 'log_id' => 'sources/php', 'segments' => [], 'segment_count' => 0, 'total_size' => 977 ],
+			$result
+		);
+	}
+
+	public function test_dump_log_lists_a_segmented_sources_segments(): void {
+		$dir = $this->tmp . '/topologies';
+		\mkdir( $dir, 0755, true );
+		\file_put_contents( "{$dir}/rlseg.tsl", "make_node Log gate:log <config:logs_dir>/gate-4194.jsonl 1 2 7\n" );
+		Topology_Registry::register_stock_dir( $dir );
+		$this->use_base_dir( $this->tmp, [ 'num_partitions' => 1, 'topologies' => [ 'rlseg' ] ] );
+		\mkdir( $this->tmp . '/logs', 0755, true );
+		\file_put_contents( $this->tmp . '/logs/gate-4194.jsonl.3', \str_repeat( 'a', 977 ) );
+		\file_put_contents( $this->tmp . '/logs/gate-4194.jsonl.5', \str_repeat( 'b', 233 ) );
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'sources/gate-4194.jsonl' );
+
+		$this->assertSame( [ [ 'id' => 3, 'size' => 977 ], [ 'id' => 5, 'size' => 233 ] ], $result['segments'] );
+		$this->assertSame( 2, $result['segment_count'] );
+		$this->assertSame( 1210, $result['total_size'] );
+	}
+
+	public function test_dump_log_refuses_an_unknown_source(): void {
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'sources/nope-977' );
+
+		$this->assertSame( "unknown log source: \"nope-977\" (known: none)\n", $result );
 	}
 
 	public function test_dump_log_reads_a_deadletter_dir_by_grouped_key(): void {
@@ -330,30 +394,6 @@ class RawLogsCITest extends TestCase {
 
 		$this->assertSame( 'quarantined 41941', $result['message'][ Message::VALUE ] );
 		$this->assertSame( 7, $result['cursor']['segment'] );
-	}
-
-	/**
-	 * `read_message` and `taillog read` are ONE single-step read model — same
-	 * position grammar, same ephemeral reader, same post-step cursor. They were
-	 * two verbatim copies whose only divergence was the reply's identity key
-	 * (`log_id` here, `source` there), so a browser consuming both debuggers
-	 * needed two readers for one concept. One shape, one key.
-	 */
-	public function test_read_message_speaks_the_same_reply_shape_as_taillog_read(): void {
-		$this->seed_two_records();
-
-		$result = VerbHarness::fire(
-			new Raw_Logs_CI_Node(),
-			'raw-logs',
-			'read_message',
-			[ 'firehose.p0', '0:0' ]
-		);
-
-		$this->assertSame(
-			[ 'source', 'message', 'cursor', 'at_eof' ],
-			\array_keys( $result )
-		);
-		$this->assertSame( 'firehose.p0', $result['source'] );
 	}
 
 	public function test_read_message_reports_a_missing_record_as_an_error_string(): void {

@@ -3,8 +3,8 @@
  * host into the one div `Admin::render_station_page()` prints.
  *
  * The entry carries no tool of its own. Every tool on the page registers as a
- * `host:'station'` tab from its own bundle — Overview, the Partition
- * Viewer and the Log Viewer come from event-dashboards, enqueued beside this
+ * `host:'station'` tab from its own bundle — Overview, Jobs, Tables, the
+ * Partition Viewer and Config Audit come from event-dashboards, enqueued beside this
  * bundle; the Console, Vault, Sessions and Aggregator tabs are injected on
  * first activation by `lazyTabs.js`.
  *

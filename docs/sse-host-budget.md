@@ -8,11 +8,9 @@ its entire life, so every open stream spends one of the site's workers. That
 makes the slot pool a capacity reservation, and the numbers below are the
 reservation's arithmetic.
 
-Two routes stream — `GET /newspack-nodes/v1/messages/stream` and `GET
-/newspack-nodes/v1/log/stream` — and they draw on one pool.
-[`Log_Stream_Out_Node`](../includes/rest/class-log-stream-out-node.php) subclasses [`SSE_Out_Node`](../includes/rest/class-sse-out-node.php), inheriting every wire concern
-and differing only in what a subscription resolves to. The budget is per host,
-not per route.
+One route streams — `GET /newspack-nodes/v1/messages/stream`,
+[`SSE_Out_Node`](../includes/rest/class-sse-out-node.php) — and it carries partitions and `sources/<name>` log sources
+alike. The budget is per host.
 
 ## What the platform does when you run out
 

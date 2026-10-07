@@ -1242,6 +1242,16 @@ class BootstrapTest extends TestCase {
 		}
 	}
 
+	public function test_no_route_answers_the_deleted_log_stream(): void {
+		$GLOBALS['_wp_test_registered_routes'] = [];
+
+		Bootstrap::register_rest_routes();
+
+		$routes = \array_column( $GLOBALS['_wp_test_registered_routes'], 'route' );
+		$this->assertContains( '/messages/stream', $routes );
+		$this->assertNotContains( '/log/stream', $routes );
+	}
+
 	public function test_register_rest_routes_wires_the_sse_slot_pool_seams(): void {
 		// The slot-pool seams are consumed only by SSE_Out_Node, which is instantiated
 		// only on the REST path — so wiring them belongs here, NOT in ensure_runtime_wired

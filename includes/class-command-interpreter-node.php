@@ -173,9 +173,9 @@ class Command_Interpreter_Node extends Node {
 	/**
 	 * Base verbs that only READ, and so answer READ where every other verb no
 	 * schema declares demands MANAGE (ADR-26). Every dashboard on the site
-	 * drives some of these — the Log Viewer sends `taillog`, the debug overlay
-	 * polls `dump_metadata` every tick — so the read surface stays open to a
-	 * read-only caller the `/command` door admits.
+	 * drives some of these — the debug overlay polls `dump_metadata` every
+	 * tick — so the read surface stays open to a read-only caller the
+	 * `/command` door admits.
 	 *
 	 * @var list<string>
 	 */
@@ -187,7 +187,6 @@ class Command_Interpreter_Node extends Node {
 		'list_handles',
 		'list_profiles',
 		'dmesg',
-		'taillog',
 		'dump_node',
 		'dump',
 		'dump_config',
@@ -366,7 +365,7 @@ class Command_Interpreter_Node extends Node {
 	 * @param string           $name     Verb name.
 	 * @param list<string>     $args     Pre-split argument tokens.
 	 * @param array<int,mixed> $envelope Inbound TM_COMMAND message, or [] for inline calls.
-	 * @return mixed Verb result: a string for most verbs, an array for the struct-returning ones (`dump_metadata`, `taillog sources`, `taillog read`, and the `-s` forms of `list_timers` / `list_handles` / `list_profiles`).
+	 * @return mixed Verb result: a string for most verbs, an array for the struct-returning ones (`dump_metadata` and the `-s` forms of `list_timers` / `list_handles` / `list_profiles`).
 	 */
 	public function dispatch( string $name, array $args = [], array $envelope = [] ): mixed {
 		Capabilities::require_verb( $this->capability_for( $name ) );
@@ -653,7 +652,6 @@ class Command_Interpreter_Node extends Node {
 			'pwd' => "pwd\n",
 			'log' => "log <message>\n    note: prints <message> to stderr (server-side debug log).\n",
 			'dmesg' => "dmesg\n    note: print the recent server-side stderr tail (last 100 lines).\n",
-			'taillog' => "taillog <source> [max_kb]\n    note: tail a durable aggregated log FILE by registry NAME\n          (php | debug), never a path — no traversal. Returns the\n          last min(max_kb, 64)KB (default 16), partial first line\n          dropped. No args lists the sources with availability; the\n          reserved name `sources` returns them as a\n          { name, path, mode, available, bytes } struct for a picker.\n",
 			'uptime' => "uptime\n    note: clock-time, plus days+HH:MM:SS since Core::reset() (worker spawn).\n",
 			'stats' => "stats [-a] [<regex>]\n    columns: NAME COUNT LGST_MSG READ WRITTEN.\n    default: sibling nodes of this interpreter; -a: all nodes.\n",
 			'help' => "help [ <topic> ]\n",
@@ -704,7 +702,6 @@ class Command_Interpreter_Node extends Node {
 			),
 			'log'             => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_log( $self, self::arg_strings( $args ) ),
 			'dmesg'           => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_dmesg(),
-			'taillog'         => fn ( Command_Interpreter_Node $self, array $args ): mixed => Log_Sources::taillog( self::arg_strings( $args ) ),
 			'dump_node'       => fn ( Command_Interpreter_Node $self, array $args ): mixed => self::cmd_dump_node( self::arg_strings( $args ) ),
 			'dump'            => fn ( Command_Interpreter_Node $self, array $args ): mixed => self::cmd_dump_node( self::arg_strings( $args ) ),
 			'dump_config'     => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_dump_config( Core::as_string( $args[0] ?? '' ) ),
@@ -1372,9 +1369,8 @@ class Command_Interpreter_Node extends Node {
 
 	/**
 	 * Column-aligned table rendering; the last left-aligned column isn't padded.
-	 * Public so the substrate's other text-table consumers — Log_Sources' taillog
-	 * listing and Node_Schema_Help — share the ONE renderer rather than growing
-	 * copies. Tachikoma keeps tabulate in CI; so do we.
+	 * Public so the substrate's other text-table consumer, Node_Schema_Help,
+	 * shares the ONE renderer rather than growing copies. Tachikoma keeps tabulate in CI; so do we.
 	 *
 	 * @param array<int,string>            $dirs   One per column ('left' or 'right').
 	 * @param array<int,string>|null       $header Optional header row; null skips it.

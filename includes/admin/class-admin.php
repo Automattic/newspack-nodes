@@ -37,7 +37,7 @@ use Newspack_Nodes\Worker_Base;
  *
  * The top-level "Nodes" page is a React mount div; every dashboard reaches it
  * as a station tab bundle rather than its own submenu, so one station renders
- * Overview, Jobs, Console, Partition Viewer, Log Viewer, Config Audit, Vault,
+ * Overview, Jobs, Tables, Console, Partition Viewer, Config Audit, Vault,
  * Sessions and Aggregator. The Settings → Nodes Runtime page is server-rendered
  * through the WP Settings API.
  *
@@ -127,8 +127,8 @@ class Admin {
 
 	/**
 	 * Enqueue the event-dashboards bundle on the top-level "Nodes" station page,
-	 * where its five `host:'station'` tabs register: Overview, Jobs, Partition Viewer,
-	 * Log Viewer and Config Audit.
+	 * where its five `host:'station'` tabs register: Overview, Jobs, Tables,
+	 * Partition Viewer and Config Audit.
 	 *
 	 * @param string $hook `admin_enqueue_scripts` hook suffix, ignored: the page
 	 *                     gate is `?page=`, which reads the same for a top-level
@@ -524,8 +524,8 @@ class Admin {
 
 	/**
 	 * Advertise the event-dashboards bundle as a station tab bundle so the station
-	 * page enqueues it and its five `host: 'station'` tabs — Overview, Jobs, Partition
-	 * Viewer, Log Viewer and Config Audit — register there. Eager rather than
+	 * page enqueues it and its five `host: 'station'` tabs — Overview, Jobs, Tables, Partition
+	 * Viewer and Config Audit — register there. Eager rather than
 	 * lazy because Overview sits at order 0 and is therefore the station's landing
 	 * tab, so its bundle has to be there before anyone clicks anything.
 	 * `enqueue_event_dashboards_assets()` also enqueues this handle, and runs
@@ -817,7 +817,7 @@ class Admin {
 	 * Log sources field: a textarea of newline-separated `name=/absolute/path`
 	 * entries. These are additions to what `Log_Sources` already resolves — the
 	 * built-in sources and the ones inferred from the active topologies — and both
-	 * `/log/stream` and `taillog` read the combined set.
+	 * `/messages/stream`'s `sources/<name>` and `list_logs` read the combined set.
 	 */
 	public static function log_sources_callback(): void {
 		$value = \get_option( 'newspack_nodes_log_sources', [] );
@@ -828,7 +828,7 @@ class Admin {
 			'newspack_nodes_log_sources',
 			\implode( "\n", $value ),
 			'',
-			\__( 'Extra log sources for the log stream and taillog (one per line, format: name=/absolute/path). Built-ins and active-topology logs are always included.', 'newspack-nodes' ),
+			\__( 'Extra log sources for the Partition Viewer (one per line, format: name=/absolute/path). Built-ins and active-topology logs are always included.', 'newspack-nodes' ),
 			self::reset_mark_name( 'log_sources' )
 		);
 		echo $html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Settings_Renderer escapes every field.

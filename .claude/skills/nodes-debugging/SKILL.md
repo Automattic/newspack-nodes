@@ -105,11 +105,7 @@ trace [<node>] [<level>]    # set a node's debug_state; `*` hits every node, bar
                             #   Console's Event Timeline parse it
 dmesg                       # the last 100 lines of this process's stderr ring
 log <message>               # write into that ring from here
-taillog [<source>] [max_kb] # tail a registry-NAMED log file (php | debug | config
-                            #   log_sources entries | active-topology Log nodes), the last
-                            #   16KB by default and 64KB at most. Bare lists the registry,
-                            #   `sources` returns it as a struct, and
-                            #   `read <source> <seg>:<off>` returns the one line at a position
+cmd raw-logs read_message <log> <seg>:<off>  # one record from a dir or sources/<name>
 ```
 
 The half that changes the graph:

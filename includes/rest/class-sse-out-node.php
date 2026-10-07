@@ -44,9 +44,6 @@ use Newspack_Nodes\Worker_Base;
  * Consumers around it are built inside the drain's `try` and removed in its
  * `finally`, which is what leaves the process registry empty for the next
  * stream even when the drain throws.
- *
- * `Log_Stream_Out_Node` extends it with `ROUTE` and `open_subscription()` as
- * its only overrides, so the two endpoints stay identical on the wire.
  */
 class SSE_Out_Node extends Node {
 

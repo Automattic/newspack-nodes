@@ -666,7 +666,7 @@ class Core {
 	 * Render the control characters in untrusted text as visible `<XX>` tokens,
 	 * so a log line, a worker id or a flag value cannot drive the terminal it is
 	 * printed on. A visitor controls the URL, Referer and User-Agent a notice
-	 * copies into `debug.log`, and `taillog debug` puts that line in front of an
+	 * copies into `debug.log`, and `raw-logs read_message sources/debug` in `wp nodes cli` puts that line in front of an
 	 * operator: raw, an `\033]0;…\007` sets the window title, a `\r` rewrites the
 	 * line the operator already read, and `\033[2J` clears the screen.
 	 *

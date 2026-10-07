@@ -28,7 +28,7 @@ table.seam td { padding:6px 8px 6px 0; border-top:1px solid #E3E4E6; vertical-al
 </style>
 <div class="sheet">
 <h1>A stream's life: one slot lease, five events, two clocks and four ways it ends</h1>
-<p class="sub"><span class="mono">GET /messages/stream</span> holds one PHP-FPM child from the slot acquire to the release that frees it. The server reads the lease on every tick and never refreshes it; the client's <span class="mono">workers heartbeat</span> is the only thing that does. <span class="mono">/log/stream</span> is identical on the wire.</p>
+<p class="sub"><span class="mono">GET /messages/stream</span> holds one PHP-FPM child from the slot acquire to the release that frees it. The server reads the lease on every tick and never refreshes it; the client's <span class="mono">workers heartbeat</span> is the only thing that does. A <span class="mono">sources/&lt;name&gt;</span> subscription rides the same stream.</p>
 
 <h2>Open, in order</h2>
 <div class="steps">

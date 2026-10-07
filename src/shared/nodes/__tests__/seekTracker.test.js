@@ -1,6 +1,6 @@
 /**
  * SeekTracker tests — the node-side seek/position tracker shared by the Partition
- * Viewer, Log Viewer, and the ELN Request/Error Log view nodes. It parses each
+ * Viewer and the ELN Request/Error Log view nodes. It parses each
  * record's `segment:offset:length` ID breadcrumb, remembers the last-received
  * segment, and flips replay→live when a replayed record reaches the captured live
  * boundary. `track()` returns true ONLY when the received segment changed or the

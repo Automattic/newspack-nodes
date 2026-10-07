@@ -389,7 +389,7 @@ A Timer feeds a Tee, the Tee fans out to three Fetchers, and each Fetcher is `co
 - **`_http`** is the substrate's [`HttpOut`](../src/runtime/http-out-node.js) egress — the boundary that POSTs the command batch to `/command`.
 - **`_shell`** is an **observe-only `Tap`** sitting *in front* of `_http`. A `Tap` forwards everything to its sink unchanged, but it's a named node on the send path — so you can `connect _shell` in the console and **watch every command going out** without touching the graph. Routing the Fetchers through `_shell/_http/insights-demo` (not `_http/insights-demo` directly) is what buys you that observability. Read `TO = _shell/_http/insights-demo` hop by hop: the Router peels `_shell` and hands the message to the Tap, whose sink returns it through the interpreter to the Router, which peels `_http`; `HttpOut` then POSTs what is left, `insights-demo`, as the command's TO.
 
-Both names are reserved, so spell the path through **`egressPath( ci )`** ([`@newspack-nodes/shared/helpers/egressPath`](../src/shared/helpers/egressPath.js)) rather than by hand: it returns `_shell/_http/<ci>`, or a bare `_shell/_http` for a command-interpreter builtin such as `taillog`. Skipping the Tap is silent — the command still arrives, and `connect _shell` stops seeing it.
+Both names are reserved, so spell the path through **`egressPath( ci )`** ([`@newspack-nodes/shared/helpers/egressPath`](../src/shared/helpers/egressPath.js)) rather than by hand: it returns `_shell/_http/<ci>`, or a bare `_shell/_http` for a command-interpreter builtin such as `dump_metadata`. Skipping the Tap is silent — the command still arrives, and `connect _shell` stops seeing it.
 
 ### c. The receiver reply path — why a `counts` reply only touches the counts view
 

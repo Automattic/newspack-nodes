@@ -1,14 +1,15 @@
 /**
- * Partition Viewer Component — the DOM-rendered live stream of one
- * partition's records.
+ * Partition Viewer Component — the DOM-rendered live stream of one log: a
+ * partition dir or a `sources/<name>` registry log.
  *
  * A THIN view over the `partition:*` node graph (mounted by
  * `usePartitionViewerGraph`): `partition:link` holds the SSE connection and
  * `partition:view` holds the ring + view model. The chrome (toolbar dropdown,
  * filter, counts, pause, clear, banner, body split) is the shared
  * `LogStreamViewer`; browsing the selected log's segments (`dump_log`) is the
- * shared `useSegmentBrowse`, which also renders the rail. Rows are packed
- * partition envelopes, one cell per message field the Cols picker has enabled.
+ * shared `useSegmentBrowse`, which also renders the rail. A dir's rows are
+ * packed partition envelopes, one cell per message field the Cols picker has
+ * enabled; a source's rows are raw lines in the VALUE cell.
  */
 
 import { useState, useCallback } from '@wordpress/element';
@@ -295,7 +296,11 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 			className="newspack-nodes-partition-viewer"
 			ariaLabel={ __( 'Partition Viewer', 'newspack-nodes' ) }
 			headerControlsSlot={ headerControlsSlot }
-			pickerOptions={ availableLogs }
+			pickerOptions={ availableLogs.map( ( l ) => ( {
+				key: l.key,
+				label: l.label,
+				disabled: ! l.available,
+			} ) ) }
 			selectedKey={ selectedLog }
 			onPick={ pick }
 			pickerEmptyLabel={ __( 'No logs available', 'newspack-nodes' ) }

@@ -1,7 +1,7 @@
 /**
- * The browse model both log-stream dashboards share, expressed as the SSE
- * `positions` seed their transport already carries. The Partition Viewer and
- * the Log Viewer both browse segments; only a file-mode log source has none.
+ * The browse model the log-stream dashboards share, expressed as the SSE
+ * `positions` seed their transport already carries. The Partition Viewer
+ * browses segments; only a file-mode log source has none.
  *
  * A seek needs no transport of its own. `RemoteLink.setSubscribe( sub,
  * positions )` puts the seed on the stream URL as `&positions=`, the
@@ -17,22 +17,14 @@
  * - Replay sends `{ [sub]: 'start' }`, the token the server resolves to the
  *   earliest retained record.
  *
- * The rail rides the catalog verb each dashboard already calls — `dump_log`
- * for the Partition Viewer, `taillog sources` for the Log Viewer — so browsing
- * costs no server verb of its own.
+ * The rail rides `dump_log`, so browsing costs no verb of its own.
  *
  * `useSegmentBrowse`, at the foot of the file, composes all of this into the
  * one controller a dashboard mounts: rail maintenance, the seek handlers, and
  * the rail itself.
  */
 
-import {
-	useState,
-	useEffect,
-	useCallback,
-	useMemo,
-	useRef,
-} from '@wordpress/element';
+import { useState, useEffect, useCallback, useRef } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 
 import LogBrowser from '../components/LogBrowser';
@@ -69,6 +61,9 @@ const NOOP = () => {};
 
 /** One array, so "no segments" is the same value every render. */
 const NO_SEGMENTS = [];
+
+/** One object, so an empty footprint keeps its identity across renders. */
+const NO_FOOTPRINT = { segments: NO_SEGMENTS, bytes: 0 };
 
 /**
  * The live-tail positions: none at all. Sending no position for a
@@ -172,23 +167,22 @@ export default function useLogPositions( sub ) {
 }
 
 /**
- * One partition's segment rail, resolved from `dump_log` and re-resolvable on
- * demand — the `source` half of `useSegmentBrowse` for every dashboard that has
- * to ASK for its segments. A dashboard whose catalog already carries them (the
- * Log Viewer's `taillog sources` rows) passes its own `source` and skips this.
+ * One log's footprint, resolved from `dump_log` and re-resolvable on demand —
+ * the `source` half of `useSegmentBrowse`. `segments` is the rail; `bytes` is a
+ * file source's replay boundary, from `dump_log`'s `total_size`.
  *
  * The answer NAMES the dir it is about, so a selection that moved on while the
  * reply was in flight is dropped without a cancellation flag (ADR-7).
  *
  * @param {Object} o       Rail inputs.
- * @param {string} o.sub   The partition dir; '' empties the rail and asks nothing.
+ * @param {string} o.sub   The partition dir or `sources/<name>`; '' empties the rail and asks nothing.
  * @param {string} o.scope Names this read's own nodes.
- * @return {{source: {segments: Array<{id:number,size:number}>}, refresh: () => void}}
+ * @return {{source: {segments: Array<{id:number,size:number}>, bytes: number}, refresh: () => void}}
  *   The source row for `useSegmentBrowse`, and the re-catalog its rail timer
  *   drives.
  */
 export function useLogStatusSegments( { sub, scope } ) {
-	const [ segments, setSegments ] = useState( NO_SEGMENTS );
+	const [ footprint, setFootprint ] = useState( NO_FOOTPRINT );
 	const subRef = useRef( sub );
 	subRef.current = sub;
 
@@ -199,7 +193,10 @@ export function useLogStatusSegments( { sub, scope } ) {
 		retry: true,
 		onDone: ( { result, subject } ) => {
 			if ( subRef.current === subject ) {
-				setSegments( result?.segments ?? NO_SEGMENTS );
+				setFootprint( {
+					segments: result?.segments ?? NO_SEGMENTS,
+					bytes: result?.total_size ?? 0,
+				} );
 			}
 		},
 	} );
@@ -211,25 +208,21 @@ export function useLogStatusSegments( { sub, scope } ) {
 	}, [ run ] );
 
 	useEffect( () => {
-		if ( ! sub ) {
-			setSegments( NO_SEGMENTS );
-			return;
+		// The previous log's footprint is not this one's boundary.
+		setFootprint( NO_FOOTPRINT );
+		if ( sub ) {
+			refresh();
 		}
-		refresh();
 	}, [ sub, refresh ] );
 
-	const source = useMemo( () => ( { segments } ), [ segments ] );
-	return { source, refresh };
+	return { source: footprint, refresh };
 }
 
 /**
  * The whole browse controller for a segmented stream: it keeps the rail fresh,
  * turns Live / Replay / segment-click / offset-jump into `seek()` calls, and
- * renders the rail. Both log-stream dashboards drive exactly this, so they get
- * it from here instead of writing all three out again — they differ in where
- * the source row COMES FROM (the Log Viewer reads it out of the catalog it
- * already holds; the Partition Viewer fetches `dump_log` per partition), not
- * in what browsing one means.
+ * renders the rail. The source row comes from `useLogStatusSegments`, which
+ * fetches `dump_log` for the selected log.
  *
  * Every seek that STATES positions carries the source row, because
  * `browseControl` reads the replay boundary out of it, and both of its shapes

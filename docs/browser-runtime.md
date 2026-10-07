@@ -12,7 +12,7 @@ A Timer ticks on that heartbeat, a Tee fans the tick to one Fetcher per verb, an
 
 ## The pages
 
-The station is one wp-admin page with nine tabs, four of which, Console, Vault, Sessions and Aggregator, load only when first opened; the Event Logger adds five dashboards, overview, error log, gyroscope, settings and requests, plus the current-request overlay tab. Any dashboard can mount the [debug overlay](../src/debug-overlay/DebugOverlay.js), which reads the page's own node table and draws every live node, edge and counter, carries a REPL for `connect` and `remove`, and renders nothing until `?nodes-debug=1` turns it on. One runtime in both places buys one debugging vocabulary: a stalled dashboard is a node whose counter stopped, drawn in the overlay, rather than a promise nobody kept.
+The station is one wp-admin page with eight tabs, four of which, Console, Vault, Sessions and Aggregator, load only when first opened; the Event Logger adds five dashboards, overview, error log, gyroscope, settings and requests, plus the current-request overlay tab. Any dashboard can mount the [debug overlay](../src/debug-overlay/DebugOverlay.js), which reads the page's own node table and draws every live node, edge and counter, carries a REPL for `connect` and `remove`, and renders nothing until `?nodes-debug=1` turns it on. One runtime in both places buys one debugging vocabulary: a stalled dashboard is a node whose counter stopped, drawn in the overlay, rather than a promise nobody kept.
 
 ## Two channels to a worker
 

@@ -7,7 +7,7 @@
  * average low-pass filters that average into a figure steady enough to read.
  *
  * `LogStreamViewNode` drives its lines/s from one, so every log-stream
- * dashboard — Partition Viewer, Log Viewer, and downstream adopters like ELN's
+ * dashboard — Partition Viewer and downstream adopters like ELN's
  * Request Log — smooths alike; the debug overlay's Overview cards drive their
  * byte and message In/Out rates from four more. Sharing the arithmetic is what
  * keeps two readouts of the same traffic from disagreeing.

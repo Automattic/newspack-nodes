@@ -5,8 +5,8 @@ import { sliceView } from './slice-view-node';
  * dashboard chooses a log source or a stream subscription from. `useLogCatalog`
  * is its only builder.
  *
- * Its two verbs, `taillog sources` and `list_logs`, answer with a struct rather
- * than a JSON string, because the command interpreter puts a verb's return
+ * Its verb, `list_logs`, answers with a struct rather than a JSON string,
+ * because the command interpreter puts a verb's return
  * value on the reply VALUE unencoded. The declaration therefore leaves `json`
  * off and reads the array straight off the payload. The rows publish under
  * `items`, which is the key `useLogCatalog` reads.

@@ -61,32 +61,10 @@ import { controlMsg } from '../helpers/controlMsg';
 import { browseControl } from '../nodes/seekTracker';
 
 /**
- * What a stepped read's verb takes to fetch ONE record.
- *
- * @typedef {( sub: string, position: string ) => string[]} ArgsFor
- */
-
-/**
- * The subject a stepped read's reply is addressed by (ADR-7), read back out of
- * the arguments `ArgsFor` built.
- *
- * @typedef {( args: string[] ) => string} SubjectOf
- */
-
-/**
  * Which of a catalog's rows a dashboard offers.
  *
  * @typedef {( row: Object ) => boolean} CatalogFilter
  */
-
-/**
- * The plain `<sub> <position>` read; a verb with a sub-verb declares its own.
- *
- * @param {string} sub      The subscription being stepped.
- * @param {string} position Where to read from.
- * @return {string[]} The verb's arguments.
- */
-const POSITIONAL_READ = ( sub, position ) => [ sub, position ];
 
 /** Segments, sizes and partitions move slowly; ten seconds is often enough. */
 const CATALOG_POLL_MS = 10000;
@@ -109,8 +87,6 @@ CommandInterpreterNode.registerNodeClasses( {
  *                                  names one.
  * @param {any}     o.viewClass     The view-model node's class, handed over
  *                                  rather than named (ADR-16).
- * @param {string}  [o.endpoint]    SSE endpoint override; omit for
- *                                  `/messages/stream`.
  * @param {number}  [o.maxEntries]  View ring cap; omit to keep the view's own.
  * @param {?Object} [o.openAt]      The FIRST open's seek seed; null tails.
  * @param {boolean} [o.clearOnOpen] Empty the view before every open, for a
@@ -124,7 +100,6 @@ export function useStreamGraph( {
 	prefix,
 	subscribe,
 	viewClass,
-	endpoint = '',
 	maxEntries = 0,
 	openAt = null,
 	clearOnOpen = false,
@@ -158,7 +133,6 @@ export function useStreamGraph( {
 	declRef.current = {
 		subscribe,
 		viewClass,
-		endpoint,
 		maxEntries,
 		openAt,
 		clearOnOpen,
@@ -221,9 +195,6 @@ export function useStreamGraph( {
 				`${ prefix }:link`,
 				decl.subscribe ? [ decl.subscribe ] : []
 			);
-			if ( decl.endpoint ) {
-				link.endpoint = decl.endpoint;
-			}
 			link.target = `${ prefix }:stream`;
 			interpreter
 				.makeNode( 'Tee', `${ prefix }:stream` )
@@ -357,34 +328,21 @@ export function useStreamGraph( {
  * Play resumes streaming from the stepped point.
  *
  * The reply is addressed by its SUBJECT (ADR-7), which for these verbs is the
- * subscription being stepped — so `subjectOf` must be `argsFor` read backwards:
- * a verb with a sub-verb does not carry its source at args[0].
+ * subscription being stepped, the first token of `<sub> <position>`.
  *
  * A record answered after Play is dropped rather than admitted: the live stream
  * is delivering again, and a stale step would insert a row behind the tail.
  *
- * @param {Object}    o             Options.
- * @param {Object}    o.graph       The `useStreamGraph` handle to step.
- * @param {string}    [o.ci]        The service CI the read verb lives on; an
- *                                  interpreter builtin has none.
- * @param {string}    o.command     The read verb.
- * @param {string}    [o.scope]     Names this read's own nodes; `<prefix>-step`
- *                                  by default.
- * @param {ArgsFor}   [o.argsFor]   The plain `<sub> <position>` read by
- *                                  default.
- * @param {SubjectOf} [o.subjectOf] `argsFor` read backwards; the first token by
- *                                  default.
+ * @param {Object} o         Options.
+ * @param {Object} o.graph   The `useStreamGraph` handle to step.
+ * @param {string} o.ci      The service CI the read verb lives on.
+ * @param {string} o.command The read verb.
+ * @param {string} [o.scope] Names this read's own nodes; `<prefix>-step`
+ *                           by default.
  * @return {() => void} Deliver one record from the recorded cursor; a no-op
  *   unless the stream is paused and pointed at a subscription.
  */
-export function useSteppedRead( {
-	graph,
-	ci,
-	command,
-	scope,
-	argsFor = POSITIONAL_READ,
-	subjectOf,
-} ) {
+export function useSteppedRead( { graph, ci, command, scope } ) {
 	const { linkRef, viewRef, isPausedRef, control, resubscribe, targetRef } =
 		graph;
 
@@ -392,7 +350,6 @@ export function useSteppedRead( {
 		ci,
 		command,
 		scope: scope ?? `${ graph.prefix }-step`,
-		subjectOf,
 		// The reply names the dir it read; the pending target may have moved.
 		onDone: ( { result, subject } ) => {
 			if (
@@ -419,9 +376,9 @@ export function useSteppedRead( {
 		const sub = pending.subscribe[ 0 ];
 		const position = stepPosition( link, sub, pending.positions );
 		if ( null !== position ) {
-			run( argsFor( sub, position ) );
+			run( [ sub, position ] );
 		}
-	}, [ linkRef, isPausedRef, targetRef, run, argsFor ] );
+	}, [ linkRef, isPausedRef, targetRef, run ] );
 }
 
 /**
@@ -431,23 +388,21 @@ export function useSteppedRead( {
  * recover on the next tick, with no loader and no retry of their own — a
  * refusal is an ANSWER, so nothing re-asks it.
  *
- * @param {Object}          o          Options.
- * @param {string}          o.prefix   Names the slice's nodes,
- *                                     `<prefix>-catalog:*`.
- * @param {string}          o.command  The catalog verb.
- * @param {string}          o.target   Where to send it (`egressPath( ci )`).
- * @param {() => ?string[]} [o.argsFn] The verb's arguments, read at fire time;
- *                                     none by default.
- * @param {CatalogFilter}   [o.keep]   Keep only the rows this dashboard
- *                                     offers. Declare it once: it is a memo
- *                                     dependency, so a fresh arrow each render
- *                                     hands back a fresh array each render.
+ * @param {Object}        o         Options.
+ * @param {string}        o.prefix  Names the slice's nodes,
+ *                                  `<prefix>-catalog:*`.
+ * @param {string}        o.command The catalog verb.
+ * @param {string}        o.target  Where to send it (`egressPath( ci )`).
+ * @param {CatalogFilter} [o.keep]  Keep only the rows this dashboard
+ *                                  offers. Declare it once: it is a memo
+ *                                  dependency, so a fresh arrow each render
+ *                                  hands back a fresh array each render.
  * @return {Object[]} The catalog rows.
  */
-export function useLogCatalog( { prefix, command, target, argsFn, keep } ) {
+export function useLogCatalog( { prefix, command, target, keep } ) {
 	// Read live inside the once-only poll build.
 	const declRef = useRef( null );
-	declRef.current = { command, target, argsFn };
+	declRef.current = { command, target };
 
 	useBatchedPoll( {
 		build: ( { interpreter, tee } ) =>
@@ -455,7 +410,6 @@ export function useLogCatalog( { prefix, command, target, argsFn, keep } ) {
 				fetcher: `${ prefix }-catalog:fetch`,
 				receiver: `${ prefix }-catalog:in`,
 				command: declRef.current.command,
-				argsFn: declRef.current.argsFn,
 				view: `${ prefix }-catalog:view`,
 				viewClass: CatalogListViewNode,
 				tee,

@@ -19,8 +19,7 @@ namespace Newspack_Nodes;
  * sibling `{name}:config` verb table from the same `commands`, so one
  * declaration feeds the runtime and the help text alike. Tables render through
  * `Command_Interpreter_Node::tabulate()`, the ONE text-table renderer, which is
- * what keeps a help block column-aligned with the `ls` and `stats` listings and
- * `Log_Sources`' `taillog` table.
+ * what keeps a help block column-aligned with the `ls` and `stats` listings.
  *
  * `CommandInterpreterNode._renderNodeSchema()` in
  * `src/runtime/command-interpreter-node.js` mirrors this renderer for the

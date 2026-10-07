@@ -796,6 +796,23 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   rather than the group's own name. A subclass overriding `live_targets()`
   must expand a target whose node answers `members()` itself or lose the
   fan-out.
+- **`GET /log/stream` is gone, and `Log_Stream_Out_Node` with it.** Stream a
+  `Log_Sources` registry entry from `/messages/stream` as `sources/<name>`:
+  `subscribe=sources/php` where you sent `subscribe=php`, with `positions`
+  keyed by `sources/php`. Each frame's FROM opens with `sources/<name>`. One
+  stream may now carry registry sources beside partitions.
+- **The `taillog` verb is gone.** List the registry with `cmd raw-logs list_logs`
+  (each source is a `sources/<name>` row), size one with `cmd raw-logs dump_log
+  sources/<name>`, and read one record with `cmd raw-logs read_message
+  sources/<name> <segment>:<offset>`. The last-N-KB tail has no replacement; the
+  Partition Viewer streams the source live. `sources` and `read` are no longer
+  reserved as registry names.
+- **The Log Viewer tab is gone.** The Partition Viewer lists registry sources as
+  `sources/<name>` beside the dirs; an old `?tab=log-viewer&source=<name>` link
+  lands on the default tab. `useStreamGraph` takes no `endpoint`,
+  `useSteppedRead` no `argsFor` or `subjectOf`, `useLogCatalog` no `argsFn`, and
+  `RemoteLinkNode` and `SseInNode` carry no `endpoint` field. Replace
+  `useLogViewerGraph` with `usePartitionViewerGraph`.
 
 ## 2.65.6
 

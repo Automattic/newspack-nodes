@@ -11,7 +11,7 @@ import names from '../../runtime/reserved-node-names.json';
  * seeing traffic that no longer passes through it.
  *
  * @param {string} [ci] The server CI mount owning the verb. Omit it for a
- *                      command-interpreter builtin such as `taillog`: the path
+ *                      command-interpreter builtin such as `dump_metadata`: the path
  *                      then stops at `_http`, and the command reaches the
  *                      server with an empty TO for `_command_interpreter` to
  *                      run itself.

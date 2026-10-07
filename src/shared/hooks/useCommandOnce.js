@@ -131,9 +131,8 @@ const decodeSubject = ( path ) =>
  *                                  is how ONE node answers about many rows with
  *                                  no table. Defaults to the first token;
  *                                  override it for a verb whose first token is
- *                                  a sub-verb rather than a subject (`taillog
- *                                  read <source> <position>`) or a whole
- *                                  document (a rule as JSON).
+ *                                  not a subject, such as a whole document (a
+ *                                  rule as JSON).
  * @return {{run: (args: string[]) => void, abandon: () => void, isPending: (subject: ?string) => boolean, result: ?Object, error: ?string, errorData: ?Object, answeredArgs: ?string[], pending: boolean}}
  *   A screen serving many rows reads each answer through `onDone`, which
  *   names the subject it was about; what is returned here is the last one.

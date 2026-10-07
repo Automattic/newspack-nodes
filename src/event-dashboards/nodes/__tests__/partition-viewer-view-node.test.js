@@ -534,3 +534,15 @@ test( 'select resets mode to live and clears the last-received segment', () => {
 	expect( v.lastReceivedSegment ).toBe( null );
 	expect( v.view.lastReceivedSegment ).toBe( null );
 } );
+
+test( 'adopts the first AVAILABLE catalog row when nothing is selected', () => {
+	const node = new PartitionViewerViewNode();
+	node._control( {
+		action: 'logs',
+		logs: [
+			{ key: 'sources/debug', label: 'debug', available: false },
+			{ key: 'kea-7713.p3', label: 'kea-7713.p3', available: true },
+		],
+	} );
+	expect( node.selected ).toBe( 'kea-7713.p3' );
+} );

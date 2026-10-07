@@ -4,7 +4,7 @@
  * It owns the toolbar (counts and rate, source picker, filter, offset jump,
  * pause, step, debug, clear), the reconnect banner, the skipped-lines notice,
  * the collapsible browse rail and the virtualized row list, so the Partition
- * Viewer, the Log Viewer and an adopter's own stream all behave alike.
+ * Viewer and an adopter's own stream behave alike.
  *
  * The consumer owns the node graph and passes what differs: the picker
  * catalog, the configured `LogBrowser` rail, the row renderer, and the

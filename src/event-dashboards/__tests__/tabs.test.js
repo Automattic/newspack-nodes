@@ -10,7 +10,6 @@ import { __ } from '@wordpress/i18n';
 
 // The tab components pull in heavy trees; stubs keep this a pure registry test.
 jest.mock( '../PartitionViewer', () => () => null );
-jest.mock( '../LogViewer', () => () => null );
 jest.mock( '../ConfigAudit', () => () => null );
 jest.mock( '../Overview', () => () => null );
 jest.mock( '../Jobs', () => () => null );
@@ -72,19 +71,13 @@ test( 'importing tabs registers the partition-viewer tab on the station host at 
 	expect( typeof tab.component ).toBe( 'function' );
 } );
 
-test( 'importing tabs registers the log-viewer tab (order 25, full-bleed, ?source=)', () => {
+test( 'registers no log-viewer tab beside the Partition Viewer', () => {
 	jest.resetModules();
 	require( '../tabs' );
 	const { getTabs } = require( '../../shared/tabs/tabRegistry' );
-	const tab = getTabs( 'station' ).find( ( t ) => t.id === 'log-viewer' );
-	expect( tab ).toBeTruthy();
-	expect( tab.host ).toBe( 'station' );
-	expect( tab.slug ).toBe( 'log-viewer' );
-	expect( tab.param ).toBe( 'source' );
-	expect( tab.order ).toBe( 25 );
-	expect( tab.fullBleed ).toBe( true );
-	expect( tab.label ).toBe( __( 'Log Viewer', 'newspack-nodes' ) );
-	expect( typeof tab.component ).toBe( 'function' );
+	expect(
+		getTabs( 'station' ).find( ( t ) => t.id === 'log-viewer' )
+	).toBeUndefined();
 } );
 
 test( 'importing tabs registers the config-audit tab on the station host at order 30', () => {
@@ -96,7 +89,7 @@ test( 'importing tabs registers the config-audit tab on the station host at orde
 	expect( tab.host ).toBe( 'station' );
 	expect( tab.slug ).toBe( 'config-audit' );
 	expect( tab.order ).toBe( 30 );
-	expect( tab.order ).toBeGreaterThan( 25 ); // after the Log Viewer
+	expect( tab.order ).toBeGreaterThan( 20 ); // after the Partition Viewer
 	expect( tab.label ).toBe( __( 'Config Audit', 'newspack-nodes' ) );
 	expect( typeof tab.component ).toBe( 'function' );
 } );

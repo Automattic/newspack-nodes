@@ -73,14 +73,14 @@ describe( 'PollerNode', () => {
 		const node = new PollerNode();
 		node.name = '_logs:poller';
 		node.target = '_http';
-		node.verb = 'taillog';
+		node.verb = 'dump_metadata';
 		node.pollArgs = [ 'php' ];
 		const sent = [];
 		node.sink = { fill: ( m ) => sent.push( m ) };
 		node.fire();
 		expect( sent ).toHaveLength( 1 );
 		expect( sent[ 0 ][ VALUE ] ).toMatchObject( {
-			name: 'taillog',
+			name: 'dump_metadata',
 			arguments: [ 'php' ],
 		} );
 		expect( sent[ 0 ][ TO ] ).toBe( '_http' );

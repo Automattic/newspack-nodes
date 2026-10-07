@@ -1,6 +1,6 @@
 /**
  * LogStreamViewNode tests — the shared view-node base every log-stream
- * dashboard's view node extends (Partition/Log Viewer here; ELN's Request Log
+ * dashboard's view node extends (Partition Viewer here; ELN's Request Log
  * and Error Log downstream). Owns the O(1) ring, the paused belt + step
  * budget, the decaying lps readout, seek tracking, reply settling, and the
  * shared control verbs. Subclasses supply `shapeRow()` + extra controls.
