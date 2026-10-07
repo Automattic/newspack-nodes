@@ -12,9 +12,8 @@
  * `taillog read` REPL verb drives, so the dashboard and the REPL share one
  * position grammar and one reply shape instead of drifting apart.
  *
- * A `log` argument the catalog does not carry resolves to a default rather than
- * refusing, so a picker holding a key whose directory has been pruned still
- * renders a log.
+ * A `log` the catalog does not name is refused, never defaulted: a paused
+ * step handed another log's record would read the wrong stream.
  *
  * @package Newspack_Nodes
  */
@@ -23,8 +22,6 @@ namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Capabilities;
 use Newspack_Nodes\Command_Interpreter_Node;
-use Newspack_Nodes\Consumer_Node;
-use Newspack_Nodes\Config as RuntimeConfig;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Log_Discovery;
 use Newspack_Nodes\Log_Sources;
@@ -44,15 +41,6 @@ use Newspack_Nodes\Service_CI_Node;
 class Raw_Logs_CI_Node extends Service_CI_Node {
 
 	/**
-	 * Log-key prefix preferred when the `log` argument is missing or unknown.
-	 *
-	 * Matched with `str_starts_with` rather than compared whole, because the
-	 * flat layout carries the partition in the directory name: the key on disk
-	 * is `firehose.p0`, never a bare `firehose`.
-	 */
-	private const PREFERRED_LOG_PREFIX = 'firehose';
-
-	/**
 	 * Observation seam over the `dump_log` probe wiring. Production leaves it
 	 * null and nothing runs; a test assigns a closure, which `cmd_dump_log`
 	 * invokes with the inspection Partition after patron, name and sink are set
@@ -69,6 +57,40 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	public static ?\Closure $on_probe = null;
 
 	/**
+	 * `list_logs` verb handler — the catalog the dashboard's log picker mounts.
+	 *
+	 * @return list<array{key:string,label:string}>
+	 */
+	public static function cmd_list_logs(): array {
+		return self::catalog_keys();
+	}
+
+	/**
+	 * Every on-disk partition directory as a `{key,label}` pair, `logs` first,
+	 * then `offsets` and `deadletter`.
+	 *
+	 * A bare basename keys the `logs` root and `{group}/{basename}` keys the
+	 * other two, which is the shape `Log_Discovery::dir_of()` resolves back to a path.
+	 * `label` repeats `key`: the directory name is the identifier, so the picker has
+	 * nothing else to render.
+	 *
+	 * @return list<array{key:string,label:string}>
+	 */
+	private static function catalog_keys(): array {
+		$result = [];
+		foreach ( Log_Discovery::groups() as $group => $names ) {
+			foreach ( $names as $name ) {
+				$key      = 'logs' === $group ? $name : "{$group}/{$name}";
+				$result[] = [
+					'key'   => $key,
+					'label' => $key,
+				];
+			}
+		}
+		return $result;
+	}
+
+	/**
 	 * `dump_log` verb handler — segment count and total size for one concrete
 	 * partition directory. Accepts a bare logs key (`firehose.p0`) or a
 	 * group-prefixed one (`offsets/…`, `deadletter/…`).
@@ -82,12 +104,13 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	 * would collide with the next `dump_log` call in the same process.
 	 *
 	 * @param Command_Interpreter_Node $self The dispatching interpreter; names and patrons the probe.
-	 * @param array<array-key,mixed>   $args Bound verb arguments: the optional log key; absent or unknown resolves to the catalog default.
+	 * @param array<array-key,mixed>   $args Bound verb arguments: the log key, which must name a catalog dir; an unknown one throws.
 	 *
 	 * @return array<string,mixed> The key inspected, its `{id,size}` segment list, the segment count and the total size.
 	 */
 	public static function cmd_dump_log( Command_Interpreter_Node $self, array $args ): array {
-		$log_key = self::resolve_log_key( Core::as_string( $args['log'] ) );
+		$log_key = Core::as_string( $args['log'] );
+		$dir     = Log_Discovery::dir_of( $log_key );
 
 		$ci        = Core::node( Node_Names::COMMAND_INTERPRETER );
 		$partition = new Partition_Node();
@@ -97,7 +120,7 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 			$partition->sink( $ci );
 		}
 		// Flat layout: the concrete dir IS one partition — stat it directly.
-		$partition->arguments( [ self::dir_for( $log_key ) ] );
+		$partition->arguments( [ $dir ] );
 		try {
 			if ( null !== self::$on_probe ) {
 				( self::$on_probe )( $partition );
@@ -136,97 +159,12 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	 * @param Command_Interpreter_Node $self The dispatching interpreter; unused, the handler signature is uniform.
 	 * @param array<array-key,mixed>   $args Bound verb arguments: log, and the `<segment>:<offset>[:<length>]` position.
 	 *
-	 * @return array<string,mixed>|string The record + cursor, or a teaching error.
+	 * @return array<string,mixed>|string The record + cursor, or a position teaching error; an unknown log throws.
 	 */
 	public static function cmd_read_message( Command_Interpreter_Node $self, array $args ): array|string {
-		$log_key  = self::resolve_log_key( Core::as_string( $args['log'] ) );
-		$consumer = new Consumer_Node();
-		$consumer->arguments( [ self::dir_for( $log_key ) ] );
-
-		return Log_Sources::read_at( $consumer, $log_key, Core::as_string( $args['position'] ), 'read_message' );
-	}
-
-	/**
-	 * Map an inbound `log` argument to a key the catalog carries.
-	 *
-	 * An empty or unrecognized argument resolves to the first key starting with
-	 * `PREFERRED_LOG_PREFIX`, or to the first key discovered when no firehose
-	 * directory exists — never to a refusal, so a picker holding a pruned key
-	 * still renders a log. An empty catalog yields the bare prefix: there is no
-	 * key to return, and the directory it names reports no segments rather than
-	 * failing.
-	 *
-	 * @param string $log The verb's `log` argument, possibly empty.
-	 * @return string A catalog key, or the bare prefix when nothing is on disk.
-	 */
-	private static function resolve_log_key( string $log ): string {
-		$keys = \array_column( self::catalog_keys(), 'key' );
-		if ( empty( $keys ) ) {
-			return self::PREFERRED_LOG_PREFIX;
-		}
-		$default = $keys[0];
-		foreach ( $keys as $key ) {
-			if ( \str_starts_with( $key, self::PREFERRED_LOG_PREFIX ) ) {
-				$default = $key;
-				break;
-			}
-		}
-		if ( '' === $log ) {
-			return $default;
-		}
-		return \in_array( $log, $keys, true ) ? $log : $default;
-	}
-
-	/**
-	 * The absolute directory a catalog key names.
-	 *
-	 * A bare key is a basename under `{base}/logs`; a `{group}/{name}` key
-	 * already carries its own root (`offsets`, `deadletter`) and hangs off
-	 * `{base}` whole. Both handlers resolve the path here rather than each
-	 * splitting the key and re-joining it, which is what keeps the two roots
-	 * from diverging.
-	 *
-	 * @param string $key A catalog key from `catalog_keys()`.
-	 * @return string The absolute partition directory.
-	 */
-	private static function dir_for( string $key ): string {
-		$base  = RuntimeConfig::get_base_directory();
-		$slash = \strpos( $key, '/' );
-		return false === $slash ? "{$base}/logs/{$key}" : "{$base}/{$key}";
-	}
-
-	/**
-	 * `list_logs` verb handler — the catalog the dashboard's log picker mounts.
-	 *
-	 * @return list<array{key:string,label:string}>
-	 */
-	public static function cmd_list_logs(): array {
-		return self::catalog_keys();
-	}
-
-	/**
-	 * Every on-disk partition directory as a `{key,label}` pair, `logs` first,
-	 * then `offsets` and `deadletter`.
-	 *
-	 * A bare basename keys the `logs` root and `{group}/{basename}` keys the
-	 * other two, which is the shape `dir_for()` resolves back to a path. `label`
-	 * repeats `key`: the directory name is the identifier, so the picker has
-	 * nothing else to render.
-	 *
-	 * @return list<array{key:string,label:string}>
-	 */
-	private static function catalog_keys(): array {
-		$result = [];
-		foreach ( Log_Discovery::groups() as $group => $names ) {
-			foreach ( $names as $name ) {
-				$key      = 'logs' === $group ? $name : "{$group}/{$name}";
-				$result[] = [
-					'key'   => $key,
-					'label' => $key,
-				];
-			}
-		}
-		return $result;
+		$log = Core::as_string( $args['log'] );
+		$reader = Log_Sources::open_reader( $log );
+		return Log_Sources::read_at( $reader, $log, Core::as_string( $args['position'] ), 'read_message' );
 	}
 
 	/**
@@ -254,14 +192,14 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 				[
 					'name'        => 'dump_log',
 					'capability'  => Capabilities::READ,
-					'description' => 'Segment counts and sizes for a single concrete partition dir (an absent or unknown log defaults to the first firehose key, else the first key discovered).',
-					'args'        => [ [ 'name' => 'log', 'type' => 'string', 'required' => false ] ],
+					'description' => 'Segment counts and sizes for one concrete partition dir.',
+					'args'        => [ [ 'name' => 'log', 'type' => 'string', 'required' => true ] ],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_dump_log( $self, $args ),
 				],
 				[
 					'name'        => 'read_message',
 					'capability'  => Capabilities::READ,
-					'description' => 'The single decoded record at <segment>:<offset> (a trailing :<length> is ignored); replies with the record, the post-step cursor and at_eof.',
+					'description' => 'The record at a position in a partition dir or a sources/<name> registry source.',
 					'args'        => [
 						[ 'name' => 'log', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'position', 'type' => 'string', 'required' => true ],
