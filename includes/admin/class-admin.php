@@ -37,7 +37,7 @@ use Newspack_Nodes\Worker_Base;
  *
  * The top-level "Nodes" page is a React mount div; every dashboard reaches it
  * as a station tab bundle rather than its own submenu, so one station renders
- * Overview, Jobs, Tables, Console, Partition Viewer, Config Audit, Vault,
+ * Overview, Jobs, Tables, Console, Log Viewer, Config Audit, Vault,
  * Sessions and Aggregator. The Settings → Nodes Runtime page is server-rendered
  * through the WP Settings API.
  *
@@ -128,7 +128,7 @@ class Admin {
 	/**
 	 * Enqueue the event-dashboards bundle on the top-level "Nodes" station page,
 	 * where its five `host:'station'` tabs register: Overview, Jobs, Tables,
-	 * Partition Viewer and Config Audit.
+	 * Log Viewer and Config Audit.
 	 *
 	 * @param string $hook `admin_enqueue_scripts` hook suffix, ignored: the page
 	 *                     gate is `?page=`, which reads the same for a top-level
@@ -828,7 +828,7 @@ class Admin {
 			'newspack_nodes_log_sources',
 			\implode( "\n", $value ),
 			'',
-			\__( 'Extra log sources for the Partition Viewer (one per line, format: name=/absolute/path). Built-ins and active-topology logs are always included.', 'newspack-nodes' ),
+			\__( 'Extra log sources for the Log Viewer (one per line, format: name=/absolute/path). Built-ins and active-topology logs are always included.', 'newspack-nodes' ),
 			self::reset_mark_name( 'log_sources' )
 		);
 		echo $html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Settings_Renderer escapes every field.

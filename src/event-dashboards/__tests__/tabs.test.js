@@ -1,7 +1,7 @@
 /**
  * tabs.js registers the station tabs the event-dashboards bundle owns:
  * the Overview landing (order 0 — the default first paint, now folding in the
- * old Topologies tab's per-topology detail tree) and Partition Viewer (order 20).
+ * old Topologies tab's per-topology detail tree) and Log Viewer (order 20).
  * Importing the module (for its side effect) must put them in the shared
  * registry under host 'station'.
  */
@@ -9,7 +9,7 @@
 import { __ } from '@wordpress/i18n';
 
 // The tab components pull in heavy trees; stubs keep this a pure registry test.
-jest.mock( '../PartitionViewer', () => () => null );
+jest.mock( '../LogViewer', () => () => null );
 jest.mock( '../ConfigAudit', () => () => null );
 jest.mock( '../Overview', () => () => null );
 jest.mock( '../Jobs', () => () => null );
@@ -40,7 +40,7 @@ test( 'importing tabs no longer registers a separate topology-manager tab (merge
 	).toBeUndefined();
 } );
 
-test( 'importing tabs registers the Jobs tab on the station host between Overview and Partition Viewer', () => {
+test( 'importing tabs registers the Jobs tab on the station host between Overview and Log Viewer', () => {
 	// resetModules forces tabs.js to re-run its registration side effect.
 	jest.resetModules();
 	require( '../tabs' );
@@ -51,32 +51,28 @@ test( 'importing tabs registers the Jobs tab on the station host between Overvie
 	expect( tab.host ).toBe( 'station' );
 	expect( tab.slug ).toBe( 'jobs' );
 	expect( tab.order ).toBeGreaterThan( 0 ); // after Overview
-	expect( tab.order ).toBeLessThan( 20 ); // before Partition Viewer
+	expect( tab.order ).toBeLessThan( 20 ); // before Log Viewer
 	expect( tab.label ).toBe( __( 'Jobs', 'newspack-nodes' ) );
 	expect( typeof tab.component ).toBe( 'function' );
 } );
 
-test( 'importing tabs registers the partition-viewer tab on the station host at order 20, full-bleed', () => {
+test( 'importing tabs registers the log-viewer tab on the station host at order 20, full-bleed, ?log=', () => {
 	// tabs.js was already required by the first test; re-run its side effect.
 	jest.resetModules();
 	require( '../tabs' );
 	const { getTabs } = require( '../../shared/tabs/tabRegistry' );
 	const stationTabs = getTabs( 'station' );
-	const tab = stationTabs.find( ( t ) => t.id === 'partition-viewer' );
+	const tab = stationTabs.find( ( t ) => t.id === 'log-viewer' );
 	expect( tab ).toBeTruthy();
 	expect( tab.host ).toBe( 'station' );
+	expect( tab.slug ).toBe( 'log-viewer' );
+	expect( tab.param ).toBe( 'log' );
 	expect( tab.order ).toBe( 20 );
 	expect( tab.fullBleed ).toBe( true );
-	expect( tab.label ).toBe( __( 'Partition Viewer', 'newspack-nodes' ) );
+	expect( tab.label ).toBe( __( 'Log Viewer', 'newspack-nodes' ) );
 	expect( typeof tab.component ).toBe( 'function' );
-} );
-
-test( 'registers no log-viewer tab beside the Partition Viewer', () => {
-	jest.resetModules();
-	require( '../tabs' );
-	const { getTabs } = require( '../../shared/tabs/tabRegistry' );
 	expect(
-		getTabs( 'station' ).find( ( t ) => t.id === 'log-viewer' )
+		stationTabs.find( ( t ) => t.id === 'partition-viewer' )
 	).toBeUndefined();
 } );
 
@@ -89,12 +85,12 @@ test( 'importing tabs registers the config-audit tab on the station host at orde
 	expect( tab.host ).toBe( 'station' );
 	expect( tab.slug ).toBe( 'config-audit' );
 	expect( tab.order ).toBe( 30 );
-	expect( tab.order ).toBeGreaterThan( 20 ); // after the Partition Viewer
+	expect( tab.order ).toBeGreaterThan( 20 ); // after the Log Viewer
 	expect( tab.label ).toBe( __( 'Config Audit', 'newspack-nodes' ) );
 	expect( typeof tab.component ).toBe( 'function' );
 } );
 
-test( 'importing tabs registers the Tables tab on the station host after Jobs and before Partition Viewer', () => {
+test( 'importing tabs registers the Tables tab on the station host after Jobs and before Log Viewer', () => {
 	jest.resetModules();
 	require( '../tabs' );
 	const { getTabs } = require( '../../shared/tabs/tabRegistry' );
@@ -109,6 +105,6 @@ test( 'importing tabs registers the Tables tab on the station host after Jobs an
 	const ids = stationTabs.map( ( t ) => t.id );
 	expect( ids.indexOf( 'tables' ) ).toBe( ids.indexOf( 'jobs' ) + 1 );
 	expect( ids.indexOf( 'tables' ) ).toBeLessThan(
-		ids.indexOf( 'partition-viewer' )
+		ids.indexOf( 'log-viewer' )
 	);
 } );

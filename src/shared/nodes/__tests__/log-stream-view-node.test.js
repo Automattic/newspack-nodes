@@ -1,6 +1,6 @@
 /**
  * LogStreamViewNode tests — the shared view-node base every log-stream
- * dashboard's view node extends (Partition Viewer here; ELN's Request Log
+ * dashboard's view node extends (Log Viewer here; ELN's Request Log
  * and Error Log downstream). Owns the O(1) ring, the paused belt + step
  * budget, the decaying lps readout, seek tracking, reply settling, and the
  * shared control verbs. Subclasses supply `shapeRow()` + extra controls.
@@ -146,9 +146,9 @@ test( 'the partition subclass shapes a bare VALUE column beside the key', () => 
 	// Pinned here because the Key | Value columns render from row.value.
 	// eslint-disable-next-line import/no-relative-packages
 	const {
-		PartitionViewerViewNode,
-	} = require( '../../../event-dashboards/nodes/partition-viewer-view-node' );
-	const v = new PartitionViewerViewNode();
+		LogViewerViewNode,
+	} = require( '../../../event-dashboards/nodes/log-viewer-view-node' );
+	const v = new LogViewerViewNode();
 	v.setState = () => {};
 	const m = newMessage();
 	m[ TYPE ] = TM_BYTESTREAM;

@@ -1,6 +1,6 @@
 /**
  * The `?param=` deep-link contract for a picker: seed the selection from the
- * URL once, then reflect every user pick back into the URL. The Partition
+ * URL once, then reflect every user pick back into the URL. The Log
  * Viewer uses it for `?log=`.
  *
  * Seeding spends its one chance on the first NON-EMPTY catalog. An empty

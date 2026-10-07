@@ -3,7 +3,7 @@
  * (ELN's Request Log / Error Log): title, toolbar extras, below-toolbar
  * panel, list header, matchRow passthrough, label overrides, and optional
  * step/jump (hidden until the consumer provides handlers). The core chrome
- * is pinned through the PartitionViewer suite.
+ * is pinned through the LogViewer suite.
  */
 
 import { render, fireEvent, act } from '@testing-library/react';

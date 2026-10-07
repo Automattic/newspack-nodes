@@ -9,7 +9,7 @@
  * table, which TSL and the console palette resolve `make_node` against; a hook
  * builds its own graph from the exported class instead, because that table is
  * a per-bundle static (ADR-16). `./tabs` registers the five station tabs —
- * Overview, Jobs, Tables, Partition Viewer and Config Audit. Nothing here
+ * Overview, Jobs, Tables, Log Viewer and Config Audit. Nothing here
  * mounts React; the station shell renders whichever tab is selected.
  */
 

@@ -2,7 +2,7 @@
  * useLogTailStream — the ONE parameterised log tail behind every dashboard
  * whose subscription is DECLARED: the two probe charts and the Config Audit
  * timeline. A dashboard that PICKS its log from a catalog builds its graph
- * through `useLogReaderGraph` instead.
+ * through `useLogViewerGraph` instead.
  *
  * The three node names, the subscription and the opening seek all come from the
  * caller's declaration, so a new log costs a declaration rather than another

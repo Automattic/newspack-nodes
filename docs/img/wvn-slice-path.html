@@ -67,7 +67,7 @@
   </div>
   <div class="card">
     <h3>A node playing none of the roles is a second slice</h3>
-    <div class="chip">The Topology Manager's freshness re-check is <span class="mono">freshness:timer</span> beside <span class="mono">topology-manager:timer</span>; a partition's segment rail is <span class="mono">partition-segments:result</span> with its refresh on <span class="mono">partition-rail:timer</span>. It takes a subject of its own rather than a new role.</div>
+    <div class="chip">The Topology Manager's freshness re-check is <span class="mono">freshness:timer</span> beside <span class="mono">topology-manager:timer</span>; a partition's segment rail is <span class="mono">log-viewer-segments:result</span> with its refresh on <span class="mono">log-viewer-rail:timer</span>. It takes a subject of its own rather than a new role.</div>
     <div class="chip">The roles: <span class="mono">:timer</span> the tick, <span class="mono">:tee</span> the fan-out, <span class="mono">:fetch</span> the Fetcher or Poller, <span class="mono">:in</span> the receiver, <span class="mono">:in:current</span> its gate, passing only the answer to a standing ask, <span class="mono">:transform</span> the one node before the view, <span class="mono">:view</span> the view, <span class="mono">:result</span> where a one-shot publishes, <span class="mono">:link</span> and <span class="mono">:stream</span> the two ahead of a stream's view.</div>
     <div class="chip">The <span class="mono">localStorage</span> keys under <span class="mono">newspack-nodes:</span> are not node names and follow none of this.</div>
   </div>

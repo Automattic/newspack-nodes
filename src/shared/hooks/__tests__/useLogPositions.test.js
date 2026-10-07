@@ -1,6 +1,6 @@
 /**
  * useLogPositions tests — the browse-model → SSE `positions` mapping shared by
- * the Partition Viewer over dirs (segments) and sources. Live tails (null
+ * the Log Viewer over dirs (segments) and sources. Live tails (null
  * positions → server 'end'); Browse opens a segment at offset 0; Replay seeks
  * 'start'; paging back walks to the previous existing segment id from dump_log.
  */
@@ -183,7 +183,7 @@ describe( 'the actions return the seed they compute', () => {
 } );
 
 /**
- * The whole browse controller the Partition Viewer drives: the rail's
+ * The whole browse controller the Log Viewer drives: the rail's
  * maintenance, the four seek intents, and the rail itself.
  */
 describe( 'useSegmentBrowse', () => {

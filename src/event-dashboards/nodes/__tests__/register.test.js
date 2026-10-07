@@ -4,7 +4,7 @@ import '../register';
 describe( 'event-dashboards node registration', () => {
 	it( 'registers the dashboard node classes for make_node', () => {
 		for ( const t of [
-			'PartitionViewerView',
+			'LogViewerView',
 			'WorkerStatusTransform',
 			'WorkerStatusView',
 			'JobstatsView',
@@ -13,7 +13,7 @@ describe( 'event-dashboards node registration', () => {
 			expect( CommandInterpreterNode.includeNodes[ t ] ).toBeDefined();
 		}
 		expect(
-			CommandInterpreterNode.includeNodes.LogViewerView
+			CommandInterpreterNode.includeNodes.PartitionViewerView
 		).toBeUndefined();
 	} );
 } );

@@ -1,8 +1,8 @@
 /**
- * PartitionViewer UI-surface tests — the thin DOM view over the partition node
+ * LogViewer UI-surface tests — the thin DOM view over the partition node
  * graph. The virtualized list (LogRowList) and browse sidebar (LogBrowser) are
  * exercised by their own suites; here they are mocked to markers that capture the
- * props PartitionViewer wires into them, so these tests cover the toolbar,
+ * props LogViewer wires into them, so these tests cover the toolbar,
  * deep-linking, callbacks, and the browse/seek wiring.
  */
 
@@ -10,10 +10,10 @@ import { render, fireEvent, act } from '@testing-library/react';
 import { Core } from '../../runtime/core';
 import { TM_STRUCT, TM_RESPONSE } from '../../runtime/message';
 import { mountExospine } from '../../runtime/exospine';
-import PartitionViewer from '../PartitionViewer';
+import LogViewer from '../LogViewer';
 import { publishSkippedLines } from '@newspack-nodes/shared/test-utils/skippedLines';
 
-// Capture the props PartitionViewer hands the shared list + sidebar each render.
+// Capture the props LogViewer hands the shared list + sidebar each render.
 let logRowListProps;
 jest.mock( '@newspack-nodes/shared/components/LogRowList', () => ( {
 	__esModule: true,
@@ -61,13 +61,13 @@ jest.mock( '@newspack-nodes/shared/hooks/useLogPositions', () => {
 	};
 } );
 
-jest.mock( '../hooks/useLogReaderGraph', () => ( {
-	usePartitionViewerGraph: jest.fn(),
+jest.mock( '../hooks/useLogViewerGraph', () => ( {
+	useLogViewerGraph: jest.fn(),
 } ) );
 
-const { usePartitionViewerGraph } = require( '../hooks/useLogReaderGraph' );
+const { useLogViewerGraph } = require( '../hooks/useLogViewerGraph' );
 
-// Stand-in partition:view node: model in its `view` field, ring on the node.
+// Stand-in log-viewer:view node: model in its `view` field, ring on the node.
 function registerViewFixture( {
 	logs = [],
 	selected = '',
@@ -107,11 +107,11 @@ function registerViewFixture( {
 		mode,
 		lastReceivedSegment,
 	} );
-	Core.nodes.set( 'partition:view', node );
+	Core.nodes.set( 'log-viewer:view', node );
 	return node;
 }
 
-describe( 'PartitionViewer', () => {
+describe( 'LogViewer', () => {
 	let selectLog;
 	let setPaused;
 	let seek;
@@ -124,7 +124,7 @@ describe( 'PartitionViewer', () => {
 	async function renderViewer( props = {} ) {
 		let out;
 		await act( async () => {
-			out = render( <PartitionViewer { ...props } /> );
+			out = render( <LogViewer { ...props } /> );
 		} );
 		mounted.push( out );
 		return out;
@@ -146,26 +146,26 @@ describe( 'PartitionViewer', () => {
 		seek = jest.fn();
 		step = jest.fn();
 		clearGraph = jest.fn();
-		usePartitionViewerGraph.mockClear();
+		useLogViewerGraph.mockClear();
 		publishGraph();
 		window.history.replaceState( {}, '', '/' );
 		window.localStorage.clear();
 		// The rail is folded until a reader opens it; these cases read it.
 		window.localStorage.setItem(
-			'newspack-nodes-rail:newspack-nodes-partition-viewer',
+			'newspack-nodes-rail:newspack-nodes-log-viewer',
 			'open'
 		);
 	} );
 
 	function publishGraph() {
-		usePartitionViewerGraph.mockReturnValue( {
+		useLogViewerGraph.mockReturnValue( {
 			selectLog,
 			setPaused,
 			seek,
 			step,
 			clear: clearGraph,
 			setFilter: ( term ) => {
-				const view = Core.nodes.get( 'partition:view' );
+				const view = Core.nodes.get( 'log-viewer:view' );
 				if ( view ) {
 					view.filter = String( term ).toLowerCase();
 				}
@@ -176,11 +176,11 @@ describe( 'PartitionViewer', () => {
 	// Publish the rail `useLogStatusSegments` resolves for the selected dir.
 	function answerStatus( log, result ) {
 		mockRail = result?.segments ?? [];
-		mounted.forEach( ( r ) => r.rerender( <PartitionViewer /> ) );
+		mounted.forEach( ( r ) => r.rerender( <LogViewer /> ) );
 	}
 
 	it( 'shows the lines its stream skipped as unparseable', async () => {
-		publishSkippedLines( 'partition:link', 1 );
+		publishSkippedLines( 'log-viewer:link', 1 );
 		registerViewFixture( { logs: [], selected: '' } );
 		const { container } = await renderViewer();
 		expect( container.textContent ).toContain(
@@ -272,13 +272,13 @@ describe( 'PartitionViewer', () => {
 		expect( setPaused ).toHaveBeenLastCalledWith( false );
 	} );
 
-	it( 'wires LogRowList getNode at the live partition:view node', async () => {
+	it( 'wires LogRowList getNode at the live log-viewer:view node', async () => {
 		const node = registerViewFixture( { logs: [] } );
 		await renderViewer();
 		expect( logRowListProps.getNode() ).toBe( node );
 		expect( logRowListProps.rowHeight ).toBe( 33 );
 		expect( logRowListProps.listClassName ).toBe(
-			'newspack-nodes-partition-rows'
+			'newspack-nodes-log-rows'
 		);
 	} );
 
@@ -366,8 +366,8 @@ describe( 'PartitionViewer', () => {
 		// The rail is resolved for the SELECTED dir, not some other one.
 		expect( mockRailSub ).toBe( 'firehose' );
 		// The read and its refresh tick are each a `<subject>:<role>`.
-		expect( mockRailScope ).toBe( 'partition-segments' );
-		expect( mockRailName ).toBe( 'partition-rail:timer' );
+		expect( mockRailScope ).toBe( 'log-viewer-segments' );
+		expect( mockRailName ).toBe( 'log-viewer-rail:timer' );
 		await act( async () =>
 			answerStatus( 'firehose', {
 				segments: [
@@ -419,7 +419,7 @@ describe( 'PartitionViewer', () => {
 	it( 'the segment rail refreshes on an interval', async () => {
 		jest.useFakeTimers();
 		// The rail rides the Router TIMER; the graph hook is mocked out here,
-		// so stand in the backbone the real usePartitionViewerGraph brings up.
+		// so stand in the backbone the real useLogViewerGraph brings up.
 		const host = mountExospine( () => {} );
 		registerViewFixture( {
 			logs: [ { key: 'firehose', label: 'Firehose' } ],
@@ -515,8 +515,8 @@ describe( 'PartitionViewer', () => {
 			'Value',
 		] );
 
-		fireEvent.click( container.querySelector( '#pv-col-type' ) );
-		fireEvent.click( container.querySelector( '#pv-col-timestamp' ) );
+		fireEvent.click( container.querySelector( '#lv-col-type' ) );
+		fireEvent.click( container.querySelector( '#lv-col-timestamp' ) );
 
 		const { container: rowc } = render(
 			logRowListProps.renderRow( {
@@ -549,7 +549,7 @@ describe( 'PartitionViewer', () => {
 		const { container, getByText } = await renderViewer();
 		fireEvent.click( getByText( 'Cols' ) );
 		for ( const col of [ 'type', 'timestamp', 'from', 'to' ] ) {
-			fireEvent.click( container.querySelector( `#pv-col-${ col }` ) );
+			fireEvent.click( container.querySelector( `#lv-col-${ col }` ) );
 		}
 
 		const { container: rowc } = render(
@@ -824,7 +824,7 @@ describe( 'PartitionViewer', () => {
 				selected: 'firehose',
 			} );
 			const { rerender } = await renderViewer();
-			await act( async () => rerender( <PartitionViewer /> ) );
+			await act( async () => rerender( <LogViewer /> ) );
 			expect(
 				selectLog.mock.calls.filter( ( c ) => c[ 0 ] === 'errors' )
 					.length

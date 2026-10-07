@@ -1,5 +1,5 @@
 /**
- * Partition Viewer Styles
+ * Log Viewer Styles
  *
  * Light Newspack toolbar/chrome above the shared `LogRowList` pane. The pane and
  * its rows theme light/dark via the --paper/--ink tokens in LogRowList.scss (the
@@ -9,7 +9,7 @@
 
 @use "base";
 
-.newspack-nodes-partition-viewer {
+.newspack-nodes-log-viewer {
 	background: var(--paper-3);
 	color: var(--ink);
 	padding: 10px 20px 10px 0;
@@ -20,7 +20,7 @@
 }
 
 // The browse sidebar sits beside the scrolling log pane.
-.newspack-nodes-partition-viewer__body {
+.newspack-nodes-log-viewer__body {
 	flex: 1;
 	display: flex;
 	min-height: 0;

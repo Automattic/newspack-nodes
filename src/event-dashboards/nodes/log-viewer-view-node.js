@@ -1,5 +1,5 @@
 /**
- * PartitionViewerViewNode — the Partition Viewer's ring and view model.
+ * LogViewerViewNode — the Log Viewer's ring and view model.
  */
 
 import {
@@ -36,13 +36,13 @@ const MAX_RAW_LENGTH = 262144;
 const PARTITION_RE = /\.p(\d+)$/;
 
 /**
- * `partition:view` — owns the Partition Viewer's view model.
+ * `log-viewer:view` — owns the Log Viewer's view model.
  *
  * `LogStreamViewNode` holds everything the log-stream dashboards share: the
  * ring, the paused belt and step budget, the decaying lps readout, seek
  * tracking, and the `pause`, `step`, `connection`, `browse`, `follow`,
  * `clear`, `filter` and `select` control verbs. This class adds what belongs
- * to the Partition Viewer alone:
+ * to the Log Viewer alone:
  *
  * - `shapeRow()`, which shapes a raw SSE envelope into a row carrying all
  *   seven positional message fields (ADR-2) — a record IS a Message, so the
@@ -54,7 +54,7 @@ const PARTITION_RE = /\.p(\d+)$/;
  * The node is terminal: it publishes a model and forwards nothing, which is
  * what `has_target: false` in the schema says.
  */
-export class PartitionViewerViewNode extends LogStreamViewNode {
+export class LogViewerViewNode extends LogStreamViewNode {
 	/**
 	 * The column each source directory was assigned, for streams whose FROM
 	 * names no partition. Built on first miss and never cleared, so a
@@ -66,7 +66,7 @@ export class PartitionViewerViewNode extends LogStreamViewNode {
 
 	/**
 	 * Seed the two fields this view adds to the base model: the catalog the
-	 * log dropdown lists, and the log being tailed. `usePartitionViewerGraph`
+	 * log dropdown lists, and the log being tailed. `useLogViewerGraph`
 	 * reads `selected` off the node to tell whether an arriving catalog just
 	 * produced the first selection, and opens a stream only then.
 	 *
@@ -80,7 +80,7 @@ export class PartitionViewerViewNode extends LogStreamViewNode {
 	}
 
 	/**
-	 * Shape a raw SSE log envelope into a Partition Viewer row.
+	 * Shape a raw SSE log envelope into a Log Viewer row.
 	 *
 	 * `content` carries the `KEY: VALUE` line the ingest filter matches on and
 	 * `value` the bare payload, both clipped at MAX_LINE_LENGTH; `raw` carries
@@ -159,7 +159,7 @@ export class PartitionViewerViewNode extends LogStreamViewNode {
 	}
 
 	/**
-	 * Handle the Partition Viewer's own control verbs, deferring every shared
+	 * Handle the Log Viewer's own control verbs, deferring every shared
 	 * one (`pause`, `step`, `connection`, `browse`, `follow`, `clear`,
 	 * `filter`) to the base.
 	 *
@@ -170,7 +170,7 @@ export class PartitionViewerViewNode extends LogStreamViewNode {
 	 *
 	 * `logs` publishes the catalog and adopts its first AVAILABLE entry, else
 	 * its first, when nothing is selected yet, which is the only way a fresh
-	 * dashboard reaches a selection. `usePartitionViewerGraph` opens the stream only when this
+	 * dashboard reaches a selection. `useLogViewerGraph` opens the stream only when this
 	 * adoption is what produced the selection, so a later catalog cannot yank
 	 * a reader out of a replay.
 	 *
@@ -219,8 +219,7 @@ export class PartitionViewerViewNode extends LogStreamViewNode {
 	static nodeSchema() {
 		return {
 			...super.nodeSchema(),
-			description:
-				'Partition Viewer render-model sink (the React view node).',
+			description: 'Log Viewer render-model sink (the React view node).',
 		};
 	}
 }

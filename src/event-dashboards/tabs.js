@@ -1,6 +1,6 @@
 /**
  * Register the five station tabs the event-dashboards bundle owns: Overview
- * (order 0), Jobs (10), Tables (12), Partition Viewer (20) and Config Audit
+ * (order 0), Jobs (10), Tables (12), Log Viewer (20) and Config Audit
  * (30). The bundle entry imports this module for its side effect alone, so the
  * tabs register wherever the bundle loads.
  *
@@ -10,7 +10,7 @@
  * every other bundle's, so Config Audit ties with Vault at 30 and the registry
  * settles that tie alphabetically by label.
  *
- * The Partition Viewer reads every log the substrate knows: packed partition
+ * The Log Viewer reads every log the substrate knows: packed partition
  * dirs and plain registry files alike, a file streamed as `sources/<name>`. It
  * declares `fullBleed`, owning a full-height split like the Console instead of
  * the host's scroll container, and claims the `log` query param, which the
@@ -23,7 +23,7 @@ import { registerTab } from '@newspack-nodes/shared/tabs/tabRegistry';
 import Overview from './Overview';
 import Jobs from './Jobs';
 import Tables from './Tables';
-import PartitionViewer from './PartitionViewer';
+import LogViewer from './LogViewer';
 import ConfigAudit from './ConfigAudit';
 
 registerTab( {
@@ -54,14 +54,14 @@ registerTab( {
 } );
 
 registerTab( {
-	id: 'partition-viewer',
-	label: __( 'Partition Viewer', 'newspack-nodes' ),
+	id: 'log-viewer',
+	label: __( 'Log Viewer', 'newspack-nodes' ),
 	host: 'station',
-	slug: 'partition-viewer',
+	slug: 'log-viewer',
 	param: 'log',
 	order: 20,
 	fullBleed: true,
-	component: PartitionViewer,
+	component: LogViewer,
 } );
 
 registerTab( {

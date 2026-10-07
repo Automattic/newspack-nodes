@@ -7,7 +7,7 @@ import './LogBrowser.scss';
 /**
  * LogBrowser — the shared Kafka-UI-style browse sidebar: a Live/Replay control
  * pair above a selectable item list whose rows the render props shape. The
- * Partition Viewer drives it as a SEGMENT browser from `dump_log.segments`.
+ * Log Viewer drives it as a SEGMENT browser from `dump_log.segments`.
  *
  * It keeps no state. `useSegmentBrowse` supplies every callback and both keys:
  * `useLogPositions` owns the clicked segment, and `mode` is the view node's
