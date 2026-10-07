@@ -297,8 +297,8 @@ class LogSourcesTest extends TestCase {
 	}
 
 	/** The stepped read `raw-logs read_message` drives, over one registry source. */
-	private function read_source( string $name, string $position ): array|string {
-		return Log_Sources::read_at( Log_Sources::open_reader( "sources/{$name}" ), "sources/{$name}", $position, 'read_message' );
+	private function read_source( string $name, string $position ): array {
+		return Log_Sources::read( "sources/{$name}", $position );
 	}
 
 	public function test_catalog_lists_each_source_keyed_by_its_stamp(): void {
@@ -324,7 +324,7 @@ class LogSourcesTest extends TestCase {
 		\file_put_contents( "{$base}.3", \str_repeat( 'a', 977 ) );
 		\file_put_contents( "{$base}.3.idx", 'not-a-segment' );
 
-		$footprint = Log_Sources::footprint( 'gate-decisions.jsonl' );
+		$footprint = Log_Sources::footprint( 'sources/gate-decisions.jsonl' );
 
 		$this->assertSame(
 			[
@@ -340,7 +340,7 @@ class LogSourcesTest extends TestCase {
 			$footprint['segments'],
 			'sorted by id, sized, .idx companions excluded'
 		);
-		$this->assertSame( 1210, $footprint['bytes'], 'bytes = the summed segment sizes' );
+		$this->assertSame( 1210, $footprint['total_size'], 'the summed segment sizes' );
 	}
 
 	public function test_a_source_whose_segment_listing_throws_shows_its_failure_in_the_catalog(): void {
@@ -405,11 +405,12 @@ class LogSourcesTest extends TestCase {
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $present ];
 		$this->activate_topology( 'lsrc-dangling', "make_node Log d:log <nope:x>/dangling-4471.log 1 2 7\n" );
 
-		$by_key = \array_column( Log_Sources::catalog(), null, 'key' );
+		$rows = Log_Sources::catalog();
 
-		$this->assertTrue( $by_key['sources/php']['available'] );
-		$this->assertFalse( $by_key['sources/lsrc-dangling']['available'] );
-		$this->assertStringContainsString( 'nope:x', $by_key['sources/lsrc-dangling']['error'] );
+		$this->assertSame( [ 'sources/php' ], \array_column( $rows, 'key' ), 'no row streams the topology' );
+		$this->assertTrue( $rows[0]['available'] );
+		$this->assertSame( [ 'label' => 'lsrc-dangling', 'available' => false ], \array_diff_key( $rows[1], [ 'error' => true ] ) );
+		$this->assertStringContainsString( 'nope:x', $rows[1]['error'] );
 	}
 
 	public function test_an_unreadable_topology_named_like_a_source_keeps_both_rows(): void {
@@ -423,7 +424,8 @@ class LogSourcesTest extends TestCase {
 		$this->assertSame( 'sources/shared-6613', $rows[0]['key'] );
 		$this->assertTrue( $rows[0]['available'], 'the source keeps its own valid row' );
 		$this->assertArrayNotHasKey( 'error', $rows[0] );
-		$this->assertSame( 'sources/shared-6613', $rows[1]['key'] );
+		$this->assertArrayNotHasKey( 'key', $rows[1], 'a topology is no stream' );
+		$this->assertSame( 'shared-6613', $rows[1]['label'] );
 		$this->assertFalse( $rows[1]['available'] );
 		$this->assertStringContainsString( 'nope:x', $rows[1]['error'] );
 	}
@@ -434,7 +436,7 @@ class LogSourcesTest extends TestCase {
 
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'nope:x' );
-		Log_Sources::footprint( 'dangling-4471.log' );
+		Log_Sources::footprint( 'sources/dangling-4471.log' );
 	}
 
 	public function test_read_source_returns_the_line_at_a_position_in_a_segment(): void {
@@ -509,29 +511,9 @@ class LogSourcesTest extends TestCase {
 		$path = $this->write_fixed_width_log( 3, 59 );
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
 
-		$this->assertSame(
-			"read_message: invalid position (want <segment>:<offset>[:<length>], start, recent or end)\n",
-			$this->read_source( 'php', 'abc' )
-		);
-	}
-
-	/**
-	 * `read_at()` receives an ALREADY-armed reader: `open_tail()` has run
-	 * `arguments()`, which calls `set_timer()` and registers the node with the
-	 * Event_Framework. Returning the invalid-position error before the
-	 * `finally` left that reader in the timer table forever, and its next fire
-	 * reached `Node::fill()` with a null sink inside the worker's drain loop.
-	 */
-	public function test_read_at_removes_the_armed_reader_when_the_position_is_invalid(): void {
-		$path = "{$this->tmp}/armed-8823.log";
-		\file_put_contents( $path, "only line 8823\n" );
-		$reader = Log_Sources::open_tail( [ 'path' => $path, 'mode' => Tail_Node::MODE_FILE ] );
-		$this->assertTrue( $reader->timer_is_active(), 'open_tail arms the reader' );
-
-		$out = Log_Sources::read_at( $reader, 'armed', 'not-a-position', 'read_message' );
-
-		$this->assertStringStartsWith( 'read_message: invalid position', $out );
-		$this->assertFalse( $reader->timer_is_active(), 'a rejected reader must not stay armed' );
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'read_message: invalid position (want <segment>:<offset>[:<length>], start, recent or end)' );
+		$this->read_source( 'php', 'abc' );
 	}
 
 	public function test_read_source_reports_no_line_on_an_empty_file(): void {
@@ -543,7 +525,12 @@ class LogSourcesTest extends TestCase {
 
 		$inode = (int) \fileinode( $path );
 		$this->assertSame(
-			"read_message: no record at sources/php {$inode}:0\n",
+			[
+				'source'  => 'sources/php',
+				'message' => null,
+				'cursor'  => [ 'segment' => $inode, 'offset' => 0 ],
+				'at_eof'  => true,
+			],
 			$this->read_source( 'php', "{$inode}:0" )
 		);
 	}

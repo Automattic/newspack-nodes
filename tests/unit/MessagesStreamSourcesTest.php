@@ -260,6 +260,43 @@ class MessagesStreamSourcesTest extends TestCase {
 		$this->assertStringContainsString( 'unknown log source: "nope-1189" (known: gyro', $result->get_error_message() );
 	}
 
+	public function test_a_stream_naming_an_explicit_logs_prefix_is_refused_before_it_opens(): void {
+		SSE_Out_Node::$acquire_slot = fn (): array|false => $this->fail( 'a refused stream takes no slot' );
+		$req = new \WP_REST_Request( 'GET' );
+		$req->set_param( 'subscribe', 'firehose.p0,logs/kea-7713.p3' );
+
+		$result = ( new SSE_Out_Node() )->stream( $req );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sse_subscription_invalid', $result->get_error_code() );
+		$this->assertSame( 400, $result->get_error_data()['status'] );
+		$this->assertSame( 'invalid subscription: logs/kea-7713.p3', $result->get_error_message() );
+	}
+
+	public function test_a_known_source_passes_the_check_without_listing_its_segments(): void {
+		Log_Sources::$builtin_sources = static fn (): array => [];
+		$dir                          = "{$this->tmp}/topologies";
+		\mkdir( $dir, 0755, true );
+		\file_put_contents( "{$dir}/lcheck.tsl", "make_node Log beacon:log <config:logs_dir>/beacon-8f.jsonl 1 2 7\n" );
+		Topology_Registry::register_stock_dir( $dir );
+		$this->use_base_dir( $this->tmp, [ 'topologies' => [ 'lcheck' ] ] );
+		\mkdir( "{$this->tmp}/logs", 0755, true );
+		\file_put_contents( "{$this->tmp}/logs/beacon-8f.jsonl.4", "x\n" );
+		\Newspack_Nodes\Partition_Node::$scandir = fn (): array => $this->fail( 'the check lists no segment' );
+		SSE_Out_Node::$acquire_slot              = static fn (): array|false => false;
+		$req                                     = new \WP_REST_Request( 'GET' );
+		$req->set_param( 'subscribe', 'sources/beacon-8f.jsonl' );
+
+		try {
+			$result = ( new SSE_Out_Node() )->stream( $req );
+		} finally {
+			\Newspack_Nodes\Partition_Node::$scandir = null;
+		}
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'too_many_connections', $result->get_error_code(), 'the check passed and the slot refused' );
+	}
+
 	/**
 	 * A client's own token → the `positions` shape it sends. The server no
 	 * longer decodes `Last-Event-ID`; `positions` is the only resume input.

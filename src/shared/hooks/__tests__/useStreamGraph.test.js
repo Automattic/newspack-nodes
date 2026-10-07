@@ -442,4 +442,61 @@ describe( 'useSteppedRead', () => {
 		} );
 		expect( taken[ taken.length - 1 ][ VALUE ] ).toBe( 'row' );
 	} );
+
+	test( 'a line consumed without a record advances the target past it', async () => {
+		replyFor = jest.fn( ( m ) =>
+			'read_message' === m[ VALUE ]?.name
+				? {
+						source: 'a.p1',
+						message: null,
+						cursor: { segment: 4, offset: 173 },
+						at_eof: false,
+				  }
+				: null
+		);
+		installFakeCommandWire( ( m ) => replyFor( m ) );
+		const { result } = mountStepped();
+		act( () => {
+			result.current.graph.setPaused( true );
+			result.current.graph.resubscribe( [ 'a.p1' ], {
+				'a.p1': { segment: 4, offset: 96 },
+			} );
+		} );
+		const before = Core.node( VIEW ).taken.length;
+		act( () => result.current.step() );
+		await waitFor( () =>
+			expect( result.current.graph.targetRef.current.positions ).toEqual(
+				{ 'a.p1': { segment: 4, offset: 173 } }
+			)
+		);
+		expect( Core.node( VIEW ).taken ).toHaveLength( before );
+	} );
+
+	test( 'no record at the position adds no row and keeps the target', async () => {
+		replyFor = jest.fn( ( m ) =>
+			'read_message' === m[ VALUE ]?.name
+				? {
+						source: 'a.p1',
+						message: null,
+						cursor: { segment: 4, offset: 96 },
+						at_eof: true,
+				  }
+				: null
+		);
+		installFakeCommandWire( ( m ) => replyFor( m ) );
+		const { result } = mountStepped();
+		act( () => {
+			result.current.graph.setPaused( true );
+			result.current.graph.resubscribe( [ 'a.p1' ], {
+				'a.p1': { segment: 4, offset: 96 },
+			} );
+		} );
+		const before = Core.node( VIEW ).taken.length;
+		const target = result.current.graph.targetRef.current;
+		act( () => result.current.step() );
+		await waitFor( () => expect( stepArgs() ).toHaveLength( 1 ) );
+		await act( async () => {} );
+		expect( Core.node( VIEW ).taken ).toHaveLength( before );
+		expect( result.current.graph.targetRef.current ).toBe( target );
+	} );
 } );

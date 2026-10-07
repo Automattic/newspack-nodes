@@ -82,4 +82,24 @@ assert_clean "a tests/ path named directly is not scanned" "$d" includes/tests/c
 d=$( fixture named includes/class-widget.php "$scope" )
 assert_flags "a path named directly is scanned" "$d" "[scope-check-in-handler]" includes/class-widget.php
 
+stamp_cases=(
+	'$p = Log_Discovery::SOURCES_PREFIX . '"'"'/'"'"';'
+	'$ok = \in_array( $g, Log_Discovery::GROUPS, true );'
+	'$ok = \in_array( $g, Log_Discovery::STAMP_PREFIXES, true );'
+	'$k = '"'"'logs'"'"' === $group ? $n : $g;'
+	'$k = "offsets/{$n}";'
+	'$ok = '"'"'logs'"'"' !== $group;'
+	'$path = "{$base}/{$group}/{$rest}";'
+)
+for i in "${!stamp_cases[@]}"; do
+	d=$( fixture "stamp$i" includes/class-widget.php "${stamp_cases[$i]}" )
+	assert_flags "stamp grammar by hand is flagged: ${stamp_cases[$i]}" "$d" "[stamp-grammar-outside-discovery]"
+done
+
+d=$( fixture stamp-owner includes/class-log-discovery.php "${stamp_cases[1]}" )
+assert_clean "class-log-discovery.php may read GROUPS" "$d"
+
+d=$( fixture stamp-writer includes/class-widget.php '$k = Log_Discovery::stamp_for( Log_Discovery::SOURCES_PREFIX, $n );' )
+assert_clean "a stamp written through stamp_for() is not flagged" "$d"
+
 exit $fail

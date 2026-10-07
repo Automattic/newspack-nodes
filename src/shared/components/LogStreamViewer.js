@@ -156,7 +156,7 @@ const debugHeader = ( hasKeyColumn ) => (
  * @param {string}                    props.className            Root class; the body wrapper is `${className}__body`.
  * @param {string}                    props.ariaLabel            The region's accessible name.
  * @param {?Element}                  [props.headerControlsSlot] Station shared-header slot to portal the controls into; null renders none, undefined renders them inline.
- * @param {?Array<Object>}            [props.pickerOptions]      `{ key, label, disabled? }` rows for the source dropdown. Two or more render the picker; exactly one renders its label as static text, because one source is not a choice and a dropdown that cannot be changed reads as one that is broken; none renders `pickerEmptyLabel`.
+ * @param {?Array<Object>}            [props.pickerOptions]      `{ key?, label, disabled? }` rows for the source dropdown; a row with no key names no source and is disabled. Two or more render the picker; exactly one renders its label as static text, because one source is not a choice and a dropdown that cannot be changed reads as one that is broken; none renders `pickerEmptyLabel`.
  * @param {string}                    [props.selectedKey]        The picked option's key; required only with a picker.
  * @param {Function}                  [props.onPick]             `(key) => void` — switch the source; required only with a picker.
  * @param {string}                    [props.pickerEmptyLabel]   Status text for an empty catalog; omit to say nothing about one.
@@ -310,11 +310,13 @@ export default function LogStreamViewer( {
 					onChange={ ( e ) => onPick( e.target.value ) }
 					aria-label={ pickerLabel }
 				>
-					{ pickerOptions.map( ( option ) => (
+					{ pickerOptions.map( ( option, index ) => (
 						<option
-							key={ option.key }
-							value={ option.key }
-							disabled={ option.disabled ?? false }
+							key={ option.key ?? `#${ index }` }
+							value={ option.key ?? '' }
+							disabled={
+								! option.key || ( option.disabled ?? false )
+							}
 						>
 							{ option.label }
 						</option>

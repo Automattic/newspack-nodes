@@ -168,13 +168,13 @@ export class LogViewerViewNode extends LogStreamViewNode {
 	 * new one, and a fresh log tails live rather than from the browse cursor
 	 * the last one left.
 	 *
-	 * `logs` publishes the catalog and adopts its first AVAILABLE entry, else
-	 * its first, when nothing is selected yet, which is the only way a fresh
-	 * dashboard reaches a selection. `useLogViewerGraph` opens the stream only when this
+	 * `logs` publishes the catalog and, when nothing is selected yet, adopts
+	 * its first AVAILABLE row that names a log, else its first such row,
+	 * which is the only way a fresh dashboard reaches a selection. `useLogViewerGraph` opens the stream only when this
 	 * adoption is what produced the selection, so a later catalog cannot yank
 	 * a reader out of a replay.
 	 *
-	 * @param {?{action?: string, log?: string, logs?: Array<{key: string, label: string, available: boolean}>}} value The control payload; `action` picks the verb.
+	 * @param {?{action?: string, log?: string, logs?: Array<{key?: string, label: string, available: boolean}>}} value The control payload; `action` picks the verb.
 	 */
 	_control( value ) {
 		const action = value?.action;
@@ -184,10 +184,11 @@ export class LogViewerViewNode extends LogStreamViewNode {
 			this._clear();
 		} else if ( 'logs' === action ) {
 			this.logs = value.logs;
-			if ( ! this.selected && value.logs.length > 0 ) {
-				const first =
-					value.logs.find( ( l ) => l.available ) ?? value.logs[ 0 ];
-				this.selected = first.key;
+			const keyed = value.logs.filter( ( l ) => l.key );
+			if ( ! this.selected && keyed.length > 0 ) {
+				this.selected = (
+					keyed.find( ( l ) => l.available ) ?? keyed[ 0 ]
+				).key;
 			}
 		} else {
 			super._control( value );

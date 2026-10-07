@@ -4,7 +4,7 @@
  *
  * Short-lived graphs need a terminal that runs arbitrary PHP once per message —
  * a test asserting on what reached the end of a chain, `Job_Delay` sorting due
- * entries from held ones, `Log_Sources::read_at()` capturing the one record a
+ * entries from held ones, `Log_Sources::read()` capturing the one record a
  * Consumer stepped to. Callback is that terminal, so none of them has to declare
  * a Node subclass it would use once.
  *

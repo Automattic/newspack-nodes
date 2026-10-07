@@ -568,6 +568,35 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$this->assertSame( [ 'oldest-surviving', 'newest' ], $this->drained_values( $consumers[0] ) );
 	}
 
+	public function test_an_exact_name_no_dir_carries_opens_nothing(): void {
+		\mkdir( "{$this->tmp}/logs/kea-7713.p3", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+
+		$this->assertSame( [], $ctrl->open_subscription( 'offsets/kea-7713.p3', null ) );
+	}
+
+	public function test_an_exact_name_the_guard_refuses_is_refused_though_its_dir_exists(): void {
+		\mkdir( "{$this->tmp}/offsets/Kea-7713.p3", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'invalid subscription: offsets/Kea-7713.p3' );
+		$ctrl->open_subscription( 'offsets/Kea-7713.p3', null );
+	}
+
+	public function test_a_logs_dir_named_like_a_group_does_not_break_another_subscription(): void {
+		\mkdir( "{$this->tmp}/logs/sources", 0755, true );
+		\mkdir( "{$this->tmp}/logs/kea-7713.p3", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+
+		$consumers = $ctrl->open_subscription( 'kea-7713.p3', null );
+
+		$this->assertSame( [ 'kea-7713.p3' ], \array_map( static fn ( $c ) => $c->stamped_as(), $consumers ) );
+	}
+
 	public function test_invalid_subscription_throws(): void {
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->tmp );

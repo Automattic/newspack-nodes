@@ -82,7 +82,7 @@ Command sessions sit outside that pool. [`Command_Auth`](../includes/class-comma
 
 ## What reaches the operator's terminal
 
-**Code:** [`includes/class-core.php`](../includes/class-core.php): [`terminal_safe()`](../includes/class-core.php#L622), [`CONTROL_CLASS`](../includes/class-core.php#L56), [`CONTROL_SCAN`](../includes/class-core.php#L73); [`includes/class-stdout-node.php`](../includes/class-stdout-node.php): [`write()`](../includes/class-stdout-node.php#L110), `write_raw()`; [`includes/class-tty-out-node.php`](../includes/class-tty-out-node.php); [`includes/class-log-sources.php`](../includes/class-log-sources.php): `read_at()`, `footprint()`.
+**Code:** [`includes/class-core.php`](../includes/class-core.php): [`terminal_safe()`](../includes/class-core.php#L622), [`CONTROL_CLASS`](../includes/class-core.php#L56), [`CONTROL_SCAN`](../includes/class-core.php#L73); [`includes/class-stdout-node.php`](../includes/class-stdout-node.php): [`write()`](../includes/class-stdout-node.php#L110), `write_raw()`; [`includes/class-tty-out-node.php`](../includes/class-tty-out-node.php); [`includes/class-log-sources.php`](../includes/class-log-sources.php): `read()`, `footprint()`.
 
 ![From a visitor's request to the operator's terminal](img/2026-09-10-terminal-chain.png)
 

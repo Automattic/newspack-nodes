@@ -187,6 +187,13 @@ const RULES = [
 		skip: ( match, rel ) => 'includes/class-table-node.php' === rel,
 		why: 'a durable arm built outside its Table: build the Table, which owns the arm, its keys and its counters (ADR-24)',
 	},
+	{
+		id: 'stamp-grammar-outside-discovery',
+		lang: 'php',
+		test: /SOURCES_PREFIX\s*\.\s*['"]\/|Log_Discovery::(?:GROUPS|STAMP_PREFIXES)\b|'logs'\s*[!=]==\s*\$group\b|\{\$group\}\/|['"](?:sources|offsets|deadletter)\//,
+		skip: ( match, rel ) => 'includes/class-log-discovery.php' === rel,
+		why: 'a log stamp written, parsed or joined to a root by hand: Log_Discovery::stamp_for() writes it, split() reads it, dir_of() and dirs_matching() resolve it (ADR-29)',
+	},
 ];
 
 /** The language a file is scanned as, by its extension; null for neither. */
