@@ -106,7 +106,7 @@ class CLI {
 	 * a caller rendering a table sorts them. `unparseable_lines` is how many
 	 * tail lines `read_probe_frames()` skipped, which every renderer shows.
 	 *
-	 * @return array{rows: list<array{reader:string,source:string,partition:int,cursor_segment:int,cursor_offset:int,end_segment:int,end_size:int,distance:int,msgs:int}>, unparseable_lines: int} The rows, `reader` the id, and the skipped-line count.
+	 * @return array{rows: list<array{reader:string,source:string,partition:int,cursor_segment:int|null,cursor_offset:int,end_segment:int|null,end_size:int|null,distance:int|null,msgs:int}>, unparseable_lines: int} The rows, `reader` the id, and the skipped-line count.
 	 */
 	public function consumer_rows(): array {
 		$rows = [];
@@ -124,11 +124,11 @@ class CLI {
 				'reader'         => $reader,
 				'source'         => Core::as_string( $record[ Probe_Record::SOURCE ] ?? '' ),
 				'partition'      => $parsed[1],
-				'cursor_segment' => Core::as_int( $record[ Probe_Record::CURSOR_SEGMENT ] ?? 0 ),
+				'cursor_segment' => self::known_or_null( $record[ Probe_Record::CURSOR_SEGMENT ] ?? null ),
 				'cursor_offset'  => Core::as_int( $record[ Probe_Record::CURSOR_OFF ] ?? 0 ),
-				'end_segment'    => Core::as_int( $record[ Probe_Record::END_SEGMENT ] ?? 0 ),
-				'end_size'       => Core::as_int( $record[ Probe_Record::END_SIZE ] ?? 0 ),
-				'distance'       => Core::as_int( $record[ Probe_Record::DISTANCE ] ?? 0 ),
+				'end_segment'    => self::known_or_null( $record[ Probe_Record::END_SEGMENT ] ?? null ),
+				'end_size'       => self::known_or_null( $record[ Probe_Record::END_SIZE ] ?? null ),
+				'distance'       => self::known_or_null( $record[ Probe_Record::DISTANCE ] ?? null ),
 				'msgs'           => Core::as_int( $record[ Probe_Record::MSGS_DELTA ] ?? 0 ),
 			];
 			if ( $now - $frame['timestamp'] > Topic_Probe_Node::stale_after_s() ) {
@@ -169,8 +169,8 @@ class CLI {
 	 * class is instance-scoped, so the two disagree for any CLI built on another
 	 * tree — recomputing one base's rows against another's partitions.
 	 *
-	 * @param array{reader:string,source:string,partition:int,cursor_segment:int,cursor_offset:int,end_segment:int,end_size:int,distance:int,msgs:int} $row Stale row.
-	 * @return array{reader:string,source:string,partition:int,cursor_segment:int,cursor_offset:int,end_segment:int,end_size:int,distance:int,msgs:int}
+	 * @param array{reader:string,source:string,partition:int,cursor_segment:int|null,cursor_offset:int,end_segment:int|null,end_size:int|null,distance:int|null,msgs:int} $row Stale row.
+	 * @return array{reader:string,source:string,partition:int,cursor_segment:int|null,cursor_offset:int,end_segment:int|null,end_size:int|null,distance:int|null,msgs:int}
 	 * @throws \Throwable What reading the partition or its cursor off disk threw.
 	 */
 	private function relag_from_disk( array $row ): array {
@@ -213,6 +213,18 @@ class CLI {
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * A record's slot that a reader may not know: null where it does not —
+	 * a broker's reader writes its segment so before the spoke names the
+	 * generation, and its end and distance so always — rather than the 0 that
+	 * names a real segment or a caught-up reader.
+	 *
+	 * @param mixed $slot The slot as the record carries it.
+	 */
+	private static function known_or_null( mixed $slot ): ?int {
+		return null === $slot ? null : Core::as_int( $slot );
 	}
 
 	/**

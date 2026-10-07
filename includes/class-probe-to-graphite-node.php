@@ -6,7 +6,10 @@
  * window and, on each fire, renders them as the plaintext
  * `<prefix>.<reader>.<field> value timestamp` lines Graphite ingests — four
  * fields per reader: `distance`, `msgs_delta`, `bytes_read_delta` and
- * `cache_size`. The lines ship 16 to a TM_BYTESTREAM message and the
+ * `cache_size`. A null slot is a value the reader cannot know — a broker's
+ * reader carries a null DISTANCE — so that metric sends no line rather than
+ * a 0 Graphite would plot as caught up, and the reader's other metrics still
+ * go. The lines ship 16 to a TM_BYTESTREAM message and the
  * accumulator empties, so each window reports the probes that arrived inside
  * it and nothing else.
  *
@@ -80,7 +83,7 @@ class Probe_To_Graphite_Node extends Timer_Node {
 	 * the TIMESTAMP of the newest probe folded into it, which is the instant
 	 * every line for that reader carries.
 	 *
-	 * @var array<string,array{record:array<int,int|string>,ts:float}>
+	 * @var array<string,array{record:array<int,int|string|null>,ts:float}>
 	 */
 	private array $readers = [];
 
@@ -129,7 +132,7 @@ class Probe_To_Graphite_Node extends Timer_Node {
 		if ( ! \is_array( $record ) ) {
 			return;
 		}
-		/** @var array<int,int|string> $record */
+		/** @var array<int,int|string|null> $record */
 		$reader = Core::str( $record[ Probe_Record::READER ] ?? null, '' );
 		if ( '' === $reader ) {
 			return;
@@ -164,7 +167,12 @@ class Probe_To_Graphite_Node extends Timer_Node {
 			$path = \preg_replace( '/\W+/', '_', $reader );
 			$ts   = (int) $entry['ts'];
 			foreach ( self::FIELDS as $field => $index ) {
-				$value   = Core::num_int( $entry['record'][ $index ] ?? 0, 0 );
+				$slot = $entry['record'][ $index ] ?? null;
+				// Unknown sends no line: a 0 charts a hub reader caught up.
+				if ( null === $slot ) {
+					continue;
+				}
+				$value   = Core::num_int( $slot, 0 );
 				$lines[] = "{$this->prefix}.{$path}.{$field} {$value} {$ts}\n";
 			}
 		}

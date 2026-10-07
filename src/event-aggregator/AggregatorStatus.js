@@ -9,7 +9,7 @@
  *                  server's snapshot clock, and each active topology that
  *                  will not read, whose spokes the cards therefore omit.
  *   servers:view — one card per wired `Remote_Source`, each holding a grid of
- *                  that spoke's partitions.
+ *                  that spoke's partitions and a row per stream reader.
  *
  * This component reads each slice through its own `useNodeField` and renders
  * it. The split belongs to the graph rather than to the layout: a reply is
@@ -36,6 +36,7 @@ import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner
 import UnreadableNotice from '@newspack-nodes/shared/components/UnreadableNotice';
 import useRouterTick from '@newspack-nodes/shared/hooks/useRouterTick';
 import { formatLocalDateTime } from '@newspack-nodes/shared/utils/formatUtils';
+import { formatBytes } from '@newspack-nodes/shared/utils/formatters';
 import './styles/aggregator-status.scss';
 import { HeaderSlot } from '@newspack-nodes/shared/components/HeaderSlot';
 
@@ -425,12 +426,67 @@ function FleetRollup( { answer } ) {
 }
 
 /**
+ * The broker's readers, one row each: the spoke's stamp and the worker
+ * partition reading it, where its cursor stands, and how far behind it is.
+ * A hub reader cannot see its spoke's end, so a lag the probe log carries as
+ * null reads as unknown rather than as caught up. Nothing renders for a broker
+ * whose readers have reported no position yet.
+ *
+ * @param {Object}        props         Component props.
+ * @param {Array<Object>} props.readers The server row's `readers`: `stamp`,
+ *                                      `partition`, `cursor` and `distance`.
+ * @return {?import('react').ReactElement} Rendered component, or null.
+ */
+function ReaderList( { readers } ) {
+	if ( ! readers.length ) {
+		return null;
+	}
+	return (
+		<div className="aggregator-readers">
+			{ readers.map( ( reader ) => (
+				<div
+					key={ `${ reader.partition }:${ reader.stamp }` }
+					className="aggregator-partition-row aggregator-reader"
+				>
+					<span
+						className="newspack-nodes-stat-label aggregator-partition-stat-label"
+						data-reader-field="stamp"
+					>
+						{ `p${ reader.partition } ${ reader.stamp }` }
+					</span>
+					<span
+						className="newspack-nodes-stat-value aggregator-partition-stat-value"
+						data-reader-field="cursor"
+					>
+						{ reader.cursor }
+					</span>
+					<span
+						className="newspack-nodes-stat-value aggregator-partition-stat-value"
+						data-reader-field="lag"
+					>
+						{ null === reader.distance
+							? __( 'lag unknown', 'newspack-nodes' )
+							: sprintf(
+									// translators: %s: bytes behind, e.g. "4 MB".
+									__( '%s behind', 'newspack-nodes' ),
+									formatBytes( reader.distance )
+							  ) }
+					</span>
+				</div>
+			) ) }
+		</div>
+	);
+}
+
+/**
  * One spoke's card: which server it is, how many of its partitions are up, the
- * Probe button, the last probe's roll-up, and a tile per partition.
+ * Probe button, the last probe's roll-up, a tile per partition, and a row per
+ * reader the probe log reports.
  *
  * @param {Object}   props         Component props.
  * @param {Object}   props.server  One row of the servers slice: `id`, `url`,
- *                                 `vault_id`, and a snapshot per partition.
+ *                                 `vault_id`, a snapshot per partition, and
+ *                                 its `readers`.
  * @param {?number}  props.now     Server snapshot clock; null before the
  *                                 summary slice's first reply.
  * @param {?Object}  props.answer  This spoke's last probe answer, or null.
@@ -490,6 +546,8 @@ function ServerCard( { server, now, answer, probing, onProbe } ) {
 					/>
 				) ) }
 			</div>
+
+			<ReaderList readers={ server.readers || [] } />
 		</div>
 	);
 }

@@ -194,6 +194,65 @@ class AggregatorCITest extends TestCase {
 		$this->assertFalse( $decoded[0]['partitions'][1]['connected'] );
 	}
 
+	/** Append one Consumer probe record to the shared topicprobe log. */
+	private function seed_probe( string $reader, string $source, ?int $cursor_segment, int $cursor_offset, ?int $distance ): void {
+		$dir = "{$this->tmp}/logs/topicprobe.p0";
+		if ( ! \is_dir( $dir ) ) {
+			\mkdir( $dir, 0755, true );
+		}
+		$record                                   = \Newspack_Nodes\Probe_Record::BLANK;
+		$record[ \Newspack_Nodes\Probe_Record::SOURCE ]         = $source;
+		$record[ \Newspack_Nodes\Probe_Record::READER ]         = $reader;
+		$record[ \Newspack_Nodes\Probe_Record::CURSOR_SEGMENT ] = $cursor_segment;
+		$record[ \Newspack_Nodes\Probe_Record::CURSOR_OFF ]     = $cursor_offset;
+		$record[ \Newspack_Nodes\Probe_Record::DISTANCE ]       = $distance;
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_STRUCT;
+		$message[ Message::VALUE ] = $record;
+		\file_put_contents( "{$dir}/0.log", Message::packed( $message ) . "\n", \FILE_APPEND );
+	}
+
+	public function test_list_servers_reports_each_readers_cursor_from_the_probe_log(): void {
+		$this->seed_group_topology( [ 'tw0', 'tw9' ], 2 );
+		$this->seed_probe( 'aggregator.firehose:tw9:firehose.p1.p1', 'remote/tw9:firehose.p1', 12, 7311, null );
+		$this->seed_probe( 'aggregator.firehose:tw9:sources:php.p0', 'remote/tw9:sources:php', null, 40913, null );
+		$this->seed_probe( 'aggregator.firehose:tw0:firehose.p0.p0', 'remote/tw0:firehose.p0', 3, 88, null );
+		$this->seed_probe( 'aggregator.firehose.p1', 'firehose.p1', 4, 19, 5 );
+
+		$readers = \array_column( self::list_servers(), 'readers', 'id' );
+
+		$this->assertSame(
+			[
+				[ 'stamp' => 'firehose.p1', 'partition' => 1, 'cursor' => '12:7311', 'distance' => null ],
+				[ 'stamp' => 'sources/php', 'partition' => 0, 'cursor' => ':40913', 'distance' => null ],
+			],
+			$readers['firehose:tw9']
+		);
+		$this->assertSame( [ [ 'stamp' => 'firehose.p0', 'partition' => 0, 'cursor' => '3:88', 'distance' => null ] ], $readers['firehose:tw0'] );
+	}
+
+	public function test_summary_reads_no_probe_log_and_list_servers_does(): void {
+		$this->seed_group_topology( [ 'tw9' ] );
+		$this->seed_probe( 'aggregator.firehose:tw9:firehose.p0.p0', 'remote/tw9:firehose.p0', 5, 8813, null );
+		$scanned                        = [];
+		\Newspack_Nodes\Partition_Node::$scandir = static function ( string $dir ) use ( &$scanned ) {
+			$scanned[] = \basename( $dir );
+			return \scandir( $dir );
+		};
+		try {
+			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'summary' );
+			$by_summary = $scanned;
+			VerbHarness::reset();
+			$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
+			self::list_servers();
+		} finally {
+			\Newspack_Nodes\Partition_Node::$scandir = null;
+		}
+
+		$this->assertNotContains( 'topicprobe.p0', $by_summary );
+		$this->assertContains( 'topicprobe.p0', $scanned );
+	}
+
 	public function test_one_unreadable_topology_costs_its_own_servers_and_is_named_in_the_summary(): void {
 		$this->seed_group_topology( [ 'tw0' ] );
 		\file_put_contents( "{$this->tmp}/topologies/marmot-hub.tsl", "include orphaned-topology-2291\n" );

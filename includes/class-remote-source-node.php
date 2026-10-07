@@ -87,6 +87,9 @@ class Remote_Source_Node extends Remote_Link_Node {
 	/** The worker partition this broker runs in, bound at load as Table_Node binds it; null outside a worker, which publishes no status. */
 	private ?int $bound_partition = null;
 
+	/** The topology this broker runs in, bound at load beside the partition; null outside a worker, whose readers report under no id. */
+	private ?string $bound_topology = null;
+
 	/**
 	 * The kinds a glob pair has claimed, each with a reader here or a dir under
 	 * the offsetlog root; null until a glob first builds after construction or
@@ -135,6 +138,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$previous              = $this->pairs;
 		$parsed                = parent::arguments( $args );
 		$this->bound_partition = \array_key_exists( 'partition', Core::$var ) ? Core::canonical_decimal( Core::$var['partition'] ) : null;
+		$topology              = Core::$var['topology'] ?? null;
+		$this->bound_topology  = \is_string( $topology ) && '' !== $topology ? $topology : null;
 		$this->pairs           = $pairs;
 		$this->glob_kinds      = null;
 		foreach ( $this->readers() as $stamp => $child ) {
@@ -274,7 +279,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 			$data['last_heartbeat_response'] = null;
 			$data['last_heartbeat_rtt']      = null;
 		}
-		$data['streams'] = \array_map( static fn ( Remote_Consumer_Node $child ): array => $child->stream_status(), $this->readers() );
 		$this->write_status( $data );
 	}
 
@@ -308,6 +312,44 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 */
 	public static function status_key_for( string $name, int $partition ): string {
 		return Cache_Backend::site_key( "remote:{$name}:p{$partition}" );
+	}
+
+	/**
+	 * The two names a reader of this broker reports under on the probe log:
+	 * SOURCE, the spoke's log as `Log_Discovery::remote_for()` names it, and
+	 * READER, `reader_id()`, blank outside a worker, where the broker is bound
+	 * to no topology or partition.
+	 *
+	 * @param string $stamp The reader's stamp.
+	 * @return array{0:string,1:string} The SOURCE, then the READER.
+	 */
+	public function probe_names( string $stamp ): array {
+		$kind   = Log_Discovery::kind_of( $stamp );
+		$reader = null === $this->bound_topology || null === $this->bound_partition
+			? ''
+			: self::reader_id( $this->bound_topology, $this->name, $kind, $this->bound_partition );
+		return [ Log_Discovery::remote_for( $this->vault_id, $stamp ), $reader ];
+	}
+
+	/**
+	 * The id a broker's reader reports under on the probe log: its node name,
+	 * `<broker>:<kind>`, scoped by the topology and spelled as a worker id at
+	 * the worker partition the broker runs in, as a stock Consumer's offsetlog
+	 * basename `<topology>.<log>.p<partition>` is. Two spokes' `firehose.p0`
+	 * readers then key apart, `CLI::consumer_rows()` reads the partition back
+	 * through `CLI::parse_worker_id()`, and a stale row of an active topology
+	 * keeps its place. Public because `Aggregator_CI` matches the rows of each
+	 * broker it reports through it, with the kind `Log_Discovery::remote_of()`
+	 * reads off the row's SOURCE; the Workers dashboard's
+	 * `reconstructWorkers()` composes it the same way.
+	 *
+	 * @param string $topology  The topology the broker runs in.
+	 * @param string $broker    The broker's name.
+	 * @param string $kind      The reader's kind, `Log_Discovery::kind_of()` of its stamp.
+	 * @param int    $partition The worker partition the broker runs in.
+	 */
+	public static function reader_id( string $topology, string $broker, string $kind, int $partition ): string {
+		return CLI::worker_id( "{$topology}." . self::sibling_name_of( $broker, $kind ), $partition );
 	}
 
 	/**

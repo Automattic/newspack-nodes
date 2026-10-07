@@ -90,6 +90,7 @@ stamp_cases=(
 	'$k = "offsets/{$n}";'
 	'$ok = '"'"'logs'"'"' !== $group;'
 	'$path = "{$base}/{$group}/{$rest}";'
+	'$s = "remote/{$vault}:{$kind}";'
 )
 for i in "${!stamp_cases[@]}"; do
 	d=$( fixture "stamp$i" includes/class-widget.php "${stamp_cases[$i]}" )
@@ -101,5 +102,54 @@ assert_clean "class-log-discovery.php may read GROUPS" "$d"
 
 d=$( fixture stamp-writer includes/class-widget.php '$k = Log_Discovery::stamp_for( Log_Discovery::SOURCES_PREFIX, $n );' )
 assert_clean "a stamp written through stamp_for() is not flagged" "$d"
+
+fanout_use=$'<?php\nclass Widget_Node extends Node {\n\tuse Fanout_Targets;\n\tpublic function fill( array $m ): void {\n\t\t$this->sink?->fill( $m );\n\t}\n}'
+d=$( fixture fanout-idle includes/class-widget-node.php "$fanout_use" )
+assert_flags "a Fanout_Targets user that never fans out is flagged" "$d" "[fanout-without-fanout]"
+
+for call in '$this->live_targets()' '$this->send_signed( $egress, $to, $verb, $args )'; do
+	d=$( fixture "fanout-$RANDOM" includes/class-widget-node.php "${fanout_use/\$this->sink?->fill( \$m )/$call}" )
+	assert_clean "a Fanout_Targets user calling ${call%%(*}( is not flagged" "$d"
+done
+
+for use_line in 'use Fanout_Targets, Schema_Reflection;' 'use Fanout_Targets {' 'use \Newspack_Nodes\Fanout_Targets;'; do
+	d=$( fixture "fanout-use-$RANDOM" includes/class-widget-node.php "${fanout_use/use Fanout_Targets;/$use_line}" )
+	assert_flags "a Fanout_Targets user written '$use_line' that never fans out is flagged" "$d" "[fanout-without-fanout]"
+done
+
+commented=$'<?php\nclass Widget_Node extends Node {\n\tuse Fanout_Targets;\n\t/**\n\t * Delivered by live_targets( $m ) elsewhere.\n\t */\n\tpublic function fill( array $m ): void {\n\t\t$this->sink?->fill( $m ); // send_signed( later )\n\t\t/* live_targets( never ) */\n\t}\n}'
+d=$( fixture fanout-commented includes/class-widget-node.php "$commented" )
+assert_flags "a Fanout_Targets user naming the calls only in comments is flagged" "$d" "[fanout-without-fanout]"
+
+glob_string=$'<?php\nclass Widget_Node extends Node {\n\tuse Fanout_Targets;\n\tpublic function fill( array $m ): void {\n\t\t$logs = glob( "{$this->dir}/*.log" );\n\t\tforeach ( $this->live_targets( $m ) as $t ) {}\n\t}\n\t/** Sweep the logs. */\n\tpublic function sweep(): void {}\n}'
+d=$( fixture fanout-glob includes/class-widget-node.php "$glob_string" )
+assert_clean "a '/*' inside a string ahead of a real live_targets( is not flagged" "$d"
+
+hash_string=$'<?php\nclass Widget_Node extends Node {\n\tuse Fanout_Targets;\n\tpublic function fill( array $m ): void {\n\t\t$tag = \'issue # 41\'; $this->send_signed( $m );\n\t}\n}'
+d=$( fixture fanout-hash includes/class-widget-node.php "$hash_string" )
+assert_clean "a '#' inside a string ahead of a real send_signed( is not flagged" "$d"
+
+heredoc=$'<?php\nclass Widget_Node extends Node {\n\tuse Fanout_Targets;\n\tpublic function fill( array $m ): void {\n\t\t$sql = <<<SQL\nSELECT 1 /* hint\nSQL;\n\t\tforeach ( $this->live_targets( $m ) as $t ) {}\n\t}\n\t/** Doc. */\n\tpublic function sweep(): void {}\n}'
+d=$( fixture fanout-heredoc includes/class-widget-node.php "$heredoc" )
+assert_clean "a '/*' inside a heredoc ahead of a real live_targets( is not flagged" "$d"
+
+d=$( fixture fanout-none includes/class-widget-node.php $'<?php\nclass Widget_Node extends Node {\n}' )
+assert_clean "a file using no Fanout_Targets is not flagged" "$d"
+
+mint='Command_Auth::sign_for( $spoke, $message );'
+d=$( fixture mint includes/class-widget-node.php "$mint" )
+assert_flags "Command_Auth::sign_for( outside its owner is flagged" "$d" "[signed-mint-outside-command-auth]"
+
+d=$( fixture mint-qualified includes/class-widget-node.php '\Newspack_Nodes\Command_Auth::sign_for( $spoke, $message );' )
+assert_flags "a qualified Command_Auth::sign_for( is flagged" "$d" "[signed-mint-outside-command-auth]"
+
+d=$( fixture mint-owner includes/class-command-auth.php "$mint" )
+assert_clean "class-command-auth.php may call sign_for(" "$d"
+
+d=$( fixture mint-probe includes/class-http-out-node.php "$mint" )
+assert_clean "class-http-out-node.php's blocking probe may call sign_for(" "$d"
+
+d=$( fixture mint-send includes/class-widget-node.php '$m = Command_Auth::mint_for( $egress, $from, $to, $verb, $args );' )
+assert_clean "a mint through Command_Auth::mint_for( is not flagged" "$d"
 
 exit $fail

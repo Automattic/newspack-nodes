@@ -51,12 +51,61 @@ function invocation( inv ) {
 }
 
 /**
+ * Split a broker's `<source>:<target>` pair at its first colon outside
+ * `<…>`, so a `<ns:key>` token in the source stays whole. A token with no
+ * such colon is all source. The twin of PHP `Remote_Source_Node::split_pair()`,
+ * held to it by `tests/fixtures/pair-split.json`; it validates nothing.
+ *
+ * @param {string} token One pair token.
+ * @return {{source:string,target:string}} The two halves.
+ * @testonly Exported so the parity test can pin it to the PHP twin.
+ */
+export function splitPair( token ) {
+	let depth = 0;
+	for ( let at = 0; at < token.length; at++ ) {
+		const char = token[ at ];
+		if ( '<' === char ) {
+			depth++;
+		} else if ( '>' === char && depth > 0 ) {
+			depth--;
+		} else if ( ':' === char && 0 === depth ) {
+			return {
+				source: token.slice( 0, at ),
+				target: token.slice( at + 1 ),
+			};
+		}
+	}
+	return { source: token, target: '' };
+}
+
+/**
+ * The pair tokens a node's arguments carry: a `Remote_Source`'s after its
+ * three named arguments, and a `Vault_Group` of them likewise after the child
+ * class, since the group passes each member the same arguments. The group
+ * stands for its members, which only the Vault names.
+ *
+ * @param {string}        className The node's shell class.
+ * @param {Array<string>} args      Its constructor arguments.
+ * @return {Array<string>} The pair tokens, none for any other class.
+ */
+function pairTokens( className, args ) {
+	if ( 'Remote_Source' === className ) {
+		return args.slice( 3 );
+	}
+	return 'Vault_Group' === className && 'Remote_Source' === args[ 0 ]
+		? args.slice( 4 )
+		: [];
+}
+
+/**
  * Read a draft interpreter into the graph the console draws.
  *
  * Every node in the interpreter's own registry becomes one record. The first
  * target is `target` and the rest are `also`, while `edges` carries a
  * `connect` entry for each of them, so a fan-out node keeps every connection
- * it declared. A borrowed node — one an include supplies — carries `origin`,
+ * it declared. A broker draws a `pair` edge to each pair's target, skipping a
+ * pair with an empty half as the broker refuses it. A borrowed node — one an
+ * include supplies — carries `origin`,
  * `via` and `fansOut` as well, and the invocations that include supplied are
  * marked `seeded`: the flag is what lets the Inspector lock those rows and
  * drop them before a save writes the document's own half back.
@@ -107,6 +156,15 @@ export function draftToGraph( interpreter ) {
 		} );
 		for ( const to of targets ) {
 			edges.push( { from: name, to, roles: [ 'connect' ] } );
+		}
+		// A borrowed broker's pair edges arrive seeded with its include.
+		const pairs = borrowed
+			? []
+			: pairTokens( node.shellClassName(), node.arguments || [] );
+		for ( const { source, target } of pairs.map( splitPair ) ) {
+			if ( '' !== source && '' !== target ) {
+				edges.push( { from: name, to: target, roles: [ 'pair' ] } );
+			}
 		}
 		// A borrowed node's slot may already hold an edge the include drew.
 		if ( borrowed ) {

@@ -41,6 +41,8 @@ supersede.
 | [28](#adr-28-withdrawn-a-ledger-file-per-partition) | Withdrawn: a Ledger file per partition |
 | [29](#adr-29-a-log-stamp-has-one-writer-one-reader-and-one-resolver-per-kind) | A log stamp has one writer, one reader, and one resolver per kind |
 | [30](#adr-30-a-read-position-has-one-writer-and-one-reader) | A read position has one writer and one reader |
+| [31](#adr-31-a-broker-derives-its-readers-from-what-its-remote-sends) | A broker derives its readers from what its remote sends |
+| [32](#adr-32-a-transport-answers-what-it-could-not-deliver) | Proposed: a transport answers what it could not deliver |
 
 ---
 
@@ -1336,6 +1338,8 @@ the TSL, at which point the flatten needs a general derivation hook instead of a
 `Vault_Group` case; or analyzer results must be shared across processes, where a per-process
 cache reset no longer reaches every reader.
 
+**Amendment:** `Remote_Source_Node` is that second node type, and [ADR-31](#adr-31-a-broker-derives-its-readers-from-what-its-remote-sends) answers it without a derivation hook: the analyzer claims a broker's roots rather than flattening its readers.
+
 ---
 
 ## ADR-22: A worker id has one writer, one reader, and two layout owners
@@ -1917,8 +1921,8 @@ addressed without breaking a lookup of any other. An unreadable topology keeps i
 with a label and an error but no key, because it names no log. `scripts/lint-contract.mjs`
 holds the rule mechanically: outside `class-log-discovery.php`, no PHP joins
 `SOURCES_PREFIX` to a slash, reads `GROUPS` or `STAMP_PREFIXES`, compares `'logs'` with
-`$group`, joins `{$group}/` into a path, or spells a `sources/`, `offsets/` or `deadletter/`
-literal.
+`$group`, joins `{$group}/` into a path, or spells a `sources/`, `offsets/`, `deadletter/` or
+`remote/` literal.
 
 **Revisit if:** a stamp must name something that is neither a dir nor a registry entry.
 
@@ -1929,6 +1933,23 @@ a step reply returns addressed to the reader's name. [`Log_Discovery::kind_of()`
 writes a kind and `stamp_of()` reads one back, and `tests/fixtures/log-kinds.json` holds both
 directions to one case list. The broker builds a reader's slot through `kind_of()` and reads a
 kind dir under its offsetlog root through `stamp_of()`.
+
+**Amendment: a spoke's log has a name of its own.** A hub's broker reader reports its
+position on the hub's own probe log, and a spoke's `firehose.p0` is not the hub's: two logs
+sharing one stamp merged the spoke's read rate into the hub's series, and a spoke's `jobs.p0`
+into the hub's jobs backlog. So a remote log's name is `remote/<vault_id>:<kind>` — the spoke's
+Vault id, then the stamp's kind — which [`Log_Discovery::remote_for()`](../includes/class-log-discovery.php)
+writes and `remote_of()` reads back, held to the browser's `remoteOf()` in
+[`src/runtime/log-stamp.js`](../src/runtime/log-stamp.js) by `tests/fixtures/log-remotes.json`.
+Neither a Vault id nor a stamp carries `:`, so the first `:` parts the two. `REMOTE_PREFIX`
+joins `STAMP_PREFIXES`, so `stamp_for()` refuses a local log dir named `remote` and no local
+stamp can be a remote name, and `dir_from_stamp()` and `splitStamp()` read one as a two-segment
+stamp (`log-stamps.json` holds the rows). It names no dir and no registry entry here: `split()`
+reads its prefix and every resolver refuses it, and `is_stamp()` and `is_subscription()` refuse
+the prefix, so the wire never carries one. The FROM trail and the SSE wire keep the spoke's
+stamp; a remote name exists only in the hub's probe channel, as a broker reader's SOURCE.
+Rejected: `remote/<vault_id>/<stamp>`, whose three or four segments `dir_from_stamp()` would cut
+at the second.
 
 ---
 
@@ -2003,3 +2024,130 @@ the gap between them.
 **Revisit if:** a position must carry more than a segment, an offset and a length, such as a
 record's index within a batch; or the wire's `positions` map moves to the string grammar, at
 which point its object form goes and `parse()` reads every value.
+
+---
+
+## ADR-31: A broker derives its readers from what its remote sends
+
+**Status:** Accepted
+
+**Context:** A [`Remote_Source_Node`](../includes/class-remote-source-node.php) carries every
+stream its `<source>:<target>` pairs name over one SSE connection, and reads each stream with
+its own [`Remote_Consumer_Node`](../includes/class-remote-consumer-node.php). A pair's source
+may be a glob (`firehose.p*`), and which stamps match it is runtime data: the spoke names them,
+in each record's FROM and in its handshake's CURSORS. So the broker is the second node type to
+build children from runtime state, which is [ADR-21](#adr-21-a-node-may-derive-its-children-from-the-vault-and-static-analysis-reads-it)'s
+reopen condition. ADR-21 answers it for `Vault_Group` by flattening each member into the
+statements static analysis reads; a broker's members cannot be flattened, because no reader of
+the TSL can know which stamps a spoke will send.
+
+**Decision:** A broker builds a reader on first sight of a stamp a pair claims — in a routed
+line's FROM, in a handshake's CURSORS, or, for an exact pair, on its first tick — through the
+one builder, `consumer_for()`. The reader is published as a hidden sibling named
+`<broker>:<kind>`, where `<kind>` is the stamp through `Log_Discovery::kind_of()`
+([ADR-29](#adr-29-a-log-stamp-has-one-writer-one-reader-and-one-resolver-per-kind)), so the sibling map
+is the one list of readers. Its cursor sits at `<offsetlog_root>/<kind>` and its dead letters at
+`<deadletter_root>/<kind>`. Static analysis does not flatten readers: `Topology_Analyzer`'s write
+set claims both roots, so the conflict check and `wp nodes gc` cover every reader a glob builds
+later, and its graph draws one `pair` edge from the broker to each pair's target
+([ADR-19](#adr-19-a-node-may-declare-a-destination-it-writes-without-routing)); the console's TSL
+reader draws the same edges for a file being edited, held to the PHP split by
+`tests/fixtures/pair-split.json`. `MAX_READERS` (256) caps the stamps glob pairs may claim,
+counting the readers built in this process and the reader dirs earlier processes left under the
+offsetlog root, so a spoke inventing stamps cannot grow the graph or the disk without bound. An
+exact pair is bounded by configuration and never counts.
+
+**Alternatives considered:** Flattening each reader statically, as `Vault_Group` does —
+rejected: the stamps are runtime data, so the flatten would have to guess which a glob matches,
+and a guess that misses a stamp leaves its cursor outside the write set for `wp nodes gc` to
+sweep. One connection per stream, each a node of its own in the TSL — rejected: every stream
+holds a slot from the spoke's finite SSE pool, so a hub pulling two streams from each spoke
+would spend two slots per spoke.
+
+**Consequences:** A reader appears in no `dump_config` and in no TSL: `dump_config` replays the
+broker, which rebuilds its readers from the stream, and the canvas shows each one as the broker's
+sibling only once it exists. A reader's configuration therefore goes through the broker's own
+verbs — `assume_clean_shutdown` reaches every reader present or built later — and a verb sent
+straight to one reader's `:config` is live-only, as a `Vault_Group` child's is. The analyzer reads a broker's roots and
+pairs, never its readers, so an analysis question about one reader — its exact cursor dir, its
+lag — is answered at runtime: by the probe log, where each reader reports under
+`Remote_Source_Node::reader_id()`.
+
+**Revisit if:** a reader must appear in `dump_config` or the TSL — an operator wiring one
+reader to its own target, or a verb on one reader that must survive a restart — at which point
+the reader becomes a declared node and the glob a configuration-time expansion.
+
+---
+
+## ADR-32: A transport answers what it could not deliver
+
+**Status:** Proposed. Not decided; nothing in the code implements it.
+
+**Context:** [`HTTP_Out_Node`](../includes/class-http-out-node.php) batches every command filled
+into it during a tick into one POST to a spoke. When a batch does not land it reports the
+failure once, rate-limited, and tells no sender: it drops a batch whose spoke has no Vault entry
+or url, or whose plaintext url `vault_require_ssl` refuses (`drop_batch()`), and it reads a
+transport error or a non-200 answer other than 202 in `on_transfer_done()`, keeping nothing of
+the batch it sent. A sender waiting on a reply cannot tell that silence from a slow spoke, so a
+sender that must not wait forever keeps a clock of its own. `Remote_Consumer_Node` does: a
+paused reader's step re-sends `read_message` once `step_requested_at` is older than
+`HTTP_Out_Node::REQUEST_TIMEOUT`. [ADR-13](#adr-13-fill-returns-nothing) says an outcome comes back
+as a message, and the browser's `HttpOutNode` already answers this way: a POST that never
+landed fills each sender a `TM_COMMAND|TM_ERROR` built by `failureReply()`, carrying the
+command's `name` and `arguments`, `payload` `Command not delivered: <reason>` and
+`undelivered: true`, which `FetcherNode` reads to re-ask a read and settle a write.
+
+**Decision (proposed):** `HTTP_Out_Node` answers every command in a batch it dropped or failed —
+a dropped batch, a transport error, a non-200 answer other than 202 — with a
+`TM_COMMAND|TM_ERROR` to that command's FROM, in the browser twin's shape. It answers no message
+that carried no FROM, that already carried TM_ERROR (as `Router_Node::send_error()` declines a
+bounce, so the loop closes after one hop), that carried TM_RESPONSE, or that asked for no reply
+with TM_NOREPLY. A batch held for a missing session is not undelivered and answers nothing. The
+transfer context carries the batch until its completion, which `REQUEST_TIMEOUT` bounds.
+`Remote_Consumer_Node`'s `step_requested_at` clock goes: an undelivered step re-sends on the next
+tick, and a request still in flight is the only reason not to.
+
+**Alternatives considered:** A timeout copied into every minter — rejected: it is what
+`step_requested_at` is, and each copy re-derives what the transport already knows, at a delay of
+its own choosing, with the transport's own `CURLOPT_TIMEOUT` as the floor every copy must clear.
+
+**Consequences:** Every PHP sender through an `HTTP_Out` starts receiving TM_ERRORs it receives
+none of today. The blast radius, sender by sender, with what each does with one now:
+
+- **`Remote_Link_Node::maybe_send_heartbeat()`** (FROM the link; `workers heartbeat`). Its
+  `fill()` reads any `TM_COMMAND|TM_ERROR` as a failed heartbeat: `stderr()` prints
+  `client heartbeat failed`, unthrottled, once per `HEARTBEAT_INTERVAL` (15 s), beside
+  HTTP_Out's own rate-limited line, and a broker's `record_heartbeat_failure()` nulls the
+  round-trip and sets `last_error`, so the Aggregator badge goes red on the first lost heartbeat
+  instead of when the 60 s age-out lapses. It would need to read `undelivered` as the transport's
+  failure, already reported.
+- **`Remote_Source_Node::request_read()`** (FROM the reader `<broker>:<kind>`;
+  `raw-logs read_message`). The reader's `fill()` clears `step_requested_at` on any command
+  reply. A bounce echoing the step's arguments takes the refusal branch: it prints
+  `step refused` and forgives every owed step, so the operator's click is lost rather than
+  retried. It would need to keep the step owed on `undelivered`, as `FetcherNode` re-arms a read.
+- **`Fanout_Targets::send_signed()` from `Settings_Sync_Node`** (FROM the node; the spoke's
+  `settings` verbs). Its `fill()` returns on anything not TM_STRUCT, so the bounce is counted and
+  dropped; the periodic re-push already covers a lost push. No change needed.
+- **`Fanout_Targets::send_signed()` from event-logger-nodes' `Discovery_Collector_Node`** (FROM
+  the node; `discovery get`). Its `fill()` returns on a payload that is not an array, so the
+  string payload is dropped; the next tick probes again. No change needed.
+- **Any message routed to an `HTTP_Out`, or to a link that relays it to one.**
+  `Remote_Link_Node::fill()` hands every message that is not a heartbeat reply to `send()`,
+  which fills its patron `HTTP_Out` verbatim, FROM untouched; a bare `HTTP_Out` takes whatever
+  a TO path addresses to it. So every node in the graph that can address a link or an egress
+  is a sender: an operator's Shell (`wp nodes cli` attached to a hub worker, FROM
+  `_output/_cli:<pid>/_output`), a `cmd` or `command_node` aimed past an egress, a dashboard
+  command routed through the hub, an application node targeting one. Today a lost POST
+  answers none of them; under the proposal each gets a TM_ERROR at its FROM, which a Shell
+  prints and any other node handles as its `fill()` handles any TM_ERROR. A topology line
+  carries TM_NOREPLY and is not answered. These commands are whatever their senders wrote,
+  writes included: an operator's `cmd … set` or `vault` verb applies state.
+
+**Revisit if:** a transport cannot tell delivered from lost — a non-200 a proxy answers after
+the spoke applied the command — at which point a bounce invites a retry that applies a write
+twice. The first four senders above are idempotent; the routed messages of the fifth are not,
+since an operator's command may be a write. A bounce does not retry anything itself, but a
+sender that re-sends on one would apply such a write twice, so the fifth already decides
+between marking a bounce `undelivered` as possibly applied and keeping a per-sender clock.
+

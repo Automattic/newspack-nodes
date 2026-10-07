@@ -39,9 +39,16 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   minting one signed command per destination calls it rather than building the
   command and calling `sign_for()` itself.
 - **A `Remote_Source`'s status key is `remote:<broker>:p<partition>`,** where it
-  was `remote:<broker>:<remote_partition>`, and its snapshot gains `streams`.
+  was `remote:<broker>:<remote_partition>`.
   `Remote_Source_Node::status_key_for( $name, $partition )` takes the worker
   partition as an int.
+- **A log dir named `remote` is refused,** as one named `sources` is: `remote`
+  prefixes a spoke's log on a hub, `remote/<vault_id>:<kind>`. Rename the dir.
+- **`CLI::consumer_rows()` answers a null `cursor_segment`, `end_segment`,
+  `end_size` or `distance`** where the reader does not know it: a broker's reader
+  never knows its spoke's end, and a file source's segment is unknown until its
+  generation is named. A caller doing arithmetic on any of them reads the null
+  first.
 - **`SSE_In_Node` keeps no cursor.** `restore_position()`, `seek()`,
   `has_pending_seek()` and `position()` are gone. `configure()` drops its
   `$subscribe` and `$positions` parameters, which sat before `$tls_opts`, so it

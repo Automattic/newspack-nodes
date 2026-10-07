@@ -1,0 +1,5 @@
+[
+  ["a spoke's partition dir", "austin-9", "firehose.p0", "remote/austin-9:firehose.p0", "firehose.p0", "hub-4417", "firehose:austin-9", 0, "hub-4417.firehose:austin-9:firehose.p0.p0"],
+  ["a spoke's registry source", "kea_41", "sources/php", "remote/kea_41:sources:php", "sources:php", "aggregator", "spoke-kea", 3, "aggregator.spoke-kea:sources:php.p3"],
+  ["a spoke's grouped dir", "Okapi-7", "offsets/hub.firehose.p3", "remote/Okapi-7:offsets:hub.firehose.p3", "offsets:hub.firehose.p3", "hub.x9", "firehose:Okapi-7", 12, "hub.x9.firehose:Okapi-7:offsets:hub.firehose.p3.p12"]
+]

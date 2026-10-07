@@ -34,7 +34,7 @@ if ( ! \defined( 'ABSPATH' ) ) {
  * canvas draws no in-port, and it overrides no `fill()` — a message addressed
  * here anyway takes `Node::fill()`'s ordinary path to the sink.
  */
-class Consumer_Node extends Timer_Node implements Idle_Reporter {
+class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Reporter {
 	/** Positional `arguments()` parsing plus the auto-wired `{name}:config` interpreter. */
 	use Schema_Reflection;
 
@@ -120,15 +120,6 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 
 	/** When the source was first seen with no segments at all; null once it has any. */
 	private ?float $empty_since = null;
-
-	/** Probe baseline: $counter as of the previous probe_stats() sweep. */
-	private int $probe_msgs = 0;
-
-	/** Probe baseline: $bytes_read as of the previous probe_stats() sweep. */
-	private int $probe_bytes = 0;
-
-	/** Probe baseline: Core::$now as of the previous probe_stats() sweep. */
-	private float $probe_ts = 0.0;
 
 	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(). */
 	public function __construct() {
@@ -236,71 +227,19 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 
 	/**
 	 * Probe seam: the Consumer record `Topic_Probe` reads from outside this
-	 * Consumer, as the POSITIONAL `Probe_Record` array (kept tiny for 24h SSE
-	 * replay). A DRAINING read — call it once per sweep. Positions and levels
-	 * ride verbatim (`SOURCE`, `READER`, the cursor, the partition END the lag
-	 * pairs with it, `DISTANCE` and `CACHE_SIZE`); the counters ride as the
-	 * work done since the previous call, with the interval that work covers, so
-	 * a reader divides ONE record instead of differencing across records (which
-	 * read a ~595s worker recycle as a counter reset). The partition's own size
-	 * is a Partition record's, so `END_BYTES` and `END_DISK_BYTES` keep
-	 * `Probe_Record::BLANK`'s 0.
+	 * Consumer, through `Durable_Reader::probe_record()`. SOURCE is the tailed
+	 * dir's basename and READER the offsetlog's, and every level comes off the
+	 * one `compute_lag()` read, so the record never pairs a stale cursor with a
+	 * fresh stat. A DRAINING read — call it once per sweep.
 	 *
-	 * @return array<int,int|string> A `Probe_Record`-indexed positional array.
+	 * @return array<int,int|string|null> A `Probe_Record`-indexed positional array.
 	 */
 	public function probe_stats(): array {
-		$lag    = $this->compute_lag();
-		$window = $this->drain_probe_window();
-		return \array_replace( Probe_Record::BLANK, [
-			Probe_Record::SOURCE           => '' !== $this->source_dir ? \basename( $this->source_dir ) : '',
-			Probe_Record::READER           => '' !== $this->offsetlog_dir ? \basename( $this->offsetlog_dir ) : '',
-			Probe_Record::CURSOR_SEGMENT   => $this->cursor_segment,
-			Probe_Record::CURSOR_OFF       => $this->cursor_offset,
-			Probe_Record::END_SEGMENT      => $lag['end_segment'],
-			Probe_Record::END_SIZE         => $lag['end_size'],
-			Probe_Record::DISTANCE         => $lag['bytes_behind'],
-			Probe_Record::MSGS_DELTA       => $window['msgs'],
-			Probe_Record::CACHE_SIZE       => $this->offsetlog_cache_size(),
-			Probe_Record::BYTES_READ_DELTA => $window['bytes'],
-			Probe_Record::ELAPSED_MS       => $window['elapsed_ms'],
-		] );
-	}
-
-	/**
-	 * Close the probe window: the messages sent and bytes read since the previous
-	 * sweep, plus how long that window ran, then re-baseline. Reported bytes are
-	 * the ones this reader actually READ, so retention deleting a segment cannot
-	 * make the figure fall the way the partition's on-disk size does.
-	 *
-	 * @return array{msgs:int,bytes:int,elapsed_ms:int}
-	 */
-	protected function drain_probe_window(): array {
-		$window = [
-			'msgs'       => \max( 0, $this->counter - $this->probe_msgs ),
-			'bytes'      => \max( 0, $this->bytes_read - $this->probe_bytes ),
-			'elapsed_ms' => (int) \round( \max( 0.0, Core::$now - $this->probe_ts ) * 1000 ),
-		];
-		$this->probe_msgs  = $this->counter;
-		$this->probe_bytes = $this->bytes_read;
-		$this->probe_ts    = Core::$now;
-		return $window;
-	}
-
-	/**
-	 * Byte size of the consumer's newest offsetlog segment — the position-cache
-	 * footprint the overview graphs. 0 for an ephemeral reader (no offsetlog) or
-	 * before the first checkpoint writes a segment.
-	 */
-	protected function offsetlog_cache_size(): int {
-		if ( null === $this->offsetlog ) {
-			return 0;
-		}
-		$segments = $this->offsetlog->get_segments( true );
-		if ( [] === $segments ) {
-			return 0;
-		}
-		$last = \end( $segments );
-		return $last['size'];
+		return $this->probe_record(
+			'' !== $this->source_dir ? \basename( $this->source_dir ) : '',
+			'' !== $this->offsetlog_dir ? \basename( $this->offsetlog_dir ) : '',
+			$this->compute_lag()
+		);
 	}
 
 	/**
@@ -314,7 +253,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 		\clearstatcache( true, $this->source()->partition_dir() );
 		$segments = $this->source()->get_segments( true );
 		if ( empty( $segments ) ) {
-			return self::lag_of( [], 0, 0 );
+			return self::lag_of( [], $this->cursor_segment, $this->cursor_offset );
 		}
 		// Recover deleted/recreated cursor first; stale one reads as caught up.
 		$this->normalize_cursor( $segments );

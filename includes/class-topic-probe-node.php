@@ -17,9 +17,11 @@ namespace Newspack_Nodes;
  * things that need partition stats read Partition records, both in the one
  * `Probe_Record` layout written into the shared `topicprobe` log.
  *
- * Each READY Consumer yields ONE Consumer record: the cursor's segment and
- * offset, the `bytes_behind` backlog measured from real on-disk segment sizes,
- * and the messages and bytes the reader moved since its previous sweep. Each
+ * Each READY durable reader yields ONE Consumer record: the cursor's segment
+ * and offset, the backlog, and the messages and bytes the reader moved since
+ * its previous sweep. A Consumer measures its backlog from real on-disk
+ * segment sizes; a broker's Remote_Consumer, which cannot see the spoke's
+ * end, from what the spoke has sent it (`Remote_Consumer_Node::probe_stats()`). Each
  * Partition with a live segment yields ONE Partition record, with a blank
  * READER: its size and the disk it takes. A log two nodes of this process
  * cover — a writer and a Consumer's `:source` — reports once a sweep.
@@ -86,24 +88,26 @@ class Topic_Probe_Node extends Probe_Node {
 	}
 
 	/**
-	 * Claim every Consumer in this process that has reached READY and names a
-	 * reader, and every Partition with a live segment. A Consumer still
-	 * initializing holds no cursor, and one with no offsetlog has no READER,
-	 * which would read as a Partition record. A Partition over a log an
-	 * earlier-registered Partition already covers is that log again.
+	 * Claim every durable reader in this process — each `Position_Reporter`,
+	 * a Consumer and a broker's Remote_Consumer alike — that has reached READY,
+	 * stands somewhere and names a reader, and every Partition with a live
+	 * segment. A reader still initializing holds no cursor, and one with no id
+	 * to report under has no READER, which would read as a Partition record. A
+	 * Partition over a log an earlier-registered Partition already covers is
+	 * that log again.
 	 *
 	 * @param Node $node A node from this process's registry.
-	 * @return array<int,array<int,int|string>> One Probe_Record, or none.
+	 * @return array<int,array<int,int|string|null>> One Probe_Record, or none.
 	 */
 	protected function probe( Node $node ): array {
 		if ( $node instanceof Partition_Node ) {
 			return $this->partition_record( $node );
 		}
-		if ( ! $node instanceof Consumer_Node || null === $node->get_state( 'READY' ) ) {
+		if ( ! $node instanceof Position_Reporter || null === $node->get_state( 'READY' ) ) {
 			return [];
 		}
 		$record = $node->probe_stats();
-		return '' === $record[ Probe_Record::READER ] ? [] : [ $record ];
+		return null === $record || '' === $record[ Probe_Record::READER ] ? [] : [ $record ];
 	}
 
 	/**

@@ -657,11 +657,11 @@ class CliTest extends TestCase {
 		$record                             = [];
 		$record[ Probe_Record::SOURCE ]     = $fields['source'] ?? 'firehose.p0';
 		$record[ Probe_Record::READER ]     = $fields['reader'] ?? 'firehose.p0';
-		$record[ Probe_Record::CURSOR_SEGMENT ] = $fields['cursor_segment'] ?? 0;
+		$record[ Probe_Record::CURSOR_SEGMENT ] = \array_key_exists( 'cursor_segment', $fields ) ? $fields['cursor_segment'] : 0;
 		$record[ Probe_Record::CURSOR_OFF ] = $fields['cursor_offset'] ?? 0;
-		$record[ Probe_Record::END_SEGMENT ]    = $fields['end_segment'] ?? 0;
-		$record[ Probe_Record::END_SIZE ]   = $fields['end_size'] ?? 0;
-		$record[ Probe_Record::DISTANCE ]   = $fields['distance'] ?? 0;
+		$record[ Probe_Record::END_SEGMENT ]    = \array_key_exists( 'end_segment', $fields ) ? $fields['end_segment'] : 0;
+		$record[ Probe_Record::END_SIZE ]   = \array_key_exists( 'end_size', $fields ) ? $fields['end_size'] : 0;
+		$record[ Probe_Record::DISTANCE ]   = \array_key_exists( 'distance', $fields ) ? $fields['distance'] : 0;
 		$record[ Probe_Record::MSGS_DELTA ]       = $fields['msgs'] ?? 0;
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_STRUCT;
@@ -718,6 +718,17 @@ class CliTest extends TestCase {
 		$this->assertSame(
 			[ [ 'foo.bar.p41', 41, 23 ] ],
 			array_map( fn( $r ) => [ $r['reader'], $r['partition'], $r['distance'] ], $rows )
+		);
+	}
+
+	public function test_consumer_rows_keeps_what_a_reader_does_not_know_unknown(): void {
+		$this->seed_probe_record( [ 'reader' => 'hub-4417.remote-austin:sources:php.p3', 'source' => 'remote/austin:sources:php', 'cursor_segment' => null, 'cursor_offset' => 40913, 'end_segment' => null, 'end_size' => null, 'distance' => null ] );
+
+		$row = ( new CLI( $this->tmp ) )->consumer_rows()['rows'][0];
+
+		$this->assertSame(
+			[ 'hub-4417.remote-austin:sources:php.p3', 3, null, 40913, null, null, null ],
+			[ $row['reader'], $row['partition'], $row['cursor_segment'], $row['cursor_offset'], $row['end_segment'], $row['end_size'], $row['distance'] ]
 		);
 	}
 

@@ -78,7 +78,7 @@ class CliWorkerCommandTest extends TestCase {
 		$record[ Probe_Record::CURSOR_OFF ]     = $value['offset'] ?? 0;
 		$record[ Probe_Record::END_SEGMENT ]    = $value['end_segment'] ?? 0;
 		$record[ Probe_Record::END_SIZE ]       = $value['end_size'] ?? 0;
-		$record[ Probe_Record::DISTANCE ]       = $value['distance'] ?? $value['bytes_behind'] ?? 0;
+		$record[ Probe_Record::DISTANCE ]       = \array_key_exists( 'distance', $value ) ? $value['distance'] : ( $value['bytes_behind'] ?? 0 );
 		$record[ Probe_Record::MSGS_DELTA ]     = $value['msgs'] ?? 0;
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_STRUCT;
@@ -949,6 +949,16 @@ class CliWorkerCommandTest extends TestCase {
 		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
 		$this->assertStringContainsString( 'firehose.p0', $haystack );
 		$this->assertStringContainsString( '200B', $haystack );
+	}
+
+	public function test_status_renders_a_lag_no_reader_can_measure_as_unknown(): void {
+		$this->seed_consumer_checkpoint( 'okapi-3-hub', 3, [
+			'source' => 'remote/okapi-3:firehose.p3', 'distance' => null,
+		] );
+
+		( new Worker_CLI_Command() )->status( [], [] );
+
+		$this->assertMatchesRegularExpression( '/okapi-3-hub\.p3\s+remote\/okapi-3:firehose\.p3\s+3\s+unknown/', \implode( "\n", $GLOBALS['_test_wp_cli_logs'] ) );
 	}
 
 	public function test_status_recomputes_behind_from_disk_when_the_probe_record_is_stale(): void {

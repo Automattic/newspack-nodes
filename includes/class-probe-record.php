@@ -24,6 +24,14 @@ namespace Newspack_Nodes;
  * fills every slot but END_BYTES and END_DISK_BYTES. Both builders start
  * from `BLANK`, so a slot a kind never fills is 0.
  *
+ * Either durable reader writes a CONSUMER record: a `Consumer_Node` and a
+ * broker's `Remote_Consumer_Node`, both through
+ * `Durable_Reader::probe_record()`. A slot a reader cannot know is null, the
+ * one place a Consumer record carries one: a broker's reader cannot see its
+ * spoke's log end, so its END pair and DISTANCE are always null, and a
+ * cursor segment is null until the spoke, or for a `File_Tail` the file it
+ * opens, names the generation.
+ *
  * A Consumer record is SELF-CONTAINED: the work it drains for one reader
  * (`MSGS_DELTA`, `BYTES_READ_DELTA`) plus the `ELAPSED_MS` that work covers,
  * so a reader divides ONE record and never differences across records — a
@@ -43,8 +51,10 @@ class Probe_Record {
 
 	/**
 	 * What the record is about. On a Consumer record, the basename of the
-	 * partition directory it tails (`firehose.p0`) or the followed filename
-	 * for a `File_Tail` (`debug.log`), blank when the node has no source
+	 * partition directory it tails (`firehose.p0`), the followed filename
+	 * for a `File_Tail` (`debug.log`), or the spoke's log a broker's reader
+	 * carries, named `Log_Discovery::remote_for()`'s way
+	 * (`remote/austin:firehose.p0`), blank when the node has no source
 	 * configured; `CLI::relag_from_disk()` rebuilds paths from it. On a
 	 * Partition record, the log's SSE stamp (`firehose.p0`, `offsets/…`), or
 	 * its path under the runtime base outside the stamped roots
@@ -54,7 +64,8 @@ class Probe_Record {
 
 	/**
 	 * The reader id, the basename of the consumer's offsetlog dir, which is
-	 * what tells two readers of one partition apart. Blank on a Partition
+	 * what tells two readers of one partition apart; a broker's reader reports
+	 * under `Remote_Source_Node::reader_id()`. Blank on a Partition
 	 * record, and only there: `Topic_Probe` sends no record for an
 	 * ephemeral reader, which has no offsetlog dir to name. Every consumer of
 	 * this log keys readers by it, so a blank one drops out of the status
@@ -62,7 +73,7 @@ class Probe_Record {
 	 */
 	public const READER = 1;
 
-	/** Id of the segment the cursor sits in. */
+	/** Id of the segment the cursor sits in; null where the reader does not know it. */
 	public const CURSOR_SEGMENT = 2;
 
 	/** Byte within the cursor segment. */
@@ -71,14 +82,19 @@ class Probe_Record {
 	/**
 	 * Id of the partition's last (newest) segment. One `compute_lag()` read
 	 * captures a Consumer's cursor and end together, so a record never pairs
-	 * a stale cursor with a fresh stat.
+	 * a stale cursor with a fresh stat. Null for a broker's reader, which
+	 * cannot see its spoke's end.
 	 */
 	public const END_SEGMENT = 4;
 
-	/** Size of that last segment. */
+	/** Size of that last segment; null for a broker's reader. */
 	public const END_SIZE = 5;
 
-	/** Bytes the consumer is behind (the backlog), for the overview graph. */
+	/**
+	 * Bytes from the cursor to the log's end, in the log's own bytes: the
+	 * backlog the overview graph plots and the `consumer-lag` alert reads.
+	 * Null for a broker's reader, which cannot see its spoke's end.
+	 */
 	public const DISTANCE = 6;
 
 	/** Messages the consumer sent during ELAPSED_MS. */

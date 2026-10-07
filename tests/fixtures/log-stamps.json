@@ -8,5 +8,7 @@
   ["a group alone", "deadletter", "deadletter"],
   ["an empty FROM", "", ""],
   ["a sources stamp keeps its prefix", "sources/php/php-errors:tail", "sources/php"],
-  ["a bare sources stamp", "sources/php", "sources/php"]
+  ["a bare sources stamp", "sources/php", "sources/php"],
+  ["a remote name keeps its prefix", "remote/austin-9:firehose.p0", "remote/austin-9:firehose.p0"],
+  ["a remote name of a grouped stamp before a trail", "remote/kea_41:sources:php/hub.p2/topicprobe", "remote/kea_41:sources:php"]
 ]

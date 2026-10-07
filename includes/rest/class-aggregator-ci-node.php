@@ -3,9 +3,10 @@
  * Aggregator_CI: the hub-side command surface behind the Aggregator Status
  * dashboard.
  *
- * A hub wires one `Remote_Source` per spoke partition, each pulling that
- * spoke's log over SSE and publishing its connection state to the shared
- * cache. This interpreter is the read side. It mounts as `aggregator` on
+ * A hub wires one `Remote_Source` per spoke, a broker pulling that spoke's
+ * streams over one SSE connection, one reader per stream. Each broker
+ * publishes its connection state to the shared cache, and each reader its
+ * cursor to the probe log. This interpreter is the read side of both. It mounts as `aggregator` on
  * `newspack_nodes/request_graph_ready` beside the rest of the substrate
  * service CIs, and answers the three verbs `node_schema()` declares:
  *
@@ -15,7 +16,8 @@
  *                    from the full partition payload.
  *   list_servers — the polled card slice: the same snapshot re-indexed as a
  *                    SEQUENTIAL ARRAY, which is what the React card list maps
- *                    over.
+ *                    over, each row carrying its broker's `readers` off the
+ *                    probe log. Only this slice reads that log.
  *   probe          — the button-triggered deep probe of ONE spoke, and the
  *                    only verb here that reaches the network.
  *
@@ -23,6 +25,8 @@
  * the shape a browser SliceViewNode parses, and both read the one
  * `build_snapshot()` builder — so the header's counts and the cards they
  * summarize are derived identically rather than by two roll-ups that drift.
+ * The readers are no part of that snapshot: `summary` counts connections
+ * alone, so `list_servers` reads and decodes the probe tail by itself.
  * The dashboard batches the pair into a single POST, so they also answer from
  * one request.
  *
@@ -41,9 +45,12 @@ use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\Capabilities;
 use Newspack_Nodes\CLI;
 use Newspack_Nodes\Command_Interpreter_Node;
+use Newspack_Nodes\Config;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\HTTP_Out_Node;
+use Newspack_Nodes\Log_Discovery;
+use Newspack_Nodes\Log_Position;
 use Newspack_Nodes\Remote_Source_Node;
 use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Vault;
@@ -59,9 +66,10 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	 * `probe` verb: POST one spoke's `workers/dump_graph` through
 	 * `HTTP_Out_Node::probe_command()` (and its `$http_call` seam) and answer
 	 * with the roll-up `fleet_rollup()` whitelists. The polled slices carry
-	 * connection health only, so this is where a dashboard button reaches for
-	 * worker liveness, consumer lag and dead-letter depth — one blocking
-	 * request per click, never on the poll path.
+	 * the hub's own view — each broker's connection health and each of its
+	 * readers' cursors — so this is where a dashboard button reaches for the
+	 * SPOKE's view of itself: worker liveness, consumer lag and dead-letter
+	 * depth, one blocking request per click, never on the poll path.
 	 *
 	 * `<id>` is the VAULT id, not the `Remote_Source` node name: the spoke's
 	 * URL and credentials live in the Vault, and `build_snapshot()` carries a
@@ -143,7 +151,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	 * rows cover every readable one, and each failure comes back beside them,
 	 * by name, for the summary to report.
 	 *
-	 * @return array{0: array<string,array{id:string,vault_id:string,url:string,partitions:array<int,array<array-key,mixed>>}>, 1: array<string,\Throwable>} The rows, then what each unreadable topology threw.
+	 * @return array{0: array<string,array{id:string,topology:string,vault_id:string,url:string,partitions:array<int,array<array-key,mixed>>}>, 1: array<string,\Throwable>} The rows, then what each unreadable topology threw.
 	 */
 	private static function build_snapshot(): array {
 		$registry = Vault::fresh();
@@ -174,6 +182,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 
 				$result[ $name ] = [
 					'id'         => $name,
+					'topology'   => $topology,
 					'vault_id'   => $vault_id,
 					'url'        => \is_scalar( $url_v ) ? \esc_url_raw( (string) $url_v ) : '',
 					'partitions' => $partitions,
@@ -182,6 +191,42 @@ class Aggregator_CI_Node extends Service_CI_Node {
 		}
 
 		return [ $result, $unreadable ];
+	}
+
+	/**
+	 * Each server row with its broker's `readers`: the `CLI::consumer_rows()`
+	 * rows the Workers dashboard and `wp nodes status` read, one read of the
+	 * probe tail for every row. A row is a broker's reader when its SOURCE
+	 * names a remote log (`Log_Discovery::remote_of()`) and its READER is the
+	 * id `Remote_Source_Node::reader_id()` gives that kind under the broker in
+	 * the row's worker partition. Each reader answers its `stamp`, its worker
+	 * `partition`, its `cursor` in `Log_Position`'s grammar, and its
+	 * `distance`, null where it cannot be measured, as a hub reader's never
+	 * can. A reader that has reported no position yet, or whose worker is
+	 * gone, has no row.
+	 *
+	 * @param array<string,array{id:string,topology:string,vault_id:string,url:string,partitions:array<int,array<array-key,mixed>>}> $servers The snapshot's rows.
+	 * @return list<array<string,mixed>> The rows in order, each with `readers`.
+	 */
+	private static function with_readers( array $servers ): array {
+		$probed = ( new CLI( Config::get_base_directory() ) )->consumer_rows()['rows'];
+		$rows   = [];
+		foreach ( $servers as $server ) {
+			$readers = [];
+			foreach ( $probed as $row ) {
+				$remote = Log_Discovery::remote_of( $row['source'] );
+				if ( null !== $remote && Remote_Source_Node::reader_id( $server['topology'], $server['id'], $remote['kind'], $row['partition'] ) === $row['reader'] ) {
+					$readers[] = [
+						'stamp'     => Log_Discovery::stamp_of( $remote['kind'] ),
+						'partition' => $row['partition'],
+						'cursor'    => Log_Position::format( $row['cursor_segment'], $row['cursor_offset'], null ),
+						'distance'  => $row['distance'],
+					];
+				}
+			}
+			$rows[] = $server + [ 'readers' => $readers ];
+		}
+		return $rows;
 	}
 
 	/**
@@ -252,9 +297,9 @@ class Aggregator_CI_Node extends Service_CI_Node {
 				[
 					'name'        => 'list_servers',
 					'capability'  => Capabilities::READ,
-					'description' => 'De-god server-cards slice: the status snapshot as a sequential array.',
+					'description' => 'De-god server-cards slice: the status snapshot as a sequential array, each broker with its readers off the probe log.',
 					'args'        => [],
-					'handler'     => self::slice_verb( static fn (): array => \array_values( self::build_snapshot()[0] ) ),
+					'handler'     => self::slice_verb( static fn (): array => self::with_readers( self::build_snapshot()[0] ) ),
 				],
 				[
 					// No capability declared, so the gate demands MANAGE.

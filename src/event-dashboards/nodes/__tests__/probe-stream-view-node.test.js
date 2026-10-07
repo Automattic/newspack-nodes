@@ -14,6 +14,7 @@ import {
 import * as Job from '../../../runtime/jobstats-record';
 import * as Probe from '../../../runtime/probe-record';
 import * as Tbl from '../../../runtime/tablestats-record';
+import { topicChartSeries, bySource } from '../../topicProbeSeries';
 
 // A layout sharing no slot with either real record, so nothing can pass by luck.
 const WIDGET_ID = 2;
@@ -212,6 +213,66 @@ function partitionMsg( {
 	m[ VALUE ] = v;
 	return m;
 }
+
+describe( 'TopicProbeViewNode backlog a reader cannot measure', () => {
+	it( 'charts only the known lag, and no series for a log whose every reader is unknown', () => {
+		const v = new TopicProbeViewNode();
+		v.fill(
+			probeMsg( {
+				ts: 140,
+				reader: 'hub-7731.firehose:okapi-3:firehose.p2.p2',
+				source: 'remote/okapi-3:firehose.p2',
+				distance: null,
+			} )
+		);
+		v.fill(
+			probeMsg( {
+				ts: 140,
+				reader: 'eln.firehose.p2',
+				source: 'firehose.p2',
+				distance: 70913,
+			} )
+		);
+		v.fill(
+			probeMsg( {
+				ts: 140,
+				reader: 'tapir.firehose.p2',
+				source: 'firehose.p2',
+				distance: null,
+			} )
+		);
+
+		const series = topicChartSeries(
+			v.snapshot( v.modelKey ),
+			'backlog',
+			bySource,
+			{ byWorker: false }
+		);
+
+		expect( Object.keys( series ) ).toEqual( [ 'firehose.p2' ] );
+		expect(
+			series[ 'firehose.p2' ].points.map( ( p ) => p.value )
+		).toEqual( [ 70913 ] );
+	} );
+
+	it( 'keeps an unknown backlog unknown on the sample', () => {
+		const v = new TopicProbeViewNode();
+		v.fill(
+			probeMsg( {
+				ts: 150,
+				reader: 'hub-7731.firehose:okapi-3:sources:php.p2',
+				source: 'remote/okapi-3:sources:php',
+				distance: null,
+			} )
+		);
+
+		expect(
+			v.snapshot( v.modelKey )[
+				'hub-7731.firehose:okapi-3:sources:php.p2'
+			].latest.backlog
+		).toBeNull();
+	} );
+} );
 
 describe( 'TopicProbeViewNode', () => {
 	it( 'carries the worker FROM names on each sample', () => {

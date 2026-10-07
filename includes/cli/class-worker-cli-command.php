@@ -322,7 +322,8 @@ class Worker_CLI_Command {
 				'Reader'    => $cr['reader'],
 				'Source'    => $cr['source'],
 				'Partition' => $cr['partition'],
-				'Behind'    => CLI::format_bytes( $cr['distance'] ),
+				// A hub reader cannot see its spoke's end: its lag is unknown.
+				'Behind'    => null === $cr['distance'] ? 'unknown' : CLI::format_bytes( $cr['distance'] ),
 				'Msgs/int'  => $cr['msgs'],
 			];
 		}

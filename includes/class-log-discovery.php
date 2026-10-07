@@ -58,11 +58,20 @@ final class Log_Discovery {
 	public const SOURCES_PREFIX = 'sources';
 
 	/**
-	 * Every prefix a stamp may open with: the dir roots in `GROUPS`, and
-	 * `SOURCES_PREFIX`, which names a registry entry rather than a dir. A
-	 * bare stamp is never one of them.
+	 * The prefix naming a spoke's log in this site's own probe channel,
+	 * `remote/<vault_id>:<kind>`, which `remote_for()` writes. It names no dir
+	 * and no registry entry here, so no resolver opens one and the wire never
+	 * carries one.
 	 */
-	public const STAMP_PREFIXES = [ ...self::GROUPS, self::SOURCES_PREFIX ];
+	public const REMOTE_PREFIX = 'remote';
+
+	/**
+	 * Every prefix a stamp may open with: the dir roots in `GROUPS`,
+	 * `SOURCES_PREFIX`, which names a registry entry rather than a dir, and
+	 * `REMOTE_PREFIX`, which names a spoke's log. A bare stamp is never one of
+	 * them, so a local log never shares a remote log's name.
+	 */
+	public const STAMP_PREFIXES = [ ...self::GROUPS, self::SOURCES_PREFIX, self::REMOTE_PREFIX ];
 
 	/**
 	 * The longest stamp, in bytes. A reader's directory is its stamp with `/`
@@ -203,7 +212,7 @@ final class Log_Discovery {
 		$parts = \explode( '/', $stamp );
 		return \strlen( $stamp ) <= self::MAX_STAMP_BYTES && match ( \count( $parts ) ) {
 			1 => ! \in_array( $stamp, self::STAMP_PREFIXES, true ) && Log_Sources::is_valid_name( $stamp ),
-			2 => self::is_prefix( $parts[0] ) && Log_Sources::is_valid_name( $parts[1] ),
+			2 => self::is_wire_prefix( $parts[0] ) && Log_Sources::is_valid_name( $parts[1] ),
 			default => false,
 		};
 	}
@@ -229,9 +238,20 @@ final class Log_Discovery {
 			&& Log_Sources::is_valid_name( \str_replace( '*', 'a', $last ) )
 			&& match ( \count( $parts ) ) {
 				1 => true,
-				2 => self::is_prefix( $parts[0] ) && ( self::SOURCES_PREFIX !== $parts[0] || ! \str_contains( $sub, '*' ) ),
+				2 => self::is_wire_prefix( $parts[0] ) && ( self::SOURCES_PREFIX !== $parts[0] || ! \str_contains( $sub, '*' ) ),
 				default => false,
 			};
+	}
+
+	/**
+	 * Whether a stamp's first segment opens one a record carries over the
+	 * wire: any prefix but `REMOTE_PREFIX`, whose names this site mints for
+	 * its own probe channel and no spoke sends.
+	 *
+	 * @param string $segment A stamp's first segment.
+	 */
+	private static function is_wire_prefix( string $segment ): bool {
+		return self::REMOTE_PREFIX !== $segment && self::is_prefix( $segment );
 	}
 
 	/**
@@ -345,6 +365,40 @@ final class Log_Discovery {
 	}
 
 	/**
+	 * The name this site gives one spoke's log in its own probe channel:
+	 * `remote/<vault_id>:<kind>`, the spoke's Vault id and the stamp's kind.
+	 * A spoke's `firehose.p0` and this site's own are two logs, so they carry
+	 * two names (ADR-29). Neither a Vault id nor a stamp carries `:`, so the
+	 * first `:` parts the two, and the name keeps the two segments
+	 * `dir_from_stamp()` reads.
+	 *
+	 * @param string $vault_id The spoke's Vault id.
+	 * @param string $stamp    The stamp the spoke gives the log.
+	 * @return string The remote log's name.
+	 * @throws \InvalidArgumentException On a Vault id the Vault refuses.
+	 */
+	public static function remote_for( string $vault_id, string $stamp ): string {
+		if ( ! Vault::is_valid_id( $vault_id ) ) {
+			throw new \InvalidArgumentException( \esc_html( "remote log of an invalid vault id: {$vault_id}" ) );
+		}
+		return self::REMOTE_PREFIX . "/{$vault_id}:" . self::kind_of( $stamp );
+	}
+
+	/**
+	 * The kind a stamp's reader takes: the sibling slot a broker publishes it
+	 * under, its name's suffix and its sidecars' directory. The stamp's `/`
+	 * is spelled `:`, because the Router splits a TO on `/` and a step reply
+	 * returns addressed to that reader's name. `stamp_of()` reads it back,
+	 * and `tests/fixtures/log-kinds.json` holds the two to one case list.
+	 *
+	 * @param string $stamp A partition dir or `sources/<name>`.
+	 * @return string The kind.
+	 */
+	public static function kind_of( string $stamp ): string {
+		return \str_replace( '/', ':', $stamp );
+	}
+
+	/**
 	 * Whether a subscription brings records stamped `$stamp`: its own name
 	 * exactly, or a glob whose `*` matches within one path segment, as
 	 * `dirs_matching()` globs it. Every other character is
@@ -385,20 +439,6 @@ final class Log_Discovery {
 	}
 
 	/**
-	 * The kind a stamp's reader takes: the sibling slot a broker publishes it
-	 * under, its name's suffix and its sidecars' directory. The stamp's `/`
-	 * is spelled `:`, because the Router splits a TO on `/` and a step reply
-	 * returns addressed to that reader's name. `stamp_of()` reads it back,
-	 * and `tests/fixtures/log-kinds.json` holds the two to one case list.
-	 *
-	 * @param string $stamp A partition dir or `sources/<name>`.
-	 * @return string The kind.
-	 */
-	public static function kind_of( string $stamp ): string {
-		return \str_replace( '/', ':', $stamp );
-	}
-
-	/**
 	 * The stamp a kind names, the inverse of `kind_of()`: a stamp never
 	 * carries `:`, so every `:` in a kind spells a `/`.
 	 *
@@ -407,6 +447,30 @@ final class Log_Discovery {
 	 */
 	public static function stamp_of( string $kind ): string {
 		return \str_replace( ':', '/', $kind );
+	}
+
+	/**
+	 * The spoke and the kind a remote log's name carries, the inverse of
+	 * `remote_for()`; null for any name it did not write, a local stamp
+	 * included. `tests/fixtures/log-remotes.json` holds it to the browser's
+	 * `remoteOf()`.
+	 *
+	 * @param string $name A probe record's SOURCE.
+	 * @return array{vault_id:string,kind:string}|null
+	 */
+	public static function remote_of( string $name ): ?array {
+		$prefix = self::REMOTE_PREFIX . '/';
+		if ( ! \str_starts_with( $name, $prefix ) || \str_contains( \substr( $name, \strlen( $prefix ) ), '/' ) ) {
+			return null;
+		}
+		$parts = \explode( ':', \substr( $name, \strlen( $prefix ) ), 2 );
+		if ( 2 !== \count( $parts ) || '' === $parts[0] || '' === $parts[1] ) {
+			return null;
+		}
+		return [
+			'vault_id' => $parts[0],
+			'kind'     => $parts[1],
+		];
 	}
 
 	/**

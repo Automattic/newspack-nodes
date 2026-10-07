@@ -11,10 +11,12 @@ use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Partition_Node;
+use Newspack_Nodes\Probe_Record;
 use Newspack_Nodes\Remote_Consumer_Node;
 use Newspack_Nodes\Remote_Source_Node;
 use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\SSE_In_Node;
+use Newspack_Nodes\Topic_Probe_Node;
 use Newspack_Nodes\Vault;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
@@ -1412,12 +1414,11 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertArrayHasKey( 'last_sse_heartbeat', $status );
 	}
 
-	public function test_status_is_keyed_by_broker_and_worker_partition_and_names_each_stream(): void {
+	public function test_status_is_keyed_by_broker_and_worker_partition(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		Core::$var['partition'] = '3';
 		try {
 			[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p3:downstream', 'sources/php:downstream' ) );
-			Core::node( 'remote-austin:firehose.p3' )->next_offset( [ 'segment' => 12, 'offset' => 7311 ] );
 			Core::$now = 8000.0;
 			$node->fire();
 		} finally {
@@ -1425,22 +1426,9 @@ class RemoteSourceNodeTest extends TestCase {
 		}
 
 		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 3 ) );
-		$this->assertSame( '12:7311', $status['streams']['firehose.p3']['cursor'] );
-		$this->assertSame( 'ACTIVE', $status['streams']['sources/php']['polling'] );
+		$this->assertArrayHasKey( 'connected', $status );
+		$this->assertArrayNotHasKey( 'streams', $status, 'a reader states its position on the probe log alone' );
 		$this->assertFalse( Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 0 ) ) );
-	}
-
-	public function test_a_segmentless_cursor_and_a_paused_reader_publish_as_they_stand(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:downstream', 'sources/php:downstream' ) );
-		Core::node( 'remote-austin:sources:php' )->next_offset( [ 'offset' => 40913 ] );
-		Core::node( 'remote-austin:firehose.p0' )->pause();
-		Core::$now = 8100.0;
-		$node->fire();
-
-		$streams = $this->status_of( $node )['streams'];
-		$this->assertSame( ':40913', $streams['sources/php']['cursor'] );
-		$this->assertSame( 'PAUSED', $streams['firehose.p0']['polling'] );
 	}
 
 	public function test_status_keeps_publishing_while_every_reader_is_paused(): void {
@@ -1449,11 +1437,94 @@ class RemoteSourceNodeTest extends TestCase {
 		$reader->pause();
 		Core::$now = 8200.0;
 		$node->fire();
-		$reader->next_offset( [ 'segment' => 31, 'offset' => 6602 ] );
+		Core::$memd->delete( Remote_Source_Node::status_key_for( 'remote-austin', 0 ) );
 		Core::$now = 8201.0;
 		$node->fire();
 
-		$this->assertSame( '31:6602', $this->status_of( $node )['streams']['firehose.p0']['cursor'] );
+		$this->assertFalse( $this->status_of( $node )['connected'] );
+	}
+
+	// ---------------------------------------------------------------------
+	// The probe record: each reader's position on the one live-position log.
+	// ---------------------------------------------------------------------
+
+	/**
+	 * A packed record off the spoke stream, its breadcrumb in ID.
+	 *
+	 * @return array{0:string,1:array<int,mixed>} The packed line and its message.
+	 */
+	private static function spoke_record( string $stamp, string $crumb ): array {
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_STRUCT;
+		$message[ Message::FROM ]  = $stamp;
+		$message[ Message::ID ]    = $crumb;
+		$message[ Message::VALUE ] = [ 'crumb' => $crumb ];
+		return [ Message::packed( $message ), $message ];
+	}
+
+	/** Sweep this process with a Topic_Probe and answer its records by READER. */
+	private static function sweep_readers(): array {
+		$capture = new Capture_Sink_Node();
+		$probe   = new Topic_Probe_Node();
+		$probe->name( 'topicprobe' );
+		$probe->arguments( [] );
+		$probe->sink( $capture );
+		$probe->fire_cb();
+		$records = \array_column( \array_column( $capture->captured, Message::VALUE ), null, Probe_Record::READER );
+		unset( $records[''] );
+		return $records;
+	}
+
+	public function test_a_topic_probe_sweep_records_each_reader_under_its_worker_scoped_id(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		Core::$var['topology']  = 'hub-4417';
+		Core::$var['partition'] = '3';
+		try {
+			$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p3:downstream', 'sources/php:downstream', 'jobstats.p3:downstream' ) );
+			$fire  = Core::node( 'remote-austin:firehose.p3' );
+			$php   = Core::node( 'remote-austin:sources:php' );
+			$jobs  = Core::node( 'remote-austin:jobstats.p3' );
+			foreach ( [ $fire, $php, $jobs ] as $reader ) {
+				$reader->poll();
+			}
+			$fire->next_offset( [ 'segment' => 12, 'offset' => 7311 ] );
+			$php->next_offset( [ 'offset' => 40913 ] );
+			$received = 0;
+			foreach ( [ '12:7311:200', '12:7511:157' ] as $crumb ) {
+				[ $raw, $message ] = self::spoke_record( 'firehose.p3', $crumb );
+				$fire->receive( $raw, $message );
+				$received += \strlen( $raw ) + 1;
+			}
+			Core::$now = 517.25;
+			$records   = self::sweep_readers();
+		} finally {
+			unset( Core::$var['topology'] );
+			Core::$var['partition'] = '0';
+		}
+
+		$slots = [ Probe_Record::SOURCE, Probe_Record::CURSOR_SEGMENT, Probe_Record::CURSOR_OFF, Probe_Record::END_SEGMENT, Probe_Record::END_SIZE, Probe_Record::DISTANCE, Probe_Record::MSGS_DELTA, Probe_Record::BYTES_READ_DELTA, Probe_Record::ELAPSED_MS ];
+		$pick  = static fn ( array $record ): array => \array_map( static fn ( int $slot ) => $record[ $slot ], $slots );
+		$this->assertSame(
+			[
+				'hub-4417.remote-austin:firehose.p3.p3' => [ 'remote/austin:firehose.p3', 12, 7311, null, null, null, 0, $received, 17250 ],
+				'hub-4417.remote-austin:sources:php.p3' => [ 'remote/austin:sources:php', null, 40913, null, null, null, 0, 0, 17250 ],
+			],
+			\array_map( $pick, $records ),
+			'a reader that stands nowhere yet, jobstats.p3, sends no record'
+		);
+	}
+
+	public function test_a_reader_id_composes_the_topology_the_reader_name_and_the_worker_partition(): void {
+		$this->assertSame( 'hub-4417.firehose:spoke-9:sources:php.p3', Remote_Source_Node::reader_id( 'hub-4417', 'firehose:spoke-9', 'sources:php', 3 ) );
+	}
+
+	public function test_a_broker_bound_to_no_topology_names_no_reader(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ , $reader ] = $this->make_remote();
+		$reader->poll();
+		$reader->next_offset( [ 'segment' => 5, 'offset' => 2290 ] );
+
+		$this->assertSame( '', $reader->probe_stats()[ Probe_Record::READER ], 'Topic_Probe drops a blank READER' );
 	}
 
 	public function test_a_broker_with_no_worker_partition_publishes_no_status(): void {

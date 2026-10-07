@@ -722,6 +722,29 @@ class TailFileFollowTest extends TestCase {
 		$this->assertSame( 0, $stats[ \Newspack_Nodes\Probe_Record::END_SIZE ], 'a missing file has size 0' );
 	}
 
+	public function test_file_mode_probe_stats_names_no_generation_it_has_not_opened(): void {
+		$t = $this->follow( "{$this->tmp}/not-yet-rotated-4417.log", "{$this->tmp}/off-4417" );
+
+		$stats = $t->probe_stats();
+
+		$this->assertNull( $stats[ \Newspack_Nodes\Probe_Record::CURSOR_SEGMENT ], 'inode 0 is no generation' );
+		$this->assertNull( $stats[ \Newspack_Nodes\Probe_Record::END_SEGMENT ] );
+	}
+
+	public function test_file_mode_probe_stats_names_the_generation_it_reads(): void {
+		$path = "{$this->tmp}/debug-7713.log";
+		\file_put_contents( $path, "seven\n" );
+		$t = $this->follow( $path, "{$this->tmp}/off-7713" );
+		$t->next_offset( 'start' );
+		$t->sink( new Capture_Sink_Node() );
+		$this->pump( $t );
+
+		$stats = $t->probe_stats();
+
+		$this->assertSame( \fileinode( $path ), $stats[ \Newspack_Nodes\Probe_Record::CURSOR_SEGMENT ] );
+		$this->assertSame( \fileinode( $path ), $stats[ \Newspack_Nodes\Probe_Record::END_SEGMENT ] );
+	}
+
 	public function test_file_mode_remove_node_closes_the_follow_handle(): void {
 		$path = "{$this->tmp}/debug.log";
 		\file_put_contents( $path, "held-open\n" );

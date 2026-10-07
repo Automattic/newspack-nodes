@@ -1,0 +1,13 @@
+[
+  ["a partition source and a plain target", "firehose.p0:remote-job-rewrite", "firehose.p0", "remote-job-rewrite"],
+  ["a target keeps every colon after the first", "sources/php:php-errors:partition", "sources/php", "php-errors:partition"],
+  ["a partition token stays whole", "firehose.p<partition>:remote-job-rewrite", "firehose.p<partition>", "remote-job-rewrite"],
+  ["a colon inside a config token is no split", "<config:kea_log>.p3:kea-sink", "<config:kea_log>.p3", "kea-sink"],
+  ["nested angle brackets close in turn", "<a<b:c>d>.p1:okapi:sink", "<a<b:c>d>.p1", "okapi:sink"],
+  ["a stray closing bracket opens nothing", "tapir>.p2:tapir-sink", "tapir>.p2", "tapir-sink"],
+  ["an unclosed bracket swallows the colon", "<quokka.p4:sink", "<quokka.p4:sink", ""],
+  ["a token with no colon is all source", "jobstats.p7", "jobstats.p7", ""],
+  ["an empty source", ":marmot-sink", "", "marmot-sink"],
+  ["an empty target", "marmot.p5:", "marmot.p5", ""],
+  ["an empty token", "", "", ""]
+]

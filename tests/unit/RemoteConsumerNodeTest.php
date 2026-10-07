@@ -10,6 +10,7 @@ use Newspack_Nodes\Log_Sources;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Partition_Node;
+use Newspack_Nodes\Probe_Record;
 use Newspack_Nodes\Remote_Consumer_Node;
 use Newspack_Nodes\Remote_Source_Node;
 use Newspack_Nodes\Rest\SSE_Out_Node;
@@ -336,16 +337,17 @@ class RemoteConsumerNodeTest extends TestCase {
 		$this->assertSame( [ 'segment' => 7, 'offset' => 41 ], $node->connect_position() );
 	}
 
-	public function test_a_reader_reports_no_cursor_until_it_holds_one(): void {
+	public function test_a_reader_reports_no_probe_record_until_it_stands_somewhere(): void {
 		$reader = new Remote_Consumer_Node();
 		$reader->name( 'remote-austin:firehose.p0' );
 		$reader->arguments( [ 'firehose.p0', "{$this->base_dir}/o", "{$this->base_dir}/d" ] );
 
-		$this->assertNull( $reader->stream_status()['cursor'] );
+		$this->assertNull( $reader->probe_stats() );
 
 		$reader->next_offset( [ 'segment' => 47, 'offset' => 3318 ] );
+		$record = $reader->probe_stats();
 
-		$this->assertSame( '47:3318', $reader->stream_status()['cursor'] );
+		$this->assertSame( [ 47, 3318 ], [ $record[ Probe_Record::CURSOR_SEGMENT ], $record[ Probe_Record::CURSOR_OFF ] ] );
 		$this->assertSame( '47:3318', $reader->cursor_position() );
 	}
 
@@ -355,8 +357,35 @@ class RemoteConsumerNodeTest extends TestCase {
 		$reader->arguments( [ 'firehose.p0', "{$this->base_dir}/o", "{$this->base_dir}/d" ] );
 		$reader->skip_to( [ 'segment' => 0, 'offset' => 0 ] );
 		( new \ReflectionMethod( $reader, 'pass_skipped_lines' ) )->invoke( $reader );
+		$record = $reader->probe_stats();
 
-		$this->assertSame( '0:0', $reader->stream_status()['cursor'] );
+		$this->assertSame( [ 0, 0 ], [ $record[ Probe_Record::CURSOR_SEGMENT ], $record[ Probe_Record::CURSOR_OFF ] ] );
+	}
+
+	public function test_a_reader_far_behind_its_spoke_reports_no_end_and_no_backlog(): void {
+		$reader = new Remote_Consumer_Node();
+		$reader->name( 'remote-austin:firehose.p0' );
+		$reader->arguments( [ 'firehose.p0', "{$this->base_dir}/o", "{$this->base_dir}/d" ] );
+		$reader->next_offset( [ 'segment' => 8, 'offset' => 913 ] );
+		$reader->skip_to( [ 'segment' => 900, 'offset' => 99_000_000 ] );
+
+		$record = $reader->probe_stats();
+
+		$this->assertSame(
+			[ 8, 913, null, null, null ],
+			[ $record[ Probe_Record::CURSOR_SEGMENT ], $record[ Probe_Record::CURSOR_OFF ], $record[ Probe_Record::END_SEGMENT ], $record[ Probe_Record::END_SIZE ], $record[ Probe_Record::DISTANCE ] ],
+			"the spoke's end is out of sight, so its end and the distance to it are unknown"
+		);
+	}
+
+	public function test_a_paused_reader_reports_no_backlog(): void {
+		$reader = new Remote_Consumer_Node();
+		$reader->name( 'remote-austin:firehose.p0' );
+		$reader->arguments( [ 'firehose.p0', "{$this->base_dir}/o", "{$this->base_dir}/d" ] );
+		$reader->next_offset( [ 'segment' => 31, 'offset' => 6602 ] );
+		$reader->pause();
+
+		$this->assertNull( $reader->probe_stats()[ Probe_Record::DISTANCE ] );
 	}
 
 	public function test_a_handshake_naming_no_segment_invents_none(): void {
