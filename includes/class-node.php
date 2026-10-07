@@ -840,8 +840,7 @@ class Node {
 	 * rename, the collision pre-check and `sibling_name()` all read it here.
 	 * The slot KEY stays the kind and never moves, or a re-spelling would
 	 * strand the incumbent in a slot the next retract computes past. The suffix
-	 * is interpolated, never parsed, so a COMPOUND one is fine:
-	 * `Remote_Source_Node` names its sidecars `{remote_partition}:offsetlog`.
+	 * is interpolated, never parsed, so a COMPOUND one is fine.
 	 *
 	 * @param string $kind What a builder built — `source`, `offsetlog`, `deadletter`.
 	 * @return string The suffix that follows the patron's name.

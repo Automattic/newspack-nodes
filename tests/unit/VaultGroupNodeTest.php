@@ -53,6 +53,29 @@ final class Refusing_Build_Node extends Node {
 	}
 }
 
+/** A child declaring `peek`, a read verb that leaves its `dump_config()` as it was. */
+final class Read_Verb_Spy_Node extends Node {
+	use Schema_Reflection;
+
+	public function __construct() {
+		parent::__construct();
+		$this->auto_wire_interpreter();
+	}
+
+	public static function node_schema(): array {
+		return [
+			'category' => 'Hidden',
+			'commands' => [
+				[
+					'name'    => 'peek',
+					'args'    => [],
+					'handler' => static fn ( Command_Interpreter_Node $ci ): string => 'peeked ' . $ci->patron()->name(),
+				],
+			],
+		];
+	}
+}
+
 /** A child whose `poke` verb records each receipt; the tw0 child raises a stop. */
 final class Stop_Spy_Node extends Node {
 	use Schema_Reflection;
@@ -287,8 +310,9 @@ final class VaultGroupNodeTest extends TestCase {
 
 	public function test_a_toggled_verb_records_its_last_write(): void {
 		$offsets = Config::get_offsets_directory();
+		$base    = \rtrim( Config::get_base_directory(), '/' );
 		$ci      = new Command_Interpreter_Node();
-		$group   = $ci->make_node( 'Vault_Group', 'pull', 'Remote_Source', 'tw-edge', 'firehose.p0', "{$offsets}/pull.firehose.{id}.p0" );
+		$group   = $ci->make_node( 'Vault_Group', 'pull', 'Remote_Source', 'tw-edge', "{$offsets}/pull.{id}", "{$base}/deadletter/pull.{id}", 'firehose.p0:downstream' );
 		foreach ( [ 'true', 'false', 'true' ] as $flag ) {
 			$group->interpreter()->dispatch( 'set_multi_writer', [ $flag ] );
 		}
@@ -299,15 +323,26 @@ final class VaultGroupNodeTest extends TestCase {
 		$this->assertStringContainsString( 'set_multi_writer true', Core::node( 'pull:tw5' )->dump_config() );
 	}
 
-	public function test_a_read_verb_reaches_every_child_and_is_never_recorded(): void {
+	public function test_a_broker_verb_reaches_every_child_and_is_recorded(): void {
 		$offsets = Config::get_offsets_directory();
+		$base    = \rtrim( Config::get_base_directory(), '/' );
 		$ci      = new Command_Interpreter_Node();
-		$group   = $ci->make_node( 'Vault_Group', 'pull', 'Remote_Source', 'tw-edge', 'firehose.p0', "{$offsets}/pull.firehose.{id}.p0" );
-		$answers = $group->interpreter()->dispatch( 'dl_list', [ '7' ] );
+		$group   = $ci->make_node( 'Vault_Group', 'pull', 'Remote_Source', 'tw-edge', "{$offsets}/pull.{id}", "{$base}/deadletter/pull.{id}", 'firehose.p0:downstream' );
+		$answers = $group->interpreter()->dispatch( 'set_assume_clean_shutdown', [ 'true' ] );
 		$this->assertSame( [ 'pull:tw0', 'pull:tw9' ], \array_keys( $answers ) );
-		$this->assertStringNotContainsString( 'dl_list', $group->dump_config() );
+		$this->assertStringContainsString( "command_node pull:config set_assume_clean_shutdown true\n", $group->dump_config() );
 		$group->interpreter()->dispatch( 'set_multi_writer', [ 'true' ] );
 		$this->assertStringContainsString( "command_node pull:config set_multi_writer true\n", $group->dump_config() );
+	}
+
+	public function test_a_read_verb_reaches_every_child_and_is_never_recorded(): void {
+		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\Unit\\' );
+		$group = ( new Command_Interpreter_Node() )->make_node( 'Vault_Group', 'edge', 'Read_Verb_Spy', 'tw-edge' );
+
+		$answers = $group->interpreter()->dispatch( 'peek', [] );
+
+		$this->assertSame( [ 'edge:tw0', 'edge:tw9' ], \array_keys( $answers ) );
+		$this->assertStringNotContainsString( 'peek', $group->dump_config(), 'a command that changes no child dump records nothing' );
 	}
 
 	public function test_a_verb_sent_to_an_empty_group_is_recorded_once(): void {
@@ -560,8 +595,9 @@ final class VaultGroupNodeTest extends TestCase {
 	public function test_a_fleet_reload_retracts_a_later_remote_source_quietly(): void {
 		[ $fleet, $lock_dir ] = $this->mount_fleet();
 		$offsets = Config::get_offsets_directory();
+		$base    = \rtrim( Config::get_base_directory(), '/' );
 		$ci      = new Command_Interpreter_Node();
-		$ci->make_node( 'Vault_Group', 'pull', 'Remote_Source', 'tw-edge', 'firehose.p0', "{$offsets}/pull.firehose.{id}.p0" );
+		$ci->make_node( 'Vault_Group', 'pull', 'Remote_Source', 'tw-edge', "{$offsets}/pull.{id}", "{$base}/deadletter/pull.{id}", 'firehose.p0:downstream' );
 		Vault::get_instance()->add( 'tw5', [ 'url' => 'https://tw5.example', 'group' => 'tw-edge' ] );
 		$this->signal_reload( $fleet, $lock_dir );
 		$this->assertInstanceOf( Remote_Source_Node::class, Core::node( 'pull:tw5' ) );
@@ -622,26 +658,26 @@ final class VaultGroupNodeTest extends TestCase {
 			return \curl_init();
 		};
 		$offsets = Config::get_offsets_directory();
+		$base    = \rtrim( Config::get_base_directory(), '/' );
 		$sink    = new Capture_Sink_Node();
 		$sink->name( 'downstream' );
 		$group = new Vault_Group_Node();
 		$group->name( 'pull' );
 		$group->sink( $sink );
-		$group->arguments( [ 'Remote_Source', 'tw-edge', 'firehose.p0', "{$offsets}/pull.firehose.{id}.p0" ] );
-		$group->connect_node( 'downstream' );
+		$group->arguments( [ 'Remote_Source', 'tw-edge', "{$offsets}/pull.{id}", "{$base}/deadletter/pull.{id}", 'firehose.p0:downstream' ] );
 
 		$child = Core::node( 'pull:tw9' );
 		$this->assertInstanceOf( Remote_Source_Node::class, $child );
 		$child->fire();
-		Core::node( 'pull:tw9:sse-in' )->process_sse_chunk( self::msg_frame( '9:512:40', '', [ 'p' => 1 ] ) );
-		$child->poll();
+		Core::node( 'pull:tw9:sse-in' )->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_STRUCT, Message::FROM => 'firehose.p0', Message::ID => '9:512:40', Message::VALUE => [ 'p' => 1 ] ] ) );
+		Core::node( 'pull:tw9:firehose.p0' )->poll();
 		$this->assertCount( 1, $sink->captured );
 
 		Vault::get_instance()->update( 'tw9', [ 'group' => 'llm' ] );
 		$group->update_graph();
 
 		$this->assertNull( Core::node( 'pull:tw9' ) );
-		$logs = \glob( "{$offsets}/pull.firehose.tw9.p0/*.log" );
+		$logs = \glob( "{$offsets}/pull.tw9/firehose.p0/*.log" );
 		$this->assertNotEmpty( $logs, 'the retracted child wrote its cursor' );
 		$lines = \array_values( \array_filter( \explode( "\n", (string) \file_get_contents( \end( $logs ) ) ) ) );
 		$frame = Message::unpacked( \end( $lines ) )[ Message::VALUE ];

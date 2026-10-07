@@ -169,6 +169,26 @@ final class Log_Discovery {
 	}
 
 	/**
+	 * Whether a subscription brings records stamped `$stamp`: its own name
+	 * exactly, or a glob whose `*` matches within one path segment, as
+	 * `SSE_Out_Node::matched_dirs()` globs it. Every other character is
+	 * literal, `?` and `[` included, which is why this is not `fnmatch()`.
+	 * `tests/fixtures/subscription-carries.json` holds it to the browser's
+	 * `carries()`.
+	 *
+	 * @param string $sub   A subscription, as `subscribe` lists it.
+	 * @param string $stamp A record's stamp, as `dir_from_stamp()` reads it.
+	 * @return bool True when the subscription carries the stamp.
+	 */
+	public static function carries( string $sub, string $stamp ): bool {
+		if ( ! \str_contains( $sub, '*' ) ) {
+			return $sub === $stamp;
+		}
+		$pattern = \implode( '[^/]*', \array_map( static fn ( string $part ): string => \preg_quote( $part, '#' ), \explode( '*', $sub ) ) );
+		return 1 === \preg_match( "#^{$pattern}$#D", $stamp );
+	}
+
+	/**
 	 * The stamp a FROM breadcrumb opens with, and the inverse of
 	 * `stamp_for()`: a stamp opening with one of `STAMP_PREFIXES` keeps its
 	 * second segment, any other is the first path segment alone. No bare

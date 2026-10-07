@@ -5,7 +5,7 @@
  *
  * The three are one trait because they are one mechanism ([159]): the pump advances
  * the cursor, the offsetlog commits it as a keyframe, and the debugger seeks by
- * repositioning it. Consumer_Node and Remote_Source_Node take all three together.
+ * repositioning it. Consumer_Node and Remote_Consumer_Node take all three together.
  *
  * The pieces a node reuses on their own stay separate — `Sidecar` (any node building
  * a sibling Partition), `Dead_Letter_Queue` (also the write-side quarantine on
@@ -23,8 +23,8 @@ namespace Newspack_Nodes;
  * Durable-reader mixin: what a using class owes, and what it gets back.
  *
  * The class must be a `Timer_Node`: the pump is timer-driven, and `fire()` here is the
- * tick that drains and re-arms the busy/EOF cadence (Remote_Source overrides it to
- * service its channel on the same rule). It must fill six seams: where the
+ * tick that drains and re-arms the busy/EOF cadence (Remote_Consumer wraps it so a
+ * paused tick only retries an owed step). It must fill six seams: where the
  * bytes come from (`get_batch`), where a fresh reader starts (`init_position`), how
  * one frame reaches disk (`write_checkpoint_frame`) and what that frame carries
  * beyond the shared base (`checkpoint_frame_extra`), and how the debugger moves the
@@ -47,7 +47,7 @@ trait Durable_Reader {
 	 * the message the reader was on when the uncatchable death struck (the crash suspect) — with
 	 * reason 'crash' and advance past it. Lineage accounting, not read-loop machinery, so it lives
 	 * here and both readers arm it on crawl entry: Consumer sacrifices its buffered head line
-	 * (per-line drain), Remote_Source the relayed message whose crumb START matches the boot pin.
+	 * (per-line drain), Remote_Consumer the relayed message whose crumb START matches the boot pin.
 	 */
 	protected bool $crawl_skip_head = false;
 
@@ -73,7 +73,7 @@ trait Durable_Reader {
 	 * resume_attempts_from_frame) arms the DLQ 'crash' sacrifice of the resumed head, which
 	 * the crawl pre-dispatch pin makes the message that was in flight when the death struck.
 	 * A disposal commits gracefully past its record, so a poison position never arms this.
-	 * Shared by Consumer (load_offsetlog) and Remote_Source (restore_position).
+	 * Shared by Consumer (load_offsetlog) and Remote_Consumer (restore_position).
 	 *
 	 * @param array<array-key,mixed> $entry The restored frame VALUE.
 	 * @return bool True when the head skip is armed.
@@ -517,7 +517,7 @@ trait Durable_Reader {
 	 * Per-line drain seam: dispatch ONE complete line. The default sacrifices the boot head
 	 * when the one-shot crash skip is armed, then delegates to forward_line — so a
 	 * forward_line-overriding subclass (Tail) still inherits the skip-head handling. A push
-	 * source (Remote_Source) overrides this to run the crumb-vs-boot-pin 3-way compare: its
+	 * source (Remote_Consumer) overrides this to run the crumb-vs-boot-pin 3-way compare: its
 	 * stream can resume PAST a GC'd suspect, so an armed head is not unconditionally the first
 	 * drained line.
 	 *
@@ -716,7 +716,7 @@ trait Durable_Reader {
 
 	/**
 	 * The graceful handoff of an operational stop: commit the cursor with
-	 * attempts=0. `Remote_Source_Node` overrides it to keep a crash lineage.
+	 * attempts=0. `Remote_Consumer_Node` overrides it to keep a crash lineage.
 	 */
 	public function checkpoint_shutdown(): void {
 		$this->checkpoint( true );
@@ -779,16 +779,16 @@ trait Durable_Reader {
 	/**
 	 * Refill seam: ensure the buffer is topped up from the source. Consumer_Node
 	 * implements it as a synchronous READ_BLOCK_BYTES disk read; a push node
-	 * (Remote_Source_Node) implements it as an async "arm the curl valve" — bytes
-	 * arrive later via the drain loop. The pump already tolerates an empty buffer
+	 * (Remote_Consumer_Node) implements it by letting its broker re-arm the curl
+	 * valve — bytes arrive later via the drain loop. The pump already tolerates an empty buffer
 	 * this tick (the at_eof cadence), so "armed, nothing arrived yet" needs no case.
 	 */
 	abstract protected function get_batch(): void;
 
 	/**
 	 * Boot seam: seed the durable read position on the first poll — Consumer seeds from
-	 * the offsetlog + a default seek; a push source (Remote_Source) restores its position
-	 * and arms its valve. poll_init freezes the boot cursor at whatever this leaves.
+	 * the offsetlog + a default seek; a push source (Remote_Consumer) restores its
+	 * position. poll_init freezes the boot cursor at whatever this leaves.
 	 */
 	abstract protected function init_position(): void;
 
@@ -847,7 +847,7 @@ trait Durable_Reader {
 	 * Names of nodes whose state rides in the offsetlog alongside the cursor
 	 * (Tachikoma's snapshot cache), keyed into the frame's `cache` map by name.
 	 * Empty = offset-only. Appended via add_snapshot_node. A node with no
-	 * snapshot concern (Remote_Source) leaves it [] and the restore branches no-op.
+	 * snapshot concern leaves it [] and the restore branches no-op.
 	 *
 	 * @var list<string>
 	 */
@@ -1160,7 +1160,7 @@ trait Durable_Reader {
 
 	/**
 	 * Node-specific frame fields beyond the shared {seg,off,attempts,reason,first_crash_ts}
-	 * base (Consumer: name/target/…; Remote_Source: _ts). Return [] for none.
+	 * base (Consumer: name/target/…; Remote_Consumer: _ts). Return [] for none.
 	 *
 	 * @return array<array-key,mixed>
 	 */
@@ -1273,7 +1273,7 @@ trait Durable_Reader {
 
 	/**
 	 * The shared time-travel verb table, merged into a node's node_schema()['commands']
-	 * so Consumer and Remote_Source register identical verbs.
+	 * so Consumer and Remote_Consumer register identical verbs.
 	 *
 	 * @return array<int,array<string,mixed>>
 	 */

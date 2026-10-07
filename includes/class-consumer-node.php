@@ -728,7 +728,8 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * complete line still buffered.
 	 *
 	 * The Durable_Reader refill seam: Consumer's synchronous disk read. A push source
-	 * (Remote_Source_Node) implements the same abstract seam by arming its curl valve.
+	 * (Remote_Consumer_Node) implements the same seam by letting its broker re-arm the
+	 * curl valve.
 	 */
 	protected function get_batch(): void {
 		// Defeat the stat cache so another process's appends become visible.

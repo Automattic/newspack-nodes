@@ -17,9 +17,9 @@
  *
  * Mirrors the JS RemoteLinkNode. The seams are shaped for two subclasses because
  * the JS side has two (`src/runtime/remote-ipc-node.js` is the second); PHP has
- * only `Remote_Source_Node`, which adds the durable aggregation offsetlog and the
- * dashboard status snapshot. It overrides `should_connect()` to hold a paused
- * pull closed, and fills the status seams (`publish_status`,
+ * only `Remote_Source_Node`, which routes each stream to a durable reader and
+ * publishes the dashboard status snapshot. It overrides `should_connect()` to hold
+ * the stream closed while no reader is live, and fills the status seams (`publish_status`,
  * `record_heartbeat_sent`, `record_heartbeat_reply`, `record_heartbeat_failure`),
  * which are no-ops here.
  *
@@ -44,10 +44,9 @@ class Remote_Link_Node extends Timer_Node {
 
 	/**
 	 * Channel tick (milliseconds). Housekeeping runs once per wall-second whatever
-	 * the rate, so the remaining ticks serve a subclass's own fast path. Protected
-	 * because `Remote_Source_Node` re-arms with it when time travel resumes.
+	 * the rate.
 	 */
-	protected const TICK_INTERVAL_MS = 100;
+	private const TICK_INTERVAL_MS = 100;
 
 	/** Patron HTTP_Out sibling (`<name>:http-out`); carries commands and the heartbeat. */
 	protected ?HTTP_Out_Node $http_out = null;
@@ -129,8 +128,6 @@ class Remote_Link_Node extends Timer_Node {
 		// Pairwise: joining on a space makes two different pairs one key.
 		$previous = [ $this->vault_id, $this->remote_partition ];
 		$this->parse_schema_args( $args );
-		// `remote_partition` spells the sidecar suffixes; a replay moves them.
-		$this->set_sibling_names();
 		if ( $previous !== [ $this->vault_id, $this->remote_partition ] ) {
 			$this->drop_patrons();
 		}
@@ -459,12 +456,9 @@ class Remote_Link_Node extends Timer_Node {
 			return null;
 		}
 
-		// Restore the cursor before connect, so the first request carries it.
-		$this->restore_position();
-
 		$sse = new SSE_In_Node();
 		$sse->patron( $this );
-		// Delivery seam: links forward downstream; Remote_Source buffers.
+		// Delivery seam: a link forwards downstream; Remote_Source routes.
 		$sse->on_message = function ( string $raw ): void {
 			$this->deliver_downstream( $raw );
 		};
@@ -532,15 +526,6 @@ class Remote_Link_Node extends Timer_Node {
 	}
 
 	/**
-	 * Initial cursor. Base seeds none; Remote_Source restores its offsetlog.
-	 *
-	 * @return array{segment?:int,offset?:int} The seeded cursor, or [] when none.
-	 */
-	protected function restore_position(): array {
-		return [];
-	}
-
-	/**
 	 * What the next connect asks for: the channel tails its one partition.
 	 * Remote_Source answers for its readers instead.
 	 *
@@ -587,7 +572,7 @@ class Remote_Link_Node extends Timer_Node {
 	 * Unpack one raw `msg` payload, route it through `admit_inbound()` and
 	 * forward it straight downstream. An unparseable frame, or one whose FROM stamp would pass MAX_FROM_SIZE, is
 	 * dropped rather than forwarded. `Remote_Source_Node` replaces the
-	 * `on_message` seam with a buffering closure of its own, so this is the
+	 * `on_message` seam with a routing closure of its own, so this is the
 	 * channel path only.
 	 *
 	 * @param string $raw One packed Message, as the SSE `msg` payload carried it.
