@@ -6,6 +6,12 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **The Partition Viewer is the Log Viewer.** The station tab is `?tab=log-viewer`
+  (old `?tab=partition-viewer` links land on the default tab), its nodes are
+  `log-viewer:*`, its view class is `LogViewerViewNode` (`LogViewerView`), and its
+  hook is `useLogViewerGraph`. It lists partition dirs and `sources/<name>`
+  registry files in one picker. Each viewer's saved column choice and rail fold
+  reset once.
 - **`HTTP_In_Node::$clock_now_seam` and `HTTP_In_Node::$rate_limit_disabled`
   are gone.** `/command` meters through `Rate_Limit::claim()` in the shared
   cache, so a test that set either assigns an `InMemoryMemcached` to

@@ -48,7 +48,7 @@ final class Log_Discovery {
 	 * `logs` holds the data partitions, `offsets` the durable reader cursors,
 	 * and `deadletter` the poison quarantines and the write quarantines of
 	 * batches whose segment would not open. All three hold
-	 * packed partition dirs, so the Partition Viewer renders any of them.
+	 * packed partition dirs, so the Log Viewer renders any of them.
 	 * `SSE_Out_Node::parse_group()` accepts a `{group}/` subscription prefix
 	 * from this list and refuses every other one, an explicit `logs/` included,
 	 * because a bare name already addresses that root. That list is what keeps

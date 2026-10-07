@@ -1,5 +1,5 @@
 /**
- * Seek-feedback INTEGRATION pins for the Partition Viewer over a partition dir
+ * Seek-feedback INTEGRATION pins for the Log Viewer over a partition dir
  * and over a file source, on ONE harness — they drive the same real chain the unit tests skip: the component
  * captures the seek-time boundary from its rail, `seek()` fills a browse
  * control into the view node, replayed records with `segment:offset:length` ID
@@ -117,16 +117,16 @@ function boot( payloadByVerb ) {
 	logBrowserProps = undefined;
 	// The rail is folded until a reader opens it; these cases read it.
 	window.localStorage.setItem(
-		'newspack-nodes-rail:newspack-nodes-partition-viewer',
+		'newspack-nodes-rail:newspack-nodes-log-viewer',
 		'open'
 	);
 }
 
 /* eslint-disable import/first */
-const PartitionViewer = require( '../PartitionViewer' ).default;
+const LogViewer = require( '../LogViewer' ).default;
 /* eslint-enable import/first */
 
-describe( 'Partition Viewer', () => {
+describe( 'Log Viewer', () => {
 	// A packed partition envelope, keyed by partition.
 	function replayFrame( id ) {
 		const m = newMessage();
@@ -154,7 +154,7 @@ describe( 'Partition Viewer', () => {
 
 	test( 'REPRO: Replay flips to Live once replayed records reach the captured end', async () => {
 		await act( async () => {
-			render( <PartitionViewer /> );
+			render( <LogViewer /> );
 		} );
 		// list_logs + dump_log both ride the router tick; the rail is a wait
 		// away, not a flush.
@@ -211,7 +211,7 @@ describe( 'Partition Viewer', () => {
 	}, 20000 );
 } );
 
-describe( 'Partition Viewer over a file source', () => {
+describe( 'Log Viewer over a file source', () => {
 	// A raw log line carrying an `inode:offset:length` breadcrumb.
 	function fileFrame( id ) {
 		const m = newMessage();
@@ -225,7 +225,7 @@ describe( 'Partition Viewer over a file source', () => {
 	// Render, then wait for the footprint the Replay boundary is read from.
 	async function renderWithFootprint() {
 		await act( async () => {
-			render( <PartitionViewer /> );
+			render( <LogViewer /> );
 		} );
 		await waitFor(
 			() => expect( mockFakeClient.answered ).toContain( 'dump_log' ),

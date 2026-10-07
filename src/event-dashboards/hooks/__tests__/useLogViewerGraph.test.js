@@ -1,13 +1,13 @@
 /**
- * usePartitionViewerGraph tests — the Partition Viewer dashboard graph clipped onto the
+ * useLogViewerGraph tests — the Log Viewer dashboard graph clipped onto the
  * substrate's canonical rule-#2 backbone (`_command_interpreter → _router`) via
- * a SINGLE `RemoteLink` node plus the single `partition:view` view-model node.
+ * a SINGLE `RemoteLink` node plus the single `log-viewer:view` view-model node.
  *
  * RemoteLink composes a per-link `<name>:sse-in` (held as `link.sseIn`,
  * registered but patron-owned — no canvas churn) and SHARES `_http`
  * (HttpOut) + `_heartbeat` (Heartbeat) singletons, wiring the connected lease
- * to that shared heartbeat. The bespoke `partition:route` /
- * `partition:transform` nodes are gone — envelope→row shaping is inlined into the
+ * to that shared heartbeat. The bespoke `log-viewer:route` /
+ * `log-viewer:transform` nodes are gone — envelope→row shaping is inlined into the
  * view itself.
  *
  * EventSource is faked via `global.EventSource`; SseInNode's connection logic
@@ -65,16 +65,16 @@ beforeEach( () => {
 	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
 } );
 
-import { usePartitionViewerGraph } from '../useLogReaderGraph';
+import { useLogViewerGraph } from '../useLogViewerGraph';
 
 const INTERPRETER = '_command_interpreter';
 const ROUTER = '_router';
-const LINK = 'partition:link';
+const LINK = 'log-viewer:link';
 // SseIn is patron-owned; HttpOut + Heartbeat are shared singletons.
 const HTTP = names.HTTP;
 const HEARTBEAT = names.HEARTBEAT;
-const VIEW = 'partition:view';
-const TEE = 'partition:stream';
+const VIEW = 'log-viewer:view';
+const TEE = 'log-viewer:stream';
 const LEASE_OWNER = '9007199254740993';
 
 // The seam is the WIRE: the graph packs, POSTs and unpacks for real, so
@@ -100,7 +100,7 @@ function connectedEnvelope( { slot = 3, owner = LEASE_OWNER } = {} ) {
 }
 
 function mountGraph() {
-	return renderHook( () => usePartitionViewerGraph() );
+	return renderHook( () => useLogViewerGraph() );
 }
 
 const oneLogReply = () => [ { key: 'firehose.p0', label: 'firehose.p0' } ];
@@ -116,7 +116,7 @@ const setVisibility = async ( state ) => {
 	} );
 };
 
-describe( 'usePartitionViewerGraph — exospine + RemoteLink wiring', () => {
+describe( 'useLogViewerGraph — exospine + RemoteLink wiring', () => {
 	test( 'mounts the backbone + one RemoteLink (composing three children) + the view', async () => {
 		installWire( { list_logs: oneLogReply() } );
 		mountGraph();
@@ -130,7 +130,7 @@ describe( 'usePartitionViewerGraph — exospine + RemoteLink wiring', () => {
 		// The composed SseIn is the link's patron-owned `<name>:sse-in`.
 		const link = Core.node( LINK );
 		expect( link.sseIn ).toBeTruthy();
-		expect( Core.node( 'partition:link:sse-in' ) ).toBe( link.sseIn );
+		expect( Core.node( 'log-viewer:link:sse-in' ) ).toBe( link.sseIn );
 		// HttpOut + Heartbeat are SHARED singletons sinking into the backbone.
 		for ( const name of [ HTTP, HEARTBEAT ] ) {
 			const node = Core.node( name );
@@ -151,12 +151,12 @@ describe( 'usePartitionViewerGraph — exospine + RemoteLink wiring', () => {
 		expect( Core.node( HEARTBEAT ).target ).toBe( `${ HTTP }/workers` );
 	} );
 
-	test( 'does NOT mount partition:route or partition:transform (chain collapsed into view)', async () => {
+	test( 'does NOT mount log-viewer:route or log-viewer:transform (chain collapsed into view)', async () => {
 		installWire( { list_logs: oneLogReply() } );
 		mountGraph();
 		await act( async () => {} );
-		expect( Core.node( 'partition:route' ) ).toBeNull();
-		expect( Core.node( 'partition:transform' ) ).toBeNull();
+		expect( Core.node( 'log-viewer:route' ) ).toBeNull();
+		expect( Core.node( 'log-viewer:transform' ) ).toBeNull();
 	} );
 
 	test( 'inserts an inspectable Tee on the stream edge: link → tee → view', async () => {
@@ -331,7 +331,7 @@ describe( 'usePartitionViewerGraph — exospine + RemoteLink wiring', () => {
 	}, 15000 );
 } );
 
-describe( 'usePartitionViewerGraph — end-to-end routing through the exospine', () => {
+describe( 'useLogViewerGraph — end-to-end routing through the exospine', () => {
 	test( 'a delivered log envelope routes composed sse-in → view (shaped inline)', async () => {
 		installWire( { list_logs: oneLogReply() } );
 		mountGraph();
@@ -354,7 +354,7 @@ describe( 'usePartitionViewerGraph — end-to-end routing through the exospine',
 	} );
 } );
 
-describe( 'usePartitionViewerGraph — heartbeat slot bridge', () => {
+describe( 'useLogViewerGraph — heartbeat slot bridge', () => {
 	test( 'a `connected` envelope populates heartbeat.slot', async () => {
 		installWire( { list_logs: oneLogReply() } );
 		mountGraph();
@@ -414,7 +414,7 @@ describe( 'usePartitionViewerGraph — heartbeat slot bridge', () => {
 	} );
 } );
 
-describe( 'usePartitionViewerGraph — teardown', () => {
+describe( 'useLogViewerGraph — teardown', () => {
 	test( 'unmount tears down the RemoteLink + shared singletons + the backbone and closes the EventSource', async () => {
 		installWire( { list_logs: oneLogReply() } );
 		const { unmount } = mountGraph();
@@ -430,7 +430,7 @@ describe( 'usePartitionViewerGraph — teardown', () => {
 	} );
 } );
 
-describe( 'usePartitionViewerGraph — control callbacks', () => {
+describe( 'useLogViewerGraph — control callbacks', () => {
 	test( 'selectLog re-subscribes the EventSource and selects in the view', async () => {
 		installWire( { list_logs: oneLogReply() } );
 		const { result } = mountGraph();
@@ -524,7 +524,7 @@ describe( 'usePartitionViewerGraph — control callbacks', () => {
 		mountExospine();
 		installWire( { list_logs: oneLogReply() } );
 		const { result } = renderHook( () => {
-			const graph = usePartitionViewerGraph();
+			const graph = useLogViewerGraph();
 			const view = useNodeField( VIEW, 'view' );
 			return { graph, view };
 		} );
@@ -566,7 +566,7 @@ describe( 'usePartitionViewerGraph — control callbacks', () => {
 	} );
 } );
 
-describe( 'usePartitionViewerGraph — visibility-gated streaming', () => {
+describe( 'useLogViewerGraph — visibility-gated streaming', () => {
 	// Other suites assume a visible tab; reset after each visibility test.
 	afterEach( () => setVisibility( 'visible' ) );
 
@@ -619,7 +619,7 @@ describe( 'usePartitionViewerGraph — visibility-gated streaming', () => {
 	} );
 } );
 
-describe( 'usePartitionViewerGraph — pause disconnects / play resumes', () => {
+describe( 'useLogViewerGraph — pause disconnects / play resumes', () => {
 	afterEach( () => setVisibility( 'visible' ) );
 
 	test( 'setPaused(true) closes the EventSource (frees the server slot), not just the view flag', async () => {

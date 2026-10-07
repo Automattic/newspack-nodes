@@ -91,7 +91,7 @@ const has = ( type, flag ) => ( type & flag ) !== 0;
 
 /**
  * Human-readable TYPE: every set flag named, joined, with the unmatched bits in
- * hex when none match. The Dumper's header and the Partition Viewer's TYPE
+ * hex when none match. The Dumper's header and the Log Viewer's TYPE
  * column are the same rendering.
  *
  * @param {number} type The TYPE bitmask.

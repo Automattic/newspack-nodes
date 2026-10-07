@@ -6,7 +6,7 @@
  * highlights, and whether a replay has caught up to the live tail, which flips
  * the view from Replay back to Live. Both derive from each record's
  * `segment:offset:length` ID breadcrumb, and this module owns that derivation so
- * the Partition Viewer and the ELN Request / Error Log view nodes share ONE implementation instead of three.
+ * the Log Viewer and the ELN Request / Error Log view nodes share ONE implementation instead of three.
  *
  * `SeekTracker` is deliberately not a React hook. It is plain node-side state,
  * and the view node keeps ownership of publishing: `track()` reports whether

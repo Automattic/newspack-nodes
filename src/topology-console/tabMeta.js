@@ -21,7 +21,7 @@ import { __ } from '@wordpress/i18n';
  * shorter than that id, keeping the deep link at `?tab=console`. `param` claims
  * `?topology=<name>`, which the Console reads on mount and rewrites as the open
  * topology changes; the host drops it from the URL while another tab shows.
- * Order 15 seats the tab between Jobs (10) and the Partition Viewer (20).
+ * Order 15 seats the tab between Jobs (10) and the Log Viewer (20).
  *
  * `fullBleed` hands the Console the bare tab pane — a flex column with
  * `overflow: hidden` — instead of the host's vertical scroll container. The

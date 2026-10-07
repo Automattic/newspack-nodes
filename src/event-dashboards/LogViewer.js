@@ -1,10 +1,11 @@
 /**
- * Partition Viewer Component — the DOM-rendered live stream of one log: a
- * partition dir or a `sources/<name>` registry log.
+ * Log Viewer Component — the DOM-rendered live stream of one log at a time:
+ * a partition dir under `logs`, `offsets` or `deadletter`, or a registry file
+ * streamed as `sources/<name>`.
  *
- * A THIN view over the `partition:*` node graph (mounted by
- * `usePartitionViewerGraph`): `partition:link` holds the SSE connection and
- * `partition:view` holds the ring + view model. The chrome (toolbar dropdown,
+ * A THIN view over the `log-viewer:*` node graph (mounted by
+ * `useLogViewerGraph`): `log-viewer:link` holds the SSE connection and
+ * `log-viewer:view` holds the ring + view model. The chrome (toolbar dropdown,
  * filter, counts, pause, clear, banner, body split) is the shared
  * `LogStreamViewer`; browsing the selected log's segments (`dump_log`) is the
  * shared `useSegmentBrowse`, which also renders the rail. A dir's rows are
@@ -17,7 +18,7 @@ import { __ } from '@wordpress/i18n';
 
 import { Core } from '../runtime/core';
 import { useNodeField } from '../runtime/react';
-import { usePartitionViewerGraph } from './hooks/useLogReaderGraph';
+import { useLogViewerGraph } from './hooks/useLogViewerGraph';
 import LogStreamViewer, {
 	debugValue,
 } from '@newspack-nodes/shared/components/LogStreamViewer';
@@ -32,7 +33,7 @@ import {
 	useLogStatusSegments,
 } from '@newspack-nodes/shared/hooks/useLogPositions';
 import { LIVE } from '@newspack-nodes/shared/nodes/seekTracker';
-import './styles/partition-viewer.scss';
+import './styles/log-viewer.scss';
 
 /**
  * Row height in pixels. `LogRowList` virtualizes on this number and publishes
@@ -44,15 +45,15 @@ import './styles/partition-viewer.scss';
 const ROW_HEIGHT = 33;
 
 /**
- * The view node `usePartitionViewerGraph` mounts. `useNodeField` reads it
- * by NAME, so this and the hook's `partition` prefix move together.
+ * The view node `useLogViewerGraph` mounts. `useNodeField` reads it
+ * by NAME, so this and the hook's `log-viewer` prefix move together.
  *
  * @type {string}
  */
-const VIEW_NODE = 'partition:view';
+const VIEW_NODE = 'log-viewer:view';
 
 /**
- * What the component renders until `partition:view` publishes its first
+ * What the component renders until `log-viewer:view` publishes its first
  * model: an empty catalog, no selection, live and unpaused.
  *
  * @type {Object}
@@ -72,7 +73,7 @@ const EMPTY_VIEW = {
  *
  * @type {string}
  */
-const COLUMNS_STORAGE_KEY = 'newspack-nodes:partition-viewer:columns';
+const COLUMNS_STORAGE_KEY = 'newspack-nodes:log-viewer:columns';
 
 /**
  * The seven positional message fields (ADR-2), declared in wire order. A
@@ -143,7 +144,7 @@ const DEFAULT_COLUMNS = [ 'id', 'key', 'value' ];
  * carrying no bare value.
  *
  * @param {string}  col   The column key, one of `COLUMNS`.
- * @param {Object}  row   One row, as `partition:view` shaped it.
+ * @param {Object}  row   One row, as `log-viewer:view` shaped it.
  * @param {boolean} debug Whether the Debug toggle is on.
  * @return {string} The cell's text.
  */
@@ -222,13 +223,13 @@ const makeHeader = ( visibleColumns ) => (
 );
 
 /**
- * Partition Viewer Component.
+ * Log Viewer Component.
  *
  * @param {Object}  props                      Props.
  * @param {Element} [props.headerControlsSlot] Station shared-header slot to portal the controls into.
  * @return {import('react').ReactElement} Rendered component.
  */
-export default function PartitionViewer( { headerControlsSlot } ) {
+export default function LogViewer( { headerControlsSlot } ) {
 	const [ showColumnPicker, setShowColumnPicker ] = useState( false );
 	const { visibleColumns, toggleColumn, isVisible } = useColumnPicker( {
 		columns: COLUMNS,
@@ -249,7 +250,7 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 
 	// Mount the node graph; it returns the thin control callbacks.
 	const { selectLog, setPaused, seek, step, clear, setFilter } =
-		usePartitionViewerGraph();
+		useLogViewerGraph();
 
 	// Low-frequency view model (dropdown + pause button + selected value).
 	const view = useNodeField( VIEW_NODE, 'view' ) ?? EMPTY_VIEW;
@@ -273,14 +274,14 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 
 	const { source, refresh } = useLogStatusSegments( {
 		sub: selectedLog,
-		scope: 'partition-segments',
+		scope: 'log-viewer-segments',
 	} );
 
 	const { jump, sidebar } = useSegmentBrowse( {
 		sub: selectedLog,
 		source,
 		refresh,
-		railName: 'partition-rail:timer',
+		railName: 'log-viewer-rail:timer',
 		mode: displayMode,
 		lastReceivedSegment,
 		seek,
@@ -293,8 +294,8 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 
 	return (
 		<LogStreamViewer
-			className="newspack-nodes-partition-viewer"
-			ariaLabel={ __( 'Partition Viewer', 'newspack-nodes' ) }
+			className="newspack-nodes-log-viewer"
+			ariaLabel={ __( 'Log Viewer', 'newspack-nodes' ) }
 			headerControlsSlot={ headerControlsSlot }
 			pickerOptions={ availableLogs.map( ( l ) => ( {
 				key: l.key,
@@ -307,7 +308,7 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 			pickerLabel={ __( 'Browse a log', 'newspack-nodes' ) }
 			isPaused={ isPaused }
 			connectionError={ connectionError }
-			linkNode="partition:link"
+			linkNode="log-viewer:link"
 			onTogglePause={ () => setPaused( ! isPaused ) }
 			onStep={ step }
 			onJump={ jump }
@@ -319,7 +320,7 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 			renderDebugRow={ renderDebugRow }
 			renderDebugHeader={ header }
 			rowHeight={ ROW_HEIGHT }
-			listClassName="newspack-nodes-partition-rows"
+			listClassName="newspack-nodes-log-rows"
 			listHeader={ header }
 			toolbarExtras={
 				<button
@@ -338,7 +339,7 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 						columns={ COLUMNS }
 						isVisible={ isVisible }
 						onToggle={ toggleColumn }
-						idPrefix="pv-col"
+						idPrefix="lv-col"
 					/>
 				)
 			}

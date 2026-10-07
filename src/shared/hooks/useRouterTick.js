@@ -29,7 +29,7 @@
  * TimerNode alone: this hook forwards the interval and never computes a
  * boundary.
  *
- *   useRouterTick( { name: 'partition-rail:timer', onTick: refresh,
+ *   useRouterTick( { name: 'log-viewer-rail:timer', onTick: refresh,
  *                    intervalMs: 10000, enabled: Boolean( selectedLog ) } );
  */
 

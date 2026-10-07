@@ -3,7 +3,7 @@
  *
  * Request Log and Gyroscope each grew their own copy of this: a visible-set
  * state, a canonical-order toggle, localStorage persistence, and a checkbox
- * row. Partition Viewer would have been the third.
+ * row. Log Viewer would have been the third.
  */
 
 import { renderHook, act } from '@testing-library/react';

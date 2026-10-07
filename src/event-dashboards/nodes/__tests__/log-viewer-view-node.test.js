@@ -12,14 +12,14 @@ import {
 	newMessage,
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
-import { PartitionViewerViewNode } from '../partition-viewer-view-node';
+import { LogViewerViewNode } from '../log-viewer-view-node';
 
 // setName registers in Core; clear it between tests to avoid collisions.
 beforeEach( () => Core.reset() );
 
 // Construct the node directly (bare-new is fine in a test).
 function makeView( name ) {
-	const node = new PartitionViewerViewNode();
+	const node = new LogViewerViewNode();
 	node.name = name;
 	// What the graph does: the dashboard drives controls under the view's name.
 	node.controlFrom = name;
@@ -40,7 +40,7 @@ function envelopeMsg( { from = 'firehose.p0', key = '', value = '' } = {} ) {
 function controlMsg( payload ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
-	m[ FROM ] = 'partition:view';
+	m[ FROM ] = 'log-viewer:view';
 	m[ VALUE ] = payload;
 	return m;
 }
@@ -51,7 +51,7 @@ function controlMsg( payload ) {
 // a name key" as "this is a verb reply" silently discarded EVERY record from
 // flames.p0 and from every Consumer offsetlog, in live and replay alike.
 test( 'a struct record whose VALUE has its own `name` still renders', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 
 	v.fill(
 		envelopeMsg( {
@@ -70,7 +70,7 @@ test( 'a struct record whose VALUE has its own `name` still renders', () => {
 } );
 
 test( 'a step control admits exactly one envelope through a pause', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( controlMsg( { action: 'pause', paused: true } ) );
 	v.fill( envelopeMsg( { value: 'dropped while paused' } ) );
 	v.fill( controlMsg( { action: 'step', frames: 1 } ) );
@@ -84,7 +84,7 @@ test( 'a step control admits exactly one envelope through a pause', () => {
 // fields (ADR-2). The row kept only three of them, so TYPE / TIMESTAMP / FROM /
 // TO had nowhere to come from.
 test( 'rows carry all seven message fields', () => {
-	const view = makeView( 'partition:view' );
+	const view = makeView( 'log-viewer:view' );
 	const m = envelopeMsg( {
 		from: 'jobs.p3/consumer',
 		key: 'k-31',
@@ -107,7 +107,7 @@ test( 'rows carry all seven message fields', () => {
 } );
 
 test( 'rows carry the debug fields: msgId, key, struct flag, raw value', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	const m = envelopeMsg( {
 		from: 'firehose.p0',
 		key: 'rid-4194',
@@ -124,7 +124,7 @@ test( 'rows carry the debug fields: msgId, key, struct flag, raw value', () => {
 } );
 
 test( 'raw keeps multi-line bytestreams past the 1000-char content clip, capped at MAX_RAW', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	const long = 'line one\n' + 'x'.repeat( 3000 ) + '\nline three';
 	v.fill( envelopeMsg( { value: long } ) );
 	const row = v.lines[ 0 ];
@@ -141,10 +141,10 @@ test( 'raw keeps multi-line bytestreams past the 1000-char content clip, capped 
 	expect( v.lines[ 0 ].raw.endsWith( '...' ) ).toBe( true );
 } );
 
-// --- Envelope-shaping branches inlined from the deleted partition:transform. ---
+// --- Envelope-shaping branches inlined from the deleted log-viewer:transform. ---
 
 test( 'a grouped stamp (offsets/x.pN) still parses its partition column', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill(
 		envelopeMsg( { from: 'offsets/combined.firehose.p3', value: 'a' } )
 	);
@@ -152,59 +152,59 @@ test( 'a grouped stamp (offsets/x.pN) still parses its partition column', () => 
 } );
 
 test( 'distinct grouped dirs without .pN get distinct synthetic indices', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( envelopeMsg( { from: 'deadletter/alpha', value: 'a' } ) );
 	v.fill( envelopeMsg( { from: 'deadletter/beta', value: 'b' } ) );
 	expect( v.lines[ 1 ].partition ).not.toBe( v.lines[ 0 ].partition );
 } );
 
 test( 'string VALUE passes through verbatim as the line content', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( envelopeMsg( { value: 'plain text' } ) );
 	expect( v.lines ).toHaveLength( 1 );
 	expect( v.lines[ 0 ].content ).toBe( 'plain text' );
 } );
 
 test( 'object VALUE is JSON-stringified into the line content', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( envelopeMsg( { value: { rid: 'abc', dur: 12.3 } } ) );
 	expect( v.lines[ 0 ].content ).toBe( '{"rid":"abc","dur":12.3}' );
 } );
 
 test( 'KEY is prepended to the line when non-empty', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( envelopeMsg( { key: 'abc-rid', value: { dur: 1 } } ) );
 	expect( v.lines[ 0 ].content ).toBe( 'abc-rid: {"dur":1}' );
 } );
 
 test( 'KEY prefix is omitted when KEY is empty', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( envelopeMsg( { key: '', value: { dur: 1 } } ) );
 	expect( v.lines[ 0 ].content ).toBe( '{"dur":1}' );
 } );
 
 test( 'lines longer than 1000 chars are clipped with a trailing ellipsis', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( envelopeMsg( { value: 'x'.repeat( 2000 ) } ) );
 	expect( v.lines[ 0 ].content.length ).toBe( 1003 );
 	expect( v.lines[ 0 ].content.endsWith( '...' ) ).toBe( true );
 } );
 
 test( 'partition is extracted from FROM stamp (`{sub}.pN`)', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( envelopeMsg( { from: 'firehose.p3', value: 'line' } ) );
 	expect( v.lines[ 0 ].partition ).toBe( 3 );
 } );
 
 test( 'partition defaults to 0 when FROM does not match `{sub}.pN`', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( envelopeMsg( { from: 'firehose', value: 'line' } ) );
 	expect( v.lines[ 0 ].partition ).toBe( 0 );
 } );
 
 test( 'distinct non-`.pN` FROM dirs get distinct stable partition indices (opaque)', () => {
 	// Layout-agnostic: a non-.pN dir gets a stable first-seen index.
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( envelopeMsg( { from: 'alpha', value: 'a' } ) );
 	v.fill( envelopeMsg( { from: 'beta', value: 'b' } ) );
 	v.fill( envelopeMsg( { from: 'alpha', value: 'a2' } ) );
@@ -212,13 +212,13 @@ test( 'distinct non-`.pN` FROM dirs get distinct stable partition indices (opaqu
 } );
 
 test( 'an envelope with empty VALUE is dropped (no row appended)', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( envelopeMsg( { value: '' } ) );
 	expect( v.lines ).toHaveLength( 0 );
 } );
 
 test( 'an envelope with null VALUE is dropped', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( envelopeMsg( { value: null } ) );
 	expect( v.lines ).toHaveLength( 0 );
 } );
@@ -226,7 +226,7 @@ test( 'an envelope with null VALUE is dropped', () => {
 // --- Existing buffer / control behavior, fed by raw envelopes now. ---
 
 test( 'appends rows newest-first and caps the buffer (node.lines, no publish)', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( envelopeMsg( { value: 'line 0' } ) );
 	v.fill( envelopeMsg( { value: 'line 1' } ) );
 	v.fill( envelopeMsg( { value: 'line 2' } ) );
@@ -235,7 +235,7 @@ test( 'appends rows newest-first and caps the buffer (node.lines, no publish)', 
 } );
 
 test( 'appending rows does NOT publish setState (no per-row React re-render)', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	const spy = jest.spyOn( v, 'setState' );
 	v.fill( envelopeMsg( { value: 'line 0' } ) );
 	v.fill( envelopeMsg( { value: 'line 1' } ) );
@@ -243,7 +243,7 @@ test( 'appending rows does NOT publish setState (no per-row React re-render)', (
 } );
 
 test( 'pause stops appends; the model reflects paused', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( controlMsg( { action: 'pause', paused: true } ) );
 	v.fill( envelopeMsg( { value: 'ignored' } ) );
 	expect( v.lines ).toHaveLength( 0 );
@@ -251,7 +251,7 @@ test( 'pause stops appends; the model reflects paused', () => {
 } );
 
 test( 'select sets the log and clears the buffer', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( envelopeMsg( { value: 'old' } ) );
 	v.fill( controlMsg( { action: 'select', log: 'errors.p0' } ) );
 	expect( v.lines ).toHaveLength( 0 );
@@ -259,7 +259,7 @@ test( 'select sets the log and clears the buffer', () => {
 } );
 
 test( 'browse clears the buffer: a rewind starts from a clean slate', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( envelopeMsg( { value: 'stale-live-line' } ) );
 	// Replay / segment click / offset jump all arrive as a browse control.
 	v.fill( controlMsg( { action: 'browse', endSegment: 3, endOffset: 90 } ) );
@@ -269,7 +269,7 @@ test( 'browse clears the buffer: a rewind starts from a clean slate', () => {
 
 test( 'lps decays to zero when the stream goes quiet', () => {
 	const nowSpy = jest.spyOn( Date, 'now' ).mockReturnValue( 500000 );
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	for ( let i = 0; i < 200; i++ ) {
 		v.fill( envelopeMsg( { value: `line-${ i }` } ) );
 	}
@@ -281,14 +281,14 @@ test( 'lps decays to zero when the stream goes quiet', () => {
 } );
 
 test( 'follow (Live) does NOT clear the buffer', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( envelopeMsg( { value: 'kept-line' } ) );
 	v.fill( controlMsg( { action: 'follow' } ) );
 	expect( v.lines ).toHaveLength( 1 );
 } );
 
 test( 'the published model carries only { connectionError, logs, selected, paused }', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill(
 		controlMsg( {
 			action: 'logs',
@@ -306,7 +306,7 @@ test( 'the published model carries only { connectionError, logs, selected, pause
 } );
 
 test( 'logs action populates availableLogs and defaults the selection', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill(
 		controlMsg( {
 			action: 'logs',
@@ -318,7 +318,7 @@ test( 'logs action populates availableLogs and defaults the selection', () => {
 } );
 
 test( 'logs action does NOT override an already-selected log', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( controlMsg( { action: 'select', log: 'errors.p0' } ) );
 	v.fill(
 		controlMsg( {
@@ -330,7 +330,7 @@ test( 'logs action does NOT override an already-selected log', () => {
 } );
 
 test( 'resume after pause lets rows through again', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( controlMsg( { action: 'pause', paused: true } ) );
 	v.fill( envelopeMsg( { value: 'dropped' } ) );
 	v.fill( controlMsg( { action: 'pause', paused: false } ) );
@@ -341,7 +341,7 @@ test( 'resume after pause lets rows through again', () => {
 } );
 
 test( 'rows carry the partition (from FROM) and an even/odd flag keyed off the counter', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( envelopeMsg( { from: 'firehose.p2', value: 'first' } ) );
 	v.fill( envelopeMsg( { from: 'firehose.p3', value: 'second' } ) );
 	expect( v.lines[ 0 ] ).toMatchObject( {
@@ -357,13 +357,13 @@ test( 'rows carry the partition (from FROM) and an even/odd flag keyed off the c
 } );
 
 test( 'exposes a numeric lps on the node instance', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( envelopeMsg( { value: 'a row' } ) );
 	expect( typeof v.lps ).toBe( 'number' );
 } );
 
 test( 'select clears node.lps back to zero', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	for ( let i = 0; i < 50; i++ ) {
 		v.fill( envelopeMsg( { value: `row ${ i }` } ) );
 	}
@@ -372,8 +372,8 @@ test( 'select clears node.lps back to zero', () => {
 } );
 
 test( 'caps the buffer at maxLines, dropping the oldest and keeping the newest at [0]', () => {
-	const v = new PartitionViewerViewNode( 3 );
-	v.name = 'partition:view';
+	const v = new LogViewerViewNode( 3 );
+	v.name = 'log-viewer:view';
 	for ( let i = 0; i < 10; i++ ) {
 		v.fill( envelopeMsg( { value: `line ${ i }` } ) );
 	}
@@ -386,7 +386,7 @@ test( 'caps the buffer at maxLines, dropping the oldest and keeping the newest a
 } );
 
 test( 'exposes O(1) windowed reads — linesCount + lineAt (newest-first) — for the canvas', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( envelopeMsg( { value: 'a' } ) );
 	v.fill( envelopeMsg( { value: 'b' } ) );
 	v.fill( envelopeMsg( { value: 'c' } ) );
@@ -398,8 +398,8 @@ test( 'exposes O(1) windowed reads — linesCount + lineAt (newest-first) — fo
 } );
 
 test( 'lineAt + linesCount respect the cap (oldest overwritten) on a small ring', () => {
-	const v = new PartitionViewerViewNode( 3 );
-	v.name = 'partition:view';
+	const v = new LogViewerViewNode( 3 );
+	v.name = 'log-viewer:view';
 	for ( let i = 0; i < 10; i++ ) {
 		v.fill( envelopeMsg( { value: `line ${ i }` } ) );
 	}
@@ -409,7 +409,7 @@ test( 'lineAt + linesCount respect the cap (oldest overwritten) on a small ring'
 } );
 
 test( 'a read mid-stream then more appends keeps newest-first across the coalesce boundary', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( envelopeMsg( { value: 'a' } ) );
 	v.fill( envelopeMsg( { value: 'b' } ) );
 	expect( v.lines.map( ( l ) => l.content ) ).toEqual( [ 'b', 'a' ] );
@@ -419,7 +419,7 @@ test( 'a read mid-stream then more appends keeps newest-first across the coalesc
 
 test( 'LPS tracking aggregates per second, not one entry per line (bounded window)', () => {
 	// Perf contract: the lines/second window must NOT grow per line.
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	for ( let i = 0; i < 500; i++ ) {
 		v.fill( envelopeMsg( { value: `row ${ i }` } ) );
 	}
@@ -428,13 +428,13 @@ test( 'LPS tracking aggregates per second, not one entry per line (bounded windo
 } );
 
 test( 'defaults connectionError to false in the published model', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( controlMsg( { action: 'pause', paused: false } ) );
 	expect( v.view.connectionError ).toBe( false );
 } );
 
 test( 'a connection control sets connectionError true then false', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( controlMsg( { action: 'connection', connectionError: true } ) );
 	expect( v.connectionError ).toBe( true );
 	expect( v.view.connectionError ).toBe( true );
@@ -444,7 +444,7 @@ test( 'a connection control sets connectionError true then false', () => {
 } );
 
 test( 'an unrelated control does not change connectionError', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( controlMsg( { action: 'connection', connectionError: true } ) );
 	v.fill( controlMsg( { action: 'pause', paused: true } ) );
 	v.fill( envelopeMsg( { value: 'ignored while paused' } ) );
@@ -453,12 +453,12 @@ test( 'an unrelated control does not change connectionError', () => {
 } );
 
 test( 'names the node', () => {
-	const v = makeView( 'partition:view' );
-	expect( v.name ).toBe( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
+	expect( v.name ).toBe( 'log-viewer:view' );
 } );
 
 test( 'fill increments the node counter so the overlay shows throughput', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	expect( v.counter ).toBe( 0 );
 	v.fill( envelopeMsg( { value: 'line one' } ) );
 	v.fill( envelopeMsg( { value: 'line two' } ) );
@@ -466,7 +466,7 @@ test( 'fill increments the node counter so the overlay shows throughput', () => 
 } );
 
 test( 'declares has_target:false (terminal receiver — no out-port)', () => {
-	expect( PartitionViewerViewNode.nodeSchema().has_target ).toBe( false );
+	expect( LogViewerViewNode.nodeSchema().has_target ).toBe( false );
 } );
 
 // --- Seek/live feedback: breadcrumb tracking + catch-up (Part B). ---
@@ -479,14 +479,14 @@ function envelopeWithId( id, value = 'line', from = 'firehose.p0' ) {
 }
 
 test( 'tracks the last-received segment from the ID breadcrumb and publishes it', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( envelopeWithId( '7:120:40' ) );
 	expect( v.lastReceivedSegment ).toBe( 7 );
 	expect( v.view.lastReceivedSegment ).toBe( 7 );
 } );
 
 test( 'does not re-publish while the received segment is unchanged (no per-record storm)', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( envelopeWithId( '7:0:40' ) ); // publishes: null → segment 7
 	const spy = jest.spyOn( v, 'setState' );
 	v.fill( envelopeWithId( '7:40:40' ) );
@@ -495,14 +495,14 @@ test( 'does not re-publish while the received segment is unchanged (no per-recor
 } );
 
 test( 'a browse control puts the view into replay mode', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( controlMsg( { action: 'browse', endSegment: 9, endOffset: 500 } ) );
 	expect( v.mode ).toBe( 'replay' );
 	expect( v.view.mode ).toBe( 'replay' );
 } );
 
 test( 'flips to live when a replayed record reaches the captured end position', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( controlMsg( { action: 'browse', endSegment: 9, endOffset: 500 } ) );
 	v.fill( envelopeWithId( '5:100:20' ) ); // behind the end segment
 	expect( v.mode ).toBe( 'replay' );
@@ -512,21 +512,21 @@ test( 'flips to live when a replayed record reaches the captured end position', 
 } );
 
 test( 'stays in replay until the end position is reached', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( controlMsg( { action: 'browse', endSegment: 9, endOffset: 500 } ) );
 	v.fill( envelopeWithId( '9:100:20' ) ); // 120 < 500
 	expect( v.mode ).toBe( 'replay' );
 } );
 
 test( 'follow returns the view to live', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( controlMsg( { action: 'browse', endSegment: 9, endOffset: 500 } ) );
 	v.fill( controlMsg( { action: 'follow' } ) );
 	expect( v.mode ).toBe( 'live' );
 } );
 
 test( 'select resets mode to live and clears the last-received segment', () => {
-	const v = makeView( 'partition:view' );
+	const v = makeView( 'log-viewer:view' );
 	v.fill( controlMsg( { action: 'browse', endSegment: 9, endOffset: 500 } ) );
 	v.fill( envelopeWithId( '5:0:20' ) );
 	v.fill( controlMsg( { action: 'select', log: 'errors.p0' } ) );
@@ -536,7 +536,7 @@ test( 'select resets mode to live and clears the last-received segment', () => {
 } );
 
 test( 'adopts the first AVAILABLE catalog row when nothing is selected', () => {
-	const node = new PartitionViewerViewNode();
+	const node = new LogViewerViewNode();
 	node._control( {
 		action: 'logs',
 		logs: [

@@ -1,6 +1,6 @@
 /**
  * The browse model the log-stream dashboards share, expressed as the SSE
- * `positions` seed their transport already carries. The Partition Viewer
+ * `positions` seed their transport already carries. The Log Viewer
  * browses segments; only a file-mode log source has none.
  *
  * A seek needs no transport of its own. `RemoteLink.setSubscribe( sub,

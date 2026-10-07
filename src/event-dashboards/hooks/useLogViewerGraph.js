@@ -1,5 +1,5 @@
 /**
- * usePartitionViewerGraph — the Partition Viewer's graph: one stream over the
+ * useLogViewerGraph — the Log Viewer's graph: one stream over the
  * log its picker names, the polled catalog it picks from, and its paused
  * single step.
  *
@@ -27,10 +27,10 @@ import { egressPath } from '@newspack-nodes/shared/helpers/egressPath';
 const RAW_LOGS_CI = 'raw-logs';
 
 /** Names every node this graph owns: `<PREFIX>:link`, `:stream`, `:view`. */
-const PREFIX = 'partition';
+const PREFIX = 'log-viewer';
 
 /**
- * Mount the Partition Viewer's graph. The whole catalog goes to the view,
+ * Mount the Log Viewer's graph. The whole catalog goes to the view,
  * which owns the selection; only the view's FIRST pick opens a stream.
  *
  * @return {{ selectLog: (log: string) => void, setPaused: (paused: boolean) => void, seek: Function, step: () => void, clear: () => void, setFilter: (term: string) => void }}
@@ -42,12 +42,12 @@ const PREFIX = 'partition';
  *   `Core.bumpGraphGeneration()` bump — mountExospine subscribes this reused
  *   mount's rebuild to it.
  */
-export function usePartitionViewerGraph() {
+export function useLogViewerGraph() {
 	// The subscription is CHOSEN: nothing opens until the catalog picks.
 	const graph = useStreamGraph( {
 		prefix: PREFIX,
 		subscribe: null,
-		viewClass: views.PartitionViewerView,
+		viewClass: views.LogViewerView,
 	} );
 	const { viewRef, control, resubscribe, seek, setPaused, setFilter, clear } =
 		graph;
