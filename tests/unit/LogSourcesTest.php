@@ -83,20 +83,6 @@ class LogSourcesTest extends TestCase {
 		$this->assertSame( \WP_CONTENT_DIR . '/debug.log', $registry['debug']['path'] );
 	}
 
-	public function test_builtin_default_resolver_omits_php_when_error_log_ini_is_not_a_real_file(): void {
-		Log_Sources::$builtin_sources = null;
-		$original_ini = \ini_get( 'error_log' );
-		\ini_set( 'error_log', "{$this->tmp}/does-not-exist-6614.log" );
-
-		try {
-			$registry = Log_Sources::registry();
-		} finally {
-			\ini_set( 'error_log', false === $original_ini ? '' : $original_ini );
-		}
-
-		$this->assertArrayNotHasKey( 'php', $registry );
-	}
-
 	// ── config log_sources ─────────────────────────────────────────────────
 
 	public function test_config_entries_parse_name_equals_path_as_file_mode(): void {
@@ -568,5 +554,65 @@ class LogSourcesTest extends TestCase {
 			],
 			$this->read_source( 'php', "{$inode}:0" )
 		);
+	}
+
+	public function test_php_is_a_source_before_its_first_error(): void {
+		$path  = $this->tmp . '/php-errors-4194.log';
+		$saved = (string) \ini_get( 'error_log' );
+		\ini_set( 'error_log', $path );
+		try {
+			$registry = Log_Sources::registry();
+		} finally {
+			\ini_set( 'error_log', $saved );
+		}
+
+		$this->assertFileDoesNotExist( $path );
+		$this->assertSame( [ 'path' => $path, 'mode' => Tail_Node::MODE_FILE ], $registry['php'] );
+	}
+
+	public function test_syslog_is_not_a_tailable_php_source(): void {
+		$saved = (string) \ini_get( 'error_log' );
+		\ini_set( 'error_log', 'syslog' );
+		try {
+			$registry = Log_Sources::registry();
+		} finally {
+			\ini_set( 'error_log', $saved );
+		}
+
+		$this->assertArrayNotHasKey( 'php', $registry );
+	}
+
+	/** @return array<string,array{string}> */
+	public static function unfollowable_error_logs(): array {
+		return [
+			'empty'    => [ '' ],
+			'relative' => [ 'relative/php-9137.log' ],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'unfollowable_error_logs' )]
+	public function test_an_unfollowable_error_log_registers_no_php_source( string $setting ): void {
+		$saved = (string) \ini_get( 'error_log' );
+		\ini_set( 'error_log', $setting );
+		try {
+			$registry = Log_Sources::registry();
+		} finally {
+			\ini_set( 'error_log', $saved );
+		}
+
+		$this->assertArrayNotHasKey( 'php', $registry );
+	}
+
+	public function test_a_registered_php_source_with_no_file_is_unavailable(): void {
+		$path  = $this->tmp . '/php-errors-2260.log';
+		$saved = (string) \ini_get( 'error_log' );
+		\ini_set( 'error_log', $path );
+		try {
+			$entry = Log_Sources::entry( 'php' );
+		} finally {
+			\ini_set( 'error_log', $saved );
+		}
+
+		$this->assertFalse( Log_Sources::is_available( $entry ) );
 	}
 }

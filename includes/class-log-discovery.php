@@ -385,6 +385,19 @@ final class Log_Discovery {
 	}
 
 	/**
+	 * The registry name a `sources/<name>` stamp carries, or null for anything
+	 * else. Unlike `split()` it never throws, so a caller holding a path or a
+	 * stamp can ask which it has.
+	 *
+	 * @param string $stamp A path or a stamp.
+	 * @return string|null The name after the prefix, or null.
+	 */
+	public static function source_name( string $stamp ): ?string {
+		$prefix = self::SOURCES_PREFIX . '/';
+		return \str_starts_with( $stamp, $prefix ) ? \substr( $stamp, \strlen( $prefix ) ) : null;
+	}
+
+	/**
 	 * Whether a subscription brings records stamped `$stamp`: its own name
 	 * exactly, or a glob whose `*` matches within one path segment, as
 	 * `dirs_matching()` globs it. Every other character is

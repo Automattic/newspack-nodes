@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`File_Tail` follows `sources/<name>`.** A topology tails php's `error_log` as `sources/php` without hard-coding the path, and `php` is a source before its first error.
+
 ### Changed
 
 - **A `Remote_Source`'s clean-shutdown verb is `assume_clean_shutdown`, the reader's own spelling.** The broker declared `set_assume_clean_shutdown`, so an operator typed two names for one option. `command_node <broker>:config assume_clean_shutdown true` fans out to every reader, and `dump_config()` emits that spelling; the old one is refused.

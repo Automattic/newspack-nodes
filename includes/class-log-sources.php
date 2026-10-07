@@ -40,7 +40,10 @@ class Log_Sources {
 	 * (`php` | `debug`). Lazily-defaulted to the real resolver
 	 * (`ini_get('error_log')` / `WP_CONTENT_DIR`); tests reassign it to point at
 	 * temp fixtures without the container's ini/constants. A source whose backing
-	 * location is unconfigured is omitted from the map.
+	 * location is unconfigured is omitted from the map. A php source is
+	 * registered whenever `error_log` is an absolute path, before the file
+	 * exists, so a stream or a Tail naming it opens and waits; `is_available()`
+	 * reports whether it exists yet.
 	 *
 	 * @var (\Closure(): array<string,string>)|null
 	 */
@@ -321,9 +324,7 @@ class Log_Sources {
 		if ( isset( $registry[ $name ] ) ) {
 			return $registry[ $name ];
 		}
-		$known = \implode( ', ', \array_keys( $registry ) );
-		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-		throw new \InvalidArgumentException( "unknown log source: \"{$name}\" (known: " . ( '' === $known ? 'none' : $known ) . ')' );
+		throw self::unknown_source( $name, \array_keys( $registry ) );
 	}
 
 	/**
@@ -350,14 +351,8 @@ class Log_Sources {
 	private static function readable_registry(): array {
 		[ $topology_entries, $unreadable ] = self::topology_entries();
 		$entries                           = [];
-		foreach ( self::builtin_entries() as $name => $path ) {
+		foreach ( self::file_entries() as $name => $path ) {
 			$entries[ $name ] = [
-				'path' => $path,
-				'mode' => Tail_Node::MODE_FILE,
-			];
-		}
-		foreach ( self::config_entries() as $name => $path ) {
-			$entries[ $name ] ??= [
 				'path' => $path,
 				'mode' => Tail_Node::MODE_FILE,
 			];
@@ -393,75 +388,6 @@ class Log_Sources {
 			$deduped[ $name ] = $entry;
 		}
 		return $deduped;
-	}
-
-	/**
-	 * The config family: one `name=/absolute/path` per line of the `log_sources`
-	 * setting. An invalid line is skipped rather than fatal, so one typo in the
-	 * textarea cannot blank the whole registry; first name wins within the family.
-	 *
-	 * @return array<string,string> Config `log_sources` name → path (invalid lines skipped).
-	 */
-	private static function config_entries(): array {
-		$entries = [];
-		foreach ( Core::arr( Config::value( 'log_sources' ) ) as $line ) {
-			$parsed = self::parse_entry( Core::as_string( $line ) );
-			if ( null !== $parsed ) {
-				$entries[ $parsed['name'] ] ??= $parsed['path'];
-			}
-		}
-		return $entries;
-	}
-
-	/**
-	 * Parse one config `log_sources` line (`name=/absolute/path`). The name must
-	 * pass `is_valid_name()`; the path must be absolute and free of `..` and NUL,
-	 * so an entry names exactly the file it spells. The Admin sanitizer and the
-	 * registry share this ONE rule.
-	 *
-	 * @param string $line One raw textarea line.
-	 * @return array{name: string, path: string}|null Null when the line is invalid.
-	 */
-	public static function parse_entry( string $line ): ?array {
-		$eq = \strpos( $line, '=' );
-		if ( false === $eq ) {
-			return null;
-		}
-		$name = \substr( $line, 0, $eq );
-		$path = \substr( $line, $eq + 1 );
-		if ( ! self::is_valid_name( $name ) ) {
-			return null;
-		}
-		if ( '' === $path || '/' !== $path[0] || \str_contains( $path, '..' ) || \str_contains( $path, "\0" ) ) {
-			return null;
-		}
-		return [
-			'name' => $name,
-			'path' => \rtrim( $path, '/' ),
-		];
-	}
-
-	/**
-	 * The built-in family, resolved through the `$builtin_sources` seam so a
-	 * test can supply fixtures in place of the host's ini and constants.
-	 *
-	 * @return array<string,string> Builtin name → absolute path.
-	 */
-	private static function builtin_entries(): array {
-		$resolve = self::$builtin_sources ?? static function (): array {
-			$sources = [];
-			$php     = \ini_get( 'error_log' );
-			// Only a real file: 'syslog' and an empty setting aren't tailable.
-			if ( \is_string( $php ) && '' !== $php && \is_file( $php ) ) {
-				$sources['php'] = $php;
-			}
-			// Constant may be undefined in tests — then debug is unavailable.
-			if ( \defined( 'WP_CONTENT_DIR' ) ) {
-				$sources['debug'] = \WP_CONTENT_DIR . '/debug.log';
-			}
-			return $sources;
-		};
-		return $resolve();
 	}
 
 	/**
@@ -530,19 +456,6 @@ class Log_Sources {
 		return $entries;
 	}
 
-	/**
-	 * Whether $name is a legal registry name: the NAME_PATTERN charset and no `..`.
-	 *
-	 * @param string $name Candidate registry name.
-	 * @return bool True when the name is legal.
-	 */
-	public static function is_valid_name( string $name ): bool {
-		if ( \str_contains( $name, '..' ) ) {
-			return false;
-		}
-		return 1 === \preg_match( self::NAME_PATTERN, $name );
-	}
-
 	/** Whether $template carries a partition token in either spelling `resolve_partition_template` accepts. */
 	private static function has_partition_token( string $template ): bool {
 		return \str_contains( $template, '<partition>' ) || \str_contains( $template, '{partition}' );
@@ -562,5 +475,123 @@ class Log_Sources {
 		$tail = Tail_Node::MODE_FILE === $entry['mode'] ? new File_Tail_Node() : new Tail_Node();
 		$tail->arguments( [ $entry['path'] ] );
 		return $tail;
+	}
+
+	/**
+	 * The file a `sources/<name>` path names, for a Tail a topology declares.
+	 * Only the built-in and config families answer: the topology family is
+	 * built by reading the active topologies, which a topology being loaded
+	 * cannot depend on, and its entries are segmented Logs, not files.
+	 *
+	 * @param string $name The registry name, without the prefix.
+	 * @return string The absolute file path.
+	 * @throws \InvalidArgumentException When neither family carries the name.
+	 */
+	public static function file_source_path( string $name ): string {
+		$files = self::file_entries();
+		return $files[ $name ] ?? throw self::unknown_source( $name, \array_keys( $files ) );
+	}
+
+	/**
+	 * The ONE teaching error for a name the registry lacks.
+	 *
+	 * @param string       $name  The name asked for.
+	 * @param list<string> $names Every name the lookup knew.
+	 */
+	private static function unknown_source( string $name, array $names ): \InvalidArgumentException {
+		$known = \implode( ', ', $names );
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+		return new \InvalidArgumentException( "unknown log source: \"{$name}\" (known: " . ( '' === $known ? 'none' : $known ) . ')' );
+	}
+
+	/**
+	 * The file families, built-ins first so a built-in name wins a config one.
+	 *
+	 * @return array<string,string> Name → absolute path.
+	 */
+	private static function file_entries(): array {
+		return self::builtin_entries() + self::config_entries();
+	}
+
+	/**
+	 * The config family: one `name=/absolute/path` per line of the `log_sources`
+	 * setting. An invalid line is skipped rather than fatal, so one typo in the
+	 * textarea cannot blank the whole registry; first name wins within the family.
+	 *
+	 * @return array<string,string> Config `log_sources` name → path (invalid lines skipped).
+	 */
+	private static function config_entries(): array {
+		$entries = [];
+		foreach ( Core::arr( Config::value( 'log_sources' ) ) as $line ) {
+			$parsed = self::parse_entry( Core::as_string( $line ) );
+			if ( null !== $parsed ) {
+				$entries[ $parsed['name'] ] ??= $parsed['path'];
+			}
+		}
+		return $entries;
+	}
+
+	/**
+	 * Parse one config `log_sources` line (`name=/absolute/path`). The name must
+	 * pass `is_valid_name()`; the path must be absolute and free of `..` and NUL,
+	 * so an entry names exactly the file it spells. The Admin sanitizer and the
+	 * registry share this ONE rule.
+	 *
+	 * @param string $line One raw textarea line.
+	 * @return array{name: string, path: string}|null Null when the line is invalid.
+	 */
+	public static function parse_entry( string $line ): ?array {
+		$eq = \strpos( $line, '=' );
+		if ( false === $eq ) {
+			return null;
+		}
+		$name = \substr( $line, 0, $eq );
+		$path = \substr( $line, $eq + 1 );
+		if ( ! self::is_valid_name( $name ) ) {
+			return null;
+		}
+		if ( '' === $path || '/' !== $path[0] || \str_contains( $path, '..' ) || \str_contains( $path, "\0" ) ) {
+			return null;
+		}
+		return [
+			'name' => $name,
+			'path' => \rtrim( $path, '/' ),
+		];
+	}
+
+	/**
+	 * Whether $name is a legal registry name: the NAME_PATTERN charset and no `..`.
+	 *
+	 * @param string $name Candidate registry name.
+	 * @return bool True when the name is legal.
+	 */
+	public static function is_valid_name( string $name ): bool {
+		if ( \str_contains( $name, '..' ) ) {
+			return false;
+		}
+		return 1 === \preg_match( self::NAME_PATTERN, $name );
+	}
+
+	/**
+	 * The built-in family, resolved through the `$builtin_sources` seam so a
+	 * test can supply fixtures in place of the host's ini and constants.
+	 *
+	 * @return array<string,string> Builtin name → absolute path.
+	 */
+	private static function builtin_entries(): array {
+		$resolve = self::$builtin_sources ?? static function (): array {
+			$sources = [];
+			$php     = \ini_get( 'error_log' );
+			// An absolute path is followed written yet or not; syslog is not.
+			if ( \is_string( $php ) && \str_starts_with( $php, '/' ) ) {
+				$sources['php'] = $php;
+			}
+			// Constant may be undefined in tests — then debug is unavailable.
+			if ( \defined( 'WP_CONTENT_DIR' ) ) {
+				$sources['debug'] = \WP_CONTENT_DIR . '/debug.log';
+			}
+			return $sources;
+		};
+		return $resolve();
 	}
 }

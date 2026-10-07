@@ -34,8 +34,9 @@ namespace Newspack_Nodes;
  * File_Tail node — `make_node File_Tail <name> <source_file> [offsetlog_dir]
  * [deadletter_dir]`.
  *
- * `source_file` is the exact filename followed, not the `{file}.{seg}` base the
- * segmented parent reads.
+ * `source_file` is the exact filename followed, or `sources/<name>`, a registry
+ * file (php's `error_log`, a config `log_sources` entry) resolved at build. It
+ * is not the `{file}.{seg}` base the segmented parent reads.
  */
 class File_Tail_Node extends Tail_Node {
 
@@ -88,6 +89,13 @@ class File_Tail_Node extends Tail_Node {
 			return parent::arguments();
 		}
 		$this->parse_schema_args( $args );
+		$source = Log_Discovery::source_name( $this->source_file );
+		if ( null !== $source ) {
+			$this->source_file = Log_Sources::file_source_path( $source );
+		} elseif ( ! \str_starts_with( $this->source_file, '/' ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+			throw new \InvalidArgumentException( "File_Tail {$this->name}: source_file must be an absolute path or sources/<name>, got \"{$this->source_file}\"" );
+		}
 		$this->ensure_offsetlog();
 		$this->ensure_deadletter();
 		// No I/O at build time; first poll opens and seats the cursor (ADR-5).
