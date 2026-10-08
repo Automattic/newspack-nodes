@@ -143,6 +143,8 @@ class CoreImpl {
 		this.rebuildable = false;
 		this.backboneOwned = false; // a non-passenger mount holds the backbone
 		this.backbonePassengers = 0; // live passenger mounts clipped onto it
+		// Live mounts claiming each shell group; see mountExospine.
+		this.shellGroups = new Map();
 		// Full-graph rebuild signal: bumping re-runs every graph effect.
 		this.graphGeneration = 0;
 		// Bumped when a mount CREATES the backbone (bare or delegated).

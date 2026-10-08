@@ -55,6 +55,7 @@ import usePageVisibility from './usePageVisibility';
 import { useCommandOnce } from './useCommandOnce';
 import { useBatchedPoll } from './useBatchedPoll';
 import { addSliceFetcher } from '../helpers/addSliceFetcher';
+import { egressPath } from '../helpers/egressPath';
 import { CatalogListViewNode } from '../nodes/catalog-list-view-node';
 import { stepPosition } from './useLogPositions';
 import { controlMsg } from '../helpers/controlMsg';
@@ -337,6 +338,7 @@ export function useStreamGraph( {
  *
  * @param {Object} o         Options.
  * @param {Object} o.graph   The `useStreamGraph` handle to step.
+ * @param {string} o.group   The dashboard stepping, whose Tap the read passes.
  * @param {string} o.ci      The service CI the read verb lives on.
  * @param {string} o.command The read verb.
  * @param {string} [o.scope] Names this read's own nodes; `<prefix>-step`
@@ -344,11 +346,12 @@ export function useStreamGraph( {
  * @return {() => void} Deliver one record from the recorded cursor; a no-op
  *   unless the stream is paused and pointed at a subscription.
  */
-export function useSteppedRead( { graph, ci, command, scope } ) {
+export function useSteppedRead( { graph, group, ci, command, scope } ) {
 	const { linkRef, viewRef, isPausedRef, control, resubscribe, targetRef } =
 		graph;
 
 	const { run } = useCommandOnce( {
+		group,
 		ci,
 		command,
 		scope: scope ?? `${ graph.prefix }-step`,
@@ -401,18 +404,20 @@ export function useSteppedRead( { graph, ci, command, scope } ) {
  * @param {Object}        o         Options.
  * @param {string}        o.prefix  Names the slice's nodes,
  *                                  `<prefix>-catalog:*`.
+ * @param {string}        o.group   The dashboard asking, whose Tap the
+ *                                  verb passes.
+ * @param {string}        o.ci      The service CI the verb lives on.
  * @param {string}        o.command The catalog verb.
- * @param {string}        o.target  Where to send it (`egressPath( ci )`).
  * @param {CatalogFilter} [o.keep]  Keep only the rows this dashboard
  *                                  offers. Declare it once: it is a memo
  *                                  dependency, so a fresh arrow each render
  *                                  hands back a fresh array each render.
  * @return {Object[]} The catalog rows.
  */
-export function useLogCatalog( { prefix, command, target, keep } ) {
+export function useLogCatalog( { prefix, group, ci, command, keep } ) {
 	// Read live inside the once-only poll build.
 	const declRef = useRef( null );
-	declRef.current = { command, target };
+	declRef.current = { command, target: egressPath( group, ci ) };
 
 	useBatchedPoll( {
 		build: ( { interpreter, tee } ) =>

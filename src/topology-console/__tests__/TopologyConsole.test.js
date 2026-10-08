@@ -130,8 +130,8 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 			if ( globalThis.__graphKey !== key ) {
 				teardown();
 				// The REAL backbone: a hand-built interpreter+router left the
-				// console without `_shell`/`_http`, so anything targeting the
-				// egress (a one-shot, a slice) routed into NOT_AVAILABLE.
+				// console without `_http`, so anything targeting the egress
+				// (a one-shot, a slice) routed into NOT_AVAILABLE.
 				const { interpreter } =
 					require( '../../runtime/exospine' ).mountExospine();
 				const dumper = new DumperNode();
@@ -252,6 +252,7 @@ globalThis.__fakeOneShot = ( fixture, key ) => ( onDone ) => ( {
 // Mutable catalog the hoisted mock reads at call time; tests seed classes.
 globalThis.__catalog = { classes: [], formatters: [] };
 jest.mock( '../hooks/useCatalogs', () => ( {
+	CONSOLE_GROUP: jest.requireActual( '../hooks/useCatalogs' ).CONSOLE_GROUP,
 	useTopologyList: () => ( {
 		topologies: globalThis.__hooks.topologies,
 		userDir: '',

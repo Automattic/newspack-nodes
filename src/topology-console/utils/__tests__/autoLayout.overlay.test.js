@@ -18,7 +18,7 @@ import { ShellNode } from '../../../runtime/shell-node';
 import names from '../../../runtime/reserved-node-names.json';
 import { useDebugRepl } from '../../../debug-overlay/useDebugRepl';
 import { coreToGraph } from '../coreToGraph';
-import { autoLayout, drawnCost, Y_PAD, Y_STEP } from '../autoLayout';
+import { autoLayout, drawnCost, X_STEP, Y_PAD, Y_STEP } from '../autoLayout';
 import SEEDS from './fixtures/autoLayout-seeds.json';
 
 /** Stands in for every view and transform class; layout reads no class. */
@@ -26,18 +26,26 @@ class SliceView extends Node {}
 
 /**
  * The `useCommandOnce` scopes the Performance dashboard mounts on load, each
- * as `[ scope, command, ci ]`.
+ * as `[ scope, command, ci, group ]`.
  */
 const ONE_SHOTS = [
-	[ 'url-lookup', 'dump_url', 'performance' ],
-	[ 'request-deeplink', 'search_requests', 'performance' ],
-	[ 'url-deeplink', 'dump_url', 'performance' ],
-	[ 'request-search', 'search_requests', 'performance' ],
-	[ 'performance:grep_requests', 'grep_requests', 'performance' ],
-	[ 'rules:dump', 'dump', 'rules' ],
-	[ 'rules:upsert', 'upsert', 'rules' ],
-	[ 'rules:delete', 'delete', 'rules' ],
+	[ 'url-lookup', 'dump_url', 'performance', 'url' ],
+	[ 'request-deeplink', 'search_requests', 'performance', 'request' ],
+	[ 'url-deeplink', 'dump_url', 'performance', 'url' ],
+	[ 'request-search', 'search_requests', 'performance', 'request' ],
+	[
+		'performance:grep_requests',
+		'grep_requests',
+		'performance',
+		'performance',
+	],
+	[ 'rules:dump', 'dump', 'rules', 'rules' ],
+	[ 'rules:upsert', 'upsert', 'rules', 'rules' ],
+	[ 'rules:delete', 'delete', 'rules', 'rules' ],
 ];
+
+/** Every group the dashboard's commands travel, one Tap each. */
+const GROUPS = [ 'overview', 'url', 'request', 'performance', 'rules' ];
 
 /**
  * Build the Performance dashboard's graph on a live Core, mount the debug
@@ -49,7 +57,7 @@ const ONE_SHOTS = [
  */
 function layOutPerformanceOverlay( beside = { nodes: [], edges: [] } ) {
 	const { teardown } = mountExospine( ( { interpreter } ) => {
-		const slice = ( subject, command, tee, extra = {} ) =>
+		const slice = ( subject, group, command, tee, extra = {} ) =>
 			addSliceFetcher( interpreter, {
 				fetcher: `${ subject }:fetch`,
 				receiver: `${ subject }:in`,
@@ -57,18 +65,19 @@ function layOutPerformanceOverlay( beside = { nodes: [], edges: [] } ) {
 				view: `${ subject }:view`,
 				viewClass: SliceView,
 				tee,
-				target: egressPath( 'performance' ),
+				target: egressPath( group, 'performance' ),
 				...extra,
 			} );
 		// usePerformanceGraph: two polled slices on one Tee, two on demand.
 		const tee = interpreter.makeNode( 'Tee', 'performance:tee' );
-		slice( 'overview', 'overview', tee );
-		slice( 'urls', 'urls', tee );
+		slice( 'overview', 'overview', 'overview', tee );
+		slice( 'urls', 'overview', 'urls', tee );
 		interpreter
 			.makeNode( 'Timer', 'performance:timer' )
 			.connectNode( 'performance:tee' );
 		slice(
 			'url-detail',
+			'url',
 			'dump_url',
 			interpreter.makeNode( 'Timer', 'url-detail:timer' ),
 			{
@@ -80,16 +89,21 @@ function layOutPerformanceOverlay( beside = { nodes: [], edges: [] } ) {
 		);
 		slice(
 			'request-detail',
+			'request',
 			'dump_request',
 			interpreter.makeNode( 'Timer', 'request-detail:timer' )
 		);
 		// useCommandOnce: a Tee, one slice, then the Timer feeding the Tee.
-		for ( const [ scope, command, ci ] of ONE_SHOTS ) {
+		for ( const [ scope, command, ci, group ] of ONE_SHOTS ) {
 			slice(
 				scope,
+				group,
 				command,
 				interpreter.makeNode( 'Tee', `${ scope }:tee` ),
-				{ view: `${ scope }:result`, target: egressPath( ci ) }
+				{
+					view: `${ scope }:result`,
+					target: egressPath( group, ci ),
+				}
 			);
 			interpreter
 				.makeNode( 'Timer', `${ scope }:timer` )
@@ -119,26 +133,42 @@ describe( 'autoLayout — the Performance dashboard in the debug overlay', () =>
 		CommandInterpreterNode.registerNodeClasses( { SliceView } );
 	} );
 
-	const COLUMN_2 = [
-		'overview:view',
-		'overview:fetch',
-		'urls:fetch',
-		'urls:view',
-	];
+	/** The two polled slices' Fetchers, both feeding `shell:overview`. */
+	const FETCHERS = [ 'overview:fetch', 'urls:fetch' ];
 
-	it( 'stacks each view outside its fetcher, the fetchers beside the tee', () => {
+	/** The column past them: the group Tap between the two slices' views. */
+	const TAP_COLUMN = [ 'overview:view', 'shell:overview', 'urls:view' ];
+
+	it( "draws the overview group's fan-in on its own Tap, one column past its fetchers", () => {
 		const { at } = layOutPerformanceOverlay();
-		const x = at[ 'overview:fetch' ].x;
-		for ( const id of COLUMN_2 ) {
-			expect( at[ id ].x ).toBe( x );
+		const fetchX = at[ 'overview:fetch' ].x;
+		expect( at[ 'urls:fetch' ].x ).toBe( fetchX );
+		for ( const id of TAP_COLUMN ) {
+			expect( [ id, at[ id ].x ] ).toEqual( [ id, fetchX + X_STEP ] );
 		}
-		const byRow = [ ...COLUMN_2 ].sort( ( p, q ) => at[ p ].y - at[ q ].y );
-		expect( byRow ).toEqual( COLUMN_2 );
+		const byRow = [ ...TAP_COLUMN ].sort(
+			( p, q ) => at[ p ].y - at[ q ].y
+		);
+		expect( byRow ).toEqual( TAP_COLUMN );
+		// The Tap centres on the two Fetchers it collects.
+		expect( at[ 'shell:overview' ].y ).toBe(
+			( at[ 'overview:fetch' ].y + at[ 'urls:fetch' ].y ) / 2
+		);
 	} );
 
-	it( 'seats the slice column on whole grid rows', () => {
+	it( "gives every group its own Tap, none of them the console session's", () => {
+		const { at, edges } = layOutPerformanceOverlay();
+		for ( const group of GROUPS ) {
+			expect( at[ `shell:${ group }` ] ).toBeDefined();
+		}
+		expect( edges.filter( ( e ) => '_shell' === e.to ) ).toEqual( [] );
+	} );
+
+	it( 'seats the overview slices on whole grid rows', () => {
 		const { at } = layOutPerformanceOverlay();
-		for ( const id of COLUMN_2 ) {
+		// The Tap is no slice card: it centres on its fan-in, a half row.
+		const views = TAP_COLUMN.filter( ( id ) => 'shell:overview' !== id );
+		for ( const id of [ ...FETCHERS, ...views ] ) {
 			expect( [ id, ( ( at[ id ].y - Y_PAD ) / Y_STEP ) % 1 ] ).toEqual( [
 				id,
 				0,
@@ -146,17 +176,19 @@ describe( 'autoLayout — the Performance dashboard in the debug overlay', () =>
 		}
 	} );
 
-	it( 'keeps the slice column beside a graph whose exchange draws worse', () => {
+	it( 'keeps the Tap column beside a graph whose exchange draws worse', () => {
 		// Each block judges its own exchange, so seed 14962 keeping the
-		// sweeps' order beside it leaves the slice column's exchange alone.
+		// sweeps' order beside it leaves the Tap column's exchange alone.
 		const { at } = layOutPerformanceOverlay( SEEDS[ '14962' ] );
-		const byRow = [ ...COLUMN_2 ].sort( ( p, q ) => at[ p ].y - at[ q ].y );
-		expect( byRow ).toEqual( COLUMN_2 );
+		const byRow = [ ...TAP_COLUMN ].sort(
+			( p, q ) => at[ p ].y - at[ q ].y
+		);
+		expect( byRow ).toEqual( TAP_COLUMN );
 	} );
 
-	it( 'runs every wire into the slice column clear of every other', () => {
+	it( 'runs every wire into the Tap column clear of every other', () => {
 		const { at, edges } = layOutPerformanceOverlay();
-		const into = edges.filter( ( e ) => COLUMN_2.includes( e.to ) );
+		const into = edges.filter( ( e ) => TAP_COLUMN.includes( e.to ) );
 		expect( drawnCost( at, into ).crossings ).toEqual( [] );
 	} );
 } );

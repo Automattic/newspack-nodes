@@ -178,16 +178,18 @@ export default function useLogPositions( sub ) {
  * @param {Object} o       Rail inputs.
  * @param {string} o.sub   The partition dir or `sources/<name>`; '' empties the rail and asks nothing.
  * @param {string} o.scope Names this read's own nodes.
+ * @param {string} o.group The dashboard reading, whose Tap `dump_log` passes.
  * @return {{source: {segments: Array<{id:number,size:number}>}, refresh: () => void}}
  *   The source row for `useSegmentBrowse`, and the re-catalog its rail timer
  *   drives.
  */
-export function useLogStatusSegments( { sub, scope } ) {
+export function useLogStatusSegments( { sub, scope, group } ) {
 	const [ footprint, setFootprint ] = useState( NO_FOOTPRINT );
 	const subRef = useRef( sub );
 	subRef.current = sub;
 
 	const { run } = useCommandOnce( {
+		group,
 		ci: RAW_LOGS_CI,
 		command: 'dump_log',
 		scope,

@@ -13,6 +13,7 @@
 import { useCallback } from '@wordpress/element';
 import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
 import { formatCommandArgs } from '../../runtime/command-args';
+import { CONSOLE_GROUP } from './useCatalogs';
 
 /** @typedef {import('@newspack-nodes/shared/hooks/useCommandOnce').OnDone} OnDone */
 
@@ -30,6 +31,7 @@ import { formatCommandArgs } from '../../runtime/command-args';
  */
 export function useDeleteTopology( onDone ) {
 	const { run, pending } = useCommandOnce( {
+		group: CONSOLE_GROUP,
 		ci: 'topologies',
 		command: 'delete',
 		onDone,

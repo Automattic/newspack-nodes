@@ -40,6 +40,7 @@ import {
 	useTopology,
 	useTopologyList,
 	useVaults,
+	CONSOLE_GROUP,
 } from './hooks/useCatalogs';
 import { useJsCatalog } from './hooks/useJsCatalog';
 import { useLayout } from './hooks/useLayout';
@@ -1805,6 +1806,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 
 	// "Activate now?" confirm — dispatch 'topologies activate <name>'.
 	const { run: runActivate } = useCommandOnce( {
+		group: CONSOLE_GROUP,
 		ci: 'topologies',
 		command: 'activate',
 		onDone: ( { error, result, args } ) => {

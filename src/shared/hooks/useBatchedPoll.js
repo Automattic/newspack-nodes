@@ -4,8 +4,8 @@
  * slices. It sets four things up, and the caller never touches them:
  *
  *  - the exospine mount, which raises the `_command_interpreter` sinking into
- *    `_router`, plus that backbone's `_http` HttpOut egress and its
- *    observe-only `_shell` Tap,
+ *    `_router`, plus that backbone's `_http` HttpOut egress, and the
+ *    observe-only `shell:<group>` Tap of every group a slice targets,
  *  - the `_http` command client, which is the I/O boundary HttpOut defaults to,
  *  - a fan-out `Tee` and a router-hitchhiking `Timer` targeting it, so one tick
  *    reaches every slice,
@@ -21,9 +21,10 @@
  *
  * The caller supplies a `build( { interpreter, tee } )` adding ONLY the
  * dashboard-specific nodes, typically one `addSliceFetcher` per slice. The
- * egress target path stays the caller's: the exospine provides `_shell` and
- * `_http`, and the caller names the server CI mount owning the verb, which
- * `egressPath( ci )` spells.
+ * egress target path stays the caller's: the exospine provides `_http` and
+ * the Tap of each group a slice's target names, and the caller names the group
+ * and the server CI mount owning the verb, which `egressPath( group, ci )`
+ * spells.
  *
  *   useBatchedPoll( {
  *     build:      ( { interpreter, tee } ) => slices.forEach( … ),
@@ -190,8 +191,6 @@ export function useBatchedPoll( opts ) {
 			return undefined;
 		}
 		const build = ( { interpreter } ) => {
-			// `_shell` Tap is a backbone fixture; no mounting needed here.
-
 			// The fan-out Tee + the router-hitchhike Timer that fans each tick.
 			const { teeName, timerName } = optsRef.current;
 			const tee = interpreter.makeNode( 'Tee', teeName );
@@ -309,6 +308,7 @@ export function useBatchedPoll( opts ) {
  *
  * @param {Object}           o              Options.
  * @param {string}           o.scope        Names this catalog's own nodes.
+ * @param {string}           o.group        The surface asking, whose Tap the verb passes.
  * @param {string}           o.ci           The server CI mount owning the verb.
  * @param {string}           [o.command]    The catalog verb; `list` by default, and `dump` for a
  *                                          CI whose rows each carry a nested structure.
@@ -326,6 +326,7 @@ export function useBatchedPoll( opts ) {
  */
 export function useCatalogSlice( {
 	scope,
+	group,
 	ci,
 	viewClass,
 	key,
@@ -342,7 +343,7 @@ export function useCatalogSlice( {
 				view: `${ scope }:view`,
 				viewClass,
 				tee,
-				target: egressPath( ci ),
+				target: egressPath( group, ci ),
 			} ),
 		timerName: `${ scope }:timer`,
 		teeName: `${ scope }:tee`,

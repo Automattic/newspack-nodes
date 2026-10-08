@@ -36,7 +36,7 @@
 <div class="nd" id="f1" style="left:346px;top:144px;width:214px"><span class="t">source-counts:fetch</span><span class="k">Fetcher · sends <span class="mono">counts</span>,<br>FROM = <span class="mono">source-counts:in</span></span></div>
 <div class="nd" id="f2" style="left:346px;top:76px;width:214px"><span class="t">top-table:fetch</span><span class="k">Fetcher · sends <span class="mono">top</span>,<br>FROM = <span class="mono">top-table:in</span></span></div>
 <div class="nd" id="f3" style="left:346px;top:8px;width:214px"><span class="t">accumulated:fetch</span><span class="k">Fetcher · sends <span class="mono">accumulated</span>,<br>FROM = <span class="mono">accumulated:in</span></span></div>
-<div class="nd spine" id="shell" style="left:600px;top:86px;width:96px"><span class="t">_shell</span><span class="k">Tap · observe only</span></div>
+<div class="nd spine" id="shell" style="left:588px;top:86px;width:122px"><span class="t">shell:insights</span><span class="k">group Tap · observe only</span></div>
 <div class="nd spine" id="http" style="left:730px;top:86px;width:98px"><span class="t">_http</span><span class="k">HttpOut · egress</span></div>
 
 <div class="nd spine" id="router" style="left:600px;top:300px;width:228px"><span class="t">_router</span><span class="k">via <span class="mono">_command_interpreter</span> · peels TO one hop at a time</span></div>
@@ -99,7 +99,7 @@
     { from: 'timer', fs: 'r', to: 'tee', ts: 'l', label: 'tick', ly: -18 },
     { from: 'tee', fs: 'r', to: 'f1', ts: 'l' }, { from: 'tee', fs: 'r', to: 'f2', ts: 'l' }, { from: 'tee', fs: 'r', to: 'f3', ts: 'l' },
     { from: 'f1', fs: 'r', to: 'shell', ts: 'l', f1: 0.7 }, { from: 'f2', fs: 'r', to: 'shell', ts: 'l' }, { from: 'f3', fs: 'r', to: 'shell', ts: 'l', f1: 0.3 },
-    { from: 'shell', fs: 'r', to: 'http', ts: 'l', label: 'TO = _shell/_http/insights-demo', ax: 714, ay: 60 },
+    { from: 'shell', fs: 'r', to: 'http', ts: 'l', label: 'TO = shell:insights/_http/insights-demo', ax: 714, ay: 60 },
     { from: 'http', fs: 'r', to: 'panel-anchor', ts: 'l', f1: 0.22, label: 'POST /command: one batch,<br>three commands', ax: 760, ay: 168 },
     { from: 'panel-anchor', fs: 'l', to: 'router', ts: 'r', f0: 0.62, label: 'three replies in<br>the same response', ax: 760, ay: 262 },
     { from: 'router', fs: 'l', to: 'r1', ts: 'r', f0: 0.3, label: 'each reply: TO = FROM = its receiver', ax: 700, ay: 556 },

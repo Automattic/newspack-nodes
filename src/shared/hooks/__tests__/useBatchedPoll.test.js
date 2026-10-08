@@ -1,11 +1,11 @@
 /**
  * useBatchedPoll tests — the shared batched-poll toolkit (helper H3). It owns ALL
- * the poll-dashboard boilerplate the example used to hand-wire: the `_shell` Tap +
- * `_http` HttpOut, the fan-out Tee + router-hitchhike Timer, the lock/flush bracket
+ * the poll-dashboard boilerplate the example used to hand-wire: the group's
+ * `shell:<group>` Tap + `_http` HttpOut, the fan-out Tee + router-hitchhike Timer, the lock/flush bracket
  * (so one router TIMER tick's commands batch into ONE POST), and the page-visibility
  * start/stop of the Timer. The caller's `build` only adds the dashboard's own nodes.
  *
- *   <timer> (Timer) ─> <tee> (Tee) ─> N Fetchers ─> _shell/_http/<ci>   ONE POST/tick
+ *   <timer> (Timer) ─> <tee> (Tee) ─> N Fetchers ─> shell:<group>/_http/<ci>   ONE POST/tick
  */
 
 import { renderHook, act, waitFor } from '@testing-library/react';
@@ -22,12 +22,15 @@ import {
 	__setAuthFetch,
 } from '@newspack-nodes/runtime';
 import { addSliceFetcher } from '../../helpers/addSliceFetcher';
+import { egressPath } from '../../helpers/egressPath';
 import { useBatchedPoll } from '../useBatchedPoll';
 
 const INTERPRETER = '_command_interpreter';
 const ROUTER = '_router';
 const HTTP = '_http';
-const SHELL = '_shell';
+const CONSOLE_TAP = '_shell';
+const GROUP = 'quokka';
+const GROUP_TAP = 'shell:quokka';
 
 // Lightweight view classes so makeNode builds slice views; fill() consumes.
 class FakeViewNode extends ReactBridge( Node ) {
@@ -77,7 +80,7 @@ const SLICES = [
 	},
 ];
 
-const TARGET = `${ SHELL }/${ HTTP }/insights-demo`;
+const TARGET = egressPath( GROUP, 'insights-demo' );
 
 function buildSlices( { interpreter, tee } ) {
 	SLICES.forEach( ( s ) =>
@@ -141,7 +144,7 @@ afterEach( () => {
 } );
 
 describe( 'useBatchedPoll — backbone + boilerplate it owns', () => {
-	test( 'mounts the backbone, `_http`, `_shell` Tap, the fan-out Tee + hitchhike Timer, each sinking into the interpreter', async () => {
+	test( 'mounts the backbone, `_http`, the group Tap, the fan-out Tee + hitchhike Timer, each sinking into the interpreter', async () => {
 		renderPoll( {} );
 		await act( async () => {} );
 
@@ -150,7 +153,7 @@ describe( 'useBatchedPoll — backbone + boilerplate it owns', () => {
 		expect( Core.node( ROUTER ) ).toBeTruthy();
 		for ( const name of [
 			HTTP,
-			SHELL,
+			GROUP_TAP,
 			'insights:timer',
 			'insights:tee',
 		] ) {
@@ -162,6 +165,26 @@ describe( 'useBatchedPoll — backbone + boilerplate it owns', () => {
 		expect( Core.node( ROUTER ).registrations.TIMER ).toHaveProperty(
 			'insights:timer'
 		);
+	} );
+
+	test( 'a slice targeting a group is served through its Tap with no other declaration', async () => {
+		const wire = installWire();
+		renderPoll( {} );
+		await act( async () => {} );
+
+		expect( wire.batches.flat() ).not.toHaveLength( 0 );
+		expect( Core.node( GROUP_TAP ).counter ).toBe( SLICES.length );
+		expect( Core.node( CONSOLE_TAP ).counter ).toBe( 0 );
+	} );
+
+	test( 'unmounting the last poll of a group removes its Tap', async () => {
+		const { unmount } = renderPoll( {} );
+		await act( async () => {} );
+		expect( Core.node( GROUP_TAP ) ).toBeTruthy();
+
+		unmount();
+
+		expect( Core.node( GROUP_TAP ) ).toBeNull();
 	} );
 
 	test( '`_http` reaches the wire with nothing injected', async () => {

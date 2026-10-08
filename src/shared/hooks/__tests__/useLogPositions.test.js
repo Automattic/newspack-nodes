@@ -369,7 +369,11 @@ describe( 'useLogStatusSegments', () => {
 			'dump_log' === m[ VALUE ]?.name ? { segments: RAIL } : null
 		);
 		const { result } = renderHook( ( p ) => useLogStatusSegments( p ), {
-			initialProps: { sub: DIR, scope: 'quartz-segments' },
+			initialProps: {
+				sub: DIR,
+				scope: 'quartz-segments',
+				group: 'quartz',
+			},
 		} );
 		await waitFor( () =>
 			expect( result.current.source.segments ).toEqual( RAIL )
@@ -380,6 +384,7 @@ describe( 'useLogStatusSegments', () => {
 			.find( ( m ) => 'dump_log' === m[ VALUE ]?.name );
 		expect( asked[ TO ] ).toBe( 'raw-logs' );
 		expect( asked[ VALUE ].arguments ).toEqual( [ DIR ] );
+		expect( Core.node( 'shell:quartz' ).counter ).toBe( 1 );
 	} );
 
 	it( 'carries a file source as its one segment, the inode at its size', async () => {
@@ -394,7 +399,11 @@ describe( 'useLogStatusSegments', () => {
 				: null
 		);
 		const { result } = renderHook( ( p ) => useLogStatusSegments( p ), {
-			initialProps: { sub: 'sources/php', scope: 'quartz-segments' },
+			initialProps: {
+				sub: 'sources/php',
+				scope: 'quartz-segments',
+				group: 'quartz',
+			},
 		} );
 		await waitFor( () =>
 			expect( result.current.source ).toEqual( {
@@ -415,12 +424,22 @@ describe( 'useLogStatusSegments', () => {
 		} );
 		const { result, rerender } = renderHook(
 			( p ) => useLogStatusSegments( p ),
-			{ initialProps: { sub: DIR, scope: 'quartz-segments' } }
+			{
+				initialProps: {
+					sub: DIR,
+					scope: 'quartz-segments',
+					group: 'quartz',
+				},
+			}
 		);
 		await waitFor( () =>
 			expect( result.current.source.segments ).toEqual( RAIL )
 		);
-		rerender( { sub: 'sources/php', scope: 'quartz-segments' } );
+		rerender( {
+			sub: 'sources/php',
+			scope: 'quartz-segments',
+			group: 'quartz',
+		} );
 		expect( result.current.source ).toEqual( { segments: [] } );
 		await waitFor( () =>
 			expect( result.current.source ).toEqual( { segments: FILE } )
@@ -436,12 +455,16 @@ describe( 'useLogStatusSegments', () => {
 			return { segments: RAIL };
 		} );
 		const { rerender } = renderHook( ( p ) => useLogStatusSegments( p ), {
-			initialProps: { sub: '', scope: 'quartz-segments' },
+			initialProps: {
+				sub: '',
+				scope: 'quartz-segments',
+				group: 'quartz',
+			},
 		} );
 		await act( async () => {} );
 		expect( asked ).toEqual( [] );
 		await act( async () =>
-			rerender( { sub: DIR, scope: 'quartz-segments' } )
+			rerender( { sub: DIR, scope: 'quartz-segments', group: 'quartz' } )
 		);
 		await waitFor( () => expect( asked ).toEqual( [ [ DIR ] ] ) );
 	} );
@@ -452,14 +475,20 @@ describe( 'useLogStatusSegments', () => {
 		installFakeCommandWire( () => ( { segments: RAIL } ) );
 		const { result, rerender } = renderHook(
 			( p ) => useLogStatusSegments( p ),
-			{ initialProps: { sub: DIR, scope: 'quartz-segments' } }
+			{
+				initialProps: {
+					sub: DIR,
+					scope: 'quartz-segments',
+					group: 'quartz',
+				},
+			}
 		);
 		await waitFor( () =>
 			expect( result.current.source.segments ).toEqual( RAIL )
 		);
 		const first = result.current.source;
 		await act( async () =>
-			rerender( { sub: DIR, scope: 'quartz-segments' } )
+			rerender( { sub: DIR, scope: 'quartz-segments', group: 'quartz' } )
 		);
 		expect( result.current.source ).toBe( first );
 	} );
@@ -476,14 +505,24 @@ describe( 'useLogStatusSegments', () => {
 		} );
 		const { result, rerender } = renderHook(
 			( p ) => useLogStatusSegments( p ),
-			{ initialProps: { sub: DIR, scope: 'quartz-segments' } }
+			{
+				initialProps: {
+					sub: DIR,
+					scope: 'quartz-segments',
+					group: 'quartz',
+				},
+			}
 		);
 		await waitFor( () =>
 			expect( result.current.source.segments ).toEqual( RAIL )
 		);
 		refuse = true;
 		await act( async () =>
-			rerender( { sub: 'quartz.p8', scope: 'quartz-segments' } )
+			rerender( {
+				sub: 'quartz.p8',
+				scope: 'quartz-segments',
+				group: 'quartz',
+			} )
 		);
 		await act( async () => result.current.refresh() );
 		expect( result.current.source.segments ).toEqual( [] );
@@ -493,13 +532,19 @@ describe( 'useLogStatusSegments', () => {
 		installFakeCommandWire( () => ( { segments: RAIL } ) );
 		const { result, rerender } = renderHook(
 			( p ) => useLogStatusSegments( p ),
-			{ initialProps: { sub: DIR, scope: 'quartz-segments' } }
+			{
+				initialProps: {
+					sub: DIR,
+					scope: 'quartz-segments',
+					group: 'quartz',
+				},
+			}
 		);
 		await waitFor( () =>
 			expect( result.current.source.segments ).toEqual( RAIL )
 		);
 		await act( async () =>
-			rerender( { sub: '', scope: 'quartz-segments' } )
+			rerender( { sub: '', scope: 'quartz-segments', group: 'quartz' } )
 		);
 		expect( result.current.source.segments ).toEqual( [] );
 	} );

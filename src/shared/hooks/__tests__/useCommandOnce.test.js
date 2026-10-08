@@ -23,6 +23,9 @@ import { useCommandOnce } from '../useCommandOnce';
 
 const ROUTER = '_router';
 
+/** The surface every hook here sends for, distinct from any real one. */
+const GROUP = 'wombat';
+
 /** Where `clock` starts each test, in seconds. */
 const CLOCK_BASE = 1912345678;
 
@@ -42,7 +45,9 @@ let clock;
  * @return {Object} The renderHook handle.
  */
 const mount = ( options ) => {
-	const hook = renderHook( () => useCommandOnce( options ) );
+	const hook = renderHook( () =>
+		useCommandOnce( { group: GROUP, ...options } )
+	);
 	Core.node( ROUTER ).stopTimer();
 	return hook;
 };
@@ -111,11 +116,11 @@ describe( 'useCommandOnce', () => {
 	// The egress path was spelled five ways across 21 call sites — a literal, a
 	// template over `names`, a per-file TARGET const. The hook takes the CI
 	// mount and builds it, and names its own nodes after the verb.
-	it( 'builds its egress path and node names from the CI mount', async () => {
+	it( 'builds its egress path and node names from the group and CI mount', async () => {
 		renderSave();
 		await act( async () => {} );
 		expect( Core.node( 'topologies:save:fetch' ).target ).toBe(
-			'_shell/_http/topologies'
+			'shell:wombat/_http/topologies'
 		);
 		expect( Core.node( 'topologies:save:result' ) ).toBeTruthy();
 	} );
@@ -142,11 +147,35 @@ describe( 'useCommandOnce', () => {
 		expect( () =>
 			renderHook( () =>
 				useCommandOnce( {
+					group: GROUP,
 					command: 'save',
-					target: '_shell/_http/topologies',
+					target: 'shell:wombat/_http/topologies',
 				} )
 			)
 		).toThrow( /target/ );
+	} );
+
+	// No default group: a one-shot names the surface its command belongs to.
+	it( 'refuses a send naming no group', () => {
+		console.error = () => {};
+		expect( () =>
+			renderHook( () =>
+				useCommandOnce( { ci: 'topologies', command: 'save' } )
+			)
+		).toThrow( /group/ );
+	} );
+
+	it( "sends through its group's Tap, which stands while it is mounted", async () => {
+		const { result, unmount } = renderSave();
+		await act( async () => {} );
+		act( () => result.current.run( [ 'kea' ] ) );
+		await tick();
+
+		expect( replyFor ).toHaveBeenCalledTimes( 1 );
+		expect( Core.node( 'shell:wombat' ).counter ).toBe( 1 );
+
+		unmount();
+		expect( Core.node( 'shell:wombat' ) ).toBeNull();
 	} );
 
 	// `dump_metadata` is an interpreter builtin: there is no CI after the egress.
@@ -154,7 +183,7 @@ describe( 'useCommandOnce', () => {
 		mount( { command: 'dump_metadata' } );
 		await act( async () => {} );
 		expect( Core.node( 'dump_metadata:fetch' ).target ).toBe(
-			'_shell/_http'
+			'shell:wombat/_http'
 		);
 	} );
 

@@ -23,13 +23,14 @@ import {
 	TM_RESPONSE,
 } from '@newspack-nodes/runtime';
 import { addSliceFetcher } from '../addSliceFetcher';
+import { egressPath } from '../egressPath';
 import { CurrentNode } from '../../nodes/current-node';
 
 // Minimal registered view + transform classes so makeNode can build them.
 class FakeViewNode extends Node {}
 class FakeTransformNode extends Node {}
 
-const TARGET = '_shell/_http/insights-demo';
+const TARGET = egressPath( 'pangolin', 'insights-demo' );
 
 let interpreter;
 let tee;
@@ -69,7 +70,7 @@ describe( 'addSliceFetcher — wiring', () => {
 		expect( f ).toBeTruthy();
 		expect( f.receiver ).toBe( 'counts:in' );
 		expect( f.verb ).toBe( 'counts' );
-		expect( f.target ).toBe( TARGET );
+		expect( f.target ).toBe( 'shell:pangolin/_http/insights-demo' );
 		expect( f.sink ).toBe( interpreter );
 	} );
 

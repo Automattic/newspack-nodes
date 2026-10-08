@@ -3,7 +3,7 @@
  * node graph, not a god object. The graph is:
  *
  *   insights:timer (Timer) ─> insights:tee (Tee) ─┬> source-counts:fetch (Fetcher) ─┐
- *                                                 ├> top-table:fetch     (Fetcher) ─┤  target = _shell/_http/insights-demo
+ *                                                 ├> top-table:fetch     (Fetcher) ─┤  target = shell:insights/_http/insights-demo
  *                                                 └> accumulated:fetch   (Fetcher) ─┘
  *   source-counts:in (Tee) ─> source-counts:view ─> <SourceCounts/>
  *   top-table:in     (Tee) ─> top-table:view     ─> <TopTable/>
@@ -21,7 +21,7 @@ import { usePublisherInsightsGraph } from '../usePublisherInsightsGraph';
 const INTERPRETER = '_command_interpreter';
 const ROUTER = '_router';
 const HTTP = '_http';
-const SHELL = '_shell';
+const GROUP_TAP = 'shell:insights';
 
 // Drive document.visibilityState the same way the substrate's usePageVisibility
 // test does — set the getter, then dispatch the visibilitychange event.
@@ -59,7 +59,7 @@ beforeEach( () => {
 } );
 
 describe( 'usePublisherInsightsGraph — graph wiring', () => {
-	test( 'mounts the backbone, `_http`, `_shell` tap, the timer/tee/fetchers, and three view nodes, each sinking into the interpreter', async () => {
+	test( 'mounts the backbone, `_http`, the `shell:insights` Tap, the timer/tee/fetchers, and three view nodes, each sinking into the interpreter', async () => {
 		installWire( emptyPayloads );
 		renderHook( () => usePublisherInsightsGraph() );
 		await act( async () => {} );
@@ -70,7 +70,7 @@ describe( 'usePublisherInsightsGraph — graph wiring', () => {
 
 		const names = [
 			HTTP,
-			SHELL,
+			GROUP_TAP,
 			'insights:timer',
 			'insights:tee',
 			'source-counts:fetch',
@@ -102,11 +102,11 @@ describe( 'usePublisherInsightsGraph — graph wiring', () => {
 		expect( wire.batches.flat() ).not.toHaveLength( 0 );
 	} );
 
-	test( 'each Fetcher is configured with its receiver + verb and targets `_shell/_http/insights-demo`', async () => {
+	test( 'each Fetcher is configured with its receiver + verb and targets `shell:insights/_http/insights-demo`', async () => {
 		installWire( emptyPayloads );
 		renderHook( () => usePublisherInsightsGraph() );
 		await act( async () => {} );
-		const path = `${ SHELL }/${ HTTP }/insights-demo`;
+		const path = `${ GROUP_TAP }/${ HTTP }/insights-demo`;
 		expect( Core.node( 'source-counts:fetch' ).receiver ).toBe(
 			'source-counts:in'
 		);
@@ -148,7 +148,7 @@ describe( 'usePublisherInsightsGraph — batched poll', () => {
 			'counts',
 			'top',
 		] );
-		// HttpOut strips `_shell/_http/`, so the posted TO is the bare server node.
+		// HttpOut strips `shell:insights/_http/`, so the posted TO is the bare server node.
 		expect( byVerb.counts[ TO ] ).toBe( 'insights-demo' );
 		expect( byVerb.counts[ FROM ] ).toBe( 'source-counts:in' );
 		expect( byVerb.top[ FROM ] ).toBe( 'top-table:in' );

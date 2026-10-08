@@ -16,6 +16,9 @@ import { useProbeStream } from '../../../event-dashboards/hooks/useProbeStream';
 import { coreToGraph } from '../coreToGraph';
 import { autoLayout, X_STEP } from '../autoLayout';
 
+/** The fleet board's group Tap, which every one of its Fetchers feeds. */
+const HUB = 'shell:topologies';
+
 class FakeEventSource {
 	addEventListener() {}
 	close() {}
@@ -49,14 +52,14 @@ describe( 'autoLayout — the station Overview in the debug overlay', () => {
 	} );
 
 	/**
-	 * Every card the station's slices and their shared `_shell` sink hold,
-	 * read off the graph as `_shell`'s weakly-connected component.
+	 * Every card the station's slices and their shared `shell:topologies`
+	 * sink hold, read off the graph as that Tap's weakly-connected component.
 	 *
 	 * @param {{nodes: Array<{id: string}>, edges: Array<{from: string, to: string}>}} graph The graph.
 	 * @return {Set<string>} The component's node ids.
 	 */
 	const shellComponent = ( graph ) => {
-		const seen = new Set( [ '_shell' ] );
+		const seen = new Set( [ HUB ] );
 		for ( let grew = true; grew;  ) {
 			grew = false;
 			for ( const { from, to } of graph.edges ) {
@@ -83,14 +86,14 @@ describe( 'autoLayout — the station Overview in the debug overlay', () => {
 		expect( broken ).toEqual( [] );
 	} );
 
-	it( "seats no card from another block in `_shell`'s column", () => {
+	it( "seats no card from another block in the fleet board Tap's column", () => {
 		const graph = overviewGraph();
 		const at = Object.fromEntries(
 			autoLayout( graph ).nodes.map( ( n ) => [ n.id, n.position ] )
 		);
 		const slices = shellComponent( graph );
 		const strays = Object.keys( at ).filter(
-			( id ) => ! slices.has( id ) && at[ id ].x === at._shell.x
+			( id ) => ! slices.has( id ) && at[ id ].x === at[ HUB ].x
 		);
 		expect( strays ).toEqual( [] );
 	} );
@@ -150,15 +153,15 @@ describe( 'autoLayout — the station Overview in the debug overlay', () => {
 		}
 	} );
 
-	it( 'opens a clear column between the fetchers and `_shell`', () => {
+	it( 'opens a clear column between the fetchers and the fleet board Tap', () => {
 		const graph = overviewGraph();
 		const at = Object.fromEntries(
 			autoLayout( graph ).nodes.map( ( n ) => [ n.id, n.position ] )
 		);
 		const fetchX = at[ 'topology-manager:fetch' ].x;
-		expect( at._shell.x - fetchX ).toBeGreaterThan( X_STEP );
+		expect( at[ HUB ].x - fetchX ).toBeGreaterThan( X_STEP );
 		const between = Object.keys( at ).filter(
-			( id ) => at[ id ].x > fetchX && at[ id ].x < at._shell.x
+			( id ) => at[ id ].x > fetchX && at[ id ].x < at[ HUB ].x
 		);
 		expect( between ).toEqual( [] );
 	} );
@@ -173,7 +176,7 @@ describe( 'autoLayout — the station Overview in the debug overlay', () => {
 		for ( const id of [ '_heartbeat', '_http', '_output' ] ) {
 			expect( [
 				id,
-				at[ id ].x < at._shell.x,
+				at[ id ].x < at[ HUB ].x,
 				at[ id ].y > bottom,
 			] ).toEqual( [ id, true, true ] );
 		}

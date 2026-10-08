@@ -122,8 +122,8 @@ describe( 'consolePersistence [87]', () => {
 } );
 
 /**
- * Vault CRUD is dispatched through the `_shell` Tap so it is observable via
- * `connect _shell` — and anything typed into the REPL is echoed verbatim as a
+ * Vault CRUD is dispatched through the `shell:vault` Tap so it is observable
+ * via `connect shell:vault` — and anything typed into the REPL is echoed verbatim as a
  * `sent` entry. Either way the transcript carried `--auth_password=hunter2`
  * into localStorage with no expiry. The server deliberately never returns that
  * password (Vault_CI_Node::public_shape strips it), so the browser was storing

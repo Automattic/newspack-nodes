@@ -62,7 +62,7 @@ test( 'fill emits ONE TM_COMMAND with FROM=receiver and the configured command V
 test( 'fill ignores the trigger payload — a struct trigger carrying its own command changes nothing', () => {
 	const f = new FetcherNode();
 	f.arguments = [ 'counts:in', 'counts' ];
-	f.target = '_shell';
+	f.target = 'shell:insights';
 	const sent = [];
 	f.sink = { fill: ( m ) => sent.push( m ) };
 
@@ -76,13 +76,13 @@ test( 'fill ignores the trigger payload — a struct trigger carrying its own co
 	const m = sent[ 0 ];
 	expect( m[ FROM ] ).toBe( 'counts:in' );
 	expect( m[ VALUE ] ).toMatchObject( { name: 'counts', arguments: [] } );
-	expect( m[ TO ] ).toBe( '_shell' );
+	expect( m[ TO ] ).toBe( 'shell:insights' );
 } );
 
 test( 'fill on an empty trigger still emits the configured command', () => {
 	const f = new FetcherNode();
 	f.arguments = [ 'counts:in', 'counts' ];
-	f.target = '_shell';
+	f.target = 'shell:insights';
 	const sent = [];
 	f.sink = { fill: ( m ) => sent.push( m ) };
 

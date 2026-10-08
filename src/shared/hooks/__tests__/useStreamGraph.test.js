@@ -349,7 +349,11 @@ describe( 'the gate', () => {
 } );
 
 describe( 'useSteppedRead', () => {
-	const STEP_READ = { ci: 'raw-logs', command: 'read_message' };
+	const STEP_READ = {
+		group: 'kestrel',
+		ci: 'raw-logs',
+		command: 'read_message',
+	};
 
 	// Every read_message the fake wire was asked for, as its argument list.
 	const stepArgs = () =>
@@ -387,6 +391,8 @@ describe( 'useSteppedRead', () => {
 		await waitFor( () =>
 			expect( stepArgs() ).toEqual( [ [ 'a.p1', '4:96' ] ] )
 		);
+		// The read belongs to the dashboard's group, not the console's.
+		expect( Core.node( 'shell:kestrel' ).counter ).toBe( 1 );
 	} );
 
 	test( 'steps from the magic start token a Replay seeks', async () => {

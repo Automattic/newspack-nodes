@@ -4,14 +4,14 @@
  * single god `status` poll feeding one `aggregator:view` is gone; in its place
  * two independent slice paths:
  *
- *   <tee> → summary:fetch (Fetcher, FROM=summary:in) → _shell/_http/aggregator
+ *   <tee> → summary:fetch (Fetcher, FROM=summary:in) → shell:aggregator/_http/aggregator
  *           summary:in (Tee) → summary:view (AggregatorSummaryView)
- *   <tee> → servers:fetch (Fetcher, FROM=servers:in) → _shell/_http/aggregator
+ *   <tee> → servers:fetch (Fetcher, FROM=servers:in) → shell:aggregator/_http/aggregator
  *           servers:in (Tee) → servers:view (AggregatorServersView)
  *
  * Each slice has its OWN inspectable reply path (its own command + receiver Tee);
  * a reply to `summary` never touches `servers:view` and vice-versa. useBatchedPoll
- * owns the Timer/Tee/_shell/_http + lock-flush batching; both slices ride one POST
+ * owns the Timer/Tee/shell:aggregator/_http + lock-flush batching; both slices ride one POST
  * per tick. Nothing is injected: the seam is `fetch`, so the whole egress runs.
  */
 
@@ -29,7 +29,7 @@ import { useAggregatorStatusGraph } from '../useAggregatorStatusGraph';
 const INTERPRETER = '_command_interpreter';
 const ROUTER = '_router';
 const HTTP = '_http';
-const SHELL = '_shell';
+const GROUP_TAP = 'shell:aggregator';
 const SUMMARY_VIEW = 'summary:view';
 const SERVERS_VIEW = 'servers:view';
 const SLICE_VIEWS = [ SUMMARY_VIEW, SERVERS_VIEW ];
@@ -54,13 +54,13 @@ beforeEach( () => {
 } );
 
 describe( 'useAggregatorStatusGraph — batched-poll backbone + slice wiring', () => {
-	test( 'mounts the backbone, _http/_shell, and both slice views (each sinking into the interpreter)', () => {
+	test( 'mounts the backbone, _http, the aggregator Tap, and both slice views (each sinking into the interpreter)', () => {
 		renderHook( () => useAggregatorStatusGraph( {} ) );
 		const interpreter = Core.node( INTERPRETER );
 		expect( interpreter ).toBeTruthy();
 		expect( Core.node( ROUTER ) ).toBeTruthy();
 		expect( Core.node( HTTP ) ).toBeTruthy();
-		expect( Core.node( SHELL ) ).toBeTruthy();
+		expect( Core.node( GROUP_TAP ).sink ).toBe( interpreter );
 		for ( const name of SLICE_VIEWS ) {
 			const node = Core.node( name );
 			expect( node ).toBeTruthy();

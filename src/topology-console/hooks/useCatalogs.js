@@ -29,6 +29,13 @@ import { views } from '../nodes/register';
 import { views as vaultViews } from '../../vault/nodes/register';
 
 /**
+ * The group every command the console's own controls send belongs to: its
+ * catalogs, its topology reads and writes, and its layout. Typed REPL lines
+ * pass `_shell` instead.
+ */
+export const CONSOLE_GROUP = 'console';
+
+/**
  * The palette's catalog: every Node class this site can build, and the
  * formatter names an argument may pick from.
  *
@@ -42,6 +49,7 @@ import { views as vaultViews } from '../../vault/nodes/register';
  */
 export function useClassCatalog( { enabled = false } = {} ) {
 	const model = useCatalogSlice( {
+		group: CONSOLE_GROUP,
 		scope: 'classes',
 		ci: 'classes',
 		command: 'dump',
@@ -71,6 +79,7 @@ export function useClassCatalog( { enabled = false } = {} ) {
  */
 export function useTopologyList( { enabled = false } = {} ) {
 	const model = useCatalogSlice( {
+		group: CONSOLE_GROUP,
 		scope: 'topologies',
 		ci: 'topologies',
 		command: 'dump',
@@ -97,6 +106,7 @@ export function useTopologyList( { enabled = false } = {} ) {
  */
 export function useVaults( { enabled = false } = {} ) {
 	const model = useCatalogSlice( {
+		group: CONSOLE_GROUP,
 		scope: 'vault',
 		ci: 'vault',
 		viewClass: vaultViews.VaultListView,
@@ -142,6 +152,7 @@ export function useVaults( { enabled = false } = {} ) {
  */
 export function useTopology( { scope, enabled = true, groupChildren = true } ) {
 	const { run, result, error, pending } = useCommandOnce( {
+		group: CONSOLE_GROUP,
 		ci: 'topologies',
 		command: 'get',
 		scope: `${ scope }-topology`,

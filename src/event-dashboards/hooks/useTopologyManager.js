@@ -7,13 +7,13 @@
  *
  * Graph, clipped onto the rule-#2 backbone `useBatchedPoll` owns:
  *
- *   topology-manager:timer (Timer) ─> topology-manager:tee (Tee) ─> worker-status:fetch    ─┐ target = _shell/_http/workers
- *                                                                 └> topology-manager:fetch ┤ target = _shell/_http/topologies
+ *   topology-manager:timer (Timer) ─> topology-manager:tee (Tee) ─> worker-status:fetch    ─┐ target = shell:topologies/_http/workers
+ *                                                                 └> topology-manager:fetch ┤ target = shell:topologies/_http/topologies
  *   worker-status:in    (Tee) ─> worker-status:transform ─> worker-status:view ─> React
  *   topology-manager:in (Tee) ─> topology-manager:view                        ─> React
  *
- * `useBatchedPoll` owns every piece of the poll boilerplate: the `_shell` Tap
- * and the `_http` HttpOut egress, the fan-out Tee and the router-hitchhike
+ * `useBatchedPoll` owns every piece of the poll boilerplate: the
+ * `shell:topologies` Tap and the `_http` HttpOut egress, the fan-out Tee and the router-hitchhike
  * Timer, the lock/flush bracket that puts a tick's two fetcher commands in ONE
  * POST, and the page-visibility and `paused` gates. This hook adds only its two
  * slices, through `addSliceFetcher`:
@@ -32,7 +32,8 @@
  * The three mutations are `useCommandOnce` sends rather than a hook callback
  * calling `interpreter.fill`. Each parks its arguments in its own Fetcher's
  * outbox and pokes the Router, so the command leaves inside the same lock/flush
- * bracket as the poll and the debug overlay's `connect _shell` sees it flow. A
+ * bracket as the poll and the debug overlay's `connect shell:topologies` sees
+ * it flow. A
  * refusal returns a tick later as the verb's error text, addressed to the node
  * that asked (TO=FROM, ADR-7); `onError` reports it, and there is no promise to
  * reject.
@@ -80,6 +81,9 @@ const WORKERS_CI = 'workers';
 /** The server CI owning `dump`, `activate` and `deactivate`. */
 const TOPOLOGIES_CI = 'topologies';
 
+/** The group every command the fleet board sends belongs to. */
+const GROUP = 'topologies';
+
 /**
  * The two poll slices, in the shape `addSliceFetcher` wires. The worker slice
  * takes the `transform` slot so its enrich-join sits on a graph edge; the
@@ -92,7 +96,7 @@ const SLICES = [
 		command: 'dump_graph',
 		view: WORKER_VIEW,
 		viewClass: views.WorkerStatusView,
-		target: egressPath( WORKERS_CI ),
+		target: egressPath( GROUP, WORKERS_CI ),
 		transform: {
 			name: 'worker-status:transform',
 			nodeClass: views.WorkerStatusTransform,
@@ -104,7 +108,7 @@ const SLICES = [
 		command: 'dump',
 		view: TOPOLOGY_VIEW,
 		viewClass: views.TopologyManagerView,
-		target: egressPath( TOPOLOGIES_CI ),
+		target: egressPath( GROUP, TOPOLOGIES_CI ),
 	},
 ];
 
@@ -327,16 +331,19 @@ export function useTopologyManager( opts = {} ) {
 		}
 	}, [] );
 	const restartOnce = useCommandOnce( {
+		group: GROUP,
 		ci: WORKERS_CI,
 		command: 'restart',
 		onDone: onMutationDone,
 	} );
 	const activateOnce = useCommandOnce( {
+		group: GROUP,
 		ci: TOPOLOGIES_CI,
 		command: 'activate',
 		onDone: onMutationDone,
 	} );
 	const deactivateOnce = useCommandOnce( {
+		group: GROUP,
 		ci: TOPOLOGIES_CI,
 		command: 'deactivate',
 		onDone: onMutationDone,

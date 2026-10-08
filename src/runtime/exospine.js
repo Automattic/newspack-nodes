@@ -21,6 +21,52 @@ import { HeartbeatNode } from './heartbeat-node';
 import names from './reserved-node-names.json';
 import { TO, TYPE, TM_ERROR } from './message';
 
+/** What opens a group Tap's name, and a target path addressed to one. */
+const SHELL_GROUP_PREFIX = 'shell:';
+
+/**
+ * The name of a dashboard group's Tap: `shell:<group>`.
+ *
+ * Every command a dashboard sends passes the Tap of the group it belongs to,
+ * so `connect shell:<group>` watches that group's traffic alone. The name has
+ * no underscore, because the Tap is a dashboard's own node rather than a
+ * backbone fixture: it comes and goes with the mounts whose nodes target it.
+ *
+ * @param {string} group The group, such as `url`.
+ * @return {string} The Tap's node name.
+ * @throws {TypeError} When the group is missing or no string.
+ */
+export function shellGroup( group ) {
+	if ( 'string' !== typeof group || '' === group ) {
+		throw new TypeError(
+			`a shell group is a non-empty string, not ${ JSON.stringify(
+				group
+			) }`
+		);
+	}
+	return `${ SHELL_GROUP_PREFIX }${ group }`;
+}
+
+/**
+ * The groups the given nodes' targets route through: the head of every
+ * target path that names a group Tap.
+ *
+ * @param {Array<?Object>} nodes Nodes, any of them gone.
+ * @return {Set<string>} The groups, without the `shell:` prefix.
+ */
+function groupsTargetedBy( nodes ) {
+	const groups = new Set();
+	for ( const node of nodes ) {
+		for ( const path of [ node?.target ?? [] ].flat() ) {
+			const head = 'string' === typeof path ? path.split( '/' )[ 0 ] : '';
+			if ( head.startsWith( SHELL_GROUP_PREFIX ) ) {
+				groups.add( head.slice( SHELL_GROUP_PREFIX.length ) );
+			}
+		}
+	}
+	return groups;
+}
+
 /**
  * What a mount hands back: the five backbone nodes it points at, plus the two
  * lifecycle handles its caller drives.
@@ -28,7 +74,7 @@ import { TO, TYPE, TM_ERROR } from './message';
  * @typedef  {Object}                 Exospine
  * @property {CommandInterpreterNode} interpreter `_command_interpreter`, the sink everything reaches.
  * @property {RouterNode}             router      `_router`, dispatching by TO on its own TIMER.
- * @property {TapNode}                shell       `_shell`, the observe-only Tap every command passes.
+ * @property {TapNode}                shell       `_shell`, the observe-only Tap an interactive session's commands pass.
  * @property {HttpOutNode}            http        `_http`, the batched `/command` egress.
  * @property {HeartbeatNode}          heartbeat   `_heartbeat`, the SSE-slot poke.
  * @property {() => void}             reinit      Rebuilds the build nodes, keeping the backbone.
@@ -104,6 +150,11 @@ function uiRelay( ui, message ) {
  * `_command_interpreter`/`_router` names never collide across dashboards. The
  * caller MUST pair every mount with `teardown()` (e.g. in a useEffect cleanup);
  * a second mount before teardown throws a name collision, by design.
+ *
+ * Every node `build` registers whose target opens `shell:<group>/` claims that
+ * group's Tap for this mount, so a slice targeting `egressPath( group, ci )`
+ * needs no other declaration. A Tap stands while any mount claims its group,
+ * and the last claim released removes it.
  *
  * @param {ExospineBuild} [build]          Wires this dashboard's nodes onto
  *                                         the backbone. Re-run on every
@@ -204,7 +255,7 @@ export function mountExospine( build, { passenger = false } = {} ) {
 		interpreter.name = names.COMMAND_INTERPRETER;
 		interpreter.sink = router;
 
-		// `_shell` — permanent observe-only Tap all commands route through.
+		// `_shell` — the interactive session's observe-only Tap.
 		const shell = new TapNode();
 		shell.name = names.CONSOLE_TAP;
 		shell.sink = interpreter;
@@ -243,6 +294,49 @@ export function mountExospine( build, { passenger = false } = {} ) {
 		Core.notifyBackboneUp();
 	};
 
+	/** The groups this mount's built nodes target, each claimed once. */
+	let claimed = new Set();
+	/**
+	 * Claim the groups `groups` names and this mount had not, release those
+	 * it no longer names, and stand every claimed Tap on the live interpreter.
+	 *
+	 * A Tap another mount raised is shared, and re-pointed rather than
+	 * rebuilt, because a backbone replaced since left it sinking into a
+	 * removed interpreter.
+	 *
+	 * @param {Set<string>} groups The groups this mount claims from now on.
+	 */
+	const claimGroups = ( groups ) => {
+		for ( const group of claimed ) {
+			if ( groups.has( group ) ) {
+				continue;
+			}
+			const left = Core.shellGroups.get( group ) - 1;
+			if ( left > 0 ) {
+				Core.shellGroups.set( group, left );
+			} else {
+				Core.shellGroups.delete( group );
+				Core.node( shellGroup( group ) )?.removeNode();
+			}
+		}
+		for ( const group of groups ) {
+			if ( ! claimed.has( group ) ) {
+				Core.shellGroups.set(
+					group,
+					( Core.shellGroups.get( group ) ?? 0 ) + 1
+				);
+			}
+			const name = shellGroup( group );
+			let tap = Core.node( name );
+			if ( ! tap ) {
+				tap = new TapNode();
+				tap.name = name;
+			}
+			tap.sink = spine.interpreter;
+		}
+		claimed = groups;
+	};
+
 	/** Names `build` registered, the exact set a rebuild removes. */
 	let builtNames = [];
 	/** The optional cleanup `build` returned, run before every rebuild. */
@@ -265,6 +359,10 @@ export function mountExospine( build, { passenger = false } = {} ) {
 		cleanup = 'function' === typeof build ? build( spine ) : undefined;
 		builtNames = [ ...Core.nodes.keys() ].filter(
 			( name ) => ! before.has( name )
+		);
+		// After the snapshot, so a Tap is no node of this build's own.
+		claimGroups(
+			groupsTargetedBy( builtNames.map( ( name ) => Core.node( name ) ) )
 		);
 	};
 	/** Run the build cleanup, then remove every node `build` registered. */
@@ -329,6 +427,7 @@ export function mountExospine( build, { passenger = false } = {} ) {
 			unsubscribe();
 		}
 		teardownBuilt();
+		claimGroups( new Set() );
 		if ( passenger ) {
 			Core.backbonePassengers -= 1;
 		}

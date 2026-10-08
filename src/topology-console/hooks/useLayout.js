@@ -18,6 +18,7 @@
 import { useCallback } from '@wordpress/element';
 import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
 import { formatCommandArgs } from '../../runtime/command-args';
+import { CONSOLE_GROUP } from './useCatalogs';
 
 /** @typedef {import('@newspack-nodes/shared/hooks/useCommandOnce').OnDone} OnDone */
 
@@ -46,12 +47,14 @@ const LAYOUTS = 'layouts';
  */
 export function useLayout( { onFetched, onSaved } = {} ) {
 	const { run: runGet } = useCommandOnce( {
+		group: CONSOLE_GROUP,
 		ci: LAYOUTS,
 		command: 'get',
 		retry: true,
 		onDone: onFetched,
 	} );
 	const { run: runSave } = useCommandOnce( {
+		group: CONSOLE_GROUP,
 		ci: LAYOUTS,
 		command: 'save',
 		onDone: onSaved,
