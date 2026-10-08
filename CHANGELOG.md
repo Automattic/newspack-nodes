@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A broker's stamp refusals no longer name the stamp.** `refusing a stamp outside the stream name grammar` and `refusing a stamp that names a slot the broker keeps` log the refusal alone.
+
 ## [2.101.0] - 2026-10-08
 
 ### Changed
