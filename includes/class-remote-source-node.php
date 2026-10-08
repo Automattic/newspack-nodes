@@ -62,9 +62,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 */
 	public const MAX_READERS = 256;
 
-	/** How much of a refused stamp its log line shows; a stamp's length is unbounded. */
-	private const LOGGED_STAMP_BYTES = 200;
-
 	/** Wall-second of the last heartbeat reply; 0 while none has come back. */
 	private int $last_heartbeat_response = 0;
 
@@ -508,11 +505,11 @@ class Remote_Source_Node extends Remote_Link_Node {
 			return null;
 		}
 		if ( ! Log_Discovery::is_stamp( $stamp ) ) {
-			$this->print_less_often( 'refusing a stamp outside the stream name grammar: ', self::loggable( $stamp ) );
+			$this->print_less_often( 'refusing a stamp outside the stream name grammar' );
 			return null;
 		}
 		if ( self::is_reserved( $stamp ) ) {
-			$this->print_less_often( 'refusing a stamp that names a slot the broker keeps: ', $stamp );
+			$this->print_less_often( 'refusing a stamp that names a slot the broker keeps' );
 			return null;
 		}
 		$pair = $this->pair_for( $stamp );
@@ -533,19 +530,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$child->set_assume_clean_shutdown( $this->assume_clean_shutdown );
 		$this->http_out?->allow_replies_to( $child->name() );
 		return $child;
-	}
-
-	/**
-	 * A refused stamp as its log line shows it: a JSON string, so an empty one
-	 * reads `""` and a newline or any other control byte stays escaped on the
-	 * one line, cut to LOGGED_STAMP_BYTES with its full length named.
-	 *
-	 * @param string $stamp The stamp a spoke sent.
-	 */
-	private static function loggable( string $stamp ): string {
-		$length = \strlen( $stamp );
-		$shown  = (string) \wp_json_encode( \substr( $stamp, 0, self::LOGGED_STAMP_BYTES ), \JSON_UNESCAPED_SLASHES | \JSON_INVALID_UTF8_SUBSTITUTE );
-		return $length > self::LOGGED_STAMP_BYTES ? "{$shown} ({$length} bytes)" : $shown;
 	}
 
 	/**
