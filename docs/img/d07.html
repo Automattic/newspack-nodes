@@ -86,7 +86,7 @@
         <div class="lab" style="margin-left:200px;width:192px"><span class="n">4</span>one record per event.</div>
       </div>
       <div class="arrow"><svg width="1052" height="16"><path d="M951 8 L760 8" stroke="#003DA5" stroke-width="1.8" marker-end="url(#ar)"/><path d="M754 8 L408 8" stroke="#003DA5" stroke-width="1.8" marker-end="url(#ar)"/><path d="M402 8 L232 8" stroke="#003DA5" stroke-width="1.8" marker-end="url(#ar)"/></svg></div>
-      <div class="box" style="margin-left:60px;width:520px;margin-top:6px">Each reader prepends its own name to the record's FROM and sends it to its pair's target, <span class="mono">firehose.p0</span> to <span class="mono">remote-job-rewrite</span> and <span class="mono">sources/php</span> to <span class="mono">php-errors:partition</span>. It checkpoints the record's ID to its own offsetlog and resumes from it on every reconnect; a record that will not parse is quarantined at that position, in its own dead-letter partition.</div>
+      <div class="box" style="margin-left:60px;width:520px;margin-top:6px">Each reader keeps the record's FROM as the spoke sent it and sends it to its pair's target, <span class="mono">firehose.p0</span> to <span class="mono">remote-job-rewrite</span> and <span class="mono">sources/php</span> to <span class="mono">php-errors:partition</span>. It checkpoints the record's ID to its own offsetlog and resumes from it on every reconnect; a record that will not parse is quarantined at that position, in its own dead-letter partition.</div>
     </div>
 
     <div class="msg">

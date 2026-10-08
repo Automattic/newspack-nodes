@@ -1656,7 +1656,7 @@ class RemoteConsumerNodeTest extends TestCase {
 	public function test_stream_data_relayed_downstream_not_to_http_out(): void {
 		// Stream data flows via the reader's buffer → forward_line → downstream; it never
 		// touches the outbound HTTP_Out path (that carries commands + the heartbeat only).
-		// The reader prepends its own name to the spoke's trail.
+		// The reader forwards the spoke's trail unchanged.
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		[ , $node, $spy ] = $this->make_remote_spy();
@@ -1673,7 +1673,7 @@ class RemoteConsumerNodeTest extends TestCase {
 		$node->poll();
 
 		$this->assertCount( 1, $spy->captured, 'stream data is relayed downstream' );
-		$this->assertSame( 'remote-austin:firehose.p0/firehose.p0/job-worker.p0', $spy->captured[0][ Message::FROM ] );
+		$this->assertSame( 'firehose.p0/job-worker.p0', $spy->captured[0][ Message::FROM ] );
 		$this->assertCount( 0, $this->read_private( $http, 'batch' ), 'stream data must NOT be misrouted to HTTP_Out' );
 	}
 
@@ -2018,7 +2018,7 @@ class RemoteConsumerNodeTest extends TestCase {
 		$node->fill( self::step_reply( 'remote-austin:firehose.p0', self::stepped_record( '31:4404:61', 'stepped-8820' ), 31, 4465 ) );
 
 		$this->assertSame( [ 'stepped-8820' ], \array_column( $sink->captured, Message::VALUE ) );
-		$this->assertSame( 'remote-austin:firehose.p0/firehose.p0', $sink->captured[0][ Message::FROM ], 'a step relays through the same hop stamp' );
+		$this->assertSame( 'firehose.p0', $sink->captured[0][ Message::FROM ], 'a step relays the spoke\'s trail unchanged' );
 		$this->assertSame( [ 'segment' => 31, 'offset' => 4465 ], $node->connect_position() );
 		$this->assertSame( 'PAUSED', $node->get_state( 'POLLING' ), 'a step stays paused' );
 		$this->assertSame( 0, $this->read_private( $node, 'steps_owed' ) );

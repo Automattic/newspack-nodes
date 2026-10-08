@@ -811,35 +811,19 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( [ 'firehose.p0' ], \array_keys( $this->readers( $node ) ) );
 	}
 
-	public function test_a_relayed_line_carries_the_reader_before_the_spoke_trail(): void {
+	/**
+	 * A relay forwards: the record leaves with the FROM trail and the ID
+	 * crumb the spoke sent, byte for byte.
+	 */
+	public function test_a_relayed_line_keeps_the_spoke_trail_and_crumb(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$php = new Capture_Sink_Node();
-		$php->name( 'php-errors' );
-		$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'sources/php:php-errors' ) );
-		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => 'sources/php', Message::ID => '44120:96:58', Message::VALUE => "PHP Notice: 2290\n" ] ) );
-
-		Core::node( 'remote-austin:sources:php' )->poll();
-
-		$this->assertSame( 'remote-austin:sources:php/sources/php', $php->captured[0][ Message::FROM ] );
-		$this->assertSame( '44120:96:58', $php->captured[0][ Message::ID ], 'the crumb stays the spoke\'s' );
-	}
-
-	public function test_a_trail_past_max_from_size_is_dropped_and_passed(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$errors = [];
-		Core::set_stderr_handler( static function ( string $text ) use ( &$errors ): void {
-			$errors[] = $text;
-		} );
 		[ , $child, $sink ] = $this->make_remote();
-		$long = 'firehose.p0/' . \str_repeat( 'hop-7/', 200 );
-		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_STRUCT, Message::FROM => $long, Message::ID => '6:300:45', Message::VALUE => [ 'p' => 3 ] ] ) );
+		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_STRUCT, Message::FROM => 'firehose.p0/okapi-7713', Message::ID => '44120:96:58', Message::VALUE => [ 'p' => 2290 ] ] ) );
 
 		$child->poll();
 
-		$this->assertSame( [], $sink->captured );
-		$this->assertSame( [ 'segment' => 6, 'offset' => 345 ], $child->connect_position(), 'the refusal is consumed like a forward' );
-		$this->assertStringContainsString( 'path exceeded ' . Node::MAX_FROM_SIZE . ' bytes', \implode( '', $errors ) );
-		$this->assertSame( 0, $this->count_log_records( $this->read_private( $child, 'deadletter_dir' ) ), 'an over-long trail is not poison' );
+		$this->assertSame( 'firehose.p0/okapi-7713', $sink->captured[0][ Message::FROM ] );
+		$this->assertSame( '44120:96:58', $sink->captured[0][ Message::ID ], 'the crumb stays the spoke\'s' );
 	}
 
 	public function test_a_replay_dropping_a_pair_retracts_only_its_children(): void {
