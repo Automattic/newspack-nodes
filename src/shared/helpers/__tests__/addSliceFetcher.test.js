@@ -70,7 +70,7 @@ describe( 'addSliceFetcher — wiring', () => {
 		expect( f ).toBeTruthy();
 		expect( f.receiver ).toBe( 'counts:in' );
 		expect( f.verb ).toBe( 'counts' );
-		expect( f.target ).toBe( 'shell:pangolin/_http/insights-demo' );
+		expect( f.target ).toBe( 'pangolin:shell/_http/insights-demo' );
 		expect( f.sink ).toBe( interpreter );
 	} );
 

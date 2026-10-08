@@ -606,40 +606,49 @@ describe( 'mountExospine( build ) — shell group Taps, derived from targets', (
 
 	test( 'mounts a Tap for each group a built node targets, with no declaration', () => {
 		const { interpreter } = mountExospine(
-			targeting( 'shell:quokka/_http/wombat-ci', 'shell:kea/_http' )
+			targeting( 'quokka:shell/_http/wombat-ci', 'kea:shell/_http' )
 		);
 
-		for ( const name of [ 'shell:quokka', 'shell:kea' ] ) {
+		for ( const name of [ 'quokka:shell', 'kea:shell' ] ) {
 			const tap = Core.node( name );
 			expect( tap ).toBeInstanceOf( TapNode );
 			expect( tap.sink ).toBe( interpreter );
 		}
 		// A group Tap is a sibling of `_shell`, never routed through it.
-		expect( Core.node( 'shell:quokka' ).sink ).not.toBe(
+		expect( Core.node( 'quokka:shell' ).sink ).not.toBe(
 			Core.node( names.CONSOLE_TAP )
 		);
 	} );
 
 	test( 'claims nothing for a target naming no group', () => {
-		mountExospine( targeting( `${ names.HTTP }/wombat-ci`, 'shellfish' ) );
+		mountExospine(
+			targeting(
+				`${ names.HTTP }/wombat-ci`,
+				'shellfish',
+				'shell:kea/_http',
+				'kea:shellfish/_http'
+			)
+		);
 
 		expect(
-			[ ...Core.nodes.keys() ].filter( ( n ) => n.startsWith( 'shell:' ) )
+			[ ...Core.nodes.keys() ].filter(
+				( n ) => n.endsWith( ':shell' ) || n.startsWith( 'shell:' )
+			)
 		).toEqual( [] );
 	} );
 
 	test( 'a rebuild naming another group releases the old Tap and mounts the new', () => {
 		let group = 'quokka';
 		const { reinit } = mountExospine( ( spine ) =>
-			targeting( `shell:${ group }/_http/wombat-ci` )( spine )
+			targeting( `${ group }:shell/_http/wombat-ci` )( spine )
 		);
-		expect( Core.node( 'shell:quokka' ) ).toBeInstanceOf( TapNode );
+		expect( Core.node( 'quokka:shell' ) ).toBeInstanceOf( TapNode );
 
 		group = 'kea';
 		reinit();
 
-		expect( Core.node( 'shell:quokka' ) ).toBeNull();
-		expect( Core.node( 'shell:kea' ).sink ).toBe(
+		expect( Core.node( 'quokka:shell' ) ).toBeNull();
+		expect( Core.node( 'kea:shell' ).sink ).toBe(
 			Core.node( names.COMMAND_INTERPRETER )
 		);
 	} );
@@ -647,9 +656,9 @@ describe( 'mountExospine( build ) — shell group Taps, derived from targets', (
 	test( 'the Tap stands ahead of the first send the build schedules', async () => {
 		let seen = null;
 		mountExospine( ( spine ) => {
-			targeting( 'shell:quokka/_http/wombat-ci' )( spine );
+			targeting( 'quokka:shell/_http/wombat-ci' )( spine );
 			Promise.resolve().then( () => {
-				seen = Core.node( 'shell:quokka' );
+				seen = Core.node( 'quokka:shell' );
 			} );
 		} );
 		await Promise.resolve();
@@ -658,37 +667,37 @@ describe( 'mountExospine( build ) — shell group Taps, derived from targets', (
 	} );
 
 	test( 'the group Tap outlives an owner while another owner of it is mounted', () => {
-		const first = mountExospine( targeting( 'shell:quokka/_http' ) );
-		const second = mountExospine( targeting( 'shell:quokka/_http/x' ), {
+		const first = mountExospine( targeting( 'quokka:shell/_http' ) );
+		const second = mountExospine( targeting( 'quokka:shell/_http/x' ), {
 			passenger: true,
 		} );
-		const tap = Core.node( 'shell:quokka' );
+		const tap = Core.node( 'quokka:shell' );
 		expect( tap ).toBeInstanceOf( TapNode );
 
 		second.teardown();
-		expect( Core.node( 'shell:quokka' ) ).toBe( tap );
+		expect( Core.node( 'quokka:shell' ) ).toBe( tap );
 
 		first.teardown();
-		expect( Core.node( 'shell:quokka' ) ).toBeNull();
+		expect( Core.node( 'quokka:shell' ) ).toBeNull();
 	} );
 
 	test( 'the last owner out removes the Tap even when the owner left first', () => {
-		const owner = mountExospine( targeting( 'shell:quokka/_http' ) );
-		const rider = mountExospine( targeting( 'shell:quokka/_http/x' ), {
+		const owner = mountExospine( targeting( 'quokka:shell/_http' ) );
+		const rider = mountExospine( targeting( 'quokka:shell/_http/x' ), {
 			passenger: true,
 		} );
 
 		owner.teardown();
-		expect( Core.node( 'shell:quokka' ) ).toBeInstanceOf( TapNode );
+		expect( Core.node( 'quokka:shell' ) ).toBeInstanceOf( TapNode );
 
 		rider.teardown();
-		expect( Core.node( 'shell:quokka' ) ).toBeNull();
+		expect( Core.node( 'quokka:shell' ) ).toBeNull();
 	} );
 
 	test( 'each mount records the groups it claims; Core keeps no count', () => {
-		const first = mountExospine( targeting( 'shell:quokka/_http' ) );
+		const first = mountExospine( targeting( 'quokka:shell/_http' ) );
 		const second = mountExospine(
-			targeting( 'shell:quokka/_http/x', 'shell:kea/_http' ),
+			targeting( 'quokka:shell/_http/x', 'kea:shell/_http' ),
 			{ passenger: true }
 		);
 
@@ -698,59 +707,59 @@ describe( 'mountExospine( build ) — shell group Taps, derived from targets', (
 		).toEqual( [ [ 'quokka' ], [ 'kea', 'quokka' ] ] );
 
 		second.teardown();
-		expect( Core.node( 'shell:kea' ) ).toBeNull();
-		expect( Core.node( 'shell:quokka' ) ).toBeInstanceOf( TapNode );
+		expect( Core.node( 'kea:shell' ) ).toBeNull();
+		expect( Core.node( 'quokka:shell' ) ).toBeInstanceOf( TapNode );
 		first.teardown();
 	} );
 
 	test( "a build's teardown never removes a group Tap another mount claims", () => {
-		const first = mountExospine( targeting( 'shell:quokka/_http' ) );
-		const second = mountExospine( targeting( 'shell:quokka/_http/x' ), {
+		const first = mountExospine( targeting( 'quokka:shell/_http' ) );
+		const second = mountExospine( targeting( 'quokka:shell/_http/x' ), {
 			passenger: true,
 		} );
 
 		second.reinit();
 		first.reinit();
 
-		expect( Core.node( 'shell:quokka' ) ).toBeInstanceOf( TapNode );
+		expect( Core.node( 'quokka:shell' ) ).toBeInstanceOf( TapNode );
 		second.teardown();
 		first.teardown();
 	} );
 
 	test( 'a command addressed to the group reaches the interpreter through its Tap', () => {
 		const { interpreter } = mountExospine(
-			targeting( 'shell:quokka/_http' )
+			targeting( 'quokka:shell/_http' )
 		);
 		const seen = [];
 		interpreter.fill = ( m ) => seen.push( m );
 
 		const m = newMessage();
-		m[ TO ] = 'shell:quokka/_http/wombat-ci';
-		Core.node( 'shell:quokka' ).fill( m );
+		m[ TO ] = 'quokka:shell/_http/wombat-ci';
+		Core.node( 'quokka:shell' ).fill( m );
 
-		expect( Core.node( 'shell:quokka' ).counter ).toBe( 1 );
+		expect( Core.node( 'quokka:shell' ).counter ).toBe( 1 );
 		expect( seen ).toHaveLength( 1 );
 	} );
 
 	test( 'a full rebuild re-points the group Tap at the fresh interpreter', () => {
-		mountExospine( targeting( 'shell:quokka/_http' ) );
+		mountExospine( targeting( 'quokka:shell/_http' ) );
 
 		Core.bumpGraphGeneration();
 
-		expect( Core.node( 'shell:quokka' ).sink ).toBe(
+		expect( Core.node( 'quokka:shell' ).sink ).toBe(
 			Core.node( names.COMMAND_INTERPRETER )
 		);
 	} );
 
 	test( "a passenger's group follows a replaced backbone", () => {
-		const rider = mountExospine( targeting( 'shell:quokka/_http' ), {
+		const rider = mountExospine( targeting( 'quokka:shell/_http' ), {
 			passenger: true,
 		} );
 		const owner = mountExospine( () => {} );
 
 		Core.bumpGraphGeneration();
 
-		expect( Core.node( 'shell:quokka' ).sink ).toBe(
+		expect( Core.node( 'quokka:shell' ).sink ).toBe(
 			Core.node( names.COMMAND_INTERPRETER )
 		);
 		rider.teardown();
@@ -758,12 +767,12 @@ describe( 'mountExospine( build ) — shell group Taps, derived from targets', (
 	} );
 
 	test( 'a Reset Graph that removed every node brings the group Tap back', () => {
-		mountExospine( targeting( 'shell:quokka/_http' ) );
+		mountExospine( targeting( 'quokka:shell/_http' ) );
 
 		removeAllButRouter();
 		Core.bumpGraphGeneration();
 
-		expect( Core.node( 'shell:quokka' ).sink ).toBe(
+		expect( Core.node( 'quokka:shell' ).sink ).toBe(
 			Core.node( names.COMMAND_INTERPRETER )
 		);
 	} );
@@ -853,7 +862,7 @@ describe( 'mountExospine — the backbone outlives its owner', () => {
 	test( 'the owner leaving keeps the backbone, and the other mount’s commands still go out', () => {
 		const owner = mountExospine( () => {} );
 		const stays = mountExospine(
-			asking( 'kiwi-4417:ask', 'shell:kiwi/_http/workers' )
+			asking( 'kiwi-4417:ask', 'kiwi:shell/_http/workers' )
 		);
 		const kept = [
 			names.COMMAND_INTERPRETER,
@@ -893,7 +902,7 @@ describe( 'mountExospine — the backbone outlives its owner', () => {
 	test( 'a Reset Graph after the owner left raises the backbone through the new owner', () => {
 		const owner = mountExospine( () => {} );
 		const stays = mountExospine(
-			asking( 'kiwi-4417:ask', 'shell:kiwi/_http/workers' )
+			asking( 'kiwi-4417:ask', 'kiwi:shell/_http/workers' )
 		);
 		owner.teardown();
 		expect( Core.rebuildable ).toBe( true );
@@ -936,7 +945,7 @@ describe( 'mountExospine — the backbone outlives its owner', () => {
 	test( 'the last mount leaving tears the backbone down, the Router aside', () => {
 		const owner = mountExospine( () => {} );
 		const stays = mountExospine(
-			asking( 'kiwi-4417:ask', 'shell:kiwi/_http/workers' )
+			asking( 'kiwi-4417:ask', 'kiwi:shell/_http/workers' )
 		);
 		owner.teardown();
 		stays.teardown();

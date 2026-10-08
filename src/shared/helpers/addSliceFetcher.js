@@ -26,7 +26,7 @@ CommandInterpreterNode.registerNodeClasses( { Current: CurrentNode } );
  *                    ─> <fetcher>                     …and settles the ask
  *
  * A Fetcher emits its ONE configured command (`<receiver> <command>`) toward
- * `target` (`shell:<group>/_http/<ci>`); the server CI replies
+ * `target` (`<group>:shell/_http/<ci>`); the server CI replies
  * `TO = FROM = receiver`, so the reply lands on the receiver `Tee`, which fans
  * it to the view node — an independent reply path per slice, nothing crossing
  * and nothing to correlate (ADR-7). The optional `transform` slot drops a

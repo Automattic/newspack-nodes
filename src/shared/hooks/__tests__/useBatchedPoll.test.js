@@ -1,11 +1,11 @@
 /**
  * useBatchedPoll tests — the shared batched-poll toolkit (helper H3). It owns ALL
  * the poll-dashboard boilerplate the example used to hand-wire: the group's
- * `shell:<group>` Tap + `_http` HttpOut, the fan-out Tee + router-hitchhike Timer, the lock/flush bracket
+ * `<group>:shell` Tap + `_http` HttpOut, the fan-out Tee + router-hitchhike Timer, the lock/flush bracket
  * (so one router TIMER tick's commands batch into ONE POST), and the page-visibility
  * start/stop of the Timer. The caller's `build` only adds the dashboard's own nodes.
  *
- *   <timer> (Timer) ─> <tee> (Tee) ─> N Fetchers ─> shell:<group>/_http/<ci>   ONE POST/tick
+ *   <timer> (Timer) ─> <tee> (Tee) ─> N Fetchers ─> <group>:shell/_http/<ci>   ONE POST/tick
  */
 
 import { renderHook, act, waitFor } from '@testing-library/react';
@@ -30,7 +30,7 @@ const ROUTER = '_router';
 const HTTP = '_http';
 const CONSOLE_TAP = '_shell';
 const GROUP = 'quokka';
-const GROUP_TAP = 'shell:quokka';
+const GROUP_TAP = 'quokka:shell';
 
 // Lightweight view classes so makeNode builds slice views; fill() consumes.
 class FakeViewNode extends ReactBridge( Node ) {

@@ -23,14 +23,14 @@ import { RemoteLinkNode } from './remote-link-node';
 import names from './reserved-node-names.json';
 import { TO, TYPE, TM_ERROR } from './message';
 
-/** What opens a group Tap's name, and a target path addressed to one. */
-const SHELL_GROUP_PREFIX = 'shell:';
+/** What closes a group Tap's name, and the head of a path addressed to one. */
+const SHELL_GROUP_SUFFIX = ':shell';
 
 /**
- * The name of a dashboard group's Tap: `shell:<group>`.
+ * The name of a dashboard group's Tap: `<group>:shell`.
  *
  * Every command a dashboard sends passes the Tap of the group it belongs to,
- * so `connect shell:<group>` watches that group's traffic alone. The name has
+ * so `connect <group>:shell` watches that group's traffic alone. The name has
  * no underscore, because the Tap is a dashboard's own node rather than a
  * backbone fixture: it comes and goes with the mounts whose nodes target it.
  *
@@ -46,7 +46,7 @@ export function shellGroup( group ) {
 			) }`
 		);
 	}
-	return `${ SHELL_GROUP_PREFIX }${ group }`;
+	return `${ group }${ SHELL_GROUP_SUFFIX }`;
 }
 
 /**
@@ -54,15 +54,15 @@ export function shellGroup( group ) {
  * target path that names a group Tap.
  *
  * @param {Array<?Object>} nodes Nodes, any of them gone.
- * @return {Set<string>} The groups, without the `shell:` prefix.
+ * @return {Set<string>} The groups, without the `:shell` suffix.
  */
 function groupsTargetedBy( nodes ) {
 	const groups = new Set();
 	for ( const node of nodes ) {
 		for ( const path of targetsOf( node ) ) {
 			const head = path.split( '/' )[ 0 ];
-			if ( head.startsWith( SHELL_GROUP_PREFIX ) ) {
-				groups.add( head.slice( SHELL_GROUP_PREFIX.length ) );
+			if ( head.endsWith( SHELL_GROUP_SUFFIX ) ) {
+				groups.add( head.slice( 0, -SHELL_GROUP_SUFFIX.length ) );
 			}
 		}
 	}
@@ -154,7 +154,7 @@ function uiRelay( ui, message ) {
  * caller MUST pair every mount with `teardown()` (e.g. in a useEffect cleanup);
  * a second mount before teardown throws a name collision, by design.
  *
- * Every node `build` registers whose target opens `shell:<group>/` claims that
+ * Every node `build` registers whose target opens `<group>:shell/` claims that
  * group's Tap for this mount, so a slice targeting `egressPath( group, ci )`
  * needs no other declaration. A Tap stands while any mount claims its group,
  * and the last claim released removes it.

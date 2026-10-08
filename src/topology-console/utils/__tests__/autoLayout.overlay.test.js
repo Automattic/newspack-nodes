@@ -133,11 +133,11 @@ describe( 'autoLayout — the Performance dashboard in the debug overlay', () =>
 		CommandInterpreterNode.registerNodeClasses( { SliceView } );
 	} );
 
-	/** The two polled slices' Fetchers, both feeding `shell:overview`. */
+	/** The two polled slices' Fetchers, both feeding `overview:shell`. */
 	const FETCHERS = [ 'overview:fetch', 'urls:fetch' ];
 
 	/** The column past them: the group Tap between the two slices' views. */
-	const TAP_COLUMN = [ 'overview:view', 'shell:overview', 'urls:view' ];
+	const TAP_COLUMN = [ 'overview:view', 'overview:shell', 'urls:view' ];
 
 	it( "draws the overview group's fan-in on its own Tap, one column past its fetchers", () => {
 		const { at } = layOutPerformanceOverlay();
@@ -151,7 +151,7 @@ describe( 'autoLayout — the Performance dashboard in the debug overlay', () =>
 		);
 		expect( byRow ).toEqual( TAP_COLUMN );
 		// The Tap centres on the two Fetchers it collects.
-		expect( at[ 'shell:overview' ].y ).toBe(
+		expect( at[ 'overview:shell' ].y ).toBe(
 			( at[ 'overview:fetch' ].y + at[ 'urls:fetch' ].y ) / 2
 		);
 	} );
@@ -159,7 +159,7 @@ describe( 'autoLayout — the Performance dashboard in the debug overlay', () =>
 	it( "gives every group its own Tap, none of them the console session's", () => {
 		const { at, edges } = layOutPerformanceOverlay();
 		for ( const group of GROUPS ) {
-			expect( at[ `shell:${ group }` ] ).toBeDefined();
+			expect( at[ `${ group }:shell` ] ).toBeDefined();
 		}
 		expect( edges.filter( ( e ) => '_shell' === e.to ) ).toEqual( [] );
 	} );
@@ -167,7 +167,7 @@ describe( 'autoLayout — the Performance dashboard in the debug overlay', () =>
 	it( 'seats the overview slices on whole grid rows', () => {
 		const { at } = layOutPerformanceOverlay();
 		// The Tap is no slice card: it centres on its fan-in, a half row.
-		const views = TAP_COLUMN.filter( ( id ) => 'shell:overview' !== id );
+		const views = TAP_COLUMN.filter( ( id ) => 'overview:shell' !== id );
 		for ( const id of [ ...FETCHERS, ...views ] ) {
 			expect( [ id, ( ( at[ id ].y - Y_PAD ) / Y_STEP ) % 1 ] ).toEqual( [
 				id,

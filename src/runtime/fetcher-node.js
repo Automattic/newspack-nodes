@@ -42,7 +42,7 @@ const ASK_EXPIRY_S = 120;
 /**
  * Fetcher — turn ANY trigger message into ONE configured command send. The
  * dashboard composition primitive:
- * `Timer → Tee → Fetchers → shell:<group>/_http/<ci>`, where the Timer tick
+ * `Timer → Tee → Fetchers → <group>:shell/_http/<ci>`, where the Timer tick
  * hitchhikes every fetcher's command into one HTTP POST.
  *
  * args = `<receiver> <command> [<command_args>...]` (Tachikoma positional style):

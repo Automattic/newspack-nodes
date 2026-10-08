@@ -1223,10 +1223,10 @@ describe( 'Inspector (edit mode)', () => {
 		);
 		const input = container.querySelector( '#topology-ctor-route' );
 		fireEvent.change( input, {
-			target: { value: ' shell:overview/_http/performance ' },
+			target: { value: ' overview:shell/_http/performance ' },
 		} );
 		expect( onUpdateArgs ).toHaveBeenLastCalledWith( 'echo', [
-			'shell:overview/_http/performance',
+			'overview:shell/_http/performance',
 		] );
 		onUpdateArgs.mockClear();
 		fireEvent.change( input, { target: { value: 'two words' } } );
@@ -1411,13 +1411,13 @@ describe( 'Inspector (edit mode)', () => {
 		const input = container.querySelector( '#topology-target-input-echo' );
 		expect( input.value ).toBe( 'sink' );
 		fireEvent.change( input, {
-			target: { value: '  shell:overview/_http/performance ' },
+			target: { value: '  overview:shell/_http/performance ' },
 		} );
 		expect( onConnect ).not.toHaveBeenCalled();
 		fireEvent.keyDown( input, { key: 'Enter' } );
 		expect( onConnect ).toHaveBeenCalledWith(
 			'echo',
-			'shell:overview/_http/performance'
+			'overview:shell/_http/performance'
 		);
 	} );
 
@@ -1471,12 +1471,12 @@ describe( 'Inspector (edit mode)', () => {
 		const { container } = renderSingle( { onConnect } );
 		const input = container.querySelector( '#topology-target-input-echo' );
 		fireEvent.change( input, {
-			target: { value: 'shell:overview/_http perf' },
+			target: { value: 'overview:shell/_http perf' },
 		} );
 		fireEvent.keyDown( input, { key: 'Enter' } );
 		fireEvent.blur( input );
 		expect( onConnect ).not.toHaveBeenCalled();
-		expect( input.value ).toBe( 'shell:overview/_http perf' );
+		expect( input.value ).toBe( 'overview:shell/_http perf' );
 		expect( container.textContent ).toMatch( /cannot hold a space/ );
 	} );
 
@@ -1493,11 +1493,11 @@ describe( 'Inspector (edit mode)', () => {
 
 	it( 'SingleTargetField: shows a current target the draft does not hold', () => {
 		const { container } = renderSingle( {}, [
-			{ from: 'echo', to: 'shell:overview/_http/performance' },
+			{ from: 'echo', to: 'overview:shell/_http/performance' },
 		] );
 		expect(
 			container.querySelector( '#topology-target-input-echo' ).value
-		).toBe( 'shell:overview/_http/performance' );
+		).toBe( 'overview:shell/_http/performance' );
 	} );
 
 	it( 'Tee TargetsField: renders chips per wired target + an add-target input', () => {
@@ -1545,12 +1545,12 @@ describe( 'Inspector (edit mode)', () => {
 		);
 		const input = getByPlaceholderText( '+ add target…' );
 		fireEvent.change( input, {
-			target: { value: 'shell:overview/_http/performance' },
+			target: { value: 'overview:shell/_http/performance' },
 		} );
 		fireEvent.keyDown( input, { key: 'Enter' } );
 		expect( onConnect ).toHaveBeenCalledWith(
 			'tee_a',
-			'shell:overview/_http/performance'
+			'overview:shell/_http/performance'
 		);
 		expect( input.value ).toBe( '' );
 	} );

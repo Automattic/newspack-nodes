@@ -27,7 +27,7 @@ import { useVaultGraph } from '../useVaultGraph';
 const INTERPRETER = '_command_interpreter';
 const ROUTER = '_router';
 const HTTP = '_http';
-const GROUP_TAP = 'shell:vault';
+const GROUP_TAP = 'vault:shell';
 const LIST_RECV = 'vault:in';
 const LIST_VIEW = 'vault:view';
 const ADD = 'vault:add:in';
@@ -61,7 +61,7 @@ beforeEach( () => {
 } );
 
 describe( 'useVaultGraph — exospine + per-concern view wiring', () => {
-	test( 'routes Vault commands through its own Tap so `connect shell:vault` observes them', async () => {
+	test( 'routes Vault commands through its own Tap so `connect vault:shell` observes them', async () => {
 		installWire();
 		renderHook( () => useVaultGraph() );
 		// The table's own poll goes through the Tap, which counts it.

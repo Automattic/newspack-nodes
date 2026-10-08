@@ -33,7 +33,7 @@ use Newspack_Nodes\Config;
  * commands leave as one POST.
  *
  * `mount_insights_ci()` names this node `insights-demo`, the mount every Fetcher
- * addresses as `shell:insights/_http/insights-demo`.
+ * addresses as `insights:shell/_http/insights-demo`.
  */
 class Insights_CI_Demo_Node extends Service_CI_Node {
 
