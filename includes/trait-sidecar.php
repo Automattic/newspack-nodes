@@ -52,30 +52,4 @@ trait Sidecar {
 		$partition->without_write_deadletter();
 		return $partition;
 	}
-
-	/**
-	 * Carry a sidecar's records from the dir a replay superseded to the one it
-	 * named: one `rename()`, so a cursor's frames or a quarantine's segments
-	 * arrive whole, lineage included, and nothing reads them on the way. Where
-	 * the new dir already exists or the rename fails, across devices say, both
-	 * stay and the old one goes unread; the caller says what follows.
-	 *
-	 * An empty `$to` a peer creates between the check and the rename is
-	 * replaced, as `rename()` replaces an empty directory, and that loses
-	 * nothing.
-	 *
-	 * @param string|null $from The superseded dir, or null when none was built.
-	 * @param string      $to   The dir the arguments name now.
-	 * @return bool False when the old dir stays behind, its records unread.
-	 */
-	protected function carry_sidecar_dir( ?string $from, string $to ): bool {
-		if ( null === $from || $from === $to || ! \is_dir( $from ) ) {
-			return true;
-		}
-		$parent = \dirname( $to );
-		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir -- a refused move is the caller's to report, by path.
-		$room = ! \file_exists( $to ) && ( \is_dir( $parent ) || @\mkdir( $parent, 0755, true ) );
-		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_rename
-		return $room && @\rename( $from, $to );
-	}
 }

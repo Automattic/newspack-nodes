@@ -130,17 +130,6 @@ trait Durable_Reader {
 	 * `arguments()` and the one that builds them lazily — without any of them
 	 * spelling the rule again.
 	 *
-	 * A move runs as one `uninterruptible()` unit, so a cooperative stop due
-	 * inside it raises after it rather than halfway: it commits the cursor the
-	 * reader holds into the incumbent, through the sidecar still in place, then
-	 * carries the old dir to the new path through `carry_sidecar_dir()`, so the
-	 * newest frame there is where the reader stands and nothing it had passed
-	 * replays. Where the new dir already exists, both stay, and a warning names
-	 * the old dir and the cursor the reader follows now. A worker crash between
-	 * that commit and the rename leaves the frame in the old dir, which a fresh
-	 * worker, knowing only the new root, cannot find; the window is the
-	 * milliseconds between two syscalls.
-	 *
 	 * @return Partition_Node|null The offsetlog, or null when the configured dir is empty.
 	 */
 	protected function ensure_offsetlog(): ?Partition_Node {
@@ -148,34 +137,11 @@ trait Durable_Reader {
 		if ( null !== $this->offsetlog && $dir === $this->offsetlog->partition_dir() ) {
 			return $this->offsetlog;
 		}
-		$offsetlog = null;
-		Event_Framework::instance()->uninterruptible(
-			function () use ( $dir, &$offsetlog ): void {
-				$offsetlog = $this->rebuild_offsetlog( $dir );
-			}
-		);
-		return $offsetlog;
-	}
-
-	/**
-	 * The move `ensure_offsetlog()` runs as one unit: the cursor committed into
-	 * the incumbent, the incumbent retracted, its dir carried, and the sidecar
-	 * built at `$dir`.
-	 *
-	 * @param string $dir The configured dir, trimmed; empty disables the offsetlog.
-	 * @return Partition_Node|null The offsetlog, or null when `$dir` is empty.
-	 */
-	private function rebuild_offsetlog( string $dir ): ?Partition_Node {
-		$from = $this->offsetlog?->partition_dir();
-		if ( null !== $from ) {
-			$this->commit_healthy_frame();
-		}
 		$this->retract_sibling( 'offsetlog' );
 		$this->offsetlog = null;
 		if ( '' === $dir ) {
 			return null;
 		}
-		$carried   = $this->carry_sidecar_dir( $from, $dir );
 		$offsetlog = $this->make_sidecar( $dir, [
 			self::OFFSETLOG_SEGMENT_SIZE,
 			self::OFFSETLOG_MIN_SEGMENTS,
@@ -186,15 +152,12 @@ trait Durable_Reader {
 		] );
 		$this->publish_sibling( 'offsetlog', $offsetlog );
 		$this->offsetlog = $offsetlog;
-		if ( ! $carried ) {
-			$this->print_less_often( 'kept a superseded offsetlog in place, unread: ', "{$from} (now {$dir}); " . $this->cursor_followed( $offsetlog ) );
-		}
 		return $offsetlog;
 	}
 
 	/**
 	 * Commit the cursor as a graceful frame when the reader is `healthy()`, as
-	 * a non-graceful one otherwise, so a move or a stop adds no strike for a
+	 * a non-graceful one otherwise, so a stop adds no strike for a
 	 * healthy reader and a crawling or struck one keeps its lineage. A reader
 	 * that never polled and was never seeked holds no cursor worth writing.
 	 */
@@ -208,25 +171,6 @@ trait Durable_Reader {
 	/** True while the reader holds no strike: at most the first attempt, and not crawling. */
 	protected function healthy(): bool {
 		return $this->attempts <= 1 && ! $this->crawl;
-	}
-
-	/**
-	 * The cursor a reader follows once its move left the old dir behind: the
-	 * new dir's newest frame, or its own cursor with nothing durable behind it.
-	 *
-	 * @param Partition_Node $offsetlog The offsetlog just built at the new dir.
-	 */
-	private function cursor_followed( Partition_Node $offsetlog ): string {
-		try {
-			$frame = self::last_frame_of( $offsetlog );
-		} catch ( \InvalidArgumentException $e ) {
-			return 'its newest frame will not unpack: ' . Core::message_of( $e );
-		}
-		if ( null !== $frame ) {
-			$segment = \array_key_exists( 'segment', $frame ) ? Core::num_int( $frame['segment'] ) : null;
-			return 'the reader resumes at that dir\'s frame, ' . Log_Position::format( $segment, Core::num_int( $frame['offset'] ?? 0 ), null );
-		}
-		return 'the reader follows its cursor in memory, ' . Log_Position::format( $this->cursor_segment, $this->cursor_offset, null ) . ', with nothing durable behind it';
 	}
 
 	/**
