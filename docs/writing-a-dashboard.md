@@ -18,7 +18,7 @@ Do [writing-a-plugin.md](writing-a-plugin.md) first if you haven't — this guid
 
 A dashboard's data flow is a node graph. Here is the whole graph, server side and browser side, with traffic on every edge:
 
-![The dashboard's node graph in three parts: the browser send path, where insights:timer ticks insights:tee, which fans to three Fetchers that route through the _shell Tap and the _http egress into one POST; the PHP server, where insights-demo reads the offsets/example-scored.p* snapshot once per request and answers the counts, top and accumulated verbs with TO set to each request's FROM; and the browser reply path, where _router delivers each reply to its own receiver Tee, view node and widget, and a note between the two columns: each receiver fans its reply to the view, then last to its own Fetcher, which takes the ask off its outbox. Two boxes beneath contrast the three independent reply paths with the god node at counter 0 that one insights verb would produce.](img/wd-dashboard-graph.png)
+![The dashboard's node graph in three parts: the browser send path, where insights:timer ticks insights:tee, which fans to three Fetchers that route through the shell:insights group Tap and the _http egress into one POST; the PHP server, where insights-demo reads the offsets/example-scored.p* snapshot once per request and answers the counts, top and accumulated verbs with TO set to each request's FROM; and the browser reply path, where _router delivers each reply to its own receiver Tee, view node and widget, and a note between the two columns: each receiver fans its reply to the view, then last to its own Fetcher, which takes the ask off its outbox. Two boxes beneath contrast the three independent reply paths with the god node at counter 0 that one insights verb would produce.](img/wd-dashboard-graph.png)
 
 **There is no place in this graph where the whole model lives.** Counts flow on the counts edges and never touch the top-table view; the top-table reply never touches the accumulated card. That decomposition is the entire point, and it cuts both ways: **god commands are as bad as god nodes**, so the server side is three slice verbs, not one `insights` verb computing `{sources, top, accumulated}`.
 
@@ -384,12 +384,14 @@ Two fields are what a caller reaches for. `outbox` holds the asks in flight, so 
 
 ### b. Wiring the fan-out
 
-A Timer feeds a Tee, the Tee fans out to three Fetchers, and each Fetcher is `connectNode`'d to **`_shell/_http/insights-demo`**:
+A Timer feeds a Tee, the Tee fans out to three Fetchers, and each Fetcher is `connectNode`'d to **`shell:insights/_http/insights-demo`**:
 
 - **`_http`** is the substrate's [`HttpOut`](../src/runtime/http-out-node.js) egress — the boundary that POSTs the command batch to `/command`.
-- **`_shell`** is an **observe-only `Tap`** sitting *in front* of `_http`. A `Tap` forwards everything to its sink unchanged, but it's a named node on the send path — so you can `connect _shell` in the console and **watch every command going out** without touching the graph. Routing the Fetchers through `_shell/_http/insights-demo` (not `_http/insights-demo` directly) is what buys you that observability. Read `TO = _shell/_http/insights-demo` hop by hop: the Router peels `_shell` and hands the message to the Tap, whose sink returns it through the interpreter to the Router, which peels `_http`; `HttpOut` then POSTs what is left, `insights-demo`, as the command's TO.
+- **`shell:insights`** is an **observe-only `Tap`** sitting *in front* of `_http`, one per **group** — the surface a command belongs to, `insights` here. A `Tap` forwards everything to its sink unchanged, but it's a named node on the send path — so you can `connect shell:insights` in the console and **watch every command this dashboard sends** without touching the graph, and without the traffic of any other group. Routing the Fetchers through `shell:insights/_http/insights-demo` (not `_http/insights-demo` directly) is what buys you that observability. Read `TO = shell:insights/_http/insights-demo` hop by hop: the Router peels `shell:insights` and hands the message to the Tap, whose sink returns it through the interpreter to the Router, which peels `_http`; `HttpOut` then POSTs what is left, `insights-demo`, as the command's TO.
 
-Both names are reserved, so spell the path through **`egressPath( ci )`** ([`@newspack-nodes/shared/helpers/egressPath`](../src/shared/helpers/egressPath.js)) rather than by hand: it returns `_shell/_http/<ci>`, or a bare `_shell/_http` for a command-interpreter builtin such as `dump_metadata`. Skipping the Tap is silent — the command still arrives, and `connect _shell` stops seeing it.
+The group's Tap exists only while a mounted node targets it: `mountExospine` claims the group from each target its build registers, the last mount claiming it removes it, and two hooks naming one group share it. Nothing else declares the group. `_shell`, with its underscore, stays the interactive session's Tap, which the console REPL sends through; a dashboard never routes there.
+
+Spell the path through **`egressPath( group, ci )`** ([`@newspack-nodes/shared/helpers/egressPath`](../src/shared/helpers/egressPath.js)) rather than by hand: it returns `shell:<group>/_http/<ci>`, or a bare `shell:<group>/_http` for a command-interpreter builtin such as `dump_metadata`, and throws when no group is named. Skipping the Tap is silent — the command still arrives, and `connect shell:<group>` stops seeing it.
 
 ### c. The receiver reply path — why a `counts` reply only touches the counts view
 
@@ -520,7 +522,8 @@ import { TopTableViewNode } from '../nodes/top-table-view-node';
 import { AccumulatedViewNode } from '../nodes/accumulated-view-node';
 
 const SERVER = 'insights-demo';   // the server-side CI mount (real product owns unsuffixed `insights`)
-const TARGET = `_shell/_http/${ SERVER }`;   // egressPath( SERVER ) composes the same string
+const GROUP = 'insights';         // the dashboard's group: its commands pass shell:insights
+const TARGET = `shell:${ GROUP }/_http/${ SERVER }`;   // egressPath( GROUP, SERVER ) composes the same string
 
 // A digest moves on the order of minutes, so this is a retry, not a feed.
 const DEFAULT_INTERVAL_MS = 30000;
@@ -546,7 +549,7 @@ export function usePublisherInsightsGraph( opts = {} ) {
 }
 ```
 
-[`useBatchedPoll`](../src/shared/hooks/useBatchedPoll.js) owns everything a hook would otherwise wire by hand — the `mountExospine` call that brings the `_shell` Tap and the `_http` HttpOut, the fan-out `Tee`, the router-hitchhike `Timer`, and the page-visibility gate. It returns `{ interpreterRef, pollNow }`: the live interpreter, and a `pollNow()` that marks this poll due and runs the Router's tick. Each `addSliceFetcher` wires one Fetcher → `_shell/_http/insights-demo`, its receiver Tee, its view node, and the receiver's edge back to the Fetcher that settles the ask. A function `build` returns runs as cleanup before those nodes come down, which is where a dashboard releases whatever it started that is not a node. (When a slice needs a per-slice merge or dedup, pass `addSliceFetcher` a `transform: { name, nodeClass, args }` and it drops that node onto the receiver-Tee → view edge — so the transform lands on a graph edge, not inside the view.)
+[`useBatchedPoll`](../src/shared/hooks/useBatchedPoll.js) owns everything a hook would otherwise wire by hand — the `mountExospine` call that brings the `_http` HttpOut and the Tap of every group a slice targets, the fan-out `Tee`, the router-hitchhike `Timer`, and the page-visibility gate. It returns `{ interpreterRef, pollNow }`: the live interpreter, and a `pollNow()` that marks this poll due and runs the Router's tick. Each `addSliceFetcher` wires one Fetcher → `shell:insights/_http/insights-demo`, its receiver Tee, its view node, and the receiver's edge back to the Fetcher that settles the ask. A function `build` returns runs as cleanup before those nodes come down, which is where a dashboard releases whatever it started that is not a node. (When a slice needs a per-slice merge or dedup, pass `addSliceFetcher` a `transform: { name, nodeClass, args }` and it drops that node onto the receiver-Tee → view edge — so the transform lands on a graph edge, not inside the view.)
 
 ![A five-lane sequence of one router tick: the Router locks _http, notifies every hitchhiking timer, the Tee fans the tick to three Fetchers, each Fetcher decides between sending nothing without a session, re-sending an ask past retry_after_s or retiring one past 120 seconds, and minting one new ask when its outbox is empty; the commands buffer in _http and leave as one postBatch when the bracket's finally flushes; the three replies come back in one response and route TO = FROM to each receiver. Beneath it, the four gates that stop the tick fanning out, and the callout that a cadence under 1,000 ms throws and would post once per slice.](img/wd-one-tick-one-post.png)
 
@@ -556,11 +559,11 @@ A slice can also emit *live* command args per tick: `addSliceFetcher` takes an `
 
 The batching principle is the one the worker side gets from the drain loop: more traffic per tick, the same fixed cost.
 
-> **← what the two calls own.** **`useBatchedPoll( … )`** owns the mount, `_shell`/`_http`, the Timer and Tee, the visibility gate, and the first-load and unsigned-tick retries — roughly 50 lines of `useEffect` plus `mountExospine` a poll dashboard would otherwise wire by hand. **`addSliceFetcher()`** owns the per-slice block in which a Fetcher answers into a receiver Tee that feeds the view, with its optional transform slot. The hook is left with its slices. That's the dogfooding rule this guide runs on: once a third caller copies a wiring, it moves into the substrate. This example, the topology console's catalogs and event-logger-nodes' performance hook all call `useBatchedPoll`, so §4 is one call, exactly like §6 and §7.
+> **← what the two calls own.** **`useBatchedPoll( … )`** owns the mount, the group Taps and `_http`, the Timer and Tee, the visibility gate, and the first-load and unsigned-tick retries — roughly 50 lines of `useEffect` plus `mountExospine` a poll dashboard would otherwise wire by hand. **`addSliceFetcher()`** owns the per-slice block in which a Fetcher answers into a receiver Tee that feeds the view, with its optional transform slot. The hook is left with its slices. That's the dogfooding rule this guide runs on: once a third caller copies a wiring, it moves into the substrate. This example, the topology console's catalogs and event-logger-nodes' performance hook all call `useBatchedPoll`, so §4 is one call, exactly like §6 and §7.
 
-> **A catalog is one call further.** `useCatalogSlice( { scope, ci, viewClass, key, command } )` polls one CI's catalog verb as a slice — `list` by default, `dump` for a CI whose rows each carry a nested structure — and hands back the published model plus `loading`, `error` and `refresh()`. The tick *is* the retry, so a refusal recovers with no latch and no memoised promise. Its default cadence is 30 seconds, on the reasoning that a catalog changes when someone edits it.
+> **A catalog is one call further.** `useCatalogSlice( { scope, group, ci, viewClass, key, command } )` polls one CI's catalog verb as a slice — `list` by default, `dump` for a CI whose rows each carry a nested structure — and hands back the published model plus `loading`, `error` and `refresh()`. The tick *is* the retry, so a refusal recovers with no latch and no memoised promise. Its default cadence is 30 seconds, on the reasoning that a catalog changes when someone edits it.
 
-The reply routing is the same TO/FROM mechanics as the PHP side; the browser adds two hops the server's request graph has no need of, `_shell` the observe Tap and `_http` the egress that carries the command across the wire. [`Bootstrap::mount_request_graph()`](../includes/class-bootstrap.php) raises `_router` and `_command_interpreter` and stops there.
+The reply routing is the same TO/FROM mechanics as the PHP side; the browser adds two hops the server's request graph has no need of, `shell:<group>` the observe Tap and `_http` the egress that carries the command across the wire. [`Bootstrap::mount_request_graph()`](../includes/class-bootstrap.php) raises `_router` and `_command_interpreter` and stops there.
 
 ---
 
@@ -954,7 +957,7 @@ Each `TICK` flows from a source through the summarizer and the scorer into `scor
 **Now the payoff the god node forfeits — inspect the live graph.** Because every edge carries real traffic, you can introspect any of it without redeploying. The dashboard's nodes live in the *browser*, so their REPL is the page's own — the debug overlay (§9) or the topology console — not `wp nodes cli`, which attaches to the worker's server-side graph:
 
 ```
-> connect _shell    # watch EVERY command the Fetchers send, live
+> connect shell:insights    # watch EVERY command the Fetchers send, live
 > ls                # insights:timer, insights:tee, *:fetch — all at non-zero counters
 ```
 
@@ -990,14 +993,14 @@ One mount, and every dashboard you build the right way becomes self-documenting 
 
 **You wrote:** a `Scorer` node (one `fill`, one `score()` seam), two snapshot methods on the digest, the four durable-snapshot topology lines, an `Insights_CI` with **three small slice verbs** sharing one memoized read, **three thin `SliceViewNode` subclasses** (each only an `emptySlice()`), a `useBatchedPoll` hook whose `build` is one `addSliceFetcher` per slice, **three thin widgets** each reading its own node, the two client-side document builders and their shared label normalizer, and the thin build/jest/enqueue glue — a `scripts/build.mjs`, a `jest.config.js`, and the menu registration beside the enqueue.
 
-**The substrate gave you:** the durable log + snapshotting Consumer, the command protocol and routing, the `_http`/`_shell` boundary, the JS node runtime and `mountExospine`, `useNodeField`, the **`Fetcher`** composition primitive, and — the through-line of this guide — primitives that each own boilerplate this example would otherwise carry:
+**The substrate gave you:** the durable log + snapshotting Consumer, the command protocol and routing, the `_http` boundary and its group Taps, the JS node runtime and `mountExospine`, `useNodeField`, the **`Fetcher`** composition primitive, and — the through-line of this guide — primitives that each own boilerplate this example would otherwise carry:
 
 | You call | Instead of writing |
 |---|---|
 | `Fetcher` (trigger → one configured command, FROM=receiver) | a bespoke command-firing view node per dashboard (a Shell, verboten) |
-| `useBatchedPoll( … )` | the ~50-line `mountExospine` + `_shell`/`_http` + Timer/Tee + page-visibility mount, copy-pasted per dashboard |
+| `useBatchedPoll( … )` | the ~50-line `mountExospine` + group Tap/`_http` + Timer/Tee + page-visibility mount, copy-pasted per dashboard |
 | `addSliceFetcher()` | the 6-line per-slice block wiring a Fetcher to a receiver Tee and a view (the `SLICES.forEach` body) |
-| `egressPath( ci )` | the `_shell/_http/<ci>` path spelled out at every send site |
+| `egressPath( group, ci )` | the `shell:<group>/_http/<ci>` path spelled out at every send site |
 | `Partition_Node::read_latest_snapshot_cache()` | a per-dashboard glob and cache descent, over a 20-line offsetlog segment walk |
 | `Service_CI_Node` + `node_schema()` verbs | a hand-built interpreter, a REST controller and a per-verb capability check |
 | `@newspack-nodes/shared/errorMessage` | a per-view error-coercion helper, copy-pasted |

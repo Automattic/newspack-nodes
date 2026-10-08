@@ -3,16 +3,16 @@
  * independently polled slices and one on-demand probe, built on the substrate's
  * batched-poll toolkit (`useBatchedPoll` + `addSliceFetcher`).
  *
- *   <tee> → summary:fetch (Fetcher, FROM=summary:in) → _shell/_http/aggregator
+ *   <tee> → summary:fetch (Fetcher, FROM=summary:in) → shell:aggregator/_http/aggregator
  *           summary:in (Tee) → summary:view (AggregatorSummaryView)
- *   <tee> → servers:fetch (Fetcher, FROM=servers:in) → _shell/_http/aggregator
+ *   <tee> → servers:fetch (Fetcher, FROM=servers:in) → shell:aggregator/_http/aggregator
  *           servers:in (Tee) → servers:view (AggregatorServersView)
  *
  * `useBatchedPoll` owns everything that is not a slice: the Timer, the fan-out
- * Tee, the `_shell`/`_http` egress, the lock-flush batching that puts both
- * slices in ONE HttpOut POST per tick, and the page-visibility gate that
- * suspends polling on a hidden tab. The `_shell` Tap in front of `_http` is
- * what lets the console watch every command this screen sends.
+ * Tee, the `shell:aggregator`/`_http` egress, the lock-flush batching that puts
+ * both slices in ONE HttpOut POST per tick, and the page-visibility gate that
+ * suspends polling on a hidden tab. The `shell:aggregator` Tap in front of
+ * `_http` is what lets the console watch every command this screen sends.
  *
  * The server CI replies TO=FROM, so each slice's reply lands on its own
  * receiver Tee and travels its own path to its own view: an answer to `summary`
@@ -51,12 +51,15 @@ import { egressPath } from '@newspack-nodes/shared/helpers/egressPath';
 /** The server CI mount owning `summary`, `list_servers` and `probe`. */
 const SERVER = 'aggregator';
 
+/** The group every command this screen sends belongs to. */
+const GROUP = 'aggregator';
+
 /**
- * The egress path both Fetchers target: out through the observe-only `_shell`
- * Tap, then the `_http` HttpOut, then the server CI mount. `useBatchedPoll`
- * provides the first two; naming the mount is this hook's half.
+ * The egress path both Fetchers target: out through the observe-only
+ * `shell:aggregator` Tap, then the `_http` HttpOut, then the server CI mount.
+ * `useBatchedPoll` provides the first two; naming the mount is this hook's half.
  */
-const TARGET = egressPath( SERVER );
+const TARGET = egressPath( GROUP, SERVER );
 
 /**
  * The cadences the dashboard's dropdown offers, as milliseconds in string form
@@ -147,6 +150,7 @@ export function useAggregatorStatusGraph( { onAnswer } = {} ) {
 
 	// ONE deep probe for every card; the reply names the spoke it answered.
 	const probe = useCommandOnce( {
+		group: GROUP,
 		ci: SERVER,
 		command: 'probe',
 		scope: PROBE_SCOPE,

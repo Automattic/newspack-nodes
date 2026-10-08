@@ -31,7 +31,7 @@
 <div class="lane card" data-lane="0"><h3><span class="mono">_router</span></h3><p>Fires every <span class="mono">ROUTER_TICK_MS</span>, 1,000 ms, on its own slot.</p></div>
 <div class="lane card" data-lane="1"><h3>Timer → Tee</h3><p><span class="mono">insights:timer</span> rides the Router's TIMER channel; <span class="mono">insights:tee</span> fans its tick.</p></div>
 <div class="lane card" data-lane="2"><h3>Three Fetchers</h3><p>Each holds one configured verb and an outbox of asks in flight.</p></div>
-<div class="lane card" data-lane="3"><h3><span class="mono">_shell</span> → <span class="mono">_http</span></h3><p>The observe-only Tap, then the <span class="mono">HttpOut</span> egress that buffers while locked.</p></div>
+<div class="lane card" data-lane="3"><h3><span class="mono">shell:insights</span> → <span class="mono">_http</span></h3><p>The group's observe-only Tap, then the <span class="mono">HttpOut</span> egress that buffers while locked.</p></div>
 <div class="lane card" data-lane="4"><h3>Server</h3><p><span class="mono">/newspack-nodes/v1/command</span> routes each command to <span class="mono">insights-demo</span>.</p></div>
 
 <div class="hop" data-arrow="0,3" data-cap="lock()" data-span="0,3"><span class="n">1</span><span class="mono">RouterNode.fireCb()</span> opens the bracket: <span class="mono">_http.lock()</span>, so every <span class="mono">fill()</span> reaching <span class="mono">_http</span> buffers instead of posting.</div>
@@ -45,11 +45,11 @@
   <div class="body">
     <div class="chip">No signing session yet: send nothing; the next poll carries it.</div>
     <div class="chip">An ask is standing: re-send it only once <span class="mono">retry_after_s</span> (15 s; 0 disables) has passed unanswered, retire it outright at 120 s, and mint nothing new.</div>
-    <div class="chip">Outbox empty: mint ONE ask — <span class="mono">TM_COMMAND</span>, <span class="mono">FROM = receiver</span>, <span class="mono">VALUE = { name, arguments }</span> — mark it LOCAL (this process's own mint, and its signature), and forward with <span class="mono">TO = _shell/_http/insights-demo</span>.</div>
+    <div class="chip">Outbox empty: mint ONE ask — <span class="mono">TM_COMMAND</span>, <span class="mono">FROM = receiver</span>, <span class="mono">VALUE = { name, arguments }</span> — mark it LOCAL (this process's own mint, and its signature), and forward with <span class="mono">TO = shell:insights/_http/insights-demo</span>.</div>
   </div>
 </div>
 
-<div class="hop" data-arrow="2,3" data-cap="fill, buffered" data-span="2,4"><span class="n">5</span>The Router peels <span class="mono">_shell</span>, the Tap passes the command through, the Router peels <span class="mono">_http</span>, and <span class="mono">HttpOut</span> pushes it onto its buffer with <span class="mono">insights-demo</span> as the remaining TO.</div>
+<div class="hop" data-arrow="2,3" data-cap="fill, buffered" data-span="2,4"><span class="n">5</span>The Router peels <span class="mono">shell:insights</span>, the Tap passes the command through, the Router peels <span class="mono">_http</span>, and <span class="mono">HttpOut</span> pushes it onto its buffer with <span class="mono">insights-demo</span> as the remaining TO.</div>
 
 <div class="hop" data-arrow="3,4" data-cap="finally: flush() — one postBatch" data-span="2,4"><span class="n">6</span>The bracket closes in a <span class="mono">finally</span>, even when a subscriber throws. <span class="mono">flush()</span> packs the buffer once and POSTs it as one batch; a tick that buffered nothing costs no request.</div>
 

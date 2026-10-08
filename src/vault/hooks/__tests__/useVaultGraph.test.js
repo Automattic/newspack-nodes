@@ -27,7 +27,7 @@ import { useVaultGraph } from '../useVaultGraph';
 const INTERPRETER = '_command_interpreter';
 const ROUTER = '_router';
 const HTTP = '_http';
-const CONSOLE_TAP = '_shell';
+const GROUP_TAP = 'shell:vault';
 const LIST_RECV = 'vault:in';
 const LIST_VIEW = 'vault:view';
 const ADD = 'vault:add:in';
@@ -61,13 +61,12 @@ beforeEach( () => {
 } );
 
 describe( 'useVaultGraph — exospine + per-concern view wiring', () => {
-	test( 'routes Vault commands through the _shell Tap so they are observable via `connect _shell`', async () => {
+	test( 'routes Vault commands through its own Tap so `connect shell:vault` observes them', async () => {
 		installWire();
 		renderHook( () => useVaultGraph() );
-		// The table's own poll goes through _shell, so the Tap counts it.
+		// The table's own poll goes through the Tap, which counts it.
 		await waitFor(
-			() =>
-				expect( Core.node( CONSOLE_TAP ).counter ).toBeGreaterThan( 0 ),
+			() => expect( Core.node( GROUP_TAP ).counter ).toBeGreaterThan( 0 ),
 			{ timeout: 6000 }
 		);
 	} );
@@ -87,7 +86,7 @@ describe( 'useVaultGraph — exospine + per-concern view wiring', () => {
 			expect( Core.node( name ).sink ).toBe( interpreter );
 			const fetcher = name.replace( /:in$/, ':fetch' );
 			expect( Core.node( fetcher ).target ).toBe(
-				`${ CONSOLE_TAP }/${ HTTP }/vault`
+				`${ GROUP_TAP }/${ HTTP }/vault`
 			);
 		}
 	} );

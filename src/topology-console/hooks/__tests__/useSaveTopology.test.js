@@ -43,6 +43,9 @@ it( 'sends save on the tick, once, with no ID and no KEY', async () => {
 	expect( sent[ ID ] ).toBe( '' );
 	expect( sent[ KEY ] ).toBe( '' );
 	expect( onDone.mock.calls[ 0 ][ 0 ].result ).toEqual( SAVED );
+	// A console button's write leaves through the console's group Tap.
+	expect( Core.node( 'shell:console' ).counter ).toBe( 1 );
+	expect( Core.node( '_shell' ).counter ).toBe( 0 );
 } );
 
 it( 'hands a verb refusal to onDone rather than a result', async () => {

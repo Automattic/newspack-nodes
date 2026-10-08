@@ -13,8 +13,10 @@ import { attemptEach, raise } from './failures';
  * pipeline without diverting it, and every tap is served before that
  * passthrough runs.
  *
- * The backbone mounts one, `_shell`: every command a session sends reaches the
- * interpreter through it, so the console can watch its own traffic.
+ * The backbone mounts one, `_shell`: every command an interactive session
+ * sends reaches the interpreter through it, so the console can watch its own
+ * traffic. A dashboard's commands pass `shell:<group>` instead, one Tap per
+ * group, which `mountExospine` raises for every mount whose nodes target it.
  */
 export class TapNode extends TeeNode {
 	/**

@@ -24,6 +24,9 @@ import { views } from '../nodes/register';
 /** The server CI mount the list poll and all four verbs are addressed to. */
 const VAULT_CI = 'vault';
 
+/** The group every command the Vault screen sends belongs to. */
+const GROUP = 'vault';
+
 /**
  * The list poll's cadence. Credentials change only when the operator on this
  * tab edits them, and that edit lands through its own answer — so the poll is
@@ -76,6 +79,7 @@ const LIST_INTERVAL_MS = 30000;
 export function useVaultGraph( { onAnswer } = {} ) {
 	const list = useCatalogSlice( {
 		scope: 'vault',
+		group: GROUP,
 		ci: VAULT_CI,
 		// The CLASS, not the name: `includeNodes` is per-bundle (ADR-16).
 		viewClass: views.VaultListView,
@@ -104,22 +108,26 @@ export function useVaultGraph( { onAnswer } = {} ) {
 		};
 
 	const add = useCommandOnce( {
+		group: GROUP,
 		ci: VAULT_CI,
 		command: 'add',
 		onDone: answered( 'add' ),
 	} );
 	const update = useCommandOnce( {
+		group: GROUP,
 		ci: VAULT_CI,
 		command: 'update',
 		onDone: answered( 'update' ),
 	} );
 	const remove = useCommandOnce( {
+		group: GROUP,
 		ci: VAULT_CI,
 		command: 'delete',
 		onDone: answered( 'delete' ),
 	} );
 	// The probe is read-only: it changes nothing the table would show.
 	const test = useCommandOnce( {
+		group: GROUP,
 		ci: VAULT_CI,
 		command: 'test',
 		onDone: answered( 'test' ),

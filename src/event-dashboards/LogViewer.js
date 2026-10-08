@@ -18,7 +18,7 @@ import { __ } from '@wordpress/i18n';
 
 import { Core } from '../runtime/core';
 import { useNodeField } from '../runtime/react';
-import { useLogViewerGraph } from './hooks/useLogViewerGraph';
+import { useLogViewerGraph, GROUP } from './hooks/useLogViewerGraph';
 import LogStreamViewer, {
 	debugValue,
 } from '@newspack-nodes/shared/components/LogStreamViewer';
@@ -288,6 +288,7 @@ export default function LogViewer( { headerControlsSlot } ) {
 	const { source, refresh } = useLogStatusSegments( {
 		sub: selectedLog,
 		scope: 'log-viewer-segments',
+		group: GROUP,
 	} );
 
 	const { jump, sidebar } = useSegmentBrowse( {

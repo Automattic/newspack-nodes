@@ -1,7 +1,7 @@
 /**
  * A node path typed as text, with the graph's own node names as suggestions.
  *
- * A route names a path, not only a local node: `_shell/_http/performance`
+ * A route names a path, not only a local node: `shell:url/_http/performance`
  * reaches a node in another process, which no picker over this graph can
  * offer. A native `<input list>` over a `<datalist>` suggests without
  * restricting, where WordPress's ComboboxControl refuses free text. A TSL token

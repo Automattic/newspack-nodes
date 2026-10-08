@@ -1158,12 +1158,12 @@ describe( 'Inspector (view mode)', () => {
 		expect( onRemoveEdge ).toHaveBeenCalledWith( 'tee', '_sse/workers' );
 		const add = getByPlaceholderText( '+ add target…' );
 		fireEvent.change( add, {
-			target: { value: '_shell/_http/performance' },
+			target: { value: 'shell:overview/_http/performance' },
 		} );
 		fireEvent.keyDown( add, { key: 'Enter' } );
 		expect( onConnect ).toHaveBeenCalledWith(
 			'tee',
-			'_shell/_http/performance'
+			'shell:overview/_http/performance'
 		);
 	} );
 
@@ -1983,13 +1983,13 @@ describe( 'Inspector (view mode)', () => {
 		fireEvent.click( getByText( 'set_target' ) );
 		const input = document.body.querySelector( '.topology-modal input' );
 		fireEvent.change( input, {
-			target: { value: '_shell/_http/performance' },
+			target: { value: 'shell:overview/_http/performance' },
 		} );
 		fireEvent.click( getByText( 'Run' ) );
 		expect( onAction ).toHaveBeenCalledWith( 'invoke', 'echo', {
 			verb: 'set_target',
 			kind: 'command',
-			args: [ '--target=_shell/_http/performance' ],
+			args: [ '--target=shell:overview/_http/performance' ],
 		} );
 	} );
 

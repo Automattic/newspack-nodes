@@ -244,6 +244,8 @@ describe( 'useLogViewerGraph — exospine + RemoteLink wiring', () => {
 			.find( ( m ) => 'list_logs' === m[ VALUE ]?.name );
 		expect( listMsg ).toBeTruthy();
 		expect( listMsg[ TO ] ).toBe( 'raw-logs' );
+		// It left through the Log Viewer's own Tap.
+		expect( Core.node( 'shell:log-viewer' ).counter ).toBe( 1 );
 		// View got the logs list and defaulted the selection to logs[0].key.
 		const view = Core.node( VIEW );
 		expect( view.view.logs ).toHaveLength( 2 );

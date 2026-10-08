@@ -21,6 +21,9 @@ import { views } from '../nodes/register';
 /** The server CI mount all three verbs address (`Sessions_CI_Node`). */
 const SESSIONS_CI = 'sessions';
 
+/** The group every command the Sessions screen sends belongs to. */
+const GROUP = 'sessions';
+
 /**
  * A session lapses on its own TTL with nobody editing, so this listing goes
  * stale on a clock rather than on an edit. Polling well under the catalog
@@ -60,6 +63,7 @@ const LIST_INTERVAL_MS = 5000;
 export function useSessionsGraph( { onAnswer } = {} ) {
 	const list = useCatalogSlice( {
 		scope: 'sessions',
+		group: GROUP,
 		ci: SESSIONS_CI,
 		viewClass: views.SessionListView,
 		key: 'sessions',
@@ -74,11 +78,13 @@ export function useSessionsGraph( { onAnswer } = {} ) {
 	};
 
 	const create = useCommandOnce( {
+		group: GROUP,
 		ci: SESSIONS_CI,
 		command: 'create',
 		onDone: answered( 'create' ),
 	} );
 	const revoke = useCommandOnce( {
+		group: GROUP,
 		ci: SESSIONS_CI,
 		command: 'revoke',
 		onDone: answered( 'revoke' ),

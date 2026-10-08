@@ -6,6 +6,7 @@ import { Node } from '../node';
 import names from '../reserved-node-names.json';
 import { DumperNode } from '../dumper-node';
 import { CallbackNode } from '../callback-node';
+import { TapNode } from '../tap-node';
 import {
 	newMessage,
 	TYPE,
@@ -570,6 +571,174 @@ describe( 'the _ui relay with no receiver behind it', () => {
 	test( 'still hides an `ok:` reply while debug_ui is off', () => {
 		expect( endAtBareUi( TM_COMMAND | TM_RESPONSE, 'ok: paused\n' ) ).toBe(
 			''
+		);
+	} );
+} );
+
+describe( 'mountExospine( build ) — shell group Taps, derived from targets', () => {
+	/**
+	 * A build making one node per path, each targeting it, as a slice's
+	 * Fetcher targets `egressPath( group, ci )`.
+	 *
+	 * @param {...string} paths Target paths.
+	 * @return {Function} The build.
+	 */
+	const targeting =
+		( ...paths ) =>
+		( { interpreter } ) =>
+			paths.forEach( ( path, i ) =>
+				interpreter
+					.makeNode( 'Node', `sender-${ i }-${ path }` )
+					.connectNode( path )
+			);
+
+	test( 'mounts a Tap for each group a built node targets, with no declaration', () => {
+		const { interpreter } = mountExospine(
+			targeting( 'shell:quokka/_http/wombat-ci', 'shell:kea/_http' )
+		);
+
+		for ( const name of [ 'shell:quokka', 'shell:kea' ] ) {
+			const tap = Core.node( name );
+			expect( tap ).toBeInstanceOf( TapNode );
+			expect( tap.sink ).toBe( interpreter );
+		}
+		// A group Tap is a sibling of `_shell`, never routed through it.
+		expect( Core.node( 'shell:quokka' ).sink ).not.toBe(
+			Core.node( names.CONSOLE_TAP )
+		);
+	} );
+
+	test( 'claims nothing for a target naming no group', () => {
+		mountExospine( targeting( `${ names.HTTP }/wombat-ci`, 'shellfish' ) );
+
+		expect(
+			[ ...Core.nodes.keys() ].filter( ( n ) => n.startsWith( 'shell:' ) )
+		).toEqual( [] );
+	} );
+
+	test( 'a rebuild naming another group releases the old Tap and mounts the new', () => {
+		let group = 'quokka';
+		const { reinit } = mountExospine( ( spine ) =>
+			targeting( `shell:${ group }/_http/wombat-ci` )( spine )
+		);
+		expect( Core.node( 'shell:quokka' ) ).toBeInstanceOf( TapNode );
+
+		group = 'kea';
+		reinit();
+
+		expect( Core.node( 'shell:quokka' ) ).toBeNull();
+		expect( Core.node( 'shell:kea' ).sink ).toBe(
+			Core.node( names.COMMAND_INTERPRETER )
+		);
+	} );
+
+	test( 'the Tap stands ahead of the first send the build schedules', async () => {
+		let seen = null;
+		mountExospine( ( spine ) => {
+			targeting( 'shell:quokka/_http/wombat-ci' )( spine );
+			Promise.resolve().then( () => {
+				seen = Core.node( 'shell:quokka' );
+			} );
+		} );
+		await Promise.resolve();
+
+		expect( seen ).toBeInstanceOf( TapNode );
+	} );
+
+	test( 'the group Tap outlives an owner while another owner of it is mounted', () => {
+		const first = mountExospine( targeting( 'shell:quokka/_http' ) );
+		const second = mountExospine( targeting( 'shell:quokka/_http/x' ), {
+			passenger: true,
+		} );
+		const tap = Core.node( 'shell:quokka' );
+		expect( tap ).toBeInstanceOf( TapNode );
+
+		second.teardown();
+		expect( Core.node( 'shell:quokka' ) ).toBe( tap );
+
+		first.teardown();
+		expect( Core.node( 'shell:quokka' ) ).toBeNull();
+	} );
+
+	test( 'the last owner out removes the Tap even when the owner left first', () => {
+		const owner = mountExospine( targeting( 'shell:quokka/_http' ) );
+		const rider = mountExospine( targeting( 'shell:quokka/_http/x' ), {
+			passenger: true,
+		} );
+
+		owner.teardown();
+		expect( Core.node( 'shell:quokka' ) ).toBeInstanceOf( TapNode );
+
+		rider.teardown();
+		expect( Core.node( 'shell:quokka' ) ).toBeNull();
+	} );
+
+	test( "a build's teardown never removes a group Tap another mount claims", () => {
+		const first = mountExospine( targeting( 'shell:quokka/_http' ) );
+		const second = mountExospine( targeting( 'shell:quokka/_http/x' ), {
+			passenger: true,
+		} );
+
+		second.reinit();
+		first.reinit();
+
+		expect( Core.node( 'shell:quokka' ) ).toBeInstanceOf( TapNode );
+		second.teardown();
+		first.teardown();
+	} );
+
+	test( 'a command addressed to the group reaches the interpreter through its Tap', () => {
+		const { interpreter } = mountExospine(
+			targeting( 'shell:quokka/_http' )
+		);
+		const seen = [];
+		interpreter.fill = ( m ) => seen.push( m );
+
+		const m = newMessage();
+		m[ TO ] = 'shell:quokka/_http/wombat-ci';
+		Core.node( 'shell:quokka' ).fill( m );
+
+		expect( Core.node( 'shell:quokka' ).counter ).toBe( 1 );
+		expect( seen ).toHaveLength( 1 );
+	} );
+
+	test( 'a full rebuild re-points the group Tap at the fresh interpreter', () => {
+		mountExospine( targeting( 'shell:quokka/_http' ) );
+
+		Core.bumpGraphGeneration();
+
+		expect( Core.node( 'shell:quokka' ).sink ).toBe(
+			Core.node( names.COMMAND_INTERPRETER )
+		);
+	} );
+
+	test( "a passenger's group follows a replaced backbone", () => {
+		const rider = mountExospine( targeting( 'shell:quokka/_http' ), {
+			passenger: true,
+		} );
+		const owner = mountExospine( () => {} );
+
+		Core.bumpGraphGeneration();
+
+		expect( Core.node( 'shell:quokka' ).sink ).toBe(
+			Core.node( names.COMMAND_INTERPRETER )
+		);
+		rider.teardown();
+		owner.teardown();
+	} );
+
+	test( 'a Reset Graph that removed every node brings the group Tap back', () => {
+		mountExospine( targeting( 'shell:quokka/_http' ) );
+
+		for ( const name of [ ...Core.nodes.keys() ] ) {
+			if ( names.ROUTER !== name ) {
+				Core.node( name ).removeNode();
+			}
+		}
+		Core.bumpGraphGeneration();
+
+		expect( Core.node( 'shell:quokka' ).sink ).toBe(
+			Core.node( names.COMMAND_INTERPRETER )
 		);
 	} );
 } );

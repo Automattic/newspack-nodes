@@ -4,7 +4,7 @@
  * travelling its own path back to its own view node.
  *
  *   insights:timer (Timer) ─> insights:tee (Tee) ─┬> source-counts:fetch (Fetcher) ─┐
- *                                                 ├> top-table:fetch     (Fetcher) ─┤  target = _shell/_http/insights-demo
+ *                                                 ├> top-table:fetch     (Fetcher) ─┤  target = shell:insights/_http/insights-demo
  *                                                 └> accumulated:fetch   (Fetcher) ─┘
  *   source-counts:in (Tee) ─> source-counts:view ─> <SourceCounts/>
  *   top-table:in     (Tee) ─> top-table:view     ─> <TopTable/>
@@ -19,7 +19,7 @@
  * id or a promise registry (ADR-7).
  *
  * `useBatchedPoll` owns everything that is not a slice: the exospine mount that
- * brings the `_shell` Tap and the `_http` HttpOut, the fan-out Tee, the
+ * brings the `shell:insights` Tap and the `_http` HttpOut, the fan-out Tee, the
  * router-hitchhike Timer, and the page-visibility gate that unregisters the
  * Timer while the tab is hidden. The Router, not this hook, brackets each tick
  * with the `_http` lock and flush, so the tick's three commands leave as ONE
@@ -53,16 +53,23 @@ const SERVER = 'insights-demo';
 const DEFAULT_INTERVAL_MS = 30000;
 
 /**
- * The egress path every Fetcher targets — out through the observe-only
- * `_shell` Tap, then the `_http` HttpOut, then the server CI. Going through
- * `_shell` rather than straight to `_http` is what lets `connect _shell` in the
- * console watch every command leaving the page.
- *
- * `egressPath( SERVER )` from `@newspack-nodes/shared/helpers/egressPath`
- * composes the same string. A dashboard outside this tutorial calls it rather
- * than respelling two reserved names.
+ * The group every command this dashboard sends belongs to. It names the
+ * observe-only Tap those commands pass, `shell:insights`, which the poll mounts
+ * because a Fetcher it built targets it.
  */
-const TARGET = `_shell/_http/${ SERVER }`;
+const GROUP = 'insights';
+
+/**
+ * The egress path every Fetcher targets — out through the group's
+ * `shell:insights` Tap, then the `_http` HttpOut, then the server CI. Going
+ * through the Tap rather than straight to `_http` is what lets
+ * `connect shell:insights` in the console watch every command leaving the page.
+ *
+ * `egressPath( GROUP, SERVER )` from `@newspack-nodes/shared/helpers/egressPath`
+ * composes the same string. A dashboard outside this tutorial calls it rather
+ * than respelling the path by hand.
+ */
+const TARGET = `shell:${ GROUP }/_http/${ SERVER }`;
 
 /**
  * One entry per card: the Fetcher that asks, the receiver Tee a reply pivots

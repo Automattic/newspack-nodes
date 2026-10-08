@@ -26,12 +26,12 @@ CommandInterpreterNode.registerNodeClasses( { Current: CurrentNode } );
  *                    ─> <fetcher>                     …and settles the ask
  *
  * A Fetcher emits its ONE configured command (`<receiver> <command>`) toward
- * `target` (`_shell/_http/<ci>`); the server CI replies `TO = FROM = receiver`,
- * so the reply lands on the receiver `Tee`, which fans it to the view node — an
- * independent reply path per slice, nothing crossing and nothing to correlate
- * (ADR-7). The optional `transform` slot drops a Hook/Callback/Counter node onto
- * the receiver-Tee → view edge so a per-slice merge/dedup lands on a graph edge,
- * not inside the view.
+ * `target` (`shell:<group>/_http/<ci>`); the server CI replies
+ * `TO = FROM = receiver`, so the reply lands on the receiver `Tee`, which fans
+ * it to the view node — an independent reply path per slice, nothing crossing
+ * and nothing to correlate (ADR-7). The optional `transform` slot drops a
+ * Hook/Callback/Counter node onto the receiver-Tee → view edge so a per-slice
+ * merge/dedup lands on a graph edge, not inside the view.
  *
  * The receiver fans the reply back to the Fetcher too, which is what settles the
  * ask so the next tick may make a new one — the view cannot do it, because a
@@ -46,7 +46,7 @@ CommandInterpreterNode.registerNodeClasses( { Current: CurrentNode } );
  * sends a refusal to the view itself.
  *
  * Pair it with `useBatchedPoll`, whose `build` calls this once per slice and
- * which owns the `_shell`/`_http`/Timer/lock-flush boilerplate.
+ * which owns the group Tap, `_http`, Timer and lock-flush boilerplate.
  *
  * @param {Object}           interpreter         The mounted CommandInterpreter node.
  * @param {Object}           slice
@@ -56,7 +56,7 @@ CommandInterpreterNode.registerNodeClasses( { Current: CurrentNode } );
  * @param {string}           slice.view          View node name (`<subject>:view`).
  * @param {string|NodeClass} slice.viewClass     The view node's class, or its registered name. Hand the CLASS when you have it: the name map is a per-bundle static, so a station tab building its graph through another bundle's interpreter cannot resolve a name its own bundle registered (ADR-16).
  * @param {TeeNode|Node}     slice.tee           The node the tick fans out from. A Tee for a slice hanging off a shared poll; a Timer for one that owns its own cadence, as the URL-detail modal does. All this needs is `connectNode`, which both carry — declaring the Tee alone refuses the second shape the toolkit was built for.
- * @param {string}           slice.target        Egress path the Fetcher targets (`_shell/_http/<ci>`).
+ * @param {string}           slice.target        Egress path the Fetcher targets, `egressPath( group, ci )`; the mount building this slice claims the group's Tap from it.
  * @param {string}           [slice.controlFrom] Control origin for a view that takes local controls: the FROM its dashboard mints under. Omitted for the majority, whose view class owns no control path — stamping every view plants an inert field on them, and the wrong name on any view whose controls come from its transform rather than itself.
  * @param {SliceTransform}   [slice.transform]   Node inserted on the gate → view edge.
  * @param {() => ?string[]}  [slice.argsFn]      Fire-time getter assigned to the Fetcher's `command_args`, so each tick emits live, UI-state-driven args (filter / sort / page) without re-wiring the graph. A null return sends nothing that tick.

@@ -115,6 +115,8 @@ const decodeSubject = ( path ) =>
  *
  * @param {Object}    o             Options.
  * @param {string}    o.command     The verb to send.
+ * @param {string}    o.group       The surface sending it, whose
+ *                                  `shell:<group>` Tap it passes.
  * @param {string}    [o.ci]        The server CI mount the verb lives on; omit
  *                                  for an interpreter builtin, which has none.
  * @param {string}    [o.scope]     Names this verb's own nodes; defaults to
@@ -136,9 +138,11 @@ const decodeSubject = ( path ) =>
  * @return {{run: (args: string[]) => void, abandon: () => void, isPending: (subject: ?string) => boolean, result: ?Object, error: ?string, errorData: ?Object, answeredArgs: ?string[], pending: boolean}}
  *   A screen serving many rows reads each answer through `onDone`, which
  *   names the subject it was about; what is returned here is the last one.
+ * @throws {TypeError} On an option this hook does not take, or no group.
  */
 export function useCommandOnce( {
 	command,
+	group,
 	ci = '',
 	scope = ci ? `${ ci }:${ command }` : command,
 	onDone,
@@ -155,7 +159,7 @@ export function useCommandOnce( {
 			) }`
 		);
 	}
-	const target = egressPath( ci );
+	const target = egressPath( group, ci );
 	const fetcher = `${ scope }:fetch`;
 	const view = `${ scope }:result`;
 

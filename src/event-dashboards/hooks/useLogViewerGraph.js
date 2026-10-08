@@ -21,13 +21,15 @@ import {
 	useLogCatalog,
 } from '@newspack-nodes/shared/hooks/useStreamGraph';
 import { views } from '../nodes/register';
-import { egressPath } from '@newspack-nodes/shared/helpers/egressPath';
 
 /** The service CI carrying `list_logs`, `dump_log` and `read_message`. */
 const RAW_LOGS_CI = 'raw-logs';
 
 /** Names every node this graph owns: `<PREFIX>:link`, `:stream`, `:view`. */
 const PREFIX = 'log-viewer';
+
+/** The group every command the Log Viewer sends belongs to. */
+export const GROUP = 'log-viewer';
 
 /**
  * Mount the Log Viewer's graph. The whole catalog goes to the view,
@@ -52,13 +54,15 @@ export function useLogViewerGraph() {
 		graph;
 	const step = useSteppedRead( {
 		graph,
+		group: GROUP,
 		ci: RAW_LOGS_CI,
 		command: 'read_message',
 	} );
 	const logs = useLogCatalog( {
 		prefix: PREFIX,
+		group: GROUP,
+		ci: RAW_LOGS_CI,
 		command: 'list_logs',
-		target: egressPath( RAW_LOGS_CI ),
 	} );
 
 	// Record the pick in the view; resubscribe re-opens (tail) if active.
