@@ -194,7 +194,7 @@ describe( 'useCommandOnce', () => {
 	it( 'clips onto the backbone as a passenger, never its owner', async () => {
 		renderSave();
 		await act( async () => {} );
-		expect( Core.backboneOwned ).toBe( false );
+		expect( Core.backboneOwner ).toBeNull();
 		expect( Core.rebuildable ).toBe( false );
 	} );
 

@@ -4,7 +4,7 @@
  * streamed as `sources/<name>`.
  *
  * A THIN view over the `log-viewer:*` node graph (mounted by
- * `useLogViewerGraph`): `log-viewer:link` holds the SSE connection and
+ * `useLogViewerGraph`): `log-viewer:stream` rides the page's one SSE link and
  * `log-viewer:view` holds the ring + view model. The chrome (toolbar dropdown,
  * filter, counts, pause, clear, banner, body split) is the shared
  * `LogStreamViewer`; browsing the selected log's segments (`dump_log`) is the
@@ -318,7 +318,7 @@ export default function LogViewer( { headerControlsSlot } ) {
 			pickerLabel={ __( 'Browse a log', 'newspack-nodes' ) }
 			isPaused={ isPaused }
 			connectionError={ connectionError }
-			linkNode="log-viewer:link"
+			streamNode="log-viewer:stream"
 			onTogglePause={ () => setPaused( ! isPaused ) }
 			onStep={ step }
 			onJump={ jump }

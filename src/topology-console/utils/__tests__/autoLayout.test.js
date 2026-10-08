@@ -2497,11 +2497,10 @@ describe( 'autoLayout — hub bands', () => {
 	} );
 
 	// The debug sheet as a log-viewer realm draws it: two polled slices, so
-	// the widest fan-in is two and nothing is a hub. The three-node chains
-	// still take three columns each, on rows of their own.
+	// the widest fan-in is two and nothing is a hub. Each chain takes a column
+	// per node, on rows of its own.
 	it( 'bands a hubless sheet: no chain stretches to the far column', () => {
 		const edges = [
-			{ from: 'log-viewer:link', to: 'log-viewer:stream' },
 			{ from: 'log-viewer:stream', to: 'log-viewer:view' },
 			{ from: '_heartbeat', to: '_http' },
 			{ from: '_http', to: '_output' },
@@ -2520,6 +2519,7 @@ describe( 'autoLayout — hub bands', () => {
 		const ids = new Set( [
 			'_completion',
 			'_stdout',
+			'_stream',
 			'log-viewer-rail:timer',
 		] );
 		for ( const e of edges ) {
@@ -2532,18 +2532,18 @@ describe( 'autoLayout — hub bands', () => {
 		} );
 
 		expect( at[ 'log-viewer:view' ].x ).toBe(
-			at[ 'log-viewer:link' ].x + 2 * X_STEP
+			at[ 'log-viewer:stream' ].x + X_STEP
 		);
 		expect( at._output.x ).toBe( at._heartbeat.x + 2 * X_STEP );
 		// Each chain runs across one row, and the two share none with the slices.
-		expect( at[ 'log-viewer:view' ].y ).toBe( at[ 'log-viewer:link' ].y );
+		expect( at[ 'log-viewer:view' ].y ).toBe( at[ 'log-viewer:stream' ].y );
 		expect( at._output.y ).toBe( at._heartbeat.y );
 		const sliceYs = [ 'step', 'catalog' ].flatMap( ( s ) =>
 			[ 'timer', 'tee', 'fetch', 'in', 'result' ].map(
 				( p ) => at[ `log-viewer-${ s }:${ p }` ].y
 			)
 		);
-		for ( const y of [ at[ 'log-viewer:link' ].y, at._heartbeat.y ] ) {
+		for ( const y of [ at[ 'log-viewer:stream' ].y, at._heartbeat.y ] ) {
 			expect( sliceYs ).not.toContain( y );
 		}
 	} );
@@ -2572,13 +2572,17 @@ describe( 'autoLayout — hub bands', () => {
 			);
 		}
 		edges.push(
-			{ from: 'topicprobe:link', to: 'topicprobe:stream' },
 			{ from: 'topicprobe:stream', to: 'topicprobe:view' },
 			{ from: '_metadata', to: '_cwd' },
 			{ from: '_heartbeat', to: '_http' },
 			{ from: '_http', to: '_output' }
 		);
-		const ids = new Set( [ '_completion', '_stdout', 'freshness:timer' ] );
+		const ids = new Set( [
+			'_completion',
+			'_stdout',
+			'_stream',
+			'freshness:timer',
+		] );
 		for ( const e of edges ) {
 			ids.add( e.from );
 			ids.add( e.to );
@@ -2794,10 +2798,14 @@ describe( 'autoLayout — hub bands', () => {
 			{ from: '_heartbeat', to: '_http' },
 			{ from: '_http', to: '_output' },
 			{ from: '_metadata', to: '_cwd' },
-			{ from: 'topicprobe:link', to: 'topicprobe:stream' },
 			{ from: 'topicprobe:stream', to: 'topicprobe:view' }
 		);
-		const ids = new Set( [ '_completion', '_stdout', 'freshness:timer' ] );
+		const ids = new Set( [
+			'_completion',
+			'_stdout',
+			'_stream',
+			'freshness:timer',
+		] );
 		for ( const e of edges ) {
 			ids.add( e.from );
 			ids.add( e.to );

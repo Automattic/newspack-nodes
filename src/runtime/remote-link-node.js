@@ -1,7 +1,7 @@
 /**
  * RemoteLinkNode — the full-duplex "be the browser" SSE+HTTP channel as one
- * node. A dashboard makes ONE RemoteLink where it would otherwise wire three
- * nodes and the bridge between them:
+ * node. The backbone makes ONE RemoteLink per page, `_stream`, where every
+ * stream graph would otherwise wire three nodes and the bridge between them:
  *
  * - `<name>:sse-in` is this link's own SseIn child, the inbound EventSource
  *   stream. It is named so `trace` reaches it, and patron-owned so the canvas
@@ -42,9 +42,6 @@ import { defaultTransport } from './command-transport';
 import { anyCarries } from './log-stamp';
 import names from './reserved-node-names.json';
 
-/** The FROM `SSE_Out_Node` gives its own frames, which no reader stamped. */
-const CONTROL_FROM = '_stream';
-
 /**
  * A resume seed: the next-record `{segment, offset}` for each partition
  * directory the stream has delivered, keyed as SseIn tracks it.
@@ -68,13 +65,12 @@ const CONTROL_FROM = '_stream';
  * slot lease alive.
  *
  * `subscribe`, the sole positional argument, names what the stream carries.
- * Nothing opens at construction: the first `connect()`, `connectNode()`,
- * `reconnect()`, `setSubscribe()` or `send()` builds the children, and each of
- * those refuses while no subscription has been supplied. Records arrive on the
- * link's own `sink` and `target`, so a consumer wires a RemoteLink exactly as
- * it wires any other source node. A link carrying graphs instead takes its
- * subscription from them: `attach()`, `park()` and `detach()` reopen it on
- * theirs.
+ * Nothing opens at construction: the first `connect()`, `connectNode()` or
+ * `send()` builds the children, and each of those refuses while no
+ * subscription has been supplied. Records arrive on the link's own `sink` and
+ * `target`, so a consumer wires a RemoteLink exactly as it wires any other
+ * source node. A link carrying graphs instead takes its subscription from
+ * them: `attach()`, `park()` and `detach()` reopen it on theirs.
  */
 export class RemoteLinkNode extends SchemaReflection( Node ) {
 	/**
@@ -162,24 +158,6 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 	}
 
 	/**
-	 * Re-point the stream at a new subscription, closing and reopening it. The
-	 * child takes the new tokens as well as the parsed list, so the `arguments`
-	 * its own `dump_config()` emits names what it is streaming.
-	 *
-	 * @param {string[]}  subscribe Subscriptions the reopened stream carries.
-	 * @param {?SeekSeed} positions Where to resume each partition; null tail-seeks every name.
-	 */
-	setSubscribe( subscribe, positions = null ) {
-		this._recordSubscription( subscribe );
-		this.ensureChildren();
-		this.sseIn.close();
-		this.sseIn.arguments = this.arguments;
-		this.sseIn.subscribe = subscribe;
-		this.sseIn.positions = positions;
-		this.sseIn.start();
-	}
-
-	/**
 	 * Send out through the ONE `_http` boundary — every browser graph has
 	 * exactly one, and that shared buffer is what lets a tick's commands batch
 	 * into a single POST regardless of which TO each of them carries. A graph
@@ -233,33 +211,11 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 	}
 
 	/**
-	 * Open the inbound stream, building the children on first use.
-	 *
-	 * @param {?SeekSeed} positions Where to resume each partition; null tail-seeks every name.
+	 * Open the inbound stream, building the children on first use. It
+	 * resumes where it read to, or opens at the tail.
 	 */
-	connect( positions = null ) {
+	connect() {
 		this.ensureChildren();
-		this.sseIn.positions = positions;
-		this.sseIn.start();
-	}
-
-	/**
-	 * Reopen, stating no seek. The stream resumes past whatever it read, and
-	 * where it read nothing it keeps the seek it opened with. A caller
-	 * recomputing that seek from the outside turns a refused stream's replay
-	 * into a tail.
-	 *
-	 * @param {?string[]} subscribe Re-point the subscription, or null to keep it.
-	 */
-	reconnect( subscribe = null ) {
-		if ( subscribe ) {
-			this._recordSubscription( subscribe );
-		}
-		this.ensureChildren();
-		if ( subscribe ) {
-			this.sseIn.arguments = this.arguments;
-			this.sseIn.subscribe = subscribe;
-		}
 		this.sseIn.start();
 	}
 
@@ -315,9 +271,11 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 	}
 
 	/**
-	 * Stop carrying `key`'s graph for now, as a pause does. Its seek and
-	 * seeds go, but its read positions stay, so the `attach()` that plays it
-	 * resumes where it stopped, or past it where a live graph read on.
+	 * Stop carrying `key`'s graph for now, as a pause does. A seek not yet
+	 * asked for goes; its seeds and read positions stay, so the `attach()`
+	 * that plays it resumes where it stopped, or past it where a live graph
+	 * read on. A seed the server answered is spent already: the handshake's
+	 * cursor outranks it, while a stream refused before then still replays.
 	 *
 	 * @param {string} key The graph pausing, as it attached.
 	 */
@@ -326,7 +284,6 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 		if ( graph ) {
 			graph.parked = true;
 			graph.seek = undefined;
-			this.sseIn?.dropSeeds( this._orphaned( graph.subscribe, key ) );
 			this._queueRestart();
 		}
 	}
@@ -346,16 +303,15 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 
 	/**
 	 * Which dirs `subscribe` alone holds: those it carries and no graph on
-	 * the link but `except` does, live or parked.
+	 * the link does, live or parked.
 	 *
 	 * @param {string[]} subscribe The subscriptions being let go.
-	 * @param {?string}  except    A graph whose own carrying does not count.
 	 * @return {( dir: string ) => boolean} Whether a dir is held by nothing else.
 	 */
-	_orphaned( subscribe, except = null ) {
-		const others = [ ...this.graphs ]
-			.filter( ( [ key ] ) => key !== except )
-			.map( ( [ , graph ] ) => graph.subscribe );
+	_orphaned( subscribe ) {
+		const others = [ ...this.graphs.values() ].map(
+			( graph ) => graph.subscribe
+		);
 		return ( dir ) =>
 			anyCarries( subscribe, dir ) &&
 			! others.some( ( subs ) => anyCarries( subs, dir ) );
@@ -567,7 +523,8 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 	 * Where a record stamped `stamp` goes. A link carrying no riders sends it
 	 * to its own target, or keeps its TO when it has none. With riders, it
 	 * goes to each one whose subscription carries the stamp, and to every
-	 * rider when its FROM opens with no stamp at all.
+	 * rider when its FROM opens with no stamp at all or with `_stream`, the
+	 * FROM the server gives its own frames.
 	 *
 	 * @param {string} stamp The record's stamp.
 	 * @return {?string[]} The targets, or null to keep the record's TO.
@@ -576,7 +533,7 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 		if ( 0 === this.graphs.size ) {
 			return this.target ? [].concat( this.target ) : null;
 		}
-		const unstamped = '' === stamp || CONTROL_FROM === stamp;
+		const unstamped = '' === stamp || names.STREAM === stamp;
 		const targets = new Set();
 		for ( const { subscribe, target } of this._live() ) {
 			if ( unstamped || anyCarries( subscribe, stamp ) ) {

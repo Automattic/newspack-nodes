@@ -141,8 +141,8 @@ class CoreImpl {
 		this.initTime = this.now(); // uptime baseline (PHP Core::$init_time)
 		// Overlay Reset-Graph capability; mountExospine sets it.
 		this.rebuildable = false;
-		this.backboneOwned = false; // a non-passenger mount holds the backbone
-		this.backbonePassengers = 0; // live passenger mounts clipped onto it
+		this.backboneOwner = null; // the non-passenger mount that rebuilds it
+		this.backboneMounts = []; // every live mount, in mount order
 		// Live mounts claiming each shell group; see mountExospine.
 		this.shellGroups = new Map();
 		// Full-graph rebuild signal: bumping re-runs every graph effect.

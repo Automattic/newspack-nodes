@@ -83,6 +83,9 @@ final class Node_Names {
 	/** The terminal writer the cli's `_output` Dumper targets. */
 	public const STDOUT              = '_stdout';
 
+	/** The browser page's one shared stream link, and the FROM `SSE_Out_Node` gives its own control frames. */
+	public const STREAM              = '_stream';
+
 	/** The browser relay a UI button's reply returns through, shown only under `debug_ui`. */
 	public const UI                  = '_ui';
 

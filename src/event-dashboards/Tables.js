@@ -292,7 +292,7 @@ export default function Tables() {
 		<div className="nodes-probe-tab">
 			<UnparseableLinesNotice
 				source={ __( 'Table statistics', 'newspack-nodes' ) }
-				node="tablestats:link"
+				node="tablestats:stream"
 			/>
 			<TopicsPanels panels={ panels } />
 			<ProbeTable

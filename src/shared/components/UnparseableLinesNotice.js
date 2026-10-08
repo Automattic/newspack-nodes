@@ -12,8 +12,9 @@ import { useNodeState } from '@newspack-nodes/runtime';
  * tile's own stat grid beside the heartbeat and HTTP code it is read against.
  *
  * A stream's count needs no threading: hand the notice the node that
- * publishes `UNPARSEABLE_LINES` — a `<prefix>:link` — and it subscribes by
- * name, as every thin view does, so a graph rebuild under that name is
+ * publishes `UNPARSEABLE_LINES` — a stream graph's `<prefix>:stream`, on
+ * which the page's link publishes that graph's own share — and it subscribes
+ * by name, as every thin view does, so a graph rebuild under that name is
  * followed. A count that arrives in a reply instead goes in as `count`.
  *
  * It wears the canonical `newspack-nodes-banner is-warning` role and declares

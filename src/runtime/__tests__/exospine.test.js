@@ -7,6 +7,7 @@ import names from '../reserved-node-names.json';
 import { DumperNode } from '../dumper-node';
 import { CallbackNode } from '../callback-node';
 import { TapNode } from '../tap-node';
+import { RemoteLinkNode } from '../remote-link-node';
 import {
 	newMessage,
 	TYPE,
@@ -93,6 +94,15 @@ test( 'a hitchhiker removed with the graph unregisters itself from the kept Rout
 	expect( interpreter.sink ).toBeNull();
 } );
 
+/** What a Reset Graph does first: remove every node but the Router. */
+function removeAllButRouter() {
+	for ( const name of [ ...Core.nodes.keys() ] ) {
+		if ( names.ROUTER !== name ) {
+			Core.node( name ).removeNode();
+		}
+	}
+}
+
 describe( 'mountExospine( build )', () => {
 	test( 'runs the build callback with the backbone spine', () => {
 		const seen = {};
@@ -153,13 +163,14 @@ describe( 'mountExospine( build )', () => {
 		} );
 		expect( builds ).toBe( 1 );
 
-		// What a Reset Graph does: the owner replaces the backbone, and the
-		// fresh one announces itself.
-		owner.teardown();
+		// What a Reset Graph does: every node but the Router goes, and the
+		// backbone raised afresh announces itself.
+		removeAllButRouter();
 		mountExospine();
 
 		expect( builds ).toBe( 2 );
 		expect( Core.node( 'passenger:tee' ) ).not.toBeNull();
+		owner.teardown();
 	} );
 
 	// Reset Graph removes every node and THEN bumps, so a passenger's rebuild
@@ -172,13 +183,14 @@ describe( 'mountExospine( build )', () => {
 			builds += 1;
 			interpreter.makeNode( 'Tee', 'passenger:tee' );
 		} );
-		owner.teardown();
+		removeAllButRouter();
 
 		expect( () => Core.bumpGraphGeneration() ).not.toThrow();
 		expect( builds ).toBe( 1 );
 
 		mountExospine();
 		expect( builds ).toBe( 2 );
+		owner.teardown();
 	} );
 
 	test( 'reinit keeps the same backbone instances', () => {
@@ -730,15 +742,174 @@ describe( 'mountExospine( build ) — shell group Taps, derived from targets', (
 	test( 'a Reset Graph that removed every node brings the group Tap back', () => {
 		mountExospine( targeting( 'shell:quokka/_http' ) );
 
-		for ( const name of [ ...Core.nodes.keys() ] ) {
-			if ( names.ROUTER !== name ) {
-				Core.node( name ).removeNode();
-			}
-		}
+		removeAllButRouter();
 		Core.bumpGraphGeneration();
 
 		expect( Core.node( 'shell:quokka' ).sink ).toBe(
 			Core.node( names.COMMAND_INTERPRETER )
 		);
+	} );
+} );
+
+describe( 'the shared stream link', () => {
+	class ClosableEventSource {
+		constructor( url ) {
+			this.url = url;
+			this.closed = false;
+			ClosableEventSource.instances.push( this );
+		}
+		addEventListener() {}
+		close() {
+			this.closed = true;
+		}
+	}
+
+	beforeEach( () => {
+		ClosableEventSource.instances = [];
+		global.EventSource = ClosableEventSource;
+		window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'N' };
+	} );
+
+	test( 'the backbone mounts one bare RemoteLink as _stream', () => {
+		const spine = mountExospine();
+		const stream = Core.node( '_stream' );
+		expect( names.STREAM ).toBe( '_stream' );
+		expect( stream ).toBeInstanceOf( RemoteLinkNode );
+		expect( spine.stream ).toBe( stream );
+		expect( stream.sink ).toBe( Core.node( names.COMMAND_INTERPRETER ) );
+		expect( stream.graphs.size ).toBe( 0 );
+		// Bare: it opens nothing until a graph attaches.
+		expect( stream.sseIn ).toBeNull();
+		expect( ClosableEventSource.instances ).toHaveLength( 0 );
+		spine.teardown();
+	} );
+
+	test( 'a build is handed the page link', () => {
+		let handed = null;
+		const spine = mountExospine( ( { stream } ) => {
+			handed = stream;
+		} );
+		expect( handed ).toBe( Core.node( names.STREAM ) );
+		spine.teardown();
+	} );
+
+	test( 'a passenger reuses the owner’s link rather than mounting a second', () => {
+		const owner = mountExospine( () => {} );
+		const passenger = mountExospine( () => {}, { passenger: true } );
+		expect( owner.stream ).toBeInstanceOf( RemoteLinkNode );
+		expect( passenger.stream ).toBe( owner.stream );
+		passenger.teardown();
+		owner.teardown();
+	} );
+
+	test( 'teardown of the owner removes the link and closes its stream', async () => {
+		const spine = mountExospine( () => {} );
+		spine.stream.attach( 'plover', [ 'wren.p6' ], 'plover:stream' );
+		await Promise.resolve();
+		expect( ClosableEventSource.instances ).toHaveLength( 1 );
+		spine.teardown();
+		expect( Core.node( names.STREAM ) ).toBeNull();
+		expect( ClosableEventSource.instances[ 0 ].closed ).toBe( true );
+	} );
+
+	test( 'a full rebuild hands the build a fresh link', () => {
+		const seen = [];
+		mountExospine( ( { stream } ) => {
+			seen.push( stream );
+		} );
+		Core.bumpGraphGeneration();
+		expect( seen ).toHaveLength( 2 );
+		expect( seen[ 1 ] ).not.toBe( seen[ 0 ] );
+		expect( Core.node( names.STREAM ) ).toBe( seen[ 1 ] );
+	} );
+} );
+
+// Several dashboards share one page's backbone; the first owns it, and its
+// leaving must not take the backbone from the mounts that stay.
+describe( 'mountExospine — the backbone outlives its owner', () => {
+	const asking =
+		( name, path ) =>
+		( { interpreter } ) =>
+			interpreter.makeNode( 'Node', name ).connectNode( path );
+
+	test( 'the owner leaving keeps the backbone, and the other mount’s commands still go out', () => {
+		const owner = mountExospine( () => {} );
+		const stays = mountExospine(
+			asking( 'kiwi-4417:ask', 'shell:kiwi/_http/workers' )
+		);
+		const kept = [
+			names.COMMAND_INTERPRETER,
+			names.HTTP,
+			names.HEARTBEAT,
+			names.STREAM,
+		].map( ( name ) => Core.node( name ) );
+
+		owner.teardown();
+
+		expect(
+			[
+				names.COMMAND_INTERPRETER,
+				names.HTTP,
+				names.HEARTBEAT,
+				names.STREAM,
+			].map( ( name ) => Core.node( name ) )
+		).toEqual( kept );
+		expect( kept.every( Boolean ) ).toBe( true );
+		const posted = [];
+		Core.node( names.HTTP ).client = {
+			postBatch: ( messages ) => {
+				posted.push( ...messages );
+				return Promise.resolve( [] );
+			},
+		};
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ VALUE ] = { name: 'list', arguments: [ 'wren-209' ] };
+		Core.node( 'kiwi-4417:ask' ).fill( m );
+		expect( posted.map( ( p ) => p[ VALUE ] ) ).toEqual( [
+			{ name: 'list', arguments: [ 'wren-209' ] },
+		] );
+		stays.teardown();
+	} );
+
+	test( 'a Reset Graph after the owner left raises the backbone through the new owner', () => {
+		const owner = mountExospine( () => {} );
+		const stays = mountExospine(
+			asking( 'kiwi-4417:ask', 'shell:kiwi/_http/workers' )
+		);
+		owner.teardown();
+		expect( Core.rebuildable ).toBe( true );
+		const before = Core.node( names.COMMAND_INTERPRETER );
+
+		removeAllButRouter();
+		Core.bumpGraphGeneration();
+
+		const raised = Core.node( names.COMMAND_INTERPRETER );
+		expect( raised ).toBeInstanceOf( CommandInterpreterNode );
+		expect( raised ).not.toBe( before );
+		expect( Core.node( names.STREAM ) ).toBeInstanceOf( RemoteLinkNode );
+		expect( Core.node( 'kiwi-4417:ask' ).sink ).toBe( raised );
+		stays.teardown();
+	} );
+
+	test( 'the last mount leaving tears the backbone down, the Router aside', () => {
+		const owner = mountExospine( () => {} );
+		const stays = mountExospine(
+			asking( 'kiwi-4417:ask', 'shell:kiwi/_http/workers' )
+		);
+		owner.teardown();
+		stays.teardown();
+		for ( const name of [
+			names.COMMAND_INTERPRETER,
+			names.HTTP,
+			names.HEARTBEAT,
+			names.STREAM,
+			names.CONSOLE_TAP,
+			'kiwi-4417:ask',
+		] ) {
+			expect( Core.node( name ) ).toBeNull();
+		}
+		expect( Core.node( names.ROUTER ) ).not.toBeNull();
+		expect( Core.rebuildable ).toBe( false );
 	} );
 } );

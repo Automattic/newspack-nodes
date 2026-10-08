@@ -1,38 +1,44 @@
 /**
  * useStreamGraph — the whole life of a streaming dashboard's node graph: the
- * three nodes it is made of, when its stream is open, and where it reopens.
+ * two nodes it is made of, when it rides the page's stream, and where it
+ * resumes.
  *
- * Every SSE dashboard mounts the same backbone, so it is declared here rather
+ * Every SSE dashboard mounts the same pair, so it is declared here rather
  * than written out per dashboard:
  *
- *   <prefix>:link    RemoteLink — composes `<prefix>:link:sse-in` (EventSource
- *                    ingress) plus the shared `_http` (POST /command boundary)
- *                    and `_heartbeat` (slot keep-alive), and wires the
- *                    `connected → slot` bridge between them.
- *   <prefix>:stream  Pass-through Tee; copies frames to the view, and is where a
- *                    debug-overlay `connect` taps the live stream.
+ *   <prefix>:stream  Pass-through Tee; copies frames to the view, is where a
+ *                    debug-overlay `connect` taps the live stream, and holds
+ *                    this graph's skipped-line count.
  *   <prefix>:view    `viewClass`, the view-model React reads. It trusts controls
  *                    from its own name, which is what `control()` stamps.
  *
- * A stream is open only while the tab is visible AND the user hasn't paused.
- * Pause takes the SAME close path as the visibility gate — it is just
- * "inactive" — so pausing frees the bounded server SSE slot, and pause outranks
- * a refocus (a paused stream stays closed through hide → show).
+ * The graph opens no connection of its own. It rides the page's one stream
+ * link, the backbone's `_stream`: it `attach`es its subscription and target,
+ * and the link routes each record by its stamp to every graph carrying it, so
+ * every stream graph on a page shares one EventSource.
+ *
+ * A graph rides only while the tab is visible AND the user hasn't paused.
+ * Pause takes the SAME path as the visibility gate — it is just "inactive" —
+ * and `park`s the graph, which drops it from the page's stream but keeps its
+ * place, so Play resumes where it stopped. Pause outranks a refocus: a paused
+ * graph stays parked through hide → show. An unmount `detach`es it, which
+ * forgets its place.
  *
  * Every control that re-points the stream goes through `resubscribe`: it RECORDS
- * the intended `{ subscribe, positions }` and only touches the live stream while
- * active, so a selection or seek made WHILE PAUSED can never revive the closed
- * EventSource. Play and refocus re-apply the recorded target.
+ * the intended `{ subscribe, positions }` and only touches the link while
+ * active, so a selection or seek made WHILE PAUSED can never ride. Play and
+ * refocus re-apply the recorded target. A `null` position tails; an omitted
+ * one resumes.
  *
  * An explicit seek is SINGLE-USE: the instant it is delivered the recorded
- * target reverts to `positions: null`, so a later pause/play resumes from
- * wherever the live tail actually reached. A Replay's catch-up-to-live flip is a
+ * target loses its positions, so a later pause/play resumes from wherever the
+ * live tail actually reached. A Replay's catch-up-to-live flip is a
  * display-only signal that never re-calls `resubscribe` — without single-use
  * consumption, every later pause would jump back to the original replay start.
  *
  * A dashboard whose subscription is CHOSEN rather than declared passes no
- * `subscribe` at all: the link is built bare and opens nothing until a catalog
- * names one through `resubscribe`.
+ * `subscribe` at all: the graph rides nothing until a catalog names one
+ * through `resubscribe`.
  *
  * `useSteppedRead` and `useLogCatalog` sit beside it because they are the same
  * graph's other halves: the single record a paused stream steps by, and the
@@ -82,20 +88,23 @@ CommandInterpreterNode.registerNodeClasses( {
  * module docblock for the backbone and the gating contract.
  *
  * @param {Object}  o               The dashboard's declaration.
- * @param {string}  o.prefix        Names the three nodes this graph owns.
+ * @param {string}  o.prefix        Names the two nodes this graph owns, and
+ *                                  the key it rides the page link under.
  * @param {?string} [o.subscribe]   What the stream carries; omit it or pass
  *                                  null to open nothing until `resubscribe`
  *                                  names one.
  * @param {any}     o.viewClass     The view-model node's class, handed over
  *                                  rather than named (ADR-16).
  * @param {number}  [o.maxEntries]  View ring cap; omit to keep the view's own.
- * @param {?Object} [o.openAt]      The FIRST open's seek seed; null tails.
+ * @param {?Object} [o.openAt]      The FIRST ride's seek seed; null states
+ *                                  none.
  * @param {boolean} [o.clearOnOpen] Empty the view before every open, for a
  *                                  model whose rows go stale across a gap.
  * @return {{ prefix: string, linkRef: Object, viewRef: Object, isPausedRef: Object, isActive: boolean, control: (value: Object) => void, resubscribe: (subs: string[], positions: ?Object) => void, seek: (sub: string, positions: ?Object, source?: Object) => void, setPaused: (paused: boolean) => void, setFilter: (term: string) => void, clear: () => void, targetRef: Object }}
- *   The live handles, the gate's state and the controls the dashboard
- *   drives. The skipped-line count is `<prefix>:link`'s own state, which
- *   `UnparseableLinesNotice` reads by name.
+ *   The live handles — `linkRef` holds the page's `_stream` — the gate's
+ *   state and the controls the dashboard drives. The skipped-line count is
+ *   `<prefix>:stream`'s own state, which `UnparseableLinesNotice` reads by
+ *   name.
  */
 export function useStreamGraph( {
 	prefix,
@@ -107,10 +116,8 @@ export function useStreamGraph( {
 } ) {
 	const linkRef = useRef( null );
 	const viewRef = useRef( null );
-	// Reset per (re)build: a fresh link's SseIn has no tracked offset.
-	const hasConnectedRef = useRef( false );
-	// Which link is streaming, so a re-render never tears a live seek down.
-	const connectedLinkRef = useRef( null );
+	// Reset per (re)build: a fresh build has ridden nothing yet.
+	const hasAttachedRef = useRef( false );
 	const [ buildGen, bumpBuild ] = useState( 0 );
 
 	const isPageVisible = usePageVisibility();
@@ -126,7 +133,7 @@ export function useStreamGraph( {
 		[]
 	);
 
-	// The intended {subscribe, positions}: the reopen source of truth.
+	// The intended {subscribe, positions}: the source every ride reads.
 	const targetRef = useRef( null );
 
 	// Read the latest declaration inside the once-only build and the effect.
@@ -147,56 +154,42 @@ export function useStreamGraph( {
 		}
 	}, [] );
 
-	// @longform EVERY open goes through here, so the pre-open clear and the
-	// single-use consumption of the recorded target cannot be reached around:
-	// the target keeps its subscription and loses its seek, which is what makes
-	// the NEXT reopen resume live rather than re-applying a spent seek.
-	const open = useCallback(
-		( subs, how ) => {
+	// @longform EVERY attach goes through here, so the pre-open clear and the
+	// single-use consumption of the recorded seek cannot be reached around:
+	// the target keeps its subscription and loses its positions, which is what
+	// makes the NEXT ride resume where the page's stream read to.
+	const ride = useCallback(
+		( subs, positions ) => {
+			targetRef.current = { subscribe: subs };
 			const link = linkRef.current;
 			if ( ! link ) {
-				// Between builds: keep the intent, lose only the open.
-				targetRef.current = subs
-					? { subscribe: subs, positions: null }
-					: targetRef.current;
 				return;
 			}
 			if ( declRef.current.clearOnOpen ) {
 				control( { action: 'clear' } );
 			}
-			targetRef.current = subs
-				? { subscribe: subs, positions: null }
-				: null;
-			connectedLinkRef.current = link;
-			hasConnectedRef.current = true;
-			how( link );
+			hasAttachedRef.current = true;
+			link.attach( prefix, subs, `${ prefix }:stream`, positions );
 		},
-		[ control ]
+		[ control, prefix ]
 	);
 
-	// Record the target; open only while active (Play re-applies it).
+	// Record the target; ride only while active (Play re-applies it).
 	const resubscribe = useCallback(
 		( subs, positions ) => {
 			if ( isActiveNow() ) {
-				open( subs, ( link ) => link.setSubscribe( subs, positions ) );
+				ride( subs, positions );
 				return;
 			}
 			targetRef.current = { subscribe: subs, positions };
 		},
-		[ open, isActiveNow ]
+		[ ride, isActiveNow ]
 	);
 
-	// Mount once; cleanup runs FIRST so a rebuild clears connectedLinkRef.
+	// Mount once; cleanup runs FIRST so a rebuild detaches before it rebuilds.
 	useEffect( () => {
-		// Soft nodes; mountExospine snapshots Core for the reinit() rebuild.
-		const build = ( { interpreter } ) => {
+		const build = ( { interpreter, stream } ) => {
 			const decl = declRef.current;
-			const link = interpreter.makeNode(
-				'RemoteLink',
-				`${ prefix }:link`,
-				decl.subscribe ? [ decl.subscribe ] : []
-			);
-			link.target = `${ prefix }:stream`;
 			interpreter
 				.makeNode( 'Tee', `${ prefix }:stream` )
 				.connectNode( `${ prefix }:view` );
@@ -212,23 +205,22 @@ export function useStreamGraph( {
 				view.maxLines = decl.maxEntries;
 			}
 
-			linkRef.current = link;
+			linkRef.current = stream;
 			viewRef.current = view;
-			hasConnectedRef.current = false;
+			hasAttachedRef.current = false;
 			// Re-publish a surviving pause to the fresh view on reinit.
 			if ( isPausedRef.current ) {
 				view.fill(
 					controlMsg( view, { action: 'pause', paused: true } )
 				);
 			}
-			// Re-render so the connection effect runs against the fresh link.
+			// Re-render so the riding effect runs against the fresh build.
 			bumpBuild( ( n ) => n + 1 );
 
 			return () => {
-				link.removeNode();
+				stream.detach( prefix );
 				linkRef.current = null;
 				viewRef.current = null;
-				connectedLinkRef.current = null;
 			};
 		};
 
@@ -236,42 +228,33 @@ export function useStreamGraph( {
 		return teardown;
 	}, [ prefix ] );
 
-	// Own the live connection: open (at the recorded target) while active.
+	// Ride the page's stream while active, at the recorded target.
 	useEffect( () => {
 		const link = linkRef.current;
 		if ( ! buildGen || ! link ) {
 			return;
 		}
 		if ( ! isActive ) {
-			link.close();
-			connectedLinkRef.current = null;
-			return;
-		}
-		// Already streaming this link; a re-render must NOT tear the seek.
-		if ( connectedLinkRef.current === link ) {
+			link.park( prefix );
 			return;
 		}
 		const target = targetRef.current;
-		if ( ! declRef.current.subscribe && ! target ) {
+		const declared = declRef.current.subscribe;
+		const subs = target?.subscribe ?? ( declared ? [ declared ] : null );
+		if ( ! subs ) {
 			return;
 		}
-		const isReconnect = hasConnectedRef.current;
-		if ( target ) {
-			const { subscribe: subs, positions } = target;
-			// No stated seek means the stream resumes where it read to.
-			open( subs, ( l ) =>
-				positions
-					? l.setSubscribe( subs, positions )
-					: l.reconnect( subs )
-			);
-			return;
-		}
-		open( null, ( l ) =>
-			isReconnect ? l.reconnect() : l.connect( declRef.current.openAt )
+		// Only a first ride states the declared seed; a null one states none.
+		const opening = hasAttachedRef.current
+			? undefined
+			: declRef.current.openAt ?? undefined;
+		ride(
+			subs,
+			undefined === target?.positions ? opening : target.positions
 		);
-	}, [ buildGen, isActive, open ] );
+	}, [ buildGen, isActive, ride, prefix ] );
 
-	// Pause closes the stream (the effect above); the flag drives the UI.
+	// Pause parks the graph (the effect above); the flag drives the UI.
 	const setPaused = useCallback(
 		( paused ) => {
 			// The ref flips NOW: a same-tick seek must record, not open.
@@ -322,9 +305,9 @@ export function useStreamGraph( {
 }
 
 /**
- * The paused single-step: the stream stays OFFLINE and one record is asked for
+ * The paused single-step: the graph stays parked and one record is asked for
  * over the command channel, answered a tick later as `{ message, cursor }`,
- * admitted through the view's paused belt, and the recorded reopen target
+ * admitted through the view's paused belt, and the recorded ride target
  * advanced to the post-step cursor — so the NEXT step continues from there and
  * Play resumes streaming from the stepped point. A reply with no record adds
  * no row; its cursor still advances the target when the read consumed a line

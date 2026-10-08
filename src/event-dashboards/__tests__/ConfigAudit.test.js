@@ -47,7 +47,7 @@ it( 'tails settings.p0 in history mode, into the audit view', () => {
 
 describe( 'ConfigAudit', () => {
 	it( 'shows the lines its tail skipped as unparseable', () => {
-		publishSkippedLines( 'settings-audit:link', 7 );
+		publishSkippedLines( 'settings-audit:stream', 7 );
 		const { container } = render( <ConfigAudit /> );
 		expect( container.textContent ).toContain(
 			'7 lines would not parse and were skipped.'

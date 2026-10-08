@@ -1088,7 +1088,7 @@ class SSE_Out_Node extends Node {
 		$message[ Message::TYPE ]      = Message::TM_INFO;
 		// connected fires before the drain seeds Core::$now; take a fresh read.
 		$message[ Message::TIMESTAMP ] = 0.0 !== Core::$now ? Core::$now : Core::right_now();
-		$message[ Message::FROM ]      = '_stream';
+		$message[ Message::FROM ]      = Node_Names::STREAM;
 		$message[ Message::KEY ]       = 'connected';
 		// TM_INFO values are STRINGS: flat KEY VALUE, space-free tokens.
 		$message[ Message::VALUE ]     = \implode( ' ', [
@@ -1285,7 +1285,7 @@ class SSE_Out_Node extends Node {
 	private function build_info_msg( string $key, string $value ): array {
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_INFO;
-		$message[ Message::FROM ]  = '_stream';
+		$message[ Message::FROM ]  = Node_Names::STREAM;
 		$message[ Message::KEY ]   = $key;
 		$message[ Message::VALUE ] = $value;
 		return $message;

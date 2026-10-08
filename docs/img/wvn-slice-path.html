@@ -50,7 +50,7 @@
 <div class="nd view" id="ores" style="left:410px;top:274px;width:250px"><span class="t"><i>vault:add</i>:result</span><span class="k">CommandResultNode · every reply on <span class="mono">result</span>, refusals included</span></div>
 
 <div class="band" style="left:0;top:346px">a stream · useStreamGraph, prefix <span class="mono" style="text-transform:none">&lt;prefix&gt;</span></div>
-<div class="nd" id="link" style="left:0;top:370px;width:180px"><span class="t"><i>&lt;prefix&gt;</i>:link</span><span class="k">RemoteLink · opens the SSE connection</span></div>
+<div class="nd" id="link" style="left:0;top:370px;width:180px"><span class="t">_stream</span><span class="k">RemoteLink · the page's one SSE connection</span></div>
 <div class="nd" id="stream" style="left:220px;top:370px;width:150px"><span class="t"><i>&lt;prefix&gt;</i>:stream</span><span class="k">Tee · fans each record in</span></div>
 <div class="nd view" id="sview" style="left:410px;top:370px;width:250px"><span class="t"><i>&lt;prefix&gt;</i>:view</span><span class="k">LogStreamViewNode · the ring, pause and step, seek</span></div>
 <div class="nd" id="side" style="left:0;top:440px;width:660px"><span class="t"><i>&lt;prefix&gt;</i>-catalog:* · <i>&lt;prefix&gt;</i>-step:*</span><span class="k">the polled subscription catalog and the one-record stepped read: two more slices, each with a subject of its own</span></div>
@@ -68,7 +68,7 @@
   <div class="card">
     <h3>A node playing none of the roles is a second slice</h3>
     <div class="chip">The Topology Manager's freshness re-check is <span class="mono">freshness:timer</span> beside <span class="mono">topology-manager:timer</span>; a partition's segment rail is <span class="mono">log-viewer-segments:result</span> with its refresh on <span class="mono">log-viewer-rail:timer</span>. It takes a subject of its own rather than a new role.</div>
-    <div class="chip">The roles: <span class="mono">:timer</span> the tick, <span class="mono">:tee</span> the fan-out, <span class="mono">:fetch</span> the Fetcher or Poller, <span class="mono">:in</span> the receiver, <span class="mono">:in:current</span> its gate, passing only the answer to a standing ask, <span class="mono">:transform</span> the one node before the view, <span class="mono">:view</span> the view, <span class="mono">:result</span> where a one-shot publishes, <span class="mono">:link</span> and <span class="mono">:stream</span> the two ahead of a stream's view.</div>
+    <div class="chip">The roles: <span class="mono">:timer</span> the tick, <span class="mono">:tee</span> the fan-out, <span class="mono">:fetch</span> the Fetcher or Poller, <span class="mono">:in</span> the receiver, <span class="mono">:in:current</span> its gate, passing only the answer to a standing ask, <span class="mono">:transform</span> the one node before the view, <span class="mono">:view</span> the view, <span class="mono">:result</span> where a one-shot publishes, <span class="mono">:stream</span> the one ahead of a stream's view, fed by the page's <span class="mono">_stream</span>.</div>
     <div class="chip">The <span class="mono">localStorage</span> keys under <span class="mono">newspack-nodes:</span> are not node names and follow none of this.</div>
   </div>
 </div>

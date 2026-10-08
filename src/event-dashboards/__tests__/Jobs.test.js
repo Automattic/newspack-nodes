@@ -138,8 +138,8 @@ describe( 'Jobs', () => {
 	} );
 
 	it( 'shows the lines each of its streams skipped as its own named notice', () => {
-		publishSkippedLines( 'jobstats:link', 2 );
-		publishSkippedLines( 'topicprobe:link', 3 );
+		publishSkippedLines( 'jobstats:stream', 2 );
+		publishSkippedLines( 'topicprobe:stream', 3 );
 		useNodeField.mockReturnValue( undefined );
 		const { container } = render( <Jobs /> );
 		const notices = [

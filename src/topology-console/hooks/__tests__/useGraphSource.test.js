@@ -26,7 +26,14 @@ describe( 'useGraphSource', () => {
 		// Backbone fixtures only; coreToGraph stamps local reply pwd (_output).
 		expect(
 			result.current.graph.nodes.map( ( n ) => n.id ).sort()
-		).toEqual( [ '_heartbeat', '_http', '_null', '_shell', '_ui' ] );
+		).toEqual( [
+			'_heartbeat',
+			'_http',
+			'_null',
+			'_shell',
+			'_stream',
+			'_ui',
+		] );
 		// The backbone's two permanent edges: the heartbeat's poke, and
 		// _http's target for unaddressed reply-leg output.
 		expect( result.current.graph.edges ).toEqual( [

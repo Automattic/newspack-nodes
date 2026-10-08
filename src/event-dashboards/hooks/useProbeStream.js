@@ -6,7 +6,7 @@
  * Each probe sweeps its nodes into a shared one-partition log a day long —
  * Topic_Probe into `topicprobe.p0`, Job_Probe into `jobstats.p0` and
  * Table_Probe into `tablestats.p0` — and the
- * shared `useLogTailStream` backbone tails it: `<name>:link` opens the SSE,
+ * shared `useLogTailStream` backbone tails it over the page's one SSE link:
  * `<name>:stream` tees each frame to the view and to a debug overlay's tap, and
  * `<name>:view` folds the records.
  *

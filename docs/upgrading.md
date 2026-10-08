@@ -6,6 +6,39 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **A stream graph rides the page's `_stream`; `<prefix>:link` is gone.**
+  `useStreamGraph` mounts `<prefix>:stream` and `<prefix>:view` and attaches
+  to the backbone's one `RemoteLinkNode`, `_stream`, which `linkRef` now
+  holds. Read a graph's skipped lines off `<prefix>:stream`:
+  `<UnparseableLinesNotice node="<prefix>:link" />` becomes
+  `node="<prefix>:stream"`, and `LogStreamViewer`'s `linkNode` prop becomes
+  `streamNode`. A test reading `Core.node( '<prefix>:link' ).sseIn` reads
+  `Core.node( '_stream' ).sseIn`, and one asserting `sseIn.target` reads
+  `Core.node( '_stream' ).graphs.get( prefix ).target`. The link opens on a
+  microtask, so a test flushes with `await act( async () => {} )` before it
+  reads the EventSource, and one on fake timers keeps the microtask real
+  with `jest.useFakeTimers( { doNotFake: [ 'queueMicrotask' ] } )`. A record
+  reaches a graph only when its FROM opens with a stamp that graph's
+  subscription carries, so a fixture record carries the stamp the server
+  writes. `_stream` is a reserved node name: a node of your own under it
+  collides with the backbone.
+- **`RemoteLinkNode#setSubscribe()` and `#reconnect()` are removed, and
+  `connect()` takes no `positions`.** A graph riding a link calls
+  `link.attach( key, subscribe, target, positions )`: `positions` omitted
+  resumes, `null` tails, a seed seeks. `link.park( key )` pauses it and
+  `link.detach( key )` unmounts it. A standalone link opens with
+  `connect()`, at the tail or where it read to.
+- **`Core.backboneOwned` and `Core.backbonePassengers` are gone.** Read
+  `Core.backboneOwner`, the owning mount or null, and `Core.backboneMounts`,
+  every live mount. The backbone now outlives its owner while another mount
+  stands, so a test asserting that the owner's `teardown()` removes
+  `_http` while a second mount is up asserts the opposite now.
+- **`SseInNode#positions` is removed, setter and getter.** `sse.positions =
+  seed` becomes `sse.reseek( sse.subscribe, seed )`, which re-seeds only the
+  named subscriptions' dirs. Read what the next open asks for with
+  `sse.seekMap()`, which states a read position over a seed and the tail for
+  a dir with neither.
+
 - **Dashboard commands pass `shell:<group>`, not `_shell`; `egressPath` takes
   the group first.** `egressPath( ci )` becomes `egressPath( group, ci )`,
   returning `shell:<group>/_http/<ci>`, and throws when no group is named.
