@@ -25,7 +25,8 @@
  * `connect_node` and `debug_state` on the group reach every child; a message
  * filled into the group is dropped, since only a fan-out source reaches them.
  * `expand()` spells a child's arguments once, for this node and for
- * Topology_Analyzer's flatten alike.
+ * Topology_Analyzer's flatten alike, and the group declares its child class's
+ * targets as its own, so its `pair` edges draw whether or not the members do.
  *
  * @package Newspack_Nodes
  */
@@ -382,6 +383,19 @@ final class Vault_Group_Node extends Node {
 			$out .= $this->config_line( $verb, ...$args );
 		}
 		return $out;
+	}
+
+	/**
+	 * The child class's declared targets for the arguments the group hands each
+	 * member, with an empty id slot; none for a child type no class resolves,
+	 * since the analyzer reads lines the runtime would refuse.
+	 *
+	 * @param list<string> $args The group's `make_node` tokens, the name excluded.
+	 * @return list<string>
+	 */
+	public static function declared_targets( array $args ): array {
+		$child_class = Command_Interpreter_Node::resolve_class( $args[0] ?? '' );
+		return null === $child_class ? [] : $child_class::declared_targets( [ '', ...self::variadic_in( $args ) ] );
 	}
 
 	/**

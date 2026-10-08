@@ -281,6 +281,18 @@ final class VaultGroupNodeTest extends TestCase {
 		}
 	}
 
+	public function test_a_live_group_displays_its_child_class_pair_targets(): void {
+		$offsets = Config::get_offsets_directory();
+		$base    = \rtrim( Config::get_base_directory(), '/' );
+		$group   = ( new Command_Interpreter_Node() )->make_node( 'Vault_Group', 'spokes', 'Remote_Source', 'tw-edge', "{$offsets}/spokes.{id}", "{$base}/deadletter/spokes.{id}", 'firehose.p0:rewrite-31', 'jobfeed.p0:relay-58' );
+
+		$this->assertSame( [ 'rewrite-31', 'relay-58' ], $group->display_targets() );
+	}
+
+	public function test_an_unknown_child_type_declares_no_targets(): void {
+		$this->assertSame( [], Vault_Group_Node::declared_targets( [ 'No_Such_Type', 'tw-edge', 'offsets.{id}', 'dead.{id}', 'firehose.p0:rewrite-31' ] ) );
+	}
+
 	public function test_config_verb_reaches_every_child_and_later_ones_and_replays(): void {
 		$ci    = new Command_Interpreter_Node();
 		$group = $ci->make_node( 'Vault_Group', 'egress', 'HTTP_Out', 'tw-edge' );

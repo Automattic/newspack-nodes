@@ -78,9 +78,6 @@ class Topology_Analyzer {
 		$walked = self::statements( '', $include_names, $group_children );
 		foreach ( $walked['statements'] as $statement ) {
 			self::absorb_statement( $statement, $statement['origins'], $nodes, $edges );
-			if ( ! $group_children ) {
-				self::draw_group_targets( $edges, $statement );
-			}
 		}
 		return [
 			'nodes' => \array_values( $nodes ),
@@ -154,26 +151,6 @@ class Topology_Analyzer {
 			$out[] = $exported;
 		}
 		return $out;
-	}
-
-	/**
-	 * Draw a Vault_Group's own `pair` edges: what its child class declares for
-	 * the arguments the group hands each member, as `draw_declared_targets()`
-	 * reads them off a member's line with the group in its place. The group
-	 * stands for its members when they are not derived.
-	 *
-	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges Edge-state map, by reference.
-	 * @param array{verb: string,values: list<string>,origins: list<string>} $statement Walked statement.
-	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges
-	 */
-	private static function draw_group_targets( array &$edges, array $statement ): void {
-		$values = $statement['values'];
-		if ( 'make_node' !== $statement['verb'] || ! self::type_is( $values[1] ?? '', Vault_Group_Node::class ) ) {
-			return;
-		}
-		// A member's line: its class and the group's name, then an id slot.
-		$member = [ 'make_node', $values[3] ?? '', $values[2] ?? '', '', ...Vault_Group_Node::variadic_in( \array_slice( $values, 3 ) ) ];
-		self::draw_declared_targets( $edges, $member, $statement['origins'], Command_Interpreter_Node::resolve_class( $member[1] ) );
 	}
 
 	/**
