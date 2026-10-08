@@ -202,7 +202,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 				Core::resolve_partition_template( $written['target'], $this->bound_partition ?? 0 ),
 				$token
 			);
-			if ( Core::owns( $written['source'] ) ) {
+			if ( Core::owns( $written['source'], $this->bound_partition ) ) {
 				$owned[] = $pair;
 			}
 		}

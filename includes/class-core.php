@@ -755,29 +755,46 @@ class Core {
 	}
 
 	/**
-	 * Whether this worker reads a source as its TSL wrote it: in every worker
-	 * when it names `{partition}`, and otherwise once per fleet, where
-	 * `owns_unpartitioned()` holds (ADR-33). The one ownership predicate: a
-	 * node asks this, never the bound partition.
+	 * Whether `$partition` reads a source as its TSL wrote it: in every worker
+	 * when it names `{partition}`, and otherwise once per fleet (ADR-33). A
+	 * source naming no partition belongs to worker partition 0, and a process
+	 * bound to no partition is the only reader there is, so it owns one too.
+	 * The one ownership predicate: a node passes `bound_partition()`, and a
+	 * caller judging some other worker, as the wake map does, passes that
+	 * worker's partition.
 	 *
-	 * @param string $written The source as the TSL wrote it, unresolved.
+	 * @param string   $written   The source as the TSL wrote it, unresolved.
+	 * @param int|null $partition The worker partition judged, or null for none.
 	 * @throws \RuntimeException When the source names `<partition>`.
-	 * @throws \LogicException When the bound value is no canonical decimal.
 	 */
-	public static function owns( string $written ): bool {
-		return self::has_partition_token( $written ) || self::owns_unpartitioned();
+	public static function owns( string $written, ?int $partition ): bool {
+		return self::has_partition_token( $written ) || 0 === ( $partition ?? 0 );
 	}
 
 	/**
-	 * Whether this process owns work naming no partition. A source read once
-	 * per fleet rather than once per worker belongs to worker partition 0; a
-	 * process bound to no partition is the only reader there is, so it owns it.
-	 * Only `owns()` asks it.
+	 * Whether a template carries `{partition}`, so it names one log per
+	 * partition.
 	 *
-	 * @throws \LogicException When the bound value is no canonical decimal.
+	 * @param string $template Path or stamp template.
+	 * @throws \RuntimeException When the template names `<partition>`.
 	 */
-	public static function owns_unpartitioned(): bool {
-		return 0 === ( self::bound_partition() ?? 0 );
+	public static function has_partition_token( string $template ): bool {
+		return \str_contains( self::refuse_angle_partition( $template ), self::PARTITION_TOKEN );
+	}
+
+	/**
+	 * $template, refused when it names `<partition>`: read as a fixed name it
+	 * would declare one literal dir, and the sweep would take the live ones.
+	 *
+	 * @param string $template Path or stamp template.
+	 * @throws \RuntimeException When the template names `<partition>`.
+	 */
+	private static function refuse_angle_partition( string $template ): string {
+		if ( \str_contains( $template, '<partition>' ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+			throw new \RuntimeException( "\"{$template}\": <partition> is not a partition token; write " . self::PARTITION_TOKEN );
+		}
+		return $template;
 	}
 
 	/**
@@ -840,32 +857,6 @@ class Core {
 			return null;
 		}
 		return (int) $token;
-	}
-
-	/**
-	 * Whether a template carries `{partition}`, so it names one log per
-	 * partition.
-	 *
-	 * @param string $template Path or stamp template.
-	 * @throws \RuntimeException When the template names `<partition>`.
-	 */
-	public static function has_partition_token( string $template ): bool {
-		return \str_contains( self::refuse_angle_partition( $template ), self::PARTITION_TOKEN );
-	}
-
-	/**
-	 * $template, refused when it names `<partition>`: read as a fixed name it
-	 * would declare one literal dir, and the sweep would take the live ones.
-	 *
-	 * @param string $template Path or stamp template.
-	 * @throws \RuntimeException When the template names `<partition>`.
-	 */
-	private static function refuse_angle_partition( string $template ): string {
-		if ( \str_contains( $template, '<partition>' ) ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-			throw new \RuntimeException( "\"{$template}\": <partition> is not a partition token; write " . self::PARTITION_TOKEN );
-		}
-		return $template;
 	}
 
 	/**

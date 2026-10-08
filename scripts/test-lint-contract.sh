@@ -164,20 +164,4 @@ assert_clean "class-http-out-node.php's blocking probe may call sign_for(" "$d"
 d=$( fixture mint-send includes/class-widget-node.php '$m = Command_Auth::mint_for( $egress, $from, $to, $verb, $args );' )
 assert_clean "a mint through Command_Auth::mint_for( is not flagged" "$d"
 
-owner_ask='if ( Core::owns_unpartitioned() ) { $this->arm(); }'
-d=$( fixture owns-elsewhere includes/class-widget-node.php "$owner_ask" )
-assert_flags "owns_unpartitioned( outside class-core.php is flagged" "$d" "[owns-unpartitioned-outside-core]"
-
-d=$( fixture owns-qualified includes/class-widget-node.php 'return \Newspack_Nodes\Core::owns_unpartitioned();' )
-assert_flags "a qualified owns_unpartitioned( is flagged" "$d" "[owns-unpartitioned-outside-core]"
-
-d=$( fixture owns-core includes/class-core.php 'return self::has_partition_token( $w ) || self::owns_unpartitioned();' )
-assert_clean "class-core.php may call owns_unpartitioned(" "$d"
-
-d=$( fixture owns-test tests/unit/CoreTest.php "$owner_ask" )
-assert_clean "a test may call owns_unpartitioned(" "$d" "$d/tests/unit/CoreTest.php"
-
-d=$( fixture owns-predicate includes/class-widget-node.php 'if ( Core::owns( $this->written ) ) { $this->arm(); }' )
-assert_clean "the one predicate, Core::owns(, is not flagged" "$d"
-
 exit $fail

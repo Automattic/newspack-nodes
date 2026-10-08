@@ -15,13 +15,12 @@
  * A subclass computing its own boundary, or a hook naming a class, works
  * until a second cadence or a second bundle arrives.
  *
- * Six rules read PHP: a verb checking its own role, which `dispatch()` does
+ * Five rules read PHP: a verb checking its own role, which `dispatch()` does
  * against the role the verb declares (ADR-26); a durable arm built outside the
  * Table that owns it (ADR-24); a log stamp spelled by hand (ADR-29); a class
  * taking `Fanout_Targets` without ever fanning out, which declares a target no
- * delivery reads (ADR-19); a command signed outside `Command_Auth`, whose
- * `mint_for()` is the one signed mint (ADR-15); and a node deciding where it
- * reads by the bound partition rather than by what its TSL wrote (ADR-33).
+ * delivery reads (ADR-19); and a command signed outside `Command_Auth`, whose
+ * `mint_for()` is the one signed mint (ADR-15).
  *
  * See ADR-7, AGENTS.md ("A reply is already addressed — never correlate it")
  * and docs/architecture-guide.md on the response envelope.
@@ -248,13 +247,6 @@ const RULES = [
 			'includes/class-command-auth.php' === rel ||
 			'includes/class-http-out-node.php' === rel,
 		why: 'a command signed by hand: Command_Auth::mint_for() checks the session, builds the TM_COMMAND and signs it, the one signed mint (ADR-15)',
-	},
-	{
-		id: 'owns-unpartitioned-outside-core',
-		lang: 'php',
-		test: /\bowns_unpartitioned\s*\(/,
-		skip: ( match, rel ) => 'includes/class-core.php' === rel,
-		why: 'ownership decided off the bound partition: ask Core::owns() with the source as the TSL wrote it, the one predicate (ADR-33)',
 	},
 ];
 

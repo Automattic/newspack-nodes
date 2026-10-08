@@ -1427,10 +1427,10 @@ class Topology_Analyzer {
 
 	/**
 	 * Refuse a `make_node` line whose partition layout the load would refuse:
-	 * `{partition}` in an argument its class marks no partition, or a
-	 * per-worker File_Tail beside a dir every worker would share. Each check
-	 * is the class's own static, the one the load calls. A class token no
-	 * namespace resolves refuses nothing.
+	 * `{partition}` in an argument its class marks no partition, or a durable
+	 * reader of a per-worker source beside a dir every worker would share.
+	 * Each check is the class's own static, the one the load calls. A class
+	 * token no namespace resolves refuses nothing.
 	 *
 	 * @param array{verb: string, values: list<string>} $statement A walked statement.
 	 * @throws \InvalidArgumentException When the class refuses the line.
@@ -1445,7 +1445,7 @@ class Topology_Analyzer {
 		if ( \method_exists( $fqcn, 'refuse_unmarked_partition' ) ) {
 			$fqcn::refuse_unmarked_partition( $name, $args );
 		}
-		if ( \is_a( $fqcn, File_Tail_Node::class, true ) ) {
+		if ( \method_exists( $fqcn, 'refuse_shared_dirs' ) ) {
 			$fqcn::refuse_shared_dirs( $name, $args );
 		}
 	}

@@ -153,9 +153,11 @@ class Bootstrap {
 	 * Built by SUBSTITUTION, never by parsing: each Consumer source template is
 	 * resolved through `Core::resolve_partition_template()` for that worker's
 	 * partition — the one place `{partition}` is expanded — so a template that
-	 * puts the token anywhere but a `.p<N>` suffix still resolves. A partition
-	 * nothing tails is simply absent from the map, which is why no exclusion
-	 * rule is needed for offsetlogs, deadletter dirs or scratch.
+	 * puts the token anywhere but a `.p<N>` suffix still resolves. A source
+	 * naming no partition maps to the one worker `Core::owns()` gives it, p0,
+	 * because every other worker's copy idles (ADR-33). A partition nothing
+	 * tails is simply absent from the map, which is why no exclusion rule is
+	 * needed for offsetlogs, deadletter dirs or scratch.
 	 *
 	 * Cached in APCu (`local_first`, memcached only as its fallback) because the
 	 * derivation globs the user dir and every stock dir and parses every `.tsl`,
@@ -190,6 +192,9 @@ class Bootstrap {
 			$positions = Topology_Analyzer::consumer_positions( $topology );
 			foreach ( self::workers_of( $topology, $entry ) as $worker ) {
 				foreach ( $positions as $position ) {
+					if ( ! Core::owns( $position['source'], $worker['partition'] ) ) {
+						continue;
+					}
 					$dir    = \rtrim( Core::resolve_partition_template( $position['source'], $worker['partition'], $topology ), '/' );
 					$cursor = '' === $position['offsetlog']
 						? ''

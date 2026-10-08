@@ -131,13 +131,15 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 	}
 
 	/**
-	 * Configure the reader from its positional tokens. `parse_schema_args()`
-	 * assigns `source_dir`, `offsetlog_dir` and `deadletter_dir`; `resolve_args()`
-	 * says which source and offsetlog paths this class reads back (Tail swaps in
-	 * its `source_file`); both are checked against the runtime base directory; and
-	 * the source Partition plus the offsetlog and dead-letter sidecars are
-	 * materialized. No I/O runs here — the first poll loads the durable cursor and
-	 * restores the snapshot state.
+	 * Configure the reader from its positional tokens. A per-partition source
+	 * beside a shared dir is refused first; `parse_schema_args()` assigns
+	 * `source_dir`, `offsetlog_dir` and `deadletter_dir`; `resolve_args()` says
+	 * which source and offsetlog paths this class reads back (Tail swaps in its
+	 * `source_file`); both are checked against the runtime base directory. A
+	 * reader whose worker does not own the source as written idles there,
+	 * building no source (ADR-33); otherwise the source Partition plus the
+	 * offsetlog and dead-letter sidecars are materialized. No I/O runs here —
+	 * the first poll loads the durable cursor and restores the snapshot state.
 	 *
 	 * A replay REPLACES the source unconditionally, and each sidecar whenever its
 	 * dir moved — the `ensure_*` guards own that rule, so it reaches every reader
@@ -148,17 +150,24 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 	 *
 	 * @param list<string>|null $args Positional tokens, or null to read the stored set back.
 	 * @return list<string> The tokens as stored.
+	 * @throws \InvalidArgumentException When a per-partition source names a dir every worker would share.
 	 */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
 			return parent::arguments();
 		}
+		static::refuse_shared_dirs( $this->name, $args );
 		$this->parse_schema_args( $args );
 		[ $source_path, $offsetlog_path ] = $this->resolve_args();
 		$this->source_dir    = \rtrim( $source_path, '/' );
 		$this->offsetlog_dir = $offsetlog_path;
 		Config::assert_within_base( $this->source_dir );
 		Config::assert_within_base( $this->offsetlog_dir );
+		if ( $this->idle_unless_owned( $this->source_dir ) ) {
+			$this->retract_sibling( 'source' );
+			$this->source = null;
+			return $args;
+		}
 
 		$source = $this->make_source();
 		$source->arguments( [ $this->source_dir ] );
@@ -204,10 +213,23 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 	 * has written cannot veto a peer's idle exit, and an SSE stream over one
 	 * still heartbeats for its timeout instead of closing on the first tick.
 	 *
+	 * A reader idle off worker p0 has been idle since it was built; any other
+	 * answers `caught_up_since()`.
+	 *
 	 * @return float|null Epoch seconds this reader went idle; null while it holds
 	 *                   unread bytes, or when the newest segment's mtime is unreadable.
 	 */
 	public function idle_since(): ?float {
+		return null !== $this->idle ? $this->idle['since'] : $this->caught_up_since();
+	}
+
+	/**
+	 * Idle seam: when the source last grew for a reader caught up on it, as
+	 * `idle_since()` reports it; File_Tail answers off its one file.
+	 *
+	 * @return float|null Epoch seconds, or null while bytes are unread.
+	 */
+	protected function caught_up_since(): ?float {
 		if ( ! $this->compute_lag()['caught_up'] ) {
 			return null;
 		}
@@ -488,7 +510,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 	 *
 	 * @param string|int|array<array-key,mixed> $position Sentinel, alias, or explicit `{segment, offset}`.
 	 */
-	public function next_offset( $position ): void {
+	protected function seek_to( $position ): void {
 		$this->offset_set = true;
 		$this->buffer     = '';
 		$this->at_eof     = false;
@@ -773,6 +795,11 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 			$this->cursor_offset = 0;
 			$this->buffer     = '';
 		}
+	}
+
+	/** Ownership seam: Consumer reads the partition dir it names; Tail its file base. */
+	protected static function source_argument(): ?string {
+		return 'source_dir';
 	}
 
 	/**

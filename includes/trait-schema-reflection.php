@@ -194,10 +194,12 @@ trait Schema_Reflection {
 	/**
 	 * The token `$name` takes among `$args`, as written; '' when absent. The
 	 * static half of `written_argument()`, for a judge of a line no node
-	 * holds yet.
+	 * holds yet. A name the schema does not declare is the caller's bug, so
+	 * it is refused rather than read as an absent token.
 	 *
 	 * @param list<string> $args Raw positional argument tokens.
 	 * @param string       $name A declared positional.
+	 * @throws \LogicException When the schema declares no argument `$name`.
 	 */
 	protected static function written_in( array $args, string $name ): string {
 		foreach ( self::declared_arguments( static::class ) as $i => $arg_spec ) {
@@ -205,7 +207,8 @@ trait Schema_Reflection {
 				return Core::as_string( $args[ $i ] ?? '' );
 			}
 		}
-		return '';
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+		throw new \LogicException( Command_Interpreter_Node::shell_name_for( static::class ) . " declares no argument '{$name}'" );
 	}
 
 	/**

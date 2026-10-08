@@ -132,6 +132,9 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 			return parent::arguments();
 		}
 		$this->parse_schema_args( $args );
+		if ( $this->idle_unless_owned( $this->stamp ) ) {
+			return $args;
+		}
 		$this->ensure_offsetlog();
 		$this->ensure_deadletter();
 		$this->poll_cb = $this->poll_init( ... );
@@ -551,7 +554,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 *
 	 * @param string|int|array<array-key,mixed> $position Explicit {segment?,offset}, or a seek sentinel / alias word.
 	 */
-	public function next_offset( $position ): void {
+	protected function seek_to( $position ): void {
 		$this->forgive_steps();
 		if ( \is_array( $position ) ) {
 			$at = [ 'offset' => \is_numeric( $position['offset'] ?? null ) ? Core::as_int( $position['offset'] ) : 0 ];
@@ -661,6 +664,15 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	private function forgive_steps(): void {
 		$this->steps_owed        = 0;
 		$this->step_requested_at = null;
+	}
+
+	/**
+	 * A broker builds this reader only for a pair its worker owns, having
+	 * asked `Core::owns()` of the pair as written, so there is no source
+	 * argument to judge and the reader never idles (ADR-31).
+	 */
+	protected static function source_argument(): ?string {
+		return null;
 	}
 
 	/**

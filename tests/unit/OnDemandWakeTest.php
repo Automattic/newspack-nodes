@@ -87,21 +87,22 @@ class OnDemandWakeTest extends TestCase {
 	 * Activate a two-partition topology whose Consumer tails $reads, on-demand
 	 * or not. A real `.tsl`, because the wake resolves readers from the graph.
 	 */
-	private function activate( string $name, int $on_demand_idle = 23, string $reads = 'jobintake', ?string $cursor = null ): void {
+	private function activate( string $name, int $on_demand_idle = 23, string $reads = 'jobintake', ?string $cursor = null, int $partitions = 2, ?string $source = null ): void {
 		// null = the stock offsetlog token; '' = an ephemeral reader, no cursor.
 		$offsetlog = null === $cursor ? "<config:offsets_dir>/{$reads}.p{partition}" : $cursor;
+		$source  ??= "<config:logs_dir>/{$reads}.p{partition}";
 		\file_put_contents(
 			"{$this->stock}/{$name}.tsl",
-			"var num_partitions = 2\n"
+			"var num_partitions = {$partitions}\n"
 			. ( $on_demand_idle > 0 ? "var on_demand_idle = {$on_demand_idle}\n" : '' )
-			. "make_node Consumer {$name}:in <config:logs_dir>/{$reads}.p{partition} "
+			. "make_node Consumer {$name}:in {$source} "
 			. "{$offsetlog}\n"
 			. "make_node Echo {$name}:sink\n"
 			. "connect_node {$name}:in {$name}:sink\n"
 		);
 		$entry = [
 			'topology'       => $name,
-			'num_partitions' => 2,
+			'num_partitions' => $partitions,
 			'stale_timeout'  => 47,
 			'on_demand_idle' => $on_demand_idle,
 		];
@@ -476,6 +477,27 @@ class OnDemandWakeTest extends TestCase {
 		$this->coordinator()->wake_on_demand( "{$this->tmp}/logs/jobintake.p1", (float) \time() );
 
 		$this->assertSame( [ 'marmot-jobs.p1' ], $this->woken() );
+	}
+
+	/** A log named with no partition has one reader, on p0, so only p0 wakes. */
+	public function test_a_fixed_source_wakes_only_partition_zero(): void {
+		$this->activate( 'marmot-ledger', 23, 'ledger', null, 4, '<config:logs_dir>/ledger.p0' );
+
+		$this->coordinator()->wake_on_demand( "{$this->tmp}/logs/ledger.p0", (float) \time() );
+
+		$this->assertSame( [ 'marmot-ledger.p0' ], $this->woken() );
+		$this->assertSame( [ 0 ], \array_column( Bootstrap::on_demand_wake_map()[ "{$this->tmp}/logs/ledger.p0" ], 'partition' ) );
+	}
+
+	/** A log written per partition has a reader in every worker, each its own. */
+	public function test_a_partitioned_source_wakes_each_of_four_partitions(): void {
+		$this->activate( 'marmot-ledger', 23, 'ledger', null, 4 );
+
+		foreach ( [ 0, 1, 2, 3 ] as $partition ) {
+			$this->coordinator()->wake_on_demand( "{$this->tmp}/logs/ledger.p{$partition}", (float) \time() );
+		}
+
+		$this->assertSame( [ 'marmot-ledger.p0', 'marmot-ledger.p1', 'marmot-ledger.p2', 'marmot-ledger.p3' ], $this->woken() );
 	}
 
 	public function test_a_log_no_on_demand_topology_reads_wakes_nothing(): void {

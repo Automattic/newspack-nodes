@@ -32,8 +32,11 @@ class Offsetlog_Cursor_Double extends Node {
 	protected function checkpoint_frame_extra(): array {
 		return [];
 	}
-	public function next_offset( $position ): void {}
+	protected function seek_to( $position ): void {}
 	protected function time_travel_resume(): void {}
+	protected static function source_argument(): ?string {
+		return null;
+	}
 
 	public function build( string $dir ): ?Partition_Node {
 		$this->offsetlog_dir = $dir;

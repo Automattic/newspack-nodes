@@ -131,6 +131,16 @@ class SchemaReflectionTest extends TestCase {
 		$this->assertSame( '', $node->written( 'plain' ) );
 	}
 
+	/** A name the schema does not declare is a bug in the caller, refused by name. */
+	public function test_the_written_form_of_an_undeclared_argument_is_refused(): void {
+		$node = new Partitioned_Subject_Node();
+		$node->arguments( [ '/heron/ledger' ] );
+
+		$this->expectException( \LogicException::class );
+		$this->expectExceptionMessage( "Partitioned_Subject declares no argument 'heron_source'" );
+		$node->written( 'heron_source' );
+	}
+
 	public function test_parse_schema_args_resolves_and_coerces_a_config_token_default(): void {
 		// A <ns:key> token default is resolved via its namespace resolver and
 		// coerced to the declared type — a schema default never passes through

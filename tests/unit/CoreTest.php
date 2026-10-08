@@ -130,34 +130,25 @@ class CoreTest extends TestCase {
 		}
 	}
 
-	/** Work naming no partition belongs to worker p0, and to a process bound to none. */
-	public function test_unpartitioned_work_is_owned_unbound_or_on_partition_zero(): void {
-		try {
-			unset( Core::$var['partition'] );
-			$this->assertTrue( Core::owns_unpartitioned(), 'outside a worker' );
-			Core::$var['partition'] = '0';
-			$this->assertTrue( Core::owns_unpartitioned(), 'worker p0' );
-			Core::$var['partition'] = '7';
-			$this->assertFalse( Core::owns_unpartitioned(), 'worker p7' );
-		} finally {
-			unset( Core::$var['partition'] );
-		}
-	}
-
 	/**
 	 * A source written with a partition token the node received whole runs in
 	 * every worker; one naming none runs where the fleet's fixed work runs.
 	 */
 	public function test_a_worker_owns_a_partitioned_source_and_a_fixed_one_only_on_partition_zero(): void {
+		$this->assertTrue( Core::owns( '/var/log/okapi.{partition}.log', 6 ), 'brace token on p6' );
+		$this->assertFalse( Core::owns( '/var/log/okapi.6.log', 6 ), 'a resolved name is fixed by the time the node sees it' );
+		$this->assertFalse( Core::owns( 'sources/php', 6 ) );
+		$this->assertTrue( Core::owns( 'sources/php', 0 ), 'p0 owns a fixed source' );
+		$this->assertTrue( Core::owns( 'sources/php', null ), 'so does a process bound to none' );
+	}
+
+	/** Ownership judges the partition its caller names, not the one a worker bound. */
+	public function test_ownership_judges_the_partition_named_not_the_bound_one(): void {
 		try {
-			Core::$var['partition'] = '6';
-			$this->assertTrue( Core::owns( '/var/log/okapi.{partition}.log' ), 'brace token on p6' );
-			$this->assertFalse( Core::owns( '/var/log/okapi.6.log' ), 'a resolved name is fixed by the time the node sees it' );
-			$this->assertFalse( Core::owns( 'sources/php' ) );
 			Core::$var['partition'] = '0';
-			$this->assertTrue( Core::owns( 'sources/php' ), 'p0 owns a fixed source' );
-			unset( Core::$var['partition'] );
-			$this->assertTrue( Core::owns( 'sources/php' ), 'so does a process bound to none' );
+			$this->assertFalse( Core::owns( 'sources/php', 3 ), 'p3 of a fleet owns no fixed source, wherever it is asked' );
+			Core::$var['partition'] = '5';
+			$this->assertTrue( Core::owns( 'sources/php', 0 ) );
 		} finally {
 			unset( Core::$var['partition'] );
 		}
@@ -182,7 +173,7 @@ class CoreTest extends TestCase {
 		return [
 			'has_partition_token'        => [ static fn ( string $t ): mixed => Core::has_partition_token( $t ) ],
 			'resolve_partition_template' => [ static fn ( string $t ): mixed => Core::resolve_partition_template( $t, 3 ) ],
-			'owns'                       => [ static fn ( string $t ): mixed => Core::owns( $t ) ],
+			'owns'                       => [ static fn ( string $t ): mixed => Core::owns( $t, 3 ) ],
 		];
 	}
 
