@@ -29,7 +29,7 @@ import { memo } from '@wordpress/element';
 import { __, sprintf, _n } from '@wordpress/i18n';
 import { fleetSummary } from './fleetSummary';
 import { probe24hTotals } from './probe24hTotals';
-import { liveTotal, liveUnknown, streamHead } from './liveSample';
+import { liveTotal, streamHead } from './liveSample';
 import {
 	formatBytes,
 	formatByteRate,
@@ -64,29 +64,6 @@ function Card( { mod, value, label, extraClass = '' } ) {
 		</div>
 	);
 }
-
-/**
- * The backlog card's caption: the sum covers only readers whose lag is
- * known, so it names how many live readers it leaves out — a hub reader,
- * which cannot see its spoke's end — rather than letting the total read as
- * the whole fleet's.
- *
- * @param {number} unknown Live readers whose lag is unknown.
- * @return {string} The caption.
- */
-const backlogLabel = ( unknown ) =>
-	0 === unknown
-		? __( 'Backlog', 'newspack-nodes' )
-		: sprintf(
-				// translators: %d: number of readers whose lag is unknown.
-				_n(
-					'Backlog · %d reader with unknown lag',
-					'Backlog · %d readers with unknown lag',
-					unknown,
-					'newspack-nodes'
-				),
-				unknown
-		  );
 
 /**
  * Render the card row.
@@ -195,9 +172,7 @@ function SummaryCards( {
 				value={ formatBytes(
 					liveTotal( consumers, headS, 'backlog' )
 				) }
-				label={ backlogLabel(
-					liveUnknown( consumers, headS, 'backlog' )
-				) }
+				label={ __( 'Backlog', 'newspack-nodes' ) }
 			/>
 			<Card
 				mod="messages"

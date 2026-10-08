@@ -148,7 +148,7 @@ it( 'sums the current backlog across readers from the probe consumers', () => {
 	expect( card( container, 'backlog' ) ).toContain( 'Backlog' );
 } );
 
-it( 'names how many live readers the backlog card cannot count', () => {
+it( 'sums the known backlog with no unknown-lag caption', () => {
 	const { container } = renderCards( {
 		consumers: {
 			r1: { source: 'jobs.p0', latest: { ts: NOW - 4, backlog: 40960 } },
@@ -164,7 +164,7 @@ it( 'names how many live readers the backlog card cannot count', () => {
 	} );
 
 	expect( card( container, 'backlog' ) ).toContain( '40 KB' );
-	expect( card( container, 'backlog' ) ).toContain(
+	expect( card( container, 'backlog' ) ).not.toContain(
 		'2 readers with unknown lag'
 	);
 } );

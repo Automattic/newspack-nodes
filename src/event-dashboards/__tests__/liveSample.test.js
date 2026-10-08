@@ -1,9 +1,4 @@
-import {
-	isLiveSample,
-	liveTotal,
-	liveUnknown,
-	streamHead,
-} from '../liveSample';
+import { isLiveSample, liveTotal, streamHead } from '../liveSample';
 import { TopicProbeViewNode } from '../nodes/topic-probe-view-node';
 import {
 	newMessage,
@@ -329,9 +324,5 @@ describe( 'a backlog no reader can measure', () => {
 
 	it( 'sums only the known lag', () => {
 		expect( liveTotal( consumers, head, 'backlog' ) ).toBe( 70913 );
-	} );
-
-	it( 'counts the live readers whose lag is unknown', () => {
-		expect( liveUnknown( consumers, head, 'backlog' ) ).toBe( 2 );
 	} );
 } );

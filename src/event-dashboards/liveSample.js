@@ -50,7 +50,7 @@ export function streamHead( consumers ) {
  * @param {number}                                                         headS     The stream head, from `streamHead()`.
  * @param {string}                                                         field     The `latest` field to sum: `msgRate`, `backlog`, `cacheSize`, `endBytes` or `diskBytes`.
  * @return {number} The summed field; 0 when no reader is live. A reader whose
- *   field is null, unmeasured, adds nothing; `liveUnknown()` counts them.
+ *   field is null, unmeasured, adds nothing.
  */
 export function liveTotal( consumers, headS, field ) {
 	let total = 0;
@@ -60,25 +60,6 @@ export function liveTotal( consumers, headS, field ) {
 		}
 	}
 	return total;
-}
-
-/**
- * Count the live readers whose newest sample carries the field as null: a
- * figure the reader cannot measure, as a hub reader cannot its backlog, which
- * `liveTotal()` leaves out of its sum.
- *
- * @param {?Object<string,{source?:string,latest?:Object<string,?number>}>} consumers The `topicprobe:view` consumers map; a missing map counts as empty.
- * @param {number}                                                          headS     The stream head, from `streamHead()`.
- * @param {string}                                                          field     The `latest` field, such as `backlog`.
- * @return {number} How many live readers cannot measure it.
- */
-export function liveUnknown( consumers, headS, field ) {
-	return Object.values( consumers || {} ).filter(
-		( c ) =>
-			c.source &&
-			isLiveSample( c.latest, headS ) &&
-			null === c.latest[ field ]
-	).length;
 }
 
 /**
