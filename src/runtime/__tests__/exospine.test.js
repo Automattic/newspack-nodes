@@ -685,6 +685,24 @@ describe( 'mountExospine( build ) — shell group Taps, derived from targets', (
 		expect( Core.node( 'shell:quokka' ) ).toBeNull();
 	} );
 
+	test( 'each mount records the groups it claims; Core keeps no count', () => {
+		const first = mountExospine( targeting( 'shell:quokka/_http' ) );
+		const second = mountExospine(
+			targeting( 'shell:quokka/_http/x', 'shell:kea/_http' ),
+			{ passenger: true }
+		);
+
+		expect( 'shellGroups' in Core ).toBe( false );
+		expect(
+			Core.backboneMounts.map( ( mount ) => [ ...mount.claimed ].sort() )
+		).toEqual( [ [ 'quokka' ], [ 'kea', 'quokka' ] ] );
+
+		second.teardown();
+		expect( Core.node( 'shell:kea' ) ).toBeNull();
+		expect( Core.node( 'shell:quokka' ) ).toBeInstanceOf( TapNode );
+		first.teardown();
+	} );
+
 	test( "a build's teardown never removes a group Tap another mount claims", () => {
 		const first = mountExospine( targeting( 'shell:quokka/_http' ) );
 		const second = mountExospine( targeting( 'shell:quokka/_http/x' ), {
@@ -804,7 +822,7 @@ describe( 'the shared stream link', () => {
 
 	test( 'teardown of the owner removes the link and closes its stream', async () => {
 		const spine = mountExospine( () => {} );
-		spine.stream.attach( 'plover', [ 'wren.p6' ], 'plover:stream' );
+		spine.stream.attach( [ 'wren.p6' ], 'plover:stream' );
 		await Promise.resolve();
 		expect( ClosableEventSource.instances ).toHaveLength( 1 );
 		spine.teardown();
@@ -890,6 +908,29 @@ describe( 'mountExospine — the backbone outlives its owner', () => {
 		expect( Core.node( names.STREAM ) ).toBeInstanceOf( RemoteLinkNode );
 		expect( Core.node( 'kiwi-4417:ask' ).sink ).toBe( raised );
 		stays.teardown();
+	} );
+
+	test( 'ownership and the Reset Graph capability are read off the mounts', () => {
+		const rider = mountExospine( () => {}, { passenger: true } );
+		const bare = mountExospine();
+		const builder = mountExospine( () => {} );
+		const [ , bareMount, builderMount ] = Core.backboneMounts;
+
+		expect( Core.backboneOwner ).toBe( bareMount );
+		expect( Core.rebuildable ).toBe( false );
+		bare.teardown();
+		expect( Core.backboneOwner ).toBe( builderMount );
+		expect( Core.rebuildable ).toBe( true );
+		expect( () => {
+			Core.backboneOwner = null;
+		} ).toThrow( TypeError );
+		expect( () => {
+			Core.rebuildable = false;
+		} ).toThrow( TypeError );
+
+		builder.teardown();
+		expect( Core.backboneOwner ).toBeNull();
+		rider.teardown();
 	} );
 
 	test( 'the last mount leaving tears the backbone down, the Router aside', () => {

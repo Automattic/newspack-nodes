@@ -140,7 +140,9 @@ describe( 'Jobs', () => {
 	it( 'shows the lines each of its streams skipped as its own named notice', () => {
 		publishSkippedLines( 'jobstats:stream', 2 );
 		publishSkippedLines( 'topicprobe:stream', 3 );
-		useNodeField.mockReturnValue( undefined );
+		useNodeField.mockImplementation(
+			jest.requireActual( '../../runtime/react' ).useNodeField
+		);
 		const { container } = render( <Jobs /> );
 		const notices = [
 			...container.querySelectorAll(

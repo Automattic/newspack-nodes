@@ -31,6 +31,7 @@
 
 import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
 import { addSliceFetcher } from '@newspack-nodes/shared/helpers/addSliceFetcher';
+import { egressPath } from '@newspack-nodes/shared/helpers/egressPath';
 import '../nodes/register';
 import { SourceCountsViewNode } from '../nodes/source-counts-view-node';
 import { TopTableViewNode } from '../nodes/top-table-view-node';
@@ -64,12 +65,8 @@ const GROUP = 'insights';
  * `shell:insights` Tap, then the `_http` HttpOut, then the server CI. Going
  * through the Tap rather than straight to `_http` is what lets
  * `connect shell:insights` in the console watch every command leaving the page.
- *
- * `egressPath( GROUP, SERVER )` from `@newspack-nodes/shared/helpers/egressPath`
- * composes the same string. A dashboard outside this tutorial calls it rather
- * than respelling the path by hand.
  */
-const TARGET = `shell:${ GROUP }/_http/${ SERVER }`;
+const TARGET = egressPath( GROUP, SERVER );
 
 /**
  * One entry per card: the Fetcher that asks, the receiver Tee a reply pivots

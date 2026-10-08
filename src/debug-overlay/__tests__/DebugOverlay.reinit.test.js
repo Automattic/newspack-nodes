@@ -133,7 +133,6 @@ describe( 'DebugOverlay — Reset Graph (full rebuild)', () => {
 
 	it( 'drops a user-added node and rebuilds reserved infra + the dashboard node', () => {
 		const managedName = mountWithManagedNode();
-		Core.rebuildable = true;
 		openOverlay();
 		// User adds a node AFTER the overlay opened.
 		act( () => {
@@ -157,7 +156,6 @@ describe( 'DebugOverlay — Reset Graph (full rebuild)', () => {
 	it( 'drops a user node added BEFORE the overlay opened (no first-open snapshot)', () => {
 		// Build-delegated mount: Reset Graph recreates _router synchronously.
 		mountExospine( () => {} );
-		Core.rebuildable = true;
 		// User node exists BEFORE the panel opens.
 		const pre = new Node();
 		pre.name = 'pre-open';
@@ -187,8 +185,7 @@ describe( 'DebugOverlay — dirty-on-rewire', () => {
 	} );
 
 	it( 'a connect gesture surfaces the Reset Graph chip when reinit is available', () => {
-		mountExospine();
-		Core.rebuildable = true;
+		mountExospine( () => {} );
 		openOverlay();
 		expect( screen.queryByTestId( 'chip-reset-graph' ) ).toBeNull();
 		act( () => fireEvent.click( screen.getByTestId( 'do-connect' ) ) );
@@ -197,15 +194,13 @@ describe( 'DebugOverlay — dirty-on-rewire', () => {
 
 	it( 'a rewire alone does NOT surface Reset Graph without reinit (nothing to restore)', () => {
 		mountExospine();
-		Core.rebuildable = false;
 		openOverlay();
 		act( () => fireEvent.click( screen.getByTestId( 'do-connect' ) ) );
 		expect( screen.queryByTestId( 'chip-reset-graph' ) ).toBeNull();
 	} );
 
 	it( 'a node removal surfaces BOTH the Reset Graph and Reset Layout chips', async () => {
-		mountExospine();
-		Core.rebuildable = true;
+		mountExospine( () => {} );
 		openOverlay();
 		// Reset Layout chip needs an initialized layout; let the settle fire.
 		await act( async () => {
@@ -219,8 +214,7 @@ describe( 'DebugOverlay — dirty-on-rewire', () => {
 	} );
 
 	it( 'a disconnect surfaces the Reset Graph chip', () => {
-		mountExospine();
-		Core.rebuildable = true;
+		mountExospine( () => {} );
 		openOverlay();
 		expect( screen.queryByTestId( 'chip-reset-graph' ) ).toBeNull();
 		act( () => fireEvent.click( screen.getByTestId( 'do-disconnect' ) ) );
@@ -230,7 +224,6 @@ describe( 'DebugOverlay — dirty-on-rewire', () => {
 	it( 'Reset Graph surfaces the Reset Layout chip (a rebuild offers a fresh auto-fit)', async () => {
 		// Build-delegated mount so Reset Graph's fullRebuild recreates _router.
 		mountExospine( () => {} );
-		Core.rebuildable = true;
 		openOverlay();
 		// Reset Layout chip needs an initialized layout; let the settle fire.
 		await act( async () => {

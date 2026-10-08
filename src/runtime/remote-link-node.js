@@ -22,11 +22,11 @@
  * single-connection steal.
  *
  * A page's shared link carries every stream graph on the page: each
- * `attach()`es its subscription and target, and the link routes each record by
- * the stamp its FROM opens with to every rider carrying it, as Tachikoma's
- * ConsumerBroker holds one connection for its Consumers. A graph pausing
- * `park()`s and keeps its place; one unmounting `detach()`es and forgets it.
- * Every change in one tick joins one reconnect.
+ * `attach()`es its subscription under the node its records go to, and the link
+ * routes each record by the stamp its FROM opens with to every graph carrying
+ * it, as Tachikoma's ConsumerBroker holds one connection for its Consumers. A
+ * graph pausing `park()`s and keeps its place; one unmounting `detach()`es and
+ * forgets it. Every change in one tick joins one reconnect.
  *
  * Mirrors the PHP `Remote_Source_Node`, a patron owning an `SSE_In_Node` and an
  * `HTTP_Out_Node`. The durable offsetlog that distinguishes aggregation is a
@@ -35,7 +35,8 @@
  */
 
 import { Core } from './core';
-import { Node } from './node';
+import { Node, targetsOf } from './node';
+import { ReactBridge } from './react-bridge';
 import { SchemaReflection } from './schema-reflection';
 import { SseInNode } from './sse-in-node';
 import { defaultTransport } from './command-transport';
@@ -60,6 +61,15 @@ import names from './reserved-node-names.json';
  */
 
 /**
+ * One graph riding a shared link, kept under the node its records go to.
+ *
+ * @typedef {Object} Graph
+ * @property {string[]}              subscribe What it streams.
+ * @property {boolean}               parked    Whether `park()` paused it.
+ * @property {(?SeekSeed|undefined)} seek      The seek the next reopen states.
+ */
+
+/**
  * The composed SSE+HTTP channel: one node standing in for an SseIn stream, the
  * shared HttpOut command boundary, and the Heartbeat that keeps the stream's
  * slot lease alive.
@@ -72,7 +82,7 @@ import names from './reserved-node-names.json';
  * source node. A link carrying graphs instead takes its subscription from
  * them: `attach()`, `park()` and `detach()` reopen it on theirs.
  */
-export class RemoteLinkNode extends SchemaReflection( Node ) {
+export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 	/**
 	 * Start unconfigured and childless: `ensureChildren()` builds the stream on
 	 * the first call that needs one, and `_assertConfigured()` refuses every
@@ -102,12 +112,6 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 		/** Comma-separated subscription list; empty until `arguments` sets it. */
 		this.subscribe = '';
 		/**
-		 * Whether each received record is routed by stamp, through
-		 * `targetsFor()`. A RemoteLink is a SUBSCRIPTION, so it is; RemoteIpc
-		 * clears it, keeping the worker's TO=FROM reply addressing (ADR-7).
-		 */
-		this.rehomeReceived = true;
-		/**
 		 * Optional hook fired with the SseIn's `connected` payload, once the
 		 * slot lease has reached the Heartbeat.
 		 *
@@ -122,12 +126,12 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 		 */
 		this.onClose = null;
 		/**
-		 * Graphs on this link, by the key each attached under: what it
-		 * streams, where its records go, whether `park()` has paused it, and
-		 * the seek the next reopen states for it (none when undefined, a
-		 * tail when null). Empty for a single-target link.
+		 * Graphs on this link, by the node each one's records go to: what it
+		 * streams, whether `park()` has paused it, and the seek the next
+		 * reopen states for it (none when undefined, a tail when null). Empty
+		 * for a single-target link.
 		 *
-		 * @type {Map<string,{subscribe:string[],target:string,parked:boolean,seek:(?SeekSeed|undefined)}>}
+		 * @type {Map<string,Graph>}
 		 */
 		this.graphs = new Map();
 		// One reopen per tick: later attaches and detaches join a queued one.
@@ -136,6 +140,13 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 		this._forgot = false;
 		// Republished from the SseIn; see ensureChildren().
 		this.registrations.UNPARSEABLE_LINES = {};
+		/**
+		 * Each graph's share of the lines its SseIn skipped, by target: the
+		 * sum of the stamps the graph carries.
+		 *
+		 * @type {Object<string,number>}
+		 */
+		this.unparseableByTarget = {};
 	}
 
 	/**
@@ -205,7 +216,7 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 		if ( this.sseIn ) {
 			this.sseIn.target = target;
 		}
-		if ( ! this.sseIn?._es ) {
+		if ( ! this.sseIn?.isOpenOrReopening() ) {
 			this.connect();
 		}
 	}
@@ -220,31 +231,30 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 	}
 
 	/**
-	 * Ride this link: carry `subscribe` for `key` and deliver each record whose
-	 * stamp it carries to `target`. A second attach under the same key
-	 * replaces the first. The stream reopens once this tick's attaches and
-	 * detaches are all in, and not at all when they change nothing.
+	 * Ride this link: carry `subscribe` and deliver each record whose stamp it
+	 * carries to `target`. A second attach for the same target replaces the
+	 * first. The stream reopens once this tick's attaches and detaches are all
+	 * in, and not at all when they change nothing.
 	 *
-	 * @param {string}     key       The graph riding, named by its prefix.
 	 * @param {string[]}   subscribe What it streams.
-	 * @param {string}     target    Where its records go.
+	 * @param {string}     target    The node its records go to, which names
+	 *                               the graph riding.
 	 * @param {?SeekSeed=} positions Omitted, its dirs resume where they read
 	 *                               to; null tails them; a seed seeks them.
 	 * @throws {Error} When `positions` seeks or tails a stamp another graph
 	 *                 streams.
 	 */
-	attach( key, subscribe, target, positions ) {
+	attach( subscribe, target, positions ) {
 		if ( undefined !== positions ) {
 			this._assertSeekable(
-				key,
+				target,
 				positions ? Object.keys( positions ) : this._tailed( subscribe )
 			);
 		}
-		const was = this.graphs.get( key );
+		const was = this.graphs.get( target );
 		const same = was?.subscribe.join( ',' ) === subscribe.join( ',' );
-		this.graphs.set( key, {
+		this.graphs.set( target, {
 			subscribe,
-			target,
 			parked: false,
 			seek: undefined === positions && same ? was.seek : positions,
 		} );
@@ -255,32 +265,32 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 	}
 
 	/**
-	 * Stop carrying `key`'s graph for good, as an unmount does. Its seek,
+	 * Stop carrying `target`'s graph for good, as an unmount does. Its seek,
 	 * seeds, read positions and skipped-line counts go with it, save those of
 	 * a dir another graph carries, so a later graph on its stamps tails.
 	 *
-	 * @param {string} key The graph leaving, as it attached.
+	 * @param {string} target The graph leaving, named as it attached.
 	 */
-	detach( key ) {
-		const graph = this.graphs.get( key );
+	detach( target ) {
+		const graph = this.graphs.get( target );
 		if ( graph ) {
-			this.graphs.delete( key );
+			this.graphs.delete( target );
 			this._forget( graph.subscribe );
 			this._queueRestart();
 		}
 	}
 
 	/**
-	 * Stop carrying `key`'s graph for now, as a pause does. A seek not yet
+	 * Stop carrying `target`'s graph for now, as a pause does. A seek not yet
 	 * asked for goes; its seeds and read positions stay, so the `attach()`
 	 * that plays it resumes where it stopped, or past it where a live graph
 	 * read on. A seed the server answered is spent already: the handshake's
 	 * cursor outranks it, while a stream refused before then still replays.
 	 *
-	 * @param {string} key The graph pausing, as it attached.
+	 * @param {string} target The graph pausing, named as it attached.
 	 */
-	park( key ) {
-		const graph = this.graphs.get( key );
+	park( target ) {
+		const graph = this.graphs.get( target );
 		if ( graph ) {
 			graph.parked = true;
 			graph.seek = undefined;
@@ -289,16 +299,23 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 	}
 
 	/**
-	 * Forget what `subscribe` alone holds. When that moves a place the open
-	 * stream started from, the next reopen must happen even on the same set,
-	 * or a replay one graph asked for runs on into another.
+	 * Forget what `subscribe` alone holds. When that moves a place of a dir
+	 * the open stream carries, the next reopen must happen even on the same
+	 * set, or a replay one graph asked for runs on into another.
 	 *
 	 * @param {string[]} subscribe The subscriptions being let go.
 	 */
 	_forget( subscribe ) {
-		if ( this.sseIn?.forget( this._orphaned( subscribe ) ) ) {
+		const drop = this._orphaned( subscribe );
+		const open = this.subscribe.split( ',' );
+		if (
+			this.sseIn
+				?.places()
+				.some( ( dir ) => drop( dir ) && anyCarries( open, dir ) )
+		) {
 			this._forgot = true;
 		}
+		this.sseIn?.forget( drop );
 	}
 
 	/**
@@ -321,16 +338,19 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 	 * Refuse a seek on a stamp another graph holds, live or parked: one
 	 * stream holds one position per stamp, so the seek would move it too.
 	 *
-	 * @param {string}   key    The graph seeking.
+	 * @param {string}   target The graph seeking.
 	 * @param {string[]} stamps The stamps the seek moves.
 	 * @throws {Error} Naming both graphs and the stamp.
 	 */
-	_assertSeekable( key, stamps ) {
+	_assertSeekable( target, stamps ) {
 		for ( const stamp of stamps ) {
 			for ( const [ other, graph ] of this.graphs ) {
-				if ( other !== key && anyCarries( graph.subscribe, stamp ) ) {
+				if (
+					other !== target &&
+					anyCarries( graph.subscribe, stamp )
+				) {
 					throw new Error(
-						`RemoteLink: ${ key } cannot seek ${ stamp }, which ${ other } is streaming`
+						`RemoteLink: ${ target } cannot seek ${ stamp }, which ${ other } is streaming`
 					);
 				}
 			}
@@ -339,16 +359,22 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 
 	/**
 	 * The stamps a tail moves: each exact subscription, and every dir a glob
-	 * among them has read.
+	 * among them holds a place for, by a seed or a read position, the seeds
+	 * other graphs ask for on the next reopen included.
 	 *
 	 * @param {string[]} subscribe The subscriptions being tailed.
 	 * @return {string[]} The stamps.
 	 */
 	_tailed( subscribe ) {
-		const read = Object.keys( this.sseIn?.lastPositions ?? {} );
+		const held = [
+			...( this.sseIn?.places() ?? [] ),
+			...[ ...this.graphs.values() ].flatMap( ( graph ) =>
+				Object.keys( graph.seek ?? {} )
+			),
+		];
 		return [
 			...subscribe.filter( ( sub ) => ! sub.includes( '*' ) ),
-			...read.filter( ( dir ) => anyCarries( subscribe, dir ) ),
+			...held.filter( ( dir ) => anyCarries( subscribe, dir ) ),
 		];
 	}
 
@@ -360,37 +386,41 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 		this._restartQueued = true;
 		queueMicrotask( () => {
 			this._restartQueued = false;
-			this._restartRiders();
+			this._restartGraphs();
 		} );
 	}
 
 	/**
-	 * Open the stream on every rider's subscriptions, or close it when none
+	 * Open the stream on every graph's subscriptions, or close it when none
 	 * is left. A stream on the same set with no seek pending is left alone,
 	 * open or waiting out its reopen, so a re-render costs no reconnect and
 	 * cannot cut a backoff short.
 	 */
-	_restartRiders() {
-		const ridden = this._ridden();
-		if ( 0 === ridden.length ) {
+	_restartGraphs() {
+		this._publishShares();
+		const subscribed = this._subscribed();
+		if ( 0 === subscribed.length ) {
 			if ( this.sseIn ) {
 				this.close();
 			}
 			return;
 		}
+		const joined = subscribed.join( ',' );
 		const seeking = this._live().filter(
 			( graph ) => undefined !== graph.seek
 		);
 		if (
-			( this.sseIn?._es || this.sseIn?._reopenTimer ) &&
-			this.subscribe === ridden.join( ',' ) &&
+			this.sseIn?.isOpenOrReopening() &&
+			this.subscribe === joined &&
 			0 === seeking.length &&
 			! this._forgot
 		) {
 			return;
 		}
 		this._forgot = false;
-		this._recordSubscription( ridden );
+		this.subscribe = joined;
+		// Past this class's setter: the value is parsed, so skip the walk.
+		super.arguments = [ this.subscribe ];
 		this.ensureChildren();
 		for ( const graph of seeking ) {
 			this.sseIn.reseek( graph.subscribe, graph.seek );
@@ -404,39 +434,19 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 	 * @return {string[]} Every live graph's subscriptions, each named once,
 	 *   sorted so the same set always reads the same.
 	 */
-	_ridden() {
+	_subscribed() {
 		return [
 			...new Set( this._live().flatMap( ( graph ) => graph.subscribe ) ),
 		].sort();
 	}
 
 	/**
-	 * Record a subscription supplied AFTER construction, so `arguments` — what
-	 * `dump_config()` re-emits — reports what is streaming rather than whatever
-	 * the constructor happened to be given.
-	 *
-	 * It assigns past this class's own `arguments` setter because the value is
-	 * already parsed: re-running the schema walk would blank `subscribe`
-	 * mid-call for no gain.
-	 *
-	 * @param {string[]} subscribe Subscriptions the stream will carry.
-	 * @throws {Error} When the list is empty — that de-configures a live link.
-	 */
-	_recordSubscription( subscribe ) {
-		const joined = subscribe.join( ',' );
-		if ( '' === joined ) {
-			throw new Error( 'RemoteLink requires an SSE subscription' );
-		}
-		this.subscribe = joined;
-		super.arguments = [ joined ];
-	}
-
-	/**
 	 * Build this link's SseIn, hand the shared `_http` its transport, and
 	 * register the handlers bridging the SseIn's `connected` handshake to a
 	 * Heartbeat slot lease and republishing its UNPARSEABLE_LINES count on this
-	 * link. Idempotent: the first call that needs a stream builds it, and every
-	 * later call returns at once.
+	 * link, with each graph's share in `unparseableByTarget`. Idempotent: the
+	 * first call that needs a stream builds it, and every later call returns
+	 * at once.
 	 *
 	 * Only the SseIn is created. `_http` and `_heartbeat` are looked up and
 	 * configured, because they are backbone every link on the page shares.
@@ -449,7 +459,6 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 			return;
 		}
 
-		/** @type {SseInNode & import('./sse-in-node').PatronConfigured} */
 		const sse = new SseInNode();
 		// Pin a NON-default table before naming, exactly as makeNode does.
 		if ( this.registry !== Core.registry ) {
@@ -463,10 +472,7 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 		if ( this.target ) {
 			sse.target = this.target;
 		}
-		// Subscriptions route records by stamp; RemoteIpc opts out.
-		sse.routeTo = this.rehomeReceived
-			? ( stamp ) => this.targetsFor( stamp )
-			: null;
+		sse.routeTo = ( stamp ) => this.targetsFor( stamp );
 		this.sseIn = sse;
 
 		// Backbone singletons; configure, never alias per-link.
@@ -504,47 +510,64 @@ export class RemoteLinkNode extends SchemaReflection( Node ) {
 			return true;
 		} );
 
-		// Republish the total on the link, each rider's share on its target.
+		// Republish the total on the link, and each graph's share.
 		sse.register( 'UNPARSEABLE_LINES', this.name, ( count ) => {
 			this.setState( 'UNPARSEABLE_LINES', count );
-			for ( const { subscribe, target } of this._live() ) {
-				const own = Object.entries( sse.unparseableByStamp )
-					.filter( ( [ stamp ] ) => anyCarries( subscribe, stamp ) )
-					.reduce( ( sum, [ , n ] ) => sum + n, 0 );
-				this.registry
-					.node( target )
-					?.setState( 'UNPARSEABLE_LINES', own );
-			}
+			this._publishShares();
 			return true;
 		} );
 	}
 
 	/**
-	 * Where a record stamped `stamp` goes. A link carrying no riders sends it
-	 * to its own target, or keeps its TO when it has none. With riders, it
+	 * Publish every graph's share of the skipped lines, live or parked, from
+	 * the counts the SseIn keeps per stamp, unless no share moved.
+	 */
+	_publishShares() {
+		const byStamp = Object.entries( this.sseIn?.unparseableByStamp ?? {} );
+		const shares = {};
+		for ( const [ target, { subscribe } ] of this.graphs ) {
+			shares[ target ] = byStamp
+				.filter( ( [ stamp ] ) => anyCarries( subscribe, stamp ) )
+				.reduce( ( sum, [ , n ] ) => sum + n, 0 );
+		}
+		const was = this.unparseableByTarget;
+		const keys = Object.keys( shares );
+		if (
+			keys.length !== Object.keys( was ).length ||
+			keys.some( ( target ) => shares[ target ] !== was[ target ] )
+		) {
+			this.setField( 'unparseableByTarget', shares );
+		}
+	}
+
+	/**
+	 * Where a record stamped `stamp` goes. A link carrying no graphs sends it
+	 * to its own target, or keeps its TO when it has none. With graphs, it
 	 * goes to each one whose subscription carries the stamp, and to every
-	 * rider when its FROM opens with no stamp at all or with `_stream`, the
-	 * FROM the server gives its own frames.
+	 * graph when its FROM is empty.
 	 *
 	 * @param {string} stamp The record's stamp.
 	 * @return {?string[]} The targets, or null to keep the record's TO.
 	 */
 	targetsFor( stamp ) {
 		if ( 0 === this.graphs.size ) {
-			return this.target ? [].concat( this.target ) : null;
+			const own = targetsOf( this );
+			return own.length ? own : null;
 		}
-		const unstamped = '' === stamp || names.STREAM === stamp;
-		const targets = new Set();
-		for ( const { subscribe, target } of this._live() ) {
-			if ( unstamped || anyCarries( subscribe, stamp ) ) {
-				targets.add( target );
+		const targets = [];
+		for ( const [ target, graph ] of this.graphs ) {
+			if (
+				! graph.parked &&
+				( '' === stamp || anyCarries( graph.subscribe, stamp ) )
+			) {
+				targets.push( target );
 			}
 		}
-		return [ ...targets ];
+		return targets;
 	}
 
 	/**
-	 * @return {Array<{subscribe:string[],target:string,parked:boolean,seek:(?SeekSeed|undefined)}>} The graphs not parked.
+	 * @return {Graph[]} The graphs not parked.
 	 */
 	_live() {
 		return [ ...this.graphs.values() ].filter(

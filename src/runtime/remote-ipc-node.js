@@ -59,8 +59,6 @@ export class RemoteIpcNode extends RemoteLinkNode {
 	constructor() {
 		super();
 		this.reader = '';
-		// Attached IPC, not a subscription: keep worker TO=FROM, don't re-home.
-		this.rehomeReceived = false;
 	}
 
 	/**
@@ -170,7 +168,7 @@ export class RemoteIpcNode extends RemoteLinkNode {
 	connect() {
 		this._assertConfigured();
 		const current = RemoteIpcNode.active;
-		if ( current === this && this.sseIn?._es ) {
+		if ( current === this && this.sseIn?.isOpenOrReopening() ) {
 			const session = sessionHandle();
 			if ( session && session !== this.sseIn.presentedSession ) {
 				this.sseIn.start();
@@ -197,6 +195,16 @@ export class RemoteIpcNode extends RemoteLinkNode {
 		if ( '' === this.reader ) {
 			throw new Error( 'RemoteIpc requires a remote worker reader' );
 		}
+	}
+
+	/**
+	 * Attached IPC, not a subscription: every record keeps the TO the worker
+	 * addressed it to (TO=FROM, ADR-7).
+	 *
+	 * @return {null} Keep each record's TO.
+	 */
+	targetsFor() {
+		return null;
 	}
 
 	/**

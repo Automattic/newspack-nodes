@@ -137,6 +137,32 @@ describe( 'RemoteIpcNode', () => {
 		).toEqual( { 'combined.p7': SEEK_END } );
 	} );
 
+	it( 'a connect during a scheduled reopen resumes rather than tail-seeking', () => {
+		jest.useFakeTimers();
+		try {
+			const { interpreter } = mountExospine();
+			const ipc = makeRemoteIpc( 'combined.p7', interpreter );
+			ipc.connect();
+			ipc.sseIn.lastPositions[ 'combined.p7' ] = {
+				segment: 5,
+				offset: 2209,
+			};
+			ipc.sseIn._scheduleReopen();
+			ipc.connect();
+			jest.advanceTimersByTime( 2000 );
+			const reopened = new URL(
+				FakeEventSource.last.url,
+				'https://x.test'
+			);
+			expect(
+				JSON.parse( reopened.searchParams.get( 'positions' ) )
+			).toEqual( { 'combined.p7': { segment: 5, offset: 2209 } } );
+			ipc.removeNode();
+		} finally {
+			jest.useRealTimers();
+		}
+	} );
+
 	// The Router brackets every tick in _http.lock()/flush() (router-node.js),
 	// so N poller sends to one worker ride ONE POST — and each was dragging its
 	// own identical mount.

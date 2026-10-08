@@ -516,6 +516,7 @@ The hook builds the real graph and owns the poll loop. The shortcut it refuses i
 ```js
 import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
 import { addSliceFetcher } from '@newspack-nodes/shared/helpers/addSliceFetcher';
+import { egressPath } from '@newspack-nodes/shared/helpers/egressPath';
 import '../nodes/register';
 import { SourceCountsViewNode } from '../nodes/source-counts-view-node';
 import { TopTableViewNode } from '../nodes/top-table-view-node';
@@ -523,7 +524,7 @@ import { AccumulatedViewNode } from '../nodes/accumulated-view-node';
 
 const SERVER = 'insights-demo';   // the server-side CI mount (real product owns unsuffixed `insights`)
 const GROUP = 'insights';         // the dashboard's group: its commands pass shell:insights
-const TARGET = `shell:${ GROUP }/_http/${ SERVER }`;   // egressPath( GROUP, SERVER ) composes the same string
+const TARGET = egressPath( GROUP, SERVER );   // shell:insights/_http/insights-demo
 
 // A digest moves on the order of minutes, so this is a retry, not a feed.
 const DEFAULT_INTERVAL_MS = 30000;

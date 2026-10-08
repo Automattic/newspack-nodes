@@ -9,12 +9,13 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 - **A stream graph rides the page's `_stream`; `<prefix>:link` is gone.**
   `useStreamGraph` mounts `<prefix>:stream` and `<prefix>:view` and attaches
   to the backbone's one `RemoteLinkNode`, `_stream`, which `linkRef` now
-  holds. Read a graph's skipped lines off `<prefix>:stream`:
+  holds. A graph's skipped lines live on `_stream`, in its
+  `unparseableByTarget` field under the graph's `<prefix>:stream`:
   `<UnparseableLinesNotice node="<prefix>:link" />` becomes
   `node="<prefix>:stream"`, and `LogStreamViewer`'s `linkNode` prop becomes
   `streamNode`. A test reading `Core.node( '<prefix>:link' ).sseIn` reads
   `Core.node( '_stream' ).sseIn`, and one asserting `sseIn.target` reads
-  `Core.node( '_stream' ).graphs.get( prefix ).target`. The link opens on a
+  `Core.node( '_stream' ).graphs.has( '<prefix>:stream' )`. The link opens on a
   microtask, so a test flushes with `await act( async () => {} )` before it
   reads the EventSource, and one on fake timers keeps the microtask real
   with `jest.useFakeTimers( { doNotFake: [ 'queueMicrotask' ] } )`. A record
@@ -24,13 +25,15 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   collides with the backbone.
 - **`RemoteLinkNode#setSubscribe()` and `#reconnect()` are removed, and
   `connect()` takes no `positions`.** A graph riding a link calls
-  `link.attach( key, subscribe, target, positions )`: `positions` omitted
-  resumes, `null` tails, a seed seeks. `link.park( key )` pauses it and
-  `link.detach( key )` unmounts it. A standalone link opens with
+  `link.attach( subscribe, target, positions )`: `positions` omitted
+  resumes, `null` tails, a seed seeks. `link.park( target )` pauses it and
+  `link.detach( target )` unmounts it. A standalone link opens with
   `connect()`, at the tail or where it read to.
 - **`Core.backboneOwned` and `Core.backbonePassengers` are gone.** Read
   `Core.backboneOwner`, the owning mount or null, and `Core.backboneMounts`,
-  every live mount. The backbone now outlives its owner while another mount
+  every live mount. `Core.backboneOwner` and `Core.rebuildable` are getters
+  over the mounts, so a test that assigned `Core.rebuildable = true` mounts
+  a build with `mountExospine( () => {} )` instead. The backbone now outlives its owner while another mount
   stands, so a test asserting that the owner's `teardown()` removes
   `_http` while a second mount is up asserts the opposite now.
 - **`SseInNode#positions` is removed, setter and getter.** `sse.positions =
@@ -45,24 +48,32 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   Every hook that sends names the surface its commands belong to:
   `useCommandOnce( { group, ci, command } )`;
   `useCatalogSlice( { scope, group, ci, … } )`;
-  `useSteppedRead( { graph, group, ci, command } )`;
-  `useLogStatusSegments( { sub, scope, group } )`; and
-  `useLogCatalog( { prefix, group, ci, command, keep } )`, which no longer
-  takes `target`. A hand-spelled `_shell/_http/<ci>` target becomes
+  `useStreamGraph( { prefix, group, … } )`, which hands `group` back on
+  its handle; and the three that read the group off that handle,
+  `useSteppedRead( { graph, ci, command } )`, `useLogStatusSegments( { sub,
+  scope, graph } )` and `useLogCatalog( { graph, ci, command, keep } )`,
+  which no longer takes `prefix` or `target`. A hand-spelled `_shell/_http/<ci>` target becomes
   `egressPath( group, ci )`. Nothing else declares the group:
   `mountExospine` claims `shell:<group>` for every node its build registers
   whose target opens with it, keeps the Tap standing while any mount claims
   it, and removes it with the last, so a command a node addresses to a group
   no mounted node targets answers `NOT_AVAILABLE`. A message filled by hand
   leaves through a node targeting the path, as event-logger-nodes' rules
-  editor does through `rules:dump`. `connect shell:<group>` watches one
+  editor's dump does through its `rules:fetch` Fetcher. `connect shell:<group>` watches one
   group's traffic; `connect _shell` now shows only the interactive session's.
 
 - **`SseInNode#homeToTarget` is removed; set `routeTo`.** It takes a record's
   stamp and answers the targets a copy goes to, `[]` to drop it, or null to
   keep the TO it arrived with. `sse.homeToTarget = true` beside a `target`
-  becomes `sse.routeTo = () => [ target ]`; leaving it unset keeps each TO, as
-  before.
+  becomes `sse.routeTo = () => [ target ]`; leaving it null keeps each TO, as
+  before. `RemoteLinkNode#rehomeReceived` is gone too: a `RemoteLinkNode`
+  subclass that kept each TO overrides `targetsFor()` to answer null, as
+  `RemoteIpcNode` does.
+- **`useStreamGraph`'s `openAt` reads as the link reads a seek.** Omitted
+  states no seed; `null` tails, and is refused on a stamp another graph on
+  the page holds. A first ride that passed `openAt: null` to mean "no seed"
+  omits it. `SseInNode#dropSeeds()` is gone; `forget( drop )` drops a dir's
+  seed and read position together.
 - **A topology writing `<partition>` fails to load; write `{partition}`.** The
   node resolves `{partition}` in the arguments its schema marks, at the
   worker's partition, so `<config:logs_dir>/jobs.p<partition>` becomes

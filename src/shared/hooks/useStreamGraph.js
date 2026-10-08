@@ -7,15 +7,15 @@
  * than written out per dashboard:
  *
  *   <prefix>:stream  Pass-through Tee; copies frames to the view, is where a
- *                    debug-overlay `connect` taps the live stream, and holds
- *                    this graph's skipped-line count.
+ *                    debug-overlay `connect` taps the live stream, and names
+ *                    this graph on the page link.
  *   <prefix>:view    `viewClass`, the view-model React reads. It trusts controls
  *                    from its own name, which is what `control()` stamps.
  *
  * The graph opens no connection of its own. It rides the page's one stream
- * link, the backbone's `_stream`: it `attach`es its subscription and target,
- * and the link routes each record by its stamp to every graph carrying it, so
- * every stream graph on a page shares one EventSource.
+ * link, the backbone's `_stream`: it `attach`es its subscription under its
+ * `<prefix>:stream`, and the link routes each record by its stamp to every
+ * graph carrying it, so every stream graph on a page shares one EventSource.
  *
  * A graph rides only while the tab is visible AND the user hasn't paused.
  * Pause takes the SAME path as the visibility gate — it is just "inactive" —
@@ -88,36 +88,40 @@ CommandInterpreterNode.registerNodeClasses( {
  * module docblock for the backbone and the gating contract.
  *
  * @param {Object}  o               The dashboard's declaration.
- * @param {string}  o.prefix        Names the two nodes this graph owns, and
- *                                  the key it rides the page link under.
+ * @param {string}  o.prefix        Names the two nodes this graph owns.
+ * @param {string}  [o.group]       The dashboard's group, whose Tap the
+ *                                  graph's reads pass; handed back on the
+ *                                  handle for them.
  * @param {?string} [o.subscribe]   What the stream carries; omit it or pass
  *                                  null to open nothing until `resubscribe`
  *                                  names one.
  * @param {any}     o.viewClass     The view-model node's class, handed over
  *                                  rather than named (ADR-16).
  * @param {number}  [o.maxEntries]  View ring cap; omit to keep the view's own.
- * @param {?Object} [o.openAt]      The FIRST ride's seek seed; null states
- *                                  none.
+ * @param {?Object} [o.openAt]      The seek each build's first ride states,
+ *                                  read as the link reads one: omitted
+ *                                  states none, null tails.
  * @param {boolean} [o.clearOnOpen] Empty the view before every open, for a
  *                                  model whose rows go stale across a gap.
- * @return {{ prefix: string, linkRef: Object, viewRef: Object, isPausedRef: Object, isActive: boolean, control: (value: Object) => void, resubscribe: (subs: string[], positions: ?Object) => void, seek: (sub: string, positions: ?Object, source?: Object) => void, setPaused: (paused: boolean) => void, setFilter: (term: string) => void, clear: () => void, targetRef: Object }}
+ * @return {{ prefix: string, group: (string|undefined), linkRef: Object, viewRef: Object, isPausedRef: Object, isActive: boolean, control: (value: Object) => void, resubscribe: (subs: string[], positions: ?Object) => void, seek: (sub: string, positions: ?Object, source?: Object) => void, setPaused: (paused: boolean) => void, setFilter: (term: string) => void, clear: () => void, targetRef: Object }}
  *   The live handles — `linkRef` holds the page's `_stream` — the gate's
- *   state and the controls the dashboard drives. The skipped-line count is
- *   `<prefix>:stream`'s own state, which `UnparseableLinesNotice` reads by
- *   name.
+ *   state and the controls the dashboard drives. The link keeps this graph's
+ *   skipped-line count under `<prefix>:stream`, the name
+ *   `UnparseableLinesNotice` takes.
  */
 export function useStreamGraph( {
 	prefix,
+	group,
 	subscribe,
 	viewClass,
 	maxEntries = 0,
-	openAt = null,
+	openAt,
 	clearOnOpen = false,
 } ) {
+	// The Tee the page link delivers to, which names this graph on the link.
+	const tee = `${ prefix }:stream`;
 	const linkRef = useRef( null );
 	const viewRef = useRef( null );
-	// Reset per (re)build: a fresh build has ridden nothing yet.
-	const hasAttachedRef = useRef( false );
 	const [ buildGen, bumpBuild ] = useState( 0 );
 
 	const isPageVisible = usePageVisibility();
@@ -156,22 +160,24 @@ export function useStreamGraph( {
 
 	// @longform EVERY attach goes through here, so the pre-open clear and the
 	// single-use consumption of the recorded seek cannot be reached around:
-	// the target keeps its subscription and loses its positions, which is what
-	// makes the NEXT ride resume where the page's stream read to.
+	// once the link takes it, the target keeps its subscription and loses its
+	// positions, so the NEXT ride resumes where the page's stream read to. A
+	// seek the link refuses leaves the target that is riding, so no later
+	// ride replays the refusal; with no link yet, the build reads the target.
 	const ride = useCallback(
 		( subs, positions ) => {
-			targetRef.current = { subscribe: subs };
 			const link = linkRef.current;
 			if ( ! link ) {
+				targetRef.current = { subscribe: subs, positions };
 				return;
 			}
 			if ( declRef.current.clearOnOpen ) {
 				control( { action: 'clear' } );
 			}
-			hasAttachedRef.current = true;
-			link.attach( prefix, subs, `${ prefix }:stream`, positions );
+			link.attach( subs, tee, positions );
+			targetRef.current = { subscribe: subs };
 		},
-		[ control, prefix ]
+		[ control, tee ]
 	);
 
 	// Record the target; ride only while active (Play re-applies it).
@@ -191,7 +197,7 @@ export function useStreamGraph( {
 		const build = ( { interpreter, stream } ) => {
 			const decl = declRef.current;
 			interpreter
-				.makeNode( 'Tee', `${ prefix }:stream` )
+				.makeNode( 'Tee', tee )
 				.connectNode( `${ prefix }:view` );
 
 			const view = interpreter.makeNode(
@@ -207,7 +213,18 @@ export function useStreamGraph( {
 
 			linkRef.current = stream;
 			viewRef.current = view;
-			hasAttachedRef.current = false;
+			// A fresh build states the declared seed, unless a seek is pending.
+			const pending = targetRef.current;
+			const subs =
+				pending?.subscribe ??
+				( decl.subscribe ? [ decl.subscribe ] : null );
+			targetRef.current = subs && {
+				subscribe: subs,
+				positions:
+					undefined === pending?.positions
+						? decl.openAt
+						: pending.positions,
+			};
 			// Re-publish a surviving pause to the fresh view on reinit.
 			if ( isPausedRef.current ) {
 				view.fill(
@@ -218,7 +235,7 @@ export function useStreamGraph( {
 			bumpBuild( ( n ) => n + 1 );
 
 			return () => {
-				stream.detach( prefix );
+				stream.detach( tee );
 				linkRef.current = null;
 				viewRef.current = null;
 			};
@@ -226,7 +243,7 @@ export function useStreamGraph( {
 
 		const { teardown } = mountExospine( build );
 		return teardown;
-	}, [ prefix ] );
+	}, [ prefix, tee ] );
 
 	// Ride the page's stream while active, at the recorded target.
 	useEffect( () => {
@@ -235,24 +252,14 @@ export function useStreamGraph( {
 			return;
 		}
 		if ( ! isActive ) {
-			link.park( prefix );
+			link.park( tee );
 			return;
 		}
 		const target = targetRef.current;
-		const declared = declRef.current.subscribe;
-		const subs = target?.subscribe ?? ( declared ? [ declared ] : null );
-		if ( ! subs ) {
-			return;
+		if ( target ) {
+			ride( target.subscribe, target.positions );
 		}
-		// Only a first ride states the declared seed; a null one states none.
-		const opening = hasAttachedRef.current
-			? undefined
-			: declRef.current.openAt ?? undefined;
-		ride(
-			subs,
-			undefined === target?.positions ? opening : target.positions
-		);
-	}, [ buildGen, isActive, ride, prefix ] );
+	}, [ buildGen, isActive, ride, tee ] );
 
 	// Pause parks the graph (the effect above); the flag drives the UI.
 	const setPaused = useCallback(
@@ -290,6 +297,7 @@ export function useStreamGraph( {
 
 	return {
 		prefix,
+		group,
 		linkRef,
 		viewRef,
 		isPausedRef,
@@ -320,8 +328,8 @@ export function useStreamGraph( {
  * is delivering again, and a stale step would insert a row behind the tail.
  *
  * @param {Object} o         Options.
- * @param {Object} o.graph   The `useStreamGraph` handle to step.
- * @param {string} o.group   The dashboard stepping, whose Tap the read passes.
+ * @param {Object} o.graph   The `useStreamGraph` handle to step, whose group
+ *                           the read passes.
  * @param {string} o.ci      The service CI the read verb lives on.
  * @param {string} o.command The read verb.
  * @param {string} [o.scope] Names this read's own nodes; `<prefix>-step`
@@ -329,12 +337,12 @@ export function useStreamGraph( {
  * @return {() => void} Deliver one record from the recorded cursor; a no-op
  *   unless the stream is paused and pointed at a subscription.
  */
-export function useSteppedRead( { graph, group, ci, command, scope } ) {
+export function useSteppedRead( { graph, ci, command, scope } ) {
 	const { linkRef, viewRef, isPausedRef, control, resubscribe, targetRef } =
 		graph;
 
 	const { run } = useCommandOnce( {
-		group,
+		group: graph.group,
 		ci,
 		command,
 		scope: scope ?? `${ graph.prefix }-step`,
@@ -385,10 +393,10 @@ export function useSteppedRead( { graph, group, ci, command, scope } ) {
  * refusal is an ANSWER, so nothing re-asks it.
  *
  * @param {Object}        o         Options.
- * @param {string}        o.prefix  Names the slice's nodes,
- *                                  `<prefix>-catalog:*`.
- * @param {string}        o.group   The dashboard asking, whose Tap the
- *                                  verb passes.
+ * @param {Object}        o.graph   The `useStreamGraph` handle choosing from
+ *                                  it: its prefix names the slice's nodes,
+ *                                  `<prefix>-catalog:*`, and its group's Tap
+ *                                  the verb passes.
  * @param {string}        o.ci      The service CI the verb lives on.
  * @param {string}        o.command The catalog verb.
  * @param {CatalogFilter} [o.keep]  Keep only the rows this dashboard
@@ -397,10 +405,11 @@ export function useSteppedRead( { graph, group, ci, command, scope } ) {
  *                                  hands back a fresh array each render.
  * @return {Object[]} The catalog rows.
  */
-export function useLogCatalog( { prefix, group, ci, command, keep } ) {
+export function useLogCatalog( { graph, ci, command, keep } ) {
+	const { prefix } = graph;
 	// Read live inside the once-only poll build.
 	const declRef = useRef( null );
-	declRef.current = { command, target: egressPath( group, ci ) };
+	declRef.current = { command, target: egressPath( graph.group, ci ) };
 
 	useBatchedPoll( {
 		build: ( { interpreter, tee } ) =>

@@ -17,6 +17,7 @@ import { TapNode } from './tap-node';
 import { CallbackNode } from './callback-node';
 import { HttpOutNode } from './http-out-node';
 import { NullNode } from './null-node';
+import { targetsOf } from './node';
 import { HeartbeatNode } from './heartbeat-node';
 import { RemoteLinkNode } from './remote-link-node';
 import names from './reserved-node-names.json';
@@ -58,8 +59,8 @@ export function shellGroup( group ) {
 function groupsTargetedBy( nodes ) {
 	const groups = new Set();
 	for ( const node of nodes ) {
-		for ( const path of [ node?.target ?? [] ].flat() ) {
-			const head = 'string' === typeof path ? path.split( '/' )[ 0 ] : '';
+		for ( const path of targetsOf( node ) ) {
+			const head = path.split( '/' )[ 0 ];
 			if ( head.startsWith( SHELL_GROUP_PREFIX ) ) {
 				groups.add( head.slice( SHELL_GROUP_PREFIX.length ) );
 			}
@@ -176,7 +177,12 @@ function uiRelay( ui, message ) {
  *   this mount is the last out, and unsubscribes the rebuild.
  */
 export function mountExospine( build, { passenger = false } = {} ) {
-	const mount = { passenger, rebuilds: 'function' === typeof build };
+	// Core reads the owner off these records; claimGroups reads the claims.
+	const mount = {
+		passenger,
+		rebuilds: 'function' === typeof build,
+		claimed: new Set(),
+	};
 	Core.backboneMounts.push( mount );
 	// Signing reads the session synchronously; start the fetch at mount.
 	void ensureSession();
@@ -241,10 +247,6 @@ export function mountExospine( build, { passenger = false } = {} ) {
 	 * Router, which `ensureRouter` carries across.
 	 */
 	const mountBackbone = () => {
-		// The first non-passenger owns it, adopting what a passenger raised.
-		if ( ! passenger && ! Core.backboneOwner ) {
-			Core.backboneOwner = mount;
-		}
 		// Idempotent under StrictMode double-invoke: reuse existing backbone.
 		const existing = Core.node( names.COMMAND_INTERPRETER );
 		if ( existing ) {
@@ -304,11 +306,10 @@ export function mountExospine( build, { passenger = false } = {} ) {
 		Core.notifyBackboneUp();
 	};
 
-	/** The groups this mount's built nodes target, each claimed once. */
-	let claimed = new Set();
 	/**
-	 * Claim the groups `groups` names and this mount had not, release those
-	 * it no longer names, and stand every claimed Tap on the live interpreter.
+	 * Record `groups` as this mount's claim, remove the Tap of every group no
+	 * mount claims any longer, and stand every claimed Tap on the live
+	 * interpreter.
 	 *
 	 * A Tap another mount raised is shared, and re-pointed rather than
 	 * rebuilt, because a backbone replaced since left it sinking into a
@@ -317,25 +318,20 @@ export function mountExospine( build, { passenger = false } = {} ) {
 	 * @param {Set<string>} groups The groups this mount claims from now on.
 	 */
 	const claimGroups = ( groups ) => {
-		for ( const group of claimed ) {
-			if ( groups.has( group ) ) {
-				continue;
-			}
-			const left = Core.shellGroups.get( group ) - 1;
-			if ( left > 0 ) {
-				Core.shellGroups.set( group, left );
-			} else {
-				Core.shellGroups.delete( group );
+		const released = [ ...mount.claimed ].filter(
+			( group ) => ! groups.has( group )
+		);
+		mount.claimed = groups;
+		for ( const group of released ) {
+			if (
+				! Core.backboneMounts.some( ( other ) =>
+					other.claimed.has( group )
+				)
+			) {
 				Core.node( shellGroup( group ) )?.removeNode();
 			}
 		}
 		for ( const group of groups ) {
-			if ( ! claimed.has( group ) ) {
-				Core.shellGroups.set(
-					group,
-					( Core.shellGroups.get( group ) ?? 0 ) + 1
-				);
-			}
 			const name = shellGroup( group );
 			let tap = Core.node( name );
 			if ( ! tap ) {
@@ -344,7 +340,6 @@ export function mountExospine( build, { passenger = false } = {} ) {
 			}
 			tap.sink = spine.interpreter;
 		}
-		claimed = groups;
 	};
 
 	/** Names `build` registered, the exact set a rebuild removes. */
@@ -450,15 +445,8 @@ export function mountExospine( build, { passenger = false } = {} ) {
 		Core.backboneMounts = Core.backboneMounts.filter(
 			( other ) => other !== mount
 		);
-		if ( ownsBackbone() ) {
-			Core.backboneOwner =
-				Core.backboneMounts.find( ( other ) => ! other.passenger ) ??
-				null;
-			Core.rebuildable = Boolean( Core.backboneOwner?.rebuilds );
-		}
 		if ( 0 === Core.backboneMounts.length ) {
 			teardownBackbone();
-			Core.rebuildable = false;
 		}
 	};
 
@@ -468,8 +456,6 @@ export function mountExospine( build, { passenger = false } = {} ) {
 	// Only a build-delegated mount has nodes a rebuild signal could rebuild.
 	if ( mount.rebuilds ) {
 		if ( ownsBackbone() ) {
-			// Tell the overlay this graph can answer a Reset Graph.
-			Core.rebuildable = true;
 			// Pre-subscribe bump: an open overlay rebuilds its poll.
 			Core.bumpGraphGeneration();
 		}

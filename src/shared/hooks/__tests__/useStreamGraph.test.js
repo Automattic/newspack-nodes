@@ -1,6 +1,7 @@
 /**
  * useStreamGraph tests — the whole life of a streaming dashboard's graph: the
- * three nodes it declares, the pause/visibility gate that decides when the
+ * two nodes it declares, `<prefix>:stream` and `<prefix>:view`, the riding of
+ * the page's `_stream`, the pause/visibility gate that decides when the
  * stream is open, the recorded target every reopen goes through, and the paused
  * single-step read composed on top of it.
  *
@@ -15,6 +16,7 @@ import {
 	Node,
 	VALUE,
 	TM_STRUCT,
+	RemoteLinkNode,
 	mountExospine,
 } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
@@ -112,7 +114,7 @@ function spyOnStream() {
  * @return {Array} Each call's positions argument.
  */
 const seeksAttached = ( link ) =>
-	link.attach.mock.calls.map( ( [ , , , positions ] ) => positions );
+	link.attach.mock.calls.map( ( [ , , positions ] ) => positions );
 
 describe( 'the declared graph', () => {
 	test( 'builds stream → view and rides the page link with its subscription', async () => {
@@ -122,12 +124,16 @@ describe( 'the declared graph', () => {
 		expect( Core.node( TEE ).target ).toEqual( [ VIEW ] );
 		expect( Core.node( VIEW ) ).toBeInstanceOf( ProbeViewNode );
 		expect( Core.node( VIEW ).controlFrom ).toBe( VIEW );
-		expect( Core.node( LINK ).graphs.get( PREFIX ) ).toEqual( {
+		expect( Core.node( LINK ).graphs.get( TEE ) ).toEqual( {
 			subscribe: [ SUBSCRIBE ],
-			target: TEE,
 			parked: false,
 		} );
 		expect( opened() ).toContain( `subscribe=${ SUBSCRIBE }` );
+	} );
+
+	test( 'hands back the group it was given on its handle', () => {
+		const { result } = mount( { group: 'heron-5512' } );
+		expect( result.current.group ).toBe( 'heron-5512' );
 	} );
 
 	test( 'a link carries no endpoint override', () => {
@@ -145,7 +151,7 @@ describe( 'the declared graph', () => {
 		expect( Core.node( VIEW ).maxLines ).toBe( 0 );
 	} );
 
-	test( 'the stream node shows only this graph’s skipped lines', async () => {
+	test( 'the page link holds only this graph’s skipped lines under its stream node', async () => {
 		mount();
 		await flush();
 		const frame = JSON.stringify( [
@@ -164,7 +170,9 @@ describe( 'the declared graph', () => {
 					cb( { data: frame } )
 				)
 		);
-		expect( Core.node( TEE ).setStateCache.UNPARSEABLE_LINES ).toBe( 6 );
+		expect( Core.node( LINK ).unparseableByTarget ).toEqual( {
+			[ TEE ]: 6,
+		} );
 	} );
 
 	test( 'opens the stream at mount', async () => {
@@ -206,6 +214,48 @@ describe( 'the declared graph', () => {
 		expect( opened() ).toContain( 'a.p1' );
 	} );
 
+	const seededAt = () =>
+		JSON.parse(
+			new URL( opened(), 'https://x.test' ).searchParams.get(
+				'positions'
+			)
+		);
+
+	test( 'a Reset Graph rebuild states the declared seed again', async () => {
+		mount( { openAt: { [ SUBSCRIBE ]: { segment: 4, offset: 77 } } } );
+		await flush();
+		act( () => Core.bumpGraphGeneration() );
+		await flush();
+		expect( FakeEventSource.instances ).toHaveLength( 2 );
+		expect( seededAt() ).toEqual( {
+			[ SUBSCRIBE ]: { segment: 4, offset: 77 },
+		} );
+	} );
+
+	test( 'a reinit under another owner states the declared seed again', async () => {
+		const owner = mountExospine( () => {} );
+		mount( { openAt: { [ SUBSCRIBE ]: { segment: 9, offset: 31 } } } );
+		await flush();
+		act( () => Core.bumpGraphGeneration() );
+		await flush();
+		expect( Core.node( TEE ) ).toBeTruthy();
+		expect( seededAt() ).toEqual( {
+			[ SUBSCRIBE ]: { segment: 9, offset: 31 },
+		} );
+		owner.teardown();
+	} );
+
+	test( 'an openAt of null tails, as the link reads null', async () => {
+		const attach = jest.spyOn( RemoteLinkNode.prototype, 'attach' );
+		try {
+			mount( { openAt: null } );
+			await flush();
+			expect( attach ).toHaveBeenCalledWith( [ SUBSCRIBE ], TEE, null );
+		} finally {
+			attach.mockRestore();
+		}
+	} );
+
 	test( 'teardown detaches the graph and leaves the page link standing', async () => {
 		const owner = mountExospine( () => {} );
 		const { unmount } = mount();
@@ -214,9 +264,9 @@ describe( 'the declared graph', () => {
 		const stream = FakeEventSource.instances.at( -1 );
 		act( () => unmount() );
 		await flush();
-		expect( link.detach ).toHaveBeenCalledWith( PREFIX );
+		expect( link.detach ).toHaveBeenCalledWith( TEE );
 		expect( Core.node( LINK ) ).toBe( link );
-		expect( link.graphs.has( PREFIX ) ).toBe( false );
+		expect( link.graphs.has( TEE ) ).toBe( false );
 		expect( stream.closed ).toBe( true );
 		owner.teardown();
 	} );
@@ -231,7 +281,7 @@ describe( 'the gate', () => {
 		mockPageVisible = false;
 		act( () => rerender() );
 		await flush();
-		expect( link.park ).toHaveBeenCalledWith( PREFIX );
+		expect( link.park ).toHaveBeenCalledWith( TEE );
 		expect( link.detach ).not.toHaveBeenCalled();
 		expect( es.closed ).toBe( true );
 	} );
@@ -257,10 +307,9 @@ describe( 'the gate', () => {
 		act( () => result.current.setPaused( true ) );
 		act( () => result.current.setPaused( false ) );
 		// A pause parks; Play states no seek, so it resumes where it read to.
-		expect( link.park ).toHaveBeenCalledWith( PREFIX );
+		expect( link.park ).toHaveBeenCalledWith( TEE );
 		expect( link.detach ).not.toHaveBeenCalled();
 		expect( link.attach ).toHaveBeenLastCalledWith(
-			PREFIX,
 			[ 'a.p1' ],
 			TEE,
 			undefined
@@ -288,14 +337,9 @@ describe( 'the gate', () => {
 		);
 		const link = spyOnStream();
 		act( () => result.current.setPaused( false ) );
-		expect( link.attach ).toHaveBeenLastCalledWith(
-			PREFIX,
-			[ 'a.p1' ],
-			TEE,
-			{
-				'a.p1': 'start',
-			}
-		);
+		expect( link.attach ).toHaveBeenLastCalledWith( [ 'a.p1' ], TEE, {
+			'a.p1': 'start',
+		} );
 		// The seek is spent; the next Play resumes the tail it reached.
 		act( () => result.current.setPaused( true ) );
 		act( () => result.current.setPaused( false ) );
@@ -321,12 +365,7 @@ describe( 'the gate', () => {
 		await flush();
 		const link = spyOnStream();
 		act( () => result.current.resubscribe( [ 'a.p1' ], null ) );
-		expect( link.attach ).toHaveBeenCalledWith(
-			PREFIX,
-			[ 'a.p1' ],
-			TEE,
-			null
-		);
+		expect( link.attach ).toHaveBeenCalledWith( [ 'a.p1' ], TEE, null );
 	} );
 
 	// @longform The symmetric hole: play flips the gate refs synchronously, so
@@ -382,7 +421,7 @@ describe( 'the gate', () => {
 				{ segments: [ { id: 6, size: 4096 } ] }
 			)
 		);
-		expect( link.attach ).toHaveBeenCalledWith( PREFIX, [ 'a.p1' ], TEE, {
+		expect( link.attach ).toHaveBeenCalledWith( [ 'a.p1' ], TEE, {
 			'a.p1': 'start',
 		} );
 		// The boundary the replay catches up to rides the control.
@@ -524,8 +563,8 @@ describe( 'one connection per page', () => {
 		expect( FakeEventSource.instances.length - before ).toBe( 1 );
 		expect( subscribed() ).toBe( 'topicprobe.p0' );
 		const link = Core.node( LINK );
-		expect( link.graphs.get( 'jobs' ).parked ).toBe( true );
-		expect( link.graphs.has( 'tables' ) ).toBe( false );
+		expect( link.graphs.get( 'jobs:stream' ).parked ).toBe( true );
+		expect( link.graphs.has( 'tables:stream' ) ).toBe( false );
 	} );
 
 	// Follow states no seed, so a second follower joins the stream the first
@@ -537,7 +576,6 @@ describe( 'one connection per page', () => {
 					prefix,
 					subscribe: 'jobstats.p0',
 					viewClass: ProbeViewNode,
-					openAt: null,
 				} )
 			);
 		follow( 'jobs' );
@@ -545,9 +583,52 @@ describe( 'one connection per page', () => {
 		await flush();
 		expect( FakeEventSource.instances ).toHaveLength( 1 );
 		expect( [ ...Core.node( LINK ).graphs.keys() ] ).toEqual( [
-			'jobs',
-			'ledger',
+			'jobs:stream',
+			'ledger:stream',
 		] );
+	} );
+
+	describe( 'a seek the link refuses', () => {
+		const follow = ( prefix ) =>
+			renderHook( () =>
+				useStreamGraph( {
+					prefix,
+					subscribe: 'jobstats.p0',
+					viewClass: ProbeViewNode,
+				} )
+			);
+		const asked = { 'jobstats.p0': { segment: 2, offset: 40 } };
+		const refuse = ( graph ) =>
+			expect( () =>
+				act( () =>
+					graph.result.current.resubscribe( [ 'jobstats.p0' ], asked )
+				)
+			).toThrow( 'ledger:stream cannot seek jobstats.p0' );
+
+		test( 'leaves the target that is riding in targetRef', async () => {
+			follow( 'jobs' );
+			const ledger = follow( 'ledger' );
+			await flush();
+			refuse( ledger );
+			expect( ledger.result.current.targetRef.current ).toEqual( {
+				subscribe: [ 'jobstats.p0' ],
+			} );
+		} );
+
+		test( 'is not replayed by a pause and a play', async () => {
+			follow( 'jobs' );
+			const ledger = follow( 'ledger' );
+			await flush();
+			refuse( ledger );
+			expect( () => {
+				act( () => ledger.result.current.setPaused( true ) );
+				act( () => ledger.result.current.setPaused( false ) );
+			} ).not.toThrow();
+			await flush();
+			expect(
+				Core.node( LINK ).graphs.get( 'ledger:stream' ).parked
+			).toBe( false );
+		} );
 	} );
 
 	// StrictMode unmounts the owner and its neighbour once before remounting
@@ -564,8 +645,8 @@ describe( 'one connection per page', () => {
 		await flush();
 		expect( Core.node( '_command_interpreter' ) ).not.toBe( before );
 		expect( [ ...Core.node( LINK ).graphs.keys() ].sort() ).toEqual( [
-			'backlog',
-			'jobs',
+			'backlog:stream',
+			'jobs:stream',
 		] );
 		expect(
 			FakeEventSource.instances.filter( ( es ) => ! es.closed )
@@ -580,15 +661,14 @@ describe( 'one connection per page', () => {
 		await flush();
 		expect( FakeEventSource.instances ).toHaveLength( 1 );
 		expect( [ ...Core.node( LINK ).graphs.keys() ].sort() ).toEqual( [
-			'backlog',
-			'jobs',
+			'backlog:stream',
+			'jobs:stream',
 		] );
 	} );
 } );
 
 describe( 'useSteppedRead', () => {
 	const STEP_READ = {
-		group: 'kestrel',
 		ci: 'raw-logs',
 		command: 'read_message',
 	};
@@ -604,6 +684,7 @@ describe( 'useSteppedRead', () => {
 		return renderHook( () => {
 			const graph = useStreamGraph( {
 				prefix: PREFIX,
+				group: 'kestrel',
 				subscribe: null,
 				viewClass: ProbeViewNode,
 			} );

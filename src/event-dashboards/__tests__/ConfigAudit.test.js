@@ -48,6 +48,9 @@ it( 'tails settings.p0 in history mode, into the audit view', () => {
 describe( 'ConfigAudit', () => {
 	it( 'shows the lines its tail skipped as unparseable', () => {
 		publishSkippedLines( 'settings-audit:stream', 7 );
+		useNodeField.mockImplementation(
+			jest.requireActual( '../../runtime/react' ).useNodeField
+		);
 		const { container } = render( <ConfigAudit /> );
 		expect( container.textContent ).toContain(
 			'7 lines would not parse and were skipped.'
