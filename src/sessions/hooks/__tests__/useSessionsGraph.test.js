@@ -40,7 +40,7 @@ it( 'lists on the first tick and publishes the table', async () => {
 		wire.batches.flat().some( ( m ) => 'list' === m[ VALUE ]?.name )
 	).toBe( true );
 	// The list left through the Sessions screen's own Tap.
-	expect( Core.node( 'shell:sessions' ).counter ).toBeGreaterThan( 0 );
+	expect( Core.node( 'sessions:shell' ).counter ).toBeGreaterThan( 0 );
 	// The slice is named for what it SHOWS; the verb lives on the Fetcher.
 	for ( const role of [ 'fetch', 'in', 'view', 'timer', 'tee' ] ) {
 		expect( Core.node( `sessions:${ role }` ) ).toBeTruthy();

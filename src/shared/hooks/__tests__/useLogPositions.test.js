@@ -384,7 +384,7 @@ describe( 'useLogStatusSegments', () => {
 			.find( ( m ) => 'dump_log' === m[ VALUE ]?.name );
 		expect( asked[ TO ] ).toBe( 'raw-logs' );
 		expect( asked[ VALUE ].arguments ).toEqual( [ DIR ] );
-		expect( Core.node( 'shell:quartz' ).counter ).toBe( 1 );
+		expect( Core.node( 'quartz:shell' ).counter ).toBe( 1 );
 	} );
 
 	it( 'carries a file source as its one segment, the inode at its size', async () => {

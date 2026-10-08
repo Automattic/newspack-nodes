@@ -923,14 +923,14 @@ describe( 'autoLayout', () => {
 				{ id: 'quokka:fetch' },
 				{ id: 'quokka:in' },
 				{ id: 'quokka:view' },
-				{ id: 'shell:topologies' },
+				{ id: 'topologies:shell' },
 			],
 			edges: [
 				{ from: 'quokka:timer', to: 'quokka:tee' },
 				{ from: 'quokka:tee', to: 'quokka:fetch' },
 				{ from: 'quokka:in', to: 'quokka:fetch' },
 				{ from: 'quokka:in', to: 'quokka:view' },
-				{ from: 'quokka:fetch', to: 'shell:topologies' },
+				{ from: 'quokka:fetch', to: 'topologies:shell' },
 			],
 		} );
 		const colOf = ( id ) =>
@@ -939,8 +939,8 @@ describe( 'autoLayout', () => {
 
 		// The view shares `quokka:in` with the fetcher, so it shares its column.
 		expect( colOf( 'quokka:view' ) ).toBe( colOf( 'quokka:fetch' ) );
-		// `shell:topologies` shares its feeder with nobody: one column past that feeder.
-		expect( colOf( 'shell:topologies' ) ).toBe(
+		// `topologies:shell` shares its feeder with nobody: one column past that feeder.
+		expect( colOf( 'topologies:shell' ) ).toBe(
 			colOf( 'quokka:fetch' ) + 1
 		);
 	} );
@@ -1872,7 +1872,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 				{ from: `${ s }:tee`, to: `${ s }:fetch` },
 				{ from: `${ s }:in`, to: `${ s }:result` },
 				{ from: `${ s }:in`, to: `${ s }:fetch` },
-				{ from: `${ s }:fetch`, to: 'shell:topologies' }
+				{ from: `${ s }:fetch`, to: 'topologies:shell' }
 			);
 		}
 		edges.push(
@@ -1880,7 +1880,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 			{ from: 'url-detail:transform', to: 'url-detail:view' },
 			{ from: 'url-detail:in', to: 'url-detail:fetch' },
 			{ from: 'url-detail:timer', to: 'url-detail:fetch' },
-			{ from: 'url-detail:fetch', to: 'shell:topologies' }
+			{ from: 'url-detail:fetch', to: 'topologies:shell' }
 		);
 		const ids = [
 			...new Set( edges.flatMap( ( e ) => [ e.from, e.to ] ) ),
@@ -2115,10 +2115,10 @@ describe( 'autoLayout — hub bands', () => {
 	//
 	// Fan-in over the non-dangling edges, which is what hub detection reads:
 	//   X:tee 1, X:fetch 1, X:result 1, X:view 1, _http 1,
-	//   shell:topologies 5 (the fetches), _output 6 (5 results and _http),
+	//   topologies:shell 5 (the fetches), _output 6 (5 results and _http),
 	//   _cwd 6 (5 fetches and _metadata).
 	// The median fan-in of the fed nodes is 1, so the cut is max( 4, 3 ) = 4
-	// and exactly shell:topologies, _output and _cwd clear it; a fetch at 1 does not,
+	// and exactly topologies:shell, _output and _cwd clear it; a fetch at 1 does not,
 	// and _http and _metadata are bridges: every neighbour they have is a hub.
 	const POLL_SLICES = [ 'a', 'b', 'd', 'e', 'f' ];
 	const VIEW_SLICES = [ 'c', 'g', 'h', 'i', 'j', 'k' ];
@@ -2141,7 +2141,7 @@ describe( 'autoLayout — hub bands', () => {
 				{ from: `${ s }:timer`, to: `${ s }:tee` },
 				{ from: `${ s }:tee`, to: `${ s }:fetch` },
 				{ from: `${ s }:fetch`, to: `${ s }:result` },
-				{ from: `${ s }:fetch`, to: 'shell:topologies' },
+				{ from: `${ s }:fetch`, to: 'topologies:shell' },
 				{ from: `${ s }:fetch`, to: '_cwd' },
 				{ from: `${ s }:result`, to: '_output' }
 			);
@@ -2150,7 +2150,7 @@ describe( 'autoLayout — hub bands', () => {
 			edges.push( { from: `${ s }:in`, to: `${ s }:view` } );
 		}
 		edges.push(
-			{ from: 'shell:topologies', to: '_http' },
+			{ from: 'topologies:shell', to: '_http' },
 			{ from: '_http', to: '_output' },
 			{ from: '_metadata', to: '_cwd' }
 		);
@@ -2190,7 +2190,7 @@ describe( 'autoLayout — hub bands', () => {
 		// Every fed hub sits right of every band, and so does a bridge — a
 		// node whose every neighbour is a hub — rather than stacking as a loner.
 		const backbone = [
-			'shell:topologies',
+			'topologies:shell',
 			'_http',
 			'_output',
 			'_cwd',
@@ -2202,9 +2202,9 @@ describe( 'autoLayout — hub bands', () => {
 		}
 		expect( at._cwd.x ).toBeGreaterThan( at._metadata.x );
 
-		// The hub chain shell:topologies -> _http -> _output takes three columns.
+		// The hub chain topologies:shell -> _http -> _output takes three columns.
 		expect( at._output.x ).toBeGreaterThan( at._http.x );
-		expect( at._http.x ).toBeGreaterThan( at[ 'shell:topologies' ].x );
+		expect( at._http.x ).toBeGreaterThan( at[ 'topologies:shell' ].x );
 
 		// An edgeless node past the square's height waits for every other
 		// block, then takes the room column 0 leaves above the first slice
@@ -2513,7 +2513,7 @@ describe( 'autoLayout — hub bands', () => {
 				{ from: `${ s }:tee`, to: `${ s }:fetch` },
 				{ from: `${ s }:in`, to: `${ s }:fetch` },
 				{ from: `${ s }:in`, to: `${ s }:result` },
-				{ from: `${ s }:fetch`, to: 'shell:topologies' },
+				{ from: `${ s }:fetch`, to: 'topologies:shell' },
 				{ from: `${ s }:fetch`, to: '_cwd' }
 			);
 		}
@@ -2550,9 +2550,9 @@ describe( 'autoLayout — hub bands', () => {
 	} );
 
 	// The station's own realm as the debug sheet draws it: five polled slices
-	// whose fetchers all target `shell:topologies`, which feeds nothing back. One
+	// whose fetchers all target `topologies:shell`, which feeds nothing back. One
 	// layering cannot hold a slice together here: the sweep against the flow
-	// keys every feeder of `shell:topologies` alike, so a slice's `in` and `timer`
+	// keys every feeder of `topologies:shell` alike, so a slice's `in` and `timer`
 	// come apart. Nothing in it reaches a fan-in of six.
 	const debugRealm = () => {
 		const edges = [];
@@ -2567,7 +2567,7 @@ describe( 'autoLayout — hub bands', () => {
 			edges.push(
 				{ from: `${ s }:timer`, to: `${ s }:tee` },
 				{ from: `${ s }:tee`, to: `${ s }:fetch` },
-				{ from: `${ s }:fetch`, to: 'shell:topologies' },
+				{ from: `${ s }:fetch`, to: 'topologies:shell' },
 				{ from: `${ s }:in`, to: `${ s }:fetch` },
 				{ from: `${ s }:in`, to: `${ s }:result` }
 			);
@@ -2610,7 +2610,7 @@ describe( 'autoLayout — hub bands', () => {
 		}
 		// The egress sits right of every slice.
 		for ( const s of slices ) {
-			expect( at[ 'shell:topologies' ].x ).toBeGreaterThan(
+			expect( at[ 'topologies:shell' ].x ).toBeGreaterThan(
 				at[ `${ s }:fetch` ].x
 			);
 		}
@@ -2693,7 +2693,7 @@ describe( 'autoLayout — hub bands', () => {
 
 	// The same shape at three slices, as the debug overlay's Sessions page
 	// draws it. Three feeders sit under the hub cut, so without this nothing
-	// subtracts `shell:topologies` and one band holds all three: the sweep against the
+	// subtracts `topologies:shell` and one band holds all three: the sweep against the
 	// flow keys every feeder of it alike and pulls the slices' rows together.
 	it( 'keeps each of three slices sharing one egress in its own band', () => {
 		const slices = [ 'sessions', 'sessions:create', 'sessions:revoke' ];
@@ -2702,7 +2702,7 @@ describe( 'autoLayout — hub bands', () => {
 			edges.push(
 				{ from: `${ s }:timer`, to: `${ s }:tee` },
 				{ from: `${ s }:tee`, to: `${ s }:fetch` },
-				{ from: `${ s }:fetch`, to: 'shell:topologies' },
+				{ from: `${ s }:fetch`, to: 'topologies:shell' },
 				{ from: `${ s }:in`, to: `${ s }:fetch` },
 				{ from: `${ s }:in`, to: `${ s }:result` }
 			);
@@ -2733,7 +2733,7 @@ describe( 'autoLayout — hub bands', () => {
 		}
 		// The egress sits right of every slice.
 		for ( const s of slices ) {
-			expect( at[ 'shell:topologies' ].x ).toBeGreaterThan(
+			expect( at[ 'topologies:shell' ].x ).toBeGreaterThan(
 				at[ `${ s }:fetch` ].x
 			);
 		}
@@ -2780,7 +2780,7 @@ describe( 'autoLayout — hub bands', () => {
 				{ from: `${ s }:tee`, to: `${ s }:fetch` },
 				{ from: `${ s }:in`, to: `${ s }:result` },
 				{ from: `${ s }:in`, to: `${ s }:fetch` },
-				{ from: `${ s }:fetch`, to: 'shell:topologies' }
+				{ from: `${ s }:fetch`, to: 'topologies:shell' }
 			);
 		slice( 'topologies:activate' );
 		slice( 'topologies:deactivate' );
@@ -2789,8 +2789,8 @@ describe( 'autoLayout — hub bands', () => {
 			{ from: 'topology-manager:timer', to: 'topology-manager:tee' },
 			{ from: 'topology-manager:tee', to: 'worker-status:fetch' },
 			{ from: 'topology-manager:tee', to: 'topology-manager:fetch' },
-			{ from: 'worker-status:fetch', to: 'shell:topologies' },
-			{ from: 'topology-manager:fetch', to: 'shell:topologies' },
+			{ from: 'worker-status:fetch', to: 'topologies:shell' },
+			{ from: 'topology-manager:fetch', to: 'topologies:shell' },
 			{ from: 'worker-status:in', to: 'worker-status:transform' },
 			{ from: 'worker-status:in', to: 'worker-status:fetch' },
 			{ from: 'worker-status:transform', to: 'worker-status:view' },

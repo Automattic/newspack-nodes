@@ -120,7 +120,7 @@ describe( 'useCommandOnce', () => {
 		renderSave();
 		await act( async () => {} );
 		expect( Core.node( 'topologies:save:fetch' ).target ).toBe(
-			'shell:wombat/_http/topologies'
+			'wombat:shell/_http/topologies'
 		);
 		expect( Core.node( 'topologies:save:result' ) ).toBeTruthy();
 	} );
@@ -149,7 +149,7 @@ describe( 'useCommandOnce', () => {
 				useCommandOnce( {
 					group: GROUP,
 					command: 'save',
-					target: 'shell:wombat/_http/topologies',
+					target: 'wombat:shell/_http/topologies',
 				} )
 			)
 		).toThrow( /target/ );
@@ -172,10 +172,10 @@ describe( 'useCommandOnce', () => {
 		await tick();
 
 		expect( replyFor ).toHaveBeenCalledTimes( 1 );
-		expect( Core.node( 'shell:wombat' ).counter ).toBe( 1 );
+		expect( Core.node( 'wombat:shell' ).counter ).toBe( 1 );
 
 		unmount();
-		expect( Core.node( 'shell:wombat' ) ).toBeNull();
+		expect( Core.node( 'wombat:shell' ) ).toBeNull();
 	} );
 
 	// `dump_metadata` is an interpreter builtin: there is no CI after the egress.
@@ -183,7 +183,7 @@ describe( 'useCommandOnce', () => {
 		mount( { command: 'dump_metadata' } );
 		await act( async () => {} );
 		expect( Core.node( 'dump_metadata:fetch' ).target ).toBe(
-			'shell:wombat/_http'
+			'wombat:shell/_http'
 		);
 	} );
 

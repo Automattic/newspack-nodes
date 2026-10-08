@@ -37,7 +37,7 @@
 <div class="band" style="left:0;top:0">a polled slice · addSliceFetcher on a useBatchedPoll backbone</div>
 <div class="nd" id="timer" style="left:0;top:24px;width:130px"><span class="t"><i>&lt;subject&gt;</i>:timer</span><span class="k">Timer · the tick</span></div>
 <div class="nd" id="tee" style="left:150px;top:24px;width:120px"><span class="t"><i>&lt;subject&gt;</i>:tee</span><span class="k">Tee · the fan-out</span></div>
-<div class="nd" id="fetch" style="left:290px;top:24px;width:200px"><span class="t"><i>&lt;subject&gt;</i>:fetch</span><span class="k">Fetcher · sends the verb, <span class="mono">FROM = &lt;subject&gt;:in</span>, <span class="mono">TO = shell:&lt;group&gt;/_http/&lt;ci&gt;</span></span></div>
+<div class="nd" id="fetch" style="left:290px;top:24px;width:200px"><span class="t"><i>&lt;subject&gt;</i>:fetch</span><span class="k">Fetcher · sends the verb, <span class="mono">FROM = &lt;subject&gt;:in</span>, <span class="mono">TO = &lt;group&gt;:shell/_http/&lt;ci&gt;</span></span></div>
 <div class="nd server" id="ci" style="left:530px;top:24px;width:130px"><span class="t">&lt;ci&gt; · the verb</span><span class="k">server side; replies <span class="mono">TO = FROM</span></span></div>
 <div class="nd" id="in" style="left:0;top:150px;width:150px"><span class="t"><i>&lt;subject&gt;</i>:in</span><span class="k">Tee · the receiver; fans to its gate, then to the Fetcher</span></div>
 <div class="nd" id="tr" style="left:170px;top:150px;width:170px"><span class="t"><i>&lt;subject&gt;</i>:transform</span><span class="k">optional · the one node between gate and view: a merge or a dedup on a graph edge</span></div>

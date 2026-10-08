@@ -116,7 +116,7 @@ const decodeSubject = ( path ) =>
  * @param {Object}    o             Options.
  * @param {string}    o.command     The verb to send.
  * @param {string}    o.group       The surface sending it, whose
- *                                  `shell:<group>` Tap it passes.
+ *                                  `<group>:shell` Tap it passes.
  * @param {string}    [o.ci]        The server CI mount the verb lives on; omit
  *                                  for an interpreter builtin, which has none.
  * @param {string}    [o.scope]     Names this verb's own nodes; defaults to

@@ -34,7 +34,7 @@
     <div class="hop" style="left:160px;top:15px;width:150px;height:90px"><div><span class="num">1</span>A Timer ticks on the router's heartbeat.</div></div>
     <div class="hop" style="left:337.5px;top:15px;width:150px;height:90px"><div><span class="num">2</span>A Tee fans the tick to one Fetcher per verb.</div></div>
     <div class="hop" style="left:515px;top:15px;width:150px;height:90px"><div><span class="num">3</span>Each Fetcher sends its fixed verb, FROM = its receiver Tee.</div></div>
-    <div class="hop" style="left:692.5px;top:15px;width:150px;height:90px"><div><span class="num">4</span><span class="mono">shell:&lt;group&gt;</span>, its group's Tap, forwards it unchanged; <span class="mono">connect</span> to it shows each one.</div></div>
+    <div class="hop" style="left:692.5px;top:15px;width:150px;height:90px"><div><span class="num">4</span><span class="mono">&lt;group&gt;:shell</span>, its group's Tap, forwards it unchanged; <span class="mono">connect</span> to it shows each one.</div></div>
     <div class="hop" style="left:870px;top:15px;width:150px;height:90px"><div><span class="num">5</span><span class="mono">_http</span> buffers while the router holds it locked, then one POST carries the whole tick.</div></div>
   </div>
   <div class="lane alt" style="top:120px;height:120px">

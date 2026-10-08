@@ -17,7 +17,7 @@ import { coreToGraph } from '../coreToGraph';
 import { autoLayout, X_STEP } from '../autoLayout';
 
 /** The fleet board's group Tap, which every one of its Fetchers feeds. */
-const HUB = 'shell:topologies';
+const HUB = 'topologies:shell';
 
 class FakeEventSource {
 	addEventListener() {}
@@ -52,7 +52,7 @@ describe( 'autoLayout — the station Overview in the debug overlay', () => {
 	} );
 
 	/**
-	 * Every card the station's slices and their shared `shell:topologies`
+	 * Every card the station's slices and their shared `topologies:shell`
 	 * sink hold, read off the graph as that Tap's weakly-connected component.
 	 *
 	 * @param {{nodes: Array<{id: string}>, edges: Array<{from: string, to: string}>}} graph The graph.

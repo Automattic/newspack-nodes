@@ -397,7 +397,7 @@ describe( 'useTopologyManager', () => {
 		// useBatchedPoll owns the I/O boundary, fan-out Tee, hitchhike Timer.
 		for ( const name of [
 			'_http',
-			'shell:topologies',
+			'topologies:shell',
 			'topology-manager:timer',
 			'topology-manager:tee',
 			'freshness:timer',
@@ -413,10 +413,10 @@ describe( 'useTopologyManager', () => {
 		}
 		// Both slices pass the fleet board's own Tap, never the console's.
 		expect( Core.node( 'worker-status:fetch' ).target ).toBe(
-			'shell:topologies/_http/workers'
+			'topologies:shell/_http/workers'
 		);
 		expect( Core.node( 'topology-manager:fetch' ).target ).toBe(
-			'shell:topologies/_http/topologies'
+			'topologies:shell/_http/topologies'
 		);
 		expect( Core.node( 'topology-manager:tee' ).target ).toEqual(
 			expect.arrayContaining( [

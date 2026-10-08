@@ -711,7 +711,7 @@ describe( 'useSteppedRead', () => {
 			expect( stepArgs() ).toEqual( [ [ 'a.p1', '4:96' ] ] )
 		);
 		// The read belongs to the dashboard's group, not the console's.
-		expect( Core.node( 'shell:kestrel' ).counter ).toBe( 1 );
+		expect( Core.node( 'kestrel:shell' ).counter ).toBe( 1 );
 	} );
 
 	test( 'steps from the magic start token a Replay seeks', async () => {

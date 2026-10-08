@@ -48,9 +48,9 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `sse.seekMap()`, which states a read position over a seed and the tail for
   a dir with neither.
 
-- **Dashboard commands pass `shell:<group>`, not `_shell`; `egressPath` takes
+- **Dashboard commands pass `<group>:shell`, not `_shell`; `egressPath` takes
   the group first.** `egressPath( ci )` becomes `egressPath( group, ci )`,
-  returning `shell:<group>/_http/<ci>`, and throws when no group is named.
+  returning `<group>:shell/_http/<ci>`, and throws when no group is named.
   Every hook that sends names the surface its commands belong to:
   `useCommandOnce( { group, ci, command } )`;
   `useCatalogSlice( { scope, group, ci, … } )`;
@@ -60,13 +60,20 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   scope, graph } )` and `useLogCatalog( { graph, ci, command, keep } )`,
   which no longer takes `prefix` or `target`. A hand-spelled `_shell/_http/<ci>` target becomes
   `egressPath( group, ci )`. Nothing else declares the group:
-  `mountExospine` claims `shell:<group>` for every node its build registers
+  `mountExospine` claims `<group>:shell` for every node its build registers
   whose target opens with it, keeps the Tap standing while any mount claims
   it, and removes it with the last, so a command a node addresses to a group
   no mounted node targets answers `NOT_AVAILABLE`. A message filled by hand
   leaves through a node targeting the path, as event-logger-nodes' rules
-  editor's dump does through its `rules:fetch` Fetcher. `connect shell:<group>` watches one
+  editor's dump does through its `rules:fetch` Fetcher. `connect <group>:shell` watches one
   group's traffic; `connect _shell` now shows only the interactive session's.
+
+- **A group's Tap is `<group>:shell`, not `shell:<group>`.** A target
+  spelled `shell:<group>/_http/<ci>` becomes `<group>:shell/_http/<ci>`, or
+  `egressPath( group, ci )`; `Core.node( 'shell:<group>' )` in a test becomes
+  `Core.node( '<group>:shell' )`, and `connect shell:<group>` becomes
+  `connect <group>:shell`. A target still spelled the old way claims no Tap,
+  so its commands answer `NOT_AVAILABLE`.
 
 - **`SseInNode#homeToTarget` is removed; set `routeTo`.** It takes a record's
   stamp and answers the targets a copy goes to, `[]` to drop it, or null to

@@ -5,7 +5,7 @@
  *
  *  - the exospine mount, which raises the `_command_interpreter` sinking into
  *    `_router`, plus that backbone's `_http` HttpOut egress, and the
- *    observe-only `shell:<group>` Tap of every group a slice targets,
+ *    observe-only `<group>:shell` Tap of every group a slice targets,
  *  - the `_http` command client, which is the I/O boundary HttpOut defaults to,
  *  - a fan-out `Tee` and a router-hitchhiking `Timer` targeting it, so one tick
  *    reaches every slice,

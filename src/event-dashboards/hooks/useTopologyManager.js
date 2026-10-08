@@ -7,13 +7,13 @@
  *
  * Graph, clipped onto the rule-#2 backbone `useBatchedPoll` owns:
  *
- *   topology-manager:timer (Timer) ─> topology-manager:tee (Tee) ─> worker-status:fetch    ─┐ target = shell:topologies/_http/workers
- *                                                                 └> topology-manager:fetch ┤ target = shell:topologies/_http/topologies
+ *   topology-manager:timer (Timer) ─> topology-manager:tee (Tee) ─> worker-status:fetch    ─┐ target = topologies:shell/_http/workers
+ *                                                                 └> topology-manager:fetch ┤ target = topologies:shell/_http/topologies
  *   worker-status:in    (Tee) ─> worker-status:transform ─> worker-status:view ─> React
  *   topology-manager:in (Tee) ─> topology-manager:view                        ─> React
  *
  * `useBatchedPoll` owns every piece of the poll boilerplate: the
- * `shell:topologies` Tap and the `_http` HttpOut egress, the fan-out Tee and the router-hitchhike
+ * `topologies:shell` Tap and the `_http` HttpOut egress, the fan-out Tee and the router-hitchhike
  * Timer, the lock/flush bracket that puts a tick's two fetcher commands in ONE
  * POST, and the page-visibility and `paused` gates. This hook adds only its two
  * slices, through `addSliceFetcher`:
@@ -32,7 +32,7 @@
  * The three mutations are `useCommandOnce` sends rather than a hook callback
  * calling `interpreter.fill`. Each parks its arguments in its own Fetcher's
  * outbox and pokes the Router, so the command leaves inside the same lock/flush
- * bracket as the poll and the debug overlay's `connect shell:topologies` sees
+ * bracket as the poll and the debug overlay's `connect topologies:shell` sees
  * it flow. A
  * refusal returns a tick later as the verb's error text, addressed to the node
  * that asked (TO=FROM, ADR-7); `onError` reports it, and there is no promise to
