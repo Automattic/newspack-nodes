@@ -11,6 +11,8 @@
  *
  * The set is empty until the `.tsl` answer lands, and stays empty for a name
  * with no registered `.tsl` behind it — no topology open, or an unsaved draft.
+ * It is empty too while the PHP class catalog is loading or has failed, since
+ * the graph cannot be read without it.
  * Callers MUST read an empty set as "no drift information", never as
  * "everything drifted".
  */
@@ -60,9 +62,10 @@ const NO_NAMES = new Set();
  * answer would paint every node of the new one as drift.
  *
  * @param {string} topology Topology name, or '' for none.
+ * @param {Object} catalog  The PHP class catalog slice, `{ classes, loading, error }`: a topology is always read against it.
  * @return {Set<string>} Canonical node names from the topology's `.tsl`.
  */
-export function useCanonicalNodes( topology ) {
+export function useCanonicalNodes( topology, catalog ) {
 	const { open, topology: loaded } = useTopology( {
 		scope: 'canonical',
 		enabled: !! topology,
@@ -73,11 +76,21 @@ export function useCanonicalNodes( topology ) {
 	}, [ topology, open ] );
 
 	return useMemo( () => {
-		if ( ! topology || loaded?.name !== topology ) {
+		// Without the class catalog no graph can be read: the set is unknown.
+		if (
+			! topology ||
+			loaded?.name !== topology ||
+			catalog.loading ||
+			catalog.error
+		) {
 			return NO_NAMES;
 		}
 		// Seeded: a file's own edges may name a borrowed node.
-		const parsed = graphFromTsl( loaded.tsl, loaded.expanded );
+		const parsed = graphFromTsl(
+			loaded.tsl,
+			loaded.expanded,
+			catalog.classes
+		);
 		// A borrowed node is canonical: declared, just in another file.
 		const borrowed = ( loaded.expanded?.nodes || [] ).map(
 			( n ) => n.name
@@ -89,5 +102,5 @@ export function useCanonicalNodes( topology ) {
 			...borrowed,
 			...owned,
 		] );
-	}, [ topology, loaded ] );
+	}, [ topology, loaded, catalog.classes, catalog.loading, catalog.error ] );
 }

@@ -447,6 +447,50 @@ class SchemaReflectionTest extends TestCase {
 		$node->parse( [ 'value' ] );
 	}
 
+	public function test_a_variadic_argument_is_left_unbound_and_its_partition_token_unrefused(): void {
+		$node = new Variadic_Subject_Node();
+
+		$node->arguments( [ 'heron', 'egret.p{partition}:ibis', 'crane' ] );
+
+		$this->assertSame( 'heron', $node->head );
+		$this->assertSame( [ 'heron', 'egret.p{partition}:ibis', 'crane' ], $node->arguments() );
+
+		$this->expectException( \LogicException::class );
+		$node->written( 'tail' );
+	}
+
+	public function test_variadic_in_returns_the_tokens_past_the_bound_positionals(): void {
+		$this->assertSame( [ 'egret', 'p{partition}:crane' ], Variadic_Subject_Node::variadic_in( [ 'heron', 'egret', 'p{partition}:crane' ] ) );
+		$this->assertSame( [], Variadic_Subject_Node::variadic_in( [ 'heron' ] ) );
+		$this->assertSame( [], Variadic_Subject_Node::variadic_in( [] ) );
+	}
+
+	public function test_a_variadic_argument_declared_before_another_is_refused(): void {
+		$node = new class extends Node {
+			use Schema_Reflection;
+
+			public string $head = '';
+
+			public function parse( array $args ): void {
+				$this->parse_schema_args( $args );
+			}
+
+			public static function node_schema(): array {
+				return [
+					'arguments' => [
+						[ 'name' => 'tail', 'type' => 'string', 'variadic' => true ],
+						[ 'name' => 'head', 'type' => 'string', 'default' => '' ],
+					],
+				];
+			}
+		};
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'variadic argument tail must be the last' );
+
+		$node->parse( [ 'heron', 'egret' ] );
+	}
+
 	public function test_auto_wire_interpreter_noops_for_command_interpreters(): void {
 		$node = new class extends Command_Interpreter_Node {
 			use Schema_Reflection;
@@ -1027,6 +1071,30 @@ class Partitioned_Subject_Node extends Node {
 				[ 'name' => 'mine', 'type' => 'string', 'required' => true, 'partition' => 'bound' ],
 				[ 'name' => 'fanned', 'type' => 'string', 'default' => '', 'partition' => 'each' ],
 				[ 'name' => 'plain', 'type' => 'string', 'default' => '' ],
+			],
+		];
+	}
+}
+
+class Variadic_Subject_Node extends Node {
+	use Schema_Reflection;
+
+	public string $head = '';
+
+	/**
+	 * The argument as the TSL wrote it.
+	 *
+	 * @param string $name A declared argument.
+	 */
+	public function written( string $name ): string {
+		return $this->written_argument( $name );
+	}
+
+	public static function node_schema(): array {
+		return [
+			'arguments' => [
+				[ 'name' => 'head', 'type' => 'string', 'required' => true ],
+				[ 'name' => 'tail', 'type' => 'string', 'variadic' => true ],
 			],
 		];
 	}

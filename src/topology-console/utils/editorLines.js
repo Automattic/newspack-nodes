@@ -17,7 +17,12 @@
  */
 
 import { serializeDraftArg, tokenize } from '../../runtime/shell-node';
-import { applyDefaults, trimTrailingEmpties } from './tslArgs';
+import {
+	applyDefaults,
+	positionalTokens,
+	trimTrailingEmpties,
+	variadicStart,
+} from './tslArgs';
 
 /**
  * The `set_arguments` statement for one node's edited constructor arguments.
@@ -27,9 +32,9 @@ import { applyDefaults, trimTrailingEmpties } from './tslArgs';
  * `parse_schema_args` tests `isset()`, and `''` is set, so the declared
  * default is skipped and an int argument coerces to 0.
  *
- * A slot whose value still tokenizes to what `current` holds is emitted as
- * that stored span, quotes and all, so an edit re-quotes only the slot it
- * touched.
+ * A bound slot whose value still tokenizes to what `current` holds is emitted
+ * as that stored span, quotes and all, so an edit re-quotes only the slot it
+ * touched. A variadic tail holds spans already, and is emitted as written.
  *
  * @param {string} id      Node name.
  * @param {Array}  args    The Inspector's positional array (may be sparse).
@@ -38,13 +43,15 @@ import { applyDefaults, trimTrailingEmpties } from './tslArgs';
  * @return {string} A `set_arguments` statement.
  */
 export function setArgumentsLine( id, args, current = [], spec = null ) {
-	const filled = trimTrailingEmpties( applyDefaults( args, spec ) );
+	const filled = positionalTokens( args, spec );
+	const tail = variadicStart( spec );
 	const tokens = [];
 	for ( let i = 0; i < filled.length; i++ ) {
 		const value = filled[ i ];
-		// Untouched: the Inspector renders tokenized, so compare the VALUE.
+		// Untouched bound slot: it renders tokenized, so compare the VALUE.
 		const span = current[ i ];
 		if (
+			i < tail &&
 			undefined !== value &&
 			undefined !== span &&
 			value === tokenize( String( span ) ).join( ' ' )

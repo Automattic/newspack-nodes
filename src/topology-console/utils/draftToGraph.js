@@ -24,6 +24,8 @@
 
 import { DraftInterpreterNode } from '../../runtime/draft-interpreter-node';
 import { targetsOf } from '../../runtime/node';
+import { tokenize } from '../../runtime/shell-node';
+import { boundArguments } from '../../runtime/schema-reflection';
 import { CONFIG_TARGET_VERB_RE, withConfigEdges } from './consoleGraph';
 
 /**
@@ -79,22 +81,52 @@ export function splitPair( token ) {
 }
 
 /**
- * The pair tokens a node's arguments carry: a `Remote_Source`'s after its
- * three named arguments, and a `Vault_Group` of them likewise after the child
- * class, since the group passes each member the same arguments. The group
- * stands for its members, which only the Vault names.
+ * How many leading arguments a class binds, read off its schema: the specs
+ * before the trailing `variadic`.
+ *
+ * @param {Array<Object>} catalog   Class catalog entries.
+ * @param {string}        className Shell class.
+ * @return {number} The bound argument count.
+ * @throws {Error} When the catalog holds no such class.
+ */
+function boundCount( catalog, className ) {
+	const entry = catalog.find( ( c ) => c.shell_name === className );
+	if ( ! entry ) {
+		throw new Error( `The class catalog holds no ${ className }.` );
+	}
+	return boundArguments( entry.arguments ).length;
+}
+
+/**
+ * The pair tokens a node's arguments carry: a `Remote_Source`'s past its
+ * bound arguments, and a `Vault_Group`'s past its own and the child's, since
+ * the group passes each member `[ vault_id, ...child_args ]`. The group stands
+ * for its members, which only the Vault names.
  *
  * @param {string}        className The node's shell class.
- * @param {Array<string>} args      Its constructor arguments.
- * @return {Array<string>} The pair tokens, none for any other class.
+ * @param {Array<string>} spans     Its constructor arguments, as written.
+ * @param {Array<Object>} catalog   Class catalog entries.
+ * @return {Array<string>} The pair values, none for any other class.
  */
-function pairTokens( className, args ) {
+function pairTokens( className, spans, catalog ) {
+	// The broker reads values, so a quoted span is read as the value it holds.
+	const valuesOf = () =>
+		spans.map( ( span ) => tokenize( String( span ) )[ 0 ] ?? '' );
 	if ( 'Remote_Source' === className ) {
-		return args.slice( 3 );
+		return valuesOf().slice( boundCount( catalog, className ) );
 	}
-	return 'Vault_Group' === className && 'Remote_Source' === args[ 0 ]
-		? args.slice( 4 )
-		: [];
+	if (
+		'Vault_Group' === className &&
+		'Remote_Source' ===
+			( tokenize( String( spans[ 0 ] ?? '' ) )[ 0 ] ?? '' )
+	) {
+		return valuesOf().slice(
+			boundCount( catalog, className ) +
+				boundCount( catalog, 'Remote_Source' ) -
+				1
+		);
+	}
+	return [];
 }
 
 /**
@@ -160,7 +192,11 @@ export function draftToGraph( interpreter ) {
 		// A borrowed broker's pair edges arrive seeded with its include.
 		const pairs = borrowed
 			? []
-			: pairTokens( node.shellClassName(), node.arguments || [] );
+			: pairTokens(
+					node.shellClassName(),
+					node.arguments || [],
+					interpreter.catalog
+			  );
 		for ( const { source, target } of pairs.map( splitPair ) ) {
 			if ( '' !== source && '' !== target ) {
 				edges.push( { from: name, to: target, roles: [ 'pair' ] } );
@@ -198,18 +234,21 @@ export function draftToGraph( interpreter ) {
  * nothing: it names itself `_command_interpreter` in a registry of its own,
  * never in Core, and never touches the document the console is editing.
  *
- * @param {string} tsl                   Topology source.
- * @param {Object} [expansion]           `topologies expand` result for its includes.
- * @param {Array}  [catalog]             Class catalog; decides which classes fan out.
- * @param {Array}  [resolvedConfigEdges] Server-resolved `<ns:key>` targets.
+ * @param {string}  tsl                   Topology source.
+ * @param {?Object} expansion             `topologies expand` result for its includes, or null.
+ * @param {Array}   catalog               Class catalog: which classes fan out, and where a broker's pairs start.
+ * @param {Array}   [resolvedConfigEdges] Server-resolved `<ns:key>` targets.
  * @return {Object} The console's graph shape.
  */
 export function graphFromTsl(
 	tsl,
-	expansion = null,
-	catalog = [],
+	expansion,
+	catalog,
 	resolvedConfigEdges = null
 ) {
+	if ( ! Array.isArray( catalog ) ) {
+		throw new Error( 'graphFromTsl needs the class catalog.' );
+	}
 	const interpreter = new DraftInterpreterNode();
 	interpreter.catalog = catalog;
 	interpreter.load( tsl || '', expansion, resolvedConfigEdges );

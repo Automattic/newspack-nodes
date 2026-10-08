@@ -3,6 +3,7 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { Core } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { useCanonicalNodes, driftNodeIds } from '../useCanonicalNodes';
+import brokerSchemas from '../../../../tests/fixtures/broker-schemas.json';
 
 describe( 'driftNodeIds', () => {
 	it( 'returns live nodes absent from the canonical set, excluding reserved _ infra', () => {
@@ -25,6 +26,8 @@ describe( 'driftNodeIds', () => {
 } );
 
 describe( 'useCanonicalNodes', () => {
+	const ready = { classes: brokerSchemas, loading: false, error: null };
+
 	let send;
 	beforeEach( () => {
 		Core.reset();
@@ -39,13 +42,56 @@ describe( 'useCanonicalNodes', () => {
 			name: 'combined',
 			tsl: 'make_node Echo alpha\nmake_node Tee beta\n',
 		} );
-		const { result } = renderHook( () => useCanonicalNodes( 'combined' ) );
+		const { result } = renderHook( () =>
+			useCanonicalNodes( 'combined', ready )
+		);
 		await waitFor( () => expect( result.current.size ).toBe( 2 ), {
 			timeout: 4000,
 		} );
 		expect( result.current.has( 'alpha' ) ).toBe( true );
 		expect( result.current.has( 'beta' ) ).toBe( true );
 	}, 15000 );
+
+	it( 'reads a topology writing a broker against the class catalog', async () => {
+		send.mockReturnValue( {
+			name: 'hub-9',
+			tsl: 'make_node Remote_Source spoke-q3 lone o d egret.p0:sink-q\n',
+			owned: [],
+		} );
+		const { result } = renderHook( () =>
+			useCanonicalNodes( 'hub-9', ready )
+		);
+		await waitFor( () => expect( result.current.size ).toBe( 1 ), {
+			timeout: 4000,
+		} );
+		expect( result.current.has( 'spoke-q3' ) ).toBe( true );
+	}, 15000 );
+
+	it.each( [
+		[ 'loading', { classes: [], loading: true, error: null } ],
+		[ 'failed', { classes: brokerSchemas, loading: false, error: 'down' } ],
+	] )(
+		'reports no drift once the class catalog is %s',
+		async ( _state, notReady ) => {
+			send.mockReturnValue( {
+				name: 'hub-9',
+				tsl: 'make_node Remote_Source spoke-q3 lone o d egret.p0:sink-q\n',
+				owned: [],
+			} );
+			const { result, rerender } = renderHook(
+				( { catalog } ) => useCanonicalNodes( 'hub-9', catalog ),
+				{ initialProps: { catalog: ready } }
+			);
+			await waitFor( () => expect( result.current.size ).toBe( 1 ), {
+				timeout: 4000,
+			} );
+
+			rerender( { catalog: notReady } );
+
+			expect( result.current.size ).toBe( 0 );
+		},
+		15000
+	);
 
 	it( 'counts a node its owner builds as canonical, not as runtime drift', async () => {
 		send.mockReturnValue( {
@@ -55,7 +101,9 @@ describe( 'useCanonicalNodes', () => {
 				{ name: 'crawl-k9:seen', class: 'Table', owner: 'crawl-k9' },
 			],
 		} );
-		const { result } = renderHook( () => useCanonicalNodes( 'crawl-k9' ) );
+		const { result } = renderHook( () =>
+			useCanonicalNodes( 'crawl-k9', ready )
+		);
 		await waitFor( () => expect( result.current.size ).toBe( 2 ), {
 			timeout: 4000,
 		} );
@@ -81,7 +129,9 @@ describe( 'useCanonicalNodes', () => {
 			},
 		} );
 
-		const { result } = renderHook( () => useCanonicalNodes( 'combined' ) );
+		const { result } = renderHook( () =>
+			useCanonicalNodes( 'combined', ready )
+		);
 
 		await waitFor( () => expect( result.current.size ).toBe( 3 ), {
 			timeout: 4000,
@@ -117,7 +167,9 @@ describe( 'useCanonicalNodes', () => {
 			},
 		} );
 
-		const { result } = renderHook( () => useCanonicalNodes( 'combined' ) );
+		const { result } = renderHook( () =>
+			useCanonicalNodes( 'combined', ready )
+		);
 
 		await waitFor( () => expect( result.current.size ).toBe( 2 ), {
 			timeout: 4000,
@@ -127,7 +179,7 @@ describe( 'useCanonicalNodes', () => {
 	}, 15000 );
 
 	it( 'returns an empty set (and does not fetch) when there is no topology', () => {
-		const { result } = renderHook( () => useCanonicalNodes( '' ) );
+		const { result } = renderHook( () => useCanonicalNodes( '', ready ) );
 		expect( result.current.size ).toBe( 0 );
 		expect( send ).not.toHaveBeenCalled();
 	} );
@@ -142,7 +194,7 @@ describe( 'useCanonicalNodes', () => {
 			tsl: 'make_node Echo alpha\n',
 		} );
 		const { result, rerender } = renderHook(
-			( { t } ) => useCanonicalNodes( t ),
+			( { t } ) => useCanonicalNodes( t, ready ),
 			{ initialProps: { t: 'combined' } }
 		);
 		await waitFor( () => expect( result.current.size ).toBe( 1 ), {
@@ -164,7 +216,7 @@ describe( 'useCanonicalNodes', () => {
 			tsl: 'make_node Echo alpha\n',
 		} );
 		const { result, rerender } = renderHook(
-			( { t } ) => useCanonicalNodes( t ),
+			( { t } ) => useCanonicalNodes( t, ready ),
 			{ initialProps: { t: 'combined' } }
 		);
 		await waitFor( () => expect( result.current.size ).toBe( 1 ), {

@@ -410,9 +410,9 @@ export class FetcherNode extends Node {
 	}
 
 	/**
-	 * Console-palette entry. Only the two required positionals are declared;
-	 * the trailing `command_args` are variadic and may instead be assigned
-	 * programmatically as a fire-time getter.
+	 * Console-palette entry. The trailing `command_args` are variadic, read by
+	 * the `arguments` setter, and may instead be assigned programmatically as
+	 * a fire-time getter.
 	 *
 	 * @return {Object} The node schema.
 	 */
@@ -424,6 +424,7 @@ export class FetcherNode extends Node {
 			arguments: [
 				{ name: 'receiver', type: 'string', required: true },
 				{ name: 'command', type: 'string', required: true },
+				{ name: 'command_args', type: 'string', variadic: true },
 			],
 			commands: [],
 		};

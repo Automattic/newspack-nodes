@@ -1285,7 +1285,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	}, [ baseCanvasGraph, mode, catalog.classes, expansion ] );
 
 	// Runtime drift (roadmap [49]): live nodes not in the registered .tsl.
-	const canonicalNodes = useCanonicalNodes( topology );
+	const canonicalNodes = useCanonicalNodes( topology, phpCatalog );
 	const driftIds = useMemo(
 		() =>
 			mode === 'edit'

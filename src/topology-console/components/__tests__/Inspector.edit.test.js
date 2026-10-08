@@ -7,6 +7,7 @@
 import { fireEvent, screen } from '@testing-library/react';
 import Inspector from '../Inspector';
 import { renderWithCatalog } from '../../__tests__/catalogTestUtils';
+import brokerSchemas from '../../../../tests/fixtures/broker-schemas.json';
 
 const baseProps = {
 	selectedId: 'echo',
@@ -975,6 +976,144 @@ describe( 'Inspector (edit mode)', () => {
 		const input = container.querySelector( '#topology-ctor-name' );
 		fireEvent.change( input, { target: { value: 'hello' } } );
 		expect( onUpdateArgs ).toHaveBeenCalledWith( 'echo', [ 'hello' ] );
+	} );
+
+	describe( 'a variadic trailing constructor argument', () => {
+		const vaultGroupArgs = [
+			'Remote_Source',
+			'spoke',
+			'<config:offsets_dir>/<topology>.{id}',
+			'<config:deadletter_dir>/<topology>.{id}',
+			'firehose.p{partition}:remote-job-rewrite',
+			'sources/php:php-errors:partition',
+		];
+		const tail = vaultGroupArgs.slice( 2 ).join( ' ' );
+		const groupCatalog = brokerSchemas
+			.filter( ( c ) => 'Vault_Group' === c.shell_name )
+			.map( ( c ) => ( { ...c, commands: [] } ) );
+		const groupProps = ( ctorArgs, onUpdateArgs ) => ( {
+			...baseProps,
+			selectedId: 'spokes',
+			parsed: {
+				nodes: [ { id: 'spokes', class: 'Vault_Group', ctorArgs } ],
+				edges: [],
+			},
+			catalog: groupCatalog,
+			onUpdateArgs,
+		} );
+		const vaults = [
+			{ id: 'tw0', url: '', group: 'spoke' },
+			{ id: 'cr0', url: '', group: 'crawler' },
+		];
+
+		it( 'keeps the group alone and shows the tail as child_args', () => {
+			const { container } = renderWithCatalog(
+				<Inspector { ...groupProps( vaultGroupArgs ) } />,
+				{ classes: groupCatalog, vaults }
+			);
+			expect(
+				container.querySelector( '#topology-ctor-group' ).value
+			).toBe( 'spoke' );
+			expect(
+				[
+					...container.querySelectorAll(
+						'#topology-ctor-group option'
+					),
+				].map( ( o ) => o.value )
+			).toEqual( [ '', 'crawler', 'spoke' ] );
+			expect(
+				container.querySelector( '#topology-ctor-child_args' ).value
+			).toBe( tail );
+		} );
+
+		it( 'writes an edited child_args back as one tail string', () => {
+			const onUpdateArgs = jest.fn();
+			const { container } = renderWithCatalog(
+				<Inspector { ...groupProps( vaultGroupArgs, onUpdateArgs ) } />,
+				{ classes: groupCatalog, vaults }
+			);
+			fireEvent.change(
+				container.querySelector( '#topology-ctor-child_args' ),
+				{ target: { value: `${ tail } extra-heron` } }
+			);
+			expect( onUpdateArgs ).toHaveBeenCalledWith( 'spokes', [
+				'Remote_Source',
+				'spoke',
+				`${ tail } extra-heron`,
+			] );
+		} );
+
+		it( 'hands the tail back whole when the group is edited', () => {
+			const onUpdateArgs = jest.fn();
+			const { container } = renderWithCatalog(
+				<Inspector { ...groupProps( vaultGroupArgs, onUpdateArgs ) } />,
+				{ classes: groupCatalog, vaults }
+			);
+			fireEvent.change(
+				container.querySelector( '#topology-ctor-group' ),
+				{
+					target: { value: 'crawler' },
+				}
+			);
+			expect( onUpdateArgs ).toHaveBeenCalledWith( 'spokes', [
+				'Remote_Source',
+				'crawler',
+				tail,
+			] );
+		} );
+
+		it( 'shows a quoted tail word with its quotes', () => {
+			const { container } = renderWithCatalog(
+				<Inspector
+					{ ...groupProps( [
+						'Remote_Source',
+						'spoke',
+						'reed/{id}',
+						'"pond heron"',
+					] ) }
+				/>,
+				{ classes: groupCatalog, vaults }
+			);
+			expect(
+				container.querySelector( '#topology-ctor-child_args' ).value
+			).toBe( 'reed/{id} "pond heron"' );
+		} );
+	} );
+
+	it( 'a written Remote_Source shows deadletter_root alone and pairs apart', () => {
+		const sourceCatalog = brokerSchemas
+			.filter( ( c ) => 'Remote_Source' === c.shell_name )
+			.map( ( c ) => ( { ...c, commands: [] } ) );
+		const { container } = renderWithCatalog(
+			<Inspector
+				{ ...baseProps }
+				selectedId="src"
+				catalog={ sourceCatalog }
+				parsed={ {
+					nodes: [
+						{
+							id: 'src',
+							class: 'Remote_Source',
+							ctorArgs: [
+								'tw0',
+								'/ibis/offsets',
+								'/ibis/dead',
+								'egret.p0:heron',
+								'crane:stork',
+							],
+						},
+					],
+					edges: [],
+				} }
+			/>,
+			{ classes: sourceCatalog }
+		);
+		expect(
+			container.querySelector( '#topology-ctor-deadletter_root' ).value
+		).toBe( '/ibis/dead' );
+		expect( container.querySelector( '#topology-ctor-pairs' ).value ).toBe(
+			'egret.p0:heron crane:stork'
+		);
 	} );
 
 	it( 'CtorField: clears value via the × button', () => {

@@ -8,11 +8,20 @@
 
 import { draftToGraph, graphFromTsl } from '../draftToGraph';
 import { DraftInterpreterNode } from '../../../runtime/draft-interpreter-node';
+import brokerSchemas from '../../../../tests/fixtures/broker-schemas.json';
 
 describe( 'graphFromTsl', () => {
 	it( 'reads a file without registering a second draft', () => {
-		const a = graphFromTsl( 'make_node Grep aardvark ^x' );
-		const b = graphFromTsl( 'make_node Grep pangolin ^y' );
+		const a = graphFromTsl(
+			'make_node Grep aardvark ^x',
+			null,
+			brokerSchemas
+		);
+		const b = graphFromTsl(
+			'make_node Grep pangolin ^y',
+			null,
+			brokerSchemas
+		);
 
 		expect( a.nodes.map( ( n ) => n.id ) ).toContain( 'aardvark' );
 		expect( b.nodes.map( ( n ) => n.id ) ).toContain( 'pangolin' );
@@ -22,20 +31,24 @@ describe( 'graphFromTsl', () => {
 		// `_repl` is the canvas's anchor, added where the draft becomes a
 		// canvas graph. A document read that adds it would be a read that
 		// reports a node no topology file contains.
-		expect( graphFromTsl( '' ).nodes ).toEqual( [] );
+		expect( graphFromTsl( '', null, brokerSchemas ).nodes ).toEqual( [] );
 	} );
 
 	it( 'composes the include expansion, marking its nodes borrowed', () => {
-		const graph = graphFromTsl( 'include shared-flames', {
-			nodes: [
-				{
-					name: 'meerkat',
-					class: 'Flame_Builder',
-					origin: [ 'shared-flames' ],
-				},
-			],
-			edges: [],
-		} );
+		const graph = graphFromTsl(
+			'include shared-flames',
+			{
+				nodes: [
+					{
+						name: 'meerkat',
+						class: 'Flame_Builder',
+						origin: [ 'shared-flames' ],
+					},
+				],
+				edges: [],
+			},
+			brokerSchemas
+		);
 		const meerkat = graph.nodes.find( ( n ) => n.id === 'meerkat' );
 
 		expect( meerkat.class ).toBe( 'Flame_Builder' );
@@ -87,7 +100,8 @@ describe( 'verb rows carry their provenance', () => {
 					},
 				],
 				edges: [],
-			}
+			},
+			brokerSchemas
 		);
 		const rows = graph.nodes.find(
 			( n ) => n.id === 'jobs'

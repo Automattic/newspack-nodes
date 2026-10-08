@@ -913,6 +913,19 @@ describe( 'FetcherNode — askNow', () => {
 	} );
 } );
 
+test( 'declares its trailing command_args as the one variadic argument', () => {
+	const declared = FetcherNode.nodeSchema().arguments;
+
+	expect( declared.map( ( a ) => a.name ) ).toEqual( [
+		'receiver',
+		'command',
+		'command_args',
+	] );
+	expect( declared.filter( ( a ) => a.variadic ) ).toEqual( [
+		expect.objectContaining( { name: 'command_args' } ),
+	] );
+} );
+
 /**
  * TM_INFO carries a scalar, and `settled` carries the ask object, so it is an
  * event for closures alone (`useNodeEvent` declares it), never a node-name

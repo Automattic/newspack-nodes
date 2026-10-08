@@ -472,7 +472,8 @@ class RemoteSourceNodeTest extends TestCase {
 		$schema = Remote_Source_Node::node_schema();
 		$this->assertSame( 'I/O', $schema['category'] );
 		$this->assertArrayNotHasKey( 'hidden', $schema );
-		$this->assertSame( [ 'vault_id', 'offsetlog_root', 'deadletter_root' ], \array_column( $schema['arguments'], 'name' ) );
+		$this->assertSame( [ 'vault_id', 'offsetlog_root', 'deadletter_root', 'pairs' ], \array_column( $schema['arguments'], 'name' ) );
+		$this->assertSame( [ 'pairs' ], \array_column( \array_filter( $schema['arguments'], static fn ( array $a ): bool => ! empty( $a['variadic'] ) ), 'name' ) );
 		$this->assertSame( [ 'set_multi_writer', 'assume_clean_shutdown' ], \array_column( $schema['commands'], 'name' ) );
 	}
 

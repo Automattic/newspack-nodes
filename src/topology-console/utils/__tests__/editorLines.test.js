@@ -25,6 +25,77 @@ describe( 'setArgumentsLine', () => {
 		);
 	} );
 
+	describe( 'a trailing variadic slot', () => {
+		const spec = [
+			{ name: 'child_type', type: 'string', required: true },
+			{ name: 'group', type: 'vault_group', required: true },
+			{ name: 'child_args', type: 'string', variadic: true },
+		];
+		const current = [
+			'Remote_Source',
+			'marsh',
+			'reed/{id}',
+			'"pond heron"',
+			'ibis:tern',
+		];
+
+		it( 'keeps every tail token when another slot is edited', () => {
+			const line = setArgumentsLine(
+				'p',
+				[ 'Remote_Source', 'fen', 'reed/{id} "pond heron" ibis:tern' ],
+				current,
+				spec
+			);
+
+			expect( line ).toBe(
+				'set_arguments p Remote_Source fen reed/{id} "pond heron" ibis:tern'
+			);
+		} );
+
+		it( 'lands a typed tail in its own slot after a short argument list', () => {
+			const args = [ 'Remote_Source' ];
+			args[ 2 ] = 'reed/{id} ibis:tern';
+
+			expect( setArgumentsLine( 'p', args, [], spec ) ).toBe(
+				"set_arguments p Remote_Source '' reed/{id} ibis:tern"
+			);
+		} );
+
+		it( 'writes a tail word without the quotes the operator removed', () => {
+			const line = setArgumentsLine(
+				'p',
+				[ 'Remote_Source', 'marsh', 'reed/{id} <config:dir>/x' ],
+				[ 'Remote_Source', 'marsh', 'reed/{id}', "'<config:dir>/x'" ],
+				spec
+			);
+
+			expect( line ).toBe(
+				'set_arguments p Remote_Source marsh reed/{id} <config:dir>/x'
+			);
+		} );
+
+		it( 'refuses a schema declaring the variadic anywhere but last', () => {
+			const misplaced = [ spec[ 2 ], spec[ 0 ] ];
+
+			expect( () =>
+				setArgumentsLine( 'p', [ 'egret', 'heron' ], [], misplaced )
+			).toThrow( 'variadic argument child_args must be the last' );
+		} );
+
+		it( 'writes no empty token for leading or doubled blanks', () => {
+			const line = setArgumentsLine(
+				'p',
+				[ 'Remote_Source', 'fen', '   reed/{id}    ibis:tern' ],
+				[],
+				spec
+			);
+
+			expect( line ).toBe(
+				'set_arguments p Remote_Source fen reed/{id} ibis:tern'
+			);
+		} );
+	} );
+
 	it( 'leaves an untouched span alone instead of re-quoting it', () => {
 		const current = [ 'x', "'foo bar'" ];
 

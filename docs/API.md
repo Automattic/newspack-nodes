@@ -847,7 +847,9 @@ the verb's TM_ERROR, and an absent arg takes its `default`. One arg may declare
 of typed members. A `bool` takes `1`, `true`, `yes`, `on`, `0`, `false`, `no` or
 `off` and refuses any other word, and a blank for a `required` arg is missing. A Node constructor's `arguments()`
 is bound the same way by `parse_schema_args()`
-([ADR-11](architecture-decisions.md#adr-11-make_node-construction-sequence)).
+([ADR-11](architecture-decisions.md#adr-11-make_node-construction-sequence)),
+except that a constructor's `variadic` argument must be last and is never
+bound: the node reads the tail itself.
 
 An arg declaring `'secret' => true` is a credential. It is named, never
 positional — the binder refuses `<name> must be named: write --<name>=<value>`,

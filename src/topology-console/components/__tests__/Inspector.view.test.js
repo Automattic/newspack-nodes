@@ -2244,6 +2244,37 @@ describe( 'Inspector (view mode)', () => {
 		} );
 	} );
 
+	it( 'reads a quoted variadic value as one token', () => {
+		const onAction = jest.fn();
+		const catalog = [
+			{
+				shell_name: 'Echo',
+				commands: [
+					{
+						name: 'restart',
+						args: [
+							{ name: 'types', type: 'string', variadic: true },
+						],
+					},
+				],
+			},
+		];
+		const { getByText, getByLabelText } = renderNode( {
+			catalog,
+			onAction,
+		} );
+		fireEvent.click( getByText( 'restart' ) );
+		fireEvent.change( getByLabelText( /types/ ), {
+			target: { value: 'kea-7714 "job worker"' },
+		} );
+		fireEvent.click( getByText( 'Run' ) );
+		expect( onAction ).toHaveBeenCalledWith( 'invoke', 'echo', {
+			verb: 'restart',
+			kind: 'command',
+			args: [ '--types=kea-7714', '--types=job worker' ],
+		} );
+	} );
+
 	it( 'sends a TM_REQUEST verb its args by position, in declared order', () => {
 		const onAction = jest.fn();
 		const catalog = [

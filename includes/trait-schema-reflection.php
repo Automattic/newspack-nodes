@@ -212,15 +212,43 @@ trait Schema_Reflection {
 	}
 
 	/**
-	 * The positional specs $class declares; empty when it declares none or
-	 * declares something other than a list.
+	 * The tokens past the bound positionals: the tail the class's `variadic`
+	 * argument collects, which only the node reads. The static twin of
+	 * `written_in()`, so the start of the tail is declared once, in the schema.
+	 *
+	 * @param list<string> $args Raw positional argument tokens.
+	 * @return list<string>
+	 */
+	public static function variadic_in( array $args ): array {
+		return \array_slice( $args, \count( self::declared_arguments( static::class ) ) );
+	}
+
+	/**
+	 * The positional specs $class binds; empty when it declares none or
+	 * declares something other than a list. A `variadic` spec collects the
+	 * tokens past the others for the node's own reader, so it is never bound
+	 * and must be declared last.
 	 *
 	 * @param class-string<Node> $class Class whose schema declares them.
 	 * @return array<array-key,mixed>
+	 * @throws \InvalidArgumentException When a `variadic` spec is not the last.
 	 */
 	private static function declared_arguments( string $class ): array {
 		$declared = $class::node_schema()['arguments'] ?? [];
-		return \is_array( $declared ) ? $declared : [];
+		if ( ! \is_array( $declared ) ) {
+			return [];
+		}
+		$last = \array_key_last( $declared );
+		foreach ( $declared as $i => $spec ) {
+			if ( ! \is_array( $spec ) || true !== ( $spec['variadic'] ?? false ) ) {
+				continue;
+			}
+			if ( $i !== $last ) {
+				throw new \InvalidArgumentException( \esc_html( 'Invalid argument specification: variadic argument ' . Core::as_string( $spec['name'] ?? '' ) . ' must be the last' ) );
+			}
+			unset( $declared[ $i ] );
+		}
+		return $declared;
 	}
 
 	/**

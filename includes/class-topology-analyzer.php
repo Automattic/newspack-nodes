@@ -165,7 +165,7 @@ class Topology_Analyzer {
 		$spans  = $statement['spans'];
 		if ( 'make_node' === $verb ) {
 			$name = $values[2] ?? '';
-			self::draw_declared_targets( $edges, $values, $origins );
+			self::draw_declared_targets( $edges, $values, $origins, Command_Interpreter_Node::resolve_class( $values[1] ?? '' ) );
 			if ( isset( $nodes[ $name ] ) ) {
 				$nodes[ $name ]['origin'] = self::union_origins( $nodes[ $name ]['origin'], $origins );
 				return;
@@ -343,11 +343,14 @@ class Topology_Analyzer {
 					$node['path']         = $path;
 					$node['segment_size'] = self::literal_segment_size( $values ) ?? 0;
 				}
-				self::draw_declared_targets( $edges, $values, [ $name ] );
+				$fqcn = Command_Interpreter_Node::resolve_class( $class );
+				self::draw_declared_targets( $edges, $values, [ $name ], $fqcn );
 				if ( self::type_is( $class, Remote_Source_Node::class ) ) {
+					/** @var class-string<Remote_Source_Node> $broker An unresolved name stands for the base class. */
+					$broker = $fqcn ?? Remote_Source_Node::class;
 					// It pulls REMOTE streams, so it claims no `reads`.
 					$node['vault_id'] = $values[3] ?? '';
-					$node['pairs']    = Remote_Source_Node::pairs_of( \array_slice( $values, 6 ) );
+					$node['pairs']    = $broker::pairs_of( $broker::variadic_in( \array_slice( $values, 3 ) ) );
 				} elseif ( self::type_is( $class, Remote_Link_Node::class ) ) {
 					$node['vault_id']         = $values[3] ?? '';
 					$node['remote_partition'] = $values[4] ?? '';
@@ -513,10 +516,10 @@ class Topology_Analyzer {
 	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges Edge-state map, by reference.
 	 * @param list<string> $values  The node's `make_node` values.
 	 * @param list<string> $origins Top-level includes providing the node.
+	 * @param class-string<Node>|null $fqcn The node's class, or null when none resolves.
 	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges
 	 */
-	private static function draw_declared_targets( array &$edges, array $values, array $origins ): void {
-		$fqcn = Command_Interpreter_Node::resolve_class( $values[1] ?? '' );
+	private static function draw_declared_targets( array &$edges, array $values, array $origins, ?string $fqcn ): void {
 		if ( null === $fqcn ) {
 			return;
 		}
@@ -1301,7 +1304,7 @@ class Topology_Analyzer {
 			$targeted[ $name ] = $group['values'][3] ?? '';
 			$ids               = Vault::get_instance()->in_group( $group['values'][4] ?? '' );
 			$children[ $name ] = [];
-			foreach ( Vault_Group_Node::expand( $ids, \array_slice( $group['values'], 5 ), \array_slice( $group['spans'], 5 ) ) as $id => [ $tokens, $spans ] ) {
+			foreach ( Vault_Group_Node::expand( $ids, Vault_Group_Node::variadic_in( \array_slice( $group['values'], 3 ) ), Vault_Group_Node::variadic_in( \array_slice( $group['spans'], 3 ) ) ) as $id => [ $tokens, $spans ] ) {
 				$child = Node::sibling_name_of( $name, (string) $id );
 				if ( isset( $classes[ $child ] ) ) {
 					continue;
