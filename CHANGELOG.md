@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.99.0] - 2026-10-07
+
 ### Added
 
 - **`File_Tail` follows `sources/<name>`.** A topology tails php's `error_log` as `sources/php` without hard-coding the path, and `php` is a source before its first error.
