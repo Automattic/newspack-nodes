@@ -6,19 +6,10 @@
 				"name": "topicprobe",
 				"class": "Topic_Probe",
 				"fans_out": false,
-				"args": [
-					"15"
-				],
+				"args": [ "15" ],
 				"verbs": [],
-				"origin": [
-					"performance",
-					"job-hub"
-				],
-				"via": [
-					"performance",
-					"request-builder",
-					"topic-probe"
-				]
+				"origin": [ "performance", "job-hub" ],
+				"via": [ "performance", "request-builder", "topic-probe" ]
 			},
 			{
 				"name": "topicprobe:log",
@@ -34,15 +25,8 @@
 					"86400"
 				],
 				"verbs": [],
-				"origin": [
-					"performance",
-					"job-hub"
-				],
-				"via": [
-					"performance",
-					"request-builder",
-					"topic-probe"
-				]
+				"origin": [ "performance", "job-hub" ],
+				"via": [ "performance", "request-builder", "topic-probe" ]
 			},
 			{
 				"name": "firehose:consumer",
@@ -56,105 +40,61 @@
 				"verbs": [
 					{
 						"verb": "add_snapshot_node",
-						"args": [
-							"request-builder"
-						]
+						"args": [ "request-builder" ]
 					},
 					{
 						"verb": "set_multi_writer",
-						"args": [
-							"true"
-						]
+						"args": [ "true" ]
 					},
 					{
 						"verb": "set_multi_writer",
-						"args": [
-							"true"
-						]
+						"args": [ "true" ]
 					}
 				],
-				"origin": [
-					"performance",
-					"job-hub"
-				],
-				"via": [
-					"performance",
-					"request-builder"
-				]
+				"origin": [ "performance", "job-hub" ],
+				"via": [ "performance", "request-builder" ]
 			},
 			{
 				"name": "alerts:partition",
 				"class": "Partition",
 				"fans_out": false,
-				"args": [
-					"<config:logs_dir>/alerts.p0"
-				],
+				"args": [ "<config:logs_dir>/alerts.p0" ],
 				"verbs": [],
-				"origin": [
-					"performance"
-				],
-				"via": [
-					"performance",
-					"request-builder"
-				]
+				"origin": [ "performance" ],
+				"via": [ "performance", "request-builder" ]
 			},
 			{
 				"name": "errors:partition",
 				"class": "Partition",
 				"fans_out": false,
-				"args": [
-					"<config:logs_dir>/errors.p0"
-				],
+				"args": [ "<config:logs_dir>/errors.p0" ],
 				"verbs": [],
-				"origin": [
-					"performance"
-				],
-				"via": [
-					"performance",
-					"request-builder"
-				]
+				"origin": [ "performance" ],
+				"via": [ "performance", "request-builder" ]
 			},
 			{
 				"name": "gyroscope:partition",
 				"class": "Partition",
 				"fans_out": false,
-				"args": [
-					"<config:logs_dir>/gyroscope.p0",
-					"1048576"
-				],
+				"args": [ "<config:logs_dir>/gyroscope.p0", "1048576" ],
 				"verbs": [],
-				"origin": [
-					"performance"
-				],
-				"via": [
-					"performance",
-					"request-builder"
-				]
+				"origin": [ "performance" ],
+				"via": [ "performance", "request-builder" ]
 			},
 			{
 				"name": "completed:partition",
 				"class": "Partition",
 				"fans_out": false,
-				"args": [
-					"<config:logs_dir>/completed.p0",
-					"1048576"
-				],
+				"args": [ "<config:logs_dir>/completed.p0", "1048576" ],
 				"verbs": [],
-				"origin": [
-					"performance"
-				],
-				"via": [
-					"performance",
-					"request-builder"
-				]
+				"origin": [ "performance" ],
+				"via": [ "performance", "request-builder" ]
 			},
 			{
 				"name": "requests:partition",
 				"class": "Partition",
 				"fans_out": false,
-				"args": [
-					"<config:logs_dir>/requests.p{partition}"
-				],
+				"args": [ "<config:logs_dir>/requests.p{partition}" ],
 				"verbs": [
 					{
 						"verb": "void_warranty",
@@ -162,35 +102,20 @@
 					},
 					{
 						"verb": "with_index",
-						"args": [
-							"request-index"
-						]
+						"args": [ "request-index" ]
 					}
 				],
-				"origin": [
-					"performance"
-				],
-				"via": [
-					"performance",
-					"request-builder"
-				]
+				"origin": [ "performance" ],
+				"via": [ "performance", "request-builder" ]
 			},
 			{
 				"name": "request-builder",
 				"class": "Request_Builder",
 				"fans_out": false,
-				"args": [
-					"100",
-					"3"
-				],
+				"args": [ "100", "3" ],
 				"verbs": [],
-				"origin": [
-					"performance"
-				],
-				"via": [
-					"performance",
-					"request-builder"
-				]
+				"origin": [ "performance" ],
+				"via": [ "performance", "request-builder" ]
 			},
 			{
 				"name": "completed:tee",
@@ -198,30 +123,17 @@
 				"fans_out": true,
 				"args": [],
 				"verbs": [],
-				"origin": [
-					"performance"
-				],
-				"via": [
-					"performance",
-					"request-builder"
-				]
+				"origin": [ "performance" ],
+				"via": [ "performance", "request-builder" ]
 			},
 			{
 				"name": "tablestats",
 				"class": "Table_Probe",
 				"fans_out": false,
-				"args": [
-					"15"
-				],
+				"args": [ "15" ],
 				"verbs": [],
-				"origin": [
-					"performance"
-				],
-				"via": [
-					"performance",
-					"flame-builder",
-					"table-probe"
-				]
+				"origin": [ "performance" ],
+				"via": [ "performance", "flame-builder", "table-probe" ]
 			},
 			{
 				"name": "tablestats:log",
@@ -237,14 +149,8 @@
 					"86400"
 				],
 				"verbs": [],
-				"origin": [
-					"performance"
-				],
-				"via": [
-					"performance",
-					"flame-builder",
-					"table-probe"
-				]
+				"origin": [ "performance" ],
+				"via": [ "performance", "flame-builder", "table-probe" ]
 			},
 			{
 				"name": "requests:consumer",
@@ -258,18 +164,11 @@
 				"verbs": [
 					{
 						"verb": "add_snapshot_node",
-						"args": [
-							"flame-builder"
-						]
+						"args": [ "flame-builder" ]
 					}
 				],
-				"origin": [
-					"performance"
-				],
-				"via": [
-					"performance",
-					"flame-builder"
-				]
+				"origin": [ "performance" ],
+				"via": [ "performance", "flame-builder" ]
 			},
 			{
 				"name": "flame-builder",
@@ -283,26 +182,17 @@
 					},
 					{
 						"verb": "set_is_hub",
-						"args": [
-							"<eln:is_hub>"
-						]
+						"args": [ "<eln:is_hub>" ]
 					}
 				],
-				"origin": [
-					"performance"
-				],
-				"via": [
-					"performance",
-					"flame-builder"
-				]
+				"origin": [ "performance" ],
+				"via": [ "performance", "flame-builder" ]
 			},
 			{
 				"name": "flames:partition",
 				"class": "Partition",
 				"fans_out": false,
-				"args": [
-					"<config:logs_dir>/flames.p{partition}"
-				],
+				"args": [ "<config:logs_dir>/flames.p{partition}" ],
 				"verbs": [
 					{
 						"verb": "void_warranty",
@@ -310,36 +200,20 @@
 					},
 					{
 						"verb": "with_index",
-						"args": [
-							"flame-index"
-						]
+						"args": [ "flame-index" ]
 					}
 				],
-				"origin": [
-					"performance"
-				],
-				"via": [
-					"performance",
-					"flame-builder"
-				]
+				"origin": [ "performance" ],
+				"via": [ "performance", "flame-builder" ]
 			},
 			{
 				"name": "flame-stats:aggregate",
 				"class": "Table",
 				"fans_out": false,
-				"args": [
-					"evlog:p{partition}",
-					"<eln:stats_ttl>",
-					"sqlite"
-				],
+				"args": [ "evlog:p{partition}", "<eln:stats_ttl>", "sqlite" ],
 				"verbs": [],
-				"origin": [
-					"performance"
-				],
-				"via": [
-					"performance",
-					"flame-builder"
-				]
+				"origin": [ "performance" ],
+				"via": [ "performance", "flame-builder" ]
 			},
 			{
 				"name": "flame-stats:url",
@@ -351,13 +225,8 @@
 					"sqlite"
 				],
 				"verbs": [],
-				"origin": [
-					"performance"
-				],
-				"via": [
-					"performance",
-					"flame-builder"
-				]
+				"origin": [ "performance" ],
+				"via": [ "performance", "flame-builder" ]
 			},
 			{
 				"name": "flame-stats:url-fine",
@@ -369,13 +238,8 @@
 					"sqlite"
 				],
 				"verbs": [],
-				"origin": [
-					"performance"
-				],
-				"via": [
-					"performance",
-					"flame-builder"
-				]
+				"origin": [ "performance" ],
+				"via": [ "performance", "flame-builder" ]
 			},
 			{
 				"name": "jobintake:consumer",
@@ -387,37 +251,22 @@
 					"<config:deadletter_dir>/<topology>.jobintake.p{partition}"
 				],
 				"verbs": [],
-				"origin": [
-					"job-hub"
-				],
-				"via": [
-					"job-hub",
-					"job-router",
-					"job-intake"
-				]
+				"origin": [ "job-hub" ],
+				"via": [ "job-hub", "job-router", "job-intake" ]
 			},
 			{
 				"name": "jobs:partition",
 				"class": "Partition",
 				"fans_out": false,
-				"args": [
-					"<config:logs_dir>/jobs.p{partition}",
-					"67108864"
-				],
+				"args": [ "<config:logs_dir>/jobs.p{partition}", "67108864" ],
 				"verbs": [
 					{
 						"verb": "void_warranty",
 						"args": []
 					}
 				],
-				"origin": [
-					"job-hub"
-				],
-				"via": [
-					"job-hub",
-					"job-router",
-					"job-intake"
-				]
+				"origin": [ "job-hub" ],
+				"via": [ "job-hub", "job-router", "job-intake" ]
 			},
 			{
 				"name": "job-router",
@@ -425,30 +274,17 @@
 				"fans_out": false,
 				"args": [],
 				"verbs": [],
-				"origin": [
-					"job-hub"
-				],
-				"via": [
-					"job-hub",
-					"job-router"
-				]
+				"origin": [ "job-hub" ],
+				"via": [ "job-hub", "job-router" ]
 			},
 			{
 				"name": "jobs:sieve",
 				"class": "Age_Sieve",
 				"fans_out": false,
-				"args": [
-					"900",
-					"1"
-				],
+				"args": [ "900", "1" ],
 				"verbs": [],
-				"origin": [
-					"job-hub"
-				],
-				"via": [
-					"job-hub",
-					"job-router"
-				]
+				"origin": [ "job-hub" ],
+				"via": [ "job-hub", "job-router" ]
 			},
 			{
 				"name": "jobs:consumer",
@@ -462,18 +298,11 @@
 				"verbs": [
 					{
 						"verb": "set_line_mode",
-						"args": [
-							"true"
-						]
+						"args": [ "true" ]
 					}
 				],
-				"origin": [
-					"job-hub"
-				],
-				"via": [
-					"job-hub",
-					"job-worker"
-				]
+				"origin": [ "job-hub" ],
+				"via": [ "job-hub", "job-worker" ]
 			},
 			{
 				"name": "job-worker",
@@ -481,13 +310,8 @@
 				"fans_out": false,
 				"args": [],
 				"verbs": [],
-				"origin": [
-					"job-hub"
-				],
-				"via": [
-					"job-hub",
-					"job-worker"
-				]
+				"origin": [ "job-hub" ],
+				"via": [ "job-hub", "job-worker" ]
 			},
 			{
 				"name": "jobstats:log",
@@ -503,253 +327,146 @@
 					"86400"
 				],
 				"verbs": [],
-				"origin": [
-					"job-hub"
-				],
-				"via": [
-					"job-hub",
-					"job-worker"
-				]
+				"origin": [ "job-hub" ],
+				"via": [ "job-hub", "job-worker" ]
 			},
 			{
 				"name": "jobstats",
 				"class": "Job_Probe",
 				"fans_out": false,
-				"args": [
-					"15"
-				],
+				"args": [ "15" ],
 				"verbs": [],
-				"origin": [
-					"job-hub"
-				],
-				"via": [
-					"job-hub",
-					"job-worker"
-				]
+				"origin": [ "job-hub" ],
+				"via": [ "job-hub", "job-worker" ]
 			}
 		],
 		"edges": [
 			{
 				"from": "topicprobe",
 				"to": "topicprobe:log",
-				"origin": [
-					"performance",
-					"job-hub"
-				],
-				"roles": [
-					"connect"
-				]
+				"origin": [ "performance", "job-hub" ],
+				"roles": [ "connect" ]
 			},
 			{
 				"from": "request-builder",
 				"to": "alerts:partition",
-				"origin": [
-					"performance"
-				],
-				"roles": [
-					"config"
-				],
-				"config_slots": [
-					"set_alerts_target"
-				]
+				"origin": [ "performance" ],
+				"roles": [ "config" ],
+				"config_slots": [ "set_alerts_target" ]
 			},
 			{
 				"from": "request-builder",
 				"to": "errors:partition",
-				"origin": [
-					"performance"
-				],
-				"roles": [
-					"config"
-				],
-				"config_slots": [
-					"set_errors_target"
-				]
+				"origin": [ "performance" ],
+				"roles": [ "config" ],
+				"config_slots": [ "set_errors_target" ]
 			},
 			{
 				"from": "request-builder",
 				"to": "gyroscope:partition",
-				"origin": [
-					"performance"
-				],
-				"roles": [
-					"config"
-				],
-				"config_slots": [
-					"set_inflight_target"
-				]
+				"origin": [ "performance" ],
+				"roles": [ "config" ],
+				"config_slots": [ "set_inflight_target" ]
 			},
 			{
 				"from": "request-builder",
 				"to": "completed:tee",
-				"origin": [
-					"performance"
-				],
-				"roles": [
-					"config"
-				],
-				"config_slots": [
-					"set_completed_target"
-				]
+				"origin": [ "performance" ],
+				"roles": [ "config" ],
+				"config_slots": [ "set_completed_target" ]
 			},
 			{
 				"from": "completed:tee",
 				"to": "completed:partition",
-				"origin": [
-					"performance"
-				],
-				"roles": [
-					"connect"
-				]
+				"origin": [ "performance" ],
+				"roles": [ "connect" ]
 			},
 			{
 				"from": "completed:tee",
 				"to": "gyroscope:partition",
-				"origin": [
-					"performance"
-				],
-				"roles": [
-					"connect"
-				]
+				"origin": [ "performance" ],
+				"roles": [ "connect" ]
 			},
 			{
 				"from": "request-builder",
 				"to": "requests:partition",
-				"origin": [
-					"performance"
-				],
-				"roles": [
-					"connect"
-				]
+				"origin": [ "performance" ],
+				"roles": [ "connect" ]
 			},
 			{
 				"from": "tablestats",
 				"to": "tablestats:log",
-				"origin": [
-					"performance"
-				],
-				"roles": [
-					"connect"
-				]
+				"origin": [ "performance" ],
+				"roles": [ "connect" ]
 			},
 			{
 				"from": "flame-builder",
 				"to": "flame-stats:aggregate",
-				"origin": [
-					"performance"
-				],
-				"roles": [
-					"config"
-				],
-				"config_slots": [
-					"set_aggregate_target"
-				]
+				"origin": [ "performance" ],
+				"roles": [ "config" ],
+				"config_slots": [ "set_aggregate_target" ]
 			},
 			{
 				"from": "flame-builder",
 				"to": "flame-stats:url",
-				"origin": [
-					"performance"
-				],
-				"roles": [
-					"config"
-				],
-				"config_slots": [
-					"set_url_target"
-				]
+				"origin": [ "performance" ],
+				"roles": [ "config" ],
+				"config_slots": [ "set_url_target" ]
 			},
 			{
 				"from": "flame-builder",
 				"to": "flame-stats:url-fine",
-				"origin": [
-					"performance"
-				],
-				"roles": [
-					"config"
-				],
-				"config_slots": [
-					"set_url_fine_target"
-				]
+				"origin": [ "performance" ],
+				"roles": [ "config" ],
+				"config_slots": [ "set_url_fine_target" ]
 			},
 			{
 				"from": "requests:consumer",
 				"to": "flame-builder",
-				"origin": [
-					"performance"
-				],
-				"roles": [
-					"connect"
-				]
+				"origin": [ "performance" ],
+				"roles": [ "connect" ]
 			},
 			{
 				"from": "flame-builder",
 				"to": "flames:partition",
-				"origin": [
-					"performance"
-				],
-				"roles": [
-					"connect"
-				]
+				"origin": [ "performance" ],
+				"roles": [ "connect" ]
 			},
 			{
 				"from": "jobintake:consumer",
 				"to": "job-router",
-				"origin": [
-					"job-hub"
-				],
-				"roles": [
-					"connect"
-				]
+				"origin": [ "job-hub" ],
+				"roles": [ "connect" ]
 			},
 			{
 				"from": "firehose:consumer",
 				"to": "job-router",
-				"origin": [
-					"job-hub"
-				],
-				"roles": [
-					"connect"
-				]
+				"origin": [ "job-hub" ],
+				"roles": [ "connect" ]
 			},
 			{
 				"from": "job-router",
 				"to": "jobs:sieve",
-				"origin": [
-					"job-hub"
-				],
-				"roles": [
-					"connect"
-				]
+				"origin": [ "job-hub" ],
+				"roles": [ "connect" ]
 			},
 			{
 				"from": "jobs:sieve",
 				"to": "jobs:partition",
-				"origin": [
-					"job-hub"
-				],
-				"roles": [
-					"connect"
-				]
+				"origin": [ "job-hub" ],
+				"roles": [ "connect" ]
 			},
 			{
 				"from": "jobs:consumer",
 				"to": "job-worker",
-				"origin": [
-					"job-hub"
-				],
-				"roles": [
-					"connect"
-				]
+				"origin": [ "job-hub" ],
+				"roles": [ "connect" ]
 			},
 			{
 				"from": "jobstats",
 				"to": "jobstats:log",
-				"origin": [
-					"job-hub"
-				],
-				"roles": [
-					"connect"
-				]
+				"origin": [ "job-hub" ],
+				"roles": [ "connect" ]
 			}
 		],
 		"tree": {
@@ -806,10 +523,7 @@
 				"request-builder",
 				"completed:tee"
 			],
-			"topic-probe": [
-				"topicprobe",
-				"topicprobe:log"
-			],
+			"topic-probe": [ "topicprobe", "topicprobe:log" ],
 			"flame-builder": [
 				"topicprobe",
 				"topicprobe:log",
@@ -822,10 +536,7 @@
 				"flame-stats:url",
 				"flame-stats:url-fine"
 			],
-			"table-probe": [
-				"tablestats",
-				"tablestats:log"
-			],
+			"table-probe": [ "tablestats", "tablestats:log" ],
 			"job-hub": [
 				"topicprobe",
 				"topicprobe:log",
@@ -868,93 +579,51 @@
 		{
 			"from": "request-builder",
 			"to": "alerts:partition",
-			"origin": [
-				"complete"
-			],
-			"roles": [
-				"config"
-			],
-			"config_slots": [
-				"set_alerts_target"
-			]
+			"origin": [ "complete" ],
+			"roles": [ "config" ],
+			"config_slots": [ "set_alerts_target" ]
 		},
 		{
 			"from": "request-builder",
 			"to": "errors:partition",
-			"origin": [
-				"complete"
-			],
-			"roles": [
-				"config"
-			],
-			"config_slots": [
-				"set_errors_target"
-			]
+			"origin": [ "complete" ],
+			"roles": [ "config" ],
+			"config_slots": [ "set_errors_target" ]
 		},
 		{
 			"from": "request-builder",
 			"to": "gyroscope:partition",
-			"origin": [
-				"complete"
-			],
-			"roles": [
-				"config"
-			],
-			"config_slots": [
-				"set_inflight_target"
-			]
+			"origin": [ "complete" ],
+			"roles": [ "config" ],
+			"config_slots": [ "set_inflight_target" ]
 		},
 		{
 			"from": "request-builder",
 			"to": "completed:tee",
-			"origin": [
-				"complete"
-			],
-			"roles": [
-				"config"
-			],
-			"config_slots": [
-				"set_completed_target"
-			]
+			"origin": [ "complete" ],
+			"roles": [ "config" ],
+			"config_slots": [ "set_completed_target" ]
 		},
 		{
 			"from": "flame-builder",
 			"to": "flame-stats:aggregate",
-			"origin": [
-				"complete"
-			],
-			"roles": [
-				"config"
-			],
-			"config_slots": [
-				"set_aggregate_target"
-			]
+			"origin": [ "complete" ],
+			"roles": [ "config" ],
+			"config_slots": [ "set_aggregate_target" ]
 		},
 		{
 			"from": "flame-builder",
 			"to": "flame-stats:url",
-			"origin": [
-				"complete"
-			],
-			"roles": [
-				"config"
-			],
-			"config_slots": [
-				"set_url_target"
-			]
+			"origin": [ "complete" ],
+			"roles": [ "config" ],
+			"config_slots": [ "set_url_target" ]
 		},
 		{
 			"from": "flame-builder",
 			"to": "flame-stats:url-fine",
-			"origin": [
-				"complete"
-			],
-			"roles": [
-				"config"
-			],
-			"config_slots": [
-				"set_url_fine_target"
-			]
+			"origin": [ "complete" ],
+			"roles": [ "config" ],
+			"config_slots": [ "set_url_fine_target" ]
 		}
 	],
 	"owned": [],
