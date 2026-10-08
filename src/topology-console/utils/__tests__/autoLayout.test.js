@@ -708,6 +708,34 @@ describe( 'autoLayout', () => {
 		expect( autoLayout( undefined ).nodes ).toEqual( [] );
 	} );
 
+	it( 'grids a graph whose every edge dangles, as it grids an edgeless one', () => {
+		const dangling = [
+			{ from: 'echo', to: 'ghost-sink' },
+			{ from: 'ghost-source', to: 'alpha' },
+		];
+		const out = autoLayout( {
+			nodes: [
+				{ id: 'echo' },
+				{ id: 'charlie' },
+				{ id: 'alpha' },
+				{ id: 'delta' },
+				{ id: 'bravo' },
+			],
+			edges: dangling,
+		} );
+		const at = Object.fromEntries(
+			out.nodes.map( ( n ) => [ n.id, n.position ] )
+		);
+		expect( at ).toEqual( {
+			alpha: { x: X_PAD, y: Y_PAD },
+			bravo: { x: X_PAD, y: Y_PAD + Y_STEP },
+			charlie: { x: X_PAD, y: Y_PAD + 2 * Y_STEP },
+			delta: { x: X_PAD + X_STEP, y: Y_PAD },
+			echo: { x: X_PAD + X_STEP, y: Y_PAD + Y_STEP },
+		} );
+		expect( out.edges ).toBe( dangling );
+	} );
+
 	it( 'places a single source node at the origin column', () => {
 		const out = autoLayout( {
 			nodes: [ { id: 'a' } ],

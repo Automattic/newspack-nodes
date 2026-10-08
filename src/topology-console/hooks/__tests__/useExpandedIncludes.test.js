@@ -186,13 +186,47 @@ describe( 'useExpandedIncludes', () => {
 		rerender( { includes: [ 'performance' ] } );
 		expect( send ).toHaveBeenCalledTimes( 1 );
 
-		invalidateExpandedIncludes();
+		act( () => invalidateExpandedIncludes() );
 		rerender( { includes: [] } );
 		rerender( { includes: [ 'performance' ] } );
 
 		await waitFor( () => expect( send ).toHaveBeenCalledTimes( 2 ), {
 			timeout: 4000,
 		} );
+	}, 15000 );
+
+	it( 'reaches a mounted hook whose include set never changes', async () => {
+		let answer = 'before-save-tee';
+		send.mockImplementation( () => ( {
+			nodes: [ { name: answer } ],
+			edges: [],
+			tree: { 'saved-include': {} },
+		} ) );
+		const { result } = renderHook( () =>
+			useExpandedIncludes( [ 'saved-include' ] )
+		);
+		await waitFor( () => expect( result.current.loading ).toBe( false ), {
+			timeout: 4000,
+		} );
+		expect( result.current.expansion.nodes ).toEqual( [
+			{ name: 'before-save-tee' },
+		] );
+
+		answer = 'after-save-tee';
+		act( () => invalidateExpandedIncludes() );
+
+		await waitFor(
+			() =>
+				expect( result.current.expansion.nodes ).toEqual( [
+					{ name: 'after-save-tee' },
+				] ),
+			{ timeout: 6000 }
+		);
+		expect( result.current.loading ).toBe( false );
+		expect( args() ).toEqual( [
+			[ 'saved-include' ],
+			[ 'saved-include' ],
+		] );
 	}, 15000 );
 } );
 

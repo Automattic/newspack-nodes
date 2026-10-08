@@ -35,6 +35,12 @@ const EMPTY = { nodes: [], edges: [], tree: {}, hulls: {} };
  */
 const cache = new Map();
 
+/** Bumped by each invalidation, so a mounted hook asks its set again. */
+let generation = 0;
+
+/** The re-render of every mounted hook, which an invalidation calls. */
+const listeners = new Set();
+
 /**
  * The cache key and command tokens of an include set: its names, then the
  * flag that asks for each Vault_Group as written when the editor wants that.
@@ -72,9 +78,14 @@ function shape( value ) {
 /**
  * Drop every cached expansion. Saving or deleting ANY topology can change what
  * an `include` of it expands to, so the console invalidates on both.
+ *
+ * A mounted hook whose include set is unchanged asks for it again, because its
+ * key alone would never re-run the ask and it would read empty from then on.
  */
 export function invalidateExpandedIncludes() {
 	cache.clear();
+	generation++;
+	listeners.forEach( ( rerender ) => rerender( ( n ) => n + 1 ) );
 }
 
 /**
@@ -149,11 +160,19 @@ export function useExpandedIncludes( includes, { groupChildren = true } = {} ) {
 	} );
 
 	useEffect( () => {
+		listeners.add( bump );
+		return () => {
+			listeners.delete( bump );
+		};
+	}, [] );
+
+	const asked = generation;
+	useEffect( () => {
 		setError( null );
 		if ( '' !== key && ! cache.has( key ) ) {
 			run( formatCommandArgs( key.split( ' ' ) ) );
 		}
-	}, [ key, run ] );
+	}, [ key, run, asked ] );
 
 	return {
 		expansion: ( '' === key ? EMPTY : cache.get( key ) ) ?? EMPTY,

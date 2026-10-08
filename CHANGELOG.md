@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The build kit's Sass alias importer resolves a checkout whose path holds `#`, `%` or a space.** `aliasImporter()` built its file URL by string concatenation, so `#` began a fragment and `%` an escape, and an aliased `@use` failed with `Can't find stylesheet to import`; it now builds the URL with `pathToFileURL()`.
+- **Saving or deleting a topology re-expands the include set a mounted console already shows.** `invalidateExpandedIncludes()` cleared the cache, but a mounted `useExpandedIncludes` reran its ask only when its include set changed, so after a save the canvas read an empty expansion with `loading` stuck true. An invalidation now re-renders every mounted hook, which asks for its set again.
+- **The topology console grids a graph whose every edge dangles, as it grids an edgeless one.** `autoLayout()` decided edgelessness on the raw edge count before dropping edges with an absent end, so a graph of only dangling edges stacked in one column; it now decides on the edges that survive that filter.
+
 ## [2.103.1] - 2026-10-08
 
 ### Changed
