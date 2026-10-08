@@ -2013,6 +2013,69 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( Consumer_Node::CRASH_MAX_ATTEMPTS, $frame['attempts'], 'crawl keeps its accounting pinned until it survives a clean interval' );
 	}
 
+	/**
+	 * A record the sink threw on is dead-lettered on sight, so it ends the
+	 * climbing lineage durably, at the position past it, before the next record.
+	 */
+	public function test_a_dead_lettered_throw_ends_a_climbing_lineage(): void {
+		$source = new Partition_Node();
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
+		$this->produce_line( $source, 'thrown-3391' );
+		$head_end = (int) ( ( $source->get_segments( true )[0]['size'] ?? 0 ) );
+		$this->produce_line( $source, 'next-3391' );
+
+		$this->seed_offsetlog_frame( "{$this->tmp}/offsets.p0", 0, 0, 2, '' );
+
+		$c = new Consumer_Node();
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
+		$c->name( 'jobs:consumer' );
+		$c->sink( new class() extends Node {
+			public function fill( array $message ): void {
+				if ( 'thrown-3391' === $message[ Message::VALUE ] ) {
+					throw new \RuntimeException( 'sink refused thrown-3391' );
+				}
+			}
+		} );
+		$this->pump_consumer( $c );
+
+		$this->assertSame( 1, $this->count_offsetlog_records( "{$this->tmp}/deadletter.p0" ) );
+		$frame = $this->offsetlog_frame_at( "{$this->tmp}/offsets.p0", 0, $head_end );
+		$this->assertNotNull( $frame, 'the disposal commits past the dead-lettered record' );
+		$this->assertSame( 0, $frame['attempts'], 'the lineage ends with the record it was about' );
+	}
+
+	/**
+	 * A record dropped for an over-long FROM is disposed of too, so it ends the
+	 * climbing lineage at the position past it.
+	 */
+	public function test_an_over_long_from_drop_ends_a_climbing_lineage(): void {
+		$source = new Partition_Node();
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::FROM ]  = \str_repeat( 'f', Node::MAX_FROM_SIZE );
+		$message[ Message::VALUE ] = 'long-from-3392';
+		$source->fill( $message );
+		$source->flush();
+		$head_end = (int) ( ( $source->get_segments( true )[0]['size'] ?? 0 ) );
+		$this->produce_line( $source, 'next-3392' );
+
+		$this->seed_offsetlog_frame( "{$this->tmp}/offsets.p0", 0, 0, 2, '' );
+
+		$c = new Consumer_Node();
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
+		$c->name( 'jobs:consumer' );
+		$cap = new Capture_Sink_Node();
+		$c->sink( $cap );
+		$this->pump_consumer( $c );
+
+		$values = \array_map( static fn ( $m ) => $m[ Message::VALUE ], $cap->captured );
+		$this->assertSame( [ 'next-3392' ], $values, 'the over-long FROM is dropped' );
+		$frame = $this->offsetlog_frame_at( "{$this->tmp}/offsets.p0", 0, $head_end );
+		$this->assertNotNull( $frame, 'the drop commits past the record' );
+		$this->assertSame( 0, $frame['attempts'], 'the lineage ends with the record it was about' );
+	}
+
 	public function test_below_threshold_strike_frame_carries_no_quarantine_marker(): void {
 		// New-hazard guard: a below-threshold strike frame (still had fair shots left) must carry
 		// NO quarantine marker, or the successor would silently drop a message that still had

@@ -93,7 +93,7 @@ class Layouts_CI_Node extends Service_CI_Node {
 			if ( false !== $body ) {
 				$parsed = \json_decode( $body, true );
 				$saved = \is_array( $parsed ) ? ( $parsed['positions'] ?? null ) : null;
-				if ( \is_array( $saved ) || self::AUTO === $saved ) {
+				if ( self::is_positions( $saved ) ) {
 					$positions = $saved;
 				}
 			}
@@ -133,7 +133,7 @@ class Layouts_CI_Node extends Service_CI_Node {
 		}
 		$name      = self::require_valid_name( Core::as_string( $args['name'] ) );
 		$positions = \json_decode( Core::as_string( $args['positions'] ), true );
-		if ( ! \is_array( $positions ) && self::AUTO !== $positions ) {
+		if ( ! self::is_positions( $positions ) ) {
 			throw new \RuntimeException( 'invalid arguments: positions must be an object or "auto"' );
 		}
 
@@ -164,6 +164,22 @@ class Layouts_CI_Node extends Service_CI_Node {
 			'path'      => $path,
 			'positions' => $clean,
 		];
+	}
+
+	/**
+	 * Whether a decoded `positions` value is one a layout may hold: a map, or
+	 * exactly AUTO. A non-empty JSON list decodes to an array too, so the list
+	 * shape is refused; `{}` decodes to `[]`, which stands as the empty map.
+	 *
+	 * @param mixed $positions The decoded `positions` value.
+	 *
+	 * @return bool True for a map or AUTO.
+	 */
+	private static function is_positions( mixed $positions ): bool {
+		if ( \is_array( $positions ) ) {
+			return [] === $positions || ! \array_is_list( $positions );
+		}
+		return self::AUTO === $positions;
 	}
 
 	/**

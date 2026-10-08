@@ -251,6 +251,32 @@ class TopologyLoaderTest extends TestCase {
 		$this->assertNotNull( Core::node( 'after-5517' ), 'the lines after it still ran' );
 	}
 
+	/**
+	 * A resolved file the worker cannot read fails the load; it must not
+	 * evaluate as an empty script and boot a worker with no graph.
+	 */
+	public function test_load_throws_when_the_resolved_file_cannot_be_read(): void {
+		$this->write_tsl( 'unreadable-8823', "make_node Capture_Sink never-8823\n" );
+		$path = "{$this->stock}/unreadable-8823.tsl";
+		\chmod( $path, 0000 );
+
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		$interpreter->sink( new Capture_Sink_Node() );
+
+		try {
+			$e = $this->caught(
+				fn () => Topology_Loader::load( 'unreadable-8823', 0, $interpreter ),
+				'an unreadable topology must fail the load'
+			);
+		} finally {
+			\chmod( $path, 0644 );
+		}
+		$this->assertInstanceOf( \RuntimeException::class, $e );
+		$this->assertSame( "Topology_Loader: failed to read topology file '{$path}'", $e->getMessage() );
+		$this->assertNull( Core::node( 'never-8823' ) );
+	}
+
 	public function test_load_throws_when_topology_not_found(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );

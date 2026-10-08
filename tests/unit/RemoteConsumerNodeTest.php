@@ -1089,6 +1089,27 @@ class RemoteConsumerNodeTest extends TestCase {
 		$this->assertSame( 0, $frame['attempts'], 'the lineage ends with the record it was about' );
 	}
 
+	/**
+	 * A refused (addressed) line was still read, so it is disposed of: the drain
+	 * commits past it and ends the climbing lineage at that position.
+	 */
+	public function test_a_refused_line_ends_a_climbing_crash_lineage(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		$this->seed_offsetlog_frame( 9, 236, 2, '' ); // climbing lineage: resume -> attempts=3.
+		[ , $node, $spy ] = $this->make_remote_spy();
+		$node->fire_cb();
+		$this->assertSame( 3, $this->read_private( $node, 'attempts' ) );
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		$this->deliver_built( $sse, $this->addressed_message( '9:236:52', '_fleet' ) );
+
+		$this->assertCount( 0, $spy->captured, 'the addressed line is refused' );
+		$frame = $this->newest_offsetlog_frame( $node );
+		$this->assertSame( 288, $frame['offset'], 'committed past the refused record (236 + 52)' );
+		$this->assertSame( 0, $frame['attempts'], 'the lineage ends with the record it was about' );
+	}
+
 	public function test_unparseable_tail_is_quarantined_where_the_cursor_stands(): void {
 		// The broker drops a frame that will not unpack, so the reader meets one
 		// only when handed it directly. It carries no crumb, so it cannot be placed

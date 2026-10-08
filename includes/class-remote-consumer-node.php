@@ -454,7 +454,8 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 *
 	 * `admit()` routes the line by the pair's target: a firehose record carries no TO, so an
 	 * addressed line is refused. A refused line was still READ, so the cursor advances past it
-	 * as a forward does, and one bad record wedges nothing.
+	 * as a forward does, and it is marked disposed, so the drain commits past it and ends any
+	 * poison or crash lineage. One bad record wedges nothing.
 	 *
 	 * The message is the one the broker decoded, so a line is decoded once; a line handed
 	 * over undecoded is decoded here. Each forward, and each clean stop, counts, and the
@@ -489,6 +490,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 			return;
 		}
 		if ( ! $this->admit( $message ) ) {
+			$this->disposed_record = true;
 			return;
 		}
 		if ( $this->crawl ) {
