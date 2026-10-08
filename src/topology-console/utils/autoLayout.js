@@ -18,13 +18,15 @@
  * hub on its own, merged with every block a wire joins it to — and the blocks
  * pack into side-by-side stacks toward a canvas about as wide as it is tall,
  * widest blocks first; a small graph fills one stack. A block that would open
- * a new stack waits for every other block instead, and the waiting blocks
- * then pack together in one block right of the stacks: each takes any room
- * above or below the cards the waiting blocks already hold, clear of their
- * wires and of every hub's column, and opens a stack only when none fits. So
- * a small block never lands in the rows beside a tall block's feeders, nor
- * in the column a hub's fan-in converges on. An edgeless node is a block of
- * one.
+ * a new stack waits, and so does every block after it. Each waiting block
+ * then takes room above or below the cards the waiting blocks before it hold,
+ * or else room the stacks leave, on the row nearest the canvas's middle, clear
+ * of every hub's column and of any card beside it showing an unwired port;
+ * failing both, room a stack may still grow into, down to the square's height;
+ * and opens a stack only when none fits. So a small block sits by the fan it
+ * fits beside, not in the corner under it, nor in the column a hub's fan-in
+ * converges on, and widens the canvas no sooner than it would have stacked.
+ * An edgeless node is a block of one.
  *
  * Within a band, columns come from a Coffman-Graham-flavored layering: a true
  * source starts in column 0, a true sink seats one column past its own depth
@@ -744,9 +746,10 @@ const clearWires = (
  * holds. A source wired to a node outside its block keeps the column its band
  * gave it and chooses only its row: nothing here can see where that wire lands.
  * A wire's clearance reads canvas x off `xOfNow()`, as `clearWires` reads
- * `xOf`, and the map is rebuilt after each seat that changes a column: the
- * seat can open or close a half step where three or more wires meet one card,
- * and the next seat measures its wires and every other across that boundary.
+ * `xOf`, built with the source in the column each seat would put it: its own
+ * wires can open or close a half step where three or more meet one card, so a
+ * seat is measured on the boundaries it leaves, and each later seat on those
+ * every earlier seat left.
  *
  * @param {Array<string>}                 sources  The sources to seat.
  * @param {Object<string,Array<string>>}  next     Each source's real successors.
@@ -769,7 +772,6 @@ const seatSources = (
 	floor = () => -Infinity,
 	xOfNow = () => evenColumns
 ) => {
-	let xOf = xOfNow();
 	const rows = cards.map( ( id ) => row[ id ] );
 	// Half-row steps that walk a search past every card in the block.
 	const reach = 2 * ( Math.max( ...rows ) - Math.min( ...rows ) ) + 8;
@@ -788,7 +790,7 @@ const seatSources = (
 		}
 	};
 	wires.forEach( lay );
-	const onWire = ( [ a, b ], c, r ) => {
+	const onWire = ( [ a, b ], c, r, xOf ) => {
 		const [ lo, hi ] = wireRows(
 			xOf( col[ b ] ) - xOf( col[ a ] ),
 			xOf( c ) - xOf( col[ a ] ),
@@ -809,13 +811,30 @@ const seatSources = (
 			continue;
 		}
 		const want = snapHalf( midMinMax( fed.map( ( k ) => row[ k ] ) ) );
+		const was = col[ id ];
+		/** @type {Map<number, ( c: number ) => number>} */
+		const maps = new Map();
+		// Canvas x of every column with the source seated in column `at`.
+		const xIn = ( at ) => {
+			let x = maps.get( at );
+			if ( ! x ) {
+				col[ id ] = at;
+				x = xOfNow();
+				col[ id ] = was;
+				maps.set( at, x );
+			}
+			return x;
+		};
 		const free = ( c, r ) =>
 			r >= floor( id ) - 1e-9 &&
 			! near( id, c, r - 1, r + 1 ) &&
-			! ( across[ c ] ?? [] ).some( ( w ) => onWire( w, c, r ) );
+			! ( across[ c ] ?? [] ).some( ( w ) =>
+				onWire( w, c, r, xIn( c ) )
+			);
 		// Cards between the seat and a successor, on that wire.
 		const crossings = ( c, r ) =>
 			fed.reduce( ( sum, k ) => {
+				const xOf = xIn( c );
 				const far = Math.max( c, col[ k ] );
 				for ( let x = Math.min( c, col[ k ] ) + 1; x < far; x++ ) {
 					const [ lo, hi ] = wireRows(
@@ -885,12 +904,8 @@ const seatSources = (
 			seat = [ c, best ?? nearestRow( want, ( at ) => free( c, at ) ) ];
 		}
 		byCol[ col[ id ] ] = byCol[ col[ id ] ].filter( ( o ) => o !== id );
-		const moved = seat[ 0 ] !== col[ id ];
 		[ col[ id ], row[ id ] ] = seat;
 		( byCol[ col[ id ] ] ??= [] ).push( id );
-		if ( moved ) {
-			xOf = xOfNow();
-		}
 		for ( const k of fed ) {
 			if ( Math.abs( col[ k ] - col[ id ] ) >= 2 ) {
 				wires.push( [ id, k ] );
@@ -1931,13 +1946,19 @@ const drawingCost = ( d, succ, pred ) =>
  * blocks until it reaches the square's height, then the next opens one gap
  * column to the right. One-row blocks of one width pack as one run, so the
  * chains of one length stack together; a run stacks where all but its last
- * block fit. A block past the height waits until every other block is down,
- * then looks for room above or below what the waiting blocks placed before it
- * hold, then for room the stacks leave inside the canvas, and opens a stack
- * only when neither fits, so a small block fills the corner a tall block
- * leaves empty before it widens the canvas. Room needs the columns either
- * side clear across its rows, and every wire of a block lands inside it, so
- * the room it takes crosses nothing. A small graph fills one stack.
+ * block fit. A block past the height waits, and so does every block after it,
+ * until the stacks are down. Each waiting block then looks for room above or
+ * below what the waiting blocks placed before it hold, then for room the
+ * stacks leave inside the canvas, in the leftmost columns that fit and on the
+ * row nearest the canvas's middle, then for that room as deep as a stack may
+ * grow — the square's height, which a run's last block may pass — and opens a
+ * stack only when none fits, so a small block sits beside the rows a tall
+ * block's feeders leave before it widens the canvas or drops into the corner
+ * under the tall block, and opens no stack where it would have stacked. Room
+ * needs no card in the column either side to show it an unwired port, nor a
+ * wire to run through that column, across its rows, and every wire of a block
+ * lands inside it, so the room it takes crosses nothing. A small graph fills
+ * one stack.
  *
  * @param {Array<string>}                ids  Every node, alphabetical.
  * @param {Object<string,Array<string>>} succ Successors.
@@ -2319,6 +2340,10 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 	// Each canvas column's rows, top to bottom, that cards and wires take.
 	/** @type {Object<number,[number, number]>} */
 	const taken = {};
+	// @longform The rows each column shows a room on its left or its right:
+	// a card whose port on that side holds no wire, and a wire running through.
+	/** @type {{left: Object<number,[number, number]>, right: Object<number,[number, number]>}} */
+	const faces = { left: {}, right: {} };
 	// The columns the waiting blocks' cards hold.
 	const filled = new Set();
 	let rows = 0;
@@ -2330,13 +2355,25 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 		for ( const [ c, [ lo, hi ] ] of Object.entries( b.hull ) ) {
 			widen( taken, atCol + Number( c ), lo + atRow, hi + atRow );
 		}
-		// A wire to a block already down crosses the columns between.
 		for ( const id of Object.keys( b.col ) ) {
+			if ( ! pred[ id ].length ) {
+				widen( faces.left, col[ id ], row[ id ], row[ id ] );
+			}
+			if ( ! succ[ id ].length ) {
+				widen( faces.right, col[ id ], row[ id ], row[ id ] );
+			}
 			for ( const n of [ ...succ[ id ], ...pred[ id ] ] ) {
-				if ( b.col[ n ] !== undefined || col[ n ] === undefined ) {
+				if ( col[ n ] === undefined ) {
 					continue;
 				}
-				coverWire( taken, col[ id ], row[ id ], col[ n ], row[ n ] );
+				// A wire to a block already down crosses the columns between.
+				const spans =
+					b.col[ n ] === undefined
+						? [ taken, faces.left, faces.right ]
+						: [ faces.left, faces.right ];
+				for ( const s of spans ) {
+					coverWire( s, col[ id ], row[ id ], col[ n ], row[ n ] );
+				}
 			}
 		}
 		rows = Math.max( rows, atRow + b.height );
@@ -2352,14 +2389,15 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 						taken[ atCol + Number( c ) ][ 1 ] + 1 - h[ 0 ]
 				)
 		);
-	// @longform Room for a block inside the canvas drawn so far: a row one
-	// clear of what each column it covers holds, above it or below, in the
-	// leftmost columns `within` admits that fit, nearest the canvas's middle
-	// row. Every column it covers must already hold something, so it never
-	// lands in the gap column between two stacks, and none may be a hub's,
-	// where a card would read as one more wire into the hub. The columns either
-	// side must be clear across its rows, so it never faces another block.
-	const roomFor = ( b, width, within ) => {
+	// @longform Room for a block in the canvas drawn so far, `depth` rows
+	// deep: a row one clear of what each column it covers holds, above it or
+	// below, in the leftmost columns `within` admits that fit, nearest the
+	// canvas's middle row. Every column it covers must already hold
+	// something, so it never lands in the gap column between two stacks, and
+	// none may be a hub's, where a card would read as one more wire into the
+	// hub. The column either side must show it no unwired port and no wire
+	// across its rows, so no card beside it reads as wired to it.
+	const roomFor = ( b, width, within, depth = rows ) => {
 		const hubCols = new Set( [ ...hubs ].map( ( h ) => col[ h ] ) );
 		const mid = ( rows - 1 ) / 2;
 		const span = [ 0, b.height - 1 ];
@@ -2376,9 +2414,12 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 			) {
 				continue;
 			}
-			for ( const side of [ at - 1, at + b.width ] ) {
-				if ( taken[ side ] ) {
-					pairs.push( [ taken[ side ], span ] );
+			for ( const facing of [
+				faces.right[ at - 1 ],
+				faces.left[ at + b.width ],
+			] ) {
+				if ( facing ) {
+					pairs.push( [ facing, span ] );
 				}
 			}
 			const above = Math.min(
@@ -2388,7 +2429,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 				...pairs.map( ( [ t, h ] ) => t[ 1 ] + 1 - h[ 0 ] )
 			);
 			const fits = [ above, below ].filter(
-				( r ) => r >= 0 && r + b.height <= rows
+				( r ) => r >= 0 && r + b.height <= depth
 			);
 			if ( fits.length ) {
 				const off = ( r ) => Math.abs( r + ( b.height - 1 ) / 2 - mid );
@@ -2411,22 +2452,28 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 		stackWidth = Math.max( stackWidth, b.width );
 		stackRow = at + b.height;
 	};
-	// A block's every wire lands inside it, so size alone decides who waits.
+	// @longform A block's every wire lands inside it, so size alone decides
+	// who waits, and every block after one that waits waits too: it is no
+	// wider, so it fills room before it stacks under a block in a corner.
 	const later = [];
 	for ( const b of order ) {
-		if ( stackRow > 0 && stackRow + b.lead > limit ) {
+		if ( later.length || ( stackRow > 0 && stackRow + b.lead > limit ) ) {
 			later.push( b );
 			continue;
 		}
 		stackOn( b );
 	}
 	// @longform A waiting block packs beside the waiting blocks placed before
-	// it, then in room the stacks leave, and opens a stack only past both.
+	// it, then in room the stacks leave, then in room a stack may grow into —
+	// the square's height, which a block's last row may pass as `stackOn`
+	// lets it — and opens a stack only past all three.
 	for ( const b of later ) {
 		const width = stackCol + stackWidth;
+		const grown = Math.max( rows, limit + b.height - b.lead );
 		const room =
 			roomFor( b, width, ( c ) => filled.has( c ) ) ??
-			roomFor( b, width, () => true );
+			roomFor( b, width, () => true ) ??
+			roomFor( b, width, () => true, grown );
 		if ( room ) {
 			place( b, room.col, room.row );
 		} else {

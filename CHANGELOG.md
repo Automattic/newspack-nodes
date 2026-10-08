@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The topology console seats a small block beside the fan it fits by, not in the corner under it.** Once one block waits for room, every block after it in the packing order waits too, so a chain or a lone card no longer stacks under a tall block before a wider block opens its own stack. A room's side columns refuse its rows only where a card there shows it an unwired port, or a wire runs through, so a block can sit beside a fan whose every card is wired on that side. On event-logger-nodes' hub worker, the `topicprobe` pair now sits one row under `settings:consumer` and the REPL cards just above `discovery-collector`, where they sat in the bottom-left corner under the HTTP_Out column. Hub-control alone keeps them beside its fan instead of opening a column right of `null`.
+- **A source the layout seats last is judged on the half steps its own move opens or closes.** A source fanning three or more wires across one boundary opens half a step there, and moved to another column it no longer does; its seat was measured with the half step still open, so a wire it ran past one column could land on a card.
+
 ## [2.102.0] - 2026-10-08
 
 ### Added
