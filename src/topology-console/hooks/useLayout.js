@@ -18,12 +18,9 @@
 import { useCallback } from '@wordpress/element';
 import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
 import { formatCommandArgs } from '../../runtime/command-args';
-import { CONSOLE_GROUP } from './useCatalogs';
+import { LAYOUTS_CI } from './useCatalogs';
 
 /** @typedef {import('@newspack-nodes/shared/hooks/useCommandOnce').OnDone} OnDone */
-
-/** The service CI both verbs are mounted on. */
-const LAYOUTS = 'layouts';
 
 /**
  * Mounts the `layouts get` and `layouts save` verbs on the console's batched
@@ -47,15 +44,15 @@ const LAYOUTS = 'layouts';
  */
 export function useLayout( { onFetched, onSaved } = {} ) {
 	const { run: runGet } = useCommandOnce( {
-		group: CONSOLE_GROUP,
-		ci: LAYOUTS,
+		group: LAYOUTS_CI,
+		ci: LAYOUTS_CI,
 		command: 'get',
 		retry: true,
 		onDone: onFetched,
 	} );
 	const { run: runSave } = useCommandOnce( {
-		group: CONSOLE_GROUP,
-		ci: LAYOUTS,
+		group: LAYOUTS_CI,
+		ci: LAYOUTS_CI,
 		command: 'save',
 		onDone: onSaved,
 	} );

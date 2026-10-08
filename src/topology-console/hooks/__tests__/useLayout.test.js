@@ -45,6 +45,11 @@ it( 'asks for a topology layout and hands the answer to onFetched', async () => 
 		result: FETCHED,
 		args: [ 'demo' ],
 	} );
+	// Its group is the CI it sends to, whose Tap stands while it is mounted.
+	expect( Core.node( 'layouts:get:fetch' ).target ).toBe(
+		'layouts:shell/_http/layouts'
+	);
+	expect( Core.node( 'layouts:shell' ).counter ).toBe( 1 );
 } );
 
 // A topology with no saved layout is refused, and that IS the answer: the
@@ -83,6 +88,11 @@ it( 'sends the positions as one JSON token and reports the save', async () => {
 		name: 'save',
 		arguments: [ 'demo', JSON.stringify( POSITIONS ) ],
 	} );
+	// Its group is the CI it sends to, whose Tap stands while it is mounted.
+	expect( Core.node( 'layouts:save:fetch' ).target ).toBe(
+		'layouts:shell/_http/layouts'
+	);
+	expect( Core.node( 'layouts:shell' ).counter ).toBe( 1 );
 } );
 
 // The marker rides the wire as the JSON string the server matches exactly.

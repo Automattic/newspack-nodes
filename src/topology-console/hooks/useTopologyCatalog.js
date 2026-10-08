@@ -14,14 +14,31 @@
  * Owning it also keeps the catalog polling in edit mode, where the console
  * graph is disabled — and edit mode is where save and delete call `reload()`.
  *
- * A passenger, like `useRouterTick`: it attaches to a backbone another mount
- * owns and re-attaches whenever one comes up, rather than raising its own.
+ * It mounts the node as an exospine PASSENGER, the way the console's other
+ * catalogs and one-shots mount theirs. TopologyConsole declares this hook
+ * before `useConsoleGraph`, so its mount runs first; a passenger never owns the
+ * backbone, so the console keeps Reset Graph, and the mount re-attaches the
+ * node whenever the console replaces the backbone under it. The rebuilt node
+ * starts from the catalog its predecessor last published, never the seed.
+ *
+ * The node sends `topologies dump` under the `topologies` group, to
+ * `topologies:shell/_http/topologies`. Its mount claims the `topologies:shell`
+ * Tap from that target, so `connect topologies:shell` watches the catalog poll
+ * beside every other topology read and write the console sends.
  */
 
-import { useCallback, useEffect, useMemo, useState } from '@wordpress/element';
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from '@wordpress/element';
+import { egressPath } from '@newspack-nodes/shared/helpers/egressPath';
 import { Core } from '../../runtime/core';
+import { mountExospine } from '../../runtime/exospine';
 import { useNodeField } from '../../runtime/react';
-import names from '../../runtime/reserved-node-names.json';
+import { TOPOLOGIES_CI } from './useCatalogs';
 import {
 	CATALOG_NODE,
 	TopologyCatalogNode,
@@ -50,39 +67,36 @@ const POLL_INTERVAL_MS = 10000;
  *   delete and activate each call.
  */
 export function useTopologyCatalog() {
-	// A rebuild bumps the generation; a bare mount only raises the backbone.
-	const [ attachEpoch, setAttachEpoch ] = useState( 0 );
-	useEffect( () => {
-		const bump = () => setAttachEpoch( ( n ) => n + 1 );
-		const offGeneration = Core.subscribeGraphGeneration( bump );
-		const offBackbone = Core.subscribeBackboneUp( bump );
-		return () => {
-			offGeneration();
-			offBackbone();
-		};
-	}, [] );
-
-	useEffect( () => {
-		const interpreter = Core.node( names.COMMAND_INTERPRETER );
-		// No graph yet, or mid-rebuild; the epoch bump retries.
-		if ( ! interpreter || Core.node( CATALOG_NODE ) ) {
-			return undefined;
-		}
-		const node = new TopologyCatalogNode();
-		node.name = CATALOG_NODE;
-		node.sink = interpreter;
-		// Router peels `_http`; the reply comes back TO=FROM here (ADR-7).
-		node.target = `${ names.HTTP }/topologies`;
-		node.setTimer( POLL_INTERVAL_MS );
-		return () => node.removeNode();
-	}, [ attachEpoch ] );
-
 	// @longform
 	// One identity for the pre-node seed so the caller's useMemo can rest on
 	// it; read at first render, not at import — the localizer writes the global
 	// before the bundle runs, but a module-scope read cannot be tested.
 	const seed = useMemo( seedFromGlobal, [] );
 	const catalog = useNodeField( CATALOG_NODE, 'catalog' ) ?? seed;
+	// What a rebuild hands its fresh node, so nothing swings back to the seed.
+	const catalogRef = useRef( catalog );
+	catalogRef.current = catalog;
+
+	// Bumped after each build, so `useNodeField` rebinds to the new node.
+	const [ , bumpBuild ] = useState( 0 );
+	useEffect( () => {
+		const { teardown } = mountExospine(
+			( { interpreter } ) => {
+				const node = new TopologyCatalogNode();
+				node.name = CATALOG_NODE;
+				// A rebuilt node keeps the catalog, not the page-load seed.
+				node.catalog = catalogRef.current;
+				node.sink = interpreter;
+				// The reply comes back TO=FROM to this node (ADR-7).
+				node.target = egressPath( TOPOLOGIES_CI, TOPOLOGIES_CI );
+				node.setTimer( POLL_INTERVAL_MS );
+				bumpBuild( ( n ) => n + 1 );
+			},
+			{ passenger: true }
+		);
+		return teardown;
+	}, [] );
+
 	const reload = useCallback( () => Core.node( CATALOG_NODE )?.fire(), [] );
 
 	return {

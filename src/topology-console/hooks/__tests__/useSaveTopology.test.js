@@ -43,8 +43,11 @@ it( 'sends save on the tick, once, with no ID and no KEY', async () => {
 	expect( sent[ ID ] ).toBe( '' );
 	expect( sent[ KEY ] ).toBe( '' );
 	expect( onDone.mock.calls[ 0 ][ 0 ].result ).toEqual( SAVED );
-	// A console button's write leaves through the console's group Tap.
-	expect( Core.node( 'console:shell' ).counter ).toBe( 1 );
+	// Its group is the CI it sends to, whose Tap stands while it is mounted.
+	expect( Core.node( 'topologies:save:fetch' ).target ).toBe(
+		'topologies:shell/_http/topologies'
+	);
+	expect( Core.node( 'topologies:shell' ).counter ).toBe( 1 );
 	expect( Core.node( '_shell' ).counter ).toBe( 0 );
 } );
 

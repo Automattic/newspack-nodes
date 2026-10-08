@@ -18,6 +18,15 @@
  *
  * `useTopology` is the exception and stays one: one topology's BODY, asked for
  * by name on demand rather than polled.
+ *
+ * Every command a console control sends belongs to the group named for the
+ * server CI it reaches, so each CI's traffic passes a Tap of its own —
+ * `topologies:shell`, `layouts:shell`, `classes:shell` and `vault:shell` — and
+ * `connect <ci>:shell` watches that family. The fleet board and the Vault
+ * screen send under the `topologies` and `vault` groups too, so a page mounting
+ * one of them beside the console shares that Tap. The four constants below are
+ * the one spelling of each, used as both the group and the CI mount. Typed
+ * REPL lines pass `_shell` instead.
  */
 
 import { useCallback } from '@wordpress/element';
@@ -28,12 +37,17 @@ import { views } from '../nodes/register';
 // The vault dropdown reads the Vault screen's own slice, so it shares its view.
 import { views as vaultViews } from '../../vault/nodes/register';
 
-/**
- * The group every command the console's own controls send belongs to: its
- * catalogs, its topology reads and writes, and its layout. Typed REPL lines
- * pass `_shell` instead.
- */
-export const CONSOLE_GROUP = 'console';
+/** Topology reads and writes, the Path menu's catalog and the OPEN dialog. */
+export const TOPOLOGIES_CI = 'topologies';
+
+/** Each topology's saved canvas positions. */
+export const LAYOUTS_CI = 'layouts';
+
+/** The palette's catalog of Node classes. */
+const CLASSES_CI = 'classes';
+
+/** The vault_id and vault_group pickers' servers. */
+const VAULT_CI = 'vault';
 
 /**
  * The palette's catalog: every Node class this site can build, and the
@@ -49,9 +63,9 @@ export const CONSOLE_GROUP = 'console';
  */
 export function useClassCatalog( { enabled = false } = {} ) {
 	const model = useCatalogSlice( {
-		group: CONSOLE_GROUP,
+		group: CLASSES_CI,
 		scope: 'classes',
-		ci: 'classes',
+		ci: CLASSES_CI,
 		command: 'dump',
 		viewClass: views.ClassCatalogView,
 		key: 'classes',
@@ -79,9 +93,9 @@ export function useClassCatalog( { enabled = false } = {} ) {
  */
 export function useTopologyList( { enabled = false } = {} ) {
 	const model = useCatalogSlice( {
-		group: CONSOLE_GROUP,
+		group: TOPOLOGIES_CI,
 		scope: 'topologies',
-		ci: 'topologies',
+		ci: TOPOLOGIES_CI,
 		command: 'dump',
 		viewClass: views.TopologyListView,
 		key: 'topologies',
@@ -106,9 +120,9 @@ export function useTopologyList( { enabled = false } = {} ) {
  */
 export function useVaults( { enabled = false } = {} ) {
 	const model = useCatalogSlice( {
-		group: CONSOLE_GROUP,
+		group: VAULT_CI,
 		scope: 'vault',
-		ci: 'vault',
+		ci: VAULT_CI,
 		viewClass: vaultViews.VaultListView,
 		key: 'servers',
 		enabled,
@@ -152,8 +166,8 @@ export function useVaults( { enabled = false } = {} ) {
  */
 export function useTopology( { scope, enabled = true, groupChildren = true } ) {
 	const { run, result, error, pending } = useCommandOnce( {
-		group: CONSOLE_GROUP,
-		ci: 'topologies',
+		group: TOPOLOGIES_CI,
+		ci: TOPOLOGIES_CI,
 		command: 'get',
 		scope: `${ scope }-topology`,
 		retry: true,

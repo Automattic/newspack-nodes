@@ -54,6 +54,11 @@ describe( 'useExpandedIncludes', () => {
 		expect( result.current.expansion.nodes ).toEqual( [
 			{ name: 'shared-tee' },
 		] );
+		// Its group is the CI it sends to, whose Tap stands while it is mounted.
+		expect( Core.node( 'topologies:expand:fetch' ).target ).toBe(
+			'topologies:shell/_http/topologies'
+		);
+		expect( Core.node( 'topologies:shell' ).counter ).toBe( 1 );
 	}, 15000 );
 
 	it( 'asks for the groups as written, and caches that form apart', async () => {

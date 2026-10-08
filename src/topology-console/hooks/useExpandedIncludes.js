@@ -18,7 +18,7 @@
 import { useEffect, useState } from '@wordpress/element';
 import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
 import { formatCommandArgs } from '../../runtime/command-args';
-import { CONSOLE_GROUP } from './useCatalogs';
+import { TOPOLOGIES_CI } from './useCatalogs';
 
 /** What an unasked, unanswered or refused include set expands to. */
 const EMPTY = { nodes: [], edges: [], tree: {}, hulls: {} };
@@ -134,8 +134,8 @@ export function useExpandedIncludes( includes, { groupChildren = true } = {} ) {
 	const [ error, setError ] = useState( null );
 
 	const { run } = useCommandOnce( {
-		group: CONSOLE_GROUP,
-		ci: 'topologies',
+		group: TOPOLOGIES_CI,
+		ci: TOPOLOGIES_CI,
 		command: 'expand',
 		retry: true,
 		onDone: ( { result, error: refusal, args } ) => {

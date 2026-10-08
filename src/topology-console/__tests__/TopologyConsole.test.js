@@ -252,7 +252,7 @@ globalThis.__fakeOneShot = ( fixture, key ) => ( onDone ) => ( {
 // Mutable catalog the hoisted mock reads at call time; tests seed classes.
 globalThis.__catalog = { classes: [], formatters: [] };
 jest.mock( '../hooks/useCatalogs', () => ( {
-	CONSOLE_GROUP: jest.requireActual( '../hooks/useCatalogs' ).CONSOLE_GROUP,
+	TOPOLOGIES_CI: jest.requireActual( '../hooks/useCatalogs' ).TOPOLOGIES_CI,
 	useTopologyList: () => ( {
 		topologies: globalThis.__hooks.topologies,
 		userDir: '',
@@ -2831,6 +2831,11 @@ describe( 'TopologyConsole boot', () => {
 				} ),
 			{ timeout: 4000 }
 		);
+		// Its group is the CI it sends to, whose Tap stands while it is mounted.
+		expect( Core.node( 'topologies:activate:fetch' ).target ).toBe(
+			'topologies:shell/_http/topologies'
+		);
+		expect( Core.node( 'topologies:shell' ).counter ).toBe( 1 );
 	} );
 
 	it( 'dismissing the "Activate now?" prompt dispatches nothing', async () => {

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The topology console sends each family of commands under the group of the CI it reaches, not one `console` group.** `CONSOLE_GROUP` and the `console:shell` Tap are gone; `useCatalogs.js` declares `TOPOLOGIES_CI`, `LAYOUTS_CI`, `CLASSES_CI` and `VAULT_CI`, each the group and the CI mount at once, and exports the two its sibling hooks send under. The `topologies` group carries the canonical, editor and seed topology reads, the OPEN dialog's list, activate, delete, expand, save and the Path menu's catalog; `layouts` carries get and save; `classes` the palette's catalog; `vault` the vault pickers' list. Each family passes its own `<group>:shell` Tap — `connect topologies:shell` watches the topology traffic. The fleet board and the Vault screen already send under `topologies` and `vault`, so a page mounting either beside the console shares that Tap.
+- **The Path menu's catalog passes a Tap.** `useTopologyCatalog` mounts `topology-catalog:fetch` as an exospine passenger aimed at `topologies:shell/_http/topologies`; it sent to `_http/topologies` from a node hand-wired onto whatever backbone stood, skipping every Tap. The passenger mount re-attaches the node after a Reset Graph and leaves the console owning the backbone.
+
 ## [2.103.0] - 2026-10-08
 
 ### Changed
