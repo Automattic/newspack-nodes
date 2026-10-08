@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.101.2] - 2026-10-08
+
 ### Changed
 
 - **A topology file the worker cannot read fails the load.** `Topology_Loader::load()` throws `Topology_Loader: failed to read topology file '<path>'` before any line runs, where it evaluated an empty script and booted the worker with no graph.

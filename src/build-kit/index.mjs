@@ -40,7 +40,7 @@ import path from 'node:path';
  *
  * @type {string}
  */
-const SUBSTRATE_VERSION = '2.101.1';
+const SUBSTRATE_VERSION = '2.101.2';
 
 /**
  * Read the substrate version this kit stamps into every bundle.
