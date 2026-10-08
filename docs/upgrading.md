@@ -6,6 +6,12 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **Deploy event-logger-nodes and newspack-intelligence with this release.**
+  `Core`, the page global every bundle shares, changes shape (`backboneMounts`
+  replaces `backboneOwned` and `backbonePassengers`), so a consumer bundle
+  built against an earlier substrate breaks the substrate's graphs on a shared
+  page, and the reverse. Build each consumer against this release, raise its
+  `version_at_least()` floor to it, and deploy all three together.
 - **A stream graph rides the page's `_stream`; `<prefix>:link` is gone.**
   `useStreamGraph` mounts `<prefix>:stream` and `<prefix>:view` and attaches
   to the backbone's one `RemoteLinkNode`, `_stream`, which `linkRef` now

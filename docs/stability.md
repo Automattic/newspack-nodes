@@ -272,9 +272,15 @@ absent from that list. The three `@newspack-nodes/*` build aliases — `runtime`
 `debug-overlay` and `shared` — and the React surface behind them move freely,
 in a patch as readily as in a minor. A consumer resolves them at build time from its own pinned substrate
 checkout, so that surface changes when the consumer bumps its pin, never when
-the substrate ships. Item 2's reserved names are the one exception, and for
-that same reason: a value compiled into an old bundle still has to answer a new
-substrate.
+the substrate ships. Two exceptions, for that same reason. Item 2's reserved
+names: a value compiled into an old bundle still has to answer a new substrate.
+And the page globals `__newspackNodesCore`, `__newspackNodesTabs`,
+`__newspackNodesIoTelemetry` and `__newspackNodesOverviewSampler`: the first
+bundle on a page creates each and every other bundle shares it, so a consumer
+bundle and the substrate's bundles on one page must be built against releases
+that agree on their shape. A release that changes one says so in
+[upgrading.md](upgrading.md), and its consumers raise their floor and deploy
+with it.
 
 ## The version gap
 
