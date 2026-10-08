@@ -1324,8 +1324,9 @@ membership through the same `Vault::in_group()`. The write set, conflicts, GC an
 therefore see every member's cursor and every member's edge. `dump_config` emits only the
 group and its recorded commands, since the group rebuilds its children from them. The
 console's editor is the one exception: it seeds from a flatten that keeps each group as written
-(`group_children` false on `topologies get` and `expand`), with the group's own `pair` edges
-drawn on it, so its document holds no line about a member.
+(`group_children` false on `topologies get` and `expand`), so its document holds no line about
+a member. The group declares its child class's targets as its own (ADR-19), so its `pair`
+edges draw on it in every view, the live canvas and both flattens alike.
 
 Group configuration goes through the group: a verb sent to `<group>:config` reaches every
 child and, when every child accepted it and it changed a child's configuration, is recorded

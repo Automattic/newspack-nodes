@@ -284,7 +284,7 @@ TSL;
 		$this->assertSame( [], \preg_grep( '/firehose:tw/', $edges ) );
 	}
 
-	public function test_expand_without_group_children_draws_the_groups_pairs_on_the_group(): void {
+	public function test_the_group_draws_its_pairs_whether_or_not_its_members_are_derived(): void {
 		$this->write_tsl( 'pull-lab', self::PULL_LAB );
 
 		$pairs = static fn ( array $graph ): array => \array_values( \array_map(
@@ -293,7 +293,7 @@ TSL;
 		) );
 
 		$this->assertSame( [ 'firehose>rewrite-17' ], $pairs( Topology_Analyzer::expand( [ 'pull-lab' ], false ) ) );
-		$this->assertSame( [ 'firehose:tw0>rewrite-17', 'firehose:tw9>rewrite-17' ], $pairs( Topology_Analyzer::expand( [ 'pull-lab' ] ) ) );
+		$this->assertSame( [ 'firehose>rewrite-17', 'firehose:tw0>rewrite-17', 'firehose:tw9>rewrite-17' ], $pairs( Topology_Analyzer::expand( [ 'pull-lab' ] ) ) );
 	}
 
 	public function test_a_copied_edge_keeps_the_include_that_wrote_it(): void {

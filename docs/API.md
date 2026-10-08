@@ -649,17 +649,17 @@ names the handles carrying it: `no session with handle <h>; the label <h> names
 **`topologies expand` and `topologies get` compose different views.** `expand`
 returns [`Topology_Analyzer::expand()`](../includes/class-topology-analyzer.php)'s shape for an include SET —
 `{ nodes, edges, tree, hulls }`. Both verbs take `--group_children=false`, which leaves each
-`Vault_Group` as written: no derived member, in `nodes`, `edges` or `hulls`, and the group's
-`pair` edges drawn on the group. The topology console's editor seeds from that form; every
-other reader gets the members. A node carries `name`, `class`, `fans_out`,
-`args`, `verbs`, `origin` and `via`; an edge carries `from`, `to`, `origin`,
-`roles` — `connect`, `config`, `pair`, or several — and, where a config role exists,
-`config_slots` naming the setter verbs that made it. A `pair` edge runs from a
-`Remote_Source` to the target one of its `<source>:<target>` pairs names, which
-the broker writes through that pair's reader; no `connect_node` or
-`disconnect_node` adds or removes one. `origin` is a LIST because
-a diamond include is provided by several directly-declared includes, while `via`
-is only the first path a node entered through. `hulls` maps every topology in
+`Vault_Group` as written: no derived member, in `nodes`, `edges` or `hulls`. The topology
+console's editor seeds from that form; every other reader gets the members. Either form draws
+the group's own `pair` edges, the ones its child class declares, on the group. A node
+carries `name`, `class`, `fans_out`, `args`, `verbs`, `origin` and `via`; an edge carries
+`from`, `to`, `origin`, `roles` — `connect`, `config`, `pair`, or several — and, where a
+config role exists, `config_slots` naming the setter verbs that made it. A `pair` edge runs
+from a `Remote_Source`, or a `Vault_Group` of them, to the target one of its
+`<source>:<target>` pairs names, which the broker writes through that pair's reader; no
+`connect_node` or `disconnect_node` adds or removes one. `origin` is a LIST because a diamond
+include is provided by several directly-declared includes, while `via` is only the first path
+a node entered through. `hulls` maps every topology in
 the tree, at any depth, to the node names it declares, depth-first so an outer
 topology precedes what it brings and the canvas paints the nested hull on top.
 The whole payload is informational — the runtime is the Shell's `include` — and

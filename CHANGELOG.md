@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The console's view mode draws a `Vault_Group`'s pair edges, as edit mode does.** `Vault_Group_Node::declared_targets()` answers its child class's declared targets for the arguments each member takes, so a live group's `display_targets()` names them in `ls -t` and `dump_metadata` `targets`, and `Topology_Analyzer` draws the group's `pair` edges in `expand()`, whether or not it derives the members, and in `graph_for()`, so the Workers and Overview topology trees join the group with what its members write. With members derived, each pair target draws an edge from the group beside one from each member.
+
 ## [2.101.2] - 2026-10-08
 
 ### Changed
