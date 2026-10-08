@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **A broker's stamp refusals no longer name the stamp.** `refusing a stamp outside the stream name grammar` and `refusing a stamp that names a slot the broker keeps` log the refusal alone.
+- **A `Remote_Consumer` relays each record with the spoke's FROM trail unchanged.** It no longer prepends its own name, so a hub log's line reads `firehose.p0/job-worker.p0` where it read `spokes:<id>:firehose.p0/firehose.p0/job-worker.p0`, and a record the spoke fit under PIPE_BUF no longer outgrows the hub Partition's 4096-byte cap by the reader's name and is dropped as `oversize: 4103 > 4096`. The ID breadcrumb was already the spoke's. A hub log no longer names the spoke a relayed line came from.
 
 ## [2.101.0] - 2026-10-08
 

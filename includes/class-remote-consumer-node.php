@@ -447,10 +447,10 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	}
 
 	/**
-	 * Emit seam override: forward one raw line, prepending this reader's name to the spoke's
-	 * FROM trail, so a hub log tells its spokes apart; the ID crumb stays the spoke's, which is
-	 * what the Aggregator reads a record's origin from. drain_line() has already pinned the
-	 * cursor from that crumb.
+	 * Emit seam override: forward one raw line with the FROM trail and the ID crumb the spoke
+	 * sent, byte for byte, because a relay is a forwarder and stamps nothing; the crumb is what
+	 * the Aggregator reads a record's origin from. drain_line() has already pinned the cursor
+	 * from that crumb.
 	 *
 	 * `admit()` routes the line by the pair's target: a firehose record carries no TO, so an
 	 * addressed line is refused. A refused line was still READ, so the cursor advances past it
@@ -460,8 +460,8 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * over undecoded is decoded here. Each forward, and each clean stop, counts, and the
 	 * largest line is tracked, as the trait's own forward does.
 	 *
-	 * Six dispositions, that refusal and an over-long trail the first two. A null sink FAILS
-	 * LOUD, because a relay with nowhere to relay is a topology error. An unparseable line
+	 * Five dispositions, that refusal the first. A null sink FAILS LOUD, because a relay
+	 * with nowhere to relay is a topology error. An unparseable line
 	 * carries no crumb, so it is quarantined where the cursor stands — the next unread position,
 	 * the one place it can be put — and moves the cursor by nothing. A downstream throw
 	 * dead-letters the message ON SIGHT and marks the record disposed, so the drain loop
@@ -489,10 +489,6 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 			return;
 		}
 		if ( ! $this->admit( $message ) ) {
-			return;
-		}
-		// The hop convention: stamp_message() reports its own refusal.
-		if ( ! $this->stamp_message( $message, $this->name ) ) {
 			return;
 		}
 		if ( $this->crawl ) {
