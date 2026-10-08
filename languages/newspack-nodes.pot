@@ -2,14 +2,14 @@
 # This file is distributed under the GPL-2.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Newspack Nodes 2.101.3\n"
+"Project-Id-Version: Newspack Nodes 2.102.0\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/newspack-nodes\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-08T10:28:02+00:00\n"
+"POT-Creation-Date: 2026-10-08T18:10:58+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: newspack-nodes\n"
@@ -813,25 +813,25 @@ msgstr ""
 msgid "Record payload"
 msgstr ""
 
-#: src/event-dashboards/LogViewer.js:311
+#: src/event-dashboards/LogViewer.js:312
 #: src/event-dashboards/tabs.js:58
 #: src/event-dashboards/__tests__/tabs.test.js:72
 msgid "Log Viewer"
 msgstr ""
 
-#: src/event-dashboards/LogViewer.js:316
+#: src/event-dashboards/LogViewer.js:317
 msgid "No logs available"
 msgstr ""
 
-#: src/event-dashboards/LogViewer.js:317
+#: src/event-dashboards/LogViewer.js:318
 msgid "Browse a log"
 msgstr ""
 
-#: src/event-dashboards/LogViewer.js:340
+#: src/event-dashboards/LogViewer.js:341
 msgid "Select columns"
 msgstr ""
 
-#: src/event-dashboards/LogViewer.js:342
+#: src/event-dashboards/LogViewer.js:343
 msgid "Cols"
 msgstr ""
 
@@ -1120,7 +1120,7 @@ msgid "Deactivate"
 msgstr ""
 
 #: src/event-dashboards/TopologyControls.js:58
-#: src/topology-console/TopologyConsole.js:2088
+#: src/topology-console/TopologyConsole.js:2090
 msgid "Activate"
 msgstr ""
 
@@ -1204,7 +1204,7 @@ msgid "ETA %s"
 msgstr ""
 
 #: src/event-dashboards/TreeEntity.js:454
-#: src/shared/hooks/useLogPositions.js:338
+#: src/shared/hooks/useLogPositions.js:341
 msgid "No segments"
 msgstr ""
 
@@ -1263,8 +1263,8 @@ msgstr ""
 #: src/topology-console/components/Modal.js:317
 #: src/topology-console/components/Modal.js:470
 #: src/topology-console/components/OpenTopologyModal.js:121
-#: src/topology-console/TopologyConsole.js:2038
-#: src/topology-console/TopologyConsole.js:2114
+#: src/topology-console/TopologyConsole.js:2040
+#: src/topology-console/TopologyConsole.js:2116
 #: src/vault/VaultAdmin.js:66
 #: src/vault/VaultAdmin.js:458
 msgid "Cancel"
@@ -1535,7 +1535,7 @@ msgid "Connection lost. Reconnecting…"
 msgstr ""
 
 #. translators: 1: the reader, 2: number of log lines skipped.
-#: src/shared/components/UnparseableLinesNotice.js:45
+#: src/shared/components/UnparseableLinesNotice.js:47
 #, js-format
 msgid "%1$s: %2$d line would not parse and was skipped."
 msgid_plural "%1$s: %2$d lines would not parse and were skipped."
@@ -1543,7 +1543,7 @@ msgstr[0] ""
 msgstr[1] ""
 
 #. translators: %d: number of log lines skipped.
-#: src/shared/components/UnparseableLinesNotice.js:56
+#: src/shared/components/UnparseableLinesNotice.js:58
 #, js-format
 msgid "%d line would not parse and was skipped."
 msgid_plural "%d lines would not parse and were skipped."
@@ -1562,21 +1562,21 @@ msgstr ""
 msgid "Expand %s"
 msgstr ""
 
-#: src/shared/hooks/useLogPositions.js:298
+#: src/shared/hooks/useLogPositions.js:301
 msgid "Pick a source to jump within."
 msgstr ""
 
-#: src/shared/hooks/useLogPositions.js:306
+#: src/shared/hooks/useLogPositions.js:309
 msgid "Nothing to jump to: paste a message ID (seg:offset:len), or a bare offset once a segment is streaming."
 msgstr ""
 
 #. translators: %d: log segment number.
-#: src/shared/hooks/useLogPositions.js:332
+#: src/shared/hooks/useLogPositions.js:335
 #, js-format
 msgid "Segment %d"
 msgstr ""
 
-#: src/shared/hooks/useLogPositions.js:337
+#: src/shared/hooks/useLogPositions.js:340
 msgid "Segments"
 msgstr ""
 
@@ -2279,7 +2279,7 @@ msgid "Confirm"
 msgstr ""
 
 #: src/topology-console/components/Modal.js:316
-#: src/topology-console/TopologyConsole.js:2066
+#: src/topology-console/TopologyConsole.js:2068
 msgid "Save"
 msgstr ""
 
@@ -2676,72 +2676,72 @@ msgstr ""
 msgid "Sent; the send raised: %s"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:548
+#: src/topology-console/TopologyConsole.js:549
 msgid "Failed to load the PHP class catalog."
 msgstr ""
 
 #. translators: 1: source line, 2: the statement, 3: why it was refused.
-#: src/topology-console/TopologyConsole.js:646
+#: src/topology-console/TopologyConsole.js:647
 #, js-format
 msgid "line %1$d: %2$s — %3$s"
 msgstr ""
 
 #. translators: 1: topology name, 2: source (stock/user/both).
-#: src/topology-console/TopologyConsole.js:799
+#: src/topology-console/TopologyConsole.js:800
 #, js-format
 msgid "Loaded %1$s (%2$s)."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:810
+#: src/topology-console/TopologyConsole.js:811
 msgid "Failed to load topology."
 msgstr ""
 
 #. translators: %s: topology name.
-#: src/topology-console/TopologyConsole.js:851
+#: src/topology-console/TopologyConsole.js:852
 #, js-format
 msgid "Saved layout for %s."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1262
+#: src/topology-console/TopologyConsole.js:1263
 msgid "Leaving edit mode drops the draft topology. This cannot be undone."
 msgstr ""
 
 #. translators: %s: topology name.
-#: src/topology-console/TopologyConsole.js:1476
+#: src/topology-console/TopologyConsole.js:1477
 #, js-format
 msgid "Deleted user copy of %s; stock copy now active."
 msgstr ""
 
 #. translators: %s: topology name.
-#: src/topology-console/TopologyConsole.js:1484
+#: src/topology-console/TopologyConsole.js:1485
 #, js-format
 msgid "Deleted %s."
 msgstr ""
 
 #. translators: %s: topology name being opened.
-#: src/topology-console/TopologyConsole.js:1604
+#: src/topology-console/TopologyConsole.js:1605
 #, js-format
 msgid "Opening %s replaces the draft topology. This cannot be undone."
 msgstr ""
 
 #. translators: %s: uploaded file name.
-#: src/topology-console/TopologyConsole.js:1703
+#: src/topology-console/TopologyConsole.js:1704
 #, js-format
 msgid "Loaded %s into the editor."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1721
+#: src/topology-console/TopologyConsole.js:1722
 msgid "Upload failed"
 msgstr ""
 
 #. translators: %d: line number in the topology source.
-#: src/topology-console/TopologyConsole.js:1741
+#: src/topology-console/TopologyConsole.js:1742
 #, js-format
 msgid "(line %d)"
 msgstr ""
 
 #. translators: %d: number of restarted fleets.
-#: src/topology-console/TopologyConsole.js:1751
+#: src/topology-console/TopologyConsole.js:1752
 #, js-format
 msgid "Restarted %d fleet."
 msgid_plural "Restarted %d fleets."
@@ -2749,78 +2749,78 @@ msgstr[0] ""
 msgstr[1] ""
 
 #. translators: 1: topology name, 2: "Restarted N fleet(s)." phrase.
-#: src/topology-console/TopologyConsole.js:1763
+#: src/topology-console/TopologyConsole.js:1764
 #, js-format
 msgid "Saved %1$s. %2$s"
 msgstr ""
 
 #. translators: %s: topology name.
-#: src/topology-console/TopologyConsole.js:1818
+#: src/topology-console/TopologyConsole.js:1820
 #, js-format
 msgid "Activated %s."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2002
+#: src/topology-console/TopologyConsole.js:2004
 msgid "Discard unsaved changes?"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2007
+#: src/topology-console/TopologyConsole.js:2009
 msgid "Discard"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2011
+#: src/topology-console/TopologyConsole.js:2013
 msgid "Keep editing"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2022
+#: src/topology-console/TopologyConsole.js:2024
 msgid "Delete topology?"
 msgstr ""
 
 #. translators: %s: topology name.
-#: src/topology-console/TopologyConsole.js:2028
+#: src/topology-console/TopologyConsole.js:2030
 #, js-format
 msgid "Delete user-saved topology \"%s\"? This cannot be undone."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2034
+#: src/topology-console/TopologyConsole.js:2036
 msgid "Delete"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2049
+#: src/topology-console/TopologyConsole.js:2051
 msgid "Save topology"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2053
+#: src/topology-console/TopologyConsole.js:2055
 msgid "Choose a name. Letters, numbers, dash, underscore."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2057
+#: src/topology-console/TopologyConsole.js:2059
 msgid "my-topology"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2076
+#: src/topology-console/TopologyConsole.js:2078
 msgid "Activate now?"
 msgstr ""
 
 #. translators: %s: topology name.
-#: src/topology-console/TopologyConsole.js:2082
+#: src/topology-console/TopologyConsole.js:2084
 #, js-format
 msgid "Topology \"%s\" was saved but is not running. Activate it now to spawn its workers?"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2092
+#: src/topology-console/TopologyConsole.js:2094
 msgid "Not now"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2102
+#: src/topology-console/TopologyConsole.js:2104
 msgid "Reset to saved layout?"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2106
+#: src/topology-console/TopologyConsole.js:2108
 msgid "This replaces your current customizations with the last saved layout (or auto-layout if none). You'll need to Save Layout to make changes permanent."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2110
+#: src/topology-console/TopologyConsole.js:2112
 msgid "Reset"
 msgstr ""
 
