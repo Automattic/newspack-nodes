@@ -1753,14 +1753,15 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		expect( drawn( nodes, graph.edges ).over ).toEqual( [] );
 	} );
 
-	it( 'stacks the small blocks in one block past the tall one', () => {
+	it( 'seats the small blocks beside the fan, opening no column past it', () => {
 		// The spoke column outgrows the square; the probe pair and the REPL
-		// stack together right of it rather than in the rows beside its fan.
+		// take the rows beside its fan, nearest the middle, not a new column.
 		const graph = hubControl();
 		const g = gridOf( graph );
-		for ( const id of [ 'topicprobe', 'topicprobe:log', '_repl' ] ) {
-			expect( g[ id ].col ).toBeGreaterThan( g.null.col );
+		for ( const id of Object.keys( g ) ) {
+			expect( [ id, g[ id ].col <= g.null.col ] ).toEqual( [ id, true ] );
 		}
+		expect( g.topicprobe.col ).toBe( g[ 'settings:consumer' ].col );
 		expect( g._repl.col ).toBe( g.topicprobe.col );
 		expect( g._repl.row ).not.toBe( g.topicprobe.row );
 		const { nodes } = autoLayout( graph );
@@ -2942,5 +2943,67 @@ describe( 'autoLayout — a seat measures the half steps earlier seats opened', 
 				/ over k3src$/.test( o )
 			)
 		).toEqual( [] );
+	} );
+} );
+
+describe( 'autoLayout — a seat measures the half step its own move closes', () => {
+	it( 'seats a fanning source clear of the cards beside the column it leaves', () => {
+		// k2l0n0 fans into column 2: its seat in column 0 closes the half
+		// step its wires open from column 1, and its wire to k2l2n0 clears
+		// k2l1n3 on the columns as they stand with it seated there.
+		const pairs = (
+			'k2l0n1>k2l1n0 k2l0n1>k2l1n1 k2l0n0>k2l1n2 k2l0n1>k2l1n3 ' +
+			'k2l0n1>k2l1n4 k2l0n0>k2l1n4 k2l0n0>k2l1n5 k2l0n1>k2l1n6 ' +
+			'k2l0n1>k2l1n7 k2l0n0>k2l1n8 k2l0n1>k2l1n8 k2l0n0>k2l2n0 ' +
+			'k2l1n3>k2l2n0 k2l2n0>k2l3n0 k2l0n1>k2l3n1 k2l2n0>k2l4n0 ' +
+			'k2l3n1>k2l4n1 k2l1n2>k2l4n2 k2l3n0>k2l4n2 k2src>k2l4n0'
+		)
+			.split( ' ' )
+			.map( ( p ) => p.split( '>' ) );
+		const edges = pairs.map( ( [ from, to ] ) => ( { from, to } ) );
+		const { nodes } = autoLayout( {
+			nodes: [ ...new Set( pairs.flat() ) ].map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		expect( drawn( nodes, edges ).over ).toEqual( [] );
+	} );
+} );
+
+describe( 'autoLayout — a waiting block grows a stack before it widens the canvas', () => {
+	it( 'stacks a small run under the first stack rather than open a third', () => {
+		// The square is 16 rows: fifteen three-card chains fill stack 0 to
+		// row 14, sixteen two-card chains wait and open stack 1, and the two
+		// lone cards fit under stack 0 within the square's height.
+		const edges = [];
+		for ( let i = 0; i < 15; i++ ) {
+			const id = `a${ String( i ).padStart( 2, '0' ) }`;
+			edges.push(
+				{ from: `${ id }:x`, to: `${ id }:y` },
+				{ from: `${ id }:y`, to: `${ id }:z` }
+			);
+		}
+		for ( let i = 0; i < 16; i++ ) {
+			const id = `b${ String( i ).padStart( 2, '0' ) }`;
+			edges.push( { from: `${ id }:x`, to: `${ id }:y` } );
+		}
+		const ids = [
+			'lone:p',
+			'lone:q',
+			...new Set( edges.flatMap( ( e ) => [ e.from, e.to ] ) ),
+		];
+		const { nodes } = autoLayout( {
+			nodes: ids.map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		const at = Object.fromEntries(
+			nodes.map( ( n ) => [ n.id, n.position ] )
+		);
+		const right = Math.max(
+			...ids
+				.filter( ( id ) => id.startsWith( 'b' ) )
+				.map( ( id ) => at[ id ].x )
+		);
+		expect( ids.filter( ( id ) => at[ id ].x > right ) ).toEqual( [] );
+		expect( at[ 'lone:p' ].x ).toBe( at[ 'a00:x' ].x );
 	} );
 } );
