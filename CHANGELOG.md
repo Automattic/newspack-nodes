@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.100.0] - 2026-10-07
+
 ### Changed
 
 - **A `variadic` constructor argument collects a node's trailing tokens and is never bound.** `Schema_Reflection` and the browser's `SchemaReflection` skip it, and refuse a schema declaring one anywhere but last with `Invalid argument specification: variadic argument <name> must be the last`. A node reads its tail through `Schema_Reflection::variadic_in( $args )`, which starts at the schema's bound count, and the analyzer counts a broker subclass's own bound arguments.
