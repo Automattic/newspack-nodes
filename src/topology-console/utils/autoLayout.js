@@ -2684,7 +2684,8 @@ const countCrossings = ( segs, visit ) => {
  * `parsed` is `{ nodes: [ { id } ], edges: [ { from, to } ] }`; null, or either
  * key missing, reads as empty. An edge whose endpoints are not both in `nodes`
  * is skipped, so a graph carrying a dangling edge lays out rather than throwing.
- * A graph with no edges at all becomes an alphabetical, roughly square grid.
+ * A graph with no edge whose both ends are present becomes an alphabetical,
+ * roughly square grid.
  *
  * @param {?{nodes?: Array<{id: string}>, edges?: Array<{from: string, to: string}>}} parsed The graph to lay out.
  * @return {{nodes: Array<{id: string, position: {x: number, y: number}}>, edges: Array<Object>}}
@@ -2694,22 +2695,6 @@ const countCrossings = ( segs, visit ) => {
 export function autoLayout( parsed ) {
 	const nodes = parsed?.nodes ?? [];
 	const edges = parsed?.edges ?? [];
-
-	// Edgeless nodes would all stack in column 0; grid them instead.
-	if ( edges.length === 0 && nodes.length > 0 ) {
-		const sorted = [ ...nodes ].sort( ( a, b ) =>
-			a.id.localeCompare( b.id )
-		);
-		const rowCount = Math.max( 1, Math.ceil( Math.sqrt( sorted.length ) ) );
-		const positioned = sorted.map( ( n, i ) => ( {
-			...n,
-			position: {
-				x: X_PAD + Math.floor( i / rowCount ) * X_STEP,
-				y: Y_PAD + ( i % rowCount ) * Y_STEP,
-			},
-		} ) );
-		return { nodes: positioned, edges };
-	}
 
 	// Alpha-canonical ids, so the live graph lays out like its .tsl.
 	const ids = [ ...nodes ].map( ( n ) => n.id ).sort( byId );
@@ -2736,6 +2721,22 @@ export function autoLayout( parsed ) {
 		seen.add( key );
 		succ[ e.from ].push( e.to );
 		pred[ e.to ].push( e.from );
+	}
+
+	// No wire with both ends drawn would stack every node in column 0: grid.
+	if ( 0 === seen.size && nodes.length > 0 ) {
+		const sorted = [ ...nodes ].sort( ( a, b ) =>
+			a.id.localeCompare( b.id )
+		);
+		const rowCount = Math.max( 1, Math.ceil( Math.sqrt( sorted.length ) ) );
+		const positioned = sorted.map( ( n, i ) => ( {
+			...n,
+			position: {
+				x: X_PAD + Math.floor( i / rowCount ) * X_STEP,
+				y: Y_PAD + ( i % rowCount ) * Y_STEP,
+			},
+		} ) );
+		return { nodes: positioned, edges };
 	}
 
 	const hubs = hubIds( ids, pred );

@@ -26,6 +26,7 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 /**
  * The substrate version, stamped as a banner comment into every bundle the kit
@@ -202,9 +203,7 @@ function aliasImporter( alias ) {
 			for ( const key of keys ) {
 				if ( url === key || url.startsWith( `${ key }/` ) ) {
 					const rest = url.slice( key.length );
-					return new URL(
-						`file://${ path.resolve( alias[ key ] + rest ) }`
-					);
+					return pathToFileURL( path.resolve( alias[ key ] + rest ) );
 				}
 			}
 			return null;

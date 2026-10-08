@@ -175,6 +175,59 @@ describe( 'buildDashboards (integration, real esbuild)', () => {
 	} );
 } );
 
+// The Sass alias importer must hand Sass a file URL, not a hand-built string.
+describe( 'buildDashboards Sass alias with URL-special path characters', () => {
+	const fs = require( 'node:fs/promises' );
+	const os = require( 'node:os' );
+	const path = require( 'node:path' );
+
+	let root;
+
+	afterEach( async () => {
+		await fs.rm( root, { recursive: true, force: true } );
+	} );
+
+	test( 'resolves an aliased @use under a dir holding #, % and a space', async () => {
+		const kit = await import( '../index.mjs' );
+		const esbuild = ( await import( 'esbuild' ) ).default;
+		const sass = await import( 'sass' );
+		const rtlcss = ( await import( 'rtlcss' ) ).default;
+
+		root = await fs.mkdtemp( path.join( os.tmpdir(), 'buildkit-url-' ) );
+		const shared = path.join( root, 'shared #7 50% dir' );
+		await fs.mkdir( path.join( shared, 'styles' ), { recursive: true } );
+		await fs.writeFile(
+			path.join( shared, 'styles', '_marker.scss' ),
+			'.marker-from-alias { padding-left: 13px; }'
+		);
+		await fs.writeFile(
+			path.join( root, 'style.scss' ),
+			"@use '@fixture-alias/styles/marker';"
+		);
+		await fs.writeFile(
+			path.join( root, 'entry.js' ),
+			"import './style.scss';\nexport const y = 1;\n"
+		);
+		const outDir = path.join( root, 'build/aliased' );
+
+		await kit.buildDashboards( {
+			esbuild,
+			sass,
+			rtlcss,
+			root,
+			entries: [ { entry: 'entry.js', outDir } ],
+			alias: { '@fixture-alias': shared },
+		} );
+
+		const css = await fs.readFile(
+			path.join( outDir, 'entry.css' ),
+			'utf8'
+		);
+		expect( css ).toContain( '.marker-from-alias' );
+		expect( css ).toContain( '13px' );
+	}, 30000 );
+} );
+
 // A watch build rebuilds the SAME context; holding dispose back models that.
 describe( 'buildDashboards rebuild (integration, real esbuild)', () => {
 	const fs = require( 'node:fs/promises' );
