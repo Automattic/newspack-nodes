@@ -67,6 +67,30 @@ function coerceArgument( token, type, name ) {
 }
 
 /**
+ * The specs a schema binds: all but a trailing `variadic`, which collects the
+ * tokens past them for the node's own reader (PHP `declared_arguments`).
+ *
+ * @param {Object[]} declared A `nodeSchema().arguments` list.
+ * @return {Object[]} The bound specs.
+ * @throws {Error} When a `variadic` spec is not the last.
+ */
+export function boundArguments( declared ) {
+	const bound = declared.slice();
+	declared.forEach( ( spec, i ) => {
+		if ( true !== spec?.variadic ) {
+			return;
+		}
+		if ( i !== declared.length - 1 ) {
+			throw new Error(
+				`Invalid argument specification: variadic argument ${ spec.name } must be the last`
+			);
+		}
+		bound.pop();
+	} );
+	return bound;
+}
+
+/**
  * The positional walk (PHP trait `parse_schema_args`): assign each token of
  * `args` to the property its declared `nodeSchema().arguments` entry names,
  * coerced to the declared type. A node declaring no arguments is a no-op.
@@ -85,7 +109,7 @@ function coerceArgument( token, type, name ) {
  */
 function walkSchemaArgs( node, args ) {
 	const ctor = /** @type {import('./node').NodeClass} */ ( node.constructor );
-	const declared = ctor.nodeSchema?.().arguments || [];
+	const declared = boundArguments( ctor.nodeSchema?.().arguments || [] );
 	if ( declared.length === 0 ) {
 		return;
 	}

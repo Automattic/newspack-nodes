@@ -360,6 +360,21 @@ class TopologyRegistryGraphTest extends TestCase {
 		);
 	}
 
+	/** A broker subclass binding one more argument starts its pairs one token later. */
+	public function test_graph_for_starts_a_broker_subclass_s_pairs_past_its_own_bound_arguments(): void {
+		require_once __DIR__ . '/../Helpers/fixtures/class-wombat-quad-source-node.php';
+		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\Fixtures\\' );
+		$this->write_tsl( 'quad-pull', "make_node Wombat_Quad_Source quad:okapi okapi-7 /var/quad/off /var/quad/dl cap.p0:cap-sink ledger.p0:ledger-sink tapir.p0:tapir-sink\n" );
+
+		$graph = Topology_Analyzer::graph_for( 'quad-pull' );
+
+		$this->assertSame(
+			[ [ 'source' => 'ledger.p0', 'target' => 'ledger-sink' ], [ 'source' => 'tapir.p0', 'target' => 'tapir-sink' ] ],
+			$graph['nodes'][0]['pairs']
+		);
+		$this->assertNotContains( [ 'quad:okapi', 'cap-sink' ], $graph['edges'] );
+	}
+
 	/** A broker's spoke and pairs are read by name, quotes stripped; each pair draws an edge. */
 	public function test_graph_for_names_what_a_remote_source_pulls_and_where(): void {
 		$this->write_tsl( 'vicuna-pull', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl \"ledger.p{partition}:ledger-sink\" sources/php:php-errors:partition\n" );

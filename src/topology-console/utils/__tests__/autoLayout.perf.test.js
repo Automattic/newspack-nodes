@@ -11,6 +11,7 @@ import fs from 'fs';
 import path from 'path';
 import { autoLayout } from '../autoLayout';
 import { graphFromTsl } from '../draftToGraph';
+import brokerSchemas from '../../../../tests/fixtures/broker-schemas.json';
 
 const BUDGET_MS = 4000;
 
@@ -40,7 +41,9 @@ const fixture = () =>
 		fs.readFileSync(
 			path.join( __dirname, 'fixtures', 'test.tsl' ),
 			'utf8'
-		)
+		),
+		null,
+		brokerSchemas
 	);
 
 describe( 'topology-console layout — through-wire perf', () => {

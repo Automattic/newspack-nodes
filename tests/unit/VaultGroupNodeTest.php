@@ -203,6 +203,22 @@ final class VaultGroupNodeTest extends TestCase {
 		$this->assertSame( Node::sibling_name_of( 'edge', 'tw9' ), Core::node( 'edge:tw9' )->name() );
 	}
 
+	public function test_the_console_fixture_mirrors_both_broker_schemas(): void {
+		$fixture = \json_decode( (string) \file_get_contents( __DIR__ . '/../fixtures/broker-schemas.json' ), true );
+		$shape   = static fn ( array $arguments ): array => \array_map(
+			static fn ( array $a ): array => [ $a['name'], $a['type'], ! empty( $a['required'] ), ! empty( $a['variadic'] ) ],
+			$arguments
+		);
+
+		$this->assertSame(
+			[
+				'Remote_Source' => $shape( Remote_Source_Node::node_schema()['arguments'] ),
+				'Vault_Group'   => $shape( Vault_Group_Node::node_schema()['arguments'] ),
+			],
+			\array_column( \array_map( static fn ( array $e ): array => [ $e['shell_name'], $shape( $e['arguments'] ) ], $fixture ), 1, 0 )
+		);
+	}
+
 	public function test_expand_is_the_one_spelling(): void {
 		$this->assertSame(
 			[ 'tw0' => [ [ 'tw0', 'a.tw0', 'b' ] ], 'tw9' => [ [ 'tw9', 'a.tw9', 'b' ] ] ],
@@ -739,7 +755,8 @@ final class VaultGroupNodeTest extends TestCase {
 	}
 
 	public function test_the_group_argument_is_typed_as_a_vault_group(): void {
-		$this->assertSame( [ 'string', 'vault_group' ], \array_column( Vault_Group_Node::node_schema()['arguments'], 'type' ) );
+		$this->assertSame( [ 'string', 'vault_group', 'string' ], \array_column( Vault_Group_Node::node_schema()['arguments'], 'type' ) );
+		$this->assertSame( [ 'child_args' ], \array_column( \array_filter( Vault_Group_Node::node_schema()['arguments'], static fn ( array $a ): bool => ! empty( $a['variadic'] ) ), 'name' ) );
 	}
 
 	public function test_a_bare_make_node_names_the_missing_child_type(): void {

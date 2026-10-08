@@ -16,6 +16,7 @@ import {
 	edgeHasConnectRole,
 } from '../consoleGraph';
 import { graphFromTsl } from '../draftToGraph';
+import brokerSchemas from '../../../../tests/fixtures/broker-schemas.json';
 
 describe( 'consoleGraph', () => {
 	const empty = { nodes: [], edges: [] };
@@ -24,7 +25,11 @@ describe( 'consoleGraph', () => {
 		...graph,
 		nodes: [
 			...graph.nodes,
-			...graphFromTsl( `make_node ${ shellName } ${ name }` ).nodes,
+			...graphFromTsl(
+				`make_node ${ shellName } ${ name }`,
+				null,
+				brokerSchemas
+			).nodes,
 		],
 	} );
 
@@ -33,7 +38,9 @@ describe( 'consoleGraph', () => {
 		// default here would silently wire the edge to the literal token.
 		const parsed = graphFromTsl(
 			'make_node Echo cerulean-source-619\n' +
-				'command_node cerulean-source-619:config set_stats_target <wombat:stats_sink>\n'
+				'command_node cerulean-source-619:config set_stats_target <wombat:stats_sink>\n',
+			null,
+			brokerSchemas
 		);
 
 		expect( () => withResolvedConfigEdges( parsed, undefined ) ).toThrow(
@@ -45,7 +52,9 @@ describe( 'consoleGraph', () => {
 		// Broader, the guard fires on ordinary `<config:…>` arguments — which
 		// no runtime resolves into an edge, so nothing is being hidden.
 		const parsed = graphFromTsl(
-			'make_node Echo src\ncommand_node src:config set_window <config:w>'
+			'make_node Echo src\ncommand_node src:config set_window <config:w>',
+			null,
+			brokerSchemas
 		);
 
 		expect( () =>
@@ -56,7 +65,9 @@ describe( 'consoleGraph', () => {
 	it( 'is satisfied by a resolved list, even an empty one', () => {
 		const parsed = graphFromTsl(
 			'make_node Echo src\n' +
-				'command_node src:config set_stats_target <wombat:sink>'
+				'command_node src:config set_stats_target <wombat:sink>',
+			null,
+			brokerSchemas
 		);
 
 		expect( () => withResolvedConfigEdges( parsed, [] ) ).not.toThrow();
@@ -64,7 +75,9 @@ describe( 'consoleGraph', () => {
 
 	it( 'says nothing when no argument carries a token', () => {
 		const parsed = graphFromTsl(
-			'make_node Echo src\ncommand_node src:config set_x plain'
+			'make_node Echo src\ncommand_node src:config set_x plain',
+			null,
+			brokerSchemas
 		);
 
 		expect( () =>
@@ -118,7 +131,7 @@ describe( 'consoleGraph', () => {
 		} );
 
 		it( 'preserves existing nodes and edges', () => {
-			let g = graphFromTsl( 'make_node Tee my-tee' );
+			let g = graphFromTsl( 'make_node Tee my-tee', null, brokerSchemas );
 			g = {
 				...g,
 				edges: [ { from: 'my-tee', to: '_repl' } ],
@@ -131,7 +144,11 @@ describe( 'consoleGraph', () => {
 		} );
 	} );
 	describe( 'withOwnedNodes', () => {
-		const owner = graphFromTsl( 'make_node Wombat_Owner kea-owner-512' );
+		const owner = graphFromTsl(
+			'make_node Wombat_Owner kea-owner-512',
+			null,
+			brokerSchemas
+		);
 		const ledger = {
 			name: 'kea-owner-512:ledger',
 			class: 'Wombat_Ledger',
@@ -209,12 +226,16 @@ describe( 'consoleGraph', () => {
 		} );
 
 		it( 'increments suffix on collision', () => {
-			const g = graphFromTsl( 'make_node Echo echo' );
+			const g = graphFromTsl(
+				'make_node Echo echo',
+				null,
+				brokerSchemas
+			);
 			expect( generateNodeName( g, 'Echo' ) ).toBe( 'echo-2' );
 		} );
 
 		it( 'finds the next free suffix when middle slots are filled', () => {
-			let g = graphFromTsl( 'make_node Echo echo' );
+			let g = graphFromTsl( 'make_node Echo echo', null, brokerSchemas );
 			g = withNode( g, 'Echo', 'echo-2' );
 			g = withNode( g, 'Echo', 'echo-3' );
 			expect( generateNodeName( g, 'Echo' ) ).toBe( 'echo-4' );

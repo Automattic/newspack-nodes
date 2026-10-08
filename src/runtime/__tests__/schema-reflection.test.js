@@ -27,6 +27,61 @@ class TestArgsNode extends SchemaReflection( Node ) {
 	}
 }
 
+class VariadicArgsNode extends SchemaReflection( Node ) {
+	constructor() {
+		super();
+		this.head = '';
+	}
+
+	static nodeSchema() {
+		return {
+			arguments: [
+				{ name: 'head', type: 'string', required: true },
+				{ name: 'tail', type: 'string', variadic: true },
+			],
+			commands: [],
+		};
+	}
+}
+
+class MisplacedVariadicNode extends SchemaReflection( Node ) {
+	constructor() {
+		super();
+		this.head = '';
+	}
+
+	static nodeSchema() {
+		return {
+			arguments: [
+				{ name: 'tail', type: 'string', variadic: true },
+				{ name: 'head', type: 'string' },
+			],
+			commands: [],
+		};
+	}
+}
+
+describe( 'SchemaReflection — a variadic argument', () => {
+	it( 'is never bound, and the tokens stay whole for the node to read', () => {
+		const n = new VariadicArgsNode();
+		n.arguments = [ 'heron', 'egret', 'crane' ];
+		expect( n.head ).toBe( 'heron' );
+		expect( Object.prototype.hasOwnProperty.call( n, 'tail' ) ).toBe(
+			false
+		);
+		expect( n.arguments ).toEqual( [ 'heron', 'egret', 'crane' ] );
+	} );
+
+	it( 'is refused anywhere but last', () => {
+		const n = new MisplacedVariadicNode();
+		expect( () => {
+			n.arguments = [ 'egret', 'heron' ];
+		} ).toThrow(
+			'Invalid argument specification: variadic argument tail must be the last'
+		);
+	} );
+} );
+
 describe( 'SchemaReflection — the positional walk `arguments =` runs', () => {
 	it( 'parses tokens and assigns to named properties', () => {
 		const n = new TestArgsNode();

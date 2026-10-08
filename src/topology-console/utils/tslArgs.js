@@ -8,7 +8,11 @@
  * from the palette reads exactly like one the editor rewrites.
  */
 
-import { serializeDraftArg as emitDraftArg } from '../../runtime/shell-node';
+import { boundArguments } from '../../runtime/schema-reflection';
+import {
+	scanTokens,
+	serializeDraftArg as emitDraftArg,
+} from '../../runtime/shell-node';
 
 /**
  * Drop trailing empty and unset slots, so a TSL line ends at the last argument
@@ -72,6 +76,69 @@ export function applyDefaults( args, spec ) {
 }
 
 /**
+ * Where a schema's trailing `variadic` begins.
+ *
+ * @param {?Array} spec Schema arg list.
+ * @return {number} The variadic's slot, or Infinity when there is none.
+ * @throws {Error} When a `variadic` spec is not the last.
+ */
+export function variadicStart( spec ) {
+	const declared = Array.isArray( spec ) ? spec : [];
+	const bound = boundArguments( declared ).length;
+	return bound < declared.length ? bound : Infinity;
+}
+
+/**
+ * The tokens a positional array writes: defaults filled, trailing empties
+ * dropped, and a trailing `variadic` slot expanded into the raw spans the TSL
+ * scanner reads in it, so a quoted word stays one token with its quote type
+ * and blanks vanish. The one place both writers start from.
+ *
+ * @param {Array}  args Positional arg values; the variadic slot holds a string.
+ * @param {?Array} spec Schema arg list (each entry may carry `default`).
+ * @return {Array} The tokens to write, one per argument.
+ */
+export function positionalTokens( args, spec ) {
+	const filled = trimTrailingEmpties( applyDefaults( args || [], spec ) );
+	const last = variadicStart( spec );
+	if ( filled.length <= last ) {
+		return filled;
+	}
+	return [
+		...filled.slice( 0, last ),
+		...scanTokens( String( filled[ last ] ) ).tokens.map( ( t ) => t.raw ),
+	];
+}
+
+/**
+ * Bind a token array to the positional slots the schema declares.
+ *
+ * The parser whitespace-splits a `make_node` or `cmd` line's tail with no
+ * schema knowledge, so a free-text argument or a variadic tail arrives as
+ * several tokens. The tail collapses into the LAST slot, each token emitted
+ * as TSL, so the scanner reads the same tokens back from the joined string.
+ *
+ * Idempotent: a list already at or under `count` is returned unchanged.
+ *
+ * @param {string[]} args  Token array: draft args, or a live node's `arguments`.
+ * @param {number}   count Positional arguments the schema declares.
+ * @return {string[]} Args of length <= count, the last slot absorbing the tail.
+ */
+export function absorbTrailingArgs( args, count ) {
+	const list = Array.isArray( args ) ? args : [];
+	if ( count <= 0 || list.length <= count ) {
+		return list;
+	}
+	return [
+		...list.slice( 0, count - 1 ),
+		list
+			.slice( count - 1 )
+			.map( emitDraftArg )
+			.join( ' ' ),
+	];
+}
+
+/**
  * Serialize positional ctor-arg values into the `make_node` args string.
  *
  * Defaults fill the empty slots, trailing slots still without a value drop
@@ -86,6 +153,5 @@ export function applyDefaults( args, spec ) {
  * @return {string} Space-joined args, empty when no slot survives.
  */
 export function serializeCtorArgs( ctorArgs, spec ) {
-	const filled = applyDefaults( ctorArgs || [], spec );
-	return trimTrailingEmpties( filled ).map( emitDraftArg ).join( ' ' );
+	return positionalTokens( ctorArgs, spec ).map( emitDraftArg ).join( ' ' );
 }

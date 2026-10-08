@@ -567,6 +567,17 @@ from loud to silent — the placeholder has to name something, and a live-lookin
 log nobody asked for. The accepted cost, a dumped-while-unconfigured `make_node` line that
 refuses on replay, beats a placeholder that replays cleanly into the wrong log.
 
+**Amendment: a constructor's trailing tail is a variadic argument, never bound.** A spec in
+`node_schema()['arguments']` may declare `variadic`, and only as the LAST spec. `parse_schema_args()`
+and the browser's `walkSchemaArgs` skip it, and the node reads the tokens past the bound
+positionals through [`Schema_Reflection::variadic_in()`](../includes/trait-schema-reflection.php),
+whose start is the bound count, so the schema declares where the tail begins once. A `variadic`
+declared anywhere else is refused with `Invalid argument specification: variadic argument <name>
+must be the last`. This differs from [ADR-25](#adr-25-a-verbs-arguments-are-bound-by-its-schema),
+where a verb's `variadic` IS bound, as a list, and may precede named arguments: a constructor
+keeps the tail as raw tokens because a node such as `Remote_Source` or `Vault_Group` parses them
+into a structure of its own.
+
 ---
 
 ## ADR-12: Dead-letter poison / crash lifecycle

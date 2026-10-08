@@ -145,7 +145,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 			return parent::arguments();
 		}
 		$this->bound_partition = Core::bound_partition();
-		$pairs                 = $this->owned_pairs( \array_slice( $args, 3 ) );
+		$pairs                 = $this->owned_pairs( self::variadic_in( $args ) );
 		$previous              = $this->pairs;
 		$parsed                = parent::arguments( $args );
 		$this->bound_topology  = Core::bound_topology();
@@ -754,7 +754,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * @return list<string>
 	 */
 	public static function declared_targets( array $args ): array {
-		return \array_column( self::pairs_of( \array_slice( $args, 3 ) ), 'target' );
+		return \array_column( self::pairs_of( self::variadic_in( $args ) ), 'target' );
 	}
 
 	/**
@@ -881,7 +881,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 			'arguments'   => [
 				[ 'name' => 'vault_id',        'type' => 'vault_id', 'required' => true, 'description' => 'Which spoke to connect to — a Vault-registered server (URL + credentials).' ],
 				[ 'name' => 'offsetlog_root',  'type' => 'string',   'required' => true, 'partition' => 'bound', 'description' => 'Directory each reader\'s durable read-cursor offsetlog nests under, at <root>/<kind>. Carry `<topology>` so two fleets pulling one spoke keep separate cursors.' ],
-				[ 'name' => 'deadletter_root', 'type' => 'string',   'required' => true, 'partition' => 'bound', 'description' => 'Directory each reader\'s quarantined poison records nest under, at <root>/<kind>. Later tokens are `<source>:<target>` pairs: a spoke partition, glob or `sources/<name>`, then the node its lines go to.' ],
+				[ 'name' => 'deadletter_root', 'type' => 'string',   'required' => true, 'partition' => 'bound', 'description' => 'Directory each reader\'s quarantined poison records nest under, at <root>/<kind>.' ],
+				[ 'name' => 'pairs', 'type' => 'string', 'required' => true, 'variadic' => true, 'description' => '`<source>:<target>` pairs: a spoke partition, glob or `sources/<name>`, then the node its lines go to.' ],
 			],
 			'commands'    => [
 				[

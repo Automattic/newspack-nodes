@@ -1,9 +1,10 @@
 import { graphFromTsl } from '../draftToGraph';
 import { DraftInterpreterNode } from '../../../runtime/draft-interpreter-node';
+import brokerSchemas from '../../../../tests/fixtures/broker-schemas.json';
 
 describe( 'graphFromTsl', () => {
 	it( 'returns an empty graph for empty input', () => {
-		expect( graphFromTsl( '' ) ).toEqual( {
+		expect( graphFromTsl( '', null, brokerSchemas ) ).toEqual( {
 			nodes: [],
 			edges: [],
 			frontmatter: {},
@@ -16,7 +17,9 @@ describe( 'graphFromTsl', () => {
 
 	it( 'parses include lines into graph.includes, in declaration order', () => {
 		const g = graphFromTsl(
-			'include performance\ninclude job-router\nmake_node Echo wombat-echo\n'
+			'include performance\ninclude job-router\nmake_node Echo wombat-echo\n',
+			null,
+			brokerSchemas
 		);
 		expect( g.includes ).toEqual( [ 'performance', 'job-router' ] );
 		expect( g.nodes.map( ( n ) => n.name ) ).toEqual( [ 'wombat-echo' ] );
@@ -27,7 +30,9 @@ describe( 'graphFromTsl', () => {
 			'var num_partitions = 4\n' +
 				'var stale_timeout = 120\n' +
 				'var custom_thing = a b c\n' +
-				'make_node Echo echo\n'
+				'make_node Echo echo\n',
+			null,
+			brokerSchemas
 		);
 		expect( g.frontmatter ).toEqual( {
 			num_partitions: '4',
@@ -40,26 +45,36 @@ describe( 'graphFromTsl', () => {
 
 	it( 'splices a backslash continuation with nothing (bash semantics)', () => {
 		const g = graphFromTsl(
-			'var num_partitions = 1\\\n6\nmake_node Echo z\n'
+			'var num_partitions = 1\\\n6\nmake_node Echo z\n',
+			null,
+			brokerSchemas
 		);
 		expect( g.frontmatter ).toEqual( { num_partitions: '16' } );
 	} );
 
 	it( 'splices a mid-token backslash continuation in ctor args', () => {
-		const g = graphFromTsl( 'make_node Echo e hi\\\nbye\n' );
+		const g = graphFromTsl(
+			'make_node Echo e hi\\\nbye\n',
+			null,
+			brokerSchemas
+		);
 		expect( g.nodes[ 0 ].ctorArgs ).toEqual( [ 'hibye' ] );
 	} );
 
 	it( 'joins a backslash-continued var (parity with PHP frontmatter)', () => {
 		const g = graphFromTsl(
-			'var num_partitions = \\\n    7\nmake_node Echo z\n'
+			'var num_partitions = \\\n    7\nmake_node Echo z\n',
+			null,
+			brokerSchemas
 		);
 		expect( g.frontmatter ).toEqual( { num_partitions: '7' } );
 	} );
 
 	it( 'splits a line on ; to capture multiple vars (matches PHP frontmatter parser)', () => {
 		const g = graphFromTsl(
-			'var num_partitions = 4; var stale_timeout = 120\n'
+			'var num_partitions = 4; var stale_timeout = 120\n',
+			null,
+			brokerSchemas
 		);
 		expect( g.frontmatter ).toEqual( {
 			num_partitions: '4',
@@ -68,12 +83,12 @@ describe( 'graphFromTsl', () => {
 	} );
 
 	it( 'returns an empty frontmatter map when there are no var lines', () => {
-		const g = graphFromTsl( 'make_node Echo echo\n' );
+		const g = graphFromTsl( 'make_node Echo echo\n', null, brokerSchemas );
 		expect( g.frontmatter ).toEqual( {} );
 	} );
 
 	it( 'parses a single bare make_node', () => {
-		const g = graphFromTsl( 'make_node Echo echo\n' );
+		const g = graphFromTsl( 'make_node Echo echo\n', null, brokerSchemas );
 		expect( g.nodes ).toHaveLength( 1 );
 		expect( g.nodes[ 0 ] ).toMatchObject( {
 			id: 'echo',
@@ -86,7 +101,11 @@ describe( 'graphFromTsl', () => {
 	} );
 
 	it( 'parses ctor args positionally', () => {
-		const g = graphFromTsl( 'make_node Partition p /tmp/log 0 16777216\n' );
+		const g = graphFromTsl(
+			'make_node Partition p /tmp/log 0 16777216\n',
+			null,
+			brokerSchemas
+		);
 		expect( g.nodes[ 0 ].ctorArgs ).toEqual( [
 			'/tmp/log',
 			'0',
@@ -98,7 +117,9 @@ describe( 'graphFromTsl', () => {
 		const g = graphFromTsl(
 			'make_node Partition p\n' +
 				'cmd p:config allow_large_writes\n' +
-				'cmd p:config with_index request-index\n'
+				'cmd p:config with_index request-index\n',
+			null,
+			brokerSchemas
 		);
 		expect( g.nodes[ 0 ].verbInvocations ).toEqual( [
 			{ verb: 'allow_large_writes', args: [], viaConfig: true },
@@ -126,7 +147,8 @@ describe( 'graphFromTsl', () => {
 					},
 				],
 				edges: [],
-			}
+			},
+			brokerSchemas
 		);
 
 		expect( graph.configOverrides ).toEqual( [
@@ -145,7 +167,9 @@ describe( 'graphFromTsl', () => {
 
 	it( 'parses connect_node lines into edges', () => {
 		const g = graphFromTsl(
-			'make_node Echo a\nmake_node Echo b\nconnect_node a b\n'
+			'make_node Echo a\nmake_node Echo b\nconnect_node a b\n',
+			null,
+			brokerSchemas
 		);
 		expect( g.edges ).toEqual( [
 			{ from: 'a', to: 'b', roles: [ 'connect' ] },
@@ -154,7 +178,9 @@ describe( 'graphFromTsl', () => {
 
 	it( 'preserves quoted ctor args verbatim (quote type carries semantics)', () => {
 		const g = graphFromTsl(
-			"make_node Hook h wp_loaded 'this has spaces'\n"
+			"make_node Hook h wp_loaded 'this has spaces'\n",
+			null,
+			brokerSchemas
 		);
 		expect( g.nodes[ 0 ].ctorArgs ).toEqual( [
 			'wp_loaded',
@@ -164,7 +190,9 @@ describe( 'graphFromTsl', () => {
 
 	it( 'keeps a Topic {partition} template verbatim', () => {
 		const g = graphFromTsl(
-			'make_node Topic jobs <config:logs_dir>/jobs.p{partition} 4\n'
+			'make_node Topic jobs <config:logs_dir>/jobs.p{partition} 4\n',
+			null,
+			brokerSchemas
 		);
 		expect( g.nodes[ 0 ].ctorArgs ).toEqual( [
 			'<config:logs_dir>/jobs.p{partition}',
@@ -176,7 +204,9 @@ describe( 'graphFromTsl', () => {
 		const g = graphFromTsl(
 			'make_node Echo scorer\n' +
 				'cmd scorer:config add_profile "Engineers care about uptime"\n' +
-				'cmd scorer:config add_profile `Prioritize breaking news`\n'
+				'cmd scorer:config add_profile `Prioritize breaking news`\n',
+			null,
+			brokerSchemas
 		);
 		expect( g.nodes[ 0 ].verbInvocations ).toEqual( [
 			{
@@ -194,7 +224,9 @@ describe( 'graphFromTsl', () => {
 
 	it( 'honors backslash escapes inside quotes (Shell tokenize parity)', () => {
 		const g = graphFromTsl(
-			"make_node Echo n\ncmd n:config set_label 'it\\'s \\\\quoted'\n"
+			"make_node Echo n\ncmd n:config set_label 'it\\'s \\\\quoted'\n",
+			null,
+			brokerSchemas
 		);
 		expect( g.nodes[ 0 ].verbInvocations ).toEqual( [
 			{
@@ -210,7 +242,9 @@ describe( 'graphFromTsl', () => {
 			'make_node Echo scorer\n' +
 				'cd scorer:config\n' +
 				'add_profile "Do not reward flame wars"\n' +
-				'cd /\n'
+				'cd /\n',
+			null,
+			brokerSchemas
 		);
 		expect( g.nodes[ 0 ].verbInvocations ).toEqual( [
 			{
@@ -224,7 +258,9 @@ describe( 'graphFromTsl', () => {
 	it( 'keeps a quoted multi-word arg intact through an explicit cmd path', () => {
 		const g = graphFromTsl(
 			'make_node Echo scorer\n' +
-				'cmd scorer:config add_profile "Deprioritize sports scores"\n'
+				'cmd scorer:config add_profile "Deprioritize sports scores"\n',
+			null,
+			brokerSchemas
 		);
 		expect( g.nodes[ 0 ].verbInvocations ).toEqual( [
 			{
@@ -237,7 +273,9 @@ describe( 'graphFromTsl', () => {
 
 	it( 'ignores blank lines and # comments', () => {
 		const g = graphFromTsl(
-			'\n# a comment\nmake_node Echo a\n# another\n'
+			'\n# a comment\nmake_node Echo a\n# another\n',
+			null,
+			brokerSchemas
 		);
 		expect( g.nodes ).toHaveLength( 1 );
 		expect( g.nodes[ 0 ].name ).toBe( 'a' );
@@ -262,7 +300,7 @@ describe( 'graphFromTsl', () => {
 		twice.load( dumped );
 
 		expect( twice.dumpDocument() ).toBe( dumped );
-		expect( graphFromTsl( dumped ).edges ).toEqual( [
+		expect( graphFromTsl( dumped, null, brokerSchemas ).edges ).toEqual( [
 			{ from: 'r', to: 'p', roles: [ 'connect' ] },
 		] );
 	} );
@@ -294,7 +332,8 @@ describe( 'graphFromTsl — disconnect_node', () => {
 				'disconnect_node spokes:tee remote:x\n' +
 				'connect_node spokes:tee wombat-grep\n' +
 				'connect_node wombat-grep remote:x\n',
-			HUB
+			HUB,
+			brokerSchemas
 		);
 
 		expect( g.edges ).toEqual( [
@@ -310,7 +349,9 @@ describe( 'graphFromTsl — disconnect_node', () => {
 				'make_node Echo giraffe-target',
 				'connect_node zebra-source giraffe-target',
 				'disconnect_node zebra-source giraffe-target',
-			].join( '\n' )
+			].join( '\n' ),
+			null,
+			brokerSchemas
 		);
 
 		expect( g.edges ).toEqual( [] );
@@ -319,7 +360,8 @@ describe( 'graphFromTsl — disconnect_node', () => {
 	it( 'removes only the named target from a fan-out node', () => {
 		const g = graphFromTsl(
 			'include hub-control\ndisconnect_node spokes:tee remote:x\n',
-			HUB
+			HUB,
+			brokerSchemas
 		);
 
 		expect( g.edges ).toEqual( [] );
@@ -333,7 +375,9 @@ describe( 'graphFromTsl — disconnect_node', () => {
 				'make_node Echo ibex-target',
 				'connect_node zebra:tee ibex-target',
 				'disconnect_node zebra:tee ibex-target',
-			].join( '\n' )
+			].join( '\n' ),
+			null,
+			brokerSchemas
 		);
 
 		expect( g.edges ).toEqual( [] );
@@ -345,7 +389,9 @@ describe( 'graphFromTsl — verb aliases', () => {
 		// ELN's performance.tsl says `make Tee firehose:tee`. A parser that only
 		// knows the long form silently drops the node.
 		const g = graphFromTsl(
-			'make Tee wombat:tee\nconnect_node wombat:tee zebra\n'
+			'make Tee wombat:tee\nconnect_node wombat:tee zebra\n',
+			null,
+			brokerSchemas
 		);
 		expect( g.nodes.map( ( n ) => n.name ) ).toEqual( [ 'wombat:tee' ] );
 		expect( g.nodes[ 0 ].class ).toBe( 'Tee' );
@@ -358,7 +404,9 @@ describe( 'graphFromTsl — verb aliases', () => {
 				'make_node Echo zebra',
 				'connect wombat:tee zebra',
 				'disconnect wombat:tee zebra',
-			].join( '\n' )
+			].join( '\n' ),
+			null,
+			brokerSchemas
 		);
 		expect( g.edges ).toEqual( [] );
 	} );
@@ -374,19 +422,27 @@ describe( 'graphFromTsl — verb aliases', () => {
  */
 describe( 'graphFromTsl secure level', () => {
 	it( 'reads a trailing secure level', () => {
-		const g = graphFromTsl( 'make_node Echo e\nsecure 3\n' );
+		const g = graphFromTsl(
+			'make_node Echo e\nsecure 3\n',
+			null,
+			brokerSchemas
+		);
 
 		expect( g.secureLevel ).toBe( '3' );
 	} );
 
 	it( 'reads insecure', () => {
-		const g = graphFromTsl( 'make_node Echo e\ninsecure\n' );
+		const g = graphFromTsl(
+			'make_node Echo e\ninsecure\n',
+			null,
+			brokerSchemas
+		);
 
 		expect( g.secureLevel ).toBe( 'insecure' );
 	} );
 
 	it( 'leaves it unset when the topology declares nothing', () => {
-		const g = graphFromTsl( 'make_node Echo e\n' );
+		const g = graphFromTsl( 'make_node Echo e\n', null, brokerSchemas );
 
 		expect( g.secureLevel ).toBe( '' );
 	} );

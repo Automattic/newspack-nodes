@@ -302,7 +302,10 @@ jest.mock( '../hooks/useCatalogs', () => ( {
 } ) );
 // Drift diff (roadmap [49]) has its own suite; no-op here.
 jest.mock( '../hooks/useCanonicalNodes', () => ( {
-	useCanonicalNodes: () => new Set(),
+	useCanonicalNodes: ( ...args ) => {
+		globalThis.__canonicalArgs = args;
+		return new Set();
+	},
 	driftNodeIds: () => null,
 } ) );
 
@@ -2370,6 +2373,22 @@ describe( 'TopologyConsole boot', () => {
 		);
 		expect( paletteNames ).not.toContain( 'PHP_Only_Class' );
 		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
+		await act( async () => {} );
+	} );
+
+	it( 'reads the canonical topology against the PHP catalog at the local scope', async () => {
+		globalThis.__catalog = {
+			classes: [ { shell_name: 'PHP_Only_Class', category: 'PHP' } ],
+			formatters: [],
+		};
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		render( <TopologyConsole /> );
+		act( () => {
+			lastReplProps.onSubmit( 'cd /' );
+		} );
+		expect(
+			globalThis.__canonicalArgs[ 1 ].classes.map( ( c ) => c.shell_name )
+		).toEqual( [ 'PHP_Only_Class' ] );
 		await act( async () => {} );
 	} );
 

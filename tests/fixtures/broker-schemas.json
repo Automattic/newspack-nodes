@@ -1,0 +1,19 @@
+[
+	{
+		"shell_name": "Remote_Source",
+		"arguments": [
+			{ "name": "vault_id", "type": "vault_id", "required": true },
+			{ "name": "offsetlog_root", "type": "string", "required": true },
+			{ "name": "deadletter_root", "type": "string", "required": true },
+			{ "name": "pairs", "type": "string", "required": true, "variadic": true }
+		]
+	},
+	{
+		"shell_name": "Vault_Group",
+		"arguments": [
+			{ "name": "child_type", "type": "string", "required": true },
+			{ "name": "group", "type": "vault_group", "required": true },
+			{ "name": "child_args", "type": "string", "required": false, "variadic": true }
+		]
+	}
+]

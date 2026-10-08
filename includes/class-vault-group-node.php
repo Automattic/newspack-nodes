@@ -87,7 +87,7 @@ final class Vault_Group_Node extends Node {
 		$previous    = $this->arguments;
 		$this->assign_schema_args( $args, $values );
 		$this->child_class = $child_class;
-		$this->child_args  = \array_slice( $args, 2 );
+		$this->child_args  = self::variadic_in( $args );
 		Worker_Should_Stop::raise(
 			[
 				...( [] !== $previous && $previous !== $args ? $this->retract_all() : [] ),
@@ -385,9 +385,9 @@ final class Vault_Group_Node extends Node {
 	}
 
 	/**
-	 * Palette entry and configuration form: the child type and the group. Every
-	 * later token is a child argument template, which the schema cannot declare
-	 * as a list; the verbs are the child class's, so none are declared here.
+	 * Palette entry and configuration form: the child type, the group and the
+	 * child argument templates, a variadic the node reads itself; the verbs
+	 * are the child class's, so none are declared here.
 	 *
 	 * @api Dynamic entrypoint.
 	 * @return array<string,mixed>
@@ -398,7 +398,8 @@ final class Vault_Group_Node extends Node {
 			'description' => 'One child per Vault server in a group; forwards config verbs and edges to each, and follows the Vault on reload.',
 			'arguments'   => [
 				[ 'name' => 'child_type', 'type' => 'string', 'required' => true, 'description' => 'Node type built once per server, e.g. HTTP_Out or Remote_Source; each child is named <name>:<vault id>.' ],
-				[ 'name' => 'group', 'type' => 'vault_group', 'required' => true, 'description' => 'Vault group whose servers become children. Later tokens are child arguments after the vault id, with {id} replaced by it.' ],
+				[ 'name' => 'group', 'type' => 'vault_group', 'required' => true, 'description' => 'Vault group whose servers become children.' ],
+				[ 'name' => 'child_args', 'type' => 'string', 'required' => false, 'variadic' => true, 'description' => 'The child\'s arguments after its vault id, with {id} replaced by the id.' ],
 			],
 			'commands'    => [],
 		];

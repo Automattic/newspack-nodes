@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A `variadic` constructor argument collects a node's trailing tokens and is never bound.** `Schema_Reflection` and the browser's `SchemaReflection` skip it, and refuse a schema declaring one anywhere but last with `Invalid argument specification: variadic argument <name> must be the last`. A node reads its tail through `Schema_Reflection::variadic_in( $args )`, which starts at the schema's bound count, and the analyzer counts a broker subclass's own bound arguments.
+- **The Inspector shows each constructor argument in its own field.** `Vault_Group` declares `child_args`, `Remote_Source` declares `pairs` and the browser `Fetcher` declares `command_args`, so `group`, `deadletter_root` and `command` no longer swallow the tail. The Inspector shows a variadic tail as TSL with its quotes, and the editor and the new-node modal write it back through the TSL scanner after an edit of any argument, a quoted word kept whole; `positionalTokens()` in `tslArgs.js` is where both writers start. The verb dialog splits a variadic verb argument the same way.
+- **The console reads a broker's pairs off the class catalog.** It takes where the pairs start from the catalog's bound argument counts, and reads a quoted pair as the broker does. `graphFromTsl()` refuses a call with no catalog, and `useCanonicalNodes()` reports no drift until the PHP class catalog loads.
+
 ## [2.99.0] - 2026-10-07
 
 ### Added

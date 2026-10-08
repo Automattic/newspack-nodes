@@ -19,6 +19,7 @@ import InspectorViewModal from './InspectorViewModal';
 import { CtorField, useFieldRefusals } from './CtorField';
 import { NodePathInput } from './NodePathInput';
 import { tokenize } from '../../runtime/shell-node';
+import { absorbTrailingArgs } from '../utils/tslArgs';
 import { targetsOf } from '../../runtime/node';
 import {
 	typeLabels,
@@ -125,34 +126,6 @@ function OwnedNote( { owner } ) {
 }
 
 /**
- * Bind a token array to the positional slots the schema declares.
- *
- * The parser whitespace-splits a `make_node` or `cmd` line's tail with no
- * schema knowledge, so a free-text argument holding spaces — a scorer's
- * `add_profile <text>`, say — arrives as several tokens. Collapsing the tail
- * into the LAST declared slot is what binds the whole value to a one-argument
- * verb rather than its first word, and what lets the serializer quote it back
- * into one round-trippable token.
- *
- * Idempotent: a list already at or under `count` is returned unchanged, so
- * applying it again on edit write-back never re-splits what it just joined.
- *
- * @param {string[]} args  Token array — a draft invocation's args, draft ctor args, or a live node's `arguments`.
- * @param {number}   count Positional arguments the schema declares.
- * @return {string[]} Args of length <= count, the last slot absorbing the tail.
- */
-function absorbTrailingArgs( args, count ) {
-	const list = Array.isArray( args ) ? args : [];
-	if ( count <= 0 || list.length <= count ) {
-		return list;
-	}
-	return [
-		...list.slice( 0, count - 1 ),
-		list.slice( count - 1 ).join( ' ' ),
-	];
-}
-
-/**
  * Display form of a stored arg: the raw TSL span's VALUE — quote chars and
  * escapes are tokenizer syntax, not data, so they never leak into a field.
  * Storage keeps the span; an edited field writes back plain text, which the
@@ -167,6 +140,18 @@ function argDisplayValue( token ) {
 		return token;
 	}
 	return tokenize( String( token ) ).join( ' ' );
+}
+
+/**
+ * Display form of a constructor argument. A variadic tail keeps its quotes,
+ * since the scanner reads the field back into tokens on write.
+ *
+ * @param {Object} spec  The argument's schema entry.
+ * @param {*}      token Stored arg, or the absorbed variadic tail.
+ * @return {*} The field's value.
+ */
+function ctorDisplayValue( spec, token ) {
+	return spec.variadic ? token : argDisplayValue( token );
 }
 
 /**
@@ -947,7 +932,10 @@ function LockedForm( {
 									type="text"
 									className="topology-edit-row__input"
 									value={
-										argDisplayValue( ctorArgs[ i ] ) ?? ''
+										ctorDisplayValue(
+											spec,
+											ctorArgs[ i ]
+										) ?? ''
 									}
 									disabled
 									readOnly
@@ -1271,7 +1259,7 @@ function EditForm( {
 						<CtorField
 							key={ spec.name }
 							spec={ spec }
-							value={ argDisplayValue( ctorArgs[ i ] ) }
+							value={ ctorDisplayValue( spec, ctorArgs[ i ] ) }
 							nodeNames={ nodeNames }
 							formatters={ formatters }
 							vaults={ vaults }
@@ -1386,7 +1374,7 @@ function VerbArgModal( {
 		args.forEach( ( arg, i ) => {
 			const v = String( values[ i ] ?? '' );
 			// A variadic arg repeats by name, one token per word.
-			const words = arg.variadic ? v.split( /\s+/ ) : [ v ];
+			const words = arg.variadic ? tokenize( v ) : [ v ];
 			for ( const word of words.filter( ( w ) => '' !== w ) ) {
 				tokens.push(
 					'request' === kind ? word : `--${ arg.name }=${ word }`

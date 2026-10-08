@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { graphFromTsl } from '../draftToGraph';
+import brokerSchemas from '../../../../tests/fixtures/broker-schemas.json';
 
 // The SAME request-builder.tsl the PHP TopologyRegistryFixtureTest drives, so
 // both static parsers are verified against identical input: make/connect/
@@ -12,7 +13,7 @@ const FIXTURE = fs.readFileSync(
 
 describe( 'graphFromTsl — request-builder.tsl fixture', () => {
 	const byName = () => {
-		const g = graphFromTsl( FIXTURE );
+		const g = graphFromTsl( FIXTURE, null, brokerSchemas );
 		const map = {};
 		for ( const n of g.nodes ) {
 			map[ n.name ] = n;
