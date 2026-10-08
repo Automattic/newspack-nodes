@@ -343,9 +343,10 @@ coming back is a breadcrumb the browser minted — `_output/<id>`, `_completion`
 replies.
 
 `SSE_In` carries no such gate, because a subscription's records are not replies: `RemoteLink`
-sets `homeToTarget` and re-homes every non-command record to the target, `RemoteIpc` sets it
-false, and a command reply keeps the TO the server addressed to its minter either way, because
-overwriting it would deliver the reply to the subscription's view instead of its receiver.
+sets `routeTo` and sends every non-command record to each target its stamp routes to,
+`RemoteIpc` leaves it null, and a command reply keeps the TO the server addressed to its minter
+either way, because overwriting it would deliver the reply to the subscription's view instead of
+its receiver.
 
 **Observed benefits:**
 

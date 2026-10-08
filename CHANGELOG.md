@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **One `RemoteLinkNode` can carry several stream graphs.** `attach( key, subscribe, target, positions )` rides the link, `park( key )` pauses a rider and `detach( key )` unmounts it; every attach, park and detach in one tick joins one reconnect, on a microtask, and one that changes nothing keeps the open stream. The link routes each record by the stamp its FROM opens with to every rider whose subscription carries it, hands a line opening with no stamp (an empty FROM, or `_stream`) to every rider, and drops a stamped line no rider carries with a rate-limited `no route for <stamp>`. Omitted `positions` resume a rider's dirs where they read to, `null` tails them, and a seed seeks them; a seed or a tail moving a stamp another graph holds, live or parked, throws `RemoteLink: <key> cannot seek <stamp>, which <other> is streaming`. A parked rider keeps its read positions, so the attach that plays it resumes where it stopped, or past it where a live rider read on; a detached one takes its seeds, read positions and skipped-line counts with it, save a dir another graph carries, so a later graph on its stamps tails, and a graph re-attached on another subscription lets the old one's go the same way. The stream's subscription is the sorted set the live graphs carry, so a reorder costs no reconnect. `RemoteLinkNode#graphs` maps each key to its `subscribe`, `target` and `parked`. Each rider's target gets its own `UNPARSEABLE_LINES`, the sum of the `unparseable_lines` frame's `COUNTS` over the stamps it carries, which `SseInNode#unparseableByStamp` keeps per stamp.
+- **`anyCarries( subscribe, stamp )` in `src/runtime/log-stamp.js`** asks whether any subscription carries a stamp, by the JS twin of `Log_Discovery::carries()`, held to it by `tests/fixtures/subscription-carries.json`.
+- **`SseInNode#reseek( subscribe, positions )`** restates where the named subscriptions open, leaving every other one's seed and read position alone. `SseInNode#forget( drop )` forgets the seeds, read positions and skipped-line counts of the dirs a predicate names, and `dropSeeds( drop )` their seeds alone.
+
+### Changed
+
+- **`SseInNode#seekMap()` states a seed or a read position only for a dir a subscription `carries()`.** A glob no longer states every position the stream holds, and a bare topic no longer states its partitions' (`completed` carries `completed`, never `completed.p0`), matching the stamps the server writes.
+- **`SseInNode#homeToTarget` is replaced by `routeTo`.** A function from a record's stamp to the targets a copy goes to, null keeping the record's TO; a command reply is never routed (ADR-7).
+
 ## [2.101.3] - 2026-10-08
 
 ### Fixed

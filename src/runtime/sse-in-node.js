@@ -45,7 +45,7 @@ import {
 	TM_COMMAND,
 	unpack,
 } from './message';
-import { splitStamp } from './log-stamp';
+import { anyCarries, splitStamp } from './log-stamp';
 import { parseCrumb, parsePosition } from './log-position';
 
 /**
@@ -80,6 +80,39 @@ function flatInfo( value ) {
 		info[ parts[ i ] ] = parts[ i + 1 ];
 	}
 	return info;
+}
+
+/**
+ * Split a comma-separated `key=value` token, the shape of `CURSORS` and
+ * `COUNTS`, into its pairs; a pair naming no key is skipped.
+ *
+ * @param {*} token The token; absent yields no pairs.
+ * @return {Array<[string,string]>} Each key with the value after its `=`.
+ */
+function pairsOf( token ) {
+	return String( token ?? '' )
+		.split( ',' )
+		.flatMap( ( pair ) => {
+			const eq = pair.indexOf( '=' );
+			return eq > 0
+				? [ [ pair.slice( 0, eq ), pair.slice( eq + 1 ) ] ]
+				: [];
+		} );
+}
+
+/**
+ * Delete each key of `map` that `drop` names.
+ *
+ * @param {Object<string,*>}           map  The map, changed in place.
+ * @param {( key: string ) => boolean} drop Whether a key goes.
+ * @return {boolean} Whether any key went.
+ */
+function dropKeys( map, drop ) {
+	const gone = Object.keys( map ).filter( drop );
+	for ( const key of gone ) {
+		delete map[ key ];
+	}
+	return gone.length > 0;
 }
 
 /** REST route every stream opens. */
@@ -147,12 +180,12 @@ const MAX_BACKOFF_MS = 30000;
 const PROBE_STREAM_ID = '!';
 
 /**
- * The one field a patron sets on this node from the outside. RemoteLink is a
- * SUBSCRIPTION, so it sets `homeToTarget` and every received record is re-homed
- * to this node's target; RemoteIpc leaves it unset and lets each record keep
- * the TO it arrived with.
+ * The one field a patron sets on this node from the outside: where each
+ * received record goes, by the stamp its FROM opens with. Null keeps the TO
+ * the record arrived with, as RemoteIpc's worker replies need; a function
+ * names the targets a copy goes to, null to keep the TO, or none to drop it.
  *
- * @typedef {{ homeToTarget?: boolean }} PatronConfigured
+ * @typedef {{ routeTo?: ?( ( stamp: string ) => ?string[] ) }} PatronConfigured
  */
 
 /**
@@ -206,6 +239,12 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 		this.terminalDisconnect = null;
 		// Lines the server skipped as unparseable; kept across reconnects.
 		this.unparseableLines = 0;
+		/**
+		 * The same skips per stamp, from each frame's `COUNTS`.
+		 *
+		 * @type {Object<string,number>}
+		 */
+		this.unparseableByStamp = {};
 		this._handleVisibilityChange = () => {
 			if ( 'visible' !== document.visibilityState ) {
 				return;
@@ -289,6 +328,50 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	}
 
 	/**
+	 * Restate where the named subscriptions open, leaving every other one's
+	 * seed and read position alone: one stream carries several readers, and a
+	 * seek on one must not move the rest.
+	 *
+	 * @param {string[]}                                                      subscribe The subscriptions being re-pointed.
+	 * @param {?Object<string,{segment?:number,offset:number}|number|string>} positions Their seek seed; null tails them.
+	 */
+	reseek( subscribe, positions ) {
+		const named = ( dir ) => anyCarries( subscribe, dir );
+		dropKeys( this.lastPositions, named );
+		this.dropSeeds( named );
+		this._positions = { ...this._positions, ...positions };
+	}
+
+	/**
+	 * Forget everything the stream holds for the dirs `drop` names: their
+	 * seeds, their read positions and their skipped-line counts, so the next
+	 * stream on one asks for the tail and counts afresh.
+	 *
+	 * @param {( dir: string ) => boolean} drop Whether a dir is forgotten.
+	 * @return {boolean} Whether a seed or a read position went, which moves
+	 *   where a reopen asks the stream to start.
+	 */
+	forget( drop ) {
+		dropKeys( this.unparseableByStamp, drop );
+		const read = dropKeys( this.lastPositions, drop );
+		return this.dropSeeds( drop ) || read;
+	}
+
+	/**
+	 * Forget the seeds of the dirs `drop` names, keeping their read
+	 * positions: a reader returning resumes past what it read.
+	 *
+	 * @param {( dir: string ) => boolean} drop Whether a dir's seed goes.
+	 * @return {boolean} Whether any seed went.
+	 */
+	dropSeeds( drop ) {
+		const seeds = Object.entries( this._positions || {} );
+		const kept = seeds.filter( ( [ dir ] ) => ! drop( dir ) );
+		this._positions = Object.fromEntries( kept );
+		return kept.length < seeds.length;
+	}
+
+	/**
 	 * Parse the flat `KEY VALUE` connected envelope into plain session fields.
 	 * SLOT and OWNER must arrive well-formed, and SESSION must echo the one the
 	 * stream presented — none when it presented none; anything else rejects
@@ -340,7 +423,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	 * subscription's resume point past them, so a reopen does not read the same
 	 * torn line and count it again.
 	 *
-	 * @param {*} value `COUNT n CURSORS dir=segment:offset,…`.
+	 * @param {*} value `COUNT n COUNTS stamp=n,… CURSORS dir=segment:offset,…`.
 	 */
 	_applyUnparseable( value ) {
 		const info = flatInfo( value );
@@ -353,6 +436,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 			return;
 		}
 		this.unparseableLines += count;
+		this._countByStamp( info.COUNTS );
 		this._seedPositions( info.CURSORS );
 		this.setState( 'UNPARSEABLE_LINES', this.unparseableLines );
 	}
@@ -684,18 +768,6 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 				);
 				return;
 			}
-			// @longform A SUBSCRIPTION (homeToTarget) re-homes each RECORD to
-			// target. Never a command reply: the server addressed that to the
-			// node that minted the command (TO=FROM, ADR-7), so overwriting it
-			// delivers the reply to the subscription's view instead of its
-			// receiver.
-			if (
-				/** @type {PatronConfigured} */ ( this ).homeToTarget &&
-				this.target &&
-				0 === ( message[ TYPE ] & TM_COMMAND )
-			) {
-				message[ TO ] = this.target;
-			}
 			this._trackPosition( message );
 			// Inbound accounting: bytesRead + IoTelemetry (msg DATA only).
 			const size = byteLength( e.data );
@@ -710,8 +782,40 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 						: 'stream error';
 				this.setState( 'ERROR', errText );
 			}
-			super.fill( message );
+			this._deliver( message );
 		} );
+	}
+
+	/**
+	 * Hand one record on. A command reply keeps its TO whatever `routeTo`
+	 * says: the server addressed it to the node that minted the command
+	 * (TO=FROM, ADR-7), so routing it would deliver the reply to a view
+	 * instead of its receiver. A record goes once TO each target its stamp
+	 * routes to, is dropped when none takes it, and keeps its TO when nothing
+	 * routes.
+	 *
+	 * @param {Array} message The positional Message just received.
+	 */
+	_deliver( message ) {
+		const route = /** @type {PatronConfigured} */ ( this ).routeTo;
+		const stamp = splitStamp( message[ FROM ] ).dir;
+		const targets =
+			route && 0 === ( message[ TYPE ] & TM_COMMAND )
+				? route( stamp )
+				: null;
+		if ( null === targets ) {
+			super.fill( message );
+			return;
+		}
+		if ( 0 === targets.length ) {
+			this.dropMessage( message, `no route for ${ stamp }` );
+			return;
+		}
+		for ( const target of targets ) {
+			const copy = message.slice();
+			copy[ TO ] = target;
+			super.fill( copy );
+		}
 	}
 
 	/**
@@ -729,23 +833,21 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	 * A GLOB is the one seek a client cannot state: the server expands it into
 	 * concrete dirs and keys positions by those, so an entry filed under
 	 * `firehose.*` is one nothing reads. Its dirs take the server's default,
-	 * which is this same tail. A non-glob subscription IS its dir's stamp
-	 * (`Log_Discovery::dir_of()` resolves it by direct path), so stating it
-	 * is exact.
+	 * which is this same tail, and a dir it has read resumes like any other.
+	 * A non-glob subscription IS its dir's stamp (`Log_Discovery::dir_of()`
+	 * resolves it by direct path), so stating it is exact. A seed or a read
+	 * position no subscription `carries()` is not stated.
 	 *
 	 * @return {Object<string,{segment?:number,offset:number}|number|string>} Per-subscription seek.
 	 */
 	seekMap() {
-		const stated = { ...( this._positions || {} ) };
-		// A glob's dirs are named by the server, and only by the server.
-		const anyGlob = this.subscribe.some( ( sub ) => sub.includes( '*' ) );
-		for ( const [ dir, at ] of Object.entries( this.lastPositions ) ) {
-			const carried =
-				anyGlob ||
-				this.subscribe.some(
-					( sub ) => sub === dir || dir.startsWith( `${ sub }.` )
-				);
-			if ( carried ) {
+		/** @type {Object<string,{segment?:number,offset:number}|number|string>} */
+		const stated = {};
+		for ( const [ dir, at ] of [
+			...Object.entries( this._positions || {} ),
+			...Object.entries( this.lastPositions ),
+		] ) {
+			if ( anyCarries( this.subscribe, dir ) ) {
 				stated[ dir ] = at;
 			}
 		}
@@ -805,15 +907,28 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	 * @param {*} token `dir=<position>` pairs, comma-separated.
 	 */
 	_seedPositions( token ) {
-		String( token ?? '' )
-			.split( ',' )
-			.forEach( ( pair ) => {
-				const eq = pair.indexOf( '=' );
-				const at = parsePosition( pair.slice( eq + 1 ) );
-				if ( eq > 0 && at ) {
-					this.lastPositions[ pair.slice( 0, eq ) ] = at;
-				}
-			} );
+		for ( const [ dir, position ] of pairsOf( token ) ) {
+			const at = parsePosition( position );
+			if ( at ) {
+				this.lastPositions[ dir ] = at;
+			}
+		}
+	}
+
+	/**
+	 * Add one frame's per-stamp skips to each stamp's running count. A pair
+	 * naming no stamp, or no positive count, adds nothing.
+	 *
+	 * @param {*} token `stamp=n` pairs, comma-separated; absent adds nothing.
+	 */
+	_countByStamp( token ) {
+		for ( const [ stamp, count ] of pairsOf( token ) ) {
+			const n = Number( count );
+			if ( Number.isSafeInteger( n ) && n > 0 ) {
+				this.unparseableByStamp[ stamp ] =
+					( this.unparseableByStamp[ stamp ] ?? 0 ) + n;
+			}
+		}
 	}
 
 	/**

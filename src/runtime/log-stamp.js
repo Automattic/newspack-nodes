@@ -39,6 +39,46 @@ export function splitStamp( from ) {
 	};
 }
 
+/** Each glob subscription `carries()` has met, compiled once. */
+const GLOBS = new Map();
+
+/**
+ * Whether a subscription brings records stamped `stamp`: its own name
+ * exactly, or a glob whose `*` matches within one path segment. Every other
+ * character is literal, as in PHP `Log_Discovery::carries()`, which
+ * `tests/fixtures/subscription-carries.json` holds it to.
+ *
+ * @param {string} sub   A subscription, as `subscribe` lists it.
+ * @param {string} stamp A record's stamp, as `splitStamp()` reads it.
+ * @return {boolean} True when the subscription carries the stamp.
+ */
+function carries( sub, stamp ) {
+	if ( ! sub.includes( '*' ) ) {
+		return sub === stamp;
+	}
+	let glob = GLOBS.get( sub );
+	if ( ! glob ) {
+		const pattern = sub
+			.split( '*' )
+			.map( ( part ) => part.replace( /[.+?^${}()|[\]\\]/g, '\\$&' ) )
+			.join( '[^/]*' );
+		glob = new RegExp( `^${ pattern }$` );
+		GLOBS.set( sub, glob );
+	}
+	return glob.test( stamp );
+}
+
+/**
+ * Whether any of a stream's subscriptions carries `stamp`.
+ *
+ * @param {string[]} subscribe The subscriptions, as `subscribe` lists them.
+ * @param {string}   stamp     A record's stamp, as `splitStamp()` reads it.
+ * @return {boolean} True when one of them carries the stamp.
+ */
+export function anyCarries( subscribe, stamp ) {
+	return subscribe.some( ( sub ) => carries( sub, stamp ) );
+}
+
 /**
  * The spoke and the kind a remote log's name carries, the twin of PHP
  * `Log_Discovery::remote_of()`, held to it by `tests/fixtures/log-remotes.json`;
