@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.103.0] - 2026-10-08
+
 ### Changed
 
 - **A dashboard group's Tap is `<group>:shell`, no longer `shell:<group>`.** `shellGroup( group )` names it and `egressPath( group, ci )` composes `<group>:shell/_http/<ci>`; `mountExospine` claims a group from a target whose head ends in `:shell`, so a target still spelled `shell:<group>` claims no Tap and its commands answer `NOT_AVAILABLE`. `connect overview:shell` watches the `overview` group. `_shell`, the interactive session's Tap, keeps its name.
