@@ -469,7 +469,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		open: openTopology,
 		topology: openedTopology,
 		error: openError,
-	} = useTopology( { scope: 'editor' } );
+	} = useTopology( { scope: 'editor', groupChildren: false } );
 	// Two catalogs: PHP (HTTP; workers/edit) and JS (browser make_node).
 	const phpCatalog = useClassCatalog( { enabled: true } );
 	const catalogClasses = phpCatalog.classes;
@@ -606,8 +606,13 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	);
 
 	// The composed `topologies expand` result for that include set.
-	const { expansion, error: expandError } =
-		useExpandedIncludes( activeIncludes );
+	const { expansion, error: expandError } = useExpandedIncludes(
+		activeIncludes,
+		{
+			// An upload is asked in the form the editor loads.
+			groupChildren: ! pendingUpload && 'edit' !== mode,
+		}
+	);
 	// Last expand error we toasted; `mode` in the deps re-fires otherwise.
 	const toastedExpandErrorRef = useRef( null );
 	// Previous expansion, so reconcile can diff old vs new on each change.
@@ -714,7 +719,9 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 					) } but no expansion`
 				);
 			}
-			primeExpandedIncludes( includes, fetchedExpansion );
+			primeExpandedIncludes( includes, fetchedExpansion, {
+				groupChildren: false,
+			} );
 			setDraftCatalog( catalogClasses );
 			// Sync ref: re-fetch diffs vs THIS, not EMPTY.
 			seededExpansionRef.current = fetchedExpansion;

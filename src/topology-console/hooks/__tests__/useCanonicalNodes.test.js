@@ -1,6 +1,6 @@
 import { renderHook, waitFor } from '@testing-library/react';
 
-import { Core } from '@newspack-nodes/runtime';
+import { Core, VALUE } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { useCanonicalNodes, driftNodeIds } from '../useCanonicalNodes';
 import brokerSchemas from '../../../../tests/fixtures/broker-schemas.json';
@@ -65,6 +65,10 @@ describe( 'useCanonicalNodes', () => {
 			timeout: 4000,
 		} );
 		expect( result.current.has( 'spoke-q3' ) ).toBe( true );
+		// The drift set compares against live nodes, members included.
+		expect( send.mock.calls[ 0 ][ 0 ][ VALUE ].arguments ).toEqual( [
+			'hub-9',
+		] );
 	}, 15000 );
 
 	it.each( [

@@ -1322,7 +1322,10 @@ and a per-child copy of each statement naming the group — through the same
 `Vault_Group_Node::expand()` and `Node::sibling_name_of()` the runtime builds with, reading
 membership through the same `Vault::in_group()`. The write set, conflicts, GC and graph
 therefore see every member's cursor and every member's edge. `dump_config` emits only the
-group and its recorded commands, since the group rebuilds its children from them.
+group and its recorded commands, since the group rebuilds its children from them. The
+console's editor is the one exception: it seeds from a flatten that keeps each group as written
+(`group_children` false on `topologies get` and `expand`), with the group's own `pair` edges
+drawn on it, so its document holds no line about a member.
 
 Group configuration goes through the group: a verb sent to `<group>:config` reaches every
 child and, when every child accepted it and it changed a child's configuration, is recorded

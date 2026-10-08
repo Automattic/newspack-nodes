@@ -191,7 +191,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 			'source'                => self::source_of( $sources ),
 			'tsl'                   => $tsl,
 			'includes'              => $includes,
-			'expanded'              => Topology_Analyzer::expand( $includes ),
+			'expanded'              => Topology_Analyzer::expand( $includes, true === $args['group_children'] ),
 			'resolved_config_edges' => $resolved_config_edges,
 			'owned'                 => Topology_Analyzer::owned_nodes( $name ),
 		];
@@ -523,14 +523,14 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * each file, so the file-name-safe pattern is what keeps a path out of the
 	 * argument.
 	 *
-	 * @param array<array-key,mixed> $args Bound verb arguments: names, one topology name each.
+	 * @param array<array-key,mixed> $args Bound verb arguments: names, one topology name each, and group_children.
 	 *
 	 * @return array<int|string,mixed> `{nodes, edges, tree, hulls}`, from Topology_Analyzer::expand().
 	 * @throws \RuntimeException On a name that is not file-name safe, an unknown include, a cycle, or a conflicting make_node.
 	 */
 	public static function cmd_expand( array $args ): array {
 		$names = \array_values( \array_map( static fn ( mixed $name ): string => self::require_valid_name( Core::as_string( $name ) ), Core::arr( $args['names'] ) ) );
-		return Topology_Analyzer::expand( $names );
+		return Topology_Analyzer::expand( $names, true === $args['group_children'] );
 	}
 
 	/**
@@ -624,7 +624,10 @@ class Topologies_CI_Node extends Service_CI_Node {
 					'name'        => 'get',
 					'capability'  => Capabilities::READ,
 					'description' => 'Read a topology .tsl by name.',
-					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
+					'args'        => [
+						[ 'name' => 'name', 'type' => 'string', 'required' => true ],
+						[ 'name' => 'group_children', 'type' => 'bool', 'default' => true, 'description' => 'False ships the expansion with each Vault_Group as written, none of its members: the editor seeds from it.' ],
+					],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_get( $args ),
 				],
 				[
@@ -658,7 +661,10 @@ class Topologies_CI_Node extends Service_CI_Node {
 					'name'        => 'expand',
 					'capability'  => Capabilities::READ,
 					'description' => 'Compose an include set into one graph with provenance (informational).',
-					'args'        => [ [ 'name' => 'names', 'type' => 'string', 'required' => true, 'variadic' => true ] ],
+					'args'        => [
+						[ 'name' => 'names', 'type' => 'string', 'required' => true, 'variadic' => true ],
+						[ 'name' => 'group_children', 'type' => 'bool', 'default' => true, 'description' => 'False leaves each Vault_Group as written, none of its members: the editor seeds from it.' ],
+					],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_expand( $args ),
 				],
 				[

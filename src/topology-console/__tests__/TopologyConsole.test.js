@@ -278,8 +278,12 @@ jest.mock( '../hooks/useCatalogs', () => ( {
 	useVaults: () => ( { vaults: [], loading: false, error: null } ),
 	// The slice, faked over the promise the fixtures still seed: `open()` asks
 	// `fetchTopology`, and what it resolves becomes the published answer.
-	useTopology: () => {
+	useTopology: ( opts ) => {
 		const { useCallback, useState } = require( '@wordpress/element' );
+		globalThis.__topologyOpts = {
+			...globalThis.__topologyOpts,
+			[ opts.scope ]: opts,
+		};
 		const [ topology, setTopology ] = useState( null );
 		const [ error, setError ] = useState( null );
 		const open = useCallback( ( name ) => {
@@ -5458,6 +5462,127 @@ describe( 'TopologyConsole boot', () => {
 			);
 		} );
 
+		const MEMBER_FORM = {
+			nodes: [
+				{
+					name: 'spokes',
+					class: 'Vault_Group',
+					args: [ 'Remote_Source', 'spoke' ],
+					origin: [ 'job-intake' ],
+					via: [ 'job-intake' ],
+				},
+				{
+					name: 'spokes:tw0',
+					class: 'Remote_Source',
+					args: [ 'tw0' ],
+					origin: [ 'job-intake' ],
+					via: [ 'job-intake' ],
+				},
+			],
+			edges: [],
+			tree: { 'job-intake': {} },
+			hulls: { 'job-intake': [ 'spokes', 'spokes:tw0' ] },
+		};
+		const GROUP_FORM = {
+			...MEMBER_FORM,
+			nodes: MEMBER_FORM.nodes.slice( 0, 1 ),
+			hulls: { 'job-intake': [ 'spokes' ] },
+		};
+		// Answers `expand` in the form its flag asks for.
+		const answerExpandByForm = () =>
+			globalThis.__activateSend.mockImplementation( ( msg ) => {
+				if ( 'topologies' !== msg?.to || 'expand' !== msg?.verb ) {
+					return null;
+				}
+				return msg.args.includes( '--group_children=false' )
+					? GROUP_FORM
+					: MEMBER_FORM;
+			} );
+		const expandArgs = () =>
+			globalThis.__activateSend.mock.calls
+				.map( ( [ m ] ) => m )
+				.filter( ( m ) => 'expand' === m.verb )
+				.map( ( m ) => m.args );
+
+		it( 'asks view mode for the members even after the editor primed the groups as written', async () => {
+			answerExpandByForm();
+			mockTopologyGet( 'wombat-top', 'include job-intake\n', GROUP_FORM );
+			const { getByText } = await renderConsoleInEditMode();
+			// Only now does the viewed topology include it, so view mode has
+			// asked nothing yet and a primed entry would answer it.
+			hooks.catalog = {
+				partitions: { demo: 1 },
+				active: [ 'demo' ],
+				entries: [
+					{
+						name: 'demo',
+						active: true,
+						num_partitions: 1,
+						includes: [ 'job-intake' ],
+					},
+				],
+			};
+
+			await act( async () => {
+				fireEvent.click( getByText( 'view' ) );
+			} );
+
+			await waitForTick( () =>
+				expect( expandArgs() ).toContainEqual( [ 'job-intake' ] )
+			);
+		} );
+
+		it( 'asks for an upload in the form the editor loads, whichever mode the answer finds', async () => {
+			answerExpandByForm();
+			mockTopologyGet( 'wombat-top', 'make_node Echo own-echo\n' );
+			const { getByText } = await renderConsoleInEditMode();
+
+			globalThis.__uploadTsl =
+				'include job-intake\nmake_node Null mine\n';
+			await act( async () => {
+				fireEvent.click( getByText( 'upload' ) );
+				fireEvent.click( getByText( 'view' ) );
+			} );
+			await waitForTick( () =>
+				expect( document.body.textContent ).toContain( 'Loaded up.tsl' )
+			);
+
+			expect( expandArgs() ).toEqual( [
+				[ 'job-intake', '--group_children=false' ],
+			] );
+		}, 15000 );
+
+		it( 'seeds the editor from the groups as written, not their members', async () => {
+			mockTopologyGet( 'wombat-top', 'make_node Echo own-echo\n' );
+			mockTopologyExpand( [ 'job-intake' ], {
+				nodes: [
+					{
+						name: 'spokes',
+						class: 'Vault_Group',
+						args: [ 'Remote_Source', 'spoke' ],
+						origin: [ 'job-intake' ],
+						via: [ 'job-intake' ],
+					},
+				],
+				edges: [],
+				tree: { 'job-intake': {} },
+				hulls: { 'job-intake': [ 'spokes' ] },
+			} );
+
+			await renderConsoleInEditMode();
+			await dropTopologyFromPalette( 'job-intake', { x: 500, y: 300 } );
+
+			expect( globalThis.__topologyOpts.editor.groupChildren ).toBe(
+				false
+			);
+			const asked = globalThis.__activateSend.mock.calls
+				.map( ( [ m ] ) => m )
+				.filter( ( m ) => 'expand' === m.verb );
+			expect( asked.map( ( m ) => m.args ) ).toEqual( [
+				[ 'job-intake', '--group_children=false' ],
+			] );
+		} );
+
 		it( 'dropping a topology emits an include and saves the collapsed form', async () => {
 			mockTopologyGet( 'wombat-top', 'make_node Echo own-echo\n' );
 			mockTopologyExpand( [ 'performance' ], {
@@ -5481,7 +5606,7 @@ describe( 'TopologyConsole boot', () => {
 			expect( globalThis.__activateSend ).toHaveBeenCalledWith( {
 				to: 'topologies',
 				verb: 'expand',
-				args: [ 'performance' ],
+				args: [ 'performance', '--group_children=false' ],
 			} );
 
 			// The borrowed node landed with a COMPUTED position (not the
@@ -5639,7 +5764,10 @@ describe( 'TopologyConsole boot', () => {
 				}
 				// `args` is a token array; the old string compare never
 				// matched, so BOTH drops got the combined expansion.
-				const asked = [].concat( msg.args ).join( ' ' );
+				const asked = []
+					.concat( msg.args )
+					.filter( ( token ) => ! token.startsWith( '--' ) )
+					.join( ' ' );
 				return 'performance' === asked
 					? {
 							nodes: [

@@ -35,6 +35,21 @@ const EMPTY = { nodes: [], edges: [], tree: {}, hulls: {} };
 const cache = new Map();
 
 /**
+ * The cache key and command tokens of an include set: its names, then the
+ * flag that asks for each Vault_Group as written when the editor wants that.
+ *
+ * @param {string[]} includes      Directly-declared includes.
+ * @param {boolean}  groupChildren False asks for the groups without members.
+ * @return {string} The joined key; the tokens are its words.
+ */
+function expansionKey( includes, groupChildren ) {
+	return [
+		...includes,
+		...( groupChildren ? [] : [ '--group_children=false' ] ),
+	].join( ' ' );
+}
+
+/**
  * Fill in whatever an expansion left out.
  *
  * Both ways into the cache pass through here — the `topologies expand` reply
@@ -69,14 +84,20 @@ export function invalidateExpandedIncludes() {
  * needs no entry, and filing a missing expansion would leave a real include
  * set answered by an empty graph the hook then never asks about again.
  *
- * @param {string[]} includes  Directly-declared includes the expansion covers.
- * @param {?Object}  expansion `{ nodes, edges, tree, hulls }`.
+ * @param {string[]} includes                Directly-declared includes the expansion covers.
+ * @param {?Object}  expansion               `{ nodes, edges, tree, hulls }`.
+ * @param {Object}   [options]               Options.
+ * @param {boolean}  [options.groupChildren] False files the form that leaves each Vault_Group as written.
  */
-export function primeExpandedIncludes( includes, expansion ) {
+export function primeExpandedIncludes(
+	includes,
+	expansion,
+	{ groupChildren = true } = {}
+) {
 	if ( ! includes || ! includes.length || ! expansion ) {
 		return;
 	}
-	cache.set( includes.join( ' ' ), shape( expansion ) );
+	cache.set( expansionKey( includes, groupChildren ), shape( expansion ) );
 }
 
 /**
@@ -93,15 +114,19 @@ export function primeExpandedIncludes( includes, expansion ) {
  * `make_node` or an unknown include name never resolves, so a spinner gated on
  * the cache alone would turn forever.
  *
- * @param {string[]} [includes] The include set to expand; a missing one reads
- *                              as empty.
+ * @param {string[]} [includes]              The include set to expand; a missing one reads
+ *                                           as empty.
+ * @param {Object}   [options]               Options.
+ * @param {boolean}  [options.groupChildren] False asks for each Vault_Group as
+ *                                           written, none of its members: the editor's form.
  * @return {{expansion: Object, error: string|null, loading: boolean}} The
  *         composed `{ nodes, edges, tree, hulls }` — empty until the answer
  *         lands, and empty when it was refused — the refusal message, and
  *         whether a round trip is in flight.
  */
-export function useExpandedIncludes( includes ) {
-	const key = ( includes || [] ).join( ' ' );
+export function useExpandedIncludes( includes, { groupChildren = true } = {} ) {
+	const names = includes || [];
+	const key = 0 === names.length ? '' : expansionKey( names, groupChildren );
 
 	// Bumped when the cache moves, so this re-reads it.
 	const [ , bump ] = useState( 0 );
