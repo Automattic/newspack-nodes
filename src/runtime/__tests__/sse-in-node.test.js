@@ -858,6 +858,58 @@ describe( 'seekMap — what this node asks each subscription for', () => {
 			mapFor( [ 'a.p0', 'b.p0' ], { 'a.p0': { segment: 2, offset: 7 } } )
 		).toEqual( { 'a.p0': { segment: 2, offset: 7 }, 'b.p0': SEEK_END } );
 	} );
+
+	it( 'states a dir once when a glob and an exact name both carry it', () => {
+		const sse = newSseIn();
+		sse.arguments = [ 'errors.*,errors.p3' ];
+		sse.lastPositions = { 'errors.p3': { segment: 9, offset: 41 } };
+		expect( sse.seekMap() ).toEqual( {
+			'errors.p3': { segment: 9, offset: 41 },
+		} );
+	} );
+
+	it( 'drops a read position no subscription carries any more', () => {
+		const sse = newSseIn();
+		sse.arguments = [ 'tablestats.p0' ];
+		sse.lastPositions = {
+			'tablestats.p0': { segment: 3, offset: 17 },
+			'jobstats.p0': { segment: 5, offset: 88 },
+		};
+		expect( sse.seekMap() ).toEqual( {
+			'tablestats.p0': { segment: 3, offset: 17 },
+		} );
+	} );
+
+	it( 'a glob states only the read positions of dirs it matches', () => {
+		const sse = newSseIn();
+		sse.arguments = [ 'errors.*' ];
+		sse.lastPositions = {
+			'errors.p6': { segment: 12, offset: 305 },
+			'jobstats.p0': { segment: 5, offset: 88 },
+		};
+		expect( sse.seekMap() ).toEqual( {
+			'errors.p6': { segment: 12, offset: 305 },
+		} );
+	} );
+
+	it( 'states no seed its subscriptions do not carry', () => {
+		const sse = newSseIn();
+		sse.arguments = [ 'tablestats.p0' ];
+		sse.positions = {
+			'tablestats.p0': { segment: 8, offset: 23 },
+			'jobstats.p0': SEEK_START,
+		};
+		expect( sse.seekMap() ).toEqual( {
+			'tablestats.p0': { segment: 8, offset: 23 },
+		} );
+	} );
+
+	it( 'a bare topic states no position of a partition under it', () => {
+		const sse = newSseIn();
+		sse.arguments = [ 'completed' ];
+		sse.lastPositions = { 'completed.p4': { segment: 2, offset: 63 } };
+		expect( sse.seekMap() ).toEqual( { completed: SEEK_END } );
+	} );
 } );
 
 // @longform A dashboard that asks to replay from the START of the log is
@@ -1443,13 +1495,12 @@ test( 'the watchdog tick emits nothing into the data sink', () => {
 	}
 } );
 
-test( 'a command reply keeps its own TO; only records are re-homed', () => {
-	// A subscription re-homes RECORDS to its target. A reply is already
+test( 'a command reply keeps its own TO; only records are routed', () => {
+	// A subscription routes RECORDS by stamp. A reply is already
 	// addressed — the server sent it TO the node that minted the command
 	// (ADR-7) — so clobbering its TO delivers it to the view instead.
 	const { sse, routed } = makeSseIn();
-	sse.target = 'stream-tee';
-	sse.homeToTarget = true;
+	sse.routeTo = () => [ 'stream-tee' ];
 	sse.start();
 	routed.length = 0;
 
@@ -1475,11 +1526,10 @@ test( 'a command reply keeps its own TO; only records are re-homed', () => {
 
 // The view used to carry a TM_COMMAND guard because replies reached it. This
 // is the invariant that made that guard redundant, stated as a rule rather
-// than as one case: NO reply is ever re-homed, whatever its payload holds.
-test( 'no command reply is re-homed, whatever its VALUE looks like', () => {
+// than as one case: NO reply is ever routed, whatever its payload holds.
+test( 'no command reply is routed, whatever its VALUE looks like', () => {
 	const { sse, routed } = makeSseIn();
-	sse.target = 'stream-tee';
-	sse.homeToTarget = true;
+	sse.routeTo = () => [ 'stream-tee' ];
 	sse.start();
 	routed.length = 0;
 
@@ -1500,6 +1550,182 @@ test( 'no command reply is re-homed, whatever its VALUE looks like', () => {
 		'status-receiver',
 		'status-receiver',
 	] );
+} );
+
+test( 'routeTo delivers one copy of a record to every target its stamp names', () => {
+	const { sse, routed } = makeSseIn( {
+		subscribe: [ 'errors.*', 'errors.p3' ],
+	} );
+	const asked = [];
+	sse.routeTo = ( stamp ) => {
+		asked.push( stamp );
+		return 'errors.p3' === stamp ? [ 'glob:stream', 'exact:stream' ] : [];
+	};
+	sse.start();
+	routed.length = 0;
+	const record = newMessage();
+	record[ TYPE ] = TM_BYTESTREAM;
+	record[ FROM ] = 'errors.p3/job-worker.p2/errors';
+	record[ ID ] = '6:30:11';
+	record[ VALUE ] = 'a line\n';
+	FakeEventSource.last.dispatch( 'msg', JSON.stringify( record ) );
+	expect( asked ).toEqual( [ 'errors.p3' ] );
+	expect( routed.map( ( m ) => m[ TO ] ) ).toEqual( [
+		'glob:stream',
+		'exact:stream',
+	] );
+	expect( routed.map( ( m ) => m[ VALUE ] ) ).toEqual( [
+		'a line\n',
+		'a line\n',
+	] );
+	// Each copy is one forward through this node.
+	expect( sse.counter ).toBe( 2 );
+	expect( sse.lastPositions[ 'errors.p3' ] ).toEqual( {
+		segment: 6,
+		offset: 41,
+	} );
+} );
+
+test( 'a route answering null keeps the TO the record arrived with', () => {
+	const { sse, routed } = makeSseIn( { subscribe: [ 'kea.p4' ] } );
+	sse.routeTo = () => null;
+	sse.start();
+	routed.length = 0;
+	const record = newMessage();
+	record[ TYPE ] = TM_BYTESTREAM;
+	record[ FROM ] = 'kea.p4';
+	record[ TO ] = 'tern:view';
+	record[ ID ] = '2:0:7';
+	FakeEventSource.last.dispatch( 'msg', JSON.stringify( record ) );
+	expect( routed.map( ( m ) => m[ TO ] ) ).toEqual( [ 'tern:view' ] );
+} );
+
+test( 'a record whose stamp no route names is dropped, not delivered', () => {
+	expectConsoleWarn( 'WARNING: no route for stray.p9' );
+	const { sse, routed } = makeSseIn( { subscribe: [ 'kea.p4' ] } );
+	sse.routeTo = () => [];
+	const dropped = jest.spyOn( sse, 'dropMessage' );
+	sse.start();
+	routed.length = 0;
+	const record = newMessage();
+	record[ TYPE ] = TM_BYTESTREAM;
+	record[ FROM ] = 'stray.p9';
+	record[ ID ] = '1:0:5';
+	FakeEventSource.last.dispatch( 'msg', JSON.stringify( record ) );
+	expect( routed ).toEqual( [] );
+	expect( dropped ).toHaveBeenCalledWith(
+		expect.any( Array ),
+		'no route for stray.p9'
+	);
+} );
+
+test( 'reseek replaces only the named subscriptions’ seeds and read positions', () => {
+	const sse = newSseIn();
+	sse.arguments = [ 'jobstats.p0,topicprobe.p0' ];
+	sse.reseek( [ 'jobstats.p0' ], { 'jobstats.p0': SEEK_START } );
+	sse.lastPositions = {
+		'jobstats.p0': { segment: 2, offset: 64 },
+		'topicprobe.p0': { segment: 7, offset: 900 },
+	};
+	sse.reseek( [ 'jobstats.p0' ], {
+		'jobstats.p0': { segment: 1, offset: 13 },
+	} );
+	expect( sse.seekMap() ).toEqual( {
+		'jobstats.p0': { segment: 1, offset: 13 },
+		'topicprobe.p0': { segment: 7, offset: 900 },
+	} );
+} );
+
+test( 'reseek with no seed tails the named subscriptions and no others', () => {
+	const sse = newSseIn();
+	sse.arguments = [ 'errors.*,topicprobe.p0' ];
+	sse.reseek( [ 'errors.*' ], { 'errors.p2': SEEK_START } );
+	sse.lastPositions = {
+		'errors.p2': { segment: 4, offset: 311 },
+		'topicprobe.p0': { segment: 7, offset: 900 },
+	};
+	sse.reseek( [ 'errors.*' ], null );
+	// A glob's dirs fall to the server's default, which is the tail.
+	expect( sse.seekMap() ).toEqual( {
+		'topicprobe.p0': { segment: 7, offset: 900 },
+	} );
+} );
+
+test( 'dropSeeds forgets the seeds a predicate names, keeping reads', () => {
+	const sse = newSseIn();
+	sse.arguments = [ 'jobstats.p0,topicprobe.p0' ];
+	sse.reseek( [ 'jobstats.p0', 'topicprobe.p0' ], {
+		'jobstats.p0': SEEK_START,
+		'topicprobe.p0': { segment: 3, offset: 52 },
+	} );
+	sse.lastPositions = { 'jobstats.p0': { segment: 6, offset: 78 } };
+	sse.dropSeeds( ( dir ) => 'jobstats.p0' === dir );
+	expect( sse.positions ).toEqual( {
+		'topicprobe.p0': { segment: 3, offset: 52 },
+	} );
+	expect( sse.lastPositions ).toEqual( {
+		'jobstats.p0': { segment: 6, offset: 78 },
+	} );
+} );
+
+test( 'forget answers whether it dropped anything', () => {
+	const sse = newSseIn();
+	sse.arguments = [ 'jobstats.p0,topicprobe.p0' ];
+	sse.lastPositions = { 'topicprobe.p0': { segment: 2, offset: 37 } };
+	expect( sse.forget( ( dir ) => 'jobstats.p0' === dir ) ).toBe( false );
+	expect( sse.forget( ( dir ) => 'topicprobe.p0' === dir ) ).toBe( true );
+	sse.reseek( [ 'jobstats.p0' ], { 'jobstats.p0': SEEK_START } );
+	expect( sse.forget( ( dir ) => 'jobstats.p0' === dir ) ).toBe( true );
+} );
+
+test( 'forget drops the seeds and read positions a predicate names', () => {
+	const sse = newSseIn();
+	sse.arguments = [ 'jobstats.p0,topicprobe.p0' ];
+	sse.reseek( [ 'jobstats.p0', 'topicprobe.p0' ], {
+		'jobstats.p0': SEEK_START,
+		'topicprobe.p0': { segment: 3, offset: 52 },
+	} );
+	sse.lastPositions = {
+		'jobstats.p0': { segment: 6, offset: 78 },
+		'topicprobe.p0': { segment: 4, offset: 19 },
+	};
+	sse.forget( ( dir ) => 'jobstats.p0' === dir );
+	expect( sse.positions ).toEqual( {
+		'topicprobe.p0': { segment: 3, offset: 52 },
+	} );
+	expect( sse.lastPositions ).toEqual( {
+		'topicprobe.p0': { segment: 4, offset: 19 },
+	} );
+} );
+
+test( 'unparseable_lines adds each stamp’s COUNTS to its own running count', () => {
+	const { sse } = makeSseIn( {
+		subscribe: [ 'jobstats.p0', 'topicprobe.p0' ],
+	} );
+	sse.start();
+	FakeEventSource.last.dispatch(
+		'unparseable_lines',
+		unparseableFrame( 'COUNT 7 COUNTS jobstats.p0=4,topicprobe.p0=3' )
+	);
+	FakeEventSource.last.dispatch(
+		'unparseable_lines',
+		unparseableFrame( 'COUNT 2 COUNTS jobstats.p0=2' )
+	);
+	expect( sse.unparseableLines ).toBe( 9 );
+	expect( sse.unparseableByStamp ).toEqual( {
+		'jobstats.p0': 6,
+		'topicprobe.p0': 3,
+	} );
+} );
+
+test( 'a COUNTS pair that names no stamp or no count adds nothing', () => {
+	const { sse } = makeSseIn( { subscribe: [ 'jobstats.p0' ] } );
+	sse.start();
+	FakeEventSource.last.dispatch(
+		'unparseable_lines',
+		unparseableFrame( 'COUNT 5 COUNTS =2,jobstats.p0=x,kea.p1=0,kea.p2=3' )
+	);
+	expect( sse.unparseableByStamp ).toEqual( { 'kea.p2': 3 } );
 } );
 
 test( 'reconnect backoff widens against a dead endpoint and resets on connect', () => {
@@ -1682,14 +1908,14 @@ test( 'tracks segment:offset:length from each frame, resuming at offset+length',
 	sse.start();
 	const m = newMessage();
 	m[ TYPE ] = TM_BYTESTREAM;
-	m[ FROM ] = 'completed.p0/request-builder';
+	// The server stamps an exact subscription's records with the sub itself.
+	m[ FROM ] = 'completed/request-builder';
 	m[ ID ] = '4:623851:120';
 	m[ VALUE ] = 'a line';
 	FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );
-	// Keyed by the opaque partition dir name; offset = record offset + length.
+	// Keyed by the stamp; offset = record offset + length.
 	expect( sse.seekMap() ).toEqual( {
-		'completed.p0': { segment: 4, offset: 623851 + 120 },
-		completed: SEEK_END,
+		completed: { segment: 4, offset: 623851 + 120 },
 	} );
 } );
 
@@ -1698,7 +1924,7 @@ test( 'a command-reply ID (not a breadcrumb) is not tracked as a position', () =
 	sse.start();
 	const m = newMessage();
 	m[ TYPE ] = TM_BYTESTREAM;
-	m[ FROM ] = 'completed.p0/x';
+	m[ FROM ] = 'completed/x';
 	m[ ID ] = 'byckewr4dozme4rx5j1erloi1tjvmo29';
 	m[ VALUE ] = {};
 	FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );

@@ -5,7 +5,7 @@
 
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { remoteOf, splitStamp } from '../log-stamp';
+import { anyCarries, remoteOf, splitStamp } from '../log-stamp';
 
 describe( 'splitStamp parity with Log_Discovery::dir_from_stamp()', () => {
 	const cases = JSON.parse(
@@ -68,5 +68,38 @@ describe( 'remoteOf parity with Log_Discovery::remote_of()', () => {
 		null,
 	] )( 'reads no remote log in %p', ( name ) => {
 		expect( remoteOf( name ) ).toBeNull();
+	} );
+} );
+
+describe( 'carries parity with Log_Discovery::carries()', () => {
+	const cases = JSON.parse(
+		readFileSync(
+			join(
+				__dirname,
+				'../../../tests/fixtures/subscription-carries.json'
+			),
+			'utf8'
+		)
+	);
+
+	it.each( cases )( '%s', ( _label, sub, stamp, expected ) => {
+		expect( anyCarries( [ sub ], stamp ) ).toBe( expected );
+	} );
+} );
+
+describe( 'carries', () => {
+	it( 'compiles a glob once, however often it is asked', () => {
+		const compile = jest.spyOn( global, 'RegExp' );
+		try {
+			expect( anyCarries( [ 'wren-4417.*' ], 'wren-4417.p2' ) ).toBe(
+				true
+			);
+			expect( anyCarries( [ 'wren-4417.*' ], 'wren-4417.p9' ) ).toBe(
+				true
+			);
+			expect( compile ).toHaveBeenCalledTimes( 1 );
+		} finally {
+			compile.mockRestore();
+		}
 	} );
 } );

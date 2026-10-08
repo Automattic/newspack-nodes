@@ -6,6 +6,11 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`SseInNode#homeToTarget` is removed; set `routeTo`.** It takes a record's
+  stamp and answers the targets a copy goes to, `[]` to drop it, or null to
+  keep the TO it arrived with. `sse.homeToTarget = true` beside a `target`
+  becomes `sse.routeTo = () => [ target ]`; leaving it unset keeps each TO, as
+  before.
 - **A topology writing `<partition>` fails to load; write `{partition}`.** The
   node resolves `{partition}` in the arguments its schema marks, at the
   worker's partition, so `<config:logs_dir>/jobs.p<partition>` becomes
