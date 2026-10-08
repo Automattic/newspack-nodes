@@ -536,15 +536,15 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * A refused stamp as its log line shows it: quoted, so an empty one reads
-	 * `""`, control bytes rendered by `Core::terminal_safe()`, and cut to
-	 * LOGGED_STAMP_BYTES with its full length named.
+	 * A refused stamp as its log line shows it: a JSON string, so an empty one
+	 * reads `""` and a newline or any other control byte stays escaped on the
+	 * one line, cut to LOGGED_STAMP_BYTES with its full length named.
 	 *
 	 * @param string $stamp The stamp a spoke sent.
 	 */
 	private static function loggable( string $stamp ): string {
 		$length = \strlen( $stamp );
-		$shown  = '"' . Core::terminal_safe( \substr( $stamp, 0, self::LOGGED_STAMP_BYTES ) ) . '"';
+		$shown  = (string) \wp_json_encode( \substr( $stamp, 0, self::LOGGED_STAMP_BYTES ), \JSON_UNESCAPED_SLASHES | \JSON_INVALID_UTF8_SUBSTITUTE );
 		return $length > self::LOGGED_STAMP_BYTES ? "{$shown} ({$length} bytes)" : $shown;
 	}
 
