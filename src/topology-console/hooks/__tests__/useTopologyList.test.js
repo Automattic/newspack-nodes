@@ -60,6 +60,11 @@ describe( 'useTopologyList', () => {
 		// Named for what it shows, never for the verb it sends.
 		expect( Core.node( 'topologies:view' ) ).toBeTruthy();
 		expect( Core.node( 'topologies:list:view' ) ).toBeNull();
+		// Its group is the CI it sends to, whose Tap stands while it is mounted.
+		expect( Core.node( 'topologies:fetch' ).target ).toBe(
+			'topologies:shell/_http/topologies'
+		);
+		expect( Core.node( 'topologies:shell' ).counter ).toBe( 1 );
 	} );
 
 	// A save used to owe the catalog a `reload()`. The tick carries the new
@@ -150,6 +155,11 @@ describe( 'useTopology', () => {
 		// Each reader's slice is its own subject, `<scope>-topology`.
 		expect( Core.node( 'test-topology:result' ) ).toBeTruthy();
 		expect( Core.node( 'topologies:get:test:result' ) ).toBeNull();
+		// Its group is the CI it sends to, whose Tap stands while it is mounted.
+		expect( Core.node( 'test-topology:fetch' ).target ).toBe(
+			'topologies:shell/_http/topologies'
+		);
+		expect( Core.node( 'topologies:shell' ).counter ).toBe( 1 );
 	} );
 
 	it( 'asks for the groups as written when told not to derive their members', async () => {

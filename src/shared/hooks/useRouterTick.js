@@ -11,10 +11,11 @@
  *
  * A PASSENGER, never an owner: it attaches to a backbone another mount owns,
  * and does nothing until one exists. Ownership decides who rebuilds on
- * Reset-Graph, so a hook calling `mountExospine` — which raises the backbone
- * when none stands — hands the graph's lifecycle to whichever surface declared
- * it first. On the console, `useTopologyCatalog` is declared before
- * `useConsoleGraph`, so a catalog poller would own the console's graph.
+ * Reset-Graph, so a hook calling `mountExospine` as an owner — which raises
+ * the backbone when none stands — hands the graph's lifecycle to whichever
+ * surface declared it first. On the console, `useTopologyCatalog` is declared
+ * before `useConsoleGraph`, and mounts as a passenger for exactly that reason,
+ * so it never owns the console's graph.
  *
  * Mounting before the graph is therefore normal, not an error: the hook
  * subscribes to both rebuild signals and arms itself when the owner comes up.

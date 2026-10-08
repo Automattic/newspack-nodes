@@ -75,6 +75,11 @@ describe( 'useVaults', () => {
 		// The subject is the vault; the verb rides on the Fetcher alone.
 		expect( Core.node( 'vault:view' ) ).toBeTruthy();
 		expect( Core.node( 'vault:list:view' ) ).toBeNull();
+		// Its group is the CI it sends to, whose Tap stands while it is mounted.
+		expect( Core.node( 'vault:fetch' ).target ).toBe(
+			'vault:shell/_http/vault'
+		);
+		expect( Core.node( 'vault:shell' ).counter ).toBe( 1 );
 	} );
 
 	it( 'does not fetch when disabled', () => {

@@ -4,7 +4,8 @@
  *
  * A graph node rather than a hook holding a client of its own, because that is
  * what puts the poll inside the console's existing request. Emitting through
- * `_http` during the Router's TIMER notify lands inside that tick's lock, so
+ * the `topologies:shell` Tap and `_http` during the Router's TIMER notify lands
+ * inside that tick's lock, so
  * `topologies dump` leaves in the same POST as `dump_metadata`, `uptime` and
  * `dmesg`; a standalone `fetch` would add a request per tick for one row list.
  * Batching costs nothing in routing: a batch carries whatever TO each line
@@ -17,7 +18,8 @@
  * (ADR-7); no op-id, registry or promise appears anywhere on this path.
  *
  * The verb belongs to this node; the target and the cadence belong to the
- * mounting hook, `useTopologyCatalog`.
+ * mounting hook, `useTopologyCatalog`, which aims it at
+ * `topologies:shell/_http/topologies`.
  */
 
 import { PollerNode } from '../../runtime/poller-node';

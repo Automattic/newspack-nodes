@@ -27,6 +27,19 @@ beforeEach( () => {
 } );
 
 describe( 'useClassCatalog', () => {
+	it( 'sends through the classes group, whose Tap stands while mounted', async () => {
+		const { result } = renderHook( () =>
+			useClassCatalog( { enabled: true } )
+		);
+		await waitFor( () =>
+			expect( result.current.classes ).toEqual( [ 'Echo', 'Tee' ] )
+		);
+		expect( Core.node( 'classes:fetch' ).target ).toBe(
+			'classes:shell/_http/classes'
+		);
+		expect( Core.node( 'classes:shell' ).counter ).toBe( 1 );
+	} );
+
 	// The overnight-tab bug: the catalog loaded once, the session died an hour
 	// later, and nothing ever asked again. A refused load must re-establish
 	// itself when the auth generation moves — without a remount.

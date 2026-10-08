@@ -43,6 +43,11 @@ it( 'sends delete on the tick, once, with no ID and no KEY', async () => {
 		result: DELETED,
 		args: [ 'demo' ],
 	} );
+	// Its group is the CI it sends to, whose Tap stands while it is mounted.
+	expect( Core.node( 'topologies:delete:fetch' ).target ).toBe(
+		'topologies:shell/_http/topologies'
+	);
+	expect( Core.node( 'topologies:shell' ).counter ).toBe( 1 );
 } );
 
 // The tick after the send must carry nothing: a second delete would answer
