@@ -1308,7 +1308,7 @@ class TopologiesCITest extends TestCase {
 		\file_put_contents( "{$this->stock}/wombat-base.tsl", "make_node Tee shared-tee\n" );
 		\file_put_contents( "{$this->stock}/wombat-top.tsl", "include wombat-base\nmake_node Echo top-echo\n" );
 
-		$out = Topologies_CI_Node::cmd_expand( [ 'names' => [ 'wombat-top' ] ] );
+		$out = Topologies_CI_Node::cmd_expand( [ 'names' => [ 'wombat-top' ], 'group_children' => true ] );
 
 		$names = \array_column( $out['nodes'], 'name' );
 		$this->assertContains( 'shared-tee', $names );
@@ -1332,7 +1332,7 @@ class TopologiesCITest extends TestCase {
 
 	public function test_expand_verb_throws_on_unknown_topology(): void {
 		$this->expectException( \RuntimeException::class );
-		Topologies_CI_Node::cmd_expand( [ 'names' => [ 'no-such-topology' ] ] );
+		Topologies_CI_Node::cmd_expand( [ 'names' => [ 'no-such-topology' ], 'group_children' => true ] );
 	}
 
 	// ── save resolves includes ──────────────────────────────────────────────
@@ -1371,6 +1371,30 @@ class TopologiesCITest extends TestCase {
 		$this->assertSame( [ 'zebra-base' ], $result['includes'] );
 		$names = \array_column( $result['expanded']['nodes'], 'name' );
 		$this->assertSame( [ 'zebra:tee' ], $names, 'the BORROWED nodes ride along' );
+	}
+
+	/** The editor asks for the include's groups unexpanded; every other reader gets the members. */
+	public function test_get_ships_a_vault_group_without_its_members_on_request(): void {
+		$this->seed_vault_servers( [ 'tw0' => [ 'url' => 'https://tw0.example', 'group' => 'tw-edge' ] ] );
+		\file_put_contents( "{$this->stock}/pull-base.tsl", "make_node Vault_Group herons Remote_Source tw-edge o/{id} d/{id} egret.p{partition}:sink-9\n" );
+		\file_put_contents( "{$this->stock}/pull-top.tsl", "include pull-base\n" );
+
+		$names = static fn ( array $r ): array => \array_column( $r['expanded']['nodes'], 'name' );
+
+		$this->assertSame( [ 'herons', 'herons:tw0' ], $names( VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'get', 'pull-top' ) ) );
+		\Newspack_Nodes\Core::reset();
+		$this->assertSame( [ 'herons' ], $names( VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'get', 'pull-top --group_children=false' ) ) );
+	}
+
+	public function test_expand_ships_a_vault_group_without_its_members_on_request(): void {
+		$this->seed_vault_servers( [ 'tw0' => [ 'url' => 'https://tw0.example', 'group' => 'tw-edge' ] ] );
+		\file_put_contents( "{$this->stock}/pull-base.tsl", "make_node Vault_Group herons Remote_Source tw-edge o/{id} d/{id} egret.p{partition}:sink-9\n" );
+
+		$names = static fn ( array $r ): array => \array_column( $r['nodes'], 'name' );
+
+		$this->assertSame( [ 'herons', 'herons:tw0' ], $names( VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'expand', 'pull-base' ) ) );
+		\Newspack_Nodes\Core::reset();
+		$this->assertSame( [ 'herons' ], $names( VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'expand', 'pull-base --group_children=false' ) ) );
 	}
 
 	/** A topology with no includes ships an empty expansion, not a missing key. */

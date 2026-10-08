@@ -124,6 +124,58 @@ describe( 'a broker in the file being edited', () => {
 		] );
 	} );
 
+	describe( 'a broker an include supplies and the file claims', () => {
+		const seeded = ( cls, args ) => ( {
+			nodes: [
+				{
+					name: 'spokes',
+					class: cls,
+					args,
+					fans_out: true,
+					origin: [ 'hub-base' ],
+					via: [ 'hub-base' ],
+				},
+			],
+			edges: [ { from: 'spokes', to: 'sink-q', roles: [ 'pair' ] } ],
+			tree: { 'hub-base': {} },
+		} );
+
+		it( "draws a claimed group's pair once", () => {
+			const graph = graphFromTsl(
+				'include hub-base\nmake_node Vault_Group spokes Remote_Source spoke o/{id} d/{id} egret.p0:sink-q\n',
+				seeded( 'Vault_Group', [
+					'Remote_Source',
+					'spoke',
+					'o/{id}',
+					'd/{id}',
+					'egret.p0:sink-q',
+				] ),
+				brokerSchemas
+			);
+
+			expect( pairEdges( graph ) ).toEqual( [
+				{ from: 'spokes', to: 'sink-q', roles: [ 'pair' ] },
+			] );
+		} );
+
+		it( "draws a claimed Remote_Source's pair once", () => {
+			const graph = graphFromTsl(
+				'include hub-base\nmake_node Remote_Source spokes tw0 o d egret.p0:sink-q\n',
+				seeded( 'Remote_Source', [
+					'tw0',
+					'o',
+					'd',
+					'egret.p0:sink-q',
+				] ),
+				brokerSchemas
+			);
+
+			expect( pairEdges( graph ) ).toEqual( [
+				{ from: 'spokes', to: 'sink-q', roles: [ 'pair' ] },
+			] );
+		} );
+	} );
+
 	it( 'refuses a graph read with no catalog', () => {
 		expect( () => graphFromTsl( 'make_node Echo okapi-echo\n' ) ).toThrow(
 			/catalog/

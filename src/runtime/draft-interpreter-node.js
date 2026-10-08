@@ -308,6 +308,21 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 			this._restoreClaimed( claimed, name, seededVerbs, inherited );
 			return result;
 		}
+		if ( claimed ) {
+			// The claiming line's own pairs replace the include's.
+			this._seededEdges = this._seededEdges
+				.map( ( edge ) =>
+					edge.from === name
+						? {
+								...edge,
+								roles: edge.roles.filter(
+									( r ) => 'pair' !== r
+								),
+						  }
+						: edge
+				)
+				.filter( ( edge ) => edge.roles.length > 0 );
+		}
 		for ( const target of inherited ) {
 			built.connectNode( target );
 		}

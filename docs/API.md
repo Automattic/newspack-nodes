@@ -648,7 +648,10 @@ names the handles carrying it: `no session with handle <h>; the label <h> names
 
 **`topologies expand` and `topologies get` compose different views.** `expand`
 returns [`Topology_Analyzer::expand()`](../includes/class-topology-analyzer.php)'s shape for an include SET —
-`{ nodes, edges, tree, hulls }`. A node carries `name`, `class`, `fans_out`,
+`{ nodes, edges, tree, hulls }`. Both verbs take `--group_children=false`, which leaves each
+`Vault_Group` as written: no derived member, in `nodes`, `edges` or `hulls`, and the group's
+`pair` edges drawn on the group. The topology console's editor seeds from that form; every
+other reader gets the members. A node carries `name`, `class`, `fans_out`,
 `args`, `verbs`, `origin` and `via`; an edge carries `from`, `to`, `origin`,
 `roles` — `connect`, `config`, `pair`, or several — and, where a config role exists,
 `config_slots` naming the setter verbs that made it. A `pair` edge runs from a
@@ -666,7 +669,8 @@ it is the topology console's edit-mode baseline.
 resolved_config_edges, owned }`, and its `expanded` is that same shape built from the
 file's DIRECT includes alone: it holds the borrowed members and none of the
 file's own lines, which is what lets the editor render a borrowed node as
-borrowed. `resolved_config_edges` covers the whole topology instead, because a
+borrowed. `--group_children` governs `expanded` alone: `resolved_config_edges` and `owned`
+come from the member-bearing walk. `resolved_config_edges` covers the whole topology, because a
 config verb pointed at a `<namespace:key>` token names an edge only the server
 can resolve. A client parsing a document that carries such a token must treat a
 response without that list as fatal rather than wire an edge to the literal

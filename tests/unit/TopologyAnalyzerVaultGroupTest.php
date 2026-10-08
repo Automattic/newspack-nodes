@@ -252,6 +252,50 @@ TSL;
 		$this->assertContains( 'firehose:tw9>rewrite-17', $edges );
 	}
 
+	public function test_a_walk_without_group_children_holds_the_group_alone(): void {
+		$this->write_tsl( 'pull-lab', self::PULL_LAB );
+
+		$lines = \array_column( Topology_Analyzer::statements( 'pull-lab', [], false )['statements'], 'line' );
+
+		$this->assertContains( 'make_node Vault_Group firehose Remote_Source tw-edge <config:offsets_dir>/<topology>.{id} <config:deadletter_dir>/<topology>.{id} firehose.p{partition}:rewrite-17', $lines );
+		$this->assertContains( 'connect_node sync-4 firehose', $lines );
+		$this->assertContains( 'command_node firehose:config set_multi_writer true', $lines );
+		$this->assertSame( [], \preg_grep( '/firehose:tw/', $lines ) );
+	}
+
+	public function test_the_default_walk_still_derives_the_members_after_one_without(): void {
+		$this->write_tsl( 'pull-lab', self::PULL_LAB );
+		Topology_Analyzer::statements( 'pull-lab', [], false );
+
+		$lines = self::lines( 'pull-lab' );
+
+		$this->assertNotEmpty( \preg_grep( '/^make_node Remote_Source firehose:tw9/', $lines ) );
+	}
+
+	public function test_expand_without_group_children_draws_the_group_and_no_member(): void {
+		$this->write_tsl( 'pull-lab', self::PULL_LAB );
+
+		$graph = Topology_Analyzer::expand( [ 'pull-lab' ], false );
+
+		$this->assertSame( [ 'sync-4', 'firehose' ], \array_column( $graph['nodes'], 'name' ) );
+		$this->assertSame( [ 'sync-4', 'firehose' ], $graph['hulls']['pull-lab'] );
+		$edges = \array_map( static fn ( array $e ): string => "{$e['from']}>{$e['to']}", $graph['edges'] );
+		$this->assertContains( 'sync-4>firehose', $edges );
+		$this->assertSame( [], \preg_grep( '/firehose:tw/', $edges ) );
+	}
+
+	public function test_expand_without_group_children_draws_the_groups_pairs_on_the_group(): void {
+		$this->write_tsl( 'pull-lab', self::PULL_LAB );
+
+		$pairs = static fn ( array $graph ): array => \array_values( \array_map(
+			static fn ( array $e ): string => "{$e['from']}>{$e['to']}",
+			\array_filter( $graph['edges'], static fn ( array $e ): bool => \in_array( 'pair', $e['roles'], true ) )
+		) );
+
+		$this->assertSame( [ 'firehose>rewrite-17' ], $pairs( Topology_Analyzer::expand( [ 'pull-lab' ], false ) ) );
+		$this->assertSame( [ 'firehose:tw0>rewrite-17', 'firehose:tw9>rewrite-17' ], $pairs( Topology_Analyzer::expand( [ 'pull-lab' ] ) ) );
+	}
+
 	public function test_a_copied_edge_keeps_the_include_that_wrote_it(): void {
 		$this->write_tsl( 'pull-base', "make_node Vault_Group firehose Remote_Source tw-edge <config:offsets_dir>/<topology>.{id} <config:deadletter_dir>/<topology>.{id} firehose.p{partition}:rewrite-17\n" );
 		$this->write_tsl( 'sync-base', "make_node Tee sync-4\nconnect_node sync-4 firehose\n" );

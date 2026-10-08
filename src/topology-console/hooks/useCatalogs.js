@@ -127,18 +127,20 @@ export function useVaults( { enabled = false } = {} ) {
  * half a page. Being answered is what stops it, refusal included, so a topology
  * that does not exist costs one command rather than one every five seconds.
  *
- * @param {Object}  o           Options.
- * @param {string}  o.scope     Names this reader's own slice, `<scope>-topology`.
- *                              Two readers wanting two different topologies are
- *                              two slices, never one node demultiplexing — see
- *                              ADR-7.
- * @param {boolean} [o.enabled] Defaults to true; false makes `open()` a no-op.
+ * @param {Object}  o                 Options.
+ * @param {string}  o.scope           Names this reader's own slice, `<scope>-topology`.
+ *                                    Two readers wanting two different topologies are
+ *                                    two slices, never one node demultiplexing — see
+ *                                    ADR-7.
+ * @param {boolean} [o.enabled]       Defaults to true; false makes `open()` a no-op.
+ * @param {boolean} [o.groupChildren] False asks for the expansion with each
+ *                                    Vault_Group as written, none of its members.
  * @return {{open: (name: string) => void, topology: ?Object, loading: boolean, error: ?string}}
  *   `open()` requests a topology by name; `topology` is the answer to the most
  *   recent one — `{name, source, tsl, includes, expanded,
  *   resolved_config_edges, owned}` — or null while an ask is outstanding.
  */
-export function useTopology( { scope, enabled = true } ) {
+export function useTopology( { scope, enabled = true, groupChildren = true } ) {
 	const { run, result, error, pending } = useCommandOnce( {
 		ci: 'topologies',
 		command: 'get',
@@ -149,10 +151,15 @@ export function useTopology( { scope, enabled = true } ) {
 	const open = useCallback(
 		( name ) => {
 			if ( enabled && name ) {
-				run( formatCommandArgs( [ name ] ) );
+				run(
+					formatCommandArgs(
+						[ name ],
+						groupChildren ? {} : { group_children: false }
+					)
+				);
 			}
 		},
-		[ enabled, run ]
+		[ enabled, groupChildren, run ]
 	);
 
 	return {

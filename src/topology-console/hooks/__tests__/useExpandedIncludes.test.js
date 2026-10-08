@@ -56,6 +56,31 @@ describe( 'useExpandedIncludes', () => {
 		] );
 	}, 15000 );
 
+	it( 'asks for the groups as written, and caches that form apart', async () => {
+		primeExpandedIncludes( [ 'pull-base' ], {
+			nodes: [ { name: 'herons:tw0' } ],
+			edges: [],
+			tree: { 'pull-base': {} },
+		} );
+		send.mockReturnValue( {
+			nodes: [ { name: 'herons' } ],
+			edges: [],
+			tree: { 'pull-base': {} },
+		} );
+		const { result } = renderHook( () =>
+			useExpandedIncludes( [ 'pull-base' ], { groupChildren: false } )
+		);
+		await waitFor( () => expect( result.current.loading ).toBe( false ), {
+			timeout: 4000,
+		} );
+		expect( args() ).toEqual( [
+			[ 'pull-base', '--group_children=false' ],
+		] );
+		expect( result.current.expansion.nodes ).toEqual( [
+			{ name: 'herons' },
+		] );
+	}, 15000 );
+
 	it( 'surfaces a cycle error and keeps the last-good expansion', async () => {
 		send.mockReturnValue(
 			new Error( 'topology include cycle: a -> b -> a' )

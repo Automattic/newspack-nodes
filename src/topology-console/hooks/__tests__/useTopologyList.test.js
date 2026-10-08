@@ -152,6 +152,24 @@ describe( 'useTopology', () => {
 		expect( Core.node( 'topologies:get:test:result' ) ).toBeNull();
 	} );
 
+	it( 'asks for the groups as written when told not to derive their members', async () => {
+		const { result } = renderHook( () =>
+			useTopology( { scope: 'test', groupChildren: false } )
+		);
+
+		act( () => {
+			result.current.open( 'demo' );
+		} );
+
+		await waitFor( () => expect( result.current.topology ).not.toBeNull(), {
+			timeout: 4000,
+		} );
+		expect( replyFor.mock.calls[ 0 ][ 0 ][ VALUE ].arguments ).toEqual( [
+			'demo',
+			'--group_children=false',
+		] );
+	} );
+
 	// Half a loaded page is the failure this replaces: the old awaited fetch
 	// was sent once, and an ask that never came back left the editor open on
 	// nothing at all. This one asks again until an answer lands.

@@ -11,6 +11,8 @@
 import { renderHook, act } from '@testing-library/react';
 import { Core } from '../../runtime/core';
 import { DraftProvider, useDraft, useDraftInterpreter } from '../DraftContext';
+import { graphFromTsl } from '../utils/draftToGraph';
+import brokerSchemas from '../../../tests/fixtures/broker-schemas.json';
 
 describe( 'useDraftInterpreter', () => {
 	it( 'runs a TSL line and re-reads the graph', () => {
@@ -118,6 +120,89 @@ describe( 'useDraftInterpreter', () => {
 		expect( () => result.current.assertResolved( undefined ) ).toThrow(
 			/Missing resolved_config_edges/
 		);
+	} );
+
+	describe( 'a Vault_Group seeded as written', () => {
+		const node = ( name, cls, args, extra = {} ) => ( {
+			name,
+			class: cls,
+			args,
+			fans_out: true,
+			origin: [ 'hub-base' ],
+			via: [ 'hub-base' ],
+			...extra,
+		} );
+		const seed = {
+			nodes: [
+				node( 'spokes', 'Vault_Group', [
+					'Remote_Source',
+					'spoke',
+					'o/{id}',
+					'd/{id}',
+					'egret.p{partition}:rewrite-17',
+				] ),
+				node( 'settings', 'Vault_Group', [
+					'HTTP_Out',
+					'spoke',
+					'/wp-json/{id}',
+				] ),
+				node( 'null-sink', 'Null', [] ),
+			],
+			edges: [
+				{ from: 'settings', to: 'null-sink', roles: [ 'connect' ] },
+				{ from: 'spokes', to: 'rewrite-17', roles: [ 'pair' ] },
+			],
+			tree: { 'hub-base': {} },
+		};
+		const loaded = () => {
+			const hook = renderHook( () => useDraftInterpreter() );
+			act( () => {
+				hook.result.current.load( 'include hub-base\n', seed, null );
+			} );
+			return hook;
+		};
+
+		it( 'draws the groups and their own edges, and no member', () => {
+			const { result } = loaded();
+			const { nodes, edges } = result.current.graph;
+
+			expect( nodes.map( ( n ) => n.id ) ).toEqual( [
+				'spokes',
+				'settings',
+				'null-sink',
+			] );
+			expect(
+				edges.map( ( e ) => `${ e.from }>${ e.to }:${ e.roles }` )
+			).toEqual( [
+				'settings>null-sink:connect',
+				'spokes>rewrite-17:pair',
+			] );
+		} );
+
+		it( 'saves without a line about a member', () => {
+			const { result } = loaded();
+
+			expect( result.current.dump( seed ) ).toBe( 'include hub-base\n' );
+		} );
+
+		it( 'keeps the members when read for the view', () => {
+			const withMembers = {
+				...seed,
+				nodes: [
+					...seed.nodes,
+					node( 'spokes:tw0', 'Remote_Source', [ 'tw0' ] ),
+				],
+			};
+			const graph = graphFromTsl(
+				'include hub-base\n',
+				withMembers,
+				brokerSchemas
+			);
+
+			expect( graph.nodes.map( ( n ) => n.id ) ).toContain(
+				'spokes:tw0'
+			);
+		} );
 	} );
 
 	it( 'knows whether it has diverged from what was stored', () => {

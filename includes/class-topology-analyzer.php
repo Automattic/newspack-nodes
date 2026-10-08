@@ -66,23 +66,27 @@ class Topology_Analyzer {
 	 * SET of directly-declared includes providing a node (a diamond lists several);
 	 * `via` is the path it first entered through.
 	 *
-	 * @param list<string> $include_names Directly-declared includes.
+	 * @param list<string> $include_names  Directly-declared includes.
+	 * @param bool         $group_children False leaves each Vault_Group as written, with none of its members.
 	 *
 	 * @return array{nodes: list<array{name: string,class: string,fans_out: bool,args: list<string>,verbs: list<array{verb: string,args: list<string>}>,origin: list<string>,via: list<string>}>, edges: list<array{from: string,to: string,origin: list<string>,roles: list<string>,config_slots?: list<string>}>, tree: array<string,mixed>, hulls: array<string,list<string>>}
 	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
-	public static function expand( array $include_names ): array {
+	public static function expand( array $include_names, bool $group_children = true ): array {
 		$nodes  = [];
 		$edges  = [];
-		$walked = self::statements( '', $include_names );
+		$walked = self::statements( '', $include_names, $group_children );
 		foreach ( $walked['statements'] as $statement ) {
 			self::absorb_statement( $statement, $statement['origins'], $nodes, $edges );
+			if ( ! $group_children ) {
+				self::draw_group_targets( $edges, $statement );
+			}
 		}
 		return [
 			'nodes' => \array_values( $nodes ),
 			'edges' => self::export_edges( $edges, $include_names ),
 			'tree'  => $walked['tree'],
-			'hulls' => self::hulls_for_tree( $walked['tree'] ),
+			'hulls' => self::hulls_for_tree( $walked['tree'], $group_children ),
 		];
 	}
 
@@ -95,15 +99,16 @@ class Topology_Analyzer {
 	 * topology precedes what it brings; the canvas paints in that order and the
 	 * nested hull lands on top of its parent.
 	 *
-	 * @param array<array-key,mixed> $tree Include tree from statements().
+	 * @param array<array-key,mixed> $tree           Include tree from statements().
+	 * @param bool                   $group_children Whether each Vault_Group's members are derived.
 	 * @return array<string,list<string>> Topology name => node names it provides.
 	 */
-	private static function hulls_for_tree( array $tree ): array {
+	private static function hulls_for_tree( array $tree, bool $group_children ): array {
 		$out = [];
 		foreach ( $tree as $name => $subtree ) {
-			$out[ (string) $name ] = self::declared_node_names( (string) $name );
+			$out[ (string) $name ] = self::declared_node_names( (string) $name, $group_children );
 			if ( \is_array( $subtree ) ) {
-				foreach ( self::hulls_for_tree( $subtree ) as $child => $names ) {
+				foreach ( self::hulls_for_tree( $subtree, $group_children ) as $child => $names ) {
 					$out[ $child ] = $names;
 				}
 			}
@@ -149,6 +154,26 @@ class Topology_Analyzer {
 			$out[] = $exported;
 		}
 		return $out;
+	}
+
+	/**
+	 * Draw a Vault_Group's own `pair` edges: what its child class declares for
+	 * the arguments the group hands each member, as `draw_declared_targets()`
+	 * reads them off a member's line with the group in its place. The group
+	 * stands for its members when they are not derived.
+	 *
+	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges Edge-state map, by reference.
+	 * @param array{verb: string,values: list<string>,origins: list<string>} $statement Walked statement.
+	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges
+	 */
+	private static function draw_group_targets( array &$edges, array $statement ): void {
+		$values = $statement['values'];
+		if ( 'make_node' !== $statement['verb'] || ! self::type_is( $values[1] ?? '', Vault_Group_Node::class ) ) {
+			return;
+		}
+		// A member's line: its class and the group's name, then an id slot.
+		$member = [ 'make_node', $values[3] ?? '', $values[2] ?? '', '', ...Vault_Group_Node::variadic_in( \array_slice( $values, 3 ) ) ];
+		self::draw_declared_targets( $edges, $member, $statement['origins'], Command_Interpreter_Node::resolve_class( $member[1] ) );
 	}
 
 	/**
@@ -920,17 +945,18 @@ class Topology_Analyzer {
 	 * Every node a topology declares, its own includes flattened in, each
 	 * followed by the nodes owned_nodes() says it builds.
 	 *
-	 * @param string $name Topology name.
+	 * @param string $name           Topology name.
+	 * @param bool   $group_children Whether each Vault_Group's members are derived.
 	 * @return list<string> Node names, in declaration order.
 	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
-	private static function declared_node_names( string $name ): array {
+	private static function declared_node_names( string $name, bool $group_children = true ): array {
 		$owned = [];
 		foreach ( self::owned_nodes( $name ) as $node ) {
 			$owned[ $node['owner'] ][] = $node['name'];
 		}
 		$names = [];
-		foreach ( self::statements( $name )['statements'] as $statement ) {
+		foreach ( self::statements( $name, [], $group_children )['statements'] as $statement ) {
 			if ( 'make_node' !== $statement['verb'] ) {
 				continue;
 			}
@@ -1199,16 +1225,17 @@ class Topology_Analyzer {
 	 *
 	 * @param string       $name           Top-level topology; '' walks a synthetic top level.
 	 * @param list<string> $extra_includes Includes to walk as if declared by the top level.
+	 * @param bool         $group_children False leaves each Vault_Group as written; only the editor's seed asks.
 	 *
 	 * @return array{statements: list<array{line: string,verb: string,values: list<string>,spans: list<string>,origin: ?string,origins: list<string>,via: list<string>}>, tree: array<string,mixed>}
 	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
-	public static function statements( string $name, array $extra_includes = [] ): array {
+	public static function statements( string $name, array $extra_includes = [], bool $group_children = true ): array {
 		// Every static reader walks this tree; a re-walk re-reads every file.
-		$memo_key = $name . "\0" . \implode( ' ', $extra_includes );
+		$memo_key = $name . "\0" . \implode( ' ', $extra_includes ) . "\0" . (int) $group_children;
 		if ( ! isset( self::$statements_cache[ $memo_key ] ) ) {
 			try {
-				self::$statements_cache[ $memo_key ] = self::flatten( $name, $extra_includes );
+				self::$statements_cache[ $memo_key ] = self::flatten( $name, $extra_includes, $group_children );
 			} catch ( Worker_Should_Stop $stop ) {
 				throw $stop;
 			} catch ( \Throwable $e ) {
@@ -1227,11 +1254,12 @@ class Topology_Analyzer {
 	 *
 	 * @param string       $name           Top-level topology; '' walks a synthetic top level.
 	 * @param list<string> $extra_includes Includes to walk as if declared by the top level.
+	 * @param bool         $group_children Whether each Vault_Group's members are derived.
 	 *
 	 * @return array{statements: list<array{line: string,verb: string,values: list<string>,spans: list<string>,origin: ?string,origins: list<string>,via: list<string>}>, tree: array<string,mixed>}
 	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
-	private static function flatten( string $name, array $extra_includes ): array {
+	private static function flatten( string $name, array $extra_includes, bool $group_children ): array {
 		$state = [
 			'statements' => [],
 			'expanded'   => [],
@@ -1254,7 +1282,7 @@ class Topology_Analyzer {
 			}
 			$tree[ $include ] = self::walk( $path, $include, $include, [ $include ], [], $state );
 		}
-		$statements = self::with_group_children( $state['statements'] );
+		$statements = self::with_group_children( $state['statements'], $group_children );
 		return [
 			'statements' => $statements,
 			'tree'       => $tree,
@@ -1282,11 +1310,12 @@ class Topology_Analyzer {
 	 * partition layout as the load would, written lines and children alike.
 	 *
 	 * @param list<array{line: string,verb: string,values: list<string>,spans: list<string>,origin: ?string,origins: list<string>,via: list<string>}> $statements Walked statements.
+	 * @param bool $derive Whether to derive the members; false keeps the checks and adds none.
 	 * @return list<array{line: string,verb: string,values: list<string>,spans: list<string>,origin: ?string,origins: list<string>,via: list<string>}>
 	 * @throws \RuntimeException On a connect the source's class refuses.
 	 * @throws \InvalidArgumentException On a partition layout a class refuses.
 	 */
-	private static function with_group_children( array $statements ): array {
+	private static function with_group_children( array $statements, bool $derive ): array {
 		$classes = [];
 		foreach ( $statements as $statement ) {
 			if ( 'make_node' === $statement['verb'] ) {
@@ -1302,9 +1331,9 @@ class Topology_Analyzer {
 			}
 			$name              = $group['values'][2] ?? '';
 			$targeted[ $name ] = $group['values'][3] ?? '';
-			$ids               = Vault::get_instance()->in_group( $group['values'][4] ?? '' );
 			$children[ $name ] = [];
-			foreach ( Vault_Group_Node::expand( $ids, Vault_Group_Node::variadic_in( \array_slice( $group['values'], 3 ) ), Vault_Group_Node::variadic_in( \array_slice( $group['spans'], 3 ) ) ) as $id => [ $tokens, $spans ] ) {
+			$members           = $derive ? Vault_Group_Node::expand( Vault::get_instance()->in_group( $group['values'][4] ?? '' ), Vault_Group_Node::variadic_in( \array_slice( $group['values'], 3 ) ), Vault_Group_Node::variadic_in( \array_slice( $group['spans'], 3 ) ) ) : [];
+			foreach ( $members as $id => [ $tokens, $spans ] ) {
 				$child = Node::sibling_name_of( $name, (string) $id );
 				if ( isset( $classes[ $child ] ) ) {
 					continue;
