@@ -28,15 +28,13 @@ const RAW_LOGS_CI = 'raw-logs';
 /** Names every node this graph owns: `<PREFIX>:stream` and `:view`. */
 const PREFIX = 'log-viewer';
 
-/** The group every command the Log Viewer sends belongs to. */
-export const GROUP = 'log-viewer';
-
 /**
  * Mount the Log Viewer's graph. The whole catalog goes to the view,
  * which owns the selection; only the view's FIRST pick opens a stream.
  *
- * @return {{ selectLog: (log: string) => void, setPaused: (paused: boolean) => void, seek: Function, step: () => void, clear: () => void, setFilter: (term: string) => void }}
- *   Control callbacks for the thin React view (the view's own state is read via
+ * @return {{ graph: Object, selectLog: (log: string) => void, setPaused: (paused: boolean) => void, seek: Function, step: () => void, clear: () => void, setFilter: (term: string) => void }}
+ *   The stream handle, `graph`, for the segment rail, and control callbacks
+ *   for the thin React view (the view's own state is read via
  *   useNodeField): `selectLog( log )` re-points the stream at a partition,
  *   `setPaused( paused )` gates it, `seek( log, positions, source )` switches
  *   between follow and browse, `step()` delivers one record while paused, and
@@ -48,19 +46,18 @@ export function useLogViewerGraph() {
 	// The subscription is CHOSEN: nothing opens until the catalog picks.
 	const graph = useStreamGraph( {
 		prefix: PREFIX,
+		group: 'log-viewer',
 		viewClass: views.LogViewerView,
 	} );
 	const { viewRef, control, resubscribe, seek, setPaused, setFilter, clear } =
 		graph;
 	const step = useSteppedRead( {
 		graph,
-		group: GROUP,
 		ci: RAW_LOGS_CI,
 		command: 'read_message',
 	} );
 	const logs = useLogCatalog( {
-		prefix: PREFIX,
-		group: GROUP,
+		graph,
 		ci: RAW_LOGS_CI,
 		command: 'list_logs',
 	} );
@@ -87,5 +84,5 @@ export function useLogViewerGraph() {
 		}
 	}, [ logs, control, resubscribe, viewRef ] );
 
-	return { selectLog, setPaused, seek, step, clear, setFilter };
+	return { graph, selectLog, setPaused, seek, step, clear, setFilter };
 }

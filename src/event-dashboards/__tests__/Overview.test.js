@@ -216,6 +216,9 @@ describe( 'Overview fleet board', () => {
 
 	it( 'shows the probe read and the probe stream skips as two named notices', () => {
 		publishSkippedLines( 'topicprobe:stream', 4 );
+		useNodeField.mockImplementation(
+			jest.requireActual( '../../runtime/react' ).useNodeField
+		);
 		useTopologyManager.mockReturnValue(
 			hookValue( { unparseableLines: 5 } )
 		);
@@ -253,6 +256,9 @@ describe( 'Overview fleet board', () => {
 
 	it( 'shows only the notice of the source that skipped a line', () => {
 		publishSkippedLines( 'topicprobe:stream', 6 );
+		useNodeField.mockImplementation(
+			jest.requireActual( '../../runtime/react' ).useNodeField
+		);
 		useTopologyManager.mockReturnValue( hookValue() );
 		const { container } = render( <Overview /> );
 		const notices = [

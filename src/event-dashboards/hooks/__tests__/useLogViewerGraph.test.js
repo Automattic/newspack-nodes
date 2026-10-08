@@ -70,7 +70,6 @@ import { useLogViewerGraph } from '../useLogViewerGraph';
 const INTERPRETER = '_command_interpreter';
 const ROUTER = '_router';
 const LINK = names.STREAM;
-const KEY_RIDDEN = 'log-viewer';
 // SseIn is patron-owned; HttpOut + Heartbeat are shared singletons.
 const HTTP = names.HTTP;
 const HEARTBEAT = names.HEARTBEAT;
@@ -148,7 +147,7 @@ describe( 'useLogViewerGraph — exospine + RemoteLink wiring', () => {
 		mountGraph();
 		await act( async () => {} );
 		// The link routes this graph's frames to the Tee, which fans to the view.
-		expect( Core.node( LINK ).graphs.get( KEY_RIDDEN ).target ).toBe( TEE );
+		expect( Core.node( LINK ).graphs.has( TEE ) ).toBe( true );
 		expect( Core.node( TEE ).target ).toEqual( [ VIEW ] );
 		expect( Core.node( HEARTBEAT ).target ).toBe( `${ HTTP }/workers` );
 	} );
@@ -172,7 +171,7 @@ describe( 'useLogViewerGraph — exospine + RemoteLink wiring', () => {
 		expect( tee.constructor.name ).toBe( 'TeeNode' );
 		expect( tee.sink ).toBe( interpreter );
 		// The link routes frames to the Tee, not straight to the view.
-		expect( Core.node( LINK ).graphs.get( KEY_RIDDEN ).target ).toBe( TEE );
+		expect( Core.node( LINK ).graphs.has( TEE ) ).toBe( true );
 		// The Tee forwards to the view (pure pass-through, single target).
 		expect( tee.target ).toEqual( [ VIEW ] );
 	} );

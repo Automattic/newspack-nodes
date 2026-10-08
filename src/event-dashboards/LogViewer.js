@@ -18,7 +18,7 @@ import { __ } from '@wordpress/i18n';
 
 import { Core } from '../runtime/core';
 import { useNodeField } from '../runtime/react';
-import { useLogViewerGraph, GROUP } from './hooks/useLogViewerGraph';
+import { useLogViewerGraph } from './hooks/useLogViewerGraph';
 import LogStreamViewer, {
 	debugValue,
 } from '@newspack-nodes/shared/components/LogStreamViewer';
@@ -248,7 +248,7 @@ export default function LogViewer( { headerControlsSlot } ) {
 	);
 
 	// Mount the node graph; it returns the thin control callbacks.
-	const { selectLog, setPaused, seek, step, clear, setFilter } =
+	const { graph, selectLog, setPaused, seek, step, clear, setFilter } =
 		useLogViewerGraph();
 
 	// Low-frequency view model (dropdown + pause button + selected value).
@@ -288,7 +288,7 @@ export default function LogViewer( { headerControlsSlot } ) {
 	const { source, refresh } = useLogStatusSegments( {
 		sub: selectedLog,
 		scope: 'log-viewer-segments',
-		group: GROUP,
+		graph,
 	} );
 
 	const { jump, sidebar } = useSegmentBrowse( {

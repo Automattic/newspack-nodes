@@ -105,14 +105,11 @@ function pairsOf( token ) {
  *
  * @param {Object<string,*>}           map  The map, changed in place.
  * @param {( key: string ) => boolean} drop Whether a key goes.
- * @return {boolean} Whether any key went.
  */
 function dropKeys( map, drop ) {
-	const gone = Object.keys( map ).filter( drop );
-	for ( const key of gone ) {
+	for ( const key of Object.keys( map ).filter( drop ) ) {
 		delete map[ key ];
 	}
-	return gone.length > 0;
 }
 
 /** REST route every stream opens. */
@@ -180,15 +177,6 @@ const MAX_BACKOFF_MS = 30000;
 const PROBE_STREAM_ID = '!';
 
 /**
- * The one field a patron sets on this node from the outside: where each
- * received record goes, by the stamp its FROM opens with. Null keeps the TO
- * the record arrived with, as RemoteIpc's worker replies need; a function
- * names the targets a copy goes to, null to keep the TO, or none to drop it.
- *
- * @typedef {{ routeTo?: ?( ( stamp: string ) => ?string[] ) }} PatronConfigured
- */
-
-/**
  * The receive half of a remote link: one EventSource, the watchdog that
  * notices when it dies silently, and the session identity the `connected`
  * handshake hands back. `start()` opens the stream; each `msg` frame is
@@ -216,6 +204,14 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 		 * @type {?Object<string,{segment?:number,offset:number}|number|string>}
 		 */
 		this._positions = null;
+		/**
+		 * Where each received record goes, by the stamp its FROM opens with,
+		 * which a patron sets: the targets a copy goes to, null to keep the
+		 * TO it arrived with, or none to drop it. Null keeps every TO.
+		 *
+		 * @type {?( ( stamp: string ) => ?string[] )}
+		 */
+		this.routeTo = null;
 		// Last record position per `[sub][partition]`, from each ID+FROM.
 		this.lastPositions = {};
 		this._es = null;
@@ -336,9 +332,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	 * @param {?Object<string,{segment?:number,offset:number}|number|string>} positions Their seek seed; null tails them.
 	 */
 	reseek( subscribe, positions ) {
-		const named = ( dir ) => anyCarries( subscribe, dir );
-		dropKeys( this.lastPositions, named );
-		this.dropSeeds( named );
+		this._dropPlace( ( dir ) => anyCarries( subscribe, dir ) );
 		this._positions = { ...this._positions, ...positions };
 	}
 
@@ -348,27 +342,22 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	 * stream on one asks for the tail and counts afresh.
 	 *
 	 * @param {( dir: string ) => boolean} drop Whether a dir is forgotten.
-	 * @return {boolean} Whether a seed or a read position went, which moves
-	 *   where a reopen asks the stream to start.
 	 */
 	forget( drop ) {
 		dropKeys( this.unparseableByStamp, drop );
-		const read = dropKeys( this.lastPositions, drop );
-		return this.dropSeeds( drop ) || read;
+		this._dropPlace( drop );
 	}
 
 	/**
-	 * Forget the seeds of the dirs `drop` names, keeping their read
-	 * positions: a reader returning resumes past what it read.
+	 * Drop the seeds and read positions of the dirs `drop` names. The seeds
+	 * are copied first, so a map a caller handed in is never changed.
 	 *
-	 * @param {( dir: string ) => boolean} drop Whether a dir's seed goes.
-	 * @return {boolean} Whether any seed went.
+	 * @param {( dir: string ) => boolean} drop Whether a dir's place goes.
 	 */
-	dropSeeds( drop ) {
-		const seeds = Object.entries( this._positions || {} );
-		const kept = seeds.filter( ( [ dir ] ) => ! drop( dir ) );
-		this._positions = Object.fromEntries( kept );
-		return kept.length < seeds.length;
+	_dropPlace( drop ) {
+		this._positions = { ...this._positions };
+		dropKeys( this._positions, drop );
+		dropKeys( this.lastPositions, drop );
 	}
 
 	/**
@@ -768,7 +757,8 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 				);
 				return;
 			}
-			this._trackPosition( message );
+			const { dir } = splitStamp( message[ FROM ] );
+			this._trackPosition( message, dir );
 			// Inbound accounting: bytesRead + IoTelemetry (msg DATA only).
 			const size = byteLength( e.data );
 			this.bytesRead += size;
@@ -782,7 +772,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 						: 'stream error';
 				this.setState( 'ERROR', errText );
 			}
-			this._deliver( message );
+			this._deliver( message, dir );
 		} );
 	}
 
@@ -794,14 +784,13 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	 * routes to, is dropped when none takes it, and keeps its TO when nothing
 	 * routes.
 	 *
-	 * @param {Array} message The positional Message just received.
+	 * @param {Array}  message The positional Message just received.
+	 * @param {string} stamp   The stamp its FROM opens with.
 	 */
-	_deliver( message ) {
-		const route = /** @type {PatronConfigured} */ ( this ).routeTo;
-		const stamp = splitStamp( message[ FROM ] ).dir;
+	_deliver( message, stamp ) {
 		const targets =
-			route && 0 === ( message[ TYPE ] & TM_COMMAND )
-				? route( stamp )
+			this.routeTo && 0 === ( message[ TYPE ] & TM_COMMAND )
+				? this.routeTo( stamp )
 				: null;
 		if ( null === targets ) {
 			super.fill( message );
@@ -974,15 +963,12 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	 * this one stopped. A frame whose ID is not a `segment:offset:length`
 	 * breadcrumb carries no position and is ignored.
 	 *
-	 * @param {Array} message The positional Message just received.
+	 * @param {Array}  message The positional Message just received.
+	 * @param {string} dir     The partition directory its FROM opens with.
 	 */
-	_trackPosition( message ) {
+	_trackPosition( message, dir ) {
 		const crumb = parseCrumb( message[ ID ] );
-		if ( ! crumb ) {
-			return;
-		}
-		const { dir } = splitStamp( message[ FROM ] );
-		if ( '' === dir ) {
+		if ( ! crumb || '' === dir ) {
 			return;
 		}
 		// Resume at offset+length — the exact next-record boundary.
@@ -990,6 +976,31 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 			segment: crumb.segment,
 			offset: crumb.offset + crumb.length,
 		};
+	}
+
+	/**
+	 * The dirs the stream holds a place for, by a seed or a read position:
+	 * what a `reseek()` over them would drop.
+	 *
+	 * @return {string[]} The dirs, each named once.
+	 */
+	places() {
+		return [
+			...new Set( [
+				...Object.keys( this._positions ?? {} ),
+				...Object.keys( this.lastPositions ),
+			] ),
+		];
+	}
+
+	/**
+	 * Whether the stream is open, or closed and waiting out its reopen: either
+	 * way it is coming back without being started again.
+	 *
+	 * @return {boolean} True while open or reopening.
+	 */
+	isOpenOrReopening() {
+		return Boolean( this._es || this._reopenTimer );
 	}
 
 	/**

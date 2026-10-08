@@ -1659,36 +1659,6 @@ test( 'reseek with no seed tails the named subscriptions and no others', () => {
 	} );
 } );
 
-test( 'dropSeeds forgets the seeds a predicate names, keeping reads', () => {
-	const sse = newSseIn();
-	sse.arguments = [ 'jobstats.p0,topicprobe.p0' ];
-	sse.reseek( [ 'jobstats.p0', 'topicprobe.p0' ], {
-		'jobstats.p0': SEEK_START,
-		'topicprobe.p0': { segment: 3, offset: 52 },
-	} );
-	sse.lastPositions = { 'jobstats.p0': { segment: 6, offset: 78 } };
-	sse.dropSeeds( ( dir ) => 'jobstats.p0' === dir );
-	expect( sse.lastPositions ).toEqual( {
-		'jobstats.p0': { segment: 6, offset: 78 },
-	} );
-	// With the reads set aside, only the seeds that stayed are stated.
-	sse.lastPositions = {};
-	expect( sse.seekMap() ).toEqual( {
-		'jobstats.p0': SEEK_END,
-		'topicprobe.p0': { segment: 3, offset: 52 },
-	} );
-} );
-
-test( 'forget answers whether it dropped anything', () => {
-	const sse = newSseIn();
-	sse.arguments = [ 'jobstats.p0,topicprobe.p0' ];
-	sse.lastPositions = { 'topicprobe.p0': { segment: 2, offset: 37 } };
-	expect( sse.forget( ( dir ) => 'jobstats.p0' === dir ) ).toBe( false );
-	expect( sse.forget( ( dir ) => 'topicprobe.p0' === dir ) ).toBe( true );
-	sse.reseek( [ 'jobstats.p0' ], { 'jobstats.p0': SEEK_START } );
-	expect( sse.forget( ( dir ) => 'jobstats.p0' === dir ) ).toBe( true );
-} );
-
 test( 'forget drops the seeds and read positions a predicate names', () => {
 	const sse = newSseIn();
 	sse.arguments = [ 'jobstats.p0,topicprobe.p0' ];

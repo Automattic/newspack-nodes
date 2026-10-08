@@ -400,7 +400,9 @@ describe( 'Tables', () => {
 
 	it( 'names its skipped lines', () => {
 		publishSkippedLines( 'tablestats:stream', 4 );
-		useNodeField.mockReturnValue( undefined );
+		useNodeField.mockImplementation(
+			jest.requireActual( '../../runtime/react' ).useNodeField
+		);
 		const { container } = render( <Tables /> );
 		expect( container.textContent ).toContain(
 			'Table statistics: 4 lines would not parse and were skipped.'

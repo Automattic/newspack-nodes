@@ -372,7 +372,7 @@ describe( 'useLogStatusSegments', () => {
 			initialProps: {
 				sub: DIR,
 				scope: 'quartz-segments',
-				group: 'quartz',
+				graph: { group: 'quartz' },
 			},
 		} );
 		await waitFor( () =>
@@ -402,7 +402,7 @@ describe( 'useLogStatusSegments', () => {
 			initialProps: {
 				sub: 'sources/php',
 				scope: 'quartz-segments',
-				group: 'quartz',
+				graph: { group: 'quartz' },
 			},
 		} );
 		await waitFor( () =>
@@ -428,7 +428,7 @@ describe( 'useLogStatusSegments', () => {
 				initialProps: {
 					sub: DIR,
 					scope: 'quartz-segments',
-					group: 'quartz',
+					graph: { group: 'quartz' },
 				},
 			}
 		);
@@ -438,7 +438,7 @@ describe( 'useLogStatusSegments', () => {
 		rerender( {
 			sub: 'sources/php',
 			scope: 'quartz-segments',
-			group: 'quartz',
+			graph: { group: 'quartz' },
 		} );
 		expect( result.current.source ).toEqual( { segments: [] } );
 		await waitFor( () =>
@@ -458,13 +458,17 @@ describe( 'useLogStatusSegments', () => {
 			initialProps: {
 				sub: '',
 				scope: 'quartz-segments',
-				group: 'quartz',
+				graph: { group: 'quartz' },
 			},
 		} );
 		await act( async () => {} );
 		expect( asked ).toEqual( [] );
 		await act( async () =>
-			rerender( { sub: DIR, scope: 'quartz-segments', group: 'quartz' } )
+			rerender( {
+				sub: DIR,
+				scope: 'quartz-segments',
+				graph: { group: 'quartz' },
+			} )
 		);
 		await waitFor( () => expect( asked ).toEqual( [ [ DIR ] ] ) );
 	} );
@@ -479,7 +483,7 @@ describe( 'useLogStatusSegments', () => {
 				initialProps: {
 					sub: DIR,
 					scope: 'quartz-segments',
-					group: 'quartz',
+					graph: { group: 'quartz' },
 				},
 			}
 		);
@@ -488,7 +492,11 @@ describe( 'useLogStatusSegments', () => {
 		);
 		const first = result.current.source;
 		await act( async () =>
-			rerender( { sub: DIR, scope: 'quartz-segments', group: 'quartz' } )
+			rerender( {
+				sub: DIR,
+				scope: 'quartz-segments',
+				graph: { group: 'quartz' },
+			} )
 		);
 		expect( result.current.source ).toBe( first );
 	} );
@@ -509,7 +517,7 @@ describe( 'useLogStatusSegments', () => {
 				initialProps: {
 					sub: DIR,
 					scope: 'quartz-segments',
-					group: 'quartz',
+					graph: { group: 'quartz' },
 				},
 			}
 		);
@@ -521,7 +529,7 @@ describe( 'useLogStatusSegments', () => {
 			rerender( {
 				sub: 'quartz.p8',
 				scope: 'quartz-segments',
-				group: 'quartz',
+				graph: { group: 'quartz' },
 			} )
 		);
 		await act( async () => result.current.refresh() );
@@ -536,7 +544,7 @@ describe( 'useLogStatusSegments', () => {
 				initialProps: {
 					sub: DIR,
 					scope: 'quartz-segments',
-					group: 'quartz',
+					graph: { group: 'quartz' },
 				},
 			}
 		);
@@ -544,7 +552,11 @@ describe( 'useLogStatusSegments', () => {
 			expect( result.current.source.segments ).toEqual( RAIL )
 		);
 		await act( async () =>
-			rerender( { sub: '', scope: 'quartz-segments', group: 'quartz' } )
+			rerender( {
+				sub: '',
+				scope: 'quartz-segments',
+				graph: { group: 'quartz' },
+			} )
 		);
 		expect( result.current.source.segments ).toEqual( [] );
 	} );

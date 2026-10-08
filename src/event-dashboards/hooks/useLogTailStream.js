@@ -36,7 +36,7 @@ import '../nodes/register';
  *
  * @param {string} mode      'history' (full replay) or 'follow' (tail).
  * @param {string} subscribe The concrete log dir the link tails.
- * @return {?Object<string,number>} The positions seed, or null for none.
+ * @return {(Object<string,number>|undefined)} The positions seed, or none.
  * @throws {TypeError} On any other mode.
  */
 function seekForMode( mode, subscribe ) {
@@ -44,7 +44,7 @@ function seekForMode( mode, subscribe ) {
 		return { [ subscribe ]: SEEK_START };
 	}
 	if ( 'follow' === mode ) {
-		return null;
+		return undefined;
 	}
 	throw new TypeError( `useLogTailStream: unknown mode '${ mode }'` );
 }

@@ -1,5 +1,5 @@
 import { _n, sprintf } from '@wordpress/i18n';
-import { useNodeState } from '@newspack-nodes/runtime';
+import { reservedNames, useNodeField } from '@newspack-nodes/runtime';
 
 /**
  * The warning a log reader shows when lines it read would not parse and were
@@ -11,11 +11,12 @@ import { useNodeState } from '@newspack-nodes/runtime';
  * one exception: their count is a per-partition metric, and it sits in the
  * tile's own stat grid beside the heartbeat and HTTP code it is read against.
  *
- * A stream's count needs no threading: hand the notice the node that
- * publishes `UNPARSEABLE_LINES` — a stream graph's `<prefix>:stream`, on
- * which the page's link publishes that graph's own share — and it subscribes
- * by name, as every thin view does, so a graph rebuild under that name is
- * followed. A count that arrives in a reply instead goes in as `count`.
+ * A stream's count needs no threading: hand the notice the graph's
+ * `<prefix>:stream`, and it reads that graph's share off the page link,
+ * `_stream`, which keeps each graph's share in `unparseableByTarget` under
+ * the node its records go to. It subscribes by name, as every thin view does,
+ * so a rebuild of the link is followed. A count that arrives in a reply
+ * instead goes in as `count`.
  *
  * It wears the canonical `newspack-nodes-banner is-warning` role and declares
  * no appearance of its own. `role="status"` makes it a polite live region, so
@@ -27,14 +28,14 @@ import { useNodeState } from '@newspack-nodes/runtime';
  * count of a stream.
  *
  * @param {Object}  props
- * @param {string}  [props.node]   The stream node publishing `UNPARSEABLE_LINES`.
+ * @param {string}  [props.node]   The graph's stream node, whose share to read.
  * @param {?number} [props.count]  Lines skipped, for a reader with no node; ignored beside `node`. Zero or absent renders nothing.
  * @param {string}  [props.source] What read the lines, for a view with several readers.
  * @return {import('react').ReactElement|null} The notice, or null when nothing was skipped.
  */
 export default function UnparseableLinesNotice( { node, count, source } ) {
-	const streamed = useNodeState( node, 'UNPARSEABLE_LINES' );
-	const skipped = node ? streamed : count;
+	const shares = useNodeField( reservedNames.STREAM, 'unparseableByTarget' );
+	const skipped = node ? shares?.[ node ] : count;
 	if ( ! ( skipped > 0 ) ) {
 		return null;
 	}

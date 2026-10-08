@@ -139,12 +139,8 @@ class CoreImpl {
 		this.recentLog = []; // bounded stderr tail for the dmesg verb
 		this._inStderr = false; // re-entry guard for the stderr reply-sink emit
 		this.initTime = this.now(); // uptime baseline (PHP Core::$init_time)
-		// Overlay Reset-Graph capability; mountExospine sets it.
-		this.rebuildable = false;
-		this.backboneOwner = null; // the non-passenger mount that rebuilds it
-		this.backboneMounts = []; // every live mount, in mount order
-		// Live mounts claiming each shell group; see mountExospine.
-		this.shellGroups = new Map();
+		// Every live mount, in mount order; see mountExospine.
+		this.backboneMounts = [];
 		// Full-graph rebuild signal: bumping re-runs every graph effect.
 		this.graphGeneration = 0;
 		// Bumped when a mount CREATES the backbone (bare or delegated).
@@ -326,6 +322,28 @@ class CoreImpl {
 		}
 		this._lastPrint.set( key, now );
 		return true;
+	}
+
+	/**
+	 * The mount that owns the backbone and answers a Reset Graph: the first
+	 * non-passenger one still mounted.
+	 *
+	 * @return {?Object} Its record in `backboneMounts`, or null.
+	 */
+	get backboneOwner() {
+		return (
+			this.backboneMounts.find( ( mount ) => ! mount.passenger ) ?? null
+		);
+	}
+
+	/**
+	 * Whether the overlay's Reset Graph can rebuild the page: its owner
+	 * mounted a build.
+	 *
+	 * @return {boolean} True when the owning mount rebuilds.
+	 */
+	get rebuildable() {
+		return Boolean( this.backboneOwner?.rebuilds );
 	}
 
 	/**
