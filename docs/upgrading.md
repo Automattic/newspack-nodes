@@ -49,12 +49,17 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   subscription as invalid. A consumer reading `remote_partition` off a
   `Remote_Source` row of `Topology_Analyzer::graph_for()` reads `pairs` instead.
 - **A line naming no partition runs once per fleet (ADR-33).** A
-  `Remote_Source` pair whose source carries no partition token, and a
-  `File_Tail` of a fixed file, builds nothing off partition 0 of a
-  multi-partition topology. A line meant to read one source per worker writes
-  `{partition}` (`firehose.p{partition}`, `/var/log/app.{partition}.log`). A
-  node class reading a source of its own asks `Core::owns()` of the source as
-  written, never `Core::owns_unpartitioned()`.
+  `Remote_Source` pair whose source carries no partition token builds nothing
+  off partition 0 of a multi-partition topology, and a `Consumer`, `Tail` or
+  `File_Tail` reading a fixed source idles there. A `Consumer` of a fixed log
+  in a multi-partition topology used to read it in every worker; only p0's
+  reads it now, so a line meant to read one log per worker writes
+  `{partition}` (`firehose.p{partition}`, `/var/log/app.{partition}.log`).
+  A node class reading a source of its own asks
+  `Core::owns( $written, Core::bound_partition() )` of the source as written,
+  and a durable reader of your own names that argument in
+  `source_argument()`. A per-partition source beside an offsetlog or
+  dead-letter dir naming no partition fails to load, whatever the reader.
 - **A `sources/<name>` a topology reads must resolve, or that topology fails
   to load.** A `File_Tail` of a name the log-source registry lacks fails its
   build, and a broker's subscription to a name its spoke lacks is refused,

@@ -858,7 +858,7 @@ class TailFileFollowTest extends TestCase {
 
 		$this->assertSame( 'no dead-letter queue configured', $requeue->getMessage() );
 		$this->assertSame( 'no dead-letter queue configured', $purge->getMessage() );
-		$this->assertSame( 'no offsetlog to seek', $this->caught( static fn () => $idle->seek_frame( 0 ), 'seek_frame must find no cursor' )->getMessage() );
+		$this->assertSame( "php-errors:tail is idle on partition 2: {$path} is read on worker partition 0 alone", $this->caught( static fn () => $idle->seek_frame( 0 ), 'seek_frame must refuse while idle' )->getMessage() );
 		$this->assertSame( [], $capture->captured, 'nothing is redelivered' );
 		$this->assertSame( [ 'poison-3310' ], $before );
 		$this->assertSame( $before, $this->values_in( "{$this->tmp}/gannet-dead.p0" ), "p0's quarantine keeps its record" );

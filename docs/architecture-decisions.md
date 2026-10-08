@@ -2189,12 +2189,18 @@ of the first in sources, which the analyzer made per class, counting arguments b
 judging quote rules a single-quoted `'<partition>'` escaped.
 
 **Decision:** What a node reads is defined by its TSL, and one predicate reads it.
-[`Core::owns( $written )`](../includes/class-core.php) is true when the source as written
-carries `{partition}`, and otherwise where `Core::owns_unpartitioned()` holds: worker partition 0, or a process bound
-to no partition. A node asks `owns()` with the source as written; nothing asks the bound
-partition, and `scripts/lint-contract.mjs` refuses a call to `owns_unpartitioned(` outside
-`class-core.php` (`owns-unpartitioned-outside-core`). `Remote_Source_Node::owned_pairs()` asks
-it per pair, and `File_Tail_Node` of its `source_file` as written.
+[`Core::owns( $written, $partition )`](../includes/class-core.php) is true when the source as written
+carries `{partition}`, and otherwise on partition 0 or, where `$partition` is null, in a
+process bound to no partition. Nothing else decides ownership: a node passes
+`Core::bound_partition()`, and the on-demand wake map passes each worker's partition, so it
+wakes only the worker that reads a fixed source. Every durable reader asks it:
+[`Durable_Reader`](../includes/trait-durable-reader.php) judges the argument its class names
+through `source_argument()` — a `Consumer`'s `source_dir`, a `Tail`'s and `File_Tail`'s
+`source_file` — as written, in `idle_unless_owned()`, which each reader's `arguments()` calls
+before it builds anything. `Remote_Source_Node::owned_pairs()` asks it per pair and builds a
+reader only for a pair it owns, so that log stays out of `stream_request()`; a
+`Remote_Consumer_Node` names no source argument, because its broker already judged it, and
+never idles.
 
 `{partition}` is the one spelling, and the node resolves it. Each node type's `node_schema()`
 marks the arguments that take one: `'partition' => 'bound'` on a reader's source, an
@@ -2217,12 +2223,12 @@ it; write {partition}`. A template no Shell reads — a registered log producer,
 source — reaches `Core::has_partition_token()` or `resolve_partition_template()`, which
 refuse `<partition>` rather than read it as a fixed name and declare one literal dir.
 
-A node that owns nothing idles in one state, as a File_Tail off partition 0 does: it builds no
-reader, opens nothing, arms no timer, blanks its offsetlog and dead-letter dirs so no sidecar
-is built and no `dl_*` verb finds a quarantine, reports `POLLING` as `IDLE` with the reason
-beside it, refuses every act that would wake it with that reason, and writes no stderr line,
-because idling is normal operation. Every line is still parsed on every partition, so a bad
-one fails everywhere.
+A reader that owns nothing idles in one state, held by `Durable_Reader`: it builds no source,
+opens nothing, arms no timer, blanks its offsetlog and dead-letter dirs so no sidecar is built
+and no `dl_*` verb finds a quarantine, reports `POLLING` as `IDLE` with `idle: { since,
+reason }` beside it, refuses `poll`, `step`, `pause`, `play`, `seek_frame` and a seek with that
+reason, and writes no stderr line, because idling is normal operation. Every line is still
+parsed on every partition, so a bad one fails everywhere.
 
 **Alternatives considered:** A `num_partitions = 1` pin on a topology reading a fixed source —
 rejected: a hub pulling a multi-partition spoke's firehose needs a worker per partition, and
@@ -2236,13 +2242,16 @@ where one spelling needs none of them.
 
 **Consequences:** A per-worker source is written `{partition}`; a topology writing
 `<partition>` anywhere fails to load, in the analyzer, the editor and `wp nodes doctor`. A fixed
-source is read on one worker only, so its reader's lag and dead letters live on partition 0.
-A per-partition source keeps per-partition state: a File_Tail resolves `{partition}` in its
-offsetlog and dead-letter dirs as in its file, and `File_Tail_Node::refuse_shared_dirs()`,
-which the analyzer and the load both call, refuses a per-partition source beside a named dir
-carrying no `{partition}`, which every worker would commit one cursor to and quarantine one
-queue into. A new node type marks its partitioned arguments and
-asks `owns()`; one that does not ask reads its source once per worker, and nothing detects it.
+source is read on one worker only, so its reader's lag and dead letters live on partition 0: a
+`Consumer` of a fixed log in a multi-partition topology runs on p0 alone, and every other
+worker's copy idles. A per-partition source keeps per-partition state: a reader resolves
+`{partition}` in its offsetlog and dead-letter dirs as in its source, and
+`Durable_Reader::refuse_shared_dirs()`, which the analyzer and every reader's load both call,
+refuses a per-partition source beside a named dir carrying no `{partition}`, which every worker
+would commit one cursor to and quarantine one queue into. A new durable reader names its
+source argument and inherits the rest; a reader built in code inside a worker, after the
+topology bound its partition, is judged as a line is, so a builder that has already decided
+ownership, as the broker has, names no source argument.
 
 **Revisit if:** a fixed source must be read by more than one worker — split across them, or
 failed over when partition 0 is down — at which point ownership becomes a lease rather than a

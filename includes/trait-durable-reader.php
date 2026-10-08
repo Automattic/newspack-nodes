@@ -24,14 +24,15 @@ namespace Newspack_Nodes;
  *
  * The class must be a `Timer_Node`: the pump is timer-driven, and `fire()` here is the
  * tick that drains and re-arms the busy/EOF cadence (Remote_Consumer wraps it so a
- * paused tick only retries an owed step). It must fill six seams: where the
- * bytes come from (`get_batch`), where a fresh reader starts (`init_position`), how
- * one frame reaches disk (`write_checkpoint_frame`) and what that frame carries
- * beyond the shared base (`checkpoint_frame_extra`), and how the debugger moves the
- * cursor (`next_offset`, `time_travel_resume`); `after_step` and
- * `time_travel_on_pause` are optional. In return it
- * gets the durable cursor, the drain loop, the poison lifecycle and the debugger
- * verbs.
+ * paused tick only retries an owed step). It must fill seven seams: which
+ * argument names its source (`source_argument`), where the bytes come from
+ * (`get_batch`), where a fresh reader starts (`init_position`), how one frame
+ * reaches disk (`write_checkpoint_frame`) and what that frame carries beyond the
+ * shared base (`checkpoint_frame_extra`), and how the debugger moves the cursor
+ * (`next_offset`, `time_travel_resume`); `after_step` and `time_travel_on_pause`
+ * are optional. In return it gets the durable cursor, the drain loop, the poison
+ * lifecycle, the debugger verbs, and ownership: a reader whose worker does not
+ * own its source as written idles (ADR-33).
  *
  * `Dead_Letter_Queue` and `Sidecar` ride in with it. The cursor decides WHEN a record
  * is quarantined and where the reader resumes afterwards, so the trait owning the
@@ -343,6 +344,16 @@ trait Durable_Reader {
 	/** FROM-stamp override read by forward_line(); defaults to $this->name. The IPC input-Consumer stamps as `_repl`. */
 	protected string $stamp_override = '';
 
+	/**
+	 * When and why this reader idles, or null while it reads. A source naming
+	 * no partition is read on worker p0 alone (ADR-33), so a reader of one
+	 * built on any other worker opens nothing, arms no timer, blanks its
+	 * offsetlog and dead-letter dirs and reports `POLLING` as `IDLE`.
+	 *
+	 * @var array{since:float,reason:string}|null
+	 */
+	protected ?array $idle = null;
+
 	/** Skip and count a line that will not unpack instead of raising it; see set_skip_unparseable(). */
 	protected bool $skip_unparseable = false;
 
@@ -533,8 +544,10 @@ trait Durable_Reader {
 	 *
 	 * @phpstan-impure
 	 * @return int Records the tick consumed — forwarded, dead-lettered or refused alike.
+	 * @throws \RuntimeException While this reader idles.
 	 */
 	public function poll(): int {
+		$this->refuse_while_idle();
 		return ( $this->poll_cb ?? ( $this->poll_cb = $this->poll_init( ... ) ) )();
 	}
 
@@ -1062,9 +1075,10 @@ trait Durable_Reader {
 	 * @api Consumed over the wire by the debugger UI (`seek_frame` command).
 	 * @param int $segment Offsetlog segment id, from dump_metadata's frames[].id.
 	 * @return string `"ok\n"`.
-	 * @throws \RuntimeException When there is no offsetlog, or no frame at the segment.
+	 * @throws \RuntimeException While idle, when there is no offsetlog, or no frame at the segment.
 	 */
 	public function seek_frame( int $segment ): string {
+		$this->refuse_while_idle();
 		if ( null === $this->offsetlog ) {
 			throw new \RuntimeException( 'no offsetlog to seek' );
 		}
@@ -1143,8 +1157,10 @@ trait Durable_Reader {
 	 *
 	 * @api Consumed over the wire by the debugger UI (auth-gated `step` command).
 	 * @return array{segment:int, offset:int, at_eof:bool} The resulting cursor + EOF flag.
+	 * @throws \RuntimeException While this reader idles.
 	 */
 	public function step(): array {
+		$this->refuse_while_idle();
 		// Stepping stays paused: a self-rearming fire() leaps past messages.
 		$this->stop_timer();
 		$this->set_state( 'POLLING', 'PAUSED' );
@@ -1227,8 +1243,9 @@ trait Durable_Reader {
 	 *     when seeked, else the newest frame id when live, null only with no frames yet.
 	 *   - `on_frame`: the cursor is exactly on `at_frame`'s committed position vs
 	 *     advanced past it. Seeked: `! stepped_since_seek`. Live: cursor == checkpoint.
+	 *   - `idle`: when and why the reader idles, present only while it does.
 	 *
-	 * @return array{frames: array<int,array{id:int,size:int}>, cursor: array{segment:int, offset:int}, polling: string, at_frame: int|null, on_frame: bool}
+	 * @return array{frames: array<int,array{id:int,size:int}>, cursor: array{segment:int, offset:int}, polling: string, at_frame: int|null, on_frame: bool, idle?: array{since:float,reason:string}}
 	 */
 	public function time_travel_metadata(): array {
 		$frames    = $this->offsetlog?->get_segments() ?? [];
@@ -1243,11 +1260,16 @@ trait Durable_Reader {
 			'polling'  => Core::as_string( $this->set_state['POLLING'] ?? 'INIT' ),
 			'at_frame' => $at_frame,
 			'on_frame' => $on_frame,
-		];
+		] + ( null === $this->idle ? [] : [ 'idle' => $this->idle ] );
 	}
 
-	/** Hold the cursor and emit nothing until `step` / `play`. */
+	/**
+	 * Hold the cursor and emit nothing until `step` / `play`.
+	 *
+	 * @throws \RuntimeException While this reader idles.
+	 */
 	public function pause(): void {
+		$this->refuse_while_idle();
 		$this->stop_timer();
 		$this->time_travel_on_pause();
 		$this->set_state( 'POLLING', 'PAUSED' );
@@ -1257,8 +1279,11 @@ trait Durable_Reader {
 	 * Resume normal polling: if rewound while paused, drop the now-stale forward
 	 * keyframes (commit-to-this-branch, so the re-written timeline stays monotonic),
 	 * restore the line_mode `step` captured, then re-arm the node's own poll/tick timer.
+	 *
+	 * @throws \RuntimeException While this reader idles.
 	 */
 	public function play(): void {
+		$this->refuse_while_idle();
 		if ( null !== $this->rewound_to ) {
 			$this->offsetlog?->truncate_after( $this->rewound_to );
 			$this->rewound_to = null;
@@ -1336,11 +1361,24 @@ trait Durable_Reader {
 	protected function on_checkpoint_committed(): void {}
 
 	/**
-	 * Reposition the read cursor to `{segment,offset}` (seek_frame's landing).
+	 * Reposition the read cursor to `{segment,offset}` (seek_frame's landing),
+	 * refused while the reader idles; `seek_to()` is each reader's own move.
+	 *
+	 * @param string|int|array<array-key,mixed> $position Seek sentinel, alias word, or explicit {segment,offset}.
+	 * @throws \RuntimeException While this reader idles.
+	 */
+	public function next_offset( $position ): void {
+		$this->refuse_while_idle();
+		$this->seek_to( $position );
+	}
+
+	/**
+	 * Seek seam: move the read cursor to `$position`, which `next_offset()`
+	 * has already let through.
 	 *
 	 * @param string|int|array<array-key,mixed> $position Seek sentinel, alias word, or explicit {segment,offset}.
 	 */
-	abstract public function next_offset( $position ): void;
+	abstract protected function seek_to( $position ): void;
 
 	/**
 	 * `step`'s advance: consume exactly one record, whatever becomes of it —
@@ -1368,6 +1406,83 @@ trait Durable_Reader {
 
 	/** Re-arm the node's own poll/tick timer on `play`. */
 	abstract protected function time_travel_resume(): void;
+
+	/**
+	 * The argument naming what this reader reads, which ownership is judged
+	 * on as the TSL wrote it; null for a reader whose builder already judged
+	 * it, as a broker does for each reader it builds.
+	 */
+	abstract protected static function source_argument(): ?string;
+
+	/**
+	 * Idle unless this worker owns the source as its TSL wrote it (ADR-33): a
+	 * source naming `{partition}` is each worker's own, and a fixed one is
+	 * read on worker p0 alone. An idle reader keeps no dirs, so a replay that
+	 * idles it retracts its sidecars and returns it to its never-polled state,
+	 * and it writes no stderr line, because idling is normal operation.
+	 *
+	 * @param string $source The source this worker would read, which the reason names.
+	 * @return bool True when the reader idles.
+	 */
+	protected function idle_unless_owned( string $source ): bool {
+		$argument = static::source_argument();
+		if ( null === $argument || Core::owns( $this->written_argument( $argument ), Core::bound_partition() ) ) {
+			$this->idle = null;
+			return false;
+		}
+		$this->idle           = [
+			'since'  => Core::$now,
+			'reason' => 'idle on partition ' . Core::bound_partition() . ": {$source} is read on worker partition 0 alone",
+		];
+		$this->offsetlog_dir  = '';
+		$this->deadletter_dir = '';
+		$this->ensure_offsetlog();
+		$this->ensure_deadletter();
+		$this->stop_timer();
+		// Never polled again: no probe sweep claims a reader that is not READY.
+		unset( $this->set_state['READY'] );
+		$this->poll_cb          = null;
+		$this->poll_initialized = false;
+		$this->set_state( 'POLLING', 'IDLE' );
+		return true;
+	}
+
+	/**
+	 * Refuse what would wake an idle reader or move it out of its one state,
+	 * naming why it idles.
+	 *
+	 * @throws \RuntimeException While this reader idles.
+	 */
+	protected function refuse_while_idle(): void {
+		if ( null !== $this->idle ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+			throw new \RuntimeException( "{$this->name} is {$this->idle['reason']}" );
+		}
+	}
+
+	/**
+	 * Refuse a per-partition source beside an offsetlog or dead-letter dir
+	 * naming no partition: every worker would commit one cursor and
+	 * quarantine into one queue. Judged on the tokens as written, before any
+	 * field moves, and static, so the analyzer refuses the line a load would.
+	 *
+	 * @param string       $name The reader's name, which the refusal opens with.
+	 * @param list<string> $args The `make_node` argument tokens, the name excluded.
+	 * @throws \InvalidArgumentException When a named dir carries no `{partition}`.
+	 */
+	public static function refuse_shared_dirs( string $name, array $args ): void {
+		$argument = static::source_argument();
+		if ( null === $argument || ! Core::has_partition_token( static::written_in( $args, $argument ) ) ) {
+			return;
+		}
+		foreach ( [ 'offsetlog_dir', 'deadletter_dir' ] as $arg ) {
+			$dir = static::written_in( $args, $arg );
+			if ( '' !== $dir && ! Core::has_partition_token( $dir ) ) {
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+				throw new \InvalidArgumentException( Command_Interpreter_Node::shell_name_for( static::class ) . " {$name}: a per-partition source needs per-partition offsetlog and deadletter dirs; add " . Core::PARTITION_TOKEN );
+			}
+		}
+	}
 
 	/** Extra halt on `pause` beyond stopping the timer. Base no-op; override to also stop the pull. */
 	protected function time_travel_on_pause(): void {}

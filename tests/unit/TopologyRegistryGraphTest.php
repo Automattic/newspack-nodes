@@ -477,6 +477,8 @@ class TopologyRegistryGraphTest extends TestCase {
 			'an unmarked argument'   => [ "make_node Remote_Link link:okapi okapi-{partition} firehose.p0\n", "vault_id takes no {partition}" ],
 			'a fixed offsetlog'      => [ "make_node File_Tail app:tail-8 /var/log/heron.{partition}.log /var/heron/off /var/heron/dl.{partition}\n", 'File_Tail app:tail-8: a per-partition source needs per-partition offsetlog and deadletter dirs; add {partition}' ],
 			'a fixed deadletter'     => [ "make_node File_Tail app:tail-8 /var/log/heron.{partition}.log /var/heron/off.{partition} /var/heron/dl\n", 'File_Tail app:tail-8: a per-partition source needs per-partition offsetlog and deadletter dirs; add {partition}' ],
+			'a Consumer, fixed offsetlog' => [ "make_node Consumer heron:consumer-8 /var/heron/log.p{partition} /var/heron/off /var/heron/dl.p{partition}\n", 'Consumer heron:consumer-8: a per-partition source needs per-partition offsetlog and deadletter dirs; add {partition}' ],
+			'a Tail, fixed deadletter'    => [ "make_node Tail heron:tail-8 /var/heron/log.{partition} /var/heron/off.{partition} /var/heron/dl\n", 'Tail heron:tail-8: a per-partition source needs per-partition offsetlog and deadletter dirs; add {partition}' ],
 		];
 	}
 

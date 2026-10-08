@@ -56,6 +56,11 @@ class Tail_Node extends Consumer_Node {
 	 */
 	protected string $source_file = '';
 
+	/** Ownership seam: the file base names what a Tail reads. */
+	protected static function source_argument(): ?string {
+		return 'source_file';
+	}
+
 	/**
 	 * Source seam: read a Log ({file}.{seg}), not a Partition ({dir}/{seg}.log).
 	 * Both shapes are segmented and both rotate, so every part of the inherited
