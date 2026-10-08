@@ -37,6 +37,7 @@ import {
 	installFakeCommandWire,
 } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { invalidateExpandedIncludes } from '../hooks/useExpandedIncludes';
+import { LAYOUT_AUTO } from '../hooks/useCanvasLayout';
 import { renderWithCatalog } from './catalogTestUtils';
 
 // Pre-seed window.NewspackNodesData for the module-level IIFEs.
@@ -4687,6 +4688,253 @@ describe( 'TopologyConsole boot', () => {
 		expect( stored.positions.n1 ).toBeDefined();
 		expect( stored.positions.n1 ).not.toEqual( { x: 500, y: 600 } );
 		expect( stored.modified ).toBe( false );
+	} );
+
+	describe( 'a saved "auto" layout', () => {
+		const DEMO_TSL = 'make_node Echo n1\nmake_node Echo relay7\n';
+
+		// The server answers a save with what it stored.
+		beforeEach( () => {
+			hooks.saveLayout.mockImplementation( ( { name, positions } ) =>
+				Promise.resolve( { name, positions } )
+			);
+		} );
+
+		// Open `demo` in edit mode and let the one-shot autoLayout settle.
+		const openDemoInEdit = async () => {
+			hooks.fetchTopology.mockResolvedValueOnce( {
+				tsl: DEMO_TSL,
+				name: 'demo',
+			} );
+			window.history.replaceState( {}, '', '/?topology=demo' );
+			const view = render( <TopologyConsole /> );
+			await act( async () => {
+				fireEvent.click( view.getByText( 'edit' ) );
+			} );
+			await act( async () => {
+				await new Promise( ( r ) => setTimeout( r, 300 ) );
+			} );
+			return view;
+		};
+
+		it( 'Save Layout on an untouched autolaid edit canvas sends "auto"', async () => {
+			const { queryByText } = await openDemoInEdit();
+			await act( async () => {
+				fireEvent.click( queryByText( 'save-layout' ) );
+			} );
+			expect( hooks.saveLayout ).toHaveBeenCalledWith( {
+				name: 'demo',
+				positions: LAYOUT_AUTO,
+			} );
+		} );
+
+		it( 'Save Layout after a drag sends the map', async () => {
+			const { getByText, queryByText } = await openDemoInEdit();
+			await act( async () => {
+				fireEvent.click( getByText( 'move-n1' ) );
+			} );
+			await act( async () => {
+				fireEvent.click( queryByText( 'save-layout' ) );
+			} );
+			const sent = hooks.saveLayout.mock.calls[ 0 ][ 0 ].positions;
+			expect( sent.n1 ).toEqual( [ 100, 200 ] );
+			expect( Array.isArray( sent.relay7 ) ).toBe( true );
+		} );
+
+		it( 'Save Layout on an unmoved canvas a saved map seeded sends the map', async () => {
+			// gone9 is off the canvas, so the seeded map diverges from the save.
+			hooks.fetchLayout.mockResolvedValue( {
+				positions: {
+					n1: [ 510, 620 ],
+					relay7: [ 730, 40 ],
+					gone9: [ 5, 5 ],
+				},
+			} );
+			const { queryByText } = await openDemoInEdit();
+			await act( async () => {
+				fireEvent.click( queryByText( 'save-layout' ) );
+			} );
+			const sent = hooks.saveLayout.mock.calls[ 0 ][ 0 ].positions;
+			expect( sent ).toMatchObject( {
+				n1: [ 510, 620 ],
+				relay7: [ 730, 40 ],
+			} );
+		} );
+
+		it( 'hides the Save chip on an untouched canvas, and shows it after a drag', async () => {
+			hooks.fetchLayout.mockResolvedValue( { positions: LAYOUT_AUTO } );
+			const { getByText, queryByText } = await openDemoInEdit();
+			expect( queryByText( 'save-layout' ) ).toBeNull();
+			await act( async () => {
+				fireEvent.click( getByText( 'move-n1' ) );
+			} );
+			expect( queryByText( 'save-layout' ) ).not.toBeNull();
+		} );
+
+		it( 'Reset then Save turns a saved map equal to the autolayout into "auto"', async () => {
+			const first = await openDemoInEdit();
+			const laid = JSON.parse(
+				window.localStorage.getItem(
+					'newspack-nodes:topology:edit:demo'
+				)
+			).positions;
+			first.unmount();
+			window.localStorage.clear();
+			hooks.fetchLayout.mockResolvedValue( {
+				positions: Object.fromEntries(
+					Object.entries( laid ).map( ( [ id, p ] ) => [
+						id,
+						[ p.x, p.y ],
+					] )
+				),
+			} );
+			const { getByText, queryByText } = await openDemoInEdit();
+			expect( queryByText( 'save-layout' ) ).toBeNull();
+			fireEvent.click( queryByText( 'reset-layout' ) );
+			await act( async () => {
+				fireEvent.click( getByText( 'confirm' ) );
+			} );
+			await act( async () => {
+				await new Promise( ( r ) => setTimeout( r, 300 ) );
+			} );
+			await act( async () => {
+				fireEvent.click( queryByText( 'save-layout' ) );
+			} );
+			expect( hooks.saveLayout ).toHaveBeenCalledWith( {
+				name: 'demo',
+				positions: LAYOUT_AUTO,
+			} );
+		} );
+
+		it( 'lays an untouched browser copy out afresh when "auto" loads', async () => {
+			window.localStorage.setItem(
+				'newspack-nodes:topology:demo.p0',
+				JSON.stringify( {
+					positions: { n1: { x: 9001, y: -4417 } },
+					modified: false,
+					laidEdges: [],
+				} )
+			);
+			hooks.fetchLayout.mockResolvedValue( { positions: LAYOUT_AUTO } );
+			window.history.replaceState( {}, '', '/?topology=demo' );
+			render( <TopologyConsole /> );
+			act( () => {
+				lastReplProps.onSubmit( 'cd /demo.p0' );
+			} );
+			await act( async () => {
+				await new Promise( ( r ) => setTimeout( r, 10 ) );
+			} );
+			await publishMeta();
+			await act( async () => {
+				await new Promise( ( r ) => setTimeout( r, 300 ) );
+			} );
+			const stored = JSON.parse(
+				window.localStorage.getItem( 'newspack-nodes:topology:demo.p0' )
+			);
+			expect( stored.positions.n1 ).not.toEqual( { x: 9001, y: -4417 } );
+		} );
+
+		// Lay out the worker canvas for `demo` under one saved layout.
+		const workerPositionsUnder = async (
+			saved,
+			before = async () => {}
+		) => {
+			hooks.fetchLayout.mockResolvedValue( { positions: saved } );
+			window.history.replaceState( {}, '', '/?topology=demo' );
+			const view = render( <TopologyConsole /> );
+			act( () => {
+				lastReplProps.onSubmit( 'cd /demo.p0' );
+			} );
+			await act( async () => {
+				await new Promise( ( r ) => setTimeout( r, 10 ) );
+			} );
+			await publishMeta( {
+				relay7: {
+					class: 'Echo',
+					counter: 0,
+					sink: '',
+					target: 'spokes:tw0',
+				},
+				'spokes:tw0': {
+					class: 'Echo',
+					counter: 0,
+					sink: '',
+					target: '',
+				},
+			} );
+			await act( async () => {
+				await new Promise( ( r ) => setTimeout( r, 300 ) );
+			} );
+			await before( view );
+			const stored = JSON.parse(
+				window.localStorage.getItem( 'newspack-nodes:topology:demo.p0' )
+			);
+			view.unmount();
+			window.localStorage.clear();
+			return stored.positions;
+		};
+
+		it( 'places a node the saved map lacks where autoLayout does, never below the map', async () => {
+			const fresh = await workerPositionsUnder( null );
+			const auto = await workerPositionsUnder( LAYOUT_AUTO );
+			const map = await workerPositionsUnder( { relay7: [ 40, 50 ] } );
+			expect( auto ).toEqual( fresh );
+			expect( map[ 'spokes:tw0' ] ).not.toEqual( fresh[ 'spokes:tw0' ] );
+		} );
+
+		it( 'view-mode Reset lays a dragged copy out at the autolayout', async () => {
+			const fresh = await workerPositionsUnder( null );
+			window.localStorage.setItem(
+				'newspack-nodes:topology:demo.p0',
+				JSON.stringify( {
+					positions: {
+						relay7: { x: 12, y: 34 },
+						'spokes:tw0': { x: 56, y: 78 },
+					},
+					modified: true,
+				} )
+			);
+			const reset = await workerPositionsUnder(
+				LAYOUT_AUTO,
+				async ( { queryByText } ) => {
+					await act( async () => {
+						fireEvent.click( queryByText( 'reset-layout' ) );
+					} );
+					await act( async () => {
+						await new Promise( ( r ) => setTimeout( r, 300 ) );
+					} );
+				}
+			);
+			expect( reset ).toEqual( fresh );
+		} );
+
+		it( 'leaves a browser map a person dragged in place until Reset', async () => {
+			window.localStorage.setItem(
+				'newspack-nodes:topology:demo.p0',
+				JSON.stringify( {
+					positions: { n1: { x: 12, y: 34 } },
+					modified: true,
+				} )
+			);
+			hooks.fetchLayout.mockResolvedValue( { positions: LAYOUT_AUTO } );
+			window.history.replaceState( {}, '', '/?topology=demo' );
+			const { queryByText } = render( <TopologyConsole /> );
+			act( () => {
+				lastReplProps.onSubmit( 'cd /demo.p0' );
+			} );
+			await act( async () => {
+				await new Promise( ( r ) => setTimeout( r, 10 ) );
+			} );
+			await publishMeta();
+			await act( async () => {
+				await new Promise( ( r ) => setTimeout( r, 300 ) );
+			} );
+			const stored = JSON.parse(
+				window.localStorage.getItem( 'newspack-nodes:topology:demo.p0' )
+			);
+			expect( stored.positions.n1 ).toEqual( { x: 12, y: 34 } );
+			expect( queryByText( 'save-layout' ) ).not.toBeNull();
+		} );
 	} );
 
 	it( 'handleResetLayout: edit mode pops the confirm modal', async () => {

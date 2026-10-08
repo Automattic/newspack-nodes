@@ -1,5 +1,6 @@
 import { renderHook, act } from '@testing-library/react';
-import { useCanvasLayout } from '../useCanvasLayout';
+import { useCanvasLayout, LAYOUT_AUTO } from '../useCanvasLayout';
+import { autoLayout } from '../../utils/autoLayout';
 
 const KEY = 'newspack-nodes:topology:test';
 // a→b: autoLayout puts a at {60,80} (col0,row0), b at {300,80} (maxDepth,row0).
@@ -101,6 +102,89 @@ describe( 'useCanvasLayout', () => {
 			b: { x: 2, y: 2 },
 		} );
 		expect( result.current.canReset ).toBe( true );
+	} );
+
+	describe( 'a fetched "auto" layout', () => {
+		// A copy laid for a graph that has since lost node c.
+		const storeCopy = ( modified ) =>
+			window.localStorage.setItem(
+				KEY,
+				JSON.stringify( {
+					positions: {
+						a: { x: 913, y: -47 },
+						b: { x: -388, y: 612 },
+						c: { x: 5, y: 5 },
+					},
+					modified,
+					laidEdges: [ 'a\nb' ],
+				} )
+			);
+		const LAID_AB = { a: { x: 60, y: 80 }, b: { x: 300, y: 80 } };
+
+		it( 'replaces an untouched browser copy with a fresh autoLayout', () => {
+			storeCopy( false );
+			const { result } = render( { serverLayout: LAYOUT_AUTO } );
+			act( () => jest.advanceTimersByTime( 300 ) );
+			expect( result.current.positions ).toEqual( LAID_AB );
+			expect( result.current.canReset ).toBe( false );
+			expect(
+				JSON.parse( window.localStorage.getItem( KEY ) ).positions
+			).toEqual( LAID_AB );
+		} );
+
+		it( 'keeps a browser copy a person dragged', () => {
+			storeCopy( true );
+			const { result } = render( { serverLayout: LAYOUT_AUTO } );
+			act( () => jest.advanceTimersByTime( 300 ) );
+			expect( result.current.positions ).toEqual( {
+				a: { x: 913, y: -47 },
+				b: { x: -388, y: 612 },
+				c: { x: 5, y: 5 },
+			} );
+			expect( result.current.canReset ).toBe( true );
+		} );
+
+		it( 'lays the graph out when this browser holds no copy', () => {
+			const { result } = render( { serverLayout: LAYOUT_AUTO } );
+			act( () => jest.advanceTimersByTime( 300 ) );
+			expect( result.current.positions ).toEqual( LAID_AB );
+		} );
+
+		it( 'lays a dragged copy out afresh on Reset', () => {
+			storeCopy( true );
+			const { result } = render( { serverLayout: LAYOUT_AUTO } );
+			act( () => result.current.resetLayout() );
+			act( () => jest.advanceTimersByTime( 300 ) );
+			expect( result.current.positions ).toEqual( LAID_AB );
+			expect( result.current.canReset ).toBe( false );
+		} );
+
+		it( 'lays an untouched copy out again when the graph gains a node', () => {
+			// c extends the chain, so autoLayout seats it where no tuck would.
+			const chain = {
+				nodes: [ { id: 'a' }, { id: 'b' }, { id: 'c' } ],
+				edges: [
+					{ from: 'a', to: 'b' },
+					{ from: 'b', to: 'c' },
+				],
+			};
+			const { result, rerender } = render( {
+				serverLayout: LAYOUT_AUTO,
+			} );
+			act( () => jest.advanceTimersByTime( 300 ) );
+			act( () =>
+				rerender( {
+					storageKey: KEY,
+					ready: true,
+					serverLayout: LAYOUT_AUTO,
+					graph: chain,
+				} )
+			);
+			act( () => jest.advanceTimersByTime( 300 ) );
+			expect( result.current.positions.c ).toEqual(
+				autoLayout( chain ).nodes.find( ( n ) => 'c' === n.id ).position
+			);
+		} );
 	} );
 
 	it( 'adopts a serverLayout (worker topology) over autoLayout', () => {

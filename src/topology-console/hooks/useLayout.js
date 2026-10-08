@@ -31,15 +31,18 @@ const LAYOUTS = 'layouts';
  * @param {Object} [o]           Reply handlers, each run once per reply.
  * @param {OnDone} [o.onFetched] Runs on the get's reply. `result` is `{name,
  *                               positions}`, and a null `positions` means
- *                               nothing is saved under that name; `args[0]`
- *                               names the topology it was asked for.
+ *                               nothing is saved under that name, LAYOUT_AUTO
+ *                               a fresh autolayout; `args[0]` names the
+ *                               topology it was asked for.
  * @param {OnDone} [o.onSaved]   Runs on the save's reply. `result` is `{name,
- *                               path, positions}`, the positions being the
- *                               entries that survived the server's validation.
- * @return {{fetchLayout: (name: string) => void, saveLayout: (o: {name: string, positions: Object}) => void}}
+ *                               path, positions}`, the positions being
+ *                               LAYOUT_AUTO or the entries that survived the
+ *                               server's validation.
+ * @return {{fetchLayout: (name: string) => void, saveLayout: (o: {name: string, positions: Object|string}) => void}}
  *   `fetchLayout()` asks for a topology's saved positions; `saveLayout()`
- *   writes them, `positions` keying each node id to its `[x, y]` pair. Neither
- *   returns a promise — the answer arrives at the handler.
+ *   writes them, `positions` keying each node id to its `[x, y]` pair or
+ *   being LAYOUT_AUTO. Neither returns a promise — the answer arrives at the
+ *   handler.
  */
 export function useLayout( { onFetched, onSaved } = {} ) {
 	const { run: runGet } = useCommandOnce( {

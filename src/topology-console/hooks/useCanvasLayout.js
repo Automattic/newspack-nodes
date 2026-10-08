@@ -6,7 +6,9 @@
  * to be complete: this hook seeds it once from `autoLayout` or from a worker
  * topology's server-saved layout, then mutates it on drags, palette drops and
  * tucks for nodes that arrive later. An untouched autoLayout map is laid out
- * again instead when the graph gains a node or an edge it was not laid for.
+ * again instead when the graph gains a node or an edge it was not laid for. A
+ * saved layout of `LAYOUT_AUTO` seeds a fresh autoLayout where a saved map
+ * seeds its positions.
  * Positions and the viewport persist to localStorage under one key per scope,
  * which is what makes layout browser state rather than part of the draft
  * document; `LayoutContext` publishes the result to the canvas and never
@@ -15,6 +17,12 @@
 
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { autoLayout, placeBelow } from '../utils/autoLayout';
+
+/**
+ * The saved layout that is no map: a fresh autoLayout of the graph on screen.
+ * `Layouts_CI_Node::AUTO` is its server twin, matched exactly.
+ */
+export const LAYOUT_AUTO = 'auto';
 
 /**
  * The canvas value shapes, declared in `LayoutContext` and re-imported here so
@@ -327,11 +335,44 @@ function outgrows( s, storageKey, graph ) {
 }
 
 /**
+ * A graph's structure as one string: its node ids and drawable edges, sorted.
+ *
+ * Two graphs with one structure lay out alike, so a metadata poll that
+ * republishes the same nodes and edges reuses the last autoLayout.
+ *
+ * @param {Graph} graph The graph.
+ * @return {string} The signature.
+ */
+function structureOf( graph ) {
+	return JSON.stringify( [
+		graph.nodes.map( ( n ) => n.id ).sort(),
+		edgeKeysOf( graph ).sort(),
+	] );
+}
+
+/**
+ * The positions a fresh autoLayout gives the graph, laid once per structure.
+ *
+ * @param {{current: {structure: ?string, positions: ?Object<string,Position>}}} cache The hook's last layout and the structure it was laid for.
+ * @param {Graph}                                                                graph The graph on the canvas.
+ * @return {Object<string,Position>} Every node's position.
+ */
+function autoPositions( cache, graph ) {
+	const structure = structureOf( graph );
+	if ( cache.current.structure !== structure ) {
+		cache.current = { structure, positions: laidOut( graph ) };
+	}
+	return cache.current.positions;
+}
+
+/**
  * How long the node set must stop growing before the one-shot layout runs.
  *
  * Nodes stream in a batch at a time and `autoLayout` runs once, so laying out
  * on the first batch would freeze half a topology into positions the rest has
- * to live around. Laying an outgrown map out again waits the same.
+ * to live around. Laying an outgrown map out again waits the same, and so does
+ * the fresh layout a saved `LAYOUT_AUTO` asks for whenever the structure
+ * changes, so a streaming load moves its cards once rather than per batch.
  */
 const LAYOUT_SETTLE_MS = 250;
 
@@ -344,16 +385,21 @@ const LAYOUT_SETTLE_MS = 250;
  * then keeps every edge it has covered, so a seed and a live graph that each
  * hold an edge the other lacks lay the canvas out once, not on every load.
  *
+ * A saved `LAYOUT_AUTO` is reconciled as a saved map is, its positions being
+ * `autoLayout` of the graph on screen. That layout runs once the node set has
+ * stopped changing for `LAYOUT_SETTLE_MS`, again whenever the structure
+ * changes, and not at all for a poll that republishes the same structure.
+ *
  * Dirty browser positions outrank a server layout that arrives afterwards until
  * the two maps agree, at which point the acknowledgement clears the dirty flag
  * without moving a card. Otherwise a fetch landing after a drag would snap
  * every card back to what the server last saved.
  *
- * @param {Object}  opts
- * @param {?string} opts.storageKey     localStorage key, one per scope. Null for an untitled draft, which never persists.
- * @param {Graph}   opts.graph          The COMPLETE graph for the scope.
- * @param {boolean} opts.ready          Graph fully built, and the server fetch resolved for a worker scope.
- * @param {?Object} [opts.serverLayout] The worker topology's saved layout, an id-to-`{x, y}` map, or null when none is stored.
+ * @param {Object}         opts
+ * @param {?string}        opts.storageKey     localStorage key, one per scope. Null for an untitled draft, which never persists.
+ * @param {Graph}          opts.graph          The COMPLETE graph for the scope.
+ * @param {boolean}        opts.ready          Graph fully built, and the server fetch resolved for a worker scope.
+ * @param {?Object|string} [opts.serverLayout] The worker topology's saved layout: an id-to-`{x, y}` map, LAYOUT_AUTO, or null when none is stored.
  * @return {CanvasLayout} This scope's layout and its mutators.
  */
 export function useCanvasLayout( {
@@ -367,8 +413,10 @@ export function useCanvasLayout( {
 	stateRef.current = state;
 	const vpTimer = useRef( null );
 	const settleTimer = useRef( null );
+	const isAuto = LAYOUT_AUTO === serverLayout;
+	const autoLaid = useRef( { structure: null, positions: null } );
 	const hasServerLayout =
-		!! serverLayout && Object.keys( serverLayout ).length > 0;
+		isAuto || ( !! serverLayout && Object.keys( serverLayout ).length > 0 );
 
 	// Reload on scope switch; cancel any pending viewport write.
 	useEffect( () => {
@@ -389,12 +437,15 @@ export function useCanvasLayout( {
 			return undefined;
 		}
 
+		const cancelSettle = () => {
+			if ( settleTimer.current ) {
+				clearTimeout( settleTimer.current );
+				settleTimer.current = null;
+			}
+		};
+
 		// Dirty browser positions win until the complete server map matches.
-		if ( hasServerLayout ) {
-			const serverPositions = materializeServerPositions(
-				serverLayout,
-				nodes
-			);
+		const adopt = ( serverPositions ) =>
 			setState( ( prev ) => {
 				if ( prev.key !== storageKey ) {
 					return prev;
@@ -418,12 +469,22 @@ export function useCanvasLayout( {
 					viewport: prev.viewport,
 					viewportDelta: prev.viewportDelta,
 					modified: false,
-					laidEdges: null,
+					laidEdges: isAuto ? edgeKeysOf( graph ) : null,
 					key: storageKey,
 				};
 				persist( storageKey, next );
 				return next;
 			} );
+		if ( isAuto ) {
+			// "auto" lays out once the node set settles, as autoLayout does.
+			settleTimer.current = setTimeout( () => {
+				settleTimer.current = null;
+				adopt( autoPositions( autoLaid, graph ) );
+			}, LAYOUT_SETTLE_MS );
+			return cancelSettle;
+		}
+		if ( hasServerLayout ) {
+			adopt( materializeServerPositions( serverLayout, nodes ) );
 			return undefined;
 		}
 
@@ -451,16 +512,12 @@ export function useCanvasLayout( {
 				return next;
 			} );
 		}, LAYOUT_SETTLE_MS );
-		return () => {
-			if ( settleTimer.current ) {
-				clearTimeout( settleTimer.current );
-				settleTimer.current = null;
-			}
-		};
+		return cancelSettle;
 	}, [
 		ready,
 		graph,
 		serverLayout,
+		isAuto,
 		hasServerLayout,
 		storageKey,
 		state.positions,

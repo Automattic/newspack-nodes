@@ -54,7 +54,7 @@ import { useCompletion } from './hooks/useCompletion';
 import { useGraphHandlers } from './hooks/useGraphHandlers';
 import { sseRefusal } from './core/outgoingGate';
 import { useGraphSurface } from './hooks/useGraphSurface';
-import { useCanvasLayout } from './hooks/useCanvasLayout';
+import { useCanvasLayout, LAYOUT_AUTO } from './hooks/useCanvasLayout';
 import { useGraphReset } from '../debug-overlay/useGraphReset';
 import { useNodeField, useNodeState, useNodeFill } from '../runtime/react';
 import {
@@ -867,13 +867,14 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 
 	const currentSavedLayout =
 		savedLayout?.name === effectiveTopologyName ? savedLayout : null;
+	const savedPositions = currentSavedLayout?.positions ?? null;
+	const savedIsAuto = LAYOUT_AUTO === savedPositions;
 
 	const [ resetConfirm, setResetConfirm ] = useState( null );
 
-	// Returns null on empty/malformed payload so callers can branch cleanly.
-	const savedPositionsToOverrides = useCallback( ( layout ) => {
-		const saved = layout && layout.positions;
-		if ( ! saved || Object.keys( saved ).length === 0 ) {
+	// Null unless the saved map places a node.
+	const savedPositionsToOverrides = useCallback( ( saved ) => {
+		if ( ! saved ) {
 			return null;
 		}
 		const next = {};
@@ -882,7 +883,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				next[ id ] = { x: xy[ 0 ], y: xy[ 1 ] };
 			}
 		}
-		return next;
+		return Object.keys( next ).length > 0 ? next : null;
 	}, [] );
 
 	// Server layout fits only a matching-worker or edit scope, not cwd "/".
@@ -895,10 +896,15 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		setServerSeedBlocked( false );
 	}, [ effectiveTopologyName, scope.key, mode ] );
 
-	const serverPositionsMap = useMemo(
-		() => savedPositionsToOverrides( currentSavedLayout ),
-		[ currentSavedLayout, savedPositionsToOverrides ]
+	const serverLayout = useMemo(
+		() =>
+			savedIsAuto
+				? LAYOUT_AUTO
+				: savedPositionsToOverrides( savedPositions ),
+		[ savedIsAuto, savedPositions, savedPositionsToOverrides ]
 	);
+	const canvasServerLayout =
+		isServerScope && ! serverSeedBlocked ? serverLayout : null;
 
 	// Graph canvas renders: frozen draft in edit, live metadata in view.
 	const layoutGraph = useMemo(
@@ -942,9 +948,12 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		storageKey: positionStorageKey,
 		graph: layoutGraph,
 		ready: layoutReady,
-		serverLayout:
-			isServerScope && ! serverSeedBlocked ? serverPositionsMap : null,
+		serverLayout: canvasServerLayout,
 	} );
+	// Untouched since autoLayout placed it, so Save Layout writes "auto".
+	const layoutIsAuto =
+		! canReset &&
+		( null === canvasServerLayout || LAYOUT_AUTO === canvasServerLayout );
 
 	// Shared graph-dirty + Reset Graph logic (identical to the debug overlay).
 	const { resetGraph: resetLocalGraphCore, canResetGraph } = useGraphReset( {
@@ -956,15 +965,20 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		markDirty,
 	} );
 
-	// Save Layout chip gate: positions diverge from the server's saved layout.
+	// Save Layout chip gate: what Save would write differs from the save.
 	const layoutDivergesFromSaved = useMemo( () => {
-		const saved =
-			( currentSavedLayout && currentSavedLayout.positions ) || null;
+		const saved = savedPositions;
 		// Only ids still on the canvas; skip a deleted node's stale override.
 		const liveIds = new Set( layoutGraph.nodes.map( ( n ) => n.id ) );
 		const overrideIds = Object.keys( positionOverrides ).filter( ( id ) =>
 			liveIds.has( id )
 		);
+		if ( layoutIsAuto ) {
+			return ! savedIsAuto && overrideIds.length > 0;
+		}
+		if ( savedIsAuto ) {
+			return true;
+		}
 		const savedIds = saved ? Object.keys( saved ) : [];
 		if ( ! saved ) {
 			return overrideIds.length > 0;
@@ -983,7 +997,13 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			}
 		}
 		return false;
-	}, [ positionOverrides, currentSavedLayout, layoutGraph ] );
+	}, [
+		positionOverrides,
+		savedPositions,
+		savedIsAuto,
+		layoutIsAuto,
+		layoutGraph,
+	] );
 
 	// Reset Layout chip gating differs by mode (edit / server / local).
 	const editLayoutIsAutoLayout = serverSeedBlocked && ! canReset;
@@ -1019,6 +1039,13 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		if ( ! effectiveTopologyName ) {
 			return;
 		}
+		if ( layoutIsAuto ) {
+			saveLayout( {
+				name: effectiveTopologyName,
+				positions: LAYOUT_AUTO,
+			} );
+			return;
+		}
 		// Only serialize canvas ids; skip a deleted node's stale override.
 		const liveIds = new Set( layoutGraph.nodes.map( ( n ) => n.id ) );
 		const positions = {};
@@ -1033,7 +1060,13 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			}
 		}
 		saveLayout( { name: effectiveTopologyName, positions } );
-	}, [ effectiveTopologyName, positionOverrides, saveLayout, layoutGraph ] );
+	}, [
+		effectiveTopologyName,
+		layoutIsAuto,
+		positionOverrides,
+		saveLayout,
+		layoutGraph,
+	] );
 	const partitions = useMemo(
 		() => partitionIndices( topologyWorkers, topology ),
 		[ topologyWorkers, topology ]

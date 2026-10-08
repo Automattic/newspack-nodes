@@ -318,6 +318,78 @@ class LayoutsCITest extends TestCase {
 		$this->assertSame( [], $result['positions'] );
 	}
 
+	public function test_save_auto_writes_the_marker_and_returns_it(): void {
+		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', [ 'spokes-auto', '"auto"' ] );
+
+		$this->assertSame( 'auto', $result['positions'] );
+		$this->assertSame(
+			'{"positions":"auto"}',
+			(string) \file_get_contents( "{$this->base_dir}/layouts/spokes-auto.layout" )
+		);
+	}
+
+	public function test_get_answers_auto_for_an_auto_file(): void {
+		\mkdir( "{$this->base_dir}/layouts", 0755, true );
+		\file_put_contents( "{$this->base_dir}/layouts/hub-auto.layout", '{"positions":"auto"}' );
+
+		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'get', 'hub-auto' );
+
+		$this->assertSame( 'auto', $result['positions'] );
+	}
+
+	/**
+	 * A file holding neither a map nor the exact marker is malformed, and
+	 * answers null like any other malformed file.
+	 *
+	 * @param string $body Raw layout file contents.
+	 */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'malformed_positions_files' )]
+	public function test_get_answers_null_for_a_positions_value_that_is_neither( string $body ): void {
+		\mkdir( "{$this->base_dir}/layouts", 0755, true );
+		\file_put_contents( "{$this->base_dir}/layouts/odd.layout", $body );
+
+		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'get', 'odd' );
+
+		$this->assertNull( $result['positions'] );
+	}
+
+	/**
+	 * @return array<string,array{0:string}>
+	 */
+	public static function malformed_positions_files(): array {
+		return [
+			'capitalised marker' => [ '{"positions":"Auto"}' ],
+			'number'             => [ '{"positions":7}' ],
+		];
+	}
+
+	/**
+	 * Only the exact marker spelling is accepted; anything else that is not
+	 * an object is refused and writes nothing.
+	 *
+	 * @param string $positions The positions JSON token.
+	 */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'not_a_map_or_auto' )]
+	public function test_save_refuses_positions_neither_object_nor_auto( string $positions ): void {
+		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', [ 'refused', $positions ] );
+
+		$this->assertIsString( $result );
+		$this->assertSame( 'invalid arguments: positions must be an object or "auto"', \trim( $result ) );
+		$this->assertFileDoesNotExist( "{$this->base_dir}/layouts/refused.layout" );
+	}
+
+	/**
+	 * @return array<string,array{0:string}>
+	 */
+	public static function not_a_map_or_auto(): array {
+		return [
+			'capitalised'    => [ '"Auto"' ],
+			'trailing space' => [ '"auto "' ],
+			'number'         => [ '1' ],
+			'bare word'      => [ 'auto' ],
+		];
+	}
+
 	public function test_save_rejects_invalid_name(): void {
 		$result = VerbHarness::fire(
 			new Layouts_CI_Node(),

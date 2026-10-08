@@ -5,18 +5,21 @@
  * A layout is the arrangement of a topology's nodes on the console canvas,
  * stored apart from the graph it describes: one JSON file per name at
  * `<base_directory>/layouts/<name>.layout`, holding
- * `{ positions: { node_id: [x, y] } }`. The console asks for the layout under
- * the topology name it is viewing, but the positions never enter that .tsl —
- * writing them there would route every drag through `topologies save`, which
- * restarts the matching active fleet.
+ * `{ positions: { node_id: [x, y] } }`, or `{ positions: "auto" }` for a
+ * layout the console lays out afresh each time it loads one. The console asks
+ * for the layout under the topology name it is viewing, but the positions
+ * never enter that .tsl — writing them there would route every drag through
+ * `topologies save`, which restarts the matching active fleet.
  *
  * Verbs:
- *   get  — args `{name}`. Returns `{name, positions: object|null}`. A missing,
- *          unreadable or malformed file answers null, which tells the console
- *          to auto-fit; no other top-level key of the saved file is surfaced.
- *   save — args `{name, positions: {node_id: [x,y]}}`. Returns `{name, path,
- *          positions}`, the positions being what survived sanitizing — an entry
- *          that fails validation is dropped rather than refusing the write.
+ *   get  — args `{name}`. Returns `{name, positions: object|"auto"|null}`. A
+ *          missing, unreadable or malformed file answers null, which tells the
+ *          console to auto-fit; no other top-level key of the saved file is
+ *          surfaced.
+ *   save — args `{name, positions: {node_id: [x,y]} | "auto"}`. Returns
+ *          `{name, path, positions}`, the positions being "auto" or what
+ *          survived sanitizing — an entry that fails validation is dropped
+ *          rather than refusing the write.
  *
  * Each verb names its role in `node_schema()`, `get` READ and `save` TUNE, and
  * `dispatch()` refuses a caller below it (ADR-26). A refusal throws
@@ -43,6 +46,12 @@ use Newspack_Nodes\Service_CI_Node;
 class Layouts_CI_Node extends Service_CI_Node {
 
 	/**
+	 * The one `positions` value that is not a map: the layout is a fresh
+	 * autolayout of whatever graph the canvas draws. Matched exactly.
+	 */
+	public const AUTO = 'auto';
+
+	/**
 	 * Node ids a layout may carry a position for. Deliberately wider than the
 	 * layout NAME, which becomes a file name: an id is only ever a JSON key, and
 	 * node names carry punctuation a file name should not — the `:` of an owned
@@ -64,12 +73,13 @@ class Layouts_CI_Node extends Service_CI_Node {
 	 * A missing file is an answer, not an error: the console asks before the
 	 * operator has dragged anything, and a null `positions` is what sends it to
 	 * auto-fit. An unreadable or malformed file reads the same way, so a
-	 * truncated write costs the arrangement rather than the canvas. Only the
+	 * truncated write costs the arrangement rather than the canvas; a
+	 * `positions` that is neither a map nor exactly AUTO is malformed. Only the
 	 * `positions` key of the file is returned.
 	 *
 	 * @param array<array-key,mixed> $args Bound verb arguments: name.
 	 *
-	 * @return array<string,mixed> `{name, positions}`, positions null when nothing is saved.
+	 * @return array<string,mixed> `{name, positions}`, positions a map, AUTO, or null when nothing is saved.
 	 * @throws \RuntimeException When the name is not file-name safe.
 	 */
 	public static function cmd_get( array $args ): array {
@@ -82,8 +92,9 @@ class Layouts_CI_Node extends Service_CI_Node {
 			$body = @\file_get_contents( $path );
 			if ( false !== $body ) {
 				$parsed = \json_decode( $body, true );
-				if ( \is_array( $parsed ) && isset( $parsed['positions'] ) ) {
-					$positions = $parsed['positions'];
+				$saved = \is_array( $parsed ) ? ( $parsed['positions'] ?? null ) : null;
+				if ( \is_array( $saved ) || self::AUTO === $saved ) {
+					$positions = $saved;
 				}
 			}
 		}
@@ -108,10 +119,11 @@ class Layouts_CI_Node extends Service_CI_Node {
 	 * @param array<array-key,mixed>  $args     Bound verb arguments: name, and positions as one JSON token.
 	 * @param array<int|string,mixed> $envelope The inbound TM_COMMAND message, or [] for an inline dispatch.
 	 *
-	 * @return array<string,mixed> `{name, path, positions}`, positions being what survived sanitizing.
+	 * @return array<string,mixed> `{name, path, positions}`, positions being AUTO or what survived sanitizing.
 	 * @throws \RuntimeException When the envelope exceeds the cap, the name is
-	 *                           invalid, the positions are not an object, the
-	 *                           directory cannot be created, or the write fails.
+	 *                           invalid, the positions are neither an object nor
+	 *                           AUTO, the directory cannot be created, or the
+	 *                           write fails.
 	 */
 	public static function cmd_save( array $args, array $envelope = [] ): array {
 		if ( \array_is_list( $envelope ) && Message::packed_size( $envelope ) > self::MAX_BODY_BYTES ) {
@@ -121,11 +133,11 @@ class Layouts_CI_Node extends Service_CI_Node {
 		}
 		$name      = self::require_valid_name( Core::as_string( $args['name'] ) );
 		$positions = \json_decode( Core::as_string( $args['positions'] ), true );
-		if ( ! \is_array( $positions ) ) {
-			throw new \RuntimeException( 'invalid arguments: positions must be an object' );
+		if ( ! \is_array( $positions ) && self::AUTO !== $positions ) {
+			throw new \RuntimeException( 'invalid arguments: positions must be an object or "auto"' );
 		}
 
-		$clean = self::sanitize_positions( $positions );
+		$clean = \is_array( $positions ) ? self::sanitize_positions( $positions ) : self::AUTO;
 		$dir   = self::layouts_dir();
 		if ( ! \is_dir( $dir ) ) {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
@@ -248,7 +260,7 @@ class Layouts_CI_Node extends Service_CI_Node {
 				[
 					'name'        => 'save',
 					'capability'  => Capabilities::TUNE,
-					'description' => 'Persist node positions for a layout: `save <name> <positions-json>`. 1 MiB cap.',
+					'description' => 'Persist node positions for a layout: `save <name> <positions-json>`, the JSON an object or "auto". 1 MiB cap.',
 					'args'        => [
 						[ 'name' => 'name', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'positions', 'type' => 'json', 'required' => true ],

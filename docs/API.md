@@ -752,7 +752,11 @@ reports true; the add/read/delete round trip that catches it is
 layout per topology name. It seeds [`useCanvasLayout`](../src/topology-console/hooks/useCanvasLayout.js)'s position map from
 `layouts get` on load, for an edit-mode canvas or a worker scope whose label
 matches the topology, and writes back only when a person clicks Save Layout —
-dragging autosaves nothing. Every other canvas in the substrate, the debug
+dragging autosaves nothing. A layout's `positions` is a node-id map or the
+string `"auto"`, which Save Layout sends while nobody has moved a card since the
+canvas laid itself out, and which the canvas treats as a map holding a fresh
+autolayout of the graph it draws. `save` refuses any other value, and `get` answers
+null for a file holding one. Every other canvas in the substrate, the debug
 overlay's Inspector and each station tab graph included, persists positions to
 `localStorage` through the same hook and never reaches the server, so a
 dashboard wanting layout to survive a change of browser wires these two verbs up
