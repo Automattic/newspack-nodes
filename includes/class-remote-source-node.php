@@ -62,6 +62,9 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 */
 	public const MAX_READERS = 256;
 
+	/** How much of a refused stamp its log line shows; a stamp's length is unbounded. */
+	private const LOGGED_STAMP_BYTES = 200;
+
 	/** Wall-second of the last heartbeat reply; 0 while none has come back. */
 	private int $last_heartbeat_response = 0;
 
@@ -505,7 +508,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 			return null;
 		}
 		if ( ! Log_Discovery::is_stamp( $stamp ) ) {
-			$this->print_less_often( 'refusing a stamp outside the stream name grammar' );
+			$this->print_less_often( 'refusing a stamp outside the stream name grammar: ', self::loggable( $stamp ) );
 			return null;
 		}
 		if ( self::is_reserved( $stamp ) ) {
@@ -530,6 +533,19 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$child->set_assume_clean_shutdown( $this->assume_clean_shutdown );
 		$this->http_out?->allow_replies_to( $child->name() );
 		return $child;
+	}
+
+	/**
+	 * A refused stamp as its log line shows it: quoted, so an empty one reads
+	 * `""`, control bytes rendered by `Core::terminal_safe()`, and cut to
+	 * LOGGED_STAMP_BYTES with its full length named.
+	 *
+	 * @param string $stamp The stamp a spoke sent.
+	 */
+	private static function loggable( string $stamp ): string {
+		$length = \strlen( $stamp );
+		$shown  = '"' . Core::terminal_safe( \substr( $stamp, 0, self::LOGGED_STAMP_BYTES ) ) . '"';
+		return $length > self::LOGGED_STAMP_BYTES ? "{$shown} ({$length} bytes)" : $shown;
 	}
 
 	/**
