@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A topology file the worker cannot read fails the load.** `Topology_Loader::load()` throws `Topology_Loader: failed to read topology file '<path>'` before any line runs, where it evaluated an empty script and booted the worker with no graph.
+- **A layout's `positions` must be a map or `"auto"`; a non-empty JSON list is neither.** `layouts save` refuses one such as `[[1,2]]` with `invalid arguments: positions must be an object or "auto"`, where it sanitized it to `{}` and overwrote the saved layout, and `layouts get` answers null for a file holding one. `{}` still saves as the empty map.
+- **A record a durable reader drops ends a poison or crash lineage, as a quarantined one does.** A `Consumer` message whose stamped FROM would exceed `MAX_FROM_SIZE`, one dead-lettered because its sink threw, and a line a `Remote_Consumer` refuses because the spoke addressed it now mark the record disposed, so the drain commits past it and resets the lineage at once. A crash before the next checkpoint no longer restores the earlier cursor and reprocesses it.
+
 ## [2.101.1] - 2026-10-08
 
 ### Changed

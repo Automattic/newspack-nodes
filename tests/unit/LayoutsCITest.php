@@ -318,6 +318,12 @@ class LayoutsCITest extends TestCase {
 		$this->assertSame( [], $result['positions'] );
 	}
 
+	public function test_save_accepts_an_empty_object_as_an_empty_map(): void {
+		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', [ 'empty-object', '{}' ] );
+
+		$this->assertSame( [], $result['positions'] );
+	}
+
 	public function test_save_auto_writes_the_marker_and_returns_it(): void {
 		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', [ 'spokes-auto', '"auto"' ] );
 
@@ -360,6 +366,7 @@ class LayoutsCITest extends TestCase {
 		return [
 			'capitalised marker' => [ '{"positions":"Auto"}' ],
 			'number'             => [ '{"positions":7}' ],
+			'list of pairs'      => [ '{"positions":[[31,47],[59,83]]}' ],
 		];
 	}
 
@@ -387,7 +394,19 @@ class LayoutsCITest extends TestCase {
 			'trailing space' => [ '"auto "' ],
 			'number'         => [ '1' ],
 			'bare word'      => [ 'auto' ],
+			'list of pairs'  => [ '[[31,47],[59,83]]' ],
 		];
+	}
+
+	public function test_save_refusing_a_list_keeps_the_saved_layout(): void {
+		\mkdir( "{$this->base_dir}/layouts", 0755, true );
+		$saved = '{"positions":{"kept-6610":[13,29]}}';
+		\file_put_contents( "{$this->base_dir}/layouts/kept.layout", $saved );
+
+		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', [ 'kept', '[[31,47]]' ] );
+
+		$this->assertSame( 'invalid arguments: positions must be an object or "auto"', \trim( (string) $result ) );
+		$this->assertSame( $saved, (string) \file_get_contents( "{$this->base_dir}/layouts/kept.layout" ) );
 	}
 
 	public function test_save_rejects_invalid_name(): void {

@@ -699,9 +699,10 @@ trait Durable_Reader {
 	 * Unpack one packed line and forward it to the sink: stamp FROM (breadcrumb), record the
 	 * seg:offset:length breadcrumb in ID, force TO when a target is set. An unparseable line is
 	 * quarantined to the `:deadletter` sibling, or skipped and counted by a reader that
-	 * `set_skip_unparseable()`; an over-long FROM stamp is logged and dropped.
-	 * The drain loop owns the cursor and advances past either, so a single bad record can't
-	 * wedge the stream.
+	 * `set_skip_unparseable()`; an over-long FROM stamp is logged and dropped; a sink throw
+	 * dead-letters the message. Each marks the record disposed, so the drain commits past it
+	 * and ends any poison or crash lineage. The drain loop owns the cursor and advances past
+	 * every one, so a single bad record can't wedge the stream.
 	 *
 	 * The per-line emit seam: Tail overrides this to emit raw bytes instead of unpacking a
 	 * Message, reusing the trait's buffer/cursor scan in drain_buffer().
@@ -728,7 +729,9 @@ trait Durable_Reader {
 		}
 		$stamp = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
 		if ( '' !== $stamp && ! $this->stamp_message( $message, $stamp ) ) {
-			return; // FROM exceeded MAX_FROM_SIZE; stamp_message logged it.
+			// FROM exceeded MAX_FROM_SIZE; stamp_message logged it.
+			$this->disposed_record = true;
+			return;
 		}
 		// ID breadcrumb = seg:offset:length (length for SSE_In's reconnect).
 		$this->crumb            = [ 'segment' => $this->cursor_segment, 'offset' => $abs_offset, 'length' => $line_size ];
@@ -736,7 +739,9 @@ trait Durable_Reader {
 		if ( \is_string( $this->target ) && '' !== $this->target ) {
 			$message[ Message::TO ] = $this->target;
 		}
-		$this->fill_sink( $message );
+		if ( ! $this->fill_sink( $message ) ) {
+			$this->disposed_record = true;
+		}
 	}
 
 	/**

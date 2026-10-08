@@ -43,7 +43,8 @@ class Topology_Loader {
 	 * @param int    $partition Partition number a node resolves `{partition}` to.
 	 * @param Node   $sink      Where the dispatched Messages flow — the worker's
 	 *                          `_command_interpreter` in production.
-	 * @throws \Throwable When the name is not in the registry; otherwise every
+	 * @throws \Throwable When the name is not in the registry or its file cannot
+	 *                    be read, before any line runs; otherwise every
 	 *                    line that failed — a refused statement, a command that
 	 *                    threw or reached no node, a missing or cyclic include,
 	 *                    an open quote at end of file — raised together after
@@ -60,6 +61,14 @@ class Topology_Loader {
 			throw new \RuntimeException( "Topology_Loader: unknown topology '$name' (not in registry)" );
 		}
 
+		// Local-disk TSL only; remote-fetch phpcs rule doesn't apply.
+		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
+		$script = @\file_get_contents( $path );
+		if ( false === $script ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+			throw new \RuntimeException( "Topology_Loader: failed to read topology file '$path'" );
+		}
+
 		Core::$var['partition'] = (string) $partition;
 		Core::$var['topology']  = $name;
 
@@ -70,9 +79,7 @@ class Topology_Loader {
 		// A cyclic .tsl fails loud at boot; it must not half-build the graph.
 		$shell->fatal_errors( true );
 
-		// Local-disk TSL only; remote-fetch phpcs rule doesn't apply.
-		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
-		$shell->eval_script( (string) \file_get_contents( $path ) );
+		$shell->eval_script( $script );
 		// EOF inside an open quote/continuation fails loud (fatal_errors on).
 		$shell->flush_pending();
 	}
