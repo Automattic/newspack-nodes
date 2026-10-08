@@ -84,10 +84,7 @@
 			"class": "Crawler",
 			"sink": "_command_interpreter",
 			"target": "curl:partition",
-			"targets": [
-				"curl:partition",
-				"crawler:seen"
-			],
+			"targets": [ "curl:partition", "crawler:seen" ],
 			"accepts_fill": true,
 			"has_target": true
 		},
@@ -112,9 +109,7 @@
 			"class": "Consumer",
 			"sink": "_command_interpreter",
 			"target": "curl:tee",
-			"targets": [
-				"curl:tee"
-			],
+			"targets": [ "curl:tee" ],
 			"accepts_fill": false,
 			"has_target": true
 		},
