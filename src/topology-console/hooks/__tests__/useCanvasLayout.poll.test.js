@@ -5,7 +5,7 @@
  */
 
 import { renderHook, act } from '@testing-library/react';
-import { useCanvasLayout } from '../useCanvasLayout';
+import { useCanvasLayout, LAYOUT_AUTO } from '../useCanvasLayout';
 import { autoLayout, drawnCost, placeBelow } from '../../utils/autoLayout';
 import { augmentWithVirtualEdges } from '../../utils/virtualEdges';
 import { parseMetadata } from '../../../runtime/metadata-node';
@@ -60,6 +60,27 @@ describe( 'useCanvasLayout — a metadata poll', () => {
 		expect( result.current.positions ).toBe( laid );
 	} );
 
+	it( 'under a fetched "auto", lays out once and not again on an unchanged poll', () => {
+		const props = {
+			storageKey: 'newspack-nodes:test:poll-auto',
+			ready: true,
+			serverLayout: LAYOUT_AUTO,
+		};
+		const { result, rerender } = renderHook(
+			( p ) => useCanvasLayout( p ),
+			{ initialProps: { ...props, graph: poll( 1 ) } }
+		);
+		act( () => jest.advanceTimersByTime( 300 ) );
+		expect( autoLayout ).toHaveBeenCalledTimes( 1 );
+		const laid = result.current.positions;
+		for ( let tick = 2; tick < 8; tick++ ) {
+			act( () => rerender( { ...props, graph: poll( tick ) } ) );
+			act( () => jest.advanceTimersByTime( 1000 ) );
+		}
+		expect( autoLayout ).toHaveBeenCalledTimes( 1 );
+		expect( result.current.positions ).toBe( laid );
+	} );
+
 	it( 'lays scaffolding out again only once the real nodes stop arriving', () => {
 		const props = {
 			storageKey: 'newspack-nodes:test:scaffolding',
@@ -95,6 +116,46 @@ describe( 'useCanvasLayout — a metadata poll', () => {
 		expect( autoLayout.mock.calls[ 1 ][ 0 ].nodes ).toHaveLength(
 			full.nodes.length
 		);
+		const expected = {};
+		for ( const n of jest
+			.requireActual( '../../utils/autoLayout' )
+			.autoLayout( full ).nodes ) {
+			expected[ n.id ] = n.position;
+		}
+		expect( result.current.positions ).toEqual( expected );
+	} );
+
+	it( 'under a fetched "auto", lays streaming nodes out once they stop arriving', () => {
+		const props = {
+			storageKey: 'newspack-nodes:test:auto-stream',
+			ready: true,
+			serverLayout: LAYOUT_AUTO,
+		};
+		const scaffolding = [ { id: '_shell' }, { id: '_http' } ];
+		const arriving = ( ids ) => ( {
+			nodes: [ ...scaffolding, ...ids.map( ( id ) => ( { id } ) ) ],
+			edges: [],
+		} );
+		const { result, rerender } = renderHook(
+			( p ) => useCanvasLayout( p ),
+			{ initialProps: { ...props, graph: arriving( [] ) } }
+		);
+		// Thirty real nodes arrive over three polls, 100 ms apart.
+		const real = Array.from( { length: 30 }, ( _, i ) => `stream:${ i }` );
+		for ( const upTo of [ 2, 17, 30 ] ) {
+			act( () => jest.advanceTimersByTime( 100 ) );
+			act( () =>
+				rerender( {
+					...props,
+					graph: arriving( real.slice( 0, upTo ) ),
+				} )
+			);
+		}
+		act( () => jest.advanceTimersByTime( 249 ) );
+		expect( autoLayout ).not.toHaveBeenCalled();
+		act( () => jest.advanceTimersByTime( 1 ) );
+		expect( autoLayout ).toHaveBeenCalledTimes( 1 );
+		const full = arriving( real );
 		const expected = {};
 		for ( const n of jest
 			.requireActual( '../../utils/autoLayout' )

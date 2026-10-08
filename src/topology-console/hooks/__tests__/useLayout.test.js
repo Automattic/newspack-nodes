@@ -11,6 +11,7 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 import { Core, VALUE } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { useLayout } from '../useLayout';
+import { LAYOUT_AUTO } from '../useCanvasLayout';
 
 // Distinct from every default so a wrong-field read fails rather than coincides.
 const POSITIONS = { greeter: [ 41, 97 ] };
@@ -81,6 +82,28 @@ it( 'sends the positions as one JSON token and reports the save', async () => {
 	expect( replyFor.mock.calls[ 0 ][ 0 ][ VALUE ] ).toMatchObject( {
 		name: 'save',
 		arguments: [ 'demo', JSON.stringify( POSITIONS ) ],
+	} );
+} );
+
+// The marker rides the wire as the JSON string the server matches exactly.
+it( 'sends the auto marker as the JSON string "auto"', async () => {
+	const onSaved = jest.fn();
+	replyFor.mockImplementation( () => ( {
+		name: 'spokes',
+		positions: LAYOUT_AUTO,
+	} ) );
+	const { result } = renderHook( () => useLayout( { onSaved } ) );
+
+	act( () => {
+		result.current.saveLayout( { name: 'spokes', positions: LAYOUT_AUTO } );
+	} );
+
+	await waitFor( () => expect( onSaved ).toHaveBeenCalledTimes( 1 ), {
+		timeout: 4000,
+	} );
+	expect( replyFor.mock.calls[ 0 ][ 0 ][ VALUE ] ).toMatchObject( {
+		name: 'save',
+		arguments: [ 'spokes', '"auto"' ],
 	} );
 } );
 
