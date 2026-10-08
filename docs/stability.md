@@ -80,7 +80,7 @@ on every dashboard request. Catch it, or let the surrounding controller's catch 
    elsewhere, leaving the caller to assign TYPE. Nothing builds the array by
    hand.
 
-   The eighteen reserved node names are wire strings too, and their VALUES are
+   The twenty-three reserved node names are wire strings too, and their VALUES are
    frozen for the major even though the JS module carrying them is not.
    [`Node_Names`](../includes/class-node-names.php) is the PHP half and [`src/runtime/reserved-node-names.json`](../src/runtime/reserved-node-names.json) the
    canonical map, which `src/runtime/index.js` exports as `reservedNames` for a

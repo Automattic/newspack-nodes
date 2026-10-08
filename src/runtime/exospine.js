@@ -18,6 +18,7 @@ import { CallbackNode } from './callback-node';
 import { HttpOutNode } from './http-out-node';
 import { NullNode } from './null-node';
 import { HeartbeatNode } from './heartbeat-node';
+import { RemoteLinkNode } from './remote-link-node';
 import names from './reserved-node-names.json';
 import { TO, TYPE, TM_ERROR } from './message';
 
@@ -68,7 +69,7 @@ function groupsTargetedBy( nodes ) {
 }
 
 /**
- * What a mount hands back: the five backbone nodes it points at, plus the two
+ * What a mount hands back: the six backbone nodes it points at, plus the two
  * lifecycle handles its caller drives.
  *
  * @typedef  {Object}                 Exospine
@@ -77,6 +78,7 @@ function groupsTargetedBy( nodes ) {
  * @property {TapNode}                shell       `_shell`, the observe-only Tap an interactive session's commands pass.
  * @property {HttpOutNode}            http        `_http`, the batched `/command` egress.
  * @property {HeartbeatNode}          heartbeat   `_heartbeat`, the SSE-slot poke.
+ * @property {RemoteLinkNode}         stream      `_stream`, the page's one SSE link.
  * @property {() => void}             reinit      Rebuilds the build nodes, keeping the backbone.
  * @property {() => void}             teardown    Undoes this mount; the caller MUST call it.
  */
@@ -156,6 +158,11 @@ function uiRelay( ui, message ) {
  * needs no other declaration. A Tap stands while any mount claims its group,
  * and the last claim released removes it.
  *
+ * The backbone stands while any mount does. The first non-passenger mount
+ * owns it and answers a Reset Graph with the full rebuild; when it leaves
+ * while others stay, ownership passes to the next non-passenger mount in
+ * `Core.backboneMounts`.
+ *
  * @param {ExospineBuild} [build]          Wires this dashboard's nodes onto
  *                                         the backbone. Re-run on every
  *                                         rebuild.
@@ -163,16 +170,14 @@ function uiRelay( ui, message ) {
  * @param {boolean}       [opts.passenger] True to clip onto the backbone
  *                                         without owning it — see
  *                                         `ownsBackbone` below.
- * @return {Exospine} The five backbone nodes `syncSpineFromCore` assigns, a
+ * @return {Exospine} The six backbone nodes `syncSpineFromCore` assigns, a
  *   `reinit()` that rebuilds the build-registered nodes, and a `teardown()` that
  *   additionally removes the backbone — every node but the kept Router — when
- *   this mount owns it or is the last passenger out, and unsubscribes the
- *   rebuild.
+ *   this mount is the last out, and unsubscribes the rebuild.
  */
 export function mountExospine( build, { passenger = false } = {} ) {
-	if ( passenger ) {
-		Core.backbonePassengers = ( Core.backbonePassengers ?? 0 ) + 1;
-	}
+	const mount = { passenger, rebuilds: 'function' === typeof build };
+	Core.backboneMounts.push( mount );
 	// Signing reads the session synchronously; start the fetch at mount.
 	void ensureSession();
 
@@ -182,7 +187,7 @@ export function mountExospine( build, { passenger = false } = {} ) {
 	let interpreter;
 
 	/**
-	 * Point the spine's five backbone fields at the nodes Core holds now.
+	 * Point the spine's six backbone fields at the nodes Core holds now.
 	 *
 	 * Runs again before every build, because a mount reusing a backbone
 	 * another mount later replaced would otherwise hand `build` dead nodes.
@@ -193,16 +198,19 @@ export function mountExospine( build, { passenger = false } = {} ) {
 		spine.shell = Core.node( names.CONSOLE_TAP );
 		spine.http = Core.node( names.HTTP );
 		spine.heartbeat = Core.node( names.HEARTBEAT );
+		spine.stream = Core.node( names.STREAM );
 	};
 	/**
-	 * Whether THIS mount owns the backbone, and so tears it down on teardown.
+	 * Whether THIS mount owns the backbone, and so runs its full rebuild.
 	 *
 	 * A PASSENGER never owns: it may bring the backbone up so its node has
 	 * something to clip onto, but the graph's real owner (the console) adopts
-	 * it on arrival and remains the one that can replace it. Passengers
-	 * re-attach on backbone-up, which is what that signal exists for.
+	 * it on arrival and remains the one that can replace it. Every other mount
+	 * re-attaches on backbone-up, which is what that signal exists for.
+	 *
+	 * @return {boolean} Whether `Core.backboneOwner` is this mount.
 	 */
-	let ownsBackbone = false;
+	const ownsBackbone = () => Core.backboneOwner === mount;
 
 	/**
 	 * The page's ONE Router, constructed on the first mount and kept from then
@@ -233,22 +241,18 @@ export function mountExospine( build, { passenger = false } = {} ) {
 	 * Router, which `ensureRouter` carries across.
 	 */
 	const mountBackbone = () => {
+		// The first non-passenger owns it, adopting what a passenger raised.
+		if ( ! passenger && ! Core.backboneOwner ) {
+			Core.backboneOwner = mount;
+		}
 		// Idempotent under StrictMode double-invoke: reuse existing backbone.
 		const existing = Core.node( names.COMMAND_INTERPRETER );
 		if ( existing ) {
 			interpreter = existing;
 			router = ensureRouter();
-			// Adopt a backbone a passenger raised; it has no owner yet.
-			if ( ! passenger && ! Core.backboneOwned ) {
-				ownsBackbone = true;
-				Core.backboneOwned = true;
-			}
 			syncSpineFromCore();
 			return;
 		}
-		ownsBackbone = ! passenger;
-		Core.backboneOwned = Core.backboneOwned || ownsBackbone;
-
 		router = ensureRouter();
 
 		interpreter = new CommandInterpreterNode();
@@ -284,11 +288,17 @@ export function mountExospine( build, { passenger = false } = {} ) {
 		// The poke's destination is fixed wiring: `_http/workers`.
 		heartbeat.target = `${ names.HTTP }/workers`;
 
+		// `_stream` — the page's one SSE link; stream graphs attach to it.
+		const stream = new RemoteLinkNode();
+		stream.name = names.STREAM;
+		stream.sink = interpreter;
+
 		spine.interpreter = interpreter;
 		spine.router = router;
 		spine.shell = shell;
 		spine.http = http;
 		spine.heartbeat = heartbeat;
+		spine.stream = stream;
 
 		// A bare mount never bumps graphGeneration; passengers need this.
 		Core.notifyBackboneUp();
@@ -394,10 +404,12 @@ export function mountExospine( build, { passenger = false } = {} ) {
 	const teardownBackbone = () => {
 		Core.node( names.CONSOLE_TAP )?.removeNode();
 		Core.node( names.UI )?.removeNode();
+		// Before `_http` and `_heartbeat`: its close() reaches both.
+		Core.node( names.STREAM )?.removeNode();
 		Core.node( names.HTTP )?.removeNode();
 		Core.node( names.NULL )?.removeNode();
 		Core.node( names.HEARTBEAT )?.removeNode();
-		interpreter.removeNode();
+		Core.node( names.COMMAND_INTERPRETER )?.removeNode();
 	};
 
 	/** Fine-grained rebuild: the soft build nodes, backbone preserved. */
@@ -417,7 +429,14 @@ export function mountExospine( build, { passenger = false } = {} ) {
 	/** Drops this mount's rebuild subscriptions; unset on a bare mount. */
 	let unsubscribe;
 	/**
-	 * Undo this mount: subscriptions, build nodes, and the backbone it owns.
+	 * Undo this mount: subscriptions and build nodes, then the backbone when
+	 * it is the last mount out.
+	 *
+	 * An owner leaving while other mounts stay hands ownership, and with it
+	 * the Reset Graph rebuild, to the next non-passenger mount; the backbone
+	 * stays up for them. The last mount out tears it down, as nobody else
+	 * would, and the Router self-arms a 1s timer the moment it is
+	 * constructed.
 	 *
 	 * The caller pairs it with the mount (a useEffect cleanup), because the
 	 * reserved names stay taken until it runs.
@@ -428,21 +447,17 @@ export function mountExospine( build, { passenger = false } = {} ) {
 		}
 		teardownBuilt();
 		claimGroups( new Set() );
-		if ( passenger ) {
-			Core.backbonePassengers -= 1;
+		Core.backboneMounts = Core.backboneMounts.filter(
+			( other ) => other !== mount
+		);
+		if ( ownsBackbone() ) {
+			Core.backboneOwner =
+				Core.backboneMounts.find( ( other ) => ! other.passenger ) ??
+				null;
+			Core.rebuildable = Boolean( Core.backboneOwner?.rebuilds );
 		}
-		// @longform
-		// The owning mount tears the backbone down — or, on a page that never
-		// had an owner, the last passenger to leave. Nobody else would, and
-		// the Router self-arms a 1s timer the moment it is constructed.
-		const lastPassengerOut =
-			passenger &&
-			! Core.backboneOwned &&
-			0 === Core.backbonePassengers &&
-			null !== Core.node( names.COMMAND_INTERPRETER );
-		if ( ownsBackbone || lastPassengerOut ) {
+		if ( 0 === Core.backboneMounts.length ) {
 			teardownBackbone();
-			Core.backboneOwned = false;
 			Core.rebuildable = false;
 		}
 	};
@@ -451,23 +466,27 @@ export function mountExospine( build, { passenger = false } = {} ) {
 	runBuild();
 
 	// Only a build-delegated mount has nodes a rebuild signal could rebuild.
-	if ( 'function' === typeof build ) {
-		if ( ownsBackbone ) {
+	if ( mount.rebuilds ) {
+		if ( ownsBackbone() ) {
 			// Tell the overlay this graph can answer a Reset Graph.
 			Core.rebuildable = true;
 			// Pre-subscribe bump: an open overlay rebuilds its poll.
 			Core.bumpGraphGeneration();
-			unsubscribe = Core.subscribeGraphGeneration( fullRebuild );
-		} else {
-			// Reused backbone — owner owns full rebuilds; just reinit ours.
-			const offGeneration = Core.subscribeGraphGeneration( spine.reinit );
-			// A replaced backbone leaves these sinking into a removed node.
-			const offBackbone = Core.subscribeBackboneUp( spine.reinit );
-			unsubscribe = () => {
-				offGeneration();
-				offBackbone();
-			};
 		}
+		// Ownership can arrive later, handed on by an owner that left.
+		const offGeneration = Core.subscribeGraphGeneration( () =>
+			ownsBackbone() ? fullRebuild() : spine.reinit()
+		);
+		// A replaced backbone leaves a non-owner sinking into a removed node.
+		const offBackbone = Core.subscribeBackboneUp( () => {
+			if ( ! ownsBackbone() ) {
+				spine.reinit();
+			}
+		} );
+		unsubscribe = () => {
+			offGeneration();
+			offBackbone();
+		};
 	}
 
 	return spine;

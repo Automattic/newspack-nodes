@@ -824,7 +824,7 @@ describe( 'seekMap — what this node asks each subscription for', () => {
 	const mapFor = ( subscribe, positions = null ) => {
 		const sse = newSseIn();
 		sse.arguments = [ subscribe.join( ',' ) ];
-		sse.positions = positions;
+		sse.reseek( sse.subscribe, positions );
 		return sse.seekMap();
 	};
 
@@ -895,10 +895,10 @@ describe( 'seekMap — what this node asks each subscription for', () => {
 	it( 'states no seed its subscriptions do not carry', () => {
 		const sse = newSseIn();
 		sse.arguments = [ 'tablestats.p0' ];
-		sse.positions = {
+		sse.reseek( sse.subscribe, {
 			'tablestats.p0': { segment: 8, offset: 23 },
 			'jobstats.p0': SEEK_START,
-		};
+		} );
 		expect( sse.seekMap() ).toEqual( {
 			'tablestats.p0': { segment: 8, offset: 23 },
 		} );
@@ -921,7 +921,7 @@ describe( 'seekMap — what this node asks each subscription for', () => {
 test( 'a stream refused before its first frame still asks to replay from the start', () => {
 	jest.useFakeTimers();
 	const { sse } = makeSseIn( { subscribe: [ 'jobstats.p0' ] } );
-	sse.positions = { 'jobstats.p0': SEEK_START };
+	sse.reseek( sse.subscribe, { 'jobstats.p0': SEEK_START } );
 	sse.start();
 	const refused = FakeEventSource.last;
 
@@ -937,7 +937,7 @@ test( 'a stream refused before its first frame still asks to replay from the sta
 // would double every record on the chart.
 test( 'a reopen resumes past what it read, not from the seek it opened with', () => {
 	const { sse } = makeSseIn( { subscribe: [ 'jobstats.p0' ] } );
-	sse.positions = { 'jobstats.p0': SEEK_START };
+	sse.reseek( sse.subscribe, { 'jobstats.p0': SEEK_START } );
 	sse.start();
 	const first = FakeEventSource.last;
 	const m = newMessage();
@@ -968,16 +968,24 @@ test( 'start appends positions as an encoded JSON blob when set', () => {
 	} );
 	// Flat { <concrete-dir>: pos } seed — the dir name is the unique key.
 	const positions = { 'topicprobe.p0': 'start' };
-	sse.positions = positions;
+	sse.reseek( sse.subscribe, positions );
 	sse.start();
 	expect( FakeEventSource.last.url ).toContain(
 		`&positions=${ encodeURIComponent( JSON.stringify( positions ) ) }`
 	);
 } );
 
+test( 'reseek is the one way to seed; no positions accessor stands beside it', () => {
+	const sse = newSseIn();
+	sse.arguments = [ 'kea.p4' ];
+	expect( 'positions' in sse ).toBe( false );
+	sse.reseek( sse.subscribe, { 'kea.p4': SEEK_START } );
+	expect( sse.seekMap() ).toEqual( { 'kea.p4': SEEK_START } );
+} );
+
 test( 'an empty positions object still asks for the seek it means', () => {
 	const { sse } = makeSseIn();
-	sse.positions = {};
+	sse.reseek( sse.subscribe, {} );
 	sse.start();
 	expect( seeksAsked( sse ) ).toEqual( { x: SEEK_END } );
 } );
@@ -1660,11 +1668,14 @@ test( 'dropSeeds forgets the seeds a predicate names, keeping reads', () => {
 	} );
 	sse.lastPositions = { 'jobstats.p0': { segment: 6, offset: 78 } };
 	sse.dropSeeds( ( dir ) => 'jobstats.p0' === dir );
-	expect( sse.positions ).toEqual( {
-		'topicprobe.p0': { segment: 3, offset: 52 },
-	} );
 	expect( sse.lastPositions ).toEqual( {
 		'jobstats.p0': { segment: 6, offset: 78 },
+	} );
+	// With the reads set aside, only the seeds that stayed are stated.
+	sse.lastPositions = {};
+	expect( sse.seekMap() ).toEqual( {
+		'jobstats.p0': SEEK_END,
+		'topicprobe.p0': { segment: 3, offset: 52 },
 	} );
 } );
 
@@ -1690,11 +1701,14 @@ test( 'forget drops the seeds and read positions a predicate names', () => {
 		'topicprobe.p0': { segment: 4, offset: 19 },
 	};
 	sse.forget( ( dir ) => 'jobstats.p0' === dir );
-	expect( sse.positions ).toEqual( {
-		'topicprobe.p0': { segment: 3, offset: 52 },
-	} );
 	expect( sse.lastPositions ).toEqual( {
 		'topicprobe.p0': { segment: 4, offset: 19 },
+	} );
+	// With the reads set aside, only the seeds that stayed are stated.
+	sse.lastPositions = {};
+	expect( sse.seekMap() ).toEqual( {
+		'jobstats.p0': SEEK_END,
+		'topicprobe.p0': { segment: 3, offset: 52 },
 	} );
 } );
 
@@ -1883,7 +1897,7 @@ test( 'a forced reconnect resumes from the cursor the handshake stated, not the 
 			'ERROR: SseInNode: reconnecting - SSE silent past timeout'
 		);
 		const { sse } = makeSseIn( { subscribe: [ 'firehose.p0' ] } );
-		sse.positions = { 'firehose.p0': SEEK_START };
+		sse.reseek( sse.subscribe, { 'firehose.p0': SEEK_START } );
 		sse.start();
 		expect( sse.seekMap() ).toEqual( { 'firehose.p0': SEEK_START } );
 		FakeEventSource.last.dispatch(

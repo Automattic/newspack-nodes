@@ -215,7 +215,7 @@ describe( 'Overview fleet board', () => {
 	} );
 
 	it( 'shows the probe read and the probe stream skips as two named notices', () => {
-		publishSkippedLines( 'topicprobe:link', 4 );
+		publishSkippedLines( 'topicprobe:stream', 4 );
 		useTopologyManager.mockReturnValue(
 			hookValue( { unparseableLines: 5 } )
 		);
@@ -252,7 +252,7 @@ describe( 'Overview fleet board', () => {
 	} );
 
 	it( 'shows only the notice of the source that skipped a line', () => {
-		publishSkippedLines( 'topicprobe:link', 6 );
+		publishSkippedLines( 'topicprobe:stream', 6 );
 		useTopologyManager.mockReturnValue( hookValue() );
 		const { container } = render( <Overview /> );
 		const notices = [

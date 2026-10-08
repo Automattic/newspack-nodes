@@ -1,19 +1,19 @@
 /**
  * useLogViewerGraph tests — the Log Viewer dashboard graph clipped onto the
- * substrate's canonical rule-#2 backbone (`_command_interpreter → _router`) via
- * a SINGLE `RemoteLink` node plus the single `log-viewer:view` view-model node.
+ * substrate's canonical rule-#2 backbone (`_command_interpreter → _router`):
+ * the `log-viewer:stream` Tee and the `log-viewer:view` view-model node,
+ * riding the page's one stream link, `_stream`.
  *
- * RemoteLink composes a per-link `<name>:sse-in` (held as `link.sseIn`,
+ * The page link composes its own `_stream:sse-in` (held as `link.sseIn`,
  * registered but patron-owned — no canvas churn) and SHARES `_http`
  * (HttpOut) + `_heartbeat` (Heartbeat) singletons, wiring the connected lease
- * to that shared heartbeat. The bespoke `log-viewer:route` /
- * `log-viewer:transform` nodes are gone — envelope→row shaping is inlined into the
- * view itself.
+ * to that shared heartbeat. Envelope→row shaping is inlined into the view.
  *
  * EventSource is faked via `global.EventSource`; SseInNode's connection logic
  * (already covered by the substrate's `sse-in-node.test.js`) is unmocked
  * here — we drive a `msg` event through the fake EventSource and assert it
- * actually routes the composed `:sse-in` → view.
+ * actually routes the page link → view. The link opens once per tick, so a
+ * test flushes the microtask before it reads the fake.
  */
 
 import { renderHook, act, waitFor } from '@testing-library/react';
@@ -69,7 +69,8 @@ import { useLogViewerGraph } from '../useLogViewerGraph';
 
 const INTERPRETER = '_command_interpreter';
 const ROUTER = '_router';
-const LINK = 'log-viewer:link';
+const LINK = names.STREAM;
+const KEY_RIDDEN = 'log-viewer';
 // SseIn is patron-owned; HttpOut + Heartbeat are shared singletons.
 const HTTP = names.HTTP;
 const HEARTBEAT = names.HEARTBEAT;
@@ -117,7 +118,7 @@ const setVisibility = async ( state ) => {
 };
 
 describe( 'useLogViewerGraph — exospine + RemoteLink wiring', () => {
-	test( 'mounts the backbone + one RemoteLink (composing three children) + the view', async () => {
+	test( 'mounts the backbone + the view, riding the page link', async () => {
 		installWire( { list_logs: oneLogReply() } );
 		mountGraph();
 		await act( async () => {} );
@@ -127,10 +128,11 @@ describe( 'useLogViewerGraph — exospine + RemoteLink wiring', () => {
 		// The view sinks into the interpreter.
 		expect( Core.node( VIEW ) ).toBeTruthy();
 		expect( Core.node( VIEW ).sink ).toBe( interpreter );
-		// The composed SseIn is the link's patron-owned `<name>:sse-in`.
+		// The composed SseIn is the page link's patron-owned `_stream:sse-in`.
 		const link = Core.node( LINK );
+		expect( Core.node( 'log-viewer:link' ) ).toBeNull();
 		expect( link.sseIn ).toBeTruthy();
-		expect( Core.node( 'log-viewer:link:sse-in' ) ).toBe( link.sseIn );
+		expect( Core.node( '_stream:sse-in' ) ).toBe( link.sseIn );
 		// HttpOut + Heartbeat are SHARED singletons sinking into the backbone.
 		for ( const name of [ HTTP, HEARTBEAT ] ) {
 			const node = Core.node( name );
@@ -141,12 +143,12 @@ describe( 'useLogViewerGraph — exospine + RemoteLink wiring', () => {
 		expect( link.heartbeat ).toBe( Core.node( HEARTBEAT ) );
 	} );
 
-	test( 'steers flow with targets: composed `:sse-in` → stream Tee → view; shared heartbeat → _http/workers', async () => {
+	test( 'steers flow with targets: page link → stream Tee → view; shared heartbeat → _http/workers', async () => {
 		installWire( { list_logs: oneLogReply() } );
 		mountGraph();
 		await act( async () => {} );
-		// The link re-homes frames to the Tee, which fans to the view.
-		expect( Core.node( LINK ).sseIn.target ).toBe( TEE );
+		// The link routes this graph's frames to the Tee, which fans to the view.
+		expect( Core.node( LINK ).graphs.get( KEY_RIDDEN ).target ).toBe( TEE );
 		expect( Core.node( TEE ).target ).toEqual( [ VIEW ] );
 		expect( Core.node( HEARTBEAT ).target ).toBe( `${ HTTP }/workers` );
 	} );
@@ -169,8 +171,8 @@ describe( 'useLogViewerGraph — exospine + RemoteLink wiring', () => {
 		expect( tee ).toBeTruthy();
 		expect( tee.constructor.name ).toBe( 'TeeNode' );
 		expect( tee.sink ).toBe( interpreter );
-		// The link re-homes frames to the Tee, not straight to the view.
-		expect( Core.node( LINK ).sseIn.target ).toBe( TEE );
+		// The link routes frames to the Tee, not straight to the view.
+		expect( Core.node( LINK ).graphs.get( KEY_RIDDEN ).target ).toBe( TEE );
 		// The Tee forwards to the view (pure pass-through, single target).
 		expect( tee.target ).toEqual( [ VIEW ] );
 	} );
@@ -263,13 +265,13 @@ describe( 'useLogViewerGraph — exospine + RemoteLink wiring', () => {
 		expect( FakeEventSource.last.url ).toContain( 'subscribe=firehose.p0' );
 	} );
 
-	test( 'makes the RemoteLink with a token-free (subscribe-only) argument string', async () => {
+	test( 'the page link reports a token-free (subscribe-only) argument string', async () => {
 		installWire( { list_logs: oneLogReply() } );
 		mountGraph();
 		await act( async () => {} );
 		// baseUrl/nonce come from the localized global, NOT make_node tokens.
 		// Only the subscription, and it reports the one actually streaming —
-		// the link is built bare and the catalog's pick configures it.
+		// the page link is built bare and the catalog's pick configures it.
 		expect( Core.node( LINK ).arguments ).toEqual( [ 'firehose.p0' ] );
 		expect( 'endpoint' in Core.node( LINK ) ).toBe( false );
 	} );
@@ -385,7 +387,8 @@ describe( 'useLogViewerGraph — heartbeat slot bridge', () => {
 	test( 'the Router TIMER drives heartbeat.fire (via notify_timer) so the slot keep-alive actually fires', async () => {
 		// The fake transport answers no `success: true` body; the poke says so.
 		expectConsoleWarn( '_heartbeat: ERROR: client heartbeat failed - ' );
-		jest.useFakeTimers();
+		// The page link opens on a microtask; only the clock is faked.
+		jest.useFakeTimers( { doNotFake: [ 'queueMicrotask' ] } );
 		try {
 			const wire = installWire( { list_logs: oneLogReply() } );
 			mountGraph();
@@ -417,7 +420,7 @@ describe( 'useLogViewerGraph — heartbeat slot bridge', () => {
 } );
 
 describe( 'useLogViewerGraph — teardown', () => {
-	test( 'unmount tears down the RemoteLink + shared singletons + the backbone and closes the EventSource', async () => {
+	test( 'unmount tears down the page link + shared singletons + the backbone and closes the EventSource', async () => {
 		installWire( { list_logs: oneLogReply() } );
 		const { unmount } = mountGraph();
 		await act( async () => {} );
@@ -439,6 +442,7 @@ describe( 'useLogViewerGraph — control callbacks', () => {
 		await act( async () => {} );
 		const before = FakeEventSource.last;
 		act( () => result.current.selectLog( 'errors.p0' ) );
+		await act( async () => {} );
 		// Old EventSource closed, a new one opened with subscribe=errors.
 		expect( before.closed ).toBe( true );
 		expect( FakeEventSource.last ).not.toBe( before );
@@ -485,6 +489,7 @@ describe( 'useLogViewerGraph — control callbacks', () => {
 				'firehose.p0': { segment: 5, offset: 0 },
 			} )
 		);
+		await act( async () => {} );
 		expect( before.closed ).toBe( true );
 		const url = FakeEventSource.last.url;
 		expect( url ).toContain( 'positions=' );
@@ -631,6 +636,7 @@ describe( 'useLogViewerGraph — pause disconnects / play resumes', () => {
 		const open = FakeEventSource.last;
 		expect( open.closed ).toBe( false );
 		act( () => result.current.setPaused( true ) );
+		await act( async () => {} );
 		expect( open.closed ).toBe( true );
 		// The view flag is still published for the button + empty-state label.
 		expect( Core.node( VIEW ).view.paused ).toBe( true );
@@ -649,8 +655,10 @@ describe( 'useLogViewerGraph — pause disconnects / play resumes', () => {
 		env[ VALUE ] = 'a real log line';
 		act( () => FakeEventSource.last.dispatch( 'msg', pack( env ) ) );
 		act( () => result.current.setPaused( true ) );
+		await act( async () => {} );
 		const before = FakeEventSource.instances.length;
 		act( () => result.current.setPaused( false ) );
+		await act( async () => {} );
 		// A fresh EventSource opened, seeking the exact next record boundary.
 		expect( FakeEventSource.instances.length ).toBe( before + 1 );
 		const url = FakeEventSource.last.url;
@@ -751,6 +759,7 @@ describe( 'useLogViewerGraph — pause disconnects / play resumes', () => {
 		await act( async () => {} );
 		const open = FakeEventSource.last;
 		act( () => result.current.setPaused( true ) );
+		await act( async () => {} );
 		expect( open.closed ).toBe( true );
 		const afterPause = FakeEventSource.instances.length;
 		// Hiding then refocusing the tab must NOT reopen a user-paused stream.
@@ -786,9 +795,11 @@ describe( 'useLogViewerGraph — pause disconnects / play resumes', () => {
 		const { result } = mountGraph();
 		await act( async () => {} );
 		act( () => result.current.setPaused( true ) );
+		await act( async () => {} );
 		const closed = FakeEventSource.last;
 		const count = FakeEventSource.instances.length;
 		act( () => result.current.selectLog( 'errors.p0' ) );
+		await act( async () => {} );
 		// The dropdown change must NOT revive the EventSource while paused.
 		expect( FakeEventSource.instances.length ).toBe( count );
 		expect( closed.closed ).toBe( true );
@@ -810,8 +821,10 @@ describe( 'useLogViewerGraph — pause disconnects / play resumes', () => {
 		act( () => FakeEventSource.last.dispatch( 'msg', pack( env ) ) );
 		act( () => result.current.setPaused( true ) );
 		act( () => result.current.selectLog( 'errors.p0' ) );
+		await act( async () => {} );
 		const before = FakeEventSource.instances.length;
 		act( () => result.current.setPaused( false ) );
+		await act( async () => {} );
 		expect( FakeEventSource.instances.length ).toBe( before + 1 );
 		const url = FakeEventSource.last.url;
 		expect( url ).toContain( 'subscribe=errors.p0' );
@@ -826,6 +839,7 @@ describe( 'useLogViewerGraph — pause disconnects / play resumes', () => {
 		const { result } = mountGraph();
 		await act( async () => {} );
 		act( () => result.current.setPaused( true ) );
+		await act( async () => {} );
 		const count = FakeEventSource.instances.length;
 		act( () =>
 			result.current.seek(
@@ -834,6 +848,7 @@ describe( 'useLogViewerGraph — pause disconnects / play resumes', () => {
 				{ segments: [ { id: 5, size: 200 } ] }
 			)
 		);
+		await act( async () => {} );
 		expect( FakeEventSource.instances.length ).toBe( count );
 	} );
 
@@ -852,6 +867,7 @@ describe( 'useLogViewerGraph — pause disconnects / play resumes', () => {
 		// The seek control still drove the view into replay while paused.
 		expect( Core.node( VIEW ).mode ).toBe( 'replay' );
 		act( () => result.current.setPaused( false ) );
+		await act( async () => {} );
 		// The reopened stream replays the seeked segment, not a stale offset.
 		const url = FakeEventSource.last.url;
 		const positions = JSON.parse(

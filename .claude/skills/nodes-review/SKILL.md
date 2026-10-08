@@ -157,7 +157,7 @@ Flag NAMES come from `Message::TYPE_NAMES` through `Message::type_labels()`, mir
 
 ### 8d. Tachikoma rule #2 — everything sinks into the interpreter
 
-- JS dashboards mount onto `mountExospine()`, which returns the five backbone nodes — `interpreter`, `router`, `shell`, `http`, `heartbeat` — plus `reinit` and `teardown`. `_command_interpreter` sinks into `_router`; everything else sinks into the interpreter, and the router stays bare with no sink and no target.
+- JS dashboards mount onto `mountExospine()`, which returns the six backbone nodes — `interpreter`, `router`, `shell`, `http`, `heartbeat`, `stream` — plus `reinit` and `teardown`. `_command_interpreter` sinks into `_router`; everything else sinks into the interpreter, and the router stays bare with no sink and no target.
 - Flow is steered by each node's `target` and by TO through `_router` by default. A bespoke `nodeA.sink = nodeB` chain needs a stated reason, and measured performance qualifies: inside a drain loop — a Tee fanning every message, a relay at thousands of counts — a direct sink skips the interpreter hop, the router dispatch and a TO peel, and can earn its place with a number. A node that fires on a user action cannot, because that hop is unmeasurable against a network round trip. Flag a sink chain that states no reason, a `controlSink` side channel, a Callback hand-branching on empty-versus-set TO, or flow that uses neither a target nor the canonical chain.
 - Custom flow that is genuinely needed is exposed through named targets set by verbs, as event-logger-nodes' `Request_Builder_Node` does with `completed_target`, `errors_target` and `alerts_target`, so `ls -t` and `dump_node` still see it. Wiring `target` cannot see is the regression.
 

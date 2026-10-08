@@ -399,7 +399,7 @@ describe( 'Tables', () => {
 	} );
 
 	it( 'names its skipped lines', () => {
-		publishSkippedLines( 'tablestats:link', 4 );
+		publishSkippedLines( 'tablestats:stream', 4 );
 		useNodeField.mockReturnValue( undefined );
 		const { container } = render( <Tables /> );
 		expect( container.textContent ).toContain(

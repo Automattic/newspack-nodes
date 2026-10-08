@@ -180,7 +180,7 @@ describe( 'LogViewer', () => {
 	}
 
 	it( 'shows the lines its stream skipped as unparseable', async () => {
-		publishSkippedLines( 'log-viewer:link', 1 );
+		publishSkippedLines( 'log-viewer:stream', 1 );
 		registerViewFixture( { logs: [], selected: '' } );
 		const { container } = await renderViewer();
 		expect( container.textContent ).toContain(

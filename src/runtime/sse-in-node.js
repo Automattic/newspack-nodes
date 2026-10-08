@@ -993,24 +993,6 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	}
 
 	/**
-	 * @return {?Object<string,{segment?:number,offset:number}|number|string>} The seek this stream was asked to open at.
-	 */
-	get positions() {
-		return this._positions;
-	}
-
-	/**
-	 * A new seek supersedes where the old stream got to — otherwise a seek back
-	 * to the start of the log would be beaten by the resume it is replacing.
-	 *
-	 * @param {?Object<string,{segment?:number,offset:number}|number|string>} value Per-subscription seek, or null to tail every name.
-	 */
-	set positions( value ) {
-		this._positions = value;
-		this.lastPositions = {};
-	}
-
-	/**
 	 * The current reconnect throttle: doubles per failed attempt to a 30s
 	 * ceiling, and `_applyConnected` puts it back to the floor.
 	 *

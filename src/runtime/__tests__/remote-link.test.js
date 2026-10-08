@@ -74,7 +74,7 @@ function makeLink( subscribe = 'raw-logs' ) {
 	const { interpreter } = mountExospine();
 	const posted = [];
 	const link = new RemoteLinkNode();
-	link.name = 'dash:link';
+	link.name = 'dash-link';
 	link.sink = interpreter;
 	link.target = 'dash:view';
 	link.client = {
@@ -110,10 +110,10 @@ describe( 'RemoteLinkNode', () => {
 		link.connect();
 		// Registered so `trace` can reach it; patron keeps it off the canvas.
 		expect( link.sseIn ).toBeInstanceOf( SseInNode );
-		expect( Core.node( 'dash:link:sse-in' ) ).toBe( link.sseIn );
+		expect( Core.node( 'dash-link:sse-in' ) ).toBe( link.sseIn );
 		expect( link.sseIn.patron ).toBe( link );
 		expect( dumpMetadataPayload() ).not.toHaveProperty(
-			'dash:link:sse-in'
+			'dash-link:sse-in'
 		);
 		// HttpOut + Heartbeat are shared reserved-name singletons.
 		expect( Core.node( names.HTTP ) ).toBeInstanceOf( HttpOutNode );
@@ -130,15 +130,15 @@ describe( 'RemoteLinkNode', () => {
 		router.name = names.ROUTER;
 		const link = new RemoteLinkNode();
 		link.registry = drafts; // Before the name — the setter enforces it.
-		link.name = 'draft:link';
+		link.name = 'draft-link';
 		link.sink = interpreter;
 		link.arguments = [ 'raw-logs' ];
 
 		link.connect();
 
 		// Named into Core instead, a second graph collides on the same name.
-		expect( drafts.node( 'draft:link:sse-in' ) ).toBe( link.sseIn );
-		expect( Core.registry.node( 'draft:link:sse-in' ) ).toBe( null );
+		expect( drafts.node( 'draft-link:sse-in' ) ).toBe( link.sseIn );
+		expect( Core.registry.node( 'draft-link:sse-in' ) ).toBe( null );
 	} );
 
 	it( 'never arms the shared heartbeat itself: the slot lifecycle does (setSlot arms, close stops)', () => {
@@ -259,18 +259,11 @@ describe( 'RemoteLinkNode', () => {
 		expect( link.sseIn ).toBeNull();
 	} );
 
-	it( 'reconnect supplies it too — either verb configures the link', () => {
-		const { interpreter } = mountExospine();
-		const link = interpreter.makeNode( 'RemoteLink', 'late-link-813' );
-		link.reconnect( [ 'quartz.p7' ] );
-		expect( link.arguments ).toEqual( [ 'quartz.p7' ] );
-		expect( link.sseIn.subscribe ).toEqual( [ 'quartz.p7' ] );
-	} );
-
-	it( 'setSubscribe supplies it, and `arguments` then reports it', () => {
+	it( 'a graph attaching supplies it, and `arguments` then reports it', async () => {
 		const { interpreter } = mountExospine();
 		const link = interpreter.makeNode( 'RemoteLink', 'late-link-812' );
-		link.setSubscribe( [ 'quartz.p7' ] );
+		link.attach( 'grebe', [ 'quartz.p7' ], 'grebe:stream' );
+		await Promise.resolve();
 		expect( link.arguments ).toEqual( [ 'quartz.p7' ] );
 		expect( link.sseIn.subscribe ).toEqual( [ 'quartz.p7' ] );
 	} );
@@ -278,13 +271,14 @@ describe( 'RemoteLinkNode', () => {
 	// `arguments` is what dump_config re-emits, so a link that reports the
 	// token it was BUILT with saves a graph replaying the log the dashboard
 	// opened on rather than the one it was showing.
-	it( 're-pointing a configured link updates what it reports', () => {
+	it( 're-pointing a configured link updates what it reports', async () => {
 		const { interpreter } = mountExospine();
 		const link = interpreter.makeNode( 'RemoteLink', 'moved-link-903', [
 			'gyroscope.p7',
 		] );
 		link.connect();
-		link.setSubscribe( [ 'quartz.p3' ] );
+		link.attach( 'grebe', [ 'quartz.p3' ], 'grebe:stream' );
+		await Promise.resolve();
 		expect( link.arguments ).toEqual( [ 'quartz.p3' ] );
 		expect( link.sseIn.arguments ).toEqual( [ 'quartz.p3' ] );
 		expect( link.dumpConfig() ).toContain(
@@ -292,59 +286,12 @@ describe( 'RemoteLinkNode', () => {
 		);
 	} );
 
-	it( 'reconnect re-points what it reports too', () => {
-		const { interpreter } = mountExospine();
-		const link = interpreter.makeNode( 'RemoteLink', 'moved-link-904', [
-			'gyroscope.p7',
-		] );
-		link.reconnect( [ 'quartz.p3' ] );
-		expect( link.arguments ).toEqual( [ 'quartz.p3' ] );
-	} );
-
-	// An empty list would blank a live link's subscription while its stream
-	// kept delivering, which is the reported-wrong bug in reverse.
-	it( 'refuses an empty subscription rather than de-configuring', () => {
-		const { interpreter } = mountExospine();
-		const link = interpreter.makeNode( 'RemoteLink', 'kept-link-905', [
-			'gyroscope.p7',
-		] );
-		expect( () => link.setSubscribe( [] ) ).toThrow(
-			'RemoteLink requires an SSE subscription'
-		);
-		expect( link.arguments ).toEqual( [ 'gyroscope.p7' ] );
-	} );
-
-	it( 'reconnect() resumes past the last record it read', () => {
-		// The fixture record addresses a consumer this graph never mounts, so
-		// the Router logs the miss; the cursor is what this pins.
-		expectConsoleWarn( '_router: NOT_AVAILABLE - TM_BYTESTREAM' );
-		const { link } = makeLink( 'errors' );
+	it( 'has no per-graph re-point methods; graphs attach instead', () => {
+		const { link } = makeLink( 'kea.p4' );
+		expect( link.setSubscribe ).toBeUndefined();
+		expect( link.reconnect ).toBeUndefined();
 		link.connect();
-		const m = newMessage();
-		m[ TYPE ] = TM_BYTESTREAM;
-		m[ FROM ] = 'errors/request-builder';
-		m[ ID ] = '3:99:70';
-		m[ VALUE ] = 'a line';
-		FakeEventSource.last.listeners.msg[ 0 ]( {
-			data: JSON.stringify( m ),
-		} );
-
-		link.reconnect();
-		expect( link.sseIn.seekMap() ).toEqual( {
-			errors: { segment: 3, offset: 99 + 70 },
-		} );
-	} );
-
-	// @longform The chart asked to replay the whole log; the slot pool refused
-	// the stream before a frame arrived. Recomputing the seek from what was
-	// read — nothing — and handing THAT back was what silently downgraded the
-	// retry to a tail, so the chart came up holding one live point.
-	it( 'reconnect() keeps the replay a refused stream never got', () => {
-		const { link } = makeLink( 'errors' );
-		link.connect( { errors: 0 } );
-
-		link.reconnect();
-		expect( link.sseIn.seekMap() ).toEqual( { errors: 0 } );
+		expect( FakeEventSource.last.url ).toContain( 'subscribe=kea.p4' );
 	} );
 
 	it( 'subscribes its SseIn to the configured topic, forwarding to the link sink/target', () => {
@@ -359,36 +306,8 @@ describe( 'RemoteLinkNode', () => {
 	it( 'connect() with no positions asks the SseIn to tail', () => {
 		const { link } = makeLink();
 		link.connect();
-		expect( link.sseIn.positions ).toBeNull();
 		// No seed of its own, so the seek it names is the tail sentinel.
 		expect( link.sseIn.seekMap() ).toEqual( { 'raw-logs': SEEK_END } );
-	} );
-
-	it( 'connect(positions) threads the seek seed into the SseIn stream URL', () => {
-		const { link } = makeLink( 'topicprobe.p0' );
-		link.connect( { 'topicprobe.p0': 'start' } );
-		expect( link.sseIn.positions ).toEqual( {
-			'topicprobe.p0': 'start',
-		} );
-		expect( FakeEventSource.last.url ).toContain( 'positions=' );
-	} );
-
-	it( 'setSubscribe(subscribe, positions) re-points the stream with a new seek seed', () => {
-		const { link } = makeLink( 'topicprobe.p0' );
-		link.connect( { 'topicprobe.p0': 'start' } );
-		link.setSubscribe( [ 'topicprobe.p0' ], {
-			'topicprobe.p0': 'end',
-		} );
-		expect( link.sseIn.positions ).toEqual( {
-			'topicprobe.p0': 'end',
-		} );
-	} );
-
-	it( 'setSubscribe(subscribe) without positions clears the seed (tail-seek)', () => {
-		const { link } = makeLink( 'topicprobe.p0' );
-		link.connect( { 'topicprobe.p0': 'start' } );
-		link.setSubscribe( [ 'errors' ] );
-		expect( link.sseIn.positions ).toBeNull();
 	} );
 
 	it( 'opens every stream on /messages/stream; no link carries an endpoint', () => {
@@ -584,7 +503,7 @@ describe( 'RemoteLinkNode', () => {
 		try {
 			const { interpreter } = mountExospine();
 			const link = new RemoteLinkNode();
-			link.name = 'dash:link';
+			link.name = 'dash-link';
 			link.sink = interpreter;
 			// subscribe only — no baseUrl/nonce tokens, no injected client.
 			link.arguments = [ 'raw-logs' ];
@@ -622,11 +541,9 @@ describe( 'riders — one link carrying several graphs', () => {
 	};
 	const seeksOf = ( url ) =>
 		JSON.parse( decodeURIComponent( url.split( 'positions=' )[ 1 ] ) );
+	// The page's own link, as every stream graph on it rides.
 	function makeShared() {
-		const { interpreter } = mountExospine();
-		const link = new RemoteLinkNode();
-		link.name = 'page:link';
-		link.sink = interpreter;
+		const { stream: link } = mountExospine();
 		const delivered = {};
 		for ( const name of [
 			'jobs:stream',
@@ -739,7 +656,7 @@ describe( 'riders — one link carrying several graphs', () => {
 	} );
 
 	it( 'drops a stamped line no graph carries, saying so', async () => {
-		expectConsoleWarn( 'page:link:sse-in: WARNING: no route for kea.p7' );
+		expectConsoleWarn( '_stream:sse-in: WARNING: no route for kea.p7' );
 		const { link, delivered } = makeShared();
 		link.attach( 'jobs', [ 'jobstats.p0' ], 'jobs:stream' );
 		await flush();
@@ -1007,6 +924,8 @@ describe( 'riders — one link carrying several graphs', () => {
 		} );
 	} );
 
+	// A seed is spent once the server answers it: the handshake states where
+	// each reader opened, and that cursor outranks the seed from then on.
 	it( 'a parked graph’s spent seed is not asked for again on play', async () => {
 		const { link } = makeShared();
 		link.attach( 'jobs', [ 'jobstats.p0' ], 'jobs:stream', {
@@ -1014,12 +933,42 @@ describe( 'riders — one link carrying several graphs', () => {
 		} );
 		link.attach( 'backlog', [ 'topicprobe.p0' ], 'backlog:stream' );
 		await flush();
+		const m = newMessage();
+		m[ TYPE ] = TM_INFO;
+		m[ KEY ] = 'connected';
+		m[ VALUE ] =
+			`SESSION ${ HARNESS_SESSION } SLOT 4 OWNER ${ LEASE_OWNER } ` +
+			'SUBSCRIPTIONS jobstats.p0,topicprobe.p0 INTERVAL 2000 ' +
+			'CURSORS jobstats.p0=6:0,topicprobe.p0=9:4471';
+		FakeEventSource.last.dispatch( 'connected', JSON.stringify( m ) );
 		link.park( 'jobs' );
 		link.attach( 'jobs', [ 'jobstats.p0' ], 'jobs:stream' );
 		await flush();
-		expect( link.sseIn.positions ).toEqual( {} );
+		expect( FakeEventSource.opened ).toBe( 1 );
 		expect( link.sseIn.seekMap() ).toEqual( {
-			'jobstats.p0': SEEK_END,
+			'jobstats.p0': { segment: 6, offset: 0 },
+			'topicprobe.p0': { segment: 9, offset: 4471 },
+		} );
+	} );
+
+	// @longform The chart asked to replay the whole log; the slot pool refused
+	// the stream before its handshake. Dropping the seed on a pause in that
+	// window downgraded the next open to a tail, so the chart came up holding
+	// one live point.
+	it( 'a graph paused before its stream answered replays its seek on play', async () => {
+		const { link } = makeShared();
+		link.attach( 'jobs', [ 'jobstats.p0' ], 'jobs:stream', {
+			'jobstats.p0': SEEK_START,
+		} );
+		link.attach( 'backlog', [ 'topicprobe.p0' ], 'backlog:stream' );
+		await flush();
+		link.park( 'jobs' );
+		await flush();
+		link.attach( 'jobs', [ 'jobstats.p0' ], 'jobs:stream' );
+		await flush();
+		expect( FakeEventSource.opened ).toBe( 3 );
+		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
+			'jobstats.p0': SEEK_START,
 			'topicprobe.p0': SEEK_END,
 		} );
 	} );
@@ -1117,7 +1066,12 @@ describe( 'riders — one link carrying several graphs', () => {
 			'tablestats.p0': SEEK_END,
 		} );
 		expect( link.sseIn.lastPositions ).toEqual( {} );
-		expect( link.sseIn.positions ).toEqual( {} );
+		// Back on the old stamp, neither its seed nor its read comes back.
+		link.attach( 'jobs', [ 'jobstats.p0' ], 'jobs:stream' );
+		await flush();
+		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
+			'jobstats.p0': SEEK_END,
+		} );
 	} );
 
 	it( 'reattaching in another order keeps a stream on the same set', async () => {

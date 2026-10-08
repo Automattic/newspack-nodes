@@ -156,7 +156,7 @@ export class RemoteIpcNode extends RemoteLinkNode {
 	 * it. One stream per session — the console performs this same swap when the
 	 * cwd moves to another worker.
 	 *
-	 * A fresh attach drops the parent's `positions` seed and tail-seeks: an
+	 * A fresh attach tail-seeks, forgetting what an earlier attach read: an
 	 * attached command channel carries replies to commands this session is
 	 * about to send, so there is no earlier position worth starting from.
 	 * Every reopen after that resumes where the stream read — the SseIn's own
@@ -180,6 +180,7 @@ export class RemoteIpcNode extends RemoteLinkNode {
 		if ( current && current !== this ) {
 			current.close();
 		}
+		this.sseIn?.reseek( this.sseIn.subscribe, null );
 		super.connect();
 		RemoteIpcNode.active = this;
 	}
@@ -197,13 +198,6 @@ export class RemoteIpcNode extends RemoteLinkNode {
 			throw new Error( 'RemoteIpc requires a remote worker reader' );
 		}
 	}
-
-	/**
-	 * This link is addressed by its READER, and its subscription is derived
-	 * from it rather than declared — so a subscription supplied later records
-	 * nothing, where the parent would rewrite the worker address with it.
-	 */
-	_recordSubscription() {}
 
 	/**
 	 * Close the composed stream and release this session's live-connection

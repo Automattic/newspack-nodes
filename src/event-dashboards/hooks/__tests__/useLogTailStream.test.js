@@ -2,7 +2,7 @@
  * useLogTailStream tests — the ONE parameterised probe-log tail. The per-log
  * hooks were byte-identical copies of this graph differing only in their names,
  * their subscription and their view class, so what is asserted here is the
- * derivation itself: `<name>:link → <name>:stream → <name>:view`, the seek
+ * derivation itself: `<name>:stream → <name>:view` riding the page link, the seek
  * `mode` picks, and that an unrecognised mode fails LOUD instead of silently
  * tail-seeking away a replay.
  */
@@ -47,16 +47,17 @@ const STREAM = {
 };
 
 describe( 'useLogTailStream', () => {
-	it( 'derives link, stream Tee and view from the stream name', async () => {
+	it( 'derives the stream Tee and view from the stream name', async () => {
 		renderHook( () => useLogTailStream( { ...STREAM, mode: 'follow' } ) );
 		await act( async () => {} );
-		expect( Core.node( 'cachecozy:link' ) ).toBeTruthy();
-		expect( Core.node( 'cachecozy:link' ).target ).toBe(
-			'cachecozy:stream'
-		);
 		expect( Core.node( 'cachecozy:stream' ) ).toBeTruthy();
 		expect( Core.node( 'cachecozy:view' ) ).toBeTruthy();
-		expect( Core.node( 'cachecozy:link' ).sseIn.subscribe ).toEqual( [
+		expect( Core.node( '_stream' ).graphs.get( 'cachecozy' ) ).toEqual( {
+			subscribe: [ 'cachecozy.p0' ],
+			target: 'cachecozy:stream',
+			parked: false,
+		} );
+		expect( Core.node( '_stream' ).sseIn.subscribe ).toEqual( [
 			'cachecozy.p0',
 		] );
 	} );

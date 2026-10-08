@@ -1,8 +1,9 @@
 /**
- * useProbeStream tests — one RemoteLink tailing each declared probe log into
- * its view, on the canonical backbone, parameterised over
- * EventSource is faked; a `msg` frame driven through it must route link → view
- * keyed as the view keys it, and the mode must select the seek.
+ * useProbeStream tests — each declared probe log rides the page's one stream
+ * link into its view, on the canonical backbone, parameterised over every
+ * declared stream. EventSource is faked; a `msg` frame driven through it must
+ * route link → view keyed as the view keys it, and the mode must select the
+ * seek.
  */
 
 import { renderHook, act } from '@testing-library/react';
@@ -144,22 +145,25 @@ function frame( name, ts = 100 ) {
 }
 
 describe.each( Object.keys( FRAMES ) )( 'useProbeStream( %s )', ( name ) => {
-	const LINK = `${ name }:link`;
+	const LINK = '_stream';
 	const TEE = `${ name }:stream`;
 	const VIEW = `${ name }:view`;
 	const SUB = FRAMES[ name ].subscribe;
 
-	it( 'mounts the backbone, the link and the view', async () => {
+	it( 'mounts the backbone and the view, riding the page link', async () => {
 		renderHook( () => useProbeStream( name, { mode: 'follow' } ) );
 		await act( async () => {} );
 		expect( Core.node( '_command_interpreter' ) ).toBeTruthy();
-		expect( Core.node( LINK ) ).toBeTruthy();
+		expect( Core.node( `${ name }:link` ) ).toBeNull();
 		expect( Core.node( VIEW ) ).toBeTruthy();
+		expect( Core.node( LINK ).graphs.get( name ).subscribe ).toEqual( [
+			SUB,
+		] );
 		expect( Core.node( LINK ).sseIn.subscribe ).toEqual( [ SUB ] );
 		expect( FakeEventSource.last.url ).toContain( `subscribe=${ SUB }` );
 	} );
 
-	it( 'makes the link with a token-free (subscribe-only) argument string', async () => {
+	it( 'the page link reports a token-free (subscribe-only) argument string', async () => {
 		renderHook( () => useProbeStream( name, { mode: 'follow' } ) );
 		await act( async () => {} );
 		// baseUrl/nonce come from the localized global, NOT make_node tokens.
@@ -191,8 +195,8 @@ describe.each( Object.keys( FRAMES ) )( 'useProbeStream( %s )', ( name ) => {
 		expect( tee ).toBeTruthy();
 		expect( tee.constructor.name ).toBe( 'TeeNode' );
 		expect( tee.sink ).toBe( interpreter );
-		// The link re-homes received frames to the Tee, which fans to the view.
-		expect( Core.node( LINK ).sseIn.target ).toBe( TEE );
+		// The link routes this graph's frames to the Tee, which fans to the view.
+		expect( Core.node( LINK ).graphs.get( name ).target ).toBe( TEE );
 		expect( tee.target ).toEqual( [ VIEW ] );
 	} );
 
@@ -232,7 +236,7 @@ describe.each( Object.keys( FRAMES ) )( 'useProbeStream( %s )', ( name ) => {
 		FRAMES[ name ].detail( entry );
 	} );
 
-	it( 'reconnects (re-seeking history) after a graph rebuild drops + recreates the link', async () => {
+	it( 'rides a fresh page link (re-seeking history) after a graph rebuild', async () => {
 		renderHook( () => useProbeStream( name, { mode: 'history' } ) );
 		await act( async () => {} );
 		const firstLink = Core.node( LINK );

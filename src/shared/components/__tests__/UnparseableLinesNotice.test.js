@@ -55,9 +55,9 @@ describe( 'UnparseableLinesNotice', () => {
 	} );
 
 	it( 'reads the count the named stream node publishes', () => {
-		publishSkippedLines( 'probe-4471:link', 23 );
+		publishSkippedLines( 'probe-4471:stream', 23 );
 		const { container } = render(
-			<UnparseableLinesNotice node="probe-4471:link" />
+			<UnparseableLinesNotice node="probe-4471:stream" />
 		);
 		expect( container.textContent ).toBe(
 			'23 lines would not parse and were skipped.'
@@ -65,9 +65,9 @@ describe( 'UnparseableLinesNotice', () => {
 	} );
 
 	it( 'follows the stream node as its count climbs', () => {
-		const node = publishSkippedLines( 'probe-4471:link', 0 );
+		const node = publishSkippedLines( 'probe-4471:stream', 0 );
 		const { container } = render(
-			<UnparseableLinesNotice node="probe-4471:link" source="Tail 9" />
+			<UnparseableLinesNotice node="probe-4471:stream" source="Tail 9" />
 		);
 		expect( container.childNodes.length ).toBe( 0 );
 		act( () => node.setState( 'UNPARSEABLE_LINES', 41 ) );
@@ -78,7 +78,7 @@ describe( 'UnparseableLinesNotice', () => {
 
 	it( 'renders nothing for a node no graph holds yet', () => {
 		const { container } = render(
-			<UnparseableLinesNotice node="nowhere-5530:link" />
+			<UnparseableLinesNotice node="nowhere-5530:stream" />
 		);
 		expect( container.childNodes.length ).toBe( 0 );
 	} );

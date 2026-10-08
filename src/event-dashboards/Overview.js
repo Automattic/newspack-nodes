@@ -459,7 +459,7 @@ export default function Overview( { headerControlsSlot } ) {
 			/>
 			<UnparseableLinesNotice
 				source={ __( 'Topics charts', 'newspack-nodes' ) }
-				node="topicprobe:link"
+				node="topicprobe:stream"
 			/>
 			<SummaryCards
 				topologies={ topologies }

@@ -214,11 +214,11 @@ export default function Jobs() {
 		<div className="nodes-probe-tab">
 			<UnparseableLinesNotice
 				source={ __( 'Job statistics', 'newspack-nodes' ) }
-				node="jobstats:link"
+				node="jobstats:stream"
 			/>
 			<UnparseableLinesNotice
 				source={ __( 'Job backlog', 'newspack-nodes' ) }
-				node="topicprobe:link"
+				node="topicprobe:stream"
 			/>
 			<TopicsPanels panels={ panels } />
 			<ProbeTable

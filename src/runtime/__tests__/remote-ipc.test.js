@@ -15,7 +15,7 @@
 
 import { RemoteIpcNode } from '../remote-ipc-node';
 import { RemoteLinkNode } from '../remote-link-node';
-import { SseInNode } from '../sse-in-node';
+import { SseInNode, SEEK_END } from '../sse-in-node';
 import { HttpOutNode } from '../http-out-node';
 import { HeartbeatNode } from '../heartbeat-node';
 import { CommandInterpreterNode } from '../command-interpreter-node';
@@ -115,16 +115,26 @@ function command( { from = '', to = '' } = {} ) {
 }
 
 describe( 'RemoteIpcNode', () => {
-	// RemoteIpc's ctor argument is its READER, not a subscription — so the
-	// inherited re-point verbs must not write one over the worker address.
-	it( 'setSubscribe leaves the reader it is addressed by alone', () => {
+	// A command channel carries replies to commands about to be sent, so a
+	// fresh attach starts at the tail, whatever an earlier attach had read.
+	it( 'a fresh attach tail-seeks, though an earlier one read', () => {
 		const { interpreter } = mountExospine();
-		const ipc = interpreter.makeNode( 'RemoteIpc', 'ipc-841', [
-			'combined.p7',
-		] );
-		ipc.setSubscribe( [ 'firehose.p0' ] );
-		expect( ipc.reader ).toBe( 'combined.p7' );
-		expect( ipc.arguments ).toEqual( [ 'combined.p7' ] );
+		const first = makeRemoteIpc( 'combined.p7', interpreter );
+		const other = makeRemoteIpc( 'aggregator.p0', interpreter );
+		first.connect();
+		first.sseIn.lastPositions[ 'combined.p7' ] = {
+			segment: 5,
+			offset: 2209,
+		};
+		other.connect();
+		first.connect();
+		const reopened = new URL( FakeEventSource.last.url, 'https://x.test' );
+		expect( reopened.searchParams.get( 'subscribe' ) ).toBe(
+			'combined.p7'
+		);
+		expect(
+			JSON.parse( reopened.searchParams.get( 'positions' ) )
+		).toEqual( { 'combined.p7': SEEK_END } );
 	} );
 
 	// The Router brackets every tick in _http.lock()/flush() (router-node.js),

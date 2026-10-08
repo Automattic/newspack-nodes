@@ -152,7 +152,7 @@ export default function ConfigAudit( { headerControlsSlot } ) {
 		>
 			{ renderedToolbar }
 
-			<UnparseableLinesNotice node="settings-audit:link" />
+			<UnparseableLinesNotice node="settings-audit:stream" />
 
 			<p className="nodes-config-audit__note">
 				{ __(
