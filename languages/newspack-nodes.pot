@@ -2,14 +2,14 @@
 # This file is distributed under the GPL-2.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Newspack Nodes 2.99.0\n"
+"Project-Id-Version: Newspack Nodes 2.100.0\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/newspack-nodes\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-08T01:09:20+00:00\n"
+"POT-Creation-Date: 2026-10-08T05:35:58+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: newspack-nodes\n"
@@ -358,7 +358,7 @@ msgid "Restarts: %s"
 msgstr ""
 
 #: includes/config-system/class-settings-renderer.php:210
-#: src/topology-console/components/Inspector.js:692
+#: src/topology-console/components/Inspector.js:677
 msgid "(none)"
 msgstr ""
 
@@ -443,7 +443,7 @@ msgstr ""
 
 #: src/debug-overlay/tabs/OverviewTab.js:261
 #: src/event-dashboards/Overview.js:360
-#: src/topology-console/components/Inspector.js:2600
+#: src/topology-console/components/Inspector.js:2588
 msgid "Messages"
 msgstr ""
 
@@ -465,7 +465,7 @@ msgstr ""
 #. translators: %d: number of minutes since the last update.
 #. translators: %d: minutes since last activity.
 #: src/event-aggregator/AggregatorStatus.js:108
-#: src/topology-console/components/Inspector.js:325
+#: src/topology-console/components/Inspector.js:310
 #, js-format
 msgid "%dm ago"
 msgstr ""
@@ -748,7 +748,7 @@ msgid "No job activity yet."
 msgstr ""
 
 #: src/event-dashboards/LogViewer.js:91
-#: src/topology-console/components/Inspector.js:1731
+#: src/topology-console/components/Inspector.js:1719
 msgid "Type"
 msgstr ""
 
@@ -783,7 +783,7 @@ msgstr ""
 
 #: src/event-dashboards/LogViewer.js:111
 #: src/shared/components/LogStreamViewer.js:118
-#: src/topology-console/components/Inspector.js:1791
+#: src/topology-console/components/Inspector.js:1779
 #: src/vault/VaultAdmin.js:320
 #: src/vault/VaultAdmin.js:554
 msgid "ID"
@@ -795,7 +795,7 @@ msgstr ""
 
 #: src/event-dashboards/LogViewer.js:116
 #: src/shared/components/LogStreamViewer.js:123
-#: src/topology-console/components/Inspector.js:1792
+#: src/topology-console/components/Inspector.js:1780
 msgid "Key"
 msgstr ""
 
@@ -805,7 +805,7 @@ msgstr ""
 
 #: src/event-dashboards/LogViewer.js:121
 #: src/shared/components/LogStreamViewer.js:128
-#: src/topology-console/components/Inspector.js:1803
+#: src/topology-console/components/Inspector.js:1791
 msgid "Value"
 msgstr ""
 
@@ -1128,7 +1128,7 @@ msgid "Deactivate"
 msgstr ""
 
 #: src/event-dashboards/TopologyControls.js:58
-#: src/topology-console/TopologyConsole.js:2048
+#: src/topology-console/TopologyConsole.js:2055
 msgid "Activate"
 msgstr ""
 
@@ -1264,15 +1264,15 @@ msgstr ""
 
 #: src/sessions/SessionsAdmin.js:168
 #: src/sessions/SessionsAdmin.js:338
-#: src/topology-console/components/Inspector.js:1424
-#: src/topology-console/components/Inspector.js:1611
-#: src/topology-console/components/Inspector.js:1818
+#: src/topology-console/components/Inspector.js:1412
+#: src/topology-console/components/Inspector.js:1599
+#: src/topology-console/components/Inspector.js:1806
 #: src/topology-console/components/Modal.js:261
 #: src/topology-console/components/Modal.js:317
 #: src/topology-console/components/Modal.js:470
 #: src/topology-console/components/OpenTopologyModal.js:121
-#: src/topology-console/TopologyConsole.js:1998
-#: src/topology-console/TopologyConsole.js:2074
+#: src/topology-console/TopologyConsole.js:2005
+#: src/topology-console/TopologyConsole.js:2081
 #: src/vault/VaultAdmin.js:66
 #: src/vault/VaultAdmin.js:458
 msgid "Cancel"
@@ -1425,13 +1425,13 @@ msgid "SETTINGS"
 msgstr ""
 
 #: src/shared/components/Header.js:272
-#: src/topology-console/components/Inspector.js:1214
+#: src/topology-console/components/Inspector.js:1202
 msgid "EDIT"
 msgstr ""
 
 #: src/shared/components/Header.js:294
-#: src/topology-console/components/Inspector.js:1999
-#: src/topology-console/components/Inspector.js:2331
+#: src/topology-console/components/Inspector.js:1987
+#: src/topology-console/components/Inspector.js:2319
 msgid "LIVE"
 msgstr ""
 
@@ -1785,14 +1785,14 @@ msgid "Includes"
 msgstr ""
 
 #. translators: %s: the name of the node that owns this one.
-#: src/topology-console/components/Inspector.js:117
+#: src/topology-console/components/Inspector.js:118
 #, js-format
 msgid "Owned by %s, which builds it, so it cannot be deleted or renamed here."
 msgstr ""
 
 #. translators: %d: minutes of accumulated history.
 #. translators: %d: trailing activity window length in minutes.
-#: src/topology-console/components/Inspector.js:218
+#: src/topology-console/components/Inspector.js:203
 #: src/topology-console/components/ProcessStats.js:64
 #, js-format
 msgid "last ~%dm"
@@ -1800,480 +1800,480 @@ msgstr ""
 
 #. translators: %d: seconds of accumulated history.
 #. translators: %d: trailing activity window length in seconds.
-#: src/topology-console/components/Inspector.js:225
+#: src/topology-console/components/Inspector.js:210
 #: src/topology-console/components/ProcessStats.js:58
 #, js-format
 msgid "last ~%ds"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:229
+#: src/topology-console/components/Inspector.js:214
 msgid "live"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:309
+#: src/topology-console/components/Inspector.js:294
 msgid "streaming"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:313
+#: src/topology-console/components/Inspector.js:298
 msgid "just now"
 msgstr ""
 
 #. translators: %s: seconds since last activity.
-#: src/topology-console/components/Inspector.js:318
+#: src/topology-console/components/Inspector.js:303
 #, js-format
 msgid "%ss ago"
 msgstr ""
 
 #. translators: %d: hours since last activity.
-#: src/topology-console/components/Inspector.js:331
+#: src/topology-console/components/Inspector.js:316
 #, js-format
 msgid "%dh ago"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:355
+#: src/topology-console/components/Inspector.js:340
 msgid "Name cannot be empty."
 msgstr ""
 
 #. translators: %s: the node name the user tried to use.
-#: src/topology-console/components/Inspector.js:360
+#: src/topology-console/components/Inspector.js:345
 #, js-format
 msgid "Name '%s' already in use."
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:365
+#: src/topology-console/components/Inspector.js:350
 msgid "Letters, digits, dot, dash, underscore, colon only."
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:390
+#: src/topology-console/components/Inspector.js:375
 msgid "Rename refused — name already taken."
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:626
+#: src/topology-console/components/Inspector.js:611
 msgid "+ add target…"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:697
+#: src/topology-console/components/Inspector.js:682
 msgid "Plus virtual edge(s) from verb args — manage in Verbs."
 msgstr ""
 
 #. translators: %s: target node name to remove.
 #. translators: %s: variable name.
-#: src/topology-console/components/Inspector.js:730
+#: src/topology-console/components/Inspector.js:715
 #: src/topology-console/components/TopologySettingsPanel.js:471
 #, js-format
 msgid "Remove %s"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:896
+#: src/topology-console/components/Inspector.js:881
 msgid "OWNED"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:897
+#: src/topology-console/components/Inspector.js:882
 msgid "BORROWED"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:908
-#: src/topology-console/components/Inspector.js:1245
-#: src/topology-console/components/Inspector.js:2337
+#: src/topology-console/components/Inspector.js:893
+#: src/topology-console/components/Inspector.js:1233
+#: src/topology-console/components/Inspector.js:2325
 msgid "Routing"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:925
-#: src/topology-console/components/Inspector.js:1261
-#: src/topology-console/components/Inspector.js:2383
+#: src/topology-console/components/Inspector.js:910
+#: src/topology-console/components/Inspector.js:1249
+#: src/topology-console/components/Inspector.js:2371
 msgid "Constructor"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:928
-#: src/topology-console/components/Inspector.js:1264
+#: src/topology-console/components/Inspector.js:913
+#: src/topology-console/components/Inspector.js:1252
 msgid "No constructor arguments."
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:1005
-#: src/topology-console/components/Inspector.js:2764
+#: src/topology-console/components/Inspector.js:993
+#: src/topology-console/components/Inspector.js:2752
 msgid "Verbs"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:1008
+#: src/topology-console/components/Inspector.js:996
 msgid "No verbs registered."
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:1223
+#: src/topology-console/components/Inspector.js:1211
 msgid "Delete node"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:1229
+#: src/topology-console/components/Inspector.js:1217
 msgid "Identity"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:1431
+#: src/topology-console/components/Inspector.js:1419
 msgid "Run"
 msgstr ""
 
 #. translators: %s: verb name (TM_REQUEST-prefixed for request verbs).
 #. translators: %s: payload noun (bytes / info / JSON).
-#: src/topology-console/components/Inspector.js:1491
-#: src/topology-console/components/Inspector.js:2842
+#: src/topology-console/components/Inspector.js:1479
+#: src/topology-console/components/Inspector.js:2830
 #, js-format
 msgid "Send %s"
 msgstr ""
 
 #. translators: %s: the source node id.
-#: src/topology-console/components/Inspector.js:1570
+#: src/topology-console/components/Inspector.js:1558
 #, js-format
 msgid "Register a listener on %s"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:1578
+#: src/topology-console/components/Inspector.js:1566
 #: src/topology-console/components/TimelineView.js:146
 msgid "Event"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:1594
+#: src/topology-console/components/Inspector.js:1582
 msgid "Listener node"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:1619
-#: src/topology-console/components/Inspector.js:2680
+#: src/topology-console/components/Inspector.js:1607
+#: src/topology-console/components/Inspector.js:2668
 msgid "Register"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:1724
+#: src/topology-console/components/Inspector.js:1712
 msgid "Compose a message"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:1747
+#: src/topology-console/components/Inspector.js:1735
 msgid "Timestamp"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:1748
+#: src/topology-console/components/Inspector.js:1736
 msgid "now (default)"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:1769
+#: src/topology-console/components/Inspector.js:1757
 msgid "From (reply path)"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:1770
+#: src/topology-console/components/Inspector.js:1758
 msgid "this session (default)"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:1777
+#: src/topology-console/components/Inspector.js:1765
 msgid "To (node)"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:1793
+#: src/topology-console/components/Inspector.js:1781
 msgid "Name"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:1795
+#: src/topology-console/components/Inspector.js:1783
 msgid "Arguments"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:1797
+#: src/topology-console/components/Inspector.js:1785
 #: src/topology-console/components/TimelineView.js:149
 msgid "Payload"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:1825
-#: src/topology-console/components/Inspector.js:2622
+#: src/topology-console/components/Inspector.js:1813
+#: src/topology-console/components/Inspector.js:2610
 msgid "Send"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2009
+#: src/topology-console/components/Inspector.js:1997
 msgid "Views"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2015
+#: src/topology-console/components/Inspector.js:2003
 msgid "Current-scope timers + handles as live sortable grids"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2020
+#: src/topology-console/components/Inspector.js:2008
 #: src/topology-console/components/InspectorViewModal.js:41
 msgid "Runtime"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2026
+#: src/topology-console/components/Inspector.js:2014
 msgid "Per-node throughput + Router profiling as a sortable grid"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2031
+#: src/topology-console/components/Inspector.js:2019
 #: src/topology-console/components/InspectorViewModal.js:42
 msgid "Profiler"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2037
+#: src/topology-console/components/Inspector.js:2025
 msgid "DEBUG traces from the transcript as a filterable timeline"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2042
+#: src/topology-console/components/Inspector.js:2030
 msgid "Timeline"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2048
+#: src/topology-console/components/Inspector.js:2036
 msgid "Compose a message — pick its type, target and every envelope field"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2053
+#: src/topology-console/components/Inspector.js:2041
 msgid "Compose"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2058
-#: src/topology-console/components/Inspector.js:2686
+#: src/topology-console/components/Inspector.js:2046
+#: src/topology-console/components/Inspector.js:2674
 msgid "Toggles"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2071
+#: src/topology-console/components/Inspector.js:2059
 #: src/topology-console/components/InspectorViewModal.js:105
 msgid "Stop tracing every node — `trace * 0`"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2075
+#: src/topology-console/components/Inspector.js:2063
 #: src/topology-console/components/InspectorViewModal.js:109
 msgid "Trace every node — `trace * 1`"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2082
+#: src/topology-console/components/Inspector.js:2070
 #: src/topology-console/components/InspectorViewModal.js:116
 msgid "stop trace"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2083
+#: src/topology-console/components/Inspector.js:2071
 #: src/topology-console/components/InspectorViewModal.js:117
 msgid "trace"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2105
+#: src/topology-console/components/Inspector.js:2093
 msgid "Stop _router profiling — `profile off`"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2109
+#: src/topology-console/components/Inspector.js:2097
 msgid "Profile every _router dispatch — `profile on`"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2116
+#: src/topology-console/components/Inspector.js:2104
 #: src/topology-console/components/ProfilerView.js:186
 msgid "stop profiling"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2117
+#: src/topology-console/components/Inspector.js:2105
 #: src/topology-console/components/ProfilerView.js:187
 msgid "profile"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2136
-#: src/topology-console/components/Inspector.js:2167
+#: src/topology-console/components/Inspector.js:2124
+#: src/topology-console/components/Inspector.js:2155
 msgid "Quiet the Dumper — `debug_level 0`"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2140
+#: src/topology-console/components/Inspector.js:2128
 msgid "Per-message Dumper header — `debug_level 1`"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2147
+#: src/topology-console/components/Inspector.js:2135
 msgid "stop debug"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2148
+#: src/topology-console/components/Inspector.js:2136
 msgid "debug"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2171
+#: src/topology-console/components/Inspector.js:2159
 msgid "Verbose Dumper trace — `debug_level 2`"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2178
+#: src/topology-console/components/Inspector.js:2166
 msgid "stop verbose"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2179
+#: src/topology-console/components/Inspector.js:2167
 msgid "verbose"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2184
-#: src/topology-console/components/Inspector.js:2569
+#: src/topology-console/components/Inspector.js:2172
+#: src/topology-console/components/Inspector.js:2557
 msgid "Commands"
 msgstr ""
 
 #. translators: %s: the node id that is no longer present.
-#: src/topology-console/components/Inspector.js:2235
+#: src/topology-console/components/Inspector.js:2223
 #, js-format
 msgid "%s no longer present"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2421
+#: src/topology-console/components/Inspector.js:2409
 #: src/topology-console/components/ProcessStats.js:227
 msgid "Activity"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2426
+#: src/topology-console/components/Inspector.js:2414
 msgid "messages /s"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2434
+#: src/topology-console/components/Inspector.js:2422
 #: src/topology-console/components/ProcessStats.js:192
 msgid "bytes read /s"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2442
+#: src/topology-console/components/Inspector.js:2430
 #: src/topology-console/components/ProcessStats.js:197
 msgid "bytes written /s"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2452
+#: src/topology-console/components/Inspector.js:2440
 #: src/topology-console/components/ProcessStats.js:241
 msgid "Throughput"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2453
+#: src/topology-console/components/Inspector.js:2441
 #: src/topology-console/components/ProcessStats.js:242
 msgid "cumulative"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2509
+#: src/topology-console/components/Inspector.js:2497
 msgid "Stats"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2510
+#: src/topology-console/components/Inspector.js:2498
 msgid "per verb"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2517
+#: src/topology-console/components/Inspector.js:2505
 msgid "Time Travel"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2539
+#: src/topology-console/components/Inspector.js:2527
 msgid "Dead-Letter Queue"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2544
+#: src/topology-console/components/Inspector.js:2532
 msgid "Inspect, requeue, and purge this node’s quarantined records"
 msgstr ""
 
 #. translators: %d: dead-letter segment count.
-#: src/topology-console/components/Inspector.js:2552
+#: src/topology-console/components/Inspector.js:2540
 #, js-format
 msgid "Triage (%d)"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2555
+#: src/topology-console/components/Inspector.js:2543
 #: src/topology-console/components/InspectorViewModal.js:44
 msgid "Triage"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2559
+#: src/topology-console/components/Inspector.js:2547
 #: src/topology-console/components/TriageView.js:358
 msgid "No quarantined records."
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2577
+#: src/topology-console/components/Inspector.js:2565
 msgid "Send `dump_node <name>` to the worker"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2582
+#: src/topology-console/components/Inspector.js:2570
 msgid "Dump"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2590
+#: src/topology-console/components/Inspector.js:2578
 msgid "Send `dump_config <name>` — the node's make_node config line"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2595
+#: src/topology-console/components/Inspector.js:2583
 msgid "Config"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2606
+#: src/topology-console/components/Inspector.js:2594
 msgid "Send a TM_COMMAND payload to this node via `command_node <name> <phrase>`"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2611
+#: src/topology-console/components/Inspector.js:2599
 msgid "Command"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2617
+#: src/topology-console/components/Inspector.js:2605
 msgid "Send a TM_BYTESTREAM payload to this node via `send_node <name> <bytes>`"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2628
+#: src/topology-console/components/Inspector.js:2616
 msgid "Send a TM_REQUEST payload — `request_node <name> <payload>`"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2633
+#: src/topology-console/components/Inspector.js:2621
 msgid "Request"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2639
+#: src/topology-console/components/Inspector.js:2627
 msgid "Send a TM_INFO payload — `tell_node <name> <info>`"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2644
+#: src/topology-console/components/Inspector.js:2632
 msgid "Tell"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2650
+#: src/topology-console/components/Inspector.js:2638
 msgid "Send a TM_STRUCT JSON payload — `send_struct <name> <json>`"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2655
+#: src/topology-console/components/Inspector.js:2643
 msgid "Struct"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2663
+#: src/topology-console/components/Inspector.js:2651
 msgid "Send end-of-stream — `send_eof <name>` (TM_EOF)"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2668
+#: src/topology-console/components/Inspector.js:2656
 msgid "EOF"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2675
+#: src/topology-console/components/Inspector.js:2663
 msgid "Register a listener for one of this node’s events — `register <source> <target> <event>`"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2699
+#: src/topology-console/components/Inspector.js:2687
 msgid "Stop tracing — `trace <name> 0`"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2703
+#: src/topology-console/components/Inspector.js:2691
 msgid "Start tracing — `trace <name> 1`"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2710
+#: src/topology-console/components/Inspector.js:2698
 msgid "Stop Trace"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2711
+#: src/topology-console/components/Inspector.js:2699
 msgid "Trace"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2728
+#: src/topology-console/components/Inspector.js:2716
 msgid "Disconnect this session from the Tee — `disconnect_node <name>`"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2732
+#: src/topology-console/components/Inspector.js:2720
 msgid "Connect this session to the Tee — `connect_node <name>` (its output then flows into the transcript)"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2739
+#: src/topology-console/components/Inspector.js:2727
 msgid "Disconnect"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2740
+#: src/topology-console/components/Inspector.js:2728
 msgid "Connect"
 msgstr ""
 
-#: src/topology-console/components/Inspector.js:2798
+#: src/topology-console/components/Inspector.js:2786
 msgid "Listeners"
 msgstr ""
 
 #. translators: %1$s: listener node; %2$s: event.
-#: src/topology-console/components/Inspector.js:2815
+#: src/topology-console/components/Inspector.js:2803
 #, js-format
 msgid "Unregister %1$s from %2$s"
 msgstr ""
 
 #. translators: %1$s: payload noun; %2$s: the node id.
-#: src/topology-console/components/Inspector.js:2847
+#: src/topology-console/components/Inspector.js:2835
 #, js-format
 msgid "Send %1$s to %2$s:"
 msgstr ""
@@ -2287,7 +2287,7 @@ msgid "Confirm"
 msgstr ""
 
 #: src/topology-console/components/Modal.js:316
-#: src/topology-console/TopologyConsole.js:2026
+#: src/topology-console/TopologyConsole.js:2033
 msgid "Save"
 msgstr ""
 
@@ -2689,67 +2689,67 @@ msgid "Failed to load the PHP class catalog."
 msgstr ""
 
 #. translators: 1: source line, 2: the statement, 3: why it was refused.
-#: src/topology-console/TopologyConsole.js:641
+#: src/topology-console/TopologyConsole.js:646
 #, js-format
 msgid "line %1$d: %2$s — %3$s"
 msgstr ""
 
 #. translators: 1: topology name, 2: source (stock/user/both).
-#: src/topology-console/TopologyConsole.js:792
+#: src/topology-console/TopologyConsole.js:799
 #, js-format
 msgid "Loaded %1$s (%2$s)."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:803
+#: src/topology-console/TopologyConsole.js:810
 msgid "Failed to load topology."
 msgstr ""
 
 #. translators: %s: topology name.
-#: src/topology-console/TopologyConsole.js:844
+#: src/topology-console/TopologyConsole.js:851
 #, js-format
 msgid "Saved layout for %s."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1222
+#: src/topology-console/TopologyConsole.js:1229
 msgid "Leaving edit mode drops the draft topology. This cannot be undone."
 msgstr ""
 
 #. translators: %s: topology name.
-#: src/topology-console/TopologyConsole.js:1436
+#: src/topology-console/TopologyConsole.js:1443
 #, js-format
 msgid "Deleted user copy of %s; stock copy now active."
 msgstr ""
 
 #. translators: %s: topology name.
-#: src/topology-console/TopologyConsole.js:1444
+#: src/topology-console/TopologyConsole.js:1451
 #, js-format
 msgid "Deleted %s."
 msgstr ""
 
 #. translators: %s: topology name being opened.
-#: src/topology-console/TopologyConsole.js:1564
+#: src/topology-console/TopologyConsole.js:1571
 #, js-format
 msgid "Opening %s replaces the draft topology. This cannot be undone."
 msgstr ""
 
 #. translators: %s: uploaded file name.
-#: src/topology-console/TopologyConsole.js:1663
+#: src/topology-console/TopologyConsole.js:1670
 #, js-format
 msgid "Loaded %s into the editor."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1681
+#: src/topology-console/TopologyConsole.js:1688
 msgid "Upload failed"
 msgstr ""
 
 #. translators: %d: line number in the topology source.
-#: src/topology-console/TopologyConsole.js:1701
+#: src/topology-console/TopologyConsole.js:1708
 #, js-format
 msgid "(line %d)"
 msgstr ""
 
 #. translators: %d: number of restarted fleets.
-#: src/topology-console/TopologyConsole.js:1711
+#: src/topology-console/TopologyConsole.js:1718
 #, js-format
 msgid "Restarted %d fleet."
 msgid_plural "Restarted %d fleets."
@@ -2757,78 +2757,78 @@ msgstr[0] ""
 msgstr[1] ""
 
 #. translators: 1: topology name, 2: "Restarted N fleet(s)." phrase.
-#: src/topology-console/TopologyConsole.js:1723
+#: src/topology-console/TopologyConsole.js:1730
 #, js-format
 msgid "Saved %1$s. %2$s"
 msgstr ""
 
 #. translators: %s: topology name.
-#: src/topology-console/TopologyConsole.js:1778
+#: src/topology-console/TopologyConsole.js:1785
 #, js-format
 msgid "Activated %s."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1962
+#: src/topology-console/TopologyConsole.js:1969
 msgid "Discard unsaved changes?"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1967
+#: src/topology-console/TopologyConsole.js:1974
 msgid "Discard"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1971
+#: src/topology-console/TopologyConsole.js:1978
 msgid "Keep editing"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1982
+#: src/topology-console/TopologyConsole.js:1989
 msgid "Delete topology?"
 msgstr ""
 
 #. translators: %s: topology name.
-#: src/topology-console/TopologyConsole.js:1988
+#: src/topology-console/TopologyConsole.js:1995
 #, js-format
 msgid "Delete user-saved topology \"%s\"? This cannot be undone."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1994
+#: src/topology-console/TopologyConsole.js:2001
 msgid "Delete"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2009
+#: src/topology-console/TopologyConsole.js:2016
 msgid "Save topology"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2013
+#: src/topology-console/TopologyConsole.js:2020
 msgid "Choose a name. Letters, numbers, dash, underscore."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2017
+#: src/topology-console/TopologyConsole.js:2024
 msgid "my-topology"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2036
+#: src/topology-console/TopologyConsole.js:2043
 msgid "Activate now?"
 msgstr ""
 
 #. translators: %s: topology name.
-#: src/topology-console/TopologyConsole.js:2042
+#: src/topology-console/TopologyConsole.js:2049
 #, js-format
 msgid "Topology \"%s\" was saved but is not running. Activate it now to spawn its workers?"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2052
+#: src/topology-console/TopologyConsole.js:2059
 msgid "Not now"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2062
+#: src/topology-console/TopologyConsole.js:2069
 msgid "Reset to saved layout?"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2066
+#: src/topology-console/TopologyConsole.js:2073
 msgid "This replaces your current customizations with the last saved layout (or auto-layout if none). You'll need to Save Layout to make changes permanent."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2070
+#: src/topology-console/TopologyConsole.js:2077
 msgid "Reset"
 msgstr ""
 
