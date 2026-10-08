@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.101.0] - 2026-10-08
+
 ### Changed
 
-- **A broker's refusal of a stamp outside the stream name grammar names the stamp.** The line reads `refusing a stamp outside the stream name grammar: "<stamp>"`, control bytes rendered, cut to 200 bytes with the full length named.
+- **A broker's refusal of a stamp outside the stream name grammar names the stamp.** The line reads `refusing a stamp outside the stream name grammar: "<stamp>"`, the stamp a JSON string so a newline or control byte stays escaped on one line, cut to 200 bytes with the full length named.
 - **The summary cards' backlog card drops its "N readers with unknown lag" caption.** The card sums the live readers whose lag is known, and `liveUnknown()` goes with the caption.
 - **A saved layout may be `"auto"`, and an untouched autolayout saves as it.** `layouts save <name> '"auto"'` writes `{"positions":"auto"}` and answers `positions: "auto"`; `layouts get` answers `"auto"` for that file. `Layouts_CI_Node::AUTO` is the one spelling and is matched exactly: `save` refuses any other non-object, `"Auto"`, `"auto "` and `1` among them, with `invalid arguments: positions must be an object or "auto"`, and `get` answers null for a file whose `positions` is neither a map nor `"auto"`. The console's Save Layout sends `LAYOUT_AUTO` (exported by `hooks/useCanvasLayout.js`) when no card has moved since the canvas laid itself out and no saved map seeded it. `useCanvasLayout` takes `LAYOUT_AUTO` as its `serverLayout` and treats it as it treats a fetched map whose positions are a fresh autoLayout of the graph that mode draws, a view-mode `Vault_Group`'s members included: it replaces a browser copy nobody has dragged, yields to a dragged copy until Reset Layout, lays the graph out when the browser holds no copy or after Reset, and lays it out again when the graph's nodes or edges change, each time once the node set has settled for `LAYOUT_SETTLE_MS`. A poll republishing the same structure reuses the last autoLayout. The Save chip shows whenever what Save would write differs from what is saved, so with `"auto"` saved it shows only once a card has moved, and Reset then Save reaches `"auto"` even over a saved map the autolayout reproduces. Existing map files are not rewritten; Reset Layout then Save Layout in edit mode turns one into `"auto"`.
 

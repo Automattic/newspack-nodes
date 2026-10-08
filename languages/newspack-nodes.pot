@@ -2,14 +2,14 @@
 # This file is distributed under the GPL-2.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Newspack Nodes 2.100.0\n"
+"Project-Id-Version: Newspack Nodes 2.101.0\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/newspack-nodes\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-08T05:35:58+00:00\n"
+"POT-Creation-Date: 2026-10-08T07:04:13+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: newspack-nodes\n"
@@ -722,7 +722,7 @@ msgstr ""
 
 #: src/event-dashboards/Jobs.js:199
 #: src/event-dashboards/Overview.js:374
-#: src/event-dashboards/SummaryCards.js:79
+#: src/event-dashboards/SummaryCards.js:175
 msgid "Backlog"
 msgstr ""
 
@@ -933,20 +933,12 @@ msgstr ""
 msgid "Segment %1$d: %2$s"
 msgstr ""
 
-#. translators: %d: number of readers whose lag is unknown.
-#: src/event-dashboards/SummaryCards.js:82
-#, js-format
-msgid "Backlog · %d reader with unknown lag"
-msgid_plural "Backlog · %d readers with unknown lag"
-msgstr[0] ""
-msgstr[1] ""
-
-#: src/event-dashboards/SummaryCards.js:123
+#: src/event-dashboards/SummaryCards.js:100
 msgid "all systems ok"
 msgstr ""
 
 #. translators: %d: number of stalled topologies.
-#: src/event-dashboards/SummaryCards.js:127
+#: src/event-dashboards/SummaryCards.js:104
 #, js-format
 msgid "%d stalled"
 msgid_plural "%d stalled"
@@ -954,7 +946,7 @@ msgstr[0] ""
 msgstr[1] ""
 
 #. translators: %d: number of lagging topologies.
-#: src/event-dashboards/SummaryCards.js:138
+#: src/event-dashboards/SummaryCards.js:115
 #, js-format
 msgid "%d behind"
 msgid_plural "%d behind"
@@ -962,63 +954,63 @@ msgstr[0] ""
 msgstr[1] ""
 
 #. translators: %1$d: total topologies; %2$d: active count.
-#: src/event-dashboards/SummaryCards.js:149
+#: src/event-dashboards/SummaryCards.js:126
 #, js-format
 msgid "%1$d · %2$d active"
 msgstr ""
 
-#: src/event-dashboards/SummaryCards.js:153
+#: src/event-dashboards/SummaryCards.js:130
 msgid "Topologies"
 msgstr ""
 
 #. translators: %1$d: running workers; %2$d: expected workers.
-#: src/event-dashboards/SummaryCards.js:159
+#: src/event-dashboards/SummaryCards.js:136
 #, js-format
 msgid "%1$d / %2$d up"
 msgstr ""
 
-#: src/event-dashboards/SummaryCards.js:163
+#: src/event-dashboards/SummaryCards.js:140
 msgid "Workers"
 msgstr ""
 
-#: src/event-dashboards/SummaryCards.js:168
+#: src/event-dashboards/SummaryCards.js:145
 #: src/topology-console/components/TopologySettingsPanel.js:324
 msgid "Partitions"
 msgstr ""
 
-#: src/event-dashboards/SummaryCards.js:174
+#: src/event-dashboards/SummaryCards.js:151
 msgid "Health"
 msgstr ""
 
-#: src/event-dashboards/SummaryCards.js:179
+#: src/event-dashboards/SummaryCards.js:156
 msgid "Read"
 msgstr ""
 
-#: src/event-dashboards/SummaryCards.js:184
+#: src/event-dashboards/SummaryCards.js:161
 msgid "Write"
 msgstr ""
 
-#: src/event-dashboards/SummaryCards.js:191
+#: src/event-dashboards/SummaryCards.js:168
 msgid "Messages/s"
 msgstr ""
 
-#: src/event-dashboards/SummaryCards.js:205
+#: src/event-dashboards/SummaryCards.js:180
 msgid "Messages · 24h"
 msgstr ""
 
-#: src/event-dashboards/SummaryCards.js:210
+#: src/event-dashboards/SummaryCards.js:185
 msgid "Bytes · 24h"
 msgstr ""
 
-#: src/event-dashboards/SummaryCards.js:217
+#: src/event-dashboards/SummaryCards.js:192
 msgid "Total Cache"
 msgstr ""
 
-#: src/event-dashboards/SummaryCards.js:224
+#: src/event-dashboards/SummaryCards.js:199
 msgid "Total Size"
 msgstr ""
 
-#: src/event-dashboards/SummaryCards.js:231
+#: src/event-dashboards/SummaryCards.js:206
 msgid "Total On Disk"
 msgstr ""
 
@@ -1128,7 +1120,7 @@ msgid "Deactivate"
 msgstr ""
 
 #: src/event-dashboards/TopologyControls.js:58
-#: src/topology-console/TopologyConsole.js:2055
+#: src/topology-console/TopologyConsole.js:2088
 msgid "Activate"
 msgstr ""
 
@@ -1271,8 +1263,8 @@ msgstr ""
 #: src/topology-console/components/Modal.js:317
 #: src/topology-console/components/Modal.js:470
 #: src/topology-console/components/OpenTopologyModal.js:121
-#: src/topology-console/TopologyConsole.js:2005
-#: src/topology-console/TopologyConsole.js:2081
+#: src/topology-console/TopologyConsole.js:2038
+#: src/topology-console/TopologyConsole.js:2114
 #: src/vault/VaultAdmin.js:66
 #: src/vault/VaultAdmin.js:458
 msgid "Cancel"
@@ -2287,7 +2279,7 @@ msgid "Confirm"
 msgstr ""
 
 #: src/topology-console/components/Modal.js:316
-#: src/topology-console/TopologyConsole.js:2033
+#: src/topology-console/TopologyConsole.js:2066
 msgid "Save"
 msgstr ""
 
@@ -2710,46 +2702,46 @@ msgstr ""
 msgid "Saved layout for %s."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1229
+#: src/topology-console/TopologyConsole.js:1262
 msgid "Leaving edit mode drops the draft topology. This cannot be undone."
 msgstr ""
 
 #. translators: %s: topology name.
-#: src/topology-console/TopologyConsole.js:1443
+#: src/topology-console/TopologyConsole.js:1476
 #, js-format
 msgid "Deleted user copy of %s; stock copy now active."
 msgstr ""
 
 #. translators: %s: topology name.
-#: src/topology-console/TopologyConsole.js:1451
+#: src/topology-console/TopologyConsole.js:1484
 #, js-format
 msgid "Deleted %s."
 msgstr ""
 
 #. translators: %s: topology name being opened.
-#: src/topology-console/TopologyConsole.js:1571
+#: src/topology-console/TopologyConsole.js:1604
 #, js-format
 msgid "Opening %s replaces the draft topology. This cannot be undone."
 msgstr ""
 
 #. translators: %s: uploaded file name.
-#: src/topology-console/TopologyConsole.js:1670
+#: src/topology-console/TopologyConsole.js:1703
 #, js-format
 msgid "Loaded %s into the editor."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1688
+#: src/topology-console/TopologyConsole.js:1721
 msgid "Upload failed"
 msgstr ""
 
 #. translators: %d: line number in the topology source.
-#: src/topology-console/TopologyConsole.js:1708
+#: src/topology-console/TopologyConsole.js:1741
 #, js-format
 msgid "(line %d)"
 msgstr ""
 
 #. translators: %d: number of restarted fleets.
-#: src/topology-console/TopologyConsole.js:1718
+#: src/topology-console/TopologyConsole.js:1751
 #, js-format
 msgid "Restarted %d fleet."
 msgid_plural "Restarted %d fleets."
@@ -2757,78 +2749,78 @@ msgstr[0] ""
 msgstr[1] ""
 
 #. translators: 1: topology name, 2: "Restarted N fleet(s)." phrase.
-#: src/topology-console/TopologyConsole.js:1730
+#: src/topology-console/TopologyConsole.js:1763
 #, js-format
 msgid "Saved %1$s. %2$s"
 msgstr ""
 
 #. translators: %s: topology name.
-#: src/topology-console/TopologyConsole.js:1785
+#: src/topology-console/TopologyConsole.js:1818
 #, js-format
 msgid "Activated %s."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1969
+#: src/topology-console/TopologyConsole.js:2002
 msgid "Discard unsaved changes?"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1974
+#: src/topology-console/TopologyConsole.js:2007
 msgid "Discard"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1978
+#: src/topology-console/TopologyConsole.js:2011
 msgid "Keep editing"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1989
+#: src/topology-console/TopologyConsole.js:2022
 msgid "Delete topology?"
 msgstr ""
 
 #. translators: %s: topology name.
-#: src/topology-console/TopologyConsole.js:1995
+#: src/topology-console/TopologyConsole.js:2028
 #, js-format
 msgid "Delete user-saved topology \"%s\"? This cannot be undone."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2001
+#: src/topology-console/TopologyConsole.js:2034
 msgid "Delete"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2016
+#: src/topology-console/TopologyConsole.js:2049
 msgid "Save topology"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2020
+#: src/topology-console/TopologyConsole.js:2053
 msgid "Choose a name. Letters, numbers, dash, underscore."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2024
+#: src/topology-console/TopologyConsole.js:2057
 msgid "my-topology"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2043
+#: src/topology-console/TopologyConsole.js:2076
 msgid "Activate now?"
 msgstr ""
 
 #. translators: %s: topology name.
-#: src/topology-console/TopologyConsole.js:2049
+#: src/topology-console/TopologyConsole.js:2082
 #, js-format
 msgid "Topology \"%s\" was saved but is not running. Activate it now to spawn its workers?"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2059
+#: src/topology-console/TopologyConsole.js:2092
 msgid "Not now"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2069
+#: src/topology-console/TopologyConsole.js:2102
 msgid "Reset to saved layout?"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2073
+#: src/topology-console/TopologyConsole.js:2106
 msgid "This replaces your current customizations with the last saved layout (or auto-layout if none). You'll need to Save Layout to make changes permanent."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2077
+#: src/topology-console/TopologyConsole.js:2110
 msgid "Reset"
 msgstr ""
 
