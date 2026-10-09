@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.103.2] - 2026-10-08
+
 ### Fixed
 
 - **A failed one-shot `buildDashboards()` disposes its esbuild contexts.** The rebuild runs in a `try`, and every context is disposed in its `finally`, so a failed build rejects and the process exits instead of hanging on esbuild's service.
