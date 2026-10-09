@@ -87,6 +87,41 @@ describe( 'build-kit pure exports', () => {
 		).rejects.toThrow( /NEWSPACK_NODES_SRC/ );
 	} );
 
+	test( 'a failed one-shot build still disposes every esbuild context', async () => {
+		const disposed = [];
+		const fakeEsbuild = {
+			context: async ( { entryPoints } ) => ( {
+				rebuild: async () => {
+					if ( entryPoints[ 0 ].endsWith( 'kea-broken.js' ) ) {
+						throw new Error( 'kea build failed 5521' );
+					}
+				},
+				dispose: async () => {
+					disposed.push( entryPoints[ 0 ] );
+				},
+			} ),
+		};
+		const outDir = `/tmp/newspack-build-kit-dispose-${ process.pid }`;
+
+		await expect(
+			kit.buildDashboards( {
+				esbuild: fakeEsbuild,
+				sass: {},
+				rtlcss: {},
+				root: '/tmp',
+				entries: [
+					{ entry: 'kea-broken.js', outDir },
+					{ entry: 'wren-fine.js', outDir },
+				],
+				alias: {},
+			} )
+		).rejects.toThrow( 'kea build failed 5521' );
+		expect( disposed.sort() ).toEqual( [
+			'/tmp/kea-broken.js',
+			'/tmp/wren-fine.js',
+		] );
+	} );
+
 	test( 'substrateVersion reads the substrate package.json version', () => {
 		// eslint-disable-next-line import/no-relative-packages
 		const pkg = require( '../../../package.json' );
