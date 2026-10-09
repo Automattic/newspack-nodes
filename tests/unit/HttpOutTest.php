@@ -1165,4 +1165,125 @@ class HttpOutTest extends TestCase {
 		$this->assertSame( 'good-after-bad-3309', $sink->captured[0][ Message::VALUE ] );
 		$this->assertCount( 0, \Newspack_Nodes\Event_Framework::instance()->handles_of( $node ), 'the handle detaches all the same' );
 	}
+
+	public function test_a_raised_reply_cap_reaches_the_transfer(): void {
+		$captured = [];
+		$this->capture_dispatch( $captured );
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p', 'enabled' => true ] );
+		$node = $this->make_node( 'austin' );
+		$cap  = HTTP_Out_Node::MAX_REPLY_BYTES + 77;
+		$node->set_reply_cap( $cap );
+
+		$node->fill( $this->command_message( 'raw-logs', 'read_block', 'firehose.p0 0:0' ) );
+		$node->fire();
+
+		$this->assertSame( $cap, $captured[0][ \CURLOPT_MAXFILESIZE ] );
+		$write = $captured[0][ \CURLOPT_WRITEFUNCTION ];
+		$this->assertSame( $cap, $write( null, \str_repeat( 'x', $cap ) ), 'the write callback honours the raised cap' );
+		$this->assertSame( 0, $write( null, 'x' ), 'one byte past the raised cap is refused' );
+	}
+
+	public function test_a_reply_cap_never_falls_below_the_default(): void {
+		$captured = [];
+		$this->capture_dispatch( $captured );
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p', 'enabled' => true ] );
+		$node = $this->make_node( 'austin' );
+		$node->set_reply_cap( 4194 );
+
+		$node->fill( $this->command_message( 'raw-logs', 'read_block', 'firehose.p0 0:0' ) );
+		$node->fire();
+
+		$this->assertSame( HTTP_Out_Node::MAX_REPLY_BYTES, $captured[0][ \CURLOPT_MAXFILESIZE ] );
+	}
+
+	public function test_a_fresh_node_has_no_last_outcome(): void {
+		$this->assertSame( [ 'code' => null, 'error' => null ], $this->make_node( 'austin' )->last_outcome() );
+	}
+
+	public function test_the_last_outcome_names_a_refused_post(): void {
+		[ $node, $easy ] = $this->node_with_one_inflight();
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 503, 'body' => '', 'redirect' => '' ];
+
+		$this->deliver_curl_rows( [ $this->done_info( $easy ) ] );
+
+		$this->assertSame( [ 'code' => 503, 'error' => 'HTTP 503' ], $node->last_outcome() );
+	}
+
+	public function test_the_last_outcome_names_a_transport_error(): void {
+		[ $node, $easy ] = $this->node_with_one_inflight();
+
+		$this->deliver_curl_rows( [ $this->done_info( $easy, \CURLE_COULDNT_CONNECT ) ] );
+
+		$this->assertSame(
+			[ 'code' => null, 'error' => 'cURL error ' . \CURLE_COULDNT_CONNECT . ' (' . \curl_strerror( \CURLE_COULDNT_CONNECT ) . ')' ],
+			$node->last_outcome()
+		);
+	}
+
+	public function test_an_accepted_post_is_no_error(): void {
+		[ $node, $easy ] = $this->node_with_one_inflight();
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 202, 'body' => '', 'redirect' => '' ];
+
+		$this->deliver_curl_rows( [ $this->done_info( $easy ) ] );
+
+		$this->assertSame( [ 'code' => 202, 'error' => null ], $node->last_outcome() );
+	}
+
+	public function test_an_answered_post_clears_the_last_error(): void {
+		$easies = [];
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $o ) use ( &$easies ): \CurlHandle {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			$easies[] = \curl_init();
+			return $easies[ \count( $easies ) - 1 ];
+		};
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p', 'enabled' => true ] );
+		$node = $this->make_node( 'austin' );
+		$node->fill( $this->command_message( 'settings', 'update', 'k=v' ) );
+		$node->fire();
+		$node->fill( $this->command_message( 'settings', 'update', 'k=w' ) );
+		$node->fire();
+
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 503, 'body' => '', 'redirect' => '' ];
+		$this->deliver_curl_rows( [ $this->done_info( $easies[0] ) ] );
+		$this->assertSame( 'HTTP 503', $node->last_outcome()['error'] );
+
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => '', 'redirect' => '' ];
+		$this->deliver_curl_rows( [ $this->done_info( $easies[1] ) ] );
+		$this->assertSame( [ 'code' => 200, 'error' => null ], $node->last_outcome() );
+	}
+
+	/** Drive a session-less node to its one in-flight /auth handle. */
+	private function node_with_auth_inflight(): array {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p', 'enabled' => true ] );
+		$easies = [];
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $o ) use ( &$easies ): \CurlHandle {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			$easies[] = \curl_init();
+			return $easies[ \count( $easies ) - 1 ];
+		};
+		$node = $this->make_node( 'austin' );
+		Command_Auth::forget_session( 'austin' );
+		$node->fire();
+		return [ $node, $easies[0] ];
+	}
+
+	public function test_the_last_outcome_includes_a_refused_auth(): void {
+		[ $node, $easy ] = $this->node_with_auth_inflight();
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 401, 'body' => '', 'redirect' => '' ];
+
+		$this->deliver_curl_rows( [ $this->done_info( $easy ) ] );
+
+		$this->assertSame( [ 'code' => 401, 'error' => 'HTTP 401' ], $node->last_outcome() );
+	}
+
+	public function test_the_last_outcome_includes_an_auth_transport_error(): void {
+		[ $node, $easy ] = $this->node_with_auth_inflight();
+
+		$this->deliver_curl_rows( [ $this->done_info( $easy, \CURLE_COULDNT_CONNECT ) ] );
+
+		$this->assertSame(
+			[ 'code' => null, 'error' => 'cURL error ' . \CURLE_COULDNT_CONNECT . ' (' . \curl_strerror( \CURLE_COULDNT_CONNECT ) . ')' ],
+			$node->last_outcome()
+		);
+	}
 }

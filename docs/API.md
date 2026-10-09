@@ -1157,7 +1157,7 @@ handshakes only inside `fire()`, and only `fill()` arms that tick.
 | Constant | Value | Bounds |
 |---|---|---|
 | `REQUEST_TIMEOUT` | 15 seconds | One non-blocking POST, as `CURLOPT_TIMEOUT`. |
-| `MAX_REPLY_BYTES` | 8388608 (8 MiB) | One spoke's reply body, capped because the write callback buffers it into the PHP heap. |
+| `MAX_REPLY_BYTES` | 8388608 (8 MiB) | One spoke's reply body by default, capped because the write callback buffers it into the PHP heap. A broker raises its `HTTP_Out`'s cap with `set_reply_cap()`, never below this. |
 
 The blocking path, `probe_command()` behind `vault test` and `aggregator
 probe`, is in the diagram: it returns the reply envelope's `payload` array and
