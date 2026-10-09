@@ -331,6 +331,9 @@ trait Durable_Reader {
 	/** Probe baseline: $bytes_read as of the previous probe sweep. */
 	private int $probe_bytes = 0;
 
+	/** On-disk bytes disposed of since `take_consumed_bytes()` last drained. */
+	protected int $consumed_bytes = 0;
+
 	/**
 	 * Probe baseline: Core::$now as of the previous probe sweep. The reader's
 	 * constructor opens the first window, so the first record covers time since
@@ -378,6 +381,20 @@ trait Durable_Reader {
 		$skipped                 = $this->unparseable_lines;
 		$this->unparseable_lines = 0;
 		return $skipped;
+	}
+
+	/**
+	 * How many on-disk bytes this reader disposed of since the last call,
+	 * resetting the count: every record and skipped line it consumed, and the
+	 * torn tail or oversized partial it discarded. A draining read, so a
+	 * caller bounding its walk by bytes charges each step once.
+	 *
+	 * @return int Bytes consumed since the previous take.
+	 */
+	public function take_consumed_bytes(): int {
+		$consumed             = $this->consumed_bytes;
+		$this->consumed_bytes = 0;
+		return $consumed;
 	}
 
 	/**
@@ -692,7 +709,8 @@ trait Durable_Reader {
 	 * record: one duplicate per resume, adjacent, carrying the same crumb.
 	 */
 	protected function advance_consume_cursor(): void {
-		$this->cursor_offset += $this->crumb['length'];
+		$this->cursor_offset  += $this->crumb['length'];
+		$this->consumed_bytes += $this->crumb['length'];
 	}
 
 	/**
@@ -820,7 +838,8 @@ trait Durable_Reader {
 			' - discarding'
 		);
 		$this->set_state( 'OVERFLOW', \implode( ' ', [ 'SEGMENT', $this->cursor_segment, 'OFFSET', $this->cursor_offset, 'LIMIT', self::MAX_LINE_BUFFER_SIZE ] ) );
-		$this->cursor_offset += \strlen( $this->buffer ); // Don't re-read it.
+		$this->cursor_offset  += \strlen( $this->buffer ); // Don't re-read it.
+		$this->consumed_bytes += \strlen( $this->buffer );
 		$this->buffer      = '';
 	}
 

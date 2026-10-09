@@ -67,6 +67,14 @@ class LogTest extends TestCase {
 		$this->assertSame( 2,    $ref->getProperty( 'num_segments' )->getValue( $log ) );
 	}
 
+	public function test_head_timestamp_is_null_because_a_log_holds_values_not_envelopes(): void {
+		$log = new Log_Node();
+		$log->arguments( [ "{$this->tmp}/out.log" ] );
+		\file_put_contents( "{$this->tmp}/out.log.0", "[1,1700004417.5,\"x\"]\n" );
+
+		$this->assertNull( $log->head_timestamp( 0 ) );
+	}
+
 	public function test_fill_writes_raw_value_not_packed_envelope(): void {
 		// Log serializes the VALUE verbatim — no Message::packed framing, no added newline.
 		$log = new Log_Node();

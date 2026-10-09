@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`raw-logs read_block <log> <position> [--multi_writer]` returns the records from a position up to a 1 MiB block, the first whole.**
+
+### Changed
+
+- **A multi-writer reader holds a segment boundary until `SEAL_GRACE_SECONDS` have passed since the later of the segment's last write and the next segment's first record.** Both are read from disk, the mtime and the first record's TIMESTAMP, so a fresh reader judges the boundary as a long-lived one does, and it holds while the next segment is still empty.
+
 ## [2.103.3] - 2026-10-09
 
 ### Fixed

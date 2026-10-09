@@ -548,7 +548,7 @@ role rather than the loosest.
 | `classes` | [`Classes_CI_Node`](../includes/rest/class-classes-ci-node.php) | `dump` (read) |
 | `layouts` | [`Layouts_CI_Node`](../includes/rest/class-layouts-ci-node.php) | `get` (read), `save` (tune) |
 | `topologies` | [`Topologies_CI_Node`](../includes/rest/class-topologies-ci-node.php) | `dump` (read), `get` (read), `expand` (read), `save`, `delete`, `activate`, `deactivate`, `connect_worker_input`, `mount_tables` (manage) |
-| `raw-logs` | [`Raw_Logs_CI_Node`](../includes/rest/class-raw-logs-ci-node.php) | `list_logs`, `dump_log`, `read_message` (read) |
+| `raw-logs` | [`Raw_Logs_CI_Node`](../includes/rest/class-raw-logs-ci-node.php) | `list_logs`, `dump_log`, `read_message`, `read_block` (read) |
 | `vault` | [`Vault_CI_Node`](../includes/rest/class-vault-ci-node.php) | `list`, `get`, `add`, `update`, `delete`, `test` (manage) |
 | `aggregator` | [`Aggregator_CI_Node`](../includes/rest/class-aggregator-ci-node.php) | `summary` (read), `list_servers` (read), `probe` (manage — on-demand per-spoke deep roll-up) |
 | `settings` | [`Settings_CI_Node`](../includes/rest/class-settings-ci-node.php) | `get` (read), `set` (tune) |
@@ -920,7 +920,16 @@ else. A segment-less position reads at that offset in the file the path holds
 now, and a partition dir refuses it as a malformed position. It reads a partition
 dir or a `sources/<name>` registry source, and an unknown or empty `log` is
 refused with an error. See
-[Log Sources](#log-sources) for the read model and the struct it answers. The
+[Log Sources](#log-sources) for the read model and the struct it answers.
+`raw-logs read_block` binds `<log> <position> [--multi_writer=<bool>]`: the log
+and position as `read_message` takes them, and a `bool` defaulting to false that
+holds a segment boundary until `Consumer_Node::SEAL_GRACE_SECONDS` have passed
+since the later of the older segment's mtime plus one second and the newer
+segment's first record TIMESTAMP, and while the newer segment is empty; a
+segmented `Log` holds bare values with no stamp, so it seals on the mtime alone.
+It answers `{ source, messages, cursor: { segment, offset }, at_eof,
+unparseable_lines }`: the records from the position until the on-disk bytes walked,
+skipped lines included, reach 1 MiB, the first record whole whatever its size. The
 ownership-fenced `workers heartbeat` binds exactly `[ slot, owner ]`, both declared
 `int` and read through `Core::canonical_decimal()`, from the current SSE `connected`
 handshake, and the server — never the client — owns the lease TTL. `topologies save`
@@ -947,9 +956,9 @@ the palette and the Inspector consume the same schema. Auth gating is uniform:
 the endpoint requires the READ floor AND a valid command signature, and each
 verb's declared role decides the rest. A refusal THROWS —
 `Command_Interpreter_Node::interpret()` wraps it as `TM_COMMAND|TM_ERROR`.
-`raw-logs read_message` refuses a malformed position that way too, and answers
-a position holding no record as a result whose `message` is null (see
-[Log Sources](#log-sources)).
+`raw-logs read_message` and `read_block` refuse a malformed position that way too,
+and `read_message` answers a position holding no record as a result whose
+`message` is null (see [Log Sources](#log-sources)).
 
 A Table's `stats` verb (`read`, no arguments) answers one map per counted
 operation, `GET` to `CHECKPOINT`, each `{ calls, asked, answered, bytes,
@@ -1093,18 +1102,20 @@ a source is a partition: same packed `msg` events, `retry` and `connected`
 envelopes, heartbeat cadence, flush framing, idle close and slot pool, with each
 frame's FROM opening with `sources/<name>`.
 
-![The Log_Sources registry: the three families merged in priority order with the tail mode each carries, the picker row Log_Sources::catalog() builds and the footprint dump_log answers, the two classes Log_Sources::open_tail() maps the mode token to, the one read model behind raw-logs read_message with the struct it answers, the malformed position it refuses and the empty read it answers with a null message.](img/api-log-stream-sources.png)
+![The Log_Sources registry: the three families merged in priority order with the tail mode each carries, the picker row Log_Sources::catalog() builds and the footprint dump_log answers, the two classes Log_Sources::open_tail() maps the mode token to, the one read model behind raw-logs read_message and read_block with the struct read_message answers, the malformed position it refuses and the empty read it answers with a null message.](img/api-log-stream-sources.png)
 
 The same registry backs `raw-logs`. `list_logs` lists every source as a
 `sources/<name>` row after the partition dirs, each row carrying `available`;
 `dump_log sources/<name>` sizes one, as `{ log_id, segments, segment_count,
-total_size }`; and `read_message sources/<name> <position>` single-steps it. A
+total_size }`; `read_message sources/<name> <position>` single-steps it; and
+`read_block sources/<name> <position>` answers `{ source, messages, cursor,
+at_eof, unparseable_lines }` for one 1 MiB block. A
 source whose segments will not list takes an unavailable row carrying `error`
 beside every readable source, so one failure never blanks the picker. An active
 topology that will not read takes one too, labelled for the topology and keyed
 by no stamp, because it names no log to stream. Every reader of a stamp
 resolves it one way ([ADR-29](architecture-decisions.md#adr-29-a-log-stamp-has-one-writer-one-reader-and-one-resolver-per-kind)),
-so `read_message` and `dump_log` refuse what the stream refuses, with its
+so `read_message`, `read_block` and `dump_log` refuse what the stream refuses, with its
 message.
 
 **Permission**: inherited from `/messages/stream` — the fleet gate, then the

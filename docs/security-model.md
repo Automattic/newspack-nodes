@@ -136,7 +136,7 @@ The logger's MCP server and profiler mu-plugin are two more doors, described in 
 
 Three need a paragraph each.
 
-**`read` reaches every registered log source.** `raw-logs read_message` and a `sources/<name>` stream need only `read`, so any `read` holder can read the PHP error log. `READ_VERBS` holds the fourteen read-only builtins that `capability_for()` exempts from the `manage` floor on the command endpoint; none reads a log. That is by design: the capability's docblock says `read` reaches the raw firehose.
+**`read` reaches every registered log source.** `raw-logs read_message`, `raw-logs read_block` and a `sources/<name>` stream need only `read`, so any `read` holder can read the PHP error log. `READ_VERBS` holds the fourteen read-only builtins that `capability_for()` exempts from the `manage` floor on the command endpoint; none reads a log. That is by design: the capability's docblock says `read` reaches the raw firehose.
 
 **`log_sources` accepts any absolute path.** An administrator adds `name=/path`; `parse_entry()` refuses only a relative path, `..` and NUL. With the paragraph above, adding `wp-config.php` hands every `read` account the salts the command-signing secret and the Vault key derive from. Only `manage_options` can add a source, so this is a mistake rather than an escalation.
 

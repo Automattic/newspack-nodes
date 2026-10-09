@@ -285,6 +285,16 @@ class Partition_Node extends Timer_Node {
 	/** @var array<int,array{id:int,size:int}>|null Cached on-disk segment list (id + byte size), sorted by id. */
 	protected ?array $segments_cache = null;
 
+	/**
+	 * Segment id => file mtime, from the last `scan_segments()`.
+	 *
+	 * @var array<int,int>
+	 */
+	private array $segment_mtimes = [];
+
+	/** Bytes of a segment's head `head_timestamp()` reads: the packed message's `[TYPE,TIMESTAMP,` and then some. */
+	private const HEAD_PROBE_BYTES = 64;
+
 	/** Clock the segment cache was filled at; SEGMENT_CACHE_TTL ages it from here. */
 	protected float $segments_cache_time = 0.0;
 
@@ -1304,6 +1314,19 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
+	 * The TIMESTAMP of the first record in a segment, read from its first
+	 * bytes without decoding the line. Null for a segment with no packed
+	 * record at its head: absent, empty, or torn. A Log, whose segments hold
+	 * bare VALUEs, overrides it to null.
+	 *
+	 * @param int $segment Segment id.
+	 * @return float|null The head record's stamp, or null.
+	 */
+	public function head_timestamp( int $segment ): ?float {
+		return Message::packed_head_timestamp( $this->read_at( $segment, 0, self::HEAD_PROBE_BYTES ) );
+	}
+
+	/**
 	 * Read bytes from a segment at a given offset (bounds-checked).
 	 *
 	 * @param int $segment Segment to read from.
@@ -1912,6 +1935,7 @@ class Partition_Node extends Timer_Node {
 	 */
 	private function scan_segments( float $now ): array {
 		$segments = [];
+		$mtimes   = [];
 		$disk     = 0;
 		$dir      = $this->segment_dir();
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_scandir
@@ -1926,12 +1950,14 @@ class Partition_Node extends Timer_Node {
 			if ( null === $footprint ) {
 				continue;
 			}
-			$segments[] = [ 'id' => (int) $m[1], 'size' => $footprint['bytes'] ];
-			$disk      += $footprint['disk'];
+			$segments[]            = [ 'id' => (int) $m[1], 'size' => $footprint['bytes'] ];
+			$mtimes[ (int) $m[1] ] = $footprint['mtime'];
+			$disk                 += $footprint['disk'];
 		}
 		\usort( $segments, fn ( $a, $b ) => $a['id'] <=> $b['id'] );
 		$this->segments_cache      = $segments;
 		$this->segments_cache_time = $now;
+		$this->segment_mtimes      = $mtimes;
 		return [ 'segments' => $segments, 'disk' => $disk ];
 	}
 
@@ -2183,6 +2209,17 @@ class Partition_Node extends Timer_Node {
 				fn () => $this->retract_sibling( 'lock' )
 			)
 		);
+	}
+
+	/**
+	 * When a segment's file was last written, unix seconds, as of the last
+	 * scan `get_segments()` made; null for a segment that scan did not list.
+	 *
+	 * @param int $segment Segment id.
+	 * @return int|null The mtime, or null.
+	 */
+	public function segment_mtime( int $segment ): ?int {
+		return $this->segment_mtimes[ $segment ] ?? null;
 	}
 
 	/**

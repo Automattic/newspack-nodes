@@ -205,7 +205,8 @@ class File_Tail_Node extends Tail_Node {
 			return;
 		}
 		// New generation: drop any partial last line, then reset the cursor.
-		$this->buffer = '';
+		$this->consumed_bytes += \strlen( $this->buffer );
+		$this->buffer          = '';
 		if ( $this->open_generation( $path ) ) {
 			$this->cursor_offset     = 0;
 			$this->at_eof            = false;
@@ -453,6 +454,7 @@ class File_Tail_Node extends Tail_Node {
 			return;
 		}
 		$this->cursor_offset    += $nl + 1;
+		$this->consumed_bytes   += $nl + 1;
 		$this->buffer            = \substr( $this->buffer, $nl + 1 );
 		$this->pending_line_sync = false;
 	}

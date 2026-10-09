@@ -4195,6 +4195,26 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( 0, Consumer_Node::take_unparseable_lines_of( $scans ), 'the take drains every count' );
 	}
 
+	public function test_take_consumed_bytes_counts_every_disposed_byte_and_drains(): void {
+		$dir = "{$this->tmp}/data.p0";
+		\mkdir( $dir, 0755, true );
+		$first                   = Message::new_message();
+		$first[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$first[ Message::VALUE ] = 'kept-4417';
+		$line1                   = Message::packed( $first ) . "\n";
+		$line2                   = Message::packed( $first ) . "\n";
+		// Segment 0: a record, a torn line, then a tail with no newline that a roll clears.
+		\file_put_contents( "{$dir}/0.log", $line1 . "torn-8812\n" . 'partial-3306' );
+		\file_put_contents( "{$dir}/1.log", $line2 );
+		$scan = Consumer_Node::scan( $dir );
+		$scan->sink( new Capture_Sink_Node() );
+		$scan->drain();
+
+		$expected = \strlen( $line1 ) + \strlen( "torn-8812\n" ) + \strlen( 'partial-3306' ) + \strlen( $line2 );
+		$this->assertSame( $expected, $scan->take_consumed_bytes() );
+		$this->assertSame( 0, $scan->take_consumed_bytes(), 'a draining read' );
+	}
+
 	public function test_a_cursorless_reader_raises_an_unparseable_line_unless_it_skips(): void {
 		$this->seed_corrupt_then_good_line();
 

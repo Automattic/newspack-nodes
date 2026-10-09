@@ -232,6 +232,18 @@ class Message {
 	}
 
 	/**
+	 * The TIMESTAMP of a packed message, read from the head of its wire form
+	 * without decoding the rest, which may be megabytes: `packed()` opens
+	 * `[TYPE,TIMESTAMP,`. Null for a prefix that does not open that way.
+	 *
+	 * @param string $head The first bytes of a packed message, 64 are enough.
+	 * @return float|null The timestamp, or null when the prefix carries none.
+	 */
+	public static function packed_head_timestamp( string $head ): ?float {
+		return 1 === \preg_match( '/^\[\d+,(\d+(?:\.\d+)?)[,\]]/', $head, $m ) ? (float) $m[1] : null;
+	}
+
+	/**
 	 * Names of every flag set in $type, in TYPE_NAMES order. Empty when no
 	 * known flag matches — the caller names that case (the drop audit says
 	 * TYPE_UNKNOWN, the Dumper prints `TM_UNKNOWN(0x…)`).

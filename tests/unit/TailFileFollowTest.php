@@ -373,6 +373,38 @@ class TailFileFollowTest extends TestCase {
 		);
 	}
 
+	public function test_file_mode_counts_the_fragment_a_mid_line_resume_drops(): void {
+		$path = "{$this->tmp}/debug.log";
+		\file_put_contents( $path, "aaa\nbbb-partial" );
+
+		$t   = $this->follow( $path );
+		$t->next_offset( 'end' );
+		$cap = new Capture_Sink_Node();
+		$t->sink( $cap );
+		\file_put_contents( $path, "-rest\nnext-4417\n", \FILE_APPEND );
+		$this->pump( $t );
+
+		$this->assertSame( [ "next-4417\n" ], $this->values( $cap ), 'the fragment is dropped, not shipped' );
+		$this->assertSame( \strlen( "-rest\n" ) + \strlen( "next-4417\n" ), $t->take_consumed_bytes() );
+	}
+
+	public function test_file_mode_counts_the_partial_line_a_rotation_clears(): void {
+		$path = "{$this->tmp}/debug.log";
+		\file_put_contents( $path, "old-1\npart-3306" );
+
+		$t   = $this->follow( $path );
+		$t->next_offset( 'start' );
+		$cap = new Capture_Sink_Node();
+		$t->sink( $cap );
+		$this->pump( $t );
+		\rename( $path, "{$path}.1" );
+		\file_put_contents( $path, "new-9047\n" );
+		$this->pump( $t );
+
+		$this->assertSame( [ "old-1\n", "new-9047\n" ], $this->values( $cap ) );
+		$this->assertSame( \strlen( "old-1\n" ) + \strlen( 'part-3306' ) + \strlen( "new-9047\n" ), $t->take_consumed_bytes() );
+	}
+
 	public function test_file_mode_truncation_resets_to_zero(): void {
 		$path = "{$this->tmp}/debug.log";
 		\file_put_contents( $path, "aaaa\nbbbb\n" );

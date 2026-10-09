@@ -13,6 +13,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Log_Discovery;
 use Newspack_Nodes\Log_Sources;
 use Newspack_Nodes\Topology_Registry;
@@ -54,14 +55,6 @@ class RawLogsCITest extends TestCase {
 	// -------------------------------------------------------------------------
 	// schema + list_logs verb — disk-discovered catalog.
 	// -------------------------------------------------------------------------
-
-	public function test_node_schema_declares_its_verbs(): void {
-		$schema = Raw_Logs_CI_Node::node_schema();
-		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['commands'] );
-		\sort( $names );
-		$this->assertSame( [ 'dump_log', 'list_logs', 'read_message' ], $names );
-		$this->assertNotEmpty( $schema['description'] );
-	}
 
 	public function test_list_logs_verb_returns_sorted_disk_catalog(): void {
 		// Three concrete partition dirs on disk; the verb returns a sorted
@@ -315,6 +308,180 @@ class RawLogsCITest extends TestCase {
 		$line2 = Message::packed( $second ) . "\n";
 		\file_put_contents( "{$dir}/0.log", $line1 . $line2 );
 		return [ $line1, $line2 ];
+	}
+
+	/**
+	 * Seed `$sizes` records into logs/firehose.p0 segment 0, record `i`
+	 * carrying a value of `$sizes[i]` bytes that names its index.
+	 *
+	 * @param list<int> $sizes Value byte counts.
+	 * @return list<string> The packed lines, newline included.
+	 */
+	private function seed_sized_records( array $sizes ): array {
+		$dir = $this->tmp . '/logs/firehose.p0';
+		\mkdir( $dir, 0755, true );
+		$lines = [];
+		foreach ( $sizes as $i => $size ) {
+			$m                   = Message::new_message();
+			$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+			$m[ Message::VALUE ] = \str_pad( "rec-{$i}-", $size, 'x' );
+			$lines[]             = Message::packed( $m ) . "\n";
+		}
+		\file_put_contents( "{$dir}/0.log", \implode( '', $lines ) );
+		return $lines;
+	}
+
+	public function test_node_schema_declares_exactly_the_four_verbs(): void {
+		$names = \array_column( Raw_Logs_CI_Node::node_schema()['commands'], 'name' );
+		\sort( $names );
+		$this->assertSame( [ 'dump_log', 'list_logs', 'read_block', 'read_message' ], $names );
+		$this->assertNotEmpty( Raw_Logs_CI_Node::node_schema()['description'] );
+	}
+
+	public function test_read_block_stops_before_the_record_that_would_pass_a_mebibyte(): void {
+		$lines = $this->seed_sized_records( [ 307211, 307213, 307217, 307219 ] );
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_block', [ 'firehose.p0', 'start' ] );
+
+		$this->assertSame( [ 'rec-0-', 'rec-1-', 'rec-2-' ], \array_map( static fn ( array $m ): string => \substr( $m[ Message::VALUE ], 0, 6 ), $result['messages'] ) );
+		$this->assertSame( [ 'segment' => 0, 'offset' => \strlen( $lines[0] . $lines[1] . $lines[2] ) ], $result['cursor'], 'the cursor stands before the record left out' );
+		$this->assertFalse( $result['at_eof'] );
+	}
+
+	public function test_read_block_returns_a_record_larger_than_the_block_alone(): void {
+		$lines = $this->seed_sized_records( [ 2097169, 4194 ] );
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_block', [ 'firehose.p0', '0:0' ] );
+
+		$this->assertCount( 1, $result['messages'] );
+		$this->assertSame( 2097169, \strlen( $result['messages'][0][ Message::VALUE ] ) );
+		$this->assertSame( [ 'segment' => 0, 'offset' => \strlen( $lines[0] ) ], $result['cursor'] );
+	}
+
+	public function test_read_block_reads_to_the_end_and_says_so(): void {
+		[ $line1, $line2 ] = $this->seed_two_records();
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_block', [ 'firehose.p0', 'start' ] );
+
+		$this->assertSame( [ 'first record 4194', [ 'k' => 'second 977' ] ], \array_column( $result['messages'], Message::VALUE ) );
+		$this->assertSame( 'firehose.p0', $result['messages'][0][ Message::FROM ], 'stamped like a streamed row' );
+		$this->assertSame( [ 'segment' => 0, 'offset' => \strlen( $line1 . $line2 ) ], $result['cursor'] );
+		$this->assertTrue( $result['at_eof'] );
+		$this->assertSame( 0, $result['unparseable_lines'] );
+	}
+
+	public function test_read_block_counts_the_lines_it_skipped(): void {
+		[ $line1, $line2 ] = $this->seed_two_records();
+		\file_put_contents( $this->tmp . '/logs/firehose.p0/0.log', $line1 . "torn-6113\n" . $line2 );
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_block', [ 'firehose.p0', 'start' ] );
+
+		$this->assertCount( 2, $result['messages'] );
+		$this->assertSame( 1, $result['unparseable_lines'] );
+		$this->assertSame( [ 'segment' => 0, 'offset' => \strlen( $line1 . "torn-6113\n" . $line2 ) ], $result['cursor'] );
+	}
+
+	public function test_read_block_charges_skipped_lines_to_the_budget(): void {
+		$dir   = $this->tmp . '/logs/firehose.p0';
+		\mkdir( $dir, 0755, true );
+		$first = Message::new_message();
+		$first[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$first[ Message::VALUE ] = 'lead-8821';
+		$line1 = Message::packed( $first ) . "\n";
+		$torn  = \str_repeat( 'x', 399999 ) . "\n";
+		$tail  = $first;
+		$tail[ Message::VALUE ] = 'after-4417';
+		\file_put_contents( "{$dir}/0.log", $line1 . $torn . $torn . $torn . $torn . Message::packed( $tail ) . "\n" );
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_block', [ 'firehose.p0', 'start' ] );
+
+		$this->assertSame( [ 'lead-8821' ], \array_column( $result['messages'], Message::VALUE ) );
+		$this->assertSame( 3, $result['unparseable_lines'], 'stopped once the walk passed a mebibyte' );
+		$this->assertSame( [ 'segment' => 0, 'offset' => \strlen( $line1 ) + 3 * \strlen( $torn ) ], $result['cursor'] );
+		$this->assertFalse( $result['at_eof'] );
+	}
+
+	public function test_read_block_charges_a_leading_skipped_run_to_the_budget(): void {
+		$dir   = $this->tmp . '/logs/firehose.p0';
+		\mkdir( $dir, 0755, true );
+		$torn  = \str_repeat( 'x', 399999 ) . "\n";
+		$tail  = Message::new_message();
+		$tail[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$tail[ Message::VALUE ] = 'after-3306';
+		\file_put_contents( "{$dir}/0.log", $torn . $torn . $torn . $torn . Message::packed( $tail ) . "\n" );
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_block', [ 'firehose.p0', 'start' ] );
+
+		$this->assertSame( [], $result['messages'], 'a corrupt head fills the block with no record' );
+		$this->assertSame( 3, $result['unparseable_lines'] );
+		$this->assertSame( [ 'segment' => 0, 'offset' => 3 * \strlen( $torn ) ], $result['cursor'] );
+		$this->assertFalse( $result['at_eof'] );
+	}
+
+	/** Seed segment 1 with one record whose TIMESTAMP is `$stamp`, segment 0 aged to `$mtime`. */
+	private function seed_next_segment( float $stamp, int $mtime ): void {
+		$this->seed_two_records();
+		$next                   = Message::new_message();
+		$next[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$next[ Message::TIMESTAMP ] = $stamp;
+		$next[ Message::VALUE ] = 'next segment';
+		\file_put_contents( $this->tmp . '/logs/firehose.p0/1.log', Message::packed( $next ) . "\n" );
+		\touch( $this->tmp . '/logs/firehose.p0/0.log', $mtime );
+	}
+
+	public function test_read_block_crosses_a_multi_writer_segment_whose_successor_is_old_enough(): void {
+		Core::$now = 1700000103.3;
+		$this->seed_next_segment( 1700000099.9, 1700000000 );
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_block', [ 'firehose.p0', 'start', '--multi_writer=true' ] );
+
+		$this->assertCount( 3, $result['messages'], 'a fresh reader crosses a segment whose successor is past the grace' );
+	}
+
+	public function test_read_block_holds_a_multi_writer_segment_whose_successor_is_young(): void {
+		Core::$now = 1700000103.3;
+		$this->seed_next_segment( 1700000102.9, 1700000000 );
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_block', [ 'firehose.p0', 'start', '--multi_writer=true' ] );
+
+		$this->assertCount( 2, $result['messages'] );
+		$this->assertTrue( $result['at_eof'] );
+	}
+
+	public function test_read_block_holds_a_multi_writer_boundary(): void {
+		[ $line1 ] = $this->seed_two_records();
+		\file_put_contents( $this->tmp . '/logs/firehose.p0/1.log', $line1 );
+
+		$held = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_block', [ 'firehose.p0', 'start', '--multi_writer=true' ] );
+
+		$this->assertCount( 2, $held['messages'], 'a fresh segment 0 is not sealed yet' );
+		$this->assertTrue( $held['at_eof'] );
+		$this->assertSame( 0, $held['cursor']['segment'] );
+	}
+
+	public function test_read_block_seals_a_segment_for_a_single_writer(): void {
+		[ $line1 ] = $this->seed_two_records();
+		\file_put_contents( $this->tmp . '/logs/firehose.p0/1.log', $line1 );
+
+		$plain = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_block', [ 'firehose.p0', 'start' ] );
+
+		$this->assertCount( 3, $plain['messages'], 'a single writer seals 0 when 1 appears' );
+	}
+
+	public function test_read_block_rejects_a_malformed_position(): void {
+		$this->seed_two_records();
+
+		$bad = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_block', [ 'firehose.p0', 'abc' ] );
+
+		$this->assertSame( "read_block: invalid position (want <segment>:<offset>[:<length>], :<offset> on a file source, start, recent or end)\n", $bad );
+	}
+
+	public function test_read_block_refuses_an_unknown_log(): void {
+		$this->seed_two_records();
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_block', [ 'kea-7713.p9', '0:0' ] );
+
+		$this->assertSame( "unknown log: \"kea-7713.p9\"\n", $result );
 	}
 
 	public function test_read_message_refuses_an_unknown_log_instead_of_reading_another(): void {
