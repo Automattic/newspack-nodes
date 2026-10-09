@@ -50,14 +50,14 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 	public const READ_BLOCK_BYTES = 65536;
 
 	/**
-	 * Multi-writer seal-grace: seconds a segment's size must hold steady before,
-	 * with a newer segment present, the reader advances off it. A peer writer on a
-	 * shared log (the firehose) can keep appending to segment N for up to
-	 * Partition_Node::DRIFT_RESCAN_INTERVAL_SECONDS after N+1 appears; this must
-	 * exceed that so a straggler's final line (often a request's terminal
-	 * `process (complete)`) is never orphaned by a premature advance. Only applies
-	 * in $multi_writer mode — a single-writer log seals N the instant it creates
-	 * N+1, so its reader advances immediately (no added latency).
+	 * Multi-writer seal-grace, in seconds. A peer writer on a shared log (the
+	 * firehose) can keep appending to segment N for up to
+	 * Partition_Node::DRIFT_RESCAN_INTERVAL_SECONDS after N+1 appears; this
+	 * must exceed that so a straggler's final line (often a request's terminal
+	 * `process (complete)`) is never orphaned by a premature advance. Only
+	 * applies in $multi_writer mode: a single-writer log seals N the instant
+	 * it creates N+1, so its reader advances immediately. `segment_sealed()`
+	 * states the rule.
 	 */
 	public const SEAL_GRACE_SECONDS = 2.0;
 
@@ -84,15 +84,6 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 	 * advance immediately.
 	 */
 	protected bool $multi_writer = false;
-
-	/** Seal-grace bookkeeping: the segment whose size is being watched; -1 before the first check. */
-	protected int $seal_segment = -1;
-
-	/** Seal-grace bookkeeping: Core::$now when ($seal_segment, $seal_size) last changed. */
-	protected float $seal_since = 0.0;
-
-	/** Seal-grace bookkeeping: the size $seal_segment held at $seal_since; -1 before the first check. */
-	protected int $seal_size = -1;
 
 	/** Source Partition, built by arguments() and published as the `source` sibling. Read it through source(). */
 	protected ?Partition_Node $source = null;
@@ -698,10 +689,11 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 				// Multi-writer grace: hold the boundary for SEAL_GRACE_SECONDS.
 				if ( $this->multi_writer
 					&& $this->cursor_segment >= $newest_id - 1
-					&& ! $this->segment_sealed( $this->cursor_segment, $seg_size ) ) {
+					&& ! $this->segment_sealed( $this->cursor_segment, $next, $sizes[ $next ] ) ) {
 					$this->at_eof = true;
 					return;
 				}
+				$this->consumed_bytes += \strlen( $this->buffer );
 				$this->cursor_segment = $next;
 				$this->cursor_offset = 0;
 				$this->buffer     = '';
@@ -744,19 +736,44 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 	}
 
 	/**
-	 * Multi-writer seal test: true once segment $segment has held $size steady for
-	 * >= SEAL_GRACE_SECONDS. Any change in ($segment, $size) restarts the clock and
-	 * returns false, so a straggler append (which grows $size) always defers the
-	 * advance by another full grace window. Uses Core::$now so tests drive it.
+	 * Multi-writer seal test: true once SEAL_GRACE_SECONDS have passed since
+	 * the later of two times. One is the end of segment $segment's last
+	 * written second (its whole-second mtime plus one, from the scan this poll
+	 * made), which a straggler append moves. The other is the TIMESTAMP of
+	 * $next's first record, which marks when the newer segment appeared, so a
+	 * peer flushing an old batch into $segment just after that is still
+	 * consumed in order. A $next with no record yet is not sealed, because a
+	 * rotation creates it empty. A stamp within SEAL_GRACE_SECONDS ahead of
+	 * the cached tick counts as the tick, since a peer's clock runs ahead of
+	 * it; one further ahead, or none, leaves the mtime alone, so a forged stamp
+	 * cannot pin the reader. A Log's segments hold bare VALUEs and carry no
+	 * stamp, so a multi-writer Log seals on the mtime alone. A segment the scan
+	 * no longer lists, which retention removed, is sealed. Stateless, so a
+	 * fresh reader judges as a long-lived one does. Uses Core::$now so tests
+	 * drive it.
+	 *
+	 * @param int $segment   The segment the reader is leaving.
+	 * @param int $next      The next live segment.
+	 * @param int $next_size Bytes in $next.
 	 */
-	private function segment_sealed( int $segment, int $size ): bool {
-		if ( $segment !== $this->seal_segment || $size !== $this->seal_size ) {
-			$this->seal_segment   = $segment;
-			$this->seal_size  = $size;
-			$this->seal_since = Core::$now;
+	private function segment_sealed( int $segment, int $next, int $next_size ): bool {
+		$mtime = $this->source()->segment_mtime( $segment );
+		if ( null === $mtime ) {
+			return true;
+		}
+		if ( 0 === $next_size ) {
 			return false;
 		}
-		return ( Core::$now - $this->seal_since ) >= self::SEAL_GRACE_SECONDS;
+		$reference = (float) ( $mtime + 1 );
+		// A stamp only moves the reference later; the mtime may hold alone.
+		if ( ( Core::$now - $reference ) < self::SEAL_GRACE_SECONDS ) {
+			return false;
+		}
+		$appeared = $this->source()->head_timestamp( $next );
+		if ( null !== $appeared && $appeared <= Core::$now + self::SEAL_GRACE_SECONDS ) {
+			$reference = \max( $reference, \min( $appeared, Core::$now ) );
+		}
+		return ( Core::$now - $reference ) >= self::SEAL_GRACE_SECONDS;
 	}
 
 	/**

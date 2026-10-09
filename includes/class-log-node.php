@@ -79,6 +79,16 @@ class Log_Node extends Partition_Node {
 	}
 
 	/**
+	 * A Log's segments hold bare VALUEs, so no record's head carries a stamp.
+	 *
+	 * @param int $segment Segment id.
+	 * @return null Always.
+	 */
+	public function head_timestamp( int $segment ): ?float {
+		return null;
+	}
+
+	/**
 	 * Path seam: segments are siblings of the file, so they live in its parent
 	 * directory. `arguments()` validates that directory against the base rather
 	 * than `partition_dir`, which a Log never fills.

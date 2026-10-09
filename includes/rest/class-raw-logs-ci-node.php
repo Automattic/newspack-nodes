@@ -5,8 +5,9 @@
  * The dashboard asks three questions and gets one verb each: which partition
  * directories and registry sources exist (`list_logs`), how much one of them
  * holds (`dump_log`), and what the record at a given position decodes to
- * (`read_message`). Every verb reads substrate state; none writes. Live
- * tailing belongs to `SSE_Out_Node`, not to this interpreter.
+ * (`read_message`). A fourth, `read_block`, returns the records from a
+ * position up to one block. Every verb reads substrate state; none writes.
+ * Live tailing belongs to `SSE_Out_Node`, not to this interpreter.
  *
  * A `log` no dir or registry entry carries is refused, never defaulted: a
  * paused step handed another log's record would read the wrong stream.
@@ -26,7 +27,7 @@ use Newspack_Nodes\Service_CI_Node;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * The `raw-logs` service interpreter: three READ verbs over on-disk partitions.
+ * The `raw-logs` service interpreter: four READ verbs over on-disk partitions.
  *
  * Each verb declares `Capabilities::READ` in `node_schema()`, and
  * `dispatch()` refuses a caller below it (ADR-26). Nothing here writes, so
@@ -110,6 +111,18 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	}
 
 	/**
+	 * `read_block` verb handler — the records from a position up to one
+	 * block, through `Log_Sources::read_block()`. A malformed position and an
+	 * unknown log throw.
+	 *
+	 * @param array<array-key,mixed> $args Bound verb arguments: log, position and multi_writer.
+	 * @return array<string,mixed> The block, its cursor and its skips.
+	 */
+	public static function cmd_read_block( array $args ): array {
+		return Log_Sources::read_block( Core::as_string( $args['log'] ), Core::as_string( $args['position'] ), true === $args['multi_writer'] );
+	}
+
+	/**
 	 * Palette entry, verb table and capabilities for the topology console.
 	 *
 	 * Declaring a verb here is its whole registration: `Service_CI_Node` derives
@@ -147,6 +160,17 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 						[ 'name' => 'position', 'type' => 'string', 'required' => true ],
 					],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_read_message( $args ),
+				],
+				[
+					'name'        => 'read_block',
+					'capability'  => Capabilities::READ,
+					'description' => 'The records from a position in a partition dir or a sources/<name> registry source, up to a 1 MiB block; the first goes whole.',
+					'args'        => [
+						[ 'name' => 'log', 'type' => 'string', 'required' => true ],
+						[ 'name' => 'position', 'type' => 'string', 'required' => true ],
+						[ 'name' => 'multi_writer', 'type' => 'bool', 'default' => false ],
+					],
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_read_block( $args ),
 				],
 			],
 		] );

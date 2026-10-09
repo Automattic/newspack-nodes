@@ -1274,6 +1274,28 @@ class PartitionTest extends TestCase {
 		);
 	}
 
+	public function test_head_timestamp_is_the_first_records_stamp(): void {
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "0", "0", "86400", "0" ] );
+		$first                    = $this->produce( 'hello' );
+		$first[ Message::TIMESTAMP ] = 1700004417.5;
+		$p->fill( $first );
+		$p->fill( $this->produce( 'world' ) );
+		$p->flush();
+
+		$this->assertSame( 1700004417.5, $p->head_timestamp( 0 ) );
+		$this->assertNull( $p->head_timestamp( 9 ), 'no such segment' );
+	}
+
+	public function test_head_timestamp_is_null_for_an_empty_segment(): void {
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "0", "0", "86400", "0" ] );
+		\mkdir( "{$this->tmp}.p0", 0755, true );
+		\file_put_contents( "{$this->tmp}.p0/3.log", '' );
+
+		$this->assertNull( $p->head_timestamp( 3 ) );
+	}
+
 	public function test_read_at_returns_bytes_at_offset(): void {
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "0", "0", "86400", "0" ] );

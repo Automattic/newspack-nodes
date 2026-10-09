@@ -372,7 +372,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	/**
 	 * Sum a `file_sizes()` map.
 	 *
-	 * @param array<string,array{bytes:int,disk:int}> $sizes File => sizes.
+	 * @param array<string,array{bytes:int,disk:int,mtime:int}> $sizes File => sizes.
 	 * @return array{bytes:int,disk:int}
 	 */
 	private static function totals( array $sizes ): array {
@@ -387,7 +387,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * its `-shm` — each on disk now, with its `Core::file_footprint()`.
 	 *
 	 * @param string $path The database file.
-	 * @return array<string,array{bytes:int,disk:int}> File => sizes; a file not on disk is absent.
+	 * @return array<string,array{bytes:int,disk:int,mtime:int}> File => sizes; a file not on disk is absent.
 	 */
 	public static function file_sizes( string $path ): array {
 		$sizes = [];

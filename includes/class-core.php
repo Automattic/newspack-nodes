@@ -925,13 +925,13 @@ class Core {
 	}
 
 	/**
-	 * A file's byte length and the disk the filesystem allocates it, from one
-	 * `stat()`. A compressing filesystem holds the disk below the length; a
+	 * A file's byte length, the disk the filesystem allocates it and its mtime,
+	 * from one `stat()`. A compressing filesystem holds the disk below the length; a
 	 * small file's last block can hold it above. Null when the file is gone,
 	 * which each caller decides how to treat.
 	 *
 	 * @param string $path The file.
-	 * @return array{bytes:int,disk:int}|null
+	 * @return array{bytes:int,disk:int,mtime:int}|null
 	 */
 	public static function file_footprint( string $path ): ?array {
 		// Another writer's append leaves the stat cache reporting the old size.
@@ -941,7 +941,7 @@ class Core {
 			return null;
 		}
 		// stat() counts 512-byte blocks, whatever the filesystem's own.
-		return [ 'bytes' => $stat['size'], 'disk' => $stat['blocks'] * 512 ];
+		return [ 'bytes' => $stat['size'], 'disk' => $stat['blocks'] * 512, 'mtime' => $stat['mtime'] ];
 	}
 
 	/**

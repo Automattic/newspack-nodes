@@ -89,6 +89,26 @@ class MessageTest extends TestCase {
 		$this->assertSame( '', $m[ Message::VALUE ] );
 	}
 
+	public function test_packed_head_timestamp_reads_what_packed_wrote(): void {
+		$m = Message::new_message();
+		$m[ Message::TYPE ]      = Message::TM_STRUCT | Message::TM_INFO;
+		$m[ Message::TIMESTAMP ] = 1700004417.250977;
+		$m[ Message::VALUE ]     = \str_repeat( 'x', 5000 );
+
+		$head = \substr( Message::packed( $m ), 0, 64 );
+
+		$this->assertSame( 1700004417.250977, Message::packed_head_timestamp( $head ) );
+		$m[ Message::TIMESTAMP ] = 1700004418.0;
+		$this->assertSame( 1700004418.0, Message::packed_head_timestamp( \substr( Message::packed( $m ), 0, 64 ) ) );
+	}
+
+	public function test_packed_head_timestamp_is_null_for_what_is_no_packed_head(): void {
+		$this->assertNull( Message::packed_head_timestamp( '' ) );
+		$this->assertNull( Message::packed_head_timestamp( 'plain log line 6113' ) );
+		$this->assertNull( Message::packed_head_timestamp( '"quoted",1700000000.5,x' ) );
+		$this->assertNull( Message::packed_head_timestamp( '[1,"1700000000"' ) );
+	}
+
 	public function test_packed_unpacked_round_trip_preserves_all_fields(): void {
 		$m = Message::new_message();
 		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM | Message::TM_INFO;

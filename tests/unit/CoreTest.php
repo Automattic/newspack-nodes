@@ -1018,7 +1018,7 @@ class CoreTest extends TestCase {
 		$disk = (int) \stat( $file )['blocks'] * 512;
 		$this->assertNotSame( 6113, $disk, 'disk must not equal bytes here, or the test proves nothing' );
 
-		$this->assertSame( [ 'bytes' => 6113, 'disk' => $disk ], Core::file_footprint( $file ) );
+		$this->assertSame( [ 'bytes' => 6113, 'disk' => $disk, 'mtime' => \filemtime( $file ) ], Core::file_footprint( $file ) );
 	}
 
 	/** A file grown since an earlier read is sized as it stands, not as cached. */

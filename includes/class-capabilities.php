@@ -36,7 +36,7 @@
  * Know what you grant: `read` is not just the shaped dashboards. It reaches
  * the RAW log firehose — request URLs, hooks, payloads — live on the SSE
  * stream beside worker IPC and REPL output, and record by record through
- * `Raw_Logs_CI_Node`'s `read_message` verb. The map is fully trusted too: a
+ * `Raw_Logs_CI_Node`'s `read_message` and `read_block` verbs. The map is fully trusted too: a
  * filter can LOWER `manage` below manage_options, and there is no floor.
  *
  * @package Newspack_Nodes

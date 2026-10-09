@@ -42,7 +42,7 @@ class VerbRoleDeclarationsTest extends TestCase {
 			'classes'     => [ Classes_CI_Node::class, [ 'dump' => $read ] ],
 			'raw-logs'    => [
 				Raw_Logs_CI_Node::class,
-				[ 'list_logs' => $read, 'dump_log' => $read, 'read_message' => $read ],
+				[ 'list_logs' => $read, 'dump_log' => $read, 'read_message' => $read, 'read_block' => $read ],
 			],
 			'settings'    => [ Settings_CI_Node::class, [ 'get' => $read, 'set' => $tune ] ],
 			'layouts'     => [ Layouts_CI_Node::class, [ 'get' => $read, 'save' => $tune ] ],

@@ -218,10 +218,14 @@ final class SqliteArmTest extends TestCase {
 		};
 
 		$this->assertNotSame( 4471, $disk( $this->path() ), 'blocks must differ from bytes here, or the test proves nothing' );
+		$mtime = static function ( string $file ): int {
+			\clearstatcache( true, $file );
+			return (int) \filemtime( $file );
+		};
 		$this->assertSame(
 			[
-				$this->path()          => [ 'bytes' => 4471, 'disk' => $disk( $this->path() ) ],
-				$this->path() . '-shm' => [ 'bytes' => 3301, 'disk' => $disk( $this->path() . '-shm' ) ],
+				$this->path()          => [ 'bytes' => 4471, 'disk' => $disk( $this->path() ), 'mtime' => $mtime( $this->path() ) ],
+				$this->path() . '-shm' => [ 'bytes' => 3301, 'disk' => $disk( $this->path() . '-shm' ), 'mtime' => $mtime( $this->path() . '-shm' ) ],
 			],
 			Sqlite_Arm::file_sizes( $this->path() )
 		);

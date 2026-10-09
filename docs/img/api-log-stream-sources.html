@@ -57,15 +57,17 @@ h2 { font-size:15px; margin:0 0 8px; }
     <h2>One read model</h2>
     <p><span class="mono">raw-logs read_message &lt;log&gt; &lt;position&gt;</span> runs <span class="mono">Log_Sources::read()</span>, over a partition dir or a <span class="mono">sources/&lt;name&gt;</span> source, and answers:</p>
     <div class="struct">{ <span class="k">source</span>, <span class="k">message</span>, <span class="k">cursor</span>: { <span class="k">segment</span>, <span class="k">offset</span> }, <span class="k">at_eof</span> }<br><span class="c">// message: the packed 7-field Message, or null</span><br><span class="c">// cursor: the POST-step position, where the next step resumes</span></div>
+    <p><span class="mono">raw-logs read_block &lt;log&gt; &lt;position&gt;</span> runs <span class="mono">Log_Sources::read_block()</span> over the same logs and answers <span class="mono">{ source, messages, cursor, at_eof, unparseable_lines }</span>: the records from the position up to 1 MiB of on-disk bytes, skipped lines counted.</p>
     <p>A position is <span class="mono">&lt;segment&gt;:&lt;offset&gt;</span> with an optional <span class="mono">:&lt;length&gt;</span> that is tolerated and IGNORED, the reader knowing the record's real length, a file source's segment-less <span class="mono">:&lt;offset&gt;</span>, or one of <span class="mono">start</span>, <span class="mono">recent</span> and <span class="mono">end</span> (<span class="mono">Log_Sources::MAGIC_POSITIONS</span>, aliasing <span class="mono">Consumer_Node::SEEK_*</span>). The reader arrives already armed, so <span class="mono">read()</span> sinks its own <span class="mono">Callback_Node</span> and removes it in a <span class="mono">finally</span> on every exit; a reader left armed with no sink fires forever inside the worker's drain loop.</p>
   </div>
   <div class="card">
     <h2>A bad position THROWS; an empty read is a result</h2>
     <div class="errs">
       <div>read_message: invalid position (want &lt;segment&gt;:&lt;offset&gt;[:&lt;length&gt;], :&lt;offset&gt; on a file source, start, recent or end)</div>
+      <div>read_block: the same refusal, naming read_block</div>
     </div>
     <p>A malformed position is refused before any log opens, as an unknown log or source is. A valid position holding no record answers <span class="mono">message: null</span> and <span class="mono">at_eof: true</span>, with the cursor where it stopped. The stream route needs none of this: an unknown <span class="mono">subscribe</span> name throws the same <span class="mono">unknown log source</span> error listing the names that exist, no globs are accepted because registry sources are fixed for the life of a stream, and Tail's missing-file grace covers a source that appears, rotates or truncates mid-stream.</p>
-    <p style="margin:0"><span class="mono">multi_writer</span> is accepted and inert here: a source resolves to a Tail, and the seal grace belongs to a Consumer.</p>
+    <p style="margin:0"><span class="mono">multi_writer</span> is inert on a file source, which has no segments to seal; on a segmented source the Tail is a Consumer, so the seal grace applies, measured from the segment's mtime alone because a segmented Log holds bare values with no timestamp to read.</p>
   </div>
 </div>
 </div>

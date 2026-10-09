@@ -32,6 +32,8 @@ namespace Newspack_Nodes;
  * through `Log_Discovery::dir_of()` (ADR-29). Static throughout, because the
  * registry resolves per request out of the options table and the active
  * topologies — there is nothing to hold between calls.
+ *
+ * @phpstan-type Step_Result array{0: array<int,mixed>|null, 1: array{segment: int, offset: int, at_eof: bool}}
  */
 class Log_Sources {
 
@@ -48,6 +50,9 @@ class Log_Sources {
 	 * @var (\Closure(): array<string,string>)|null
 	 */
 	public static ?\Closure $builtin_sources = null;
+
+	/** A block's on-disk budget: `read_block()` stops before the record that would pass it. */
+	public const BLOCK_BYTES = 1048576;
 
 	/**
 	 * Legal registry-name charset, gating the config and topology families
@@ -270,35 +275,118 @@ class Log_Sources {
 	 *                                   segmented log, or a stamp nothing carries.
 	 */
 	public static function read( string $log, string $position ): array {
+		return self::stepping( $log, $position, 'read_message', false, static function ( \Closure $step ) use ( $log ): array {
+			[ $record, $cursor ] = $step();
+			return [
+				'source'  => $log,
+				'message' => $record,
+				'cursor'  => [
+					'segment' => $cursor['segment'],
+					'offset'  => $cursor['offset'],
+				],
+				'at_eof'  => $cursor['at_eof'],
+			];
+		} );
+	}
+
+	/**
+	 * The records from a position up to one block: lines are walked until
+	 * the on-disk bytes the reader disposed of, skipped and discarded lines
+	 * included, reach `BLOCK_BYTES` or the log ends, and a record that would
+	 * carry them past it is left for the next block. The first record always
+	 * goes, whatever its size, so a fetch moves; the Partition line cap
+	 * bounds it. A run of torn lines longer than a block ends it with no
+	 * records. The cursor stands after the last line walked, or before the
+	 * record left out. `unparseable_lines` counts the lines skipped.
+	 * `$multi_writer` holds a segment boundary as `Consumer_Node::segment_sealed()`
+	 * does for the stream's parameter.
+	 *
+	 * @param string $log          A dir stamp or `sources/<name>`.
+	 * @param string $position     As `read()` takes it.
+	 * @param bool   $multi_writer Whether the log has more than one writer.
+	 * @return array{source:string,messages:list<array<int,mixed>>,cursor:array{segment:int,offset:int},at_eof:bool,unparseable_lines:int}
+	 * @throws \InvalidArgumentException As `read()` throws.
+	 */
+	public static function read_block( string $log, string $position, bool $multi_writer ): array {
+		return self::stepping( $log, $position, 'read_block', $multi_writer, static function ( \Closure $step, Consumer_Node $reader ) use ( $log ): array {
+			$messages = [];
+			$bytes    = 0;
+			$prev     = null;
+			do {
+				[ $record, $cursor ] = $step();
+				$moved               = $reader->take_consumed_bytes();
+				if ( null !== $record ) {
+					if ( null !== $prev && [] !== $messages && $bytes + $moved > self::BLOCK_BYTES ) {
+						$cursor = [ 'segment' => $prev['segment'], 'offset' => $prev['offset'], 'at_eof' => false ];
+						break;
+					}
+					$messages[] = $record;
+				}
+				$bytes += $moved;
+				$prev   = $cursor;
+			} while ( ! $cursor['at_eof'] && $bytes < self::BLOCK_BYTES );
+			return [
+				'source'            => $log,
+				'messages'          => $messages,
+				'cursor'            => [
+					'segment' => $cursor['segment'],
+					'offset'  => $cursor['offset'],
+				],
+				'at_eof'            => $cursor['at_eof'],
+				'unparseable_lines' => $reader->take_unparseable_lines(),
+			];
+		} );
+	}
+
+	/**
+	 * Open one log's reader at a position, hand `$walk` a step closure and the
+	 * reader, and remove it in a `finally`: a reader left armed with no sink
+	 * fires forever inside the worker's drain loop. A step advances the
+	 * reader one line and answers the record it emitted, null when the line
+	 * was skipped or the log ended, and the cursor after it. A malformed
+	 * position throws before any log is opened, naming `$verb`.
+	 *
+	 * @template T
+	 * @param string                                       $log          A dir stamp or `sources/<name>`.
+	 * @param string                                       $position     Magic token, or `[<segment>]:<offset>[:<length>]`.
+	 * @param string                                       $verb         The verb a refusal names.
+	 * @param bool                                         $multi_writer The reader's seal-grace.
+	 * @param \Closure(\Closure(): Step_Result, Consumer_Node): T $walk         Drives the steps.
+	 * @return T
+	 * @throws \InvalidArgumentException On a malformed position, a segment-less one on a
+	 *                                   segmented log, or a stamp nothing carries.
+	 */
+	private static function stepping( string $log, string $position, string $verb, bool $multi_writer, \Closure $walk ): mixed {
 		// A word rides through to next_offset(), which speaks it.
 		$at      = isset( Log_Position::WORDS[ $position ] ) ? $position : Log_Position::parse( $position );
-		$invalid = 'read_message: invalid position (want <segment>:<offset>[:<length>], :<offset> on a file source, start, recent or end)';
+		$invalid = "{$verb}: invalid position (want <segment>:<offset>[:<length>], :<offset> on a file source, start, recent or end)";
 		if ( null === $at ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
 			throw new \InvalidArgumentException( $invalid );
 		}
-		$captured = null;
-		$reader   = self::open_reader( $log );
+		$reader = self::open_reader( $log );
 		try {
 			if ( \is_array( $at ) && ! isset( $at['segment'] ) && ! $reader instanceof File_Tail_Node ) {
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
 				throw new \InvalidArgumentException( $invalid );
 			}
-			$reader->sink( new Callback_Node( static function ( array $message ) use ( &$captured ): void {
-				$captured = $message;
+			/** @var array<int,mixed>|null $emitted */
+			$emitted = null;
+			$reader->sink( new Callback_Node( static function ( array $message ) use ( &$emitted ): void {
+				$emitted = $message;
 			} ) );
+			$reader->set_multi_writer( $multi_writer );
 			$reader->next_offset( $at );
-			$cursor = $reader->step();
+			/** @return Step_Result */
+			$step = static function () use ( $reader, &$emitted ): array {
+				$emitted = null;
+				$cursor  = $reader->step();
+				return [ $emitted, $cursor ];
+			};
+			return $walk( $step, $reader );
 		} finally {
 			$reader->remove_node();
 		}
-		return [
-			'source'  => $log,
-			'message' => $captured,
-			'cursor'  => [
-				'segment' => $cursor['segment'],
-				'offset'  => $cursor['offset'],
-			],
-			'at_eof'  => $cursor['at_eof'],
-		];
 	}
 
 	/**

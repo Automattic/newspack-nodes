@@ -83,7 +83,7 @@
   </div>
   <div class="callout" style="flex:1">
     <h4>A shared log: step off a segment slowly</h4>
-    <p>A peer may still be appending to segment N for a second after N+1 appears. A reader told the log is shared, as the event logger's firehose is, steps off N only after N's size has held steady for two seconds.</p>
+    <p>A peer may still be appending to segment N for a second after N+1 appears. A reader told the log is shared, as the event logger's firehose is, steps off N only once two seconds have passed since the later of N's last write and N+1's first record.</p>
   </div>
 </div>
 </div>
