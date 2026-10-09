@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.103.3] - 2026-10-09
+
 ### Fixed
 
 - **An expansion asked before a save or delete never refills the cache after it.** `useCommandOnce` sends nothing for a read already outstanding, so the re-ask an invalidation started was absorbed by the ask still in flight, and that pre-save answer filed itself into the emptied cache and settled `loading`. Each `topologies expand` ask now names the cache generation it was made under as its subject: the re-ask is a new question that supersedes the old, a hook that leaves its include set in the invalidating render withdraws its outstanding ask, and a refusal from an older generation, which the slice's gate passes when it echoes no arguments, sets no `error`.
