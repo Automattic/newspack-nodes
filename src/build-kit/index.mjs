@@ -423,7 +423,7 @@ export async function buildDashboards( {
 		try {
 			await Promise.all( contexts.map( ( c ) => c.rebuild() ) );
 		} finally {
-			// A failed build still frees esbuild's service, so the process exits.
+			// A failed build frees esbuild too, so node exits.
 			await Promise.all( contexts.map( ( c ) => c.dispose() ) );
 		}
 	}
