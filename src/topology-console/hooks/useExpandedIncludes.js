@@ -81,6 +81,14 @@ function shape( value ) {
  *
  * A mounted hook whose include set is unchanged asks for it again, because its
  * key alone would never re-run the ask and it would read empty from then on.
+ *
+ * No reply to an ask made before the invalidation reaches the hook. Each ask
+ * names the generation it was made under as its subject, which its reply
+ * carries back in its address, so the re-ask is a new question that
+ * supersedes the outstanding one rather than a repeat it absorbs; a hook that
+ * leaves its set in the same render asks nothing, and withdraws what it had
+ * outstanding instead. A refusal echoing no arguments passes the slice's gate
+ * either way, so the hook drops a reply whose subject is an older generation.
  */
 export function invalidateExpandedIncludes() {
 	cache.clear();
@@ -144,12 +152,17 @@ export function useExpandedIncludes( includes, { groupChildren = true } = {} ) {
 	const [ , bump ] = useState( 0 );
 	const [ error, setError ] = useState( null );
 
-	const { run } = useCommandOnce( {
+	const { run, abandon } = useCommandOnce( {
 		group: TOPOLOGIES_CI,
 		ci: TOPOLOGIES_CI,
 		command: 'expand',
 		retry: true,
-		onDone: ( { result, error: refusal, args } ) => {
+		subjectOf: () => String( generation ),
+		onDone: ( { result, error: refusal, args, subject } ) => {
+			// The gate passes a refusal echoing no arguments, standing or not.
+			if ( String( generation ) !== subject ) {
+				return;
+			}
 			if ( refusal ) {
 				setError( refusal );
 			} else {
@@ -171,8 +184,10 @@ export function useExpandedIncludes( includes, { groupChildren = true } = {} ) {
 		setError( null );
 		if ( '' !== key && ! cache.has( key ) ) {
 			run( formatCommandArgs( key.split( ' ' ) ) );
+		} else {
+			abandon();
 		}
-	}, [ key, run, asked ] );
+	}, [ key, run, abandon, asked ] );
 
 	return {
 		expansion: ( '' === key ? EMPTY : cache.get( key ) ) ?? EMPTY,

@@ -4,7 +4,15 @@
  */
 
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { Core, VALUE } from '@newspack-nodes/runtime';
+import {
+	Core,
+	newMessage,
+	TYPE,
+	TO,
+	VALUE,
+	TM_COMMAND,
+	TM_ERROR,
+} from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import {
 	expansionMatchesIncludes,
@@ -227,6 +235,114 @@ describe( 'useExpandedIncludes', () => {
 			[ 'saved-include' ],
 			[ 'saved-include' ],
 		] );
+	}, 15000 );
+
+	/**
+	 * Hold the first `expand` answer open, and answer every later one at once.
+	 *
+	 * @param {string} include The one include the hook asks about.
+	 * @return {() => Promise<void>} Lands the held answer, returning once every
+	 *                               POST it rode on has been answered.
+	 */
+	const holdFirstAnswer = ( include ) => {
+		let release;
+		const held = new Promise( ( resolve ) => {
+			release = resolve;
+		} );
+		const expansionOf = ( name ) => ( {
+			nodes: [ { name } ],
+			edges: [],
+			tree: { [ include ]: {} },
+		} );
+		send.mockImplementationOnce( () => held );
+		send.mockImplementation( () => expansionOf( 'after-save-tee' ) );
+		return async () => {
+			release( expansionOf( 'before-save-tee' ) );
+			await Promise.all(
+				global.fetch.mock.results.map( ( r ) => r.value )
+			);
+		};
+	};
+
+	it( 'drops an answer that was in flight when the cache was invalidated', async () => {
+		const landBeforeSave = holdFirstAnswer( 'in-flight-include' );
+		const { result } = renderHook( () =>
+			useExpandedIncludes( [ 'in-flight-include' ] )
+		);
+		await waitFor( () => expect( send ).toHaveBeenCalledTimes( 1 ), {
+			timeout: 4000,
+		} );
+
+		act( () => invalidateExpandedIncludes() );
+		await act( landBeforeSave );
+
+		await waitFor(
+			() =>
+				expect( result.current.expansion.nodes ).toEqual( [
+					{ name: 'after-save-tee' },
+				] ),
+			{ timeout: 6000 }
+		);
+		expect( result.current.loading ).toBe( false );
+	}, 15000 );
+
+	// @longform The slice's gate passes a refusal echoing no arguments, such
+	// as the Router's NOT_AVAILABLE, whether its ask stands or not, so the
+	// re-ask superseding it is not what keeps it off the hook.
+	it( 'ignores a refusal of an ask made before the invalidation', async () => {
+		holdFirstAnswer( 'refused-include' );
+		const { result } = renderHook( () =>
+			useExpandedIncludes( [ 'refused-include' ] )
+		);
+		await waitFor( () => expect( send ).toHaveBeenCalledTimes( 1 ), {
+			timeout: 4000,
+		} );
+		const staleSubject = Core.node( 'topologies:expand:fetch' ).outbox[ 0 ]
+			.path;
+
+		act( () => invalidateExpandedIncludes() );
+		const refusal = newMessage();
+		refusal[ TYPE ] = TM_COMMAND | TM_ERROR;
+		refusal[ TO ] = `topologies:expand:in/${ staleSubject }`;
+		refusal[ VALUE ] = { name: 'expand', payload: 'NOT_AVAILABLE' };
+		act( () => Core.node( '_router' ).fill( refusal ) );
+
+		expect( result.current.error ).toBeNull();
+		await waitFor(
+			() =>
+				expect( result.current.expansion.nodes ).toEqual( [
+					{ name: 'after-save-tee' },
+				] ),
+			{ timeout: 6000 }
+		);
+		expect( result.current.error ).toBeNull();
+	}, 15000 );
+
+	// Leaving the set in the invalidating render asks nothing new to supersede.
+	it( 'files no answer asked before an invalidation, once the set is left', async () => {
+		const landBeforeSave = holdFirstAnswer( 'left-include' );
+		const { result, rerender } = renderHook(
+			( { includes } ) => useExpandedIncludes( includes ),
+			{ initialProps: { includes: [ 'left-include' ] } }
+		);
+		await waitFor( () => expect( send ).toHaveBeenCalledTimes( 1 ), {
+			timeout: 4000,
+		} );
+
+		act( () => {
+			invalidateExpandedIncludes();
+			rerender( { includes: [] } );
+		} );
+		await act( landBeforeSave );
+		rerender( { includes: [ 'left-include' ] } );
+
+		await waitFor(
+			() =>
+				expect( result.current.expansion.nodes ).toEqual( [
+					{ name: 'after-save-tee' },
+				] ),
+			{ timeout: 6000 }
+		);
 	}, 15000 );
 } );
 
