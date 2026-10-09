@@ -420,7 +420,11 @@ export async function buildDashboards( {
 		console.log( '👀 watching for changes…' );
 		// Keep node alive; esbuild's watcher runs in a worker thread.
 	} else {
-		await Promise.all( contexts.map( ( c ) => c.rebuild() ) );
-		await Promise.all( contexts.map( ( c ) => c.dispose() ) );
+		try {
+			await Promise.all( contexts.map( ( c ) => c.rebuild() ) );
+		} finally {
+			// A failed build still frees esbuild's service, so the process exits.
+			await Promise.all( contexts.map( ( c ) => c.dispose() ) );
+		}
 	}
 }
