@@ -26,7 +26,7 @@ namespace Newspack_Nodes;
  */
 trait Curl_Transfer {
 
-	/** Cap on one response body, 8 MiB; it is buffered into the PHP heap. */
+	/** Default cap on one response body, 8 MiB; it is buffered into the PHP heap. */
 	public const MAX_REPLY_BYTES = 8388608;
 
 	/**
@@ -57,12 +57,13 @@ trait Curl_Transfer {
 	 */
 	protected function start_transfer( array $opts, mixed $context ): bool {
 		$body  = '';
+		$cap   = $this->reply_cap();
 		$opts += [
 			// MAXFILESIZE needs a declared length; the callback does the work.
-			\CURLOPT_MAXFILESIZE   => self::MAX_REPLY_BYTES,
-			\CURLOPT_WRITEFUNCTION => static function ( $easy, string $chunk ) use ( &$body ): int {
+			\CURLOPT_MAXFILESIZE   => $cap,
+			\CURLOPT_WRITEFUNCTION => static function ( $easy, string $chunk ) use ( &$body, $cap ): int {
 				$len = \strlen( $chunk );
-				if ( \strlen( $body ) + $len > self::MAX_REPLY_BYTES ) {
+				if ( \strlen( $body ) + $len > $cap ) {
 					return 0; // short write: libcurl aborts the transfer
 				}
 				$body .= $chunk;
@@ -80,6 +81,11 @@ trait Curl_Transfer {
 		}
 		++$this->in_flight;
 		return true;
+	}
+
+	/** The cap on one response body this node buffers; a node may raise it. */
+	protected function reply_cap(): int {
+		return self::MAX_REPLY_BYTES;
 	}
 
 	/**

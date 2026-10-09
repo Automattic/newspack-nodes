@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`HTTP_Out_Node::set_reply_cap( $bytes )` raises one `HTTP_Out`'s reply cap, and `last_outcome()` reports its last transfer.** The cap defaults to `MAX_REPLY_BYTES` (8 MiB) and never falls below it. `last_outcome()` returns `code` and `error` for the last transfer to complete, `/auth` included: a refusal names `HTTP <code>`, a transport failure `cURL error <n> (<reason>)` with a null code, and a 200 or 202 clears the error.
 - **`raw-logs read_block <log> <position> [--multi_writer]` returns the records from a position up to a 1 MiB block, the first whole.**
 
 ### Changed

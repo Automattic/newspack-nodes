@@ -86,6 +86,17 @@ class HTTP_Out_Node extends Timer_Node implements Curl_Owner {
 	 */
 	protected array $reply_allowlist = [];
 
+	/** This node's cap on one reply body; a broker fetching blocks raises it. */
+	private int $reply_cap = self::MAX_REPLY_BYTES;
+
+	/**
+	 * The last transfer to complete, /auth included: its HTTP status, null on a
+	 * transport error, and the error, null once a 200 or 202 answers.
+	 *
+	 * @var array{code:?int,error:?string}
+	 */
+	private array $last_outcome = [ 'code' => null, 'error' => null ];
+
 	/** One handshake at a time; a held batch must not fan out N /auth POSTs. */
 	protected bool $auth_in_flight = false;
 
@@ -264,22 +275,27 @@ class HTTP_Out_Node extends Timer_Node implements Curl_Owner {
 	protected function on_transfer_done( int $result, array $res, mixed $kind ): void {
 		if ( \CURLE_OK !== $result ) {
 			$this->print_less_often( 'transport error ', (string) $result );
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_strerror
+			$this->last_outcome = [ 'code' => null, 'error' => "cURL error {$result} (" . \curl_strerror( $result ) . ')' ];
 			if ( 'auth' === $kind ) {
 				$this->auth_in_flight = false;
 			}
 			return;
 		}
+		$code               = $res['code'];
+		$error              = 200 === $code || 202 === $code ? null : "HTTP {$code}";
+		$this->last_outcome = [ 'code' => $code, 'error' => $error ];
 		if ( 'auth' === $kind ) {
-			$this->on_session_reply( $res['code'], $res['body'] );
-		} elseif ( 200 !== $res['code'] ) {
+			$this->on_session_reply( $code, $res['body'] );
+			return;
+		}
+		if ( null !== $error ) {
 			// 401: the spoke dropped this handle; every send now fails.
-			if ( 401 === $res['code'] ) {
+			if ( 401 === $code ) {
 				Command_Auth::forget_session( $this->vault_id );
 			}
-			if ( 202 !== $res['code'] ) {
-				$this->print_less_often( 'HTTP ', (string) $res['code'] );
-			}
-		} elseif ( null !== $this->sink && '' !== $res['body'] ) {
+			$this->print_less_often( 'HTTP ', (string) $code );
+		} elseif ( 200 === $code && null !== $this->sink && '' !== $res['body'] ) {
 			$caught = Worker_Should_Stop::attempt_each(
 				\explode( "\n", $res['body'] ),
 				fn ( string $line ) => $this->deliver_reply( $line )
@@ -602,6 +618,31 @@ class HTTP_Out_Node extends Timer_Node implements Curl_Owner {
 		// Constant: drop_message keys its throttle on the reason.
 		$this->drop_message( $message, 'addressed outside allow_replies_to' );
 		return false;
+	}
+
+	/**
+	 * Raise the cap on one reply body, never below `MAX_REPLY_BYTES`.
+	 *
+	 * @api A broker sets it from its reader count.
+	 * @param int $bytes The most one POST's reply may carry.
+	 */
+	public function set_reply_cap( int $bytes ): void {
+		$this->reply_cap = \max( self::MAX_REPLY_BYTES, $bytes );
+	}
+
+	/** This node's cap. */
+	protected function reply_cap(): int {
+		return $this->reply_cap;
+	}
+
+	/**
+	 * The last transfer to complete, for a broker's status snapshot.
+	 *
+	 * @api A broker reads it for its status.
+	 * @return array{code:?int,error:?string}
+	 */
+	public function last_outcome(): array {
+		return $this->last_outcome;
 	}
 
 	/**
