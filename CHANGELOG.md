@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A tab's controls no longer paint over the header's hostname while the hostname has width to give.** `.topology-subtitle` takes `flex-shrink: 1000`, so it ellipsizes before the controls slot shrinks. Flex weighs each item's shrink by its basis, so the wide slot had given up most of the width, and its end-packed toolbar, such as the Log Viewer's line count, spilled leftward over the subtitle. A row too narrow for the controls even with the subtitle gone still overflows leftward, keeping the rightmost control reachable.
+
 ## [2.104.0] - 2026-10-10
 
 ### Added
