@@ -7,22 +7,24 @@
  * than written out per dashboard:
  *
  *   <prefix>:stream  Pass-through Tee; copies frames to the view, is where a
- *                    debug-overlay `connect` taps the live stream, and names
- *                    this graph on the page link.
+ *                    debug-overlay `connect` taps the live stream, and is the
+ *                    target of this graph's pairs on the page link.
  *   <prefix>:view    `viewClass`, the view-model React reads. It trusts controls
  *                    from its own name, which is what `control()` stamps.
  *
  * The graph opens no connection of its own. It rides the page's one stream
- * link, the backbone's `_stream`: it `attach`es its subscription under its
- * `<prefix>:stream`, and the link routes each record by its stamp to every
- * graph carrying it, so every stream graph on a page shares one EventSource.
+ * link, the backbone's `_stream`, by adding a `<sub>:<prefix>:stream` pair for
+ * each subscription. The link hands each record to its stamp's Tee,
+ * `_stream:<kind>`, whose targets are the graphs whose pairs claim it, so every
+ * stream graph on a page shares one EventSource.
  *
  * A graph rides only while the tab is visible AND the user hasn't paused.
  * Pause takes the SAME path as the visibility gate — it is just "inactive" —
- * and `park`s the graph, which drops it from the page's stream but keeps its
- * place, so Play resumes where it stopped. Pause outranks a refocus: a paused
- * graph stays parked through hide → show. An unmount `detach`es it, which
- * forgets its place.
+ * and parks the graph's pairs: they leave the stream but keep their claim, so
+ * no other graph seeks or forgets their stamps, and Play resumes where it
+ * stopped. Pause outranks a refocus: a paused graph stays parked through
+ * hide → show. An unmount removes the pairs and `forget`s their
+ * subscriptions, so a later graph on them tails.
  *
  * Every control that re-points the stream goes through `resubscribe`: it RECORDS
  * the intended `{ subscribe, positions }` and only touches the link while
@@ -78,6 +80,16 @@ const CATALOG_POLL_MS = 10000;
 
 /** One array, so an empty catalog keeps its identity across renders. */
 const NO_ROWS = [];
+
+/**
+ * One graph's pairs: each subscription routed to its stream Tee.
+ *
+ * @param {?string[]} subs The subscriptions; null names none.
+ * @param {string}    tee  The graph's `<prefix>:stream`.
+ * @return {string[]} The `<sub>:<tee>` pairs.
+ */
+const pairsFor = ( subs, tee ) =>
+	( subs ?? [] ).map( ( sub ) => `${ sub }:${ tee }` );
 
 CommandInterpreterNode.registerNodeClasses( {
 	CatalogListView: CatalogListViewNode,
@@ -138,6 +150,8 @@ export function useStreamGraph( {
 
 	// The intended {subscribe, positions}: the source every ride reads.
 	const targetRef = useRef( null );
+	// The subscriptions this graph's pairs last named, kept through a pause.
+	const ridingRef = useRef( null );
 
 	// Read the latest declaration inside the once-only build and the effect.
 	const declRef = useRef( null );
@@ -157,12 +171,13 @@ export function useStreamGraph( {
 		}
 	}, [] );
 
-	// @longform EVERY attach goes through here, so the pre-open clear and the
+	// @longform EVERY ride goes through here, so the pre-open clear and the
 	// single-use consumption of the recorded seek cannot be reached around:
 	// once the link takes it, the target keeps its subscription and loses its
-	// positions, so the NEXT ride resumes where the page's stream read to. A
-	// seek the link refuses leaves the target that is riding, so no later
-	// ride replays the refusal; with no link yet, the build reads the target.
+	// positions, so the NEXT ride resumes where the page's stream read to. New
+	// pairs go on before the old come off, so a refused seek changes nothing
+	// and a seek on a dir the old glob carried outlives the swap. With no link
+	// yet, the build reads the target.
 	const ride = useCallback(
 		( subs, positions ) => {
 			const link = linkRef.current;
@@ -173,7 +188,13 @@ export function useStreamGraph( {
 			if ( declRef.current.clearOnOpen ) {
 				control( { action: 'clear' } );
 			}
-			link.attach( subs, tee, positions );
+			const gone = ( ridingRef.current ?? [] ).filter(
+				( sub ) => ! subs.includes( sub )
+			);
+			link.addPairs( pairsFor( subs, tee ), positions );
+			link.removePairs( pairsFor( gone, tee ) );
+			link.forget( gone );
+			ridingRef.current = subs;
 			targetRef.current = { subscribe: subs };
 		},
 		[ control, tee ]
@@ -191,7 +212,7 @@ export function useStreamGraph( {
 		[ ride, isActiveNow ]
 	);
 
-	// Mount once; cleanup runs FIRST so a rebuild detaches before it rebuilds.
+	// Mount once; cleanup runs FIRST so a rebuild leaves before it rebuilds.
 	useEffect( () => {
 		const build = ( { interpreter, stream } ) => {
 			const decl = declRef.current;
@@ -234,7 +255,9 @@ export function useStreamGraph( {
 			bumpBuild( ( n ) => n + 1 );
 
 			return () => {
-				stream.detach( tee );
+				stream.removePairs( pairsFor( ridingRef.current, tee ) );
+				stream.forget( ridingRef.current ?? [] );
+				ridingRef.current = null;
 				linkRef.current = null;
 				viewRef.current = null;
 			};
@@ -251,7 +274,7 @@ export function useStreamGraph( {
 			return;
 		}
 		if ( ! isActive ) {
-			link.park( tee );
+			link.parkPairs( pairsFor( ridingRef.current, tee ) );
 			return;
 		}
 		const target = targetRef.current;
@@ -260,7 +283,7 @@ export function useStreamGraph( {
 		}
 	}, [ buildGen, isActive, ride, tee ] );
 
-	// Pause parks the graph (the effect above); the flag drives the UI.
+	// Pause parks the pairs (the effect above); the flag drives the UI.
 	const setPaused = useCallback(
 		( paused ) => {
 			// The ref flips NOW: a same-tick seek must record, not open.
@@ -312,8 +335,8 @@ export function useStreamGraph( {
 }
 
 /**
- * The paused single-step: the graph stays parked and one record is asked for
- * over the command channel, answered a tick later as `{ message, cursor }`,
+ * The paused single-step: the graph stays off the link and one record is asked
+ * for over the command channel, answered a tick later as `{ message, cursor }`,
  * admitted through the view's paused belt, and the recorded ride target
  * advanced to the post-step cursor — so the NEXT step continues from there and
  * Play resumes streaming from the stepped point. A reply with no record adds

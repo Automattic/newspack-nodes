@@ -114,6 +114,19 @@ export function remoteOf( name ) {
 }
 
 /**
+ * The kind a stamp's reader takes, the twin of PHP `Log_Discovery::kind_of()`,
+ * held to it by `tests/fixtures/log-kinds.json`: the stamp with each `/`
+ * spelled `:`, because the Router splits a TO on `/`. A link names the Tee it
+ * builds for a stamp `<link>:<kind>`.
+ *
+ * @param {string} stamp A record's stamp.
+ * @return {string} The kind.
+ */
+export function kindOf( stamp ) {
+	return stamp.replaceAll( '/', ':' );
+}
+
+/**
  * Split a `<source>:<target>` pair at its first colon outside `<…>`, so a
  * `<ns:key>` token in the source stays whole; a token with no such colon is
  * all source. The twin of PHP `Remote_Broker_Node::split_pair()`, held to it

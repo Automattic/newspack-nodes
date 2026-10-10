@@ -690,4 +690,26 @@ describe( 'RemoteIpcNode', () => {
 		a.removeNode();
 		expect( Core.node( names.HEARTBEAT ).slot ).toBe( 5 );
 	} );
+
+	it( 'delivers every record by the TO the worker addressed, whatever its target', () => {
+		const { interpreter } = mountExospine();
+		const got = [];
+		const output = new Node();
+		output.name = names.OUTPUT;
+		output.fill = ( m ) => got.push( [ 'output', m[ VALUE ] ] );
+		const view = new Node();
+		view.name = 'heron-view-8820';
+		view.fill = ( m ) => got.push( [ 'view', m[ VALUE ] ] );
+		const node = makeRemoteIpc( 'osprey.p3', interpreter );
+		node.target = 'heron-view-8820';
+		node.connect();
+		const record = newMessage();
+		record[ TYPE ] = TM_INFO;
+		record[ FROM ] = 'osprey.p3';
+		record[ TO ] = names.OUTPUT;
+		record[ ID ] = '7:12:30';
+		record[ VALUE ] = 'reply-for-output-9014';
+		FakeEventSource.last.dispatch( 'msg', JSON.stringify( record ) );
+		expect( got ).toEqual( [ [ 'output', 'reply-for-output-9014' ] ] );
+	} );
 } );

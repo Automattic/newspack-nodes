@@ -5,10 +5,12 @@
  * `SseInNode` opens an EventSource presenting the command session it signs
  * with, snoops the `connected` handshake for that session, the slot and the
  * lease owner, and fills every parsed `msg` frame into the local graph.
- * RemoteLink composes it as the per-link `<patron>:sse-in`.
+ * RemoteLink composes it as the per-link `<patron>:sse-in`, and takes each
+ * record through `onMessage`.
  *
- * The node is receive-only. Each inbound frame reaches the graph through an
- * EventSource listener that calls `super.fill`, the base Node's route-by-TO.
+ * The node is receive-only. Each inbound frame `onMessage` declines reaches the
+ * graph through an EventSource listener that calls `super.fill`, the base
+ * Node's route-by-TO.
  * RemoteIpc, not this node, wraps an outgoing reply FROM as
  * `_sse:{session}/{node}`, and the server passes a stream only the replies
  * headed with the session it presented — across every reconnect.
@@ -36,13 +38,11 @@ import { IoTelemetry, byteLength } from './io-telemetry';
 import {
 	TYPE,
 	FROM,
-	TO,
 	ID,
 	KEY,
 	VALUE,
 	TM_ERROR,
 	TM_UNTYPED,
-	TM_COMMAND,
 	unpack,
 } from './message';
 import { anyCarries, isGlob, splitStamp } from './log-stamp';
@@ -205,13 +205,15 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 		 */
 		this._positions = null;
 		/**
-		 * Where each received record goes, by the stamp its FROM opens with,
-		 * which a patron sets: the targets a copy goes to, null to keep the
-		 * TO it arrived with, or none to drop it. Null keeps every TO.
+		 * The patron's inbound seam, the counterpart of PHP
+		 * `SSE_In_Node::$on_message`: handed each parsed record and the stamp
+		 * its FROM opens with, it answers true for one it took. One it
+		 * declines, and every record while it is null, leaves through this
+		 * node's sink by its TO.
 		 *
-		 * @type {?( ( stamp: string ) => ?string[] )}
+		 * @type {?( ( message: Array, stamp: string ) => boolean )}
 		 */
-		this.routeTo = null;
+		this.onMessage = null;
 		// Last record position per `[sub][partition]`, from each ID+FROM.
 		this.lastPositions = {};
 		this._es = null;
@@ -777,34 +779,18 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	}
 
 	/**
-	 * Hand one record on. A command reply keeps its TO whatever `routeTo`
-	 * says: the server addressed it to the node that minted the command
-	 * (TO=FROM, ADR-7), so routing it would deliver the reply to a view
-	 * instead of its receiver. A record goes once TO each target its stamp
-	 * routes to, is dropped when none takes it, and keeps its TO when nothing
-	 * routes.
+	 * Hand one record to the patron's `onMessage`, counting it once, or send
+	 * it on by its TO when there is none or it declines.
 	 *
 	 * @param {Array}  message The positional Message just received.
 	 * @param {string} stamp   The stamp its FROM opens with.
 	 */
 	_deliver( message, stamp ) {
-		const targets =
-			this.routeTo && 0 === ( message[ TYPE ] & TM_COMMAND )
-				? this.routeTo( stamp )
-				: null;
-		if ( null === targets ) {
-			super.fill( message );
+		if ( this.onMessage?.( message, stamp ) ) {
+			this.counter++;
 			return;
 		}
-		if ( 0 === targets.length ) {
-			this.dropMessage( message, `no route for ${ stamp }` );
-			return;
-		}
-		for ( const target of targets ) {
-			const copy = message.slice();
-			copy[ TO ] = target;
-			super.fill( copy );
-		}
+		super.fill( message );
 	}
 
 	/**

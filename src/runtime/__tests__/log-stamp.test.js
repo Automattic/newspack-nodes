@@ -8,6 +8,7 @@ import { join } from 'path';
 import {
 	anyCarries,
 	isGlob,
+	kindOf,
 	remoteOf,
 	splitPair,
 	splitStamp,
@@ -138,5 +139,18 @@ describe( 'splitPair', () => {
 			source: 'heron.p7',
 			target: 'heron-4410:stream',
 		} );
+	} );
+} );
+
+describe( 'kindOf parity with Log_Discovery::kind_of()', () => {
+	const cases = JSON.parse(
+		readFileSync(
+			join( __dirname, '../../../tests/fixtures/log-kinds.json' ),
+			'utf8'
+		)
+	);
+
+	it.each( cases )( '%s', ( _label, stamp, kind ) => {
+		expect( kindOf( stamp ) ).toBe( kind );
 	} );
 } );

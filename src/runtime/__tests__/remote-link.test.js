@@ -12,6 +12,7 @@
 
 import { RemoteLinkNode } from '../remote-link-node';
 import { Node } from '../node';
+import { TeeNode } from '../tee-node';
 import { SseInNode, SEEK_END, SEEK_START } from '../sse-in-node';
 import { HttpOutNode } from '../http-out-node';
 import { HeartbeatNode } from '../heartbeat-node';
@@ -32,6 +33,9 @@ import {
 	TM_COMMAND,
 	TM_INFO,
 	TM_BYTESTREAM,
+	TM_RESPONSE,
+	TM_STRUCT,
+	TM_ERROR,
 } from '../message';
 import names from '../reserved-node-names.json';
 
@@ -276,10 +280,10 @@ describe( 'RemoteLinkNode', () => {
 		expect( link.sseIn ).toBeNull();
 	} );
 
-	it( 'a graph attaching supplies it, and `arguments` then reports it', async () => {
+	it( 'a view adding pairs supplies it, and `arguments` then reports it', async () => {
 		const { interpreter } = mountExospine();
 		const link = interpreter.makeNode( 'RemoteLink', 'late-link-812' );
-		link.attach( [ 'quartz.p7' ], 'grebe:stream' );
+		link.addPairs( [ 'quartz.p7:grebe:stream' ] );
 		await Promise.resolve();
 		expect( link.arguments ).toEqual( [ 'quartz.p7' ] );
 		expect( link.sseIn.subscribe ).toEqual( [ 'quartz.p7' ] );
@@ -294,7 +298,7 @@ describe( 'RemoteLinkNode', () => {
 			'gyroscope.p7',
 		] );
 		link.connect();
-		link.attach( [ 'quartz.p3' ], 'grebe:stream' );
+		link.addPairs( [ 'quartz.p3:grebe:stream' ] );
 		await Promise.resolve();
 		expect( link.arguments ).toEqual( [ 'quartz.p3' ] );
 		expect( link.sseIn.arguments ).toEqual( [ 'quartz.p3' ] );
@@ -303,12 +307,30 @@ describe( 'RemoteLinkNode', () => {
 		);
 	} );
 
-	it( 'has no per-graph re-point methods; graphs attach instead', () => {
+	it( 'a link with no pairs delivers each record by its TO, its target filling an empty one', () => {
 		const { link } = makeLink( 'kea.p4' );
-		expect( link.setSubscribe ).toBeUndefined();
-		expect( link.reconnect ).toBeUndefined();
+		const got = {};
+		for ( const name of [ 'dash:view', 'tern:view' ] ) {
+			const n = new Node();
+			n.name = name;
+			n.fill = ( m ) => ( got[ name ] ||= [] ).push( m[ ID ] );
+		}
 		link.connect();
-		expect( FakeEventSource.last.url ).toContain( 'subscribe=kea.p4' );
+		for ( const [ to, id ] of [
+			[ '', '1:0:5' ],
+			[ 'tern:view', '1:5:5' ],
+		] ) {
+			const m = newMessage();
+			m[ TYPE ] = TM_BYTESTREAM;
+			m[ FROM ] = 'kea.p4';
+			m[ TO ] = to;
+			m[ ID ] = id;
+			FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );
+		}
+		expect( got ).toEqual( {
+			'dash:view': [ '1:0:5' ],
+			'tern:view': [ '1:5:5' ],
+		} );
 	} );
 
 	it( 'subscribes its SseIn to the configured topic, forwarding to the link sink/target', () => {
@@ -546,7 +568,7 @@ describe( 'RemoteLinkNode', () => {
 	} );
 } );
 
-describe( 'riders — one link carrying several graphs', () => {
+describe( 'pairs — the routes one link carries', () => {
 	const flush = () => Promise.resolve();
 	const record = ( from, id ) => {
 		const m = newMessage();
@@ -558,7 +580,22 @@ describe( 'riders — one link carrying several graphs', () => {
 	};
 	const seeksOf = ( url ) =>
 		JSON.parse( decodeURIComponent( url.split( 'positions=' )[ 1 ] ) );
-	// The page's own link, as every stream graph on it rides.
+	const subscribed = () =>
+		new URL( FakeEventSource.last.url, 'https://x.test' ).searchParams.get(
+			'subscribe'
+		);
+	const ids = ( messages ) => ( messages ?? [] ).map( ( m ) => m[ ID ] );
+	const skipped = ( value ) => {
+		const frame = newMessage();
+		frame[ TYPE ] = TM_INFO;
+		frame[ KEY ] = 'unparseable_lines';
+		frame[ VALUE ] = value;
+		FakeEventSource.last.dispatch(
+			'unparseable_lines',
+			JSON.stringify( frame )
+		);
+	};
+	// The page's own link, with three views to route to.
 	function makeShared() {
 		const { stream: link } = mountExospine();
 		const delivered = {};
@@ -574,34 +611,34 @@ describe( 'riders — one link carrying several graphs', () => {
 		return { link, delivered };
 	}
 
-	it( 'opens ONE stream for every graph attached in one tick', async () => {
+	it( 'opens ONE stream on the union of its pairs’ sources', async () => {
 		const { link } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream', {
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ], {
 			'jobstats.p0': SEEK_START,
 		} );
-		link.attach( [ 'topicprobe.p0' ], 'backlog:stream', {
+		link.addPairs( [ 'topicprobe.p0:backlog:stream' ], {
 			'topicprobe.p0': SEEK_START,
 		} );
-		link.attach( [ 'errors.*' ], 'glob:stream' );
+		link.addPairs( [ 'errors.*:glob:stream' ] );
 		expect( FakeEventSource.last ).toBeNull();
 		await flush();
 		expect( FakeEventSource.opened ).toBe( 1 );
-		const url = FakeEventSource.last.url;
-		expect( url ).toContain(
-			`subscribe=${ encodeURIComponent(
-				'errors.*,jobstats.p0,topicprobe.p0'
-			) }`
-		);
-		expect( seeksOf( url ) ).toEqual( {
+		expect( subscribed() ).toBe( 'errors.*,jobstats.p0,topicprobe.p0' );
+		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
 			'jobstats.p0': SEEK_START,
 			'topicprobe.p0': SEEK_START,
 		} );
+		expect( link.pairs ).toEqual( [
+			'jobstats.p0:jobs:stream',
+			'topicprobe.p0:backlog:stream',
+			'errors.*:glob:stream',
+		] );
 	} );
 
-	it( 'routes each record by stamp to the graph that carries it', async () => {
+	it( 'hands each record to its stamp’s Tee, which feeds that stamp’s views only', async () => {
 		const { link, delivered } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		link.attach( [ 'topicprobe.p0' ], 'backlog:stream' );
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
+		link.addPairs( [ 'topicprobe.p0:backlog:stream' ] );
 		await flush();
 		FakeEventSource.last.dispatch(
 			'msg',
@@ -611,35 +648,60 @@ describe( 'riders — one link carrying several graphs', () => {
 			'msg',
 			record( 'topicprobe.p0/job-worker.p1/topicprobe', '8:0:30' )
 		);
-		expect( delivered[ 'jobs:stream' ].map( ( m ) => m[ ID ] ) ).toEqual( [
-			'3:0:40',
-		] );
-		expect( delivered[ 'backlog:stream' ].map( ( m ) => m[ ID ] ) ).toEqual(
-			[ '8:0:30' ]
-		);
+		expect( ids( delivered[ 'jobs:stream' ] ) ).toEqual( [ '3:0:40' ] );
+		expect( ids( delivered[ 'backlog:stream' ] ) ).toEqual( [ '8:0:30' ] );
+		const tee = Core.node( '_stream:jobstats.p0' );
+		expect( tee ).toBeInstanceOf( TeeNode );
+		expect( tee.patron ).toBe( link );
+		expect( tee.sink ).toBe( link.sink );
+		expect( tee.target ).toEqual( [ 'jobs:stream' ] );
 	} );
 
-	it( 'two graphs on one stamp with no seed both get each record once', async () => {
+	it( 'delivers a record whatever TO it was stored with', async () => {
 		const { link, delivered } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		link.attach( [ 'jobstats.p0' ], 'backlog:stream' );
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
 		await flush();
-		expect( FakeEventSource.last.url ).toContain(
-			'subscribe=jobstats.p0&'
-		);
+		const m = newMessage();
+		m[ TYPE ] = TM_STRUCT;
+		m[ FROM ] = 'jobstats.p0';
+		m[ TO ] = 'stale-route-5512';
+		m[ ID ] = '3:44:9';
+		m[ VALUE ] = { seen: 'stored-to-5512' };
+		FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );
+		expect( ids( delivered[ 'jobs:stream' ] ) ).toEqual( [ '3:44:9' ] );
+	} );
+
+	it( 'two views on one stamp share its one Tee, and ls -al shows both targets', async () => {
+		const { link, delivered } = makeShared();
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
+		link.addPairs( [ 'jobstats.p0:backlog:stream' ] );
+		await flush();
+		expect( subscribed() ).toBe( 'jobstats.p0' );
 		FakeEventSource.last.dispatch(
 			'msg',
 			record( 'jobstats.p0', '3:0:40' )
 		);
-		expect( delivered[ 'jobs:stream' ] ).toHaveLength( 1 );
-		expect( delivered[ 'backlog:stream' ] ).toHaveLength( 1 );
+		expect( ids( delivered[ 'jobs:stream' ] ) ).toEqual( [ '3:0:40' ] );
+		expect( ids( delivered[ 'backlog:stream' ] ) ).toEqual( [ '3:0:40' ] );
+		expect( Core.node( '_stream:jobstats.p0' ).target ).toEqual( [
+			'jobs:stream',
+			'backlog:stream',
+		] );
+		const listing = Core.node( names.COMMAND_INTERPRETER ).dispatch( 'ls', [
+			'-al',
+			'^_stream:jobstats',
+		] );
+		expect( listing ).toMatch(
+			/_stream:jobstats\.p0\s.*-> jobs:stream, backlog:stream/
+		);
 	} );
 
-	it( 'a glob graph and an exact graph overlapping both get the shared stamp', async () => {
+	it( 'a glob pair builds a Tee per stamp on first sight', async () => {
 		const { link, delivered } = makeShared();
-		link.attach( [ 'errors.*' ], 'glob:stream' );
-		link.attach( [ 'errors.p3' ], 'jobs:stream' );
+		link.addPairs( [ 'errors.*:glob:stream' ] );
+		link.addPairs( [ 'errors.p3:jobs:stream' ] );
 		await flush();
+		expect( Core.node( '_stream:errors.p3' ) ).toBeNull();
 		FakeEventSource.last.dispatch(
 			'msg',
 			record( 'errors.p3/x', '1:0:9' )
@@ -648,99 +710,425 @@ describe( 'riders — one link carrying several graphs', () => {
 			'msg',
 			record( 'errors.p5/x', '2:0:9' )
 		);
-		expect( delivered[ 'glob:stream' ].map( ( m ) => m[ ID ] ) ).toEqual( [
+		expect( Core.node( '_stream:errors.p3' ).target ).toEqual( [
+			'glob:stream',
+			'jobs:stream',
+		] );
+		expect( Core.node( '_stream:errors.p5' ).target ).toEqual( [
+			'glob:stream',
+		] );
+		expect( ids( delivered[ 'glob:stream' ] ) ).toEqual( [
 			'1:0:9',
 			'2:0:9',
 		] );
-		expect( delivered[ 'jobs:stream' ].map( ( m ) => m[ ID ] ) ).toEqual( [
-			'1:0:9',
-		] );
+		expect( ids( delivered[ 'jobs:stream' ] ) ).toEqual( [ '1:0:9' ] );
 	} );
 
-	it( 'hands a line opening with no stamp to every graph riding', async () => {
+	it( 'drops a record no pair claims, saying so, and builds no Tee', async () => {
+		expectConsoleWarn(
+			'_stream: WARNING: no pair claims the stamp - TM_BYTESTREAM from: kea.p7/x'
+		);
 		const { link, delivered } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		link.attach( [ 'topicprobe.p0' ], 'backlog:stream' );
-		await flush();
-		FakeEventSource.last.dispatch( 'msg', record( '', '4:0:12' ) );
-		for ( const target of [ 'jobs:stream', 'backlog:stream' ] ) {
-			expect( delivered[ target ].map( ( m ) => m[ ID ] ) ).toEqual( [
-				'4:0:12',
-			] );
-		}
-	} );
-
-	it( 'reads a `_stream` FROM as a stamp, which no graph carries', async () => {
-		expectConsoleWarn( '_stream:sse-in: WARNING: no route for _stream' );
-		const { link, delivered } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		link.attach( [ 'topicprobe.p0' ], 'backlog:stream' );
-		await flush();
-		FakeEventSource.last.dispatch( 'msg', record( '_stream', '5:0:12' ) );
-		expect( delivered ).toEqual( {} );
-	} );
-
-	it( 'drops a stamped line no graph carries, saying so', async () => {
-		expectConsoleWarn( '_stream:sse-in: WARNING: no route for kea.p7' );
-		const { link, delivered } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
 		await flush();
 		FakeEventSource.last.dispatch( 'msg', record( 'kea.p7/x', '6:0:3' ) );
 		expect( delivered ).toEqual( {} );
+		expect( Core.node( '_stream:kea.p7' ) ).toBeNull();
 	} );
 
-	it( 'refuses a seek on a stamp another graph is streaming, naming both', () => {
-		const { link } = makeShared();
-		link.attach( [ 'jobstats.*' ], 'jobs:stream' );
+	it( 'drops a record whose FROM names no stamp', async () => {
+		expectConsoleWarn(
+			'_stream: WARNING: no pair claims the stamp - TM_BYTESTREAM'
+		);
+		const { link, delivered } = makeShared();
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
+		await flush();
+		FakeEventSource.last.dispatch( 'msg', record( '', '4:0:12' ) );
+		expect( delivered ).toEqual( {} );
+	} );
+
+	it( 'drops a glob stamp whose Tee would take the SseIn’s slot', async () => {
+		expectConsoleWarn(
+			'_stream: WARNING: the stamp names the slot the SseIn holds - TM_BYTESTREAM from: sse-in'
+		);
+		const { link, delivered } = makeShared();
+		link.addPairs( [ 'sse*:glob:stream' ] );
+		await flush();
 		expect( () =>
-			link.attach( [ 'jobstats.p0' ], 'backlog:stream', {
+			FakeEventSource.last.dispatch( 'msg', record( 'sse-in', '2:0:4' ) )
+		).not.toThrow();
+		expect( delivered ).toEqual( {} );
+		expect( Core.node( '_stream:sse-in' ) ).toBe( link.sseIn );
+	} );
+
+	it( 'a command reply keeps the TO the server addressed', async () => {
+		const { link, delivered } = makeShared();
+		const replies = [];
+		const receiver = new Node();
+		receiver.name = 'status-receiver-6620';
+		receiver.fill = ( m ) => replies.push( m[ VALUE ] );
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
+		await flush();
+		const reply = newMessage();
+		reply[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+		reply[ FROM ] = 'jobstats.p0';
+		reply[ TO ] = 'status-receiver-6620';
+		reply[ VALUE ] = { name: 'dump_log', payload: { size: 7731 } };
+		FakeEventSource.last.dispatch( 'msg', JSON.stringify( reply ) );
+		expect( replies ).toEqual( [
+			{ name: 'dump_log', payload: { size: 7731 } },
+		] );
+		expect( delivered ).toEqual( {} );
+	} );
+
+	it( 'removing one view’s pair drops only its edge; the other keeps streaming', async () => {
+		const { link, delivered } = makeShared();
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
+		link.addPairs( [ 'jobstats.p0:backlog:stream' ] );
+		await flush();
+		const open = FakeEventSource.last;
+		open.dispatch( 'msg', record( 'jobstats.p0/x', '3:120:40' ) );
+		link.removePairs( [ 'jobstats.p0:jobs:stream' ] );
+		await flush();
+		open.dispatch( 'msg', record( 'jobstats.p0/x', '3:160:25' ) );
+		expect( FakeEventSource.opened ).toBe( 1 );
+		expect( open.closed ).toBe( false );
+		expect( Core.node( '_stream:jobstats.p0' ).target ).toEqual( [
+			'backlog:stream',
+		] );
+		expect( ids( delivered[ 'jobs:stream' ] ) ).toEqual( [ '3:120:40' ] );
+		expect( ids( delivered[ 'backlog:stream' ] ) ).toEqual( [
+			'3:120:40',
+			'3:160:25',
+		] );
+	} );
+
+	it( 'removing a stamp’s last pair unsubscribes it, keeps its place and retracts its Tee', async () => {
+		const { link } = makeShared();
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
+		link.addPairs( [ 'topicprobe.p0:backlog:stream' ] );
+		await flush();
+		FakeEventSource.last.dispatch(
+			'msg',
+			record( 'jobstats.p0/x', '3:120:40' )
+		);
+		link.removePairs( [ 'jobstats.p0:jobs:stream' ] );
+		await flush();
+		expect( subscribed() ).toBe( 'topicprobe.p0' );
+		expect( Core.node( '_stream:jobstats.p0' ) ).toBeNull();
+		expect( link.sseIn.lastPositions[ 'jobstats.p0' ] ).toEqual( {
+			segment: 3,
+			offset: 160,
+		} );
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
+		await flush();
+		expect( FakeEventSource.opened ).toBe( 3 );
+		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
+			'topicprobe.p0': SEEK_END,
+			'jobstats.p0': { segment: 3, offset: 160 },
+		} );
+	} );
+
+	it( 'a record after its last pair went, before the reopen, is dropped', async () => {
+		expectConsoleWarn(
+			'_stream: WARNING: no pair claims the stamp - TM_BYTESTREAM from: jobstats.p0/x'
+		);
+		const { link, delivered } = makeShared();
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
+		link.addPairs( [ 'topicprobe.p0:backlog:stream' ] );
+		await flush();
+		link.removePairs( [ 'jobstats.p0:jobs:stream' ] );
+		FakeEventSource.last.dispatch(
+			'msg',
+			record( 'jobstats.p0/x', '3:200:10' )
+		);
+		expect( delivered ).toEqual( {} );
+	} );
+
+	it( 'the last removed pair closes the stream and its heartbeat lease', async () => {
+		const { link } = makeShared();
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
+		await flush();
+		dispatchConnected( link, { slot: 6 } );
+		const hb = Core.node( names.HEARTBEAT );
+		expect( hb.slot ).toBe( 6 );
+		const open = FakeEventSource.last;
+		link.removePairs( [ 'jobstats.p0:jobs:stream' ] );
+		await flush();
+		expect( open.closed ).toBe( true );
+		expect( hb.slot ).toBeNull();
+		expect( link.pairs ).toEqual( [] );
+		expect( FakeEventSource.opened ).toBe( 1 );
+	} );
+
+	it( 'refuses a seek on a stamp another view’s pair claims, naming both, and adds nothing', () => {
+		const { link } = makeShared();
+		link.addPairs( [ 'jobstats.*:jobs:stream' ] );
+		expect( () =>
+			link.addPairs( [ 'jobstats.p0:backlog:stream' ], {
 				'jobstats.p0': SEEK_START,
 			} )
 		).toThrow(
 			'RemoteLink: backlog:stream cannot seek jobstats.p0, which jobs:stream is streaming'
 		);
-		expect( link.graphs.has( 'backlog:stream' ) ).toBe( false );
+		expect( link.pairs ).toEqual( [ 'jobstats.*:jobs:stream' ] );
 	} );
 
-	it( 'detach during CONNECTING reopens once, without the detached graph', async () => {
+	it( 'refuses a tail on a stamp another view’s pair claims', () => {
 		const { link } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		link.attach( [ 'topicprobe.p0' ], 'backlog:stream' );
-		await flush();
-		const connecting = FakeEventSource.last;
-		expect( connecting.readyState ).toBe( FakeEventSource.CONNECTING );
-		link.detach( 'backlog:stream' );
-		await flush();
-		expect( connecting.closed ).toBe( true );
-		expect( FakeEventSource.opened ).toBe( 2 );
-		expect( FakeEventSource.last.url ).toContain(
-			'subscribe=jobstats.p0&'
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
+		expect( () =>
+			link.addPairs( [ 'jobstats.p0:backlog:stream' ], null )
+		).toThrow(
+			'RemoteLink: backlog:stream cannot seek jobstats.p0, which jobs:stream is streaming'
 		);
-		expect( link.sseIn.setStateCache.RECONNECTING ).toBeUndefined();
 	} );
 
-	it( 'a re-attach that changes nothing keeps the open stream', async () => {
+	it( 'refuses a glob tail over a dir another view seeded this tick', () => {
 		const { link } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
+		link.addPairs( [ 'errors.p1:jobs:stream' ], { 'errors.p1': 0 } );
+		expect( () =>
+			link.addPairs( [ 'errors.*:glob:stream' ], null )
+		).toThrow(
+			'RemoteLink: glob:stream cannot seek errors.p1, which jobs:stream is streaming'
+		);
+	} );
+
+	it( 'refuses a glob tail over a dir another view has read', async () => {
+		const { link } = makeShared();
+		link.addPairs( [ 'errors.p3:jobs:stream' ] );
+		await flush();
+		FakeEventSource.last.dispatch(
+			'msg',
+			record( 'errors.p3/x', '7:210:15' )
+		);
+		expect( () =>
+			link.addPairs( [ 'errors.*:glob:stream' ], null )
+		).toThrow(
+			'RemoteLink: glob:stream cannot seek errors.p3, which jobs:stream is streaming'
+		);
+	} );
+
+	it( 'one drop line covers every unclaimed stamp in its window', async () => {
+		expectConsoleWarn(
+			'_stream: WARNING: no pair claims the stamp - TM_BYTESTREAM from: kea.p7/x'
+		);
+		const { link } = makeShared();
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
+		await flush();
+		FakeEventSource.last.dispatch( 'msg', record( 'kea.p7/x', '6:0:3' ) );
+		FakeEventSource.last.dispatch( 'msg', record( 'kea.p8/x', '6:3:3' ) );
+		expect(
+			Core.recentLog.filter( ( line ) =>
+				line.includes( 'no pair claims the stamp' )
+			)
+		).toHaveLength( 1 );
+	} );
+
+	it( 'a directed TM_ERROR or TM_RESPONSE goes out by its TO', async () => {
+		const { link, delivered } = makeShared();
+		const got = [];
+		const receiver = new Node();
+		receiver.name = 'fetch-receiver-7731';
+		receiver.fill = ( m ) => got.push( m[ VALUE ] );
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
+		await flush();
+		for ( const [ type, value ] of [
+			[ TM_ERROR, 'NOT_AVAILABLE bounce-4402' ],
+			[ TM_RESPONSE, 'response-4403' ],
+		] ) {
+			const m = newMessage();
+			m[ TYPE ] = type;
+			m[ FROM ] = 'jobstats.p0';
+			m[ TO ] = 'fetch-receiver-7731';
+			m[ VALUE ] = value;
+			FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );
+		}
+		expect( got ).toEqual( [
+			'NOT_AVAILABLE bounce-4402',
+			'response-4403',
+		] );
+		expect( delivered ).toEqual( {} );
+	} );
+
+	it( 'an undirected TM_ERROR on a claimed stamp goes through its Tee', async () => {
+		const { link, delivered } = makeShared();
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
+		await flush();
+		const m = newMessage();
+		m[ TYPE ] = TM_ERROR;
+		m[ FROM ] = 'jobstats.p0';
+		m[ ID ] = '3:0:8';
+		m[ VALUE ] = 'stream error 5530';
+		FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );
+		expect( ids( delivered[ 'jobs:stream' ] ) ).toEqual( [ '3:0:8' ] );
+	} );
+
+	it( 'parking a stamp’s last pair unsubscribes it and retracts its Tee, keeping its claim', async () => {
+		const { link } = makeShared();
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
+		link.addPairs( [ 'topicprobe.p0:backlog:stream' ] );
+		await flush();
+		FakeEventSource.last.dispatch(
+			'msg',
+			record( 'jobstats.p0/x', '3:120:40' )
+		);
+		link.parkPairs( [ 'jobstats.p0:jobs:stream' ] );
+		await flush();
+		expect( subscribed() ).toBe( 'topicprobe.p0' );
+		expect( Core.node( '_stream:jobstats.p0' ) ).toBeNull();
+		expect( link.pairs ).toEqual( [ 'topicprobe.p0:backlog:stream' ] );
+		expect( link.parked ).toEqual( [ 'jobstats.p0:jobs:stream' ] );
+	} );
+
+	it( 'a parked pair feeds no edge while its stamp’s other view streams on', async () => {
+		const { link, delivered } = makeShared();
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
+		link.addPairs( [ 'jobstats.p0:backlog:stream' ] );
+		await flush();
+		FakeEventSource.last.dispatch(
+			'msg',
+			record( 'jobstats.p0/x', '3:0:40' )
+		);
+		link.parkPairs( [ 'jobstats.p0:jobs:stream' ] );
+		FakeEventSource.last.dispatch(
+			'msg',
+			record( 'jobstats.p0/x', '3:40:12' )
+		);
+		expect( Core.node( '_stream:jobstats.p0' ).target ).toEqual( [
+			'backlog:stream',
+		] );
+		expect( ids( delivered[ 'jobs:stream' ] ) ).toEqual( [ '3:0:40' ] );
+		expect( ids( delivered[ 'backlog:stream' ] ) ).toEqual( [
+			'3:0:40',
+			'3:40:12',
+		] );
+	} );
+
+	it( 'refuses a seek on a stamp a paused view claims, naming it', () => {
+		const { link } = makeShared();
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
+		link.addPairs( [ 'jobstats.p0:backlog:stream' ] );
+		link.parkPairs( [ 'jobstats.p0:jobs:stream' ] );
+		expect( () =>
+			link.addPairs( [ 'jobstats.p0:backlog:stream' ], {
+				'jobstats.p0': { segment: 4, offset: 96 },
+			} )
+		).toThrow(
+			'RemoteLink: backlog:stream cannot seek jobstats.p0, which jobs:stream is streaming'
+		);
+	} );
+
+	it( 'a paused view keeps its place when the other view on its stamp leaves, and resumes there', async () => {
+		const { link } = makeShared();
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
+		link.addPairs( [ 'jobstats.p0:backlog:stream' ] );
+		await flush();
+		FakeEventSource.last.dispatch(
+			'msg',
+			record( 'jobstats.p0/x', '3:120:40' )
+		);
+		link.parkPairs( [ 'jobstats.p0:jobs:stream' ] );
+		link.removePairs( [ 'jobstats.p0:backlog:stream' ] );
+		link.forget( [ 'jobstats.p0' ] );
+		await flush();
+		expect( link.sseIn.lastPositions[ 'jobstats.p0' ] ).toEqual( {
+			segment: 3,
+			offset: 160,
+		} );
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
+		await flush();
+		expect( link.parked ).toEqual( [] );
+		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
+			'jobstats.p0': { segment: 3, offset: 160 },
+		} );
+	} );
+
+	it( 'removing a parked pair gives up its claim', () => {
+		const { link } = makeShared();
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
+		link.parkPairs( [ 'jobstats.p0:jobs:stream' ] );
+		link.removePairs( [ 'jobstats.p0:jobs:stream' ] );
+		expect( link.parked ).toEqual( [] );
+		expect( () =>
+			link.addPairs( [ 'jobstats.p0:backlog:stream' ], {
+				'jobstats.p0': SEEK_START,
+			} )
+		).not.toThrow();
+	} );
+
+	it( 'a view may seek a stamp whose other view removed its pair', () => {
+		const { link } = makeShared();
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
+		link.removePairs( [ 'jobstats.p0:jobs:stream' ] );
+		expect( () =>
+			link.addPairs( [ 'jobstats.p0:backlog:stream' ], {
+				'jobstats.p0': { segment: 2, offset: 81 },
+			} )
+		).not.toThrow();
+	} );
+
+	it( 'a null seek tails that view’s dirs while the others resume', async () => {
+		const { link } = makeShared();
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
+		link.addPairs( [ 'topicprobe.p0:backlog:stream' ] );
+		await flush();
+		FakeEventSource.last.dispatch(
+			'msg',
+			record( 'jobstats.p0/x', '3:120:40' )
+		);
+		FakeEventSource.last.dispatch(
+			'msg',
+			record( 'topicprobe.p0/x', '8:600:30' )
+		);
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ], null );
+		await flush();
+		expect( FakeEventSource.opened ).toBe( 2 );
+		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
+			'jobstats.p0': SEEK_END,
+			'topicprobe.p0': { segment: 8, offset: 630 },
+		} );
+	} );
+
+	it( 'a seek added and removed in one tick is never asked for', async () => {
+		const { link } = makeShared();
+		link.addPairs( [ 'topicprobe.p0:backlog:stream' ] );
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ], {
+			'jobstats.p0': SEEK_START,
+		} );
+		link.removePairs( [ 'jobstats.p0:jobs:stream' ] );
+		link.forget( [ 'jobstats.p0' ] );
+		link.addPairs( [ 'jobstats.p0:glob:stream' ] );
+		await flush();
+		expect( FakeEventSource.opened ).toBe( 1 );
+		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
+			'topicprobe.p0': SEEK_END,
+			'jobstats.p0': SEEK_END,
+		} );
+	} );
+
+	it( 're-adding the same pairs keeps the open stream', async () => {
+		const { link } = makeShared();
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
 		await flush();
 		const open = FakeEventSource.last;
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
 		await flush();
 		expect( FakeEventSource.opened ).toBe( 1 );
 		expect( open.closed ).toBe( false );
+		expect( link.pairs ).toEqual( [ 'jobstats.p0:jobs:stream' ] );
 	} );
 
-	it( 'a re-attach that changes nothing waits out a scheduled reopen', async () => {
+	it( 're-adding the same pairs waits out a scheduled reopen', async () => {
 		jest.useFakeTimers( { doNotFake: [ 'queueMicrotask' ] } );
 		try {
 			const { link } = makeShared();
-			link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
+			link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
 			await flush();
 			const refused = FakeEventSource.last;
-			// The server closed it; the stream owns the reopen and backs off.
 			refused.dispatch( 'error' );
 			expect( refused.closed ).toBe( true );
-			link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
+			link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
 			await flush();
 			expect( FakeEventSource.opened ).toBe( 1 );
 			jest.advanceTimersByTime( 2000 );
@@ -751,137 +1139,140 @@ describe( 'riders — one link carrying several graphs', () => {
 		}
 	} );
 
-	it( 'a re-attach in the same tick keeps the seek it has not stated yet', async () => {
+	it( 're-adding in the same tick keeps the seek it has not stated yet', async () => {
 		const { link } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream', {
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ], {
 			'jobstats.p0': { segment: 6, offset: 14 },
 		} );
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
 		await flush();
 		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
 			'jobstats.p0': { segment: 6, offset: 14 },
 		} );
 	} );
 
-	it( 'a re-attach under a new subscription reopens on it', async () => {
+	it( 'a seed the handshake spent is not asked for again when its pair returns', async () => {
 		const { link } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ], {
+			'jobstats.p0': SEEK_START,
+		} );
+		link.addPairs( [ 'topicprobe.p0:backlog:stream' ] );
 		await flush();
-		link.attach( [ 'tablestats.p0' ], 'jobs:stream' );
+		const m = newMessage();
+		m[ TYPE ] = TM_INFO;
+		m[ KEY ] = 'connected';
+		m[ VALUE ] =
+			`SESSION ${ HARNESS_SESSION } SLOT 4 OWNER ${ LEASE_OWNER } ` +
+			'SUBSCRIPTIONS jobstats.p0,topicprobe.p0 INTERVAL 2000 ' +
+			'CURSORS jobstats.p0=6:0,topicprobe.p0=9:4471';
+		FakeEventSource.last.dispatch( 'connected', JSON.stringify( m ) );
+		link.removePairs( [ 'jobstats.p0:jobs:stream' ] );
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
 		await flush();
-		expect( FakeEventSource.opened ).toBe( 2 );
-		expect( FakeEventSource.last.url ).toContain(
-			'subscribe=tablestats.p0&'
-		);
-		expect( link.arguments ).toEqual( [ 'tablestats.p0' ] );
+		expect( FakeEventSource.opened ).toBe( 1 );
+		expect( link.sseIn.seekMap() ).toEqual( {
+			'jobstats.p0': { segment: 6, offset: 0 },
+			'topicprobe.p0': { segment: 9, offset: 4471 },
+		} );
 	} );
 
-	it( 'a null seek tails that graph’s dirs while the others resume', async () => {
+	it( 'a view removed before its stream answered replays its seek when it returns', async () => {
 		const { link } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		link.attach( [ 'topicprobe.p0' ], 'backlog:stream' );
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ], {
+			'jobstats.p0': SEEK_START,
+		} );
+		link.addPairs( [ 'topicprobe.p0:backlog:stream' ] );
+		await flush();
+		link.removePairs( [ 'jobstats.p0:jobs:stream' ] );
+		await flush();
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
+		await flush();
+		expect( FakeEventSource.opened ).toBe( 3 );
+		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
+			'jobstats.p0': SEEK_START,
+			'topicprobe.p0': SEEK_END,
+		} );
+	} );
+
+	it( 'forget drops the place and count of a dir no pair claims, so a later view tails', async () => {
+		const { link } = makeShared();
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
+		link.addPairs( [ 'topicprobe.p0:backlog:stream' ] );
 		await flush();
 		FakeEventSource.last.dispatch(
 			'msg',
 			record( 'jobstats.p0/x', '3:120:40' )
 		);
+		skipped( 'COUNT 13 COUNTS jobstats.p0=6,topicprobe.p0=7' );
+		link.removePairs( [ 'jobstats.p0:jobs:stream' ] );
+		link.forget( [ 'jobstats.p0' ] );
+		await flush();
+		expect( link.unparseableByStamp ).toEqual( { 'topicprobe.p0': 7 } );
+		link.addPairs( [ 'jobstats.p0:glob:stream' ] );
+		await flush();
+		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
+			'topicprobe.p0': SEEK_END,
+			'jobstats.p0': SEEK_END,
+		} );
+	} );
+
+	it( 'forget keeps a dir another pair still claims, and the stream riding it', async () => {
+		const { link } = makeShared();
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
+		link.addPairs( [ 'jobstats.p0:backlog:stream' ] );
+		await flush();
 		FakeEventSource.last.dispatch(
 			'msg',
-			record( 'topicprobe.p0/x', '8:600:30' )
+			record( 'jobstats.p0/x', '5:80:12' )
 		);
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream', null );
+		link.removePairs( [ 'jobstats.p0:jobs:stream' ] );
+		link.forget( [ 'jobstats.p0' ] );
 		await flush();
-		expect( FakeEventSource.opened ).toBe( 2 );
-		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
-			'jobstats.p0': SEEK_END,
-			'topicprobe.p0': { segment: 8, offset: 630 },
+		expect( FakeEventSource.opened ).toBe( 1 );
+		expect( link.sseIn.lastPositions[ 'jobstats.p0' ] ).toEqual( {
+			segment: 5,
+			offset: 92,
 		} );
 	} );
 
-	it( 'a graph detaching takes its seed along, so a later one tails', async () => {
+	it( 'forgetting a place the open stream carries reopens even on the same set', async () => {
 		const { link } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream', {
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ], {
 			'jobstats.p0': SEEK_START,
 		} );
-		link.attach( [ 'topicprobe.p0' ], 'backlog:stream' );
+		link.addPairs( [ 'topicprobe.p0:backlog:stream' ] );
 		await flush();
-		link.detach( 'jobs:stream' );
-		link.attach( [ 'jobstats.p0' ], 'glob:stream' );
+		link.removePairs( [ 'jobstats.p0:jobs:stream' ] );
+		link.forget( [ 'jobstats.p0' ] );
+		link.addPairs( [ 'jobstats.p0:glob:stream' ] );
 		await flush();
-		// A replay the leaver asked for must not run on into the later graph.
 		expect( FakeEventSource.opened ).toBe( 2 );
 		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
 			'jobstats.p0': SEEK_END,
 			'topicprobe.p0': SEEK_END,
 		} );
 	} );
-
-	it( 'a seek attached and detached in one tick is never asked for', async () => {
-		const { link } = makeShared();
-		link.attach( [ 'topicprobe.p0' ], 'backlog:stream' );
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream', {
-			'jobstats.p0': SEEK_START,
-		} );
-		link.detach( 'jobs:stream' );
-		link.attach( [ 'jobstats.p0' ], 'glob:stream' );
-		await flush();
-		expect( FakeEventSource.opened ).toBe( 1 );
-		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
-			'topicprobe.p0': SEEK_END,
-			'jobstats.p0': SEEK_END,
-		} );
-	} );
-
-	it( 'the last detach closes the stream and its heartbeat lease', async () => {
-		const { link } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		await flush();
-		dispatchConnected( link, { slot: 6 } );
-		const hb = Core.node( names.HEARTBEAT );
-		expect( hb.slot ).toBe( 6 );
-		const open = FakeEventSource.last;
-		link.detach( 'jobs:stream' );
-		await flush();
-		expect( open.closed ).toBe( true );
-		expect( hb.slot ).toBeNull();
-		expect( link.graphs.size ).toBe( 0 );
-		expect( FakeEventSource.opened ).toBe( 1 );
-	} );
-
-	const skipped = ( value ) => {
-		const frame = newMessage();
-		frame[ TYPE ] = TM_INFO;
-		frame[ KEY ] = 'unparseable_lines';
-		frame[ VALUE ] = value;
-		FakeEventSource.last.dispatch(
-			'unparseable_lines',
-			JSON.stringify( frame )
-		);
-	};
 
 	it( 'publishes its stream’s skipped lines by stamp', async () => {
 		const { link } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		link.attach( [ 'topicprobe.p0' ], 'backlog:stream' );
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
 		await flush();
-		skipped( 'COUNT 11 COUNTS jobstats.p0=4,topicprobe.p0=7' );
+		skipped( 'COUNT 11 COUNTS jobstats.p0=4,kea.p7=7' );
 		expect( link.unparseableByStamp ).toEqual( {
 			'jobstats.p0': 4,
-			'topicprobe.p0': 7,
+			'kea.p7': 7,
 		} );
 		expect( link.setStateCache.UNPARSEABLE_LINES ).toBe( 11 );
-		for ( const target of [ 'jobs:stream', 'backlog:stream' ] ) {
-			expect( Core.node( target ).setStateCache ).toEqual( {} );
-		}
+		expect( Core.node( 'jobs:stream' ).setStateCache ).toEqual( {} );
 	} );
 
-	it( 'a parked graph’s stamps keep their count while the others climb', async () => {
+	it( 'a stamp whose pairs all went keeps its count while the others climb', async () => {
 		const { link } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		link.attach( [ 'topicprobe.p0' ], 'backlog:stream' );
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
+		link.addPairs( [ 'topicprobe.p0:backlog:stream' ] );
 		await flush();
 		skipped( 'COUNT 9 COUNTS jobstats.p0=4,topicprobe.p0=5' );
-		link.park( 'jobs:stream' );
+		link.removePairs( [ 'jobstats.p0:jobs:stream' ] );
 		await flush();
 		skipped( 'COUNT 3 COUNTS topicprobe.p0=3' );
 		expect( link.unparseableByStamp ).toEqual( {
@@ -892,7 +1283,7 @@ describe( 'riders — one link carrying several graphs', () => {
 
 	it( 'publishes a fresh map on every frame, so a reader re-renders', async () => {
 		const { link } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
 		await flush();
 		skipped( 'COUNT 3 COUNTS jobstats.p0=3' );
 		const published = link.unparseableByStamp;
@@ -904,320 +1295,62 @@ describe( 'riders — one link carrying several graphs', () => {
 		} );
 	} );
 
-	it( 'detaching a graph that never attached leaves the stream be', async () => {
+	it( 'removing pairs it does not carry leaves the stream be', async () => {
 		const { link } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
 		await flush();
 		const open = FakeEventSource.last;
-		link.detach( 'backlog:stream' );
+		link.removePairs( [ 'jobstats.p0:backlog:stream' ] );
 		await flush();
 		expect( open.closed ).toBe( false );
 		expect( FakeEventSource.opened ).toBe( 1 );
 	} );
 
-	it( 'refuses a tail on a stamp another graph is streaming, naming both', () => {
+	it( 'refuses a token that is no <stamp>:<target> pair', () => {
 		const { link } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		expect( () =>
-			link.attach( [ 'jobstats.p0' ], 'backlog:stream', null )
-		).toThrow(
-			'RemoteLink: backlog:stream cannot seek jobstats.p0, which jobs:stream is streaming'
+		expect( () => link.addPairs( [ 'jobstats.p0' ] ) ).toThrow(
+			"RemoteLink: a pair is <stamp>:<target>, got 'jobstats.p0'"
 		);
-		expect( link.graphs.has( 'backlog:stream' ) ).toBe( false );
+		expect( () => link.addPairs( [ ':jobs:stream' ] ) ).toThrow(
+			"RemoteLink: a pair is <stamp>:<target>, got ':jobs:stream'"
+		);
+		expect( link.pairs ).toEqual( [] );
 	} );
 
-	it( 'unmounting a parked graph the open stream does not carry keeps it open', async () => {
+	it( 'refuses a pair whose Tee would take the SseIn’s slot', () => {
 		const { link } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		link.attach( [ 'topicprobe.p0' ], 'backlog:stream', {
-			'topicprobe.p0': { segment: 3, offset: 61 },
-		} );
-		await flush();
-		link.park( 'backlog:stream' );
-		await flush();
-		const open = FakeEventSource.last;
-		const opened = FakeEventSource.opened;
-		link.detach( 'backlog:stream' );
-		await flush();
-		expect( FakeEventSource.opened ).toBe( opened );
-		expect( open.closed ).toBe( false );
-	} );
-
-	it( 'refuses a glob tail over a dir another graph seeded this tick', () => {
-		const { link } = makeShared();
-		link.attach( [ 'errors.p1' ], 'jobs:stream', { 'errors.p1': 0 } );
-		expect( () =>
-			link.attach( [ 'errors.*' ], 'glob:stream', null )
-		).toThrow(
-			'RemoteLink: glob:stream cannot seek errors.p1, which jobs:stream is streaming'
+		expect( () => link.addPairs( [ 'sse-in:jobs:stream' ] ) ).toThrow(
+			"RemoteLink: a pair's Tee names the slot its SseIn holds: 'sse-in:jobs:stream'"
 		);
 	} );
 
-	it( 'refuses a glob tail over a dir another graph seeded and opened', async () => {
+	it( 'removeNode retracts every Tee, so a fresh link builds them again', async () => {
 		const { link } = makeShared();
-		link.attach( [ 'errors.p4' ], 'jobs:stream', { 'errors.p4': 0 } );
-		await flush();
-		expect( () =>
-			link.attach( [ 'errors.*' ], 'glob:stream', null )
-		).toThrow(
-			'RemoteLink: glob:stream cannot seek errors.p4, which jobs:stream is streaming'
-		);
-	} );
-
-	it( 'refuses a glob tail over a dir another graph has read', async () => {
-		const { link } = makeShared();
-		link.attach( [ 'errors.p3' ], 'jobs:stream' );
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
 		await flush();
 		FakeEventSource.last.dispatch(
 			'msg',
-			record( 'errors.p3/x', '7:210:15' )
+			record( 'jobstats.p0', '3:0:40' )
 		);
-		expect( () =>
-			link.attach( [ 'errors.*' ], 'glob:stream', null )
-		).toThrow(
-			'RemoteLink: glob:stream cannot seek errors.p3, which jobs:stream is streaming'
-		);
-	} );
-
-	it( 'an unmounted graph’s read positions go with it, so a later one tails', async () => {
-		const { link } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		link.attach( [ 'topicprobe.p0' ], 'backlog:stream' );
+		link.removeNode();
+		expect( Core.node( '_stream:jobstats.p0' ) ).toBeNull();
+		const fresh = new RemoteLinkNode();
+		fresh.name = names.STREAM;
+		fresh.sink = Core.node( names.COMMAND_INTERPRETER );
+		fresh.addPairs( [ 'jobstats.p0:jobs:stream' ] );
 		await flush();
 		FakeEventSource.last.dispatch(
 			'msg',
-			record( 'jobstats.p0/x', '3:120:40' )
+			record( 'jobstats.p0', '3:40:12' )
 		);
-		link.detach( 'jobs:stream' );
-		await flush();
-		link.attach( [ 'jobstats.p0' ], 'glob:stream' );
-		await flush();
-		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
-			'topicprobe.p0': SEEK_END,
-			'jobstats.p0': SEEK_END,
-		} );
-	} );
-
-	it( 'a parked graph resumes where it stopped when it plays', async () => {
-		const { link } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		link.attach( [ 'topicprobe.p0' ], 'backlog:stream' );
-		await flush();
-		FakeEventSource.last.dispatch(
-			'msg',
-			record( 'jobstats.p0/x', '3:120:40' )
-		);
-		link.park( 'jobs:stream' );
-		await flush();
-		expect( FakeEventSource.last.url ).toContain(
-			'subscribe=topicprobe.p0&'
-		);
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		await flush();
-		expect( FakeEventSource.opened ).toBe( 3 );
-		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
-			'topicprobe.p0': SEEK_END,
-			'jobstats.p0': { segment: 3, offset: 160 },
-		} );
-	} );
-
-	// A seed is spent once the server answers it: the handshake states where
-	// each reader opened, and that cursor outranks the seed from then on.
-	it( 'a parked graph’s spent seed is not asked for again on play', async () => {
-		const { link } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream', {
-			'jobstats.p0': SEEK_START,
-		} );
-		link.attach( [ 'topicprobe.p0' ], 'backlog:stream' );
-		await flush();
-		const m = newMessage();
-		m[ TYPE ] = TM_INFO;
-		m[ KEY ] = 'connected';
-		m[ VALUE ] =
-			`SESSION ${ HARNESS_SESSION } SLOT 4 OWNER ${ LEASE_OWNER } ` +
-			'SUBSCRIPTIONS jobstats.p0,topicprobe.p0 INTERVAL 2000 ' +
-			'CURSORS jobstats.p0=6:0,topicprobe.p0=9:4471';
-		FakeEventSource.last.dispatch( 'connected', JSON.stringify( m ) );
-		link.park( 'jobs:stream' );
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		await flush();
-		expect( FakeEventSource.opened ).toBe( 1 );
-		expect( link.sseIn.seekMap() ).toEqual( {
-			'jobstats.p0': { segment: 6, offset: 0 },
-			'topicprobe.p0': { segment: 9, offset: 4471 },
-		} );
-	} );
-
-	// @longform The chart asked to replay the whole log; the slot pool refused
-	// the stream before its handshake. Dropping the seed on a pause in that
-	// window downgraded the next open to a tail, so the chart came up holding
-	// one live point.
-	it( 'a graph paused before its stream answered replays its seek on play', async () => {
-		const { link } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream', {
-			'jobstats.p0': SEEK_START,
-		} );
-		link.attach( [ 'topicprobe.p0' ], 'backlog:stream' );
-		await flush();
-		link.park( 'jobs:stream' );
-		await flush();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		await flush();
-		expect( FakeEventSource.opened ).toBe( 3 );
-		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
-			'jobstats.p0': SEEK_START,
-			'topicprobe.p0': SEEK_END,
-		} );
-	} );
-
-	it( 'a parked stamp a live graph kept reading is not rewound on play', async () => {
-		const { link, delivered } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		link.attach( [ 'jobstats.p0' ], 'backlog:stream' );
-		await flush();
-		FakeEventSource.last.dispatch(
-			'msg',
-			record( 'jobstats.p0/x', '3:120:40' )
-		);
-		link.park( 'jobs:stream' );
-		FakeEventSource.last.dispatch(
-			'msg',
-			record( 'jobstats.p0/x', '3:500:25' )
-		);
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		await flush();
-		expect( FakeEventSource.opened ).toBe( 1 );
-		expect( link.sseIn.seekMap() ).toEqual( {
-			'jobstats.p0': { segment: 3, offset: 525 },
-		} );
-		expect( delivered[ 'jobs:stream' ].map( ( m ) => m[ ID ] ) ).toEqual( [
-			'3:120:40',
-		] );
-	} );
-
-	it( 'another graph unmounting keeps a parked graph’s place', async () => {
-		const { link } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		link.attach( [ 'jobstats.p0' ], 'backlog:stream' );
-		await flush();
-		FakeEventSource.last.dispatch(
-			'msg',
-			record( 'jobstats.p0/x', '5:80:12' )
-		);
-		link.park( 'jobs:stream' );
-		link.detach( 'backlog:stream' );
-		await flush();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		await flush();
-		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
-			'jobstats.p0': { segment: 5, offset: 92 },
-		} );
-	} );
-
-	it( 'unmounting a parked graph forgets its place', async () => {
-		const { link } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		link.attach( [ 'topicprobe.p0' ], 'backlog:stream' );
-		await flush();
-		FakeEventSource.last.dispatch(
-			'msg',
-			record( 'jobstats.p0/x', '9:44:6' )
-		);
-		link.park( 'jobs:stream' );
-		link.detach( 'jobs:stream' );
-		link.attach( [ 'jobstats.p0' ], 'glob:stream' );
-		await flush();
-		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
-			'topicprobe.p0': SEEK_END,
-			'jobstats.p0': SEEK_END,
-		} );
-	} );
-
-	it( 'refuses a seek on a stamp a parked graph holds, naming both', async () => {
-		const { link } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		await flush();
-		link.park( 'jobs:stream' );
-		expect( () =>
-			link.attach( [ 'jobstats.p0' ], 'backlog:stream', {
-				'jobstats.p0': { segment: 2, offset: 81 },
-			} )
-		).toThrow(
-			'RemoteLink: backlog:stream cannot seek jobstats.p0, which jobs:stream is streaming'
-		);
-	} );
-
-	it( 're-attaching on another subscription forgets the old one’s place', async () => {
-		const { link } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream', {
-			'jobstats.p0': { segment: 4, offset: 77 },
-		} );
-		await flush();
-		FakeEventSource.last.dispatch(
-			'msg',
-			record( 'jobstats.p0/x', '4:77:33' )
-		);
-		link.attach( [ 'tablestats.p0' ], 'jobs:stream' );
-		await flush();
-		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
-			'tablestats.p0': SEEK_END,
-		} );
-		expect( link.sseIn.lastPositions ).toEqual( {} );
-		// Back on the old stamp, neither its seed nor its read comes back.
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		await flush();
-		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
-			'jobstats.p0': SEEK_END,
-		} );
-	} );
-
-	it( 'reattaching in another order keeps a stream on the same set', async () => {
-		const { link } = makeShared();
-		link.attach( [ 'topicprobe.p0' ], 'backlog:stream' );
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		await flush();
-		link.detach( 'backlog:stream' );
-		link.attach( [ 'topicprobe.p0' ], 'backlog:stream' );
-		await flush();
-		expect( FakeEventSource.opened ).toBe( 1 );
-	} );
-
-	it( 'unmounting a graph forgets its stamps’ skipped lines', async () => {
-		const { link } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		link.attach( [ 'topicprobe.p0' ], 'backlog:stream' );
-		await flush();
-		const frame = newMessage();
-		frame[ TYPE ] = TM_INFO;
-		frame[ KEY ] = 'unparseable_lines';
-		frame[ VALUE ] = 'COUNT 13 COUNTS jobstats.p0=6,topicprobe.p0=7';
-		FakeEventSource.last.dispatch(
-			'unparseable_lines',
-			JSON.stringify( frame )
-		);
-		link.detach( 'jobs:stream' );
-		await flush();
-		expect( link.sseIn.unparseableByStamp ).toEqual( {
-			'topicprobe.p0': 7,
-		} );
-		expect( link.unparseableByStamp ).toEqual( { 'topicprobe.p0': 7 } );
-	} );
-
-	it( 'reads a graph’s subscription and pause off `graphs`, keyed by its target', () => {
-		const { link } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		link.park( 'jobs:stream' );
-		expect( link.graphs.get( 'jobs:stream' ) ).toMatchObject( {
-			subscribe: [ 'jobstats.p0' ],
-			parked: true,
-		} );
+		expect( Core.node( '_stream:jobstats.p0' ).patron ).toBe( fresh );
 	} );
 
 	it( 'removeNode drops a restart queued before it', async () => {
 		const { link } = makeShared();
 		let closes = 0;
 		link.onClose = () => closes++;
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
+		link.addPairs( [ 'jobstats.p0:jobs:stream' ] );
 		link.removeNode();
 		await flush();
 		expect( FakeEventSource.last ).toBeNull();

@@ -19,6 +19,9 @@
  *    `connect_worker_input {reader}` so the stateless request-scope graph mounts
  *    the worker's input Partition before the command routes to it.
  *
+ * It declares no pairs, so every record keeps the TO the worker addressed it
+ * to.
+ *
  * Single live connection: a send boots this link's SseIn, closing whichever
  * RemoteIpc held it (the same swap the console does when the cwd changes worker).
  * SSE slots are a finite host-wide pool, and only the attached worker's stream is
@@ -195,16 +198,6 @@ export class RemoteIpcNode extends RemoteLinkNode {
 		if ( '' === this.reader ) {
 			throw new Error( 'RemoteIpc requires a remote worker reader' );
 		}
-	}
-
-	/**
-	 * Attached IPC, not a subscription: every record keeps the TO the worker
-	 * addressed it to (TO=FROM, ADR-7).
-	 *
-	 * @return {null} Keep each record's TO.
-	 */
-	targetsFor() {
-		return null;
 	}
 
 	/**

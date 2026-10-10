@@ -156,9 +156,7 @@ describe.each( Object.keys( FRAMES ) )( 'useProbeStream( %s )', ( name ) => {
 		expect( Core.node( '_command_interpreter' ) ).toBeTruthy();
 		expect( Core.node( `${ name }:link` ) ).toBeNull();
 		expect( Core.node( VIEW ) ).toBeTruthy();
-		expect( Core.node( LINK ).graphs.get( TEE ).subscribe ).toEqual( [
-			SUB,
-		] );
+		expect( Core.node( LINK ).pairs ).toEqual( [ `${ SUB }:${ TEE }` ] );
 		expect( Core.node( LINK ).sseIn.subscribe ).toEqual( [ SUB ] );
 		expect( FakeEventSource.last.url ).toContain( `subscribe=${ SUB }` );
 	} );
@@ -196,7 +194,7 @@ describe.each( Object.keys( FRAMES ) )( 'useProbeStream( %s )', ( name ) => {
 		expect( tee.constructor.name ).toBe( 'TeeNode' );
 		expect( tee.sink ).toBe( interpreter );
 		// The link routes this graph's frames to the Tee, which fans to the view.
-		expect( Core.node( LINK ).graphs.has( TEE ) ).toBe( true );
+		expect( Core.node( LINK ).pairs ).toContain( `${ SUB }:${ TEE }` );
 		expect( tee.target ).toEqual( [ VIEW ] );
 	} );
 
