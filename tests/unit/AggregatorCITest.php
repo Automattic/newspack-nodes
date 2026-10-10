@@ -153,6 +153,17 @@ class AggregatorCITest extends TestCase {
 		$this->assertSame( 'https://lone.example/', \array_column( $decoded, 'url', 'id' )['spoke-x9'] );
 	}
 
+	public function test_list_servers_lists_a_wired_http_source(): void {
+		$this->seed_group_topology( [], 1, 'aggregator', [ 'make_node HTTP_Source pull-x6 lone <config:offsets_dir>/x6 <config:deadletter_dir>/x6 firehose.p{partition}:remote-job-rewrite' ] );
+		Core::$memd->set( \Newspack_Nodes\HTTP_Source_Node::status_key_for( 'pull-x6', 0 ), [ 'last_response' => 41940 ], 60 );
+
+		$decoded = self::list_servers();
+
+		$this->assertSame( [ 'pull-x6' ], \array_column( $decoded, 'id' ) );
+		$this->assertSame( 'lone', $decoded[0]['vault_id'] );
+		$this->assertSame( 41940, $decoded[0]['partitions'][0]['last_response'] );
+	}
+
 	public function test_list_servers_lists_a_remote_source_subclass(): void {
 		require_once \dirname( __DIR__ ) . '/Helpers/fixtures/class-okapi-pull-node.php';
 		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\Fixtures\\' );

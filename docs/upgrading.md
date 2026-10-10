@@ -6,6 +6,39 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`Remote_Link_Node` is removed; `Remote_Broker_Node` is the brokers' base
+  and `Remote_Source_Node` holds the SSE channel.** A subclass extends
+  `Remote_Source_Node` to keep the SSE connection, or `Remote_Broker_Node` to
+  fetch some other way, as `HTTP_Source_Node` does. A hand-wired `Remote_Link`
+  named in a topology has no successor: wire a `Remote_Source`. A bare link's
+  `connect()`, `close()` and `remote_partition` argument go with it. Code
+  that recognizes a broker tests `Remote_Broker_Node`, or the variadic
+  `pairs` argument in its schema, never a class name.
+- **The bare link's delivery path is gone, and a stream line's refusal lives
+  in `Remote_Consumer_Node`.** The bare link's `deliver_downstream()`,
+  `admit_inbound()` and `admit_addressed()` are removed with no successor to
+  call. Each reader's
+  `admit()` stamps its pair's target on an unaddressed line and refuses an
+  addressed one outright, so a subclass that overrode the old methods to
+  admit a destination has nothing to override; declare the destination on the
+  `:http-out` sibling's `allow_replies_to` for replies instead.
+- **Methods narrowed to private.** A subclass that overrode one breaks:
+  `Remote_Source_Node::stream_request()`, `record_heartbeat_reply()` and
+  `record_heartbeat_failure()` were protected, and
+  `HTTP_Out_Node::admit_addressed()` was public.
+- **Broker methods renamed or removed.** `request_read( $child, $position )` is
+  `send_read( $child, $verb, $args )`, which takes the `raw-logs` verb and its
+  arguments; `pump_maybe_arm()` is `refill( Remote_Consumer_Node $child )`,
+  which a reader calls from `get_batch()`; `record_heartbeat_sent()` is
+  removed, the heartbeat's send time being `Remote_Source_Node`'s private clock;
+  and `Remote_Consumer_Node::broker()` takes a `Remote_Broker_Node`, no longer
+  a `Remote_Source_Node`.
+- **The broker status keys are renamed.** `last_heartbeat_response` is
+  `last_response` and `last_heartbeat_rtt` is `last_rtt`. `last_heartbeat_sent`
+  is removed, and the Aggregator CSS classes follow: `aggregator-heartbeat-rtt`
+  is `aggregator-rtt` and `aggregator-heartbeat-badge` is
+  `aggregator-response-badge`. A reader of the old names sees nothing.
+- **`Remote_Consumer_Node::STEP_SERVICE` is `RAW_LOGS_SERVICE`.**
 - **Deploy event-logger-nodes and newspack-intelligence with this release.**
   `Core`, the page global every bundle shares, changes shape (`backboneMounts`
   replaces `backboneOwned` and `backbonePassengers`), so a consumer bundle

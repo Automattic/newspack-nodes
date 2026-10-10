@@ -339,7 +339,7 @@ Upstream has no Graphite node: `TopicProbeToGraphite.pm` formats the lines and s
 
 ### A self-registration moves with its node's name
 
-[`Timer_Node::name()`](../includes/class-timer-node.php) re-keys the router's TIMER entry, and `Remote_Link_Node::name()` re-keys the fleet's RELOAD entry. Upstream, `Node.pm`'s `name()` re-keys `%Nodes` and nothing else, while `Timer.pm` registers `_router`'s TIMER by name — so a rename upstream strands the entry under the old spelling.
+[`Timer_Node::name()`](../includes/class-timer-node.php) re-keys the router's TIMER entry, and `Node::name()` re-keys the fleet's RELOAD entry of a `Remote_Broker_Node`, which moves its `subscribe()` with the name. Upstream, `Node.pm`'s `name()` re-keys `%Nodes` and nothing else, while `Timer.pm` registers `_router`'s TIMER by name — so a rename upstream strands the entry under the old spelling.
 
 **Why ours differs:** this is a deliberate divergence rather than a port, because renaming is routine here — `make_node` names before `arguments()`, and a topology reload re-spells nodes — and the failure is silent. A stranded TIMER entry makes the router shout `forgot to unregister` and drop it, so the timer stops firing under either spelling; a stranded RELOAD entry does not even do that, since the listener is a closure and `notify()` keeps anything that does not return exactly false. The mechanism the RELOAD case uses is `Node::subscribe()`, which records the closure and moves it in `name()` and drops it in `remove_node()`; `Timer_Node` moves its name-dispatched TIMER entry itself, because that registration comes and goes with the timer mode.
 

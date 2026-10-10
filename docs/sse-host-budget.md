@@ -143,6 +143,9 @@ browser tab does. Nothing gives it priority: enough dashboard tabs open on a
 spoke will refuse the hub's pull, and the hub's view of that spoke goes stale
 until a slot frees.
 
+A hub that pulls with [`HTTP_Source_Node`](../includes/class-http-source-node.php) holds no slot at all: it
+fetches blocks over `/command`, which the pool never counts, and sends no `workers heartbeat`.
+
 `sse_reserved_slots` holds slots back from browsers so a pull always finds one.
 It ships at 0, and a spoke sets 1. The reservation comes **out of**
 `sse_max_streams`, not on top of it: with 6 streams and 1 reserved, browsers
@@ -159,7 +162,7 @@ one.
 
 An aggregator brings up every `Remote_Source` in one tick, and N simultaneous
 connects are what a spoke's pool answers with 429, so each connect goes through
-[`Remote_Link_Node::queue_connect()`](../includes/class-remote-link-node.php)
+[`Remote_Source_Node::queue_connect()`](../includes/class-remote-source-node.php)
 onto [`Connect_Queue_Timer_Node`](../includes/class-connect-queue-timer-node.php),
 which pops one every `INTERVAL_MS` (500 ms) and retires when the queue runs
 dry.
@@ -182,7 +185,7 @@ seconds before the first reopen, on top of `SSE_In_Node`'s own backoff.
 
 Shortening the TTL to reclaim crashed readers faster grows more tempting as the
 pool shrinks, and 45 seconds is the wall. The floor is **three**
-[`Remote_Link_Node::HEARTBEAT_INTERVAL`](../includes/class-remote-link-node.php)s,
+[`Remote_Broker_Node::HEARTBEAT_INTERVAL`](../includes/class-remote-broker-node.php)s,
 45 seconds, not two, and [`SSE_Slot_Pool::ttl()`](../includes/class-sse-slot-pool.php) enforces it: a configured
 `sse_slot_ttl` below the floor is raised to it rather than honoured.
 `maybe_send_heartbeat()` sends nothing while
@@ -192,7 +195,7 @@ comes back 401; `maybe_request_session()` then gates the ask as the diagram
 shows. The refresh
 is the client's alone: a browser pokes from its
 [`_heartbeat` node](../src/runtime/heartbeat-node.js), a machine pull from
-`Remote_Link_Node`, and the server checks the lease on every drain iteration
+`Remote_Source_Node`, and the server checks the lease on every drain iteration
 and extends nothing.
 
 ## Scope

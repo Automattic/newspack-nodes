@@ -800,14 +800,14 @@ Node-NAME listeners. A closure listener has no name to draw an edge to, so it is
 skipped, and an event left with no name listeners drops out of the map rather
 than reporting empty. [`Timer_Node`](../includes/class-timer-node.php), which registers itself by name on the
 router's `TIMER` channel, therefore shows a registration edge, while
-[`Remote_Link_Node`](../includes/class-remote-link-node.php), which registers a closure on the fleet's `RELOAD`, shows
+[`Remote_Broker_Node`](../includes/class-remote-broker-node.php), which registers a closure on the fleet's `RELOAD`, shows
 none: a missing edge is not evidence that nothing is listening.
 
 A composite node reports its PATRONS' I/O, not its own. Once
-`Remote_Link_Node`'s patrons exist, `counter` is `SSE_In`'s frame count,
+a `Remote_Source_Node`'s patrons exist, `counter` is `SSE_In`'s frame count,
 `bytes_read` and `lgst_msg` are `SSE_In`'s, `bytes_written` is `HTTP_Out`'s, and
 the link's own relay increments are masked — so a rate or throughput figure read
-off a Remote_Link or Remote_Source row measures the wire, not the node. Before
+off a Remote_Source row measures the wire, not the node. Before
 the patrons are built, on a fresh drop or a spoke with no Vault entry, both byte
 counts read 0 and `counter` falls back to the node's own tally.
 
@@ -1404,7 +1404,7 @@ answer. Every `newspack_nodes/*` name and signature is frozen surface — see
 | `newspack_nodes/config_reset` | — | `Config::reset()`. Drop anything memoized from config: the substrate drops log-dir scans, parsed TSL and vault credentials here. |
 | `newspack_nodes/job_worker/after_job` | `string $handler, string $id, ?array $outcome` | [`Job_Worker_Node`](../includes/class-job-worker-node.php), always — after a success, a throw, or a decline. Tear down per-job request context here. A listener that throws fails the job: its failure joins the job's own and propagates to the Consumer. |
 | `newspack_nodes/job_worker/batch_complete` | `string $batch` | `Job_Worker_Node`, when a batch's last job settles. |
-| `newspack_nodes/vault/changed` | `string $id, string $action, string $previous` | [`Vault_CI_Node`](../includes/rest/class-vault-ci-node.php), on any credential write, a `group` edit included. `$action` is `added`, `updated`, `renamed` or `removed`; `$previous` carries the id a rename moved away from, else `''`. [`Bootstrap::reload_vault_consumers()`](../includes/class-bootstrap.php) listens here to signal RELOAD to every topology holding a `Remote_Link`, `Remote_Source` or `Vault_Group`, and to reset the analyzer's caches so a planning read later in the same process sees the write. |
+| `newspack_nodes/vault/changed` | `string $id, string $action, string $previous` | [`Vault_CI_Node`](../includes/rest/class-vault-ci-node.php), on any credential write, a `group` edit included. `$action` is `added`, `updated`, `renamed` or `removed`; `$previous` carries the id a rename moved away from, else `''`. [`Bootstrap::reload_vault_consumers()`](../includes/class-bootstrap.php) listens here to signal RELOAD to every topology holding a `Remote_Source`, `HTTP_Source` or `Vault_Group`, and to reset the analyzer's caches so a planning read later in the same process sees the write. |
 | `newspack_nodes/stderr` | `string $text` | [`Core::_stderr()`](../includes/class-core.php), beside the stderr handler and under the same re-entry guard. A listener that throws cannot break the last-resort diagnostic path, and one that calls `stderr()` itself short-circuits to `error_log` rather than recursing. |
 | `newspack_nodes/settings_after_form` | — | [`Admin`](../includes/admin/class-admin.php), below the settings form. |
 
