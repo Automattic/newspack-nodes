@@ -49,6 +49,9 @@ class HttpSourceNodeTest extends TestCase {
 		Vault::get_instance()->reset_cache();
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF' );
 		\Newspack_Nodes\Config::reset();
+		\Newspack_Nodes\Topology_Registry::reset();
+		$GLOBALS['_wp_test_current_user_can'] = [];
+		\Newspack_Nodes\Tests\Helpers\VerbHarness::reset();
 		parent::tearDown();
 	}
 
@@ -237,8 +240,8 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertNull( $status['last_response'] );
 	}
 
-	/** Aggregator_CI and the Status tab read both brokers' snapshots alike. */
-	public function test_its_status_writes_the_keys_remote_source_writes(): void {
+	/** Aggregator_CI and the Status tab read both brokers' snapshots alike: the base's one key set. */
+	public function test_both_brokers_write_the_bases_status_keys(): void {
 		$this->seed_austin();
 		$sse  = new Remote_Source_Node();
 		$sse->name( 'stream-austin' );
@@ -254,7 +257,10 @@ class HttpSourceNodeTest extends TestCase {
 			\sort( $k );
 			return $k;
 		};
-		$this->assertSame( $keys( 'stream-austin' ), $keys( 'pull-austin' ) );
+		$base = \array_keys( ( new \ReflectionClassConstant( Remote_Broker_Node::class, 'BLANK_STATUS' ) )->getValue() );
+		\sort( $base );
+		$this->assertSame( $base, $keys( 'stream-austin' ) );
+		$this->assertSame( $base, $keys( 'pull-austin' ) );
 	}
 
 	public function test_its_status_reports_the_patrons_last_transfer(): void {
@@ -459,18 +465,23 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertSame( [ 'read_message' ], $names );
 	}
 
+	/** A refused fetch waits an EOF poll, but reports no end-of-log wait. */
 	public function test_a_refused_fetch_waits_an_eof_poll(): void {
-		[ , $reader, , $http ] = $this->fetching_reader();
+		[ $node, $reader, , $http ] = $this->fetching_reader();
 		$reader->fire_cb();
 		$refusal                              = self::block_reply( [ 'firehose.p0', '31:4404' ], [], 0, 0, false );
 		$refusal[ Message::TYPE ]             = Message::TM_COMMAND | Message::TM_ERROR;
 		$refusal[ Message::VALUE ]['payload'] = "unknown log: \"firehose.p0\"\n";
 
 		$reader->fill( $refusal );
-		$reader->fire_cb();
-
+		Core::$now += HTTP_Source_Node::EOF_POLL_SECONDS - 0.3;
+		$node->fire();
 		$this->assertCount( 1, $this->fetches( $http ) );
-		$this->assertEqualsWithDelta( Core::$now + HTTP_Source_Node::EOF_POLL_SECONDS, $reader->fetch_stats()['fetch_after'], 0.001 );
+		$this->assertNull( $reader->fetch_stats()['fetch_after'] );
+
+		Core::$now += 0.6;
+		$node->fire();
+		$this->assertCount( 2, $this->fetches( $http ) );
 	}
 
 	/** A refused fetch shows in the status, and the next answered block clears it. */
@@ -898,6 +909,81 @@ class HttpSourceNodeTest extends TestCase {
 		$this->readers( $node )['jobstats.p3']->fire_cb();
 
 		$this->assertSame( 3 * HTTP_Source_Node::READER_REPLY_BYTES, $this->read_private( Core::node( 'pull-austin:http-out' ), 'reply_cap' ) );
+	}
+
+	/** A broker every fetch of which the spoke refuses reads down, never idle. */
+	public function test_a_broker_whose_fetches_are_refused_reads_down_in_the_aggregator(): void {
+		[ $node, $reader ] = $this->fetching_reader();
+		$this->stock_topology_dir( 'http-source-agg-' );
+		$this->write_tsl( 'pull', "make_node HTTP_Source pull-austin austin /var/pull/off /var/pull/dl firehose.p0:downstream\n" );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'pull' ];
+		$GLOBALS['_wp_test_current_user_can']                = [ 'manage_options' => true ];
+		\Newspack_Nodes\Config::reset();
+		$reader->fire_cb();
+		$refusal                              = self::block_reply( [ 'firehose.p0', '31:4404' ], [], 0, 0, false );
+		$refusal[ Message::TYPE ]             = Message::TM_COMMAND | Message::TM_ERROR;
+		$refusal[ Message::VALUE ]['payload'] = 'unknown log: "firehose.p0" 5527';
+		$reader->fill( $refusal );
+
+		$node->fire();
+		// The verb harness builds a graph of its own, _router included.
+		Core::node( '_router' )->remove_node();
+
+		$summary = \json_decode( \Newspack_Nodes\Tests\Helpers\VerbHarness::fire( new \Newspack_Nodes\Rest\Aggregator_CI_Node(), 'aggregator', 'summary' ), true );
+		$this->assertSame( 1, $summary['total'] );
+		$this->assertSame( 0, $summary['idle'], 'a refusal is no end-of-log wait' );
+		$this->assertSame( 0, $summary['connected'] );
+	}
+
+	/** A reload voids the fetch the dropped channel carried, so the next poll asks at once. */
+	public function test_a_reload_lets_a_reader_fetch_again_at_once(): void {
+		[ $node, $reader ] = $this->fetching_reader();
+		$reader->fire_cb();
+		$node->reload();
+		$node->fire();
+
+		$reader->fire_cb();
+
+		$this->assertSame( [ [ 'firehose.p0', '31:4404' ] ], $this->fetches( Core::node( 'pull-austin:http-out' ) ) );
+	}
+
+	/** A step owed when the Vault reloads goes out at once on the rebuilt channel. */
+	public function test_an_owed_step_goes_out_at_once_after_a_reload(): void {
+		[ $node, $reader ] = $this->fetching_reader();
+		$reader->pause();
+		$reader->step();
+		$node->reload();
+		Core::$now += 2.5;
+
+		$reader->fire_cb();
+
+		$http = Core::node( 'pull-austin:http-out' );
+		$this->assertNotNull( $http, 'the re-sent step rebuilds the channel' );
+		$verbs = \array_map( static fn ( array $m ): string => $m[ Message::VALUE ]['name'], $this->read_private( $http, 'batch' ) );
+		$this->assertSame( [ 'read_message' ], $verbs );
+	}
+
+	/** A reload voids the catalog ask the dropped channel carried. */
+	public function test_a_reload_asks_for_the_catalog_again_at_once(): void {
+		$node = $this->globbing_broker();
+		$node->fire();
+		$node->reload();
+		Core::$now += 2.5;
+
+		$node->fire();
+
+		$this->assertCount( 1, $this->catalog_asks( Core::node( 'pull-austin:http-out' ) ) );
+	}
+
+	/** A partition owning no pair builds no channel. */
+	public function test_a_partition_owning_no_pair_builds_no_channel(): void {
+		$this->seed_austin();
+		Core::$var['partition'] = '1';
+		$node                   = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'firehose.p0:downstream' ) );
+
+		$node->fire();
+
+		$this->assertNull( Core::node( 'pull-austin:http-out' ) );
 	}
 
 	public function test_its_schema_matches_remote_sources_arguments_and_verbs(): void {

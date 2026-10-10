@@ -1126,7 +1126,7 @@ describe( 'reconstructWorkers — a broker hangs its readers under its own node'
 	} );
 } );
 
-describe( 'brokerReaderId parity with Remote_Source_Node::reader_id()', () => {
+describe( 'brokerReaderId parity with Remote_Broker_Node::reader_id()', () => {
 	const cases = JSON.parse(
 		readFileSync(
 			join( __dirname, '../../../../tests/fixtures/log-remotes.json' ),

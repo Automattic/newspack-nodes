@@ -39,6 +39,17 @@ export function splitStamp( from ) {
 	};
 }
 
+/**
+ * Whether a subscription is a glob, a `*` anywhere in it, as PHP
+ * `Log_Discovery::is_glob()` reads it.
+ *
+ * @param {string} sub A subscription, as `subscribe` lists it.
+ * @return {boolean} True when the subscription is a glob.
+ */
+export function isGlob( sub ) {
+	return sub.includes( '*' );
+}
+
 /** Each glob subscription `carries()` has met, compiled once. */
 const GLOBS = new Map();
 
@@ -53,7 +64,7 @@ const GLOBS = new Map();
  * @return {boolean} True when the subscription carries the stamp.
  */
 function carries( sub, stamp ) {
-	if ( ! sub.includes( '*' ) ) {
+	if ( ! isGlob( sub ) ) {
 		return sub === stamp;
 	}
 	let glob = GLOBS.get( sub );

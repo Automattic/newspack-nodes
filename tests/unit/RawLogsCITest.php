@@ -371,6 +371,18 @@ class RawLogsCITest extends TestCase {
 		$this->assertSame( 0, $result['unparseable_lines'] );
 	}
 
+	/** `end` reads nothing and stands at the newest segment's end. */
+	public function test_read_block_at_end_reads_nothing_and_stands_at_the_newest_segment(): void {
+		[ $line1, $line2 ] = $this->seed_two_records();
+		\file_put_contents( $this->tmp . '/logs/firehose.p0/3.log', $line2 . $line1 );
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_block', [ 'firehose.p0', 'end' ] );
+
+		$this->assertSame( [], $result['messages'] );
+		$this->assertTrue( $result['at_eof'] );
+		$this->assertSame( [ 'segment' => 3, 'offset' => \strlen( $line2 . $line1 ) ], $result['cursor'] );
+	}
+
 	public function test_read_block_counts_the_lines_it_skipped(): void {
 		[ $line1, $line2 ] = $this->seed_two_records();
 		\file_put_contents( $this->tmp . '/logs/firehose.p0/0.log', $line1 . "torn-6113\n" . $line2 );

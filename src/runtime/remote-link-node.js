@@ -40,7 +40,7 @@ import { ReactBridge } from './react-bridge';
 import { SchemaReflection } from './schema-reflection';
 import { SseInNode } from './sse-in-node';
 import { defaultTransport } from './command-transport';
-import { anyCarries } from './log-stamp';
+import { anyCarries, isGlob } from './log-stamp';
 import names from './reserved-node-names.json';
 
 /**
@@ -373,7 +373,7 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 			),
 		];
 		return [
-			...subscribe.filter( ( sub ) => ! sub.includes( '*' ) ),
+			...subscribe.filter( ( sub ) => ! isGlob( sub ) ),
 			...held.filter( ( dir ) => anyCarries( subscribe, dir ) ),
 		];
 	}

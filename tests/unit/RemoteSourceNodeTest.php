@@ -1271,6 +1271,23 @@ class RemoteSourceNodeTest extends TestCase {
 	}
 
 	/** The round trip is milliseconds, from the send's fraction of a second. */
+	/** A step owed when the Vault reloads goes out at once on the rebuilt channel. */
+	public function test_an_owed_step_goes_out_at_once_after_a_reload(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node, $reader ] = $this->make_remote( 'remote-austin' );
+		$reader->pause();
+		$reader->step();
+		$node->reload();
+		Core::$now += 2.5;
+
+		$reader->fire_cb();
+
+		$http = Core::node( 'remote-austin:http-out' );
+		$this->assertNotNull( $http, 'the re-sent step rebuilds the channel' );
+		$verbs = \array_map( static fn ( array $m ): string => $m[ Message::VALUE ]['name'], $this->read_private( $http, 'batch' ) );
+		$this->assertSame( [ 'read_message' ], $verbs );
+	}
+
 	public function test_heartbeat_round_trip_is_in_milliseconds(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();

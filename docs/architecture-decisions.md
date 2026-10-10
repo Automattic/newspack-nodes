@@ -2099,7 +2099,7 @@ verbs — `assume_clean_shutdown` reaches every reader present or built later �
 straight to one reader's `:config` is live-only, as a `Vault_Group` child's is. The analyzer reads a broker's roots and
 pairs, never its readers, so an analysis question about one reader — its exact cursor dir, its
 lag — is answered at runtime: by the probe log, where each reader reports under
-`Remote_Source_Node::reader_id()`.
+`Remote_Broker_Node::reader_id()`.
 
 **Revisit if:** a reader must appear in `dump_config` or the TSL — an operator wiring one
 reader to its own target, or a verb on one reader that must survive a restart — at which point

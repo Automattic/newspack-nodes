@@ -45,7 +45,7 @@ import {
 	TM_COMMAND,
 	unpack,
 } from './message';
-import { anyCarries, splitStamp } from './log-stamp';
+import { anyCarries, isGlob, splitStamp } from './log-stamp';
 import { parseCrumb, parsePosition } from './log-position';
 
 /**
@@ -841,7 +841,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 			}
 		}
 		for ( const sub of this.subscribe ) {
-			if ( ! sub.includes( '*' ) && undefined === stated[ sub ] ) {
+			if ( ! isGlob( sub ) && undefined === stated[ sub ] ) {
 				stated[ sub ] = SEEK_END;
 			}
 		}

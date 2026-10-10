@@ -5,7 +5,16 @@
 
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { anyCarries, remoteOf, splitStamp } from '../log-stamp';
+import { anyCarries, isGlob, remoteOf, splitStamp } from '../log-stamp';
+
+describe( 'isGlob, as Log_Discovery::is_glob()', () => {
+	test( 'a star anywhere in a subscription makes it a glob', () => {
+		expect( isGlob( 'jobstats.p*' ) ).toBe( true );
+		expect( isGlob( 'offsets/fire*.p3' ) ).toBe( true );
+		expect( isGlob( 'firehose.p0' ) ).toBe( false );
+		expect( isGlob( 'sources/php' ) ).toBe( false );
+	} );
+} );
 
 describe( 'splitStamp parity with Log_Discovery::dir_from_stamp()', () => {
 	const cases = JSON.parse(
