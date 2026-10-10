@@ -2,21 +2,21 @@
 # This file is distributed under the GPL-2.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Newspack Nodes 2.103.3\n"
+"Project-Id-Version: Newspack Nodes 2.104.0\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/newspack-nodes\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-09T16:14:37+00:00\n"
+"POT-Creation-Date: 2026-10-10T10:04:19+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: newspack-nodes\n"
 
 #. Plugin Name of the plugin
 #: newspack-nodes.php
-#: includes/class-bootstrap.php:1401
+#: includes/class-bootstrap.php:1402
 msgid "Newspack Nodes"
 msgstr ""
 
@@ -194,20 +194,20 @@ msgid "Thresholds for the fleet-health alerts (Site Health, admin notice, alert 
 msgstr ""
 
 #. translators: 1: consumer plugin name, 2: required version, 3: installed version.
-#: includes/class-bootstrap.php:1338
+#: includes/class-bootstrap.php:1339
 #, php-format
 msgid "%1$s requires Newspack Nodes %2$s or newer (found %3$s) and is dormant until Newspack Nodes is updated."
 msgstr ""
 
-#: includes/class-bootstrap.php:1361
+#: includes/class-bootstrap.php:1362
 msgid "Newspack Nodes health"
 msgstr ""
 
-#: includes/class-bootstrap.php:1397
+#: includes/class-bootstrap.php:1398
 msgid "Newspack Nodes is healthy"
 msgstr ""
 
-#: includes/class-bootstrap.php:1398
+#: includes/class-bootstrap.php:1399
 msgid "Newspack Nodes has health alerts"
 msgstr ""
 
@@ -401,12 +401,12 @@ msgid "Messages (this browser)"
 msgstr ""
 
 #: src/debug-overlay/tabs/OverviewTab.js:201
-#: src/debug-overlay/tabs/OverviewTab.js:266
+#: src/debug-overlay/tabs/OverviewTab.js:268
 msgid "Byte Rate"
 msgstr ""
 
 #: src/debug-overlay/tabs/OverviewTab.js:209
-#: src/debug-overlay/tabs/OverviewTab.js:260
+#: src/debug-overlay/tabs/OverviewTab.js:261
 msgid "Message Rate"
 msgstr ""
 
@@ -423,8 +423,8 @@ msgid "Warnings"
 msgstr ""
 
 #: src/debug-overlay/tabs/OverviewTab.js:238
-#: src/event-dashboards/Jobs.js:192
-#: src/event-dashboards/Tables.js:177
+#: src/event-dashboards/Jobs.js:194
+#: src/event-dashboards/Tables.js:179
 msgid "Errors"
 msgstr ""
 
@@ -441,18 +441,18 @@ msgstr ""
 msgid "SSE Uptime"
 msgstr ""
 
-#: src/debug-overlay/tabs/OverviewTab.js:261
-#: src/event-dashboards/Overview.js:360
+#: src/debug-overlay/tabs/OverviewTab.js:262
+#: src/event-dashboards/Overview.js:363
 #: src/topology-console/components/Inspector.js:2588
 msgid "Messages"
 msgstr ""
 
-#: src/debug-overlay/tabs/OverviewTab.js:267
-#: src/event-dashboards/Overview.js:367
+#: src/debug-overlay/tabs/OverviewTab.js:269
+#: src/event-dashboards/Overview.js:371
 msgid "Bytes"
 msgstr ""
 
-#: src/debug-overlay/tabs/OverviewTab.js:279
+#: src/debug-overlay/tabs/OverviewTab.js:281
 msgid "Reset stats"
 msgstr ""
 
@@ -501,104 +501,104 @@ msgid "Server HB"
 msgstr ""
 
 #: src/event-aggregator/AggregatorStatus.js:333
-msgid "Client HB"
+msgid "Round trip"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:353
+#: src/event-aggregator/AggregatorStatus.js:350
 #: src/event-dashboards/Jobs.js:93
 #: src/vault/VaultAdmin.js:563
 msgid "Status"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:382
+#: src/event-aggregator/AggregatorStatus.js:379
 msgid "Skipped lines"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:408
-#: src/event-aggregator/AggregatorStatus.js:553
+#: src/event-aggregator/AggregatorStatus.js:405
+#: src/event-aggregator/AggregatorStatus.js:550
 msgid "Probing…"
 msgstr ""
 
 #. translators: 1: live, 2: stale, 3: held, 4: idle, 5: down workers.
-#: src/event-aggregator/AggregatorStatus.js:432
+#: src/event-aggregator/AggregatorStatus.js:429
 #, js-format
 msgid "Workers %1$d live / %2$d stale / %3$d held / %4$d idle / %5$d down"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:445
+#: src/event-aggregator/AggregatorStatus.js:442
 msgid "Worst lag unknown"
 msgstr ""
 
 #. translators: %d: worst consumer lag in bytes.
-#: src/event-aggregator/AggregatorStatus.js:448
+#: src/event-aggregator/AggregatorStatus.js:445
 #, js-format
 msgid "Worst lag %d B"
 msgstr ""
 
 #. translators: %d: number of quarantined dead-letter segments.
-#: src/event-aggregator/AggregatorStatus.js:455
+#: src/event-aggregator/AggregatorStatus.js:452
 #, js-format
 msgid "DLQ %d"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:489
+#: src/event-aggregator/AggregatorStatus.js:486
 msgid "lag unknown"
 msgstr ""
 
 #. translators: %s: bytes behind, e.g. "4 MB".
-#: src/event-aggregator/AggregatorStatus.js:492
+#: src/event-aggregator/AggregatorStatus.js:489
 #, js-format
 msgid "%s behind"
 msgstr ""
 
 #. translators: 1: number of connected partitions, 2: total number of partitions.
-#: src/event-aggregator/AggregatorStatus.js:541
+#: src/event-aggregator/AggregatorStatus.js:538
 #, js-format
 msgid "%1$d/%2$d partitions"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:554
+#: src/event-aggregator/AggregatorStatus.js:551
 msgid "Probe"
 msgstr ""
 
 #. translators: %s: formatted time of the last update.
-#: src/event-aggregator/AggregatorStatus.js:627
+#: src/event-aggregator/AggregatorStatus.js:624
 #, js-format
 msgid "Updated %s"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:630
+#: src/event-aggregator/AggregatorStatus.js:627
 #: src/station/lazyTabs.js:67
 #: src/topology-console/components/OpenTopologyModal.js:61
 #: src/topology-console/components/TriageView.js:316
 msgid "Loading…"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:637
+#: src/event-aggregator/AggregatorStatus.js:634
 msgid "up"
 msgstr ""
 
 #. translators: %d: number of spokes between streams.
-#: src/event-aggregator/AggregatorStatus.js:642
+#: src/event-aggregator/AggregatorStatus.js:639
 #, js-format
 msgid "%d idle"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:653
+#: src/event-aggregator/AggregatorStatus.js:650
 msgid "Refresh interval"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:672
+#: src/event-aggregator/AggregatorStatus.js:669
 msgid "Loading server status…"
 msgstr ""
 
 #. translators: 1: topology name, 2: why it will not read.
-#: src/event-aggregator/AggregatorStatus.js:682
+#: src/event-aggregator/AggregatorStatus.js:679
 #, js-format
 msgid "Topology %1$s will not read, so its servers are not listed: %2$s"
 msgstr ""
 
-#: src/event-aggregator/AggregatorStatus.js:714
+#: src/event-aggregator/AggregatorStatus.js:711
 msgid "No servers configured. Add a server in the Vault tab, then wire a Remote_Source into an active topology."
 msgstr ""
 
@@ -612,7 +612,7 @@ msgid "OK"
 msgstr ""
 
 #. translators: 1: matching changes, 2: total changes.
-#: src/event-dashboards/ConfigAudit.js:108
+#: src/event-dashboards/ConfigAudit.js:113
 #, js-format
 msgid "%1$d / %2$d change"
 msgid_plural "%1$d / %2$d changes"
@@ -620,52 +620,52 @@ msgstr[0] ""
 msgstr[1] ""
 
 #. translators: %d: number of recorded changes.
-#: src/event-dashboards/ConfigAudit.js:119
+#: src/event-dashboards/ConfigAudit.js:124
 #, js-format
 msgid "%d change"
 msgid_plural "%d changes"
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/event-dashboards/ConfigAudit.js:132
+#: src/event-dashboards/ConfigAudit.js:137
 msgid "Filter option names"
 msgstr ""
 
-#: src/event-dashboards/ConfigAudit.js:133
+#: src/event-dashboards/ConfigAudit.js:138
 msgid "Filter option names…"
 msgstr ""
 
-#: src/event-dashboards/ConfigAudit.js:151
+#: src/event-dashboards/ConfigAudit.js:156
 #: src/event-dashboards/tabs.js:69
 #: src/event-dashboards/__tests__/tabs.test.js:89
 msgid "Config Audit"
 msgstr ""
 
-#: src/event-dashboards/ConfigAudit.js:158
+#: src/event-dashboards/ConfigAudit.js:163
 msgid "Values are recorded only for allowlisted options; other changes record the option name only."
 msgstr ""
 
-#: src/event-dashboards/ConfigAudit.js:167
+#: src/event-dashboards/ConfigAudit.js:172
 msgid "No option names match the filter."
 msgstr ""
 
-#: src/event-dashboards/ConfigAudit.js:171
+#: src/event-dashboards/ConfigAudit.js:176
 msgid "No configuration changes recorded yet."
 msgstr ""
 
-#: src/event-dashboards/ConfigAudit.js:180
+#: src/event-dashboards/ConfigAudit.js:185
 msgid "Time (UTC)"
 msgstr ""
 
-#: src/event-dashboards/ConfigAudit.js:181
+#: src/event-dashboards/ConfigAudit.js:186
 msgid "Option"
 msgstr ""
 
-#: src/event-dashboards/ConfigAudit.js:182
+#: src/event-dashboards/ConfigAudit.js:187
 msgid "Old"
 msgstr ""
 
-#: src/event-dashboards/ConfigAudit.js:183
+#: src/event-dashboards/ConfigAudit.js:188
 msgid "New"
 msgstr ""
 
@@ -674,7 +674,7 @@ msgid "Job"
 msgstr ""
 
 #: src/event-dashboards/Jobs.js:72
-#: src/event-dashboards/Jobs.js:185
+#: src/event-dashboards/Jobs.js:186
 msgid "Runs"
 msgstr ""
 
@@ -683,12 +683,12 @@ msgid "Failures"
 msgstr ""
 
 #: src/event-dashboards/Jobs.js:77
-#: src/event-dashboards/Tables.js:158
+#: src/event-dashboards/Tables.js:160
 msgid "Avg"
 msgstr ""
 
 #: src/event-dashboards/Jobs.js:81
-#: src/event-dashboards/Tables.js:162
+#: src/event-dashboards/Tables.js:164
 msgid "Max"
 msgstr ""
 
@@ -708,42 +708,42 @@ msgstr ""
 msgid "Last run"
 msgstr ""
 
-#: src/event-dashboards/Jobs.js:184
+#: src/event-dashboards/Jobs.js:185
 msgid "Job Runs Rate"
 msgstr ""
 
-#: src/event-dashboards/Jobs.js:191
+#: src/event-dashboards/Jobs.js:193
 msgid "Job Errors Rate"
 msgstr ""
 
-#: src/event-dashboards/Jobs.js:198
+#: src/event-dashboards/Jobs.js:201
 msgid "Job Backlog"
 msgstr ""
 
-#: src/event-dashboards/Jobs.js:199
-#: src/event-dashboards/Overview.js:374
+#: src/event-dashboards/Jobs.js:202
+#: src/event-dashboards/Overview.js:379
 #: src/event-dashboards/SummaryCards.js:175
 msgid "Backlog"
 msgstr ""
 
-#: src/event-dashboards/Jobs.js:205
+#: src/event-dashboards/Jobs.js:209
 msgid "Job Queue Latency"
 msgstr ""
 
-#: src/event-dashboards/Jobs.js:206
-#: src/event-dashboards/Tables.js:255
+#: src/event-dashboards/Jobs.js:210
+#: src/event-dashboards/Tables.js:261
 msgid "Latency"
 msgstr ""
 
-#: src/event-dashboards/Jobs.js:216
+#: src/event-dashboards/Jobs.js:220
 msgid "Job statistics"
 msgstr ""
 
-#: src/event-dashboards/Jobs.js:220
+#: src/event-dashboards/Jobs.js:224
 msgid "Job backlog"
 msgstr ""
 
-#: src/event-dashboards/Jobs.js:230
+#: src/event-dashboards/Jobs.js:234
 msgid "No job activity yet."
 msgstr ""
 
@@ -835,94 +835,94 @@ msgstr ""
 msgid "Cols"
 msgstr ""
 
-#: src/event-dashboards/Overview.js:359
+#: src/event-dashboards/Overview.js:362
 msgid "Topics Message Rate"
 msgstr ""
 
-#: src/event-dashboards/Overview.js:366
+#: src/event-dashboards/Overview.js:370
 msgid "Topics Byte Rate"
 msgstr ""
 
-#: src/event-dashboards/Overview.js:373
+#: src/event-dashboards/Overview.js:378
 msgid "Topics Backlog"
 msgstr ""
 
-#: src/event-dashboards/Overview.js:380
+#: src/event-dashboards/Overview.js:386
 msgid "Topics Cache Size"
 msgstr ""
 
-#: src/event-dashboards/Overview.js:381
+#: src/event-dashboards/Overview.js:387
 msgid "Cache Size"
 msgstr ""
 
-#: src/event-dashboards/Overview.js:387
+#: src/event-dashboards/Overview.js:394
 msgid "Partition Size"
 msgstr ""
 
-#: src/event-dashboards/Overview.js:388
-#: src/event-dashboards/Tables.js:166
-#: src/event-dashboards/Tables.js:262
+#: src/event-dashboards/Overview.js:395
+#: src/event-dashboards/Tables.js:168
+#: src/event-dashboards/Tables.js:269
 msgid "Size"
 msgstr ""
 
-#: src/event-dashboards/Overview.js:394
-#: src/event-dashboards/Tables.js:269
+#: src/event-dashboards/Overview.js:402
+#: src/event-dashboards/Tables.js:277
 msgid "On Disk"
 msgstr ""
 
-#: src/event-dashboards/Overview.js:395
+#: src/event-dashboards/Overview.js:403
 msgid "Disk"
 msgstr ""
 
-#: src/event-dashboards/Overview.js:408
+#: src/event-dashboards/Overview.js:416
 msgid "+ New Topology"
 msgstr ""
 
-#: src/event-dashboards/Overview.js:426
+#: src/event-dashboards/Overview.js:434
 msgid "Disconnected — retrying…"
 msgstr ""
 
 #. translators: 1: topology name, 2: why it will not read.
-#: src/event-dashboards/Overview.js:433
+#: src/event-dashboards/Overview.js:441
 #, js-format
 msgid "Topology %1$s will not read, so this board leaves it out: %2$s"
 msgstr ""
 
 #. translators: 1: log producer template, 2: why it was refused.
-#: src/event-dashboards/Overview.js:447
+#: src/event-dashboards/Overview.js:455
 #, js-format
 msgid "The log catalog leaves out %1$s, and the log sweep refuses to run: %2$s"
 msgstr ""
 
-#: src/event-dashboards/Overview.js:457
+#: src/event-dashboards/Overview.js:465
 msgid "Consumer rows"
 msgstr ""
 
-#: src/event-dashboards/Overview.js:461
+#: src/event-dashboards/Overview.js:469
 msgid "Topics charts"
 msgstr ""
 
-#: src/event-dashboards/Overview.js:480
+#: src/event-dashboards/Overview.js:488
 msgid "Fold all"
 msgstr ""
 
-#: src/event-dashboards/Overview.js:487
+#: src/event-dashboards/Overview.js:495
 msgid "Unfold all"
 msgstr ""
 
-#: src/event-dashboards/Overview.js:514
+#: src/event-dashboards/Overview.js:522
 #: src/event-dashboards/TopologyRow.js:410
 msgid "Stopped"
 msgstr ""
 
 #. translators: %s: topology name.
-#: src/event-dashboards/Overview.js:544
+#: src/event-dashboards/Overview.js:552
 #, js-format
 msgid "Activated “%s”, with a warning"
 msgstr ""
 
 #. translators: %s: topology name.
-#: src/event-dashboards/Overview.js:552
+#: src/event-dashboards/Overview.js:560
 #, js-format
 msgid "Couldn’t update “%s”"
 msgstr ""
@@ -1014,90 +1014,90 @@ msgstr ""
 msgid "Total On Disk"
 msgstr ""
 
-#: src/event-dashboards/Tables.js:108
+#: src/event-dashboards/Tables.js:110
 #: src/event-dashboards/TopologyRow.js:102
 #: src/shared/utils/formatters.js:220
 msgid "stalled"
 msgstr ""
 
-#: src/event-dashboards/Tables.js:129
+#: src/event-dashboards/Tables.js:131
 #: src/event-dashboards/TopologyRow.js:101
 msgid "behind"
 msgstr ""
 
-#: src/event-dashboards/Tables.js:130
+#: src/event-dashboards/Tables.js:132
 msgid "no"
 msgstr ""
 
-#: src/event-dashboards/Tables.js:141
+#: src/event-dashboards/Tables.js:143
 msgid "Table"
 msgstr ""
 
-#: src/event-dashboards/Tables.js:145
+#: src/event-dashboards/Tables.js:147
 msgid "Backend"
 msgstr ""
 
-#: src/event-dashboards/Tables.js:147
-#: src/event-dashboards/Tables.js:234
-#: src/event-dashboards/Tables.js:241
+#: src/event-dashboards/Tables.js:149
+#: src/event-dashboards/Tables.js:237
+#: src/event-dashboards/Tables.js:245
 msgid "Ops"
 msgstr ""
 
-#: src/event-dashboards/Tables.js:151
+#: src/event-dashboards/Tables.js:153
 msgid "Hit %"
 msgstr ""
 
 #. translators: 1: bytes the files hold, 2: disk they take.
-#: src/event-dashboards/Tables.js:171
+#: src/event-dashboards/Tables.js:173
 #, js-format
 msgid "%1$s (%2$s on disk)"
 msgstr ""
 
-#: src/event-dashboards/Tables.js:179
+#: src/event-dashboards/Tables.js:181
 msgid "Purged"
 msgstr ""
 
-#: src/event-dashboards/Tables.js:186
+#: src/event-dashboards/Tables.js:188
 msgid "Purge behind"
 msgstr ""
 
-#: src/event-dashboards/Tables.js:191
+#: src/event-dashboards/Tables.js:193
 msgid "WAL"
 msgstr ""
 
-#: src/event-dashboards/Tables.js:233
+#: src/event-dashboards/Tables.js:236
 msgid "Table Ops Rate"
 msgstr ""
 
-#: src/event-dashboards/Tables.js:240
+#: src/event-dashboards/Tables.js:244
 msgid "Table Operation Rate"
 msgstr ""
 
-#: src/event-dashboards/Tables.js:247
+#: src/event-dashboards/Tables.js:252
 msgid "Table Miss Rate"
 msgstr ""
 
-#: src/event-dashboards/Tables.js:248
+#: src/event-dashboards/Tables.js:253
 msgid "Misses"
 msgstr ""
 
-#: src/event-dashboards/Tables.js:254
+#: src/event-dashboards/Tables.js:260
 msgid "Table Latency"
 msgstr ""
 
-#: src/event-dashboards/Tables.js:261
+#: src/event-dashboards/Tables.js:268
 msgid "Table Size"
 msgstr ""
 
-#: src/event-dashboards/Tables.js:268
+#: src/event-dashboards/Tables.js:276
 msgid "Table On Disk"
 msgstr ""
 
-#: src/event-dashboards/Tables.js:294
+#: src/event-dashboards/Tables.js:302
 msgid "Table statistics"
 msgstr ""
 
-#: src/event-dashboards/Tables.js:304
+#: src/event-dashboards/Tables.js:312
 msgid "No Table has reported yet."
 msgstr ""
 
@@ -1111,7 +1111,7 @@ msgstr ""
 msgid "Tables"
 msgstr ""
 
-#: src/event-dashboards/TopicsChart.js:107
+#: src/event-dashboards/TopicsChart.js:114
 msgid "Total"
 msgstr ""
 
@@ -1353,11 +1353,11 @@ msgstr ""
 msgid "Sessions"
 msgstr ""
 
-#: src/shared/components/AreaTimeChart.js:339
+#: src/shared/components/AreaTimeChart.js:349
 msgid "Overlay the series"
 msgstr ""
 
-#: src/shared/components/AreaTimeChart.js:340
+#: src/shared/components/AreaTimeChart.js:350
 msgid "Stack the series"
 msgstr ""
 
@@ -1535,7 +1535,7 @@ msgid "Connection lost. Reconnecting…"
 msgstr ""
 
 #. translators: 1: the reader, 2: number of log lines skipped.
-#: src/shared/components/UnparseableLinesNotice.js:47
+#: src/shared/components/UnparseableLinesNotice.js:57
 #, js-format
 msgid "%1$s: %2$d line would not parse and was skipped."
 msgid_plural "%1$s: %2$d lines would not parse and were skipped."
@@ -1543,7 +1543,7 @@ msgstr[0] ""
 msgstr[1] ""
 
 #. translators: %d: number of log lines skipped.
-#: src/shared/components/UnparseableLinesNotice.js:58
+#: src/shared/components/UnparseableLinesNotice.js:68
 #, js-format
 msgid "%d line would not parse and was skipped."
 msgid_plural "%d lines would not parse and were skipped."

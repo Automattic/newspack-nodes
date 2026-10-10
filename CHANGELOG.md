@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.104.0] - 2026-10-10
+
 ### Added
 
 - **`usePersistedFlag( key, def )` in `src/shared/hooks/usePersistedState.js` owns a boolean stored as `'1'` or `'0'`.** It returns `[ value, set, toggle ]`; only `toggle` writes, and a changed `key` or `def` re-reads storage. `usePanelChrome` takes its palette and inspector flags from it in place of its private copy.
