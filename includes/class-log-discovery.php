@@ -214,7 +214,7 @@ final class Log_Discovery {
 			&& Log_Sources::is_valid_name( \str_replace( '*', 'a', $last ) )
 			&& match ( \count( $parts ) ) {
 				1 => true,
-				2 => self::is_prefix( $parts[0] ) && ( self::SOURCES_PREFIX !== $parts[0] || ! \str_contains( $sub, '*' ) ),
+				2 => self::is_prefix( $parts[0] ) && ( self::SOURCES_PREFIX !== $parts[0] || ! self::is_glob( $sub ) ),
 				default => false,
 			};
 	}
@@ -428,11 +428,21 @@ final class Log_Discovery {
 	 * @return bool True when the subscription carries the stamp.
 	 */
 	public static function carries( string $sub, string $stamp ): bool {
-		if ( ! \str_contains( $sub, '*' ) ) {
+		if ( ! self::is_glob( $sub ) ) {
 			return $sub === $stamp;
 		}
 		$pattern = \implode( '[^/]*', \array_map( static fn ( string $part ): string => \preg_quote( $part, '#' ), \explode( '*', $sub ) ) );
 		return 1 === \preg_match( "#^{$pattern}$#D", $stamp );
+	}
+
+	/**
+	 * Whether a subscription is a glob, whose stamps only what the spoke
+	 * finds names: a `*` anywhere in it.
+	 *
+	 * @param string $sub A subscription, a pair's source as written.
+	 */
+	public static function is_glob( string $sub ): bool {
+		return \str_contains( $sub, '*' );
 	}
 
 	/**

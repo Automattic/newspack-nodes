@@ -19,6 +19,9 @@ namespace Newspack_Nodes;
  * broker's tick, so readers due in one second ask together. Every reader
  * asking in one tick rides one POST, so the patron's reply cap counts the
  * readers, each at one whole record's share.
+ *
+ * A glob pair learns its stamps from the spoke's `raw-logs list_logs`
+ * catalog, asked on the tick an EOF poll after each answer.
  */
 class HTTP_Source_Node extends Remote_Broker_Node {
 
@@ -27,6 +30,12 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 
 	/** One reader's share of a POST's reply: its largest record and an envelope. */
 	public const READER_REPLY_BYTES = Partition_Node::MAX_LARGE_LINE_SIZE + 65536;
+
+	/**
+	 * The earliest wall-clock the next `list_logs` ask may go out: a request
+	 * timeout past an ask, an EOF poll past its answer.
+	 */
+	private float $catalog_due = 0.0;
 
 	/**
 	 * Size the reply cap to every reader as each read goes out, so a reader
@@ -56,7 +65,36 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 		foreach ( $this->reader_walk() as $child ) {
 			$child->fetch_when_due();
 		}
+		$this->ask_catalog( $http );
 		$this->publish_status( $http );
+	}
+
+	/**
+	 * While a glob pair stands, ask the spoke for its catalog FROM this
+	 * broker's name: one ask at a time, an EOF poll after the last answer,
+	 * and again once a lost one is as old as HTTP_Out's own timeout.
+	 *
+	 * @param HTTP_Out_Node $http The command channel.
+	 */
+	private function ask_catalog( HTTP_Out_Node $http ): void {
+		if ( ! $this->has_glob_pair() || Core::$now < $this->catalog_due ) {
+			return;
+		}
+		$message = $this->mint( $this->name, Remote_Consumer_Node::RAW_LOGS_SERVICE, 'list_logs', [] );
+		if ( null !== $message ) {
+			$this->catalog_due = Core::$now + HTTP_Out_Node::REQUEST_TIMEOUT;
+			$http->fill( $message );
+		}
+	}
+
+	/** Whether any pair's source is a glob, whose stamps only the catalog names. */
+	private function has_glob_pair(): bool {
+		foreach ( $this->pairs as [ 'source' => $source ] ) {
+			if ( Log_Discovery::is_glob( $source ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**
@@ -133,12 +171,32 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 	public function restream(): void {}
 
 	/**
-	 * A reply to the broker's own name: it sends nothing FROM itself, so
-	 * none is owed and each is dropped.
+	 * The spoke's catalog, the one reply this broker asks for FROM itself:
+	 * a reader for each key a pair claims, through the one builder, which
+	 * `MAX_READERS` caps for globs. A key no pair claims is the catalog's
+	 * business, not a stray line, so it builds nothing and says nothing; a
+	 * refusal is said rate-limited. Either way the next ask waits an EOF poll.
 	 *
 	 * @param array<int,mixed> $message The reply, TM_COMMAND|TM_RESPONSE or |TM_ERROR.
 	 */
-	protected function settle_reply( array $message ): void {}
+	protected function settle_reply( array $message ): void {
+		$value = Core::arr( $message[ Message::VALUE ] );
+		if ( 'list_logs' !== ( $value['name'] ?? null ) ) {
+			return;
+		}
+		$this->catalog_due = Core::$now + self::EOF_POLL_SECONDS;
+		$rows              = $value['payload'] ?? null;
+		if ( ! \is_array( $rows ) ) {
+			$this->print_less_often( 'list_logs refused: ', self::failure_reason( $rows, 'list_logs refused' ) );
+			return;
+		}
+		foreach ( $rows as $row ) {
+			$key = Core::arr( $row )['key'] ?? null;
+			if ( \is_string( $key ) && null !== $this->pair_for( $key ) ) {
+				$this->consumer_for( $key );
+			}
+		}
+	}
 
 	/**
 	 * Palette entry: `Remote_Source`'s arguments and verbs over block fetches.

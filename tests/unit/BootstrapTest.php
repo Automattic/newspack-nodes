@@ -736,7 +736,7 @@ class BootstrapTest extends TestCase {
 		$db                       = $this->use_wpdb();
 		$db->deny['CREATE TABLE'] = 'CREATE command denied 9154';
 
-		$log = $this->capture_stderr( static function (): void {
+		$log = $this->stderr_during( static function (): void {
 			Bootstrap::activate();
 		} );
 
@@ -755,7 +755,7 @@ class BootstrapTest extends TestCase {
 	// ── reconcile cron scheduling diagnostics ───────────────────────────
 
 	/** Capture Core::stderr output for the duration of a callable. */
-	private function capture_stderr( callable $fn ): string {
+	private function stderr_during( callable $fn ): string {
 		$lines = [];
 		Core::set_stderr_handler( function ( string $message ) use ( &$lines ): void {
 			$lines[] = $message;
@@ -768,7 +768,7 @@ class BootstrapTest extends TestCase {
 		$this->use_wpdb();
 		$GLOBALS['_wp_test_schedule_event_response'] = new \WP_Error( 'invalid_schedule', 'Event schedule does not exist.' );
 
-		$log = $this->capture_stderr( static function (): void {
+		$log = $this->stderr_during( static function (): void {
 			Bootstrap::activate();
 		} );
 
@@ -821,7 +821,7 @@ class BootstrapTest extends TestCase {
 
 		$log = '';
 		$pre = null;
-		$log = $this->capture_stderr( static function () use ( &$pre, $event ): void {
+		$log = $this->stderr_during( static function () use ( &$pre, $event ): void {
 			$pre = Bootstrap::log_reconcile_schedule_veto( false, $event );
 		} );
 
@@ -831,7 +831,7 @@ class BootstrapTest extends TestCase {
 
 	public function test_veto_detector_passes_through_malformed_events_without_logging(): void {
 		$results = [];
-		$log     = $this->capture_stderr( static function () use ( &$results ): void {
+		$log     = $this->stderr_during( static function () use ( &$results ): void {
 			$results[] = Bootstrap::log_reconcile_schedule_veto( false, null );
 			$results[] = Bootstrap::log_reconcile_schedule_veto( false, (object) [] );
 			$results[] = Bootstrap::log_reconcile_schedule_veto( false, 'not-an-object' );
@@ -845,7 +845,7 @@ class BootstrapTest extends TestCase {
 		$event = (object) [ 'hook' => 'newspack_nodes/reconcile' ];
 
 		$results = [];
-		$log     = $this->capture_stderr( static function () use ( &$results, $event ): void {
+		$log     = $this->stderr_during( static function () use ( &$results, $event ): void {
 			$results[] = Bootstrap::log_reconcile_schedule_veto( null, $event );
 			$results[] = Bootstrap::log_reconcile_schedule_veto( true, $event );
 		} );
@@ -873,7 +873,7 @@ class BootstrapTest extends TestCase {
 		$event = (object) [ 'hook' => 'newspack_nodes/reconcile' ];
 
 		$pre = null;
-		$log = $this->capture_stderr( static function () use ( &$pre, $event ): void {
+		$log = $this->stderr_during( static function () use ( &$pre, $event ): void {
 			$pre = Bootstrap::log_reconcile_schedule_veto( false, $event );
 		} );
 		unset( $GLOBALS['wp_filter'], $GLOBALS['_wp_test_current_filter'] );
@@ -891,7 +891,7 @@ class BootstrapTest extends TestCase {
 		$error                              = new \WP_Error( 'cron_storage_down', 'Could not persist the event.' );
 
 		$pre = null;
-		$log = $this->capture_stderr( static function () use ( &$pre, $event, $error ): void {
+		$log = $this->stderr_during( static function () use ( &$pre, $event, $error ): void {
 			$pre = Bootstrap::log_reconcile_schedule_veto( $error, $event );
 		} );
 		unset( $GLOBALS['_wp_test_current_filter'] );
@@ -922,7 +922,7 @@ class BootstrapTest extends TestCase {
 		];
 		$event = (object) [ 'hook' => 'newspack_nodes/reconcile' ];
 
-		$log = $this->capture_stderr( static function () use ( $event ): void {
+		$log = $this->stderr_during( static function () use ( $event ): void {
 			Bootstrap::log_reconcile_schedule_veto( false, $event );
 		} );
 		unset( $GLOBALS['wp_filter'], $GLOBALS['_wp_test_current_filter'] );
@@ -935,7 +935,7 @@ class BootstrapTest extends TestCase {
 		$GLOBALS['_wp_test_current_filter'] = 'pre_schedule_event';
 		$event                              = (object) [ 'hook' => 'newspack_nodes/reconcile' ];
 
-		$log = $this->capture_stderr( static function () use ( $event ): void {
+		$log = $this->stderr_during( static function () use ( $event ): void {
 			Bootstrap::log_reconcile_schedule_veto( false, $event );
 			Bootstrap::log_reconcile_schedule_veto( false, $event );
 		} );
@@ -966,7 +966,7 @@ class BootstrapTest extends TestCase {
 		$event = (object) [ 'hook' => 'newspack_nodes/reconcile' ];
 
 		$pre = null;
-		$log = $this->capture_stderr( static function () use ( &$pre, $event ): void {
+		$log = $this->stderr_during( static function () use ( &$pre, $event ): void {
 			Bootstrap::remember_schedule_event_context( $event );
 			$pre = Bootstrap::log_reconcile_schedule_event_veto( false );
 		} );
@@ -984,7 +984,7 @@ class BootstrapTest extends TestCase {
 		$event                              = (object) [ 'hook' => 'newspack_nodes/reconcile' ];
 
 		$pre = 'unchanged';
-		$log = $this->capture_stderr( static function () use ( &$pre, $event ): void {
+		$log = $this->stderr_during( static function () use ( &$pre, $event ): void {
 			Bootstrap::remember_schedule_event_context( $event );
 			$pre = Bootstrap::log_reconcile_schedule_event_veto( null );
 		} );
@@ -1004,7 +1004,7 @@ class BootstrapTest extends TestCase {
 		$event                              = (object) [ 'hook' => 'wp_update_plugins' ];
 
 		$pre = null;
-		$log = $this->capture_stderr( static function () use ( &$pre, $event ): void {
+		$log = $this->stderr_during( static function () use ( &$pre, $event ): void {
 			Bootstrap::remember_schedule_event_context( $event );
 			$pre = Bootstrap::log_reconcile_schedule_event_veto( false );
 		} );

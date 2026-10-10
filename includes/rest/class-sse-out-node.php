@@ -802,7 +802,7 @@ class SSE_Out_Node extends Node {
 		[ $group, $name ] = Log_Discovery::split( $sub );
 		$resolved         = [
 			'sub'    => $sub,
-			'glob'   => \str_contains( $sub, '*' ),
+			'glob'   => Log_Discovery::is_glob( $sub ),
 			'worker' => null,
 			'source' => null,
 			'ipc'    => null,

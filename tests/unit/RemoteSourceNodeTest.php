@@ -831,15 +831,6 @@ class RemoteSourceNodeTest extends TestCase {
 		return $paths;
 	}
 
-	/** Collect every stderr line the test raises. */
-	private function capture_stderr(): \ArrayObject {
-		$errors = new \ArrayObject();
-		Core::set_stderr_handler( static function ( string $text ) use ( $errors ): void {
-			$errors[] = $text;
-		} );
-		return $errors;
-	}
-
 	public function test_a_torn_frame_is_dropped_at_the_broker(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		[ $node, $child ] = $this->make_remote();

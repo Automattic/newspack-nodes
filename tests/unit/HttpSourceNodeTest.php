@@ -158,6 +158,30 @@ class HttpSourceNodeTest extends TestCase {
 		return Core::$memd->get( HTTP_Source_Node::status_key_for( 'pull-austin', 0 ) );
 	}
 
+	/** A spoke's `list_logs` answer: one available row per key, as `Raw_Logs_CI_Node` writes it. */
+	private static function catalog_reply( array $keys ): array {
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$m[ Message::TO ]    = 'pull-austin';
+		$m[ Message::VALUE ] = [
+			'name'      => 'list_logs',
+			'arguments' => [],
+			'payload'   => \array_map( static fn ( string $k ): array => [ 'key' => $k, 'label' => $k, 'available' => true ], $keys ),
+		];
+		return $m;
+	}
+
+	/** @return list<array<int,mixed>> The list_logs commands queued on the patron. */
+	private function catalog_asks( HTTP_Out_Node $http ): array {
+		return \array_values( \array_filter( $this->read_private( $http, 'batch' ), static fn ( array $m ): bool => 'list_logs' === $m[ Message::VALUE ]['name'] ) );
+	}
+
+	/** A broker over one glob pair, `jobstats.p*`, its first tick not yet run. */
+	private function globbing_broker(): HTTP_Source_Node {
+		$this->seed_austin();
+		return $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'jobstats.p*:stats' ) );
+	}
+
 	public function test_it_builds_each_exact_pairs_reader_on_the_first_tick(): void {
 		$this->seed_austin();
 		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'firehose.p0:downstream', 'sources/php:errors' ) );
@@ -628,6 +652,157 @@ class HttpSourceNodeTest extends TestCase {
 		$reader->fill( self::block_reply( [ 'firehose.p0', 'end' ], [], 9, 8817, false ) );
 
 		$this->assertSame( [ [ 'firehose.p0', 'end' ], [ 'firehose.p0', '9:8817' ] ], $this->fetches( $http ) );
+	}
+
+	public function test_a_glob_pair_asks_for_the_catalog_from_the_brokers_name(): void {
+		$node = $this->globbing_broker();
+
+		$node->fire();
+
+		$asked = $this->catalog_asks( Core::node( 'pull-austin:http-out' ) );
+		$this->assertCount( 1, $asked );
+		$this->assertSame( 'pull-austin', $asked[0][ Message::FROM ] );
+		$this->assertSame( 'raw-logs', $asked[0][ Message::TO ] );
+	}
+
+	/** The catalog is asked again an EOF poll after its answer, on the broker's tick. */
+	public function test_the_catalog_is_asked_again_an_eof_poll_after_its_answer(): void {
+		$node = $this->globbing_broker();
+		$node->fire();
+		$http = Core::node( 'pull-austin:http-out' );
+		Core::$now = 501.2;
+		$node->fill( self::catalog_reply( [] ) );
+
+		Core::$now = 506.1;
+		$node->fire();
+		$this->assertCount( 1, $this->catalog_asks( $http ) );
+
+		Core::$now = 506.3;
+		$node->fire();
+		$this->assertCount( 2, $this->catalog_asks( $http ) );
+	}
+
+	/** One ask is out at a time; a lost one goes again after the request timeout. */
+	public function test_a_lost_catalog_ask_goes_again_after_the_request_timeout(): void {
+		$node = $this->globbing_broker();
+		$node->fire();
+		$http = Core::node( 'pull-austin:http-out' );
+
+		Core::$now = 500.0 + HTTP_Out_Node::REQUEST_TIMEOUT - 0.4;
+		$node->fire();
+		$this->assertCount( 1, $this->catalog_asks( $http ) );
+
+		Core::$now = 500.0 + HTTP_Out_Node::REQUEST_TIMEOUT + 0.6;
+		$node->fire();
+		$this->assertCount( 2, $this->catalog_asks( $http ) );
+	}
+
+	public function test_the_catalog_builds_a_reader_for_each_key_a_glob_claims(): void {
+		$node = $this->globbing_broker();
+		$node->fire();
+
+		$node->fill( self::catalog_reply( [ 'jobstats.p0', 'jobstats.p3', 'firehose.p0', 'offsets/jobstats.p1' ] ) );
+
+		$this->assertSame( [ 'jobstats.p0', 'jobstats.p3' ], \array_keys( $this->readers( $node ) ) );
+	}
+
+	public function test_discovery_ignores_keys_no_pair_claims_without_a_warning(): void {
+		$node = $this->globbing_broker();
+		$node->fire();
+		$err = $this->capture_stderr();
+
+		$node->fill( self::catalog_reply( [ 'firehose.p0', 'sources/php', 'offsets/jobstats.p1' ] ) );
+
+		$this->assertSame( [], $this->readers( $node ) );
+		$this->assertSame( [], (array) $err );
+	}
+
+	/** A row the spoke could not key, an error row, builds nothing. */
+	public function test_a_catalog_row_with_no_key_builds_nothing(): void {
+		$node = $this->globbing_broker();
+		$node->fire();
+		$reply                                 = self::catalog_reply( [ 'jobstats.p2' ] );
+		$reply[ Message::VALUE ]['payload'][] = [ 'label' => 'jobstats.p9', 'available' => false, 'error' => 'unreadable 7720' ];
+
+		$node->fill( $reply );
+
+		$this->assertSame( [ 'jobstats.p2' ], \array_keys( $this->readers( $node ) ) );
+	}
+
+	public function test_discovery_builds_no_more_than_max_readers(): void {
+		$node = $this->globbing_broker();
+		$node->fire();
+		$keys = \array_map( static fn ( int $i ): string => "jobstats.p{$i}", \range( 0, HTTP_Source_Node::MAX_READERS + 2 ) );
+
+		$node->fill( self::catalog_reply( $keys ) );
+
+		$this->assertCount( HTTP_Source_Node::MAX_READERS, $this->readers( $node ) );
+	}
+
+	public function test_a_refused_catalog_builds_nothing_and_says_so(): void {
+		$node = $this->globbing_broker();
+		$node->fire();
+		$err                                = $this->capture_stderr();
+		$refusal                            = self::catalog_reply( [] );
+		$refusal[ Message::TYPE ]           = Message::TM_COMMAND | Message::TM_ERROR;
+		$refusal[ Message::VALUE ]['payload'] = "unknown command: list_logs 6604\n";
+
+		$node->fill( $refusal );
+
+		$this->assertSame( [], $this->readers( $node ) );
+		$this->assertStringContainsString( 'list_logs refused: unknown command: list_logs 6604', \implode( '', (array) $err ) );
+	}
+
+	/** Only an answer naming `list_logs` is the catalog. */
+	public function test_a_reply_naming_another_verb_is_no_catalog(): void {
+		$node = $this->globbing_broker();
+		$node->fire();
+		$reply                           = self::catalog_reply( [ 'jobstats.p4' ] );
+		$reply[ Message::VALUE ]['name'] = 'dump_log';
+
+		$node->fill( $reply );
+
+		$this->assertSame( [], $this->readers( $node ) );
+	}
+
+	/** A refusal's spoke text reaches stderr bounded to one clean line. */
+	public function test_a_refused_catalog_says_a_bounded_reason(): void {
+		$node = $this->globbing_broker();
+		$node->fire();
+		$err                                  = $this->capture_stderr();
+		$refusal                              = self::catalog_reply( [] );
+		$refusal[ Message::TYPE ]             = Message::TM_COMMAND | Message::TM_ERROR;
+		$refusal[ Message::VALUE ]['payload'] = "spoke-3391\x1b[31m" . \str_repeat( 'z', 900 );
+
+		$node->fill( $refusal );
+
+		$said = \implode( '', (array) $err );
+		$this->assertStringNotContainsString( "\x1b", $said );
+		$this->assertStringContainsString( 'list_logs refused: spoke-3391 [31mzzz', $said );
+		$this->assertLessThan( 700, \strlen( $said ), 'the 512-byte cap, not the 900 sent' );
+	}
+
+	public function test_a_broker_of_exact_pairs_never_asks_for_the_catalog(): void {
+		$this->seed_austin();
+		$node = $this->broker( 'pull-austin' );
+
+		$node->fire();
+		Core::$now += 6;
+		$node->fire();
+
+		$this->assertSame( [], $this->catalog_asks( Core::node( 'pull-austin:http-out' ) ) );
+	}
+
+	/** A reader discovered between ticks counts in the reply cap at its first fetch. */
+	public function test_a_discovered_reader_counts_in_the_cap_at_its_first_fetch(): void {
+		$this->seed_austin();
+		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'firehose.p0:downstream', 'jobstats.p*:stats' ) );
+		$node->fire();
+		$node->fill( self::catalog_reply( [ 'jobstats.p0', 'jobstats.p3' ] ) );
+
+		$this->readers( $node )['jobstats.p3']->fire_cb();
+
+		$this->assertSame( 3 * HTTP_Source_Node::READER_REPLY_BYTES, $this->read_private( Core::node( 'pull-austin:http-out' ), 'reply_cap' ) );
 	}
 
 	public function test_its_schema_matches_remote_sources_arguments_and_verbs(): void {

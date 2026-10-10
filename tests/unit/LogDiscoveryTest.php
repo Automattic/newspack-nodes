@@ -41,6 +41,14 @@ class LogDiscoveryTest extends TestCase {
 		parent::tearDown();
 	}
 
+	/** A subscription is a glob when a `*` stands anywhere in it, group or name. */
+	public function test_is_glob_reads_a_star_anywhere_in_a_subscription(): void {
+		$this->assertTrue( Log_Discovery::is_glob( 'jobstats.p*' ) );
+		$this->assertTrue( Log_Discovery::is_glob( 'offsets/fire*.p3' ) );
+		$this->assertFalse( Log_Discovery::is_glob( 'firehose.p0' ) );
+		$this->assertFalse( Log_Discovery::is_glob( 'sources/php' ) );
+	}
+
 	public function test_root_joins_a_group_onto_the_base(): void {
 		$this->assertSame( '/srv/runtime-6612/offsets', Log_Discovery::root( '/srv/runtime-6612', 'offsets' ) );
 	}
