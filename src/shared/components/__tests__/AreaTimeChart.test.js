@@ -127,6 +127,15 @@ describe( 'AreaTimeChart', () => {
 		expect( tall.style.fill ).toBe( '#111111' );
 	} );
 
+	it( 'leaves hit-testing to the overlay: no band takes the pointer', () => {
+		const { container } = mount();
+		const marks = bands( container );
+		expect( marks ).toHaveLength( 2 );
+		marks.forEach( ( band ) =>
+			expect( band.getAttribute( 'pointer-events' ) ).toBe( 'none' )
+		);
+	} );
+
 	it( 'stacks when asked: the top band peaks at the stack total', () => {
 		const { container } = mount( { stacked: true } );
 		const [ bottom, top ] = bands( container );
@@ -196,6 +205,7 @@ describe( 'AreaTimeChart', () => {
 
 			expect( dots ).toHaveLength( 1 );
 			expect( dots[ 0 ].style.fill ).toBe( '#111111' );
+			expect( dots[ 0 ].getAttribute( 'pointer-events' ) ).toBe( 'none' );
 			expect( Number( dots[ 0 ].getAttribute( 'cy' ) ) ).toBeCloseTo(
 				CEILING,
 				3
