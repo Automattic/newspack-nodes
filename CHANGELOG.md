@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **`Remote_Source_Node` reports `last_rtt` in milliseconds, as the Aggregator Status tab reads it.** It wrote whole seconds, so a one-second heartbeat round trip rendered as `1.0ms` and graded green. The heartbeat's send time now keeps its fraction of a second, and both brokers round through `Remote_Broker_Node::round_trip_ms()`, to the hundredth of a millisecond, and bound a refusal's reason through `failure_reason()`; `last_response` stays a whole wall-second.
+- **A crawling Consumer no longer drops buffered lines when its segment rolls.** Crawl drains one line a tick but refills every tick, so once a segment was wholly buffered and the next existed, `get_batch()` rolled to it and cleared complete lines it had not drained: records `a`, `b` and `c` in one segment and `d` in the next delivered `a` and `d`. The roll now waits while the buffer holds a complete line, and clears only a torn tail, which still counts as consumed. A `Tail` reads through the same path. Line mode and batch mode never refill with a line buffered, and neither `File_Tail`, which never crawls, nor a broker's reader rolls a segment here.
 
 ## [2.103.3] - 2026-10-09
 

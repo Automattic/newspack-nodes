@@ -1556,6 +1556,38 @@ class ConsumerTest extends TestCase {
 	}
 
 	/**
+	 * Crawl drains one line a tick but refills every tick, so a segment can be
+	 * wholly buffered with lines still to drain when the next one appears: the
+	 * roll waits for those lines, and clears only a torn tail.
+	 */
+	public function test_crawl_drains_every_buffered_line_before_rolling_a_segment(): void {
+		$dir = "{$this->tmp}/data.p0";
+		\mkdir( $dir, 0755, true );
+		$line = static function ( string $value ): string {
+			$message                   = Message::new_message();
+			$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+			$message[ Message::VALUE ] = $value;
+			return Message::packed( $message ) . "\n";
+		};
+		$first  = $line( 'skua-head' ) . $line( 'tern-6104' ) . $line( 'gull-2958' ) . $line( 'auk-7731' ) . 'torn-5517';
+		$second = $line( 'petrel-4462' );
+		\file_put_contents( "{$dir}/0.log", $first );
+		\file_put_contents( "{$dir}/1.log", $second );
+		$this->seed_offsetlog_frame( "{$this->tmp}/offsets.p0", 0, 0, Consumer_Node::CRASH_MAX_ATTEMPTS, '' );
+
+		$c = new Consumer_Node();
+		$c->arguments( [ $dir, "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
+		$c->name( 'firehose:consumer' );
+		$cap = new Capture_Sink_Node();
+		$c->sink( $cap );
+		$this->pump_consumer( $c );
+
+		$values = \array_map( static fn ( $m ) => $m[ Message::VALUE ], $cap->captured );
+		$this->assertSame( [ 'tern-6104', 'gull-2958', 'auk-7731', 'petrel-4462' ], $values, 'every line after the sacrificed head, in order' );
+		$this->assertSame( \strlen( $first ) + \strlen( $second ), $c->take_consumed_bytes(), 'the torn tail counts as consumed at the roll' );
+	}
+
+	/**
 	 * Drive a Consumer until its sink throws Worker_Should_Stop, leaving the in-flight
 	 * message buffered at the boot cursor (the realistic mid-job cooperative-stop state).
 	 */
