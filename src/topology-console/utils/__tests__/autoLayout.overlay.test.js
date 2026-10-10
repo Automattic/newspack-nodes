@@ -33,12 +33,8 @@ const ONE_SHOTS = [
 	[ 'request-deeplink', 'search_requests', 'performance', 'request' ],
 	[ 'url-deeplink', 'dump_url', 'performance', 'url' ],
 	[ 'request-search', 'search_requests', 'performance', 'request' ],
-	[
-		'performance:grep_requests',
-		'grep_requests',
-		'performance',
-		'performance',
-	],
+	[ 'ask', 'ask', 'performance', 'performance' ],
+	[ 'grep-requests', 'grep_requests', 'performance', 'performance' ],
 	[ 'rules:dump', 'dump', 'rules', 'rules' ],
 	[ 'rules:upsert', 'upsert', 'rules', 'rules' ],
 	[ 'rules:delete', 'delete', 'rules', 'rules' ],
@@ -202,6 +198,96 @@ describe( 'autoLayout — the Performance dashboard in the debug overlay', () =>
 			( p, q ) => at[ p ].y - at[ q ].y
 		);
 		expect( byRow ).toEqual( TAP_COLUMN );
+	} );
+
+	/**
+	 * Each card's column and row in X_STEP and Y_STEP units from `first`.
+	 *
+	 * @param {Object<string,{x: number, y: number}>} at    Position by id.
+	 * @param {string}                                first The stack's first card.
+	 * @param {Array<[string, number, number]>}       cards Each card, column and row.
+	 * @return {Array<[string, number, number]>} What the layout gives each.
+	 */
+	const relative = ( at, first, cards ) =>
+		cards.map( ( [ id ] ) => [
+			id,
+			( at[ id ].x - at[ first ].x ) / X_STEP,
+			( at[ id ].y - at[ first ].y ) / Y_STEP,
+		] );
+
+	/**
+	 * A one-shot slice's six cards from its timer's row `r`: the timer and
+	 * tee, the fetcher in column `f` half a row down, the receiver a row down,
+	 * and its gate and result half a row under that.
+	 *
+	 * @param {string} s The scope.
+	 * @param {number} r The timer's row.
+	 * @param {number} f The fetcher's column.
+	 * @return {Array<[string, number, number]>} Each card, column and row.
+	 */
+	const oneShot = ( s, r, f = 2 ) => [
+		[ `${ s }:timer`, 0, r ],
+		[ `${ s }:tee`, 1, r ],
+		[ `${ s }:fetch`, f, 2 === f ? r + 0.5 : r ],
+		[ `${ s }:in`, 0, r + 1 ],
+		[ `${ s }:in:current`, 1, r + 1.5 ],
+		[ `${ s }:result`, 2, r + 1.5 ],
+	];
+
+	it( 'stacks the url, overview and performance groups tight in the left stack', () => {
+		const { at } = layOutPerformanceOverlay();
+		const left = [
+			...oneShot( 'url-deeplink', 0 ),
+			[ 'url-detail:timer', 0, 2 ],
+			[ 'url-detail:fetch', 2, 2.5 ],
+			[ 'url-detail:in', 0, 3 ],
+			[ 'url-detail:in:current', 1, 3.5 ],
+			[ 'url-detail:transform', 2, 3.5 ],
+			[ 'url-detail:view', 3, 3.5 ],
+			...oneShot( 'url-lookup', 4.5, 3 ),
+			[ 'url:shell', 4, 2.5 ],
+			[ 'overview:in:current', 2, 8 ],
+			[ 'overview:view', 3, 8 ],
+			[ 'overview:in', 1, 8.5 ],
+			[ 'overview:fetch', 2, 9 ],
+			[ 'performance:timer', 0, 9.5 ],
+			[ 'performance:tee', 1, 9.5 ],
+			[ 'overview:shell', 3, 9.5 ],
+			[ 'urls:fetch', 2, 10 ],
+			[ 'urls:in', 1, 10.5 ],
+			[ 'urls:in:current', 2, 11 ],
+			[ 'urls:view', 3, 11 ],
+			...oneShot( 'ask', 13 ),
+			[ 'performance:shell', 3, 15 ],
+			...oneShot( 'grep-requests', 15.5 ),
+		];
+		expect( relative( at, 'url-deeplink:timer', left ) ).toEqual( left );
+	} );
+
+	it( 'stacks the request and rules groups tight in the right stack, the REPL under them', () => {
+		const { at } = layOutPerformanceOverlay();
+		const right = [
+			...oneShot( 'request-deeplink', 0 ),
+			[ 'request-detail:timer', 0, 2 ],
+			[ 'request-detail:fetch', 2, 2.5 ],
+			[ 'request-detail:in', 0, 3 ],
+			[ 'request:shell', 3.5, 3 ],
+			[ 'request-detail:in:current', 1, 3.5 ],
+			[ 'request-detail:view', 2, 3.5 ],
+			...oneShot( 'request-search', 4.5 ),
+			...oneShot( 'rules:delete', 8 ),
+			...oneShot( 'rules:dump', 10.5 ),
+			[ 'rules:shell', 3.5, 11 ],
+			...oneShot( 'rules:upsert', 13 ),
+			[ '_heartbeat', 0, 16.5 ],
+			[ '_http', 1, 16.5 ],
+			[ '_output', 2, 16.5 ],
+			[ '_metadata', 0, 18.5 ],
+			[ '_cwd', 1, 18.5 ],
+		];
+		expect( relative( at, 'request-deeplink:timer', right ) ).toEqual(
+			right
+		);
 	} );
 
 	it( 'runs every wire into the Tap column clear of every other', () => {

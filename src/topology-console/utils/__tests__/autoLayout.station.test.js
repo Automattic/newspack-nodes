@@ -14,7 +14,7 @@ import { useDebugRepl } from '../../../debug-overlay/useDebugRepl';
 import { useTopologyManager } from '../../../event-dashboards/hooks/useTopologyManager';
 import { useProbeStream } from '../../../event-dashboards/hooks/useProbeStream';
 import { coreToGraph } from '../coreToGraph';
-import { autoLayout, X_STEP } from '../autoLayout';
+import { autoLayout, drawnCost, X_STEP } from '../autoLayout';
 
 /** The fleet board's group Tap, which every one of its Fetchers feeds. */
 const HUB = 'topologies:shell';
@@ -150,16 +150,21 @@ describe( 'autoLayout — the station Overview in the debug overlay', () => {
 		);
 	} );
 
-	it( 'moves a fetcher whose hub wire runs over another band into the fetchers’ column', () => {
-		// Where its band leaves it, its wire to the Tap runs over
-		// topology-manager:view, another band's card.
+	it( 'keeps a fetcher in its band’s column where its hub wire crosses no card', () => {
+		// From its band's column, topologies:activate:fetch's wire to the Tap
+		// passes over no card, so it has no reason to move right.
 		const graph = overviewGraph();
 		const at = Object.fromEntries(
 			autoLayout( graph ).nodes.map( ( n ) => [ n.id, n.position ] )
 		);
 		expect( at[ 'topologies:activate:fetch' ].x ).toBe(
-			at[ 'topology-manager:fetch' ].x
+			at[ 'topologies:activate:result' ].x
 		);
+		expect(
+			drawnCost( at, graph.edges ).over.filter( ( hit ) =>
+				hit.startsWith( 'topologies:activate:fetch→' )
+			)
+		).toEqual( [] );
 	} );
 
 	it( 'opens a clear column between the fetchers and the fleet board Tap', () => {

@@ -17,16 +17,20 @@
  * gather into BLOCKS — a hub with the bands that feed it, or a band feeding no
  * hub on its own, merged with every block a wire joins it to — and the blocks
  * pack into side-by-side stacks toward a canvas about as wide as it is tall,
- * widest blocks first; a small graph fills one stack. A block that would open
- * a new stack waits, and so does every block after it. Each waiting block
- * then takes room above or below the cards the waiting blocks before it hold,
- * or else room the stacks leave, on the row nearest the canvas's middle, clear
- * of every hub's column and of any card beside it showing an unwired port;
- * failing both, room a stack may still grow into, down to the square's height;
- * and opens a stack only when none fits. So a small block sits by the fan it
- * fits beside, not in the corner under it, nor in the column a hub's fan-in
- * converges on, and widens the canvas no sooner than it would have stacked.
- * An edgeless node is a block of one.
+ * widest blocks first; a small graph fills one stack. The bands feeding one hub
+ * stack with no gap: each rises until a card of it would sit less than a row
+ * below a card above it in the same column. Blocks stacked in one column of the
+ * canvas leave exactly one empty row between them, save lone cards, which stack
+ * a row apart as one group. A block that would open a new stack waits, and so
+ * does every block after it. Each waiting block then takes room above or below
+ * the cards the waiting blocks before it hold, or else room the stacks leave,
+ * on the row nearest the canvas's middle, clear of every hub's column and of
+ * any card beside it showing an unwired port; failing both, the same rooms a
+ * stack may still grow into, down to the square's height; and opens a stack
+ * only when none fits. So a small block sits by the fan it fits beside, not in
+ * the corner under it, nor in the column a hub's fan-in converges on, and
+ * widens the canvas no sooner than it would have stacked. An edgeless node is a
+ * block of one.
  *
  * Within a band, columns come from a Coffman-Graham-flavored layering: a true
  * source starts in column 0, a true sink seats one column past its own depth
@@ -49,7 +53,10 @@
  * it; then again once its block is laid out. Where that column lies left of
  * the anchor, it waits there for the row spread, so it straddles a card
  * fanning to the same column instead of taking the nearest row that card
- * leaves free.
+ * leaves free. A card sits in the column right after the cards feeding it: a
+ * chain a stretched sink drew further right comes back beside its feeder
+ * unless the block then crosses fewer wires without the move, and a nudge off
+ * a wire carries along the card its mover alone feeds, on the same row.
  *
  * HUBS leave their band for the column right after the bands that feed them,
  * on those bands' middle row, with the bands they feed continuing to their
@@ -285,6 +292,16 @@ const HUB_MIN_FAN_IN = 4;
 
 /** How far above the median fan-in a hub must sit, so a dense graph declares none. */
 const HUB_MEDIAN_FACTOR = 3;
+
+/**
+ * The slot of a card no band bounds: every row.
+ *
+ * @type {Readonly<[number, number]>}
+ */
+const ANY_ROW = Object.freeze( [ -Infinity, Infinity ] );
+
+/** Empty rows between two blocks stacked in one column of the canvas. */
+const BLOCK_GAP = 1;
 
 /** Fewer nodes than a poll's timer, tee and fetcher is no slice to band. */
 const SLICE_MIN = 3;
@@ -767,22 +784,37 @@ const cardsByColumn = ( ids, col ) => {
  * off `xOf`. A band's own pass has only `evenColumns`, blind to the half
  * steps its block opens, and its block passes again with every one in place.
  *
- * @param {Array<string>}                ids      The cards to move.
- * @param {Array<[string, string]>}      wires    The through wires, as `[from, to]`.
- * @param {Object<string,number>}        col      Columns.
- * @param {Object<string,number>}        row      Rows, mutated in place.
- * @param {Array<string>}                [others] Cards a nudge must also keep clear of; the movers by default.
- * @param {( c: number ) => number}      [xOf]    Canvas x of a column.
- * @param {Object<number,Array<string>>} [shared] The movers and `others` by column, built once for passes that share them.
+ * A nudge stays strictly inside the rows `slotOf` gives the card, so a card
+ * of a stacked band never moves into the rows of the band above or below it;
+ * one with no clear row there stays where it is.
+ *
+ * A nudge carries the card `followerOf` names for the mover — the card only
+ * it feeds, from the column before — onto the same row wherever that row is
+ * clear for it, and on down the chain, so no nudge bends a chain.
+ *
+ * @param {Array<string>}                                ids               The cards to move.
+ * @param {Array<[string, string]>}                      wires             The through wires, as `[from, to]`.
+ * @param {Object<string,number>}                        col               Columns.
+ * @param {Object<string,number>}                        row               Rows, mutated in place.
+ * @param {Object}                                       [opts]            How the pass reads the canvas.
+ * @param {Array<string>}                                [opts.others]     Cards a nudge must also keep clear of; the movers by default.
+ * @param {( c: number ) => number}                      [opts.xOf]        Canvas x of a column.
+ * @param {Object<number,Array<string>>}                 [opts.shared]     The movers and `others` by column, built once for passes that share them.
+ * @param {( id: string ) => string|undefined}           [opts.followerOf] The card a nudge carries along with a mover; none by default.
+ * @param {( id: string ) => Readonly<[number, number]>} [opts.slotOf]     The rows, exclusive, a mover's nudge stays between; any by default.
  */
 const clearWires = (
 	ids,
 	wires,
 	col,
 	row,
-	others = ids,
-	xOf = evenColumns,
-	shared = undefined
+	{
+		others = ids,
+		xOf = evenColumns,
+		shared = undefined,
+		followerOf = () => undefined,
+		slotOf = () => ANY_ROW,
+	} = {}
 ) => {
 	if ( ! wires.length ) {
 		return;
@@ -831,11 +863,39 @@ const clearWires = (
 	const holding = ( c, lo, hi, id ) =>
 		countHeld( ordered( c ), rowAt, lo, hi ) -
 		( pastLow( row[ id ], lo ) && ! reachesHigh( row[ id ], hi ) ? 1 : 0 );
+	// Move `id` to row `r`, and the card it alone feeds with it where clear.
+	const carry = ( id, r, spans ) => {
+		const next = followerOf( id );
+		const order = ordered( col[ id ] );
+		order.splice( order.indexOf( id ), 1 );
+		row[ id ] = r;
+		insertByRow( order, id, row );
+		if (
+			next !== undefined &&
+			row[ next ] !== r &&
+			! inside( r, spans[ col[ next ] ] ) &&
+			! holding( col[ next ], r - 1, r + 1, next )
+		) {
+			carry( next, r, spans );
+		}
+	};
+	// Only the columns of the movers and the chains they carry are read.
+	const read = new Set();
+	const walked = new Set();
+	for ( let id of ids ) {
+		for (
+			;
+			id !== undefined && ! walked.has( id );
+			id = followerOf( id )
+		) {
+			walked.add( id );
+			read.add( col[ id ] );
+		}
+	}
 	for ( let sweep = 0; sweep < 2; sweep++ ) {
 		/** @type {Object<number,Array<[number, number]>>} */
 		const spans = {};
-		// Only the movers' columns are read.
-		for ( const c of new Set( ids.map( ( id ) => col[ id ] ) ) ) {
+		for ( const c of read ) {
 			spans[ c ] = merged(
 				wires
 					.filter(
@@ -860,25 +920,28 @@ const clearWires = (
 			if ( ! list.length || ! inside( row[ id ], list ) ) {
 				continue;
 			}
+			const [ above, below ] = slotOf( id );
 			// Past the spans' extent plus the column's cards, a row is clear.
-			const reach =
+			const reach = Math.min(
 				2 *
-				( Math.max( ...list.map( ( [ , hi ] ) => hi ) ) -
-					Math.min( ...list.map( ( [ lo ] ) => lo ) ) +
-					byCol[ c ].length +
-					1 );
-			// The nearest clear half row, below before above on a tie.
+					( Math.max( ...list.map( ( [ , hi ] ) => hi ) ) -
+						Math.min( ...list.map( ( [ lo ] ) => lo ) ) +
+						byCol[ c ].length +
+						1 ),
+				2 * Math.max( row[ id ] - above, below - row[ id ] )
+			);
+			// The nearest clear half row in its slot, below first on a tie.
 			const found = nearestRow(
 				row[ id ],
 				( r ) =>
-					! inside( r, list ) && ! holding( c, r - 1, r + 1, id ),
+					r > above &&
+					r < below &&
+					! inside( r, list ) &&
+					! holding( c, r - 1, r + 1, id ),
 				reach
 			);
 			if ( found !== undefined ) {
-				const order = ordered( c );
-				order.splice( order.indexOf( id ), 1 );
-				row[ id ] = found;
-				insertByRow( order, id, row );
+				carry( id, found, spans );
 				moved = true;
 			}
 		}
@@ -1409,6 +1472,96 @@ const transpose = ( columns, col, pred, succ, pos ) => {
 };
 
 /**
+ * The card one card alone feeds, when that card feeds it alone, from the
+ * column right before it: a nudge carries it along on the same row.
+ *
+ * @param {Object<string,Array<string>>} succ Successors.
+ * @param {Object<string,Array<string>>} pred Predecessors.
+ * @param {Object<string,number>}        col  Columns, read live.
+ * @return {( id: string ) => string|undefined} The follower of `id`, if any.
+ */
+const soleFollower = ( succ, pred, col ) => ( id ) => {
+	const [ next, ...more ] = succ[ id ];
+	return next !== undefined &&
+		! more.length &&
+		1 === pred[ next ].length &&
+		col[ next ] === col[ id ] + 1
+		? next
+		: undefined;
+};
+
+/**
+ * Bring each chain a stretched sink dragged right back beside its feeders.
+ *
+ * A card sits in the column right after the cards feeding it. One that feeds
+ * others and sits further right, every card it feeds fed by it alone and
+ * seated in the column after it, moves left with all of them until it is
+ * there, each keeping its row, wherever no other card sits within a row of
+ * where one lands. A late source chooses its own column, so it holds no card
+ * back, and a pinned card holds the column its pin asks for. A sink stays
+ * where it sits unless its feeder moves: its column is the stretch the
+ * layering gives it.
+ *
+ * @param {Array<string>}                                                            ids    The seated cards.
+ * @param {{succ: Object<string,Array<string>>, pred: Object<string,Array<string>>}} inBand The band's own wires.
+ * @param {Set<string>}                                                              later  The sources seated last.
+ * @param {Object<string,number>}                                                    pin    Columns pinned by name.
+ * @param {Object<string,number>}                                                    col    Columns, mutated in place.
+ * @param {Object<string,number>}                                                    row    Rows.
+ * @return {boolean} Whether any chain moved.
+ */
+const pullBeside = ( ids, inBand, later, pin, col, row ) => {
+	// `id` and every card it alone feeds, each a column right of its feeder.
+	const chainOf = ( id ) => {
+		const chain = [ id ];
+		for ( const k of chain ) {
+			for ( const s of inBand.succ[ k ] ) {
+				if (
+					1 !== inBand.pred[ s ].length ||
+					col[ s ] !== col[ k ] + 1
+				) {
+					return [];
+				}
+				chain.push( s );
+			}
+		}
+		return chain;
+	};
+	let moved = false;
+	const byCol = cardsByColumn( ids, col );
+	for ( const id of stableSort( ids, ( n ) => col[ n ] ) ) {
+		const feeds = inBand.pred[ id ].filter( ( p ) => ! later.has( p ) );
+		if ( ! feeds.length || ! inBand.succ[ id ].length ) {
+			continue;
+		}
+		const by =
+			col[ id ] - Math.max( ...feeds.map( ( p ) => col[ p ] ) ) - 1;
+		const chain = by > 0 ? chainOf( id ) : [];
+		const moving = new Set( chain );
+		const lands = ( k ) =>
+			pin[ k ] === undefined &&
+			! cardsWithin(
+				byCol[ col[ k ] - by ] ?? [],
+				row,
+				row[ k ] - 1,
+				row[ k ] + 1,
+				( o ) => moving.has( o )
+			);
+		if ( chain.length && chain.every( lands ) ) {
+			for ( const k of chain ) {
+				byCol[ col[ k ] ] = byCol[ col[ k ] ].filter(
+					( o ) => o !== k
+				);
+				col[ k ] -= by;
+				( byCol[ col[ k ] ] ??= [] ).push( k );
+			}
+			moved = true;
+		}
+	}
+	return moved;
+};
+
+/**
  * Lay ONE component out in grid units, using the layering described at the top.
  *
  * `layoutBands` calls this on each band, so a band is sized by its own depth
@@ -1416,20 +1569,25 @@ const transpose = ( columns, col, pred, succ, pos ) => {
  * `ids`, and every id has an edge inside the band: a lone node never gets
  * here.
  *
- * @param {Array<string>}                ids   The component's nodes, alphabetical.
- * @param {Object<string,Array<string>>} succ  Successors inside the component.
- * @param {Object<string,Array<string>>} pred  Predecessors inside the component.
- * @param {( id: string ) => boolean}    unfed Whether nothing in the whole graph feeds a node.
- * @param {Object<string,number>}        [pin] A column each named sink seats in
- *                                             at the least, once the rest are
- *                                             relaxed without it.
- * @return {{col: Object<string,number>, row: Object<string,number>, wires: Array<[string, string]>, deferred: Array<string>, plain: ?{col: Object<string,number>, row: Object<string,number>}}}
+ * @param {Array<string>}                ids     The component's nodes, alphabetical.
+ * @param {Object<string,Array<string>>} succ    Successors inside the component.
+ * @param {Object<string,Array<string>>} pred    Predecessors inside the component.
+ * @param {( id: string ) => boolean}    unfed   Whether nothing in the whole graph feeds a node.
+ * @param {Object<string,number>}        [pin]   A column each named sink seats in
+ *                                               at the least, once the rest are
+ *                                               relaxed without it.
+ * @param {boolean}                      [twins] Whether each order also settles
+ *                                               unpulled, for the block to judge
+ *                                               the pull. A pin trial takes none:
+ *                                               its pinned band is judged pulled.
+ * @return {{col: Object<string,number>, row: Object<string,number>, wires: Array<[string, string]>, pulled: boolean, deferred: Array<string>, plain: ?Object, still: ?Object}}
  * Grid units, rows normalised so the topmost is 0, the wires spanning two or
- * more columns, the sources `seatSources` seats last, and — where `transpose`
- * changed the sweeps' order — the grid units for that order too, so the block
- * can judge the exchange on its drawing.
+ * more columns, whether `pullBeside` moved a chain, the sources `seatSources`
+ * seats last, and — where `transpose` changed the sweeps' order — the grid
+ * units for that order too, and where a chain moved, those with every chain
+ * left where the sweeps put it, so the block can judge each on its drawing.
  */
-const layoutComponent = ( ids, succ, pred, unfed, pin = {} ) => {
+const layoutComponent = ( ids, succ, pred, unfed, pin = {}, twins = false ) => {
 	/** @type {Object<string,number>} */
 	const declIdx = {};
 	ids.forEach( ( id, i ) => ( declIdx[ id ] = i ) );
@@ -1561,6 +1719,7 @@ const layoutComponent = ( ids, succ, pred, unfed, pin = {} ) => {
 	const laid = [ ...ids ];
 	/** @type {Array<[string, string]>} */
 	const wires = [];
+	const inBand = { succ, pred };
 	succ = { ...succ };
 	pred = { ...pred };
 	for ( const id of ids ) {
@@ -1701,9 +1860,10 @@ const layoutComponent = ( ids, succ, pred, unfed, pin = {} ) => {
 	}
 	const swept = columns.map( ( c ) => [ ...c ] );
 	const exchanged = transpose( columns, col, pred, succ, pos );
+	const kept = columns.map( ( c ) => [ ...c ] );
 	const sweptCol = { ...col };
 	// Rows for one column order, from the late sources to the wire clearing.
-	const settle = ( order ) => {
+	const settle = ( order, pull = true ) => {
 		order.forEach( ( c, k ) => ( columns[ k ] = [ ...c ] ) );
 		for ( const id of Object.keys( col ) ) {
 			delete col[ id ];
@@ -1898,13 +2058,28 @@ const layoutComponent = ( ids, succ, pred, unfed, pin = {} ) => {
 			}
 		}
 		const stays = ids.filter( ( id ) => ! unseated.has( id ) );
-		clearWires( stays, wires, col, row );
+		const pulled =
+			pull && pullBeside( stays, inBand, later, pin, col, row );
+		const long = wires.filter(
+			( [ a, b ] ) => Math.abs( col[ b ] - col[ a ] ) >= 2
+		);
+		clearWires( stays, long, col, row, {
+			followerOf: soleFollower( inBand.succ, inBand.pred, col ),
+		} );
 		normalizeRows( ids, row );
-		return { col: { ...col }, row };
+		return { col: { ...col }, row, wires: long, pulled };
 	};
-	const band = settle( columns );
-	const plain = exchanged ? settle( swept ) : undefined;
-	return { ...band, wires, deferred: [ ...later ], plain };
+	// Rows for one order, with its unpulled twin where `twins` asks for it.
+	const paired = ( order ) => {
+		const laidOut = settle( order );
+		return {
+			...laidOut,
+			still: twins && laidOut.pulled ? settle( order, false ) : undefined,
+		};
+	};
+	const band = paired( kept );
+	const plain = exchanged ? paired( swept ) : undefined;
+	return { ...band, deferred: [ ...later ], plain };
 };
 
 /**
@@ -2199,16 +2374,35 @@ const coverWire = ( spans, c1, r1, c2, r2 ) => {
 };
 
 /**
- * Rows a stack fills before the next opens: the height of a square holding
- * every block, each with its gap column.
+ * A block with the empty rows that part it from the next block below: its
+ * footprint, and its hull's every column, reach `BLOCK_GAP` rows further.
  *
- * @param {Array<{width: number, height: number}>} blocks The blocks, in grid units.
+ * @template {{height: number, hull: Object<number,[number, number]>}} B
+ * @param {B} b The block.
+ * @return {B & {footprint: number}} The block, padded.
+ */
+const padded = ( b ) => ( {
+	...b,
+	footprint: b.height + BLOCK_GAP,
+	hull: Object.fromEntries(
+		Object.entries( b.hull ).map( ( [ c, [ lo, hi ] ] ) => [
+			c,
+			[ lo, hi + BLOCK_GAP ],
+		] )
+	),
+} );
+
+/**
+ * Rows a stack fills before the next opens: the height of a square holding
+ * every block's footprint, each with its gap column.
+ *
+ * @param {Array<{width: number, footprint: number}>} blocks The blocks, in grid units.
  * @return {number} Rows.
  */
 const stackRows = ( blocks ) => {
 	let area = 0;
 	for ( const b of blocks ) {
-		area += ( b.width + 1 ) * b.height;
+		area += ( b.width + 1 ) * b.footprint;
 	}
 	return Math.ceil( Math.sqrt( ( area * X_STEP ) / Y_STEP ) );
 };
@@ -2319,26 +2513,29 @@ const drawingCost = ( at, succ, index ) =>
  * hub in the column right after them, and the blocks filling side-by-side
  * stacks toward a canvas about as wide as it is tall.
  *
- * Each band is laid out on its own, so its width is its own depth, and offset
- * one row below the band above it — the row step IS the gap, since a card is
- * shorter than `Y_STEP`. The blocks pack widest first, so a narrow block never
- * sits under empty columns, and alphabetically among equals; a stack takes
- * blocks until it reaches the square's height, then the next opens one gap
- * column to the right. One-row blocks of one width pack as one run, so the
- * chains of one length stack together; a run stacks where all but its last
- * block fit. A block past the height waits, and so does every block after it,
- * until the stacks are down. Each waiting block then looks for room above or
- * below what the waiting blocks placed before it hold, then for room the
- * stacks leave inside the canvas, in the leftmost columns that fit and on the
- * row nearest the canvas's middle, then for that room as deep as a stack may
- * grow — the square's height, which a run's last block may pass — and opens a
- * stack only when none fits, so a small block sits beside the rows a tall
- * block's feeders leave before it widens the canvas or drops into the corner
- * under the tall block, and opens no stack where it would have stacked. Room
- * needs no card in the column either side to show it an unwired port, nor a
- * wire to run through that column, across its rows, and every wire of a block
- * lands inside it, so the room it takes crosses nothing. A small graph fills
- * one stack.
+ * Each band is laid out on its own, so its width is its own depth, and rises
+ * under the band above it until a card of it would sit less than a row below a
+ * card above it in the same column, its top half a row clear of every card
+ * above: bands feeding one hub stack with no gap. The blocks pack widest first,
+ * so a narrow block never sits under empty columns, and alphabetically among
+ * equals; a stack takes blocks until it reaches the square's height,
+ * `BLOCK_GAP` empty rows between one block and the next, then the next opens
+ * one gap column to the right. One-row blocks of one width pack as one run,
+ * chains `BLOCK_GAP` rows apart and lone cards a row apart, so the chains of
+ * one length stack together; a run stacks where all but its last block fit. A
+ * block whose lead starts a row past the height waits, and so does every block
+ * after it, until the stacks are down. Each waiting block then looks for room
+ * above or below what the waiting blocks placed before it hold, then for room
+ * the stacks leave inside the canvas, in the leftmost columns that fit and on
+ * the row nearest the canvas's middle, then for the first of those two rooms as
+ * deep as a stack may grow — the square's height, which a run's last block may
+ * pass — and opens a stack only when none fits, so a small block sits beside
+ * the rows a tall block's feeders leave before it widens the canvas or drops
+ * into the corner under the tall block, and opens no stack where it would have
+ * stacked. Room needs no card in the column either side to show it an unwired
+ * port, nor a wire to run through that column, across its rows, and every wire
+ * of a block lands inside it, so the room it takes crosses nothing. A small
+ * graph fills one stack.
  *
  * @param {Array<string>}                ids  Every node, alphabetical.
  * @param {Object<string,Array<string>>} succ Successors.
@@ -2375,12 +2572,15 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 							wires: [],
 							deferred: unfed( members[ 0 ] ) ? members : [],
 							plain: undefined,
+							still: undefined,
 					  }
 					: layoutComponent(
 							members,
 							restrictAdjacency( members, succ ),
 							restrictAdjacency( members, pred ),
-							unfed
+							unfed,
+							{},
+							true
 					  ),
 			] )
 		);
@@ -2444,23 +2644,6 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 							{ floor: () => 0, bandStart: () => 0, step: 0.5 }
 					  )
 					: new Set();
-				band.bottom = Math.max(
-					0,
-					...members.map( ( id ) => band.row[ id ] )
-				);
-				if ( band.deferred.length ) {
-					const late = new Set( band.deferred );
-					const laidBottom = Math.max(
-						0,
-						...members
-							.filter( ( m ) => ! late.has( m ) )
-							.map( ( m ) => grid.row[ m ] )
-					);
-					// Late sources grow a band by whole rows.
-					band.bottom =
-						laidBottom +
-						Math.ceil( band.bottom - laidBottom - 1e-9 );
-				}
 				return band;
 			} );
 		// @longform The block drawn from the bands' grids `pick` chooses; with
@@ -2479,19 +2662,42 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 			const bandOf = {};
 			/** @type {Set<string>} */
 			const cutSeats = new Set();
-			// Stack bands from `atCol`; returns the stack's width and height.
+			// Stack bands from `atCol`: the stack's size and each band's rows.
 			const stack = ( bands, atCol ) => {
-				let next = 0;
+				/** @type {Object<number,number>} */
+				const lowest = {};
+				let height = 0;
 				let width = 0;
+				/** @type {Array<[number, number]>} */
+				const spans = [];
 				for ( const members of bands ) {
 					const band = seatBand(
 						members,
 						pick( laid.get( members ) )
 					);
+					// @longform A band rises until a card of it would sit less
+					// than a row below a card above it in the same column, its
+					// top half a row clear of every card above.
+					let top = Math.max( 0, height - 0.5 );
+					for ( const id of members ) {
+						top = Math.max(
+							top,
+							( lowest[ band.col[ id ] ] ?? -Infinity ) +
+								1 -
+								band.row[ id ]
+						);
+					}
+					let bottom = top;
 					for ( const id of members ) {
 						bc[ id ] = atCol + band.col[ id ];
-						br[ id ] = band.row[ id ] + next;
+						br[ id ] = band.row[ id ] + top;
+						bottom = Math.max( bottom, br[ id ] );
 						width = Math.max( width, band.col[ id ] + 1 );
+						height = Math.max( height, br[ id ] + 1 );
+						lowest[ band.col[ id ] ] = Math.max(
+							lowest[ band.col[ id ] ] ?? -Infinity,
+							br[ id ]
+						);
 					}
 					bandWires.push( ...band.wires );
 					deferred.push( ...band.deferred );
@@ -2499,10 +2705,9 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 						bandOf[ id ] = { members, atCol };
 					}
 					band.cuts.forEach( ( id ) => cutSeats.add( id ) );
-					// The next band starts a row below this one's bottom.
-					next += band.bottom + 1;
+					spans.push( [ top, bottom ] );
 				}
-				return { width, height: next };
+				return { width, height, spans };
 			};
 
 			const left = stack( feeders, 0 );
@@ -2513,26 +2718,38 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 			}
 			// The consumers hang level with the hubs that feed them.
 			const right = stack( consumers, hubRight );
-			if ( consumers.length ) {
-				const hubRows = [];
-				for ( const members of consumers ) {
-					for ( const id of members ) {
-						for ( const n of pred[ id ] ) {
-							if ( hubSet.has( n ) ) {
-								hubRows.push( br[ n ] );
-							}
-						}
-					}
-				}
-				const shift = snapHalf(
-					midMinMax( hubRows ) - ( right.height - 1 ) / 2
-				);
-				for ( const members of consumers ) {
-					for ( const id of members ) {
-						br[ id ] += shift;
-					}
+			const hubRows = consumers.flatMap( ( members ) =>
+				members.flatMap( ( id ) =>
+					pred[ id ].filter( ( n ) => hubSet.has( n ) )
+				)
+			);
+			const shift = consumers.length
+				? snapHalf(
+						midMinMax( hubRows.map( ( n ) => br[ n ] ) ) -
+							( right.height - 1 ) / 2
+				  )
+				: 0;
+			for ( const members of consumers ) {
+				for ( const id of members ) {
+					br[ id ] += shift;
 				}
 			}
+			// A card's slot: the rows between the bands stacked either side.
+			/** @type {Object<string,[number, number]>} */
+			const slotRows = {};
+			const slotOf = ( id ) => slotRows[ id ] ?? ANY_ROW;
+			// Each band's slot, its stack's rows moved down by `by`.
+			const slotsOf = ( bands, spans, by ) =>
+				bands.forEach( ( members, k ) => {
+					/** @type {[number, number]} */
+					const rows = [
+						( spans[ k - 1 ]?.[ 1 ] ?? -Infinity ) + by,
+						( spans[ k + 1 ]?.[ 0 ] ?? Infinity ) + by,
+					];
+					members.forEach( ( id ) => ( slotRows[ id ] = rows ) );
+				} );
+			slotsOf( feeders, left.spans, 0 );
+			slotsOf( consumers, right.spans, shift );
 			// @longform A wire to a hub is no wire inside a band, so the band's
 			// own pass cannot see it: a chain's head feeding the hub directly
 			// runs its wire along the chain's row, through the chain. Each band
@@ -2572,23 +2789,33 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 						midMinMax( m.map( ( id ) => br[ id ] ) ) - hubMid
 					)
 			);
+			const followerOf = soleFollower( succ, pred, bc );
 			// Every pass below moves rows only, so one column index serves all.
 			const allByCol = cardsByColumn( all, bc );
 			for ( const members of farFirst ) {
-				const own = new Set( members );
+				const mine = new Set( members );
 				clearWires(
 					members,
 					hubWires.filter(
-						( [ from, to ] ) => own.has( from ) || own.has( to )
+						( [ from, to ] ) => mine.has( from ) || mine.has( to )
 					),
 					bc,
 					br,
-					all,
-					xOf,
-					allByCol
+					{
+						others: all,
+						xOf,
+						shared: allByCol,
+						slotOf,
+						followerOf,
+					}
 				);
 			}
-			clearWires( b.hubs, hubWires, bc, br, all, xOf, allByCol );
+			clearWires( b.hubs, hubWires, bc, br, {
+				others: all,
+				xOf,
+				shared: allByCol,
+				followerOf,
+			} );
 			// @longform Last, once every card and wire a seat must clear is
 			// placed, and still downward only: above its band's top a source
 			// takes the one row between two stacked bands. A row opened for a
@@ -2688,6 +2915,28 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 				best = plain;
 			}
 		}
+		// @longform A chain brought back beside its feeder stays there unless
+		// the block, drawn with every band's chains where its sweeps left
+		// them, crosses fewer wires.
+		const picked = best.pick;
+		if (
+			b.bands.some( ( members ) => picked( laid.get( members ) ).still )
+		) {
+			/** @type {Map<Object, Object>} */
+			const stills = new Map();
+			const still = judge( ( band ) => {
+				const chosen = picked( band );
+				return chosen.still
+					? memo( stills, chosen, () => ( {
+							...chosen,
+							...chosen.still,
+					  } ) )
+					: chosen;
+			}, true );
+			if ( fewer( still.cost, best.cost ) ) {
+				best = still;
+			}
+		}
 		if ( ! pins.size ) {
 			return { ...b, ...best.drawn };
 		}
@@ -2766,11 +3015,18 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 		return { ...b, ...best.drawn };
 	} );
 
-	const limit = stackRows( blocks );
+	// A lone card is no group of its own: it takes one row and no gap.
+	const lone = ( b ) => 1 === b.width && 1 === b.height;
+	const limit = stackRows(
+		blocks.map( ( b ) =>
+			lone( b ) ? { ...b, footprint: 1 } : padded( b )
+		)
+	);
 	// @longform One-row blocks of one width — chains of one length, or lone
 	// cards — pack as one run in alphabetical order, so like reads with like.
 	// A run is never split: it stacks where all but its last block fit. A run
-	// taller than the square packs block by block instead.
+	// of chains taller than the square packs block by block instead, and a
+	// run of lone cards in pieces as tall as the square.
 	/** @type {Map<number, Array<typeof blocks[number]>>} */
 	const runs = new Map();
 	const units = [];
@@ -2778,14 +3034,12 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 		if ( 1 === b.height ) {
 			runs.set( b.width, [ ...( runs.get( b.width ) ?? [] ), b ] );
 		} else {
-			units.push( { ...b, lead: b.height } );
+			units.push( padded( { ...b, lead: b.height } ) );
 		}
 	}
-	for ( const run of runs.values() ) {
-		if ( run.length > limit ) {
-			units.push( ...run.map( ( b ) => ( { ...b, lead: 1 } ) ) );
-			continue;
-		}
+	// One unit of a run's blocks, `step` rows apart.
+	const runUnit = ( run, step ) => {
+		const height = ( run.length - 1 ) * step + 1;
 		/** @type {Object<string,number>} */
 		const rc = {};
 		/** @type {Object<string,number>} */
@@ -2793,23 +3047,35 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 		run.forEach( ( b, k ) => {
 			for ( const id of Object.keys( b.col ) ) {
 				rc[ id ] = b.col[ id ];
-				rr[ id ] = k;
+				rr[ id ] = k * step;
 			}
 		} );
 		/** @type {Object<number,[number, number]>} */
 		const hull = {};
 		for ( let c = 0; c < run[ 0 ].width; c++ ) {
-			hull[ c ] = [ 0, run.length - 1 ];
+			hull[ c ] = [ 0, height - 1 ];
 		}
-		units.push( {
+		return padded( {
 			key: run[ 0 ].key,
 			col: rc,
 			row: rr,
 			hull,
 			width: run[ 0 ].width,
-			height: run.length,
-			lead: Math.max( 1, run.length - 1 ),
+			height,
+			lead: Math.max( 1, height - step ),
 		} );
+	};
+	for ( const run of runs.values() ) {
+		const step = lone( run[ 0 ] ) ? 1 : padded( run[ 0 ] ).footprint;
+		// Blocks of the run one unit holds within the square's height.
+		const fits = Math.floor( ( limit - 1 ) / step ) + 1;
+		if ( run.length > fits && ! lone( run[ 0 ] ) ) {
+			units.push( ...run.map( ( b ) => padded( { ...b, lead: 1 } ) ) );
+			continue;
+		}
+		for ( let k = 0; k < run.length; k += fits ) {
+			units.push( runUnit( run.slice( k, k + fits ), step ) );
+		}
 	}
 	const order = stableSort(
 		units.sort( ( a, z ) => byId( a.key, z.key ) ),
@@ -2824,11 +3090,16 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 	const faces = { left: {}, right: {} };
 	// The columns the waiting blocks' cards hold.
 	const filled = new Set();
+	// The columns the hubs placed so far hold.
+	const hubCols = new Set();
 	let rows = 0;
 	const place = ( b, atCol, atRow ) => {
 		for ( const id of Object.keys( b.col ) ) {
 			col[ id ] = atCol + b.col[ id ];
 			row[ id ] = atRow + b.row[ id ];
+			if ( hubs.has( id ) ) {
+				hubCols.add( col[ id ] );
+			}
 		}
 		for ( const [ c, [ lo, hi ] ] of Object.entries( b.hull ) ) {
 			widen( taken, atCol + Number( c ), lo + atRow, hi + atRow );
@@ -2856,6 +3127,8 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 		}
 		rows = Math.max( rows, atRow + b.height );
 	};
+	// Whether a block at `top` starts its lead's last row past the square.
+	const pastSquare = ( top, b ) => top + b.lead - 1 >= limit;
 	// The first row clear below what a block's columns hold at `atCol`.
 	const clearBelow = ( b, atCol ) =>
 		Math.max(
@@ -2867,16 +3140,16 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 						taken[ atCol + Number( c ) ][ 1 ] + 1 - h[ 0 ]
 				)
 		);
-	// @longform Room for a block in the canvas drawn so far, `depth` rows
-	// deep: a row one clear of what each column it covers holds, above it or
-	// below, in the leftmost columns `within` admits that fit, nearest the
-	// canvas's middle row. Every column it covers must already hold
-	// something, so it never lands in the gap column between two stacks, and
-	// none may be a hub's, where a card would read as one more wire into the
-	// hub. The column either side must show it no unwired port and no wire
-	// across its rows, so no card beside it reads as wired to it.
-	const roomFor = ( b, width, within, depth = rows ) => {
-		const hubCols = new Set( [ ...hubs ].map( ( h ) => col[ h ] ) );
+	// @longform Room for a block in the canvas drawn so far, or with `grow`
+	// as deep as the square lets a stack grow: its padded hull clear of what
+	// each column it covers holds, above it or below, in the leftmost columns
+	// `within` admits that fit, nearest the canvas's middle row. Every column
+	// it covers must already hold something, so it never lands in the gap
+	// column between two stacks, and none may be a hub's, where a card would
+	// read as one more wire into the hub. The column either side must show it
+	// no unwired port and no wire across its rows, so no card beside it reads
+	// as wired to it.
+	const roomFor = ( b, width, within, grow ) => {
 		const mid = ( rows - 1 ) / 2;
 		const span = [ 0, b.height - 1 ];
 		for ( let at = 0; at + b.width <= width; at++ ) {
@@ -2907,7 +3180,9 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 				...pairs.map( ( [ t, h ] ) => t[ 1 ] + 1 - h[ 0 ] )
 			);
 			const fits = [ above, below ].filter(
-				( r ) => r >= 0 && r + b.height <= depth
+				( r ) =>
+					r >= 0 &&
+					( grow ? ! pastSquare( r, b ) : r + b.height <= rows )
 			);
 			if ( fits.length ) {
 				const off = ( r ) => Math.abs( r + ( b.height - 1 ) / 2 - mid );
@@ -2921,21 +3196,21 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 	let stackRow = 0;
 	const stackOn = ( b ) => {
 		let at = Math.max( stackRow, clearBelow( b, stackCol ) );
-		if ( stackRow > 0 && at + b.lead > limit ) {
+		if ( stackRow > 0 && pastSquare( at, b ) ) {
 			stackCol += stackWidth + 1;
 			stackWidth = 0;
 			at = 0;
 		}
 		place( b, stackCol, at );
 		stackWidth = Math.max( stackWidth, b.width );
-		stackRow = at + b.height;
+		stackRow = at + b.footprint;
 	};
 	// @longform A block's every wire lands inside it, so size alone decides
 	// who waits, and every block after one that waits waits too: it is no
 	// wider, so it fills room before it stacks under a block in a corner.
 	const later = [];
 	for ( const b of order ) {
-		if ( later.length || ( stackRow > 0 && stackRow + b.lead > limit ) ) {
+		if ( later.length || ( stackRow > 0 && pastSquare( stackRow, b ) ) ) {
 			later.push( b );
 			continue;
 		}
@@ -2947,11 +3222,12 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 	// lets it — and opens a stack only past all three.
 	for ( const b of later ) {
 		const width = stackCol + stackWidth;
-		const grown = Math.max( rows, limit + b.height - b.lead );
-		const room =
-			roomFor( b, width, ( c ) => filled.has( c ) ) ??
-			roomFor( b, width, () => true ) ??
-			roomFor( b, width, () => true, grown );
+		let room = null;
+		for ( const grow of [ false, true ] ) {
+			for ( const within of [ ( c ) => filled.has( c ), () => true ] ) {
+				room ??= roomFor( b, width, within, grow );
+			}
+		}
 		if ( room ) {
 			place( b, room.col, room.row );
 		} else {

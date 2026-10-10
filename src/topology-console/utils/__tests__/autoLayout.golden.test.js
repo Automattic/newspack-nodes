@@ -6,7 +6,7 @@
  * with the tee between `request-builder` and the partitions sitting clear of
  * the wires that run past it, the two side chains banded below it at their
  * own depth rather than reaching the partition column, and _repl under
- * everything. A layout is accepted iff its (col, row) grid matches the golden
+ * everything, one empty row between each of those blocks. A layout is accepted iff its (col, row) grid matches the golden
  * grid AFTER:
  *   - normalizing global offset (min col / min row → 0), and
  *   - up to one vertical FLIP (row → maxRow − row), and/or
@@ -33,12 +33,12 @@ const GOLDEN = {
 	'firehose:consumer': [ 60, 410 ],
 	'firehose:tee': [ 300, 410 ],
 	'jobintake:consumer': [ 300, 520 ],
-	'flames:partition': [ 540, 630 ],
-	'flame-builder': [ 300, 630 ],
-	'requests:consumer': [ 60, 630 ],
-	'job-worker': [ 300, 740 ],
-	'jobs:consumer': [ 60, 740 ],
-	_repl: [ 60, 850 ],
+	'flames:partition': [ 540, 740 ],
+	'flame-builder': [ 300, 740 ],
+	'requests:consumer': [ 60, 740 ],
+	'job-worker': [ 300, 960 ],
+	'jobs:consumer': [ 60, 960 ],
+	_repl: [ 60, 1180 ],
 };
 
 const EDGES = [

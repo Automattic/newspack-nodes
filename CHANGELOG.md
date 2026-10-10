@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The topology canvas stacks the bands feeding one hub with no gap, and leaves one empty row between groups.** Each band rises until a card of it would sit less than a row below a card above it in the same column, its top half a row clear of every card above; blocks stacked in one canvas column, and the chains of one run, leave exactly one empty row between them, while a run of lone cards stacks a row apart as one group. Clearing a card off a hub wire never moves it into the rows of another band in its stack. A chain a stretched sink drew past the column after its feeder comes back beside it unless the block then crosses fewer wires, and a card one card alone feeds keeps that card's row wherever its column leaves it clear, so `topology-manager:in:current` and `topology-manager:view` sit in columns 1 and 2 and `topologies:activate:fetch` keeps column 2 on the fleet board.
+
 ### Fixed
 
 - **The browser graph outlines only the nodes its console made as drift, in the topology console and the debug overlay alike.** At the local graph, the console's brass dashed outline read the URL topology's `.tsl` and so marked every hook-built browser node, the topology, layout and class readers among them, and the overlay drew no drift at all. Both now read the console-minted set the Reset Graph chip already keeps, `useGraphReset()`'s new `userNodeIds`; on a worker the console reads that worker's own `.tsl`, whose read runs only there, and any other cwd has no drift information. That set, and the chip, no longer count an edit addressed to a worker or through `_http`, which `addressesBrowser()` in `utils/scope.js` tells apart, or a `make_node` or `move_node` onto a name already taken, which the interpreter refuses. `workerPollPath()` gives way to the exported `mountedWorker()`, resolved once a render for the cwd.
