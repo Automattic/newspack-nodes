@@ -1888,11 +1888,9 @@ describe( 'canonical appearance ownership', () => {
 	} );
 
 	it( 'lets the header controls span, so a widening readout moves nothing', () => {
-		// Content-sized and right-anchored, the cluster grew leftward whenever a
-		// count crossed a digit, shoving whatever a host had put to its left —
-		// the Gyroscope's category legend — along with it. Spanning the row and
-		// packing to the end keeps that edge still and leaves slack for a host to
-		// claim with `margin-right: auto`.
+		// Spanning the row and packing to the end keeps the cluster's left edge
+		// still as a count widens, and leaves slack for a host — the Gyroscope's
+		// category legend — to claim with `margin-right: auto`.
 		expect(
 			declarationsForSelector(
 				graphStylesheet,
@@ -1903,6 +1901,25 @@ describe( 'canonical appearance ownership', () => {
 				flex: '1 1 auto',
 				'min-width': '0',
 				'justify-content': 'flex-end',
+			} )
+		);
+	} );
+
+	it( 'shrinks the header subtitle before the controls give up width', () => {
+		// Flex shrinks in proportion to shrink × basis, so the subtitle needs a
+		// factor that dwarfs the controls' 1 × their content width, or the
+		// end-packed controls overflow leftward over a hostname with width left.
+		const subtitle = declarationsForSelector(
+			graphStylesheet,
+			'.topology-subtitle'
+		);
+		expect( Number( subtitle[ 'flex-shrink' ] ) ).toBeGreaterThanOrEqual(
+			1000
+		);
+		expect( subtitle ).toEqual(
+			expect.objectContaining( {
+				'min-width': '0',
+				'text-overflow': 'ellipsis',
 			} )
 		);
 	} );

@@ -1817,8 +1817,9 @@
 .topology-subtitle {
 	align-self: center;
 	padding-left: 16px;
-	// Yield width to the controls: shrink past content, clip, never wrap.
+	// Yields width before the wide controls do: clips past content, never wraps.
 	min-width: 0;
+	flex-shrink: 1000;
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -1826,10 +1827,9 @@
 
 .topology-header__controls {
 	display: flex;
-	// @longform Spans the row and packs to the end rather than sizing to its
-	// content: content-sized, the cluster grew leftward whenever a count
-	// crossed a digit and shoved whatever a host had put to its left. The
-	// slack is now inside it, for a host to claim with `margin-right: auto`.
+	// @longform Spans the row and packs to the end, so a widening readout
+	// moves nothing a host put to its left; the slack sits inside it, for a
+	// host to claim with `margin-right: auto`.
 	flex: 1 1 auto;
 	min-width: 0;
 	justify-content: flex-end;
