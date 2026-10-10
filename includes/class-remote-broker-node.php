@@ -177,10 +177,8 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 * argument, and stays `reload()`'s job.
 	 *
 	 * The fleet's RELOAD reaches `reload()` through a closure, not a name
-	 * registration: `fill()` relays anything it does not recognize OUT to a
-	 * remote spoke, so control dispatched by name would ride the one entry
-	 * point whose fall-through is a third party. A closure mints no message,
-	 * and its identity is its provenance.
+	 * registration: `fill()` drops anything but a command reply, and a
+	 * closure mints no message, so its identity is its provenance.
 	 *
 	 * A reader no pair matches any more hands its cursor off and is
 	 * retracted; each survivor takes its owning pair's target, and its dirs
@@ -233,7 +231,8 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	/**
 	 * Inbound message. A command reply (TM_COMMAND|TM_RESPONSE / |TM_ERROR)
 	 * routed back from the spoke settles through `settle_reply()`; anything
-	 * else is a command to send().
+	 * else is dropped, rate-limited, because a broker relays nothing: what it
+	 * sends the spoke it mints and signs itself.
 	 *
 	 * @api Dynamic entrypoint.
 	 * @param array<int,mixed> $message The 7-field positional message array.
@@ -246,7 +245,8 @@ abstract class Remote_Broker_Node extends Timer_Node {
 			$this->settle_reply( $message );
 			return;
 		}
-		$this->send( $message );
+		// Constant: drop_message keys its throttle on the reason.
+		$this->drop_message( $message, 'not a command reply' );
 	}
 
 	/**
@@ -467,15 +467,6 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	abstract protected function settle_reply( array $message ): void;
 
 	/**
-	 * Default send: relay the message out through the patron HTTP_Out.
-	 *
-	 * @param array<int,mixed> $message The 7-field positional message array.
-	 */
-	protected function send( array $message ): void {
-		$this->ensure_channel()?->fill( $message );
-	}
-
-	/**
 	 * Send one reader's read to the spoke's `raw-logs` service, FROM the
 	 * reader's own name, so the reply returns to it by TO through HTTP_Out
 	 * (whose allowlist names every reader) and `_router`. A spoke this broker
@@ -513,7 +504,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 		$http->patron( $this );
 		$http->arguments( [ $this->vault_id ] );
 		$http->sink( $this->sink );
-		// Arms HTTP_Out's wire-inbound clause; a Null, since the broker relays.
+		// Arms HTTP_Out's wire-inbound clause; unaddressed traffic ends here.
 		$null = new Null_Node();
 		$null->patron( $this );
 		$this->http_out  = $http;

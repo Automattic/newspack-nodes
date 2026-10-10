@@ -2329,10 +2329,8 @@ class RemoteConsumerNodeTest extends TestCase {
 
 		$this->assertSame( $node, Core::node( 'remote-quoll:firehose.p0' ) );
 		$this->assertSame( 'remote-quoll:firehose.p0:offsetlog', $this->read_private( $node, 'offsetlog' )->name() );
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$m[ Message::VALUE ] = 'nudge-7720';
-		$broker->fill( $m );
+		$node->pause();
+		$node->step();
 		$delivered = $this->answer_through( Core::node( 'remote-quoll:http-out' ), self::step_reply( 'remote-quoll:firehose.p0', [], 0, 0 ) );
 		$this->assertSame( [ 'remote-quoll:firehose.p0' ], \array_column( $delivered, Message::TO ) );
 	}

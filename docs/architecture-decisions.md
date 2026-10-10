@@ -2188,11 +2188,10 @@ none of today. The blast radius, sender by sender, with what each does with one 
 - **`Fanout_Targets::send_signed()` from event-logger-nodes' `Discovery_Collector_Node`** (FROM
   the node; `discovery get`). Its `fill()` returns on a payload that is not an array, so the
   string payload is dropped; the next tick probes again. No change needed.
-- **Any message routed to an `HTTP_Out`, or to a broker that relays it to one.**
-  `Remote_Broker_Node::fill()` hands every message that is not a command reply to `send()`,
-  which fills its patron `HTTP_Out` verbatim, FROM untouched; a bare `HTTP_Out` takes whatever
-  a TO path addresses to it. So every node in the graph that can address a broker or an egress
-  is a sender: an operator's Shell (`wp nodes cli` attached to a hub worker, FROM
+- **Any message routed to an `HTTP_Out`.** A bare `HTTP_Out` takes whatever a TO path
+  addresses to it, FROM untouched; a broker relays nothing, because `Remote_Broker_Node::fill()`
+  drops every message that is not a command reply. So every node in the graph that can address
+  an egress is a sender: an operator's Shell (`wp nodes cli` attached to a hub worker, FROM
   `_output/_cli:<pid>/_output`), a `cmd` or `command_node` aimed past an egress, a dashboard
   command routed through the hub, an application node targeting one. Today a lost POST
   answers none of them; under the proposal each gets a TM_ERROR at its FROM, which a Shell

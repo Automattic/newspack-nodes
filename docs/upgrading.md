@@ -33,6 +33,13 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   removed, the heartbeat's send time being `Remote_Source_Node`'s private clock;
   and `Remote_Consumer_Node::broker()` takes a `Remote_Broker_Node`, no longer
   a `Remote_Source_Node`.
+- **A broker relays nothing; `Remote_Broker_Node::send()` is removed.** It
+  was protected, and `fill()` handed it every message but a command reply,
+  to post through the patron `HTTP_Out` unsigned. `fill()` now drops such a
+  message with a rate-limited `not a command reply` line. A subclass that
+  overrode `send()` has nothing to override, and code that filled a broker to
+  reach its spoke mints a signed command through the broker's channel
+  instead, as `send_read()` does.
 - **The broker status keys are renamed.** `last_heartbeat_response` is
   `last_response` and `last_heartbeat_rtt` is `last_rtt`. `last_heartbeat_sent`
   is removed, and the Aggregator CSS classes follow: `aggregator-heartbeat-rtt`

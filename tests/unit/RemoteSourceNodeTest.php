@@ -1253,7 +1253,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 		// Simulate the spoke's heartbeat reply routed back into fill(). The spoke's
 		// interpreter wraps a command response as TM_COMMAND|TM_RESPONSE; fill()
-		// records the RTT for that type and relays anything else to HTTP_Out.
+		// records the RTT for that type and drops anything else.
 		$reply                   = Message::new_message();
 		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
 		$reply[ Message::TO ]    = 'remote-austin';
@@ -2037,12 +2037,14 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( [], $this->reload_subscribers( $fleet ) );
 	}
 
-	public function test_normal_traffic_is_unchanged_by_subscribing(): void {
-		// Control never touches fill(), so a data message wearing the event name
-		// is relayed verbatim — no discrimination, nothing to get wrong.
+	public function test_a_message_wearing_the_event_name_reloads_nothing(): void {
+		// Control never touches fill(): a data message keyed RELOAD is dropped
+		// like any other non-reply, and the channel it would reload stands.
 		$fleet = $this->mount_fleet();
 		$this->seed_austin();
-		$node = $this->broker( 'remote-austin' );
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$http     = Core::node( 'remote-austin:http-out' );
 		$this->assertSame( [ 'remote-austin' ], $this->reload_subscribers( $fleet ) );
 
 		$m                   = Message::new_message();
@@ -2051,10 +2053,8 @@ class RemoteSourceNodeTest extends TestCase {
 		$m[ Message::VALUE ] = 'ledger-line-4471';
 		$node->fill( $m );
 
-		$batch = $this->read_private( Core::node( 'remote-austin:http-out' ), 'batch' );
-		$this->assertCount( 1, $batch );
-		$this->assertSame( 'ledger-line-4471', $batch[0][ Message::VALUE ] );
-		$this->assertSame( 'RELOAD', $batch[0][ Message::KEY ] );
+		$this->assertSame( $http, Core::node( 'remote-austin:http-out' ), 'the channel was not reloaded' );
+		$this->assertSame( [], $this->read_private( $http, 'batch' ) );
 	}
 
 	public function test_vault_entry_without_url_stays_disconnected(): void {
@@ -2070,12 +2070,14 @@ class RemoteSourceNodeTest extends TestCase {
 	/** A Vault entry removed after the channel stood leaves the stream unbuilt and says why. */
 	public function test_an_entry_gone_after_the_channel_stays_disconnected(): void {
 		$this->seed_austin();
-		$node                = $this->broker( 'remote-austin' );
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$m[ Message::VALUE ] = 'payload-3381';
-		$node->fill( $m );
-		$this->assertInstanceOf( HTTP_Out_Node::class, Core::node( 'remote-austin:http-out' ), 'precondition: the channel stands' );
+		$this->stub_sse_connect();
+		[ $node, $reader ] = $this->make_remote( 'remote-austin' );
+		$reader->pause();
+		$node->reload();
+		$reader->step();
+		$this->assertInstanceOf( HTTP_Out_Node::class, Core::node( 'remote-austin:http-out' ), 'precondition: the step built the channel' );
+		$this->assertNull( Core::node( 'remote-austin:sse-in' ), 'precondition: and the channel alone' );
+		$reader->play();
 		\update_option( Vault::OPTION_KEY, [] );
 		Vault::get_instance()->reset_cache();
 		$log = $this->capture_stderr();
@@ -2087,18 +2089,29 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertStringContainsString( 'no Vault entry; staying disconnected', \implode( '', $log->getArrayCopy() ) );
 	}
 
-	public function test_fill_relays_non_command_message_through_http_out(): void {
+	/**
+	 * A broker settles its own replies and relays nothing: a message the spoke
+	 * addresses to it by name is dropped, said once, and never goes back out.
+	 */
+	public function test_fill_drops_a_non_reply_rather_than_relaying_it(): void {
 		$this->seed_austin();
-		$node = $this->broker( 'remote-austin' );
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$http     = Core::node( 'remote-austin:http-out' );
+		$this->assertInstanceOf( HTTP_Out_Node::class, $http, 'precondition: the channel stands' );
+		$log = $this->capture_stderr();
 
 		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$m[ Message::TYPE ]  = Message::TM_INFO;
+		$m[ Message::FROM ]  = 'spoke-trail-6620';
+		$m[ Message::TO ]    = 'remote-austin';
 		$m[ Message::VALUE ] = 'payload-6620';
 		$node->fill( $m );
 
-		$batch = $this->read_private( Core::node( 'remote-austin:http-out' ), 'batch' );
-		$this->assertCount( 1, $batch );
-		$this->assertSame( 'payload-6620', $batch[0][ Message::VALUE ] );
+		$this->assertSame( [], $this->read_private( $http, 'batch' ), 'nothing is relayed to the spoke' );
+		$said = \implode( '', $log->getArrayCopy() );
+		$this->assertStringContainsString( 'WARNING: not a command reply', $said );
+		$this->assertStringContainsString( 'from: spoke-trail-6620', $said );
 	}
 
 	public function test_fill_command_response_is_reply_not_relayed(): void {
@@ -2435,9 +2448,9 @@ class RemoteSourceNodeTest extends TestCase {
 	/**
 	 * HTTP_Out's wire-inbound clause is armed only once a target is set, and the
 	 * arm worth having is the refusal of a non-response the spoke addressed at
-	 * our graph. The target is a Null sibling, not the broker: the broker's
-	 * fill() relays whatever it is handed, so stamping traffic back onto it
-	 * would send the spoke's own output straight back to the spoke.
+	 * our graph. The target is a Null sibling, not the broker, whose fill()
+	 * takes command replies alone: the spoke's unaddressed output is counted
+	 * and discarded there.
 	 */
 	public function test_the_egress_targets_a_null_sibling(): void {
 		$this->seed_austin();
