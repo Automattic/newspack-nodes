@@ -23,6 +23,7 @@
  */
 
 import { DraftInterpreterNode } from '../../runtime/draft-interpreter-node';
+import { splitPair } from '../../runtime/log-stamp';
 import { targetsOf } from '../../runtime/node';
 import { tokenize } from '../../runtime/shell-node';
 import { boundArguments } from '../../runtime/schema-reflection';
@@ -50,34 +51,6 @@ function invocation( inv ) {
 		args: ( inv.args ?? [] ).slice(),
 		viaConfig: inv.viaConfig,
 	};
-}
-
-/**
- * Split a broker's `<source>:<target>` pair at its first colon outside
- * `<…>`, so a `<ns:key>` token in the source stays whole. A token with no
- * such colon is all source. The twin of PHP `Remote_Source_Node::split_pair()`,
- * held to it by `tests/fixtures/pair-split.json`; it validates nothing.
- *
- * @param {string} token One pair token.
- * @return {{source:string,target:string}} The two halves.
- * @testonly Exported so the parity test can pin it to the PHP twin.
- */
-export function splitPair( token ) {
-	let depth = 0;
-	for ( let at = 0; at < token.length; at++ ) {
-		const char = token[ at ];
-		if ( '<' === char ) {
-			depth++;
-		} else if ( '>' === char && depth > 0 ) {
-			depth--;
-		} else if ( ':' === char && 0 === depth ) {
-			return {
-				source: token.slice( 0, at ),
-				target: token.slice( at + 1 ),
-			};
-		}
-	}
-	return { source: token, target: '' };
 }
 
 /**

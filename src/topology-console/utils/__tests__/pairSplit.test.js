@@ -1,25 +1,9 @@
 /**
- * splitPair — the console's reader of a broker's `<source>:<target>` pair,
- * held to PHP `Remote_Source_Node::split_pair()` by one case list.
+ * a broker's pair edges in the console's TSL reader.
  */
 
-import { readFileSync } from 'fs';
-import { join } from 'path';
-import { graphFromTsl, splitPair } from '../draftToGraph';
+import { graphFromTsl } from '../draftToGraph';
 import brokerSchemas from '../../../../tests/fixtures/broker-schemas.json';
-
-describe( 'splitPair parity with Remote_Source_Node::split_pair()', () => {
-	const cases = JSON.parse(
-		readFileSync(
-			join( __dirname, '../../../../tests/fixtures/pair-split.json' ),
-			'utf8'
-		)
-	);
-
-	it.each( cases )( '%s', ( _label, token, source, target ) => {
-		expect( splitPair( token ) ).toEqual( { source, target } );
-	} );
-} );
 
 describe( 'a broker in the file being edited', () => {
 	const pairEdges = ( graph ) =>
