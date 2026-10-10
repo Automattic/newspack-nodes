@@ -262,8 +262,8 @@ registers is an import and nothing more: no TSL line can name it.
 | — | `TopologyManagerView` | [`src/event-dashboards/nodes/register.js`](../src/event-dashboards/nodes/register.js) | A `sliceView()` declaration, the only one overriding `description`; the Topology Manager list |
 | `WorkerStatusViewNode` | `WorkerStatusView` | [`src/event-dashboards/nodes/worker-status-view-node.js`](../src/event-dashboards/nodes/worker-status-view-node.js) | `SliceViewNode`; its slice arrives already parsed, as a TM_STRUCT from `WorkerStatusTransform`, so it dispatches the struct actions itself and defers TM_ERROR to the base. `TreeEntity`'s `LogRows` draws what it publishes, one `SegmentBar` per segment |
 | `LogViewerViewNode` | `LogViewerView` | [`src/event-dashboards/nodes/`](../src/event-dashboards/nodes/) | `LogStreamViewNode`; `shapeRow()` shapes an SSE envelope into a row carrying all seven positional fields ([ADR-2](architecture-decisions.md#adr-2-one-message-format-the-7-field-positional-array)) plus `msgId`, `key`, `struct`, `raw` and a computed `partition` column, clipping `content` and `value` at 1,000 characters and `raw` at 262,144, and returning null on an empty VALUE so the base drops the record without moving the seek breadcrumb. Two controls ride on the base's eight: `select` records the chosen log, resets the seek tracker and empties the ring, and `logs` publishes the catalog, adopting its first available entry only while nothing is selected — a later catalog never yanks a live pick. That `select` REPLACES the base's rather than deferring to it, taking a `log` instead of a `dir`, so the base's dir-driven breadcrumb arming never runs and seek tracking stays on for the life of the node. |
-| `ProbeStreamViewNode` | — | [`src/event-dashboards/nodes/probe-stream-view-node.js`](../src/event-dashboards/nodes/probe-stream-view-node.js) | `ReactBridge( Node )`; per-key entries, a ring, a publish throttle, TTL eviction and a 24h prune. Subclasses declare `identitySlot`, `modelKey`, `_fold()` and `_entryView()` |
-| `TopicProbeViewNode`, `JobstatsViewNode` | `TopicProbeView`, `JobstatsView` | [`src/event-dashboards/nodes/`](../src/event-dashboards/nodes/) | `ProbeStreamViewNode`; the consumer series under `consumers`, the job-handler series under `handlers` |
+| `ProbeStreamViewNode` | — | [`src/event-dashboards/nodes/probe-stream-view-node.js`](../src/event-dashboards/nodes/probe-stream-view-node.js) | `ReactBridge( Node )`; per-key entries holding each worker's 180-second buckets (`BUCKET_S`), a publish throttle, TTL eviction and a 24h prune. Subclasses declare `identitySlot`, `modelKey`, `_fold()` and `_entryView()` |
+| `TopicProbeViewNode`, `JobstatsViewNode`, `TablestatsViewNode` | `TopicProbeView`, `JobstatsView`, `TablestatsView` | [`src/event-dashboards/nodes/`](../src/event-dashboards/nodes/) | `ProbeStreamViewNode`; each publishes `buckets` per key — the readers under `consumers`, the job handlers under `handlers` and the Tables under `tables` |
 | `SettingsAuditViewNode` | `SettingsAuditView` | [`src/event-dashboards/nodes/settings-audit-view-node.js`](../src/event-dashboards/nodes/settings-audit-view-node.js) | `ReactBridge( Node )`; a throttled newest-first ring of settings-change events |
 | `SourceCountsViewNode`, `TopTableViewNode`, `AccumulatedViewNode` | `SourceCountsView`, `TopTableView`, `AccumulatedView` | [`examples/example-ai-newsletter/src/dashboard/nodes/`](../examples/example-ai-newsletter/src/dashboard/nodes/) | `SliceViewNode`; one `emptySlice()` each, for the walkthrough's three slices |
 
@@ -272,20 +272,44 @@ them and is **not** a view: it rides the gate → view edge, enriching the
 reply before the view stores it.
 
 The `consumers` map `TopicProbeViewNode` publishes is keyed by READER, and
-several readers can tail one source. Each sample carries the worker that swept
-it, so the Overview's charts plot one series per partition per worker, since a
-source names no worker and Overview asks `topicChartSeries()` to split by one:
-co-readers of a partition inside one worker sum, and the stacked
-chart sums the workers. Every card sums the same series its chart stacks, so
-`liveTotal` (rate, backlog, cache size) and `probe24hTotals` sum
-every reader and dedup nothing, two topologies on `firehose.p0` each counted.
+several readers can tail one source. Each entry carries `buckets`, not a list
+of samples: one `{ start, worker, f }` per worker per 180-second window, where
+`f[ field ]` tallies `{ sum, max, last, lastTs }` over the samples the window
+folded. A record joins the bucket of the worker that swept it, at the
+`ts` it carries, so a late frame lands in its own earlier bucket. A bucket
+folds in place until a snapshot hands it out, and is copied once before its
+next fold after that, so a snapshot never changes under React. A key holds at
+most 481 buckets per worker. A sample keeps its raw deltas and levels, and a
+chart metric divides two of them: `msgRate` is Σ`msgs` / Σ`elapsed` over the
+bucket. The Overview's charts plot one series per
+partition per worker, since a source names no worker and Overview asks
+`topicChartSeries()` to split by one: co-readers of a partition inside one
+worker sum, and the stacked chart sums the workers. Every card sums the same
+readers its chart stacks, so `liveTotal` (rate, backlog, cache size) and
+`probe24hTotals` sum every reader and dedup nothing, two topologies on
+`firehose.p0` each counted. `probe24hTotals` adds each reader's `msgs` and
+`bytes` tallies through `bucketTotals()`, and `liveTotal` reads the entry's
+`latest` sample.
+
 "Live" is one rule for the current cards: `liveTotal()` counts a reader only
 while it names a source and its newest sample is at most `LIVE_WINDOW_S`, 60
 seconds, behind the newest message seen (`streamHead()`), because the map keeps
-a stopped reader's 24h series for the charts. The charts apply the same window:
-`buildAlignedSeries` holds each reading of a level gauge for `LIVE_WINDOW_S`
-past its sample, then reads 0, so a stopped reader leaves the stack and a gap
-mid-series reads 0 until the series resumes.
+a stopped reader's 24h buckets for the charts. The charts apply the same
+window: `buildAlignedSeries` holds each reading of a level gauge for
+`LIVE_WINDOW_S` past the newest sample its bucket saw, then reads 0, so a
+stopped reader leaves the stack and a gap mid-series reads 0 until the series
+resumes. A chart point is one bucket, and `topicChartSeries` stamps `step:
+BUCKET_S` on its series so the grid the view folded onto is the grid
+`buildAlignedSeries` draws on.
+
+The `partitions` map is keyed by the directory, which several workers measure,
+each into its own row. A level charts each entry's newest reading across its
+rows before it adds the entries, so a directory, or a Table file two worker
+types hold, counts once at its newest size.
+
+`JobstatsViewNode` publishes `buckets` under `handlers` the same way, and the
+Tables tab's view under `tables`, where a Table's operation calls ride as
+`op:<OP>` fields of the same tally.
 
 ## The one-shot mirror
 
