@@ -68,16 +68,16 @@ const SMALL = BLOCKS.flat();
 describe.each( [ 11, 24 ] )(
 	'autoLayout — the hub worker, %i spokes',
 	( count ) => {
-		it( 'seats the topicprobe chain one row under the settings chain', () => {
+		it( 'seats the topicprobe chain an empty row under the settings chain', () => {
 			const { at } = layOut( count );
 			const head = at[ 'settings:consumer' ];
 			expect( at.topicprobe ).toEqual( {
 				x: head.x,
-				y: head.y + Y_STEP,
+				y: head.y + 2 * Y_STEP,
 			} );
 			expect( at[ 'topicprobe:log' ] ).toEqual( {
 				x: at[ 'settings-sync' ].x,
-				y: head.y + Y_STEP,
+				y: head.y + 2 * Y_STEP,
 			} );
 		} );
 
