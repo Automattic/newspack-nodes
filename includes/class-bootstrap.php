@@ -685,15 +685,16 @@ class Bootstrap {
 	 * Which topologies those are is DERIVED from each active topology's parsed
 	 * graph, never a topology name — names are deployment config (renamable,
 	 * user-dir-shadowable) and a name-keyed signal drifts silently into a no-op.
-	 * `Remote_Source` IS-A `Remote_Link`, so the second declaration is redundant
-	 * and stays declared in case that stops being true. `Vault_Group` is its
-	 * own entry rather than relying on its children's class: a group whose
-	 * last member just left derives no Remote_Source at all, and its own type
-	 * is what still counts it as a consumer. The reset below does not decide
-	 * that match — a cold read already sees the current Vault — it exists so
-	 * a reader LATER in this same process (the flattened statements, the
-	 * graph, the write set) sees the Vault as just written rather than
-	 * whatever an earlier read in this process cached.
+	 * The consumers are named as classes, matched by ancestry, so every broker
+	 * counts through its base `Remote_Broker_Node` and a new one needs no
+	 * entry here. `Vault_Group` is its own entry rather than relying on its
+	 * children's class: a group whose last member just left derives no
+	 * broker at all, and its own type is what still counts it as a consumer.
+	 * The reset below does not decide that match — a cold read already sees
+	 * the current Vault — it exists so a reader LATER in this same process
+	 * (the flattened statements, the graph, the write set) sees the Vault as
+	 * just written rather than whatever an earlier read in this process
+	 * cached.
 	 *
 	 * `Restart_Planner::request_reloads()` signals every readable consumer
 	 * whatever another topology or lock dir refused, then raises the refusals,
@@ -706,7 +707,7 @@ class Bootstrap {
 			return; // Subsite: the fleet is network-global and runs on the main site.
 		}
 		Topology_Analyzer::reset_caches();
-		Restart_Planner::request_reloads( Config::get_base_directory_with_locks(), [ 'Remote_Link', 'Remote_Source', 'Vault_Group' ] );
+		Restart_Planner::request_reloads( Config::get_base_directory_with_locks(), [ Remote_Broker_Node::class, Vault_Group_Node::class ] );
 	}
 
 	/**

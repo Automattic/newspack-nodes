@@ -285,9 +285,8 @@ class Topology_Analyzer {
 	 * `include`s, flattened via statements()): nodes with a class-derived kind,
 	 * the make_node `type` token and positional `args` list, quotes stripped as
 	 * the runtime binds them (+ the log a Partition/Topic writes or a Consumer
-	 * reads, from the path/source ARG — never a name suffix; + a remote link's
-	 * `vault_id`, and either its `remote_partition` (a channel) or its `pairs`
-	 * (a broker), so another plugin names them rather than counting
+	 * reads, from the path/source ARG — never a name suffix; + a broker's
+	 * `vault_id` and `pairs`, so another plugin names them rather than counting
 	 * positionals), and edges from `connect_node` plus
 	 * `command_node <node>:config set_*target <target>`, with `disconnect_node` applied
 	 * in evaluation order. A broken include throws — the walk's memoized
@@ -347,15 +346,12 @@ class Topology_Analyzer {
 				}
 				$fqcn = Command_Interpreter_Node::resolve_class( $class );
 				self::draw_declared_targets( $edges, $values, [ $name ], $fqcn );
-				if ( self::type_is( $class, Remote_Source_Node::class ) ) {
-					/** @var class-string<Remote_Source_Node> $broker An unresolved name stands for the base class. */
-					$broker = $fqcn ?? Remote_Source_Node::class;
+				if ( self::type_is( $class, Remote_Broker_Node::class ) ) {
+					/** @var class-string<Remote_Broker_Node> $broker An unresolved name stands for the base class. */
+					$broker = $fqcn ?? Remote_Broker_Node::class;
 					// It pulls REMOTE streams, so it claims no `reads`.
 					$node['vault_id'] = $values[3] ?? '';
 					$node['pairs']    = $broker::pairs_of( $broker::variadic_in( \array_slice( $values, 3 ) ) );
-				} elseif ( self::type_is( $class, Remote_Link_Node::class ) ) {
-					$node['vault_id']         = $values[3] ?? '';
-					$node['remote_partition'] = $values[4] ?? '';
 				}
 				$nodes[] = $node;
 				continue;
@@ -803,7 +799,7 @@ class Topology_Analyzer {
 	 * `deadletter:` so the kinds can't false-match. A Consumer's SOURCE (1st arg
 	 * after the node name) is a read, not a write, so it's excluded.
 	 *
-	 * A `Remote_Source` claims its two roots (`<node> <vault> <offsetlog_root>
+	 * A broker claims its two roots (`<node> <vault> <offsetlog_root>
 	 * <deadletter_root> <pairs…>`); every reader nests below them.
 	 *
 	 * A `Table` whose backend resolves to `sqlite` — written literally or as a
@@ -890,7 +886,7 @@ class Topology_Analyzer {
 				}
 			}
 			// Broker: <node> <vault> <offsetlog_root> <deadletter_root> <pairs>
-			if ( 'make_node' === $verb && self::type_is( $class, Remote_Source_Node::class ) ) {
+			if ( 'make_node' === $verb && self::type_is( $class, Remote_Broker_Node::class ) ) {
 				// @longform Both roots are required; every reader nests under
 				// them, so claiming the root claims each reader's cursor and
 				// dead letters, a glob's later readers included.
@@ -1417,10 +1413,6 @@ class Topology_Analyzer {
 	 * comparison hides from both: no conflict check sees it, and the GC does not
 	 * know it is declared.
 	 *
-	 * `resolve_class()` returns null whenever no namespace is registered yet, so
-	 * the token alone has to answer for the base classes themselves. ONE rule
-	 * covers that: `<token>_Node` is the base's short name.
-	 *
 	 * @param string $type TSL class token.
 	 * @param string $fqcn Fully-qualified base class.
 	 * @return bool True when the token is that class or a subclass.
@@ -1430,8 +1422,7 @@ class Topology_Analyzer {
 		if ( null !== $resolved ) {
 			return \is_a( $resolved, $fqcn, true );
 		}
-		$slash = \strrpos( $fqcn, '\\' );
-		return $type . '_Node' === ( false === $slash ? $fqcn : \substr( $fqcn, $slash + 1 ) );
+		return \is_a( __NAMESPACE__ . '\\' . $type . '_Node', $fqcn, true );
 	}
 
 	/**

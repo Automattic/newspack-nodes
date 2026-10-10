@@ -256,7 +256,7 @@ final class VaultTest extends TestCase {
 	// @longform An edit rebuilds the entry from validate_config()'s three-key
 	// projection, so any OTHER stored key would be dropped by the write-back.
 	// `token` is one: credential_header() documents a token-only spoke, and
-	// Remote_Link reads it. Editing a URL must not silently deauthorize a spoke.
+	// Remote_Source reads it. Editing a URL must not silently deauthorize a spoke.
 	public function test_update_preserves_stored_keys_it_does_not_validate(): void {
 		\update_option( Vault::OPTION_KEY, [
 			'vault-tok-6035' => [ 'url' => 'https://before.example', 'token' => 'bearer-tok-6035' ],

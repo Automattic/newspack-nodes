@@ -23,6 +23,7 @@ use Newspack_Nodes\Tests\Helpers\VerbHarness;
 use Newspack_Nodes\Tests\TestCase;
 
 #[CoversClass( Raw_Logs_CI_Node::class )]
+#[CoversClass( Log_Sources::class )]
 class RawLogsCITest extends TestCase {
 
 	private string $tmp;

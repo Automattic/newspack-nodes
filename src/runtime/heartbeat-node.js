@@ -32,7 +32,7 @@ const LEASE_OWNER_RE = /^[1-9][0-9]*$/;
 /**
  * Milliseconds between pokes, per live lease.
  *
- * It matches `Remote_Link_Node::HEARTBEAT_INTERVAL`, which does the identical
+ * It matches `Remote_Source_Node::HEARTBEAT_INTERVAL`, which does the identical
  * job server-side, and divides the lease TTL — 60 seconds by default, floored
  * at 45 by `SSE_Slot_Pool::ttl()` — so one lost poke still leaves a refresh
  * before expiry.
@@ -43,7 +43,7 @@ const POKE_INTERVAL_MS = 15000;
  * The `SSE_Slot_Pool` lease state naming a slot released out from under this
  * stream. The server reports it as a refusal, but it is a race with a stream
  * that already closed rather than a fault. Mirrors
- * `Remote_Link_Node::RELEASED_SLOT`.
+ * `Remote_Source_Node::RELEASED_SLOT`.
  */
 const RELEASED_SLOT = 'slot_released';
 
@@ -96,7 +96,7 @@ export class HeartbeatNode extends TimerNode {
 			response && 'object' === typeof response && 'payload' in response
 				? response.payload
 				: response;
-		// Both failure kinds, ONE verdict — as Remote_Link_Node reads them.
+		// Both failure kinds, ONE verdict — as Remote_Source_Node reads them.
 		let failure = null;
 		if ( type & TM_ERROR ) {
 			failure = this._safeError( payload, 'Heartbeat command failed' );

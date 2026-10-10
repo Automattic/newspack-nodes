@@ -51,7 +51,7 @@ use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Log_Discovery;
 use Newspack_Nodes\Log_Position;
-use Newspack_Nodes\Remote_Source_Node;
+use Newspack_Nodes\Remote_Broker_Node;
 use Newspack_Nodes\Topic_Probe_Node;
 use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Vault;
@@ -144,7 +144,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	 * rows the Workers dashboard and `wp nodes status` read, one read of the
 	 * probe tail for every row. A row is a broker's reader when its SOURCE
 	 * names a remote log (`Log_Discovery::remote_of()`) on the broker's spoke
-	 * and its READER is the id `Remote_Source_Node::reader_id()` gives that
+	 * and its READER is the id `Remote_Broker_Node::reader_id()` gives that
 	 * kind under the broker in the row's worker partition. Each row's SOURCE
 	 * is read once and filed under its spoke's Vault id, so a broker weighs
 	 * only its own spoke's rows. Each reader answers its `stamp`, its worker
@@ -168,7 +168,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 		foreach ( $servers as $server ) {
 			$readers = [];
 			foreach ( $by_vault[ $server['vault_id'] ] ?? [] as [ $row, $kind ] ) {
-				if ( Remote_Source_Node::reader_id( $server['topology'], $server['id'], $kind, $row['partition'] ) === $row['reader'] ) {
+				if ( Remote_Broker_Node::reader_id( $server['topology'], $server['id'], $kind, $row['partition'] ) === $row['reader'] ) {
 					$readers[] = [
 						'stamp'     => Log_Discovery::stamp_of( $kind ),
 						'partition' => $row['partition'],
@@ -206,11 +206,11 @@ class Aggregator_CI_Node extends Service_CI_Node {
 
 	/**
 	 * Build the per-node partition snapshot both slices read, keyed by the
-	 * wired `Remote_Source` NODE NAME.
+	 * wired broker's NODE NAME.
 	 *
 	 * Discovery covers every active topology, since an operator wires spokes
 	 * into whatever topology suits and the substrate names none. Each
-	 * `Remote_Source` found names its Vault id; the row reads that broker's
+	 * broker found names its Vault id; the row reads that broker's
 	 * snapshot for every worker partition. The spoke URL comes from
 	 * the `Vault` singleton, keyed by that Vault id.
 	 *
@@ -234,7 +234,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 			$topology = Core::as_string( $topology );
 			// One broker runs per worker partition.
 			$num_partitions = Bootstrap::partitions_of( $entry );
-			foreach ( Topology_Analyzer::nodes_of_type( $topology, Remote_Source_Node::class ) as $node ) {
+			foreach ( Topology_Analyzer::nodes_of_type( $topology, Remote_Broker_Node::class ) as $node ) {
 				$name_v = $node['name'] ?? '';
 				$name   = Core::as_string( $name_v );
 				if ( '' === $name ) {
@@ -245,7 +245,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 				// The writer builds this key too; the two cannot drift.
 				$partitions = [];
 				for ( $p = 0; $p < $num_partitions; $p++ ) {
-					$partitions[ $p ] = Core::arr( Cache_Backend::shared_first()?->get( Remote_Source_Node::status_key_for( $name, $p ) ) );
+					$partitions[ $p ] = Core::arr( Cache_Backend::shared_first()?->get( Remote_Broker_Node::status_key_for( $name, $p ) ) );
 				}
 
 				$entry = '' !== $vault_id ? $registry->get( $vault_id ) : null;

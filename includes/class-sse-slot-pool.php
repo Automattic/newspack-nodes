@@ -337,7 +337,7 @@ class SSE_Slot_Pool {
 	 * Lease TTL in seconds: the override, else config, floored at the re-auth
 	 * window. A configured value below it is raised, not honoured.
 	 *
-	 * That floor is THREE `Remote_Link_Node::HEARTBEAT_INTERVAL`s, not two. Only
+	 * That floor is THREE `Remote_Source_Node::HEARTBEAT_INTERVAL`s, not two. Only
 	 * an owner-matched `workers heartbeat` refreshes a lease — `check()` never
 	 * does — and a client that loses its session stops heartbeating for the
 	 * whole re-auth round trip, so a TTL sized for heartbeat loss alone fences a
@@ -349,7 +349,7 @@ class SSE_Slot_Pool {
 	public static function ttl(): int {
 		return self::$ttl
 			?? \max(
-				3 * Remote_Link_Node::HEARTBEAT_INTERVAL,
+				3 * Remote_Source_Node::HEARTBEAT_INTERVAL,
 				self::budget( 'sse_slot_ttl' )
 			);
 	}

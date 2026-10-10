@@ -3,7 +3,7 @@
  * Tests for the substrate's `newspack_nodes/vault/changed` reload signal.
  *
  * A Vault mutation re-credentials the spokes, so the workers holding a
- * vault-consuming node (`Remote_Link` / `Remote_Source`) must RE-READ their
+ * vault-consuming node (a broker or a `Vault_Group`) must RE-READ their
  * config — not exit. Which topologies those are is DERIVED from each active
  * topology's parsed graph; a hardcoded topology name is deployment config and
  * drifts silently into a no-op.
@@ -124,15 +124,18 @@ class BootstrapVaultReloadTest extends TestCase {
 		$this->assertFileDoesNotExist( $this->flag( 'quiet-lab', Lock_Node::RESTART_FLAG ) );
 	}
 
-	public function test_remote_link_also_counts_as_a_vault_consumer(): void {
-		$this->write_tsl( 'link-lab', "make_node Remote_Link odd-linker vault-9317 firehose.p0\n" );
-		\update_option( 'newspack_nodes_topologies', [ 'link-lab', 'quiet-lab' ] );
+	/** A broker is recognized by its base class, so one that is no Remote_Source is signalled too. */
+	public function test_a_broker_that_is_no_remote_source_is_signalled(): void {
+		require_once \dirname( __DIR__ ) . '/Helpers/fixtures/class-tapir-fetch-node.php';
+		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\Fixtures\\' );
+		$this->write_tsl( 'fetch-lab', "make_node Tapir_Fetch tapir-fetcher vault-6152 /tmp/o /tmp/d firehose.p0:next\n" );
+		\update_option( 'newspack_nodes_topologies', [ 'fetch-lab', 'quiet-lab' ] );
 		Config::reset();
-		$this->make_lock_dir( 'link-lab' );
+		$this->make_lock_dir( 'fetch-lab' );
 
 		Bootstrap::reload_vault_consumers();
 
-		$this->assertFileExists( $this->flag( 'link-lab', Lock_Node::RELOAD_FLAG ) );
+		$this->assertFileExists( $this->flag( 'fetch-lab', Lock_Node::RELOAD_FLAG ) );
 		$this->assertFileDoesNotExist( $this->flag( 'quiet-lab', Lock_Node::RELOAD_FLAG ) );
 	}
 
@@ -183,7 +186,7 @@ class BootstrapVaultReloadTest extends TestCase {
 	public function test_a_vault_group_with_no_members_yet_still_gets_signalled(): void {
 		// Vault_Group's own type in the class list — not its child's — is what
 		// makes an empty group count, so the child type here is Echo, which
-		// never matches Remote_Link or Remote_Source on its own.
+		// never matches a broker on its own.
 		$this->write_tsl( 'group-lab', "make_node Vault_Group late-7 Echo arrives-later\n" );
 		\update_option( 'newspack_nodes_topologies', [ 'group-lab' ] );
 		Config::reset();

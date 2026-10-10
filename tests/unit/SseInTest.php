@@ -116,9 +116,8 @@ class SseInTest extends TestCase {
 	}
 
 	public function test_counter_advances_once_per_delivered_msg_event(): void {
-		// The per-node dashboard stat re-exports SSE_In's counter (via Remote_Link_Node), so the
-		// increment belongs at the delivery point here — NOT on Remote_Source_Node, whose counter
-		// nothing reads. Each `msg` event must bump it exactly once.
+		// The per-node dashboard stat re-exports SSE_In's counter (via Remote_Source_Node::counter()),
+		// so the increment belongs at the delivery point here. Each `msg` event must bump it exactly once.
 		[ $node ] = $this->configured_node();
 		$this->assertSame( 0, $node->counter() );
 		$node->process_sse_chunk( self::msg_frame( '1:0', 'k', [ 'a' => 1 ] ) );
@@ -184,7 +183,7 @@ class SseInTest extends TestCase {
 
 	public function test_msg_with_large_from_still_handed_raw(): void {
 		// SSE_In hands the raw payload regardless of the message's FROM. The FROM-overflow drop is
-		// now the owner's deliver_downstream / forward_line concern, not SSE_In's.
+		// the reader's forward_line concern, not SSE_In's.
 		[ $node ] = $this->configured_node();
 		$captured = [];
 		$node->on_message = static function ( string $raw ) use ( &$captured ): void {
@@ -482,7 +481,7 @@ class SseInTest extends TestCase {
 
 	public function test_reconnect_reregisters_the_multi(): void {
 		// After detach_handle unregisters, a reconnect must re-register — else a
-		// base Remote_Link channel reconnects but is never serviced.
+		// Remote_Source stream reconnects but is never serviced.
 		Event_Framework::reset();
 		[ $node ] = $this->streaming_node();
 		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ): \CurlHandle {

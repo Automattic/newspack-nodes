@@ -32,7 +32,7 @@ const LONG_NON_BOOLEAN_ERROR =
 // The slot TTL is the server's (SSE_Slot_Pool::$ttl, 60s) and the client poke
 // is the ONLY thing that refreshes it, so the interval has to clear the TTL
 // with margin — but 5s was 12x more often than needed, and 3x harder than
-// Remote_Link_Node::HEARTBEAT_INTERVAL doing the identical job server-side.
+// Remote_Source_Node::HEARTBEAT_INTERVAL doing the identical job server-side.
 describe( 'HeartbeatNode — poke cadence', () => {
 	it( 'pokes on the same cadence as the server-side client, well inside the TTL', () => {
 		// SSE_Slot_Pool::$ttl. Duplicated here rather than exported from

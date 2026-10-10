@@ -2,7 +2,7 @@
 /**
  * Vault: the credentials for every spoke this site connects OUT to.
  *
- * `HTTP_Out_Node` and `Remote_Link_Node` each name a Vault id and resolve that
+ * `HTTP_Out_Node` and `Remote_Broker_Node` each name a Vault id and resolve that
  * spoke's URL and Authorization header here, so one store answers "how do I
  * reach this server" for the whole graph. `Sessions` is the mirror — it holds
  * the command sessions this site issues to callers coming IN.
@@ -689,7 +689,7 @@ class Vault {
 	/**
 	 * The operator's posture itself: are plaintext servers refused? Distinct
 	 * from `https_required()`, which asks whether ONE url violates it —
-	 * Remote_Link takes the policy for SSE_In, which drives CURLOPT_PROTOCOLS.
+	 * Remote_Source takes the policy for SSE_In, which drives CURLOPT_PROTOCOLS.
 	 *
 	 * @return bool True when the operator refuses plaintext servers.
 	 */

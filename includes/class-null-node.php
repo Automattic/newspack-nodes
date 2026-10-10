@@ -8,7 +8,7 @@
  * address any node in our graph. Setting one buys that refusal, and the other
  * arm then stamps the remote's unaddressed output for the target, so the target
  * has to be a node that swallows what lands on it. Aiming it at the relay that
- * owns the egress — a `Remote_Link_Node` — would send the spoke's own output
+ * owns the egress — a `Remote_Broker_Node` — would send the spoke's own output
  * straight back out.
  *
  * Tachikoma's Null is also a load generator: a timer firing cached TM_PERSIST

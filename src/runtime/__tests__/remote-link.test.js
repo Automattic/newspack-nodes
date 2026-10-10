@@ -6,8 +6,8 @@
  * reserved-name `_http` (HttpOut) + `_heartbeat` (Heartbeat) singletons, plus the
  * `connected → slot` bridge. A dashboard makes ONE RemoteLink; RemoteIpc extends
  * it with the worker-relay send + single-connection steal. Mirrors the PHP
- * Remote_Source patron; the durable offsetlog stays a PHP-only `Remote_Source
- * extends Remote_Link` concern.
+ * Remote_Source patron; the durable offsetlog stays a PHP-only concern of its
+ * readers.
  */
 
 import { RemoteLinkNode } from '../remote-link-node';

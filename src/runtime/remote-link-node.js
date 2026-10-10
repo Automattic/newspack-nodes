@@ -30,8 +30,8 @@
  *
  * Mirrors the PHP `Remote_Source_Node`, a patron owning an `SSE_In_Node` and an
  * `HTTP_Out_Node`. The durable offsetlog that distinguishes aggregation is a
- * PHP-only `Remote_Source extends Remote_Link` concern — the browser has no
- * durable cursor, so JS ships RemoteLink and RemoteIpc alone.
+ * PHP-only concern of its readers — the browser has no durable cursor, so JS
+ * ships RemoteLink and RemoteIpc alone.
  */
 
 import { Core } from './core';

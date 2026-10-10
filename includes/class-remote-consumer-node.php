@@ -1,6 +1,6 @@
 <?php
 /**
- * Remote_Consumer: the durable reader for one stream a Remote_Source broker carries.
+ * Remote_Consumer: the durable reader for one stream a broker carries.
  *
  * @package Newspack_Nodes
  */
@@ -10,12 +10,12 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * One stream of a broker's shared SSE connection, read like a Consumer — the
- * `Durable_Reader` cursor, offsetlog, dead-letter queue and debugger — over the
- * lines the broker routes here by their FROM stamp, as Tachikoma's Consumer
- * reads under a ConsumerBroker. The broker owns the connection and asks each
- * reader where its stream stands as it connects; a paused reader leaves the
- * stream and steps over the broker's HTTP_Out instead.
+ * One stream a broker carries, read like a Consumer — the `Durable_Reader`
+ * cursor, offsetlog, dead-letter queue and debugger — over the lines the
+ * broker hands here by their FROM stamp, as Tachikoma's Consumer reads under
+ * a ConsumerBroker. The broker owns the feed and asks each reader where its
+ * stream stands; a paused reader leaves the feed and steps over the broker's
+ * HTTP_Out instead.
  *
  * Positions live in the SPOKE's byte space: each record's `segment:offset:length`
  * breadcrumb places it, never the local line's bytes. A file-mode source that
@@ -31,14 +31,14 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 		advance_consume_cursor as reader_advance;
 	}
 
-	/** The spoke service whose `read_message` answers a paused reader's step. */
-	public const STEP_SERVICE = 'raw-logs';
+	/** The spoke service that answers a reader's step, fetch and discovery. */
+	public const RAW_LOGS_SERVICE = 'raw-logs';
 
 	/** The stamp this reader's lines carry: a partition dir or `sources/<name>`. */
 	protected string $stamp = '';
 
 	/** The broker routing this reader's lines; null until it adopts the reader. */
-	private ?Remote_Source_Node $broker = null;
+	private ?Remote_Broker_Node $broker = null;
 
 	/**
 	 * The SOURCE and READER this reader's probe record names, which its broker
@@ -259,8 +259,8 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * buffered record carrying a breadcrumb — else a pending seek, else the
 	 * cursor. A skip or a crumb is a real place, so it outranks a pending
 	 * seek, which stands until the cursor reaches what is held. A cursor
-	 * whose generation is unknown states its offset alone. The broker calls
-	 * it once per connect, from `stream_request()`.
+	 * whose generation is unknown states its offset alone. `Remote_Source`
+	 * calls it once per connect, from its `stream_request()`.
 	 *
 	 * @return array{segment?:int,offset:int}|int The position, or a seek sentinel.
 	 */
@@ -281,12 +281,12 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	/**
 	 * Refill seam: nothing is read here, since lines arrive pushed. Pass the
 	 * spoke's skip once the records ahead of it drained; live, let the broker
-	 * reopen its valve; paused and dry, ask the spoke for the next record.
+	 * resume its feed; paused and dry, ask the spoke for the next record.
 	 */
 	protected function get_batch(): void {
 		$this->pass_skipped_lines();
 		if ( $this->is_live() ) {
-			$this->broker?->pump_maybe_arm();
+			$this->broker?->refill( $this );
 		} elseif ( ! $this->buffer_has_line() ) {
 			$this->request_step();
 		}
@@ -305,7 +305,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 			|| ( null !== $this->step_requested_at && Core::$now - $this->step_requested_at < HTTP_Out_Node::REQUEST_TIMEOUT ) ) {
 			return;
 		}
-		$this->step_requested_at = $this->broker->request_read( $this, $this->step_position() ) ? Core::$now : null;
+		$this->step_requested_at = $this->broker->send_read( $this, 'read_message', [ $this->stamp, $this->step_position() ] ) ? Core::$now : null;
 	}
 
 	/**
@@ -772,14 +772,14 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	}
 
 	/**
-	 * Adopt the broker whose connection carries this stream and whose HTTP_Out
+	 * Adopt the broker whose feed carries this stream and whose HTTP_Out
 	 * steps it, and take the names this reader reports under. The broker calls
 	 * it whenever it names the reader: on building it, on a rename and on a
 	 * replay, which may move the vault, the topology or the partition.
 	 *
-	 * @param Remote_Source_Node $broker The broker routing this stream's lines.
+	 * @param Remote_Broker_Node $broker The broker routing this stream's lines.
 	 */
-	public function broker( Remote_Source_Node $broker ): void {
+	public function broker( Remote_Broker_Node $broker ): void {
 		$this->broker      = $broker;
 		$this->probe_names = $broker->probe_names( $this->stamp );
 	}
@@ -832,7 +832,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 		return [
 			'category'     => 'I/O',
 			'hidden'       => true,
-			'description'  => 'Durable reader for one stream a Remote_Source broker carries (built by the broker).',
+			'description'  => 'Durable reader for one stream a broker carries (built by the broker).',
 			'arguments'    => [
 				[ 'name' => 'stamp', 'type' => 'string', 'required' => true, 'description' => 'The stamp this stream\'s lines carry: a spoke partition dir or sources/<name>.' ],
 				[ 'name' => 'offsetlog_dir', 'type' => 'string', 'required' => true, 'partition' => 'bound', 'description' => 'Directory for the durable read-cursor offsetlog.' ],

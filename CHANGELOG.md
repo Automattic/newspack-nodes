@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **A multi-writer reader holds a segment boundary until `SEAL_GRACE_SECONDS` have passed since the later of the segment's last write and the next segment's first record.** Both are read from disk, the mtime and the first record's TIMESTAMP, so a fresh reader judges the boundary as a long-lived one does, and it holds while the next segment is still empty.
+- **`Remote_Broker_Node` is the abstract base of every broker.** It holds a spoke's command channel (`HTTP_Out` and the `:null` sink), the `<source>:<target>` pairs, the readers they claim and the status snapshot; `Remote_Source_Node` extends it with the SSE connection, the slot heartbeat and the connect queue. `Topology_Analyzer`, `Aggregator_CI` and the Vault reload recognize a broker by the base, and `Restart_Planner` takes a Node class-string, abstract or not, beside a node-type token. A reader sends its step through `send_read()` and reopens its broker's feed through `refill()`; `Remote_Consumer_Node::STEP_SERVICE` is `RAW_LOGS_SERVICE`. A paused reader's step, or a command filled into a broker, builds the command channel alone, no longer an idle `:sse-in` beside it. A pair refusal names the broker class that refused it. The broker rides the Router's tick, once a second, so a broker made in the bare `wp nodes cli` REPL, whose Router never starts, does not housekeep. A broker asks for a command session on its phase second or the one after, so a late Router tick no longer pushes the ask a whole cadence out.
+
+### Removed
+
+- **`Remote_Link_Node` is gone, with no alias.** No topology named it; its channel lives in `Remote_Broker_Node` and its stream in `Remote_Source_Node`. The bare link's `connect()`, `close()`, `remote_partition` argument and its delivery path (`deliver_downstream()`, `admit_inbound()`, `admit_addressed()`) go with it.
 
 ## [2.103.3] - 2026-10-09
 

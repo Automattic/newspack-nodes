@@ -73,7 +73,7 @@ class HttpOutSessionTest extends TestCase {
 	 * The bootstrap must not need traffic to start. Every minter refuses to
 	 * emit without a session (it cannot sign), so if the handshake only ran
 	 * when a batch was already queued, neither side could ever move: the
-	 * settings pushes and the Remote_Link heartbeat both went silent forever,
+	 * settings pushes and the Remote_Source heartbeat both went silent forever,
 	 * and a suppressed heartbeat let the spoke close the SSE stream.
 	 */
 	public function test_a_session_less_tick_runs_the_handshake_with_nothing_queued(): void {
