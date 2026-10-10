@@ -782,6 +782,101 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertLessThan( 700, \strlen( $said ), 'the 512-byte cap, not the 900 sent' );
 	}
 
+	/** A catalog refusal from the spoke. */
+	private static function catalog_refusal( string $reason ): array {
+		$refusal                              = self::catalog_reply( [] );
+		$refusal[ Message::TYPE ]             = Message::TM_COMMAND | Message::TM_ERROR;
+		$refusal[ Message::VALUE ]['payload'] = $reason;
+		return $refusal;
+	}
+
+	/** A refused catalog is the status error until the next catalog answers. */
+	public function test_a_refused_catalog_is_the_status_error_until_one_answers(): void {
+		$node = $this->globbing_broker();
+		$node->fire();
+		Core::$now = 500.7;
+		$node->fill( self::catalog_refusal( "unknown command: list_logs 8812\n" ) );
+		$node->fire();
+		$this->assertSame( 'Discovery refused: unknown command: list_logs 8812', $this->snapshot()['last_error'] );
+
+		Core::$now = 506.0;
+		$node->fire();
+		$node->fill( self::catalog_reply( [ 'firehose.p0' ] ) );
+		$node->fire();
+
+		$this->assertNull( $this->snapshot()['last_error'] );
+	}
+
+	/** The transfer's own error outranks a discovery refusal. */
+	public function test_a_transport_error_outranks_a_discovery_refusal(): void {
+		$node = $this->globbing_broker();
+		$node->fire();
+		$node->fill( self::catalog_refusal( 'catalog-off-3307' ) );
+		( new \ReflectionProperty( HTTP_Out_Node::class, 'last_outcome' ) )->setValue( Core::node( 'pull-austin:http-out' ), [ 'code' => 502, 'error' => 'HTTP 502 from austin-4471' ] );
+
+		Core::$now += 1;
+		$node->fire();
+
+		$this->assertSame( 'HTTP 502 from austin-4471', $this->snapshot()['last_error'] );
+	}
+
+	/** A discovery refusal and a fetch refusal standing together: discovery's shows. */
+	public function test_a_discovery_refusal_outranks_a_fetch_refusal(): void {
+		$this->seed_austin();
+		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'firehose.p0:downstream', 'jobstats.p*:stats' ) );
+		$node->fire();
+		$reader = $this->readers( $node )['firehose.p0'];
+		$reader->fire_cb();
+		$fetch_refusal                              = self::block_reply( $this->last_fetch_of( Core::node( 'pull-austin:http-out' ), 'firehose.p0' ), [], 0, 0, false );
+		$fetch_refusal[ Message::TYPE ]             = Message::TM_COMMAND | Message::TM_ERROR;
+		$fetch_refusal[ Message::VALUE ]['payload'] = 'block-off-6120';
+		$reader->fill( $fetch_refusal );
+		$node->fill( self::catalog_refusal( 'catalog-off-9054' ) );
+
+		Core::$now += 1;
+		$node->fire();
+
+		$this->assertSame( 'Discovery refused: catalog-off-9054', $this->snapshot()['last_error'] );
+	}
+
+	/** An answered catalog is a round trip: a glob broker matching nothing reads connected. */
+	public function test_an_answered_catalog_reads_connected_with_its_round_trip(): void {
+		$node = $this->globbing_broker();
+		$node->fire();
+		Core::$now = 502.35;
+		$node->fill( self::catalog_reply( [ 'firehose.p0' ] ) );
+
+		$node->fire();
+
+		$status = $this->snapshot();
+		$this->assertTrue( $status['connected'] );
+		$this->assertSame( 502, $status['last_response'] );
+		$this->assertSame( 2350.0, $status['last_rtt'] );
+	}
+
+	/** A catalog ask is a connection attempt, as a fetch is. */
+	public function test_a_catalog_ask_is_the_last_connection_attempt(): void {
+		$node = $this->globbing_broker();
+		Core::$now = 507.8;
+
+		$node->fire();
+
+		$this->assertSame( 507, $this->snapshot()['last_connection_attempt'] );
+	}
+
+	/** Four EOF polls with no answer, catalog or block, and the broker reads disconnected. */
+	public function test_a_catalog_answer_ages_out_after_four_eof_polls(): void {
+		$node = $this->globbing_broker();
+		$node->fire();
+		Core::$now = 502.35;
+		$node->fill( self::catalog_reply( [] ) );
+
+		Core::$now = 502.35 + 4 * HTTP_Source_Node::EOF_POLL_SECONDS + 0.4;
+		$node->fire();
+
+		$this->assertFalse( $this->snapshot()['connected'] );
+	}
+
 	public function test_a_broker_of_exact_pairs_never_asks_for_the_catalog(): void {
 		$this->seed_austin();
 		$node = $this->broker( 'pull-austin' );
