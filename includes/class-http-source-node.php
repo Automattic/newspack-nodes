@@ -37,6 +37,19 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 	 */
 	private float $catalog_due = 0.0;
 
+	/** When the latest catalog ask went out, for its round trip and the status; 0 before any. */
+	private float $catalog_sent_at = 0.0;
+
+	/**
+	 * The latest answered catalog ask: when, and its round trip in seconds.
+	 *
+	 * @var array{at:float,rtt:float}|null
+	 */
+	private ?array $catalog_answered = null;
+
+	/** What the spoke said refusing the latest catalog ask; null once one answers. */
+	private ?string $catalog_refusal = null;
+
 	/**
 	 * Size the reply cap to every reader as each read goes out, so a reader
 	 * built since the tick, and a channel rebuilt since, count before it.
@@ -82,7 +95,8 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 		}
 		$message = $this->mint( $this->name, Remote_Consumer_Node::RAW_LOGS_SERVICE, 'list_logs', [] );
 		if ( null !== $message ) {
-			$this->catalog_due = Core::$now + HTTP_Out_Node::REQUEST_TIMEOUT;
+			$this->catalog_due     = Core::$now + HTTP_Out_Node::REQUEST_TIMEOUT;
+			$this->catalog_sent_at = Core::$now;
 			$http->fill( $message );
 		}
 	}
@@ -109,20 +123,23 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 
 	/**
 	 * The status snapshot, under `Remote_Source`'s keys so a dashboard reads
-	 * both brokers alike, from the readers' fetches: `connected` while one was
-	 * answered within four EOF polls; the latest answer and its round trip, in
-	 * milliseconds as the Status tab reads it; the latest fetch sent; when the
+	 * both brokers alike, from the round trips the spoke answered, a reader's
+	 * fetch or this broker's catalog: `connected` while one was answered within
+	 * four EOF polls; the latest answer and its round trip, in milliseconds as
+	 * the Status tab reads it; the latest fetch or catalog ask sent; when the
 	 * soonest waiting reader asks again; the torn lines every block skipped;
-	 * and the patron's last transfer, whose error outranks a reader's refused
-	 * fetch, as a stream's error outranks a heartbeat's refusal in
-	 * `Remote_Source`. No stream, backoff or slot heartbeat.
+	 * and one error, the first of three that stands: the patron's last
+	 * transfer, a refused catalog, a reader's refused fetch. A transfer's
+	 * error outranks a refusal as a stream's outranks a heartbeat's in
+	 * `Remote_Source`, and the broker's own ask outranks one reader's. No
+	 * stream, backoff or slot heartbeat.
 	 *
 	 * @param HTTP_Out_Node $http The command channel.
 	 */
 	protected function publish_status( HTTP_Out_Node $http ): void {
-		$answered = null;
-		$rtt      = null;
-		$sent     = null;
+		$answered = $this->catalog_answered['at'] ?? null;
+		$rtt      = $this->catalog_answered['rtt'] ?? null;
+		$sent     = 0.0 < $this->catalog_sent_at ? $this->catalog_sent_at : null;
 		$next     = null;
 		$skipped  = 0;
 		$refused  = null;
@@ -142,13 +159,14 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 			}
 		}
 		$outcome = $http->last_outcome();
-		$refusal = null === $refused ? null : 'Block fetch refused: ' . self::failure_reason( $refused, 'read_block refused' );
 		$this->write_status( [
 			'connected'               => null !== $answered && Core::$now - $answered <= 4 * self::EOF_POLL_SECONDS,
 			'connecting'              => false,
 			'last_connection_attempt' => null === $sent ? null : (int) $sent,
 			'last_http_code'          => $outcome['code'],
-			'last_error'              => $outcome['error'] ?? $refusal,
+			'last_error'              => $outcome['error']
+				?? self::refusal_line( 'Discovery', $this->catalog_refusal, 'list_logs refused' )
+				?? self::refusal_line( 'Block fetch', $refused, 'read_block refused' ),
 			'current_backoff'         => null,
 			'last_sse_heartbeat'      => null,
 			'scheduled_reconnect_at'  => null === $next ? null : (int) \ceil( $next ),
@@ -156,6 +174,18 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 			'last_response'           => null === $answered ? null : (int) $answered,
 			'last_rtt'                => null === $rtt ? null : self::round_trip_ms( $rtt ),
 		] );
+	}
+
+	/**
+	 * One refusal as `last_error` shows it, its reason bounded; null when
+	 * nothing was refused.
+	 *
+	 * @param string      $what     What the spoke refused.
+	 * @param string|null $reason   The spoke's refusal text, or null.
+	 * @param string      $fallback The reason when the text names none.
+	 */
+	private static function refusal_line( string $what, ?string $reason, string $fallback ): ?string {
+		return null === $reason ? null : "{$what} refused: " . self::failure_reason( $reason, $fallback );
 	}
 
 	/**
@@ -187,9 +217,12 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 		$this->catalog_due = Core::$now + self::EOF_POLL_SECONDS;
 		$rows              = $value['payload'] ?? null;
 		if ( ! \is_array( $rows ) ) {
+			$this->catalog_refusal = Core::as_string( $rows );
 			$this->print_less_often( 'list_logs refused: ', self::failure_reason( $rows, 'list_logs refused' ) );
 			return;
 		}
+		$this->catalog_refusal = null;
+		$this->catalog_answered = [ 'at' => Core::$now, 'rtt' => Core::$now - $this->catalog_sent_at ];
 		foreach ( $rows as $row ) {
 			$key = Core::arr( $row )['key'] ?? null;
 			if ( \is_string( $key ) && null !== $this->pair_for( $key ) ) {
