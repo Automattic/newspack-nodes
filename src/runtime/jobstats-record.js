@@ -20,7 +20,7 @@
 
 /**
  * Job identity: `handler:id` when the entry carries a top-level `id`, else
- * `handler`. The view node keys its per-identity series by this slot.
+ * `handler`. The view node keys its per-identity buckets by this slot.
  */
 export const IDENTITY = 0;
 

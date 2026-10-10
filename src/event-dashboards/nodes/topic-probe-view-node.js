@@ -1,8 +1,8 @@
 /**
  * TopicProbeViewNode — the per-consumer throughput and backlog stream, and the
  * per-partition size stream, behind the Overview's panels and summary cards.
- * See ProbeStreamViewNode for the ring, the retention window and the eviction
- * it shares.
+ * See ProbeStreamViewNode for the buckets, the retention window and the
+ * eviction it shares.
  */
 
 import * as Probe from '../../runtime/probe-record';
@@ -18,17 +18,17 @@ const PARTITIONS = 'partitions';
  * layout), and the snapshot instant is the Message TIMESTAMP. A Consumer
  * record names its reader; a Partition record leaves READER blank and files
  * under `view.partitions` by its SOURCE, one sample `{ ts, worker, endBytes,
- * diskBytes }` a record. Several workers report one directory, so a
- * partition's series holds every worker's readings. Per
- * reader the view pushes one sample onto a bounded series of
- * `{ ts, worker, elapsed, msgs, bytes, msgRate, byteRate, backlog, cacheSize }`: the raw
- * deltas `probe24hTotals` integrates into the 24h cards, beside the rates and
- * levels `topicChartSeries` plots. Every value is read off THAT record and
- * nothing is differenced across records, so a worker recycle is another window
- * rather than a counter reset the reader has to detect.
+ * diskBytes }` a record. Several workers report one directory, each into its
+ * own row, and a chart reads the newest of them. Per reader the view folds
+ * one sample of `{ ts, worker, elapsed, msgs, bytes, backlog, cacheSize }`
+ * into its bucket: the raw deltas `probe24hTotals` sums into the 24h cards
+ * and `topicChartSeries` divides into rates, beside the levels it plots. The
+ * entry's `latest` adds `msgRate`, which the live card sums.
+ * Every value is read off THAT record and nothing is differenced across
+ * records, so a worker recycle is another window rather than a counter reset
+ * the reader has to detect.
  *
- * @param {number} [maxSamples] Per-consumer ring cap.
- * @param {number} [ttlMs]      Consumer liveness TTL.
+ * @param {number} [ttlMs] Consumer liveness TTL.
  */
 export class TopicProbeViewNode extends ProbeStreamViewNode {
 	/**
@@ -75,10 +75,11 @@ export class TopicProbeViewNode extends ProbeStreamViewNode {
 	}
 
 	/**
-	 * Fold one probe record into its consumer's entry and yield its sample.
+	 * Fold one probe record into its entry, keep its sample as the entry's
+	 * `latest`, and yield it; a consumer's `latest` also carries `msgRate`.
 	 *
 	 * Every field is read off THIS record: `msgs`/`bytes` are its deltas (clamped
-	 * non-negative), `elapsed` the seconds they cover, the rates their quotient —
+	 * non-negative), `elapsed` the seconds they cover, `msgRate` their quotient —
 	 * 0 when the window is empty rather than a division by zero — and `backlog`
 	 * and `cacheSize` its levels verbatim, a backlog the reader cannot measure
 	 * staying null so the charts plot no point for it. A Partition record's sample is its
@@ -92,30 +93,29 @@ export class TopicProbeViewNode extends ProbeStreamViewNode {
 	 * @param {number}               ts     Snapshot instant (epoch seconds) from TIMESTAMP.
 	 * @param {string}               worker The worker that swept it, or `''`.
 	 * @param {string}               model  The model the entry files under.
-	 * @return {Object} The sample to push onto the entry's series.
+	 * @return {Object} The sample its bucket tallies.
 	 */
 	_fold( c, value, ts, worker, model ) {
 		c.source = String( value[ Probe.SOURCE ] ?? c.source ?? '' );
 		if ( PARTITIONS === model ) {
-			return {
+			c.latest = {
 				ts,
 				worker,
 				endBytes: Number( value[ Probe.END_BYTES ] ) || 0,
 				diskBytes: Number( value[ Probe.END_DISK_BYTES ] ) || 0,
 			};
+			return c.latest;
 		}
 
 		const msgs = this._delta( value[ Probe.MSGS_DELTA ] );
 		const bytes = this._delta( value[ Probe.BYTES_READ_DELTA ] );
 		const elapsed = this._delta( value[ Probe.ELAPSED_MS ] ) / 1000;
-		return {
+		const sample = {
 			ts,
 			worker,
 			elapsed,
 			msgs,
 			bytes,
-			msgRate: elapsed > 0 ? msgs / elapsed : 0,
-			byteRate: elapsed > 0 ? bytes / elapsed : 0,
 			// A hub reader cannot see its spoke's end: no point, never 0.
 			backlog:
 				null === value[ Probe.DISTANCE ]
@@ -123,22 +123,22 @@ export class TopicProbeViewNode extends ProbeStreamViewNode {
 					: Number( value[ Probe.DISTANCE ] ) || 0,
 			cacheSize: Number( value[ Probe.CACHE_SIZE ] ) || 0,
 		};
+		c.latest = { ...sample, msgRate: elapsed > 0 ? msgs / elapsed : 0 };
+		return sample;
 	}
 
 	/**
-	 * The published per-key snapshot: the source, a copy of the newest
-	 * sample, and a copy of the series the charts plot.
+	 * The published per-key snapshot: the source, the newest sample, which no
+	 * fold changes, and the buckets the charts plot.
 	 *
-	 * @param {Object} c The internal entry (its series plus liveness bookkeeping).
-	 * @return {Object} { source, latest, series }.
+	 * @param {Object} c The internal entry (its buckets plus liveness bookkeeping).
+	 * @return {Object} { source, latest, buckets }.
 	 */
 	_entryView( c ) {
-		const latest = c.series[ c.series.length - 1 ];
 		return {
 			source: c.source,
-			// Copies, not live refs (else memo freezes + tears mid-burst).
-			latest: { ...latest },
-			series: c.series.slice(),
+			latest: c.latest,
+			buckets: this._buckets( c ),
 		};
 	}
 }

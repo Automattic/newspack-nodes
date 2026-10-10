@@ -16,6 +16,21 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `TopicsPanels` declaration carries `storageKey` too, and keys its panel by
   it.
 
+- **A probe view snapshot carries `buckets`, not `series`, and its
+  constructor takes only `ttlMs`.** A reader of `view.consumers[ id ].series`
+  (or `handlers`, `tables`, `partitions`) reads `buckets`: each is
+  `{ start, worker, f }`, and `f[ field ]` is `{ sum, max, last, lastTs }`
+  over the samples in that 180-second window. The list holds each worker's
+  buckets in turn, in no order within a worker's run, so it is not one
+  time-ordered list. Totals come from `bucketTotals( buckets, fields )`;
+  a chart series from `topicChartSeries()`, unchanged in signature, which
+  divides summed raw fields: the per-sample `byteRate`, `runsRate`,
+  `errorsRate`, `itemsRate`, `queueLatencyMs`, `opsRate`, `missRate` and
+  `meanMs` are gone, and a consumer's `latest` keeps `msgRate`. `new
+  TopicProbeViewNode( maxSamples, ttlMs )` becomes `new TopicProbeViewNode(
+  ttlMs )`. A Table sample's `opRates` object is gone; each operation's
+  calls are the field `op:<OP>`, and its keys missed are `misses`.
+
 - **`RemoteLinkNode` routes by `<stamp>:<target>` pairs; `attach()`,
   `park()`, `detach()`, `graphs` and `targetsFor()` are removed, as is
   `SseInNode#routeTo`.**

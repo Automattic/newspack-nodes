@@ -7,6 +7,7 @@
 import { render } from '@testing-library/react';
 import Tables from '../Tables';
 import { buildAlignedSeries } from '../buildAlignedSeries';
+import { bucketsFrom } from './bucketTestUtils';
 import { axisDuration } from '@newspack-nodes/shared/utils/axis-ticks';
 import { useProbeStream } from '../hooks/useProbeStream';
 import { Core } from '../../runtime/core';
@@ -42,21 +43,25 @@ jest.mock( '../TopicsChart', () => {
 
 import { useNodeField } from '../../runtime/react';
 
-function model() {
-	const sample = ( ts, extra ) => ( {
+// Two sweeps of one Table, as the view's `_fold` yields them.
+function samples( extra = {} ) {
+	return [ 1500, 1515 ].map( ( ts ) => ( {
 		ts,
 		elapsed: 15,
 		opsDelta: 30,
-		opsRate: 2,
-		missRate: 0.5,
-		meanMs: 1.25,
+		misses: 7.5,
+		ms: 37.5,
 		maxMs: 4.5,
 		fileBytes: 8192,
 		fileDiskBytes: 12288,
-		opRates: { GET: 1.5, MSET: 0.5 },
+		'op:GET': 22.5,
+		'op:MSET': 7.5,
 		worker: 'flame-builder-4417.p0',
 		...extra,
-	} );
+	} ) );
+}
+
+function model() {
 	const table = ( key, backend, errors, extra = {} ) => ( {
 		key,
 		backend,
@@ -78,7 +83,7 @@ function model() {
 			walStalled: 0,
 			...extra,
 		},
-		series: [ sample( 1500 ), sample( 1515 ) ],
+		buckets: bucketsFrom( samples() ),
 	} );
 	// The worst Table goes in LAST, so only the sort can put it first.
 	return {
@@ -110,11 +115,9 @@ function volatile( m, key, backend ) {
 			purgeBehind: null,
 			walStalled: null,
 		},
-		series: base.series.map( ( s ) => ( {
-			...s,
-			fileBytes: null,
-			fileDiskBytes: null,
-		} ) ),
+		buckets: bucketsFrom(
+			samples( { fileBytes: null, fileDiskBytes: null } )
+		),
 	};
 }
 
@@ -137,7 +140,7 @@ describe( 'Tables', () => {
 		} );
 	} );
 
-	it( 'draws six panels, the operation chart one series per operation per worker', () => {
+	it( 'draws six panels, the operation chart one series per operation per worker and one point per bucket', () => {
 		useNodeField.mockReturnValue( model() );
 		render( <Tables /> );
 		expect( globalThis.__tablesPanels.map( ( p ) => p.yLabel ) ).toEqual( [
@@ -153,17 +156,17 @@ describe( 'Tables', () => {
 			'GET · flame-builder-4417.p0',
 			'MSET · flame-builder-4417.p0',
 		] );
-		// Two Tables one worker swept at one instant sum into one point.
+		// Two Tables one worker swept in one bucket sum into one point.
 		expect(
 			ops[ 'GET · flame-builder-4417.p0' ].points.map( ( p ) => p.value )
-		).toEqual( [ 3, 3 ] );
+		).toEqual( [ 3 ] );
 	} );
 
-	it( 'charts each worker’s operation rate apart', () => {
+	it( 'charts each worker’s operation rate apart, one point per bucket', () => {
 		const m = model();
-		m.tables[ 'flame-stats:aggregate.p0' ].series = m.tables[
-			'flame-stats:aggregate.p0'
-		].series.map( ( s ) => ( { ...s, worker: 'flame-builder-4417.p1' } ) );
+		m.tables[ 'flame-stats:aggregate.p0' ].buckets = bucketsFrom(
+			samples( { worker: 'flame-builder-4417.p1' } )
+		);
 		useNodeField.mockReturnValue( m );
 		render( <Tables /> );
 		const ops = globalThis.__tablesPanels[ 1 ].series;
@@ -175,32 +178,36 @@ describe( 'Tables', () => {
 		);
 		expect(
 			ops[ 'GET · flame-builder-4417.p1' ].points.map( ( p ) => p.value )
-		).toEqual( [ 1.5, 1.5 ] );
+		).toEqual( [ 1.5 ] );
 	} );
 
-	it( 'reads an operation idle in a sweep as 0, so a widened bucket averages every sweep', () => {
+	it( 'reads an operation idle in a sweep as 0 over that probe bucket’s elapsed', () => {
 		const m = model();
-		const sweep = ( ts, opRates ) => ( {
+		const sweep = ( ts, ops ) => ( {
 			ts,
 			elapsed: 15,
 			worker: 'flame-builder-4417.p0',
-			opRates,
+			...ops,
 		} );
 		// GET is called 30 times in one of six sweeps; MSET in every one.
 		m.tables = {
 			'flame-stats:url.p0': {
 				...m.tables[ 'flame-stats:url.p0' ],
-				series: [ 1800, 1815, 1830, 1845, 1860, 1875 ].map( ( ts ) =>
-					sweep(
-						ts,
-						1830 === ts ? { GET: 2, MSET: 0.25 } : { MSET: 0.25 }
+				buckets: bucketsFrom(
+					[ 1800, 1815, 1830, 1845, 1860, 1875 ].map( ( ts ) =>
+						sweep(
+							ts,
+							1830 === ts
+								? { 'op:GET': 30, 'op:MSET': 3.75 }
+								: { 'op:MSET': 3.75 }
+						)
 					)
 				),
 			},
-			// A later sweep widens the axis, so one bucket holds all six.
+			// The six sweeps share one probe bucket; a later sweep widens the axis.
 			'flame-stats:aggregate.p0': {
 				...m.tables[ 'flame-stats:aggregate.p0' ],
-				series: [ sweep( 3600, { MSET: 0.25 } ) ],
+				buckets: bucketsFrom( [ sweep( 3600, { 'op:MSET': 3.75 } ) ] ),
 			},
 		};
 		useNodeField.mockReturnValue( m );
@@ -329,7 +336,7 @@ describe( 'Tables', () => {
 		expect( cells.slice( 4, 6 ) ).toEqual( [ '-', '-' ] );
 	} );
 
-	it( 'sizes only a Table that reports a size, and charts no flat zero for the rest', () => {
+	it( 'sizes only a Table that reports a size, one point per bucket, and charts no flat zero for the rest', () => {
 		const m = model();
 		m.tables[ 'sess:w.p0' ] = volatile( m, 'sess:w.p0', 'wpdb' );
 		m.tables[ 'sess:w.p0' ].latest.purgeBehind = 0;
@@ -349,7 +356,7 @@ describe( 'Tables', () => {
 			globalThis.__tablesPanels[ 5 ].series[
 				'flame-stats:url.p0'
 			].points.map( ( p ) => p.value )
-		).toEqual( [ 12288, 12288 ] );
+		).toEqual( [ 12288 ] );
 	} );
 
 	it( 'shows no level a departed Table last reported', () => {

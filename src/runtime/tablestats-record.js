@@ -15,7 +15,7 @@
  * `tests/unit/ProbeRecordLayoutsTest.php` pins both halves.
  */
 
-/** `{table}.p{N}`; the view keys each Table's series by this slot. */
+/** `{table}.p{N}`; the view keys each Table's buckets by this slot. */
 export const IDENTITY = 0;
 
 /** The backend the Table names. */

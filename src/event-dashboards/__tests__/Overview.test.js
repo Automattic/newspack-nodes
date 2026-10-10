@@ -10,6 +10,7 @@
 import { render, fireEvent, act } from '@testing-library/react';
 import Overview from '../Overview';
 import { useProbeStream } from '../hooks/useProbeStream';
+import { bucketsFrom } from './bucketTestUtils';
 import { Core } from '../../runtime/core';
 import { publishSkippedLines } from '@newspack-nodes/shared/test-utils/skippedLines';
 
@@ -393,7 +394,7 @@ describe( 'Overview fleet board', () => {
 		] );
 	} );
 
-	it( 'charts each partition as one level series, whichever worker took the reading', () => {
+	it( 'charts each partition as one level series, a bucket showing the newest reading any worker took', () => {
 		const reading = ( ts, workerId, endBytes, diskBytes ) => ( {
 			ts,
 			worker: workerId,
@@ -403,11 +404,11 @@ describe( 'Overview fleet board', () => {
 		const partitions = {
 			'ledger.p4': {
 				source: 'ledger.p4',
-				series: [
+				buckets: bucketsFrom( [
 					reading( 100.21, 'job-worker-6612.p2', 5003, 8192 ),
 					reading( 100.84, 'job-intake-6612.p0', 5003, 8192 ),
 					reading( 107.06, 'job-intake-6612.p0', 5780, 12288 ),
-				],
+				] ),
 			},
 		};
 		useNodeField.mockReturnValue( { consumers: {}, partitions } );
@@ -434,16 +435,8 @@ describe( 'Overview fleet board', () => {
 				agg: 'last',
 			} );
 		}
-		expect( points( 'Partition Size' ) ).toEqual( [
-			[ 100.21, 5003 ],
-			[ 100.84, 5003 ],
-			[ 107.06, 5780 ],
-		] );
-		expect( points( 'On Disk' ) ).toEqual( [
-			[ 100.21, 8192 ],
-			[ 100.84, 8192 ],
-			[ 107.06, 12288 ],
-		] );
+		expect( points( 'Partition Size' ) ).toEqual( [ [ 107.06, 5780 ] ] );
+		expect( points( 'On Disk' ) ).toEqual( [ [ 107.06, 12288 ] ] );
 		expect( globalThis.__summaryCards.at( -1 ).partitions ).toBe(
 			partitions
 		);
@@ -452,7 +445,9 @@ describe( 'Overview fleet board', () => {
 	it( 'charts two directories that share a basename as two series', () => {
 		const sized = ( source, endBytes ) => ( {
 			source,
-			series: [ { ts: 100, worker: 'job-worker-6612.p2', endBytes } ],
+			buckets: bucketsFrom( [
+				{ ts: 100, worker: 'job-worker-6612.p2', endBytes },
+			] ),
 		} );
 		useNodeField.mockReturnValue( {
 			consumers: {},
@@ -477,15 +472,16 @@ describe( 'Overview fleet board', () => {
 		expect( size[ 'deadletter/ingest.p0' ].points[ 0 ].value ).toBe( 5113 );
 	} );
 
-	it( 'feeds each panel its per-topic 24h series rolled up from the probe view', () => {
+	it( 'feeds each panel its per-topic 24h series rolled up from the probe view, one point per bucket', () => {
 		useNodeField.mockReturnValue( {
 			consumers: {
 				'firehose.p0': {
 					source: 'firehose.p0',
-					series: [
-						{ ts: 100, msgRate: 1, byteRate: 4096, backlog: 0 },
-						{ ts: 115, msgRate: 2, byteRate: 8192, backlog: 0 },
-					],
+					buckets: bucketsFrom( [
+						{ ts: 100, elapsed: 15, bytes: 4096 * 15, backlog: 0 },
+						{ ts: 115, elapsed: 15, bytes: 8192 * 15, backlog: 0 },
+						{ ts: 200, elapsed: 15, bytes: 1024 * 15, backlog: 37 },
+					] ),
 				},
 			},
 		} );
@@ -501,27 +497,28 @@ describe( 'Overview fleet board', () => {
 			panel( 'Topics Byte Rate' ).series[ 'firehose.p0' ].points.map(
 				( p ) => p.value
 			)
-		).toEqual( [ 4096, 8192 ] );
+		).toEqual( [ ( 4096 + 8192 ) / 2, 1024 ] );
 		expect(
 			panel( 'Topics Backlog' ).series[ 'firehose.p0' ].points.map(
 				( p ) => p.value
 			)
-		).toEqual( [ 0, 0 ] );
+		).toEqual( [ 0, 37 ] );
 	} );
 
 	it( 'charts each worker’s readers of a partition as their own stacked series', () => {
 		const reader = ( workerId, msgRate, backlog ) => ( {
 			source: 'firehose.p3',
-			series: [
+			buckets: bucketsFrom( [
 				{
 					ts: 100,
-					msgRate,
-					byteRate: msgRate * 64,
+					elapsed: 15,
+					msgs: msgRate * 15,
+					bytes: msgRate * 64 * 15,
 					backlog,
 					cacheSize: backlog / 2,
 					worker: workerId,
 				},
-			],
+			] ),
 		} );
 		useNodeField.mockReturnValue( {
 			consumers: {

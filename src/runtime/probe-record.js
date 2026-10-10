@@ -40,7 +40,7 @@ export const SOURCE = 0;
 /**
  * The reader id, the basename of the consumer's offsetlog directory, which
  * tells two readers of one partition apart. `TopicProbeViewNode` keys its
- * per-consumer series by this slot. Blank on a Partition record, and only
+ * per-consumer buckets by this slot. Blank on a Partition record, and only
  * there.
  */
 export const READER = 1;

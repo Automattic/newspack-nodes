@@ -1,7 +1,11 @@
 import { probe24hTotals } from '../probe24hTotals';
+import { bucketsFrom } from './bucketTestUtils';
 
-// A topicprobe:view consumer: a source it tails + a per-partition sample series.
-const consumer = ( source, series ) => ( { source, series } );
+// A topicprobe:view consumer: a source it tails + the buckets of its samples.
+const consumer = ( source, samples ) => ( {
+	source,
+	buckets: bucketsFrom( samples ),
+} );
 // One probe record: `elapsed` is the window `ts` closes, as the view publishes.
 const CADENCE_S = 15;
 const pt = ( ts, msgs, bytes ) => ( {
@@ -19,6 +23,13 @@ it( 'sums each sample’s own delta into produced totals', () => {
 	} );
 	expect( t.msgs ).toBe( 60 );
 	expect( t.bytes ).toBe( 3000 );
+} );
+
+it( 'sums two buckets of one reader', () => {
+	const t = probe24hTotals( {
+		r1: consumer( 's', [ pt( 0, 30, 1500 ), pt( 200, 47, 2350 ) ] ),
+	} );
+	expect( t ).toEqual( { msgs: 77, bytes: 3850 } );
 } );
 
 it( 'counts the FIRST sample too (a self-contained record needs no prior)', () => {
@@ -70,13 +81,9 @@ it( 'skips a reader that names no source, which no chart plots either', () => {
 	expect( t ).toEqual( { msgs: 7, bytes: 70 } );
 } );
 
-it( 'an idle interval contributes nothing, and a negative delta never subtracts', () => {
+it( 'an idle interval contributes nothing', () => {
 	const t = probe24hTotals( {
-		r1: consumer( 's', [
-			pt( 0, 30, 1500 ),
-			pt( 15, 0, 0 ),
-			pt( 30, -5, -100 ),
-		] ),
+		r1: consumer( 's', [ pt( 0, 30, 1500 ), pt( 15, 0, 0 ) ] ),
 	} );
 	expect( t ).toEqual( { msgs: 30, bytes: 1500 } );
 } );

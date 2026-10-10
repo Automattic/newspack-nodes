@@ -7,12 +7,13 @@
  * size), the Jobs dashboard's four, the Tables tab's five (ops rate, operation
  * rate, miss rate, latency, size), and the debug overlay's two. The metric
  * arrives as data: the `series` to draw, each carrying the `mode` saying how a
- * bucket aggregates its samples and what an empty one holds, the `yLabel`
- * naming the quantity, and the formatter its axis ticks and tooltip rows
- * print through: a fixed `formatValue`, or a `formatFor( peak )` that picks
- * one unit for the whole axis from what the panel draws, as `axisDuration`
- * does for a latency. `topicChartSeries` builds the series on the
- * dashboards, `overviewChartSeries` in the overlay.
+ * slot aggregates its points and what an empty one holds, plus the `step` of
+ * the bucket grid its points sit on, the `yLabel` naming the quantity, and the
+ * formatter its axis ticks and tooltip rows print through: a fixed
+ * `formatValue`, or a `formatFor( peak )` that picks one unit for the whole
+ * axis from what the panel draws, as `axisDuration` does for a latency.
+ * `topicChartSeries` builds the series on the dashboards,
+ * `overviewChartSeries` in the overlay.
  *
  * `ProbeTable` beside it renders the probe tabs' per-identity tables from a
  * column declaration, so Jobs and Tables write out no table shell.
@@ -20,9 +21,11 @@
  * `buildAlignedSeries` snaps every topic onto ONE epoch-aligned bucket grid
  * first, because each worker runs its own `Topic_Probe` on an independent 15s
  * phase and the raw union of their sample instants leaves each topic gapped at
- * every other topic's instant. The rank order that comes back indexes the
- * colours and the legend, and each rank's colour is the skin's own `--chart-*`
- * token (`chartColor`), so the panel re-skins with the page through CSS alone.
+ * every other topic's instant. A probe series is folded onto that grid
+ * already, 180 seconds to a point, and keeps it. The rank order that comes back
+ * indexes the colours and the legend, and each rank's colour is the skin's own
+ * `--chart-*` token (`chartColor`), so the panel re-skins with the page
+ * through CSS alone.
  */
 
 import { memo, useCallback, useMemo } from '@wordpress/element';
@@ -42,7 +45,8 @@ const HEIGHT = 200;
  * Hard cap on the axis length `buildAlignedSeries` produces.
  *
  * A panel is half a row, about 900px wide, so 500 slots keep each nearly two
- * pixels wide; a denser axis buys nothing but d3 redraw time.
+ * pixels wide; a denser axis buys nothing but d3 redraw time. The 24h window
+ * holds at most 481 probe buckets, so a probe panel's axis is never widened.
  */
 const MAX_POINTS = 500;
 
@@ -71,7 +75,7 @@ export const TopicsChart = memo(
 	 * @param {string}                            props.title         Panel heading, e.g. "Topics Message Rate".
 	 * @param {string}                            props.storageKey    Unique, untranslated chart name; see AreaTimeChart.
 	 * @param {string}                            props.yLabel        Y-axis title naming the quantity, e.g. "Messages"; the ticks carry the unit.
-	 * @param {?Object}                           props.series        `{ [topic]: { points:[{ts,value,weight}], max, mode? } }` (ts in seconds); empty or absent wipes the panel.
+	 * @param {?Object}                           props.series        `{ [topic]: { points:[{ts,value,weight}], max, mode?, step? } }` (ts in seconds); empty or absent wipes the panel.
 	 * @param {AxisFormatter}                     [props.formatValue] Formats a value for the Y-axis ticks and the tooltip rows, whatever the peak; a `tickValues` property on it ticks the axis in its own unit.
 	 * @param {( peak: number ) => AxisFormatter} [props.formatFor]   Builds that formatter from the peak drawn, in place of `formatValue`.
 	 * @param {boolean}                           [props.stacked]     Stack the series by default, for series that add up into a total; the corner toggle still flips it.

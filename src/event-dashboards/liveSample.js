@@ -6,8 +6,8 @@
  * A live card shows the fleet as of the newest message seen, so a sample counts
  * only while it is within a minute of the stream head: the newest `latest.ts`
  * across the readers. The `topicprobe:view` model keeps every reader's 24h
- * series for the charts and the 24h cards, which is why a reader that stopped
- * hours ago is still in the map: its final sample — often a catch-up burst —
+ * buckets for the charts and the 24h cards, which is why a reader that stopped
+ * hours ago is still in the map: its `latest` sample — often a catch-up burst —
  * must not read as current.
  *
  * Every stamp comes from the workers' clock, so judging against the head rather

@@ -22,7 +22,7 @@
  * within a minute of the newest message seen (`streamHead`, `liveTotal`).
  * "Total Size" and "Total On Disk" apply the same rule per partition: each
  * live partition's newest reading counts once, whichever worker took it.
- * The 24h cards sum every reader's consumption over every retained sample.
+ * The 24h cards sum every reader's consumption over every retained bucket.
  */
 
 import { memo } from '@wordpress/element';

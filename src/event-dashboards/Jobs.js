@@ -18,7 +18,7 @@
  * the average, longest and last durations, the average queue wait, the last
  * outcome (a status badge plus its one-line message) and when it last ran. A
  * mean or max over a window with no runs reads '-'. Those totals are summed
- * over the same per-interval series the charts plot, so a worker recycle
+ * over the same 180-second buckets the charts plot, so a worker recycle
  * contributes its window like any other rather than reading as a counter reset.
  */
 

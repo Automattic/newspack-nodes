@@ -9,9 +9,9 @@
  * per worker summed over that worker's Tables, keys missed per second, mean
  * and longest call per Table, and each SQLite Table's file size and the disk
  * it takes, side by side so the two-column grid stays even — and one row
- * per Table carries the window's totals, summed over the same per-sweep
- * samples the charts plot. Every panel but latency stacks, so its column reads
- * as the total.
+ * per Table carries the window's totals, summed over the same buckets the
+ * charts plot. Every panel but latency stacks, so its column reads as the
+ * total.
  *
  * A cell reads '-' where its figure does not apply: a mean or max with no
  * calls, and a size, WAL or purge the Table's own record carries as null —
@@ -27,6 +27,7 @@ import { isLiveSample, streamHead } from './liveSample';
 import { useNodeField } from '../runtime/react';
 import UnparseableLinesNotice from '@newspack-nodes/shared/components/UnparseableLinesNotice';
 import { topicChartSeries, byKey } from './topicProbeSeries';
+import { OP_PREFIX } from './nodes/tablestats-view-node';
 import { TopicsPanels, ProbeTable, errorsColumn } from './TopicsChart';
 import {
 	formatBytes,
@@ -40,7 +41,7 @@ import './styles/probe-tab.scss';
 /** One shared empty model, so an unready view keeps the memos' inputs stable. */
 const NO_TABLES = {};
 
-/** A Table identity names its worker already, so its series never split. */
+/** A Table's level counts once, its newest across rows; its rates add. */
 const WHOLE = { byWorker: false };
 
 /**
@@ -53,38 +54,39 @@ const byMaxKey = ( t ) => `${ t.key } max`;
 
 /**
  * Per-operation series per worker: one series per `<op> · <worker>`, summing
- * the operation's rate over every Table that worker sweeps. Tables in one
- * worker are swept at one instant, so `topicChartSeries`' same-ts sum is exact.
+ * the operation's rate over every Table that worker sweeps in one bucket.
  *
- * A Table's record names only the operations called in its window, so every
- * operation the Table has ever reported plots a 0 on each sample without it,
- * weighted by that sample's elapsed. Without the zeros a widened bucket would
- * average an operation over the sweeps that called it and read its burst
- * rate as its mean.
+ * An operation's calls tally under its `op:<OP>` field, and its rate divides
+ * them by the probe bucket's elapsed over every sweep, so within one bucket a
+ * sweep that did not call it counts as a zero over its window, and the
+ * bucket never reads an operation's burst rate as its mean. A probe bucket
+ * with no `op:` tally for it charts no point.
  *
  * @param {Object<string,Object>} tables `view.tables`.
  * @return {Object<string,Object>} `<op> · <worker>` => series, as topicChartSeries returns.
  */
 function operationSeries( tables ) {
-	/** @type {Object<string,{key:string,series:Array<Object>}>} */
-	const byOp = {};
+	const fields = new Set();
 	for ( const t of Object.values( tables ) ) {
-		const series = t.series || [];
-		const ops = new Set(
-			series.flatMap( ( s ) => Object.keys( s.opRates || {} ) )
-		);
-		for ( const s of series ) {
-			for ( const op of ops ) {
-				( byOp[ op ] ||= { key: op, series: [] } ).series.push( {
-					ts: s.ts,
-					elapsed: s.elapsed,
-					worker: s.worker,
-					value: s.opRates?.[ op ] ?? 0,
-				} );
+		for ( const b of t.buckets || [] ) {
+			for ( const field of Object.keys( b.f ) ) {
+				if ( field.startsWith( OP_PREFIX ) ) {
+					fields.add( field );
+				}
 			}
 		}
 	}
-	return topicChartSeries( byOp, 'value', byKey, { byWorker: true } );
+	return Object.assign(
+		{},
+		...[ ...fields ].map( ( field ) =>
+			topicChartSeries(
+				tables,
+				field,
+				() => field.slice( OP_PREFIX.length ),
+				{ byWorker: true }
+			)
+		)
+	);
 }
 
 /**

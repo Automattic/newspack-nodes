@@ -1,17 +1,24 @@
 /**
  * TablestatsViewNode — the per-Table operation stream behind the Tables tab.
- * See ProbeStreamViewNode for the ring, the retention window and the eviction
- * it shares.
+ * See ProbeStreamViewNode for the buckets, the retention window and the
+ * eviction it shares.
  */
 
 import * as Tbl from '../../runtime/tablestats-record';
-import { ProbeStreamViewNode } from './probe-stream-view-node';
+import { ProbeStreamViewNode, bucketTotals } from './probe-stream-view-node';
+
+/**
+ * Sample field prefix one operation's calls ride under, so each tallies as a
+ * delta a chart divides into a rate.
+ */
+export const OP_PREFIX = 'op:';
 
 /** The operations whose keys asked and answered are reads. */
 const READS = [ 'GET', 'MGET' ];
 
-/** A sample's scalars `_windowed` sums over the window. */
-const SUMMED = [
+/** The scalars `_windowed` sums over the window, and the longest call. */
+const TOTALED = [
+	'maxMs',
 	'opsDelta',
 	'readKeys',
 	'hitKeys',
@@ -35,14 +42,15 @@ const level = ( raw ) => ( null === raw ? null : Number( raw ) || 0 );
  * `tablestats:view` — owns the Table_Probe stream view model.
  *
  * Each inbound frame is one Table's positional `Tablestats_Record`. Per Table
- * the view pushes one sample of scalars: the record's totals over every
- * operation, each operation's calls per second, and the figures the charts
- * plot — calls per second, keys missed per second, mean and longest ms, and
- * the file size and the disk it takes. Every value is read off THAT record and nothing is
- * differenced across records. A level the record carries as null, a figure
- * its backend has no such thing for, stays null. The window rollup the table
- * renders is summed over the retained samples in `_entryView`, so it shrinks
- * as samples age out.
+ * the view folds one sample of scalars into its bucket: the record's totals
+ * over every operation, its keys missed, each operation's calls as an
+ * `op:<OP>` field, the longest call, and the file size and the disk it takes.
+ * The charts divide these into calls and misses per second and a mean ms.
+ * Every value is read off THAT record and nothing is differenced
+ * across records. A level the record carries as null, a figure its backend
+ * has no such thing for, stays null and tallies nothing. The window rollup
+ * the table renders is summed over the retained buckets in `_entryView`, so
+ * it shrinks as buckets age out.
  */
 export class TablestatsViewNode extends ProbeStreamViewNode {
 	/** Record slot the base keys entries by: the Table's file stem. */
@@ -58,16 +66,17 @@ export class TablestatsViewNode extends ProbeStreamViewNode {
 	/**
 	 * The published per-Table snapshot: its identity and backend, the window
 	 * rollup the table reads, the newest levels with the instant they were
-	 * swept, and a copy of the series.
+	 * swept, and the buckets.
 	 *
 	 * @param {Object} c The internal entry.
-	 * @return {Object} { key, backend, windowed, latest, series }.
+	 * @return {Object} { key, backend, windowed, latest, buckets }.
 	 */
 	_entryView( c ) {
+		const buckets = this._buckets( c );
 		return {
 			key: c.key,
 			backend: c.backend,
-			windowed: this._windowed( c.series ),
+			windowed: this._windowed( buckets ),
 			latest: {
 				ts: c.ts,
 				fileBytes: c.fileBytes,
@@ -75,39 +84,36 @@ export class TablestatsViewNode extends ProbeStreamViewNode {
 				purgeBehind: c.purgeBehind,
 				walStalled: c.walStalled,
 			},
-			series: c.series.slice(),
+			buckets,
 		};
 	}
 
 	/**
-	 * Sum the retained samples' scalars. Hit % is null when the window read
-	 * no keys, and the mean and max ms are null when it made no call, so a
-	 * cell can say so rather than claim 0.
+	 * Sum the scalars over the retained buckets. Hit % is null when the
+	 * window read no keys, and the mean and max ms are null when it made no
+	 * call, so a cell can say so rather than claim 0.
 	 *
-	 * @param {Array<Object>} series The per-Table ring of samples.
+	 * @param {Array<import('./probe-stream-view-node').Bucket>} buckets The Table's buckets.
 	 * @return {Object} The rollup.
 	 */
-	_windowed( series ) {
-		const t = Object.fromEntries( SUMMED.map( ( f ) => [ f, 0 ] ) );
-		let maxMs = 0;
-		for ( const s of series ) {
-			for ( const f of SUMMED ) {
-				t[ f ] += s[ f ];
-			}
-			maxMs = Math.max( maxMs, s.maxMs );
-		}
-		const ops = t.opsDelta;
+	_windowed( buckets ) {
+		const t = bucketTotals( buckets, TOTALED );
+		const sum = ( f ) => t[ f ].sum;
+		const ops = sum( 'opsDelta' );
 		return {
 			ops,
-			readKeys: t.readKeys,
-			hitKeys: t.hitKeys,
-			hitPct: t.readKeys > 0 ? ( 100 * t.hitKeys ) / t.readKeys : null,
-			meanMs: ops > 0 ? t.ms / ops : null,
-			maxMs: ops > 0 ? maxMs : null,
-			errors: t.errorsDelta,
-			purged: t.purgedDelta,
-			walWritten: t.walWritten,
-			walFrames: t.walFrames,
+			readKeys: sum( 'readKeys' ),
+			hitKeys: sum( 'hitKeys' ),
+			hitPct:
+				sum( 'readKeys' ) > 0
+					? ( 100 * sum( 'hitKeys' ) ) / sum( 'readKeys' )
+					: null,
+			meanMs: ops > 0 ? sum( 'ms' ) / ops : null,
+			maxMs: ops > 0 ? t.maxMs.max : null,
+			errors: sum( 'errorsDelta' ),
+			purged: sum( 'purgedDelta' ),
+			walWritten: sum( 'walWritten' ),
+			walFrames: sum( 'walFrames' ),
 		};
 	}
 
@@ -118,7 +124,7 @@ export class TablestatsViewNode extends ProbeStreamViewNode {
 	 * @param {Array<string|number>} value  The positional `Tablestats_Record` VALUE.
 	 * @param {number}               ts     Snapshot instant (epoch seconds).
 	 * @param {string}               worker The worker that swept it, or `''`.
-	 * @return {Object} The sample to push onto the entry's series.
+	 * @return {Object} The sample its bucket tallies.
 	 */
 	_fold( c, value, ts, worker ) {
 		c.ts = ts;
@@ -128,12 +134,10 @@ export class TablestatsViewNode extends ProbeStreamViewNode {
 		c.fileBytes = level( value[ Tbl.FILE_BYTES ] );
 		c.fileDiskBytes = level( value[ Tbl.FILE_DISK_BYTES ] );
 
-		const elapsed = this._delta( value[ Tbl.ELAPSED_MS ] ) / 1000;
-		const per = ( n ) => ( elapsed > 0 ? n / elapsed : 0 );
 		const s = {
 			ts,
 			worker,
-			elapsed,
+			elapsed: this._delta( value[ Tbl.ELAPSED_MS ] ) / 1000,
 			opsDelta: 0,
 			readKeys: 0,
 			hitKeys: 0,
@@ -145,7 +149,6 @@ export class TablestatsViewNode extends ProbeStreamViewNode {
 			maxMs: 0,
 			fileBytes: c.fileBytes,
 			fileDiskBytes: c.fileDiskBytes,
-			opRates: {},
 		};
 		const raw = value[ Tbl.VERBS ];
 		for ( const [ op, r ] of Object.entries(
@@ -161,7 +164,7 @@ export class TablestatsViewNode extends ProbeStreamViewNode {
 			s.errorsDelta += this._delta( r[ Tbl.ROW_ERRORS ] );
 			s.ms += this._delta( r[ Tbl.ROW_MS ] );
 			s.maxMs = Math.max( s.maxMs, this._delta( r[ Tbl.ROW_MAX_MS ] ) );
-			s.opRates[ op ] = per( calls );
+			s[ OP_PREFIX + op ] = calls;
 			if ( READS.includes( op ) ) {
 				s.readKeys += asked;
 				s.hitKeys += answered;
@@ -172,10 +175,7 @@ export class TablestatsViewNode extends ProbeStreamViewNode {
 				s.walFrames = asked;
 			}
 		}
-		s.opsRate = per( s.opsDelta );
-		s.missRate = per( Math.max( 0, s.readKeys - s.hitKeys ) );
-		s.errorsRate = per( s.errorsDelta );
-		s.meanMs = s.opsDelta > 0 ? s.ms / s.opsDelta : 0;
+		s.misses = Math.max( 0, s.readKeys - s.hitKeys );
 		return s;
 	}
 }
