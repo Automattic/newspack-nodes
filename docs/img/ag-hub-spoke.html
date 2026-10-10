@@ -68,9 +68,9 @@
 </div>
 
 <div class="grid3" style="grid-template-columns:1fr 1fr">
-  <div class="callout">
-    <h4><span class="mono">fill()</span> relays outward, and the schema does not say so</h4>
-    <p>A broker consumes <span class="mono">TM_COMMAND|TM_RESPONSE</span> and <span class="mono">TM_COMMAND|TM_ERROR</span> as a reply and hands everything else to <span class="mono">send()</span>, off to the spoke's <span class="mono">/command</span>. <span class="mono">Remote_Broker_Node</span> declares <span class="mono">accepts_fill =&gt; false</span> and <span class="mono">Remote_Source_Node</span> and <span class="mono">HTTP_Source_Node</span> inherit it, overriding neither <span class="mono">fill()</span> nor <span class="mono">send()</span>, so a <span class="mono">connect_node</span> into either ships local traffic off-site with no port drawn and no warning.</p>
+  <div class="ok">
+    <h4><span class="mono">fill()</span> settles replies and relays nothing</h4>
+    <p>A broker settles <span class="mono">TM_COMMAND|TM_RESPONSE</span> and <span class="mono">TM_COMMAND|TM_ERROR</span> as a reply and drops everything else with one rate-limited <span class="mono">not a command reply</span> line. What it sends the spoke it mints and signs itself, so a <span class="mono">connect_node</span> into a <span class="mono">Remote_Source</span> or an <span class="mono">HTTP_Source</span> ships nothing off-site, and <span class="mono">accepts_fill =&gt; false</span> says so.</p>
   </div>
   <div class="ok"><h4>A rotated credential reconnects without a recycle</h4><p>A Vault write fires <span class="mono">newspack_nodes/vault/changed</span>: the session is forgotten, and a reload watermark lands in the lock dirs of every topology whose graph declares a Remote_Source or HTTP_Source. The next <span class="mono">_fleet</span> scan fires RELOAD, <span class="mono">reload()</span> drops the patrons, and the broker reconnects under the new password without a process recycle.</p></div>
 </div>
