@@ -6,6 +6,28 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`RemoteLinkNode` routes by `<stamp>:<target>` pairs; `attach()`,
+  `park()`, `detach()`, `graphs` and `targetsFor()` are removed, as is
+  `SseInNode#routeTo`.**
+  - `link.attach( subscribe, target, positions )` becomes
+    `` link.addPairs( subscribe.map( ( sub ) => `${ sub }:${ target }` ), positions ) ``,
+    with `positions` read as before.
+  - `link.park( target )` becomes `link.parkPairs( <those pairs> )`, whose
+    pairs keep their claim, and `link.detach( target )` becomes
+    `link.removePairs( <those pairs> )` plus `link.forget( subscribe )`.
+  - A test reading `link.graphs.get( '<prefix>:stream' )` reads `link.pairs`,
+    the tokens in add order, or `link.parked` for a paused view's.
+  - The link hands each record to its stamp's `_stream:<kind>`, a
+    patron-owned `TeeNode`.
+  - `routeTo` is `onMessage( message, stamp )`, which answers true for a
+    record it took. A `RemoteLinkNode` subclass that answered null from
+    `targetsFor()` declares no pairs instead.
+  - Three behaviours change. A record whose FROM names no stamp is dropped,
+    where it reached every graph. A directed `TM_RESPONSE` or `TM_ERROR`
+    keeps its TO, as `HttpOut` reads a reply, where it went to every graph
+    carrying its stamp. A canvas-wired `RemoteLink` with a target and no
+    pairs keeps a record's non-empty stored TO, where it sent every record
+    to its target.
 - **Skipped lines are read by stamp; `RemoteLinkNode#unparseableByTarget`
   gives way to `unparseableByStamp`, keyed by stamp rather than by graph.**
   The page link publishes a copy of its SseIn's per-stamp counts.

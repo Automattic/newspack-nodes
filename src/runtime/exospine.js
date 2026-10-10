@@ -290,7 +290,7 @@ export function mountExospine( build, { passenger = false } = {} ) {
 		// The poke's destination is fixed wiring: `_http/workers`.
 		heartbeat.target = `${ names.HTTP }/workers`;
 
-		// `_stream` — the page's one SSE link; stream graphs attach to it.
+		// `_stream` — the page's one SSE link; stream graphs add pairs to it.
 		const stream = new RemoteLinkNode();
 		stream.name = names.STREAM;
 		stream.sink = interpreter;

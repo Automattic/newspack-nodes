@@ -342,11 +342,13 @@ coming back is a breadcrumb the browser minted — `_output/<id>`, `_completion`
 `_dmesg` — so a fail-closed list over those names would gate the console against its own
 replies.
 
-`SSE_In` carries no such gate, because a subscription's records are not replies: `RemoteLink`
-sets `routeTo` to its `targetsFor()` and sends every non-command record to each target its
-stamp routes to, `RemoteIpc` answers null from `targetsFor()` so every TO stands, and a command reply keeps the TO the server addressed to its minter
-either way, because overwriting it would deliver the reply to the subscription's view instead of
-its receiver.
+`SSE_In` carries no such gate, because a subscription's records are not replies. `RemoteLink`
+takes each record through its SseIn's `onMessage` and hands it to its stamp's Tee, the hidden
+sibling `<link>:<kind>` whose targets are those of every `<stamp>:<target>` pair claiming the
+stamp. A link carrying no pairs, `RemoteIpc` among them, declines every record, so each keeps
+its TO. A command reply, and a `TM_RESPONSE` or `TM_ERROR` carrying a TO, as `HttpOut`'s
+`acceptInbound()` reads a reply, keeps the TO the server addressed to its minter either way,
+because overwriting it would deliver the reply to a view instead of its receiver.
 
 **Observed benefits:**
 
@@ -1958,9 +1960,10 @@ holds the rule mechanically: outside `class-log-discovery.php`, no PHP joins
 under the stamp's KIND, which is also that reader's name suffix and the basename of its cursor
 and dead-letter dirs: the stamp with `/` spelled `:`, because the Router splits a TO on `/` and
 a step reply returns addressed to the reader's name. [`Log_Discovery::kind_of()`](../includes/class-log-discovery.php)
-writes a kind and `stamp_of()` reads one back, and `tests/fixtures/log-kinds.json` holds both
-directions to one case list. The broker builds a reader's slot through `kind_of()` and reads a
-kind dir under its offsetlog root through `stamp_of()`.
+writes a kind and `stamp_of()` reads one back, `kindOf()` in `src/runtime/log-stamp.js` its JS
+twin, and `tests/fixtures/log-kinds.json` holds both directions to one case list. The broker
+builds a reader's slot through `kind_of()` and reads a kind dir under its offsetlog root
+through `stamp_of()`.
 
 **Amendment: a spoke's log has a name of its own.** A hub's broker reader reports its
 position on the hub's own probe log, and a spoke's `firehose.p0` is not the hub's: two logs
@@ -2079,8 +2082,11 @@ is the one list of readers. Its cursor sits at `<offsetlog_root>/<kind>` and its
 set claims both roots, so the conflict check and `wp nodes gc` cover every reader a glob builds
 later, and its graph draws one `pair` edge from the broker to each pair's target
 ([ADR-19](#adr-19-a-node-may-declare-a-destination-it-writes-without-routing)); the console's TSL
-reader draws the same edges for a file being edited, held to the PHP split by
-`tests/fixtures/pair-split.json`. `MAX_READERS` (256) caps the stamps glob pairs may claim,
+reader draws the same edges for a file being edited, and the browser's `RemoteLink` splits its
+pairs alike, both through `splitPair()`, held to the PHP split by
+`tests/fixtures/pair-split.json`. The browser's `RemoteLink` follows the rule with a Tee in
+place of a reader: a stamp's Tee `<link>:<kind>` is built on the first record a pair claims,
+and its targets are the pairs'. `MAX_READERS` (256) caps the stamps glob pairs may claim,
 counting the readers built in this process and the reader dirs earlier processes left under the
 offsetlog root, so a spoke inventing stamps cannot grow the graph or the disk without bound. An
 exact pair is bounded by configuration and never counts.

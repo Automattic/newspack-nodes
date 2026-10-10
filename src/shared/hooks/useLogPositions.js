@@ -3,14 +3,14 @@
  * `positions` seed their transport already carries. Every log browses
  * segments: a file source is one, its inode at the file's size.
  *
- * A seek needs no transport of its own. `RemoteLink.attach( [ sub ], target,
- * positions )` puts the seed on the stream URL as `&positions=`, the
- * controller narrows each entry through `SSE_Out::position_arg`, and the
- * Consumer opens there through `next_offset()`. Four seeds cover every
- * control:
+ * A seek needs no transport of its own.
+ * `RemoteLink.addPairs( [ '<sub>:<target>' ], positions )` puts the seed on
+ * the stream URL as `&positions=`, the controller narrows each entry through
+ * `SSE_Out::position_arg`, and the Consumer opens there through
+ * `next_offset()`. Four seeds cover every control:
  *
- * - Live and follow attach `null` positions, which `seekMap()` states as the
- *   tail sentinel, `SEEK_END`.
+ * - Live and follow add their pair with `null` positions, which `seekMap()`
+ *   states as the tail sentinel, `SEEK_END`.
  * - Browsing a segment sends `{ [sub]: { segment, offset: 0 } }`. For a file
  *   source the segment slot holds the file's inode.
  * - An offset jump sends that same pair carrying the offset that was typed.

@@ -33,9 +33,6 @@ import {
 	TM_BYTESTREAM,
 	TM_ERROR,
 	TO,
-	TM_STRUCT,
-	TM_COMMAND,
-	TM_RESPONSE,
 } from '../message';
 
 class FakeEventSource {
@@ -1503,71 +1500,12 @@ test( 'the watchdog tick emits nothing into the data sink', () => {
 	}
 } );
 
-test( 'a command reply keeps its own TO; only records are routed', () => {
-	// A subscription routes RECORDS by stamp. A reply is already
-	// addressed — the server sent it TO the node that minted the command
-	// (ADR-7) — so clobbering its TO delivers it to the view instead.
-	const { sse, routed } = makeSseIn();
-	sse.routeTo = () => [ 'stream-tee' ];
-	sse.start();
-	routed.length = 0;
-
-	const record = newMessage();
-	record[ TYPE ] = TM_STRUCT;
-	record[ TO ] = '';
-	record[ ID ] = '1:0:10';
-	record[ VALUE ] = { x: 1 };
-
-	const reply = newMessage();
-	reply[ TYPE ] = TM_COMMAND | TM_RESPONSE;
-	reply[ TO ] = 'status-receiver';
-	reply[ VALUE ] = { name: 'dump_log', payload: {} };
-
-	FakeEventSource.last.dispatch( 'msg', JSON.stringify( record ) );
-	FakeEventSource.last.dispatch( 'msg', JSON.stringify( reply ) );
-
-	expect( routed.map( ( m ) => m[ TO ] ) ).toEqual( [
-		'stream-tee',
-		'status-receiver',
-	] );
-} );
-
-// The view used to carry a TM_COMMAND guard because replies reached it. This
-// is the invariant that made that guard redundant, stated as a rule rather
-// than as one case: NO reply is ever routed, whatever its payload holds.
-test( 'no command reply is routed, whatever its VALUE looks like', () => {
-	const { sse, routed } = makeSseIn();
-	sse.routeTo = () => [ 'stream-tee' ];
-	sse.start();
-	routed.length = 0;
-
-	for ( const value of [
-		{ name: 'list_logs', payload: [] },
-		{ action: 'pause', paused: true },
-		'a bare string',
-	] ) {
-		const reply = newMessage();
-		reply[ TYPE ] = TM_COMMAND | TM_RESPONSE;
-		reply[ TO ] = 'status-receiver';
-		reply[ VALUE ] = value;
-		FakeEventSource.last.dispatch( 'msg', JSON.stringify( reply ) );
-	}
-
-	expect( routed.map( ( m ) => m[ TO ] ) ).toEqual( [
-		'status-receiver',
-		'status-receiver',
-		'status-receiver',
-	] );
-} );
-
-test( 'routeTo delivers one copy of a record to every target its stamp names', () => {
-	const { sse, routed } = makeSseIn( {
-		subscribe: [ 'errors.*', 'errors.p3' ],
-	} );
-	const asked = [];
-	sse.routeTo = ( stamp ) => {
-		asked.push( stamp );
-		return 'errors.p3' === stamp ? [ 'glob:stream', 'exact:stream' ] : [];
+test( 'onMessage takes each record it claims, counted once', () => {
+	const { sse, routed } = makeSseIn( { subscribe: [ 'errors.*' ] } );
+	const taken = [];
+	sse.onMessage = ( message, stamp ) => {
+		taken.push( [ stamp, message[ ID ] ] );
+		return true;
 	};
 	sse.start();
 	routed.length = 0;
@@ -1577,26 +1515,19 @@ test( 'routeTo delivers one copy of a record to every target its stamp names', (
 	record[ ID ] = '6:30:11';
 	record[ VALUE ] = 'a line\n';
 	FakeEventSource.last.dispatch( 'msg', JSON.stringify( record ) );
-	expect( asked ).toEqual( [ 'errors.p3' ] );
-	expect( routed.map( ( m ) => m[ TO ] ) ).toEqual( [
-		'glob:stream',
-		'exact:stream',
-	] );
-	expect( routed.map( ( m ) => m[ VALUE ] ) ).toEqual( [
-		'a line\n',
-		'a line\n',
-	] );
-	// Each copy is one forward through this node.
-	expect( sse.counter ).toBe( 2 );
+	expect( taken ).toEqual( [ [ 'errors.p3', '6:30:11' ] ] );
+	expect( routed ).toEqual( [] );
+	expect( sse.counter ).toBe( 1 );
 	expect( sse.lastPositions[ 'errors.p3' ] ).toEqual( {
 		segment: 6,
 		offset: 41,
 	} );
 } );
 
-test( 'a route answering null keeps the TO the record arrived with', () => {
+test( 'a record onMessage declines goes out by the TO it arrived with', () => {
 	const { sse, routed } = makeSseIn( { subscribe: [ 'kea.p4' ] } );
-	sse.routeTo = () => null;
+	sse.onMessage = () => false;
+	sse.target = 'osprey-view-3318';
 	sse.start();
 	routed.length = 0;
 	const record = newMessage();
@@ -1606,25 +1537,6 @@ test( 'a route answering null keeps the TO the record arrived with', () => {
 	record[ ID ] = '2:0:7';
 	FakeEventSource.last.dispatch( 'msg', JSON.stringify( record ) );
 	expect( routed.map( ( m ) => m[ TO ] ) ).toEqual( [ 'tern:view' ] );
-} );
-
-test( 'a record whose stamp no route names is dropped, not delivered', () => {
-	expectConsoleWarn( 'WARNING: no route for stray.p9' );
-	const { sse, routed } = makeSseIn( { subscribe: [ 'kea.p4' ] } );
-	sse.routeTo = () => [];
-	const dropped = jest.spyOn( sse, 'dropMessage' );
-	sse.start();
-	routed.length = 0;
-	const record = newMessage();
-	record[ TYPE ] = TM_BYTESTREAM;
-	record[ FROM ] = 'stray.p9';
-	record[ ID ] = '1:0:5';
-	FakeEventSource.last.dispatch( 'msg', JSON.stringify( record ) );
-	expect( routed ).toEqual( [] );
-	expect( dropped ).toHaveBeenCalledWith(
-		expect.any( Array ),
-		'no route for stray.p9'
-	);
 } );
 
 test( 'reseek replaces only the named subscriptions’ seeds and read positions', () => {

@@ -52,12 +52,9 @@ describe( 'useLogTailStream', () => {
 		await act( async () => {} );
 		expect( Core.node( 'cachecozy:stream' ) ).toBeTruthy();
 		expect( Core.node( 'cachecozy:view' ) ).toBeTruthy();
-		expect(
-			Core.node( '_stream' ).graphs.get( 'cachecozy:stream' )
-		).toEqual( {
-			subscribe: [ 'cachecozy.p0' ],
-			parked: false,
-		} );
+		expect( Core.node( '_stream' ).pairs ).toEqual( [
+			'cachecozy.p0:cachecozy:stream',
+		] );
 		expect( Core.node( '_stream' ).sseIn.subscribe ).toEqual( [
 			'cachecozy.p0',
 		] );

@@ -804,8 +804,8 @@ describe( 'the shared stream link', () => {
 		expect( stream ).toBeInstanceOf( RemoteLinkNode );
 		expect( spine.stream ).toBe( stream );
 		expect( stream.sink ).toBe( Core.node( names.COMMAND_INTERPRETER ) );
-		expect( stream.graphs.size ).toBe( 0 );
-		// Bare: it opens nothing until a graph attaches.
+		expect( stream.pairs ).toEqual( [] );
+		// Bare: it opens nothing until a view adds a pair.
 		expect( stream.sseIn ).toBeNull();
 		expect( ClosableEventSource.instances ).toHaveLength( 0 );
 		spine.teardown();
@@ -831,7 +831,7 @@ describe( 'the shared stream link', () => {
 
 	test( 'teardown of the owner removes the link and closes its stream', async () => {
 		const spine = mountExospine( () => {} );
-		spine.stream.attach( [ 'wren.p6' ], 'plover:stream' );
+		spine.stream.addPairs( [ 'wren.p6:plover:stream' ] );
 		await Promise.resolve();
 		expect( ClosableEventSource.instances ).toHaveLength( 1 );
 		spine.teardown();
