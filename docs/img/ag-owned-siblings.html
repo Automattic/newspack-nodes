@@ -41,12 +41,12 @@
     <div class="sib"><span class="k">deadletter</span><span class="nm mono">{name}:deadletter</span><span class="by">Dead_Letter_Queue, via Sidecar</span></div>
     <div class="sib cfg"><span class="k">config</span><span class="nm mono">{name}:config</span><span class="by">Schema_Reflection</span></div>
   </div>
-  <div class="pat"><h3>Remote_Link <small>Remote_Source extends it</small></h3>
+  <div class="pat"><h3>Remote_Source <small>Remote_Broker owns http-out and null</small></h3>
     <div class="sib"><span class="k">sse-in</span><span class="nm mono">{name}:sse-in</span><span class="by">the pull</span></div>
     <div class="sib"><span class="k">http-out</span><span class="nm mono">{name}:http-out</span><span class="by">the push and keepalive</span></div>
     <div class="sib"><span class="k">null</span><span class="nm mono">{name}:null</span><span class="by">HTTP_Out's target</span></div>
-    <div class="sib"><span class="k">offsetlog</span><span class="nm mono">{name}:{kind}:offsetlog</span><span class="by">Remote_Source, sibling_suffix()</span></div>
-    <div class="sib"><span class="k">deadletter</span><span class="nm mono">{name}:{kind}:deadletter</span><span class="by">Remote_Source, sibling_suffix()</span></div>
+    <div class="sib"><span class="k">offsetlog</span><span class="nm mono">{name}:{kind}:offsetlog</span><span class="by">Durable_Reader, via Sidecar</span></div>
+    <div class="sib"><span class="k">deadletter</span><span class="nm mono">{name}:{kind}:deadletter</span><span class="by">Durable_Reader, via Sidecar</span></div>
   </div>
 </div>
 

@@ -62,6 +62,81 @@ describe( 'a broker in the file being edited', () => {
 		] );
 	} );
 
+	it( 'reads an HTTP_Source and a Vault_Group of them as brokers', () => {
+		const catalog = [
+			{
+				shell_name: 'HTTP_Source',
+				arguments: [
+					{ name: 'vault_id' },
+					{ name: 'offsetlog_root' },
+					{ name: 'deadletter_root' },
+					{ name: 'pairs', variadic: true },
+				],
+			},
+			{
+				shell_name: 'Vault_Group',
+				arguments: [ { name: 'child_type' }, { name: 'group' } ],
+			},
+		];
+
+		expect(
+			pairEdges(
+				graphFromTsl(
+					'make_node HTTP_Source austin-q3 austin o/6113 d/6113 firehose.p0:sink-4194\n',
+					null,
+					catalog
+				)
+			)
+		).toEqual( [
+			{ from: 'austin-q3', to: 'sink-4194', roles: [ 'pair' ] },
+		] );
+		expect(
+			pairEdges(
+				graphFromTsl(
+					'make_node Vault_Group spokes HTTP_Source spokes o/{id} d/{id} jobstats.p0:stats-977\n',
+					null,
+					catalog
+				)
+			)
+		).toEqual( [ { from: 'spokes', to: 'stats-977', roles: [ 'pair' ] } ] );
+	} );
+
+	describe( 'a variadic class that is no broker', () => {
+		const catalog = [
+			{
+				shell_name: 'Okapi_Fan',
+				arguments: [
+					{ name: 'mode' },
+					{ name: 'targets', variadic: true },
+				],
+			},
+			{
+				shell_name: 'Vault_Group',
+				arguments: [ { name: 'child_type' }, { name: 'group' } ],
+			},
+		];
+
+		it( 'draws no pair edge', () => {
+			const graph = graphFromTsl(
+				'make_node Okapi_Fan fan-31 x firehose.p0:sink-88\n',
+				null,
+				catalog
+			);
+
+			expect( pairEdges( graph ) ).toEqual( [] );
+		} );
+
+		it( 'draws none as a group child either', () => {
+			const graph = graphFromTsl(
+				'make_node Vault_Group fans Okapi_Fan fans x firehose.p0:sink-88\n',
+				null,
+				catalog
+			);
+
+			expect( pairEdges( graph ) ).toEqual( [] );
+		} );
+	} );
+
 	it( 'draws no pair edge for any other class', () => {
 		const graph = graphFromTsl(
 			'make_node Echo okapi-echo firehose.p0:sink\n',

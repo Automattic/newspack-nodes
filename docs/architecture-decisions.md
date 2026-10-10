@@ -329,7 +329,7 @@ to the sink as it stands; that is how a server-side `log` broadcast, minted with
 reaches the browser transcript instead of dying at `_router` as *message not addressed*. A
 `Null_Node` makes the right target: it swallows the remote's unaddressed output and counts it,
 where the relay that owns the egress would send the spoke's own output straight back out.
-`Remote_Link_Node` builds one as `<name>:null`, re-points `HTTP_Out` at it on every rename,
+`Remote_Broker_Node` builds one as `<name>:null`, re-points `HTTP_Out` at it on every rename,
 and lists its own name so its heartbeat replies reach it. The per-spoke `HTTP_Out` an operator
 wires for [`topologies/settings-sync.tsl`](../topologies/settings-sync.tsl) takes both lines by hand: `connect_node <egress> null`
 and `cmd <egress>:config allow_replies_to settings-sync`.
@@ -901,9 +901,9 @@ caller passes when there is none, then mints and signs, handing the command back
 caller to fill, as `Node.command()` does below. The closure is the caller's throttle, so a
 minter retrying every tick never handshakes every tick. [`Fanout_Targets::send_signed()`](../includes/trait-fanout-targets.php) calls it once per target
 for `Settings_Sync_Node` and ELN's [`Discovery_Collector_Node`](https://github.com/Automattic/newspack-event-logger-nodes/blob/4437e383/includes/class-discovery-collector-node.php), passing `ensure_session()`, which its send
-cadence paces; a paused `Remote_Consumer`'s step and `Remote_Link`'s slot heartbeat call it
-through `Remote_Link_Node::mint()`, which asks on the link's own second of the heartbeat
-cadence, so another minter calls it rather than copying the shape. On the JS side [`Node.command( name, args )`](../src/runtime/node.js)
+cadence paces; a paused `Remote_Consumer`'s step and `Remote_Source`'s slot heartbeat call it
+through `Remote_Broker_Node::mint()`, which asks on the broker's own second of the heartbeat
+cadence and also serves `HTTP_Source`'s fetches and catalog asks, so another minter calls it rather than copying the shape. On the JS side [`Node.command( name, args )`](../src/runtime/node.js)
 builds the TM_COMMAND, stamps FROM from the node's name and TO from its target, and hands back
 the message signed and LOCAL-marked — or null when `readyToMint()` finds no session, having
 asked for one on the way. Signing is synchronous and cannot await `/auth`, so a null is the
@@ -1353,7 +1353,7 @@ per-process caches before planning. A spoke dropped from its group has its curso
 spelled twice — at runtime in the node, and in the flatten — so both call the one `expand()`
 and the one sibling-name composer, and a change to either shape moves both. A group builds and
 retracts members on RELOAD even after `secure`, because the topology declared Vault membership
-before securing, and the Vault itself is MANAGE-gated — the same standing `Remote_Link` has when
+before securing, and the Vault itself is MANAGE-gated — the same standing `Remote_Broker` has when
 it rebuilds its patroned siblings.
 
 **Revisit if:** a second node type derives its children from runtime state rather than from
@@ -2110,6 +2110,15 @@ source is written with no partition token builds its reader on one worker only, 
 written `{partition}` builds one in every worker. [ADR-33](#adr-33-a-line-naming-no-partition-runs-once-per-fleet)
 states the rule for every node that reads a source, the broker included.
 
+**Amendment: a broker that fetches lists its stamps.** [`HTTP_Source_Node`](../includes/class-http-source-node.php)
+reads no stream, so no line or handshake names a stamp to it. It builds each exact pair's reader on
+its first tick, as `Remote_Source_Node` does, and a glob pair's from the spoke's `raw-logs list_logs` catalog, polled
+every `HTTP_Source_Node::EOF_POLL_SECONDS`: a broker builds a reader on first sight of a stamp a
+pair claims, whether its remote sends the stamp or lists it. `consumer_for()` stays the one
+builder and `MAX_READERS` caps both. The base both brokers share is `Remote_Broker_Node`, so the
+analyzer, `Aggregator_CI` and the console recognize a broker by that class, or by its schema's
+variadic `pairs`, never by a name.
+
 ---
 
 ## ADR-32: A transport answers what it could not deliver
@@ -2157,7 +2166,7 @@ none of today. The blast radius, sender by sender, with what each does with one 
   failure, already reported.
 - **`Remote_Broker_Node::send_read()` from `Remote_Consumer_Node::request_step()`** (FROM the
   reader `<broker>:<kind>`; `raw-logs read_message`). The reader's `fill()` clears
-  `step_requested_at` on any command reply. A bounce echoing the step's arguments takes the refusal branch: it prints
+  `step_requested_at` on a reply echoing the step's arguments. A bounce echoing the step's arguments takes the refusal branch: it prints
   `step refused` and forgives every owed step, so the operator's click is lost rather than
   retried. It would need to keep the step owed on `undelivered`, as `FetcherNode` re-arms a read.
 - **`Remote_Consumer_Node::fetch()`** (FROM the reader `<broker>:<kind>`, under
@@ -2167,6 +2176,12 @@ none of today. The blast radius, sender by sender, with what each does with one 
   before the broker's tick asks again. Today the fetch's own clock re-sends it after
   `REQUEST_TIMEOUT`; a bounce would wait an EOF poll instead, so the reader would need to read
   `undelivered` as a fetch to send again at once rather than a refusal.
+- **`HTTP_Source_Node::ask_catalog()`** (FROM the broker; `raw-logs list_logs`), a third clock:
+  the broker re-asks once `REQUEST_TIMEOUT` has passed since it asked. It needs no change under
+  this proposal: a bounce carries the `name`, takes the refusal branch, and waits an EOF poll. One
+  caveat: a dropped batch sets no `last_outcome()`, so `last_error` would read `Discovery refused:
+  Command not delivered: <reason>` beside HTTP_Out's own rate-limited line, the double report the
+  heartbeat bullet names.
 - **`Fanout_Targets::send_signed()` from `Settings_Sync_Node`** (FROM the node; the spoke's
   `settings` verbs). Its `fill()` returns on anything not TM_STRUCT, so the bounce is counted and
   dropped; the periodic re-push already covers a lost push. No change needed.
@@ -2187,9 +2202,9 @@ none of today. The blast radius, sender by sender, with what each does with one 
 
 **Revisit if:** a transport cannot tell delivered from lost — a non-200 a proxy answers after
 the spoke applied the command — at which point a bounce invites a retry that applies a write
-twice. The first four senders above are idempotent; the routed messages of the fifth are not,
+twice. Every sender above but the last is idempotent; the routed messages of the last are not,
 since an operator's command may be a write. A bounce does not retry anything itself, but a
-sender that re-sends on one would apply such a write twice, so the fifth already decides
+sender that re-sends on one would apply such a write twice, so the last already decides
 between marking a bounce `undelivered` as possibly applied and keeping a per-sender clock.
 
 ---

@@ -98,9 +98,24 @@ function boundCount( catalog, className ) {
 }
 
 /**
- * The pair tokens a node's arguments carry: a `Remote_Source`'s past its
- * bound arguments, and a `Vault_Group`'s past its own and the child's, since
- * the group passes each member `[ vault_id, ...child_args ]`. The group stands
+ * Whether a class is a broker: its catalog entry declares the variadic
+ * `pairs` argument that `Remote_Broker_Node` gives every broker.
+ *
+ * @param {Array<Object>} catalog   Class catalog entries.
+ * @param {string}        className A shell class name.
+ * @return {boolean} True for a broker.
+ */
+function isBroker( catalog, className ) {
+	const entry = catalog.find( ( c ) => c.shell_name === className );
+	return Boolean(
+		entry?.arguments?.some( ( a ) => 'pairs' === a.name && a.variadic )
+	);
+}
+
+/**
+ * The pair tokens a node's arguments carry: a broker's past its bound
+ * arguments, and a `Vault_Group`'s past its own and the child's, since the
+ * group passes each member `[ vault_id, ...child_args ]`. The group stands
  * for its members, which only the Vault names.
  *
  * @param {string}        className The node's shell class.
@@ -112,17 +127,14 @@ function pairTokens( className, spans, catalog ) {
 	// The broker reads values, so a quoted span is read as the value it holds.
 	const valuesOf = () =>
 		spans.map( ( span ) => tokenize( String( span ) )[ 0 ] ?? '' );
-	if ( 'Remote_Source' === className ) {
+	if ( isBroker( catalog, className ) ) {
 		return valuesOf().slice( boundCount( catalog, className ) );
 	}
-	if (
-		'Vault_Group' === className &&
-		'Remote_Source' ===
-			( tokenize( String( spans[ 0 ] ?? '' ) )[ 0 ] ?? '' )
-	) {
+	const childClass = tokenize( String( spans[ 0 ] ?? '' ) )[ 0 ] ?? '';
+	if ( 'Vault_Group' === className && isBroker( catalog, childClass ) ) {
 		return valuesOf().slice(
 			boundCount( catalog, className ) +
-				boundCount( catalog, 'Remote_Source' ) -
+				boundCount( catalog, childClass ) -
 				1
 		);
 	}

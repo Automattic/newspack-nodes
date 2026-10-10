@@ -255,6 +255,19 @@ class TopologyRegistryConflictsTest extends TestCase {
 		$this->assertNotContains( 'offsetlog:<config:offsets_dir>/spoke-a.firehose.p0', $set );
 	}
 
+	/** An HTTP_Source claims its two roots as a Remote_Source does. */
+	public function test_write_set_reads_http_source_roots_from_its_arguments(): void {
+		$this->write_tsl(
+			'ibis-agg',
+			"make_node HTTP_Source pull-6113 ibis-vault offsets/pull-6113 deadletter/pull-6113 firehose.p0:next\n"
+		);
+
+		$set = Topology_Analyzer::write_set( 'ibis-agg' );
+
+		$this->assertContains( 'offsetlog:offsets/pull-6113', $set );
+		$this->assertContains( 'deadletter:deadletter/pull-6113', $set );
+	}
+
 	/**
 	 * The write set is a SAFETY gate: it feeds `find_conflicts` (two fleets
 	 * writing one log) and `Log_Cleaner`'s declared-dir set (what the GC must

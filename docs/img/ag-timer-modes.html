@@ -25,7 +25,7 @@
     <div class="dec">
       <div class="q"><b>named node, not the Router, and $ms is null or ≥ _router's live cadence?</b>the threshold is <span class="mono">Router_Node::interval_ms</span>, or <span class="mono">DEFAULT_TICK_MS</span> 1000 where no Router is mounted</div>
       <div class="arm"><b>yes → Router hitchhike (MODE <span class="mono">router</span>)</b>registers the NAME on <span class="mono">_router</span>'s TIMER channel; <span class="mono">notify_timer()</span> calls <span class="mono">fire_cb()</span> directly each tick and the node throttles itself to <span class="mono">interval_ms</span>. No own slot, no message. Requires <span class="mono">_router</span> or throws. <span class="mono">list_timers</span> shows NEXT as <span class="mono">-</span>.</div>
-      <div class="arm"><b>no → own slot (MODE <span class="mono">event_framework</span>)</b>an unnamed node, the Router itself, or an interval shorter than the cadence. Needs a concrete interval or throws. <span class="mono">Event_Framework::set_timer()</span> seeds <span class="mono">next_fire = Core::$now + interval</span>. A Consumer at 0 / 100 ms and a Remote_Link at 100 ms sit here.</div>
+      <div class="arm"><b>no → own slot (MODE <span class="mono">event_framework</span>)</b>an unnamed node, the Router itself, or an interval shorter than the cadence. Needs a concrete interval or throws. <span class="mono">Event_Framework::set_timer()</span> seeds <span class="mono">next_fire = Core::$now + interval</span>. A Consumer at 0 / 100 ms sits here.</div>
     </div>
   </div>
 </div>
