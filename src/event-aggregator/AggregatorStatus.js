@@ -117,7 +117,7 @@ const formatTime = ( timestamp, now ) => {
 /**
  * Format a round-trip time in milliseconds at the precision its magnitude
  * earns: two decimals below 1ms, one below 100ms, whole milliseconds above. A
- * same-host heartbeat would otherwise render as a flat "0".
+ * same-host round trip would otherwise render as a flat "0".
  *
  * @param {?number} rtt Round-trip time in milliseconds.
  * @return {?string} The formatted reading, or null when there is none.
@@ -138,7 +138,7 @@ const formatRtt = ( rtt ) => {
 /**
  * The status modifier for one RTT reading: `error` above 500ms, `warning`
  * above 200ms, `success` below, and `muted` when the spoke has answered no
- * heartbeat yet. It modifies the shared `newspack-nodes-status` class, so the
+ * round trip yet. It modifies the shared `newspack-nodes-status` class, so the
  * colours are the design system's rather than this dashboard's.
  *
  * @param {?number} rtt Round-trip time in milliseconds.
@@ -269,10 +269,10 @@ function attemptLabel( idle, connected ) {
 
 /**
  * One partition tile: its connection state, the timestamps behind that state,
- * and either the error that explains it or the client-heartbeat verdict.
+ * and either the error that explains it or the round-trip verdict.
  *
  * The left rail's health class is deliberately coarser than the badge. A
- * partition that is connected but has answered no client heartbeat rails
+ * partition that is connected but has answered no round trip rails
  * `degraded` rather than `ok` — the socket is up and the round trip is not.
  *
  * @param {Object}  props           Component props.
@@ -286,17 +286,17 @@ function PartitionStatus( { partition, status, now } ) {
 	const connectionStatus = partitionState( status );
 	const connected = 'connected' === connectionStatus;
 	const idle = 'idle' === connectionStatus;
-	// Gate on connected: heartbeat ts is sticky, else dead spoke latches OK.
-	const heartbeatStatus =
-		connected && status.last_heartbeat_response ? 'success' : 'pending';
+	// Gate on connected: response ts is sticky, else dead spoke latches OK.
+	const responseStatus =
+		connected && status.last_response ? 'success' : 'pending';
 	// Health rails the left edge: ok / degraded / idle / connecting / down.
 	let health =
 		'disconnected' === connectionStatus ? 'down' : connectionStatus;
 	if ( connected ) {
-		health = heartbeatStatus === 'success' ? 'ok' : 'degraded';
+		health = responseStatus === 'success' ? 'ok' : 'degraded';
 	}
 	const errorMessage = shortError( status.last_error );
-	const rtt = status.last_heartbeat_rtt;
+	const rtt = status.last_rtt;
 	const rttFormatted = formatRtt( rtt );
 
 	return (
@@ -330,22 +330,19 @@ function PartitionStatus( { partition, status, now } ) {
 					values={ [ formatTime( status.last_sse_heartbeat, now ) ] }
 				/>
 				<StatRow
-					label={ __( 'Client HB', 'newspack-nodes' ) }
+					label={ __( 'Round trip', 'newspack-nodes' ) }
 					values={ [
 						<>
 							{ rttFormatted && (
 								<span
-									className={ `newspack-nodes-status aggregator-heartbeat-rtt small ${ getRttClass(
+									className={ `newspack-nodes-status aggregator-rtt small ${ getRttClass(
 										rtt
 									) }` }
 								>
 									{ rttFormatted }ms
 								</span>
 							) }
-							{ formatTime(
-								status.last_heartbeat_response,
-								now
-							) }
+							{ formatTime( status.last_response, now ) }
 						</>,
 					] }
 				/>
@@ -353,7 +350,7 @@ function PartitionStatus( { partition, status, now } ) {
 					label={ __( 'Status', 'newspack-nodes' ) }
 					values={ [
 						<>
-							{ /* The error outranks the heartbeat it explains. */ }
+							{ /* The error outranks the response it explains. */ }
 							{ errorMessage ? (
 								<span
 									className="newspack-nodes-status-badge aggregator-partition-error small is-error"
@@ -363,9 +360,9 @@ function PartitionStatus( { partition, status, now } ) {
 								</span>
 							) : (
 								<span
-									className={ `newspack-nodes-status-badge aggregator-heartbeat-badge small ${ heartbeatStatus }` }
+									className={ `newspack-nodes-status-badge aggregator-response-badge small ${ responseStatus }` }
 								>
-									{ heartbeatStatus.replace( /_/g, ' ' ) }
+									{ responseStatus.replace( /_/g, ' ' ) }
 								</span>
 							) }
 							{ /* HTTP code as a muted caption on Status line. */ }

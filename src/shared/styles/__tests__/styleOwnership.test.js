@@ -151,9 +151,9 @@ const REQUIRED_ROLE_PAIRS = [
 	[ 'nodes-tm__health', 'newspack-nodes-status' ],
 	[ 'nodes-tm__health', 'newspack-nodes-status-indicator' ],
 	[ 'aggregator-status-badge', 'newspack-nodes-status-badge' ],
-	[ 'aggregator-heartbeat-badge', 'newspack-nodes-status-badge' ],
+	[ 'aggregator-response-badge', 'newspack-nodes-status-badge' ],
 	[ 'aggregator-partition-error', 'newspack-nodes-status-badge' ],
-	[ 'aggregator-heartbeat-rtt', 'newspack-nodes-status' ],
+	[ 'aggregator-rtt', 'newspack-nodes-status' ],
 	[ 'topology-repl__status', 'newspack-nodes-status' ],
 	[ 'topology-inspector__toggle', 'newspack-nodes-rail-toggle' ],
 	[ 'topology-palette__toggle', 'newspack-nodes-rail-toggle' ],
@@ -987,8 +987,8 @@ describe( 'canonical appearance ownership', () => {
 				[
 					'.aggregator-status-badge',
 					'.aggregator-status-badge.small',
-					'.aggregator-heartbeat-badge',
-					'.aggregator-heartbeat-badge.small',
+					'.aggregator-response-badge',
+					'.aggregator-response-badge.small',
 				],
 			],
 			[
@@ -1177,8 +1177,8 @@ describe( 'canonical appearance ownership', () => {
 			'.aggregator-status-badge.error',
 			'.aggregator-status-badge.ssl_error',
 			'.aggregator-status-badge.auth_failed',
-			'.aggregator-heartbeat-badge.slot_expired',
-			'.aggregator-heartbeat-badge.error',
+			'.aggregator-response-badge.slot_expired',
+			'.aggregator-response-badge.error',
 		] ) {
 			aggregatorStylesheet.walkRules( ( rule ) => {
 				if ( rule.selectors.includes( selector ) ) {

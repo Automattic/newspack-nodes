@@ -316,13 +316,13 @@
 	}
 }
 
-.aggregator-heartbeat-rtt {
+.aggregator-rtt {
 	display: inline-flex;
 	align-items: baseline;
 	gap: 2px;
 }
 
-.aggregator-heartbeat-badge {
+.aggregator-response-badge {
 	// Semantic text is independently contrast-audited against its tint.
 	&.success {
 		background: var(--sage-subtle);
@@ -335,12 +335,12 @@
 	}
 }
 
-.aggregator-heartbeat-rtt.small {
+.aggregator-rtt.small {
 	font-size: 10px;
 	color: var(--ink-3);
 }
 
-// HTTP code rides the Status line as a quiet mono caption beside the heartbeat
+// HTTP code rides the Status line as a quiet mono caption beside the response
 // badge — informative on an error code, unobtrusive on a 200 (no longer a
 // competing green pill).
 .aggregator-http-code {

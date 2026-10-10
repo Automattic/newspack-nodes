@@ -1274,9 +1274,9 @@ class RemoteSourceNodeTest extends TestCase {
 
 		$status = $this->status_of( $node );
 		$this->assertIsArray( $status );
-		$this->assertArrayHasKey( 'last_heartbeat_response', $status );
-		$this->assertArrayHasKey( 'last_heartbeat_rtt', $status );
-		$this->assertNotNull( $status['last_heartbeat_response'] );
+		$this->assertArrayHasKey( 'last_response', $status );
+		$this->assertArrayHasKey( 'last_rtt', $status );
+		$this->assertNotNull( $status['last_response'] );
 	}
 
 	public function test_heartbeat_command_error_clears_prior_success_and_records_reason(): void {
@@ -1295,7 +1295,7 @@ class RemoteSourceNodeTest extends TestCase {
 			'payload' => [ 'success' => true, 'slot' => 7 ],
 		];
 		$node->fill( $success );
-		$this->assertNotNull( $this->status_of( $node )['last_heartbeat_response'] );
+		$this->assertNotNull( $this->status_of( $node )['last_response'] );
 
 		$lines = [];
 		Core::set_stderr_handler(
@@ -1312,8 +1312,8 @@ class RemoteSourceNodeTest extends TestCase {
 		$node->fill( $error );
 
 		$status = $this->status_of( $node );
-		$this->assertNull( $status['last_heartbeat_response'] );
-		$this->assertNull( $status['last_heartbeat_rtt'] );
+		$this->assertNull( $status['last_response'] );
+		$this->assertNull( $status['last_rtt'] );
 		$this->assertSame(
 			'Client heartbeat failed: SSE slot lease not owned',
 			$status['last_error']
@@ -1350,8 +1350,8 @@ class RemoteSourceNodeTest extends TestCase {
 		$node->fill( $rejected );
 
 		$status = $this->status_of( $node );
-		$this->assertNull( $status['last_heartbeat_response'] );
-		$this->assertNull( $status['last_heartbeat_rtt'] );
+		$this->assertNull( $status['last_response'] );
+		$this->assertNull( $status['last_rtt'] );
 		$this->assertSame(
 			'Client heartbeat failed: slot lease ownership mismatch',
 			$status['last_error']
@@ -1374,11 +1374,11 @@ class RemoteSourceNodeTest extends TestCase {
 			'name'    => 'heartbeat',
 			'payload' => [ 'success' => true, 'slot' => 5 ],
 		];
-		$node->fill( $reply ); // records last_heartbeat_response at t=1000
+		$node->fill( $reply ); // records last_response at t=1000
 
 		// A tick right after the reply keeps the fresh response in the snapshot.
 		$node->fire();
-		$this->assertNotNull( $this->status_of( $node )['last_heartbeat_response'] );
+		$this->assertNotNull( $this->status_of( $node )['last_response'] );
 
 		// No further reply; advance past the HEARTBEAT_INTERVAL*4 staleness window.
 		// The Status badge must not latch 'success' on a stale timestamp, so the
@@ -1386,8 +1386,8 @@ class RemoteSourceNodeTest extends TestCase {
 		Core::$now = 1000.0 + ( Remote_Source_Node::HEARTBEAT_INTERVAL * 4 ) + 5;
 		$node->fire();
 		$status = $this->status_of( $node );
-		$this->assertNull( $status['last_heartbeat_response'] );
-		$this->assertNull( $status['last_heartbeat_rtt'] );
+		$this->assertNull( $status['last_response'] );
+		$this->assertNull( $status['last_rtt'] );
 	}
 
 	public function test_publish_status_carries_the_schedule_a_stream_closed_at_eof_returns_on(): void {
