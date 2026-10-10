@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.104.1] - 2026-10-10
+
 ### Changed
 
 - **The topology canvas stacks the bands feeding one hub with no gap, and leaves one empty row between groups.** Each band rises until a card of it would sit less than a row below a card above it in the same column, its top half a row clear of every card above; blocks stacked in one canvas column, and the chains of one run, leave exactly one empty row between them, while a run of lone cards stacks a row apart as one group. Clearing a card off a hub wire never moves it into the rows of another band in its stack. A chain a stretched sink drew past the column after its feeder comes back beside it unless the block then crosses fewer wires, and a card one card alone feeds keeps that card's row wherever its column leaves it clear, so `topology-manager:in:current` and `topology-manager:view` sit in columns 1 and 2 and `topologies:activate:fetch` keeps column 2 on the fleet board.
