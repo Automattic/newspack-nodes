@@ -2,14 +2,21 @@
  * Snap every series of one Topics panel onto ONE shared, epoch-aligned
  * time-bucket grid, so a panel's topics all draw against the same X axis.
  *
- * Why a grid rather than the union of the raw sample instants: each worker
+ * Why a grid rather than the union of the raw point instants: each worker
  * process runs its own Topic_Probe sweeping on an independent 15s phase, so
  * topics living in different processes emit their samples at OFFSET instants.
  * On the raw union every topic then carries a gap at every OTHER topic's
  * instant, and a `?? 0` gap-fill turns a LEVEL gauge (backlog, cacheSize) into
- * a [3MB,0,3MB,0…] sawtooth under curveMonotoneX. Flooring each sample to
+ * a [3MB,0,3MB,0…] sawtooth under curveMonotoneX. Flooring each point to
  * `floor(ts/bucket)*bucket` lands two sweeps 15s out of phase in the SAME
  * bucket.
+ *
+ * A probe series arrives with that done already: the view nodes fold each
+ * sweep into a `BUCKET_S` bucket on the same epoch grid, and
+ * `topicChartSeries` stamps `step: BUCKET_S` on the series it builds, one
+ * point per bucket. A stepped series keeps its grid, so a point stays in its
+ * slot and the axis widens only by whole steps. A series with no `step`, such
+ * as the debug overlay's, floors its samples here on the 15s base.
  *
  * How an empty bucket reads belongs to the metric, so each series carries its
  * own `mode`, which `topicChartSeries` stamps from its metric table; nothing
@@ -27,7 +34,7 @@ export const RATE_MODE = { fill: 'zero', agg: 'rate' };
 /**
  * Each aggregate's per-bucket reducer, by `mode.agg`. A weighted MEAN
  * re-divides its bucket exactly as a rate does; the two part only where
- * `topicChartSeries` combines the samples of one instant.
+ * `topicChartSeries` combines the entries' buckets of one start.
  */
 const AGGREGATES = {
 	last: lastPerBucket,
@@ -52,10 +59,11 @@ const AGGREGATES = {
  *   after any point, so a gap mid-series (a fleet hold, an on-demand worker
  *   idling out) reads 0 until the series resumes. A smooth decline stays
  *   smooth, and a reader that stopped leaves a stacked total.
- * - RATE (`fill:'zero'`, `agg:'rate'`): a bucket re-divides its samples,
- *   Σ(value × weight) / Σweight, which is Σwork / Σelapsed because each
- *   sample's value is its own work over its own weight. A zero-weight sample
- *   counts only in a bucket that holds no weight at all. An empty bucket is 0.
+ * - RATE (`fill:'zero'`, `agg:'rate'`): a bucket re-divides its points,
+ *   Σ(value × weight) / Σweight, the weighted mean of the rates it holds,
+ *   each weighted by the denominator its point names: an overlay sample's own
+ *   window, or a probe bucket's widest elapsed. A zero-weight point counts
+ *   only in a bucket that holds no weight at all. An empty bucket is 0.
  * - MEAN (`fill:'zero'`, `agg:'mean'`): a per-unit mean such as a latency,
  *   weighted by the units it averages over, re-divided as a RATE is.
  * - MAX (`fill:'zero'`, `agg:'max'`): a bucket keeps its largest sample.
@@ -64,13 +72,14 @@ const AGGREGATES = {
  * Bucket width is the probe cadence, widened only enough to hold the axis at or
  * under `maxPoints`, which the caller sizes to its panel's width: an axis
  * denser than the pixels drawing it is sub-pixel, and the cap is what keeps the
- * d3 redraw cheap.
+ * d3 redraw cheap. A series carrying `step` sets the base to it, and widens
+ * only by whole steps, so buckets folded upstream land one to a slot.
  *
  * @param {?Object} series    One panel's topics from `topicChartSeries`:
- *                            `{ [topic]: { points:[{ts,value,weight}], max, mode? } }`,
+ *                            `{ [topic]: { points:[{ts,value,weight}], max, mode?, step? } }`,
  *                            ts in seconds and sorted; `mode.fill` is `'hold'` or
  *                            `'zero'`, `mode.agg` is `'last'`, `'rate'`, `'mean'` or `'max'`.
- * @param {number}  maxPoints Cap on the rendered axis length; 0 or less holds the base bucket however long the axis grows.
+ * @param {number}  maxPoints Cap on the rendered axis length; 0 or less holds the base bucket, the series' `step` when one is declared, else 15 s, however long the axis grows.
  * @return {{series:Array<{label:string,values:Array<{date:Date,value:number}>}>,dates:Array<Date>}}
  *   The topics busiest-first, plus the bucket instants they are aligned onto.
  */
@@ -97,13 +106,17 @@ export function buildAlignedSeries( series, maxPoints ) {
 		} )
 	);
 
-	// Widen the bucket past 15s only if the 15s grid would overflow maxPoints.
 	const windowSec = maxTs - minTs;
-	let bucketSec = BUCKET_BASE_S;
+	// A stepped series aligns on its own grid, widened only by whole steps.
+	const step = Math.max( 0, ...ranked.map( ( s ) => s.step || 0 ) );
+	const base = step || BUCKET_BASE_S;
+	let bucketSec = base;
+	// Widen the bucket so the axis stays at or under maxPoints.
 	if ( maxPoints > 0 ) {
 		// The -2 is headroom: flooring can add a bucket at each end.
 		const denom = Math.max( 1, maxPoints - 2 );
-		bucketSec = Math.max( BUCKET_BASE_S, Math.ceil( windowSec / denom ) );
+		const wide = Math.max( base, Math.ceil( windowSec / denom ) );
+		bucketSec = step ? Math.ceil( wide / step ) * step : wide;
 	}
 
 	const bucketOf = ( ts ) => Math.floor( ts / bucketSec ) * bucketSec;
@@ -167,13 +180,15 @@ function lastPerBucket( points, bucketOf ) {
 }
 
 /**
- * RATE aggregate: a bucket re-divides its samples' work by their weight,
- * Σ(value×weight) / Σweight — every sample counted, unlike a bucket MAX, which
- * throws away the work of all but one whenever two samples from one source
- * land together, as wide downsampled buckets make routine.
+ * RATE aggregate: a bucket re-divides its points, Σ(value×weight) / Σweight,
+ * the weighted mean of the rates it holds, each weighted by the denominator
+ * its point names: an overlay sample's own window, or a probe bucket's
+ * widest elapsed. Every point counts, unlike a bucket MAX, which keeps one
+ * whenever two points from one source land together, as wide downsampled
+ * buckets make routine.
  *
- * A sample with no weight is an idle window: it is ignored when the bucket
- * holds positive weight, and the bucket reads the plain mean of its samples
+ * A point with no weight is an idle window: it is ignored when the bucket
+ * holds positive weight, and the bucket reads the plain mean of its points
  * only when none of them carries any.
  *
  * @param {Array<{ts:number,value:number,weight:number}>} points   One topic's points.
