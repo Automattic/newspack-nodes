@@ -13,9 +13,10 @@ namespace Newspack_Nodes;
  * One stream a broker carries, read like a Consumer — the `Durable_Reader`
  * cursor, offsetlog, dead-letter queue and debugger — over the lines the
  * broker hands here by their FROM stamp, as Tachikoma's Consumer reads under
- * a ConsumerBroker. The broker owns the feed and asks each reader where its
- * stream stands; a paused reader leaves the feed and steps over the broker's
- * HTTP_Out instead.
+ * a ConsumerBroker. Under `Remote_Source` the broker owns the feed and asks
+ * each reader where its stream stands; under `HTTP_Source` a live reader
+ * fetches its own blocks of records over the broker's HTTP_Out. A paused
+ * reader leaves the feed and steps over that HTTP_Out instead.
  *
  * Positions live in the SPOKE's byte space: each record's `segment:offset:length`
  * breadcrumb places it, never the local line's bytes. A file-mode source that
@@ -65,6 +66,37 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 
 	/** `step` clicks still waiting on a reply, one record each. */
 	private int $steps_owed = 0;
+
+	/**
+	 * The block fetch in flight: the arguments its reply echoes, and when it
+	 * went out. Null while none is out.
+	 *
+	 * @var array{args:list<string>,at:float}|null
+	 */
+	private ?array $fetch_in_flight = null;
+
+	/** When the latest block fetch went out; null before the first. */
+	private ?float $fetch_sent_at = null;
+
+	/**
+	 * The latest answered fetch: when, and its round trip in seconds.
+	 *
+	 * @var array{at:float,rtt:float}|null
+	 */
+	private ?array $fetch_answered = null;
+
+	/**
+	 * When a wait at the end, or after a refusal, falls due; 0 while none
+	 * stands. Only the broker's tick ends a wait, so readers due together ask
+	 * in one POST.
+	 */
+	private float $fetch_after = 0.0;
+
+	/** What the spoke said refusing the latest fetch; null once a block answers. */
+	private ?string $fetch_refusal = null;
+
+	/** Lines the spoke skipped as unparseable in this reader's blocks. */
+	private int $spoke_skipped = 0;
 
 	/**
 	 * The offsetlog restore_position() read its durable frame from and seeded the
@@ -146,7 +178,8 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	}
 
 	/**
-	 * Replies routed to this reader: the spoke's answer to a step, and the
+	 * Replies routed to this reader: the spoke's answer to a block fetch,
+	 * matched by the arguments it echoes, the answer to a step, and the
 	 * Router's bounce of a line whose target names no node, which is no command
 	 * and settles nothing. An answer echoing the arguments a step would send
 	 * now settles the request; any other is stale, a seek having moved the
@@ -170,6 +203,13 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 			return;
 		}
 		$value = Core::arr( $message[ Message::VALUE ] );
+		if ( 'read_block' === ( $value['name'] ?? null ) ) {
+			$asked = $this->fetch_in_flight;
+			if ( null !== $asked && ( $value['arguments'] ?? null ) === $asked['args'] ) {
+				$this->settle_block( $value, $asked['at'] );
+			}
+			return;
+		}
 		if ( 0 === $this->steps_owed || ( $value['arguments'] ?? null ) !== [ $this->stamp, $this->step_position() ] ) {
 			return;
 		}
@@ -231,27 +271,6 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	}
 
 	/**
-	 * Take one routed line and the message the broker decoded from it, and take
-	 * the busy cadence: data arrives on the cURL drain, between fires. A line
-	 * handed over undecoded, as null, is decoded when it drains. The broker's
-	 * drain-loop entry beside `fill()`, measured in ADR-1's amendment: through
-	 * `fill()` a line would be encoded or decoded a second time.
-	 *
-	 * @param string                $raw     One packed record.
-	 * @param array<int,mixed>|null $message Its decoded message, or null.
-	 */
-	public function receive( string $raw, ?array $message ): void {
-		$this->skipped_to  = null;
-		$this->buffer     .= $raw . "\n";
-		$this->bytes_read += \strlen( $raw ) + 1;
-		$this->lines->enqueue( [ 'crumb' => null === $message ? null : Log_Position::crumb( Core::as_string( $message[ Message::ID ] ) ), 'message' => $message ] );
-		$this->at_eof = false;
-		if ( $this->is_live() && self::POLL_INTERVAL_BUSY_MS !== $this->interval_ms ) {
-			$this->set_timer( self::POLL_INTERVAL_BUSY_MS );
-		}
-	}
-
-	/**
 	 * Where the request about to go out begins, and the effects that go with
 	 * stating it. It restores the durable cursor first, so a connect ahead of
 	 * this reader's first poll still asks from it. Then it answers: past
@@ -279,9 +298,11 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	}
 
 	/**
-	 * Refill seam: nothing is read here, since lines arrive pushed. Pass the
-	 * spoke's skip once the records ahead of it drained; live, let the broker
-	 * resume its feed; paused and dry, ask the spoke for the next record.
+	 * Refill seam: nothing is read here. Pass the spoke's skip once the records
+	 * ahead of it drained; live, hand the broker its refill, where
+	 * `Remote_Source` re-arms the stream that pushes lines here and
+	 * `HTTP_Source` has this reader fetch its next block; paused and dry, ask
+	 * the spoke for the next record.
 	 */
 	protected function get_batch(): void {
 		$this->pass_skipped_lines();
@@ -306,26 +327,6 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 			return;
 		}
 		$this->step_requested_at = $this->broker->send_read( $this, 'read_message', [ $this->stamp, $this->step_position() ] ) ? Core::$now : null;
-	}
-
-	/**
-	 * Where a step reads, in `read_message`'s grammar: a pending seek's word,
-	 * which the spoke resolves; else the cursor.
-	 */
-	private function step_position(): string {
-		$word = null === $this->pending_seek ? null : Log_Position::word( $this->pending_seek );
-		return $word ?? $this->cursor_position();
-	}
-
-	/**
-	 * Where the cursor stands now, restoring and consuming nothing, as
-	 * `Log_Position::format()` writes it: the offset alone, as `:{offset}`,
-	 * while the generation is unknown, since segment 0 names a foreign inode.
-	 *
-	 * @return string `{segment}:{offset}` or `:{offset}`.
-	 */
-	public function cursor_position(): string {
-		return Log_Position::format( $this->generation_unknown ? null : $this->cursor_segment, $this->cursor_offset, null );
 	}
 
 	/**
@@ -535,7 +536,11 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * @return array{segment:int, offset:int, at_eof:bool} The resulting cursor + EOF flag.
 	 */
 	public function step(): array {
-		$live   = $this->is_live();
+		$live = $this->is_live();
+		if ( $live ) {
+			// Before the step, which owes itself a record afterwards.
+			$this->forgive_asks();
+		}
 		$cursor = $this->reader_step();
 		if ( $live ) {
 			$this->broker?->restream();
@@ -553,7 +558,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * @param string|int|array<array-key,mixed> $position Explicit {segment?,offset}, or a seek sentinel / alias word.
 	 */
 	protected function seek_to( $position ): void {
-		$this->forgive_steps();
+		$this->forgive_asks();
 		if ( \is_array( $position ) ) {
 			$at = [ 'offset' => \is_numeric( $position['offset'] ?? null ) ? Core::as_int( $position['offset'] ) : 0 ];
 			if ( \is_numeric( $position['segment'] ?? null ) ) {
@@ -570,11 +575,6 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 		if ( $this->is_live() ) {
 			$this->broker?->restream();
 		}
-	}
-
-	/** A paused reader is out of the stream; any other reads it live. */
-	public function is_live(): bool {
-		return 'PAUSED' !== $this->get_state( 'POLLING' );
 	}
 
 	/**
@@ -610,25 +610,6 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	}
 
 	/**
-	 * How far the spoke's stream reaches past the cursor, as far as this reader
-	 * knows: the spoke's skip, else the end of the last buffered record carrying
-	 * a breadcrumb; null when it holds neither. A skip from a file source not
-	 * yet past its first record names no segment.
-	 *
-	 * @return array{segment?:int,offset:int}|null
-	 */
-	private function held_end(): ?array {
-		if ( null !== $this->skipped_to ) {
-			return $this->skipped_to;
-		}
-		$last = null;
-		foreach ( $this->lines as $entry ) {
-			$last = $entry['crumb'] ?? $last;
-		}
-		return null === $last ? null : [ 'segment' => $last['segment'], 'offset' => $last['offset'] + $last['length'] ];
-	}
-
-	/**
 	 * Stand the cursor at a place, the cursor's one deliberate writer: a real
 	 * place answers any pending seek. A place naming no segment moves the
 	 * offset alone and leaves the generation unknown, rather than writing
@@ -647,21 +628,171 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 
 	/** `pause` leaves the stream: the broker reconnects without this reader. */
 	protected function time_travel_on_pause(): void {
-		$this->forgive_steps();
+		$this->forgive_asks();
 		$this->broker?->restream();
 	}
 
 	/** `play` rejoins it from where the cursor stands. */
 	protected function time_travel_resume(): void {
-		$this->forgive_steps();
+		$this->forgive_asks();
 		$this->set_timer( self::POLL_INTERVAL_EOF_MS );
 		$this->broker?->restream();
 	}
 
-	/** Owe no step and await no reply: what a step was asked for no longer stands. */
-	private function forgive_steps(): void {
+	/** Owe no step, await no reply and wait out nothing: what was asked no longer stands. */
+	private function forgive_asks(): void {
 		$this->steps_owed        = 0;
 		$this->step_requested_at = null;
+		$this->fetch_in_flight   = null;
+		$this->fetch_after       = 0.0;
+	}
+
+	/**
+	 * Take one block: each record into the buffer, then the reply's cursor as
+	 * where the spoke's reader stood past the block and any torn lines behind
+	 * it, so a block of torn lines alone still moves the reader on. The end
+	 * makes the next fetch wait; anything else asks at once while the reader
+	 * holds under a block. A payload that is no struct is a refusal, said
+	 * rate-limited, and waits as the end does.
+	 *
+	 * @param array<array-key,mixed> $value The reply's VALUE.
+	 * @param float                  $sent  When the fetch it answers went out.
+	 */
+	private function settle_block( array $value, float $sent ): void {
+		$this->fetch_in_flight = null;
+		$payload               = $value['payload'] ?? null;
+		if ( ! \is_array( $payload ) ) {
+			$this->fetch_refusal = Core::as_string( $payload );
+			$this->print_less_often( 'fetch refused: ', \trim( $this->fetch_refusal ) );
+			$this->fetch_after = Core::$now + HTTP_Source_Node::EOF_POLL_SECONDS;
+			return;
+		}
+		$this->fetch_refusal  = null;
+		$this->fetch_answered = [ 'at' => Core::$now, 'rtt' => Core::$now - $sent ];
+		foreach ( Core::arr( $payload['messages'] ?? [] ) as $record ) {
+			/** @var array<int,mixed> $record */
+			$this->receive( Message::packed( $record ), $record );
+		}
+		$this->spoke_skipped += Core::as_int( $payload['unparseable_lines'] ?? 0 );
+		$cursor = Core::arr( $payload['cursor'] ?? null );
+		if ( \is_int( $cursor['segment'] ?? null ) && \is_int( $cursor['offset'] ?? null ) ) {
+			// After the records, since receive() clears the skip.
+			$this->skipped_to = [ 'segment' => $cursor['segment'], 'offset' => $cursor['offset'] ];
+		}
+		$this->fetch_after = true === ( $payload['at_eof'] ?? null ) ? Core::$now + HTTP_Source_Node::EOF_POLL_SECONDS : 0.0;
+		$this->fetch();
+	}
+
+	/**
+	 * Take one routed line and the message the broker decoded from it, and take
+	 * the busy cadence: data arrives on the cURL drain, between fires. A line
+	 * handed over undecoded, as null, is decoded when it drains. The broker's
+	 * drain-loop entry beside `fill()`, measured in ADR-1's amendment: through
+	 * `fill()` a line would be encoded or decoded a second time.
+	 *
+	 * @param string                $raw     One packed record.
+	 * @param array<int,mixed>|null $message Its decoded message, or null.
+	 */
+	public function receive( string $raw, ?array $message ): void {
+		$this->skipped_to  = null;
+		$this->buffer     .= $raw . "\n";
+		$this->bytes_read += \strlen( $raw ) + 1;
+		$this->lines->enqueue( [ 'crumb' => null === $message ? null : Log_Position::crumb( Core::as_string( $message[ Message::ID ] ) ), 'message' => $message ] );
+		$this->at_eof = false;
+		if ( $this->is_live() && self::POLL_INTERVAL_BUSY_MS !== $this->interval_ms ) {
+			$this->set_timer( self::POLL_INTERVAL_BUSY_MS );
+		}
+	}
+
+	/** End a wait that has fallen due, and fetch: the broker's tick calls it. */
+	public function fetch_when_due(): void {
+		if ( 0.0 < $this->fetch_after && Core::$now >= $this->fetch_after ) {
+			$this->fetch_after = 0.0;
+			$this->fetch();
+		}
+	}
+
+	/**
+	 * Ask the spoke for the next block, when this reader is live, holds under
+	 * one block, has none in flight and waits out no end or refusal, which
+	 * only `fetch_when_due()` ends. A fetch lost to a transport error is asked
+	 * again once HTTP_Out's own timeout has passed; a late reply to the first
+	 * then echoes arguments no longer held.
+	 */
+	public function fetch(): void {
+		if ( null === $this->broker
+			|| ! $this->is_live()
+			|| $this->buffered_bytes() >= Log_Sources::BLOCK_BYTES
+			|| 0.0 !== $this->fetch_after
+			|| Core::$now - ( $this->fetch_in_flight['at'] ?? -\INF ) < HTTP_Out_Node::REQUEST_TIMEOUT ) {
+			return;
+		}
+		$args = [ $this->stamp, $this->fetch_position(), ...( $this->broker->multi_writer() ? [ '--multi_writer=true' ] : [] ) ];
+		if ( $this->broker->send_read( $this, 'read_block', $args ) ) {
+			$this->fetch_in_flight = [ 'args' => $args, 'at' => Core::$now ];
+			$this->fetch_sent_at   = Core::$now;
+		}
+	}
+
+	/** A paused reader is out of the stream; any other reads it live. */
+	public function is_live(): bool {
+		return 'PAUSED' !== $this->get_state( 'POLLING' );
+	}
+
+	/** Bytes buffered and not yet drained; the broker sums them for its valve. */
+	public function buffered_bytes(): int {
+		return \strlen( $this->buffer );
+	}
+
+	/**
+	 * Where the next block begins, in `read_block`'s grammar: past what is
+	 * held, else a pending seek's word, else the cursor.
+	 */
+	private function fetch_position(): string {
+		$held = $this->held_end();
+		if ( null !== $held ) {
+			return Log_Position::format( $held['segment'] ?? null, $held['offset'], null );
+		}
+		return $this->step_position();
+	}
+
+	/**
+	 * Where a step reads, in `read_message`'s grammar: a pending seek's word,
+	 * which the spoke resolves; else the cursor.
+	 */
+	private function step_position(): string {
+		$word = null === $this->pending_seek ? null : Log_Position::word( $this->pending_seek );
+		return $word ?? $this->cursor_position();
+	}
+
+	/**
+	 * Where the cursor stands now, restoring and consuming nothing, as
+	 * `Log_Position::format()` writes it: the offset alone, as `:{offset}`,
+	 * while the generation is unknown, since segment 0 names a foreign inode.
+	 *
+	 * @return string `{segment}:{offset}` or `:{offset}`.
+	 */
+	public function cursor_position(): string {
+		return Log_Position::format( $this->generation_unknown ? null : $this->cursor_segment, $this->cursor_offset, null );
+	}
+
+	/**
+	 * How far the spoke's stream reaches past the cursor, as far as this reader
+	 * knows: the spoke's skip, else the end of the last buffered record carrying
+	 * a breadcrumb; null when it holds neither. A skip from a file source not
+	 * yet past its first record names no segment.
+	 *
+	 * @return array{segment?:int,offset:int}|null
+	 */
+	private function held_end(): ?array {
+		if ( null !== $this->skipped_to ) {
+			return $this->skipped_to;
+		}
+		$last = null;
+		foreach ( $this->lines as $entry ) {
+			$last = $entry['crumb'] ?? $last;
+		}
+		return null === $last ? null : [ 'segment' => $last['segment'], 'offset' => $last['offset'] + $last['length'] ];
 	}
 
 	/**
@@ -789,9 +920,20 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 		return $this->stamp;
 	}
 
-	/** Bytes buffered and not yet drained; the broker sums them for its valve. */
-	public function buffered_bytes(): int {
-		return \strlen( $this->buffer );
+	/**
+	 * What the broker's status reads off this reader's fetches.
+	 *
+	 * @return array{sent_at:?float,answered_at:?float,rtt:?float,fetch_after:?float,skipped:int,refused:?string}
+	 */
+	public function fetch_stats(): array {
+		return [
+			'sent_at'     => $this->fetch_sent_at,
+			'answered_at' => $this->fetch_answered['at'] ?? null,
+			'rtt'         => $this->fetch_answered['rtt'] ?? null,
+			'fetch_after' => 0.0 < $this->fetch_after ? $this->fetch_after : null,
+			'skipped'     => $this->spoke_skipped,
+			'refused'     => $this->fetch_refusal,
+		];
 	}
 
 	/**

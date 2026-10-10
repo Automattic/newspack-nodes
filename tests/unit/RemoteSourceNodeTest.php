@@ -1279,6 +1279,29 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertNotNull( $status['last_response'] );
 	}
 
+	/** The round trip is milliseconds, from the send's fraction of a second. */
+	public function test_heartbeat_round_trip_is_in_milliseconds(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		self::set_slot( Core::node( 'remote-austin:sse-in' ), 7 );
+		Core::$now = 1748960000.250;
+		$node->fire();
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$reply[ Message::VALUE ] = [
+			'name'    => 'heartbeat',
+			'payload' => [ 'success' => true, 'slot' => 7 ],
+		];
+
+		Core::$now = 1748960001.900;
+		$node->fill( $reply );
+
+		$status = $this->status_of( $node );
+		$this->assertSame( 1650.0, $status['last_rtt'] );
+		$this->assertSame( 1748960001, $status['last_response'], 'a whole wall-second' );
+	}
+
 	public function test_heartbeat_command_error_clears_prior_success_and_records_reason(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
@@ -1557,15 +1580,21 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		[ $node ] = $this->make_remote();
+		self::set_slot( Core::node( 'remote-austin:sse-in' ), 5 );
 		Core::$now = 8200.0;
 		$node->fire();
 		Core::$memd->delete( Remote_Source_Node::status_key_for( 'remote-austin', 0 ) );
-		self::set_slot( Core::node( 'remote-austin:sse-in' ), 5 );
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$reply[ Message::VALUE ] = [
+			'name'    => 'heartbeat',
+			'payload' => [ 'success' => true, 'slot' => 5 ],
+		];
 
-		Core::$now = 8201.0;
-		$node->fire();
+		Core::$now = 8202.0;
+		$node->fill( $reply );
 
-		$this->assertSame( 8201, $this->status_of( $node )['last_heartbeat_sent'] );
+		$this->assertSame( 8202, $this->status_of( $node )['last_response'] );
 	}
 
 	// ---------------------------------------------------------------------

@@ -69,8 +69,8 @@ class Remote_Source_Node extends Remote_Broker_Node {
 	/** Patron SSE_In sibling (`<name>:sse-in`); null until the Vault entry resolves. */
 	protected ?SSE_In_Node $sse_in = null;
 
-	/** Wall-second of the last heartbeat sent; the HEARTBEAT_INTERVAL gate reads it. */
-	private int $last_heartbeat_sent = 0;
+	/** When the last heartbeat went out, fraction kept for its RTT; 0 before any. */
+	private float $last_heartbeat_sent = 0.0;
 
 	/** Wall-second of the last heartbeat reply; 0 while none has come back. */
 	private int $last_heartbeat_response = 0;
@@ -304,17 +304,16 @@ class Remote_Source_Node extends Remote_Broker_Node {
 			$this->lease_epoch = $now;
 		}
 		// Silence is not a refusal — HTTP_Out drops the session on a 401.
-		if ( '' === $this->http_out->vault_id() || $now - $this->last_heartbeat_sent < self::HEARTBEAT_INTERVAL ) {
+		if ( '' === $this->http_out->vault_id() || $now - (int) $this->last_heartbeat_sent < self::HEARTBEAT_INTERVAL ) {
 			return;
 		}
 		$message = $this->mint( $this->name, 'workers', 'heartbeat', [ (string) $slot, (string) $owner ] );
 		if ( null === $message ) {
 			return;
 		}
-		$this->last_heartbeat_sent = $now;
+		$this->last_heartbeat_sent = Core::$now;
 		++$this->counter;
 		$this->http_out->fill( $message );
-		$this->write_status( [ 'last_heartbeat_sent' => $now ] );
 	}
 
 	/**
@@ -384,43 +383,16 @@ class Remote_Source_Node extends Remote_Broker_Node {
 			: $value;
 
 		if ( $type & Message::TM_ERROR ) {
-			return self::heartbeat_failure_reason( $payload, 'heartbeat command failed' );
+			return self::failure_reason( $payload, 'heartbeat command failed' );
 		}
 		if (
 			! \is_array( $payload )
 			|| ! \array_key_exists( 'success', $payload )
 			|| true !== $payload['success']
 		) {
-			return self::heartbeat_failure_reason( $payload, 'heartbeat response was not successful' );
+			return self::failure_reason( $payload, 'heartbeat response was not successful' );
 		}
 		return null;
-	}
-
-	/**
-	 * Extract only a bounded single-line reason, never a raw response body.
-	 *
-	 * @param mixed  $payload  The response payload, a string or an array.
-	 * @param string $fallback Reason to report when the payload names none.
-	 */
-	private static function heartbeat_failure_reason( mixed $payload, string $fallback ): string {
-		$reason = \is_string( $payload ) ? $payload : '';
-		if ( \is_array( $payload ) ) {
-			foreach ( [ 'error', 'message', 'reason' ] as $key ) {
-				if ( isset( $payload[ $key ] ) && \is_string( $payload[ $key ] ) ) {
-					$reason = $payload[ $key ];
-					break;
-				}
-			}
-		}
-		$clean = \preg_replace( '/[\x00-\x1F\x7F]+/', ' ', $reason );
-		$clean = \trim( null === $clean ? '' : $clean );
-		if ( '' === $clean ) {
-			return $fallback;
-		}
-		if ( \strlen( $clean ) > 512 ) {
-			return \substr( $clean, 0, 509 ) . '...';
-		}
-		return $clean;
 	}
 
 	/**
@@ -430,7 +402,7 @@ class Remote_Source_Node extends Remote_Broker_Node {
 	 * dashboard badge has to say so.
 	 */
 	private function record_heartbeat_reply(): void {
-		if ( 0 === $this->last_heartbeat_sent ) {
+		if ( 0.0 === $this->last_heartbeat_sent ) {
 			return;
 		}
 		$now                           = (int) Core::$now;
@@ -441,7 +413,7 @@ class Remote_Source_Node extends Remote_Broker_Node {
 			: null;
 		$this->write_status( [
 			'last_response'           => $now,
-			'last_rtt'                => $now - $this->last_heartbeat_sent,
+			'last_rtt'                => self::round_trip_ms( Core::$now - $this->last_heartbeat_sent ),
 			'last_error'              => $connection_error,
 		] );
 	}

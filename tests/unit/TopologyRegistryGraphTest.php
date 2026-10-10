@@ -360,6 +360,18 @@ class TopologyRegistryGraphTest extends TestCase {
 		);
 	}
 
+	/** An HTTP_Source is a broker by the base, as the Vault reload finds one. */
+	public function test_nodes_of_type_finds_an_http_source_as_a_broker(): void {
+		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
+		$this->write_tsl( 'vicuna-http-pull', "make_node HTTP_Source pull:okapi okapi-5521 /var/vicuna/off /var/vicuna/dl ledger.p0:ledger-sink-5521\n" );
+
+		$brokers = Topology_Analyzer::nodes_of_type( 'vicuna-http-pull', \Newspack_Nodes\Remote_Broker_Node::class );
+
+		$this->assertSame( [ 'pull:okapi' ], \array_column( $brokers, 'name' ) );
+		$this->assertSame( 'okapi-5521', $brokers[0]['vault_id'] );
+		$this->assertSame( [ [ 'source' => 'ledger.p0', 'target' => 'ledger-sink-5521' ] ], $brokers[0]['pairs'] );
+	}
+
 	/** A broker subclass binding one more argument starts its pairs one token later. */
 	public function test_graph_for_starts_a_broker_subclass_s_pairs_past_its_own_bound_arguments(): void {
 		require_once __DIR__ . '/../Helpers/fixtures/class-wombat-quad-source-node.php';

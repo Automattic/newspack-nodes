@@ -908,6 +908,44 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	}
 
 	/**
+	 * A refusal's reason for the status snapshot's `last_error`: one bounded
+	 * line, never a raw response body.
+	 *
+	 * @param mixed  $payload  The response payload, a string or an array.
+	 * @param string $fallback Reason to report when the payload names none.
+	 */
+	protected static function failure_reason( mixed $payload, string $fallback ): string {
+		$reason = \is_string( $payload ) ? $payload : '';
+		if ( \is_array( $payload ) ) {
+			foreach ( [ 'error', 'message', 'reason' ] as $key ) {
+				if ( isset( $payload[ $key ] ) && \is_string( $payload[ $key ] ) ) {
+					$reason = $payload[ $key ];
+					break;
+				}
+			}
+		}
+		$clean = \preg_replace( '/[\x00-\x1F\x7F]+/', ' ', $reason );
+		$clean = \trim( null === $clean ? '' : $clean );
+		if ( '' === $clean ) {
+			return $fallback;
+		}
+		if ( \strlen( $clean ) > 512 ) {
+			return \substr( $clean, 0, 509 ) . '...';
+		}
+		return $clean;
+	}
+
+	/**
+	 * A round trip for the status snapshot's `last_rtt`: milliseconds, as the
+	 * Status tab reads it, to the hundredth it shows below one millisecond.
+	 *
+	 * @param float $seconds The round trip in seconds.
+	 */
+	protected static function round_trip_ms( float $seconds ): float {
+		return \round( $seconds * 1000, 2 );
+	}
+
+	/**
 	 * A live reader drained under its mark: let its feed resume. A reader
 	 * calls it from each refill.
 	 *

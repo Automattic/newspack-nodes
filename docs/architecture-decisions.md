@@ -2122,9 +2122,10 @@ failure once, rate-limited, and tells no sender: it drops a batch whose spoke ha
 or url, or whose plaintext url `vault_require_ssl` refuses (`drop_batch()`), and it reads a
 transport error or a non-200 answer other than 202 in `on_transfer_done()`, keeping nothing of
 the batch it sent. A sender waiting on a reply cannot tell that silence from a slow spoke, so a
-sender that must not wait forever keeps a clock of its own. `Remote_Consumer_Node` does: a
+sender that must not wait forever keeps a clock of its own. `Remote_Consumer_Node` keeps two: a
 paused reader's step re-sends `read_message` once `step_requested_at` is older than
-`HTTP_Out_Node::REQUEST_TIMEOUT`. [ADR-13](#adr-13-fill-returns-nothing) says an outcome comes back
+`HTTP_Out_Node::REQUEST_TIMEOUT`, and a live reader under `HTTP_Source_Node` re-sends
+`read_block` once the fetch in flight is as old. [ADR-13](#adr-13-fill-returns-nothing) says an outcome comes back
 as a message, and the browser's `HttpOutNode` already answers this way: a POST that never
 landed fills each sender a `TM_COMMAND|TM_ERROR` built by `failureReply()`, carrying the
 command's `name` and `arguments`, `payload` `Command not delivered: <reason>` and
@@ -2137,8 +2138,8 @@ that carried no FROM, that already carried TM_ERROR (as `Router_Node::send_error
 bounce, so the loop closes after one hop), that carried TM_RESPONSE, or that asked for no reply
 with TM_NOREPLY. A batch held for a missing session is not undelivered and answers nothing. The
 transfer context carries the batch until its completion, which `REQUEST_TIMEOUT` bounds.
-`Remote_Consumer_Node`'s `step_requested_at` clock goes: an undelivered step re-sends on the next
-tick, and a request still in flight is the only reason not to.
+`Remote_Consumer_Node`'s two clocks go: an undelivered step or fetch re-sends on the next tick,
+and a request still in flight is the only reason not to.
 
 **Alternatives considered:** A timeout copied into every minter — rejected: it is what
 `step_requested_at` is, and each copy re-derives what the transport already knows, at a delay of
@@ -2147,28 +2148,35 @@ its own choosing, with the transport's own `CURLOPT_TIMEOUT` as the floor every 
 **Consequences:** Every PHP sender through an `HTTP_Out` starts receiving TM_ERRORs it receives
 none of today. The blast radius, sender by sender, with what each does with one now:
 
-- **`Remote_Link_Node::maybe_send_heartbeat()`** (FROM the link; `workers heartbeat`). Its
+- **`Remote_Source_Node::maybe_send_heartbeat()`** (FROM the broker; `workers heartbeat`). Its
   `fill()` reads any `TM_COMMAND|TM_ERROR` as a failed heartbeat: `stderr()` prints
   `client heartbeat failed`, unthrottled, once per `HEARTBEAT_INTERVAL` (15 s), beside
   HTTP_Out's own rate-limited line, and a broker's `record_heartbeat_failure()` nulls the
   round-trip and sets `last_error`, so the Aggregator badge goes red on the first lost heartbeat
   instead of when the 60 s age-out lapses. It would need to read `undelivered` as the transport's
   failure, already reported.
-- **`Remote_Source_Node::request_read()`** (FROM the reader `<broker>:<kind>`;
-  `raw-logs read_message`). The reader's `fill()` clears `step_requested_at` on any command
-  reply. A bounce echoing the step's arguments takes the refusal branch: it prints
+- **`Remote_Broker_Node::send_read()` from `Remote_Consumer_Node::request_step()`** (FROM the
+  reader `<broker>:<kind>`; `raw-logs read_message`). The reader's `fill()` clears
+  `step_requested_at` on any command reply. A bounce echoing the step's arguments takes the refusal branch: it prints
   `step refused` and forgives every owed step, so the operator's click is lost rather than
   retried. It would need to keep the step owed on `undelivered`, as `FetcherNode` re-arms a read.
+- **`Remote_Consumer_Node::fetch()`** (FROM the reader `<broker>:<kind>`, under
+  `HTTP_Source_Node`; `raw-logs read_block`). The reader's `fill()` settles a `read_block`
+  reply that echoes the fetch in flight; one whose payload is no struct is a refusal, said
+  rate-limited, published as the broker's `last_error`, and waited out for `EOF_POLL_SECONDS`
+  before the broker's tick asks again. Today the fetch's own clock re-sends it after
+  `REQUEST_TIMEOUT`; a bounce would wait an EOF poll instead, so the reader would need to read
+  `undelivered` as a fetch to send again at once rather than a refusal.
 - **`Fanout_Targets::send_signed()` from `Settings_Sync_Node`** (FROM the node; the spoke's
   `settings` verbs). Its `fill()` returns on anything not TM_STRUCT, so the bounce is counted and
   dropped; the periodic re-push already covers a lost push. No change needed.
 - **`Fanout_Targets::send_signed()` from event-logger-nodes' `Discovery_Collector_Node`** (FROM
   the node; `discovery get`). Its `fill()` returns on a payload that is not an array, so the
   string payload is dropped; the next tick probes again. No change needed.
-- **Any message routed to an `HTTP_Out`, or to a link that relays it to one.**
-  `Remote_Link_Node::fill()` hands every message that is not a heartbeat reply to `send()`,
+- **Any message routed to an `HTTP_Out`, or to a broker that relays it to one.**
+  `Remote_Broker_Node::fill()` hands every message that is not a command reply to `send()`,
   which fills its patron `HTTP_Out` verbatim, FROM untouched; a bare `HTTP_Out` takes whatever
-  a TO path addresses to it. So every node in the graph that can address a link or an egress
+  a TO path addresses to it. So every node in the graph that can address a broker or an egress
   is a sender: an operator's Shell (`wp nodes cli` attached to a hub worker, FROM
   `_output/_cli:<pid>/_output`), a `cmd` or `command_node` aimed past an egress, a dashboard
   command routed through the hub, an application node targeting one. Today a lost POST

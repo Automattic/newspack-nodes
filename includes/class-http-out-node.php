@@ -620,7 +620,6 @@ class HTTP_Out_Node extends Timer_Node implements Curl_Owner {
 	/**
 	 * Raise the cap on one reply body, never below `MAX_REPLY_BYTES`.
 	 *
-	 * @api A broker sets it from its reader count.
 	 * @param int $bytes The most one POST's reply may carry.
 	 */
 	public function set_reply_cap( int $bytes ): void {
@@ -635,7 +634,6 @@ class HTTP_Out_Node extends Timer_Node implements Curl_Owner {
 	/**
 	 * The last transfer to complete, for a broker's status snapshot.
 	 *
-	 * @api A broker reads it for its status.
 	 * @return array{code:?int,error:?string}
 	 */
 	public function last_outcome(): array {
