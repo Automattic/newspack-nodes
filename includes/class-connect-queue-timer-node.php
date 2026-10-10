@@ -20,7 +20,7 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * `Remote_Link_Node::queue_connect()` constructs, names, sinks and arms this
+ * `Remote_Source_Node::queue_connect()` constructs, names, sinks and arms this
  * node itself: no TSL declares it and no topology builds it with `make_node`.
  * The sink it receives is `_command_interpreter`, part of that mount rather
  * than an emit path, because `Timer_Node::fire_cb()` returns before `fire()`
@@ -30,7 +30,7 @@ namespace Newspack_Nodes;
 class Connect_Queue_Timer_Node extends Timer_Node {
 
 	/**
-	 * Reserved node name; `Remote_Link_Node` mounts exactly one.
+	 * Reserved node name; `Remote_Source_Node` mounts exactly one.
 	 *
 	 * `Node_Names::SESSION_SCAFFOLDING` carries it, so the `dump_config` verb
 	 * omits the node and the `remove_node` verb refuses it. Inside a live graph,
@@ -51,7 +51,7 @@ class Connect_Queue_Timer_Node extends Timer_Node {
 	/**
 	 * Pop one queued connect and run it; retire when the queue is empty.
 	 *
-	 * Retiring costs nothing to undo — `Remote_Link_Node::queue_connect()`
+	 * Retiring costs nothing to undo — `Remote_Source_Node::queue_connect()`
 	 * remounts the timer on the next push — and it spares an otherwise idle
 	 * process a wakeup every `INTERVAL_MS`.
 	 *
@@ -61,7 +61,7 @@ class Connect_Queue_Timer_Node extends Timer_Node {
 	 * @api Dynamic entrypoint (Timer_Node::fire_cb).
 	 */
 	public function fire(): void {
-		$connect = Remote_Link_Node::shift_connect_queue();
+		$connect = Remote_Source_Node::shift_connect_queue();
 		if ( null === $connect ) {
 			$this->remove_node();
 			return;
@@ -72,7 +72,7 @@ class Connect_Queue_Timer_Node extends Timer_Node {
 	/**
 	 * Palette and canvas manifest.
 	 *
-	 * `hidden` keeps the node off both surfaces. Every `Remote_Link_Node` shares
+	 * `hidden` keeps the node off both surfaces. Every `Remote_Source_Node` shares
 	 * this one timer, so it has no patron to mark it as plumbing, and the flag
 	 * is the only signal `Classes_CI_Node`'s palette scan and the interpreter's
 	 * `dump_metadata` canvas listing can read. What survives the flag is `help
@@ -92,7 +92,7 @@ class Connect_Queue_Timer_Node extends Timer_Node {
 	public static function node_schema(): array {
 		return [
 			'category'    => 'Control',
-			'description' => 'Drains the shared Remote_Link connect queue, one connect per tick.',
+			'description' => 'Drains the shared Remote_Source connect queue, one connect per tick.',
 			'hidden'      => true,
 			'has_target'  => false,
 			'arguments'   => [],

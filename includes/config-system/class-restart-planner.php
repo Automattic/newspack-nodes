@@ -70,7 +70,7 @@ class Restart_Planner {
 	 * same classification a restart takes.
 	 *
 	 * @param string                   $base_dir  Runtime state root holding the per-partition lock dirs.
-	 * @param array<int,string>|string $consumers Classification of who re-reads (see topologies_for()).
+	 * @param array<int,string>|string $consumers Classification of who re-reads (see topologies_for()); Node class-strings pass as they are.
 	 * @return array<int,string> Topology names addressed; empty off the fleet site.
 	 * @throws \Throwable Every unreadable topology and failed flag write, after every dir was offered its flag.
 	 */
@@ -133,12 +133,13 @@ class Restart_Planner {
 	 * resolved so a caller counts its partitions without rebuilding the catalog.
 	 *
 	 * Three inputs: `[]` restarts nothing, `'all'` restarts every active
-	 * topology, and a list of node-type tokens restarts the active topologies
-	 * whose graph instantiates a matching node. Anything else resolves to
+	 * topology, and a list of node-type tokens or Node class-strings restarts
+	 * the active topologies whose graph instantiates a matching node; a
+	 * class-string passes as it is, abstract or not. Anything else resolves to
 	 * nothing. Every answer is drawn from the ACTIVE set, so an inactive
 	 * topology is never signalled.
 	 *
-	 * @param array<int,string>|string $restart [] | 'all' | node-type tokens.
+	 * @param array<int,string>|string $restart [] | 'all' | node-type tokens or Node class-strings.
 	 * @return array<string,mixed> Active topology name => entry.
 	 * @throws \Throwable Every active topology whose graph would not read.
 	 */
@@ -154,7 +155,7 @@ class Restart_Planner {
 	 * so one broken `.tsl` leaves the rest classified. `'all'` reads no graph,
 	 * so it signals every configured topology and raises nothing.
 	 *
-	 * @param array<int,string>|string $restart [] | 'all' | node-type tokens.
+	 * @param array<int,string>|string $restart [] | 'all' | node-type tokens or Node class-strings.
 	 * @return array{0: array<string,mixed>, 1: array<string,\Throwable>} Classified name => entry, then the failures.
 	 */
 	private static function classify( array|string $restart ): array {
@@ -196,18 +197,20 @@ class Restart_Planner {
 	}
 
 	/**
-	 * Resolve node-type tokens to concrete Node FQCNs, dropping every token no
-	 * registered namespace yields. An unknown token contributes nothing rather
-	 * than matching everything, so a typo in a classification recycles no
-	 * topology instead of the whole fleet.
+	 * Resolve each entry to a Node FQCN, dropping every one that names none. A
+	 * Node class-string passes as it is, abstract or not, so code can name a
+	 * base class; a node-type token, the surface a Field's `restart:` writes,
+	 * resolves through the registered namespaces. An unknown token contributes
+	 * nothing rather than matching everything, so a typo in a classification
+	 * recycles no topology instead of the whole fleet.
 	 *
-	 * @param array<int,string> $types Node-type tokens to resolve.
+	 * @param array<int,string> $types Node class-strings or node-type tokens.
 	 * @return list<class-string<Node>> FQCNs (unknowns dropped).
 	 */
 	private static function resolve_types( array $types ): array {
 		$out = [];
 		foreach ( $types as $type ) {
-			$fqcn = Command_Interpreter_Node::resolve_class( $type );
+			$fqcn = \is_a( $type, Node::class, true ) ? $type : Command_Interpreter_Node::resolve_class( $type );
 			if ( null !== $fqcn ) {
 				$out[] = $fqcn;
 			}

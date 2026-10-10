@@ -12,6 +12,7 @@ use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Probe_Record;
+use Newspack_Nodes\Remote_Broker_Node;
 use Newspack_Nodes\Remote_Consumer_Node;
 use Newspack_Nodes\Remote_Source_Node;
 use Newspack_Nodes\Router_Node;
@@ -28,9 +29,21 @@ use Newspack_Nodes\Tests\TestCase;
  * and the status snapshot. Reader behaviour lives in RemoteConsumerNodeTest.
  */
 #[CoversClass( Remote_Source_Node::class )]
+#[CoversClass( Remote_Broker_Node::class )]
 class RemoteSourceNodeTest extends TestCase {
 
 	private string $base_dir = '';
+
+	/** The mounted fleet's own lock dir — where its reload watermark lands. */
+	private string $fleet_lock_dir = '';
+
+	/**
+	 * Monotonic test clock. A fleet tick enqueues the housekeeping sweep, which
+	 * re-reads the wall clock and so un-freezes `Core::$now` mid-call; anything
+	 * that compounded off `Core::$now` would march backwards and stall both the
+	 * config window and the broker's per-second housekeeping latch.
+	 */
+	private float $clock = 0.0;
 
 	protected function setUp(): void {
 		parent::setUp();
@@ -109,7 +122,7 @@ class RemoteSourceNodeTest extends TestCase {
 	 *
 	 * @return array<string,Remote_Consumer_Node>
 	 */
-	private function readers( Remote_Source_Node $node ): array {
+	private function readers( Remote_Broker_Node $node ): array {
 		$readers = [];
 		foreach ( ( new \ReflectionMethod( $node, 'siblings' ) )->invoke( $node ) as $sibling ) {
 			if ( $sibling instanceof Remote_Consumer_Node ) {
@@ -121,32 +134,20 @@ class RemoteSourceNodeTest extends TestCase {
 
 	/** The status snapshot the broker publishes under its own key. */
 	private function status_of( Remote_Source_Node $node ): mixed {
-		return Core::$memd->get( Remote_Source_Node::status_key_for( $node->name(), Core::int( $this->read_private( $node, 'bound_partition' ) ) ) );
+		$partition = ( new \ReflectionProperty( Remote_Broker_Node::class, 'bound_partition' ) )->getValue( $node );
+		return Core::$memd->get( Remote_Source_Node::status_key_for( $node->name(), Core::int( $partition ) ) );
 	}
 
 	// ---------------------------------------------------------------------
 	// The tick, the transports and the arguments.
 	// ---------------------------------------------------------------------
 
-	public function test_the_tick_housekeeps_once_per_wall_second(): void {
-		$node = new class() extends Remote_Source_Node {
-			public int $housekeeping_runs = 0;
-			protected function publish_status(): void {
-				++$this->housekeeping_runs;
-			}
-			protected function should_connect(): bool {
-				return true;
-			}
-		};
-		$node->name( 'src-a' );
-		$ref = new \ReflectionProperty( \Newspack_Nodes\Remote_Link_Node::class, 'sse_in' );
-		$ref->setValue( $node, new \Newspack_Nodes\SSE_In_Node() );
+	/** The broker's tick is the Router's own, which it hitchhikes once a second. */
+	public function test_the_tick_rides_the_router_once_a_second(): void {
+		$node = $this->broker( 'remote-tick-6619' );
 
-		Core::$now = 2000.0;
-		$node->fire();
-		$node->fire();
-		$node->fire();
-		$this->assertSame( 1, $node->housekeeping_runs, 'housekeeping latched to the wall-second' );
+		$this->assertSame( 'router', $node->timer_mode() );
+		$this->assertSame( 1000, $node->interval_ms );
 	}
 
 	/**
@@ -293,6 +294,40 @@ class RemoteSourceNodeTest extends TestCase {
 		Remote_Source_Node::parse_pair( '<yak:x:sink-4' );
 	}
 
+	/** Every broker builds its exact pairs' readers on its first tick; a glob waits for a stamp. */
+	public function test_a_broker_builds_its_exact_readers_on_the_first_tick(): void {
+		require_once \dirname( __DIR__ ) . '/Helpers/fixtures/class-tapir-fetch-node.php';
+		$node = new \Newspack_Nodes\Tests\Fixtures\Tapir_Fetch_Node();
+		$node->name( 'tapir-fetch-8826' );
+		$node->sink( Core::node( '_router' ) );
+		$node->arguments( $this->remote_args( 'tapir-fetch-8826', 'vault-6152', 'jobstats.p0:downstream', 'sources/php:php-errors', 'errors.*:audit-8826' ) );
+		$this->assertSame( [], $this->readers( $node ), 'arguments() builds none' );
+
+		$node->fire();
+
+		$this->assertSame( [ 'jobstats.p0', 'sources/php' ], \array_keys( $this->readers( $node ) ) );
+	}
+
+	/** A pair refusal names the broker class that refused it, not its base. */
+	public function test_a_pair_refusal_names_the_refusing_broker_class(): void {
+		require_once \dirname( __DIR__ ) . '/Helpers/fixtures/class-tapir-fetch-node.php';
+		$node = new \Newspack_Nodes\Tests\Fixtures\Tapir_Fetch_Node();
+		$node->name( 'tapir-fetch-4419' );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( "Tapir_Fetch: a pair is <source>:<target>, got 'firehose.p0'" );
+		$node->arguments( $this->remote_args( 'tapir-fetch-4419', 'vault-6152', 'firehose.p0' ) );
+	}
+
+	/** A static parse names the class it was called on, as a TSL reader calls it. */
+	public function test_a_static_pair_parse_names_the_class_it_was_called_on(): void {
+		require_once \dirname( __DIR__ ) . '/Helpers/fixtures/class-tapir-fetch-node.php';
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( "Tapir_Fetch: pair names a source no spoke can stream: '../x:sink-6152'" );
+		\Newspack_Nodes\Tests\Fixtures\Tapir_Fetch_Node::parse_pair( '../x:sink-6152' );
+	}
+
 	/** Nothing reads a broker's target, so a connect onto one is refused rather than stored. */
 	public function test_a_connect_onto_a_broker_is_refused(): void {
 		[ $node, $child ] = $this->make_remote();
@@ -351,7 +386,7 @@ class RemoteSourceNodeTest extends TestCase {
 			public function disarm(): void {
 				++$this->disarms; }
 		};
-		( new \ReflectionProperty( \Newspack_Nodes\Remote_Link_Node::class, 'sse_in' ) )->setValue( $node, $sse );
+		( new \ReflectionProperty( Remote_Source_Node::class, 'sse_in' ) )->setValue( $node, $sse );
 		$buffer = new \ReflectionProperty( Remote_Consumer_Node::class, 'buffer' );
 		$armed  = new \ReflectionProperty( Remote_Source_Node::class, 'pump_armed' );
 		$disarm = new \ReflectionMethod( $node, 'pump_maybe_disarm' );
@@ -370,17 +405,17 @@ class RemoteSourceNodeTest extends TestCase {
 
 		// Disarmed + still above low-water: NO re-arm (hysteresis band).
 		$buffer->setValue( $child, \str_repeat( 'x', 300 * 1024 ) );
-		$node->pump_maybe_arm();
+		$node->refill( $child );
 		$this->assertSame( 0, $sse->arms, 'above low-water does not re-arm' );
 
 		// Disarmed + drained below low-water: re-arm.
 		$buffer->setValue( $child, \str_repeat( 'x', 10 * 1024 ) );
-		$node->pump_maybe_arm();
+		$node->refill( $child );
 		$this->assertSame( 1, $sse->arms, 're-arm once drained below low-water' );
 
 		// Armed + empty buffer: NO idle disarm, NO redundant arm-on-poll.
 		$buffer->setValue( $child, '' );
-		$node->pump_maybe_arm();
+		$node->refill( $child );
 		$disarm->invoke( $node );
 		$this->assertSame( 1, $sse->arms, 'no arm-on-poll when already armed' );
 		$this->assertSame( 1, $sse->disarms, 'no disarm on an empty buffer' );
@@ -413,6 +448,7 @@ class RemoteSourceNodeTest extends TestCase {
 		// SSE_In hands each raw `msg` payload to the broker's routing seam; the
 		// target a line takes belongs to the READER its stamp names.
 		$this->assertInstanceOf( \Closure::class, $sse->on_message, 'the raw-delivery seam is wired' );
+		$this->assertNull( $sse->sink(), 'delivery is the on_message seam, never a sink' );
 		$this->assertSame( 'downstream', $child->target() );
 	}
 
@@ -475,6 +511,9 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( [ 'vault_id', 'offsetlog_root', 'deadletter_root', 'pairs' ], \array_column( $schema['arguments'], 'name' ) );
 		$this->assertSame( [ 'pairs' ], \array_column( \array_filter( $schema['arguments'], static fn ( array $a ): bool => ! empty( $a['variadic'] ) ), 'name' ) );
 		$this->assertSame( [ 'set_multi_writer', 'assume_clean_shutdown' ], \array_column( $schema['commands'], 'name' ) );
+		$this->assertSame( 'vault_id', $schema['arguments'][0]['type'] );
+		$this->assertFalse( $schema['accepts_fill'] );
+		$this->assertSame( 'Hidden', Remote_Broker_Node::node_schema()['category'], 'the base stays off the palette' );
 	}
 
 	/**
@@ -988,7 +1027,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 		Core::$now = 3001.0;
 		$node->fire();
-		$this->assertNull( \Newspack_Nodes\Remote_Link_Node::shift_connect_queue(), 'the tick queues no connect' );
+		$this->assertNull( Remote_Source_Node::shift_connect_queue(), 'the tick queues no connect' );
 		$this->drain_connect_queue();
 
 		$this->assertCount( 1, $asked, 'no request after the last reader paused' );
@@ -1106,7 +1145,7 @@ class RemoteSourceNodeTest extends TestCase {
 		// go for the far-side reader to pick the change up.
 		$node = $this->broker();
 		$sse  = $this->seal_grace_spy();
-		( new \ReflectionProperty( \Newspack_Nodes\Remote_Link_Node::class, 'sse_in' ) )->setValue( $node, $sse );
+		( new \ReflectionProperty( Remote_Source_Node::class, 'sse_in' ) )->setValue( $node, $sse );
 
 		$node->set_multi_writer( true );
 
@@ -1119,7 +1158,7 @@ class RemoteSourceNodeTest extends TestCase {
 		// re-asserting a value the source already holds should cost nothing.
 		$node = $this->broker();
 		$sse  = $this->seal_grace_spy();
-		( new \ReflectionProperty( \Newspack_Nodes\Remote_Link_Node::class, 'sse_in' ) )->setValue( $node, $sse );
+		( new \ReflectionProperty( Remote_Source_Node::class, 'sse_in' ) )->setValue( $node, $sse );
 		$node->set_multi_writer( true );
 
 		$node->set_multi_writer( true );
@@ -1736,5 +1775,746 @@ class RemoteSourceNodeTest extends TestCase {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 			return \curl_init();
 		};
+	}
+
+	// ---------------------------------------------------------------------
+	// The channel: patrons, RELOAD, the egress and its heartbeat.
+	// ---------------------------------------------------------------------
+
+	/** The `austin` spoke with a token, as a spoke that can be sent to. */
+	private function seed_austin(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p', 'token' => 't' ] );
+	}
+
+	public function test_the_stream_carries_the_vaults_tls_opts(): void {
+		$this->use_base_dir( $this->make_temp_dir(), [ 'vault_verify_ssl' => false ] );
+		$this->seed_austin();
+		$captured = [];
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
+			$captured[] = $opts;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+		$this->make_remote( 'remote-austin' );
+		$this->assertTrue( Core::node( 'remote-austin:sse-in' )->maybe_connect() );
+
+		$stream = \array_values( \array_filter( $captured, static fn ( array $o ): bool => \str_contains( $o[ \CURLOPT_URL ], '/messages/stream' ) ) );
+		$this->assertFalse( $stream[0][ \CURLOPT_SSL_VERIFYPEER ] );
+		$this->assertSame( 0, $stream[0][ \CURLOPT_SSL_VERIFYHOST ] );
+	}
+
+	public function test_ensure_patrons_idempotent_returns_same_sse(): void {
+		$this->seed_austin();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$first    = Core::node( 'remote-austin:sse-in' );
+
+		Core::$now += 1;
+		$node->fire();
+		$this->assertSame( $first, Core::node( 'remote-austin:sse-in' ) );
+	}
+
+	/** Mount a `_fleet` this broker can subscribe to, as a live worker graph has. */
+	private function mount_fleet(): \Newspack_Nodes\Fleet_Node {
+		$this->clock          = Core::right_now();
+		$base                 = $this->make_temp_dir( 'broker-fleet-' );
+		$this->fleet_lock_dir = "{$base}/locks/broker-lab.p0.lock.d";
+		\mkdir( $this->fleet_lock_dir, 0755, true );
+		$fleet = new \Newspack_Nodes\Fleet_Node();
+		$fleet->name( \Newspack_Nodes\Node_Names::FLEET );
+		$fleet->sink( Core::node( \Newspack_Nodes\Node_Names::ROUTER ) );
+		$fleet->arguments( [ $base, $this->fleet_lock_dir ] );
+		return $fleet;
+	}
+
+	/**
+	 * Signal a reload the way a Vault save does — a watermark in the worker's
+	 * own lock dir, consumed on the fleet's next config window. Never
+	 * `notify( 'RELOAD' )` by hand: the purge and the config reset that precede
+	 * the notification are the half of this path that carries the credentials.
+	 */
+	private function signal_reload( \Newspack_Nodes\Fleet_Node $fleet ): void {
+		\Newspack_Nodes\Lock_Node::request_reload_at( $this->fleet_lock_dir );
+		$this->advance( ( \Newspack_Nodes\Fleet_Node::SCAN_INTERVAL_MS / 1000 ) + 1 );
+		$fleet->fire_cb();
+	}
+
+	/** Move the monotonic test clock forward and publish it as `Core::$now`. */
+	private function advance( float $seconds ): void {
+		$this->clock += $seconds;
+		Core::$now    = $this->clock;
+	}
+
+	/** Re-credential the seeded spoke to a host distinct from the seed. */
+	private function recredential( string $url ): void {
+		\update_option( Vault::OPTION_KEY, [ 'austin' => [ 'url' => $url, 'auth_username' => 'u2', 'auth_password' => 'p2', 'token' => 't2' ] ] );
+	}
+
+	/** The RELOAD subscriber keys registered on the fleet, closures included. */
+	private function reload_subscribers( \Newspack_Nodes\Fleet_Node $fleet ): array {
+		return \array_keys( $this->read_private( $fleet, 'registrations' )['RELOAD'] ?? [] );
+	}
+
+	/** Step past the once-per-second housekeeping latch, then tick. */
+	private function tick_next_second( Remote_Source_Node $node ): void {
+		$this->advance( 1 );
+		$node->fire();
+	}
+
+	public function test_a_reload_makes_the_broker_re_read_its_vault_credentials(): void {
+		$fleet = $this->mount_fleet();
+		$this->seed_austin();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$this->assertSame( 'https://austin.example', $this->read_private( Core::node( 'remote-austin:sse-in' ), 'url' ) );
+
+		$this->recredential( 'https://austin-7714.example' );
+		$this->signal_reload( $fleet );
+		$this->tick_next_second( $node );
+
+		$this->assertSame( 'https://austin-7714.example', $this->read_private( Core::node( 'remote-austin:sse-in' ), 'url' ) );
+	}
+
+	#[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
+	public function test_a_reload_re_reads_a_url_another_process_wrote(): void {
+		// A worker's WordPress caches the option under its own key on first read.
+		require_once __DIR__ . '/../Helpers/wp-object-cache-stub.php';
+		$fleet = $this->mount_fleet();
+		$this->seed_austin();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+
+		// The Vault tab's save reaches the shared cache, not this worker's copy.
+		$servers                  = $GLOBALS['_wp_options'][ Vault::OPTION_KEY ];
+		$servers['austin']['url'] = 'https://austin-5521.example';
+		\wp_test_write_elsewhere( Vault::OPTION_KEY, $servers, false );
+		$this->signal_reload( $fleet );
+		$this->tick_next_second( $node );
+
+		$this->assertSame( 'https://austin-5521.example', $this->read_private( Core::node( 'remote-austin:sse-in' ), 'url' ) );
+	}
+
+	public function test_a_second_reload_is_still_delivered(): void {
+		// The registration must survive its own delivery: notify() drops a
+		// listener whose handler returns exactly false, so only a deliberate
+		// "stop listening" ends the subscription — never a void handler.
+		$fleet = $this->mount_fleet();
+		$this->seed_austin();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+
+		$this->recredential( 'https://austin-7714.example' );
+		$this->signal_reload( $fleet );
+		$this->tick_next_second( $node );
+		$this->assertSame( 'https://austin-7714.example', $this->read_private( Core::node( 'remote-austin:sse-in' ), 'url' ) );
+
+		$this->recredential( 'https://austin-8135.example' );
+		$this->signal_reload( $fleet );
+		$this->tick_next_second( $node );
+
+		$this->assertSame( 'https://austin-8135.example', $this->read_private( Core::node( 'remote-austin:sse-in' ), 'url' ) );
+	}
+
+	public function test_a_node_that_never_subscribed_is_not_on_the_reload_list(): void {
+		$fleet = $this->mount_fleet();
+		$this->seed_austin();
+		$this->broker( 'remote-austin' );
+		$bystander = new \Newspack_Nodes\Null_Node();
+		$bystander->name( 'quiet-bystander-6612' );
+
+		$this->assertSame( [ 'remote-austin' ], $this->reload_subscribers( $fleet ), 'only vault-consuming nodes subscribe' );
+	}
+
+	/**
+	 * The RELOAD subscription is an entry keyed by MY name in ANOTHER node's
+	 * registrations, so a rename must move it. Left under the old key it still
+	 * FIRES — the handler is a closure, and `notify()` keeps a listener that
+	 * returns anything but false — so the broker looks healthy while
+	 * `remove_node()` unregisters the new name as a no-op and the closure
+	 * outlives the node, and a later broker taking the old name silently
+	 * overwrites it, ending the original's reloads for good.
+	 */
+	public function test_renaming_a_broker_moves_its_reload_subscription(): void {
+		$fleet = $this->mount_fleet();
+		$this->seed_austin();
+		$node = $this->broker( 'remote-southbound-4471' );
+
+		$node->name( 'remote-northbound-9203' );
+
+		$this->assertSame( [ 'remote-northbound-9203' ], $this->reload_subscribers( $fleet ) );
+	}
+
+	/**
+	 * The broker's own name is DECLARED on its HTTP_Out, and re-declared on
+	 * every rename.
+	 *
+	 * The heartbeat reply self-routes back to `fill()` on the FROM breadcrumb
+	 * this node minted, and `HTTP_Out` admits an addressed reply only for a
+	 * declared path — so a broker that did not declare itself would lose its
+	 * own RTT bookkeeping the moment the allowlist closed. `address_null_sink()`
+	 * runs on the first build and on every rename, which is why the seed rides
+	 * with the target rather than sitting in the constructor.
+	 */
+	public function test_a_broker_declares_its_own_name_as_a_reply_destination(): void {
+		$this->seed_austin();
+		$node = $this->broker( 'remote-southbound-4471' );
+		( new \ReflectionMethod( $node, 'ensure_patrons' ) )->invoke( $node );
+
+		$dumped = static function ( string $broker ): string {
+			$http = Core::node( $broker . ':http-out' );
+			return null === $http ? '' : $http->dump_config();
+		};
+
+		$this->assertStringContainsString(
+			'allow_replies_to remote-southbound-4471',
+			$dumped( 'remote-southbound-4471' ),
+			'the first build declares the patron'
+		);
+
+		$node->name( 'remote-northbound-9203' );
+
+		$this->assertStringContainsString(
+			'allow_replies_to remote-northbound-9203',
+			$dumped( 'remote-northbound-9203' ),
+			'and the rename re-declares it'
+		);
+	}
+
+	public function test_a_renamed_broker_unregisters_from_reload_on_teardown(): void {
+		$fleet = $this->mount_fleet();
+		$this->seed_austin();
+		$node = $this->broker( 'remote-southbound-4471' );
+		$node->name( 'remote-northbound-9203' );
+
+		$node->remove_node();
+
+		$this->assertSame( [], $this->reload_subscribers( $fleet ) );
+	}
+
+	public function test_remove_node_unregisters_from_reload(): void {
+		// Registrations are keyed by name, so a removed node that left one
+		// behind keeps a closure alive holding the dead node.
+		$fleet = $this->mount_fleet();
+		$this->seed_austin();
+		$node = $this->broker( 'remote-shortlived-5528' );
+		$this->assertSame( [ 'remote-shortlived-5528' ], $this->reload_subscribers( $fleet ) );
+
+		$node->remove_node();
+
+		$this->assertSame( [], $this->reload_subscribers( $fleet ) );
+	}
+
+	public function test_normal_traffic_is_unchanged_by_subscribing(): void {
+		// Control never touches fill(), so a data message wearing the event name
+		// is relayed verbatim — no discrimination, nothing to get wrong.
+		$fleet = $this->mount_fleet();
+		$this->seed_austin();
+		$node = $this->broker( 'remote-austin' );
+		$this->assertSame( [ 'remote-austin' ], $this->reload_subscribers( $fleet ) );
+
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$m[ Message::KEY ]   = 'RELOAD';
+		$m[ Message::VALUE ] = 'ledger-line-4471';
+		$node->fill( $m );
+
+		$batch = $this->read_private( Core::node( 'remote-austin:http-out' ), 'batch' );
+		$this->assertCount( 1, $batch );
+		$this->assertSame( 'ledger-line-4471', $batch[0][ Message::VALUE ] );
+		$this->assertSame( 'RELOAD', $batch[0][ Message::KEY ] );
+	}
+
+	public function test_vault_entry_without_url_stays_disconnected(): void {
+		\update_option( Vault::OPTION_KEY, [ 'austin' => [ 'url' => '', 'auth_username' => 'u' ] ] );
+		Vault::get_instance()->reset_cache();
+
+		$this->make_remote( 'remote-austin' );
+
+		$this->assertNull( Core::node( 'remote-austin:sse-in' ) );
+		$this->assertNull( Core::node( 'remote-austin:http-out' ) );
+	}
+
+	/** A Vault entry removed after the channel stood leaves the stream unbuilt and says why. */
+	public function test_an_entry_gone_after_the_channel_stays_disconnected(): void {
+		$this->seed_austin();
+		$node                = $this->broker( 'remote-austin' );
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$m[ Message::VALUE ] = 'payload-3381';
+		$node->fill( $m );
+		$this->assertInstanceOf( HTTP_Out_Node::class, Core::node( 'remote-austin:http-out' ), 'precondition: the channel stands' );
+		\update_option( Vault::OPTION_KEY, [] );
+		Vault::get_instance()->reset_cache();
+		$log = $this->capture_stderr();
+
+		Core::$now += 1;
+		$node->fire();
+
+		$this->assertNull( Core::node( 'remote-austin:sse-in' ) );
+		$this->assertStringContainsString( 'no Vault entry; staying disconnected', \implode( '', $log->getArrayCopy() ) );
+	}
+
+	public function test_fill_relays_non_command_message_through_http_out(): void {
+		$this->seed_austin();
+		$node = $this->broker( 'remote-austin' );
+
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$m[ Message::VALUE ] = 'payload-6620';
+		$node->fill( $m );
+
+		$batch = $this->read_private( Core::node( 'remote-austin:http-out' ), 'batch' );
+		$this->assertCount( 1, $batch );
+		$this->assertSame( 'payload-6620', $batch[0][ Message::VALUE ] );
+	}
+
+	public function test_fill_command_response_is_reply_not_relayed(): void {
+		$this->seed_austin();
+		$node = $this->broker( 'remote-austin' );
+
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$reply[ Message::TO ]    = 'remote-austin';
+		$reply[ Message::VALUE ] = [
+			'name'    => 'heartbeat',
+			'payload' => [ 'success' => true, 'slot' => 7 ],
+		];
+		$node->fill( $reply );
+
+		// A reply is RTT bookkeeping — it neither relays nor creates patrons.
+		$this->assertNull( Core::node( 'remote-austin:http-out' ) );
+	}
+
+	public function test_fill_command_error_is_reply_not_relayed(): void {
+		$this->seed_austin();
+		$node = $this->broker( 'remote-austin' );
+
+		$node->fill( $this->heartbeat_error( 'remote-austin', 'SSE slot lease not owned' ) );
+
+		$this->assertNull( Core::node( 'remote-austin:http-out' ) );
+	}
+
+	public function test_a_released_slot_is_not_logged_as_an_error(): void {
+		// An idle stream ends and releases its slot; a heartbeat already in
+		// flight lands on the tombstone. That race is the design working, and
+		// with a 5s idle timeout against a 15s heartbeat it recurs forever.
+		$this->seed_austin();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$log      = $this->capture_stderr();
+
+		$node->fill( $this->heartbeat_error( 'remote-austin', 'SSE slot lease not owned: slot_released' ) );
+
+		$this->assertSame( '', \implode( '', $log->getArrayCopy() ) );
+	}
+
+	public function test_a_stolen_slot_is_still_logged_as_an_error(): void {
+		// The counterpart guard: silencing the benign race must not silence a
+		// real eviction, which means the lease TTL expired under us.
+		$this->seed_austin();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$log      = $this->capture_stderr();
+
+		$node->fill( $this->heartbeat_error( 'remote-austin', 'SSE slot lease not owned: pointer_owner_mismatch' ) );
+
+		$this->assertStringContainsString( 'pointer_owner_mismatch', \implode( '', $log->getArrayCopy() ) );
+	}
+
+	/**
+	 * Silence is not a refusal. The session is dropped when the spoke actually
+	 * refuses — HTTP_Out forgets it on a 401 — never on an inference drawn from
+	 * missing replies: the keepalive is gated on having a session, so a guess
+	 * would suspend it and cost the slot and then the stream.
+	 */
+	public function test_missing_heartbeat_replies_do_not_drop_the_session(): void {
+		$this->seed_austin();
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		self::set_slot( Core::node( 'remote-austin:sse-in' ), 5 );
+
+		// First beat goes out; no reply ever arrives.
+		Core::$now = \microtime( true ) + Remote_Source_Node::HEARTBEAT_INTERVAL + 1;
+		$node->fire();
+		$this->assertTrue( Command_Auth::has_session( 'austin' ) );
+
+		// Past three cadences of silence, still inside the stale window (45s) so
+		// the tick reaches the heartbeat instead of reconnecting.
+		Core::$now += ( Remote_Source_Node::HEARTBEAT_INTERVAL * 3 ) + 1;
+		$node->fire();
+
+		$this->assertTrue(
+			Command_Auth::has_session( 'austin' ),
+			'silence must not forget a session the spoke never refused'
+		);
+	}
+
+	public function test_heartbeat_skipped_when_owner_unknown_even_if_slot_is_present(): void {
+		$this->seed_austin();
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$sse      = Core::node( 'remote-austin:sse-in' );
+		self::set_slot( $sse, 7 );
+		( new \ReflectionProperty( SSE_In_Node::class, 'owner' ) )->setValue( $sse, null );
+
+		Core::$now = \microtime( true ) + Remote_Source_Node::HEARTBEAT_INTERVAL + 1;
+		$node->fire();
+
+		$this->assertCount( 0, $this->read_private( Core::node( 'remote-austin:http-out' ), 'batch' ) );
+	}
+
+	public function test_first_session_request_waits_half_the_heartbeat_interval(): void {
+		// Every Remote_Source in an aggregator boots in the same tick, so the
+		// session POST waits half the cadence past the lease, off the instant
+		// of its own SSE GET, and the boot burst splits in two.
+		\update_option( Vault::OPTION_KEY, [ 'austin' => [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p', 'token' => 't' ] ] );
+		Vault::get_instance()->reset_cache();
+		$this->stub_sse_connect();
+		$start     = \microtime( true );
+		Core::$now = $start;
+		[ $node ]  = $this->make_remote( 'remote-austin' );
+
+		self::set_slot( Core::node( 'remote-austin:sse-in' ), 7, 42424243 );
+		// Both clocks start on the first tick that sees the lease.
+		Core::$now = $start + 1;
+		$node->fire();
+		$epoch = $start + 1;
+
+		$http_out = Core::node( 'remote-austin:http-out' );
+		// 6s in: distinct from 0 and from the 15s cadence — a bare `>= 0` gate
+		// and an unchanged full-cadence gate both fail here.
+		Core::$now = $epoch + 6;
+		$node->fire();
+		$this->assertFalse(
+			$this->read_private( $http_out, 'auth_in_flight' ),
+			'no session request before half the heartbeat interval'
+		);
+
+		// Past the floor it asks on its OWN second of the cadence (the phase that
+		// stops a mass re-auth stampeding), so allow one full cadence.
+		$asked = false;
+		for ( $t = 7; $t <= 7 + Remote_Source_Node::HEARTBEAT_INTERVAL; $t++ ) {
+			Core::$now = $epoch + $t;
+			$node->fire();
+			if ( true === $this->read_private( $http_out, 'auth_in_flight' ) ) {
+				$asked = true;
+				break;
+			}
+		}
+		$this->assertTrue( $asked, 'the session request fires within a cadence of 7.5s' );
+	}
+
+	/** A tick landing one second past the phase still asks; two seconds past waits a cadence. */
+	public function test_a_session_request_late_by_one_second_still_asks(): void {
+		require_once \dirname( __DIR__ ) . '/Helpers/fixtures/class-tapir-fetch-node.php';
+		\update_option( Vault::OPTION_KEY, [ 'vault-6152' => [ 'url' => 'https://tapir.example', 'auth_username' => 'u', 'auth_password' => 'p' ] ] );
+		Vault::get_instance()->reset_cache();
+		$auths = 0;
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ) use ( &$auths ): \CurlHandle {
+			$auths += \str_contains( Core::as_string( $opts[ \CURLOPT_URL ] ), '/v1/auth' ) ? 1 : 0;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+		$name     = 'tapir-phase-4471';
+		$interval = Remote_Broker_Node::HEARTBEAT_INTERVAL;
+		$phase    = \crc32( $name ) % $interval;
+		$base     = 150000.0;
+		$node     = new \Newspack_Nodes\Tests\Fixtures\Tapir_Fetch_Node();
+		$node->name( $name );
+		$node->sink( Core::node( '_router' ) );
+		$node->arguments( $this->remote_args( $name, 'vault-6152', 'jobstats.p0:downstream' ) );
+		Core::$now = $base + $phase + 2;
+		$node->fire();
+		$child = Core::node( "{$name}:jobstats.p0" );
+
+		$this->assertFalse( $node->send_read( $child, 'read_message', [ 'jobstats.p0', 'start' ] ) );
+		$this->assertSame( 0, $auths, 'two seconds past the phase waits for the next cadence' );
+
+		Core::$now = $base + $interval + $phase + 1;
+		$node->send_read( $child, 'read_message', [ 'jobstats.p0', 'start' ] );
+		$this->assertSame( 1, $auths, 'one second past the phase asks' );
+	}
+
+	public function test_asking_for_a_session_does_not_move_the_heartbeat_clock(): void {
+		// The session request rides its own clock and leaves the heartbeat's
+		// alone, so the first heartbeat goes out at 15s, never a cadence later
+		// at 22.5s.
+		$this->stub_sse_connect();
+		\update_option( Vault::OPTION_KEY, [ 'austin' => [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p', 'token' => 't' ] ] );
+		Vault::get_instance()->reset_cache();
+		$start     = \microtime( true );
+		Core::$now = $start;
+		[ $node ]  = $this->make_remote( 'remote-austin' );
+		self::set_slot( Core::node( 'remote-austin:sse-in' ), 7, 42424243 );
+		Core::$now = $start + 1;
+		$node->fire();
+		$epoch = $start + 1;
+
+		// The session request goes out at the half-cadence boundary.
+		Core::$now = $epoch + 7;
+		$node->fire();
+		// It lands, as the real /auth reply would.
+		Command_Auth::remember_session( 'austin', \str_repeat( 'b', 32 ), 'spoke-session-key' );
+
+		// 9s: well short of the 22.5s a cadence-spending ask would have forced.
+		Core::$now = $epoch + 9;
+		$node->fire();
+		$batch = $this->read_private( Core::node( 'remote-austin:http-out' ), 'batch' );
+		$this->assertCount( 1, $batch, 'the heartbeat clock was never spent on asking' );
+		$this->assertSame( 'heartbeat', $batch[0][ Message::VALUE ]['name'] );
+	}
+
+	public function test_two_brokers_connect_one_per_queue_tick_not_all_at_once(): void {
+		// An aggregator brings every Remote_Source up in one tick; N simultaneous
+		// SSE connects are exactly what the spoke answers with HTTP 429. Ported
+		// from Tachikoma's JobSpawnTimer: one connect per timer fire.
+		$connects = [];
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ) use ( &$connects ): \CurlHandle {
+			$connects[] = $opts[ \CURLOPT_URL ];
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+		\update_option(
+			Vault::OPTION_KEY,
+			[
+				'austin'   => [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p', 'token' => 't' ],
+				'brisbane' => [ 'url' => 'https://brisbane.example', 'auth_username' => 'u', 'auth_password' => 'p', 'token' => 't' ],
+			]
+		);
+		Vault::get_instance()->reset_cache();
+
+		// The timer sinks into the interpreter, as every node does in a live
+		// graph; without one Timer_Node::fire_cb() never reaches fire().
+		( new Command_Interpreter_Node() )->name( '_command_interpreter' );
+		$this->make_remote( 'remote-austin' );
+		$this->broker( 'remote-brisbane', $this->remote_args( 'remote-brisbane', 'brisbane' ) )->fire();
+
+		$this->assertSame( [], $connects, 'both brokers only QUEUED their connect' );
+
+		$timer = Core::node( \Newspack_Nodes\Connect_Queue_Timer_Node::NODE_NAME );
+		$this->assertInstanceOf( \Newspack_Nodes\Connect_Queue_Timer_Node::class, $timer );
+
+		// Drive fire_cb(), the real dispatch path: Timer_Node::fire_cb() returns
+		// early on a null sink, BEFORE fire(), so a sinkless timer never drains
+		// the queue and nothing ever connects. Calling fire() directly hides it.
+		$timer->fire_cb();
+		$this->assertCount( 1, $connects, 'one connect per queue tick' );
+		$timer->fire_cb();
+		$this->assertCount( 2, $connects, 'the second lands on the next tick' );
+
+		// Dry queue retires the timer, exactly as JobSpawnTimer does.
+		$timer->fire_cb();
+		$this->assertNull( Core::node( \Newspack_Nodes\Connect_Queue_Timer_Node::NODE_NAME ) );
+	}
+
+	public function test_a_simultaneous_session_loss_does_not_stampede_auth(): void {
+		// The connect stagger only spreads FIRST boot. A spoke restart or key
+		// rotation drops every session in the same instant, and every broker is
+		// then long past its retry gate, so without a per-broker phase all N
+		// POST /v1/auth on one tick.
+		$this->stub_sse_connect();
+		\update_option( Vault::OPTION_KEY, [ 'austin' => [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p', 'token' => 't' ] ] );
+		Vault::get_instance()->reset_cache();
+		( new Command_Interpreter_Node() )->name( '_command_interpreter' );
+
+		// Long-established brokers, every session lost at the same instant.
+		$start   = 100000.0;
+		$brokers = [];
+		foreach ( [ 'remote-alfa', 'remote-bravo', 'remote-charlie', 'remote-delta' ] as $name ) {
+			Core::$now        = $start;
+			$brokers[ $name ] = $this->broker( $name );
+			$brokers[ $name ]->fire();
+			$this->drain_connect_queue();
+		}
+		foreach ( $brokers as $name => $node ) {
+			Core::$now = $start + 1;
+			$node->fire();
+			self::set_slot( Core::node( "{$name}:sse-in" ), 3, 42424243 );
+		}
+
+		// Walk a full cadence and record which second each broker asks on.
+		$asked = [];
+		$floor = \intdiv( Remote_Source_Node::HEARTBEAT_INTERVAL, 2 );
+		for ( $t = 2; $t <= 2 + $floor + Remote_Source_Node::HEARTBEAT_INTERVAL; $t++ ) {
+			foreach ( $brokers as $name => $node ) {
+				if ( isset( $asked[ $name ] ) ) {
+					continue;
+				}
+				Core::$now = $start + $t;
+				$node->fire();
+				if ( true === $this->read_private( Core::node( "{$name}:http-out" ), 'auth_in_flight' ) ) {
+					$asked[ $name ] = $t;
+				}
+			}
+		}
+
+		$this->assertCount( 4, $asked, 'every broker still asks within one cadence' );
+		$this->assertGreaterThan(
+			1,
+			\count( \array_unique( \array_values( $asked ) ) ),
+			'the asks must not all land on one second'
+		);
+	}
+
+	public function test_terminal_disconnect_retires_lease_before_blocked_reconnect_heartbeat(): void {
+		$this->seed_austin();
+		$this->stub_sse_connect();
+		Core::$now = 1000.0;
+		[ $node ]  = $this->make_remote( 'remote-austin' );
+
+		$sse = Core::node( 'remote-austin:sse-in' );
+		self::set_slot( $sse, 7, 42424243 );
+		$sse->process_sse_chunk( self::disconnect_frame( 'slot_lease_lost', 'SSE slot lease lost' ) );
+
+		Core::$now = 1000.0 + Remote_Source_Node::HEARTBEAT_INTERVAL + 1;
+		$node->fire();
+
+		$this->assertCount(
+			0,
+			$this->read_private( Core::node( 'remote-austin:http-out' ), 'batch' ),
+			'a terminal stream cannot heartbeat its retired lease while reconnect is blocked'
+		);
+		$this->assertNull( $sse->slot(), 'a terminal stream must not expose a stale slot' );
+		$this->assertNull( $sse->owner(), 'a terminal stream must not expose a stale owner' );
+	}
+
+	public function test_clean_detach_retires_lease_before_failed_reconnect_heartbeat(): void {
+		$this->seed_austin();
+		$this->stub_sse_connect();
+		Core::$now = 2000.0;
+		[ $node ]  = $this->make_remote( 'remote-austin' );
+
+		$sse = Core::node( 'remote-austin:sse-in' );
+		self::set_slot( $sse, 8, 51515153 );
+		$sse->disconnect();
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static fn ( array $opts ): bool => false;
+
+		Core::$now = 2000.0 + Remote_Source_Node::HEARTBEAT_INTERVAL + 1;
+		$node->fire();
+
+		$this->assertCount(
+			0,
+			$this->read_private( Core::node( 'remote-austin:http-out' ), 'batch' ),
+			'a failed reconnect cannot heartbeat the detached stream lease'
+		);
+		$this->assertNull( $sse->slot(), 'a detached stream must not expose a stale slot' );
+		$this->assertNull( $sse->owner(), 'a detached stream must not expose a stale owner' );
+	}
+
+	/**
+	 * HTTP_Out's wire-inbound clause is armed only once a target is set, and the
+	 * arm worth having is the refusal of a non-response the spoke addressed at
+	 * our graph. The target is a Null sibling, not the broker: the broker's
+	 * fill() relays whatever it is handed, so stamping traffic back onto it
+	 * would send the spoke's own output straight back to the spoke.
+	 */
+	public function test_the_egress_targets_a_null_sibling(): void {
+		$this->seed_austin();
+		$this->stub_sse_connect();
+		$this->make_remote( 'remote-austin' );
+
+		$this->assertSame( 'remote-austin:null', Core::node( 'remote-austin:http-out' )->target() );
+		$this->assertInstanceOf( \Newspack_Nodes\Null_Node::class, Core::node( 'remote-austin:null' ) );
+	}
+
+	public function test_the_null_sibling_is_torn_down_with_the_broker(): void {
+		$this->seed_austin();
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+
+		$node->remove_node();
+
+		$this->assertNull( Core::node( 'remote-austin:null' ) );
+	}
+
+	/**
+	 * The heartbeat is a COMMAND the spoke's interpreter must authorize, so it
+	 * is signed at the mint, under the session established with that spoke;
+	 * the spoke refuses an unsigned one as "verification failed: bad envelope".
+	 */
+	public function test_heartbeat_is_signed_for_its_spoke(): void {
+		$this->seed_austin();
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		self::set_slot( Core::node( 'remote-austin:sse-in' ), 5 );
+		Command_Auth::remember_session( 'austin', \str_repeat( 'b', 32 ), 'heartbeat-session-key' );
+
+		Core::$now = \microtime( true ) + Remote_Source_Node::HEARTBEAT_INTERVAL + 1;
+		$node->fire();
+
+		$batch = $this->read_private( Core::node( 'remote-austin:http-out' ), 'batch' );
+		$this->assertCount( 1, $batch );
+		$auth = $batch[0][ Message::VALUE ]['auth'] ?? null;
+		$this->assertIsArray( $auth, 'the heartbeat must carry a signature' );
+		$this->assertMatchesRegularExpression( '/^[0-9a-f]{64}$/', $auth['sig'] );
+	}
+
+	/** No session yet: hold the beat rather than send one the spoke will refuse. */
+	public function test_heartbeat_is_held_until_the_spoke_session_exists(): void {
+		$this->seed_austin();
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		self::set_slot( Core::node( 'remote-austin:sse-in' ), 5 );
+		Command_Auth::forget_session( 'austin' );
+
+		Core::$now = \microtime( true ) + Remote_Source_Node::HEARTBEAT_INTERVAL + 1;
+		$node->fire();
+
+		$this->assertCount( 0, $this->read_private( Core::node( 'remote-austin:http-out' ), 'batch' ) );
+	}
+
+	/** The reply leg is what keeps the session: an answered beat never expires it. */
+	public function test_an_answered_heartbeat_keeps_the_session(): void {
+		$this->seed_austin();
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		self::set_slot( Core::node( 'remote-austin:sse-in' ), 5 );
+
+		Core::$now = 1000 + Remote_Source_Node::HEARTBEAT_INTERVAL;
+		$node->fire();
+
+		Core::$now               = Core::$now + ( Remote_Source_Node::HEARTBEAT_INTERVAL * 3 ) + 1;
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$reply[ Message::VALUE ] = [
+			'name'    => 'heartbeat',
+			'payload' => [ 'success' => true, 'slot' => 5 ],
+		];
+		$node->fill( $reply );
+		$node->fire();
+
+		$this->assertTrue( Command_Auth::has_session( 'austin' ) );
+	}
+
+	public function test_stats_default_to_zero_before_patrons(): void {
+		$node = $this->broker( 'remote-austin' );
+		$this->assertSame( 0, $node->bytes_read() );
+		$this->assertSame( 0, $node->bytes_written() );
+		$this->assertSame( 0, $node->largest_msg_sent() );
+	}
+
+	/**
+	 * `vault_id` is a schema arg, so a replay supersedes the URL and
+	 * credentials the live patrons were configured from. A patron cached on
+	 * its property alone goes on pulling the old spoke until a fleet RELOAD or
+	 * a teardown — neither of which a replay reaches.
+	 */
+	public function test_replayed_vault_id_rebuilds_the_patrons_against_the_new_spoke(): void {
+		\update_option( Vault::OPTION_KEY, [
+			'harbour'  => [ 'url' => 'https://harbour.example', 'auth_username' => 'u1', 'auth_password' => 'p1' ],
+			'quayside' => [ 'url' => 'https://quayside.example', 'auth_username' => 'u2', 'auth_password' => 'p2' ],
+		] );
+		Vault::get_instance()->reset_cache();
+		$urls = [];
+		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ) use ( &$urls ): \CurlHandle {
+			$urls[] = (string) $opts[ \CURLOPT_URL ];
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+		[ $node ] = $this->make_remote( 'dockmaster', $this->remote_args( 'dockmaster', 'harbour', 'capstan.p4:downstream' ) );
+		$this->drain_connect_queue();
+
+		$node->arguments( $this->remote_args( 'dockmaster', 'quayside', 'windlass.p6:downstream' ) );
+		Core::$now += 1;
+		$node->fire();
+		$this->drain_connect_queue();
+
+		$this->assertCount( 2, $urls, 'the replay reconnects rather than serving the incumbent' );
+		$this->assertStringStartsWith( 'https://quayside.example', $urls[1], 'against the replayed spoke url' );
+		$this->assertStringContainsString( 'windlass.p6', $urls[1], 'subscribed to the replayed partition' );
 	}
 }

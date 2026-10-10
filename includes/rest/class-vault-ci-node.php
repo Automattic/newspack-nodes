@@ -319,7 +319,7 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * Announce a Vault mutation, so nothing here has to act on its consequences.
 	 *
 	 * `Bootstrap` listens twice: it forgets the spoke's command session, and it
-	 * asks every Remote_Link and Remote_Source worker holding those credentials
+	 * asks every broker and Vault_Group worker holding those credentials
 	 * to reload. Applications add their own listeners — settings sync, a fleet
 	 * restart — without this class knowing they exist.
 	 *

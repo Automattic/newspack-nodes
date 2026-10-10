@@ -267,7 +267,7 @@ abstract class TestCase extends PHPUnitTestCase {
 			\Newspack_Nodes\Curl_Node::$curl_result         = null;
 		}
 		$this->reset_health_test_state();
-		\Newspack_Nodes\Remote_Link_Node::reset_connect_queue();
+		\Newspack_Nodes\Remote_Source_Node::reset_connect_queue();
 		parent::tearDown();
 	}
 
@@ -299,7 +299,7 @@ abstract class TestCase extends PHPUnitTestCase {
 	 * temp dir stay contained either way.
 	 */
 	/**
-	 * Run every queued Remote_Link connect now.
+	 * Run every queued Remote_Source connect now.
 	 *
 	 * Connects are staggered one-per-tick through Connect_Queue_Timer_Node, so a
 	 * test that asserts on a live stream has to advance that queue rather than
@@ -341,7 +341,7 @@ abstract class TestCase extends PHPUnitTestCase {
 
 	protected function drain_connect_queue(): void {
 		while ( true ) {
-			$connect = \Newspack_Nodes\Remote_Link_Node::shift_connect_queue();
+			$connect = \Newspack_Nodes\Remote_Source_Node::shift_connect_queue();
 			if ( null === $connect ) {
 				return;
 			}

@@ -79,7 +79,7 @@ class HTTP_Out_Node extends Timer_Node implements Curl_Owner {
 	 * breadcrumb — but the remote sets the type bit that makes it a reply, so
 	 * without this it also picks the destination, and every node sinks into
 	 * `_command_interpreter` and then `_router` (ADR-7). Empty admits nothing
-	 * addressed: an undeclared link is a closed one. `Remote_Link_Node` seeds
+	 * addressed: an undeclared link is a closed one. `Remote_Broker_Node` seeds
 	 * its own name, so a patron's heartbeat needs no declaration.
 	 *
 	 * @var array<string,true>
@@ -379,9 +379,8 @@ class HTTP_Out_Node extends Timer_Node implements Curl_Owner {
 	 * here, which routes, where bare `foo` names a node this graph lacks.
 	 * Inbound only — a command going out has not been anywhere yet, and stamping
 	 * it would tell the remote our name is part of its own address. Through
-	 * `stamp_message`, like every transport that stamps — the sibling is
-	 * `Remote_Link_Node::deliver_downstream()` — and its two guards are the
-	 * point: an overflowing path is dropped by the boundary that overflowed it,
+	 * `stamp_message`, like every transport that stamps, and its two guards are
+	 * the point: an overflowing path is dropped by the boundary that overflowed it,
 	 * which can name itself, not by the Router a layer later, which cannot.
 	 *
 	 * A reply — TM_RESPONSE or TM_ERROR — self-routes by the TO the remote echoed
@@ -606,12 +605,10 @@ class HTTP_Out_Node extends Timer_Node implements Curl_Owner {
 	 * Admit an ADDRESSED inbound message only to a destination `allow_replies_to`
 	 * declares, in full; anything else is dropped with one throttled audit line.
 	 *
-	 * @api The stream leg asks too, through `Remote_Link_Node::admit_inbound()`,
-	 *      so one declaration bounds every inbound leg of a channel.
 	 * @param array<int,mixed> $message The 7-field positional message array, TO non-empty.
 	 * @return bool True when the message may go on.
 	 */
-	public function admit_addressed( array $message ): bool {
+	private function admit_addressed( array $message ): bool {
 		if ( isset( $this->reply_allowlist[ Core::as_string( $message[ Message::TO ] ) ] ) ) {
 			return true;
 		}
@@ -695,7 +692,7 @@ class HTTP_Out_Node extends Timer_Node implements Curl_Owner {
 	 * graph through the list that exists to bound it. A remote that legitimately
 	 * answers on a deeper path is declared at that path.
 	 *
-	 * @api Topology `allow_replies_to`, and Remote_Link seeding its patron.
+	 * @api Topology `allow_replies_to`, and Remote_Broker seeding its patron.
 	 * @param string $path Reply destination to admit, in full.
 	 */
 	public function allow_replies_to( string $path ): void {

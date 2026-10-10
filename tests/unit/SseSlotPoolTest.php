@@ -72,7 +72,7 @@ class SseSlotPoolTest extends TestCase {
 		// Above the re-auth floor the neighbouring test pins, not merely above
 		// heartbeat loss — a re-authenticating client stops heartbeating.
 		$this->assertGreaterThan(
-			3 * \Newspack_Nodes\Remote_Link_Node::HEARTBEAT_INTERVAL,
+			3 * \Newspack_Nodes\Remote_Source_Node::HEARTBEAT_INTERVAL,
 			SSE_Slot_Pool::ttl()
 		);
 		$this->assertSame( 3, SSE_Slot_Pool::max_slots() );
@@ -86,7 +86,7 @@ class SseSlotPoolTest extends TestCase {
 	 */
 	public function test_default_ttl_outlives_the_client_session_forget_threshold(): void {
 		$declared = Settings_Schema::get()->defaults()['sse_slot_ttl'];
-		$forget   = \Newspack_Nodes\Remote_Link_Node::HEARTBEAT_INTERVAL * 3;
+		$forget   = \Newspack_Nodes\Remote_Source_Node::HEARTBEAT_INTERVAL * 3;
 
 		$this->assertGreaterThan(
 			$forget,
@@ -1329,7 +1329,7 @@ class SseSlotPoolTest extends TestCase {
 		// The class docblock calls 45 the wall. A wall nothing enforces is a
 		// comment, and 10s fences every stream one poke after it connects.
 		$this->assertSame(
-			3 * \Newspack_Nodes\Remote_Link_Node::HEARTBEAT_INTERVAL,
+			3 * \Newspack_Nodes\Remote_Source_Node::HEARTBEAT_INTERVAL,
 			SSE_Slot_Pool::ttl(),
 			'a too-short configured TTL must be raised to the floor, not honoured'
 		);

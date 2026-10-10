@@ -139,7 +139,7 @@ class HttpOutTest extends TestCase {
 
 	public function test_fire_tallies_bytes_written_and_largest_msg_sent(): void {
 		// PHP/JS parity: HTTP_Out tallies the per-message packed size on POST so
-		// Remote_Link::bytes_written() (which delegates to it) isn't stuck at 0.
+		// Remote_Broker::bytes_written() (which delegates to it) isn't stuck at 0.
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$captured = [];
 		$this->capture_dispatch( $captured );
@@ -379,14 +379,11 @@ class HttpOutTest extends TestCase {
 	}
 
 	/**
-	 * A reply bit is the REMOTE's to set, so it must not buy arbitrary addressing.
-	 *
-	 * `accept_inbound()` returns early for TM_RESPONSE/TM_ERROR so a reply can
-	 * self-route on the FROM breadcrumb we minted — the `Remote_Link` heartbeat
-	 * and ELN's `Discovery_Collector` both depend on it. That early return also
-	 * skips the `target` refusal below it, and every node sinks into
-	 * `_command_interpreter` and then `_router` (ADR-7), so the spoke's TO is
-	 * routed: on a live aggregator hub that is thirty names, `_router`,
+	 * An addressed reply passes only when `allow_replies_to` declares its
+	 * whole path. The reply bit is the REMOTE's to set, so it buys no
+	 * addressing: every node sinks into `_command_interpreter` and then
+	 * `_router` (ADR-7), so an undeclared TO would be routed — on a live
+	 * aggregator hub, to any of thirty names, `_router`,
 	 * `_command_interpreter` and `_fleet` among them.
 	 */
 	public function test_on_curl_done_refuses_a_reply_addressed_outside_the_allowlist(): void {
@@ -628,9 +625,8 @@ class HttpOutTest extends TestCase {
 	}
 
 	/**
-	 * Through `stamp_message`, like every other transport that stamps — the
-	 * sibling is `Remote_Link_Node::deliver_downstream()`. Its two guards are
-	 * the point: a reply looping hub → spoke → hub grows its path without
+	 * Through `stamp_message`, like every other transport that stamps. Its two
+	 * guards are the point: a reply looping hub → spoke → hub grows its path without
 	 * bound, and the Router would drop it a layer later naming no transport,
 	 * where the guard names this one at the boundary that overflowed it.
 	 */

@@ -65,7 +65,7 @@ class Probe_Record {
 	/**
 	 * The reader id, the basename of the consumer's offsetlog dir, which is
 	 * what tells two readers of one partition apart; a broker's reader reports
-	 * under `Remote_Source_Node::reader_id()`. Blank on a Partition
+	 * under `Remote_Broker_Node::reader_id()`. Blank on a Partition
 	 * record, and only there: `Topic_Probe` sends no record for an
 	 * ephemeral reader, which has no offsetlog dir to name. Every consumer of
 	 * this log keys readers by it, so a blank one drops out of the status

@@ -12,7 +12,6 @@ use Newspack_Nodes\File_Tail_Node;
 use Newspack_Nodes\Log_Node;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Remote_Consumer_Node;
-use Newspack_Nodes\Remote_Link_Node;
 use Newspack_Nodes\Remote_Source_Node;
 use Newspack_Nodes\Schema_Reflection;
 use Newspack_Nodes\Shell_Node;
@@ -72,7 +71,6 @@ class PartitionArgumentsTest extends TestCase {
 			'Broker cursor root'     => [ Remote_Source_Node::class, 'offsetlog_root', 'bound' ],
 			'Broker deadletter root' => [ Remote_Source_Node::class, 'deadletter_root', 'bound' ],
 			'Table namespace'        => [ Table_Node::class, 'namespace', 'bound' ],
-			'Link subscription'      => [ Remote_Link_Node::class, 'remote_partition', 'bound' ],
 			'Topic template'         => [ Topic_Node::class, 'dir_template', 'each' ],
 		];
 	}

@@ -8,7 +8,7 @@ use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Connect_Queue_Timer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Node_Names;
-use Newspack_Nodes\Remote_Link_Node;
+use Newspack_Nodes\Remote_Source_Node;
 use Newspack_Nodes\Tests\TestCase;
 
 /**
@@ -20,7 +20,7 @@ class ConnectQueueTimerNodeTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
-		Remote_Link_Node::reset_connect_queue();
+		Remote_Source_Node::reset_connect_queue();
 		( new Command_Interpreter_Node() )->name( Node_Names::COMMAND_INTERPRETER );
 	}
 
@@ -35,7 +35,7 @@ class ConnectQueueTimerNodeTest extends TestCase {
 	public function test_it_runs_exactly_one_queued_connect_per_fire(): void {
 		$ran = [];
 		foreach ( [ 'alfa', 'bravo', 'charlie' ] as $id ) {
-			Remote_Link_Node::push_connect_queue(
+			Remote_Source_Node::push_connect_queue(
 				static function () use ( &$ran, $id ): void {
 					$ran[] = $id;
 				},

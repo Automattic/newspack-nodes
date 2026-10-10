@@ -244,6 +244,18 @@ class LogSourcesTest extends TestCase {
 		$this->assertSame( [ 'present-55.log' ], \array_keys( Log_Sources::registry() ) );
 	}
 
+	/** A Log whose basename the source grammar refuses names no source; its neighbour still does. */
+	public function test_log_node_whose_name_the_grammar_refuses_is_skipped(): void {
+		Log_Sources::$builtin_sources = static fn (): array => [];
+		$this->activate_topology(
+			'lsrc-ungrammatical',
+			"make_node Log t:log <config:logs_dir>/ledger+tally-38.log 1 2 7\n"
+			. "make_node Log g:log <config:logs_dir>/grammatical-38.log 1 2 7\n"
+		);
+
+		$this->assertSame( [ 'grammatical-38.log' ], \array_keys( Log_Sources::registry() ) );
+	}
+
 	public function test_log_node_with_a_relative_path_is_skipped(): void {
 		Log_Sources::$builtin_sources = static fn (): array => [];
 		// No leading '/' and no <ns:key> token to resolve — stays relative.

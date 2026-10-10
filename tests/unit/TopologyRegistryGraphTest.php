@@ -375,6 +375,20 @@ class TopologyRegistryGraphTest extends TestCase {
 		$this->assertNotContains( [ 'quad:okapi', 'cap-sink' ], $graph['edges'] );
 	}
 
+	/** Before any namespace registers, a broker token still reads as a broker by its class's lineage. */
+	public function test_an_unregistered_namespace_still_reads_a_remote_source_as_a_broker(): void {
+		foreach ( [ 'namespaces', 'resolve_cache' ] as $property ) {
+			( new \ReflectionProperty( \Newspack_Nodes\Command_Interpreter_Node::class, $property ) )->setValue( null, [] );
+		}
+		$this->assertNull( \Newspack_Nodes\Command_Interpreter_Node::resolve_class( 'Remote_Source' ), 'precondition: nothing resolves' );
+		$this->write_tsl( 'vicuna-cold', "make_node Remote_Source pull:okapi okapi-3307 /var/vicuna/off /var/vicuna/dl ledger.p0:ledger-sink-3307\n" );
+
+		$node = Topology_Analyzer::graph_for( 'vicuna-cold' )['nodes'][0];
+
+		$this->assertSame( 'okapi-3307', $node['vault_id'] );
+		$this->assertSame( [ [ 'source' => 'ledger.p0', 'target' => 'ledger-sink-3307' ] ], $node['pairs'] );
+	}
+
 	/** A broker's spoke and pairs are read by name, quotes stripped; each pair draws an edge. */
 	public function test_graph_for_names_what_a_remote_source_pulls_and_where(): void {
 		$this->write_tsl( 'vicuna-pull', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl \"ledger.p{partition}:ledger-sink\" sources/php:php-errors:partition\n" );
@@ -387,7 +401,6 @@ class TopologyRegistryGraphTest extends TestCase {
 			[ [ 'source' => 'ledger.p{partition}', 'target' => 'ledger-sink' ], [ 'source' => 'sources/php', 'target' => 'php-errors:partition' ] ],
 			$node['pairs']
 		);
-		$this->assertArrayNotHasKey( 'remote_partition', $node );
 		$this->assertArrayNotHasKey( 'reads', $node, 'a remote pull reads no local log' );
 		$this->assertContains( [ 'pull:okapi', 'ledger-sink' ], $graph['edges'] );
 		$this->assertContains( [ 'pull:okapi', 'php-errors:partition' ], $graph['edges'] );
@@ -489,7 +502,7 @@ class TopologyRegistryGraphTest extends TestCase {
 	/** @return array<string,array{string,string}> Label => a line `make_node` refuses at load, then the refusal. */
 	public static function partition_layout_lines(): array {
 		return [
-			'an unmarked argument'   => [ "make_node Remote_Link link:okapi okapi-{partition} firehose.p0\n", "vault_id takes no {partition}" ],
+			'an unmarked argument'   => [ "make_node Remote_Source pull:okapi okapi-{partition} /var/vicuna/off /var/vicuna/dl firehose.p0:ledger-sink\n", "vault_id takes no {partition}" ],
 			'a fixed offsetlog'      => [ "make_node File_Tail app:tail-8 /var/log/heron.{partition}.log /var/heron/off /var/heron/dl.{partition}\n", 'File_Tail app:tail-8: a per-partition source needs per-partition offsetlog and deadletter dirs; add {partition}' ],
 			'a fixed deadletter'     => [ "make_node File_Tail app:tail-8 /var/log/heron.{partition}.log /var/heron/off.{partition} /var/heron/dl\n", 'File_Tail app:tail-8: a per-partition source needs per-partition offsetlog and deadletter dirs; add {partition}' ],
 			'a Consumer, fixed offsetlog' => [ "make_node Consumer heron:consumer-8 /var/heron/log.p{partition} /var/heron/off /var/heron/dl.p{partition}\n", 'Consumer heron:consumer-8: a per-partition source needs per-partition offsetlog and deadletter dirs; add {partition}' ],
@@ -536,16 +549,6 @@ class TopologyRegistryGraphTest extends TestCase {
 		$this->write_tsl( 'vicuna-brace', $line );
 
 		$this->assertCount( 1, Topology_Analyzer::graph_for( 'vicuna-brace' )['nodes'] );
-	}
-
-	public function test_graph_for_keeps_a_remote_links_partition(): void {
-		$this->write_tsl( 'vicuna-link', "make_node Remote_Link link:okapi okapi-7 \"ledger.p{partition}\"\n" );
-
-		$node = Topology_Analyzer::graph_for( 'vicuna-link' )['nodes'][0];
-
-		$this->assertSame( 'okapi-7', $node['vault_id'] );
-		$this->assertSame( 'ledger.p{partition}', $node['remote_partition'] );
-		$this->assertArrayNotHasKey( 'pairs', $node );
 	}
 
 	public function test_graph_for_one_arg_disconnect_removes_included_edges_before_rewire(): void {

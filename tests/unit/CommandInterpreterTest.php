@@ -2657,7 +2657,7 @@ class CommandInterpreterTest extends TestCase {
 
 	public function test_dump_metadata_skips_a_node_whose_schema_is_hidden(): void {
 		// Hook-mounted infrastructure has no owner to patron it — _connect_timer
-		// is shared process-wide by every Remote_Link — so it declared
+		// is shared process-wide by every Remote_Source — so it declared
 		// `hidden => true` and the canvas drew it anyway: dump_metadata read the
 		// schema only for accepts_fill / has_target.
 		$interpreter = new Command_Interpreter_Node();

@@ -60,6 +60,7 @@ class Relay_Sink_Spy extends Node {
  * RemoteSourceNodeTest.
  */
 #[CoversClass( Remote_Consumer_Node::class )]
+#[CoversClass( \Newspack_Nodes\Remote_Broker_Node::class )]
 class RemoteConsumerNodeTest extends TestCase {
 
 	private string $base_dir = '';
@@ -293,7 +294,7 @@ class RemoteConsumerNodeTest extends TestCase {
 			public function disconnect(): void {
 				++$this->disconnects; }
 		};
-		( new \ReflectionProperty( \Newspack_Nodes\Remote_Link_Node::class, 'sse_in' ) )->setValue( $broker, $sse );
+		( new \ReflectionProperty( Remote_Source_Node::class, 'sse_in' ) )->setValue( $broker, $sse );
 		$node->pause();
 		$disconnects = $sse->disconnects;
 
@@ -1938,6 +1939,32 @@ class RemoteConsumerNodeTest extends TestCase {
 	// ---------------------------------------------------------------------
 
 	/**
+	 * Answer `$http`'s next POST with `$reply`, through the real reply route —
+	 * the transfer, `accept_inbound()` and its allowlist — and return what
+	 * reached its sink.
+	 *
+	 * @param \Newspack_Nodes\HTTP_Out_Node $http  The patron holding a batch.
+	 * @param array<int,mixed>              $reply The reply the spoke sends.
+	 * @return list<array<int,mixed>>
+	 */
+	private function answer_through( \Newspack_Nodes\HTTP_Out_Node $http, array $reply ): array {
+		$easies = [];
+		Event_Framework::$curl_dispatch = static function ( array $opts ) use ( &$easies ): \CurlHandle {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			$easies[] = \curl_init();
+			return \end( $easies );
+		};
+		\Newspack_Nodes\HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n", 'redirect' => '' ];
+		$sink = new Capture_Sink_Node();
+		$sink->name( 'reply-catch-5531' );
+		$http->sink( $sink );
+		$http->fire();
+		$this->assertNotEmpty( $easies, 'precondition: the patron posted its batch' );
+		$this->deliver_curl_rows( [ [ 'msg' => \CURLMSG_DONE, 'handle' => $easies[0], 'result' => \CURLE_OK ] ] );
+		return $sink->captured;
+	}
+
+	/**
 	 * The spoke's answer to one step, as HTTP_Out delivers it, echoing the
 	 * arguments it answers as `interpret()` does: the stamp and `$asked`.
 	 */
@@ -1968,7 +1995,8 @@ class RemoteConsumerNodeTest extends TestCase {
 		$this->assertSame( 'remote-austin:firehose.p0', $sent[ Message::FROM ] );
 		$this->assertSame( 'raw-logs', $sent[ Message::TO ] );
 		$this->assertSame( [ 'name' => 'read_message', 'arguments' => [ 'firehose.p0', '31:4404' ] ], \array_intersect_key( $sent[ Message::VALUE ], [ 'name' => 1, 'arguments' => 1 ] ) );
-		$this->assertTrue( $http->admit_addressed( self::step_reply( 'remote-austin:firehose.p0', [], 0, 0 ) ), 'the reply route is declared' );
+		$delivered = $this->answer_through( $http, self::step_reply( 'remote-austin:firehose.p0', [], 0, 0 ) );
+		$this->assertSame( [ 'remote-austin:firehose.p0' ], \array_column( $delivered, Message::TO ), 'the reply route is declared' );
 	}
 
 	public function test_a_step_without_a_session_asks_for_one_and_retries(): void {
@@ -2258,7 +2286,7 @@ class RemoteConsumerNodeTest extends TestCase {
 
 	/** The first wall-second at or after `$from` on which `remote-austin` asks for a session. */
 	private static function link_second( float $from ): float {
-		$interval = \Newspack_Nodes\Remote_Link_Node::HEARTBEAT_INTERVAL;
+		$interval = Remote_Source_Node::HEARTBEAT_INTERVAL;
 		$at       = (int) \ceil( $from );
 		return (float) ( $at + ( ( \crc32( 'remote-austin' ) % $interval ) - $at % $interval + $interval ) % $interval );
 	}
@@ -2301,7 +2329,12 @@ class RemoteConsumerNodeTest extends TestCase {
 
 		$this->assertSame( $node, Core::node( 'remote-quoll:firehose.p0' ) );
 		$this->assertSame( 'remote-quoll:firehose.p0:offsetlog', $this->read_private( $node, 'offsetlog' )->name() );
-		$this->assertTrue( Core::node( 'remote-quoll:http-out' )->admit_addressed( self::step_reply( 'remote-quoll:firehose.p0', [], 0, 0 ) ) );
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$m[ Message::VALUE ] = 'nudge-7720';
+		$broker->fill( $m );
+		$delivered = $this->answer_through( Core::node( 'remote-quoll:http-out' ), self::step_reply( 'remote-quoll:firehose.p0', [], 0, 0 ) );
+		$this->assertSame( [ 'remote-quoll:firehose.p0' ], \array_column( $delivered, Message::TO ) );
 	}
 
 	// ---------------------------------------------------------------------
