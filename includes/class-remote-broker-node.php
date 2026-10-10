@@ -52,6 +52,25 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	public const STATUS_TTL = 300;
 
 	/**
+	 * The status snapshot's one key set, each key at its value before a
+	 * broker fills it: what `Aggregator_CI` and the Status tab read for every
+	 * broker. A broker writes only the keys it fills.
+	 */
+	protected const BLANK_STATUS = [
+		'connected'               => false,
+		'connecting'              => false,
+		'last_connection_attempt' => null,
+		'last_http_code'          => null,
+		'last_error'              => null,
+		'current_backoff'         => null,
+		'last_sse_heartbeat'      => null,
+		'scheduled_reconnect_at'  => null,
+		'unparseable_lines'       => 0,
+		'last_response'           => null,
+		'last_rtt'                => null,
+	];
+
+	/**
 	 * The most stamps a broker's glob pairs claim, counting the readers built
 	 * in this process and the reader dirs a glob pair left under the offsetlog
 	 * root in an earlier one. A spoke names its stamps, so without it a glob
@@ -95,7 +114,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 *
 	 * @var array<string,mixed>
 	 */
-	private array $status = [];
+	private array $status = self::BLANK_STATUS;
 
 	/** Wall-second the snapshot was last written; 0 before the first write. */
 	private int $status_written_at = 0;
@@ -755,20 +774,6 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	}
 
 	/**
-	 * The one walk of the sibling map for its readers, keyed by stamp; it
-	 * builds nothing, so a per-line sum pays for no array.
-	 *
-	 * @return \Generator<string,Remote_Consumer_Node>
-	 */
-	protected function reader_walk(): \Generator {
-		foreach ( $this->siblings() as $sibling ) {
-			if ( $sibling instanceof Remote_Consumer_Node ) {
-				yield $sibling->stamp() => $sibling;
-			}
-		}
-	}
-
-	/**
 	 * Each pair's target, written through that pair's reader rather than a
 	 * target of the broker's own, so the canvas and the analyzer draw one edge
 	 * per pair. Only a pair `pairs_of()` accepts names one, so the graph shows
@@ -898,13 +903,33 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	}
 
 	/**
-	 * Retract the channel's siblings; a subclass retracts its own first.
+	 * Retract the channel's siblings and void every request the channel
+	 * carried: each reader's step or fetch goes again on its next poll rather
+	 * than wait out `REQUEST_TIMEOUT` for a reply that cannot come. A subclass
+	 * drops what it adds and calls this.
 	 */
 	protected function drop_patrons(): void {
 		$this->http_out  = null;
 		$this->null_sink = null;
 		$this->retract_sibling( self::HTTP_OUT_KIND );
 		$this->retract_sibling( self::NULL_KIND );
+		foreach ( $this->reader_walk() as $child ) {
+			$child->drop_requests();
+		}
+	}
+
+	/**
+	 * The one walk of the sibling map for its readers, keyed by stamp; it
+	 * builds nothing, so a per-line sum pays for no array.
+	 *
+	 * @return \Generator<string,Remote_Consumer_Node>
+	 */
+	protected function reader_walk(): \Generator {
+		foreach ( $this->siblings() as $sibling ) {
+			if ( $sibling instanceof Remote_Consumer_Node ) {
+				yield $sibling->stamp() => $sibling;
+			}
+		}
 	}
 
 	/**

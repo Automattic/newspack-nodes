@@ -50,7 +50,7 @@ const readerIsHandler = ( reader, name ) =>
 /**
  * The id a broker's reader reports under on the probe log: its name,
  * `<broker>:<kind>`, scoped by the topology and spelled as a worker id at the
- * partition. The twin of PHP `Remote_Source_Node::reader_id()`, held to it by
+ * partition. The twin of PHP `Remote_Broker_Node::reader_id()`, held to it by
  * `tests/fixtures/log-remotes.json`.
  *
  * @param {string} topology  The topology the broker sits in.

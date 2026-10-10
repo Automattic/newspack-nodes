@@ -68,9 +68,13 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 	 * One tick's housekeeping, after the exact pairs' readers are built: size
 	 * the channel's reply cap, end every wait fallen due, so readers due in one
 	 * second share one POST, and publish the status. A broker no Vault entry
-	 * names has no channel and writes no snapshot.
+	 * names, or one whose partition owns no pair, builds no channel and
+	 * writes no snapshot.
 	 */
 	protected function housekeep(): void {
+		if ( [] === $this->pairs ) {
+			return;
+		}
 		$http = $this->sized_channel();
 		if ( null === $http ) {
 			return;
@@ -131,8 +135,8 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 	 * and one error, the first of three that stands: the patron's last
 	 * transfer, a refused catalog, a reader's refused fetch. A transfer's
 	 * error outranks a refusal as a stream's outranks a heartbeat's in
-	 * `Remote_Source`, and the broker's own ask outranks one reader's. No
-	 * stream, backoff or slot heartbeat.
+	 * `Remote_Source`, and the broker's own ask outranks one reader's. It
+	 * fills no stream, backoff or slot heartbeat, which keep the base's blanks.
 	 *
 	 * @param HTTP_Out_Node $http The command channel.
 	 */
@@ -161,14 +165,11 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 		$outcome = $http->last_outcome();
 		$this->write_status( [
 			'connected'               => null !== $answered && Core::$now - $answered <= 4 * self::EOF_POLL_SECONDS,
-			'connecting'              => false,
 			'last_connection_attempt' => null === $sent ? null : (int) $sent,
 			'last_http_code'          => $outcome['code'],
 			'last_error'              => $outcome['error']
 				?? self::refusal_line( 'Discovery', $this->catalog_refusal, 'list_logs refused' )
 				?? self::refusal_line( 'Block fetch', $refused, 'read_block refused' ),
-			'current_backoff'         => null,
-			'last_sse_heartbeat'      => null,
 			'scheduled_reconnect_at'  => null === $next ? null : (int) \ceil( $next ),
 			'unparseable_lines'       => $skipped,
 			'last_response'           => null === $answered ? null : (int) $answered,
@@ -195,6 +196,15 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 	 */
 	public function refill( Remote_Consumer_Node $child ): void {
 		$child->fetch();
+	}
+
+	/**
+	 * Drop the channel and every request it carried, this broker's catalog
+	 * ask included, which goes again on the next tick.
+	 */
+	protected function drop_patrons(): void {
+		parent::drop_patrons();
+		$this->catalog_due = 0.0;
 	}
 
 	/** Nothing to reconnect: each fetch states its reader's own position. */

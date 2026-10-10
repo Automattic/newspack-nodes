@@ -641,10 +641,18 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 
 	/** Owe no step, await no reply and wait out nothing: what was asked no longer stands. */
 	private function forgive_asks(): void {
-		$this->steps_owed        = 0;
+		$this->steps_owed  = 0;
+		$this->fetch_after = 0.0;
+		$this->drop_requests();
+	}
+
+	/**
+	 * The channel that carried this reader's step and fetch is gone: neither
+	 * is in flight, so the next poll asks again. Steps still owed stay owed.
+	 */
+	public function drop_requests(): void {
 		$this->step_requested_at = null;
 		$this->fetch_in_flight   = null;
-		$this->fetch_after       = 0.0;
 	}
 
 	/**
@@ -921,7 +929,9 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	}
 
 	/**
-	 * What the broker's status reads off this reader's fetches.
+	 * What the broker's status reads off this reader's fetches. `fetch_after`
+	 * names an end-of-log wait alone, the broker's next EOF poll; a refusal's
+	 * wait is a failure, which the status reads as `refused`, not as idle.
 	 *
 	 * @return array{sent_at:?float,answered_at:?float,rtt:?float,fetch_after:?float,skipped:int,refused:?string}
 	 */
@@ -930,7 +940,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 			'sent_at'     => $this->fetch_sent_at,
 			'answered_at' => $this->fetch_answered['at'] ?? null,
 			'rtt'         => $this->fetch_answered['rtt'] ?? null,
-			'fetch_after' => 0.0 < $this->fetch_after ? $this->fetch_after : null,
+			'fetch_after' => 0.0 < $this->fetch_after && null === $this->fetch_refusal ? $this->fetch_after : null,
 			'skipped'     => $this->spoke_skipped,
 			'refused'     => $this->fetch_refusal,
 		];
