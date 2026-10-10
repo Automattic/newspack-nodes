@@ -256,6 +256,8 @@ function AreaTimeChart( {
 					.style( 'stroke', s.color )
 					.attr( 'fill-opacity', stacked ? 0.7 : 0.5 )
 					.attr( 'stroke-width', stacked ? 0.5 : 1 )
+					// Hit tests stroke the curve; the overlay owns the pointer.
+					.attr( 'pointer-events', 'none' )
 					.attr( 'd', area );
 				// A lone measured slot has a zero-width area, so it gets a dot.
 				band.forEach( ( point, idx ) => {
@@ -268,6 +270,7 @@ function AreaTimeChart( {
 							.attr( 'cx', x( point.date ) )
 							.attr( 'cy', y( point.y1 ) )
 							.attr( 'r', LONE_POINT_RADIUS )
+							.attr( 'pointer-events', 'none' )
 							.style( 'fill', s.color );
 					}
 				} );
