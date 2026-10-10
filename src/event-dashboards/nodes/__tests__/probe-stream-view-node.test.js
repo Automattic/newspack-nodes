@@ -1,7 +1,11 @@
-import { ProbeStreamViewNode } from '../probe-stream-view-node';
+import {
+	ProbeStreamViewNode,
+	BUCKET_S,
+	RETENTION_S,
+} from '../probe-stream-view-node';
 import { JobstatsViewNode } from '../jobstats-view-node';
 import { TopicProbeViewNode } from '../topic-probe-view-node';
-import { TablestatsViewNode } from '../tablestats-view-node';
+import { TablestatsViewNode, OP_PREFIX } from '../tablestats-view-node';
 import {
 	newMessage,
 	TYPE,
@@ -14,7 +18,9 @@ import {
 import * as Job from '../../../runtime/jobstats-record';
 import * as Probe from '../../../runtime/probe-record';
 import * as Tbl from '../../../runtime/tablestats-record';
-import { topicChartSeries, bySource } from '../../topicProbeSeries';
+import { topicChartSeries, bySource, byKey } from '../../topicProbeSeries';
+import { bucketsFrom } from '../../__tests__/bucketTestUtils';
+import { liveTotal } from '../../liveSample';
 
 // A layout sharing no slot with either real record, so nothing can pass by luck.
 const WIDGET_ID = 2;
@@ -33,12 +39,18 @@ class WidgetProbeView extends ProbeStreamViewNode {
 	}
 
 	_entryView( entry ) {
-		return { label: entry.label, series: entry.series.slice() };
+		return { label: entry.label, buckets: this._buckets( entry ) };
 	}
 }
 
-// Offset from a recent epoch base so records land inside the 24h window.
-const TS_BASE = Math.floor( Date.now() / 1000 ) - 10000;
+// A bucket edge inside the 24h window, so each offset's bucket is fixed.
+const TS_BASE =
+	Math.floor( ( Math.floor( Date.now() / 1000 ) - 10000 ) / BUCKET_S ) *
+	BUCKET_S;
+
+// One metric charted whole over a model, as a dashboard reads it.
+const chart = ( model, metric, keyOf = bySource ) =>
+	topicChartSeries( model, metric, keyOf, { byWorker: false } );
 
 function widgetMsg( {
 	ts = 500,
@@ -59,14 +71,25 @@ function widgetMsg( {
 }
 
 describe( 'ProbeStreamViewNode (the entry-lifecycle contract)', () => {
-	it( 'keys an entry by identitySlot and pushes what _fold returns', () => {
+	it( 'keys an entry by identitySlot and folds what _fold returns', () => {
 		const v = new WidgetProbeView();
 		v.fill( widgetMsg( { id: 'zeta-7', label: 'zeta', weight: 19 } ) );
 		const snap = v.snapshot( v.modelKey );
 		expect( Object.keys( snap ) ).toEqual( [ 'zeta-7' ] );
 		expect( snap[ 'zeta-7' ].label ).toBe( 'zeta' );
-		expect( snap[ 'zeta-7' ].series ).toEqual( [
-			{ ts: TS_BASE + 500, weight: 19 },
+		expect( snap[ 'zeta-7' ].buckets ).toEqual( [
+			{
+				start: TS_BASE + 360,
+				worker: '',
+				f: {
+					weight: {
+						sum: 19,
+						max: 19,
+						last: 19,
+						lastTs: TS_BASE + 500,
+					},
+				},
+			},
 		] );
 	} );
 
@@ -108,21 +131,11 @@ describe( 'ProbeStreamViewNode (the entry-lifecycle contract)', () => {
 
 	it( 'reuses one entry across records, so _fold can carry fields forward', () => {
 		const v = new WidgetProbeView();
-		v.fill( widgetMsg( { label: 'zeta', ts: 500 } ) );
-		v.fill( widgetMsg( { label: undefined, ts: 501 } ) );
+		v.fill( widgetMsg( { label: 'zeta', ts: 500, weight: 19 } ) );
+		v.fill( widgetMsg( { label: undefined, ts: 501, weight: 23 } ) );
 		const entry = v.snapshot( v.modelKey )[ 'zeta-7' ];
 		expect( entry.label ).toBe( 'zeta' );
-		expect( entry.series.length ).toBe( 2 );
-	} );
-
-	it( 'caps the series at the constructor ring cap', () => {
-		const v = new WidgetProbeView( 2 );
-		for ( let i = 0; i < 5; i++ ) {
-			v.fill( widgetMsg( { ts: 600 + i, weight: i } ) );
-		}
-		const series = v.snapshot( v.modelKey )[ 'zeta-7' ].series;
-		expect( series.length ).toBe( 2 );
-		expect( series.at( -1 ).ts ).toBe( TS_BASE + 604 );
+		expect( entry.buckets[ 0 ].f.weight.sum ).toBe( 42 );
 	} );
 
 	it( 'never folds a record older than the 24h window', () => {
@@ -161,8 +174,101 @@ describe( 'ProbeStreamViewNode (the entry-lifecycle contract)', () => {
 	} );
 } );
 
-// The node's live window is a fixed 24h; samples older than this are pruned.
-const RETENTION_S = 86400;
+describe( 'ProbeStreamViewNode buckets', () => {
+	const at = ( v, id = 'zeta-7' ) => v.snapshot( v.modelKey )[ id ].buckets;
+	const from = ( worker ) => `widgets.p4/${ worker }/widgets`;
+	const widget = ( ts, weight, worker ) => {
+		const m = widgetMsg( { absTs: ts, weight } );
+		m[ FROM ] = from( worker );
+		return m;
+	};
+	const edge = TS_BASE;
+
+	it( 'folds each record into its 180-second bucket per worker', () => {
+		const v = new WidgetProbeView();
+		v.fill( widget( edge + 15, 3, 'lab-9.p7' ) );
+		v.fill( widget( edge + 30, 4, 'lab-9.p7' ) );
+		v.fill( widget( edge + 200, 6, 'lab-9.p7' ) );
+		v.fill( widget( edge + 20, 11, 'tui-1.p0' ) );
+		expect(
+			at( v ).map( ( b ) => [ b.worker, b.start - edge, b.f.weight.sum ] )
+		).toEqual( [
+			[ 'lab-9.p7', 0, 7 ],
+			[ 'lab-9.p7', 180, 6 ],
+			[ 'tui-1.p0', 0, 11 ],
+		] );
+	} );
+
+	it( 'a late record folds into its own earlier bucket', () => {
+		const v = new WidgetProbeView();
+		v.fill( widget( edge + 400, 5, 'lab-9.p7' ) );
+		v.fill( widget( edge + 15, 8, 'lab-9.p7' ) );
+		v.fill( widget( edge + 200, 2, 'lab-9.p7' ) );
+		const byStart = new Map(
+			at( v ).map( ( b ) => [ b.start - edge, b ] )
+		);
+		expect( [ ...byStart.keys() ].sort( ( a, b ) => a - b ) ).toEqual( [
+			0, 180, 360,
+		] );
+		expect( byStart.get( 0 ).f.weight.sum ).toBe( 8 );
+	} );
+
+	it( 'a day of 15-second records keeps 480 or 481 buckets per worker', () => {
+		const v = new WidgetProbeView();
+		const now = Math.floor( Date.now() / 1000 );
+		for ( let ts = now - RETENTION_S + 30; ts <= now; ts += 15 ) {
+			v.fill( widget( ts, 1, 'lab-9.p7' ) );
+		}
+		v._publishNow();
+		const n = at( v ).length;
+		expect( n ).toBeGreaterThanOrEqual( 480 );
+		expect( n ).toBeLessThanOrEqual( 481 );
+		v.removeNode();
+	} );
+
+	it( 'a published snapshot does not change when the next record folds', () => {
+		const v = new WidgetProbeView();
+		v.fill( widget( edge + 15, 3, 'lab-9.p7' ) );
+		const before = at( v );
+		const copy = JSON.parse( JSON.stringify( before ) );
+		v.fill( widget( edge + 30, 9, 'lab-9.p7' ) );
+		expect( before ).toEqual( copy );
+		expect( at( v )[ 0 ].f.weight.sum ).toBe( 12 );
+	} );
+
+	it( 'folds an unpublished bucket in place, so a replay burst allocates none', () => {
+		const v = new WidgetProbeView();
+		v.fill( widget( edge + 15, 3, 'lab-9.p7' ) );
+		v.fill( widget( edge + 30, 4, 'lab-9.p7' ) );
+		const row = v.entries.widgets[ 'zeta-7' ].rows.get( 'lab-9.p7' );
+		const unpublished = row.get( edge );
+		v.fill( widget( edge + 45, 5, 'lab-9.p7' ) );
+		expect( row.get( edge ) ).toBe( unpublished );
+		expect( unpublished.f.weight.sum ).toBe( 12 );
+		v.removeNode();
+	} );
+
+	it( 'prunes a bucket ending at the window edge and keeps one ending a second later', () => {
+		const v = new WidgetProbeView();
+		const now = jest.spyOn( Date, 'now' );
+		const t0 = 1755000000;
+		now.mockReturnValue( ( t0 + RETENTION_S ) * 1000 );
+		v.fill( widget( t0 + 50, 1, 'lab-9.p7' ) );
+		v.fill( widget( t0 + BUCKET_S + 5, 2, 'lab-9.p7' ) );
+		const starts = () => at( v ).map( ( b ) => b.start - t0 );
+
+		now.mockReturnValue( ( t0 + BUCKET_S - 1 + RETENTION_S ) * 1000 );
+		v._publishNow();
+		expect( starts() ).toEqual( [ 0, BUCKET_S ] );
+
+		now.mockReturnValue( ( t0 + BUCKET_S + RETENTION_S ) * 1000 );
+		v._publishNow();
+		expect( starts() ).toEqual( [ BUCKET_S ] );
+
+		v.removeNode();
+		now.mockRestore();
+	} );
+} );
 
 // Build a probe TM_STRUCT: positional VALUE, instant in TIMESTAMP.
 function probeMsg( {
@@ -275,7 +381,7 @@ describe( 'TopicProbeViewNode backlog a reader cannot measure', () => {
 } );
 
 describe( 'TopicProbeViewNode', () => {
-	it( 'carries the worker FROM names on each sample', () => {
+	it( 'files each record in the bucket of the worker FROM names', () => {
 		const v = new TopicProbeViewNode();
 		v.fill(
 			probeMsg( {
@@ -287,7 +393,7 @@ describe( 'TopicProbeViewNode', () => {
 		expect(
 			v
 				.snapshot( v.modelKey )
-				[ 'firehose.p0' ].series.map( ( s ) => s.worker )
+				[ 'firehose.p0' ].buckets.map( ( b ) => b.worker )
 		).toEqual( [ 'request-builder-6612.p4', '' ] );
 	} );
 
@@ -310,12 +416,12 @@ describe( 'TopicProbeViewNode', () => {
 			'ledger.p4': {
 				source: 'ledger.p4',
 				latest: sample,
-				series: [ sample ],
+				buckets: bucketsFrom( [ sample ] ),
 			},
 		} );
 	} );
 
-	it( "holds every worker's reading of one directory in its one series", () => {
+	it( "holds each worker's reading of one directory in that worker's row", () => {
 		const v = new TopicProbeViewNode();
 		v.fill( partitionMsg( { ts: 100, endBytes: 5003 } ) );
 		v.fill(
@@ -326,11 +432,62 @@ describe( 'TopicProbeViewNode', () => {
 			} )
 		);
 		const p = v.snapshot( 'partitions' )[ 'ledger.p4' ];
-		expect( p.series.map( ( s ) => [ s.worker, s.endBytes ] ) ).toEqual( [
+		expect(
+			p.buckets.map( ( b ) => [ b.worker, b.f.endBytes.last ] )
+		).toEqual( [
 			[ 'job-worker.p2', 5003 ],
 			[ 'job-intake.p0', 5780 ],
 		] );
 		expect( p.latest.endBytes ).toBe( 5780 );
+	} );
+
+	it( 'charts a directory two workers measure at its newest reading, not their sum', () => {
+		const v = new TopicProbeViewNode();
+		v.fill( partitionMsg( { ts: 100, endBytes: 5003 } ) );
+		v.fill(
+			partitionMsg( {
+				ts: 107,
+				endBytes: 5780,
+				from: 'topicprobe.p0/job-intake.p0/topicprobe',
+			} )
+		);
+		expect(
+			chart( v.snapshot( 'partitions' ), 'endBytes' )[ 'ledger.p4' ]
+				.points
+		).toEqual( [ { ts: TS_BASE + 107, value: 5780, weight: 0 } ] );
+	} );
+
+	it( 'tallies only raw fields in a consumer bucket, and keeps msgRate on latest', () => {
+		const v = new TopicProbeViewNode();
+		v.fill( probeMsg( { msgs: 3000, elapsedMs: 3000, ts: 103 } ) );
+		const c = v.snapshot( v.modelKey )[ 'firehose.p0' ];
+		expect( c.buckets[ 0 ].f ).not.toHaveProperty( 'msgRate' );
+		expect( c.buckets[ 0 ].f.msgs.sum ).toBe( 3000 );
+		expect( c.latest.msgRate ).toBe( 1000 );
+		expect(
+			liveTotal( v.snapshot( v.modelKey ), TS_BASE + 103, 'msgRate' )
+		).toBe( 1000 );
+	} );
+
+	it( 'keeps a consumer sample to its raw fields, plus the msgRate the live card sums', () => {
+		const v = new TopicProbeViewNode();
+		v.fill( probeMsg( { msgs: 91, bytes: 1820, ts: 100 } ) );
+		expect(
+			Object.keys(
+				v.snapshot( v.modelKey )[ 'firehose.p0' ].latest
+			).sort()
+		).toEqual(
+			[
+				'ts',
+				'worker',
+				'elapsed',
+				'msgs',
+				'bytes',
+				'msgRate',
+				'backlog',
+				'cacheSize',
+			].sort()
+		);
 	} );
 
 	it( 'keeps two directories that share a basename apart', () => {
@@ -386,11 +543,12 @@ describe( 'TopicProbeViewNode', () => {
 		);
 	} );
 
-	it( 'divides ONE record: byteRate is its BYTES_READ_DELTA over its own ELAPSED_MS', () => {
+	it( 'charts byteRate as ONE record’s BYTES_READ_DELTA over its own ELAPSED_MS', () => {
 		const v = new TopicProbeViewNode();
 		v.fill( probeMsg( { bytes: 3000, elapsedMs: 3000, ts: 103 } ) );
 		expect(
-			v.snapshot( v.modelKey )[ 'firehose.p0' ].latest.byteRate
+			chart( v.snapshot( v.modelKey ), 'byteRate' )[ 'firehose.p0' ]
+				.points[ 0 ].value
 		).toBe( 1000 );
 	} );
 
@@ -405,10 +563,13 @@ describe( 'TopicProbeViewNode', () => {
 		v.fill(
 			probeMsg( { msgs: 37, bytes: 740, elapsedMs: 15000, ts: 115 } )
 		);
-		const series = v.snapshot( v.modelKey )[ 'firehose.p0' ].series;
-		expect( series[ 0 ].msgRate ).toBeCloseTo( 282, 5 );
-		expect( series[ 1 ].msgRate ).toBeCloseTo( 37 / 15, 5 );
-		expect( series[ 1 ].byteRate ).toBeCloseTo( 740 / 15, 5 );
+		const snap = v.snapshot( v.modelKey );
+		const [ b ] = snap[ 'firehose.p0' ].buckets;
+		expect( b.f.msgs.max ).toBe( 4230 );
+		expect( b.f.msgs.last ).toBe( 37 );
+		expect(
+			chart( snap, 'msgRate' )[ 'firehose.p0' ].points[ 0 ].value
+		).toBeCloseTo( ( 4230 + 37 ) / 30, 5 );
 	} );
 
 	it( 'a zero-elapsed record reads as rate 0 rather than dividing by zero', () => {
@@ -416,10 +577,12 @@ describe( 'TopicProbeViewNode', () => {
 		// tick) carry ELAPSED_MS 0. The delta still rides for the totals.
 		const v = new TopicProbeViewNode();
 		v.fill( probeMsg( { msgs: 91, bytes: 1820, elapsedMs: 0, ts: 100 } ) );
-		const latest = v.snapshot( v.modelKey )[ 'firehose.p0' ].latest;
-		expect( latest.msgRate ).toBe( 0 );
-		expect( latest.byteRate ).toBe( 0 );
-		expect( latest.msgs ).toBe( 91 );
+		const snap = v.snapshot( v.modelKey );
+		expect( snap[ 'firehose.p0' ].latest.msgRate ).toBe( 0 );
+		expect( snap[ 'firehose.p0' ].latest.msgs ).toBe( 91 );
+		expect(
+			chart( snap, 'byteRate' )[ 'firehose.p0' ].points[ 0 ].value
+		).toBe( 0 );
 	} );
 
 	it( 'carries the record delta and elapsed onto the sample, so buckets can re-divide', () => {
@@ -456,7 +619,7 @@ describe( 'TopicProbeViewNode', () => {
 		v.fill( probeMsg( { msgs: -200, bytes: -9, ts: 115 } ) );
 		const latest = v.snapshot( v.modelKey )[ 'firehose.p0' ].latest;
 		expect( latest.msgRate ).toBe( 0 );
-		expect( latest.byteRate ).toBe( 0 );
+		expect( latest.bytes ).toBe( 0 );
 	} );
 
 	it( 'the FIRST record for a consumer already carries a rate (it is self-contained)', () => {
@@ -467,16 +630,6 @@ describe( 'TopicProbeViewNode', () => {
 		);
 	} );
 
-	it( 'keeps a bounded rate+backlog series per consumer (ring-capped)', () => {
-		const v = new TopicProbeViewNode( 3 ); // cap = 3 samples
-		for ( let i = 0; i < 6; i++ ) {
-			v.fill( probeMsg( { msgs: i * 1000, ts: 100 + i } ) );
-		}
-		const c = v.snapshot( v.modelKey )[ 'firehose.p0' ];
-		expect( c.series.length ).toBe( 3 );
-		expect( c.series[ c.series.length - 1 ].ts ).toBe( TS_BASE + 105 );
-	} );
-
 	it( 'drops an incoming probe record older than the 24h window (stale replay tail)', () => {
 		const staleTs = Math.floor( Date.now() / 1000 ) - 25 * 3600; // 25h ago
 		const v = new TopicProbeViewNode();
@@ -485,7 +638,7 @@ describe( 'TopicProbeViewNode', () => {
 		expect( v.snapshot( v.modelKey )[ 'firehose.p0' ] ).toBeUndefined();
 	} );
 
-	it( "prunes an IDLE consumer's aged samples when ANOTHER consumer drives the publish (time-based, across all consumers)", () => {
+	it( "prunes an IDLE consumer's aged buckets when ANOTHER consumer drives the publish (time-based, across all consumers)", () => {
 		jest.useFakeTimers();
 		try {
 			const v = new TopicProbeViewNode();
@@ -509,9 +662,9 @@ describe( 'TopicProbeViewNode', () => {
 			);
 			const snap = v.snapshot( v.modelKey );
 			expect( snap[ 'idle.p0' ] ).toBeUndefined(); // aged out → skipped
-			expect( snap[ 'live.p0' ].series.map( ( s ) => s.ts ) ).toEqual( [
-				freshTs,
-			] );
+			expect(
+				snap[ 'live.p0' ].buckets.map( ( b ) => b.f.msgs.lastTs )
+			).toEqual( [ freshTs ] );
 		} finally {
 			jest.useRealTimers();
 		}
@@ -546,11 +699,11 @@ describe( 'TopicProbeViewNode', () => {
 		}
 	} );
 
-	it( 'snapshot() returns a FRESH series array each call (never the live mutating reference)', () => {
+	it( 'snapshot() returns a FRESH buckets array each call (never the live mutating reference)', () => {
 		const v = new TopicProbeViewNode();
 		v.fill( probeMsg( { ts: 100 } ) );
-		const a = v.snapshot( v.modelKey )[ 'firehose.p0' ].series;
-		const b = v.snapshot( v.modelKey )[ 'firehose.p0' ].series;
+		const a = v.snapshot( v.modelKey )[ 'firehose.p0' ].buckets;
+		const b = v.snapshot( v.modelKey )[ 'firehose.p0' ].buckets;
 		expect( a ).not.toBe( b ); // distinct identities → memo sees a change
 		expect( a ).toEqual( b ); // same contents
 	} );
@@ -558,7 +711,7 @@ describe( 'TopicProbeViewNode', () => {
 	it( 'evicts a consumer not seen within the liveness TTL (no unbounded growth)', () => {
 		jest.useFakeTimers();
 		try {
-			const v = new TopicProbeViewNode( undefined, 1000 ); // ttlMs = 1s
+			const v = new TopicProbeViewNode( 1000 ); // ttlMs = 1s
 			v.fill( probeMsg( { reader: 'gone.p0', ts: 100 } ) );
 			expect( v.snapshot( v.modelKey )[ 'gone.p0' ] ).toBeTruthy();
 			// LIVE stream: no outage re-baseline; gone.p0 evicts on own TTL.
@@ -576,7 +729,7 @@ describe( 'TopicProbeViewNode', () => {
 	it( 'does NOT evict pre-existing consumers when the first frame arrives after a gap larger than the TTL (stream was hidden/closed, not consumers dying)', () => {
 		jest.useFakeTimers();
 		try {
-			const v = new TopicProbeViewNode( undefined, 1000 ); // ttlMs = 1s
+			const v = new TopicProbeViewNode( 1000 ); // ttlMs = 1s
 			v.fill( probeMsg( { reader: 'a.p0', ts: 100 } ) );
 			v.fill( probeMsg( { reader: 'b.p0', ts: 100 } ) );
 			// Tab hidden > TTL: first reconnect frame must NOT wipe consumers.
@@ -592,7 +745,7 @@ describe( 'TopicProbeViewNode', () => {
 	it( 'after a gap, does NOT grant a fresh full TTL to a consumer that was already silent before the outage — it evicts on its real schedule', () => {
 		jest.useFakeTimers();
 		try {
-			const v = new TopicProbeViewNode( undefined, 1000 ); // ttlMs = 1s
+			const v = new TopicProbeViewNode( 1000 ); // ttlMs = 1s
 			// dead.p0 produces once, then goes silent for good.
 			v.fill( probeMsg( { reader: 'dead.p0', ts: 100 } ) ); // real-time 0
 			// keepalive.p0 advances _lastFill so dead.p0 predates the outage.
@@ -688,7 +841,8 @@ describe( 'JobstatsViewNode', () => {
 		v.fill( jobstatsMsg( { runs: 3, maxDurationMs: 211, ts: 200 } ) );
 		v.fill( jobstatsMsg( { runs: 2, maxDurationMs: 53, ts: 215 } ) );
 		const snap = v.snapshot( v.modelKey ).evtemplate;
-		expect( snap.series.map( ( s ) => s.maxDurationMs ) ).toEqual( [
+		const { maxDurationMs } = snap.buckets[ 0 ].f;
+		expect( [ maxDurationMs.max, maxDurationMs.last ] ).toEqual( [
 			211, 53,
 		] );
 		expect( snap.windowed.maxDurationMs ).toBe( 211 );
@@ -702,7 +856,7 @@ describe( 'JobstatsViewNode', () => {
 		).toBeNull();
 	} );
 
-	it( 'carries the worker FROM names on each sample', () => {
+	it( 'files each record in the bucket of the worker FROM names', () => {
 		const v = new JobstatsViewNode();
 		v.fill(
 			jobstatsMsg( {
@@ -712,30 +866,8 @@ describe( 'JobstatsViewNode', () => {
 		);
 		v.fill( jobstatsMsg( { ts: 130, from: 'jobstats.p0/jobstats' } ) );
 		expect(
-			v.snapshot( v.modelKey ).evtemplate.series.map( ( s ) => s.worker )
+			v.snapshot( v.modelKey ).evtemplate.buckets.map( ( b ) => b.worker )
 		).toEqual( [ 'job-worker.p2', '' ] );
-	} );
-
-	it( 'caps an identity per worker, so four workers keep a whole day each', () => {
-		// 1500 sweeps a worker passes 5761 / 4: one shared cap would trim it.
-		const v = new JobstatsViewNode();
-		const sweeps = 1500;
-		for ( let i = 0; i < sweeps; i++ ) {
-			for ( const p of [ 0, 1, 2, 3 ] ) {
-				v.fill(
-					jobstatsMsg( {
-						key: 'cron:films',
-						runs: 1,
-						ts: -12500 + i * 15,
-						from: `jobstats.p0/job-worker.p${ p }/jobstats`,
-					} )
-				);
-			}
-		}
-		const series = v.snapshot( v.modelKey )[ 'cron:films' ].series;
-		v.removeNode();
-		expect( series.length ).toBe( 4 * sweeps );
-		expect( series[ 0 ].ts ).toBe( TS_BASE - 12500 );
 	} );
 
 	it( 'keeps the newest last run when an older run arrives later', () => {
@@ -782,36 +914,54 @@ describe( 'JobstatsViewNode', () => {
 		expect( snap[ 'cron:films' ].key ).toBe( 'cron:films' );
 	} );
 
-	it( 'derives per-sample queue latency (queue delta / runs delta) from ONE record', () => {
+	// One job metric charted whole for the default identity.
+	const jobChart = ( v, metric ) =>
+		chart( v.snapshot( v.modelKey ), metric, byKey ).evtemplate.points[ 0 ]
+			.value;
+
+	it( 'charts queue latency as ONE record’s queue delta over its runs delta', () => {
 		const v = new JobstatsViewNode();
 		v.fill( jobstatsMsg( { runs: 4, queueMs: 3200, ts: 115 } ) );
-		expect(
-			v.snapshot( v.modelKey ).evtemplate.series.at( -1 ).queueLatencyMs
-		).toBe( 800 );
+		expect( jobChart( v, 'queueLatencyMs' ) ).toBe( 800 );
 	} );
 
-	it( 'queue latency is 0 for a sample window with no runs', () => {
+	it( 'charts queue latency as 0 for a sample window with no runs', () => {
 		const v = new JobstatsViewNode();
 		v.fill( jobstatsMsg( { runs: 0, queueMs: 1000, ts: 115 } ) );
-		expect(
-			v.snapshot( v.modelKey ).evtemplate.series.at( -1 ).queueLatencyMs
-		).toBe( 0 );
+		expect( jobChart( v, 'queueLatencyMs' ) ).toBe( 0 );
 	} );
 
-	it( 'divides ONE record: runsRate is its RUNS_DELTA over its own ELAPSED_MS', () => {
+	it( 'charts runsRate as ONE record’s RUNS_DELTA over its own ELAPSED_MS', () => {
 		const v = new JobstatsViewNode();
 		v.fill( jobstatsMsg( { runs: 30, elapsedMs: 3000, ts: 103 } ) );
-		expect(
-			v.snapshot( v.modelKey ).evtemplate.series.at( -1 ).runsRate
-		).toBe( 10 );
+		expect( jobChart( v, 'runsRate' ) ).toBe( 10 );
 	} );
 
-	it( 'divides ONE record: errorsRate is its ERRORS_DELTA over its own ELAPSED_MS', () => {
+	it( 'charts errorsRate as ONE record’s ERRORS_DELTA over its own ELAPSED_MS', () => {
 		const v = new JobstatsViewNode();
 		v.fill( jobstatsMsg( { errors: 6, elapsedMs: 3000, ts: 103 } ) );
+		expect( jobChart( v, 'errorsRate' ) ).toBe( 2 );
+	} );
+
+	it( 'keeps a job sample to its raw fields', () => {
+		const v = new JobstatsViewNode();
+		v.fill( jobstatsMsg( { runs: 3, ts: 115 } ) );
 		expect(
-			v.snapshot( v.modelKey ).evtemplate.series.at( -1 ).errorsRate
-		).toBe( 2 );
+			Object.keys(
+				v.snapshot( v.modelKey ).evtemplate.buckets[ 0 ].f
+			).sort()
+		).toEqual(
+			[
+				'elapsed',
+				'runsDelta',
+				'errorsDelta',
+				'itemsOkDelta',
+				'itemsErrDelta',
+				'durationDelta',
+				'queueDelta',
+				'maxDurationMs',
+			].sort()
+		);
 	} );
 
 	it( 'keeps a non-zero rate across a worker restart (no reset detection left)', () => {
@@ -820,9 +970,10 @@ describe( 'JobstatsViewNode', () => {
 		const v = new JobstatsViewNode();
 		v.fill( jobstatsMsg( { runs: 42, elapsedMs: 15000, ts: 200 } ) );
 		v.fill( jobstatsMsg( { runs: 6, elapsedMs: 10000, ts: 210 } ) );
-		const series = v.snapshot( v.modelKey ).evtemplate.series;
-		expect( series[ 0 ].runsRate ).toBeCloseTo( 42 / 15, 5 );
-		expect( series[ 1 ].runsRate ).toBeCloseTo( 6 / 10, 5 );
+		const { runsDelta } = v.snapshot( v.modelKey ).evtemplate.buckets[ 0 ]
+			.f;
+		expect( [ runsDelta.max, runsDelta.last ] ).toEqual( [ 42, 6 ] );
+		expect( jobChart( v, 'runsRate' ) ).toBeCloseTo( 48 / 25, 5 );
 	} );
 
 	it( 'a zero-elapsed record reads as rate 0 rather than dividing by zero', () => {
@@ -830,16 +981,15 @@ describe( 'JobstatsViewNode', () => {
 		// tick) carry ELAPSED_MS 0. The work still counts toward the totals.
 		const v = new JobstatsViewNode();
 		v.fill( jobstatsMsg( { runs: 9, elapsedMs: 0, ts: 100 } ) );
-		const snap = v.snapshot( v.modelKey ).evtemplate;
-		expect( snap.series.at( -1 ).runsRate ).toBe( 0 );
-		expect( snap.windowed.runs ).toBe( 9 );
+		expect( jobChart( v, 'runsRate' ) ).toBe( 0 );
+		expect( v.snapshot( v.modelKey ).evtemplate.windowed.runs ).toBe( 9 );
 	} );
 
 	it( 'a negative delta (a corrupt record) contributes nothing', () => {
 		const v = new JobstatsViewNode();
 		v.fill( jobstatsMsg( { runs: -5, errors: -2, ts: 100 } ) );
 		const snap = v.snapshot( v.modelKey ).evtemplate;
-		expect( snap.series.at( -1 ).runsRate ).toBe( 0 );
+		expect( snap.buckets.at( -1 ).f.runsDelta.last ).toBe( 0 );
 		expect( snap.windowed.runs ).toBe( 0 );
 	} );
 
@@ -896,16 +1046,16 @@ describe( 'JobstatsViewNode', () => {
 		expect( windowed.avgQueueMs ).toBeNull();
 	} );
 
-	it( 'shrinks windowed totals as old samples age out of the retention window', () => {
+	it( 'shrinks windowed totals as old buckets age out of the retention window', () => {
 		const v = new JobstatsViewNode();
 		v.fill( jobstatsMsg( { runs: 5, ts: 100 } ) );
 		v.fill( jobstatsMsg( { runs: 3, ts: 200 } ) );
 		expect( v.snapshot( v.modelKey ).evtemplate.windowed.runs ).toBe( 8 );
-		// Advance wall-clock so sample A (ts = TS_BASE + 100) ages out.
-		v._pruneExpired( ( TS_BASE + 150 + RETENTION_S ) * 1000 );
+		// Advance wall-clock so bucket A (ending TS_BASE + 180) ages out.
+		v._pruneExpired( ( TS_BASE + 180 + RETENTION_S ) * 1000 );
 		expect( v.snapshot( v.modelKey ).evtemplate.windowed.runs ).toBe( 3 );
-		// Age sample B out too → the identity vanishes from the model.
-		v._pruneExpired( ( TS_BASE + 300 + RETENTION_S ) * 1000 );
+		// Age bucket B out too → the identity vanishes from the model.
+		v._pruneExpired( ( TS_BASE + 360 + RETENTION_S ) * 1000 );
 		expect( v.snapshot( v.modelKey ).evtemplate ).toBeUndefined();
 	} );
 
@@ -961,11 +1111,11 @@ describe( 'JobstatsViewNode', () => {
 		expect( published[ 0 ][ 1 ].handlers.evtemplate ).toBeTruthy();
 	} );
 
-	it( 'snapshot() returns a FRESH series array each call (never the live reference)', () => {
+	it( 'snapshot() returns a FRESH buckets array each call (never the live reference)', () => {
 		const v = new JobstatsViewNode();
 		v.fill( jobstatsMsg( { ts: 100 } ) );
-		const a = v.snapshot( v.modelKey ).evtemplate.series;
-		const b = v.snapshot( v.modelKey ).evtemplate.series;
+		const a = v.snapshot( v.modelKey ).evtemplate.buckets;
+		const b = v.snapshot( v.modelKey ).evtemplate.buckets;
 		expect( a ).not.toBe( b );
 		expect( a ).toEqual( b );
 	} );
@@ -1004,7 +1154,7 @@ function tablestatsMsg( {
 const row = ( ...r ) => r;
 
 describe( 'TablestatsViewNode', () => {
-	it( 'carries the worker FROM names on each sample', () => {
+	it( 'files each record in the bucket of the worker FROM names', () => {
 		const v = new TablestatsViewNode();
 		v.fill(
 			tablestatsMsg( {
@@ -1016,7 +1166,7 @@ describe( 'TablestatsViewNode', () => {
 		expect(
 			v
 				.snapshot( v.modelKey )
-				[ 'lab-7:kea.p3' ].series.map( ( s ) => s.worker )
+				[ 'lab-7:kea.p3' ].buckets.map( ( b ) => b.worker )
 		).toEqual( [ 'flame-builder.p3', '' ] );
 	} );
 
@@ -1032,15 +1182,21 @@ describe( 'TablestatsViewNode', () => {
 				elapsedMs: 3000,
 			} )
 		);
-		const s = v.snapshot( v.modelKey )[ 'lab-7:kea.p3' ].series.at( -1 );
-		expect( s.opsRate ).toBe( 4 );
-		expect( s.opRates.MGET ).toBe( 3 );
-		expect( s.missRate ).toBe( 3 );
-		expect( s.meanMs ).toBe( 5 );
-		expect( s.maxMs ).toBe( 21 );
-		expect( s.purgedDelta ).toBe( 4210 );
-		expect( s.walWritten ).toBe( 3700 );
-		expect( s.walFrames ).toBe( 3712 );
+		const snap = v.snapshot( v.modelKey );
+		const { f } = snap[ 'lab-7:kea.p3' ].buckets.at( -1 );
+		const at = ( metric ) =>
+			chart( snap, metric, byKey )[ 'lab-7:kea.p3' ].points[ 0 ].value;
+		expect( f.opsDelta.last ).toBe( 12 );
+		expect( f[ `${ OP_PREFIX }MGET` ].last ).toBe( 9 );
+		expect( f.misses.last ).toBe( 9 );
+		expect( at( 'opsRate' ) ).toBe( 4 );
+		expect( at( `${ OP_PREFIX }MGET` ) ).toBe( 3 );
+		expect( at( 'missRate' ) ).toBe( 3 );
+		expect( at( 'meanMs' ) ).toBe( 5 );
+		expect( f.maxMs.last ).toBe( 21 );
+		expect( f.purgedDelta.last ).toBe( 4210 );
+		expect( f.walWritten.last ).toBe( 3700 );
+		expect( f.walFrames.last ).toBe( 3712 );
 	} );
 
 	it( 'reads a missing operation as zeros and no reads as no hit rate', () => {
@@ -1051,8 +1207,8 @@ describe( 'TablestatsViewNode', () => {
 			} )
 		);
 		const t = v.snapshot( v.modelKey )[ 'lab-7:kea.p3' ];
-		expect( t.series.at( -1 ).missRate ).toBe( 0 );
-		expect( t.series.at( -1 ).opRates.GET ).toBeUndefined();
+		expect( t.buckets.at( -1 ).f.misses.last ).toBe( 0 );
+		expect( t.buckets.at( -1 ).f[ `${ OP_PREFIX }GET` ] ).toBeUndefined();
 		expect( t.windowed.hitPct ).toBeNull();
 		expect( t.windowed.errors ).toBe( 1 );
 		expect( Number.isNaN( t.windowed.meanMs ) ).toBe( false );
@@ -1093,28 +1249,45 @@ describe( 'TablestatsViewNode', () => {
 		expect( t.backend ).toBe( 'sqlite' );
 	} );
 
-	it( 'keeps each sample to its scalars and its operation rates', () => {
+	it( 'carries each operation’s calls as an op:<OP> field, charted over every sweep’s elapsed', () => {
+		const v = new TablestatsViewNode();
+		const get = [];
+		get[ Tbl.ROW_CALLS ] = 30;
+		v.fill(
+			tablestatsMsg( { ts: 15, elapsedMs: 15000, verbs: { GET: get } } )
+		);
+		v.fill( tablestatsMsg( { ts: 30, elapsedMs: 15000, verbs: {} } ) );
+		const snap = v.snapshot( 'tables' );
+		const [ b ] = snap[ 'lab-7:kea.p3' ].buckets;
+		expect( b.f[ `${ OP_PREFIX }GET` ].sum ).toBe( 30 );
+		expect( b.f.elapsed.sum ).toBe( 30 );
+		expect( 'opRates' in b.f ).toBe( false );
+		expect(
+			chart( snap, `${ OP_PREFIX }GET`, byKey )[ 'lab-7:kea.p3' ]
+				.points[ 0 ].value
+		).toBe( 1 );
+	} );
+
+	it( 'keeps a Table sample to its raw fields and its operations’ calls', () => {
 		const v = new TablestatsViewNode();
 		v.fill(
 			tablestatsMsg( {
-				verbs: {
-					GET: row( 4, 4, 3, 0, 8, 3.5, 0 ),
-					MSET: row( 2, 2, 2, 940, 6, 4.25, 1 ),
-				},
+				verbs: { GET: row( 4, 4, 3, 0, 8, 3.5, 0 ) },
 				fileBytes: 4471,
 				fileDiskBytes: 8192,
-				elapsedMs: 2000,
 			} )
 		);
-		const s = v.snapshot( v.modelKey )[ 'lab-7:kea.p3' ].series.at( -1 );
-		expect( Object.keys( s ).sort() ).toEqual(
+		expect(
+			Object.keys(
+				v.snapshot( v.modelKey )[ 'lab-7:kea.p3' ].buckets[ 0 ].f
+			).sort()
+		).toEqual(
 			[
-				'ts',
-				'worker',
 				'elapsed',
 				'opsDelta',
 				'readKeys',
 				'hitKeys',
+				'misses',
 				'errorsDelta',
 				'purgedDelta',
 				'walWritten',
@@ -1123,21 +1296,12 @@ describe( 'TablestatsViewNode', () => {
 				'maxMs',
 				'fileBytes',
 				'fileDiskBytes',
-				'opRates',
-				'opsRate',
-				'missRate',
-				'errorsRate',
-				'meanMs',
+				`${ OP_PREFIX }GET`,
 			].sort()
 		);
-		expect( s.ms ).toBe( 14 );
-		expect( s.maxMs ).toBe( 4.25 );
-		expect( s.opRates ).toEqual( { GET: 2, MSET: 1 } );
-		expect( s.fileBytes ).toBe( 4471 );
-		expect( s.fileDiskBytes ).toBe( 8192 );
 	} );
 
-	it( 'keeps a slot the record says does not apply as null', () => {
+	it( 'keeps a slot the record says does not apply as null, and tallies none of it', () => {
 		const v = new TablestatsViewNode();
 		v.fill(
 			tablestatsMsg( {
@@ -1157,23 +1321,23 @@ describe( 'TablestatsViewNode', () => {
 			purgeBehind: null,
 			walStalled: null,
 		} );
-		expect( t.series.at( -1 ).fileBytes ).toBeNull();
-		expect( t.series.at( -1 ).fileDiskBytes ).toBeNull();
+		expect( t.buckets.at( -1 ).f ).not.toHaveProperty( 'fileBytes' );
+		expect( t.buckets.at( -1 ).f ).not.toHaveProperty( 'fileDiskBytes' );
 	} );
 
 	it( 'reads an idle frame, an empty VERBS array, as zeros without NaN', () => {
 		const v = new TablestatsViewNode();
 		v.fill( tablestatsMsg( { verbs: [] } ) );
 		const t = v.snapshot( v.modelKey )[ 'lab-7:kea.p3' ];
-		const s = t.series.at( -1 );
+		const { f } = t.buckets.at( -1 );
 		expect( t.windowed.ops ).toBe( 0 );
-		expect( s.missRate ).toBe( 0 );
-		expect( s.meanMs ).toBe( 0 );
+		expect( f.misses.last ).toBe( 0 );
+		expect( f.ms.last ).toBe( 0 );
 		expect( t.windowed.hitPct ).toBeNull();
 		expect( t.windowed.meanMs ).toBeNull();
 		expect( t.windowed.maxMs ).toBeNull();
 		for ( const n of [
-			...Object.values( s ).filter( ( x ) => 'number' === typeof x ),
+			...Object.values( f ).flatMap( Object.values ),
 			...Object.values( t.windowed ).filter(
 				( x ) => 'number' === typeof x
 			),
@@ -1212,7 +1376,7 @@ describe( 'TablestatsViewNode', () => {
 		expect( w.walFrames ).toBe( 100 );
 	} );
 
-	it( 'shrinks the window sums as samples age out', () => {
+	it( 'shrinks the window sums as buckets age out', () => {
 		const v = new TablestatsViewNode();
 		v.fill(
 			tablestatsMsg( {
@@ -1226,7 +1390,7 @@ describe( 'TablestatsViewNode', () => {
 				verbs: { GET: row( 3, 3, 3, 0, 1, 1, 0 ) },
 			} )
 		);
-		v._pruneExpired( ( TS_BASE + 150 + RETENTION_S ) * 1000 );
+		v._pruneExpired( ( TS_BASE + 180 + RETENTION_S ) * 1000 );
 		expect( v.snapshot( v.modelKey )[ 'lab-7:kea.p3' ].windowed.ops ).toBe(
 			3
 		);

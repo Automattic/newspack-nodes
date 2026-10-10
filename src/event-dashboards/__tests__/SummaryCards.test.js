@@ -1,5 +1,6 @@
 import { render } from '@testing-library/react';
 import SummaryCards from '../SummaryCards';
+import { bucketsFrom } from './bucketTestUtils';
 
 const topo = ( name, o = {} ) => ( {
 	name,
@@ -215,12 +216,12 @@ it.each( [
 );
 
 it( 'formats the 24h produced messages + bytes from the probe consumers', () => {
-	const series = [
+	const buckets = bucketsFrom( [
 		{ ts: 0, msgs: 500, bytes: 5000 },
 		{ ts: 15, msgs: 1000, bytes: 10000 },
-	];
+	] );
 	const { container } = renderCards( {
-		consumers: { r1: { source: 's', series } },
+		consumers: { r1: { source: 's', buckets } },
 	} );
 	// Σ 1500 msgs; Σ 15000 B ≈ 15 KB (decimal dropped ≥10).
 	expect( card( container, 'messages' ) ).toContain( '1.5K' );

@@ -25,14 +25,16 @@
  *
  * `useProbeStream( 'topicprobe' )` runs in 'history' mode, which opens the
  * probe link at the start of the retained log, so the panels draw the real 24h
- * history rather than the thin ring a live tail accumulates while the tab is
- * open.
- * Each panel plots one series per partition per worker, `<source> · <worker>`,
- * because a source names no worker and so the panels ask `topicChartSeries`
- * to split by one: co-readers of a partition inside one worker sum, since one
- * sweep stamps them together, and the stacked chart sums the workers. The two
- * partition panels do not split: size belongs to the directory, so every
- * worker's reading is one series, and a bucket shows the newest of them.
+ * history rather than only what arrives while the tab is open. The view folds
+ * that history into 180-second buckets per reader and worker, and each point a
+ * panel draws is one bucket.
+ * Each source panel plots one series per partition per worker,
+ * `<source> · <worker>`, because a source names no worker and so the panels
+ * ask `topicChartSeries` to split by one: co-readers of a partition inside
+ * one worker add, each in its own bucket over the same window, and the
+ * stacked chart sums the workers. The two partition panels do not split:
+ * size belongs to the directory, so every worker's reading is one series,
+ * and a bucket shows the newest of them.
  *
  * Deep links go through `consoleHref`, keeping Console navigation
  * single-sourced.

@@ -8,6 +8,7 @@ import { render } from '@testing-library/react';
 import { axisDuration } from '@newspack-nodes/shared/utils/axis-ticks';
 import Jobs from '../Jobs';
 import { useProbeStream } from '../hooks/useProbeStream';
+import { bucketsFrom } from './bucketTestUtils';
 import { Core } from '../../runtime/core';
 import { publishSkippedLines } from '@newspack-nodes/shared/test-utils/skippedLines';
 
@@ -68,7 +69,15 @@ function model() {
 					lastStatus: 'error',
 					lastMessage: 'Job failed: 3 error(s), no items processed',
 				},
-				series: [ { ts: 1, runsRate: 2, errorsRate: 1, itemsRate: 5 } ],
+				buckets: bucketsFrom( [
+					{
+						ts: 1,
+						elapsed: 15,
+						runsDelta: 30,
+						errorsDelta: 15,
+						itemsOkDelta: 75,
+					},
+				] ),
 			},
 			evtemplate: {
 				key: 'evtemplate',
@@ -92,7 +101,15 @@ function model() {
 					lastStatus: 'success',
 					lastMessage: 'Job completed successfully',
 				},
-				series: [ { ts: 1, runsRate: 3, errorsRate: 0, itemsRate: 3 } ],
+				buckets: bucketsFrom( [
+					{
+						ts: 1,
+						elapsed: 15,
+						runsDelta: 45,
+						errorsDelta: 0,
+						itemsOkDelta: 45,
+					},
+				] ),
 			},
 			slowjob: {
 				key: 'slowjob',
@@ -116,7 +133,15 @@ function model() {
 					lastStatus: 'success',
 					lastMessage: 'Job completed successfully',
 				},
-				series: [ { ts: 1, runsRate: 1, errorsRate: 0, itemsRate: 1 } ],
+				buckets: bucketsFrom( [
+					{
+						ts: 1,
+						elapsed: 15,
+						runsDelta: 15,
+						errorsDelta: 0,
+						itemsOkDelta: 15,
+					},
+				] ),
 			},
 		},
 	};
@@ -163,11 +188,15 @@ describe( 'Jobs', () => {
 						consumers: {
 							'job-worker.jobs.p0': {
 								source: 'jobs.p0',
-								series: [ { ts: 1, backlog: 4096 } ],
+								buckets: bucketsFrom( [
+									{ ts: 1, backlog: 4096 },
+								] ),
 							},
 							'combined.firehose.p0': {
 								source: 'firehose.p0',
-								series: [ { ts: 1, backlog: 9999 } ],
+								buckets: bucketsFrom( [
+									{ ts: 1, backlog: 9999 },
+								] ),
 							},
 						},
 				  }
@@ -193,13 +222,13 @@ describe( 'Jobs', () => {
 						consumers: {
 							'job-worker.jobs.p2': {
 								source: 'jobs.p2',
-								series: [
+								buckets: bucketsFrom( [
 									{
 										ts: 1,
 										backlog: 4471,
 										worker: 'job-worker-4417.p2',
 									},
-								],
+								] ),
 							},
 						},
 				  }
@@ -284,26 +313,26 @@ describe( 'Jobs', () => {
 		expect( titles.some( ( t ) => /latency/i.test( t ) ) ).toBe( true );
 	} );
 
-	it( 'charts each job identity on each worker as its own stacked series', () => {
+	it( 'charts each job identity on each worker as its own stacked series, one point per bucket', () => {
 		const m = model();
-		m.handlers[ 'cron:films' ].series = [
+		m.handlers[ 'cron:films' ].buckets = bucketsFrom( [
 			{
 				ts: 100,
-				runsRate: 3,
-				errorsRate: 1,
-				queueLatencyMs: 40,
-				runsDelta: 2,
+				elapsed: 15,
+				runsDelta: 30,
+				errorsDelta: 15,
+				queueDelta: 1200,
 				worker: 'job-worker-4417.p2',
 			},
 			{
 				ts: 107,
-				runsRate: 5,
-				errorsRate: 0,
-				queueLatencyMs: 80,
-				runsDelta: 6,
+				elapsed: 15,
+				runsDelta: 75,
+				errorsDelta: 0,
+				queueDelta: 6000,
 				worker: 'job-worker-4417.p6',
 			},
-		];
+		] );
 		useNodeField.mockReturnValue( m );
 		render( <Jobs /> );
 		const [ runs, errors, backlog, latency ] = globalThis.__jobsPanels;
@@ -322,10 +351,12 @@ describe( 'Jobs', () => {
 				( p ) => p.value
 			)
 		).toEqual( [ 5 ] );
-		// A mean over two workers' samples is one series per identity.
+		// A mean over two workers' buckets is one point per identity per bucket.
 		expect( latency.stacked ).toBeFalsy();
 		expect( Object.keys( latency.series ) ).toContain( 'cron:films' );
-		expect( latency.series[ 'cron:films' ].points ).toHaveLength( 2 );
+		expect(
+			latency.series[ 'cron:films' ].points.map( ( p ) => p.value )
+		).toEqual( [ ( 1200 + 6000 ) / ( 30 + 75 ) ] );
 		expect( latency.stackable ).toBe( false );
 		// A duration axis picks one unit from the panel's peak.
 		expect( latency.formatFor ).toBe( axisDuration );
@@ -361,7 +392,7 @@ describe( 'Jobs', () => {
 				lastStatus: 'success',
 				lastMessage: '',
 			},
-			series: [],
+			buckets: [],
 		} );
 		useNodeField.mockReturnValue( {
 			handlers: {

@@ -273,7 +273,7 @@ describe( 'liveTotal msgRate', () => {
 	}
 
 	describe( 'globalMsgRate over a replayed probe day', () => {
-		it( 'reads only the reader probing through to the head after a replay whose co-reader stopped 2h before it on a burst, leaving that reader its series', () => {
+		it( 'reads only the reader probing through to the head after a replay whose co-reader stopped 2h before it on a burst, leaving that reader its buckets', () => {
 			const view = new TopicProbeViewNode();
 			const nowS = Math.floor( Date.now() / 1000 );
 			const frames = [];
@@ -295,7 +295,12 @@ describe( 'liveTotal msgRate', () => {
 
 			const consumers = view.snapshot( 'consumers' );
 			expect( consumers[ 'dead.p0' ].latest.msgRate ).toBe( 51000 );
-			expect( consumers[ 'dead.p0' ].series.length ).toBe( deadCount );
+			expect(
+				consumers[ 'dead.p0' ].buckets.reduce(
+					( n, b ) => n + b.f.msgs.sum,
+					0
+				)
+			).toBe( 1500 * ( deadCount - 1 ) + 765000 );
 			expect( globalMsgRate( consumers, streamHead( consumers ) ) ).toBe(
 				540
 			);

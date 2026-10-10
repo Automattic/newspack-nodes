@@ -1,18 +1,35 @@
 import { topicChartSeries, byKey, bySource, maxOf } from '../topicProbeSeries';
+import { bucketsFrom } from './bucketTestUtils';
 
 // The two groupings a caller declares.
 const WHOLE = { byWorker: false };
 const SPLIT = { byWorker: true };
 
-// Build a topicprobe:view consumers entry: keyed by reader, source + series.
-function consumer( source, series ) {
-	return { source, series };
+// Build a topicprobe:view consumers entry: keyed by reader, source + buckets.
+function consumer( source, samples ) {
+	return { source, buckets: bucketsFrom( samples ) };
 }
+
+// Every raw field a chart metric reads, so any metric charts a point.
+const RAW = {
+	elapsed: 15,
+	msgs: 41,
+	bytes: 41,
+	runsDelta: 41,
+	errorsDelta: 41,
+	itemsOkDelta: 41,
+	opsDelta: 41,
+	misses: 41,
+	queueDelta: 41,
+	ms: 41,
+};
 
 describe( 'the mode topicChartSeries stamps on each series', () => {
 	const modeOf = ( metric ) =>
 		topicChartSeries(
-			{ a: { source: 'kea.p3', series: [ { ts: 9, [ metric ]: 41 } ] } },
+			{
+				a: consumer( 'kea.p3', [ { ts: 9, ...RAW, [ metric ]: 41 } ] ),
+			},
 			metric,
 			bySource,
 			WHOLE
@@ -48,75 +65,300 @@ describe( 'the mode topicChartSeries stamps on each series', () => {
 	} );
 } );
 
-describe( 'topicChartSeries', () => {
-	it( 'sums the chosen metric across a source’s readers per ts, with max', () => {
-		const consumers = {
-			// Two readers of the SAME source sum per ts.
-			'firehose.p0': consumer( 'firehose.p0', [
-				{ ts: 100, msgRate: 10, byteRate: 1000, backlog: 4000 },
-				{ ts: 115, msgRate: 20, byteRate: 2000, backlog: 0 },
-			] ),
-			'firehose.job-router.p0': consumer( 'firehose.p0', [
-				{ ts: 100, msgRate: 5, byteRate: 500, backlog: 200 },
-				{ ts: 115, msgRate: 5, byteRate: 500, backlog: 0 },
-			] ),
-			'jobs.p0': consumer( 'jobs.p0', [
-				{ ts: 100, msgRate: 1, byteRate: 50, backlog: 50 },
-			] ),
+describe( 'the raw fields each chart metric reads', () => {
+	const t0 = 1755000000;
+	const valueOf = ( metric, sample ) =>
+		topicChartSeries(
+			{
+				a: {
+					key: 'kea',
+					buckets: bucketsFrom( [ { ts: t0, ...sample } ] ),
+				},
+			},
+			metric,
+			byKey,
+			WHOLE
+		).kea.points[ 0 ].value;
+
+	it( 'divides a rate’s summed delta by its summed elapsed', () => {
+		const rates = {
+			msgRate: 'msgs',
+			byteRate: 'bytes',
+			runsRate: 'runsDelta',
+			errorsRate: 'errorsDelta',
+			opsRate: 'opsDelta',
+			missRate: 'misses',
+			'op:SMOVE': 'op:SMOVE',
 		};
-		const byteRate = topicChartSeries(
-			consumers,
-			'byteRate',
+		for ( const [ metric, num ] of Object.entries( rates ) ) {
+			expect( valueOf( metric, { elapsed: 12, [ num ]: 87 } ) ).toBe(
+				87 / 12
+			);
+		}
+	} );
+
+	it( 'divides a mean by the units it averages over', () => {
+		expect(
+			valueOf( 'queueLatencyMs', { queueDelta: 930, runsDelta: 6 } )
+		).toBe( 155 );
+		expect( valueOf( 'meanMs', { ms: 148, opsDelta: 37 } ) ).toBe( 4 );
+	} );
+
+	it( 'counts a zero-elapsed record’s delta in its bucket’s rate', () => {
+		const out = topicChartSeries(
+			{
+				r1: consumer( 'kea.p3', [
+					{ ts: t0 + 15, elapsed: 15, msgs: 100 },
+					{ ts: t0 + 16, elapsed: 0, msgs: 91 },
+				] ),
+			},
+			'msgRate',
 			bySource,
 			WHOLE
-		);
-		expect(
-			byteRate[ 'firehose.p0' ].points.map( ( p ) => [ p.ts, p.value ] )
-		).toEqual( [
-			[ 100, 1500 ], // 1000 + 500
-			[ 115, 2500 ], // 2000 + 500
-		] );
-		expect( byteRate[ 'firehose.p0' ].max ).toBe( 2500 );
-		expect( byteRate[ 'firehose.p0' ] ).not.toHaveProperty( 'avg' );
-		expect(
-			byteRate[ 'jobs.p0' ].points.map( ( p ) => [ p.ts, p.value ] )
-		).toEqual( [ [ 100, 50 ] ] );
+		)[ 'kea.p3' ];
+		expect( out.points[ 0 ].value ).toBe( 191 / 15 );
+	} );
 
-		// Same consumers, different metric → backlog series.
-		const backlog = topicChartSeries(
-			consumers,
+	it( 'reads a rate as 0 over a window with no elapsed', () => {
+		expect( valueOf( 'msgRate', { elapsed: 0, msgs: 91 } ) ).toBe( 0 );
+	} );
+} );
+
+describe( 'topicChartSeries over buckets', () => {
+	const t0 = 1755000000;
+
+	it( 're-divides one entry’s rate by its bucket’s elapsed, and adds two readers of one source', () => {
+		const out = topicChartSeries(
+			{
+				r1: consumer( 'kea.p3', [
+					{ ts: t0 + 15, elapsed: 10, msgs: 60 },
+					{ ts: t0 + 30, elapsed: 30, msgs: 60 },
+				] ),
+				r2: consumer( 'kea.p3', [
+					{ ts: t0 + 20, elapsed: 15, msgs: 60 },
+				] ),
+			},
+			'msgRate',
+			bySource,
+			WHOLE
+		)[ 'kea.p3' ];
+		expect( out.points ).toEqual( [
+			{ ts: t0 + 30, value: ( 60 + 60 ) / 40 + 60 / 15, weight: 40 },
+		] );
+		expect( out.step ).toBe( 180 );
+	} );
+
+	it( 'pools a mean across entries, weighed by the units it averages over', () => {
+		const out = topicChartSeries(
+			{
+				a: {
+					key: 'mail',
+					buckets: bucketsFrom( [
+						{ ts: t0 + 15, runsDelta: 3, queueDelta: 300 },
+					] ),
+				},
+				b: {
+					key: 'mail',
+					buckets: bucketsFrom( [
+						{ ts: t0 + 15, runsDelta: 1, queueDelta: 900 },
+					] ),
+				},
+			},
+			'queueLatencyMs',
+			byKey,
+			WHOLE
+		).mail;
+		expect( out.points[ 0 ].value ).toBe( ( 300 + 900 ) / 4 );
+		expect( out.points[ 0 ].weight ).toBe( 4 );
+	} );
+
+	it( 'weighs meanMs by the window ops, not its seconds', () => {
+		const out = topicChartSeries(
+			{
+				a: {
+					key: 'lab-7:kea.p3',
+					buckets: bucketsFrom( [
+						{ ts: t0 + 9, ms: 148, opsDelta: 37, elapsed: 15 },
+					] ),
+				},
+			},
+			'meanMs',
+			byKey,
+			WHOLE
+		);
+		expect( out[ 'lab-7:kea.p3' ].points[ 0 ] ).toEqual( {
+			ts: t0 + 9,
+			value: 4,
+			weight: 37,
+		} );
+	} );
+
+	it( 'reads a mean whose window ran nothing as 0', () => {
+		const out = topicChartSeries(
+			{
+				a: {
+					key: 'mail',
+					buckets: bucketsFrom( [
+						{ ts: t0 + 15, runsDelta: 0, queueDelta: 0 },
+						{ ts: t0 + 30, runsDelta: 0, queueDelta: 0 },
+					] ),
+				},
+			},
+			'queueLatencyMs',
+			byKey,
+			WHOLE
+		).mail;
+		expect( out.points ).toEqual( [
+			{ ts: t0 + 30, value: 0, weight: 0 },
+		] );
+	} );
+
+	it( 'adds the newest levels of a group and keeps the largest of a max', () => {
+		const levels = topicChartSeries(
+			{
+				r1: consumer( 'kea.p3', [
+					{ ts: t0 + 15, backlog: 900 },
+					{ ts: t0 + 45, backlog: 300 },
+				] ),
+				r2: consumer( 'kea.p3', [ { ts: t0 + 20, backlog: 70 } ] ),
+			},
 			'backlog',
 			bySource,
 			WHOLE
+		)[ 'kea.p3' ];
+		expect( levels.points ).toEqual( [
+			{ ts: t0 + 45, value: 370, weight: 0 },
+		] );
+
+		const peaks = topicChartSeries(
+			{
+				a: {
+					key: 'flame',
+					buckets: bucketsFrom( [
+						{ ts: t0 + 15, maxMs: 12 },
+						{ ts: t0 + 30, maxMs: 81 },
+					] ),
+				},
+			},
+			'maxMs',
+			byKey,
+			WHOLE
+		).flame;
+		expect( peaks.points ).toEqual( [
+			{ ts: t0 + 30, value: 81, weight: 0 },
+		] );
+	} );
+
+	it( 'adds each entry’s newest level across its rows, then adds the entries', () => {
+		const out = topicChartSeries(
+			{
+				'ledger.p4': {
+					source: 'ledger.p4',
+					buckets: bucketsFrom( [
+						{ ts: t0 + 15, worker: 'kea-2.p2', endBytes: 5003 },
+						{ ts: t0 + 20, worker: 'emu-6.p0', endBytes: 5780 },
+						{ ts: t0 + 17, worker: 'kea-2.p2', endBytes: 5100 },
+					] ),
+				},
+				'jobs.p4': {
+					source: 'jobs.p4',
+					buckets: bucketsFrom( [
+						{ ts: t0 + 16, worker: 'kea-2.p2', endBytes: 70 },
+					] ),
+				},
+			},
+			'endBytes',
+			() => 'all',
+			WHOLE
+		).all;
+		expect( out.points ).toEqual( [
+			{ ts: t0 + 20, value: 5780 + 70, weight: 0 },
+		] );
+	} );
+
+	it( 'charts a Table two worker types hold at its newer size, not the sum or the larger', () => {
+		// The file shrank after a vacuum, so the newer reading is the smaller.
+		const out = topicChartSeries(
+			{
+				'flame-stats.p3': {
+					key: 'flame-stats.p3',
+					buckets: bucketsFrom( [
+						{
+							ts: t0 + 40,
+							worker: 'flame-builder.p3',
+							fileBytes: 57344,
+						},
+						{
+							ts: t0 + 25,
+							worker: 'job-worker.p3',
+							fileBytes: 61440,
+						},
+					] ),
+				},
+			},
+			'fileBytes',
+			byKey,
+			WHOLE
+		)[ 'flame-stats.p3' ];
+		expect( out.points ).toEqual( [
+			{ ts: t0 + 40, value: 57344, weight: 0 },
+		] );
+	} );
+
+	it( 'orders points by bucket across entries and workers', () => {
+		const out = topicChartSeries(
+			{
+				r1: consumer( 'kea.p3', [
+					{ ts: t0 + 400, elapsed: 15, msgs: 15 },
+				] ),
+				r2: consumer( 'kea.p3', [
+					{ ts: t0 + 15, elapsed: 15, msgs: 30 },
+				] ),
+			},
+			'msgRate',
+			bySource,
+			WHOLE
+		)[ 'kea.p3' ];
+		expect( out.points.map( ( p ) => p.ts ) ).toEqual( [
+			t0 + 15,
+			t0 + 400,
+		] );
+	} );
+
+	it( 'sums a worker’s Tables in one bucket into one point', () => {
+		const table = ( ts, opsDelta ) => ( {
+			key: 'flame-stats',
+			buckets: bucketsFrom( [
+				{ ts, opsDelta, elapsed: 15, worker: 'job-worker-4417.p3' },
+			] ),
+		} );
+		const out = topicChartSeries(
+			{
+				a: table( t0 + 123.25, 105 ),
+				b: table( t0 + 123.2637, 165 ),
+				c: table( t0 + 123.2774, 195 ),
+			},
+			'opsRate',
+			byKey,
+			SPLIT
 		);
 		expect(
-			backlog[ 'firehose.p0' ].points.map( ( p ) => p.value )
-		).toEqual( [ 4200, 0 ] );
-		expect( backlog[ 'firehose.p0' ].max ).toBe( 4200 );
+			out[ 'flame-stats · job-worker-4417.p3' ].points.map( ( p ) => [
+				p.ts,
+				p.value,
+			] )
+		).toEqual( [ [ t0 + 123.2774, 31 ] ] );
 	} );
+} );
 
-	it( 'orders points by ts ascending regardless of consumer order', () => {
-		const consumers = {
-			'a.p0': consumer( 'a.p0', [
-				{ ts: 300, msgRate: 0, byteRate: 0, backlog: 3 },
-				{ ts: 100, msgRate: 0, byteRate: 0, backlog: 1 },
-				{ ts: 200, msgRate: 0, byteRate: 0, backlog: 2 },
-			] ),
-		};
-		expect(
-			topicChartSeries( consumers, 'backlog', bySource, WHOLE )[
-				'a.p0'
-			].points.map( ( p ) => p.value )
-		).toEqual( [ 1, 2, 3 ] );
-	} );
-
+describe( 'topicChartSeries', () => {
 	it( 'groups by a caller key (source→topology) when given keyOf', () => {
 		const consumers = {
 			'firehose.p0': consumer( 'firehose.p0', [
-				{ ts: 100, msgRate: 0, byteRate: 0, backlog: 1000 },
+				{ ts: 100, backlog: 1000 },
 			] ),
 			'requests.p0': consumer( 'requests.p0', [
-				{ ts: 100, msgRate: 0, byteRate: 0, backlog: 200 },
+				{ ts: 100, backlog: 200 },
 			] ),
 		};
 		const map = { 'firehose.p0': 'combined', 'requests.p0': 'combined' };
@@ -129,41 +371,6 @@ describe( 'topicChartSeries', () => {
 		expect( out.combined.points.map( ( p ) => [ p.ts, p.value ] ) ).toEqual(
 			[ [ 100, 1200 ] ]
 		);
-	} );
-
-	it( "carries each point's elapsed weight so a bucket can re-divide it", () => {
-		// A bucket aggregate is Σwork / Σelapsed, so a point has to say how long
-		// its own sample covered. Readers sweep in lockstep, so the group takes
-		// the widest window at that instant.
-		const consumers = {
-			'firehose.p0': consumer( 'firehose.p0', [
-				{ ts: 100, msgRate: 10, elapsed: 15 },
-			] ),
-			'firehose.job-router.p0': consumer( 'firehose.p0', [
-				{ ts: 100, msgRate: 4, elapsed: 12 },
-			] ),
-		};
-		expect(
-			topicChartSeries( consumers, 'msgRate', bySource, WHOLE )[
-				'firehose.p0'
-			].points
-		).toEqual( [ { ts: 100, value: 14, weight: 15 } ] );
-	} );
-
-	it( 'weights queue latency by RUNS, not by elapsed — its denominator is runs', () => {
-		// queueLatencyMs is a per-run mean, so re-dividing a bucket has to be
-		// Σqueue / Σruns. Weighting by seconds would average two windows of very
-		// different job counts as if they were equal.
-		const consumers = {
-			'a.p0': consumer( 'a.p0', [
-				{ ts: 100, queueLatencyMs: 800, runsDelta: 4, elapsed: 15 },
-			] ),
-		};
-		expect(
-			topicChartSeries( consumers, 'queueLatencyMs', bySource, WHOLE )[
-				'a.p0'
-			].points[ 0 ]
-		).toEqual( { ts: 100, value: 800, weight: 4 } );
 	} );
 
 	it( 'skips consumers with no group key and tolerates an empty map', () => {
@@ -180,21 +387,6 @@ describe( 'topicChartSeries', () => {
 		).toEqual( {} );
 	} );
 
-	it( 'weights meanMs by the window ops, not its seconds', () => {
-		const out = topicChartSeries(
-			{
-				a: {
-					source: 'lab-7:kea.p3',
-					series: [ { ts: 9, meanMs: 4, opsDelta: 37, elapsed: 15 } ],
-				},
-			},
-			'meanMs',
-			bySource,
-			WHOLE
-		);
-		expect( out[ 'lab-7:kea.p3' ].points[ 0 ].weight ).toBe( 37 );
-	} );
-
 	it( 'refuses a call that does not say whether to split by worker', () => {
 		expect( () => topicChartSeries( {}, 'msgRate', bySource ) ).toThrow(
 			TypeError
@@ -202,64 +394,23 @@ describe( 'topicChartSeries', () => {
 	} );
 } );
 
-describe( 'topicChartSeries combining samples at one instant', () => {
-	const at = ( metric, samples ) =>
-		topicChartSeries(
-			{ a: { key: 'lab-7:kea.p3', series: samples } },
-			metric,
-			byKey,
-			WHOLE
-		)[ 'lab-7:kea.p3' ].points;
-
-	it( 'combines a mean into a weighted mean, ignoring zero weights', () => {
-		expect(
-			at( 'meanMs', [
-				{ ts: 9, meanMs: 40, opsDelta: 3 },
-				{ ts: 9, meanMs: 80, opsDelta: 1 },
-				{ ts: 9, meanMs: 900, opsDelta: 0 },
-			] )
-		).toEqual( [ { ts: 9, value: 50, weight: 4 } ] );
-	} );
-
-	it( 'reads the plain mean of a mean whose samples all weigh nothing', () => {
-		expect(
-			at( 'queueLatencyMs', [
-				{ ts: 9, queueLatencyMs: 30, runsDelta: 0 },
-				{ ts: 9, queueLatencyMs: 70, runsDelta: 0 },
-			] )
-		).toEqual( [ { ts: 9, value: 50, weight: 0 } ] );
-	} );
-
-	it( 'keeps the largest of a max', () => {
-		expect(
-			at( 'maxMs', [
-				{ ts: 9, maxMs: 41, elapsed: 15 },
-				{ ts: 9, maxMs: 7, elapsed: 12 },
-			] )
-		).toEqual( [ { ts: 9, value: 41, weight: 15 } ] );
-	} );
-
-	it( 'sums a level', () => {
-		expect(
-			at( 'fileBytes', [
-				{ ts: 9, fileBytes: 4096, elapsed: 15 },
-				{ ts: 9, fileBytes: 8192, elapsed: 15 },
-			] )
-		).toEqual( [ { ts: 9, value: 12288, weight: 15 } ] );
-	} );
-} );
-
 describe( 'topicChartSeries per worker', () => {
+	const run = ( ts, runsDelta, worker ) => ( {
+		ts,
+		runsDelta,
+		elapsed: 15,
+		worker,
+	} );
 	const entries = {
 		'cron:films': {
 			key: 'cron:films',
 			handler: 'cron',
-			series: [
-				{ ts: 100, runsRate: 3, worker: 'job-worker-4417.p2' },
-				{ ts: 100, runsRate: 5, worker: 'job-worker-4417.p6' },
-				{ ts: 115, runsRate: 7, worker: 'job-worker-4417.p2' },
-				{ ts: 115, runsRate: 11, worker: '' },
-			],
+			buckets: bucketsFrom( [
+				run( 100, 45, 'job-worker-4417.p2' ),
+				run( 100, 75, 'job-worker-4417.p6' ),
+				run( 300, 105, 'job-worker-4417.p2' ),
+				run( 300, 165, '' ),
+			] ),
 		},
 	};
 	const values = ( out, key ) => out[ key ].points.map( ( p ) => p.value );
@@ -289,10 +440,9 @@ describe( 'topicChartSeries per worker', () => {
 	it( 'splits a LEVEL gauge per worker too, each worker its own debt', () => {
 		const out = topicChartSeries(
 			{
-				'job-worker.jobs.p0': {
-					source: 'jobs.p0',
-					series: [ { ts: 9, backlog: 4096, worker: 'kea-7713.p3' } ],
-				},
+				'job-worker.jobs.p0': consumer( 'jobs.p0', [
+					{ ts: 9, backlog: 4096, worker: 'kea-7713.p3' },
+				] ),
 			},
 			'backlog',
 			bySource,
@@ -302,15 +452,20 @@ describe( 'topicChartSeries per worker', () => {
 	} );
 
 	it( 'keeps a mean or a max whole per key the caller keeps whole', () => {
-		for ( const metric of [ 'queueLatencyMs', 'meanMs', 'maxMs' ] ) {
+		const raw = {
+			queueLatencyMs: ( v ) => ( { queueDelta: v, runsDelta: 1 } ),
+			meanMs: ( v ) => ( { ms: v, opsDelta: 1 } ),
+			maxMs: ( v ) => ( { maxMs: v } ),
+		};
+		for ( const [ metric, fields ] of Object.entries( raw ) ) {
 			const out = topicChartSeries(
 				{
 					a: {
 						key: 'cron:films',
-						series: [
-							{ ts: 100, [ metric ]: 40, worker: 'w.p2' },
-							{ ts: 107, [ metric ]: 80, worker: 'w.p6' },
-						],
+						buckets: bucketsFrom( [
+							{ ts: 100, ...fields( 40 ), worker: 'w.p2' },
+							{ ts: 300, ...fields( 80 ), worker: 'w.p6' },
+						] ),
 					},
 				},
 				metric,
@@ -322,13 +477,45 @@ describe( 'topicChartSeries per worker', () => {
 		}
 	} );
 
-	it( 'keeps a Table identity whole, its key already naming one worker', () => {
-		for ( const metric of [ 'opsRate', 'missRate', 'fileBytes' ] ) {
+	it( 'keeps the larger max of two workers folded into one bucket of a whole key', () => {
+		const out = topicChartSeries(
+			{
+				a: {
+					key: 'cron:films',
+					buckets: bucketsFrom( [
+						{ ts: 100, maxMs: 41, worker: 'w.p2' },
+						{ ts: 107, maxMs: 83, worker: 'w.p6' },
+					] ),
+				},
+			},
+			'maxMs',
+			byKey,
+			WHOLE
+		);
+		expect( out[ 'cron:films' ].points ).toEqual( [
+			{ ts: 107, value: 83, weight: 0 },
+		] );
+	} );
+
+	it( 'keeps a Table identity whole when the caller does not split by worker', () => {
+		const raw = {
+			opsRate: 'opsDelta',
+			missRate: 'misses',
+			fileBytes: 'fileBytes',
+		};
+		for ( const [ metric, field ] of Object.entries( raw ) ) {
 			const out = topicChartSeries(
 				{
 					a: {
 						key: 'lab-7:kea.p3',
-						series: [ { ts: 9, [ metric ]: 41, worker: 'w.p3' } ],
+						buckets: bucketsFrom( [
+							{
+								ts: 9,
+								elapsed: 15,
+								[ field ]: 41,
+								worker: 'w.p3',
+							},
+						] ),
 					},
 				},
 				metric,
@@ -344,11 +531,15 @@ describe( 'topicChartSeries per worker', () => {
 			{
 				a: {
 					op: 'GET',
-					series: [ { ts: 9, value: 2, worker: 'w.p1' } ],
+					buckets: bucketsFrom( [
+						{ ts: 9, value: 30, elapsed: 15, worker: 'w.p1' },
+					] ),
 				},
 				b: {
 					op: 'GET',
-					series: [ { ts: 9, value: 4, worker: 'w.p1' } ],
+					buckets: bucketsFrom( [
+						{ ts: 9, value: 60, elapsed: 15, worker: 'w.p1' },
+					] ),
 				},
 			},
 			'value',
@@ -357,7 +548,7 @@ describe( 'topicChartSeries per worker', () => {
 		);
 		expect( Object.keys( out ) ).toEqual( [ 'GET · w.p1' ] );
 		expect( out[ 'GET · w.p1' ].points ).toEqual( [
-			{ ts: 9, value: 6, weight: 0 },
+			{ ts: 9, value: 6, weight: 15 },
 		] );
 	} );
 } );
@@ -368,14 +559,14 @@ describe( 'topicChartSeries and a figure that does not apply', () => {
 			{
 				'lab-7:kea.p3': {
 					key: 'lab-7:kea.p3',
-					series: [
+					buckets: bucketsFrom( [
 						{ ts: 9, fileBytes: 8192 },
 						{ ts: 24, fileBytes: null },
-					],
+					] ),
 				},
 				'lab-7:emu.p3': {
 					key: 'lab-7:emu.p3',
-					series: [ { ts: 9, fileBytes: null } ],
+					buckets: bucketsFrom( [ { ts: 9, fileBytes: null } ] ),
 				},
 			},
 			'fileBytes',
@@ -401,46 +592,5 @@ describe( 'byKey, bySource and maxOf', () => {
 			4471
 		);
 		expect( maxOf( [] ) ).toBe( 0 );
-	} );
-} );
-
-describe( 'a worker’s Tables swept at one instant', () => {
-	it( 'sum into one point, where staggered stamps chart apart', () => {
-		const table = ( ts, opsRate ) => ( {
-			key: 'flame-stats',
-			series: [
-				{ ts, opsRate, elapsed: 15000, worker: 'job-worker-4417.p3' },
-			],
-		} );
-		const shared = topicChartSeries(
-			{
-				a: table( 1790000123.25, 7 ),
-				b: table( 1790000123.25, 11 ),
-				c: table( 1790000123.25, 13 ),
-			},
-			'opsRate',
-			byKey,
-			SPLIT
-		);
-		expect(
-			shared[ 'flame-stats · job-worker-4417.p3' ].points.map( ( p ) => [
-				p.ts,
-				p.value,
-			] )
-		).toEqual( [ [ 1790000123.25, 31 ] ] );
-
-		const staggered = topicChartSeries(
-			{
-				a: table( 1790000123.25, 7 ),
-				b: table( 1790000123.2637, 11 ),
-				c: table( 1790000123.2774, 13 ),
-			},
-			'opsRate',
-			byKey,
-			SPLIT
-		);
-		expect(
-			staggered[ 'flame-stats · job-worker-4417.p3' ].points
-		).toHaveLength( 3 );
 	} );
 } );

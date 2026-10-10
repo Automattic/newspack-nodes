@@ -3,19 +3,134 @@ import { ReactBridge } from '../../runtime/react-bridge';
 import { TIMESTAMP, FROM, VALUE } from '../../runtime/message';
 import { workerOfFrom } from '@newspack-nodes/shared/utils/workerId';
 
-// Fixed 24h live window, in seconds; an older record is dropped or pruned.
-const RETENTION_S = 86400;
-// Per-worker ring cap above the 24h window at the 15s cadence; prune bounds.
-const MAX_SAMPLES = RETENTION_S / 15 + 1; // 5761
+/**
+ * Fixed 24h live window, in seconds; an older record is dropped or pruned.
+ *
+ * @testonly Exported so the view's tests state the window edge they prune at.
+ */
+export const RETENTION_S = 86400;
 // Throttle publish (a full-replay burst thrashes React): leading + trailing.
 const PUBLISH_THROTTLE_MS = 500;
 // Evict a key unseen this long; measured by arrival, not record ts.
 const ENTRY_TTL_MS = 300000; // 5 min
 
+/** Bucket width in seconds: a day is 480 buckets, under TopicsChart's 500. */
+export const BUCKET_S = 180;
+
+/**
+ * One field's samples in one bucket: Σvalue, the largest, and the newest with
+ * its instant.
+ *
+ * @typedef {{sum:number,max:number,last:number,lastTs:number}} Tally
+ */
+
+/**
+ * One row's samples of one key over one `BUCKET_S` window; the row is the
+ * worker that swept them, or `''` for a FROM naming no worker.
+ *
+ * @typedef {{start:number,worker:string,f:Object<string,Tally>}} Bucket
+ */
+
+/**
+ * The buckets a snapshot has handed out. A fold copies one of these before
+ * changing it, so a published snapshot never changes under React, while a
+ * bucket no snapshot has seen folds in place.
+ *
+ * @type {WeakSet<Bucket>}
+ */
+const PUBLISHED = new WeakSet();
+
+/**
+ * Fold one sample into its row's bucket for its `ts`, on the one
+ * epoch-aligned grid every worker's 15-second phase shares. Every numeric
+ * field but `ts` tallies; a null field, a measure that does not apply, adds
+ * nothing. A late sample lands in the bucket it belongs to, and its reading
+ * becomes `last` only when it is the newest that bucket has seen.
+ *
+ * @testonly Exported so `bucketsFrom()` builds a reader's fixture buckets as
+ * the view folds them; the view's `fill()` is the caller.
+ *
+ * @param {Map<string,Map<number,Bucket>>} rows   Row key to its buckets by start.
+ * @param {string}                         row    The row the sample files under.
+ * @param {Object}                         sample A `_fold` sample: `ts` plus numeric fields.
+ * @return {void}
+ */
+export function foldInto( rows, row, sample ) {
+	const start = Math.floor( sample.ts / BUCKET_S ) * BUCKET_S;
+	let buckets = rows.get( row );
+	if ( ! buckets ) {
+		buckets = new Map();
+		rows.set( row, buckets );
+	}
+	let b = buckets.get( start );
+	if ( ! b || PUBLISHED.has( b ) ) {
+		b = { start, worker: row, f: copyTallies( b?.f ) };
+		buckets.set( start, b );
+	}
+	for ( const [ field, v ] of Object.entries( sample ) ) {
+		if ( 'ts' === field || 'number' !== typeof v ) {
+			continue;
+		}
+		const t = b.f[ field ];
+		if ( ! t ) {
+			b.f[ field ] = {
+				sum: v,
+				max: v,
+				last: v,
+				lastTs: sample.ts,
+			};
+			continue;
+		}
+		t.sum += v;
+		t.max = Math.max( t.max, v );
+		if ( sample.ts >= t.lastTs ) {
+			t.last = v;
+			t.lastTs = sample.ts;
+		}
+	}
+}
+
+/**
+ * A copy of a published bucket's tallies, each its own object, so folding
+ * into the copy leaves the published ones as they were.
+ *
+ * @param {Object<string,Tally>|undefined} f The tallies, or none.
+ * @return {Object<string,Tally>} Their copy; empty for none.
+ */
+function copyTallies( f ) {
+	return Object.fromEntries(
+		Object.entries( f || {} ).map( ( [ field, t ] ) => [ field, { ...t } ] )
+	);
+}
+
+/**
+ * Σ and the largest max of each named field over some buckets: the windowed
+ * totals the Jobs and Tables rows and the 24h cards read.
+ *
+ * @param {Array<Bucket>} buckets One key's buckets.
+ * @param {Array<string>} fields  The fields to total.
+ * @return {Object<string,{sum:number,max:number}>} Per field; 0 and 0 for a field no bucket carries.
+ */
+export function bucketTotals( buckets, fields ) {
+	const out = Object.fromEntries(
+		fields.map( ( field ) => [ field, { sum: 0, max: 0 } ] )
+	);
+	for ( const b of buckets ) {
+		for ( const field of fields ) {
+			const t = b.f[ field ];
+			if ( t ) {
+				out[ field ].sum += t.sum;
+				out[ field ].max = Math.max( out[ field ].max, t.max );
+			}
+		}
+	}
+	return out;
+}
+
 /**
  * The layout mapping every concrete probe-stream view node supplies.
  *
- * The base owns the whole entry lifecycle — admit, create, touch, push, cap,
+ * The base owns the whole entry lifecycle — admit, create, touch, fold,
  * prune, evict, publish — so a subclass owns only which slot of a record
  * carries the per-key identity, which key the model publishes under, how one
  * record folds into an entry, and what the published per-key snapshot is.
@@ -23,7 +138,7 @@ const ENTRY_TTL_MS = 300000; // 5 min
  * @typedef  {Object} ProbeStreamMapping
  * @property {number}                                                                                              identitySlot Record slot carrying the per-key identity.
  * @property {string}                                                                                              modelKey     Wrapper key the published model uses.
- * @property {( entry: Object, value: Array<string|number>, ts: number, worker: string, model: string ) => Object} _fold        Folds one record into its entry and returns the sample to push.
+ * @property {( entry: Object, value: Array<string|number>, ts: number, worker: string, model: string ) => Object} _fold        Folds one record into its entry and returns the sample its bucket tallies.
  * @property {( entry: Object ) => Object}                                                                         _entryView   Builds the published snapshot for one key's entry.
  */
 
@@ -46,27 +161,29 @@ const ENTRY_TTL_MS = 300000; // 5 min
  * this one.
  *
  * Owns everything a probe stream needs that is not its record layout: the
- * per-key entries, the ring, the throttle, the TTL, the eviction and the prune.
- * A subclass supplies `identitySlot`, `modelKey`,
+ * per-key entries, their buckets, the throttle, the TTL, the eviction and the
+ * prune. A subclass supplies `identitySlot`, `modelKey`,
  * `_fold(entry, value, ts, worker, model)` and `_entryView(entry)`. One whose
  * stream carries a second kind of record routes it into a model of its own by
  * overriding `_identify(value)` and `_models()`; the entries nest by model,
- * and `_fold` is told which it folds into. Folding a record costs one push
- * and a sweep of the live keys, never a walk of a series; every walk — the
- * prune, the snapshot's per-key copies — waits for a publish, and the `view`
- * publish is time-throttled so a 24h replay burst does not thrash React. The
- * series is bounded two ways: a hard ring cap at `maxSamples` per worker the
- * key has heard from, and the live 24h window (a record older than
- * RETENTION_S is dropped on arrival, and a sample is pruned as wall-clock
- * advances past it).
- * The cap scales by worker because one key may be swept by every partition:
- * a job identity with no id yields one record per worker per sweep.
+ * and `_fold` is told which it folds into.
  *
- * @param {number} [maxSamples] Per-worker ring cap (defaults to MAX_SAMPLES).
- * @param {number} [ttlMs]      Per-key liveness TTL (defaults to ENTRY_TTL_MS).
+ * A record folds into one bucket — its row's `BUCKET_S` window for its `ts`
+ * — and a sweep of the live keys, never a walk of a day of samples; every
+ * walk — the prune, the snapshot's per-key copies — waits for a publish, and
+ * the `view` publish is time-throttled so a 24h replay burst does not thrash
+ * React. A bucket folds in place until a snapshot hands it out, and is copied
+ * once before its next fold after that. Each worker a key hears from keeps
+ * its own row of buckets, because one key may be swept by every partition: a
+ * job identity with no id yields one record per worker per sweep. A row is
+ * bounded by the live window over `BUCKET_S`, at most 481 buckets: a record
+ * older than RETENTION_S is dropped on arrival, and a bucket is pruned once
+ * it ends at or before the window's edge.
+ *
+ * @param {number} [ttlMs] Per-key liveness TTL (defaults to ENTRY_TTL_MS).
  */
 export class ProbeStreamViewNode extends ReactBridge( Node ) {
-	/** The model and its per-key 24h series: thousands of samples a key. */
+	/** The model and its per-key 24h buckets: hundreds a key. */
 	static dumpOmits = [ 'view', 'entries' ];
 
 	/**
@@ -77,19 +194,17 @@ export class ProbeStreamViewNode extends ReactBridge( Node ) {
 		'Durable probe-stream render-model sink (the React view node).';
 
 	/**
-	 * Sizes the per-key ring and the liveness TTL, and starts with no entries.
+	 * Sets the liveness TTL and starts with no entries.
 	 *
 	 * A subclass declares `modelKey` and `identitySlot` as class fields, which
 	 * initialize after this runs.
 	 *
-	 * @param {number} [maxSamples] Per-worker ring cap; MAX_SAMPLES when omitted.
-	 * @param {number} [ttlMs]      Per-key liveness TTL in ms; ENTRY_TTL_MS when omitted.
+	 * @param {number} [ttlMs] Per-key liveness TTL in ms; ENTRY_TTL_MS when omitted.
 	 */
-	constructor( maxSamples, ttlMs ) {
+	constructor( ttlMs ) {
 		super();
-		this.maxSamples = maxSamples || MAX_SAMPLES;
 		this.ttlMs = ttlMs || ENTRY_TTL_MS;
-		// model → key → entry: key, series, workers, _lastSeen.
+		// model → key → entry: key, rows (row → start → bucket), _lastSeen.
 		this.entries = {};
 		this._lastPublish = 0;
 		this._flushTimer = null;
@@ -124,7 +239,8 @@ export class ProbeStreamViewNode extends ReactBridge( Node ) {
 	 * The probe stamps FROM `<worker-id>/<probe>` and the SSE reader prepends
 	 * its own stamp, so a frame arrives as `jobstats.p0/job-worker.p2/jobstats`.
 	 * `workerOfFrom()` reads the worker, `''` for a malformed or foreign FROM;
-	 * `_fold` receives it so a chart can plot each worker's stream apart.
+	 * `_fold` receives it, and the sample `_fold` returns folds into that
+	 * worker's bucket, so a chart can plot each worker's stream apart.
 	 *
 	 * @this {ProbeStreamSubclass}
 	 * @param {Array} message The 7-field positional message; VALUE is the
@@ -160,18 +276,16 @@ export class ProbeStreamViewNode extends ReactBridge( Node ) {
 			const keyed = ( this.entries[ model ] ||= {} );
 			const c = ( keyed[ key ] ||= {
 				key,
-				series: [],
-				workers: new Set(),
+				rows: new Map(),
 				_lastSeen: 0,
 			} );
 			c._lastSeen = now;
 			const worker = workerOfFrom( message[ FROM ] );
-			c.workers.add( worker );
-			c.series.push( this._fold( c, value, ts, worker, model ) );
-			// Cap sits above the window, so this only bounds a fast stream.
-			if ( c.series.length > this.maxSamples * c.workers.size ) {
-				c.series.shift();
-			}
+			foldInto(
+				c.rows,
+				worker,
+				this._fold( c, value, ts, worker, model )
+			);
 		}
 		this._evictStale();
 		this._maybePublish();
@@ -269,19 +383,26 @@ export class ProbeStreamViewNode extends ReactBridge( Node ) {
 	}
 
 	/**
-	 * Shift samples that have aged out of the 24h window off the front of every
-	 * key's series. Runs on each publish, so windowed totals derived from the
-	 * series shrink for free as wall-clock advances.
+	 * Delete every bucket that ends at or before the 24h window's edge, and
+	 * drop a row left empty. Runs on each publish, so windowed totals derived
+	 * from the buckets shrink for free as wall-clock advances.
 	 *
-	 * @param {number} now Publish instant in epoch MILLIseconds; sample
-	 *                     timestamps are seconds.
+	 * @param {number} now Publish instant in epoch MILLIseconds; bucket
+	 *                     starts are seconds.
 	 * @return {void}
 	 */
 	_pruneExpired( now ) {
 		const cutoff = now / 1000 - RETENTION_S;
 		for ( const c of this._allEntries() ) {
-			while ( c.series.length > 0 && c.series[ 0 ].ts < cutoff ) {
-				c.series.shift();
+			for ( const [ row, buckets ] of c.rows ) {
+				for ( const start of buckets.keys() ) {
+					if ( start + BUCKET_S <= cutoff ) {
+						buckets.delete( start );
+					}
+				}
+				if ( 0 === buckets.size ) {
+					c.rows.delete( row );
+				}
 			}
 		}
 	}
@@ -297,7 +418,7 @@ export class ProbeStreamViewNode extends ReactBridge( Node ) {
 
 	/**
 	 * One published model: one subclass-shaped view per key. A key whose
-	 * series has fully aged out is skipped rather than published empty.
+	 * buckets have all aged out is skipped rather than published empty.
 	 *
 	 * @this {ProbeStreamSubclass}
 	 * @param {string} model The model to read.
@@ -308,8 +429,26 @@ export class ProbeStreamViewNode extends ReactBridge( Node ) {
 		for ( const [ key, c ] of Object.entries(
 			this.entries[ model ] || {}
 		) ) {
-			if ( c.series.length > 0 ) {
+			if ( c.rows.size > 0 ) {
 				out[ key ] = this._entryView( c );
+			}
+		}
+		return out;
+	}
+
+	/**
+	 * An entry's buckets, each row's in turn and in no order within it: a
+	 * fresh array of buckets no later fold changes, each marked published.
+	 *
+	 * @param {Object} c The entry.
+	 * @return {Array<Bucket>} Its buckets.
+	 */
+	_buckets( c ) {
+		const out = [];
+		for ( const buckets of c.rows.values() ) {
+			for ( const b of buckets.values() ) {
+				PUBLISHED.add( b );
+				out.push( b );
 			}
 		}
 		return out;
