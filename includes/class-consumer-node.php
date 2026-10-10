@@ -684,6 +684,11 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 
 		// Current segment fully read: step to next live segment or rest at EOF.
 		if ( $read_at >= $seg_size ) {
+			// Crawl refills with lines still buffered; a roll would drop them.
+			if ( $this->buffer_has_line() ) {
+				$this->at_eof = false;
+				return;
+			}
 			$next = $this->next_segment_id( $segments, $this->cursor_segment );
 			if ( null !== $next ) {
 				// Multi-writer grace: hold the boundary for SEAL_GRACE_SECONDS.
