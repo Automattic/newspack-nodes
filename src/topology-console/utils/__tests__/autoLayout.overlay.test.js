@@ -176,6 +176,24 @@ describe( 'autoLayout — the Performance dashboard in the debug overlay', () =>
 		}
 	} );
 
+	it( 'seats url-detail:timer one row above url-detail:in, its fetcher centred', () => {
+		// The band grows by the least that seats the timer: one row above
+		// url-detail:in, with url-detail:fetch half way between its feeders.
+		const { at } = layOutPerformanceOverlay();
+		const row = ( id ) => ( at[ id ].y - Y_PAD ) / Y_STEP;
+		const [ timer, inbox ] = [
+			row( 'url-detail:timer' ),
+			row( 'url-detail:in' ),
+		];
+		expect( inbox - timer ).toBe( 1 );
+		expect( row( 'url-detail:fetch' ) ).toBe( ( timer + inbox ) / 2 );
+	} );
+
+	it( 'runs no wire over a card', () => {
+		const { at, edges } = layOutPerformanceOverlay();
+		expect( drawnCost( at, edges ).over ).toEqual( [] );
+	} );
+
 	it( 'keeps the Tap column beside a graph whose exchange draws worse', () => {
 		// Each block judges its own exchange, so seed 14962 keeping the
 		// sweeps' order beside it leaves the Tap column's exchange alone.

@@ -1877,22 +1877,27 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 	} );
 
 	it( 'reseats a source after the hub wires have moved what it feeds', () => {
-		// Reseated before the hub pass moved k2l4n0 down, k2src was left a
-		// four-column wire through four cards away from it.
+		// k2src seats level with the row the hub pass leaves k2l4n0 on. No
+		// seat beside k2l4n0 clears the middle tier, so it keeps column 0,
+		// and k2l3n0, a sink level with k2l4n0 in the column before it, is
+		// the one card its wire passes from any row: pin it, not a count.
 		const graph = seedGraph( '14962' );
+		const g = gridOf( graph );
+		expect( g.k2src.col ).toBe( 0 );
+		expect( g.k2src.row ).toBe( g.k2l4n0.row );
 		const { nodes } = autoLayout( graph );
 		expect(
 			drawn( nodes, graph.edges ).over.filter( ( hit ) =>
 				hit.startsWith( 'k2src→' )
 			)
-		).toEqual( [] );
+		).toEqual( [ 'k2src→k2l4n0 over k2l3n0' ] );
 	} );
 
 	it( 'seats a late source inside its own band, above the band stacked beneath', () => {
-		// The overview station: url-detail's timer feeds only its fetcher, two
-		// columns on, so it is seated last. Its band packed one row above the
-		// url-lookup band, and the one row between them lay on the tee's flat
-		// wire to the fetcher, so the timer was seated below the NEXT band.
+		// url-detail's timer feeds only its fetcher, two columns on, so it is
+		// seated last: in its band's own column, on a row the band opens,
+		// below every card of the band above and above every card of the
+		// band beneath, and never above its band's top.
 		const edges = [];
 		for ( const s of [ 'a', 'b', 'url-lookup' ] ) {
 			edges.push(
@@ -1915,41 +1920,431 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		];
 		const g = gridOf( { nodes: ids.map( ( id ) => ( { id } ) ), edges } );
 
-		expect( g[ 'url-detail:timer' ].col ).toBe(
-			g[ 'url-detail:fetch' ].col - 1
+		expect( g[ 'url-detail:timer' ].col ).toBe( g[ 'url-detail:in' ].col );
+		const band = ( s ) =>
+			[ 'timer', 'tee', 'in', 'fetch', 'result' ].map(
+				( k ) => g[ `${ s }:${ k }` ].row
+			);
+		// Downward only: the band's top is the row the stack gave it, one
+		// below the band above, and the band beneath stacks below the seat.
+		expect( g[ 'url-detail:timer' ].row ).toBe(
+			Math.max( ...band( 'b' ) ) + 1
 		);
-		expect( g[ 'url-detail:timer' ].row ).toBeGreaterThan(
-			g[ 'url-detail:transform' ].row
+		expect( g[ 'url-detail:timer' ].row ).toBeLessThan(
+			Math.min( ...band( 'url-lookup' ) )
 		);
-		for ( const id of [
-			'url-lookup:timer',
-			'url-lookup:tee',
-			'url-lookup:in',
-		] ) {
-			expect( g[ 'url-detail:timer' ].row ).toBeLessThan( g[ id ].row );
+	} );
+
+	it( 'opens a row in its own column for a late source parked anywhere else', () => {
+		// The overview station's url graph. url-detail's timer feeds only its
+		// fetcher, two columns on, and every seat in column 1 parks it behind
+		// url-detail:in:current, so the timer keeps column 0 and its band
+		// opens a row there, its wire clear of every card.
+		const edges = [];
+		for ( const s of [ 'url-deeplink', 'url-lookup' ] ) {
+			edges.push(
+				{ from: `${ s }:timer`, to: `${ s }:tee` },
+				{ from: `${ s }:tee`, to: `${ s }:fetch` },
+				{ from: `${ s }:in`, to: `${ s }:fetch` },
+				{ from: `${ s }:in`, to: `${ s }:in:current` },
+				{ from: `${ s }:in:current`, to: `${ s }:result` },
+				{ from: `${ s }:fetch`, to: 'url:shell' }
+			);
 		}
-		// Downward only: the band's top is the row the stack gave it.
-		const top = Math.min(
-			...[ 'in', 'transform', 'view', 'fetch' ].map(
-				( k ) => g[ `url-detail:${ k }` ].row
-			)
+		edges.push(
+			{ from: 'url-detail:timer', to: 'url-detail:fetch' },
+			{ from: 'url-detail:in', to: 'url-detail:fetch' },
+			{ from: 'url-detail:in', to: 'url-detail:in:current' },
+			{ from: 'url-detail:in:current', to: 'url-detail:transform' },
+			{ from: 'url-detail:transform', to: 'url-detail:view' },
+			{ from: 'url-detail:view', to: 'url:shell' },
+			{ from: 'url-detail:fetch', to: 'url:shell' }
 		);
-		expect( g[ 'url-detail:timer' ].row ).toBeGreaterThanOrEqual( top );
+		const ids = [
+			...new Set( edges.flatMap( ( e ) => [ e.from, e.to ] ) ),
+		];
+		const graph = { nodes: ids.map( ( id ) => ( { id } ) ), edges };
+		const g = gridOf( graph );
+		const timer = g[ 'url-detail:timer' ];
+
+		expect( timer.col ).toBe( 0 );
+		expect( timer.col ).toBe( g[ 'url-detail:in' ].col );
+		expect( g[ 'url-detail:fetch' ].col ).toBe( 2 );
+		expect( timer.row ).toBeLessThan( g[ 'url-detail:in' ].row );
+		for ( const id of ids.filter( ( x ) =>
+			x.startsWith( 'url-deeplink:' )
+		) ) {
+			expect( [ id, timer.row > g[ id ].row ] ).toEqual( [ id, true ] );
+		}
+		expect(
+			drawn( autoLayout( graph ).nodes, edges ).over.filter( ( hit ) =>
+				hit.startsWith( 'url-detail:timer→' )
+			)
+		).toEqual( [] );
+	} );
+
+	it( 'opens a late source a row that stretches no wire over a card', () => {
+		// The row a late source opens moves every card below it, stretching
+		// each wire that crosses the row; the row chosen keeps a stretched
+		// wire off every card too, so b1l0n0's wire to b1l1n1 clears b1l1n2.
+		const edges = [
+			[ 'b1l0n0', 'b1l1n0' ],
+			[ 'b1l0n0', 'b1l1n1' ],
+			[ 'b1l0n0', 'b1l1n2' ],
+			[ 'b1l1n2', 'b1l2n0' ],
+			[ 'b1l1n0', 'b1l2n1' ],
+			[ 'b1l0n0', 'b1l2n1' ],
+			[ 'b1l1n0', 'b1l2n2' ],
+			[ 'b1l0n0', 'b1l2n2' ],
+			[ 'b1l2n1', 'b1l3n0' ],
+			[ 'b1l2n1', 'b1l3n1' ],
+			[ 'b1l2n1', 'b1l3n2' ],
+			[ 'b1l3n1', 'b1l4n0' ],
+			[ 'b1l3n2', 'b1l4n1' ],
+			[ 'b1src', 'b1l4n0' ],
+		].map( ( [ from, to ] ) => ( { from, to } ) );
+		const ids = [
+			...new Set( edges.flatMap( ( e ) => [ e.from, e.to ] ) ),
+		];
+		const { nodes } = autoLayout( {
+			nodes: ids.map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		expect( drawn( nodes, edges ).over ).toEqual( [] );
+	} );
+
+	it( 'lets a late source take its band’s top row, the band cut beneath it', () => {
+		// The band's top stays where the stack put it while a cut is on trial,
+		// so a cut at the top row pushes the band down and leaves the row to
+		// the source, drawing this graph with no crossing and no card covered.
+		const edges = [
+			[ 'b0l0n1', 'b0l1n0' ],
+			[ 'b0l1n0', 'b0l2n0' ],
+			[ 'b0l2n0', 'b0l3n0' ],
+			[ 'b0l2n0', 'b0l3n1' ],
+			[ 'b0src', 'b0l3n0' ],
+			[ 'b0l3n0', 'hub' ],
+			[ 'b1l0n0', 'b1l1n0' ],
+			[ 'b1l1n0', 'b1l2n0' ],
+			[ 'b1src', 'b1l2n0' ],
+			[ 'b2l0n0', 'b2l1n0' ],
+			[ 'b2l0n0', 'b2l1n1' ],
+			[ 'b2l1n0', 'b2l2n0' ],
+			[ 'b2l2n0', 'b2l3n0' ],
+			[ 'b2l1n0', 'b2l3n0' ],
+			[ 'b2l2n0', 'b2l3n1' ],
+			[ 'b2l2n0', 'b2l3n2' ],
+			[ 'b2src', 'b2l3n0' ],
+		].map( ( [ from, to ] ) => ( { from, to } ) );
+		const ids = [
+			...new Set( edges.flatMap( ( e ) => [ e.from, e.to ] ) ),
+		];
+		const { nodes } = autoLayout( {
+			nodes: ids.map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		expect( drawn( nodes, edges ) ).toEqual( { crossings: [], over: [] } );
+	} );
+
+	it( 'opens no row whose cut hides the source’s own wire over a card', () => {
+		// A cut that uncovers one card scores as low as one that keeps the
+		// source's wire clear, so the source's own wire decides first.
+		const edges = [
+			[ 'b0l0n1', 'b0l1n0' ],
+			[ 'b0l0n0', 'b0l1n1' ],
+			[ 'b0l1n1', 'b0l2n0' ],
+			[ 'b0l1n0', 'b0l2n1' ],
+			[ 'b0l1n1', 'b0l2n2' ],
+			[ 'b0l0n0', 'b0l2n2' ],
+			[ 'b0l2n0', 'b0l3n0' ],
+			[ 'b0l2n0', 'b0l3n1' ],
+			[ 'b0l1n1', 'b0l3n1' ],
+			[ 'b0l2n0', 'b0l3n2' ],
+			[ 'b0l1n1', 'b0l3n2' ],
+			[ 'b0src', 'b0l2n0' ],
+			[ 'b0l3n0', 'hub' ],
+			[ 'b1l0n0', 'b1l1n0' ],
+			[ 'b1l0n0', 'b1l1n1' ],
+			[ 'b1l0n0', 'b1l1n2' ],
+			[ 'b1l1n1', 'b1l2n0' ],
+			[ 'b1l0n0', 'b1l2n0' ],
+			[ 'b1l1n1', 'b1l2n1' ],
+			[ 'b1l0n0', 'b1l2n1' ],
+			[ 'b1l2n1', 'b1l3n0' ],
+			[ 'b1l1n2', 'b1l3n0' ],
+			[ 'b1l2n0', 'b1l3n1' ],
+			[ 'b1l2n1', 'b1l3n2' ],
+			[ 'b1src', 'b1l2n0' ],
+			[ 'b2l0n0', 'b2l1n0' ],
+			[ 'b2l1n0', 'b2l2n0' ],
+			[ 'b2l1n0', 'b2l2n1' ],
+			[ 'b2l1n0', 'b2l2n2' ],
+			[ 'b2l2n1', 'b2l3n0' ],
+			[ 'b2l3n0', 'b2l4n0' ],
+			[ 'b2l3n0', 'b2l4n1' ],
+			[ 'b2l3n0', 'b2l4n2' ],
+			[ 'b2l2n0', 'b2l4n2' ],
+			[ 'b2src', 'b2l4n0' ],
+			[ 'b2l4n0', 'hub' ],
+			[ 'b3l0n0', 'b3l1n0' ],
+			[ 'b3l0n0', 'b3l1n1' ],
+			[ 'b3l1n0', 'b3l2n0' ],
+			[ 'b3src', 'b3l2n0' ],
+			[ 'b3l2n0', 'hub' ],
+		].map( ( [ from, to ] ) => ( { from, to } ) );
+		const ids = [
+			...new Set( edges.flatMap( ( e ) => [ e.from, e.to ] ) ),
+		];
+		const { nodes } = autoLayout( {
+			nodes: ids.map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		expect(
+			drawn( nodes, edges ).over.filter( ( hit ) =>
+				hit.startsWith( 'b2src→' )
+			)
+		).toEqual( [] );
+	} );
+
+	it( 'takes the clean row its search stops at, not a cheaper-scored one before it', () => {
+		// Seed c134623 with late sources added. A row where late2's own wire
+		// passes a card but its cut uncovers another scores as low as a clean
+		// row; the search stops at the clean row and must seat late2 there.
+		const graph = seedGraph( 'c134623' );
+		const extra = [
+			[ 'late0', 'k4l0n0' ],
+			[ 'late1', 'k3l3n0' ],
+			[ 'late2', 'k5l3n1' ],
+			[ 'late2', 'hub0' ],
+			[ 'late3', 'k3l1n1' ],
+			[ 'late3', 'hub0' ],
+		].map( ( [ from, to ] ) => ( { from, to } ) );
+		const edges = [ ...graph.edges, ...extra ];
+		const nodes = [
+			...graph.nodes,
+			...[ 'late0', 'late1', 'late2', 'late3' ].map( ( id ) => ( {
+				id,
+			} ) ),
+		];
+		expect(
+			drawn( autoLayout( { nodes, edges } ).nodes, edges ).over.filter(
+				( hit ) => hit.startsWith( 'late2→' )
+			)
+		).toEqual( [] );
+	} );
+
+	it( 'seats in full a pin trial the cheaper drawing turns down', () => {
+		// Without its late sources seated, moving b2l2n0 toward the hub draws
+		// one crossing more; seated in full, it draws no card under a wire.
+		const edges = [
+			[ 'b0l0n1', 'b0l1n0' ],
+			[ 'b0l0n1', 'b0l1n1' ],
+			[ 'b0l1n1', 'b0l2n0' ],
+			[ 'b0l0n0', 'b0l2n0' ],
+			[ 'b0l1n1', 'b0l2n1' ],
+			[ 'b0l1n1', 'b0l2n2' ],
+			[ 'b0src', 'b0l2n0' ],
+			[ 'b0l2n0', 'hub' ],
+			[ 'b1l0n0', 'b1l1n0' ],
+			[ 'b1l0n1', 'b1l1n1' ],
+			[ 'b1l0n1', 'b1l1n2' ],
+			[ 'b1l1n0', 'b1l2n0' ],
+			[ 'b1l1n0', 'b1l2n1' ],
+			[ 'b1l0n0', 'b1l2n1' ],
+			[ 'b1l2n0', 'b1l3n0' ],
+			[ 'b1src', 'b1l3n0' ],
+			[ 'b1l3n0', 'hub' ],
+			[ 'b2l0n2', 'b2l1n0' ],
+			[ 'b2l1n0', 'b2l2n0' ],
+			[ 'b2l1n0', 'b2l2n1' ],
+			[ 'b2l1n0', 'b2l2n2' ],
+			[ 'b2src', 'b2l2n0' ],
+			[ 'b2l2n0', 'hub' ],
+			[ 'b3l0n1', 'b3l1n0' ],
+			[ 'b3l0n2', 'b3l1n1' ],
+			[ 'b3l1n1', 'b3l2n0' ],
+			[ 'b3l2n0', 'b3l3n0' ],
+			[ 'b3l2n0', 'b3l3n1' ],
+			[ 'b3l1n1', 'b3l3n1' ],
+			[ 'b3l2n0', 'b3l3n2' ],
+			[ 'b3l1n1', 'b3l3n2' ],
+			[ 'b3src', 'b3l2n0' ],
+		].map( ( [ from, to ] ) => ( { from, to } ) );
+		const ids = [
+			...new Set( edges.flatMap( ( e ) => [ e.from, e.to ] ) ),
+		];
+		const { nodes } = autoLayout( {
+			nodes: ids.map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		expect( drawn( nodes, edges ).over ).toEqual( [] );
+	} );
+
+	it( 'stacks the band beneath on whole rows when a late source grows a band', () => {
+		// b0src seats half a row below b0's bottom card without a cut; the
+		// chain b0z stacked beneath b0 keeps its whole rows.
+		const edges = [
+			[ 'b0l0n1', 'b0l1n0' ],
+			[ 'b0l0n0', 'b0l1n1' ],
+			[ 'b0l1n0', 'b0l2n0' ],
+			[ 'b0l0n1', 'b0l2n0' ],
+			[ 'b0l1n0', 'b0l2n1' ],
+			[ 'b0l2n0', 'b0l3n0' ],
+			[ 'b0l1n0', 'b0l3n0' ],
+			[ 'b0l2n0', 'b0l3n1' ],
+			[ 'b0src', 'b0l3n0' ],
+			[ 'b0l3n0', 'hub' ],
+			[ 'b1l0n0', 'b1l1n0' ],
+			[ 'b1l0n0', 'b1l1n1' ],
+			[ 'b1l0n0', 'b1l1n2' ],
+			[ 'b1l1n0', 'b1l2n0' ],
+			[ 'b1l1n1', 'b1l2n1' ],
+			[ 'b1l0n0', 'b1l2n1' ],
+			[ 'b1l1n0', 'b1l2n2' ],
+			[ 'b1src', 'b1l2n0' ],
+			[ 'b2l0n0', 'b2l1n0' ],
+			[ 'b2l0n0', 'b2l1n1' ],
+			[ 'b2l1n0', 'b2l2n0' ],
+			[ 'b2l1n0', 'b2l2n1' ],
+			[ 'b2l1n0', 'b2l2n2' ],
+			[ 'b2src', 'b2l2n0' ],
+			[ 'b2l2n0', 'hub' ],
+			[ 'b0zA', 'b0zB' ],
+			[ 'b0zB', 'b0zC' ],
+			[ 'b0zC', 'hub' ],
+		].map( ( [ from, to ] ) => ( { from, to } ) );
+		const ids = [
+			...new Set( edges.flatMap( ( e ) => [ e.from, e.to ] ) ),
+		];
+		const g = gridOf( { nodes: ids.map( ( id ) => ( { id } ) ), edges } );
+		expect( g.b0src.row % 1 ).toBe( 0.5 );
+		for ( const id of [ 'b0zA', 'b0zB', 'b0zC' ] ) {
+			expect( [ id, g[ id ].row % 1 ] ).toEqual( [ id, 0 ] );
+			expect( g[ id ].row ).toBeGreaterThan( g.b0src.row );
+		}
+	} );
+
+	it( 'tries a pin whose hub wire a later move leaves over a card', () => {
+		// Seed 29924 with a late source feeding lone0 and hub0. At its turn
+		// k2l1n1's wire to hub0 covers no card; a later move leaves it over
+		// one, so a further pass tries it and it joins the feeders' column.
+		const graph = seedGraph( '29924' );
+		const edges = [
+			...graph.edges,
+			{ from: 'late0', to: 'lone0' },
+			{ from: 'late0', to: 'hub0' },
+		];
+		const g = gridOf( {
+			nodes: [ ...graph.nodes, { id: 'late0' } ],
+			edges,
+		} );
+		// The feeders' column: the rightmost a card left of the hubs holds.
+		const feeders = Math.max(
+			...Object.values( g )
+				.map( ( p ) => p.col )
+				.filter( ( c ) => c < g.hub0.col )
+		);
+		expect( g.k2l1n1.col ).toBe( feeders );
+		expect( g.k2l0n2.col ).toBe( feeders - 1 );
+	} );
+
+	it( 'judges pin trials across five tiles of seed 134623 to fewer crossings', () => {
+		// The cheaper drawing picks the moves, the block seated in full keeps
+		// them, and every move it left is tried in full: 787 crossings, 275
+		// cards covered.
+		const seed = SEEDS[ '134623' ];
+		const name = ( t, id ) =>
+			/^hub\d+$/.test( id ) ? id : `t${ t }:${ id }`;
+		const ids = new Set();
+		const edges = [];
+		for ( let t = 0; t < 5; t++ ) {
+			seed.nodes.forEach( ( id ) => ids.add( name( t, id ) ) );
+			for ( const [ from, to ] of seed.edges ) {
+				edges.push( { from: name( t, from ), to: name( t, to ) } );
+			}
+		}
+		const { nodes } = autoLayout( {
+			nodes: [ ...ids ].map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		const cost = drawn( nodes, edges );
+		expect( [ cost.crossings.length, cost.over.length ] ).toEqual( [
+			787, 275,
+		] );
+	} );
+
+	it( 'reseats a source whose fallback moved no card, as any other', () => {
+		// A seat that cut nothing is no opened row: the block reseats b1src
+		// level with b1l2n0 rather than holding its band-level seat.
+		const edges = [
+			[ 'b0l0n2', 'b0l1n0' ],
+			[ 'b0l0n1', 'b0l1n1' ],
+			[ 'b0l1n1', 'b0l2n0' ],
+			[ 'b0l0n2', 'b0l2n0' ],
+			[ 'b0l2n0', 'b0l3n0' ],
+			[ 'b0l2n0', 'b0l3n1' ],
+			[ 'b0l3n0', 'b0l4n0' ],
+			[ 'b0src', 'b0l3n0' ],
+			[ 'b1l0n0', 'b1l1n0' ],
+			[ 'b1l0n1', 'b1l1n1' ],
+			[ 'b1l0n1', 'b1l1n2' ],
+			[ 'b1l1n2', 'b1l2n0' ],
+			[ 'b1l1n2', 'b1l2n1' ],
+			[ 'b1l0n0', 'b1l2n1' ],
+			[ 'b1l1n0', 'b1l2n2' ],
+			[ 'b1src', 'b1l2n0' ],
+			[ 'b1l2n0', 'hub' ],
+			[ 'b2l0n0', 'b2l1n0' ],
+			[ 'b2l0n0', 'b2l1n1' ],
+			[ 'b2l1n0', 'b2l2n0' ],
+			[ 'b2l0n1', 'b2l2n0' ],
+			[ 'b2l1n0', 'b2l2n1' ],
+			[ 'b2l0n1', 'b2l2n1' ],
+			[ 'b2l1n0', 'b2l2n2' ],
+			[ 'b2l2n0', 'b2l3n0' ],
+			[ 'b2l2n2', 'b2l3n1' ],
+			[ 'b2l3n0', 'b2l4n0' ],
+			[ 'b2l2n1', 'b2l4n0' ],
+			[ 'b2l3n0', 'b2l4n1' ],
+			[ 'b2l3n0', 'b2l4n2' ],
+			[ 'b2src', 'b2l4n0' ],
+			[ 'b2l4n0', 'hub' ],
+		].map( ( [ from, to ] ) => ( { from, to } ) );
+		const ids = [
+			...new Set( edges.flatMap( ( e ) => [ e.from, e.to ] ) ),
+		];
+		const g = gridOf( { nodes: ids.map( ( id ) => ( { id } ) ), edges } );
+		expect( g.b1src.row ).toBe( g.b1l2n0.row );
+	} );
+
+	it( 'opens a late source a row within three of what it feeds (seed 134623)', () => {
+		// No row near k6l0n0's fan leaves its wires clear of every card, so
+		// it takes the least-crossed row the seat search reaches, never a
+		// clear one rows further off its fan's midpoint.
+		const graph = seedGraph( '134623' );
+		const g = gridOf( graph );
+		const fed = graph.edges
+			.filter( ( e ) => 'k6l0n0' === e.from )
+			.map( ( e ) => g[ e.to ].row );
+		const mid = ( Math.min( ...fed ) + Math.max( ...fed ) ) / 2;
+		expect( g.k6l0n0.col ).toBe( 0 );
+		expect( Math.abs( g.k6l0n0.row - mid ) ).toBeLessThanOrEqual( 3 );
 	} );
 
 	it( "runs a consumer band's source wire back to its hub clear of the band", () => {
 		// k4src feeds hub0 and a node in the band hub0 feeds, so its wire runs
-		// back across that band. Its legal columns are 5 to 8, and the fewest
-		// cards a free row there crosses are 4, 4, 5 and 1, so one card is the
-		// optimum and no seat clears every card. Pin which one: a count alone
-		// passes just as well when the wire goes missing, or crosses another.
+		// back across that band. No seat right of its band's first column
+		// clears the middle tier, so it keeps that column, and no row opened
+		// there clears every card: its wire to hub0 passes none, and the one
+		// forward passes one. Pin which: a count alone passes just as well
+		// when the wire goes missing, or crosses another.
 		const graph = seedGraph( 'c71271' );
 		const { nodes } = autoLayout( graph );
 		expect(
 			drawn( nodes, graph.edges ).over.filter( ( hit ) =>
 				hit.startsWith( 'k4src→' )
 			)
-		).toEqual( [ 'k4src→hub0 over k5l0n0' ] );
+		).toEqual( [ 'k4src→k4l4n0 over k4l2n1' ] );
 	} );
 
 	it( "keeps the sweeps' order where an exchange draws worse (seed 87109)", () => {

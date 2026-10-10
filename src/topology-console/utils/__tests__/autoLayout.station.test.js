@@ -140,17 +140,26 @@ describe( 'autoLayout — the station Overview in the debug overlay', () => {
 		] ).toEqual( [ fetch.y, fetch.y ] );
 	} );
 
-	it( 'leaves a fetcher whose hub wire passes no other feeder in its band', () => {
+	it( 'leaves a fetcher whose hub wire passes no card of another band', () => {
 		const graph = overviewGraph();
 		const at = Object.fromEntries(
 			autoLayout( graph ).nodes.map( ( n ) => [ n.id, n.position ] )
 		);
-		for ( const s of [ 'topologies:activate', 'topologies:deactivate' ] ) {
-			expect( [ s, at[ `${ s }:fetch` ].x ] ).toEqual( [
-				s,
-				at[ `${ s }:result` ].x,
-			] );
-		}
+		expect( at[ 'topologies:deactivate:fetch' ].x ).toBe(
+			at[ 'topologies:deactivate:result' ].x
+		);
+	} );
+
+	it( 'moves a fetcher whose hub wire runs over another band into the fetchers’ column', () => {
+		// Where its band leaves it, its wire to the Tap runs over
+		// topology-manager:view, another band's card.
+		const graph = overviewGraph();
+		const at = Object.fromEntries(
+			autoLayout( graph ).nodes.map( ( n ) => [ n.id, n.position ] )
+		);
+		expect( at[ 'topologies:activate:fetch' ].x ).toBe(
+			at[ 'topology-manager:fetch' ].x
+		);
 	} );
 
 	it( 'opens a clear column between the fetchers and the fleet board Tap', () => {
