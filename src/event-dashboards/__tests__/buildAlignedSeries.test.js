@@ -388,4 +388,68 @@ describe( 'buildAlignedSeries', () => {
 		);
 		expect( out.series[ 0 ].values[ 0 ].value ).toBe( 50 );
 	} );
+
+	it( 'maps a day of 180-second buckets one to one onto a 500-point axis', () => {
+		const start = 1755000000;
+		const points = Array.from( { length: 480 }, ( _, i ) => ( {
+			ts: start + i * 180 + 165,
+			value: i + 1,
+			weight: 15,
+		} ) );
+		const { series, dates } = buildAlignedSeries(
+			{ 'kea.p3': { points, max: 480, step: 180 } },
+			500
+		);
+		expect( dates ).toHaveLength( 480 );
+		expect( dates[ 1 ] - dates[ 0 ] ).toBe( 180000 );
+		expect( series[ 0 ].values.map( ( v ) => v.value ) ).toEqual(
+			points.map( ( p ) => p.value )
+		);
+	} );
+
+	it( 'widens a stepped series by whole steps, never off its grid', () => {
+		const start = 1755000000;
+		const points = Array.from( { length: 40 }, ( _, i ) => ( {
+			ts: start + i * 180 + 10,
+			value: 6,
+			weight: 15,
+		} ) );
+		const { dates } = buildAlignedSeries(
+			{ 'kea.p3': { points, max: 6, step: 180 } },
+			12
+		);
+		const widths = new Set(
+			dates.slice( 1 ).map( ( d, i ) => ( d - dates[ i ] ) / 1000 )
+		);
+		expect( [ ...widths ] ).toEqual( [ 720 ] );
+		expect( ( dates[ 0 ].getTime() / 1000 ) % 720 ).toBe( 0 );
+	} );
+
+	it( 'holds a stepped series at its step when maxPoints is 0, however long the window', () => {
+		const start = 1755000000;
+		const points = Array.from( { length: 300 }, ( _, i ) => ( {
+			ts: start + i * 180 + 25,
+			value: 9,
+			weight: 15,
+		} ) );
+		const { dates } = buildAlignedSeries(
+			{ 'kea.p3': { points, max: 9, step: 180 } },
+			0
+		);
+		// 54,000 s would be 3,600 points on the 15-second grid.
+		expect( dates ).toHaveLength( 300 );
+		const widths = new Set(
+			dates.slice( 1 ).map( ( d, i ) => ( d - dates[ i ] ) / 1000 )
+		);
+		expect( [ ...widths ] ).toEqual( [ 180 ] );
+	} );
+
+	it( 'keeps the 15-second base for a series that declares no step', () => {
+		const points = [ 0, 5, 10, 15, 20 ].map( ( d ) => ( {
+			ts: 1755000000 + d,
+			value: 4,
+		} ) );
+		const { dates } = buildAlignedSeries( { In: { points, max: 4 } }, 500 );
+		expect( dates[ 1 ] - dates[ 0 ] ).toBe( 15000 );
+	} );
 } );
