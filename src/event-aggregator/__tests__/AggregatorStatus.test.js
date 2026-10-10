@@ -39,8 +39,8 @@ const SAMPLE_SERVERS = [
 		partitions: {
 			0: {
 				connected: true,
-				last_heartbeat_response: 1748960010,
-				last_heartbeat_rtt: 42,
+				last_response: 1748960010,
+				last_rtt: 42,
 				last_connection_attempt: 1748960000,
 				last_sse_heartbeat: 1748960010,
 			},
@@ -129,7 +129,7 @@ const DEAD = [
 	},
 ];
 
-// A spoke still connected and answering client heartbeats when a frame broke
+// A spoke still connected and answering round trips when a frame broke
 // mid-stream: SSE_In sets last_error without dropping `connected`, the one
 // state where the badge the error displaces was reading success.
 const MIDSTREAM_ERROR = 'Buffer overflow (no newline in 65536 bytes)';
@@ -141,8 +141,8 @@ const CONNECTED_AND_BROKEN = [
 		partitions: {
 			9: {
 				connected: true,
-				last_heartbeat_response: 1749001234,
-				last_heartbeat_rtt: 13,
+				last_response: 1749001234,
+				last_rtt: 13,
 				last_connection_attempt: 1749001200,
 				last_error: MIDSTREAM_ERROR,
 			},
@@ -340,8 +340,8 @@ describe( 'AggregatorStatus', () => {
 								connected: true,
 								last_connection_attempt: 1903,
 								last_sse_heartbeat: 1991,
-								last_heartbeat_response: 1997,
-								last_heartbeat_rtt: 37.25,
+								last_response: 1997,
+								last_rtt: 37.25,
 								last_http_code: 207,
 							},
 						},
@@ -633,9 +633,7 @@ describe( 'AggregatorStatus', () => {
 		const partition = container.querySelector( '.aggregator-partition' );
 
 		expect(
-			statusRow( partition ).querySelector(
-				'.aggregator-heartbeat-badge'
-			)
+			statusRow( partition ).querySelector( '.aggregator-response-badge' )
 		).toBeNull();
 		expect( statusRow( partition ).textContent ).not.toContain( 'pending' );
 		expect( statusRow( partition ).textContent ).toContain( 'HTTP 409' );
@@ -650,13 +648,27 @@ describe( 'AggregatorStatus', () => {
 		const partition = container.querySelector( '.aggregator-partition' );
 		const row = statusRow( partition );
 
-		expect( row.querySelector( '.aggregator-heartbeat-badge' ) ).toBeNull();
+		expect( row.querySelector( '.aggregator-response-badge' ) ).toBeNull();
 		expect(
 			row.querySelector( '.aggregator-partition-error' ).textContent
 		).toBe( 'Buffer overflow' );
-		// The heartbeat it displaced still reads off the Client HB row and rail.
+		// The response it displaced still reads off the Round trip row and rail.
 		expect( partition.classList.contains( 'is-ok' ) ).toBe( true );
 		expect( partition.textContent ).toContain( '13.0ms' );
+	} );
+
+	it( 'labels the last_response row Round trip and keeps Server HB for the SSE heartbeat', () => {
+		registerSlices( {
+			servers: { servers: SAMPLE_SERVERS, loading: false },
+		} );
+		const { container } = mount();
+		const labels = Array.from(
+			container.querySelectorAll( '.aggregator-partition-stat-label' )
+		).map( ( node ) => node.textContent );
+
+		expect( labels ).toContain( 'Round trip' );
+		expect( labels ).toContain( 'Server HB' );
+		expect( labels ).not.toContain( 'Client HB' );
 	} );
 
 	it( 'leaves a healthy partition Status row reading success alone', () => {
@@ -669,7 +681,7 @@ describe( 'AggregatorStatus', () => {
 		);
 
 		expect(
-			row.querySelector( '.aggregator-heartbeat-badge' ).textContent
+			row.querySelector( '.aggregator-response-badge' ).textContent
 		).toBe( 'success' );
 		expect( row.querySelector( '.aggregator-partition-error' ) ).toBeNull();
 	} );
@@ -795,20 +807,20 @@ describe( 'AggregatorStatus', () => {
 						partitions: {
 							0: {
 								connected: true,
-								last_heartbeat_response: 9999,
-								last_heartbeat_rtt: 0.5,
+								last_response: 9999,
+								last_rtt: 0.5,
 								last_connection_attempt: 9880,
 								last_sse_heartbeat: 5000,
 							},
 							1: {
 								connected: true,
-								last_heartbeat_response: 9999,
-								last_heartbeat_rtt: 250,
+								last_response: 9999,
+								last_rtt: 250,
 							},
 							2: {
 								connected: true,
-								last_heartbeat_response: 9999,
-								last_heartbeat_rtt: 600,
+								last_response: 9999,
+								last_rtt: 600,
 							},
 						},
 					},
@@ -822,10 +834,10 @@ describe( 'AggregatorStatus', () => {
 		expect( container.textContent ).toContain( '600ms' );
 		expect( container.textContent ).toContain( '2m ago' );
 		expect(
-			container.querySelector( '.aggregator-heartbeat-rtt.warning' )
+			container.querySelector( '.aggregator-rtt.warning' )
 		).toBeTruthy();
 		expect(
-			container.querySelector( '.aggregator-heartbeat-rtt.error' )
+			container.querySelector( '.aggregator-rtt.error' )
 		).toBeTruthy();
 	} );
 

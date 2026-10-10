@@ -347,8 +347,8 @@ class Remote_Source_Node extends Remote_Broker_Node {
 			&& $this->last_heartbeat_response > 0
 			&& ( (int) Core::$now - $this->last_heartbeat_response ) <= self::HEARTBEAT_INTERVAL * 4;
 		if ( ! $hb_live ) {
-			$data['last_heartbeat_response'] = null;
-			$data['last_heartbeat_rtt']      = null;
+			$data['last_response'] = null;
+			$data['last_rtt']      = null;
 		}
 		$this->write_status( $data );
 	}
@@ -440,8 +440,8 @@ class Remote_Source_Node extends Remote_Broker_Node {
 			? $this->sse_in->connection()['last_error']
 			: null;
 		$this->write_status( [
-			'last_heartbeat_response' => $now,
-			'last_heartbeat_rtt'      => $now - $this->last_heartbeat_sent,
+			'last_response'           => $now,
+			'last_rtt'                => $now - $this->last_heartbeat_sent,
 			'last_error'              => $connection_error,
 		] );
 	}
@@ -451,8 +451,8 @@ class Remote_Source_Node extends Remote_Broker_Node {
 		$this->last_heartbeat_response = 0;
 		$this->last_heartbeat_error    = 'Client heartbeat failed: ' . $reason;
 		$this->write_status( [
-			'last_heartbeat_response' => null,
-			'last_heartbeat_rtt'      => null,
+			'last_response'           => null,
+			'last_rtt'                => null,
 			'last_error'              => $this->last_heartbeat_error,
 		] );
 	}
