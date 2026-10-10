@@ -181,6 +181,7 @@ export default function Jobs() {
 
 	const panels = [
 		{
+			storageKey: 'newspack-nodes:jobs:chart:runs-rate',
 			title: __( 'Job Runs Rate', 'newspack-nodes' ),
 			yLabel: __( 'Runs', 'newspack-nodes' ),
 			series: runsSeries,
@@ -188,6 +189,7 @@ export default function Jobs() {
 			stacked: true,
 		},
 		{
+			storageKey: 'newspack-nodes:jobs:chart:errors-rate',
 			title: __( 'Job Errors Rate', 'newspack-nodes' ),
 			yLabel: __( 'Errors', 'newspack-nodes' ),
 			series: errorsSeries,
@@ -195,6 +197,7 @@ export default function Jobs() {
 			stacked: true,
 		},
 		{
+			storageKey: 'newspack-nodes:jobs:chart:backlog',
 			title: __( 'Job Backlog', 'newspack-nodes' ),
 			yLabel: __( 'Backlog', 'newspack-nodes' ),
 			series: backlogSeries,
@@ -202,6 +205,7 @@ export default function Jobs() {
 			stacked: true,
 		},
 		{
+			storageKey: 'newspack-nodes:jobs:chart:queue-latency',
 			title: __( 'Job Queue Latency', 'newspack-nodes' ),
 			yLabel: __( 'Latency', 'newspack-nodes' ),
 			series: latencySeries,

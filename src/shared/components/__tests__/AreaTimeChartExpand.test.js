@@ -11,6 +11,7 @@ import { render, fireEvent } from '@testing-library/react';
 import AreaTimeChart from '../AreaTimeChart';
 
 const HEIGHT = 173;
+const KEY = 'test:expand-chart';
 const dates = [ 0, 1, 2 ].map( ( i ) => new Date( 1700000000000 + i * 60000 ) );
 const SERIES = [
 	{
@@ -31,6 +32,7 @@ const mount = ( series = SERIES, props = {} ) =>
 			colorAt={ ( _l, i ) => [ '#111111', '#222222' ][ i ] }
 			title="Backlog"
 			height={ HEIGHT }
+			storageKey={ KEY }
 			{ ...props }
 		/>
 	);
@@ -52,6 +54,8 @@ const expandButton = ( c ) =>
 	c.querySelector( '.newspack-nodes-chart__expand' );
 const legendMax = ( c ) =>
 	c.querySelector( '.newspack-nodes-chart-legend' ).style.maxHeight;
+
+beforeEach( () => window.localStorage.clear() );
 
 describe( 'AreaTimeChart expand', () => {
 	it( 'doubles the draw, the plot and the legend from the corner button, and restores them on the next press', () => {
@@ -202,9 +206,31 @@ describe( 'AreaTimeChart expand', () => {
 		expect( onSlotClick ).not.toHaveBeenCalled();
 	} );
 
-	it( 'offers no expand button while nothing is drawn', () => {
+	it( 'offers the expand button before anything is drawn, and grows the empty frame', () => {
 		const { container } = mount( [] );
-		expect( expandButton( container ) ).toBeNull();
-		expect( plot( container ).style.minHeight ).toBe( '173px' );
+		fireEvent.click( expandButton( container ) );
+		expect(
+			expandButton( container ).getAttribute( 'aria-expanded' )
+		).toBe( 'true' );
+		expect( plot( container ).style.minHeight ).toBe( '346px' );
+	} );
+
+	it( 'writes the toggled expansion to <storageKey>:expanded', () => {
+		const { container } = mount();
+		fireEvent.click( expandButton( container ) );
+		expect( window.localStorage.getItem( `${ KEY }:expanded` ) ).toBe(
+			'1'
+		);
+	} );
+
+	it( 'writes no expansion on mount', () => {
+		mount();
+		expect( window.localStorage.getItem( `${ KEY }:expanded` ) ).toBeNull();
+	} );
+
+	it( 'reads a stored expansion', () => {
+		window.localStorage.setItem( `${ KEY }:expanded`, '1' );
+		const { container } = mount();
+		expect( svgHeight( container ) ).toBe( 346 );
 	} );
 } );

@@ -17,6 +17,7 @@ import { MARGIN, setupTooltip } from '../../hooks/useTimeChart';
 import AreaTimeChart from '../AreaTimeChart';
 
 const HEIGHT = 200;
+const KEY = 'test:area-chart';
 const INNER_H = HEIGHT - MARGIN.top - MARGIN.bottom;
 // The axis pads the peak by 1.1, so the tallest band tops out here.
 const CEILING = INNER_H * ( 1 - 1 / 1.1 );
@@ -43,6 +44,7 @@ const mount = ( props = {} ) =>
 			colorAt={ colorAt }
 			title="Backlog"
 			height={ HEIGHT }
+			storageKey={ KEY }
 			{ ...props }
 		/>
 	);
@@ -83,7 +85,10 @@ const stackButton = ( container ) =>
 const tooltipRows = ( idx ) =>
 	setupTooltip.mock.calls.at( -1 )[ 1 ].formatEntry( idx );
 
-beforeEach( () => setupTooltip.mockClear() );
+beforeEach( () => {
+	setupTooltip.mockClear();
+	window.localStorage.clear();
+} );
 
 describe( 'AreaTimeChart', () => {
 	it( 'lays out title, plot, legend and tooltip under the shared chart roles', () => {
@@ -142,8 +147,8 @@ describe( 'AreaTimeChart', () => {
 		expect( highestPoint( top ) ).toBeCloseTo( CEILING, 3 );
 		expect( highestPoint( bottom ) ).toBeGreaterThan( CEILING );
 
-		// A second chart with the same props is untouched.
-		const other = mount();
+		// A second chart under its own key is untouched.
+		const other = mount( { storageKey: 'test:other-chart' } );
 		expect(
 			stackButton( other.container ).getAttribute( 'aria-pressed' )
 		).toBe( 'false' );
@@ -151,36 +156,6 @@ describe( 'AreaTimeChart', () => {
 		act( () => fireEvent.click( stackButton( container ) ) );
 		expect( stackButton( container ).getAttribute( 'aria-pressed' ) ).toBe(
 			'false'
-		);
-	} );
-
-	it( "a changed caller default outranks the reader's earlier pick", () => {
-		const { container, rerender } = mount( { stacked: true } );
-		act( () => fireEvent.click( stackButton( container ) ) );
-		expect( stackButton( container ).getAttribute( 'aria-pressed' ) ).toBe(
-			'false'
-		);
-		// The caller moved to a metric that overlays, then back to one that
-		// stacks: the pick was about the first default, so the chart follows
-		// each new one rather than pinning overlay for the life of the mount.
-		const at = ( stacked ) =>
-			rerender(
-				<AreaTimeChart
-					series={ SERIES }
-					yFormatFor={ yFormatFor }
-					colorAt={ colorAt }
-					title="Backlog"
-					height={ HEIGHT }
-					stacked={ stacked }
-				/>
-			);
-		at( false );
-		expect( stackButton( container ).getAttribute( 'aria-pressed' ) ).toBe(
-			'false'
-		);
-		at( true );
-		expect( stackButton( container ).getAttribute( 'aria-pressed' ) ).toBe(
-			'true'
 		);
 	} );
 
@@ -332,6 +307,7 @@ describe( 'AreaTimeChart', () => {
 				colorAt={ colorAt }
 				title="Backlog"
 				height={ HEIGHT }
+				storageKey={ KEY }
 			/>
 		);
 		expect(
@@ -409,6 +385,7 @@ describe( 'AreaTimeChart', () => {
 				colorAt,
 				title: 'Backlog',
 				height: HEIGHT,
+				storageKey: KEY,
 			};
 			const { container, rerender } = render(
 				<AreaTimeChart
@@ -426,6 +403,63 @@ describe( 'AreaTimeChart', () => {
 			expect( rects ).toHaveLength( 1 );
 			expect( at( rects[ 0 ] ) ).toBeCloseTo( 4 * PITCH - SLOT_W / 2, 3 );
 		} );
+	} );
+
+	describe( 'stack persistence', () => {
+		const STACK_KEY = `${ KEY }:stack`;
+		const pressed = ( c ) =>
+			stackButton( c ).getAttribute( 'aria-pressed' );
+
+		it( 'writes the toggled stack to <storageKey>:stack', () => {
+			const { container } = mount();
+			act( () => fireEvent.click( stackButton( container ) ) );
+			expect( window.localStorage.getItem( STACK_KEY ) ).toBe( '1' );
+		} );
+
+		it( 'reads a stored stack over the caller default', () => {
+			window.localStorage.setItem( STACK_KEY, '1' );
+			const { container } = mount();
+			expect( pressed( container ) ).toBe( 'true' );
+			const [ bottom, top ] = bands( container );
+			expect( highestPoint( top ) ).toBeCloseTo( CEILING, 3 );
+			expect( highestPoint( bottom ) ).toBeGreaterThan( CEILING );
+		} );
+
+		it( 'follows the caller default and writes nothing until toggled', () => {
+			const { container } = mount( { stacked: true } );
+			expect( pressed( container ) ).toBe( 'true' );
+			expect( window.localStorage.getItem( STACK_KEY ) ).toBeNull();
+		} );
+
+		it( 'ignores a stored stack on a chart that declines the toggle', () => {
+			window.localStorage.setItem( STACK_KEY, '1' );
+			const { container } = mount( { stacked: false, stackable: false } );
+			expect( stackButton( container ) ).toBeNull();
+			const [ tall, short ] = bands( container );
+			expect( highestPoint( tall ) ).toBeCloseTo( CEILING, 3 );
+			expect( highestPoint( short ) ).toBeGreaterThan( CEILING * 2 );
+		} );
+
+		it( 'keeps the caller default on a chart that declines the toggle', () => {
+			window.localStorage.setItem( STACK_KEY, '0' );
+			const { container } = mount( { stacked: true, stackable: false } );
+			const [ bottom, top ] = bands( container );
+			expect( highestPoint( top ) ).toBeCloseTo( CEILING, 3 );
+			expect( highestPoint( bottom ) ).toBeGreaterThan( CEILING );
+		} );
+	} );
+
+	it( 'refuses to draw without a storageKey', () => {
+		const quiet = jest
+			.spyOn( console, 'error' )
+			.mockImplementation( () => {} );
+		try {
+			expect( () => mount( { storageKey: undefined } ) ).toThrow(
+				'AreaTimeChart: storageKey'
+			);
+		} finally {
+			quiet.mockRestore();
+		}
 	} );
 
 	it( 'draws the caller-named Y title through the shared axes', () => {

@@ -8,20 +8,20 @@
  * and the props for the native button.
  */
 
-import { useCallback, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
+import { usePersistedFlag } from './usePersistedState';
 
 /** The height factor of an expanded chart. */
 const EXPANDED_FACTOR = 2;
 
 /**
- * @param {number} height The chart's collapsed height in pixels.
- * @param {string} title  The chart's translated title, which names the button.
+ * @param {number} height     The chart's collapsed height in pixels.
+ * @param {string} title      The chart's translated title, which names the button.
+ * @param {string} storageKey The localStorage key holding the expansion; see AreaTimeChart.
  * @return {{height: number, buttonProps: Object}} The effective height, and the props to spread on the expand button.
  */
-export function useChartExpand( height, title ) {
-	const [ expanded, setExpanded ] = useState( false );
-	const toggle = useCallback( () => setExpanded( ( on ) => ! on ), [] );
+export function useChartExpand( height, title, storageKey ) {
+	const [ expanded, , toggle ] = usePersistedFlag( storageKey, false );
 	const label = expanded
 		? // translators: %s: the chart's title.
 		  sprintf( __( 'Shrink %s', 'newspack-nodes' ), title )

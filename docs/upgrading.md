@@ -6,6 +6,16 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`AreaTimeChart` requires `storageKey`, and `useChartExpand` takes it as
+  a third argument.** A chart without one throws `AreaTimeChart: storageKey
+  is required`. Pass a stable, untranslated name unique to the chart — never
+  its title, which is translated and can repeat; the chart persists its
+  expansion and stack under `<storageKey>:expanded` and
+  `<storageKey>:stack`. A stored stack outlives a change to `stacked`, so a
+  caller whose default varies by metric gives each metric its own key. A
+  `TopicsPanels` declaration carries `storageKey` too, and keys its panel by
+  it.
+
 - **`RemoteLinkNode` routes by `<stamp>:<target>` pairs; `attach()`,
   `park()`, `detach()`, `graphs` and `targetsFor()` are removed, as is
   `SseInNode#routeTo`.**

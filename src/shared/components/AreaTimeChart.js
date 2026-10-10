@@ -7,9 +7,7 @@
  * metrics and profile-category timings. `stacked` names the caller's default
  * mark — stacked bands where the series add up, overlaid translucent areas
  * where they do not (averages) — and the button in the chart's corner lets the
- * reader flip it for this chart alone, until the caller's default moves: a pick
- * answers the default it was made against, so a chart switched to a metric with
- * another default follows that metric. A caller whose bands must never be
+ * reader flip it for this chart alone. A caller whose bands must never be
  * summed, because one counts inside another, declines the toggle with
  * `stackable={ false }`. The legend beside the plot picks series
  * through the shared `useLegend`; a picked series is drawn alone, the axis
@@ -17,7 +15,12 @@
  *
  * The expand button beside the stack toggle doubles the chart's height, and
  * the same again restores it (`useChartExpand`); it is the only resize
- * control. A click on the plot hands the nearest slot's index to
+ * control. Both corner choices persist under `storageKey`, a stable,
+ * untranslated name unique to the chart: the expansion under
+ * `<storageKey>:expanded`, the stack under `<storageKey>:stack`, each as '1'
+ * or '0' through `usePersistedFlag`, written only when the reader toggles.
+ *
+ * A click on the plot hands the nearest slot's index to
  * `onSlotClick`, so a caller can map it to its own bucket, with `additive`
  * true when cmd or ctrl was held; without the callback a click does nothing.
  * With `onSlotRange`, a left-button drag across the plot by at least one slot's
@@ -33,7 +36,7 @@
  * bands are stacked, since a sum of overlaid averages is not a total.
  */
 
-import { memo, useCallback, useMemo, useState } from '@wordpress/element';
+import { memo, useCallback, useMemo } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import * as d3 from 'd3';
 import {
@@ -44,6 +47,7 @@ import {
 	useTimeChart,
 } from '../hooks/useTimeChart';
 import { useChartExpand } from '../hooks/useChartExpand';
+import { usePersistedFlag } from '../hooks/usePersistedState';
 import { useLegend } from '../hooks/useSeriesSelection';
 import ChartLegend from './ChartLegend';
 
@@ -122,8 +126,9 @@ const ExpandIcon = () => (
  * @param {( label: string, index: number ) => string}                           props.colorAt         The colour for a series at its place in the full list: area, stroke and legend swatch.
  * @param {string}                                                               props.title           Translated heading.
  * @param {number}                                                               props.height          Collapsed SVG height in pixels; the expand button doubles it.
+ * @param {string}                                                               props.storageKey      Stable, untranslated name unique to this chart; see the persistence rule above.
  * @param {string}                                                               props.yLabel          Translated Y-axis title naming the quantity; the ticks carry the unit.
- * @param {boolean}                                                              [props.stacked]       Stack the series by default; the corner toggle overrides it until the default moves.
+ * @param {boolean}                                                              [props.stacked]       Stack the series until the reader picks; the corner toggle overrides it.
  * @param {boolean}                                                              [props.stackable]     Offer the toggle at all; `false` for bands that must not be summed.
  * @param {string}                                                               [props.totalLabel]    Translated label for the tooltip's leading column-total row, printed while the bands are stacked; omitted drops the row.
  * @param {string}                                                               [props.className]     Class for the chart element, beside the shared role.
@@ -138,6 +143,7 @@ function AreaTimeChart( {
 	colorAt,
 	title,
 	height: collapsedHeight,
+	storageKey,
 	yLabel,
 	stacked: stackedDefault = false,
 	stackable = true,
@@ -147,18 +153,19 @@ function AreaTimeChart( {
 	onSlotRange,
 	selectedSlots,
 } ) {
-	const { height, buttonProps } = useChartExpand( collapsedHeight, title );
-	// The pick and the default it answered; a moved default retires it.
-	const [ pick, setPick ] = useState( null );
-	// In render, so the chart never draws once against the stale pick.
-	if ( pick && pick.against !== stackedDefault ) {
-		setPick( null );
+	if ( ! storageKey ) {
+		throw new TypeError( 'AreaTimeChart: storageKey is required' );
 	}
-	const stacked = stackable && pick ? pick.stacked : stackedDefault;
-	const toggleStack = useCallback(
-		() => setPick( { against: stackedDefault, stacked: ! stacked } ),
-		[ stackedDefault, stacked ]
+	const { height, buttonProps } = useChartExpand(
+		collapsedHeight,
+		title,
+		`${ storageKey }:expanded`
 	);
+	const [ picked, , toggleStack ] = usePersistedFlag(
+		`${ storageKey }:stack`,
+		stackedDefault
+	);
+	const stacked = stackable ? picked : stackedDefault;
 
 	const { legendItems, drawn, selected, onSelect } = useLegend(
 		series,
@@ -344,15 +351,13 @@ function AreaTimeChart( {
 						<StackIcon />
 					</button>
 				) }
-				{ 0 < drawn.length && (
-					<button
-						type="button"
-						className="newspack-nodes-chart__expand"
-						{ ...buttonProps }
-					>
-						<ExpandIcon />
-					</button>
-				) }
+				<button
+					type="button"
+					className="newspack-nodes-chart__expand"
+					{ ...buttonProps }
+				>
+					<ExpandIcon />
+				</button>
 			</div>
 			<div className="newspack-nodes-chart__row">
 				<div

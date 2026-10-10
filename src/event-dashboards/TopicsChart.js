@@ -69,6 +69,7 @@ export const TopicsChart = memo(
 	 *
 	 * @param {Object}                            props               Component props.
 	 * @param {string}                            props.title         Panel heading, e.g. "Topics Message Rate".
+	 * @param {string}                            props.storageKey    Unique, untranslated chart name; see AreaTimeChart.
 	 * @param {string}                            props.yLabel        Y-axis title naming the quantity, e.g. "Messages"; the ticks carry the unit.
 	 * @param {?Object}                           props.series        `{ [topic]: { points:[{ts,value,weight}], max, mode? } }` (ts in seconds); empty or absent wipes the panel.
 	 * @param {AxisFormatter}                     [props.formatValue] Formats a value for the Y-axis ticks and the tooltip rows, whatever the peak; a `tickValues` property on it ticks the axis in its own unit.
@@ -79,6 +80,7 @@ export const TopicsChart = memo(
 	 */
 	function TopicsChart( {
 		title,
+		storageKey,
 		yLabel,
 		series,
 		formatValue,
@@ -100,6 +102,7 @@ export const TopicsChart = memo(
 					yFormatFor={ yFormatFor }
 					colorAt={ rankColor }
 					title={ title }
+					storageKey={ storageKey }
 					yLabel={ yLabel }
 					height={ HEIGHT }
 					stacked={ stacked }
@@ -114,8 +117,9 @@ export const TopicsChart = memo(
 /**
  * A tab's Topics panels, one `TopicsChart` per declaration.
  *
- * A declaration is `{ title, yLabel, series, formatValue | formatFor,
- * stacked?, stackable? }`. The array may be rebuilt per render, but each
+ * A declaration is `{ title, storageKey, yLabel, series, formatValue |
+ * formatFor, stacked?, stackable? }`, keyed by its `storageKey`, since a
+ * translated title can repeat. The array may be rebuilt per render, but each
  * `series` must stay a memoized object, and a `formatFor` a module-level
  * function, or the chart's memo redraws.
  *
@@ -127,7 +131,7 @@ export function TopicsPanels( { panels } ) {
 	return (
 		<div className="nodes-topics-panels">
 			{ panels.map( ( panel ) => (
-				<TopicsChart key={ panel.title } { ...panel } />
+				<TopicsChart key={ panel.storageKey } { ...panel } />
 			) ) }
 		</div>
 	);
