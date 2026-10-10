@@ -12,12 +12,14 @@ import { renderHook, act } from '@testing-library/react';
 import { useGraphReset } from '../useGraphReset';
 import { Core } from '../../runtime/core';
 import { ShellNode } from '../../runtime/shell-node';
+import { Node } from '../../runtime/node';
 import { OutgoingGateNode } from '../../topology-console/core/outgoingGate';
 import { useGraphHandlers } from '../../topology-console/hooks/useGraphHandlers';
 import names from '../../runtime/reserved-node-names.json';
 import {
 	newMessage,
 	TYPE,
+	TO,
 	VALUE,
 	TM_BYTESTREAM,
 	TM_COMMAND,
@@ -232,6 +234,107 @@ describe( 'useGraphReset', () => {
 		rerender( opts( gate, { nodes, shell: new ShellNode() } ) );
 		expect( result.current.structureDirty ).toBe( false );
 		expect( result.current.canResetGraph ).toBe( true );
+	} );
+
+	it( 'names the console-made nodes on the canvas, and no builder-made one', () => {
+		const gate = makeGate();
+		const { result, rerender } = renderHook( ( p ) => useGraphReset( p ), {
+			initialProps: opts( gate ),
+		} );
+		act( () => gate.fill( commandMsg( 'make_node', 'Tee my-tee' ) ) );
+		act( () => gate.fill( commandMsg( 'make_node', 'Tee gone-tee' ) ) );
+		rerender(
+			opts( gate, {
+				nodes: [ { id: 'my-tee' }, { id: 'layouts:get:timer' } ],
+			} )
+		);
+		expect( [ ...result.current.userNodeIds ] ).toEqual( [ 'my-tee' ] );
+		rerender(
+			opts( gate, { nodes: [ { id: 'my-tee' } ], isLocalScope: false } )
+		);
+		expect( result.current.userNodeIds ).toBeNull();
+	} );
+
+	it( 'records nothing a worker- or `_http`-addressed edit makes or removes, and still marks the layout', () => {
+		const gate = makeGate();
+		let marked = 0;
+		const markDirty = () => ( marked += 1 );
+		const settled = new ShellNode();
+		const { result, rerender } = renderHook( ( p ) => useGraphReset( p ), {
+			initialProps: opts( gate, { markDirty } ),
+		} );
+		act( () => gate.fill( commandMsg( 'make_node', 'Tee my-tee' ) ) );
+		rerender( opts( gate, { shell: settled, markDirty } ) );
+		marked = 0;
+		for ( const [ verb, args, to ] of [
+			[ 'make_node', 'Tee worker-tee', 'demo.p1' ],
+			[ 'remove_node', 'my-tee', 'demo.p1' ],
+			[ 'make_node', 'Tee server-tee', '_http' ],
+		] ) {
+			const m = commandMsg( verb, args );
+			m[ TO ] = to;
+			act( () => gate.fill( m ) );
+		}
+		rerender(
+			opts( gate, {
+				shell: settled,
+				markDirty,
+				nodes: [
+					{ id: 'my-tee' },
+					{ id: 'worker-tee' },
+					{ id: 'server-tee' },
+				],
+			} )
+		);
+		expect( [ ...result.current.userNodeIds ] ).toEqual( [ 'my-tee' ] );
+		expect( result.current.structureDirty ).toBe( false );
+		expect( marked ).toBe( 3 );
+	} );
+
+	it( 'records no refused mint or move onto a name a builder already took', () => {
+		const gate = makeGate();
+		let marked = 0;
+		const markDirty = () => ( marked += 1 );
+		const taken = new Node();
+		taken.name = 'layouts:get:timer';
+		const { result, rerender } = renderHook( ( p ) => useGraphReset( p ), {
+			initialProps: opts( gate, { markDirty } ),
+		} );
+		act( () =>
+			gate.fill( commandMsg( 'make_node', 'Timer layouts:get:timer' ) )
+		);
+		expect( marked ).toBe( 0 );
+		expect( result.current.structureDirty ).toBe( false );
+		act( () => gate.fill( commandMsg( 'make_node', 'Tee my-tee' ) ) );
+		marked = 0;
+		act( () =>
+			gate.fill( commandMsg( 'move_node', 'my-tee layouts:get:timer' ) )
+		);
+		expect( marked ).toBe( 0 );
+		// A worker holds its own names: its mint onto ours is an edit there.
+		const remote = commandMsg( 'make_node', 'Tee layouts:get:timer' );
+		remote[ TO ] = 'demo.p1';
+		act( () => gate.fill( remote ) );
+		expect( marked ).toBe( 1 );
+		rerender(
+			opts( gate, {
+				markDirty,
+				nodes: [ { id: 'layouts:get:timer' }, { id: 'my-tee' } ],
+			} )
+		);
+		expect( [ ...result.current.userNodeIds ] ).toEqual( [ 'my-tee' ] );
+	} );
+
+	it( 'hands back the same set while the console-made nodes stay the same', () => {
+		const gate = makeGate();
+		const { result, rerender } = renderHook( ( p ) => useGraphReset( p ), {
+			initialProps: opts( gate ),
+		} );
+		act( () => gate.fill( commandMsg( 'make_node', 'Tee my-tee' ) ) );
+		rerender( opts( gate, { nodes: [ { id: 'my-tee' } ] } ) );
+		const first = result.current.userNodeIds;
+		rerender( opts( gate, { nodes: [ { id: 'my-tee' }, { id: 'b' } ] } ) );
+		expect( result.current.userNodeIds ).toBe( first );
 	} );
 
 	it( 'a user node only counts at the local scope', () => {

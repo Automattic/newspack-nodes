@@ -10,6 +10,7 @@
  */
 
 import { parseWorkerId, workerId } from '@newspack-nodes/shared/utils/workerId';
+import names from '../../runtime/reserved-node-names.json';
 
 /** @typedef {import('@newspack-nodes/shared/utils/workerId').AttachedWorker} AttachedWorker */
 
@@ -68,4 +69,16 @@ export function scopeFromCwd( cwd ) {
  */
 export function workerOfPath( path ) {
 	return parseWorkerId( String( path ?? '' ).split( '/' )[ 0 ] );
+}
+
+/**
+ * Whether a TO path addresses the browser's own graph: it mounts no worker
+ * and passes no `_http` boundary, which posts what it receives to the server.
+ *
+ * @param {?string} path Node path or shell cwd.
+ * @return {boolean} True when the browser's own interpreter answers it.
+ */
+export function addressesBrowser( path ) {
+	const segments = String( path ?? '' ).split( '/' );
+	return null === workerOfPath( path ) && ! segments.includes( names.HTTP );
 }

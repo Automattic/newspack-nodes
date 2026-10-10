@@ -186,6 +186,23 @@ describe( 'InspectorTab interactions', () => {
 		);
 	}
 
+	it( 'outlines as drift the nodes its console made, and no builder-made one', async () => {
+		renderInspector();
+		act( () => {
+			mockCaptured.consoleShell.replProps.onSubmit(
+				'make_node Echo my-echo'
+			);
+		} );
+		expect( Core.node( 'my-echo' ) ).not.toBeNull();
+		await act( async () => {
+			Core.node( '_metadata' )?.markDue?.();
+			await new Promise( ( r ) => setTimeout( r, 0 ) );
+		} );
+		const drift = mockCaptured.consoleShell.canvasProps.driftIds;
+		expect( drift ).toBeInstanceOf( Set );
+		expect( [ ...drift ] ).toEqual( [ 'my-echo' ] );
+	} );
+
 	it( 'leaves the topology layout root to inherit its host UI provider', () => {
 		const { container } = renderInspector();
 		const root = container.querySelector( '.topology-app' );

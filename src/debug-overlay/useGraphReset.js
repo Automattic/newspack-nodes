@@ -1,7 +1,14 @@
-import { useState, useEffect, useRef, useCallback } from '@wordpress/element';
+import {
+	useState,
+	useEffect,
+	useRef,
+	useCallback,
+	useMemo,
+} from '@wordpress/element';
 import { Core } from '../runtime/core';
-import { VALUE } from '../runtime/message';
+import { TO, VALUE } from '../runtime/message';
 import { isCommandAsk } from '../runtime/command-auth';
+import { addressesBrowser } from '../topology-console/utils/scope';
 
 /** `make_node` and the interpreter alias that mint a node. */
 const CREATE_VERBS = new Set( [ 'make_node', 'make' ] );
@@ -35,12 +42,21 @@ const MUTATING_VERBS = new Set( [
 ] );
 
 /**
- * The node a create, remove or move verb names: `make_node <Class> <name>` puts
- * it second, `remove_node <name>` and `move_node <name> <new name>` first. Every producer tokenizes — the Shell, and
- * the Compose modal through the Shell's tokenizer — so arguments arrive as a
- * token array; any other shape reads as no arguments.
+ * The one empty answer `userNodeIds` gives; a poll that changes none of the
+ * console-made nodes hands the canvas the same reference too.
  *
- * Three forms yield undefined. The wiring verbs are not in either set, and
+ * @type {Set<string>}
+ */
+const NO_USER_NODES = new Set();
+
+/**
+ * The node a create, remove or move verb names, and the name a move gives it:
+ * `make_node <Class> <name>` puts the node second, `remove_node <name>` and
+ * `move_node <name> <new name>` first. Every producer tokenizes — the Shell,
+ * and the Compose modal through the Shell's tokenizer — so arguments arrive
+ * as a token array; any other shape reads as no arguments.
+ *
+ * Three forms name no node. The wiring verbs are not in either set, and
  * their first token is a node that already exists — connecting two nodes
  * creates neither. `remove_node -a <regex>` removes by pattern rather than by
  * name. `remove_node` also takes further names after the first, and only the
@@ -49,20 +65,19 @@ const MUTATING_VERBS = new Set( [
  *
  * @param {string}   verb The dispatched verb.
  * @param {string[]} args Its arguments.
- * @return {string|undefined} The created, removed or moved node, else undefined.
+ * @return {{target: (string|undefined), renamed: (string|undefined)}} The created, removed or moved node, and a move's new name.
  */
-function nodeNameOf( verb, args ) {
+function namesOf( verb, args ) {
 	const argv = Array.isArray( args ) ? args : [];
 	if ( CREATE_VERBS.has( verb ) ) {
-		return argv[ 1 ];
+		return { target: argv[ 1 ], renamed: undefined };
 	}
 	if ( MOVE_VERBS.has( verb ) ) {
-		return argv[ 0 ];
+		return { target: argv[ 0 ], renamed: argv[ 1 ] };
 	}
 	// `remove_node -a <regex>` removes by pattern; not a single name.
-	return REMOVE_VERBS.has( verb ) && ! argv[ 0 ]?.startsWith( '-' )
-		? argv[ 0 ]
-		: undefined;
+	const named = REMOVE_VERBS.has( verb ) && ! argv[ 0 ]?.startsWith( '-' );
+	return { target: named ? argv[ 0 ] : undefined, renamed: undefined };
 }
 
 /**
@@ -74,7 +89,9 @@ function nodeNameOf( verb, args ) {
  * it, whether it came from a canvas gesture, an Inspector action, a typed REPL
  * line or the Compose modal. Tapping the one send point is what keeps the chip
  * in sync — dirtying inside each GUI handler instead sees the gestures and
- * misses a REPL rewire.
+ * misses a REPL rewire. Only an edit of the browser graph counts: a send
+ * addressed to a worker or through `_http` marks the layout only, and a mint
+ * or move onto a name already taken, which the interpreter refuses, nothing.
  *
  * `resetGraph` tears down every node, bumps the graph generation so each
  * builder rebuilds off the canonical wiring, clears dirty, and marks the
@@ -83,7 +100,8 @@ function nodeNameOf( verb, args ) {
  *
  * `canResetGraph` is true when either a mutating command flipped
  * `structureDirty` — a rewire or disconnect, invisible to a node scan — or a
- * node the console minted is still on the canvas. That second half survives a
+ * node the console minted is still on the canvas. Those nodes are
+ * `userNodeIds`, the browser graph's runtime drift. That second half survives a
  * Shell rebuild, which clears `structureDirty`; a topology change is one.
  *
  * Both halves read the SAME forward tap, which makes "user-added" a recorded
@@ -99,7 +117,7 @@ function nodeNameOf( verb, args ) {
  * @param {boolean}  params.isLocalScope The in-browser graph is in view (empty cwd) — a remote worker's graph is not resettable from here.
  * @param {boolean}  params.canRebuild   A rebuild path exists: the overlay passes `Core.rebuildable`, the console passes "not in edit mode".
  * @param {Function} params.markDirty    Layout-dirty hook, called on every structural mutation and by resetGraph so Reset Layout surfaces alongside Reset Graph.
- * @return {{structureDirty: boolean, resetGraph: Function, canResetGraph: boolean}} The dirty flag, the reset action, and whether to offer it.
+ * @return {{structureDirty: boolean, resetGraph: Function, canResetGraph: boolean, userNodeIds: ?Set<string>}} The dirty flag, the reset action, whether to offer it, and the console-minted nodes on the canvas (null off the local scope: no drift information).
  */
 export function useGraphReset( {
 	gate,
@@ -141,9 +159,19 @@ export function useGraphReset( {
 			if ( ! name || ! MUTATING_VERBS.has( name ) ) {
 				return;
 			}
-			setStructureDirty( true );
+			const { target, renamed } = namesOf( name, args );
+			const local = addressesBrowser( message[ TO ] );
+			// A local mint or move onto a taken name is refused: no edit.
+			const taken = CREATE_VERBS.has( name ) ? target : renamed;
+			if ( local && taken && Core.node( taken ) ) {
+				return;
+			}
 			markDirtyRef.current();
-			const target = nodeNameOf( name, args );
+			// A worker's or the server's edit leaves the browser graph be.
+			if ( ! local ) {
+				return;
+			}
+			setStructureDirty( true );
 			if ( ! target ) {
 				return;
 			}
@@ -157,8 +185,7 @@ export function useGraphReset( {
 				const next = new Set( prev );
 				next.delete( target );
 				// A console-made node keeps counting under its new name.
-				const renamed = args?.[ 1 ];
-				if ( MOVE_VERBS.has( name ) && renamed ) {
+				if ( renamed ) {
 					next.add( renamed );
 				}
 				return next;
@@ -185,13 +212,31 @@ export function useGraphReset( {
 		markDirtyRef.current();
 	}, [] );
 
-	// A console-minted node still on the canvas.
-	const hasUserNodes =
-		!! isLocalScope &&
-		( nodes ?? [] ).some( ( n ) => userNames.has( n.id ) );
+	// The console-minted nodes still on the canvas, one Set while unchanged.
+	const userIdsKey = useMemo( () => {
+		if ( ! isLocalScope ) {
+			return null;
+		}
+		if ( 0 === userNames.size ) {
+			return '';
+		}
+		return ( nodes ?? [] )
+			.map( ( n ) => n.id )
+			.filter( ( id ) => userNames.has( id ) )
+			.sort()
+			.join( '\0' );
+	}, [ isLocalScope, nodes, userNames ] );
+	const userNodeIds = useMemo( () => {
+		if ( null === userIdsKey ) {
+			return null;
+		}
+		return userIdsKey ? new Set( userIdsKey.split( '\0' ) ) : NO_USER_NODES;
+	}, [ userIdsKey ] );
 
 	const canResetGraph =
-		!! isLocalScope && !! canRebuild && ( structureDirty || hasUserNodes );
+		!! isLocalScope &&
+		!! canRebuild &&
+		( structureDirty || 0 < ( userNodeIds?.size ?? 0 ) );
 
-	return { structureDirty, resetGraph, canResetGraph };
+	return { structureDirty, resetGraph, canResetGraph, userNodeIds };
 }

@@ -264,7 +264,7 @@ export default function InspectorTab( {
 	);
 
 	// Shared graph-dirty + Reset Graph logic (same as the topology console).
-	const { resetGraph, canResetGraph } = useGraphReset( {
+	const { resetGraph, canResetGraph, userNodeIds } = useGraphReset( {
 		gate,
 		shell,
 		nodes: graph.nodes,
@@ -358,6 +358,8 @@ export default function InspectorTab( {
 									resetKey: `${ storageKey }|${ cwdScope }`,
 									// Local: no-node header reads IoTelemetry.
 									local: ! cwd,
+									// Drift: what this console made.
+									driftIds: userNodeIds,
 									// Verbose toggle reads it.
 									debugLevel,
 									interactive: true,

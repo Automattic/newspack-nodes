@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The browser graph outlines only the nodes its console made as drift, in the topology console and the debug overlay alike.** At the local graph, the console's brass dashed outline read the URL topology's `.tsl` and so marked every hook-built browser node, the topology, layout and class readers among them, and the overlay drew no drift at all. Both now read the console-minted set the Reset Graph chip already keeps, `useGraphReset()`'s new `userNodeIds`; on a worker the console reads that worker's own `.tsl`, whose read runs only there, and any other cwd has no drift information. That set, and the chip, no longer count an edit addressed to a worker or through `_http`, which `addressesBrowser()` in `utils/scope.js` tells apart, or a `make_node` or `move_node` onto a name already taken, which the interpreter refuses. `workerPollPath()` gives way to the exported `mountedWorker()`, resolved once a render for the cwd.
 - **A tab's controls no longer paint over the header's hostname while the hostname has width to give.** `.topology-subtitle` takes `flex-shrink: 1000`, so it ellipsizes before the controls slot shrinks. Flex weighs each item's shrink by its basis, so the wide slot had given up most of the width, and its end-packed toolbar, such as the Log Viewer's line count, spilled leftward over the subtitle. A row too narrow for the controls even with the subtitle gone still overflows leftward, keeping the rightmost control reachable.
 
 ## [2.104.0] - 2026-10-10

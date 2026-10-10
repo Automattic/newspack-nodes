@@ -722,9 +722,7 @@
 	user-select: none;
 	-webkit-user-select: none;
 
-	// Roadmap [49]: runtime DRIFT — a live node NOT in the registered .tsl
-	// (added via the console / make_node). A brass dashed outline marks the
-	// temporary/unregistered node apart from the canonical graph.
+	// Runtime drift: a worker node off its .tsl, or one the console made.
 	&.is-drift {
 		.topology-node__bg {
 			stroke: var(--brass, #dba617);
