@@ -105,9 +105,8 @@ CommandInterpreterNode.registerNodeClasses( {
  *                                  model whose rows go stale across a gap.
  * @return {{ prefix: string, group: (string|undefined), linkRef: Object, viewRef: Object, isPausedRef: Object, isActive: boolean, control: (value: Object) => void, resubscribe: (subs: string[], positions: ?Object) => void, seek: (sub: string, positions: ?Object, source?: Object) => void, setPaused: (paused: boolean) => void, setFilter: (term: string) => void, clear: () => void, targetRef: Object }}
  *   The live handles — `linkRef` holds the page's `_stream` — the gate's
- *   state and the controls the dashboard drives. The link keeps this graph's
- *   skipped-line count under `<prefix>:stream`, the name
- *   `UnparseableLinesNotice` takes.
+ *   state and the controls the dashboard drives. `UnparseableLinesNotice`
+ *   reads this graph's skipped lines off the link by its subscriptions.
  */
 export function useStreamGraph( {
 	prefix,

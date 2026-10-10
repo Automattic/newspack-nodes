@@ -12,6 +12,7 @@ import { Core } from '../../runtime/core';
 import { publishSkippedLines } from '@newspack-nodes/shared/test-utils/skippedLines';
 
 jest.mock( '../hooks/useProbeStream', () => ( {
+	...jest.requireActual( '../hooks/useProbeStream' ),
 	useProbeStream: jest.fn(),
 } ) );
 jest.mock( '../../runtime/react', () => ( {
@@ -138,8 +139,8 @@ describe( 'Jobs', () => {
 	} );
 
 	it( 'shows the lines each of its streams skipped as its own named notice', () => {
-		publishSkippedLines( 'jobstats:stream', 2 );
-		publishSkippedLines( 'topicprobe:stream', 3 );
+		publishSkippedLines( 'jobstats.p0', 2 );
+		publishSkippedLines( 'topicprobe.p0', 3 );
 		useNodeField.mockImplementation(
 			jest.requireActual( '../../runtime/react' ).useNodeField
 		);

@@ -24,7 +24,7 @@
 
 import { useMemo, useDeferredValue } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
-import { useProbeStream } from './hooks/useProbeStream';
+import { probeLog, useProbeStream } from './hooks/useProbeStream';
 import { useNodeField } from '../runtime/react';
 import UnparseableLinesNotice from '@newspack-nodes/shared/components/UnparseableLinesNotice';
 import { topicChartSeries, byKey, bySource } from './topicProbeSeries';
@@ -214,11 +214,11 @@ export default function Jobs() {
 		<div className="nodes-probe-tab">
 			<UnparseableLinesNotice
 				source={ __( 'Job statistics', 'newspack-nodes' ) }
-				node="jobstats:stream"
+				subscribe={ [ probeLog( 'jobstats' ) ] }
 			/>
 			<UnparseableLinesNotice
 				source={ __( 'Job backlog', 'newspack-nodes' ) }
-				node="topicprobe:stream"
+				subscribe={ [ probeLog( 'topicprobe' ) ] }
 			/>
 			<TopicsPanels panels={ panels } />
 			<ProbeTable

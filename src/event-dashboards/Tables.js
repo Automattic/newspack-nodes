@@ -22,7 +22,7 @@
 
 import { useMemo, useDeferredValue } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
-import { useProbeStream } from './hooks/useProbeStream';
+import { probeLog, useProbeStream } from './hooks/useProbeStream';
 import { isLiveSample, streamHead } from './liveSample';
 import { useNodeField } from '../runtime/react';
 import UnparseableLinesNotice from '@newspack-nodes/shared/components/UnparseableLinesNotice';
@@ -292,7 +292,7 @@ export default function Tables() {
 		<div className="nodes-probe-tab">
 			<UnparseableLinesNotice
 				source={ __( 'Table statistics', 'newspack-nodes' ) }
-				node="tablestats:stream"
+				subscribe={ [ probeLog( 'tablestats' ) ] }
 			/>
 			<TopicsPanels panels={ panels } />
 			<ProbeTable

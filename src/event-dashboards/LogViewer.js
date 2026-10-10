@@ -318,7 +318,7 @@ export default function LogViewer( { headerControlsSlot } ) {
 			pickerLabel={ __( 'Browse a log', 'newspack-nodes' ) }
 			isPaused={ isPaused }
 			connectionError={ connectionError }
-			streamNode="log-viewer:stream"
+			subscribe={ [ selectedLog ].filter( Boolean ) }
 			onTogglePause={ () => setPaused( ! isPaused ) }
 			onStep={ step }
 			onJump={ jump }

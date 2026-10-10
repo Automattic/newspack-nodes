@@ -1,7 +1,6 @@
 /**
- * publishSkippedLines — publish a stream graph's skipped-line count as the
- * page's `_stream` publishes each graph's share of its SseIn's: in its
- * `unparseableByTarget` field, under the graph's `<prefix>:stream`.
+ * publishSkippedLines — publish a stamp's skipped-line count as the page's
+ * `_stream` publishes its SseIn's: in its `unparseableByStamp` field.
  *
  * A view test that stubs its stream hook builds no backbone, so nothing holds
  * `_stream`; this registers a bare link under it. Against a mounted graph it
@@ -12,21 +11,21 @@
 import { Core, RemoteLinkNode, reservedNames } from '@newspack-nodes/runtime';
 
 /**
- * Publish `count` as the share of the graph whose records go to `name`.
+ * Publish `count` as the lines skipped on `stamp`.
  *
- * @param {string} name  The graph's stream node, as it rides the link.
- * @param {number} count Lines the stream skipped.
+ * @param {string} stamp A record stamp, as `splitStamp()` reads it.
+ * @param {number} count Lines the stream skipped on it.
  * @return {Object} The link publishing it.
  */
-export function publishSkippedLines( name, count ) {
+export function publishSkippedLines( stamp, count ) {
 	let link = Core.node( reservedNames.STREAM );
 	if ( ! link ) {
 		link = new RemoteLinkNode();
 		link.name = reservedNames.STREAM;
 	}
-	link.setField( 'unparseableByTarget', {
-		...link.unparseableByTarget,
-		[ name ]: count,
+	link.setField( 'unparseableByStamp', {
+		...link.unparseableByStamp,
+		[ stamp ]: count,
 	} );
 	return link;
 }

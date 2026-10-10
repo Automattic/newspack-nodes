@@ -180,8 +180,11 @@ describe( 'LogViewer', () => {
 	}
 
 	it( 'shows the lines its stream skipped as unparseable', async () => {
-		publishSkippedLines( 'log-viewer:stream', 1 );
-		registerViewFixture( { logs: [], selected: '' } );
+		publishSkippedLines( 'kea.p3', 1 );
+		registerViewFixture( {
+			logs: [ { key: 'kea.p3', label: 'Kea' } ],
+			selected: 'kea.p3',
+		} );
 		const { container } = await renderViewer();
 		expect( container.textContent ).toContain(
 			'1 line would not parse and was skipped.'

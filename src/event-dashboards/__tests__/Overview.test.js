@@ -27,6 +27,7 @@ jest.mock( '../overviewPrefs', () => ( {
 } ) );
 // Probe stream is its own suite; link no-op, view model fed via useNodeField.
 jest.mock( '../hooks/useProbeStream', () => ( {
+	...jest.requireActual( '../hooks/useProbeStream' ),
 	useProbeStream: jest.fn(),
 } ) );
 jest.mock( '../../runtime/react', () => ( {
@@ -215,7 +216,7 @@ describe( 'Overview fleet board', () => {
 	} );
 
 	it( 'shows the probe read and the probe stream skips as two named notices', () => {
-		publishSkippedLines( 'topicprobe:stream', 4 );
+		publishSkippedLines( 'topicprobe.p0', 4 );
 		useNodeField.mockImplementation(
 			jest.requireActual( '../../runtime/react' ).useNodeField
 		);
@@ -255,7 +256,7 @@ describe( 'Overview fleet board', () => {
 	} );
 
 	it( 'shows only the notice of the source that skipped a line', () => {
-		publishSkippedLines( 'topicprobe:stream', 6 );
+		publishSkippedLines( 'topicprobe.p0', 6 );
 		useNodeField.mockImplementation(
 			jest.requireActual( '../../runtime/react' ).useNodeField
 		);

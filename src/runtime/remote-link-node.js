@@ -141,12 +141,12 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 		// Republished from the SseIn; see ensureChildren().
 		this.registrations.UNPARSEABLE_LINES = {};
 		/**
-		 * Each graph's share of the lines its SseIn skipped, by target: the
-		 * sum of the stamps the graph carries.
+		 * The lines the stream skipped as unparseable, by stamp: a copy of
+		 * the SseIn's counts, published afresh on every change.
 		 *
 		 * @type {Object<string,number>}
 		 */
-		this.unparseableByTarget = {};
+		this.unparseableByStamp = {};
 	}
 
 	/**
@@ -315,7 +315,10 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 		) {
 			this._forgot = true;
 		}
-		this.sseIn?.forget( drop );
+		if ( this.sseIn ) {
+			this.sseIn.forget( drop );
+			this._publishCounts();
+		}
 	}
 
 	/**
@@ -397,7 +400,6 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 	 * cannot cut a backoff short.
 	 */
 	_restartGraphs() {
-		this._publishShares();
 		const subscribed = this._subscribed();
 		if ( 0 === subscribed.length ) {
 			if ( this.sseIn ) {
@@ -444,7 +446,7 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 	 * Build this link's SseIn, hand the shared `_http` its transport, and
 	 * register the handlers bridging the SseIn's `connected` handshake to a
 	 * Heartbeat slot lease and republishing its UNPARSEABLE_LINES count on this
-	 * link, with each graph's share in `unparseableByTarget`. Idempotent: the
+	 * link, with its per-stamp counts in `unparseableByStamp`. Idempotent: the
 	 * first call that needs a stream builds it, and every later call returns
 	 * at once.
 	 *
@@ -510,34 +512,19 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 			return true;
 		} );
 
-		// Republish the total on the link, and each graph's share.
+		// Republish the total on the link, and the counts by stamp.
 		sse.register( 'UNPARSEABLE_LINES', this.name, ( count ) => {
 			this.setState( 'UNPARSEABLE_LINES', count );
-			this._publishShares();
+			this._publishCounts();
 			return true;
 		} );
 	}
 
-	/**
-	 * Publish every graph's share of the skipped lines, live or parked, from
-	 * the counts the SseIn keeps per stamp, unless no share moved.
-	 */
-	_publishShares() {
-		const byStamp = Object.entries( this.sseIn?.unparseableByStamp ?? {} );
-		const shares = {};
-		for ( const [ target, { subscribe } ] of this.graphs ) {
-			shares[ target ] = byStamp
-				.filter( ( [ stamp ] ) => anyCarries( subscribe, stamp ) )
-				.reduce( ( sum, [ , n ] ) => sum + n, 0 );
-		}
-		const was = this.unparseableByTarget;
-		const keys = Object.keys( shares );
-		if (
-			keys.length !== Object.keys( was ).length ||
-			keys.some( ( target ) => shares[ target ] !== was[ target ] )
-		) {
-			this.setField( 'unparseableByTarget', shares );
-		}
+	/** Publish a fresh copy of the SseIn's per-stamp skipped-line counts. */
+	_publishCounts() {
+		this.setField( 'unparseableByStamp', {
+			...this.sseIn.unparseableByStamp,
+		} );
 	}
 
 	/**

@@ -55,7 +55,7 @@ function seekForMode( mode, subscribe ) {
  * The `useStreamGraph` handle is dropped: a declared tail offers no pause,
  * seek or step control, so tab visibility is the whole gate on the SSE
  * connection. A dashboard that drives those controls calls `useStreamGraph`
- * itself, and one that shows skipped lines hands `<name>:stream` to
+ * itself, and one that shows skipped lines hands its subscription to
  * `UnparseableLinesNotice`.
  *
  * @param {Object} o

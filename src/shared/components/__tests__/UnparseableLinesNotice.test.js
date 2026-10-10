@@ -6,7 +6,6 @@
 import { render, act } from '@testing-library/react';
 import UnparseableLinesNotice from '../UnparseableLinesNotice';
 import { Core } from '../../../runtime/core';
-import { Node } from '../../../runtime/node';
 import { mountExospine } from '../../../runtime/exospine';
 import { publishSkippedLines } from '../../test-utils/skippedLines';
 
@@ -56,38 +55,57 @@ describe( 'UnparseableLinesNotice', () => {
 		expect( container.childNodes.length ).toBe( 0 );
 	} );
 
-	it( 'reads the count the named stream node publishes', () => {
-		publishSkippedLines( 'probe-4471:stream', 23 );
+	it( 'reads the count the page link keeps for its subscription’s stamp', () => {
+		publishSkippedLines( 'probe.p4', 23 );
+		publishSkippedLines( 'other.p1', 5 );
 		const { container } = render(
-			<UnparseableLinesNotice node="probe-4471:stream" />
+			<UnparseableLinesNotice subscribe={ [ 'probe.p4' ] } />
 		);
 		expect( container.textContent ).toBe(
 			'23 lines would not parse and were skipped.'
 		);
 	} );
 
-	it( 'follows the stream node as its count climbs', () => {
-		publishSkippedLines( 'probe-4471:stream', 0 );
+	it( 'sums every stamp a glob subscription carries', () => {
+		publishSkippedLines( 'errors.p1', 4 );
+		publishSkippedLines( 'errors.p7', 9 );
+		publishSkippedLines( 'completed.p1', 50 );
 		const { container } = render(
-			<UnparseableLinesNotice node="probe-4471:stream" source="Tail 9" />
+			<UnparseableLinesNotice
+				subscribe={ [ 'errors.*' ] }
+				source="Errors"
+			/>
+		);
+		expect( container.textContent ).toBe(
+			'Errors: 13 lines would not parse and were skipped.'
+		);
+	} );
+
+	it( 'follows the page link as its count climbs', () => {
+		publishSkippedLines( 'probe.p4', 0 );
+		const { container } = render(
+			<UnparseableLinesNotice
+				subscribe={ [ 'probe.p4' ] }
+				source="Tail 9"
+			/>
 		);
 		expect( container.childNodes.length ).toBe( 0 );
-		act( () => publishSkippedLines( 'probe-4471:stream', 41 ) );
+		act( () => publishSkippedLines( 'probe.p4', 41 ) );
 		expect( container.textContent ).toBe(
 			'Tail 9: 41 lines would not parse and were skipped.'
 		);
 	} );
 
-	it( 'reads its own graph’s share off the page link, not a neighbour’s', () => {
+	it( 'reads its own subscription’s count, not a neighbour’s', () => {
 		const { stream } = mountExospine();
-		stream.setField( 'unparseableByTarget', {
-			'probe-4471:stream': 0,
-			'tail-6602:stream': 58,
+		stream.setField( 'unparseableByStamp', {
+			'probe.p4': 0,
+			'tail.p6': 58,
 		} );
 		const { container } = render(
 			<>
-				<UnparseableLinesNotice node="probe-4471:stream" />
-				<UnparseableLinesNotice node="tail-6602:stream" />
+				<UnparseableLinesNotice subscribe={ [ 'probe.p4' ] } />
+				<UnparseableLinesNotice subscribe={ [ 'tail.p6' ] } />
 			</>
 		);
 		expect( container.textContent ).toBe(
@@ -95,20 +113,21 @@ describe( 'UnparseableLinesNotice', () => {
 		);
 	} );
 
-	it( 'ignores a count published on the stream node itself', () => {
-		const tee = new Node();
-		tee.name = 'probe-4471:stream';
-		tee.registrations.UNPARSEABLE_LINES = {};
-		tee.setState( 'UNPARSEABLE_LINES', 19 );
+	it( 'reads the link, not a count passed beside a subscription', () => {
+		publishSkippedLines( 'probe.p4', 2 );
 		const { container } = render(
-			<UnparseableLinesNotice node="probe-4471:stream" />
+			<UnparseableLinesNotice subscribe={ [ 'probe.p4' ] } count={ 90 } />
 		);
-		expect( container.childNodes.length ).toBe( 0 );
+		expect( container.textContent ).toBe(
+			'2 lines would not parse and were skipped.'
+		);
 	} );
 
-	it( 'renders nothing for a node no graph holds yet', () => {
+	it( 'renders nothing for stamps the page link has not counted', () => {
+		mountExospine();
+		publishSkippedLines( 'elsewhere.p2', 9 );
 		const { container } = render(
-			<UnparseableLinesNotice node="nowhere-5530:stream" />
+			<UnparseableLinesNotice subscribe={ [ 'nowhere.p5' ] } />
 		);
 		expect( container.childNodes.length ).toBe( 0 );
 	} );

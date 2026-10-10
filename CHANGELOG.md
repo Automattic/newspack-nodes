@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A view's skipped-line notice sums the page link's counts by stamp.** `_stream` publishes `unparseableByStamp`, and `UnparseableLinesNotice` and `LogStreamViewer` take the view's `subscribe` list.
 - **`splitPair()` lives in `src/runtime/log-stamp.js`,** the JS twin of `Remote_Broker_Node::split_pair()`, which the console's TSL reader imports from there.
 - **The broker status snapshot names its round trip `last_response` and `last_rtt`.** They replace `last_heartbeat_response` and `last_heartbeat_rtt`, with no alias, because a broker that sends no heartbeat writes the same keys from its fetches. The Aggregator Status tab reads the new names, labels the row "Round trip" in place of "Client HB", and styles it with `aggregator-rtt` and `aggregator-response-badge`.
 - **A multi-writer reader holds a segment boundary until `SEAL_GRACE_SECONDS` have passed since the later of the segment's last write and the next segment's first record.** Both are read from disk, the mtime and the first record's TIMESTAMP, so a fresh reader judges the boundary as a long-lived one does, and it holds while the next segment is still empty.
@@ -26,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **`RemoteLinkNode#unparseableByTarget` and the per-graph share computation,** with no alias.
 - **`Remote_Source_Node`'s status snapshot drops `last_heartbeat_sent`.** Nothing read it; the heartbeat's send time stays the private clock its gate and round trip read.
 - **A broker relays nothing, and `Remote_Broker_Node::send()` is gone.** `fill()` settles a command reply and drops anything else through `drop_message()`, one rate-limited `not a command reply` line, where it handed it to `send()`, which filled the patron `HTTP_Out` verbatim. No production code sent a broker anything but a reply, and what the relay did send left unsigned, so the spoke refused it. A bare `TM_ERROR` the spoke's Router bounces to a broker is dropped the same way rather than posted back.
 - **`Remote_Link_Node` is gone, with no alias.** No topology named it; its channel lives in `Remote_Broker_Node` and its stream in `Remote_Source_Node`. The bare link's `connect()`, `close()`, `remote_partition` argument and its delivery path (`deliver_downstream()`, `admit_inbound()`, `admit_addressed()`) go with it.
