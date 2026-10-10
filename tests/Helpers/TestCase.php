@@ -626,6 +626,15 @@ abstract class TestCase extends PHPUnitTestCase {
 		$jw->load_handlers_from_filters();
 	}
 
+	/** Collect every stderr line the test raises from here on; `Core::reset()` restores the handler. */
+	protected function capture_stderr(): \ArrayObject {
+		$errors = new \ArrayObject();
+		Core::set_stderr_handler( static function ( string $text ) use ( $errors ): void {
+			$errors[] = $text;
+		} );
+		return $errors;
+	}
+
 	/** Read a private/protected property — these nodes expose internal state to tests via reflection, not getters. */
 	protected function read_private( object $obj, string $prop ): mixed {
 		$ref = new \ReflectionProperty( $obj, $prop );

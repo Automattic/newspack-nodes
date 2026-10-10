@@ -169,7 +169,7 @@ class Remote_Source_Node extends Remote_Broker_Node {
 		$positions        = [];
 		foreach ( $this->pairs as $pair ) {
 			$source = $pair['source'];
-			if ( ! \str_contains( $source, '*' ) ) {
+			if ( ! Log_Discovery::is_glob( $source ) ) {
 				$child = $this->consumer_for( $source );
 				if ( null !== $child && $child->is_live() ) {
 					$subscribe[]          = $source;
@@ -262,7 +262,7 @@ class Remote_Source_Node extends Remote_Broker_Node {
 	protected function should_connect(): bool {
 		$connect = false;
 		foreach ( $this->pairs as [ 'source' => $source ] ) {
-			$live    = \str_contains( $source, '*' ) || ( $this->reader( $source )?->is_live() ?? false );
+			$live    = Log_Discovery::is_glob( $source ) || ( $this->reader( $source )?->is_live() ?? false );
 			$connect = $connect || $live;
 		}
 		return $connect;

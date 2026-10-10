@@ -248,7 +248,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 */
 	private function ensure_exact_readers(): void {
 		foreach ( $this->pairs as [ 'source' => $source ] ) {
-			if ( ! \str_contains( $source, '*' ) ) {
+			if ( ! Log_Discovery::is_glob( $source ) ) {
 				$this->consumer_for( $source );
 			}
 		}
@@ -335,7 +335,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 			$this->print_less_often( 'dropping a line no pair claims: ', $stamp );
 			return null;
 		}
-		if ( \str_contains( $pair['source'], '*' ) && ! $this->claim_glob_kind( Log_Discovery::kind_of( $stamp ) ) ) {
+		if ( Log_Discovery::is_glob( $pair['source'] ) && ! $this->claim_glob_kind( Log_Discovery::kind_of( $stamp ) ) ) {
 			$this->print_less_often( 'refusing a reader past MAX_READERS: ', (string) self::MAX_READERS );
 			return null;
 		}
@@ -397,7 +397,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 		$kinds = [];
 		foreach ( $stamps as $stamp ) {
 			$pair = $this->pair_for( $stamp );
-			if ( null !== $pair && \str_contains( $pair['source'], '*' ) ) {
+			if ( null !== $pair && Log_Discovery::is_glob( $pair['source'] ) ) {
 				$kinds[ Log_Discovery::kind_of( $stamp ) ] = true;
 			}
 		}
@@ -835,7 +835,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 			throw new \InvalidArgumentException( self::refusal_prefix() . "a pair is <source>:<target>, got '{$token}'" );
 		}
 		// An exact source is the stamp of the one stream it carries.
-		$glob = \str_contains( $source, '*' );
+		$glob = Log_Discovery::is_glob( $source );
 		if ( ! ( $glob ? Log_Discovery::is_subscription( $source ) : Log_Discovery::is_stamp( $source ) ) ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
 			throw new \InvalidArgumentException( self::refusal_prefix() . "pair names a source no spoke can stream: '{$token}'" );
