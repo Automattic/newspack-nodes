@@ -67,13 +67,17 @@ const mount = ( props = {} ) =>
 	render(
 		<TopicsChart
 			title="Rate"
+			storageKey="test:topics-rate"
 			series={ series }
 			formatValue={ fmt }
 			{ ...props }
 		/>
 	);
 
-beforeEach( () => setupTooltip.mockClear() );
+beforeEach( () => {
+	setupTooltip.mockClear();
+	window.localStorage.clear();
+} );
 
 describe( 'TopicsChart', () => {
 	it( 'is a card carrying the shared chart, titled', () => {
@@ -148,7 +152,12 @@ describe( 'TopicsChart', () => {
 		const { container, rerender } = mount();
 		expect( bands( container ) ).toHaveLength( 2 );
 		rerender(
-			<TopicsChart title="Rate" series={ {} } formatValue={ fmt } />
+			<TopicsChart
+				title="Rate"
+				storageKey="test:topics-rate"
+				series={ {} }
+				formatValue={ fmt }
+			/>
 		);
 		expect(
 			container.querySelector( '.newspack-nodes-chart__plot svg' )
@@ -197,6 +206,7 @@ describe( 'TopicsChart', () => {
 		const { container } = render(
 			<TopicsChart
 				title="Latency"
+				storageKey="test:topics-latency"
 				series={ {
 					'cron:films': {
 						points: [
@@ -221,6 +231,16 @@ describe( 'TopicsChart', () => {
 		for ( const tick of ticks ) {
 			expect( tick ).toMatch( /^\d+(\.\d)?s$/ );
 		}
+	} );
+
+	it( 'persists its corner choices under the storageKey it is handed', () => {
+		const { container } = mount();
+		fireEvent.click(
+			container.querySelector( '.newspack-nodes-chart__expand' )
+		);
+		expect(
+			window.localStorage.getItem( 'test:topics-rate:expanded' )
+		).toBe( '1' );
 	} );
 
 	it( 'offers no stack toggle when the caller marks the series unstackable', () => {
@@ -256,7 +276,8 @@ describe( 'TopicsPanels', () => {
 			mode,
 		},
 	} );
-	const panel = ( over ) => ( {
+	const panel = ( over = {} ) => ( {
+		storageKey: `test:${ over.title ?? 'Held' }`,
 		title: 'Held',
 		yLabel: 'Bytes',
 		series: gapped( { fill: 'hold', agg: 'last' } ),
@@ -280,6 +301,19 @@ describe( 'TopicsPanels', () => {
 				...container.querySelectorAll( '.newspack-nodes-chart__title' ),
 			].map( ( t ) => t.textContent )
 		).toEqual( [ 'First', 'Second' ] );
+	} );
+
+	it( 'keeps two panels sharing a title apart by their storageKeys', () => {
+		const { container } = mountPanels( [
+			panel( { title: 'Same', storageKey: 'test:first' } ),
+			panel( { title: 'Same', storageKey: 'test:second' } ),
+		] );
+		const [ first, second ] = container.querySelectorAll(
+			'.newspack-nodes-chart__expand'
+		);
+		fireEvent.click( first );
+		expect( first.getAttribute( 'aria-expanded' ) ).toBe( 'true' );
+		expect( second.getAttribute( 'aria-expanded' ) ).toBe( 'false' );
 	} );
 
 	it( 'lays every chart into the one grid wrapper it renders', () => {

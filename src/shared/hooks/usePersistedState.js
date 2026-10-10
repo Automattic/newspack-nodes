@@ -1,16 +1,17 @@
 /**
  * usePersistedState — state that outlives the page, in one place.
  *
- * A dashboard preference runs the same four steps: read the key, validate what
- * came back against what the UI still offers, fall back when nothing usable
- * survived, then write it back in an effect. Only the codec and the
- * cardinality differ, so both are the caller's: `restore` decodes and
- * validates, `encode` serializes.
+ * `usePersistedState` and `usePersistedChoice` run the same four steps: read
+ * the key, validate what came back against what the UI still offers, fall
+ * back when nothing usable survived, then write it back in an effect. Only
+ * the codec and the cardinality differ, so both are the caller's: `restore`
+ * decodes and validates, `encode` serializes. `usePersistedFlag` stores a
+ * boolean only when the reader toggles it.
  *
  * @package
  */
 
-import { useState, useEffect } from '@wordpress/element';
+import { useCallback, useEffect, useState } from '@wordpress/element';
 import { readStorage, writeStorage } from '../utils/storage';
 
 /**
@@ -26,6 +27,8 @@ import { readStorage, writeStorage } from '../utils/storage';
  * The effect also runs on mount, which writes the fallback back on a first
  * visit. Changing that fallback later therefore moves nobody who has already
  * loaded the page; only a value `restore` rejects sends them to the new one.
+ * A boolean that should store nothing until the reader acts takes
+ * `usePersistedFlag` instead.
  *
  * @template T
  * @param {string}               key     localStorage key.
@@ -73,4 +76,59 @@ export function usePersistedChoice( key, options, fallback ) {
 				?.value ?? fallback,
 		String
 	);
+}
+
+/**
+ * Read a stored flag: '1' is true, '0' is false, anything else is `def`.
+ *
+ * @param {string}  key Storage key.
+ * @param {boolean} def Value when storage holds neither '1' nor '0'.
+ * @return {boolean} The flag.
+ */
+function readFlag( key, def ) {
+	const stored = readStorage( key );
+	if ( '1' === stored ) {
+		return true;
+	}
+	return '0' === stored ? false : def;
+}
+
+/**
+ * Own a boolean persisted under `key` as '1' or '0'.
+ *
+ * Only `toggle` stores, so an untouched flag keeps following `def`; the
+ * setter changes state without storing it. A changed `key` or `def` re-reads
+ * storage during render, so no render answers with the previous key's value
+ * and nothing writes one key's value under another.
+ *
+ * @param {string}  key Storage key.
+ * @param {boolean} def Value when storage holds no answer.
+ * @return {[boolean, import('react').Dispatch<import('react').SetStateAction<boolean>>, () => void]}
+ *   The flag, a setter that does not persist, and a toggle that does.
+ */
+export function usePersistedFlag( key, def ) {
+	const [ state, setState ] = useState( () => ( {
+		key,
+		def,
+		value: readFlag( key, def ),
+	} ) );
+	let current = state;
+	if ( state.key !== key || state.def !== def ) {
+		current = { key, def, value: readFlag( key, def ) };
+		setState( current );
+	}
+	const { value } = current;
+	const set = useCallback(
+		( next ) =>
+			setState( ( prev ) => ( {
+				...prev,
+				value: 'function' === typeof next ? next( prev.value ) : next,
+			} ) ),
+		[]
+	);
+	const toggle = useCallback( () => {
+		writeStorage( key, value ? '0' : '1' );
+		set( ! value );
+	}, [ key, value, set ] );
+	return [ value, set, toggle ];
 }

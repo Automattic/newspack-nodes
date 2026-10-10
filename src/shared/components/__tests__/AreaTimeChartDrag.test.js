@@ -49,6 +49,7 @@ const chartProps = {
 	colorAt: () => '#123456',
 	title: 'Backlog',
 	height: 173,
+	storageKey: 'test:drag-chart',
 };
 
 const mount = ( props = {} ) =>

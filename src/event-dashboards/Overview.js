@@ -356,6 +356,7 @@ export default function Overview( { headerControlsSlot } ) {
 	);
 	const panels = [
 		{
+			storageKey: 'newspack-nodes:overview:chart:message-rate',
 			title: __( 'Topics Message Rate', 'newspack-nodes' ),
 			yLabel: __( 'Messages', 'newspack-nodes' ),
 			series: msgRateSeries,
@@ -363,6 +364,7 @@ export default function Overview( { headerControlsSlot } ) {
 			stacked: true,
 		},
 		{
+			storageKey: 'newspack-nodes:overview:chart:byte-rate',
 			title: __( 'Topics Byte Rate', 'newspack-nodes' ),
 			yLabel: __( 'Bytes', 'newspack-nodes' ),
 			series: byteRateSeries,
@@ -370,6 +372,7 @@ export default function Overview( { headerControlsSlot } ) {
 			stacked: true,
 		},
 		{
+			storageKey: 'newspack-nodes:overview:chart:backlog',
 			title: __( 'Topics Backlog', 'newspack-nodes' ),
 			yLabel: __( 'Backlog', 'newspack-nodes' ),
 			series: backlogSeries,
@@ -377,6 +380,7 @@ export default function Overview( { headerControlsSlot } ) {
 			stacked: true,
 		},
 		{
+			storageKey: 'newspack-nodes:overview:chart:cache-size',
 			title: __( 'Topics Cache Size', 'newspack-nodes' ),
 			yLabel: __( 'Cache Size', 'newspack-nodes' ),
 			series: cacheSizeSeries,
@@ -384,6 +388,7 @@ export default function Overview( { headerControlsSlot } ) {
 			stacked: true,
 		},
 		{
+			storageKey: 'newspack-nodes:overview:chart:partition-size',
 			title: __( 'Partition Size', 'newspack-nodes' ),
 			yLabel: __( 'Size', 'newspack-nodes' ),
 			series: sizeSeries,
@@ -391,6 +396,7 @@ export default function Overview( { headerControlsSlot } ) {
 			stacked: true,
 		},
 		{
+			storageKey: 'newspack-nodes:overview:chart:on-disk',
 			title: __( 'On Disk', 'newspack-nodes' ),
 			yLabel: __( 'Disk', 'newspack-nodes' ),
 			series: diskSeries,

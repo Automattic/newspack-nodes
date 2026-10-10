@@ -257,12 +257,14 @@ export default function OverviewTab( { publishHeader } ) {
 			<TopicsPanels
 				panels={ [
 					{
+						storageKey: 'newspack-nodes:debug:chart:message-rate',
 						title: __( 'Message Rate', 'newspack-nodes' ),
 						yLabel: __( 'Messages', 'newspack-nodes' ),
 						series: msgRateSeries,
 						formatValue: formatMsgRate,
 					},
 					{
+						storageKey: 'newspack-nodes:debug:chart:byte-rate',
 						title: __( 'Byte Rate', 'newspack-nodes' ),
 						yLabel: __( 'Bytes', 'newspack-nodes' ),
 						series: byteRateSeries,

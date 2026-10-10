@@ -35,7 +35,7 @@ jest.mock( '../TopicsChart', () => {
 		TopicsChart,
 		TopicsPanels: ( { panels } ) =>
 			panels.map( ( p ) =>
-				el.createElement( TopicsChart, { key: p.title, ...p } )
+				el.createElement( TopicsChart, { key: p.storageKey, ...p } )
 			),
 	};
 } );

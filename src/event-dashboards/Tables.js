@@ -230,6 +230,7 @@ export default function Tables() {
 	);
 	const panels = [
 		{
+			storageKey: 'newspack-nodes:tables:chart:ops-rate',
 			title: __( 'Table Ops Rate', 'newspack-nodes' ),
 			yLabel: __( 'Ops', 'newspack-nodes' ),
 			series: opsSeries,
@@ -237,6 +238,7 @@ export default function Tables() {
 			stacked: true,
 		},
 		{
+			storageKey: 'newspack-nodes:tables:chart:operation-rate',
 			title: __( 'Table Operation Rate', 'newspack-nodes' ),
 			yLabel: __( 'Ops', 'newspack-nodes' ),
 			series: opSeries,
@@ -244,6 +246,7 @@ export default function Tables() {
 			stacked: true,
 		},
 		{
+			storageKey: 'newspack-nodes:tables:chart:miss-rate',
 			title: __( 'Table Miss Rate', 'newspack-nodes' ),
 			yLabel: __( 'Misses', 'newspack-nodes' ),
 			series: missSeries,
@@ -251,6 +254,7 @@ export default function Tables() {
 			stacked: true,
 		},
 		{
+			storageKey: 'newspack-nodes:tables:chart:latency',
 			title: __( 'Table Latency', 'newspack-nodes' ),
 			yLabel: __( 'Latency', 'newspack-nodes' ),
 			series: latency,
@@ -258,6 +262,7 @@ export default function Tables() {
 			stackable: false,
 		},
 		{
+			storageKey: 'newspack-nodes:tables:chart:size',
 			title: __( 'Table Size', 'newspack-nodes' ),
 			yLabel: __( 'Size', 'newspack-nodes' ),
 			series: sizeSeries,
@@ -265,6 +270,7 @@ export default function Tables() {
 			stacked: true,
 		},
 		{
+			storageKey: 'newspack-nodes:tables:chart:on-disk',
 			title: __( 'Table On Disk', 'newspack-nodes' ),
 			yLabel: __( 'On Disk', 'newspack-nodes' ),
 			series: diskSeries,
