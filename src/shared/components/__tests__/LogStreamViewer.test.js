@@ -48,9 +48,9 @@ beforeEach( () => {
 
 it( 'shows how many lines its link reports skipped as unparseable', () => {
 	Core.reset();
-	publishSkippedLines( 'viewer-3316:stream', 12 );
+	publishSkippedLines( 'viewer.p6', 12 );
 	const { container } = render(
-		<LogStreamViewer { ...BASE } streamNode="viewer-3316:stream" />
+		<LogStreamViewer { ...BASE } subscribe={ [ 'viewer.p6' ] } />
 	);
 
 	expect(

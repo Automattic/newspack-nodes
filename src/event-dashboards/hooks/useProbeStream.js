@@ -22,8 +22,7 @@ import { views } from '../nodes/register';
 
 /**
  * Every probe log a dashboard tails: its view class, by stream name. The
- * subscription is `<name>.p0`, the log's dir name; each log has one partition
- * and no worker owns the name.
+ * subscription is `probeLog( name )`.
  *
  * @type {Object<string,any>}
  */
@@ -32,6 +31,15 @@ const PROBE_STREAMS = {
 	jobstats: views.JobstatsView,
 	tablestats: views.TablestatsView,
 };
+
+/**
+ * The log a probe stream tails: `<name>.p0`, the log's dir name. Each log has
+ * one partition and no worker owns the name.
+ *
+ * @param {string} name A PROBE_STREAMS key.
+ * @return {string} The subscription, which its skipped-line notice reads too.
+ */
+export const probeLog = ( name ) => `${ name }.p0`;
 
 /**
  * Mount one declared probe tail for the calling component's lifetime.
@@ -47,5 +55,5 @@ export function useProbeStream( name, { mode = 'follow' } = {} ) {
 	if ( ! viewClass ) {
 		throw new TypeError( `useProbeStream: no probe stream '${ name }'` );
 	}
-	useLogTailStream( { name, subscribe: `${ name }.p0`, viewClass, mode } );
+	useLogTailStream( { name, subscribe: probeLog( name ), viewClass, mode } );
 }

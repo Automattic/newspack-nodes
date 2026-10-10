@@ -151,7 +151,7 @@ describe( 'the declared graph', () => {
 		expect( Core.node( VIEW ).maxLines ).toBe( 0 );
 	} );
 
-	test( 'the page link holds only this graph’s skipped lines under its stream node', async () => {
+	test( 'the page link publishes the stream’s skipped lines by stamp', async () => {
 		mount();
 		await flush();
 		const frame = JSON.stringify( [
@@ -170,8 +170,9 @@ describe( 'the declared graph', () => {
 					cb( { data: frame } )
 				)
 		);
-		expect( Core.node( LINK ).unparseableByTarget ).toEqual( {
-			[ TEE ]: 6,
+		expect( Core.node( LINK ).unparseableByStamp ).toEqual( {
+			[ SUBSCRIBE ]: 6,
+			'other.p2': 3,
 		} );
 	} );
 

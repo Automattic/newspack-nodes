@@ -148,7 +148,7 @@ const DEBUG_HEADER = (
  * @param {string}                    [props.pickerLabel]        The picker's accessible name; defaulted, never absent.
  * @param {boolean}                   props.isPaused             The view's paused flag.
  * @param {boolean}                   props.connectionError      The view's reconnect flag.
- * @param {string}                    [props.streamNode]         The stream graph's `<prefix>:stream`, under which the page's link keeps this graph's skipped lines; absent shows none.
+ * @param {string[]}                  [props.subscribe]          The subscriptions the view streams, whose skipped lines the page link counts; absent shows none.
  * @param {() => void}                props.onTogglePause        Pause or resume the stream.
  * @param {() => void}                [props.onStep]             Deliver one message; absent renders no step button, and it is disabled while the stream runs.
  * @param {(text: string) => ?string} [props.onJump]             Takes a parseable offset on Enter, trimmed, and answers why it refuses one, or null; absent renders no input.
@@ -180,7 +180,7 @@ export default function LogStreamViewer( {
 	pickerLabel = __( 'Browse a source', 'newspack-nodes' ),
 	isPaused,
 	connectionError,
-	streamNode,
+	subscribe,
 	onTogglePause,
 	onStep,
 	onJump,
@@ -429,7 +429,7 @@ export default function LogStreamViewer( {
 				) }
 			/>
 
-			<UnparseableLinesNotice node={ streamNode } />
+			<UnparseableLinesNotice subscribe={ subscribe } />
 
 			{ belowToolbar }
 

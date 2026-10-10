@@ -859,15 +859,15 @@ describe( 'riders — one link carrying several graphs', () => {
 		);
 	};
 
-	it( 'publishes each graph’s skipped lines on itself, by target', async () => {
+	it( 'publishes its stream’s skipped lines by stamp', async () => {
 		const { link } = makeShared();
 		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
 		link.attach( [ 'topicprobe.p0' ], 'backlog:stream' );
 		await flush();
 		skipped( 'COUNT 11 COUNTS jobstats.p0=4,topicprobe.p0=7' );
-		expect( link.unparseableByTarget ).toEqual( {
-			'jobs:stream': 4,
-			'backlog:stream': 7,
+		expect( link.unparseableByStamp ).toEqual( {
+			'jobstats.p0': 4,
+			'topicprobe.p0': 7,
 		} );
 		expect( link.setStateCache.UNPARSEABLE_LINES ).toBe( 11 );
 		for ( const target of [ 'jobs:stream', 'backlog:stream' ] ) {
@@ -875,44 +875,7 @@ describe( 'riders — one link carrying several graphs', () => {
 		}
 	} );
 
-	it( 'a graph re-attached on another subscription takes that one’s share', async () => {
-		const { link } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		link.attach( [ 'topicprobe.p0' ], 'backlog:stream' );
-		await flush();
-		skipped( 'COUNT 9 COUNTS jobstats.p0=4,topicprobe.p0=5' );
-		link.attach( [ 'topicprobe.p0' ], 'jobs:stream' );
-		await flush();
-		expect( link.unparseableByTarget ).toEqual( {
-			'jobs:stream': 5,
-			'backlog:stream': 5,
-		} );
-	} );
-
-	it( 'a graph attaching on a stamp already counted takes its share at once', async () => {
-		const { link } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		await flush();
-		skipped( 'COUNT 6 COUNTS jobstats.p0=6' );
-		link.attach( [ 'jobstats.*' ], 'glob:stream' );
-		await flush();
-		expect( link.unparseableByTarget ).toEqual( {
-			'jobs:stream': 6,
-			'glob:stream': 6,
-		} );
-	} );
-
-	it( 'a frame that moves no graph’s share publishes nothing', async () => {
-		const { link } = makeShared();
-		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
-		await flush();
-		skipped( 'COUNT 3 COUNTS jobstats.p0=3' );
-		const published = link.unparseableByTarget;
-		skipped( 'COUNT 8 COUNTS kea.p7=8' );
-		expect( link.unparseableByTarget ).toBe( published );
-	} );
-
-	it( 'a parked graph keeps its share while the others climb', async () => {
+	it( 'a parked graph’s stamps keep their count while the others climb', async () => {
 		const { link } = makeShared();
 		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
 		link.attach( [ 'topicprobe.p0' ], 'backlog:stream' );
@@ -921,9 +884,23 @@ describe( 'riders — one link carrying several graphs', () => {
 		link.park( 'jobs:stream' );
 		await flush();
 		skipped( 'COUNT 3 COUNTS topicprobe.p0=3' );
-		expect( link.unparseableByTarget ).toEqual( {
-			'jobs:stream': 4,
-			'backlog:stream': 8,
+		expect( link.unparseableByStamp ).toEqual( {
+			'jobstats.p0': 4,
+			'topicprobe.p0': 8,
+		} );
+	} );
+
+	it( 'publishes a fresh map on every frame, so a reader re-renders', async () => {
+		const { link } = makeShared();
+		link.attach( [ 'jobstats.p0' ], 'jobs:stream' );
+		await flush();
+		skipped( 'COUNT 3 COUNTS jobstats.p0=3' );
+		const published = link.unparseableByStamp;
+		skipped( 'COUNT 8 COUNTS kea.p7=8' );
+		expect( link.unparseableByStamp ).not.toBe( published );
+		expect( link.unparseableByStamp ).toEqual( {
+			'jobstats.p0': 3,
+			'kea.p7': 8,
 		} );
 	} );
 
@@ -1223,9 +1200,7 @@ describe( 'riders — one link carrying several graphs', () => {
 		expect( link.sseIn.unparseableByStamp ).toEqual( {
 			'topicprobe.p0': 7,
 		} );
-		expect( link.unparseableByTarget ).toEqual( {
-			'backlog:stream': 7,
-		} );
+		expect( link.unparseableByStamp ).toEqual( { 'topicprobe.p0': 7 } );
 	} );
 
 	it( 'reads a graph’s subscription and pause off `graphs`, keyed by its target', () => {

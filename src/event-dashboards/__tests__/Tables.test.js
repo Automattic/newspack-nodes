@@ -13,6 +13,7 @@ import { Core } from '../../runtime/core';
 import { publishSkippedLines } from '@newspack-nodes/shared/test-utils/skippedLines';
 
 jest.mock( '../hooks/useProbeStream', () => ( {
+	...jest.requireActual( '../hooks/useProbeStream' ),
 	useProbeStream: jest.fn(),
 } ) );
 jest.mock( '../../runtime/react', () => ( {
@@ -399,7 +400,7 @@ describe( 'Tables', () => {
 	} );
 
 	it( 'names its skipped lines', () => {
-		publishSkippedLines( 'tablestats:stream', 4 );
+		publishSkippedLines( 'tablestats.p0', 4 );
 		useNodeField.mockImplementation(
 			jest.requireActual( '../../runtime/react' ).useNodeField
 		);

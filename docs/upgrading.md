@@ -6,6 +6,15 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **Skipped lines are read by stamp; `RemoteLinkNode#unparseableByTarget`
+  gives way to `unparseableByStamp`, keyed by stamp rather than by graph.**
+  The page link publishes a copy of its SseIn's per-stamp counts.
+  `<UnparseableLinesNotice node="<prefix>:stream" />` becomes
+  `subscribe={ [ '<subscription>' ] }`, the view's subscriptions, globs
+  included, whose stamps' counts it sums. `LogStreamViewer`'s `streamNode`
+  prop becomes `subscribe`, and a test's
+  `publishSkippedLines( '<prefix>:stream', n )` becomes
+  `publishSkippedLines( '<stamp>', n )`.
 - **`Remote_Link_Node` is removed; `Remote_Broker_Node` is the brokers' base
   and `Remote_Source_Node` holds the SSE channel.** A subclass extends
   `Remote_Source_Node` to keep the SSE connection, or `Remote_Broker_Node` to

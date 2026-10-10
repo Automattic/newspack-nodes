@@ -28,6 +28,12 @@ import { views } from './nodes/register';
 /** The model node the stream publishes; `useStreamGraph` names it `<name>:view`. */
 const VIEW_NODE = 'settings-audit:view';
 
+/**
+ * The one log this timeline replays. Settings has one partition, and the
+ * explicit `.p0` takes the no-worker fallback.
+ */
+const SETTINGS_LOG = 'settings.p0';
+
 /** Stands in for what was never recorded: a missing instant, a missing value. */
 const EM_DASH = '—';
 
@@ -84,8 +90,7 @@ export default function ConfigAudit( { headerControlsSlot } ) {
 	// A TIMELINE: replay the whole retention, then follow.
 	useLogTailStream( {
 		name: 'settings-audit',
-		// Explicit .p0 hits the no-worker fallback (settings is 1-partition).
-		subscribe: 'settings.p0',
+		subscribe: SETTINGS_LOG,
 		viewClass: views.SettingsAuditView,
 		mode: 'history',
 	} );
@@ -152,7 +157,7 @@ export default function ConfigAudit( { headerControlsSlot } ) {
 		>
 			{ renderedToolbar }
 
-			<UnparseableLinesNotice node="settings-audit:stream" />
+			<UnparseableLinesNotice subscribe={ [ SETTINGS_LOG ] } />
 
 			<p className="nodes-config-audit__note">
 				{ __(

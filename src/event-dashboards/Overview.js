@@ -55,7 +55,7 @@ import SummaryCards from './SummaryCards';
 import TopologyControls from './TopologyControls';
 import AlertModal from './AlertModal';
 import { useTopologyManager } from './hooks/useTopologyManager';
-import { useProbeStream } from './hooks/useProbeStream';
+import { probeLog, useProbeStream } from './hooks/useProbeStream';
 import { useNodeField } from '../runtime/react';
 import { topicChartSeries, bySource } from './topicProbeSeries';
 import { TopicsPanels } from './TopicsChart';
@@ -459,7 +459,7 @@ export default function Overview( { headerControlsSlot } ) {
 			/>
 			<UnparseableLinesNotice
 				source={ __( 'Topics charts', 'newspack-nodes' ) }
-				node="topicprobe:stream"
+				subscribe={ [ probeLog( 'topicprobe' ) ] }
 			/>
 			<SummaryCards
 				topologies={ topologies }

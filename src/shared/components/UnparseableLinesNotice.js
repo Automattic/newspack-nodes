@@ -1,5 +1,9 @@
 import { _n, sprintf } from '@wordpress/i18n';
 import { reservedNames, useNodeField } from '@newspack-nodes/runtime';
+import { anyCarries } from '../../runtime/log-stamp';
+
+/** No counts yet: the page link has published none. */
+const NO_COUNTS = {};
 
 /**
  * The warning a log reader shows when lines it read would not parse and were
@@ -11,12 +15,13 @@ import { reservedNames, useNodeField } from '@newspack-nodes/runtime';
  * one exception: their count is a per-partition metric, and it sits in the
  * tile's own stat grid beside the heartbeat and HTTP code it is read against.
  *
- * A stream's count needs no threading: hand the notice the graph's
- * `<prefix>:stream`, and it reads that graph's share off the page link,
- * `_stream`, which keeps each graph's share in `unparseableByTarget` under
- * the node its records go to. It subscribes by name, as every thin view does,
- * so a rebuild of the link is followed. A count that arrives in a reply
- * instead goes in as `count`.
+ * A stream's count needs no threading. Hand the notice the subscriptions its
+ * view streams, globs included, and it sums the counts the page link,
+ * `_stream`, keeps for every stamp they carry in `unparseableByStamp`, a copy
+ * of its SseIn's per-stamp counts. A paused view keeps its count, because the
+ * link keeps a stamp's count until a view leaving the stamp forgets it. It
+ * subscribes by name, as every thin view does, so a rebuild of the link is
+ * followed. A count that arrives in a reply instead goes in as `count`.
  *
  * It wears the canonical `newspack-nodes-banner is-warning` role and declares
  * no appearance of its own. `role="status"` makes it a polite live region, so
@@ -27,15 +32,20 @@ import { reservedNames, useNodeField } from '@newspack-nodes/runtime';
  * where, and the per-poll count of a server read does not add to the running
  * count of a stream.
  *
- * @param {Object}  props
- * @param {string}  [props.node]   The graph's stream node, whose share to read.
- * @param {?number} [props.count]  Lines skipped, for a reader with no node; ignored beside `node`. Zero or absent renders nothing.
- * @param {string}  [props.source] What read the lines, for a view with several readers.
+ * @param {Object}   props
+ * @param {string[]} [props.subscribe] The view's subscriptions, whose stamps' counts it sums.
+ * @param {?number}  [props.count]     Lines skipped, for a reader with no subscription; ignored beside `subscribe`. Zero or absent renders nothing.
+ * @param {string}   [props.source]    What read the lines, for a view with several readers.
  * @return {import('react').ReactElement|null} The notice, or null when nothing was skipped.
  */
-export default function UnparseableLinesNotice( { node, count, source } ) {
-	const shares = useNodeField( reservedNames.STREAM, 'unparseableByTarget' );
-	const skipped = node ? shares?.[ node ] : count;
+export default function UnparseableLinesNotice( { subscribe, count, source } ) {
+	const byStamp =
+		useNodeField( reservedNames.STREAM, 'unparseableByStamp' ) ?? NO_COUNTS;
+	const skipped = subscribe
+		? Object.entries( byStamp )
+				.filter( ( [ stamp ] ) => anyCarries( subscribe, stamp ) )
+				.reduce( ( sum, [ , n ] ) => sum + n, 0 )
+		: count;
 	if ( ! ( skipped > 0 ) ) {
 		return null;
 	}

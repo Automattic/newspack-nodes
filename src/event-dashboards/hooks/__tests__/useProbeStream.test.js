@@ -23,7 +23,7 @@ import {
 import * as Probe from '../../../runtime/probe-record';
 import * as Job from '../../../runtime/jobstats-record';
 import * as Tbl from '../../../runtime/tablestats-record';
-import { useProbeStream } from '../useProbeStream';
+import { probeLog, useProbeStream } from '../useProbeStream';
 
 /**
  * A mounted probe view's own model, keyed by identity.
@@ -271,6 +271,10 @@ describe( 'useProbeStream( topicprobe ) series', () => {
 		expect( entry.latest.msgRate ).toBe( 1000 );
 		expect( entry.latest.backlog ).toBe( 7800 );
 	} );
+} );
+
+it( 'names a probe log by its one-partition dir', () => {
+	expect( probeLog( 'heron-4410' ) ).toBe( 'heron-4410.p0' );
 } );
 
 it( 'refuses a stream nobody declared', () => {
