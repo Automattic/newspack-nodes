@@ -6,7 +6,8 @@
  * `Log_Discovery::stamp_for()` writes a `logs` dir bare and an `offsets` or
  * `deadletter` dir as `{group}/{dir}`, a registry source is `sources/{name}`,
  * and a log dir named like any of those prefixes is refused, so a stamp
- * opening with one always takes a second segment.
+ * opening with one always takes a second segment. It also reads the broker
+ * grammar beside the stamp: a `<stamp>:<target>` pair (`splitPair()`).
  */
 
 /** `Log_Discovery::SOURCES_PREFIX`: a registry source's stamp is `sources/<name>`. */
@@ -110,4 +111,31 @@ export function remoteOf( name ) {
 	return -1 === colon || '' === vaultId || '' === kind
 		? null
 		: { vaultId, kind };
+}
+
+/**
+ * Split a `<source>:<target>` pair at its first colon outside `<…>`, so a
+ * `<ns:key>` token in the source stays whole; a token with no such colon is
+ * all source. The twin of PHP `Remote_Broker_Node::split_pair()`, held to it
+ * by `tests/fixtures/pair-split.json`; it validates nothing.
+ *
+ * @param {string} token One pair token.
+ * @return {{source:string,target:string}} The two halves.
+ */
+export function splitPair( token ) {
+	let depth = 0;
+	for ( let at = 0; at < token.length; at++ ) {
+		const char = token[ at ];
+		if ( '<' === char ) {
+			depth++;
+		} else if ( '>' === char && depth > 0 ) {
+			depth--;
+		} else if ( ':' === char && 0 === depth ) {
+			return {
+				source: token.slice( 0, at ),
+				target: token.slice( at + 1 ),
+			};
+		}
+	}
+	return { source: token, target: '' };
 }
