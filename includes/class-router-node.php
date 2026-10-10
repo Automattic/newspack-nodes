@@ -81,8 +81,9 @@ class Router_Node extends Timer_Node {
 
 	/**
 	 * Seed the base registrations. The tick is NOT armed here: whoever owns the
-	 * event loop calls `set_timer( self::DEFAULT_TICK_MS )`, which is why a
-	 * request-scope or REPL graph builds a Router and never fires one (ADR-5).
+	 * event loop calls `set_timer( self::DEFAULT_TICK_MS )`. A worker does, and
+	 * so does the `wp nodes cli` REPL; a request-scope graph owns no loop, so
+	 * its Router never fires (ADR-5).
 	 */
 	public function __construct() {
 		parent::__construct();

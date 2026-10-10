@@ -231,6 +231,59 @@ class CliCommandTest extends TestCase {
 	}
 
 	/**
+	 * Both modes arm the Router's tick at its default cadence, and a Timer of
+	 * two seconds hitchhiking on it fires as the loop advances on a driven clock.
+	 */
+	public function test_build_repl_graph_arms_the_router_tick_so_hitchhiking_timers_fire(): void {
+		$this->use_loop_time();
+		foreach ( [ false, true ] as $attached ) {
+			$ipc = null;
+			if ( $attached ) {
+				$ipc = [
+					'id'        => 'tick-w.p3',
+					'input'     => "{$this->tmp}/ipc/tick-w.p3/input",
+					'output'    => "{$this->tmp}/ipc/tick-w.p3/output",
+					'type'      => 'tick-w',
+					'partition' => 3,
+				];
+				\mkdir( $ipc['input'], 0755, true );
+				\mkdir( $ipc['output'], 0755, true );
+			}
+			$rendered            = \fopen( 'php://memory', 'w+' );
+			CLI_Command::$stdout = static fn () => $rendered;
+			try {
+				( new \ReflectionMethod( CLI_Command::class, 'build_repl_graph' ) )->invoke( new CLI_Command(), $attached, $ipc );
+
+				$router = Core::node( Node_Names::ROUTER );
+				$this->assertInstanceOf( Router_Node::class, $router );
+				$this->assertSame( 'event_framework', $router->timer_mode() );
+				$this->assertSame( Router_Node::DEFAULT_TICK_MS, $router->interval_ms );
+
+				$timer = new class() extends \Newspack_Nodes\Timer_Node {
+					public int $fired = 0;
+
+					protected function fire(): void {
+						++$this->fired;
+					}
+				};
+				$timer->name( 'repl-probe' );
+				$timer->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
+				$timer->set_timer( 2000 );
+				$this->assertSame( 'router', $timer->timer_mode() );
+
+				$deadline = Core::right_now() + 4.5;
+				Event_Framework::instance()->drain( static fn (): bool => Core::$now < $deadline );
+				$this->assertGreaterThanOrEqual( 2, $timer->fired, $attached ? 'attached' : 'bare' );
+			} finally {
+				CLI_Command::$stdout = null;
+				\fclose( $rendered );
+				Core::cleanup_all_nodes();
+				Event_Framework::reset();
+			}
+		}
+	}
+
+	/**
 	 * The reply Consumer stamps the WORKER id onto every frame it reads out of
 	 * the worker's IPC output. stamp_message() prepends, so the head of FROM is
 	 * ours and everything after it is whatever the worker wrote — the

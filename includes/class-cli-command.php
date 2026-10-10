@@ -207,6 +207,11 @@ class CLI_Command {
 	 * to `_stdout`. That is ADR-7 — steer with `target`, never with a bespoke
 	 * sink chain.
 	 *
+	 * The Router's tick is armed in both modes, because the REPL drives
+	 * `Event_Framework`'s drain: a Timer of a second or more hitchhikes it and
+	 * fires there. Attached mode arms its own local Router too; the worker's
+	 * Router ticks in the worker's process.
+	 *
 	 * Attaching opens the worker's command channel through `CLI::open_channel()`:
 	 * a `Partition_Node` named after the worker, which writes commands into the
 	 * worker's input IPC dir, and a `Consumer_Node` tailing the output dir into
@@ -225,6 +230,8 @@ class CLI_Command {
 
 		$router = new Router_Node();
 		$router->name( Node_Names::ROUTER );
+		// The REPL owns the drain loop, so it arms the tick timers hitchhike.
+		$router->set_timer( Router_Node::DEFAULT_TICK_MS );
 
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( Node_Names::COMMAND_INTERPRETER );
