@@ -306,7 +306,7 @@ jest.mock( '../hooks/useCatalogs', () => ( {
 		return { open, topology, error, loading: null === topology };
 	},
 } ) );
-// Drift diff (roadmap [49]) has its own suite; no-op here.
+// The canonical read has its own suite; this records what it was asked.
 jest.mock( '../hooks/useCanonicalNodes', () => ( {
 	useCanonicalNodes: ( ...args ) => {
 		globalThis.__canonicalArgs = args;
@@ -2060,6 +2060,41 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {} );
 	} );
 
+	it( 'reads drift against the mounted worker’s .tsl, and locally against what the console made', async () => {
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		render( <TopologyConsole /> );
+		act( () => {
+			lastReplProps.onSubmit( 'cd /demo.p1' );
+		} );
+		expect( globalThis.__canonicalArgs[ 0 ] ).toBe( 'demo' );
+		act( () => {
+			lastReplProps.onSubmit( 'cd /' );
+		} );
+		expect( globalThis.__canonicalArgs[ 0 ] ).toBe( '' );
+		act( () => {
+			lastReplProps.onSubmit( 'make_node Echo my-echo' );
+		} );
+		await fireMsg( {
+			type: TM_STRUCT,
+			to: names.METADATA,
+			value: {
+				'my-echo': { class: 'Echo', counter: 0, sink: '', target: '' },
+				'layouts:get:timer': {
+					class: 'Timer',
+					counter: 0,
+					sink: '',
+					target: '',
+				},
+			},
+		} );
+		expect( [ ...mockCanvasProps.driftIds ] ).toEqual( [ 'my-echo' ] );
+		// Neither a worker nor the local graph: no drift information.
+		act( () => {
+			lastReplProps.onSubmit( 'cd /_http' );
+		} );
+		expect( mockCanvasProps.driftIds ).toBeNull();
+	} );
+
 	it( 'cd onto a worker sets _cwd.target to that worker', async () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
@@ -2255,16 +2290,12 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'reset-graph wipes user-added nodes (and leaves the canonical spine + console graph)', async () => {
-		// Reset now removes any node outside the canonical set (or backbone).
-		const { Node } = require( '../../runtime/node' );
+		// Reset removes any node outside the canonical set (or backbone).
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { findByText } = render( <TopologyConsole /> );
 		act( () => {
 			lastReplProps.onSubmit( 'cd /' );
 		} );
-		// Simulate a user `make_node Tee my-tee` surviving a prior session.
-		const userNode = new Node();
-		userNode.name = 'my-user-tee';
 		act( () => {
 			lastReplProps.onSubmit( 'make_node Tee my-user-tee' );
 		} );

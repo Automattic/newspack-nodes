@@ -4,7 +4,7 @@
  */
 
 import { workerId } from '@newspack-nodes/shared/utils/workerId';
-import { scopeFromCwd, workerOfPath } from '../utils/scope';
+import { addressesBrowser, scopeFromCwd, workerOfPath } from '../utils/scope';
 
 describe( 'workerId', () => {
 	it( 'round-trips through scopeFromCwd', () => {
@@ -55,5 +55,18 @@ describe( 'scopeFromCwd through parseWorkerId', () => {
 			partition: null,
 			isWorker: false,
 		} );
+	} );
+} );
+
+describe( 'addressesBrowser', () => {
+	it( 'is true for the browser graph and false past a worker or `_http`', () => {
+		expect( addressesBrowser( '' ) ).toBe( true );
+		expect( addressesBrowser( 'my-tee/in' ) ).toBe( true );
+		expect( addressesBrowser( 'kea-7713.p3/summarizer' ) ).toBe( false );
+		expect( addressesBrowser( '_http' ) ).toBe( false );
+		expect( addressesBrowser( '_http/topologies' ) ).toBe( false );
+		expect( addressesBrowser( 'url:shell/_http/performance' ) ).toBe(
+			false
+		);
 	} );
 } );

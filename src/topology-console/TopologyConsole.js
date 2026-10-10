@@ -258,32 +258,19 @@ export function statusLines( { sseSession, cwd, worker } ) {
 /**
  * The worker a path is mounted on, when the Path menu offers that worker: an
  * active worker the path equals or descends from. The local graph, `_http`
- * and an inactive worker mount none.
+ * and an inactive worker mount none. Resolved once a render for the cwd, it
+ * is the one gate the SSE stream, the status lines, EDIT and drift share.
  *
  * @param {string}   path    Path to resolve, usually the mirrored cwd.
  * @param {string[]} options Every cwd the Path menu offers.
  * @return {?AttachedWorker} The worker, or null when the path mounts none.
  */
-function mountedWorker( path, options ) {
+export function mountedWorker( path, options ) {
 	const worker = workerOfPath( path );
 	return worker &&
 		options.includes( workerId( worker.topology, worker.partition ) )
 		? worker
 		: null;
-}
-
-/**
- * The active worker a cwd resolves to, as its own `{topology}.p{N}` mount —
- * the ONE gate the canvas poll and the SSE stream share, so neither can run
- * against a cwd the other has left.
- *
- * @param {string}   cwd         Mirrored shell cwd.
- * @param {string[]} pathOptions Every cwd the Path menu offers.
- * @return {?string} The worker mount, or null when the cwd is not under one.
- */
-export function workerPollPath( cwd, pathOptions ) {
-	const w = mountedWorker( cwd, pathOptions );
-	return w ? workerId( w.topology, w.partition ) : null;
 }
 
 /**
@@ -522,8 +509,12 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		() => buildPathOptions( topologyWorkers, activeTopologies ),
 		[ topologyWorkers, activeTopologies ]
 	);
+	const cwdWorker = useMemo(
+		() => mountedWorker( cwd, pathOptions ),
+		[ cwd, pathOptions ]
+	);
 
-	// SSE off in edit mode / off-worker cwd; same detection as poll gate.
+	// SSE off in edit mode, and off a cwd `cwdWorker` finds no worker under.
 	const { status, sseSession, shell, seedError, outgoing } = useConsoleGraph(
 		{
 			topology,
@@ -531,7 +522,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			enabled: mode !== 'edit',
 			// One RemoteIpc per active worker, keyed by {topology}.p{N}.
 			workers: pathOptions.filter( ( o ) => parseWorkerId( o ) ),
-			streamEnabled: null !== workerPollPath( cwd, pathOptions ),
+			streamEnabled: null !== cwdWorker,
 			debugLevelRef,
 			catalog: phpCatalog,
 		}
@@ -957,7 +948,11 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		( null === canvasServerLayout || LAYOUT_AUTO === canvasServerLayout );
 
 	// Shared graph-dirty + Reset Graph logic (identical to the debug overlay).
-	const { resetGraph: resetLocalGraphCore, canResetGraph } = useGraphReset( {
+	const {
+		resetGraph: resetLocalGraphCore,
+		canResetGraph,
+		userNodeIds,
+	} = useGraphReset( {
 		gate: outgoing,
 		shell,
 		nodes: parsed.nodes,
@@ -1186,10 +1181,10 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			shell.statusLines = statusLines( {
 				sseSession,
 				cwd,
-				worker: mountedWorker( cwd, pathOptions ),
+				worker: cwdWorker,
 			} );
 		}
-	}, [ shell, mode, sseSession, cwd, pathOptions ] );
+	}, [ shell, mode, sseSession, cwd, cwdWorker ] );
 
 	// Tab-completion query, shared with the debug overlay's Inspector.
 	const { requestCompletion, handleShowCandidates } = useCompletion( {
@@ -1325,15 +1320,20 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		return augmentWithVirtualEdges( graph, catalog.classes );
 	}, [ baseCanvasGraph, mode, catalog.classes, expansion ] );
 
-	// Runtime drift (roadmap [49]): live nodes not in the registered .tsl.
-	const canonicalNodes = useCanonicalNodes( topology, phpCatalog );
-	const driftIds = useMemo(
-		() =>
-			mode === 'edit'
-				? null
-				: driftNodeIds( canvasGraph?.nodes, canonicalNodes ),
-		[ mode, canvasGraph, canonicalNodes ]
+	// Drift: a worker's nodes off its .tsl, the local graph's console-made.
+	const canonicalNodes = useCanonicalNodes(
+		cwdWorker?.topology ?? '',
+		phpCatalog
 	);
+	const driftIds = useMemo( () => {
+		if ( mode === 'edit' ) {
+			return null;
+		}
+		if ( cwdWorker ) {
+			return driftNodeIds( canvasGraph?.nodes, canonicalNodes );
+		}
+		return userNodeIds;
+	}, [ mode, cwdWorker, canvasGraph, canonicalNodes, userNodeIds ] );
 
 	// Palette topology drop; edit-only, like handleDropNode.
 	const handleDropTopology = useCallback(
@@ -1850,7 +1850,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			pathOptions={ pathOptions }
 			path={ cwd }
 			onPathChange={ handlePathChange }
-			canEdit={ null !== mountedWorker( cwd, pathOptions ) }
+			canEdit={ null !== cwdWorker }
 			streamStatus={ status }
 			uptime={ uptime }
 			mode={ mode }

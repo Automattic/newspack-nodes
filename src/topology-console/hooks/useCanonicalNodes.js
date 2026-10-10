@@ -7,7 +7,7 @@
  * owner builds for itself, which it lists as `owned`. A live node outside
  * that set, and outside the reserved `_`-prefixed console infrastructure, was
  * added at runtime through the console or a `make_node` command: the canvas
- * paints that drift distinctly (roadmap [49]).
+ * paints that drift distinctly.
  *
  * The set is empty until the `.tsl` answer lands, and stays empty for a name
  * with no registered `.tsl` behind it — no topology open, or an unsaved draft.

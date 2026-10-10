@@ -675,7 +675,7 @@ const NodeCard = memo(
 	 * @param {boolean} props.isFaded      Faded behind a hover or a focused hull.
 	 * @param {boolean} props.isDragging   Being dragged.
 	 * @param {boolean} props.isIdle       Live, unselected, and its counter held still since the last poll.
-	 * @param {boolean} props.isDrift      Live but missing from the .tsl.
+	 * @param {boolean} props.isDrift      Runtime drift: off the .tsl, or console-made.
 	 * @param {boolean} props.isBorrowed   Borrowed via `include`, so locked.
 	 * @param {boolean} props.isPaused     A Consumer holding its cursor.
 	 * @param {boolean} props.hasIn        Draws an IN port: it accepts fill.
@@ -962,7 +962,7 @@ const EdgeWire = memo(
  * @param {boolean}                                 [props.editMode]     Draft-only affordances: the edge hit-targets and the wire-source port styling. Default false.
  * @param {?Object}                                 [props.selectedEdge] The selected edge as `{ from, to }`, or null.
  * @param {(edge: {from:string,to:string}) => void} [props.onSelectEdge] An edge hit-target was clicked; edit mode only.
- * @param {?Set<string>}                            [props.driftIds]     Node ids that exist in the worker but not in the .tsl, painted `is-drift`. Null means no drift information.
+ * @param {?Set<string>}                            [props.driftIds]     Runtime drift, painted `is-drift`: a worker's nodes outside its .tsl, or the browser graph's console-made ones. Null means no drift information.
  * @param {Array}                                   [props.hulls]        One soft hull per include, at any depth: `{ include, nodeIds, depth }[]`.
  * @param {?string}                                 [props.selectedHull] Include name of the selected hull, or null.
  * @param {(include: string) => void}               [props.onSelectHull] A hull was pressed.
