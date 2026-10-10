@@ -131,3 +131,30 @@ describe.each( [ 11, 24 ] )(
 		} );
 	}
 );
+
+describe( 'autoLayout — the hub worker, one spoke', () => {
+	it( 'keeps php-errors:tail in its band’s column, on a row of its own', () => {
+		// The tail feeds only php-errors:partition, two columns on. Every seat
+		// beside the partition parks it behind remote-job-rewrite, so the tail
+		// keeps the column its band gave it and the band opens a row there.
+		const { at, edges } = layOut( 1 );
+		const tail = at[ 'php-errors:tail' ];
+		expect( tail.x ).toBe( at.spokes.x );
+		expect( tail.x ).toBeLessThan( at[ 'remote-job-rewrite' ].x );
+		const band = [
+			'spokes',
+			'spokes:pub00',
+			'remote-job-rewrite',
+			'php-errors:partition',
+			'firehose:topic',
+		];
+		expect(
+			band.filter( ( id ) => Math.abs( at[ id ].y - tail.y ) < Y_STEP )
+		).toEqual( [] );
+		expect(
+			drawnCost( at, edges ).over.filter( ( hit ) =>
+				hit.startsWith( 'php-errors:tail→' )
+			)
+		).toEqual( [] );
+	} );
+} );

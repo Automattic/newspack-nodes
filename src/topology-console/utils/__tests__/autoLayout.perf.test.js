@@ -12,6 +12,7 @@ import path from 'path';
 import { autoLayout } from '../autoLayout';
 import { graphFromTsl } from '../draftToGraph';
 import brokerSchemas from '../../../../tests/fixtures/broker-schemas.json';
+import SEEDS from './fixtures/autoLayout-seeds.json';
 
 const BUDGET_MS = 4000;
 
@@ -103,6 +104,32 @@ describe( 'topology-console layout — source seating perf', () => {
 		// eslint-disable-next-line no-console
 		console.log( `[autoLayout] seating ${ nodes.length } nodes ${ ms }ms` );
 		expect( ms ).toBeLessThan( 1000 );
+	}, 120000 );
+} );
+
+describe( 'topology-console layout — row cutting perf', () => {
+	it( 'cuts rows for late sources across a six-hundred-card hub block in 400ms', () => {
+		// Seed 134623 seven times over around its two shared hubs, one block
+		// of 625 cards: the CPU time to seat its late sources, cut rows for
+		// those with no clear seat, and try every pin toward the hubs.
+		const seed = SEEDS[ '134623' ];
+		const name = ( t, id ) =>
+			/^hub\d+$/.test( id ) ? id : `t${ t }:${ id }`;
+		const ids = new Set();
+		const edges = [];
+		for ( let t = 0; t < 7; t++ ) {
+			seed.nodes.forEach( ( id ) => ids.add( name( t, id ) ) );
+			for ( const [ from, to ] of seed.edges ) {
+				edges.push( { from: name( t, from ), to: name( t, to ) } );
+			}
+		}
+		const nodes = [ ...ids ].map( ( id ) => ( { id } ) );
+		const { ms } = bestOf( () => autoLayout( { nodes, edges } ) );
+		// eslint-disable-next-line no-console
+		console.log(
+			`[autoLayout] row cuts ${ nodes.length } nodes ${ ms }ms`
+		);
+		expect( ms ).toBeLessThan( 400 );
 	}, 120000 );
 } );
 
