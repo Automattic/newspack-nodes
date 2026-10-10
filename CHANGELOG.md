@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`HTTP_Out_Node::set_reply_cap( $bytes )` raises one `HTTP_Out`'s reply cap, and `last_outcome()` reports its last transfer.** The cap defaults to `MAX_REPLY_BYTES` (8 MiB) and never falls below it. `last_outcome()` returns `code` and `error` for the last transfer to complete, `/auth` included: a refusal names `HTTP <code>`, a transport failure `cURL error <n> (<reason>)` with a null code, and a 200 or 202 clears the error.
 - **`raw-logs read_block <log> <position> [--multi_writer]` returns the records from a position up to a 1 MiB block, the first whole.**
+- **`HTTP_Source_Node` pulls a spoke's logs in blocks over `/command`, holding no SSE slot.** It takes `Remote_Source`'s arguments and verbs, `<vault_id> <offsetlog_root> <deadletter_root> <source:target>…`, `set_multi_writer` and `assume_clean_shutdown`, builds each exact pair's reader on its first tick, and sends no `workers heartbeat`. Each live reader asks `raw-logs read_block <stamp> <position> [--multi_writer=true]` FROM its own name, one fetch at a time, at the end of what it holds, else its pending seek's word, else its cursor, and matches the reply by the arguments it echoes. A reader holding under `Log_Sources::BLOCK_BYTES` asks again as each reply settles, a block of torn lines alone included; one holding more asks once its drain brings it under. At the end, or on a refusal, it waits `HTTP_Source_Node::EOF_POLL_SECONDS` (5), and the broker's one-second tick, not the reader's poll, ends the wait, so readers due in the same second ask in one POST; a fetch unanswered after `HTTP_Out_Node::REQUEST_TIMEOUT` goes out again; a seek, pause, play or step forgives both. A paused reader steps through `read_message` as before. Every reader's reads ride the broker's one `HTTP_Out`, whose reply cap it sets to `READER_REPLY_BYTES` (`Partition_Node::MAX_LARGE_LINE_SIZE` plus 64 KiB) per reader, with no ceiling, on each tick and as each read goes out. Its status goes under `remote:<broker>:p<partition>` with the keys `Remote_Source` writes: `connected` while a fetch was answered within four EOF polls, `last_response` and `last_rtt` (in milliseconds) from the latest answer, `last_connection_attempt` from the latest fetch, `scheduled_reconnect_at` from the soonest waiting reader, `unparseable_lines` summed across readers, `last_http_code` from the `HTTP_Out`'s last transfer, and `last_error` from that transfer or, failing one, a reader's refused fetch, until a block answers it. Nothing is written while no Vault entry names the spoke. `Remote_Consumer_Node::fetch()` and `fetch_stats()` are the reader's half.
 
 ### Changed
 
@@ -20,7 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **`Remote_Source_Node`'s status snapshot drops `last_heartbeat_sent`.** Nothing read it; the heartbeat's send time stays the private clock its gate and round trip read.
 - **`Remote_Link_Node` is gone, with no alias.** No topology named it; its channel lives in `Remote_Broker_Node` and its stream in `Remote_Source_Node`. The bare link's `connect()`, `close()`, `remote_partition` argument and its delivery path (`deliver_downstream()`, `admit_inbound()`, `admit_addressed()`) go with it.
+
+### Fixed
+
+- **`Remote_Source_Node` reports `last_rtt` in milliseconds, as the Aggregator Status tab reads it.** It wrote whole seconds, so a one-second heartbeat round trip rendered as `1.0ms` and graded green. The heartbeat's send time now keeps its fraction of a second, and both brokers round through `Remote_Broker_Node::round_trip_ms()`, to the hundredth of a millisecond, and bound a refusal's reason through `failure_reason()`; `last_response` stays a whole wall-second.
 
 ## [2.103.3] - 2026-10-09
 
