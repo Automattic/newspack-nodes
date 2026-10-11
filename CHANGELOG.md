@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **On the topology canvas, a sink that shares its feeder sits beside it.** A card that feeds nothing, fed by a card with another consumer in its band, takes no stretch: it sits one column past its deepest feeder, or rises to the furthest consumer it shares a feeder with, as every sink still does. A sink whose every feeder feeds it alone keeps the stretch, as does a band's card feeding a hub outside the band. An interior card relaxes no further right than the column before the nearest card it feeds that starts right of it, so a feeder no longer lands in its sink's column on a graph without loops. On a one-spoke hub worker, `php-errors:partition` sits beside its three feeders, half a column out where their three wires meet it, in `remote-job-rewrite`'s column, and `firehose:topic` follows on `remote-job-rewrite`'s row. Across the layout suite's seed corpus, wires run over 206 cards where they ran over 313, and cross 946 times where they crossed 925.
+
 ## [2.104.1] - 2026-10-10
 
 ### Changed
