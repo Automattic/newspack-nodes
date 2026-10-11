@@ -6,7 +6,7 @@
  * include, and the worker's two REPL cards.
  */
 
-import { autoLayout, drawnCost, Y_STEP } from '../autoLayout';
+import { autoLayout, drawnCost, X_STEP, Y_STEP } from '../autoLayout';
 
 /**
  * The hub worker's graph with `count` spokes.
@@ -133,28 +133,42 @@ describe.each( [ 11, 24 ] )(
 );
 
 describe( 'autoLayout — the hub worker, one spoke', () => {
-	it( 'keeps php-errors:tail in its band’s column, on a row of its own', () => {
-		// The tail feeds only php-errors:partition, two columns on. Every seat
-		// beside the partition parks it behind remote-job-rewrite, so the tail
-		// keeps the column its band gave it and the band opens a row there.
+	it( 'seats php-errors:partition beside its three feeders, half a column out', () => {
+		// Three wires meet the partition, opening half a column before it; it
+		// and remote-job-rewrite sit there between their feeders' rows, and the
+		// Topic follows on remote-job-rewrite's row. The two spoke sources
+		// feed alike and the band may stack either way up, so rows read from
+		// the tail toward the other two.
 		const { at, edges } = layOut( 1 );
 		const tail = at[ 'php-errors:tail' ];
-		expect( tail.x ).toBe( at.spokes.x );
-		expect( tail.x ).toBeLessThan( at[ 'remote-job-rewrite' ].x );
-		const band = [
-			'spokes',
-			'spokes:pub00',
-			'remote-job-rewrite',
-			'php-errors:partition',
-			'firehose:topic',
+		const down = Math.sign( at.spokes.y - tail.y );
+		const cell = ( id ) => [
+			( at[ id ].x - tail.x ) / X_STEP,
+			( down * ( at[ id ].y - tail.y ) ) / Y_STEP,
 		];
 		expect(
-			band.filter( ( id ) => Math.abs( at[ id ].y - tail.y ) < Y_STEP )
-		).toEqual( [] );
+			[ 'spokes', 'spokes:pub00' ]
+				.map( cell )
+				.sort( ( a, b ) => a[ 1 ] - b[ 1 ] )
+		).toEqual( [
+			[ 0, 1 ],
+			[ 0, 2 ],
+		] );
 		expect(
-			drawnCost( at, edges ).over.filter( ( hit ) =>
-				hit.startsWith( 'php-errors:tail→' )
-			)
-		).toEqual( [] );
+			[
+				'php-errors:partition',
+				'remote-job-rewrite',
+				'firehose:topic',
+			].map( cell )
+		).toEqual( [
+			[ 1.5, 0.5 ],
+			[ 1.5, 1.5 ],
+			[ 2.5, 1.5 ],
+		] );
+		const cost = drawnCost( at, edges );
+		expect( cost.over ).toEqual( [] );
+		expect(
+			cost.crossings.filter( ( c ) => /^(spokes|php-errors)/.test( c ) )
+		).toHaveLength( 1 );
 	} );
 } );

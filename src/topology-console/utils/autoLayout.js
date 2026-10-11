@@ -33,12 +33,14 @@
  * block of one.
  *
  * Within a band, columns come from a Coffman-Graham-flavored layering: a true
- * source starts in column 0, a true sink seats one column past its own depth
- * and rises to the furthest consumer it shares a feeder with, and an interior
- * node takes the barycenter of its neighbours' columns clamped
- * into the range its edges allow (longest path from a source on the left,
- * longest path to a sink on the right), so a "processor tier" aligns in one
- * column instead of spreading by raw longest-path. Rows come from barycenter
+ * source starts in column 0, a true sink seats two columns past its deepest
+ * feeder, within its band — or one, beside it, where it shares a feeder and
+ * feeds nothing past its band — and rises to the furthest consumer it shares a
+ * feeder with, and an interior node takes the barycenter of its neighbours'
+ * columns clamped into the range its edges allow (longest path from a source
+ * on the left; longest path to a sink, and the column before the nearest node
+ * it feeds, on the right), so a "processor tier" aligns in one column instead
+ * of spreading by raw longest-path. Rows come from barycenter
  * crossing-reduction in index space, an exchange of neighbours wherever that
  * uncrosses a wire (kept only where its block, once drawn, crosses fewer), a
  * median settle, and a symmetric spread of same-column overlaps — with a
@@ -1499,7 +1501,7 @@ const soleFollower = ( succ, pred, col ) => ( id ) => {
  * there, each keeping its row, wherever no other card sits within a row of
  * where one lands. A late source chooses its own column, so it holds no card
  * back, and a pinned card holds the column its pin asks for. A sink stays
- * where it sits unless its feeder moves: its column is the stretch the
+ * where it sits unless its feeder moves: its column is the seat the
  * layering gives it.
  *
  * @param {Array<string>}                                                            ids    The seated cards.
@@ -1565,21 +1567,18 @@ const pullBeside = ( ids, inBand, later, pin, col, row ) => {
  * Lay ONE component out in grid units, using the layering described at the top.
  *
  * `layoutBands` calls this on each band, so a band is sized by its own depth
- * rather than the graph's. `succ` and `pred` must already be narrowed to
- * `ids`, and every id has an edge inside the band: a lone node never gets
- * here.
+ * rather than the graph's. It reads the band's own wires out of `graph`, and
+ * every id has an edge inside the band: a lone node never gets here.
  *
- * @param {Array<string>}                ids     The component's nodes, alphabetical.
- * @param {Object<string,Array<string>>} succ    Successors inside the component.
- * @param {Object<string,Array<string>>} pred    Predecessors inside the component.
- * @param {( id: string ) => boolean}    unfed   Whether nothing in the whole graph feeds a node.
- * @param {Object<string,number>}        [pin]   A column each named sink seats in
- *                                               at the least, once the rest are
- *                                               relaxed without it.
- * @param {boolean}                      [twins] Whether each order also settles
- *                                               unpulled, for the block to judge
- *                                               the pull. A pin trial takes none:
- *                                               its pinned band is judged pulled.
+ * @param {Array<string>}                                                            ids     The component's nodes, alphabetical.
+ * @param {{succ: Object<string,Array<string>>, pred: Object<string,Array<string>>}} graph   The whole graph's wires.
+ * @param {Object<string,number>}                                                    [pin]   A column each named sink seats in
+ *                                                                                           at the least, once the rest are
+ *                                                                                           relaxed without it.
+ * @param {boolean}                                                                  [twins] Whether each order also settles
+ *                                                                                           unpulled, for the block to judge
+ *                                                                                           the pull. A pin trial takes none:
+ *                                                                                           its pinned band is judged pulled.
  * @return {{col: Object<string,number>, row: Object<string,number>, wires: Array<[string, string]>, pulled: boolean, deferred: Array<string>, plain: ?Object, still: ?Object}}
  * Grid units, rows normalised so the topmost is 0, the wires spanning two or
  * more columns, whether `pullBeside` moved a chain, the sources `seatSources`
@@ -1587,7 +1586,9 @@ const pullBeside = ( ids, inBand, later, pin, col, row ) => {
  * units for that order too, and where a chain moved, those with every chain
  * left where the sweeps put it, so the block can judge each on its drawing.
  */
-const layoutComponent = ( ids, succ, pred, unfed, pin = {}, twins = false ) => {
+const layoutComponent = ( ids, graph, pin = {}, twins = false ) => {
+	let succ = restrictAdjacency( ids, graph.succ );
+	let pred = restrictAdjacency( ids, graph.pred );
 	/** @type {Object<string,number>} */
 	const declIdx = {};
 	ids.forEach( ( id, i ) => ( declIdx[ id ] = i ) );
@@ -1606,16 +1607,31 @@ const layoutComponent = ( ids, succ, pred, unfed, pin = {}, twins = false ) => {
 	// @longform Coffman-Graham: sources pinned, interior relaxed, and a sink
 	// seated within reach of what feeds it — pinned to the band's far column
 	// instead, a shallow sink drags its wire across every card between. The
-	// stretch is taste, one column of slack to read as terminal; the rise to a
-	// sibling consumer is not, since it keeps a source's successors in one
-	// column, which is the seat `seatSources` needs to hold the two level. It
-	// aligns on where a sibling SEATS: an interior sibling the relaxation
-	// below moves right leaves the sink a column shy of it.
+	// stretch is taste, one column of slack to read as terminal, counted from
+	// one past its deepest feeder. A sink that shares a feeder and feeds
+	// nothing past its band takes none. The rise to a sibling consumer is not
+	// taste, since it keeps a source's successors in one column, which is the
+	// seat `seatSources` needs to hold the two level. It aligns on where a
+	// sibling SEATS: an interior sibling the relaxation below moves right
+	// leaves the sink a column shy of it.
 	const SINK_STRETCH = 1;
-	const seat = ( id ) =>
-		isSink( id )
-			? Math.min( maxDepth, depth[ id ] + SINK_STRETCH )
-			: depth[ id ];
+	/** @type {Object<string,number>} */
+	const seat = {};
+	for ( const id of ids ) {
+		seat[ id ] = depth[ id ];
+		if ( ! isSink( id ) ) {
+			continue;
+		}
+		let shares = false;
+		for ( const p of pred[ id ] ) {
+			seat[ id ] = Math.max( seat[ id ], depth[ p ] + 1 );
+			shares ||= succ[ p ].length > 1;
+		}
+		const beside = shares && ! graph.succ[ id ].length;
+		if ( ! beside ) {
+			seat[ id ] = Math.min( maxDepth, seat[ id ] + SINK_STRETCH );
+		}
+	}
 	// @longform The two furthest seats among each feeder's successors, so a
 	// sink reads one number per feeder rather than re-walking every sibling:
 	// one feeder of k sinks costs O(k), not O(k²), and no argument list grows
@@ -1627,7 +1643,7 @@ const layoutComponent = ( ids, succ, pred, unfed, pin = {}, twins = false ) => {
 		let firstId = null;
 		let second = -Infinity;
 		for ( const s of succ[ p ] ) {
-			const at = seat( s );
+			const at = seat[ s ];
 			if ( at > first ) {
 				second = first;
 				first = at;
@@ -1650,10 +1666,19 @@ const layoutComponent = ( ids, succ, pred, unfed, pin = {}, twins = false ) => {
 				const f = furthest[ p ];
 				peer = Math.max( peer, f.firstId === id ? f.second : f.first );
 			}
-			col[ id ] = Math.min( maxDepth, Math.max( seat( id ), peer ) );
+			col[ id ] = Math.min( maxDepth, Math.max( seat[ id ], peer ) );
 		} else {
 			col[ id ] = depth[ id ];
 		}
+	}
+	// @longform Under its longest-path ceiling, an interior card relaxes no
+	// further right than the column before the nearest card it feeds that
+	// starts right of it, a sink beside its feeder included; a card it feeds
+	// that a loop's depths leave at or left of it bounds nothing.
+	/** @type {Object<string,Array<string>>} */
+	const ahead = {};
+	for ( const id of ids ) {
+		ahead[ id ] = succ[ id ].filter( ( n ) => col[ n ] > col[ id ] );
 	}
 	for ( let pass = 0; pass < 20; pass++ ) {
 		for ( const id of ids ) {
@@ -1661,7 +1686,10 @@ const layoutComponent = ( ids, succ, pred, unfed, pin = {}, twins = false ) => {
 				continue;
 			}
 			const lo = depth[ id ];
-			const hi = maxDepth - height[ id ];
+			let hi = maxDepth - height[ id ];
+			for ( const n of ahead[ id ] ) {
+				hi = Math.min( hi, col[ n ] - 1 );
+			}
 			if ( lo >= hi ) {
 				col[ id ] = lo;
 				continue;
@@ -1686,7 +1714,7 @@ const layoutComponent = ( ids, succ, pred, unfed, pin = {}, twins = false ) => {
 	const later = new Set(
 		ids.filter(
 			( id ) =>
-				unfed( id ) &&
+				! graph.pred[ id ].length &&
 				new Set( succ[ id ].map( ( n ) => col[ n ] ) ).size === 1 &&
 				Math.min( ...succ[ id ].map( ( n ) => col[ n ] ) ) -
 					col[ id ] >=
@@ -2550,7 +2578,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 	/** @type {Object<string,number>} */
 	const row = {};
 
-	const unfed = ( id ) => ! pred[ id ].length;
+	const graph = { succ, pred };
 	const blocks = blocksOf( ids, succ, pred, hubs ).map( ( b ) => {
 		const hubSet = new Set( b.hubs );
 		// @longform A band a hub feeds continues the chain past it, so it
@@ -2570,18 +2598,13 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 							col: { [ members[ 0 ] ]: 0 },
 							row: { [ members[ 0 ] ]: 0 },
 							wires: [],
-							deferred: unfed( members[ 0 ] ) ? members : [],
+							deferred: pred[ members[ 0 ] ].length
+								? []
+								: members,
 							plain: undefined,
 							still: undefined,
 					  }
-					: layoutComponent(
-							members,
-							restrictAdjacency( members, succ ),
-							restrictAdjacency( members, pred ),
-							unfed,
-							{},
-							true
-					  ),
+					: layoutComponent( members, graph, {}, true ),
 			] )
 		);
 		// @longform A band's last card feeding a hub may sit short of the
@@ -2972,9 +2995,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 				}
 				const reach = ( entry[ 2 ] ??= layoutComponent(
 					members,
-					restrictAdjacency( members, succ ),
-					restrictAdjacency( members, pred ),
-					unfed,
+					graph,
 					pin
 				) );
 				const band = laid.get( members );
