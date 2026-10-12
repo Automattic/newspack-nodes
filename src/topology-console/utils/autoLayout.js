@@ -243,6 +243,16 @@ const snapHalf = ( v ) => Math.round( v * 2 ) / 2;
 const midMinMax = ( arr ) => ( Math.min( ...arr ) + Math.max( ...arr ) ) / 2;
 
 /**
+ * The rows the given cards hold, skipping any card without one.
+ *
+ * @param {Object<string,number>} row Rows by card.
+ * @param {Array<string>}         ids The cards to read.
+ * @return {Array<number>} Their rows, in `ids` order.
+ */
+const rowsOf = ( row, ids ) =>
+	ids.map( ( id ) => row[ id ] ).filter( ( v ) => v !== undefined );
+
+/**
  * Median of a numeric array.
  *
  * The settle passes order a column by its neighbours' rows, where the median
@@ -2004,11 +2014,9 @@ const layoutComponent = ( ids, graph, pin = {}, twins = false ) => {
 			}
 			for ( let c = anchor + 1; c <= maxDepth; c++ ) {
 				for ( const id of columns[ c ] ) {
-					const nb = ( nearFeeds[ id ] ?? pred[ id ] ).filter(
-						( p ) => r[ p ] !== undefined
-					);
+					const nb = rowsOf( r, nearFeeds[ id ] ?? pred[ id ] );
 					if ( nb.length ) {
-						r[ id ] = midMinMax( nb.map( ( p ) => r[ p ] ) );
+						r[ id ] = midMinMax( nb );
 					}
 				}
 				if ( spread ) {
@@ -2017,11 +2025,9 @@ const layoutComponent = ( ids, graph, pin = {}, twins = false ) => {
 			}
 			for ( let c = anchor - 1; c >= 0; c-- ) {
 				for ( const id of columns[ c ] ) {
-					const nb = succ[ id ].filter(
-						( k ) => r[ k ] !== undefined
-					);
+					const nb = rowsOf( r, succ[ id ] );
 					if ( nb.length ) {
-						r[ id ] = midMinMax( nb.map( ( k ) => r[ k ] ) );
+						r[ id ] = midMinMax( nb );
 					}
 				}
 				if ( spread ) {
@@ -2034,15 +2040,11 @@ const layoutComponent = ( ids, graph, pin = {}, twins = false ) => {
 			// placed.
 			for ( let c = anchor + 1; c <= maxDepth; c++ ) {
 				for ( const id of columns[ c ] ) {
-					const nb = pred[ id ].filter(
-						( p ) => r[ p ] !== undefined
-					);
+					const nb = rowsOf( r, pred[ id ] );
 					if ( r[ id ] !== undefined || ! nb.length ) {
 						continue;
 					}
-					const want = snapHalf(
-						midMinMax( nb.map( ( p ) => r[ p ] ) )
-					);
+					const want = snapHalf( midMinMax( nb ) );
 					const skip = ( o ) => o === id || ! footprint( o );
 					r[ id ] = nearestRow(
 						want,
@@ -2057,22 +2059,37 @@ const layoutComponent = ( ids, graph, pin = {}, twins = false ) => {
 					);
 				}
 			}
-			// @longform A component that never reaches the anchor column is
-			// seeded by neither sweep, and a card left without a row renders
-			// off-graph, silently. Stack the leftovers under their own column.
+			// @longform A card neither sweep seats — a sink left of the anchor,
+			// or one of a component that never reaches the anchor column —
+			// stacks past the rows its column's cards and through-wires hold,
+			// on the edge nearer its feeders, in the order of their feeders'
+			// midpoints, so a wire from one feeder crosses none of the others.
+			// A card left without a row renders off-graph, silently.
 			for ( let c = 0; c <= maxDepth; c++ ) {
-				let next = null;
-				for ( const id of columns[ c ] ) {
-					if ( r[ id ] !== undefined ) {
-						continue;
-					}
-					if ( null === next ) {
-						const taken = columns[ c ]
-							.map( ( x ) => r[ x ] )
-							.filter( ( v ) => v !== undefined );
-						next = taken.length ? Math.max( ...taken ) + 1 : 0;
-					}
-					r[ id ] = next++;
+				const loose = columns[ c ].filter(
+					( id ) => r[ id ] === undefined
+				);
+				if ( ! loose.length ) {
+					continue;
+				}
+				const taken = rowsOf( r, columns[ c ] );
+				const mid = midMinMax( taken );
+				// Where a card's feeders sit; past every row when it has none.
+				const fedAt = ( id ) => {
+					const fed = rowsOf( r, pred[ id ] );
+					return fed.length ? midMinMax( fed ) : Infinity;
+				};
+				const byFeeder = stableSort( loose, fedAt );
+				const split = byFeeder.filter(
+					( id ) => fedAt( id ) < mid
+				).length;
+				let up = Math.min( ...taken ) - 1;
+				for ( const id of byFeeder.slice( 0, split ).reverse() ) {
+					r[ id ] = up--;
+				}
+				let down = taken.length ? Math.max( ...taken ) + 1 : 0;
+				for ( const id of byFeeder.slice( split ) ) {
+					r[ id ] = down++;
 				}
 			}
 			return r;
@@ -2081,11 +2098,7 @@ const layoutComponent = ( ids, graph, pin = {}, twins = false ) => {
 
 		// Orient the anchor: the lowest-index node sits on the flow-from side.
 		const anchorKey = ( id ) =>
-			median(
-				( sinkSide ? pred[ id ] : succ[ id ] )
-					.map( ( x ) => row[ x ] )
-					.filter( ( v ) => v !== undefined )
-			);
+			median( rowsOf( row, ( sinkSide ? pred : succ )[ id ] ) );
 		const buildOrder = ( sign ) =>
 			stableSort( columns[ anchor ], ( id ) => sign * anchorKey( id ) );
 		const firstAtTop = ( ord ) => {
@@ -2126,20 +2139,12 @@ const layoutComponent = ( ids, graph, pin = {}, twins = false ) => {
 		for ( let it = 0; it < passes; it++ ) {
 			for ( let c = anchor + 1; c <= maxDepth; c++ ) {
 				columns[ c ] = stableSort( columns[ c ], ( id ) =>
-					median(
-						pred[ id ]
-							.map( ( x ) => row[ x ] )
-							.filter( ( v ) => v !== undefined )
-					)
+					median( rowsOf( row, pred[ id ] ) )
 				);
 			}
 			for ( let c = anchor - 1; c >= 0; c-- ) {
 				columns[ c ] = stableSort( columns[ c ], ( id ) =>
-					median(
-						succ[ id ]
-							.map( ( x ) => row[ x ] )
-							.filter( ( v ) => v !== undefined )
-					)
+					median( rowsOf( row, succ[ id ] ) )
 				);
 			}
 			row = assignRows( it === passes - 1 );
@@ -2236,8 +2241,6 @@ const placeBackbone = ( backbone, succ, pred, baseCol, col, row ) => {
 	/** @type {Object<string,number>} */
 	const order = {};
 	backbone.forEach( ( id, i ) => ( order[ id ] = i ) );
-	const rowsOf = ( list ) =>
-		list.map( ( n ) => row[ n ] ).filter( ( v ) => v !== undefined );
 
 	// One partition pass: band-serving nodes first, then the bridges.
 	const serving = [];
@@ -2254,6 +2257,7 @@ const placeBackbone = ( backbone, succ, pred, baseCol, col, row ) => {
 	for ( const id of [ ...serving, ...bridges ] ) {
 		col[ id ] = start + depth[ id ];
 		const served = rowsOf(
+			row,
 			[ ...pred[ id ], ...succ[ id ] ].filter(
 				( n ) => ! inside.has( n )
 			)
@@ -2265,7 +2269,7 @@ const placeBackbone = ( backbone, succ, pred, baseCol, col, row ) => {
 		}
 	}
 	for ( const id of later ) {
-		const rows = rowsOf( [ ...pred[ id ], ...succ[ id ] ] );
+		const rows = rowsOf( row, [ ...pred[ id ], ...succ[ id ] ] );
 		row[ id ] = rows.length ? snapHalf( midMinMax( rows ) ) : 0;
 	}
 	// A head sits before its hub, on the hub's row or the nearest free one.
@@ -2277,7 +2281,7 @@ const placeBackbone = ( backbone, succ, pred, baseCol, col, row ) => {
 	for ( const id of heads ) {
 		const c = Math.min( ...succ[ id ].map( ( n ) => col[ n ] ) ) - 1;
 		col[ id ] = c;
-		const want = snapHalf( midMinMax( rowsOf( succ[ id ] ) ) );
+		const want = snapHalf( midMinMax( rowsOf( row, succ[ id ] ) ) );
 		const mates = bandCards[ c ];
 		if ( ! mates ) {
 			row[ id ] = want;
@@ -2313,7 +2317,8 @@ const placeBackbone = ( backbone, succ, pred, baseCol, col, row ) => {
  * @param {Object<string,Array<string>>} pred Predecessors.
  * @param {Set<string>}                  hubs The hub ids.
  * @return {Array<{key: string, bands: Array<Array<string>>, hubs: Array<string>}>}
- * The blocks, each with its bands in alphabetical order and its backbone ids.
+ * The blocks, each with its backbone ids and its bands in alphabetical order,
+ * the tie-break when `layoutBands` stacks them by the hubs they wire to.
  */
 const blocksOf = ( ids, succ, pred, hubs ) => {
 	const backbone = backboneOf( hubs, ids, succ, pred );
@@ -2411,7 +2416,7 @@ const blocksOf = ( ids, succ, pred, hubs ) => {
 	for ( const id of backbone ) {
 		block( groupOfHub[ id ] ).hubs.push( id );
 	}
-	// One block, then: the grouping above only orders the bands it stacks.
+	// One block, then: the grouping above only breaks ties in band order.
 	/** @type {Object<string,string>} */
 	const keyOf = {};
 	for ( const b of Object.values( blocks ) ) {
@@ -2706,8 +2711,6 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 			members.some( ( id ) =>
 				pred[ id ].some( ( n ) => hubSet.has( n ) )
 			);
-		const feeders = b.bands.filter( ( m ) => ! fed( m ) );
-		const consumers = b.bands.filter( fed );
 		// Each band laid out once; `plain` keeps the sweeps' order apart.
 		const laid = new Map(
 			b.bands.map( ( members ) => [
@@ -2730,12 +2733,36 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 		// column the deeper bands' feeders share, and its wire to the hub then
 		// crosses theirs. Each such band pins that card to the feeders' column,
 		// for the block to lay out again and keep where it draws cleaner.
+		const feeding = b.bands.filter( ( m ) => ! fed( m ) );
 		let feedCol = -1;
-		for ( const members of feeders ) {
+		for ( const members of feeding ) {
 			for ( const id of members ) {
 				feedCol = Math.max( feedCol, laid.get( members ).col[ id ] );
 			}
 		}
+		// @longform Bands stack by the hubs they wire to, each wire pulling
+		// its band toward its hub's rank by the columns it runs, so a band
+		// wired to both hubs stacks between those wired to one, nearer the hub
+		// its longer wire reaches.
+		const rank = Object.fromEntries( b.hubs.map( ( h, i ) => [ h, i ] ) );
+		const byHubs = ( bands, adj, run ) =>
+			stableSort( bands, ( members ) => {
+				const at = laid.get( members ).col;
+				let pull = 0;
+				let weight = 0;
+				for ( const id of members ) {
+					const w = run( at[ id ] );
+					for ( const n of adj[ id ] ) {
+						if ( hubSet.has( n ) ) {
+							pull += w * rank[ n ];
+							weight += w;
+						}
+					}
+				}
+				return weight ? pull / weight : 0;
+			} );
+		const feeders = byHubs( feeding, succ, ( c ) => feedCol + 1 - c );
+		const consumers = byHubs( b.bands.filter( fed ), pred, ( c ) => c + 1 );
 		/** @type {Map<Array<string>, Object<string,number>>} */
 		const pins = new Map();
 		for ( const members of feeders ) {
