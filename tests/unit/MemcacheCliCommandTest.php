@@ -253,7 +253,7 @@ class MemcacheCliCommandTest extends TestCase {
 		$this->assertSame( 'kea-4473', \Newspack_Nodes\Table_Node::table( 'kea-sqlite-4473', 900, 'sqlite' )->lookup( 'sku-4473' ) );
 		$this->assertSame( $session['secret'], \Newspack_Nodes\Command_Auth::load_session_record( $session['handle'] )['key'] ?? null );
 		$this->assertStringContainsString(
-			'durable Tables and command sessions are untouched; `wp nodes tables flush` empties those',
+			'durable Tables and command sessions are untouched; `wp nodes session revoke --all` revokes the sessions',
 			\implode( ' ', $GLOBALS['_test_wp_cli_success'] ),
 			'the flush says what it leaves'
 		);

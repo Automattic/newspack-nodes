@@ -11,7 +11,8 @@ namespace Newspack_Nodes;
 
 /**
  * Issue, list and revoke the labelled command sessions the Sessions tab shows,
- * through the same `Sessions` calls its `sessions` CI makes.
+ * through the same `Sessions` calls its `sessions` CI makes, and revoke every
+ * session at once through `Sessions::revoke_all()`, which the tab lacks.
  *
  * Registered as the `nodes session` group, so each public method is a
  * subcommand; a public instance method added here would list as one too.
@@ -128,29 +129,44 @@ class Session_CLI_Command {
 	}
 
 	/**
-	 * Revoke a session by its handle, so its key stops verifying at once.
+	 * Revoke a session by its handle, or every session with `--all`, so the
+	 * keys stop verifying at once.
 	 *
 	 * A label is not a handle: naming one revokes nothing and fails, naming
 	 * the handles of every session that carries it. Fails, too, when no
 	 * session holds the handle, or when the session store did not answer and
-	 * the key may still verify.
+	 * the key may still verify. `--all` flushes the session store, labelled and
+	 * unlabelled sessions alike, and fails naming why the store refused.
 	 *
 	 * ## OPTIONS
 	 *
-	 * <handle>
+	 * [<handle>]
 	 * : The session's handle, as `wp nodes session list` prints it.
+	 *
+	 * [--all]
+	 * : Revoke every session this site issued instead.
 	 *
 	 * ## EXAMPLES
 	 *
 	 *     wp nodes session revoke 0f3c9a…
+	 *     wp nodes session revoke --all
 	 *
 	 * @api WP-CLI subcommand `wp nodes session revoke` — invoked by WP-CLI via reflection, not called in PHP.
 	 * @param list<string>        $args       The handle.
-	 * @param array<string,mixed> $assoc_args Unused.
+	 * @param array<string,mixed> $assoc_args `--all`.
 	 */
 	public function revoke( array $args, array $assoc_args ): void {
-		$handle = $args[0] ?? '';
+		$all    = ! empty( $assoc_args['all'] );
+		$handle = $args[0] ?? null;
+		if ( $all === ( null !== $handle ) ) {
+			\WP_CLI::error( $all ? 'name a handle or pass --all, not both' : 'name a handle or pass --all' );
+		}
 		try {
+			if ( null === $handle ) {
+				Sessions::revoke_all();
+				\WP_CLI::success( 'Revoked every session.' );
+				return;
+			}
 			Sessions::revoke( $handle );
 			\WP_CLI::success( "Revoked {$handle}." );
 		} catch ( \RuntimeException $e ) {
