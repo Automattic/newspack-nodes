@@ -69,11 +69,12 @@ class Classes_CI_Node extends Service_CI_Node {
 	 * Four gates decide membership, cheapest first — the FQCN sits under a
 	 * namespace prefix registered through `Command_Interpreter_Node`, its short
 	 * name ends in `_Node`, it is a concrete `Node` subclass, and its schema
-	 * offers the class to the palette. Only the last two load the class and call
-	 * into it, so the two string tests run first on a classmap holding every
-	 * class in the process. The palette gate refuses three shapes: a `Hidden`
-	 * category, no category at all, and the `hidden` flag a node with no patron
-	 * raises to keep itself off both palette and canvas.
+	 * declares a console class. Only the last two load the class and call into
+	 * it, so the two string tests run first on a classmap holding every class
+	 * in the process. The last gate refuses two shapes: no category at all, and
+	 * the `hidden` flag that keeps a class off every console surface. A
+	 * `Hidden` category stays, because the Inspector reads a sidecar's verbs
+	 * and arguments here; the palette leaves that category out itself.
 	 *
 	 * The console reads this as one slice of its batched poll, so the whole
 	 * catalog is a single payload and no class costs a follow-up request.
@@ -115,11 +116,11 @@ class Classes_CI_Node extends Service_CI_Node {
 					continue;
 				}
 				$schema = $fqcn::node_schema();
-				// (d) skip non-palette: Hidden, empty category, or hidden flag.
-				if ( ! Node::in_palette( $schema ) ) {
+				$cat    = $schema['category'] ?? '';
+				// (d) skip a class with no category, or a hidden one.
+				if ( '' === $cat || Node::hidden( $schema ) ) {
 					continue;
 				}
-				$cat = $schema['category'];
 				$seen[ $fqcn ] = true;
 				$classes[]     = [
 					'shell_name'     => \substr( $short, 0, -\strlen( '_Node' ) ),
@@ -134,8 +135,6 @@ class Classes_CI_Node extends Service_CI_Node {
 					'registrations'  => $schema['registrations'] ?? [],
 					'accepts_fill'   => (bool) ( $schema['accepts_fill'] ?? true ),
 					'has_target'     => (bool) ( $schema['has_target']   ?? true ),
-					// Siblings the console draws as owned, suffix => class.
-					'owns'           => $schema['owns'] ?? [],
 					// An interpreter is addressed directly; others via :config.
 					'is_interpreter' => \is_subclass_of( $fqcn, Command_Interpreter_Node::class ),
 					// A fan-out target is a LIST; the editor renders chips.

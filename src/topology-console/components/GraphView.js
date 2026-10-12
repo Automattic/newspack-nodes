@@ -1,8 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from '@wordpress/element';
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import SchematicCanvas from './SchematicCanvas';
 import Inspector from './Inspector';
 import Palette from './Palette';
+import SidecarsModal from './SidecarsModal';
 import { useGraphRates } from '../hooks/useGraphRates';
 import { usePublishedGraph } from '../hooks/useGraphSource';
 import { hullNodes } from '../utils/hullNodes';
@@ -23,6 +30,13 @@ import { aggregateSeries } from '../utils/aggregateSeries';
  * histories. Everything else is injected: the graph, the command handlers, the
  * canvas `frame`, and the display flags. Selecting a node, an edge or a hull
  * clears the other two, so Delete has one unambiguous target.
+ *
+ * Part of the selection is the sidecar shown in the selected node's place:
+ * an owned node the canvas never draws, opened from its owner's "…" — the
+ * card's, or a shown sidecar's own in the Inspector. Any other selection,
+ * edit mode, or the owner leaving the graph drops it, and Delete removes
+ * nothing while it shows: the selected node is its owner, not what the
+ * Inspector shows.
  *
  * @param {Object}                 props
  * @param {Object}                 props.graph                { nodes, edges } to render.
@@ -101,11 +115,23 @@ export default function GraphView( {
 	const [ selectedHull, setSelectedHull ] = useState( null );
 	// Hover is lifted here so an Inspector node link highlights its card.
 	const [ hoveredId, setHoveredId ] = useState( null );
+	// The sidecar shown in the selected node's place, or null.
+	const [ sidecar, setSidecar ] = useState( null );
+	// The open "…" list: whose it is, what it lists, and what opened it.
+	const [ listing, setListing ] = useState( null );
+	// The selection as of the last render, for the controlled re-sync.
+	const selectedRef = useRef( null );
+	selectedRef.current = selectedId;
+	const dockRef = useRef( null );
 
 	// Re-sync the NODE selection to an external value (rename re-point).
 	useEffect( () => {
 		if ( selection === undefined ) {
 			return;
+		}
+		// A consumer echoing the selection back keeps the sidecar on it.
+		if ( selection !== selectedRef.current ) {
+			setSidecar( null );
 		}
 		setSelectedId( selection );
 		// Only a NODE supersedes an edge; null is the empty node selection.
@@ -118,7 +144,23 @@ export default function GraphView( {
 	useEffect( () => {
 		setSelectedEdge( null );
 		setSelectedHull( null );
+		setSidecar( null );
 	}, [ resetKey ] );
+
+	// A draft has no sidecars to show: edit mode, either way, drops one.
+	useEffect( () => {
+		setSidecar( null );
+		setListing( null );
+	}, [ editMode ] );
+
+	const ownerShown = graph.nodes.some( ( n ) => n.id === selectedId );
+	// An owner gone from the graph takes its sidecar, and its poll, with it.
+	useEffect( () => {
+		if ( ! ownerShown ) {
+			setSidecar( null );
+		}
+	}, [ ownerShown ] );
+	const shownSidecar = ! editMode && ownerShown ? sidecar : null;
 
 	// @longform A sparkline point is a dump_metadata POLL REPLY, never the
 	// canvas graph: an optimistic patch or a catalog republish rebuilds that,
@@ -148,6 +190,7 @@ export default function GraphView( {
 			setSelectedId( id );
 			setSelectedEdge( null );
 			setSelectedHull( null );
+			setSidecar( null );
 			onSelectionChange?.( id );
 		},
 		[ onSelectionChange ]
@@ -156,6 +199,7 @@ export default function GraphView( {
 		( edge ) => {
 			setSelectedEdge( edge );
 			setSelectedId( null );
+			setSidecar( null );
 			// One selection at a time: an edge supersedes a hull.
 			setSelectedHull( null );
 			onSelectionChange?.( null );
@@ -169,6 +213,7 @@ export default function GraphView( {
 			setSelectedId( null );
 			setSelectedEdge( null );
 			setSelectedHull( include );
+			setSidecar( null );
 			onSelectionChange?.( null );
 		},
 		[ onSelectionChange ]
@@ -222,13 +267,13 @@ export default function GraphView( {
 			if ( e.target && e.target.isContentEditable ) {
 				return;
 			}
+			if ( shownSidecar ) {
+				return;
+			}
 			if ( selectedId ) {
-				// A borrowed or owned node is locked; not deletable from here.
+				// A borrowed node is locked; not deletable from here.
 				const node = graph.nodes.find( ( n ) => n.id === selectedId );
-				if (
-					node?.owner ||
-					( Array.isArray( node?.origin ) && node.origin.length > 0 )
-				) {
+				if ( Array.isArray( node?.origin ) && node.origin.length > 0 ) {
 					return;
 				}
 				e.preventDefault();
@@ -249,6 +294,7 @@ export default function GraphView( {
 	}, [
 		editMode,
 		selectedId,
+		shownSidecar,
 		selectedEdge,
 		selectedHull,
 		includes,
@@ -259,6 +305,47 @@ export default function GraphView( {
 	] );
 
 	const nodeIds = new Set( graph.nodes.map( ( n ) => n.id ) );
+	/**
+	 * Open a "…" list, remembering the control that opened it for the focus.
+	 *
+	 * @param {string}                               owner    Whose sidecars they are.
+	 * @param {Array<{name: string, class: string}>} sidecars What the list shows.
+	 * @param {?(HTMLElement|SVGElement)}            trigger  The control that opened it.
+	 */
+	const openSidecars = ( owner, sidecars, trigger ) =>
+		setListing( { owner, sidecars, trigger } );
+	/**
+	 * Show a node: a canvas node by selecting it, an owned one in the selected
+	 * node's place.
+	 *
+	 * @param {string} name The node to show.
+	 */
+	const openNode = ( name ) => {
+		if ( nodeIds.has( name ) ) {
+			handleSelectNode( name );
+		} else {
+			setSidecar( name );
+		}
+	};
+	/**
+	 * Show the sidecar chosen from the open list, selecting its owner first
+	 * when the owner is a canvas card, and move focus to the Inspector.
+	 *
+	 * @param {string} name The sidecar chosen.
+	 */
+	const pickSidecar = ( name ) => {
+		if ( nodeIds.has( listing.owner ) ) {
+			handleSelectNode( listing.owner );
+		}
+		setSidecar( name );
+		setListing( null );
+		dockRef.current?.focus();
+	};
+	const dismissSidecars = () => {
+		listing.trigger?.focus();
+		setListing( null );
+	};
+
 	const inspectorToggleLabel = inspectorCollapsed
 		? __( 'Expand inspector', 'newspack-nodes' )
 		: __( 'Collapse inspector', 'newspack-nodes' );
@@ -299,12 +386,22 @@ export default function GraphView( {
 					onConnect={ onConnect }
 					selectedEdge={ selectedEdge }
 					onSelectEdge={ handleSelectEdge }
+					onOpenSidecars={ ( id, trigger ) =>
+						openSidecars(
+							id,
+							graph.nodes.find( ( n ) => n.id === id )
+								?.sidecars ?? [],
+							trigger
+						)
+					}
 					hulls={ hulls }
 				/>
 			</Frame>
 			{ /* Always present so the show/hide chevron is reachable with no selection. */ }
 			{
 				<div
+					ref={ dockRef }
+					tabIndex={ -1 }
 					className={ `topology-inspector-dock${
 						inspectorCollapsed
 							? ' topology-inspector-dock--collapsed'
@@ -324,6 +421,9 @@ export default function GraphView( {
 					{ ! inspectorCollapsed && (
 						<Inspector
 							selectedId={ selectedId }
+							sidecar={ shownSidecar }
+							onOpenSidecars={ openSidecars }
+							onOpenNode={ openNode }
 							parsed={ graph }
 							streamStatus={ streamStatus }
 							rateInfo={
@@ -358,6 +458,14 @@ export default function GraphView( {
 					) }
 				</div>
 			}
+			{ listing && (
+				<SidecarsModal
+					owner={ listing.owner }
+					sidecars={ listing.sidecars }
+					onPick={ pickSidecar }
+					onDismiss={ dismissSidecars }
+				/>
+			) }
 		</>
 	);
 }

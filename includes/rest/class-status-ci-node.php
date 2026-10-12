@@ -84,9 +84,9 @@ class Status_CI_Node extends Service_CI_Node {
 	 * table that could drift from what `help` and the console palette show. The role is READ, not MANAGE, because the snapshot reads state and
 	 * changes none — a dashboard polls it.
 	 *
-	 * `category` replaces the `Hidden` inherited from the interpreter, which is
-	 * what lists this class in the console palette beside the other service
-	 * CIs; left Hidden, the catalog scan would drop it with nothing thrown.
+	 * `category` replaces the `Hidden` inherited from the interpreter, which
+	 * files this class under `Service` beside the other service CIs; the
+	 * palette leaves both categories out, and the Inspector reads its verbs.
 	 *
 	 * `arguments` is empty: `make_node` hands this node nothing, and `get`
 	 * takes no arguments of its own.

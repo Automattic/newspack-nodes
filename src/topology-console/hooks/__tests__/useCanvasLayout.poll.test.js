@@ -166,22 +166,49 @@ describe( 'useCanvasLayout — a metadata poll', () => {
 	} );
 
 	describe( 'a poll that adds structure', () => {
-		/** The crawler worker's live graph: its owned Table and the edge to it. */
-		const live = () =>
-			augmentWithVirtualEdges(
-				parseMetadata( SEED.metadata ),
+		/** A Table a runtime `make_node` added, wired from the Crawler. */
+		const LEDGER = 'ledger-6604';
+		/** The crawler worker's live graph, the added Table and its edge in. */
+		const live = () => {
+			const { crawler } = SEED.metadata;
+			return augmentWithVirtualEdges(
+				parseMetadata( {
+					...SEED.metadata,
+					crawler: {
+						...crawler,
+						targets: [ ...crawler.targets, LEDGER ],
+					},
+					[ LEDGER ]: {
+						class: 'Table',
+						sink: '_command_interpreter',
+						target: '',
+						targets: [],
+						accepts_fill: true,
+						has_target: true,
+					},
+				} ),
 				SEED.classes
 			);
-		/** The seed a server answering no owned nodes paints: neither. */
-		const bare = () => seededGraph( { ...SEED, owned: [] } );
-		/** The live graph short of its owner's edge to the Table. */
+		};
+		/** The seed the topology paints: neither the Table nor its edge. */
+		const bare = () => seededGraph( SEED );
+		/** The live graph short of the Crawler's edge to the Table. */
 		const unwired = () => {
 			const g = live();
 			return {
 				...g,
-				edges: g.edges.filter( ( e ) => 'crawler:seen' !== e.to ),
+				edges: g.edges.filter( ( e ) => LEDGER !== e.to ),
 			};
 		};
+		/**
+		 * The wires the canvas draws: those with a card at each end.
+		 *
+		 * @param {Object<string,Object>} at    Position by id.
+		 * @param {Array<Object>}         edges The graph's edges.
+		 * @return {Array<Object>} The drawn ones.
+		 */
+		const drawnWires = ( at, edges ) =>
+			edges.filter( ( e ) => at[ e.from ] && at[ e.to ] );
 		const props = {
 			storageKey: 'newspack-nodes:test:growth',
 			ready: true,
@@ -217,13 +244,15 @@ describe( 'useCanvasLayout — a metadata poll', () => {
 			return hook;
 		};
 
-		it( 'lays an owned Table out beside its owner when the poll brings both', () => {
+		it( 'lays an added Table out beside its writer when the poll brings both', () => {
 			const { result } = pollInto( bare(), live() );
 			const at = result.current.positions;
 			expect( autoLayout ).toHaveBeenCalledTimes( 2 );
 			expect( at ).toMatchObject( laid( live() ) );
-			expect( at[ 'crawler:seen' ].x ).toBeGreaterThan( at.crawler.x );
-			expect( drawnCost( at, live().edges ).over ).toEqual( [] );
+			expect( at[ LEDGER ].x ).toBeGreaterThan( at.crawler.x );
+			expect(
+				drawnCost( at, drawnWires( at, live().edges ) ).over
+			).toEqual( [] );
 			expect( result.current.canReset ).toBe( false );
 		} );
 
@@ -240,12 +269,10 @@ describe( 'useCanvasLayout — a metadata poll', () => {
 			act( () => jest.advanceTimersByTime( 300 ) );
 			act( () => hook.rerender( { ...props, graph: live() } ) );
 			act( () => jest.advanceTimersByTime( 100 ) );
-			expect( hook.result.current.positions[ 'crawler:seen' ] ).toBe(
-				undefined
-			);
+			expect( hook.result.current.positions[ LEDGER ] ).toBe( undefined );
 			act( () => jest.advanceTimersByTime( 200 ) );
-			expect( hook.result.current.positions[ 'crawler:seen' ] ).toEqual(
-				laid( live() )[ 'crawler:seen' ]
+			expect( hook.result.current.positions[ LEDGER ] ).toEqual(
+				laid( live() )[ LEDGER ]
 			);
 		} );
 
@@ -269,7 +296,7 @@ describe( 'useCanvasLayout — a metadata poll', () => {
 			expect( autoLayout ).not.toHaveBeenCalled();
 			expect( hook.result.current.positions ).toEqual( {
 				...server,
-				'crawler:seen': placeBelow( server ),
+				[ LEDGER ]: placeBelow( server ),
 			} );
 		} );
 
@@ -280,7 +307,7 @@ describe( 'useCanvasLayout — a metadata poll', () => {
 				JSON.stringify( {
 					positions: {
 						...stored,
-						'crawler:seen': placeBelow( stored ),
+						[ LEDGER ]: placeBelow( stored ),
 					},
 					viewportDelta: null,
 					modified: false,

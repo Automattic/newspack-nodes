@@ -51,7 +51,7 @@
 </div>
 
 <div class="cas">
-  <div class="chip"><b>1 · collision pre-check</b><span class="mono">check_name_availability()</span> tests every slot a rename will touch: each sibling first, the auto-wired <span class="mono">:config</span> LAST, then the node's own name. A collision throws before anything is unregistered. Sound only because <span class="mono">Core::$nodes_by_name</span> is a per-process array.</div>
+  <div class="chip"><b>1 · collision pre-check</b><span class="mono">check_name_availability()</span> tests every slot a rename will touch: each sibling first, then the node's own name, the auto-wired <span class="mono">:config</span> LAST. A collision throws before anything is unregistered. Sound only because <span class="mono">Core::$nodes_by_name</span> is a per-process array.</div>
   <div class="chip"><b>2 · rename</b><span class="mono">set_sibling_names()</span> is the ONE namer, reached from the publish and from every <span class="mono">name()</span>, so key and name cannot drift. An override MUST call <span class="mono">parent::</span>; forgetting it stops naming every sibling with no symptom and no gate.</div>
   <div class="chip"><b>3 · sink</b>a patron's <span class="mono">sink()</span> sets the same sink on every sibling in the map, so a Topic's partitions and a Consumer's sidecars forward where the patron forwards.</div>
   <div class="chip"><b>4 · teardown</b><span class="mono">remove_node()</span> tears siblings down with the patron; <span class="mono">retract_sibling( $kind )</span> is the single-slot inverse, tearing down AND emptying the slot.</div>
@@ -59,7 +59,7 @@
 
 <div class="rules">
   <div class="callout"><h4>An occupied slot is refused</h4><p><span class="mono">publish_sibling()</span> throws <span class="mono">sibling slot occupied: {$kind}; retract_sibling() to replace it</span>, because a displaced sibling would stay registered and keep its handle where no cascade could reach it. Re-publishing on a second <span class="mono">arguments()</span> replay therefore throws; a builder that means to replace retracts first.</p></div>
-  <div class="callout"><h4>patron() before name()</h4><p>Setting the patron after the name is refused. The patron is both the interpreter's drop and the canvas-visibility flag: <span class="mono">dump_metadata</span> skips patron-linked nodes, so the <span class="mono">p{N}</span> children never appear on the canvas and a Topic's row aggregates their bytes instead.</p></div>
+  <div class="callout"><h4>patron() marks a node owned</h4><p>It changes nothing else: the node keeps its <span class="mono">:config</span>, and the patron may be set before or after the name. A full <span class="mono">dump_metadata</span> skips patron-linked nodes, so the <span class="mono">p{N}</span> children never appear on the canvas and open from the "…" on the Topic's card, whose row aggregates their bytes.</p></div>
   <div class="ok"><h4>Publishing is atomic on failure</h4><p>When <span class="mono">set_sibling_names()</span> refuses the composed name, the slot is emptied again before the exception propagates, so a caller's own guard rebuilds rather than serving a half-published sibling. Spell out all six geometry positions for a sidecar: an omitted one resolves to the operator's <span class="mono">&lt;config:*&gt;</span> default, not a sidecar-sized one.</p></div>
 </div>
 

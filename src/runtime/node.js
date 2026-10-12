@@ -112,6 +112,18 @@ function commandSummary( value ) {
 }
 
 /**
+ * Whether a schema keeps its class off every console surface — the palette,
+ * the canvas, a `sidecars` list and the class catalog — as PHP
+ * `Node::hidden()` decides.
+ *
+ * @param {?Object} schema What a class's `nodeSchema()` returned.
+ * @return {boolean} True for a `hidden` schema.
+ */
+export function isHidden( schema ) {
+	return true === schema?.hidden;
+}
+
+/**
  * A node's outgoing targets as a list, whichever shape `target` is in —
  * `Node.target` is `string|string[]`, so every reader needs this and only one
  * should own it.

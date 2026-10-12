@@ -1,11 +1,11 @@
 import {
 	Node,
 	TYPE,
-	TO,
 	VALUE,
 	TM_ERROR,
 	payloadOf,
 } from '@newspack-nodes/runtime';
+import { replySubject } from '../../runtime/reply-subject';
 import { errorMessage } from '../errorMessage';
 
 /**
@@ -45,7 +45,7 @@ export class CommandResultNode extends Node {
 		// sender appended it to FROM, the server echoed TO = FROM, and the
 		// path routed the answer here — so one node answers about many
 		// subjects and none of them is filed under anything (ADR-7).
-		const subject = message[ TO ] || null;
+		const subject = replySubject( message );
 		if ( 0 !== ( ( message[ TYPE ] || 0 ) & TM_ERROR ) ) {
 			this.notify( 'result', {
 				ok: false,

@@ -1,27 +1,34 @@
 /**
- * An owned Table on the console: the snapshot a worker answers, laid out,
- * drawn as an ordinary Table card with the edge its patron declares, and
- * opened in the Inspector when clicked, which offers no delete or rename.
- * Every other owned node stays off the canvas.
+ * An owned Table on the console: the snapshot a worker answers draws its
+ * owner alone, and the Table opens from the "…" on the owner's card into
+ * the Inspector, which shows its owner as a link back.
  */
 
-import { fireEvent } from '@testing-library/react';
+import { act, fireEvent, screen } from '@testing-library/react';
 import SchematicCanvas from '../components/SchematicCanvas';
-import Inspector from '../components/Inspector';
+import GraphView from '../components/GraphView';
 import { renderWithCatalog } from './catalogTestUtils';
 import { autoLayout } from '../utils/autoLayout';
-import { buildComposeTargets } from '../utils/composeTargets';
+import { SIDECAR_POLLER } from '../hooks/useSidecarRow';
 import { Core } from '../../runtime/core';
 import { Node } from '../../runtime/node';
+import {
+	newMessage,
+	TO,
+	TYPE,
+	VALUE,
+	TM_COMMAND,
+	TM_RESPONSE,
+} from '../../runtime/message';
 import {
 	dumpMetadataPayload,
 	parseMetadata,
 } from '../../runtime/metadata-node';
 
-/** Stands for the server's Table_Node, schema flag and all. */
+/** Stands for the server's Table_Node. */
 class TableNode extends Node {
 	static nodeSchema() {
-		return { category: 'Storage', shown_when_owned: true };
+		return { category: 'Storage' };
 	}
 }
 
@@ -49,32 +56,6 @@ function crawlerGraph() {
 	return parseMetadata( payload );
 }
 
-/**
- * Render the Inspector on the owned Table.
- *
- * @param {Object} props Extra Inspector props.
- * @return {HTMLElement} The rendered container.
- */
-function inspectTable( props = {} ) {
-	const parsed = crawlerGraph();
-	const { container } = renderWithCatalog(
-		<Inspector
-			selectedId="crawl-4471:seen"
-			parsed={ parsed }
-			streamStatus="open"
-			rateInfo={ null }
-			onAction={ () => {} }
-			onSelect={ () => {} }
-			onHover={ () => {} }
-			nodeIds={ new Set( parsed.nodes.map( ( n ) => n.id ) ) }
-			sseSession={ null }
-			{ ...props }
-		/>,
-		{ composeTargets: buildComposeTargets( parsed.nodes ) }
-	);
-	return container;
-}
-
 describe( 'an owned Table on the console', () => {
 	beforeAll( () => {
 		window.SVGSVGElement.prototype.createSVGPoint = function () {
@@ -91,17 +72,16 @@ describe( 'an owned Table on the console', () => {
 		Core.reset();
 	} );
 
-	it( 'draws a Table card wired from its patron and nothing else owned', () => {
+	it( 'draws the owner alone, with no card or wire for what it owns', () => {
 		const parsed = crawlerGraph();
 		const at = Object.fromEntries(
 			autoLayout( parsed ).nodes.map( ( n ) => [ n.id, n.position ] )
 		);
-		const onSelect = jest.fn();
 		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				parsed={ parsed }
 				selectedId={ null }
-				onSelect={ onSelect }
+				onSelect={ () => {} }
 				onDeselect={ () => {} }
 				hoveredId={ null }
 				onHover={ () => {} }
@@ -116,147 +96,73 @@ describe( 'an owned Table on the console', () => {
 		);
 
 		const cards = [ ...container.querySelectorAll( '.topology-node' ) ];
-		const labels = cards.map( ( card ) => card.textContent );
-		expect( cards ).toHaveLength( 2 );
-		expect(
-			labels.some( ( text ) => text.includes( 'crawl-4471:seen' ) )
-		).toBe( true );
-		expect( labels.some( ( text ) => text.includes( ':curl' ) ) ).toBe(
-			false
-		);
-		expect( parsed.edges ).toEqual( [
-			{ from: 'crawl-4471', to: 'crawl-4471:seen' },
+		expect( cards.map( ( card ) => card.textContent ) ).toEqual( [
+			expect.stringContaining( 'crawl-4471' ),
 		] );
+		expect( cards[ 0 ].textContent ).not.toMatch( /:seen|:curl/ );
 		expect(
 			container.querySelectorAll( '.topology-edge--active' )
-		).toHaveLength( 1 );
-
-		fireEvent.click(
-			cards.find( ( card ) => card.textContent.includes( ':seen' ) )
-		);
-		expect( onSelect ).toHaveBeenCalledWith( 'crawl-4471:seen' );
-	} );
-
-	it( 'opens the owned Table in the Inspector, its `:config` addressable', () => {
-		const parsed = crawlerGraph();
-		const targets = buildComposeTargets( parsed.nodes );
-		const { container } = renderWithCatalog(
-			<Inspector
-				selectedId="crawl-4471:seen"
-				parsed={ parsed }
-				streamStatus="open"
-				rateInfo={ null }
-				onAction={ () => {} }
-				onSelect={ () => {} }
-				onHover={ () => {} }
-				nodeIds={ new Set( parsed.nodes.map( ( n ) => n.id ) ) }
-				sseSession={ null }
-			/>,
-			{ composeTargets: targets }
-		);
-
-		expect(
-			container.querySelector( '.topology-insp__title' ).textContent
-		).toBe( 'crawl-4471:seen' );
-		expect(
-			container.querySelector( '.topology-insp__type' ).textContent
-		).toMatch( /Table/ );
-		expect( container.textContent ).not.toMatch( /no longer present/ );
-		expect( targets ).toContain( 'crawl-4471:seen:config' );
-	} );
-
-	it( 'says the live Inspector cannot delete or rename it, naming its owner', () => {
-		const container = inspectTable();
-
-		expect(
-			container.querySelector( '.topology-insp__owned' ).textContent
-		).toMatch( /owned by crawl-4471/i );
-	} );
-
-	it( 'shows an owned node no Routing, Constructor or Verbs in edit mode, its note kept', () => {
-		const ledgerSchema = {
-			shell_name: 'Table',
-			arguments: [ { name: 'ledger_ns', type: 'string' } ],
-			commands: [
-				{ name: 'set_ledger_ttl', args: [ { name: 'seconds' } ] },
-				{
-					name: 'add_ledger_tag',
-					multiple: true,
-					args: [ { name: 'tag' } ],
-				},
-			],
-		};
-		const parsed = {
-			nodes: [
-				{ id: 'patron-5823', class: 'Echo' },
-				{
-					id: 'patron-5823:ledger',
-					name: 'patron-5823:ledger',
-					class: 'Table',
-					owner: 'patron-5823',
-				},
-			],
-			edges: [
-				{
-					from: 'patron-5823',
-					to: 'patron-5823:ledger',
-					roles: [ 'extra' ],
-				},
-			],
-		};
-		const onUpdateArgs = jest.fn();
-		const onUpdateVerbs = jest.fn();
-		const { container } = renderWithCatalog(
-			<Inspector
-				selectedId="patron-5823:ledger"
-				parsed={ parsed }
-				streamStatus="open"
-				rateInfo={ null }
-				onAction={ () => {} }
-				onSelect={ () => {} }
-				onHover={ () => {} }
-				nodeIds={ new Set( parsed.nodes.map( ( n ) => n.id ) ) }
-				sseSession={ null }
-				editMode
-				onUpdateArgs={ onUpdateArgs }
-				onUpdateVerbs={ onUpdateVerbs }
-				onConnect={ () => {} }
-				onRemoveEdge={ () => {} }
-			/>,
-			{ classes: [ ledgerSchema ] }
-		);
-
-		const sections = [
-			...container.querySelectorAll( '.topology-insp__section-title' ),
-		].map( ( h ) => h.textContent );
-		expect( sections ).not.toContain( 'Routing' );
-		expect( sections ).not.toContain( 'Constructor' );
-		expect( sections ).not.toContain( 'Verbs' );
-		expect( container.textContent ).not.toMatch( /ledger_ns/ );
-		expect( container.textContent ).not.toMatch( /set_ledger_ttl/ );
-		expect(
-			container.querySelectorAll(
-				'input:not([disabled]), select:not([disabled]), textarea:not([disabled])'
-			)
 		).toHaveLength( 0 );
-		expect(
-			container.querySelector( '.topology-insp__owned' ).textContent
-		).toMatch( /owned by patron-5823/i );
 	} );
 
-	it( 'offers no delete or rename in edit mode, saying why there', () => {
-		const onRemoveNode = jest.fn();
-		const container = inspectTable( {
-			editMode: true,
-			catalog: [ { shell_name: 'Table', arguments: [], commands: [] } ],
-			onRemoveNode,
-			onRenameNode: () => true,
-		} );
+	it( "opens the Table from the \u201c\u2026\u201d on its owner's card, naming its owner", async () => {
+		jest.useFakeTimers();
+		try {
+			const parsed = crawlerGraph();
+			const row = dumpMetadataPayload( 'crawl-4471:seen' );
+			const sent = [];
+			Core.registerNode( '_cwd', {
+				name: '_cwd',
+				fill: ( m ) => sent.push( m ),
+			} );
+			const Frame = ( { children } ) => <div>{ children }</div>;
+			const { container } = renderWithCatalog(
+				<GraphView graph={ parsed } frame={ Frame } resetKey="k" />,
+				{
+					positionOverrides: Object.fromEntries(
+						autoLayout( parsed ).nodes.map( ( n ) => [
+							n.id,
+							n.position,
+						] )
+					),
+					onPositionChange: () => {},
+					viewport: null,
+					onViewportChange: () => {},
+				}
+			);
 
-		expect( container.textContent ).not.toMatch( /Delete node/ );
-		expect( container.querySelector( '#topology-name-field' ) ).toBeNull();
-		expect(
-			container.querySelector( '.topology-insp__owned' ).textContent
-		).toMatch( /owned by crawl-4471/i );
+			fireEvent.click(
+				container.querySelector( '.topology-node__sidecars' )
+			);
+			expect(
+				[
+					...document.body.querySelectorAll( '.topology-open-item' ),
+				].map( ( card ) => card.textContent )
+			).toEqual( [ 'crawl-4471:curlNode', 'crawl-4471:seenTable' ] );
+			fireEvent.click(
+				screen.getByText( 'crawl-4471:seen', {
+					selector: '.topology-open-item__name',
+				} )
+			);
+			await act( async () => {} );
+			expect( sent ).toHaveLength( 1 );
+			const reply = newMessage();
+			reply[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+			reply[ TO ] = encodeURIComponent( 'crawl-4471:seen' );
+			reply[ VALUE ] = { payload: row };
+			act( () => Core.node( SIDECAR_POLLER ).fill( reply ) );
+
+			expect(
+				container.querySelector( '.topology-insp__title' ).textContent
+			).toBe( 'crawl-4471:seen' );
+			expect(
+				container.querySelector( '.topology-insp__type' ).textContent
+			).toMatch( /Table/ );
+			expect(
+				container.querySelector( '.topology-insp__owned' ).textContent
+			).toMatch( /owned by crawl-4471/i );
+		} finally {
+			jest.useRealTimers();
+		}
 	} );
 } );

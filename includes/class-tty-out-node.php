@@ -179,9 +179,8 @@ class TTY_Out_Node extends Stdout_Node {
 	}
 
 	/**
-	 * Console manifest. `Hidden` keeps the class out of the palette and the
-	 * Inspector: the cli wires its own writer, and a canvas has no terminal to
-	 * write to. `has_target` is false because `fill()` writes rather than
+	 * Console manifest. `Hidden` keeps the class off the palette: the cli wires
+	 * its own writer, and a canvas has no terminal to write to. `has_target` is false because `fill()` writes rather than
 	 * forwards, so the canvas draws no out-port.
 	 *
 	 * @return array<string,mixed>

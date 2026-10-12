@@ -1889,9 +1889,11 @@ class RemoteConsumerNodeTest extends TestCase {
 	// Schema, DLQ triage.
 	// ---------------------------------------------------------------------
 
-	public function test_node_schema_is_hidden_with_the_reader_args_and_verbs(): void {
+	public function test_node_schema_is_off_the_palette_but_not_hidden_with_the_reader_args_and_verbs(): void {
 		$schema = Remote_Consumer_Node::node_schema();
-		$this->assertTrue( $schema['hidden'] );
+		$this->assertSame( 'Hidden', $schema['category'] );
+		$this->assertFalse( Node::hidden( $schema ), 'the console opens a reader from its broker' );
+		$this->assertFalse( Node::in_palette( $schema ) );
 		$this->assertSame( [ 'stamp', 'offsetlog_dir', 'deadletter_dir' ], \array_column( $schema['arguments'], 'name' ) );
 		$verbs = \array_column( $schema['commands'], 'name' );
 		foreach ( [ 'dl_list', 'dl_show', 'dl_requeue', 'dl_purge', 'add_snapshot_node', 'set_line_mode', 'seek_frame', 'pause', 'play', 'step', 'assume_clean_shutdown' ] as $verb ) {

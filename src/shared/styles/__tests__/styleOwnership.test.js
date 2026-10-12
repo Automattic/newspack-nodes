@@ -1773,15 +1773,12 @@ describe( 'canonical appearance ownership', () => {
 				'topology-console/styles/topology-console.scss'
 			)
 		);
-		for ( const className of [
-			'topology-open-item',
-			'topology-settings-panel__close',
+		for ( const [ stylesheet, className ] of [
+			[ graphStylesheet, 'topology-open-item' ],
+			[ consoleStylesheet, 'topology-settings-panel__close' ],
 		] ) {
 			expect(
-				declarationsForRepeatedButtonClass(
-					consoleStylesheet,
-					className
-				)
+				declarationsForRepeatedButtonClass( stylesheet, className )
 			).toEqual(
 				expect.objectContaining( {
 					'min-height': '0',

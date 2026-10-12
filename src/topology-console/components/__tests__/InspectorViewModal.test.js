@@ -12,7 +12,11 @@ import names from '../../../runtime/reserved-node-names.json';
 import { MetadataNode } from '../../../runtime/metadata-node';
 import InspectorViewModal from '../InspectorViewModal';
 
-beforeEach( () => Core.reset() );
+beforeEach( () => {
+	Core.reset();
+	// The scope a worker would answer from, here a sink that answers nothing.
+	Core.registerNode( names.CWD, { name: names.CWD, fill: () => {} } );
+} );
 
 // Seed the `_output` Dumper with a transcript the modal reads via useNodeState.
 function seedTranscript( entries ) {

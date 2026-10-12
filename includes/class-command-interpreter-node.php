@@ -14,7 +14,7 @@ namespace Newspack_Nodes;
  * Interprets TM_COMMAND messages and constructs the nodes they ask for.
  *
  * A process runs several of these — the main `_command_interpreter`, plus the
- * `{name}:config` sidecar every config-bearing node auto-wires — so nothing here
+ * `{name}:config` interpreter every config-bearing node auto-wires — so nothing
  * may assume it is the only one. `make_node` sinks each node it builds into the
  * interpreter that built it, which is what makes a bare `list_nodes` mean "the
  * nodes I made".
@@ -876,75 +876,93 @@ class Command_Interpreter_Node extends Node {
 	/**
 	 * `dump_metadata [<node>]` — the per-node snapshot the GUI canvas renders.
 	 *
-	 * Naming a node returns that node alone, or an empty map once it is gone, so a
-	 * refresh after one mutation costs a one-node round-trip. With no argument the
-	 * whole map comes back, carrying a `_header` row. A node `shown_on_canvas()`
-	 * refuses is omitted either way: a schema flagged `hidden`, and a patron's
-	 * sidecar unless its schema declares `shown_when_owned`, as a Table's does.
-	 * An owned row names its publisher under `owner`, because `remove_node`
-	 * and `move_node` refuse it.
+	 * Naming a node returns that node alone, or an empty map once it is gone or
+	 * its schema is `hidden`, so a refresh after one mutation costs a one-node
+	 * round-trip; it is how the console polls a sidecar its canvas never draws.
+	 * With no argument the whole map comes back, carrying a `_header` row and
+	 * leaving out every `owned()` node, then every `hidden` one, so an owned
+	 * node's schema is built once, by its owner's `sidecars()`. A node another
+	 * published names that publisher under `owner`, because `remove_node` and
+	 * `move_node` refuse it, and an owner's row lists its `sidecars()`.
 	 *
 	 * @param string $only Optional single node name to return.
 	 * @param string $pwd  Requesting session's reverse_cwd (inbound FROM); stamped into `_header` on a full snapshot.
 	 * @return array<string,array<string,mixed>>
 	 */
 	private static function cmd_dump_metadata( string $only = '', string $pwd = '' ): array {
+		if ( '' !== $only ) {
+			$node = Core::node( $only );
+			if ( null === $node ) {
+				return [];
+			}
+			$schema = $node::node_schema();
+			return Node::hidden( $schema ) ? [] : [ $only => self::metadata_row( $only, $node, $schema ) ];
+		}
 		$out = [];
 		/** @var \Newspack_Nodes\Node $node Each registered node. */
 		foreach ( Core::$nodes_by_name as $name => $node ) {
-			if ( '' !== $only && $name !== $only ) {
+			if ( $node->owned() ) {
 				continue;
 			}
 			$schema = $node::node_schema();
-			if ( ! $node->shown_on_canvas( $schema ) ) {
-				continue;
-			}
-			// SHELL name (GUI key), not class short-name (Echo_Node -> 'Echo').
-			$class = self::shell_name_for( $node );
-			$sink  = $node->sink();
-			$out[ $name ] = [
-				'class'         => $class,
-				'counter'       => $node->counter(),
-				'sink'          => $sink instanceof Node ? $sink->name() : '',
-				'target'        => $node->target(),
-				'targets'       => $node->display_targets(),
-				'debug_state'   => $node->debug_state(),
-				'arguments'     => $node->arguments(),
-				'lgst_msg'      => $node->largest_msg_sent(),
-				'bytes_read'    => $node->bytes_read(),
-				'bytes_written' => $node->bytes_written(),
-				'accepts_fill'  => $schema['accepts_fill'] ?? true,
-				'has_target'    => $schema['has_target'] ?? true,
-				// Has a `:config` sidecar; GUI must not synthesize it.
-				'has_config'    => isset( Core::$nodes_by_name[ "{$name}:config" ] ),
-			];
-			// The console withholds delete and rename from an owned node.
-			$owner = $node->publisher();
-			if ( null !== $owner ) {
-				$out[ $name ]['owner'] = $owner->name();
-			}
-			// Emit when non-empty, matching JS producer (PHP [] vs JS {}).
-			$registrations = $node->registered_listeners();
-			if ( [] !== $registrations ) {
-				$out[ $name ]['registrations'] = $registrations;
-			}
-			// `+=` so the hook can only add, never clobber a fixed key.
-			$extra = $node->dump_metadata();
-			if ( [] !== $extra ) {
-				$out[ $name ] += $extra;
+			if ( ! Node::hidden( $schema ) ) {
+				$out[ $name ] = self::metadata_row( $name, $node, $schema );
 			}
 		}
 		// Full-snapshot header: Profiling-toggle truth + reverse_cwd for GUIs.
-		if ( '' === $only ) {
-			$out['_header'] = [ 'profiling' => null !== Router_Node::profiles() ];
-			if ( '' !== $pwd ) {
-				$out['_header']['pwd'] = $pwd;
-			}
+		$out['_header'] = [ 'profiling' => null !== Router_Node::profiles() ];
+		if ( '' !== $pwd ) {
+			$out['_header']['pwd'] = $pwd;
 		}
 		return $out;
 	}
 
 	/**
+	 * One node's `dump_metadata` row.
+	 *
+	 * @param string              $name   The node's registered name.
+	 * @param Node                $node   The node.
+	 * @param array<string,mixed> $schema What its `node_schema()` answered.
+	 * @return array<string,mixed>
+	 */
+	private static function metadata_row( string $name, Node $node, array $schema ): array {
+		$sink = $node->sink();
+		$row  = [
+			// SHELL name (GUI key), not class short-name (Echo_Node -> 'Echo').
+			'class'         => self::shell_name_for( $node ),
+			'counter'       => $node->counter(),
+			'sink'          => $sink instanceof Node ? $sink->name() : '',
+			'target'        => $node->target(),
+			'targets'       => $node->display_targets(),
+			'debug_state'   => $node->debug_state(),
+			'arguments'     => $node->arguments(),
+			'lgst_msg'      => $node->largest_msg_sent(),
+			'bytes_read'    => $node->bytes_read(),
+			'bytes_written' => $node->bytes_written(),
+			'accepts_fill'  => $schema['accepts_fill'] ?? true,
+			'has_target'    => $schema['has_target'] ?? true,
+			// Has a `:config` interpreter; GUI must not synthesize it.
+			'has_config'    => isset( Core::$nodes_by_name[ "{$name}:config" ] ),
+		];
+		// The console withholds delete and rename from an owned node.
+		$owner = $node->publisher();
+		if ( null !== $owner ) {
+			$row['owner'] = $owner->name();
+		}
+		$sidecars = $node->sidecars();
+		if ( [] !== $sidecars ) {
+			$row['sidecars'] = $sidecars;
+		}
+		// Emit when non-empty, matching JS producer (PHP [] vs JS {}).
+		$registrations = $node->registered_listeners();
+		if ( [] !== $registrations ) {
+			$row['registrations'] = $registrations;
+		}
+		// `+=` so the hook can only add, never clobber a fixed key.
+		return $row + $node->dump_metadata();
+	}
+
+		/**
 	 * Registered shell name for a node instance or class.
 	 *
 	 * `make_node`/topology lines use the shell name (e.g. `Log`, `Tee`), which
@@ -1839,8 +1857,8 @@ class Command_Interpreter_Node extends Node {
 	 * `dump_config [<regex glob>]` — the graph as round-trippable config lines.
 	 *
 	 * Session scaffolding is skipped because every session already has it, and a
-	 * patron's or publisher's sidecars are skipped because that node's own line
-	 * rebuilds them — emitting both would construct each sidecar twice on replay.
+	 * patron's or publisher's siblings are skipped because that node's own line
+	 * rebuilds them — emitting both would construct each sibling twice on replay.
 	 *
 	 * @param string $glob Regex filter on node names; empty dumps every node.
 	 */

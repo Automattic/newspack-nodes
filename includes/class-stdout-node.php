@@ -171,9 +171,9 @@ class Stdout_Node extends Node {
 	}
 
 	/**
-	 * Console manifest. `Hidden` drops the class from the catalog, so it
-	 * reaches neither the palette nor the Inspector: a terminal writer is wired
-	 * by the cli or a topology line, never dragged onto a canvas. `has_target`
+	 * Console manifest. `Hidden` keeps the class off the palette: a terminal
+	 * writer is wired by the cli or a topology line, never dragged onto a
+	 * canvas. `has_target`
 	 * is false because `fill()` writes rather than forwards, so the canvas
 	 * draws no out-port; the omitted `accepts_fill` defaults to true, which is
 	 * the in-port.

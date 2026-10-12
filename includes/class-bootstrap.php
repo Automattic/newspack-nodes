@@ -1284,7 +1284,6 @@ class Bootstrap {
 			return false;
 		}
 		$part = new Partition_Node();
-		// patron() before name(): it refuses a node already named and wired.
 		$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
 		if ( null !== $ci ) {
 			$part->patron( $ci );

@@ -2152,24 +2152,6 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * Adopt a patron and keep the `:config` interpreter. An owner rebuilds the
-	 * Table from its own line, but configures none of its verbs: `stats`,
-	 * `flush` and the rest are the operator's, and `wp nodes tables` reaches
-	 * each Table at `{table}:config` by the name its topology declares, owned
-	 * or not. The schema's `shown_when_owned` keeps an owned Table on the
-	 * canvas for the same reason, beside an edge from its patron.
-	 *
-	 * @param Node|null $node The patron to adopt (null = pure getter).
-	 * @return Node|null The patron, or null when the Table stands on its own.
-	 */
-	public function patron( ?Node $node = null ): ?Node {
-		if ( null !== $node ) {
-			$this->patron = $node;
-		}
-		return $this->patron;
-	}
-
-	/**
 	 * Opt in to an in-memory accumulator tier, and set its bounds.
 	 *
 	 * @api Callers folding many updates into a value before persisting it.
@@ -2227,7 +2209,6 @@ class Table_Node extends Node {
 		return [
 			'category'         => 'Storage',
 			'description'      => 'Keyed KEY→VALUE store; write-through fill, cross-process lookup().',
-			'shown_when_owned' => true,
 			'arguments'        => [
 				[ 'name' => 'namespace', 'type' => 'string', 'required' => true, 'partition' => 'bound', 'description' => 'Scopes keys; lookup() reads by it.' ],
 				[ 'name' => 'ttl', 'type' => 'int', 'required' => true, 'description' => 'Entry TTL in seconds, at least 1; entries a write does not time take it.' ],

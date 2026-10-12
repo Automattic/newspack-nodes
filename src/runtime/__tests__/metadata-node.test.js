@@ -55,6 +55,21 @@ describe( 'Metadata node', () => {
 		expect( meta.edges ).toEqual( [ { from: 'n1', to: 'n2' } ] );
 	} );
 
+	it( 'publishes only a reply naming the subject it asks about now', () => {
+		const node = new MetadataNode();
+		node.subject = 'vat-2290:lid';
+		const late = msg( TM_STRUCT, { 'vat-2290:spout': { class: 'Echo' } } );
+		late[ TO ] = encodeURIComponent( 'vat-2290:spout' );
+		node.fill( late );
+		expect( node.metadata ).toBeNull();
+		const due = msg( TM_STRUCT, { 'vat-2290:lid': { class: 'Table' } } );
+		due[ TO ] = encodeURIComponent( 'vat-2290:lid' );
+		node.fill( due );
+		expect( node.metadata.nodes.map( ( n ) => n.id ) ).toEqual( [
+			'vat-2290:lid',
+		] );
+	} );
+
 	it( 'unwraps a {name,payload} command-response envelope', () => {
 		const node = new MetadataNode();
 		node.fill(

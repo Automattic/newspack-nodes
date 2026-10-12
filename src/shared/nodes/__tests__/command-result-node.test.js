@@ -188,6 +188,18 @@ describe( 'the subject rides in the address', () => {
 		expect( heard[ 0 ].subject ).toBe( 'tw0' );
 	} );
 
+	it( 'publishes an escaped subject as the sender named it', () => {
+		const node = new CommandResultNode();
+		const heard = heardOn( node );
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ TO ] = 'laptop%2F7%20mcp';
+		m[ VALUE ] = { name: 'create', arguments: [], payload: { ok: 1 } };
+		node.fill( m );
+
+		expect( heard[ 0 ].subject ).toBe( 'laptop/7 mcp' );
+	} );
+
 	it( 'publishes a null subject for a reply addressed to the node itself', () => {
 		const node = new CommandResultNode();
 		const heard = heardOn( node );

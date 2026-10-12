@@ -704,6 +704,32 @@ abstract class TestCase extends PHPUnitTestCase {
 		return null;
 	}
 
+	/**
+	 * Every patroned node in the registry whose class declares a verb that
+	 * wires — a handler, a toggle or a setter — carries its `{name}:config`, so
+	 * a sidecar's verbs reach it. Fails naming the node that has none, and
+	 * fails a graph holding no such node at all, which would check nothing.
+	 */
+	protected function assert_owned_nodes_keep_their_config(): void {
+		$checked = 0;
+		foreach ( Core::$nodes_by_name as $name => $node ) {
+			if ( ! $node->owned() || $node instanceof \Newspack_Nodes\Command_Interpreter_Node ) {
+				continue;
+			}
+			$wired = \array_filter(
+				\Newspack_Nodes\Command_Interpreter_Node::declared_verbs( $node::class ),
+				static fn ( array $verb ): bool => isset( $verb['handler'] ) || isset( $verb['toggle'] ) || isset( $verb['setter'] )
+			);
+			if ( [] === $wired ) {
+				continue;
+			}
+			++$checked;
+			$this->assertNotNull( $node->interpreter(), "{$name} (" . $node::class . ') is patroned and declares verbs, but has no :config' );
+			$this->assertSame( $node->interpreter(), Core::node( "{$name}:config" ), "{$name}:config is not {$name}'s own interpreter" );
+		}
+		$this->assertGreaterThan( 0, $checked, 'no patroned node declaring verbs was built, so nothing was checked' );
+	}
+
 	protected function pump_consumer( \Newspack_Nodes\Consumer_Node $c, int $max = 5000 ): void {
 		$ref = new \ReflectionClass( \Newspack_Nodes\Consumer_Node::class );
 		$eof = $ref->getProperty( 'at_eof' );

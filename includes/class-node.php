@@ -79,7 +79,7 @@ class Node {
 	 */
 	protected string $name = '';
 
-	/** Non-null marks this node as the patron's plumbing; see `shown_on_canvas()`. */
+	/** Non-null marks this node as the patron's plumbing; see `owned()`. */
 	protected ?Node $patron = null;
 
 	/** The node that published this one as an owned sibling, or null. */
@@ -232,8 +232,10 @@ class Node {
 	 * Siblings rank first because a squatted sibling slot is the harder
 	 * collision to diagnose from outside — the patron's own name is right there
 	 * in the topology — and the constructor-published `:config` interpreter
-	 * ranks LAST despite coming first by insertion order, derived scaffolding
-	 * being the least useful collision to report.
+	 * ranks LAST, after the node's own name too, despite coming first by
+	 * insertion order, derived scaffolding being the least useful collision to
+	 * report. An owned sibling keeps a `:config` of its own, so without that a
+	 * squatted `{name}:source` would report as its `:config`.
 	 *
 	 * It checks the siblings that EXIST, so it covers a RENAME fully and a lazy
 	 * patron's FIRST naming not at all: `make_node` runs `name()` before
@@ -257,10 +259,10 @@ class Node {
 				$sibling->check_name_availability( self::sibling_name_of( $name, $this->sibling_suffix( $kind ) ) );
 			}
 		}
-		$deferred?->check_name_availability( self::sibling_name_of( $name, $this->sibling_suffix( self::CONFIG_KIND ) ) );
 		if ( Core::node( $name ) !== null ) {
 			throw new \RuntimeException( \esc_html( "node name collision: {$name} already registered" ) );
 		}
+		$deferred?->check_name_availability( self::sibling_name_of( $name, $this->sibling_suffix( self::CONFIG_KIND ) ) );
 	}
 
 	/**
@@ -737,79 +739,50 @@ class Node {
 	}
 
 	/**
-	 * Whether the console canvas draws this node. A schema flagged `hidden`
-	 * never draws. A node with a patron is that patron's plumbing and draws
-	 * only when its schema declares `shown_when_owned`, as `Table_Node` does;
-	 * a patron that writes it declares it in `extra_targets()` for the edge.
-	 *
-	 * @param array<string,mixed> $schema What this node's `node_schema()` answered,
-	 *                                    which the caller builds once per node.
+	 * Whether a patron owns this node, which keeps it off the console canvas:
+	 * the console opens it from its owner's `sidecars()` instead.
 	 */
-	public function shown_on_canvas( array $schema ): bool {
-		if ( true === ( $schema['hidden'] ?? false ) ) {
-			return false;
-		}
-		return null === $this->patron() || true === ( $schema['shown_when_owned'] ?? false );
+	public function owned(): bool {
+		return null !== $this->patron();
 	}
 
 	/**
-	 * Patron getter/setter. Setting one is both the canvas-visibility flag and
-	 * the auto-wired interpreter's drop, so it MUST run before name(): a named
-	 * node has already registered `{name}:{config-slot}`, and taking a patron
-	 * then registers it only to tear it straight down again. Refused rather
-	 * than tolerated, because nothing else enforces that order.
+	 * The owned siblings the console opens from this node, sorted by name:
+	 * every published sibling with a patron but the `:config` interpreter,
+	 * whose verbs the node's own Inspector already sends, and any whose schema
+	 * is `hidden`. A published sibling with no patron, such as a Vault_Group's
+	 * child, draws on the canvas instead.
+	 *
+	 * @return list<array{name: string, class: string}>
+	 */
+	public function sidecars(): array {
+		$out = [];
+		foreach ( $this->siblings as $kind => $sibling ) {
+			if ( self::CONFIG_KIND !== $kind && $sibling->owned() && ! self::hidden( $sibling::node_schema() ) ) {
+				$out[] = [
+					'name'  => $sibling->name(),
+					'class' => Command_Interpreter_Node::shell_name_for( $sibling ),
+				];
+			}
+		}
+		\usort( $out, static fn ( array $a, array $b ): int => \strcmp( $a['name'], $b['name'] ) );
+		return $out;
+	}
+
+	/**
+	 * Patron getter/setter. A patron marks this node owned — off the canvas,
+	 * listed in its owner's `sidecars()` — and changes nothing else: the node
+	 * keeps its `{name}:config` interpreter, so its verbs reach it whoever
+	 * owns it, and the patron may be set before or after `name()`.
 	 *
 	 * @param Node|null $node The patron to adopt (null = pure getter).
 	 * @return Node|null The patron, or null when the node stands on its own.
-	 * @throws \RuntimeException When the node is already named and wired.
 	 */
 	public function patron( ?Node $node = null ): ?Node {
 		if ( null !== $node ) {
-			if ( '' !== $this->name && null !== $this->interpreter ) {
-				throw new \RuntimeException(
-					\esc_html(
-						static::class . '::patron() must be set before name(): '
-						. $this->sibling_name( self::CONFIG_KIND )
-						. ' is registered already and would be torn down.'
-					)
-				);
-			}
 			$this->patron = $node;
-			$this->retract_sibling( self::CONFIG_KIND );
-			$this->interpreter = null;
 		}
 		return $this->patron;
-	}
-
-	/**
-	 * Tear the sibling in a slot down and empty the slot — the exact inverse of
-	 * `publish_sibling()`, which owns the name as well as the slot. Forgetting
-	 * one without unregistering the other is the bug in both directions: a slot
-	 * the four cascades still reach re-registers a dead sibling under the new
-	 * name, and a name the registry still holds refuses the slot's next
-	 * occupant for the life of the process. A no-op on an empty slot.
-	 *
-	 * A teardown that throws empties the slot whenever it got as far as tearing
-	 * the sibling down — `remove_node()` unregisters and drops the publisher
-	 * before raising what its own siblings threw — because a slot still holding
-	 * that dead node re-registers it on the next rename and refuses the next
-	 * publish as occupied. A sibling that refused before tearing down is still
-	 * registered and still names this node its publisher, so it keeps the slot
-	 * for a later retraction: dropping it would strand a live, registered node
-	 * no cascade reaches.
-	 *
-	 * @param string $kind The kind the slot was published under.
-	 * @throws \Throwable What the sibling's teardown threw.
-	 */
-	protected function retract_sibling( string $kind ): void {
-		$sibling = $this->siblings[ $kind ] ?? null;
-		try {
-			$sibling?->remove_node();
-		} finally {
-			if ( $this !== $sibling?->publisher ) {
-				unset( $this->siblings[ $kind ] );
-			}
-		}
 	}
 
 	/**
@@ -994,6 +967,59 @@ class Node {
 	public static function refuse_target_on( string $class, string $name ): void {
 		if ( false === ( $class::node_schema()['has_target'] ?? true ) ) {
 			throw new \RuntimeException( \esc_html( "{$name} takes no target: " . Command_Interpreter_Node::shell_name_for( $class ) . ' declares has_target false' ) );
+		}
+	}
+
+	/**
+	 * Whether a schema puts its class on the console palette: a category that
+	 * is neither empty nor `Hidden`, and no `hidden` flag. Only these may
+	 * declare `owns`.
+	 *
+	 * @param array<string,mixed> $schema A class's `node_schema()`.
+	 * @return bool True when the palette lists the class.
+	 */
+	public static function in_palette( array $schema ): bool {
+		$category = $schema['category'] ?? '';
+		return '' !== $category && 'Hidden' !== $category && ! self::hidden( $schema );
+	}
+
+	/**
+	 * Whether a schema keeps its class off every console surface.
+	 *
+	 * @param array<string,mixed> $schema A class's `node_schema()`.
+	 */
+	public static function hidden( array $schema ): bool {
+		return true === ( $schema['hidden'] ?? false );
+	}
+
+	/**
+	 * Tear the sibling in a slot down and empty the slot — the exact inverse of
+	 * `publish_sibling()`, which owns the name as well as the slot. Forgetting
+	 * one without unregistering the other is the bug in both directions: a slot
+	 * the four cascades still reach re-registers a dead sibling under the new
+	 * name, and a name the registry still holds refuses the slot's next
+	 * occupant for the life of the process. A no-op on an empty slot.
+	 *
+	 * A teardown that throws empties the slot whenever it got as far as tearing
+	 * the sibling down — `remove_node()` unregisters and drops the publisher
+	 * before raising what its own siblings threw — because a slot still holding
+	 * that dead node re-registers it on the next rename and refuses the next
+	 * publish as occupied. A sibling that refused before tearing down is still
+	 * registered and still names this node its publisher, so it keeps the slot
+	 * for a later retraction: dropping it would strand a live, registered node
+	 * no cascade reaches.
+	 *
+	 * @param string $kind The kind the slot was published under.
+	 * @throws \Throwable What the sibling's teardown threw.
+	 */
+	protected function retract_sibling( string $kind ): void {
+		$sibling = $this->siblings[ $kind ] ?? null;
+		try {
+			$sibling?->remove_node();
+		} finally {
+			if ( $this !== $sibling?->publisher ) {
+				unset( $this->siblings[ $kind ] );
+			}
 		}
 	}
 
@@ -1207,19 +1233,6 @@ class Node {
 	}
 
 	/**
-	 * Whether a schema puts its class on the console palette: a category that
-	 * is neither empty nor `Hidden`, and no `hidden` flag. The class catalog
-	 * lists only these, so only these may declare `owns`.
-	 *
-	 * @param array<string,mixed> $schema A class's `node_schema()`.
-	 * @return bool True when the palette lists the class.
-	 */
-	public static function in_palette( array $schema ): bool {
-		$category = $schema['category'] ?? '';
-		return '' !== $category && 'Hidden' !== $category && empty( $schema['hidden'] );
-	}
-
-	/**
 	 * The arguments of the owned Table `$suffix` that a `make_node` of this
 	 * class builds, read by the analyzer without building a node. A class
 	 * whose `owns` declares a Table overrides it.
@@ -1238,10 +1251,11 @@ class Node {
 	 * Topology console manifest: the palette entry and the node's configuration
 	 * form. A subclass overrides it to declare its positional arguments, verbs,
 	 * registrations, category and description. Under `owns` it names the
-	 * siblings the console draws as owned, suffix to class; only a class
-	 * `in_palette()` may declare them, because the editor reads them off the
-	 * class catalog. The empty category the base returns keeps a node out of
-	 * the palette, which is what a pure plumbing node wants.
+	 * siblings the topology analyzer must know it builds, suffix to class; only
+	 * a class `in_palette()` may declare them. The empty category the base
+	 * returns keeps a node out of the palette and the class catalog, which is
+	 * what a pure plumbing node wants; a `Hidden` category keeps it off the
+	 * palette alone, and a `hidden` flag off every console surface.
 	 *
 	 * @return array<string,mixed>
 	 */

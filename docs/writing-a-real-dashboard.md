@@ -22,19 +22,19 @@ Each is a seam where the toy's assumptions stop holding. The sections below take
 
 The toy's `Insights_CI` declares `'category' => 'Service'` and you move on. Here is what that one string does.
 
-![The catalog gate as two decision rails. Classes_CI_Node::cmd_dump asks three questions of every concrete *_Node under a registered namespace — category Hidden, category empty (no node_schema() at all, as SSE_Out_Node), or 'hidden' => true (a real category opted out, as SSE_In_Node under I/O) — and a yes on any drops the class from the catalog entirely, which leaves the Inspector's catalog.find() undefined and its Verbs section empty. CatalogProvider publishes the one array to the Palette, which keeps Service and Remote off as NON_DRAGGABLE_CATEGORIES, and to the Inspector, which renders commands as signed command buttons and requests as LOCAL request buttons. Beside them sits the browser's second catalog, built by useJsCatalog() from includeNodes and read once at first render. Beneath: what to declare (Transform or Source for a tile and verbs, Service for verbs without a tile, Hidden for neither, and 'Hidden' where 'Service' was meant as the first thing to check when a CI shows no buttons), and the per-verb flags hidden, multiple and action.](img/wrd-catalog-gate.png)
+![The catalog gate as two decision rails. Classes_CI_Node::cmd_dump asks two questions of every concrete *_Node under a registered namespace — category empty (no node_schema() at all, as SSE_Out_Node), or 'hidden' => true (a real category opted out, as SSE_In_Node under I/O) — and a yes on either drops the class from the catalog entirely, which leaves the Inspector's catalog.find() undefined and its Verbs section empty. CatalogProvider publishes the one array to the Palette, which keeps Service, Remote and Hidden off as NON_DRAGGABLE_CATEGORIES, and to the Inspector, which renders commands as signed command buttons and requests as LOCAL request buttons. Beside them sits the browser's second catalog, built by useJsCatalog() from includeNodes and read once at first render. Beneath: what to declare (Transform or Source for a tile and verbs, Service or Hidden for verbs without a tile, the hidden flag or no schema for neither), and the per-verb flags hidden, multiple and action.](img/wrd-catalog-gate.png)
 
-`Classes_CI_Node::cmd_dump` builds the catalog every worker-facing surface reads. It scans every registered composer classmap for concrete `*_Node` classes under a registered namespace, inlines the serializable half of each `node_schema()`, and — the line that matters — **drops a class on any of three conditions** ([`includes/rest/class-classes-ci-node.php`](../includes/rest/class-classes-ci-node.php)):
+`Classes_CI_Node::cmd_dump` builds the catalog every worker-facing surface reads. It scans every registered composer classmap for concrete `*_Node` classes under a registered namespace, inlines the serializable half of each `node_schema()`, and — the line that matters — **drops a class on either of two conditions** ([`includes/rest/class-classes-ci-node.php`](../includes/rest/class-classes-ci-node.php)):
 
 ```php
 $cat    = $schema['category'] ?? '';
-// (d) skip non-palette: Hidden, empty category, or hidden flag.
-if ( 'Hidden' === $cat || '' === $cat || ! empty( $schema['hidden'] ) ) {
+// (d) skip a class with no category, or a hidden one.
+if ( '' === $cat || Node::hidden( $schema ) ) {
 	continue;
 }
 ```
 
-Any one removes the class from the catalog **entirely**. `SSE_Out_Node`, a pure HTTP response writer, never overrides `node_schema()`, so it inherits `Node::node_schema()`'s empty category; `SSE_In_Node` declares `'category' => 'I/O'` with `'hidden' => true`, because a patron node configures it programmatically.
+Either one removes the class from the catalog **entirely**. A `'Hidden'` category stays: the palette leaves it out, and the Inspector reads its verbs and arguments, which a sidecar such as a broker's `Remote_Consumer` needs. `SSE_Out_Node`, a pure HTTP response writer, never overrides `node_schema()`, so it inherits `Node::node_schema()`'s empty category; `SSE_In_Node` declares `'category' => 'I/O'` with `'hidden' => true`, because a patron node configures it programmatically.
 
 "Entirely" is the gotcha, because that *same array* reaches two surfaces. `CatalogProvider` publishes it once as `classes`, and each surface reads it from context rather than down a prop chain ([`src/topology-console/CatalogContext.js`](../src/topology-console/CatalogContext.js)):
 
@@ -45,7 +45,7 @@ const { classes, topologies } = useCatalog();
 const { classes: catalog, formatters, vaults, composeTargets } = useCatalog();
 ```
 
-`CatalogProvider` carries six catalogs in all: `classes` and `topologies` for the palette's two kinds of tile, `formatters` and `vaults` behind the argument pickers below, `composeTargets` for the Compose modal's "To" list — left `undefined` rather than empty, so the Inspector can tell an unsupplied list from a supplied empty one and fall back to the ids of the graph on screen — and `classCatalog`, the shell-name-keyed schema map the canvas reads its port flags out of. Both real hosts do supply it, and both build it with `buildComposeTargets` ([`src/topology-console/utils/composeTargets.js`](../src/topology-console/utils/composeTargets.js)) from that same viewed graph — the console passes `parsed.nodes`, the overlay's Console tab `graph.nodes` — never from `Core.nodes`, which at a remote worker cwd holds the browser's own scaffolding, `SseIn` and `HttpOut` and the rest, rather than the worker's nodes. `_command_interpreter` leads the list, because the Compose modal preselects the first entry and `parseMetadata` hides the backbone from every rendered graph, so nothing else would ever offer it as a destination. Each remaining node contributes its own id, plus a `<id>:config` sidecar only where the node reports `has_config`; a node with no id is skipped, and the rest are deduplicated and sorted. Synthesizing the sidecar for every node would fill the list with addresses no `:config` sibling is registered at. `useCatalog()` throws outside a provider instead of serving empty ones, because an empty `classes` reads as a broken topology rather than as a missing `CatalogProvider`.
+`CatalogProvider` carries six catalogs in all: `classes` and `topologies` for the palette's two kinds of tile, `formatters` and `vaults` behind the argument pickers below, `composeTargets` for the Compose modal's "To" list — left `undefined` rather than empty, so the Inspector can tell an unsupplied list from a supplied empty one and fall back to the ids of the graph on screen — and `classCatalog`, the shell-name-keyed schema map the canvas reads its port flags out of. Both real hosts do supply it, and both build it with `buildComposeTargets` ([`src/topology-console/utils/composeTargets.js`](../src/topology-console/utils/composeTargets.js)) from that same viewed graph — the console passes `parsed.nodes`, the overlay's Console tab `graph.nodes` — never from `Core.nodes`, which at a remote worker cwd holds the browser's own scaffolding, `SseIn` and `HttpOut` and the rest, rather than the worker's nodes. `_command_interpreter` leads the list, because the Compose modal preselects the first entry and `parseMetadata` hides the backbone from every rendered graph, so nothing else would ever offer it as a destination. Each remaining node contributes its own id, plus its `<id>:config` interpreter only where the node reports `has_config`; a node with no id is skipped, and the rest are deduplicated and sorted. Synthesizing that address for every node would fill the list with addresses no `:config` sibling is registered at. `useCatalog()` throws outside a provider instead of serving empty ones, because an empty `classes` reads as a broken topology rather than as a missing `CatalogProvider`.
 
 The Palette renders draggable class tiles from it. The Inspector renders a selected node's verb buttons by looking the node's class up in it ([`src/topology-console/components/Inspector.js`](../src/topology-console/components/Inspector.js), where `type` is `node.class`):
 
@@ -57,7 +57,7 @@ const commands = ( schema && schema.commands ? schema.commands : [] ).filter(
 const requests = schema && schema.requests ? schema.requests : [];
 ```
 
-One array, two consumers: **`category: 'Hidden'` hides your class from the palette AND blanks its inspector verb buttons**, which for a Service CI is exactly backwards.
+One array, two consumers: **`'hidden' => true`, or no category, hides your class from the palette AND blanks its inspector verb buttons**, which for a Service CI is exactly backwards; `'Service'` and `'Hidden'` cost the tile alone.
 
 ### Why a Service CI shouldn't be draggable
 
@@ -91,7 +91,7 @@ Seven more catalog fields drive the console's own editors. A class declares five
 | `accepts_fill` | the schema, default `true` | Whether the node takes an inbound message; the palette tile and the canvas both draw the IN port from it. |
 | `has_target` | the schema, default `true` | Whether the node routes outbound at all; the inspector hides the Routing row without it, and the canvas gates its OUT port on the same answer. |
 | `registrations` | the schema, default `[]` | Which register events the class accepts; the inspector offers exactly those in its "Register a listener" modal, and hides the button entirely for a class declaring none. |
-| `owns` | the schema, default `[]` | The siblings the console draws as owned, suffix to class — a Crawler names its `seen` Table and not the Curl it also builds; the editor draws each beside its owner as `{owner}:{suffix}`, read-only, and `topologies get` lists them as `owned`. Only a palette class may declare it, and a class owning a `Table` (or a subclass) must override `owned_table( $suffix, $owner, $arguments )` to give the analyzer that Table's namespace, TTL and backend from its own `make_node` arguments. |
+| `owns` | the schema, default `[]` | The siblings the analyzer must know a class builds, suffix to class — a Crawler names its `seen` Table and not the Curl it also builds; `topologies get` lists them as `owned`, named `{owner}:{suffix}`. No canvas draws them: like every owned node they open from the owner's "…" in the Inspector. Only a palette class may declare it, and a class owning a `Table` (or a subclass) must override `owned_table( $suffix, $owner, $arguments )` to give the analyzer that Table's namespace, TTL and backend from its own `make_node` arguments. |
 | `is_interpreter` | derived: the class extends `Command_Interpreter_Node` | Where §2's command buttons address — the node itself rather than its `:config` sibling. |
 | `fans_out` | derived: the class uses the `Fanout_Targets` trait | Whether the target is a LIST, which makes the inspector render target chips instead of a single field. |
 
@@ -155,7 +155,7 @@ None of these is a `TM_COMMAND` verb dispatched through the interpreter's verb t
 </Section>
 ```
 
-Empty both lists and the Verbs section returns `null`, which is how a `'Hidden'` category erases the whole panel rather than leaving an empty heading. Both button kinds are labelled with the bare verb name; the `kind` shows in the tooltip, which reads `Send TM_REQUEST <name>` for a request whose spec declares no description of its own. The kind also decides three things at dispatch ([`src/topology-console/hooks/useGraphHandlers.js`](../src/topology-console/hooks/useGraphHandlers.js)):
+Empty both lists and the Verbs section returns `null`, which is how a `hidden` schema erases the whole panel rather than leaving an empty heading. Both button kinds are labelled with the bare verb name; the `kind` shows in the tooltip, which reads `Send TM_REQUEST <name>` for a request whose spec declares no description of its own. The kind also decides three things at dispatch ([`src/topology-console/hooks/useGraphHandlers.js`](../src/topology-console/hooks/useGraphHandlers.js)):
 
 | | `kind="command"` | `kind="request"` |
 |---|---|---|
@@ -541,7 +541,7 @@ How an empty bucket reads belongs to the metric, and `METRICS` in [`topicProbeSe
 
 | The shared surface | The contract it imposes |
 |---|---|
-| `Classes_CI`'s one catalog, feeding Palette and Inspector | `'Hidden'`/`''` drops from BOTH; `'Service'` is palette-only-hidden, inspector-kept |
+| `Classes_CI`'s one catalog, feeding Palette and Inspector | `'hidden' => true` or `''` drops from BOTH; `'Service'` and `'Hidden'` are palette-only-hidden, inspector-kept |
 | `node_schema['requests']` | `TM_REQUEST` triggers render as `kind="request"` buttons, addressed to the node; `commands` go to `<node>:config` unless the class is an interpreter |
 | `ReplFooter` `maxHeightPx` | each host MEASURES its own frame, and the overlay its tab bar besides; viewport math drifts |
 | `WP_EXTERNALS` | externalize ONLY packages WP registers as runtime scripts (icons, d3 and `@noble/hashes` are bundled) |

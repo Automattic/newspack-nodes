@@ -38,7 +38,6 @@ import {
 } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { invalidateExpandedIncludes } from '../hooks/useExpandedIncludes';
 import { LAYOUT_AUTO } from '../hooks/useCanvasLayout';
-import { renderWithCatalog } from './catalogTestUtils';
 
 // Pre-seed window.NewspackNodesData for the module-level IIFEs.
 window.NewspackNodesData = {
@@ -576,10 +575,6 @@ jest.mock( '../components/Inspector', () => ( props ) => {
 		</div>
 	);
 } );
-// Loaded with the file: its module graph costs ~0.5s, past a test's budget.
-const { default: RealInspector } = jest.requireActual(
-	'../components/Inspector'
-);
 // Console portals controls via the named HeaderControls export.
 jest.mock( '../../shared/components/Header', () => ( {
 	__esModule: true,
@@ -4171,89 +4166,10 @@ describe( 'TopologyConsole boot', () => {
 		} );
 	} );
 
-	describe( 'owned nodes in edit mode', () => {
+	describe( 'edit mode and the class catalog', () => {
 		const patronClasses = [
-			{
-				shell_name: 'Wombat_Patron',
-				arguments: [],
-				commands: [],
-				owns: { ledger: 'Wombat_Ledger' },
-			},
-			{
-				shell_name: 'Wombat_Ledger',
-				arguments: [ { name: 'ledger_ns', type: 'string' } ],
-				commands: [
-					{ name: 'set_ledger_ttl', args: [ { name: 'seconds' } ] },
-				],
-			},
+			{ shell_name: 'Wombat_Patron', arguments: [], commands: [] },
 		];
-
-		// `owned` is the server's list; edit mode derives its own from the draft.
-		async function openForEdit( tsl, owned = [] ) {
-			globalThis.__catalog.classes = patronClasses;
-			hooks.fetchTopology.mockResolvedValueOnce( {
-				tsl,
-				name: 'demo',
-				owned,
-			} );
-			window.history.replaceState( {}, '', '/?topology=demo' );
-			const rendered = render( <TopologyConsole /> );
-			await act( async () => {
-				fireEvent.click( rendered.getByText( 'edit' ) );
-			} );
-			return rendered;
-		}
-
-		const openPatronForEdit = () =>
-			openForEdit( 'make_node Wombat_Patron patron-5823\n' );
-
-		const paintedIds = () =>
-			mockCanvasProps.parsed.nodes.map( ( n ) => n.id );
-
-		it( "paints the owner's declared sibling, wired from its owner", async () => {
-			await openPatronForEdit();
-
-			const { nodes, edges } = mockCanvasProps.parsed;
-			expect(
-				nodes.find( ( n ) => n.id === 'patron-5823:ledger' )
-			).toMatchObject( { class: 'Wombat_Ledger', owner: 'patron-5823' } );
-			expect(
-				edges.filter(
-					( e ) =>
-						e.from === 'patron-5823' &&
-						e.to === 'patron-5823:ledger'
-				)
-			).toHaveLength( 1 );
-		} );
-
-		it( 'moves the owned node with a renamed owner', async () => {
-			await openPatronForEdit();
-			await act( async () => {
-				mockCanvasProps.onPositionChange( 'patron-5823:ledger', {
-					x: 836,
-					y: 412,
-				} );
-			} );
-			await act( async () => {
-				mockCanvasProps.onSelect( 'patron-5823' );
-			} );
-			await act( async () => {
-				lastInspectorProps.onRenameNode( 'patron-5823', 'patron-9104' );
-			} );
-
-			expect(
-				mockCanvasProps.parsed.nodes.find(
-					( n ) => n.id === 'patron-9104:ledger'
-				)
-			).toMatchObject( { owner: 'patron-9104' } );
-			expect( paintedIds() ).not.toContain( 'patron-5823:ledger' );
-			expect(
-				mockCanvasProps.positionOverrides[ 'patron-9104:ledger' ]
-			).toEqual( { x: 836, y: 412 } );
-			expect(
-				mockCanvasProps.positionOverrides[ 'patron-5823:ledger' ]
-			).toBeUndefined();
-		} );
 
 		it( 'lays nothing out in edit mode until the class catalog loads', async () => {
 			globalThis.__catalog = {
@@ -4276,126 +4192,6 @@ describe( 'TopologyConsole boot', () => {
 				globalThis.__catalogBump();
 			} );
 			expect( queryByTestId( 'canvas' ) ).not.toBeNull();
-		} );
-
-		it( 'gives a newly made owner its owned node', async () => {
-			await openPatronForEdit();
-			await act( async () => {
-				lastPaletteProps.onDropNode( {
-					shellName: 'Wombat_Patron',
-					x: 412,
-					y: 236,
-				} );
-			} );
-
-			const made = mockCanvasProps.parsed.nodes.find(
-				( n ) => 'Wombat_Patron' === n.class && 'patron-5823' !== n.id
-			);
-			expect( paintedIds() ).toContain( `${ made.id }:ledger` );
-		} );
-
-		it( "gives no owned node to an Echo renamed to a former owner's name", async () => {
-			await openForEdit(
-				'make_node Wombat_Patron patron-5823\nmake_node Echo echo-3307\n',
-				[
-					{
-						name: 'patron-5823:ledger',
-						class: 'Wombat_Ledger',
-						owner: 'patron-5823',
-					},
-				]
-			);
-			await act( async () => {
-				mockCanvasProps.onSelect( 'patron-5823' );
-			} );
-			await act( async () => {
-				lastInspectorProps.onRemoveNode( 'patron-5823' );
-			} );
-			await act( async () => {
-				mockCanvasProps.onSelect( 'echo-3307' );
-			} );
-			await act( async () => {
-				lastInspectorProps.onRenameNode( 'echo-3307', 'patron-5823' );
-			} );
-
-			expect( paintedIds() ).toContain( 'patron-5823' );
-			expect( paintedIds() ).not.toContain( 'patron-5823:ledger' );
-		} );
-
-		it( "Save layout persists the owned node's position", async () => {
-			hooks.saveLayout.mockResolvedValueOnce( {
-				name: 'demo',
-				positions: { 'patron-5823:ledger': [ 712, 344 ] },
-			} );
-			const { getByText } = await openPatronForEdit();
-			await act( async () => {
-				mockCanvasProps.onPositionChange( 'patron-5823:ledger', {
-					x: 712,
-					y: 344,
-				} );
-			} );
-			await act( async () => {
-				fireEvent.click( getByText( 'save-layout' ) );
-			} );
-
-			expect(
-				hooks.saveLayout.mock.calls[ 0 ][ 0 ].positions[
-					'patron-5823:ledger'
-				]
-			).toEqual( [ 712, 344 ] );
-		} );
-
-		it( 'never writes the owned node into the saved .tsl', async () => {
-			const { getByText } = await openPatronForEdit();
-			await act( async () => {
-				fireEvent.click( getByText( 'save' ) );
-			} );
-			await act( async () => {
-				fireEvent.click( getByText( 'prompt-ok' ) );
-			} );
-
-			const tsl = hooks.saveTopology.mock.calls[ 0 ][ 0 ].tsl;
-			expect( tsl ).toContain( 'patron-5823' );
-			expect( tsl ).not.toContain( 'patron-5823:ledger' );
-		} );
-
-		it( 'saves no line for an owned node, however its Inspector is poked', async () => {
-			const { getByText } = await openPatronForEdit();
-			await act( async () => {
-				mockCanvasProps.onSelect( 'patron-5823:ledger' );
-			} );
-			expect( lastInspectorProps.selectedId ).toBe(
-				'patron-5823:ledger'
-			);
-			const { container } = renderWithCatalog(
-				<RealInspector { ...lastInspectorProps } />,
-				{ classes: patronClasses }
-			);
-			expect( container.textContent ).toMatch( /Owned by patron-5823/ );
-			expect( container.textContent ).not.toMatch( /Constructor/ );
-			expect( container.textContent ).not.toMatch( /Verbs/ );
-			const enabled = container.querySelectorAll(
-				'input:not([disabled]), select:not([disabled]), textarea:not([disabled])'
-			);
-			await act( async () => {
-				enabled.forEach( ( field ) =>
-					'checkbox' === field.type
-						? fireEvent.click( field )
-						: fireEvent.change( field, {
-								target: { value: 'poke-7731' },
-						  } )
-				);
-			} );
-			await act( async () => {
-				fireEvent.click( getByText( 'save' ) );
-			} );
-			await act( async () => {
-				fireEvent.click( getByText( 'prompt-ok' ) );
-			} );
-
-			const tsl = hooks.saveTopology.mock.calls[ 0 ][ 0 ].tsl;
-			expect( tsl ).toContain( 'patron-5823' );
-			expect( tsl ).not.toContain( 'patron-5823:ledger' );
 		} );
 	} );
 

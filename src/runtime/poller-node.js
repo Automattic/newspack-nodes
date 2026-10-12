@@ -2,9 +2,11 @@
  * Poller — the self-timed verb poller every console readout is built on.
  *
  * One mechanism: ride the `_router` TIMER, mint the configured verb as a
- * command to `target`, and publish the reply into a node field. `command()` stamps
- * FROM=name, so the reply comes back TO=FROM to this node's `fill()` (ADR-7) —
- * the addressing IS the correlation, and nothing here correlates anything.
+ * command to `target`, and publish the reply into a node field. FROM is the
+ * node's name, with its `subject` appended as one escaped segment when it asks
+ * about one (`replyAddress()`), so the reply comes back TO=FROM to this node's
+ * `fill()` naming what it answers (ADR-7) — the addressing IS the correlation,
+ * and nothing here correlates anything.
  *
  * A subclass supplies `publish()`: what the reply MEANS. `DmesgNode` tallies a
  * stderr tail by level for the inspector's process-stats header, `UptimeNode`
@@ -15,7 +17,8 @@
 
 import { ReactBridge } from './react-bridge';
 import { TimerNode } from './timer-node';
-import { VALUE, payloadOf } from './message';
+import { FROM, VALUE, payloadOf } from './message';
+import { replyAddress, replySubject } from './reply-subject';
 
 /**
  * Default cadence in milliseconds, deliberately slow: a poll reply carries a
@@ -59,6 +62,13 @@ export class PollerNode extends ReactBridge( TimerNode ) {
 		this.pollArgs = [];
 		this.pollIntervalMs = POLL_INTERVAL_MS;
 		/**
+		 * What the poll asks about, ridden on FROM as one encoded segment so
+		 * the reply comes back naming it; null rides none.
+		 *
+		 * @type {?string}
+		 */
+		this.subject = null;
+		/**
 		 * The last structured reply, null before the first.
 		 *
 		 * @type {?Object|?Array}
@@ -77,14 +87,16 @@ export class PollerNode extends ReactBridge( TimerNode ) {
 	 */
 	fill( message ) {
 		this.counter++;
-		const value = message[ VALUE ];
-		this.publish( payloadOf( value ) );
+		if ( this.answersSubject( message ) ) {
+			this.publish( payloadOf( message[ VALUE ] ) );
+		}
 	}
 
 	/**
 	 * One tick: mint the configured poll and emit it to `this.target`. A
-	 * mounting view also calls this directly right after arming, so the first
-	 * reading lands without waiting out a whole interval.
+	 * mounting view wanting its first reading now marks the poller due and
+	 * asks the Router for a tick (`armTimer()`), so it rides that tick's POST;
+	 * a reload may call it directly, as the topology catalog's does.
 	 *
 	 * A sinkless node, and a tick whose mint is refused, emit nothing and
 	 * count nothing — `counter` is messages passed on.
@@ -104,8 +116,23 @@ export class PollerNode extends ReactBridge( TimerNode ) {
 			this.markDue();
 			return; // unauthenticated; the next tick carries it
 		}
+		m[ FROM ] = replyAddress( this.name, this.subject );
 		this.counter++;
 		this.sink.fill( m );
+	}
+
+	/**
+	 * Whether a reply answers the subject asked about now: the Router leaves
+	 * the subject a poll rode on FROM as the reply's remaining TO, so a late
+	 * answer about a subject since replaced names that one and is dropped.
+	 *
+	 * @param {Array} message The reply as it reached this node.
+	 * @return {boolean} True when it may publish.
+	 */
+	answersSubject( message ) {
+		return (
+			null === this.subject || replySubject( message ) === this.subject
+		);
 	}
 
 	/**

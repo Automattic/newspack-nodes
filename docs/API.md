@@ -666,23 +666,19 @@ The whole payload is informational — the runtime is the Shell's `include` — 
 it is the topology console's edit-mode baseline.
 
 `topologies get <name>` returns `{ name, source, tsl, includes, expanded,
-resolved_config_edges, owned }`, and its `expanded` is that same shape built from the
+resolved_config_edges }`, and its `expanded` is that same shape built from the
 file's DIRECT includes alone: it holds the borrowed members and none of the
 file's own lines, which is what lets the editor render a borrowed node as
-borrowed. `--group_children` governs `expanded` alone: `resolved_config_edges` and `owned`
-come from the member-bearing walk. `resolved_config_edges` covers the whole topology, because a
+borrowed. `--group_children` governs `expanded` alone: `resolved_config_edges`
+comes from the member-bearing walk. `resolved_config_edges` covers the whole topology, because a
 config verb pointed at a `<namespace:key>` token names an edge only the server
 can resolve. A client parsing a document that carries such a token must treat a
 response without that list as fatal rather than wire an edge to the literal
 token text; the console's document loader throws there, and
 [`augmentWithVirtualEdges()`](../src/topology-console/utils/virtualEdges.js) draws no edge at all for a token the server resolved
-to nothing. `owned` covers the whole topology too: one `{ name, class, owner }`
-per node an owner builds for itself and no line declares — each sibling its
-class's `node_schema()['owns']` names, such as a Crawler's `{name}:seen` Table —
-which the console's view-mode seed draws beside its owner, wired from it, and
-treats a response without the list as fatal. The editor reads the same
-declaration off the class catalog instead, so the owned nodes it draws follow
-the draft as it is edited.
+to nothing. A node an owner builds for itself, such as a Crawler's
+`{name}:seen` Table, is in no reply: no canvas draws one, and it opens from
+the "…" on its owner's card.
 
 **`aggregator` — one `id` field, two meanings.** `list_servers` returns one
 row per wired [`Remote_Source`](../includes/class-remote-source-node.php), keyed by the NODE name in `id` and carrying the
@@ -780,19 +776,29 @@ canvas which ports to draw. `has_target: false` is also enforced:
 [`Node::refuse_target_on()`](../includes/class-node.php) refuses a target set on such a class,
 through `target()` or `connect_node`, a `Vault_Group` refuses one its child class would
 refuse, and `Topology_Analyzer` refuses a topology carrying one. A node another node published adds `owner`, the
-publisher's name, and the console offers no delete or rename on its card,
-because `remove_node` and `move_node` refuse it. A node with registered
-listeners adds `registrations`, and a node's own `dump_metadata()` may add
-further keys — never clobbering a fixed one. `Node::shown_on_canvas()` decides which nodes appear,
-and the browser producer `dumpMetadataPayload()` applies the same rule: a schema
-flagged `hidden` never does, and a node with a patron is the patron's plumbing
-and is omitted unless its schema declares `shown_when_owned`. `Table_Node` is the
-one class that does, so an owned Table, such as a Crawler's `{name}:seen`, draws
-as an ordinary Table card, its `has_config` true, with an edge from a patron that
-declares it in `extra_targets()`, as `Crawler_Node` does,
-while the Crawler's `:curl` and every `:config` interpreter stay hidden. A full snapshot
-(no node named) also carries a `_header` entry holding `profiling` and, when the
-command supplied one, `pwd`.
+publisher's name, and the console offers no delete or rename for it, because
+`remove_node` and `move_node` refuse it. A node with registered listeners adds
+`registrations`, and a node's own `dump_metadata()` may add further keys —
+never clobbering a fixed one.
+
+A full snapshot (no node named) leaves out every
+[`Node::owned()`](../includes/class-node.php) node — one with a patron —
+before building its schema, then every schema flagged `hidden`; the browser
+producer `dumpMetadataPayload()` applies the same two rules, a browser node
+having a patron and no publisher. An owner's row lists its owned siblings
+under `sidecars`, `[ { name, class } ]` sorted by code unit, from
+[`Node::sidecars()`](../includes/class-node.php): every published sibling with
+a patron but its `:config` interpreter and any schema-`hidden` one, so a
+Crawler lists its `{name}:curl` and its `{name}:seen` Table, and a
+`Remote_Source` its per-stream `Remote_Consumer` readers and its channel. The
+key is absent from a row owning none. A published sibling with no patron,
+such as a `Vault_Group`'s child, draws on the canvas instead. A patron keeps
+a node's `:config`, so a sidecar's verbs reach it there as a canvas node's do.
+Naming a node, `dump_metadata <name>`, answers it unless its schema is
+`hidden`, owned or not, carrying `owner` as above: that is how the console
+opens a sidecar from the "…" on its owner's card and polls its row, Time
+Travel and Triage included. A full snapshot also carries a `_header` entry
+holding `profiling` and, when the command supplied one, `pwd`.
 
 `registrations` comes from `Node::registered_listeners()`, which walks the
 registration table and keeps only the entries whose callback is null — the
@@ -828,8 +834,10 @@ console flags `multiple`, `hidden` and `action`, and each arg is
 `workers restart`'s `partition`, defaulting to `-1`) and an optional `secret`.
 A node schema may also
 carry `requests`, `registrations`, `accepts_fill`, `has_target`, `owns` and
-`hidden`; `owns` names the siblings the console draws as owned, suffix to class,
-and only a class on the palette may declare it.
+`hidden`; `owns` names the siblings a class builds that the analyzer must know
+of, suffix to class, such as a Crawler's `seen` Table, and only a class on the
+palette may declare it. No REST reply carries it. `hidden` keeps a class off every console surface: the
+palette, the canvas, a `sidecars` list and the class catalog.
 A `requests` entry is `{ name, description, reply_shape }` plus an optional
 `args`, in the shape a command's take, and an optional
 `handler( static $node ): array`; `classes dump` carries every field but the
@@ -880,10 +888,13 @@ above are where arguments and capabilities surface; help is a summary, not the
 verb reference.
 
 `Classes_CI`'s `dump` verb inlines the serializable half of every concrete Node
-class's schema for the topology-editor palette and the live-mode Inspector. It
+class's schema for the topology-editor palette and the live-mode Inspector:
+each class declaring a category and no `hidden` flag. A `Hidden`-category
+class, such as a broker's `Remote_Consumer`, is listed for the Inspector, which
+reads a sidecar's arguments and verbs here, and the palette leaves it out. It
 returns `{ classes[], formatters[] }`, each class carrying `shell_name`, `fqcn`,
 `category`, `description`, `arguments`, `commands`, `requests`,
-`registrations`, `accepts_fill`, `has_target`, `owns`, `is_interpreter` and
+`registrations`, `accepts_fill`, `has_target`, `is_interpreter` and
 `fans_out`.
 The non-serializable `handler` — a command's and a request's — and the
 server-enforced `capability` are stripped on the way out. `formatters[]` is [`Formatters::list_names()`](../includes/class-formatters.php) sorted, and it is

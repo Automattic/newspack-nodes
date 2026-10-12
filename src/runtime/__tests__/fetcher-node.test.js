@@ -898,6 +898,26 @@ describe( 'FetcherNode — askNow', () => {
 		expect( f.asks( null, [ '--search', 'wombat-4471' ] ) ).toBe( false );
 	} );
 
+	it( 'escapes a subject onto FROM and settles the reply naming it', () => {
+		const f = new FetcherNode();
+		f.arguments = [ 'vault:test:in', 'test' ];
+		f.command_args = () => null;
+		f.retry_after_s = 0;
+		const sent = [];
+		f.sink = { fill: ( m ) => sent.push( m ) };
+
+		f.askNow( [ 'spoke 0417' ], 'spoke/0417 b' );
+
+		expect( sent[ 0 ][ FROM ] ).toBe( 'vault:test:in/spoke%2F0417%20b' );
+		expect( f.outbox.map( ( ask ) => ask.path ) ).toEqual( [
+			'spoke/0417 b',
+		] );
+		const reply = replyNaming( 'spoke%2F0417%20b', [ 'spoke 0417' ] );
+		expect( f.answers( reply ) ).toBe( true );
+		f.fill( reply );
+		expect( f.outbox ).toEqual( [] );
+	} );
+
 	it( 'addresses the ask by the path it is given', () => {
 		const f = new FetcherNode();
 		f.arguments = [ 'vault:test:in', 'test' ];

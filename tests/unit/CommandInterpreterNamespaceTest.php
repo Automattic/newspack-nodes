@@ -145,10 +145,9 @@ class CommandInterpreterNamespaceTest extends TestCase {
 		// category — it is NOT a palette participant and must not be listed.
 		$this->assertNotContains( 'SSE_Out', $shell_names );
 
-		// Each row carries an inlined schema with a real (non-Hidden, non-empty) category.
+		// Each row carries an inlined schema with a non-empty category.
 		foreach ( $result['classes'] as $row ) {
 			$this->assertArrayHasKey( 'category', $row );
-			$this->assertNotSame( 'Hidden', $row['category'] );
 			$this->assertNotSame( '', $row['category'] );
 			$this->assertArrayHasKey( 'commands', $row );
 		}

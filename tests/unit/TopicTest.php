@@ -312,6 +312,23 @@ class TopicTest extends TestCase {
 		$this->assertSame( $t, $partitions[ $idx ]->patron() );
 	}
 
+	/** An owned Topic partition keeps its `:config`, and its verbs reach it there. */
+	public function test_a_materialized_partitions_verbs_reach_its_config(): void {
+		$t = new Topic_Node();
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "4", "65536", "2", "4", "86400", "0" ] );
+		$t->name( 'quarry-7720' );
+		$this->produce_into( $t, 'data', 'k1' );
+		$idx       = Partition_Node::hash_to_partition( 'k1', 4 );
+		$partition = Core::node( "quarry-7720:p{$idx}" );
+		$allowed   = new \ReflectionMethod( Partition_Node::class, 'large_writes_allowed' );
+		$this->assertFalse( $allowed->invoke( $partition ) );
+
+		Core::node( "quarry-7720:p{$idx}:config" )->dispatch( 'void_warranty' );
+
+		$this->assertTrue( $allowed->invoke( $partition ) );
+		$this->assert_owned_nodes_keep_their_config();
+	}
+
 	/**
 	 * The Partition sibling keeps Topic's own sink (the specific sink Topic
 	 * already assigns) — Rule 2's "unless it already sets a specific sink".

@@ -125,6 +125,137 @@ describe( 'SchematicCanvas', () => {
 		expect( container.querySelector( '.topology-edge-hit' ) ).toBeNull();
 	} );
 
+	describe( 'the card\'s "…" for an owner of sidecars', () => {
+		const ownerParsed = {
+			nodes: [
+				{
+					id: 'a',
+					sidecars: [ { name: 'a:seen', class: 'Table' } ],
+				},
+				{ id: 'b' },
+			],
+			edges: [],
+		};
+
+		/**
+		 * Render the canvas over an owner and a plain node.
+		 *
+		 * @param {Object} props Extra canvas props.
+		 * @return {Object} What renderWithCatalog returns.
+		 */
+		const renderOwner = ( props = {} ) =>
+			renderWithCatalog(
+				<SchematicCanvas
+					{ ...baseProps }
+					parsed={ ownerParsed }
+					{ ...props }
+				/>,
+				{
+					positionOverrides: baseProps.positionOverrides,
+					onPositionChange: baseProps.onPositionChange,
+					viewport: baseProps.viewport,
+					onViewportChange: baseProps.onViewportChange,
+				}
+			);
+
+		it( 'draws only on a card whose row lists sidecars, labelled as a dialog trigger', () => {
+			const { container } = renderOwner( { onOpenSidecars: () => {} } );
+			const buttons = container.querySelectorAll(
+				'.topology-node__sidecars'
+			);
+			expect( buttons ).toHaveLength( 1 );
+			expect(
+				buttons[ 0 ].closest( '.topology-node' ).textContent
+			).toContain( 'a' );
+			expect( buttons[ 0 ].getAttribute( 'role' ) ).toBe( 'button' );
+			expect( buttons[ 0 ].getAttribute( 'aria-haspopup' ) ).toBe(
+				'dialog'
+			);
+			expect( buttons[ 0 ].getAttribute( 'aria-label' ) ).toBe(
+				'Owned nodes of a'
+			);
+			expect( buttons[ 0 ].getAttribute( 'tabindex' ) ).toBe( '0' );
+		} );
+
+		it( "clips an owner's id short of its \u201c\u2026\u201d, and a plain card's at the card edge", () => {
+			const { container } = renderOwner( { onOpenSidecars: () => {} } );
+			const idOf = ( id ) =>
+				[ ...container.querySelectorAll( '.topology-node__id' ) ].find(
+					( t ) => t.textContent === id
+				);
+			const clipOf = ( text ) =>
+				text.closest( '[clip-path]' ).getAttribute( 'clip-path' );
+			expect( clipOf( idOf( 'a' ) ) ).toBe(
+				'url(#topology-node-id-clip)'
+			);
+			expect( clipOf( idOf( 'b' ) ) ).toBe( 'url(#topology-node-clip)' );
+			const clip = container.querySelector(
+				'#topology-node-id-clip rect'
+			);
+			const button = container.querySelector(
+				'.topology-node__sidecars'
+			);
+			const buttonLeft = Number(
+				/translate\((\d+)/.exec(
+					button.getAttribute( 'transform' )
+				)[ 1 ]
+			);
+			expect( Number( clip.getAttribute( 'width' ) ) ).toBeLessThan(
+				buttonLeft
+			);
+		} );
+
+		it( 'opens the list on a click without selecting or dragging the card', () => {
+			const onOpenSidecars = jest.fn();
+			const onSelect = jest.fn();
+			const onPositionChange = jest.fn();
+			const { container } = renderWithCatalog(
+				<SchematicCanvas
+					{ ...baseProps }
+					parsed={ ownerParsed }
+					onSelect={ onSelect }
+					onOpenSidecars={ onOpenSidecars }
+				/>,
+				{
+					positionOverrides: baseProps.positionOverrides,
+					onPositionChange,
+					viewport: baseProps.viewport,
+					onViewportChange: baseProps.onViewportChange,
+				}
+			);
+			const button = container.querySelector(
+				'.topology-node__sidecars'
+			);
+			fireEvent.pointerDown( button, {
+				button: 0,
+				clientX: 70,
+				clientY: 90,
+			} );
+			fireEvent.mouseDown( button, {
+				button: 0,
+				clientX: 70,
+				clientY: 90,
+			} );
+			fireEvent.pointerMove( button, { clientX: 140, clientY: 160 } );
+			fireEvent.pointerUp( button, { clientX: 140, clientY: 160 } );
+			fireEvent.click( button );
+			expect( onOpenSidecars ).toHaveBeenCalledWith( 'a', button );
+			expect( onSelect ).not.toHaveBeenCalled();
+			expect( onPositionChange ).not.toHaveBeenCalled();
+		} );
+
+		it( 'opens the list from the keyboard', () => {
+			const onOpenSidecars = jest.fn();
+			const { container } = renderOwner( { onOpenSidecars } );
+			const button = container.querySelector(
+				'.topology-node__sidecars'
+			);
+			fireEvent.keyDown( button, { key: 'Enter' } );
+			fireEvent.keyDown( button, { key: ' ' } );
+			expect( onOpenSidecars ).toHaveBeenCalledTimes( 2 );
+		} );
+	} );
+
 	it( 'renders a paused cue on the card of a node polling PAUSED', () => {
 		const { container } = renderWithCatalog(
 			<SchematicCanvas
@@ -711,84 +842,6 @@ describe( 'SchematicCanvas', () => {
 		);
 		const out = container.querySelector( '.topology-port--out' );
 		expect( out.classList.contains( 'is-wire-source' ) ).toBe( false );
-	} );
-
-	describe( 'an owned node as a wire source', () => {
-		const ownedParsed = {
-			nodes: [
-				{ id: 'patron-5823' },
-				{ id: 'patron-5823:ledger', owner: 'patron-5823' },
-			],
-			edges: [],
-		};
-
-		function outPortOf( editMode, id ) {
-			const { container } = renderWithCatalog(
-				<SchematicCanvas
-					{ ...baseProps }
-					parsed={ ownedParsed }
-					editMode={ editMode }
-					onConnect={ () => {} }
-				/>,
-				{
-					positionOverrides: {
-						'patron-5823': { x: 60, y: 80 },
-						'patron-5823:ledger': { x: 300, y: 80 },
-					},
-					onPositionChange: baseProps.onPositionChange,
-					viewport: baseProps.viewport,
-					onViewportChange: baseProps.onViewportChange,
-				}
-			);
-			return [ ...container.querySelectorAll( '.topology-node' ) ]
-				.find( ( card ) => card.textContent.endsWith( id ) )
-				.querySelector( '.topology-port--out' );
-		}
-
-		it( 'offers no wire drag from an owned node in edit mode', () => {
-			const port = outPortOf( true, 'patron-5823:ledger' );
-			expect( port.classList.contains( 'is-wire-source' ) ).toBe( false );
-			fireEvent.mouseDown( port, { button: 0, clientX: 0, clientY: 0 } );
-			fireEvent.mouseMove( window, { clientX: 90, clientY: 40 } );
-			expect(
-				port.ownerSVGElement.querySelector( '.topology-wire-drag' )
-			).toBeNull();
-			fireEvent.mouseUp( window, { clientX: 90, clientY: 40 } );
-
-			const ownerPort = outPortOf( true, 'patron-5823' );
-			expect( ownerPort.classList.contains( 'is-wire-source' ) ).toBe(
-				true
-			);
-			fireEvent.mouseDown( ownerPort, {
-				button: 0,
-				clientX: 0,
-				clientY: 0,
-			} );
-			fireEvent.mouseMove( window, { clientX: 90, clientY: 40 } );
-			expect(
-				ownerPort.ownerSVGElement.querySelector( '.topology-wire-drag' )
-			).not.toBeNull();
-			fireEvent.mouseUp( window, { clientX: 90, clientY: 40 } );
-		} );
-
-		it( "paints no edit-mode fill on an owned node's OUT port", () => {
-			expect(
-				outPortOf( true, 'patron-5823:ledger' ).classList.contains(
-					'is-edit'
-				)
-			).toBe( false );
-			expect(
-				outPortOf( true, 'patron-5823' ).classList.contains( 'is-edit' )
-			).toBe( true );
-		} );
-
-		it( 'keeps the owned node a wire source in view mode', () => {
-			expect(
-				outPortOf( false, 'patron-5823:ledger' ).classList.contains(
-					'is-wire-source'
-				)
-			).toBe( true );
-		} );
 	} );
 
 	it( 'honors the parent-provided viewport as the SVG viewBox', () => {

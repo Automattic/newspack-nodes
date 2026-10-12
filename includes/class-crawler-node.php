@@ -647,17 +647,6 @@ final class Crawler_Node extends Timer_Node {
 	}
 
 	/**
-	 * The `{name}:seen` Table, which the crawler writes through its Table
-	 * client rather than its target, so the console draws an edge to it.
-	 *
-	 * @api Unioned into display_targets() by Node.
-	 * @return list<string>
-	 */
-	protected function extra_targets(): array {
-		return [ $this->sibling_name( self::SEEN ) ];
-	}
-
-	/**
 	 * Topology console manifest.
 	 *
 	 * @return array<string,mixed>
@@ -667,7 +656,7 @@ final class Crawler_Node extends Timer_Node {
 			'category'    => 'I/O',
 			'description' => 'Crawl from each seed url: fetch it, send every answer to target with KEY set to the url, and follow the links on its origin, each once per ttl; a seed already seen answers a TM_INFO.',
 			'has_target'  => true,
-			// The Table owned_table() declares, drawn on the console as owned.
+			// The Table owned_table() declares, which the analyzer reads.
 			'owns'        => [ self::SEEN => 'Table' ],
 			'arguments'   => [
 				[ 'name' => 'ttl', 'type' => 'int', 'required' => true, 'description' => 'Seconds a url counts as seen, at least 1; it may be crawled again after.' ],

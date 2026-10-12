@@ -101,33 +101,6 @@ body:has(.nodes-station .topology-app) {
 	padding-bottom: 3px;
 }
 
-.topology-open-list {
-	list-style: none;
-	margin: 0;
-	padding: 0;
-}
-
-.topology-open-item {
-	width: 100%;
-	align-items: center;
-	gap: 8px;
-	padding: 6px 8px;
-	font-size: 12px;
-	margin-bottom: 4px;
-}
-
-// Takes the row, so the badge is pushed to the far end rather than sitting
-// beside the name. Left-aligned, as every other button in this UI is.
-.topology-open-item__name {
-	flex: 1;
-	text-align: left;
-}
-
-.topology-open-item__badge {
-	padding: 1px 6px;
-	font-size: 9px;
-}
-
 // ── TopologySettingsPanel — frontmatter (`var name = value`) editor ──────────
 .topology-settings-panel {
 	// `fixed`, not `absolute`: the SETTINGS button moved up to the shared header
@@ -236,17 +209,12 @@ body:has(.nodes-station .topology-app) {
 }
 
 .newspack-nodes-ui.newspack-nodes-ui {
-	.button:where(.topology-open-item, .topology-settings-panel__close),
+	.button:where(.topology-settings-panel__close),
 	.topology-settings-var-row .button {
 		min-height: 0;
 		height: auto;
 		margin-bottom: 0;
 		vertical-align: baseline;
-	}
-
-	.button:where(.topology-open-item) {
-		padding: 6px 8px;
-		line-height: 1.45;
 	}
 
 	.button:where(.topology-settings-panel__close) {

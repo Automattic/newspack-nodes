@@ -762,6 +762,7 @@ final class VaultGroupNodeTest extends TestCase {
 		$this->assertIsArray( $meta );
 		$this->assertSame( 'edge', $meta['edge:tw9']['owner'] );
 		$this->assertArrayNotHasKey( 'owner', $meta['edge'] );
+		$this->assertArrayNotHasKey( 'sidecars', $meta['edge'], 'a child stays on the canvas, and its group lists no `:config`' );
 		$this->assertSame( "refusing to destroy owned node: edge:tw9, owned by edge\n", $ci->dispatch( 'remove_node', [ 'edge:tw9' ] ) );
 		$this->assertNotNull( Core::node( 'edge:tw9' ) );
 	}
