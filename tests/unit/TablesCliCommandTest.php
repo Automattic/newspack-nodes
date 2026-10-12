@@ -62,14 +62,12 @@ final class TablesCliCommandTest extends TestCase {
 		$this->write_tsl( 'owl-w', "make_node Table lab-7:owl owl:p{partition} 37 wpdb\n" );
 		\update_option( 'newspack_nodes_topologies', [ 'kea-t', 'owl-w' ] );
 		Config::reset();
-		foreach ( [ 'lines', 'logs', 'warns', 'errors', 'success', 'tables', 'confirms' ] as $stream ) {
+		foreach ( [ 'lines', 'logs', 'warns', 'errors', 'success', 'tables' ] as $stream ) {
 			$GLOBALS[ "_test_wp_cli_{$stream}" ] = [];
 		}
-		unset( $GLOBALS['_test_wp_cli_confirm'] );
 	}
 
 	protected function tearDown(): void {
-		unset( $GLOBALS['_test_wp_cli_confirm'] );
 		\delete_option( 'newspack_nodes_topologies' );
 		Spawn_Coordinator::clear_hold();
 		Config::reset();
@@ -444,10 +442,11 @@ final class TablesCliCommandTest extends TestCase {
 
 	public function test_flush_with_no_table_named_counts_the_inactive_partitions(): void {
 		$this->register_inactive_emu();
+		Spawn_Coordinator::set_hold( \time() );
 
-		$this->caught( fn () => $this->command()->flush( [], [] ), 'every Table was flushed unasked' );
+		$this->command()->flush( [], [] );
 
-		$this->assertSame( [ 'Flush every row of 5 declared Table partitions? The session store is left alone.' ], $GLOBALS['_test_wp_cli_confirms'] );
+		$this->assertSame( [ 'Flushed 5 Table partitions.' ], $GLOBALS['_test_wp_cli_success'] );
 	}
 
 	public function test_a_table_an_active_and_an_inactive_topology_both_declare_is_owned_by_the_active_one(): void {
@@ -583,16 +582,12 @@ final class TablesCliCommandTest extends TestCase {
 		$this->assertMatchesRegularExpression( '/^lab-7:kea\.p0: [\d.]+[KM]?B released under the hold$/', $GLOBALS['_test_wp_cli_logs'][0] );
 	}
 
-	public function test_flush_with_no_table_named_asks_first_and_leaves_the_session_store(): void {
+	public function test_flush_with_no_table_named_flushes_every_declared_table_but_the_session_store(): void {
 		$this->seed_kea( 0, 2 );
 		Spawn_Coordinator::set_hold( \time() );
 		$session = Command_Auth::mint_session();
 
-		$this->caught( fn () => $this->command()->flush( [], [] ), 'every Table was flushed unasked' );
-		$this->assertSame( [ 'Flush every row of 3 declared Table partitions? The session store is left alone.' ], $GLOBALS['_test_wp_cli_confirms'] );
-		$this->assertSame( 3, $this->rows_in( 0 ), 'a declined confirmation deletes nothing' );
-
-		$this->command()->flush( [], [ 'yes' => true ] );
+		$this->command()->flush( [], [] );
 
 		$this->assertSame( 0, $this->rows_in( 0 ) );
 		$this->assertSame( $session['secret'], Command_Auth::load_session_record( $session['handle'] )['key'] ?? null, 'the session store is flushed only when named' );

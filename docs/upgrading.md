@@ -6,6 +6,10 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`wp nodes tables flush` takes no `--yes`.** With no Table named it
+  flushes every declared Table without asking, and WP-CLI refuses `--yes`
+  as `unknown --yes parameter`. Drop the flag from any script that passes it.
+
 - **`AreaTimeChart` requires `storageKey`, and `useChartExpand` takes it as
   a third argument.** A chart without one throws `AreaTimeChart: storageKey
   is required`. Pass a stable, untranslated name unique to the chart — never
