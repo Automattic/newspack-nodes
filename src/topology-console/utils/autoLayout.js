@@ -2201,24 +2201,35 @@ const backboneOf = ( hubs, ids, succ, pred ) =>
  * `baseCol`, so `settings:consumer → settings-sync → spoke → null` reads left
  * to right past the bands. A row is the midpoint of the band rows the node
  * serves; a node serving no band centres on the backbone neighbours already
- * placed, which is why band-serving nodes are placed first. Same-column
- * collisions spread as a band column's do.
+ * placed, which is why band-serving nodes are placed first. A head, fed by
+ * nothing, takes no part in that longest path, so it pushes no hub right: it
+ * sits in the column before the hub it feeds, on the hub's row, or among a
+ * band's cards on the free row nearest it. Same-column collisions spread as a
+ * band column's do.
  *
  * @param {Array<string>}                backbone Backbone ids, alphabetical.
  * @param {Object<string,Array<string>>} succ     Whole-graph successors.
  * @param {Object<string,Array<string>>} pred     Whole-graph predecessors.
- * @param {number}                       baseCol  The column depth 0 takes.
+ * @param {number}                       baseCol  The first column the chain may take.
  * @param {Object<string,number>}        col      Column map, extended in place.
  * @param {Object<string,number>}        row      Row map, extended in place.
  */
 const placeBackbone = ( backbone, succ, pred, baseCol, col, row ) => {
 	const inside = new Set( backbone );
+	// A card fed by nothing feeds only hubs, and pushes none of them right.
+	const heads = [];
+	const chain = [];
+	for ( const id of backbone ) {
+		( pred[ id ].length ? chain : heads ).push( id );
+	}
 	const { next, prev } = breakLoops(
-		backbone,
-		restrictAdjacency( backbone, succ ),
+		chain,
+		restrictAdjacency( chain, succ ),
 		pred
 	);
-	const depth = longestPath( backbone, next, prev );
+	const depth = longestPath( chain, next, prev );
+	// A head takes the column before its hub, so the chain starts past one.
+	const start = heads.length ? Math.max( baseCol, 1 ) : baseCol;
 	/** @type {Object<string,number>} */
 	const order = {};
 	backbone.forEach( ( id, i ) => ( order[ id ] = i ) );
@@ -2228,7 +2239,7 @@ const placeBackbone = ( backbone, succ, pred, baseCol, col, row ) => {
 	// One partition pass: band-serving nodes first, then the bridges.
 	const serving = [];
 	const bridges = [];
-	for ( const id of backbone ) {
+	for ( const id of chain ) {
 		const neighbours = [ ...pred[ id ], ...succ[ id ] ];
 		( neighbours.some( ( n ) => ! inside.has( n ) )
 			? serving
@@ -2238,7 +2249,7 @@ const placeBackbone = ( backbone, succ, pred, baseCol, col, row ) => {
 	// A node whose served rows lie in another block waits for the rest.
 	const later = [];
 	for ( const id of [ ...serving, ...bridges ] ) {
-		col[ id ] = baseCol + depth[ id ];
+		col[ id ] = start + depth[ id ];
 		const served = rowsOf(
 			[ ...pred[ id ], ...succ[ id ] ].filter(
 				( n ) => ! inside.has( n )
@@ -2254,11 +2265,27 @@ const placeBackbone = ( backbone, succ, pred, baseCol, col, row ) => {
 		const rows = rowsOf( [ ...pred[ id ], ...succ[ id ] ] );
 		row[ id ] = rows.length ? snapHalf( midMinMax( rows ) ) : 0;
 	}
-
-	/** @type {Object<string,Array<string>>} */
-	const byCol = {};
-	for ( const id of backbone ) {
-		( byCol[ col[ id ] ] ??= [] ).push( id );
+	// A head sits before its hub, on the hub's row or the nearest free one.
+	const bandCards = cardsByColumn(
+		Object.keys( col ).filter( ( n ) => ! inside.has( n ) ),
+		col
+	);
+	const byCol = cardsByColumn( chain, col );
+	for ( const id of heads ) {
+		const c = Math.min( ...succ[ id ].map( ( n ) => col[ n ] ) ) - 1;
+		col[ id ] = c;
+		const want = snapHalf( midMinMax( rowsOf( succ[ id ] ) ) );
+		const mates = bandCards[ c ];
+		if ( ! mates ) {
+			row[ id ] = want;
+			( byCol[ c ] ??= [] ).push( id );
+			continue;
+		}
+		row[ id ] = nearestRow(
+			want,
+			( r ) => ! cardsWithin( mates, row, r - 1, r + 1 )
+		);
+		mates.push( id );
 	}
 	for ( const members of Object.values( byCol ) ) {
 		spreadColumn( members, row, order );
