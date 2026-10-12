@@ -1094,13 +1094,84 @@ describe( 'autoLayout', () => {
 		expect( x.n4 ).toBeGreaterThan( x.n3 );
 	} );
 
-	it( 'seats a sink past a feeder a loop leaves unordered', () => {
-		// n1, n2 and n6 form a loop, which leaves n1 and n4 no deeper than
-		// their feeder n2; n2 feeds n1 and the sink n4, which seats past n2.
+	it( 'seats a sink past a feeder inside a loop', () => {
+		// n1, n2 and n6 form a loop; n2 feeds n1 and the sink n4.
 		const x = xsOf(
 			'n2>n4 n6>n2 n2>n1 n7>n0 n1>n6 n5>n2 n3>n7 n3>n0 n5>n7 n5>n1'
 		);
 		expect( x.n4 ).toBeGreaterThan( x.n2 );
+	} );
+
+	it( 'runs a loop on from where its feeder enters it', () => {
+		// z enters the loop b, c at c; only the closing wire b>c runs back.
+		const x = xsOf( 'z>c c>b b>c b>d' );
+		expect( x.c ).toBeGreaterThan( x.z );
+		expect( x.b ).toBeGreaterThan( x.c );
+		expect( x.d ).toBeGreaterThan( x.b );
+	} );
+
+	it( 'relaxes a card past the card its loop closes back to', () => {
+		// n1 closes a loop to n0 and relaxes toward n3 and n5, crossing nothing.
+		const pairs = 'n0>n1 n0>n2 n1>n3 n2>n4 n1>n5 n2>n6 n2>n7 n1>n0 n4>n5'
+			.split( ' ' )
+			.map( ( p ) => p.split( '>' ) );
+		const edges = pairs.map( ( [ from, to ] ) => ( { from, to } ) );
+		const { nodes } = autoLayout( {
+			nodes: [ ...new Set( pairs.flat() ) ].map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		expect( drawn( nodes, edges ).crossings ).toEqual( [] );
+	} );
+
+	it( 'runs a loop on from a feeder that also wires to itself', () => {
+		const x = xsOf( 'z>c c>b b>c b>d z>z' );
+		expect( x.c ).toBeGreaterThan( x.z );
+		expect( x.b ).toBeGreaterThan( x.c );
+		expect( x.d ).toBeGreaterThan( x.b );
+	} );
+
+	it( "counts no card's wire to itself among its feeders", () => {
+		// n4's wire to itself would lift its fan-in to a hub's four.
+		const x = xsOf(
+			'n4>n5 n5>n4 n3>n2 n5>n0 n1>n3 n4>n4 n2>n1 n1>n5 n3>n4 n0>n4'
+		);
+		expect( x.n4 ).toBeGreaterThan( x.n3 );
+		expect( x.n4 ).toBeGreaterThan( x.n0 );
+	} );
+
+	it( 'runs a loop on from where a hub enters it', () => {
+		// H enters the loop xb, xa at xb, whatever their ids' order.
+		const slices = [ 1, 2, 3, 4 ].map(
+			( k ) => `s${ k }>t${ k } t${ k }>H`
+		);
+		const x = xsOf( [ ...slices, 'H>xb xb>xa xa>xb xa>xz' ].join( ' ' ) );
+		expect( x.xb ).toBeGreaterThan( x.H );
+		expect( x.xa ).toBeGreaterThan( x.xb );
+		expect( x.xz ).toBeGreaterThan( x.xa );
+	} );
+
+	it( 'layers a loop of hubs on from where a hub enters it', () => {
+		// Each hub takes four slices; Hz enters the loop Ha, Hb at Hb.
+		const slices = [ 'Ha', 'Hb', 'Hz' ].flatMap( ( hub ) =>
+			[ 1, 2, 3, 4 ].map(
+				( k ) =>
+					`${ hub }s${ k }>${ hub }t${ k } ${ hub }t${ k }>${ hub }`
+			)
+		);
+		const x = xsOf( [ ...slices, 'Hz>Hb Hb>Ha Ha>Hb' ].join( ' ' ) );
+		expect( x.Hb ).toBeGreaterThan( x.Hz );
+		expect( x.Ha ).toBeGreaterThan( x.Hb );
+	} );
+
+	it( "stretches a sink whose feeder's other wire closes a loop", () => {
+		// c feeds s and closes the loop a, b, c; s shares c with no consumer.
+		const x = xsOf( 'a>b b>c c>a c>s b>d d>e e>f' );
+		expect( x.s ).toBeGreaterThan( x.e );
+	} );
+
+	it( 'breaks a loop the same way whatever order its wires come in', () => {
+		const wires = 'a>b a>c b>c c>b b>d c>e';
+		expect( xsOf( 'a>c a>b b>c c>b b>d c>e' ) ).toEqual( xsOf( wires ) );
 	} );
 
 	it( 'seats a source one column before the nearest node it feeds', () => {
@@ -2681,9 +2752,20 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		expect( drawn( nodes, edges ).over ).toEqual( [] );
 	} );
 
-	it( 'keeps a source wired out of its block in the column its band gave it', () => {
-		// k6src sits right of its hub, in a band that hub feeds; sent to the
-		// block's first column, its wires crossed the hub and the feeders.
+	it( 'seats a late source right of a hub it feeds from behind', () => {
+		// b0src feeds hub and the end of a band hub feeds; in hub's column its
+		// wire would cross hub's to b1l0n0.
+		const x = xsOf(
+			'b0l0n1>b0l1n0 b0l0n0>b0l1n0 b0l1n0>b0l2n0 b0l1n0>b0l2n2 ' +
+				'b0l2n2>b0l3n0 hub>b0l0n0 b0src>b0l3n0 b0src>hub ' +
+				'b1l0n0>b1l1n0 hub>b1l0n0 b1src>hub b2l5n0>hub b2src>hub'
+		);
+		expect( x.b0src ).toBeGreaterThan( x.hub );
+		expect( x.b0src ).toBeLessThan( x.b0l3n0 );
+	} );
+
+	it( 'runs a late source right of its hub over no card (seed c134623)', () => {
+		// k6src sits right of its hub, in a band that hub feeds.
 		const graph = seedGraph( 'c134623' );
 		const { nodes } = autoLayout( graph );
 		expect(
@@ -2693,9 +2775,8 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		).toEqual( [] );
 	} );
 
-	it( 'keeps a source wired out of its block from crossing the blocks between', () => {
-		// k3l0n0 feeds hub0 and its own band's fan, and its wire back to hub0
-		// passes no card of the bands stacked between.
+	it( "runs a band head's wire back to its hub over no card (seed 703214)", () => {
+		// k3l0n0 feeds hub0 and its own band's fan.
 		const graph = seedGraph( '703214' );
 		const { nodes } = autoLayout( graph );
 		expect(
