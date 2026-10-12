@@ -1861,7 +1861,23 @@ class Table_Node extends Node {
 	 * @throws \InvalidArgumentException On a name that cannot name a file.
 	 */
 	public static function file( string $table, int $partition ): string {
-		return Bootstrap::base_dir() . '/tables/' . self::stem( $table, $partition ) . '.sqlite';
+		return self::dir( Bootstrap::base_dir() ) . '/' . self::stem( $table, $partition ) . '.sqlite';
+	}
+
+	/**
+	 * Every Table partition's SQLite database under `$base`, as `file()`
+	 * names each, its `-wal` and `-shm` left out.
+	 *
+	 * @param string $base The runtime base directory.
+	 * @return array<int,string>
+	 */
+	public static function files_in( string $base ): array {
+		return @\glob( self::dir( $base ) . '/*.sqlite' ) ?: [];
+	}
+
+	/** The directory a base holds its Tables' SQLite files in. */
+	private static function dir( string $base ): string {
+		return "{$base}/tables";
 	}
 
 	/**

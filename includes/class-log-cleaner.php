@@ -1,13 +1,15 @@
 <?php
 /**
- * Log_Cleaner: the GC for undeclared dirs under `logs/` and `offsets/`.
+ * Log_Cleaner: the GC for undeclared dirs under `logs/` and `offsets/`, and
+ * for undeclared Table files under `tables/`.
  *
  * Sweeps the first level of both against a config-declared set (topology .tsl
  * declarations + PHP-registered producers, both stating their own layout as a
  * path template). The declared set is built by substituting the partition
  * token — `{partition}`, wherever it sits in a declared path —
  * over 0..N-1, so there is no `.p{N}` regex and no layout this class spells
- * itself.
+ * itself. A Table partition's SQLite files go with their database when no
+ * declared set names its stem; `Table_Node` names the files.
  *
  * Liveness-free: it reads no worker lock, lock dir, ipc dir or live-worker
  * descriptor. A dir survives because config declares it, never because a
@@ -22,9 +24,9 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * Builds the declared set, then deletes the first-level data dirs missing from
- * it. `Bootstrap::reconcile_fleet()` sweeps on the minute WP-Cron pass and
- * `wp nodes gc` sweeps on demand, while `Workers_CI_Node` builds both the
+ * Builds the declared set, then deletes the first-level data dirs and the
+ * Table files missing from it. `Bootstrap::reconcile_fleet()` sweeps on the
+ * minute WP-Cron pass and `wp nodes gc` sweeps on demand, while `Workers_CI_Node` builds both the
  * dashboard log catalog and its `dump_cleanup` diagnostic from the same
  * declared set — so what the dashboard lists and what the GC spares cannot
  * drift.
@@ -38,15 +40,16 @@ namespace Newspack_Nodes;
  */
 class Log_Cleaner {
 
-	/** Seconds of quiet (newest inner mtime) that spare an undeclared dir. */
+	/** Seconds of quiet (newest inner mtime) that spare an undeclared dir or Table. */
 	public const DELETE_GRACE_S = 3600;
 
 	/**
-	 * Remove first-level `logs/*` + `offsets/*` dirs not in the config-declared set.
+	 * Remove first-level `logs/*` + `offsets/*` dirs, and `tables/*` SQLite
+	 * files, not in the config-declared set.
 	 *
 	 * `null` is `declared_dirs()`'s fail-closed sentinel for a set it could not
 	 * build completely, and sweeping against a partial set deletes live dirs, so
-	 * neither bucket is swept on it. Every degraded input returns it, which is
+	 * neither dir bucket is swept on it. Every degraded input returns it, which is
 	 * what makes EMPTY mean something different: the set built cleanly and
 	 * nothing declared anything.
 	 *
@@ -54,7 +57,8 @@ class Log_Cleaner {
 	 * topologies alone, so empty means no topology is active, so no consumer is
 	 * running — the one moment a cursor is certainly reclaimable. Skipping it
 	 * left a fleet with everything deactivated unable to reclaim an offset at
-	 * all, however long it sat.
+	 * all, however long it sat. The Table sweep runs on an empty set for the same
+	 * reason: only a topology declares a SQLite Table.
 	 *
 	 * The log sweep does not, and the asymmetry is the point: log dirs are also
 	 * declared from PHP through `newspack_nodes/registered_log_producers`, and an
@@ -63,10 +67,11 @@ class Log_Cleaner {
 	 * it — it is seeded onto a non-empty set only.
 	 *
 	 * @param string $base_dir Base data directory.
-	 * @param int    $grace    Seconds of quiet an undeclared dir needs before it is
-	 *                         swept; 0 sweeps it however recently it was written.
-	 * @return array<int,string> Paths of the dirs removed; a delete that leaves the
-	 *                           dir standing is omitted.
+	 * @param int    $grace    Seconds of quiet an undeclared dir or Table needs
+	 *                         before it is swept; 0 sweeps it however recently
+	 *                         it was written.
+	 * @return array<int,string> Paths of the dirs and Table databases removed; a
+	 *                           delete that leaves one standing is omitted.
 	 * @throws \Throwable Before any delete, when the config or the topology
 	 *                    catalog will not load, an active topology will not read,
 	 *                    or a producer template declares no dir.
@@ -86,7 +91,41 @@ class Log_Cleaner {
 			self::sweep( Log_Discovery::root( $base_dir, 'offsets' ), $declared['offsets'], $base_dir, $deleted, $grace );
 		}
 
+		self::sweep_tables( $base_dir, $declared['tables'], $deleted, $grace );
+
 		return $deleted;
+	}
+
+	/**
+	 * Delete every Table partition's SQLite files under `$base_dir` whose stem
+	 * is not in `$declared`, once the newest of them has been quiet `$grace`
+	 * seconds: its `-wal` and `-shm` first and the database last, so a failed
+	 * unlink never strands a journal a later database of that name would replay.
+	 * The first failure stops that database's delete, with a rate-limited line.
+	 *
+	 * @param string            $base_dir Base data directory.
+	 * @param array<string,int> $declared Declared stem => partition.
+	 * @param array<int,string> $deleted  Accumulator, appended a database once it is gone.
+	 * @param int               $grace    Required seconds of quiet; 0 disables the wait.
+	 */
+	private static function sweep_tables( string $base_dir, array $declared, array &$deleted, int $grace ): void {
+		foreach ( Table_Node::files_in( $base_dir ) as $db ) {
+			if ( isset( $declared[ \basename( $db, '.sqlite' ) ] ) ) {
+				continue;
+			}
+			$files = Sqlite_Arm::file_sizes( $db );
+			if ( $grace > 0 && \time() - \max( [ 0, ...\array_column( $files, 'mtime' ) ] ) < $grace ) {
+				continue;
+			}
+			foreach ( \array_reverse( \array_keys( $files ) ) as $file ) {
+				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
+				if ( ! @\unlink( $file ) && \file_exists( $file ) ) {
+					Core::print_less_often( "WARNING: Log_Cleaner: could not delete {$file}; its Table stays" );
+					continue 2;
+				}
+			}
+			$deleted[] = $db;
+		}
 	}
 
 	/**
@@ -159,7 +198,7 @@ class Log_Cleaner {
 	 * unreadable topology and refused producer raises, combined, because each
 	 * leaves live dirs out of it.
 	 *
-	 * @return array{logs: array<string,int>|null, offsets: array<string,int>|null, unreadable: array<string,\Throwable>, refused: array<string,\RuntimeException>}
+	 * @return array{logs: array<string,int>|null, offsets: array<string,int>|null, tables: array<string,int>, unreadable: array<string,\Throwable>, refused: array<string,\RuntimeException>}
 	 * @throws \Throwable When the config or the topology catalog will not load, an active topology will not read, or a producer template declares no dir.
 	 */
 	private static function sweep_set(): array {
@@ -194,9 +233,9 @@ class Log_Cleaner {
 	 * the operator's READABLE active topologies (`Bootstrap::active_topologies()`
 	 * — the set the fleet spawns from, less what will not read, which the
 	 * caller read and hands in) once, filling
-	 * both buckets UNIFORMLY. Driving
+	 * every bucket UNIFORMLY. Driving
 	 * retention off the active set rather than the on-disk `.tsl` glob means a
-	 * superseded-but-shipped topology's logs AND offsetlogs are reclaimed once it's
+	 * superseded-but-shipped topology's logs, offsetlogs and SQLite Tables are reclaimed once it's
 	 * deactivated — down to the last one, since the offset sweep runs on an empty
 	 * set too; no live worker's dirs are at risk, because anything spawning is
 	 * by definition in the active set. The log bucket additionally unions the
@@ -212,22 +251,25 @@ class Log_Cleaner {
 	 * missing from the buckets, the shape that deletes data, so a sweeping caller
 	 * MUST raise both before any delete.
 	 *
-	 * Each non-null bucket is a `concrete dir name => enumerated partition index`
-	 * map (the partition comes from the resolver's enumeration loop, never parsed
-	 * out of a name); the whitelisted settings log is partition 0.
+	 * Each non-null dir bucket is a `concrete dir name => enumerated partition
+	 * index` map (the partition comes from the resolver's enumeration loop, never
+	 * parsed out of a name); the whitelisted settings log is partition 0. The
+	 * `tables` bucket maps each declared SQLite Table partition's file stem the
+	 * same way, and is never null.
 	 *
 	 * @param array<string,array<array-key,mixed>> $readable   Readable active topology => its entry.
 	 * @param array<string,\Throwable>             $unreadable Active topology => what it threw.
-	 * @return array{logs: array<string,int>|null, offsets: array<string,int>|null, unreadable: array<string,\Throwable>, refused: array<string,\RuntimeException>}
+	 * @return array{logs: array<string,int>|null, offsets: array<string,int>|null, tables: array<string,int>, unreadable: array<string,\Throwable>, refused: array<string,\RuntimeException>}
 	 * @throws \RuntimeException When `Config::value()` rejects a key.
 	 */
 	private static function declared_dirs( array $readable, array $unreadable ): array {
 		$logs_root    = Core::resolve_config_token( 'config', 'logs_dir' );
 		$offsets_root = Core::resolve_config_token( 'config', 'offsets_dir' );
 
-		$logs                      = [];
-		$offsets                   = [];
-		$refused      = [];
+		$logs    = [];
+		$offsets = [];
+		$tables  = [];
+		$refused = [];
 
 		foreach ( $readable as $name => $entry ) {
 			$resolved = Topology_Analyzer::resolved_resource_dirs( $name, Bootstrap::partitions_of( $entry ) );
@@ -236,6 +278,9 @@ class Log_Cleaner {
 			}
 			foreach ( $resolved['offsets'] as $dir => $partition ) {
 				$offsets[ $dir ] ??= $partition;
+			}
+			foreach ( $resolved['tables'] as $stem => $partition ) {
+				$tables[ $stem ] ??= $partition;
 			}
 		}
 
@@ -253,6 +298,7 @@ class Log_Cleaner {
 		return [
 			'logs'       => '' === $logs_root ? null : $logs,
 			'offsets'    => '' === $offsets_root ? null : $offsets,
+			'tables'     => $tables,
 			'unreadable' => $unreadable,
 			'refused'    => $refused,
 		];

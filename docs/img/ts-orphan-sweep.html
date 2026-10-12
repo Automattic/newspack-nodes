@@ -7,7 +7,7 @@
 .step .keep { display:block; margin-top:4px; color:#1E5B1E; }
 .dn { text-align:center; color:#003DA5; font-size:15px; line-height:1; margin:4px 0; }
 .del { background:#B32D2E; color:#fff; border-radius:8px; padding:11px 14px; font-size:12.5px; line-height:1.5; }
-.buckets { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:8px; }
+.buckets { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-top:8px; }
 .bk { border:1px solid #C3C4C7; border-radius:6px; padding:8px 10px; font-size:11.8px; line-height:1.45; background:#FBFBFC; }
 .bk b { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:#003DA5; }
 .side > * + * { margin-top:14px; }
@@ -15,30 +15,31 @@
 </style>
 <div class="sheet">
 <h1>The orphan sweep deletes only what no active topology declares, spares the last hour, and refuses to run on a set it could not build</h1>
-<p class="sub"><span class="mono">Log_Cleaner</span> runs in the minute reconcile pass and on <span class="mono">wp nodes gc</span>. A directory is an orphan only when nothing ACTIVE declares it, so deactivating a topology orphans its log and offsetlog directories and stopping its workers does not.</p>
+<p class="sub"><span class="mono">Log_Cleaner</span> runs in the minute reconcile pass and on <span class="mono">wp nodes gc</span>. A directory is an orphan only when nothing ACTIVE declares it, so deactivating a topology orphans its log and offsetlog directories and its SQLite Tables' files, and stopping its workers does not.</p>
 
 <div class="grid">
 <div>
   <div class="step"><span class="n">1</span><span><b>Build the declared set.</b> Every active topology's resolved directories, each counted to at most <span class="mono">Spawn_Coordinator::MAX_PARTITIONS</span>, 16; log directories also come from the <span class="mono">newspack_nodes/registered_log_producers</span> templates. A set that will not build comes back null, and then neither bucket is swept: the red card opposite.</span></div>
   <div class="dn">↓</div>
-  <div class="step"><span class="n">2</span><span><b>Pick the buckets: first-level directories under two roots.</b>
+  <div class="step"><span class="n">2</span><span><b>Pick the buckets: first-level directories under two roots, and Table files.</b>
     <span class="buckets">
       <span class="bk"><b>logs/</b><br>Swept only on a NON-empty set: an empty log set can mean the producer filter has not run yet, and sweeping then would delete a live firehose.</span>
       <span class="bk"><b>offsets/</b><br>Swept even on an empty set: only topologies declare offsetlogs, so empty means none is active and no consumer holds a cursor.</span>
+      <span class="bk"><b>tables/*.sqlite</b><br>Swept even on an empty set: only topologies declare a SQLite Table. A database goes with its <span class="mono">-wal</span> and <span class="mono">-shm</span>, journals first.</span>
     </span></span></div>
   <div class="dn">↓</div>
-  <div class="step"><span class="n">3</span><span><b>Directories only.</b> The glob is <span class="mono">GLOB_ONLYDIR</span>, so a file is never a candidate.<span class="keep">A Log's flat <span class="mono">{file}.0</span>, <span class="mono">{file}.1</span>, … segments are never reclaimed, <span class="mono">--force</span> included. While the Log runs, its own <span class="mono">num_segments</span>, <span class="mono">lifetime</span> and <span class="mono">max_segments</span> bound them; once it stops, nothing does.</span></span></div>
+  <div class="step"><span class="n">3</span><span><b>Directories only, under the two roots.</b> The glob is <span class="mono">GLOB_ONLYDIR</span>, so a file is never a candidate.<span class="keep">A Log's flat <span class="mono">{file}.0</span>, <span class="mono">{file}.1</span>, … segments are never reclaimed, <span class="mono">--force</span> included. While the Log runs, its own <span class="mono">num_segments</span>, <span class="mono">lifetime</span> and <span class="mono">max_segments</span> bound them; once it stops, nothing does.</span></span></div>
   <div class="dn">↓</div>
   <div class="step"><span class="n">4</span><span><b>Basename in the declared set?</b><span class="keep">Yes: kept. Membership is by the concrete name the resolver produced; the sweep spells no layout of its own.</span></span></div>
   <div class="dn">↓ no</div>
-  <div class="step"><span class="n">5</span><span><b>Written within <span class="mono">Log_Cleaner::DELETE_GRACE_S</span>, 3600 s?</b> The newest mtime of the directory and its first-level entries, because an append touches the segment file rather than the directory.<span class="keep">Yes: kept, so a mid-deploy blip cannot eat live data. <span class="mono">wp nodes gc --force</span> sets the grace to zero. A layout appending BELOW the first level reads as quiet, so its grace can expire while it is still being written.</span></span></div>
+  <div class="step"><span class="n">5</span><span><b>Written within <span class="mono">Log_Cleaner::DELETE_GRACE_S</span>, 3600 s?</b> The newest mtime of the directory and its first-level entries, because an append touches the segment file rather than the directory; for a Table, of its database, <span class="mono">-wal</span> and <span class="mono">-shm</span>.<span class="keep">Yes: kept, so a mid-deploy blip cannot eat live data. <span class="mono">wp nodes gc --force</span> sets the grace to zero. A layout appending BELOW the first level reads as quiet, so its grace can expire while it is still being written.</span></span></div>
   <div class="dn">↓ no</div>
-  <div class="del"><b>Deleted</b> through <span class="mono">Spawn_Coordinator::delete_directory_recursive()</span>, jailed to the base directory. <span class="mono">wp nodes gc</span> sweeps now instead of at the next window.</div>
+  <div class="del"><b>Deleted</b>: a directory through <span class="mono">Spawn_Coordinator::delete_directory_recursive()</span>, jailed to the base directory; a Table's journals, then its database, stopping at the first file that will not go. <span class="mono">wp nodes gc</span> sweeps now instead of at the next window.</div>
 </div>
 
 <div class="side">
   <div class="callout">
-    <h4>Two degraded inputs skip BOTH sweeps</h4>
+    <h4>Two degraded inputs skip the sweeps</h4>
     <p>An active topology that will not read: a name in the <span class="mono">topologies</span> config no <span class="mono">.tsl</span> resolves, or a <span class="mono">.tsl</span> whose include tree fails. <span class="mono">Bootstrap::active_topologies()</span> names each, and the sweep raises it before any delete: <span class="mono">wp nodes gc</span> fails naming it, the reconcile pass raises it from its <span class="mono">retention</span> step, and <span class="mono">dump_cleanup</span> raises it too. <span class="mono">dump_graph</span>'s <span class="mono">logs[]</span> still lists every readable topology's logs and names the broken one under <span class="mono">unreadable</span>.</p>
     <p>A producer template landing under no directory beneath the logs root is quieter: one rate-limited <span class="mono">Log_Cleaner: skipping sweep: …</span> line on stderr, while <span class="mono">wp nodes gc</span> still prints <span class="mono">Success</span>, <span class="mono">dump_cleanup</span> returns an EMPTY <span class="mono">expected_basenames</span> with every directory listed as an orphan, and <span class="mono">dump_graph</span>'s <span class="mono">logs[]</span> comes back empty. Read that as the GC refusing to run, never as a list to act on.</p>
   </div>

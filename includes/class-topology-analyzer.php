@@ -661,8 +661,9 @@ class Topology_Analyzer {
 
 	/**
 	 * First-level concrete dir names `$name` writes under logs_dir / offsets_dir,
-	 * layout-agnostic: each `write_set` token is expanded over `0..$num_partitions-1`
-	 * (substituting `{partition}`), its `<config:…>` tokens resolved, then the first path segment under the
+	 * and the file stem of each SQLite Table partition it writes,
+	 * layout-agnostic: each `write_set` token is expanded over
+	 * `0..$num_partitions-1` (substituting `{partition}`), its `<config:…>` tokens resolved, then the first path segment under the
 	 * respective root is taken — wherever the partition token sits in the path.
 	 * No `.p{N}` regex. The caller passes `$num_partitions`, which keeps this
 	 * class free of a `Bootstrap` dependency.
@@ -676,7 +677,7 @@ class Topology_Analyzer {
 	 *
 	 * @param string $name           Topology name.
 	 * @param int    $num_partitions Caller's worker count; pass Bootstrap::partitions_of( $entry ) for an active entry.
-	 * @return array{logs: array<string,int>, offsets: array<string,int>}
+	 * @return array{logs: array<string,int>, offsets: array<string,int>, tables: array<string,int>}
 	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
 	public static function resolved_resource_dirs( string $name, int $num_partitions ): array {
@@ -684,11 +685,18 @@ class Topology_Analyzer {
 		$offsets_root = Core::resolve_config_token( 'config', 'offsets_dir' );
 		$logs         = [];
 		$offsets      = [];
+		$tables       = [];
 		// write_set() populates the meta cache; read it AFTER.
 		$entries = self::write_set( $name );
 		$meta    = self::$write_meta_cache[ $name ] ?? [];
 		foreach ( $entries as $entry ) {
 			[ $kind, $token ] = \explode( ':', $entry, 2 );
+			if ( 'table' === $kind ) {
+				foreach ( self::expand_template( $token, $name, $num_partitions ) as $p => $stem ) {
+					$tables[ $stem ] ??= $p;
+				}
+				continue;
+			}
 			// @longform A Topic's declared count wins: it re-partitions
 			// above the worker count (aggregator fan-in) or below it
 			// (deliberate narrowing). An unresolvable token falls back
@@ -734,6 +742,7 @@ class Topology_Analyzer {
 		return [
 			'logs'    => $logs,
 			'offsets' => $offsets,
+			'tables'  => $tables,
 		];
 	}
 

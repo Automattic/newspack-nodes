@@ -7,6 +7,7 @@ use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Job_Intake;
 use Newspack_Nodes\Log_Cleaner;
+use Newspack_Nodes\Table_Node;
 use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Config;
@@ -1006,5 +1007,112 @@ class LogCleanerTest extends TestCase {
 		$this->assertDirectoryExists( $member );
 		$this->assertDirectoryDoesNotExist( $outsider );
 		$this->assertDirectoryDoesNotExist( \dirname( $outsider ) );
+	}
+
+	// ── tables ──
+
+	/**
+	 * A Table partition's SQLite files, `-wal` and `-shm` beside the database,
+	 * last written `$age` seconds ago.
+	 *
+	 * @return array<int,string> The three files.
+	 */
+	private function seed_table_files( string $table, int $partition, int $age ): array {
+		$db = Table_Node::file( $table, $partition );
+		@\mkdir( \dirname( $db ), 0755, true );
+		$files = [ $db, "{$db}-wal", "{$db}-shm" ];
+		foreach ( $files as $file ) {
+			\file_put_contents( $file, 'otter-5520' );
+			\touch( $file, \time() - $age );
+		}
+		return $files;
+	}
+
+	public function test_sweeps_a_table_no_active_topology_declares_and_keeps_the_declared(): void {
+		$this->declare_topology( 'fox-w', "var num_partitions = 2\nmake_node Table lab-3:fox fox:p{partition} 919 sqlite\n" );
+		$this->declare_inactive_topology( 'yak-q', "make_node Table lab-3:yak yak:p{partition} 919 sqlite\n" );
+		$kept   = [ ...$this->seed_table_files( 'lab-3:fox', 0, 7200 ), ...$this->seed_table_files( 'lab-3:fox', 1, 7200 ) ];
+		$parked = $this->seed_table_files( 'lab-3:yak', 0, 7200 );
+		$ghost  = $this->seed_table_files( 'lab-3:emu', 3, 7200 );
+
+		$deleted = Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
+
+		foreach ( $kept as $file ) {
+			$this->assertFileExists( $file, 'an active topology declares it' );
+		}
+		foreach ( [ ...$parked, ...$ghost ] as $file ) {
+			$this->assertFileDoesNotExist( $file );
+		}
+		$this->assertEqualsCanonicalizing( [ $parked[0], $ghost[0] ], \array_values( \array_filter( $deleted, static fn ( string $path ): bool => \str_ends_with( $path, '.sqlite' ) ) ) );
+	}
+
+	public function test_sweeps_a_table_partition_beyond_its_topologys_count(): void {
+		$this->declare_topology( 'fox-w', "var num_partitions = 2\nmake_node Table lab-3:fox fox:p{partition} 919 sqlite\n" );
+		[ $kept ] = $this->seed_table_files( 'lab-3:fox', 1, 7200 );
+		$beyond   = $this->seed_table_files( 'lab-3:fox', 2, 7200 );
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
+
+		$this->assertFileExists( $kept );
+		foreach ( $beyond as $file ) {
+			$this->assertFileDoesNotExist( $file );
+		}
+	}
+
+	/** A journal whose delete fails keeps its database, so the sweep can retry the pair. */
+	public function test_a_journal_that_will_not_delete_keeps_its_database(): void {
+		$this->declare_topology( 'fox-w', "make_node Table lab-3:fox fox:p{partition} 919 sqlite\n" );
+		[ $db, $wal ] = $this->seed_table_files( 'lab-3:yak', 0, 7200 );
+		\unlink( $wal );
+		\mkdir( $wal );
+		\file_put_contents( "{$wal}/pin", 'otter-5520' );
+		\touch( $wal, \time() - 7200 );
+
+		$deleted = Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
+
+		$this->assertFileExists( $db );
+		$this->assertNotContains( $db, $deleted );
+		$this->rmdir_recursive( $wal );
+	}
+
+	public function test_keeps_the_table_a_crawler_owns(): void {
+		$this->declare_topology( 'crawl-c', "make_node Crawler crawl-8812 5501\n" );
+		[ $db ] = $this->seed_table_files( 'crawl-8812:seen', 0, 7200 );
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
+
+		$this->assertFileExists( $db );
+	}
+
+	public function test_keeps_an_undeclared_table_written_inside_the_grace_unless_forced(): void {
+		$this->declare_topology( 'fox-w', "make_node Table lab-3:fox fox:p{partition} 919 sqlite\n" );
+		[ $db, $wal ] = $this->seed_table_files( 'lab-3:yak', 0, 7200 );
+		\touch( $wal, \time() - 60 );
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
+		$this->assertFileExists( $db, 'its -wal was written a minute ago' );
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp, 0 );
+		$this->assertFileDoesNotExist( $db );
+		$this->assertFileDoesNotExist( $wal );
+	}
+
+	public function test_sweeps_every_table_when_no_topology_is_active(): void {
+		$this->declare_inactive_topology( 'fox-w', "make_node Table lab-3:fox fox:p{partition} 919 sqlite\n" );
+		[ $db ] = $this->seed_table_files( 'lab-3:fox', 0, 7200 );
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
+
+		$this->assertFileDoesNotExist( $db );
+	}
+
+	public function test_an_unreadable_topology_refuses_the_table_sweep(): void {
+		$this->declare_topology( 'fox-w', "make_node Table lab-3:fox fox:p{partition} 919 sqlite\n" );
+		$this->declare_topology( 'marmot-workers', "include orphaned-topology-4471\n" );
+		[ $db ] = $this->seed_table_files( 'lab-3:yak', 0, 7200 );
+
+		$this->caught( fn () => Log_Cleaner::cleanup_orphan_partitions( $this->tmp, 0 ), 'an unreadable topology must refuse the sweep loudly' );
+
+		$this->assertFileExists( $db, 'the unreadable topology may declare it' );
 	}
 }

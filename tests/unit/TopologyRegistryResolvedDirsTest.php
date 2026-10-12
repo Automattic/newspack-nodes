@@ -53,6 +53,18 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 		$this->assertSame( [], $result['offsets'] );
 	}
 
+	public function test_a_sqlite_table_yields_its_file_stem_per_partition(): void {
+		$this->write_tsl(
+			'req',
+			"make_node Table lab-3:fox fox:p{partition} 919 sqlite\nmake_node Table lab-3:owl owl 919 memcache\n"
+		);
+
+		$result = Topology_Analyzer::resolved_resource_dirs( 'req', 3 );
+		\ksort( $result['tables'] );
+
+		$this->assertSame( [ 'lab-3:fox.p0' => 0, 'lab-3:fox.p1' => 1, 'lab-3:fox.p2' => 2 ], $result['tables'] );
+	}
+
 	public function test_prefix_partition_token_yields_per_partition_log_dirs(): void {
 		$this->write_tsl(
 			'req',
@@ -268,7 +280,7 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 	public function test_unknown_topology_returns_empty_buckets(): void {
 		$result = Topology_Analyzer::resolved_resource_dirs( 'does-not-exist', 2 );
 
-		$this->assertSame( [ 'logs' => [], 'offsets' => [] ], $result );
+		$this->assertSame( [ 'logs' => [], 'offsets' => [], 'tables' => [] ], $result );
 	}
 
 	// ── resolved_node_dirs: one named node, full paths, indexed by partition ──
