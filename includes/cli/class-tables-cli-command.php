@@ -27,7 +27,7 @@ namespace Newspack_Nodes;
  *     wp nodes tables list
  *     wp nodes tables flush flame-stats:url --partition=0
  *
- * @phpstan-type Slot array{name:string,partition:int,spec:array{namespace:string,ttl:int,backend:string},owner:string}
+ * @phpstan-type Slot array{name:string,partition:int,spec:array{namespace:string,ttl:int,backend:string},owner:?string,state:string}
  */
 class Tables_CLI_Command {
 
@@ -43,12 +43,13 @@ class Tables_CLI_Command {
 	 *
 	 * Each row names the Table's backend and TTL, the worker owning the
 	 * partition and its state as `wp nodes status` reads it — `live`,
-	 * `stale`, `held`, `idle`, `down` or `inactive` for a topology outside the
-	 * active set — and where the rows live: the SQLite
+	 * `stale`, `held`, `idle` or `down` — and where the rows live: the SQLite
 	 * file and its size, its `-wal` and `-shm` counted, in bytes and in the disk
 	 * the filesystem allocates it, or the shared wpdb table. A live owner is asked for its per-verb counters
 	 * over its command channel; a verb it has never run is left out, and an
 	 * owner that does not answer in time is warned about and listed without.
+	 * A partition no worker holds and only inactive topologies declare has no
+	 * owner, and reads `inactive`.
 	 *
 	 * ## OPTIONS
 	 *
@@ -80,8 +81,7 @@ class Tables_CLI_Command {
 		unset( $args );
 		$timeout = CLI::require_flag_int( $assoc_args, 'timeout', self::REPLY_TIMEOUT_S );
 		$slots   = $this->slots();
-		$states  = $this->states( $slots );
-		$stats   = $this->ask( $this->owned_by_live( $slots, $states ), 'stats', $timeout );
+		$stats   = $this->ask( self::owned_by_live( $slots ), 'stats', $timeout );
 		$rows    = [];
 		foreach ( $slots as $stem => $slot ) {
 			$file   = Table_Node::file( $slot['name'], $slot['partition'] );
@@ -91,12 +91,12 @@ class Tables_CLI_Command {
 				'Partition' => $slot['partition'],
 				'Backend'   => $slot['spec']['backend'],
 				'TTL'       => (string) $slot['spec']['ttl'],
-				'Owner'     => $slot['owner'],
-				'State'     => $states[ $slot['owner'] ],
+				'Owner'     => $slot['owner'] ?? '-',
+				'State'     => $slot['state'],
 				'Store'     => null === $size ? Wpdb_Arm::table() : $file,
 				'Bytes'     => $size['bytes'] ?? null,
 				'Disk'      => $size['disk'] ?? null,
-				'Verbs'     => 'live' === $states[ $slot['owner'] ] ? self::verbs( $slot, $stats[ $stem ] ?? null, $timeout ) : null,
+				'Verbs'     => 'live' === $slot['state'] ? self::verbs( $slot, $stats[ $stem ] ?? null, $timeout ) : null,
 			];
 		}
 		$rows[]  = [
@@ -173,12 +173,13 @@ class Tables_CLI_Command {
 	 * namespace's rows and reports how many.
 	 *
 	 * A partition whose owning worker is live is flushed by that worker, sent
-	 * the Table's `flush` verb over its command channel. One no worker owns is
-	 * flushed from here, and only under the fleet hold (`wp nodes stop`),
-	 * because otherwise a worker may start and write it at the same time; a
-	 * partition of an inactive topology needs no hold, since nothing spawns its
-	 * worker. The command-session store is flushed only when named, and
-	 * flushing it revokes every issued session.
+	 * the Table's `flush` verb over its command channel. One whose owner is
+	 * not running is flushed from here, and only under the fleet hold (`wp
+	 * nodes stop`), because otherwise its worker may start and write it at the
+	 * same time; a partition with no owner, which only inactive topologies
+	 * declare, needs no hold, since nothing spawns its worker. The
+	 * command-session store is flushed only when named, and flushing it
+	 * revokes every issued session.
 	 *
 	 * ## OPTIONS
 	 *
@@ -219,14 +220,13 @@ class Tables_CLI_Command {
 			$slots,
 			static fn ( array $slot ): bool => ( [] === $args || \in_array( $slot['name'], $args, true ) ) && ( -1 === $partition || $partition === $slot['partition'] )
 		);
-		$states  = $this->states( $slots );
-		$replies = $this->ask( $this->owned_by_live( $chosen, $states ), 'flush', $timeout );
+		$replies = $this->ask( self::owned_by_live( $chosen ), 'flush', $timeout );
 		$steps   = [];
 		foreach ( $chosen as $stem => $slot ) {
-			$state           = $states[ $slot['owner'] ];
+			$state           = $slot['state'];
 			$steps[ $stem ]  = 'live' === $state
 				? static fn (): string => self::released( self::released_by_owner( $slot, $replies[ $stem ] ?? null, $timeout ) ) . " by {$slot['owner']}"
-				: static fn (): string => self::released( self::flush_here( $slot, $state ) ) . ( 'inactive' === $state ? '; ' . ( CLI::parse_worker_id( $slot['owner'] )[0] ?? $slot['owner'] ) . ' is inactive' : ' under the hold' );
+				: static fn (): string => self::released( self::flush_here( $slot, $state ) ) . ( 'inactive' === $state ? '; no active topology declares it' : ' under the hold' );
 		}
 		if ( \in_array( Command_Auth::SESSIONS_TABLE, $args, true ) ) {
 			$steps[ Command_Auth::SESSIONS_TABLE ] = static fn (): string => self::released( Command_Auth::session_table()->flush() ) . '; every issued session is revoked';
@@ -260,14 +260,13 @@ class Tables_CLI_Command {
 	 * @throws \RuntimeException When the fleet is not held, or the owner is stale, or the flush fails.
 	 */
 	private static function flush_here( array $slot, string $state ): array {
+		$owner = (string) $slot['owner'];
+		if ( 'stale' === $state ) {
+			$restart = Bootstrap::is_active( CLI::parse_worker_id( $owner )[0] ?? '' ) ? 'restart it, or ' : '';
+			throw new \RuntimeException( \esc_html( "{$owner} is stale: its lock stands with no heartbeat; {$restart}wait for its lock to clear, and flush again" ) );
+		}
 		if ( ! \in_array( $state, [ 'held', 'inactive' ], true ) ) {
-			throw new \RuntimeException(
-				\esc_html(
-					'stale' === $state
-						? "{$slot['owner']} is stale: its lock stands with no heartbeat; restart it, or wait for its lock to clear, and flush again"
-						: "{$slot['owner']} is {$state}; run `wp nodes stop` to hold the fleet, flush again, then `wp nodes start`"
-				)
-			);
+			throw new \RuntimeException( \esc_html( "{$owner} is {$state}; run `wp nodes stop` to hold the fleet, flush again, then `wp nodes start`" ) );
 		}
 		return Table_Node::writer( $slot['name'], $slot['partition'], $slot['spec'] )->flush();
 	}
@@ -316,14 +315,22 @@ class Tables_CLI_Command {
 	}
 
 	/**
-	 * The slots whose owning worker is live.
+	 * The Table and owning worker of each slot whose owner is live.
 	 *
-	 * @param array<string,Slot>   $slots  Stem => slot.
-	 * @param array<string,string> $states Worker id => state.
-	 * @return array<string,Slot>
+	 * @param array<string,Slot> $slots Stem => slot.
+	 * @return array<string,array{name:string,owner:string}>
 	 */
-	private function owned_by_live( array $slots, array $states ): array {
-		return \array_filter( $slots, static fn ( array $slot ): bool => 'live' === $states[ $slot['owner'] ] );
+	private static function owned_by_live( array $slots ): array {
+		$live = [];
+		foreach ( $slots as $stem => $slot ) {
+			if ( null !== $slot['owner'] && 'live' === $slot['state'] ) {
+				$live[ $stem ] = [
+					'name'  => $slot['name'],
+					'owner' => $slot['owner'],
+				];
+			}
+		}
+		return $live;
 	}
 
 	/**
@@ -334,9 +341,9 @@ class Tables_CLI_Command {
 	 * this process's replies and each reaches the one receiver with its stem
 	 * as the TO left behind.
 	 *
-	 * @param array<string,Slot> $slots   Stem => slot.
-	 * @param string             $verb    The `:config` verb.
-	 * @param int                $timeout Seconds to wait.
+	 * @param array<string,array{name:string,owner:string}> $slots   Stem => Table and owner.
+	 * @param string                                        $verb    The `:config` verb.
+	 * @param int                                           $timeout Seconds to wait.
 	 * @return array<string,array<int,mixed>> Stem => the reply; a slot whose
 	 *                                        worker did not answer is absent.
 	 * @throws \Throwable What tearing the channels down threw.
@@ -394,43 +401,30 @@ class Tables_CLI_Command {
 	}
 
 	/**
-	 * The state of each slot's owning worker, by its id, as `wp nodes status`
-	 * reads it: one `CLI::worker_states()` pass over every owner.
-	 *
-	 * @param array<string,Slot> $slots Stem => slot.
-	 * @return array<string,string> Worker id => state.
-	 */
-	private function states( array $slots ): array {
-		$owners = \array_values( \array_unique( \array_column( $slots, 'owner' ) ) );
-		return \array_map(
-			static fn ( array $slot ): string => $slot['state'],
-			( new CLI( Bootstrap::base_dir() ) )->worker_states( $owners, Bootstrap::get_topologies(), false )
-		);
-	}
-
-	/**
 	 * Every partition of every Table a registered topology declares, keyed by
-	 * its stem, `{table}.p{N}`, with the worker owning it: the first active
-	 * topology declaring the Table with that partition, as `node_tables()`
-	 * unions the declarers, else the first inactive one, whose worker nothing
-	 * spawns. An inactive topology that will not read is warned about and
+	 * its stem, `{table}.p{N}`, with the worker owning it and that worker's
+	 * state as `wp nodes status` reads it. The owner is the first declarer's
+	 * worker holding its lock, active topologies first, since a worker of a
+	 * deactivated topology writes until it exits; else the first active
+	 * declarer's, as `node_tables()` unions the declarers; else none, read as
+	 * `inactive`. An inactive topology that will not read is warned about and
 	 * left out.
 	 *
 	 * @return array<string,Slot>
 	 * @throws \Throwable As `Bootstrap::node_tables()`.
 	 */
 	private function slots(): array {
-		[ $readable ] = Bootstrap::active_topologies();
-		$owners       = self::owners( $readable );
-		$active_names = \array_map( 'strval', \array_keys( $owners ) );
-		$parked       = [];
 		$configured   = Bootstrap::get_topologies();
+		[ $readable ] = Bootstrap::split_readable( $configured );
+		$declarers    = self::declarers( $readable );
+		$active_names = \array_map( 'strval', \array_keys( $declarers ) );
+		$parked       = [];
 		foreach ( Bootstrap::get_topology_catalog() as $topology => $entry ) {
 			if ( isset( $configured[ $topology ] ) ) {
 				continue;
 			}
 			try {
-				$declared = self::owners( [ (string) $topology => Core::arr( $entry ) ] );
+				$declared = self::declarers( [ (string) $topology => Core::arr( $entry ) ] );
 			} catch ( Worker_Should_Stop $stop ) {
 				throw $stop;
 			} catch ( \RuntimeException $e ) {
@@ -439,25 +433,37 @@ class Tables_CLI_Command {
 			}
 			$parked[ (string) $topology ] = Core::arr( $entry );
 			foreach ( $declared as $name => $partitions ) {
-				foreach ( $partitions as $p => $worker ) {
-					$owners[ $name ][ $p ] ??= $worker;
+				foreach ( $partitions as $p => $ids ) {
+					$declarers[ $name ][ $p ] = [ ...$declarers[ $name ][ $p ] ?? [], ...$ids ];
 				}
 			}
 		}
 		$tables = [] === $active_names ? [] : Bootstrap::node_tables( ...$active_names );
-		foreach ( Bootstrap::tables_of( $parked, ...\array_map( 'strval', \array_keys( $owners ) ) ) as $name => $partitions ) {
+		foreach ( Bootstrap::tables_of( $parked, ...\array_map( 'strval', \array_keys( $declarers ) ) ) as $name => $partitions ) {
 			foreach ( $partitions as $p => $spec ) {
 				$tables[ $name ][ $p ] ??= $spec;
 			}
 		}
-		$slots = [];
+		$ids = [];
+		foreach ( $declarers as $partitions ) {
+			foreach ( $partitions as $workers ) {
+				\array_push( $ids, ...$workers );
+			}
+		}
+		$states = ( new CLI( Bootstrap::base_dir() ) )->worker_states( \array_values( \array_unique( $ids ) ), $configured, false );
+		$slots  = [];
 		foreach ( $tables as $name => $partitions ) {
 			foreach ( $partitions as $p => $spec ) {
+				$candidates = $declarers[ $name ][ $p ];
+				$locked     = \array_filter( $candidates, static fn ( string $id ): bool => null !== $states[ $id ]['lock'] );
+				$active     = \array_filter( $candidates, static fn ( string $id ): bool => 'inactive' !== $states[ $id ]['state'] );
+				$owner      = \array_values( $locked )[0] ?? \array_values( $active )[0] ?? null;
 				$slots[ Table_Node::stem( $name, $p ) ] = [
 					'name'      => $name,
 					'partition' => $p,
 					'spec'      => $spec,
-					'owner'     => $owners[ $name ][ $p ],
+					'owner'     => $owner,
+					'state'     => null === $owner ? 'inactive' : $states[ $owner ]['state'],
 				];
 			}
 		}
@@ -465,22 +471,22 @@ class Tables_CLI_Command {
 	}
 
 	/**
-	 * Each Table's partitions and their worker ids across the given
-	 * topologies, the first declarer keeping a partition.
+	 * Each Table's partitions and the worker of every given topology declaring
+	 * it with that partition, in the topologies' order.
 	 *
 	 * @param array<string,array<array-key,mixed>> $topologies Name => entry.
-	 * @return array<string,array<int,string>> Table name => partition => worker id.
+	 * @return array<string,array<int,list<string>>> Table name => partition => worker ids.
 	 * @throws \RuntimeException As `Topology_Analyzer::declared_tables()`.
 	 */
-	private static function owners( array $topologies ): array {
-		$owners = [];
+	private static function declarers( array $topologies ): array {
+		$declarers = [];
 		foreach ( $topologies as $topology => $entry ) {
 			foreach ( \array_keys( Topology_Analyzer::declared_tables( $topology ) ) as $name ) {
 				for ( $p = 0, $n = Bootstrap::partitions_of( $entry ); $p < $n; ++$p ) {
-					$owners[ $name ][ $p ] ??= CLI::worker_id( $topology, $p );
+					$declarers[ $name ][ $p ][] = CLI::worker_id( $topology, $p );
 				}
 			}
 		}
-		return $owners;
+		return $declarers;
 	}
 }
