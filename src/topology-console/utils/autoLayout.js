@@ -59,6 +59,8 @@
  * chain a stretched sink drew further right comes back beside its feeder
  * unless the block then crosses fewer wires without the move, and a nudge off
  * a wire carries along the card its mover alone feeds, on the same row.
+ * A loop layers on from where its feeder enters it, and only its closing wire
+ * runs back.
  *
  * HUBS leave their band for the column right after the bands that feed them,
  * on those bands' middle row, with the bands they feed continuing to their
@@ -317,9 +319,8 @@ const SLICE_MAX = 8;
  * Kahn's algorithm over `next`, so a node's value counts the edges on the
  * longest chain reaching it. Swapping the two arguments walks the graph the
  * other way, which is how the layering gets both its depth from the sources and
- * its height to the sinks out of one implementation. A cycle's nodes never
- * reach in-degree zero and keep the seed 0, which is what breaks a loop into a
- * layerable graph instead of hanging.
+ * its height to the sinks out of one implementation. It takes a graph with no
+ * loop, which `breakLoops` gives it.
  *
  * @param {Array<string>}                ids  Nodes to walk, in seed order.
  * @param {Object<string,Array<string>>} next Edges to follow.
@@ -348,6 +349,79 @@ const longestPath = ( ids, next, prev ) => {
 		}
 	}
 	return dist;
+};
+
+/**
+ * The wires of `ids` with each loop's closing wire dropped.
+ *
+ * A depth-first walk drops each wire that closes a loop back onto the walk. It
+ * starts from every card fed by nothing inside `ids`, then from every card fed
+ * from outside, then from any card a loop leaves unvisited, and follows each
+ * card's wires in id order. So a loop runs on from where its feeder enters
+ * it, every card's depth exceeds each card's feeding it but across a closing
+ * wire, the wire it drops never turns on the order the wires were declared in,
+ * and the depth and the height `longestPath` reads off the result agree on
+ * which wire runs back.
+ *
+ * @param {Array<string>}                ids  Nodes to walk, alphabetical.
+ * @param {Object<string,Array<string>>} succ Successors inside `ids`, loops included.
+ * @param {Object<string,Array<string>>} pred The whole graph's predecessors.
+ * @return {{next: Object<string,Array<string>>, prev: Object<string,Array<string>>}}
+ * The successors and predecessors left, a graph with no loop.
+ */
+const breakLoops = ( ids, succ, pred ) => {
+	const inside = new Set( ids );
+	/** @type {Object<string,Array<string>>} */
+	const next = {};
+	/** @type {Object<string,Array<string>>} */
+	const prev = {};
+	/** @type {Object<string,Array<string>>} */
+	const wires = {};
+	for ( const id of ids ) {
+		next[ id ] = [];
+		prev[ id ] = [];
+		wires[ id ] = [ ...succ[ id ] ].sort( byId );
+	}
+	const tierOf = ( id ) => {
+		const outside = pred[ id ].filter( ( p ) => ! inside.has( p ) ).length;
+		if ( outside === pred[ id ].length ) {
+			return 0;
+		}
+		return outside ? 1 : 2;
+	};
+	const seen = new Set();
+	const onWalk = new Set();
+	for ( const root of stableSort( ids, tierOf ) ) {
+		if ( seen.has( root ) ) {
+			continue;
+		}
+		seen.add( root );
+		onWalk.add( root );
+		/** @type {Array<[string, number]>} */
+		const stack = [ [ root, 0 ] ];
+		while ( stack.length ) {
+			const top = stack[ stack.length - 1 ];
+			const [ u, i ] = top;
+			if ( i === wires[ u ].length ) {
+				onWalk.delete( u );
+				stack.pop();
+				continue;
+			}
+			top[ 1 ]++;
+			const v = wires[ u ][ i ];
+			if ( onWalk.has( v ) ) {
+				continue;
+			}
+			next[ u ].push( v );
+			prev[ v ].push( u );
+			if ( ! seen.has( v ) ) {
+				seen.add( v );
+				onWalk.add( v );
+				stack.push( [ v, 0 ] );
+			}
+		}
+	}
+	return { next, prev };
 };
 
 /**
@@ -984,9 +1058,8 @@ const clearWires = (
  * fewest, keeping within `SEAT_ROWS` of the midpoint once any row is free.
  * The row never rises past `floor`, which a cut on trial leaves where the
  * stack put it, so a band grows down into the bands stacked beneath, never
- * up onto the band above. A source wired to a node outside its block keeps
- * the column it holds and chooses only its row: nothing here can see where
- * that wire lands.
+ * up onto the band above. A source whose range holds no column keeps the
+ * one it holds and chooses only its row.
  *
  * A wire's clearance reads canvas x off the half steps `gaps` counts, as
  * `clearWires` reads `xOf`, with the source in the column each seat would put
@@ -1075,7 +1148,7 @@ const seatSources = (
 		( id ) => -next[ id ].length
 	);
 	for ( const id of order ) {
-		const fed = next[ id ].filter( ( k ) => row[ k ] !== undefined );
+		const fed = next[ id ];
 		if ( ! fed.length ) {
 			continue;
 		}
@@ -1161,7 +1234,7 @@ const seatSources = (
 			.map( ( k ) => col[ k ] )
 			.filter( ( c ) => c <= last );
 		const first = behind.length ? Math.max( ...behind ) + 1 : 0;
-		const stay = fed.length < next[ id ].length || first > last;
+		const stay = first > last;
 		const own = stay ? was : bandStart( id );
 		const parked = ( c, r ) => {
 			if ( c === own ) {
@@ -1597,8 +1670,13 @@ const layoutComponent = ( ids, graph, pin = {}, twins = false ) => {
 	const isSink = ( id ) => succ[ id ].length === 0;
 
 	// Longest path from the sources, and to the sinks — the feasibility band.
-	const depth = longestPath( ids, succ, pred );
-	const height = longestPath( ids, pred, succ );
+	const { next: forward, prev: backward } = breakLoops(
+		ids,
+		succ,
+		graph.pred
+	);
+	const depth = longestPath( ids, forward, backward );
+	const height = longestPath( ids, backward, forward );
 	let maxDepth = 0;
 	for ( const id of ids ) {
 		maxDepth = Math.max( maxDepth, depth[ id ] );
@@ -1622,11 +1700,7 @@ const layoutComponent = ( ids, graph, pin = {}, twins = false ) => {
 		if ( ! isSink( id ) ) {
 			continue;
 		}
-		let shares = false;
-		for ( const p of pred[ id ] ) {
-			seat[ id ] = Math.max( seat[ id ], depth[ p ] + 1 );
-			shares ||= succ[ p ].length > 1;
-		}
+		const shares = pred[ id ].some( ( p ) => forward[ p ].length > 1 );
 		const beside = shares && ! graph.succ[ id ].length;
 		if ( ! beside ) {
 			seat[ id ] = Math.min( maxDepth, seat[ id ] + SINK_STRETCH );
@@ -1642,7 +1716,7 @@ const layoutComponent = ( ids, graph, pin = {}, twins = false ) => {
 		let first = -Infinity;
 		let firstId = null;
 		let second = -Infinity;
-		for ( const s of succ[ p ] ) {
+		for ( const s of forward[ p ] ) {
 			const at = seat[ s ];
 			if ( at > first ) {
 				second = first;
@@ -1666,20 +1740,14 @@ const layoutComponent = ( ids, graph, pin = {}, twins = false ) => {
 				const f = furthest[ p ];
 				peer = Math.max( peer, f.firstId === id ? f.second : f.first );
 			}
-			col[ id ] = Math.min( maxDepth, Math.max( seat[ id ], peer ) );
+			col[ id ] = Math.max( seat[ id ], peer );
 		} else {
 			col[ id ] = depth[ id ];
 		}
 	}
 	// @longform Under its longest-path ceiling, an interior card relaxes no
-	// further right than the column before the nearest card it feeds that
-	// starts right of it, a sink beside its feeder included; a card it feeds
-	// that a loop's depths leave at or left of it bounds nothing.
-	/** @type {Object<string,Array<string>>} */
-	const ahead = {};
-	for ( const id of ids ) {
-		ahead[ id ] = succ[ id ].filter( ( n ) => col[ n ] > col[ id ] );
-	}
+	// further right than the column before the nearest card it feeds, a sink
+	// beside its feeder included, save across a loop's closing wire.
 	for ( let pass = 0; pass < 20; pass++ ) {
 		for ( const id of ids ) {
 			if ( isSource( id ) || isSink( id ) ) {
@@ -1687,7 +1755,7 @@ const layoutComponent = ( ids, graph, pin = {}, twins = false ) => {
 			}
 			const lo = depth[ id ];
 			let hi = maxDepth - height[ id ];
-			for ( const n of ahead[ id ] ) {
+			for ( const n of forward[ id ] ) {
 				hi = Math.min( hi, col[ n ] - 1 );
 			}
 			if ( lo >= hi ) {
@@ -1697,10 +1765,6 @@ const layoutComponent = ( ids, graph, pin = {}, twins = false ) => {
 			const nb = [ ...pred[ id ], ...succ[ id ] ].map(
 				( n ) => col[ n ]
 			);
-			if ( ! nb.length ) {
-				col[ id ] = lo;
-				continue;
-			}
 			const bary = nb.reduce( ( a, b ) => a + b, 0 ) / nb.length;
 			col[ id ] = Math.max( lo, Math.min( hi, Math.round( bary ) ) );
 		}
@@ -2149,11 +2213,12 @@ const backboneOf = ( hubs, ids, succ, pred ) =>
  */
 const placeBackbone = ( backbone, succ, pred, baseCol, col, row ) => {
 	const inside = new Set( backbone );
-	const depth = longestPath(
+	const { next, prev } = breakLoops(
 		backbone,
 		restrictAdjacency( backbone, succ ),
-		restrictAdjacency( backbone, pred )
+		pred
 	);
+	const depth = longestPath( backbone, next, prev );
 	/** @type {Object<string,number>} */
 	const order = {};
 	backbone.forEach( ( id, i ) => ( order[ id ] = i ) );
@@ -3498,11 +3563,12 @@ export function autoLayout( parsed ) {
 	const nodeSet = new Set( ids );
 	const seen = new Set();
 	for ( const e of edges ) {
-		// Skip a dangling edge, and a wire declared twice (it weighs twice).
+		// Skip a dangling edge, a wire to itself, and a wire declared twice.
 		const key = `${ e.from }\u2192${ e.to }`;
 		if (
 			! nodeSet.has( e.from ) ||
 			! nodeSet.has( e.to ) ||
+			e.from === e.to ||
 			seen.has( key )
 		) {
 			continue;
