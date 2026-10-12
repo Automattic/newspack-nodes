@@ -715,11 +715,12 @@ class Worker_CLI_Command {
 	}
 
 	/**
-	 * Sweep orphan log + offsetlog dirs now, instead of waiting for the sweep job.
+	 * Sweep orphan log and offsetlog dirs and Table files now, instead of
+	 * waiting for the sweep job.
 	 *
-	 * A dir is an orphan when no ACTIVE topology declares it — so deactivating a
-	 * topology is what orphans its data, not stopping its workers. The fleet
-	 * sweep already runs this every window, but spares any dir written
+	 * A dir or Table is an orphan when no ACTIVE topology declares it — so
+	 * deactivating a topology is what orphans its data, not stopping its workers. The fleet
+	 * sweep already runs this every window, but spares any orphan written
 	 * within the last hour so a mid-deploy blip cannot eat live data. `--force`
 	 * drops that wait to zero: use it to reclaim a topology you just tore down.
 	 *
@@ -750,9 +751,9 @@ class Worker_CLI_Command {
 		if ( empty( $deleted ) ) {
 			\WP_CLI::success(
 				$force
-					? 'No orphan dirs to sweep.'
+					? 'No orphans to sweep.'
 					: \sprintf(
-						'No orphan dirs past the %ds grace. Re-run with --force to sweep regardless.',
+						'No orphans past the %ds grace. Re-run with --force to sweep regardless.',
 						Log_Cleaner::DELETE_GRACE_S
 					)
 			);
@@ -762,7 +763,7 @@ class Worker_CLI_Command {
 		foreach ( $deleted as $path ) {
 			\WP_CLI::log( "  removed {$path}" );
 		}
-		\WP_CLI::success( \sprintf( 'Swept %d orphan dir(s).', \count( $deleted ) ) );
+		\WP_CLI::success( \sprintf( 'Swept %d orphan(s).', \count( $deleted ) ) );
 	}
 
 	/**

@@ -1681,6 +1681,9 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
 - The WAL holds up to one `CHECKPOINT_INTERVAL_S` of writes, ~75 MB at staging's rate, which
   is also what a crash replays from it; a stall holds more, until its reader ends.
 - A co-tenant install sharing `{base}` shares the file and becomes its second writer.
+- Once no active topology declares a `sqlite` Table, the retention sweep deletes its files an
+  hour after their last write, so deactivating a topology reclaims its Tables' disk, and a
+  co-tenant install sharing `{base}` deletes the other install's Tables the same way.
 - A Table built outside a graph, `Table_Node::table( $ns, $ttl, 'sqlite' )`, is opened by
   every web and CLI process that builds it, so its file has no one writer. Such a Table names
   `wpdb`.
