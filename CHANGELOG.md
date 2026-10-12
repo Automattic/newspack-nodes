@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.105.2] - 2026-10-12
+
 ### Changed
 
 - **On the topology canvas, a card no sweep seats stacks on the edge of its column nearer its feeders.** A sink left of a band's busiest column has no card it feeds to seat it, and it stacked under its column's cards wherever its feeder sat. It now stacks above them when its feeders sit above the column's middle, and below them otherwise, and several such cards stack in the order of their feeders, so a wire from one feeder crosses none of the others.
