@@ -160,15 +160,16 @@ describe( 'autoLayout — the Performance dashboard in the debug overlay', () =>
 		expect( edges.filter( ( e ) => '_shell' === e.to ) ).toEqual( [] );
 	} );
 
-	it( 'seats the overview slices on whole grid rows', () => {
+	it( 'seats the overview slices a whole number of rows apart', () => {
 		const { at } = layOutPerformanceOverlay();
 		// The Tap is no slice card: it centres on its fan-in, a half row.
 		const views = TAP_COLUMN.filter( ( id ) => 'overview:shell' !== id );
+		const top = at[ FETCHERS[ 0 ] ].y;
 		for ( const id of [ ...FETCHERS, ...views ] ) {
-			expect( [ id, ( ( at[ id ].y - Y_PAD ) / Y_STEP ) % 1 ] ).toEqual( [
+			expect( [
 				id,
-				0,
-			] );
+				Math.abs( ( at[ id ].y - top ) / Y_STEP ) % 1,
+			] ).toEqual( [ id, 0 ] );
 		}
 	} );
 
@@ -234,60 +235,58 @@ describe( 'autoLayout — the Performance dashboard in the debug overlay', () =>
 		[ `${ s }:result`, 2, r + 1.5 ],
 	];
 
-	it( 'stacks the url, overview and performance groups tight in the left stack', () => {
+	it( 'stacks the url and request groups tight in the left stack, the REPL under them', () => {
 		const { at } = layOutPerformanceOverlay();
 		const left = [
 			...oneShot( 'url-deeplink', 0 ),
 			[ 'url-detail:timer', 0, 2 ],
 			[ 'url-detail:fetch', 2, 2.5 ],
+			[ 'url:shell', 4, 2.5 ],
 			[ 'url-detail:in', 0, 3 ],
 			[ 'url-detail:in:current', 1, 3.5 ],
 			[ 'url-detail:transform', 2, 3.5 ],
 			[ 'url-detail:view', 3, 3.5 ],
 			...oneShot( 'url-lookup', 4.5, 3 ),
-			[ 'url:shell', 4, 2.5 ],
-			[ 'overview:in:current', 2, 8 ],
-			[ 'overview:view', 3, 8 ],
-			[ 'overview:in', 1, 8.5 ],
-			[ 'overview:fetch', 2, 9 ],
-			[ 'performance:timer', 0, 9.5 ],
-			[ 'performance:tee', 1, 9.5 ],
-			[ 'overview:shell', 3, 9.5 ],
-			[ 'urls:fetch', 2, 10 ],
-			[ 'urls:in', 1, 10.5 ],
-			[ 'urls:in:current', 2, 11 ],
-			[ 'urls:view', 3, 11 ],
-			...oneShot( 'ask', 13 ),
-			[ 'performance:shell', 3, 15 ],
-			...oneShot( 'grep-requests', 15.5 ),
+			...oneShot( 'request-deeplink', 8 ),
+			[ 'request-detail:timer', 0, 10 ],
+			[ 'request-detail:fetch', 2, 10.5 ],
+			[ 'request-detail:in', 0, 11 ],
+			[ 'request:shell', 3.5, 11 ],
+			[ 'request-detail:in:current', 1, 11.5 ],
+			[ 'request-detail:view', 2, 11.5 ],
+			...oneShot( 'request-search', 12.5 ),
+			[ '_heartbeat', 0, 16 ],
+			[ '_http', 1, 16 ],
+			[ '_output', 2, 16 ],
+			[ '_metadata', 0, 18 ],
+			[ '_cwd', 1, 18 ],
 		];
 		expect( relative( at, 'url-deeplink:timer', left ) ).toEqual( left );
 	} );
 
-	it( 'stacks the request and rules groups tight in the right stack, the REPL under them', () => {
+	it( 'stacks the rules, overview and performance groups tight in the right stack', () => {
 		const { at } = layOutPerformanceOverlay();
 		const right = [
-			...oneShot( 'request-deeplink', 0 ),
-			[ 'request-detail:timer', 0, 2 ],
-			[ 'request-detail:fetch', 2, 2.5 ],
-			[ 'request-detail:in', 0, 3 ],
-			[ 'request:shell', 3.5, 3 ],
-			[ 'request-detail:in:current', 1, 3.5 ],
-			[ 'request-detail:view', 2, 3.5 ],
-			...oneShot( 'request-search', 4.5 ),
-			...oneShot( 'rules:delete', 8 ),
-			...oneShot( 'rules:dump', 10.5 ),
-			[ 'rules:shell', 3.5, 11 ],
-			...oneShot( 'rules:upsert', 13 ),
-			[ '_heartbeat', 0, 16.5 ],
-			[ '_http', 1, 16.5 ],
-			[ '_output', 2, 16.5 ],
-			[ '_metadata', 0, 18.5 ],
-			[ '_cwd', 1, 18.5 ],
+			...oneShot( 'rules:delete', 0 ),
+			...oneShot( 'rules:dump', 2.5 ),
+			[ 'rules:shell', 3.5, 3 ],
+			...oneShot( 'rules:upsert', 5 ),
+			[ 'overview:in:current', 2, 8.5 ],
+			[ 'overview:view', 3, 8.5 ],
+			[ 'overview:in', 1, 9 ],
+			[ 'overview:fetch', 2, 9.5 ],
+			[ 'performance:timer', 0, 10 ],
+			[ 'performance:tee', 1, 10 ],
+			[ 'overview:shell', 3, 10 ],
+			[ 'urls:fetch', 2, 10.5 ],
+			[ 'urls:in', 1, 11 ],
+			[ 'urls:in:current', 2, 11.5 ],
+			[ 'urls:view', 3, 11.5 ],
+			...oneShot( 'ask', 13.5 ),
+			[ 'performance:shell', 3, 15.5 ],
+			...oneShot( 'grep-requests', 16 ),
 		];
-		expect( relative( at, 'request-deeplink:timer', right ) ).toEqual(
-			right
-		);
+		expect( relative( at, 'rules:delete:timer', right ) ).toEqual( right );
 	} );
 
 	it( 'runs every wire into the Tap column clear of every other', () => {
