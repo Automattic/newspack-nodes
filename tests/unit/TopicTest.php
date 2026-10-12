@@ -329,6 +329,25 @@ class TopicTest extends TestCase {
 		$this->assert_owned_nodes_keep_their_config();
 	}
 
+	/** A Topic opted out of its `:config` builds every partition without one. */
+	public function test_an_opted_out_topic_builds_its_partitions_with_no_config(): void {
+		$t = new Topic_Node();
+		$t->without_config();
+		$t->name( 'sluice-5148' );
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "3", "65536", "2", "4", "86400", "0" ] );
+		foreach ( [ 'k1', 'k2', 'k3', 'k4', 'k5', 'k6' ] as $key ) {
+			$this->produce_into( $t, 'data', $key );
+		}
+
+		$built = \array_filter( \array_map( static fn ( int $i ): ?\Newspack_Nodes\Node => Core::node( "sluice-5148:p{$i}" ), [ 0, 1, 2 ] ) );
+		$this->assertNotEmpty( $built );
+		$this->assertNull( Core::node( 'sluice-5148:config' ) );
+		foreach ( $built as $partition ) {
+			$this->assertFalse( $partition->wants_config() );
+			$this->assertNull( Core::node( $partition->name() . ':config' ) );
+		}
+	}
+
 	/**
 	 * The Partition sibling keeps Topic's own sink (the specific sink Topic
 	 * already assigns) — Rule 2's "unless it already sets a specific sink".

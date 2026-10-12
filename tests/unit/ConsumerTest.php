@@ -408,21 +408,28 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( 1, $c->dump_metadata()['deadletter_segments'], 'one quarantine segment now' );
 	}
 
-	/** An owned Partition keeps its `:config`, and its verbs reach it there. */
-	public function test_sidecar_partitions_keep_their_config_interpreter(): void {
+	/**
+	 * A Consumer's source is a read view, so no `cmd <reader>:source:config`
+	 * can lift its cap or take the log's write lock; the offsetlog it writes
+	 * keeps its `:config`, and its verbs reach it there.
+	 */
+	public function test_a_consumers_source_takes_no_config_and_its_offsetlog_keeps_one(): void {
 		$c = new Consumer_Node();
-		$c->name( 'reader-5530' );
-		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
-		$offsetlog = Core::node( 'reader-5530:offsetlog' );
+		$c->name( 'reader-7720' );
+		$c->arguments( [ "{$this->tmp}/jobintake.p0", "{$this->tmp}/offsets.p0" ] );
+		$source    = Core::node( 'reader-7720:source' );
+		$offsetlog = Core::node( 'reader-7720:offsetlog' );
 
-		$this->assertNotNull( Core::node( 'reader-5530:source:config' ) );
+		$this->assertInstanceOf( Partition_Node::class, $source );
+		$this->assertNull( Core::node( 'reader-7720:source:config' ), 'no :config for allow_large_writes to reach' );
+		$this->assertNotNull( Core::node( 'reader-7720:config' ), 'the Consumer keeps its own' );
+		$allowed = new \ReflectionMethod( Partition_Node::class, 'large_writes_allowed' );
+		$this->assertFalse( $allowed->invoke( $source ) );
+
 		$this->assertInstanceOf( Partition_Node::class, $offsetlog );
 		$this->assertSame( $c, $offsetlog->patron() );
-		$allowed = new \ReflectionMethod( Partition_Node::class, 'large_writes_allowed' );
 		$this->assertFalse( $allowed->invoke( $offsetlog ) );
-
-		Core::node( 'reader-5530:offsetlog:config' )->dispatch( 'void_warranty' );
-
+		Core::node( 'reader-7720:offsetlog:config' )->dispatch( 'void_warranty' );
 		$this->assertTrue( $allowed->invoke( $offsetlog ) );
 	}
 

@@ -14,6 +14,7 @@ use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Node_Names;
+use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Topology_Loader;
@@ -49,6 +50,20 @@ final class OwnedConfigGuardTest extends TestCase {
 		$this->expectException( AssertionFailedError::class );
 		$this->expectExceptionMessage( 'unwired-8830' );
 		$this->assert_owned_nodes_keep_their_config();
+	}
+
+	public function test_the_guard_exempts_a_node_its_builder_opted_out(): void {
+		$owner = new Node();
+		$kept  = new Partition_Node();
+		$kept->patron( $owner );
+		$kept->name( 'kept-6120' );
+		$skipped = new Partition_Node();
+		$skipped->patron( $owner );
+		$skipped->without_config();
+		$skipped->name( 'skipped-6121' );
+
+		$this->assert_owned_nodes_keep_their_config();
+		$this->assertNull( Core::node( 'skipped-6121:config' ) );
 	}
 
 	/** @return array<string,array{string}> */

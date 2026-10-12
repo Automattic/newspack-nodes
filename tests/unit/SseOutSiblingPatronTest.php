@@ -105,4 +105,39 @@ class SseOutSiblingPatronTest extends TestCase {
 		$this->assertSame( $egress, $captured['default_patron'] ?? null, '_default_route must be patron-linked to the _sse egress' );
 		$this->assertSame( $egress, $captured['consumer_patron'] ?? null, 'the Consumer must be patron-linked to the _sse egress' );
 	}
+
+	/** A stream's stamp reader and its source build no `:config` of their own. */
+	public function test_a_streams_stamp_reader_and_its_source_take_no_config(): void {
+		$seen = [];
+		SSE_Out_Node::$check_slot = static function () use ( &$seen ): bool {
+			foreach ( [ 'firehose.p0', 'firehose.p0:source', 'firehose.p0:config', 'firehose.p0:source:config' ] as $name ) {
+				$seen[ $name ] = null !== Core::node( $name );
+			}
+			return false;
+		};
+		SSE_Out_Node::$inspect_slot   = static fn (): array => [ 'backend' => 'memcached', 'lease_state' => 'pointer_owner_mismatch' ];
+		SSE_Out_Node::$diagnostic_log = static function (): void {};
+
+		$base = $this->make_temp_dir( 'sse-stamp-config-' );
+		\mkdir( "{$base}/logs/firehose.p0", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $base );
+
+		\ob_start();
+		try {
+			$ctrl->run_stream_loop( [ 'firehose.*' ], null, 500, [ 'slot' => 3, 'owner' => 51515152 ], 2 );
+		} finally {
+			\ob_get_clean();
+		}
+
+		$this->assertSame(
+			[
+				'firehose.p0'               => true,
+				'firehose.p0:source'        => true,
+				'firehose.p0:config'        => false,
+				'firehose.p0:source:config' => false,
+			],
+			$seen
+		);
+	}
 }

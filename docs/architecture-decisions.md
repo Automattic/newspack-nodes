@@ -1307,7 +1307,8 @@ one of them unless the flatten knows how to see it.
 **Decision:** [`Vault_Group_Node`](../includes/class-vault-group-node.php) owns one child per
 server `Vault::in_group()` returns, each published as an owned sibling
 (`Node::publish_sibling()`) named `<group>:<vault id>`, and NOT patroned, so each draws on the
-canvas; it keeps its own `:config` interpreter, as every node declaring verbs does. Unlike a hand-written node, a child cannot be
+canvas; it keeps its own `:config` interpreter, as every node declaring verbs does unless its
+builder calls `without_config()`. Unlike a hand-written node, a child cannot be
 removed or renamed from the console or the shell: `remove_node` and `move_node` refuse an owned
 sibling, and `dump_metadata` names the group as the child's `owner`. A child leaves through the
 Vault — `vault update <id> --group=` takes its entry out of the group, and the next reload

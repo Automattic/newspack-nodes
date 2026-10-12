@@ -378,12 +378,13 @@ trait Schema_Reflection {
 	 * patron it and publish it — the half `auto_wire_interpreter()` shares with a
 	 * builder that assembles its own verb table rather than reading it straight
 	 * off `node_schema()`. No-op for a node that already attached its own
-	 * interpreter (so a second call is idempotent) and for an empty verb table.
+	 * interpreter (so a second call is idempotent), for an empty verb table,
+	 * and for a node its builder opted out with `without_config()`.
 	 *
 	 * @param array<string,callable> $verbs Verb name => handler.
 	 */
 	protected function wire_interpreter( array $verbs ): void {
-		if ( null !== $this->interpreter || [] === $verbs ) {
+		if ( null !== $this->interpreter || [] === $verbs || ! $this->wants_config() ) {
 			return;
 		}
 		$interpreter = new Command_Interpreter_Node();
