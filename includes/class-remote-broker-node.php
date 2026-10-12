@@ -359,6 +359,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 			return null;
 		}
 		$child = new Remote_Consumer_Node();
+		$child->patron( $this );
 		$this->publish_sibling( Log_Discovery::kind_of( $stamp ), $child );
 		$child->sink( $this->sink );
 		$child->arguments( $this->reader_args( $stamp ) );

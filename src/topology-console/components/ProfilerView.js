@@ -18,10 +18,8 @@
 import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { Core } from '../../runtime/core';
-import { mountExospine } from '../../runtime/exospine';
-import { LIVE_POLL_INTERVAL_MS } from '../../runtime/poller-node';
-import { useNodeField } from '../../runtime/react';
 import { FROM, TO } from '../../runtime/message';
+import { usePoller } from '../hooks/usePoller';
 import names from '../../runtime/reserved-node-names.json';
 import { Grid, useSortState } from './SortableGrid';
 import './inspector-views.scss';
@@ -32,6 +30,9 @@ import './inspector-views.scss';
  * of the other views' pollers.
  */
 const POLLER = 'profiler:fetch';
+
+/** The verb answers rows rather than a text table. */
+const SORTABLE = [ '-s' ];
 
 /**
  * Format one numeric cell to a fixed number of decimals, as the verb's own text
@@ -72,37 +73,11 @@ const COLS = [
  */
 export default function ProfilerView() {
 	const [ sort, onSort ] = useSortState( 'avg', 'desc' );
-	// Bumped after mount so useNodeField rebinds to the freshly-created poller.
-	const [ , bumpBuild ] = useState( 0 );
-	const pollerRef = useRef( null );
-	const interpreterRef = useRef( null );
-
-	useEffect( () => {
-		const build = ( { interpreter } ) => {
-			interpreterRef.current = interpreter;
-			const poller = interpreter.makeNode( 'Poller', POLLER );
-			poller.verb = 'list_profiles';
-			poller.pollArgs = [ '-s' ];
-			// `_cwd` routes to the current scope; default it to browser-local.
-			if ( ! Core.node( names.CWD ) ) {
-				interpreter.makeNode( 'Node', names.CWD );
-			}
-			poller.target = names.CWD;
-			poller.pollIntervalMs = LIVE_POLL_INTERVAL_MS;
-			poller.setTimer(); // hitchhike the _router TIMER (Poller throttles)
-			poller.fire(); // poll immediately
-			pollerRef.current = poller;
-			bumpBuild( ( n ) => n + 1 );
-			return () => {
-				pollerRef.current = null;
-				interpreterRef.current = null;
-			};
-		};
-		const { teardown } = mountExospine( build );
-		return teardown;
-	}, [] );
-
-	const reply = useNodeField( POLLER, 'reply' );
+	const { value: reply, pollNow } = usePoller( {
+		name: POLLER,
+		verb: 'list_profiles',
+		args: SORTABLE,
+	} );
 	const all = Array.isArray( reply ) ? reply : null;
 	// Profiling off answers with the --total-- row alone (count 0).
 	const profilingOn = null !== all && all.length > 1;
@@ -136,15 +111,15 @@ export default function ProfilerView() {
 	 * measure. The poller MINTS and signs the command; FROM and TO are written
 	 * afterwards, since the signature covers the semantics alone (ADR-15).
 	 * FROM is bare `_ui`: the button reads its answer off the next poll, and a
-	 * reply landing on the poller would stand in for the rows. Firing the
-	 * poller straight after puts that poll on this tick, not the next interval.
+	 * reply landing on the poller would stand in for the rows. Polling again
+	 * straight after puts that poll on the next tick, not the next interval.
 	 *
 	 * @param {boolean} enable Whether profiling should run in that scope.
 	 */
 	const setProfiling = ( enable ) => {
 		disagreeRef.current = 0;
 		setOptimistic( enable );
-		const interpreter = interpreterRef.current;
+		const interpreter = Core.node( names.COMMAND_INTERPRETER );
 		if ( ! interpreter ) {
 			return;
 		}
@@ -160,7 +135,7 @@ export default function ProfilerView() {
 			text: `command_node ${ names.CWD } profile ${ verb }`,
 		} );
 		interpreter.fill( m );
-		pollerRef.current?.fire();
+		pollNow();
 	};
 
 	const rows = useMemo(

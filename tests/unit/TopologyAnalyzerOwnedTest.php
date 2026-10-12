@@ -40,20 +40,11 @@ final class TopologyAnalyzerOwnedTest extends TestCase {
 		parent::tearDown();
 	}
 
-	/** Every owned Table is a declared Table, whatever class owns it. */
+	/** Every owned Table is a declared node and a declared Table, whatever class owns it. */
 	public function test_every_owned_table_is_a_declared_table(): void {
-		foreach ( [ 'crawl-owned', 'tally-owned' ] as $topology ) {
-			$tables = \array_column(
-				\array_filter(
-					Topology_Analyzer::owned_nodes( $topology ),
-					static fn ( array $node ): bool => 'Table' === $node['class']
-				),
-				'name'
-			);
-			$this->assertNotEmpty( $tables, "{$topology} owns a Table" );
-			foreach ( $tables as $table ) {
-				$this->assertArrayHasKey( $table, Topology_Analyzer::declared_tables( $topology ) );
-			}
+		foreach ( [ 'crawl-owned' => 'crawl-3307:seen', 'tally-owned' => 'tally-8842:tally' ] as $topology => $table ) {
+			$this->assertTrue( Topology_Analyzer::declares_node( $topology, $table ), "{$topology} declares {$table}" );
+			$this->assertArrayHasKey( $table, Topology_Analyzer::declared_tables( $topology ) );
 		}
 	}
 
@@ -92,10 +83,10 @@ final class TopologyAnalyzerOwnedTest extends TestCase {
 		Topology_Analyzer::declared_tables( 'bare-owned' );
 	}
 
-	/** A class off the palette cannot own: the editor's catalog never carries it. */
+	/** A class off the palette cannot own. */
 	public function test_an_owner_off_the_palette_is_refused(): void {
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'Wombat_Hidden_Patron declares owns but is not a palette class' );
-		Topology_Analyzer::owned_nodes( 'hidden-owned' );
+		Topology_Analyzer::declares_node( 'hidden-owned', 'hush-2209' );
 	}
 }

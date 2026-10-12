@@ -52,7 +52,7 @@ describe( 'useJsCatalog', () => {
 		}
 	} );
 
-	it( 'excludes Hook, Router, and CommandInterpreter (not user-makeable in the overlay)', () => {
+	it( 'excludes Hook and Router, and files CommandInterpreter under Hidden (off the palette)', () => {
 		// Stash + restore so the test is self-contained.
 		const before = { ...CommandInterpreterNode.includeNodes };
 		CommandInterpreterNode.includeNodes.Hook = function Hook() {};
@@ -61,8 +61,12 @@ describe( 'useJsCatalog', () => {
 		const names = result.current.classes.map( ( c ) => c.shell_name );
 		expect( names ).not.toContain( 'Hook' );
 		expect( names ).not.toContain( 'Router' );
-		// CommandInterpreter is in includeNodes but every graph already has it.
-		expect( names ).not.toContain( 'CommandInterpreter' );
+		// Every graph already has an interpreter, so the palette offers none.
+		expect(
+			result.current.classes.find(
+				( c ) => 'CommandInterpreter' === c.shell_name
+			).category
+		).toBe( 'Hidden' );
 		CommandInterpreterNode.includeNodes = before;
 	} );
 
@@ -129,12 +133,18 @@ describe( 'useJsCatalog', () => {
 		CommandInterpreterNode.includeNodes = before;
 	} );
 
-	it( "excludes Hidden-category classes (PHP skips 'Hidden' === cat) and includes a real-category one", () => {
+	it( 'carries a Hidden-category class, refuses the hidden flag, and includes a real-category one', () => {
 		const before = { ...CommandInterpreterNode.includeNodes };
-		// A Hidden node (DumperNode pattern) must NOT leak into the palette.
+		// The Inspector reads a Hidden-category sidecar's schema here.
 		CommandInterpreterNode.includeNodes.FakeHidden = class {
 			static nodeSchema() {
 				return { category: 'Hidden' };
+			}
+		};
+		// A hidden schema stays off every console surface, as in PHP.
+		CommandInterpreterNode.includeNodes.FakeFlagged = class {
+			static nodeSchema() {
+				return { category: 'Routing', hidden: true };
 			}
 		};
 		// A real-category node IS included, carrying its real category.
@@ -147,7 +157,8 @@ describe( 'useJsCatalog', () => {
 		const byName = Object.fromEntries(
 			result.current.classes.map( ( c ) => [ c.shell_name, c ] )
 		);
-		expect( byName.FakeHidden ).toBeUndefined();
+		expect( byName.FakeHidden.category ).toBe( 'Hidden' );
+		expect( byName.FakeFlagged ).toBeUndefined();
 		expect( byName.FakeVisible.category ).toBe( 'Routing' );
 		expect( byName.FakeVisible.description ).toBe( 'fan-out' );
 		CommandInterpreterNode.includeNodes = before;

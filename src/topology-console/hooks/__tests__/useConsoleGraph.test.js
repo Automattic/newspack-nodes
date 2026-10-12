@@ -680,7 +680,6 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 						reply( {
 							name: 'demo',
 							source: 'user',
-							owned: [],
 							tsl,
 						} )
 				  )
@@ -709,7 +708,6 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 						reply( {
 							name: 'demo',
 							source: 'user',
-							owned: [],
 							tsl: 'make_node Echo greeter\n',
 						} )
 				  )
@@ -1024,7 +1022,6 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 					reply( {
 						name: 'demo',
 						source: 'user',
-						owned: [],
 						tsl:
 							'include wombat-seed-base\n' +
 							'cmd cobalt-borrowed-source-619:config set_stats_target <wombat_seed:stats_sink>\n',
@@ -1088,7 +1085,6 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 					reply( {
 						name: 'demo',
 						source: 'user',
-						owned: [],
 						tsl: [
 							'make_node Echo indigo-source-863',
 							'cmd indigo-source-863:config set_errors_target <wombat_seed:required_errors_sink>',
@@ -1135,7 +1131,6 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 					reply( {
 						name: 'demo',
 						source: 'user',
-						owned: [],
 						tsl: [
 							'make_node Wombat_Flame_Builder_619 cerulean-flame-builder-619',
 							'make_node Echo violet-stats-sink-947',
@@ -1179,77 +1174,6 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 		} );
 	} );
 
-	it( 'seeds an owned node beside its owner, wired from it', async () => {
-		mockSend.mockImplementation( ( msg ) => {
-			if ( 'topologies' === msg?.to && 'get' === msg?.verb ) {
-				return Promise.resolve(
-					reply( {
-						name: 'demo',
-						source: 'user',
-						tsl: 'make_node Echo quokka-owner-388\n',
-						expanded: { nodes: [], edges: [] },
-						resolved_config_edges: [],
-						owned: [
-							{
-								name: 'quokka-owner-388:ledger',
-								class: 'Wombat_Ledger',
-								owner: 'quokka-owner-388',
-							},
-						],
-					} )
-				);
-			}
-			return undefined;
-		} );
-
-		renderGraph();
-		await tickRouter();
-
-		await waitFor( () => {
-			const seeded = Core.node( names.METADATA )?.metadata;
-			expect(
-				seeded?.nodes.find(
-					( node ) => 'quokka-owner-388:ledger' === node.id
-				)
-			).toMatchObject( {
-				class: 'Wombat_Ledger',
-				owner: 'quokka-owner-388',
-			} );
-			expect( seeded?.edges ).toContainEqual( {
-				from: 'quokka-owner-388',
-				to: 'quokka-owner-388:ledger',
-				roles: [ 'extra' ],
-			} );
-		} );
-	} );
-
-	it( 'surfaces a reply carrying no owned list as a seed error', async () => {
-		mockSend.mockImplementation( ( msg ) => {
-			if ( 'topologies' === msg?.to && 'get' === msg?.verb ) {
-				return Promise.resolve(
-					reply( {
-						name: 'demo',
-						source: 'user',
-						tsl: 'make_node Echo quokka-owner-388\n',
-						expanded: { nodes: [], edges: [] },
-						resolved_config_edges: [],
-					} )
-				);
-			}
-			return undefined;
-		} );
-
-		const { result } = renderGraph();
-		await tickRouter();
-
-		await waitFor( () => {
-			expect( result.current.seedError?.message ).toBe(
-				'Missing owned in topologies get response.'
-			);
-		} );
-		expect( Core.node( names.METADATA )?.metadata ).toBeNull();
-	} );
-
 	it( 'waits for the PHP catalog before folding a custom Tee seed', async () => {
 		mockSend.mockImplementation( ( msg ) => {
 			if ( 'topologies' === msg?.to && 'get' === msg?.verb ) {
@@ -1257,7 +1181,6 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 					reply( {
 						name: 'demo',
 						source: 'user',
-						owned: [],
 						tsl: [
 							'make_node WombatSeedFanout731 zebra-fanout',
 							'make_node Echo giraffe-target',
@@ -1316,7 +1239,6 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 					reply( {
 						name: 'demo',
 						source: 'user',
-						owned: [],
 						tsl: 'make_node WombatFailedFanout947 zebra-fanout\n',
 						expanded: { nodes: [], edges: [] },
 					} )
@@ -1352,7 +1274,6 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 					reply( {
 						name: 'demo',
 						source: 'user',
-						owned: [],
 						tsl: 'include zebra-base\nmake_node Tee wombat:tee\n',
 						expanded: {
 							nodes: [
@@ -1415,7 +1336,6 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 					reply( {
 						name: 'demo',
 						source: 'user',
-						owned: [],
 						tsl: 'include zebra-base\nmake_node Tee wombat:tee\n',
 						includes: [ 'zebra-base' ],
 						expanded: {

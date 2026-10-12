@@ -1,12 +1,12 @@
 import { markLocal, readyToMint } from './command-auth';
 import { Core } from './core';
 import { Node } from './node';
+import { replyAddress, replySubject } from './reply-subject';
 import {
 	asString,
 	newMessage,
 	TYPE,
 	FROM,
-	TO,
 	VALUE,
 	TM_COMMAND,
 	TM_ERROR,
@@ -259,9 +259,10 @@ export class FetcherNode extends Node {
 	 * Park an ask for the next trigger to send.
 	 *
 	 * @param {*}       args        The verb's argument tokens; a non-array sends none.
-	 * @param {?string} [path]      The subject this ask is about, as ONE address
-	 *                              segment: it rides on FROM, so the reply arrives
-	 *                              naming it. Null addresses the bare receiver.
+	 * @param {?string} [path]      The subject this ask is about: it rides on
+	 *                              FROM as one escaped segment, so the reply
+	 *                              arrives naming it. Null addresses the bare
+	 *                              receiver.
 	 * @param {boolean} [supersede] Replace what is waiting instead of queueing
 	 *                              behind it — nobody wants the older answer once
 	 *                              a newer question has been asked.
@@ -288,7 +289,7 @@ export class FetcherNode extends Node {
 	 * @return {boolean} True when it answers a standing ask.
 	 */
 	answers( reply ) {
-		return this.asks( reply[ TO ], reply[ VALUE ]?.arguments );
+		return this.asks( replySubject( reply ), reply[ VALUE ]?.arguments );
 	}
 
 	/**
@@ -339,9 +340,7 @@ export class FetcherNode extends Node {
 		// carries the rest of the path with it.
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
-		m[ FROM ] = ask.path
-			? `${ this.receiver }/${ ask.path }`
-			: this.receiver;
+		m[ FROM ] = replyAddress( this.receiver, ask.path );
 		m[ VALUE ] = { name: this.verb, arguments: ask.args };
 		markLocal( m );
 		super.fill( m );
@@ -361,7 +360,10 @@ export class FetcherNode extends Node {
 	_settle( message ) {
 		// Terminal for this message (no sink): count the answer here.
 		this.counter++;
-		const at = this._indexOf( message[ TO ], message[ VALUE ]?.arguments );
+		const at = this._indexOf(
+			replySubject( message ),
+			message[ VALUE ]?.arguments
+		);
 		if ( 0 > at ) {
 			return;
 		}

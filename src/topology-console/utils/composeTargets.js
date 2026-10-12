@@ -16,9 +16,9 @@ import names from '../../runtime/reserved-node-names.json';
  * rest) rather than the worker's nodes. `_command_interpreter` leads for two
  * reasons: `parseMetadata` hides the backbone, so no graph carries it, and the
  * modal preselects the first entry, which is the destination a command wants.
- * Every other node contributes its own id, plus its `<id>:config` sidecar ONLY
- * when `node.has_config` reports one registered — most nodes have none, so
- * synthesizing the sidecar for all of them offers dead targets.
+ * Every other node contributes its own id, plus its `<id>:config` interpreter
+ * ONLY when `node.has_config` reports one registered — most nodes have none,
+ * so synthesizing that address for all of them offers dead targets.
  *
  * @param {Array<{id?: string, has_config?: boolean}>} nodes The graph on screen.
  * @return {string[]} Compose target ids: `_command_interpreter`, then the rest

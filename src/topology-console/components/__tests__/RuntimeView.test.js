@@ -20,7 +20,17 @@ import RuntimeView from '../RuntimeView';
 const TIMER_POLLER = 'timers:fetch';
 const HANDLE_POLLER = 'handles:fetch';
 
-beforeEach( () => Core.reset() );
+/** What the pollers asked of the scope `_cwd` stands for, here a capture. */
+let asked;
+
+beforeEach( () => {
+	Core.reset();
+	asked = [];
+	Core.registerNode( '_cwd', {
+		name: '_cwd',
+		fill: ( m ) => asked.push( m ),
+	} );
+} );
 
 // Feed each verb's `-s` rows into its own poller; let React settle.
 function publish( timers, handles ) {
@@ -72,6 +82,16 @@ test( 'mounts a poller per verb on the backbone, targeting the current scope (_c
 		expect( poller.target ).toBe( '_cwd' );
 		expect( poller.interval_ms ).toBe( 2000 );
 	}
+} );
+
+test( 'asks each verb once, in the Router tick the mount asks for', async () => {
+	render( <RuntimeView /> );
+	expect( asked ).toHaveLength( 0 );
+	await act( async () => {} );
+	expect( asked.map( ( m ) => m[ VALUE ].name ).sort() ).toEqual( [
+		'list_handles',
+		'list_timers',
+	] );
 } );
 
 test( 'tears the poller down on unmount (poll only while the modal is open)', () => {

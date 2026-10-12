@@ -360,6 +360,37 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( '', $meta['remote-austin']['target'] );
 	}
 
+	/** A broker's readers and channel are its sidecars; a reader's named row carries its read surface. */
+	public function test_each_reader_is_a_sidecar_whose_named_row_carries_its_read_surface(): void {
+		$ci = new Command_Interpreter_Node();
+		$ci->name( '_command_interpreter' );
+		$ci->sink( Core::node( '_router' ) );
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->make_remote( 'remote-tulsa', $this->remote_args( 'remote-tulsa', 'austin', 'firehose.p0:downstream' ) );
+
+		$meta  = $ci->dispatch( 'dump_metadata' );
+		$named = $ci->dispatch( 'dump_metadata', [ 'remote-tulsa:firehose.p0' ] );
+
+		$this->assertSame(
+			[
+				[ 'name' => 'remote-tulsa:firehose.p0', 'class' => 'Remote_Consumer' ],
+				[ 'name' => 'remote-tulsa:http-out', 'class' => 'HTTP_Out' ],
+				[ 'name' => 'remote-tulsa:null', 'class' => 'Null' ],
+			],
+			$meta['remote-tulsa']['sidecars'],
+			'no `:config`, no hidden SSE_In'
+		);
+		$this->assertArrayNotHasKey( 'remote-tulsa:firehose.p0', $meta );
+		$this->assertSame( Core::node( 'remote-tulsa' ), Core::node( 'remote-tulsa:firehose.p0' )->patron() );
+		$row = $named['remote-tulsa:firehose.p0'];
+		$this->assertSame( 'remote-tulsa', $row['owner'] );
+		$this->assertIsArray( $row['frames'] );
+		$this->assertSame( [ 'segment', 'offset' ], \array_keys( $row['cursor'] ) );
+		$this->assertTrue( $row['has_config'] );
+		$this->assertFalse( Node::in_palette( Remote_Consumer_Node::node_schema() ) );
+		$this->assert_owned_nodes_keep_their_config();
+	}
+
 	public function test_dump_config_roundtrips_the_broker_and_its_pairs(): void {
 		$tokens = $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:downstream', 'sources/php:php-errors:partition' );
 		$node   = $this->broker( 'remote-austin', $tokens );

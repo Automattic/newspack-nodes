@@ -83,7 +83,7 @@ function unquoteAll( args ) {
 /** A bare `secure`: a CLIMB, distinct from any absolute `secure <n>`. */
 const SECURE_BARE = 'secure';
 
-/** The config-sidecar suffix a `command_node` path may carry. */
+/** The `:config` interpreter suffix a `command_node` path may carry. */
 const CONFIG_SUFFIX = ':config';
 
 /**
@@ -678,7 +678,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	 * One statement form, two readings.
 	 *
 	 * `command_node <node>:config <verb> [args]` is the normal case — the verb
-	 * goes to the node's config sidecar. A bare `<node>` target is how an
+	 * goes to the node's `:config` interpreter. A bare `<node>` target is how an
 	 * INTERPRETER-class node takes verbs directly. The tokenizer canonicalises
 	 * `cmd` and `command` to `command_node`, so there is nothing else to catch.
 	 *

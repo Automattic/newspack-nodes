@@ -21,6 +21,7 @@ import { quoteToken, scanTokens } from '../../runtime/shell-node';
 import names from '../../runtime/reserved-node-names.json';
 import { Core } from '../../runtime/core';
 import { canonicalReverseCwd } from '../../runtime/metadata-node';
+import { SIDECAR_POLLER } from './useSidecarRow';
 
 /** @typedef {{ kind: string, text: string, prompt?: string }} TranscriptEntry */
 
@@ -289,9 +290,33 @@ export function useGraphHandlers( {
 	sseGuard = ADMIT_ALL,
 } ) {
 	return useMemo( () => {
-		// Patch the local metadata so the canvas repaints before the poll.
+		/**
+		 * Where a node's row lives, the one lookup every handler reads: the
+		 * shown sidecar's poller when it holds the name, else the canvas —
+		 * `_metadata`'s raw map for the fields a patch rewrites, and the graph
+		 * on screen for the class.
+		 *
+		 * @param {string} name The node.
+		 * @return {{ map: ?Object, row: ?Object, cls: ?string }} The poller
+		 *   holding its raw row, the row, and its class.
+		 */
+		const rowOf = ( name ) => {
+			const sidecar = Core.node( SIDECAR_POLLER );
+			if ( sidecar?.rawMap?.[ name ] ) {
+				const row = sidecar.rawMap[ name ];
+				return { map: sidecar, row, cls: row.class };
+			}
+			const map = Core.node( names.METADATA );
+			return {
+				map,
+				row: map?.rawMap?.[ name ],
+				cls: ( graph?.nodes || [] ).find( ( n ) => n.id === name )
+					?.class,
+			};
+		};
+		// Patch the row so the Inspector and canvas repaint before the poll.
 		const patch = ( name, p ) =>
-			name && Core.node( names.METADATA )?.optimisticPatch( name, p );
+			name && rowOf( name ).map?.optimisticPatch( name, p );
 		// The echo of one send, at the prompt it was sent from.
 		const echoed = ( text ) => ( {
 			kind: 'sent',
@@ -359,11 +384,9 @@ export function useGraphHandlers( {
 			}
 			const { verb, kind, args = [], struct, replyTo } = payload;
 			// The catalog flag decides, not a search for `:config`.
-			const node = ( graph?.nodes || [] ).find(
-				( n ) => n.id === nodeId
-			);
-			const cls = node
-				? catalogClasses.find( ( c ) => c.shell_name === node.class )
+			const shellName = rowOf( nodeId ).cls;
+			const cls = shellName
+				? catalogClasses.find( ( c ) => c.shell_name === shellName )
 				: null;
 			const isInterpreter = !! ( cls && cls.is_interpreter );
 			const commandTarget =
@@ -436,10 +459,11 @@ export function useGraphHandlers( {
 			} else if ( 'tail' === action ) {
 				// A bare connect_node appends the reply path as a target.
 				dispatch( `connect_node ${ nodeId }` );
-				const meta = Core.node( names.METADATA )?.rawMap;
-				const pwd = canonicalReverseCwd( meta?._header?.pwd );
+				const pwd = canonicalReverseCwd(
+					Core.node( names.METADATA )?.rawMap?._header?.pwd
+				);
 				if ( pwd ) {
-					const current = meta?.[ nodeId ]?.target;
+					const current = rowOf( nodeId ).row?.target;
 					let next = [ pwd ];
 					if ( Array.isArray( current ) ) {
 						next = current.includes( pwd )
@@ -451,9 +475,10 @@ export function useGraphHandlers( {
 			} else if ( 'disconnect' === action ) {
 				// A bare disconnect drops only this reply path from a Tee.
 				dispatch( `disconnect_node ${ nodeId }` );
-				const meta = Core.node( names.METADATA )?.rawMap;
-				const pwd = canonicalReverseCwd( meta?._header?.pwd );
-				const current = meta?.[ nodeId ]?.target;
+				const pwd = canonicalReverseCwd(
+					Core.node( names.METADATA )?.rawMap?._header?.pwd
+				);
+				const current = rowOf( nodeId ).row?.target;
 				if ( pwd && Array.isArray( current ) ) {
 					patch( nodeId, {
 						target: current.filter( ( t ) => t !== pwd ),
@@ -495,8 +520,7 @@ export function useGraphHandlers( {
 			onConnect: ( from, to ) => {
 				dispatch( `connect_node ${ from } ${ to }` );
 				// Tee's connect_node appends; replacing drops its edges.
-				const current = Core.node( names.METADATA )?.rawMap?.[ from ]
-					?.target;
+				const current = rowOf( from ).row?.target;
 				/** @type {string|Array} */
 				let next = to;
 				if ( Array.isArray( current ) ) {
@@ -509,8 +533,7 @@ export function useGraphHandlers( {
 			onRemoveEdge: ( from, to ) => {
 				dispatch( `disconnect_node ${ from } ${ to }` );
 				// Mirror the server: drop `to` from a Tee array, else clear.
-				const current = Core.node( names.METADATA )?.rawMap?.[ from ]
-					?.target;
+				const current = rowOf( from ).row?.target;
 				if ( Array.isArray( current ) ) {
 					patch( from, {
 						target: current.filter( ( t ) => t !== to ),

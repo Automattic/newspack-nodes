@@ -703,7 +703,7 @@ class HTTP_Out_Node extends Timer_Node implements Curl_Owner {
 	/**
 	 * `allow_replies_to` verb handler: declare a reply destination on the patron.
 	 *
-	 * @param Command_Interpreter_Node $interpreter The auto-wired `:config` sidecar.
+	 * @param Command_Interpreter_Node $interpreter The auto-wired `:config` interpreter.
 	 * @param array<array-key,mixed>   $args        Bound verb arguments: path.
 	 * @return string
 	 * @throws \RuntimeException When the path is blank.

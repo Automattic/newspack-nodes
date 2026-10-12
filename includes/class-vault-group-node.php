@@ -10,9 +10,10 @@
  * Tachikoma's ConsumerBroker keeps its consumers (ADR-21).
  *
  * The children are published siblings — rename, sink and teardown cascade, and
- * `dump_config` replays only the group — but NOT patroned: each keeps its own
- * `:config` interpreter and draws on the canvas like a hand-written node. The
- * sibling map is the one list of them; `members()` reads it.
+ * `dump_config` replays only the group — but NOT patroned, so each draws on
+ * the canvas like a hand-written node; it keeps its own `:config` interpreter,
+ * as every node declaring verbs does. The sibling map is the one list of
+ * them; `members()` reads it.
  *
  * The group's `:config` answers the CHILD class's verbs: a command reaches
  * every child's interpreter and the reply maps each child's name to its answer,

@@ -28,6 +28,13 @@ jest.mock( '../SchematicCanvas', () => ( props ) => {
 			<button onClick={ () => props.onSelectHull( 'quokka.tsl' ) }>
 				select-hull
 			</button>
+			<button
+				onClick={ ( ev ) =>
+					props.onOpenSidecars( 'n1', ev.currentTarget )
+				}
+			>
+				sidecars-n1
+			</button>
 		</div>
 	);
 } );
@@ -37,8 +44,26 @@ jest.mock( '../Inspector', () => ( props ) => {
 	return (
 		<div data-testid="inspector">
 			insp:{ props.selectedId }
+			{ props.sidecar && `/sidecar:${ props.sidecar }` }
 			<button onClick={ () => props.onRemoveNode( props.selectedId ) }>
 				remove-selected
+			</button>
+			<button onClick={ () => props.onOpenNode?.( 'n1' ) }>
+				open-owner
+			</button>
+			<button onClick={ () => props.onOpenNode?.( 'n1:seen' ) }>
+				open-seen
+			</button>
+			<button
+				onClick={ ( ev ) =>
+					props.onOpenSidecars?.(
+						'n1:seen',
+						[ { name: 'n1:seen:offsetlog', class: 'Partition' } ],
+						ev.currentTarget
+					)
+				}
+			>
+				nested-sidecars
 			</button>
 		</div>
 	);
@@ -402,25 +427,6 @@ describe( 'GraphView', () => {
 		const { getByText } = renderWithCatalog(
 			<GraphView
 				graph={ borrowedGraph }
-				frame={ Frame }
-				onRemoveNode={ onRemoveNode }
-				resetKey="k"
-			/>
-		);
-		fireEvent.click( getByText( 'select-n1' ) );
-		fireEvent.keyDown( document, { key: 'Delete' } );
-		expect( onRemoveNode ).not.toHaveBeenCalled();
-	} );
-
-	it( 'Delete key on a selected OWNED node does not call onRemoveNode', () => {
-		const onRemoveNode = jest.fn();
-		const ownedGraph = {
-			nodes: [ { id: 'n1', count: 0, owner: 'crawl-4471' } ],
-			edges: [],
-		};
-		const { getByText } = renderWithCatalog(
-			<GraphView
-				graph={ ownedGraph }
 				frame={ Frame }
 				onRemoveNode={ onRemoveNode }
 				resetKey="k"
@@ -875,5 +881,158 @@ describe( 'GraphView — Delete on a selected hull', () => {
 		fireEvent.keyDown( document, { key: 'Delete' } );
 
 		expect( global.__inspectorProps.selectedHull ).toBeNull();
+	} );
+} );
+
+describe( 'GraphView — sidecars', () => {
+	/** An owner with two sidecars, beside a node owning none. */
+	const owned = {
+		nodes: [
+			{
+				id: 'n1',
+				count: 0,
+				sidecars: [
+					{ name: 'n1:curl', class: 'Curl' },
+					{ name: 'n1:seen', class: 'Table' },
+				],
+			},
+			{ id: 'n2', count: 0 },
+		],
+		edges: [],
+	};
+	const inspectorText = ( getByTestId ) =>
+		getByTestId( 'inspector' ).textContent;
+
+	/**
+	 * Render GraphView over a graph, opening n1's "…" and picking `name`.
+	 *
+	 * @param {string} name  The sidecar to pick.
+	 * @param {Object} props Extra GraphView props.
+	 * @return {Object} What renderWithCatalog returns.
+	 */
+	const pick = ( name, props = {} ) => {
+		const rendered = renderWithCatalog(
+			<GraphView
+				graph={ owned }
+				frame={ Frame }
+				resetKey="k"
+				{ ...props }
+			/>
+		);
+		fireEvent.click( rendered.getByText( 'sidecars-n1' ) );
+		fireEvent.click( rendered.getByText( name ) );
+		return rendered;
+	};
+
+	it( "lists the card's sidecars without selecting it, the first card focused", () => {
+		const onSelectionChange = jest.fn();
+		const { getByText, getByTestId } = renderWithCatalog(
+			<GraphView
+				graph={ owned }
+				frame={ Frame }
+				resetKey="k"
+				onSelectionChange={ onSelectionChange }
+			/>
+		);
+		fireEvent.click( getByText( 'sidecars-n1' ) );
+		const cards = [
+			...document.body.querySelectorAll( '.topology-open-item' ),
+		];
+		expect( cards.map( ( c ) => c.textContent ) ).toEqual( [
+			'n1:curlCurl',
+			'n1:seenTable',
+		] );
+		expect( document.activeElement ).toBe( cards[ 0 ] );
+		expect( onSelectionChange ).not.toHaveBeenCalled();
+		expect( inspectorText( getByTestId ) ).toBe(
+			'insp:remove-selectedopen-owneropen-seennested-sidecars'
+		);
+	} );
+
+	it( 'choosing a card selects its owner, shows the sidecar and focuses the Inspector', () => {
+		const onSelectionChange = jest.fn();
+		const { getByTestId, container } = pick( 'n1:seen', {
+			onSelectionChange,
+		} );
+		expect( inspectorText( getByTestId ) ).toContain(
+			'insp:n1/sidecar:n1:seen'
+		);
+		expect( onSelectionChange ).toHaveBeenCalledWith( 'n1' );
+		expect( document.body.querySelector( '.topology-open-item' ) ).toBe(
+			null
+		);
+		expect( document.activeElement ).toBe(
+			container.querySelector( '.topology-inspector-dock' )
+		);
+	} );
+
+	it( 'dismissing the list returns focus to its trigger', () => {
+		const { getByText } = renderWithCatalog(
+			<GraphView graph={ owned } frame={ Frame } resetKey="k" />
+		);
+		const trigger = getByText( 'sidecars-n1' );
+		fireEvent.click( trigger );
+		fireEvent.click(
+			document.body.querySelector( '.topology-modal__close' )
+		);
+		expect( document.body.querySelector( '.topology-open-item' ) ).toBe(
+			null
+		);
+		expect( document.activeElement ).toBe( trigger );
+	} );
+
+	it( 'Delete while a sidecar is shown removes nothing', () => {
+		const onRemoveNode = jest.fn();
+		pick( 'n1:seen', { onRemoveNode } );
+		fireEvent.keyDown( document, { key: 'Delete' } );
+		expect( onRemoveNode ).not.toHaveBeenCalled();
+	} );
+
+	it( 'returning to the owner after another selection shows the owner, not the sidecar', () => {
+		const { getByText, getByTestId } = pick( 'n1:seen' );
+		fireEvent.click( getByText( 'select-n2' ) );
+		fireEvent.click( getByText( 'select-n1' ) );
+		expect( inspectorText( getByTestId ) ).not.toContain( 'sidecar:' );
+	} );
+
+	it( 'drops the sidecar when edit mode comes and goes', () => {
+		const { getByTestId, rerender } = pick( 'n1:seen' );
+		rerender(
+			<GraphView graph={ owned } frame={ Frame } resetKey="k" editMode />
+		);
+		rerender( <GraphView graph={ owned } frame={ Frame } resetKey="k" /> );
+		expect( inspectorText( getByTestId ) ).not.toContain( 'sidecar:' );
+	} );
+
+	it( 'stops showing the sidecar once its owner leaves the graph', () => {
+		const { getByTestId, rerender } = pick( 'n1:seen' );
+		rerender(
+			<GraphView
+				graph={ { nodes: [ owned.nodes[ 1 ] ], edges: [] } }
+				frame={ Frame }
+				resetKey="k"
+			/>
+		);
+		expect( inspectorText( getByTestId ) ).not.toContain( 'sidecar:' );
+	} );
+
+	it( "the owner link returns to the canvas owner's Inspector", () => {
+		const { getByText, getByTestId } = pick( 'n1:seen' );
+		fireEvent.click( getByText( 'open-owner' ) );
+		expect( inspectorText( getByTestId ) ).toContain( 'insp:n1' );
+		expect( inspectorText( getByTestId ) ).not.toContain( 'sidecar:' );
+	} );
+
+	it( "a sidecar's own sidecar opens from its Inspector, and its owner link returns to it", () => {
+		const { getByText, getByTestId } = pick( 'n1:seen' );
+		fireEvent.click( getByText( 'nested-sidecars' ) );
+		fireEvent.click( getByText( 'n1:seen:offsetlog' ) );
+		expect( inspectorText( getByTestId ) ).toContain(
+			'insp:n1/sidecar:n1:seen:offsetlog'
+		);
+		fireEvent.click( getByText( 'open-seen' ) );
+		expect( inspectorText( getByTestId ) ).toContain(
+			'insp:n1/sidecar:n1:seen'
+		);
 	} );
 } );

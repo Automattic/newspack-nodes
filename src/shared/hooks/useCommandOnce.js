@@ -42,6 +42,7 @@ import { useBatchedPoll } from './useBatchedPoll';
 import { addSliceFetcher } from '../helpers/addSliceFetcher';
 import { egressPath } from '../helpers/egressPath';
 import { CommandResultNode } from '../nodes/command-result-node';
+import { replyAddress } from '../../runtime/reply-subject';
 
 CommandInterpreterNode.registerNodeClasses( {
 	CommandResult: CommandResultNode,
@@ -65,26 +66,6 @@ const NOTHING_TO_MINT = () => null;
 
 /** An escaped subject longer than this is a body, not an identity. */
 const SUBJECT_MAX = 128;
-
-/**
- * A subject is one ADDRESS segment, so a slash or a space is escaped.
- *
- * @param {?string} subject What the send is about, as the caller named it.
- * @return {?string} The escaped path segment, or null when there is none.
- */
-const encodeSubject = ( subject ) =>
-	null === subject || undefined === subject
-		? null
-		: encodeURIComponent( subject );
-
-/**
- * Read a subject back off the reply that named it.
- *
- * @param {?string} path The reply's remaining TO, as the address delivered it.
- * @return {?string} The subject the sender named, or null.
- */
-const decodeSubject = ( path ) =>
-	'string' === typeof path && path ? decodeURIComponent( path ) : null;
 
 /**
  * One reply, unpacked, as `onDone` receives it.
@@ -178,8 +159,8 @@ export function useCommandOnce( {
 		[]
 	);
 	// The outstanding SUBJECTS, not a boolean: a table asks which row waits.
-	const outstanding = ( Core.node( fetcher )?.outbox ?? [] ).map( ( ask ) =>
-		decodeSubject( ask.path )
+	const outstanding = ( Core.node( fetcher )?.outbox ?? [] ).map(
+		( ask ) => ask.path
 	);
 
 	const { pollNow } = useBatchedPoll( {
@@ -217,7 +198,7 @@ export function useCommandOnce( {
 			error: reply.error ?? null,
 			errorData: reply.errorData ?? null,
 			args: reply.args ?? [],
-			subject: decodeSubject( reply.subject ),
+			subject: reply.subject,
 		} );
 	} );
 
@@ -243,14 +224,15 @@ export function useCommandOnce( {
 			// must not become an exception out of the click handler because a
 			// caller forgot an option.
 			const named = subjectOfRef.current?.( tokens ) ?? null;
-			const encoded = encodeSubject( named );
-			const tooLong = encoded && SUBJECT_MAX < encoded.length;
+			// The escaped segment FROM would carry, past its leading slash.
+			const segment = replyAddress( '', named ).slice( 1 );
+			const tooLong = SUBJECT_MAX < segment.length;
 			if ( tooLong ) {
 				Core.printLessOften(
-					`ERROR: useCommandOnce(${ command }): subject of ${ encoded.length } chars is a body, not an address — pass subjectOf`
+					`ERROR: useCommandOnce(${ command }): subject of ${ segment.length } chars is a body, not an address — pass subjectOf`
 				);
 			}
-			const path = tooLong ? null : encoded;
+			const path = tooLong ? null : named;
 			// @longform Re-asking the question ALREADY OUTSTANDING says
 			// nothing new — the retry window owns "ask again for this". Taking
 			// it as a fresh ask resets that window and pokes a tick, so a

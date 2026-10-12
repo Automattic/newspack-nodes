@@ -453,7 +453,7 @@ class Job_Intake {
 		// pid+object-id token: 2nd JobIntake won't clash with stale Core regs.
 		$instance_token = \getmypid() . '-' . \spl_object_id( $this );
 		$p              = new Partition_Node();
-		// Patron-link: no {name}:config sibling, and hidden from the canvas.
+		// Self-patroned: owned, so the canvas never draws it.
 		$p->patron( $p );
 		$p->name( "{$basename}.{$instance_token}.p{$partition}" );
 		// Nothing raises a CI on a plain page render; sink when one exists.

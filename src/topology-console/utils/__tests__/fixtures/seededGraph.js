@@ -5,34 +5,27 @@
  */
 
 import { graphFromTsl } from '../../draftToGraph';
-import {
-	withOwnedNodes,
-	withReplAnchor,
-	withResolvedConfigEdges,
-} from '../../consoleGraph';
+import { withReplAnchor, withResolvedConfigEdges } from '../../consoleGraph';
 import { augmentWithVirtualEdges } from '../../virtualEdges';
 
 /**
  * Compose a recorded seed.
  *
- * @param {Object} seed `{ tsl, expanded, resolved_config_edges, owned, classes }`.
+ * @param {Object} seed `{ tsl, expanded, resolved_config_edges, classes }`.
  * @return {{nodes: Array<Object>, edges: Array<{from: string, to: string}>}} The seeded graph.
  */
 export const seededGraph = ( seed ) =>
 	augmentWithVirtualEdges(
-		withOwnedNodes(
-			withReplAnchor(
-				withResolvedConfigEdges(
-					graphFromTsl(
-						seed.tsl,
-						seed.expanded,
-						seed.classes,
-						seed.resolved_config_edges
-					),
+		withReplAnchor(
+			withResolvedConfigEdges(
+				graphFromTsl(
+					seed.tsl,
+					seed.expanded,
+					seed.classes,
 					seed.resolved_config_edges
-				)
-			),
-			seed.owned
+				),
+				seed.resolved_config_edges
+			)
 		),
 		seed.classes
 	);

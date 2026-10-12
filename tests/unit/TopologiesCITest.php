@@ -1438,62 +1438,14 @@ class TopologiesCITest extends TestCase {
 		);
 	}
 
-	/**
-	 * The nodes an owner builds for itself, its own and its includes', ride
-	 * beside the file so the console seeds them before dump_metadata does.
-	 */
-	public function test_get_ships_the_nodes_an_owner_builds(): void {
-		\file_put_contents( "{$this->stock}/kea-base.tsl", "make_node Crawler kea-crawl-5531 4407\n" );
-		\file_put_contents(
-			"{$this->stock}/kea-top.tsl",
-			"include kea-base\nmake_node Crawler ibis-crawl-2290 6113\nmake_node Echo ibis-echo\n"
-		);
+	/** No line declares an owned node and no canvas draws one, so `get` ships none. */
+	public function test_get_ships_no_owned_list(): void {
+		\file_put_contents( "{$this->stock}/kea-crawl.tsl", "make_node Crawler kea-crawl-5531 4019\n" );
 
-		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'get', 'kea-top' );
+		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'get', 'kea-crawl' );
 
-		$this->assertSame(
-			[
-				[
-					'name'  => 'kea-crawl-5531:seen',
-					'class' => 'Table',
-					'owner' => 'kea-crawl-5531',
-				],
-				[
-					'name'  => 'ibis-crawl-2290:seen',
-					'class' => 'Table',
-					'owner' => 'ibis-crawl-2290',
-				],
-			],
-			$result['owned']
-		);
-	}
-
-	/** What a class declares it `owns` is what the topology ships as owned. */
-	public function test_get_ships_the_siblings_a_class_declares_it_owns(): void {
-		require_once __DIR__ . '/../Helpers/fixtures/class-wombat-patron-node.php';
-		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\Fixtures\\' );
-		\file_put_contents( "{$this->stock}/kea-patron.tsl", "make_node Wombat_Patron kea-patron-6620\n" );
-
-		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'get', 'kea-patron' );
-
-		$this->assertSame(
-			[
-				[
-					'name'  => 'kea-patron-6620:ledger',
-					'class' => 'Wombat_Ledger',
-					'owner' => 'kea-patron-6620',
-				],
-			],
-			$result['owned']
-		);
-	}
-
-	/** A topology no owner builds into ships an empty owned list, not a missing key. */
-	public function test_get_ships_an_empty_owned_list_when_nothing_is_owned(): void {
-		\file_put_contents( "{$this->stock}/flat-owned.tsl", "make_node Echo wombat-echo\n" );
-
-		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'get', 'flat-owned' );
-
-		$this->assertSame( [], $result['owned'] );
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'tsl', $result );
+		$this->assertArrayNotHasKey( 'owned', $result );
 	}
 }

@@ -7,13 +7,6 @@
 		"hulls": []
 	},
 	"resolved_config_edges": [],
-	"owned": [
-		{
-			"name": "crawler:seen",
-			"class": "Table",
-			"owner": "crawler"
-		}
-	],
 	"classes": [
 		{
 			"shell_name": "Consumer",
@@ -86,16 +79,11 @@
 			"target": "curl:partition",
 			"targets": [ "curl:partition", "crawler:seen" ],
 			"accepts_fill": true,
-			"has_target": true
-		},
-		"crawler:seen": {
-			"class": "Table",
-			"sink": "_command_interpreter",
-			"target": "",
-			"targets": [],
-			"accepts_fill": true,
 			"has_target": true,
-			"owner": "crawler"
+			"sidecars": [
+				{ "name": "crawler:curl", "class": "Curl" },
+				{ "name": "crawler:seen", "class": "Table" }
+			]
 		},
 		"curl:partition": {
 			"class": "Partition",

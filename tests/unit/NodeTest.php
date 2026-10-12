@@ -809,18 +809,21 @@ class NodeTest extends TestCase {
 	}
 
 	/**
-	 * `patron()` is both the canvas-visibility flag and the interpreter drop,
-	 * so setup carries an order dependency nothing enforced: given a patron
-	 * AFTER name(), a node registers a `{name}:config` and then tears it down
-	 * again. It is refused, so the order is a contract rather than a habit.
+	 * A patron only marks a node owned: it keeps its `{name}:config`, so a
+	 * patron set after name() tears nothing down and needs no ordering.
 	 */
-	public function test_patron_refuses_a_node_that_is_already_named_and_wired(): void {
+	public function test_a_patron_set_after_name_keeps_the_config_interpreter(): void {
 		$plumbing = new Config_Sibling_Node();
 		$plumbing->name( 'binnacle-4471' );
+		$config = Core::node( 'binnacle-4471:config' );
+		$owner  = new Capture_Sink_Node();
 
-		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessage( 'patron() must be set before name()' );
-		$plumbing->patron( new Capture_Sink_Node() );
+		$plumbing->patron( $owner );
+
+		$this->assertSame( $owner, $plumbing->patron() );
+		$this->assertNotNull( $config );
+		$this->assertSame( $config, Core::node( 'binnacle-4471:config' ) );
+		$this->assertSame( $config, $plumbing->interpreter() );
 	}
 
 	public function test_patron_getter_does_not_overwrite_when_null_arg(): void {

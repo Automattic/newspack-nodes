@@ -817,6 +817,30 @@
 		pointer-events: none;
 	}
 
+	// "…" on an owner's card: opens the sidecars the canvas never draws.
+	&__sidecars {
+		cursor: pointer;
+
+		rect {
+			fill: var(--paper);
+			stroke: var(--paper-shadow);
+		}
+
+		text {
+			font: 700 12px var(--font-mono);
+			fill: var(--ink-3);
+		}
+
+		&:hover text,
+		&:focus-visible text {
+			fill: var(--ink);
+		}
+
+		&:focus-visible rect {
+			stroke: var(--oxide);
+		}
+	}
+
 	// 🔒 badge on a node borrowed via `include` — cannot be deleted or
 	// reconfigured here, but its ports stay live (splicing wiring is fine).
 	&__lock {
@@ -884,7 +908,7 @@
 	stroke-width: 1;
 
 	&--out.is-wire-source {
-		// A wire may start here: interactive, onConnect, not owned in edit.
+		// A wire may start here: the canvas is interactive and takes onConnect.
 		cursor: crosshair;
 	}
 
@@ -1083,6 +1107,56 @@
 	text-align: center;
 	padding: 100px 20px;
 	font-size: 11px;
+}
+
+// The Open topology and sidecars cards, on the handle the overlay loads too.
+.topology-open-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.topology-open-item {
+	width: 100%;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 8px;
+	font-size: 12px;
+	margin-bottom: 4px;
+}
+
+// Takes the row, so the badge is pushed to the far end rather than sitting
+// beside the name. Left-aligned, as every other button in this UI is.
+.topology-open-item__name {
+	flex: 1;
+	text-align: left;
+}
+
+.topology-open-item__badge {
+	padding: 1px 6px;
+	font-size: 9px;
+}
+
+.newspack-nodes-ui.newspack-nodes-ui .button:where(.topology-open-item) {
+	min-height: 0;
+	height: auto;
+	margin-bottom: 0;
+	vertical-align: baseline;
+	padding: 6px 8px;
+	line-height: 1.45;
+}
+
+// The title wraps beside the "…" that lists the node's sidecars.
+.topology-insp__title-row {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 8px;
+
+	.topology-insp__title {
+		flex: 1;
+		min-width: 0;
+	}
 }
 
 .topology-insp__title {

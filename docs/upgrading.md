@@ -6,6 +6,32 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **The `shown_when_owned` schema key is gone, and a patroned node never
+  draws on the canvas.** A plugin whose `node_schema()` declared it deletes
+  the key; its patroned node opens from the "…" on its owner's card, listed in
+  the owner's `dump_metadata` row under `sidecars`. A class that must stay off
+  every console surface — palette, canvas, sidecar list and class catalog —
+  declares `'hidden' => true`; one that only stays off the palette declares
+  the `Hidden` category, which `classes dump` now lists for the Inspector.
+  `dump_metadata <name>` answers an owned node, and a reader of the full
+  snapshot that looked for one there reads its owner's `sidecars` and asks
+  for it by name. `Node::shown_on_canvas( $schema )` becomes `owned()`, the
+  `hidden` check `Node::hidden( $schema )`. The console's `withOwnedNodes()`
+  and `ownedOf()` are gone.
+
+- **`topologies get` ships no `owned`, and `classes dump` no per-class
+  `owns`.** A client reading either drops the read: no canvas draws an owned
+  node, and `node_schema()['owns']` stays for the analyzer alone, whose
+  `Topology_Analyzer::owned_nodes()` is private; ask `declares_node()`.
+  `Crawler_Node` declares no `extra_targets()`.
+
+- **A patron no longer drops a node's `:config` interpreter, and `patron()`
+  no longer refuses a named node.** Code that set a patron to suppress
+  `{name}:config` keeps the interpreter now; code that caught the
+  `patron() must be set before name()` refusal deletes the catch. A
+  `Table_Node` subclass that overrode `patron()` to keep its interpreter
+  deletes the override.
+
 - **`wp nodes tables flush` is gone.** WP-CLI refuses it as an unknown
   command. A `sqlite` Table no active topology declares is deleted by the
   retention sweep, at once with `wp nodes gc --force`; to empty a declared

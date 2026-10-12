@@ -35,6 +35,7 @@ import {
 	formatMessageEnvelope,
 } from '../../../runtime/dumper-node';
 import { OutgoingGateNode } from '../../core/outgoingGate';
+import { SIDECAR_POLLER } from '../useSidecarRow';
 
 // A real Shell whose sink captures fills; replyFrom can stand in for a wrap.
 function makeShell( { path = '', replyFrom } = {} ) {
@@ -230,6 +231,37 @@ describe( 'useGraphHandlers — optimistic metadata patch after a mutation', () 
 		expect( dispatch ).toHaveBeenCalledWith( 'trace * 1' );
 		// One fan publish (header exclusion is MetadataNode's own test).
 		expect( fanned ).toEqual( [ { debug_state: 1 } ] );
+		expect( patched ).toEqual( [] );
+	} );
+
+	it( 'patches an open sidecar in its own row, leaving the canvas map alone', () => {
+		const sidecarPatched = [];
+		Core.registerNode( SIDECAR_POLLER, {
+			name: SIDECAR_POLLER,
+			rawMap: { 'crawl-4471:seen': { debug_state: 0 } },
+			optimisticPatch: ( name, p ) => sidecarPatched.push( [ name, p ] ),
+		} );
+		const { result } = renderHandlers( {} );
+		result.current.onInspectorAction( 'trace', 'crawl-4471:seen', 2 );
+		result.current.onInspectorAction( 'trace', 'crawl-4471', 3 );
+		expect( sidecarPatched ).toEqual( [
+			[ 'crawl-4471:seen', { debug_state: 2 } ],
+		] );
+		expect( patched ).toEqual( [ [ 'crawl-4471', { debug_state: 3 } ] ] );
+	} );
+
+	it( "onConnect on a fan-out sidecar appends to the sidecar row's targets", () => {
+		const sidecarPatched = [];
+		Core.registerNode( SIDECAR_POLLER, {
+			name: SIDECAR_POLLER,
+			rawMap: { 'sc-tee-4410': { target: [ 'quarry-sump' ] } },
+			optimisticPatch: ( name, p ) => sidecarPatched.push( [ name, p ] ),
+		} );
+		const { result } = renderHandlers( {} );
+		result.current.onConnect( 'sc-tee-4410', 'lantern-sump' );
+		expect( sidecarPatched ).toEqual( [
+			[ 'sc-tee-4410', { target: [ 'quarry-sump', 'lantern-sump' ] } ],
+		] );
 		expect( patched ).toEqual( [] );
 	} );
 
@@ -470,6 +502,27 @@ describe( 'useGraphHandlers', () => {
 				text: 'command_node n1 set_is_hub',
 			} )
 		);
+	} );
+
+	it( 'invoke on an interpreter-class sidecar targets the bare node', () => {
+		Core.registerNode( SIDECAR_POLLER, {
+			name: SIDECAR_POLLER,
+			rawMap: { 'sc-ci-3307': { class: 'Sessions_CI' } },
+		} );
+		const shell = makeShell();
+		const { result } = renderHandlers( {
+			shell,
+			graph: { nodes: [ { id: 'n1', class: 'Echo' } ], edges: [] },
+			catalogClasses: [
+				{ shell_name: 'Sessions_CI', is_interpreter: true },
+			],
+		} );
+		result.current.onInspectorAction( 'invoke', 'sc-ci-3307', {
+			verb: 'list',
+			kind: 'command',
+			args: [],
+		} );
+		expect( shell.sink.fills[ 0 ][ TO ] ).toBe( 'sc-ci-3307' );
 	} );
 
 	it( 'invoke (request kind) routes a TM_REQUEST string to the bare node', () => {

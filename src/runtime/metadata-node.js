@@ -12,96 +12,160 @@
  */
 
 import { Core } from './core';
-import { targetsOf } from './node';
+import { isHidden, targetsOf } from './node';
 import { LIVE_POLL_INTERVAL_MS, PollerNode } from './poller-node';
 import { VALUE, payloadOf } from './message';
 import { RouterNode } from './router-node';
 import reservedNames from './reserved-node-names.json';
 
 /**
- * Whether the canvas draws a node, as PHP `Node::shown_on_canvas()` decides:
- * never under a `hidden` schema, and with a patron only when the schema
- * declares `shown_when_owned`, as a Table's does.
+ * The shell name a row reports: a stub's declared one, else the class name
+ * less its `Node` suffix.
  *
- * @param {Object}  node   Any registered node.
- * @param {?Object} schema What its class's `nodeSchema()` returned.
- * @return {boolean} True when the canvas draws it.
+ * @param {Object} node Any registered node.
+ * @return {string} The class the catalog matches.
  */
-function shownOnCanvas( node, schema ) {
-	if ( true === schema?.hidden ) {
-		return false;
-	}
-	return ! node.patron || true === schema?.shown_when_owned;
+function classOf( node ) {
+	const ctorName = node.constructor?.name ?? 'Node';
+	return node.shellName || ctorName.replace( /Node$/, '' ) || ctorName;
 }
 
 /**
- * Snapshot every registered node into a dump_metadata-shaped object keyed by
- * node name. A node `shownOnCanvas()` refuses is skipped: a `hidden` schema,
- * and a patron's plumbing unless its schema declares `shown_when_owned`.
+ * Each owner's sidecars: every node naming it its patron, sorted by code unit
+ * as `strcmp` sorts, but its `:config` interpreter and a hidden one. PHP
+ * `Node::sidecars()` walks the owner's published siblings and keeps those
+ * with a patron instead. The two agree on a browser graph, which keeps no
+ * sibling map: a node building another sets the child's patron, as
+ * `RemoteLink` does for each Tee, so the nodes naming an owner their patron
+ * are exactly the siblings it built.
+ *
+ * @param {Object}  registry The name table to read.
+ * @param {?Object} [only]   The one owner to list for; null lists every owner's.
+ * @return {Map<Object, Array<{name: string, class: string}>>} Sidecars by owner.
+ */
+function sidecarsByOwner( registry, only = null ) {
+	const out = new Map();
+	for ( const [ name, node ] of registry.nodes ) {
+		const owner = node.patron;
+		if (
+			! owner ||
+			( only && owner !== only ) ||
+			name === `${ owner.name }:config` ||
+			isHidden( node.constructor?.nodeSchema?.() )
+		) {
+			continue;
+		}
+		const list = out.get( owner ) ?? [];
+		list.push( { name, class: classOf( node ) } );
+		out.set( owner, list );
+	}
+	for ( const list of out.values() ) {
+		list.sort( ( a, b ) => {
+			if ( a.name === b.name ) {
+				return 0;
+			}
+			return a.name < b.name ? -1 : 1;
+		} );
+	}
+	return out;
+}
+
+/**
+ * Snapshot the registry into a dump_metadata-shaped object keyed by node
+ * name, as PHP `Command_Interpreter_Node::cmd_dump_metadata()` does. A full
+ * snapshot skips every node with a patron, which opens from its owner's
+ * `sidecars`, before building its schema, then every `hidden` one; a node
+ * named alone answers unless `hidden`. A JS node has no publisher, so its
+ * patron alone makes it owned, as PHP `Node::owned()` decides.
  *
  * Every entry carries `class`, `counter`, `sink`, `target`, `targets`,
  * `debug_state`, `arguments`, `lgst_msg`, `bytes_read`, `bytes_written`,
  * `accepts_fill`, `has_target` and `has_config`; `registrations` rides along
- * when the node has node-name listeners, and a full snapshot adds `_header`.
- * Both `target` and `targets` ship because a flattened list cannot express a
- * Tee fan-out (ADR-19): `target` is the routing value a console mutation
- * patches, `targets` the display union the edges are drawn from. An owned
- * node adds `owner`, its patron's name, because the server refuses to remove
- * or rename it.
+ * when the node has node-name listeners, `sidecars` when it owns any, and a
+ * full snapshot adds `_header`. Both `target` and `targets` ship because a
+ * flattened list cannot express a Tee fan-out (ADR-19): `target` is the
+ * routing value a console mutation patches, `targets` the display union the
+ * edges are drawn from. An owned node adds `owner`, its patron's name,
+ * because the server refuses to remove or rename it.
  *
  * @param {string} [only]     Single node name to snapshot; '' = all nodes.
  * @param {Object} [registry] The name table to read; defaults to Core's.
  * @return {Object} Map of node name to its metadata entry.
  */
 export function dumpMetadataPayload( only = '', registry = Core.registry ) {
+	if ( only ) {
+		const node = registry.nodes.get( only );
+		const schema = node?.constructor?.nodeSchema?.() ?? null;
+		if ( ! node || isHidden( schema ) ) {
+			return {};
+		}
+		const sidecars = sidecarsByOwner( registry, node );
+		return {
+			[ only ]: metadataRow( only, node, schema, registry, sidecars ),
+		};
+	}
 	const out = {};
+	const sidecars = sidecarsByOwner( registry );
 	for ( const [ name, node ] of registry.nodes ) {
-		if ( only && name !== only ) {
+		if ( node.patron ) {
 			continue;
 		}
 		// Per-node port flags from the node's schema; default true if none.
 		const schema = node.constructor?.nodeSchema?.() ?? null;
-		if ( ! shownOnCanvas( node, schema ) ) {
-			continue;
-		}
-		// A stub declares the class it STANDS FOR, so the catalog matches.
-		const ctorName = node.constructor?.name ?? 'Node';
-		out[ name ] = {
-			class:
-				node.shellName || ctorName.replace( /Node$/, '' ) || ctorName,
-			counter: node.counter ?? 0,
-			sink: node.sink && node.sink.name ? node.sink.name : '',
-			target: node.target ?? '',
-			// Routing value vs display union; JS nodes declare no extras.
-			targets: targetsOf( node ),
-			debug_state: node.debugState ?? 0,
-			arguments: node.arguments ?? [],
-			lgst_msg: node.largestMsgSent ?? 0,
-			bytes_read: node.bytesRead ?? 0,
-			bytes_written: node.bytesWritten ?? 0,
-			accepts_fill: schema?.accepts_fill ?? true,
-			has_target: schema?.has_target ?? true,
-			// Has a `:config` sidecar iff that sibling node is registered.
-			has_config: registry.nodes.has( `${ name }:config` ),
-		};
-		// The console withholds delete and rename from an owned node.
-		if ( node.patron ) {
-			out[ name ].owner = node.patron.name;
-		}
-		// Emit registrations only when non-empty (PHP-parity: `[]` vs `{}`).
-		const registrations = node.registeredListeners();
-		if ( Object.keys( registrations ).length ) {
-			out[ name ].registrations = registrations;
+		if ( ! isHidden( schema ) ) {
+			out[ name ] = metadataRow( name, node, schema, registry, sidecars );
 		}
 	}
 	// FULL-snapshot header: reverse_cwd + router profiling-toggle truth.
-	if ( '' === only ) {
-		out._header = {
-			pwd: reservedNames.OUTPUT,
-			profiling: null !== RouterNode.profiles(),
-		};
-	}
+	out._header = {
+		pwd: reservedNames.OUTPUT,
+		profiling: null !== RouterNode.profiles(),
+	};
 	return out;
+}
+
+/**
+ * One node's `dump_metadata` row.
+ *
+ * @param {string}                                            name     The node's registered name.
+ * @param {Object}                                            node     The node.
+ * @param {?Object}                                           schema   What its class's `nodeSchema()` returned.
+ * @param {Object}                                            registry The name table it is registered in.
+ * @param {Map<Object, Array<{name: string, class: string}>>} sidecars Sidecars by owner.
+ * @return {Object} The row.
+ */
+function metadataRow( name, node, schema, registry, sidecars ) {
+	const row = {
+		// A stub declares the class it STANDS FOR, so the catalog matches.
+		class: classOf( node ),
+		counter: node.counter ?? 0,
+		sink: node.sink && node.sink.name ? node.sink.name : '',
+		target: node.target ?? '',
+		// Routing value vs display union; JS nodes declare no extras.
+		targets: targetsOf( node ),
+		debug_state: node.debugState ?? 0,
+		arguments: node.arguments ?? [],
+		lgst_msg: node.largestMsgSent ?? 0,
+		bytes_read: node.bytesRead ?? 0,
+		bytes_written: node.bytesWritten ?? 0,
+		accepts_fill: schema?.accepts_fill ?? true,
+		has_target: schema?.has_target ?? true,
+		// Has a `:config` interpreter iff that node is registered.
+		has_config: registry.nodes.has( `${ name }:config` ),
+	};
+	// The console withholds delete and rename from an owned node.
+	if ( node.patron ) {
+		row.owner = node.patron.name;
+	}
+	if ( sidecars.has( node ) ) {
+		row.sidecars = sidecars.get( node );
+	}
+	// Emit registrations only when non-empty (PHP-parity: `[]` vs `{}`).
+	const registrations = node.registeredListeners();
+	if ( Object.keys( registrations ).length ) {
+		row.registrations = registrations;
+	}
+	return row;
 }
 
 /**
@@ -148,28 +212,29 @@ const SCAFFOLDING = new Set( [
  * the trailing fields appear only when the source node reported them.
  *
  * @typedef  {Object}          MetadataGraphNode
- * @property {string}          id                    Node name.
- * @property {number}          count                 Messages the node has handled.
- * @property {string}          sink                  Name of the physical sink node, '' when unwired.
- * @property {string}          class                 Shell class name; 'Node' when unreported.
- * @property {number}          debugState            Trace level; 0 is off.
- * @property {Array}           arguments             The node's `make_node` argument tokens.
- * @property {number}          lgstMsg               Largest message sent, in bytes.
- * @property {number}          bytesRead             Bytes read at this node's I/O boundary.
- * @property {number}          bytesWritten          Bytes written at this node's I/O boundary.
- * @property {boolean}         accepts_fill          Whether the canvas draws an input port.
- * @property {boolean}         has_target            Whether the canvas draws an output port.
- * @property {boolean}         has_config            Whether a `:config` sidecar node is registered.
- * @property {string[]}        targets               Display union — routing target plus declared extras, before head-collapse.
- * @property {string|string[]} target                Routing value: an array for a Tee fan-out, else a string.
- * @property {Array}           [frames]              Consumer read surface: offsetlog frames.
- * @property {Object}          [cursor]              Consumer read cursor.
- * @property {number}          [deadletter_segments] Dead-letter segment count (Triage badge).
- * @property {Object}          [verb_stats]          A Table's per-verb `VerbStats`, keyed by verb.
- * @property {string}          [owner]               The node that owns it; the console offers no delete or rename.
- * @property {string}          [polling]             Consumer poll state: `INIT`, `ACTIVE`, or `PAUSED`.
- * @property {?number}         [at_frame]            Frame the cursor sits on; null when unset.
- * @property {boolean}         [on_frame]            Whether the cursor is parked on a frame.
+ * @property {string}                               id                    Node name.
+ * @property {number}                               count                 Messages the node has handled.
+ * @property {string}                               sink                  Name of the physical sink node, '' when unwired.
+ * @property {string}                               class                 Shell class name; 'Node' when unreported.
+ * @property {number}                               debugState            Trace level; 0 is off.
+ * @property {Array}                                arguments             The node's `make_node` argument tokens.
+ * @property {number}                               lgstMsg               Largest message sent, in bytes.
+ * @property {number}                               bytesRead             Bytes read at this node's I/O boundary.
+ * @property {number}                               bytesWritten          Bytes written at this node's I/O boundary.
+ * @property {boolean}                              accepts_fill          Whether the canvas draws an input port.
+ * @property {boolean}                              has_target            Whether the canvas draws an output port.
+ * @property {boolean}                              has_config            Whether a `:config` interpreter is registered.
+ * @property {string[]}                             targets               Display union — routing target plus declared extras, before head-collapse.
+ * @property {string|string[]}                      target                Routing value: an array for a Tee fan-out, else a string.
+ * @property {Array}                                [frames]              Consumer read surface: offsetlog frames.
+ * @property {Object}                               [cursor]              Consumer read cursor.
+ * @property {number}                               [deadletter_segments] Dead-letter segment count (Triage badge).
+ * @property {Object}                               [verb_stats]          A Table's per-verb `VerbStats`, keyed by verb.
+ * @property {string}                               [owner]               The node that owns it; the console offers no delete or rename.
+ * @property {Array<{name: string, class: string}>} [sidecars]            The owned nodes its Inspector's "…" opens.
+ * @property {string}                               [polling]             Consumer poll state: `INIT`, `ACTIVE`, or `PAUSED`.
+ * @property {?number}                              [at_frame]            Frame the cursor sits on; null when unset.
+ * @property {boolean}                              [on_frame]            Whether the cursor is parked on a frame.
  */
 
 /**
@@ -245,7 +310,7 @@ export function parseMetadata( payload ) {
 					: true,
 			has_target:
 				typeof meta.has_target === 'boolean' ? meta.has_target : true,
-			// Whether the node has a `:config` sidecar; default false.
+			// Whether the node has a `:config` interpreter; default false.
 			has_config: meta.has_config === true,
 			targets,
 			// Raw target: array for a Tee fan-out, else string.
@@ -266,6 +331,13 @@ export function parseMetadata( payload ) {
 		// The node's owner, whose own delete or rename carries it.
 		if ( typeof meta.owner === 'string' ) {
 			node.owner = meta.owner;
+		}
+		// The owned nodes its "…" opens; only when present.
+		if ( Array.isArray( meta.sidecars ) ) {
+			node.sidecars = meta.sidecars.filter(
+				( c ) =>
+					typeof c?.name === 'string' && typeof c?.class === 'string'
+			);
 		}
 		// A Table's per-verb counters; only when present.
 		if ( meta.verb_stats && typeof meta.verb_stats === 'object' ) {
@@ -386,7 +458,9 @@ export class MetadataNode extends PollerNode {
 	fill( message ) {
 		this.counter++;
 		const value = message[ VALUE ];
-		this.publish( payloadOf( value, value ) );
+		if ( this.answersSubject( message ) ) {
+			this.publish( payloadOf( value, value ) );
+		}
 	}
 
 	/**

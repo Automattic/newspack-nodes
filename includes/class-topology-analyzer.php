@@ -955,15 +955,14 @@ class Topology_Analyzer {
 	 * flattened in, in declaration order: each sibling its class's
 	 * `node_schema()['owns']` declares, suffix to class, named as
 	 * `Node::sibling_name_of()` names it, such as a `{name}:seen` Table. No
-	 * `make_node` line declares one, and its owner writes it, declaring it in
-	 * `extra_targets()`.
+	 * `make_node` line declares one; its owner builds and writes it.
 	 *
 	 * @param string $name Topology name.
 	 * @return list<array{name: string, class: string, owner: string}>
 	 * @throws \RuntimeException On unknown include, cycle, conflicting
 	 *                           make_node, or an owner off the palette.
 	 */
-	public static function owned_nodes( string $name ): array {
+	private static function owned_nodes( string $name ): array {
 		$out = [];
 		foreach ( self::statements( $name )['statements'] as $statement ) {
 			$owner = $statement['values'][2] ?? '';

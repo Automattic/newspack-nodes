@@ -18,7 +18,7 @@ import {
 	useRef,
 	useState,
 } from '@wordpress/element';
-import { __ } from '@wordpress/i18n';
+import { __, sprintf } from '@wordpress/i18n';
 
 import {
 	X_PAD,
@@ -61,6 +61,9 @@ export const NODE_H = 84;
  * Radius of the IN and OUT port dots, in world units.
  */
 export const PORT_R = 4.5;
+
+/** Left edge of an owner's "…", within its card. */
+const SIDECARS_X = NODE_W - 30;
 
 /**
  * Movement in SVG units before a pointer-down counts as a drag rather than a
@@ -681,8 +684,9 @@ const NodeCard = memo(
 	 * @param {boolean} props.hasIn        Draws an IN port: it accepts fill.
 	 * @param {boolean} props.isSnapTarget The IN port a dragged wire would land on.
 	 * @param {boolean} props.hasOut       Draws an OUT port: it carries a target.
-	 * @param {boolean} props.isEdit       Edit mode on a node no owner builds, which paints the OUT port.
+	 * @param {boolean} props.isEdit       Edit mode, which paints the OUT port.
 	 * @param {boolean} props.isWireSource A wire drag may start at the OUT port.
+	 * @param {boolean} props.hasSidecars  Its row lists sidecars, so it draws a "…".
 	 * @param {Object}  props.events       The canvas's stable card handlers.
 	 * @return {import('react').ReactElement} The card's `<g>`.
 	 */
@@ -707,6 +711,7 @@ const NodeCard = memo(
 		hasOut,
 		isEdit,
 		isWireSource,
+		hasSidecars,
 		events,
 	} ) {
 		return (
@@ -789,13 +794,21 @@ const NodeCard = memo(
 									🔒
 								</text>
 							) }
-							<text
-								className="topology-node__id"
-								x={ 11 }
-								y={ 44 }
+							<g
+								clipPath={
+									hasSidecars
+										? 'url(#topology-node-id-clip)'
+										: undefined
+								}
 							>
-								{ id }
-							</text>
+								<text
+									className="topology-node__id"
+									x={ 11 }
+									y={ 44 }
+								>
+									{ id }
+								</text>
+							</g>
 						</g>
 						{ hasIn && (
 							<circle
@@ -806,6 +819,31 @@ const NodeCard = memo(
 								cy={ NODE_H / 2 }
 								r={ PORT_R }
 							/>
+						) }
+						{ hasSidecars && (
+							<g
+								className="topology-node__sidecars"
+								role="button"
+								tabIndex={ 0 }
+								aria-haspopup="dialog"
+								aria-label={ sprintf(
+									// translators: %s: the node that owns them.
+									__( 'Owned nodes of %s', 'newspack-nodes' ),
+									id
+								) }
+								transform={ `translate(${ SIDECARS_X },31)` }
+								onClick={ ( ev ) => events.sidecars( ev, id ) }
+								onKeyDown={ ( ev ) =>
+									events.sidecarsKey( ev, id )
+								}
+								onPointerDown={ events.hold }
+								onMouseDown={ events.hold }
+							>
+								<rect width={ 22 } height={ 16 } rx={ 3 } />
+								<text x={ 11 } y={ 12 } textAnchor="middle">
+									…
+								</text>
+							</g>
 						) }
 						{ hasOut && (
 							<circle
@@ -948,24 +986,25 @@ const EdgeWire = memo(
  * cards zoom below readable size.
  * Layout (positions, viewport) comes from LayoutContext, not from props.
  *
- * @param {Object}                                  props
- * @param {Object}                                  props.parsed         Graph to draw: `{ nodes, edges }`. Only nodes carrying a position override are rendered.
- * @param {?string}                                 props.selectedId     Id of the selected node, or null.
- * @param {(id: string) => void}                    props.onSelect       A card was clicked without dragging.
- * @param {() => void}                              props.onDeselect     The background was clicked while something was selected — a node, an edge or a hull.
- * @param {?string}                                 props.hoveredId      Id of the hovered node; lifted so the Inspector drives the same highlight.
- * @param {(id: string|null) => void}               props.onHover        The pointer entered a card, or left one.
- * @param {Object}                                  props.rateRef        `useGraphRates` ref whose `.current` is a Map from node id to `{ rate, history, … }`. Passed in edit mode too; `editMode` is what keeps a draft's cards undimmed.
- * @param {?Object}                                 props.viewportDelta  Stored `{ dcx, dcy, zoom }` offset from autofit, applied once the first autofit is known.
- * @param {Function}                                props.onConnect      (fromId, toId) — a wire was dropped on an IN port. Omitting it disables wire drags.
- * @param {boolean}                                 [props.interactive]  Gate for every gesture. Default true.
- * @param {boolean}                                 [props.editMode]     Draft-only affordances: the edge hit-targets and the wire-source port styling. Default false.
- * @param {?Object}                                 [props.selectedEdge] The selected edge as `{ from, to }`, or null.
- * @param {(edge: {from:string,to:string}) => void} [props.onSelectEdge] An edge hit-target was clicked; edit mode only.
- * @param {?Set<string>}                            [props.driftIds]     Runtime drift, painted `is-drift`: a worker's nodes outside its .tsl, or the browser graph's console-made ones. Null means no drift information.
- * @param {Array}                                   [props.hulls]        One soft hull per include, at any depth: `{ include, nodeIds, depth }[]`.
- * @param {?string}                                 [props.selectedHull] Include name of the selected hull, or null.
- * @param {(include: string) => void}               [props.onSelectHull] A hull was pressed.
+ * @param {Object}                                    props
+ * @param {Object}                                    props.parsed           Graph to draw: `{ nodes, edges }`. Only nodes carrying a position override are rendered.
+ * @param {?string}                                   props.selectedId       Id of the selected node, or null.
+ * @param {(id: string) => void}                      props.onSelect         A card was clicked without dragging.
+ * @param {() => void}                                props.onDeselect       The background was clicked while something was selected — a node, an edge or a hull.
+ * @param {?string}                                   props.hoveredId        Id of the hovered node; lifted so the Inspector drives the same highlight.
+ * @param {(id: string|null) => void}                 props.onHover          The pointer entered a card, or left one.
+ * @param {Object}                                    props.rateRef          `useGraphRates` ref whose `.current` is a Map from node id to `{ rate, history, … }`. Passed in edit mode too; `editMode` is what keeps a draft's cards undimmed.
+ * @param {?Object}                                   props.viewportDelta    Stored `{ dcx, dcy, zoom }` offset from autofit, applied once the first autofit is known.
+ * @param {Function}                                  props.onConnect        (fromId, toId) — a wire was dropped on an IN port. Omitting it disables wire drags.
+ * @param {boolean}                                   [props.interactive]    Gate for every gesture. Default true.
+ * @param {boolean}                                   [props.editMode]       Draft-only affordances: the edge hit-targets and the wire-source port styling. Default false.
+ * @param {?Object}                                   [props.selectedEdge]   The selected edge as `{ from, to }`, or null.
+ * @param {(edge: {from:string,to:string}) => void}   [props.onSelectEdge]   An edge hit-target was clicked; edit mode only.
+ * @param {?Set<string>}                              [props.driftIds]       Runtime drift, painted `is-drift`: a worker's nodes outside its .tsl, or the browser graph's console-made ones. Null means no drift information.
+ * @param {Array}                                     [props.hulls]          One soft hull per include, at any depth: `{ include, nodeIds, depth }[]`.
+ * @param {?string}                                   [props.selectedHull]   Include name of the selected hull, or null.
+ * @param {(include: string) => void}                 [props.onSelectHull]   A hull was pressed.
+ * @param {(id: string, trigger: SVGElement) => void} [props.onOpenSidecars] A card's "…" was pressed; omitted draws none.
  * @return {import('react').ReactElement} The canvas `<svg>`.
  */
 export default function SchematicCanvas( {
@@ -986,6 +1025,7 @@ export default function SchematicCanvas( {
 	hulls = [],
 	selectedHull = null,
 	onSelectHull,
+	onOpenSidecars,
 } ) {
 	const { positionOverrides, onPositionChange, viewport, onViewportChange } =
 		useLayoutContext();
@@ -1781,6 +1821,7 @@ export default function SchematicCanvas( {
 		handlePortPointerDown,
 		nodeById,
 		onSelect,
+		onOpenSidecars,
 	};
 	// One identity for the canvas's life, so no handler re-renders a card.
 	const cardEvents = useMemo(
@@ -1804,6 +1845,20 @@ export default function SchematicCanvas( {
 			hover: ( id ) => gestures.current.setHovered( id ),
 			port: ( ev, id ) =>
 				gestures.current.handlePortPointerDown( id, ev ),
+			// The "…" owns its press: no select, drag or wire starts under it.
+			hold: ( ev ) => ev.stopPropagation(),
+			sidecars: ( ev, id ) => {
+				ev.stopPropagation();
+				gestures.current.onOpenSidecars?.( id, ev.currentTarget );
+			},
+			sidecarsKey: ( ev, id ) => {
+				if ( 'Enter' !== ev.key && ' ' !== ev.key ) {
+					return;
+				}
+				ev.preventDefault();
+				ev.stopPropagation();
+				gestures.current.onOpenSidecars?.( id, ev.currentTarget );
+			},
 		} ),
 		[]
 	);
@@ -1860,10 +1915,9 @@ export default function SchematicCanvas( {
 					hasIn={ acceptsFill( n, classCatalog ) }
 					isSnapTarget={ wireDrag?.hoveredId === n.id }
 					hasOut={ hasTarget( n, classCatalog ) }
-					isEdit={ editMode && ! n.owner }
-					isWireSource={
-						interactive && !! onConnect && ! ( editMode && n.owner )
-					}
+					isEdit={ editMode }
+					isWireSource={ interactive && !! onConnect }
+					hasSidecars={ !! onOpenSidecars && n.sidecars?.length > 0 }
 					events={ cardEvents }
 				/>
 			),
@@ -1966,6 +2020,18 @@ export default function SchematicCanvas( {
 						height={ NODE_H }
 						rx={ 7 }
 						ry={ 7 }
+					/>
+				</clipPath>
+				{ /* An owner's id stops short of its "…". */ }
+				<clipPath
+					id="topology-node-id-clip"
+					clipPathUnits="userSpaceOnUse"
+				>
+					<rect
+						x={ 0 }
+						y={ 0 }
+						width={ SIDECARS_X - 4 }
+						height={ NODE_H }
 					/>
 				</clipPath>
 				{ /* Group bloom: one blur pass; region pinned to viewport. */ }

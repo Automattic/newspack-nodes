@@ -1306,8 +1306,8 @@ one of them unless the flatten knows how to see it.
 
 **Decision:** [`Vault_Group_Node`](../includes/class-vault-group-node.php) owns one child per
 server `Vault::in_group()` returns, each published as an owned sibling
-(`Node::publish_sibling()`) named `<group>:<vault id>`, and NOT patroned, so each keeps its own
-`:config` interpreter and draws on the canvas. Unlike a hand-written node, a child cannot be
+(`Node::publish_sibling()`) named `<group>:<vault id>`, and NOT patroned, so each draws on the
+canvas; it keeps its own `:config` interpreter, as every node declaring verbs does. Unlike a hand-written node, a child cannot be
 removed or renamed from the console or the shell: `remove_node` and `move_node` refuse an owned
 sibling, and `dump_metadata` names the group as the child's `owner`. A child leaves through the
 Vault — `vault update <id> --group=` takes its entry out of the group, and the next reload
@@ -1341,9 +1341,8 @@ child.
 twice, and a spoke added to the Vault stays unwired until someone regenerates, redeploys and
 restarts; the generator had also drifted, emitting `include` names no topology defines.
 Hand-written legs per spoke — rejected: that is the problem. Patroned children — rejected: a
-patroned node vanishes from the canvas and drops its own `:config` interpreter — only an
-owned Table keeps both — so per-spoke state and edges become invisible exactly where an
-operator diagnosing one spoke looks.
+patroned node leaves the canvas for its owner's "…", so per-spoke state and edges would move
+off the canvas exactly where an operator diagnosing one spoke looks.
 Runtime-only expansion, leaving the flatten alone — rejected: the write set would be blind to
 every member's offsetlog and deadletter, and `wp nodes gc` would sweep live cursors once
 `Log_Cleaner::DELETE_GRACE_S` passed.
@@ -2074,8 +2073,9 @@ the TSL can know which stamps a spoke will send.
 
 **Decision:** A broker builds a reader on first sight of a stamp a pair claims — in a routed
 line's FROM, in a handshake's CURSORS, or, for an exact pair, on its first tick — through the
-one builder, `consumer_for()`. The reader is published as a hidden sibling named
-`<broker>:<kind>`, where `<kind>` is the stamp through `Log_Discovery::kind_of()`
+one builder, `consumer_for()`. The reader is patroned by the broker and published as its sibling
+`<broker>:<kind>`, so it stays off the canvas, keeps its own `:config` and opens from the
+broker's "…" in the console; `<kind>` is the stamp through `Log_Discovery::kind_of()`
 ([ADR-29](#adr-29-a-log-stamp-has-one-writer-one-reader-and-one-resolver-per-kind)), so the sibling map
 is the one list of readers. Its cursor sits at `<offsetlog_root>/<kind>` and its dead letters at
 `<deadletter_root>/<kind>`. Static analysis does not flatten readers: `Topology_Analyzer`'s write
@@ -2099,8 +2099,8 @@ holds a slot from the spoke's finite SSE pool, so a hub pulling two streams from
 would spend two slots per spoke.
 
 **Consequences:** A reader appears in no `dump_config` and in no TSL: `dump_config` replays the
-broker, which rebuilds its readers from the stream, and the canvas shows each one as the broker's
-sibling only once it exists. A reader's configuration therefore goes through the broker's own
+broker, which rebuilds its readers from the stream, and the broker's "…" lists each one only
+once it exists. A reader's configuration therefore goes through the broker's own
 verbs — `assume_clean_shutdown` reaches every reader present or built later — and a verb sent
 straight to one reader's `:config` is live-only, as a `Vault_Group` child's is. The analyzer reads a broker's roots and
 pairs, never its readers, so an analysis question about one reader — its exact cursor dir, its

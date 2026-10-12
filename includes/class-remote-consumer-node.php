@@ -974,16 +974,15 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	}
 
 	/**
-	 * Palette entry: hidden, since a broker builds it, with the Consumer
-	 * reader's verbs on its own `:config`.
+	 * Off the palette, since a broker builds it, with the Consumer reader's
+	 * verbs on its own `:config`; the console opens it from its broker.
 	 *
 	 * @api Dynamic entrypoint.
 	 * @return array<string,mixed>
 	 */
 	public static function node_schema(): array {
 		return [
-			'category'     => 'I/O',
-			'hidden'       => true,
+			'category'     => 'Hidden',
 			'description'  => 'Durable reader for one stream a broker carries (built by the broker).',
 			'arguments'    => [
 				[ 'name' => 'stamp', 'type' => 'string', 'required' => true, 'description' => 'The stamp this stream\'s lines carry: a spoke partition dir or sources/<name>.' ],

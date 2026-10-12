@@ -110,15 +110,18 @@ class ClassesCITest extends TestCase {
 		$this->assertIsArray( $result );
 	}
 
-	public function test_list_filters_hidden_category(): void {
+	/** A Hidden-category class is off the palette but in the catalog, which the Inspector reads. */
+	public function test_dump_lists_a_hidden_category_class_and_refuses_the_hidden_flag(): void {
 		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
+		$by     = \array_column( $result['classes'], null, 'shell_name' );
 
+		$this->assertSame( 'Hidden', $by['Remote_Consumer']['category'] ?? null );
+		$this->assertContains( 'deadletter_dir', \array_column( $by['Remote_Consumer']['arguments'], 'name' ) );
+		$this->assertContains( 'dl_list', \array_column( $by['Remote_Consumer']['commands'], 'name' ) );
+		$this->assertArrayNotHasKey( 'SSE_In', $by, 'a hidden schema stays off every surface' );
+		$this->assertArrayNotHasKey( 'Fleet', $by );
 		foreach ( $result['classes'] as $entry ) {
-			$this->assertNotSame(
-				'Hidden',
-				$entry['category'],
-				"Class '{$entry['shell_name']}' has Hidden category — should be filtered out"
-			);
+			$this->assertNotSame( '', $entry['category'], "Class '{$entry['shell_name']}' carries no category" );
 		}
 	}
 
@@ -466,13 +469,13 @@ class ClassesCITest extends TestCase {
 		);
 	}
 
-	/** The catalog ships what each class builds for itself, suffix to class. */
-	public function test_list_carries_the_siblings_a_class_owns(): void {
+	/** What a class builds for itself is the analyzer's to read, never the catalog's. */
+	public function test_dump_ships_no_owns(): void {
 		$result  = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
 		$by_name = \array_column( $result['classes'], null, 'shell_name' );
 
-		$this->assertSame( [ 'seen' => 'Table' ], $by_name['Crawler']['owns'] );
-		$this->assertSame( [], $by_name['Echo']['owns'] );
+		$this->assertArrayHasKey( 'Crawler', $by_name );
+		$this->assertArrayNotHasKey( 'owns', $by_name['Crawler'] );
 	}
 
 	public function test_list_carries_registration_events(): void {

@@ -86,6 +86,37 @@ describe( 'PollerNode', () => {
 		expect( sent[ 0 ][ TO ] ).toBe( '_http' );
 	} );
 
+	it( 'fire() rides a subject on FROM, so its reply comes back naming it', () => {
+		const node = new PollerNode();
+		node.name = 'sidecar:fetch';
+		node.target = '_cwd';
+		node.verb = 'dump_metadata';
+		node.pollArgs = [ 'crawl-4471:seen' ];
+		node.subject = 'crawl-4471:seen';
+		const sent = [];
+		node.sink = { fill: ( m ) => sent.push( m ) };
+		node.fire();
+		expect( sent[ 0 ][ FROM ] ).toBe( 'sidecar:fetch/crawl-4471%3Aseen' );
+	} );
+
+	it( 'publishes only a reply naming the subject it asks about now', () => {
+		const node = new PollerNode();
+		node.name = 'sidecar:fetch';
+		node.subject = 'vat-2290:lid';
+		const late = msg( TM_COMMAND | TM_RESPONSE, {
+			payload: [ 'old-6601' ],
+		} );
+		late[ TO ] = encodeURIComponent( 'vat-2290:spout' );
+		node.fill( late );
+		expect( node.reply ).toBeNull();
+		const due = msg( TM_COMMAND | TM_RESPONSE, {
+			payload: [ 'new-6602' ],
+		} );
+		due[ TO ] = encodeURIComponent( 'vat-2290:lid' );
+		node.fill( due );
+		expect( node.reply ).toEqual( [ 'new-6602' ] );
+	} );
+
 	it( 'publishes a structured reply verbatim as `reply`', () => {
 		const node = new PollerNode();
 		node.name = 'timers:fetch';

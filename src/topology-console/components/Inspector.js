@@ -12,7 +12,12 @@
  * renders both and this file imports HullPanel.
  */
 
-import { useEffect, useRef, useState } from '@wordpress/element';
+import {
+	createInterpolateElement,
+	useEffect,
+	useRef,
+	useState,
+} from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import { ModalField, ModalShell, PromptModal } from './Modal';
 import InspectorViewModal from './InspectorViewModal';
@@ -59,6 +64,7 @@ import { edgeHasConnectRole } from '../utils/consoleGraph';
 import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
 import CommitInput from '@newspack-nodes/shared/components/CommitInput';
 import { useCatalog } from '../CatalogContext';
+import { useSidecarRow } from '../hooks/useSidecarRow';
 
 /**
  * Whether the node reads a durable log, so the Time Travel panel applies.
@@ -103,23 +109,75 @@ function isBorrowed( node ) {
 }
 
 /**
- * Why an owned node offers no delete or rename, shown where those controls
- * would be: its owner builds it and the server refuses both.
+ * Why an owned node offers no delete or rename, naming the owner that builds
+ * it as a link back to that owner's Inspector.
  *
- * @param {Object} props
- * @param {string} props.owner The owner's name.
+ * @param {Object}                 props
+ * @param {string}                 props.owner  The owner's name.
+ * @param {(name: string) => void} props.onOpen Shows the owner's Inspector.
  * @return {import('react').ReactElement} The note.
  */
-function OwnedNote( { owner } ) {
+function OwnedNote( { owner, onOpen } ) {
 	return (
 		<div className="topology-insp__breadcrumb topology-insp__owned">
-			{ sprintf(
-				// translators: %s: the name of the node that owns this one.
+			{ createInterpolateElement(
 				__(
-					'Owned by %s, which builds it, so it cannot be deleted or renamed here.',
+					'Owned by <owner />, which builds it, so it cannot be deleted or renamed here.',
 					'newspack-nodes'
 				),
-				owner
+				{ owner: <NavButton name={ owner } onOpen={ onOpen } /> }
+			) }
+		</div>
+	);
+}
+
+/**
+ * A node name that opens that node's Inspector when clicked.
+ *
+ * @param {Object}                 props
+ * @param {string}                 props.name   The node to open.
+ * @param {(name: string) => void} props.onOpen Shows its Inspector.
+ * @return {import('react').ReactElement} The link.
+ */
+function NavButton( { name, onOpen } ) {
+	return (
+		<button
+			type="button"
+			className="button button-small topology-field-row__nav"
+			onClick={ () => onOpen( name ) }
+		>
+			{ name }
+		</button>
+	);
+}
+
+/**
+ * The Inspector's title. A sidecar, which has no card to carry a "…", carries
+ * its own here when it owns sidecars in turn.
+ *
+ * @param {Object}                      props
+ * @param {Object}                      props.node     The node shown.
+ * @param {?(trigger: Element) => void} [props.onOpen] Opens its sidecar list; null draws no "…".
+ * @return {import('react').ReactElement} The title row.
+ */
+function TitleRow( { node, onOpen } ) {
+	return (
+		<div className="topology-insp__title-row">
+			<h2 className="topology-insp__title">{ node.id }</h2>
+			{ onOpen && node.sidecars?.length > 0 && (
+				<button
+					type="button"
+					className="button is-compact topology-insp__sidecars-open"
+					aria-haspopup="dialog"
+					aria-label={ sprintf(
+						// translators: %s: the node that owns them.
+						__( 'Owned nodes of %s', 'newspack-nodes' ),
+						node.id
+					) }
+					onClick={ ( ev ) => onOpen( ev.currentTarget ) }
+				>
+					…
+				</button>
 			) }
 		</div>
 	);
@@ -820,19 +878,16 @@ function LockedMultipleVerb( { spec, invocations } ) {
 }
 
 /**
- * The edit-mode form for a node this document does not declare: one it
- * borrows through an include, or one an owner builds for itself.
+ * The edit-mode form for a node this document borrows through an include.
  *
  * The constructor is read-only and there is no rename or delete: those
  * arguments belong to the topology that defines the node, and editing them
- * here would write a line this file cannot own. On a borrowed node Routing
- * stays editable, and so do the verb calls this document aims at it —
- * `VerbsSection` locks the seeded half by itself. An owned node shows its
- * header and owner alone: its owner builds it, no line of this document names
- * it, and the server holds every value a section would show.
+ * here would write a line this file cannot own. Routing stays editable, and
+ * so do the verb calls this document aims at it — `VerbsSection` locks the
+ * seeded half by itself.
  *
  * @param {Object}   props
- * @param {Object}   props.node            The selected borrowed or owned node.
+ * @param {Object}   props.node            The selected borrowed node.
  * @param {Array}    props.catalog         Class catalog entries.
  * @param {string[]} props.formatters      Registered formatter names.
  * @param {Array}    props.vaults          Vault entries.
@@ -876,86 +931,68 @@ function LockedForm( {
 		<aside className="topology-inspector">
 			<h2 className="topology-insp__title">{ node.id }</h2>
 			<div className="newspack-nodes-status is-accent topology-insp__type">
-				{ node.class || '?' } ·{ ' ' }
-				{ node.owner
-					? __( 'OWNED', 'newspack-nodes' )
-					: __( 'BORROWED', 'newspack-nodes' ) }
+				{ node.class || '?' } · { __( 'BORROWED', 'newspack-nodes' ) }
 			</div>
-			{ node.owner && <OwnedNote owner={ node.owner } /> }
 			{ node.via?.length > 0 && (
 				<div className="topology-insp__breadcrumb">
 					via { node.via.join( ' → ' ) }
 				</div>
 			) }
-			{ ! node.owner && (
-				<>
-					{ nodeHasTarget( node, catalog ) && (
-						<Section title={ __( 'Routing', 'newspack-nodes' ) }>
-							<TargetsField
-								node={ node }
-								nodeNames={ ( parsed?.nodes || [] )
-									.map( ( n ) => n.id )
-									.filter( ( id ) => id !== node.id ) }
-								catalog={ catalog }
-								targets={ ( parsed?.edges || [] ).filter(
-									( e ) =>
-										e.from === node.id &&
-										edgeHasConnectRole( e )
-								) }
-								onConnect={ onConnect }
-								onRemoveEdge={ onRemoveEdge }
-							/>
-						</Section>
-					) }
-					<Section title={ __( 'Constructor', 'newspack-nodes' ) }>
-						{ argumentSpecs.length === 0 && (
-							<div className="newspack-nodes-empty-state topology-edit-empty">
-								{ __(
-									'No constructor arguments.',
-									'newspack-nodes'
-								) }
-							</div>
-						) }
-						{ argumentSpecs.map( ( spec, i ) => (
-							<div
-								className="topology-edit-row"
-								key={ spec.name }
-							>
-								<label
-									htmlFor={ `topology-locked-ctor-${ spec.name }` }
-									className="topology-edit-row__label"
-								>
-									{ spec.name }
-								</label>
-								<input
-									id={ `topology-locked-ctor-${ spec.name }` }
-									type="text"
-									className="topology-edit-row__input"
-									value={
-										ctorDisplayValue(
-											spec,
-											ctorArgs[ i ]
-										) ?? ''
-									}
-									disabled
-									readOnly
-								/>
-							</div>
-						) ) }
-					</Section>
-					<VerbsSection
+			{ nodeHasTarget( node, catalog ) && (
+				<Section title={ __( 'Routing', 'newspack-nodes' ) }>
+					<TargetsField
 						node={ node }
-						commandSpecs={ commandSpecs }
-						verbInvocations={ verbInvocations }
 						nodeNames={ ( parsed?.nodes || [] )
 							.map( ( n ) => n.id )
 							.filter( ( id ) => id !== node.id ) }
-						formatters={ formatters }
-						vaults={ vaults }
-						onUpdateVerbs={ onUpdateVerbs }
+						catalog={ catalog }
+						targets={ ( parsed?.edges || [] ).filter(
+							( e ) =>
+								e.from === node.id && edgeHasConnectRole( e )
+						) }
+						onConnect={ onConnect }
+						onRemoveEdge={ onRemoveEdge }
 					/>
-				</>
+				</Section>
 			) }
+			<Section title={ __( 'Constructor', 'newspack-nodes' ) }>
+				{ argumentSpecs.length === 0 && (
+					<div className="newspack-nodes-empty-state topology-edit-empty">
+						{ __( 'No constructor arguments.', 'newspack-nodes' ) }
+					</div>
+				) }
+				{ argumentSpecs.map( ( spec, i ) => (
+					<div className="topology-edit-row" key={ spec.name }>
+						<label
+							htmlFor={ `topology-locked-ctor-${ spec.name }` }
+							className="topology-edit-row__label"
+						>
+							{ spec.name }
+						</label>
+						<input
+							id={ `topology-locked-ctor-${ spec.name }` }
+							type="text"
+							className="topology-edit-row__input"
+							value={
+								ctorDisplayValue( spec, ctorArgs[ i ] ) ?? ''
+							}
+							disabled
+							readOnly
+						/>
+					</div>
+				) ) }
+			</Section>
+			<VerbsSection
+				node={ node }
+				commandSpecs={ commandSpecs }
+				verbInvocations={ verbInvocations }
+				nodeNames={ ( parsed?.nodes || [] )
+					.map( ( n ) => n.id )
+					.filter( ( id ) => id !== node.id ) }
+				formatters={ formatters }
+				vaults={ vaults }
+				onUpdateVerbs={ onUpdateVerbs }
+			/>
 		</aside>
 	);
 }
@@ -1822,11 +1859,16 @@ function ComposeModal( { nodeNames, onSend, onCancel } ) {
  * only a hull is selected, the `_command_interpreter` process view when nothing
  * is, and the node view otherwise. Edit mode swaps the node view for a
  * schema-driven config form — locked when the node is borrowed through an
- * include or built by its owner, since its configuration belongs to the
- * topology that defines it or to the owner that builds it.
+ * include, since its configuration belongs to the topology that defines it.
+ * A shown sidecar, an owned node no canvas draws, takes the selection's place:
+ * its row is polled by name, and its own sidecars open from a "…" in its
+ * title, since it has no card to carry one.
  *
  * @param {Object}                  props
  * @param {?string}                 props.selectedId        Selected node id; null falls through to the hull or process view.
+ * @param {?string}                 [props.sidecar]         An owned node shown in the selection's place, its row polled by name; null shows the selection.
+ * @param {Function}                [props.onOpenSidecars]  (owner, sidecars, trigger) — opens a shown sidecar's own "…" list.
+ * @param {(name: string) => void}  [props.onOpenNode]      Shows a node an owner link or a back link names.
  * @param {?string}                 [props.selectedHull]    Selected include, shown only while no node is selected.
  * @param {Array}                   [props.hulls]           Every hull, `{ include, nodeIds }[]`.
  * @param {Function}                [props.onOpenTopology]  (name) — drill into a hull's own topology.
@@ -1859,6 +1901,9 @@ function ComposeModal( { nodeNames, onSend, onCancel } ) {
  */
 export default function Inspector( {
 	selectedId,
+	sidecar = null,
+	onOpenSidecars,
+	onOpenNode,
 	selectedHull = null,
 	hulls = [],
 	onOpenTopology,
@@ -1904,6 +1949,7 @@ export default function Inspector( {
 	const [ stripModal, setStripModal ] = useState( null );
 	// Whether the selected node's dead-letter Triage modal is open.
 	const [ triageOpen, setTriageOpen ] = useState( false );
+	const sidecarGraph = useSidecarRow( editMode ? null : sidecar );
 	// Toggle override: agreement clears; one stale reply tolerated; two fail.
 	const [ profilingOptimistic, setProfilingOptimistic ] = useState( null );
 	const profilingDisagreeRef = useRef( 0 );
@@ -2213,8 +2259,8 @@ export default function Inspector( {
 		);
 	}
 
-	const node = parsed.nodes.find( ( n ) => n.id === selectedId );
-	if ( ! node ) {
+	const selected = parsed.nodes.find( ( n ) => n.id === selectedId );
+	if ( ! selected ) {
 		return (
 			<aside className="topology-inspector">
 				<div className="newspack-nodes-empty-state topology-insp__empty">
@@ -2229,10 +2275,10 @@ export default function Inspector( {
 	}
 
 	if ( editMode ) {
-		if ( isBorrowed( node ) || node.owner ) {
+		if ( isBorrowed( selected ) ) {
 			return (
 				<LockedForm
-					node={ node }
+					node={ selected }
 					catalog={ catalog }
 					formatters={ formatters }
 					vaults={ vaults }
@@ -2245,7 +2291,7 @@ export default function Inspector( {
 		}
 		return (
 			<EditForm
-				node={ node }
+				node={ selected }
 				catalog={ catalog }
 				formatters={ formatters }
 				vaults={ vaults }
@@ -2260,20 +2306,56 @@ export default function Inspector( {
 		);
 	}
 
+	// A shown sidecar takes the selection's place, from its own row.
+	const node = sidecar
+		? sidecarGraph?.nodes.find( ( n ) => n.id === sidecar )
+		: selected;
+	if ( ! node ) {
+		return (
+			<aside className="topology-inspector">
+				<h2 className="topology-insp__title">{ sidecar }</h2>
+				<div className="topology-insp__breadcrumb">
+					{ createInterpolateElement(
+						__( 'Opened from <owner />.', 'newspack-nodes' ),
+						{
+							owner: (
+								<NavButton
+									name={ selectedId }
+									onOpen={ onOpenNode }
+								/>
+							),
+						}
+					) }
+				</div>
+				<div className="newspack-nodes-empty-state topology-insp__empty">
+					{ sidecarGraph
+						? sprintf(
+								// translators: %s: the node that is no longer present.
+								__( '%s no longer present', 'newspack-nodes' ),
+								sidecar
+						  )
+						: __( 'Loading…', 'newspack-nodes' ) }
+				</div>
+			</aside>
+		);
+	}
+	// A sidecar's edges are its own row's; the canvas rates are its owner's.
+	const graph = sidecar ? sidecarGraph : parsed;
+	const nodeRate = sidecar ? null : rateInfo;
 	// Display union less registration edges — listeners, not destinations.
-	const displayEdges = parsed.edges.filter(
-		( e ) => e.from === selectedId && ! e.registration
+	const displayEdges = graph.edges.filter(
+		( e ) => e.from === node.id && ! e.registration
 	);
 	// Other live nodes, suggested by the target editor (mirrors EditForm).
 	const nodeNames = parsed.nodes
 		.map( ( n ) => n.id )
-		.filter( ( id ) => id !== selectedId );
+		.filter( ( id ) => id !== node.id );
 	// The node's valid registration events (catalog) — drives Register modal.
 	const catalogEntry = catalog.find( ( c ) => c.shell_name === node.class );
 	const regEvents = catalogEntry?.registrations ?? [];
 	// The ROUTING value: an extra is no edge disconnect_node removes (ADR-19).
 	const editorTargets = targetsOf( node ).map( ( to ) => ( {
-		from: selectedId,
+		from: node.id,
 		to,
 	} ) );
 	// display_targets() is routing-first: the routing count splits it.
@@ -2307,7 +2389,19 @@ export default function Inspector( {
 
 	return (
 		<aside className="topology-inspector">
-			<h2 className="topology-insp__title">{ node.id }</h2>
+			<TitleRow
+				node={ node }
+				onOpen={
+					sidecar
+						? ( trigger ) =>
+								onOpenSidecars(
+									node.id,
+									node.sidecars,
+									trigger
+								)
+						: null
+				}
+			/>
 			<div className="newspack-nodes-status is-accent topology-insp__type">
 				<span
 					className={ `topology-insp__led${
@@ -2319,7 +2413,9 @@ export default function Inspector( {
 					? __( 'LIVE', 'newspack-nodes' )
 					: streamStatus.toUpperCase() }
 			</div>
-			{ node.owner && <OwnedNote owner={ node.owner } /> }
+			{ node.owner && (
+				<OwnedNote owner={ node.owner } onOpen={ onOpenNode } />
+			) }
 
 			{ nodeHasTarget( node, catalog ) && (
 				<Section title={ __( 'Routing', 'newspack-nodes' ) }>
@@ -2402,34 +2498,34 @@ export default function Inspector( {
 				</Section>
 			) }
 
-			{ ( rateInfo?.hasMessages ||
-				rateInfo?.hasRead ||
-				rateInfo?.hasWritten ) && (
+			{ ( nodeRate?.hasMessages ||
+				nodeRate?.hasRead ||
+				nodeRate?.hasWritten ) && (
 				<Section
 					title={ __( 'Activity', 'newspack-nodes' ) }
 					meta={ formatActivityWindow( parsed.nodes.length ) }
 				>
-					{ rateInfo.hasMessages && (
+					{ nodeRate.hasMessages && (
 						<SparklineRow
 							label={ __( 'messages /s', 'newspack-nodes' ) }
-							history={ rateInfo.history }
-							currentValue={ rateInfo.rate || 0 }
+							history={ nodeRate.history }
+							currentValue={ nodeRate.rate || 0 }
 							format={ formatRate }
 						/>
 					) }
-					{ rateInfo.hasRead && (
+					{ nodeRate.hasRead && (
 						<SparklineRow
 							label={ __( 'bytes read /s', 'newspack-nodes' ) }
-							history={ rateInfo.readHistory }
-							currentValue={ rateInfo.readRate || 0 }
+							history={ nodeRate.readHistory }
+							currentValue={ nodeRate.readRate || 0 }
 							format={ formatByteRate }
 						/>
 					) }
-					{ rateInfo.hasWritten && (
+					{ nodeRate.hasWritten && (
 						<SparklineRow
 							label={ __( 'bytes written /s', 'newspack-nodes' ) }
-							history={ rateInfo.writtenHistory }
-							currentValue={ rateInfo.writtenRate || 0 }
+							history={ nodeRate.writtenHistory }
+							currentValue={ nodeRate.writtenRate || 0 }
 							format={ formatByteRate }
 						/>
 					) }
@@ -2447,9 +2543,9 @@ export default function Inspector( {
 				/>
 				<FieldRow
 					k="rate"
-					v={ formatRate( rateInfo?.rate ) }
+					v={ formatRate( nodeRate?.rate ) }
 					vClass={
-						rateInfo && rateInfo.rate > 0
+						nodeRate && nodeRate.rate > 0
 							? 'newspack-nodes-stat-value is-accent topology-field-row__val--num'
 							: 'newspack-nodes-stat-value topology-field-row__val--num topology-field-row__val--dim'
 					}
@@ -2483,9 +2579,9 @@ export default function Inspector( {
 				/>
 				<FieldRow
 					k="last_seen"
-					v={ formatLastSeen( rateInfo?.lastChangedTs, live ) }
+					v={ formatLastSeen( nodeRate?.lastChangedTs, live ) }
 					vClass={
-						rateInfo && rateInfo.rate > 0
+						nodeRate && nodeRate.rate > 0
 							? 'topology-field-row__val--right'
 							: 'topology-field-row__val--right topology-field-row__val--dim'
 					}

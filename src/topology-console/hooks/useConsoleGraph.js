@@ -58,11 +58,7 @@ import { primeExpandedIncludes } from './useExpandedIncludes';
  * nodes, no edges, no include tree, no hulls.
  */
 const EMPTY_EXPANSION = { nodes: [], edges: [], tree: {}, hulls: {} };
-import {
-	withOwnedNodes,
-	withReplAnchor,
-	withResolvedConfigEdges,
-} from '../utils/consoleGraph';
+import { withReplAnchor, withResolvedConfigEdges } from '../utils/consoleGraph';
 import { augmentWithVirtualEdges } from '../utils/virtualEdges';
 import { scopeFromCwd } from '../utils/scope';
 import { workerId } from '@newspack-nodes/shared/utils/workerId';
@@ -301,8 +297,8 @@ export function useConsoleGraph( {
 	 * Seed the COMPOSED graph. A topology that mostly `include`s others owns few
 	 * nodes of its own, so seeding the parsed file alone paints a sliver and the
 	 * rest pops in on the next `dump_metadata` — a staged paint no autofit
-	 * survives. `topologies get` ships the expansion that composition needs,
-	 * and `owned`, the nodes an owner builds that no file line declares.
+	 * survives. `topologies get` ships the expansion that composition needs.
+	 * An owner's sidecars stay off it, as they stay off the live graph.
 	 */
 	useEffect( () => {
 		// Without `fans_out` a custom fan-out seeds wrong edges, confidently.
@@ -323,8 +319,8 @@ export function useConsoleGraph( {
 		 *
 		 * `async` with nothing to await: it turns a synchronous throw —
 		 * `withResolvedConfigEdges` on a document whose `<ns:key>` targets
-		 * arrived unresolved, `withOwnedNodes` on a reply with no `owned` —
-		 * into the rejection the `catch` below reports as `seedError`.
+		 * arrived unresolved — into the rejection the `catch` below reports as
+		 * `seedError`.
 		 */
 		const paint = async () => {
 			const { tsl, expanded } = seedTopology;
@@ -338,20 +334,17 @@ export function useConsoleGraph( {
 			if ( cancelled ) {
 				return;
 			}
-			// graphFromTsl composed it; owned nodes and virtual edges remain.
-			const parsedGraph = withOwnedNodes(
-				withReplAnchor(
-					withResolvedConfigEdges(
-						graphFromTsl(
-							tsl,
-							baseline,
-							catalog.classes,
-							resolvedConfigEdges
-						),
+			// graphFromTsl composed it; the anchor and virtual edges remain.
+			const parsedGraph = withReplAnchor(
+				withResolvedConfigEdges(
+					graphFromTsl(
+						tsl,
+						baseline,
+						catalog.classes,
 						resolvedConfigEdges
-					)
-				),
-				seedTopology.owned
+					),
+					resolvedConfigEdges
+				)
 			);
 			const seeded = augmentWithVirtualEdges(
 				parsedGraph,

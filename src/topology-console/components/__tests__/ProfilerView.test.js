@@ -24,6 +24,8 @@ const POLLER = 'profiler:fetch';
 beforeEach( () => {
 	Core.reset();
 	RouterNode.profiles( null );
+	// The scope a worker would answer from, here a sink that answers nothing.
+	Core.registerNode( '_cwd', { name: '_cwd', fill: () => {} } );
 } );
 
 // Values distinct from each other AND from every other column, so a row that
@@ -114,21 +116,24 @@ test( '--total-- is pinned to the footer, not left among the rows', () => {
 	expect( grid.querySelector( 'tfoot' ).textContent ).toContain( '32.00' );
 } );
 
-test( 'the toolbar turns profiling on in the viewed scope', () => {
+test( 'the toolbar turns profiling on in the viewed scope', async () => {
 	const sent = [];
 	const { getByText } = render( <ProfilerView /> );
+	await act( async () => {} );
 	// Profiling off answers with the --total-- row alone.
 	publish( [ { ...TOTAL, count: 0 } ] );
 	Core.node( '_command_interpreter' ).fill = ( m ) => sent.push( m );
+	const polls = () =>
+		sent.filter( ( m ) => 'list_profiles' === m[ VALUE ].name ).length;
 
 	fireEvent.click( getByText( 'profile' ) );
 
 	const profile = sent.find( ( m ) => 'profile' === m[ VALUE ].name );
 	expect( profile[ VALUE ].arguments ).toEqual( [ 'on' ] );
-	// …and an immediate re-poll, so the grid does not wait out the interval.
-	expect( sent.some( ( m ) => 'list_profiles' === m[ VALUE ].name ) ).toBe(
-		true
-	);
+	// …and a re-poll in the next Router tick, not a whole interval later.
+	expect( polls() ).toBe( 0 );
+	await act( async () => {} );
+	expect( polls() ).toBe( 1 );
 } );
 
 describe( 'the profile button is UI-bound', () => {

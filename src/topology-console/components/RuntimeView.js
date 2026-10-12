@@ -25,11 +25,7 @@
 
 import { useEffect, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
-import { Core } from '../../runtime/core';
-import { mountExospine } from '../../runtime/exospine';
-import { LIVE_POLL_INTERVAL_MS } from '../../runtime/poller-node';
-import { useNodeField } from '../../runtime/react';
-import names from '../../runtime/reserved-node-names.json';
+import { usePoller } from '../hooks/usePoller';
 import { Grid, useSortState } from './SortableGrid';
 import './inspector-views.scss';
 
@@ -38,6 +34,9 @@ const TIMER_POLLER = 'timers:fetch';
 
 /** Registered name of the `list_handles` poller the handles grid reads. */
 const HANDLE_POLLER = 'handles:fetch';
+
+/** Both verbs answer rows rather than a text table. */
+const SORTABLE = [ '-s' ];
 
 /**
  * Timer grid columns, in `list_timers`' own order. A `numeric` column sorts by
@@ -75,54 +74,18 @@ const HANDLE_COLS = [
 export default function RuntimeView() {
 	const [ timerSort, onTimerSort ] = useSortState( 'name' );
 	const [ handleSort, onHandleSort ] = useSortState( 'name' );
-	/**
-	 * Bumped once the pollers exist. `useNodeField` resolves its node during
-	 * render, and on the first render neither poller has been created yet, so
-	 * without a re-render both grids would stay bound to nothing.
-	 */
-	const [ , bumpBuild ] = useState( 0 );
-	/** The timers poller, set at mount and cleared on teardown. */
-	const pollerRef = useRef( null );
-
-	// Mount one poller per verb on the backbone; both poll at `_cwd`.
-	useEffect( () => {
-		const build = ( { interpreter } ) => {
-			// `_cwd` routes to the current scope; default it to browser-local.
-			if ( ! Core.node( names.CWD ) ) {
-				interpreter.makeNode( 'Node', names.CWD );
-			}
-			/**
-			 * Build one poller, aim it at `_cwd`, and take its first reading.
-			 *
-			 * @param {string} name Name to register the poller under.
-			 * @param {string} verb Interpreter verb it polls, always with `-s`.
-			 * @return {import('../../runtime/poller-node').PollerNode} The poller.
-			 */
-			const mount = ( name, verb ) => {
-				const poller = interpreter.makeNode( 'Poller', name );
-				poller.verb = verb;
-				poller.pollArgs = [ '-s' ];
-				poller.target = names.CWD;
-				poller.pollIntervalMs = LIVE_POLL_INTERVAL_MS;
-				poller.setTimer(); // ride the _router TIMER at pollIntervalMs
-				poller.fire(); // a first reading now, not a cadence away
-				return poller;
-			};
-			pollerRef.current = mount( TIMER_POLLER, 'list_timers' );
-			mount( HANDLE_POLLER, 'list_handles' );
-			bumpBuild( ( n ) => n + 1 );
-			return () => {
-				pollerRef.current = null;
-			};
-		};
-		const { teardown } = mountExospine( build );
-		return teardown;
-	}, [] );
-
-	// Null until the first reply lands; the grids render empty.
-	const data = useNodeField( TIMER_POLLER, 'reply' );
+	// One poller per verb, both asking `_cwd`; null until the first reply.
+	const { value: data } = usePoller( {
+		name: TIMER_POLLER,
+		verb: 'list_timers',
+		args: SORTABLE,
+	} );
 	const timers = Array.isArray( data ) ? data : [];
-	const handleData = useNodeField( HANDLE_POLLER, 'reply' );
+	const { value: handleData } = usePoller( {
+		name: HANDLE_POLLER,
+		verb: 'list_handles',
+		args: SORTABLE,
+	} );
 	const handles = Array.isArray( handleData ) ? handleData : [];
 
 	/**

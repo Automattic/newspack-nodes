@@ -13,6 +13,7 @@
 import { useState } from '@wordpress/element';
 import { CommandInterpreterNode } from '../../runtime/command-interpreter-node';
 import { TeeNode } from '../../runtime/tee-node';
+import { isHidden } from '../../runtime/node';
 
 /** @typedef {import('../../runtime/command-interpreter-node').NodeClass} NodeClass */
 
@@ -54,9 +55,10 @@ const derivedFrom = ( base, cls ) =>
  * canvas's own `?? true`. `arguments` is what the ADD modal renders constructor
  * fields from.
  *
- * Membership and order mirror `Classes_CI::cmd_dump()`: a class is offered only
- * when its schema declares a category that is neither empty nor `Hidden` and
- * raises no `hidden` flag, sorted by `[category, shell_name]`.
+ * Membership and order mirror `Classes_CI::cmd_dump()`: a class is listed when
+ * its schema declares a category and raises no `hidden` flag, sorted by
+ * `[category, shell_name]`. A `Hidden` category stays for the Inspector, and
+ * the palette leaves it out.
  *
  * The table is read once, at first render. `includeNodes` is a per-bundle
  * static each bundle fills at import time (ADR-16), so it is complete before
@@ -78,13 +80,11 @@ export function useJsCatalog() {
 				cls: table[ name ],
 				schema: table[ name ]?.nodeSchema?.() || {},
 			} ) )
-			// Skip a Hidden category, no category at all, or the hidden flag.
-			.filter( ( { schema } ) => {
-				const category = schema.category ?? '';
-				return (
-					'Hidden' !== category && '' !== category && ! schema.hidden
-				);
-			} )
+			// Skip no category at all, or the hidden flag.
+			.filter(
+				( { schema } ) =>
+					'' !== ( schema.category ?? '' ) && ! isHidden( schema )
+			)
 			.map( ( { name, cls, schema } ) => ( {
 				shell_name: name,
 				category: schema.category,

@@ -64,12 +64,7 @@ import {
 	invalidateExpandedIncludes,
 	primeExpandedIncludes,
 } from './hooks/useExpandedIncludes';
-import {
-	generateNodeName,
-	ownedOf,
-	withOwnedNodes,
-	withReplAnchor,
-} from './utils/consoleGraph';
+import { generateNodeName, withReplAnchor } from './utils/consoleGraph';
 import { DraftProvider, useDraftInterpreter } from './DraftContext';
 import { DraftInterpreterNode } from '../runtime/draft-interpreter-node';
 import { CatalogProvider } from './CatalogContext';
@@ -461,15 +456,8 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	// Two catalogs: PHP (HTTP; workers/edit) and JS (browser make_node).
 	const phpCatalog = useClassCatalog( { enabled: true } );
 	const catalogClasses = phpCatalog.classes;
-	// `_repl` and owned nodes are canvas nodes, never lines the document holds.
-	const editGraph = useMemo(
-		() =>
-			withOwnedNodes(
-				withReplAnchor( draft ),
-				ownedOf( draft, catalogClasses )
-			),
-		[ draft, catalogClasses ]
-	);
+	// `_repl` is a canvas node, never a line the document holds.
+	const editGraph = useMemo( () => withReplAnchor( draft ), [ draft ] );
 	const jsCatalog = useJsCatalog();
 	const vaultCatalog = useVaults( { enabled: true } );
 	// Measure .topology-app so the REPL ceiling tracks real height.
@@ -913,7 +901,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		! effectiveTopologyName || currentSavedLayout !== null;
 	const graphHasContent =
 		mode === 'edit' ? layoutGraph.nodes.length > 0 : parsedHasNodes;
-	// Edit mode draws owned nodes off the catalog, so it waits for it too.
+	// Edit mode draws virtual edges off the catalog, so it waits for it too.
 	const layoutReady =
 		graphHasContent &&
 		( ! isServerScope || serverFetchResolved ) &&
@@ -1518,19 +1506,8 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			// The interpreter rewrites every reference as part of the rename.
 			setDraftCatalog( catalog.classes );
 			runDraft( `move_node ${ oldId } ${ newName }` );
-			// Carry each override, owned siblings' too, to its new key.
-			const node = editGraph.nodes.find( ( n ) => n.id === oldId );
-			const keysFor = ( id ) => [
-				id,
-				...ownedOf(
-					{ nodes: [ { ...node, id } ] },
-					catalog.classes
-				).map( ( o ) => o.name ),
-			];
-			const renamed = keysFor( newName );
-			keysFor( oldId ).forEach( ( key, i ) =>
-				renamePosition( key, renamed[ i ] )
-			);
+			// Carry the node's position override to its new key.
+			renamePosition( oldId, newName );
 			if ( selectedId === oldId ) {
 				setSelectedId( newName );
 			}

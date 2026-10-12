@@ -408,23 +408,22 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( 1, $c->dump_metadata()['deadletter_segments'], 'one quarantine segment now' );
 	}
 
-	public function test_sidecar_partitions_have_no_config_interpreter(): void {
-		// Roadmap [83]: a patron-managed sidecar (the Consumer's source/offsetlog)
-		// shouldn't carry its own `{name}:config` — the patron configures it
-		// directly, and dump_config already skips patron-owned nodes.
+	/** An owned Partition keeps its `:config`, and its verbs reach it there. */
+	public function test_sidecar_partitions_keep_their_config_interpreter(): void {
 		$c = new Consumer_Node();
-		$c->name( 'reader' );
+		$c->name( 'reader-5530' );
 		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
+		$offsetlog = Core::node( 'reader-5530:offsetlog' );
 
-		$this->assertNotNull( Core::node( 'reader:source' ) );
-		$this->assertNull( Core::node( 'reader:source:config' ) );
-		$this->assertNull( Core::node( 'reader:offsetlog:config' ) );
+		$this->assertNotNull( Core::node( 'reader-5530:source:config' ) );
+		$this->assertInstanceOf( Partition_Node::class, $offsetlog );
+		$this->assertSame( $c, $offsetlog->patron() );
+		$allowed = new \ReflectionMethod( Partition_Node::class, 'large_writes_allowed' );
+		$this->assertFalse( $allowed->invoke( $offsetlog ) );
 
-		// Control: a standalone Partition (no patron) keeps its :config.
-		$p = new Partition_Node();
-		$p->name( 'standalone' );
-		$p->arguments( [ "{$this->tmp}/data/s0" ] );
-		$this->assertNotNull( Core::node( 'standalone:config' ) );
+		Core::node( 'reader-5530:offsetlog:config' )->dispatch( 'void_warranty' );
+
+		$this->assertTrue( $allowed->invoke( $offsetlog ) );
 	}
 
 	public function test_seam_methods_return_consumer_defaults(): void {

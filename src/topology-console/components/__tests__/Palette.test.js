@@ -75,6 +75,27 @@ describe( 'Palette', () => {
 		).toBe( '1' );
 	} );
 
+	it( 'omits a Hidden-category class the catalog carries for the Inspector', () => {
+		const withReader = [
+			{ shell_name: 'Echo', category: 'Generic' },
+			{ shell_name: 'Remote_Consumer', category: 'Hidden' },
+		];
+		const { container } = renderWithCatalog(
+			<Palette loading={ false } />,
+			{ classes: withReader }
+		);
+		const groupNames = Array.from(
+			container.querySelectorAll( '.topology-palette__group' )
+		).map( ( g ) => g.textContent );
+		expect( groupNames ).toEqual( [ 'Generic' ] );
+		expect(
+			container.querySelector( '[data-shell-name="Remote_Consumer"]' )
+		).toBeNull();
+		expect(
+			container.querySelector( '.topology-palette__count' ).textContent
+		).toBe( '1' );
+	} );
+
 	it( 'shows the total count of classes in the footer', () => {
 		const { container } = renderWithCatalog(
 			<Palette loading={ false } />,

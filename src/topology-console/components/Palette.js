@@ -21,12 +21,13 @@ import { useChrome } from '../ChromeContext';
  * Categories the catalog carries that the palette must never offer.
  *
  * A Service CI is mounted on `newspack_nodes/request_graph_ready`, never
- * declared in TSL, so a tile for one would drop a node no topology can build.
+ * declared in TSL, so a tile for one would drop a node no topology can build,
+ * and a `Hidden` class is one another node builds, such as a broker's reader.
  * Those entries still belong in the catalog, because the inspector reads the
  * same list for a selected node's verbs and arguments — which is why the
  * refusal sits here rather than in the `classes dump` verb.
  */
-const NON_DRAGGABLE_CATEGORIES = new Set( [ 'Service', 'Remote' ] );
+const NON_DRAGGABLE_CATEGORIES = new Set( [ 'Service', 'Remote', 'Hidden' ] );
 
 /**
  * Buckets the class list into one group per category.
