@@ -177,21 +177,17 @@ class Tables_CLI_Command {
 	 * flushed from here, and only under the fleet hold (`wp nodes stop`),
 	 * because otherwise a worker may start and write it at the same time; a
 	 * partition of an inactive topology needs no hold, since nothing spawns its
-	 * worker. The
-	 * command-session store is flushed only when named, and flushing it
-	 * revokes every issued session.
+	 * worker. The command-session store is flushed only when named, and
+	 * flushing it revokes every issued session.
 	 *
 	 * ## OPTIONS
 	 *
 	 * [<table>...]
 	 * : Tables to flush, as their topologies declare them, or
-	 * `nodes-sessions`. None flushes every declared Table and asks first.
+	 * `nodes-sessions`. None flushes every declared Table.
 	 *
 	 * [--partition=<partition>]
 	 * : Flush one partition (0-based); every partition by default.
-	 *
-	 * [--yes]
-	 * : Skip the question flushing every declared Table asks.
 	 *
 	 * [--timeout=<seconds>]
 	 * : How long to wait for the owners' replies. Default 10.
@@ -199,14 +195,14 @@ class Tables_CLI_Command {
 	 * ## EXAMPLES
 	 *
 	 *     wp nodes tables flush flame-stats:url
-	 *     wp nodes stop && wp nodes tables flush --yes && wp nodes start
+	 *     wp nodes stop && wp nodes tables flush && wp nodes start
 	 *     wp nodes tables flush nodes-sessions
 	 *
 	 * @api WP-CLI subcommand `wp nodes tables flush` — invoked by WP-CLI via reflection, not called in PHP.
 	 * @when after_wp_load
 	 *
 	 * @param array<int,string>   $args       Positional arguments; the Tables.
-	 * @param array<string,mixed> $assoc_args Associative arguments; --partition, --yes and --timeout.
+	 * @param array<string,mixed> $assoc_args Associative arguments; --partition and --timeout.
 	 */
 	public function flush( array $args, array $assoc_args ): void {
 		CLI::refuse_root( 'tables flush' );
@@ -223,9 +219,6 @@ class Tables_CLI_Command {
 			$slots,
 			static fn ( array $slot ): bool => ( [] === $args || \in_array( $slot['name'], $args, true ) ) && ( -1 === $partition || $partition === $slot['partition'] )
 		);
-		if ( [] === $args ) {
-			\WP_CLI::confirm( 'Flush every row of ' . \count( $chosen ) . ' declared Table partitions? The session store is left alone.', $assoc_args );
-		}
 		$states  = $this->states( $slots );
 		$replies = $this->ask( $this->owned_by_live( $chosen, $states ), 'flush', $timeout );
 		$steps   = [];
