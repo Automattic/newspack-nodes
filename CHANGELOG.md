@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **On the topology canvas, a card no sweep seats stacks on the edge of its column nearer its feeders.** A sink left of a band's busiest column has no card it feeds to seat it, and it stacked under its column's cards wherever its feeder sat. It now stacks above them when its feeders sit above the column's middle, and below them otherwise, and several such cards stack in the order of their feeders, so a wire from one feeder crosses none of the others.
+- **On the topology canvas, a hub's bands stack by the hubs they wire to, not alphabetically.** Each wire into a hub pulls its band toward that hub by the columns it runs, so a band wired to both hubs stacks between the bands wired to one, nearer the hub its longer wire reaches.
+- **Across five tiles of seed 134623, the two changes cut crossings from 814 to 441 and covered cards from 104 to 84.** Wires crossing inside a band fall from 315 to 152 on the drawn curves, and a hub wire crossing a band's wire from 160 to 93. A covered card is covered by more wires, though: wire-over-card pairs rise from 192 to 216. On seed 29924, wires into a hub cross 10 times where they crossed 4, because a band wired to both hubs now stacks low and its wire to the upper hub crosses the bands above it.
+
 ## [2.105.1] - 2026-10-12
 
 ### Fixed

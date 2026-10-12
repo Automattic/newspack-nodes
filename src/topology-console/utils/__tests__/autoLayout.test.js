@@ -113,19 +113,48 @@ const drawn = ( nodes, edges ) =>
 	);
 
 /**
+ * A graph written as `a>b c>d …`.
+ *
+ * @param {string} wires The wires, space-separated.
+ * @return {{nodes: Array<{id: string}>, edges: Array<{from: string, to: string}>}} The graph.
+ */
+const wired = ( wires ) => {
+	const pairs = wires.split( ' ' ).map( ( p ) => p.split( '>' ) );
+	return {
+		nodes: [ ...new Set( pairs.flat() ) ].map( ( id ) => ( { id } ) ),
+		edges: pairs.map( ( [ from, to ] ) => ( { from, to } ) ),
+	};
+};
+
+/**
+ * Lay out a graph written as `a>b c>d …`.
+ *
+ * @param {string} wires The wires, space-separated.
+ * @return {{at: Object<string,{x: number, y: number}>, edges: Array<Object>}}
+ * Each card's canvas position, and the wires.
+ */
+const laidOut = ( wires ) => {
+	const graph = wired( wires );
+	const { nodes } = autoLayout( graph );
+	return {
+		at: Object.fromEntries( nodes.map( ( n ) => [ n.id, n.position ] ) ),
+		edges: graph.edges,
+	};
+};
+
+/**
  * Lay out a graph written as `a>b c>d …` and read each card's canvas x.
  *
  * @param {string} wires The wires, space-separated.
  * @return {Object<string,number>} Canvas x by id.
  */
-const xsOf = ( wires ) => {
-	const pairs = wires.split( ' ' ).map( ( p ) => p.split( '>' ) );
-	const { nodes } = autoLayout( {
-		nodes: [ ...new Set( pairs.flat() ) ].map( ( id ) => ( { id } ) ),
-		edges: pairs.map( ( [ from, to ] ) => ( { from, to } ) ),
-	} );
-	return Object.fromEntries( nodes.map( ( n ) => [ n.id, n.position.x ] ) );
-};
+const xsOf = ( wires ) =>
+	Object.fromEntries(
+		Object.entries( laidOut( wires ).at ).map( ( [ id, p ] ) => [
+			id,
+			p.x,
+		] )
+	);
 
 describe( 'drawnCost — the one judge of a drawing', () => {
 	const wire = ( from, to ) => ( { from, to } );
@@ -956,6 +985,50 @@ describe( 'autoLayout', () => {
 		);
 	} );
 
+	it( 'stacks a sink no sweep seats on the edge of its column nearer its feeder', () => {
+		// a feeds nothing, left of the column holding the most cards, so no
+		// sweep gives it a row; e, which feeds it, sits above i, which feeds
+		// d, so a stacks above d and e's wire to it crosses none of i's.
+		const { at, edges } = laidOut( 'd>g e>a e>c i>c i>d i>g i>h' );
+		expect( at.a.y ).toBeLessThan( at.d.y );
+		expect(
+			drawnCost( at, edges ).crossings.filter( ( hit ) =>
+				hit.includes( 'e→a' )
+			)
+		).toEqual( [] );
+	} );
+
+	it( 'stacks the sinks no sweep seats above in the order of their feeders', () => {
+		// a and b feed nothing and both stack above d; e, feeding a, sits
+		// above f, feeding b, so a stacks above b and their wires stay apart.
+		const { at, edges } = laidOut(
+			'd>g e>a f>b e>c f>c i>c i>d i>g i>h i>k'
+		);
+		expect( at.a.y ).toBeLessThan( at.b.y );
+		expect( at.b.y ).toBeLessThan( at.d.y );
+		expect(
+			drawnCost( at, edges ).crossings.filter( ( hit ) =>
+				hit.includes( 'e→a' )
+			)
+		).toEqual( [] );
+	} );
+
+	it( 'stacks the sinks no sweep seats on one edge in the order of their feeders', () => {
+		// d and k feed nothing and stack together on the edge of their
+		// column away from g; b, feeding d, sits above a, feeding k, so d
+		// stacks above k and their wires stay apart.
+		const { at, edges } = laidOut(
+			'a>g a>k b>c b>d b>e b>f c>i e>j f>i g>h g>i g>j h>j'
+		);
+		expect( at.k.y ).toBeLessThan( at.g.y );
+		expect( at.d.y ).toBeLessThan( at.k.y );
+		expect(
+			drawnCost( at, edges ).crossings.filter( ( hit ) =>
+				hit.includes( 'a→k' )
+			)
+		).toEqual( [] );
+	} );
+
 	it( 'seats a sink beside the consumers it shares a feeder with', () => {
 		// A slice's view answers the same tee its fetcher does, so it belongs
 		// in the fetcher's column. Pinned to the band's far column instead, its
@@ -1521,6 +1594,38 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		}
 		return { nodes: [ ...ids ].map( ( id ) => ( { id } ) ), edges };
 	};
+
+	it( 'stacks the bands wired to both hubs between those wired to one', () => {
+		// Alphabetically the bands wired to ha, to hb and to both interleave;
+		// stacked by their hubs, only the two wired to both cross.
+		const graph = wired(
+			'p0:in>p0:out p0:out>ha p0:out>hb p1:in>p1:out p1:out>ha ' +
+				'p2:in>p2:out p2:out>hb p3:in>p3:out p3:out>ha p3:out>hb ' +
+				'p4:in>p4:out p4:out>ha p5:in>p5:out p5:out>hb'
+		);
+		const g = gridOf( graph );
+		expect(
+			[ 'p0', 'p1', 'p2', 'p3', 'p4', 'p5' ].sort(
+				( a, b ) => g[ `${ a }:out` ].row - g[ `${ b }:out` ].row
+			)
+		).toEqual( [ 'p1', 'p4', 'p0', 'p3', 'p2', 'p5' ] );
+		expect(
+			drawn( autoLayout( graph ).nodes, graph.edges ).crossings
+		).toHaveLength( 1 );
+	} );
+
+	it( 'stacks a band wired to both hubs nearer the hub its longer wire reaches', () => {
+		// b0 reaches hb from its first card and ha from its last, so it
+		// stacks below b4, whose wires to both start in its last column.
+		const graph = wired(
+			'b0:0>b0:1 b0:1>ha b0:0>hb b1:0>b1:1 b1:1>ha b2:0>b2:1 ' +
+				'b2:1>hb b3:0>b3:1 b3:1>b3:2 b3:2>hb b4:0>b4:1 b4:1>b4:2 ' +
+				'b4:2>b4:3 b4:3>ha b4:3>hb b5:0>b5:1 b5:1>ha'
+		);
+		expect(
+			drawn( autoLayout( graph ).nodes, graph.edges ).crossings
+		).toEqual( [] );
+	} );
 
 	it( 'puts each hub in the column right after the slices that feed it, on their middle row', () => {
 		// Every publication feeds `fleet:cache`, so the sheet is ONE block and
@@ -2150,29 +2255,14 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		).toEqual( [] );
 	} );
 
-	it( 'keeps a source near the one node it feeds, past the one card level with it (seed 29924)', () => {
-		// k1l1n0, of k1src's own band, sits level with k1l2n0 in the column
-		// before it, so k1src's wire passes it from any row. The trade: with
-		// no slot rule the card passed is k7l1n2, nudged into k1's rows.
-		const graph = seedGraph( '29924' );
-		const g = gridOf( graph );
-		expect( Math.abs( g.k1src.row - g.k1l2n0.row ) ).toBeLessThanOrEqual(
-			3
-		);
-		const passed = drawn( autoLayout( graph ).nodes, graph.edges )
-			.over.filter( ( hit ) => hit.startsWith( 'k1src→' ) )
-			.map( ( hit ) => hit.split( ' over ' )[ 1 ] );
-		expect( passed ).toEqual( [ 'k1l1n0' ] );
-		expect( g.k1l1n0.row ).toBe( g.k1l2n0.row );
-		expect( g.k1l1n0.col ).toBe( g.k1l2n0.col - 1 );
-	} );
-
-	it.each( [ [ '82291', 'k2src', 'k2l4n0' ] ] )(
+	it.each( [
+		[ '29924', 'k1src', 'k1l2n0' ],
+		[ '82291', 'k2src', 'k2l4n0' ],
+	] )(
 		'keeps a source near the one node it feeds, its wire clear (seed %s)',
 		( seed, source, fed ) => {
-			// A hub wire or a crowded column once stranded each four or five
-			// rows off; where no seat within a row keeps the wire off every
-			// card, the cheapest clear one is still close.
+			// Where no seat within a row keeps the wire off every card, the
+			// cheapest clear one is still close.
 			const graph = seedGraph( seed );
 			const g = gridOf( graph );
 			expect(
@@ -2602,7 +2692,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 
 	it( 'judges pin trials across five tiles of seed 134623 to fewer crossings', () => {
 		// The cheaper drawing picks the moves, the block seated in full keeps
-		// them, and every move it left is tried in full: 814 crossings, 192
+		// them, and every move it left is tried in full: 441 crossings, 216
 		// cards covered, with each tile's bands stacked as tight as their
 		// columns allow and no nudge leaving a band's own rows.
 		const seed = SEEDS[ '134623' ];
@@ -2622,7 +2712,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		} );
 		const cost = drawn( nodes, edges );
 		expect( [ cost.crossings.length, cost.over.length ] ).toEqual( [
-			814, 192,
+			441, 216,
 		] );
 	} );
 
