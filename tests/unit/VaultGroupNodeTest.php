@@ -498,6 +498,18 @@ final class VaultGroupNodeTest extends TestCase {
 		$this->assertSame( $squat, Core::node( 'edge:tw5' ) );
 	}
 
+	/** A builder's opt-out holds through every arguments() replay. */
+	public function test_an_opted_out_group_wires_no_config_on_a_replay(): void {
+		$group = ( new Vault_Group_Node() )->without_config();
+		$group->name( 'egress-6631' );
+		$group->arguments( [ 'HTTP_Out', 'tw-edge' ] );
+		$group->arguments( [ 'HTTP_Out', 'tw-edge' ] );
+
+		$this->assertNull( Core::node( 'egress-6631:config' ) );
+		$this->assertNull( $group->interpreter() );
+		$this->assertNotNull( Core::node( 'egress-6631:tw9' ), 'the members still build' );
+	}
+
 	public function test_a_config_id_raises_after_the_rest_build(): void {
 		$ci    = new Command_Interpreter_Node();
 		$group = $ci->make_node( 'Vault_Group', 'egress', 'HTTP_Out', 'tw-edge' );

@@ -295,4 +295,35 @@ describe( 'Inspector sidecars', () => {
 		);
 		expect( title( container ) ).toBe( other );
 	} );
+
+	it( 'offers no verbs for a sidecar built without a :config', () => {
+		const source = 'reader-7720:source';
+		const classes = [
+			...catalog,
+			{
+				shell_name: 'Partition',
+				category: 'Storage',
+				arguments: [ { name: 'dir' } ],
+				commands: [ { name: 'allow_large_writes', args: [] } ],
+			},
+		];
+		const { container } = renderWithCatalog(
+			inspector( { sidecar: source } ),
+			{ classes }
+		);
+		answer(
+			{
+				[ source ]: {
+					class: 'Partition',
+					counter: 5148,
+					owner: 'reader-7720',
+					has_config: false,
+				},
+			},
+			source
+		);
+		expect( title( container ) ).toBe( source );
+		expect( screen.queryByText( 'allow_large_writes' ) ).toBeNull();
+		expect( screen.queryByText( 'Verbs' ) ).toBeNull();
+	} );
 } );

@@ -288,6 +288,9 @@ class Topic_Node extends Node {
 			// Topic's sink + patron-link, so dump_metadata hides it.
 			$p->sink( $this->sink );
 			$p->patron( $this );
+			if ( ! $this->wants_config() ) {
+				$p->without_config();
+			}
 			$this->apply_index( $p );
 			// Named from its `p{i}` slot; :lock and :config derive.
 			$this->publish_sibling( "p{$i}", $p );

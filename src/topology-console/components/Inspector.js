@@ -2832,8 +2832,15 @@ export default function Inspector( {
 					const schema = catalog.find(
 						( c ) => c.shell_name === type
 					);
+					// No `:config` on a sidecar: no command reaches it.
+					const unreachable =
+						!! sidecar &&
+						false === node.has_config &&
+						! schema?.is_interpreter;
 					const commands = (
-						schema && schema.commands ? schema.commands : []
+						schema && schema.commands && ! unreachable
+							? schema.commands
+							: []
 					).filter( ( spec ) => ! spec.hidden );
 					const requests =
 						schema && schema.requests ? schema.requests : [];

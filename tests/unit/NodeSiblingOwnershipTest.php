@@ -4,6 +4,7 @@ namespace Newspack_Nodes\Tests\Unit;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Node;
+use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
@@ -95,5 +96,30 @@ final class NodeSiblingOwnershipTest extends TestCase {
 		$this->assertSame( $refused, $caught );
 		$this->assertNull( Core::node( 'relay-7:tw2' ), 'the later sibling was still torn down' );
 		$this->assertNull( Core::node( 'relay-7' ), 'the patron still unregistered' );
+	}
+
+	/** A node opted out before it is named takes its name with no `:config`. */
+	public function test_without_config_names_the_node_with_no_config(): void {
+		$mount = new Partition_Node();
+		$this->assertTrue( $mount->wants_config() );
+		$this->assertNotNull( $mount->interpreter(), 'a Partition declares verbs' );
+
+		$this->assertSame( $mount, $mount->without_config() );
+		$mount->name( 'mount-3391' );
+
+		$this->assertFalse( $mount->wants_config() );
+		$this->assertNull( $mount->interpreter() );
+		$this->assertSame( $mount, Core::node( 'mount-3391' ) );
+		$this->assertNull( Core::node( 'mount-3391:config' ) );
+	}
+
+	/** Once named, the `:config` is registered, so the opt-out is refused. */
+	public function test_without_config_is_refused_once_the_node_is_named(): void {
+		$mount = new Partition_Node();
+		$mount->name( 'mount-4410' );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'mount-4410:config' );
+		$mount->without_config();
 	}
 }

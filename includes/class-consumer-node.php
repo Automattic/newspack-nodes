@@ -164,6 +164,8 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 		$source->arguments( [ $this->source_dir ] );
 		$source->sink( $this->sink );
 		$source->patron( $this );
+		// A read view: no verb reaches the writer's cap or its lock.
+		$source->without_config();
 		$this->retract_sibling( 'source' );
 		$this->source = $source;
 		$this->publish_sibling( 'source', $source );

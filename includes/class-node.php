@@ -85,6 +85,9 @@ class Node {
 	/** The node that published this one as an owned sibling, or null. */
 	private ?Node $publisher = null;
 
+	/** False once a builder opts this node out; see `without_config()`. */
+	private bool $wants_config = true;
+
 	/**
 	 * Declared events, each holding its listeners keyed by identity. A closure is
 	 * stored as given; a null value means the identity is a Node name and dispatch
@@ -786,6 +789,28 @@ class Node {
 	}
 
 	/**
+	 * Build this node with no `{name}:config` interpreter, so none of its
+	 * verbs is reachable by command. A builder calls it before `name()`, for a
+	 * node no caller may configure: a reader's view of a log it does not
+	 * write, or a node a request builds and drops. Refused once named, because
+	 * the interpreter is registered by then and an address may already hold it.
+	 *
+	 * @return self
+	 * @throws \RuntimeException When the node is already named.
+	 */
+	public function without_config(): self {
+		if ( '' !== $this->name ) {
+			throw new \RuntimeException(
+				\esc_html( static::class . '::without_config() must be called before name(): ' . $this->sibling_name( self::CONFIG_KIND ) . ' is registered already' )
+			);
+		}
+		$this->retract_sibling( self::CONFIG_KIND );
+		$this->interpreter  = null;
+		$this->wants_config = false;
+		return $this;
+	}
+
+	/**
 	 * The name the sibling in $kind's slot answers to. Anything ADDRESSING a
 	 * sibling reads it here rather than spelling the suffix again, so a
 	 * re-keyed slot cannot leave a message routed at a name nothing holds.
@@ -1021,6 +1046,15 @@ class Node {
 				unset( $this->siblings[ $kind ] );
 			}
 		}
+	}
+
+	/**
+	 * Whether this node takes a `{name}:config` interpreter: true unless its
+	 * builder called `without_config()`. A node building siblings of its own
+	 * reads it to carry the opt-out to them.
+	 */
+	public function wants_config(): bool {
+		return $this->wants_config;
 	}
 
 	/**

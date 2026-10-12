@@ -1005,6 +1005,8 @@ class SSE_Out_Node extends Node {
 			return;
 		}
 		$c->patron( $this );
+		// Lives one stream: nothing configures it.
+		$c->without_config();
 		$c->name( $name );
 		$c->sink( $route );
 		$consumers[ $name ] = $c;

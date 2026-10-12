@@ -707,13 +707,15 @@ abstract class TestCase extends PHPUnitTestCase {
 	/**
 	 * Every patroned node in the registry whose class declares a verb that
 	 * wires — a handler, a toggle or a setter — carries its `{name}:config`, so
-	 * a sidecar's verbs reach it. Fails naming the node that has none, and
-	 * fails a graph holding no such node at all, which would check nothing.
+	 * a sidecar's verbs reach it. A node its builder opted out through
+	 * `without_config()` is exempt: it takes no `:config` by design. Fails
+	 * naming the node that has none, and fails a graph holding no such node at
+	 * all, which would check nothing.
 	 */
 	protected function assert_owned_nodes_keep_their_config(): void {
 		$checked = 0;
 		foreach ( Core::$nodes_by_name as $name => $node ) {
-			if ( ! $node->owned() || $node instanceof \Newspack_Nodes\Command_Interpreter_Node ) {
+			if ( ! $node->owned() || ! $node->wants_config() || $node instanceof \Newspack_Nodes\Command_Interpreter_Node ) {
 				continue;
 			}
 			$wired = \array_filter(

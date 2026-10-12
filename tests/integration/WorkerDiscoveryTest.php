@@ -66,6 +66,18 @@ class WorkerDiscoveryTest extends TestCase {
 		$this->assertNull( Core::node( 'firehose-workers.p1' ) );
 	}
 
+	/** A mount lives for one POST, so it builds no `<worker-id>:config`. */
+	public function test_register_worker_partition_mounts_with_no_config(): void {
+		$base = $this->make_temp_dir( 'worker-disc-' );
+		\mkdir( "{$base}/locks/dispatch-hub.p6.lock.d", 0755, true );
+		\mkdir( "{$base}/ipc/dispatch-hub.p6/input", 0755, true );
+
+		$this->assertTrue( Bootstrap::register_worker_partition( 'dispatch-hub.p6', $base ) );
+
+		$this->assertInstanceOf( Partition_Node::class, Core::node( 'dispatch-hub.p6' ) );
+		$this->assertNull( Core::node( 'dispatch-hub.p6:config' ) );
+	}
+
 	public function test_register_worker_partition_is_idempotent(): void {
 		$base = $this->make_temp_dir( 'worker-disc-' );
 		\mkdir( "{$base}/locks/firehose-workers.p0.lock.d", 0755, true );

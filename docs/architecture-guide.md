@@ -131,7 +131,8 @@ class Node {
     public function disconnect_node( string $target = '' ): void;
     public function name( ?string $name = null ): string;
     public function patron( ?Node $node = null ): ?Node;      // marks it owned; it keeps its :config
-    public function shown_on_canvas( array $schema ): bool;  // no patron, no publisher, never hidden
+    public function without_config(): self;                   // before name(): it builds no :config
+    public function wants_config(): bool;
     public function sidecars(): array;                        // owned siblings the console opens from "…"
     public function remove_node(): void;
     public function counter(): int;
@@ -165,6 +166,8 @@ class Node {
 ```
 
 ![Which siblings each patron publishes into its slot map: Partition's lock, heartbeat and config; Topic's p0 to pN-1; Consumer's source, offsetlog and deadletter; a Remote_Source's sse-in, http-out and null, plus the offsetlog and deadletter of each of its readers, named <name>:<kind>:offsetlog and :deadletter. Four cascades read the map: the collision pre-check, the rename, the sink and the teardown. Three rules follow: an occupied slot is refused, patron() marks a node owned and leaves its :config in place, and a failed publish empties the slot again. The default fill() and stamp_message() sit beneath, showing when TO is stamped and the two cases in which stamp_message() returns false.](img/ag-owned-siblings.png)
+
+A patroned sibling keeps its `:config`, so its verbs reach it as a canvas node's do. A builder that wants none calls `without_config()` before `name()`, refused once the node is named because its `:config` is registered by then: a Consumer for its source, which a reader must not reconfigure or lock, and each request-scope builder for the nodes it builds and drops — the event logger's firehose Topic, an SSE stream's stamp readers and the worker a `/command` POST mounts. A Topic built without one builds its partitions without one, reading `wants_config()`.
 
 **Default `fill()`** stamps TO from `target` (only when TO is empty), counts, then forwards:
 

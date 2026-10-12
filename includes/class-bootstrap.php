@@ -1288,6 +1288,8 @@ class Bootstrap {
 		if ( null !== $ci ) {
 			$part->patron( $ci );
 		}
+		// Lives one POST: nothing configures it.
+		$part->without_config();
 		// Named between the two: sink() announces READY with the name.
 		$part->name( $worker_id );
 		if ( null !== $ci ) {

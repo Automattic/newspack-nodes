@@ -258,7 +258,7 @@ Two hooks are protected and overridable — `set_sibling_names()` and `check_nam
 
 A node listening at another node under its OWN name goes through `Node::subscribe( $emitter, $event, $closure )`, never a bare `register()`: the entry lives in the EMITTER's table, so nothing else follows a rename, and `subscribe()` is what moves it in `name()` and drops it in `remove_node()`. A closure listener has no self-heal at all, because `notify()` keeps anything that does not return exactly false, so a hand-rolled `register()` left behind keeps firing under the old name. `Remote_Broker_Node` and `Vault_Group_Node` subscribe to the fleet's RELOAD this way; `Timer_Node` is the one name-dispatched registration that moves itself, in its own `name()`, because its TIMER hitchhike arms and disarms with the timer mode rather than living for the node's life.
 
-`patron()` marks a node owned and nothing else: the node keeps its `:config`, and the patron may come before or after `name()`. A patron keeps a node off the canvas; the console opens it from its owner's `sidecars`.
+`patron()` marks a node owned and nothing else: the node keeps its `:config`, and the patron may come before or after `name()`. Only `without_config()`, called before `name()`, builds a node with none: it is called at exactly five sites — a Consumer's or Tail's source, a Topic's partitions when the Topic has none, an SSE stream's stamp reader, and the worker a `/command` POST mounts; ELN's firehose Topic opts out the same way — so flag a call anywhere else, on a node whose verbs an operator needs. A patron keeps a node off the canvas; the console opens it from its owner's `sidecars`.
 
 ### 14. A periodic node is a `Timer_Node` overriding `fire()`, and a self-pacing one holds a RECURRING timer
 
