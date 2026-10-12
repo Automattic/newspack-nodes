@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.105.0] - 2026-10-12
+
 ### Added
 
 - **`wp nodes session revoke --all` revokes every session this site issued,** labelled or not, by flushing the session store, and the error past 10,000 labelled sessions names it.
