@@ -98,16 +98,26 @@ final class TablesCliCommandTest extends TestCase {
 	 * @param bool $answers False for a worker that reads commands and answers none.
 	 */
 	private function live_worker( int $partition, bool $answers = true ): Table_Node {
+		return $this->live_table( 'kea-t', 'lab-7:kea', [ "kea:p{$partition}", '777', 'sqlite' ], $partition, $answers );
+	}
+
+	/**
+	 * A live `{topology}.p{partition}` holding the Table `$name`.
+	 *
+	 * @param array<int,string> $args    The Table's `make_node` arguments.
+	 * @param bool              $answers False for a worker that reads commands and answers none.
+	 */
+	private function live_table( string $topology, string $name, array $args, int $partition, bool $answers = true ): Table_Node {
 		Core::$var['partition'] = (string) $partition;
 		try {
 			$table = new Table_Node();
-			$table->name( 'lab-7:kea' );
-			$table->arguments( [ "kea:p{$partition}", '777', 'sqlite' ] );
+			$table->name( $name );
+			$table->arguments( $args );
 		} finally {
 			unset( Core::$var['partition'] );
 		}
 		$table->sink( new Capture_Sink_Node() );
-		$this->answer_channel( 'kea-t', $partition, $answers );
+		$this->answer_channel( $topology, $partition, $answers );
 		return $table;
 	}
 
@@ -389,9 +399,10 @@ final class TablesCliCommandTest extends TestCase {
 
 	// ── inactive topologies ──
 
-	/** Registers `emu-z`, a topology no option activates, declaring a `sqlite` Table over two partitions. */
+	/** Registers `emu-z`, declaring a `sqlite` Table over two partitions, and `ant-x`, including it; no option activates either. */
 	private function register_inactive_emu(): void {
 		$this->write_tsl( 'emu-z', "var num_partitions = 2\nmake_node Table lab-7:emu emu:p{partition} 4242 sqlite\n" );
+		$this->write_tsl( 'ant-x', "var num_partitions = 2\ninclude emu-z\n" );
 	}
 
 	/** An `emu` partition's file, written as its worker would write it. */
@@ -419,8 +430,8 @@ final class TablesCliCommandTest extends TestCase {
 		$emu = \array_values( \array_filter( $this->printed(), static fn ( array $row ): bool => 'lab-7:emu' === $row['Table'] ) );
 		$this->assertSame(
 			[
-				[ 'Table' => 'lab-7:emu', 'Partition' => 0, 'Backend' => 'sqlite', 'TTL' => '4242', 'Owner' => 'emu-z.p0', 'State' => 'inactive', 'Store' => Table_Node::file( 'lab-7:emu', 0 ), 'Bytes' => 0, 'Disk' => 0, 'Verbs' => null ],
-				[ 'Table' => 'lab-7:emu', 'Partition' => 1, 'Backend' => 'sqlite', 'TTL' => '4242', 'Owner' => 'emu-z.p1', 'State' => 'inactive', 'Store' => $file, 'Bytes' => $size, 'Disk' => self::disk_of( $file ), 'Verbs' => null ],
+				[ 'Table' => 'lab-7:emu', 'Partition' => 0, 'Backend' => 'sqlite', 'TTL' => '4242', 'Owner' => '-', 'State' => 'inactive', 'Store' => Table_Node::file( 'lab-7:emu', 0 ), 'Bytes' => 0, 'Disk' => 0, 'Verbs' => null ],
+				[ 'Table' => 'lab-7:emu', 'Partition' => 1, 'Backend' => 'sqlite', 'TTL' => '4242', 'Owner' => '-', 'State' => 'inactive', 'Store' => $file, 'Bytes' => $size, 'Disk' => self::disk_of( $file ), 'Verbs' => null ],
 			],
 			$emu
 		);
@@ -435,9 +446,47 @@ final class TablesCliCommandTest extends TestCase {
 		$this->command()->flush( [ 'lab-7:emu' ], [] );
 
 		$this->assertSame( [ 0, 0 ], [ $this->emu_rows( 0 ), $this->emu_rows( 1 ) ] );
-		$this->assertMatchesRegularExpression( '/^lab-7:emu\.p0: [\d.]+[KM]?B released; emu-z is inactive$/', $GLOBALS['_test_wp_cli_logs'][0] );
+		$this->assertMatchesRegularExpression( '/^lab-7:emu\.p0: [\d.]+[KM]?B released; no active topology declares it$/', $GLOBALS['_test_wp_cli_logs'][0] );
 		$this->assertSame( [ 'Flushed 2 Table partitions.' ], $GLOBALS['_test_wp_cli_success'] );
 		$this->assertSame( [], $this->answered, 'no worker was asked' );
+	}
+
+	/**
+	 * A deactivated topology's worker writes its Tables until it exits, so it
+	 * still owns them; `emu-z` runs because the catalog lists `ant-x` first.
+	 */
+	public function test_flush_asks_an_inactive_topologys_worker_that_still_runs(): void {
+		$this->register_inactive_emu();
+		$this->live_table( 'emu-z', 'lab-7:emu', [ 'emu:p1', '4242', 'sqlite' ], 1 );
+
+		$this->command()->flush( [ 'lab-7:emu' ], [ 'partition' => '1' ] );
+
+		$this->assertSame( [ 'lab-7:emu:config flush' ], $this->answered );
+		$this->assertMatchesRegularExpression( '/^lab-7:emu\.p1: [\d.]+[KM]?B released by emu-z\.p1$/', $GLOBALS['_test_wp_cli_logs'][0] );
+	}
+
+	public function test_flush_refuses_an_inactive_topologys_stale_worker(): void {
+		$this->register_inactive_emu();
+		$this->seed_emu( 1, 6 );
+		\mkdir( "{$this->base}/locks/emu-z.p1.lock.d", 0755, true );
+		\touch( "{$this->base}/locks/emu-z.p1.lock.d", \time() - ( \Newspack_Nodes\Lock_Node::ORPHAN_GRACE_S + 61 ) );
+
+		$e = $this->caught( fn () => $this->command()->flush( [ 'lab-7:emu' ], [ 'partition' => '1' ] ), 'a stale worker\'s partition was flushed' );
+
+		$this->assertStringContainsString( 'lab-7:emu.p1: emu-z.p1 is stale: its lock stands with no heartbeat; wait for its lock to clear, and flush again', $e->getMessage() );
+		$this->assertSame( 6, $this->emu_rows( 1 ) );
+	}
+
+	/** Under the hold, a running worker of an inactive declarer owns the partition over the held active one. */
+	public function test_flush_under_the_hold_asks_an_inactive_declarers_worker_that_still_runs(): void {
+		$this->write_tsl( 'gnu-y', "var num_partitions = 4\nmake_node Table lab-7:kea kea:p{partition} 777 sqlite\n" );
+		$this->live_table( 'gnu-y', 'lab-7:kea', [ 'kea:p0', '777', 'sqlite' ], 0 );
+		Spawn_Coordinator::set_hold( \time() );
+
+		$this->command()->flush( [ 'lab-7:kea' ], [ 'partition' => '0' ] );
+
+		$this->assertSame( [ 'lab-7:kea:config flush' ], $this->answered );
+		$this->assertMatchesRegularExpression( '/^lab-7:kea\.p0: [\d.]+[KM]?B released by gnu-y\.p0$/', $GLOBALS['_test_wp_cli_logs'][0] );
 	}
 
 	public function test_flush_with_no_table_named_counts_the_inactive_partitions(): void {
@@ -449,13 +498,13 @@ final class TablesCliCommandTest extends TestCase {
 		$this->assertSame( [ 'Flushed 5 Table partitions.' ], $GLOBALS['_test_wp_cli_success'] );
 	}
 
-	public function test_a_table_an_active_and_an_inactive_topology_both_declare_is_owned_by_the_active_one(): void {
+	public function test_a_table_an_active_and_an_inactive_topology_both_declare_is_owned_by_the_active_one_alone(): void {
 		$this->write_tsl( 'gnu-y', "var num_partitions = 4\nmake_node Table lab-7:kea kea:p{partition} 777 sqlite\n" );
 
 		$this->command()->list_( [], [ 'format' => 'json' ] );
 
 		$kea = \array_filter( $this->printed(), static fn ( array $row ): bool => 'lab-7:kea' === $row['Table'] );
-		$this->assertSame( [ 'kea-t.p0', 'kea-t.p1', 'gnu-y.p2', 'gnu-y.p3' ], \array_column( \array_values( $kea ), 'Owner' ), 'the active declarer owns what it declares; the inactive one adds only the partitions beyond' );
+		$this->assertSame( [ 'kea-t.p0', 'kea-t.p1', '-', '-' ], \array_column( \array_values( $kea ), 'Owner' ), 'the active declarer owns what it declares; the partitions beyond have no owner' );
 		$this->assertSame( [ 'down', 'down', 'inactive', 'inactive' ], \array_column( \array_values( $kea ), 'State' ) );
 	}
 
@@ -558,7 +607,7 @@ final class TablesCliCommandTest extends TestCase {
 
 		$e = $this->caught( fn () => $this->command()->flush( [ 'lab-7:kea' ], [ 'partition' => '0' ] ), 'a stale owner\'s partition was flushed' );
 
-		$this->assertStringContainsString( 'lab-7:kea.p0: kea-t.p0 is stale: its lock stands with no heartbeat', $e->getMessage() );
+		$this->assertStringContainsString( 'lab-7:kea.p0: kea-t.p0 is stale: its lock stands with no heartbeat; restart it, or wait for its lock to clear, and flush again', $e->getMessage() );
 		$this->assertSame( 3, $this->rows_in( 0 ) );
 	}
 
