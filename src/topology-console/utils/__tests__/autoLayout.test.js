@@ -1655,9 +1655,12 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 	it( 'packs equal-width blocks alphabetically', () => {
 		// A hub block keyed by its hub, which sorts after the hub-less band
 		// keyed by its first node; blocks arrive hub first, but the packer
-		// takes them by key. Both are three wide, so width decides nothing.
+		// takes them by key. Three wires meet a node in each, so both draw
+		// three and a half columns wide, and width decides nothing.
 		const edges = [
 			{ from: 'm:in', to: 'm:mid' },
+			{ from: 'm:in2', to: 'm:mid' },
+			{ from: 'm:in3', to: 'm:mid' },
 			{ from: 'm:mid', to: 'm:out' },
 		];
 		for ( const f of [ 'a0', 'a1', 'a2', 'a3' ] ) {
@@ -3073,9 +3076,8 @@ describe( 'autoLayout — hub bands', () => {
 	// right after its feeders, on their middle row; an ordinary node stays.
 	it( 'bands every component, and leaves a node three feed in its band', () => {
 		const at = positionsOf( starGraph( 3 ) );
-		// Three wires in open the gap; the pair shares the hub's column, so
-		// it shifts too.
-		expect( at.y.x - at.x.x ).toBe( 1.5 * X_STEP );
+		// Three wires in open the gap; the pair opens none, so keeps a step.
+		expect( at.y.x - at.x.x ).toBe( X_STEP );
 		expect( at.hub.x ).toBe( at.s0.x + 1.5 * X_STEP );
 	} );
 
@@ -3089,8 +3091,8 @@ describe( 'autoLayout — hub bands', () => {
 			X_PAD,
 			X_PAD,
 		] );
-		// The pair stacks in the hub's columns, so it shares the hub's gap.
-		expect( at.y.x - at.x.x ).toBe( 1.5 * X_STEP );
+		// The pair stacks in the hub's columns but opens none of its gaps.
+		expect( at.y.x - at.x.x ).toBe( X_STEP );
 		// Half a step more, so the converging wires have room to fan in.
 		expect( at.hub.x ).toBe(
 			Math.max( ...feeders.map( ( p ) => p.x ) ) + 1.5 * X_STEP
@@ -3099,6 +3101,70 @@ describe( 'autoLayout — hub bands', () => {
 		expect( at.hub.y ).toBe(
 			( Math.min( ...ys ) + Math.max( ...ys ) ) / 2
 		);
+	} );
+
+	it( 'opens a half step only in the block whose wires meet there', () => {
+		const at = positionsOf(
+			graphOf( [
+				{ from: 'tee', to: 'tee-4' },
+				{ from: 'tee-2', to: 'tee-4' },
+				{ from: 'tee-3', to: 'tee-4' },
+				{ from: 'tee-4', to: 'tee-5' },
+				{ from: 'tee-6', to: 'tee-7' },
+				{ from: 'tee-7', to: 'tee-8' },
+			] )
+		);
+		expect( at[ 'tee-4' ].x ).toBe( at.tee.x + 1.5 * X_STEP );
+		expect( at[ 'tee-7' ].x ).toBe( at[ 'tee-6' ].x + X_STEP );
+		expect( at[ 'tee-8' ].x ).toBe( at[ 'tee-7' ].x + X_STEP );
+	} );
+
+	it( "packs a block by its drawn width, so its half steps reach no other block's card", () => {
+		// Two blocks of four busy boundaries each, two whole steps of half
+		// steps, packed beside ten chains of seven.
+		const edges = [];
+		for ( const k of [ 0, 1 ] ) {
+			for ( const i of [ 0, 1, 2, 3 ] ) {
+				edges.push(
+					{ from: `k${ k }a${ i }`, to: `k${ k }b${ i }` },
+					{ from: `k${ k }b${ i }`, to: `k${ k }hub` }
+				);
+			}
+			let prev = `k${ k }hub`;
+			for ( const t of [ 1, 2, 3, 4 ] ) {
+				for ( const i of [ 0, 1 ] ) {
+					edges.push( {
+						from: `k${ k }c${ t }${ i }`,
+						to: `k${ k }t${ t }`,
+					} );
+				}
+				edges.push( { from: prev, to: `k${ k }t${ t }` } );
+				prev = `k${ k }t${ t }`;
+			}
+			edges.push( { from: prev, to: `k${ k }out` } );
+		}
+		for ( let z = 0; z < 10; z++ ) {
+			for ( let i = 0; i < 6; i++ ) {
+				edges.push( {
+					from: `z${ z }n${ i }`,
+					to: `z${ z }n${ i + 1 }`,
+				} );
+			}
+		}
+		const cards = Object.entries( positionsOf( graphOf( edges ) ) );
+		// A card renders 196 wide and 84 tall.
+		const overlaps = [];
+		cards.forEach( ( [ a, p ], i ) => {
+			for ( const [ b, q ] of cards.slice( i + 1 ) ) {
+				if (
+					Math.abs( p.x - q.x ) < 196 &&
+					Math.abs( p.y - q.y ) < 84
+				) {
+					overlaps.push( `${ a }~${ b }` );
+				}
+			}
+		} );
+		expect( overlaps ).toEqual( [] );
 	} );
 
 	it( 'adds half a step at each busy boundary: gaps accumulate', () => {
@@ -3585,9 +3651,11 @@ describe( 'autoLayout — hub bands', () => {
 			expect( at[ id ].x ).toBe( X_PAD );
 		}
 		// Six wires enter each sink, so their column opens half a step clear.
-		for ( const id of [ ...sinks, 'y' ] ) {
+		for ( const id of sinks ) {
 			expect( at[ id ].x ).toBe( X_PAD + 1.5 * X_STEP );
 		}
+		// The pair's one wire opens no gap of its own.
+		expect( at.y.x ).toBe( X_PAD + X_STEP );
 	} );
 
 	// @longform The station's fleet board: ONE batched poll whose tee feeds the

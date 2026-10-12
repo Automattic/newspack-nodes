@@ -84,12 +84,15 @@
  * Half a step opens between two columns where three or more wires meet one
  * node across that boundary — into a hub, out of a Tee, or neither — so
  * converging and diverging wires have room to fan. A wire running on past
- * the next column crowds no boundary. The shift is per column, not per block,
- * because stacks share columns.
+ * the next column crowds no boundary. Each block opens its own half steps and
+ * packs by the width it draws, so a gap moves no card outside its block.
  */
 
 /** Horizontal distance between layout columns, in canvas pixels. */
 export const X_STEP = 240;
+
+/** Half a column's step: blocks pack in half columns, a card taking two. */
+const HALF_X = X_STEP / 2;
 
 /** Vertical distance between layout rows, in canvas pixels. */
 export const Y_STEP = 110;
@@ -2494,6 +2497,29 @@ const coverWire = ( spans, c1, r1, c2, r2 ) => {
 };
 
 /**
+ * Spans over a block's columns, moved onto the half columns it draws them at.
+ *
+ * A column takes two half columns; `halves` picks which, so a card's left face
+ * lands on its first and its right face on its second. A half column opened
+ * between two columns holds nothing of either.
+ *
+ * @param {Object<number,[number, number]>} spans   Column to its top and bottom rows.
+ * @param {Object<number,number>}           halfCol Each column's first half column.
+ * @param {Array<number>}                   halves  Which halves take a column's span.
+ * @return {Object<number,[number, number]>} Half column to its top and bottom rows.
+ */
+const halved = ( spans, halfCol, halves ) => {
+	/** @type {Object<number,[number, number]>} */
+	const out = {};
+	for ( const [ c, [ lo, hi ] ] of Object.entries( spans ) ) {
+		for ( const h of halves ) {
+			widen( out, halfCol[ Number( c ) ] + h, lo, hi );
+		}
+	}
+	return out;
+};
+
+/**
  * A block with the empty rows that part it from the next block below: its
  * footprint, and its hull's every column, reach `BLOCK_GAP` rows further.
  *
@@ -2516,13 +2542,13 @@ const padded = ( b ) => ( {
  * Rows a stack fills before the next opens: the height of a square holding
  * every block's footprint, each with its gap column.
  *
- * @param {Array<{width: number, footprint: number}>} blocks The blocks, in grid units.
+ * @param {Array<{width: number, footprint: number}>} blocks The blocks, in half columns.
  * @return {number} Rows.
  */
 const stackRows = ( blocks ) => {
 	let area = 0;
 	for ( const b of blocks ) {
-		area += ( b.width + 1 ) * b.footprint;
+		area += ( b.width / 2 + 1 ) * b.footprint;
 	}
 	return Math.ceil( Math.sqrt( ( area * X_STEP ) / Y_STEP ) );
 };
@@ -2655,14 +2681,15 @@ const drawingCost = ( at, succ, index ) =>
  * stacked. Room needs no card in the column either side to show it an unwired
  * port, nor a wire to run through that column, across its rows, and every wire
  * of a block lands inside it, so the room it takes crosses nothing. A small
- * graph fills one stack.
+ * graph fills one stack. Blocks pack in half columns, by the width each draws:
+ * a card takes two, and each half step a block opens takes one more.
  *
  * @param {Array<string>}                ids  Every node, alphabetical.
  * @param {Object<string,Array<string>>} succ Successors.
  * @param {Object<string,Array<string>>} pred Predecessors.
  * @param {Set<string>}                  hubs The hub ids.
- * @return {{col: Object<string,number>, row: Object<string,number>}} Grid units,
- * rows normalised so the topmost is 0.
+ * @return {{col: Object<string,number>, row: Object<string,number>}} Half
+ * columns and rows, rows normalised so the topmost is 0.
  */
 const layoutBands = ( ids, succ, pred, hubs ) => {
 	/** @type {Object<string,number>} */
@@ -2962,11 +2989,19 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 				);
 			}
 			normalizeRows( Object.keys( br ), br );
+			// Each card's half column as drawn, its block's half steps taken.
 			let widest = 0;
 			let bottom = 0;
 			for ( const id of Object.keys( bc ) ) {
 				widest = Math.max( widest, bc[ id ] );
 				bottom = Math.max( bottom, br[ id ] );
+			}
+			// Each column's first half column, its block's half steps taken.
+			const drawnX = columnX( Object.keys( bc ), bc, succ, pred );
+			/** @type {Object<number,number>} */
+			const halfCol = {};
+			for ( let c = 0; c <= widest; c++ ) {
+				halfCol[ c ] = Math.round( ( drawnX( c ) - X_PAD ) / HALF_X );
 			}
 			/** @type {Object<number,[number, number]>} */
 			const hull = {};
@@ -2987,9 +3022,10 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 			}
 			return {
 				col: bc,
+				halfCol,
 				row: br,
-				hull,
-				width: widest + 1,
+				hull: halved( hull, halfCol, [ 0, 1 ] ),
+				width: halfCol[ widest ] + 2,
 				height: bottom + 1,
 			};
 		};
@@ -3129,7 +3165,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 	} );
 
 	// A lone card is no group of its own: it takes one row and no gap.
-	const lone = ( b ) => 1 === b.width && 1 === b.height;
+	const lone = ( b ) => 2 === b.width && 1 === b.height;
 	const limit = stackRows(
 		blocks.map( ( b ) =>
 			lone( b ) ? { ...b, footprint: 1 } : padded( b )
@@ -3171,6 +3207,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 		return padded( {
 			key: run[ 0 ].key,
 			col: rc,
+			halfCol: run[ 0 ].halfCol,
 			row: rr,
 			hull,
 			width: run[ 0 ].width,
@@ -3206,38 +3243,54 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 	// The columns the hubs placed so far hold.
 	const hubCols = new Set();
 	let rows = 0;
+	// Spans in a block's half columns, laid onto the canvas where it lands.
+	const lay = ( into, spans, atCol, atRow ) => {
+		for ( const [ c, [ lo, hi ] ] of Object.entries( spans ) ) {
+			widen( into, atCol + Number( c ), lo + atRow, hi + atRow );
+		}
+	};
 	const place = ( b, atCol, atRow ) => {
 		for ( const id of Object.keys( b.col ) ) {
-			col[ id ] = atCol + b.col[ id ];
+			col[ id ] = atCol + b.halfCol[ b.col[ id ] ];
 			row[ id ] = atRow + b.row[ id ];
 			if ( hubs.has( id ) ) {
-				hubCols.add( col[ id ] );
+				hubCols.add( col[ id ] ).add( col[ id ] + 1 );
 			}
 		}
-		for ( const [ c, [ lo, hi ] ] of Object.entries( b.hull ) ) {
-			widen( taken, atCol + Number( c ), lo + atRow, hi + atRow );
-		}
+		lay( taken, b.hull, atCol, atRow );
+		// The block's faces in its own columns, then on the halves facing out.
+		/** @type {Object<number,[number, number]>} */
+		const left = {};
+		/** @type {Object<number,[number, number]>} */
+		const right = {};
 		for ( const id of Object.keys( b.col ) ) {
+			const [ c, r ] = [ b.col[ id ], b.row[ id ] ];
 			if ( ! pred[ id ].length ) {
-				widen( faces.left, col[ id ], row[ id ], row[ id ] );
+				widen( left, c, r, r );
 			}
 			if ( ! succ[ id ].length ) {
-				widen( faces.right, col[ id ], row[ id ], row[ id ] );
+				widen( right, c, r, r );
 			}
 			for ( const n of [ ...succ[ id ], ...pred[ id ] ] ) {
-				if ( col[ n ] === undefined ) {
-					continue;
-				}
-				// A wire to a block already down crosses the columns between.
-				const spans =
-					b.col[ n ] === undefined
-						? [ taken, faces.left, faces.right ]
-						: [ faces.left, faces.right ];
-				for ( const s of spans ) {
-					coverWire( s, col[ id ], row[ id ], col[ n ], row[ n ] );
+				if ( b.col[ n ] !== undefined ) {
+					coverWire( left, c, r, b.col[ n ], b.row[ n ] );
+					coverWire( right, c, r, b.col[ n ], b.row[ n ] );
+				} else if ( col[ n ] !== undefined ) {
+					// A wire to a block already down crosses what lies between.
+					for ( const s of [ taken, faces.left, faces.right ] ) {
+						coverWire(
+							s,
+							col[ id ],
+							row[ id ],
+							col[ n ],
+							row[ n ]
+						);
+					}
 				}
 			}
 		}
+		lay( faces.left, halved( left, b.halfCol, [ 0 ] ), atCol, atRow );
+		lay( faces.right, halved( right, b.halfCol, [ 1 ] ), atCol, atRow );
 		rows = Math.max( rows, atRow + b.height );
 	};
 	// Whether a block at `top` starts its lead's last row past the square.
@@ -3265,7 +3318,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 	const roomFor = ( b, width, within, grow ) => {
 		const mid = ( rows - 1 ) / 2;
 		const span = [ 0, b.height - 1 ];
-		for ( let at = 0; at + b.width <= width; at++ ) {
+		for ( let at = 0; at + b.width <= width; at += 2 ) {
 			const pairs = Object.entries( b.hull ).map( ( [ c, h ] ) => [
 				within( at + Number( c ) ) && taken[ at + Number( c ) ],
 				h,
@@ -3310,7 +3363,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 	const stackOn = ( b ) => {
 		let at = Math.max( stackRow, clearBelow( b, stackCol ) );
 		if ( stackRow > 0 && pastSquare( at, b ) ) {
-			stackCol += stackWidth + 1;
+			stackCol += stackWidth + 2;
 			stackWidth = 0;
 			at = 0;
 		}
@@ -3347,7 +3400,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 			stackOn( b );
 		}
 		for ( const id of Object.keys( b.col ) ) {
-			filled.add( col[ id ] );
+			filled.add( col[ id ] ).add( col[ id ] + 1 );
 		}
 	}
 
@@ -3683,12 +3736,10 @@ export function autoLayout( parsed ) {
 		}
 	}
 	const { col, row } = layoutBands( ids, succ, pred, hubs );
-	const xOf = columnX( ids, col, succ, pred );
-
 	const positioned = nodes.map( ( n ) => ( {
 		...n,
 		position: {
-			x: xOf( col[ n.id ] ?? 0 ),
+			x: X_PAD + ( col[ n.id ] ?? 0 ) * HALF_X,
 			y: Y_PAD + ( row[ n.id ] ?? 0 ) * Y_STEP,
 		},
 	} ) );
