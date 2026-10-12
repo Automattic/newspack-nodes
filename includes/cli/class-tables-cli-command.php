@@ -1,15 +1,12 @@
 <?php
 /**
- * Tables_CLI_Command: `wp nodes tables list` and `wp nodes tables flush`, the
- * operator's view of every Table the registered topologies declare, active or
- * not, partition by partition, and of the command-session store.
+ * Tables_CLI_Command: `wp nodes tables list`, the operator's view of every
+ * Table the registered topologies declare, active or not, partition by
+ * partition, and of the command-session store.
  *
  * A partition's rows belong to the worker that owns it, its file's one writer
- * (ADR-6), so neither verb opens a live owner's store: `list` asks the owner
- * for its counters and `flush` asks it to flush, each over the worker's
- * command channel. A partition no worker owns is flushed from here only under
- * the fleet hold, when nothing else can be writing it, or when its topology is
- * inactive and nothing will spawn its worker.
+ * (ADR-6), so `list` never opens a live owner's store: it asks the owner for
+ * its counters over the worker's command channel.
  *
  * @package Newspack_Nodes
  */
@@ -25,7 +22,7 @@ namespace Newspack_Nodes;
  * ## EXAMPLES
  *
  *     wp nodes tables list
- *     wp nodes tables flush flame-stats:url --partition=0
+ *     wp nodes tables list --format=json
  *
  * @phpstan-type Slot array{name:string,partition:int,spec:array{namespace:string,ttl:int,backend:string},owner:?string,state:string}
  */
@@ -81,7 +78,7 @@ class Tables_CLI_Command {
 		unset( $args );
 		$timeout = CLI::require_flag_int( $assoc_args, 'timeout', self::REPLY_TIMEOUT_S );
 		$slots   = $this->slots();
-		$stats   = $this->ask( self::owned_by_live( $slots ), 'stats', $timeout );
+		$stats   = $this->ask( self::owned_by_live( $slots ), $timeout );
 		$rows    = [];
 		foreach ( $slots as $stem => $slot ) {
 			$file   = Table_Node::file( $slot['name'], $slot['partition'] );
@@ -167,130 +164,6 @@ class Tables_CLI_Command {
 	}
 
 	/**
-	 * Empty the named Tables, every row and set member. A `sqlite` partition
-	 * is replaced by a new file, at a cost that never grows with its rows, and
-	 * reports the bytes the old files held; a `wpdb` Table deletes its
-	 * namespace's rows and reports how many.
-	 *
-	 * A partition whose owning worker is live is flushed by that worker, sent
-	 * the Table's `flush` verb over its command channel. One whose owner is
-	 * not running is flushed from here, and only under the fleet hold (`wp
-	 * nodes stop`), because otherwise its worker may start and write it at the
-	 * same time; a partition with no owner, which only inactive topologies
-	 * declare, needs no hold, since nothing spawns its worker. The
-	 * command-session store is flushed only when named, and flushing it
-	 * revokes every issued session.
-	 *
-	 * ## OPTIONS
-	 *
-	 * [<table>...]
-	 * : Tables to flush, as their topologies declare them, or
-	 * `nodes-sessions`. None flushes every declared Table.
-	 *
-	 * [--partition=<partition>]
-	 * : Flush one partition (0-based); every partition by default.
-	 *
-	 * [--timeout=<seconds>]
-	 * : How long to wait for the owners' replies. Default 10.
-	 *
-	 * ## EXAMPLES
-	 *
-	 *     wp nodes tables flush flame-stats:url
-	 *     wp nodes stop && wp nodes tables flush && wp nodes start
-	 *     wp nodes tables flush nodes-sessions
-	 *
-	 * @api WP-CLI subcommand `wp nodes tables flush` — invoked by WP-CLI via reflection, not called in PHP.
-	 * @when after_wp_load
-	 *
-	 * @param array<int,string>   $args       Positional arguments; the Tables.
-	 * @param array<string,mixed> $assoc_args Associative arguments; --partition and --timeout.
-	 */
-	public function flush( array $args, array $assoc_args ): void {
-		CLI::refuse_root( 'tables flush' );
-		$partition = CLI::require_flag_int( $assoc_args, 'partition', -1 );
-		$timeout   = CLI::require_flag_int( $assoc_args, 'timeout', self::REPLY_TIMEOUT_S );
-		$slots     = $this->slots();
-		$known     = [ ...\array_values( \array_unique( \array_column( $slots, 'name' ) ) ), Command_Auth::SESSIONS_TABLE ];
-		foreach ( $args as $name ) {
-			if ( ! \in_array( $name, $known, true ) ) {
-				\WP_CLI::error( "unknown Table {$name}; declared: " . \implode( ', ', $known ) );
-			}
-		}
-		$chosen = \array_filter(
-			$slots,
-			static fn ( array $slot ): bool => ( [] === $args || \in_array( $slot['name'], $args, true ) ) && ( -1 === $partition || $partition === $slot['partition'] )
-		);
-		$replies = $this->ask( self::owned_by_live( $chosen ), 'flush', $timeout );
-		$steps   = [];
-		foreach ( $chosen as $stem => $slot ) {
-			$state           = $slot['state'];
-			$steps[ $stem ]  = 'live' === $state
-				? static fn (): string => self::released( self::released_by_owner( $slot, $replies[ $stem ] ?? null, $timeout ) ) . " by {$slot['owner']}"
-				: static fn (): string => self::released( self::flush_here( $slot, $state ) ) . ( 'inactive' === $state ? '; no active topology declares it' : ' under the hold' );
-		}
-		if ( \in_array( Command_Auth::SESSIONS_TABLE, $args, true ) ) {
-			$steps[ Command_Auth::SESSIONS_TABLE ] = static fn (): string => self::released( Command_Auth::session_table()->flush() ) . '; every issued session is revoked';
-		}
-		$flushed  = 0;
-		$failures = [];
-		foreach ( $steps as $name => $step ) {
-			try {
-				\WP_CLI::log( "{$name}: " . $step() );
-				++$flushed;
-			} catch ( Worker_Should_Stop $stop ) {
-				throw $stop;
-			} catch ( \RuntimeException $e ) {
-				$failures[] = "{$name}: " . $e->getMessage();
-			}
-		}
-		if ( [] !== $failures ) {
-			\WP_CLI::error( \implode( "\n", $failures ) );
-		}
-		\WP_CLI::success( "Flushed {$flushed} Table partition" . ( 1 === $flushed ? '' : 's' ) . '.' );
-	}
-
-	/**
-	 * Flush a partition no live worker owns, from this process, when the
-	 * fleet is held or its topology is inactive, and so nothing else can be
-	 * writing it.
-	 *
-	 * @param Slot   $slot  The slot.
-	 * @param string $state Its owner's state.
-	 * @return array<array-key,mixed> What the flush released.
-	 * @throws \RuntimeException When the fleet is not held, or the owner is stale, or the flush fails.
-	 */
-	private static function flush_here( array $slot, string $state ): array {
-		$owner = (string) $slot['owner'];
-		if ( 'stale' === $state ) {
-			$restart = Bootstrap::is_active( CLI::parse_worker_id( $owner )[0] ?? '' ) ? 'restart it, or ' : '';
-			throw new \RuntimeException( \esc_html( "{$owner} is stale: its lock stands with no heartbeat; {$restart}wait for its lock to clear, and flush again" ) );
-		}
-		if ( ! \in_array( $state, [ 'held', 'inactive' ], true ) ) {
-			throw new \RuntimeException( \esc_html( "{$owner} is {$state}; run `wp nodes stop` to hold the fleet, flush again, then `wp nodes start`" ) );
-		}
-		return Table_Node::writer( $slot['name'], $slot['partition'], $slot['spec'] )->flush();
-	}
-
-	/**
-	 * What a live owner's `flush` reply reports it released.
-	 *
-	 * @param Slot                  $slot    The slot.
-	 * @param array<int,mixed>|null $reply   The reply, or null for none.
-	 * @param int                   $timeout Seconds waited.
-	 * @return array<array-key,mixed> `{ bytes }` or `{ rows }`.
-	 * @throws \RuntimeException On no reply, or a refusal, naming the owner.
-	 */
-	private static function released_by_owner( array $slot, ?array $reply, int $timeout ): array {
-		if ( null === $reply ) {
-			throw new \RuntimeException( \esc_html( "{$slot['owner']} did not answer flush within {$timeout}s" ) );
-		}
-		if ( 0 !== ( Core::int( $reply[ Message::TYPE ] ) & Message::TM_ERROR ) ) {
-			throw new \RuntimeException( \esc_html( "{$slot['owner']} refused flush: " . self::refusal( $reply ) ) );
-		}
-		return Core::arr( Core::arr( $reply[ Message::VALUE ] )['payload'] ?? null );
-	}
-
-	/**
 	 * Why a TM_ERROR reply refused: an interpreter carries it as its VALUE's
 	 * `payload`, and the Router's `NOT_AVAILABLE` bounce as the bare VALUE.
 	 *
@@ -299,19 +172,6 @@ class Tables_CLI_Command {
 	private static function refusal( array $reply ): string {
 		$value = $reply[ Message::VALUE ];
 		return \trim( Core::as_string( \is_array( $value ) ? $value['payload'] ?? null : $value ) );
-	}
-
-	/**
-	 * What a flush released, as its line says it: a `sqlite` Table's bytes,
-	 * its old files replaced, or a `wpdb` Table's rows deleted.
-	 *
-	 * @param array<array-key,mixed> $released `{ bytes }` or `{ rows }`.
-	 * @return string `<size> released` or `<n> rows deleted`.
-	 */
-	private static function released( array $released ): string {
-		return isset( $released['bytes'] )
-			? CLI::format_bytes( Core::as_int( $released['bytes'] ) ) . ' released'
-			: Core::as_int( $released['rows'] ?? null ) . ' rows deleted';
 	}
 
 	/**
@@ -334,7 +194,7 @@ class Tables_CLI_Command {
 	}
 
 	/**
-	 * Send each slot's Table its `:config` verb over the owning worker's
+	 * Send each slot's Table its `:config stats` verb over the owning worker's
 	 * command channel, signed as the attached REPL signs, and wait up to
 	 * `$timeout` seconds for the replies. Every command goes FROM
 	 * `_output/_cli:{pid}/tables-cli/{stem}`, so the channel's gate keeps only
@@ -342,13 +202,12 @@ class Tables_CLI_Command {
 	 * as the TO left behind.
 	 *
 	 * @param array<string,array{name:string,owner:string}> $slots   Stem => Table and owner.
-	 * @param string                                        $verb    The `:config` verb.
 	 * @param int                                           $timeout Seconds to wait.
 	 * @return array<string,array<int,mixed>> Stem => the reply; a slot whose
 	 *                                        worker did not answer is absent.
 	 * @throws \Throwable What tearing the channels down threw.
 	 */
-	private function ask( array $slots, string $verb, int $timeout ): array {
+	private function ask( array $slots, int $timeout ): array {
 		if ( [] === $slots ) {
 			return [];
 		}
@@ -381,7 +240,7 @@ class Tables_CLI_Command {
 				$command[ Message::FROM ]  = CLI::reply_head( $pid ) . '/' . self::RECEIVER . "/{$stem}";
 				$command[ Message::TO ]    = "{$slot['owner']}/{$slot['name']}:config";
 				$command[ Message::VALUE ] = [
-					'name'      => $verb,
+					'name'      => 'stats',
 					'arguments' => [],
 				];
 				Command_Auth::sign( $command );

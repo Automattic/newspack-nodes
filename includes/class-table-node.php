@@ -1988,63 +1988,6 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * A table outside any graph, for the callers `lookup()` / `store()` /
-	 * `forget()` exist for. Sugar for `new Table_Node()` plus `arguments()`.
-	 *
-	 * Deliberately NOT memoized: an accumulator's lifetime belongs to whoever
-	 * holds the table, and one rebuilt per call is empty every time — worse
-	 * than none. Callers wanting one memoize it themselves, which is what keeps
-	 * that lifetime visible at the call site instead of hidden in here.
-	 *
-	 * A `sqlite` table built here keeps partition 0's file, named for `$ns`.
-	 *
-	 * @api Non-graph readers and writers reach a table without a live worker.
-	 * @param string $ns      Table namespace.
-	 * @param int    $ttl     Entry TTL in seconds, at least 1.
-	 * @param string $backend One of BACKENDS.
-	 * @return self A table with no sink, so `lookup()` / `store()` / `forget()`
-	 *              work and `fill()` does not.
-	 * @throws \InvalidArgumentException With an empty namespace, a TTL below
-	 *                                   one second, or an unknown backend.
-	 * @throws \RuntimeException On a declaration a named backend refuses.
-	 * @throws Table_Unavailable When the backend cannot open on this host,
-	 *                           `auto` with no cache backend included; a caller
-	 *                           that treats a backend-less host as ordinary
-	 *                           catches it, or guards on
-	 *                           `Cache_Backend::shared_first()` first.
-	 */
-	public static function table( string $ns, int $ttl, string $backend = 'auto' ): self {
-		return self::writer(
-			$ns,
-			0,
-			[
-				'namespace' => $ns,
-				'ttl'       => $ttl,
-				'backend'   => $backend,
-			]
-		);
-	}
-
-	/**
-	 * One partition of a declared Table outside any graph, opened as its
-	 * writer opens it: what `wp nodes tables flush` writes through for a
-	 * partition no worker owns, while the fleet is held.
-	 *
-	 * @param string                                             $table     The declared Table.
-	 * @param int                                                $partition Which partition's file.
-	 * @param array{namespace: string, ttl: int, backend: string} $spec      The resolved declaration.
-	 * @return self A table with no sink.
-	 * @throws \InvalidArgumentException|\RuntimeException|Table_Unavailable As arguments().
-	 */
-	public static function writer( string $table, int $partition, array $spec ): self {
-		$node            = new self();
-		$node->table     = $table;
-		$node->partition = $partition;
-		$node->arguments( [ $spec['namespace'], (string) $spec['ttl'], $spec['backend'] ] );
-		return $node;
-	}
-
-	/**
 	 * A traced Table's line for one Router tick: `DEBUG: <VERB> <calls>
 	 * <ms>ms, …` over each verb called since its last line, on the stderr
 	 * path set_state()'s DEBUG line takes, so the console's timeline reads
@@ -2088,6 +2031,40 @@ class Table_Node extends Node {
 			}
 		}
 		return $out;
+	}
+
+	/**
+	 * A table outside any graph, for the callers `lookup()` / `store()` /
+	 * `forget()` exist for. Sugar for `new Table_Node()` plus `arguments()`.
+	 *
+	 * Deliberately NOT memoized: an accumulator's lifetime belongs to whoever
+	 * holds the table, and one rebuilt per call is empty every time — worse
+	 * than none. Callers wanting one memoize it themselves, which is what keeps
+	 * that lifetime visible at the call site instead of hidden in here.
+	 *
+	 * A `sqlite` table built here keeps partition 0's file, named for `$ns`.
+	 *
+	 * @api Non-graph readers and writers reach a table without a live worker.
+	 * @param string $ns      Table namespace.
+	 * @param int    $ttl     Entry TTL in seconds, at least 1.
+	 * @param string $backend One of BACKENDS.
+	 * @return self A table with no sink, so `lookup()` / `store()` / `forget()`
+	 *              work and `fill()` does not.
+	 * @throws \InvalidArgumentException With an empty namespace, a TTL below
+	 *                                   one second, or an unknown backend.
+	 * @throws \RuntimeException On a declaration a named backend refuses.
+	 * @throws Table_Unavailable When the backend cannot open on this host,
+	 *                           `auto` with no cache backend included; a caller
+	 *                           that treats a backend-less host as ordinary
+	 *                           catches it, or guards on
+	 *                           `Cache_Backend::shared_first()` first.
+	 */
+	public static function table( string $ns, int $ttl, string $backend = 'auto' ): self {
+		$node            = new self();
+		$node->table     = $ns;
+		$node->partition = 0;
+		$node->arguments( [ $ns, (string) $ttl, $backend ] );
+		return $node;
 	}
 
 	/**

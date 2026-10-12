@@ -6,9 +6,16 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
-- **`wp nodes tables flush` takes no `--yes`.** With no Table named it
-  flushes every declared Table without asking, and WP-CLI refuses `--yes`
-  as `unknown --yes parameter`. Drop the flag from any script that passes it.
+- **`wp nodes tables flush` is gone.** WP-CLI refuses it as an unknown
+  command. A `sqlite` Table no active topology declares is deleted by the
+  retention sweep, at once with `wp nodes gc --force`; to empty a declared
+  one, deactivate its topologies first:
+  `wp nodes stop && wp nodes deactivate <topology> && wp nodes gc --force && wp nodes activate <topology> && wp nodes start`.
+  `gc --force` also deletes the topology's undeclared logs and cursors, so
+  its reactivated readers read their logs from the start and refill the
+  Table from what those logs retain. `wp nodes tables flush nodes-sessions`
+  becomes `wp nodes session revoke --all`. `Table_Node::writer()` is gone;
+  build a Table outside a graph with `Table_Node::table()`.
 
 - **`AreaTimeChart` requires `storageKey`, and `useChartExpand` takes it as
   a third argument.** A chart without one throws `AreaTimeChart: storageKey
@@ -633,8 +640,8 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   its own, and an MCP client or script holding a `handle.secret` bearer mints a
   new one (Settings → Nodes, Sessions tab, or `sessions create`). A site whose
   `$wpdb` cannot create or write that table cannot mint, and says why.
-  `wp nodes memcache flush` no longer signs sessions out; `wp nodes tables flush
-  nodes-sessions` does. `Command_Auth::store_session()` is gone. A consumer
+  `wp nodes memcache flush` no longer signs sessions out; `wp nodes session
+  revoke --all` does. `Command_Auth::store_session()` is gone. A consumer
   suite that mints a session needs a `$wpdb` that runs SQL: its bootstrap
   requires the substrate's `tests/Helpers/WpdbStub.php` and
   `tests/Helpers/SqliteWpdb.php` and installs a `Sqlite_Wpdb`, extending it for

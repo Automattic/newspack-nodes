@@ -1571,9 +1571,8 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
   no role, so `dispatch()` holds it at MANAGE
   ([ADR-26](#adr-26-every-verb-is-gated-by-the-role-its-schema-declares)), and a mount
   refuses it.
-  `wp nodes tables flush` sends it to each partition's owning worker over the worker's
-  command channel, and flushes a partition no worker owns from the CLI only under the fleet
-  hold; `wp nodes tables list` asks the owners for their counters the same way.
+  An operator sends it as `cmd <table>:config flush` from `wp nodes cli <worker>`; `wp nodes
+  tables list` asks the owners for their counters over the same command channel.
 - Command sessions live in a Table, `Table_Node::table( 'nodes-sessions', 3600, 'wpdb' )`,
   one row per session keyed by its handle: every web host mints and every host verifies,
   which one host's SQLite file cannot serve and an evicting cache loses. Every session read
@@ -1695,14 +1694,12 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
   row, and `flush` empties the Table. A row written under an earlier key — the salted one
   before 2.79.0, or a `wpdb` Table's `{namespace}:{key}` before 2.79.1 — is unreachable,
   expires on the TTL it was written with, and the purge reclaims it in turn.
-- A flushed session store revokes every issued session at once, so `wp nodes tables flush`
-  flushes it only when named.
+- A flushed session store revokes every issued session at once; `wp nodes session revoke
+  --all` is that flush.
 - A `wpdb` purge is scoped by the Table's own namespace, so rows under a namespace no active
   topology declares — a generation moved from `pyrobase:g47` to `pyrobase:g48` — are never
   reclaimed. Delete them by hand:
   `DELETE FROM {base_prefix}newspack_nodes_table WHERE namespace = '<old namespace>'`.
-  Nothing sweeps `{base}/tables/` either, so a `sqlite` Table no active topology declares
-  keeps its files until an operator deletes them.
 
 **Revisit if:** a durable Table must be read from another host at volume, or a second writer
 per file appears.

@@ -1,9 +1,7 @@
 <?php
 /**
- * `wp nodes tables list` and `wp nodes tables flush`: every declared Table,
- * partition by partition, plus the command-session store; a live owner is
- * asked over its command channel, and a Table no worker owns is written from
- * the CLI only under the fleet hold.
+ * `wp nodes tables list`: every declared Table, partition by partition, plus
+ * the command-session store; a live owner is asked over its command channel.
  *
  * @package Newspack_Nodes
  */
@@ -84,12 +82,6 @@ final class TablesCliCommandTest extends TestCase {
 			$arm->set( "kea:p{$partition}:sku-{$i}", "kea-{$i}", 0 );
 		}
 		$arm->add_members( [ "kea:p{$partition}:word:kea" => [ [ 'u-41' => 1 ], 900 ] ] );
-	}
-
-	/** Rows left in a `sqlite` partition's file, keyed and member. */
-	private function rows_in( int $partition, string $table = 'lab-7:kea' ): int {
-		$db = new \PDO( 'sqlite:' . Table_Node::file( $table, $partition ) );
-		return (int) $db->query( 'SELECT ( SELECT COUNT(*) FROM kv ) + ( SELECT COUNT(*) FROM members )' )->fetchColumn();
 	}
 
 	/**
@@ -413,11 +405,6 @@ final class TablesCliCommandTest extends TestCase {
 		}
 	}
 
-	private function emu_rows( int $partition ): int {
-		$db = new \PDO( 'sqlite:' . Table_Node::file( 'lab-7:emu', $partition ) );
-		return (int) $db->query( 'SELECT COUNT(*) FROM kv' )->fetchColumn();
-	}
-
 	public function test_list_shows_an_inactive_topologys_partitions_with_their_files_and_bytes(): void {
 		$this->register_inactive_emu();
 		$this->seed_emu( 1, 5 );
@@ -438,64 +425,43 @@ final class TablesCliCommandTest extends TestCase {
 		$this->assertGreaterThan( 0, $size );
 	}
 
-	public function test_flush_empties_an_inactive_topologys_table_without_the_hold(): void {
-		$this->register_inactive_emu();
-		$this->seed_emu( 0, 4 );
-		$this->seed_emu( 1, 6 );
-
-		$this->command()->flush( [ 'lab-7:emu' ], [] );
-
-		$this->assertSame( [ 0, 0 ], [ $this->emu_rows( 0 ), $this->emu_rows( 1 ) ] );
-		$this->assertMatchesRegularExpression( '/^lab-7:emu\.p0: [\d.]+[KM]?B released; no active topology declares it$/', $GLOBALS['_test_wp_cli_logs'][0] );
-		$this->assertSame( [ 'Flushed 2 Table partitions.' ], $GLOBALS['_test_wp_cli_success'] );
-		$this->assertSame( [], $this->answered, 'no worker was asked' );
-	}
-
 	/**
 	 * A deactivated topology's worker writes its Tables until it exits, so it
 	 * still owns them; `emu-z` runs because the catalog lists `ant-x` first.
 	 */
-	public function test_flush_asks_an_inactive_topologys_worker_that_still_runs(): void {
+	public function test_list_names_an_inactive_topologys_worker_that_still_runs_as_owner(): void {
 		$this->register_inactive_emu();
 		$this->live_table( 'emu-z', 'lab-7:emu', [ 'emu:p1', '4242', 'sqlite' ], 1 );
 
-		$this->command()->flush( [ 'lab-7:emu' ], [ 'partition' => '1' ] );
+		$this->command()->list_( [], [ 'format' => 'json' ] );
 
-		$this->assertSame( [ 'lab-7:emu:config flush' ], $this->answered );
-		$this->assertMatchesRegularExpression( '/^lab-7:emu\.p1: [\d.]+[KM]?B released by emu-z\.p1$/', $GLOBALS['_test_wp_cli_logs'][0] );
+		$emu = \array_values( \array_filter( $this->printed(), static fn ( array $row ): bool => 'lab-7:emu' === $row['Table'] ) );
+		$this->assertSame( [ [ '-', 'inactive' ], [ 'emu-z.p1', 'live' ] ], \array_map( static fn ( array $row ): array => [ $row['Owner'], $row['State'] ], $emu ) );
+		$this->assertSame( [ 'lab-7:emu:config stats' ], $this->answered, 'the running worker is the one asked' );
 	}
 
-	public function test_flush_refuses_an_inactive_topologys_stale_worker(): void {
+	public function test_list_reads_an_inactive_topologys_stale_worker_as_its_owner(): void {
 		$this->register_inactive_emu();
-		$this->seed_emu( 1, 6 );
 		\mkdir( "{$this->base}/locks/emu-z.p1.lock.d", 0755, true );
 		\touch( "{$this->base}/locks/emu-z.p1.lock.d", \time() - ( \Newspack_Nodes\Lock_Node::ORPHAN_GRACE_S + 61 ) );
 
-		$e = $this->caught( fn () => $this->command()->flush( [ 'lab-7:emu' ], [ 'partition' => '1' ] ), 'a stale worker\'s partition was flushed' );
+		$this->command()->list_( [], [ 'format' => 'json' ] );
 
-		$this->assertStringContainsString( 'lab-7:emu.p1: emu-z.p1 is stale: its lock stands with no heartbeat; wait for its lock to clear, and flush again', $e->getMessage() );
-		$this->assertSame( 6, $this->emu_rows( 1 ) );
+		$emu = \array_values( \array_filter( $this->printed(), static fn ( array $row ): bool => 'lab-7:emu' === $row['Table'] ) );
+		$this->assertSame( [ 'emu-z.p1', 'stale' ], [ $emu[1]['Owner'], $emu[1]['State'] ] );
 	}
 
 	/** Under the hold, a running worker of an inactive declarer owns the partition over the held active one. */
-	public function test_flush_under_the_hold_asks_an_inactive_declarers_worker_that_still_runs(): void {
+	public function test_list_under_the_hold_names_an_inactive_declarers_running_worker_as_owner(): void {
 		$this->write_tsl( 'gnu-y', "var num_partitions = 4\nmake_node Table lab-7:kea kea:p{partition} 777 sqlite\n" );
 		$this->live_table( 'gnu-y', 'lab-7:kea', [ 'kea:p0', '777', 'sqlite' ], 0 );
 		Spawn_Coordinator::set_hold( \time() );
 
-		$this->command()->flush( [ 'lab-7:kea' ], [ 'partition' => '0' ] );
+		$this->command()->list_( [], [ 'format' => 'json' ] );
 
-		$this->assertSame( [ 'lab-7:kea:config flush' ], $this->answered );
-		$this->assertMatchesRegularExpression( '/^lab-7:kea\.p0: [\d.]+[KM]?B released by gnu-y\.p0$/', $GLOBALS['_test_wp_cli_logs'][0] );
-	}
-
-	public function test_flush_with_no_table_named_counts_the_inactive_partitions(): void {
-		$this->register_inactive_emu();
-		Spawn_Coordinator::set_hold( \time() );
-
-		$this->command()->flush( [], [] );
-
-		$this->assertSame( [ 'Flushed 5 Table partitions.' ], $GLOBALS['_test_wp_cli_success'] );
+		$kea = \array_values( \array_filter( $this->printed(), static fn ( array $row ): bool => 'lab-7:kea' === $row['Table'] ) );
+		$this->assertSame( [ [ 'gnu-y.p0', 'live' ], [ 'kea-t.p1', 'held' ] ], \array_map( static fn ( array $row ): array => [ $row['Owner'], $row['State'] ], \array_slice( $kea, 0, 2 ) ) );
+		$this->assertSame( [ 'lab-7:kea:config stats' ], $this->answered, 'the running worker is the one asked' );
 	}
 
 	public function test_a_table_an_active_and_an_inactive_topology_both_declare_is_owned_by_the_active_one_alone(): void {
@@ -518,38 +484,6 @@ final class TablesCliCommandTest extends TestCase {
 		$this->assertContains( 'lab-7:kea', \array_column( $this->printed(), 'Table' ) );
 	}
 
-	// ── flush ──
-
-	public function test_flush_sends_the_verb_to_the_live_owner_and_reports_its_rows(): void {
-		$this->live_worker( 1 );
-		$this->seed_kea( 1, 3 );
-
-		$this->command()->flush( [ 'lab-7:kea' ], [ 'partition' => '1' ] );
-
-		$this->assertSame( [ 'lab-7:kea:config flush' ], $this->answered );
-		$this->assertSame( 0, $this->rows_in( 1 ) );
-		$this->assertMatchesRegularExpression( '/^lab-7:kea\.p1: [\d.]+[KM]?B released by kea-t\.p1$/', $GLOBALS['_test_wp_cli_logs'][0] );
-		$this->assertCount( 1, $GLOBALS['_test_wp_cli_logs'] );
-		$this->assertSame( [ 'Flushed 1 Table partition.' ], $GLOBALS['_test_wp_cli_success'] );
-	}
-
-	public function test_flush_reaches_a_table_its_crawler_owns_on_a_live_owner(): void {
-		$this->write_tsl( 'crawl-c', "make_node Crawler crawl-8812 5501\n" );
-		\update_option( 'newspack_nodes_topologies', [ 'kea-t', 'owl-w', 'crawl-c' ] );
-		Config::reset();
-		$seen = $this->live_crawler();
-		$seen->store( 'https://site-8812.example/a', '1' );
-		$seen->store( 'https://site-8812.example/b', '1' );
-		$this->assertSame( 2, $this->rows_in( 0, 'crawl-8812:seen' ) );
-
-		$this->command()->flush( [ 'crawl-8812:seen' ], [] );
-
-		$this->assertSame( [ 'crawl-8812:seen:config flush' ], $this->answered );
-		$this->assertSame( 0, $this->rows_in( 0, 'crawl-8812:seen' ) );
-		$this->assertMatchesRegularExpression( '/^crawl-8812:seen\.p0: [\d.]+[KM]?B released by crawl-c\.p0$/', $GLOBALS['_test_wp_cli_logs'][0] );
-		$this->assertSame( [ 'Flushed 1 Table partition.' ], $GLOBALS['_test_wp_cli_success'] );
-	}
-
 	public function test_list_reads_the_counters_of_a_table_its_crawler_owns(): void {
 		$this->write_tsl( 'crawl-c', "make_node Crawler crawl-8812 5501\n" );
 		\update_option( 'newspack_nodes_topologies', [ 'kea-t', 'owl-w', 'crawl-c' ] );
@@ -567,126 +501,4 @@ final class TablesCliCommandTest extends TestCase {
 		$this->assertSame( [], $GLOBALS['_test_wp_cli_warns'] );
 	}
 
-	public function test_a_live_owner_holding_no_such_table_refuses_the_flush_naming_why(): void {
-		$this->live_worker( 1 );
-		$this->seed_kea( 1, 3 );
-		Core::node( 'lab-7:kea' )->remove_node();
-
-		$e = $this->caught( fn () => $this->command()->flush( [ 'lab-7:kea' ], [ 'partition' => '1' ] ), 'a refused flush reported success' );
-
-		$this->assertSame( 'WP_CLI::error called: lab-7:kea.p1: kea-t.p1 refused flush: NOT_AVAILABLE', $e->getMessage() );
-		$this->assertSame( 4, $this->rows_in( 1 ), 'nothing was deleted' );
-	}
-
-	public function test_flush_refuses_a_partition_no_worker_owns_until_the_fleet_is_held(): void {
-		$this->seed_kea( 0, 2 );
-
-		$e = $this->caught( fn () => $this->command()->flush( [ 'lab-7:kea' ], [ 'partition' => '0' ] ), 'a down owner was flushed without the hold' );
-
-		$this->assertStringContainsString( 'lab-7:kea.p0: kea-t.p0 is down; run `wp nodes stop` to hold the fleet, flush again, then `wp nodes start`', $e->getMessage() );
-		$this->assertSame( 3, $this->rows_in( 0 ), 'nothing was deleted' );
-	}
-
-	public function test_flush_refuses_an_idle_owner_naming_it_until_the_fleet_is_held(): void {
-		$this->write_tsl( 'kea-t', "var num_partitions = 2\nvar on_demand_idle = 41\nmake_node Table lab-7:kea kea:p{partition} 777 sqlite\n" );
-		$this->seed_kea( 0, 2 );
-
-		$e = $this->caught( fn () => $this->command()->flush( [ 'lab-7:kea' ], [ 'partition' => '0' ] ), 'an idle owner, which can spawn at any moment, was flushed without the hold' );
-
-		$this->assertStringContainsString( 'lab-7:kea.p0: kea-t.p0 is idle; run `wp nodes stop` to hold the fleet, flush again, then `wp nodes start`', $e->getMessage() );
-		$this->assertSame( 3, $this->rows_in( 0 ), 'nothing was deleted' );
-	}
-
-	public function test_flush_refuses_a_stale_owner_even_under_the_hold(): void {
-		$this->seed_kea( 0, 2 );
-		$lock = "{$this->base}/locks/kea-t.p0.lock.d";
-		\mkdir( $lock, 0755, true );
-		\file_put_contents( "{$lock}/heartbeat", '1' );
-		\touch( "{$lock}/heartbeat", \time() - 3600 );
-		Spawn_Coordinator::set_hold( \time() );
-
-		$e = $this->caught( fn () => $this->command()->flush( [ 'lab-7:kea' ], [ 'partition' => '0' ] ), 'a stale owner\'s partition was flushed' );
-
-		$this->assertStringContainsString( 'lab-7:kea.p0: kea-t.p0 is stale: its lock stands with no heartbeat; restart it, or wait for its lock to clear, and flush again', $e->getMessage() );
-		$this->assertSame( 3, $this->rows_in( 0 ) );
-	}
-
-	public function test_a_live_owner_that_never_answers_the_flush_fails_it(): void {
-		$this->live_worker( 1, false );
-		$this->seed_kea( 1, 2 );
-
-		$e = $this->caught( fn () => $this->command()->flush( [ 'lab-7:kea' ], [ 'partition' => '1', 'timeout' => '4' ] ), 'an unanswered flush reported success' );
-
-		$this->assertStringContainsString( 'lab-7:kea.p1: kea-t.p1 did not answer flush within 4s', $e->getMessage() );
-		$this->assertSame( [ 'lab-7:kea:config flush' ], $this->answered );
-	}
-
-	public function test_flush_under_the_hold_deletes_a_down_owners_rows_itself(): void {
-		$this->seed_kea( 0, 2 );
-		Spawn_Coordinator::set_hold( \time() );
-
-		$this->command()->flush( [ 'lab-7:kea' ], [ 'partition' => '0' ] );
-
-		$this->assertSame( 0, $this->rows_in( 0 ) );
-		$this->assertMatchesRegularExpression( '/^lab-7:kea\.p0: [\d.]+[KM]?B released under the hold$/', $GLOBALS['_test_wp_cli_logs'][0] );
-	}
-
-	public function test_flush_with_no_table_named_flushes_every_declared_table_but_the_session_store(): void {
-		$this->seed_kea( 0, 2 );
-		Spawn_Coordinator::set_hold( \time() );
-		$session = Command_Auth::mint_session();
-
-		$this->command()->flush( [], [] );
-
-		$this->assertSame( 0, $this->rows_in( 0 ) );
-		$this->assertSame( $session['secret'], Command_Auth::load_session_record( $session['handle'] )['key'] ?? null, 'the session store is flushed only when named' );
-	}
-
-	public function test_flushing_the_session_store_by_name_revokes_every_session(): void {
-		$first  = Command_Auth::mint_session();
-		$second = Command_Auth::mint_session();
-		Table_Node::table( 'owl:p0', 900, 'wpdb' )->store( 'sku-7', 'owl-7' );
-
-		$this->command()->flush( [ Command_Auth::SESSIONS_TABLE ], [] );
-
-		$this->assertNull( Command_Auth::load_session_record( $first['handle'] ) );
-		$this->assertNull( Command_Auth::load_session_record( $second['handle'] ) );
-		$this->assertSame( 'owl-7', Table_Node::table( 'owl:p0', 900, 'wpdb' )->lookup( 'sku-7' ), 'another namespace is untouched' );
-		$this->assertSame( [ Command_Auth::SESSIONS_TABLE . ': 2 rows deleted; every issued session is revoked' ], $GLOBALS['_test_wp_cli_logs'] );
-	}
-
-	public function test_a_session_store_that_refuses_the_flush_fails_the_command(): void {
-		$GLOBALS['wpdb']->deny['DELETE FROM `wp_newspack_nodes_table`'] = 'Lock wait timeout 4479';
-
-		$e = $this->caught( fn () => $this->command()->flush( [ Command_Auth::SESSIONS_TABLE ], [] ), 'a refused flush reported success' );
-
-		$this->assertSame( 'WP_CLI::error called: ' . Command_Auth::SESSIONS_TABLE . ': Table nodes-sessions: flush failed: wpdb wp_newspack_nodes_table: Lock wait timeout 4479', $e->getMessage() );
-		$this->assertSame( [], $GLOBALS['_test_wp_cli_success'] );
-	}
-
-	public function test_flush_refuses_a_table_nothing_declares(): void {
-		$e = $this->caught( fn () => $this->command()->flush( [ 'lab-7:moa' ], [] ), 'an unknown Table was accepted' );
-		$this->assertSame( 'WP_CLI::error called: unknown Table lab-7:moa; declared: lab-7:kea, lab-7:owl, ' . Command_Auth::SESSIONS_TABLE, $e->getMessage() );
-	}
-
-	public function test_flush_refuses_to_run_as_root(): void {
-		CLI::$uid_provider = static fn (): int => 0;
-		$e                 = $this->caught( fn () => $this->command()->flush( [ 'lab-7:kea' ], [] ), 'root flushed' );
-		$this->assertStringContainsString( 'wp nodes tables flush must run as the same user as the workers', $e->getMessage() );
-	}
-
-	public function test_a_live_owner_that_refuses_the_flush_fails_the_command_naming_why(): void {
-		$this->live_worker( 1 );
-		$this->seed_kea( 1, 3 );
-		$tables = \dirname( Table_Node::file( 'lab-7:kea', 1 ) );
-		\chmod( $tables, 0555 );
-		try {
-			$e = $this->caught( fn () => $this->command()->flush( [ 'lab-7:kea' ], [ 'partition' => '1' ] ), 'a failed flush reported success' );
-		} finally {
-			\chmod( $tables, 0755 );
-		}
-
-		$this->assertStringContainsString( 'lab-7:kea.p1: kea-t.p1 refused flush: Table lab-7:kea: flush failed: sqlite', $e->getMessage() );
-		$this->assertSame( 4, $this->rows_in( 1 ), 'the file it could not replace keeps its rows' );
-	}
 }

@@ -74,7 +74,7 @@ class Sessions {
 	 *
 	 * The index is read up to `Table_Node::MAX_MEMBERS_LIMIT` handles, live
 	 * or revoked and not yet lapsed. Past that the listing refuses, naming the
-	 * flush that clears it; a labelled mint is never refused for the count.
+	 * `revoke --all` that clears it; a labelled mint is never refused for the count.
 	 *
 	 * @return list<array{handle:string,label:string,scope:string,created:int,expires:int}>
 	 * @throws Session_Store_Unavailable When the store will not open or answer,
@@ -85,7 +85,7 @@ class Sessions {
 		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
 		$index = $table->members_of( [ self::INDEX ], Table_Node::MAX_MEMBERS_LIMIT ) ?? throw new Session_Store_Unavailable( "could not read the session index: {$table->last_failure()}" );
 		if ( \array_key_exists( self::INDEX, $index ) && null === $index[ self::INDEX ] ) {
-			throw new Session_Store_Unavailable( 'more than ' . Table_Node::MAX_MEMBERS_LIMIT . ' labelled sessions are indexed; `wp nodes tables flush ' . Command_Auth::SESSIONS_TABLE . '` revokes every session' );
+			throw new Session_Store_Unavailable( 'more than ' . Table_Node::MAX_MEMBERS_LIMIT . ' labelled sessions are indexed; `wp nodes session revoke --all` revokes every session' );
 		}
 		$now  = (int) Core::right_now();
 		$rows = [];
@@ -100,6 +100,16 @@ class Sessions {
 		}
 		\usort( $rows, static fn ( array $a, array $b ): int => $b['created'] <=> $a['created'] );
 		return $rows;
+	}
+
+	/**
+	 * Revoke every session this site issued, labelled or not, by flushing the
+	 * session Table, which empties the labelled index with the rows.
+	 *
+	 * @throws \RuntimeException Naming why the store would not open or flush.
+	 */
+	public static function revoke_all(): void {
+		Command_Auth::session_table()->flush();
 	}
 
 	/**

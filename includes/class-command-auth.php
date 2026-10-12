@@ -97,7 +97,7 @@ class Command_Auth {
 	 * The session Table's namespace, one row per session keyed by its handle,
 	 * on the wpdb backend, because every web host mints and every host
 	 * verifies, which a host-local SQLite file cannot serve (ADR-24). `wp
-	 * nodes tables` lists it by this name and flushes it only when named.
+	 * nodes tables list` lists it by this name.
 	 */
 	public const SESSIONS_TABLE = 'nodes-sessions';
 
@@ -514,7 +514,7 @@ class Command_Auth {
 	 * any Table outside a graph is, once a process. Every entry states its own
 	 * lifetime, so the Table's own is the default a mint asks for.
 	 *
-	 * @api `wp nodes tables` lists and flushes it.
+	 * @api `Sessions::revoke_all()` flushes it.
 	 * @return Table_Node The Table.
 	 * @throws Session_Store_Unavailable When it will not open, naming why.
 	 */

@@ -629,7 +629,7 @@ drifts into offering a scope the mint refuses. Every row is live:
 [`Sessions::listing()`](../includes/class-sessions.php) reads the session Table's
 `labelled` set, then every row it names in one read, takes each fact from the
 session's row, and leaves out a session whose row has gone — lapsed, a
-`sessions revoke`, or `wp nodes tables flush nodes-sessions`. A store that does
+`sessions revoke`, or `wp nodes session revoke --all`. A store that does
 not answer, or a set holding more than 10,000 handles, refuses the verb rather
 than listing part or nothing. Reading the listing writes nothing.
 

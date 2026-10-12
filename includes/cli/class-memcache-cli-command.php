@@ -33,8 +33,8 @@ class Memcache_CLI_Command {
 	 * touches no co-tenant install sharing the memcached. Plugins deliberately
 	 * keep no salt of their own: with three independent rotations, flushing one
 	 * leaves the other two serving stale values. A durable Table's rows and the
-	 * command sessions carry no salt, so they stay; `wp nodes tables flush`
-	 * empties those.
+	 * command sessions carry no salt, so they stay; `wp nodes session revoke
+	 * --all` revokes the sessions.
 	 *
 	 * The rotation asks every live worker to restart, because the scope is
 	 * memoized per process and a live worker keeps writing the OLD prefix until
@@ -66,7 +66,7 @@ class Memcache_CLI_Command {
 
 		\WP_CLI::success(
 			"Cache salt rotated{$restarted}; every Newspack plugin key in memcached and APCu on this install is orphaned. "
-			. 'Its durable Tables and command sessions are untouched; `wp nodes tables flush` empties those.'
+			. 'Its durable Tables and command sessions are untouched; `wp nodes session revoke --all` revokes the sessions.'
 		);
 	}
 

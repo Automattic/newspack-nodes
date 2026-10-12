@@ -116,7 +116,7 @@ class SessionsTest extends TestCase {
 	public function test_a_flushed_session_table_leaves_no_index_behind(): void {
 		Sessions::issue( 'chris-claude', Capabilities::MANAGE, 9000 );
 
-		Command_Auth::session_table()->flush();
+		Sessions::revoke_all();
 
 		$this->assertSame( [], $this->index_rows() );
 		$this->assertFalse( \get_option( 'newspack_nodes_sessions' ), 'no directory outlives the flush' );
@@ -240,7 +240,7 @@ class SessionsTest extends TestCase {
 		$this->db->canned['FROM `wp_newspack_nodes_members`'] = \array_map( static fn ( int $n ): array => [ 'member' => "m-{$n}", 'value' => '', 'expires' => 1999999999 ], \range( 0, Table_Node::MAX_MEMBERS_LIMIT ) );
 
 		$this->expectException( Session_Store_Unavailable::class );
-		$this->expectExceptionMessage( 'more than 10000 labelled sessions are indexed; `wp nodes tables flush nodes-sessions` revokes every session' );
+		$this->expectExceptionMessage( 'more than 10000 labelled sessions are indexed; `wp nodes session revoke --all` revokes every session' );
 		Sessions::listing();
 	}
 

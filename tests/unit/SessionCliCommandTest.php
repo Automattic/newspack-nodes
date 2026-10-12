@@ -18,6 +18,7 @@ use Newspack_Nodes\Core;
 use Newspack_Nodes\Roles;
 use Newspack_Nodes\Session_CLI_Command;
 use Newspack_Nodes\Sessions;
+use Newspack_Nodes\Table_Node;
 use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
 use Newspack_Nodes\Tests\TestCase;
 
@@ -259,6 +260,43 @@ class SessionCliCommandTest extends TestCase {
 		$this->assertSame( [ "Revoked {$doomed['handle']}." ], $GLOBALS['_test_wp_cli_success'] );
 		$this->assertNull( Command_Auth::load_session_record( $doomed['handle'] ) );
 		$this->assertSame( [ $bystander['handle'] ], \array_keys( self::listed() ) );
+	}
+
+	public function test_revoke_all_revokes_every_session_and_empties_the_listing(): void {
+		$labelled = Sessions::issue( 'ruru-8840', Capabilities::TUNE, 900 );
+		$bare     = Command_Auth::mint_session();
+		Table_Node::table( 'owl:p0', 900, 'wpdb' )->store( 'sku-8840', 'owl-8840' );
+
+		( new Session_CLI_Command() )->revoke( [], [ 'all' => true ] );
+
+		$this->assertSame( [ 'Revoked every session.' ], $GLOBALS['_test_wp_cli_success'] );
+		$this->assertNull( Command_Auth::load_session_record( $labelled['handle'] ) );
+		$this->assertNull( Command_Auth::load_session_record( $bare['handle'] ) );
+		$this->assertSame( [], Sessions::listing() );
+		$this->assertSame( 'owl-8840', Table_Node::table( 'owl:p0', 900, 'wpdb' )->lookup( 'sku-8840' ), 'another namespace is untouched' );
+	}
+
+	public function test_revoke_refuses_a_handle_beside_all(): void {
+		$session = Sessions::issue( 'tui-8840', Capabilities::READ, 900 );
+
+		$this->assertSame(
+			'name a handle or pass --all, not both',
+			$this->cli_error( static fn ( $cli ) => $cli->revoke( [ $session['handle'] ], [ 'all' => true ] ) )
+		);
+		$this->assertCount( 1, Sessions::listing() );
+	}
+
+	public function test_revoke_refuses_neither_a_handle_nor_all(): void {
+		$this->assertSame( 'name a handle or pass --all', $this->cli_error( static fn ( $cli ) => $cli->revoke( [], [] ) ) );
+	}
+
+	public function test_revoke_all_fails_naming_why_the_store_refused(): void {
+		$GLOBALS['wpdb']->deny['DELETE FROM `wp_newspack_nodes_table`'] = 'Lock wait timeout 6631';
+
+		$this->assertSame(
+			'Table nodes-sessions: flush failed: wpdb wp_newspack_nodes_table: Lock wait timeout 6631',
+			$this->cli_error( static fn ( $cli ) => $cli->revoke( [], [ 'all' => true ] ) )
+		);
 	}
 
 	public function test_revoke_of_a_label_naming_two_sessions_fails_naming_both(): void {
