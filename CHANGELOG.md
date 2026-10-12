@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **On the topology canvas, a card fed by nothing that feeds only a hub sits in the column before it, and no longer pushes the hub a column right.** Such a card, a head, counted toward the hubs' longest path, so it took the column after the bands and the hub the one after that, leaving a buffer column empty and no half step before the hub. A head now sits right before the hub it feeds: on the hub's row, or, in a column holding a band's cards, on the free row nearest it, the lower on a tie, so a lone `timeout` feeding a fan-in hub sits under its last buffer with the hub half a step past them. Across five tiles of seed 134623, wires cross 814 times where they crossed 748, and run over 192 cards where they ran over 167.
+
 ## [2.105.0] - 2026-10-12
 
 ### Added

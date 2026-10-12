@@ -1754,15 +1754,18 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		}
 		const graph = { nodes: [ ...ids ].map( ( id ) => ( { id } ) ), edges };
 		const g = gridOf( graph );
-		// The buffers' wires to the hub cross the bridge's column: it is
-		// seated off their path, not on the hub's row in front of it.
 		expect( drawn( autoLayout( graph ).nodes, edges ).over ).toEqual( [] );
-		const buffers = JOBS.map( ( job ) => g[ `pub:${ job }:buffer` ].col );
-		// The timeout's every neighbour is the hub, so it is a bridge: it
-		// leads the hub chain, right after the buffers.
-		expect( g[ 'pub:timeout' ].col ).toBe( Math.max( ...buffers ) + 1 );
-		// The buffers' wires skip the timeout's column, so no half step opens.
-		expect( g[ 'pub:set_stream' ].col ).toBe( g[ 'pub:timeout' ].col + 1 );
+		const buffers = JOBS.map( ( job ) => g[ `pub:${ job }:buffer` ] );
+		const last = buffers[ 0 ].col;
+		expect( buffers.every( ( b ) => b.col === last ) ).toBe( true );
+		// The timeout feeds only the hub, so it feeds from the buffers'
+		// column, under the last buffer.
+		expect( g[ 'pub:timeout' ].col ).toBe( last );
+		expect( g[ 'pub:timeout' ].row ).toBeGreaterThan(
+			Math.max( ...buffers.map( ( b ) => b.row ) )
+		);
+		// Five wires meet the hub across one boundary: half a step opens.
+		expect( g[ 'pub:set_stream' ].col ).toBe( last + 1.5 );
 		expect( g[ 'pub:router' ].col ).toBe( g[ 'pub:set_stream' ].col + 1 );
 		expect( g[ 'pub:balancer' ].col ).toBe( g[ 'pub:router' ].col + 1 );
 		expect( g[ 'korell:template' ].col ).toBe(
@@ -2425,6 +2428,8 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		// Seed c134623 with late sources added. A row where late0's own wire
 		// passes a card but its cut uncovers another scores as low as a clean
 		// row; the search stops at the clean row and must seat late0 there.
+		// Its wire to hub0 still passes k0l0n1, which feeds hub0 alone and
+		// sits on hub0's row in the column before it.
 		const graph = seedGraph( 'c134623' );
 		const extra = [
 			[ 'late0', 'k1l1n0' ],
@@ -2441,7 +2446,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 			drawn( autoLayout( { nodes, edges } ).nodes, edges ).over.filter(
 				( hit ) => hit.startsWith( 'late0→' )
 			)
-		).toEqual( [] );
+		).toEqual( [ 'late0→hub0 over k0l0n1' ] );
 	} );
 
 	it( 'seats in full a pin trial the cheaper drawing turns down', () => {
@@ -2594,7 +2599,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 
 	it( 'judges pin trials across five tiles of seed 134623 to fewer crossings', () => {
 		// The cheaper drawing picks the moves, the block seated in full keeps
-		// them, and every move it left is tried in full: 748 crossings, 167
+		// them, and every move it left is tried in full: 814 crossings, 192
 		// cards covered, with each tile's bands stacked as tight as their
 		// columns allow and no nudge leaving a band's own rows.
 		const seed = SEEDS[ '134623' ];
@@ -2614,7 +2619,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		} );
 		const cost = drawn( nodes, edges );
 		expect( [ cost.crossings.length, cost.over.length ] ).toEqual( [
-			748, 167,
+			814, 192,
 		] );
 	} );
 
@@ -3076,9 +3081,16 @@ describe( 'autoLayout — hub bands', () => {
 
 	it( 'treats a node four feed as a hub, half a column clear of its feeders on their middle row', () => {
 		const at = positionsOf( starGraph( 4 ) );
+		const feeders = [ 's0', 's1', 's2', 's3' ].map( ( id ) => at[ id ] );
+		// The feeders, fed by nothing, take the canvas's first column.
+		expect( feeders.map( ( p ) => p.x ) ).toEqual( [
+			X_PAD,
+			X_PAD,
+			X_PAD,
+			X_PAD,
+		] );
 		// The pair stacks in the hub's columns, so it shares the hub's gap.
 		expect( at.y.x - at.x.x ).toBe( 1.5 * X_STEP );
-		const feeders = [ 's0', 's1', 's2', 's3' ].map( ( id ) => at[ id ] );
 		// Half a step more, so the converging wires have room to fan in.
 		expect( at.hub.x ).toBe(
 			Math.max( ...feeders.map( ( p ) => p.x ) ) + 1.5 * X_STEP
