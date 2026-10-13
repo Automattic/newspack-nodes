@@ -9,12 +9,29 @@ import { __ } from '@wordpress/i18n';
 import SchematicCanvas from './SchematicCanvas';
 import Inspector from './Inspector';
 import Palette from './Palette';
-import SidecarsModal from './SidecarsModal';
+import SidecarsPopover from './SidecarsPopover';
 import { useGraphRates } from '../hooks/useGraphRates';
 import { useSidecarRows } from '../hooks/useSidecarRows';
 import { usePublishedGraph } from '../hooks/useGraphSource';
 import { hullNodes } from '../utils/hullNodes';
 import { aggregateSeries } from '../utils/aggregateSeries';
+
+/** An empty list with one identity, so an absent one redraws nothing. */
+const NONE = [];
+
+/** A rows map with nothing in it, one identity. */
+const NO_ROWS = new Map();
+
+/**
+ * The open grids up to a depth, the shared empty list when none is left.
+ *
+ * @param {string[]} open  The owners of the open grids, outermost first.
+ * @param {number}   depth How many to keep.
+ * @return {string[]} The ones kept.
+ */
+function upTo( open, depth ) {
+	return depth > 0 ? open.slice( 0, depth ) : NONE;
+}
 
 /**
  * Anything usable as a JSX tag — the injected canvas wrapper is a component,
@@ -33,11 +50,15 @@ import { aggregateSeries } from '../utils/aggregateSeries';
  * clears the other two, so Delete has one unambiguous target.
  *
  * Part of the selection is the sidecar shown in the selected node's place:
- * an owned node the canvas never draws, opened from its owner's "…" — the
- * card's, or a shown sidecar's own in the Inspector. Any other selection,
- * edit mode, or the owner leaving the graph drops it, and Delete removes
- * nothing while it shows: the selected node is its owner, not what the
- * Inspector shows.
+ * an owned node the canvas never draws, picked from the grid its owner's "…"
+ * opens on the canvas below the owner's card. A grid card owning sidecars in
+ * turn opens theirs inside it, below that card, so the open grids form a stack,
+ * outermost first. A pick leaves every grid open. Another selection closes
+ * them, as does a click off the canvas, unless it lands in the Inspector while
+ * that shows a sidecar they list; Esc closes them one at a time. Another
+ * selection, edit mode, or the owner leaving the graph also drops the sidecar,
+ * and Delete removes nothing while it shows: the selected node is its owner,
+ * not what the Inspector shows.
  *
  * @param {Object}                 props
  * @param {Object}                 props.graph                { nodes, edges } to render.
@@ -118,12 +139,13 @@ export default function GraphView( {
 	const [ hoveredId, setHoveredId ] = useState( null );
 	// The sidecar shown in the selected node's place, or null.
 	const [ sidecar, setSidecar ] = useState( null );
-	// The open "…" grid: whose it is, what it shows, and what opened it.
-	const [ listing, setListing ] = useState( null );
+	// The owners of the open "…" grids, outermost first.
+	const [ stack, setStack ] = useState( NONE );
 	// The selection as of the last render, for the controlled re-sync.
 	const selectedRef = useRef( null );
 	selectedRef.current = selectedId;
 	const dockRef = useRef( null );
+	const canvasRef = useRef( null );
 
 	// Re-sync the NODE selection to an external value (rename re-point).
 	useEffect( () => {
@@ -133,6 +155,8 @@ export default function GraphView( {
 		// A consumer echoing the selection back keeps the sidecar on it.
 		if ( selection !== selectedRef.current ) {
 			setSidecar( null );
+			// Another selection closes the grids, but not their own owner's.
+			setStack( ( open ) => ( open[ 0 ] === selection ? open : NONE ) );
 		}
 		setSelectedId( selection );
 		// Only a NODE supersedes an edge; null is the empty node selection.
@@ -146,15 +170,20 @@ export default function GraphView( {
 		setSelectedEdge( null );
 		setSelectedHull( null );
 		setSidecar( null );
+		setStack( NONE );
 	}, [ resetKey ] );
 
 	// A draft has no sidecars to show: edit mode, either way, drops one.
 	useEffect( () => {
 		setSidecar( null );
-		setListing( null );
+		setStack( NONE );
 	}, [ editMode ] );
 
-	const ownerShown = graph.nodes.some( ( n ) => n.id === selectedId );
+	const nodeIds = useMemo(
+		() => new Set( graph.nodes.map( ( n ) => n.id ) ),
+		[ graph.nodes ]
+	);
+	const ownerShown = nodeIds.has( selectedId );
 	// An owner gone from the graph takes its sidecar, and its poll, with it.
 	useEffect( () => {
 		if ( ! ownerShown ) {
@@ -162,21 +191,91 @@ export default function GraphView( {
 		}
 	}, [ ownerShown ] );
 	const shownSidecar = ! editMode && ownerShown ? sidecar : null;
-	// One poller asks for the shown sidecar's row and the open grid's owner's.
+	// The grids hang from a canvas card, so none outlives it.
+	const rooted = useMemo(
+		() => ( nodeIds.has( stack[ 0 ] ) ? stack : NONE ),
+		[ nodeIds, stack ]
+	);
+	// One poller asks for the shown sidecar's row and every open grid owner's.
 	const sidecarOwners = useMemo(
 		() => [
-			...new Set(
-				[ shownSidecar, listing?.owner ].filter( ( n ) => !! n )
-			),
+			...new Set( [ shownSidecar, ...rooted ].filter( ( n ) => !! n ) ),
 		],
-		[ shownSidecar, listing ]
+		[ shownSidecar, rooted ]
 	);
 	const sidecarRows = useSidecarRows( sidecarOwners );
-	// The open grid's sidecars, as the owner's live row lists them now.
-	const isOwner = ( n ) => n.id === listing?.owner;
-	const ownerRow =
-		sidecarRows.graph?.nodes.find( isOwner ) ?? graph.nodes.find( isOwner );
-	const listed = ( listing && ownerRow?.sidecars ) || [];
+	const gridsAsked = rooted.length > 0;
+	// The polled rows by id, while a grid asks for them.
+	const rowById = useMemo(
+		() =>
+			gridsAsked
+				? new Map(
+						( sidecarRows.graph?.nodes ?? NONE ).map( ( n ) => [
+							n.id,
+							n,
+						] )
+				  )
+				: NO_ROWS,
+		[ gridsAsked, sidecarRows.graph ]
+	);
+	// The outermost owner's canvas row, its sidecars until its poll answers.
+	const rootRow = useMemo(
+		() =>
+			gridsAsked
+				? graph.nodes.find( ( n ) => n.id === rooted[ 0 ] )
+				: undefined,
+		[ gridsAsked, graph.nodes, rooted ]
+	);
+	/**
+	 * A grid owner's sidecars, as its live row lists them now: its polled row,
+	 * or for the outermost owner alone, its canvas row before that answers.
+	 *
+	 * @param {string} owner The grid's owner.
+	 * @return {Array<{name: string, class: string}>} Its sidecars.
+	 */
+	const sidecarsOf = useCallback(
+		( owner ) => {
+			// A polled row answers alone; one listing none omits the key.
+			const row = rowById.has( owner )
+				? rowById.get( owner )
+				: owner === rootRow?.id && rootRow;
+			return row?.sidecars ?? NONE;
+		},
+		[ rowById, rootRow ]
+	);
+	/**
+	 * Whether an owner's live row lists a sidecar.
+	 *
+	 * @param {string} owner The owner.
+	 * @param {string} name  The sidecar.
+	 * @return {boolean} It does.
+	 */
+	const lists = useCallback(
+		( owner, name ) => sidecarsOf( owner ).some( ( c ) => c.name === name ),
+		[ sidecarsOf ]
+	);
+	// @longform A grid stands only while its owner lists sidecars and the grid
+	// it opened from still lists its owner.
+	const grids = useMemo( () => {
+		const gone = rooted.findIndex(
+			( owner, depth ) =>
+				0 === sidecarsOf( owner ).length ||
+				( depth > 0 && ! lists( rooted[ depth - 1 ], owner ) )
+		);
+		return gone < 0 ? rooted : upTo( rooted, gone );
+	}, [ rooted, sidecarsOf, lists ] );
+	// What no grid shows is closed, so it cannot come back when its row does.
+	useEffect( () => {
+		if ( grids !== stack ) {
+			setStack( grids );
+		}
+	}, [ grids, stack ] );
+	const gridOwner = grids[ 0 ];
+	const rootSidecars = gridOwner ? sidecarsOf( gridOwner ) : NONE;
+	// An Inspector click keeps the grids while it shows a sidecar they list.
+	const showsGridSidecar =
+		!! shownSidecar &&
+		grids.some( ( owner ) => lists( owner, shownSidecar ) );
 	const { rateRef: sidecarRateRef } = useGraphRates(
 		sidecarRows.snapshot,
 		resetKey
@@ -205,7 +304,7 @@ export default function GraphView( {
 	);
 
 	// Node + edge selection are mutually exclusive (unambiguous Delete).
-	const handleSelectNode = useCallback(
+	const selectNode = useCallback(
 		( id ) => {
 			setSelectedId( id );
 			setSelectedEdge( null );
@@ -215,11 +314,20 @@ export default function GraphView( {
 		},
 		[ onSelectionChange ]
 	);
+	// Every selection but a pick from a grid closes the grids.
+	const handleSelectNode = useCallback(
+		( id ) => {
+			selectNode( id );
+			setStack( NONE );
+		},
+		[ selectNode ]
+	);
 	const handleSelectEdge = useCallback(
 		( edge ) => {
 			setSelectedEdge( edge );
 			setSelectedId( null );
 			setSidecar( null );
+			setStack( NONE );
 			// One selection at a time: an edge supersedes a hull.
 			setSelectedHull( null );
 			onSelectionChange?.( null );
@@ -234,6 +342,7 @@ export default function GraphView( {
 			setSelectedEdge( null );
 			setSelectedHull( include );
 			setSidecar( null );
+			setStack( NONE );
 			onSelectionChange?.( null );
 		},
 		[ onSelectionChange ]
@@ -274,10 +383,17 @@ export default function GraphView( {
 		[ includes, onRemoveInclude ]
 	);
 
-	// Delete/Backspace removes the selection (skipped in form fields).
+	// @longform Delete/Backspace removes the selection (skipped in form fields)
+	// and Esc closes a grid. It hears a key last, on the window, so a dialog or
+	// field that takes the key first marks it handled and the key stops here.
 	useEffect( () => {
 		const onKey = ( e ) => {
-			if ( e.key !== 'Delete' && e.key !== 'Backspace' ) {
+			if (
+				e.defaultPrevented ||
+				( e.key !== 'Delete' &&
+					e.key !== 'Backspace' &&
+					e.key !== 'Escape' )
+			) {
 				return;
 			}
 			const tag = e.target && e.target.tagName;
@@ -287,7 +403,23 @@ export default function GraphView( {
 			if ( e.target && e.target.isContentEditable ) {
 				return;
 			}
-			if ( shownSidecar ) {
+			// Esc closes the innermost grid, focus back on its "…".
+			if ( 'Escape' === e.key ) {
+				const innermost = grids.at( -1 );
+				if ( innermost ) {
+					e.preventDefault();
+					( triggerOf( innermost ) ?? canvasRef.current )?.focus( {
+						preventScroll: true,
+					} );
+					setStack( upTo( grids, grids.length - 1 ) );
+				}
+				return;
+			}
+			// A key from a grid or a dialog is theirs, never the selection's.
+			if (
+				shownSidecar ||
+				e.target?.closest?.( '[role="dialog"], .topology-modal' )
+			) {
 				return;
 			}
 			if ( selectedId ) {
@@ -309,9 +441,10 @@ export default function GraphView( {
 				handleRemoveHull( selectedHull );
 			}
 		};
-		document.addEventListener( 'keydown', onKey );
-		return () => document.removeEventListener( 'keydown', onKey );
+		window.addEventListener( 'keydown', onKey );
+		return () => window.removeEventListener( 'keydown', onKey );
 	}, [
+		grids,
 		editMode,
 		selectedId,
 		shownSidecar,
@@ -324,14 +457,59 @@ export default function GraphView( {
 		handleRemoveHull,
 	] );
 
-	const nodeIds = new Set( graph.nodes.map( ( n ) => n.id ) );
+	// @longform A press off the canvas, which answers its own, closes the grids,
+	// decided as it lands, in the capture phase: before a dialog it dismisses
+	// unmounts, and before a control that stops it can hide it.
+	const gridsOpen = grids.length > 0;
+	useEffect( () => {
+		if ( ! gridsOpen ) {
+			return undefined;
+		}
+		const onPress = ( e ) => {
+			const inInspector =
+				dockRef.current?.contains( e.target ) ||
+				!! e.target.closest?.(
+					'.topology-modal, .topology-modal-backdrop'
+				);
+			const keep =
+				canvasRef.current?.contains( e.target ) ||
+				( showsGridSidecar && inInspector );
+			if ( ! keep ) {
+				setStack( NONE );
+			}
+		};
+		document.addEventListener( 'mousedown', onPress, true );
+		return () => document.removeEventListener( 'mousedown', onPress, true );
+	}, [ gridsOpen, showsGridSidecar ] );
 	/**
-	 * Open a "…" grid, remembering the control that opened it for the focus.
+	 * The "…" that opens `owner`'s grid, where the canvas or a grid draws it
+	 * now: the one pressed may since have been redrawn.
 	 *
-	 * @param {string}                    owner   Whose sidecars it shows.
-	 * @param {?(HTMLElement|SVGElement)} trigger The control that opened it.
+	 * @param {string} owner The grid's owner.
+	 * @return {SVGGElement|undefined} The "…", or undefined while none is drawn.
 	 */
-	const openSidecars = ( owner, trigger ) => setListing( { owner, trigger } );
+	const triggerOf = ( owner ) =>
+		[
+			...( canvasRef.current?.querySelectorAll( '[data-owner]' ) ??
+				NONE ),
+		].find( ( el ) => el.dataset.owner === owner );
+
+	/**
+	 * Open a "…" grid at a depth of the stack, closing any open deeper, or
+	 * close it when its own "…" is pressed again.
+	 *
+	 * @param {number} depth 0 for a canvas card's grid, one more per grid.
+	 * @param {string} owner Whose sidecars it shows.
+	 */
+	const openSidecars = useCallback(
+		( depth, owner ) =>
+			setStack( ( open ) =>
+				open[ depth ] === owner
+					? upTo( open, depth )
+					: [ ...open.slice( 0, depth ), owner ]
+			),
+		[]
+	);
 	/**
 	 * Show a node: a canvas node by selecting it, an owned one in the selected
 	 * node's place.
@@ -346,23 +524,60 @@ export default function GraphView( {
 		}
 	};
 	/**
-	 * Show the sidecar chosen from the open grid, selecting its owner first
-	 * when the owner is a canvas card, and move focus to the Inspector.
+	 * Show the sidecar chosen from an open grid, selecting the canvas card
+	 * the grids hang from first. Every grid stays open.
 	 *
 	 * @param {string} name The sidecar chosen.
 	 */
-	const pickSidecar = ( name ) => {
-		if ( nodeIds.has( listing.owner ) ) {
-			handleSelectNode( listing.owner );
-		}
-		setSidecar( name );
-		setListing( null );
-		dockRef.current?.focus();
-	};
-	const dismissSidecars = () => {
-		listing.trigger?.focus();
-		setListing( null );
-	};
+	const pickSidecar = useCallback(
+		( name ) => {
+			selectNode( gridOwner );
+			setSidecar( name );
+		},
+		[ selectNode, gridOwner ]
+	);
+	/**
+	 * The open grids on the canvas, the outermost below its owner's card,
+	 * each drawing the one opened inside it. The canvas answers the owner's
+	 * box even while it culls the card just off-screen, so the grids keep
+	 * drawing and pan back in with it.
+	 *
+	 * @param {import('./SchematicCanvas').CanvasOverlayArgs} canvas Where the canvas draws.
+	 * @return {?import('react').ReactElement} The outermost popover, or null while the canvas has no box for its owner.
+	 */
+	const drawGrids = useCallback(
+		( { positionOf, surface, showDetail } ) => {
+			const anchor = positionOf( gridOwner );
+			return (
+				anchor && (
+					<SidecarsPopover
+						key={ gridOwner }
+						owners={ grids }
+						depth={ 0 }
+						anchor={ anchor }
+						sidecars={ rootSidecars }
+						rows={ rowById }
+						rates={ sidecarRateRef.current }
+						surface={ surface }
+						showDetail={ showDetail }
+						shown={ shownSidecar }
+						onPick={ pickSidecar }
+						onOpen={ openSidecars }
+					/>
+				)
+			);
+		},
+		[
+			gridOwner,
+			grids,
+			rootSidecars,
+			rowById,
+			sidecarRateRef,
+			shownSidecar,
+			pickSidecar,
+			openSidecars,
+		]
+	);
 
 	const inspectorToggleLabel = inspectorCollapsed
 		? __( 'Expand inspector', 'newspack-nodes' )
@@ -391,6 +606,7 @@ export default function GraphView( {
 					onDeselect={ () => {
 						setSelectedId( null );
 						setSelectedEdge( null );
+						setStack( NONE );
 						// The hull is a selection too — background clears it.
 						setSelectedHull( null );
 						onSelectionChange?.( null );
@@ -404,7 +620,9 @@ export default function GraphView( {
 					onConnect={ onConnect }
 					selectedEdge={ selectedEdge }
 					onSelectEdge={ handleSelectEdge }
-					onOpenSidecars={ openSidecars }
+					svgRef={ canvasRef }
+					onOpenSidecars={ ( owner ) => openSidecars( 0, owner ) }
+					overlay={ grids.length > 0 ? drawGrids : undefined }
 					hulls={ hulls }
 				/>
 			</Frame>
@@ -412,7 +630,6 @@ export default function GraphView( {
 			{
 				<div
 					ref={ dockRef }
-					tabIndex={ -1 }
 					className={ `topology-inspector-dock${
 						inspectorCollapsed
 							? ' topology-inspector-dock--collapsed'
@@ -438,7 +655,6 @@ export default function GraphView( {
 									? sidecarRows.graph
 									: null
 							}
-							onOpenSidecars={ openSidecars }
 							onOpenNode={ openNode }
 							parsed={ graph }
 							streamStatus={ streamStatus }
@@ -477,16 +693,6 @@ export default function GraphView( {
 					) }
 				</div>
 			}
-			{ listing && (
-				<SidecarsModal
-					owner={ listing.owner }
-					sidecars={ listed }
-					rows={ sidecarRows.graph?.nodes ?? [] }
-					rates={ sidecarRateRef.current }
-					onPick={ pickSidecar }
-					onDismiss={ dismissSidecars }
-				/>
-			) }
 		</>
 	);
 }

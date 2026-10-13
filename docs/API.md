@@ -799,9 +799,9 @@ Naming a node, `dump_metadata <name>`, answers it unless its schema is
 `hidden`, owned or not, carrying `owner` as above. `dump_metadata -o
 <name>...` answers each node named the same way, then the row of every
 sidecar it lists, so a client asks for an owner's sidecars by the owner's name
-however many it owns: that is how the console polls the grid of live cards an
-owner's "…" opens, while it is open, and the sidecar its Inspector shows, Time
-Travel and Triage included, in one command. A full snapshot also carries a
+however many it owns: that is how the console polls every grid of live cards
+an owner's "…" opens, while it is open, and the sidecar its Inspector shows,
+Time Travel and Triage included, in one command. A full snapshot also carries a
 `_header` entry holding `profiling` and, when the command supplied one,
 `pwd`.
 

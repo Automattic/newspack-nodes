@@ -151,38 +151,6 @@ function NavButton( { name, onOpen } ) {
 }
 
 /**
- * The Inspector's title. A sidecar, which has no card to carry a "…", carries
- * its own here when it owns sidecars in turn.
- *
- * @param {Object}                      props
- * @param {Object}                      props.node     The node shown.
- * @param {?(trigger: Element) => void} [props.onOpen] Opens its sidecar grid; null draws no "…".
- * @return {import('react').ReactElement} The title row.
- */
-function TitleRow( { node, onOpen } ) {
-	return (
-		<div className="topology-insp__title-row">
-			<h2 className="topology-insp__title">{ node.id }</h2>
-			{ onOpen && node.sidecars?.length > 0 && (
-				<button
-					type="button"
-					className="button is-compact topology-insp__sidecars-open"
-					aria-haspopup="dialog"
-					aria-label={ sprintf(
-						// translators: %s: the node that owns them.
-						__( 'Owned nodes of %s', 'newspack-nodes' ),
-						node.id
-					) }
-					onClick={ ( ev ) => onOpen( ev.currentTarget ) }
-				>
-					…
-				</button>
-			) }
-		</div>
-	);
-}
-
-/**
  * Display form of a stored arg: the raw TSL span's VALUE — quote chars and
  * escapes are tokenizer syntax, not data, so they never leak into a field.
  * Storage keeps the span; an edited field writes back plain text, which the
@@ -1861,13 +1829,12 @@ function ComposeModal( { nodeNames, onSend, onCancel } ) {
  * include, since its configuration belongs to the topology that defines it.
  * A shown sidecar, an owned node no canvas draws, takes the selection's place:
  * its row is the one the console polls by name, and its own sidecars open from
- * a "…" in its title, since it has no card to carry one.
+ * the "…" on its card in its owner's grid.
  *
  * @param {Object}                  props
  * @param {?string}                 props.selectedId        Selected node id; null falls through to the hull or process view.
  * @param {?string}                 [props.sidecar]         An owned node shown in the selection's place; null shows the selection.
  * @param {?Object}                 [props.sidecarGraph]    The polled rows the shown sidecar's is among; null until they answer.
- * @param {Function}                [props.onOpenSidecars]  (owner, trigger) — opens a shown sidecar's own "…" grid.
  * @param {(name: string) => void}  [props.onOpenNode]      Shows a node an owner link or a back link names.
  * @param {?string}                 [props.selectedHull]    Selected include, shown only while no node is selected.
  * @param {Array}                   [props.hulls]           Every hull, `{ include, nodeIds }[]`.
@@ -1903,7 +1870,6 @@ export default function Inspector( {
 	selectedId,
 	sidecar = null,
 	sidecarGraph = null,
-	onOpenSidecars,
 	onOpenNode,
 	selectedHull = null,
 	hulls = [],
@@ -2388,14 +2354,7 @@ export default function Inspector( {
 
 	return (
 		<aside className="topology-inspector">
-			<TitleRow
-				node={ node }
-				onOpen={
-					sidecar
-						? ( trigger ) => onOpenSidecars( node.id, trigger )
-						: null
-				}
-			/>
+			<h2 className="topology-insp__title">{ node.id }</h2>
 			<div className="newspack-nodes-status is-accent topology-insp__type">
 				<span
 					className={ `topology-insp__led${

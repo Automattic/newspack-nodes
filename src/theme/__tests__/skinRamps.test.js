@@ -12,7 +12,7 @@ import { JSDOM } from 'jsdom';
 import selectorParser from 'postcss-selector-parser';
 import { THEMES } from '../../shared/theme';
 import { renderToStaticMarkup } from 'react-dom/server';
-import SidecarCard from '../../topology-console/components/SidecarCard';
+import SidecarsPopover from '../../topology-console/components/SidecarsPopover';
 // Babel/Jest already installs the parser used to discover real SVG text nodes.
 // eslint-disable-next-line import/no-extraneous-dependencies
 import { parse as parseJavaScript } from '@babel/parser';
@@ -1310,34 +1310,67 @@ describe( 'theme skin ramps', () => {
 			winningDeclaration( graphCascadeRecords, background, 'fill' )
 		).toMatchObject( {
 			selector:
-				'.theme-newspack-brand :is(.topology-app,.topology-sidecars) .topology-node:hover .topology-node__bg',
+				'.theme-newspack-brand .topology-app .topology-node:hover .topology-node__bg',
 			value: 'color-mix(in srgb, var(--ink) 8%, var(--paper-2))',
 		} );
 	} );
 
 	it.each( [ ...skinMaps.keys() ] )(
+		'leaves the %s selection border on a borrowed card undesaturated',
+		( slug ) => {
+			const background = createGraphFixture(
+				slug,
+				'is-borrowed is-selected'
+			).querySelector( '.topology-node__bg' );
+
+			expect(
+				winningDeclaration( graphCascadeRecords, background, 'filter' )
+					?.value ?? 'none'
+			).not.toMatch( /saturate/ );
+		}
+	);
+
+	it.each( [ ...skinMaps.keys() ] )(
 		'skins a sidecar grid card as the %s canvas skins its own',
 		( slug ) => {
-			const card = renderToStaticMarkup(
-				<SidecarCard
+			const popover = renderToStaticMarkup(
+				<SidecarsPopover
+					owners={ [ 'crawl-4471' ] }
+					depth={ 0 }
+					anchor={ { x: 410, y: 270 } }
+					sidecars={ [ { name: 'crawl-4471:seen', class: 'Table' } ] }
+					rows={
+						new Map( [
+							[
+								'crawl-4471:seen',
+								{ id: 'crawl-4471:seen', count: 9083 },
+							],
+						] )
+					}
+					rates={
+						new Map( [
+							[
+								'crawl-4471:seen',
+								{ rate: 37.5, history: [ 12, 37.5 ] },
+							],
+						] )
+					}
 					surface="topology-card-parity"
-					sidecar={ { name: 'crawl-4471:seen', class: 'Table' } }
-					row={ { id: 'crawl-4471:seen', count: 9083 } }
-					rate={ { rate: 37.5, history: [ 12, 37.5 ] } }
+					showDetail
+					shown={ null }
 					onPick={ () => {} }
+					onOpen={ () => {} }
 				/>
 			);
 			const grid = new JSDOM( `
 				<!doctype html>
 				<html class="theme-${ slug }">
 					<body>
-						<div class="newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui">
-							<div class="topology-modal newspack-nodes-modal topology-sidecars">
-								<div class="topology-modal__body topology-sidecars__grid">
-									${ card }
-								</div>
-							</div>
-						</div>
+						<main class="topology-app newspack-nodes-theme newspack-nodes-ui">
+							<section class="topology-canvas">
+								<svg class="topology-canvas-svg">${ popover }</svg>
+							</section>
+						</main>
 					</body>
 				</html>
 			` ).window.document;

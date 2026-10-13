@@ -1511,6 +1511,178 @@ describe( 'SchematicCanvas', () => {
 		// Just check deselect.
 	} );
 
+	describe( 'the overlay', () => {
+		const ambient = ( onViewportChange = () => {} ) => ( {
+			positionOverrides: baseProps.positionOverrides,
+			onPositionChange: baseProps.onPositionChange,
+			viewport: { x: 0, y: 0, w: 1000, h: 800 },
+			onViewportChange,
+		} );
+
+		it( "draws over the cards in world units, from each node's position", () => {
+			const overlay = jest.fn( ( { positionOf } ) => (
+				<rect
+					className="fixture-overlay"
+					x={ positionOf( 'b' ).x }
+					y={ positionOf( 'b' ).y }
+				/>
+			) );
+			const { container } = renderWithCatalog(
+				<SchematicCanvas { ...baseProps } overlay={ overlay } />,
+				ambient()
+			);
+			const drawn = container.querySelector( '.fixture-overlay' );
+			const svg = container.querySelector( '.topology-canvas-svg' );
+			expect( drawn.ownerSVGElement ).toBe( svg );
+			expect( drawn.getAttribute( 'x' ) ).toBe( '300' );
+			expect( drawn.getAttribute( 'y' ) ).toBe( '80' );
+			const layers = [ ...svg.children ];
+			expect( layers.indexOf( drawn.parentNode ) ).toBeGreaterThan(
+				layers.indexOf( svg.querySelector( '.topology-readouts' ) )
+			);
+			const [ { positionOf, surface } ] = overlay.mock.calls.at( -1 );
+			expect( positionOf( 'no-such-node' ) ).toBeNull();
+			expect( svg.style.getPropertyValue( '--topology-bloom-crt' ) ).toBe(
+				`url(#${ surface }-bloom-crt)`
+			);
+		} );
+
+		it( 'draws the overlay once across a pan that moves no node', () => {
+			const overlay = jest.fn( () => (
+				<rect className="fixture-overlay" />
+			) );
+			const { container, rerenderWithCatalog } = renderWithCatalog(
+				<SchematicCanvas { ...baseProps } overlay={ overlay } />,
+				ambient()
+			);
+			const calls = overlay.mock.calls.length;
+			rerenderWithCatalog(
+				<SchematicCanvas { ...baseProps } overlay={ overlay } />,
+				{ ...ambient(), viewport: { x: -140, y: -60, w: 1000, h: 800 } }
+			);
+			expect(
+				container
+					.querySelector( '.topology-canvas-svg' )
+					.getAttribute( 'viewBox' )
+			).toBe( '-140 -60 1000 800' );
+			expect( overlay.mock.calls.length ).toBe( calls );
+		} );
+
+		/**
+		 * Press the canvas background and release `dx` px to the right.
+		 *
+		 * @param {Element} svg The canvas.
+		 * @param {number}  dx  How far the release is from the press.
+		 */
+		const pressBackground = ( svg, dx ) => {
+			svg.getBoundingClientRect = () => ( {
+				x: 0,
+				y: 0,
+				width: 1000,
+				height: 800,
+				top: 0,
+				left: 0,
+				right: 1000,
+				bottom: 800,
+			} );
+			const from = {
+				button: 0,
+				pointerId: 9,
+				clientX: 410,
+				clientY: 270,
+			};
+			fireEvent.pointerDown( svg, from );
+			fireEvent.pointerMove( svg, { ...from, clientX: 410 + dx } );
+			fireEvent.pointerUp( svg, { ...from, clientX: 410 + dx } );
+		};
+
+		it( 'clears an overlay on a background click, rather than autofitting', () => {
+			const onDeselect = jest.fn();
+			const onViewportChange = jest.fn();
+			const { container } = renderWithCatalog(
+				<SchematicCanvas
+					{ ...baseProps }
+					onDeselect={ onDeselect }
+					overlay={ () => <rect className="fixture-overlay" /> }
+				/>,
+				ambient( onViewportChange )
+			);
+			pressBackground(
+				container.querySelector( '.topology-canvas-svg' ),
+				2
+			);
+			expect( onDeselect ).toHaveBeenCalledTimes( 1 );
+			expect( onViewportChange ).not.toHaveBeenCalled();
+		} );
+
+		it( 'autofits on a background click when the overlay drew nothing', () => {
+			const onDeselect = jest.fn();
+			const onViewportChange = jest.fn();
+			const { container } = renderWithCatalog(
+				<SchematicCanvas
+					{ ...baseProps }
+					onDeselect={ onDeselect }
+					overlay={ () => null }
+				/>,
+				ambient( onViewportChange )
+			);
+			pressBackground(
+				container.querySelector( '.topology-canvas-svg' ),
+				1
+			);
+			expect( onDeselect ).not.toHaveBeenCalled();
+			expect( onViewportChange ).toHaveBeenCalled();
+		} );
+
+		it( 'keeps an overlay through a background drag-pan', () => {
+			const onDeselect = jest.fn();
+			const onViewportChange = jest.fn();
+			const { container } = renderWithCatalog(
+				<SchematicCanvas
+					{ ...baseProps }
+					onDeselect={ onDeselect }
+					overlay={ () => <rect className="fixture-overlay" /> }
+				/>,
+				ambient( onViewportChange )
+			);
+			pressBackground(
+				container.querySelector( '.topology-canvas-svg' ),
+				140
+			);
+			expect( onDeselect ).not.toHaveBeenCalled();
+			expect( onViewportChange.mock.calls.at( -1 )[ 0 ].x ).toBe( -140 );
+		} );
+
+		it( 'hands its svg to a ref the host passes', () => {
+			const svgRef = { current: null };
+			const { container } = renderWithCatalog(
+				<SchematicCanvas { ...baseProps } svgRef={ svgRef } />,
+				ambient()
+			);
+			expect( svgRef.current ).toBe(
+				container.querySelector( '.topology-canvas-svg' )
+			);
+		} );
+
+		it( 'zooms the canvas on a wheel over it', () => {
+			const onViewportChange = jest.fn();
+			const { container } = renderWithCatalog(
+				<SchematicCanvas
+					{ ...baseProps }
+					overlay={ () => <rect className="fixture-overlay" /> }
+				/>,
+				ambient( onViewportChange )
+			);
+			fireEvent.wheel( container.querySelector( '.fixture-overlay' ), {
+				deltaY: 100,
+				clientX: 500,
+				clientY: 400,
+			} );
+			const [ vp ] = onViewportChange.mock.calls.at( -1 );
+			expect( vp.w ).toBeGreaterThan( 1000 );
+		} );
+	} );
+
 	// === Wheel zoom ===
 
 	it( 'wheel: scrolling down zooms out', () => {
@@ -3751,6 +3923,46 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		expect( group.classList.contains( 'topology-nodes--bloom' ) ).toBe(
 			false
 		);
+	} );
+
+	it( "hands its overlay each card's box as drawn, floored on screen", () => {
+		stubW = 1000;
+		stubH = 1000;
+		const overlay = jest.fn( () => null );
+		const at = ( w ) => {
+			renderWithCatalog(
+				<SchematicCanvas { ...lodProps } overlay={ overlay } />,
+				{
+					positionOverrides: lodProps.positionOverrides,
+					onPositionChange: lodProps.onPositionChange,
+					onViewportChange: lodProps.onViewportChange,
+					viewport: { x: 0, y: 0, w, h: w },
+				}
+			);
+			return overlay.mock.calls.at( -1 )[ 0 ].positionOf( 'b' );
+		};
+		expect( at( 1250 ) ).toEqual( { x: 300, y: 80, w: 196, h: 84 } );
+		expect( at( 250000 ) ).toEqual( { x: 300, y: 80, w: 500, h: 500 } );
+	} );
+
+	it( 'hands its overlay the level of detail it draws at', () => {
+		stubW = 1000;
+		stubH = 1000;
+		const overlay = jest.fn( () => null );
+		const at = ( w ) =>
+			renderWithCatalog(
+				<SchematicCanvas { ...lodProps } overlay={ overlay } />,
+				{
+					positionOverrides: lodProps.positionOverrides,
+					onPositionChange: lodProps.onPositionChange,
+					onViewportChange: lodProps.onViewportChange,
+					viewport: { x: 0, y: 0, w, h: w },
+				}
+			);
+		at( 50000 );
+		expect( overlay.mock.calls.at( -1 )[ 0 ].showDetail ).toBe( false );
+		at( 1250 );
+		expect( overlay.mock.calls.at( -1 )[ 0 ].showDetail ).toBe( true );
 	} );
 
 	it( 'clips the card label layer and pins the bloom filter to the viewport', () => {
