@@ -2000,7 +2000,7 @@ class RemoteConsumerNodeTest extends TestCase {
 		$this->assertFalse( Node::in_palette( $schema ) );
 		$this->assertSame( [ 'stamp', 'offsetlog_dir', 'deadletter_dir' ], \array_column( $schema['arguments'], 'name' ) );
 		$verbs = \array_column( $schema['commands'], 'name' );
-		foreach ( [ 'dl_list', 'dl_show', 'dl_requeue', 'dl_purge', 'add_snapshot_node', 'set_line_mode', 'seek_frame', 'pause', 'play', 'step', 'assume_clean_shutdown' ] as $verb ) {
+		foreach ( [ 'dl_list', 'dl_show', 'dl_requeue', 'dl_remove', 'dl_purge', 'add_snapshot_node', 'set_line_mode', 'seek_frame', 'pause', 'play', 'step', 'assume_clean_shutdown' ] as $verb ) {
 			$this->assertContains( $verb, $verbs );
 		}
 	}

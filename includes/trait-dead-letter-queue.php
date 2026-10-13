@@ -94,6 +94,15 @@ trait Dead_Letter_Queue {
 	/** Newest-first page size for the `dl_list` triage verb when no limit is given. */
 	public const DEADLETTER_LIST_DEFAULT_LIMIT = 50;
 
+	/** Status of a record no tombstone names: what `dl_list`'s total counts. */
+	public const DEADLETTER_QUARANTINED = 'quarantined';
+
+	/** Tombstone status: a requeue delivered the record and its sink returned. */
+	public const DEADLETTER_REQUEUED = 'requeued';
+
+	/** Tombstone status: an operator removed the record, so `dl_list` omits it. */
+	public const DEADLETTER_REMOVED = 'removed';
+
 	/**
 	 * Times the message at the boot cursor has been attempted without advancing past
 	 * it. One is the healthy baseline (a running checkpoint); zero is a
@@ -309,14 +318,16 @@ trait Dead_Letter_Queue {
 	}
 
 	/**
-	 * List quarantined records newest-first, capped at $limit. Each row is the .idx
+	 * List dead-letter records newest-first, capped at $limit. Each row is the .idx
 	 * triage metadata (reason, attempts, first_crash_ts, quarantine ts, source
-	 * breadcrumb, sidecar locator). `total` counts ALL indexed records — the badge
-	 * number — not the returned page. `unindexed_segments` counts .log segments with no
-	 * .idx companion, quarantined by a writer that wrote no index: they stay out of
-	 * `rows`, remain replayable via `wp nodes ingest`, and rotate out within
-	 * DEADLETTER_NUM_SEGMENTS. The queue is count-bounded, so the full .idx pass behind
-	 * the totals stays cheap.
+	 * breadcrumb, sidecar locator) plus its `status`: `quarantined`, or `requeued`
+	 * once a requeue's sink returned. A removed record is omitted, and a tombstone
+	 * is never a row of its own. `total` counts the records still quarantined — the
+	 * badge number — not the returned page. `unindexed_segments` counts .log
+	 * segments with no .idx companion, or an empty one, quarantined by a writer that wrote no index:
+	 * they stay out of `rows`, remain replayable via `wp nodes ingest`, and rotate
+	 * out within DEADLETTER_NUM_SEGMENTS. The queue is count-bounded, so the full
+	 * .idx pass behind the total stays cheap.
 	 *
 	 * @param int $limit Rows to return; the walk still visits every record for the totals.
 	 * @return array{rows: array<int,mixed>, total: int, unindexed_segments: int}
@@ -326,26 +337,29 @@ trait Dead_Letter_Queue {
 		if ( null === $deadletter ) {
 			return [ 'rows' => [], 'total' => 0, 'unindexed_segments' => 0 ];
 		}
-		$rows         = [];
-		$total        = 0;
-		$indexed_segs = [];
-		$deadletter->scan_index(
-			static function ( string $line, int $segment ) use ( &$rows, &$total, &$indexed_segs, $limit ): bool {
-				$indexed_segs[ $segment ] = true;
-				++$total;
-				if ( \count( $rows ) < $limit ) {
-					$row = \json_decode( $line, true );
-					if ( \is_array( $row ) ) {
-						$rows[] = $row;
-					}
+		$rows  = [];
+		$total = 0;
+		self::walk_deadletter(
+			$deadletter,
+			static function ( array $row, string $status ) use ( &$rows, &$total, $limit ): bool {
+				if ( self::DEADLETTER_REMOVED === $status ) {
+					return true;
 				}
-				return true; // Full pass: total + unindexed count need every segment.
-			},
-			true
+				if ( self::DEADLETTER_QUARANTINED === $status ) {
+					++$total;
+				}
+				if ( \count( $rows ) < $limit ) {
+					$rows[] = [ ...$row, 'status' => $status ];
+				}
+				return true; // Full pass: total needs every record.
+			}
 		);
 		$unindexed = 0;
 		foreach ( $deadletter->get_segments() as $s ) {
-			if ( ! isset( $indexed_segs[ $s['id'] ] ) ) {
+			// get_handle() creates an .idx before its first line lands.
+			$idx = self::deadletter_index_path( $deadletter, $s['id'] );
+			\clearstatcache( true, $idx );
+			if ( 0 === (int) @\filesize( $idx ) ) {
 				++$unindexed;
 			}
 		}
@@ -365,24 +379,152 @@ trait Dead_Letter_Queue {
 	 * split its record, and a foreign append of ANY size can land inside the gap.
 	 * Delivering also spares the log's other tailers a record only this node failed.
 	 *
+	 * A delivery whose sink returned appends a `requeued` tombstone, so the row
+	 * lists as requeued; one that throws appends nothing and the row stays as it
+	 * was. A removed record is refused rather than delivered, and so is an
+	 * unaddressed one or one whose first hop names no mounted node, which the
+	 * Router would drop without a throw. A record dropped deeper in its path
+	 * still reads requeued, as does a job no handler is registered for. A
+	 * tombstone that cannot be written after the sink took the record leaves the
+	 * ok line standing with a warning beside it, because an error would invite a
+	 * second delivery.
+	 *
 	 * @param string $locator `segment:offset:length` in the sidecar, from dl_list.
-	 * @return string The `ok:` line the verb replies.
-	 * @throws \RuntimeException When there is no queue, no sink or no such record.
+	 * @return string The `ok:` line the verb replies, with any warning after it.
+	 * @throws \RuntimeException When there is no queue, no sink, no such record, no route, or it was removed.
 	 */
 	public function requeue_deadletter( string $locator ): string {
-		$this->require_deadletter();
+		$deadletter = $this->require_deadletter();
 		if ( null === $this->sink ) {
 			throw new \RuntimeException( 'requeue unavailable — this node has no sink to deliver into' );
 		}
-		$message = $this->deadletter_record( $locator );
+		$crumb   = self::require_listed( $deadletter, $locator, self::DEADLETTER_QUARANTINED, self::DEADLETTER_REQUEUED );
+		$message = self::deadletter_record( $deadletter, $crumb, $locator );
 		// Address it as forward_line does; Router, not the sink, delivers.
 		if ( \is_string( $this->target ) && '' !== $this->target ) {
 			$message[ Message::TO ] = $this->target;
 		}
+		$to = Core::as_string( $message[ Message::TO ] );
+		if ( '' === $to ) {
+			throw new \RuntimeException( \esc_html( "requeue refused — the record at {$locator} has no destination: its TO is empty and this node has no target" ) );
+		}
+		// The table Router_Node::fill() indexes by the head of TO.
+		if ( null === Core::node( \explode( '/', $to, 2 )[0] ) ) {
+			throw new \RuntimeException( \esc_html( "requeue refused — no node is mounted to route {$to}" ) );
+		}
 		// Let a re-throw escape: only a raise stamps TM_ERROR for the UI.
 		$size = Message::packed_size( $message );
 		$this->sink->fill( $message );
-		return "ok: redelivered {$locator} ({$size} bytes) to the sink\n";
+		$ok = "ok: redelivered {$locator} ({$size} bytes) to the sink\n";
+		try {
+			self::tombstone_deadletter( $deadletter, $locator, self::DEADLETTER_REQUEUED );
+		} catch ( Worker_Should_Stop $e ) {
+			throw $e;
+		} catch ( \Throwable $e ) {
+			$this->print_less_often( "DEAD-LETTER {$this->name} requeued status not recorded at ", $locator, ' — ', $e->getMessage() );
+			return $ok . "warning: requeued status not recorded — {$e->getMessage()}\n";
+		}
+		return $ok;
+	}
+
+	/**
+	 * Remove the record at $locator from the triage list by appending a `removed`
+	 * tombstone. The record itself stays in the sidecar until its segment rotates
+	 * out, so `wp nodes ingest` still replays it.
+	 *
+	 * @param string $locator `segment:offset:length` in the sidecar, from dl_list.
+	 * @return string The `ok:` line the verb replies.
+	 * @throws \RuntimeException When there is no queue, no listed record there, or it was removed.
+	 */
+	public function remove_deadletter( string $locator ): string {
+		$deadletter = $this->require_deadletter();
+		self::require_listed( $deadletter, $locator, self::DEADLETTER_REQUEUED );
+		self::tombstone_deadletter( $deadletter, $locator, self::DEADLETTER_REMOVED );
+		return "ok: removed {$locator}\n";
+	}
+
+	/**
+	 * The breadcrumb of the listed record at $locator, refused unless its status
+	 * is one of $allowed: no .idx row names it, a tombstone removed it, or it
+	 * stands at a status the verb does not act on. A line that does not contain
+	 * the locator is skipped undecoded; the exact compare still decides.
+	 *
+	 * @param Partition_Node $deadletter The sidecar.
+	 * @param string         $locator    `segment:offset:length` in the sidecar, from dl_list.
+	 * @param string         ...$allowed The statuses the calling verb acts on.
+	 * @return array{segment: int, offset: int, length: int} The record's position.
+	 * @throws \RuntimeException When the locator is malformed, or names no record at an allowed status.
+	 */
+	private static function require_listed( Partition_Node $deadletter, string $locator, string ...$allowed ): array {
+		$crumb  = self::deadletter_crumb( $locator );
+		$status = null;
+		self::walk_deadletter(
+			$deadletter,
+			static function ( array $row, string $found ) use ( $locator, &$status ): bool {
+				if ( ( $row['locator'] ?? null ) !== $locator ) {
+					return true;
+				}
+				$status = $found;
+				return false;
+			},
+			$locator
+		);
+		if ( null === $status ) {
+			throw new \RuntimeException( \esc_html( "no dead-letter record at {$locator}" ) );
+		}
+		if ( self::DEADLETTER_REMOVED === $status ) {
+			throw new \RuntimeException( \esc_html( "dead-letter record at {$locator} is already removed" ) );
+		}
+		if ( ! \in_array( $status, $allowed, true ) ) {
+			throw new \RuntimeException( \esc_html( "dead-letter record at {$locator} is {$status}, not " . \implode( ' or ', $allowed ) ) );
+		}
+		return $crumb;
+	}
+
+	/**
+	 * Walk the sidecar's .idx newest-first, handing $visit each record row with
+	 * its status: the one its latest tombstone set — the first met, walking
+	 * backwards — or `quarantined` when none did. A tombstone is folded, never
+	 * visited, and one whose record rotated out is folded and never read.
+	 *
+	 * @param Partition_Node                                $deadletter The sidecar.
+	 * @param \Closure(array<array-key,mixed>, string): bool $visit      Row and status; false stops the walk.
+	 * @param string                                        $needle     Skip, undecoded, a line not containing it.
+	 */
+	private static function walk_deadletter( Partition_Node $deadletter, \Closure $visit, string $needle = '' ): void {
+		$tombstones = [];
+		$deadletter->scan_index(
+			static function ( string $line ) use ( $visit, $needle, &$tombstones ): bool {
+				if ( ! \str_contains( $line, $needle ) ) {
+					return true;
+				}
+				$row = \json_decode( $line, true );
+				if ( ! \is_array( $row ) ) {
+					return true;
+				}
+				$locator = Core::as_string( $row['locator'] ?? '' );
+				if ( isset( $row['status'] ) ) {
+					$tombstones[ $locator ] ??= Core::as_string( $row['status'] );
+					return true;
+				}
+				return $visit( $row, $tombstones[ $locator ] ?? self::DEADLETTER_QUARANTINED );
+			},
+			true
+		);
+	}
+
+	/**
+	 * Append a tombstone setting the status of the record at $locator. It is an
+	 * .idx line with no record behind it, so `wp nodes ingest` never replays it.
+	 *
+	 * @param Partition_Node $deadletter The sidecar.
+	 * @param string         $locator    `segment:offset:length` of the record it names.
+	 * @param string         $status     DEADLETTER_REQUEUED or DEADLETTER_REMOVED.
+	 */
+	private static function tombstone_deadletter( Partition_Node $deadletter, string $locator, string $status ): void {
+		$deadletter->append_index(
+			(string) \wp_json_encode( [ 'locator' => $locator, 'status' => $status, 'ts' => (int) Core::$now ] )
+		);
 	}
 
 	/**
@@ -396,7 +538,8 @@ trait Dead_Letter_Queue {
 	 * @throws \RuntimeException When there is no queue or no such record.
 	 */
 	public function show_deadletter( string $locator ): array {
-		$message = $this->deadletter_record( $locator );
+		$deadletter = $this->require_deadletter();
+		$message    = self::deadletter_record( $deadletter, self::deadletter_crumb( $locator ), $locator );
 		$type = Core::as_int( $message[ Message::TYPE ] ?? 0 );
 		return [
 			'type'       => $type,
@@ -426,7 +569,7 @@ trait Dead_Letter_Queue {
 		$segments = $deadletter->get_segments( true );
 		foreach ( $segments as $s ) {
 			$log = $deadletter->get_segment_path( $s['id'] );
-			$idx = \substr( $log, 0, -4 ) . '.idx'; // {seg}.log → {seg}.idx.
+			$idx = self::deadletter_index_path( $deadletter, $s['id'] );
 			// DLQ segment dir is base_dir-relative — not WP-managed.
 			// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
 			if ( @\unlink( $log ) ) {
@@ -441,6 +584,17 @@ trait Dead_Letter_Queue {
 	}
 
 	/**
+	 * The companion index of one dead-letter segment: `{seg}.log` → `{seg}.idx`.
+	 *
+	 * @param Partition_Node $deadletter The sidecar.
+	 * @param int            $segment    Segment id.
+	 * @return string The `.idx` path.
+	 */
+	private static function deadletter_index_path( Partition_Node $deadletter, int $segment ): string {
+		return \substr( $deadletter->get_segment_path( $segment ), 0, -4 ) . '.idx';
+	}
+
+	/**
 	 * The dead-letter sidecar, for a verb that cannot answer without one.
 	 *
 	 * @return Partition_Node The sidecar.
@@ -451,21 +605,31 @@ trait Dead_Letter_Queue {
 	}
 
 	/**
-	 * Read the quarantined message a `dl_list` locator names, read as a
-	 * breadcrumb through `Log_Position::crumb()`. A malformed locator is
-	 * refused, never coerced: an operator pastes it, and a coerced `abc` would
-	 * redeliver another record without complaint.
+	 * Read the quarantined message at a parsed `dl_list` locator.
 	 *
-	 * @param string $locator `segment:offset:length` in the sidecar.
+	 * @param Partition_Node                                $deadletter The sidecar.
+	 * @param array{segment: int, offset: int, length: int} $crumb      The locator, parsed.
+	 * @param string                                        $locator    The locator as given, for the refusal.
 	 * @return array<int,mixed> The message, positional.
-	 * @throws \RuntimeException When there is no queue, the locator is malformed, or no record sits there.
+	 * @throws \RuntimeException When no record sits there.
 	 */
-	private function deadletter_record( string $locator ): array {
-		$deadletter = $this->require_deadletter();
-		$crumb      = Log_Position::crumb( $locator )
-			?? throw new \RuntimeException( \esc_html( "malformed locator '{$locator}' — want segment:offset:length from dl_list" ) );
+	private static function deadletter_record( Partition_Node $deadletter, array $crumb, string $locator ): array {
 		return $deadletter->read_message_at( $crumb['segment'], $crumb['offset'], $crumb['length'] )
 			?? throw new \RuntimeException( \esc_html( "no dead-letter record at {$locator}" ) );
+	}
+
+	/**
+	 * A `dl_list` locator read as a breadcrumb through `Log_Position::crumb()`.
+	 * A malformed locator is refused, never coerced: an operator pastes it, and
+	 * a coerced `abc` would act on another record without complaint.
+	 *
+	 * @param string $locator `segment:offset:length` in the sidecar.
+	 * @return array{segment: int, offset: int, length: int} The position.
+	 * @throws \RuntimeException When the locator is malformed.
+	 */
+	private static function deadletter_crumb( string $locator ): array {
+		return Log_Position::crumb( $locator )
+			?? throw new \RuntimeException( \esc_html( "malformed locator '{$locator}' — want segment:offset:length from dl_list" ) );
 	}
 
 	/**
@@ -559,10 +723,10 @@ trait Dead_Letter_Queue {
 
 	/**
 	 * The triage verb table, merged into a using node's `node_schema()['commands']` so
-	 * Consumer and Remote_Consumer both expose dl_list, dl_show, dl_requeue and dl_purge
-	 * on their `{name}:config` interpreter (auto-wired by Schema_Reflection — no CI
+	 * Consumer and Remote_Consumer both expose dl_list, dl_show, dl_requeue, dl_remove
+	 * and dl_purge on their `{name}:config` interpreter (auto-wired by Schema_Reflection — no CI
 	 * edits). Every verb is hidden because the Inspector's Triage modal drives them:
-	 * dl_show and dl_requeue need a sidecar locator only its listing supplies, so a
+	 * dl_show, dl_requeue and dl_remove need a sidecar locator only its listing supplies, so a
 	 * generic verb button would offer an operator a field they cannot fill.
 	 *
 	 * A handler refuses by throwing, like every verb, so the reply is a TM_ERROR the
@@ -575,7 +739,7 @@ trait Dead_Letter_Queue {
 			[
 				'name'        => 'dl_list',
 				'capability'  => Capabilities::READ,
-				'description' => 'List quarantined dead-letter records newest-first (reason, attempts, first_crash_ts, quarantine ts, source breadcrumb, sidecar locator). Optional limit (default ' . self::DEADLETTER_LIST_DEFAULT_LIMIT . ').',
+				'description' => 'List dead-letter records newest-first (reason, attempts, first_crash_ts, quarantine ts, source breadcrumb, sidecar locator), each with a status (quarantined or requeued); removed records are omitted, and total counts only records still quarantined. Optional limit (default ' . self::DEADLETTER_LIST_DEFAULT_LIMIT . ').',
 				'hidden'      => true,
 				'args'        => [
 					[ 'name' => 'limit', 'type' => 'int', 'required' => false ],
@@ -600,6 +764,15 @@ trait Dead_Letter_Queue {
 					[ 'name' => 'locator', 'type' => 'string', 'required' => true ],
 				],
 				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_dl_requeue( $interpreter, $args ),
+			],
+			[
+				'name'        => 'dl_remove',
+				'description' => 'Remove the dead-letter record at <locator> (segment:offset:length from dl_list) from the triage list; the queued copy stays replayable until it rotates out.',
+				'hidden'      => true,
+				'args'        => [
+					[ 'name' => 'locator', 'type' => 'string', 'required' => true ],
+				],
+				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_dl_remove( $interpreter, $args ),
 			],
 			[
 				'name'        => 'dl_purge',
@@ -663,6 +836,18 @@ trait Dead_Letter_Queue {
 	public static function cmd_dl_requeue( Command_Interpreter_Node $interpreter, array $args ): string {
 		$patron = self::deadletter_patron( $interpreter );
 		return $patron->requeue_deadletter( Core::as_string( $args['locator'] ) );
+	}
+
+	/**
+	 * `dl_remove` verb handler — tombstone one record; reply the `ok:` line.
+	 *
+	 * @param Command_Interpreter_Node $interpreter The `{name}:config` interpreter.
+	 * @param array<array-key,mixed>   $args        Bound verb arguments: locator, from dl_list.
+	 * @return string The `ok:` line.
+	 */
+	public static function cmd_dl_remove( Command_Interpreter_Node $interpreter, array $args ): string {
+		$patron = self::deadletter_patron( $interpreter );
+		return $patron->remove_deadletter( Core::as_string( $args['locator'] ) );
 	}
 
 	/**

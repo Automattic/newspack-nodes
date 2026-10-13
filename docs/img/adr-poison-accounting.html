@@ -77,7 +77,7 @@
   </div>
   <div class="card">
     <h3>Triage lives on the reader's own interpreter</h3>
-    <p><span class="mono">Dead_Letter_Queue</span> merges <span class="mono">dl_list</span>, <span class="mono">dl_show</span>, <span class="mono">dl_requeue</span> and <span class="mono">dl_purge</span> into the using node's <span class="mono">node_schema()['commands']</span>, so both readers expose them on <span class="mono">{name}:config</span> with no CI edit. All four are hidden, because <span class="mono">dl_show</span> and <span class="mono">dl_requeue</span> need a sidecar locator only the listing supplies. Every give-up emits a rate-limited alert and, when configured, a replayable entry.</p>
+    <p><span class="mono">Dead_Letter_Queue</span> merges <span class="mono">dl_list</span>, <span class="mono">dl_show</span>, <span class="mono">dl_requeue</span>, <span class="mono">dl_remove</span> and <span class="mono">dl_purge</span> into the using node's <span class="mono">node_schema()['commands']</span>, so both readers expose them on <span class="mono">{name}:config</span> with no CI edit. All five are hidden, because <span class="mono">dl_show</span>, <span class="mono">dl_requeue</span> and <span class="mono">dl_remove</span> need a sidecar locator only the listing supplies. Every give-up emits a rate-limited alert and, when configured, a replayable entry.</p>
   </div>
   <div class="card">
     <h3>A third user with no cursor at all</h3>

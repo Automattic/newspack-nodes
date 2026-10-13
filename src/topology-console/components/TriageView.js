@@ -1,9 +1,10 @@
 /**
  * TriageView — the dead-letter queue of the selected consumer-family node, shown
  * inside the Inspector's wide Triage modal. It dispatches the hidden `dl_list` /
- * `dl_show` / `dl_requeue` / `dl_purge` verbs at that node's `:config`
- * interpreter through `onAction`, and renders the `dl_list` page as a table of
- * quarantined records carrying per-row View and Requeue buttons.
+ * `dl_show` / `dl_requeue` / `dl_remove` / `dl_purge` verbs at that node's
+ * `:config` interpreter through `onAction`, and renders the `dl_list` page as a
+ * table of dead-letter records carrying per-row View and Requeue buttons. A row
+ * whose requeue returned lists as `requeued` and offers Remove instead.
  *
  * Each verb mints its command FROM its OWN receiver node, so the reply lands
  * there and the addressing IS the correlation (ADR-7). One shared receiver would
@@ -29,6 +30,9 @@ import { TYPE, VALUE, TM_ERROR, payloadOf } from '../../runtime/message';
 import { formatMessageEnvelope } from '../../runtime/dumper-node';
 import { formatLocalDateTime } from '@newspack-nodes/shared/utils/formatUtils';
 import './triage-view.scss';
+
+/** The `dl_list` status of a record whose requeue returned. */
+const REQUEUED = 'requeued';
 
 /**
  * What the panel shows for a record.
@@ -65,8 +69,8 @@ function recordBody( record, reason ) {
  *
  * A payload that is not a page carrying a `rows` array sets `malformed`
  * instead of throwing, so a worker answering something unexpected costs the
- * operator a status line rather than the modal. `total` counts every indexed
- * record the node holds, not the rows in this page, which is what makes it the
+ * operator a status line rather than the modal. `total` counts every record
+ * still quarantined, not the rows in this page, which is what makes it the
  * badge number.
  *
  * @param {*} payload The reply payload, the page object when the verb succeeded.
@@ -110,6 +114,8 @@ export default function TriageView( { node, onAction } ) {
 	const [ shown, setShown ] = useState( null );
 	// dl_show in flight; every View button is disabled until it replies.
 	const [ viewPending, setViewPending ] = useState( false );
+	// A requeue or remove in flight; row actions wait for the next dl_list.
+	const [ settlePending, setSettlePending ] = useState( false );
 
 	// The latest onAction, read at dispatch rather than captured per render.
 	const onActionRef = useRef( onAction );
@@ -175,7 +181,7 @@ export default function TriageView( { node, onAction } ) {
 	 * The console hands down a fresh dispatcher on every poll, and a `runVerb`
 	 * that changed with it would refetch the list on each one.
 	 *
-	 * @param {string}                                   verb    Verb name, `dl_list`, `dl_show`, `dl_requeue` or `dl_purge`.
+	 * @param {string}                                   verb    Verb name, `dl_list`, `dl_show`, `dl_requeue`, `dl_remove` or `dl_purge`.
 	 * @param {string[]}                                 args    The verb's argument tokens; empty when it takes none.
 	 * @param {(payload: any, isError: boolean) => void} onReply Runs on the reply, unless the modal has closed.
 	 */
@@ -199,11 +205,13 @@ export default function TriageView( { node, onAction } ) {
 	 * An open record panel and an armed purge both belong to the page they were
 	 * opened on: the panel's locator may no longer resolve, and a purge
 	 * confirmed against a stale count is not the purge the operator agreed to.
+	 * Its reply also frees the row actions a requeue or remove held.
 	 */
 	const refresh = useCallback( () => {
 		setConfirmPurge( false );
 		setShown( null );
 		runVerb( 'dl_list', [], ( payload, isError ) => {
+			setSettlePending( false );
 			if ( isError ) {
 				setStatus( { text: String( payload ?? '' ), isError: true } );
 				return;
@@ -264,23 +272,24 @@ export default function TriageView( { node, onAction } ) {
 	};
 
 	/**
-	 * Redeliver one record to the node's sink, then refetch.
+	 * Requeue or remove one record, then refetch.
 	 *
-	 * The status line takes the `ok:` line or the refusal alike. The quarantined
-	 * copy stays put, which is why the refetched page still lists the row.
+	 * The status line takes the `ok:` line or the refusal alike. A requeued
+	 * record stays put, so the refetched page lists it as `requeued`; a removed
+	 * one leaves the page. Every row's action stays disabled until the
+	 * refetched page lands, so neither a double-click nor the stale row can
+	 * send a second command; Refresh is the way out when a reply is lost.
 	 *
+	 * @param {string} verb    `dl_requeue` or `dl_remove`.
 	 * @param {string} locator The record's `segment:offset:length` in the sidecar.
 	 */
-	const requeue = ( locator ) => {
+	const settle = ( verb, locator ) => {
 		setConfirmPurge( false );
-		runVerb(
-			'dl_requeue',
-			[ `--locator=${ locator }` ],
-			( payload, isError ) => {
-				setStatus( { text: String( payload ?? '' ), isError } );
-				refresh();
-			}
-		);
+		setSettlePending( true );
+		runVerb( verb, [ `--locator=${ locator }` ], ( payload, isError ) => {
+			setStatus( { text: String( payload ?? '' ), isError } );
+			refresh();
+		} );
 	};
 
 	/**
@@ -377,6 +386,9 @@ export default function TriageView( { node, onAction } ) {
 									{ __( 'REASON', 'newspack-nodes' ) }
 								</th>
 								<th className="nodes-runtime__th">
+									{ __( 'STATUS', 'newspack-nodes' ) }
+								</th>
+								<th className="nodes-runtime__th">
 									{ __( 'ATTEMPTS', 'newspack-nodes' ) }
 								</th>
 								<th className="nodes-runtime__th">
@@ -397,6 +409,9 @@ export default function TriageView( { node, onAction } ) {
 										</td>
 										<td className="nodes-runtime__td">
 											{ r.reason }
+										</td>
+										<td className="nodes-runtime__td">
+											{ r.status }
 										</td>
 										<td className="nodes-runtime__td">
 											{ r.attempts }
@@ -434,14 +449,25 @@ export default function TriageView( { node, onAction } ) {
 											<button
 												type="button"
 												className="button is-compact"
+												disabled={ settlePending }
 												onClick={ () =>
-													requeue( r.locator )
+													settle(
+														REQUEUED === r.status
+															? 'dl_remove'
+															: 'dl_requeue',
+														r.locator
+													)
 												}
 											>
-												{ __(
-													'Requeue',
-													'newspack-nodes'
-												) }
+												{ REQUEUED === r.status
+													? __(
+															'Remove',
+															'newspack-nodes'
+													  )
+													: __(
+															'Requeue',
+															'newspack-nodes'
+													  ) }
 											</button>
 										</td>
 									</tr>
@@ -449,7 +475,7 @@ export default function TriageView( { node, onAction } ) {
 										<tr className="nodes-runtime__row triage-view__record-row">
 											<td
 												className="nodes-runtime__td"
-												colSpan={ 6 }
+												colSpan={ 7 }
 											>
 												<pre
 													className="triage-view__record"
