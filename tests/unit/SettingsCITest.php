@@ -149,6 +149,37 @@ class SettingsCITest extends TestCase {
 		$this->assertFileDoesNotExist( $this->lock_dir . '/' . \Newspack_Nodes\Lock_Node::RELOAD_FLAG );
 	}
 
+	/**
+	 * The options table hands an int back as a string, and the hub pushes the
+	 * full option name: two such pushes in a row, the settings-sync loop's
+	 * shape, write nothing, fire no option action and flag no worker.
+	 */
+	public function test_set_verb_pushing_the_stored_string_int_in_its_wire_form_writes_nothing(): void {
+		$this->activate_partition_topology();
+		$GLOBALS['_wp_options']['newspack_nodes_remote_min_segments'] = '11';
+		\Newspack_Nodes\Config::reset();
+		$writes = 0;
+		$count  = static function () use ( &$writes ): void {
+			++$writes;
+		};
+		$GLOBALS['_test_fire_option_actions'] = true;
+		\add_action( 'update_option', $count );
+		try {
+			$first = VerbHarness::fire( new Settings_CI_Node(), 'settings', 'set', 'newspack_nodes_remote_min_segments 11' );
+			VerbHarness::reset();
+			$second = VerbHarness::fire( new Settings_CI_Node(), 'settings', 'set', 'newspack_nodes_remote_min_segments 11' );
+		} finally {
+			unset( $GLOBALS['_test_fire_option_actions'] );
+		}
+
+		$this->assertIsArray( $first, 'each push answers with the snapshot' );
+		$this->assertIsArray( $second );
+		$this->assertSame( '11', $GLOBALS['_wp_options']['newspack_nodes_remote_min_segments'], 'the stored row is untouched' );
+		$this->assertSame( 0, $writes, 'no option action, so no settings event' );
+		$this->assertFileDoesNotExist( $this->lock_dir . '/' . \Newspack_Nodes\Lock_Node::RESTART_FLAG );
+		$this->assertFileDoesNotExist( $this->lock_dir . '/' . \Newspack_Nodes\Lock_Node::RELOAD_FLAG );
+	}
+
 	public function test_set_verb_to_a_new_value_still_restarts_and_reloads(): void {
 		// The counterpart guard: gating the no-op push must not gate the real one.
 		$this->activate_partition_topology();
