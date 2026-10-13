@@ -33,6 +33,10 @@ if ( 'undefined' !== typeof window ) {
 	const { createTimerHazardGuard, firstFrame } = require( './timer-hazard' );
 	const guard = createTimerHazardGuard();
 
+	// Suites fake the stream as `global.EventSource`; open it through that.
+	SseInNode.openStream = ( url ) =>
+		new global.EventSource( url, { withCredentials: true } );
+
 	// @longform
 	// Registered BEFORE the dispose hooks below, because jest-circus runs
 	// same-block afterEach hooks in declaration order and every dispose tells

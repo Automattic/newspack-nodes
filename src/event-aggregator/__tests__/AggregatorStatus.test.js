@@ -380,45 +380,6 @@ describe( 'AggregatorStatus', () => {
 		expect( partition.textContent ).toContain( 'HTTP 207' );
 	} );
 
-	it( 'names the torn lines a spoke skipped, and only when it skipped some', () => {
-		registerSlices( {
-			summary: { serverNow: 2000, loading: false },
-			servers: {
-				servers: [
-					{
-						id: 'torn-spoke',
-						url: 'https://torn.example.test',
-						partitions: {
-							0: { connected: true, unparseable_lines: 37 },
-							1: { connected: true, unparseable_lines: 0 },
-						},
-					},
-				],
-				loading: false,
-			},
-		} );
-		const { container } = mount();
-		const [ torn, clean ] = container.querySelectorAll(
-			'.aggregator-partition'
-		);
-		const skippedRow = ( partition ) =>
-			[
-				...partition.querySelectorAll( '.aggregator-partition-row' ),
-			].find(
-				( row ) =>
-					'Skipped lines' ===
-					row.querySelector( '.aggregator-partition-stat-label' )
-						.textContent
-			);
-
-		expect(
-			skippedRow( torn ).querySelector(
-				'.aggregator-partition-stat-value'
-			).textContent
-		).toBe( '37' );
-		expect( skippedRow( clean ) ).toBeUndefined();
-	} );
-
 	it( "lists each reader's stamp, cursor and lag beside its broker", () => {
 		registerSlices( {
 			summary: { serverNow: 2000, loading: false },

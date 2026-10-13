@@ -262,6 +262,7 @@ abstract class TestCase extends PHPUnitTestCase {
 		if ( \class_exists( '\Newspack_Nodes\Event_Framework', false ) ) {
 			\Newspack_Nodes\Event_Framework::$sleep         = null;
 			\Newspack_Nodes\Event_Framework::$curl_dispatch = null;
+			\Newspack_Nodes\Event_Framework::$curl_pause    = null;
 			\Newspack_Nodes\Event_Framework::$curl_poll     = null;
 			\Newspack_Nodes\HTTP_Out_Node::$curl_result     = null;
 			\Newspack_Nodes\Curl_Node::$curl_result         = null;
@@ -553,9 +554,116 @@ abstract class TestCase extends PHPUnitTestCase {
 		return self::sse_frame( 'connected', [ Message::TYPE => Message::TM_INFO, Message::KEY => 'connected', Message::VALUE => $value ] );
 	}
 
-	/** An `unparseable_lines` SSE frame: `COUNT n CURSORS dir=segment:offset,…`. */
-	protected static function unparseable_frame( string $value ): string {
-		return self::sse_frame( 'unparseable_lines', [ Message::TYPE => Message::TM_INFO, Message::KEY => 'unparseable_lines', Message::VALUE => $value ] );
+	/** A `heartbeat` SSE frame carrying the spoke's wall seconds. */
+	protected static function heartbeat_frame( string $value ): string {
+		return self::sse_frame( 'heartbeat', [ Message::TYPE => Message::TM_INFO, Message::KEY => 'heartbeat', Message::VALUE => $value ] );
+	}
+
+	/**
+	 * A raw block as a stream's reader sends it: its header, then its bytes,
+	 * both stamped FROM the stream. A `sources/` stamp is a Tail's, whose
+	 * lines are text.
+	 *
+	 * @param string   $stamp    The stream the block belongs to.
+	 * @param string   $at       Where it begins, `segment:offset`.
+	 * @param string   $bytes    The raw bytes.
+	 * @param int|null $distance What the log holds from `$at`; the bytes' own length when null.
+	 * @return array{0:array<int,mixed>,1:array<int,mixed>} The header, then the batch.
+	 */
+	protected static function block_of( string $stamp, string $at, string $bytes, ?int $distance = null ): array {
+		[ $segment, $offset ] = \array_map( 'intval', \explode( ':', $at ) );
+		$messages             = \Newspack_Nodes\Consumer_Node::block_messages( [
+			'bytes'    => $bytes,
+			'segment'  => $segment,
+			'offset'   => $offset,
+			'distance' => $distance ?? \strlen( $bytes ),
+			'reset'    => false,
+			'type'     => \str_starts_with( $stamp, 'sources/' ) ? Message::TM_BATCH | Message::TM_BYTESTREAM : Message::TM_BATCH,
+		] );
+		$messages[0][ Message::FROM ] = $stamp;
+		$messages[1][ Message::FROM ] = $stamp;
+		return $messages;
+	}
+
+	/**
+	 * The two `batch` SSE frames `block_of()`'s block travels in.
+	 *
+	 * @param string   $stamp    The stream the block belongs to.
+	 * @param string   $at       Where it begins, `segment:offset`.
+	 * @param string   $bytes    The raw bytes.
+	 * @param int|null $distance What the log holds from `$at`; the bytes' own length when null.
+	 */
+	protected static function block_frames( string $stamp, string $at, string $bytes, ?int $distance = null ): string {
+		return \implode( '', \array_map( static fn ( array $m ): string => self::sse_frame( 'msg', $m ), self::block_of( $stamp, $at, $bytes, $distance ) ) );
+	}
+
+	/**
+	 * One record in a raw block where its `segment:offset:length` ID places
+	 * it. The block holds the line the spoke's log does: FROM less the
+	 * stream's stamp, which the hub restores, no ID, and padded with the
+	 * trailing blanks JSON allows to the crumb's length.
+	 *
+	 * @param array<int,mixed> $fields Message fields, keyed by `Message::*` index; ID the crumb.
+	 * @param string           $stamp  The stream it belongs to.
+	 * @return array{0:array<int,mixed>,1:array<int,mixed>} The header, then the batch.
+	 * @throws \LogicException When the crumb is too short to hold the record.
+	 */
+	protected static function record_block( array $fields, string $stamp = 'firehose.p0' ): array {
+		$record = \array_replace( Message::new_message(), $fields );
+		[ $segment, $offset, $length ] = \array_map( 'intval', \explode( ':', Core::as_string( $record[ Message::ID ] ) ) );
+		$from                          = Core::as_string( $record[ Message::FROM ] );
+		$record[ Message::FROM ]       = \str_starts_with( $from, "{$stamp}/" ) ? \substr( $from, \strlen( $stamp ) + 1 ) : ( $stamp === $from ? '' : $from );
+		$record[ Message::ID ]         = '';
+		$record[ Message::TIMESTAMP ]  = 0;
+		$line                          = Message::packed( $record );
+		if ( \strlen( $line ) + 1 > $length ) {
+			throw new \LogicException( "a {$length}-byte crumb cannot hold a " . ( \strlen( $line ) + 1 ) . '-byte record' );
+		}
+		return self::block_of( $stamp, "{$segment}:{$offset}", \str_pad( $line, $length - 1 ) . "\n" );
+	}
+
+	/**
+	 * `record_block()` as the SSE frames a stream pushes it in.
+	 *
+	 * @param array<int,mixed> $fields Message fields, keyed by `Message::*` index; ID the crumb.
+	 * @param string           $stamp  The stream it belongs to.
+	 */
+	protected static function pushed_record( array $fields, string $stamp = 'firehose.p0' ): string {
+		return \implode( '', \array_map( static fn ( array $m ): string => self::sse_frame( 'msg', $m ), self::record_block( $fields, $stamp ) ) );
+	}
+
+	/**
+	 * Fill a reader `record_block()`'s block directly, as its broker would.
+	 *
+	 * @param \Newspack_Nodes\Remote_Consumer_Node $reader The reader.
+	 * @param array<int,mixed>                     $fields Message fields; ID the crumb.
+	 */
+	protected static function push_record( \Newspack_Nodes\Remote_Consumer_Node $reader, array $fields ): void {
+		foreach ( self::record_block( $fields, $reader->stamp() ) as $m ) {
+			$reader->fill( $m );
+		}
+	}
+
+	/** The records a Partition dir holds across its segments: one per non-empty line. */
+	protected function count_log_records( string $dir ): int {
+		$count = 0;
+		foreach ( (array) \glob( "{$dir}/*.log" ) as $path ) {
+			foreach ( \explode( "\n", (string) \file_get_contents( (string) $path ) ) as $line ) {
+				if ( '' !== $line ) {
+					++$count;
+				}
+			}
+		}
+		return $count;
+	}
+
+	/**
+	 * One record as its log holds it: packed, newline included.
+	 *
+	 * @param array<int,mixed> $fields Message fields, keyed by `Message::*` index.
+	 */
+	protected static function record_line( array $fields ): string {
+		return Message::packed( \array_replace( Message::new_message(), $fields ) ) . "\n";
 	}
 
 	/** A `retry` SSE frame carrying the reopen delay in milliseconds. */

@@ -113,7 +113,7 @@
     <div class="phase"><span>Pressure and loss</span></div>
 
     <div class="msg">
-      <div class="box warn" style="margin-left:300px;width:440px"><b>More than 512 KB buffered across the readers:</b> <span class="mono">:sse-in</span> stops reading the socket, and the spoke blocks on write. Reading resumes under 256 KB. One connection, one valve.</div>
+      <div class="box warn" style="margin-left:300px;width:440px"><b>More than four 1 MiB blocks buffered across the readers:</b> <span class="mono">:sse-in</span> pauses the transfer, and the spoke blocks on write. Reading resumes at two. One connection, one valve.</div>
       <svg width="1052" height="16" style="position:absolute;left:0;top:36px;overflow:visible"><path d="M742 8 L945 8" stroke="#B32D2E" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#arr)"/></svg>
     </div>
 

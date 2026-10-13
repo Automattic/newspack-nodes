@@ -357,50 +357,6 @@ class SseInTest extends TestCase {
 		$this->assertNotNull( $node->connection()['last_error'] );
 	}
 
-	public function test_unparseable_lines_frames_accumulate_across_a_reconnect(): void {
-		[ $node, $sink ] = $this->streaming_node();
-		\Newspack_Nodes\Event_Framework::$curl_dispatch = static function ( array $opts ): \CurlHandle {
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
-			return \curl_init();
-		};
-
-		$this->assertTrue( $node->process_sse_chunk( self::unparseable_frame( 'COUNT 2 CURSORS firehose.p0=7:40' ) ) );
-		$node->disconnect();
-		$node->maybe_connect();
-		$node->process_sse_chunk( self::unparseable_frame( 'COUNT 3 CURSORS firehose.p0=7:95' ) );
-
-		$this->assertSame( 5, $node->connection()['unparseable_lines'] );
-		$this->assertSame( '5', $node->get_state( 'UNPARSEABLE_LINES' ) );
-		$this->assertCount( 0, $sink->captured, 'a bookkeeping frame is never delivered' );
-	}
-
-	public function test_unparseable_lines_frame_hands_the_patron_every_cursor(): void {
-		[ $node ] = $this->configured_node();
-		$seen             = [];
-		$node->on_skipped = static function ( array $cursors ) use ( &$seen ): void {
-			$seen[] = $cursors;
-		};
-
-		$node->process_sse_chunk( self::unparseable_frame( 'COUNT 1 CURSORS other.p3=1:2,firehose.p0=11647:2210' ) );
-
-		$this->assertSame( [ [ 'other.p3' => [ 'segment' => 1, 'offset' => 2 ], 'firehose.p0' => [ 'segment' => 11647, 'offset' => 2210 ] ] ], $seen );
-	}
-
-	public function test_a_malformed_unparseable_lines_frame_is_an_error_and_counts_nothing(): void {
-		[ $node ] = $this->configured_node();
-		$seen             = [];
-		$node->on_skipped = static function ( int $segment, int $offset ) use ( &$seen ): void {
-			$seen[] = [ $segment, $offset ];
-		};
-
-		$this->assertTrue( $node->process_sse_chunk( self::unparseable_frame( 'COUNT two CURSORS firehose.p0=7:95' ) ) );
-
-		$this->assertSame( 0, $node->connection()['unparseable_lines'] );
-		$this->assertNull( $node->get_state( 'UNPARSEABLE_LINES' ) );
-		$this->assertSame( 'malformed unparseable_lines frame', $node->get_state( 'ERROR' ) );
-		$this->assertSame( [], $seen, 'a frame whose count is garbage re-seats nothing' );
-	}
-
 	public function test_heartbeat_frame_recorded_not_forwarded(): void {
 		[ $node, $sink ] = $this->configured_node();
 
@@ -416,6 +372,21 @@ class SseInTest extends TestCase {
 		$node->process_sse_chunk( "event: heartbeat\ndata: {}\n\n" );
 
 		$this->assertSame( 1748960000, $node->connection()['last_sse_heartbeat'] );
+	}
+
+	/** A line that arrives in many chunks, and the lines after it, parse whole and in order. */
+	public function test_a_line_split_across_chunks_parses_whole(): void {
+		[ $node ] = $this->configured_node();
+		$seen             = [];
+		$node->on_message = static function ( string $raw ) use ( &$seen ): void {
+			$seen[] = $raw;
+		};
+
+		foreach ( [ "event: msg\ndata: hal", 'yard-', "4481\r", "\n\nevent: msg\ndata: keel", "-8841\n\n" ] as $chunk ) {
+			$this->assertTrue( $node->process_sse_chunk( $chunk ) );
+		}
+
+		$this->assertSame( [ 'halyard-4481', 'keel-8841' ], $seen );
 	}
 
 	public function test_fresh_node_has_null_last_sse_heartbeat(): void {

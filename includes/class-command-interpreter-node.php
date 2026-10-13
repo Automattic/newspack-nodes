@@ -320,27 +320,39 @@ class Command_Interpreter_Node extends Node {
 			$result .= "\n";
 		}
 
-		$sink = $this->require_sink();
+		// Fail loud on a missing sink, a no-reply command included.
+		$this->require_sink();
 
 		if ( $noreply ) {
 			return;
 		}
 
-		// Route TO=FROM (walk breadcrumb back); KEY is client correlation.
 		if ( '' !== $result ) {
 			$response                   = Message::new_message();
 			$response[ Message::TYPE ]  = $resp_type;
-			$response[ Message::FROM ]  = $this->name;
-			$response[ Message::TO ]    = $message[ Message::FROM ];
 			$response[ Message::ID ]    = $message[ Message::ID ];
-			$response[ Message::KEY ]   = $message[ Message::KEY ];
 			$response[ Message::VALUE ] = [
 				'name'      => $cmd_name,
 				'arguments' => $cmd_args,
 				'payload'   => $result,
 			];
-			$sink->fill( $response );
+			$this->answer( $message, $response );
 		}
+	}
+
+	/**
+	 * Send a reply to a command, addressed as every reply is (ADR-7): FROM this
+	 * interpreter, TO the command's FROM, which walks its breadcrumb back, and
+	 * the command's KEY echoed for the client. The reply's own ID stands.
+	 *
+	 * @param array<int|string,mixed> $command The command answered.
+	 * @param array<int,mixed>        $reply   The reply, TYPE, ID and VALUE set.
+	 */
+	public function answer( array $command, array $reply ): void {
+		$reply[ Message::FROM ] = $this->name;
+		$reply[ Message::TO ]   = $command[ Message::FROM ] ?? '';
+		$reply[ Message::KEY ]  = $command[ Message::KEY ] ?? '';
+		$this->require_sink()->fill( $reply );
 	}
 
 	/**

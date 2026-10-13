@@ -95,8 +95,32 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	/** What the spoke said refusing the latest fetch; null once a block answers. */
 	private ?string $fetch_refusal = null;
 
-	/** Lines the spoke skipped as unparseable in this reader's blocks. */
-	private int $spoke_skipped = 0;
+	/**
+	 * The header of the block in flight, between it and its TM_BATCH: where
+	 * the block begins, what the spoke's log holds from there, whether a
+	 * deleted segment rewound it, and the position a fetch asked, null for a
+	 * block the stream pushed. A file the spoke cannot find names no segment.
+	 *
+	 * @var array{segment:?int,offset:int,distance:int,reset:bool,asked:?string}|null
+	 */
+	private ?array $header = null;
+
+	/**
+	 * What the spoke's log held from a place, as the spoke last said, and
+	 * when. The backlog is that distance less how far the cursor has drained
+	 * past the place, so a record that arrives after it is never counted twice.
+	 *
+	 * @var array{segment:int,offset:int,distance:int,at:float}|null
+	 */
+	private ?array $distance = null;
+
+	/**
+	 * A line the last block cut short: where it begins and its bytes so far,
+	 * joined to the block that continues it.
+	 *
+	 * @var array{segment:int,offset:int,bytes:string}|null
+	 */
+	private ?array $carry = null;
 
 	/**
 	 * The offsetlog restore_position() read its durable frame from and seeded the
@@ -121,15 +145,14 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	private ?int $pending_seek = Consumer_Node::SEEK_END;
 
 	/**
-	 * Where the spoke's reader stood past the torn lines it last reported
-	 * skipping, until the cursor reaches it. Everything buffered when it arrived
-	 * lies before it, and a record arriving after it supersedes it, since that
-	 * record's own crumb is further on. A file source not yet past its first
-	 * record states no segment.
+	 * How far what this reader holds reaches: where the last block's whole
+	 * lines end, where an empty one stands, or past the last placed record a
+	 * step received, until the cursor reaches it and stands there. Everything
+	 * buffered lies before it.
 	 *
 	 * @var array{segment?:int, offset:int}|null
 	 */
-	private ?array $skipped_to = null;
+	private ?array $block_end = null;
 
 	/**
 	 * The entry crumb_for_line() last took for a line, or null when none was
@@ -140,6 +163,9 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * @var array{crumb:array{segment:int,offset:int,length:int}|null,message:array<int,mixed>|null}|null
 	 */
 	private ?array $head = null;
+
+	/** Seconds a spoke's distance stands with no newer word before the backlog reads unknown. */
+	public const DISTANCE_STALE_SECONDS = 60;
 
 	/** Tachikoma-parity: no-arg ctor; the broker configures it through `arguments()`. */
 	public function __construct() {
@@ -178,8 +204,9 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	}
 
 	/**
-	 * Replies routed to this reader: the spoke's answer to a block fetch,
-	 * matched by the arguments it echoes, the answer to a step, and the
+	 * What reaches this reader: a raw block and its header, pushed by the
+	 * stream or answering a fetch; the spoke's refusal of a block fetch,
+	 * matched by the arguments it echoes; the answer to a step; and the
 	 * Router's bounce of a line whose target names no node, which is no command
 	 * and settles nothing. An answer echoing the arguments a step would send
 	 * now settles the request; any other is stale, a seek having moved the
@@ -199,6 +226,14 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 */
 	public function fill( array $message ): void {
 		$type = Core::int( $message[ Message::TYPE ] );
+		if ( $type & Message::TM_BATCH ) {
+			if ( $type & Message::TM_INFO ) {
+				$this->take_header( Core::as_string( $message[ Message::VALUE ] ) );
+			} else {
+				$this->take_batch( Core::as_string( $message[ Message::ID ] ), Core::as_string( $message[ Message::VALUE ] ), 0 !== ( $type & Message::TM_BYTESTREAM ) );
+			}
+			return;
+		}
 		if ( ! ( $type & Message::TM_COMMAND ) || ! ( $type & ( Message::TM_RESPONSE | Message::TM_ERROR ) ) ) {
 			return;
 		}
@@ -206,7 +241,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 		if ( 'read_block' === ( $value['name'] ?? null ) ) {
 			$asked = $this->fetch_in_flight;
 			if ( null !== $asked && ( $value['arguments'] ?? null ) === $asked['args'] ) {
-				$this->settle_block( $value, $asked['at'] );
+				$this->settle_refusal( $value );
 			}
 			return;
 		}
@@ -257,7 +292,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 		$record = $payload['message'] ?? null;
 		if ( \is_array( $record ) ) {
 			/** @var array<int,mixed> $record */
-			$this->receive( Message::packed( $record ), $record );
+			$this->receive( Message::packed( $record ), $record, Log_Position::crumb( Core::as_string( $record[ Message::ID ] ) ) );
 			while ( $this->steps_owed > 0 && $this->buffer_has_line() ) {
 				$this->steps_owed -= $this->poll();
 			}
@@ -274,9 +309,8 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * Where the request about to go out begins, and the effects that go with
 	 * stating it. It restores the durable cursor first, so a connect ahead of
 	 * this reader's first poll still asks from it. Then it answers: past
-	 * everything already held — the spoke's skip, else the end of the last
-	 * buffered record carrying a breadcrumb — else a pending seek, else the
-	 * cursor. A skip or a crumb is a real place, so it outranks a pending
+	 * everything already held, as `held_end()` reads it, else a pending seek,
+	 * else the cursor. What is held is a real place, so it outranks a pending
 	 * seek, which stands until the cursor reaches what is held. A cursor
 	 * whose generation is unknown states its offset alone. `Remote_Source`
 	 * calls it once per connect, from its `stream_request()`.
@@ -298,14 +332,14 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	}
 
 	/**
-	 * Refill seam: nothing is read here. Pass the spoke's skip once the records
-	 * ahead of it drained; live, hand the broker its refill, where
+	 * Refill seam: nothing is read here. Stand at the last block's end once
+	 * its records drained; live, hand the broker its refill, where
 	 * `Remote_Source` re-arms the stream that pushes lines here and
 	 * `HTTP_Source` has this reader fetch its next block; paused and dry, ask
 	 * the spoke for the next record.
 	 */
 	protected function get_batch(): void {
-		$this->pass_skipped_lines();
+		$this->pass_block_end();
 		if ( $this->is_live() ) {
 			$this->broker?->refill( $this );
 		} elseif ( ! $this->buffer_has_line() ) {
@@ -330,18 +364,16 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	}
 
 	/**
-	 * Move the cursor past the torn lines the spoke skipped, once the records
-	 * buffered ahead of them have drained. Those lines never reach this node,
-	 * so without the move a reopen or a recycle asks the spoke to read them,
-	 * skip them and report them again. A skip naming no segment moves the
-	 * offset alone and leaves the generation unknown.
+	 * Stand at the last block's end once the records buffered ahead of it
+	 * have drained, which places an empty block's position and a line whose
+	 * FROM would not stamp, neither of which reaches the buffer.
 	 */
-	private function pass_skipped_lines(): void {
-		if ( null === $this->skipped_to || $this->buffer_has_line() ) {
+	private function pass_block_end(): void {
+		if ( null === $this->block_end || $this->buffer_has_line() ) {
 			return;
 		}
-		$this->stand_at( $this->skipped_to );
-		$this->skipped_to = null;
+		$this->stand_at( $this->block_end );
+		$this->block_end = null;
 	}
 
 	/**
@@ -458,14 +490,14 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * as a forward does, and it is marked disposed, so the drain commits past it and ends any
 	 * poison or crash lineage. One bad record wedges nothing.
 	 *
-	 * The message is the one the broker decoded, so a line is decoded once; a line handed
-	 * over undecoded is decoded here. Each forward, and each clean stop, counts, and the
-	 * largest line is tracked, as the trait's own forward does.
+	 * The message is the one decoded when the block was split, so a line is decoded once.
+	 * Each forward, and each clean stop, counts, and the largest line is tracked, as the
+	 * trait's own forward does.
 	 *
 	 * Five dispositions, that refusal the first. A null sink FAILS LOUD, because a relay
-	 * with nowhere to relay is a topology error. An unparseable line
-	 * carries no crumb, so it is quarantined where the cursor stands — the next unread position,
-	 * the one place it can be put — and moves the cursor by nothing. A downstream throw
+	 * with nowhere to relay is a topology error. A torn line, which came with no message, is
+	 * quarantined at its place, where drain_line() stood the cursor, and the drain moves past
+	 * it by its crumb's length. A downstream throw
 	 * dead-letters the message ON SIGHT and marks the record disposed, so the drain loop
 	 * advances past it with no head-block and no fair-shot climb; that climb is reserved for
 	 * the hard-crash lineage and its crawl. A Worker_Should_Stop escapes as
@@ -482,11 +514,10 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 			throw new \RuntimeException( 'Remote_Consumer relay requires a wired sink' );
 		}
 		$this->largest_msg_sent = \max( $this->largest_msg_sent, \strlen( $line ) + 1 );
-		try {
-			$message = $this->head['message'] ?? Message::unpacked( $line );
-		} catch ( \InvalidArgumentException $e ) {
-			// No crumb: place it at the cursor.
-			$this->dead_letter( $this->poison_from_line( $line, $this->cursor_segment, $this->cursor_offset ), 'unparseable', $e );
+		$message = $this->head['message'] ?? null;
+		if ( null === $message ) {
+			// Torn: drain_line() stood the cursor at its place.
+			$this->dead_letter( $this->poison_from_line( $line, $this->cursor_segment, $this->cursor_offset ), 'torn' );
 			$this->disposed_record = true;
 			return;
 		}
@@ -571,7 +602,9 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 		$this->offset_set = true;
 		$this->buffer     = '';
 		$this->lines      = new \SplQueue();
-		$this->skipped_to = null;
+		$this->block_end = null;
+		$this->carry      = null;
+		$this->distance   = null;
 		if ( $this->is_live() ) {
 			$this->broker?->restream();
 		}
@@ -653,59 +686,171 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	public function drop_requests(): void {
 		$this->step_requested_at = null;
 		$this->fetch_in_flight   = null;
+		$this->header            = null;
 	}
 
 	/**
-	 * Take one block: each record into the buffer, then the reply's cursor as
-	 * where the spoke's reader stood past the block and any torn lines behind
-	 * it, so a block of torn lines alone still moves the reader on. The end
-	 * makes the next fetch wait; anything else asks at once while the reader
-	 * holds under a block. A payload that is no struct is a refusal, said
-	 * rate-limited, and waits as the end does.
+	 * Take a block's header, as `Consumer_Node::block_messages()` builds it:
+	 * `OFFSET` where the block begins, `DISTANCE` what the spoke's log holds
+	 * from there, `RESET` a rewind past deleted segments. One echoing `ASKED`
+	 * answers a fetch, and counts only when it echoes the fetch in flight; one
+	 * without was pushed by the stream. Its TM_BATCH follows.
 	 *
-	 * @param array<array-key,mixed> $value The reply's VALUE.
-	 * @param float                  $sent  When the fetch it answers went out.
+	 * @param string $value The header's flat pairs.
 	 */
-	private function settle_block( array $value, float $sent ): void {
-		$this->fetch_in_flight = null;
-		$payload               = $value['payload'] ?? null;
-		if ( ! \is_array( $payload ) ) {
-			$this->fetch_refusal = Core::as_string( $payload );
-			$this->print_less_often( 'fetch refused: ', \trim( $this->fetch_refusal ) );
-			$this->fetch_after = Core::$now + HTTP_Source_Node::EOF_POLL_SECONDS;
+	private function take_header( string $value ): void {
+		$info     = Message::info_pairs( $value ) ?? [];
+		$at       = Log_Position::parse( $info['OFFSET'] ?? '' );
+		$distance = Core::canonical_decimal( $info['DISTANCE'] ?? null );
+		$asked    = $info['ASKED'] ?? null;
+		if ( ( null !== $asked && $asked !== ( $this->fetch_in_flight['args'][1] ?? null ) ) || ! \is_array( $at ) || isset( $at['length'] ) || null === $distance ) {
 			return;
 		}
-		$this->fetch_refusal  = null;
-		$this->fetch_answered = [ 'at' => Core::$now, 'rtt' => Core::$now - $sent ];
-		foreach ( Core::arr( $payload['messages'] ?? [] ) as $record ) {
-			/** @var array<int,mixed> $record */
-			$this->receive( Message::packed( $record ), $record );
+		$this->header = [ 'segment' => $at['segment'] ?? null, 'offset' => $at['offset'], 'distance' => $distance, 'reset' => '1' === ( $info['RESET'] ?? null ), 'asked' => $asked ];
+	}
+
+	/**
+	 * Take the bytes a header announced: split them into records and take the
+	 * header's distance as the backlog's anchor. A block answering a fetch
+	 * settles it, and the reader asks again at once, or after an EOF poll when
+	 * the block was empty.
+	 *
+	 * @param string $id    Where the bytes begin, `segment:offset`.
+	 * @param string $bytes The raw bytes.
+	 * @param bool   $text  Whether its lines are text, each a TM_BYTESTREAM, rather than packed records.
+	 */
+	private function take_batch( string $id, string $bytes, bool $text ): void {
+		$header       = $this->header;
+		$this->header = null;
+		if ( null === $header || Log_Position::format( $header['segment'], $header['offset'], null ) !== $id ) {
+			return;
 		}
-		$this->spoke_skipped += Core::as_int( $payload['unparseable_lines'] ?? 0 );
-		$cursor = Core::arr( $payload['cursor'] ?? null );
-		if ( \is_int( $cursor['segment'] ?? null ) && \is_int( $cursor['offset'] ?? null ) ) {
-			// After the records, since receive() clears the skip.
-			$this->skipped_to = [ 'segment' => $cursor['segment'], 'offset' => $cursor['offset'] ];
+		if ( $header['reset'] ) {
+			$this->print_less_often( 'spoke served past deleted segments: ', ( null === $header['asked'] ? 'pushed' : "asked {$header['asked']}" ) . ", served {$id}" );
 		}
-		$this->fetch_after = true === ( $payload['at_eof'] ?? null ) ? Core::$now + HTTP_Source_Node::EOF_POLL_SECONDS : 0.0;
+		$segment = $header['segment'];
+		if ( null !== $segment ) {
+			$this->take_block( $segment, $header['offset'], $bytes, $text );
+			$this->distance = [ 'segment' => $segment, 'offset' => $header['offset'], 'distance' => $header['distance'], 'at' => Core::$now ];
+		} elseif ( '' !== $bytes ) {
+			if ( null === $header['asked'] ) {
+				$this->print_less_often( 'a block with bytes names no segment: ', $id );
+			} else {
+				$this->settle_refusal( [ 'payload' => "a block with bytes names no segment: {$id}" ] );
+			}
+			return;
+		} elseif ( null === $this->held_end() && ( null !== $this->pending_seek || $this->generation_unknown ) ) {
+			// A file not there yet places a reader with no place of its own.
+			$this->block_end = [ 'offset' => $header['offset'] ];
+		}
+		$asked          = $this->fetch_in_flight;
+		if ( null === $header['asked'] || null === $asked ) {
+			return;
+		}
+		$this->fetch_in_flight = null;
+		$this->fetch_refusal   = null;
+		$this->fetch_answered  = [ 'at' => Core::$now, 'rtt' => Core::$now - $asked['at'] ];
+		$this->fetch_after     = '' === $bytes ? Core::$now + HTTP_Source_Node::EOF_POLL_SECONDS : 0.0;
 		$this->fetch();
 	}
 
 	/**
-	 * Take one routed line and the message the broker decoded from it, and take
-	 * the busy cadence: data arrives on the cURL drain, between fires. A line
-	 * handed over undecoded, as null, is decoded when it drains. The broker's
-	 * drain-loop entry beside `fill()`, measured in ADR-1's amendment: through
-	 * `fill()` a line would be encoded or decoded a second time.
+	 * A refused fetch: said rate-limited, shown in the status until a block
+	 * answers, and waited out as the end is.
 	 *
-	 * @param string                $raw     One packed record.
-	 * @param array<int,mixed>|null $message Its decoded message, or null.
+	 * @param array<array-key,mixed> $value The reply's VALUE.
 	 */
-	public function receive( string $raw, ?array $message ): void {
-		$this->skipped_to  = null;
+	private function settle_refusal( array $value ): void {
+		$this->fetch_in_flight = null;
+		$this->fetch_refusal   = Core::as_string( $value['payload'] ?? '' );
+		$this->print_less_often( 'fetch refused: ', \trim( $this->fetch_refusal ) );
+		$this->fetch_after = Core::$now + HTTP_Source_Node::EOF_POLL_SECONDS;
+	}
+
+	/**
+	 * Split raw bytes into records, as the browser's `SseInNode` does, the
+	 * two held to `tests/fixtures/raw-blocks.json`. A carried fragment the
+	 * bytes continue is joined to them; one they do not was torn, and is
+	 * dead-lettered at its place. Each whole line goes on at its own place,
+	 * and what follows the last newline is carried to the next block.
+	 *
+	 * @param int    $segment Where the bytes begin.
+	 * @param int    $offset  Their offset in it.
+	 * @param string $bytes   The raw bytes.
+	 * @param bool   $text    Whether its lines are text rather than packed records.
+	 */
+	private function take_block( int $segment, int $offset, string $bytes, bool $text ): void {
+		if ( '' === $bytes ) {
+			// Nothing yet; the header still places a word the reader asked.
+			if ( null === $this->held_end() ) {
+				$this->block_end = [ 'segment' => $segment, 'offset' => $offset ];
+			}
+			return;
+		}
+		$carry = $this->carry;
+		if ( null !== $carry ) {
+			if ( [ 'segment' => $segment, 'offset' => $offset ] === $this->held_end() ) {
+				$bytes  = $carry['bytes'] . $bytes;
+				$offset = $carry['offset'];
+			} else {
+				$this->receive( $carry['bytes'], null, [ 'segment' => $carry['segment'], 'offset' => $carry['offset'], 'length' => \strlen( $carry['bytes'] ) ] );
+			}
+		}
+		$pos = 0;
+		while ( false !== ( $nl = \strpos( $bytes, "\n", $pos ) ) ) {
+			$this->take_line( \substr( $bytes, $pos, $nl - $pos ), $segment, $offset + $pos, $text );
+			$pos = $nl + 1;
+		}
+		$this->carry      = $pos < \strlen( $bytes ) ? [ 'segment' => $segment, 'offset' => $offset + $pos, 'bytes' => \substr( $bytes, $pos ) ] : null;
+		$this->block_end = [ 'segment' => $segment, 'offset' => $offset + $pos ];
+	}
+
+	/**
+	 * One whole line from a block, as a record: stamped FROM with the log the
+	 * spoke read, as a stream's reader stamps it, and ID'd with its place,
+	 * `segment:offset:length`. A text line is a TM_BYTESTREAM carrying it,
+	 * newline restored, as a Tail emits one; a line that will not unpack was
+	 * torn, and goes on undecoded to be dead-lettered at its place.
+	 *
+	 * @param string $line    The line, without its newline.
+	 * @param int    $segment Its segment.
+	 * @param int    $offset  Where it begins.
+	 * @param bool   $text    Whether it is text rather than a packed record.
+	 */
+	private function take_line( string $line, int $segment, int $offset, bool $text ): void {
+		$crumb = [ 'segment' => $segment, 'offset' => $offset, 'length' => \strlen( $line ) + 1 ];
+		try {
+			$message = $text ? Tail_Node::text_record( $line ) : Message::unpacked( $line );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->receive( $line, null, $crumb );
+			return;
+		}
+		if ( ! $this->stamp_message( $message, $this->stamp ) ) {
+			return;
+		}
+		$message[ Message::ID ] = Log_Position::format( $segment, $offset, $crumb['length'] );
+		$this->receive( $line, $message, $crumb );
+	}
+
+	/**
+	 * Buffer one line beside the message already decoded from it and its
+	 * place in the spoke's log, and take the busy cadence: data arrives on
+	 * the cURL drain, between fires. A torn line comes with no message and is
+	 * dead-lettered when it drains; a step's record may come with no place.
+	 * A split block and a step's reply share it, so no line is decoded twice
+	 * (ADR-1's amendment).
+	 *
+	 * @param string                                          $raw     The line, without its newline.
+	 * @param array<int,mixed>|null                           $message Its decoded message, or null when torn.
+	 * @param array{segment:int,offset:int,length:int}|null $crumb   Its place, or null when it names none.
+	 */
+	private function receive( string $raw, ?array $message, ?array $crumb ): void {
+		if ( null !== $crumb ) {
+			$this->block_end = [ 'segment' => $crumb['segment'], 'offset' => $crumb['offset'] + $crumb['length'] ];
+		}
 		$this->buffer     .= $raw . "\n";
 		$this->bytes_read += \strlen( $raw ) + 1;
-		$this->lines->enqueue( [ 'crumb' => null === $message ? null : Log_Position::crumb( Core::as_string( $message[ Message::ID ] ) ), 'message' => $message ] );
+		$this->lines->enqueue( [ 'crumb' => $crumb, 'message' => $message ] );
 		$this->at_eof = false;
 		if ( $this->is_live() && self::POLL_INTERVAL_BUSY_MS !== $this->interval_ms ) {
 			$this->set_timer( self::POLL_INTERVAL_BUSY_MS );
@@ -730,7 +875,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	public function fetch(): void {
 		if ( null === $this->broker
 			|| ! $this->is_live()
-			|| $this->buffered_bytes() >= Log_Sources::BLOCK_BYTES
+			|| $this->holding_back()
 			|| 0.0 !== $this->fetch_after
 			|| Core::$now - ( $this->fetch_in_flight['at'] ?? -\INF ) < HTTP_Out_Node::REQUEST_TIMEOUT ) {
 			return;
@@ -745,11 +890,6 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	/** A paused reader is out of the stream; any other reads it live. */
 	public function is_live(): bool {
 		return 'PAUSED' !== $this->get_state( 'POLLING' );
-	}
-
-	/** Bytes buffered and not yet drained; the broker sums them for its valve. */
-	public function buffered_bytes(): int {
-		return \strlen( $this->buffer );
 	}
 
 	/**
@@ -786,21 +926,100 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 
 	/**
 	 * How far the spoke's stream reaches past the cursor, as far as this reader
-	 * knows: the spoke's skip, else the end of the last buffered record carrying
-	 * a breadcrumb; null when it holds neither. A skip from a file source not
-	 * yet past its first record names no segment.
+	 * knows: the end of a line a block cut short, whose bytes it holds; else
+	 * `block_end`; null when it holds neither.
 	 *
 	 * @return array{segment?:int,offset:int}|null
 	 */
 	private function held_end(): ?array {
-		if ( null !== $this->skipped_to ) {
-			return $this->skipped_to;
+		if ( null !== $this->carry ) {
+			return [ 'segment' => $this->carry['segment'], 'offset' => $this->carry['offset'] + \strlen( $this->carry['bytes'] ) ];
 		}
-		$last = null;
+		return $this->block_end;
+	}
+
+	/**
+	 * Probe seam: this reader's Consumer record, through
+	 * `Durable_Reader::probe_record()`, as `Consumer_Node::probe_stats()` sends
+	 * its own. SOURCE names the spoke's log as this site does,
+	 * `remote/<vault_id>:<kind>`, never the spoke's bare stamp, which would name
+	 * a log of this site's own; READER is the id the broker composes from its
+	 * worker binding. Both come from the broker (`probe_names()`) as it names
+	 * this reader, and both are blank without one.
+	 *
+	 * DISTANCE is the spoke's own count of the bytes its log holds past where
+	 * it last answered from, plus the spoke-side length of every record this
+	 * reader holds undrained, which lie before that place; null until a spoke
+	 * reports one, as one older than the report does not. The spoke names no
+	 * end position, so the END pair stays null. A segment this reader does not
+	 * know — a file source's generation before the spoke names it — is null
+	 * too, never 0, which names a real segment or a foreign inode. A reader
+	 * whose seek is still pending stands nowhere yet, so it sends nothing.
+	 *
+	 * @return array<int,int|string|null>|null A `Probe_Record`-indexed positional array, or null.
+	 */
+	public function probe_stats(): ?array {
+		if ( null !== $this->pending_seek ) {
+			return null;
+		}
+		[ $source, $reader ] = $this->probe_names;
+		return $this->probe_record( $source, $reader, [
+			'cursor_segment' => $this->generation_unknown ? null : $this->cursor_segment,
+			'cursor_offset'  => $this->cursor_offset,
+			'end_segment'    => null,
+			'end_size'       => null,
+			'bytes_behind'   => $this->backlog(),
+		] );
+	}
+
+	/**
+	 * The spoke's last distance less how far the cursor has drained past the
+	 * place it was measured from. A cursor on another segment, still draining
+	 * what came before that place, adds what it holds there; segments are
+	 * compared for sameness alone, because a file source's are inodes. Null
+	 * before the spoke first says, or once `DISTANCE_STALE_SECONDS` pass with
+	 * no word: a header, or the broker hearing that nothing more waits. A
+	 * quiet the hub keeps, a full reader or a shut valve, is no silence.
+	 */
+	private function backlog(): ?int {
+		$distance = $this->distance;
+		$heard    = $this->holding_back() ? Core::$now : ( $this->broker?->heard_at() ?? -\INF );
+		if ( null === $distance || $this->generation_unknown || Core::$now - \max( $distance['at'], $heard ) > self::DISTANCE_STALE_SECONDS ) {
+			return null;
+		}
+		if ( $this->cursor_segment === $distance['segment'] ) {
+			return \max( 0, $distance['distance'] - ( $this->cursor_offset - $distance['offset'] ) );
+		}
+		return $distance['distance'] + $this->held_before( $distance['segment'], $distance['offset'] );
+	}
+
+	/** A block's worth held undrained: the reader asks for no more until it drains. */
+	private function holding_back(): bool {
+		return $this->buffered_bytes() >= Log_Sources::BLOCK_BYTES;
+	}
+
+	/** Bytes buffered and not yet drained; the broker sums them for its valve. */
+	public function buffered_bytes(): int {
+		return \strlen( $this->buffer );
+	}
+
+	/**
+	 * The spoke-side length of every record held undrained before a place,
+	 * which the spoke's distance from there leaves out: each line's
+	 * breadcrumb names it, and a line without one counts nothing.
+	 *
+	 * @param int $segment The place's segment.
+	 * @param int $offset  Its offset.
+	 */
+	private function held_before( int $segment, int $offset ): int {
+		$bytes = 0;
 		foreach ( $this->lines as $entry ) {
-			$last = $entry['crumb'] ?? $last;
+			$crumb = $entry['crumb'];
+			if ( null !== $crumb && ( $crumb['segment'] !== $segment || $crumb['offset'] < $offset ) ) {
+				$bytes += $crumb['length'];
+			}
 		}
-		return null === $last ? null : [ 'segment' => $last['segment'], 'offset' => $last['offset'] + $last['length'] ];
+		return $bytes;
 	}
 
 	/**
@@ -823,50 +1042,6 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 */
 	public function checkpoint_shutdown(): void {
 		$this->commit_healthy_frame();
-	}
-
-	/**
-	 * Probe seam: this reader's Consumer record, through
-	 * `Durable_Reader::probe_record()`, as `Consumer_Node::probe_stats()` sends
-	 * its own. SOURCE names the spoke's log as this site does,
-	 * `remote/<vault_id>:<kind>`, never the spoke's bare stamp, which would name
-	 * a log of this site's own; READER is the id the broker composes from its
-	 * worker binding. Both come from the broker (`probe_names()`) as it names
-	 * this reader, and both are blank without one.
-	 *
-	 * The spoke's log end is out of sight: nothing the spoke sends names it,
-	 * neither a record's breadcrumb nor the handshake's CURSORS. The END pair
-	 * and DISTANCE are therefore null, unknown, rather than a figure in some
-	 * other unit, so the `consumer-lag` alert never covers a hub reader. A
-	 * segment this reader does not know — a file source's generation before
-	 * the spoke names it — is null too, never 0, which names a real segment or
-	 * a foreign inode. A reader whose seek is still pending stands nowhere yet,
-	 * so it sends nothing.
-	 *
-	 * @return array<int,int|string|null>|null A `Probe_Record`-indexed positional array, or null.
-	 */
-	public function probe_stats(): ?array {
-		if ( null !== $this->pending_seek ) {
-			return null;
-		}
-		[ $source, $reader ] = $this->probe_names;
-		return $this->probe_record( $source, $reader, [
-			'cursor_segment' => $this->generation_unknown ? null : $this->cursor_segment,
-			'cursor_offset'  => $this->cursor_offset,
-			'end_segment'    => null,
-			'end_size'       => null,
-			'bytes_behind'   => null,
-		] );
-	}
-
-	/**
-	 * Note where the spoke's reader stands past the torn lines it skipped;
-	 * `pass_skipped_lines()` moves the cursor there once what is buffered drains.
-	 *
-	 * @param array{segment?:int,offset:int} $cursor This stream's CURSORS entry.
-	 */
-	public function skip_to( array $cursor ): void {
-		$this->skipped_to = $cursor;
 	}
 
 	/**
@@ -933,7 +1108,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * names an end-of-log wait alone, the broker's next EOF poll; a refusal's
 	 * wait is a failure, which the status reads as `refused`, not as idle.
 	 *
-	 * @return array{sent_at:?float,answered_at:?float,rtt:?float,fetch_after:?float,skipped:int,refused:?string}
+	 * @return array{sent_at:?float,answered_at:?float,rtt:?float,fetch_after:?float,refused:?string}
 	 */
 	public function fetch_stats(): array {
 		return [
@@ -941,7 +1116,6 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 			'answered_at' => $this->fetch_answered['at'] ?? null,
 			'rtt'         => $this->fetch_answered['rtt'] ?? null,
 			'fetch_after' => 0.0 < $this->fetch_after && null === $this->fetch_refusal ? $this->fetch_after : null,
-			'skipped'     => $this->spoke_skipped,
 			'refused'     => $this->fetch_refusal,
 		];
 	}

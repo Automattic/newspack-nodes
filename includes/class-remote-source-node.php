@@ -41,16 +41,16 @@ class Remote_Source_Node extends Remote_Broker_Node {
 	public const RELEASED_SLOT = 'slot_released';
 
 	/**
-	 * SSE backpressure valve water marks: re-arm at 256 KB, disarm at 512 KB.
+	 * SSE backpressure valve water marks, in raw blocks: disarm once four are
+	 * held, re-arm once their drains bring it to two.
 	 *
 	 * The readers drain between arrivals, so their buffers accumulate in route():
 	 * disarm once the sum crosses the high mark, re-arm once their drains bring
-	 * it back under the low one. The hysteresis is what keeps the valve OPEN
-	 * through normal flow. A single threshold closes it on every buffered line and
-	 * stop-starts the spoke, which is what makes a hub-aggregation pull lag.
+	 * it back to the low one. The hysteresis is what keeps the valve OPEN
+	 * through normal flow, and a block arriving never crosses it alone.
 	 */
-	private const PUMP_ARM_BYTES    = 262144;
-	private const PUMP_DISARM_BYTES = 524288;
+	private const PUMP_ARM_BYTES    = 2 * Log_Sources::BLOCK_BYTES;
+	private const PUMP_DISARM_BYTES = 4 * Log_Sources::BLOCK_BYTES;
 
 	/**
 	 * Pending connects, drained one per tick by Connect_Queue_Timer_Node.
@@ -140,12 +140,6 @@ class Remote_Source_Node extends Remote_Broker_Node {
 				$this->consumer_for( $stamp )?->adopt_stream_start( $cursor );
 			}
 		};
-		$sse->on_skipped = function ( array $cursors ): void {
-			/** @var array<string,array{segment?:int,offset:int}> $cursors */
-			foreach ( $cursors as $stamp => $cursor ) {
-				$this->reader( $stamp )?->skip_to( $cursor );
-			}
-		};
 		$sse->on_message = function ( string $raw ): void {
 			$this->route( $raw );
 		};
@@ -188,11 +182,13 @@ class Remote_Source_Node extends Remote_Broker_Node {
 	}
 
 	/**
-	 * Route one raw `msg` payload, with its decoded message, to the reader its
-	 * FROM stamp names. A frame that will not unpack has nothing to route by
-	 * and is dropped, rate-limited; `consumer_for()` refuses the rest.
+	 * Route one raw block, or its header, to the reader its FROM stamp names,
+	 * which splits the block into records. A frame that will not unpack has
+	 * nothing to route by, and one that is no raw block belongs to no stream
+	 * this broker reads: both are dropped, rate-limited. `consumer_for()`
+	 * refuses the rest.
 	 *
-	 * @param string $raw One packed record.
+	 * @param string $raw One packed Message.
 	 */
 	private function route( string $raw ): void {
 		try {
@@ -201,11 +197,16 @@ class Remote_Source_Node extends Remote_Broker_Node {
 			$this->print_less_often( 'dropping unparseable SSE frame' );
 			return;
 		}
-		$child = $this->consumer_for( Log_Discovery::dir_from_stamp( Core::as_string( $message[ Message::FROM ] ) ) );
+		$from = Core::as_string( $message[ Message::FROM ] );
+		if ( ! ( Core::int( $message[ Message::TYPE ] ) & Message::TM_BATCH ) ) {
+			$this->print_less_often( 'dropping a frame that is no raw block: ', $from );
+			return;
+		}
+		$child = $this->consumer_for( Log_Discovery::dir_from_stamp( $from ) );
 		if ( null === $child ) {
 			return;
 		}
-		$child->receive( $raw, $message );
+		$child->fill( $message );
 		$this->pump_maybe_disarm();
 	}
 
@@ -326,7 +327,7 @@ class Remote_Source_Node extends Remote_Broker_Node {
 	protected function publish_status(): void {
 		$conn = null !== $this->sse_in
 			? $this->sse_in->connection()
-			: [ 'connected' => false, 'connecting' => false, 'last_http_code' => null, 'last_error' => null, 'current_backoff' => SSE_In_Node::INITIAL_BACKOFF, 'last_sse_heartbeat' => null, 'last_attempt' => null, 'scheduled_reconnect_at' => null, 'unparseable_lines' => 0 ];
+			: [ 'connected' => false, 'connecting' => false, 'last_http_code' => null, 'last_error' => null, 'current_backoff' => SSE_In_Node::INITIAL_BACKOFF, 'last_sse_heartbeat' => null, 'last_attempt' => null, 'scheduled_reconnect_at' => null ];
 		$data = [
 			'last_connection_attempt' => $conn['last_attempt'],
 			'connected'               => $conn['connected'],
@@ -338,8 +339,6 @@ class Remote_Source_Node extends Remote_Broker_Node {
 			'last_sse_heartbeat'      => $conn['last_sse_heartbeat'],
 			// The dashboard's idle reading: closed on purpose, back at T.
 			'scheduled_reconnect_at'  => $conn['scheduled_reconnect_at'],
-			// Torn spoke lines this stream skipped; the pull itself stays up.
-			'unparseable_lines'       => $conn['unparseable_lines'],
 		];
 		// Live only while connected AND the response is within slot-TTL window.
 		$hb_live = $conn['connected']
@@ -472,6 +471,19 @@ class Remote_Source_Node extends Remote_Broker_Node {
 	 */
 	public function restream(): void {
 		$this->sse_in?->disconnect();
+	}
+
+	/**
+	 * The spoke's last heartbeat while the stream is up. Its reader pushes
+	 * every byte it reads, so a heartbeat says nothing more waits to be sent.
+	 * A shut valve is the hub holding the spoke quiet, which says it now.
+	 */
+	public function heard_at(): ?float {
+		if ( ! $this->pump_armed ) {
+			return Core::$now;
+		}
+		$conn = $this->sse_in?->connection();
+		return null !== $conn && $conn['connected'] && null !== $conn['last_sse_heartbeat'] ? (float) $conn['last_sse_heartbeat'] : null;
 	}
 
 	/**

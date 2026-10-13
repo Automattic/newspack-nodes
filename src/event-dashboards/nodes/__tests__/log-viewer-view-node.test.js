@@ -123,6 +123,69 @@ test( 'rows carry the debug fields: msgId, key, struct flag, raw value', () => {
 	expect( row.raw ).toBe( '{"deep":{"nested":"struct 977"}}' );
 } );
 
+test( 'a struct row is stringified once, when first read, and never for a row nobody reads', () => {
+	const v = makeView( 'log-viewer:view' );
+	const stringify = jest.spyOn( JSON, 'stringify' );
+	try {
+		for ( let i = 0; i < 3; i++ ) {
+			const m = envelopeMsg( { value: { cleat: 4410 + i } } );
+			m[ TYPE ] = TM_STRUCT;
+			v.fill( m );
+		}
+		expect( stringify ).not.toHaveBeenCalled();
+
+		const row = v.lines[ 0 ];
+		expect( [ row.value, row.raw, row.content ] ).toEqual( [
+			'{"cleat":4412}',
+			'{"cleat":4412}',
+			'{"cleat":4412}',
+		] );
+		expect( stringify ).toHaveBeenCalledTimes( 1 );
+	} finally {
+		stringify.mockRestore();
+	}
+} );
+
+test( 'once read, a row holds nothing past the clip: no payload, no whole text', () => {
+	const v = makeView( 'log-viewer:view' );
+	const m = envelopeMsg( { value: { hull: 'z'.repeat( 300000 ) } } );
+	m[ TYPE ] = TM_STRUCT;
+	v.fill( m );
+	const row = v.lines[ 0 ];
+
+	expect( row.content.length ).toBe( 1003 );
+
+	const held = Object.values( row );
+	expect( held.some( ( f ) => 'object' === typeof f && null !== f ) ).toBe(
+		false
+	);
+	expect(
+		Math.max(
+			...held.map( ( f ) => ( 'string' === typeof f ? f.length : 0 ) )
+		)
+	).toBe( 262144 + 3 );
+} );
+
+test( 'a struct its breadcrumb says is too large to keep whole is encoded on arrival', () => {
+	const v = makeView( 'log-viewer:view' );
+	const stringify = jest.spyOn( JSON, 'stringify' );
+	try {
+		const m = envelopeMsg( { value: { hull: 'q'.repeat( 300000 ) } } );
+		m[ TYPE ] = TM_STRUCT;
+		m[ ID ] = '9:4096:300013';
+		v.fill( m );
+
+		expect( stringify ).toHaveBeenCalledTimes( 1 );
+		expect(
+			Object.values( v.lines[ 0 ] ).some(
+				( f ) => 'object' === typeof f && null !== f
+			)
+		).toBe( false );
+	} finally {
+		stringify.mockRestore();
+	}
+} );
+
 test( 'raw keeps multi-line bytestreams past the 1000-char content clip, capped at MAX_RAW', () => {
 	const v = makeView( 'log-viewer:view' );
 	const long = 'line one\n' + 'x'.repeat( 3000 ) + '\nline three';

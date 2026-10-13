@@ -34,6 +34,13 @@ namespace Newspack_Nodes;
 class Tail_Node extends Consumer_Node {
 
 	/**
+	 * A raw block of a Tail is lines of text, each a TM_BYTESTREAM once split.
+	 *
+	 * @var int
+	 */
+	public const BATCH_TYPE = Message::TM_BATCH | Message::TM_BYTESTREAM;
+
+	/**
 	 * Segmented source: the `{file}.{seg}` layout this class reads.
 	 *
 	 * Both tokens name a SOURCE, not a mode flag on this node. A `Log_Sources`
@@ -55,6 +62,52 @@ class Tail_Node extends Consumer_Node {
 	 * `Config::assert_within_base()`.
 	 */
 	protected string $source_file = '';
+
+	/**
+	 * Emit seam: send one complete line's raw bytes — newline restored — as a
+	 * TM_BYTESTREAM, in place of Consumer's unpack-a-Message forward. The buffer
+	 * and cursor scan that hands over each line stays in
+	 * `Durable_Reader::drain_buffer()`, so both source shapes reuse it and both
+	 * get `line_mode` for free.
+	 *
+	 * FROM is stamped directly rather than through `stamp_message()` because a
+	 * Tail is a source: it MINTS the trail at this I/O boundary instead of
+	 * prepending itself to one a producer already wrote.
+	 *
+	 * The ID carries this reader's own position breadcrumb,
+	 * `segment:offset:length` — in `File_Tail_Node` the inode rides the segment
+	 * slot — which the browser's `SeekTracker` reads to tell when a replay has
+	 * reached the live tail and to flip the view back to Live. Leave the ID empty
+	 * and that flip never fires for a Tail-fed stream.
+	 *
+	 * @param string $line       One complete line, without its trailing newline.
+	 * @param int    $abs_offset The line's start offset within the current segment or generation.
+	 */
+	protected function forward_line( string $line, int $abs_offset ): void {
+		$size = \strlen( $line ) + 1;
+		if ( $size > $this->largest_msg_sent ) {
+			$this->largest_msg_sent = $size;
+		}
+		$message                  = self::text_record( $line );
+		$message[ Message::FROM ] = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
+		$message[ Message::ID ]   = Log_Position::format( $this->cursor_segment, $abs_offset, $size );
+		parent::fill( $message );
+	}
+
+	/**
+	 * One line of a Tail's log as the record it is: a TM_BYTESTREAM carrying
+	 * the line, newline restored. A hub splitting a source's raw block builds
+	 * its records here too.
+	 *
+	 * @param string $line The line, without its newline.
+	 * @return array<int,mixed>
+	 */
+	public static function text_record( string $line ): array {
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = $line . "\n";
+		return $message;
+	}
 
 	/** Ownership seam: the file base names what a Tail reads. */
 	protected static function source_argument(): ?string {
@@ -94,40 +147,6 @@ class Tail_Node extends Consumer_Node {
 	 */
 	protected function default_offset(): ?string {
 		return 'end';
-	}
-
-	/**
-	 * Emit seam: send one complete line's raw bytes — newline restored — as a
-	 * TM_BYTESTREAM, in place of Consumer's unpack-a-Message forward. The buffer
-	 * and cursor scan that hands over each line stays in
-	 * `Durable_Reader::drain_buffer()`, so both source shapes reuse it and both
-	 * get `line_mode` for free.
-	 *
-	 * FROM is stamped directly rather than through `stamp_message()` because a
-	 * Tail is a source: it MINTS the trail at this I/O boundary instead of
-	 * prepending itself to one a producer already wrote.
-	 *
-	 * The ID carries this reader's own position breadcrumb,
-	 * `segment:offset:length` — in `File_Tail_Node` the inode rides the segment
-	 * slot — which the browser's `SeekTracker` reads to tell when a replay has
-	 * reached the live tail and to flip the view back to Live. Leave the ID empty
-	 * and that flip never fires for a Tail-fed stream.
-	 *
-	 * @param string $line       One complete line, without its trailing newline.
-	 * @param int    $abs_offset The line's start offset within the current segment or generation.
-	 */
-	protected function forward_line( string $line, int $abs_offset ): void {
-		$bytes = $line . "\n";
-		$size  = \strlen( $bytes );
-		if ( $size > $this->largest_msg_sent ) {
-			$this->largest_msg_sent = $size;
-		}
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$message[ Message::FROM ]  = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
-		$message[ Message::ID ]    = Log_Position::format( $this->cursor_segment, $abs_offset, $size );
-		$message[ Message::VALUE ] = $bytes;
-		parent::fill( $message );
 	}
 
 	/**

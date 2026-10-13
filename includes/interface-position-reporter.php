@@ -7,9 +7,9 @@
  * `topicprobe.p0`, and `wp nodes status`, the Workers dashboard, the
  * `consumer-lag` alert and the Aggregator cards all read that log through
  * `CLI::consumer_rows()`. The backlog is the distance from the cursor to the
- * log's end in the log's own bytes, and null where the reader cannot see the
- * end: a broker's reader never can, since nothing its spoke sends names the
- * end, so the `consumer-lag` alert covers a Consumer and never a hub reader. Two classes read durably — `Consumer_Node`, which
+ * log's end in the log's own bytes, and null where the reader cannot know it:
+ * a broker's reader knows it only as its spoke last said. Two classes read
+ * durably — `Consumer_Node`, which
  * tails a local Partition, and `Remote_Consumer_Node`, which reads one stream
  * of a spoke's connection — and neither extends the other, so the probe claims
  * a reader by this contract rather than by class.

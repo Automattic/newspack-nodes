@@ -374,12 +374,6 @@ function PartitionStatus( { partition, status, now } ) {
 						</>,
 					] }
 				/>
-				{ status.unparseable_lines > 0 && (
-					<StatRow
-						label={ __( 'Skipped lines', 'newspack-nodes' ) }
-						values={ [ status.unparseable_lines ] }
-					/>
-				) }
 			</div>
 		</div>
 	);
@@ -460,8 +454,8 @@ function FleetRollup( { answer } ) {
 /**
  * The broker's readers, one row each: the spoke's stamp and the worker
  * partition reading it, where its cursor stands, and how far behind it is.
- * A hub reader cannot see its spoke's end, so a lag the probe log carries as
- * null reads as unknown rather than as caught up. Nothing renders for a broker
+ * A hub reader's lag is null until its spoke first reports one, and a null
+ * lag reads as unknown rather than as caught up. Nothing renders for a broker
  * whose readers have reported no position yet.
  *
  * @param {Object}        props         Component props.

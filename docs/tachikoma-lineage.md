@@ -57,8 +57,9 @@ Paths below are relative to `lib/Tachikoma/`, with one exception worth knowing: 
 |------|----------|
 | `Partition_Node` — the durable unit: numbered `{seg}.log` segments, monotonic rotation at `segment_size`, and three retention rules — a hard segment cap, age, and count | `Nodes/Partition.pm`'s `make_node Partition` usage in `help()`, which takes `--filename --num_segments --segment_size --max_lifespan`; the replication half diverges (see below) |
 | `Topic_Node` — one producer addressing N partitions, routed by pinned TO, then KEY hash, then round-robin | `Nodes/Topic.pm`'s `make_node Topic` usage in `help()`, which addresses a *broker* rather than local partitions (see below) |
-| `Consumer_Node::READ_BLOCK_BYTES` — one block per poll, then yield | the `BUFSIZ` constant in `Nodes/Partition.pm`, read inside `process_get`; the pattern is the port, the number is not |
+| `Consumer_Node::READ_BLOCK_BYTES` — one block per poll, then yield; a raw reader's poll reads blocks up to `Log_Sources::BLOCK_BYTES` (1 MiB) before it yields | the `BUFSIZ` constant in `Nodes/Partition.pm`, read inside `process_get`; the pattern is the port, the number is not |
 | `get_batch()` | `Nodes/Consumer.pm`'s `get_batch` |
+| `Consumer_Node::raw_block()` sending a TM_BATCH of raw bytes, its ID the `<segment>:<offset>` they begin at, for the far end to split; a Tail's also carries TM_BYTESTREAM, because its lines are text | `Nodes/Partition.pm`'s `process_get`, answering a GET with a TM_BATCH whose ID is the offset and whose PAYLOAD is one `sysread`, which `Nodes/Consumer.pm`'s `fill()` appends to its buffer. The TM_INFO\|TM_BATCH header before it, whose `DISTANCE` gives the far end its backlog, is ours: Tachikoma's offsets run on across segments, ours restart at each one. So is the TM_BYTESTREAM bit: Tachikoma's consumer knows a batch's format from what it subscribed to, where ours reads it off the batch, so the reader that wrote the bytes says what they are |
 | `SEEK_START` (0), `SEEK_END` (-1), `SEEK_RECENT` (-2) | `Nodes/Consumer.pm`'s "valid offsets: start (0), recent (-2), end (-1)" |
 | `$buffer` (read-ahead + trailing partial) | `Nodes/Consumer.pm`'s buffer |
 | `poll_cb` swapped from `poll_init` to `poll_active`, or to `poll_crawl` after a crash | the same function-pointer dispatch through `$self->{fill}`. Consumer does not use it; the pattern is `Nodes/FileHandle.pm`'s: `fill()` dispatches through it, `new()` sets it initially, and `remove_node()` swaps it to the null callback on teardown |
@@ -186,9 +187,10 @@ Six flags agree in name and value: TM_BYTESTREAM 1, TM_EOF 2, TM_PING 4, TM_COMM
 | 256 | `TM_RESPONSE` | `TM_STORABLE` |
 | 512 | `TM_NOREPLY` | `TM_COMPLETION` |
 | 1024 | `TM_UNTYPED` | `TM_BATCH` |
-| 2048, 4096, 8192, 16384 | — | `TM_KILLME`, `TM_NOREPLY`, `TM_HEARTBEAT`, `TM_REQUEST` |
+| 2048 | `TM_BATCH` | `TM_KILLME` |
+| 4096, 8192, 16384 | — | `TM_NOREPLY`, `TM_HEARTBEAT`, `TM_REQUEST` |
 
-**Why:** the flag SET differs first — TM_PERSIST, TM_STORABLE, TM_COMPLETION, TM_BATCH, TM_KILLME and TM_HEARTBEAT are all absent here, and TM_STRUCT and TM_UNTYPED are ours — so packing what remains into the low bits is what keeps a composite readable. Nothing is lost by it: our wire is JSON of a named-constant array rather than Tachikoma's binary `pack`, so a frame was never interchangeable between the two runtimes and a shared numbering would buy nothing.
+**Why:** the flag SET differs first — TM_PERSIST, TM_STORABLE, TM_COMPLETION, TM_KILLME and TM_HEARTBEAT are all absent here, and TM_STRUCT and TM_UNTYPED are ours — so packing what remains into the low bits is what keeps a composite readable. TM_BATCH came later and took the next free bit. Nothing is lost by it: our wire is JSON of a named-constant array rather than Tachikoma's binary `pack`, so a frame was never interchangeable between the two runtimes and a shared numbering would buy nothing.
 
 ### The wire is JSON, and there is no TM_STORABLE
 

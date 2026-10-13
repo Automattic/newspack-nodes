@@ -131,8 +131,8 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 	 * fetch or this broker's catalog: `connected` while one was answered within
 	 * four EOF polls; the latest answer and its round trip, in milliseconds as
 	 * the Status tab reads it; the latest fetch or catalog ask sent; when the
-	 * soonest waiting reader asks again; the torn lines every block skipped;
-	 * and one error, the first of three that stands: the patron's last
+	 * soonest waiting reader asks again; and one error, the first of three
+	 * that stands: the patron's last
 	 * transfer, a refused catalog, a reader's refused fetch. A transfer's
 	 * error outranks a refusal as a stream's outranks a heartbeat's in
 	 * `Remote_Source`, and the broker's own ask outranks one reader's. It
@@ -145,11 +145,9 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 		$rtt      = $this->catalog_answered['rtt'] ?? null;
 		$sent     = 0.0 < $this->catalog_sent_at ? $this->catalog_sent_at : null;
 		$next     = null;
-		$skipped  = 0;
 		$refused  = null;
 		foreach ( $this->reader_walk() as $child ) {
 			$stats    = $child->fetch_stats();
-			$skipped += $stats['skipped'];
 			$refused ??= $stats['refused'];
 			if ( null !== $stats['sent_at'] ) {
 				$sent = \max( $sent ?? $stats['sent_at'], $stats['sent_at'] );
@@ -171,7 +169,6 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 				?? self::refusal_line( 'Discovery', $this->catalog_refusal, 'list_logs refused' )
 				?? self::refusal_line( 'Block fetch', $refused, 'read_block refused' ),
 			'scheduled_reconnect_at'  => null === $next ? null : (int) \ceil( $next ),
-			'unparseable_lines'       => $skipped,
 			'last_response'           => null === $answered ? null : (int) $answered,
 			'last_rtt'                => null === $rtt ? null : self::round_trip_ms( $rtt ),
 		] );

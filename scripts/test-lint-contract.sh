@@ -164,4 +164,10 @@ assert_clean "class-http-out-node.php's blocking probe may call sign_for(" "$d"
 d=$( fixture mint-send includes/class-widget-node.php '$m = Command_Auth::mint_for( $egress, $from, $to, $verb, $args );' )
 assert_clean "a mint through Command_Auth::mint_for( is not flagged" "$d"
 
+d=$( fixture op-id src/runtime/widget.js 'm[ ID ] = nextId++;' )
+assert_flags "a minted ID is flagged" "$d" "[op-id]"
+
+d=$( fixture crumb src/runtime/widget.js 'record[ ID ] = formatPosition( at.segment, offset, length );' )
+assert_clean "a breadcrumb through formatPosition( is not flagged" "$d"
+
 exit $fail

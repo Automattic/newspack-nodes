@@ -146,7 +146,7 @@
 
     <div class="ok" style="margin-top:16px">
       <h4>Pulling is what makes flow control free</h4>
-      <p>The hub asks for what it can take. When its buffer crosses 512 KB it stops reading the socket, the TCP window closes on the spoke, and nothing is dropped: the spoke keeps its log until the hub comes back for it.</p>
+      <p>The hub asks for what it can take. When its buffer crosses four 1 MiB blocks it stops reading the socket, the TCP window closes on the spoke, and nothing is dropped: the spoke keeps its log until the hub comes back for it.</p>
     </div>
   </div>
 </div>

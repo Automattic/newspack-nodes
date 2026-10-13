@@ -731,7 +731,7 @@ final class VaultGroupNodeTest extends TestCase {
 		$child = Core::node( 'pull:tw9' );
 		$this->assertInstanceOf( Remote_Source_Node::class, $child );
 		$child->fire();
-		Core::node( 'pull:tw9:sse-in' )->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_STRUCT, Message::FROM => 'firehose.p0', Message::ID => '9:512:40', Message::VALUE => [ 'p' => 1 ] ] ) );
+		Core::node( 'pull:tw9:sse-in' )->process_sse_chunk( self::pushed_record( [ Message::TYPE => Message::TM_STRUCT, Message::ID => '9:512:40', Message::VALUE => [ 'p' => 1 ] ] ) );
 		Core::node( 'pull:tw9:firehose.p0' )->poll();
 		$this->assertCount( 1, $sink->captured );
 

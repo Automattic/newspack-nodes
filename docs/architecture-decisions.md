@@ -84,15 +84,13 @@ types / verbs through an interpreter, not new methods.
 **Revisit if:** a node type genuinely cannot express its operation as a single message-in.
 None in the tree does: the interpreter/verb pattern absorbs every case.
 
-**Amendment: a broker's reader takes its stream through `receive()`.**
-[`Remote_Consumer_Node::receive( $raw, $message )`](../includes/class-remote-consumer-node.php)
-is a second entry point, and the drain loop is what pays for it. The broker,
-[`Remote_Source_Node`](../includes/class-remote-source-node.php), decodes each line its SSE
-connection carries to read the FROM stamp it routes by. The reader's `Durable_Reader` buffer
-holds raw lines, its dead letters and sizes are the line's bytes, and its cursor comes from the
-decoded message's breadcrumb, so it needs both forms. Through `fill()`, it gets one of them.
-A decoded hand-off re-encodes the line for the buffer, and a packed hand-off decodes it a
-second time.
+**Amendment: a broker's reader splits its stream behind `fill()`.**
+A broker hands each raw block and its header to the reader through `fill()`, the one entry
+point. The reader splits the block itself and buffers each line beside the message decoded from
+it, through its private [`Remote_Consumer_Node::receive()`](../includes/class-remote-consumer-node.php),
+which a step's reply shares. Its `Durable_Reader` buffer holds raw lines, its dead letters and
+sizes are the line's bytes, and its cursor comes from the line's place in the block, so it keeps
+both forms, and no line is decoded twice.
 
 The cost was measured on a hub's real path. A broker's reader drained into the hub's
 downstream: `Remote_Job_Rewrite_Node::fill()`, then a four-partition `Topic`, then its
@@ -106,12 +104,13 @@ fold added 3.57 µs (56%) or 4.78 µs (76%). The fold's own cost, about 3.6 to 5
 the same in both. It costs more than a fifth of the real per-line path, and the budget
 for folding was 5%.
 
-Only the broker calls `receive()`, on the line it has just routed by FROM. A step reply still
-arrives through `fill()`, which takes that reply and nothing else. Nothing outside the broker
-reaches the reader's stream except the reader's own verbs.
+This amendment once licensed `receive()` as a second public entry point, because the broker
+decoded each record to route it by FROM and a hand-off through `fill()` cost a second encode or
+decode. A raw block met its reopen condition: it reaches the reader through `fill()` already in
+the one form the split needs.
 
-**Revisit if:** a line reaches the reader already decoded, so a hand-off through `fill()` costs
-no second encode or decode; or the reader's buffer stops holding raw lines.
+**Revisit if:** the reader's buffer stops holding raw lines, or a broker routes anything finer
+than a block.
 
 ---
 
@@ -675,10 +674,13 @@ would commit past a line nothing replays and a quarantine is where the line belo
 builds such a reader over one partition dir, and `Consumer_Node::take_unparseable_lines_of()`
 takes and sums the counts of every reader a caller holds. Three callers take it, each reporting it where
 its reader looks: [`SSE_Out_Node`](../includes/rest/class-sse-out-node.php) sends an
-`unparseable_lines` event down the stream — which a hub's `SSE_In_Node` totals as
-`UNPARSEABLE_LINES`, which `Remote_Source_Node` publishes to the Aggregator card, while each
-`Remote_Consumer_Node` moves its cursor past the skip — event-logger-nodes' `grep_requests` verb returns it
-in its reply, and `wp nodes reqgrep` prints a warning. [`Partition_Node::read_tail_frames_by()`](../includes/class-partition-node.php)
+`unparseable_lines` event down a worker IPC stream, which the browser's `SseInNode` totals as
+`UNPARSEABLE_LINES`; event-logger-nodes' `grep_requests` verb returns it in its reply; and
+`wp nodes reqgrep` prints a warning. A stream's log or source reader sends raw blocks and reads
+no line, so its client meets the torn line instead. The browser's `SseInNode` is a view with
+no quarantine, so it skips and counts under this amendment, adding to `UNPARSEABLE_LINES`. A
+hub's `Remote_Consumer_Node` has a cursor and a quarantine, so the amendment does not reach
+it: it dead-letters the line at its place in the spoke's log and moves past it. [`Partition_Node::read_tail_frames_by()`](../includes/class-partition-node.php)
 counts the same way for the tail read behind `wp nodes status` and the Workers dashboard,
 under `unparseable_lines`. Raising was rejected: one torn line would end every read of that
 segment until it rotated. Quarantining was rejected: a view has no quarantine, and every
@@ -2052,6 +2054,14 @@ and a `positions` string naming a place seeks there instead of to the start. The
 a number at `Number.MAX_SAFE_INTEGER` and PHP at `PHP_INT_MAX`, so the fixture keeps out of
 the gap between them.
 
+**Amendment: a raw block's breadcrumbs are made where it is split.** A raw block has one
+writer, [`Consumer_Node::block_messages()`](../includes/class-consumer-node.php), and one
+splitter per language, `Remote_Consumer_Node` and the browser's `SseInNode`, which give each
+line the breadcrumb of its place: the block's `<segment>:<offset>`, plus the line's byte
+position in it, with its byte length. `tests/fixtures/raw-blocks.json` holds the two splitters
+to one case list: a cut line joined, a cut line torn, a line that will not unpack, a source's
+text lines with multibyte lengths, and a batch no header placed, which both drop.
+
 **Revisit if:** a position must carry more than a segment, an offset and a length, such as a
 record's index within a batch; or the wire's `positions` map moves to the string grammar, at
 which point its object form goes and `parse()` reads every value.
@@ -2177,10 +2187,11 @@ none of today. The blast radius, sender by sender, with what each does with one 
   `step refused` and forgives every owed step, so the operator's click is lost rather than
   retried. It would need to keep the step owed on `undelivered`, as `FetcherNode` re-arms a read.
 - **`Remote_Consumer_Node::fetch()`** (FROM the reader `<broker>:<kind>`, under
-  `HTTP_Source_Node`; `raw-logs read_block`). The reader's `fill()` settles a `read_block`
-  reply that echoes the fetch in flight; one whose payload is no struct is a refusal, said
-  rate-limited, published as the broker's `last_error`, and waited out for `EOF_POLL_SECONDS`
-  before the broker's tick asks again. Today the fetch's own clock re-sends it after
+  `HTTP_Source_Node`; `raw-logs read_block`). The reader's `fill()` settles a fetch on the
+  raw block whose header echoes the position the fetch in flight asked; a command reply to
+  `read_block` echoing its arguments, which only a refusal sends, is said rate-limited,
+  published as the broker's `last_error`, and waited out for `EOF_POLL_SECONDS` before the
+  broker's tick asks again. Today the fetch's own clock re-sends it after
   `REQUEST_TIMEOUT`; a bounce would wait an EOF poll instead, so the reader would need to read
   `undelivered` as a fetch to send again at once rather than a refusal.
 - **`HTTP_Source_Node::ask_catalog()`** (FROM the broker; `raw-logs list_logs`), a third clock:

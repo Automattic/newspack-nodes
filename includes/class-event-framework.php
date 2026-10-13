@@ -77,6 +77,17 @@ class Event_Framework {
 	public static ?\Closure $curl_dispatch = null;
 
 	/**
+	 * libcurl pause seam, replacing `curl_pause()`. Tests reassign it to
+	 * record the flags a valve sets, with no transfer to pause.
+	 *
+	 * Signature: `function ( \CurlHandle $easy, int $flags ): int`, the
+	 * CURLE_* code.
+	 *
+	 * @var (\Closure(\CurlHandle, int): int)|null
+	 */
+	public static ?\Closure $curl_pause = null;
+
+	/**
 	 * Wait seam replacing the `usleep()` a tick with no cURL handle blocks on.
 	 * Tests reassign it to advance a fake `Core::$clock` by the same amount, so
 	 * the timer scan, the heartbeat and every idle window still run as
@@ -327,8 +338,7 @@ class Event_Framework {
 
 	/**
 	 * Attach a handle that already exists to the shared multi and hold it under
-	 * `$owner` and `$context`. `start_curl()` comes here; so does a streaming
-	 * owner resuming a handle it paused with `unregister_curl_easy()`.
+	 * `$owner` and `$context`. `start_curl()` comes here.
 	 *
 	 * @param Node&Curl_Owner<mixed> $owner The node the completion belongs to.
 	 * @param \CurlHandle     $easy    The easy handle it owns.
@@ -478,6 +488,24 @@ class Event_Framework {
 			}
 		}
 		return $handles;
+	}
+
+	/**
+	 * Pause a transfer's receiving, or resume it, leaving the handle on the
+	 * multi: libcurl stops reading the socket, the kernel's buffer fills, and
+	 * the TCP window closes on the far end. Removing the handle instead and
+	 * adding it back would start the request over.
+	 *
+	 * @param \CurlHandle $easy  The transfer.
+	 * @param bool        $pause True to pause receiving, false to resume.
+	 * @return int The CURLE_* code libcurl answered.
+	 *
+	 * @api Support for the Remote_Source valve.
+	 */
+	public function pause_curl( \CurlHandle $easy, bool $pause ): int {
+		$flags = $pause ? \CURLPAUSE_RECV : \CURLPAUSE_CONT;
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_pause
+		return ( self::$curl_pause ?? static fn ( \CurlHandle $h, int $f ): int => \curl_pause( $h, $f ) )( $easy, $flags );
 	}
 
 	/**

@@ -65,7 +65,6 @@ abstract class Remote_Broker_Node extends Timer_Node {
 		'current_backoff'         => null,
 		'last_sse_heartbeat'      => null,
 		'scheduled_reconnect_at'  => null,
-		'unparseable_lines'       => 0,
 		'last_response'           => null,
 		'last_rtt'                => null,
 	];
@@ -922,6 +921,17 @@ abstract class Remote_Broker_Node extends Timer_Node {
 				yield $sibling->stamp() => $sibling;
 			}
 		}
+	}
+
+	/**
+	 * When the spoke last proved, by word on a live channel, that it has
+	 * nothing more to send than it sent, or the hub kept it quiet; null when
+	 * no channel says so. A pushed stream's heartbeat does, and keeps its
+	 * readers' backlog current while it stays quiet. A pulling broker has
+	 * none: its fetches say it.
+	 */
+	public function heard_at(): ?float {
+		return null;
 	}
 
 	/**

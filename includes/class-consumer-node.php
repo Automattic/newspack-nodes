@@ -39,7 +39,16 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 	use Schema_Reflection;
 
 	/** Dead_Letter_Queue rides in with Durable_Reader, which drives it. */
-	use Durable_Reader;
+	use Durable_Reader {
+		poll_active as reader_poll_active;
+	}
+
+	/**
+	 * The type of the TM_BATCH a raw block travels in: packed records.
+	 *
+	 * @var int
+	 */
+	public const BATCH_TYPE = Message::TM_BATCH;
 
 	/**
 	 * Bytes read per poll — one block, then yield the event loop. A poll drains
@@ -84,6 +93,22 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 	 * advance immediately.
 	 */
 	protected bool $multi_writer = false;
+
+	/** One byte that begins no valid UTF-8 character there, each match one byte long. */
+	private const NOT_A_CHARACTER = '/(?:[\x00-\x7F]|[\xC2-\xDF][\x80-\xBF]|\xE0[\xA0-\xBF][\x80-\xBF]|[\xE1-\xEC\xEE\xEF][\x80-\xBF]{2}|\xED[\x80-\x9F][\x80-\xBF]|\xF0[\x90-\xBF][\x80-\xBF]{2}|[\xF1-\xF3][\x80-\xBF]{3}|\xF4[\x80-\x8F][\x80-\xBF]{2})(*SKIP)(*FAIL)|./s';
+
+	/** Whether `normalize_cursor()` rewound the cursor since `raw_block()` last asked. */
+	private bool $cursor_reset = false;
+
+	/**
+	 * Bytes one `get_batch()` reads: a poll's block, or the whole of a raw one.
+	 *
+	 * @var positive-int
+	 */
+	protected int $read_bytes = self::READ_BLOCK_BYTES;
+
+	/** Send raw blocks for the far end to split instead of each record; see set_raw_blocks(). */
+	private bool $raw_blocks = false;
 
 	/** Source Partition, built by arguments() and published as the `source` sibling. Read it through source(). */
 	protected ?Partition_Node $source = null;
@@ -258,15 +283,141 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 	}
 
 	/**
+	 * One ACTIVE tick: a raw block under `set_raw_blocks()`, else the
+	 * reader's own drain and refill.
+	 *
+	 * @return int Blocks sent, or records drained.
+	 */
+	protected function poll_active(): int {
+		if ( ! $this->raw_blocks ) {
+			return $this->reader_poll_active();
+		}
+		$block = $this->raw_block( Log_Sources::BLOCK_BYTES );
+		if ( '' === $block['bytes'] ) {
+			return 0;
+		}
+		foreach ( self::block_messages( $block ) as $message ) {
+			if ( ! $this->address( $message ) ) {
+				return 0;
+			}
+			$this->fill_sink( $message );
+		}
+		return 1;
+	}
+
+	/**
+	 * One raw block from where this reader stands, for a reader in another
+	 * process to split into lines: up to `$max` bytes of one segment, exactly
+	 * as the segment holds them, beginning wherever the position falls, mid-line
+	 * included, and ending wherever `$max` falls. It reads through
+	 * `get_batch()`, so a drained segment rolls to the next and the
+	 * multi-writer seal holds the boundary, returning nothing while it does.
+	 * A cursor on a segment retention deleted serves from offset 0 of the
+	 * oldest left, logged here and reported as `reset`. `distance` is the
+	 * bytes the log holds from where the block begins, its own included, so 0
+	 * is the end.
+	 *
+	 * @param positive-int $max The most bytes to return.
+	 * @return array{bytes:string,segment:?int,offset:int,distance:int,reset:bool,type:int}
+	 */
+	public function raw_block( int $max ): array {
+		$this->ensure_initialized();
+		$this->cursor_reset = false;
+		// One read takes the block; a roll to the next segment takes one more.
+		$this->read_bytes = $max;
+		try {
+			do {
+				$segment = $this->cursor_segment;
+				$held    = \strlen( $this->buffer );
+				$this->get_batch();
+				$grew = \strlen( $this->buffer ) > $held || $this->cursor_segment !== $segment;
+			} while ( $grew && ! $this->at_eof && \strlen( $this->buffer ) < $max );
+		} finally {
+			$this->read_bytes = self::READ_BLOCK_BYTES;
+		}
+		if ( $this->cursor_reset ) {
+			$this->print_less_often( 'served past deleted segments: ', "rewound to {$this->cursor_segment}:0, the oldest left" );
+		}
+		$bytes = self::json_safe( \substr( $this->buffer, 0, $max ) );
+		$block = [ 'bytes' => $bytes, 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset ];
+		$this->cursor_offset += \strlen( $bytes );
+		$this->buffer         = '';
+		return $block + [ 'distance' => \strlen( $bytes ) + $this->compute_lag( false )['bytes_behind'], 'reset' => $this->cursor_reset, 'type' => static::BATCH_TYPE ];
+	}
+
+	/**
+	 * Bytes JSON carries exactly, so a block's length and every place in it
+	 * survive its encoding: a character the block would cut ends it before
+	 * that character, which the next block begins with, and each byte that is
+	 * no part of a character becomes one `?`. JSON would turn either into the
+	 * three bytes of U+FFFD.
+	 *
+	 * @param string $bytes The bytes read.
+	 * @return string The bytes to send, no longer than those read.
+	 */
+	private static function json_safe( string $bytes ): string {
+		$length = \strlen( $bytes );
+		for ( $back = 1; $back <= \min( 3, $length ); $back++ ) {
+			$byte = \ord( $bytes[ $length - $back ] );
+			if ( $byte < 0x80 ) {
+				break;
+			}
+			if ( $byte >= 0xC0 ) {
+				$needs = $byte >= 0xF0 ? 4 : ( $byte >= 0xE0 ? 3 : 2 );
+				$bytes = $needs > $back ? \substr( $bytes, 0, $length - $back ) : $bytes;
+				break;
+			}
+		}
+		if ( 1 === \preg_match( '//u', $bytes ) ) {
+			return $bytes;
+		}
+		return (string) \preg_replace( self::NOT_A_CHARACTER, '?', $bytes );
+	}
+
+	/** Refuse an idle reader, and boot one that has not read yet: what reading starts with. */
+	protected function ensure_initialized(): void {
+		$this->refuse_while_idle();
+		if ( ! $this->poll_initialized ) {
+			$this->initialize();
+		}
+	}
+
+	/**
+	 * A raw block as the two messages that carry it. First its header, typed
+	 * `TM_INFO|TM_BATCH` so nothing reads it as an ordinary TM_INFO, of flat
+	 * pairs: `OFFSET <segment:offset>` where the block begins, `DISTANCE
+	 * <bytes>` what the log holds from there, and `RESET 1` when a deleted
+	 * segment rewound it. Then the bytes, typed `BATCH_TYPE` and ID'd with
+	 * that OFFSET. The caller addresses both.
+	 *
+	 * @param array{bytes:string,segment:?int,offset:int,distance:int,reset:bool,type:int} $block What `raw_block()` read.
+	 * @return array{0:array<int,mixed>,1:array<int,mixed>} The header, then the batch.
+	 */
+	public static function block_messages( array $block ): array {
+		$offset                   = Log_Position::format( $block['segment'], $block['offset'], null );
+		$header                   = Message::new_message();
+		$header[ Message::TYPE ]  = Message::TM_INFO | Message::TM_BATCH;
+		$header[ Message::VALUE ] = "OFFSET {$offset} DISTANCE {$block['distance']}" . ( $block['reset'] ? ' RESET 1' : '' );
+		$batch                    = Message::new_message();
+		$batch[ Message::TYPE ]   = $block['type'];
+		$batch[ Message::ID ]     = $offset;
+		$batch[ Message::VALUE ]  = $block['bytes'];
+		return [ $header, $batch ];
+	}
+
+	/**
 	 * How far behind this reader is. THE lag seam: a subclass substituting one
 	 * byte source for another overrides this alone, so the probe record and the
 	 * idle check can never disagree.
 	 *
+	 * @param bool $rescan False when a read has just scanned the log, whose segments then stand.
 	 * @return array{bytes_behind: int, segments_behind: int, caught_up: bool, end_segment: int, end_size: int, cursor_segment: int, cursor_offset: int}
 	 */
-	protected function compute_lag(): array {
-		\clearstatcache( true, $this->source()->partition_dir() );
-		$segments = $this->source()->get_segments( true );
+	protected function compute_lag( bool $rescan = true ): array {
+		if ( $rescan ) {
+			\clearstatcache( true, $this->source()->partition_dir() );
+		}
+		$segments = $this->source()->get_segments( $rescan );
 		if ( empty( $segments ) ) {
 			return self::lag_of( [], $this->cursor_segment, $this->cursor_offset );
 		}
@@ -700,7 +851,6 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 					$this->at_eof = true;
 					return;
 				}
-				$this->consumed_bytes += \strlen( $this->buffer );
 				$this->cursor_segment = $next;
 				$this->cursor_offset = 0;
 				$this->buffer     = '';
@@ -713,7 +863,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 			return;
 		}
 
-		$length   = \min( self::READ_BLOCK_BYTES, $seg_size - $read_at );
+		$length   = \min( $this->read_bytes, $seg_size - $read_at );
 		$bytes = $this->source()->read_at( $this->cursor_segment, $read_at, $length );
 		// The source Partition counts these too; probe_stats reads OURS.
 		$this->bytes_read += \strlen( $bytes );
@@ -815,10 +965,24 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 			$this->cursor_segment = $segments[0]['id'];
 			$this->cursor_offset = 0;
 			$this->buffer     = '';
+			$this->cursor_reset = true;
 		} elseif ( $sizes[ $this->cursor_segment ] < $this->cursor_offset + \strlen( $this->buffer ) ) {
 			$this->cursor_offset = 0;
 			$this->buffer     = '';
+			$this->cursor_reset = true;
 		}
+	}
+
+	/**
+	 * Send raw blocks instead of records: each poll reads one block through
+	 * `raw_block()` and sends it as `block_messages()` builds it, stamped,
+	 * targeted and handed to the sink as a record would be, for the far end to
+	 * split into lines. A read that finds nothing sends nothing.
+	 *
+	 * @param bool $flag Whether to send raw blocks.
+	 */
+	public function set_raw_blocks( bool $flag ): void {
+		$this->raw_blocks = $flag;
 	}
 
 	/** Ownership seam: Consumer reads the partition dir it names; Tail its file base. */
@@ -902,13 +1066,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 		}
 		$eof                  = Message::new_message();
 		$eof[ Message::TYPE ] = Message::TM_EOF;
-		$stamp                = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
-		if ( '' !== $stamp ) {
-			$this->stamp_message( $eof, $stamp );
-		}
-		if ( \is_string( $this->target ) && '' !== $this->target ) {
-			$eof[ Message::TO ] = $this->target;
-		}
+		$this->address( $eof );
 		$this->sink?->fill( $eof );
 		return true;
 	}

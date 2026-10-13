@@ -251,11 +251,10 @@ export class LogStreamViewNode extends ReactBridge( Node ) {
 			this.stepBudget -= 1;
 		}
 		this.lineCounter += 1;
-		this._writeRow( {
-			id: this.lineCounter,
-			...fields,
-			isEven: this.lineCounter % 2 === 0,
-		} );
+		// Stamped in place: a copy would read a row's lazy fields now.
+		fields.id = this.lineCounter;
+		fields.isEven = this.lineCounter % 2 === 0;
+		this._writeRow( fields );
 		this.lpsSmoother.add( 1, Date.now() );
 	}
 
