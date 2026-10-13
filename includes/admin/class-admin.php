@@ -455,7 +455,7 @@ class Admin {
 
 	/** Segment rotation size on remote spokes. */
 	public static function remote_segment_size_callback(): void {
-		self::render_number( 'remote_segment_size', \__( 'Segment size on remote servers in bytes (1MB-256MB).', 'newspack-nodes' ) );
+		self::render_number( 'remote_segment_size', \__( 'Segment size on remote servers in bytes (1MB-4GB).', 'newspack-nodes' ) );
 	}
 
 	/** Age below which the count rule spares a remote segment. */

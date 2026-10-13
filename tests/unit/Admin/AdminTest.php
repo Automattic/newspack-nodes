@@ -171,7 +171,7 @@ class AdminTest extends TestCase {
 		$cb = $GLOBALS['_registered_settings']['newspack_nodes_remote_segment_size']['args']['sanitize_callback'];
 
 		$this->assertSame( 1048576, \call_user_func( $cb, '4177' ) );
-		$this->assertSame( 268435456, \call_user_func( $cb, (string) ( 512 * 1024 * 1024 ) ) );
+		$this->assertSame( 4294967296, \call_user_func( $cb, (string) ( 5 * 1024 * 1024 * 1024 ) ) );
 		$this->assertSame( 3145728, \call_user_func( $cb, '3145728' ) );
 		$this->assertSame( '', \call_user_func( $cb, '' ) );
 		$this->assertSame( '', \call_user_func( $cb, null ) );
@@ -941,7 +941,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$out = \ob_get_clean();
 		$this->assertStringContainsString( 'name="newspack_nodes_remote_segment_size"', $out );
 		$this->assertStringContainsString( 'min="' . ( 1024 * 1024 ) . '"', $out );
-		$this->assertStringContainsString( 'max="' . ( 256 * 1024 * 1024 ) . '"', $out );
+		$this->assertStringContainsString( 'max="' . ( 4 * 1024 * 1024 * 1024 ) . '"', $out );
 	}
 
 	public function test_remote_min_lifetime_callback_renders_number_input(): void {
