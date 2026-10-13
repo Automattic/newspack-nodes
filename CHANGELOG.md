@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.106.0] - 2026-10-13
+
 ### Added
 
 - **A hub reader reports its backlog.** A `Remote_Source` or `HTTP_Source` reader's backlog read `unknown`, because nothing a spoke sent named its log's end, so a hub could fall behind a spoke until the spoke's retention deleted segments the hub had not read, and nothing showed it coming. Every raw block a spoke sends now opens with a header whose `DISTANCE` is what the spoke's log holds from where the block begins, and the hub reader reports that less what it has drained since, so the backlog reaches `wp nodes status`, the Overview's Backlog card and charts, the Aggregator tab and Graphite. A quiet stream's heartbeats keep the figure current, and so does a hub holding the spoke back, through a full reader or a shut valve; it reads `unknown` again after 60 seconds with no word.
