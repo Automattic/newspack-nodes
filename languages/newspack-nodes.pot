@@ -2,14 +2,14 @@
 # This file is distributed under the GPL-2.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Newspack Nodes 2.106.0\n"
+"Project-Id-Version: Newspack Nodes 2.107.0\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/newspack-nodes\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-13T19:54:37+00:00\n"
+"POT-Creation-Date: 2026-10-13T22:57:03+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: newspack-nodes\n"
@@ -567,7 +567,7 @@ msgstr ""
 #: src/station/lazyTabs.js:67
 #: src/topology-console/components/Inspector.js:2303
 #: src/topology-console/components/OpenTopologyModal.js:61
-#: src/topology-console/components/TriageView.js:316
+#: src/topology-console/components/TriageView.js:322
 msgid "Loading…"
 msgstr ""
 
@@ -2151,7 +2151,7 @@ msgid "Triage"
 msgstr ""
 
 #: src/topology-console/components/Inspector.js:2596
-#: src/topology-console/components/TriageView.js:358
+#: src/topology-console/components/TriageView.js:364
 msgid "No quarantined records."
 msgstr ""
 
@@ -2599,67 +2599,77 @@ msgstr ""
 msgid "New variable value"
 msgstr ""
 
-#: src/topology-console/components/TriageView.js:249
+#: src/topology-console/components/TriageView.js:254
 msgid "The record came back in an unexpected shape."
 msgstr ""
 
 #. translators: %d: number of quarantined records.
-#: src/topology-console/components/TriageView.js:319
+#: src/topology-console/components/TriageView.js:325
 #, js-format
 msgid "%d quarantined"
 msgstr ""
 
 #. translators: %d: count of records predating indexing.
-#: src/topology-console/components/TriageView.js:327
+#: src/topology-console/components/TriageView.js:333
 #, js-format
 msgid "%d older records predate indexing — replay via wp nodes ingest"
 msgstr ""
 
-#: src/topology-console/components/TriageView.js:339
+#: src/topology-console/components/TriageView.js:345
 msgid "Could not read the dead-letter queue."
 msgstr ""
 
-#: src/topology-console/components/TriageView.js:374
+#: src/topology-console/components/TriageView.js:380
 msgid "TIME"
 msgstr ""
 
-#: src/topology-console/components/TriageView.js:377
+#: src/topology-console/components/TriageView.js:383
 msgid "REASON"
 msgstr ""
 
-#: src/topology-console/components/TriageView.js:380
+#: src/topology-console/components/TriageView.js:386
+msgid "STATUS"
+msgstr ""
+
+#: src/topology-console/components/TriageView.js:389
 msgid "ATTEMPTS"
 msgstr ""
 
-#: src/topology-console/components/TriageView.js:383
+#: src/topology-console/components/TriageView.js:392
 msgid "SOURCE"
 msgstr ""
 
-#: src/topology-console/components/TriageView.js:386
+#: src/topology-console/components/TriageView.js:395
 msgid "LOCATOR"
 msgstr ""
 
-#: src/topology-console/components/TriageView.js:425
+#: src/topology-console/components/TriageView.js:437
 msgid "Hide"
 msgstr ""
 
-#: src/topology-console/components/TriageView.js:429
+#: src/topology-console/components/TriageView.js:441
 msgid "View"
 msgstr ""
 
-#: src/topology-console/components/TriageView.js:441
+#: src/topology-console/components/TriageView.js:457
 msgid "Requeue"
 msgstr ""
 
-#: src/topology-console/components/TriageView.js:476
+#: src/topology-console/components/TriageView.js:473
+#: src/vault/VaultAdmin.js:74
+#: src/vault/VaultAdmin.js:201
+msgid "Remove"
+msgstr ""
+
+#: src/topology-console/components/TriageView.js:508
 msgid "Refresh"
 msgstr ""
 
-#: src/topology-console/components/TriageView.js:486
+#: src/topology-console/components/TriageView.js:518
 msgid "Confirm purge"
 msgstr ""
 
-#: src/topology-console/components/TriageView.js:487
+#: src/topology-console/components/TriageView.js:519
 msgid "Purge"
 msgstr ""
 
@@ -2850,11 +2860,6 @@ msgstr ""
 
 #: src/vault/VaultAdmin.js:59
 msgid "Are you sure you want to remove this server?"
-msgstr ""
-
-#: src/vault/VaultAdmin.js:74
-#: src/vault/VaultAdmin.js:201
-msgid "Remove"
 msgstr ""
 
 #: src/vault/VaultAdmin.js:100
