@@ -36,7 +36,8 @@
  * it flow. A
  * refusal returns a tick later as the verb's error text, addressed to the node
  * that asked (TO=FROM, ADR-7); `onError` reports it, and there is no promise to
- * reject.
+ * reject. Every answer re-polls the board, so a toggle or a restart shows as
+ * soon as the server has done it rather than on the next 5-second poll.
  *
  * The merge indexes the worker-status model's per-topology sections by name —
  * its `graph` keys ARE topology names — and hands every `topologies dump` row
@@ -300,7 +301,7 @@ export function useTopologyManager( opts = {} ) {
 	// Parsed once here; parseInt stringifies its argument anyway.
 	const refreshMs = parseInt( String( opts.refreshMs ?? 5000 ), 10 );
 
-	useBatchedPoll( {
+	const { pollNow } = useBatchedPoll( {
 		build: ( { interpreter, tee } ) => {
 			SLICES.forEach( ( slice ) =>
 				addSliceFetcher( interpreter, { ...slice, tee } )
@@ -320,16 +321,21 @@ export function useTopologyManager( opts = {} ) {
 	 *
 	 * @param {{error: ?string, result: ?Object, args: string[]}} reply One verb's answer.
 	 */
-	const onMutationDone = useCallback( ( { error, result, args } ) => {
-		if ( error ) {
-			onErrorRef.current?.( { name: args[ 0 ], message: error } );
-		} else if ( result?.warning ) {
-			onWarningRef.current?.( {
-				name: args[ 0 ],
-				message: result.warning,
-			} );
-		}
-	}, [] );
+	const onMutationDone = useCallback(
+		( { error, result, args } ) => {
+			// The board shows what the mutation did now, not on the next poll.
+			pollNow();
+			if ( error ) {
+				onErrorRef.current?.( { name: args[ 0 ], message: error } );
+			} else if ( result?.warning ) {
+				onWarningRef.current?.( {
+					name: args[ 0 ],
+					message: result.warning,
+				} );
+			}
+		},
+		[ pollNow ]
+	);
 	const restartOnce = useCommandOnce( {
 		group: GROUP,
 		ci: WORKERS_CI,
