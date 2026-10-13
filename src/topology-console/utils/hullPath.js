@@ -167,6 +167,17 @@ export function hullContains( poly, point ) {
 }
 
 /**
+ * The hulls containing `point`, in paint order.
+ *
+ * @param {Array<{include:string,poly:Array<[number,number]>}>} hulls In paint order, bottom first.
+ * @param {{x:number,y:number}}                                 point A point, in canvas units.
+ * @return {Array<{include:string,poly:Array<[number,number]>}>} Those holding it.
+ */
+export function hullsUnder( hulls, point ) {
+	return hulls.filter( ( h ) => hullContains( h.poly, point ) );
+}
+
+/**
  * The hull a press at `point` belongs to.
  *
  * Normally that is the topmost hull containing the point. Within a selected
@@ -183,7 +194,7 @@ export function hullContains( poly, point ) {
  * @return {?string} The include the press selects, or null where no hull reaches.
  */
 export function hullAt( hulls, point, selected ) {
-	const under = hulls.filter( ( h ) => hullContains( h.poly, point ) );
+	const under = hullsUnder( hulls, point );
 	if ( ! under.length ) {
 		return null;
 	}

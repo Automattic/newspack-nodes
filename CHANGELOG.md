@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **A cron run re-arms the reconcile event when it has gone missing.** A cron run that loads WordPress without the substrate, as one landing mid-deploy can, finds the minute schedule unregistered, so WordPress cannot reschedule `newspack_nodes/reconcile` and drops it. Until now only an admin page load re-armed it, and on sites whose staff rarely open wp-admin the reconcile pass stopped for hours: on one Foundation Community site, 19 hours without alerts, retention, the delayed-jobs sweep, cold-start revival or any `newspack_nodes/periodic` subscriber. Every cron run on the fleet's site now checks for the event on `init` and schedules it when it is missing; a healthy run pays one lookup in the loaded cron option. A page view does not check.
+- **On the topology canvas, a press on stacked hulls re-focuses the nodes at once.** Pressing through stacked include hulls selected the next layer and outlined it, but the dimmed nodes kept following the hull under the pointer when the press began, until the pointer left the stack. The dimming now follows the selection the moment a press makes it, and while the pointer rests inside the selection it stays on the selection; the outline still previews the hull the next press would take.
 
 ## [2.105.2] - 2026-10-12
 

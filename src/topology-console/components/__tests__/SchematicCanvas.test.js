@@ -2982,59 +2982,72 @@ describe( 'SchematicCanvas', () => {
 
 	describe( 'a selected hull passes presses through within its bounds', () => {
 		// job-intake nests inside job-router and paints above it, covering it.
+		const nestedCanvas = (
+			selectedHull,
+			onSelectHull,
+			keep = () => true
+		) => (
+			<SchematicCanvas
+				{ ...baseProps }
+				parsed={ {
+					nodes: [
+						{ id: 'jobintake:consumer', class: 'Consumer' },
+						{ id: 'jobs:partition', class: 'Partition' },
+						{ id: 'job-router', class: 'Job_Router' },
+					],
+					edges: [],
+				} }
+				hulls={ [
+					{
+						include: 'job-intake',
+						depth: 1,
+						nodeIds: [ 'jobintake:consumer', 'jobs:partition' ],
+					},
+					{
+						include: 'job-router',
+						depth: 0,
+						nodeIds: [
+							'jobintake:consumer',
+							'jobs:partition',
+							'job-router',
+						],
+					},
+				].filter( keep ) }
+				selectedHull={ selectedHull }
+				onSelectHull={ onSelectHull }
+				editMode
+			/>
+		);
+		const nestedAmbient = ( onPositionChange ) => ( {
+			classes: baseProps.catalog,
+			formatters: baseProps.formatters,
+			vaults: baseProps.vaults,
+			composeTargets: baseProps.composeTargets,
+			classCatalog: baseProps.classCatalog,
+			onPositionChange,
+			viewport: baseProps.viewport,
+			onViewportChange: baseProps.onViewportChange,
+			bottomObstructionPx: baseProps.bottomObstructionPx,
+			positionOverrides: {
+				'jobintake:consumer': { x: 100, y: 100 },
+				'jobs:partition': { x: 900, y: 100 },
+				'job-router': { x: 500, y: 100 },
+			},
+		} );
 		const nested = (
 			selectedHull,
 			onSelectHull,
 			onPositionChange = baseProps.onPositionChange
 		) =>
 			renderWithCatalog(
-				<SchematicCanvas
-					{ ...baseProps }
-					parsed={ {
-						nodes: [
-							{ id: 'jobintake:consumer', class: 'Consumer' },
-							{ id: 'jobs:partition', class: 'Partition' },
-							{ id: 'job-router', class: 'Job_Router' },
-						],
-						edges: [],
-					} }
-					hulls={ [
-						{
-							include: 'job-intake',
-							depth: 1,
-							nodeIds: [ 'jobintake:consumer', 'jobs:partition' ],
-						},
-						{
-							include: 'job-router',
-							depth: 0,
-							nodeIds: [
-								'jobintake:consumer',
-								'jobs:partition',
-								'job-router',
-							],
-						},
-					] }
-					selectedHull={ selectedHull }
-					onSelectHull={ onSelectHull }
-					editMode
-				/>,
-				{
-					classes: baseProps.catalog,
-					formatters: baseProps.formatters,
-					vaults: baseProps.vaults,
-					composeTargets: baseProps.composeTargets,
-					classCatalog: baseProps.classCatalog,
-					onPositionChange,
-					viewport: baseProps.viewport,
-					onViewportChange: baseProps.onViewportChange,
-					bottomObstructionPx: baseProps.bottomObstructionPx,
-					positionOverrides: {
-						'jobintake:consumer': { x: 100, y: 100 },
-						'jobs:partition': { x: 900, y: 100 },
-						'job-router': { x: 500, y: 100 },
-					},
-				}
+				nestedCanvas( selectedHull, onSelectHull ),
+				nestedAmbient( onPositionChange )
 			);
+		const nestedView = ( selected ) => ( {
+			...nested( selected, jest.fn() ),
+			selected,
+			ambient: nestedAmbient( baseProps.onPositionChange ),
+		} );
 		// Inside both hulls: between the cards, on the row they share.
 		const inBoth = { clientX: 350, clientY: 140, pointerId: 1 };
 		const press = ( el ) => {
@@ -3102,6 +3115,135 @@ describe( 'SchematicCanvas', () => {
 					.querySelector( '[data-include="job-router"]' )
 					.getAttribute( 'class' )
 			).not.toContain( 'is-hovered' );
+		} );
+
+		// GraphView owns the selection, so each press comes back as the prop.
+		const pressAndSelect = ( view, include ) => {
+			const onSelectHull = jest.fn();
+			view.rerenderWithCatalog(
+				nestedCanvas( view.selected, onSelectHull ),
+				view.ambient
+			);
+			press(
+				view.container.querySelector( `[data-include="${ include }"]` )
+			);
+			view.selected = onSelectHull.mock.calls[ 0 ][ 0 ];
+			view.rerenderWithCatalog(
+				nestedCanvas( view.selected, jest.fn() ),
+				view.ambient
+			);
+		};
+		const faded = ( container ) =>
+			[ ...container.querySelectorAll( 'g.topology-node' ) ]
+				.filter( ( n ) =>
+					n.getAttribute( 'class' ).includes( 'is-faded' )
+				)
+				.map( ( n ) => n.getAttribute( 'data-id' ) ?? n.textContent );
+
+		it( 'each press re-focuses the nodes on the hull it selects', () => {
+			const view = nestedView( null );
+			fireEvent.mouseMove(
+				view.container.querySelector( '[data-include="job-intake"]' ),
+				inBoth
+			);
+
+			pressAndSelect( view, 'job-intake' );
+			expect( view.selected ).toBe( 'job-intake' );
+			expect( faded( view.container ).join( ' ' ) ).toContain(
+				'job-router'
+			);
+
+			pressAndSelect( view, 'job-intake' );
+			expect( view.selected ).toBe( 'job-router' );
+			expect( faded( view.container ) ).toEqual( [] );
+		} );
+
+		it( 'the pointer inside the selection keeps the nodes on the selection', () => {
+			const view = nestedView( 'job-intake' );
+			fireEvent.mouseMove(
+				view.container.querySelector( '[data-include="job-intake"]' ),
+				inBoth
+			);
+
+			expect( faded( view.container ).join( ' ' ) ).toContain(
+				'job-router'
+			);
+		} );
+
+		it( 'a press nothing adopts leaves the nodes on the selection', () => {
+			const { container } = nested( 'job-intake', undefined );
+			const top = container.querySelector(
+				'[data-include="job-intake"]'
+			);
+			fireEvent.mouseMove( top, inBoth );
+			press( top );
+
+			expect( faded( container ).join( ' ' ) ).toContain( 'job-router' );
+		} );
+
+		it( 'a selection changed elsewhere re-judges the resting pointer', () => {
+			const view = nestedView( 'job-router' );
+			fireEvent.mouseMove(
+				view.container.querySelector( '[data-include="job-intake"]' ),
+				inBoth
+			);
+			expect( faded( view.container ) ).toEqual( [] );
+
+			view.rerenderWithCatalog(
+				nestedCanvas( null, jest.fn() ),
+				view.ambient
+			);
+
+			expect( faded( view.container ).join( ' ' ) ).toContain(
+				'job-router'
+			);
+		} );
+
+		it( 'a hover whose hull is removed under the pointer focuses nothing', () => {
+			const view = nestedView( null );
+			fireEvent.mouseMove(
+				view.container.querySelector( '[data-include="job-intake"]' ),
+				inBoth
+			);
+			expect( faded( view.container ).join( ' ' ) ).toContain(
+				'job-router'
+			);
+
+			view.rerenderWithCatalog(
+				nestedCanvas(
+					null,
+					jest.fn(),
+					( h ) => 'job-intake' !== h.include
+				),
+				view.ambient
+			);
+
+			expect(
+				view.container.querySelector( '.topology-hull.is-hovered' )
+			).toBeNull();
+			expect( faded( view.container ) ).toEqual( [] );
+
+			// No mouseleave fired, so the hull's return must not revive it.
+			view.rerenderWithCatalog(
+				nestedCanvas( null, jest.fn() ),
+				view.ambient
+			);
+			expect( faded( view.container ) ).toEqual( [] );
+		} );
+
+		it( 'entering another hull mid-drag leaves the hover alone', () => {
+			const { container } = nested( 'job-intake', jest.fn() );
+			fireEvent.pointerDown(
+				container.querySelector( '[data-include="job-intake"]' ),
+				inBoth
+			);
+			fireEvent.mouseEnter(
+				container.querySelector( '[data-include="job-router"]' ),
+				inBoth
+			);
+			expect(
+				container.querySelector( '.topology-hull.is-hovered' )
+			).toBeNull();
 		} );
 
 		it( 'hover lights the hull a press would take', () => {
