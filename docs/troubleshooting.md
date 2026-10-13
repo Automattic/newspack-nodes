@@ -88,7 +88,7 @@ echo 'command_node jobs:consumer:config dl_list' | wp nodes cli job-worker.p0
 # {"rows":[],"total":0,"unindexed_segments":0}
 ```
 
-`dl_list` lists dead-letter records newest-first with a `segment:offset:length` locator and a `status`; `dl_show <locator>` decodes one; `dl_requeue <locator>` redelivers it to the node's sink and leaves the queued copy in place, marked `requeued` once the sink returns, and refuses a record that is unaddressed or whose first hop names no mounted node (one dropped deeper in its path still reads `requeued`); `dl_remove <locator>` drops a requeued record from the list; `dl_purge` deletes every dead-letter segment.
+`dl_list` lists dead-letter records newest-first with a `segment:offset:length` locator and a `status`; `dl_show <locator>` decodes one; `dl_requeue <locator>` redelivers it to the node's sink and leaves the queued copy in place, marked `requeued` once the sink returns, and refuses a record that is unaddressed or whose first hop names no mounted node (one dropped deeper in its path still reads `requeued`); `dl_remove <locator>` drops any listed record, quarantined or requeued, from the list; `dl_purge` deletes every dead-letter segment.
 
 ### How replies find you
 

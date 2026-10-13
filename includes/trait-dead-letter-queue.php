@@ -398,7 +398,7 @@ trait Dead_Letter_Queue {
 		if ( null === $this->sink ) {
 			throw new \RuntimeException( 'requeue unavailable — this node has no sink to deliver into' );
 		}
-		$crumb   = self::require_listed( $deadletter, $locator, self::DEADLETTER_QUARANTINED, self::DEADLETTER_REQUEUED );
+		$crumb   = self::require_listed( $deadletter, $locator );
 		$message = self::deadletter_record( $deadletter, $crumb, $locator );
 		// Address it as forward_line does; Router, not the sink, delivers.
 		if ( \is_string( $this->target ) && '' !== $this->target ) {
@@ -428,9 +428,10 @@ trait Dead_Letter_Queue {
 	}
 
 	/**
-	 * Remove the record at $locator from the triage list by appending a `removed`
-	 * tombstone. The record itself stays in the sidecar until its segment rotates
-	 * out, so `wp nodes ingest` still replays it.
+	 * Remove the listed record at $locator, quarantined or requeued, from the
+	 * triage list by appending a `removed` tombstone. The record itself stays in
+	 * the sidecar until its segment rotates out, so `wp nodes ingest` still
+	 * replays it.
 	 *
 	 * @param string $locator `segment:offset:length` in the sidecar, from dl_list.
 	 * @return string The `ok:` line the verb replies.
@@ -438,24 +439,22 @@ trait Dead_Letter_Queue {
 	 */
 	public function remove_deadletter( string $locator ): string {
 		$deadletter = $this->require_deadletter();
-		self::require_listed( $deadletter, $locator, self::DEADLETTER_REQUEUED );
+		self::require_listed( $deadletter, $locator );
 		self::tombstone_deadletter( $deadletter, $locator, self::DEADLETTER_REMOVED );
 		return "ok: removed {$locator}\n";
 	}
 
 	/**
-	 * The breadcrumb of the listed record at $locator, refused unless its status
-	 * is one of $allowed: no .idx row names it, a tombstone removed it, or it
-	 * stands at a status the verb does not act on. A line that does not contain
-	 * the locator is skipped undecoded; the exact compare still decides.
+	 * The breadcrumb of the listed record at $locator, refused when it is not
+	 * listed: no .idx row names it, or a tombstone removed it. A line that does
+	 * not contain the locator is skipped undecoded; the exact compare decides.
 	 *
 	 * @param Partition_Node $deadletter The sidecar.
 	 * @param string         $locator    `segment:offset:length` in the sidecar, from dl_list.
-	 * @param string         ...$allowed The statuses the calling verb acts on.
 	 * @return array{segment: int, offset: int, length: int} The record's position.
-	 * @throws \RuntimeException When the locator is malformed, or names no record at an allowed status.
+	 * @throws \RuntimeException When the locator is malformed, or names no listed record.
 	 */
-	private static function require_listed( Partition_Node $deadletter, string $locator, string ...$allowed ): array {
+	private static function require_listed( Partition_Node $deadletter, string $locator ): array {
 		$crumb  = self::deadletter_crumb( $locator );
 		$status = null;
 		self::walk_deadletter(
@@ -474,9 +473,6 @@ trait Dead_Letter_Queue {
 		}
 		if ( self::DEADLETTER_REMOVED === $status ) {
 			throw new \RuntimeException( \esc_html( "dead-letter record at {$locator} is already removed" ) );
-		}
-		if ( ! \in_array( $status, $allowed, true ) ) {
-			throw new \RuntimeException( \esc_html( "dead-letter record at {$locator} is {$status}, not " . \implode( ' or ', $allowed ) ) );
 		}
 		return $crumb;
 	}
@@ -767,7 +763,7 @@ trait Dead_Letter_Queue {
 			],
 			[
 				'name'        => 'dl_remove',
-				'description' => 'Remove the dead-letter record at <locator> (segment:offset:length from dl_list) from the triage list; the queued copy stays replayable until it rotates out.',
+				'description' => 'Remove the dead-letter record at <locator> (segment:offset:length from dl_list), quarantined or requeued, from the triage list; the queued copy stays replayable until it rotates out.',
 				'hidden'      => true,
 				'args'        => [
 					[ 'name' => 'locator', 'type' => 'string', 'required' => true ],

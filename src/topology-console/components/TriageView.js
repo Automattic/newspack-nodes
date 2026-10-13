@@ -3,8 +3,8 @@
  * inside the Inspector's wide Triage modal. It dispatches the hidden `dl_list` /
  * `dl_show` / `dl_requeue` / `dl_remove` / `dl_purge` verbs at that node's
  * `:config` interpreter through `onAction`, and renders the `dl_list` page as a
- * table of dead-letter records carrying per-row View and Requeue buttons. A row
- * whose requeue returned lists as `requeued` and offers Remove instead.
+ * table of dead-letter records carrying per-row View, Requeue and Remove
+ * buttons. A row whose requeue returned lists its STATUS as `requeued`.
  *
  * Each verb mints its command FROM its OWN receiver node, so the reply lands
  * there and the addressing IS the correlation (ADR-7). One shared receiver would
@@ -30,9 +30,6 @@ import { TYPE, VALUE, TM_ERROR, payloadOf } from '../../runtime/message';
 import { formatMessageEnvelope } from '../../runtime/dumper-node';
 import { formatLocalDateTime } from '@newspack-nodes/shared/utils/formatUtils';
 import './triage-view.scss';
-
-/** The `dl_list` status of a record whose requeue returned. */
-const REQUEUED = 'requeued';
 
 /**
  * What the panel shows for a record.
@@ -452,22 +449,31 @@ export default function TriageView( { node, onAction } ) {
 												disabled={ settlePending }
 												onClick={ () =>
 													settle(
-														REQUEUED === r.status
-															? 'dl_remove'
-															: 'dl_requeue',
+														'dl_requeue',
 														r.locator
 													)
 												}
 											>
-												{ REQUEUED === r.status
-													? __(
-															'Remove',
-															'newspack-nodes'
-													  )
-													: __(
-															'Requeue',
-															'newspack-nodes'
-													  ) }
+												{ __(
+													'Requeue',
+													'newspack-nodes'
+												) }
+											</button>
+											<button
+												type="button"
+												className="button is-compact"
+												disabled={ settlePending }
+												onClick={ () =>
+													settle(
+														'dl_remove',
+														r.locator
+													)
+												}
+											>
+												{ __(
+													'Remove',
+													'newspack-nodes'
+												) }
 											</button>
 										</td>
 									</tr>

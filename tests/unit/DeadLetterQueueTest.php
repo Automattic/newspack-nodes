@@ -760,15 +760,15 @@ class DeadLetterQueueTest extends TestCase {
 		$this->assertSame( 1, $d->list_deadletter( 50 )['total'] );
 	}
 
-	/** Remove is offered on a requeued row alone, so a record still quarantined is refused. */
-	public function test_remove_refuses_a_record_still_quarantined(): void {
+	/** Remove acts on any listed record, so a record still quarantined leaves the list and the count. */
+	public function test_remove_drops_a_record_still_quarantined(): void {
 		$d   = $this->two_quarantined();
 		$loc = $d->list_deadletter( 50 )['rows'][1]['locator'];
 
-		$e = $this->caught( fn () => $d->remove_deadletter( $loc ), 'only a requeued record is removed' );
+		$this->assertSame( "ok: removed {$loc}\n", $d->remove_deadletter( $loc ) );
 
-		$this->assertStringContainsString( "dead-letter record at {$loc} is quarantined, not requeued", $e->getMessage() );
-		$this->assertSame( [ '2:0:10' => 'quarantined', '1:0:10' => 'quarantined' ], $this->statuses( $d ) );
+		$this->assertSame( [ '2:0:10' => 'quarantined' ], $this->statuses( $d ) );
+		$this->assertSame( 1, $d->list_deadletter( 50 )['total'] );
 	}
 
 	/** The page limit counts listed records, so a removed one leaves room for the next. */
