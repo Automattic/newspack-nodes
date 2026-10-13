@@ -368,8 +368,8 @@ describe( 'Overview fleet board', () => {
 			...container.querySelectorAll( '.newspack-nodes-chart__title' ),
 		].map( ( n ) => n.textContent );
 		expect( titles ).toEqual( [
-			'Topics Message Rate',
-			'Topics Byte Rate',
+			'Topics Messages Read',
+			'Topics Bytes Read',
 			'Topics Backlog',
 			'Topics Cache Size',
 			'Partition Size',
@@ -494,7 +494,7 @@ describe( 'Overview fleet board', () => {
 		const panel = ( title ) =>
 			globalThis.__topicsPanels.find( ( p ) => p.title === title );
 		expect(
-			panel( 'Topics Byte Rate' ).series[ 'firehose.p0' ].points.map(
+			panel( 'Topics Bytes Read' ).series[ 'firehose.p0' ].points.map(
 				( p ) => p.value
 			)
 		).toEqual( [ ( 4096 + 8192 ) / 2, 1024 ] );

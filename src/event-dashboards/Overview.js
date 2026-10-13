@@ -359,7 +359,7 @@ export default function Overview( { headerControlsSlot } ) {
 	const panels = [
 		{
 			storageKey: 'newspack-nodes:overview:chart:message-rate',
-			title: __( 'Topics Message Rate', 'newspack-nodes' ),
+			title: __( 'Topics Messages Read', 'newspack-nodes' ),
 			yLabel: __( 'Messages', 'newspack-nodes' ),
 			series: msgRateSeries,
 			formatValue: formatMsgRate,
@@ -367,7 +367,7 @@ export default function Overview( { headerControlsSlot } ) {
 		},
 		{
 			storageKey: 'newspack-nodes:overview:chart:byte-rate',
-			title: __( 'Topics Byte Rate', 'newspack-nodes' ),
+			title: __( 'Topics Bytes Read', 'newspack-nodes' ),
 			yLabel: __( 'Bytes', 'newspack-nodes' ),
 			series: byteRateSeries,
 			formatValue: formatByteRate,

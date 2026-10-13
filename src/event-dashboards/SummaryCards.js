@@ -15,14 +15,16 @@
  * rendering anything.
  *
  * Every card is a sum. A reader card sums per reader, co-readers of one
- * partition each counted; the Write card counts each partition's head once.
- * The "Messages/s", "Backlog" and "Total Cache" cards are LIVE: each sums
+ * partition each counted, so the message and 24h cards say "read": a log two
+ * workers read counts twice there. The Write card counts each partition's
+ * head once, so it is the one bytes-written figure.
+ * The "Messages read/s", "Backlog" and "Total Cache" cards are LIVE: each sums
  * every live reader's newest sample, the same series its Overview chart
  * stacks, counting a reader only while it names a source and that sample is
  * within a minute of the newest message seen (`streamHead`, `liveTotal`).
  * "Total Size" and "Total On Disk" apply the same rule per partition: each
  * live partition's newest reading counts once, whichever worker took it.
- * The 24h cards sum every reader's consumption over every retained bucket.
+ * The 24h read cards sum every reader's consumption over every retained bucket.
  */
 
 import { memo } from '@wordpress/element';
@@ -165,7 +167,7 @@ function SummaryCards( {
 				value={ formatMsgRate(
 					liveTotal( consumers, headS, 'msgRate' )
 				) }
-				label={ __( 'Messages/s', 'newspack-nodes' ) }
+				label={ __( 'Messages read/s', 'newspack-nodes' ) }
 			/>
 			<Card
 				mod="backlog"
@@ -177,12 +179,12 @@ function SummaryCards( {
 			<Card
 				mod="messages"
 				value={ formatCount( totals.msgs ) }
-				label={ __( 'Messages · 24h', 'newspack-nodes' ) }
+				label={ __( 'Messages read · 24h', 'newspack-nodes' ) }
 			/>
 			<Card
 				mod="bytes"
 				value={ formatBytes( totals.bytes ) }
-				label={ __( 'Bytes · 24h', 'newspack-nodes' ) }
+				label={ __( 'Bytes read · 24h', 'newspack-nodes' ) }
 			/>
 			<Card
 				mod="cache-total"
