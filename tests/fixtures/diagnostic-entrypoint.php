@@ -6,7 +6,7 @@
  */
 
 $surface = $argv[1] ?? '';
-if ( ! \in_array( $surface, [ 'site-health', 'doctor', 'health-rest', 'topology-console', 'frontend' ], true ) ) {
+if ( ! \in_array( $surface, [ 'site-health', 'doctor', 'health-rest', 'topology-console', 'frontend', 'cron' ], true ) ) {
 	throw new \InvalidArgumentException( 'Unknown diagnostic surface.' );
 }
 
@@ -20,7 +20,7 @@ if ( ! \rename( $config_stub, $config_file ) ) {
 	throw new \RuntimeException( 'Could not name the diagnostic-entrypoint config as PHP.' );
 }
 
-$topology_fixture = 'topology-console' === $surface;
+$topology_fixture = \in_array( $surface, [ 'topology-console', 'cron' ], true );
 $blocked_base     = $blocked_parent . '/diagnostic-runtime-8843';
 $runtime_base     = $blocked_base;
 $topology_file    = '';
@@ -61,6 +61,10 @@ $GLOBALS['_diagnostic_entrypoint_is_admin'] = \in_array( $surface, [ 'site-healt
 
 function is_admin(): bool {
 	return (bool) $GLOBALS['_diagnostic_entrypoint_is_admin'];
+}
+
+if ( 'cron' === $surface ) {
+	\define( 'DOING_CRON', true );
 }
 
 if ( 'doctor' === $surface ) {
@@ -172,6 +176,10 @@ try {
 		};
 		\Newspack_Nodes\Core::fire_and_forget_post( 'https://127.0.0.1:1/spawn', [ 'type' => 'frontend', 'partition' => 3 ], 'coordinator' );
 		$site_health_hooked = ! empty( $GLOBALS['_wp_actions']['site_status_tests'] );
+		$cron_heal_hooked   = [] !== \array_filter(
+			$GLOBALS['_wp_actions']['init'] ?? [],
+			static fn ( $cb ): bool => \str_contains( (string) ( \is_array( $cb ) ? ( $cb[1] ?? '' ) : ( \is_string( $cb ) ? $cb : '' ) ), 'rearm_reconcile_cron' )
+		);
 		$memd           = \Newspack_Nodes\Core::memd();
 		$servers        = $memd instanceof \Memcached ? $memd->getServerList() : [];
 		$result         = [
@@ -180,7 +188,19 @@ try {
 			'min_segments'   => $min_segments,
 			'spawn_verify'   => \is_array( $post_options ) ? $post_options[ \CURLOPT_SSL_VERIFYPEER ] : null,
 			'site_health'    => $site_health_hooked,
+			'cron_heal'      => $cron_heal_hooked,
 			'server'         => isset( $servers[0] ) ? $servers[0]['host'] . ':' . $servers[0]['port'] : null,
+		];
+	} elseif ( 'cron' === $surface ) {
+		// A cron run after one that loaded without the substrate lost the event.
+		require_once \dirname( __DIR__ ) . '/Helpers/WpdbStub.php';
+		require_once \dirname( __DIR__ ) . '/Helpers/SqliteWpdb.php';
+		$GLOBALS['wpdb']                      = new \Newspack_Nodes\Tests\Helpers\Sqlite_Wpdb();
+		$GLOBALS['_wp_test_next_scheduled']   = false;
+		$GLOBALS['_wp_test_scheduled_events'] = [];
+		\do_action( 'init' );
+		$result = [
+			'rescheduled' => \array_column( $GLOBALS['_wp_test_scheduled_events'], 'hook' ),
 		];
 	} elseif ( 'health-rest' === $surface ) {
 		\do_action( 'rest_api_init' );
