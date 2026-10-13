@@ -161,6 +161,10 @@ if ( \function_exists( 'add_action' ) ) {
 	\add_action( \Newspack_Nodes\Config::RESET_ACTION, [ '\\Newspack_Nodes\\Vault', 'reset' ] );
 	// Self-heal: re-arm the reconcile cron on admin view if it got cleared.
 	\add_action( 'admin_init', [ '\\Newspack_Nodes\\Bootstrap', 'self_heal_reconcile_cron' ] );
+	// A deploy can drop the event mid-run; the next cron run re-arms it.
+	if ( \wp_doing_cron() ) {
+		\add_action( 'init', [ '\\Newspack_Nodes\\Bootstrap', 'rearm_reconcile_cron' ] );
+	}
 }
 
 if ( \function_exists( 'add_filter' ) ) {

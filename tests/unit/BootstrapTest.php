@@ -1104,6 +1104,51 @@ class BootstrapTest extends TestCase {
 		);
 	}
 
+	/** A cron run re-arms a reconcile event a run without the substrate dropped. */
+	public function test_rearm_schedules_a_missing_reconcile_event(): void {
+		$this->use_wpdb();
+		\add_filter( 'newspack_nodes/topologies', function ( $topologies ) {
+			$topologies['rearm-fleet-517'] = [ 'num_partitions' => 1, 'topology' => '/x.php' ];
+			return $topologies;
+		} );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'rearm-fleet-517' ];
+		\Newspack_Nodes\Config::reset();
+		$GLOBALS['_wp_test_next_scheduled'] = false;
+
+		Bootstrap::rearm_reconcile_cron();
+
+		$this->assertSame( 'newspack_nodes/reconcile', $GLOBALS['_wp_test_scheduled_events'][0]['hook'] ?? null );
+	}
+
+	/** With the event scheduled, the re-arm reads nothing past the cron option. */
+	public function test_rearm_with_the_event_scheduled_touches_nothing_else(): void {
+		\delete_option( \Newspack_Nodes\Cache_Backend::SALT_OPTION );
+		\Newspack_Nodes\Cache_Backend::$salt = null;
+		$GLOBALS['_wp_test_next_scheduled']   = 1791876247;
+
+		Bootstrap::rearm_reconcile_cron();
+
+		$this->assertFalse( \get_option( \Newspack_Nodes\Cache_Backend::SALT_OPTION, false ) );
+		$this->assertEmpty( $GLOBALS['_wp_test_scheduled_events'] );
+	}
+
+	/** A subsite runs no fleet, so its cron runs leave the event unscheduled. */
+	public function test_rearm_on_a_subsite_schedules_nothing(): void {
+		\add_filter( 'newspack_nodes/topologies', function ( $topologies ) {
+			$topologies['rearm-sub-518'] = [ 'num_partitions' => 1, 'topology' => '/x.php' ];
+			return $topologies;
+		} );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'rearm-sub-518' ];
+		\Newspack_Nodes\Config::reset();
+		$GLOBALS['_wp_test_is_multisite']   = true;
+		$GLOBALS['_wp_test_is_main_site']   = false;
+		$GLOBALS['_wp_test_next_scheduled'] = false;
+
+		Bootstrap::rearm_reconcile_cron();
+
+		$this->assertEmpty( $GLOBALS['_wp_test_scheduled_events'] );
+	}
+
 	public function test_self_heal_skips_when_cron_already_scheduled(): void {
 		\add_filter( 'newspack_nodes/topologies', function ( $topologies ) {
 			$topologies['my-fleet'] = [ 'num_partitions' => 1, 'topology' => '/x.php' ];

@@ -17,6 +17,12 @@ if ( ! function_exists( 'plugin_dir_path' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_doing_cron' ) ) {
+	function wp_doing_cron(): bool {
+		return \defined( 'DOING_CRON' ) && \DOING_CRON;
+	}
+}
+
 if ( ! function_exists( 'do_action' ) ) {
 	$GLOBALS['_wp_actions']              = [];
 	$GLOBALS['_wp_action_registrations'] = [];

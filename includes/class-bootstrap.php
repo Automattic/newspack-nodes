@@ -308,6 +308,19 @@ class Bootstrap {
 		return Lock_Node::stale_timeout_of( Core::arr( $topologies[ $type ] ) );
 	}
 
+	/**
+	 * Re-arm (init, on a cron run) the reconcile event a run that
+	 * loaded without the substrate dropped: WordPress cannot reschedule an
+	 * event whose schedule nothing registered. The scheduled check comes
+	 * first, so a healthy run costs one lookup in the loaded cron option.
+	 */
+	public static function rearm_reconcile_cron(): void {
+		if ( \wp_next_scheduled( self::CRON_EVENT ) || ! self::fleet_site() ) {
+			return;
+		}
+		self::self_heal_reconcile_cron();
+	}
+
 	/** Self-heal (admin_init): re-arm the reconcile cron if it should run but isn't scheduled. */
 	public static function self_heal_reconcile_cron(): void {
 		if ( ! self::is_fleet_enabled() ) {

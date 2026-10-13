@@ -113,6 +113,23 @@ class DiagnosticEntrypointTest extends TestCase {
 	}
 
 	/**
+	 * A cron run that loaded without the substrate drops the reconcile event,
+	 * and only a cron run reliably follows it: the next one re-arms it.
+	 */
+	public function test_a_cron_request_re_arms_a_lost_reconcile_event(): void {
+		$result = $this->run_entrypoint( 'cron' );
+
+		$this->assertSame( [ 'newspack_nodes/reconcile' ], $result['rescheduled'] );
+	}
+
+	/** Cron runs carry the re-arm; a page view leaves it to them. */
+	public function test_a_page_view_does_not_check_the_reconcile_event(): void {
+		$result = $this->run_entrypoint( 'frontend' );
+
+		$this->assertFalse( $result['cron_heal'] );
+	}
+
+	/**
 	 * A page view builds Partitions — `Job_Intake::feed()` from a render, the
 	 * settings writer on an option change — whose schema defaults are strict
 	 * `<config:*>` tokens, so the namespace must be live without any wiring.
