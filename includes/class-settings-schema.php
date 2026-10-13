@@ -193,7 +193,7 @@ class Settings_Schema {
 					key: 'remote_segment_size',
 					type: 'int',
 					min: 1048576,
-					max: 268435456,
+					max: 4294967296,
 					default: 67108864,
 					label: static fn(): string => \__( 'Remote Segment Size', 'newspack-nodes' ),
 					section: $remote,

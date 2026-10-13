@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`remote_segment_size` takes up to 4 GiB**, the ceiling `segment_size` already had, so a hub can push a spoke segments as large as its own.
 - **The Overview's read-side figures say they are reads.** "Messages/s", "Messages · 24h" and "Bytes · 24h" are now "Messages read/s", "Messages read · 24h" and "Bytes read · 24h", and the Topics charts are "Topics Messages Read" and "Topics Bytes Read". Each sums every reader, so a log two workers read counts twice there; the Write card counts each log once and is the bytes-written figure.
 
 ### Fixed
