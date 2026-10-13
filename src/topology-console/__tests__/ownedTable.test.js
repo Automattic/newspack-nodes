@@ -4,12 +4,12 @@
  * the Inspector, which shows its owner as a link back.
  */
 
-import { act, fireEvent, screen } from '@testing-library/react';
+import { act, fireEvent } from '@testing-library/react';
 import SchematicCanvas from '../components/SchematicCanvas';
 import GraphView from '../components/GraphView';
 import { renderWithCatalog } from './catalogTestUtils';
 import { autoLayout } from '../utils/autoLayout';
-import { SIDECAR_POLLER } from '../hooks/useSidecarRow';
+import { SIDECAR_POLLER } from '../hooks/useSidecarRows';
 import { Core } from '../../runtime/core';
 import { Node } from '../../runtime/node';
 import {
@@ -134,16 +134,16 @@ describe( 'an owned Table on the console', () => {
 			fireEvent.click(
 				container.querySelector( '.topology-node__sidecars' )
 			);
+			const cards = [
+				...document.body.querySelectorAll( '.topology-sidecars__card' ),
+			];
 			expect(
-				[
-					...document.body.querySelectorAll( '.topology-open-item' ),
-				].map( ( card ) => card.textContent )
-			).toEqual( [ 'crawl-4471:curlNode', 'crawl-4471:seenTable' ] );
-			fireEvent.click(
-				screen.getByText( 'crawl-4471:seen', {
-					selector: '.topology-open-item__name',
-				} )
-			);
+				cards.map( ( card ) => card.getAttribute( 'aria-label' ) )
+			).toEqual( [
+				'crawl-4471:curl (Node)',
+				'crawl-4471:seen (Table)',
+			] );
+			fireEvent.click( cards[ 1 ] );
 			await act( async () => {} );
 			expect( sent ).toHaveLength( 1 );
 			const reply = newMessage();

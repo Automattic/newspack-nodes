@@ -21,7 +21,7 @@ import { quoteToken, scanTokens } from '../../runtime/shell-node';
 import names from '../../runtime/reserved-node-names.json';
 import { Core } from '../../runtime/core';
 import { canonicalReverseCwd } from '../../runtime/metadata-node';
-import { SIDECAR_POLLER } from './useSidecarRow';
+import { SIDECAR_POLLER } from './useSidecarRows';
 
 /** @typedef {{ kind: string, text: string, prompt?: string }} TranscriptEntry */
 

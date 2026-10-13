@@ -35,7 +35,7 @@ list_nodes [-clst] [<node>]           nodes sinking INTO <node>; -c counters -l 
 list_nodes -a [-clst] [<regex>]       every node whose name matches <regex>
 dump_node <node> [<keys>]             config + state of one node (alias: dump)
 dump_config [<regex>]                 the running topology as round-trippable shell verbs
-dump_metadata [<node>]                JSON keyed by node name; bare, one round trip draws the whole graph
+dump_metadata [<node> | -o <node>...] JSON keyed by node name; bare, one round trip draws the whole graph; -o adds each node's sidecars
 stats [-a] [<node>|<regex>]           NAME COUNT LGST_MSG READ WRITTEN; nodes sinking INTO <node>, -a for every name matching <regex>
 uptime                                UTC clock, then elapsed at the coarsest scale that fits: 07s, 3m 04s, 2h 09m, 4d 01:12:33
 pwd                                   the cwd and the reply's FROM trail, as ` <cwd> -> <from>`

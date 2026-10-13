@@ -65,7 +65,7 @@
   </div>
   <div class="callout">
     <h4>Two counters aggregate; two double-count</h4>
-    <p><span class="mono">bytes_written()</span> sums and <span class="mono">largest_msg_sent()</span> maxes over every materialized partition, which is what gives the Topic a meaningful canvas row: <span class="mono">dump_metadata</span> skips the patron-linked <span class="mono">p{N}</span> children.</p>
+    <p><span class="mono">bytes_written()</span> sums and <span class="mono">largest_msg_sent()</span> maxes over every materialized partition, which is what gives the Topic a meaningful canvas row: a full <span class="mono">dump_metadata</span> skips the patron-linked <span class="mono">p{N}</span> children, and the "…" on its card opens them as a grid of cards, polled by the Topic's name through <span class="mono">dump_metadata -o</span> while it is open.</p>
     <p><span class="mono">stats</span> and <span class="mono">ls -a</span> walk the whole registry and list the Topic beside its children, so WRITTEN double-counts there, and so does COUNT: <span class="mono">fill()</span> increments the Topic's counter before the partition increments its own.</p>
   </div>
 </div>

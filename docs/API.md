@@ -796,10 +796,14 @@ key is absent from a row owning none. A published sibling with no patron,
 such as a `Vault_Group`'s child, draws on the canvas instead. A patron keeps
 a node's `:config`, so a sidecar's verbs reach it there as a canvas node's do.
 Naming a node, `dump_metadata <name>`, answers it unless its schema is
-`hidden`, owned or not, carrying `owner` as above: that is how the console
-opens a sidecar from the "…" on its owner's card and polls its row, Time
-Travel and Triage included. A full snapshot also carries a `_header` entry
-holding `profiling` and, when the command supplied one, `pwd`.
+`hidden`, owned or not, carrying `owner` as above. `dump_metadata -o
+<name>...` answers each node named the same way, then the row of every
+sidecar it lists, so a client asks for an owner's sidecars by the owner's name
+however many it owns: that is how the console polls the grid of live cards an
+owner's "…" opens, while it is open, and the sidecar its Inspector shows, Time
+Travel and Triage included, in one command. A full snapshot also carries a
+`_header` entry holding `profiling` and, when the command supplied one,
+`pwd`.
 
 `registrations` comes from `Node::registered_listeners()`, which walks the
 registration table and keeps only the entries whose callback is null — the

@@ -1,7 +1,7 @@
 /**
  * The console's drawing surface: the canvas component, and the pure geometry it
- * draws with — port anchors, edge curves, the fit-all viewBox, sparkline paths
- * and the level-of-detail thresholds.
+ * draws with — port anchors, edge curves, the fit-all viewBox and the
+ * level-of-detail thresholds. Each node is a `NodeCard`.
  *
  * A card is where a node's two connection contracts become visible. Its IN port
  * stands for `fill()`, the one entry point every node answers (ADR-1), so a
@@ -18,7 +18,7 @@ import {
 	useRef,
 	useState,
 } from '@wordpress/element';
-import { __, sprintf } from '@wordpress/i18n';
+import { __ } from '@wordpress/i18n';
 
 import {
 	X_PAD,
@@ -35,7 +35,6 @@ import {
 	clipSegmentExit,
 } from '../utils/viewportCull';
 import { useContainerRefit } from '../../shared/hooks/useContainerRefit';
-import { formatGroupedCount } from '@newspack-nodes/shared/utils/formatters';
 import { maxInsetBeforeLOD } from '../utils/viewportResize';
 import { useLayoutContext } from '../LayoutContext';
 import { useChrome } from '../ChromeContext';
@@ -46,29 +45,19 @@ import {
 	hullGeometry,
 	hullsUnder,
 } from '../utils/hullPath';
-import { RATE_HISTORY_MAX } from '../hooks/useGraphRates';
 import { edgeHasConnectRole } from '../utils/consoleGraph';
 import { useCatalog } from '../CatalogContext';
-
-/**
- * Card width in world (viewBox) units. Exported because the palette's drag
- * ghost draws the geometry the drop will land on, and a second copy of the
- * number makes the ghost lie the moment one of them moves.
- */
-export const NODE_W = 196;
-
-/**
- * Card height in world units.
- */
-export const NODE_H = 84;
-
-/**
- * Radius of the IN and OUT port dots, in world units.
- */
-export const PORT_R = 4.5;
-
-/** Left edge of an owner's "…", within its card. */
-const SIDECARS_X = NODE_W - 30;
+import {
+	NODE_H,
+	NODE_W,
+	NodeCard,
+	NodeCardDefs,
+	NodeReadout,
+	bloomVars,
+	formatNodeRate,
+	sparklinePath,
+	useCardSurface,
+} from './NodeCard';
 
 /**
  * Movement in SVG units before a pointer-down counts as a drag rather than a
@@ -553,27 +542,6 @@ const ARROW_PAN = {
 const EDGE_FLOW_MAX = 40;
 
 /**
- * Bloom blur radius per skin, in SCREEN px. `bloomStdDev` divides by the
- * current scale every render, so the glow keeps one size on screen however far
- * the canvas is zoomed.
- */
-const BLOOM_STDDEV_PX = { crt: 5, neo: 4 };
-
-/**
- * The filter's `stdDeviation` in world units, for a glow of constant screen
- * size.
- *
- * @param {number} px    Blur radius in screen px.
- * @param {number} scale Current px per world unit; Infinity until the canvas is measured.
- * @return {string|number} The world-unit deviation, or 0 while the scale is unusable — no blur beats a blur of unknown size.
- */
-function bloomStdDev( px, scale ) {
-	return Number.isFinite( scale ) && scale > 0
-		? ( px / scale ).toFixed( 2 )
-		: 0;
-}
-
-/**
  * Read a `"x y w h"` viewBox string back into a rect.
  *
  * @param {string} str A viewBox attribute value.
@@ -586,357 +554,6 @@ function parseViewBox( str ) {
 	}
 	return { x: parts[ 0 ], y: parts[ 1 ], w: parts[ 2 ], h: parts[ 3 ] };
 }
-
-/**
- * Left inset of the card's sparkline, in world units from the card's edge.
- */
-const SPARK_X = 11;
-
-/**
- * Top of the sparkline band, in world units from the card's top edge.
- */
-const SPARK_Y = 48;
-
-/**
- * Sparkline width: the card less an equal inset each side.
- */
-const SPARK_W = NODE_W - 2 * SPARK_X;
-
-/**
- * Sparkline height, and so the plot's full-scale deflection.
- */
-const SPARK_H = 16;
-
-/**
- * The card's rate sparkline, scaled to the tallest sample it holds and
- * right-aligned across the full `RATE_HISTORY_MAX` window: the newest sample
- * sits at the right edge and a short history walks in from there. Stretching a
- * short history across the card would make a node with two samples read like a
- * node with a full minute of them.
- *
- * @param {?number[]} history Trailing msg/s samples, oldest first.
- * @return {?string} An SVG path `d`, or null under two samples — one point makes no line.
- */
-function sparklinePath( history ) {
-	if ( ! history || history.length < 2 ) {
-		return null;
-	}
-	const max = Math.max( ...history, 1e-9 );
-	const step = SPARK_W / ( RATE_HISTORY_MAX - 1 );
-	const startIdx = RATE_HISTORY_MAX - history.length;
-	return history
-		.map( ( v, i ) => {
-			// Clamp negatives (counter reset) so they don't plot below the box.
-			const safeV = v > 0 ? v : 0;
-			const x = SPARK_X + ( startIdx + i ) * step;
-			const y = SPARK_Y + SPARK_H - ( safeV / max ) * SPARK_H;
-			return `${ i === 0 ? 'M' : 'L' } ${ x.toFixed( 2 ) },${ y.toFixed(
-				2
-			) }`;
-		} )
-		.join( ' ' );
-}
-
-/**
- * Messages per second below which a card shows no rate label rather than
- * `0.00 /s`.
- */
-const RATE_LABEL_FLOOR = 0.05;
-
-/**
- * The per-card rate label, at the precision the card has room for: whole
- * messages per second in the hundreds, one decimal in the tens, two below.
- *
- * @param {number} [rate] Messages per second for one node.
- * @return {?string} The label, or null below `RATE_LABEL_FLOOR`.
- */
-function formatNodeRate( rate ) {
-	if ( ! rate || rate < RATE_LABEL_FLOOR ) {
-		return null;
-	}
-	if ( rate >= 100 ) {
-		return `${ Math.round( rate ) } /s`;
-	}
-	if ( rate >= 10 ) {
-		return `${ rate.toFixed( 1 ) } /s`;
-	}
-	return `${ rate.toFixed( 2 ) } /s`;
-}
-
-const NodeCard = memo(
-	/**
-	 * One node card's frame: everything that holds still from poll to poll. It is
-	 * memoized on its structural props alone, so a poll that moves only counters
-	 * re-renders no card, and the bloom-filtered layer it sits in is left alone.
-	 * Every handler comes through `events`, one object for the canvas's lifetime.
-	 *
-	 * @param {Object}  props
-	 * @param {string}  props.id           Node id.
-	 * @param {string}  props.cls          Node class, shown in the title band.
-	 * @param {number}  props.x            Card left, in world units.
-	 * @param {number}  props.y            Card top, in world units.
-	 * @param {number}  props.w            Rendered width, floored for a tiny scale.
-	 * @param {number}  props.h            Rendered height, floored likewise.
-	 * @param {boolean} props.showDetail   Draw labels and ports, not a bare rect.
-	 * @param {boolean} props.isSelected   The selected node.
-	 * @param {boolean} props.isHovered    The hovered node.
-	 * @param {boolean} props.isFaded      Faded behind a hover or a focused hull.
-	 * @param {boolean} props.isDragging   Being dragged.
-	 * @param {boolean} props.isIdle       Live, unselected, and its counter held still since the last poll.
-	 * @param {boolean} props.isDrift      Runtime drift: off the .tsl, or console-made.
-	 * @param {boolean} props.isBorrowed   Borrowed via `include`, so locked.
-	 * @param {boolean} props.isPaused     A Consumer holding its cursor.
-	 * @param {boolean} props.hasIn        Draws an IN port: it accepts fill.
-	 * @param {boolean} props.isSnapTarget The IN port a dragged wire would land on.
-	 * @param {boolean} props.hasOut       Draws an OUT port: it carries a target.
-	 * @param {boolean} props.isEdit       Edit mode, which paints the OUT port.
-	 * @param {boolean} props.isWireSource A wire drag may start at the OUT port.
-	 * @param {boolean} props.hasSidecars  Its row lists sidecars, so it draws a "…".
-	 * @param {Object}  props.events       The canvas's stable card handlers.
-	 * @return {import('react').ReactElement} The card's `<g>`.
-	 */
-	function NodeCard( {
-		id,
-		cls,
-		x,
-		y,
-		w,
-		h,
-		showDetail,
-		isSelected,
-		isHovered,
-		isFaded,
-		isDragging,
-		isIdle,
-		isDrift,
-		isBorrowed,
-		isPaused,
-		hasIn,
-		isSnapTarget,
-		hasOut,
-		isEdit,
-		isWireSource,
-		hasSidecars,
-		events,
-	} ) {
-		return (
-			<g
-				className={ `topology-node${
-					isSelected ? ' is-selected' : ''
-				}${ isHovered ? ' is-hovered' : '' }${
-					isFaded ? ' is-faded' : ''
-				}${ isDragging ? ' is-dragging' : '' }${
-					showDetail ? '' : ' is-static'
-				}${ isIdle ? ' is-idle' : '' }${ isDrift ? ' is-drift' : '' }${
-					isBorrowed ? ' is-borrowed' : ''
-				}` }
-				transform={ `translate(${ x },${ y })` }
-				onClick={ ( ev ) => events.select( ev, id ) }
-				onPointerDown={ ( ev ) => events.down( ev, id ) }
-				onMouseDown={ ( ev ) => events.down( ev, id ) }
-				onPointerMove={ events.move }
-				onPointerUp={ events.up }
-				onPointerCancel={ events.up }
-				onMouseEnter={ () => events.hover( id ) }
-				onMouseLeave={ () => events.hover( null ) }
-			>
-				<rect
-					className="topology-node__shadow"
-					x={ 3 }
-					y={ 3 }
-					width={ NODE_W }
-					height={ NODE_H }
-				/>
-				<rect className="topology-node__bg" width={ w } height={ h } />
-				{ /* Labels and ports only when zoomed in. */ }
-				{ showDetail && (
-					<>
-						{ /* Labels clipped to the card; ports sit outside. */ }
-						<g clipPath="url(#topology-node-clip)">
-							{ /* Title band behind type/id; per-skin fill. */ }
-							<rect
-								className="topology-node__header"
-								width={ NODE_W }
-								height={ 22 }
-							/>
-							<line
-								className="topology-node__divider"
-								x1={ 0 }
-								y1={ 22 }
-								x2={ NODE_W }
-								y2={ 22 }
-							/>
-							<text
-								className="topology-node__type"
-								x={ 11 }
-								y={ 15 }
-							>
-								{ cls }
-							</text>
-							<circle
-								className="topology-node__led"
-								cx={ NODE_W - 12 }
-								cy={ 13 }
-								r={ 3.5 }
-							/>
-							{ /* ⏸ badge when a Consumer holds the cursor. */ }
-							{ isPaused && (
-								<text
-									className="topology-node__paused"
-									x={ NODE_W - 24 }
-									y={ 17 }
-									textAnchor="end"
-								>
-									⏸
-								</text>
-							) }
-							{ isBorrowed && (
-								<text
-									className="topology-node__lock"
-									x={ NODE_W - 32 }
-									y={ 15 }
-								>
-									🔒
-								</text>
-							) }
-							<g
-								clipPath={
-									hasSidecars
-										? 'url(#topology-node-id-clip)'
-										: undefined
-								}
-							>
-								<text
-									className="topology-node__id"
-									x={ 11 }
-									y={ 44 }
-								>
-									{ id }
-								</text>
-							</g>
-						</g>
-						{ hasIn && (
-							<circle
-								className={ `topology-port topology-port--in${
-									isSnapTarget ? ' is-snap-target' : ''
-								}` }
-								cx={ 0 }
-								cy={ NODE_H / 2 }
-								r={ PORT_R }
-							/>
-						) }
-						{ hasSidecars && (
-							<g
-								className="topology-node__sidecars"
-								role="button"
-								tabIndex={ 0 }
-								aria-haspopup="dialog"
-								aria-label={ sprintf(
-									// translators: %s: the node that owns them.
-									__( 'Owned nodes of %s', 'newspack-nodes' ),
-									id
-								) }
-								transform={ `translate(${ SIDECARS_X },31)` }
-								onClick={ ( ev ) => events.sidecars( ev, id ) }
-								onKeyDown={ ( ev ) =>
-									events.sidecarsKey( ev, id )
-								}
-								onPointerDown={ events.hold }
-								onMouseDown={ events.hold }
-							>
-								<rect width={ 22 } height={ 16 } rx={ 3 } />
-								<text x={ 11 } y={ 12 } textAnchor="middle">
-									…
-								</text>
-							</g>
-						) }
-						{ hasOut && (
-							<circle
-								className={ `topology-port topology-port--out${
-									isEdit ? ' is-edit' : ''
-								}${ isWireSource ? ' is-wire-source' : '' }` }
-								cx={ NODE_W }
-								cy={ NODE_H / 2 }
-								r={ PORT_R }
-								onPointerDown={ ( ev ) =>
-									isWireSource && events.port( ev, id )
-								}
-								onMouseDown={ ( ev ) =>
-									isWireSource && events.port( ev, id )
-								}
-							/>
-						) }
-					</>
-				) }
-			</g>
-		);
-	}
-);
-
-const NodeReadout = memo(
-	/**
-	 * One card's live readouts — sparkline, rate and counter — drawn over the card
-	 * in a layer of their own, outside the bloom filter, so a poll that moves a
-	 * counter re-renders this alone and repaints none of the filtered layer.
-	 *
-	 * @param {Object}  props
-	 * @param {number}  props.x          Card left, in world units.
-	 * @param {number}  props.y          Card top, in world units.
-	 * @param {boolean} props.isFaded    Faded with its card.
-	 * @param {boolean} props.isDragging Being dragged with its card.
-	 * @param {boolean} props.isIdle     Dimmed with its card.
-	 * @param {boolean} props.rated      Live mode, so a rate and sparkline exist.
-	 * @param {?string} props.sparkPath  Sparkline `d`, or null under two samples.
-	 * @param {?string} props.rateText   Rate label, or null below the label floor.
-	 * @param {number}  [props.count]    Cumulative message count.
-	 * @return {import('react').ReactElement} The readouts' `<g>`.
-	 */
-	function NodeReadout( {
-		x,
-		y,
-		isFaded,
-		isDragging,
-		isIdle,
-		rated,
-		sparkPath,
-		rateText,
-		count,
-	} ) {
-		return (
-			<g
-				className={ `topology-node-readout${
-					isFaded ? ' is-faded' : ''
-				}${ isDragging ? ' is-dragging' : '' }${
-					isIdle ? ' is-idle' : ''
-				}` }
-				transform={ `translate(${ x },${ y })` }
-			>
-				<g clipPath="url(#topology-node-clip)">
-					{ sparkPath && (
-						<path
-							className="topology-node__spark"
-							d={ sparkPath }
-						/>
-					) }
-					{ /* Rate, bottom-left; quiet nodes show none. */ }
-					{ rated && (
-						<text className="topology-node__rate" x={ 11 } y={ 76 }>
-							{ rateText }
-						</text>
-					) }
-					<text
-						className="topology-node__counter"
-						x={ NODE_W - 11 }
-						y={ 76 }
-						textAnchor="end"
-					>
-						{ formatGroupedCount( count ) }
-					</text>
-				</g>
-			</g>
-		);
-	}
-);
 
 const EdgeWire = memo(
 	/**
@@ -1036,6 +653,7 @@ export default function SchematicCanvas( {
 		useLayoutContext();
 	const { bottomObstructionPx } = useChrome();
 	const { classCatalog } = useCatalog();
+	const surface = useCardSurface();
 	const edges = useMemo( () => parsed?.edges ?? [], [ parsed ] );
 	const hullPaths = useMemo(
 		() =>
@@ -1292,8 +910,6 @@ export default function SchematicCanvas( {
 	const { visibleIds, showDetail, scale, region, visibleRegion } = useMemo(
 		() =>
 			viewportCull( displayNodes, vb, canvasPx, {
-				nodeW: NODE_W,
-				nodeH: NODE_H,
 				overscan: NODE_OVERSCAN,
 				detailScale: LOD_DETAIL_SCALE,
 			} ),
@@ -1935,6 +1551,7 @@ export default function SchematicCanvas( {
 			card: (
 				<NodeCard
 					key={ n.id }
+					surface={ surface }
 					id={ n.id }
 					cls={ n.class }
 					x={ x }
@@ -1964,6 +1581,7 @@ export default function SchematicCanvas( {
 			readout: (
 				<NodeReadout
 					key={ n.id }
+					surface={ surface }
 					x={ x }
 					y={ y }
 					isFaded={ isFaded }
@@ -1985,6 +1603,7 @@ export default function SchematicCanvas( {
 		<svg
 			ref={ svgRef }
 			className="topology-canvas-svg"
+			style={ bloomVars( surface ) }
 			viewBox={ viewBox }
 			preserveAspectRatio="xMidYMid meet"
 			tabIndex={ 0 }
@@ -2047,72 +1666,12 @@ export default function SchematicCanvas( {
 						className="topology-arrow-head topology-arrow-head--active"
 					/>
 				</marker>
-				{ /* Clip the label layer to the card rect (userSpace). */ }
-				<clipPath
-					id="topology-node-clip"
-					clipPathUnits="userSpaceOnUse"
-				>
-					{ /* rx/ry round the clip so title-band corners follow. */ }
-					<rect
-						x={ 0 }
-						y={ 0 }
-						width={ NODE_W }
-						height={ NODE_H }
-						rx={ 7 }
-						ry={ 7 }
-					/>
-				</clipPath>
-				{ /* An owner's id stops short of its "…". */ }
-				<clipPath
-					id="topology-node-id-clip"
-					clipPathUnits="userSpaceOnUse"
-				>
-					<rect
-						x={ 0 }
-						y={ 0 }
-						width={ SIDECARS_X - 4 }
-						height={ NODE_H }
-					/>
-				</clipPath>
 				{ /* Group bloom: one blur pass; region pinned to viewport. */ }
-				<filter
-					id="topology-bloom-crt"
-					filterUnits="userSpaceOnUse"
-					x={ visibleRegion.x }
-					y={ visibleRegion.y }
-					width={ visibleRegion.w }
-					height={ visibleRegion.h }
-					colorInterpolationFilters="sRGB"
-				>
-					<feGaussianBlur
-						in="SourceGraphic"
-						stdDeviation={ bloomStdDev(
-							BLOOM_STDDEV_PX.crt,
-							scale
-						) }
-						result="bloom"
-					/>
-					<feBlend mode="screen" in="SourceGraphic" in2="bloom" />
-				</filter>
-				<filter
-					id="topology-bloom-neo"
-					filterUnits="userSpaceOnUse"
-					x={ visibleRegion.x }
-					y={ visibleRegion.y }
-					width={ visibleRegion.w }
-					height={ visibleRegion.h }
-					colorInterpolationFilters="sRGB"
-				>
-					<feGaussianBlur
-						in="SourceGraphic"
-						stdDeviation={ bloomStdDev(
-							BLOOM_STDDEV_PX.neo,
-							scale
-						) }
-						result="bloom"
-					/>
-					<feBlend mode="screen" in="SourceGraphic" in2="bloom" />
-				</filter>
+				<NodeCardDefs
+					surface={ surface }
+					region={ visibleRegion }
+					scale={ scale }
+				/>
 			</defs>
 
 			{ /* The graph's box plus a margin, so a pan needs no re-render. */ }

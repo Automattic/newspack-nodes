@@ -214,6 +214,19 @@ final class OwnedTableCanvasTest extends TestCase {
 		$this->assertSame( 2, Owned_Table_Schema_Counter_Fixture_Node::$built, 'one build for the unowned node, one for the sidecar list' );
 	}
 
+	/** `-o` asks for an owner's sidecars by the owner's name, never theirs. */
+	public function test_dash_o_answers_each_owner_and_the_sidecars_it_lists(): void {
+		$owner = $this->silent_owner();
+
+		$meta = $this->ci->dispatch( 'dump_metadata', [ '-o', 'crawl-4471', 'ghost-8810', $owner->name() ] );
+
+		$this->assertIsArray( $meta );
+		$this->assertSame( [ 'crawl-4471', 'crawl-4471:curl', 'crawl-4471:seen', 'owner-6620', 'owner-6620:ledger' ], \array_keys( $meta ) );
+		$this->assertSame( 'crawl-4471', $meta['crawl-4471:seen']['owner'] );
+		$this->assertSame( 'Table', $meta['owner-6620:ledger']['class'] );
+		$this->assertArrayNotHasKey( '_header', $meta );
+	}
+
 	public function test_naming_the_owned_table_alone_returns_its_full_row_and_owner(): void {
 		$meta = $this->ci->dispatch( 'dump_metadata', [ 'crawl-4471:seen' ] );
 

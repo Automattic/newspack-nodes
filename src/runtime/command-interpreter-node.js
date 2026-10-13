@@ -19,7 +19,11 @@ import { NullNode } from './null-node';
 import { FetcherNode } from './fetcher-node';
 import { TimerNode } from './timer-node';
 import { Core } from './core';
-import { dumpMetadataPayload, MetadataNode } from './metadata-node';
+import {
+	dumpMetadataPayload,
+	dumpOwnedPayload,
+	MetadataNode,
+} from './metadata-node';
 import { DumperNode } from './dumper-node';
 import { CompletionNode } from './completion-node';
 import { PollerNode } from './poller-node';
@@ -145,7 +149,7 @@ const HELP = {
 	dump_config:
 		'dump_config [ <regex glob> ]\n    note: emits every node as round-trippable make_node / set_sink /\n          connect_node lines; an optional regex glob filters by name.\n',
 	dump_metadata:
-		'dump_metadata\n    note: a JSON object keyed by node name, carrying `class`,\n          `counter`, `sink`, `target`, `debug_state` and `arguments`.\n',
+		'dump_metadata [<node> | -o <node>...]\n    note: a JSON object keyed by node name, carrying `class`,\n          `counter`, `sink`, `target`, `debug_state` and `arguments`.\n    -o: each node named, then each sidecar it lists.\n',
 	trace: "trace [ <node name> [ <level> ] ]\n    no args: toggle this CommandInterpreter's debug_state.\n",
 	pwd: 'pwd\n',
 	log: 'log <message>\n    note: prints <message> to stderr (server-side debug log).\n',
@@ -562,7 +566,7 @@ export class CommandInterpreterNode extends Node {
 				CommandInterpreterNode._cmdDumpNode( args, self.childRegistry ),
 			dump_metadata: ( self, args ) =>
 				CommandInterpreterNode._cmdDumpMetadata(
-					args[ 0 ] ?? '',
+					args,
 					self.childRegistry
 				),
 			dump_config: ( self, args ) =>
@@ -1128,14 +1132,19 @@ export class CommandInterpreterNode extends Node {
 	}
 
 	/**
-	 * `dump_metadata [<node>]` — the per-node snapshot the dashboards read.
+	 * `dump_metadata [<node>]` — the per-node snapshot the dashboards read;
+	 * `dump_metadata -o <node>...` answers each node and the sidecars it lists.
 	 *
-	 * @param {string} args     A single node name to narrow to; '' is the full map.
-	 * @param {Object} registry Name table to walk.
+	 * @param {string[]} args     The tokens: `-o` and nodes, one node, or none.
+	 * @param {Object}   registry Name table to walk.
 	 * @return {Object} Metadata keyed by node name.
 	 */
 	static _cmdDumpMetadata( args, registry ) {
-		return dumpMetadataPayload( String( args ?? '' ).trim(), registry );
+		const names = args.filter( ( a ) => '' !== a && '-o' !== a );
+		if ( args.includes( '-o' ) ) {
+			return dumpOwnedPayload( names, registry );
+		}
+		return dumpMetadataPayload( names[ 0 ] ?? '', registry );
 	}
 
 	/**

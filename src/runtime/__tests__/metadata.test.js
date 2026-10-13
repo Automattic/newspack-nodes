@@ -2,7 +2,11 @@ import { Core } from '../core';
 import { Node } from '../node';
 import { TeeNode } from '../tee-node';
 import { RouterNode } from '../router-node';
-import { dumpMetadataPayload, parseMetadata } from '../metadata-node';
+import {
+	dumpMetadataPayload,
+	dumpOwnedPayload,
+	parseMetadata,
+} from '../metadata-node';
 
 /** Stands for a server Table, which its owner opens like any sidecar. */
 class TableNode extends Node {
@@ -173,6 +177,33 @@ describe( 'dumpMetadataPayload', () => {
 		expect( 'owner' in dumpMetadataPayload()[ 'crawl-4471' ] ).toBe(
 			false
 		);
+	} );
+
+	it( 'answers each owner named with the sidecars it lists, and none gone', () => {
+		ownedGraph();
+		const vat = new Node();
+		vat.name = 'vat-2290';
+		const lid = new TableNode();
+		lid.patron = vat;
+		lid.name = 'vat-2290:lid';
+		lid.counter = 8125;
+		const payload = dumpOwnedPayload( [
+			'crawl-4471:seen',
+			'ghost-8810',
+			'vat-2290',
+		] );
+		expect( Object.keys( payload ) ).toEqual( [
+			'crawl-4471:seen',
+			'vat-2290',
+			'vat-2290:lid',
+		] );
+		expect( payload[ 'vat-2290:lid' ] ).toMatchObject( {
+			counter: 8125,
+			owner: 'vat-2290',
+		} );
+		expect( payload[ 'vat-2290' ].sidecars ).toEqual( [
+			{ name: 'vat-2290:lid', class: 'Table' },
+		] );
 	} );
 
 	it( 'answers no hidden node named alone', () => {

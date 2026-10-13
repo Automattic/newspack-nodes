@@ -42,6 +42,12 @@ describe( 'Metadata node', () => {
 		Core.reset();
 	} );
 
+	it( 'holds no per-name answer state, which the canvas never reads', () => {
+		const node = new MetadataNode();
+		node.fill( msg( TM_STRUCT, { n1: { class: 'Echo', counter: 5 } } ) );
+		expect( 'answered' in node ).toBe( false );
+	} );
+
 	it( 'parses a bare dump_metadata struct VALUE into the metadata state', () => {
 		const node = new MetadataNode();
 		node.fill(

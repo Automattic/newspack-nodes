@@ -1146,6 +1146,54 @@
 	line-height: 1.45;
 }
 
+// An owner's sidecars, each its canvas card on the canvas's own surface, as
+// many to a row as fit, up to four. SidecarsModal sets the count and width.
+.topology-modal.topology-sidecars {
+	max-width: min(96vw, var(--nodes-modal-max-w, 100vw));
+}
+
+.topology-sidecars__grid {
+	--topology-sidecars-gap: 12px;
+	--topology-sidecars-cols: min(var(--topology-sidecars), 4);
+	--topology-sidecars-track: calc(
+		var(--topology-sidecar-w) + var(--topology-sidecars-gap)
+	);
+	box-sizing: border-box;
+	display: grid;
+	grid-template-columns: repeat(auto-fill, var(--topology-sidecar-w));
+	gap: var(--topology-sidecars-gap);
+	justify-content: center;
+	// The body's 14px side padding, twice, less the one gap a row ends without.
+	width: calc(
+		var(--topology-sidecars-cols) * var(--topology-sidecars-track) + 16px
+	);
+	max-width: 100%;
+	background: var(--canvas);
+}
+
+// Holds the cards' clip paths; `display: none` would drop them in Firefox.
+.topology-sidecars__defs {
+	position: absolute;
+	width: 0;
+	height: 0;
+}
+
+// A `.button-link`, which paints nothing a card draws over.
+.topology-sidecars__card {
+	display: block;
+
+	// The glow spreads past the card into the gap.
+	> svg {
+		display: block;
+		overflow: visible;
+	}
+}
+
+// A card in the grid is picked, not dragged.
+.topology-sidecars .topology-node {
+	cursor: pointer;
+}
+
 // The title wraps beside the "…" that lists the node's sidecars.
 .topology-insp__title-row {
 	display: flex;
@@ -1992,7 +2040,7 @@
 
 // 00 — Newspack (Product · default). DESIGN.product.md: Cobalt + neutrals,
 // status colors only. Light surface, dark REPL (Swiss precedent).
-.theme-newspack .topology-app {
+.theme-newspack :is(.topology-app, .topology-sidecars) {
 	// Cobalt leads every chrome accent; red stays for real errors. The title
 	// band is a translucent neutral (same approach as Brand's Morganite band)
 	// so it doesn't paint over the inner half of the selection border the way
@@ -2029,7 +2077,7 @@
 
 // 00b — Newspack Brand (expressive). Same neutral structure; status LEDs
 // pull from the brand ramp (Emerald / Amber / Morganite). DESIGN.brand.md.
-.theme-newspack-brand .topology-app {
+.theme-newspack-brand :is(.topology-app, .topology-sidecars) {
 	// The expressive palette leads: Emerald metrics/edges/selection and a
 	// Morganite-tinted title band, so Brand reads as a vibrant green console.
 	.topology-node__header {
@@ -2077,8 +2125,8 @@
 
 // Newspack skins — shared product chrome: clean white rounded node cards with a
 // shaded title band and a neutral rate readout. Per-skin accent color below.
-.theme-newspack .topology-app,
-.theme-newspack-brand .topology-app {
+.theme-newspack :is(.topology-app, .topology-sidecars),
+.theme-newspack-brand :is(.topology-app, .topology-sidecars) {
 	.topology-node__bg {
 		fill: var(--canvas);
 		stroke: var(--paper-shadow);
@@ -2118,7 +2166,7 @@
 
 // 01 — Cyanotype Blueprint
 // 02 — CRT Phosphor Terminal
-.theme-crt .topology-app {
+.theme-crt :is(.topology-app, .topology-sidecars) {
 	.topology-canvas::after {
 		content: "";
 		position: absolute;
@@ -2138,7 +2186,7 @@
 	// the filter buffer never exceeds the visible region.
 	.topology-nodes--bloom,
 	.topology-edges--bloom {
-		filter: url(#topology-bloom-crt);
+		filter: var(--topology-bloom-crt);
 	}
 
 	// @longform Readouts and flowing wires change every poll or animate, so
@@ -2153,14 +2201,14 @@
 }
 
 // 03 — Swiss Brutalist
-.theme-swiss .topology-app {
+.theme-swiss :is(.topology-app, .topology-sidecars) {
 	.topology-node__bg {
 		stroke-width: 2;
 	}
 }
 
 // 04 — Synthwave Outrun
-.theme-synthwave .topology-app {
+.theme-synthwave :is(.topology-app, .topology-sidecars) {
 	.topology-canvas {
 		background: radial-gradient(
 				80% 55% at 50% 122%,
@@ -2178,7 +2226,7 @@
 }
 
 // 06 — Aurora Glass
-.theme-aurora .topology-app {
+.theme-aurora :is(.topology-app, .topology-sidecars) {
 	.topology-canvas {
 		background: radial-gradient(
 				60% 80% at 18% 8%,
@@ -2200,7 +2248,7 @@
 }
 
 // 08 — Botanical Naturalist
-.theme-botanical .topology-app {
+.theme-botanical :is(.topology-app, .topology-sidecars) {
 	.topology-node__bg {
 		rx: 12px;
 		ry: 12px;
@@ -2208,7 +2256,7 @@
 }
 
 // 09 — Bauhaus Constructivist
-.theme-bauhaus .topology-app {
+.theme-bauhaus :is(.topology-app, .topology-sidecars) {
 	.topology-node__bg {
 		stroke-width: 2;
 	}
@@ -2242,7 +2290,7 @@
 }
 
 // 10 — Neo-Tokyo HUD
-.theme-neotokyo .topology-app {
+.theme-neotokyo :is(.topology-app, .topology-sidecars) {
 	.topology-reticle {
 		border-color: var(--oxide);
 		opacity: 0.8;
@@ -2253,7 +2301,7 @@
 	// cards too; strict-viewport membership keeps the filter buffer bounded.
 	.topology-nodes--bloom,
 	.topology-edges--bloom {
-		filter: url(#topology-bloom-neo);
+		filter: var(--topology-bloom-neo);
 	}
 
 	.topology-node-readout {
@@ -2266,7 +2314,7 @@
 }
 
 // 11 — Pastel Toy
-.theme-pastel .topology-app {
+.theme-pastel :is(.topology-app, .topology-sidecars) {
 	.topology-node__bg {
 		rx: 13px;
 		ry: 13px;
@@ -2278,7 +2326,7 @@
 }
 
 // 12 — Control-Room SCADA
-.theme-scada .topology-app {
+.theme-scada :is(.topology-app, .topology-sidecars) {
 	.topology-node__counter {
 		fill: var(--cyan-text);
 	}

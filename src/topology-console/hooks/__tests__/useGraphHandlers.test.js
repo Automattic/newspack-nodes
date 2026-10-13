@@ -35,7 +35,7 @@ import {
 	formatMessageEnvelope,
 } from '../../../runtime/dumper-node';
 import { OutgoingGateNode } from '../../core/outgoingGate';
-import { SIDECAR_POLLER } from '../useSidecarRow';
+import { SIDECAR_POLLER } from '../useSidecarRows';
 
 // A real Shell whose sink captures fills; replyFrom can stand in for a wrap.
 function makeShell( { path = '', replyFrom } = {} ) {

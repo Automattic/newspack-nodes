@@ -7,6 +7,21 @@ import { act, fireEvent } from '@testing-library/react';
 import SchematicCanvas from '../SchematicCanvas';
 import { renderWithCatalog } from '../../__tests__/catalogTestUtils';
 
+/**
+ * The bloom filter a canvas's skin applies, named by its svg's custom property.
+ *
+ * @param {Element} container What the canvas rendered into.
+ * @param {string}  skin      `crt` or `neo`.
+ * @return {?Element} The `<filter>`, or null.
+ */
+const bloomOf = ( container, skin ) => {
+	const url = container
+		.querySelector( '.topology-canvas-svg' )
+		.style.getPropertyValue( `--topology-bloom-${ skin }` );
+	const id = /^url\(#(.+)\)$/.exec( url )?.[ 1 ];
+	return id ? container.querySelector( `filter[id="${ id }"]` ) : null;
+};
+
 const parsed = {
 	nodes: [ { id: 'a' }, { id: 'b' } ],
 	edges: [ { from: 'a', to: 'b' } ],
@@ -184,13 +199,15 @@ describe( 'SchematicCanvas', () => {
 					( t ) => t.textContent === id
 				);
 			const clipOf = ( text ) =>
-				text.closest( '[clip-path]' ).getAttribute( 'clip-path' );
-			expect( clipOf( idOf( 'a' ) ) ).toBe(
-				'url(#topology-node-id-clip)'
+				/^url\(#(.+)\)$/.exec(
+					text.closest( '[clip-path]' ).getAttribute( 'clip-path' )
+				)[ 1 ];
+			expect( clipOf( idOf( 'a' ) ) ).toMatch( /-id-clip$/ );
+			expect( clipOf( idOf( 'b' ) ) ).toBe(
+				clipOf( idOf( 'a' ) ).replace( /-id-clip$/, '-clip' )
 			);
-			expect( clipOf( idOf( 'b' ) ) ).toBe( 'url(#topology-node-clip)' );
 			const clip = container.querySelector(
-				'#topology-node-id-clip rect'
+				`clipPath[id="${ clipOf( idOf( 'a' ) ) }"] rect`
 			);
 			const button = container.querySelector(
 				'.topology-node__sidecars'
@@ -327,8 +344,8 @@ describe( 'SchematicCanvas', () => {
 				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
-		for ( const id of [ 'topology-bloom-crt', 'topology-bloom-neo' ] ) {
-			const filter = container.querySelector( `#${ id }` );
+		for ( const skin of [ 'crt', 'neo' ] ) {
+			const filter = bloomOf( container, skin );
 			expect( filter ).not.toBeNull();
 			// feMerge hides glow in card; screen blend lets it show through.
 			expect(
@@ -3752,15 +3769,18 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 				bottomObstructionPx: lodProps.bottomObstructionPx,
 			}
 		);
-		// The clip def + a label layer that references it.
+		// A label layer and the clip def it references.
+		const clip = container
+			.querySelector( '.topology-node__type' )
+			.closest( '[clip-path]' )
+			.getAttribute( 'clip-path' );
 		expect(
-			container.querySelector( '#topology-node-clip' )
-		).not.toBeNull();
-		expect(
-			container.querySelector( '[clip-path="url(#topology-node-clip)"]' )
+			container.querySelector(
+				`clipPath[id="${ /^url\(#(.+)\)$/.exec( clip )[ 1 ] }"]`
+			)
 		).not.toBeNull();
 		// Bloom filters pin their region to the viewport, not the group bbox.
-		const crt = container.querySelector( '#topology-bloom-crt' );
+		const crt = bloomOf( container, 'crt' );
 		expect( crt.getAttribute( 'filterUnits' ) ).toBe( 'userSpaceOnUse' );
 	} );
 
@@ -3898,12 +3918,8 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 				bottomObstructionPx: lodProps.bottomObstructionPx,
 			}
 		);
-		expect(
-			container.querySelector( '#topology-bloom-crt' )
-		).not.toBeNull();
-		expect(
-			container.querySelector( '#topology-bloom-neo' )
-		).not.toBeNull();
+		expect( bloomOf( container, 'crt' ) ).not.toBeNull();
+		expect( bloomOf( container, 'neo' ) ).not.toBeNull();
 	} );
 
 	it( 'reflows a controlled viewport when the bottom obstruction changes (transcript overlay opens)', () => {
