@@ -83,7 +83,7 @@ it( 'formats the global read and write rates', () => {
 	expect( card( container, 'write' ) ).toContain( '1.6 MB/s' );
 } );
 
-it( 'shows the global produced message rate from the probe consumers', () => {
+it( 'shows the summed message read rate from the probe consumers', () => {
 	// Two distinct sources, each one reader; latest msgRate 7 + 3 = 10/s.
 	const { container } = renderCards( {
 		consumers: {
@@ -92,6 +92,7 @@ it( 'shows the global produced message rate from the probe consumers', () => {
 		},
 	} );
 	expect( card( container, 'msgrate' ) ).toContain( '10/s' );
+	expect( card( container, 'msgrate' ) ).toContain( 'Messages read/s' );
 } );
 
 it( 'shows the summed offsetlog cache size, and no average, from the probe consumers', () => {
@@ -215,7 +216,7 @@ it.each( [
 	}
 );
 
-it( 'formats the 24h produced messages + bytes from the probe consumers', () => {
+it( 'formats the 24h messages + bytes read from the probe consumers', () => {
 	const buckets = bucketsFrom( [
 		{ ts: 0, msgs: 500, bytes: 5000 },
 		{ ts: 15, msgs: 1000, bytes: 10000 },
@@ -226,4 +227,6 @@ it( 'formats the 24h produced messages + bytes from the probe consumers', () => 
 	// Σ 1500 msgs; Σ 15000 B ≈ 15 KB (decimal dropped ≥10).
 	expect( card( container, 'messages' ) ).toContain( '1.5K' );
 	expect( card( container, 'bytes' ) ).toContain( '15 KB' );
+	expect( card( container, 'messages' ) ).toContain( 'Messages read · 24h' );
+	expect( card( container, 'bytes' ) ).toContain( 'Bytes read · 24h' );
 } );

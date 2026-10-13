@@ -1,6 +1,6 @@
 /**
  * The one freshness rule every live SummaryCards card applies to a reader's
- * or a partition's `latest` probe sample: "Messages/s", "Backlog", "Total
+ * or a partition's `latest` probe sample: "Messages read/s", "Backlog", "Total
  * Cache", "Total Size" and "Total On Disk", summed by `liveTotal`.
  *
  * A live card shows the fleet as of the newest message seen, so a sample counts

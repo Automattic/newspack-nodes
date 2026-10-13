@@ -72,7 +72,7 @@ export const TopicsChart = memo(
 	 * entirely.
 	 *
 	 * @param {Object}                            props               Component props.
-	 * @param {string}                            props.title         Panel heading, e.g. "Topics Message Rate".
+	 * @param {string}                            props.title         Panel heading, e.g. "Topics Messages Read".
 	 * @param {string}                            props.storageKey    Unique, untranslated chart name; see AreaTimeChart.
 	 * @param {string}                            props.yLabel        Y-axis title naming the quantity, e.g. "Messages"; the ticks carry the unit.
 	 * @param {?Object}                           props.series        `{ [topic]: { points:[{ts,value,weight}], max, mode?, step? } }` (ts in seconds); empty or absent wipes the panel.
