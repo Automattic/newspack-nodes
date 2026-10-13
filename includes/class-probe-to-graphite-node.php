@@ -7,7 +7,7 @@
  * `<prefix>.<reader>.<field> value timestamp` lines Graphite ingests — four
  * fields per reader: `distance`, `msgs_delta`, `bytes_read_delta` and
  * `cache_size`. A null slot is a value the reader cannot know — a broker's
- * reader carries a null DISTANCE — so that metric sends no line rather than
+ * reader carries a null DISTANCE until its spoke reports one — so that metric sends no line rather than
  * a 0 Graphite would plot as caught up, and the reader's other metrics still
  * go. The lines ship 16 to a TM_BYTESTREAM message and the
  * accumulator empties, so each window reports the probes that arrived inside

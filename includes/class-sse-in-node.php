@@ -6,10 +6,9 @@
  * It owns one easy handle (the SSE GET) registered on the Event_Framework's shared
  * cURL multi, one in-memory `{segment, offset}` cursor, and one SSE connection's
  * worth of parser state. It is a *source*: `fill()` only counts, because nothing
- * upstream sends to it. Delivery is the `on_message` seam ONLY — each `data:` payload
- * reaches the patron RAW, byte-identical to the remote's on-disk encoding, and the
- * patron owns unpacking, FROM stamping, target and the sink fill. This node reads
- * neither `sink` nor `target`.
+ * upstream sends to it. Delivery is the `on_message` seam ONLY — each `msg`
+ * payload reaches the patron RAW, and the patron owns unpacking, routing,
+ * target and the sink fill. This node reads neither `sink` nor `target`.
  *
  * It is passive: it owns NO timer. Inbound bytes flow via the Event_Framework's
  * cURL polling (`start_curl` + `on_curl_done`, like HTTP_Out).
@@ -17,9 +16,9 @@
  * and `check_stale()`. The patron owns durable position persistence and any status
  * memcache write — SSE_In keeps only the in-memory cursor + connection state.
  *
- * The wire is `SSE_Out`'s: six event types — `connected`, `msg`, `heartbeat`,
- * `retry`, `disconnect` and `unparseable_lines` — each carrying one packed
- * 7-field Message.
+ * The wire is `SSE_Out`'s: `connected`, `msg`, `heartbeat`, `retry` and
+ * `disconnect`, each carrying one packed 7-field Message. Its
+ * `unparseable_lines` belongs to a worker's IPC stream, which no patron pulls.
  *
  * @package Newspack_Nodes
  */
@@ -66,10 +65,11 @@ class SSE_In_Node extends Node implements Curl_Owner {
 	public const REFUSAL_MAX_BYTES = 4096;
 
 	/**
-	 * Delivery seam, set by the patron. Every `msg` SSE event hands its RAW `data:`
-	 * payload — the packed line, byte-identical to the remote's on-disk encoding — to
-	 * this closure; `Remote_Source_Node` routes that line to the reader its FROM
-	 * stamp names, whose `Durable_Reader` drains it. A null seam drops the event.
+	 * Delivery seam, set by the patron. Every `msg` SSE event hands its RAW
+	 * `data:` payload, one packed Message, to this closure;
+	 * `Remote_Source_Node` routes a raw block and its header to the reader
+	 * their FROM stamp names, which splits the block into records. A null seam
+	 * drops the event.
 	 *
 	 * Signature: `function ( string $raw ): void`.
 	 *
@@ -101,19 +101,6 @@ class SSE_In_Node extends Node implements Curl_Owner {
 	 */
 	public ?\Closure $on_connecting     = null;
 
-	/**
-	 * Skip seam, set by the patron. An `unparseable_lines` frame names, in
-	 * CURSORS, where the spoke's readers stand past the torn lines they skipped;
-	 * this hands every `stamp => {segment?, offset}` pair to the patron, which
-	 * owns the cursors, so a reopen resumes past those lines instead of counting
-	 * them again.
-	 *
-	 * Signature: `function ( array $cursors ): void`.
-	 *
-	 * @var \Closure|null
-	 */
-	public ?\Closure $on_skipped        = null;
-
 	/** Application-Password secret, paired with `$auth_username` for Basic auth. */
 	protected string $auth_password     = '';
 
@@ -131,6 +118,9 @@ class SSE_In_Node extends Node implements Curl_Owner {
 
 	/** Received bytes not yet consumed as whole lines. */
 	private string $buffer              = '';
+
+	/** Bytes at the head of `$buffer` already searched for a newline. */
+	private int $scanned                = 0;
 
 	/** The LEASE: true only past the `connected` handshake, never at open. */
 	private bool   $connected           = false;
@@ -164,9 +154,6 @@ class SSE_In_Node extends Node implements Curl_Owner {
 
 	/** Wall-second of the last `heartbeat` event, for the patron's status display. */
 	private ?int    $last_sse_heartbeat = null;
-
-	/** Lines the spoke skipped as unparseable, summed across every connection. */
-	private int     $unparseable_lines  = 0;
 
 	/**
 	 * Subscriptions the next connect asks for, as the patron last stated them.
@@ -318,6 +305,7 @@ class SSE_In_Node extends Node implements Curl_Owner {
 
 		// Reset per-connection state.
 		$this->buffer             = '';
+		$this->scanned            = 0;
 		$this->current_event      = [ 'event' => '', 'data' => '' ];
 		$this->last_event_time    = $now;
 		$this->connected          = false;
@@ -439,6 +427,7 @@ class SSE_In_Node extends Node implements Curl_Owner {
 			$error            = 'Buffer overflow (no newline in ' . self::MAX_BUFFER_SIZE . ' bytes)';
 			$this->last_error = $error;
 			$this->buffer     = '';
+			$this->scanned    = 0;
 			$this->retire_lease();
 			$this->set_state( 'ERROR', $error );
 			$this->stderr( "ERROR: {$error}" );
@@ -446,20 +435,26 @@ class SSE_In_Node extends Node implements Curl_Owner {
 		}
 
 		// Consume ONCE; a rewrite per line is quadratic in the line count.
-		$pos = 0;
+		$pos      = 0;
+		$from     = $this->scanned;
+		$complete = false;
 		try {
-			while ( false !== ( $newline_pos = \strpos( $this->buffer, "\n", $pos ) ) ) {
+			while ( false !== ( $newline_pos = \strpos( $this->buffer, "\n", $from ) ) ) {
 				$line = \rtrim( \substr( $this->buffer, $pos, $newline_pos - $pos ), "\r" );
 				$pos  = $newline_pos + 1;
+				$from = $pos;
 				if ( ! $this->parse_sse_line( $line ) ) {
 					return false;
 				}
 			}
+			$complete = true;
 			return true;
 		} finally {
 			if ( $pos > 0 ) {
 				$this->buffer = \substr( $this->buffer, $pos );
 			}
+			// A megabyte line in many chunks is searched once, not per chunk.
+			$this->scanned = $complete ? \strlen( $this->buffer ) : 0;
 		}
 	}
 
@@ -514,9 +509,8 @@ class SSE_In_Node extends Node implements Curl_Owner {
 
 	/**
 	 * Dispatch the accumulated event and clear the accumulator. `msg` hands its RAW
-	 * payload to `on_message`; `connected`, `heartbeat`, `retry`, `disconnect` and
-	 * `unparseable_lines` are bookkeeping this node consumes; an unknown type is
-	 * ignored. Every event resets
+	 * payload to `on_message`; `connected`, `heartbeat`, `retry` and `disconnect`
+	 * are bookkeeping this node consumes; an unknown type is ignored. Every event resets
 	 * the backoff and refreshes liveness, so a talking stream never ages into
 	 * `check_stale()`.
 	 *
@@ -552,7 +546,7 @@ class SSE_In_Node extends Node implements Curl_Owner {
 			return true;
 		}
 
-		// Heartbeats prove liveness — record receipt, return before unpack.
+		// Heartbeats only prove liveness; don't forward them.
 		if ( 'heartbeat' === $type ) {
 			$this->last_sse_heartbeat = (int) ( Core::$now ?: Core::right_now() );
 			return true;
@@ -605,11 +599,7 @@ class SSE_In_Node extends Node implements Curl_Owner {
 			return true;
 		}
 
-		if ( 'unparseable_lines' === $type ) {
-			return $this->handle_unparseable( $raw_data );
-		}
-
-		// 'msg' hands RAW payload to owner; its forward_line owns unparse/DLQ.
+		// A record, a raw block or its header: its RAW payload to the patron.
 		if ( 'msg' === $type ) {
 			$this->largest_msg_sent = \max( $this->largest_msg_sent, \strlen( $raw_data ) );
 			$this->counter++;
@@ -636,7 +626,7 @@ class SSE_In_Node extends Node implements Curl_Owner {
 		if ( ! \is_string( $value ) ) {
 			return $this->reject_connected( 'malformed connected envelope (non-string value)' );
 		}
-		$info = self::flat_info( $value );
+		$info = Message::info_pairs( $value );
 		if ( null === $info ) {
 			return $this->reject_connected( 'malformed connected envelope' );
 		}
@@ -660,58 +650,6 @@ class SSE_In_Node extends Node implements Curl_Owner {
 			( $this->on_connected )( $cursors );
 		}
 		return true;
-	}
-
-	/**
-	 * Add one `unparseable_lines` frame to the running count, published as
-	 * UNPARSEABLE_LINES, and hand the patron where the spoke's readers now
-	 * stand. The spoke's readers keep no cursor, so a torn line is skipped
-	 * rather than ending the stream, and this frame is how the hub learns of
-	 * it. A frame whose COUNT is not a positive decimal is reported as an ERROR
-	 * and counts nothing, but leaves the stream up, as the browser twin does.
-	 *
-	 * @param string $raw_data The frame's packed Message.
-	 * @return bool Always true: no frame of this type ends the connection.
-	 */
-	private function handle_unparseable( string $raw_data ): bool {
-		try {
-			$value = Message::unpacked( $raw_data )[ Message::VALUE ];
-		} catch ( \InvalidArgumentException $e ) {
-			$value = null;
-		}
-		$info  = self::flat_info( \is_string( $value ) ? $value : '' ) ?? [];
-		$count = Core::canonical_decimal( $info['COUNT'] ?? null );
-		if ( null === $count || 0 === $count ) {
-			$this->set_state( 'ERROR', 'malformed unparseable_lines frame' );
-			$this->print_less_often( 'ERROR: dropped a malformed unparseable_lines frame' );
-			return true;
-		}
-		$this->unparseable_lines += $count;
-		$this->set_state( 'UNPARSEABLE_LINES', (string) $this->unparseable_lines );
-		$cursors = self::cursors_of( $info['CURSORS'] ?? '' );
-		if ( [] !== $cursors && null !== $this->on_skipped ) {
-			( $this->on_skipped )( $cursors );
-		}
-		return true;
-	}
-
-	/**
-	 * Split a flat TM_INFO VALUE — space-separated `KEY VALUE` pairs, the shape of
-	 * the `connected` envelope and the `unparseable_lines` frame — into a map.
-	 *
-	 * @param string $value The frame's VALUE.
-	 * @return array<string,string>|null Each KEY to the token after it, or null when a KEY has no VALUE.
-	 */
-	private static function flat_info( string $value ): ?array {
-		$tokens = \preg_split( '/ +/', \trim( $value ) );
-		if ( false === $tokens || 0 !== \count( $tokens ) % 2 ) {
-			return null;
-		}
-		$info = [];
-		for ( $i = 0, $count = \count( $tokens ); $i < $count; $i += 2 ) {
-			$info[ $tokens[ $i ] ] = $tokens[ $i + 1 ];
-		}
-		return $info;
 	}
 
 	/**
@@ -881,31 +819,42 @@ class SSE_In_Node extends Node implements Curl_Owner {
 	}
 
 	/**
-	 * Backpressure valve — ARM: re-add the easy handle to the shared multi so its socket
-	 * is serviced again, resuming the paused transfer. No-op without a live handle.
-	 * The dual of disarm(); a buffering owner (Remote_Source) calls this once its readers
-	 * have drained below the low-water mark.
+	 * Backpressure valve — ARM: resume the paused transfer, so libcurl reads the
+	 * socket again. No-op without a live handle. The dual of disarm(); a buffering
+	 * owner (Remote_Source) calls this once its readers have drained below the
+	 * low-water mark.
 	 *
 	 * @api Support for the Remote_Source valve.
 	 */
 	public function arm(): void {
-		// Only register with a live handle; arming while disconnected respins.
-		if ( $this->handle instanceof \CurlHandle ) {
-			Event_Framework::instance()->register_curl_easy( $this, $this->handle, null );
-		}
+		$this->pause( false );
 	}
 
 	/**
-	 * Backpressure valve — DISARM: remove the easy handle from the shared multi. libcurl
-	 * stops reading it (the handle stays open), so the kernel recv buffer fills, the TCP
-	 * window closes, and the remote SSE server blocks on write. Real end-to-end backpressure.
-	 * A buffering owner calls this once its readers' backlog crosses the high-water mark.
+	 * Backpressure valve — DISARM: pause the transfer's receiving. libcurl stops
+	 * reading the socket, so the kernel recv buffer fills, the TCP window closes,
+	 * and the remote SSE server blocks on write. Real end-to-end backpressure. A
+	 * buffering owner calls this once its readers' backlog crosses the high-water mark.
 	 *
 	 * @api Support for the Remote_Source valve.
 	 */
 	public function disarm(): void {
-		if ( $this->handle instanceof \CurlHandle ) {
-			Event_Framework::instance()->unregister_curl_easy( $this->handle );
+		$this->pause( true );
+	}
+
+	/**
+	 * Pause or resume the live transfer through `Event_Framework::pause_curl()`,
+	 * saying so, rate-limited, when libcurl refuses.
+	 *
+	 * @param bool $pause True to pause receiving, false to resume.
+	 */
+	private function pause( bool $pause ): void {
+		if ( ! ( $this->handle instanceof \CurlHandle ) ) {
+			return;
+		}
+		$code = Event_Framework::instance()->pause_curl( $this->handle, $pause );
+		if ( \CURLE_OK !== $code ) {
+			$this->print_less_often( 'ERROR: curl_pause refused: ', (string) $code );
 		}
 	}
 
@@ -992,7 +941,7 @@ class SSE_In_Node extends Node implements Curl_Owner {
 	 * own rather than being inferred from the absence of a failure.
 	 *
 	 * @api Dynamic entrypoint.
-	 * @return array{connected:bool,connecting:bool,last_http_code:?int,last_error:?string,current_backoff:int,last_sse_heartbeat:?int,last_attempt:?int,scheduled_reconnect_at:?int,unparseable_lines:int}
+	 * @return array{connected:bool,connecting:bool,last_http_code:?int,last_error:?string,current_backoff:int,last_sse_heartbeat:?int,last_attempt:?int,scheduled_reconnect_at:?int}
 	 */
 	public function connection(): array {
 		return [
@@ -1004,7 +953,6 @@ class SSE_In_Node extends Node implements Curl_Owner {
 			'last_sse_heartbeat'     => $this->last_sse_heartbeat,
 			'last_attempt'           => $this->last_attempt > 0.0 ? (int) $this->last_attempt : null,
 			'scheduled_reconnect_at' => $this->scheduled_reconnect_at,
-			'unparseable_lines'      => $this->unparseable_lines,
 		];
 	}
 

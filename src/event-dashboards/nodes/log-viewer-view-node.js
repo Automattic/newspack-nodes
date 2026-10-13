@@ -11,6 +11,7 @@ import {
 	TIMESTAMP,
 	TO,
 } from '../../runtime/message';
+import { parseCrumb } from '../../runtime/log-position';
 import { LogStreamViewNode } from '../../shared/nodes/log-stream-view-node';
 
 /**
@@ -38,6 +39,59 @@ const MAX_RAW_LENGTH = 262144;
  */
 const clip = ( s, max ) =>
 	s.length > max ? s.substring( 0, max ) + '...' : s;
+
+/**
+ * One Log Viewer row: the seven message fields, plus its payload's text,
+ * clipped at MAX_RAW_LENGTH. A ring holds far more rows than the list ever
+ * shows, and a struct payload costs a `JSON.stringify` to render, so a struct
+ * is encoded the first time a reader asks, unless its breadcrumb says it is
+ * too large to hold until then; a text payload is clipped as it arrives.
+ * Once read, a row holds its clipped text alone.
+ */
+class LogViewerRow {
+	/**
+	 * @param {Array} message The 7-field positional message, its VALUE non-empty.
+	 */
+	constructor( message ) {
+		const value = message[ VALUE ];
+		this.type = message[ TYPE ];
+		this.timestamp = message[ TIMESTAMP ];
+		this.from = 'string' === typeof message[ FROM ] ? message[ FROM ] : '';
+		this.to = 'string' === typeof message[ TO ] ? message[ TO ] : '';
+		this.msgId = 'string' === typeof message[ ID ] ? message[ ID ] : '';
+		this.key = 'string' === typeof message[ KEY ] ? message[ KEY ] : '';
+		this.struct = 'string' !== typeof value;
+		const large =
+			( parseCrumb( message[ ID ] )?.length ?? 0 ) > MAX_RAW_LENGTH;
+		this._payload = this.struct && ! large ? value : null;
+		this._raw =
+			null === this._payload
+				? clip(
+						this.struct ? JSON.stringify( value ) : value,
+						MAX_RAW_LENGTH
+				  )
+				: null;
+	}
+
+	/** @return {string} The payload Debug mode renders, clipped at MAX_RAW_LENGTH. */
+	get raw() {
+		if ( null === this._raw ) {
+			this._raw = clip( JSON.stringify( this._payload ), MAX_RAW_LENGTH );
+			this._payload = null;
+		}
+		return this._raw;
+	}
+
+	/** @return {string} The bare payload, clipped at MAX_LINE_LENGTH. */
+	get value() {
+		return clip( this.raw, MAX_LINE_LENGTH );
+	}
+
+	/** @return {string} The `KEY: VALUE` line the ingest filter matches on. */
+	get content() {
+		return '' === this.key ? this.value : `${ this.key }: ${ this.value }`;
+	}
+}
 
 /**
  * `log-viewer:view` — owns the Log Viewer's view model.
@@ -81,36 +135,21 @@ export class LogViewerViewNode extends LogStreamViewNode {
 	 * `content` the `KEY: VALUE` line the ingest filter matches on, which
 	 * prefixes the clipped payload so the KEY survives whole; `raw` carries
 	 * the whole payload Debug mode renders, clipped at the far higher
-	 * MAX_RAW_LENGTH. A struct VALUE reaches all three JSON-encoded.
+	 * MAX_RAW_LENGTH. A struct VALUE reaches all three JSON-encoded, on the
+	 * first read of any of them (`LogViewerRow`).
 	 *
 	 * An empty VALUE returns null: there is no payload to render, and the base
 	 * then drops the envelope without moving the seek breadcrumb.
 	 *
 	 * @param {Array} message The 7-field positional message.
-	 * @return {?{type: number, timestamp: number, from: string, to: string, msgId: string, key: string, struct: boolean, raw: string, value: string, content: string}} The row, or null when the VALUE is empty.
+	 * @return {?LogViewerRow} The row, or null when the VALUE is empty.
 	 */
 	shapeRow( message ) {
 		const value = message[ VALUE ];
 		if ( value === '' || value === null || value === undefined ) {
 			return null;
 		}
-		const struct = 'string' !== typeof value;
-		const raw = struct ? JSON.stringify( value ) : value;
-		const bare = clip( raw, MAX_LINE_LENGTH );
-		const key = 'string' === typeof message[ KEY ] ? message[ KEY ] : '';
-		return {
-			// All seven positional fields; the picker chooses which show.
-			type: message[ TYPE ],
-			timestamp: message[ TIMESTAMP ],
-			from: 'string' === typeof message[ FROM ] ? message[ FROM ] : '',
-			to: 'string' === typeof message[ TO ] ? message[ TO ] : '',
-			msgId: 'string' === typeof message[ ID ] ? message[ ID ] : '',
-			key,
-			struct,
-			raw: clip( raw, MAX_RAW_LENGTH ),
-			value: bare,
-			content: '' === key ? bare : `${ key }: ${ bare }`,
-		};
+		return new LogViewerRow( message );
 	}
 
 	/**

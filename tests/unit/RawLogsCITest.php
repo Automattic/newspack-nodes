@@ -19,6 +19,7 @@ use Newspack_Nodes\Log_Sources;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Rest\Raw_Logs_CI_Node;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
 use Newspack_Nodes\Tests\TestCase;
 
@@ -339,146 +340,205 @@ class RawLogsCITest extends TestCase {
 		$this->assertNotEmpty( Raw_Logs_CI_Node::node_schema()['description'] );
 	}
 
-	public function test_read_block_stops_before_the_record_that_would_pass_a_mebibyte(): void {
-		$lines = $this->seed_sized_records( [ 307211, 307213, 307217, 307219 ] );
-
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_block', [ 'firehose.p0', 'start' ] );
-
-		$this->assertSame( [ 'rec-0-', 'rec-1-', 'rec-2-' ], \array_map( static fn ( array $m ): string => \substr( $m[ Message::VALUE ], 0, 6 ), $result['messages'] ) );
-		$this->assertSame( [ 'segment' => 0, 'offset' => \strlen( $lines[0] . $lines[1] . $lines[2] ) ], $result['cursor'], 'the cursor stands before the record left out' );
-		$this->assertFalse( $result['at_eof'] );
+	/**
+	 * Fire `read_block` and return what it sent its caller: the TM_BATCH, or
+	 * null, and its header's flat pairs as a map.
+	 *
+	 * @param list<string> $args The verb's tokens.
+	 * @return array{0:?array<int,mixed>,1:array<string,string>}
+	 */
+	private function read_block( array $args ): array {
+		$GLOBALS['_wp_test_current_user_id'] ??= VerbHarness::REQUEST_USER;
+		$ci   = new Raw_Logs_CI_Node();
+		$sink = new Capture_Sink_Node();
+		$ci->name( 'raw-logs' );
+		$ci->sink( $sink );
+		$ask                    = Message::new_message();
+		$ask[ Message::TYPE ]   = Message::TM_COMMAND;
+		$ask[ Message::FROM ]   = 'pull-7719:firehose.p0';
+		$ask[ Message::ID ]     = 'ask-3301';
+		$ask[ Message::VALUE ]  = [ 'name' => 'read_block', 'arguments' => $args ];
+		$ask[ Message::LOCAL ]  = true;
+		$ci->fill( $ask );
+		$batch = null;
+		$info  = [];
+		$header = Message::TM_INFO | Message::TM_BATCH;
+		$this->assertSame( $header, $sink->captured[0][ Message::TYPE ] ?? null, 'the header goes first' );
+		$this->assertSame( 'ask-3301', $sink->captured[0][ Message::ID ], 'the header echoes the command\'s ID, as a reply does' );
+		foreach ( $sink->captured as $m ) {
+			$this->assertSame( 'pull-7719:firehose.p0', $m[ Message::TO ], 'every answer goes to the asker' );
+			if ( $header === $m[ Message::TYPE ] ) {
+				$pairs = \preg_split( '/\s+/', $m[ Message::VALUE ] );
+				for ( $i = 0; $i + 1 < \count( $pairs ); $i += 2 ) {
+					$info[ $pairs[ $i ] ] = $pairs[ $i + 1 ];
+				}
+			} elseif ( $m[ Message::TYPE ] & Message::TM_BATCH ) {
+				$batch = $m;
+			}
+		}
+		$this->assertNotSame( [], $info, 'every read answers a TM_INFO' );
+		return [ $batch, $info ];
 	}
 
-	public function test_read_block_returns_a_record_larger_than_the_block_alone(): void {
-		$lines = $this->seed_sized_records( [ 2097169, 4194 ] );
-
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_block', [ 'firehose.p0', '0:0' ] );
-
-		$this->assertCount( 1, $result['messages'] );
-		$this->assertSame( 2097169, \strlen( $result['messages'][0][ Message::VALUE ] ) );
-		$this->assertSame( [ 'segment' => 0, 'offset' => \strlen( $lines[0] ) ], $result['cursor'] );
-	}
-
-	public function test_read_block_reads_to_the_end_and_says_so(): void {
+	public function test_read_block_sends_the_raw_bytes_and_where_they_end(): void {
 		[ $line1, $line2 ] = $this->seed_two_records();
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_block', [ 'firehose.p0', 'start' ] );
+		[ $batch, $info ] = $this->read_block( [ 'firehose.p0', 'start' ] );
 
-		$this->assertSame( [ 'first record 4194', [ 'k' => 'second 977' ] ], \array_column( $result['messages'], Message::VALUE ) );
-		$this->assertSame( 'firehose.p0', $result['messages'][0][ Message::FROM ], 'stamped like a streamed row' );
-		$this->assertSame( [ 'segment' => 0, 'offset' => \strlen( $line1 . $line2 ) ], $result['cursor'] );
-		$this->assertTrue( $result['at_eof'] );
-		$this->assertSame( 0, $result['unparseable_lines'] );
+		$this->assertSame( $line1 . $line2, $batch[ Message::VALUE ], 'the segment\'s bytes, untouched' );
+		$this->assertSame( Message::TM_BATCH, $batch[ Message::TYPE ], 'packed records' );
+		$this->assertSame( '0:0', $batch[ Message::ID ] );
+		$this->assertSame( [ 'OFFSET' => '0:0', 'DISTANCE' => (string) \strlen( $line1 . $line2 ), 'ASKED' => 'start' ], $info );
 	}
 
-	/** `end` reads nothing and stands at the newest segment's end. */
-	public function test_read_block_at_end_reads_nothing_and_stands_at_the_newest_segment(): void {
-		[ $line1, $line2 ] = $this->seed_two_records();
-		\file_put_contents( $this->tmp . '/logs/firehose.p0/3.log', $line2 . $line1 );
+	public function test_read_block_cuts_a_mebibyte_wherever_it_falls(): void {
+		$lines = $this->seed_sized_records( [ 400009, 400019, 400031 ] );
+		$all   = \implode( '', $lines );
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_block', [ 'firehose.p0', 'end' ] );
+		[ $batch, $info ] = $this->read_block( [ 'firehose.p0', '0:0' ] );
 
-		$this->assertSame( [], $result['messages'] );
-		$this->assertTrue( $result['at_eof'] );
-		$this->assertSame( [ 'segment' => 3, 'offset' => \strlen( $line2 . $line1 ) ], $result['cursor'] );
+		$this->assertSame( \substr( $all, 0, Log_Sources::BLOCK_BYTES ), $batch[ Message::VALUE ] );
+		$this->assertSame( '0:0', $info['OFFSET'] );
+		$this->assertSame( (string) \strlen( $all ), $info['DISTANCE'], 'measured from the batch\'s start' );
 	}
 
-	public function test_read_block_counts_the_lines_it_skipped(): void {
+	public function test_read_block_passes_a_torn_line_through(): void {
 		[ $line1, $line2 ] = $this->seed_two_records();
 		\file_put_contents( $this->tmp . '/logs/firehose.p0/0.log', $line1 . "torn-6113\n" . $line2 );
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_block', [ 'firehose.p0', 'start' ] );
+		[ $batch ] = $this->read_block( [ 'firehose.p0', 'start' ] );
 
-		$this->assertCount( 2, $result['messages'] );
-		$this->assertSame( 1, $result['unparseable_lines'] );
-		$this->assertSame( [ 'segment' => 0, 'offset' => \strlen( $line1 . "torn-6113\n" . $line2 ) ], $result['cursor'] );
+		$this->assertSame( $line1 . "torn-6113\n" . $line2, $batch[ Message::VALUE ] );
 	}
 
-	public function test_read_block_charges_skipped_lines_to_the_budget(): void {
-		$dir   = $this->tmp . '/logs/firehose.p0';
-		\mkdir( $dir, 0755, true );
-		$first = Message::new_message();
-		$first[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$first[ Message::VALUE ] = 'lead-8821';
-		$line1 = Message::packed( $first ) . "\n";
-		$torn  = \str_repeat( 'x', 399999 ) . "\n";
-		$tail  = $first;
-		$tail[ Message::VALUE ] = 'after-4417';
-		\file_put_contents( "{$dir}/0.log", $line1 . $torn . $torn . $torn . $torn . Message::packed( $tail ) . "\n" );
+	/** `end` reads nothing and stands at the newest segment's end. */
+	public function test_read_block_at_end_sends_an_empty_batch(): void {
+		[ $line1, $line2 ] = $this->seed_two_records();
+		\file_put_contents( $this->tmp . '/logs/firehose.p0/3.log', $line2 . $line1 );
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_block', [ 'firehose.p0', 'start' ] );
+		[ $batch, $info ] = $this->read_block( [ 'firehose.p0', 'end' ] );
 
-		$this->assertSame( [ 'lead-8821' ], \array_column( $result['messages'], Message::VALUE ) );
-		$this->assertSame( 3, $result['unparseable_lines'], 'stopped once the walk passed a mebibyte' );
-		$this->assertSame( [ 'segment' => 0, 'offset' => \strlen( $line1 ) + 3 * \strlen( $torn ) ], $result['cursor'] );
-		$this->assertFalse( $result['at_eof'] );
+		$this->assertSame( '', $batch[ Message::VALUE ], 'an empty batch still closes the answer' );
+		$this->assertSame( '3:' . \strlen( $line2 . $line1 ), $info['OFFSET'] );
+		$this->assertSame( '0', $info['DISTANCE'] );
+		$this->assertSame( 'end', $info['ASKED'] );
 	}
 
-	public function test_read_block_charges_a_leading_skipped_run_to_the_budget(): void {
-		$dir   = $this->tmp . '/logs/firehose.p0';
-		\mkdir( $dir, 0755, true );
-		$torn  = \str_repeat( 'x', 399999 ) . "\n";
-		$tail  = Message::new_message();
-		$tail[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$tail[ Message::VALUE ] = 'after-3306';
-		\file_put_contents( "{$dir}/0.log", $torn . $torn . $torn . $torn . Message::packed( $tail ) . "\n" );
+	public function test_read_block_at_a_drained_segment_reads_the_next(): void {
+		[ $line1, $line2 ] = $this->seed_two_records();
+		\file_put_contents( $this->tmp . '/logs/firehose.p0/1.log', $line1 );
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_block', [ 'firehose.p0', 'start' ] );
+		[ $batch, $info ] = $this->read_block( [ 'firehose.p0', '0:' . \strlen( $line1 . $line2 ) ] );
 
-		$this->assertSame( [], $result['messages'], 'a corrupt head fills the block with no record' );
-		$this->assertSame( 3, $result['unparseable_lines'] );
-		$this->assertSame( [ 'segment' => 0, 'offset' => 3 * \strlen( $torn ) ], $result['cursor'] );
-		$this->assertFalse( $result['at_eof'] );
+		$this->assertSame( '1:0', $batch[ Message::ID ], 'a single writer seals 0 when 1 appears' );
+		$this->assertSame( $line1, $batch[ Message::VALUE ] );
+		$this->assertSame( '1:0', $info['OFFSET'] );
+	}
+
+	/** A position mid-line serves from that byte: a line longer than a block arrives in pieces. */
+	public function test_read_block_serves_from_mid_line(): void {
+		[ $line1, $line2 ] = $this->seed_two_records();
+
+		[ $batch, $info ] = $this->read_block( [ 'firehose.p0', '0:7' ] );
+
+		$this->assertSame( \substr( $line1 . $line2, 7 ), $batch[ Message::VALUE ] );
+		$this->assertSame( '0:7', $info['OFFSET'] );
+	}
+
+	/** A file source serves from mid-line too, where a resume would sync to the next line. */
+	public function test_read_block_serves_a_file_source_from_mid_line(): void {
+		$file = $this->tmp . '/kea-error-5520.log';
+		\file_put_contents( $file, "first line 3301\nsecond line 7719\n" );
+		Log_Sources::$builtin_sources = static fn (): array => [ 'kea' => $file ];
+		$inode = (int) \fileinode( $file );
+
+		[ $batch, $info ] = $this->read_block( [ 'sources/kea', "{$inode}:6" ] );
+
+		$this->assertSame( "line 3301\nsecond line 7719\n", $batch[ Message::VALUE ] );
+		$this->assertSame( Message::TM_BATCH | Message::TM_BYTESTREAM, $batch[ Message::TYPE ], 'a source\'s lines are text' );
+		$this->assertSame( "{$inode}:6", $info['OFFSET'] );
+		$this->assertSame( (string) \strlen( "line 3301\nsecond line 7719\n" ), $info['DISTANCE'] );
 	}
 
 	/** Seed segment 1 with one record whose TIMESTAMP is `$stamp`, segment 0 aged to `$mtime`. */
-	private function seed_next_segment( float $stamp, int $mtime ): void {
-		$this->seed_two_records();
-		$next                   = Message::new_message();
-		$next[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+	private function seed_next_segment( float $stamp, int $mtime ): string {
+		[ $line1, $line2 ] = $this->seed_two_records();
+		$next                       = Message::new_message();
+		$next[ Message::TYPE ]      = Message::TM_BYTESTREAM;
 		$next[ Message::TIMESTAMP ] = $stamp;
-		$next[ Message::VALUE ] = 'next segment';
+		$next[ Message::VALUE ]     = 'next segment';
 		\file_put_contents( $this->tmp . '/logs/firehose.p0/1.log', Message::packed( $next ) . "\n" );
 		\touch( $this->tmp . '/logs/firehose.p0/0.log', $mtime );
+		return '0:' . \strlen( $line1 . $line2 );
 	}
 
 	public function test_read_block_crosses_a_multi_writer_segment_whose_successor_is_old_enough(): void {
 		Core::$now = 1700000103.3;
-		$this->seed_next_segment( 1700000099.9, 1700000000 );
+		$end       = $this->seed_next_segment( 1700000099.9, 1700000000 );
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_block', [ 'firehose.p0', 'start', '--multi_writer=true' ] );
+		[ $batch ] = $this->read_block( [ 'firehose.p0', $end, '--multi_writer=true' ] );
 
-		$this->assertCount( 3, $result['messages'], 'a fresh reader crosses a segment whose successor is past the grace' );
+		$this->assertSame( '1:0', $batch[ Message::ID ] );
 	}
 
 	public function test_read_block_holds_a_multi_writer_segment_whose_successor_is_young(): void {
 		Core::$now = 1700000103.3;
-		$this->seed_next_segment( 1700000102.9, 1700000000 );
+		$end       = $this->seed_next_segment( 1700000102.9, 1700000000 );
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_block', [ 'firehose.p0', 'start', '--multi_writer=true' ] );
+		[ $batch, $info ] = $this->read_block( [ 'firehose.p0', $end, '--multi_writer=true' ] );
 
-		$this->assertCount( 2, $result['messages'] );
-		$this->assertTrue( $result['at_eof'] );
+		$this->assertSame( '', $batch[ Message::VALUE ], 'held at the boundary, it sends no bytes' );
+		$this->assertSame( $end, $info['OFFSET'] );
+		$this->assertNotSame( '0', $info['DISTANCE'], 'the held segment still counts' );
 	}
 
-	public function test_read_block_holds_a_multi_writer_boundary(): void {
-		[ $line1 ] = $this->seed_two_records();
-		\file_put_contents( $this->tmp . '/logs/firehose.p0/1.log', $line1 );
+	public function test_read_block_on_a_segment_retention_deleted_says_so(): void {
+		[ $line1, $line2 ] = $this->seed_two_records();
+		\rename( $this->tmp . '/logs/firehose.p0/0.log', $this->tmp . '/logs/firehose.p0/3.log' );
 
-		$held = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_block', [ 'firehose.p0', 'start', '--multi_writer=true' ] );
+		[ $batch, $info ] = $this->read_block( [ 'firehose.p0', '0:61' ] );
 
-		$this->assertCount( 2, $held['messages'], 'a fresh segment 0 is not sealed yet' );
-		$this->assertTrue( $held['at_eof'] );
-		$this->assertSame( 0, $held['cursor']['segment'] );
+		$this->assertSame( '3:0', $batch[ Message::ID ] );
+		$this->assertSame( $line1 . $line2, $batch[ Message::VALUE ] );
+		$this->assertSame( '3:0', $info['OFFSET'] );
+		$this->assertSame( '1', $info['RESET'] ?? null );
 	}
 
-	public function test_read_block_seals_a_segment_for_a_single_writer(): void {
-		[ $line1 ] = $this->seed_two_records();
-		\file_put_contents( $this->tmp . '/logs/firehose.p0/1.log', $line1 );
+	/** A read asked with TM_NOREPLY sends nothing back, as every verb's reply is suppressed. */
+	public function test_read_block_asked_for_no_reply_sends_nothing(): void {
+		$this->seed_two_records();
+		$GLOBALS['_wp_test_current_user_id'] ??= VerbHarness::REQUEST_USER;
+		$ci   = new Raw_Logs_CI_Node();
+		$sink = new Capture_Sink_Node();
+		$ci->name( 'raw-logs' );
+		$ci->sink( $sink );
+		$ask                   = Message::new_message();
+		$ask[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_NOREPLY;
+		$ask[ Message::FROM ]  = 'pull-7719:firehose.p0';
+		$ask[ Message::VALUE ] = [ 'name' => 'read_block', 'arguments' => [ 'firehose.p0', 'start' ] ];
+		$ask[ Message::LOCAL ] = true;
 
-		$plain = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_block', [ 'firehose.p0', 'start' ] );
+		$ci->fill( $ask );
 
-		$this->assertCount( 3, $plain['messages'], 'a single writer seals 0 when 1 appears' );
+		$this->assertSame( [], $sink->captured );
+	}
+
+	/** A read asked with TM_NOREPLY still fails loud on a malformed line, as every verb does. */
+	public function test_read_block_asked_for_no_reply_still_refuses_an_unknown_log(): void {
+		$this->seed_two_records();
+		$GLOBALS['_wp_test_current_user_id'] ??= VerbHarness::REQUEST_USER;
+		$ci = new Raw_Logs_CI_Node();
+		$ci->name( 'raw-logs' );
+		$ci->sink( new Capture_Sink_Node() );
+		$ask                   = Message::new_message();
+		$ask[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_NOREPLY;
+		$ask[ Message::FROM ]  = 'pull-7719:firehose.p0';
+		$ask[ Message::VALUE ] = [ 'name' => 'read_block', 'arguments' => [ 'kea-5528.p4', '0:0' ] ];
+		$ask[ Message::LOCAL ] = true;
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'unknown log: "kea-5528.p4"' );
+		$ci->fill( $ask );
 	}
 
 	public function test_read_block_rejects_a_malformed_position(): void {

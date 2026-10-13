@@ -1590,7 +1590,6 @@ class ConsumerTest extends TestCase {
 
 		$values = \array_map( static fn ( $m ) => $m[ Message::VALUE ], $cap->captured );
 		$this->assertSame( [ 'tern-6104', 'gull-2958', 'auk-7731', 'petrel-4462' ], $values, 'every line after the sacrificed head, in order' );
-		$this->assertSame( \strlen( $first ) + \strlen( $second ), $c->take_consumed_bytes(), 'the torn tail counts as consumed at the roll' );
 	}
 
 	/**
@@ -4233,26 +4232,6 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( 0, Consumer_Node::take_unparseable_lines_of( $scans ), 'the take drains every count' );
 	}
 
-	public function test_take_consumed_bytes_counts_every_disposed_byte_and_drains(): void {
-		$dir = "{$this->tmp}/data.p0";
-		\mkdir( $dir, 0755, true );
-		$first                   = Message::new_message();
-		$first[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$first[ Message::VALUE ] = 'kept-4417';
-		$line1                   = Message::packed( $first ) . "\n";
-		$line2                   = Message::packed( $first ) . "\n";
-		// Segment 0: a record, a torn line, then a tail with no newline that a roll clears.
-		\file_put_contents( "{$dir}/0.log", $line1 . "torn-8812\n" . 'partial-3306' );
-		\file_put_contents( "{$dir}/1.log", $line2 );
-		$scan = Consumer_Node::scan( $dir );
-		$scan->sink( new Capture_Sink_Node() );
-		$scan->drain();
-
-		$expected = \strlen( $line1 ) + \strlen( "torn-8812\n" ) + \strlen( 'partial-3306' ) + \strlen( $line2 );
-		$this->assertSame( $expected, $scan->take_consumed_bytes() );
-		$this->assertSame( 0, $scan->take_consumed_bytes(), 'a draining read' );
-	}
-
 	public function test_a_cursorless_reader_raises_an_unparseable_line_unless_it_skips(): void {
 		$this->seed_corrupt_then_good_line();
 
@@ -4659,6 +4638,134 @@ class ConsumerTest extends TestCase {
 		$mode->setValue( $c, true );
 
 		$this->assertStringNotContainsString( 'set_line_mode', $c->dump_config() );
+	}
+
+	/**
+	 * Seed `logs/bow-6631.p0` segment 0 with `$bytes` and build a scan of it,
+	 * stamped `bow-6631.p0`, reading raw blocks from the start into a capture.
+	 *
+	 * @return array{0:Consumer_Node,1:Capture_Sink_Node}
+	 */
+	private function raw_scan( string $bytes ): array {
+		$dir = "{$this->tmp}/bow-6631.p0";
+		\mkdir( $dir, 0755, true );
+		\file_put_contents( "{$dir}/0.log", $bytes );
+		$sink = new Capture_Sink_Node();
+		$c    = Consumer_Node::scan( $dir );
+		$c->set_stamp_as( 'bow-6631.p0' );
+		$c->set_raw_blocks( true );
+		$c->next_offset( 'start' );
+		$c->sink( $sink );
+		return [ $c, $sink ];
+	}
+
+	/** A raw reader sends each block as a header placing it, then its bytes. */
+	public function test_a_raw_reader_sends_a_header_then_the_block(): void {
+		$bytes = "keel 4417 not even a record\nsecond 9203\n";
+		[ $c, $sink ] = $this->raw_scan( $bytes );
+
+		$c->poll();
+
+		$this->assertCount( 2, $sink->captured );
+		[ $header, $batch ] = $sink->captured;
+		$this->assertSame( Message::TM_INFO | Message::TM_BATCH, $header[ Message::TYPE ] );
+		$this->assertSame( 'bow-6631.p0', $header[ Message::FROM ] );
+		$this->assertSame( 'OFFSET 0:0 DISTANCE ' . \strlen( $bytes ), $header[ Message::VALUE ] );
+		$this->assertSame( Message::TM_BATCH, $batch[ Message::TYPE ] );
+		$this->assertSame( 'bow-6631.p0', $batch[ Message::FROM ] );
+		$this->assertSame( '0:0', $batch[ Message::ID ] );
+		$this->assertSame( $bytes, $batch[ Message::VALUE ], 'unparsed: the client splits it' );
+		$this->assertSame( '0:' . \strlen( $bytes ), $c->cursor_position() );
+	}
+
+	/** A raw reader addresses its header and its block as it would a record: TO its target. */
+	public function test_a_raw_reader_sends_its_block_to_its_target(): void {
+		[ $c, $sink ] = $this->raw_scan( "halyard 3307\n" );
+		$c->target( 'spar-8812' );
+
+		$c->poll();
+
+		$this->assertSame( [ 'spar-8812', 'spar-8812' ], \array_column( $sink->captured, Message::TO ) );
+	}
+
+	/** A sink that throws on a block meets the reader's dead-letter rule, as a record's would. */
+	public function test_a_raw_block_the_sink_throws_on_is_dead_lettered(): void {
+		$dir = "{$this->tmp}/stay-2281.p0";
+		\mkdir( $dir, 0755, true );
+		\file_put_contents( "{$dir}/0.log", "gunwale 4481\n" );
+		$c = new Consumer_Node();
+		$c->arguments( [ $dir, "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
+		$c->name( 'stay-2281' );
+		$c->set_raw_blocks( true );
+		$c->next_offset( 'start' );
+		$c->sink( new \Newspack_Nodes\Callback_Node( static function (): void {
+			throw new \RuntimeException( 'sse write refused 7713' );
+		} ) );
+
+		$c->poll();
+
+		$this->assertSame( [ 'OFFSET 0:0 DISTANCE 13', "gunwale 4481\n" ], $this->values_in( "{$this->tmp}/deadletter.p0" ) );
+	}
+
+	/** A block that would end inside a character ends before it, and the next begins with it. */
+	public function test_a_raw_block_ends_on_a_character_boundary(): void {
+		[ $c ] = $this->raw_scan( "ab \u{e9}\n" );
+
+		$first  = $c->raw_block( 4 );
+		$second = $c->raw_block( 4 );
+
+		$this->assertSame( 'ab ', $first['bytes'] );
+		$this->assertSame( [ 0, 3 ], [ $second['segment'], $second['offset'] ] );
+		$this->assertSame( "\u{e9}\n", $second['bytes'] );
+	}
+
+	/** A raw block measures its distance off the scan its read made, never a second. */
+	public function test_a_raw_block_scans_its_log_once(): void {
+		[ $c ] = $this->raw_scan( "mizzen 6120\n" );
+		$c->raw_block( 1048576 );
+		$scans = 0;
+		\Newspack_Nodes\Partition_Node::$scandir = static function ( string $d ) use ( &$scans ) {
+			++$scans;
+			return \scandir( $d );
+		};
+		try {
+			$block = $c->raw_block( 1048576 );
+		} finally {
+			\Newspack_Nodes\Partition_Node::$scandir = null;
+		}
+
+		$this->assertSame( [ '', 0 ], [ $block['bytes'], $block['distance'] ] );
+		$this->assertSame( 1, $scans );
+	}
+
+	/** A byte JSON cannot carry becomes one `?`, so the block keeps its length and its places. */
+	public function test_a_raw_block_replaces_each_invalid_byte_with_one_of_its_own(): void {
+		[ $c ] = $this->raw_scan( "ok\xFF\xFEno 5521\n" );
+
+		$block = $c->raw_block( 1048576 );
+
+		$this->assertSame( "ok??no 5521\n", $block['bytes'] );
+		$this->assertSame( '0:12', $c->cursor_position(), 'a replaced byte is still one byte' );
+	}
+
+	/** At the end a raw reader sends nothing: an empty block tells a stream nothing. */
+	public function test_a_raw_reader_at_the_end_sends_nothing(): void {
+		[ $c, $sink ] = $this->raw_scan( "stern 6672\n" );
+		$c->poll();
+		$sink->captured = [];
+
+		$c->poll();
+
+		$this->assertSame( [], $sink->captured );
+	}
+
+	/** A raw reader carries no per-record work: an unparseable line is the client's to count. */
+	public function test_a_raw_reader_counts_no_unparseable_lines(): void {
+		[ $c ] = $this->raw_scan( "torn 3318\n" );
+
+		$c->poll();
+
+		$this->assertSame( 0, $c->take_unparseable_lines() );
 	}
 }
 

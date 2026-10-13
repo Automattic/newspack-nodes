@@ -111,7 +111,7 @@ answering, ownership is unverifiable and every stream is refused. [`wp nodes
 doctor`](cli.md#doctor-health-report)'s `cache-backend` check is where that reads as a cause rather than as a
 slot shortage. Release fails open, because a lease expires on its own.
 
-A refusal fails the browser's `EventSource` outright, and [`SseInNode`](../src/runtime/sse-in-node.js) reopens
+A refusal fails the browser's stream outright, and [`SseInNode`](../src/runtime/sse-in-node.js) reopens
 under a backoff that doubles from 2 seconds (`INITIAL_BACKOFF_MS`) to a
 30-second ceiling (`MAX_BACKOFF_MS`) and clears on the next `connected`
 handshake, so a tab the pool keeps refusing settles at one claim attempt every

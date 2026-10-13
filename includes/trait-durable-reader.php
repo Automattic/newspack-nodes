@@ -331,9 +331,6 @@ trait Durable_Reader {
 	/** Probe baseline: $bytes_read as of the previous probe sweep. */
 	private int $probe_bytes = 0;
 
-	/** On-disk bytes disposed of since `take_consumed_bytes()` last drained. */
-	protected int $consumed_bytes = 0;
-
 	/**
 	 * Probe baseline: Core::$now as of the previous probe sweep. The reader's
 	 * constructor opens the first window, so the first record covers time since
@@ -381,20 +378,6 @@ trait Durable_Reader {
 		$skipped                 = $this->unparseable_lines;
 		$this->unparseable_lines = 0;
 		return $skipped;
-	}
-
-	/**
-	 * How many on-disk bytes this reader disposed of since the last call,
-	 * resetting the count: every record and skipped line it consumed, and the
-	 * torn tail or oversized partial it discarded. A draining read, so a
-	 * caller bounding its walk by bytes charges each step once.
-	 *
-	 * @return int Bytes consumed since the previous take.
-	 */
-	public function take_consumed_bytes(): int {
-		$consumed             = $this->consumed_bytes;
-		$this->consumed_bytes = 0;
-		return $consumed;
 	}
 
 	/**
@@ -522,6 +505,17 @@ trait Durable_Reader {
 	 * @return int Records the fall-through tick consumed.
 	 */
 	protected function poll_init(): int {
+		return $this->initialize()();
+	}
+
+	/**
+	 * Boot the durable position through the source's `init_position()` seam, freeze
+	 * the boot cursor, and become the steady-state poller: the first poll's work, and
+	 * a raw block's when it reads first.
+	 *
+	 * @return \Closure(): int The poller it became.
+	 */
+	protected function initialize(): \Closure {
 		$this->init_position();
 		// Freeze the boot cursor so cursor_advanced_since_boot() stays honest.
 		$this->boot_cursor_segment = $this->cursor_segment;
@@ -530,7 +524,7 @@ trait Durable_Reader {
 		$this->set_state( 'READY', $this->name );
 		// crawl set once at boot (hard-crash lineage), never re-entered.
 		$this->poll_cb = $this->crawl ? $this->poll_crawl( ... ) : $this->poll_active( ... );
-		return ( $this->poll_cb )();
+		return $this->poll_cb;
 	}
 
 	/**
@@ -709,8 +703,7 @@ trait Durable_Reader {
 	 * record: one duplicate per resume, adjacent, carrying the same crumb.
 	 */
 	protected function advance_consume_cursor(): void {
-		$this->cursor_offset  += $this->crumb['length'];
-		$this->consumed_bytes += $this->crumb['length'];
+		$this->cursor_offset += $this->crumb['length'];
 	}
 
 	/**
@@ -745,8 +738,7 @@ trait Durable_Reader {
 			$this->disposed_record = true;
 			return;
 		}
-		$stamp = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
-		if ( '' !== $stamp && ! $this->stamp_message( $message, $stamp ) ) {
+		if ( ! $this->address( $message ) ) {
 			// FROM exceeded MAX_FROM_SIZE; stamp_message logged it.
 			$this->disposed_record = true;
 			return;
@@ -754,12 +746,27 @@ trait Durable_Reader {
 		// ID breadcrumb = seg:offset:length (length for SSE_In's reconnect).
 		$this->crumb            = [ 'segment' => $this->cursor_segment, 'offset' => $abs_offset, 'length' => $line_size ];
 		$message[ Message::ID ] = Log_Position::format( $this->cursor_segment, $abs_offset, $line_size );
-		if ( \is_string( $this->target ) && '' !== $this->target ) {
-			$message[ Message::TO ] = $this->target;
-		}
 		if ( ! $this->fill_sink( $message ) ) {
 			$this->disposed_record = true;
 		}
+	}
+
+	/**
+	 * Address a message this reader sends: FROM stamped with its stamp, the
+	 * `set_stamp_as()` override or its name, and TO its target when it has one.
+	 *
+	 * @param array<int,mixed> $message The message, addressed in place.
+	 * @return bool False when the stamp would push FROM past `MAX_FROM_SIZE`.
+	 */
+	protected function address( array &$message ): bool {
+		$stamp = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
+		if ( '' !== $stamp && ! $this->stamp_message( $message, $stamp ) ) {
+			return false;
+		}
+		if ( \is_string( $this->target ) && '' !== $this->target ) {
+			$message[ Message::TO ] = $this->target;
+		}
+		return true;
 	}
 
 	/**
@@ -838,9 +845,8 @@ trait Durable_Reader {
 			' - discarding'
 		);
 		$this->set_state( 'OVERFLOW', \implode( ' ', [ 'SEGMENT', $this->cursor_segment, 'OFFSET', $this->cursor_offset, 'LIMIT', self::MAX_LINE_BUFFER_SIZE ] ) );
-		$this->cursor_offset  += \strlen( $this->buffer ); // Don't re-read it.
-		$this->consumed_bytes += \strlen( $this->buffer );
-		$this->buffer      = '';
+		$this->cursor_offset += \strlen( $this->buffer ); // Don't re-read it.
+		$this->buffer         = '';
 	}
 
 	/**

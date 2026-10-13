@@ -31,6 +31,8 @@ const ALLOWED = {
 	'runtime/node.js':
 		'not a command: notify() stamps the event name into KEY (STREAM)',
 	'runtime/timer-node.js': 'not a command: the heartbeat tag (STREAM)',
+	'runtime/sse-in-node.js':
+		"not a command: a record split from a raw block takes its log's breadcrumb",
 	'runtime/shell-node.js':
 		'REPL and Compose affordance: a forged ID / KEY, empty unless set',
 	'topology-console/hooks/useCompletion.js':

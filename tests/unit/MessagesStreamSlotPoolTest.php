@@ -363,14 +363,14 @@ class MessagesStreamSlotPoolTest extends TestCase {
 		SSE_Out_Node::$acquire_slot = static fn (): array|false => [ 'slot' => 7, 'owner' => 42424243 ];
 
 		$base = $this->make_temp_dir( 'msg-slot-direct-sink-' );
-		// Flat layout: the bare-name `firehose` subscription fans out to `firehose.p0`.
-		$pdir = "{$base}/logs/firehose.p0";
+		// A worker's IPC channel: its reader routes each reply, where a log's
+		// reader sends raw blocks.
+		$pdir = "{$base}/ipc/combined.p3/output";
 		\mkdir( $pdir, 0755, true );
 
-		// Pre-seed segment 0 of the firehose log partition 0 with a packed
-		// Message whose TO is non-empty. Partition writes the JSON-encoded
-		// 7-field message plus a newline — same on-the-wire shape Consumer
-		// reads back per fgets() in poll().
+		// Pre-seed segment 0 with a packed Message whose TO is non-empty.
+		// Partition writes the JSON-encoded 7-field message plus a newline —
+		// same on-the-wire shape Consumer reads back per fgets() in poll().
 		$message                       = \Newspack_Nodes\Message::new_message();
 		$message[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM;
 		$message[ \Newspack_Nodes\Message::FROM ]  = 'firehose';
@@ -399,10 +399,10 @@ class MessagesStreamSlotPoolTest extends TestCase {
 
 		// Positions = start so the consumer reads our seeded message instead
 		// of skipping to end-of-partition (the default for null positions).
-		$positions = [ 'firehose.p0' => [ 'segment' => 0, 'offset' => 0 ] ];
+		$positions = [ 'combined.p3' => [ 'segment' => 0, 'offset' => 0 ] ];
 
 		\ob_start();
-		$ctrl->run_stream_loop( [ 'firehose.*' ], $positions, 500, [ 'slot' => 7, 'owner' => 42424243 ], 3 );
+		$ctrl->run_stream_loop( [ 'combined.p3' ], $positions, 500, [ 'slot' => 7, 'owner' => 42424243 ], 3 );
 		\ob_get_clean();
 
 		$this->assertNotEmpty( $routed, 'Callback else-branch must have routed the TO-stamped message through Router' );

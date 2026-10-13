@@ -1,0 +1,201 @@
+{
+  "cases": [
+    [
+      "packed records keep their trail under the stream's stamp",
+      "firehose.p0",
+      [
+        {
+          "at": "7:100",
+          "bytes": "[1,0,\"job-worker.p0\",\"\",\"\",\"\",\"one-4471\"]\n[1,0,\"\",\"\",\"\",\"\",\"two-9902\"]\n"
+        }
+      ],
+      {
+        "records": [
+          [
+            1,
+            "firehose.p0/job-worker.p0",
+            "7:100:42",
+            "one-4471"
+          ],
+          [
+            1,
+            "firehose.p0",
+            "7:142:29",
+            "two-9902"
+          ]
+        ],
+        "torn": 0,
+        "position": "7:171"
+      }
+    ],
+    [
+      "a line a block cuts short is joined from the next",
+      "firehose.p0",
+      [
+        {
+          "at": "4:0",
+          "bytes": "[1,0,\"\",\""
+        },
+        {
+          "at": "4:9",
+          "bytes": "\",\"\",\"\",\"long-3318\"]\n"
+        }
+      ],
+      {
+        "records": [
+          [
+            1,
+            "firehose.p0",
+            "4:0:30",
+            "long-3318"
+          ]
+        ],
+        "torn": 0,
+        "position": "4:30"
+      }
+    ],
+    [
+      "a cut line the next block does not continue is torn",
+      "firehose.p0",
+      [
+        {
+          "at": "4:0",
+          "bytes": "[1,0,\"\",\"\",\"\",\"\",\"mast-1207\"]\n[1,0,\"\",\""
+        },
+        {
+          "at": "5:0",
+          "bytes": "[1,0,\"\",\"\",\"\",\"\",\"keel-8841\"]\n"
+        }
+      ],
+      {
+        "records": [
+          [
+            1,
+            "firehose.p0",
+            "4:0:30",
+            "mast-1207"
+          ],
+          [
+            1,
+            "firehose.p0",
+            "5:0:30",
+            "keel-8841"
+          ]
+        ],
+        "torn": 1,
+        "position": "5:30"
+      }
+    ],
+    [
+      "a line that will not unpack is torn, and passed",
+      "firehose.p0",
+      [
+        {
+          "at": "5:0",
+          "bytes": "{\"torn-7713\n[1,0,\"\",\"\",\"\",\"\",\"cleat-4410\"]\n"
+        }
+      ],
+      {
+        "records": [
+          [
+            1,
+            "firehose.p0",
+            "5:12:31",
+            "cleat-4410"
+          ]
+        ],
+        "torn": 1,
+        "position": "5:43"
+      }
+    ],
+    [
+      "a source's lines are text, placed by their bytes",
+      "sources/php",
+      [
+        {
+          "at": "77031:12",
+          "bytes": "PHP Warning café 5521\nsecond 6604\n",
+          "text": true
+        }
+      ],
+      {
+        "records": [
+          [
+            1,
+            "sources/php",
+            "77031:12:23",
+            "PHP Warning café 5521\n"
+          ],
+          [
+            1,
+            "sources/php",
+            "77031:35:12",
+            "second 6604\n"
+          ]
+        ],
+        "torn": 0,
+        "position": "77031:47"
+      }
+    ],
+    [
+      "a batch no header placed is dropped",
+      "firehose.p0",
+      [
+        {
+          "at": "3:0",
+          "bytes": "[1,0,\"\",\"\",\"\",\"\",\"stray-5501\"]\n",
+          "header": null
+        }
+      ],
+      {
+        "records": [],
+        "torn": 0,
+        "position": null
+      }
+    ],
+    [
+      "a batch its header does not place is dropped",
+      "firehose.p0",
+      [
+        {
+          "at": "3:0",
+          "bytes": "[1,0,\"\",\"\",\"\",\"\",\"stray-5501\"]\n",
+          "header": "3:9"
+        }
+      ],
+      {
+        "records": [],
+        "torn": 0,
+        "position": null
+      }
+    ],
+    [
+      "a line is torn exactly when PHP will not unpack it: an untyped record passes, an eighth field tears",
+      "firehose.p0",
+      [
+        {
+          "at": "9:0",
+          "bytes": "[1024,0,\"\",\"\",\"\",\"\",\"plain-6120\"]\n[1,0,\"\",\"\",\"\",\"\",\"eight-4402\",\"spare\"]\n[1,0,\"\",\"\",\"\",\"\",\"stern-2295\"]\n"
+        }
+      ],
+      {
+        "records": [
+          [
+            1024,
+            "firehose.p0",
+            "9:0:34",
+            "plain-6120"
+          ],
+          [
+            1,
+            "firehose.p0",
+            "9:73:31",
+            "stern-2295"
+          ]
+        ],
+        "torn": 1,
+        "position": "9:104"
+      }
+    ]
+  ]
+}

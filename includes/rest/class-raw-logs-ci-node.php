@@ -5,8 +5,9 @@
  * The dashboard asks three questions and gets one verb each: which partition
  * directories and registry sources exist (`list_logs`), how much one of them
  * holds (`dump_log`), and what the record at a given position decodes to
- * (`read_message`). A fourth, `read_block`, returns the records from a
- * position up to one block. Every verb reads substrate state; none writes.
+ * (`read_message`). A fourth, `read_block`, returns up to one block of a
+ * log's raw bytes from a position. Every verb reads substrate state; none
+ * writes.
  * Live tailing belongs to `SSE_Out_Node`, not to this interpreter.
  *
  * A `log` no dir or registry entry carries is refused, never defaulted: a
@@ -19,9 +20,11 @@ namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Capabilities;
 use Newspack_Nodes\Command_Interpreter_Node;
+use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Log_Discovery;
 use Newspack_Nodes\Log_Sources;
+use Newspack_Nodes\Message;
 use Newspack_Nodes\Service_CI_Node;
 
 \defined( 'ABSPATH' ) || exit;
@@ -111,15 +114,34 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `read_block` verb handler — the records from a position up to one
-	 * block, through `Log_Sources::read_block()`. A malformed position and an
-	 * unknown log throw.
+	 * `read_block` verb handler — one raw block from a position, through
+	 * `Log_Sources::read_block()`, answered to the asker as the two messages
+	 * `Consumer_Node::block_messages()` builds rather than a command reply.
+	 * The header's OFFSET can differ from the position asked, which a word, a
+	 * rolled segment or a retention rewind moves, so the header echoes it as
+	 * `ASKED <position>`, and carries the command's ID, as a reply does. The
+	 * TM_BATCH goes even empty, so the asker settles on it. A malformed
+	 * position and an unknown log throw, a TM_NOREPLY read included, and a
+	 * TM_NOREPLY read sends nothing, as `interpret()` suppresses any reply.
 	 *
-	 * @param array<array-key,mixed> $args Bound verb arguments: log, position and multi_writer.
-	 * @return array<string,mixed> The block, its cursor and its skips.
+	 * @param Command_Interpreter_Node $self     This interpreter.
+	 * @param array<array-key,mixed>   $args     Bound verb arguments: log, position and multi_writer.
+	 * @param array<array-key,mixed>   $envelope The command, whose FROM the answers go TO.
+	 * @return string '', so no command reply follows the two.
 	 */
-	public static function cmd_read_block( array $args ): array {
-		return Log_Sources::read_block( Core::as_string( $args['log'] ), Core::as_string( $args['position'] ), true === $args['multi_writer'] );
+	public static function cmd_read_block( Command_Interpreter_Node $self, array $args, array $envelope ): string {
+		$position = Core::as_string( $args['position'] );
+		$block    = Log_Sources::read_block( Core::as_string( $args['log'] ), $position, true === $args['multi_writer'] );
+		if ( Core::int( $envelope[ Message::TYPE ] ?? 0 ) & Message::TM_NOREPLY ) {
+			return '';
+		}
+		$messages = Consumer_Node::block_messages( $block );
+		$messages[0][ Message::ID ]    = $envelope[ Message::ID ] ?? '';
+		$messages[0][ Message::VALUE ] = Core::as_string( $messages[0][ Message::VALUE ] ) . " ASKED {$position}";
+		foreach ( $messages as $message ) {
+			$self->answer( $envelope, $message );
+		}
+		return '';
 	}
 
 	/**
@@ -134,7 +156,7 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'Service',
-			'description' => 'Log inspection: catalog the on-disk partition dirs and registry sources, report one log\'s segments, and decode a single record.',
+			'description' => 'Log inspection: catalog the on-disk partition dirs and registry sources, report one log\'s segments, decode a single record, and read a raw block.',
 			'arguments'   => [],
 			'commands'    => [
 				[
@@ -164,13 +186,13 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 				[
 					'name'        => 'read_block',
 					'capability'  => Capabilities::READ,
-					'description' => 'The records from a position in a partition dir or a sources/<name> registry source, up to a 1 MiB block; the first goes whole.',
+					'description' => 'Up to 1 MiB of raw bytes from a position in a partition dir or a sources/<name> registry source: a TM_INFO naming where they begin and the bytes the log holds from there, then the bytes as a TM_BATCH.',
 					'args'        => [
 						[ 'name' => 'log', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'position', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'multi_writer', 'type' => 'bool', 'default' => false ],
 					],
-					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_read_block( $args ),
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string => self::cmd_read_block( $self, $args, $envelope ),
 				],
 			],
 		] );

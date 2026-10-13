@@ -52,13 +52,13 @@ h2 { font-size:15px; margin:0 0 8px; }
 
 <div class="two">
   <div class="card">
-    <h2>Advancing: every <span class="mono">msg</span> carries its own breadcrumb</h2>
+    <h2>Advancing: every record carries its own breadcrumb</h2>
     <div class="crumb">
       <span class="m">ID <span class="k">"{segment}:{offset}:{length}"</span></span>
       <span class="ar">→</span>
       <span>next read boundary is <span class="mono">offset + length</span> within <span class="mono">segment</span></span>
     </div>
-    <p>FROM is stamped with the subscription's stamp, so the client knows which cursor to move. It starts from the CURSORS in the handshake, advances out of each delivered record, and sends the result back as <span class="mono">positions</span> on the next connect, so it is never handed a cursor it did not compute. CURSORS exists because an idle close makes zero-message streams the normal case: a reopen with no position tail-seeks and drops whatever arrived in the gap. <span class="mono">SSE_In_Node</span>, pulling over cURL, keeps its cursor the same way.</p>
+    <p>A log's records arrive in raw <span class="mono">batch</span> blocks, and the client gives each the breadcrumb of its place: the block's <span class="mono">segment:offset</span> ID plus the line's byte position, and the line's length. FROM is stamped with the subscription's stamp, so the client knows which cursor to move. It starts from the CURSORS in the handshake, advances out of each delivered record, and sends the result back as <span class="mono">positions</span> on the next connect, so it is never handed a cursor it did not compute. CURSORS exists because an idle close makes zero-message streams the normal case: a reopen with no position tail-seeks and drops whatever arrived in the gap. A hub's <span class="mono">Remote_Consumer_Node</span>, pulling over cURL, keeps its cursor the same way.</p>
     <p style="margin:0">Omitting <span class="mono">positions</span> tail-seeks every subscription, which is what a browser dashboard does on a first connect.</p>
   </div>
   <div class="card">

@@ -141,9 +141,9 @@ class RemoteConsumerNodeTest extends TestCase {
 		return [ ...$this->make_broker( $name, $args ), $spy ];
 	}
 
-	/** A `msg` frame from the default pair's stream, unless the fields name another FROM. */
+	/** One record of the default pair's stream, pushed where its crumb places it. */
 	private static function stream_frame( array $fields ): string {
-		return self::sse_frame( 'msg', $fields + [ Message::FROM => 'firehose.p0' ] );
+		return self::pushed_record( $fields );
 	}
 
 	/** `msg_frame()`, stamped with the default pair's stream. */
@@ -268,7 +268,7 @@ class RemoteConsumerNodeTest extends TestCase {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		[ , $node ] = $this->make_remote();
 		$sse = Core::node( 'remote-austin:sse-in' );
-		$node->receive( "stale, and about to be seeked away from", null );
+		self::push_record( $node, [ Message::TYPE => Message::TM_BYTESTREAM, Message::ID => '3:0:80', Message::VALUE => 'stale, and about to be seeked away from' ] );
 
 		$node->next_offset( 'end' );
 
@@ -352,12 +352,56 @@ class RemoteConsumerNodeTest extends TestCase {
 		$this->assertSame( '47:3318', $reader->cursor_position() );
 	}
 
+	/**
+	 * The raw-block cases `tests/fixtures/raw-blocks.json` holds, which the
+	 * browser's `SseInNode` splits alike in `sse-in-node.test.js`.
+	 *
+	 * @return array<string,array{string,list<array<string,mixed>>,array<string,mixed>}> Label => stamp, blocks, then what the split makes of them.
+	 */
+	public static function raw_block_cases(): array {
+		$fixture = \json_decode( (string) \file_get_contents( __DIR__ . '/../fixtures/raw-blocks.json' ), true, 512, \JSON_THROW_ON_ERROR );
+		$out     = [];
+		foreach ( $fixture['cases'] as [ $label, $stamp, $blocks, $expected ] ) {
+			$out[ $label ] = [ $stamp, $blocks, $expected ];
+		}
+		return $out;
+	}
+
+	/**
+	 * @param list<array<string,mixed>> $blocks   Each block's place, bytes, header and text flag.
+	 * @param array<string,mixed>       $expected The records, torn lines and resume point.
+	 */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'raw_block_cases' )]
+	public function test_a_reader_splits_raw_blocks_as_the_browser_does( string $stamp, array $blocks, array $expected ): void {
+		$sink   = new Capture_Sink_Node();
+		$reader = new Remote_Consumer_Node();
+		$reader->name( 'remote-austin:' . \str_replace( '/', ':', $stamp ) );
+		$reader->arguments( [ $stamp, "{$this->base_dir}/o", "{$this->base_dir}/d" ] );
+		$reader->sink( $sink );
+		foreach ( $blocks as $block ) {
+			[ $header, $batch ] = self::block_of( $stamp, $block['at'], $block['bytes'] );
+			$batch[ Message::TYPE ] = ( $block['text'] ?? false ) ? Message::TM_BATCH | Message::TM_BYTESTREAM : Message::TM_BATCH;
+			if ( \array_key_exists( 'header', $block ) ) {
+				$header[ Message::VALUE ] = \str_replace( "OFFSET {$block['at']}", 'OFFSET ' . $block['header'], $header[ Message::VALUE ] );
+			}
+			if ( ! \array_key_exists( 'header', $block ) || null !== $block['header'] ) {
+				$reader->fill( $header );
+			}
+			$reader->fill( $batch );
+			$reader->poll();
+		}
+
+		$this->assertSame( $expected['records'], \array_map( static fn ( array $m ): array => [ $m[ Message::TYPE ], $m[ Message::FROM ], $m[ Message::ID ], $m[ Message::VALUE ] ], $sink->captured ) );
+		$this->assertSame( $expected['torn'], $this->count_log_records( "{$this->base_dir}/d" ) );
+		$at = $reader->connect_position();
+		$this->assertSame( $expected['position'], \is_array( $at ) ? \Newspack_Nodes\Log_Position::format( $at['segment'] ?? null, $at['offset'], null ) : null );
+	}
+
 	public function test_a_reader_standing_at_zero_reports_it(): void {
 		$reader = new Remote_Consumer_Node();
 		$reader->name( 'remote-austin:firehose.p0' );
 		$reader->arguments( [ 'firehose.p0', "{$this->base_dir}/o", "{$this->base_dir}/d" ] );
-		$reader->skip_to( [ 'segment' => 0, 'offset' => 0 ] );
-		( new \ReflectionMethod( $reader, 'pass_skipped_lines' ) )->invoke( $reader );
+		$reader->next_offset( [ 'segment' => 0, 'offset' => 0 ] );
 		$record = $reader->probe_stats();
 
 		$this->assertSame( [ 0, 0 ], [ $record[ Probe_Record::CURSOR_SEGMENT ], $record[ Probe_Record::CURSOR_OFF ] ] );
@@ -415,8 +459,7 @@ class RemoteConsumerNodeTest extends TestCase {
 		$reader = new Remote_Consumer_Node();
 		$reader->name( 'remote-austin:firehose.p0' );
 		$reader->arguments( [ 'firehose.p0', "{$this->base_dir}/o", "{$this->base_dir}/d" ] );
-		$held = $this->healthy_message( '61:7319:44' );
-		$reader->receive( Message::packed( $held ), $held );
+		self::push_record( $reader, $this->healthy_message( '61:7319:44' ) );
 
 		$this->assertSame( [ 'segment' => 61, 'offset' => 7363 ], $reader->connect_position() );
 		$this->assertNull( $reader->probe_stats(), 'standing nowhere yet, it reports nothing' );
@@ -427,8 +470,7 @@ class RemoteConsumerNodeTest extends TestCase {
 		$reader = new Remote_Consumer_Node();
 		$reader->name( 'remote-austin:firehose.p0' );
 		$reader->arguments( [ 'firehose.p0', "{$this->base_dir}/o", "{$this->base_dir}/d" ] );
-		$held = $this->healthy_message( '61:7319:44' );
-		$reader->receive( Message::packed( $held ), $held );
+		self::push_record( $reader, $this->healthy_message( '61:7319:44' ) );
 		$reader->connect_position();
 
 		$reader->adopt_stream_start( [ 'segment' => 61, 'offset' => 7363 ] );
@@ -436,12 +478,66 @@ class RemoteConsumerNodeTest extends TestCase {
 		$this->assertSame( [ 'segment' => 0, 'offset' => 0 ], $reader->dump_metadata()['cursor'], 'the cursor stays short of the held record, so a checkpoint cannot skip it' );
 	}
 
+	/** A fragment no block continues is torn, even when its bytes happen to parse. */
+	public function test_an_abandoned_fragment_that_parses_is_still_dead_lettered(): void {
+		$sink   = new Capture_Sink_Node();
+		$reader = new Remote_Consumer_Node();
+		$reader->name( 'remote-austin:firehose.p0' );
+		$reader->arguments( [ 'firehose.p0', "{$this->base_dir}/o", "{$this->base_dir}/d" ] );
+		$reader->sink( $sink );
+		$whole    = self::record_line( [ Message::TYPE => Message::TM_BYTESTREAM, Message::VALUE => 'stay-3301' ] );
+		$fragment = \rtrim( self::record_line( [ Message::TYPE => Message::TM_BYTESTREAM, Message::VALUE => 'cut-7719' ] ), "\n" );
+		$next     = self::record_line( [ Message::TYPE => Message::TM_BYTESTREAM, Message::VALUE => 'next-5150' ] );
+		foreach ( [ self::block_of( 'firehose.p0', '4:0', $whole . $fragment ), self::block_of( 'firehose.p0', '5:0', $next ) ] as $block ) {
+			foreach ( $block as $m ) {
+				$reader->fill( $m );
+			}
+			$reader->poll();
+		}
+
+		$this->assertSame( [ 'stay-3301', 'next-5150' ], \array_column( $sink->captured, Message::VALUE ) );
+		$this->assertSame( 1, $this->count_log_records( "{$this->base_dir}/d" ) );
+	}
+
+	/** @return array<string,array{int,int}> Label => the older place's segment, then the newer's. */
+	public static function segment_pairs(): array {
+		return [
+			'a partition dir, numbered upward' => [ 4, 5 ],
+			'a file source, whose new inode may number lower' => [ 9031, 5517 ],
+		];
+	}
+
+	/**
+	 * A cursor still draining an older segment owes what it holds there plus
+	 * the newest block's distance, which already counts that block's bytes.
+	 */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'segment_pairs' )]
+	public function test_a_reader_behind_a_newer_block_counts_each_byte_once( int $older, int $newer ): void {
+		$reader = new Remote_Consumer_Node();
+		$reader->name( 'remote-austin:firehose.p0' );
+		$reader->arguments( [ 'firehose.p0', "{$this->base_dir}/o", "{$this->base_dir}/d" ] );
+		$reader->sink( new Capture_Sink_Node() );
+		$reader->set_line_mode( true );
+		$one   = self::record_line( [ Message::TYPE => Message::TM_BYTESTREAM, Message::VALUE => 'mast-1207' ] );
+		$two   = self::record_line( [ Message::TYPE => Message::TM_BYTESTREAM, Message::VALUE => 'boom-5520' ] );
+		$three = self::record_line( [ Message::TYPE => Message::TM_BYTESTREAM, Message::VALUE => 'keel-8841' ] );
+		foreach ( self::block_of( 'firehose.p0', "{$older}:0", $one . $two ) as $m ) {
+			$reader->fill( $m );
+		}
+		foreach ( self::block_of( 'firehose.p0', "{$newer}:0", $three, \strlen( $three ) + 7351 ) as $m ) {
+			$reader->fill( $m );
+		}
+
+		$reader->poll();
+
+		$this->assertSame( \strlen( $two ) + \strlen( $three ) + 7351, $reader->probe_stats()[ Probe_Record::DISTANCE ] );
+	}
+
 	public function test_a_reader_far_behind_its_spoke_reports_no_end_and_no_backlog(): void {
 		$reader = new Remote_Consumer_Node();
 		$reader->name( 'remote-austin:firehose.p0' );
 		$reader->arguments( [ 'firehose.p0', "{$this->base_dir}/o", "{$this->base_dir}/d" ] );
 		$reader->next_offset( [ 'segment' => 8, 'offset' => 913 ] );
-		$reader->skip_to( [ 'segment' => 900, 'offset' => 99_000_000 ] );
 
 		$record = $reader->probe_stats();
 
@@ -518,11 +614,11 @@ class RemoteConsumerNodeTest extends TestCase {
 		$sse    = Core::node( 'remote-austin:sse-in' );
 		$reader->next_offset( Consumer_Node::SEEK_END );
 		$this->handshake( $sse, 'sources/php=:42' );
-		$sse->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => 'sources/php', Message::ID => '558213:42:30', Message::VALUE => "PHP Warning: 7741\n" ] ) );
+		$sse->process_sse_chunk( self::block_frames( 'sources/php', '558213:42', "PHP Warning: 7741\n" ) );
 
 		$reader->fire_cb();
 
-		$this->assertSame( [ 'segment' => 558213, 'offset' => 72 ], $reader->connect_position() );
+		$this->assertSame( [ 'segment' => 558213, 'offset' => 60 ], $reader->connect_position() );
 	}
 
 	public function test_a_reconnect_the_spoke_forced_asks_past_what_is_buffered(): void {
@@ -581,14 +677,10 @@ class RemoteConsumerNodeTest extends TestCase {
 		Core::$now = 1000.0;
 		$this->drain_connect_queue();
 		$sse                 = Core::node( 'remote-austin:sse-in' );
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$m[ Message::ID ]    = '8:640:64';
-		$m[ Message::VALUE ] = 'crumbed-929';
-		$node->receive( Message::packed( $m ), $m );
-		$bare                = Message::new_message();
+		self::push_record( $node, [ Message::TYPE => Message::TM_BYTESTREAM, Message::ID => '8:640:64', Message::VALUE => 'crumbed-929' ] );
+		$bare                   = Message::new_message();
 		$bare[ Message::VALUE ] = 'no crumb here';
-		$node->receive( Message::packed( $bare ), $bare );
+		self::hold_crumbless( $node, $bare );
 		$sse->disconnect();
 
 		Core::$now = 1010.0;
@@ -608,6 +700,11 @@ class RemoteConsumerNodeTest extends TestCase {
 		};
 	}
 
+	/** A pushed block of one torn line, `$length` bytes from `$at`: the reader skips past it. */
+	private static function torn_block( string $at, int $length ): string {
+		return self::block_frames( 'firehose.p0', $at, \str_pad( '{"torn', $length - 1, '~' ) . "\n" );
+	}
+
 	/** One crumbed record off the wire, unpolled. */
 	private function wire_record( SSE_In_Node $sse, string $crumb, string $value ): void {
 		$sse->process_sse_chunk( self::stream_frame( [
@@ -617,7 +714,30 @@ class RemoteConsumerNodeTest extends TestCase {
 		] ) );
 	}
 
-	public function test_a_reconnect_after_skipped_lines_asks_past_them(): void {
+	/** A reconnect resumes past the bytes of a line a block cut short, and the next block finishes it. */
+	public function test_a_reconnect_asks_past_a_line_cut_short_and_joins_it(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$asked = [];
+		$this->capture_asked_positions( $asked );
+		[ , $node, $sink ] = $this->make_remote();
+		Core::$now = 1000.0;
+		$this->drain_connect_queue();
+		$sse  = Core::node( 'remote-austin:sse-in' );
+		$line = self::record_line( [ Message::TYPE => Message::TM_BYTESTREAM, Message::VALUE => 'gaff-6631' ] );
+		$sse->process_sse_chunk( self::block_frames( 'firehose.p0', '5:0', \substr( $line, 0, 11 ) ) );
+
+		$sse->disconnect();
+		Core::$now = 1010.0;
+		$sse->maybe_connect();
+		$this->assertSame( [ 'segment' => 5, 'offset' => 11 ], \end( $asked ), 'the bytes already held are not asked for again' );
+		$sse->process_sse_chunk( self::block_frames( 'firehose.p0', '5:11', \substr( $line, 11 ) ) );
+		$node->fire_cb();
+
+		$this->assertSame( [ 'gaff-6631' ], \array_column( $sink->captured, Message::VALUE ) );
+		$this->assertSame( 0, $this->count_log_records( $this->dlq() ) );
+	}
+
+	public function test_a_reconnect_after_torn_lines_asks_past_them(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$asked = [];
 		$this->capture_asked_positions( $asked );
@@ -626,7 +746,7 @@ class RemoteConsumerNodeTest extends TestCase {
 		$this->drain_connect_queue();
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$this->wire_record( $sse, '5:0:30', 'r1-161' );
-		$sse->process_sse_chunk( self::unparseable_frame( 'COUNT 2 CURSORS firehose.p0=5:95' ) );
+		$sse->process_sse_chunk( self::torn_block( '5:30', 65 ) );
 
 		Core::$now = 1001.0;
 		$node->fire_cb();
@@ -640,38 +760,25 @@ class RemoteConsumerNodeTest extends TestCase {
 		$this->assertSame( [ 'segment' => 5, 'offset' => 95 ], \end( $asked ), 'the torn lines are not read, or counted, again' );
 	}
 
-	public function test_a_reconnect_past_a_skip_supersedes_a_pending_seek(): void {
+	public function test_a_held_torn_line_supersedes_a_pending_seek(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		[ , $node ] = $this->make_remote();
 		$node->fire_cb();
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$this->assertSame( Consumer_Node::SEEK_END, $node->connect_position(), 'a fresh reader asks for the end' );
 
-		( $sse->on_skipped )( [ 'firehose.p0' => [ 'segment' => 13, 'offset' => 7261 ] ] );
+		$sse->process_sse_chunk( self::torn_block( '13:7200', 61 ) );
 		$this->assertSame( [ 'segment' => 13, 'offset' => 7261 ], $node->connect_position() );
-		( new \ReflectionMethod( $node, 'pass_skipped_lines' ) )->invoke( $node );
+		( new \ReflectionMethod( $node, 'pass_block_end' ) )->invoke( $node );
 
 		$this->assertSame(
 			[ 'segment' => 13, 'offset' => 7261 ],
 			$node->connect_position(),
-			'the skip was a real place, so the end is no longer asked for'
+			'the torn line was a real place, so the end is no longer asked for'
 		);
 	}
 
-	public function test_a_segmentless_skip_moves_only_the_offset(): void {
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		[ , $node ] = $this->make_remote();
-		$node->next_offset( [ 'segment' => 4417, 'offset' => 12 ] );
-
-		( Core::node( 'remote-austin:sse-in' )->on_skipped )( [ 'firehose.p0' => [ 'offset' => 930 ] ] );
-		$this->assertSame( [ 'offset' => 930 ], $node->connect_position(), 'the skip frame is kept, segment-less' );
-		( new \ReflectionMethod( $node, 'pass_skipped_lines' ) )->invoke( $node );
-
-		$this->assertSame( [ 'offset' => 930 ], $node->connect_position() );
-		$this->assertSame( 4417, $this->read_private( $node, 'cursor_segment' ), 'never written as 0' );
-	}
-
-	public function test_skipped_lines_wait_for_the_records_buffered_ahead_of_them(): void {
+	public function test_torn_lines_wait_for_the_records_buffered_ahead_of_them(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$asked = [];
 		$this->capture_asked_positions( $asked );
@@ -682,28 +789,28 @@ class RemoteConsumerNodeTest extends TestCase {
 		$node->set_line_mode( true );
 		$this->wire_record( $sse, '5:0:30', 'r1-171' );
 		$this->wire_record( $sse, '5:30:30', 'r2-282' );
-		$sse->process_sse_chunk( self::unparseable_frame( 'COUNT 1 CURSORS firehose.p0=5:95' ) );
+		$sse->process_sse_chunk( self::torn_block( '5:60', 35 ) );
 
 		$node->fire_cb();
-		$this->assertSame( [ 'segment' => 5, 'offset' => 30 ], $node->dump_metadata()['cursor'], 'r2 is still ahead of the skip' );
+		$this->assertSame( [ 'segment' => 5, 'offset' => 30 ], $node->dump_metadata()['cursor'], 'r2 is still ahead of the torn line' );
 
 		$sse->disconnect();
 		Core::$now = 1010.0;
 		$sse->maybe_connect();
-		$this->assertSame( [ 'segment' => 5, 'offset' => 95 ], \end( $asked ), 'the reopen asks past the buffer AND the skip' );
+		$this->assertSame( [ 'segment' => 5, 'offset' => 95 ], \end( $asked ), 'the reopen asks past the buffer AND the torn line' );
 
 		$node->fire_cb(); // r2, one line under line mode
-		$node->fire_cb(); // the dry refill passes the skip
+		$node->fire_cb(); // the torn line, dead-lettered
 		$this->assertSame( [ 'r1-171', 'r2-282' ], \array_column( $sink->captured, Message::VALUE ) );
 		$this->assertSame( [ 'segment' => 5, 'offset' => 95 ], $node->dump_metadata()['cursor'] );
 	}
 
-	public function test_a_record_after_the_skip_supersedes_it(): void {
+	public function test_a_record_after_a_torn_line_lands_past_it(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		[ , $node, $sink ] = $this->make_remote();
 		$sse = Core::node( 'remote-austin:sse-in' );
-		$sse->process_sse_chunk( self::unparseable_frame( 'COUNT 1 CURSORS firehose.p0=5:95' ) );
+		$sse->process_sse_chunk( self::torn_block( '5:0', 95 ) );
 		$this->wire_record( $sse, '5:95:40', 'r3-393' );
 
 		$node->poll();
@@ -711,15 +818,15 @@ class RemoteConsumerNodeTest extends TestCase {
 		$node->fire_cb();
 
 		$this->assertSame( [ 'r3-393' ], \array_column( $sink->captured, Message::VALUE ) );
-		$this->assertSame( [ 'segment' => 5, 'offset' => 135 ], $node->dump_metadata()['cursor'], 'never rewound to the skip' );
+		$this->assertSame( [ 'segment' => 5, 'offset' => 135 ], $node->dump_metadata()['cursor'], 'never rewound to the torn line' );
 	}
 
-	public function test_a_seek_abandons_a_pending_skip(): void {
+	public function test_a_seek_abandons_a_held_torn_line(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		[ , $node ] = $this->make_remote();
 		$sse = Core::node( 'remote-austin:sse-in' );
-		$sse->process_sse_chunk( self::unparseable_frame( 'COUNT 1 CURSORS firehose.p0=5:95' ) );
+		$sse->process_sse_chunk( self::torn_block( '5:0', 95 ) );
 
 		$node->pause();
 		$node->next_offset( [ 'segment' => 7, 'offset' => 41 ] );
@@ -739,7 +846,7 @@ class RemoteConsumerNodeTest extends TestCase {
 
 		$sse->process_sse_chunk( self::stream_frame( [
 			Message::TYPE  => Message::TM_BYTESTREAM,
-			Message::ID    => '9:4096:40',
+			Message::ID    => '9:4096:60',
 			Message::VALUE => 'first-after-seek-525',
 		] ) );
 		$node->poll();
@@ -752,7 +859,7 @@ class RemoteConsumerNodeTest extends TestCase {
 	// ---------------------------------------------------------------------
 
 	public function test_an_arriving_line_takes_the_busy_cadence_immediately(): void {
-		// A pushed line arrives during the curl drain — between fires. Waiting
+		// A pushed block arrives during the curl drain — between fires. Waiting
 		// out the EOF cadence to notice would put up to POLL_INTERVAL_EOF_MS on
 		// the front of every arrival burst.
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
@@ -760,7 +867,7 @@ class RemoteConsumerNodeTest extends TestCase {
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$this->assertSame( Remote_Consumer_Node::POLL_INTERVAL_EOF_MS, $node->interval_ms, 'idle at the EOF cadence' );
 
-		( $sse->on_message )( Message::packed( $this->healthy_message( '3:0:20' ) ) );
+		$sse->process_sse_chunk( self::stream_frame( $this->healthy_message( '3:0:40' ) ) );
 
 		$this->assertSame( Remote_Consumer_Node::POLL_INTERVAL_BUSY_MS, $node->interval_ms, 'the arrival itself schedules the drain' );
 	}
@@ -794,8 +901,7 @@ class RemoteConsumerNodeTest extends TestCase {
 	/** Hand $count crumbed TM_STRUCT lines to the reader as the broker would. */
 	private function receive_lines( Remote_Consumer_Node $node, int $count ): void {
 		for ( $i = 0; $i < $count; $i++ ) {
-			$m = $this->healthy_message( '0:' . ( $i * 100 ) . ':100' );
-			$node->receive( Message::packed( $m ), $m );
+			self::push_record( $node, $this->healthy_message( '0:' . ( $i * 100 ) . ':100' ) );
 		}
 	}
 
@@ -992,27 +1098,22 @@ class RemoteConsumerNodeTest extends TestCase {
 	}
 
 	public function test_resume_position_uses_the_crumb_length_not_the_local_line(): void {
-		// The resume offset is in REMOTE coordinates, so only the crumb's on-disk
-		// length is authoritative. The delivered line is re-stamped in transit and
-		// runs longer, which pushed the resume INTO the next record: production saw
-		// `57:40959889:177` resumed at 40959916 — 27 bytes in — and the spoke then
-		// dead-lettered a 150-byte tail fragment, losing exactly one record.
+		// The resume offset is in the spoke's bytes: the record's own length there.
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		[ , $node ] = $this->make_remote_spy();
 		$node->fire_cb();
 		$sse = Core::node( 'remote-austin:sse-in' );
 
-		// A fat VALUE so the local line is nowhere near the 177-byte on-disk record.
-		$this->deliver( $sse, '57:40959889:177', '', [ 'pad' => \str_repeat( 'x', 400 ) ] );
+		$this->deliver( $sse, '57:40959889:457', '', [ 'pad' => \str_repeat( 'x', 400 ) ] );
 
 		$this->assertSame(
-			40959889 + 177,
+			40959889 + 457,
 			$this->read_private( $node, 'cursor_offset' ),
 			'the cursor must land on the next record boundary, not inside it'
 		);
 		$this->assertSame(
-			40959889 + 177,
+			40959889 + 457,
 			$node->connect_position()['offset'],
 			'and the resume position is that same cursor — one position, not two'
 		);
@@ -1031,7 +1132,9 @@ class RemoteConsumerNodeTest extends TestCase {
 		$this->deliver( $sse, '7:100:40', '' ); // healthy → cursor advances past it.
 		$this->assertSame( 140, $this->read_private( $node, 'cursor_offset' ) );
 
-		$this->deliver( $sse, '', 'boom' ); // crumb-less, downstream throws.
+		$boom                 = $this->healthy_message( '' );
+		$boom[ Message::KEY ] = 'boom';
+		$this->receive_crumbless( $node, $boom ); // downstream throws.
 
 		$this->assertSame( 1, $this->count_log_records( $this->dlq() ), 'the crumb-less throw IS dead-lettered' );
 		$this->assertSame( 140, $this->read_private( $node, 'cursor_offset' ), 'an unplaceable record moves the cursor by nothing' );
@@ -1111,11 +1214,7 @@ class RemoteConsumerNodeTest extends TestCase {
 		$this->assertSame( 0, $frame['attempts'], 'the lineage ends with the record it was about' );
 	}
 
-	public function test_unparseable_tail_is_quarantined_where_the_cursor_stands(): void {
-		// The broker drops a frame that will not unpack, so the reader meets one
-		// only when handed it directly. It carries no crumb, so it cannot be placed
-		// in the spoke's bytes: it is dead-lettered where the cursor stands and
-		// moves it by nothing, never by a local line length.
+	public function test_a_torn_line_is_quarantined_at_its_place_and_passed(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		$this->seed_offsetlog_frame( 7, 128, 0, '' ); // boot = {7,128}.
@@ -1123,20 +1222,19 @@ class RemoteConsumerNodeTest extends TestCase {
 		$node->fire_cb();
 		$sse = Core::node( 'remote-austin:sse-in' );
 
-		$node->receive( 'not-a-valid-message', null );
+		$sse->process_sse_chunk( self::block_frames( 'firehose.p0', '7:128', "not-a-valid-message\n" ) );
 		$node->poll();
-		$this->assertSame( 1, $this->count_log_records( $this->dlq() ), 'the unparseable line is quarantined once' );
-		$this->assertSame( 128, $this->read_private( $node, 'cursor_offset' ), 'the cursor stands where the record was placed' );
+		$this->assertSame( 1, $this->count_log_records( $this->dlq() ), 'the torn line is quarantined once' );
+		$this->assertSame( 148, $this->read_private( $node, 'cursor_offset' ), 'the cursor moves past it by its own length' );
 		$this->assertCount( 0, $spy->captured, 'and nothing is forwarded' );
 
-		// The stream moves on: the next crumb-bearing record places itself and forwards.
 		$this->deliver( $sse, '7:400:40', '' );
 		$this->assertCount( 1, $spy->captured );
 		$this->assertSame( 440, $this->read_private( $node, 'cursor_offset' ) );
 	}
 
-	public function test_unparseable_past_the_boot_head_is_dead_lettered(): void {
-		// An unparseable line is genuinely new poison wherever it lands: the stream
+	public function test_a_torn_line_past_the_boot_head_is_dead_lettered(): void {
+		// A torn line is genuinely new poison wherever it lands: the stream
 		// resuming PAST a GC'd crash suspect does not make it that suspect.
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
@@ -1144,12 +1242,11 @@ class RemoteConsumerNodeTest extends TestCase {
 		[ , $node ] = $this->make_remote_spy();
 		$node->fire_cb();
 		$this->assertTrue( $this->read_private( $node, 'crawl_skip_head' ) );
-		( new \ReflectionProperty( Remote_Consumer_Node::class, 'cursor_offset' ) )->setValue( $node, 500 ); // the stream resumed PAST the boot head (suspect GC'd).
 
-		$node->receive( 'not-a-valid-message', null );
+		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::block_frames( 'firehose.p0', '7:500', "not-a-valid-message\n" ) );
 		$node->poll();
 
-		$this->assertSame( 1, $this->count_log_records( $this->dlq() ), 'an unparseable line PAST the boot head is DLQ\'d, not silently dropped' );
+		$this->assertSame( 1, $this->count_log_records( $this->dlq() ), 'a torn line PAST the boot head is DLQ\'d, not silently dropped' );
 	}
 
 	public function test_hard_crash_lineage_climbs_attempts_across_respawn(): void {
@@ -1329,7 +1426,7 @@ class RemoteConsumerNodeTest extends TestCase {
 
 		// Interval elapsed, but a message with no usable breadcrumb keeps the flag armed.
 		Core::$now = 1000.0 + Remote_Consumer_Node::CHECKPOINT_INTERVAL_S + 1.0;
-		$this->deliver( $sse, '', '' ); // null crumb → flag stays armed, cursor un-advanced.
+		$this->receive_crumbless( $node, $this->healthy_message( '' ) ); // flag stays armed.
 		$this->assertTrue( $this->read_private( $node, 'crawl' ), 'does not exit crawl while the head sacrifice is armed' );
 
 		// Now the suspect arrives and is sacrificed → flag clears → the elapsed interval exits crawl.
@@ -1455,14 +1552,14 @@ class RemoteConsumerNodeTest extends TestCase {
 
 	public function test_a_clean_stop_carrying_a_failure_replays_instead_of_committing_past(): void {
 		// A Clean stop carrying a previous is not clean: the downstream write never
-		// landed, so the cursor stays at the message START (300), not past it (344).
+		// landed, so the cursor stays at the message START (300), not past it (360).
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		[ , $node ] = $this->make_remote_spy();
 		$node->fire_cb();
 		$sse = Core::node( 'remote-austin:sse-in' );
 
-		$m                 = $this->stop_message( '7:300:44' );
+		$m                 = $this->stop_message( '7:300:60' );
 		$m[ Message::KEY ] = 'clean-flush-failed';
 		$sse->process_sse_chunk( self::stream_frame( $m ) );
 		try {
@@ -1516,7 +1613,7 @@ class RemoteConsumerNodeTest extends TestCase {
 		$this->deliver( $sse, '7:100:40', '' ); // healthy → cursor advances to 140.
 		$m                 = $this->stop_message( '' );
 		$m[ Message::KEY ] = 'clean-bare';
-		$sse->process_sse_chunk( self::stream_frame( $m ) );
+		self::hold_crumbless( $node, $m );
 		try {
 			$node->poll();
 			$this->fail( 'expected Worker_Should_Stop' );
@@ -1541,7 +1638,7 @@ class RemoteConsumerNodeTest extends TestCase {
 		$sse = Core::node( 'remote-austin:sse-in' );
 
 		$this->deliver( $sse, '7:100:40', '' );                  // healthy → cursor advances to 140.
-		$this->deliver_built( $sse, $this->stop_message( '' ) ); // crumb-less stop.
+		$this->receive_crumbless( $node, $this->stop_message( '' ) );
 		$node->cooperative_stop( 'timeout', false );
 
 		$this->assertSame( 140, $this->newest_offsetlog_frame( $node )['offset'], 'a crumb-less stop moves the cursor by nothing' );
@@ -1629,12 +1726,12 @@ class RemoteConsumerNodeTest extends TestCase {
 		[ , $node ] = $this->make_remote_spy();
 		$sse = Core::node( 'remote-austin:sse-in' );
 
-		$this->deliver( $sse, '7:40:20', '' );
-		$this->deliver( $sse, '7:100:40', '', [ 'pad' => \str_repeat( 'w', 333 ) ] );
-		$m                 = $this->stop_message( '7:140:30' );
+		$this->deliver( $sse, '7:0:40', '' );
+		$this->deliver( $sse, '7:40:400', '', [ 'pad' => \str_repeat( 'w', 333 ) ] );
+		$m                 = $this->stop_message( '7:440:40' );
 		$m[ Message::KEY ] = 'clean-bare';
 		$this->deliver_built( $sse, $m );
-		$this->deliver( $sse, '7:170:10', 'boom' );
+		$this->deliver( $sse, '7:480:40', 'boom' );
 		$node->fill( self::step_reply( 'remote-austin:firehose.p0', [], 0, 0 ) );
 
 		$this->assertSame( 3, $node->counter(), 'two forwards and a clean stop; a throw and a reply count nothing' );
@@ -1651,8 +1748,8 @@ class RemoteConsumerNodeTest extends TestCase {
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$node->next_offset( [ 'segment' => 3, 'offset' => 333 ] );
 
-		$this->deliver( $sse, '7:200', '' );
-		$this->deliver( $sse, '7::20', '' );
+		$this->receive_crumbless( $node, $this->healthy_message( '7:200' ) );
+		$this->receive_crumbless( $node, $this->healthy_message( '7::20' ) );
 
 		$this->assertCount( 2, $spy->captured, 'the records still forward' );
 		$this->assertSame( 3, $this->read_private( $node, 'cursor_segment' ) );
@@ -1672,7 +1769,7 @@ class RemoteConsumerNodeTest extends TestCase {
 
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'Remote_Consumer relay requires a wired sink' );
-		$this->deliver( $sse, '7:1:20', '' ); // drain with a null sink → fail loud.
+		$this->deliver( $sse, '7:1:40', '' ); // drain with a null sink → fail loud.
 	}
 
 	public function test_stream_data_relayed_downstream_not_to_http_out(): void {
@@ -1689,7 +1786,7 @@ class RemoteConsumerNodeTest extends TestCase {
 		$sse->process_sse_chunk( self::stream_frame( [
 			Message::TYPE  => Message::TM_STRUCT,
 			Message::FROM  => 'firehose.p0/job-worker.p0',
-			Message::ID    => '7:1:20',
+			Message::ID    => '7:1:60',
 			Message::VALUE => [ 'p' => 1 ],
 		] ) );
 		$node->poll();
@@ -2360,6 +2457,31 @@ class RemoteConsumerNodeTest extends TestCase {
 	}
 
 	/**
+	 * Buffer a record with no breadcrumb, as only a step's reply can carry
+	 * one, straight into the reader's private entry the step reaches.
+	 *
+	 * @param array<int,mixed> $m The record.
+	 */
+	private static function hold_crumbless( Remote_Consumer_Node $node, array $m ): void {
+		( new \ReflectionMethod( $node, 'receive' ) )->invoke( $node, Message::packed( $m ), $m, null );
+	}
+
+	/**
+	 * `hold_crumbless()`, then drive one reader tick, swallowing a
+	 * `stop`-keyed one's Worker_Should_Stop as `deliver_built()` does.
+	 *
+	 * @param array<int,mixed> $m The record.
+	 */
+	private function receive_crumbless( Remote_Consumer_Node $node, array $m ): void {
+		self::hold_crumbless( $node, $m );
+		try {
+			$node->poll();
+		} catch ( Worker_Should_Stop $e ) {
+			// Expected for a `stop`-keyed message.
+		}
+	}
+
+	/**
 	 * Deliver a pre-built message, then drive one reader tick — swallowing the Worker_Should_Stop a
 	 * `stop`-keyed one raises when the tick dispatches it (it propagates up like the real drain
 	 * loop; the worker then routes to cooperative_stop).
@@ -2443,18 +2565,6 @@ class RemoteConsumerNodeTest extends TestCase {
 		foreach ( $offsetlog->get_segments( true ) as $s ) {
 			foreach ( \explode( "\n", $offsetlog->read_at( $s['id'], 0, $s['size'] ) ) as $l ) {
 				if ( '' !== $l ) {
-					++$count;
-				}
-			}
-		}
-		return $count;
-	}
-
-	private function count_log_records( string $dir ): int {
-		$count = 0;
-		foreach ( (array) \glob( "{$dir}/*.log" ) as $path ) {
-			foreach ( \explode( "\n", (string) \file_get_contents( (string) $path ) ) as $line ) {
-				if ( '' !== $line ) {
 					++$count;
 				}
 			}

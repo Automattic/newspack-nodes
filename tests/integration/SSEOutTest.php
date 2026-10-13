@@ -73,7 +73,29 @@ class SSEOutTest extends TestCase {
 		$this->assertSame( '_output', $decoded[ Message::TO ] );
 	}
 
-	public function test_stream_emits_connected_then_msg_for_each_log_line(): void {
+	/** A raw block and its header leave as `msg` events their TM_BATCH bit tells from a record's. */
+	public function test_fill_emits_a_block_and_its_header_as_msg_events(): void {
+		$ctrl = new SSE_Out_Node();
+		[ $header, $batch ] = Consumer_Node::block_messages( [
+			'bytes'    => "rudder-5521\n",
+			'segment'  => 4,
+			'offset'   => 812,
+			'distance' => 12,
+			'reset'    => false,
+			'type'     => Message::TM_BATCH,
+		] );
+
+		\ob_start();
+		$ctrl->fill( $header );
+		$ctrl->fill( $batch );
+		$events = $this->split_sse_events( (string) \ob_get_clean() );
+
+		$this->assertSame( [ 'msg', 'msg' ], \array_column( $events, 'event' ) );
+		$this->assertSame( [ Message::TM_INFO | Message::TM_BATCH, Message::TM_BATCH ], \array_map( static fn ( array $e ): int => \json_decode( $e['data'], true )[ Message::TYPE ], $events ), 'the type bit, not the event, marks a block' );
+		$this->assertSame( "rudder-5521\n", \json_decode( $events[1]['data'], true )[ Message::VALUE ] );
+	}
+
+	public function test_stream_emits_connected_then_a_raw_block_of_log_lines(): void {
 		$base = $this->make_temp_dir( 'msg-stream-int-' );
 		\mkdir( "{$base}/logs/firehose.p0", 0755, true );
 
@@ -109,7 +131,7 @@ class SSEOutTest extends TestCase {
 		$out = \ob_get_clean();
 
 		$events = $this->split_sse_events( $out );
-		// retry + connected + line-one + line-two = at least 4 events.
+		// retry + connected + one block's header and batch.
 		$this->assertGreaterThanOrEqual( 4, \count( $events ) );
 
 		// The reopen schedule leads; the client owns reconnect, so it needs the
@@ -126,18 +148,11 @@ class SSEOutTest extends TestCase {
 		$this->assertStringContainsString( 'SLOT ', $first[ Message::VALUE ] );
 		$this->assertStringNotContainsString( 'PID', $first[ Message::VALUE ] );
 
-		// Subsequent events carry the line-one / line-two VALUEs. Each
-		// TM_BYTESTREAM message the Consumer emits gets JSON-encoded into
-		// a single SSE `msg` event.
-		$values = [];
-		foreach ( \array_slice( $events, 1 ) as $ev ) {
-			$decoded = \json_decode( $ev['data'], true );
-			if ( \is_array( $decoded ) && isset( $decoded[ Message::VALUE ] ) ) {
-				$values[] = $decoded[ Message::VALUE ];
-			}
-		}
-		$this->assertContains( "line-one\n", $values );
-		$this->assertContains( "line-two\n", $values );
+		// Both lines travel in one raw block, which the client splits.
+		$this->assertSame( [ 'msg', 'msg' ], \array_column( \array_slice( $events, 1, 2 ), 'event' ) );
+		$records = $this->client_records( $events )['records'];
+		$this->assertSame( [ "line-one\n", "line-two\n" ], \array_column( $records, Message::VALUE ) );
+		$this->assertSame( [ 'firehose.p0', 'firehose.p0' ], \array_column( $records, Message::FROM ) );
 
 		$this->rmdir_recursive( $base );
 	}
@@ -221,13 +236,12 @@ class SSEOutTest extends TestCase {
 		// worker peels `_repl`) is interpreted IN the SSE process and its reply routed.
 		// `reply_to _sse uptime` runs `uptime` here and routes the reply to `_sse` →
 		// the client. Signed, since LOCAL is stripped at the wire and the SSE interpreter uses
-		// the HMAC verifier. (Driven through a log subscription because that Consumer
-		// honors `positions=start`; worker-IPC Consumers tail-seek to 'end'. Both sink
-		// into `_default_route` → interpreter, so the interpret+route path under test is shared.)
+		// the HMAC verifier. A worker's IPC channel carries it; `positions=start` reads
+		// what the fixture wrote before the stream opened.
 		$base = $this->make_temp_dir( 'msg-stream-cmd-' );
-		\mkdir( "{$base}/logs/firehose.p0", 0755, true );
+		\mkdir( "{$base}/ipc/combined.p0/output", 0755, true );
 		$p = new Partition_Node();
-		$p->arguments( [ "{$base}/logs/firehose.p0" ] );
+		$p->arguments( [ "{$base}/ipc/combined.p0/output" ] );
 		$cmd = Message::new_message();
 		$cmd[ Message::TYPE ]  = Message::TM_COMMAND;
 		$cmd[ Message::TO ]    = Node_Names::COMMAND_INTERPRETER;
@@ -240,7 +254,7 @@ class SSEOutTest extends TestCase {
 		$ctrl->set_base_dir( $base );
 		SSE_Out_Node::$check_slot = $this->boundedTicks( 20 );
 		\ob_start();
-		$ctrl->run_stream_loop( [ 'firehose.*' ], [ 'firehose.p0' => 'start' ], 500 );
+		$ctrl->run_stream_loop( [ 'combined.p0' ], [ 'combined.p0' => 'start' ], 500 );
 		$out = \ob_get_clean();
 
 		// reply_to routed the uptime reply to _sse → the client sees it; auth passed.
@@ -475,7 +489,8 @@ class SSEOutTest extends TestCase {
 		$this->rmdir_recursive( $base );
 	}
 
-	public function test_a_torn_line_is_skipped_counted_and_resumed_past_instead_of_ending_the_stream(): void {
+	/** A torn line rides its block to the client, which skips it; the server parses nothing. */
+	public function test_a_torn_line_reaches_the_client_which_skips_it(): void {
 		$base = $this->make_temp_dir( 'sse-unparseable-' );
 		$dir  = "{$base}/logs/firehose.p0";
 		\mkdir( $dir, 0755, true );
@@ -492,26 +507,10 @@ class SSEOutTest extends TestCase {
 		$ctrl->run_stream_loop( [ 'firehose.*' ], [ 'firehose.p0' => 'start' ], 500 );
 		$events = $this->split_sse_events( (string) \ob_get_clean() );
 
-		$values  = [];
-		$skipped = [];
-		foreach ( $events as $event ) {
-			$decoded = \json_decode( $event['data'], true );
-			if ( 'msg' === $event['event'] && 'firehose.p0' === $decoded[ Message::FROM ] ) {
-				$values[] = $decoded[ Message::VALUE ];
-			}
-			if ( 'unparseable_lines' === $event['event'] ) {
-				$skipped[] = $decoded;
-			}
-		}
-		$this->assertSame( [ 'lanyard-6203' ], $values, 'the stream carries on past both torn lines' );
-		$this->assertCount( 1, $skipped, 'one frame reports the skips of one tick' );
-		$this->assertSame( Message::TM_INFO, $skipped[0][ Message::TYPE ] );
-		$this->assertSame( 'unparseable_lines', $skipped[0][ Message::KEY ] );
-		$this->assertSame(
-			'COUNT 2 COUNTS firehose.p0=2 CURSORS firehose.p0=0:' . \strlen( $bytes ),
-			$skipped[0][ Message::VALUE ],
-			'the count, and a resume point past the skipped lines'
-		);
+		$client = $this->client_records( $events );
+		$this->assertSame( [ 'lanyard-6203' ], \array_column( $client['records'], Message::VALUE ), 'the stream carries on past both torn lines' );
+		$this->assertSame( 2, $client['skipped'] );
+		$this->assertNotContains( 'unparseable_lines', \array_column( $events, 'event' ), 'the server read no line, so it skipped none' );
 
 		$this->rmdir_recursive( $base );
 	}
@@ -887,19 +886,14 @@ class SSEOutTest extends TestCase {
 		$by_sub  = [];
 		$ids     = [];
 		$cursors = [];
-		foreach ( $this->split_sse_events( $out ) as $event ) {
-			$decoded = \json_decode( $event['data'], true );
-			if ( ! \is_array( $decoded ) ) {
-				continue;
-			}
+		$events  = $this->split_sse_events( $out );
+		foreach ( $events as $event ) {
 			if ( 'connected' === $event['event'] ) {
-				$cursors = self::seed_cursors( Core::as_string( $decoded[ Message::VALUE ] ?? '' ) );
-				continue;
+				$cursors = self::seed_cursors( Core::as_string( \json_decode( $event['data'], true )[ Message::VALUE ] ?? '' ) );
 			}
-			if ( 'msg' !== $event['event'] || ! \is_string( $decoded[ Message::VALUE ] ?? null ) ) {
-				continue;
-			}
-			$value                                          = \rtrim( $decoded[ Message::VALUE ], "\n" );
+		}
+		foreach ( $this->client_records( $events )['records'] as $decoded ) {
+			$value                                          = \rtrim( Core::as_string( $decoded[ Message::VALUE ] ), "\n" );
 			$values[]                                       = $value;
 			$from                                           = (string) $decoded[ Message::FROM ];
 			$by_sub[ $from ][]                              = $value;
@@ -1222,6 +1216,63 @@ class SSEOutTest extends TestCase {
 	 *
 	 * @return array<int, array{event: string, data: string, id: string}>
 	 */
+	/**
+	 * What a client makes of a stream's `batch` events: each block split at
+	 * its newlines, a fragment carried to the block that continues it, each
+	 * line unpacked, or wrapped as a TM_BYTESTREAM when the batch says its
+	 * lines are text, then stamped FROM the stream and ID'd with its place.
+	 * A line that will not unpack is counted and skipped.
+	 *
+	 * @param list<array{event:string,data:string,id:string}> $events What `split_sse_events()` read.
+	 * @return array{records:list<array<int,mixed>>,skipped:int}
+	 */
+	private function client_records( array $events ): array {
+		$records = [];
+		$skipped = 0;
+		$carry   = [];
+		foreach ( $events as $event ) {
+			$batch = \json_decode( $event['data'], true );
+			if ( 'msg' !== $event['event'] || ! ( $batch[ Message::TYPE ] & Message::TM_BATCH ) || ( $batch[ Message::TYPE ] & Message::TM_INFO ) ) {
+				continue;
+			}
+			$stamp            = $batch[ Message::FROM ];
+			[ $segment, $at ] = \array_map( 'intval', \explode( ':', $batch[ Message::ID ] ) );
+			$bytes            = $batch[ Message::VALUE ];
+			if ( isset( $carry[ $stamp ] ) ) {
+				[ $at, $bytes ] = [ $carry[ $stamp ][0], $carry[ $stamp ][1] . $bytes ];
+			}
+			$pos = 0;
+			while ( false !== ( $nl = \strpos( $bytes, "\n", $pos ) ) ) {
+				$line = \substr( $bytes, $pos, $nl - $pos );
+				if ( $batch[ Message::TYPE ] & Message::TM_BYTESTREAM ) {
+					$record                   = Message::new_message();
+					$record[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+					$record[ Message::VALUE ] = $line . "\n";
+				} else {
+					try {
+						$record = Message::unpacked( $line );
+					} catch ( \InvalidArgumentException $e ) {
+						++$skipped;
+						$pos = $nl + 1;
+						continue;
+					}
+				}
+				$record[ Message::FROM ] = '' === $record[ Message::FROM ] ? $stamp : "{$stamp}/{$record[ Message::FROM ]}";
+				$record[ Message::ID ]   = $segment . ':' . ( $at + $pos ) . ':' . ( $nl + 1 - $pos );
+				$records[]               = $record;
+				$pos                     = $nl + 1;
+			}
+			$carry[ $stamp ] = [ $at + $pos, \substr( $bytes, $pos ) ];
+			if ( '' === $carry[ $stamp ][1] ) {
+				unset( $carry[ $stamp ] );
+			}
+		}
+		return [
+			'records' => $records,
+			'skipped' => $skipped,
+		];
+	}
+
 	private function split_sse_events( string $raw ): array {
 		$out = [];
 		foreach ( \explode( "\n\n", \trim( $raw ) ) as $chunk ) {

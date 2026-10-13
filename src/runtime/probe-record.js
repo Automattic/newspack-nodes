@@ -48,8 +48,8 @@ export const READER = 1;
 /**
  * Bytes the consumer is behind. The overview graph plots it as a level, not a
  * rate — it is the backlog standing at the sweep instant. Null for a broker's
- * reader, which cannot see its spoke's end: the graph plots no point for it
- * and the Backlog card counts it apart.
+ * reader until its spoke reports one: the graph plots no point for it and it
+ * adds nothing to the Backlog card.
  */
 export const DISTANCE = 6;
 

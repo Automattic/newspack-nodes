@@ -27,10 +27,11 @@ namespace Newspack_Nodes;
  * Either durable reader writes a CONSUMER record: a `Consumer_Node` and a
  * broker's `Remote_Consumer_Node`, both through
  * `Durable_Reader::probe_record()`. A slot a reader cannot know is null, the
- * one place a Consumer record carries one: a broker's reader cannot see its
- * spoke's log end, so its END pair and DISTANCE are always null, and a
- * cursor segment is null until the spoke, or for a `File_Tail` the file it
- * opens, names the generation.
+ * one place a Consumer record carries one: a broker's reader learns its
+ * spoke's backlog but never its end position, so its END pair is always null
+ * and its DISTANCE null until the spoke first reports one, and a cursor
+ * segment is null until the spoke, or for a `File_Tail` the file it opens,
+ * names the generation.
  *
  * A Consumer record is SELF-CONTAINED: the work it drains for one reader
  * (`MSGS_DELTA`, `BYTES_READ_DELTA`) plus the `ELAPSED_MS` that work covers,
@@ -83,7 +84,7 @@ class Probe_Record {
 	 * Id of the partition's last (newest) segment. One `compute_lag()` read
 	 * captures a Consumer's cursor and end together, so a record never pairs
 	 * a stale cursor with a fresh stat. Null for a broker's reader, which
-	 * cannot see its spoke's end.
+	 * learns how far its spoke's log runs but not where it ends.
 	 */
 	public const END_SEGMENT = 4;
 
@@ -93,7 +94,8 @@ class Probe_Record {
 	/**
 	 * Bytes from the cursor to the log's end, in the log's own bytes: the
 	 * backlog the overview graph plots and the `consumer-lag` alert reads.
-	 * Null for a broker's reader, which cannot see its spoke's end.
+	 * A broker's reader adds the bytes its spoke last reported past its own
+	 * reader to the records it holds undrained; null until the spoke reports.
 	 */
 	public const DISTANCE = 6;
 

@@ -107,14 +107,9 @@ class RemoteSourceNodeTest extends TestCase {
 		return [ $node, Core::node( "{$name}:firehose.p0" ), $sink ];
 	}
 
-	/** A `msg` frame from the default pair's stream, unless the fields name another FROM. */
+	/** A pushed block of the default pair's stream holding one record of `$fields`. */
 	private static function stream_frame( array $fields ): string {
-		return self::sse_frame( 'msg', $fields + [ Message::FROM => 'firehose.p0' ] );
-	}
-
-	/** `msg_frame()`, stamped with the default pair's stream. */
-	private static function stream_msg( string $id, string $key, mixed $value ): string {
-		return self::stream_frame( [ Message::TYPE => Message::TM_STRUCT, Message::ID => $id, Message::KEY => $key, Message::VALUE => $value ] );
+		return self::block_frames( 'firehose.p0', '1:0', self::record_line( $fields ) );
 	}
 
 	/**
@@ -424,25 +419,26 @@ class RemoteSourceNodeTest extends TestCase {
 
 		// Armed + below high-water: valve stays open (continuous flow).
 		$armed->setValue( $node, true );
-		$buffer->setValue( $child, \str_repeat( 'x', 100 * 1024 ) );
+		$block = \Newspack_Nodes\Log_Sources::BLOCK_BYTES;
+		$buffer->setValue( $child, \str_repeat( 'x', $block + 4417 ) );
 		$disarm->invoke( $node );
-		$this->assertSame( 0, $sse->disarms, 'below high-water stays armed' );
+		$this->assertSame( 0, $sse->disarms, 'a block arriving does not close the valve' );
 
 		// Armed + above high-water: disarm once (backpressure).
-		$buffer->setValue( $child, \str_repeat( 'x', 600 * 1024 ) );
+		$buffer->setValue( $child, \str_repeat( 'x', 4 * $block ) );
 		$disarm->invoke( $node );
-		$this->assertSame( 1, $sse->disarms );
+		$this->assertSame( 1, $sse->disarms, 'four blocks held close it' );
 		$this->assertFalse( $armed->getValue( $node ), 'disarm flips the valve state' );
 
 		// Disarmed + still above low-water: NO re-arm (hysteresis band).
-		$buffer->setValue( $child, \str_repeat( 'x', 300 * 1024 ) );
+		$buffer->setValue( $child, \str_repeat( 'x', 2 * $block + 1 ) );
 		$node->refill( $child );
 		$this->assertSame( 0, $sse->arms, 'above low-water does not re-arm' );
 
 		// Disarmed + drained below low-water: re-arm.
-		$buffer->setValue( $child, \str_repeat( 'x', 10 * 1024 ) );
+		$buffer->setValue( $child, \str_repeat( 'x', 2 * $block ) );
 		$node->refill( $child );
-		$this->assertSame( 1, $sse->arms, 're-arm once drained below low-water' );
+		$this->assertSame( 1, $sse->arms, 're-arm once drained to two blocks' );
 
 		// Armed + empty buffer: NO idle disarm, NO redundant arm-on-poll.
 		$buffer->setValue( $child, '' );
@@ -458,12 +454,79 @@ class RemoteSourceNodeTest extends TestCase {
 		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:downstream', 'sources/php:php-errors' ) );
 		$this->drain_connect_queue();
 		$sse  = Core::node( 'remote-austin:sse-in' );
-		$blob = \str_repeat( 'q', 270000 );
+		$blob = \str_repeat( 'q', 2 * \Newspack_Nodes\Log_Sources::BLOCK_BYTES + 9 );
 		foreach ( [ 'firehose.p0', 'sources/php' ] as $i => $from ) {
-			$sse->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => $from, Message::ID => "1:{$i}:1", Message::VALUE => $blob ] ) );
+			$sse->process_sse_chunk( self::block_frames( $from, "1:{$i}", self::record_line( [ Message::TYPE => Message::TM_BYTESTREAM, Message::VALUE => $blob ] ) ) );
 		}
 
 		$this->assertFalse( $this->read_private( $node, 'pump_armed' ), 'two half-full readers fill one connection' );
+	}
+
+	/** A pushed block's header sets its reader's backlog, which falls as the reader drains. */
+	public function test_a_pushed_header_sets_the_readers_backlog(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:downstream' ) );
+		$this->drain_connect_queue();
+		$firehose = Core::node( 'remote-austin:firehose.p0' );
+		$line     = self::record_line( [ Message::TYPE => Message::TM_BYTESTREAM, Message::VALUE => 'gunwale-2281' ] );
+
+		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::block_frames( 'firehose.p0', '31:4404', $line, 9157 ) );
+		$firehose->poll();
+
+		$this->assertSame( 9157 - \strlen( $line ), $firehose->probe_stats()[ Probe_Record::DISTANCE ] );
+	}
+
+	/** A quiet stream pushes nothing, and its heartbeats keep the backlog the last header gave. */
+	public function test_a_quiet_streams_backlog_stands_while_its_heartbeats_arrive(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:downstream' ) );
+		$this->drain_connect_queue();
+		$firehose = Core::node( 'remote-austin:firehose.p0' );
+		$sse      = Core::node( 'remote-austin:sse-in' );
+		self::set_slot( $sse, 4 );
+		$line     = self::record_line( [ Message::TYPE => Message::TM_BYTESTREAM, Message::VALUE => 'thwart-6604' ] );
+		$sse->process_sse_chunk( self::block_frames( 'firehose.p0', '8:0', $line ) );
+		$firehose->poll();
+
+		Core::$now += Remote_Consumer_Node::DISTANCE_STALE_SECONDS + 37;
+		$sse->process_sse_chunk( self::heartbeat_frame( (string) Core::$now ) );
+		$this->assertSame( 0, $firehose->probe_stats()[ Probe_Record::DISTANCE ] );
+
+		Core::$now += Remote_Consumer_Node::DISTANCE_STALE_SECONDS + 1;
+		$this->assertNull( $firehose->probe_stats()[ Probe_Record::DISTANCE ], 'silence leaves it unknown' );
+	}
+
+	/** A valve the hub shut keeps the spoke quiet, so every reader's last backlog stands. */
+	public function test_a_shut_valves_silence_leaves_the_backlog_standing(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:downstream', 'sources/php:php-errors' ) );
+		$this->drain_connect_queue();
+		$firehose = Core::node( 'remote-austin:firehose.p0' );
+		$sse      = Core::node( 'remote-austin:sse-in' );
+		$line     = self::record_line( [ Message::TYPE => Message::TM_BYTESTREAM, Message::VALUE => 'oarlock-3315' ] );
+		$sse->process_sse_chunk( self::block_frames( 'firehose.p0', '12:0', $line, \strlen( $line ) + 60417 ) );
+		$firehose->poll();
+		$sse->process_sse_chunk( self::block_frames( 'sources/php', '5:0', \str_repeat( \str_repeat( 'w', 1023 ) . "\n", 4 * 1024 + 9 ) ) );
+		$this->assertFalse( $this->read_private( $node, 'pump_armed' ) );
+
+		Core::$now += Remote_Consumer_Node::DISTANCE_STALE_SECONDS + 23;
+
+		$this->assertSame( 60417, $firehose->probe_stats()[ Probe_Record::DISTANCE ] );
+	}
+
+	/** A record sent alone, outside a block, is no stream's: dropped, and said. */
+	public function test_a_record_frame_reaches_no_reader(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$errors = $this->capture_stderr();
+		[ , $child ] = $this->make_remote();
+
+		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => 'firehose.p0', Message::ID => '3:0:12', Message::VALUE => 'bilge-1197' ] ) );
+
+		$this->assertSame( 0, $child->buffered_bytes() );
+		$this->assertStringContainsString( 'dropping a frame that is no raw block', \implode( '', $errors->getArrayCopy() ) );
 	}
 
 	public function test_first_tick_creates_and_configures_sse_in_patron(): void {
@@ -656,25 +719,27 @@ class RemoteSourceNodeTest extends TestCase {
 		$php->name( 'php-errors' );
 		[ , , $sink ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:downstream', 'sources/php:php-errors' ) );
 		$sse = Core::node( 'remote-austin:sse-in' );
-		foreach ( [ [ 'firehose.p0/job-worker.p0', '3:0:40', 'fh-6612' ], [ 'sources/php', '91827:400:52', 'php-7715' ] ] as [ $from, $crumb, $value ] ) {
-			$sse->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => $from, Message::ID => $crumb, Message::VALUE => $value ] ) );
-		}
+		$sse->process_sse_chunk( self::block_frames( 'firehose.p0', '3:0', self::record_line( [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => 'job-worker.p0', Message::VALUE => 'fh-6612' ] ) ) );
+		$sse->process_sse_chunk( self::block_frames( 'sources/php', '91827:400', "php-7715\n" ) );
 		Core::node( 'remote-austin:firehose.p0' )->poll();
 		Core::node( 'remote-austin:sources:php' )->poll();
 
 		$this->assertSame( [ 'fh-6612' ], \array_column( $sink->captured, Message::VALUE ) );
-		$this->assertSame( [ 'php-7715' ], \array_column( $php->captured, Message::VALUE ) );
-		$this->assertSame( [ 'segment' => 91827, 'offset' => 452 ], Core::node( 'remote-austin:sources:php' )->connect_position() );
+		$this->assertSame( [ 'firehose.p0/job-worker.p0' ], \array_column( $sink->captured, Message::FROM ) );
+		$this->assertSame( [ "php-7715\n" ], \array_column( $php->captured, Message::VALUE ), 'a source\'s line arrives as its text' );
+		$this->assertSame( [ Message::TM_BYTESTREAM ], \array_column( $php->captured, Message::TYPE ) );
+		$this->assertSame( [ 'segment' => 91827, 'offset' => 409 ], Core::node( 'remote-austin:sources:php' )->connect_position() );
 	}
 
 	public function test_a_pair_target_naming_no_node_still_advances(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		[ , $child ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:nowhere-3318' ) );
-		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::stream_msg( '4:100:30', '', [ 'p' => 1 ] ) );
+		$line = self::record_line( [ Message::TYPE => Message::TM_STRUCT, Message::VALUE => [ 'p' => 1 ] ] );
+		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::block_frames( 'firehose.p0', '4:100', $line ) );
 
 		$child->poll();
 
-		$this->assertSame( [ 'segment' => 4, 'offset' => 130 ], $child->connect_position() );
+		$this->assertSame( [ 'segment' => 4, 'offset' => 100 + \strlen( $line ) ], $child->connect_position() );
 		$this->assertSame( 0, $this->count_log_records( $this->read_private( $child, 'deadletter_dir' ) ), 'an unrouted line is not poison' );
 	}
 
@@ -683,7 +748,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$errors = $this->capture_stderr();
 		[ $node, $child ] = $this->make_remote();
 
-		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => 'jobstats.p5', Message::ID => '1:0:10', Message::VALUE => 'stray-5501' ] ) );
+		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::block_frames( 'jobstats.p5', '1:0', self::record_line( [ Message::TYPE => Message::TM_BYTESTREAM, Message::VALUE => 'stray-5501' ] ) ) );
 
 		$this->assertSame( [ 'firehose.p0' ], \array_keys( $this->readers( $node ) ) );
 		$this->assertSame( 0, $child->buffered_bytes(), 'no reader is handed it' );
@@ -695,7 +760,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$errors   = $this->capture_stderr();
 		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'kea*:herd-52' ) );
 
-		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => '', Message::ID => '1:0:10', Message::VALUE => 'unstamped-4417' ] ) );
+		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::block_frames( '', '1:0', self::record_line( [ Message::TYPE => Message::TM_BYTESTREAM, Message::VALUE => 'unstamped-4417' ] ) ) );
 
 		$this->assertSame( [], $this->readers( $node ) );
 		$this->assertNull( Core::node( 'remote-austin:' ) );
@@ -731,7 +796,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$before   = [ $this->tree( $offsets ), $this->tree( $dead ) ];
 		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', $pair ) );
 
-		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => $stamp, Message::ID => '4:0:30', Message::VALUE => 'hostile-6731' ] ) );
+		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::block_frames( $stamp, '4:0', self::record_line( [ Message::TYPE => Message::TM_BYTESTREAM, Message::VALUE => 'hostile-6731' ] ) ) );
 		foreach ( $this->readers( $node ) as $reader ) {
 			$reader->poll();
 		}
@@ -782,7 +847,7 @@ class RemoteSourceNodeTest extends TestCase {
 	public function test_a_replay_keeps_counting_the_glob_readers_already_built(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$send     = static function ( string $from ): void {
-			Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => $from, Message::ID => '5:0:9', Message::VALUE => "line-{$from}" ] ) );
+			Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::block_frames( $from, '5:0', self::record_line( [ Message::TYPE => Message::TM_BYTESTREAM, Message::VALUE => "line-{$from}" ] ) ) );
 		};
 		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'kea-*:herd-52' ) );
 		for ( $i = 1; $i <= Remote_Source_Node::MAX_READERS; $i++ ) {
@@ -800,7 +865,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$offsets  = \Newspack_Nodes\Config::get_offsets_directory();
 		$args     = $this->remote_args( 'remote-austin', 'austin', 'kea-*:herd-52' );
 		$send     = static function ( string $from ): void {
-			Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => $from, Message::ID => '3:0:9', Message::VALUE => "line-{$from}" ] ) );
+			Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::block_frames( $from, '3:0', self::record_line( [ Message::TYPE => Message::TM_BYTESTREAM, Message::VALUE => "line-{$from}" ] ) ) );
 		};
 		[ $node ] = $this->make_remote( 'remote-austin', $args );
 		for ( $i = 1; $i <= Remote_Source_Node::MAX_READERS; $i++ ) {
@@ -834,7 +899,7 @@ class RemoteSourceNodeTest extends TestCase {
 		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'kea-*:herd-52' ) );
 		$sse      = Core::node( 'remote-austin:sse-in' );
 		$send     = static function ( int $i ) use ( $sse ): void {
-			$sse->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => "kea-{$i}", Message::ID => "{$i}:0:9", Message::VALUE => "kea-line-{$i}" ] ) );
+			$sse->process_sse_chunk( self::block_frames( "kea-{$i}", "{$i}:0", self::record_line( [ Message::TYPE => Message::TM_BYTESTREAM, Message::VALUE => "kea-line-{$i}" ] ) ) );
 		};
 
 		for ( $i = 1; $i <= Remote_Source_Node::MAX_READERS; $i++ ) {
@@ -879,12 +944,13 @@ class RemoteSourceNodeTest extends TestCase {
 	public function test_a_relayed_line_keeps_the_spoke_trail_and_crumb(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		[ , $child, $sink ] = $this->make_remote();
-		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_STRUCT, Message::FROM => 'firehose.p0/okapi-7713', Message::ID => '44120:96:58', Message::VALUE => [ 'p' => 2290 ] ] ) );
+		$line = self::record_line( [ Message::TYPE => Message::TM_STRUCT, Message::FROM => 'okapi-7713', Message::VALUE => [ 'p' => 2290 ] ] );
+		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::block_frames( 'firehose.p0', '44120:96', $line ) );
 
 		$child->poll();
 
 		$this->assertSame( 'firehose.p0/okapi-7713', $sink->captured[0][ Message::FROM ] );
-		$this->assertSame( '44120:96:58', $sink->captured[0][ Message::ID ], 'the crumb stays the spoke\'s' );
+		$this->assertSame( '44120:96:' . \strlen( $line ), $sink->captured[0][ Message::ID ], 'the crumb places it in the spoke\'s log' );
 	}
 
 	public function test_a_replay_dropping_a_pair_retracts_only_its_children(): void {
@@ -1229,7 +1295,7 @@ class RemoteSourceNodeTest extends TestCase {
 		[ $node, $child ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:downstream', 'errors.*:audit-31' ) );
 
 		$this->read_private( $node, 'interpreter' )->dispatch( 'assume_clean_shutdown', [ 'true' ] );
-		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => 'errors.p4', Message::ID => '2:0:9', Message::VALUE => 'late-3141' ] ) );
+		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::block_frames( 'errors.p4', '2:0', self::record_line( [ Message::TYPE => Message::TM_BYTESTREAM, Message::VALUE => 'late-3141' ] ) ) );
 
 		$this->assertTrue( $this->read_private( $child, 'assume_clean_shutdown' ) );
 		$this->assertTrue( $this->read_private( Core::node( 'remote-austin:errors.p4' ), 'assume_clean_shutdown' ), 'a reader built later takes it too' );
@@ -1515,17 +1581,21 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertFalse( $status['connecting'] );
 	}
 
-	public function test_published_status_carries_the_skipped_line_count(): void {
+	/** A torn line in a pushed block is dead-lettered where it stands, and the stream moves past it. */
+	public function test_a_torn_line_in_a_block_is_dead_lettered_at_its_place(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
-		[ $node ] = $this->make_remote( 'remote-austin' );
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$sse->process_sse_chunk( self::unparseable_frame( 'COUNT 4 CURSORS firehose.p0=5:95' ) );
+		[ , $child, $sink ] = $this->make_remote( 'remote-austin' );
+		$good = self::record_line( [ Message::TYPE => Message::TM_BYTESTREAM, Message::VALUE => 'cleat-4410' ] );
+		$torn = "{\"torn-7713\n";
+		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::block_frames( 'firehose.p0', '5:0', $good . $torn . $good ) );
 
-		Core::$now = 1001.0;
-		$node->fire();
+		$child->poll();
 
-		$this->assertSame( 4, $this->status_of( $node )['unparseable_lines'] );
+		$this->assertSame( [ 'cleat-4410', 'cleat-4410' ], \array_column( $sink->captured, Message::VALUE ) );
+		$dlq = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' ) . '/deadletter/remote-austin/firehose.p0';
+		$this->assertSame( 1, $this->count_log_records( $dlq ) );
+		$this->assertSame( [ 'segment' => 5, 'offset' => \strlen( $good . $torn . $good ) ], $child->connect_position() );
 	}
 
 	public function test_a_released_slot_never_reaches_the_dashboard(): void {
@@ -1640,20 +1710,6 @@ class RemoteSourceNodeTest extends TestCase {
 	// The probe record: each reader's position on the one live-position log.
 	// ---------------------------------------------------------------------
 
-	/**
-	 * A packed record off the spoke stream, its breadcrumb in ID.
-	 *
-	 * @return array{0:string,1:array<int,mixed>} The packed line and its message.
-	 */
-	private static function spoke_record( string $stamp, string $crumb ): array {
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_STRUCT;
-		$message[ Message::FROM ]  = $stamp;
-		$message[ Message::ID ]    = $crumb;
-		$message[ Message::VALUE ] = [ 'crumb' => $crumb ];
-		return [ Message::packed( $message ), $message ];
-	}
-
 	/** Sweep this process with a Topic_Probe and answer its records by READER. */
 	private static function sweep_readers(): array {
 		$capture = new Capture_Sink_Node();
@@ -1680,10 +1736,9 @@ class RemoteSourceNodeTest extends TestCase {
 			}
 			$fire->next_offset( [ 'segment' => 12, 'offset' => 7311 ] );
 			$received = 0;
-			foreach ( [ '12:7311:200', '12:7511:157' ] as $crumb ) {
-				[ $raw, $message ] = self::spoke_record( 'firehose.p3', $crumb );
-				$fire->receive( $raw, $message );
-				$received += \strlen( $raw ) + 1;
+			foreach ( [ '12:7311:200' => 200, '12:7511:157' => 157 ] as $crumb => $length ) {
+				self::push_record( $fire, [ Message::TYPE => Message::TM_STRUCT, Message::ID => $crumb, Message::VALUE => [ 'crumb' => $crumb ] ] );
+				$received += $length;
 			}
 			Core::$now = 517.25;
 			$records   = self::sweep_readers();
@@ -1693,7 +1748,7 @@ class RemoteSourceNodeTest extends TestCase {
 		}
 
 		$this->assertSame(
-			[ 'hub-4417.remote-austin:firehose.p3.p3' => [ 'remote/austin:firehose.p3', 12, 7311, null, null, null, 0, $received, 17250 ] ],
+			[ 'hub-4417.remote-austin:firehose.p3.p3' => [ 'remote/austin:firehose.p3', 12, 7311, null, null, $received, 0, $received, 17250 ] ],
 			\array_map( self::probe_slots( ... ), $records ),
 			'sources/php is read on p0 alone, and jobstats.p3 stands nowhere yet, so neither sends a record'
 		);
@@ -1818,18 +1873,6 @@ class RemoteSourceNodeTest extends TestCase {
 		foreach ( $offsetlog->get_segments( true ) as $s ) {
 			foreach ( \explode( "\n", $offsetlog->read_at( $s['id'], 0, $s['size'] ) ) as $l ) {
 				if ( '' !== $l ) {
-					++$count;
-				}
-			}
-		}
-		return $count;
-	}
-
-	private function count_log_records( string $dir ): int {
-		$count = 0;
-		foreach ( (array) \glob( "{$dir}/*.log" ) as $path ) {
-			foreach ( \explode( "\n", (string) \file_get_contents( (string) $path ) ) as $line ) {
-				if ( '' !== $line ) {
 					++$count;
 				}
 			}

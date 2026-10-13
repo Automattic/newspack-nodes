@@ -256,7 +256,7 @@ class Alerts {
 		$lag_threshold = Core::num_int( Config::value( 'alert_lag_threshold' ) );
 		foreach ( $held ? [] : Core::arr( $meta['consumers'] ?? [] ) as $consumer ) {
 			$consumer = Core::arr( $consumer );
-			// Null is a lag no one can measure, as a hub reader's is: never 0.
+			// Null is a lag no one can measure yet: never 0.
 			if ( null === $consumer['distance'] ) {
 				continue;
 			}

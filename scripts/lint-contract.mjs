@@ -158,10 +158,11 @@ const RULES = [
 	{
 		// @longform
 		// Copying an ID ACROSS (`reply[ID] = sent[ID]`) is the echo the
-		// envelope specifies; the lookahead spans the whitespace, or `\s*`
-		// collapses to empty and the assertion passes on the space.
+		// envelope specifies, and a breadcrumb through `formatPosition()` is
+		// a record's place (ADR-30); the lookaheads span the whitespace, or
+		// `\s*` collapses to empty and the assertion passes on the space.
 		id: 'op-id',
-		test: /\[\s*ID\s*\]\s*=(?!=)(?!\s*\w+\s*\[\s*ID\s*\])/,
+		test: /\[\s*ID\s*\]\s*=(?!=)(?!\s*\w+\s*\[\s*ID\s*\])(?!\s*formatPosition\s*\()/,
 		why: 'minting a correlation id into message[ID]; TO=FROM is the return address',
 	},
 	{

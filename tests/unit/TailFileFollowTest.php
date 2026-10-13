@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\File_Tail_Node;
 use Newspack_Nodes\Log_Sources;
@@ -373,7 +374,36 @@ class TailFileFollowTest extends TestCase {
 		);
 	}
 
-	public function test_file_mode_counts_the_fragment_a_mid_line_resume_drops(): void {
+	public function test_a_raw_block_drains_the_old_generation_before_the_new(): void {
+		$path = "{$this->tmp}/debug.log";
+		\file_put_contents( $path, "keel-1\nkeel-2\n" );
+		$old_inode = \fileinode( $path );
+
+		$t = $this->follow( $path );
+		$t->next_offset( 'start' );
+		$this->assertSame( "keel-1\nkeel-2\n", $t->raw_block( 4096 )['bytes'] );
+
+		\file_put_contents( $path, "keel-3\n", \FILE_APPEND );
+		\rename( $path, "{$path}.1" );
+		\file_put_contents( $path, "deck-1\n" );
+		$old = $t->raw_block( 4096 );
+		$new = $t->raw_block( 4096 );
+
+		$this->assertSame( [ "keel-3\n", $old_inode, 14 ], [ $old['bytes'], $old['segment'], $old['offset'] ] );
+		$this->assertSame( [ "deck-1\n", \fileinode( $path ), 0 ], [ $new['bytes'], $new['segment'], $new['offset'] ] );
+	}
+
+	public function test_a_raw_block_of_an_absent_file_names_no_generation(): void {
+		$t = $this->follow( "{$this->tmp}/absent-3317.log" );
+		$t->next_offset( 'start' );
+
+		$block = $t->raw_block( 4096 );
+
+		$this->assertNull( $block['segment'] );
+		$this->assertSame( 'OFFSET :0 DISTANCE 0', Consumer_Node::block_messages( $block )[0][ Message::VALUE ] );
+	}
+
+	public function test_file_mode_drops_the_fragment_a_mid_line_resume_lands_in(): void {
 		$path = "{$this->tmp}/debug.log";
 		\file_put_contents( $path, "aaa\nbbb-partial" );
 
@@ -385,10 +415,9 @@ class TailFileFollowTest extends TestCase {
 		$this->pump( $t );
 
 		$this->assertSame( [ "next-4417\n" ], $this->values( $cap ), 'the fragment is dropped, not shipped' );
-		$this->assertSame( \strlen( "-rest\n" ) + \strlen( "next-4417\n" ), $t->take_consumed_bytes() );
 	}
 
-	public function test_file_mode_counts_the_partial_line_a_rotation_clears(): void {
+	public function test_file_mode_clears_the_partial_line_at_a_rotation(): void {
 		$path = "{$this->tmp}/debug.log";
 		\file_put_contents( $path, "old-1\npart-3306" );
 
@@ -402,7 +431,6 @@ class TailFileFollowTest extends TestCase {
 		$this->pump( $t );
 
 		$this->assertSame( [ "old-1\n", "new-9047\n" ], $this->values( $cap ) );
-		$this->assertSame( \strlen( "old-1\n" ) + \strlen( 'part-3306' ) + \strlen( "new-9047\n" ), $t->take_consumed_bytes() );
 	}
 
 	public function test_file_mode_truncation_resets_to_zero(): void {

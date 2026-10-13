@@ -662,14 +662,40 @@ class SseInCoverageTest extends TestCase {
 		$node->disconnect(); // detach + close the real handle.
 	}
 
-	public function test_arm_and_disarm_toggle_event_loop_registration(): void {
-		// The Durable_Reader pump valve: arm registers the live handle with the drain loop,
-		// disarm unregisters it. Both are no-ops without a live handle.
+	/**
+	 * The pump valve pauses the transfer and resumes it: the handle stays on
+	 * the multi, because removing it and adding it back starts a new GET.
+	 */
+	public function test_disarm_pauses_the_transfer_and_arm_resumes_it(): void {
+		$paused = [];
+		\Newspack_Nodes\Event_Framework::$curl_pause = static function ( \CurlHandle $handle, int $flags ) use ( &$paused ): int {
+			$paused[] = $flags;
+			return \CURLE_OK;
+		};
 		[ $node ] = $this->configured_node();
 		$this->connect( $node );
-		$node->arm();
+		$handle = $node->test_get_handle();
+
 		$node->disarm();
+		$node->arm();
+
+		$this->assertSame( [ \CURLPAUSE_RECV, \CURLPAUSE_CONT ], $paused );
+		$this->assertSame( [ $handle ], \Newspack_Nodes\Event_Framework::instance()->handles_of( $node ), 'the handle never leaves the multi' );
 		$node->disconnect();
-		$this->addToAssertionCount( 1 );
+	}
+
+	/** Without a live handle the valve touches nothing. */
+	public function test_the_valve_without_a_handle_pauses_nothing(): void {
+		$paused = 0;
+		\Newspack_Nodes\Event_Framework::$curl_pause = static function () use ( &$paused ): int {
+			++$paused;
+			return \CURLE_OK;
+		};
+		[ $node ] = $this->configured_node();
+
+		$node->disarm();
+		$node->arm();
+
+		$this->assertSame( 0, $paused );
 	}
 }

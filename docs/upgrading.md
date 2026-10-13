@@ -6,6 +6,24 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **Upgrade every spoke and its hubs together: the stream wire changed.** A
+  log or source stream on `/messages/stream` sends raw blocks as `msg`
+  events carrying the TM_BATCH bit (see [API.md → Raw blocks](API.md#raw-blocks)),
+  and a hub drops a per-record frame from a log stream as no raw block, so an old spoke
+  feeds a new hub nothing, and a new spoke an old hub nothing. `raw-logs
+  read_block` answers a header and a TM_BATCH instead of `{ source, messages,
+  cursor, at_eof, unparseable_lines }`. A client of either reads the blocks
+  and splits them, as `Remote_Consumer_Node` and `SseInNode` do; a dashboard
+  built on `SseInNode` changes nothing. The heartbeat VALUE is the spoke's wall
+  seconds alone, and `SSE_In_Node::$on_skipped` and `$on_behind` are gone. The browser
+  reads the stream through `fetch()` rather than `EventSource`; a test that
+  drives a fake `EventSource` assigns `SseInNode.openStream`, as the build
+  kit's jest setup does. A hub reader
+  dead-letters a torn line where it splits the block, so a broker's status
+  snapshot carries no `unparseable_lines`; read the reader's dead letters
+  instead. `Remote_Consumer_Node::receive()` is private: hand a reader a block
+  through `fill()`, as its broker does.
+
 - **The `shown_when_owned` schema key is gone, and a patroned node never
   draws on the canvas.** A plugin whose `node_schema()` declared it deletes
   the key; its patroned node opens from the "…" on its owner's card, listed in

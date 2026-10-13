@@ -11,6 +11,7 @@ import {
 	LAST_VALUE_INDEX,
 	LOCAL,
 	TM_UNTYPED,
+	TM_BATCH,
 	TM_BYTESTREAM,
 	TM_EOF,
 	TM_PING,
@@ -26,6 +27,7 @@ import {
 	unpack,
 	valueSize,
 	byteLength,
+	infoPairs,
 } from '../message';
 
 test( 'byteLength counts UTF-8 bytes and treats nullish as zero', () => {
@@ -34,6 +36,23 @@ test( 'byteLength counts UTF-8 bytes and treats nullish as zero', () => {
 	expect( byteLength( '' ) ).toBe( 0 );
 	expect( byteLength( null ) ).toBe( 0 );
 	expect( byteLength( undefined ) ).toBe( 0 );
+} );
+
+test( 'byteLength counts every UTF-8 width as PHP strlen() does', () => {
+	expect( byteLength( 'café' ) ).toBe( 5 );
+	expect( byteLength( '\u{1F600}' ) ).toBe( 4 );
+	// A lone surrogate encodes as U+FFFD, three bytes.
+	expect( byteLength( '\ud800x' ) ).toBe( 4 );
+} );
+
+test( 'byteLength measures a string without building a Blob from it', () => {
+	const blob = jest.spyOn( global, 'Blob' );
+	try {
+		byteLength( 'x'.repeat( 1048576 ) + 'é' );
+		expect( blob ).not.toHaveBeenCalled();
+	} finally {
+		blob.mockRestore();
+	}
 } );
 
 test( 'field index constants match PHP layout', () => {
@@ -160,6 +179,11 @@ describe( 'typeLabels', () => {
 		] );
 	} );
 
+	it( 'names a raw block, with the bit PHP gives it', () => {
+		expect( TM_BATCH ).toBe( 2048 );
+		expect( typeLabels( TM_BATCH ) ).toEqual( [ 'TM_BATCH' ] );
+	} );
+
 	it( 'returns nothing when no known flag matches, so callers name that case', () => {
 		expect( typeLabels( 0 ) ).toEqual( [] );
 	} );
@@ -197,4 +221,26 @@ describe( 'payloadOf', () => {
 		expect( payloadOf( null ) ).toBeNull();
 		expect( payloadOf( undefined ) ).toBeNull();
 	} );
+} );
+
+// Held to PHP `Message::info_pairs()` by one case list.
+const infoPairCases = JSON.parse(
+	require( 'fs' ).readFileSync(
+		require( 'path' ).join(
+			__dirname,
+			'../../../tests/fixtures/info-pairs.json'
+		),
+		'utf8'
+	)
+).cases;
+
+test.each( infoPairCases )(
+	'infoPairs: %s, as PHP info_pairs() reads it',
+	( _label, value, expected ) => {
+		expect( infoPairs( value ) ).toEqual( expected );
+	}
+);
+
+test( 'infoPairs refuses a VALUE that is no string', () => {
+	expect( infoPairs( { OFFSET: '3:0' } ) ).toBeNull();
 } );

@@ -686,8 +686,9 @@ Vault credential id separately as `vault_id`, the `topology` it is wired in,
 its `partitions`, and its `readers`: one `{ stamp, partition, cursor, distance }`
 per stream reader the probe log reports, `stamp` as the spoke names the log,
 `partition` the hub worker's, `cursor` in the read-position grammar (a
-segment the reader does not know is `:<offset>`), and `distance` null, because
-a hub reader cannot see its spoke's end. `list_servers` alone reads the probe
+segment the reader does not know is `:<offset>`), and `distance` the bytes the
+spoke last reported past its own reader plus what the hub reader holds
+undrained, null until the spoke reports. `list_servers` alone reads the probe
 log; `summary` counts connections and never decodes it. `probe <id>` wants the VAULT id,
 answers `server not found: <id>` for anything else, and echoes it back as its
 own `id`. A client that carries `id` straight from one verb into the other is
@@ -938,9 +939,9 @@ holds a segment boundary until `Consumer_Node::SEAL_GRACE_SECONDS` have passed
 since the later of the older segment's mtime plus one second and the newer
 segment's first record TIMESTAMP, and while the newer segment is empty; a
 segmented `Log` holds bare values with no stamp, so it seals on the mtime alone.
-It answers `{ source, messages, cursor: { segment, offset }, at_eof,
-unparseable_lines }`: the records from the position until the on-disk bytes walked,
-skipped lines included, reach 1 MiB, the first record whole whatever its size. The
+It answers no command reply: the reader's [raw block](#raw-blocks) goes to the
+asker's FROM as two messages, its header echoing the position as `ASKED
+<position>` and its TM_BATCH sent even when empty, so the asker settles on it. The
 ownership-fenced `workers heartbeat` binds exactly `[ slot, owner ]`, both declared
 `int` and read through `Core::canonical_decimal()`, from the current SSE `connected`
 handshake, and the server — never the client — owns the lease TTL. `topologies save`
@@ -996,8 +997,10 @@ GET   /wp-json/newspack-nodes/v1/messages/stream
 `_sse` egress Node and the REST controller, mirroring `HTTP_In_Node`'s
 double-duty pattern. One endpoint covers every subscription a dashboard needs:
 log partitions and worker IPC partitions both surface as `Consumer_Node`
-instances drained in the same loop. Each Message reaching the `_sse` egress goes
-out as an SSE `msg` event carrying the packed Message.
+instances drained in the same loop. A log or source reader sends
+[raw blocks](#raw-blocks), each going out as two `msg` events; a worker IPC
+reader sends each reply, which `_output` must see to gate it by session, as a
+`msg` event carrying the packed Message.
 
 ![A stream's life in order: the slot acquire before any header, the headers, the retry event, the graph build, the connected handshake with its 4096-byte padding flush, then the five checks of every drain tick, the finally that releases the slot, the four Closure seams and when each is called, the pool's four numbers, and the client heartbeat that alone keeps a lease alive.](img/api-sse-lifecycle.png)
 
@@ -1034,7 +1037,7 @@ stream with the reason; a registry that will not read is a server error:
 
 #### Subscription grammar
 
-![How one subscribe name resolves: the group split against Log_Discovery::GROUPS, the character-class check that leaves * as the only wildcard, the worker-IPC path and the partition-dir glob with the multi-writer seal grace; the connected envelope drawn as six KEY VALUE slots with what SSE_In_Node rejects; and how a client advances each cursor from the ID breadcrumb of every msg and sends it back as positions, with the three seek sentinels.](img/api-sse-subscribe-and-resume.png)
+![How one subscribe name resolves: the group split against Log_Discovery::GROUPS, the character-class check that leaves * as the only wildcard, the worker-IPC path and the partition-dir glob with the multi-writer seal grace; the connected envelope drawn as six KEY VALUE slots with what SSE_In_Node rejects; and how a client advances each cursor from the ID breadcrumb of every record and sends it back as positions, with the three seek sentinels.](img/api-sse-subscribe-and-resume.png)
 
 ### Response
 
@@ -1050,9 +1053,9 @@ apart:
 |---|---|---|
 | `retry` | `KEY=retry`, VALUE the `sse_retry_ms` config value (default 5000), or 0 at a lifetime close | The reopen schedule, sent first because an idle close relies on it, and again as 0 just before the lifetime close of a stream that delivered records. An EVENT rather than the protocol `retry:` field, since the client owns reconnect and needs the interval as data it can read. The VALUE is a canonical decimal; the last one a connection carries sets the delay after its close, and 0 means at once. Set `sse_retry_ms` to 0 to advertise nothing at open: an idle close then leaves the client on its own backoff. |
 | `connected` | `KEY=connected`, VALUE the flat envelope below | The session handshake; see below. |
-| `msg` | the packed Message the egress received | One delivered record. Only these count as data, which is what defers the idle close. |
-| `heartbeat` | `KEY=heartbeat`, VALUE the tick timestamp | Liveness every `HEARTBEAT_MS = 2000`ms. Deliberately not data: a heartbeat never defers the idle close. |
-| `unparseable_lines` | `KEY=unparseable_lines`, VALUE `COUNT <n> COUNTS <stamp>=<n>,… CURSORS <pairs>` | Lines the stream's readers skipped since the last such frame because they would not unpack, sent on the tick that skipped them. The readers keep no cursor to replay a torn line from, so each is skipped rather than ending the stream on it; `CURSORS` is the `connected` envelope's token, restating every reader's resume point past the skip so a reopen does not read the line again. `COUNTS` lists only the stamps that skipped this tick, each with its own count, and leaves out a stamp holding a space or a comma, as `CURSORS` does. Not data: it never defers the idle close. Both readers add `COUNT` to a running total they publish as `UNPARSEABLE_LINES`: the browser's `SseInNode` re-seats each subscription's resume point from `CURSORS` itself, and the PHP `SSE_In_Node` hands its own subscription's pair to its patron, so a `Remote_Source` moves its cursor past the skipped lines once the records buffered ahead of them drain, and shows the total on the Aggregator card as Skipped lines. |
+| `msg` | the packed Message the egress received | A raw block or its header, which the TM_BATCH bit marks and the client splits into records (see [Raw blocks](#raw-blocks)), or one reply from a worker's IPC channel. These count as data, which is what defers the idle close. |
+| `heartbeat` | `KEY=heartbeat`, VALUE the tick's wall seconds | Liveness every `HEARTBEAT_MS = 2000`ms. Deliberately not data: a heartbeat never defers the idle close. A hub's reader takes it as word that its stream has nothing more to send, which keeps the backlog the last header gave from going stale. |
+| `unparseable_lines` | `KEY=unparseable_lines`, VALUE `COUNT <n> COUNTS <stamp>=<n>,… CURSORS <pairs>` | Lines a worker IPC reader skipped since the last such frame because they would not unpack, sent on the tick that skipped them; a log or source reader reads no line, and its client counts what it cannot split. The IPC reader keeps no cursor to replay a torn line from, so each is skipped rather than ending the stream on it; `CURSORS` is the `connected` envelope's token, restating every reader's resume point past the skip so a reopen does not read the line again. `COUNTS` lists only the stamps that skipped this tick, each with its own count, and leaves out a stamp holding a space or a comma, as `CURSORS` does. Not data: it never defers the idle close. The browser's `SseInNode` adds `COUNT` to a running total it publishes as `UNPARSEABLE_LINES`, and re-seats each subscription's resume point from `CURSORS`; a hub pulls no IPC stream, so its `SSE_In_Node` ignores the event. |
 | `disconnect` | `KEY=slot_lease_lost`, VALUE `SSE slot lease lost`; or `KEY=superseded`, VALUE `SSE stream superseded by its reconnect` | The terminal frame for a stream whose lease is gone. `slot_lease_lost` is a failure and writes a diagnostic line; `superseded` means the stream's own reconnect took the lease over, and writes nothing. |
 
 The stream **closes itself after `sse_idle_timeout` seconds** (default 5)
@@ -1079,6 +1082,39 @@ presented none. A flat space-separated `KEY VALUE` string rather than JSON, beca
 VALUE is never an array; the slots, their validation by `SSE_In_Node` through
 [`Core::canonical_decimal()`](../includes/class-core.php), and the resume loop they seed are in the
 subscription diagram above.
+
+#### Raw blocks
+
+A log or source reader does not parse what it reads. Each read takes up to 1 MiB
+(`Log_Sources::BLOCK_BYTES`) of one segment from wherever the reader stands,
+mid-line included, through
+[`Consumer_Node::raw_block()`](../includes/class-consumer-node.php), and
+`Consumer_Node::block_messages()` sends it as two messages:
+
+| Message | TYPE | ID | VALUE |
+|---|---|---|---|
+| header | `TM_INFO\|TM_BATCH` | empty | `OFFSET <segment>:<offset> DISTANCE <bytes>[ RESET 1]` |
+| batch | `TM_BATCH`, or `TM_BATCH\|TM_BYTESTREAM` for a source | `<segment>:<offset>` | the raw bytes |
+
+`OFFSET`, which the batch's ID repeats, is where the bytes begin; a seek word, a
+rolled segment or a rewind can move it from where the reader was asked to stand.
+`DISTANCE` is what the log holds from there, the block's own bytes included, so
+0 is the end. `RESET 1` says retention deleted the segment the reader stood on,
+and the block begins at offset 0 of the oldest segment left. A stream sends a
+block only when it holds bytes; `raw-logs read_block` sends one even empty and
+adds `ASKED <position>` to the header.
+
+The client splits the bytes at their newlines. A record's breadcrumb is the
+block's segment, its offset plus the line's byte position in the block, and the
+line's byte length with its newline. A packed line is unpacked and stamped FROM
+the stream; a source's line becomes a TM_BYTESTREAM carrying it. What follows the
+last newline is carried and joined to the next block that continues it, so a
+record longer than a block arrives whole; one the next block does not continue
+was torn, as is a line that will not unpack. A batch no header placed is dropped.
+A hub reader dead-letters a torn line at its place and moves past it; the browser's `SseInNode`, which has no
+quarantine, counts it under `UNPARSEABLE_LINES`. A hub reader's
+backlog is the latest `DISTANCE` less how far its cursor has drained past
+`OFFSET`.
 
 #### Slot gating
 
@@ -1109,9 +1145,11 @@ A [`Log_Sources`](../includes/class-log-sources.php) registry entry streams from
 partitions on the same stream. The name is a fixed **registry NAME**, opened as
 a [`Tail_Node`](../includes/class-tail-node.php) reader instead of a Consumer;
 a caller can never supply a path, so there is no traversal surface. On the wire
-a source is a partition: same packed `msg` events, `retry` and `connected`
+a source is a partition: same `msg` events, `retry` and `connected`
 envelopes, heartbeat cadence, flush framing, idle close and slot pool, with each
-frame's FROM opening with `sources/<name>`.
+frame's FROM `sources/<name>`. Its blocks are typed `TM_BATCH|TM_BYTESTREAM`,
+because a source's lines are text: a client wraps each as the TM_BYTESTREAM a
+Tail emits, VALUE the line with its newline.
 
 ![The Log_Sources registry: the three families merged in priority order with the tail mode each carries, the picker row Log_Sources::catalog() builds and the footprint dump_log answers, the two classes Log_Sources::open_tail() maps the mode token to, the one read model behind raw-logs read_message and read_block with the struct read_message answers, the malformed position it refuses and the empty read it answers with a null message.](img/api-log-stream-sources.png)
 
@@ -1119,8 +1157,7 @@ The same registry backs `raw-logs`. `list_logs` lists every source as a
 `sources/<name>` row after the partition dirs, each row carrying `available`;
 `dump_log sources/<name>` sizes one, as `{ log_id, segments, segment_count,
 total_size }`; `read_message sources/<name> <position>` single-steps it; and
-`read_block sources/<name> <position>` answers `{ source, messages, cursor,
-at_eof, unparseable_lines }` for one 1 MiB block. A
+`read_block sources/<name> <position>` answers one raw block of up to 1 MiB. A
 source whose segments will not list takes an unavailable row carrying `error`
 beside every readable source, so one failure never blanks the picker. An active
 topology that will not read takes one too, labelled for the topology and keyed
@@ -1199,7 +1236,7 @@ cursor moves on every drain.
 | `MAX_EVENT_SIZE` | 33554432 (32 MiB) | One event's accumulated `data:`. |
 
 The browser mirror, [`src/runtime/sse-in-node.js`](../src/runtime/sse-in-node.js), opens the same endpoint
-through `EventSource`; its numbers, states and `seekMap()` precedence are in
+through `fetch()`, parsing the events itself; its numbers, states and `seekMap()` precedence are in
 the diagram. That precedence is what keeps a chart asking to replay from the
 start of the log from being collapsed to a single live point by a stream the
 slot pool refused before its first frame, and a glob's dirs tail-seek on the

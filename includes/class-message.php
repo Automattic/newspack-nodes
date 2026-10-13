@@ -105,6 +105,13 @@ class Message {
 	public const TM_UNTYPED = 1024;
 
 	/**
+	 * Raw log bytes, exactly as a segment holds them: the lines of packed
+	 * records, the last possibly cut short, in VALUE, and the place they begin
+	 * in ID. `raw-logs read_block` answers with one (Tachikoma's TM_BATCH).
+	 */
+	public const TM_BATCH = 2048;
+
+	/**
 	 * The ONE flags-to-names map, beside the constants it names. Renderers read
 	 * it through type_labels() and supply their own separator and no-match
 	 * label; a private copy is how a renderer ends up omitting a flag. The
@@ -125,6 +132,7 @@ class Message {
 		self::TM_REQUEST    => 'TM_REQUEST',
 		self::TM_NOREPLY    => 'TM_NOREPLY',
 		self::TM_UNTYPED    => 'TM_UNTYPED',
+		self::TM_BATCH      => 'TM_BATCH',
 	];
 
 	/** Bytes of a raw frame an error may quote, so a huge payload can't flood the log. */
@@ -229,6 +237,26 @@ class Message {
 		return \strlen( $data ) > self::EXCERPT_LENGTH
 			? \substr( $data, 0, self::EXCERPT_LENGTH ) . '…'
 			: $data;
+	}
+
+	/**
+	 * Split a flat TM_INFO VALUE — space-separated `KEY VALUE` pairs of
+	 * whitespace-free tokens, the shape of a stream's `connected` envelope and
+	 * a raw block's header — into a map.
+	 *
+	 * @param string $value The VALUE.
+	 * @return array<string,string>|null Each KEY to the token after it, or null when a KEY has no VALUE.
+	 */
+	public static function info_pairs( string $value ): ?array {
+		$tokens = \preg_split( '/ +/', \trim( $value ) );
+		if ( false === $tokens || 0 !== \count( $tokens ) % 2 ) {
+			return null;
+		}
+		$info = [];
+		for ( $i = 0, $count = \count( $tokens ); $i < $count; $i += 2 ) {
+			$info[ $tokens[ $i ] ] = $tokens[ $i + 1 ];
+		}
+		return $info;
 	}
 
 	/**

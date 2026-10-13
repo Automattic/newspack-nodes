@@ -8,6 +8,7 @@ use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\HTTP_Source_Node;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Probe_Record;
 use Newspack_Nodes\Remote_Broker_Node;
 use Newspack_Nodes\Remote_Consumer_Node;
 use Newspack_Nodes\Remote_Source_Node;
@@ -133,27 +134,53 @@ class HttpSourceNodeTest extends TestCase {
 		return \array_slice( \array_filter( $this->fetches( $http ), static fn ( array $a ): bool => $stamp === $a[0] ), -1 )[0];
 	}
 
-	/** A spoke's read_block answer, echoing `$asked`. */
-	private static function block_reply( array $asked, array $records, int $segment, int $offset, bool $at_eof, int $skipped = 0 ): array {
+	/** A record line as a spoke's segment holds it: a packed bytestream carrying `$value`. */
+	private static function line( string $value ): string {
+		$r                   = Message::new_message();
+		$r[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$r[ Message::VALUE ] = $value;
+		return Message::packed( $r ) . "\n";
+	}
+
+	/**
+	 * A spoke's read_block answer to `$asked`: the header, then `$bytes` as
+	 * the TM_BATCH, sent even empty. The block begins at the asked position
+	 * unless `$offset` says otherwise, and DISTANCE defaults to the block's
+	 * own length, a log caught up once it is read.
+	 *
+	 * @return list<array<int,mixed>>
+	 */
+	private static function block_reply( array $asked, string $bytes, ?int $distance = null, ?string $offset = null, string $extra = '', int $type = Message::TM_BATCH ): array {
+		$offset                ??= $asked[1];
+		$distance              ??= \strlen( $bytes );
+		$info                   = Message::new_message();
+		$info[ Message::TYPE ]  = Message::TM_INFO | Message::TM_BATCH;
+		$info[ Message::VALUE ] = "OFFSET {$offset} DISTANCE {$distance} ASKED {$asked[1]}{$extra}";
+		$batch                   = Message::new_message();
+		$batch[ Message::TYPE ]  = $type;
+		$batch[ Message::ID ]    = $offset;
+		$batch[ Message::VALUE ] = $bytes;
+		return [ $info, $batch ];
+	}
+
+	/** The command reply a spoke sends when it refuses a read_block. */
+	private static function refusal( array $asked, string $text ): array {
 		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
-		$m[ Message::TO ]    = 'pull-austin:firehose.p0';
-		$m[ Message::VALUE ] = [
-			'name'      => 'read_block',
-			'arguments' => $asked,
-			'payload'   => [ 'source' => $asked[0], 'messages' => $records, 'cursor' => [ 'segment' => $segment, 'offset' => $offset ], 'at_eof' => $at_eof, 'unparseable_lines' => $skipped ],
-		];
+		$m[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_ERROR;
+		$m[ Message::VALUE ] = [ 'name' => 'read_block', 'arguments' => $asked, 'payload' => $text ];
 		return $m;
 	}
 
-	/** A bytestream record the spoke read at `$crumb`. */
-	private static function record_at( string $crumb, string $value ): array {
-		$r                   = Message::new_message();
-		$r[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$r[ Message::FROM ]  = 'firehose.p0';
-		$r[ Message::ID ]    = $crumb;
-		$r[ Message::VALUE ] = $value;
-		return $r;
+	/** Hand a reader every message of an answer, in order. */
+	private static function answer( Remote_Consumer_Node $reader, array $replies ): void {
+		foreach ( $replies as $m ) {
+			$reader->fill( $m );
+		}
+	}
+
+	/** A `pull-austin` reader's dead-letter dir, by the kind its stamp gives. */
+	private function dlq( string $kind = 'firehose.p0' ): string {
+		return \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' ) . "/deadletter/pull-austin/{$kind}";
 	}
 
 	/** The status snapshot the broker last wrote. */
@@ -333,22 +360,153 @@ class HttpSourceNodeTest extends TestCase {
 		[ , $reader, $sink, $http ] = $this->fetching_reader();
 		$reader->fire_cb();
 
-		$reader->fill( self::block_reply( [ 'firehose.p0', '31:4404' ], [ self::record_at( '31:4404:61', 'one-8820' ), self::record_at( '31:4465:59', 'two-3307' ) ], 31, 4524, false ) );
+		$bytes = self::line( 'one-8820' ) . self::line( 'two-3307' );
+
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], $bytes, \strlen( $bytes ) + 9157 ) );
 		$reader->fire_cb();
 
 		$this->assertSame( [ 'one-8820', 'two-3307' ], \array_column( $sink->captured, Message::VALUE ) );
-		$this->assertSame( [ [ 'firehose.p0', '31:4404' ], [ 'firehose.p0', '31:4524' ] ], $this->fetches( $http ) );
+		$this->assertSame( [ [ 'firehose.p0', '31:4404' ], [ 'firehose.p0', '31:' . ( 4404 + \strlen( $bytes ) ) ] ], $this->fetches( $http ) );
 	}
 
-	/** A block of torn lines alone moves the reader on, and it asks again at once. */
-	public function test_a_block_of_skipped_lines_alone_asks_again_at_once(): void {
+	/** A source's block is lines of text, each relayed as the TM_BYTESTREAM a Tail emits. */
+	public function test_a_sources_block_arrives_as_its_lines_of_text(): void {
+		$this->seed_austin();
+		$php = new Capture_Sink_Node();
+		$php->name( 'php-errors' );
+		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'sources/php:php-errors' ) );
+		$node->fire();
+		$reader = Core::node( 'pull-austin:sources:php' );
+		$reader->next_offset( [ 'segment' => 77031, 'offset' => 12 ] );
+		$reader->fire_cb();
+
+		self::answer( $reader, self::block_reply( [ 'sources/php', '77031:12' ], "PHP Warning 5521\nnot json 6604\n", null, null, '', Message::TM_BATCH | Message::TM_BYTESTREAM ) );
+		$reader->fire_cb();
+
+		$this->assertSame( [ "PHP Warning 5521\n", "not json 6604\n" ], \array_column( $php->captured, Message::VALUE ) );
+		$this->assertSame( [ 'sources/php', 'sources/php' ], \array_column( $php->captured, Message::FROM ) );
+		$this->assertSame( [ '77031:12:17', '77031:29:14' ], \array_column( $php->captured, Message::ID ) );
+		$this->assertSame( 0, $this->count_log_records( $this->dlq( 'sources:php' ) ), 'text is no torn record' );
+	}
+
+	/** Each relayed record names the log the spoke read and its exact place there. */
+	public function test_each_record_is_stamped_with_its_log_and_place(): void {
+		[ , $reader, $sink ] = $this->fetching_reader();
+		$reader->fire_cb();
+		$one = self::line( 'one-8820' );
+		$two = self::line( 'two-3307' );
+
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], $one . $two ) );
+		$reader->fire_cb();
+
+		$this->assertSame( [ 'firehose.p0', 'firehose.p0' ], \array_column( $sink->captured, Message::FROM ) );
+		$this->assertSame( [ '31:4404:' . \strlen( $one ), '31:' . ( 4404 + \strlen( $one ) ) . ':' . \strlen( $two ) ], \array_column( $sink->captured, Message::ID ) );
+	}
+
+	/** The backlog is the header's distance less how far the reader has drained past its offset. */
+	public function test_the_backlog_falls_as_the_reader_drains(): void {
+		[ , $reader ] = $this->fetching_reader();
+		$reader->fire_cb();
+		$bytes = self::line( 'one-8820' ) . self::line( 'two-3307' );
+
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], $bytes, \strlen( $bytes ) + 7351 ) );
+
+		$this->assertSame( \strlen( $bytes ) + 7351, $reader->probe_stats()[ Probe_Record::DISTANCE ], 'nothing drained yet' );
+		$reader->fire_cb();
+		$this->assertSame( 7351, $reader->probe_stats()[ Probe_Record::DISTANCE ] );
+	}
+
+	/** A reader holding a block's worth asks for no more, so its last header's backlog stands. */
+	public function test_a_full_readers_silence_leaves_the_backlog_standing(): void {
+		[ , $reader ] = $this->fetching_reader();
+		$reader->fire_cb();
+		$bytes = self::line( \str_repeat( 'v', \Newspack_Nodes\Log_Sources::BLOCK_BYTES ) );
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], $bytes, \strlen( $bytes ) + 52219 ) );
+
+		Core::$now += Remote_Consumer_Node::DISTANCE_STALE_SECONDS + 23;
+
+		$this->assertSame( \strlen( $bytes ) + 52219, $reader->probe_stats()[ Probe_Record::DISTANCE ] );
+	}
+
+	/** A line the block cut short waits for the next, which asks from the byte after it. */
+	public function test_a_cut_line_is_joined_from_the_next_block(): void {
+		[ , $reader, $sink, $http ] = $this->fetching_reader();
+		$reader->fire_cb();
+		$one = self::line( 'one-8820' );
+		$two = self::line( 'two-3307' );
+		$cut = 17;
+
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], $one . \substr( $two, 0, $cut ), \strlen( $one . $two ) ) );
+		$reader->fire_cb();
+		$rest = '31:' . ( 4404 + \strlen( $one ) + $cut );
+		$this->assertSame( [ 'firehose.p0', $rest ], $this->last_fetch( $http ), 'asked from the byte after what it holds' );
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', $rest ], \substr( $two, $cut ) ) );
+		$reader->fire_cb();
+
+		$this->assertSame( [ 'one-8820', 'two-3307' ], \array_column( $sink->captured, Message::VALUE ) );
+		$this->assertSame( '31:' . ( 4404 + \strlen( $one ) ) . ':' . \strlen( $two ), $sink->captured[1][ Message::ID ] );
+	}
+
+	/** A line longer than a block arrives across blocks and goes once, whole. */
+	public function test_a_line_longer_than_a_block_assembles(): void {
+		[ , $reader, $sink, $http ] = $this->fetching_reader();
+		$reader->fire_cb();
+		$big  = self::line( \str_repeat( 'w', \Newspack_Nodes\Log_Sources::BLOCK_BYTES + 5521 ) );
+		$head = \substr( $big, 0, \Newspack_Nodes\Log_Sources::BLOCK_BYTES );
+
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], $head, \strlen( $big ) ) );
+		$reader->fire_cb();
+		$this->assertSame( [], $sink->captured );
+		$rest = '31:' . ( 4404 + \strlen( $head ) );
+		$this->assertSame( [ 'firehose.p0', $rest ], $this->last_fetch( $http ) );
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', $rest ], \substr( $big, \strlen( $head ) ) ) );
+		$reader->fire_cb();
+
+		$this->assertCount( 1, $sink->captured );
+		$this->assertSame( '31:4404:' . \strlen( $big ), $sink->captured[0][ Message::ID ] );
+	}
+
+	/** A fragment the next block does not continue was torn: it is dead-lettered at its place. */
+	public function test_a_fragment_a_new_segment_does_not_continue_is_torn(): void {
+		[ , $reader, $sink, $http ] = $this->fetching_reader();
+		$reader->fire_cb();
+		$one = self::line( 'one-8820' );
+
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], $one . '[2048,0,"', \strlen( $one ) + 9 ) );
+		$reader->fire_cb();
+		$asked = $this->last_fetch( $http );
+		self::answer( $reader, self::block_reply( $asked, self::line( 'next-5150' ), null, '32:0' ) );
+		$reader->fire_cb();
+
+		$this->assertSame( [ 'one-8820', 'next-5150' ], \array_column( $sink->captured, Message::VALUE ) );
+		$this->assertSame( 1, $this->count_log_records( $this->dlq() ) );
+	}
+
+	/** A spoke that served past deleted segments says so on the hub too. */
+	public function test_a_reset_block_is_logged(): void {
+		[ , $reader ] = $this->fetching_reader();
+		$lines = [];
+		Core::set_stderr_handler( static function ( string $line ) use ( &$lines ): void {
+			$lines[] = $line;
+		} );
+		$reader->fire_cb();
+
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], self::line( 'after-6620' ), null, '35:0', ' RESET 1' ) );
+
+		$this->assertNotEmpty( \array_filter( $lines, static fn ( string $l ): bool => \str_contains( $l, 'deleted' ) && \str_contains( $l, '31:4404' ) ) );
+	}
+
+	/** A block of torn lines alone asks again at once, and each line is dead-lettered as it drains. */
+	public function test_a_block_of_torn_lines_alone_asks_again_at_once(): void {
 		[ , $reader, , $http ] = $this->fetching_reader();
 		$reader->fire_cb();
 
-		$reader->fill( self::block_reply( [ 'firehose.p0', '31:4404' ], [], 32, 1049100, false, 5 ) );
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], \str_repeat( "torn\n", 5 ), 9157, '32:1049100' ) );
 
-		$this->assertSame( [ 'firehose.p0', '32:1049100' ], $this->last_fetch( $http ) );
+		$this->assertSame( [ 'firehose.p0', '32:' . ( 1049100 + 25 ) ], $this->last_fetch( $http ) );
 		$this->assertCount( 2, $this->fetches( $http ) );
+		$reader->fire_cb();
+		$this->assertSame( 5, $this->count_log_records( $this->dlq() ) );
 	}
 
 	public function test_a_reader_holding_a_block_waits_for_its_drain(): void {
@@ -357,7 +515,7 @@ class HttpSourceNodeTest extends TestCase {
 		$big   = \str_repeat( 'q', \Newspack_Nodes\Log_Sources::BLOCK_BYTES + 4194 );
 		$asked = $this->last_fetch( $http );
 
-		$reader->fill( self::block_reply( $asked, [ self::record_at( '31:4404:' . \strlen( $big ), $big ) ], 31, 4404 + \strlen( $big ), false ) );
+		self::answer( $reader, self::block_reply( $asked, self::line( $big ), \strlen( $big ) + 9157 ) );
 
 		$this->assertCount( 1, $this->fetches( $http ), 'no new ask while it holds more than a block' );
 		$this->assertSame( $asked, $this->last_fetch( $http ) );
@@ -367,9 +525,9 @@ class HttpSourceNodeTest extends TestCase {
 	public function test_a_drained_reader_asks_past_what_it_held(): void {
 		[ , $reader, $sink, $http ] = $this->fetching_reader();
 		$reader->fire_cb();
-		$big = \str_repeat( 'r', \Newspack_Nodes\Log_Sources::BLOCK_BYTES + 7713 );
+		$big = self::line( \str_repeat( 'r', \Newspack_Nodes\Log_Sources::BLOCK_BYTES + 7713 ) );
 		$end = 4404 + \strlen( $big );
-		$reader->fill( self::block_reply( [ 'firehose.p0', '31:4404' ], [ self::record_at( '31:4404:' . \strlen( $big ), $big ) ], 31, $end, false ) );
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], $big, \strlen( $big ) + 9157 ) );
 
 		$reader->fire_cb();
 
@@ -382,7 +540,7 @@ class HttpSourceNodeTest extends TestCase {
 	public function test_the_end_waits_five_seconds_for_the_brokers_tick(): void {
 		[ $node, $reader, , $http ] = $this->fetching_reader();
 		$reader->fire_cb();
-		$reader->fill( self::block_reply( [ 'firehose.p0', '31:4404' ], [], 31, 4404, true ) );
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], '', null, '31:' . ( 4404 ) ) );
 
 		Core::$now += 4.9;
 		$node->fire();
@@ -405,7 +563,7 @@ class HttpSourceNodeTest extends TestCase {
 			Core::$now = $at;
 			$reader    = $this->readers( $node )[ $stamp ];
 			$reader->fire_cb();
-			$reader->fill( self::block_reply( $this->last_fetch_of( $http, $stamp ), [], 4, 6100, true ) );
+			self::answer( $reader, self::block_reply( $this->last_fetch_of( $http, $stamp ), '', null, '4:' . ( 6100 ) ) );
 		}
 		$asked = \count( $this->fetches( $http ) );
 
@@ -432,15 +590,16 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertCount( 2, $this->fetches( $http ) );
 	}
 
-	public function test_a_block_ending_in_skipped_lines_fetches_past_them(): void {
+	public function test_a_block_ending_in_torn_lines_fetches_past_them(): void {
 		[ , $reader, , $http ] = $this->fetching_reader();
 		$reader->fire_cb();
 
-		$reader->fill( self::block_reply( [ 'firehose.p0', '31:4404' ], [ self::record_at( '31:4404:61', 'one-8820' ) ], 31, 4602, false, 2 ) );
+		$bytes = self::line( 'one-8820' ) . "torn-a\ntorn-b\n";
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], $bytes, \strlen( $bytes ) + 9157 ) );
 		$reader->fire_cb();
 
-		$this->assertSame( [ 'firehose.p0', '31:4602' ], $this->last_fetch( $http ) );
-		$this->assertSame( 2, $reader->fetch_stats()['skipped'] );
+		$this->assertSame( [ 'firehose.p0', '31:' . ( 4404 + \strlen( $bytes ) ) ], $this->last_fetch( $http ) );
+		$this->assertSame( 2, $this->count_log_records( $this->dlq() ) );
 	}
 
 	public function test_a_fetch_reply_after_a_seek_is_ignored(): void {
@@ -448,7 +607,7 @@ class HttpSourceNodeTest extends TestCase {
 		$reader->fire_cb();
 		$reader->next_offset( [ 'segment' => 40, 'offset' => 977 ] );
 
-		$reader->fill( self::block_reply( [ 'firehose.p0', '31:4404' ], [ self::record_at( '31:4404:61', 'stale-6113' ) ], 31, 4465, false ) );
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], self::line( 'stale-6113' ) ) );
 
 		$this->assertSame( [], $sink->captured );
 		$this->assertSame( [ 'segment' => 40, 'offset' => 977 ], $reader->connect_position() );
@@ -465,13 +624,67 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertSame( [ 'read_message' ], $names );
 	}
 
+	/** A file the spoke cannot find yet places a reader with no place at the offset named, under no invented generation. */
+	public function test_an_absent_file_places_a_placeless_reader_at_its_offset(): void {
+		$this->seed_austin();
+		$php = new Capture_Sink_Node();
+		$php->name( 'php-errors' );
+		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'sources/php:php-errors' ) );
+		$node->fire();
+		$http   = Core::node( 'pull-austin:http-out' );
+		$reader = Core::node( 'pull-austin:sources:php' );
+		$reader->fire_cb();
+
+		self::answer( $reader, self::block_reply( $this->last_fetch_of( $http, 'sources/php' ), '', 0, ':7316', '', Message::TM_BATCH | Message::TM_BYTESTREAM ) );
+		$reader->fire_cb();
+		$this->assertNotNull( $reader->fetch_stats()['fetch_after'], 'the empty answer waits an EOF poll' );
+		Core::$now += HTTP_Source_Node::EOF_POLL_SECONDS + 0.5;
+		$node->fire();
+
+		$asked = $this->last_fetch_of( $http, 'sources/php' );
+		$this->assertSame( ':7316', $asked[1], 'it asks from the offset named, naming no generation' );
+		self::answer( $reader, self::block_reply( $asked, "PHP Fatal 4471\n", null, '90210:7316', '', Message::TM_BATCH | Message::TM_BYTESTREAM ) );
+		$reader->fire_cb();
+		$this->assertSame( [ "PHP Fatal 4471\n" ], \array_column( $php->captured, Message::VALUE ) );
+	}
+
+	/** A file briefly missing leaves a reader that knows its place there, rather than replaying from the top. */
+	public function test_an_absent_file_keeps_a_known_place(): void {
+		$this->seed_austin();
+		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'sources/php:php-errors' ) );
+		$node->fire();
+		$http   = Core::node( 'pull-austin:http-out' );
+		$reader = Core::node( 'pull-austin:sources:php' );
+		$reader->next_offset( [ 'segment' => 57, 'offset' => 3318 ] );
+		$reader->fire_cb();
+		self::answer( $reader, self::block_reply( $this->last_fetch_of( $http, 'sources/php' ), "PHP Notice 2208\n", null, '57:3318', '', Message::TM_BATCH | Message::TM_BYTESTREAM ) );
+		$reader->fire_cb();
+
+		self::answer( $reader, self::block_reply( $this->last_fetch_of( $http, 'sources/php' ), '', 0, ':0', '', Message::TM_BATCH | Message::TM_BYTESTREAM ) );
+		$reader->fire_cb();
+		Core::$now += HTTP_Source_Node::EOF_POLL_SECONDS + 0.5;
+		$node->fire();
+
+		$this->assertSame( '57:3334', $this->last_fetch_of( $http, 'sources/php' )[1] );
+	}
+
+	/** A block with bytes that names no segment cannot be placed: dropped, and its fetch settled as refused. */
+	public function test_a_segmentless_block_with_bytes_is_refused(): void {
+		[ , $reader ] = $this->fetching_reader();
+		$errors = $this->capture_stderr();
+		$reader->fire_cb();
+
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], self::line( 'adrift-6602' ), null, ':4404' ) );
+
+		$this->assertStringContainsString( 'names no segment', (string) $reader->fetch_stats()['refused'] );
+		$this->assertStringContainsString( 'names no segment', \implode( '', (array) $errors ) );
+	}
+
 	/** A refused fetch waits an EOF poll, but reports no end-of-log wait. */
 	public function test_a_refused_fetch_waits_an_eof_poll(): void {
 		[ $node, $reader, , $http ] = $this->fetching_reader();
 		$reader->fire_cb();
-		$refusal                              = self::block_reply( [ 'firehose.p0', '31:4404' ], [], 0, 0, false );
-		$refusal[ Message::TYPE ]             = Message::TM_COMMAND | Message::TM_ERROR;
-		$refusal[ Message::VALUE ]['payload'] = "unknown log: \"firehose.p0\"\n";
+		$refusal = self::refusal( [ 'firehose.p0', '31:4404' ], "unknown log: \"firehose.p0\"\n" );
 
 		$reader->fill( $refusal );
 		Core::$now += HTTP_Source_Node::EOF_POLL_SECONDS - 0.3;
@@ -488,16 +701,14 @@ class HttpSourceNodeTest extends TestCase {
 	public function test_a_refused_fetch_is_the_status_error_until_a_block_answers(): void {
 		[ $node, $reader, , $http ] = $this->fetching_reader();
 		$reader->fire_cb();
-		$refusal                              = self::block_reply( [ 'firehose.p0', '31:4404' ], [], 0, 0, false );
-		$refusal[ Message::TYPE ]             = Message::TM_COMMAND | Message::TM_ERROR;
-		$refusal[ Message::VALUE ]['payload'] = "unknown command: read_block\n";
+		$refusal = self::refusal( [ 'firehose.p0', '31:4404' ], "unknown command: read_block\n" );
 		$reader->fill( $refusal );
 		$node->fire();
 		$this->assertStringContainsString( 'unknown command: read_block', (string) $this->snapshot()['last_error'] );
 
 		Core::$now += HTTP_Source_Node::EOF_POLL_SECONDS + 0.5;
 		$node->fire();
-		$reader->fill( self::block_reply( $this->last_fetch( $http ), [], 31, 4404, true ) );
+		self::answer( $reader, self::block_reply( $this->last_fetch( $http ), '', null, '31:' . ( 4404 ) ) );
 		$node->fire();
 
 		$this->assertNull( $this->snapshot()['last_error'] );
@@ -509,7 +720,7 @@ class HttpSourceNodeTest extends TestCase {
 		Core::$now = 512.0;
 		$reader->fire_cb();
 		Core::$now = 515.25;
-		$reader->fill( self::block_reply( [ 'firehose.p0', '31:4404' ], [ self::record_at( '31:4404:61', 'one-8820' ) ], 31, 4465, false ) );
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], self::line( 'one-8820' ), 9157 ) );
 
 		$node->fire();
 
@@ -526,7 +737,7 @@ class HttpSourceNodeTest extends TestCase {
 		Core::$now = 500.250;
 		$reader->fire_cb();
 		Core::$now = 501.900;
-		$reader->fill( self::block_reply( [ 'firehose.p0', '31:4404' ], [], 31, 4404, true ) );
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], '', null, '31:' . ( 4404 ) ) );
 
 		$node->fire();
 
@@ -539,7 +750,7 @@ class HttpSourceNodeTest extends TestCase {
 		Core::$now = 500.0;
 		$reader->fire_cb();
 		Core::$now = 500.000375;
-		$reader->fill( self::block_reply( [ 'firehose.p0', '31:4404' ], [], 31, 4404, true ) );
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], '', null, '31:' . ( 4404 ) ) );
 
 		$node->fire();
 
@@ -550,7 +761,7 @@ class HttpSourceNodeTest extends TestCase {
 	public function test_the_status_ages_out_a_stale_answer(): void {
 		[ $node, $reader ] = $this->fetching_reader();
 		$reader->fire_cb();
-		$reader->fill( self::block_reply( [ 'firehose.p0', '31:4404' ], [], 31, 4404, true ) );
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], '', null, '31:' . ( 4404 ) ) );
 
 		Core::$now += 4 * HTTP_Source_Node::EOF_POLL_SECONDS + 0.5;
 		$node->fire();
@@ -563,28 +774,11 @@ class HttpSourceNodeTest extends TestCase {
 		[ $node, $reader ] = $this->fetching_reader();
 		$reader->fire_cb();
 		Core::$now = 503.25;
-		$reader->fill( self::block_reply( [ 'firehose.p0', '31:4404' ], [], 31, 4404, true ) );
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], '', null, '31:' . ( 4404 ) ) );
 
 		$node->fire();
 
 		$this->assertSame( 509, $this->snapshot()['scheduled_reconnect_at'] );
-	}
-
-	/** Torn lines every reader's blocks skipped add up under the broker. */
-	public function test_the_status_sums_each_readers_skipped_lines(): void {
-		$this->seed_austin();
-		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'firehose.p0:downstream', 'sources/php:errors' ) );
-		$node->fire();
-		$http = Core::node( 'pull-austin:http-out' );
-		foreach ( [ 'firehose.p0' => 7, 'sources/php' => 4 ] as $stamp => $skipped ) {
-			$reader = $this->readers( $node )[ $stamp ];
-			$reader->fire_cb();
-			$reader->fill( self::block_reply( $this->last_fetch_of( $http, $stamp ), [], 31, 9000 + $skipped, true, $skipped ) );
-		}
-
-		$node->fire();
-
-		$this->assertSame( 11, $this->snapshot()['unparseable_lines'] );
 	}
 
 	/** A step taken while a fetch is out pauses the reader; the late block asks nothing more. */
@@ -593,7 +787,7 @@ class HttpSourceNodeTest extends TestCase {
 		$reader->fire_cb();
 		$reader->step();
 
-		$reader->fill( self::block_reply( [ 'firehose.p0', '31:4404' ], [ self::record_at( '31:4404:61', 'one-8820' ) ], 31, 4465, false ) );
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], self::line( 'one-8820' ), 9157 ) );
 
 		$this->assertSame( [ [ 'firehose.p0', '31:4404' ] ], $this->fetches( $http ) );
 		$this->assertSame( 0, $reader->buffered_bytes(), 'the step forgave the fetch, so its block settles nothing' );
@@ -607,7 +801,7 @@ class HttpSourceNodeTest extends TestCase {
 		$reader->pause();
 		$before = $reader->connect_position();
 
-		$reader->fill( self::block_reply( [ 'firehose.p0', '31:4404' ], [ self::record_at( '31:4404:61', 'late-5150' ) ], 31, 4465, false ) );
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], self::line( 'late-5150' ), 9157 ) );
 
 		$this->assertSame( [], $sink->captured );
 		$this->assertSame( 0, $reader->buffered_bytes() );
@@ -618,7 +812,7 @@ class HttpSourceNodeTest extends TestCase {
 	public function test_a_seek_at_the_end_asks_the_new_place_at_once(): void {
 		[ , $reader, , $http ] = $this->fetching_reader();
 		$reader->fire_cb();
-		$reader->fill( self::block_reply( [ 'firehose.p0', '31:4404' ], [], 31, 4404, true ) );
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], '', null, '31:' . ( 4404 ) ) );
 
 		$reader->next_offset( [ 'segment' => 44, 'offset' => 2718 ] );
 		$reader->fire_cb();
@@ -638,9 +832,9 @@ class HttpSourceNodeTest extends TestCase {
 		Core::$now = 501.0;
 		$readers['sources/php']->fire_cb();
 		Core::$now = 503.25;
-		$readers['firehose.p0']->fill( self::block_reply( $this->last_fetch_of( $http, 'firehose.p0' ), [], 31, 4404, true ) );
+		self::answer( $readers['firehose.p0'], self::block_reply( $this->last_fetch_of( $http, 'firehose.p0' ), '', null, '31:' . ( 4404 ) ) );
 		Core::$now = 504.5;
-		$readers['sources/php']->fill( self::block_reply( $this->last_fetch_of( $http, 'sources/php' ), [], 2, 880, true ) );
+		self::answer( $readers['sources/php'], self::block_reply( $this->last_fetch_of( $http, 'sources/php' ), '', null, '2:880' ) );
 
 		$node->fire();
 
@@ -660,9 +854,11 @@ class HttpSourceNodeTest extends TestCase {
 		$http   = Core::node( 'pull-austin:http-out' );
 
 		$reader->fire_cb();
-		$reader->fill( self::block_reply( [ 'firehose.p0', 'end' ], [], 9, 8817, false ) );
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', 'end' ], '', null, '9:8817' ) );
+		Core::$now += HTTP_Source_Node::EOF_POLL_SECONDS + 0.5;
+		$node->fire();
 
-		$this->assertSame( [ [ 'firehose.p0', 'end' ], [ 'firehose.p0', '9:8817' ] ], $this->fetches( $http ) );
+		$this->assertSame( [ [ 'firehose.p0', 'end' ], [ 'firehose.p0', '9:8817' ] ], $this->fetches( $http ), 'the next ask is where the header said the word stands' );
 	}
 
 	public function test_a_glob_pair_asks_for_the_catalog_from_the_brokers_name(): void {
@@ -838,9 +1034,7 @@ class HttpSourceNodeTest extends TestCase {
 		$node->fire();
 		$reader = $this->readers( $node )['firehose.p0'];
 		$reader->fire_cb();
-		$fetch_refusal                              = self::block_reply( $this->last_fetch_of( Core::node( 'pull-austin:http-out' ), 'firehose.p0' ), [], 0, 0, false );
-		$fetch_refusal[ Message::TYPE ]             = Message::TM_COMMAND | Message::TM_ERROR;
-		$fetch_refusal[ Message::VALUE ]['payload'] = 'block-off-6120';
+		$fetch_refusal = self::refusal( $this->last_fetch_of( Core::node( 'pull-austin:http-out' ), 'firehose.p0' ), 'block-off-6120' );
 		$reader->fill( $fetch_refusal );
 		$node->fill( self::catalog_refusal( 'catalog-off-9054' ) );
 
@@ -920,9 +1114,7 @@ class HttpSourceNodeTest extends TestCase {
 		$GLOBALS['_wp_test_current_user_can']                = [ 'manage_options' => true ];
 		\Newspack_Nodes\Config::reset();
 		$reader->fire_cb();
-		$refusal                              = self::block_reply( [ 'firehose.p0', '31:4404' ], [], 0, 0, false );
-		$refusal[ Message::TYPE ]             = Message::TM_COMMAND | Message::TM_ERROR;
-		$refusal[ Message::VALUE ]['payload'] = 'unknown log: "firehose.p0" 5527';
+		$refusal = self::refusal( [ 'firehose.p0', '31:4404' ], 'unknown log: "firehose.p0" 5527' );
 		$reader->fill( $refusal );
 
 		$node->fire();

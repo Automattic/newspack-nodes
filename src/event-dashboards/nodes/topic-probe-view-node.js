@@ -116,7 +116,7 @@ export class TopicProbeViewNode extends ProbeStreamViewNode {
 			elapsed,
 			msgs,
 			bytes,
-			// A hub reader cannot see its spoke's end: no point, never 0.
+			// A hub reader whose spoke has not reported: no point, never 0.
 			backlog:
 				null === value[ Probe.DISTANCE ]
 					? null

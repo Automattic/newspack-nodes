@@ -1,8 +1,8 @@
-/* global EventSource */
+/* global requestAnimationFrame */
 /**
  * Bring a server's message stream into the browser node graph.
  *
- * `SseInNode` opens an EventSource presenting the command session it signs
+ * `SseInNode` opens a stream presenting the command session it signs
  * with, snoops the `connected` handshake for that session, the slot and the
  * lease owner, and fills every parsed `msg` frame into the local graph.
  * RemoteLink composes it as the per-link `<patron>:sse-in`, and takes each
@@ -35,18 +35,25 @@ import { Core } from './core';
 import { nodesData, refreshNodesNonce } from './nodes-data';
 import { ensureSession, renewSession, sessionHandle } from './command-auth';
 import { IoTelemetry, byteLength } from './io-telemetry';
+import { FetchEventSource } from './fetch-event-source';
 import {
 	TYPE,
 	FROM,
 	ID,
 	KEY,
 	VALUE,
+	TM_BATCH,
+	TM_BYTESTREAM,
 	TM_ERROR,
+	TM_INFO,
 	TM_UNTYPED,
+	infoPairs,
+	newMessage,
 	unpack,
+	unpacked,
 } from './message';
 import { anyCarries, isGlob, splitStamp } from './log-stamp';
-import { parseCrumb, parsePosition } from './log-position';
+import { formatPosition, parseCrumb, parsePosition } from './log-position';
 
 /**
  * A PHP lease owner as it travels: a canonical positive decimal string.
@@ -66,23 +73,6 @@ const LEASE_OWNER_RE = /^[1-9][0-9]*$/;
 const RETRY_MS_RE = /^(?:0|[1-9][0-9]*)$/;
 
 /**
- * Split a flat TM_INFO VALUE — space-separated `KEY VALUE` pairs, the shape of
- * the `connected` envelope and the `unparseable_lines` frame — into a map.
- *
- * @param {*} value The frame's VALUE.
- * @return {Object<string,string>} Each KEY to the VALUE after it.
- */
-function flatInfo( value ) {
-	const parts = String( value ?? '' ).split( ' ' );
-	/** @type {Object<string,string>} */
-	const info = {};
-	for ( let i = 0; i + 1 < parts.length; i += 2 ) {
-		info[ parts[ i ] ] = parts[ i + 1 ];
-	}
-	return info;
-}
-
-/**
  * Split a comma-separated `key=value` token, the shape of `CURSORS` and
  * `COUNTS`, into its pairs; a pair naming no key is skipped.
  *
@@ -98,6 +88,19 @@ function pairsOf( token ) {
 				? [ [ pair.slice( 0, eq ), pair.slice( eq + 1 ) ] ]
 				: [];
 		} );
+}
+
+/**
+ * A line of a source's raw block as the record a Tail emits for it.
+ *
+ * @param {string} line The line, without its newline.
+ * @return {Array} A TM_BYTESTREAM carrying the line, newline restored.
+ */
+function textRecord( line ) {
+	const m = newMessage();
+	m[ TYPE ] = TM_BYTESTREAM;
+	m[ VALUE ] = `${ line }\n`;
+	return m;
 }
 
 /**
@@ -176,15 +179,66 @@ const MAX_BACKOFF_MS = 30000;
  */
 const PROBE_STREAM_ID = '!';
 
+/** Milliseconds a block's split runs before it hands the page a turn. */
+const SLICE_MS = 8;
+
 /**
- * The receive half of a remote link: one EventSource, the watchdog that
+ * Hand the event loop back to the page and resume once it has painted: the
+ * task after the next animation frame. Yielding a task alone lets the next
+ * slice start before a frame is due, so a busy stream never paints. A hidden
+ * page paints nothing and throttles its timers, so it takes no turn, and one
+ * that hides while a frame is owed resumes then, since that frame never runs.
+ *
+ * @return {?Promise<void>} Settles once the page has had its turn, or null when there is no turn to give.
+ */
+function yieldToPage() {
+	const doc = globalThis.document;
+	if ( 'hidden' === doc?.visibilityState ) {
+		return null;
+	}
+	if ( 'function' !== typeof requestAnimationFrame ) {
+		return new Promise( ( resolve ) => setTimeout( resolve, 0 ) );
+	}
+	return new Promise( ( resolve ) => {
+		const done = () => resolve();
+		doc?.addEventListener( 'visibilitychange', done, { once: true } );
+		requestAnimationFrame( () =>
+			setTimeout( () => {
+				doc?.removeEventListener( 'visibilitychange', done );
+				done();
+			}, 0 )
+		);
+	} );
+}
+
+/**
+ * What `SseInNode.openStream` hands back: a `FetchEventSource`, or anything
+ * with its surface, such as a test's fake `EventSource`.
+ *
+ * @typedef {{url: string, readyState: number, addEventListener: Function, close: () => void}} StreamSource
+ */
+
+/**
+ * The receive half of a remote link: one stream, the watchdog that
  * notices when it dies silently, and the session identity the `connected`
  * handshake hands back. `start()` opens the stream; each `msg` frame is
- * unpacked and filled into the local graph, while `connected`, `retry`,
+ * unpacked and filled into the local graph, a raw block's records once its
+ * TM_BATCH is split at its newlines, while `connected`, `retry`,
  * `heartbeat`, `disconnect` and `unparseable_lines` are snooped for lifecycle,
  * reopen cadence, liveness and skipped lines rather than routed.
  */
 export class SseInNode extends SchemaReflection( TimerNode ) {
+	/**
+	 * Stream-opening seam, replacing `new FetchEventSource( url, {
+	 * withCredentials: true } )`. Tests reassign it to hand back a fake with
+	 * the same surface and drive its frames; null opens the real stream.
+	 *
+	 * Signature: `( url: string ) => { readyState: number, addEventListener: Function, close: Function }`.
+	 *
+	 * @type {?( url: string ) => StreamSource}
+	 */
+	static openStream = null;
+
 	/**
 	 * Start closed — no stream, no watchdog, no session. Every field is either
 	 * configuration a patron may overwrite before `start()`, or per-connection
@@ -243,6 +297,20 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 		 * @type {Object<string,number>}
 		 */
 		this.unparseableByStamp = {};
+		/**
+		 * A line the last raw block cut short, per dir: where it begins and
+		 * its text so far, joined to the block that continues it.
+		 *
+		 * @type {Object<string,{segment:number,offset:number,text:string}>}
+		 */
+		this._carries = {};
+		/**
+		 * The OFFSET of the header each dir's next batch must carry as its ID:
+		 * a batch no header placed is dropped, as PHP drops it.
+		 *
+		 * @type {Object<string,string>}
+		 */
+		this._heads = {};
 		this._handleVisibilityChange = () => {
 			if ( 'visible' !== document.visibilityState ) {
 				return;
@@ -306,7 +374,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	fire() {
 		const ref = Math.max( this.lastEventTime ?? 0, this._watchdogBase );
 		if (
-			EventSource.CONNECTING === this._es?.readyState &&
+			FetchEventSource.CONNECTING === this._es?.readyState &&
 			Date.now() - ref <= CONNECTING_FORCE_AFTER_MS
 		) {
 			return;
@@ -360,6 +428,8 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 		this._positions = { ...this._positions };
 		dropKeys( this._positions, drop );
 		dropKeys( this.lastPositions, drop );
+		dropKeys( this._carries, drop );
+		dropKeys( this._heads, drop );
 	}
 
 	/**
@@ -373,7 +443,11 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	_applyConnected( value ) {
 		// A live handshake clears the backoff, like PHP's dispatch_event.
 		this._backoffMs = INITIAL_BACKOFF_MS;
-		const info = flatInfo( value );
+		const info = infoPairs( value );
+		if ( ! info ) {
+			this._rejectConnected( 'malformed' );
+			return;
+		}
 		if ( ( info.SESSION ?? null ) !== this.presentedSession ) {
 			this._rejectConnected( 'names another SESSION' );
 			return;
@@ -417,7 +491,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	 * @param {*} value `COUNT n COUNTS stamp=n,… CURSORS dir=segment:offset,…`.
 	 */
 	_applyUnparseable( value ) {
-		const info = flatInfo( value );
+		const info = infoPairs( value ) ?? {};
 		const count = Number( info.COUNT );
 		if ( ! Number.isSafeInteger( count ) || count < 1 ) {
 			this.setState( 'ERROR', 'malformed unparseable_lines frame' );
@@ -426,10 +500,14 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 			);
 			return;
 		}
-		this.unparseableLines += count;
-		this._countByStamp( info.COUNTS );
 		this._seedPositions( info.CURSORS );
-		this.setState( 'UNPARSEABLE_LINES', this.unparseableLines );
+		this._addSkipped(
+			count,
+			pairsOf( info.COUNTS ).map( ( [ stamp, n ] ) => [
+				stamp,
+				Number( n ),
+			] )
+		);
 	}
 
 	/**
@@ -488,7 +566,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	 * just reopens under whatever session is live. Anything else goes the
 	 * ordinary nonce-and-reconnect way.
 	 *
-	 * @param {EventSource} stream The stream that was refused.
+	 * @param {StreamSource} stream The stream that was refused.
 	 */
 	_probeSession( stream ) {
 		const refused = this.presentedSession;
@@ -517,7 +595,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	 * The ordinary recovery: renew a stale global nonce and reopen, or, where
 	 * the nonce is explicit or renewal is barred, force a reconnect.
 	 *
-	 * @param {EventSource} stream The stream the browser gave up on.
+	 * @param {StreamSource} stream The stream the browser gave up on.
 	 */
 	_renewNonceAndRestart( stream ) {
 		if ( this._nonce || ! this._mayRenewNonce ) {
@@ -633,7 +711,10 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 		// Lifecycle: opening; CONNECTED on handshake, then DISCONNECTED/ERROR.
 		delete this.setStateCache.CONNECTED;
 		this.setState( 'CONNECTING', this.subscribe.join( ',' ) );
-		const es = new EventSource( url, { withCredentials: true } );
+		const es = (
+			SseInNode.openStream ??
+			( ( at ) => new FetchEventSource( at, { withCredentials: true } ) )
+		)( url );
 		this._es = es;
 		// Baseline so a connect with no first frame still trips FORCE_AFTER_MS.
 		this._watchdogBase = Date.now();
@@ -646,7 +727,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 			if ( stale() ) {
 				return;
 			}
-			if ( EventSource.CLOSED === es.readyState ) {
+			if ( FetchEventSource.CLOSED === es.readyState ) {
 				if ( ! this.terminalDisconnect ) {
 					this._reportDisconnected(
 						'EventSource closed',
@@ -737,6 +818,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 				`Server closed stream: ${ displayMessage }`
 			);
 		} );
+		// A record, or a raw block or its header, which the TM_BATCH bit marks.
 		es.addEventListener( 'msg', ( e ) => {
 			if ( stale() ) {
 				return;
@@ -760,32 +842,144 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 				return;
 			}
 			const { dir } = splitStamp( message[ FROM ] );
-			this._trackPosition( message, dir );
+			if ( message[ TYPE ] & TM_BATCH && message[ TYPE ] & TM_INFO ) {
+				this._heads[ dir ] = infoPairs( message[ VALUE ] )?.OFFSET;
+				return;
+			}
 			// Inbound accounting: bytesRead + IoTelemetry (msg DATA only).
 			const size = byteLength( e.data );
 			this.bytesRead += size;
 			this.largestMsgSent = Math.max( this.largestMsgSent, size );
-			IoTelemetry.recordIn( size, 1 );
-			if ( message[ TYPE ] & TM_ERROR ) {
-				// Surface the stream error (still forwarded too).
-				const errText =
-					'string' === typeof message[ VALUE ]
-						? message[ VALUE ]
-						: 'stream error';
-				this.setState( 'ERROR', errText );
+			if ( message[ TYPE ] & TM_BATCH ) {
+				return this._takeBlock( message, size, stale );
 			}
+			this._trackPosition( message, dir );
+			IoTelemetry.recordIn( size, 1 );
 			this._deliver( message, dir );
 		} );
 	}
 
 	/**
+	 * Split a raw block into records, as PHP `Remote_Consumer_Node` does, the
+	 * two held to `tests/fixtures/raw-blocks.json`. A batch no header placed
+	 * is dropped. A line the last block cut short is joined when this one
+	 * continues it, and torn when it does not. Each whole line is unpacked, or
+	 * wrapped as a TM_BYTESTREAM when the block's type says its lines are
+	 * text, then stamped FROM the stream and ID'd with its place in the
+	 * spoke's bytes. A torn line is counted for its stream, since a view has
+	 * no quarantine, and the resume point moves past it either way. What
+	 * follows the last newline waits for the next block, and a reopen asks
+	 * past it. Every `SLICE_MS` it hands a visible page a turn, and stops if its
+	 * stream was replaced meanwhile; the frame's bytes and the records it
+	 * delivered go to `IoTelemetry` once it is done.
+	 *
+	 * @param {Array}         block The TM_BATCH, its ID where the bytes begin.
+	 * @param {number}        size  The frame's bytes on the wire.
+	 * @param {() => boolean} stale Whether the stream it came on was replaced.
+	 * @return {Promise<void>} Settles once every record is delivered.
+	 */
+	async _takeBlock( block, size, stale ) {
+		const stamp = String( block[ FROM ] ?? '' );
+		const { dir } = splitStamp( stamp );
+		const head = this._heads[ dir ];
+		delete this._heads[ dir ];
+		if ( undefined === head || head !== block[ ID ] ) {
+			Core.printLessOften(
+				'ERROR: SseInNode: dropped a raw block no header placed'
+			);
+			IoTelemetry.recordIn( size, 0 );
+			return;
+		}
+		const at = parsePosition( block[ ID ] );
+		if ( '' === dir || undefined === at?.segment ) {
+			Core.printLessOften(
+				'ERROR: SseInNode: dropped a raw block naming no place'
+			);
+			IoTelemetry.recordIn( size, 0 );
+			return;
+		}
+		let text = String( block[ VALUE ] ?? '' );
+		let offset = at.offset;
+		let torn = 0;
+		const carry = this._carries[ dir ];
+		delete this._carries[ dir ];
+		if (
+			carry?.segment === at.segment &&
+			carry.offset + byteLength( carry.text ) === offset
+		) {
+			text = carry.text + text;
+			offset = carry.offset;
+		} else if ( carry ) {
+			torn++;
+		}
+		// An ASCII block's bytes are its characters: no line needs measuring.
+		const ascii = byteLength( text ) === text.length;
+		const isText = 0 !== ( block[ TYPE ] & TM_BYTESTREAM );
+		let delivered = 0;
+		let pos = 0;
+		let nl;
+		let until = performance.now() + SLICE_MS;
+		while ( -1 !== ( nl = text.indexOf( '\n', pos ) ) ) {
+			const line = text.slice( pos, nl );
+			const length = ( ascii ? line.length : byteLength( line ) ) + 1;
+			const record = isText ? textRecord( line ) : unpacked( line );
+			if ( null === record ) {
+				torn++;
+			} else if ( this.stampMessage( record, stamp ) ) {
+				record[ ID ] = formatPosition( at.segment, offset, length );
+				this.lastPositions[ dir ] = {
+					segment: at.segment,
+					offset: offset + length,
+				};
+				this._deliver( record, dir );
+				delivered++;
+			}
+			offset += length;
+			pos = nl + 1;
+			const turn = performance.now() > until && yieldToPage();
+			if ( turn ) {
+				await turn;
+				if ( stale() ) {
+					IoTelemetry.recordIn( size, delivered );
+					return;
+				}
+				// A split under way is a stream alive, however long it runs.
+				this.lastEventTime = Date.now();
+				until = performance.now() + SLICE_MS;
+			}
+		}
+		const cut = text.slice( pos );
+		if ( '' !== cut ) {
+			this._carries[ dir ] = { segment: at.segment, offset, text: cut };
+		}
+		// A reopen asks past the bytes of a cut line, which it already holds.
+		this.lastPositions[ dir ] = {
+			segment: at.segment,
+			offset: offset + byteLength( cut ),
+		};
+		if ( torn > 0 ) {
+			this._addSkipped( torn, [ [ dir, torn ] ] );
+		}
+		IoTelemetry.recordIn( size, delivered );
+	}
+
+	/**
 	 * Hand one record to the patron's `onMessage`, counting it once, or send
-	 * it on by its TO when there is none or it declines.
+	 * it on by its TO when there is none or it declines. A TM_ERROR record
+	 * also surfaces as ERROR.
 	 *
 	 * @param {Array}  message The positional Message just received.
 	 * @param {string} stamp   The stamp its FROM opens with.
 	 */
 	_deliver( message, stamp ) {
+		if ( message[ TYPE ] & TM_ERROR ) {
+			this.setState(
+				'ERROR',
+				'string' === typeof message[ VALUE ]
+					? message[ VALUE ]
+					: 'stream error'
+			);
+		}
 		if ( this.onMessage?.( message, stamp ) ) {
 			this.counter++;
 			return;
@@ -865,6 +1059,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 		this.sessionSlot = null;
 		this.sessionLeaseOwner = null;
 		this.terminalDisconnect = null;
+		this._heads = {};
 	}
 
 	/**
@@ -891,26 +1086,29 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	}
 
 	/**
-	 * Add one frame's per-stamp skips to each stamp's running count. A pair
-	 * naming no stamp, or no positive count, adds nothing.
+	 * Add skipped lines to the running total, published as UNPARSEABLE_LINES,
+	 * and to each stamp's own count. A stamp's count that is no positive whole
+	 * number adds nothing to it.
 	 *
-	 * @param {*} token `stamp=n` pairs, comma-separated; absent adds nothing.
+	 * @param {number}                  total   Lines skipped in all.
+	 * @param {Array<[string, number]>} byStamp Each stamp with its share.
 	 */
-	_countByStamp( token ) {
-		for ( const [ stamp, count ] of pairsOf( token ) ) {
-			const n = Number( count );
+	_addSkipped( total, byStamp ) {
+		this.unparseableLines += total;
+		for ( const [ stamp, n ] of byStamp ) {
 			if ( Number.isSafeInteger( n ) && n > 0 ) {
 				this.unparseableByStamp[ stamp ] =
 					( this.unparseableByStamp[ stamp ] ?? 0 ) + n;
 			}
 		}
+		this.setState( 'UNPARSEABLE_LINES', this.unparseableLines );
 	}
 
 	/**
 	 * Reopen as soon as a command session is live again, waiting out the auth
 	 * backoff between attempts rather than opening a sessionless stream.
 	 *
-	 * @param {EventSource} stream The refused stream this reopen replaces.
+	 * @param {StreamSource} stream The refused stream this reopen replaces.
 	 */
 	_reopenOnceSessionIs( stream ) {
 		ensureSession().then( ( session ) => {

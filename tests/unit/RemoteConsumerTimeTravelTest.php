@@ -254,9 +254,8 @@ class RemoteConsumerTimeTravelTest extends TestCase {
 
 	/** Deliver one spoke record, breadcrumb `$seg:$off:$len`, through SSE_In. */
 	private function deliver( SSE_In_Node $sse, string $crumb, string $value ): void {
-		$sse->process_sse_chunk( self::sse_frame( 'msg', [
+		$sse->process_sse_chunk( self::pushed_record( [
 			Message::TYPE  => Message::TM_BYTESTREAM,
-			Message::FROM  => 'firehose.p0',
 			Message::ID    => $crumb,
 			Message::VALUE => $value,
 		] ) );
@@ -281,8 +280,8 @@ class RemoteConsumerTimeTravelTest extends TestCase {
 		$node->fire_cb();
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$node->next_offset( [ 'segment' => 7, 'offset' => 1 ] );
-		$this->deliver( $sse, '7:1:20', 'a-111' );
-		$this->deliver( $sse, '7:21:20', 'b-222' );
+		$this->deliver( $sse, '7:1:40', 'a-111' );
+		$this->deliver( $sse, '7:41:40', 'b-222' );
 		$node->pause();
 
 		$node->play();
@@ -291,11 +290,11 @@ class RemoteConsumerTimeTravelTest extends TestCase {
 		$this->drain_connect_queue();
 
 		$this->assertSame(
-			[ 'segment' => 7, 'offset' => 41 ],
+			[ 'segment' => 7, 'offset' => 81 ],
 			$this->positions_from_opts( \end( $captured ) )['firehose.p0'] ?? null,
 			'the reconnect asks past everything already held'
 		);
-		$this->deliver( $sse, '7:41:20', 'c-333' );
+		$this->deliver( $sse, '7:81:40', 'c-333' );
 		$node->poll();
 
 		$this->assertSame( [ 'a-111', 'b-222', 'c-333' ], $this->forwarded() );
@@ -309,8 +308,8 @@ class RemoteConsumerTimeTravelTest extends TestCase {
 		$node->fire_cb();
 		$this->drain_connect_queue();
 		$sse = Core::node( 'remote-austin:sse-in' );
-		$this->deliver( $sse, '7:1:20', 'live-626' );
-		$this->deliver( $sse, '7:21:20', 'live-727' );
+		$this->deliver( $sse, '7:1:40', 'live-626' );
+		$this->deliver( $sse, '7:41:40', 'live-727' );
 
 		$node->step(); // a live reader, stepped: one record from the buffer
 		$this->assertSame( [ 'live-626' ], $this->forwarded() );
@@ -330,9 +329,9 @@ class RemoteConsumerTimeTravelTest extends TestCase {
 		$this->drain_connect_queue();
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$node->set_line_mode( true );
-		$payload = \str_repeat( 'x', 2048 );
-		for ( $i = 0; $i < 300; $i++ ) {
-			$this->deliver( $sse, '7:' . ( 1 + 2100 * $i ) . ':2100', $payload );
+		$payload = \str_repeat( 'x', 70000 );
+		for ( $i = 0; $i < 64; $i++ ) {
+			$this->deliver( $sse, '7:' . ( 1 + 70100 * $i ) . ':70100', $payload );
 		}
 		$this->assertFalse( $this->read_private( $this->broker(), 'pump_armed' ), 'precondition: the valve closed' );
 		$node->pause();
@@ -343,7 +342,7 @@ class RemoteConsumerTimeTravelTest extends TestCase {
 		$this->drain_connect_queue();
 
 		$this->assertTrue( $this->read_private( $this->broker(), 'pump_armed' ), 'the new stream opens armed' );
-		$this->deliver( $sse, '7:630001:2100', $payload );
+		$this->deliver( $sse, '7:' . ( 1 + 70100 * 64 ) . ':70100', $payload );
 		$this->assertFalse( $this->read_private( $this->broker(), 'pump_armed' ), 'and closes again over the mark' );
 	}
 

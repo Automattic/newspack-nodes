@@ -72,6 +72,33 @@ class MessageTest extends TestCase {
 		$this->assertSame( [ 'TM_UNTYPED' ], Message::type_labels( Message::TM_UNTYPED ) );
 	}
 
+	public function test_a_raw_block_is_its_own_type(): void {
+		// Raw log bytes: no flag the record types use, so no gate mistakes them.
+		$this->assertSame( 2048, Message::TM_BATCH );
+		$this->assertSame( [ 'TM_BATCH' ], Message::type_labels( Message::TM_BATCH ) );
+	}
+
+	/**
+	 * The flat pairs every multi-field TM_INFO carries, held to the browser's
+	 * `infoPairs()` by `tests/fixtures/info-pairs.json`.
+	 *
+	 * @return array<string,array{string,array<string,string>|null}>
+	 */
+	public static function info_pair_cases(): array {
+		$fixture = \json_decode( (string) \file_get_contents( __DIR__ . '/../fixtures/info-pairs.json' ), true, 512, \JSON_THROW_ON_ERROR );
+		$out     = [];
+		foreach ( $fixture['cases'] as [ $label, $value, $expected ] ) {
+			$out[ $label ] = [ $value, $expected ];
+		}
+		return $out;
+	}
+
+	/** @param array<string,string>|null $expected */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'info_pair_cases' )]
+	public function test_info_pairs_reads_flat_pairs_and_refuses_an_odd_count( string $value, ?array $expected ): void {
+		$this->assertSame( $expected, Message::info_pairs( $value ) );
+	}
+
 	public function test_type_labels_is_empty_when_no_known_flag_matches(): void {
 		// Empty, not a label: each renderer names the no-match case its own way.
 		$this->assertSame( [], Message::type_labels( 0 ) );

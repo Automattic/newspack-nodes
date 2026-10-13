@@ -100,6 +100,12 @@ export const TM_NOREPLY = 512;
 export const TM_UNTYPED = 1024;
 
 /**
+ * Raw log bytes, exactly as a segment holds them, with the place they begin in
+ * ID. Mirror of PHP Message::TM_BATCH.
+ */
+export const TM_BATCH = 2048;
+
+/**
  * The ONE flags-to-names map, beside the constants it names. Renderers read it
  * through typeLabels() and supply their own separator and no-match label; a
  * private copy is how a renderer ends up omitting a flag. Mirror of PHP
@@ -120,6 +126,7 @@ const TYPE_NAMES = [
 	[ TM_REQUEST, 'TM_REQUEST' ],
 	[ TM_NOREPLY, 'TM_NOREPLY' ],
 	[ TM_UNTYPED, 'TM_UNTYPED' ],
+	[ TM_BATCH, 'TM_BATCH' ],
 ];
 
 /**
@@ -192,6 +199,33 @@ export function pack( m ) {
 }
 
 /**
+ * Split a flat TM_INFO VALUE — space-separated `KEY VALUE` pairs of
+ * whitespace-free tokens, the shape of a stream's `connected` envelope and a
+ * raw block's header — into a map, as PHP `Message::info_pairs()` does.
+ *
+ * @param {*} value The VALUE.
+ * @return {?Object<string,string>} Each KEY to the token after it, or null when a KEY has no VALUE or the VALUE is no string.
+ */
+export function infoPairs( value ) {
+	if ( 'string' !== typeof value ) {
+		return null;
+	}
+	// PHP's trim() set, which leaves other Unicode spaces in place.
+	const tokens = value
+		.replace( /^[ \t\n\r\0\v]+|[ \t\n\r\0\v]+$/g, '' )
+		.split( / +/ );
+	if ( 0 !== tokens.length % 2 ) {
+		return null;
+	}
+	/** @type {Object<string,string>} */
+	const info = {};
+	for ( let i = 0; i < tokens.length; i += 2 ) {
+		info[ tokens[ i ] ] = tokens[ i + 1 ];
+	}
+	return info;
+}
+
+/**
  * Parse a wire line back into a 7-field message.
  *
  * Never throws and never returns a short array: malformed JSON, a non-array, or
@@ -213,6 +247,23 @@ export function unpack( s ) {
 		return d.slice( 0, LAST_VALUE_INDEX + 1 );
 	}
 	return newMessage();
+}
+
+/**
+ * Parse a wire line as PHP's `Message::unpacked()` does: exactly seven
+ * positional fields, or null. The block split's torn test, held to PHP's by
+ * `tests/fixtures/raw-blocks.json`.
+ *
+ * @param {string} s One packed line.
+ * @return {?Array} The message, or null when the line will not unpack.
+ */
+export function unpacked( s ) {
+	try {
+		const d = JSON.parse( s );
+		return Array.isArray( d ) && 7 === d.length ? d : null;
+	} catch ( e ) {
+		return null;
+	}
 }
 
 /**
@@ -249,19 +300,47 @@ export function asList( value ) {
 		: [];
 }
 
+/** Any UTF-16 unit outside ASCII; its absence makes length the byte count. */
+const NON_ASCII = /[^\x00-\x7f]/;
+
 /**
- * UTF-8 byte length of a string, matching what PHP's `strlen()` reports.
+ * UTF-8 byte length of a string, matching what PHP's `strlen()` reports: a
+ * lone surrogate counts as the three bytes of the U+FFFD it encodes as.
  *
- * Measured via `Blob` rather than `TextEncoder`, which jsdom lacks.
+ * Counted from the UTF-16 code units, allocating nothing, because a raw
+ * block measures a megabyte at a time, and an all-ASCII string, which a
+ * packed frame always is, takes one native scan.
  *
  * @param {string|null|undefined} str String to measure; nullish counts as 0.
  * @return {number} Byte length.
  */
 export function byteLength( str ) {
-	if ( str === null || str === undefined || str === '' ) {
-		return 0;
+	if ( str === null || str === undefined || ! NON_ASCII.test( str ) ) {
+		return str?.length ?? 0;
 	}
-	return new Blob( [ str ] ).size;
+	let bytes = str.length;
+	for ( let i = 0; i < str.length; i++ ) {
+		const unit = str.charCodeAt( i );
+		if ( unit < 0x80 ) {
+			continue;
+		}
+		if ( unit < 0x800 ) {
+			bytes += 1;
+			continue;
+		}
+		const low = str.charCodeAt( i + 1 );
+		if (
+			unit <= 0xdbff &&
+			unit >= 0xd800 &&
+			low >= 0xdc00 &&
+			low <= 0xdfff
+		) {
+			// A surrogate pair: two units, four bytes.
+			i++;
+		}
+		bytes += 2;
+	}
+	return bytes;
 }
 
 /**

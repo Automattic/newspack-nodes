@@ -147,9 +147,10 @@ class MessagesStreamSourcesTest extends TestCase {
 			$reopened->poll();
 		}
 
+		$blocks = \array_filter( $cap->captured, static fn ( array $m ): bool => Message::TM_BATCH === ( $m[ Message::TYPE ] & ( Message::TM_BATCH | Message::TM_INFO ) ) );
 		$this->assertSame(
-			[ "gap-one\n", "gap-two\n" ],
-			\array_map( static fn ( $m ) => $m[ Message::VALUE ], $cap->captured ),
+			"gap-one\ngap-two\n",
+			\implode( '', \array_column( $blocks, Message::VALUE ) ),
 			"token was {$token}"
 		);
 	}

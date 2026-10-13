@@ -178,7 +178,7 @@ class File_Tail_Node extends Tail_Node {
 			}
 			$available = $size - $read_pos;
 			if ( $available > 0 ) {
-				$length = \min( self::READ_BLOCK_BYTES, $available );
+				$length = \min( $this->read_bytes, $available );
 				\fseek( $this->follow_handle, $read_pos );
 				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread
 				$bytes = \fread( $this->follow_handle, $length );
@@ -204,9 +204,12 @@ class File_Tail_Node extends Tail_Node {
 			$this->at_eof = ! $this->buffer_holds_line();
 			return;
 		}
-		// New generation: drop any partial last line, then reset the cursor.
-		$this->consumed_bytes += \strlen( $this->buffer );
-		$this->buffer          = '';
+		// New generation: held lines go first; a partial one is dropped.
+		if ( $this->buffer_holds_line() ) {
+			$this->at_eof = false;
+			return;
+		}
+		$this->buffer = '';
 		if ( $this->open_generation( $path ) ) {
 			$this->cursor_offset     = 0;
 			$this->at_eof            = false;
@@ -313,11 +316,13 @@ class File_Tail_Node extends Tail_Node {
 	 * the first poll has yet to validate, while the `cursor_offset` field reports
 	 * the raw cursor. Buffered-but-unemitted bytes count as READ — a reader
 	 * holding a partial line has consumed it — so `bytes_behind` here is what the
-	 * probe's DISTANCE reports, one definition for both.
+	 * probe's DISTANCE reports, one definition for both. One stat answers it,
+	 * so a read's scan has nothing to spare it.
 	 *
+	 * @param bool $rescan Unused: the file is stat'd either way.
 	 * @return array{bytes_behind:int,segments_behind:int,caught_up:bool,end_segment:int,end_size:int,cursor_segment:int,cursor_offset:int}
 	 */
-	protected function compute_lag(): array {
+	protected function compute_lag( bool $rescan = true ): array {
 		$size         = $this->file_current_size();
 		$bytes_behind = \max( 0, $size - ( $this->lag_cursor_offset() + \strlen( $this->buffer ) ) );
 		return [
@@ -454,7 +459,6 @@ class File_Tail_Node extends Tail_Node {
 			return;
 		}
 		$this->cursor_offset    += $nl + 1;
-		$this->consumed_bytes   += $nl + 1;
 		$this->buffer            = \substr( $this->buffer, $nl + 1 );
 		$this->pending_line_sync = false;
 	}
@@ -556,6 +560,22 @@ class File_Tail_Node extends Tail_Node {
 			'ino'   => $stat['ino'],
 			'mtime' => $stat['mtime'],
 		];
+	}
+
+	/**
+	 * A raw block reads from the exact byte asked, mid-line included: the
+	 * reader at the other end splits lines and carries a cut one across
+	 * blocks, so the forward sync a resume arms would drop bytes it needs. A
+	 * file not there names no generation, since inode 0 would name another.
+	 *
+	 * @param positive-int $max The most bytes to return.
+	 * @return array{bytes:string,segment:?int,offset:int,distance:int,reset:bool,type:int}
+	 */
+	public function raw_block( int $max ): array {
+		$this->ensure_initialized();
+		$this->pending_line_sync = false;
+		$block                   = parent::raw_block( $max );
+		return 0 === $block['segment'] ? [ 'segment' => null ] + $block : $block;
 	}
 
 	/**

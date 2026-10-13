@@ -38,10 +38,11 @@ class SseEventParityTest extends TestCase {
 		}
 	}
 
+	/** The PHP reader pulls logs and sources alone, never the IPC stream's skip count. */
 	public function test_the_php_reader_dispatches_every_emitted_event(): void {
 		$reader = (string) \file_get_contents( self::plugin_path( 'includes/class-sse-in-node.php' ) );
 
-		foreach ( self::emitted_events() as $event ) {
+		foreach ( \array_diff( self::emitted_events(), [ 'unparseable_lines' ] ) as $event ) {
 			$this->assertStringContainsString( "'{$event}' === \$type", $reader, "SSE_In_Node has no branch for '{$event}'" );
 		}
 	}

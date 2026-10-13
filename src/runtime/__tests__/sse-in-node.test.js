@@ -14,7 +14,10 @@
  * OWNER n SUBSCRIPTIONS csv INTERVAL n` string (no partition, no pid).
  */
 
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { SseInNode, SEEK_START, SEEK_END } from '../sse-in-node';
+import { FetchEventSource } from '../fetch-event-source';
 import * as commandAuth from '../command-auth';
 import { __setAuthFetch, ensureSession, forgetSession } from '../command-auth';
 import { IoTelemetry, byteLength } from '../io-telemetry';
@@ -31,8 +34,11 @@ import {
 	VALUE,
 	TM_INFO,
 	TM_BYTESTREAM,
+	TM_BATCH,
+	TM_STRUCT,
 	TM_ERROR,
 	TO,
+	pack,
 } from '../message';
 
 class FakeEventSource {
@@ -1076,6 +1082,26 @@ test( 'a stream opened with no session presents none and accepts a sessionless h
 	expect( sse.setStateCache.CONNECTED ).toBe( 'SLOT 4' );
 } );
 
+test( 'a handshake whose last KEY has no VALUE is rejected, as PHP rejects it', () => {
+	const warn = jest
+		.spyOn( Core, 'printLessOften' )
+		.mockImplementation( () => {} );
+	const { sse } = makeSseIn();
+	sse.start();
+	const m = newMessage();
+	m[ TYPE ] = TM_INFO;
+	m[ KEY ] = 'connected';
+	m[
+		VALUE
+	] = `SESSION ${ HARNESS_SESSION } SLOT 3 OWNER ${ LEASE_OWNER } CURSORS`;
+
+	FakeEventSource.last.dispatch( 'connected', JSON.stringify( m ) );
+
+	expect( sse.setStateCache.ERROR ).toBe( 'connected envelope malformed' );
+	expect( sse.setStateCache.CONNECTED ).toBeUndefined();
+	warn.mockRestore();
+} );
+
 test( 'a handshake naming another session than the stream presented is rejected', () => {
 	const warn = jest
 		.spyOn( Core, 'printLessOften' )
@@ -1979,5 +2005,554 @@ describe( 'SseIn — no-arg ctor + schema-driven arguments', () => {
 					JSON.stringify( { firehose: SEEK_END, errors: SEEK_END } )
 				) }`
 		);
+	} );
+} );
+
+// A raw block as a stream's reader sends it: a header placing it, then its
+// bytes, both `batch` events stamped with the stream they belong to.
+function sendBlock( es, stamp, at, bytes, type = TM_BATCH, headerAt = at ) {
+	if ( null !== headerAt ) {
+		const header = newMessage();
+		header[ TYPE ] = TM_INFO | TM_BATCH;
+		header[ FROM ] = stamp;
+		header[ VALUE ] = `OFFSET ${ headerAt } DISTANCE ${ byteLength(
+			bytes
+		) }`;
+		es.dispatch( 'msg', JSON.stringify( header ) );
+	}
+	const batch = newMessage();
+	batch[ TYPE ] = type;
+	batch[ FROM ] = stamp;
+	batch[ ID ] = at;
+	batch[ VALUE ] = bytes;
+	es.dispatch( 'msg', JSON.stringify( batch ) );
+}
+
+// One record as its log holds it: packed, newline included.
+function recordLine( from, value ) {
+	const m = newMessage();
+	m[ TYPE ] = TM_STRUCT;
+	m[ FROM ] = from;
+	m[ VALUE ] = value;
+	return pack( m ) + '\n';
+}
+
+describe( 'raw blocks', () => {
+	test( 'a block becomes one record per line, stamped and placed in the log', () => {
+		const { sse, routed } = makeSseIn( { subscribe: [ 'firehose.p0' ] } );
+		sse.start();
+		const one = recordLine( 'job-worker.p0', { k: 'one-4471' } );
+		const two = recordLine( '', { k: 'two-9902' } );
+
+		sendBlock( FakeEventSource.last, 'firehose.p0', '7:100', one + two );
+
+		expect( routed.map( ( m ) => m[ VALUE ] ) ).toEqual( [
+			{ k: 'one-4471' },
+			{ k: 'two-9902' },
+		] );
+		expect( routed.map( ( m ) => m[ FROM ] ) ).toEqual( [
+			'firehose.p0/job-worker.p0',
+			'firehose.p0',
+		] );
+		expect( routed.map( ( m ) => m[ ID ] ) ).toEqual( [
+			`7:100:${ one.length }`,
+			`7:${ 100 + one.length }:${ two.length }`,
+		] );
+		expect( sse.seekMap() ).toEqual( {
+			'firehose.p0': {
+				segment: 7,
+				offset: 100 + one.length + two.length,
+			},
+		} );
+	} );
+
+	test( "a source's block is lines of text, placed by their bytes", () => {
+		const { sse, routed } = makeSseIn( { subscribe: [ 'sources/php' ] } );
+		sse.start();
+
+		sendBlock(
+			FakeEventSource.last,
+			'sources/php',
+			'77031:12',
+			'PHP Warning café 5521\nsecond 6604\n',
+			TM_BATCH | TM_BYTESTREAM
+		);
+
+		expect(
+			routed.map( ( m ) => [ m[ TYPE ], m[ VALUE ], m[ ID ] ] )
+		).toEqual( [
+			[ TM_BYTESTREAM, 'PHP Warning café 5521\n', '77031:12:23' ],
+			[ TM_BYTESTREAM, 'second 6604\n', '77031:35:12' ],
+		] );
+		expect( routed[ 0 ][ FROM ] ).toBe( 'sources/php' );
+	} );
+
+	test( 'a line a block cuts short is joined from the next', () => {
+		const { sse, routed } = makeSseIn( { subscribe: [ 'firehose.p0' ] } );
+		sse.start();
+		const line = recordLine( '', { k: 'long-3318' } );
+
+		sendBlock(
+			FakeEventSource.last,
+			'firehose.p0',
+			'4:0',
+			line.slice( 0, 9 )
+		);
+		expect( routed ).toEqual( [] );
+		sendBlock(
+			FakeEventSource.last,
+			'firehose.p0',
+			'4:9',
+			line.slice( 9 )
+		);
+
+		expect( routed.map( ( m ) => m[ ID ] ) ).toEqual( [
+			`4:0:${ line.length }`,
+		] );
+	} );
+
+	test( 'a torn line is counted for its stream and the resume point moves past it', () => {
+		const { sse, routed } = makeSseIn( { subscribe: [ 'firehose.p0' ] } );
+		sse.start();
+		const good = recordLine( '', { k: 'keel-7713' } );
+
+		sendBlock(
+			FakeEventSource.last,
+			'firehose.p0',
+			'5:0',
+			good + '{"torn\n'
+		);
+
+		expect( routed ).toHaveLength( 1 );
+		expect( sse.setStateCache.UNPARSEABLE_LINES ).toBe( 1 );
+		expect( sse.unparseableByStamp ).toEqual( { 'firehose.p0': 1 } );
+		expect( sse.seekMap() ).toEqual( {
+			'firehose.p0': { segment: 5, offset: good.length + 7 },
+		} );
+	} );
+
+	test( 'a batch no header placed is dropped, as PHP drops it', () => {
+		const warn = jest
+			.spyOn( Core, 'printLessOften' )
+			.mockImplementation( () => {} );
+		const { sse, routed } = makeSseIn( { subscribe: [ 'firehose.p0' ] } );
+		sse.start();
+		const batch = newMessage();
+		batch[ TYPE ] = TM_BATCH;
+		batch[ FROM ] = 'firehose.p0';
+		batch[ ID ] = '3:0';
+		batch[ VALUE ] = recordLine( '', { k: 'stray-5501' } );
+
+		FakeEventSource.last.dispatch( 'msg', JSON.stringify( batch ) );
+
+		expect( routed ).toEqual( [] );
+		expect( warn ).toHaveBeenCalledWith(
+			'ERROR: SseInNode: dropped a raw block no header placed'
+		);
+		warn.mockRestore();
+	} );
+
+	test( 'a reopen asks past a cut line and joins the rest to it', () => {
+		const { sse, routed } = makeSseIn( { subscribe: [ 'firehose.p0' ] } );
+		sse.start();
+		const line = recordLine( '', { k: 'gaff-6631' } );
+		sendBlock(
+			FakeEventSource.last,
+			'firehose.p0',
+			'4:0',
+			line.slice( 0, 9 )
+		);
+
+		sse.start();
+		expect( sse.seekMap() ).toEqual( {
+			'firehose.p0': { segment: 4, offset: 9 },
+		} );
+		sendBlock(
+			FakeEventSource.last,
+			'firehose.p0',
+			'4:9',
+			line.slice( 9 )
+		);
+
+		expect( routed.map( ( m ) => m[ ID ] ) ).toEqual( [
+			`4:0:${ line.length }`,
+		] );
+	} );
+
+	test( 'a hidden page splits a whole block at once, painting nothing', () => {
+		const { sse, routed } = makeSseIn( { subscribe: [ 'firehose.p0' ] } );
+		sse.start();
+		const lines = [ 'jib-1', 'jib-2', 'jib-3' ].map( ( k ) =>
+			recordLine( '', { k } )
+		);
+		let clock = 0;
+		const now = jest
+			.spyOn( performance, 'now' )
+			.mockImplementation( () => ( clock += 50 ) );
+		Object.defineProperty( document, 'visibilityState', {
+			configurable: true,
+			value: 'hidden',
+		} );
+		try {
+			sendBlock(
+				FakeEventSource.last,
+				'firehose.p0',
+				'6:0',
+				lines.join( '' )
+			);
+		} finally {
+			now.mockRestore();
+			Object.defineProperty( document, 'visibilityState', {
+				configurable: true,
+				value: 'visible',
+			} );
+		}
+
+		expect( routed.map( ( m ) => m[ VALUE ].k ) ).toEqual( [
+			'jib-1',
+			'jib-2',
+			'jib-3',
+		] );
+		expect( sse.seekMap() ).toEqual( {
+			'firehose.p0': { segment: 6, offset: lines.join( '' ).length },
+		} );
+	} );
+
+	test( 'a page hidden while a frame is owed resumes the split at once', async () => {
+		const { sse, routed } = makeSseIn( { subscribe: [ 'firehose.p0' ] } );
+		sse.start();
+		const lines = [ 'brig-1', 'brig-2' ].map( ( k ) =>
+			recordLine( '', { k } )
+		);
+		const raf = jest
+			.spyOn( global, 'requestAnimationFrame' )
+			.mockImplementation( () => 7 );
+		let clock = 0;
+		const now = jest
+			.spyOn( performance, 'now' )
+			.mockImplementation( () => ( clock += 50 ) );
+		try {
+			sendBlock(
+				FakeEventSource.last,
+				'firehose.p0',
+				'6:0',
+				lines.join( '' )
+			);
+			expect( routed.map( ( m ) => m[ VALUE ].k ) ).toEqual( [
+				'brig-1',
+			] );
+
+			Object.defineProperty( document, 'visibilityState', {
+				configurable: true,
+				value: 'hidden',
+			} );
+			document.dispatchEvent( new Event( 'visibilitychange' ) );
+			await Promise.resolve();
+			await Promise.resolve();
+		} finally {
+			now.mockRestore();
+			raf.mockRestore();
+			Object.defineProperty( document, 'visibilityState', {
+				configurable: true,
+				value: 'visible',
+			} );
+		}
+
+		expect( routed.map( ( m ) => m[ VALUE ].k ) ).toEqual( [
+			'brig-1',
+			'brig-2',
+		] );
+	} );
+
+	test( 'each slice a split resumes counts as word from the stream', async () => {
+		const { sse } = makeSseIn( { subscribe: [ 'firehose.p0' ] } );
+		sse.start();
+		const lines = [ 'spar-1', 'spar-2' ].map( ( k ) =>
+			recordLine( '', { k } )
+		);
+		const frames = [];
+		const raf = jest
+			.spyOn( global, 'requestAnimationFrame' )
+			.mockImplementation( ( cb ) => frames.push( cb ) );
+		let clock = 0;
+		const now = jest
+			.spyOn( performance, 'now' )
+			.mockImplementation( () => ( clock += 50 ) );
+		let wall;
+		try {
+			sendBlock(
+				FakeEventSource.last,
+				'firehose.p0',
+				'6:0',
+				lines.join( '' )
+			);
+			wall = jest.spyOn( Date, 'now' ).mockReturnValue( 424242 );
+			frames.splice( 0 ).forEach( ( cb ) => cb( 0 ) );
+			await new Promise( ( resolve ) => setTimeout( resolve, 5 ) );
+		} finally {
+			wall?.mockRestore();
+			now.mockRestore();
+			raf.mockRestore();
+		}
+
+		expect( sse.lastEventTime ).toBe( 424242 );
+	} );
+
+	test( 'a visible page paints between slices before the split resumes', async () => {
+		const { sse, routed } = makeSseIn( { subscribe: [ 'firehose.p0' ] } );
+		sse.start();
+		const lines = [ 'sheet-1', 'sheet-2' ].map( ( k ) =>
+			recordLine( '', { k } )
+		);
+		const frames = [];
+		const raf = jest
+			.spyOn( global, 'requestAnimationFrame' )
+			.mockImplementation( ( cb ) => frames.push( cb ) );
+		let clock = 0;
+		const now = jest
+			.spyOn( performance, 'now' )
+			.mockImplementation( () => ( clock += 50 ) );
+		try {
+			sendBlock(
+				FakeEventSource.last,
+				'firehose.p0',
+				'6:0',
+				lines.join( '' )
+			);
+			await new Promise( ( resolve ) => setTimeout( resolve, 5 ) );
+			expect( routed.map( ( m ) => m[ VALUE ].k ) ).toEqual( [
+				'sheet-1',
+			] );
+
+			frames.splice( 0 ).forEach( ( cb ) => cb( 0 ) );
+			await new Promise( ( resolve ) => setTimeout( resolve, 5 ) );
+		} finally {
+			now.mockRestore();
+			raf.mockRestore();
+		}
+
+		expect( routed.map( ( m ) => m[ VALUE ].k ) ).toEqual( [
+			'sheet-1',
+			'sheet-2',
+		] );
+	} );
+
+	test( 'a header alone delivers nothing', () => {
+		const { sse, routed } = makeSseIn( { subscribe: [ 'firehose.p0' ] } );
+		sse.start();
+		const header = newMessage();
+		header[ TYPE ] = TM_INFO | TM_BATCH;
+		header[ FROM ] = 'firehose.p0';
+		header[ VALUE ] = 'OFFSET 5:0 DISTANCE 0';
+
+		FakeEventSource.last.dispatch( 'msg', JSON.stringify( header ) );
+
+		expect( routed ).toEqual( [] );
+	} );
+} );
+
+// The cases PHP `Remote_Consumer_Node` splits alike, in RemoteConsumerNodeTest.
+const rawBlocks = JSON.parse(
+	readFileSync(
+		join( __dirname, '../../../tests/fixtures/raw-blocks.json' ),
+		'utf8'
+	)
+);
+
+describe( 'raw block parity with Remote_Consumer_Node', () => {
+	it.each( rawBlocks.cases )( '%s', ( _label, stamp, blocks, expected ) => {
+		const warn = jest
+			.spyOn( Core, 'printLessOften' )
+			.mockImplementation( () => {} );
+		const { sse, routed } = makeSseIn( { subscribe: [ stamp ] } );
+		sse.start();
+		for ( const block of blocks ) {
+			sendBlock(
+				FakeEventSource.last,
+				stamp,
+				block.at,
+				block.bytes,
+				block.text ? TM_BATCH | TM_BYTESTREAM : TM_BATCH,
+				undefined === block.header ? block.at : block.header
+			);
+		}
+		warn.mockRestore();
+
+		expect(
+			routed.map( ( m ) => [ m[ TYPE ], m[ FROM ], m[ ID ], m[ VALUE ] ] )
+		).toEqual( expected.records );
+		expect( sse.unparseableByStamp[ stamp ] ?? 0 ).toBe( expected.torn );
+		const at = sse.lastPositions[ stamp ];
+		expect( at ? `${ at.segment }:${ at.offset }` : null ).toBe(
+			expected.position
+		);
+	} );
+} );
+
+// A response whose body yields `chunks` (strings, encoded as UTF-8) in order.
+function streamResponse(
+	chunks,
+	{ status = 200, type = 'text/event-stream' } = {}
+) {
+	const encoder = new ( require( 'util' ).TextEncoder )();
+	const queue = chunks.map( ( c ) => encoder.encode( c ) );
+	return {
+		ok: status >= 200 && status < 300,
+		status,
+		headers: {
+			get: ( name ) =>
+				'content-type' === name.toLowerCase() ? type : null,
+		},
+		body: {
+			getReader: () => ( {
+				read: async () =>
+					queue.length
+						? { done: false, value: queue.shift() }
+						: { done: true, value: undefined },
+			} ),
+		},
+	};
+}
+
+// Let every awaited read settle.
+const settle = async () => {
+	for ( let i = 0; i < 20; i++ ) {
+		await Promise.resolve();
+	}
+};
+
+describe( 'FetchEventSource', () => {
+	let realFetch;
+	beforeEach( () => {
+		realFetch = global.fetch;
+		global.TextDecoder ??= require( 'util' ).TextDecoder;
+	} );
+	afterEach( () => {
+		global.fetch = realFetch;
+	} );
+
+	it( 'parses the frames a stream sends, however its chunks fall', async () => {
+		const long = 'x'.repeat( 70000 );
+		global.fetch = jest.fn( async () =>
+			streamResponse( [
+				': padding\n\nevent: msg\ndata: one-4417\n\nevent: batch\ndata: ',
+				long.slice( 0, 30000 ),
+				long.slice( 30000 ) +
+					'\n\nevent: msg\r\ndata: a\r\ndata: b\r\n\r\n',
+			] )
+		);
+		const seen = [];
+		const es = new FetchEventSource( '/stream-7713', {
+			withCredentials: true,
+		} );
+		for ( const type of [ 'msg', 'batch' ] ) {
+			es.addEventListener( type, ( e ) => seen.push( [ type, e.data ] ) );
+		}
+
+		await settle();
+
+		expect( seen ).toEqual( [
+			[ 'msg', 'one-4417' ],
+			[ 'batch', long ],
+			[ 'msg', 'a\nb' ],
+		] );
+		expect( global.fetch ).toHaveBeenCalledWith(
+			'/stream-7713',
+			expect.objectContaining( {
+				credentials: 'include',
+				headers: { Accept: 'text/event-stream' },
+			} )
+		);
+	} );
+
+	it( 'is what SseInNode opens its stream with when no seam is set', async () => {
+		global.fetch = jest.fn( async () => streamResponse( [] ) );
+		const opener = SseInNode.openStream;
+		SseInNode.openStream = null;
+		const { sse } = makeSseIn( { subscribe: [ 'firehose.p0' ] } );
+
+		try {
+			sse.start();
+		} finally {
+			SseInNode.openStream = opener;
+		}
+
+		expect( sse._es ).toBeInstanceOf( FetchEventSource );
+		expect( global.fetch.mock.calls[ 0 ][ 0 ] ).toContain(
+			'newspack-nodes/v1/messages/stream?subscribe=firehose.p0'
+		);
+		sse.close();
+	} );
+
+	it( 'reads no further until a listener that returns a promise settles', async () => {
+		global.fetch = jest.fn( async () =>
+			streamResponse( [
+				'event: msg\ndata: slow-1\n\n',
+				'event: msg\ndata: next-2\n\n',
+			] )
+		);
+		const seen = [];
+		let release;
+		const es = new FetchEventSource( '/stream-slow' );
+		es.addEventListener( 'msg', ( e ) => {
+			seen.push( e.data );
+			return 'slow-1' === e.data
+				? new Promise( ( resolve ) => ( release = resolve ) )
+				: undefined;
+		} );
+
+		await settle();
+		expect( seen ).toEqual( [ 'slow-1' ] );
+		release();
+		await settle();
+
+		expect( seen ).toEqual( [ 'slow-1', 'next-2' ] );
+	} );
+
+	it( 'reads as reconnecting when the stream ends, as EventSource does', async () => {
+		global.fetch = jest.fn( async () =>
+			streamResponse( [ 'event: msg\ndata: last-2290\n\n' ] )
+		);
+		const states = [];
+		const es = new FetchEventSource( '/stream-2290' );
+		es.addEventListener( 'error', () => states.push( es.readyState ) );
+
+		await settle();
+
+		expect( states ).toEqual( [ FetchEventSource.CONNECTING ] );
+	} );
+
+	it( 'closes on a refused response, as EventSource does', async () => {
+		global.fetch = jest.fn( async () =>
+			streamResponse( [], { status: 401, type: 'application/json' } )
+		);
+		const states = [];
+		const es = new FetchEventSource( '/stream-401' );
+		es.addEventListener( 'error', () => states.push( es.readyState ) );
+
+		await settle();
+
+		expect( states ).toEqual( [ FetchEventSource.CLOSED ] );
+	} );
+
+	it( 'delivers nothing more once closed', async () => {
+		global.fetch = jest.fn( async () =>
+			streamResponse( [
+				'event: msg\ndata: kept-1\n\n',
+				'event: msg\ndata: dropped-2\n\n',
+			] )
+		);
+		const seen = [];
+		const es = new FetchEventSource( '/stream-3' );
+		es.addEventListener( 'msg', ( e ) => {
+			seen.push( e.data );
+			es.close();
+		} );
+		es.addEventListener( 'error', () => seen.push( 'error' ) );
+
+		await settle();
+
+		expect( seen ).toEqual( [ 'kept-1' ] );
+		expect( es.readyState ).toBe( FetchEventSource.CLOSED );
 	} );
 } );

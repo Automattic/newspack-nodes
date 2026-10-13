@@ -1,0 +1,8 @@
+{
+  "cases": [
+    ["a header", "OFFSET 3:0 DISTANCE 4417", {"OFFSET": "3:0", "DISTANCE": "4417"}],
+    ["runs of spaces, trimmed", "  SLOT  7 OWNER 9203 ", {"SLOT": "7", "OWNER": "9203"}],
+    ["a KEY with no VALUE", "OFFSET 3:0 DISTANCE", null],
+    ["nothing at all", "", null]
+  ]
+}

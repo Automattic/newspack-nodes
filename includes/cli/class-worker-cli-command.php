@@ -322,7 +322,7 @@ class Worker_CLI_Command {
 				'Reader'    => $cr['reader'],
 				'Source'    => $cr['source'],
 				'Partition' => $cr['partition'],
-				// A hub reader cannot see its spoke's end: its lag is unknown.
+				// A hub reader's lag is unknown until its spoke reports one.
 				'Behind'    => null === $cr['distance'] ? 'unknown' : CLI::format_bytes( $cr['distance'] ),
 				'Msgs/int'  => $cr['msgs'],
 			];

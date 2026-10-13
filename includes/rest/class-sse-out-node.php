@@ -1,14 +1,16 @@
 <?php
 /**
  * SSE_Out: double-duty Node + `/messages/stream` controller. As a Node its
- * `fill()` emits each Message as an SSE `msg` event (the egress writer the
+ * `fill()` emits each Message as an SSE event (the egress writer the
  * SSE-process graph sinks into); as a controller it registers
  * `GET /messages/stream` and runs the drain loop.
  *
  * One SSE endpoint for every subscription the dashboards need (firehose /
  * errors / completed / IPC worker outputs). The resolver treats log
  * partitions and worker IPC partitions uniformly — both surface as
- * `Consumer` instances the caller drains in a single loop.
+ * `Consumer` instances the caller drains in a single loop. A log or source
+ * reader sends raw blocks, which its client splits into records; an IPC
+ * reader sends each reply, which `_output` must see to gate by session.
  *
  * @package Newspack_Nodes
  */
@@ -215,8 +217,9 @@ class SSE_Out_Node extends Node {
 
 	/**
 	 * Node egress, and terminal: write the Message to the response as an SSE
-	 * `msg` event instead of forwarding it. Each one counts as data, which is
-	 * what defers the idle close.
+	 * `msg` event instead of forwarding it. A raw block and its header carry
+	 * the TM_BATCH bit, which is how a client tells them from a record. Each
+	 * one counts as data, which is what defers the idle close.
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
@@ -639,10 +642,11 @@ class SSE_Out_Node extends Node {
 	 * Tell the client how many lines this tick's readers skipped as unparseable,
 	 * and where each reader now stands.
 	 *
-	 * Every Consumer here is a `Consumer_Node::scan()`, cursorless over a log
-	 * other processes append to, so it skips a torn line rather than end the
-	 * stream on it; a raw Tail unpacks nothing and skips none. The frame is
-	 * what keeps that skip visible: `COUNT` for the client to show, and
+	 * A log or source reader sends raw blocks and reads no line, so only an
+	 * IPC channel's `Consumer_Node::scan()`, cursorless over a log other
+	 * processes append to, skips a torn line rather than end the stream on
+	 * it. The frame is what keeps that skip visible: `COUNT` for the client
+	 * to show, and
 	 * `CURSORS` in the `connected` envelope's own shape, so a reopen resumes
 	 * past the skipped lines instead of reading and counting them again. A
 	 * tick that skipped nothing sends nothing. `COUNTS` charges each stamp its
@@ -850,6 +854,7 @@ class SSE_Out_Node extends Node {
 		}
 		if ( null !== $sub['source'] ) {
 			$reader = Log_Sources::open_tail( $sub['source'] );
+			$reader->set_raw_blocks( true );
 			$reader->set_stamp_as( $stamp );
 			$reader->next_offset( self::position_arg( $positions, $stamp ) );
 			return [ $reader ];
@@ -948,6 +953,7 @@ class SSE_Out_Node extends Node {
 	 */
 	private function log_consumer_for( string $dir, string $name, ?array $positions ): Consumer_Node {
 		$consumer = Consumer_Node::scan( $dir );
+		$consumer->set_raw_blocks( true );
 		$consumer->set_multi_writer( $this->multi_writer );
 		$consumer->next_offset( self::position_arg( $positions, $name ) );
 		$consumer->set_stamp_as( $name );
