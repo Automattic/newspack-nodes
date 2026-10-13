@@ -320,6 +320,40 @@ describe( 'useTopologyManager', () => {
 	// A refused mutation reaches the caller's handler with the topology name
 	// it was about — the answer lands on the node that asked, a tick later,
 	// so there is no promise to reject.
+	it.each( [
+		[ 'activate', 'b' ],
+		[ 'deactivate', 'a' ],
+		[ 'restart', 'a' ],
+	] )(
+		're-reads the board as soon as %s is answered, not on the next poll',
+		async ( verb, name ) => {
+			const { sent } = buildClient();
+			const { result } = renderHook( () => useTopologyManager( {} ) );
+			await waitFor( () =>
+				expect(
+					sent.filter( ( s ) => 'dump' === s.verb )
+				).toHaveLength( 1 )
+			);
+
+			act( () => {
+				result.current[ verb ]( name );
+			} );
+
+			// Well inside the 5 s poll: only the answer can have asked again.
+			await waitFor(
+				() =>
+					expect(
+						sent.filter( ( s ) => 'dump' === s.verb ).length
+					).toBeGreaterThan( 1 ),
+				{ timeout: 1500 }
+			);
+			expect( sent.findIndex( ( s ) => verb === s.verb ) ).toBeLessThan(
+				sent.findLastIndex( ( s ) => 'dump' === s.verb )
+			);
+		},
+		10000
+	);
+
 	it( 'reports a refused activate to onError, named', async () => {
 		installRecordingWire(
 			{
