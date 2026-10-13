@@ -428,17 +428,58 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertSame( \strlen( $bytes ) + 52219, $reader->probe_stats()[ Probe_Record::DISTANCE ] );
 	}
 
-	/** No record is longer than a Partition takes, so a line past that is torn rather than carried on. */
-	public function test_a_line_longer_than_any_record_is_torn_not_carried(): void {
+	/** A line still unended past the longest a reader holds is skipped as an overflow, as a local reader skips one: no carry, no dead letter. */
+	public function test_a_carry_past_the_line_limit_overflows(): void {
 		[ , $reader, , $http ] = $this->fetching_reader();
 		$reader->fire_cb();
-		$bytes = \str_repeat( 'z', \Newspack_Nodes\Partition_Node::MAX_LARGE_LINE_SIZE + 7 );
+		$first = \str_repeat( "\0", Remote_Consumer_Node::MAX_LINE_BUFFER_SIZE - 3 );
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], $first ) );
+		$this->assertNotNull( $this->read_private( $reader, 'carry' ), 'under the limit it is carried' );
 
-		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], $bytes ) );
+		$asked = $this->last_fetch( $http );
+		self::answer( $reader, self::block_reply( $asked, \str_repeat( "\0", 10 ) ) );
+		$this->assertCount( 0, $this->read_private( $reader, 'lines' ), 'nothing of it is queued, so nothing is dead-lettered' );
 		$reader->fire_cb();
 
+		$past = '31:' . ( 4404 + \strlen( $first ) + 10 );
 		$this->assertNull( $this->read_private( $reader, 'carry' ) );
-		$this->assertSame( [ 'firehose.p0', '31:' . ( 4404 + \strlen( $bytes ) ) ], $this->last_fetch( $http ) );
+		$this->assertSame( 'SEGMENT 31 OFFSET 4404 LIMIT ' . Remote_Consumer_Node::MAX_LINE_BUFFER_SIZE, $reader->get_state( 'OVERFLOW' ) );
+		$this->assertSame( $past, $reader->cursor_position(), 'the cursor itself stands past it' );
+		$this->assertSame( [ 'firehose.p0', $past ], $this->last_fetch( $http ) );
+	}
+
+	/**
+	 * A torn line whose record the dead-letter Partition would refuse is
+	 * dropped and said so, never reported quarantined: one exactly at the
+	 * line limit, which its record's envelope pushes past, and one of NULs,
+	 * which encoding grows sixfold.
+	 *
+	 * @return array<string,array{0:string,1:string}>
+	 */
+	public static function unlandable_torn_lines(): array {
+		return [
+			'at the limit' => [ 'q', 'qqq' ],
+			'NULs'         => [ "\0", \str_repeat( "\0", 6 * 1048576 ) ],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'unlandable_torn_lines' )]
+	public function test_a_torn_line_its_quarantine_would_refuse_is_dropped_and_said( string $byte, string $tail ): void {
+		[ , $reader, , $http ] = $this->fetching_reader();
+		$errors = $this->capture_stderr();
+		$reader->fire_cb();
+		$first = 'q' === $byte ? \str_repeat( 'q', Remote_Consumer_Node::MAX_LINE_BUFFER_SIZE - 3 ) : '';
+		if ( '' !== $first ) {
+			self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], $first ) );
+		}
+		self::answer( $reader, self::block_reply( '' === $first ? [ 'firehose.p0', '31:4404' ] : $this->last_fetch( $http ), $tail . "\n" ) );
+		$reader->fire_cb();
+
+		$said = \implode( '', (array) $errors );
+		$this->assertSame( 0, $this->count_log_records( $this->dlq() ) );
+		$this->assertStringContainsString( 'larger than a record', $said );
+		$this->assertStringNotContainsString( 'quarantined', $said );
+		$this->assertSame( '31:' . ( 4404 + \strlen( $first ) + \strlen( $tail ) + 1 ), $reader->cursor_position() );
 	}
 
 	/** A line the block cut short waits for the next, which asks from the byte after it. */

@@ -773,7 +773,8 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * bytes continue is joined to them; one they do not was torn, and is
 	 * dead-lettered at its place. Each whole line goes on at its own place,
 	 * and what follows the last newline is carried to the next block, unless
-	 * it already runs past the longest record a Partition takes.
+	 * it already runs past `MAX_LINE_BUFFER_SIZE`, which skips it as a
+	 * reader skips any overflowing line.
 	 *
 	 * @param int    $segment Where the bytes begin.
 	 * @param int    $offset  Their offset in it.
@@ -803,9 +804,8 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 			$pos = $nl + 1;
 		}
 		$cut = \substr( $bytes, $pos );
-		if ( \strlen( $cut ) > Partition_Node::MAX_LARGE_LINE_SIZE ) {
-			// No record runs longer, so this line was torn: carry none of it.
-			$this->receive( $cut, null, [ 'segment' => $segment, 'offset' => $offset + $pos, 'length' => \strlen( $cut ) ] );
+		if ( \strlen( $cut ) > self::MAX_LINE_BUFFER_SIZE ) {
+			$this->report_overflow( $segment, $offset + $pos );
 			$pos += \strlen( $cut );
 			$cut  = '';
 		}

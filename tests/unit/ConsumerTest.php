@@ -2756,9 +2756,8 @@ class ConsumerTest extends TestCase {
 	}
 
 	public function test_oversized_line_buffer_is_bounded_by_guard(): void {
-		// Defensive test: write a multi-MB stream with no newlines and verify the read
-		// buffer stays bounded by MAX_LINE_BUFFER_SIZE. Skip on tight memory_limit since
-		// this needs ~20MB of resident memory across polls.
+		// A stream with no newline past MAX_LINE_BUFFER_SIZE is skipped as an
+		// overflow. Skip on a tight memory_limit: the buffer reaches the guard.
 		$limit = ini_get( 'memory_limit' );
 		if ( $limit && '-1' !== $limit ) {
 			$mem_bytes = (int) preg_replace_callback(
@@ -2770,16 +2769,21 @@ class ConsumerTest extends TestCase {
 				$limit
 			);
 			if ( $mem_bytes > 0 && $mem_bytes < 192 * 1048576 ) {
-				$this->markTestSkipped( 'memory_limit too low for 20MB buffer test (need >= 192M)' );
+				$this->markTestSkipped( 'memory_limit too low for a 32MB buffer test (need >= 192M)' );
 				return;
 			}
 		}
 
 		mkdir( "{$this->tmp}/data.p0", 0755, true );
-		// Stream 21MB (no newlines) via per-MB chunks to keep per-allocation small.
-		$fh    = fopen( "{$this->tmp}/data.p0/0.log", 'wb' );
+		// A whole line, then one MB past the guard with no newline, in MB chunks.
+		$fh    = fopen( "{$this->tmp}/data.p0/7.log", 'wb' );
+		$record                   = Message::new_message();
+		$record[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$record[ Message::VALUE ] = 'keel-4417';
+		$line                     = Message::packed( $record ) . "\n";
+		fwrite( $fh, $line );
 		$chunk = str_repeat( 'x', 1048576 );
-		for ( $i = 0; $i < 21; ++$i ) {
+		for ( $i = 0; $i < 33; ++$i ) {
 			fwrite( $fh, $chunk );
 		}
 		fclose( $fh );
@@ -2790,9 +2794,10 @@ class ConsumerTest extends TestCase {
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
-		// Drain to EOF. Each poll reads one READ_BLOCK_BYTES block into the buffer;
-		// once it crosses 20MB with no newline, the discard branch MUST fire.
+		$c->next_offset( 'start' );
 		$this->pump_consumer( $c );
+
+		$this->assertSame( 'SEGMENT 7 OFFSET ' . \strlen( $line ) . ' LIMIT ' . Consumer_Node::MAX_LINE_BUFFER_SIZE, $c->get_state( 'OVERFLOW' ), 'the discard fired, naming where the line began' );
 
 		$ref = new \ReflectionClass( $c );
 		$rem_prop = $ref->getProperty( 'buffer' );
@@ -2802,8 +2807,8 @@ class ConsumerTest extends TestCase {
 			\strlen( $rem_after ),
 			'buffer must never exceed MAX_LINE_BUFFER_SIZE'
 		);
-		// No newlines means no emission, regardless of how much was discarded.
-		$this->assertCount( 0, $cap->captured );
+		// Only the whole line goes out; the run past the guard emits nothing.
+		$this->assertSame( [ 'keel-4417' ], \array_column( $cap->captured, Message::VALUE ) );
 	}
 
 	// ============================================================================

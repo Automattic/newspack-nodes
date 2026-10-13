@@ -365,4 +365,15 @@ class LogTest extends TestCase {
 		// reader, which dead-letters the line it cannot unpack and advances.
 		$this->assertFileDoesNotExist( "{$this->tmp}/deadletter/logs.digest.md/0.log" );
 	}
+
+	/** A Log writes its bare VALUE, so it takes one exactly at the cap. */
+	public function test_takes_judges_the_bare_value(): void {
+		$log                 = new Log_Node();
+		$m                   = Message::new_message();
+		$m[ Message::VALUE ] = \str_repeat( 'j', Log_Node::MAX_LINE_SIZE );
+
+		$this->assertTrue( $log->takes( $m ) );
+		$m[ Message::VALUE ] .= 'j';
+		$this->assertFalse( $log->takes( $m ) );
+	}
 }

@@ -179,7 +179,7 @@ const MAX_BACKOFF_MS = 30000;
  */
 const PROBE_STREAM_ID = '!';
 
-/** The longest record a Partition takes, `Partition_Node::MAX_LARGE_LINE_SIZE`. */
+/** The longest line a reader holds, PHP's `MAX_LINE_BUFFER_SIZE`. */
 const MAX_LINE_BYTES = 33554432;
 
 /** Milliseconds a block's split runs before it hands the page a turn. */
@@ -954,7 +954,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 		let cut = text.slice( pos );
 		let cutBytes = byteLength( cut );
 		if ( cutBytes > MAX_LINE_BYTES ) {
-			// No record runs longer, so this line was torn: carry none of it.
+			// No longer line is held: skip it, counted once.
 			offset += cutBytes;
 			cut = '';
 			cutBytes = 0;

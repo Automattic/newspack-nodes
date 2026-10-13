@@ -1,4 +1,5 @@
 {
+  "max_line_bytes": 33554432,
   "cases": [
     [
       "packed records keep their trail under the stream's stamp",

@@ -389,7 +389,7 @@ class Partition_Node extends Timer_Node {
 
 		// Size cap is on the packed bytes (not VALUE) — what hits PIPE_BUF.
 		$record = $this->serialize_record( $message );
-		$max    = $this->large_writes_allowed() ? self::MAX_LARGE_LINE_SIZE : self::MAX_LINE_SIZE;
+		$max    = $this->record_cap();
 		$size   = \strlen( $record );
 		if ( $size > $max ) {
 			$this->drop_message( $message, "oversize: {$size} > {$max}" );
@@ -470,6 +470,30 @@ class Partition_Node extends Timer_Node {
 				}
 			)
 		);
+	}
+
+	/**
+	 * Whether `fill()` would write this message rather than drop it as
+	 * oversize. `fill()` returns nothing, so a caller that must say whether a
+	 * message landed asks first. A string VALUE longer than the cap is refused
+	 * without serializing it, since every record carries its VALUE whole.
+	 *
+	 * @param array<int,mixed> $message The message to judge.
+	 */
+	public function takes( array $message ): bool {
+		$value = $message[ Message::VALUE ] ?? '';
+		if ( \is_string( $value ) && \strlen( $value ) > $this->record_cap() ) {
+			return false;
+		}
+		return \strlen( $this->serialize_record( $message ) ) <= $this->record_cap();
+	}
+
+	/**
+	 * The longest serialized record this Partition takes: a lifted one's
+	 * MAX_LARGE_LINE_SIZE, else PIPE_BUF's MAX_LINE_SIZE.
+	 */
+	private function record_cap(): int {
+		return $this->large_writes_allowed() ? self::MAX_LARGE_LINE_SIZE : self::MAX_LINE_SIZE;
 	}
 
 	/**
