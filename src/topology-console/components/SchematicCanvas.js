@@ -40,7 +40,12 @@ import { maxInsetBeforeLOD } from '../utils/viewportResize';
 import { useLayoutContext } from '../LayoutContext';
 import { useChrome } from '../ChromeContext';
 import { deltaFromAutofit, viewportFromDelta } from '../utils/autofitDelta';
-import { hullAt, hullContains, hullGeometry } from '../utils/hullPath';
+import {
+	hullAt,
+	hullContains,
+	hullGeometry,
+	hullsUnder,
+} from '../utils/hullPath';
 import { RATE_HISTORY_MAX } from '../hooks/useGraphRates';
 import { edgeHasConnectRole } from '../utils/consoleGraph';
 import { useCatalog } from '../CatalogContext';
@@ -1082,8 +1087,8 @@ export default function SchematicCanvas( {
 
 	// Active-drag state; snap + commit happen on pointerup.
 	const [ drag, setDrag ] = useState( null );
-	// Hovered hull (highlight it, dim every non-member) + in-flight hull drag.
-	const [ hoveredHull, setHoveredHull ] = useState( null );
+	// Where the pointer rests on a hull: { point, fallback, under, paths }.
+	const [ hullHover, setHullHover ] = useState( null );
 	const [ hullDrag, setHullDrag ] = useState( null );
 	// Set when the pointer-down crossed the threshold; suppresses selection.
 	const draggedRef = useRef( false );
@@ -1706,38 +1711,73 @@ export default function SchematicCanvas( {
 		}, 0 );
 	};
 
-	// @longform The FOCUSED hull: hovered, else selected — selection is the
-	// sticky form of the same gesture. Members + inner wires light; rest fades.
-	const focusedHullMembers = useMemo( () => {
-		const hull = hulls.find(
-			( h ) => h.include === ( hoveredHull ?? selectedHull )
-		);
-		return hull ? new Set( hull.nodeIds ) : null;
-	}, [ hulls, hoveredHull, selectedHull ] );
-
 	/**
-	 * What a press on the path of hull `fallback` means. `pick` is the hull a
-	 * click selects, under the pass-through rule `hullAt` applies to a
-	 * selection; `grab` is the hull a drag moves, which is the selection itself
-	 * whenever the press lands inside it. The path's own include stands in when
-	 * the point falls in the stroke's outer edge, past the polygon.
+	 * What a press at `point` on the path of hull `fallback` means, judged
+	 * against the selection as it stands. `pick` is the hull a click selects,
+	 * under the pass-through rule `hullAt` applies to a selection; `grab` is
+	 * the hull a drag moves, which is the selection itself whenever the press
+	 * lands inside it. The path's own include stands in when the point falls
+	 * in the stroke's outer edge, past the polygon.
 	 *
-	 * @param {Object} ev       The pointer or mouse event.
-	 * @param {string} fallback Include of the path the event landed on.
-	 * @return {{pick: string, grab: string}} The hull to select and the hull to drag.
+	 * @param {{x:number,y:number}} point    The press, in canvas units.
+	 * @param {?string}             fallback Include of the path it landed on.
+	 * @return {{pick: ?string, grab: ?string}} The hull to select and the hull to drag.
 	 */
-	const hullPress = ( ev, fallback ) => {
-		const point = screenToSvg(
-			ev.currentTarget.ownerSVGElement,
-			ev.clientX,
-			ev.clientY
+	const judgeHull = useCallback(
+		( point, fallback ) => {
+			const pick = hullAt( hullPaths, point, selectedHull ) ?? fallback;
+			const held = hullPaths.find( ( h ) => h.include === selectedHull );
+			const grab =
+				held && hullContains( held.poly, point ) ? selectedHull : pick;
+			return { pick, grab };
+		},
+		[ hullPaths, selectedHull ]
+	);
+	// A hover whose own hull has gone, unhovered, says nothing.
+	const hullGone =
+		!! hullHover?.fallback &&
+		! hullPaths.some( ( h ) => h.include === hullHover.fallback );
+	useEffect( () => {
+		if ( hullGone ) {
+			setHullHover( null );
+		}
+	}, [ hullGone ] );
+	const hover = useMemo(
+		() =>
+			hullHover && ! hullGone
+				? judgeHull( hullHover.point, hullHover.fallback )
+				: null,
+		[ hullHover, hullGone, judgeHull ]
+	);
+
+	// @longform The FOCUSED hull: the one the pointer holds, else selected —
+	// selection is the sticky form of the same gesture. Members + inner wires
+	// light; the rest fades.
+	const focusedHull = hover?.grab ?? selectedHull;
+	const focusedHullMembers = useMemo( () => {
+		const hull = hulls.find( ( h ) => h.include === focusedHull );
+		return hull ? new Set( hull.nodeIds ) : null;
+	}, [ hulls, focusedHull ] );
+
+	const pointOf = ( ev ) =>
+		screenToSvg( ev.currentTarget.ownerSVGElement, ev.clientX, ev.clientY );
+	const hullPress = ( ev, fallback ) => judgeHull( pointOf( ev ), fallback );
+	// @longform A judgement reads the point only through the hulls holding
+	// it, so a move that keeps that set, on unchanged geometry, keeps the
+	// state: moves fire at frame rate and would otherwise redraw each one.
+	const restHull = ( point, fallback ) => {
+		const under = hullsUnder( hullPaths, point )
+			.map( ( h ) => h.include )
+			.join( '\n' );
+		setHullHover( ( prev ) =>
+			prev?.paths === hullPaths &&
+			prev.under === under &&
+			prev.fallback === fallback
+				? prev
+				: { point, fallback, under, paths: hullPaths }
 		);
-		const pick = hullAt( hullPaths, point, selectedHull ) ?? fallback;
-		const held = hullPaths.find( ( h ) => h.include === selectedHull );
-		const grab =
-			held && hullContains( held.poly, point ) ? selectedHull : pick;
-		return { pick, grab };
 	};
+	const hoverHull = ( ev, fallback ) => restHull( pointOf( ev ), fallback );
 	const canDragHull = !! onPositionChange && interactive;
 
 	// Snapped so the outline lands exactly where the drag drew it.
@@ -2102,21 +2142,20 @@ export default function SchematicCanvas( {
 							className={ `topology-hull topology-hull--${ hullColorIndex(
 								h.include
 							) }${
-								hoveredHull === h.include ? ' is-hovered' : ''
+								hover?.pick === h.include ? ' is-hovered' : ''
 							}${
 								selectedHull === h.include ? ' is-selected' : ''
 							}${ isDragging ? ' is-dragging' : '' }` }
 							data-include={ h.include }
 							d={ h.d }
 							transform={ offset }
-							onMouseEnter={ () => setHoveredHull( h.include ) }
-							onMouseMove={ ( ev ) =>
-								! hullDrag &&
-								setHoveredHull(
-									hullPress( ev, h.include ).pick
-								)
+							onMouseEnter={ ( ev ) =>
+								! hullDrag && hoverHull( ev, h.include )
 							}
-							onMouseLeave={ () => setHoveredHull( null ) }
+							onMouseMove={ ( ev ) =>
+								! hullDrag && hoverHull( ev, h.include )
+							}
+							onMouseLeave={ () => setHullHover( null ) }
 							onMouseDown={ ( ev ) =>
 								! canDragHull &&
 								onSelectHull?.(

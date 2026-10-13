@@ -1,4 +1,4 @@
-import { hullAt, hullGeometry } from '../hullPath';
+import { hullAt, hullGeometry, hullsUnder } from '../hullPath';
 
 describe( 'hullGeometry', () => {
 	it( 'returns an empty path and no area for no rects', () => {
@@ -25,21 +25,33 @@ describe( 'hullGeometry', () => {
 	} );
 } );
 
-describe( 'hullAt', () => {
-	const square = ( x0, y0, x1, y1 ) => [
-		[ x0, y0 ],
-		[ x1, y0 ],
-		[ x1, y1 ],
-		[ x0, y1 ],
-	];
-	// Paint order, bottom first: base under mid under top.
-	const stack = [
-		{ include: 'base-414', poly: square( 0, 0, 300, 300 ) },
-		{ include: 'mid-515', poly: square( 50, 50, 250, 250 ) },
-		{ include: 'top-616', poly: square( 100, 100, 200, 200 ) },
-	];
-	const at = ( x, y ) => ( { x, y } );
+const square = ( x0, y0, x1, y1 ) => [
+	[ x0, y0 ],
+	[ x1, y0 ],
+	[ x1, y1 ],
+	[ x0, y1 ],
+];
+// Paint order, bottom first: base under mid under top.
+const stack = [
+	{ include: 'base-414', poly: square( 0, 0, 300, 300 ) },
+	{ include: 'mid-515', poly: square( 50, 50, 250, 250 ) },
+	{ include: 'top-616', poly: square( 100, 100, 200, 200 ) },
+];
+const at = ( x, y ) => ( { x, y } );
 
+describe( 'hullsUnder', () => {
+	it( 'lists every hull holding a point, in paint order', () => {
+		expect(
+			hullsUnder( stack, at( 150, 150 ) ).map( ( h ) => h.include )
+		).toEqual( [ 'base-414', 'mid-515', 'top-616' ] );
+		expect(
+			hullsUnder( stack, at( 60, 60 ) ).map( ( h ) => h.include )
+		).toEqual( [ 'base-414', 'mid-515' ] );
+		expect( hullsUnder( stack, at( 400, 400 ) ) ).toEqual( [] );
+	} );
+} );
+
+describe( 'hullAt', () => {
 	it( 'takes the topmost hull containing the point when none is selected', () => {
 		expect( hullAt( stack, at( 150, 150 ), null ) ).toBe( 'top-616' );
 		expect( hullAt( stack, at( 60, 60 ), null ) ).toBe( 'mid-515' );
