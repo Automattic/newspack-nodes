@@ -772,7 +772,8 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * two held to `tests/fixtures/raw-blocks.json`. A carried fragment the
 	 * bytes continue is joined to them; one they do not was torn, and is
 	 * dead-lettered at its place. Each whole line goes on at its own place,
-	 * and what follows the last newline is carried to the next block.
+	 * and what follows the last newline is carried to the next block, unless
+	 * it already runs past the longest record a Partition takes.
 	 *
 	 * @param int    $segment Where the bytes begin.
 	 * @param int    $offset  Their offset in it.
@@ -801,7 +802,14 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 			$this->take_line( \substr( $bytes, $pos, $nl - $pos ), $segment, $offset + $pos, $text );
 			$pos = $nl + 1;
 		}
-		$this->carry      = $pos < \strlen( $bytes ) ? [ 'segment' => $segment, 'offset' => $offset + $pos, 'bytes' => \substr( $bytes, $pos ) ] : null;
+		$cut = \substr( $bytes, $pos );
+		if ( \strlen( $cut ) > Partition_Node::MAX_LARGE_LINE_SIZE ) {
+			// No record runs longer, so this line was torn: carry none of it.
+			$this->receive( $cut, null, [ 'segment' => $segment, 'offset' => $offset + $pos, 'length' => \strlen( $cut ) ] );
+			$pos += \strlen( $cut );
+			$cut  = '';
+		}
+		$this->carry     = '' === $cut ? null : [ 'segment' => $segment, 'offset' => $offset + $pos, 'bytes' => $cut ];
 		$this->block_end = [ 'segment' => $segment, 'offset' => $offset + $pos ];
 	}
 

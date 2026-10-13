@@ -428,6 +428,19 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertSame( \strlen( $bytes ) + 52219, $reader->probe_stats()[ Probe_Record::DISTANCE ] );
 	}
 
+	/** No record is longer than a Partition takes, so a line past that is torn rather than carried on. */
+	public function test_a_line_longer_than_any_record_is_torn_not_carried(): void {
+		[ , $reader, , $http ] = $this->fetching_reader();
+		$reader->fire_cb();
+		$bytes = \str_repeat( 'z', \Newspack_Nodes\Partition_Node::MAX_LARGE_LINE_SIZE + 7 );
+
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], $bytes ) );
+		$reader->fire_cb();
+
+		$this->assertNull( $this->read_private( $reader, 'carry' ) );
+		$this->assertSame( [ 'firehose.p0', '31:' . ( 4404 + \strlen( $bytes ) ) ], $this->last_fetch( $http ) );
+	}
+
 	/** A line the block cut short waits for the next, which asks from the byte after it. */
 	public function test_a_cut_line_is_joined_from_the_next_block(): void {
 		[ , $reader, $sink, $http ] = $this->fetching_reader();

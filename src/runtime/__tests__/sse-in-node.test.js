@@ -2337,6 +2337,20 @@ describe( 'raw blocks', () => {
 		] );
 	} );
 
+	test( 'a line longer than any record is torn, not carried', () => {
+		const { sse } = makeSseIn( { subscribe: [ 'firehose.p0' ] } );
+		sse.start();
+		const cut = 'z'.repeat( 33554432 + 7 );
+
+		sendBlock( FakeEventSource.last, 'firehose.p0', '8:120', cut );
+
+		expect( 'firehose.p0' in sse._carries ).toBe( false );
+		expect( sse.seekMap() ).toEqual( {
+			'firehose.p0': { segment: 8, offset: 120 + cut.length },
+		} );
+		expect( sse.unparseableLines ).toBe( 1 );
+	} );
+
 	test( 'a header alone delivers nothing', () => {
 		const { sse, routed } = makeSseIn( { subscribe: [ 'firehose.p0' ] } );
 		sse.start();
