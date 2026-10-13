@@ -179,6 +179,9 @@ const MAX_BACKOFF_MS = 30000;
  */
 const PROBE_STREAM_ID = '!';
 
+/** The longest record a Partition takes, `Partition_Node::MAX_LARGE_LINE_SIZE`. */
+const MAX_LINE_BYTES = 33554432;
+
 /** Milliseconds a block's split runs before it hands the page a turn. */
 const SLICE_MS = 8;
 
@@ -948,14 +951,22 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 				until = performance.now() + SLICE_MS;
 			}
 		}
-		const cut = text.slice( pos );
+		let cut = text.slice( pos );
+		let cutBytes = byteLength( cut );
+		if ( cutBytes > MAX_LINE_BYTES ) {
+			// No record runs longer, so this line was torn: carry none of it.
+			offset += cutBytes;
+			cut = '';
+			cutBytes = 0;
+			torn++;
+		}
 		if ( '' !== cut ) {
 			this._carries[ dir ] = { segment: at.segment, offset, text: cut };
 		}
 		// A reopen asks past the bytes of a cut line, which it already holds.
 		this.lastPositions[ dir ] = {
 			segment: at.segment,
-			offset: offset + byteLength( cut ),
+			offset: offset + cutBytes,
 		};
 		if ( torn > 0 ) {
 			this._addSkipped( torn, [ [ dir, torn ] ] );
