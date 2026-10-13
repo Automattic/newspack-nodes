@@ -1,9 +1,9 @@
 /**
- * An owned node's Inspector, shown in its owner's place: it polls
- * `dump_metadata <name>` with the name riding on FROM, renders the row's
- * Time Travel, Triage and verbs, names its owner as a link back, and offers
- * its own "…" when it owns sidecars. A canvas node's title offers none: its
- * card does.
+ * An owned node's Inspector, shown in its owner's place from the row the
+ * console's sidecar poller asks `dump_metadata -o <name>` for, the name riding
+ * on FROM: it renders the row's Time Travel, Triage and verbs, names its owner as
+ * a link back, and offers its own "…" when it owns sidecars. A canvas node's
+ * title offers none: its card does.
  */
 
 import { act, fireEvent, screen } from '@testing-library/react';
@@ -20,7 +20,7 @@ import {
 	TM_RESPONSE,
 } from '../../../runtime/message';
 import { renderWithCatalog } from '../../__tests__/catalogTestUtils';
-import { SIDECAR_POLLER } from '../../hooks/useSidecarRow';
+import { SIDECAR_POLLER, useSidecarRows } from '../../hooks/useSidecarRows';
 
 const READER = 'remote-tulsa:firehose.p0';
 
@@ -86,13 +86,27 @@ function answer( map, name ) {
 }
 
 /**
+ * The Inspector fed the shown sidecar's row, as GraphView feeds it.
+ *
+ * @param {Object} props Inspector props.
+ * @return {import('react').ReactElement} The element.
+ */
+function Polled( props ) {
+	const { graph, answered } = useSidecarRows(
+		props.sidecar ? [ props.sidecar ] : []
+	);
+	const shown = answered.includes( props.sidecar ) ? graph : null;
+	return <Inspector { ...props } sidecarGraph={ shown } />;
+}
+
+/**
  * The Inspector with the broker selected and `sidecar` shown in its place.
  *
  * @param {Object} props Extra Inspector props.
  * @return {import('react').ReactElement} The element.
  */
 const inspector = ( props = {} ) => (
-	<Inspector
+	<Polled
 		selectedId="remote-tulsa"
 		parsed={ { nodes: [ broker ], edges: [] } }
 		streamStatus="open"
@@ -136,19 +150,19 @@ describe( 'Inspector sidecars', () => {
 		).toBeNull();
 	} );
 
-	it( 'polls `dump_metadata <name>` at the current scope, the name riding on FROM', async () => {
+	it( 'polls `dump_metadata -o <name>` at the current scope, the name riding on FROM', async () => {
 		const { container } = renderWithCatalog(
 			inspector( { sidecar: READER } ),
 			{ classes: catalog }
 		);
 		await act( async () => {} );
 		const poller = Core.node( SIDECAR_POLLER );
-		expect( poller.pollArgs ).toEqual( [ READER ] );
+		expect( poller.pollArgs ).toEqual( [ '-o', READER ] );
 		expect( poller.target ).toBe( '_cwd' );
 		expect( sent ).toHaveLength( 1 );
 		expect( sent[ 0 ][ VALUE ] ).toMatchObject( {
 			name: 'dump_metadata',
-			arguments: [ READER ],
+			arguments: [ '-o', READER ],
 		} );
 		expect( sent[ 0 ][ FROM ] ).toBe(
 			`${ SIDECAR_POLLER }/${ encodeURIComponent( READER ) }`
@@ -168,6 +182,25 @@ describe( 'Inspector sidecars', () => {
 		).toMatch( /Remote_Consumer/ );
 		expect( screen.queryByText( 'Time Travel' ) ).not.toBeNull();
 		expect( screen.queryByText( 'Triage (4)' ) ).not.toBeNull();
+	} );
+
+	it( 'shows the Activity a canvas node gets, from the rate it is handed', () => {
+		const { container } = renderWithCatalog(
+			inspector( {
+				sidecar: READER,
+				rateInfo: {
+					rate: 17,
+					history: [ 9, 17 ],
+					hasMessages: true,
+					lastChangedTs: 1_700_000_000,
+				},
+			} ),
+			{ classes: catalog }
+		);
+		answer( readerReply(), READER );
+		expect( screen.queryByText( 'Activity' ) ).not.toBeNull();
+		expect( container.textContent ).toMatch( /messages \/s/ );
+		expect( container.textContent ).toMatch( /17(\.0)?\s*\/s/ );
 	} );
 
 	it( 'sends its verbs to the sidecar, not to its owner', () => {
@@ -222,7 +255,7 @@ describe( 'Inspector sidecars', () => {
 		const open = container.querySelector( '.topology-insp__sidecars-open' );
 		expect( open.getAttribute( 'aria-haspopup' ) ).toBe( 'dialog' );
 		fireEvent.click( open );
-		expect( onOpenSidecars ).toHaveBeenCalledWith( READER, nested, open );
+		expect( onOpenSidecars ).toHaveBeenCalledWith( READER, open );
 	} );
 
 	it( 'says a sidecar is gone when its name answers no row, linking back', () => {

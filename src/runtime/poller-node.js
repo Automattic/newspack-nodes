@@ -152,6 +152,19 @@ export class PollerNode extends ReactBridge( TimerNode ) {
 	}
 
 	/**
+	 * Ask about something else from the next tick on, keeping this node and
+	 * what it last published. A reply about what was asked before names that
+	 * subject, so `answersSubject()` drops it.
+	 *
+	 * @param {string[]} args    The verb's argument tokens.
+	 * @param {?string}  subject What it asks about, ridden on FROM; null for none.
+	 */
+	ask( args, subject ) {
+		this.pollArgs = args;
+		this.subject = subject;
+	}
+
+	/**
 	 * Arm at this poller's own cadence. Bare, `TimerNode.setTimer()` takes the
 	 * Router's 1s tick and throttles nothing, so defaulting the interval to
 	 * `pollIntervalMs` is what makes a bare call at the mount site mean the

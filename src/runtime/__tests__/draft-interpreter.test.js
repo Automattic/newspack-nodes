@@ -215,7 +215,7 @@ describe( 'a draft interpreter holding a server topology', () => {
 		evalTsl( draft, TSL );
 
 		const meta = CommandInterpreterNode._cmdDumpMetadata(
-			'',
+			[],
 			draft.childRegistry
 		);
 

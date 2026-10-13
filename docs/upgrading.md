@@ -6,6 +6,16 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **Raise Event Logger Nodes' and Intelligence's `version_at_least()` floors
+  to the substrate release that ships `dump_metadata -o`.** Both inline
+  `@newspack-nodes/debug-overlay`, whose topology console polls an owner's
+  sidecars, and the sidecar its Inspector shows, through
+  `dump_metadata -o <node>...`. An older substrate reads `-o` as a node name
+  and answers an empty map, so a new bundle on it draws every sidecar card
+  with no count and says every shown sidecar is no longer present. An older bundle on this substrate
+  keeps working: `dump_metadata <name>` and a full `dump_metadata` answer as
+  before.
+
 - **Upgrade every spoke and its hubs together: the stream wire changed.** A
   log or source stream on `/messages/stream` sends raw blocks as `msg`
   events carrying the TM_BATCH bit (see [API.md → Raw blocks](API.md#raw-blocks)),
@@ -31,9 +41,9 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   every console surface — palette, canvas, sidecar list and class catalog —
   declares `'hidden' => true`; one that only stays off the palette declares
   the `Hidden` category, which `classes dump` now lists for the Inspector.
-  `dump_metadata <name>` answers an owned node, and a reader of the full
-  snapshot that looked for one there reads its owner's `sidecars` and asks
-  for it by name. `Node::shown_on_canvas( $schema )` becomes `owned()`, the
+  `dump_metadata <name>` answers an owned node, `dump_metadata -o <owner>`
+  answers an owner and every sidecar it lists, and a reader of the full
+  snapshot that looked for one there asks for it either way. `Node::shown_on_canvas( $schema )` becomes `owned()`, the
   `hidden` check `Node::hidden( $schema )`. The console's `withOwnedNodes()`
   and `ownedOf()` are gone.
 

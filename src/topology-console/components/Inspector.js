@@ -64,7 +64,6 @@ import { edgeHasConnectRole } from '../utils/consoleGraph';
 import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
 import CommitInput from '@newspack-nodes/shared/components/CommitInput';
 import { useCatalog } from '../CatalogContext';
-import { useSidecarRow } from '../hooks/useSidecarRow';
 
 /**
  * Whether the node reads a durable log, so the Time Travel panel applies.
@@ -157,7 +156,7 @@ function NavButton( { name, onOpen } ) {
  *
  * @param {Object}                      props
  * @param {Object}                      props.node     The node shown.
- * @param {?(trigger: Element) => void} [props.onOpen] Opens its sidecar list; null draws no "…".
+ * @param {?(trigger: Element) => void} [props.onOpen] Opens its sidecar grid; null draws no "…".
  * @return {import('react').ReactElement} The title row.
  */
 function TitleRow( { node, onOpen } ) {
@@ -1861,20 +1860,21 @@ function ComposeModal( { nodeNames, onSend, onCancel } ) {
  * schema-driven config form — locked when the node is borrowed through an
  * include, since its configuration belongs to the topology that defines it.
  * A shown sidecar, an owned node no canvas draws, takes the selection's place:
- * its row is polled by name, and its own sidecars open from a "…" in its
- * title, since it has no card to carry one.
+ * its row is the one the console polls by name, and its own sidecars open from
+ * a "…" in its title, since it has no card to carry one.
  *
  * @param {Object}                  props
  * @param {?string}                 props.selectedId        Selected node id; null falls through to the hull or process view.
- * @param {?string}                 [props.sidecar]         An owned node shown in the selection's place, its row polled by name; null shows the selection.
- * @param {Function}                [props.onOpenSidecars]  (owner, sidecars, trigger) — opens a shown sidecar's own "…" list.
+ * @param {?string}                 [props.sidecar]         An owned node shown in the selection's place; null shows the selection.
+ * @param {?Object}                 [props.sidecarGraph]    The polled rows the shown sidecar's is among; null until they answer.
+ * @param {Function}                [props.onOpenSidecars]  (owner, trigger) — opens a shown sidecar's own "…" grid.
  * @param {(name: string) => void}  [props.onOpenNode]      Shows a node an owner link or a back link names.
  * @param {?string}                 [props.selectedHull]    Selected include, shown only while no node is selected.
  * @param {Array}                   [props.hulls]           Every hull, `{ include, nodeIds }[]`.
  * @param {Function}                [props.onOpenTopology]  (name) — drill into a hull's own topology.
  * @param {Object}                  props.parsed            The graph — `{ nodes, edges, pwd, profiling }`.
  * @param {?string}                 props.streamStatus      SSE state; absent or 'open' reads as live.
- * @param {?Object}                 props.rateInfo          Selected node's rate history and last-changed timestamp.
+ * @param {?Object}                 props.rateInfo          The shown node's rate history and last-changed timestamp, a sidecar's included.
  * @param {Object}                  props.rateSeries        `{ in, out, read, write }` sample rings for the whole graph.
  * @param {Object}                  props.hullRateSeries    The same rings, scoped to the selected hull.
  * @param {boolean}                 [props.local]           Browser graph: read IoTelemetry rather than rolling up dump_metadata.
@@ -1902,6 +1902,7 @@ function ComposeModal( { nodeNames, onSend, onCancel } ) {
 export default function Inspector( {
 	selectedId,
 	sidecar = null,
+	sidecarGraph = null,
 	onOpenSidecars,
 	onOpenNode,
 	selectedHull = null,
@@ -1949,7 +1950,6 @@ export default function Inspector( {
 	const [ stripModal, setStripModal ] = useState( null );
 	// Whether the selected node's dead-letter Triage modal is open.
 	const [ triageOpen, setTriageOpen ] = useState( false );
-	const sidecarGraph = useSidecarRow( editMode ? null : sidecar );
 	// Toggle override: agreement clears; one stale reply tolerated; two fail.
 	const [ profilingOptimistic, setProfilingOptimistic ] = useState( null );
 	const profilingDisagreeRef = useRef( 0 );
@@ -2339,9 +2339,8 @@ export default function Inspector( {
 			</aside>
 		);
 	}
-	// A sidecar's edges are its own row's; the canvas rates are its owner's.
+	// A sidecar's edges are its own row's.
 	const graph = sidecar ? sidecarGraph : parsed;
-	const nodeRate = sidecar ? null : rateInfo;
 	// Display union less registration edges — listeners, not destinations.
 	const displayEdges = graph.edges.filter(
 		( e ) => e.from === node.id && ! e.registration
@@ -2393,12 +2392,7 @@ export default function Inspector( {
 				node={ node }
 				onOpen={
 					sidecar
-						? ( trigger ) =>
-								onOpenSidecars(
-									node.id,
-									node.sidecars,
-									trigger
-								)
+						? ( trigger ) => onOpenSidecars( node.id, trigger )
 						: null
 				}
 			/>
@@ -2498,34 +2492,34 @@ export default function Inspector( {
 				</Section>
 			) }
 
-			{ ( nodeRate?.hasMessages ||
-				nodeRate?.hasRead ||
-				nodeRate?.hasWritten ) && (
+			{ ( rateInfo?.hasMessages ||
+				rateInfo?.hasRead ||
+				rateInfo?.hasWritten ) && (
 				<Section
 					title={ __( 'Activity', 'newspack-nodes' ) }
-					meta={ formatActivityWindow( parsed.nodes.length ) }
+					meta={ formatActivityWindow( graph.nodes.length ) }
 				>
-					{ nodeRate.hasMessages && (
+					{ rateInfo.hasMessages && (
 						<SparklineRow
 							label={ __( 'messages /s', 'newspack-nodes' ) }
-							history={ nodeRate.history }
-							currentValue={ nodeRate.rate || 0 }
+							history={ rateInfo.history }
+							currentValue={ rateInfo.rate || 0 }
 							format={ formatRate }
 						/>
 					) }
-					{ nodeRate.hasRead && (
+					{ rateInfo.hasRead && (
 						<SparklineRow
 							label={ __( 'bytes read /s', 'newspack-nodes' ) }
-							history={ nodeRate.readHistory }
-							currentValue={ nodeRate.readRate || 0 }
+							history={ rateInfo.readHistory }
+							currentValue={ rateInfo.readRate || 0 }
 							format={ formatByteRate }
 						/>
 					) }
-					{ nodeRate.hasWritten && (
+					{ rateInfo.hasWritten && (
 						<SparklineRow
 							label={ __( 'bytes written /s', 'newspack-nodes' ) }
-							history={ nodeRate.writtenHistory }
-							currentValue={ nodeRate.writtenRate || 0 }
+							history={ rateInfo.writtenHistory }
+							currentValue={ rateInfo.writtenRate || 0 }
 							format={ formatByteRate }
 						/>
 					) }
@@ -2543,9 +2537,9 @@ export default function Inspector( {
 				/>
 				<FieldRow
 					k="rate"
-					v={ formatRate( nodeRate?.rate ) }
+					v={ formatRate( rateInfo?.rate ) }
 					vClass={
-						nodeRate && nodeRate.rate > 0
+						rateInfo && rateInfo.rate > 0
 							? 'newspack-nodes-stat-value is-accent topology-field-row__val--num'
 							: 'newspack-nodes-stat-value topology-field-row__val--num topology-field-row__val--dim'
 					}
@@ -2579,9 +2573,9 @@ export default function Inspector( {
 				/>
 				<FieldRow
 					k="last_seen"
-					v={ formatLastSeen( nodeRate?.lastChangedTs, live ) }
+					v={ formatLastSeen( rateInfo?.lastChangedTs, live ) }
 					vClass={
-						nodeRate && nodeRate.rate > 0
+						rateInfo && rateInfo.rate > 0
 							? 'topology-field-row__val--right'
 							: 'topology-field-row__val--right topology-field-row__val--dim'
 					}

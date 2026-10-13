@@ -11,6 +11,8 @@ import * as sass from 'sass';
 import { JSDOM } from 'jsdom';
 import selectorParser from 'postcss-selector-parser';
 import { THEMES } from '../../shared/theme';
+import { renderToStaticMarkup } from 'react-dom/server';
+import SidecarCard from '../../topology-console/components/SidecarCard';
 // Babel/Jest already installs the parser used to discover real SVG text nodes.
 // eslint-disable-next-line import/no-extraneous-dependencies
 import { parse as parseJavaScript } from '@babel/parser';
@@ -24,9 +26,9 @@ const GRAPH_SCSS = path.join(
 	'src/topology-console/styles/graph-view.scss'
 );
 const FORMAT_UTILS_JS = path.join( ROOT, 'src/shared/utils/formatUtils.js' );
-const SCHEMATIC_CANVAS = path.join(
+const NODE_CARD = path.join(
 	ROOT,
-	'src/topology-console/components/SchematicCanvas.js'
+	'src/topology-console/components/NodeCard.js'
 );
 const SKINS_SCSS = path.join( ROOT, 'src/theme/_skins.scss' );
 const compiledTheme = sass.compile( THEME_SCSS ).css;
@@ -461,7 +463,7 @@ const schematicNodeGraphicRecords = [];
 const schematicNodeStateClasses = new Set();
 const schematicTextRecords = [];
 let schematicHeaderHeight = null;
-const schematicSource = fs.readFileSync( SCHEMATIC_CANVAS, 'utf8' );
+const schematicSource = fs.readFileSync( NODE_CARD, 'utf8' );
 const schematicAst = parseJavaScript( schematicSource, {
 	sourceType: 'module',
 	plugins: [ 'jsx' ],
@@ -1308,10 +1310,60 @@ describe( 'theme skin ramps', () => {
 			winningDeclaration( graphCascadeRecords, background, 'fill' )
 		).toMatchObject( {
 			selector:
-				'.theme-newspack-brand .topology-app .topology-node:hover .topology-node__bg',
+				'.theme-newspack-brand :is(.topology-app,.topology-sidecars) .topology-node:hover .topology-node__bg',
 			value: 'color-mix(in srgb, var(--ink) 8%, var(--paper-2))',
 		} );
 	} );
+
+	it.each( [ ...skinMaps.keys() ] )(
+		'skins a sidecar grid card as the %s canvas skins its own',
+		( slug ) => {
+			const card = renderToStaticMarkup(
+				<SidecarCard
+					surface="topology-card-parity"
+					sidecar={ { name: 'crawl-4471:seen', class: 'Table' } }
+					row={ { id: 'crawl-4471:seen', count: 9083 } }
+					rate={ { rate: 37.5, history: [ 12, 37.5 ] } }
+					onPick={ () => {} }
+				/>
+			);
+			const grid = new JSDOM( `
+				<!doctype html>
+				<html class="theme-${ slug }">
+					<body>
+						<div class="newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui">
+							<div class="topology-modal newspack-nodes-modal topology-sidecars">
+								<div class="topology-modal__body topology-sidecars__grid">
+									${ card }
+								</div>
+							</div>
+						</div>
+					</body>
+				</html>
+			` ).window.document;
+			const canvas = createGraphFixture( slug );
+			const painted = ( doc ) =>
+				[
+					[ 'topology-node__bg', [ 'fill', 'stroke', 'rx' ] ],
+					[ 'topology-node__header', [ 'fill' ] ],
+					[ 'topology-node__spark', [ 'stroke' ] ],
+					[ 'topology-node__rate', [ 'fill' ] ],
+					[ 'topology-node__counter', [ 'fill' ] ],
+					[ 'topology-node-readout', [ 'filter' ] ],
+					[ 'topology-nodes--bloom', [ 'filter' ] ],
+				].map( ( [ className, properties ] ) =>
+					properties.map(
+						( property ) =>
+							winningDeclaration(
+								graphCascadeRecords,
+								doc.querySelector( `.${ className }` ),
+								property
+							)?.value
+					)
+				);
+			expect( painted( grid ) ).toEqual( painted( canvas ) );
+		}
+	);
 
 	it.each( [ 'row-odd', 'row-even' ] )(
 		'pins the browser-winning %s table hover background',

@@ -652,7 +652,7 @@ class Command_Interpreter_Node extends Node {
 			'list_profiles' => "list_profiles [-s] [ <regex glob> ]\n    note: per-node self-time table, slowest average first; `total`\n          shows only the --total-- row.\n    -s: the same rows as a struct, --total-- included, for a view\n        that wants to sort them.\n",
 			'dump_node' => "dump_node <node name> [<keys>]\n    alias: dump\n",
 			'dump_config' => "dump_config [ <regex glob> ]\n",
-			'dump_metadata' => "dump_metadata\n    note: a JSON object keyed by node name, carrying `class`,\n          `counter`, `sink`, `target`, `debug_state` and `arguments`.\n          One round-trip gives a GUI everything it needs to render\n          the graph.\n",
+			'dump_metadata' => "dump_metadata [<node> | -o <node>...]\n    note: a JSON object keyed by node name, carrying `class`,\n          `counter`, `sink`, `target`, `debug_state` and `arguments`.\n          One round-trip gives a GUI everything it needs to render\n          the graph.\n    -o: each node named, then each sidecar it lists.\n",
 			'trace' => "trace [ <node name> [ <level> ] ]\n"
 				. "    no args:      toggle this CommandInterpreter's debug_state.\n"
 				. "    name only:    toggle that node's debug_state.\n"
@@ -717,7 +717,7 @@ class Command_Interpreter_Node extends Node {
 			'dump_node'       => fn ( Command_Interpreter_Node $self, array $args ): mixed => self::cmd_dump_node( self::arg_strings( $args ) ),
 			'dump'            => fn ( Command_Interpreter_Node $self, array $args ): mixed => self::cmd_dump_node( self::arg_strings( $args ) ),
 			'dump_config'     => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_dump_config( Core::as_string( $args[0] ?? '' ) ),
-			'dump_metadata'   => fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): mixed => self::cmd_dump_metadata( Core::as_string( $args[0] ?? '' ), \is_string( $envelope[ Message::FROM ] ?? null ) ? $envelope[ Message::FROM ] : '' ),
+			'dump_metadata'   => fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): mixed => self::cmd_dump_metadata( \array_values( \array_map( Core::as_string( ... ), $args ) ), \is_string( $envelope[ Message::FROM ] ?? null ) ? $envelope[ Message::FROM ] : '' ),
 			'stats'           => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_stats( $self, self::arg_strings( $args ) ),
 			'uptime'          => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_uptime(),
 			'trace'           => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_trace( $self, self::arg_strings( $args ) ),
@@ -886,29 +886,36 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * `dump_metadata [<node>]` — the per-node snapshot the GUI canvas renders.
+	 * `dump_metadata [<node> | -o <node>...]` — the per-node snapshot the GUI
+	 * canvas renders.
 	 *
 	 * Naming a node returns that node alone, or an empty map once it is gone or
 	 * its schema is `hidden`, so a refresh after one mutation costs a one-node
-	 * round-trip; it is how the console polls a sidecar its canvas never draws.
+	 * round-trip. `-o` returns each node named and then each of its
+	 * `sidecars()`, so the console asks for an owner's sidecars, which its
+	 * canvas never draws, by the owner's name alone however many it owns.
 	 * With no argument the whole map comes back, carrying a `_header` row and
 	 * leaving out every `owned()` node, then every `hidden` one, so an owned
 	 * node's schema is built once, by its owner's `sidecars()`. A node another
 	 * published names that publisher under `owner`, because `remove_node` and
 	 * `move_node` refuse it, and an owner's row lists its `sidecars()`.
 	 *
-	 * @param string $only Optional single node name to return.
-	 * @param string $pwd  Requesting session's reverse_cwd (inbound FROM); stamped into `_header` on a full snapshot.
+	 * @param list<string> $args The tokens: `-o` and nodes, one node, or none.
+	 * @param string       $pwd  Requesting session's reverse_cwd (inbound FROM); stamped into `_header` on a full snapshot.
 	 * @return array<string,array<string,mixed>>
 	 */
-	private static function cmd_dump_metadata( string $only = '', string $pwd = '' ): array {
-		if ( '' !== $only ) {
-			$node = Core::node( $only );
+	private static function cmd_dump_metadata( array $args, string $pwd ): array {
+		$names = \array_values( \array_filter( $args, static fn ( string $arg ): bool => '' !== $arg && '-o' !== $arg ) );
+		if ( \in_array( '-o', $args, true ) ) {
+			return self::owned_metadata( $names );
+		}
+		if ( [] !== $names ) {
+			$node = Core::node( $names[0] );
 			if ( null === $node ) {
 				return [];
 			}
 			$schema = $node::node_schema();
-			return Node::hidden( $schema ) ? [] : [ $only => self::metadata_row( $only, $node, $schema ) ];
+			return Node::hidden( $schema ) ? [] : [ $names[0] => self::metadata_row( $names[0], $node, $schema ) ];
 		}
 		$out = [];
 		/** @var \Newspack_Nodes\Node $node Each registered node. */
@@ -925,6 +932,35 @@ class Command_Interpreter_Node extends Node {
 		$out['_header'] = [ 'profiling' => null !== Router_Node::profiles() ];
 		if ( '' !== $pwd ) {
 			$out['_header']['pwd'] = $pwd;
+		}
+		return $out;
+	}
+
+	/**
+	 * Each owner's `dump_metadata -o` rows: its own unless gone or `hidden`,
+	 * then each of its `sidecars()`.
+	 *
+	 * @param list<string> $owners The nodes named.
+	 * @return array<string,array<string,mixed>>
+	 */
+	private static function owned_metadata( array $owners ): array {
+		$out = [];
+		foreach ( $owners as $name ) {
+			$node = Core::node( $name );
+			if ( null === $node ) {
+				continue;
+			}
+			$schema = $node::node_schema();
+			if ( Node::hidden( $schema ) ) {
+				continue;
+			}
+			$out[ $name ] = self::metadata_row( $name, $node, $schema );
+			foreach ( $node->sidecars() as [ 'name' => $sidecar_name ] ) {
+				$sidecar = Core::node( $sidecar_name );
+				if ( null !== $sidecar ) {
+					$out[ $sidecar_name ] = self::metadata_row( $sidecar_name, $sidecar, $sidecar::node_schema() );
+				}
+			}
 		}
 		return $out;
 	}
@@ -974,7 +1010,7 @@ class Command_Interpreter_Node extends Node {
 		return $row + $node->dump_metadata();
 	}
 
-		/**
+	/**
 	 * Registered shell name for a node instance or class.
 	 *
 	 * `make_node`/topology lines use the shell name (e.g. `Log`, `Tee`), which

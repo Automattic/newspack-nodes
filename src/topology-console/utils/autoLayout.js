@@ -88,6 +88,8 @@
  * packs by the width it draws, so a gap moves no card outside its block.
  */
 
+import { NODE_H, NODE_W } from '../components/NodeCard';
+
 /** Horizontal distance between layout columns, in canvas pixels. */
 export const X_STEP = 240;
 
@@ -104,22 +106,11 @@ export const X_PAD = 60;
 export const Y_PAD = 80;
 
 /**
- * Card width the snap grid centres on.
- *
- * `snapToGrid` converts a pointer centre into the top-left the canvas stores,
- * so it has to know how wide the card renders. `SchematicCanvas` owns the
- * rendered pair; a mismatch puts every drop off-centre by half the difference.
- */
-const NODE_W = 196;
-
-/** Card height the snap grid centres on; the partner of `NODE_W`. */
-const NODE_H = 84;
-
-/**
  * Snap a pointer drop to the nearest grid intersection.
  *
  * The drop point is where the pointer released, i.e. the card's centre; the
- * returned position is the card's top-left, which is what the canvas stores.
+ * returned position is the card's top-left, which is what the canvas stores,
+ * offset by half the card's own `NODE_W` and `NODE_H`.
  *
  * @param {number} x Drop point's centre x, in canvas coordinates.
  * @param {number} y Drop point's centre y, in canvas coordinates.

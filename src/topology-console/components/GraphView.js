@@ -11,6 +11,7 @@ import Inspector from './Inspector';
 import Palette from './Palette';
 import SidecarsModal from './SidecarsModal';
 import { useGraphRates } from '../hooks/useGraphRates';
+import { useSidecarRows } from '../hooks/useSidecarRows';
 import { usePublishedGraph } from '../hooks/useGraphSource';
 import { hullNodes } from '../utils/hullNodes';
 import { aggregateSeries } from '../utils/aggregateSeries';
@@ -117,7 +118,7 @@ export default function GraphView( {
 	const [ hoveredId, setHoveredId ] = useState( null );
 	// The sidecar shown in the selected node's place, or null.
 	const [ sidecar, setSidecar ] = useState( null );
-	// The open "…" list: whose it is, what it lists, and what opened it.
+	// The open "…" grid: whose it is, what it shows, and what opened it.
 	const [ listing, setListing ] = useState( null );
 	// The selection as of the last render, for the controlled re-sync.
 	const selectedRef = useRef( null );
@@ -161,6 +162,25 @@ export default function GraphView( {
 		}
 	}, [ ownerShown ] );
 	const shownSidecar = ! editMode && ownerShown ? sidecar : null;
+	// One poller asks for the shown sidecar's row and the open grid's owner's.
+	const sidecarOwners = useMemo(
+		() => [
+			...new Set(
+				[ shownSidecar, listing?.owner ].filter( ( n ) => !! n )
+			),
+		],
+		[ shownSidecar, listing ]
+	);
+	const sidecarRows = useSidecarRows( sidecarOwners );
+	// The open grid's sidecars, as the owner's live row lists them now.
+	const isOwner = ( n ) => n.id === listing?.owner;
+	const ownerRow =
+		sidecarRows.graph?.nodes.find( isOwner ) ?? graph.nodes.find( isOwner );
+	const listed = ( listing && ownerRow?.sidecars ) || [];
+	const { rateRef: sidecarRateRef } = useGraphRates(
+		sidecarRows.snapshot,
+		resetKey
+	);
 
 	// @longform A sparkline point is a dump_metadata POLL REPLY, never the
 	// canvas graph: an optimistic patch or a catalog republish rebuilds that,
@@ -306,14 +326,12 @@ export default function GraphView( {
 
 	const nodeIds = new Set( graph.nodes.map( ( n ) => n.id ) );
 	/**
-	 * Open a "…" list, remembering the control that opened it for the focus.
+	 * Open a "…" grid, remembering the control that opened it for the focus.
 	 *
-	 * @param {string}                               owner    Whose sidecars they are.
-	 * @param {Array<{name: string, class: string}>} sidecars What the list shows.
-	 * @param {?(HTMLElement|SVGElement)}            trigger  The control that opened it.
+	 * @param {string}                    owner   Whose sidecars it shows.
+	 * @param {?(HTMLElement|SVGElement)} trigger The control that opened it.
 	 */
-	const openSidecars = ( owner, sidecars, trigger ) =>
-		setListing( { owner, sidecars, trigger } );
+	const openSidecars = ( owner, trigger ) => setListing( { owner, trigger } );
 	/**
 	 * Show a node: a canvas node by selecting it, an owned one in the selected
 	 * node's place.
@@ -328,7 +346,7 @@ export default function GraphView( {
 		}
 	};
 	/**
-	 * Show the sidecar chosen from the open list, selecting its owner first
+	 * Show the sidecar chosen from the open grid, selecting its owner first
 	 * when the owner is a canvas card, and move focus to the Inspector.
 	 *
 	 * @param {string} name The sidecar chosen.
@@ -386,14 +404,7 @@ export default function GraphView( {
 					onConnect={ onConnect }
 					selectedEdge={ selectedEdge }
 					onSelectEdge={ handleSelectEdge }
-					onOpenSidecars={ ( id, trigger ) =>
-						openSidecars(
-							id,
-							graph.nodes.find( ( n ) => n.id === id )
-								?.sidecars ?? [],
-							trigger
-						)
-					}
+					onOpenSidecars={ openSidecars }
 					hulls={ hulls }
 				/>
 			</Frame>
@@ -422,12 +433,20 @@ export default function GraphView( {
 						<Inspector
 							selectedId={ selectedId }
 							sidecar={ shownSidecar }
+							sidecarGraph={
+								sidecarRows.answered.includes( shownSidecar )
+									? sidecarRows.graph
+									: null
+							}
 							onOpenSidecars={ openSidecars }
 							onOpenNode={ openNode }
 							parsed={ graph }
 							streamStatus={ streamStatus }
 							rateInfo={
-								rateRef.current.get( selectedId ) || null
+								( shownSidecar
+									? sidecarRateRef.current.get( shownSidecar )
+									: rateRef.current.get( selectedId ) ) ??
+								null
 							}
 							rateSeries={ rateSeries }
 							hullRateSeries={ hullRateSeries }
@@ -461,7 +480,9 @@ export default function GraphView( {
 			{ listing && (
 				<SidecarsModal
 					owner={ listing.owner }
-					sidecars={ listing.sidecars }
+					sidecars={ listed }
+					rows={ sidecarRows.graph?.nodes ?? [] }
+					rates={ sidecarRateRef.current }
 					onPick={ pickSidecar }
 					onDismiss={ dismissSidecars }
 				/>

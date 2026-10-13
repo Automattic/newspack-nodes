@@ -4,7 +4,8 @@
  * the path `SchematicCanvas` renders holds the card's width.
  */
 
-import SchematicCanvas, { NODE_H, NODE_W } from '../SchematicCanvas';
+import SchematicCanvas from '../SchematicCanvas';
+import { NODE_H, NODE_W } from '../NodeCard';
 import { renderWithCatalog } from '../../__tests__/catalogTestUtils';
 import {
 	drawnCost,

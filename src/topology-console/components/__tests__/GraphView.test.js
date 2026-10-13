@@ -4,6 +4,18 @@ import GraphView from '../GraphView';
 import { renderWithCatalog } from '../../__tests__/catalogTestUtils';
 import { Core } from '../../../runtime/core';
 import { MetadataNode } from '../../../runtime/metadata-node';
+import {
+	newMessage,
+	pack,
+	FROM,
+	TO,
+	TYPE,
+	VALUE,
+	TM_COMMAND,
+	TM_RESPONSE,
+} from '../../../runtime/message';
+import { SIDECAR_POLLER } from '../../hooks/useSidecarRows';
+import { MAX_FROM_SIZE } from '../../../runtime/node';
 import names from '../../../runtime/reserved-node-names.json';
 
 // Minimal frame stub: renders children (the console passes CanvasFrame).
@@ -39,6 +51,7 @@ jest.mock( '../SchematicCanvas', () => ( props ) => {
 	);
 } );
 jest.mock( '../Inspector', () => ( props ) => {
+	( global.__inspectorRenders ||= [] ).push( props );
 	const { useCatalog } = require( '../../CatalogContext' );
 	global.__inspectorProps = { ...props, ...useCatalog() };
 	return (
@@ -56,11 +69,7 @@ jest.mock( '../Inspector', () => ( props ) => {
 			</button>
 			<button
 				onClick={ ( ev ) =>
-					props.onOpenSidecars?.(
-						'n1:seen',
-						[ { name: 'n1:seen:offsetlog', class: 'Partition' } ],
-						ev.currentTarget
-					)
+					props.onOpenSidecars?.( 'n1:seen', ev.currentTarget )
 				}
 			>
 				nested-sidecars
@@ -900,6 +909,7 @@ describe( 'GraphView — sidecars', () => {
 		],
 		edges: [],
 	};
+	const flush = () => act( async () => {} );
 	const inspectorText = ( getByTestId ) =>
 		getByTestId( 'inspector' ).textContent;
 
@@ -910,7 +920,7 @@ describe( 'GraphView — sidecars', () => {
 	 * @param {Object} props Extra GraphView props.
 	 * @return {Object} What renderWithCatalog returns.
 	 */
-	const pick = ( name, props = {} ) => {
+	const pick = async ( name, props = {} ) => {
 		const rendered = renderWithCatalog(
 			<GraphView
 				graph={ owned }
@@ -920,11 +930,13 @@ describe( 'GraphView — sidecars', () => {
 			/>
 		);
 		fireEvent.click( rendered.getByText( 'sidecars-n1' ) );
+		await flush();
 		fireEvent.click( rendered.getByText( name ) );
+		await flush();
 		return rendered;
 	};
 
-	it( "lists the card's sidecars without selecting it, the first card focused", () => {
+	it( "lists the card's sidecars without selecting it, the first card focused", async () => {
 		const onSelectionChange = jest.fn();
 		const { getByText, getByTestId } = renderWithCatalog(
 			<GraphView
@@ -935,13 +947,13 @@ describe( 'GraphView — sidecars', () => {
 			/>
 		);
 		fireEvent.click( getByText( 'sidecars-n1' ) );
+		await flush();
 		const cards = [
-			...document.body.querySelectorAll( '.topology-open-item' ),
+			...document.body.querySelectorAll( '.topology-sidecars__card' ),
 		];
-		expect( cards.map( ( c ) => c.textContent ) ).toEqual( [
-			'n1:curlCurl',
-			'n1:seenTable',
-		] );
+		expect( cards.map( ( c ) => c.getAttribute( 'aria-label' ) ) ).toEqual(
+			[ 'n1:curl (Curl)', 'n1:seen (Table)' ]
+		);
 		expect( document.activeElement ).toBe( cards[ 0 ] );
 		expect( onSelectionChange ).not.toHaveBeenCalled();
 		expect( inspectorText( getByTestId ) ).toBe(
@@ -949,24 +961,293 @@ describe( 'GraphView — sidecars', () => {
 		);
 	} );
 
-	it( 'choosing a card selects its owner, shows the sidecar and focuses the Inspector', () => {
+	describe( 'the one sidecar poller', () => {
+		/** What reached `_cwd`, here a capture. */
+		let sent;
+		let now;
+		let realNow;
+
+		beforeEach( () => {
+			sent = [];
+			Core.registerNode( '_cwd', {
+				name: '_cwd',
+				fill: ( m ) => sent.push( m ),
+			} );
+			now = 1_700_000_000_000;
+			realNow = Date.now;
+			Date.now = () => now;
+		} );
+
+		afterEach( () => {
+			Date.now = realNow;
+		} );
+
+		/**
+		 * Answer the sidecar poller about the names it asks for now.
+		 *
+		 * @param {Object} map The `dump_metadata` reply map.
+		 */
+		const answer = ( map ) => {
+			const poller = Core.node( SIDECAR_POLLER );
+			const reply = newMessage();
+			reply[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+			reply[ TO ] = encodeURIComponent( poller.subject );
+			reply[ VALUE ] = { payload: map };
+			act( () => poller.fill( reply ) );
+		};
+
+		const card = ( i ) =>
+			document.body.querySelectorAll( '.topology-sidecars__card' )[ i ];
+
+		it( "asks for the grid's sidecars on the click, and none once it closes", async () => {
+			const { getByText } = renderWithCatalog(
+				<GraphView graph={ owned } frame={ Frame } resetKey="k" />
+			);
+			await act( async () => {} );
+			expect( sent ).toHaveLength( 0 );
+			fireEvent.click( getByText( 'sidecars-n1' ) );
+			await act( async () => {} );
+			expect( sent ).toHaveLength( 1 );
+			expect( sent[ 0 ][ VALUE ] ).toMatchObject( {
+				name: 'dump_metadata',
+				arguments: [ '-o', 'n1' ],
+			} );
+			fireEvent.click(
+				document.body.querySelector( '.topology-modal__close' )
+			);
+			expect( Core.node( SIDECAR_POLLER ) ).toBeFalsy();
+		} );
+
+		it( 'draws each card live off its answers, a rate from the second', async () => {
+			const { getByText } = renderWithCatalog(
+				<GraphView graph={ owned } frame={ Frame } resetKey="k" />
+			);
+			fireEvent.click( getByText( 'sidecars-n1' ) );
+			await act( async () => {} );
+			answer( { 'n1:seen': { class: 'Table', counter: 6100 } } );
+			expect(
+				card( 1 ).querySelector( '.topology-node__counter' ).textContent
+			).toBe( '6,100' );
+			expect(
+				card( 1 ).querySelector( '.topology-node__rate' ).textContent
+			).toBe( '' );
+			now += 2000;
+			answer( { 'n1:seen': { class: 'Table', counter: 6142 } } );
+			expect(
+				card( 1 ).querySelector( '.topology-node__rate' ).textContent
+			).toBe( '21.0 /s' );
+			now += 1000;
+			answer( { 'n1:seen': { class: 'Table', counter: 6172 } } );
+			expect(
+				card( 1 ).querySelector( '.topology-node__counter' ).textContent
+			).toBe( '6,172' );
+			expect(
+				card( 1 ).querySelector( '.topology-node__spark' )
+			).not.toBeNull();
+			expect(
+				card( 0 ).querySelector( '.topology-node__counter' ).textContent
+			).toBe( '—' );
+		} );
+
+		it( "hands the shown sidecar's Inspector the rate its grid card shows", async () => {
+			const { getByText } = renderWithCatalog(
+				<GraphView graph={ owned } frame={ Frame } resetKey="k" />
+			);
+			fireEvent.click( getByText( 'sidecars-n1' ) );
+			await act( async () => {} );
+			answer( { 'n1:seen': { class: 'Table', counter: 4100 } } );
+			now += 2000;
+			answer( { 'n1:seen': { class: 'Table', counter: 4134 } } );
+			expect(
+				card( 1 ).querySelector( '.topology-node__rate' ).textContent
+			).toBe( '17.0 /s' );
+			fireEvent.click( card( 1 ) );
+			await act( async () => {} );
+			expect( global.__inspectorProps.sidecar ).toBe( 'n1:seen' );
+			expect( global.__inspectorProps.rateInfo ).toMatchObject( {
+				rate: 17,
+				history: [ 17 ],
+			} );
+		} );
+
+		it( "keeps a picked sidecar's answered row across a new ask until its answer", async () => {
+			const { getByText } = renderWithCatalog(
+				<GraphView graph={ owned } frame={ Frame } resetKey="k" />
+			);
+			fireEvent.click( getByText( 'sidecars-n1' ) );
+			await act( async () => {} );
+			answer( {
+				n1: { class: 'Crawler', sidecars: owned.nodes[ 0 ].sidecars },
+				'n1:seen': { class: 'Table', counter: 8125 },
+			} );
+			const poller = Core.node( SIDECAR_POLLER );
+			global.__inspectorRenders = [];
+			fireEvent.click( card( 1 ) );
+			await act( async () => {} );
+			expect( Core.node( SIDECAR_POLLER ) ).toBe( poller );
+			expect( sent[ sent.length - 1 ][ VALUE ].arguments ).toEqual( [
+				'-o',
+				'n1:seen',
+			] );
+			const shown = ( props ) =>
+				props.sidecarGraph?.nodes.find( ( n ) => 'n1:seen' === n.id )
+					?.count;
+			const after = global.__inspectorRenders.filter(
+				( props ) => 'n1:seen' === props.sidecar
+			);
+			expect( after.length ).toBeGreaterThan( 0 );
+			expect( after.map( shown ) ).toEqual( after.map( () => 8125 ) );
+			answer( { 'n1:seen': { class: 'Table', counter: 8191 } } );
+			expect( shown( global.__inspectorProps ) ).toBe( 8191 );
+		} );
+
+		/** `n1:seen` answered owning `n1:seen:offsetlog`, both with rows. */
+		const answerSeen = () =>
+			answer( {
+				'n1:seen': {
+					class: 'Table',
+					counter: 8125,
+					sidecars: [
+						{ name: 'n1:seen:offsetlog', class: 'Partition' },
+					],
+				},
+				'n1:seen:offsetlog': { class: 'Partition', counter: 61 },
+			} );
+
+		it( 'loads a picked sidecar no answer has covered yet', async () => {
+			const { getByText } = renderWithCatalog(
+				<GraphView graph={ owned } frame={ Frame } resetKey="k" />
+			);
+			fireEvent.click( getByText( 'sidecars-n1' ) );
+			await act( async () => {} );
+			fireEvent.click( card( 1 ) );
+			await act( async () => {} );
+			expect( global.__inspectorProps.sidecar ).toBe( 'n1:seen' );
+			expect( global.__inspectorProps.sidecarGraph ).toBeNull();
+		} );
+
+		it( "a sidecar's own sidecar opens from its Inspector, its owner's row dropped", async () => {
+			const { getByText, getByTestId } = await pick( 'n1:seen' );
+			answerSeen();
+			fireEvent.click( getByText( 'nested-sidecars' ) );
+			await flush();
+			expect( card( 0 ).getAttribute( 'aria-label' ) ).toBe(
+				'n1:seen:offsetlog (Partition)'
+			);
+			fireEvent.click( card( 0 ) );
+			await flush();
+			expect( inspectorText( getByTestId ) ).toContain(
+				'insp:n1/sidecar:n1:seen:offsetlog'
+			);
+			expect(
+				global.__inspectorProps.sidecarGraph.nodes.map( ( n ) => n.id )
+			).toEqual( [ 'n1:seen:offsetlog' ] );
+			fireEvent.click( getByText( 'open-seen' ) );
+			await flush();
+			expect( inspectorText( getByTestId ) ).toContain(
+				'insp:n1/sidecar:n1:seen'
+			);
+		} );
+
+		it( "asks for 256 sidecars by their owner's name, under every size cap", async () => {
+			const readers = Array.from( { length: 256 }, ( _, i ) => ( {
+				name: `n1:logs/xyz-${ String( 1000 + i ) }.p0`,
+				class: 'Remote_Consumer',
+			} ) );
+			const broker = {
+				nodes: [ { id: 'n1', count: 0, sidecars: readers } ],
+				edges: [],
+			};
+			const { getByText } = renderWithCatalog(
+				<GraphView graph={ broker } frame={ Frame } resetKey="k" />
+			);
+			fireEvent.click( getByText( 'sidecars-n1' ) );
+			await act( async () => {} );
+			const ask = sent[ sent.length - 1 ];
+			expect( ask[ FROM ].length ).toBeLessThanOrEqual( MAX_FROM_SIZE );
+			expect( pack( ask ).length ).toBeLessThan( 4096 );
+			answer(
+				Object.fromEntries( [
+					[ 'n1', { class: 'Remote_Source', sidecars: readers } ],
+					...readers.map( ( r, i ) => [
+						r.name,
+						{ class: 'Remote_Consumer', counter: 5000 + i },
+					] ),
+				] )
+			);
+			expect(
+				document.body.querySelectorAll( '.topology-sidecars__card' )
+			).toHaveLength( 256 );
+			expect(
+				card( 255 ).querySelector( '.topology-node__counter' )
+					.textContent
+			).toBe( '5,255' );
+		} );
+
+		it( "draws a sidecar the owner's answer lists after the grid opened", async () => {
+			const { getByText } = renderWithCatalog(
+				<GraphView graph={ owned } frame={ Frame } resetKey="k" />
+			);
+			fireEvent.click( getByText( 'sidecars-n1' ) );
+			await act( async () => {} );
+			const claimed = {
+				name: 'n1:logs/new-7741.p0',
+				class: 'Remote_Consumer',
+			};
+			answer( {
+				n1: {
+					class: 'Crawler',
+					sidecars: [ ...owned.nodes[ 0 ].sidecars, claimed ],
+				},
+				[ claimed.name ]: { class: 'Remote_Consumer', counter: 77 },
+			} );
+			expect( card( 2 ).getAttribute( 'aria-label' ) ).toBe(
+				'n1:logs/new-7741.p0 (Remote_Consumer)'
+			);
+			expect(
+				card( 2 ).querySelector( '.topology-node__counter' ).textContent
+			).toBe( '77' );
+		} );
+
+		it( "feeds the shown sidecar's Inspector, and asks for it beside an open grid", async () => {
+			const { getByText } = await pick( 'n1:seen' );
+			await act( async () => {} );
+			expect( sent[ sent.length - 1 ][ VALUE ].arguments ).toEqual( [
+				'-o',
+				'n1:seen',
+			] );
+			answer( { 'n1:seen': { class: 'Table', counter: 3301 } } );
+			expect(
+				global.__inspectorProps.sidecarGraph.nodes[ 0 ]
+			).toMatchObject( { id: 'n1:seen', count: 3301 } );
+			fireEvent.click( getByText( 'sidecars-n1' ) );
+			await act( async () => {} );
+			expect( sent[ sent.length - 1 ][ VALUE ].arguments ).toEqual( [
+				'-o',
+				'n1:seen',
+				'n1',
+			] );
+		} );
+	} );
+
+	it( 'choosing a card selects its owner, shows the sidecar and focuses the Inspector', async () => {
 		const onSelectionChange = jest.fn();
-		const { getByTestId, container } = pick( 'n1:seen', {
+		const { getByTestId, container } = await pick( 'n1:seen', {
 			onSelectionChange,
 		} );
 		expect( inspectorText( getByTestId ) ).toContain(
 			'insp:n1/sidecar:n1:seen'
 		);
 		expect( onSelectionChange ).toHaveBeenCalledWith( 'n1' );
-		expect( document.body.querySelector( '.topology-open-item' ) ).toBe(
-			null
-		);
+		expect(
+			document.body.querySelector( '.topology-sidecars__card' )
+		).toBe( null );
 		expect( document.activeElement ).toBe(
 			container.querySelector( '.topology-inspector-dock' )
 		);
 	} );
 
-	it( 'dismissing the list returns focus to its trigger', () => {
+	it( 'dismissing the list returns focus to its trigger', async () => {
 		const { getByText } = renderWithCatalog(
 			<GraphView graph={ owned } frame={ Frame } resetKey="k" />
 		);
@@ -975,28 +1256,28 @@ describe( 'GraphView — sidecars', () => {
 		fireEvent.click(
 			document.body.querySelector( '.topology-modal__close' )
 		);
-		expect( document.body.querySelector( '.topology-open-item' ) ).toBe(
-			null
-		);
+		expect(
+			document.body.querySelector( '.topology-sidecars__card' )
+		).toBe( null );
 		expect( document.activeElement ).toBe( trigger );
 	} );
 
-	it( 'Delete while a sidecar is shown removes nothing', () => {
+	it( 'Delete while a sidecar is shown removes nothing', async () => {
 		const onRemoveNode = jest.fn();
-		pick( 'n1:seen', { onRemoveNode } );
+		await pick( 'n1:seen', { onRemoveNode } );
 		fireEvent.keyDown( document, { key: 'Delete' } );
 		expect( onRemoveNode ).not.toHaveBeenCalled();
 	} );
 
-	it( 'returning to the owner after another selection shows the owner, not the sidecar', () => {
-		const { getByText, getByTestId } = pick( 'n1:seen' );
+	it( 'returning to the owner after another selection shows the owner, not the sidecar', async () => {
+		const { getByText, getByTestId } = await pick( 'n1:seen' );
 		fireEvent.click( getByText( 'select-n2' ) );
 		fireEvent.click( getByText( 'select-n1' ) );
 		expect( inspectorText( getByTestId ) ).not.toContain( 'sidecar:' );
 	} );
 
-	it( 'drops the sidecar when edit mode comes and goes', () => {
-		const { getByTestId, rerender } = pick( 'n1:seen' );
+	it( 'drops the sidecar when edit mode comes and goes', async () => {
+		const { getByTestId, rerender } = await pick( 'n1:seen' );
 		rerender(
 			<GraphView graph={ owned } frame={ Frame } resetKey="k" editMode />
 		);
@@ -1004,8 +1285,8 @@ describe( 'GraphView — sidecars', () => {
 		expect( inspectorText( getByTestId ) ).not.toContain( 'sidecar:' );
 	} );
 
-	it( 'stops showing the sidecar once its owner leaves the graph', () => {
-		const { getByTestId, rerender } = pick( 'n1:seen' );
+	it( 'stops showing the sidecar once its owner leaves the graph', async () => {
+		const { getByTestId, rerender } = await pick( 'n1:seen' );
 		rerender(
 			<GraphView
 				graph={ { nodes: [ owned.nodes[ 1 ] ], edges: [] } }
@@ -1016,23 +1297,10 @@ describe( 'GraphView — sidecars', () => {
 		expect( inspectorText( getByTestId ) ).not.toContain( 'sidecar:' );
 	} );
 
-	it( "the owner link returns to the canvas owner's Inspector", () => {
-		const { getByText, getByTestId } = pick( 'n1:seen' );
+	it( "the owner link returns to the canvas owner's Inspector", async () => {
+		const { getByText, getByTestId } = await pick( 'n1:seen' );
 		fireEvent.click( getByText( 'open-owner' ) );
 		expect( inspectorText( getByTestId ) ).toContain( 'insp:n1' );
 		expect( inspectorText( getByTestId ) ).not.toContain( 'sidecar:' );
-	} );
-
-	it( "a sidecar's own sidecar opens from its Inspector, and its owner link returns to it", () => {
-		const { getByText, getByTestId } = pick( 'n1:seen' );
-		fireEvent.click( getByText( 'nested-sidecars' ) );
-		fireEvent.click( getByText( 'n1:seen:offsetlog' ) );
-		expect( inspectorText( getByTestId ) ).toContain(
-			'insp:n1/sidecar:n1:seen:offsetlog'
-		);
-		fireEvent.click( getByText( 'open-seen' ) );
-		expect( inspectorText( getByTestId ) ).toContain(
-			'insp:n1/sidecar:n1:seen'
-		);
 	} );
 } );

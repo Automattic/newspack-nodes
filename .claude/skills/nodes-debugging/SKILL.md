@@ -84,8 +84,9 @@ dump_config [<glob>]        # the graph as round-trippable config lines, minus t
 dump_metadata [<node>]      # JSON keyed by node name: class, counter, sink, target(s),
                             #   debug_state, arguments and the stats counters — one
                             #   round-trip draws the graph, and a full snapshot adds a
-                            #   `_header` row. Naming a node returns that one; sidecars
-                            #   and nodes whose schema declares `hidden` never appear
+                            #   `_header` row and no sidecar. Naming a node returns that
+                            #   one, owned or not; a `hidden` schema never appears
+dump_metadata -o <node>...  # each node named, then every sidecar it lists
 stats [<node>]              # NAME COUNT LGST_MSG READ WRITTEN for the nodes sinking INTO
 stats -a [<regex>]          #   <node>, matched as an exact name; bare scopes to this
                             #   interpreter's siblings. -a widens to every node matching an

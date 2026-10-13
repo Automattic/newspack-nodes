@@ -1326,6 +1326,27 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			const meta = dispatch( interpreter, 'dump_metadata', '' );
 			expect( meta.plumb ).toBeUndefined();
 		} );
+		it( '-o answers each node named and the sidecars it lists', () => {
+			const interpreter = makeInterpreter();
+			for ( const name of [
+				'vat-2290',
+				'vat-2290:lid',
+				'vat-2290:tap',
+			] ) {
+				new Node().name = name;
+			}
+			Core.node( 'vat-2290:lid' ).patron = Core.node( 'vat-2290' );
+			const meta = dispatch(
+				interpreter,
+				'dump_metadata',
+				'-o vat-2290 ghost-8810'
+			);
+			expect( Object.keys( meta ) ).toEqual( [
+				'vat-2290',
+				'vat-2290:lid',
+			] );
+			expect( meta[ 'vat-2290:lid' ].owner ).toBe( 'vat-2290' );
+		} );
 	} );
 
 	describe( 'stats', () => {

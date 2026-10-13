@@ -193,6 +193,16 @@ describe( 'Palette', () => {
 		// Source (no accepts_fill): out-port present, in-port absent.
 		expect( ghost.querySelector( '.topology-port--out' ) ).not.toBeNull();
 		expect( ghost.querySelector( '.topology-port--in' ) ).toBeNull();
+		// The canvas's own card, its labels clipped by the ghost's own defs.
+		const clip = ghost
+			.querySelector( '.topology-node__type' )
+			.closest( '[clip-path]' )
+			.getAttribute( 'clip-path' );
+		const id = /^url\(#(.+)\)$/.exec( clip )[ 1 ];
+		expect(
+			ghost.querySelector( `clipPath[id="${ id }"]` )
+		).not.toBeNull();
+		expect( id ).not.toBe( 'topology-node-clip' );
 	} );
 
 	it( 'shows a drag ghost with the shell name on pointer-down', () => {

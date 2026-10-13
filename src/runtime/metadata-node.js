@@ -125,6 +125,39 @@ export function dumpMetadataPayload( only = '', registry = Core.registry ) {
 }
 
 /**
+ * Each named node's `dump_metadata -o` rows, as PHP answers them: the node's
+ * own, then each sidecar it lists, so an owner's sidecars are asked for by
+ * the owner's name alone. A node gone or `hidden` answers nothing.
+ *
+ * @param {string[]} names      The owners to snapshot.
+ * @param {Object}   [registry] The name table to read; defaults to Core's.
+ * @return {Object} Map of node name to its metadata entry.
+ */
+export function dumpOwnedPayload( names, registry = Core.registry ) {
+	const out = {};
+	const sidecars = sidecarsByOwner( registry );
+	for ( const name of names ) {
+		const node = registry.nodes.get( name );
+		const schema = node?.constructor?.nodeSchema?.() ?? null;
+		if ( ! node || isHidden( schema ) ) {
+			continue;
+		}
+		out[ name ] = metadataRow( name, node, schema, registry, sidecars );
+		for ( const sidecar of sidecars.get( node ) ?? [] ) {
+			const child = registry.nodes.get( sidecar.name );
+			out[ sidecar.name ] = metadataRow(
+				sidecar.name,
+				child,
+				child.constructor?.nodeSchema?.() ?? null,
+				registry,
+				sidecars
+			);
+		}
+	}
+	return out;
+}
+
+/**
  * One node's `dump_metadata` row.
  *
  * @param {string}                                            name     The node's registered name.

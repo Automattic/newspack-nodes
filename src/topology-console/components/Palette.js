@@ -13,7 +13,14 @@
 import { useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { SearchControl } from '@wordpress/components';
-import { NODE_W, NODE_H, PORT_R } from './SchematicCanvas';
+import {
+	NODE_W,
+	NODE_H,
+	NodeCard,
+	NodeCardDefs,
+	PORT_R,
+	useCardSurface,
+} from './NodeCard';
 import { useCatalog } from '../CatalogContext';
 import { useChrome } from '../ChromeContext';
 
@@ -105,6 +112,7 @@ export default function Palette( {
 		useChrome();
 	// Ghost is render state; the ref carries the in-flight drag identity.
 	const [ ghost, setGhost ] = useState( null );
+	const surface = useCardSurface();
 	const dragRef = useRef( null );
 	// Case-insensitive filter over shell name + description; empty = full list.
 	const [ query, setQuery ] = useState( '' );
@@ -362,61 +370,16 @@ export default function Palette( {
 							NODE_H + 6
 						}` }
 					>
-						<g className="topology-node">
-							<rect
-								className="topology-node__shadow"
-								x={ 3 }
-								y={ 3 }
-								width={ NODE_W }
-								height={ NODE_H }
-							/>
-							<rect
-								className="topology-node__bg"
-								width={ NODE_W }
-								height={ NODE_H }
-							/>
-							<rect
-								className="topology-node__header"
-								width={ NODE_W }
-								height={ 22 }
-							/>
-							<line
-								className="topology-node__divider"
-								x1={ 0 }
-								y1={ 22 }
-								x2={ NODE_W }
-								y2={ 22 }
-							/>
-							<text
-								className="topology-node__type"
-								x={ 11 }
-								y={ 15 }
-							>
-								{ ghost.shellName }
-							</text>
-							<circle
-								className="topology-node__led"
-								cx={ NODE_W - 12 }
-								cy={ 13 }
-								r={ 3.5 }
-							/>
-							{ ghost.acceptsFill && (
-								<circle
-									className="topology-port topology-port--in"
-									cx={ 0 }
-									cy={ NODE_H / 2 }
-									r={ PORT_R }
-								/>
-							) }
-							{ ghost.hasTarget && (
-								<circle
-									className="topology-port topology-port--out"
-									cx={ NODE_W }
-									cy={ NODE_H / 2 }
-									r={ PORT_R }
-								/>
-							) }
-						</g>
+						<defs>
+							<NodeCardDefs surface={ surface } />
+						</defs>
+						<NodeCard
+							surface={ surface }
+							id=""
+							cls={ ghost.shellName }
+							hasIn={ ghost.acceptsFill }
+							hasOut={ ghost.hasTarget }
+						/>
 					</svg>
 				) }
 			</aside>
