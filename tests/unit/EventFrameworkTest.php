@@ -379,4 +379,16 @@ class EventFrameworkTest extends TestCase {
 		$ef->drain( $this->clocked_predicate( $state ), cooperative_stop: true );
 		$this->assertTrue( $state->reached, 'a stderr write must not raise a cooperative stop' );
 	}
+
+	/** With no seam, a pause and a resume reach libcurl, which refuses both for a handle not mid-transfer. */
+	public function test_pause_curl_reaches_libcurl(): void {
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+		$easy = \curl_init( 'http://127.0.0.1:9/pause-6620' );
+		$this->assertInstanceOf( \CurlHandle::class, $easy );
+
+		$this->assertSame( [ \CURLE_BAD_FUNCTION_ARGUMENT, \CURLE_BAD_FUNCTION_ARGUMENT ], [
+			Event_Framework::instance()->pause_curl( $easy, true ),
+			Event_Framework::instance()->pause_curl( $easy, false ),
+		] );
+	}
 }
