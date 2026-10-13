@@ -839,14 +839,25 @@ trait Durable_Reader {
 		if ( \strlen( $this->buffer ) <= self::MAX_LINE_BUFFER_SIZE ) {
 			return;
 		}
-		$this->print_less_often(
-			\sprintf( 'WARNING: line buffer exceeded %d bytes at seg ', self::MAX_LINE_BUFFER_SIZE ),
-			(string) $this->cursor_segment,
-			' - discarding'
-		);
-		$this->set_state( 'OVERFLOW', \implode( ' ', [ 'SEGMENT', $this->cursor_segment, 'OFFSET', $this->cursor_offset, 'LIMIT', self::MAX_LINE_BUFFER_SIZE ] ) );
+		$this->report_overflow( $this->cursor_segment, $this->cursor_offset );
 		$this->cursor_offset += \strlen( $this->buffer ); // Don't re-read it.
 		$this->buffer         = '';
+	}
+
+	/**
+	 * Say a partial line outgrew `MAX_LINE_BUFFER_SIZE` and is being skipped:
+	 * a rate-limited warning, and OVERFLOW naming where the line began.
+	 *
+	 * @param int $segment The line's segment.
+	 * @param int $offset  Where it began.
+	 */
+	private function report_overflow( int $segment, int $offset ): void {
+		$this->print_less_often(
+			\sprintf( 'WARNING: line buffer exceeded %d bytes at seg ', self::MAX_LINE_BUFFER_SIZE ),
+			(string) $segment,
+			' - discarding'
+		);
+		$this->set_state( 'OVERFLOW', \implode( ' ', [ 'SEGMENT', $segment, 'OFFSET', $offset, 'LIMIT', self::MAX_LINE_BUFFER_SIZE ] ) );
 	}
 
 	/**

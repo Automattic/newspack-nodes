@@ -2337,16 +2337,23 @@ describe( 'raw blocks', () => {
 		] );
 	} );
 
-	test( 'a line longer than any record is torn, not carried', () => {
+	test( 'a carry past the line limit is skipped, not held', () => {
 		const { sse } = makeSseIn( { subscribe: [ 'firehose.p0' ] } );
 		sse.start();
-		const cut = 'z'.repeat( 33554432 + 7 );
+		const first = '\0'.repeat( rawBlocks.max_line_bytes - 3 );
+		sendBlock( FakeEventSource.last, 'firehose.p0', '8:120', first );
+		expect( 'firehose.p0' in sse._carries ).toBe( true );
 
-		sendBlock( FakeEventSource.last, 'firehose.p0', '8:120', cut );
+		sendBlock(
+			FakeEventSource.last,
+			'firehose.p0',
+			`8:${ 120 + first.length }`,
+			'\0'.repeat( 10 )
+		);
 
 		expect( 'firehose.p0' in sse._carries ).toBe( false );
 		expect( sse.seekMap() ).toEqual( {
-			'firehose.p0': { segment: 8, offset: 120 + cut.length },
+			'firehose.p0': { segment: 8, offset: 120 + first.length + 10 },
 		} );
 		expect( sse.unparseableLines ).toBe( 1 );
 	} );

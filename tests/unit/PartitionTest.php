@@ -5353,6 +5353,19 @@ class PartitionTest extends TestCase {
 		$this->assertSame( 1, $seen, 'the index entry is on disk as soon as its record is' );
 	}
 
+	/** A Partition takes a message its serialized record fits, judged as fill() judges one. */
+	public function test_takes_judges_the_serialized_record_against_the_cap(): void {
+		$p                  = new Partition_Node();
+		$m                  = Message::new_message();
+		$m[ Message::TYPE ] = Message::TM_BYTESTREAM;
+		$m[ Message::ID ]   = '61:2290:17';
+		$envelope           = \strlen( Message::packed( $m ) ) + 1;
+
+		$m[ Message::VALUE ] = \str_repeat( 'k', Partition_Node::MAX_LINE_SIZE - $envelope );
+		$this->assertTrue( $p->takes( $m ), 'a record exactly at the cap' );
+		$m[ Message::VALUE ] .= 'k';
+		$this->assertFalse( $p->takes( $m ), 'one byte past it' );
+	}
 }
 
 /**
@@ -5384,5 +5397,4 @@ class PartialWriteStreamWrapper {
 	}
 
 	public function stream_close(): void {}
-
 }

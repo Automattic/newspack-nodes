@@ -352,6 +352,13 @@ class RemoteConsumerNodeTest extends TestCase {
 		$this->assertSame( '47:3318', $reader->cursor_position() );
 	}
 
+	/** The line limit the browser splits to is the one this reader skips past. */
+	public function test_the_fixtures_line_limit_is_this_readers(): void {
+		$fixture = \json_decode( (string) \file_get_contents( __DIR__ . '/../fixtures/raw-blocks.json' ), true, 512, \JSON_THROW_ON_ERROR );
+
+		$this->assertSame( Remote_Consumer_Node::MAX_LINE_BUFFER_SIZE, $fixture['max_line_bytes'] );
+	}
+
 	/**
 	 * The raw-block cases `tests/fixtures/raw-blocks.json` holds, which the
 	 * browser's `SseInNode` splits alike in `sse-in-node.test.js`.

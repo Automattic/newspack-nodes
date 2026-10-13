@@ -240,6 +240,10 @@ trait Dead_Letter_Queue {
 	 * condemned with no error — a crash suspect, a fair-shot strike — has nothing to
 	 * raise, so it is reported and dropped.
 	 *
+	 * A message the quarantine would refuse as oversize is reported dropped:
+	 * `fill()` returns nothing, so it is asked first, else a refused record
+	 * would be reported quarantined.
+	 *
 	 * A write that fails is no quarantine, so nothing is reported and the failure
 	 * raises through `Worker_Should_Stop::raise()`, combined with `$error`: the error
 	 * the quarantine would have recorded escapes beside the one that stopped it. A
@@ -259,15 +263,18 @@ trait Dead_Letter_Queue {
 		$where   = Core::as_string( $message[ Message::ID ] ?? '' );
 		$why     = null === $error ? '' : ': ' . $error->getMessage();
 		$outcome = 'dropped (no deadletter_dir)';
-		if ( null === $this->deadletter && null !== $error ) {
+		$quarantine = $this->deadletter;
+		if ( null === $quarantine && null !== $error ) {
 			throw $error;
 		}
-		if ( null !== $this->deadletter ) {
+		if ( null !== $quarantine && ! $quarantine->takes( $message ) ) {
+			$outcome = 'dropped (larger than a record)';
+		} elseif ( null !== $quarantine ) {
 			// Staged for the .idx callback; cleared in the finally.
 			$this->deadletter_reason = $reason;
 			try {
-				$this->deadletter->fill( $message );
-				$this->deadletter->flush();
+				$quarantine->fill( $message );
+				$quarantine->flush();
 			} catch ( \Throwable $e ) {
 				Worker_Should_Stop::raise( null === $error ? [ $e ] : [ $error, $e ] );
 			} finally {
