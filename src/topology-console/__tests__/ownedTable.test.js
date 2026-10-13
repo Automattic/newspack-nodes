@@ -5,9 +5,11 @@
  */
 
 import { act, fireEvent } from '@testing-library/react';
+import { useState } from '@wordpress/element';
 import SchematicCanvas from '../components/SchematicCanvas';
 import GraphView from '../components/GraphView';
 import { renderWithCatalog } from './catalogTestUtils';
+import { LayoutProvider } from '../LayoutContext';
 import { autoLayout } from '../utils/autoLayout';
 import { SIDECAR_POLLER } from '../hooks/useSidecarRows';
 import { Core } from '../../runtime/core';
@@ -148,7 +150,9 @@ describe( 'an owned Table on the console', () => {
 			expect( sent ).toHaveLength( 1 );
 			const reply = newMessage();
 			reply[ TYPE ] = TM_COMMAND | TM_RESPONSE;
-			reply[ TO ] = encodeURIComponent( 'crawl-4471:seen' );
+			reply[ TO ] = encodeURIComponent(
+				Core.node( SIDECAR_POLLER ).subject
+			);
 			reply[ VALUE ] = { payload: row };
 			act( () => Core.node( SIDECAR_POLLER ).fill( reply ) );
 
@@ -161,8 +165,221 @@ describe( 'an owned Table on the console', () => {
 			expect(
 				container.querySelector( '.topology-insp__owned' ).textContent
 			).toMatch( /owned by crawl-4471/i );
+			expect(
+				document.body.querySelectorAll( '.topology-sidecars__card' )
+			).toHaveLength( 2 );
 		} finally {
 			jest.useRealTimers();
 		}
+	} );
+
+	describe( "the owner's grid on a panning canvas", () => {
+		const jsdom = {
+			PointerEvent: window.PointerEvent,
+			setPointerCapture: window.Element.prototype.setPointerCapture,
+			releasePointerCapture:
+				window.Element.prototype.releasePointerCapture,
+		};
+
+		// jsdom has no PointerEvent; the canvas pan reads its coordinates.
+		beforeAll( () => {
+			window.PointerEvent = class PointerEvent extends window.MouseEvent {
+				constructor( type, init = {} ) {
+					super( type, init );
+					this.pointerId = init.pointerId ?? 0;
+				}
+			};
+			window.Element.prototype.setPointerCapture = () => {};
+			window.Element.prototype.releasePointerCapture = () => {};
+		} );
+
+		afterAll( () => {
+			window.PointerEvent = jsdom.PointerEvent;
+			window.Element.prototype.setPointerCapture =
+				jsdom.setPointerCapture;
+			window.Element.prototype.releasePointerCapture =
+				jsdom.releasePointerCapture;
+		} );
+
+		// One frame type for every render, so the canvas never remounts.
+		const Frame = ( { children } ) => <div>{ children }</div>;
+
+		/**
+		 * The console's canvas, its viewport held as the console holds it.
+		 *
+		 * @param {Object} props
+		 * @param {Object} props.parsed  The crawler's graph, built once.
+		 * @param {Object} [props.steer] Takes the viewport setter, to zoom by.
+		 * @return {import('react').ReactElement} GraphView over the crawler.
+		 */
+		function Console( { parsed, steer } ) {
+			const [ viewport, setViewport ] = useState( {
+				x: 0,
+				y: 0,
+				w: 1000,
+				h: 800,
+			} );
+			if ( steer ) {
+				steer.current = setViewport;
+			}
+			return (
+				<LayoutProvider
+					positionOverrides={ Object.fromEntries(
+						autoLayout( parsed ).nodes.map( ( n ) => [
+							n.id,
+							n.position,
+						] )
+					) }
+					viewport={ viewport }
+					onViewportChange={ setViewport }
+				>
+					<GraphView graph={ parsed } frame={ Frame } resetKey="k" />
+				</LayoutProvider>
+			);
+		}
+
+		/**
+		 * Press the canvas background, move, and release where it moved to.
+		 *
+		 * @param {Element} svg The canvas.
+		 * @param {number}  dx  How far right it moves, in screen px.
+		 * @param {number}  dy  How far down it moves.
+		 */
+		const pressBackground = ( svg, dx, dy ) => {
+			const from = {
+				button: 0,
+				pointerId: 7,
+				clientX: 100,
+				clientY: 100,
+			};
+			const to = { ...from, clientX: 100 + dx, clientY: 100 + dy };
+			fireEvent.pointerDown( svg, from );
+			fireEvent.mouseDown( svg, from );
+			fireEvent.pointerMove( svg, to );
+			fireEvent.pointerUp( svg, to );
+			fireEvent.mouseUp( svg, to );
+			fireEvent.click( svg, to );
+		};
+
+		/** @return {?Element} The open grid, or null. */
+		const grid = () => document.body.querySelector( '[role="dialog"]' );
+
+		it( 'keeps the grid open through a background drag-pan, moving it with the canvas', async () => {
+			const { container } = renderWithCatalog(
+				<Console parsed={ crawlerGraph() } />
+			);
+			const svg = container.querySelector( '.topology-canvas-svg' );
+			svg.getBoundingClientRect = () => ( {
+				x: 0,
+				y: 0,
+				width: 1000,
+				height: 800,
+				top: 0,
+				left: 0,
+				right: 1000,
+				bottom: 800,
+			} );
+			fireEvent.click(
+				container.querySelector( '.topology-node__sidecars' )
+			);
+			await act( async () => {} );
+			const frame = () =>
+				grid()
+					.querySelector( '.topology-sidecars__frame' )
+					.getAttribute( 'd' );
+			const at = frame();
+			expect( svg.getAttribute( 'viewBox' ) ).toBe( '0 0 1000 800' );
+
+			pressBackground( svg, 140, 60 );
+			await act( async () => {} );
+
+			expect( svg.getAttribute( 'viewBox' ) ).toBe( '-140 -60 1000 800' );
+			expect( grid() ).not.toBeNull();
+			expect( grid().ownerSVGElement ).toBe( svg );
+			expect( frame() ).toBe( at );
+		} );
+
+		it( 'closes the grid on a background click', async () => {
+			const { container } = renderWithCatalog(
+				<Console parsed={ crawlerGraph() } />
+			);
+			const svg = container.querySelector( '.topology-canvas-svg' );
+			fireEvent.click(
+				container.querySelector( '.topology-node__sidecars' )
+			);
+			await act( async () => {} );
+			expect( grid() ).not.toBeNull();
+
+			pressBackground( svg, 2, 1 );
+			await act( async () => {} );
+
+			expect( grid() ).toBeNull();
+		} );
+
+		describe( 'below the level of detail and back', () => {
+			// The canvas measures 1000 x 800 px, so a 10000-wide view is LOD.
+			beforeAll( () => {
+				for ( const [ side, px ] of [
+					[ 'clientWidth', 1000 ],
+					[ 'clientHeight', 800 ],
+				] ) {
+					Object.defineProperty(
+						window.SVGSVGElement.prototype,
+						side,
+						{ configurable: true, get: () => px }
+					);
+				}
+			} );
+
+			afterAll( () => {
+				delete window.SVGSVGElement.prototype.clientWidth;
+				delete window.SVGSVGElement.prototype.clientHeight;
+			} );
+
+			/**
+			 * Open the owner's grid, then zoom below LOD and back, so the
+			 * canvas unmounts its "…" and draws a new one.
+			 *
+			 * @return {Promise<{first: Element, redrawn: Element}>} The two.
+			 */
+			const openThenRedraw = async () => {
+				const steer = { current: null };
+				const { container } = renderWithCatalog(
+					<Console parsed={ crawlerGraph() } steer={ steer } />
+				);
+				const dots = () =>
+					container.querySelector( '.topology-node__sidecars' );
+				const first = dots();
+				fireEvent.click( first );
+				await act( async () => {} );
+				act( () => steer.current( { x: 0, y: 0, w: 10000, h: 8000 } ) );
+				expect( dots() ).toBeNull();
+				expect( grid() ).not.toBeNull();
+				act( () => steer.current( { x: 0, y: 0, w: 1000, h: 800 } ) );
+				const redrawn = dots();
+				expect( redrawn ).not.toBeNull();
+				expect( redrawn ).not.toBe( first );
+				return { first, redrawn };
+			};
+			const cards = () =>
+				document.body.querySelectorAll( '.topology-sidecars__card' );
+
+			it( "keeps the grid through a first pick once its owner's \u201c\u2026\u201d is redrawn", async () => {
+				await openThenRedraw();
+				fireEvent.click( cards()[ 1 ] );
+				await act( async () => {} );
+				fireEvent.click( cards()[ 0 ] );
+				await act( async () => {} );
+				expect( grid() ).not.toBeNull();
+			} );
+
+			it( 'focuses the redrawn \u201c\u2026\u201d on Esc', async () => {
+				const { redrawn } = await openThenRedraw();
+				fireEvent.keyDown( document, { key: 'Escape' } );
+				await act( async () => {} );
+				expect( grid() ).toBeNull();
+				expect( document.activeElement ).toBe( redrawn );
+			} );
+		} );
 	} );
 } );

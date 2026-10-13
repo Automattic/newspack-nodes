@@ -60,9 +60,10 @@ import {
 } from './NodeCard';
 
 /**
- * Movement in SVG units before a pointer-down counts as a drag rather than a
- * click. Under it a card press selects, a background press deselects or
- * autofits, and a hull press commits no reposition.
+ * Movement before a pointer-down counts as a drag rather than a click, in
+ * screen px for a background pan and SVG units for a card or hull drag. Under
+ * it a card press selects, a background press deselects or autofits, and a
+ * hull press commits no reposition.
  */
 const DRAG_THRESHOLD = 3;
 
@@ -599,6 +600,15 @@ const EdgeWire = memo(
 );
 
 /**
+ * What the canvas hands its overlay.
+ *
+ * @typedef {Object} CanvasOverlayArgs
+ * @property {(id: string) => ?{x:number,y:number,w:number,h:number}} positionOf A node's card as drawn, in world units, floored on screen as the canvas floors every card. It answers a card culled just off-screen too, so an overlay hung from one keeps drawing and pans in with it; null for a node with no position.
+ * @property {string}                                                 surface    The canvas's id prefix, whose card clips and bloom an overlay may draw through.
+ * @property {boolean}                                                showDetail The canvas draws detail rather than bare rects, so its cards bloom.
+ */
+
+/**
  * The drafting-room canvas: one raw `<svg>` holding the grid, the include
  * hulls, the edges, and a card per node. It owns every canvas gesture — pan
  * by drag or two-finger swipe, cursor-anchored pinch and wheel zoom, `=`/`-`
@@ -608,25 +618,27 @@ const EdgeWire = memo(
  * cards zoom below readable size.
  * Layout (positions, viewport) comes from LayoutContext, not from props.
  *
- * @param {Object}                                    props
- * @param {Object}                                    props.parsed           Graph to draw: `{ nodes, edges }`. Only nodes carrying a position override are rendered.
- * @param {?string}                                   props.selectedId       Id of the selected node, or null.
- * @param {(id: string) => void}                      props.onSelect         A card was clicked without dragging.
- * @param {() => void}                                props.onDeselect       The background was clicked while something was selected — a node, an edge or a hull.
- * @param {?string}                                   props.hoveredId        Id of the hovered node; lifted so the Inspector drives the same highlight.
- * @param {(id: string|null) => void}                 props.onHover          The pointer entered a card, or left one.
- * @param {Object}                                    props.rateRef          `useGraphRates` ref whose `.current` is a Map from node id to `{ rate, history, … }`. Passed in edit mode too; `editMode` is what keeps a draft's cards undimmed.
- * @param {?Object}                                   props.viewportDelta    Stored `{ dcx, dcy, zoom }` offset from autofit, applied once the first autofit is known.
- * @param {Function}                                  props.onConnect        (fromId, toId) — a wire was dropped on an IN port. Omitting it disables wire drags.
- * @param {boolean}                                   [props.interactive]    Gate for every gesture. Default true.
- * @param {boolean}                                   [props.editMode]       Draft-only affordances: the edge hit-targets and the wire-source port styling. Default false.
- * @param {?Object}                                   [props.selectedEdge]   The selected edge as `{ from, to }`, or null.
- * @param {(edge: {from:string,to:string}) => void}   [props.onSelectEdge]   An edge hit-target was clicked; edit mode only.
- * @param {?Set<string>}                              [props.driftIds]       Runtime drift, painted `is-drift`: a worker's nodes outside its .tsl, or the browser graph's console-made ones. Null means no drift information.
- * @param {Array}                                     [props.hulls]          One soft hull per include, at any depth: `{ include, nodeIds, depth }[]`.
- * @param {?string}                                   [props.selectedHull]   Include name of the selected hull, or null.
- * @param {(include: string) => void}                 [props.onSelectHull]   A hull was pressed.
- * @param {(id: string, trigger: SVGElement) => void} [props.onOpenSidecars] A card's "…" was pressed; omitted draws none.
+ * @param {Object}                                                   props
+ * @param {Object}                                                   props.parsed           Graph to draw: `{ nodes, edges }`. Only nodes carrying a position override are rendered.
+ * @param {?string}                                                  props.selectedId       Id of the selected node, or null.
+ * @param {(id: string) => void}                                     props.onSelect         A card was clicked without dragging.
+ * @param {() => void}                                               props.onDeselect       The background was clicked while something was selected — a node, an edge or a hull.
+ * @param {?string}                                                  props.hoveredId        Id of the hovered node; lifted so the Inspector drives the same highlight.
+ * @param {(id: string|null) => void}                                props.onHover          The pointer entered a card, or left one.
+ * @param {Object}                                                   props.rateRef          `useGraphRates` ref whose `.current` is a Map from node id to `{ rate, history, … }`. Passed in edit mode too; `editMode` is what keeps a draft's cards undimmed.
+ * @param {?Object}                                                  props.viewportDelta    Stored `{ dcx, dcy, zoom }` offset from autofit, applied once the first autofit is known.
+ * @param {Function}                                                 props.onConnect        (fromId, toId) — a wire was dropped on an IN port. Omitting it disables wire drags.
+ * @param {boolean}                                                  [props.interactive]    Gate for every gesture. Default true.
+ * @param {boolean}                                                  [props.editMode]       Draft-only affordances: the edge hit-targets and the wire-source port styling. Default false.
+ * @param {?Object}                                                  [props.selectedEdge]   The selected edge as `{ from, to }`, or null.
+ * @param {(edge: {from:string,to:string}) => void}                  [props.onSelectEdge]   An edge hit-target was clicked; edit mode only.
+ * @param {?Set<string>}                                             [props.driftIds]       Runtime drift, painted `is-drift`: a worker's nodes outside its .tsl, or the browser graph's console-made ones. Null means no drift information.
+ * @param {Array}                                                    [props.hulls]          One soft hull per include, at any depth: `{ include, nodeIds, depth }[]`.
+ * @param {?string}                                                  [props.selectedHull]   Include name of the selected hull, or null.
+ * @param {(include: string) => void}                                [props.onSelectHull]   A hull was pressed.
+ * @param {(id: string, trigger: SVGElement) => void}                [props.onOpenSidecars] A card's "…" was pressed; omitted draws none.
+ * @param {(canvas: CanvasOverlayArgs) => import('react').ReactNode} [props.overlay]        Draws over the cards, in world units, so it pans and zooms with them. While it draws something, a background click deselects rather than autofitting, so its host can close it.
+ * @param {{current: ?SVGSVGElement}}                                [props.svgRef]         Takes the canvas `<svg>`, for a host that asks whether an event landed on it.
  * @return {import('react').ReactElement} The canvas `<svg>`.
  */
 export default function SchematicCanvas( {
@@ -648,6 +660,8 @@ export default function SchematicCanvas( {
 	selectedHull = null,
 	onSelectHull,
 	onOpenSidecars,
+	overlay,
+	svgRef: hostSvgRef,
 } ) {
 	const { positionOverrides, onPositionChange, viewport, onViewportChange } =
 		useLayoutContext();
@@ -759,6 +773,16 @@ export default function SchematicCanvas( {
 
 	// The <svg>: canvas measurement, the wheel listener, and projection.
 	const svgRef = useRef( null );
+	// The canvas's own ref, mirrored into the host's when it passes one.
+	const attachSvg = useCallback(
+		( el ) => {
+			svgRef.current = el;
+			if ( hostSvgRef ) {
+				hostSvgRef.current = el;
+			}
+		},
+		[ hostSvgRef ]
+	);
 
 	// Wire-drag state; port hits stopPropagation so this and pan don't fight.
 	const [ wireDrag, setWireDrag ] = useState( null );
@@ -921,6 +945,21 @@ export default function SchematicCanvas( {
 		Number.isFinite( scale ) && scale > 0 ? MIN_NODE_PX / scale : 0;
 	const nodeRenderW = Math.max( NODE_W, minNodeWorld );
 	const nodeRenderH = Math.max( NODE_H, minNodeWorld );
+	// Built only when the overlay or a node moves, so a pan redraws none of it.
+	const overlaid = useMemo(
+		() =>
+			overlay?.( {
+				positionOf: ( id ) => {
+					const at = nodeById.get( id )?.position;
+					return at
+						? { x: at.x, y: at.y, w: nodeRenderW, h: nodeRenderH }
+						: null;
+				},
+				surface,
+				showDetail,
+			} ),
+		[ overlay, nodeById, surface, showDetail, nodeRenderW, nodeRenderH ]
+	);
 	// Re-derive that basis whenever the nodes or the canvas move.
 	useEffect( () => {
 		autofitBoxRef.current = parseViewBox(
@@ -1241,8 +1280,8 @@ export default function SchematicCanvas( {
 		const wasDragged = panRef.current.dragged;
 		panRef.current = null;
 		if ( ! wasDragged ) {
-			// Clears any selection (a HULL counts too), else autofits.
-			if ( selectedId || selectedEdge || selectedHull ) {
+			// Clears a selection, a HULL or a drawn overlay too, else autofits.
+			if ( selectedId || selectedEdge || selectedHull || overlaid ) {
 				if ( onDeselect ) {
 					onDeselect();
 				}
@@ -1507,14 +1546,6 @@ export default function SchematicCanvas( {
 				ev.stopPropagation();
 				gestures.current.onOpenSidecars?.( id, ev.currentTarget );
 			},
-			sidecarsKey: ( ev, id ) => {
-				if ( 'Enter' !== ev.key && ' ' !== ev.key ) {
-					return;
-				}
-				ev.preventDefault();
-				ev.stopPropagation();
-				gestures.current.onOpenSidecars?.( id, ev.currentTarget );
-			},
 		} ),
 		[]
 	);
@@ -1598,10 +1629,9 @@ export default function SchematicCanvas( {
 		};
 	};
 	const drawn = displayNodes.map( renderNode ).filter( Boolean );
-
 	return (
 		<svg
-			ref={ svgRef }
+			ref={ attachSvg }
 			className="topology-canvas-svg"
 			style={ bloomVars( surface ) }
 			viewBox={ viewBox }
@@ -1882,6 +1912,7 @@ export default function SchematicCanvas( {
 					{ drawn.map( ( pair ) => pair.readout ) }
 				</g>
 			) }
+			{ overlay && <g className="topology-overlay">{ overlaid }</g> }
 			{ wireDrag && (
 				<g className="topology-wire-drag">
 					<line

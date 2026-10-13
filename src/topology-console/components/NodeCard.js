@@ -226,6 +226,60 @@ export function formatNodeRate( rate ) {
 	return `${ rate.toFixed( 2 ) } /s`;
 }
 
+/**
+ * A keydown handler pressing an SVG control on Enter or Space, as a button
+ * presses, since an SVG element has no button semantics of its own.
+ *
+ * @param {(ev: import('react').SyntheticEvent<SVGGElement>) => void} press What the press does.
+ * @return {(ev: import('react').KeyboardEvent<SVGGElement>) => void} The handler.
+ */
+export function pressOnKey( press ) {
+	return ( ev ) => {
+		if ( 'Enter' === ev.key || ' ' === ev.key ) {
+			ev.preventDefault();
+			press( ev );
+		}
+	};
+}
+
+/**
+ * The "…" on an owner's card, a button opening the sidecars the canvas never
+ * draws. It sits at the same spot of every card that draws one, the canvas's
+ * and the grid's, in the card's own coordinates.
+ *
+ * @param {Object}                                                    props
+ * @param {string}                                                    props.id       The owner.
+ * @param {(ev: import('react').SyntheticEvent<SVGGElement>) => void} props.onOpen   A click, or Enter or Space.
+ * @param {(ev: import('react').SyntheticEvent<SVGGElement>) => void} [props.onHold] A press on it, kept from what it sits on.
+ * @return {import('react').ReactElement} The "…"'s `<g>`.
+ */
+export function SidecarsTrigger( { id, onOpen, onHold } ) {
+	return (
+		<g
+			className="topology-node__sidecars"
+			data-owner={ id }
+			role="button"
+			tabIndex={ 0 }
+			aria-haspopup="dialog"
+			aria-label={ sprintf(
+				// translators: %s: the node that owns them.
+				__( 'Owned nodes of %s', 'newspack-nodes' ),
+				id
+			) }
+			transform={ `translate(${ SIDECARS_X },31)` }
+			onClick={ onOpen }
+			onKeyDown={ pressOnKey( onOpen ) }
+			onPointerDown={ onHold }
+			onMouseDown={ onHold }
+		>
+			<rect width={ 22 } height={ 16 } rx={ 3 } />
+			<text x={ 11 } y={ 12 } textAnchor="middle">
+				…
+			</text>
+		</g>
+	);
+}
+
 export const NodeCard = memo(
 	/**
 	 * One node card's frame: everything that holds still from poll to poll. It is
@@ -257,7 +311,7 @@ export const NodeCard = memo(
 	 * @param {boolean} [props.hasOut]       Draws an OUT port: it carries a target.
 	 * @param {boolean} [props.isEdit]       Edit mode, which paints the OUT port.
 	 * @param {boolean} [props.isWireSource] A wire drag may start at the OUT port.
-	 * @param {boolean} [props.hasSidecars]  Its row lists sidecars, so it draws a "…"; needs `events`.
+	 * @param {boolean} [props.hasSidecars]  Its row lists sidecars, so its id clips short of a "…", drawn here with `events`.
 	 * @param {Object}  [props.events]       The canvas's stable card handlers.
 	 * @return {import('react').ReactElement} The card's `<g>`.
 	 */
@@ -395,30 +449,12 @@ export const NodeCard = memo(
 								r={ PORT_R }
 							/>
 						) }
-						{ hasSidecars && (
-							<g
-								className="topology-node__sidecars"
-								role="button"
-								tabIndex={ 0 }
-								aria-haspopup="dialog"
-								aria-label={ sprintf(
-									// translators: %s: the node that owns them.
-									__( 'Owned nodes of %s', 'newspack-nodes' ),
-									id
-								) }
-								transform={ `translate(${ SIDECARS_X },31)` }
-								onClick={ ( ev ) => events.sidecars( ev, id ) }
-								onKeyDown={ ( ev ) =>
-									events.sidecarsKey( ev, id )
-								}
-								onPointerDown={ events.hold }
-								onMouseDown={ events.hold }
-							>
-								<rect width={ 22 } height={ 16 } rx={ 3 } />
-								<text x={ 11 } y={ 12 } textAnchor="middle">
-									…
-								</text>
-							</g>
+						{ hasSidecars && events && (
+							<SidecarsTrigger
+								id={ id }
+								onOpen={ ( ev ) => events.sidecars( ev, id ) }
+								onHold={ events.hold }
+							/>
 						) }
 						{ hasOut && (
 							<circle

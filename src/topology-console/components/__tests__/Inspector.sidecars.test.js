@@ -2,8 +2,8 @@
  * An owned node's Inspector, shown in its owner's place from the row the
  * console's sidecar poller asks `dump_metadata -o <name>` for, the name riding
  * on FROM: it renders the row's Time Travel, Triage and verbs, names its owner as
- * a link back, and offers its own "…" when it owns sidecars. A canvas node's
- * title offers none: its card does.
+ * a link back. Its own sidecars open from the "…" on its grid card, so its
+ * title offers none.
  */
 
 import { act, fireEvent, screen } from '@testing-library/react';
@@ -140,16 +140,6 @@ describe( 'Inspector sidecars', () => {
 		jest.useRealTimers();
 	} );
 
-	it( "offers no \u201c\u2026\u201d in a canvas node's title, whose card has one", () => {
-		const { container } = renderWithCatalog( inspector(), {
-			classes: catalog,
-		} );
-		expect( title( container ) ).toBe( 'remote-tulsa' );
-		expect(
-			container.querySelector( '.topology-insp__sidecars-open' )
-		).toBeNull();
-	} );
-
 	it( 'polls `dump_metadata -o <name>` at the current scope, the name riding on FROM', async () => {
 		const { container } = renderWithCatalog(
 			inspector( { sidecar: READER } ),
@@ -242,20 +232,19 @@ describe( 'Inspector sidecars', () => {
 		expect( onOpenNode ).toHaveBeenCalledWith( 'remote-tulsa' );
 	} );
 
-	it( "offers a sidecar's own sidecars from a \u201c\u2026\u201d in its title", () => {
-		const onOpenSidecars = jest.fn();
+	it( "offers no \u201c\u2026\u201d in a sidecar's title, its grid card carrying it", () => {
 		const nested = [
 			{ name: `${ READER }:offsetlog`, class: 'Partition' },
 		];
 		const { container } = renderWithCatalog(
-			inspector( { sidecar: READER, onOpenSidecars } ),
+			inspector( { sidecar: READER } ),
 			{ classes: catalog }
 		);
 		answer( readerReply( { sidecars: nested } ), READER );
-		const open = container.querySelector( '.topology-insp__sidecars-open' );
-		expect( open.getAttribute( 'aria-haspopup' ) ).toBe( 'dialog' );
-		fireEvent.click( open );
-		expect( onOpenSidecars ).toHaveBeenCalledWith( READER, open );
+		expect( title( container ) ).toBe( READER );
+		expect(
+			container.querySelector( '[aria-haspopup="dialog"]' )
+		).toBeNull();
 	} );
 
 	it( 'says a sidecar is gone when its name answers no row, linking back', () => {

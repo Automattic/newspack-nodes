@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **An owner's sidecars open on the canvas, below its card.** The "…" on a card opens its grid of sidecar cards, as near square as whole rows allow, directly beneath that card, a notch on the grid's top edge pointing up at it, where a dialog opened centred over the page. The grid is part of the canvas: it pans and zooms with it, so a grid card is the size of a canvas card at every zoom, and a wheel over it zooms the canvas. A pick shows that sidecar's Inspector and leaves the grid open, the picked card wearing the canvas's selection. A sidecar owning sidecars in turn draws its "…" on its grid card, where the Inspector's title carried it, and that opens their grid below the card with the first left open. Esc closes the innermost grid and returns focus to the "…" that opened it, unless a dialog is open to take the key. Selecting anything else on the canvas, clicking its background, or clicking anywhere off the canvas closes every grid; a drag that pans the canvas does not, nor does a click in the Inspector while it shows a sidecar picked from a grid. A grid's own "…" pressed again closes it. `SidecarsModal` is renamed `SidecarsPopover`.
+
+### Fixed
+
+- **A selected node borrowed through an include keeps its bright selection border.** A borrowed card desaturates its frame, and the filter muted the selection stroke with it, so a selected card inside a hull read as unselected. A selected borrowed card now skips the filter.
+
 ## [2.106.0] - 2026-10-13
 
 ### Added
