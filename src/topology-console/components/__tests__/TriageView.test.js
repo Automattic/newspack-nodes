@@ -163,7 +163,7 @@ test( "shows each row's status beside its reason", () => {
 	expect( grid.textContent ).toContain( 'requeued' );
 } );
 
-test( 'a requeued row offers Remove where a quarantined row offers Requeue', () => {
+test( 'every row offers Requeue and Remove, whatever its status', () => {
 	const { getAllByRole } = render(
 		<TriageView node={ node } onAction={ jest.fn() } />
 	);
@@ -187,8 +187,38 @@ test( 'a requeued row offers Remove where a quarantined row offers Requeue', () 
 				.querySelectorAll( 'button' ),
 			( b ) => b.textContent
 		);
-	expect( labels( '3:0:77' ) ).toEqual( [ 'View', 'Remove' ] );
-	expect( labels( '1:0:55' ) ).toEqual( [ 'View', 'Requeue' ] );
+	expect( labels( '3:0:77' ) ).toEqual( [ 'View', 'Requeue', 'Remove' ] );
+	expect( labels( '1:0:55' ) ).toEqual( [ 'View', 'Requeue', 'Remove' ] );
+} );
+
+test( 'Remove on a quarantined row dispatches dl_remove', () => {
+	const onAction = jest.fn();
+	const { getByText } = render(
+		<TriageView node={ node } onAction={ onAction } />
+	);
+	reply( 'dl_list', listPage() );
+	onAction.mockClear();
+	fireEvent.click( getByText( 'Remove' ) );
+	expect( onAction ).toHaveBeenCalledWith( 'invoke', 'firehose-consumer', {
+		verb: 'dl_remove',
+		kind: 'command',
+		args: [ '--locator=2:40:96' ],
+		replyTo: expect.any( String ),
+	} );
+} );
+
+test( 'Requeue and Remove both wait while either verb is in flight', () => {
+	const { getByText } = render(
+		<TriageView node={ node } onAction={ jest.fn() } />
+	);
+	reply( 'dl_list', listPage() );
+	fireEvent.click( getByText( 'Requeue' ) );
+	expect( getByText( 'Requeue' ).disabled ).toBe( true );
+	expect( getByText( 'Remove' ).disabled ).toBe( true );
+	reply( 'dl_requeue', 'ok: redelivered 2:40:96 (97 bytes) to the sink' );
+	reply( 'dl_list', listPage() );
+	expect( getByText( 'Requeue' ).disabled ).toBe( false );
+	expect( getByText( 'Remove' ).disabled ).toBe( false );
 } );
 
 test( 'Remove dispatches dl_remove with the row locator, then refetches', () => {
