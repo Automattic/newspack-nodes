@@ -393,6 +393,15 @@ class DeadLetterQueueTest extends TestCase {
 		$this->assertSame( '', $this->read_private( $d, 'poison_reason' ) );
 	}
 
+	/** Sink $d into $sink and aim its target at it, so a requeue has a mounted first hop. */
+	private function deliver_to( Dead_Letter_Queue_Double $d, Node $sink ): void {
+		if ( '' === $sink->name() ) {
+			$sink->name( 'requeue-dest-71' );
+		}
+		$d->sink( $sink );
+		$d->target( $sink->name() );
+	}
+
 	// ── Triage backend: reason/attempts .idx sidecar + list / requeue / purge ──
 
 	/** @return array<int, mixed> */
@@ -468,7 +477,7 @@ class DeadLetterQueueTest extends TestCase {
 
 		$page = $d->list_deadletter( 2 );
 		$this->assertCount( 2, $page['rows'], 'the limit caps the returned rows' );
-		$this->assertSame( 3, $page['total'], 'total counts ALL indexed records, not the page' );
+		$this->assertSame( 3, $page['total'], 'total counts every quarantined record, not the page' );
 		$this->assertSame( '3:0:10', $page['rows'][0]['source'], 'newest first' );
 		$this->assertSame( '2:0:10', $page['rows'][1]['source'] );
 	}
@@ -476,7 +485,7 @@ class DeadLetterQueueTest extends TestCase {
 	public function test_requeue_reads_the_sidecar_and_delivers_to_the_sink(): void {
 		$sink = new Capture_Sink_Node();
 		$d    = new Dead_Letter_Queue_Double();
-		$d->sink( $sink );
+		$this->deliver_to( $d, $sink );
 		$d->build_dlq( "{$this->tmp}/dlq.p0" );
 		$d->quarantine( $this->dl_message( 'redeliver-me', '2:64:40' ), 'throw' );
 
@@ -497,8 +506,8 @@ class DeadLetterQueueTest extends TestCase {
 	public function test_requeue_addresses_the_record_to_the_nodes_target(): void {
 		$sink = new Capture_Sink_Node();
 		$d    = new Dead_Letter_Queue_Double();
-		$d->sink( $sink );
-		$d->target( 'flame-builder' );
+		$sink->name( 'flame-builder' );
+		$this->deliver_to( $d, $sink );
 		$d->build_dlq( "{$this->tmp}/dlq.p0" );
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
@@ -514,13 +523,13 @@ class DeadLetterQueueTest extends TestCase {
 	/** The DLQ copy survives a redelivery, so a failed retry can simply be retried. */
 	public function test_requeue_leaves_the_record_in_the_queue(): void {
 		$d = new Dead_Letter_Queue_Double();
-		$d->sink( new Capture_Sink_Node() );
+		$this->deliver_to( $d, new Capture_Sink_Node() );
 		$d->build_dlq( "{$this->tmp}/dlq.p0" );
 		$d->quarantine( $this->dl_message( 'still-quarantined', '2:64:40' ), 'throw' );
 
 		$d->requeue_deadletter( $d->list_deadletter( 50 )['rows'][0]['locator'] );
 
-		$this->assertSame( 1, $d->list_deadletter( 50 )['total'] );
+		$this->assertCount( 1, $d->list_deadletter( 50 )['rows'] );
 	}
 
 	/**
@@ -531,7 +540,7 @@ class DeadLetterQueueTest extends TestCase {
 	 */
 	public function test_requeue_raises_when_the_sink_throws_again(): void {
 		$d = new Dead_Letter_Queue_Double();
-		$d->sink( new Throwing_Sink_Node() );
+		$this->deliver_to( $d, new Throwing_Sink_Node() );
 		$d->build_dlq( "{$this->tmp}/dlq.p0" );
 		$d->quarantine( $this->dl_message( 'still-poison', '2:64:40' ), 'throw' );
 		$loc = $d->list_deadletter( 50 )['rows'][0]['locator'];
@@ -544,7 +553,7 @@ class DeadLetterQueueTest extends TestCase {
 	/** A cooperative stop is control flow and must escape, not read as a verdict. */
 	public function test_requeue_propagates_a_cooperative_stop(): void {
 		$d = new Dead_Letter_Queue_Double();
-		$d->sink( new Stopping_Sink_Node() );
+		$this->deliver_to( $d, new Stopping_Sink_Node() );
 		$d->build_dlq( "{$this->tmp}/dlq.p0" );
 		$d->quarantine( $this->dl_message( 'stop-me', '2:64:40' ), 'throw' );
 		$loc = $d->list_deadletter( 50 )['rows'][0]['locator'];
@@ -565,7 +574,7 @@ class DeadLetterQueueTest extends TestCase {
 		$big  = \str_repeat( 'x', 12333 );
 		$sink = new Capture_Sink_Node();
 		$d    = new Dead_Letter_Queue_Double();
-		$d->sink( $sink );
+		$this->deliver_to( $d, $sink );
 		$d->build_dlq( "{$this->tmp}/dlq.p0" );
 		$d->quarantine( $this->dl_message( $big, '2:64:40' ), 'throw' );
 
@@ -587,7 +596,7 @@ class DeadLetterQueueTest extends TestCase {
 
 	public function test_requeue_rejects_a_malformed_locator(): void {
 		$d = new Dead_Letter_Queue_Double();
-		$d->sink( new Capture_Sink_Node() );
+		$this->deliver_to( $d, new Capture_Sink_Node() );
 		$d->build_dlq( "{$this->tmp}/dlq.p0" );
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'malformed' );
@@ -598,7 +607,7 @@ class DeadLetterQueueTest extends TestCase {
 		// Three colon-separated parts (passes the count check), but the
 		// middle isn't ctype_digit — exercises the per-part validation loop.
 		$d = new Dead_Letter_Queue_Double();
-		$d->sink( new Capture_Sink_Node() );
+		$this->deliver_to( $d, new Capture_Sink_Node() );
 		$d->build_dlq( "{$this->tmp}/dlq.p0" );
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'malformed' );
@@ -614,11 +623,258 @@ class DeadLetterQueueTest extends TestCase {
 
 	public function test_requeue_reports_a_missing_record(): void {
 		$d = new Dead_Letter_Queue_Double();
-		$d->sink( new Capture_Sink_Node() );
+		$this->deliver_to( $d, new Capture_Sink_Node() );
 		$d->build_dlq( "{$this->tmp}/dlq.p0" );
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'no dead-letter record' );
 		$d->requeue_deadletter( '9:0:10' );
+	}
+
+	// ── tombstones: a requeue that returned, and Remove ──
+
+	/** Quarantine two records and answer the double; the newest is 'b-404'. */
+	private function two_quarantined( ?Node $sink = null ): Dead_Letter_Queue_Double {
+		$d = new Dead_Letter_Queue_Double();
+		$this->deliver_to( $d, $sink ?? new Capture_Sink_Node() );
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$d->quarantine( $this->dl_message( 'a-303', '1:0:10' ), 'throw' );
+		$d->quarantine( $this->dl_message( 'b-404', '2:0:10' ), 'crash' );
+		return $d;
+	}
+
+	/** Requeue the record at $locator, then answer it, for a test that needs it requeued. */
+	private function requeued( Dead_Letter_Queue_Double $d, string $locator ): string {
+		$d->requeue_deadletter( $locator );
+		return $locator;
+	}
+
+	/** @return array<string,mixed> Source breadcrumb => status, for the listed rows. */
+	private function statuses( Dead_Letter_Queue_Double $d ): array {
+		$rows = $d->list_deadletter( 50 )['rows'];
+		return \array_combine( \array_column( $rows, 'source' ), \array_column( $rows, 'status' ) );
+	}
+
+	public function test_a_fresh_record_lists_as_quarantined(): void {
+		$d = $this->two_quarantined();
+
+		$this->assertSame( [ '2:0:10' => 'quarantined', '1:0:10' => 'quarantined' ], $this->statuses( $d ) );
+	}
+
+	public function test_a_requeue_that_returned_lists_the_record_as_requeued(): void {
+		$d   = $this->two_quarantined();
+		$loc = $d->list_deadletter( 50 )['rows'][1]['locator'];
+
+		$d->requeue_deadletter( $loc );
+
+		$page = $d->list_deadletter( 50 );
+		$this->assertSame( [ '2:0:10' => 'quarantined', '1:0:10' => 'requeued' ], $this->statuses( $d ) );
+		$this->assertCount( 2, $page['rows'], 'the tombstone is never listed as a row of its own' );
+		$this->assertSame( 1, $page['total'], 'total counts only records still quarantined' );
+		$this->assertSame( 'throw', $page['rows'][1]['reason'], 'a requeued row keeps why it was quarantined' );
+	}
+
+	public function test_a_requeue_tombstone_carries_the_locator_status_and_time(): void {
+		$d   = $this->two_quarantined();
+		$loc = $d->list_deadletter( 50 )['rows'][0]['locator'];
+		Core::$now = 31337.0;
+
+		$d->requeue_deadletter( $loc );
+
+		$lines = \explode( "\n", \trim( (string) \file_get_contents( "{$this->tmp}/dlq.p0/0.idx" ) ) );
+		$this->assertSame( [ 'locator' => $loc, 'status' => 'requeued', 'ts' => 31337 ], \json_decode( (string) \end( $lines ), true ) );
+	}
+
+	public function test_a_requeue_that_throws_leaves_the_record_quarantined(): void {
+		$d   = $this->two_quarantined( new Throwing_Sink_Node() );
+		$loc = $d->list_deadletter( 50 )['rows'][0]['locator'];
+
+		$this->caught( fn () => $d->requeue_deadletter( $loc ), 'the sink refuses' );
+
+		$this->assertSame( [ '2:0:10' => 'quarantined', '1:0:10' => 'quarantined' ], $this->statuses( $d ) );
+		$this->assertSame( 2, $d->list_deadletter( 50 )['total'] );
+	}
+
+	/** Router drops an empty TO without a throw, so requeue refuses before delivering. */
+	public function test_requeue_refuses_a_record_with_no_destination(): void {
+		$sink = new Capture_Sink_Node();
+		$d    = new Dead_Letter_Queue_Double();
+		$d->sink( $sink );
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$d->quarantine( $this->dl_message( 'nowhere-to-go-81', '3:0:10' ), 'crash' );
+		$loc = $d->list_deadletter( 50 )['rows'][0]['locator'];
+
+		$e = $this->caught( fn () => $d->requeue_deadletter( $loc ), 'an unaddressed record is refused' );
+
+		$this->assertStringContainsString( 'no destination', $e->getMessage() );
+		$this->assertSame( [], $sink->captured );
+		$this->assertSame( [ '3:0:10' => 'quarantined' ], $this->statuses( $d ) );
+	}
+
+	/** Router answers NOT_AVAILABLE without a throw, so a missing first hop is refused first. */
+	public function test_requeue_refuses_a_target_naming_no_mounted_node(): void {
+		$sink = new Capture_Sink_Node();
+		$d    = new Dead_Letter_Queue_Double();
+		$d->sink( $sink );
+		$d->target( 'absent-hop-52/deeper' );
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$d->quarantine( $this->dl_message( 'unroutable-82', '4:0:10' ), 'throw' );
+		$loc = $d->list_deadletter( 50 )['rows'][0]['locator'];
+
+		$e = $this->caught( fn () => $d->requeue_deadletter( $loc ), 'an unroutable record is refused' );
+
+		$this->assertStringContainsString( 'no node is mounted to route absent-hop-52/deeper', $e->getMessage() );
+		$this->assertSame( [], $sink->captured );
+		$this->assertSame( [ '4:0:10' => 'quarantined' ], $this->statuses( $d ) );
+	}
+
+	/** The sink took the record, so a lost tombstone is a warning on the ok line, never an error. */
+	public function test_a_tombstone_that_cannot_be_written_still_answers_ok_with_a_warning(): void {
+		$sink   = new Capture_Sink_Node();
+		$d      = $this->two_quarantined( $sink );
+		$loc    = $d->list_deadletter( 50 )['rows'][0]['locator'];
+		$errors = $this->capture_stderr();
+		Partition_Node::$fwrite = static function ( $fh, string $bytes ) {
+			$uri = (string) ( \stream_get_meta_data( $fh )['uri'] ?? '' );
+			return \str_ends_with( $uri, '.idx' ) ? false : \fwrite( $fh, $bytes );
+		};
+
+		$result = $d->requeue_deadletter( $loc );
+
+		Partition_Node::$fwrite = null;
+		$this->assertStringStartsWith( "ok: redelivered {$loc} (", $result );
+		$this->assertStringContainsString( 'warning: requeued status not recorded', $result );
+		$this->assertStringContainsString( 'short write to index', $result );
+		$this->assertSame( [ 'b-404' ], \array_column( $sink->captured, Message::VALUE ) );
+		$this->assertStringContainsString( 'requeued status not recorded', \implode( '', (array) $errors ) );
+		$this->assertSame( 'quarantined', $this->statuses( $d )['2:0:10'] );
+	}
+
+	public function test_remove_omits_the_record_from_the_list(): void {
+		$d   = $this->two_quarantined();
+		$loc = $this->requeued( $d, $d->list_deadletter( 50 )['rows'][0]['locator'] );
+
+		$result = $d->remove_deadletter( $loc );
+
+		$this->assertSame( "ok: removed {$loc}\n", $result );
+		$this->assertSame( [ '1:0:10' => 'quarantined' ], $this->statuses( $d ) );
+		$this->assertSame( 1, $d->list_deadletter( 50 )['total'] );
+	}
+
+	/** Remove is offered on a requeued row alone, so a record still quarantined is refused. */
+	public function test_remove_refuses_a_record_still_quarantined(): void {
+		$d   = $this->two_quarantined();
+		$loc = $d->list_deadletter( 50 )['rows'][1]['locator'];
+
+		$e = $this->caught( fn () => $d->remove_deadletter( $loc ), 'only a requeued record is removed' );
+
+		$this->assertStringContainsString( "dead-letter record at {$loc} is quarantined, not requeued", $e->getMessage() );
+		$this->assertSame( [ '2:0:10' => 'quarantined', '1:0:10' => 'quarantined' ], $this->statuses( $d ) );
+	}
+
+	/** The page limit counts listed records, so a removed one leaves room for the next. */
+	public function test_a_removed_record_does_not_use_a_place_in_the_page(): void {
+		$d = $this->two_quarantined();
+		$d->remove_deadletter( $this->requeued( $d, $d->list_deadletter( 50 )['rows'][0]['locator'] ) );
+
+		$this->assertSame( '1:0:10', $d->list_deadletter( 1 )['rows'][0]['source'] );
+	}
+
+	public function test_remove_refuses_a_record_already_removed(): void {
+		$d   = $this->two_quarantined();
+		$loc = $this->requeued( $d, $d->list_deadletter( 50 )['rows'][0]['locator'] );
+		$d->remove_deadletter( $loc );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( "dead-letter record at {$loc} is already removed" );
+		$d->remove_deadletter( $loc );
+	}
+
+	public function test_remove_refuses_an_unknown_locator(): void {
+		$d = $this->two_quarantined();
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'no dead-letter record at 6:0:10' );
+		$d->remove_deadletter( '6:0:10' );
+	}
+
+	public function test_remove_refuses_a_malformed_locator(): void {
+		$d = $this->two_quarantined();
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'malformed' );
+		$d->remove_deadletter( '0:abc:10' );
+	}
+
+	public function test_remove_errors_without_a_configured_queue(): void {
+		$d = new Dead_Letter_Queue_Double();
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'no dead-letter queue' );
+		$d->remove_deadletter( '0:0:10' );
+	}
+
+	public function test_requeue_refuses_a_removed_record(): void {
+		$sink = new Capture_Sink_Node();
+		$d    = $this->two_quarantined( $sink );
+		$loc  = $this->requeued( $d, $d->list_deadletter( 50 )['rows'][0]['locator'] );
+		$d->remove_deadletter( $loc );
+		$sink->captured = [];
+
+		$e = $this->caught( fn () => $d->requeue_deadletter( $loc ), 'a removed record is not redelivered' );
+
+		$this->assertStringContainsString( 'already removed', $e->getMessage() );
+		$this->assertSame( [], $sink->captured );
+	}
+
+	/** A tombstone whose record rotated out names nothing: not listed, not counted, not removable. */
+	public function test_a_tombstone_whose_record_rotated_out_is_ignored(): void {
+		$d       = $this->two_quarantined();
+		$sidecar = $this->read_private( $d, 'deadletter' );
+		\assert( $sidecar instanceof Partition_Node );
+		$sidecar->append_index( (string) \wp_json_encode( [ 'locator' => '5:0:10', 'status' => 'requeued', 'ts' => 1 ] ) );
+
+		$page = $d->list_deadletter( 50 );
+		$this->assertCount( 2, $page['rows'] );
+		$this->assertSame( 2, $page['total'] );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'no dead-letter record at 5:0:10' );
+		$d->remove_deadletter( '5:0:10' );
+	}
+
+	public function test_dl_remove_is_declared_beside_dl_requeue_with_its_role(): void {
+		$verbs = \array_column( Dead_Letter_Queue_Double::deadletter_verbs(), null, 'name' );
+
+		$this->assertArrayHasKey( 'dl_remove', $verbs );
+		$this->assertSame( $verbs['dl_requeue']['capability'] ?? null, $verbs['dl_remove']['capability'] ?? null );
+		$this->assertTrue( $verbs['dl_remove']['hidden'] );
+		$this->assertSame( [ [ 'name' => 'locator', 'type' => 'string', 'required' => true ] ], $verbs['dl_remove']['args'] );
+	}
+
+	public function test_dl_list_describes_status_removal_and_what_total_counts(): void {
+		$verbs       = \array_column( Dead_Letter_Queue_Double::deadletter_verbs(), null, 'name' );
+		$description = Core::as_string( $verbs['dl_list']['description'] );
+
+		$this->assertStringContainsString( 'status (quarantined or requeued)', $description );
+		$this->assertStringContainsString( 'removed records are omitted', $description );
+		$this->assertStringContainsString( 'total counts only records still quarantined', $description );
+	}
+
+	public function test_cmd_dl_remove_removes_the_record(): void {
+		$d           = $this->two_quarantined();
+		$loc         = $this->requeued( $d, $d->list_deadletter( 50 )['rows'][0]['locator'] );
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->patron( $d );
+
+		$result = Dead_Letter_Queue_Double::cmd_dl_remove( $interpreter, [ 'locator' => $loc ] );
+
+		$this->assertSame( "ok: removed {$loc}\n", $result );
+		$this->assertSame( [ '1:0:10' => 'quarantined' ], $this->statuses( $d ) );
+	}
+
+	public function test_cmd_dl_remove_errors_when_no_patron_is_set(): void {
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'not a dead-letter node' );
+		Dead_Letter_Queue_Double::cmd_dl_remove( new Command_Interpreter_Node(), [ 'locator' => '0:0:10' ] );
 	}
 
 	public function test_purge_errors_without_a_configured_queue(): void {
@@ -656,6 +912,23 @@ class DeadLetterQueueTest extends TestCase {
 		$page = $d->list_deadletter( 50 );
 		$this->assertSame( 1, $page['total'], 'only the feature-era record carries an .idx row' );
 		$this->assertSame( 1, $page['unindexed_segments'], 'segment 0 predates the feature and has no .idx' );
+	}
+
+	/** Opening a segment creates its .idx before any line lands, so an empty one indexes nothing. */
+	public function test_list_counts_a_segment_with_an_empty_index_as_unindexed(): void {
+		$dir = "{$this->tmp}/dlq.p0";
+		\mkdir( $dir, 0755, true );
+		\file_put_contents( "{$dir}/0.log", Message::packed( $this->dl_message( 'old-delta-91' ) ) . "\n" );
+		\file_put_contents( "{$dir}/0.idx", '' );
+		\file_put_contents( "{$dir}/1.log", Message::packed( $this->dl_message( 'old-epsilon-92' ) ) . "\n" );
+
+		$d = new Dead_Letter_Queue_Double();
+		$d->build_dlq( $dir );
+		$d->quarantine( $this->dl_message( 'new-zeta-93', '9:0:10' ), 'throw' );
+
+		$page = $d->list_deadletter( 50 );
+		$this->assertSame( 1, $page['total'] );
+		$this->assertSame( 1, $page['unindexed_segments'], 'segment 0 holds records and an empty .idx' );
 	}
 
 	public function test_list_is_empty_without_a_configured_queue(): void {
@@ -804,7 +1077,7 @@ class DeadLetterQueueTest extends TestCase {
 	public function test_cmd_dl_requeue_delivers_to_the_sink(): void {
 		$sink = new Capture_Sink_Node();
 		$d    = new Dead_Letter_Queue_Double();
-		$d->sink( $sink );
+		$this->deliver_to( $d, $sink );
 		$d->build_dlq( "{$this->tmp}/dlq.p0" );
 		$d->quarantine( $this->dl_message( 'requeued-via-cmd', '1:0:10' ), 'throw' );
 		$loc         = $d->list_deadletter( 50 )['rows'][0]['locator'];

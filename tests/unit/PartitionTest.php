@@ -1954,6 +1954,57 @@ class PartitionTest extends TestCase {
 		$this->assertSame( "kept\n", $idx );
 	}
 
+	/** An appended index line lands in the current segment's .idx and adds no record. */
+	public function test_append_index_writes_a_line_with_no_record_behind_it(): void {
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 1024 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->void_warranty();
+		$p->with_index( fn ( array $message, array $pos ) => 'record:' . $message[ Message::VALUE ] );
+		$this->produce_into( $p, 'alpha-77' );
+		$log_before = (string) file_get_contents( "{$this->tmp}.p0/0.log" );
+
+		$p->append_index( 'tombstone-for-alpha-77' );
+
+		$this->assertSame( "record:alpha-77\ntombstone-for-alpha-77\n", file_get_contents( "{$this->tmp}.p0/0.idx" ) );
+		$this->assertSame( $log_before, file_get_contents( "{$this->tmp}.p0/0.log" ), 'no record rides with the line' );
+	}
+
+	/** A record still in the batch lands before the line that annotates it. */
+	public function test_append_index_flushes_a_pending_batch_first(): void {
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 1024 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->void_warranty();
+		$p->with_index( fn ( array $message, array $pos ) => 'record:' . $message[ Message::VALUE ] );
+		$p->fill( $this->produce( 'batched-beta-19' ) );
+
+		$p->append_index( 'tombstone-for-beta-19' );
+
+		$this->assertSame( "record:batched-beta-19\ntombstone-for-beta-19\n", file_get_contents( "{$this->tmp}.p0/0.idx" ) );
+	}
+
+	/** It takes no lock, so only a sole writer may append. */
+	public function test_append_index_refuses_a_shared_writer_partition(): void {
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 1024 * 1024 ), "2", "4", "86400", "0" ] );
+		$this->produce_into( $p, 'shared-gamma-23' );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'sole writer' );
+		$p->append_index( 'tombstone-for-gamma-23' );
+	}
+
+	/** With no index armed there is nowhere to append, so the line is refused, not dropped. */
+	public function test_append_index_refuses_a_partition_with_no_index(): void {
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 1024 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->void_warranty();
+		$this->produce_into( $p, 'unindexed-88' );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'is not open' );
+		$p->append_index( 'orphan-line' );
+	}
+
 	public function test_scan_index_with_jsonl_callback_format(): void {
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 1024 * 1024 ), "2", "4", "86400", "0" ] );

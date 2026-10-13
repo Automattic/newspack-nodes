@@ -371,14 +371,17 @@ class ConsumerTest extends TestCase {
 		$verbs = \array_column( Consumer_Node::node_schema()['commands'], 'name' );
 		$this->assertContains( 'dl_list', $verbs );
 		$this->assertContains( 'dl_requeue', $verbs );
+		$this->assertContains( 'dl_remove', $verbs );
 		$this->assertContains( 'dl_purge', $verbs );
 	}
 
 	public function test_requeue_redelivers_a_dead_letter_record_to_the_sink(): void {
 		$sink = new Capture_Sink_Node();
+		$sink->name( 'downstream' );
 		$c    = new Consumer_Node();
 		$c->name( 'reader' );
 		$c->sink( $sink );
+		$c->target( 'downstream' );
 		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 
 		$message                   = Message::new_message();
@@ -3963,7 +3966,7 @@ class ConsumerTest extends TestCase {
 		$this->assertIsArray( $schema['commands'] );
 		// Set equality, NOT order: verb ordering is presentation, free to change.
 		$this->assertEqualsCanonicalizing(
-			[ 'add_snapshot_node', 'set_line_mode', 'seek_frame', 'pause', 'play', 'step', 'assume_clean_shutdown', 'dl_list', 'dl_show', 'dl_requeue', 'dl_purge', 'set_multi_writer' ],
+			[ 'add_snapshot_node', 'set_line_mode', 'seek_frame', 'pause', 'play', 'step', 'assume_clean_shutdown', 'dl_list', 'dl_show', 'dl_requeue', 'dl_remove', 'dl_purge', 'set_multi_writer' ],
 			\array_column( $schema['commands'], 'name' ),
 			'Consumer exposes the snapshot-cache + line-mode config verbs, the time-travel transport (`step` is a mutating command, not a request), the dead-letter triage verbs, and set_multi_writer (seal-grace)'
 		);
@@ -4557,7 +4560,7 @@ class ConsumerTest extends TestCase {
 			$commands[ $command['name'] ] = $command;
 		}
 
-		foreach ( [ 'dl_list', 'dl_show', 'dl_requeue', 'dl_purge' ] as $verb ) {
+		foreach ( [ 'dl_list', 'dl_show', 'dl_requeue', 'dl_remove', 'dl_purge' ] as $verb ) {
 			$this->assertArrayHasKey( $verb, $commands, "{$verb} must be a Consumer command" );
 			$this->assertTrue( $commands[ $verb ]['hidden'] ?? false, "{$verb} must be hidden from the generic verb list" );
 		}

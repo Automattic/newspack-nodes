@@ -48,6 +48,7 @@ const listPage = ( over = {} ) => ( {
 			ts: 1_777_000_123,
 			source: '4:88:512',
 			locator: '2:40:96',
+			status: 'quarantined',
 		},
 	],
 	total: 1,
@@ -145,6 +146,142 @@ test( 'Requeue dispatches dl_requeue with the row locator, then refetches', () =
 		'firehose-consumer',
 		expect.objectContaining( { verb: 'dl_list' } )
 	);
+} );
+
+test( "shows each row's status beside its reason", () => {
+	const { getByTestId } = render(
+		<TriageView node={ node } onAction={ jest.fn() } />
+	);
+	reply(
+		'dl_list',
+		listPage( {
+			rows: [ { ...listPage().rows[ 0 ], status: 'requeued' } ],
+		} )
+	);
+	const grid = getByTestId( 'triage-grid' );
+	expect( grid.textContent ).toContain( 'STATUS' );
+	expect( grid.textContent ).toContain( 'requeued' );
+} );
+
+test( 'a requeued row offers Remove where a quarantined row offers Requeue', () => {
+	const { getAllByRole } = render(
+		<TriageView node={ node } onAction={ jest.fn() } />
+	);
+	reply(
+		'dl_list',
+		listPage( {
+			rows: [
+				{
+					...listPage().rows[ 0 ],
+					locator: '3:0:77',
+					status: 'requeued',
+				},
+				{ ...listPage().rows[ 0 ], locator: '1:0:55' },
+			],
+		} )
+	);
+	const labels = ( locator ) =>
+		Array.from(
+			getAllByRole( 'row' )
+				.find( ( r ) => r.textContent.includes( locator ) )
+				.querySelectorAll( 'button' ),
+			( b ) => b.textContent
+		);
+	expect( labels( '3:0:77' ) ).toEqual( [ 'View', 'Remove' ] );
+	expect( labels( '1:0:55' ) ).toEqual( [ 'View', 'Requeue' ] );
+} );
+
+test( 'Remove dispatches dl_remove with the row locator, then refetches', () => {
+	const onAction = jest.fn();
+	const { getByText } = render(
+		<TriageView node={ node } onAction={ onAction } />
+	);
+	reply(
+		'dl_list',
+		listPage( {
+			rows: [ { ...listPage().rows[ 0 ], status: 'requeued' } ],
+		} )
+	);
+	onAction.mockClear();
+	fireEvent.click( getByText( 'Remove' ) );
+	expect( onAction ).toHaveBeenCalledWith( 'invoke', 'firehose-consumer', {
+		verb: 'dl_remove',
+		kind: 'command',
+		args: [ '--locator=2:40:96' ],
+		replyTo: expect.any( String ),
+	} );
+	reply( 'dl_remove', 'ok: removed 2:40:96' );
+	expect( getByText( 'ok: removed 2:40:96' ) ).not.toBeNull();
+	expect( onAction ).toHaveBeenCalledWith(
+		'invoke',
+		'firehose-consumer',
+		expect.objectContaining( { verb: 'dl_list' } )
+	);
+} );
+
+test( 'a double-click on Requeue sends one dl_requeue, the button disabled until the reply', () => {
+	const onAction = jest.fn();
+	const { getByText } = render(
+		<TriageView node={ node } onAction={ onAction } />
+	);
+	reply( 'dl_list', listPage() );
+	onAction.mockClear();
+	fireEvent.click( getByText( 'Requeue' ) );
+	fireEvent.click( getByText( 'Requeue' ) );
+	const requeues = onAction.mock.calls.filter(
+		( c ) => 'dl_requeue' === c[ 2 ]?.verb
+	);
+	expect( requeues ).toHaveLength( 1 );
+	expect( getByText( 'Requeue' ).disabled ).toBe( true );
+} );
+
+test( 'the row action stays disabled until the refetched dl_list lands', () => {
+	const { getByText } = render(
+		<TriageView node={ node } onAction={ jest.fn() } />
+	);
+	reply( 'dl_list', listPage() );
+	fireEvent.click( getByText( 'Requeue' ) );
+	reply( 'dl_requeue', 'ok: redelivered 2:40:96 (97 bytes) to the sink' );
+	// The stale row still reads Requeue; clicking it now would deliver twice.
+	expect( getByText( 'Requeue' ).disabled ).toBe( true );
+	reply(
+		'dl_list',
+		listPage( {
+			rows: [ { ...listPage().rows[ 0 ], status: 'requeued' } ],
+		} )
+	);
+	expect( getByText( 'Remove' ).disabled ).toBe( false );
+} );
+
+test( 'Refresh frees the row action when a verb reply never comes', () => {
+	const { getByText } = render(
+		<TriageView node={ node } onAction={ jest.fn() } />
+	);
+	reply( 'dl_list', listPage() );
+	fireEvent.click( getByText( 'Requeue' ) );
+	expect( getByText( 'Requeue' ).disabled ).toBe( true );
+	fireEvent.click( getByText( 'Refresh' ) );
+	reply( 'dl_list', listPage() );
+	expect( getByText( 'Requeue' ).disabled ).toBe( false );
+} );
+
+test( 'a double-click on Remove sends one dl_remove', () => {
+	const onAction = jest.fn();
+	const { getByText } = render(
+		<TriageView node={ node } onAction={ onAction } />
+	);
+	reply(
+		'dl_list',
+		listPage( {
+			rows: [ { ...listPage().rows[ 0 ], status: 'requeued' } ],
+		} )
+	);
+	onAction.mockClear();
+	fireEvent.click( getByText( 'Remove' ) );
+	fireEvent.click( getByText( 'Remove' ) );
+	expect(
+		onAction.mock.calls.filter( ( c ) => 'dl_remove' === c[ 2 ]?.verb )
+	).toHaveLength( 1 );
 } );
 
 const showRecord = () => ( {

@@ -167,8 +167,8 @@ final class VerbRoleGateTest extends TestCase {
 		};
 		$this->assertSame( [ 'stats' => Capabilities::READ, 'reset_stats' => null, 'flush' => null, 'vacuum' => null ], $declared( Table_Node::class ) );
 		$this->assertSame(
-			[ 'dl_list' => Capabilities::READ, 'dl_show' => Capabilities::READ, 'dl_requeue' => null, 'dl_purge' => null ],
-			\array_intersect_key( $declared( \Newspack_Nodes\Consumer_Node::class ), \array_flip( [ 'dl_list', 'dl_show', 'dl_requeue', 'dl_purge' ] ) )
+			[ 'dl_list' => Capabilities::READ, 'dl_show' => Capabilities::READ, 'dl_requeue' => null, 'dl_remove' => null, 'dl_purge' => null ],
+			\array_intersect_key( $declared( \Newspack_Nodes\Consumer_Node::class ), \array_flip( [ 'dl_list', 'dl_show', 'dl_requeue', 'dl_remove', 'dl_purge' ] ) )
 		);
 	}
 }

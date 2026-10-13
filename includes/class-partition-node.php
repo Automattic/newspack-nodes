@@ -838,6 +838,29 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
+	 * Append one line to the current segment's companion index with no record
+	 * behind it: an annotation on records already written, such as a dead-letter
+	 * tombstone. It rotates out with that segment, and its meaning is the
+	 * caller's, as every index line's is.
+	 *
+	 * Precondition: this process is the index's sole writer, asserted by
+	 * `void_warranty()` or proven by a held `allow_large_writes()` lock, because
+	 * the append takes no lock of its own. Any batch still pending flushes
+	 * first, so the line never precedes a record it annotates.
+	 *
+	 * @param string $entry The index line, without its newline.
+	 * @throws \RuntimeException When this is not the sole writer, no index is armed, or a write falls short.
+	 */
+	public function append_index( string $entry ): void {
+		if ( self::LARGE_WRITE_VOID !== $this->large_write_mode && ! $this->lock_held ) {
+			throw new \RuntimeException( \esc_html( "Partition: append_index on {$this->segment_dir()} needs its sole writer: void_warranty() or a held write lock" ) );
+		}
+		$this->flush();
+		$this->get_handle();
+		$this->write_index_line( $entry );
+	}
+
+	/**
 	 * Append the batch to the current segment, then write one companion-index
 	 * entry per record that survived.
 	 *
@@ -1127,6 +1150,34 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
+	 * Write one companion-index entry for the record at $offset. The caller
+	 * guards on $index_callback. A formatter returning null or '' skips the
+	 * entry; a formatter that throws, a missing index handle and a short write
+	 * all raise, after the record they would point at has already landed.
+	 *
+	 * @param array{message: array<int,mixed>, size: int} $item   The batched message and its record length.
+	 * @param int                                         $offset Byte offset of the record within its segment.
+	 * @throws \RuntimeException Naming the index, when it is not open or a write falls short.
+	 */
+	private function write_index_entry( array $item, int $offset ): void {
+		$callback   = $this->index_callback;
+		$segment = $this->current_segment_id;
+		if ( null === $callback || null === $segment ) {
+			return;
+		}
+		$position = [
+			'segment' => $segment,
+			'offset'     => $offset,
+			'length'     => $item['size'],
+		];
+		$entry = $callback( $item['message'], $position );
+		if ( null === $entry || '' === $entry ) {
+			return;
+		}
+		$this->write_index_line( $entry );
+	}
+
+	/**
 	 * Lazily open and cache the .log + .idx handles for the current segment.
 	 *
 	 * @return resource|null Log handle, or null on open failure.
@@ -1239,30 +1290,12 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * Write one companion-index entry for the record at $offset. The caller
-	 * guards on $index_callback. A formatter returning null or '' skips the
-	 * entry; a formatter that throws, a missing index handle and a short write
-	 * all raise, after the record they would point at has already landed.
+	 * Write one line to the open companion index.
 	 *
-	 * @param array{message: array<int,mixed>, size: int} $item   The batched message and its record length.
-	 * @param int                                         $offset Byte offset of the record within its segment.
+	 * @param string $entry The index line, without its newline.
 	 * @throws \RuntimeException Naming the index, when it is not open or a write falls short.
 	 */
-	private function write_index_entry( array $item, int $offset ): void {
-		$callback   = $this->index_callback;
-		$segment = $this->current_segment_id;
-		if ( null === $callback || null === $segment ) {
-			return;
-		}
-		$position = [
-			'segment' => $segment,
-			'offset'     => $offset,
-			'length'     => $item['size'],
-		];
-		$entry = $callback( $item['message'], $position );
-		if ( null === $entry || '' === $entry ) {
-			return;
-		}
+	private function write_index_line( string $entry ): void {
 		if ( ! \is_resource( $this->idx_fh ) ) {
 			throw new \RuntimeException( "Partition: index {$this->current_idx_path} is not open" );
 		}
