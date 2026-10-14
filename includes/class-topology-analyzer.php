@@ -73,11 +73,12 @@ class Topology_Analyzer {
 	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
 	public static function expand( array $include_names, bool $group_children = true ): array {
-		$nodes  = [];
-		$edges  = [];
-		$walked = self::statements( '', $include_names, $group_children );
+		$nodes        = [];
+		$edges        = [];
+		$verb_classes = [];
+		$walked       = self::statements( '', $include_names, $group_children );
 		foreach ( $walked['statements'] as $statement ) {
-			self::absorb_statement( $statement, $statement['origins'], $nodes, $edges );
+			self::absorb_statement( $statement, $statement['origins'], $nodes, $edges, $verb_classes );
 		}
 		return [
 			'nodes' => \array_values( $nodes ),
@@ -160,14 +161,17 @@ class Topology_Analyzer {
 	 * @param list<string>                                                            $origins   Top-level includes providing it.
 	 * @param array<string,array{name: string,class: string,fans_out: bool,args: list<string>,verbs: list<array{verb: string,args: list<string>}>,origin: list<string>,via: list<string>}> $nodes Node map, by reference.
 	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}>      $edges Edge-state map, by reference.
+	 * @param array<string,class-string<Node>> $verb_classes Node name => the class its `:config` answers for, by reference.
 	 */
-	private static function absorb_statement( array $statement, array $origins, array &$nodes, array &$edges ): void {
+	private static function absorb_statement( array $statement, array $origins, array &$nodes, array &$edges, array &$verb_classes ): void {
 		$verb   = $statement['verb'];
 		$values = $statement['values'];
 		$spans  = $statement['spans'];
 		if ( 'make_node' === $verb ) {
-			$name = $values[2] ?? '';
-			self::draw_declared_targets( $edges, $values, $origins, Command_Interpreter_Node::resolve_class( $values[1] ?? '' ) );
+			$name                  = $values[2] ?? '';
+			$fqcn                  = self::node_class( $values[1] ?? '' );
+			$verb_classes[ $name ] = self::verb_class( $values );
+			self::draw_pairs( $edges, $name, $fqcn::declared_targets( \array_slice( $values, 3 ) ), $origins );
 			if ( isset( $nodes[ $name ] ) ) {
 				$nodes[ $name ]['origin'] = self::union_origins( $nodes[ $name ]['origin'], $origins );
 				return;
@@ -207,6 +211,10 @@ class Topology_Analyzer {
 				$edge_target = Core::resolve_config_tokens( $values[3] ?? '' );
 				self::set_config_edge( $edges, $node_name, $edge_target, $inner_verb, $origins );
 				return;
+			}
+			if ( $has_config ) {
+				$verb_class = $verb_classes[ $node_name ] ?? Node::class;
+				self::draw_pairs( $edges, $node_name, $verb_class::command_targets( $inner_verb, \array_slice( $values, 3 ) ), $origins );
 			}
 			// Every other verb rides on the node so the console can show it.
 			if ( isset( $nodes[ $node_name ] ) ) {
@@ -286,9 +294,11 @@ class Topology_Analyzer {
 	 * the make_node `type` token and positional `args` list, quotes stripped as
 	 * the runtime binds them (+ the log a Partition/Topic writes or a Consumer
 	 * reads, from the path/source ARG — never a name suffix; + a broker's
-	 * `vault_id` and `pairs`, so another plugin names them rather than counting
-	 * positionals), and edges from `connect_node` plus
-	 * `command_node <node>:config set_*target <target>`, with `disconnect_node` applied
+	 * `vault_id` and `pairs`, read from its arguments and its `add_source`
+	 * lines, so another plugin names them rather than counting positionals),
+	 * and edges from `connect_node`, `command_node <node>:config set_*target
+	 * <target>` and each `pair` a class declares (`declared_targets()`,
+	 * `command_targets()`), with `disconnect_node` applied
 	 * in evaluation order. A broken include throws — the walk's memoized
 	 * failure, re-raised to every caller — rather than answering an empty
 	 * graph that reads as "declares nothing".
@@ -311,9 +321,13 @@ class Topology_Analyzer {
 			$slash = \strrpos( $arg, '/' );
 			return false === $slash ? $arg : \substr( $arg, $slash + 1 );
 		};
-		$nodes = [];
-		$types = [];
-		$edges = [];
+		$nodes        = [];
+		$index        = [];
+		$types        = [];
+		$verb_classes = [];
+		$brokers      = [];
+		$pairs        = [];
+		$edges        = [];
 		foreach ( self::statements( $name )['statements'] as $statement ) {
 			$verb   = $statement['verb'];
 			$values = $statement['values'];
@@ -344,16 +358,20 @@ class Topology_Analyzer {
 					$node['path']         = $path;
 					$node['segment_size'] = self::literal_segment_size( $values ) ?? 0;
 				}
-				$fqcn = Command_Interpreter_Node::resolve_class( $class );
-				self::draw_declared_targets( $edges, $values, [ $name ], $fqcn );
+				$fqcn                       = self::node_class( $class );
+				$verb_classes[ $node_name ] = self::verb_class( $values );
+				self::draw_pairs( $edges, $node_name, $fqcn::declared_targets( \array_slice( $values, 3 ) ), [ $name ] );
 				if ( self::type_is( $class, Remote_Broker_Node::class ) ) {
 					/** @var class-string<Remote_Broker_Node> $broker An unresolved name stands for the base class. */
-					$broker = $fqcn ?? Remote_Broker_Node::class;
+					$broker = \is_a( $fqcn, Remote_Broker_Node::class, true ) ? $fqcn : Remote_Broker_Node::class;
 					// It pulls REMOTE streams, so it claims no `reads`.
-					$node['vault_id'] = $values[3] ?? '';
-					$node['pairs']    = $broker::pairs_of( $broker::variadic_in( \array_slice( $values, 3 ) ) );
+					$pairs[ $node_name ]   = $broker::pairs_of( $broker::variadic_in( \array_slice( $values, 3 ) ) );
+					$node['vault_id']      = $values[3] ?? '';
+					$node['pairs']         = $pairs[ $node_name ];
+					$brokers[ $node_name ] = $broker;
 				}
-				$nodes[] = $node;
+				$index[ $node_name ] = \count( $nodes );
+				$nodes[]             = $node;
 				continue;
 			}
 			if ( 'disconnect_node' === $verb ) {
@@ -368,10 +386,23 @@ class Topology_Analyzer {
 				self::connect_edge( $edges, $source, $values[2] ?? '', [ $name ], $fans_out );
 				continue;
 			}
-			if ( 'command_node' === $verb && \str_ends_with( $values[1] ?? '', ':config' )
-				&& \preg_match( '/^set_\w*target$/D', $values[2] ?? '' ) ) {
-				$node_name = \substr( $values[1], 0, -\strlen( ':config' ) );
-				self::set_config_edge( $edges, $node_name, Core::resolve_config_tokens( $values[3] ?? '' ), $values[2], [ $name ] );
+			if ( 'command_node' === $verb && \str_ends_with( $values[1] ?? '', ':config' ) ) {
+				$node_name  = \substr( $values[1], 0, -\strlen( ':config' ) );
+				$inner_verb = $values[2] ?? '';
+				$args       = \array_slice( $values, 3 );
+				if ( \preg_match( '/^set_\w*target$/D', $inner_verb ) ) {
+					self::set_config_edge( $edges, $node_name, Core::resolve_config_tokens( $values[3] ?? '' ), $inner_verb, [ $name ] );
+					continue;
+				}
+				$verb_class = $verb_classes[ $node_name ] ?? Node::class;
+				self::draw_pairs( $edges, $node_name, $verb_class::command_targets( $inner_verb, $args ), [ $name ] );
+				$source = isset( $brokers[ $node_name ] ) && Remote_Broker_Node::ADD_SOURCE === $inner_verb
+					? $brokers[ $node_name ]::source_of( $args )
+					: null;
+				if ( null !== $source ) {
+					$pairs[ $node_name ][]                  = $source;
+					$nodes[ $index[ $node_name ] ]['pairs'] = $pairs[ $node_name ];
+				}
 			}
 		}
 		return self::$graph_cache[ $name ] = [
@@ -506,23 +537,22 @@ class Topology_Analyzer {
 	}
 
 	/**
-	 * Draw one `pair` edge from a node to each destination its class declares
-	 * for its arguments (`Node::declared_targets()`), for every class: a
-	 * broker's pair targets, and nothing for a class declaring none. The
-	 * class gets its tokens as written and judges them as a load would.
+	 * Draw one `pair` edge from a node to each destination its class declares,
+	 * for every class: what its `make_node` arguments name
+	 * (`Node::declared_targets()`) or a verb sent to its `:config` names
+	 * (`Node::command_targets()`), a broker's pairs and sources, and nothing
+	 * for a class declaring none. The class gets its tokens as written and
+	 * judges them as a load would.
 	 *
 	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges Edge-state map, by reference.
-	 * @param list<string> $values  The node's `make_node` values.
-	 * @param list<string> $origins Top-level includes providing the node.
-	 * @param class-string<Node>|null $fqcn The node's class, or null when none resolves.
+	 * @param string       $node    The node the edges leave.
+	 * @param list<string> $targets The destinations its class declares.
+	 * @param list<string> $origins Top-level includes providing the line.
 	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges
 	 */
-	private static function draw_declared_targets( array &$edges, array $values, array $origins, ?string $fqcn ): void {
-		if ( null === $fqcn ) {
-			return;
-		}
-		foreach ( $fqcn::declared_targets( \array_slice( $values, 3 ) ) as $target ) {
-			self::add_role_origins( $edges, $values[2] ?? '', $target, 'pair', $origins );
+	private static function draw_pairs( array &$edges, string $node, array $targets, array $origins ): void {
+		foreach ( $targets as $target ) {
+			self::add_role_origins( $edges, $node, $target, 'pair', $origins );
 		}
 	}
 
@@ -578,6 +608,28 @@ class Topology_Analyzer {
 			];
 		}
 		return $key;
+	}
+
+	/**
+	 * The class whose verbs a node's `:config` answers: its own, or for a
+	 * Vault_Group the child class it forwards each verb to.
+	 *
+	 * @param list<string> $values A `make_node` statement's values.
+	 * @return class-string<Node>
+	 */
+	private static function verb_class( array $values ): string {
+		return self::node_class( $values[ self::type_is( $values[1] ?? '', Vault_Group_Node::class ) ? 3 : 1 ] ?? '' );
+	}
+
+	/**
+	 * The class a TSL type token names, or `Node`, which declares no target,
+	 * when no namespace resolves it.
+	 *
+	 * @param string $type TSL class token.
+	 * @return class-string<Node>
+	 */
+	private static function node_class( string $type ): string {
+		return Command_Interpreter_Node::resolve_class( $type ) ?? Node::class;
 	}
 
 	/**

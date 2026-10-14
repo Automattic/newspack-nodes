@@ -1056,7 +1056,8 @@ class Node {
 	 * The destinations one verb sent to this class's `:config` names for it
 	 * to write without routing through `target`: the verb twin of
 	 * `declared_targets()`, which a Vault_Group declares for each verb it
-	 * recorded. None by default.
+	 * recorded and `Topology_Analyzer` reads off each `command_node` line and
+	 * draws as `pair` edges, so the two cannot drift. None by default.
 	 *
 	 * @param string       $verb   The verb.
 	 * @param list<string> $tokens Its argument tokens.

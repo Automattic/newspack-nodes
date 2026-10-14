@@ -72,6 +72,26 @@ TSL;
 		}
 	}
 
+	/** A group's `add_source` draws from the group and from each member. */
+	public function test_a_groups_add_source_draws_from_the_group_and_each_member(): void {
+		$this->write_tsl(
+			'pull-added',
+			"make_node Vault_Group firehose Remote_Source tw-edge <config:offsets_dir>/<topology>.{id} <config:deadletter_dir>/<topology>.{id}\n"
+			. "command_node firehose:config add_source firehose.p{partition} rewrite-23\n"
+		);
+		$pairs = static fn ( array $graph ): array => \array_values(
+			\array_map(
+				static fn ( array $e ): string => "{$e['from']}>{$e['to']}",
+				\array_filter( $graph['edges'], static fn ( array $e ): bool => \in_array( 'pair', $e['roles'], true ) )
+			)
+		);
+
+		$this->assertSame( [ 'firehose>rewrite-23' ], $pairs( Topology_Analyzer::expand( [ 'pull-added' ], false ) ) );
+		$this->assertSame( [ 'firehose>rewrite-23', 'firehose:tw0>rewrite-23', 'firehose:tw9>rewrite-23' ], $pairs( Topology_Analyzer::expand( [ 'pull-added' ] ) ) );
+		$by_name = \array_column( Topology_Analyzer::graph_for( 'pull-added' )['nodes'], null, 'name' );
+		$this->assertSame( [ [ 'source' => 'firehose.p{partition}', 'target' => 'rewrite-23' ] ], $by_name['firehose:tw9']['pairs'] );
+	}
+
 	/** A group's `{partition}` reaches each child whole, so it loads. */
 	public function test_a_group_pair_naming_brace_partition_loads(): void {
 		$this->write_tsl( 'pull-brace', "make_node Vault_Group yak-pulls Remote_Source no-members-33 /var/yak/off.{id} /var/yak/dl.{id} errors.p{partition}=yak-sink-5\n" );

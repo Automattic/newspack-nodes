@@ -1,4 +1,6 @@
-import { formatCommandArgs } from '../command-args';
+import { bindCommandArgs, formatCommandArgs } from '../command-args';
+import addSourceCases from '../../../tests/fixtures/add-source-args.json';
+import brokerSchemas from '../../../tests/fixtures/broker-schemas.json';
 
 // Mirrors the PHP CommandArgsTest: token arrays in and out, no quoting.
 describe( 'formatCommandArgs', () => {
@@ -37,5 +39,27 @@ describe( 'formatCommandArgs', () => {
 		expect( formatCommandArgs( [], { search: 'foo bar' } ) ).toEqual( [
 			'--search=foo bar',
 		] );
+	} );
+} );
+
+// Held to PHP Command_Args::bind() by the same case list AddSourceArgsTest reads.
+describe( 'bindCommandArgs', () => {
+	const specs = brokerSchemas
+		.find( ( entry ) => 'Remote_Source' === entry.shell_name )
+		.commands.find( ( verb ) => 'add_source' === verb.name ).args;
+
+	const bindings = addSourceCases.filter(
+		( [ , , want ] ) => ! want.refused
+	);
+	const refusals = addSourceCases.filter( ( [ , , want ] ) => want.refused );
+
+	it.each( bindings )( 'binds %s', ( label, tokens, expected ) => {
+		expect( bindCommandArgs( specs, tokens ) ).toEqual( expected );
+	} );
+
+	it.each( refusals )( 'refuses %s', ( label, tokens, { refused } ) => {
+		expect( () => bindCommandArgs( specs, tokens ) ).toThrow(
+			new Error( refused )
+		);
 	} );
 } );

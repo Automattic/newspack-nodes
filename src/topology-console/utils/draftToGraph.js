@@ -22,6 +22,7 @@
  * says, so they are not something the draft knows.
  */
 
+import { bindCommandArgs } from '../../runtime/command-args';
 import { DraftInterpreterNode } from '../../runtime/draft-interpreter-node';
 import { splitPair } from '../../runtime/log-stamp';
 import { targetsOf } from '../../runtime/node';
@@ -51,6 +52,19 @@ function invocation( inv ) {
 		args: ( inv.args ?? [] ).slice(),
 		viaConfig: inv.viaConfig,
 	};
+}
+
+/** The verb a broker's `:config` takes a source by. */
+const ADD_SOURCE = 'add_source';
+
+/**
+ * The value a span holds, as the runtime reads it: a quoted span unquoted.
+ *
+ * @param {string} span An argument, as written.
+ * @return {string} Its value.
+ */
+function valueOf( span ) {
+	return tokenize( String( span ) )[ 0 ] ?? '';
 }
 
 /**
@@ -97,21 +111,56 @@ function isBroker( catalog, className ) {
  * @return {Array<string>} The pair values, none for any other class.
  */
 function pairTokens( className, spans, catalog ) {
-	// The broker reads values, so a quoted span is read as the value it holds.
-	const valuesOf = () =>
-		spans.map( ( span ) => tokenize( String( span ) )[ 0 ] ?? '' );
 	if ( isBroker( catalog, className ) ) {
-		return valuesOf().slice( boundCount( catalog, className ) );
+		return spans.map( valueOf ).slice( boundCount( catalog, className ) );
 	}
-	const childClass = tokenize( String( spans[ 0 ] ?? '' ) )[ 0 ] ?? '';
+	const childClass = valueOf( spans[ 0 ] ?? '' );
 	if ( 'Vault_Group' === className && isBroker( catalog, childClass ) ) {
-		return valuesOf().slice(
-			boundCount( catalog, className ) +
-				boundCount( catalog, childClass ) -
-				1
-		);
+		return spans
+			.map( valueOf )
+			.slice(
+				boundCount( catalog, className ) +
+					boundCount( catalog, childClass ) -
+					1
+			);
 	}
 	return [];
+}
+
+/**
+ * The targets the file's own `add_source` lines on a node's `:config` name,
+ * each line bound as the verb binds it: a broker's, or a Vault_Group's,
+ * which the group forwards to its child class. A line the binder refuses
+ * draws nothing, as the verb refuses it, and so does every line on a class
+ * whose catalog entry declares no `add_source`.
+ *
+ * @param {string}        className The node's shell class.
+ * @param {Array<string>} spans     Its constructor arguments, as written.
+ * @param {Array<Object>} declared  The file's own invocations on the node.
+ * @param {Array<Object>} catalog   Class catalog entries.
+ * @return {Array<string>} The targets, in line order.
+ */
+function sourceTargets( className, spans, declared, catalog ) {
+	const verbClass =
+		'Vault_Group' === className ? valueOf( spans[ 0 ] ?? '' ) : className;
+	const verb = catalog
+		.find( ( c ) => c.shell_name === verbClass )
+		?.commands?.find( ( c ) => ADD_SOURCE === c.name );
+	if ( ! verb ) {
+		return [];
+	}
+	return declared
+		.filter( ( inv ) => inv.viaConfig && ADD_SOURCE === inv.verb )
+		.flatMap( ( inv ) => {
+			try {
+				return [
+					bindCommandArgs( verb.args, inv.args.map( valueOf ) )
+						.local_node,
+				];
+			} catch {
+				return [];
+			}
+		} );
 }
 
 /**
@@ -121,7 +170,8 @@ function pairTokens( className, spans, catalog ) {
  * target is `target` and the rest are `also`, while `edges` carries a
  * `connect` entry for each of them, so a fan-out node keeps every connection
  * it declared. A broker draws a `pair` edge to each pair's target, skipping a
- * pair with an empty half as the broker refuses it. A borrowed node — one an
+ * pair with an empty half as the broker refuses it, and to each target the
+ * file's own `add_source` lines name, once each. A borrowed node — one an
  * include supplies — carries `origin`,
  * `via` and `fansOut` as well, and the invocations that include supplied are
  * marked `seeded`: the flag is what lets the Inspector lock those rows and
@@ -142,6 +192,12 @@ export function draftToGraph( interpreter ) {
 	const nodes = [];
 	const edges = [];
 	const configOverrides = [];
+	const seeded = interpreter.seededEdges();
+	const drawn = ( from, to ) =>
+		[ ...edges, ...seeded ].some(
+			( e ) =>
+				e.from === from && e.to === to && e.roles.includes( 'pair' )
+		);
 
 	for ( const [ name, node ] of interpreter.childRegistry.nodes ) {
 		const declared = interpreter.declaredInvocationsFor( name );
@@ -187,6 +243,17 @@ export function draftToGraph( interpreter ) {
 				edges.push( { from: name, to: target, roles: [ 'pair' ] } );
 			}
 		}
+		// The file's own lines; an include's arrive seeded.
+		for ( const to of sourceTargets(
+			node.shellClassName(),
+			node.arguments || [],
+			declared,
+			interpreter.catalog
+		) ) {
+			if ( ! drawn( name, to ) ) {
+				edges.push( { from: name, to, roles: [ 'pair' ] } );
+			}
+		}
 		// A borrowed node's slot may already hold an edge the include drew.
 		if ( borrowed ) {
 			for ( const inv of declared ) {
@@ -203,7 +270,7 @@ export function draftToGraph( interpreter ) {
 
 	return withConfigEdges( {
 		nodes,
-		edges: [ ...edges, ...interpreter.seededEdges() ],
+		edges: [ ...edges, ...seeded ],
 		includes: interpreter.includes.slice(),
 		frontmatter: { ...interpreter.frontmatter },
 		secureLevel: interpreter.secureLevel,
@@ -221,7 +288,7 @@ export function draftToGraph( interpreter ) {
  *
  * @param {string}  tsl                   Topology source.
  * @param {?Object} expansion             `topologies expand` result for its includes, or null.
- * @param {Array}   catalog               Class catalog: which classes fan out, and where a broker's pairs start.
+ * @param {Array}   catalog               Class catalog: which classes fan out, where a broker's pairs start, and which take `add_source`.
  * @param {Array}   [resolvedConfigEdges] Server-resolved `<ns:key>` targets.
  * @return {Object} The console's graph shape.
  */

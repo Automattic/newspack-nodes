@@ -6,6 +6,16 @@
 			{ "name": "offsetlog_root", "type": "string", "required": true },
 			{ "name": "deadletter_root", "type": "string", "required": true },
 			{ "name": "pairs", "type": "string", "required": false, "variadic": true }
+		],
+		"commands": [
+			{
+				"name": "add_source",
+				"args": [
+					{ "name": "remote_log", "type": "string", "required": true },
+					{ "name": "local_node", "type": "string", "required": true }
+				],
+				"multiple": true
+			}
 		]
 	},
 	{
@@ -14,6 +24,7 @@
 			{ "name": "child_type", "type": "string", "required": true },
 			{ "name": "group", "type": "vault_group", "required": true },
 			{ "name": "child_args", "type": "string", "required": false, "variadic": true }
-		]
+		],
+		"commands": []
 	}
 ]
