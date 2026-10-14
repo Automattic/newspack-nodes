@@ -1,0 +1,14 @@
+[
+  ["a dotted kind's cursor", "offsets:hub.tundra-41:firehose.p3", ["offsets", "hub.tundra-41", "firehose.p3"]],
+  ["a colon kind's cursor", "offsets:hub.tundra-41:sources:php", ["offsets", "hub.tundra-41", "sources:php"]],
+  ["a colon kind's dead letters", "deadletter:hub.coast-73:sources:php", ["deadletter", "hub.coast-73", "sources:php"]],
+  ["a grouped kind's dead letters", "deadletter:hub.coast-73:offsets:agg.firehose.p3", ["deadletter", "hub.coast-73", "offsets:agg.firehose.p3"]],
+  ["a mixed-case Vault id's root", "offsets:hub.TundraLedger:firehose.p3", ["offsets", "hub.TundraLedger", "firehose.p3"]],
+  ["a flat offsets kind", "offsets:hub.firehose.p3", null],
+  ["a reader under the logs root", "logs:hub.tundra-41:firehose.p3", null],
+  ["a reader under the source registry", "sources:hub.tundra-41:firehose.p3", null],
+  ["a slash before the root ends", "offsets/hub.tundra-41:firehose.p3:x", null],
+  ["a slash in the root", "offsets:hub/x:firehose.p3", null],
+  ["a grouped stamp", "offsets/hub.tundra-41", null],
+  ["a bare log", "firehose.p3", null]
+]

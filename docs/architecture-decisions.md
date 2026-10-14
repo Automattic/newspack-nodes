@@ -1982,6 +1982,45 @@ local log dir may be named `remote`. A local stamp never opens `remote/`, becaus
 holds no `/`. Rejected: `remote/<vault_id>/<stamp>`, which a FROM reader would cut at the second
 segment if one ever met it.
 
+**Amendment: a broker reader's dir has a stamp of its own, and it is one segment.** A broker
+nests one reader dir per kind under each of its roots ([ADR-31](#adr-31-a-broker-derives-its-readers-from-what-its-remote-sends)),
+`offsets/hub.tw0/firehose.p0` and `offsets/hub.tw0/sources:php`, and the root holds no segments.
+The catalog listed the root, which opened empty, and no stamp named a reader dir. Such a dir's
+stamp is `<group>:<root>:<kind>`, the kind as it sits on disk: `offsets:hub.tw0:firehose.p0`,
+`offsets:hub.tw0:sources:php`, `deadletter:hub.tw0:firehose.p0`. It holds no `/`, because a FROM
+stamp stays one segment: `dir_from_stamp()` and `splitStamp()` keep their rule, and a FROM trail
+after a stamp never reads as part of one. One parser, `Log_Discovery::reader_parts()`, cuts it at
+its first two colons, the group one of
+[`READER_GROUPS`](../includes/class-log-discovery.php) (`offsets`, `deadletter`, from which `GROUPS`
+is built) and the root holding no `/`, and `reader-stamps.json` holds it to `readerParts()` in
+`src/runtime/log-stamp.js`. Neither the group nor a root holds a `:`, so the rest is the kind.
+`stamp_for()` writes the stamp from the dir's `<root>/<kind>` under its group and refuses by name a
+root holding a `:`, which would read back as another root and kind. A broker root is a first-level
+dir under those roots holding no segment whose subdirs do, as `broker_roots()` finds it with one
+`GLOB_ERR` glob over the second level and a segment check on each candidate root, so a reader
+without a checkpoint yet and a root nested a level deeper are no readers. `groups()` lists the
+readers in the root's place and hands a first-level dir it cannot read to `unreadable()`, which
+the catalog lists as an unavailable row, and `dirs_matching()` skips the root, answering null on
+such a dir, so a glob opens no broker root and,
+carrying no reader stamp, none of its readers. `source_for()` gives a reader's two sidecars the
+catalog's stamp when `is_stamp()` admits it and their path otherwise, so a probe record names no
+stamp the catalog refuses. `split()` hands back the group and the
+`<root>/<kind>` path, so `dir_of()` and `dirs_matching()` resolve it under the same guard and the
+same join, and `stamp_for()` writes it back only in the colon form, so `offsets/hub.tw0/firehose.p0`
+is refused and a reader dir has one spelling. `is_stamp()` holds the root to `ROOT_PATTERN`, the
+characters a `<topology>.<vault_id>` root can carry, either case included, with no `/`, `:` or `..`,
+and the kind to a kind some stamp folds to, each within `MAX_STAMP_BYTES`, so no reader dir loses
+its stamp to its length; one whose root `ROOT_PATTERN` refuses, or whose kind no stamp folds to,
+has none, and lists as an unavailable row. A reader stamp is a dir, not a stream: no kind folds out of one, so `kind_of()`,
+`stamp_of()` and `kindOf()` refuse it rather than fold `offsets:hub:firehose.p0` into three dirs; no
+glob carries one, though a one-segment glob such as `o*` would otherwise; a broker pair, which cuts
+at its first `:`, refuses one as its source, in `Remote_Broker_Node` and the browser's `RemoteLink`
+alike; and a broker or a link handed one in a FROM drops it, rate-limited. Rejected:
+`reader/<group>/<root>/<kind's stamp>`, which wrote extra `/`s into a FROM stamp and needed a
+prefix to keep the trail readers apart; the bare `offsets/<root>/<kind>`, which a FROM trail could
+not tell from a two-segment stamp and its trail; and resolving the trail against a stream's own
+subscriptions, which no reader without them, such as `workerOfFrom()`, could do.
+
 ---
 
 ## ADR-30: A read position has one writer and one reader

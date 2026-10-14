@@ -51,11 +51,12 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	/**
 	 * Every on-disk partition directory as a `{key,label,available}` row, `logs`
 	 * first, then `offsets` and `deadletter`, keyed by the stamp
-	 * `Log_Discovery::stamp_for()` writes. `label` repeats `key`: the stamp is
+	 * `Log_Discovery::stamp_for()` writes; a broker's root holds no segments,
+	 * so its readers' dirs list in its place. `label` repeats `key`: the stamp is
 	 * the identifier, so the picker has nothing else to render. A dir named
 	 * like a group, or named outside the stamp grammar `is_stamp()` reads,
 	 * has no stamp a stream could open, so it takes an unavailable row
-	 * carrying the refusal and no key.
+	 * carrying the refusal and no key, as a dir the scan could not read does.
 	 *
 	 * @return list<array{key?:string,label:string,available:bool,error?:string}>
 	 */
@@ -76,6 +77,9 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 						'available' => true,
 					]
 					: Log_Sources::error_row( $name, "log dir {$name} is no stamp a stream can name; rename it" );
+			}
+			foreach ( Log_Discovery::unreadable()[ $group ] as $name ) {
+				$result[] = Log_Sources::error_row( $name, "log dir {$name} cannot be read; check its owner and mode" );
 			}
 		}
 		return $result;

@@ -326,13 +326,18 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	/**
 	 * The reader for a stamp, built on first sight when a pair claims it; null
 	 * when none does. A spoke names the stamps it sends, and a stamp names a
-	 * sibling slot and a directory here, so the one builder refuses four,
-	 * rate-limited: a stamp outside the stream name grammar, one naming a slot
-	 * the broker keeps, one no pair claims, and a glob's past `MAX_READERS`.
+	 * sibling slot and a directory here, so the one builder refuses five,
+	 * rate-limited: a broker reader's stamp, which takes no kind, a stamp
+	 * outside the stream name grammar, one naming a slot the broker keeps,
+	 * one no pair claims, and a glob's past `MAX_READERS`.
 	 *
 	 * @param string $stamp A record's stamp.
 	 */
 	protected function consumer_for( string $stamp ): ?Remote_Consumer_Node {
+		if ( Log_Discovery::is_reader_stamp( $stamp ) ) {
+			$this->print_less_often( 'refusing a broker reader\'s stamp, which names a dir and no kind' );
+			return null;
+		}
 		$built = $this->reader( $stamp );
 		if ( null !== $built ) {
 			return $built;
@@ -404,14 +409,21 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	/**
 	 * The kinds a glob pair claims, among the readers built here and the kind
 	 * dirs under the offsetlog root. A reader with no checkpoint yet has no
-	 * dir, so the readers count as well as the disk.
+	 * dir, so the readers count as well as the disk. A dir shaped as a reader
+	 * stamp folds to no stamp, so it is skipped, rate-limited, never thrown
+	 * on the drain path.
 	 *
 	 * @return array<string,true>
 	 */
 	private function claimed_glob_kinds(): array {
 		$stamps = \array_keys( $this->readers() );
 		foreach ( \glob( "{$this->offsetlog_root}/*", \GLOB_ONLYDIR ) ?: [] as $dir ) {
-			$stamps[] = Log_Discovery::stamp_of( \basename( $dir ) );
+			$kind = \basename( $dir );
+			if ( Log_Discovery::is_reader_stamp( $kind ) ) {
+				$this->print_less_often( 'skipping a dir under the offsetlog root no stamp folds to: ', $kind );
+				continue;
+			}
+			$stamps[] = Log_Discovery::stamp_of( $kind );
 		}
 		$kinds = [];
 		foreach ( $stamps as $stamp ) {
@@ -823,9 +835,14 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 * @param string $target The target half.
 	 * @param string $token  The token the halves came from.
 	 * @return array{source:string,target:string}
-	 * @throws \InvalidArgumentException When either half is empty, or the source is no subscription.
+	 * @throws \InvalidArgumentException When the token is a broker reader's stamp, either half is empty, or the source is no subscription.
 	 */
 	private static function checked_pair( string $source, string $target, string $token ): array {
+		// Cut at its first colon, a reader stamp would read as its bare group.
+		if ( Log_Discovery::is_reader_stamp( $token ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+			throw new \InvalidArgumentException( self::refusal_prefix() . "a pair's source is no broker reader's stamp, which names a dir and no stream: '{$token}'" );
+		}
 		if ( '' === $source || '' === $target ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
 			throw new \InvalidArgumentException( self::refusal_prefix() . "a pair is <source>:<target>, got '{$token}'" );

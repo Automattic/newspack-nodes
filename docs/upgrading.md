@@ -6,6 +6,17 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **A broker reader's sidecars report a new SOURCE.** The cursor and dead
+  letters of a broker's reader, under `<offsetlog_root>/<kind>` and
+  `<deadletter_root>/<kind>`, report `offsets:<root>:<kind>` and
+  `deadletter:<root>:<kind>` as their probe SOURCE, the stamp the Log Viewer
+  opens them by, where they reported the path `offsets/<root>/<kind>`. A
+  reader of `topicprobe.p0` matching a Partition record's SOURCE against that
+  path matches the stamp instead; `wp nodes status` and Graphite key by
+  READER and are unchanged. A `RemoteLink` pair opening
+  with such a stamp is refused at `addPairs()`; it never opened a stream, so
+  delete the pair.
+
 - **Raise Event Logger Nodes' and Intelligence's `version_at_least()` floors
   to the substrate release that ships `dump_metadata -o`.** Both inline
   `@newspack-nodes/debug-overlay`, whose topology console polls an owner's

@@ -9,6 +9,7 @@ import {
 	anyCarries,
 	isGlob,
 	kindOf,
+	readerParts,
 	remoteOf,
 	splitPair,
 	splitStamp,
@@ -152,5 +153,35 @@ describe( 'kindOf parity with Log_Discovery::kind_of()', () => {
 
 	it.each( cases )( '%s', ( _label, stamp, kind ) => {
 		expect( kindOf( stamp ) ).toBe( kind );
+	} );
+} );
+
+describe( 'readerParts parity with Log_Discovery::reader_parts()', () => {
+	const cases = JSON.parse(
+		readFileSync(
+			join( __dirname, '../../../tests/fixtures/reader-stamps.json' ),
+			'utf8'
+		)
+	);
+	const readers = cases.filter( ( [ , , parts ] ) => null !== parts );
+
+	it.each( cases )( '%s', ( _label, candidate, parts ) => {
+		expect( readerParts( candidate ) ).toEqual( parts );
+	} );
+
+	it.each( readers )(
+		'%s reads whole off a FROM trail',
+		( _label, stamp ) => {
+			expect( splitStamp( `${ stamp }/hub-7.p0/x` ) ).toEqual( {
+				dir: stamp,
+				rest: [ 'hub-7.p0', 'x' ],
+			} );
+		}
+	);
+
+	it.each( readers )( '%s has no kind', ( _label, stamp ) => {
+		expect( () => kindOf( stamp ) ).toThrow(
+			`a broker reader's stamp names a dir, not a kind: ${ stamp }`
+		);
 	} );
 } );

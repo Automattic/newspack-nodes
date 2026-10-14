@@ -6,8 +6,9 @@
  * `Log_Discovery::stamp_for()` writes a `logs` dir bare and an `offsets` or
  * `deadletter` dir as `{group}/{dir}`, a registry source is `sources/{name}`,
  * and a log dir named like any of those prefixes is refused, so a stamp
- * opening with one always takes a second segment. It also reads the broker
- * grammar beside the stamp: a `<stamp>:<target>` pair (`splitPair()`).
+ * opening with one always takes a second segment. A broker reader's dir is
+ * one segment, `{group}:{root}:{kind}` (`readerParts()`). It also reads the
+ * broker grammar beside the stamp: a `<stamp>:<target>` pair (`splitPair()`).
  */
 
 /** `Log_Discovery::SOURCES_PREFIX`: a registry source's stamp is `sources/<name>`. */
@@ -16,13 +17,11 @@ const SOURCES_PREFIX = 'sources';
 /** `Log_Discovery::REMOTE_PREFIX`: a spoke's log is `remote/<vault_id>:<kind>`. */
 const REMOTE_PREFIX = 'remote';
 
+/** `Log_Discovery::READER_GROUPS`, the roots a broker nests its readers under. */
+const READER_GROUPS = new Set( [ 'offsets', 'deadletter' ] );
+
 /** `Log_Discovery::STAMP_PREFIXES`, the names no bare stamp may be. */
-const STAMP_PREFIXES = new Set( [
-	'logs',
-	'offsets',
-	'deadletter',
-	SOURCES_PREFIX,
-] );
+const STAMP_PREFIXES = new Set( [ 'logs', ...READER_GROUPS, SOURCES_PREFIX ] );
 
 /**
  * Split a FROM into the reader stamp and the segments after it.
@@ -41,6 +40,33 @@ export function splitStamp( from ) {
 }
 
 /**
+ * A broker reader's stamp cut at its first two colons, the twin of PHP
+ * `Log_Discovery::reader_parts()`, held to it by
+ * `tests/fixtures/reader-stamps.json`: its group, root and kind when the group
+ * is one of `READER_GROUPS` and the root holds no `/`, else null for any other
+ * string. It judges no name. No kind folds out of a reader stamp, no glob
+ * carries one, and a pair refuses one as its source.
+ *
+ * @param {string} candidate A stamp, a kind or a pair token.
+ * @return {?Array<string>} The group, the root and the kind.
+ */
+export function readerParts( candidate ) {
+	const first = candidate.indexOf( ':' );
+	const second = candidate.indexOf( ':', first + 1 );
+	if ( -1 === first || -1 === second ) {
+		return null;
+	}
+	const parts = [
+		candidate.slice( 0, first ),
+		candidate.slice( first + 1, second ),
+		candidate.slice( second + 1 ),
+	];
+	return READER_GROUPS.has( parts[ 0 ] ) && ! parts[ 1 ].includes( '/' )
+		? parts
+		: null;
+}
+
+/**
  * Whether a subscription is a glob, a `*` anywhere in it, as PHP
  * `Log_Discovery::is_glob()` reads it.
  *
@@ -56,7 +82,8 @@ const GLOBS = new Map();
 
 /**
  * Whether a subscription brings records stamped `stamp`: its own name
- * exactly, or a glob whose `*` matches within one path segment. Every other
+ * exactly, or a glob whose `*` matches within one path segment, never a
+ * broker reader's stamp, which is one segment no glob names. Every other
  * character is literal, as in PHP `Log_Discovery::carries()`, which
  * `tests/fixtures/subscription-carries.json` holds it to.
  *
@@ -67,6 +94,9 @@ const GLOBS = new Map();
 function carries( sub, stamp ) {
 	if ( ! isGlob( sub ) ) {
 		return sub === stamp;
+	}
+	if ( readerParts( stamp ) ) {
+		return false;
 	}
 	let glob = GLOBS.get( sub );
 	if ( ! glob ) {
@@ -117,12 +147,19 @@ export function remoteOf( name ) {
  * The kind a stamp's reader takes, the twin of PHP `Log_Discovery::kind_of()`,
  * held to it by `tests/fixtures/log-kinds.json`: the stamp with each `/`
  * spelled `:`, because the Router splits a TO on `/`. A link names the Tee it
- * builds for a stamp `<link>:<kind>`.
+ * builds for a stamp `<link>:<kind>`. A broker reader's stamp names a dir no
+ * stream carries, and its kind would fold back into three dirs, so it throws.
  *
  * @param {string} stamp A record's stamp.
  * @return {string} The kind.
+ * @throws {Error} On a broker reader's stamp.
  */
 export function kindOf( stamp ) {
+	if ( readerParts( stamp ) ) {
+		throw new Error(
+			`a broker reader's stamp names a dir, not a kind: ${ stamp }`
+		);
+	}
 	return stamp.replaceAll( '/', ':' );
 }
 

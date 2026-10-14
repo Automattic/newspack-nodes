@@ -747,6 +747,22 @@ describe( 'pairs — the routes one link carries', () => {
 		expect( delivered ).toEqual( {} );
 	} );
 
+	it( 'drops a broker reader’s stamp a glob would claim, saying so', async () => {
+		expectConsoleWarn(
+			"_stream: WARNING: a broker reader's stamp names a dir and no kind - TM_BYTESTREAM from: offsets:hub.tw0:firehose.p0/x"
+		);
+		const { link, delivered } = makeShared();
+		link.addPairs( [ 'o*:glob:stream' ] );
+		await flush();
+		expect( () =>
+			FakeEventSource.last.dispatch(
+				'msg',
+				record( 'offsets:hub.tw0:firehose.p0/x', '2:0:4' )
+			)
+		).not.toThrow();
+		expect( delivered ).toEqual( {} );
+	} );
+
 	it( 'drops a glob stamp whose Tee would take the SseIn’s slot', async () => {
 		expectConsoleWarn(
 			'_stream: WARNING: the stamp names the slot the SseIn holds - TM_BYTESTREAM from: sse-in'
@@ -1313,6 +1329,16 @@ describe( 'pairs — the routes one link carries', () => {
 		);
 		expect( () => link.addPairs( [ ':jobs:stream' ] ) ).toThrow(
 			"RemoteLink: a pair is <stamp>:<target>, got ':jobs:stream'"
+		);
+		expect( link.pairs ).toEqual( [] );
+	} );
+
+	it( 'refuses a broker reader’s stamp as a pair’s source', () => {
+		const { link } = makeShared();
+		expect( () =>
+			link.addPairs( [ 'offsets:hub.tw0:firehose.p0:jobs:stream' ] )
+		).toThrow(
+			"RemoteLink: a pair's source is no broker reader's stamp, which names a dir and no stream: 'offsets:hub.tw0:firehose.p0:jobs:stream'"
 		);
 		expect( link.pairs ).toEqual( [] );
 	} );
