@@ -2,14 +2,14 @@
 # This file is distributed under the GPL-2.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Newspack Nodes 2.108.0\n"
+"Project-Id-Version: Newspack Nodes 2.108.1\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/newspack-nodes\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-14T04:54:44+00:00\n"
+"POT-Creation-Date: 2026-10-14T05:40:14+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: newspack-nodes\n"
@@ -35,161 +35,161 @@ msgstr ""
 msgid "https://newspack.com/"
 msgstr ""
 
-#: includes/admin/class-admin.php:403
+#: includes/admin/class-admin.php:404
 msgid "Number of log partitions for parallel processing."
 msgstr ""
 
-#: includes/admin/class-admin.php:408
+#: includes/admin/class-admin.php:409
 msgid "Floor for the age rule: keep at least this many segments even when pruning old ones by max lifetime."
 msgstr ""
 
-#: includes/admin/class-admin.php:413
+#: includes/admin/class-admin.php:414
 msgid "Count-rule target: prune the oldest back to this many segments — but only ones older than min lifetime."
 msgstr ""
 
-#: includes/admin/class-admin.php:418
+#: includes/admin/class-admin.php:419
 msgid "True hard cap: prune the oldest UNCONDITIONALLY above this many segments (min lifetime does not protect them). 0 = automatic (twice num segments)."
 msgstr ""
 
-#: includes/admin/class-admin.php:423
+#: includes/admin/class-admin.php:424
 msgid "Maximum segment size in bytes."
 msgstr ""
 
-#: includes/admin/class-admin.php:428
+#: includes/admin/class-admin.php:429
 msgid "Floor for the count rule: keep segments younger than this many seconds even when over num segments. 0 = pure count-based."
 msgstr ""
 
-#: includes/admin/class-admin.php:433
+#: includes/admin/class-admin.php:434
 msgid "Age rule: prune segments older than this many seconds down to min segments. 0 = disabled (no age-based pruning)."
 msgstr ""
 
-#: includes/admin/class-admin.php:438
+#: includes/admin/class-admin.php:439
 msgid "Count-rule target: number of log segments to keep on remote servers (2-16)."
 msgstr ""
 
-#: includes/admin/class-admin.php:443
+#: includes/admin/class-admin.php:444
 msgid "Floor for the age rule: keep at least this many segments on remote servers even when pruning by lifetime."
 msgstr ""
 
-#: includes/admin/class-admin.php:448
+#: includes/admin/class-admin.php:449
 msgid "Age rule: prune remote segments older than this many seconds down to remote min segments. 0 = disabled."
 msgstr ""
 
-#: includes/admin/class-admin.php:453
+#: includes/admin/class-admin.php:454
 msgid "True hard cap on remote servers: prune the oldest UNCONDITIONALLY above this many segments. 0 = automatic (twice remote num segments)."
 msgstr ""
 
-#: includes/admin/class-admin.php:458
+#: includes/admin/class-admin.php:459
 msgid "Segment size on remote servers in bytes (1MB-4GB)."
 msgstr ""
 
-#: includes/admin/class-admin.php:463
+#: includes/admin/class-admin.php:464
 msgid "Minimum retention on remote servers in seconds. Spokes keep data at least this long for the aggregator to pull. 0 = disabled (pure count-based)."
 msgstr ""
 
-#: includes/admin/class-admin.php:468
+#: includes/admin/class-admin.php:469
 msgid "Warn when a consumer falls more than this many bytes behind its partition end. 0 = warn on any lag."
 msgstr ""
 
-#: includes/admin/class-admin.php:473
+#: includes/admin/class-admin.php:474
 msgid "Warn when more than this many dead-letter segments are quarantined. 0 = warn on the first."
 msgstr ""
 
-#: includes/admin/class-admin.php:478
+#: includes/admin/class-admin.php:479
 msgid "Minimum seconds between alert-action emission bursts (rate limit)."
 msgstr ""
 
-#: includes/admin/class-admin.php:778
+#: includes/admin/class-admin.php:779
 msgid "Base directory for logs, locks, and offsets."
 msgstr ""
 
 #. translators: %s: comma-separated default server list.
-#: includes/admin/class-admin.php:808
+#: includes/admin/class-admin.php:809
 #, php-format
 msgid "Memcache servers (one per line, format: host:port). Used for stats aggregation and SSE. Default: %s"
 msgstr ""
 
-#: includes/admin/class-admin.php:831
+#: includes/admin/class-admin.php:832
 msgid "Extra log sources for the Log Viewer (one per line, format: name=/absolute/path). Built-ins and active-topology logs are always included."
 msgstr ""
 
 #. translators: 1: segment size in MB, 2: hard-cap segment count, 3: number of on-disk log partitions
-#: includes/admin/class-admin.php:885
+#: includes/admin/class-admin.php:886
 #, php-format
 msgid "Calculated as: %1$s MB segment × %2$s hard-cap segments × %3$s log partitions"
 msgstr ""
 
 #. translators: 1: number of active fleet alerts, 2: worst severity (warning|critical).
-#: includes/admin/class-admin.php:976
+#: includes/admin/class-admin.php:977
 #, php-format
 msgid "Newspack Nodes: %1$d fleet alert(s), worst severity %2$s."
 msgstr ""
 
-#: includes/admin/class-admin.php:985
+#: includes/admin/class-admin.php:986
 msgid "View fleet health"
 msgstr ""
 
-#: includes/admin/class-admin.php:1002
+#: includes/admin/class-admin.php:1003
 msgid "Nodes Station"
 msgstr ""
 
-#: includes/admin/class-admin.php:1003
+#: includes/admin/class-admin.php:1004
 msgid "Nodes"
 msgstr ""
 
-#: includes/admin/class-admin.php:1033
-#: includes/admin/class-admin.php:1069
+#: includes/admin/class-admin.php:1034
+#: includes/admin/class-admin.php:1070
 msgid "You do not have permission to access this page."
 msgstr ""
 
-#: includes/admin/class-admin.php:1050
-#: includes/admin/class-admin.php:1076
+#: includes/admin/class-admin.php:1051
+#: includes/admin/class-admin.php:1077
 msgid "Nodes Runtime Settings"
 msgstr ""
 
-#: includes/admin/class-admin.php:1051
+#: includes/admin/class-admin.php:1052
 msgid "Nodes Runtime"
 msgstr ""
 
-#: includes/admin/class-admin.php:1081
+#: includes/admin/class-admin.php:1082
 msgid "Caches flushed; every live worker was asked to restart."
 msgstr ""
 
-#: includes/admin/class-admin.php:1091
+#: includes/admin/class-admin.php:1092
 msgid "Save Settings"
 msgstr ""
 
-#: includes/admin/class-admin.php:1094
+#: includes/admin/class-admin.php:1095
 msgid "Reset to Defaults"
 msgstr ""
 
-#: includes/admin/class-admin.php:1095
+#: includes/admin/class-admin.php:1096
 msgid "Are you sure you want to reset all substrate settings to defaults? This cannot be undone."
 msgstr ""
 
-#: includes/admin/class-admin.php:1100
+#: includes/admin/class-admin.php:1101
 msgid "Flush Caches"
 msgstr ""
 
-#: includes/admin/class-admin.php:1137
-#: includes/admin/class-admin.php:1171
+#: includes/admin/class-admin.php:1138
+#: includes/admin/class-admin.php:1172
 msgid "Security check failed."
 msgstr ""
 
-#: includes/admin/class-admin.php:1140
-#: includes/admin/class-admin.php:1174
+#: includes/admin/class-admin.php:1141
+#: includes/admin/class-admin.php:1175
 msgid "You do not have permission to perform this action."
 msgstr ""
 
-#: includes/admin/class-admin.php:1350
+#: includes/admin/class-admin.php:1351
 msgid "Configure log storage and memcache infrastructure. Changing storage layout (base directory, segment size, retention) restarts every worker."
 msgstr ""
 
-#: includes/admin/class-admin.php:1355
+#: includes/admin/class-admin.php:1356
 msgid "Storage geometry pushed to remote spokes (may differ from hub settings). Blank fields use the config-file default."
 msgstr ""
 
-#: includes/admin/class-admin.php:1359
+#: includes/admin/class-admin.php:1360
 msgid "Thresholds for the fleet-health alerts (Site Health, admin notice, alert action). Read live each fleet sweep; no worker restart. Blank fields use the config-file default."
 msgstr ""
 
@@ -387,7 +387,7 @@ msgid "Overview"
 msgstr ""
 
 #: src/debug-overlay/tabs/index.js:37
-#: src/topology-console/tabMeta.js:33
+#: src/topology-console/tabMeta.js:36
 #: src/topology-console/__tests__/tabs.test.js:22
 msgid "Console"
 msgstr ""
@@ -564,7 +564,7 @@ msgid "Updated %s"
 msgstr ""
 
 #: src/event-aggregator/AggregatorStatus.js:621
-#: src/station/lazyTabs.js:67
+#: src/station/lazyTabs.js:62
 #: src/topology-console/components/Inspector.js:2303
 #: src/topology-console/components/OpenTopologyModal.js:61
 #: src/topology-console/components/TriageView.js:322
@@ -1117,7 +1117,7 @@ msgid "Deactivate"
 msgstr ""
 
 #: src/event-dashboards/TopologyControls.js:58
-#: src/topology-console/TopologyConsole.js:2067
+#: src/topology-console/TopologyConsole.js:2021
 msgid "Activate"
 msgstr ""
 
@@ -1260,8 +1260,8 @@ msgstr ""
 #: src/topology-console/components/Modal.js:317
 #: src/topology-console/components/Modal.js:470
 #: src/topology-console/components/OpenTopologyModal.js:121
-#: src/topology-console/TopologyConsole.js:2017
-#: src/topology-console/TopologyConsole.js:2093
+#: src/topology-console/TopologyConsole.js:1971
+#: src/topology-console/TopologyConsole.js:2047
 #: src/vault/VaultAdmin.js:66
 #: src/vault/VaultAdmin.js:458
 msgid "Cancel"
@@ -2276,7 +2276,7 @@ msgid "Confirm"
 msgstr ""
 
 #: src/topology-console/components/Modal.js:316
-#: src/topology-console/TopologyConsole.js:2045
+#: src/topology-console/TopologyConsole.js:1999
 msgid "Save"
 msgstr ""
 
@@ -2702,72 +2702,72 @@ msgstr ""
 msgid "Sent; the send raised: %s"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:528
+#: src/topology-console/TopologyConsole.js:489
 msgid "Failed to load the PHP class catalog."
 msgstr ""
 
 #. translators: 1: source line, 2: the statement, 3: why it was refused.
-#: src/topology-console/TopologyConsole.js:626
+#: src/topology-console/TopologyConsole.js:587
 #, js-format
 msgid "line %1$d: %2$s — %3$s"
 msgstr ""
 
 #. translators: 1: topology name, 2: source (stock/user/both).
-#: src/topology-console/TopologyConsole.js:779
+#: src/topology-console/TopologyConsole.js:740
 #, js-format
 msgid "Loaded %1$s (%2$s)."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:790
+#: src/topology-console/TopologyConsole.js:751
 msgid "Failed to load topology."
 msgstr ""
 
 #. translators: %s: topology name.
-#: src/topology-console/TopologyConsole.js:831
+#: src/topology-console/TopologyConsole.js:792
 #, js-format
 msgid "Saved layout for %s."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1246
+#: src/topology-console/TopologyConsole.js:1200
 msgid "Leaving edit mode drops the draft topology. This cannot be undone."
 msgstr ""
 
 #. translators: %s: topology name.
-#: src/topology-console/TopologyConsole.js:1465
+#: src/topology-console/TopologyConsole.js:1419
 #, js-format
 msgid "Deleted user copy of %s; stock copy now active."
 msgstr ""
 
 #. translators: %s: topology name.
-#: src/topology-console/TopologyConsole.js:1473
+#: src/topology-console/TopologyConsole.js:1427
 #, js-format
 msgid "Deleted %s."
 msgstr ""
 
 #. translators: %s: topology name being opened.
-#: src/topology-console/TopologyConsole.js:1582
+#: src/topology-console/TopologyConsole.js:1536
 #, js-format
 msgid "Opening %s replaces the draft topology. This cannot be undone."
 msgstr ""
 
 #. translators: %s: uploaded file name.
-#: src/topology-console/TopologyConsole.js:1681
+#: src/topology-console/TopologyConsole.js:1635
 #, js-format
 msgid "Loaded %s into the editor."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1699
+#: src/topology-console/TopologyConsole.js:1653
 msgid "Upload failed"
 msgstr ""
 
 #. translators: %d: line number in the topology source.
-#: src/topology-console/TopologyConsole.js:1719
+#: src/topology-console/TopologyConsole.js:1673
 #, js-format
 msgid "(line %d)"
 msgstr ""
 
 #. translators: %d: number of restarted fleets.
-#: src/topology-console/TopologyConsole.js:1729
+#: src/topology-console/TopologyConsole.js:1683
 #, js-format
 msgid "Restarted %d fleet."
 msgid_plural "Restarted %d fleets."
@@ -2775,78 +2775,78 @@ msgstr[0] ""
 msgstr[1] ""
 
 #. translators: 1: topology name, 2: "Restarted N fleet(s)." phrase.
-#: src/topology-console/TopologyConsole.js:1741
+#: src/topology-console/TopologyConsole.js:1695
 #, js-format
 msgid "Saved %1$s. %2$s"
 msgstr ""
 
 #. translators: %s: topology name.
-#: src/topology-console/TopologyConsole.js:1797
+#: src/topology-console/TopologyConsole.js:1751
 #, js-format
 msgid "Activated %s."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1981
+#: src/topology-console/TopologyConsole.js:1935
 msgid "Discard unsaved changes?"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1986
+#: src/topology-console/TopologyConsole.js:1940
 msgid "Discard"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:1990
+#: src/topology-console/TopologyConsole.js:1944
 msgid "Keep editing"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2001
+#: src/topology-console/TopologyConsole.js:1955
 msgid "Delete topology?"
 msgstr ""
 
 #. translators: %s: topology name.
-#: src/topology-console/TopologyConsole.js:2007
+#: src/topology-console/TopologyConsole.js:1961
 #, js-format
 msgid "Delete user-saved topology \"%s\"? This cannot be undone."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2013
+#: src/topology-console/TopologyConsole.js:1967
 msgid "Delete"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2028
+#: src/topology-console/TopologyConsole.js:1982
 msgid "Save topology"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2032
+#: src/topology-console/TopologyConsole.js:1986
 msgid "Choose a name. Letters, numbers, dash, underscore."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2036
+#: src/topology-console/TopologyConsole.js:1990
 msgid "my-topology"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2055
+#: src/topology-console/TopologyConsole.js:2009
 msgid "Activate now?"
 msgstr ""
 
 #. translators: %s: topology name.
-#: src/topology-console/TopologyConsole.js:2061
+#: src/topology-console/TopologyConsole.js:2015
 #, js-format
 msgid "Topology \"%s\" was saved but is not running. Activate it now to spawn its workers?"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2071
+#: src/topology-console/TopologyConsole.js:2025
 msgid "Not now"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2081
+#: src/topology-console/TopologyConsole.js:2035
 msgid "Reset to saved layout?"
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2085
+#: src/topology-console/TopologyConsole.js:2039
 msgid "This replaces your current customizations with the last saved layout (or auto-layout if none). You'll need to Save Layout to make changes permanent."
 msgstr ""
 
-#: src/topology-console/TopologyConsole.js:2089
+#: src/topology-console/TopologyConsole.js:2043
 msgid "Reset"
 msgstr ""
 

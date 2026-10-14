@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.108.1] - 2026-10-13
+
 ### Fixed
 
 - **A Console deep link survives a station tab opened in the background.** Each enqueued bundle prints its localize as a fresh `var NewspackNodesData = {…}` in the footer, and in a background tab the station can mount and inject the lazy Console bundle before a later one, such as event-logger-nodes' Request tab, runs. That replaced the object holding the Console's merged payload, so `?topology=performance` fell back to no topology, the path read `/undefined.p0` and the link left the URL. A lazy tab now reads its own payload from its `NewspackNodesLazyTabs` recipe through the station's `tabData( handle )`, at mount rather than when the bundle evaluates, and `loadTabBundle()` no longer copies it onto `NewspackNodesData`. Each recipe's `data` carries only the tab's own keys, so `restUrl` and `nonce` live on `NewspackNodesData` alone, and each lazy tab's `tabMeta.js` names its enqueue `handle`, where `lazyTabs.js` paired them by hand. `topologyFromParam()` takes the catalog, `( t, partitions, active )`, in place of a fallback name.
