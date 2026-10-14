@@ -18,4 +18,5 @@ export default {
 	host: 'station',
 	slug: 'aggregator',
 	order: 40,
+	handle: 'newspack-nodes-aggregator-tab',
 };

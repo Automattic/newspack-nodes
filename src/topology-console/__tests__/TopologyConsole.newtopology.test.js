@@ -2,10 +2,9 @@
  * The Topologies-tab deep-links: `?topology=X&edit=1` opens topology X in the
  * editor; `?new=1` opens a blank New draft (handleNew). New uses a DISTINCT
  * signal — not `?edit=1` sans topology — because the console's topology→URL sync
- * writes the default `?topology=TOPOLOGIES[0]` on mount, which would make a
- * topology-absent edit link look like editing that default. `?new=1` is
- * sync-proof. (TOPOLOGIES itself is frozen empty in jest — module `import`s hoist
- * above the NewspackNodesData seed below — but `?new=1` doesn't depend on it.)
+ * writes the catalog's first topology as `?topology=` on mount, which would
+ * make a topology-absent edit link look like editing that default. `?new=1` is
+ * sync-proof.
  */
 
 import { render, act } from '@testing-library/react';

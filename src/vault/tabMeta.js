@@ -31,4 +31,5 @@ export default {
 	host: 'station',
 	slug: 'vault',
 	order: 30,
+	handle: 'newspack-nodes-vault',
 };

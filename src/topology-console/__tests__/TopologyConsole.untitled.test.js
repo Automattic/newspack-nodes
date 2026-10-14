@@ -1,17 +1,16 @@
 /**
  * F2 regression: a brand-new install with NO topologies (empty
- * topologyWorkers, so the module-level TOPOLOGIES list is empty and the
- * initial `topology` is empty). Entering edit mode builds a blank/untitled
- * draft whose effectiveTopologyName is '' — the server-layout fetch
- * short-circuits, so the canvas must still render (layoutReady must NOT wait
- * for a fetch that never happens). This lives in its own file because
- * TOPOLOGIES is computed once at module load; the main suite loads with a
- * `demo` topology and can't exercise the empty-install path.
+ * topologyWorkers, so the catalog is empty and the initial `topology` is
+ * empty). Entering edit mode builds a blank/untitled draft whose
+ * effectiveTopologyName is '' — the server-layout fetch short-circuits, so the
+ * canvas must still render (layoutReady must NOT wait for a fetch that never
+ * happens). It lives in its own file because the main suite seeds a `demo`
+ * topology for every test.
  */
 
 import { render, fireEvent, act } from '@testing-library/react';
 
-// Empty install: no topologies → module-level TOPOLOGIES === [] → topology ''.
+// Empty install: no topologies → empty catalog → topology ''.
 window.NewspackNodesData = {
 	restUrl: '/wp-json/',
 	nonce: 'NONCE',

@@ -47,6 +47,8 @@ import { useLayout } from './hooks/useLayout';
 import { useSaveTopology } from './hooks/useSaveTopology';
 import { useDeleteTopology } from './hooks/useDeleteTopology';
 import { useTopologyCatalog } from './hooks/useTopologyCatalog';
+import { tabData } from '../station/loadTabBundle';
+import consoleMeta from './tabMeta';
 import { useConsoleGraph } from './hooks/useConsoleGraph';
 import { useCanonicalNodes, driftNodeIds } from './hooks/useCanonicalNodes';
 import { useGraphSource } from './hooks/useGraphSource';
@@ -150,49 +152,16 @@ function buildPathOptions( partitions, active ) {
 }
 
 /**
- * The keys `Admin::register_topology_console_tab_bundle()` localizes for this
- * tab. Every one is absent on a page that enqueued the bundle without them, so
- * each read below carries its own default.
+ * The settings-panel defaults `Admin::register_topology_console_tab_bundle()`
+ * localizes for this tab. Each is absent on a page that enqueued the bundle
+ * without them, so each read carries its own default. The topology counts and
+ * active set it also localizes reach the console through `useTopologyCatalog`.
  *
  * @typedef {Object} ConsoleLocalizedData
- * @property {Object<string,number>} [topologyWorkers]     Partition count per registered topology.
- * @property {string[]}              [activeTopologies]    Topologies the fleet spawns.
- * @property {number}                [configNumPartitions] Partition count a topology inherits when it declares none.
- * @property {number}                [configStaleTimeout]  Seconds the substrate falls back to when a topology declares no `stale_timeout`.
- * @property {number}                [configOnDemandIdle]  Idle window a topology inherits when it declares none; 0 keeps its workers resident.
+ * @property {number} [configNumPartitions] Partition count a topology inherits when it declares none.
+ * @property {number} [configStaleTimeout]  Seconds the substrate falls back to when a topology declares no `stale_timeout`.
+ * @property {number} [configOnDemandIdle]  Idle window a topology inherits when it declares none; 0 keeps its workers resident.
  */
-
-/**
- * `window` carrying the localize payload PHP writes before this bundle runs.
- *
- * @typedef {Window & {
- *     NewspackNodesData?: ConsoleLocalizedData,
- * }} ConsoleWindow
- */
-
-/** @type {ConsoleWindow} */
-const CONSOLE_WINDOW = window;
-
-/**
- * Partition counts as they stood when this bundle evaluated. They seed the
- * initial topology pick only: the Path menu reads `useTopologyCatalog`, which
- * refetches, so a topology activated after page load still shows up there.
- */
-const SEED_WORKERS =
-	( CONSOLE_WINDOW.NewspackNodesData &&
-		CONSOLE_WINDOW.NewspackNodesData.topologyWorkers ) ||
-	{};
-
-/**
- * Topology names in menu order, from that same snapshot. The first is what the
- * console opens on when the URL names no topology.
- */
-const TOPOLOGIES = sortTopologies(
-	SEED_WORKERS,
-	( CONSOLE_WINDOW.NewspackNodesData &&
-		CONSOLE_WINDOW.NewspackNodesData.activeTopologies ) ||
-		[]
-);
 
 /** @typedef {import('@newspack-nodes/shared/utils/workerId').AttachedWorker} AttachedWorker */
 
@@ -314,26 +283,19 @@ export function replCeilingFromAppHeight( appHeight ) {
 
 /**
  * Topology the page opens on, honoring a `?topology=` deep link. An unknown
- * name falls back rather than stranding the console on a topology this install
- * has never registered.
+ * name opens the catalog's first topology in menu order rather than stranding
+ * the console on one this install has never registered.
  *
- * @param {?string} t        The `?topology=` value, or null when absent.
- * @param {string}  fallback Topology to open when the link names none or names an unknown one.
- * @return {string} The topology to open.
+ * @param {?string}               t          The `?topology=` value, or null when absent.
+ * @param {Object<string,number>} partitions Partition count per known topology.
+ * @param {string[]}              active     Topologies the fleet spawns.
+ * @return {string|undefined} The topology to open; undefined when none is known.
  */
-export function topologyFromParam( t, fallback ) {
-	if ( ! t ) {
-		return fallback;
+export function topologyFromParam( t, partitions, active ) {
+	if ( t && Object.prototype.hasOwnProperty.call( partitions, t ) ) {
+		return t;
 	}
-	// Known to either snapshot: this bundle's copy, or the payload now.
-	const live =
-		( CONSOLE_WINDOW.NewspackNodesData &&
-			CONSOLE_WINDOW.NewspackNodesData.topologyWorkers ) ||
-		{};
-	const known =
-		Object.prototype.hasOwnProperty.call( SEED_WORKERS, t ) ||
-		Object.prototype.hasOwnProperty.call( live, t );
-	return known ? t : fallback;
+	return sortTopologies( partitions, active )[ 0 ];
 }
 
 /**
@@ -377,9 +339,16 @@ function paletteKeyFor( mode ) {
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function TopologyConsole( { headerControlsSlot } ) {
+	// Live topology catalog (counts + active set) from topologies.dump.
+	const {
+		partitions: topologyWorkers,
+		active: activeTopologies,
+		entries: topologyEntries,
+		reload: reloadCatalog,
+	} = useTopologyCatalog();
 	const [ topology, setTopology ] = useQueryParamState(
 		'topology',
-		( raw ) => topologyFromParam( raw, TOPOLOGIES[ 0 ] ),
+		( raw ) => topologyFromParam( raw, topologyWorkers, activeTopologies ),
 		( name ) => name || null
 	);
 	// p0 is every topology's, so the bar leaves it out.
@@ -483,14 +452,6 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 
 	// Shell cwd mirrored into React; shell.path is the source of truth.
 	const [ cwd, setCwd ] = useState( '' );
-
-	// Live topology catalog (counts + active set) from topologies.dump.
-	const {
-		partitions: topologyWorkers,
-		active: activeTopologies,
-		entries: topologyEntries,
-		reload: reloadCatalog,
-	} = useTopologyCatalog();
 
 	// Every cwd the Path menu can select; recomputed from the live catalog.
 	const pathOptions = useMemo(
@@ -1056,18 +1017,11 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		[ topologyWorkers, topology ]
 	);
 
-	const configDefaultPartitions =
-		( CONSOLE_WINDOW.NewspackNodesData &&
-			CONSOLE_WINDOW.NewspackNodesData.configNumPartitions ) ||
-		1;
-	const configStaleTimeout =
-		( CONSOLE_WINDOW.NewspackNodesData &&
-			CONSOLE_WINDOW.NewspackNodesData.configStaleTimeout ) ||
-		60;
-	const configOnDemandIdle =
-		( CONSOLE_WINDOW.NewspackNodesData &&
-			CONSOLE_WINDOW.NewspackNodesData.configOnDemandIdle ) ||
-		0;
+	/** @type {ConsoleLocalizedData} */
+	const payload = useMemo( () => tabData( consoleMeta.handle ), [] );
+	const configDefaultPartitions = payload.configNumPartitions || 1;
+	const configStaleTimeout = payload.configStaleTimeout || 60;
+	const configOnDemandIdle = payload.configOnDemandIdle || 0;
 
 	// Path selection (Path menu + REPL cd): set cwd, mount the deepest worker.
 	const handlePathChange = useCallback(
