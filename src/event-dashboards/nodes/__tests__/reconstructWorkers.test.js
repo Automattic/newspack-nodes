@@ -1053,25 +1053,25 @@ describe( 'reconstructWorkers — a broker hangs its readers under its own node'
 		consumers: [
 			probeRow(
 				'hub-7731.firehose:okapi-3:firehose.p2.p2',
-				'remote/okapi-3:firehose.p2',
+				'remote:okapi-3:firehose.p2',
 				14,
 				9021
 			),
 			probeRow(
 				'hub-7731.firehose:okapi-3:sources:php.p2',
-				'remote/okapi-3:sources:php',
+				'remote:okapi-3:sources:php',
 				null,
 				40913
 			),
 			probeRow(
 				'hub-7731.firehose:tapir-8:firehose.p2.p2',
-				'remote/tapir-8:firehose.p2',
+				'remote:tapir-8:firehose.p2',
 				6,
 				118
 			),
 			probeRow(
 				'zorp-55.firehose:okapi-3:firehose.p2.p2',
-				'remote/okapi-3:firehose.p2',
+				'remote:okapi-3:firehose.p2',
 				9,
 				77
 			),
@@ -1092,11 +1092,11 @@ describe( 'reconstructWorkers — a broker hangs its readers under its own node'
 				] );
 
 		expect( readsOf( 'firehose:okapi-3' ) ).toEqual( [
-			[ 'remote/okapi-3:firehose.p2', 14, 9021 ],
-			[ 'remote/okapi-3:sources:php', null, 40913 ],
+			[ 'remote:okapi-3:firehose.p2', 14, 9021 ],
+			[ 'remote:okapi-3:sources:php', null, 40913 ],
 		] );
 		expect( readsOf( 'firehose:tapir-8' ) ).toEqual( [
-			[ 'remote/tapir-8:firehose.p2', 6, 118 ],
+			[ 'remote:tapir-8:firehose.p2', 6, 118 ],
 		] );
 	} );
 
@@ -1119,9 +1119,9 @@ describe( 'reconstructWorkers — a broker hangs its readers under its own node'
 			'firehose:tapir-8',
 		] );
 		expect( brokers.workers.map( ( w ) => w.source ) ).toEqual( [
-			'remote/okapi-3:firehose.p2',
-			'remote/okapi-3:sources:php',
-			'remote/tapir-8:firehose.p2',
+			'remote:okapi-3:firehose.p2',
+			'remote:okapi-3:sources:php',
+			'remote:tapir-8:firehose.p2',
 		] );
 	} );
 } );
@@ -1136,18 +1136,8 @@ describe( 'brokerReaderId parity with Remote_Broker_Node::reader_id()', () => {
 
 	it.each( cases )(
 		'%s',
-		(
-			_label,
-			_vault,
-			_stamp,
-			_name,
-			kind,
-			topology,
-			broker,
-			partition,
-			id
-		) => {
-			expect( brokerReaderId( topology, broker, kind, partition ) ).toBe(
+		( _label, _vault, stamp, _name, topology, broker, partition, id ) => {
+			expect( brokerReaderId( topology, broker, stamp, partition ) ).toBe(
 				id
 			);
 		}

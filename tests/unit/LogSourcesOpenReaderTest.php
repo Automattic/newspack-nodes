@@ -51,7 +51,7 @@ final class LogSourcesOpenReaderTest extends TestCase {
 	public function test_a_grouped_stamp_opens_its_own_root(): void {
 		\mkdir( "{$this->tmp}/offsets/hub.kea-7713.p3", 0755, true );
 
-		$reader = Log_Sources::open_reader( 'offsets/hub.kea-7713.p3' );
+		$reader = Log_Sources::open_reader( 'offsets:hub.kea-7713.p3' );
 
 		$this->assertSame( "{$this->tmp}/offsets/hub.kea-7713.p3", $this->read_private( $reader, 'source_dir' ) );
 		$reader->remove_node();
@@ -62,11 +62,11 @@ final class LogSourcesOpenReaderTest extends TestCase {
 		\file_put_contents( $path, "PHP Warning: 977\n" );
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
 
-		$reader = Log_Sources::open_reader( 'sources/php' );
+		$reader = Log_Sources::open_reader( 'sources:php' );
 
 		$this->assertInstanceOf( File_Tail_Node::class, $reader );
 		$this->assertSame( $path, $this->read_private( $reader, 'source_file' ) );
-		$this->assertSame( 'sources/php', $reader->stamped_as() );
+		$this->assertSame( 'sources:php', $reader->stamped_as() );
 		$reader->remove_node();
 	}
 
@@ -118,7 +118,7 @@ final class LogSourcesOpenReaderTest extends TestCase {
 				'segments'   => [ [ 'id' => 4, 'size' => 613 ], [ 'id' => 9, 'size' => 71 ] ],
 				'total_size' => 684,
 			],
-			Log_Sources::footprint( 'deadletter/jobs-6143.p2' )
+			Log_Sources::footprint( 'deadletter:jobs-6143.p2' )
 		);
 	}
 
@@ -208,7 +208,7 @@ final class LogSourcesOpenReaderTest extends TestCase {
 		$this->expectException( \InvalidArgumentException::class );
 		$this->expectExceptionMessage( 'read_message: invalid position (want <segment>:<offset>[:<length>], :<offset> on a file source, start, recent or end)' );
 
-		Log_Sources::read( 'sources/php', '7:x' );
+		Log_Sources::read( 'sources:php', '7:x' );
 	}
 
 	/** A built-in the host leaves unconfigured says what it needs, from the registry's own data. */
@@ -228,6 +228,6 @@ final class LogSourcesOpenReaderTest extends TestCase {
 		$this->expectException( \InvalidArgumentException::class );
 		$this->expectExceptionMessage( 'unknown log source: "nope-1189" (known: gyro' );
 
-		Log_Sources::open_reader( 'sources/nope-1189' );
+		Log_Sources::open_reader( 'sources:nope-1189' );
 	}
 }

@@ -155,11 +155,11 @@ it( 'sums the known backlog with no unknown-lag caption', () => {
 		consumers: {
 			r1: { source: 'jobs.p0', latest: { ts: NOW - 4, backlog: 40960 } },
 			h1: {
-				source: 'remote/okapi-3:firehose.p2',
+				source: 'remote:okapi-3:firehose.p2',
 				latest: { ts: NOW - 4, backlog: null },
 			},
 			h2: {
-				source: 'remote/tapir-8:firehose.p2',
+				source: 'remote:tapir-8:firehose.p2',
 				latest: { ts: NOW - 2, backlog: null },
 			},
 		},

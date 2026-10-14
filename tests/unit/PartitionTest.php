@@ -2426,31 +2426,57 @@ class PartitionTest extends TestCase {
 		);
 	}
 
+	/** A dir holding a colon has no stamp, so its records name its path and nothing throws. */
+	public function test_declaring_a_dir_holding_a_colon_names_its_path(): void {
+		$this->use_base_dir( $this->tmp );
+
+		$partition = new Partition_Node();
+		$partition->arguments( [ "{$this->tmp}/logs/offsets:kea-31.p2" ] );
+		$log = new \Newspack_Nodes\Log_Node();
+		$log->arguments( [ "{$this->tmp}/logs/sources:digest" ] );
+
+		$this->assertSame( 'logs/offsets:kea-31.p2', $this->read_private( $partition, 'probe_source' ) );
+		$this->assertSame( 'logs/sources:digest', ( new \ReflectionProperty( Partition_Node::class, 'probe_source' ) )->getValue( $log ) );
+	}
+
 	/**
-	 * A `logs` dir named like a group has no stamp that reads back as itself,
-	 * so the declaration is refused by name, before any sweep reaches it.
+	 * A broker reader's cursor sits at `<root>/<stamp>`, so its write
+	 * quarantine's dotted dir holds the stamp's `:`; a failed write still
+	 * quarantines there.
 	 */
-	public function test_declaring_a_logs_dir_named_like_a_group_is_refused(): void {
+	public function test_a_broker_readers_offsetlog_quarantines_a_failed_write(): void {
+		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
+			$this->markTestSkipped( 'permission checks are moot as root' );
+		}
 		$this->use_base_dir( $this->tmp );
+		$dir = "{$this->tmp}/offsets/aggregator.tw7/sources:php";
+		$p   = new Partition_Node();
+		$p->name( 'spokes:tw7:sources:php:offsetlog' );
+		$p->arguments( [ $dir, '1048576', '2', '4', '0', '0', '0' ] );
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$m[ Message::VALUE ] = 'cursor-6631';
+		$p->fill( $m );
+		\mkdir( $dir, 0755, true );
+		\chmod( $dir, 0555 );
+		Core::set_stderr_handler( static function () { /* swallow */ } );
+		try {
+			$e = $this->thrown_by( static fn () => $p->flush() );
+		} finally {
+			\chmod( $dir, 0755 );
+		}
 
-		$this->expectException( \InvalidArgumentException::class );
-		$this->expectExceptionMessage( 'log dir offsets is named like a group; rename it' );
-		( new Partition_Node() )->arguments( [ "{$this->tmp}/logs/offsets" ] );
+		$this->assertInstanceOf( \RuntimeException::class, $e );
+		$this->assertStringContainsString( 'cursor-6631', (string) \file_get_contents( "{$this->tmp}/deadletter/offsets.aggregator.tw7.sources:php/0.log" ) );
 	}
 
-	/** A Log file directly under `logs/` is refused by the same rule. */
-	public function test_declaring_a_log_file_named_like_a_group_is_refused(): void {
+	/** A group's name is an ordinary log name, under any root. */
+	public function test_group_names_are_accepted_as_log_names(): void {
 		$this->use_base_dir( $this->tmp );
 
-		$this->expectException( \InvalidArgumentException::class );
-		$this->expectExceptionMessage( 'log dir deadletter is named like a group; rename it' );
-		( new \Newspack_Nodes\Log_Node() )->arguments( [ "{$this->tmp}/logs/deadletter" ] );
-	}
-
-	/** Only a first-level `logs` dir is refused; the same name elsewhere is fine. */
-	public function test_group_names_are_accepted_outside_the_logs_root(): void {
-		$this->use_base_dir( $this->tmp );
-
+		$logged = new Partition_Node();
+		$logged->arguments( [ "{$this->tmp}/logs/deadletter" ] );
+		$this->assertSame( 'deadletter', $this->read_private( $logged, 'probe_source' ) );
 		$grouped = new Partition_Node();
 		$grouped->arguments( [ "{$this->tmp}/offsets/offsets" ] );
 		$plain = new Partition_Node();

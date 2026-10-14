@@ -244,7 +244,7 @@ class TailTest extends TestCase {
 
 		$this->assertStringNotContainsString( '{source_file}.0', $description, 'a single file, not a segmented base' );
 		$this->assertStringContainsString( 'absolute', $description );
-		$this->assertStringContainsString( 'sources/<name>', $description );
+		$this->assertStringContainsString( 'sources:<name>', $description );
 		$this->assertStringContainsString( '{partition}', $description );
 		$this->assertSame( 'bound', $specs['source_file']['partition'] );
 	}

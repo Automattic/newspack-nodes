@@ -600,7 +600,10 @@ describe( 'mountExospine( build ) — shell group Taps, derived from targets', (
 		( { interpreter } ) =>
 			paths.forEach( ( path, i ) =>
 				interpreter
-					.makeNode( 'Node', `sender-${ i }-${ path }` )
+					.makeNode(
+						'Node',
+						`sender-${ i }-${ path.replaceAll( '/', '~' ) }`
+					)
 					.connectNode( path )
 			);
 
@@ -831,7 +834,7 @@ describe( 'the shared stream link', () => {
 
 	test( 'teardown of the owner removes the link and closes its stream', async () => {
 		const spine = mountExospine( () => {} );
-		spine.stream.addPairs( [ 'wren.p6:plover:stream' ] );
+		spine.stream.addPairs( [ 'wren.p6=plover:stream' ] );
 		await Promise.resolve();
 		expect( ClosableEventSource.instances ).toHaveLength( 1 );
 		spine.teardown();

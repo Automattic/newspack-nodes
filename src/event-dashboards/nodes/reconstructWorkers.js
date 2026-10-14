@@ -49,28 +49,28 @@ const readerIsHandler = ( reader, name ) =>
 
 /**
  * The id a broker's reader reports under on the probe log: its name,
- * `<broker>:<kind>`, scoped by the topology and spelled as a worker id at the
+ * `<broker>:<stamp>`, scoped by the topology and spelled as a worker id at the
  * partition. The twin of PHP `Remote_Broker_Node::reader_id()`, held to it by
  * `tests/fixtures/log-remotes.json`.
  *
  * @param {string} topology  The topology the broker sits in.
  * @param {string} broker    The broker's node name.
- * @param {string} kind      The reader's kind.
+ * @param {string} stamp     The reader's stamp.
  * @param {number} partition The worker partition.
  * @return {string} The reader id.
  * @testonly Exported so the parity test can pin it to the PHP twin.
  */
-export const brokerReaderId = ( topology, broker, kind, partition ) =>
+export const brokerReaderId = ( topology, broker, stamp, partition ) =>
 	workerId(
-		`${ topology }.${ Node.siblingNameOf( broker, kind ) }`,
+		`${ topology }.${ Node.siblingNameOf( broker, stamp ) }`,
 		partition
 	);
 
 /**
  * Is a probe row one of a broker's readers?
  *
- * Its SOURCE names a spoke's log, `remote/<vault_id>:<kind>`, and its reader
- * id is the one `brokerReaderId()` gives that kind under this broker.
+ * Its SOURCE names a spoke's log, `remote:<vault_id>:<stamp>`, and its reader
+ * id is the one `brokerReaderId()` gives that stamp under this broker.
  *
  * @param {Object} row      A `consumers[]` probe row.
  * @param {string} topology The topology the broker sits in.
@@ -81,7 +81,7 @@ const brokerReads = ( row, topology, broker ) => {
 	const remote = remoteOf( row.source );
 	return (
 		null !== remote &&
-		brokerReaderId( topology, broker, remote.kind, row.partition ) ===
+		brokerReaderId( topology, broker, remote.stamp, row.partition ) ===
 			row.reader
 	);
 };

@@ -83,18 +83,18 @@ d=$( fixture named includes/class-widget.php "$scope" )
 assert_flags "a path named directly is scanned" "$d" "[scope-check-in-handler]" includes/class-widget.php
 
 stamp_cases=(
-	'$p = Log_Discovery::SOURCES_PREFIX . '"'"'/'"'"';'
+	'$p = Log_Discovery::SOURCES_PREFIX . '"'"':'"'"';'
 	'$ok = \in_array( $g, Log_Discovery::GROUPS, true );'
 	'$ok = \in_array( $g, Log_Discovery::STAMP_PREFIXES, true );'
 	'$k = '"'"'logs'"'"' === $group ? $n : $g;'
 	'$k = "offsets/{$n}";'
+	'$s = "remote/{$vault}:{$stamp}";'
 	'$ok = '"'"'logs'"'"' !== $group;'
 	'$path = "{$base}/{$group}/{$rest}";'
-	'$s = "remote/{$vault}:{$kind}";'
 	'$ok = $group === '"'"'logs'"'"';'
 	'$ok = '"'"'sources'"'"' === $g;'
 	'$ok = \str_starts_with( $sub, Log_Discovery::SOURCES_PREFIX );'
-	'[ $g, $n ] = \explode( '"'"'/'"'"', $stamp, 2 );'
+	'[ $g, $n ] = \explode( '"'"':'"'"', $stamp, 2 );'
 	'$dir = "{$base_dir}/offsets/{$reader}";'
 	'$dir = $base_dir . '"'"'/logs'"'"';'
 )
@@ -108,6 +108,9 @@ assert_clean "class-log-discovery.php may read GROUPS" "$d"
 
 d=$( fixture stamp-root includes/class-widget.php '$dir = Log_Discovery::root( $base_dir, '"'"'logs'"'"' ) . "/{$reader}";' )
 assert_clean "a root joined through Log_Discovery::root() is not flagged" "$d"
+
+d=$( fixture stamp-key includes/class-widget.php '$k = "remote:{$name}:p{$partition}";' )
+assert_clean "a colon key that is no stamp is not flagged" "$d"
 
 d=$( fixture stamp-route includes/class-widget.php '$parts = \explode( '"'"'/'"'"', $to, 2 );' )
 assert_clean "a TO path split on its slash is not flagged" "$d"

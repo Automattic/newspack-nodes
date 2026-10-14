@@ -6,6 +6,48 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **Every log stamp is spelled with `:`, and every broker pair with `=`.** A
+  stamp is one FROM segment now, its parts joined by colons. Respell each
+  stamp a subscription, a `?log=` link, a `File_Tail`, `dump_log`,
+  `read_message` or `read_block` names, and each SOURCE a reader of
+  `topicprobe.p0` matches:
+
+  | Was | Is |
+  |---|---|
+  | `offsets/<name>` | `offsets:<name>` |
+  | `deadletter/<name>` | `deadletter:<name>` |
+  | `sources/<name>` | `sources:<name>` |
+  | `remote/<vault_id>:<kind>` | `remote:<vault_id>:<stamp>` |
+  | `offsets:<root>:<kind>` | `offsets:<root>:<stamp>`, unchanged in spelling |
+
+  A bare `logs` dir keeps its bare stamp, `firehose.p0`. Respell each pair a
+  `.tsl` or a `RemoteLink` names, `<source>:<target>` to `<source>=<target>`:
+  `firehose.p{partition}:remote-job-rewrite` is
+  `firehose.p{partition}=remote-job-rewrite`, and
+  `sources/php:php-errors:partition` is `sources:php=php-errors:partition`.
+  The old spellings resolve to nothing: a `/` stamp is refused as an invalid
+  subscription, and a `:` pair reads as one source with no target, which
+  `make_node` refuses. No directory moves. A glob's `*` now stops at `:` as
+  well as `/`, so `o*` no longer reaches `offsets:…`. A log dir may take a
+  group's name (`offsets` alone is a `logs` dir); one whose name holds a `:`
+  has no stamp, so it lists as an unavailable row and its probe records
+  name its path. A broker refuses an `offsetlog_root` or `deadletter_root`
+  that is `<config:offsets_dir>` or `<config:deadletter_dir>` itself: nest it
+  under `<topology>`, as `<config:offsets_dir>/<topology>.<vault_id>`.
+  `Log_Discovery::kind_of()`, `stamp_of()`, `is_reader_stamp()` and the
+  browser's `kindOf()` and `readerParts()` are gone: a broker reader's slot
+  and dirs are its stamp as written. `Log_Discovery::remote_of()` answers
+  `[ 'vault_id', 'stamp' ]` and `remoteOf()` `{ vaultId, stamp }`, where each
+  answered a `kind`. `Remote_Broker_Node::reader_id()` takes the stamp.
+  Raise a consumer's `version_at_least()` floor to 2.109.0 when its code or
+  its topologies spell a stamp or a pair.
+
+- **A node name may not hold `/`.** `Node::name()` and the browser's
+  `node.name` setter throw on one, before anything registers, because the
+  Router splits a TO on `/` and could never reach it. A stream's reader is
+  named its stamp, so `SSE_Out_Node::open_subscription()` answers its
+  readers keyed by stamp.
+
 - **A broker reader's sidecars report a new SOURCE.** The cursor and dead
   letters of a broker's reader, under `<offsetlog_root>/<kind>` and
   `<deadletter_root>/<kind>`, report `offsets:<root>:<kind>` and

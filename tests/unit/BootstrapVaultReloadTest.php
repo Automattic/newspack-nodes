@@ -39,7 +39,7 @@ class BootstrapVaultReloadTest extends TestCase {
 		// Deliberately non-stock names: nothing may key off a known topology.
 		$this->write_tsl(
 			'spoke-pull-lab',
-			"make_node Remote_Source oddball-puller vault-9317 /tmp/o /tmp/d firehose.p0:next\n"
+			"make_node Remote_Source oddball-puller vault-9317 /tmp/o /tmp/d firehose.p0=next\n"
 		);
 		$this->write_tsl( 'quiet-lab', "make_node Echo hush-relay\n" );
 		\update_option( 'newspack_nodes_topologies', [ 'spoke-pull-lab', 'quiet-lab' ] );
@@ -144,7 +144,7 @@ class BootstrapVaultReloadTest extends TestCase {
 		// only ever flags .p0 fails here.
 		$this->write_tsl(
 			'wide-lab',
-			"var num_partitions = 3\nmake_node Remote_Source wide-puller vault-9317 /tmp/o /tmp/d firehose.p0:next\n"
+			"var num_partitions = 3\nmake_node Remote_Source wide-puller vault-9317 /tmp/o /tmp/d firehose.p0=next\n"
 		);
 		\update_option( 'newspack_nodes_topologies', [ 'wide-lab' ] );
 		Config::reset();
@@ -201,7 +201,7 @@ class BootstrapVaultReloadTest extends TestCase {
 		$this->seed_vault_servers( [ 'tw0' => [ 'url' => 'https://tw0.example', 'group' => 'tw-edge' ] ] );
 		$this->write_tsl(
 			'group-lab',
-			"make_node Vault_Group late-7 Remote_Source tw-edge <config:offsets_dir>/late.{id} <config:deadletter_dir>/late.{id} firehose.p{partition}:next\n"
+			"make_node Vault_Group late-7 Remote_Source tw-edge <config:offsets_dir>/late.{id} <config:deadletter_dir>/late.{id} firehose.p{partition}=next\n"
 		);
 		\update_option( 'newspack_nodes_topologies', [ 'group-lab' ] );
 		Config::reset();
@@ -223,7 +223,7 @@ class BootstrapVaultReloadTest extends TestCase {
 		$this->seed_vault_servers( [ 'tw0' => [ 'url' => 'https://tw0.example', 'group' => 'tw-edge' ] ] );
 		$this->write_tsl(
 			'group-lab',
-			"make_node Vault_Group late-7 Remote_Source tw-edge <config:offsets_dir>/late.{id} <config:deadletter_dir>/late.{id} firehose.p{partition}:next\n"
+			"make_node Vault_Group late-7 Remote_Source tw-edge <config:offsets_dir>/late.{id} <config:deadletter_dir>/late.{id} firehose.p{partition}=next\n"
 		);
 		\update_option( 'newspack_nodes_topologies', [ 'group-lab' ] );
 		Config::reset();
@@ -232,7 +232,7 @@ class BootstrapVaultReloadTest extends TestCase {
 		// Warm the analyzer's cache while tw0 is still a member, as an earlier
 		// read in the same process (a dashboard, a prior reload) would.
 		$before = \array_column( Topology_Analyzer::statements( 'group-lab' )['statements'], 'line' );
-		$this->assertContains( 'make_node Remote_Source late-7:tw0 tw0 <config:offsets_dir>/late.tw0 <config:deadletter_dir>/late.tw0 firehose.p{partition}:next', $before );
+		$this->assertContains( 'make_node Remote_Source late-7:tw0 tw0 <config:offsets_dir>/late.tw0 <config:deadletter_dir>/late.tw0 firehose.p{partition}=next', $before );
 
 		Vault::get_instance()->remove( 'tw0' );
 
@@ -240,7 +240,7 @@ class BootstrapVaultReloadTest extends TestCase {
 
 		$after = \array_column( Topology_Analyzer::statements( 'group-lab' )['statements'], 'line' );
 		$this->assertNotContains(
-			'make_node Remote_Source late-7:tw0 tw0 <config:offsets_dir>/late.tw0 <config:deadletter_dir>/late.tw0 firehose.p{partition}:next',
+			'make_node Remote_Source late-7:tw0 tw0 <config:offsets_dir>/late.tw0 <config:deadletter_dir>/late.tw0 firehose.p{partition}=next',
 			$after,
 			'a stale analyzer cache must not survive the reload'
 		);

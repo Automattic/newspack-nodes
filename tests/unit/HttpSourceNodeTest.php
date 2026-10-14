@@ -66,7 +66,7 @@ class HttpSourceNodeTest extends TestCase {
 	private function remote_args( string $name = 'pull-austin', string $vault = 'austin', string ...$pairs ): array {
 		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
 		$base    = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' );
-		return [ $vault, "{$offsets}/{$name}", "{$base}/deadletter/{$name}", ...( [] === $pairs ? [ 'firehose.p0:downstream' ] : $pairs ) ];
+		return [ $vault, "{$offsets}/{$name}", "{$base}/deadletter/{$name}", ...( [] === $pairs ? [ 'firehose.p0=downstream' ] : $pairs ) ];
 	}
 
 	/** A named broker sinking into _router, its first tick not yet run. */
@@ -209,16 +209,16 @@ class HttpSourceNodeTest extends TestCase {
 	/** A broker over one glob pair, `jobstats.p*`, its first tick not yet run. */
 	private function globbing_broker(): HTTP_Source_Node {
 		$this->seed_austin();
-		return $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'jobstats.p*:stats' ) );
+		return $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'jobstats.p*=stats' ) );
 	}
 
 	public function test_it_builds_each_exact_pairs_reader_on_the_first_tick(): void {
 		$this->seed_austin();
-		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'firehose.p0:downstream', 'sources/php:errors' ) );
+		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'firehose.p0=downstream', 'sources:php=errors' ) );
 
 		$node->fire();
 
-		$this->assertSame( [ 'firehose.p0', 'sources/php' ], \array_keys( $this->readers( $node ) ) );
+		$this->assertSame( [ 'firehose.p0', 'sources:php' ], \array_keys( $this->readers( $node ) ) );
 	}
 
 	public function test_it_holds_no_stream_and_sends_no_heartbeat(): void {
@@ -236,7 +236,7 @@ class HttpSourceNodeTest extends TestCase {
 
 	public function test_the_reply_cap_counts_a_reader_built_this_tick(): void {
 		$this->seed_austin();
-		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'firehose.p0:downstream', 'sources/php:errors', 'jobstats.p0:stats' ) );
+		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'firehose.p0=downstream', 'sources:php=errors', 'jobstats.p0=stats' ) );
 
 		$node->fire();
 
@@ -246,7 +246,7 @@ class HttpSourceNodeTest extends TestCase {
 	/** A channel rebuilt since the tick is sized to every reader as a fetch goes out. */
 	public function test_the_reply_cap_counts_every_reader_as_a_fetch_goes_out(): void {
 		$this->seed_austin();
-		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'firehose.p0:downstream', 'sources/php:errors' ) );
+		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'firehose.p0=downstream', 'sources:php=errors' ) );
 		$node->fire();
 		$node->reload();
 
@@ -374,17 +374,17 @@ class HttpSourceNodeTest extends TestCase {
 		$this->seed_austin();
 		$php = new Capture_Sink_Node();
 		$php->name( 'php-errors' );
-		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'sources/php:php-errors' ) );
+		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'sources:php=php-errors' ) );
 		$node->fire();
 		$reader = Core::node( 'pull-austin:sources:php' );
 		$reader->next_offset( [ 'segment' => 77031, 'offset' => 12 ] );
 		$reader->fire_cb();
 
-		self::answer( $reader, self::block_reply( [ 'sources/php', '77031:12' ], "PHP Warning 5521\nnot json 6604\n", null, null, '', Message::TM_BATCH | Message::TM_BYTESTREAM ) );
+		self::answer( $reader, self::block_reply( [ 'sources:php', '77031:12' ], "PHP Warning 5521\nnot json 6604\n", null, null, '', Message::TM_BATCH | Message::TM_BYTESTREAM ) );
 		$reader->fire_cb();
 
 		$this->assertSame( [ "PHP Warning 5521\n", "not json 6604\n" ], \array_column( $php->captured, Message::VALUE ) );
-		$this->assertSame( [ 'sources/php', 'sources/php' ], \array_column( $php->captured, Message::FROM ) );
+		$this->assertSame( [ 'sources:php', 'sources:php' ], \array_column( $php->captured, Message::FROM ) );
 		$this->assertSame( [ '77031:12:17', '77031:29:14' ], \array_column( $php->captured, Message::ID ) );
 		$this->assertSame( 0, $this->count_log_records( $this->dlq( 'sources:php' ) ), 'text is no torn record' );
 	}
@@ -610,10 +610,10 @@ class HttpSourceNodeTest extends TestCase {
 	/** Readers whose waits fall due in one second ask together, in one batch. */
 	public function test_readers_at_the_end_ask_again_on_one_tick(): void {
 		$this->seed_austin();
-		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'firehose.p0:downstream', 'sources/php:errors', 'jobstats.p0:stats' ) );
+		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'firehose.p0=downstream', 'sources:php=errors', 'jobstats.p0=stats' ) );
 		$node->fire();
 		$http = Core::node( 'pull-austin:http-out' );
-		foreach ( [ 'firehose.p0' => 503.1, 'sources/php' => 503.45, 'jobstats.p0' => 503.8 ] as $stamp => $at ) {
+		foreach ( [ 'firehose.p0' => 503.1, 'sources:php' => 503.45, 'jobstats.p0' => 503.8 ] as $stamp => $at ) {
 			Core::$now = $at;
 			$reader    = $this->readers( $node )[ $stamp ];
 			$reader->fire_cb();
@@ -628,7 +628,7 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertCount( $asked, $this->fetches( $http ), 'no reader ends its own wait' );
 		$node->fire();
 
-		$this->assertSame( [ 'firehose.p0', 'sources/php', 'jobstats.p0' ], \array_column( \array_slice( $this->fetches( $http ), $asked ), 0 ) );
+		$this->assertSame( [ 'firehose.p0', 'sources:php', 'jobstats.p0' ], \array_column( \array_slice( $this->fetches( $http ), $asked ), 0 ) );
 	}
 
 	public function test_a_lost_fetch_is_asked_again_after_the_request_timeout(): void {
@@ -683,19 +683,19 @@ class HttpSourceNodeTest extends TestCase {
 		$this->seed_austin();
 		$php = new Capture_Sink_Node();
 		$php->name( 'php-errors' );
-		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'sources/php:php-errors' ) );
+		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'sources:php=php-errors' ) );
 		$node->fire();
 		$http   = Core::node( 'pull-austin:http-out' );
 		$reader = Core::node( 'pull-austin:sources:php' );
 		$reader->fire_cb();
 
-		self::answer( $reader, self::block_reply( $this->last_fetch_of( $http, 'sources/php' ), '', 0, ':7316', '', Message::TM_BATCH | Message::TM_BYTESTREAM ) );
+		self::answer( $reader, self::block_reply( $this->last_fetch_of( $http, 'sources:php' ), '', 0, ':7316', '', Message::TM_BATCH | Message::TM_BYTESTREAM ) );
 		$reader->fire_cb();
 		$this->assertNotNull( $reader->fetch_stats()['fetch_after'], 'the empty answer waits an EOF poll' );
 		Core::$now += HTTP_Source_Node::EOF_POLL_SECONDS + 0.5;
 		$node->fire();
 
-		$asked = $this->last_fetch_of( $http, 'sources/php' );
+		$asked = $this->last_fetch_of( $http, 'sources:php' );
 		$this->assertSame( ':7316', $asked[1], 'it asks from the offset named, naming no generation' );
 		self::answer( $reader, self::block_reply( $asked, "PHP Fatal 4471\n", null, '90210:7316', '', Message::TM_BATCH | Message::TM_BYTESTREAM ) );
 		$reader->fire_cb();
@@ -705,21 +705,21 @@ class HttpSourceNodeTest extends TestCase {
 	/** A file briefly missing leaves a reader that knows its place there, rather than replaying from the top. */
 	public function test_an_absent_file_keeps_a_known_place(): void {
 		$this->seed_austin();
-		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'sources/php:php-errors' ) );
+		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'sources:php=php-errors' ) );
 		$node->fire();
 		$http   = Core::node( 'pull-austin:http-out' );
 		$reader = Core::node( 'pull-austin:sources:php' );
 		$reader->next_offset( [ 'segment' => 57, 'offset' => 3318 ] );
 		$reader->fire_cb();
-		self::answer( $reader, self::block_reply( $this->last_fetch_of( $http, 'sources/php' ), "PHP Notice 2208\n", null, '57:3318', '', Message::TM_BATCH | Message::TM_BYTESTREAM ) );
+		self::answer( $reader, self::block_reply( $this->last_fetch_of( $http, 'sources:php' ), "PHP Notice 2208\n", null, '57:3318', '', Message::TM_BATCH | Message::TM_BYTESTREAM ) );
 		$reader->fire_cb();
 
-		self::answer( $reader, self::block_reply( $this->last_fetch_of( $http, 'sources/php' ), '', 0, ':0', '', Message::TM_BATCH | Message::TM_BYTESTREAM ) );
+		self::answer( $reader, self::block_reply( $this->last_fetch_of( $http, 'sources:php' ), '', 0, ':0', '', Message::TM_BATCH | Message::TM_BYTESTREAM ) );
 		$reader->fire_cb();
 		Core::$now += HTTP_Source_Node::EOF_POLL_SECONDS + 0.5;
 		$node->fire();
 
-		$this->assertSame( '57:3334', $this->last_fetch_of( $http, 'sources/php' )[1] );
+		$this->assertSame( '57:3334', $this->last_fetch_of( $http, 'sources:php' )[1] );
 	}
 
 	/** A block with bytes that names no segment cannot be placed: dropped, and its fetch settled as refused. */
@@ -877,18 +877,18 @@ class HttpSourceNodeTest extends TestCase {
 	/** Across readers: the latest answer, the latest fetch sent and the soonest wait. */
 	public function test_the_status_reads_every_reader(): void {
 		$this->seed_austin();
-		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'firehose.p0:downstream', 'sources/php:errors' ) );
+		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'firehose.p0=downstream', 'sources:php=errors' ) );
 		$node->fire();
 		$http    = Core::node( 'pull-austin:http-out' );
 		$readers = $this->readers( $node );
 		Core::$now = 500.0;
 		$readers['firehose.p0']->fire_cb();
 		Core::$now = 501.0;
-		$readers['sources/php']->fire_cb();
+		$readers['sources:php']->fire_cb();
 		Core::$now = 503.25;
 		self::answer( $readers['firehose.p0'], self::block_reply( $this->last_fetch_of( $http, 'firehose.p0' ), '', null, '31:' . ( 4404 ) ) );
 		Core::$now = 504.5;
-		self::answer( $readers['sources/php'], self::block_reply( $this->last_fetch_of( $http, 'sources/php' ), '', null, '2:880' ) );
+		self::answer( $readers['sources:php'], self::block_reply( $this->last_fetch_of( $http, 'sources:php' ), '', null, '2:880' ) );
 
 		$node->fire();
 
@@ -972,7 +972,7 @@ class HttpSourceNodeTest extends TestCase {
 		$node->fire();
 		$err = $this->capture_stderr();
 
-		$node->fill( self::catalog_reply( [ 'firehose.p0', 'sources/php', 'offsets/jobstats.p1' ] ) );
+		$node->fill( self::catalog_reply( [ 'firehose.p0', 'sources:php', 'offsets/jobstats.p1' ] ) );
 
 		$this->assertSame( [], $this->readers( $node ) );
 		$this->assertSame( [], (array) $err );
@@ -1084,7 +1084,7 @@ class HttpSourceNodeTest extends TestCase {
 	/** A discovery refusal and a fetch refusal standing together: discovery's shows. */
 	public function test_a_discovery_refusal_outranks_a_fetch_refusal(): void {
 		$this->seed_austin();
-		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'firehose.p0:downstream', 'jobstats.p*:stats' ) );
+		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'firehose.p0=downstream', 'jobstats.p*=stats' ) );
 		$node->fire();
 		$reader = $this->readers( $node )['firehose.p0'];
 		$reader->fire_cb();
@@ -1150,7 +1150,7 @@ class HttpSourceNodeTest extends TestCase {
 	/** A reader discovered between ticks counts in the reply cap at its first fetch. */
 	public function test_a_discovered_reader_counts_in_the_cap_at_its_first_fetch(): void {
 		$this->seed_austin();
-		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'firehose.p0:downstream', 'jobstats.p*:stats' ) );
+		$node = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'firehose.p0=downstream', 'jobstats.p*=stats' ) );
 		$node->fire();
 		$node->fill( self::catalog_reply( [ 'jobstats.p0', 'jobstats.p3' ] ) );
 
@@ -1163,7 +1163,7 @@ class HttpSourceNodeTest extends TestCase {
 	public function test_a_broker_whose_fetches_are_refused_reads_down_in_the_aggregator(): void {
 		[ $node, $reader ] = $this->fetching_reader();
 		$this->stock_topology_dir( 'http-source-agg-' );
-		$this->write_tsl( 'pull', "make_node HTTP_Source pull-austin austin /var/pull/off /var/pull/dl firehose.p0:downstream\n" );
+		$this->write_tsl( 'pull', "make_node HTTP_Source pull-austin austin /var/pull/off /var/pull/dl firehose.p0=downstream\n" );
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'pull' ];
 		$GLOBALS['_wp_test_current_user_can']                = [ 'manage_options' => true ];
 		\Newspack_Nodes\Config::reset();
@@ -1225,7 +1225,7 @@ class HttpSourceNodeTest extends TestCase {
 	public function test_a_partition_owning_no_pair_builds_no_channel(): void {
 		$this->seed_austin();
 		Core::$var['partition'] = '1';
-		$node                   = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'firehose.p0:downstream' ) );
+		$node                   = $this->broker( 'pull-austin', $this->remote_args( 'pull-austin', 'austin', 'firehose.p0=downstream' ) );
 
 		$node->fire();
 

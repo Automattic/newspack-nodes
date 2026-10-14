@@ -1,0 +1,22 @@
+[
+  ["a log dir", "firehose.p0", "logs/firehose.p0"],
+  ["a log dir named like a group", "offsets", "logs/offsets"],
+  ["a consumer's cursor", "offsets:performance.firehose.p0", "offsets/performance.firehose.p0"],
+  ["a consumer's quarantine", "deadletter:performance.firehose.p0", "deadletter/performance.firehose.p0"],
+  ["a broker reader's cursor", "offsets:hub.tucson-41:firehose.p3", "offsets/hub.tucson-41/firehose.p3"],
+  ["a reader of a registry source", "offsets:hub.tucson-41:sources:php", "offsets/hub.tucson-41/sources:php"],
+  ["a reader's dead letters of a grouped dir", "deadletter:hub.coast-73:offsets:agg.firehose.p3", "deadletter/hub.coast-73/offsets:agg.firehose.p3"],
+  ["a mixed-case Vault id's root", "offsets:hub.TucsonWeekly:firehose.p3", "offsets/hub.TucsonWeekly/firehose.p3"],
+  ["a reader of a spoke's reader", "offsets:hub.kea-12:offsets:agg.tw7:firehose.p3", "offsets/hub.kea-12/offsets:agg.tw7:firehose.p3"],
+  ["a registry source names no dir", "sources:php", null],
+  ["a slash spelling", "offsets/performance.firehose.p0", null],
+  ["a reader dir by path", "offsets/hub.tucson-41/firehose.p3", null],
+  ["an explicit logs prefix", "logs:firehose.p0", null],
+  ["a reader under the source registry", "sources:hub.tucson-41:firehose.p3", null],
+  ["a reader under an unknown root", "secrets:hub.tucson-41:firehose.p3", null],
+  ["a group naming nothing", "offsets:", null],
+  ["a root that climbs", "offsets:..:firehose.p3", null],
+  ["a reader with an empty root", "offsets::firehose.p3", null],
+  ["a kind no stamp names", "offsets:hub.tucson-41:kea:okapi", null],
+  ["a kind that climbs", "offsets:hub.tucson-41:..", null]
+]

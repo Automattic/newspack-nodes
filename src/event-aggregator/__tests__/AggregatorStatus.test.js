@@ -397,7 +397,7 @@ describe( 'AggregatorStatus', () => {
 								distance: null,
 							},
 							{
-								stamp: 'sources/php',
+								stamp: 'sources:php',
 								partition: 2,
 								cursor: ':40913',
 								distance: 70254592,
@@ -419,7 +419,7 @@ describe( 'AggregatorStatus', () => {
 
 		expect( rows ).toEqual( [
 			[ 'p2 firehose.p2', '14:9021', 'lag unknown' ],
-			[ 'p2 sources/php', ':40913', '67 MB behind' ],
+			[ 'p2 sources:php', ':40913', '67 MB behind' ],
 		] );
 	} );
 

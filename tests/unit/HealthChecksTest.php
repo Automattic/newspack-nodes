@@ -398,11 +398,11 @@ class HealthChecksTest extends TestCase {
 		);
 	}
 
-	// ── log-sources: every sources/<name> a topology reads here must resolve ──
+	// ── log-sources: every sources:<name> a topology reads here must resolve ──
 
 	public function test_a_source_a_topology_tails_that_does_not_resolve_here_is_critical(): void {
 		\Newspack_Nodes\Log_Sources::$builtin_sources = static fn (): array => [ 'gnu-5520' => '/tmp/gnu-5520.log' ];
-		$this->activate_topologies( [ 'tapir-hub-5521' => "make_node File_Tail tapir-tail-5521 sources/tapir-5521 /tmp/tapir-off-5521\n" ] );
+		$this->activate_topologies( [ 'tapir-hub-5521' => "make_node File_Tail tapir-tail-5521 sources:tapir-5521 /tmp/tapir-off-5521\n" ] );
 
 		$row = Health_Checks::runtime()[1];
 
@@ -423,7 +423,7 @@ class HealthChecksTest extends TestCase {
 		$row = Health_Checks::runtime()[1];
 
 		$this->assertSame( Health_Checks::STATUS_CRITICAL, $row['status'] );
-		$this->assertSame( 'Active topology tapir-hub-5528 fails to load on this host: File_Tail tapir-tail-5528: source_file must be an absolute path or sources/<name>, got "logs/tapir-5528.log"', $row['messages'][0] );
+		$this->assertSame( 'Active topology tapir-hub-5528 fails to load on this host: File_Tail tapir-tail-5528: source_file must be an absolute path or sources:<name>, got "logs/tapir-5528.log"', $row['messages'][0] );
 	}
 
 	/** A config token resolves as the load resolves it, so a path that loads reads as good. */
@@ -439,7 +439,7 @@ class HealthChecksTest extends TestCase {
 	public function test_a_partitioned_file_tail_is_checked_at_every_partition(): void {
 		$this->use_base_dir( $this->tmp, [ 'num_partitions' => 2 ] );
 		\Newspack_Nodes\Log_Sources::$builtin_sources = static fn (): array => [ 'tapir-5529.0' => '/tmp/tapir-5529.0.log' ];
-		$this->activate_topologies( [ 'tapir-hub-5529' => "make_node File_Tail tapir-tail-5529 sources/tapir-5529.{partition} /tmp/tapir-off-5529.{partition}\n" ] );
+		$this->activate_topologies( [ 'tapir-hub-5529' => "make_node File_Tail tapir-tail-5529 sources:tapir-5529.{partition} /tmp/tapir-off-5529.{partition}\n" ] );
 
 		$row = Health_Checks::runtime()[1];
 
@@ -455,7 +455,7 @@ class HealthChecksTest extends TestCase {
 			++$asked;
 			return [ 'tapir-5541' => '/tmp/tapir-5541.log' ];
 		};
-		$this->activate_topologies( [ 'tapir-hub-5541' => "make_node File_Tail tapir-tail-5541 sources/tapir-5541 /tmp/tapir-off-5541\n" ] );
+		$this->activate_topologies( [ 'tapir-hub-5541' => "make_node File_Tail tapir-tail-5541 sources:tapir-5541 /tmp/tapir-off-5541\n" ] );
 
 		$row = Health_Checks::runtime()[1];
 
@@ -466,7 +466,7 @@ class HealthChecksTest extends TestCase {
 	/** A built-in its host leaves unconfigured says what it needs, in the registry's own words. */
 	public function test_an_unconfigured_built_in_names_what_its_host_must_provide(): void {
 		\Newspack_Nodes\Log_Sources::$builtin_sources = static fn (): array => [];
-		$this->activate_topologies( [ 'tapir-hub-5527' => "make_node File_Tail tapir-tail-5527 sources/debug /tmp/tapir-off-5527\n" ] );
+		$this->activate_topologies( [ 'tapir-hub-5527' => "make_node File_Tail tapir-tail-5527 sources:debug /tmp/tapir-off-5527\n" ] );
 
 		$row = Health_Checks::runtime()[1];
 
@@ -476,7 +476,7 @@ class HealthChecksTest extends TestCase {
 
 	public function test_every_source_the_topologies_tail_resolving_here_is_good(): void {
 		\Newspack_Nodes\Log_Sources::$builtin_sources = static fn (): array => [ 'tapir-5522' => '/tmp/tapir-5522.log' ];
-		$this->activate_topologies( [ 'tapir-hub-5522' => "make_node File_Tail tapir-tail-5522 sources/tapir-5522 /tmp/tapir-off-5522\n" ] );
+		$this->activate_topologies( [ 'tapir-hub-5522' => "make_node File_Tail tapir-tail-5522 sources:tapir-5522 /tmp/tapir-off-5522\n" ] );
 
 		$row = Health_Checks::runtime()[1];
 
@@ -487,7 +487,7 @@ class HealthChecksTest extends TestCase {
 	/** A broker's pair names a source on its spoke, whose registry this host cannot read. */
 	public function test_a_broker_pair_source_is_the_spokes_to_resolve(): void {
 		\Newspack_Nodes\Log_Sources::$builtin_sources = static fn (): array => [];
-		$this->activate_topologies( [ 'okapi-hub-5523' => "make_node Remote_Source pull:okapi-5523 okapi-5523 /tmp/off-5523 /tmp/dl-5523 sources/okapi-5523:okapi-sink-5523\n" ] );
+		$this->activate_topologies( [ 'okapi-hub-5523' => "make_node Remote_Source pull:okapi-5523 okapi-5523 /tmp/off-5523 /tmp/dl-5523 sources:okapi-5523=okapi-sink-5523\n" ] );
 
 		$row = Health_Checks::runtime()[1];
 
@@ -524,7 +524,7 @@ class HealthChecksTest extends TestCase {
 		$this->use_base_dir( $this->tmp, [ 'num_partitions' => 1, 'log_sources' => $sources ] );
 		\Newspack_Nodes\Log_Sources::$builtin_sources = static fn (): array => [];
 		$topology = 'tapir-hub-' . \str_repeat( 'w', 120 );
-		$this->activate_topologies( [ $topology => 'make_node File_Tail tapir-tail-5524 sources/tapir-' . \str_repeat( 'z', 120 ) . " /tmp/tapir-off-5524\n" ] );
+		$this->activate_topologies( [ $topology => 'make_node File_Tail tapir-tail-5524 sources:tapir-' . \str_repeat( 'z', 120 ) . " /tmp/tapir-off-5524\n" ] );
 		Core::$memd                 = null;
 		Cache_Backend::$apcu_usable = static fn (): bool => false;
 		$rows                       = Health_Checks::runtime();
@@ -539,7 +539,7 @@ class HealthChecksTest extends TestCase {
 	/** A multi-line exception reading the topologies still gives a reply the client accepts whole. */
 	public function test_an_unreadable_registry_says_so_on_one_bounded_line(): void {
 		\Newspack_Nodes\Log_Sources::$builtin_sources = static fn (): array => throw new \RuntimeException( "line one 5525\nline two \x1b[31m" . \str_repeat( 'x', 900 ) );
-		$this->activate_topologies( [ 'tapir-hub-5525' => "make_node File_Tail tapir-tail-5525 sources/tapir-5525 /tmp/tapir-off-5525\n" ] );
+		$this->activate_topologies( [ 'tapir-hub-5525' => "make_node File_Tail tapir-tail-5525 sources:tapir-5525 /tmp/tapir-off-5525\n" ] );
 		Core::$memd                 = null;
 		Cache_Backend::$apcu_usable = static fn (): bool => false;
 		$rows                       = Health_Checks::runtime();

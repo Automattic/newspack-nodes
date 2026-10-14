@@ -9,7 +9,7 @@
  * expired while the tab slept, and a Reset Graph rebuild all recover on the
  * next tick without a loader of their own. It lists every partition dir under
  * `logs`, `offsets` and `deadletter`, then every registry source as
- * `sources/<name>`. A source streams on the same `/messages/stream`, its rows
+ * `sources:<name>`. A source streams on the same `/messages/stream`, its rows
  * the raw lines of a log FILE or segmented Log rather than packed envelopes,
  * and steps through the same `read_message`.
  */

@@ -13,7 +13,7 @@ use Newspack_Nodes\Rest\SSE_Out_Node;
 
 /**
  * An SSE-pull broker: one connection to a spoke carries every stream its
- * `<source>:<target>` pairs name, and each stamp it carries is read by its
+ * `<source>=<target>` pairs name, and each stamp it carries is read by its
  * own `Remote_Consumer_Node`.
  *
  * The command channel, the pairs and the readers come from
@@ -543,7 +543,7 @@ class Remote_Source_Node extends Remote_Broker_Node {
 		return \array_merge( parent::node_schema(), [
 			// The base hides itself; this subclass belongs in the palette.
 			'category'    => 'I/O',
-			'description' => 'SSE-pull broker: one connection to a spoke carrying several streams, a durable reader per `source:target` pair (Vault-resolved).',
+			'description' => 'SSE-pull broker: one connection to a spoke carrying several streams, a durable reader per `source=target` pair (Vault-resolved).',
 		] );
 	}
 }

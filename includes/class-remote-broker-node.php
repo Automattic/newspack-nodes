@@ -1,7 +1,7 @@
 <?php
 /**
  * Remote_Broker: one spoke's command channel and the durable readers its
- * `<source>:<target>` pairs claim — the half `Remote_Source` (one SSE
+ * `<source>=<target>` pairs claim — the half `Remote_Source` (one SSE
  * connection) and `HTTP_Source` (block fetches) share.
  *
  * @package Newspack_Nodes
@@ -17,7 +17,7 @@ namespace Newspack_Nodes;
  * and its readers' reads, and a `Null_Node` (`<name>:null`) that HTTP_Out
  * targets so unaddressed reply-leg traffic is discarded. Each stamp a pair
  * claims is read by its own `Remote_Consumer_Node`, published as the sibling
- * `<broker>:<kind>`: the cursor, offsetlog, dead letters and debugger all
+ * `<broker>:<stamp>`: the cursor, offsetlog, dead letters and debugger all
  * belong to that reader. Each tick, riding the Router's, builds each exact
  * pair's reader and hands a subclass its housekeeping, and `write_status()`
  * publishes the status snapshot a dashboard reads.
@@ -140,18 +140,18 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	private ?string $bound_topology = null;
 
 	/**
-	 * The kinds a glob pair has claimed, each with a reader here or a dir under
-	 * the offsetlog root; null until a glob first builds after construction or
-	 * a replay, which counts both again.
+	 * The stamps a glob pair has claimed, each with a reader here or a dir
+	 * under the offsetlog root; null until a glob first builds after
+	 * construction or a replay, which counts both again.
 	 *
 	 * @var array<string,true>|null
 	 */
-	private ?array $glob_kinds = null;
+	private ?array $glob_stamps = null;
 
-	/** Root under which each reader's offsetlog sits, at `<root>/<kind>`. */
+	/** Root under which each reader's offsetlog sits, at `<root>/<stamp>`. */
 	protected string $offsetlog_root = '';
 
-	/** Root under which each reader's dead letters sit, at `<root>/<kind>`. */
+	/** Root under which each reader's dead letters sit, at `<root>/<stamp>`. */
 	protected string $deadletter_root = '';
 
 	/** Fanned out to every reader, present or built later. */
@@ -164,7 +164,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	}
 
 	/**
-	 * Parse `<vault_id> <offsetlog_root> <deadletter_root> <source:target>…`,
+	 * Parse `<vault_id> <offsetlog_root> <deadletter_root> <source=target>…`,
 	 * arm the recurring tick, then reconcile the readers with a replay.
 	 *
 	 * A replay that moves the vault supersedes the url and credentials the
@@ -198,6 +198,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 		$previous              = $this->pairs;
 		$previous_vault        = $this->vault_id;
 		$this->parse_schema_args( $args );
+		$this->refuse_group_roots();
 		if ( $previous_vault !== $this->vault_id ) {
 			$this->drop_patrons();
 		}
@@ -206,12 +207,12 @@ abstract class Remote_Broker_Node extends Timer_Node {
 		$this->subscribe( Node_Names::FLEET, 'RELOAD', $this->reload( ... ) );
 		$this->bound_topology = Core::bound_topology();
 		$this->pairs          = $pairs;
-		$this->glob_kinds     = null;
+		$this->glob_stamps    = null;
 		foreach ( $this->readers() as $stamp => $child ) {
 			$pair = $this->pair_for( $stamp );
 			if ( null === $pair ) {
 				$child->hand_off_cursor();
-				$this->retract_sibling( Log_Discovery::kind_of( $stamp ) );
+				$this->retract_sibling( $stamp );
 				continue;
 			}
 			$child->connect_node( $pair['target'] );
@@ -261,6 +262,23 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	}
 
 	/**
+	 * Refuse a root that is its group's own: each reader's dir is
+	 * `<root>/<stamp>`, so it would land at the group's first level, where a
+	 * dir holding the stamp's `:` has no stamp of its own.
+	 *
+	 * @throws \InvalidArgumentException Naming the group and the fix.
+	 */
+	private function refuse_group_roots(): void {
+		$base = \rtrim( Config::get_base_directory(), '/' );
+		foreach ( [ 'offsets' => $this->offsetlog_root, Config::DEADLETTER_SUBDIR => $this->deadletter_root ] as $group => $root ) {
+			if ( \rtrim( $root, '/' ) === Log_Discovery::root( $base, $group ) ) {
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+				throw new \InvalidArgumentException( self::refusal_prefix() . "a root may not be the {$group} root itself, or each reader's dir lands at its first level; nest it under <topology>, as <config:{$group}_dir>/<topology>.<vault_id>" );
+			}
+		}
+	}
+
+	/**
 	 * Build the reader of every exact pair; a glob's readers wait for a stamp
 	 * the remote names. `consumer_for()` returns a built reader as it is.
 	 */
@@ -289,7 +307,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 */
 	private function owned_pairs( array $tokens ): array {
 		if ( [] === $tokens ) {
-			throw new \InvalidArgumentException( self::refusal_prefix() . 'name at least one <source>:<target> pair' );
+			throw new \InvalidArgumentException( self::refusal_prefix() . 'name at least one <source>=<target> pair' );
 		}
 		$owned = [];
 		foreach ( $tokens as $token ) {
@@ -326,18 +344,13 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	/**
 	 * The reader for a stamp, built on first sight when a pair claims it; null
 	 * when none does. A spoke names the stamps it sends, and a stamp names a
-	 * sibling slot and a directory here, so the one builder refuses five,
-	 * rate-limited: a broker reader's stamp, which takes no kind, a stamp
-	 * outside the stream name grammar, one naming a slot the broker keeps,
-	 * one no pair claims, and a glob's past `MAX_READERS`.
+	 * sibling slot and a directory here, so the one builder refuses four,
+	 * rate-limited: a stamp outside the stream name grammar, one naming a slot
+	 * the broker keeps, one no pair claims, and a glob's past `MAX_READERS`.
 	 *
 	 * @param string $stamp A record's stamp.
 	 */
 	protected function consumer_for( string $stamp ): ?Remote_Consumer_Node {
-		if ( Log_Discovery::is_reader_stamp( $stamp ) ) {
-			$this->print_less_often( 'refusing a broker reader\'s stamp, which names a dir and no kind' );
-			return null;
-		}
 		$built = $this->reader( $stamp );
 		if ( null !== $built ) {
 			return $built;
@@ -345,7 +358,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 		if ( '' === $this->name ) {
 			return null;
 		}
-		if ( ! Log_Discovery::is_stamp( $stamp ) ) {
+		if ( ! Log_Discovery::fits_a_dir_name( $stamp ) ) {
 			$this->print_less_often( 'refusing a stamp outside the stream name grammar' );
 			return null;
 		}
@@ -358,13 +371,13 @@ abstract class Remote_Broker_Node extends Timer_Node {
 			$this->print_less_often( 'dropping a line no pair claims: ', $stamp );
 			return null;
 		}
-		if ( Log_Discovery::is_glob( $pair['source'] ) && ! $this->claim_glob_kind( Log_Discovery::kind_of( $stamp ) ) ) {
+		if ( Log_Discovery::is_glob( $pair['source'] ) && ! $this->claim_glob_stamp( $stamp ) ) {
 			$this->print_less_often( 'refusing a reader past MAX_READERS: ', (string) self::MAX_READERS );
 			return null;
 		}
 		$child = new Remote_Consumer_Node();
 		$child->patron( $this );
-		$this->publish_sibling( Log_Discovery::kind_of( $stamp ), $child );
+		$this->publish_sibling( $stamp, $child );
 		$child->sink( $this->sink );
 		$child->arguments( $this->reader_args( $stamp ) );
 		$child->connect_node( $pair['target'] );
@@ -375,76 +388,66 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	}
 
 	/**
-	 * The reader a stamp's kind holds in the sibling map, or null; builds
+	 * The reader a stamp's slot holds in the sibling map, or null; builds
 	 * nothing, and a slot holding anything else is no reader.
 	 *
 	 * @param string $stamp A record's stamp.
 	 */
 	protected function reader( string $stamp ): ?Remote_Consumer_Node {
-		$sibling = $this->siblings()[ Log_Discovery::kind_of( $stamp ) ] ?? null;
+		$sibling = $this->siblings()[ $stamp ] ?? null;
 		return $sibling instanceof Remote_Consumer_Node ? $sibling : null;
 	}
 
 	/**
-	 * Claim a kind for a glob pair's reader: free when the kind holds a reader
-	 * or a dir already, refused once `MAX_READERS` kinds are claimed. The
-	 * first claim, after construction or a replay, counts the glob readers
-	 * built here and the kind dirs a glob pair left under the offsetlog root,
-	 * so the cap holds across a replay and a restart alike.
+	 * Claim a stamp for a glob pair's reader: free when the stamp holds a
+	 * reader or a dir already, refused once `MAX_READERS` stamps are claimed.
+	 * The first claim, after construction or a replay, counts the glob
+	 * readers built here and the reader dirs a glob pair left under the
+	 * offsetlog root, so the cap holds across a replay and a restart alike.
 	 *
-	 * @param string $kind The kind the reader would take.
+	 * @param string $stamp The stamp the reader would read.
 	 * @return bool True when the reader may be built.
 	 */
-	private function claim_glob_kind( string $kind ): bool {
-		$this->glob_kinds ??= $this->claimed_glob_kinds();
-		if ( ! isset( $this->glob_kinds[ $kind ] ) ) {
-			if ( \count( $this->glob_kinds ) >= self::MAX_READERS ) {
+	private function claim_glob_stamp( string $stamp ): bool {
+		$this->glob_stamps ??= $this->claimed_glob_stamps();
+		if ( ! isset( $this->glob_stamps[ $stamp ] ) ) {
+			if ( \count( $this->glob_stamps ) >= self::MAX_READERS ) {
 				return false;
 			}
-			$this->glob_kinds[ $kind ] = true;
+			$this->glob_stamps[ $stamp ] = true;
 		}
 		return true;
 	}
 
 	/**
-	 * The kinds a glob pair claims, among the readers built here and the kind
-	 * dirs under the offsetlog root. A reader with no checkpoint yet has no
-	 * dir, so the readers count as well as the disk. A dir shaped as a reader
-	 * stamp folds to no stamp, so it is skipped, rate-limited, never thrown
-	 * on the drain path.
+	 * The stamps a glob pair claims, among the readers built here and the
+	 * reader dirs under the offsetlog root, each dir's basename its stamp. A
+	 * reader with no checkpoint yet has no dir, so the readers count as well
+	 * as the disk.
 	 *
 	 * @return array<string,true>
 	 */
-	private function claimed_glob_kinds(): array {
-		$stamps = \array_keys( $this->readers() );
-		foreach ( \glob( "{$this->offsetlog_root}/*", \GLOB_ONLYDIR ) ?: [] as $dir ) {
-			$kind = \basename( $dir );
-			if ( Log_Discovery::is_reader_stamp( $kind ) ) {
-				$this->print_less_often( 'skipping a dir under the offsetlog root no stamp folds to: ', $kind );
-				continue;
-			}
-			$stamps[] = Log_Discovery::stamp_of( $kind );
-		}
-		$kinds = [];
+	private function claimed_glob_stamps(): array {
+		$stamps = [ ...\array_keys( $this->readers() ), ...\array_map( '\basename', \glob( "{$this->offsetlog_root}/*", \GLOB_ONLYDIR ) ?: [] ) ];
+		$claimed = [];
 		foreach ( $stamps as $stamp ) {
 			$pair = $this->pair_for( $stamp );
 			if ( null !== $pair && Log_Discovery::is_glob( $pair['source'] ) ) {
-				$kinds[ Log_Discovery::kind_of( $stamp ) ] = true;
+				$claimed[ $stamp ] = true;
 			}
 		}
-		return $kinds;
+		return $claimed;
 	}
 
 	/**
 	 * A reader's tokens: its stamp, then its offsetlog and dead-letter dirs,
-	 * each nested under the broker's root at the stamp's kind.
+	 * each nested under the broker's root at the stamp itself.
 	 *
 	 * @param string $stamp A record's stamp.
 	 * @return list<string>
 	 */
 	private function reader_args( string $stamp ): array {
-		$kind = Log_Discovery::kind_of( $stamp );
-		return [ $stamp, "{$this->offsetlog_root}/{$kind}", "{$this->deadletter_root}/{$kind}" ];
+		return [ $stamp, "{$this->offsetlog_root}/{$stamp}", "{$this->deadletter_root}/{$stamp}" ];
 	}
 
 	/**
@@ -707,32 +710,31 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 * @return array{0:string,1:string} The SOURCE, then the READER.
 	 */
 	public function probe_names( string $stamp ): array {
-		$kind   = Log_Discovery::kind_of( $stamp );
 		$reader = null === $this->bound_topology || null === $this->bound_partition
 			? ''
-			: self::reader_id( $this->bound_topology, $this->name, $kind, $this->bound_partition );
+			: self::reader_id( $this->bound_topology, $this->name, $stamp, $this->bound_partition );
 		return [ Log_Discovery::remote_for( $this->vault_id, $stamp ), $reader ];
 	}
 
 	/**
 	 * The id a broker's reader reports under on the probe log: its node name,
-	 * `<broker>:<kind>`, scoped by the topology and spelled as a worker id at
+	 * `<broker>:<stamp>`, scoped by the topology and spelled as a worker id at
 	 * the worker partition the broker runs in, as a stock Consumer's offsetlog
 	 * basename `<topology>.<log>.p{partition}` is. Two spokes' `firehose.p0`
 	 * readers then key apart, `CLI::consumer_rows()` reads the partition back
 	 * through `CLI::parse_worker_id()`, and a stale row of an active topology
 	 * keeps its place. Public because `Aggregator_CI` matches the rows of each
-	 * broker it reports through it, with the kind `Log_Discovery::remote_of()`
+	 * broker it reports through it, with the stamp `Log_Discovery::remote_of()`
 	 * reads off the row's SOURCE; the Workers dashboard's
 	 * `reconstructWorkers()` composes it the same way.
 	 *
 	 * @param string $topology  The topology the broker runs in.
 	 * @param string $broker    The broker's name.
-	 * @param string $kind      The reader's kind, `Log_Discovery::kind_of()` of its stamp.
+	 * @param string $stamp     The reader's stamp.
 	 * @param int    $partition The worker partition the broker runs in.
 	 */
-	public static function reader_id( string $topology, string $broker, string $kind, int $partition ): string {
-		return CLI::worker_id( "{$topology}." . self::sibling_name_of( $broker, $kind ), $partition );
+	public static function reader_id( string $topology, string $broker, string $stamp, int $partition ): string {
+		return CLI::worker_id( "{$topology}." . self::sibling_name_of( $broker, $stamp ), $partition );
 	}
 
 	/**
@@ -813,10 +815,11 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	}
 
 	/**
-	 * Read one `<source>:<target>` token on its FIRST colon: a source never
-	 * carries one (a partition dir or `sources/<name>`), a target may
-	 * (`php-errors:partition`). A source no spoke could stream is refused
-	 * here, at configuration, rather than failing quietly on every connect.
+	 * Read one `<source>=<target>` token on its FIRST `=`: neither a stamp nor
+	 * a `<ns:key>` token carries one, while both a source (`sources:php`) and
+	 * a target (`php-errors:partition`) may carry `:`. A source no spoke could
+	 * stream is refused here, at configuration, rather than failing quietly
+	 * on every connect.
 	 *
 	 * @param string $token One pair token.
 	 * @return array{source:string,target:string}
@@ -835,21 +838,16 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 * @param string $target The target half.
 	 * @param string $token  The token the halves came from.
 	 * @return array{source:string,target:string}
-	 * @throws \InvalidArgumentException When the token is a broker reader's stamp, either half is empty, or the source is no subscription.
+	 * @throws \InvalidArgumentException When either half is empty, or the source is no subscription.
 	 */
 	private static function checked_pair( string $source, string $target, string $token ): array {
-		// Cut at its first colon, a reader stamp would read as its bare group.
-		if ( Log_Discovery::is_reader_stamp( $token ) ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-			throw new \InvalidArgumentException( self::refusal_prefix() . "a pair's source is no broker reader's stamp, which names a dir and no stream: '{$token}'" );
-		}
 		if ( '' === $source || '' === $target ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-			throw new \InvalidArgumentException( self::refusal_prefix() . "a pair is <source>:<target>, got '{$token}'" );
+			throw new \InvalidArgumentException( self::refusal_prefix() . "a pair is <source>=<target>, got '{$token}'" );
 		}
 		// An exact source is the stamp of the one stream it carries.
 		$glob = Log_Discovery::is_glob( $source );
-		if ( ! ( $glob ? Log_Discovery::is_subscription( $source ) : Log_Discovery::is_stamp( $source ) ) ) {
+		if ( ! ( $glob ? Log_Discovery::is_subscription( $source ) : Log_Discovery::fits_a_dir_name( $source ) ) ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
 			throw new \InvalidArgumentException( self::refusal_prefix() . "pair names a source no spoke can stream: '{$token}'" );
 		}
@@ -867,7 +865,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 * @param string $stamp A record's stamp.
 	 */
 	private static function is_reserved( string $stamp ): bool {
-		return \in_array( Log_Discovery::kind_of( $stamp ), self::RESERVED_KINDS, true );
+		return \in_array( $stamp, self::RESERVED_KINDS, true );
 	}
 
 	/** A pair refusal's opening: the shell name of the broker class refusing it. */
@@ -876,28 +874,18 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	}
 
 	/**
-	 * Split a token at its first colon outside `<…>`, so a `<ns:key>` config
-	 * token in the source stays whole. A token with no such colon is all
-	 * source; this validates nothing, as `parse_pair()` does.
+	 * Split a token at its first `=`; a token with none is all source. This
+	 * validates nothing, as `parse_pair()` does.
 	 *
 	 * @param string $token One pair token.
 	 * @return array{source:string,target:string}
 	 */
 	public static function split_pair( string $token ): array {
-		$depth = 0;
-		foreach ( \str_split( $token ) as $at => $char ) {
-			if ( '<' === $char ) {
-				++$depth;
-			} elseif ( '>' === $char && $depth > 0 ) {
-				--$depth;
-			} elseif ( ':' === $char && 0 === $depth ) {
-				return [
-					'source' => \substr( $token, 0, $at ),
-					'target' => \substr( $token, $at + 1 ),
-				];
-			}
-		}
-		return [ 'source' => $token, 'target' => '' ];
+		[ $source, $target ] = \explode( '=', $token, 2 ) + [ 1 => '' ];
+		return [
+			'source' => $source,
+			'target' => $target,
+		];
 	}
 
 	/**
@@ -1038,12 +1026,12 @@ abstract class Remote_Broker_Node extends Timer_Node {
 			'category'     => 'Hidden',
 			// Each pair names its destination, so Node refuses connect_node.
 			'has_target'   => false,
-			'description'  => 'Broker base: one spoke\'s command channel and a durable reader per `source:target` pair.',
+			'description'  => 'Broker base: one spoke\'s command channel and a durable reader per `source=target` pair.',
 			'arguments'    => [
 				[ 'name' => 'vault_id',        'type' => 'vault_id', 'required' => true, 'description' => 'Which spoke to connect to — a Vault-registered server (URL + credentials).' ],
-				[ 'name' => 'offsetlog_root',  'type' => 'string',   'required' => true, 'partition' => 'bound', 'description' => 'Directory each reader\'s durable read-cursor offsetlog nests under, at <root>/<kind>. Carry `<topology>` so two fleets pulling one spoke keep separate cursors.' ],
-				[ 'name' => 'deadletter_root', 'type' => 'string',   'required' => true, 'partition' => 'bound', 'description' => 'Directory each reader\'s quarantined poison records nest under, at <root>/<kind>.' ],
-				[ 'name' => 'pairs', 'type' => 'string', 'required' => true, 'variadic' => true, 'description' => '`<source>:<target>` pairs: a spoke partition, glob or `sources/<name>`, then the node its lines go to.' ],
+				[ 'name' => 'offsetlog_root',  'type' => 'string',   'required' => true, 'partition' => 'bound', 'description' => 'Directory each reader\'s durable read-cursor offsetlog nests under, at <root>/<stamp>. Carry `<topology>` so two fleets pulling one spoke keep separate cursors.' ],
+				[ 'name' => 'deadletter_root', 'type' => 'string',   'required' => true, 'partition' => 'bound', 'description' => 'Directory each reader\'s quarantined poison records nest under, at <root>/<stamp>.' ],
+				[ 'name' => 'pairs', 'type' => 'string', 'required' => true, 'variadic' => true, 'description' => '`<source>=<target>` pairs: a spoke partition, glob or `sources:<name>`, then the node its lines go to.' ],
 			],
 			'commands'     => [
 				[

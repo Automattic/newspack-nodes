@@ -25,7 +25,7 @@ h2 { font-size:15px; margin:0 0 8px; }
 </style>
 <div class="sheet">
 <h1>A log source is a registry name, never a path</h1>
-<p class="sub">A <span class="mono">sources/&lt;name&gt;</span> subscription on <span class="mono">/messages/stream</span> and the <span class="mono">raw-logs</span> verbs read the same <span class="mono">Log_Sources</span> registry, so a caller has no traversal surface. Three families merge in priority order, each entry carries one of two tail modes, and one read model answers the single-step reader.</p>
+<p class="sub">A <span class="mono">sources:&lt;name&gt;</span> subscription on <span class="mono">/messages/stream</span> and the <span class="mono">raw-logs</span> verbs read the same <span class="mono">Log_Sources</span> registry, so a caller has no traversal surface. Three families merge in priority order, each entry carries one of two tail modes, and one read model answers the single-step reader.</p>
 
 <h2>The registry: first name wins, then a realpath dedupe keeps the first</h2>
 <div class="fam">
@@ -36,11 +36,11 @@ h2 { font-size:15px; margin:0 0 8px; }
 
 <div class="arrowrow">▼ &nbsp; <b><span class="mono">raw-logs list_logs</span></b> lists every source after the partition dirs, one picker row each &nbsp; ▼</div>
 <div class="entry">
-  <div><b>key</b><span class="mono">sources/&lt;name&gt;</span>, the stamp a caller subscribes by</div>
+  <div><b>key</b><span class="mono">sources:&lt;name&gt;</span>, the stamp a caller subscribes by</div>
   <div><b>label</b>the registry name</div>
   <div><b>available</b>a Tail would find bytes there now; a source that will not list takes <span class="mono">false</span> and an <span class="mono">error</span></div>
 </div>
-<div class="arrowrow">▼ &nbsp; <b><span class="mono">raw-logs dump_log sources/&lt;name&gt;</span></b> sizes one, the rail a reader browses &nbsp; ▼</div>
+<div class="arrowrow">▼ &nbsp; <b><span class="mono">raw-logs dump_log sources:&lt;name&gt;</span></b> sizes one, the rail a reader browses &nbsp; ▼</div>
 <div class="entry">
   <div><b>segments</b>a segmented source's sorted <span class="mono">{ id, size }</span> list; a file's one segment, its inode at its size, none while absent or unreadable: the replay's catch-up boundary</div>
   <div><b>total_size</b>the segments' summed bytes</div>
@@ -55,7 +55,7 @@ h2 { font-size:15px; margin:0 0 8px; }
 <div class="two">
   <div class="card">
     <h2>One read model</h2>
-    <p><span class="mono">raw-logs read_message &lt;log&gt; &lt;position&gt;</span> runs <span class="mono">Log_Sources::read()</span>, over a partition dir or a <span class="mono">sources/&lt;name&gt;</span> source, and answers:</p>
+    <p><span class="mono">raw-logs read_message &lt;log&gt; &lt;position&gt;</span> runs <span class="mono">Log_Sources::read()</span>, over a partition dir or a <span class="mono">sources:&lt;name&gt;</span> source, and answers:</p>
     <div class="struct">{ <span class="k">source</span>, <span class="k">message</span>, <span class="k">cursor</span>: { <span class="k">segment</span>, <span class="k">offset</span> }, <span class="k">at_eof</span> }<br><span class="c">// message: the packed 7-field Message, or null</span><br><span class="c">// cursor: the POST-step position, where the next step resumes</span></div>
     <p><span class="mono">raw-logs read_block &lt;log&gt; &lt;position&gt;</span> runs <span class="mono">Log_Sources::read_block()</span> over the same logs and sends the asker one raw block: a <span class="mono">TM_INFO|TM_BATCH</span> header, <span class="mono">OFFSET DISTANCE ASKED [RESET 1]</span>, then a <span class="mono">TM_BATCH</span> of up to 1 MiB of the log's bytes from the position, mid-line included, for the asker to split.</p>
     <p>A position is <span class="mono">&lt;segment&gt;:&lt;offset&gt;</span> with an optional <span class="mono">:&lt;length&gt;</span> that is tolerated and IGNORED, the reader knowing the record's real length, a file source's segment-less <span class="mono">:&lt;offset&gt;</span>, or one of <span class="mono">start</span>, <span class="mono">recent</span> and <span class="mono">end</span> (<span class="mono">Log_Sources::MAGIC_POSITIONS</span>, aliasing <span class="mono">Consumer_Node::SEEK_*</span>). The reader arrives already armed, so <span class="mono">read()</span> sinks its own <span class="mono">Callback_Node</span> and removes it in a <span class="mono">finally</span> on every exit; a reader left armed with no sink fires forever inside the worker's drain loop.</p>

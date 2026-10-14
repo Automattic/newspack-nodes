@@ -13,12 +13,12 @@
 #   make_node Remote_Source spokes:<id> <vault-id> \
 #       <config:offsets_dir>/<topology>.<id> \
 #       <config:deadletter_dir>/<topology>.<id> \
-#       firehose.p{partition}:remote-job-rewrite sources/php:php-errors:partition
+#       firehose.p{partition}=remote-job-rewrite sources:php=php-errors:partition
 #
-# Each trailing <source>:<target> pair names a stream to pull and the node it
+# Each trailing <source>=<target> pair names a stream to pull and the node it
 # feeds; the broker draws an edge to each target. The two roots are ARGUMENTS:
 # every reader the broker builds nests its offsetlog and dead letters below
-# them, as <root>/<kind>. Scope the cursor with `<topology>`: an offsetlog is a
+# them, as <root>/<stamp>. Scope the cursor with `<topology>`: an offsetlog is a
 # reader's cursor and the reader is the FLEET, so two hubs pulling one spoke
 # must not share one.
 #

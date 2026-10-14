@@ -253,9 +253,13 @@ class Node {
 	 * out-of-process source and this becomes TOCTOU and the unwind returns.
 	 *
 	 * @param string $name Name the node is about to take.
-	 * @throws \RuntimeException When the node's or a sibling's slot is taken.
+	 * @throws \RuntimeException When the node's or a sibling's slot is taken,
+	 *                           or either name holds the Router's `/`.
 	 */
 	protected function check_name_availability( string $name ): void {
+		if ( \str_contains( $name, '/' ) ) {
+			throw new \RuntimeException( \esc_html( "node name {$name} holds a /, which the Router reads as a path separator" ) );
+		}
 		$deferred = $this->siblings[ self::CONFIG_KIND ] ?? null;
 		foreach ( $this->siblings as $kind => $sibling ) {
 			if ( $sibling !== $deferred ) {

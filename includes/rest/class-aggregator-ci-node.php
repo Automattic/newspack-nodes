@@ -145,7 +145,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	 * probe tail for every row. A row is a broker's reader when its SOURCE
 	 * names a remote log (`Log_Discovery::remote_of()`) on the broker's spoke
 	 * and its READER is the id `Remote_Broker_Node::reader_id()` gives that
-	 * kind under the broker in the row's worker partition. Each row's SOURCE
+	 * stamp under the broker in the row's worker partition. Each row's SOURCE
 	 * is read once and filed under its spoke's Vault id, so a broker weighs
 	 * only its own spoke's rows. Each reader answers its `stamp`, its worker
 	 * `partition`, its `cursor` in `Log_Position`'s grammar, and its
@@ -161,16 +161,16 @@ class Aggregator_CI_Node extends Service_CI_Node {
 		foreach ( self::probed_rows() as $row ) {
 			$remote = Log_Discovery::remote_of( $row['source'] );
 			if ( null !== $remote ) {
-				$by_vault[ $remote['vault_id'] ][] = [ $row, $remote['kind'] ];
+				$by_vault[ $remote['vault_id'] ][] = [ $row, $remote['stamp'] ];
 			}
 		}
 		$rows = [];
 		foreach ( $servers as $server ) {
 			$readers = [];
-			foreach ( $by_vault[ $server['vault_id'] ] ?? [] as [ $row, $kind ] ) {
-				if ( Remote_Broker_Node::reader_id( $server['topology'], $server['id'], $kind, $row['partition'] ) === $row['reader'] ) {
+			foreach ( $by_vault[ $server['vault_id'] ] ?? [] as [ $row, $stamp ] ) {
+				if ( Remote_Broker_Node::reader_id( $server['topology'], $server['id'], $stamp, $row['partition'] ) === $row['reader'] ) {
 					$readers[] = [
-						'stamp'     => Log_Discovery::stamp_of( $kind ),
+						'stamp'     => $stamp,
 						'partition' => $row['partition'],
 						'cursor'    => Log_Position::format( $row['cursor_segment'], $row['cursor_offset'], null ),
 						'distance'  => $row['distance'],

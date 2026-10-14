@@ -1,14 +1,17 @@
 [
   ["a bare log stamp", "jobstats.p0", "jobstats.p0"],
   ["a bare stamp before a worker trail", "jobstats.p0/job-worker.p2/jobstats", "jobstats.p0"],
-  ["an offsets stamp keeps its group", "offsets/kea-7713.p3/job-worker.p2/jobstats", "offsets/kea-7713.p3"],
-  ["a deadletter stamp keeps its group", "deadletter/kea-7713.p3/tablestats", "deadletter/kea-7713.p3"],
-  ["a FROM opening with a group name takes its second segment", "logs/kea-7713.p3/jobstats", "logs/kea-7713.p3"],
-  ["a group with no dir after it", "offsets/", "offsets"],
+  ["an offsets stamp is one segment", "offsets:kea-7713.p3/job-worker.p2/jobstats", "offsets:kea-7713.p3"],
+  ["a deadletter stamp is one segment", "deadletter:kea-7713.p3/tablestats", "deadletter:kea-7713.p3"],
+  ["a slash after a group name ends the stamp", "offsets/kea-7713.p3/jobstats", "offsets"],
   ["a group alone", "deadletter", "deadletter"],
   ["an empty FROM", "", ""],
-  ["a sources stamp keeps its prefix", "sources/php/php-errors:tail", "sources/php"],
-  ["a bare sources stamp", "sources/php", "sources/php"],
+  ["a sources stamp is one segment", "sources:php/php-errors:tail", "sources:php"],
+  ["a bare sources stamp", "sources:php", "sources:php"],
   ["a broker reader's stamp is one segment", "offsets:hub.tucson-41:firehose.p3/hub-7.p0/firehose.p3", "offsets:hub.tucson-41:firehose.p3"],
-  ["a reader stamp of a colon kind is one segment", "deadletter:hub.coast-73:sources:php/php-errors:tail", "deadletter:hub.coast-73:sources:php"]
+  ["a reader stamp of a colon stamp is one segment", "deadletter:hub.coast-73:sources:php/php-errors:tail", "deadletter:hub.coast-73:sources:php"],
+  ["a session head reads whole, and no stamp", "_sse:kea-4417/_output", "_sse:kea-4417"],
+  ["a trail of colon-named nodes is trail", "firehose.p0/spokes:tw0:firehose.p0/requests:consumer", "firehose.p0"],
+  ["a node named like a stamp is trail", "offsets:kea-7713.p3/offsets:hub-9:firehose.p0/sources:php", "offsets:kea-7713.p3"],
+  ["a cli reply head is trail", "jobstats.p0/_output/_cli:4471/_output", "jobstats.p0"]
 ]

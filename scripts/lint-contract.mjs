@@ -212,13 +212,13 @@ const RULES = [
 		lang: 'php',
 		test: new RegExp(
 			[
-				/SOURCES_PREFIX\s*\.\s*['"]\//,
+				/SOURCES_PREFIX\s*\.\s*['"]:/,
 				/str_starts_with\s*\([^;]*SOURCES_PREFIX/,
 				/Log_Discovery::(?:GROUPS|STAMP_PREFIXES)\b/,
 				/'logs'\s*[!=]==\s*\$group\b/,
 				/\$group\s*[!=]==\s*['"](?:logs|offsets|deadletter|sources)['"]/,
 				/['"]sources['"]\s*[!=]==|[!=]==\s*['"]sources['"]/,
-				/explode\(\s*['"]\/['"]\s*,\s*\$(?:stamp|sub|subscription)\b/,
+				/explode\(\s*['"][:/]['"]\s*,\s*\$(?:stamp|sub|subscription)\b/,
 				/\{\$group\}\//,
 				/['"](?:sources|offsets|deadletter|remote)\//,
 				/\}\/(?:logs|offsets|deadletter)['"/]|['"]\/(?:logs|offsets|deadletter)['"]/,

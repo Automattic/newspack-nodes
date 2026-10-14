@@ -505,9 +505,8 @@ class SSE_Out_Node extends Node {
 					$glob_subs[] = $sub['sub'];
 				}
 				// Positions are a FLAT { stamp: pos } map; pass it whole.
-				foreach ( $this->open_resolved( $sub, $positions ) as $c ) {
-					$name = $c->stamped_as();
-					$this->attach_consumer( $c, $consumers, $default_route );
+				foreach ( $this->open_resolved( $sub, $positions ) as $name => $c ) {
+					$this->attach_consumer( $name, $c, $consumers, $default_route );
 					if ( $sub['glob'] && isset( $consumers[ $name ] ) ) {
 						$glob_owned[ $name ] = true;
 					}
@@ -776,7 +775,7 @@ class SSE_Out_Node extends Node {
 	 * @param string                      $sub       Subscription name or glob.
 	 * @param array<array-key,mixed>|null $positions Saved positions, keyed by stamp.
 	 *
-	 * @return list<Consumer_Node> One reader per matched dir, unattached.
+	 * @return array<string,Consumer_Node> One reader per matched dir, unattached, keyed by stamp.
 	 *
 	 * @throws \InvalidArgumentException What resolving it throws.
 	 */
@@ -787,7 +786,7 @@ class SSE_Out_Node extends Node {
 	/**
 	 * Resolve one subscription to what it opens, through ADR-29's resolvers.
 	 *
-	 * It branches on `Log_Discovery::split()`, once. A `sources/<name>` sub is
+	 * It branches on `Log_Discovery::split()`, once. A `sources:<name>` sub is
 	 * that registry entry, read once through `Log_Sources::entry()`; the
 	 * registry is fixed for the stream's life, so it takes no glob. A bare sub
 	 * `CLI::parse_worker_id()` reads as a worker, whatever its case, is that
@@ -833,9 +832,9 @@ class SSE_Out_Node extends Node {
 	/**
 	 * Open the readers a resolved subscription names, layout-agnostically: a
 	 * registry entry's Tail through `Log_Sources::open_tail()`, a worker's
-	 * IPC channel, or one Consumer per dir, stamped by its stamp. Each reader
-	 * resumes keyed by its stamp, so a reconnecting console keeps the replies
-	 * written while it was away.
+	 * IPC channel, or one Consumer per dir, keyed by its stamp, which
+	 * `attach_consumer()` names it. Each reader resumes keyed by its stamp, so
+	 * a reconnecting console keeps the replies written while it was away.
 	 *
 	 * A matching `$positions` entry seeds that reader's cursor and an absent
 	 * one tail-seeks. An exact subscription whose `$positions` entry is
@@ -845,7 +844,7 @@ class SSE_Out_Node extends Node {
 	 * @param Resolved_Sub                $sub       What `resolve_subscription()` answered.
 	 * @param array<array-key,mixed>|null $positions Saved positions, keyed by stamp.
 	 *
-	 * @return list<Consumer_Node> One reader per matched dir, unattached.
+	 * @return array<string,Consumer_Node> One reader per matched dir, unattached, keyed by stamp.
 	 */
 	private function open_resolved( array $sub, ?array $positions ): array {
 		$stamp = $sub['sub'];
@@ -855,20 +854,18 @@ class SSE_Out_Node extends Node {
 		if ( null !== $sub['source'] ) {
 			$reader = Log_Sources::open_tail( $sub['source'] );
 			$reader->set_raw_blocks( true );
-			$reader->set_stamp_as( $stamp );
 			$reader->next_offset( self::position_arg( $positions, $stamp ) );
-			return [ $reader ];
+			return [ $stamp => $reader ];
 		}
 		if ( null !== $sub['ipc'] ) {
 			$this->is_interactive = true;
 			$consumer             = Consumer_Node::scan( $sub['ipc'] );
 			$consumer->next_offset( self::position_arg( $positions, $stamp ) );
-			$consumer->set_stamp_as( $stamp );
-			return [ $consumer ];
+			return [ $stamp => $consumer ];
 		}
 		$consumers = [];
 		foreach ( self::unskipped( $sub['dirs'], $positions ) ?? [] as $name => $dir ) {
-			$consumers[] = $this->log_consumer_for( $dir, $name, $positions );
+			$consumers[ $name ] = $this->log_consumer_for( $dir, $name, $positions );
 		}
 		return $consumers;
 	}
@@ -907,7 +904,7 @@ class SSE_Out_Node extends Node {
 		}
 		foreach ( $wanted as $name => $dir ) {
 			if ( ! isset( $consumers[ $name ] ) ) {
-				$this->attach_consumer( $this->log_consumer_for( $dir, $name, null ), $consumers, $route );
+				$this->attach_consumer( $name, $this->log_consumer_for( $dir, $name, null ), $consumers, $route );
 				if ( isset( $consumers[ $name ] ) ) {
 					$glob_owned[ $name ] = true;
 				}
@@ -941,9 +938,9 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Build a Consumer tailing one concrete log-partition dir, stamped and
-	 * resume-keyed by `$name` — the same stamp the browser reads back out of
-	 * each message's FROM.
+	 * Build a Consumer tailing one concrete log-partition dir, resume-keyed by
+	 * `$name`, the stamp it is named on attach and the browser reads back out
+	 * of each message's FROM.
 	 *
 	 * @param string                      $dir       Absolute path of the partition dir.
 	 * @param string                      $name      The stamp this reader carries.
@@ -956,7 +953,6 @@ class SSE_Out_Node extends Node {
 		$consumer->set_raw_blocks( true );
 		$consumer->set_multi_writer( $this->multi_writer );
 		$consumer->next_offset( self::position_arg( $positions, $name ) );
-		$consumer->set_stamp_as( $name );
 		return $consumer;
 	}
 
@@ -996,18 +992,18 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Name a Consumer after the stamp it carries, wire it into the SSE graph,
-	 * and record it in the live map. A stamp already open is skipped, so two
-	 * subscriptions matching the same dir yield one reader, and an unstamped
-	 * Consumer is refused rather than registered under an empty name.
+	 * Name a Consumer its stamp, one FROM segment it stamps by the ordinary
+	 * rule, wire it into the SSE graph, and record it in the live map. A stamp
+	 * already open is skipped, so two subscriptions matching the same dir
+	 * yield one reader.
 	 *
+	 * @param string                      $name      The stamp it carries.
 	 * @param Consumer_Node               $c         The reader to attach.
 	 * @param array<string,Consumer_Node> $consumers Live map keyed by stamp, mutated in place.
 	 * @param Node                        $route     The `_default_route` it sinks into.
 	 */
-	private function attach_consumer( Consumer_Node $c, array &$consumers, Node $route ): void {
-		$name = $c->stamped_as();
-		if ( '' === $name || isset( $consumers[ $name ] ) ) {
+	private function attach_consumer( string $name, Consumer_Node $c, array &$consumers, Node $route ): void {
+		if ( isset( $consumers[ $name ] ) ) {
 			return;
 		}
 		$c->patron( $this );

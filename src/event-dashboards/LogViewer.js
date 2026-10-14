@@ -1,7 +1,7 @@
 /**
  * Log Viewer Component — the DOM-rendered live stream of one log at a time:
  * a partition dir under `logs`, `offsets` or `deadletter`, or a registry file
- * streamed as `sources/<name>`.
+ * streamed as `sources:<name>`.
  *
  * A THIN view over the `log-viewer:*` node graph (mounted by
  * `useLogViewerGraph`): `log-viewer:stream` rides the page's one SSE link and

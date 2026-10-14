@@ -1,69 +1,30 @@
 /**
- * log-stamp — the one JS reader of the stamp a log frame's FROM opens with,
- * the twin of PHP `Log_Discovery::dir_from_stamp()`, held to it by
- * `tests/fixtures/log-stamps.json`.
+ * log-stamp — the JS readers of a log stamp and a broker pair, each the twin
+ * of a `Log_Discovery` or `Remote_Broker_Node` reader and held to it by a
+ * shared fixture.
  *
- * `Log_Discovery::stamp_for()` writes a `logs` dir bare and an `offsets` or
- * `deadletter` dir as `{group}/{dir}`, a registry source is `sources/{name}`,
- * and a log dir named like any of those prefixes is refused, so a stamp
- * opening with one always takes a second segment. A broker reader's dir is
- * one segment, `{group}:{root}:{kind}` (`readerParts()`). It also reads the
- * broker grammar beside the stamp: a `<stamp>:<target>` pair (`splitPair()`).
+ * `Log_Discovery::stamp_for()` writes a `logs` dir bare, an `offsets` or
+ * `deadletter` dir as `{group}:{dir}`, a broker reader's dir as
+ * `{group}:{root}:{stamp}`, and a registry source as `sources:{name}`, so a
+ * stamp is always one `/` segment. A pair is `<stamp>=<target>`
+ * (`splitPair()`).
  */
 
-/** `Log_Discovery::SOURCES_PREFIX`: a registry source's stamp is `sources/<name>`. */
-const SOURCES_PREFIX = 'sources';
-
-/** `Log_Discovery::REMOTE_PREFIX`: a spoke's log is `remote/<vault_id>:<kind>`. */
+/** `Log_Discovery::REMOTE_PREFIX`: a spoke's log is `remote:<vault_id>:<stamp>`. */
 const REMOTE_PREFIX = 'remote';
 
-/** `Log_Discovery::READER_GROUPS`, the roots a broker nests its readers under. */
-const READER_GROUPS = new Set( [ 'offsets', 'deadletter' ] );
-
-/** `Log_Discovery::STAMP_PREFIXES`, the names no bare stamp may be. */
-const STAMP_PREFIXES = new Set( [ 'logs', ...READER_GROUPS, SOURCES_PREFIX ] );
-
 /**
- * Split a FROM into the reader stamp and the segments after it.
+ * Split a streamed record's FROM into its stamp and the trail after it. The
+ * stamp is the first segment by position alone: every segment after it is a
+ * node name, which may hold `:` and look like a stamp.
  *
- * @param {?string} from A frame's FROM, stamp first.
- * @return {{dir:string,rest:Array<string>}} The stamp, `{group}/{dir}` or
- *   `{dir}`, and the remaining path segments.
+ * @param {?string} from A frame's FROM as it arrived, stamp first.
+ * @return {{dir:string,rest:Array<string>}} The stamp, and the remaining
+ *   path segments.
  */
 export function splitStamp( from ) {
-	const parts = String( from ?? '' ).split( '/' );
-	const width = STAMP_PREFIXES.has( parts[ 0 ] ) && parts[ 1 ] ? 2 : 1;
-	return {
-		dir: parts.slice( 0, width ).join( '/' ),
-		rest: parts.slice( width ),
-	};
-}
-
-/**
- * A broker reader's stamp cut at its first two colons, the twin of PHP
- * `Log_Discovery::reader_parts()`, held to it by
- * `tests/fixtures/reader-stamps.json`: its group, root and kind when the group
- * is one of `READER_GROUPS` and the root holds no `/`, else null for any other
- * string. It judges no name. No kind folds out of a reader stamp, no glob
- * carries one, and a pair refuses one as its source.
- *
- * @param {string} candidate A stamp, a kind or a pair token.
- * @return {?Array<string>} The group, the root and the kind.
- */
-export function readerParts( candidate ) {
-	const first = candidate.indexOf( ':' );
-	const second = candidate.indexOf( ':', first + 1 );
-	if ( -1 === first || -1 === second ) {
-		return null;
-	}
-	const parts = [
-		candidate.slice( 0, first ),
-		candidate.slice( first + 1, second ),
-		candidate.slice( second + 1 ),
-	];
-	return READER_GROUPS.has( parts[ 0 ] ) && ! parts[ 1 ].includes( '/' )
-		? parts
-		: null;
+	const [ dir, ...rest ] = String( from ?? '' ).split( '/' );
+	return { dir, rest };
 }
 
 /**
@@ -82,9 +43,9 @@ const GLOBS = new Map();
 
 /**
  * Whether a subscription brings records stamped `stamp`: its own name
- * exactly, or a glob whose `*` matches within one path segment, never a
- * broker reader's stamp, which is one segment no glob names. Every other
- * character is literal, as in PHP `Log_Discovery::carries()`, which
+ * exactly, or a glob whose `*` matches within one stamp part, so no glob
+ * carries a broker reader's stamp. Every other character is literal, as in
+ * PHP `Log_Discovery::carries()`, which
  * `tests/fixtures/subscription-carries.json` holds it to.
  *
  * @param {string} sub   A subscription, as `subscribe` lists it.
@@ -95,15 +56,12 @@ function carries( sub, stamp ) {
 	if ( ! isGlob( sub ) ) {
 		return sub === stamp;
 	}
-	if ( readerParts( stamp ) ) {
-		return false;
-	}
 	let glob = GLOBS.get( sub );
 	if ( ! glob ) {
 		const pattern = sub
 			.split( '*' )
 			.map( ( part ) => part.replace( /[.+?^${}()|[\]\\]/g, '\\$&' ) )
-			.join( '[^/]*' );
+			.join( '[^/:]*' );
 		glob = new RegExp( `^${ pattern }$` );
 		GLOBS.set( sub, glob );
 	}
@@ -122,70 +80,36 @@ export function anyCarries( subscribe, stamp ) {
 }
 
 /**
- * The spoke and the kind a remote log's name carries, the twin of PHP
+ * The spoke and the stamp a remote log's name carries, the twin of PHP
  * `Log_Discovery::remote_of()`, held to it by `tests/fixtures/log-remotes.json`;
  * null for any name `remote_for()` did not write, a local stamp included.
  *
  * @param {?string} name A probe record's SOURCE.
- * @return {?{vaultId:string,kind:string}} The spoke's Vault id and the log's kind.
+ * @return {?{vaultId:string,stamp:string}} The spoke's Vault id and its stamp.
  */
 export function remoteOf( name ) {
-	const prefix = `${ REMOTE_PREFIX }/`;
-	const rest = String( name ?? '' );
-	if ( ! rest.startsWith( prefix ) || rest.includes( '/', prefix.length ) ) {
-		return null;
-	}
-	const colon = rest.indexOf( ':', prefix.length );
-	const vaultId = rest.slice( prefix.length, colon );
-	const kind = rest.slice( colon + 1 );
-	return -1 === colon || '' === vaultId || '' === kind
+	const text = String( name ?? '' );
+	const [ prefix, vaultId, ...parts ] = text.split( ':' );
+	const stamp = parts.join( ':' );
+	return REMOTE_PREFIX !== prefix ||
+		! vaultId ||
+		! stamp ||
+		text.includes( '/' )
 		? null
-		: { vaultId, kind };
+		: { vaultId, stamp };
 }
 
 /**
- * The kind a stamp's reader takes, the twin of PHP `Log_Discovery::kind_of()`,
- * held to it by `tests/fixtures/log-kinds.json`: the stamp with each `/`
- * spelled `:`, because the Router splits a TO on `/`. A link names the Tee it
- * builds for a stamp `<link>:<kind>`. A broker reader's stamp names a dir no
- * stream carries, and its kind would fold back into three dirs, so it throws.
- *
- * @param {string} stamp A record's stamp.
- * @return {string} The kind.
- * @throws {Error} On a broker reader's stamp.
- */
-export function kindOf( stamp ) {
-	if ( readerParts( stamp ) ) {
-		throw new Error(
-			`a broker reader's stamp names a dir, not a kind: ${ stamp }`
-		);
-	}
-	return stamp.replaceAll( '/', ':' );
-}
-
-/**
- * Split a `<source>:<target>` pair at its first colon outside `<…>`, so a
- * `<ns:key>` token in the source stays whole; a token with no such colon is
- * all source. The twin of PHP `Remote_Broker_Node::split_pair()`, held to it
- * by `tests/fixtures/pair-split.json`; it validates nothing.
+ * Split a `<source>=<target>` pair at its first `=`; a token with none is all
+ * source. The twin of PHP `Remote_Broker_Node::split_pair()`, held to it by
+ * `tests/fixtures/pair-split.json`; it validates nothing.
  *
  * @param {string} token One pair token.
  * @return {{source:string,target:string}} The two halves.
  */
 export function splitPair( token ) {
-	let depth = 0;
-	for ( let at = 0; at < token.length; at++ ) {
-		const char = token[ at ];
-		if ( '<' === char ) {
-			depth++;
-		} else if ( '>' === char && depth > 0 ) {
-			depth--;
-		} else if ( ':' === char && 0 === depth ) {
-			return {
-				source: token.slice( 0, at ),
-				target: token.slice( at + 1 ),
-			};
-		}
-	}
-	return { source: token, target: '' };
+	const at = token.indexOf( '=' );
+	return -1 === at
+		? { source: token, target: '' }
+		: { source: token.slice( 0, at ), target: token.slice( at + 1 ) };
 }

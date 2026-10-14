@@ -55,9 +55,9 @@ class Probe_Record {
 	 * partition directory it tails (`firehose.p0`), the followed filename
 	 * for a `File_Tail` (`debug.log`), or the spoke's log a broker's reader
 	 * carries, named `Log_Discovery::remote_for()`'s way
-	 * (`remote/austin:firehose.p0`), blank when the node has no source
+	 * (`remote:austin:firehose.p0`), blank when the node has no source
 	 * configured; `CLI::relag_from_disk()` rebuilds paths from it. On a
-	 * Partition record, the log's SSE stamp (`firehose.p0`, `offsets/…`), or
+	 * Partition record, the log's SSE stamp (`firehose.p0`, `offsets:…`), or
 	 * its path under the runtime base outside the stamped roots
 	 * (`ipc/<worker-id>/output`), since a basename names many directories.
 	 */

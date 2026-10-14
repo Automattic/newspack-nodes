@@ -22,9 +22,9 @@
  * single-connection steal.
  *
  * A page's shared link carries every stream graph on the page as
- * `<stamp>:<target>` pairs, the grammar PHP `Remote_Broker_Node::parse_pair()`
+ * `<stamp>=<target>` pairs, the grammar PHP `Remote_Broker_Node::parse_pair()`
  * reads. It asks the server for the pairs' sources, and hands each record to
- * its stamp's Tee, the hidden sibling `<link>:<kind>`, whose targets are those
+ * its stamp's Tee, the hidden sibling `<link>:<stamp>`, whose targets are those
  * of every pair claiming the stamp, as `Remote_Source::route()` hands one to
  * its stamp's reader. A view pausing parks its pairs, which keep their claim
  * and their places; one leaving removes them and `forget`s their places.
@@ -44,13 +44,7 @@ import { SseInNode } from './sse-in-node';
 import { TeeNode } from './tee-node';
 import { defaultTransport } from './command-transport';
 import { TO, TYPE, TM_COMMAND, TM_ERROR, TM_RESPONSE } from './message';
-import {
-	anyCarries,
-	isGlob,
-	kindOf,
-	readerParts,
-	splitPair,
-} from './log-stamp';
+import { anyCarries, isGlob, splitPair } from './log-stamp';
 import names from './reserved-node-names.json';
 
 /** The sibling slot the link's SseIn takes, as PHP's `SSE_IN_KIND`. */
@@ -138,7 +132,7 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 		 */
 		this.onClose = null;
 		/**
-		 * The routes this link carries, as `<stamp>:<target>` tokens in the
+		 * The routes this link carries, as `<stamp>=<target>` tokens in the
 		 * order they were added. Empty for a single-target link.
 		 *
 		 * @type {string[]}
@@ -153,7 +147,7 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 		 */
 		this.parked = [];
 		/**
-		 * Each stamp's Tee, the hidden sibling `<link>:<kind>` built on the
+		 * Each stamp's Tee, the hidden sibling `<link>:<stamp>` built on the
 		 * stamp's first record, by stamp.
 		 *
 		 * @type {Map<string,TeeNode>}
@@ -265,7 +259,7 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 	}
 
 	/**
-	 * Carry `tokens`, each a `<stamp>:<target>` pair: ask the server for each
+	 * Carry `tokens`, each a `<stamp>=<target>` pair: ask the server for each
 	 * source, and route each record a pair claims to its target through the
 	 * stamp's Tee. A pair already carried is kept once. The stream reopens
 	 * once this tick's changes are in, and not at all when they change
@@ -406,28 +400,21 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 
 	/**
 	 * Read one token through `splitPair()`, refusing what PHP
-	 * `Remote_Broker_Node::parse_pair()` refuses that a link can meet: a
-	 * broker reader's stamp, which the cut at the first colon would read as
-	 * its bare group, an empty half, and a stamp whose Tee would take the
-	 * SseIn's slot.
+	 * `Remote_Broker_Node::parse_pair()` refuses that a link can meet: an
+	 * empty half, and a stamp whose Tee would take the SseIn's slot.
 	 *
 	 * @param {string} token One pair.
 	 * @return {{source:string,target:string}} Its halves.
 	 * @throws {Error} Naming the token.
 	 */
 	_checkedPair( token ) {
-		if ( readerParts( token ) ) {
-			throw new Error(
-				`RemoteLink: a pair's source is no broker reader's stamp, which names a dir and no stream: '${ token }'`
-			);
-		}
 		const pair = splitPair( token );
 		if ( '' === pair.source || '' === pair.target ) {
 			throw new Error(
-				`RemoteLink: a pair is <stamp>:<target>, got '${ token }'`
+				`RemoteLink: a pair is <stamp>=<target>, got '${ token }'`
 			);
 		}
-		if ( SSE_IN_KIND === kindOf( pair.source ) ) {
+		if ( SSE_IN_KIND === pair.source ) {
 			throw new Error(
 				`RemoteLink: a pair's Tee names the slot its SseIn holds: '${ token }'`
 			);
@@ -631,14 +618,7 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 		let tee = this.tees.get( stamp );
 		if ( ! tee ) {
 			// The reasons stay constant, so one line covers a window's drops.
-			if ( readerParts( stamp ) ) {
-				this.dropMessage(
-					message,
-					"a broker reader's stamp names a dir and no kind"
-				);
-				return true;
-			}
-			if ( SSE_IN_KIND === kindOf( stamp ) ) {
+			if ( SSE_IN_KIND === stamp ) {
 				this.dropMessage(
 					message,
 					'the stamp names the slot the SseIn holds'
@@ -668,7 +648,7 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 		if ( 0 === targets.length ) {
 			return null;
 		}
-		const tee = this._publish( kindOf( stamp ), new TeeNode() );
+		const tee = this._publish( stamp, new TeeNode() );
 		tee.target = targets;
 		this.tees.set( stamp, tee );
 		return tee;

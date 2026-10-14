@@ -8,9 +8,8 @@ use PHPUnit\Framework\TestCase;
 use Newspack_Nodes\Remote_Source_Node;
 
 /**
- * A broker's `<source>:<target>` pair splits at its first colon outside
- * `<…>`, and the console's TSL reader splits it the same way, so both read
- * one case list.
+ * A broker's `<source>=<target>` pair splits at its first `=`, and the
+ * console's TSL reader splits it the same way, so both read one case list.
  */
 final class PairSplitTest extends TestCase {
 

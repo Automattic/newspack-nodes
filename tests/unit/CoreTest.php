@@ -137,18 +137,18 @@ class CoreTest extends TestCase {
 	public function test_a_worker_owns_a_partitioned_source_and_a_fixed_one_only_on_partition_zero(): void {
 		$this->assertTrue( Core::owns( '/var/log/okapi.{partition}.log', 6 ), 'brace token on p6' );
 		$this->assertFalse( Core::owns( '/var/log/okapi.6.log', 6 ), 'a resolved name is fixed by the time the node sees it' );
-		$this->assertFalse( Core::owns( 'sources/php', 6 ) );
-		$this->assertTrue( Core::owns( 'sources/php', 0 ), 'p0 owns a fixed source' );
-		$this->assertTrue( Core::owns( 'sources/php', null ), 'so does a process bound to none' );
+		$this->assertFalse( Core::owns( 'sources:php', 6 ) );
+		$this->assertTrue( Core::owns( 'sources:php', 0 ), 'p0 owns a fixed source' );
+		$this->assertTrue( Core::owns( 'sources:php', null ), 'so does a process bound to none' );
 	}
 
 	/** Ownership judges the partition its caller names, not the one a worker bound. */
 	public function test_ownership_judges_the_partition_named_not_the_bound_one(): void {
 		try {
 			Core::$var['partition'] = '0';
-			$this->assertFalse( Core::owns( 'sources/php', 3 ), 'p3 of a fleet owns no fixed source, wherever it is asked' );
+			$this->assertFalse( Core::owns( 'sources:php', 3 ), 'p3 of a fleet owns no fixed source, wherever it is asked' );
 			Core::$var['partition'] = '5';
-			$this->assertTrue( Core::owns( 'sources/php', 0 ) );
+			$this->assertTrue( Core::owns( 'sources:php', 0 ) );
 		} finally {
 			unset( Core::$var['partition'] );
 		}
@@ -193,7 +193,7 @@ class CoreTest extends TestCase {
 	public function test_a_partition_token_is_found_in_its_one_spelling(): void {
 		$this->assertTrue( Core::has_partition_token( 'firehose.p{partition}' ) );
 		$this->assertFalse( Core::has_partition_token( 'firehose.p4' ) );
-		$this->assertFalse( Core::has_partition_token( 'sources/php' ) );
+		$this->assertFalse( Core::has_partition_token( 'sources:php' ) );
 	}
 
 	public function test_coercion_helpers_take_an_optional_default_for_the_miss_case(): void {

@@ -87,7 +87,7 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 
 	/**
 	 * `dump_log` verb handler — segment count and total size of one log, a
-	 * partition dir or a `sources/<name>` registry source, by its stamp.
+	 * partition dir or a `sources:<name>` registry source, by its stamp.
 	 *
 	 * @param array<array-key,mixed> $args Bound verb arguments: the log stamp; one nothing carries throws.
 	 * @return array{log_id:string,segments:list<array{id:int,size:int}>,segment_count:int,total_size:int}
@@ -173,14 +173,14 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 				[
 					'name'        => 'dump_log',
 					'capability'  => Capabilities::READ,
-					'description' => 'Segments and size of one partition dir or sources/<name> registry source.',
+					'description' => 'Segments and size of one partition dir or sources:<name> registry source.',
 					'args'        => [ [ 'name' => 'log', 'type' => 'string', 'required' => true ] ],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_dump_log( $args ),
 				],
 				[
 					'name'        => 'read_message',
 					'capability'  => Capabilities::READ,
-					'description' => 'The record at a position in a partition dir or a sources/<name> registry source.',
+					'description' => 'The record at a position in a partition dir or a sources:<name> registry source.',
 					'args'        => [
 						[ 'name' => 'log', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'position', 'type' => 'string', 'required' => true ],
@@ -190,7 +190,7 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 				[
 					'name'        => 'read_block',
 					'capability'  => Capabilities::READ,
-					'description' => 'Up to 1 MiB of raw bytes from a position in a partition dir or a sources/<name> registry source: a TM_INFO naming where they begin and the bytes the log holds from there, then the bytes as a TM_BATCH.',
+					'description' => 'Up to 1 MiB of raw bytes from a position in a partition dir or a sources:<name> registry source: a TM_INFO naming where they begin and the bytes the log holds from there, then the bytes as a TM_BATCH.',
 					'args'        => [
 						[ 'name' => 'log', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'position', 'type' => 'string', 'required' => true ],

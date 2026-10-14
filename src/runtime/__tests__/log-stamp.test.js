@@ -1,6 +1,6 @@
 /**
- * splitStamp — the one JS reader of the reader stamp a FROM trail opens with,
- * held to PHP `Log_Discovery::dir_from_stamp()` by one case list.
+ * log-stamp — the JS readers of a stamp and a pair, each held to its PHP twin
+ * by one case list.
  */
 
 import { readFileSync } from 'fs';
@@ -8,8 +8,6 @@ import { join } from 'path';
 import {
 	anyCarries,
 	isGlob,
-	kindOf,
-	readerParts,
 	remoteOf,
 	splitPair,
 	splitStamp,
@@ -20,7 +18,7 @@ describe( 'isGlob, as Log_Discovery::is_glob()', () => {
 		expect( isGlob( 'jobstats.p*' ) ).toBe( true );
 		expect( isGlob( 'offsets/fire*.p3' ) ).toBe( true );
 		expect( isGlob( 'firehose.p0' ) ).toBe( false );
-		expect( isGlob( 'sources/php' ) ).toBe( false );
+		expect( isGlob( 'sources:php' ) ).toBe( false );
 	} );
 } );
 
@@ -40,7 +38,7 @@ describe( 'splitStamp parity with Log_Discovery::dir_from_stamp()', () => {
 describe( 'splitStamp', () => {
 	it( 'hands back the segments after the stamp', () => {
 		expect(
-			splitStamp( 'offsets/kea-7713.p3/job-worker.p2/jobstats' ).rest
+			splitStamp( 'offsets:kea-7713.p3/job-worker.p2/jobstats' ).rest
 		).toEqual( [ 'job-worker.p2', 'jobstats' ] );
 		expect( splitStamp( 'jobstats.p0/jobstats' ).rest ).toEqual( [
 			'jobstats',
@@ -48,10 +46,19 @@ describe( 'splitStamp', () => {
 		expect( splitStamp( 'jobstats.p0' ).rest ).toEqual( [] );
 	} );
 
-	it( 'reads a sources stamp as one stamp', () => {
-		expect( splitStamp( 'sources/php/php-errors:tail' ) ).toEqual( {
-			dir: 'sources/php',
-			rest: [ 'php-errors:tail' ],
+	it( 'reads every node after the stamp as trail, however it is named', () => {
+		expect(
+			splitStamp(
+				'sources:php/offsets:hub-9:firehose.p0/sources:php/_output/_cli:4471'
+			)
+		).toEqual( {
+			dir: 'sources:php',
+			rest: [
+				'offsets:hub-9:firehose.p0',
+				'sources:php',
+				'_output',
+				'_cli:4471',
+			],
 		} );
 	} );
 
@@ -69,19 +76,20 @@ describe( 'remoteOf parity with Log_Discovery::remote_of()', () => {
 		)
 	);
 
-	it.each( cases )( '%s', ( _label, vaultId, _stamp, name, kind ) => {
-		expect( remoteOf( name ) ).toEqual( { vaultId, kind } );
+	it.each( cases )( '%s', ( _label, vaultId, stamp, name ) => {
+		expect( remoteOf( name ) ).toEqual( { vaultId, stamp } );
 	} );
 
 	it.each( [
 		'firehose.p0',
-		'sources/php',
+		'sources:php',
 		'remote',
-		'remote/',
-		'remote/austin-9',
-		'remote/:firehose.p0',
-		'remote/austin-9:',
-		'remote/austin-9:firehose.p0/hub.p2',
+		'remote:',
+		'remote:austin-9',
+		'remote::firehose.p0',
+		'remote:austin-9:',
+		'remote/austin-9:firehose.p0',
+		'remote:austin-9:firehose.p0/hub.p2',
 		null,
 	] )( 'reads no remote log in %p', ( name ) => {
 		expect( remoteOf( name ) ).toBeNull();
@@ -136,52 +144,9 @@ describe( 'splitPair parity with Remote_Broker_Node::split_pair()', () => {
 
 describe( 'splitPair', () => {
 	it( 'keeps every colon of a view’s stream node in the target', () => {
-		expect( splitPair( 'heron.p7:heron-4410:stream' ) ).toEqual( {
+		expect( splitPair( 'heron.p7=heron-4410:stream' ) ).toEqual( {
 			source: 'heron.p7',
 			target: 'heron-4410:stream',
 		} );
-	} );
-} );
-
-describe( 'kindOf parity with Log_Discovery::kind_of()', () => {
-	const cases = JSON.parse(
-		readFileSync(
-			join( __dirname, '../../../tests/fixtures/log-kinds.json' ),
-			'utf8'
-		)
-	);
-
-	it.each( cases )( '%s', ( _label, stamp, kind ) => {
-		expect( kindOf( stamp ) ).toBe( kind );
-	} );
-} );
-
-describe( 'readerParts parity with Log_Discovery::reader_parts()', () => {
-	const cases = JSON.parse(
-		readFileSync(
-			join( __dirname, '../../../tests/fixtures/reader-stamps.json' ),
-			'utf8'
-		)
-	);
-	const readers = cases.filter( ( [ , , parts ] ) => null !== parts );
-
-	it.each( cases )( '%s', ( _label, candidate, parts ) => {
-		expect( readerParts( candidate ) ).toEqual( parts );
-	} );
-
-	it.each( readers )(
-		'%s reads whole off a FROM trail',
-		( _label, stamp ) => {
-			expect( splitStamp( `${ stamp }/hub-7.p0/x` ) ).toEqual( {
-				dir: stamp,
-				rest: [ 'hub-7.p0', 'x' ],
-			} );
-		}
-	);
-
-	it.each( readers )( '%s has no kind', ( _label, stamp ) => {
-		expect( () => kindOf( stamp ) ).toThrow(
-			`a broker reader's stamp names a dir, not a kind: ${ stamp }`
-		);
 	} );
 } );

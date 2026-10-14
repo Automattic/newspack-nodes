@@ -34,7 +34,7 @@ namespace Newspack_Nodes;
  * File_Tail node — `make_node File_Tail <name> <source_file> [offsetlog_dir]
  * [deadletter_dir]`.
  *
- * `source_file` is the exact filename followed, or `sources/<name>`, a registry
+ * `source_file` is the exact filename followed, or `sources:<name>`, a registry
  * file (php's `error_log`, a config `log_sources` entry) resolved at build,
  * either one carrying `{partition}` where each worker follows its own file. It
  * is not the `{file}.{seg}` base the segmented parent reads.
@@ -112,7 +112,7 @@ class File_Tail_Node extends Tail_Node {
 
 	/**
 	 * The file a worker follows for `source_file` as its TSL wrote it: the
-	 * partition token resolved at `$partition`, then a `sources/<name>` through
+	 * partition token resolved at `$partition`, then a `sources:<name>` through
 	 * the registry's file families, whose path is resolved at `$partition` in
 	 * turn, or an absolute path as it stands. The one
 	 * reader of the argument, so the doctor's log-sources row and the load
@@ -138,7 +138,7 @@ class File_Tail_Node extends Tail_Node {
 		}
 		if ( ! \str_starts_with( $path, '/' ) ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-			throw new \InvalidArgumentException( "File_Tail {$name}: source_file must be an absolute path or sources/<name>, got \"{$path}\"" );
+			throw new \InvalidArgumentException( "File_Tail {$name}: source_file must be an absolute path or sources:<name>, got \"{$path}\"" );
 		}
 		return $path;
 	}
@@ -635,7 +635,7 @@ class File_Tail_Node extends Tail_Node {
 		$schema                    = parent::node_schema();
 		$arguments                 = Core::arr( $schema['arguments'] ?? [] );
 		$arguments[0]              = Core::arr( $arguments[0] ?? [] );
-		$arguments[0]['description'] = 'The one file to follow: an absolute path, or sources/<name> for a log-source registry file, either carrying {partition} where each worker follows its own. Each complete line is emitted.';
+		$arguments[0]['description'] = 'The one file to follow: an absolute path, or sources:<name> for a log-source registry file, either carrying {partition} where each worker follows its own. Each complete line is emitted.';
 		return \array_merge( $schema, [
 			'description' => 'Follows a single filename with tail -F logrotate semantics (inode + byte offset); emits each line as raw TM_BYTESTREAM bytes to its sink.',
 			'arguments'   => $arguments,

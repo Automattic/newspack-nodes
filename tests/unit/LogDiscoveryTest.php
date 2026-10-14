@@ -44,9 +44,9 @@ class LogDiscoveryTest extends TestCase {
 	/** A subscription is a glob when a `*` stands anywhere in it, group or name. */
 	public function test_is_glob_reads_a_star_anywhere_in_a_subscription(): void {
 		$this->assertTrue( Log_Discovery::is_glob( 'jobstats.p*' ) );
-		$this->assertTrue( Log_Discovery::is_glob( 'offsets/fire*.p3' ) );
+		$this->assertTrue( Log_Discovery::is_glob( 'offsets:fire*.p3' ) );
 		$this->assertFalse( Log_Discovery::is_glob( 'firehose.p0' ) );
-		$this->assertFalse( Log_Discovery::is_glob( 'sources/php' ) );
+		$this->assertFalse( Log_Discovery::is_glob( 'sources:php' ) );
 	}
 
 	public function test_root_joins_a_group_onto_the_base(): void {
@@ -104,8 +104,8 @@ class LogDiscoveryTest extends TestCase {
 	/** A `logs` dir stamps bare; every other root keeps its prefix. */
 	public function test_stamp_for_writes_logs_bare_and_other_roots_grouped(): void {
 		$this->assertSame( 'ledger.p6', Log_Discovery::stamp_for( 'logs', 'ledger.p6' ) );
-		$this->assertSame( 'offsets/ledger.p6', Log_Discovery::stamp_for( 'offsets', 'ledger.p6' ) );
-		$this->assertSame( 'deadletter/ledger.p6', Log_Discovery::stamp_for( 'deadletter', 'ledger.p6' ) );
+		$this->assertSame( 'offsets:ledger.p6', Log_Discovery::stamp_for( 'offsets', 'ledger.p6' ) );
+		$this->assertSame( 'deadletter:ledger.p6', Log_Discovery::stamp_for( 'deadletter', 'ledger.p6' ) );
 	}
 
 	/** A broker reader's dir stamps as one segment: group, root and kind, joined by `:`. */
@@ -117,14 +117,15 @@ class LogDiscoveryTest extends TestCase {
 	/** A root holding `:` would read back as another root and kind, so it is refused by name. */
 	public function test_stamp_for_refuses_a_broker_root_holding_a_colon(): void {
 		$this->expectException( \InvalidArgumentException::class );
-		$this->expectExceptionMessage( 'broker root hub:tw0 holds a colon, so no stamp names its readers; rename it' );
+		$this->expectExceptionMessage( 'log dir hub:tw0/firehose.p3 holds a colon, which a stamp reads as a separator; rename it' );
 		Log_Discovery::stamp_for( 'offsets', 'hub:tw0/firehose.p3' );
 	}
 
-	/** The colon form takes no prefix, so no log dir name is newly refused. */
-	public function test_a_log_dir_named_reader_stays_an_ordinary_log(): void {
-		$this->assertSame( 'reader', Log_Discovery::stamp_for( 'logs', 'reader' ) );
-		$this->assertTrue( Log_Discovery::is_stamp( 'reader' ) );
+	/** A flat dir holding `:` would read back as a broker's reader. */
+	public function test_stamp_for_refuses_a_flat_dir_holding_a_colon(): void {
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'log dir hub:firehose.p3 holds a colon, which a stamp reads as a separator; rename it' );
+		Log_Discovery::stamp_for( 'deadletter', 'hub:firehose.p3' );
 	}
 
 	/** A broker reader's sidecar names itself as the catalog does. */
@@ -137,7 +138,7 @@ class LogDiscoveryTest extends TestCase {
 	public function test_source_for_keeps_the_path_of_a_reader_no_stamp_names(): void {
 		$this->assertSame( 'offsets/hub:tw0/firehose.p3', Log_Discovery::source_for( 'offsets/hub:tw0/firehose.p3' ) );
 		$this->assertSame( 'offsets/hub tw0/firehose.p3', Log_Discovery::source_for( 'offsets/hub tw0/firehose.p3' ), 'a root ROOT_PATTERN refuses' );
-		$this->assertSame( 'deadletter/hub.tw0/Firehose.p3', Log_Discovery::source_for( 'deadletter/hub.tw0/Firehose.p3' ), 'a kind no stamp folds to' );
+		$this->assertSame( 'deadletter/hub.tw0/Firehose.p3', Log_Discovery::source_for( 'deadletter/hub.tw0/Firehose.p3' ), 'a kind that is no stamp' );
 		$this->assertSame( 'logs/gate/offsets/x', Log_Discovery::source_for( 'logs/gate/offsets/x' ) );
 	}
 
@@ -208,25 +209,24 @@ class LogDiscoveryTest extends TestCase {
 		\file_put_contents( "{$this->tmp}/{$relative}/{$id}.log", '' );
 	}
 
-	/** A bare stamp named like a group would read back as that group's prefix. */
-	public function test_stamp_for_refuses_a_log_dir_named_like_a_group(): void {
-		$this->expectException( \InvalidArgumentException::class );
-		$this->expectExceptionMessage( 'log dir deadletter is named like a group; rename it' );
-		Log_Discovery::stamp_for( 'logs', 'deadletter' );
+	/** A one-segment stamp never reads as a prefix, so a log may take a group's name. */
+	public function test_stamp_for_writes_a_log_dir_named_like_a_group_bare(): void {
+		$this->assertSame( 'deadletter', Log_Discovery::stamp_for( 'logs', 'deadletter' ) );
+		$this->assertSame( 'logs', Log_Discovery::source_for( 'logs/logs' ) );
 	}
 
 	/** A record's name is the stamp under a group root and the path elsewhere. */
 	public function test_source_for_stamps_group_dirs_and_keeps_other_paths(): void {
 		$this->assertSame( 'ledger.p6', Log_Discovery::source_for( 'logs/ledger.p6' ) );
-		$this->assertSame( 'offsets/ledger.p6', Log_Discovery::source_for( 'offsets/ledger.p6' ) );
+		$this->assertSame( 'offsets:ledger.p6', Log_Discovery::source_for( 'offsets/ledger.p6' ) );
 		$this->assertSame( 'ipc/web.p2/output', Log_Discovery::source_for( 'ipc/web.p2/output' ) );
 		$this->assertSame( 'logs/gate/offsets', Log_Discovery::source_for( 'logs/gate/offsets' ) );
 	}
 
-	public function test_source_for_refuses_a_log_dir_named_like_a_group(): void {
-		$this->expectException( \InvalidArgumentException::class );
-		$this->expectExceptionMessage( 'log dir logs is named like a group; rename it' );
-		Log_Discovery::source_for( 'logs/logs' );
+	/** A dir holding a `:` has no stamp, so its records name its path; nothing throws. */
+	public function test_source_for_keeps_the_path_of_a_dir_holding_a_colon(): void {
+		$this->assertSame( 'logs/sources:php', Log_Discovery::source_for( 'logs/sources:php' ) );
+		$this->assertSame( 'deadletter/offsets.aggregator.tw7.sources:php', Log_Discovery::source_for( 'deadletter/offsets.aggregator.tw7.sources:php' ) );
 	}
 
 	public function test_groups_returns_empty_lists_for_missing_roots(): void {

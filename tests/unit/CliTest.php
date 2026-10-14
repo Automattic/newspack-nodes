@@ -722,7 +722,7 @@ class CliTest extends TestCase {
 	}
 
 	public function test_consumer_rows_keeps_what_a_reader_does_not_know_unknown(): void {
-		$this->seed_probe_record( [ 'reader' => 'hub-4417.remote-austin:sources:php.p3', 'source' => 'remote/austin:sources:php', 'cursor_segment' => null, 'cursor_offset' => 40913, 'end_segment' => null, 'end_size' => null, 'distance' => null ] );
+		$this->seed_probe_record( [ 'reader' => 'hub-4417.remote-austin:sources:php.p3', 'source' => 'remote:austin:sources:php', 'cursor_segment' => null, 'cursor_offset' => 40913, 'end_segment' => null, 'end_size' => null, 'distance' => null ] );
 
 		$row = ( new CLI( $this->tmp ) )->consumer_rows()['rows'][0];
 

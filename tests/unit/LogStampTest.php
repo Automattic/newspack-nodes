@@ -8,10 +8,9 @@ use PHPUnit\Framework\TestCase;
 use Newspack_Nodes\Log_Discovery;
 
 /**
- * The reader stamp a FROM trail opens with, read back by
+ * The stamp a FROM trail opens with, read back by
  * `Log_Discovery::dir_from_stamp()`, held to `src/runtime/log-stamp.js` by one
- * case list: a stamp opening with a group name takes a second segment,
- * because `stamp_for()` refuses a log dir named like a group.
+ * case list: every stamp is one `/` segment, its parts joined by `:`.
  */
 final class LogStampTest extends TestCase {
 
@@ -30,28 +29,36 @@ final class LogStampTest extends TestCase {
 		$this->assertSame( $dir, Log_Discovery::dir_from_stamp( $from ) );
 	}
 
-	public function test_stamp_for_refuses_a_log_dir_named_like_the_sources_prefix(): void {
-		$this->expectException( \InvalidArgumentException::class );
-		$this->expectExceptionMessage( 'log dir sources is named like a group' );
+	/** A one-segment stamp never reads as a prefix, so a log may take a group's name. */
+	public function test_a_log_dir_named_like_the_sources_prefix_is_an_ordinary_log(): void {
+		$this->assertSame( 'sources', Log_Discovery::stamp_for( 'logs', 'sources' ) );
+		$this->assertTrue( Log_Discovery::is_stamp( 'sources' ) );
+		$this->assertNull( Log_Discovery::source_name( 'sources' ) );
+	}
 
-		Log_Discovery::stamp_for( 'logs', 'sources' );
+	public function test_stamp_for_refuses_a_log_dir_holding_a_colon(): void {
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'log dir sources:php holds a colon, which a stamp reads as a separator; rename it' );
+
+		Log_Discovery::stamp_for( 'logs', 'sources:php' );
 	}
 
 	public function test_source_name_reads_the_name_after_the_sources_prefix(): void {
-		$this->assertSame( 'php-9137', Log_Discovery::source_name( 'sources/php-9137' ) );
-		$this->assertNull( Log_Discovery::source_name( '/var/log/sources/php' ) );
-		$this->assertNull( Log_Discovery::source_name( 'logs/app-5531.log' ) );
+		$this->assertSame( 'php-9137', Log_Discovery::source_name( 'sources:php-9137' ) );
+		$this->assertNull( Log_Discovery::source_name( '/var/log/sources:php' ) );
+		$this->assertNull( Log_Discovery::source_name( 'logs:app-5531.log' ) );
 		$this->assertNull( Log_Discovery::source_name( 'sourcesphp' ) );
 	}
 
-	/** @return array<string,array{string}> Label => a `sources/` string naming no one source. */
+	/** @return array<string,array{string}> Label => a `sources:` string naming no one source. */
 	public static function no_source_names(): array {
 		return [
-			'the bare prefix'  => [ 'sources/' ],
-			'a nested name'    => [ 'sources/php-9138/x' ],
-			'an over-long one' => [ 'sources/' . \str_repeat( 'p', Log_Discovery::MAX_STAMP_BYTES ) ],
-			'a dotted name'    => [ 'sources/..' ],
-			'a dir stamp'      => [ 'offsets/php-9138' ],
+			'the bare prefix'  => [ 'sources:' ],
+			'a nested name'    => [ 'sources:php-9138:x' ],
+			'a slash spelling' => [ 'sources/php-9138' ],
+			'an over-long one' => [ 'sources:' . \str_repeat( 'p', Log_Discovery::MAX_STAMP_BYTES ) ],
+			'a dotted name'    => [ 'sources:..' ],
+			'a dir stamp'      => [ 'offsets:php-9138' ],
 		];
 	}
 

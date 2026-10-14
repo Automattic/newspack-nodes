@@ -26,7 +26,7 @@ require_once \dirname( __DIR__ ) . '/Helpers/WPCLIStub.php';
 class CliDoctorCommandTest extends TestCase {
 	private const CACHE_MESSAGE = 'Cache backend APCu add/read/delete round trip succeeded.';
 
-	private const LOG_SOURCES_MESSAGE = 'Every `sources/<name>` the doctor-7319 topologies read resolves on this host.';
+	private const LOG_SOURCES_MESSAGE = 'Every `sources:<name>` the doctor-7319 topologies read resolves on this host.';
 
 	private string $tmp;
 

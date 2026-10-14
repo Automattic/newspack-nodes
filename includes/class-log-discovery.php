@@ -47,8 +47,8 @@ final class Log_Discovery {
 	/**
 	 * The roots a durable reader's sidecars sit under: its cursor in `offsets`
 	 * and its quarantine in `deadletter`. A broker nests one dir per reader
-	 * kind under a root of its own there, `<root>/<kind>`, which stamps as one
-	 * segment, `<group>:<root>:<kind>`, so a FROM trail never cuts it (ADR-29).
+	 * under a root of its own there, `<root>/<stamp>`, which stamps as
+	 * `<group>:<root>:<stamp>` (ADR-29).
 	 */
 	public const READER_GROUPS = [ 'offsets', Config::DEADLETTER_SUBDIR ];
 
@@ -63,39 +63,39 @@ final class Log_Discovery {
 	 */
 	public const GROUPS = [ 'logs', ...self::READER_GROUPS ];
 
-	/** The stamp prefix naming a `Log_Sources` registry entry: `sources/<name>`. */
+	/** The stamp prefix naming a `Log_Sources` registry entry: `sources:<name>`. */
 	public const SOURCES_PREFIX = 'sources';
 
 	/**
 	 * The prefix naming a spoke's log in this site's own probe channel,
-	 * `remote/<vault_id>:<kind>`, which `remote_for()` writes and `remote_of()`
-	 * alone reads. It is no stamp prefix: a remote name is a probe record's
-	 * SOURCE, never a FROM, a subscription or a dir.
+	 * `remote:<vault_id>:<stamp>`, which `remote_for()` writes and
+	 * `remote_of()` alone reads. It is no stamp prefix: a remote name is a
+	 * probe record's SOURCE, never a FROM, a subscription or a dir.
 	 */
 	public const REMOTE_PREFIX = 'remote';
 
 	/**
-	 * Every prefix a stamp may open with: the dir roots in `GROUPS`, and
-	 * `SOURCES_PREFIX`, which names a registry entry rather than a dir.
+	 * Every prefix a stamp may open with, before its first `:`: the reader
+	 * roots, and `SOURCES_PREFIX`, which names a registry entry rather than a
+	 * dir. A `logs` dir stamps bare.
 	 */
-	public const STAMP_PREFIXES = [ ...self::GROUPS, self::SOURCES_PREFIX ];
+	public const STAMP_PREFIXES = [ ...self::READER_GROUPS, self::SOURCES_PREFIX ];
 
 	/**
-	 * The longest stamp, in bytes. A reader's directory is its stamp with `/`
-	 * spelled `:`, one byte for one, and a directory name holds at most 255
-	 * bytes (NAME_MAX), so the `:` counts against the same limit. A broker
-	 * reader's stamp is bounded part by part instead: its root and its kind
-	 * are each one directory name, so each holds at most this, and the length
-	 * refuses no reader dir; a root `ROOT_PATTERN` refuses, or a kind no
-	 * stamp folds to, leaves its dir with no stamp.
+	 * The longest dir name a stamp's part may spell, in bytes: NAME_MAX. A
+	 * log's stamp is held to it whole, and a broker reader's
+	 * `<group>:<root>:<stamp>` part by part, because its dir is
+	 * `<root>/<stamp>`: the root and the stamp it reads each name one dir and
+	 * the whole names none. A broker takes a stamp as its reader's dir name,
+	 * so it reads only a stamp `fits_a_dir_name()` admits.
 	 */
 	public const MAX_STAMP_BYTES = 255;
 
 	/**
 	 * A broker root's name: a Vault id's letters, digits, `_` and `-`, in
 	 * either case, and the `.` a topology joins it with, opening with no `.`.
-	 * It holds neither `/` nor `:`, so a reader stamp names a dir under its
-	 * root and cuts at its first two colons; `..` is refused apart.
+	 * It holds neither `/` nor `:`, so a reader stamp's first `:` after its
+	 * group ends the root; `..` is refused apart.
 	 */
 	private const ROOT_PATTERN = '/^[A-Za-z0-9_-][A-Za-z0-9_.-]*$/D';
 
@@ -110,38 +110,36 @@ final class Log_Discovery {
 
 	/**
 	 * The name a log's record gives it, from its path relative to the runtime
-	 * base: the stamp when it is a first-level dir under one of `GROUPS`, so a
-	 * `logs` dir reads as its Consumers name it, or a broker reader's sidecar
-	 * under one of `READER_GROUPS`, so it reads as the catalog lists it; the
-	 * relative path otherwise (`ipc/<worker>/output`), since a basename names
-	 * many dirs, and for a reader dir `is_stamp()` names no stamp for, so a
-	 * SOURCE never names a stamp the catalog refuses. A Partition or Log
-	 * declaration calls it too, so a name `stamp_for()` refuses is refused
-	 * where it is declared.
+	 * base: the stamp `is_stamp()` admits for a first-level dir under one of
+	 * `GROUPS`, so a `logs` dir reads as its Consumers name it, or for a
+	 * broker reader's dir under one of `READER_GROUPS`, so it reads as the
+	 * catalog lists it; the relative path for any other dir, a dir no stamp
+	 * names included (`ipc/<worker>/output`, a quarantine named for a dir
+	 * holding a `:`), since a basename names many dirs. It never throws.
 	 *
 	 * @param string $relative The log's path under the runtime base.
 	 * @return string The record's SOURCE.
-	 * @throws \InvalidArgumentException On a log dir named like a group.
 	 */
 	public static function source_for( string $relative ): string {
-		$parts = \explode( '/', $relative );
-		if ( 2 === \count( $parts ) && \in_array( $parts[0], self::GROUPS, true ) ) {
-			return self::stamp_for( $parts[0], $parts[1] );
+		$parts = \explode( '/', $relative, 2 );
+		$depth = \substr_count( $relative, '/' );
+		$under = [ 1 => self::GROUPS, 2 => self::READER_GROUPS ][ $depth ] ?? [];
+		if ( ! isset( $parts[1] ) || ! \in_array( $parts[0], $under, true ) || self::holds_colon_name( $parts[1] ) ) {
+			return $relative;
 		}
-		if ( 3 === \count( $parts ) && \in_array( $parts[0], self::READER_GROUPS, true ) ) {
-			$stamp = self::reader_stamp( $parts[0], $parts[1], $parts[2] );
-			return null !== $stamp && self::is_stamp( $stamp ) ? $stamp : $relative;
-		}
-		return $relative;
+		$stamp = self::stamp_for( $parts[0], $parts[1] );
+		return self::is_stamp( $stamp ) ? $stamp : $relative;
 	}
 
 	/**
 	 * The dir a stamp names under `$base`, or null when none is there: the
 	 * stream's guard, then a direct path. A glob, a registry stamp and any
-	 * name the guard refuses are refused, and a `logs` dir named like a group
-	 * is refused by name, so no stamp reaches a dir the stream would not.
+	 * name the guard refuses are refused, so no stamp reaches a dir the
+	 * stream would not. It reads no listing: a broker's root and a Consumer's
+	 * cursor are both one flat name, which no shape tells apart, so a root
+	 * resolves to its dir, which holds no segments.
 	 *
-	 * @param string $stamp A dir stamp: `firehose.p0`, `offsets/…`, `deadletter/…`, `offsets:<root>:<kind>`.
+	 * @param string $stamp A dir stamp: `firehose.p0`, `offsets:…`, `deadletter:…`, `offsets:<root>:<stamp>`.
 	 * @param string $base  The runtime base the roots sit under.
 	 * @return string|null The absolute dir, or null when it does not exist.
 	 * @throws \InvalidArgumentException On a stamp the guard refuses.
@@ -154,19 +152,19 @@ final class Log_Discovery {
 	/**
 	 * Each dir a subscription glob matches under `$base`, keyed by the stamp
 	 * `stamp_for()` writes for its path under the root, under the guard
-	 * `dir_of()` applies; `*` matches within one path segment, and an exact
+	 * `dir_of()` applies; `*` matches within one stamp part, so a dir whose
+	 * name holds a `:` is no match, as `carries()` reads it, and an exact
 	 * reader stamp matches its own dir. A broker's root is no match, as the
 	 * catalog lists none, and a glob reaches none of its readers, since no
-	 * glob carries a reader stamp. A match whose stamp `is_stamp()`
-	 * refuses is left out, so a glob opens no dir `dir_of()` would refuse. A
-	 * glob I/O fault answers null rather than an empty map, so a caller never
-	 * mistakes it for "nothing there".
+	 * glob names a root. A match whose stamp `is_stamp()` refuses is left out,
+	 * so a glob opens no dir `dir_of()` would refuse. A glob I/O fault
+	 * answers null rather than an empty map, so a caller never mistakes it
+	 * for "nothing there".
 	 *
-	 * @param string $sub  A subscription glob: `firehose.*`, `offsets/…*`.
+	 * @param string $sub  A subscription glob: `firehose.*`, `offsets:…*`.
 	 * @param string $base The runtime base the roots sit under.
 	 * @return array<string,string>|null Stamp => absolute dir, or null on a fault, a dir under a matched root that will not read included.
-	 * @throws \InvalidArgumentException On a glob the guard refuses, or a
-	 *                                   match whose dir is named like a group.
+	 * @throws \InvalidArgumentException On a glob the guard refuses.
 	 */
 	public static function dirs_matching( string $sub, string $base ): ?array {
 		[ $group, $pattern ] = self::guarded( $sub, $base, true );
@@ -178,7 +176,11 @@ final class Log_Discovery {
 		$skip = \strlen( self::root( $base, $group ) ) + 1;
 		$dirs = [];
 		foreach ( \array_diff( $matches, \array_keys( $roots ) ) as $dir ) {
-			$stamp = self::stamp_for( $group, \substr( $dir, $skip ) );
+			$name = \substr( $dir, $skip );
+			if ( self::holds_colon_name( $name ) ) {
+				continue;
+			}
+			$stamp = self::stamp_for( $group, $name );
 			if ( self::is_stamp( $stamp ) ) {
 				$dirs[ $stamp ] = $dir;
 			}
@@ -187,12 +189,45 @@ final class Log_Discovery {
 	}
 
 	/**
-	 * A dir subscription through the stream's guard, and the path it names:
-	 * a `GROUPS` root only, and a glob of the shape `is_subscription()` admits
-	 * or an exact stamp `stamp_for()` writes and `is_stamp()` reads, so a log
-	 * dir named like a group is refused by name. `split()` hands a reader
-	 * stamp's `<root>/<kind>` back as the rest, which `stamp_for()` writes
-	 * back only in the colon form, so a reader dir has one spelling.
+	 * The stamp naming a dir under one of `GROUPS`: a `logs` dir stays bare
+	 * and a grouped one takes `<group>:`, so one directory has one spelling
+	 * wherever it is named — an SSE frame's FROM and a Partition record's
+	 * SOURCE alike. A broker reader's `<root>/<stamp>` dir under one of
+	 * `READER_GROUPS` stamps as `<group>:<root>:<stamp>`, its stamp as it sits
+	 * on disk. Every stamp is one FROM segment, so a log may take a group's
+	 * name; a first-level dir holding a `:` would read back as another, so it
+	 * is refused by name.
+	 *
+	 * @param string $group The root group the dir sits under.
+	 * @param string $path  The dir's basename, or a reader's `<root>/<stamp>`.
+	 * @return string The stamp.
+	 * @throws \InvalidArgumentException On a first-level dir holding a `:`.
+	 */
+	public static function stamp_for( string $group, string $path ): string {
+		if ( self::holds_colon_name( $path ) ) {
+			throw new \InvalidArgumentException( \esc_html( "log dir {$path} holds a colon, which a stamp reads as a separator; rename it" ) );
+		}
+		$rest = \implode( ':', \explode( '/', $path, 2 ) );
+		return 'logs' === $group ? $rest : "{$group}:{$rest}";
+	}
+
+	/**
+	 * Whether a path under a root names a first-level dir holding a `:`, which
+	 * a stamp would read back as a group, a root or a broker reader: such a
+	 * dir has no stamp. `stamp_for()` refuses it, `source_for()` names it by
+	 * its path, and `dirs_matching()` skips it.
+	 *
+	 * @param string $path A dir's name, or a reader's `<root>/<stamp>`.
+	 */
+	private static function holds_colon_name( string $path ): bool {
+		return \str_contains( \explode( '/', $path, 2 )[0], ':' );
+	}
+
+	/**
+	 * A dir subscription through the stream's guard, and the path it names: a
+	 * `GROUPS` root only, and a glob `is_subscription()` admits or a stamp
+	 * `is_stamp()` reads. The rest's first `:`, which only a broker reader's
+	 * `<root>:<stamp>` holds, is the `/` between its root and its stamp.
 	 *
 	 * @param string $sub  A dir stamp or subscription glob.
 	 * @param string $base The runtime base the roots sit under.
@@ -201,86 +236,35 @@ final class Log_Discovery {
 	 * @throws \InvalidArgumentException On a subscription the guard refuses.
 	 */
 	private static function guarded( string $sub, string $base, bool $glob ): array {
-		[ $group, $name ] = self::split( $sub );
-		$shaped           = $glob ? self::is_subscription( $sub ) : ( $sub === self::stamp_for( $group, $name ) && self::is_stamp( $sub ) );
+		[ $group, $rest ] = self::split( $sub );
+		$shaped           = $glob ? self::is_subscription( $sub ) : self::is_stamp( $sub );
 		if ( ! $shaped || ! \in_array( $group, self::GROUPS, true ) ) {
 			throw new \InvalidArgumentException( \esc_html( "invalid subscription: {$sub}" ) );
 		}
-		return [ $group, self::path( $base, $group, $name ) ];
-	}
-
-	/**
-	 * The stamp naming a dir under one of `GROUPS`: a `logs` dir stays bare
-	 * and a grouped one keeps its prefix, so one directory has one spelling
-	 * wherever it is named — an SSE frame's FROM and a Partition record's
-	 * SOURCE alike. A broker reader's `<root>/<kind>` dir under one of
-	 * `READER_GROUPS` stamps as one segment, `<group>:<root>:<kind>`, its
-	 * kind as it sits on disk. A bare stamp that is a group name would read
-	 * back as that group's prefix, so a log dir named like a group is refused
-	 * by name, and so is a broker root holding a `:`, which would read back
-	 * as another root and kind.
-	 *
-	 * @param string $group    The root group the dir sits under.
-	 * @param string $basename The dir's basename, or a reader's `<root>/<kind>`.
-	 * @return string The stamp.
-	 * @throws \InvalidArgumentException On a log dir named like a group, or a
-	 *                                   broker root holding a `:`.
-	 */
-	public static function stamp_for( string $group, string $basename ): string {
-		$reader = \explode( '/', $basename, 2 );
-		if ( isset( $reader[1] ) && \in_array( $group, self::READER_GROUPS, true ) ) {
-			return self::reader_stamp( $group, $reader[0], $reader[1] )
-				?? throw new \InvalidArgumentException( \esc_html( "broker root {$reader[0]} holds a colon, so no stamp names its readers; rename it" ) );
-		}
-		if ( 'logs' !== $group ) {
-			return "{$group}/{$basename}";
-		}
-		if ( \in_array( $basename, self::STAMP_PREFIXES, true ) ) {
-			throw new \InvalidArgumentException( \esc_html( "log dir {$basename} is named like a group; rename it" ) );
-		}
-		return $basename;
-	}
-
-	/**
-	 * A reader dir's stamp, `<group>:<root>:<kind>`, or null when the root
-	 * holds a `:`, where `reader_parts()` would cut it.
-	 *
-	 * @param string $group A `READER_GROUPS` root.
-	 * @param string $root  The broker root's name.
-	 * @param string $kind  The reader dir's basename.
-	 */
-	private static function reader_stamp( string $group, string $root, string $kind ): ?string {
-		return \str_contains( $root, ':' ) ? null : "{$group}:{$root}:{$kind}";
+		return [ $group, self::path( $base, $group, \implode( '/', \explode( ':', $rest, 2 ) ) ) ];
 	}
 
 	/**
 	 * Whether a spoke's `SSE_Out_Node::open_subscription()` would read a
-	 * subscription past its group and its traversal guard: a stamp's shape,
-	 * once each `*` stands for a name character, with no `*` opening the
-	 * name and none under `sources/`, whose registry is looked up by name. A
-	 * bare group name passes, as it did the guard: `stamp_for()` refuses that
-	 * dir with a message that teaches. `sources/<name>` and a worker's IPC
-	 * channel are each served before the guard, and their own readers judge
-	 * the name. A reader stamp takes no glob, so it passes exactly when
-	 * `is_stamp()` does.
+	 * subscription past its group and its traversal guard: a stamp, or a glob
+	 * whose rest is one name once each `*` stands for a name character, with
+	 * no `*` opening it and none under `sources:`, whose registry is looked up
+	 * by name. A glob's `*` matches within one stamp part, so no glob names a
+	 * broker reader. `sources:<name>` and a worker's IPC channel are each
+	 * served before the guard, and their own readers judge the name.
 	 *
 	 * @param string $sub A candidate subscription.
 	 * @return bool True when the spoke would resolve it.
 	 */
 	public static function is_subscription( string $sub ): bool {
-		if ( self::is_reader_stamp( $sub ) ) {
-			return ! self::is_glob( $sub ) && self::is_stamp( $sub );
+		if ( ! self::is_glob( $sub ) ) {
+			return self::is_stamp( $sub );
 		}
-		$parts = \explode( '/', $sub );
-		$last  = \end( $parts );
+		[ $group, $rest ] = self::split( $sub );
 		return \strlen( $sub ) <= self::MAX_STAMP_BYTES
-			&& ! \str_starts_with( $last, '*' )
-			&& Log_Sources::is_valid_name( \str_replace( '*', 'a', $last ) )
-			&& match ( \count( $parts ) ) {
-				1 => true,
-				2 => self::is_prefix( $parts[0] ) && ( self::SOURCES_PREFIX !== $parts[0] || ! self::is_glob( $sub ) ),
-				default => false,
-			};
+			&& self::SOURCES_PREFIX !== $group
+			&& ! \str_starts_with( $rest, '*' )
+			&& Log_Sources::is_valid_name( \str_replace( '*', 'a', $rest ) );
 	}
 
 	/**
@@ -298,7 +282,7 @@ final class Log_Discovery {
 	/**
 	 * Every partition dir under each root in `GROUPS`, keyed by root, in
 	 * sorted order: its basename, or under one of `READER_GROUPS` a broker
-	 * reader's `<root>/<kind>`, which `stamp_for()` reads either way, in the
+	 * reader's `<root>/<stamp>`, which `stamp_for()` reads either way, in the
 	 * place of the root `broker_roots()` finds. The `logs` entry repeats
 	 * `on_disk()`, which a caller wanting that root alone reads instead.
 	 *
@@ -332,8 +316,8 @@ final class Log_Discovery {
 					$names[] = $name;
 					continue;
 				}
-				foreach ( $roots[ $dir ] as $kind ) {
-					$names[] = "{$name}/{$kind}";
+				foreach ( $roots[ $dir ] as $stamp ) {
+					$names[] = "{$name}/{$stamp}";
 				}
 			}
 			$groups[ $group ] = $names;
@@ -348,7 +332,7 @@ final class Log_Discovery {
 	 *
 	 * @param string       $pattern The group's first-level glob.
 	 * @param list<string> $dirs    The dirs it matched.
-	 * @return array{0:array<string,list<string>>,1:list<string>} Root dir => kinds, then the dirs that would not read.
+	 * @return array{0:array<string,list<string>>,1:list<string>} Root dir => reader stamps, then the dirs that would not read.
 	 */
 	private static function readable_roots( string $pattern, array $dirs ): array {
 		$roots = self::broker_roots( $pattern );
@@ -370,7 +354,7 @@ final class Log_Discovery {
 
 	/**
 	 * The broker roots among the dirs `$pattern` matches, each with its
-	 * readers' kinds, sorted: a dir holding no segment whose subdirs do. A
+	 * readers' stamps, sorted: a dir holding no segment whose subdirs do. A
 	 * subdir holding none is no reader yet, and a root nested a level deeper
 	 * is none at all. One glob reads every match and its subdirs, and a
 	 * segment check runs on each candidate root alone. `GLOB_ERR` stops a
@@ -378,19 +362,19 @@ final class Log_Discovery {
 	 * answers null.
 	 *
 	 * @param string $pattern An absolute first-level glob under one of `READER_GROUPS`.
-	 * @return array<string,list<string>>|null Root dir => its kinds, or null on a read fault.
+	 * @return array<string,list<string>>|null Root dir => its readers' stamps, or null on a read fault.
 	 */
 	private static function broker_roots( string $pattern ): ?array {
 		$files = self::glob( "{$pattern}/*/*.log", \GLOB_ERR );
 		if ( null === $files ) {
 			return null;
 		}
-		$kinds = [];
+		$stamps = [];
 		foreach ( self::segments( $files ) as $file ) {
-			$kinds[ \dirname( $file, 2 ) ][ \basename( \dirname( $file ) ) ] = true;
+			$stamps[ \dirname( $file, 2 ) ][ \basename( \dirname( $file ) ) ] = true;
 		}
 		$roots = [];
-		foreach ( $kinds as $root => $readers ) {
+		foreach ( $stamps as $root => $readers ) {
 			$own = self::glob( "{$root}/*.log", \GLOB_ERR );
 			if ( null === $own ) {
 				return null;
@@ -482,47 +466,7 @@ final class Log_Discovery {
 	}
 
 	/**
-	 * The name this site gives one spoke's log in its own probe channel:
-	 * `remote/<vault_id>:<kind>`, the spoke's Vault id and the stamp's kind.
-	 * A spoke's `firehose.p0` and this site's own are two logs, so they carry
-	 * two names (ADR-29). Neither a Vault id nor a stamp carries `:`, so the
-	 * first `:` parts the two.
-	 *
-	 * @param string $vault_id The spoke's Vault id.
-	 * @param string $stamp    The stamp the spoke gives the log.
-	 * @return string The remote log's name.
-	 * @throws \InvalidArgumentException On a Vault id the Vault refuses.
-	 */
-	public static function remote_for( string $vault_id, string $stamp ): string {
-		if ( ! Vault::is_valid_id( $vault_id ) ) {
-			throw new \InvalidArgumentException( \esc_html( "remote log of an invalid vault id: {$vault_id}" ) );
-		}
-		return self::REMOTE_PREFIX . "/{$vault_id}:" . self::kind_of( $stamp );
-	}
-
-	/**
-	 * The kind a stamp's reader takes: the sibling slot a broker publishes it
-	 * under, its name's suffix and its sidecars' directory. The stamp's `/`
-	 * is spelled `:`, because the Router splits a TO on `/` and a step reply
-	 * returns addressed to that reader's name. `stamp_of()` reads it back,
-	 * and `tests/fixtures/log-kinds.json` holds the two to one case list. A
-	 * broker reader's stamp names a dir no stream carries, and its kind would
-	 * fold back into three dirs, so it is refused.
-	 *
-	 * @param string $stamp A partition dir or `sources/<name>`.
-	 * @return string The kind.
-	 * @throws \InvalidArgumentException On a broker reader's stamp.
-	 */
-	public static function kind_of( string $stamp ): string {
-		if ( self::is_reader_stamp( $stamp ) ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-			throw new \InvalidArgumentException( "a broker reader's stamp names a dir, not a kind: {$stamp}" );
-		}
-		return \str_replace( '/', ':', $stamp );
-	}
-
-	/**
-	 * The registry name a `sources/<name>` stamp carries, or null for anything
+	 * The registry name a `sources:<name>` stamp carries, or null for anything
 	 * else, a string no stamp names included. It reads through `is_stamp()`
 	 * and `split()`, so it never throws, and a caller holding a path or a
 	 * stamp can ask which it has.
@@ -539,41 +483,11 @@ final class Log_Discovery {
 	}
 
 	/**
-	 * The one reader of a subscription: its group, then the rest; a FROM
-	 * trail reads through `dir_from_stamp()` instead. A bare stamp is a
-	 * `logs` dir; one opening `{prefix}/` names that root, or for `sources`
-	 * a registry entry; a broker reader's stamp names its group, and its
-	 * `<root>/<kind>` as the rest. `logs/x` is refused rather than aliased to bare `x`,
-	 * so one log has one spelling, and so is any prefix outside
-	 * `STAMP_PREFIXES`, which keeps a caller's prefix out of every path
-	 * built from it. The rest is returned whole; the guard judges its shape.
-	 *
-	 * @param string $stamp A stamp, or a subscription glob.
-	 * @return array{0:string,1:string} The group, then the rest.
-	 * @throws \InvalidArgumentException On an explicit `logs/` or an unknown prefix.
-	 */
-	public static function split( string $stamp ): array {
-		$reader = self::reader_parts( $stamp );
-		if ( null !== $reader ) {
-			return [ $reader[0], "{$reader[1]}/{$reader[2]}" ];
-		}
-		$slash = \strpos( $stamp, '/' );
-		if ( false === $slash ) {
-			return [ 'logs', $stamp ];
-		}
-		$group = \substr( $stamp, 0, $slash );
-		if ( ! self::is_prefix( $group ) ) {
-			throw new \InvalidArgumentException( \esc_html( "invalid subscription: {$stamp}" ) );
-		}
-		return [ $group, \substr( $stamp, $slash + 1 ) ];
-	}
-
-	/**
 	 * Whether a subscription brings records stamped `$stamp`: its own name
-	 * exactly, or a glob whose `*` matches within one path segment, as
-	 * `dirs_matching()` globs it, and never a broker reader's stamp, which
-	 * is one segment no glob names. Every other character is
-	 * literal, `?` and `[` included, which is why this is not `fnmatch()`.
+	 * exactly, or a glob whose `*` matches within one stamp part, as
+	 * `dirs_matching()` globs it, so no glob carries a broker reader's stamp.
+	 * Every other character is literal, `?` and `[` included, which is why
+	 * this is not `fnmatch()`.
 	 *
 	 * @param string $sub   A subscription, as `subscribe` lists it.
 	 * @param string $stamp A record's stamp, as `dir_from_stamp()` reads it.
@@ -583,10 +497,7 @@ final class Log_Discovery {
 		if ( ! self::is_glob( $sub ) ) {
 			return $sub === $stamp;
 		}
-		if ( self::is_reader_stamp( $stamp ) ) {
-			return false;
-		}
-		$pattern = \implode( '[^/]*', \array_map( static fn ( string $part ): string => \preg_quote( $part, '#' ), \explode( '*', $sub ) ) );
+		$pattern = \implode( '[^/:]*', \array_map( static fn ( string $part ): string => \preg_quote( $part, '#' ), \explode( '*', $sub ) ) );
 		return 1 === \preg_match( "#^{$pattern}$#D", $stamp );
 	}
 
@@ -601,47 +512,55 @@ final class Log_Discovery {
 	}
 
 	/**
-	 * The stamp a FROM breadcrumb opens with, and the inverse of
-	 * `stamp_for()`: a stamp opening with one of `STAMP_PREFIXES` keeps its
-	 * second segment, any other is the first path segment alone, a broker
-	 * reader's stamp included, which holds no `/`. No bare stamp is a prefix,
-	 * because `stamp_for()` refuses that dir. Reading the leading segments
-	 * rather than the whole string is what lets a full routing path resolve
-	 * too. `tests/fixtures/log-stamps.json` holds it to
-	 * `src/runtime/log-stamp.js`.
+	 * The name this site gives one spoke's log in its own probe channel:
+	 * `remote:<vault_id>:<stamp>`, the spoke's Vault id and its stamp. A
+	 * spoke's `firehose.p0` and this site's own are two logs, so they carry
+	 * two names (ADR-29). A Vault id carries no `:`, so the first `:` after
+	 * the prefix parts the two.
 	 *
-	 * @param string $from A stamp, or a FROM path beginning with one.
-	 * @return string The stamp it opens with.
+	 * @param string $vault_id The spoke's Vault id.
+	 * @param string $stamp    The stamp the spoke gives the log.
+	 * @return string The remote log's name.
+	 * @throws \InvalidArgumentException On a Vault id the Vault refuses.
 	 */
-	public static function dir_from_stamp( string $from ): string {
-		$parts = \explode( '/', $from );
-		if ( isset( $parts[1] ) && '' !== $parts[1] && \in_array( $parts[0], self::STAMP_PREFIXES, true ) ) {
-			return "{$parts[0]}/{$parts[1]}";
+	public static function remote_for( string $vault_id, string $stamp ): string {
+		if ( ! Vault::is_valid_id( $vault_id ) ) {
+			throw new \InvalidArgumentException( \esc_html( "remote log of an invalid vault id: {$vault_id}" ) );
 		}
-		return $parts[0];
+		return self::REMOTE_PREFIX . ":{$vault_id}:{$stamp}";
 	}
 
 	/**
-	 * The spoke and the kind a remote log's name carries, the inverse of
+	 * The stamp a streamed record's FROM opens with: its first `/` segment,
+	 * by position alone, because every stamp is one segment and every segment
+	 * after it is a node name, many of which hold `:` (`requests:consumer`,
+	 * `_cli:4471`). Nothing reads a trail's shape to find a stamp.
+	 * `tests/fixtures/log-stamps.json` holds it to `src/runtime/log-stamp.js`.
+	 *
+	 * @param string $from A FROM path beginning with a stamp.
+	 * @return string The stamp it opens with.
+	 */
+	public static function dir_from_stamp( string $from ): string {
+		return \explode( '/', $from, 2 )[0];
+	}
+
+	/**
+	 * The spoke and the stamp a remote log's name carries, the inverse of
 	 * `remote_for()`; null for any name it did not write, a local stamp
 	 * included. `tests/fixtures/log-remotes.json` holds it to the browser's
 	 * `remoteOf()`.
 	 *
 	 * @param string $name A probe record's SOURCE.
-	 * @return array{vault_id:string,kind:string}|null
+	 * @return array{vault_id:string,stamp:string}|null
 	 */
 	public static function remote_of( string $name ): ?array {
-		$prefix = self::REMOTE_PREFIX . '/';
-		if ( ! \str_starts_with( $name, $prefix ) || \str_contains( \substr( $name, \strlen( $prefix ) ), '/' ) ) {
-			return null;
-		}
-		$parts = \explode( ':', \substr( $name, \strlen( $prefix ) ), 2 );
-		if ( 2 !== \count( $parts ) || '' === $parts[0] || '' === $parts[1] ) {
+		$parts = \explode( ':', $name, 3 );
+		if ( 3 !== \count( $parts ) || self::REMOTE_PREFIX !== $parts[0] || '' === $parts[1] || '' === $parts[2] || \str_contains( $name, '/' ) ) {
 			return null;
 		}
 		return [
-			'vault_id' => $parts[0],
-			'kind'     => $parts[1],
+			'vault_id' => $parts[1],
+			'stamp'    => $parts[2],
 		];
 	}
 
@@ -656,108 +575,62 @@ final class Log_Discovery {
 	}
 
 	/**
-	 * The one reader of a broker reader's stamp: its group, its root and its
-	 * kind, cut at its first two colons, when the group is one of
-	 * `READER_GROUPS` and the root holds no `/`; null for any other string. It
-	 * judges no name, which `is_stamp()` does, and
-	 * `tests/fixtures/reader-stamps.json` holds it to `src/runtime/log-stamp.js`.
-	 *
-	 * @param string $candidate A string that may be a reader stamp.
-	 * @return array{0:string,1:string,2:string}|null
-	 */
-	private static function reader_parts( string $candidate ): ?array {
-		$parts = \explode( ':', $candidate, 3 );
-		if ( ! isset( $parts[2] ) || ! \in_array( $parts[0], self::READER_GROUPS, true ) || \str_contains( $parts[1], '/' ) ) {
-			return null;
-		}
-		return [ $parts[0], $parts[1], $parts[2] ];
-	}
-
-	/**
-	 * The stamp a kind names, the inverse of `kind_of()`: a stamp never
-	 * carries `:`, so every `:` in a kind spells a `/`. A reader stamp is a
-	 * kind of no stamp, and folding one would split it into three dirs, so
-	 * it is refused.
-	 *
-	 * @param string $kind A reader's kind, or its directory's basename.
-	 * @return string The stamp.
-	 * @throws \InvalidArgumentException On a broker reader's stamp.
-	 */
-	public static function stamp_of( string $kind ): string {
-		if ( self::is_reader_stamp( $kind ) ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-			throw new \InvalidArgumentException( "a broker reader's stamp names a dir, not a kind: {$kind}" );
-		}
-		return \str_replace( ':', '/', $kind );
-	}
-
-	/**
-	 * Whether a string has a broker reader's stamp's shape, as
-	 * `reader_parts()` reads it, before `is_stamp()` judges its names. No kind
-	 * folds out of one and no glob carries one, and a broker pair, which cuts
-	 * at its first `:`, refuses one as its source.
-	 *
-	 * @param string $candidate A stamp, a kind or a pair token.
-	 */
-	public static function is_reader_stamp( string $candidate ): bool {
-		return null !== self::reader_parts( $candidate );
-	}
-
-	/**
-	 * Whether a string is a stamp a record may carry: one name, or one of
-	 * `STAMP_PREFIXES` other than `logs` and one name, each name a registry
+	 * Whether a string is a stamp a record may carry: a `logs` or `sources:`
 	 * name as `Log_Sources::is_valid_name()` reads it, so it opens with a name
-	 * character and holds no `..`, and the whole at most `MAX_STAMP_BYTES`.
-	 * A bare prefix is no stamp, since `stamp_for()` refuses that dir, and nor
-	 * is `logs/<name>`, which `stamp_for()` never writes. A broker reader's
-	 * stamp, `<group>:<root>:<kind>`, takes a root `ROOT_PATTERN` admits and
-	 * a kind `kind_of()` writes for some stamp, each at most
-	 * `MAX_STAMP_BYTES`. A stamp names directories on the hub reading it, so
-	 * one from a remote is held to this before it names any.
+	 * character and holds no `:`, `/` or `..`, the whole within
+	 * `MAX_STAMP_BYTES`; or under one of `READER_GROUPS`, such a name, or a
+	 * broker reader's `<root>:<stamp>`, its root one `ROOT_PATTERN` admits and
+	 * the stamp it reads one `fits_a_dir_name()` admits, each within
+	 * `MAX_STAMP_BYTES`. The rest's own `:` tells the two apart, since no name
+	 * holds one, so the shape reads no disk. A stamp names directories on the
+	 * hub reading it, so one from a remote is held to this before it names any.
 	 *
 	 * @param string $stamp A candidate stamp.
 	 * @return bool True when it names one dir and nothing above it.
 	 */
 	public static function is_stamp( string $stamp ): bool {
-		$reader = self::reader_parts( $stamp );
-		if ( null !== $reader ) {
-			return self::is_root( $reader[1] ) && self::is_kind( $reader[2] );
-		}
-		$parts = \explode( '/', $stamp );
-		return \strlen( $stamp ) <= self::MAX_STAMP_BYTES && match ( \count( $parts ) ) {
-			1 => ! \in_array( $stamp, self::STAMP_PREFIXES, true ) && Log_Sources::is_valid_name( $stamp ),
-			2 => self::is_prefix( $parts[0] ) && Log_Sources::is_valid_name( $parts[1] ),
-			default => false,
-		};
+		[ $group, $rest ] = self::split( $stamp );
+		$reader           = \in_array( $group, self::READER_GROUPS, true ) ? \explode( ':', $rest, 2 ) : [ $rest ];
+		return isset( $reader[1] )
+			? \strlen( $reader[0] ) <= self::MAX_STAMP_BYTES && self::is_root( $reader[0] ) && self::fits_a_dir_name( $reader[1] )
+			: \strlen( $stamp ) <= self::MAX_STAMP_BYTES && Log_Sources::is_valid_name( $rest );
+	}
+
+	/**
+	 * Whether a stamp may name a dir of its own: one `is_stamp()` admits and
+	 * holds within `MAX_STAMP_BYTES` whole, as a broker reader's dir, named the
+	 * stamp it reads, must.
+	 *
+	 * @param string $stamp A candidate stamp.
+	 */
+	public static function fits_a_dir_name( string $stamp ): bool {
+		return \strlen( $stamp ) <= self::MAX_STAMP_BYTES && self::is_stamp( $stamp );
 	}
 
 	/**
 	 * Whether a broker root's name is one `ROOT_PATTERN` admits, holding no
-	 * `..`, within one directory name.
+	 * `..`.
 	 *
 	 * @param string $root A reader stamp's root.
 	 */
 	private static function is_root( string $root ): bool {
-		return \strlen( $root ) <= self::MAX_STAMP_BYTES && ! \str_contains( $root, '..' ) && 1 === \preg_match( self::ROOT_PATTERN, $root );
+		return ! \str_contains( $root, '..' ) && 1 === \preg_match( self::ROOT_PATTERN, $root );
 	}
 
 	/**
-	 * Whether a reader dir's basename is a kind: `kind_of()` of a stamp, which
-	 * a reader stamp never is, since a broker reads no reader's dir.
+	 * The one reader of a stamp's parts: its group, then the rest, cut at its
+	 * first `:` when what precedes it is one of `STAMP_PREFIXES`; any other
+	 * stamp is a `logs` dir's name, whole. It judges nothing, so `logs:x`,
+	 * `remote:…` and `offsets/x` read as names `is_stamp()` then refuses, and
+	 * a caller's prefix never reaches a path. Only a stamp context reads
+	 * through it — a subscription, a pair's source, a catalog key — never a
+	 * FROM trail, whose segments after the stamp are node names.
 	 *
-	 * @param string $kind A reader stamp's kind.
+	 * @param string $stamp A stamp, or a subscription glob.
+	 * @return array{0:string,1:string} The group, then the rest.
 	 */
-	private static function is_kind( string $kind ): bool {
-		return ! \str_contains( $kind, '/' ) && ! self::is_reader_stamp( $kind ) && self::is_stamp( self::stamp_of( $kind ) );
-	}
-
-	/**
-	 * Whether a stamp's first segment is one a stamp writes out: any of
-	 * `STAMP_PREFIXES` but `logs`, whose dirs stamp bare.
-	 *
-	 * @param string $segment A stamp's first segment.
-	 */
-	private static function is_prefix( string $segment ): bool {
-		return 'logs' !== $segment && \in_array( $segment, self::STAMP_PREFIXES, true );
+	public static function split( string $stamp ): array {
+		$parts = \explode( ':', $stamp, 2 );
+		return isset( $parts[1] ) && \in_array( $parts[0], self::STAMP_PREFIXES, true ) ? [ $parts[0], $parts[1] ] : [ 'logs', $stamp ];
 	}
 }

@@ -11,7 +11,7 @@ describe( 'a broker in the file being edited', () => {
 
 	it( 'draws one pair edge per pair after its three named arguments', () => {
 		const graph = graphFromTsl(
-			'make_node Remote_Source spoke-x9 lone <config:offsets_dir>/x9 <config:deadletter_dir>/x9 firehose.p{partition}:remote-job-rewrite sources/php:php-errors:partition\n',
+			'make_node Remote_Source spoke-x9 lone <config:offsets_dir>/x9 <config:deadletter_dir>/x9 firehose.p{partition}=remote-job-rewrite sources:php=php-errors:partition\n',
 			null,
 			brokerSchemas
 		);
@@ -24,7 +24,7 @@ describe( 'a broker in the file being edited', () => {
 
 	it( 'draws a group of brokers from the group, which stands for every member', () => {
 		const graph = graphFromTsl(
-			'make_node Vault_Group spokes Remote_Source spoke <config:offsets_dir>/<topology>.{id} <config:deadletter_dir>/<topology>.{id} firehose.p{partition}:remote-job-rewrite\n',
+			'make_node Vault_Group spokes Remote_Source spoke <config:offsets_dir>/<topology>.{id} <config:deadletter_dir>/<topology>.{id} firehose.p{partition}=remote-job-rewrite\n',
 			null,
 			brokerSchemas
 		);
@@ -36,7 +36,7 @@ describe( 'a broker in the file being edited', () => {
 
 	it( 'skips a pair with an empty half, as the broker refuses it', () => {
 		const graph = graphFromTsl(
-			'make_node Remote_Source spoke-q7 lone o d jobstats.p7 :marmot-sink tapir.p2:tapir-sink\n',
+			'make_node Remote_Source spoke-q7 lone o d jobstats.p7 =marmot-sink tapir.p2=tapir-sink\n',
 			null,
 			brokerSchemas
 		);
@@ -66,7 +66,7 @@ describe( 'a broker in the file being edited', () => {
 		expect(
 			pairEdges(
 				graphFromTsl(
-					'make_node HTTP_Source austin-q3 austin o/6113 d/6113 firehose.p0:sink-4194\n',
+					'make_node HTTP_Source austin-q3 austin o/6113 d/6113 firehose.p0=sink-4194\n',
 					null,
 					catalog
 				)
@@ -77,7 +77,7 @@ describe( 'a broker in the file being edited', () => {
 		expect(
 			pairEdges(
 				graphFromTsl(
-					'make_node Vault_Group spokes HTTP_Source spokes o/{id} d/{id} jobstats.p0:stats-977\n',
+					'make_node Vault_Group spokes HTTP_Source spokes o/{id} d/{id} jobstats.p0=stats-977\n',
 					null,
 					catalog
 				)
@@ -102,7 +102,7 @@ describe( 'a broker in the file being edited', () => {
 
 		it( 'draws no pair edge', () => {
 			const graph = graphFromTsl(
-				'make_node Okapi_Fan fan-31 x firehose.p0:sink-88\n',
+				'make_node Okapi_Fan fan-31 x firehose.p0=sink-88\n',
 				null,
 				catalog
 			);
@@ -112,7 +112,7 @@ describe( 'a broker in the file being edited', () => {
 
 		it( 'draws none as a group child either', () => {
 			const graph = graphFromTsl(
-				'make_node Vault_Group fans Okapi_Fan fans x firehose.p0:sink-88\n',
+				'make_node Vault_Group fans Okapi_Fan fans x firehose.p0=sink-88\n',
 				null,
 				catalog
 			);
@@ -133,7 +133,7 @@ describe( 'a broker in the file being edited', () => {
 
 	it( 'finds where the pairs start from the catalog, not a fixed offset', () => {
 		const line =
-			'make_node Remote_Source spoke-x9 lone o d tapir.p2:tapir-sink ibis.p1:ibis-sink\n';
+			'make_node Remote_Source spoke-x9 lone o d tapir.p2=tapir-sink ibis.p1=ibis-sink\n';
 		const shifted = brokerSchemas.map( ( entry ) =>
 			'Remote_Source' === entry.shell_name
 				? {
@@ -160,7 +160,7 @@ describe( 'a broker in the file being edited', () => {
 
 	it( 'reads a quoted pair as the value the broker reads', () => {
 		const graph = graphFromTsl(
-			'make_node Remote_Source spoke-x9 lone o d "tapir.p2:tapir-sink" \'ibis.p1:ibis-sink\'\n',
+			'make_node Remote_Source spoke-x9 lone o d "tapir.p2=tapir-sink" \'ibis.p1=ibis-sink\'\n',
 			null,
 			brokerSchemas
 		);
@@ -173,7 +173,7 @@ describe( 'a broker in the file being edited', () => {
 
 	it( 'recognises a quoted child class in a group', () => {
 		const graph = graphFromTsl(
-			'make_node Vault_Group spokes "Remote_Source" spoke o/{id} d/{id} tapir.p2:tapir-sink\n',
+			'make_node Vault_Group spokes "Remote_Source" spoke o/{id} d/{id} tapir.p2=tapir-sink\n',
 			null,
 			brokerSchemas
 		);
@@ -201,13 +201,13 @@ describe( 'a broker in the file being edited', () => {
 
 		it( "draws a claimed group's pair once", () => {
 			const graph = graphFromTsl(
-				'include hub-base\nmake_node Vault_Group spokes Remote_Source spoke o/{id} d/{id} egret.p0:sink-q\n',
+				'include hub-base\nmake_node Vault_Group spokes Remote_Source spoke o/{id} d/{id} egret.p0=sink-q\n',
 				seeded( 'Vault_Group', [
 					'Remote_Source',
 					'spoke',
 					'o/{id}',
 					'd/{id}',
-					'egret.p0:sink-q',
+					'egret.p0=sink-q',
 				] ),
 				brokerSchemas
 			);
@@ -219,12 +219,12 @@ describe( 'a broker in the file being edited', () => {
 
 		it( "draws a claimed Remote_Source's pair once", () => {
 			const graph = graphFromTsl(
-				'include hub-base\nmake_node Remote_Source spokes tw0 o d egret.p0:sink-q\n',
+				'include hub-base\nmake_node Remote_Source spokes tw0 o d egret.p0=sink-q\n',
 				seeded( 'Remote_Source', [
 					'tw0',
 					'o',
 					'd',
-					'egret.p0:sink-q',
+					'egret.p0=sink-q',
 				] ),
 				brokerSchemas
 			);

@@ -111,7 +111,7 @@
     ],
     [
       "a source's lines are text, placed by their bytes",
-      "sources/php",
+      "sources:php",
       [
         {
           "at": "77031:12",
@@ -123,13 +123,13 @@
         "records": [
           [
             1,
-            "sources/php",
+            "sources:php",
             "77031:12:23",
             "PHP Warning café 5521\n"
           ],
           [
             1,
-            "sources/php",
+            "sources:php",
             "77031:35:12",
             "second 6604\n"
           ]

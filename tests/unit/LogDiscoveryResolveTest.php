@@ -9,7 +9,7 @@ use Newspack_Nodes\Log_Discovery;
 use Newspack_Nodes\Tests\TestCase;
 
 /**
- * A stamp has one reader, `split()`, and a dir stamp one resolver, `dir_of()`:
+ * A stamp has one splitter, `split()`, and a dir stamp one resolver, `dir_of()`:
  * the stream's guard, then a direct path. Nothing scans a catalog to invert a
  * stamp, so a dir the stamp writer refuses cannot break a lookup of another.
  */
@@ -34,13 +34,17 @@ final class LogDiscoveryResolveTest extends TestCase {
 	/** @return array<string,array{string,array{string,string}}> Label => stamp, then its group and name. */
 	public static function stamps(): array {
 		return [
-			'bare'       => [ 'kea-7713.p3', [ 'logs', 'kea-7713.p3' ] ],
-			'offsets'    => [ 'offsets/hub.kea-7713.p3', [ 'offsets', 'hub.kea-7713.p3' ] ],
-			'deadletter' => [ 'deadletter/jobs.p5', [ 'deadletter', 'jobs.p5' ] ],
-			'sources'    => [ 'sources/gate-4194.jsonl', [ 'sources', 'gate-4194.jsonl' ] ],
-			'glob'       => [ 'offsets/kea.*', [ 'offsets', 'kea.*' ] ],
-			'deep'       => [ 'sources/a/../b', [ 'sources', 'a/../b' ] ],
-			'reader'     => [ 'offsets:hub.tucson-41:sources:php', [ 'offsets', 'hub.tucson-41/sources:php' ] ],
+			'bare'           => [ 'kea-7713.p3', [ 'logs', 'kea-7713.p3' ] ],
+			'offsets'        => [ 'offsets:hub.kea-7713.p3', [ 'offsets', 'hub.kea-7713.p3' ] ],
+			'deadletter'     => [ 'deadletter:jobs.p5', [ 'deadletter', 'jobs.p5' ] ],
+			'sources'        => [ 'sources:gate-4194.jsonl', [ 'sources', 'gate-4194.jsonl' ] ],
+			'glob'           => [ 'offsets:kea.*', [ 'offsets', 'kea.*' ] ],
+			'deep'           => [ 'sources:a/../b', [ 'sources', 'a/../b' ] ],
+			'reader'         => [ 'offsets:hub.tucson-41:sources:php', [ 'offsets', 'hub.tucson-41:sources:php' ] ],
+			'a group alone'  => [ 'offsets', [ 'logs', 'offsets' ] ],
+			'explicit logs'  => [ 'logs:kea-7713.p3', [ 'logs', 'logs:kea-7713.p3' ] ],
+			'unknown prefix' => [ 'secrets:kea-7713.p3', [ 'logs', 'secrets:kea-7713.p3' ] ],
+			'slash spelling' => [ 'offsets/kea-7713.p3', [ 'logs', 'offsets/kea-7713.p3' ] ],
 		];
 	}
 
@@ -53,24 +57,8 @@ final class LogDiscoveryResolveTest extends TestCase {
 		$this->assertSame( $expected, Log_Discovery::split( $stamp ) );
 	}
 
-	/** @return array<string,array{string}> Label => a prefix the grammar refuses. */
-	public static function refused_prefixes(): array {
-		return [
-			'explicit logs' => [ 'logs/kea-7713.p3' ],
-			'unknown'       => [ 'secrets/kea-7713.p3' ],
-			'traversal'     => [ '../etc/passwd' ],
-		];
-	}
-
-	#[DataProvider( 'refused_prefixes' )]
-	public function test_split_refuses_an_explicit_logs_or_unknown_prefix( string $stamp ): void {
-		$this->expectException( \InvalidArgumentException::class );
-		$this->expectExceptionMessage( "invalid subscription: {$stamp}" );
-		Log_Discovery::split( $stamp );
-	}
-
 	public function test_stamp_for_writes_a_registry_stamp(): void {
-		$this->assertSame( 'sources/gate-4194.jsonl', Log_Discovery::stamp_for( 'sources', 'gate-4194.jsonl' ) );
+		$this->assertSame( 'sources:gate-4194.jsonl', Log_Discovery::stamp_for( 'sources', 'gate-4194.jsonl' ) );
 	}
 
 	public function test_dir_of_resolves_a_bare_and_a_grouped_stamp_by_direct_path(): void {
@@ -80,7 +68,7 @@ final class LogDiscoveryResolveTest extends TestCase {
 		$this->assertSame( "{$this->tmp}/logs/kea-7713.p3", Log_Discovery::dir_of( 'kea-7713.p3', $this->tmp ) );
 		$this->assertSame(
 			"{$this->tmp}/offsets/hub.kea-7713.p3",
-			Log_Discovery::dir_of( 'offsets/hub.kea-7713.p3', $this->tmp )
+			Log_Discovery::dir_of( 'offsets:hub.kea-7713.p3', $this->tmp )
 		);
 	}
 
@@ -104,12 +92,10 @@ final class LogDiscoveryResolveTest extends TestCase {
 		$this->assertSame( "{$this->tmp}/logs/kea-7713.p3", Log_Discovery::dir_of( 'kea-7713.p3', $this->tmp ) );
 	}
 
-	public function test_dir_of_refuses_the_dir_named_like_a_group_by_name(): void {
+	public function test_dir_of_resolves_a_log_dir_named_like_a_group(): void {
 		\mkdir( "{$this->tmp}/logs/sources", 0755, true );
 
-		$this->expectException( \InvalidArgumentException::class );
-		$this->expectExceptionMessage( 'log dir sources is named like a group; rename it' );
-		Log_Discovery::dir_of( 'sources', $this->tmp );
+		$this->assertSame( "{$this->tmp}/logs/sources", Log_Discovery::dir_of( 'sources', $this->tmp ) );
 	}
 
 	/** @return array<string,array{string}> Label => a stamp the stream's guard refuses. */
@@ -118,14 +104,13 @@ final class LogDiscoveryResolveTest extends TestCase {
 			'uppercase'   => [ 'Kea-7713.p3' ],
 			'glob'        => [ 'kea-7713.*' ],
 			'empty'       => [ '' ],
-			'empty group' => [ 'offsets/' ],
+			'empty group' => [ 'offsets:' ],
 			'deep'        => [ 'offsets/a/b' ],
-			'registry'    => [ 'sources/gate-4194.jsonl' ],
+			'registry'    => [ 'sources:gate-4194.jsonl' ],
 			'reader root climbs'   => [ 'offsets:..:kea-7713.p3' ],
 			'reader kind climbs'   => [ 'offsets:hub.tucson-41:..' ],
 			'reader under logs'    => [ 'logs:kea-7713.p3:x' ],
 			'reader under sources' => [ 'sources:gate-4194.jsonl:x' ],
-			'reader with no kind'  => [ 'offsets:hub.tucson-41' ],
 			'a reader dir by path' => [ 'offsets/hub.tucson-41/firehose.p3' ],
 			'a kind with a slash'  => [ 'offsets:hub.tucson-41:sources/php' ],
 		];
@@ -160,10 +145,10 @@ final class LogDiscoveryResolveTest extends TestCase {
 
 		$this->assertSame(
 			[
-				'offsets/hub.fresh.p0' => "{$this->tmp}/offsets/hub.fresh.p0",
-				'offsets/hub.plain.p0' => "{$this->tmp}/offsets/hub.plain.p0",
+				'offsets:hub.fresh.p0' => "{$this->tmp}/offsets/hub.fresh.p0",
+				'offsets:hub.plain.p0' => "{$this->tmp}/offsets/hub.plain.p0",
 			],
-			Log_Discovery::dirs_matching( 'offsets/hub*', $this->tmp )
+			Log_Discovery::dirs_matching( 'offsets:hub*', $this->tmp )
 		);
 	}
 
@@ -171,7 +156,7 @@ final class LogDiscoveryResolveTest extends TestCase {
 		\mkdir( "{$this->tmp}/deadletter/hub.tucson-41/firehose.p3", 0755, true );
 		\chmod( "{$this->tmp}/deadletter/hub.tucson-41", 0 );
 		try {
-			$this->assertNull( Log_Discovery::dirs_matching( 'deadletter/hub*', $this->tmp ) );
+			$this->assertNull( Log_Discovery::dirs_matching( 'deadletter:hub*', $this->tmp ) );
 		} finally {
 			\chmod( "{$this->tmp}/deadletter/hub.tucson-41", 0755 );
 		}
@@ -195,10 +180,10 @@ final class LogDiscoveryResolveTest extends TestCase {
 
 		$this->assertSame(
 			[
-				'offsets/kea-7713.p3' => "{$this->tmp}/offsets/kea-7713.p3",
-				'offsets/kea-7713.p8' => "{$this->tmp}/offsets/kea-7713.p8",
+				'offsets:kea-7713.p3' => "{$this->tmp}/offsets/kea-7713.p3",
+				'offsets:kea-7713.p8' => "{$this->tmp}/offsets/kea-7713.p8",
 			],
-			Log_Discovery::dirs_matching( 'offsets/kea-7713.*', $this->tmp )
+			Log_Discovery::dirs_matching( 'offsets:kea-7713.*', $this->tmp )
 		);
 	}
 
@@ -206,10 +191,11 @@ final class LogDiscoveryResolveTest extends TestCase {
 		\mkdir( "{$this->tmp}/offsets/kea-5512.p4", 0755, true );
 		\mkdir( "{$this->tmp}/offsets/kea-5512.P4", 0755, true );
 		\mkdir( "{$this->tmp}/offsets/kea-5512.p4 copy", 0755, true );
+		\mkdir( "{$this->tmp}/offsets/kea-5512.p9:okapi", 0755, true );
 
 		$this->assertSame(
-			[ 'offsets/kea-5512.p4' => "{$this->tmp}/offsets/kea-5512.p4" ],
-			Log_Discovery::dirs_matching( 'offsets/kea-5512.*', $this->tmp )
+			[ 'offsets:kea-5512.p4' => "{$this->tmp}/offsets/kea-5512.p4" ],
+			Log_Discovery::dirs_matching( 'offsets:kea-5512.*', $this->tmp )
 		);
 	}
 
@@ -224,16 +210,15 @@ final class LogDiscoveryResolveTest extends TestCase {
 			return false;
 		};
 
-		$this->assertNull( Log_Discovery::dirs_matching( 'deadletter/jobs-61*', $this->tmp ) );
+		$this->assertNull( Log_Discovery::dirs_matching( 'deadletter:jobs-61*', $this->tmp ) );
 		$this->assertSame( [ "{$this->tmp}/deadletter/jobs-61*" ], $seen, 'one glob, through the seam' );
 	}
 
-	public function test_dirs_matching_refuses_a_log_dir_named_like_a_group(): void {
+	public function test_dirs_matching_matches_a_log_dir_named_like_a_group(): void {
 		\mkdir( "{$this->tmp}/logs/offsets", 0755, true );
+		\mkdir( "{$this->tmp}/logs/of:fsets", 0755, true );
 
-		$this->expectException( \InvalidArgumentException::class );
-		$this->expectExceptionMessage( 'log dir offsets is named like a group; rename it' );
-		Log_Discovery::dirs_matching( 'of*', $this->tmp );
+		$this->assertSame( [ 'offsets' => "{$this->tmp}/logs/offsets" ], Log_Discovery::dirs_matching( 'of*', $this->tmp ) );
 	}
 
 	/** @return array<string,array{string}> Label => a glob the stream's guard refuses. */
@@ -241,8 +226,9 @@ final class LogDiscoveryResolveTest extends TestCase {
 		return [
 			'leading star' => [ '*.p3' ],
 			'uppercase'    => [ 'Kea-*' ],
-			'registry'     => [ 'sources/gate-*' ],
-			'deep'         => [ 'offsets/a/*' ],
+			'registry'     => [ 'sources:gate-*' ],
+			'deep'         => [ 'offsets:a:*' ],
+			'slash'        => [ 'offsets/a*' ],
 		];
 	}
 

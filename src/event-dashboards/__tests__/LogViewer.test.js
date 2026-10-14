@@ -210,7 +210,7 @@ describe( 'LogViewer', () => {
 		registerViewFixture( {
 			logs: [
 				{ key: 'firehose.p0', label: 'firehose.p0', available: true },
-				{ key: 'sources/debug', label: 'debug', available: false },
+				{ key: 'sources:debug', label: 'debug', available: false },
 			],
 			selected: 'firehose.p0',
 		} );

@@ -104,13 +104,13 @@ describe( 'ProbeStreamViewNode (the entry-lifecycle contract)', () => {
 		const v = new WorkerSpyView();
 		const froms = [
 			'widgets.p4/lab-9.p7/widgets',
-			'offsets/x.p0/job-worker.p2/jobstats',
+			'offsets:x.p0/job-worker.p2/jobstats',
 			'widgets.p4/widgets',
 			'x.p01',
 			'widgets.p4/x.p01/widgets',
 			'jobstats.p0/foo.p1',
 			'widgets.p4/lab-9.p7/x.p5/widgets',
-			'offsets/x.p0/widgets',
+			'offsets:x.p0/widgets',
 		];
 		for ( const from of froms ) {
 			const m = widgetMsg();
@@ -327,7 +327,7 @@ describe( 'TopicProbeViewNode backlog a reader cannot measure', () => {
 			probeMsg( {
 				ts: 140,
 				reader: 'hub-7731.firehose:okapi-3:firehose.p2.p2',
-				source: 'remote/okapi-3:firehose.p2',
+				source: 'remote:okapi-3:firehose.p2',
 				distance: null,
 			} )
 		);
@@ -367,7 +367,7 @@ describe( 'TopicProbeViewNode backlog a reader cannot measure', () => {
 			probeMsg( {
 				ts: 150,
 				reader: 'hub-7731.firehose:okapi-3:sources:php.p2',
-				source: 'remote/okapi-3:sources:php',
+				source: 'remote:okapi-3:sources:php',
 				distance: null,
 			} )
 		);
@@ -493,17 +493,17 @@ describe( 'TopicProbeViewNode', () => {
 	it( 'keeps two directories that share a basename apart', () => {
 		const v = new TopicProbeViewNode();
 		v.fill(
-			partitionMsg( { source: 'offsets/ingest.p0', endBytes: 292 } )
+			partitionMsg( { source: 'offsets:ingest.p0', endBytes: 292 } )
 		);
 		v.fill(
-			partitionMsg( { source: 'deadletter/ingest.p0', endBytes: 5113 } )
+			partitionMsg( { source: 'deadletter:ingest.p0', endBytes: 5113 } )
 		);
 		const p = v.snapshot( 'partitions' );
 		expect( Object.keys( p ) ).toEqual( [
-			'offsets/ingest.p0',
-			'deadletter/ingest.p0',
+			'offsets:ingest.p0',
+			'deadletter:ingest.p0',
 		] );
-		expect( p[ 'deadletter/ingest.p0' ].latest.endBytes ).toBe( 5113 );
+		expect( p[ 'deadletter:ingest.p0' ].latest.endBytes ).toBe( 5113 );
 	} );
 
 	it( 'publishes the consumers and the partitions side by side', () => {

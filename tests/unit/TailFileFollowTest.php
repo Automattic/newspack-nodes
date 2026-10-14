@@ -830,7 +830,7 @@ class TailFileFollowTest extends TestCase {
 		$tail                         = new File_Tail_Node();
 		$tail->name( 'php-errors:tail' );
 
-		$tail->arguments( [ 'sources/php' ] );
+		$tail->arguments( [ 'sources:php' ] );
 
 		$this->assertSame( $path, $this->read_private( $tail, 'source_file' ) );
 		$tail->remove_node();
@@ -839,7 +839,7 @@ class TailFileFollowTest extends TestCase {
 	/** @return array<string,array{string}> Label => how the fixed file is written. */
 	public static function fixed_files(): array {
 		return [
-			'a registry source' => [ 'sources/php' ],
+			'a registry source' => [ 'sources:php' ],
 			'an absolute path'  => [ '{tmp}/php-errors-3307.log' ],
 		];
 	}
@@ -888,7 +888,7 @@ class TailFileFollowTest extends TestCase {
 		$path                         = $this->tmp . '/php-errors-3310.log';
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
 		\file_put_contents( $path, "gannet-1\n" );
-		$args = [ 'sources/php', "{$this->tmp}/gannet-offsets.p0", "{$this->tmp}/gannet-dead.p0" ];
+		$args = [ 'sources:php', "{$this->tmp}/gannet-offsets.p0", "{$this->tmp}/gannet-dead.p0" ];
 
 		Core::$var['partition'] = '0';
 		$owner                  = new File_Tail_Node();
@@ -951,7 +951,7 @@ class TailFileFollowTest extends TestCase {
 			$tail = new File_Tail_Node();
 			$tail->name( 'php-errors:tail' );
 			$tail->sink( new Capture_Sink_Node() );
-			$tail->arguments( [ 'sources/php', "{$this->tmp}/gannet-offsets.p5" ] );
+			$tail->arguments( [ 'sources:php', "{$this->tmp}/gannet-offsets.p5" ] );
 			$caught = $this->caught( static fn () => $act( $tail ), 'an idle Tail must refuse to wake' );
 		} finally {
 			unset( Core::$var['partition'] );
@@ -972,7 +972,7 @@ class TailFileFollowTest extends TestCase {
 			$tail->name( 'php-errors:tail' );
 			$cap = new Capture_Sink_Node();
 			$tail->sink( $cap );
-			$tail->arguments( [ 'sources/php', "{$this->tmp}/gannet-offsets.p0" ] );
+			$tail->arguments( [ 'sources:php', "{$this->tmp}/gannet-offsets.p0" ] );
 		} finally {
 			unset( Core::$var['partition'] );
 		}
@@ -1111,9 +1111,9 @@ class TailFileFollowTest extends TestCase {
 	public static function followed_paths(): array {
 		return [
 			'an absolute path'        => [ '/var/log/ibis-3314.log', 3, '/var/log/ibis-3314.log' ],
-			'a registry source'       => [ 'sources/ibis', 3, '/var/log/ibis-3314-registry.log' ],
+			'a registry source'       => [ 'sources:ibis', 3, '/var/log/ibis-3314-registry.log' ],
 			'a brace token, resolved' => [ '/var/log/ibis-3314.{partition}.log', 3, '/var/log/ibis-3314.3.log' ],
-			'a registry path carrying the token' => [ 'sources/ibis-p', 3, '/var/log/ibis-3318.3.log' ],
+			'a registry path carrying the token' => [ 'sources:ibis-p', 3, '/var/log/ibis-3318.3.log' ],
 		];
 	}
 
@@ -1139,11 +1139,11 @@ class TailFileFollowTest extends TestCase {
 	/** @return array<string,array{string,string}> Label => written, the refusal it earns. */
 	public static function unfollowable_paths(): array {
 		return [
-			'a relative path'       => [ 'logs/ibis-3315.log', 'File_Tail ibis:tail-3315: source_file must be an absolute path or sources/<name>, got "logs/ibis-3315.log"' ],
-			'a bare prefix'         => [ 'sources/', 'File_Tail ibis:tail-3315: source_file must be an absolute path or sources/<name>, got "sources/"' ],
-			'a nested source'       => [ 'sources/ibis/3315', 'File_Tail ibis:tail-3315: source_file must be an absolute path or sources/<name>, got "sources/ibis/3315"' ],
-			'an unknown source'     => [ 'sources/ibis-3315', 'File_Tail ibis:tail-3315: unknown log source: "ibis-3315" (known: none)' ],
-			'an unconfigured debug' => [ 'sources/debug', 'File_Tail ibis:tail-3315: unknown log source: "debug" (known: none); the built-in "debug" needs WP_CONTENT_DIR defined' ],
+			'a relative path'       => [ 'logs/ibis-3315.log', 'File_Tail ibis:tail-3315: source_file must be an absolute path or sources:<name>, got "logs/ibis-3315.log"' ],
+			'a bare prefix'         => [ 'sources:', 'File_Tail ibis:tail-3315: source_file must be an absolute path or sources:<name>, got "sources:"' ],
+			'a nested source'       => [ 'sources:ibis/3315', 'File_Tail ibis:tail-3315: source_file must be an absolute path or sources:<name>, got "sources:ibis/3315"' ],
+			'an unknown source'     => [ 'sources:ibis-3315', 'File_Tail ibis:tail-3315: unknown log source: "ibis-3315" (known: none)' ],
+			'an unconfigured debug' => [ 'sources:debug', 'File_Tail ibis:tail-3315: unknown log source: "debug" (known: none); the built-in "debug" needs WP_CONTENT_DIR defined' ],
 		];
 	}
 
@@ -1165,7 +1165,7 @@ class TailFileFollowTest extends TestCase {
 		$this->expectException( \InvalidArgumentException::class );
 		$this->expectExceptionMessage( 'File_Tail php-errors:tail: unknown log source: "nope-4194" (known: php' );
 
-		$tail->arguments( [ 'sources/nope-4194' ] );
+		$tail->arguments( [ 'sources:nope-4194' ] );
 	}
 
 	public function test_a_relative_source_file_is_refused_with_its_own_message(): void {
@@ -1173,7 +1173,7 @@ class TailFileFollowTest extends TestCase {
 		$tail->name( 'php-errors:tail' );
 
 		$this->expectException( \InvalidArgumentException::class );
-		$this->expectExceptionMessage( 'File_Tail php-errors:tail: source_file must be an absolute path or sources/<name>, got "logs/app-5531.log"' );
+		$this->expectExceptionMessage( 'File_Tail php-errors:tail: source_file must be an absolute path or sources:<name>, got "logs/app-5531.log"' );
 
 		$tail->arguments( [ 'logs/app-5531.log' ] );
 	}

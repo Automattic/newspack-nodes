@@ -167,13 +167,13 @@ class RawLogsCITest extends TestCase {
 					'available' => true,
 				],
 				[
-					'key'       => 'offsets/combined.firehose.p0',
-					'label'     => 'offsets/combined.firehose.p0',
+					'key'       => 'offsets:combined.firehose.p0',
+					'label'     => 'offsets:combined.firehose.p0',
 					'available' => true,
 				],
 				[
-					'key'       => 'deadletter/job-worker.jobs.p0',
-					'label'     => 'deadletter/job-worker.jobs.p0',
+					'key'       => 'deadletter:job-worker.jobs.p0',
+					'label'     => 'deadletter:job-worker.jobs.p0',
 					'available' => true,
 				],
 			],
@@ -208,9 +208,9 @@ class RawLogsCITest extends TestCase {
 				'offsets:hub.coast-73:firehose.p3',
 				'offsets:hub.tucson-41:firehose.p3',
 				'offsets:hub.tucson-41:sources:php',
-				'offsets/performance.requests.p2',
+				'offsets:performance.requests.p2',
 				'deadletter:hub.coast-73:sources:php',
-				'deadletter/performance.requests.p2',
+				'deadletter:performance.requests.p2',
 			],
 			\array_column( $result, 'key' )
 		);
@@ -265,7 +265,7 @@ class RawLogsCITest extends TestCase {
 				[
 					'label'     => 'hub:tw0/firehose.p3',
 					'available' => false,
-					'error'     => 'broker root hub:tw0 holds a colon, so no stamp names its readers; rename it',
+					'error'     => 'log dir hub:tw0/firehose.p3 holds a colon, which a stamp reads as a separator; rename it',
 				],
 			],
 			$result
@@ -329,18 +329,20 @@ class RawLogsCITest extends TestCase {
 		$this->assertSame( '11:0', $info['OFFSET'] );
 	}
 
-	public function test_list_logs_shows_a_logs_dir_named_like_a_group_as_an_error_row(): void {
+	public function test_list_logs_shows_a_logs_dir_holding_a_colon_as_an_error_row(): void {
 		\mkdir( $this->tmp . '/logs/firehose.p0', 0755, true );
 		\mkdir( $this->tmp . '/logs/deadletter', 0755, true );
+		\mkdir( $this->tmp . '/logs/deadletter:firehose.p0', 0755, true );
 
 		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
 
 		$this->assertSame(
 			[
+				[ 'key' => 'deadletter', 'label' => 'deadletter', 'available' => true ],
 				[
-					'label'     => 'deadletter',
+					'label'     => 'deadletter:firehose.p0',
 					'available' => false,
-					'error'     => 'log dir deadletter is named like a group; rename it',
+					'error'     => 'log dir deadletter:firehose.p0 holds a colon, which a stamp reads as a separator; rename it',
 				],
 				[ 'key' => 'firehose.p0', 'label' => 'firehose.p0', 'available' => true ],
 			],
@@ -361,7 +363,7 @@ class RawLogsCITest extends TestCase {
 					'available' => false,
 					'error'     => 'log dir Kea-5512.p4 is no stamp a stream can name; rename it',
 				],
-				[ 'key' => 'offsets/kea-5512.p4', 'label' => 'offsets/kea-5512.p4', 'available' => true ],
+				[ 'key' => 'offsets:kea-5512.p4', 'label' => 'offsets:kea-5512.p4', 'available' => true ],
 			],
 			$result
 		);
@@ -379,8 +381,8 @@ class RawLogsCITest extends TestCase {
 		$this->assertSame(
 			[
 				[ 'key' => 'firehose.p0', 'label' => 'firehose.p0', 'available' => true ],
-				[ 'key' => 'sources/php', 'label' => 'php', 'available' => true ],
-				[ 'key' => 'sources/debug', 'label' => 'debug', 'available' => false ],
+				[ 'key' => 'sources:php', 'label' => 'php', 'available' => true ],
+				[ 'key' => 'sources:debug', 'label' => 'debug', 'available' => false ],
 			],
 			$result
 		);
@@ -391,11 +393,11 @@ class RawLogsCITest extends TestCase {
 		\file_put_contents( $path, \str_repeat( 'n', 977 ) );
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'sources/php' );
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'sources:php' );
 
 		$this->assertSame(
 			[
-				'log_id'        => 'sources/php',
+				'log_id'        => 'sources:php',
 				'segments'      => [ [ 'id' => \fileinode( $path ), 'size' => 977 ] ],
 				'segment_count' => 1,
 				'total_size'    => 977,
@@ -414,7 +416,7 @@ class RawLogsCITest extends TestCase {
 		\file_put_contents( $this->tmp . '/logs/gate-4194.jsonl.3', \str_repeat( 'a', 977 ) );
 		\file_put_contents( $this->tmp . '/logs/gate-4194.jsonl.5', \str_repeat( 'b', 233 ) );
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'sources/gate-4194.jsonl' );
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'sources:gate-4194.jsonl' );
 
 		$this->assertSame( [ [ 'id' => 3, 'size' => 977 ], [ 'id' => 5, 'size' => 233 ] ], $result['segments'] );
 		$this->assertSame( 2, $result['segment_count'] );
@@ -422,7 +424,7 @@ class RawLogsCITest extends TestCase {
 	}
 
 	public function test_dump_log_refuses_an_unknown_source(): void {
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'sources/nope-977' );
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'sources:nope-977' );
 
 		$this->assertSame( "unknown log source: \"nope-977\" (known: none)\n", $result );
 	}
@@ -436,10 +438,10 @@ class RawLogsCITest extends TestCase {
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
 			'dump_log',
-			'deadletter/job-worker.jobs.p0'
+			'deadletter:job-worker.jobs.p0'
 		);
 
-		$this->assertSame( 'deadletter/job-worker.jobs.p0', $result['log_id'] );
+		$this->assertSame( 'deadletter:job-worker.jobs.p0', $result['log_id'] );
 		$this->assertSame( 977, $result['total_size'] );
 		$this->assertSame( [ 7 ], \array_column( $result['segments'], 'id' ) );
 	}
@@ -600,7 +602,7 @@ class RawLogsCITest extends TestCase {
 		Log_Sources::$builtin_sources = static fn (): array => [ 'kea' => $file ];
 		$inode = (int) \fileinode( $file );
 
-		[ $batch, $info ] = $this->read_block( [ 'sources/kea', "{$inode}:6" ] );
+		[ $batch, $info ] = $this->read_block( [ 'sources:kea', "{$inode}:6" ] );
 
 		$this->assertSame( "line 3301\nsecond line 7719\n", $batch[ Message::VALUE ] );
 		$this->assertSame( Message::TM_BATCH | Message::TM_BYTESTREAM, $batch[ Message::TYPE ], 'a source\'s lines are text' );
@@ -726,9 +728,9 @@ class RawLogsCITest extends TestCase {
 		\file_put_contents( $path, "PHP Notice: 977\nPHP Warning: 4194\n" );
 		\Newspack_Nodes\Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_message', [ 'sources/php', 'start' ] );
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'read_message', [ 'sources:php', 'start' ] );
 
-		$this->assertSame( 'sources/php', $result['source'] );
+		$this->assertSame( 'sources:php', $result['source'] );
 		$this->assertSame( "PHP Notice: 977\n", $result['message'][ Message::VALUE ] );
 		$this->assertSame( 16, $result['cursor']['offset'] );
 	}
@@ -816,7 +818,7 @@ class RawLogsCITest extends TestCase {
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
 			'read_message',
-			[ 'deadletter/job-worker.jobs.p0', '7:0' ]
+			[ 'deadletter:job-worker.jobs.p0', '7:0' ]
 		);
 
 		$this->assertSame( 'quarantined 41941', $result['message'][ Message::VALUE ] );

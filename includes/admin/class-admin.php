@@ -818,7 +818,7 @@ class Admin {
 	 * Log sources field: a textarea of newline-separated `name=/absolute/path`
 	 * entries. These are additions to what `Log_Sources` already resolves — the
 	 * built-in sources and the ones inferred from the active topologies — and both
-	 * `/messages/stream`'s `sources/<name>` and `list_logs` read the combined set.
+	 * `/messages/stream`'s `sources:<name>` and `list_logs` read the combined set.
 	 */
 	public static function log_sources_callback(): void {
 		$value = \get_option( 'newspack_nodes_log_sources', [] );

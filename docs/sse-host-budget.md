@@ -9,7 +9,7 @@ makes the slot pool a capacity reservation, and the numbers below are the
 reservation's arithmetic.
 
 One route streams — `GET /newspack-nodes/v1/messages/stream`,
-[`SSE_Out_Node`](../includes/rest/class-sse-out-node.php) — and it carries partitions and `sources/<name>` log sources
+[`SSE_Out_Node`](../includes/rest/class-sse-out-node.php) — and it carries partitions and `sources:<name>` log sources
 alike. The budget is per host.
 
 ## What the platform does when you run out

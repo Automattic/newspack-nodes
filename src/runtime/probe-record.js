@@ -32,7 +32,7 @@
  * `TopicProbeViewNode` keeps it on the consumer's entry rather than on each
  * sample, because it names the topic every one of that reader's samples came
  * from. On a Partition record, the log's SSE stamp (`firehose.p0`,
- * `offsets/…`), or its path under the runtime base outside the stamped roots,
+ * `offsets:…`), or its path under the runtime base outside the stamped roots,
  * which the view keys partitions by.
  */
 export const SOURCE = 0;
