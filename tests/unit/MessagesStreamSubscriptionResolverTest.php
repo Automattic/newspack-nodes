@@ -249,6 +249,40 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$this->assertSame( 'offsets/combined.firehose.p0', $consumers[0]->stamped_as() );
 	}
 
+	/** A broker reader's stamp opens the reader dir under its root, and reads it. */
+	public function test_a_broker_readers_stamp_opens_its_dir(): void {
+		$dir = "{$this->tmp}/offsets/hub.tucson-41/sources:php";
+		\mkdir( $dir, 0755, true );
+		\mkdir( "{$this->tmp}/offsets/hub.tucson-41/firehose.p3", 0755, true );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'cursor 3390';
+		$line                      = Message::packed( $message ) . "\n";
+		\file_put_contents( "{$dir}/6.log", $line );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+		$stamp = 'offsets:hub.tucson-41:sources:php';
+
+		$consumers = $ctrl->open_subscription( $stamp, [ $stamp => 'start' ] );
+
+		$this->assertCount( 1, $consumers );
+		$this->assertSame( $stamp, $consumers[0]->stamped_as() );
+		try {
+			$this->assertSame( $line, $consumers[0]->raw_block( 4096 )['bytes'] );
+		} finally {
+			$consumers[0]->remove_node();
+		}
+	}
+
+	public function test_a_three_segment_grouped_subscription_is_refused(): void {
+		\mkdir( "{$this->tmp}/offsets/hub.tucson-41/firehose.p3", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+
+		$this->expectExceptionMessage( 'invalid subscription: offsets/hub.tucson-41/firehose.p3' );
+		$ctrl->open_subscription( 'offsets/hub.tucson-41/firehose.p3', null );
+	}
+
 	public function test_group_prefixed_glob_fans_out_within_the_group(): void {
 		\mkdir( "{$this->tmp}/deadletter/combined.firehose.p0", 0755, true );
 		\mkdir( "{$this->tmp}/deadletter/combined.firehose.p1", 0755, true );

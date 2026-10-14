@@ -108,6 +108,106 @@ class LogDiscoveryTest extends TestCase {
 		$this->assertSame( 'deadletter/ledger.p6', Log_Discovery::stamp_for( 'deadletter', 'ledger.p6' ) );
 	}
 
+	/** A broker reader's dir stamps as one segment: group, root and kind, joined by `:`. */
+	public function test_stamp_for_writes_a_broker_readers_dir_as_one_colon_joined_segment(): void {
+		$this->assertSame( 'offsets:hub.tucson-41:firehose.p3', Log_Discovery::stamp_for( 'offsets', 'hub.tucson-41/firehose.p3' ) );
+		$this->assertSame( 'deadletter:hub.coast-73:sources:php', Log_Discovery::stamp_for( 'deadletter', 'hub.coast-73/sources:php' ) );
+	}
+
+	/** A root holding `:` would read back as another root and kind, so it is refused by name. */
+	public function test_stamp_for_refuses_a_broker_root_holding_a_colon(): void {
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'broker root hub:tw0 holds a colon, so no stamp names its readers; rename it' );
+		Log_Discovery::stamp_for( 'offsets', 'hub:tw0/firehose.p3' );
+	}
+
+	/** The colon form takes no prefix, so no log dir name is newly refused. */
+	public function test_a_log_dir_named_reader_stays_an_ordinary_log(): void {
+		$this->assertSame( 'reader', Log_Discovery::stamp_for( 'logs', 'reader' ) );
+		$this->assertTrue( Log_Discovery::is_stamp( 'reader' ) );
+	}
+
+	/** A broker reader's sidecar names itself as the catalog does. */
+	public function test_source_for_stamps_a_broker_readers_sidecar_dirs(): void {
+		$this->assertSame( 'offsets:hub.tucson-41:sources:php', Log_Discovery::source_for( 'offsets/hub.tucson-41/sources:php' ) );
+		$this->assertSame( 'deadletter:hub.TucsonWeekly:firehose.p3', Log_Discovery::source_for( 'deadletter/hub.TucsonWeekly/firehose.p3' ) );
+	}
+
+	/** A sidecar no stamp names keeps its path, and throws nothing. */
+	public function test_source_for_keeps_the_path_of_a_reader_no_stamp_names(): void {
+		$this->assertSame( 'offsets/hub:tw0/firehose.p3', Log_Discovery::source_for( 'offsets/hub:tw0/firehose.p3' ) );
+		$this->assertSame( 'offsets/hub tw0/firehose.p3', Log_Discovery::source_for( 'offsets/hub tw0/firehose.p3' ), 'a root ROOT_PATTERN refuses' );
+		$this->assertSame( 'deadletter/hub.tw0/Firehose.p3', Log_Discovery::source_for( 'deadletter/hub.tw0/Firehose.p3' ), 'a kind no stamp folds to' );
+		$this->assertSame( 'logs/gate/offsets/x', Log_Discovery::source_for( 'logs/gate/offsets/x' ) );
+	}
+
+	/** A dir holding a segment is a Partition's, whatever else sits in it. */
+	public function test_groups_lists_a_dir_holding_a_segment_as_itself(): void {
+		$this->seed_segment( 'offsets/job-spoke.jobs.p6/stray-71', 5 );
+		$this->seed_segment( 'offsets/job-spoke.jobs.p6', 12 );
+		$this->seed_segment( 'deadletter/hub.coast-73/firehose.p3', 3 );
+		\file_put_contents( "{$this->tmp}/deadletter/hub.coast-73/notes.txt", '' );
+
+		$groups = Log_Discovery::groups();
+
+		$this->assertSame( [ 'job-spoke.jobs.p6' ], $groups['offsets'] );
+		$this->assertSame( [ 'hub.coast-73/firehose.p3' ], $groups['deadletter'], 'a stray file is no segment' );
+	}
+
+	/**
+	 * A broker's root holds one reader dir per kind and no segments, so the
+	 * readers list in its place; a plain Consumer's offsetlog lists as itself.
+	 */
+	public function test_groups_lists_each_broker_reader_in_place_of_its_root(): void {
+		$this->seed_segment( 'offsets/hub.tucson-41/firehose.p3', 8 );
+		$this->seed_segment( 'offsets/hub.tucson-41/sources:php', 9 );
+		\mkdir( "{$this->tmp}/offsets/hub.tucson-41/fresh.p1", 0755, true );
+		$this->seed_segment( 'offsets/performance.requests.p2', 4 );
+		$this->seed_segment( 'deadletter/hub.coast-73/sources:php', 2 );
+		$this->seed_segment( 'logs/jobintake.p2/write.lock.d', 6 );
+
+		$groups = Log_Discovery::groups();
+
+		$this->assertSame( [ 'jobintake.p2' ], $groups['logs'], 'a lock dir inside a log is no reader' );
+		$this->assertSame(
+			[ 'hub.tucson-41/firehose.p3', 'hub.tucson-41/sources:php', 'performance.requests.p2' ],
+			$groups['offsets']
+		);
+		$this->assertSame( [ 'hub.coast-73/sources:php' ], $groups['deadletter'] );
+	}
+
+	/** A root nested a level deeper lists as one dir, never as a broker's root. */
+	public function test_groups_lists_a_root_nested_deeper_as_one_dir(): void {
+		$this->seed_segment( 'offsets/fleet-58/hub.tucson-41/firehose.p3', 4 );
+
+		$this->assertSame( [ 'fleet-58' ], Log_Discovery::groups()['offsets'] );
+	}
+
+	/** A dir the catalog cannot read is named apart, and costs no other dir its place. */
+	public function test_groups_names_a_dir_it_cannot_read_and_lists_the_rest(): void {
+		$this->seed_segment( 'deadletter/hub.coast-73/firehose.p3', 3 );
+		$this->seed_segment( 'deadletter/hub.tucson-41/firehose.p3', 5 );
+		$this->seed_segment( 'deadletter/job-spoke.jobs.p6', 2 );
+		\chmod( "{$this->tmp}/deadletter/hub.coast-73", 0 );
+		try {
+			$groups     = Log_Discovery::groups();
+			$unreadable = Log_Discovery::unreadable();
+		} finally {
+			\chmod( "{$this->tmp}/deadletter/hub.coast-73", 0755 );
+		}
+
+		$this->assertSame( [ 'hub.tucson-41/firehose.p3', 'job-spoke.jobs.p6' ], $groups['deadletter'] );
+		$this->assertSame( [ 'logs' => [], 'offsets' => [], 'deadletter' => [ 'hub.coast-73' ] ], $unreadable );
+	}
+
+	/** Seed one empty segment file, `<id>.log`, in a dir under the base. */
+	private function seed_segment( string $relative, int $id ): void {
+		if ( ! \is_dir( "{$this->tmp}/{$relative}" ) ) {
+			\mkdir( "{$this->tmp}/{$relative}", 0755, true );
+		}
+		\file_put_contents( "{$this->tmp}/{$relative}/{$id}.log", '' );
+	}
+
 	/** A bare stamp named like a group would read back as that group's prefix. */
 	public function test_stamp_for_refuses_a_log_dir_named_like_a_group(): void {
 		$this->expectException( \InvalidArgumentException::class );

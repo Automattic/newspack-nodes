@@ -40,6 +40,7 @@ final class LogDiscoveryResolveTest extends TestCase {
 			'sources'    => [ 'sources/gate-4194.jsonl', [ 'sources', 'gate-4194.jsonl' ] ],
 			'glob'       => [ 'offsets/kea.*', [ 'offsets', 'kea.*' ] ],
 			'deep'       => [ 'sources/a/../b', [ 'sources', 'a/../b' ] ],
+			'reader'     => [ 'offsets:hub.tucson-41:sources:php', [ 'offsets', 'hub.tucson-41/sources:php' ] ],
 		];
 	}
 
@@ -83,6 +84,13 @@ final class LogDiscoveryResolveTest extends TestCase {
 		);
 	}
 
+	/** A broker's root holds no segments, so a kind it lacks opens nothing. */
+	public function test_dir_of_answers_null_for_a_reader_no_dir_carries(): void {
+		\mkdir( "{$this->tmp}/offsets/hub.tucson-41/firehose.p3", 0755, true );
+
+		$this->assertNull( Log_Discovery::dir_of( 'offsets:hub.tucson-41:firehose.p9', $this->tmp ) );
+	}
+
 	public function test_dir_of_answers_null_for_a_stamp_no_dir_carries(): void {
 		\mkdir( "{$this->tmp}/logs/kea-7713.p3", 0755, true );
 
@@ -113,6 +121,13 @@ final class LogDiscoveryResolveTest extends TestCase {
 			'empty group' => [ 'offsets/' ],
 			'deep'        => [ 'offsets/a/b' ],
 			'registry'    => [ 'sources/gate-4194.jsonl' ],
+			'reader root climbs'   => [ 'offsets:..:kea-7713.p3' ],
+			'reader kind climbs'   => [ 'offsets:hub.tucson-41:..' ],
+			'reader under logs'    => [ 'logs:kea-7713.p3:x' ],
+			'reader under sources' => [ 'sources:gate-4194.jsonl:x' ],
+			'reader with no kind'  => [ 'offsets:hub.tucson-41' ],
+			'a reader dir by path' => [ 'offsets/hub.tucson-41/firehose.p3' ],
+			'a kind with a slash'  => [ 'offsets:hub.tucson-41:sources/php' ],
 		];
 	}
 
@@ -125,6 +140,51 @@ final class LogDiscoveryResolveTest extends TestCase {
 		$this->expectException( \InvalidArgumentException::class );
 		$this->expectExceptionMessage( "invalid subscription: {$stamp}" );
 		Log_Discovery::dir_of( $stamp, $this->tmp );
+	}
+
+	public function test_dirs_matching_refuses_a_glob_over_a_brokers_readers(): void {
+		Log_Discovery::$glob = fn (): array|false => $this->fail( 'a refused glob reads no dir' );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'invalid subscription: offsets:hub.tucson-41:fire*' );
+		Log_Discovery::dirs_matching( 'offsets:hub.tucson-41:fire*', $this->tmp );
+	}
+
+	/** A glob skips a broker's root, as the catalog does, and reaches none of its readers. */
+	public function test_dirs_matching_skips_a_brokers_root(): void {
+		\mkdir( "{$this->tmp}/offsets/hub.tucson-41/firehose.p3", 0755, true );
+		\file_put_contents( "{$this->tmp}/offsets/hub.tucson-41/firehose.p3/4.log", '' );
+		\mkdir( "{$this->tmp}/offsets/hub.plain.p0", 0755, true );
+		\file_put_contents( "{$this->tmp}/offsets/hub.plain.p0/3.log", '' );
+		\mkdir( "{$this->tmp}/offsets/hub.fresh.p0", 0755, true );
+
+		$this->assertSame(
+			[
+				'offsets/hub.fresh.p0' => "{$this->tmp}/offsets/hub.fresh.p0",
+				'offsets/hub.plain.p0' => "{$this->tmp}/offsets/hub.plain.p0",
+			],
+			Log_Discovery::dirs_matching( 'offsets/hub*', $this->tmp )
+		);
+	}
+
+	public function test_dirs_matching_answers_null_when_a_dir_under_the_glob_will_not_read(): void {
+		\mkdir( "{$this->tmp}/deadletter/hub.tucson-41/firehose.p3", 0755, true );
+		\chmod( "{$this->tmp}/deadletter/hub.tucson-41", 0 );
+		try {
+			$this->assertNull( Log_Discovery::dirs_matching( 'deadletter/hub*', $this->tmp ) );
+		} finally {
+			\chmod( "{$this->tmp}/deadletter/hub.tucson-41", 0755 );
+		}
+	}
+
+	/** An exact reader stamp keys its one match by itself, never by the kind alone. */
+	public function test_dirs_matching_keys_an_exact_reader_stamp_by_that_stamp(): void {
+		\mkdir( "{$this->tmp}/deadletter/hub.coast-73/sources:php", 0755, true );
+
+		$this->assertSame(
+			[ 'deadletter:hub.coast-73:sources:php' => "{$this->tmp}/deadletter/hub.coast-73/sources:php" ],
+			Log_Discovery::dirs_matching( 'deadletter:hub.coast-73:sources:php', $this->tmp )
+		);
 	}
 
 	public function test_dirs_matching_maps_each_stamp_a_glob_matches_to_its_dir(): void {

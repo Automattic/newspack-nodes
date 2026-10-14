@@ -8,5 +8,7 @@
   ["a group alone", "deadletter", "deadletter"],
   ["an empty FROM", "", ""],
   ["a sources stamp keeps its prefix", "sources/php/php-errors:tail", "sources/php"],
-  ["a bare sources stamp", "sources/php", "sources/php"]
+  ["a bare sources stamp", "sources/php", "sources/php"],
+  ["a broker reader's stamp is one segment", "offsets:hub.tucson-41:firehose.p3/hub-7.p0/firehose.p3", "offsets:hub.tucson-41:firehose.p3"],
+  ["a reader stamp of a colon kind is one segment", "deadletter:hub.coast-73:sources:php/php-errors:tail", "deadletter:hub.coast-73:sources:php"]
 ]

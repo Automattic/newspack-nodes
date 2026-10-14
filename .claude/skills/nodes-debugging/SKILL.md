@@ -203,12 +203,14 @@ Everything hangs off `base_directory`, `/tmp/newspack-nodes` by default and one 
   ipc/         {type}.p{N}/   input/   input.offsets/   output/
   logs/        {name}.p{N}/   {seg}.log  {seg}.idx   .rotate.lock.d/  write.lock.d/
   offsets/     {topology}.{log}.p{N}/   {seg}.log
+               {topology}.{vault_id}/   {kind}/   {seg}.log        a broker's readers
   deadletter/  {topology}.{log}.p{N}/   {seg}.log  {seg}.idx
+               {topology}.{vault_id}/   {kind}/   {seg}.log  {seg}.idx
   topologies/  {name}.tsl
   layouts/     {name}.layout
 ```
 
-The offsetlog and dead-letter directory names are not fixed by the substrate: they are the Consumer's second and third `make_node` arguments. The stock topologies spell them `<config:offsets_dir>/<topology>.<log>.p{partition}` and `<config:deadletter_dir>/<topology>.<log>.p{partition}`, and both stay sole-writer — which is what the topology conflict gate checks.
+The offsetlog and dead-letter directory names are not fixed by the substrate: they are the Consumer's second and third `make_node` arguments. The stock topologies spell them `<config:offsets_dir>/<topology>.<log>.p{partition}` and `<config:deadletter_dir>/<topology>.<log>.p{partition}`, and both stay sole-writer — which is what the topology conflict gate checks. A broker takes two ROOTS instead, conventionally `<topology>.{id}`, and nests one dir per reader kind under each (`offsets/hub.tw0/sources:php`). A root holds no segments, so the Log Viewer lists its readers in its place, each as the one-segment stamp `<group>:<root>:<kind>`: `offsets:hub.tw0:sources:php`. That is the stamp `dump_log`, `read_message`, `read_block` and a subscription take, and the SOURCE the reader's sidecars report on `topicprobe.p0`. A root holding a `:` gets an error row instead.
 
 `heartbeat` holds the owner's pid and its mtime is the liveness signal `status` reads; `started` is the acquisition time behind Uptime. Three flag files steer a holder from a process holding no instance: `restart` recycles it, `stop` empties the slot, `reload` re-reads config without exiting. `Lock_Node` claims a directory with `mkdir` rather than `flock`, because `mkdir` is POSIX-atomic on the NFS, tmpfs and bind mounts this runs on; a stale steal renames the old directory aside first, and a `.stealing.` leftover is scratch from an interrupted steal that the reconcile pass reaps.
 

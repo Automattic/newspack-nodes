@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The Log Viewer opens a broker's reader cursors and dead letters, and their probe rows carry the same name.** A broker keeps one reader dir per kind under its offsetlog and dead-letter roots, such as `offsets/hub.tw0/firehose.p0` and `offsets/hub.tw0/sources:php`, and the picker listed only the root, which holds no segments and opened on "No segments". `list_logs` now lists each reader dir in the root's place, under one stamp joining its group, root and kind with colons: `offsets:hub.tw0:firehose.p0`, `offsets:hub.tw0:sources:php`, `deadletter:hub.tw0:firehose.p0`. That stamp opens the dir in a subscription, `dump_log`, `read_message`, `read_block` and a `?log=` link, and a root named for a mixed-case Vault id, such as `hub.TucsonWeekly`, lists too. A reader's two sidecars now report that stamp as their Partition records' SOURCE in `topicprobe.p0`, where they reported `offsets/hub.tw0/firehose.p0`, so the Overview's partition entries for them carry the new name; `wp nodes status` and Graphite key by READER and do not change. A plain Consumer's `offsets/<topology>.<log>` lists and reports as before, and no directory moves. A reader dir lists once it holds a segment. A root whose name holds a `:`, or a reader no stamp names, shows as an unavailable row naming it, and its sidecars keep reporting their path. A glob subscription under `offsets` or `deadletter`, such as `offsets/hub*`, no longer opens a broker's root as an empty log, and a dir there that cannot be read, such as one a root `wp` run left root-owned, shows as an unavailable row saying so, where it used to list as an empty log; the rest of the picker lists as before. The browser's `RemoteLink` now refuses a pair opening with a reader stamp, such as `offsets:hub.tw0:firehose.p0:sink`, which it used to cut at the first colon and subscribe to the bare `offsets`; a broker's pair refuses it with a message naming the reader stamp.
+
 ## [2.107.0] - 2026-10-13
 
 ### Added

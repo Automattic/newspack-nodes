@@ -236,6 +236,32 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->broker( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:downstream', $pair ) );
 	}
 
+	/** @return array<string,array{string}> Label => a pair token opening with a broker reader's stamp. */
+	public static function reader_stamp_pairs(): array {
+		return [
+			'a reader\'s cursor and a target'  => [ 'offsets:hub.tw0:firehose.p0:audit-17' ],
+			'a reader\'s dead letters'         => [ 'deadletter:hub.TucsonWeekly:sources:php:php-errors:partition' ],
+			'a reader\'s stamp alone'          => [ 'offsets:hub.tw0:firehose.p0' ],
+		];
+	}
+
+	/** A pair cuts at its first `:`, so a reader stamp there would read as the bare group. */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'reader_stamp_pairs' )]
+	public function test_a_reader_stamp_is_refused_as_a_pairs_source( string $pair ): void {
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( "Remote_Source: a pair's source is no broker reader's stamp, which names a dir and no stream: '{$pair}'" );
+		$this->broker( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0:downstream', $pair ) );
+	}
+
+	/** A reader's cursor and dead letters name themselves as the catalog lists them. */
+	public function test_a_readers_sidecars_report_under_their_reader_stamps(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ , $child ] = $this->make_remote( 'remote-tucson-41' );
+
+		$this->assertSame( 'offsets:remote-tucson-41:firehose.p0', $this->read_private( $this->read_private( $child, 'offsetlog' ), 'probe_source' ) );
+		$this->assertSame( 'deadletter:remote-tucson-41:firehose.p0', $this->read_private( $this->read_private( $child, 'deadletter' ), 'probe_source' ) );
+	}
+
 	public function test_a_glob_and_a_registry_source_pass(): void {
 		$node = $this->broker( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'kea-*:herd-52', 'sources/php:php-errors', 'offsets/kea-*:audit-26' ) );
 
@@ -784,6 +810,7 @@ class RemoteSourceNodeTest extends TestCase {
 			'a NUL'                               => [ 'kea*:herd-52', "kea\0hose.p0", $grammar ],
 			'a name too long for a directory'     => [ 'kea*:herd-52', 'kea' . \str_repeat( 'w', 300 ), $grammar ],
 			'the slot of the broker\'s null sink' => [ 'n*:herd-52', 'null', 'refusing a stamp that names a slot the broker keeps' ],
+			'a broker reader\'s stamp'            => [ 'o*:herd-52', 'offsets:hub.tw0:firehose.p0', 'refusing a broker reader\'s stamp, which names a dir and no kind' ],
 		];
 	}
 
@@ -891,6 +918,20 @@ class RemoteSourceNodeTest extends TestCase {
 		$node->arguments( $this->remote_args( 'remote-austin', 'austin', 'kea-*:herd-52', 'firehose.p0:downstream' ) );
 		$send( 'firehose.p0' );
 		$this->assertInstanceOf( Remote_Consumer_Node::class, Core::node( 'remote-austin:firehose.p0' ), 'an exact pair is bounded by configuration, not the cap' );
+	}
+
+	/** A dir no stamp folds to is skipped while the cap is counted, never thrown on the drain path. */
+	public function test_a_stray_dir_under_the_offsetlog_root_is_skipped_when_counting_the_cap(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
+		\mkdir( "{$offsets}/remote-austin/offsets:hub.tw0:firehose.p0", 0755, true );
+		$errors   = $this->capture_stderr();
+		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'kea-*:herd-52' ) );
+
+		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::block_frames( 'kea-4419', '3:0', self::record_line( [ Message::TYPE => Message::TM_BYTESTREAM, Message::VALUE => 'line-4419' ] ) ) );
+
+		$this->assertSame( [ 'kea-4419' ], \array_keys( $this->readers( $node ) ) );
+		$this->assertStringContainsString( 'skipping a dir under the offsetlog root no stamp folds to: offsets:hub.tw0:firehose.p0', \implode( '', $errors->getArrayCopy() ) );
 	}
 
 	public function test_a_glob_builds_at_most_max_readers(): void {

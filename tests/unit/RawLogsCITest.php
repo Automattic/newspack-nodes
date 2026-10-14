@@ -181,6 +181,154 @@ class RawLogsCITest extends TestCase {
 		);
 	}
 
+	/**
+	 * A broker's offsetlog and dead-letter roots hold one reader dir per kind
+	 * and no segments, so each reader lists under its own stamp and the root
+	 * not at all; a plain Consumer's offsetlog beside them lists as before.
+	 */
+	public function test_list_logs_lists_each_broker_reader_and_no_bare_root(): void {
+		\mkdir( $this->tmp . '/offsets/hub.tucson-41/firehose.p3', 0755, true );
+		\file_put_contents( $this->tmp . '/offsets/hub.tucson-41/firehose.p3/7.log', '' );
+		\mkdir( $this->tmp . '/offsets/hub.tucson-41/sources:php', 0755, true );
+		\file_put_contents( $this->tmp . '/offsets/hub.tucson-41/sources:php/7.log', '' );
+		\mkdir( $this->tmp . '/offsets/hub.coast-73/firehose.p3', 0755, true );
+		\file_put_contents( $this->tmp . '/offsets/hub.coast-73/firehose.p3/7.log', '' );
+		\mkdir( $this->tmp . '/offsets/hub.TucsonWeekly/firehose.p3', 0755, true );
+		\file_put_contents( $this->tmp . '/offsets/hub.TucsonWeekly/firehose.p3/7.log', '' );
+		\mkdir( $this->tmp . '/offsets/performance.requests.p2', 0755, true );
+		\mkdir( $this->tmp . '/deadletter/hub.coast-73/sources:php', 0755, true );
+		\file_put_contents( $this->tmp . '/deadletter/hub.coast-73/sources:php/7.log', '' );
+		\mkdir( $this->tmp . '/deadletter/performance.requests.p2', 0755, true );
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
+
+		$this->assertSame(
+			[
+				'offsets:hub.TucsonWeekly:firehose.p3',
+				'offsets:hub.coast-73:firehose.p3',
+				'offsets:hub.tucson-41:firehose.p3',
+				'offsets:hub.tucson-41:sources:php',
+				'offsets/performance.requests.p2',
+				'deadletter:hub.coast-73:sources:php',
+				'deadletter/performance.requests.p2',
+			],
+			\array_column( $result, 'key' )
+		);
+		$this->assertSame( \array_column( $result, 'key' ), \array_column( $result, 'label' ) );
+		$this->assertSame( [ true ], \array_values( \array_unique( \array_column( $result, 'available' ) ) ) );
+	}
+
+	/** A root-owned dir, as a root `wp` run leaves, takes one unavailable row and blanks no other. */
+	public function test_list_logs_shows_a_dir_it_cannot_read_as_an_error_row(): void {
+		\mkdir( $this->tmp . '/offsets/job-worker.jobs.p4', 0755, true );
+		\file_put_contents( $this->tmp . '/offsets/job-worker.jobs.p4/3.log', '' );
+		\mkdir( $this->tmp . '/offsets/hub.tucson-41/firehose.p3', 0755, true );
+		\file_put_contents( $this->tmp . '/offsets/hub.tucson-41/firehose.p3/7.log', '' );
+		\chmod( $this->tmp . '/offsets/job-worker.jobs.p4', 0 );
+		try {
+			$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
+		} finally {
+			\chmod( $this->tmp . '/offsets/job-worker.jobs.p4', 0755 );
+		}
+
+		$this->assertSame(
+			[
+				[ 'key' => 'offsets:hub.tucson-41:firehose.p3', 'label' => 'offsets:hub.tucson-41:firehose.p3', 'available' => true ],
+				[
+					'label'     => 'job-worker.jobs.p4',
+					'available' => false,
+					'error'     => 'log dir job-worker.jobs.p4 cannot be read; check its owner and mode',
+				],
+			],
+			$result
+		);
+	}
+
+	public function test_list_logs_shows_a_reader_dir_no_stamp_can_name_as_an_error_row(): void {
+		\mkdir( $this->tmp . '/offsets/hub.tucson-41/Firehose.p3', 0755, true );
+		\file_put_contents( $this->tmp . '/offsets/hub.tucson-41/Firehose.p3/7.log', '' );
+		\mkdir( $this->tmp . '/offsets/hub.tucson-41/firehose.p3', 0755, true );
+		\file_put_contents( $this->tmp . '/offsets/hub.tucson-41/firehose.p3/7.log', '' );
+		\mkdir( $this->tmp . '/offsets/hub:tw0/firehose.p3', 0755, true );
+		\file_put_contents( $this->tmp . '/offsets/hub:tw0/firehose.p3/7.log', '' );
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
+
+		$this->assertSame(
+			[
+				[
+					'label'     => 'hub.tucson-41/Firehose.p3',
+					'available' => false,
+					'error'     => 'log dir hub.tucson-41/Firehose.p3 is no stamp a stream can name; rename it',
+				],
+				[ 'key' => 'offsets:hub.tucson-41:firehose.p3', 'label' => 'offsets:hub.tucson-41:firehose.p3', 'available' => true ],
+				[
+					'label'     => 'hub:tw0/firehose.p3',
+					'available' => false,
+					'error'     => 'broker root hub:tw0 holds a colon, so no stamp names its readers; rename it',
+				],
+			],
+			$result
+		);
+	}
+
+	/**
+	 * Seed one packed record into a broker reader's dir, segment 11.
+	 *
+	 * @param string $relative The dir under the runtime base.
+	 * @param string $value    The record's value.
+	 * @return string The packed line, newline included.
+	 */
+	private function seed_reader_record( string $relative, string $value ): string {
+		$dir = "{$this->tmp}/{$relative}";
+		\mkdir( $dir, 0755, true );
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$m[ Message::VALUE ] = $value;
+		$line                = Message::packed( $m ) . "\n";
+		\file_put_contents( "{$dir}/11.log", $line );
+		return $line;
+	}
+
+	public function test_dump_log_reads_a_broker_readers_dir_by_its_stamp(): void {
+		$line = $this->seed_reader_record( 'offsets/hub.tucson-41/sources:php', 'cursor 8812' );
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'dump_log', 'offsets:hub.tucson-41:sources:php' );
+
+		$this->assertSame(
+			[
+				'log_id'        => 'offsets:hub.tucson-41:sources:php',
+				'segments'      => [ [ 'id' => 11, 'size' => \strlen( $line ) ] ],
+				'segment_count' => 1,
+				'total_size'    => \strlen( $line ),
+			],
+			$result
+		);
+	}
+
+	public function test_read_message_reads_a_broker_readers_dead_letters_by_their_stamp(): void {
+		$this->seed_reader_record( 'deadletter/hub.coast-73/firehose.p3', 'poison 6631' );
+
+		$result = VerbHarness::fire(
+			new Raw_Logs_CI_Node(),
+			'raw-logs',
+			'read_message',
+			[ 'deadletter:hub.coast-73:firehose.p3', '11:0' ]
+		);
+
+		$this->assertSame( 'poison 6631', $result['message'][ Message::VALUE ] );
+		$this->assertSame( 'deadletter:hub.coast-73:firehose.p3', $result['message'][ Message::FROM ] );
+	}
+
+	public function test_read_block_reads_a_broker_readers_dir_by_its_stamp(): void {
+		$line = $this->seed_reader_record( 'offsets/hub.coast-73/sources:php', 'cursor 5507' );
+
+		[ $batch, $info ] = $this->read_block( [ 'offsets:hub.coast-73:sources:php', 'start' ] );
+
+		$this->assertSame( $line, $batch[ Message::VALUE ] );
+		$this->assertSame( '11:0', $info['OFFSET'] );
+	}
+
 	public function test_list_logs_shows_a_logs_dir_named_like_a_group_as_an_error_row(): void {
 		\mkdir( $this->tmp . '/logs/firehose.p0', 0755, true );
 		\mkdir( $this->tmp . '/logs/deadletter', 0755, true );

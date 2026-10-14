@@ -44,7 +44,13 @@ import { SseInNode } from './sse-in-node';
 import { TeeNode } from './tee-node';
 import { defaultTransport } from './command-transport';
 import { TO, TYPE, TM_COMMAND, TM_ERROR, TM_RESPONSE } from './message';
-import { anyCarries, isGlob, kindOf, splitPair } from './log-stamp';
+import {
+	anyCarries,
+	isGlob,
+	kindOf,
+	readerParts,
+	splitPair,
+} from './log-stamp';
 import names from './reserved-node-names.json';
 
 /** The sibling slot the link's SseIn takes, as PHP's `SSE_IN_KIND`. */
@@ -400,14 +406,21 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 
 	/**
 	 * Read one token through `splitPair()`, refusing what PHP
-	 * `Remote_Broker_Node::parse_pair()` refuses that a link can meet: an
-	 * empty half, and a stamp whose Tee would take the SseIn's slot.
+	 * `Remote_Broker_Node::parse_pair()` refuses that a link can meet: a
+	 * broker reader's stamp, which the cut at the first colon would read as
+	 * its bare group, an empty half, and a stamp whose Tee would take the
+	 * SseIn's slot.
 	 *
 	 * @param {string} token One pair.
 	 * @return {{source:string,target:string}} Its halves.
 	 * @throws {Error} Naming the token.
 	 */
 	_checkedPair( token ) {
+		if ( readerParts( token ) ) {
+			throw new Error(
+				`RemoteLink: a pair's source is no broker reader's stamp, which names a dir and no stream: '${ token }'`
+			);
+		}
 		const pair = splitPair( token );
 		if ( '' === pair.source || '' === pair.target ) {
 			throw new Error(
@@ -618,6 +631,13 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 		let tee = this.tees.get( stamp );
 		if ( ! tee ) {
 			// The reasons stay constant, so one line covers a window's drops.
+			if ( readerParts( stamp ) ) {
+				this.dropMessage(
+					message,
+					"a broker reader's stamp names a dir and no kind"
+				);
+				return true;
+			}
 			if ( SSE_IN_KIND === kindOf( stamp ) ) {
 				this.dropMessage(
 					message,

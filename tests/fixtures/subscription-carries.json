@@ -9,5 +9,7 @@
   ["a source stamp is exact", "sources/php", "sources/php", true],
   ["a source stamp carries no other source", "sources/php", "sources/debug", false],
   ["regex characters in a sub are literal", "a.p0", "aXp0", false],
-  ["a question mark is literal, not a wildcard", "errors.p?*", "errors.p3", false]
+  ["a question mark is literal, not a wildcard", "errors.p?*", "errors.p3", false],
+  ["a one-segment glob carries no broker reader's stamp", "o*", "offsets:hub.tucson-41:firehose.p3", false],
+  ["an exact reader stamp carries itself", "deadletter:hub.coast-73:sources:php", "deadletter:hub.coast-73:sources:php", true]
 ]

@@ -46,6 +46,31 @@ final class LogDiscoveryIsStampTest extends TestCase {
 			'a name past the byte limit'         => [ \str_repeat( 'k', Log_Discovery::MAX_STAMP_BYTES + 1 ), false ],
 			'a grouped stamp at the byte limit'  => [ 'deadletter/' . \str_repeat( 'k', Log_Discovery::MAX_STAMP_BYTES - 11 ), true ],
 			'a grouped stamp past the limit'     => [ 'deadletter/' . \str_repeat( 'k', Log_Discovery::MAX_STAMP_BYTES - 10 ), false ],
+			'a broker reader\'s cursor'          => [ 'offsets:hub.tucson-41:firehose.p3', true ],
+			'a broker reader\'s dead letters'    => [ 'deadletter:hub.tucson-41:firehose.p3', true ],
+			'a reader of a colon kind'           => [ 'offsets:hub.coast-73:sources:php', true ],
+			'a reader of a grouped kind'         => [ 'deadletter:hub.coast-73:offsets:agg.firehose.p3', true ],
+			'a reader under a mixed-case root'   => [ 'offsets:hub.TucsonWeekly:firehose.p3', true ],
+			'a reader with no kind'              => [ 'offsets:hub.tucson-41', false ],
+			'a reader with an empty kind'        => [ 'offsets:hub.tucson-41:', false ],
+			'a reader with an empty root'        => [ 'offsets::firehose.p3', false ],
+			'a reader under the logs root'       => [ 'logs:hub.tucson-41:firehose.p3', false ],
+			'a reader under the source registry' => [ 'sources:hub.tucson-41:firehose.p3', false ],
+			'a reader under an unknown root'     => [ 'secrets:hub.tucson-41:firehose.p3', false ],
+			'a reader whose root climbs'         => [ 'offsets:..:firehose.p3', false ],
+			'a reader whose root is dot-led'     => [ 'offsets:.hub:firehose.p3', false ],
+			'a reader whose kind climbs'         => [ 'offsets:hub.tucson-41:..', false ],
+			'a reader whose kind is no kind'     => [ 'offsets:hub.tucson-41:kea:okapi', false ],
+			'a reader whose kind holds a slash'  => [ 'offsets:hub.tucson-41:sources/php', false ],
+			'a reader of a spoke\'s reader'      => [ 'offsets:hub.kea-12:offsets:agg.tw7:firehose.p3', false ],
+			'a reader with a space in its root'  => [ 'offsets:hub tw0:firehose.p3', false ],
+			'a reader with a glob kind'          => [ 'offsets:hub.tucson-41:firehose.*', false ],
+			'a slash spelling of a reader\'s dir' => [ 'offsets/hub.tucson-41/firehose.p3', false ],
+			'a root at a directory name\'s limit' => [ 'offsets:' . \str_repeat( 'R', Log_Discovery::MAX_STAMP_BYTES ) . ':firehose.p3', true ],
+			'a root past it'                     => [ 'offsets:' . \str_repeat( 'R', Log_Discovery::MAX_STAMP_BYTES + 1 ) . ':firehose.p3', false ],
+			'a kind at a directory name\'s limit' => [ 'offsets:hub:' . \str_repeat( 'k', Log_Discovery::MAX_STAMP_BYTES ), true ],
+			'a kind past it'                     => [ 'offsets:hub:' . \str_repeat( 'k', Log_Discovery::MAX_STAMP_BYTES + 1 ), false ],
+			'both at the limit, the whole past it' => [ 'deadletter:' . \str_repeat( 'R', Log_Discovery::MAX_STAMP_BYTES ) . ':' . \str_repeat( 'k', Log_Discovery::MAX_STAMP_BYTES ), true ],
 		];
 	}
 
@@ -70,6 +95,9 @@ final class LogDiscoveryIsStampTest extends TestCase {
 			'an upper-case letter'               => [ 'Firehose.p0', false ],
 			'two segments with no group'         => [ 'a/b', false ],
 			'past the byte limit'                => [ \str_repeat( 'k', Log_Discovery::MAX_STAMP_BYTES ) . '*', false ],
+			'a broker reader\'s stamp'           => [ 'offsets:hub.tucson-41:sources:php', true ],
+			'a glob over a broker\'s readers'    => [ 'offsets:hub.tucson-41:fire*', false ],
+			'a glob over every root\'s readers'  => [ 'offsets:*:firehose.p3', false ],
 		];
 	}
 
