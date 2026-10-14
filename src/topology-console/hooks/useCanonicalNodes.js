@@ -25,21 +25,37 @@ import { graphFromTsl } from '../utils/draftToGraph';
  * The live nodes a topology does not declare — the runtime drift to paint.
  *
  * A `_`-prefixed name is reserved console infrastructure the worker mounts,
- * never a line a topology file carries, so it is never drift. Null is the
- * "canonical set unknown" answer: it makes the caller skip drift coloring
- * altogether, where an empty set would flag every node on the canvas.
+ * never a line a topology file carries, so it is never drift. A node a
+ * declared node publishes, at any depth along its `owner` chain, is declared
+ * through it: a `Vault_Group`'s children are built from the Vault, not written
+ * in the `.tsl` (ADR-21). Null is the "canonical set unknown" answer: it makes
+ * the caller skip drift coloring altogether, where an empty set would flag
+ * every node on the canvas.
  *
- * @param {?Array<{id:string}>} nodes     Live graph nodes.
- * @param {?Set<string>}        canonical Canonical node names from the `.tsl`.
+ * @param {?Array<{id:string, owner?:string}>} nodes     Live graph nodes.
+ * @param {?Set<string>}                       canonical Canonical node names from the `.tsl`.
  * @return {?Set<string>} Drifted node ids, or null when canonical is empty.
  */
 export function driftNodeIds( nodes, canonical ) {
 	if ( ! canonical || canonical.size === 0 ) {
 		return null;
 	}
+	const ownerOf = new Map(
+		( nodes || [] ).map( ( n ) => [ n.id, n.owner ] )
+	);
+	const declared = ( id ) => {
+		const seen = new Set();
+		for ( let at = id; at && ! seen.has( at ); at = ownerOf.get( at ) ) {
+			if ( canonical.has( at ) ) {
+				return true;
+			}
+			seen.add( at );
+		}
+		return false;
+	};
 	const out = new Set();
 	for ( const n of nodes || [] ) {
-		if ( ! canonical.has( n.id ) && ! n.id.startsWith( '_' ) ) {
+		if ( ! n.id.startsWith( '_' ) && ! declared( n.id ) ) {
 			out.add( n.id );
 		}
 	}

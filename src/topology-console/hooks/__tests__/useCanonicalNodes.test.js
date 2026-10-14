@@ -19,6 +19,29 @@ describe( 'driftNodeIds', () => {
 		] );
 	}, 15000 );
 
+	it( "counts a node a declared node publishes as declared, through any depth, but not a stray node's", () => {
+		const nodes = [
+			{ id: 'spokes' },
+			{ id: 'spokes:render7', owner: 'spokes' },
+			{ id: 'spokes:render7:deep', owner: 'spokes:render7' },
+			{ id: 'stray-4471' },
+			{ id: 'stray-4471:child', owner: 'stray-4471' },
+		];
+		expect(
+			[ ...driftNodeIds( nodes, new Set( [ 'spokes' ] ) ) ].sort()
+		).toEqual( [ 'stray-4471', 'stray-4471:child' ] );
+	} );
+
+	it( 'does not loop on a publisher cycle', () => {
+		const nodes = [
+			{ id: 'a-9', owner: 'b-9' },
+			{ id: 'b-9', owner: 'a-9' },
+		];
+		expect(
+			[ ...driftNodeIds( nodes, new Set( [ 'declared' ] ) ) ].sort()
+		).toEqual( [ 'a-9', 'b-9' ] );
+	} );
+
 	it( 'returns null when there is no canonical info (empty set)', () => {
 		expect( driftNodeIds( [ { id: 'x' } ], new Set() ) ).toBeNull();
 		expect( driftNodeIds( [ { id: 'x' } ], null ) ).toBeNull();
