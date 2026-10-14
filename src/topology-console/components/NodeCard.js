@@ -230,7 +230,7 @@ export function formatNodeRate( rate ) {
  * A keydown handler pressing an SVG control on Enter or Space, as a button
  * presses, since an SVG element has no button semantics of its own.
  *
- * @param {(ev: import('react').SyntheticEvent<SVGGElement>) => void} press What the press does.
+ * @param {(ev: import('react').KeyboardEvent<SVGGElement>) => void} press What the press does, given the key.
  * @return {(ev: import('react').KeyboardEvent<SVGGElement>) => void} The handler.
  */
 export function pressOnKey( press ) {
@@ -243,9 +243,45 @@ export function pressOnKey( press ) {
 }
 
 /**
+ * The DOM id of the card the keys act on, unique to the surface drawing it.
+ * The name is URI-encoded, because a node's name may hold whitespace, which
+ * no id may.
+ *
+ * @param {string} surface The id prefix of the surface's defs.
+ * @param {string} name    The node the card draws.
+ * @return {string} The id.
+ */
+export function cardDomId( surface, name ) {
+	return `${ surface }-card-${ encodeURIComponent( name ) }`;
+}
+
+/**
+ * A card-sized ring around the card the keys act on, drawn outside every
+ * layer that dims a card and shown only while the canvas has keyboard focus.
+ *
+ * @param {Object} props
+ * @param {Object} props.box The card as drawn: `{ x, y, w, h }` in world units.
+ * @return {import('react').ReactElement} The ring's `<g>`.
+ */
+export function FocusRing( { box } ) {
+	return (
+		<g className="topology-focus">
+			<rect
+				className="topology-node-focus"
+				x={ box.x }
+				y={ box.y }
+				width={ box.w }
+				height={ box.h }
+			/>
+		</g>
+	);
+}
+
+/**
  * The "…" on an owner's card, a button opening the sidecars the canvas never
  * draws. It sits at the same spot of every card that draws one, the canvas's
- * and the grid's, in the card's own coordinates.
+ * and the grid's, in the card's own coordinates. It is no Tab stop: Enter on
+ * its card opens the same grid.
  *
  * @param {Object}                                                    props
  * @param {string}                                                    props.id       The owner.
@@ -259,7 +295,7 @@ export function SidecarsTrigger( { id, onOpen, onHold } ) {
 			className="topology-node__sidecars"
 			data-owner={ id }
 			role="button"
-			tabIndex={ 0 }
+			tabIndex={ -1 }
 			aria-haspopup="dialog"
 			aria-label={ sprintf(
 				// translators: %s: the node that owns them.
@@ -287,7 +323,8 @@ export const NodeCard = memo(
 	 * re-renders no card, and the bloom-filtered layer it sits in is left alone.
 	 * Every handler comes through `events`, one object for the canvas's lifetime;
 	 * a card drawn without it answers no gesture. Every flag defaults off, and
-	 * the geometry to one detailed card at the origin.
+	 * the geometry to one detailed card at the origin. A card drawn with
+	 * `events` takes no focus: the canvas holds it and names the active card.
 	 *
 	 * @param {Object}  props
 	 * @param {string}  props.surface        The id prefix of the surface's defs.
@@ -299,6 +336,7 @@ export const NodeCard = memo(
 	 * @param {number}  [props.h]            Rendered height, floored likewise.
 	 * @param {boolean} [props.showDetail]   Draw labels and ports, not a bare rect.
 	 * @param {boolean} [props.isSelected]   The selected node.
+	 * @param {boolean} [props.isActive]     The card the canvas's keys act on, carrying the id its `aria-activedescendant` names.
 	 * @param {boolean} [props.isHovered]    The hovered node.
 	 * @param {boolean} [props.isFaded]      Faded behind a hover or a focused hull.
 	 * @param {boolean} [props.isDragging]   Being dragged.
@@ -325,6 +363,7 @@ export const NodeCard = memo(
 		h = NODE_H,
 		showDetail = true,
 		isSelected = false,
+		isActive = false,
 		isHovered = false,
 		isFaded = false,
 		isDragging = false,
@@ -362,7 +401,19 @@ export const NodeCard = memo(
 					isBorrowed ? ' is-borrowed' : ''
 				}` }
 				transform={ `translate(${ x },${ y })` }
+				data-node={ id }
+				id={ isActive ? cardDomId( surface, id ) : undefined }
 				{ ...gestures }
+				{ ...( events && {
+					role: 'group',
+					'aria-label': sprintf(
+						// translators: 1: a node's name, 2: its class.
+						__( '%1$s (%2$s)', 'newspack-nodes' ),
+						id,
+						cls
+					),
+					'aria-current': isSelected || undefined,
+				} ) }
 			>
 				<rect
 					className="topology-node__shadow"

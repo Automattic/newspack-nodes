@@ -903,6 +903,20 @@
 	}
 }
 
+// The active card's ring, drawn outside the card so no dimming reaches it.
+.topology-node-focus {
+	fill: none;
+	stroke: var(--oxide);
+	stroke-width: 6;
+	stroke-opacity: 0.35;
+	visibility: hidden;
+	pointer-events: none;
+}
+
+.topology-canvas-svg:focus-visible .topology-node-focus {
+	visibility: visible;
+}
+
 .topology-port {
 	fill: var(--canvas);
 	stroke: var(--ink);
@@ -2012,6 +2026,10 @@
 		stroke-width: 2;
 	}
 
+	.topology-node-focus {
+		stroke: var(--cyan);
+	}
+
 	.topology-node__spark {
 		stroke: var(--cyan);
 	}
@@ -2045,6 +2063,10 @@
 	.topology-node.is-selected .topology-node__bg {
 		stroke: var(--sage);
 		stroke-width: 2;
+	}
+
+	.topology-node-focus {
+		stroke: var(--sage);
 	}
 
 	.topology-node__spark {
@@ -2088,6 +2110,11 @@
 	.topology-node__bg {
 		fill: var(--canvas);
 		stroke: var(--paper-shadow);
+		rx: 7px;
+		ry: 7px;
+	}
+
+	.topology-node-focus {
 		rx: 7px;
 		ry: 7px;
 	}
@@ -2207,7 +2234,8 @@
 
 // 08 — Botanical Naturalist
 .theme-botanical .topology-app {
-	.topology-node__bg {
+	.topology-node__bg,
+	.topology-node-focus {
 		rx: 12px;
 		ry: 12px;
 	}
@@ -2273,7 +2301,8 @@
 
 // 11 — Pastel Toy
 .theme-pastel .topology-app {
-	.topology-node__bg {
+	.topology-node__bg,
+	.topology-node-focus {
 		rx: 13px;
 		ry: 13px;
 	}

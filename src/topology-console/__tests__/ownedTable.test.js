@@ -373,12 +373,14 @@ describe( 'an owned Table on the console', () => {
 				expect( grid() ).not.toBeNull();
 			} );
 
-			it( 'focuses the redrawn \u201c\u2026\u201d on Esc', async () => {
+			it( 'focuses the canvas on Esc after the level of detail moves', async () => {
 				const { redrawn } = await openThenRedraw();
 				fireEvent.keyDown( document, { key: 'Escape' } );
 				await act( async () => {} );
 				expect( grid() ).toBeNull();
-				expect( document.activeElement ).toBe( redrawn );
+				expect( document.activeElement ).toBe(
+					redrawn.ownerSVGElement
+				);
 			} );
 		} );
 	} );
