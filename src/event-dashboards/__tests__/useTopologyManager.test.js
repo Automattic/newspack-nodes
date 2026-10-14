@@ -621,7 +621,7 @@ function healthDump( {
 	workers,
 	heartbeatIntervalS = 10,
 	currentTime,
-	cursorOffset = 0,
+	bytesRead = 0,
 } ) {
 	const dump = {
 		// Liveness only — heartbeat_age + state per (type, partition).
@@ -640,11 +640,13 @@ function healthDump( {
 			source: `a.p${ w.partition }`,
 			partition: w.partition,
 			cursor_segment: 0,
-			cursor_offset: cursorOffset,
+			cursor_offset: 0,
 			end_segment: 0,
 			end_size: 0,
 			distance: w.behind,
 			msgs: 0,
+			bytes_read: bytesRead,
+			elapsed_ms: 15_000,
 		} ) ),
 		logs: workers.map( ( w ) => ( {
 			name: `a.p${ w.partition }`,
@@ -708,39 +710,14 @@ async function pollHealth( opts ) {
 }
 
 /**
- * Poll TWICE with an advancing cursor and clock, so the transform has a real
- * read-rate delta to hand the health roll-up: 500 bytes over 50s = 10 B/s.
- * A single poll can only ever produce rate 0 (nothing to delta against).
- *
- * The wall clock advances too: this poll is slower than the router tick, so
- * it is due again only once its own cadence has elapsed.
+ * Poll once with every reader's newest probe record reading 150 bytes over its
+ * 15-second window, the 10 B/s the health roll-up divides each backlog by.
  *
  * @param {Array} workers Lean per-partition fixtures.
- * @return {Object} Topology `a`'s merged row after the second poll.
+ * @return {Object} Topology `a`'s merged row.
  */
-async function pollHealthAtTenBytesPerSecond( workers ) {
-	const payloads = {
-		dump_graph: healthDump( { workers, currentTime: 1000 } ),
-		dump: TOPOLOGY_A_LIST,
-	};
-	installRecordingWire( payloads );
-	const { result } = renderHook( () => useTopologyManager( {} ) );
-	await act( async () => {} );
-	payloads.dump_graph = healthDump( {
-		workers,
-		currentTime: 1050,
-		cursorOffset: 500,
-	} );
-	const realNow = Date.now;
-	Date.now = () => realNow() + 6000;
-	try {
-		await act( async () => {
-			Core.node( '_router' ).fireCb();
-		} );
-	} finally {
-		Date.now = realNow;
-	}
-	return result.current.topologies.find( ( t ) => 'a' === t.name );
+function pollHealthAtTenBytesPerSecond( workers ) {
+	return pollHealth( { workers, currentTime: 1000, bytesRead: 150 } );
 }
 
 describe( 'useTopologyManager — partition stall + rolled-up health', () => {

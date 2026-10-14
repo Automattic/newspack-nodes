@@ -4,7 +4,7 @@ import { join } from 'path';
 import { brokerReaderId, reconstructWorkers } from '../reconstructWorkers';
 import { buildTopologySections } from '../../topologyGraph';
 
-const EMPTY_PRIOR = { read: {}, write: {} };
+const EMPTY_PRIOR = {};
 
 // Flatten a buildTopologySections tree into all entities.
 function flatten( entities, acc = [] ) {
@@ -413,251 +413,224 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 	it( 'counts a fan-out reader ONCE in the fleet-wide read rate', () => {
 		// FANOUT_DATA is one firehose reader feeding request-builder AND
 		// job-router. Keying the rate map by handler wrote the same reader's
-		// rate under two keys, and globalRates sums every value — so the
-		// dashboard's global R showed 20 B/s for a reader moving 10 B/s.
-		const first = reconstructWorkers( FANOUT_DATA, EMPTY_PRIOR );
-		const next = {
-			...FANOUT_DATA,
-			consumers: [
-				{ ...FANOUT_DATA.consumers[ 0 ], cursor_offset: 150 },
-			],
-			timestamp: 1010,
-		};
-		const second = reconstructWorkers( next, {
-			read: first.nextRead,
-			write: first.nextWrite,
-		} );
-
-		expect( Object.keys( second.byteRates ) ).toHaveLength( 1 );
-		expect( globalRates( second.byteRates, {} ).readRate ).toBe( 10 );
-	} );
-
-	it( 'derives read_rate from the absolute cursor-byte delta across polls; first poll is 0', () => {
-		const first = reconstructWorkers( FANOUT_DATA, EMPTY_PRIOR );
-		const rb = FANOUT_DATA.consumers[ 0 ].reader;
-		expect( first.byteRates[ rb ] ).toBe( 0 ); // no prior
-
-		// Cursor advances 50 → 150 over 10s → 10 B/s.
-		const next = {
-			...FANOUT_DATA,
-			consumers: [
-				{ ...FANOUT_DATA.consumers[ 0 ], cursor_offset: 150 },
-			],
-			timestamp: 1010,
-		};
-		const second = reconstructWorkers( next, {
-			read: first.nextRead,
-			write: first.nextWrite,
-		} );
-		expect( second.byteRates[ rb ] ).toBe( 10 );
-		// Each worker carries its own read_rate (ETA rollup / health).
-		const w = second.workers.find(
-			( x ) => x.handler === 'request-builder'
-		);
-		expect( w.read_rate ).toBe( 10 );
-	} );
-
-	it( 'never reports a negative rate when the cursor goes backward (worker restart)', () => {
-		const first = reconstructWorkers(
+		// rate under two keys, and globalRates sums every value.
+		const { byteRates } = reconstructWorkers(
 			{
 				...FANOUT_DATA,
 				consumers: [
-					{ ...FANOUT_DATA.consumers[ 0 ], cursor_offset: 150 },
+					{
+						...FANOUT_DATA.consumers[ 0 ],
+						bytes_read: 6200,
+						elapsed_ms: 15_500,
+					},
 				],
 			},
 			EMPTY_PRIOR
 		);
-		const reset = reconstructWorkers(
-			{
-				...FANOUT_DATA,
-				consumers: [
-					{ ...FANOUT_DATA.consumers[ 0 ], cursor_offset: 10 },
-				],
-				timestamp: 1010,
-			},
-			{ read: first.nextRead, write: first.nextWrite }
-		);
-		expect( reset.byteRates[ FANOUT_DATA.consumers[ 0 ].reader ] ).toBe(
-			0
-		);
+
+		expect( Object.keys( byteRates ) ).toHaveLength( 1 );
+		expect( globalRates( byteRates, {} ).readRate ).toBe( 400 );
 	} );
 
-	it( 'HOLDS the read rate across polls where the cursor is unchanged (no flicker to 0)', () => {
+	it( 'reads a reader rate off its newest probe record alone: bytes read over the window they cover', () => {
 		const rb = FANOUT_DATA.consumers[ 0 ].reader;
-		// Poll 1: baseline (rate 0). Poll 2 (cursor advanced): rate 10.
-		const p1 = reconstructWorkers( FANOUT_DATA, EMPTY_PRIOR );
-		const p2 = reconstructWorkers(
+		const { byteRates, workers } = reconstructWorkers(
 			{
 				...FANOUT_DATA,
 				consumers: [
-					{ ...FANOUT_DATA.consumers[ 0 ], cursor_offset: 150 },
+					{
+						...FANOUT_DATA.consumers[ 0 ],
+						bytes_read: 589_824_000,
+						elapsed_ms: 15_000,
+					},
 				],
-				timestamp: 1010,
 			},
-			{ read: p1.nextRead, write: p1.nextWrite }
+			EMPTY_PRIOR
 		);
-		expect( p2.byteRates[ rb ] ).toBe( 10 );
-		// Poll 3: SAME probe data, clock +1s. Rate must HOLD at 10, not 0.
-		const p3 = reconstructWorkers(
+
+		// 37.5 MiB/s on the very first poll: no baseline to wait for.
+		expect( byteRates[ rb ] ).toBe( 39_321_600 );
+		const w = workers.find( ( x ) => x.handler === 'request-builder' );
+		expect( w.read_rate ).toBe( 39_321_600 );
+	} );
+
+	it( 'reads zero for a record whose window covers no time', () => {
+		const rb = FANOUT_DATA.consumers[ 0 ].reader;
+		const { byteRates } = reconstructWorkers(
 			{
 				...FANOUT_DATA,
 				consumers: [
-					{ ...FANOUT_DATA.consumers[ 0 ], cursor_offset: 150 },
+					{
+						...FANOUT_DATA.consumers[ 0 ],
+						bytes_read: 4417,
+						elapsed_ms: 0,
+					},
 				],
-				timestamp: 1011,
 			},
-			{ read: p2.nextRead, write: p2.nextWrite }
+			EMPTY_PRIOR
 		);
-		expect( p3.byteRates[ rb ] ).toBe( 10 );
+
+		expect( byteRates[ rb ] ).toBe( 0 );
 	} );
 
-	it( 'derives write_rate from the probe END delta (not the live total) and holds it between ticks', () => {
-		const src = 'firehose.p0';
-		const base = ( endSize, timestamp ) => ( {
-			...FANOUT_DATA,
-			consumers: [
-				{
-					...FANOUT_DATA.consumers[ 0 ],
-					end_segment: 0,
-					end_size: endSize,
-				},
-			],
-			// Live total grows, but write rate tracks only the probe END.
-			logs: [
-				{
-					name: 'firehose.p0',
-					partitions: [
-						{
-							partition: 0,
-							segments: [ { id: 0, size: 9999 } ],
-							total_size: 9999,
-						},
-					],
-				},
-			],
-			timestamp,
-		} );
-		const p1 = reconstructWorkers( base( 100, 1000 ), EMPTY_PRIOR );
-		expect( p1.writeRates[ src ] ).toBe( 0 ); // first sample
-		// End advances 100 → 300 over 10s → 20 B/s (NOT the live 9999).
-		const p2 = reconstructWorkers( base( 300, 1010 ), {
-			read: p1.nextRead,
-			write: p1.nextWrite,
-		} );
-		expect( p2.writeRates[ src ] ).toBe( 20 );
-		// Same end, poll clock advanced → HOLD 20.
-		const p3 = reconstructWorkers( base( 300, 1011 ), {
-			read: p2.nextRead,
-			write: p2.nextWrite,
-		} );
-		expect( p3.writeRates[ src ] ).toBe( 20 );
+	// One log whose newest Partition record grew `grown` bytes over its window.
+	const probed = ( grown, elapsedMs ) => ( {
+		...FANOUT_DATA,
+		consumers: [],
+		logs: [
+			{
+				name: 'firehose.p0',
+				partitions: [
+					{
+						partition: 0,
+						// The live total disagrees, so a rate off it shows.
+						segments: [ { id: 0, size: 9999 } ],
+						total_size: 9999,
+						probe: { grown, elapsed_ms: elapsedMs },
+					},
+				],
+			},
+		],
+		logs_at: 1003.5,
 	} );
 
-	it( 'computes write rate for an OUTPUT log with no consumer (from the live head)', () => {
-		// `completed` has no consumer rows, so its rate = live segment head.
+	it( 'divides ONE Partition record: the bytes its log grew over its own window', () => {
+		const { writeRates, nextLive } = reconstructWorkers(
+			probed( 196_608_000, 15_000 ),
+			EMPTY_PRIOR
+		);
+
+		// 12.5 MiB/s on the very first poll, from the prober's own clock.
+		expect( writeRates[ 'firehose.p0' ] ).toBe( 13_107_200 );
+		// The live sample rides along, a baseline should the probe lapse.
+		expect( nextLive ).toEqual( {
+			'firehose.p0': { at: 1003.5, sizes: { 0: 9999 } },
+		} );
+	} );
+
+	// One log no worker probes: its live segments, stamped at `at`.
+	const unprobed = ( segments, at ) => ( {
+		...FANOUT_DATA,
+		consumers: [],
+		logs: [
+			{
+				name: 'completed.p0',
+				partitions: [
+					{
+						partition: 0,
+						segments,
+						total_size: segments.reduce(
+							( a, s ) => a + s.size,
+							0
+						),
+						probe: null,
+					},
+				],
+			},
+		],
+		logs_at: at,
+	} );
+
+	it( 'rates a log no probe record names from its live segments on the stat clock', () => {
 		const src = 'completed.p0';
-		const make = ( headSize, ts ) => ( {
-			...FANOUT_DATA,
-			consumers: [],
-			logs: [
-				{
-					name: src,
-					partitions: [
-						{
-							partition: 0,
-							segments: [ { id: 0, size: headSize } ],
-							total_size: headSize,
-						},
-					],
-				},
-			],
-			timestamp: ts,
-		} );
-		const p1 = reconstructWorkers( make( 100, 1000 ), EMPTY_PRIOR );
-		expect( p1.writeRates[ src ] ).toBe( 0 ); // first sample
-		const p2 = reconstructWorkers( make( 300, 1010 ), {
-			read: p1.nextRead,
-			write: p1.nextWrite,
-		} );
-		expect( p2.writeRates[ src ] ).toBe( 20 ); // live head 100→300 over 10s
-	} );
-
-	it( 'tracks the consumer END for write rate even when the live head-segment size lags it (no cap)', () => {
-		// Write position follows the fresh end, not the capped live head-size.
-		const src = 'firehose.p0';
-		const make = ( endSize, ts ) => ( {
-			...FANOUT_DATA,
-			consumers: [
-				{
-					...FANOUT_DATA.consumers[ 0 ],
-					end_segment: 0,
-					end_size: endSize,
-				},
-			],
-			logs: [
-				{
-					name: src,
-					partitions: [
-						{
-							partition: 0,
-							segments: [ { id: 0, size: 50 } ], // lags end
-							total_size: 50,
-						},
-					],
-				},
-			],
-			timestamp: ts,
-		} );
-		const p1 = reconstructWorkers( make( 100, 1000 ), EMPTY_PRIOR );
-		expect( p1.writeRates[ src ] ).toBe( 0 ); // first sample
-		const p2 = reconstructWorkers( make( 300, 1010 ), {
-			read: p1.nextRead,
-			write: p1.nextWrite,
-		} );
-		// (300 − 100)/10 = 20 — NOT 0 from the capped live size of 50.
-		expect( p2.writeRates[ src ] ).toBe( 20 );
-	} );
-
-	it( 'collapses a partition read by MULTIPLE consumers to one write rate (max end), stable across flipped row order', () => {
-		// Two readers of one partition: head=max(end) is order-independent.
-		const src = 'firehose.p0';
-		const make = ( endA, endB, order, ts ) => ( {
-			...FANOUT_DATA,
-			consumers: order.map( ( which ) => ( {
-				...FANOUT_DATA.consumers[ 0 ],
-				reader: 'A' === which ? 'rb/firehose.p0' : 'jr/firehose.p0',
-				end_segment: 0,
-				end_size: 'A' === which ? endA : endB,
-			} ) ),
-			logs: [
-				{
-					name: src,
-					partitions: [
-						{
-							partition: 0,
-							segments: [ { id: 0, size: 999999 } ],
-							total_size: 999999,
-						},
-					],
-				},
-			],
-			timestamp: ts,
-		} );
 		const p1 = reconstructWorkers(
-			make( 1000, 100, [ 'A', 'B' ], 1000 ),
+			unprobed( [ { id: 4, size: 100 } ], 1000.25 ),
 			EMPTY_PRIOR
 		);
 		expect( p1.writeRates[ src ] ).toBe( 0 ); // first sample
-		const p2 = reconstructWorkers( make( 2000, 200, [ 'B', 'A' ], 1010 ), {
-			read: p1.nextRead,
-			write: p1.nextWrite,
-		} );
-		expect( p2.writeRates[ src ] ).toBe( 100 ); // Δmax = 1000/10s
-		const p3 = reconstructWorkers( make( 3000, 300, [ 'A', 'B' ], 1020 ), {
-			read: p2.nextRead,
-			write: p2.nextWrite,
-		} );
-		expect( p3.writeRates[ src ] ).toBe( 100 );
+		const p2 = reconstructWorkers(
+			unprobed( [ { id: 4, size: 330 } ], 1010.25 ),
+			p1.nextLive
+		);
+		expect( p2.writeRates[ src ] ).toBe( 23 ); // 230 bytes over 10s
+		// The stat clock moved, so an unchanged log is idle.
+		const p3 = reconstructWorkers(
+			unprobed( [ { id: 4, size: 330 } ], 1015.25 ),
+			p2.nextLive
+		);
+		expect( p3.writeRates[ src ] ).toBe( 0 );
+	} );
+
+	it( 'never lets retention subtract from a live log rate', () => {
+		const src = 'completed.p0';
+		const p1 = reconstructWorkers(
+			unprobed(
+				[
+					{ id: 4, size: 6000 },
+					{ id: 5, size: 100 },
+				],
+				1000.5
+			),
+			EMPTY_PRIOR
+		);
+		// Segment 4 aged out, 5 grew by 300 and 6 opened with 500.
+		const p2 = reconstructWorkers(
+			unprobed(
+				[
+					{ id: 5, size: 400 },
+					{ id: 6, size: 500 },
+				],
+				1005.5
+			),
+			p1.nextLive
+		);
+		expect( p2.writeRates[ src ] ).toBe( 160 );
+	} );
+
+	it( 'reads a log whose probe went stale off its live segments, with no dip', () => {
+		const src = 'completed.p0';
+		const withProbe = {
+			...unprobed( [ { id: 4, size: 1000 } ], 1000.5 ),
+		};
+		withProbe.logs[ 0 ].partitions[ 0 ].probe = {
+			grown: 15_000,
+			elapsed_ms: 15_000,
+		};
+		const p1 = reconstructWorkers( withProbe, EMPTY_PRIOR );
+		expect( p1.writeRates[ src ] ).toBe( 1000 );
+		// The prober recycled: its first window is too short to stand.
+		const p2 = reconstructWorkers(
+			unprobed( [ { id: 4, size: 1500 } ], 1005.5 ),
+			p1.nextLive
+		);
+		expect( p2.writeRates[ src ] ).toBe( 100 );
+	} );
+
+	it( 'counts a segment smaller than it was whole: the log was wiped and rewritten', () => {
+		const src = 'completed.p0';
+		const p1 = reconstructWorkers(
+			unprobed( [ { id: 4, size: 6000 } ], 1000.5 ),
+			EMPTY_PRIOR
+		);
+		const p2 = reconstructWorkers(
+			unprobed( [ { id: 4, size: 250 } ], 1005.5 ),
+			p1.nextLive
+		);
+		expect( p2.writeRates[ src ] ).toBe( 50 );
+	} );
+
+	it( 'reads zero, never NaN, for a poll with no stat clock, and keeps its baseline', () => {
+		const src = 'completed.p0';
+		const p1 = reconstructWorkers(
+			unprobed( [ { id: 4, size: 100 } ], 1000.25 ),
+			EMPTY_PRIOR
+		);
+		const p2 = reconstructWorkers(
+			unprobed( [ { id: 4, size: 700 } ], undefined ),
+			p1.nextLive
+		);
+		expect( p2.writeRates[ src ] ).toBe( 0 );
+		// A clock that ran backward is no span either.
+		const p3 = reconstructWorkers(
+			unprobed( [ { id: 4, size: 700 } ], 999.75 ),
+			p2.nextLive
+		);
+		expect( p3.writeRates[ src ] ).toBe( 0 );
+		const p4 = reconstructWorkers(
+			unprobed( [ { id: 4, size: 1300 } ], 1004.75 ),
+			p3.nextLive
+		);
+		expect( p4.writeRates[ src ] ).toBe( 120 ); // 600 over 5s
 	} );
 } );
 
@@ -724,73 +697,6 @@ describe( 'reconstructWorkers — reader/handler identity match (no loose substr
 		// reader prereq.p0 resolves to prereq-proc, NOT req-proc.
 		const handlers = workers.map( ( w ) => w.handler ).sort();
 		expect( handlers ).toEqual( [ 'prereq-proc' ] );
-	} );
-} );
-
-describe( 'reconstructWorkers — read step computed once per reader (not per topology)', () => {
-	// The per-reader read step must be computed ONCE, not per topology (N×M).
-	const buildData = ( topologyCount ) => {
-		const graph = {};
-		for ( let i = 0; i < topologyCount; i++ ) {
-			graph[ `t${ i }` ] = {
-				nodes: [
-					{
-						name: 'c',
-						kind: 'consumer',
-						reads: 'shared.p{partition}',
-					},
-					{ name: 'proc', kind: 'logic' },
-				],
-				edges: [ [ 'c', 'proc' ] ],
-			};
-		}
-		let idReads = 0;
-		const segment = {
-			get id() {
-				idReads++;
-				return 0;
-			},
-			size: 200,
-		};
-		const data = {
-			graph,
-			workers: [],
-			consumers: [
-				{
-					reader: 'shared.p0',
-					source: 'shared.p0',
-					partition: 0,
-					cursor_segment: 0,
-					cursor_offset: 50,
-					end_segment: 0,
-					end_size: 200,
-					distance: 150,
-					msgs: 7,
-				},
-			],
-			logs: [
-				{
-					name: 'shared.p0',
-					partitions: [
-						{
-							partition: 0,
-							segments: [ segment ],
-							total_size: 200,
-						},
-					],
-				},
-			],
-			timestamp: 1000,
-		};
-		reconstructWorkers( data, EMPTY_PRIOR );
-		return idReads;
-	};
-
-	it( 'does not scale the per-reader read computation with the number of topologies', () => {
-		const oneTopology = buildData( 1 );
-		const fourTopologies = buildData( 4 );
-		// A reader's read step is same no matter how many topologies use it.
-		expect( fourTopologies ).toBe( oneTopology );
 	} );
 } );
 

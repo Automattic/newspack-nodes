@@ -541,7 +541,7 @@ class ConsumerTest extends TestCase {
 		$this->pump_consumer( $c );
 
 		$stats = $c->probe_stats();
-		$this->assertCount( 13, $stats, 'lean positional record' );
+		$this->assertCount( \count( Probe_Record::BLANK ), $stats, 'lean positional record' );
 		// READER = offsetlog dir basename; SOURCE = partition tailed (its basename).
 		$this->assertSame( 'firehose.job-router.p0', $stats[ Probe_Record::READER ] );
 		$this->assertSame( 'data.p0', $stats[ Probe_Record::SOURCE ] );
@@ -555,6 +555,7 @@ class ConsumerTest extends TestCase {
 		// The partition's size rides the Partition record, never the reader's.
 		$this->assertSame( 0, $stats[ Probe_Record::END_BYTES ] );
 		$this->assertSame( 0, $stats[ Probe_Record::END_DISK_BYTES ] );
+		$this->assertSame( 0, $stats[ Probe_Record::GROWN_BYTES ] );
 	}
 
 	public function test_lag_from_disk_sees_an_external_append_with_no_live_consumer(): void {

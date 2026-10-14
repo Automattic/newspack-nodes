@@ -680,7 +680,7 @@ its reader looks: [`SSE_Out_Node`](../includes/rest/class-sse-out-node.php) send
 no line, so its client meets the torn line instead. The browser's `SseInNode` is a view with
 no quarantine, so it skips and counts under this amendment, adding to `UNPARSEABLE_LINES`. A
 hub's `Remote_Consumer_Node` has a cursor and a quarantine, so the amendment does not reach
-it: it dead-letters the line at its place in the spoke's log and moves past it. [`Partition_Node::read_tail_frames_by()`](../includes/class-partition-node.php)
+it: it dead-letters the line at its place in the spoke's log and moves past it. [`Partition_Node::fold_tail_frames()`](../includes/class-partition-node.php)
 counts the same way for the tail read behind `wp nodes status` and the Workers dashboard,
 under `unparseable_lines`. Raising was rejected: one torn line would end every read of that
 segment until it rotated. Quarantining was rejected: a view has no quarantine, and every

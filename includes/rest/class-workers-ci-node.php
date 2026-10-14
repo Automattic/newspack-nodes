@@ -38,6 +38,7 @@ use Newspack_Nodes\SSE_Slot_Pool;
 use Newspack_Nodes\Spawn_Coordinator;
 use Newspack_Nodes\Log_Cleaner;
 use Newspack_Nodes\Log_Discovery;
+use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Worker_Base;
@@ -90,15 +91,18 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * graph and answers its `unreadable` row; a catalog that will not load
 	 * throws, and the interpreter answers the poll with that TM_ERROR.
 	 *
+	 * The Log sinks join the growth windows the snapshot read beside its
+	 * envelope, so the windows reach the reply only on their logs.
+	 *
 	 * @return array<int|string,mixed>
 	 * @throws \RuntimeException When the topology catalog will not load.
 	 */
 	public static function cmd_dump_graph(): array {
-		$topologies       = Bootstrap::get_topologies();
-		$active           = Bootstrap::split_readable( $topologies );
-		$payload          = self::collect_dump_metadata( $topologies, $active );
-		$payload['graph'] = self::collect_topology_graphs( $active[0] );
-		$payload['logs']  = self::append_log_sinks( (array) $payload['logs'], $payload['graph'] );
+		$topologies             = Bootstrap::get_topologies();
+		$active                 = Bootstrap::split_readable( $topologies );
+		[ $payload, $probed ]   = self::dump_snapshot( $topologies, $active );
+		$payload['graph']       = self::collect_topology_graphs( $active[0] );
+		$payload['logs']        = self::append_log_sinks( (array) $payload['logs'], $payload['graph'], $probed );
 		return $payload;
 	}
 
@@ -118,6 +122,11 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * producer template declaring no dir costs only its own catalog entries,
 	 * and `refused_producers` names it and why.
 	 *
+	 * `logs_at` is the instant right after `enumerate_logs()` stats the
+	 * partition dirs, to the fraction of a second: the clock a log no worker
+	 * probes is rated against, so the span between two polls is the span
+	 * between their stats.
+	 *
 	 * Every read runs off the one active set the caller hands in, and its
 	 * readable split: the slots, their states and the declared logs, so a
 	 * poll walks the catalog and splits it once, and classifies no lock dir
@@ -129,6 +138,21 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * @throws \RuntimeException When the runtime base directory will not resolve.
 	 */
 	public static function collect_dump_metadata( array $topologies, array $active ): array {
+		return self::dump_snapshot( $topologies, $active )[0];
+	}
+
+	/**
+	 * The envelope `collect_dump_metadata()` describes, beside each log's
+	 * growth window keyed by its records' SOURCE: `enumerate_logs()` has
+	 * joined those onto the partition dirs, and `cmd_dump_graph()` joins them
+	 * onto the Log sinks, so the windows never ride the envelope itself.
+	 *
+	 * @param array<string,mixed>                                                             $topologies The active set, `Bootstrap::get_topologies()`.
+	 * @param array{0: array<string,array<array-key,mixed>>, 1: array<string,\Throwable>} $active     Its readable split, `Bootstrap::split_readable( $topologies )`.
+	 * @return array{0: array<string,mixed>, 1: array<string,array{grown:int,elapsed_ms:int}>} The envelope, and the growth windows.
+	 * @throws \RuntimeException When the runtime base directory will not resolve.
+	 */
+	private static function dump_snapshot( array $topologies, array $active ): array {
 		$now            = \time();
 		$num_partitions = self::to_int( RuntimeConfig::value( 'num_partitions' ) );
 		// TRUE disk ceiling: the hard cap (or its 2x num_segments default).
@@ -154,14 +178,15 @@ class Workers_CI_Node extends Service_CI_Node {
 			);
 		}
 
-		// Per-reader probe STATE (cursor, end, distance), keyed by reader.
+		// Per-reader probe STATE, keyed by reader, and each partition's size.
 		$probe = self::enumerate_offsetlog_rows( $base_dir );
 
 		// Per-log catalog, resolver-driven; segment_size honors TSL overrides.
 		[ $readable, $unreadable ] = $active;
 		$segment_size_overrides    = self::collect_segment_size_overrides( $readable );
 		[ $declared, $refused ]    = Log_Cleaner::declared_log_partitions( $readable );
-		$logs                      = self::enumerate_logs( $log_base, $segment_size, $segment_size_overrides, $declared );
+		$logs                      = self::enumerate_logs( $log_base, $segment_size, $segment_size_overrides, $declared, $probe['partitions'] );
+		$logs_at                   = Core::right_now();
 		$messages                  = Core::message_of( ... );
 
 		// On-disk log partitions: glob .pN dirs fresh (layout-agnostic).
@@ -169,13 +194,14 @@ class Workers_CI_Node extends Service_CI_Node {
 
 		$deadletter_by_reader = self::deadletter_segments_by_reader( $base_dir );
 
-		return [
+		$envelope = [
 			'workers'        => $workers,
 			'unreadable'     => \array_map( $messages, $unreadable ),
 			'refused_producers' => \array_map( $messages, $refused ),
 			'consumers'      => $probe['rows'],
 			'unparseable_lines' => $probe['unparseable_lines'],
 			'logs'           => $logs,
+			'logs_at'        => $logs_at,
 			'log_partitions' => $log_partitions,
 			'deadletter_segments'  => \array_sum( $deadletter_by_reader ),
 			'deadletter_by_reader' => $deadletter_by_reader,
@@ -185,6 +211,7 @@ class Workers_CI_Node extends Service_CI_Node {
 			'timestamp'      => $now,
 			'heartbeat_interval_s' => Worker_Base::HEARTBEAT_INTERVAL_S,
 		];
+		return [ $envelope, $probe['partitions'] ];
 	}
 
 	/**
@@ -244,13 +271,16 @@ class Workers_CI_Node extends Service_CI_Node {
 	 *
 	 * A sink whose path resolves to nothing is skipped, and a basename already
 	 * in the catalog is left alone — a real segmented-log entry outranks a
-	 * synthesized one.
+	 * synthesized one. The entry is named by its basename, but its Partition
+	 * records by `Partition_Node::probe_source_of()` its path, so its `probe`
+	 * is looked up that way.
 	 *
 	 * @param array<array-key,mixed>                                        $logs   Existing catalog (each entry `{name,partitions,segment_size}`).
 	 * @param array<string,array{nodes: list<array<string,int|string|list<string>|list<array{source:string,target:string}>>>}> $graphs `collect_topology_graphs()`.
+	 * @param array<string,array{grown:int,elapsed_ms:int}>                $probed Record SOURCE => its growth window.
 	 * @return array<array-key,mixed> $logs plus one entry per Log sink.
 	 */
-	private static function append_log_sinks( array $logs, array $graphs ): array {
+	private static function append_log_sinks( array $logs, array $graphs, array $probed ): array {
 		$existing = [];
 		foreach ( $logs as $log ) {
 			if ( \is_array( $log ) && isset( $log['name'] ) && \is_scalar( $log['name'] ) ) {
@@ -274,7 +304,8 @@ class Workers_CI_Node extends Service_CI_Node {
 				$logs[]            = self::build_log_sink_entry(
 					$path,
 					$name,
-					self::to_int( $node['segment_size'] ?? 0 )
+					self::to_int( $node['segment_size'] ?? 0 ),
+					$probed[ Partition_Node::probe_source_of( $path ) ] ?? null
 				);
 			}
 		}
@@ -308,12 +339,13 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * would drop `mtime` — `Partition_Node::get_segments()` collects id and
 	 * size only, and the dashboard needs the mtime.
 	 *
-	 * @param string $path         Resolved path of the Log, with no segment suffix.
-	 * @param string $name         Catalog name; the path's basename.
-	 * @param int    $segment_size Rotation size the Log declares, in bytes.
+	 * @param string                               $path         Resolved path of the Log, with no segment suffix.
+	 * @param string                               $name         Catalog name; the path's basename.
+	 * @param int                                  $segment_size Rotation size the Log declares, in bytes.
+	 * @param array{grown:int,elapsed_ms:int}|null $probe        Its growth window, or null where no worker sweeps it.
 	 * @return array{name:string,partitions:array<int,mixed>,segment_size:int}
 	 */
-	private static function build_log_sink_entry( string $path, string $name, int $segment_size ): array {
+	private static function build_log_sink_entry( string $path, string $name, int $segment_size, ?array $probe ): array {
 		$files = \glob( $path . '.[0-9]*' ) ?: [];
 
 		$segments   = [];
@@ -341,6 +373,7 @@ class Workers_CI_Node extends Service_CI_Node {
 					'partition'  => 0,
 					'segments'   => $segments,
 					'total_size' => $total_size,
+					'probe'      => $probe,
 				],
 			],
 			'segment_size' => $segment_size,
@@ -410,21 +443,28 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * `${name}#${partition}`, and a hardcoded 0 would meet the consumer rows on
 	 * partition 0 alone.
 	 *
-	 * @param string            $log_base               Absolute `{base}/logs` dir.
-	 * @param int               $default_segment_size   Fleet-wide segment size in bytes.
-	 * @param array<string,int> $segment_size_overrides `{basename => int}` map.
-	 * @param array<string,int> $declared               Concrete log dir => enumerated partition.
+	 * Each partition carries its `probe`: the growth window of its newest
+	 * fresh Partition record, `{ grown, elapsed_ms }`, or null where no worker
+	 * sweeps it. The dashboard's write rate divides that ONE record, so it
+	 * runs on the prober's clock and never on this poll's.
+	 *
+	 * @param string                                          $log_base               Absolute `{base}/logs` dir.
+	 * @param int                                             $default_segment_size   Fleet-wide segment size in bytes.
+	 * @param array<string,int>                               $segment_size_overrides `{basename => int}` map.
+	 * @param array<string,int>                               $declared               Concrete log dir => enumerated partition.
+	 * @param array<string,array{grown:int,elapsed_ms:int}> $probed                 Record SOURCE => its growth window, `CLI::consumer_rows()`'s `partitions`.
 	 * @return array<int,array{name:string,partitions:array<int,mixed>,segment_size:int}>
 	 */
 	private static function enumerate_logs(
 		string $log_base,
 		int $default_segment_size,
 		array $segment_size_overrides,
-		array $declared
+		array $declared,
+		array $probed
 	): array {
 		$logs = [];
 		$seen = [];
-		$add  = function ( string $concrete, int $partition ) use ( &$logs, &$seen, $log_base, $segment_size_overrides, $default_segment_size ): void {
+		$add  = function ( string $concrete, int $partition ) use ( &$logs, &$seen, $log_base, $segment_size_overrides, $default_segment_size, $probed ): void {
 			if ( isset( $seen[ $concrete ] ) ) {
 				return;
 			}
@@ -437,6 +477,7 @@ class Workers_CI_Node extends Service_CI_Node {
 						'partition'  => $partition,
 						'segments'   => $status['segments'] ?? [],
 						'total_size' => $status['total_size'] ?? 0,
+						'probe'      => $probed[ Partition_Node::probe_source_of( "{$log_base}/{$concrete}" ) ] ?? null,
 					],
 				],
 				'segment_size' => self::segment_size_for( $concrete, $segment_size_overrides, $default_segment_size ),
@@ -453,10 +494,11 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * One row per active Consumer, via the canonical per-Consumer enumeration
 	 * (`CLI::consumer_rows()`, sourced from the Topic_Probe log) — shared with
 	 * `wp nodes status`, so the dashboard and the cli read positions exactly
-	 * one way, with the count of probe lines that would not unpack.
+	 * one way, with each fresh partition size and the count of probe lines
+	 * that would not unpack.
 	 *
 	 * @param string $base_dir Substrate base directory.
-	 * @return array{rows: list<array<string,mixed>>, unparseable_lines: int}
+	 * @return array{rows: list<array<string,mixed>>, partitions: array<string,array{grown:int,elapsed_ms:int}>, unparseable_lines: int}
 	 */
 	private static function enumerate_offsetlog_rows( string $base_dir ): array {
 		return ( new CLI( $base_dir ) )->consumer_rows();

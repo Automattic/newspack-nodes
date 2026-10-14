@@ -1,7 +1,7 @@
 /**
  * The fleet-global byte rates behind the SummaryCards "Read" and "Write" cards:
- * every reader's cursor advance summed, and every log partition's head advance
- * summed, both in bytes per second.
+ * every reader's read rate summed, and every log partition's growth summed,
+ * both in bytes per second and both measured on the probe's clock.
  *
  * The two maps `reconstructWorkers` builds are keyed differently, and that is
  * the whole difference between the sums. Read rates are keyed by READER id, so

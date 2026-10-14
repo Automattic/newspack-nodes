@@ -12,8 +12,11 @@
  * - `workers` carries liveness alone, one row per (type, partition): its
  *   `state` (`CLI::worker_states()`'s word), heartbeat and start times.
  * - `consumers` carries each reader's probe state: its cursor, the partition
- *   end it recorded, and how far behind that leaves it.
- * - `logs` carries the live per-partition segment lists.
+ *   end it recorded, how far behind that leaves it, and the bytes it read over
+ *   the window its newest record covers.
+ * - `logs` carries the live per-partition segment lists, each beside the
+ *   growth window of its newest fresh Partition record, and `logs_at` the
+ *   instant after their stat.
  *
  * A template still holds its `{partition}` and `<topology>` tokens, and
  * `topologyGraph.substituteTokens` is the one thing that resolves them, so a
@@ -171,83 +174,92 @@ const liveTotal = ( segments ) =>
 	segments.reduce( ( acc, seg ) => acc + ( seg.size || 0 ), 0 );
 
 /**
- * Absolute byte position of `(segment, offset)`: every whole segment behind
- * `segment`, plus the offset inside it.
+ * Bytes per second over a window the measuring node timed itself.
  *
- * Segment ids only ever rise, so `id < segment` means "already behind". The
- * total is measured from the oldest LIVE segment, so a retention sweep dropping
- * an old segment shrinks it — the backward move `steppedRate` rebaselines on
- * rather than reporting as a negative rate.
+ * Every rate here divides a probe's own window — never two positions
+ * differenced over the poll clock, which divides a 15-second sweep's work by
+ * however long the 5-second poll waited for it: after a hidden tab, a third
+ * of the sweep and a threefold spike.
  *
- * @param {Array<{id:number,size:number}>} segments Live segments, in any order.
- * @param {number}                         segment  Segment the position sits in.
- * @param {number}                         offset   Byte offset inside `segment`.
- * @return {number} Bytes from the start of the oldest live segment.
+ * @param {number} bytes     Bytes moved during the window.
+ * @param {number} elapsedMs The window, in milliseconds.
+ * @return {number} Bytes per second; 0 for a window covering no time.
  */
-const bytePosition = ( segments, segment, offset ) =>
-	segments.reduce(
-		( acc, seg ) => ( seg.id < segment ? acc + seg.size : acc ),
-		0
-	) + offset;
+const perSecond = ( bytes, elapsedMs ) =>
+	elapsedMs > 0 ? ( bytes * 1000 ) / elapsedMs : 0;
 
 /**
- * Advance one probe-cadence rate step.
+ * Bytes a log grew between two segment lists: each surviving segment's gain
+ * plus every new segment whole. A segment retention deleted is simply absent,
+ * so it subtracts nothing, and one smaller than it was is a log wiped and
+ * rewritten under a reused id, so it counts whole. The twin of
+ * `Partition_Node::drain_growth_window()`.
  *
- * The cursor and end byte positions come from the Topic_Probe sweep, which runs
- * every 15s, while the dashboard polls `dump_graph` every 5s. Deltaing against
- * the poll clock would report two zeros and then a 3× spike. The rate is
- * recomputed only when the value ADVANCES — which is new probe data — over the
- * real elapsed time since that last advance, and HELD while the value stands. A
- * value that moves backward (a retention sweep, a worker restart) rebaselines
- * and keeps the last rate rather than spiking negative.
- *
- * @param {{value:number,ts:number,rate:number}|undefined} prev  Prior step; undefined on the first sample.
- * @param {number}                                         value Current byte position.
- * @param {number}                                         now   Snapshot time, in seconds.
- * @return {{value:number,ts:number,rate:number}} The step to carry into the next poll.
+ * @param {Object<number,number>}          before Segment id to size, as last seen.
+ * @param {Array<{id:number,size:number}>} after  The live segments now.
+ * @return {number} Bytes grown.
  */
-function steppedRate( prev, value, now ) {
-	if ( ! prev ) {
-		return { value, ts: now, rate: 0 }; // first sample — nothing to delta
+const grownBytes = ( before, after ) =>
+	after.reduce( ( acc, seg ) => {
+		const was = before[ seg.id ] ?? 0;
+		return acc + ( seg.size < was ? seg.size : seg.size - was );
+	}, 0 );
+
+/**
+ * The write rate of a log no worker probes, from its live segments against
+ * the previous poll's, over the stat clock `logs_at` stamps after the stat.
+ *
+ * A poll carrying no clock measures nothing and keeps the old baseline, so
+ * the next poll spans both. A clock no later than the baseline's is no span
+ * either: it reads 0 and becomes the baseline.
+ *
+ * @param {{at:number,sizes:Object<number,number>}|undefined} prev     The previous poll's sample.
+ * @param {Array<{id:number,size:number}>}                    segments The live segments now.
+ * @param {number|undefined}                                  at       When they were stat'd, in seconds.
+ * @return {{rate:number,next:({at:number,sizes:Object<number,number>}|undefined)}} The rate, and the sample to carry.
+ */
+function liveRate( prev, segments, at ) {
+	if ( ! Number.isFinite( at ) ) {
+		return { rate: 0, next: prev };
 	}
-	if ( value > prev.value && now > prev.ts ) {
-		return {
-			value,
-			ts: now,
-			rate: ( value - prev.value ) / ( now - prev.ts ),
-		};
+	const next = {
+		at,
+		sizes: Object.fromEntries( segments.map( ( s ) => [ s.id, s.size ] ) ),
+	};
+	if ( ! prev || at <= prev.at ) {
+		return { rate: 0, next };
 	}
-	if ( value === prev.value ) {
-		return { value, ts: prev.ts, rate: prev.rate }; // unchanged → hold
-	}
-	return { value, ts: now, rate: prev.rate }; // backward → rebaseline
+	return {
+		rate: grownBytes( prev.sizes, segments ) / ( at - prev.at ),
+		next,
+	};
 }
 
 /**
  * Join the four lean inputs into the rich `workers[]` array plus the two rate
  * maps `globalRates` sums.
  *
- * Nothing is held between polls: the caller passes the previous poll's rate
- * baselines and gets the next ones back. The state stays in the transform node,
- * and the join stays a plain function a test can call twice.
+ * Both rates divide ONE probe window: a reader's `bytes_read` over its
+ * `elapsed_ms`, and a log's `probe`, the bytes it grew over its newest
+ * Partition record's window. Neither needs the last poll. A log no worker
+ * probes is the one exception, rated from its live segments against the
+ * previous poll's, so the caller passes those samples and gets the next ones
+ * back; the state stays in the transform node, and the join stays a plain
+ * function a test can call twice. Every log's sample is carried, probed or
+ * not, so a probe that lapses — a recycled prober's first window is too short
+ * to stand — falls back to a baseline rather than reading 0. The `logs` come back untouched, so the
+ * segment bar still sees the full live data.
  *
- * Both rates run on the PROBE cadence rather than the poll cadence — see
- * `steppedRate`. The `logs` come back untouched, so the segment bar still sees
- * the full live data.
- *
- * @param {Object} data  The `dump_graph` payload: `graph`, `workers`, `consumers`, `logs`, `timestamp`.
- * @param {Object} prior Previous poll's rate baselines: `read` keyed by reader id, `write` by source.
- * @return {Object} `{ workers, logs, byteRates, writeRates, nextRead, nextWrite }` — the rich rows, the
- *   live logs, read rate per reader, write rate per source, and the two baselines for the next poll.
+ * @param {Object} data      The `dump_graph` payload: `graph`, `workers`, `consumers`, `logs`, `logs_at`.
+ * @param {Object} priorLive Previous poll's live samples, keyed by log-partition name.
+ * @return {Object} `{ workers, logs, byteRates, writeRates, nextLive }` — the rich rows, the live logs,
+ *   read rate per reader, write rate per log partition, and the live samples for the next poll.
  */
-export function reconstructWorkers( data, prior ) {
+export function reconstructWorkers( data, priorLive ) {
 	const graph = data.graph || {};
 	const liveness = data.workers || [];
 	const consumers = data.consumers || [];
 	const logs = data.logs || [];
-	const ts = data.timestamp;
-	const priorRead = prior.read || {};
-	const priorWrite = prior.write || {};
 
 	// Live per-(name, partition) segment lists, indexed by concrete source.
 	const liveByName = new Map();
@@ -269,56 +281,30 @@ export function reconstructWorkers( data, prior ) {
 	const workers = [];
 	const byteRates = {};
 	const writeRates = {};
-	const nextRead = {};
-	const nextWrite = {};
+	const nextLive = {};
 
-	// Write rate = Δ(probe END); collapse per source to MAX end (monotonic).
-	const writeTotals = new Map();
-	consumers.forEach( ( row ) => {
-		const live =
-			liveByName.get( `${ row.source }#${ row.partition }` ) || [];
-		// The probe's recorded HEAD; capping end_size stalls the rate.
-		const total = bytePosition( live, row.end_segment, row.end_size );
-		const prevMax = writeTotals.get( row.source );
-		if ( prevMax === undefined || total > prevMax ) {
-			writeTotals.set( row.source, total );
-		}
-	} );
-	// Output logs (no consumer) fall back to live head; only fill new keys.
 	logs.forEach( ( log ) => {
 		( log.partitions || [] ).forEach( ( p ) => {
-			if ( writeTotals.has( log.name ) ) {
-				return;
+			const live = liveRate(
+				priorLive[ log.name ],
+				p.segments || [],
+				data.logs_at
+			);
+			writeRates[ log.name ] = p.probe
+				? perSecond( p.probe.grown, p.probe.elapsed_ms )
+				: live.rate;
+			if ( live.next ) {
+				nextLive[ log.name ] = live.next;
 			}
-			writeTotals.set( log.name, liveTotal( p.segments || [] ) );
 		} );
 	} );
-	writeTotals.forEach( ( total, source ) => {
-		const step = steppedRate( priorWrite[ source ], total, ts );
-		nextWrite[ source ] = step;
-		writeRates[ source ] = step.rate;
-	} );
 
-	// Read step per reader, once up front; inside the loop it is N×M.
-	const readStepByReader = new Map();
 	consumers.forEach( ( row ) => {
-		if ( readStepByReader.has( row.reader ) ) {
-			return;
-		}
-		const live =
-			liveByName.get( `${ row.source }#${ row.partition }` ) || [];
-		const step = steppedRate(
-			priorRead[ row.reader ],
-			bytePosition( live, row.cursor_segment, row.cursor_offset ),
-			ts
-		);
-		readStepByReader.set( row.reader, step );
-		nextRead[ row.reader ] = step;
 		// @longform Key by READER, which is what a fleet-wide sum needs.
 		// A handler key counts a reader fanning through a Tee once per
 		// downstream handler, and a source key merges two topologies
 		// reading that one source into a single last-write-wins entry.
-		byteRates[ row.reader ] = step.rate;
+		byteRates[ row.reader ] = perSecond( row.bytes_read, row.elapsed_ms );
 	} );
 
 	Object.entries( graph ).forEach( ( [ topology, graphTopo ] ) => {
@@ -371,9 +357,6 @@ export function reconstructWorkers( data, prior ) {
 				end_size: row.end_size,
 			};
 
-			// Read rate: computed once per reader, not here per topology.
-			const readStep = readStepByReader.get( row.reader );
-
 			chosen.handlers.forEach( ( handler ) => {
 				workers.push( {
 					type: topology,
@@ -387,14 +370,13 @@ export function reconstructWorkers( data, prior ) {
 					cursor_segment: row.cursor_segment,
 					cursor_offset: row.cursor_offset,
 					behind: row.distance,
-					read_rate: readStep.rate,
+					read_rate: byteRates[ row.reader ],
 					inputs: [ concrete ],
 					outputs: [],
 					inputs_status: [ inputsStatus ],
 					outputs_status: [],
 				} );
 			} );
-			// Write rate: once per source up front, not per row here.
 		} );
 
 		// A liveness row with no consumer row still emits a worker row.
@@ -433,7 +415,6 @@ export function reconstructWorkers( data, prior ) {
 		logs,
 		byteRates,
 		writeRates,
-		nextRead,
-		nextWrite,
+		nextLive,
 	};
 }

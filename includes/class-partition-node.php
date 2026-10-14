@@ -279,6 +279,9 @@ class Partition_Node extends Timer_Node {
 	/** The log's name in a probe record: its SSE stamp, or path under the base. */
 	private string $probe_source = '';
 
+	/** @var array{at:float,sizes:array<int,int>}|null What the previous probe record measured: when, and each segment's size. */
+	private ?array $probe_window = null;
+
 	/** Rotation threshold in bytes: a write that would exceed it starts a new segment. */
 	protected int $segment_size     = self::DEFAULT_SEGMENT_SIZE;
 
@@ -330,7 +333,7 @@ class Partition_Node extends Timer_Node {
 		$this->partition_dir  = \rtrim( $this->partition_dir, '/' );
 		// The seam, not the field: Log fills `file`, not partition_dir.
 		Config::assert_within_base( $this->segment_dir() );
-		$this->probe_source = Log_Discovery::source_for( Config::relative_to_base( $this->identity_path() ) );
+		$this->probe_source = self::probe_source_of( $this->identity_path() );
 		// Fail LOUD: 0 floored to 1 is a ONE-BYTE segment; every write rotates.
 		if ( $this->segment_size < 1 ) {
 			throw new \InvalidArgumentException(
@@ -1904,15 +1907,19 @@ class Partition_Node extends Timer_Node {
 
 	/**
 	 * Probe seam: the Partition record `Topic_Probe` sends for this log — its
-	 * name, then its `footprint()`. READER stays blank, which marks the record
-	 * a Partition's, and every slot a Partition does not fill keeps
-	 * `Probe_Record::BLANK`'s 0.
+	 * name, then its `footprint()`, then the bytes it grew since this node's
+	 * previous record and the interval that covers. READER stays blank, which
+	 * marks the record a Partition's, and every slot a Partition does not fill
+	 * keeps `Probe_Record::BLANK`'s 0. A DRAINING read, as a Consumer's is: the
+	 * window re-baselines, so a first record covers no window at all, and a
+	 * sweep finding the log empty re-baselines it on nothing.
 	 *
 	 * @return array<int,int|string>|null A `Probe_Record`, or null for a log
 	 *                                    with no live segment and so no size.
 	 */
 	public function probe_stats(): ?array {
 		$footprint = $this->footprint();
+		$window    = $this->drain_growth_window( $footprint['segments'] ?? [] );
 		if ( null === $footprint ) {
 			return null;
 		}
@@ -1922,7 +1929,53 @@ class Partition_Node extends Timer_Node {
 			Probe_Record::END_SIZE       => $footprint['end_size'],
 			Probe_Record::END_BYTES      => $footprint['bytes'],
 			Probe_Record::END_DISK_BYTES => $footprint['disk'],
+			Probe_Record::GROWN_BYTES    => $window['grown'],
+			Probe_Record::ELAPSED_MS     => $window['elapsed_ms'],
 		] );
+	}
+
+	/**
+	 * Close the growth window: the bytes the log grew since the previous
+	 * probe record and how long that window ran, then re-baseline on these
+	 * segments. Growth is per segment — each surviving segment's gain, plus
+	 * every new segment whole — so a segment retention deleted meanwhile
+	 * counts nothing rather than subtracting its size. A segment smaller than
+	 * its baseline is a log wiped and rewritten under a reused id, so it
+	 * counts whole too.
+	 *
+	 * @param array<int,array{id:int,size:int}> $segments The live segments just scanned.
+	 * @return array{grown:int,elapsed_ms:int} Zero for both on a first window.
+	 */
+	private function drain_growth_window( array $segments ): array {
+		$now                = Core::$now ?: Core::right_now();
+		$sizes              = \array_column( $segments, 'size', 'id' );
+		$prior              = $this->probe_window;
+		$this->probe_window = [ 'at' => $now, 'sizes' => $sizes ];
+		if ( null === $prior ) {
+			return [ 'grown' => 0, 'elapsed_ms' => 0 ];
+		}
+		$grown = 0;
+		foreach ( $sizes as $id => $size ) {
+			$was    = $prior['sizes'][ $id ] ?? 0;
+			$grown += $size < $was ? $size : $size - $was;
+		}
+		return [
+			'grown'      => $grown,
+			'elapsed_ms' => (int) \round( \max( 0.0, $now - $prior['at'] ) * 1000 ),
+		];
+	}
+
+	/**
+	 * The name a log at `$identity_path` takes in its Partition records: its
+	 * SSE stamp, or its path under the runtime base outside the stamped
+	 * roots. A reader joining records to a log it holds a path for keys the
+	 * same way through here.
+	 *
+	 * @param string $identity_path The log's `identity_path()`: a Partition's dir, a Log's file.
+	 * @return string The record's SOURCE.
+	 */
+	public static function probe_source_of( string $identity_path ): string {
+		return Log_Discovery::source_for( Config::relative_to_base( $identity_path ) );
 	}
 
 	/**
@@ -2371,22 +2424,22 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * Index the newest segment's TAIL by a VALUE field, latest-record-wins.
+	 * Hand every whole record in the newest segment's TAIL to `$fold`, oldest
+	 * first.
 	 *
-	 * Reads at most `$max_bytes` from the END of the NEWEST segment and returns
-	 * `key => record` under `records` for the LAST one carrying each distinct
-	 * `$key_field`. Records append chronologically, so the tail holds the most
-	 * recent ones; a producer that writes every key on a short interval
-	 * (Topic_Probe: every 15s) keeps every active key present. A bounded tail
-	 * read is cheaper than the whole segment. A leading partial line (the tail
-	 * may start mid-record) is dropped; records whose key is missing/empty/
-	 * non-string are skipped.
+	 * Reads at most `$max_bytes` from the END of the NEWEST segment. Records
+	 * append chronologically, so the tail holds the most recent ones; a
+	 * producer that writes every key on a short interval (Topic_Probe: every
+	 * 15s) keeps every active key present. The fold indexes as the scan goes,
+	 * so the caller holds what it keeps per key rather than every record. A
+	 * bounded tail read is cheaper than the whole segment. A leading partial
+	 * line (the tail may start mid-record) is dropped, and so is a record
+	 * whose VALUE is not an array.
 	 *
-	 * A whole line that will not unpack is skipped and counted under
-	 * `unparseable_lines`. A multi-writer partition is never truncated after a
-	 * short write — another writer may already have appended past it — so a
-	 * torn line there is expected rather than corrupt, and the caller shows the
-	 * count wherever it shows the tail.
+	 * A whole line that will not unpack is skipped and counted. A multi-writer
+	 * partition is never truncated after a short write — another writer may
+	 * already have appended past it — so a torn line there is expected rather
+	 * than corrupt, and the caller shows the count wherever it shows the tail.
 	 *
 	 * Scope caveat: only the newest segment is read, so a key whose latest record
 	 * predates the last rotation — a producer silent for longer than the newest
@@ -2394,24 +2447,24 @@ class Partition_Node extends Timer_Node {
 	 * after a rotation until the next sweep repopulates the fresh segment — is
 	 * absent. Intended for "currently-active" state, not a full historical sweep.
 	 *
-	 * Each record carries the Message TIMESTAMP it was written at, which is what
-	 * tells a reader whether anyone is still REPORTING: a probe record holds no
-	 * age inside its VALUE, so without it a departed worker's last snapshot is
-	 * indistinguishable from a live one's.
+	 * Each record reaches the fold with the Message TIMESTAMP it was written
+	 * at, fraction of a second included, which is what tells a reader whether
+	 * anyone is still REPORTING: a probe record holds no age inside its VALUE.
+	 * Many writers append to one log, so file order is not sweep order.
 	 *
-	 * @param string     $dir       The partition dir.
-	 * @param int|string $key_field VALUE field to index by (an int for a positional record).
-	 * @param int        $max_bytes Max tail bytes to scan.
-	 * @return array{records: array<string,array{value: array<mixed>, timestamp: int}>, unparseable_lines: int} Key → the latest record, and how many lines were skipped.
+	 * @param string                                       $dir       The partition dir.
+	 * @param int                                          $max_bytes Max tail bytes to scan.
+	 * @param \Closure( array<mixed> $value, float $timestamp ): void $fold Called once per whole record.
+	 * @return int How many lines would not unpack.
 	 * @throws \RuntimeException When the directory is not a readable log, e.g. outside the base.
 	 */
-	public static function read_tail_frames_by( string $dir, int|string $key_field, int $max_bytes ): array {
+	public static function fold_tail_frames( string $dir, int $max_bytes, \Closure $fold ): int {
 		$log = new self();
 		$log->arguments( [ $dir ] );
-		$tail     = [ 'records' => [], 'unparseable_lines' => 0 ];
+		$torn     = 0;
 		$segments = $log->get_segments( true );
 		if ( empty( $segments ) ) {
-			return $tail;
+			return $torn;
 		}
 		$newest = \end( $segments );
 		$size   = $newest['size'];
@@ -2429,23 +2482,15 @@ class Partition_Node extends Timer_Node {
 			try {
 				$message = Message::unpacked( $line );
 			} catch ( \InvalidArgumentException ) {
-				++$tail['unparseable_lines'];
+				++$torn;
 				continue;
 			}
 			$value = $message[ Message::VALUE ] ?? null;
-			if ( ! \is_array( $value ) ) {
-				continue;
-			}
-			$key = $value[ $key_field ] ?? '';
-			if ( \is_string( $key ) && '' !== $key ) {
-				// Records append chronologically, so the last one wins.
-				$tail['records'][ $key ] = [
-					'value'     => $value,
-					'timestamp' => Core::as_int( $message[ Message::TIMESTAMP ] ?? 0 ),
-				];
+			if ( \is_array( $value ) ) {
+				$fold( $value, Core::as_float( $message[ Message::TIMESTAMP ] ?? 0 ) );
 			}
 		}
-		return $tail;
+		return $torn;
 	}
 
 	/**

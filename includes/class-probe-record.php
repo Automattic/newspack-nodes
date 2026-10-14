@@ -20,9 +20,10 @@ namespace Newspack_Nodes;
  * reader's stats and names it in READER. A PARTITION record
  * (`Partition_Node::probe_stats()`) carries one directory's size and leaves
  * READER blank, which is what marks it. A Partition record fills SOURCE,
- * END_SEGMENT, END_SIZE, END_BYTES and END_DISK_BYTES; a Consumer record
- * fills every slot but END_BYTES and END_DISK_BYTES. Both builders start
- * from `BLANK`, so a slot a kind never fills is 0.
+ * END_SEGMENT, END_SIZE, END_BYTES, END_DISK_BYTES, GROWN_BYTES and
+ * ELAPSED_MS; a Consumer record fills every slot but END_BYTES,
+ * END_DISK_BYTES and GROWN_BYTES. Both builders start from `BLANK`, so a
+ * slot a kind never fills is 0.
  *
  * Either durable reader writes a CONSUMER record: a `Consumer_Node` and a
  * broker's `Remote_Consumer_Node`, both through
@@ -33,17 +34,18 @@ namespace Newspack_Nodes;
  * segment is null until the spoke, or for a `File_Tail` the file it opens,
  * names the generation.
  *
- * A Consumer record is SELF-CONTAINED: the work it drains for one reader
- * (`MSGS_DELTA`, `BYTES_READ_DELTA`) plus the `ELAPSED_MS` that work covers,
- * so a reader divides ONE record and never differences across records — a
- * worker recycles every ~595s, and differencing reads that recycle as a
- * counter reset. Every other slot is a POSITION or a LEVEL read off disk,
- * correct as it stands across a restart. The Message's TIMESTAMP is the
- * sweep instant, never duplicated here.
+ * Both kinds are SELF-CONTAINED: a Consumer record carries the work it
+ * drains for one reader (`MSGS_DELTA`, `BYTES_READ_DELTA`) and a Partition
+ * record the bytes its log grew (`GROWN_BYTES`), each with the `ELAPSED_MS`
+ * that window covers, so a reader divides ONE record and never differences
+ * across records — a worker recycles every ~595s, and differencing reads
+ * that recycle as a counter reset. Every other slot is a POSITION or a LEVEL
+ * read off disk, correct as it stands across a restart. The Message's
+ * TIMESTAMP is the sweep instant, never duplicated here.
  *
  * Indices mirror `src/runtime/probe-record.js`, which declares only the nine
  * slots the browser reads; `tests/unit/ProbeRecordLayoutsTest.php` pins those
- * on both sides plus the dense 0..12 ordering and `BLANK` here, because a
+ * on both sides plus the dense 0..13 ordering and `BLANK` here, because a
  * reader one slot off misreads every field after it. The cursor and partition-end pairs stay
  * PHP-side, where `CLI::consumer_rows()` renders them for `wp nodes status`
  * and the Workers dashboard.
@@ -104,8 +106,8 @@ class Probe_Record {
 
 	/**
 	 * The partition's byte length, Σ live segment sizes. A level, NOT a rate
-	 * source: retention deleting a segment makes it fall, so a byte
-	 * rate divides BYTES_READ_DELTA.
+	 * source: retention deleting a segment makes it fall, so a read rate
+	 * divides BYTES_READ_DELTA and a write rate GROWN_BYTES.
 	 */
 	public const END_BYTES = 8;
 
@@ -123,9 +125,10 @@ class Probe_Record {
 	public const BYTES_READ_DELTA = 10;
 
 	/**
-	 * Milliseconds the deltas above cover — the interval since this
-	 * consumer's previous sweep, which opens at the Consumer's construction,
-	 * so the first record covers time since birth.
+	 * Milliseconds the deltas cover — the interval since this node's previous
+	 * sweep. A Consumer's opens at its construction, so its first record
+	 * covers time since birth; a Partition's opens at its first sweep, so its
+	 * first record covers none.
 	 */
 	public const ELAPSED_MS = 11;
 
@@ -136,6 +139,13 @@ class Probe_Record {
 	 */
 	public const END_DISK_BYTES = 12;
 
+	/**
+	 * Bytes the log grew during ELAPSED_MS, per segment: each surviving
+	 * segment's growth plus every new segment whole. A segment retention
+	 * deleted counts nothing, so unlike END_BYTES this never falls.
+	 */
+	public const GROWN_BYTES = 13;
+
 	/** Every slot in layout order: blank for the two names, 0 elsewhere. */
-	public const BLANK = [ '', '', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ];
+	public const BLANK = [ '', '', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ];
 }

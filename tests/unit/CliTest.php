@@ -6,6 +6,7 @@ use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\CLI;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Consumer_Node;
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Probe_Record;
@@ -654,7 +655,7 @@ class CliTest extends TestCase {
 		if ( ! is_dir( $dir ) ) {
 			mkdir( $dir, 0755, true );
 		}
-		$record                             = [];
+		$record                             = Probe_Record::BLANK;
 		$record[ Probe_Record::SOURCE ]     = $fields['source'] ?? 'firehose.p0';
 		$record[ Probe_Record::READER ]     = $fields['reader'] ?? 'firehose.p0';
 		$record[ Probe_Record::CURSOR_SEGMENT ] = \array_key_exists( 'cursor_segment', $fields ) ? $fields['cursor_segment'] : 0;
@@ -663,12 +664,14 @@ class CliTest extends TestCase {
 		$record[ Probe_Record::END_SIZE ]   = \array_key_exists( 'end_size', $fields ) ? $fields['end_size'] : 0;
 		$record[ Probe_Record::DISTANCE ]   = \array_key_exists( 'distance', $fields ) ? $fields['distance'] : 0;
 		$record[ Probe_Record::MSGS_DELTA ]       = $fields['msgs'] ?? 0;
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_STRUCT;
-		$message[ Message::VALUE ] = $record;
-		if ( isset( $fields['age_s'] ) ) {
-			$message[ Message::TIMESTAMP ] -= $fields['age_s'];
-		}
+		$record[ Probe_Record::END_BYTES ]        = $fields['end_bytes'] ?? 0;
+		$record[ Probe_Record::BYTES_READ_DELTA ] = $fields['bytes_read'] ?? 0;
+		$record[ Probe_Record::ELAPSED_MS ]       = $fields['elapsed_ms'] ?? 0;
+		$record[ Probe_Record::GROWN_BYTES ]      = $fields['grown'] ?? 0;
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_STRUCT;
+		$message[ Message::VALUE ]     = $record;
+		$message[ Message::TIMESTAMP ] = Core::right_now() - ( $fields['age_s'] ?? 0 );
 		file_put_contents( "{$dir}/0.log", Message::packed( $message ) . "\n", FILE_APPEND );
 	}
 
@@ -697,7 +700,7 @@ class CliTest extends TestCase {
 		// Nobody has reported in two sweeps, so the record's DISTANCE is the last
 		// thing a departed worker said — and it said caught up. 900 bytes have
 		// landed since, of which the cursor covers 250.
-		$this->seed_probe_record( [ 'reader' => 'firehose.p0', 'distance' => 0, 'age_s' => 300 ] );
+		$this->seed_probe_record( [ 'reader' => 'firehose.p0', 'distance' => 0, 'bytes_read' => 7331, 'age_s' => 300 ] );
 		$this->seed_source( 'firehose.p0', 900 );
 		$this->seed_cursor( 'firehose.p0', 250 );
 
@@ -706,6 +709,142 @@ class CliTest extends TestCase {
 		$this->assertSame( 650, $rows[0]['distance'] );
 		$this->assertSame( 250, $rows[0]['cursor_offset'] );
 		$this->assertSame( 0, $rows[0]['msgs'], 'nobody reading means no rate' );
+		$this->assertSame( 0, $rows[0]['bytes_read'], 'nobody reading reads no bytes' );
+	}
+
+	public function test_consumer_rows_carries_the_bytes_a_reader_read_and_the_window_they_cover(): void {
+		$this->seed_probe_record( [ 'reader' => 'firehose.p0', 'bytes_read' => 589_824_000, 'elapsed_ms' => 15_007 ] );
+
+		$row = ( new CLI( $this->tmp ) )->consumer_rows()['rows'][0];
+
+		$this->assertSame( [ 589_824_000, 15_007 ], [ $row['bytes_read'], $row['elapsed_ms'] ] );
+	}
+
+	/**
+	 * A clean stop sweeps a last, short window. Read alone it would zero the
+	 * reader or spike it, so the row sums the reader's newest records until
+	 * they cover a whole sweep interval.
+	 */
+	public function test_consumer_rows_sums_a_short_shutdown_window_into_the_sweep_before_it(): void {
+		$this->seed_probe_record( [ 'reader' => 'firehose.p0', 'bytes_read' => 8_123_000, 'elapsed_ms' => 15_000, 'age_s' => 40 ] );
+		$this->seed_probe_record( [ 'reader' => 'firehose.p0', 'bytes_read' => 589_824_000, 'elapsed_ms' => 15_000, 'msgs' => 41, 'age_s' => 0.4 ] );
+		$this->seed_probe_record( [ 'reader' => 'firehose.p0', 'bytes_read' => 6_203, 'elapsed_ms' => 0, 'msgs' => 3, 'distance' => 7331 ] );
+
+		$row = ( new CLI( $this->tmp ) )->consumer_rows()['rows'][0];
+
+		$this->assertSame( [ 589_830_203, 15_000, 44 ], [ $row['bytes_read'], $row['elapsed_ms'], $row['msgs'] ], 'every count from the one window' );
+		$this->assertSame( 7331, $row['distance'], 'the position is still the newest record\'s' );
+	}
+
+	/**
+	 * Folding the window is linear in the tail: a reader whose records each
+	 * cover 10 ms keeps 1500 of them, and the scan neither sorts nor rescans
+	 * them per record.
+	 */
+	public function test_consumer_rows_folds_many_short_windows_in_one_pass(): void {
+		$line    = static function ( float $age ): string {
+			$record                                     = Probe_Record::BLANK;
+			$record[ Probe_Record::SOURCE ]             = 'firehose.p0';
+			$record[ Probe_Record::READER ]             = 'firehose.p0';
+			$record[ Probe_Record::MSGS_DELTA ]         = 1;
+			$record[ Probe_Record::BYTES_READ_DELTA ]   = 3;
+			$record[ Probe_Record::ELAPSED_MS ]         = 10;
+			$message                                    = Message::new_message();
+			$message[ Message::TYPE ]                   = Message::TM_STRUCT;
+			$message[ Message::TIMESTAMP ]              = Core::right_now() - $age;
+			$message[ Message::VALUE ]                  = $record;
+			return Message::packed( $message ) . "\n";
+		};
+		$lines = '';
+		for ( $i = 3000; $i > 0; $i-- ) {
+			$lines .= $line( $i / 100 );
+		}
+		mkdir( "{$this->tmp}/logs/topicprobe.p0", 0755, true );
+		file_put_contents( "{$this->tmp}/logs/topicprobe.p0/0.log", $lines );
+
+		$row = ( new CLI( $this->tmp ) )->consumer_rows()['rows'][0];
+
+		$this->assertSame( [ 4500, 15_000, 1500 ], [ $row['bytes_read'], $row['elapsed_ms'], $row['msgs'] ] );
+	}
+
+	/**
+	 * With no record to judge, nothing reads the sweep cadence, so a broken
+	 * `topic-probe.tsl` cannot fail a status read of an empty probe log.
+	 */
+	public function test_consumer_rows_reads_no_cadence_for_an_empty_probe_log(): void {
+		$stock = $this->make_temp_dir( 'probe-broken-' );
+		file_put_contents( "{$stock}/topic-probe.tsl", "include no-such-probe-base-6203\n" );
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		\Newspack_Nodes\Topic_Probe_Node::forget_interval();
+		mkdir( "{$this->tmp}/logs/topicprobe.p0", 0755, true );
+		file_put_contents( "{$this->tmp}/logs/topicprobe.p0/0.log", '' );
+
+		try {
+			$result = ( new CLI( $this->tmp ) )->consumer_rows();
+		} finally {
+			\Newspack_Nodes\Topic_Probe_Node::forget_interval();
+			\Newspack_Nodes\Topology_Registry::reset();
+		}
+
+		$this->assertSame( [ 'rows' => [], 'partitions' => [], 'unparseable_lines' => 0 ], $result );
+	}
+
+	/** The newest record is the one swept last, not the one appended last. */
+	public function test_consumer_rows_takes_the_newest_record_by_its_sweep_instant(): void {
+		$this->seed_probe_record( [ 'reader' => 'firehose.p0', 'distance' => 4417, 'bytes_read' => 7_331, 'elapsed_ms' => 15_000 ] );
+		$this->seed_probe_record( [ 'reader' => 'firehose.p0', 'distance' => 9931, 'bytes_read' => 6_871, 'elapsed_ms' => 15_000, 'age_s' => 15 ] );
+
+		$row = ( new CLI( $this->tmp ) )->consumer_rows()['rows'][0];
+
+		$this->assertSame( [ 4417, 7_331 ], [ $row['distance'], $row['bytes_read'] ] );
+	}
+
+	/**
+	 * Each log's newest fresh Partition record carries the bytes the log grew
+	 * over that prober's own window. Several probers sweep one log, each
+	 * measuring all of it, so the newest wins and nothing sums across them.
+	 */
+	public function test_consumer_rows_returns_each_logs_newest_growth_window(): void {
+		$this->seed_probe_record( [ 'reader' => '', 'source' => 'firehose.p0', 'grown' => 196_608_000, 'elapsed_ms' => 15_000, 'age_s' => 0.2 ] );
+		$this->seed_probe_record( [ 'reader' => 'jobs.firehose.p0', 'source' => 'firehose.p0' ] );
+		$this->seed_probe_record( [ 'reader' => '', 'source' => 'firehose.p0', 'grown' => 199_229_440, 'elapsed_ms' => 15_200 ] );
+		$this->seed_probe_record( [ 'reader' => '', 'source' => 'requests.p3', 'grown' => 6203, 'elapsed_ms' => 15_000, 'age_s' => 300 ] );
+
+		$partitions = ( new CLI( $this->tmp ) )->consumer_rows()['partitions'];
+
+		$this->assertSame( [ 'firehose.p0' => [ 'grown' => 199_229_440, 'elapsed_ms' => 15_200 ] ], $partitions );
+	}
+
+	/**
+	 * A window shorter than a second — a prober's first sweep, or a clean
+	 * stop's last — divides too little time to trust, so the log keeps the
+	 * newest record that covers one, whatever the file order.
+	 */
+	public function test_consumer_rows_passes_over_a_growth_window_shorter_than_a_second(): void {
+		$this->seed_probe_record( [ 'reader' => '', 'source' => 'firehose.p0', 'grown' => 7331, 'elapsed_ms' => 999 ] );
+		$this->seed_probe_record( [ 'reader' => '', 'source' => 'firehose.p0', 'grown' => 13_107_200, 'elapsed_ms' => 15_000, 'age_s' => 3 ] );
+		$this->seed_probe_record( [ 'reader' => '', 'source' => 'firehose.p0', 'grown' => 4417, 'elapsed_ms' => 15_000, 'age_s' => 18 ] );
+
+		$partitions = ( new CLI( $this->tmp ) )->consumer_rows()['partitions'];
+
+		$this->assertSame( [ 'grown' => 13_107_200, 'elapsed_ms' => 15_000 ], $partitions['firehose.p0'] );
+	}
+
+	/**
+	 * The tail holds a day of sweeps; the index keeps what a row needs per
+	 * key, never every record it scanned.
+	 */
+	public function test_read_probe_frames_keeps_one_frame_per_key(): void {
+		for ( $i = 40; $i > 0; $i-- ) {
+			$this->seed_probe_record( [ 'reader' => 'firehose.p0', 'bytes_read' => $i, 'elapsed_ms' => 15_000, 'age_s' => $i ] );
+			$this->seed_probe_record( [ 'reader' => '', 'source' => 'firehose.p0', 'grown' => $i, 'elapsed_ms' => 15_000, 'age_s' => $i ] );
+		}
+
+		$index = ( new CLI( $this->tmp ) )->read_probe_frames();
+
+		$this->assertCount( 1, $index['records']['firehose.p0']['window'] );
+		$this->assertSame( 1, $index['records']['firehose.p0']['value'][ Probe_Record::BYTES_READ_DELTA ] );
+		$this->assertSame( 1, $index['partitions']['firehose.p0']['value'][ Probe_Record::GROWN_BYTES ] );
 	}
 
 	public function test_consumer_rows_reads_the_partition_through_the_worker_id_grammar(): void {
@@ -876,7 +1015,7 @@ class CliTest extends TestCase {
 	}
 
 	public function test_read_probe_frames_empty_when_no_log(): void {
-		$this->assertSame( [ 'records' => [], 'unparseable_lines' => 0 ], ( new CLI( $this->tmp ) )->read_probe_frames() );
+		$this->assertSame( [ 'records' => [], 'partitions' => [], 'unparseable_lines' => 0 ], ( new CLI( $this->tmp ) )->read_probe_frames() );
 	}
 
 	// ── consumer_rows() ──────────────────────────────────────────────────────────
