@@ -86,11 +86,11 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	private ?array $fetch_answered = null;
 
 	/**
-	 * When a wait at the end, or after a refusal, falls due; 0 while none
-	 * stands. Only the broker's tick ends a wait, so readers due together ask
-	 * in one POST.
+	 * When a wait at the end, or after a refusal, began; null while none
+	 * stands. Only the broker's tick ends one, a retry interval on, so
+	 * readers due together ask in one POST.
 	 */
-	private float $fetch_after = 0.0;
+	private ?float $waiting_since = null;
 
 	/** What the spoke said refusing the latest fetch; null once a block answers. */
 	private ?string $fetch_refusal = null;
@@ -674,8 +674,8 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 
 	/** Owe no step, await no reply and wait out nothing: what was asked no longer stands. */
 	private function forgive_asks(): void {
-		$this->steps_owed  = 0;
-		$this->fetch_after = 0.0;
+		$this->steps_owed    = 0;
+		$this->waiting_since = null;
 		$this->drop_requests();
 	}
 
@@ -712,7 +712,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	/**
 	 * Take the bytes a header announced: split them into records and take the
 	 * header's distance as the backlog's anchor. A block answering a fetch
-	 * settles it, and the reader asks again at once, or after an EOF poll when
+	 * settles it, and the reader asks again at once, or after a retry interval when
 	 * the block was empty.
 	 *
 	 * @param string $id    Where the bytes begin, `segment:offset`.
@@ -750,7 +750,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 		$this->fetch_in_flight = null;
 		$this->fetch_refusal   = null;
 		$this->fetch_answered  = [ 'at' => Core::$now, 'rtt' => Core::$now - $asked['at'] ];
-		$this->fetch_after     = '' === $bytes ? Core::$now + HTTP_Source_Node::EOF_POLL_SECONDS : 0.0;
+		$this->waiting_since   = '' === $bytes ? Core::$now : null;
 		$this->fetch();
 	}
 
@@ -764,7 +764,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 		$this->fetch_in_flight = null;
 		$this->fetch_refusal   = Core::as_string( $value['payload'] ?? '' );
 		$this->print_less_often( 'fetch refused: ', \trim( $this->fetch_refusal ) );
-		$this->fetch_after = Core::$now + HTTP_Source_Node::EOF_POLL_SECONDS;
+		$this->waiting_since   = Core::$now;
 	}
 
 	/**
@@ -865,10 +865,15 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 		}
 	}
 
-	/** End a wait that has fallen due, and fetch: the broker's tick calls it. */
-	public function fetch_when_due(): void {
-		if ( 0.0 < $this->fetch_after && Core::$now >= $this->fetch_after ) {
-			$this->fetch_after = 0.0;
+	/**
+	 * End a wait `$wait_s` old, and fetch: the broker's tick calls it with
+	 * its retry interval.
+	 *
+	 * @param float $wait_s The broker's retry interval, in seconds.
+	 */
+	public function fetch_when_due( float $wait_s ): void {
+		if ( null !== $this->waiting_since && Core::$now >= $this->waiting_since + $wait_s ) {
+			$this->waiting_since = null;
 			$this->fetch();
 		}
 	}
@@ -884,7 +889,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 		if ( null === $this->broker
 			|| ! $this->is_live()
 			|| $this->holding_back()
-			|| 0.0 !== $this->fetch_after
+			|| null !== $this->waiting_since
 			|| Core::$now - ( $this->fetch_in_flight['at'] ?? -\INF ) < HTTP_Out_Node::REQUEST_TIMEOUT ) {
 			return;
 		}
@@ -1112,19 +1117,20 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	}
 
 	/**
-	 * What the broker's status reads off this reader's fetches. `fetch_after`
-	 * names an end-of-log wait alone, the broker's next EOF poll; a refusal's
-	 * wait is a failure, which the status reads as `refused`, not as idle.
+	 * What the broker's status reads off this reader's fetches.
+	 * `waiting_since` names an end-of-log wait alone, which the broker's
+	 * interval ends; a refusal's wait is a failure, which the status reads as
+	 * `refused`, not as idle.
 	 *
-	 * @return array{sent_at:?float,answered_at:?float,rtt:?float,fetch_after:?float,refused:?string}
+	 * @return array{sent_at:?float,answered_at:?float,rtt:?float,waiting_since:?float,refused:?string}
 	 */
 	public function fetch_stats(): array {
 		return [
-			'sent_at'     => $this->fetch_sent_at,
-			'answered_at' => $this->fetch_answered['at'] ?? null,
-			'rtt'         => $this->fetch_answered['rtt'] ?? null,
-			'fetch_after' => 0.0 < $this->fetch_after && null === $this->fetch_refusal ? $this->fetch_after : null,
-			'refused'     => $this->fetch_refusal,
+			'sent_at'       => $this->fetch_sent_at,
+			'answered_at'   => $this->fetch_answered['at'] ?? null,
+			'rtt'           => $this->fetch_answered['rtt'] ?? null,
+			'waiting_since' => null === $this->fetch_refusal ? $this->waiting_since : null,
+			'refused'       => $this->fetch_refusal,
 		];
 	}
 

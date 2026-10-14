@@ -27,6 +27,12 @@ use Newspack_Nodes\Tests\TestCase;
 #[CoversClass( Remote_Consumer_Node::class )]
 class HttpSourceNodeTest extends TestCase {
 
+	/** The retry interval this suite seeds, distinct from the 5000 default. */
+	private const RETRY_MS = 7300;
+
+	/** RETRY_MS in seconds, as the clock reads it. */
+	private const RETRY_S = 7.3;
+
 	private string $base_dir = '';
 
 	protected function setUp(): void {
@@ -35,13 +41,15 @@ class HttpSourceNodeTest extends TestCase {
 		$this->use_base_dir( $this->base_dir );
 		Core::$memd             = new InMemoryMemcached();
 		Core::$var['partition'] = '0';
+		$GLOBALS['_wp_options']['newspack_nodes_http_retry_ms'] = self::RETRY_MS;
+		\Newspack_Nodes\Config::reset();
 		// A live graph always has _router: the readers route through it.
 		( new Router_Node() )->name( '_router' );
 		Core::$now = 500.0;
 	}
 
 	protected function tearDown(): void {
-		unset( Core::$var['partition'] );
+		unset( Core::$var['partition'], $GLOBALS['_wp_options']['newspack_nodes_http_retry_ms'] );
 		Command_Auth::forget_session( 'austin' );
 		Core::$memd                    = null;
 		Event_Framework::$curl_dispatch = null;
@@ -605,13 +613,13 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertCount( 2, $this->fetches( $http ) );
 	}
 
-	/** The end waits five seconds, and the broker's tick, not the reader's poll, asks again. */
-	public function test_the_end_waits_five_seconds_for_the_brokers_tick(): void {
+	/** The end waits one retry interval, and the broker's tick, not the reader's poll, asks again. */
+	public function test_the_end_waits_one_retry_interval_for_the_brokers_tick(): void {
 		[ $node, $reader, , $http ] = $this->fetching_reader();
 		$reader->fire_cb();
 		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], '', null, '31:' . ( 4404 ) ) );
 
-		Core::$now += 4.9;
+		Core::$now += self::RETRY_S - 0.1;
 		$node->fire();
 		$this->assertCount( 1, $this->fetches( $http ) );
 
@@ -636,7 +644,7 @@ class HttpSourceNodeTest extends TestCase {
 		}
 		$asked = \count( $this->fetches( $http ) );
 
-		Core::$now = 509.0;
+		Core::$now = 511.2;
 		foreach ( $this->readers( $node ) as $reader ) {
 			$reader->fire_cb();
 		}
@@ -706,8 +714,8 @@ class HttpSourceNodeTest extends TestCase {
 
 		self::answer( $reader, self::block_reply( $this->last_fetch_of( $http, 'sources:php' ), '', 0, ':7316', '', Message::TM_BATCH | Message::TM_BYTESTREAM ) );
 		$reader->fire_cb();
-		$this->assertNotNull( $reader->fetch_stats()['fetch_after'], 'the empty answer waits an EOF poll' );
-		Core::$now += HTTP_Source_Node::EOF_POLL_SECONDS + 0.5;
+		$this->assertNotNull( $reader->fetch_stats()['waiting_since'], 'the empty answer waits one retry interval' );
+		Core::$now += self::RETRY_S + 0.5;
 		$node->fire();
 
 		$asked = $this->last_fetch_of( $http, 'sources:php' );
@@ -731,7 +739,7 @@ class HttpSourceNodeTest extends TestCase {
 
 		self::answer( $reader, self::block_reply( $this->last_fetch_of( $http, 'sources:php' ), '', 0, ':0', '', Message::TM_BATCH | Message::TM_BYTESTREAM ) );
 		$reader->fire_cb();
-		Core::$now += HTTP_Source_Node::EOF_POLL_SECONDS + 0.5;
+		Core::$now += self::RETRY_S + 0.5;
 		$node->fire();
 
 		$this->assertSame( '57:3334', $this->last_fetch_of( $http, 'sources:php' )[1] );
@@ -749,17 +757,17 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertStringContainsString( 'names no segment', \implode( '', (array) $errors ) );
 	}
 
-	/** A refused fetch waits an EOF poll, but reports no end-of-log wait. */
-	public function test_a_refused_fetch_waits_an_eof_poll(): void {
+	/** A refused fetch waits a retry interval, but reports no end-of-log wait. */
+	public function test_a_refused_fetch_waits_a_retry_interval(): void {
 		[ $node, $reader, , $http ] = $this->fetching_reader();
 		$reader->fire_cb();
 		$refusal = self::refusal( [ 'firehose.p0', '31:4404' ], "unknown log: \"firehose.p0\"\n" );
 
 		$reader->fill( $refusal );
-		Core::$now += HTTP_Source_Node::EOF_POLL_SECONDS - 0.3;
+		Core::$now += self::RETRY_S - 0.3;
 		$node->fire();
 		$this->assertCount( 1, $this->fetches( $http ) );
-		$this->assertNull( $reader->fetch_stats()['fetch_after'] );
+		$this->assertNull( $reader->fetch_stats()['waiting_since'] );
 
 		Core::$now += 0.6;
 		$node->fire();
@@ -775,7 +783,7 @@ class HttpSourceNodeTest extends TestCase {
 		$node->fire();
 		$this->assertStringContainsString( 'unknown command: read_block', (string) $this->snapshot()['last_error'] );
 
-		Core::$now += HTTP_Source_Node::EOF_POLL_SECONDS + 0.5;
+		Core::$now += self::RETRY_S + 0.5;
 		$node->fire();
 		self::answer( $reader, self::block_reply( $this->last_fetch( $http ), '', null, '31:' . ( 4404 ) ) );
 		$node->fire();
@@ -826,13 +834,13 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertSame( 0.38, $this->snapshot()['last_rtt'] );
 	}
 
-	/** An answer older than four EOF polls no longer reads as connected. */
+	/** An answer older than four retry intervals no longer reads as connected. */
 	public function test_the_status_ages_out_a_stale_answer(): void {
 		[ $node, $reader ] = $this->fetching_reader();
 		$reader->fire_cb();
 		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], '', null, '31:' . ( 4404 ) ) );
 
-		Core::$now += 4 * HTTP_Source_Node::EOF_POLL_SECONDS + 0.5;
+		Core::$now += 4 * self::RETRY_S + 0.5;
 		$node->fire();
 
 		$this->assertFalse( $this->snapshot()['connected'] );
@@ -847,7 +855,7 @@ class HttpSourceNodeTest extends TestCase {
 
 		$node->fire();
 
-		$this->assertSame( 509, $this->snapshot()['scheduled_reconnect_at'] );
+		$this->assertSame( 511, $this->snapshot()['scheduled_reconnect_at'] );
 	}
 
 	/** A step taken while a fetch is out pauses the reader; the late block asks nothing more. */
@@ -911,7 +919,7 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertSame( 504, $status['last_response'] );
 		$this->assertSame( 3500.0, $status['last_rtt'] );
 		$this->assertSame( 501, $status['last_connection_attempt'] );
-		$this->assertSame( 509, $status['scheduled_reconnect_at'], 'the soonest of 508.25 and 509.5' );
+		$this->assertSame( 511, $status['scheduled_reconnect_at'], 'the soonest of 510.55 and 511.8' );
 	}
 
 	/** A fresh reader's pending seek goes out as its word; the spoke resolves it. */
@@ -924,7 +932,7 @@ class HttpSourceNodeTest extends TestCase {
 
 		$reader->fire_cb();
 		self::answer( $reader, self::block_reply( [ 'firehose.p0', 'end' ], '', null, '9:8817' ) );
-		Core::$now += HTTP_Source_Node::EOF_POLL_SECONDS + 0.5;
+		Core::$now += self::RETRY_S + 0.5;
 		$node->fire();
 
 		$this->assertSame( [ [ 'firehose.p0', 'end' ], [ 'firehose.p0', '9:8817' ] ], $this->fetches( $http ), 'the next ask is where the header said the word stands' );
@@ -941,21 +949,72 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertSame( 'raw-logs', $asked[0][ Message::TO ] );
 	}
 
-	/** The catalog is asked again an EOF poll after its answer, on the broker's tick. */
-	public function test_the_catalog_is_asked_again_an_eof_poll_after_its_answer(): void {
+	/** The catalog is asked again one retry interval after its answer, on the broker's tick. */
+	public function test_the_catalog_is_asked_again_one_retry_interval_after_its_answer(): void {
 		$node = $this->globbing_broker();
 		$node->fire();
 		$http = Core::node( 'pull-austin:http-out' );
 		Core::$now = 501.2;
 		$node->fill( self::catalog_reply( [] ) );
 
-		Core::$now = 506.1;
+		Core::$now = 508.4;
 		$node->fire();
 		$this->assertCount( 1, $this->catalog_asks( $http ) );
 
-		Core::$now = 506.3;
+		Core::$now = 508.6;
 		$node->fire();
 		$this->assertCount( 2, $this->catalog_asks( $http ) );
+	}
+
+	/** An empty answer waits the configured interval, not a second less. */
+	public function test_an_empty_answer_waits_the_configured_interval(): void {
+		[ $node, $reader, , $http ] = $this->fetching_reader();
+		$reader->fire_cb();
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], '', null, '31:4404' ) );
+
+		Core::$now += self::RETRY_S - 0.1;
+		$node->fire();
+		$this->assertCount( 1, $this->fetches( $http ) );
+
+		Core::$now += 0.2;
+		$node->fire();
+		$this->assertCount( 2, $this->fetches( $http ) );
+	}
+
+	/** The interval is read once, at make_node: a later change waits for a rebuild. */
+	public function test_the_retry_interval_is_read_once_at_make_node(): void {
+		[ $node, $reader, , $http ] = $this->fetching_reader();
+		$GLOBALS['_wp_options']['newspack_nodes_http_retry_ms'] = 9100;
+		\Newspack_Nodes\Config::reset();
+		$reader->fire_cb();
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], '', null, '31:4404' ) );
+
+		Core::$now += self::RETRY_S + 0.1;
+		$node->fire();
+
+		$this->assertCount( 2, $this->fetches( $http ) );
+	}
+
+	/** A zero interval would spin the poll, so the broker refuses to build. */
+	public function test_a_zero_retry_interval_refuses_the_broker(): void {
+		$GLOBALS['_wp_options']['newspack_nodes_http_retry_ms'] = 0;
+		\Newspack_Nodes\Config::reset();
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'http_retry_ms wants a whole number of at least 1' );
+		$this->broker( 'pull-austin' );
+	}
+
+	/** An answer within four retry intervals reads as connected. */
+	public function test_the_status_stays_connected_within_four_intervals(): void {
+		[ $node, $reader ] = $this->fetching_reader();
+		$reader->fire_cb();
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], '', null, '31:4404' ) );
+
+		Core::$now += 4 * self::RETRY_S - 0.5;
+		$node->fire();
+
+		$this->assertTrue( $this->snapshot()['connected'] );
 	}
 
 	/** One ask is out at a time; a lost one goes again after the request timeout. */
@@ -1138,14 +1197,14 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertSame( 507, $this->snapshot()['last_connection_attempt'] );
 	}
 
-	/** Four EOF polls with no answer, catalog or block, and the broker reads disconnected. */
-	public function test_a_catalog_answer_ages_out_after_four_eof_polls(): void {
+	/** Four retry intervals with no answer, catalog or block, and the broker reads disconnected. */
+	public function test_a_catalog_answer_ages_out_after_four_retry_intervals(): void {
 		$node = $this->globbing_broker();
 		$node->fire();
 		Core::$now = 502.35;
 		$node->fill( self::catalog_reply( [] ) );
 
-		Core::$now = 502.35 + 4 * HTTP_Source_Node::EOF_POLL_SECONDS + 0.4;
+		Core::$now = 502.35 + 4 * self::RETRY_S + 0.4;
 		$node->fire();
 
 		$this->assertFalse( $this->snapshot()['connected'] );

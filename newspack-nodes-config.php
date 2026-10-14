@@ -82,6 +82,10 @@ return [
     // the client's own backoff.
     // 'sse_retry_ms'               => 5000,
 
+    // Milliseconds an HTTP_Source reader at the end of its log, or refused,
+    // waits before asking again, and the broker between catalog asks.
+    // 'http_retry_ms'              => 5000,
+
     // Sustained SSE streams this HOST allows; each holds a php-fpm child for
     // its whole life. Raise only where the platform grants the workers to
     // spend — the arithmetic is in docs/sse-host-budget.md.

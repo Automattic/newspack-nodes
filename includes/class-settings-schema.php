@@ -320,6 +320,14 @@ class Settings_Schema {
 					default: 5000,
 					ui: false,
 				),
+				// An HTTP_Source wait at a log's end, or between asks.
+				new Field(
+					key: 'http_retry_ms',
+					type: 'int',
+					default: 5000,
+					min: 1,
+					ui: false,
+				),
 				// The host's sustained-stream budget; see SSE_Slot_Pool.
 				new Field(
 					key: 'sse_max_streams',
