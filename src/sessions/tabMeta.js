@@ -32,4 +32,5 @@ export default {
 	host: 'station',
 	slug: 'sessions',
 	order: 35,
+	handle: 'newspack-nodes-sessions',
 };

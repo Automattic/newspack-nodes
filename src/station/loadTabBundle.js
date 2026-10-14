@@ -7,9 +7,12 @@
  * calls in here the first time a reader opens that tab, which keeps the heavy
  * tab bundles off every station page load that never reaches them.
  *
- * Setting `NewspackNodesData` before the script goes in mirrors the inline
- * localize `wp_enqueue_script` emits ahead of an enqueued bundle, so an
- * injected bundle reads the same data it would have read enqueued.
+ * A lazy tab reads its own payload through `tabData()`, never off the shared
+ * `NewspackNodesData`: WordPress prints every enqueued bundle's localize as a
+ * fresh `var NewspackNodesData = {…}` in the footer, so a key written onto that
+ * global here is lost to whichever footer localize runs after the injection.
+ * `NewspackNodesLazyTabs` has one writer, the station handle's localize, which
+ * prints before the station script, so nothing replaces it once a tab reads it.
  */
 
 /**
@@ -18,8 +21,8 @@
  * @typedef {Object} LazyTabEntry
  * @property {string}           src     Bundle URL, cache-busted with a `?ver=`
  *                                      query the browser would otherwise miss.
- * @property {Object<string,*>} data    Localize payload the bundle would have
- *                                      received had it been enqueued.
+ * @property {Object<string,*>} data    The tab's own localize extras, without
+ *                                      the shared `restUrl` and `nonce`.
  * @property {string}           [style] Stylesheet URL, injected ahead of the
  *                                      script.
  */
@@ -71,15 +74,30 @@ export function loadTabBundle( handle ) {
 		document.head.appendChild( link );
 	}
 
-	// Merge, never replace: sibling tabs' live reads keep their own keys.
-	if ( entry.data ) {
-		station.NewspackNodesData = {
-			...( station.NewspackNodesData || {} ),
-			...entry.data,
-		};
-	}
-
 	const script = document.createElement( 'script' );
 	script.src = entry.src;
 	document.head.appendChild( script );
+}
+
+/**
+ * One lazy tab's localize payload: its own recipe's `data` laid over the shared
+ * `NewspackNodesData`, read at call time.
+ *
+ * The shared half supplies `restUrl`, `nonce` and `version`, which every footer
+ * localize carries alike; the tab's keys come from `NewspackNodesLazyTabs`,
+ * which no later localize replaces. A handle with no recipe — the bundle
+ * enqueued outright, or a test seeding the shared global — answers the shared
+ * payload alone.
+ *
+ * @param {string} handle Enqueue handle whose recipe sits in
+ *                        `NewspackNodesLazyTabs`.
+ * @return {Object<string,*>} The payload, a fresh object on each call.
+ */
+export function tabData( handle ) {
+	const station = /** @type {StationWindow} */ ( window );
+	const entry = ( station.NewspackNodesLazyTabs || {} )[ handle ];
+	return {
+		...( station.NewspackNodesData || {} ),
+		...( ( entry && entry.data ) || {} ),
+	};
 }

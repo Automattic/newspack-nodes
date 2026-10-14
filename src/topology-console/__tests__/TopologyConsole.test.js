@@ -39,7 +39,7 @@ import {
 import { invalidateExpandedIncludes } from '../hooks/useExpandedIncludes';
 import { LAYOUT_AUTO } from '../hooks/useCanvasLayout';
 
-// Pre-seed window.NewspackNodesData for the module-level IIFEs.
+// The localize payload every console mount reads its catalog seed from.
 window.NewspackNodesData = {
 	restUrl: '/wp-json/',
 	nonce: 'NONCE',
@@ -1038,8 +1038,9 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {} );
 	} );
 
-	it( 'onShowCandidates renders the candidate list into the transcript', () => {
+	it( 'onShowCandidates renders the candidate list into the transcript', async () => {
 		const { getByText, container } = render( <TopologyConsole /> );
+		await act( async () => {} );
 		act( () => {
 			fireEvent.click( getByText( 'show-candidates' ) );
 		} );
@@ -1086,10 +1087,11 @@ describe( 'TopologyConsole boot', () => {
 		expect( lastHeaderProps.mode ).toBe( 'edit' );
 	} );
 
-	it( 'switching to edit mode flips header + canvas + reveals palette', () => {
+	it( 'switching to edit mode flips header + canvas + reveals palette', async () => {
 		const { getByText, getByTestId, queryByTestId } = render(
 			<TopologyConsole />
 		);
+		await act( async () => {} );
 		fireEvent.click( getByText( 'edit' ) );
 		expect( getByTestId( 'header' ) ).not.toBeNull();
 		fireEvent.click( getByText( 'view' ) );
@@ -1554,15 +1556,17 @@ describe( 'TopologyConsole boot', () => {
 		expect( window.location.search ).toBe( '?topology=demo' );
 	} );
 
-	it( 'URL state: invalid ?topology fallback to first entry', () => {
+	it( 'URL state: invalid ?topology fallback to first entry', async () => {
 		window.history.replaceState( {}, '', '/?topology=nonexistent' );
-		const { getByTestId } = render( <TopologyConsole /> );
-		expect( getByTestId( 'header' ) ).not.toBeNull();
+		render( <TopologyConsole /> );
+		await act( async () => {} );
+		expect( window.location.search ).toBe( '?topology=demo' );
 	} );
 
-	it( 'URL state: invalid ?partition coerces to 0', () => {
+	it( 'URL state: invalid ?partition coerces to 0', async () => {
 		window.history.replaceState( {}, '', '/?partition=NaN' );
 		const { getByTestId } = render( <TopologyConsole /> );
+		await act( async () => {} );
 		expect( getByTestId( 'header' ) ).not.toBeNull();
 	} );
 
@@ -1821,14 +1825,16 @@ describe( 'TopologyConsole boot', () => {
 		expect( queryByTestId( 'inspector' ).dataset.selectedId ).toBe( '' );
 	} );
 
-	it( 'header save in view mode is a no-op (still mounted)', () => {
+	it( 'header save in view mode is a no-op (still mounted)', async () => {
 		const { getByText, getByTestId } = render( <TopologyConsole /> );
+		await act( async () => {} );
 		fireEvent.click( getByText( 'save' ) );
 		expect( getByTestId( 'header' ) ).not.toBeNull();
 	} );
 
-	it( 'header open opens the OpenTopologyModal', () => {
+	it( 'header open opens the OpenTopologyModal', async () => {
 		const { getByText, getByTestId } = render( <TopologyConsole /> );
+		await act( async () => {} );
 		fireEvent.click( getByText( 'open' ) );
 		expect( getByTestId( 'header' ) ).not.toBeNull();
 	} );
@@ -2115,8 +2121,9 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {} );
 	} );
 
-	it( 'mounts the receive graph in view mode (Dumper registered as _output)', () => {
+	it( 'mounts the receive graph in view mode (Dumper registered as _output)', async () => {
 		render( <TopologyConsole /> );
+		await act( async () => {} );
 		const { DumperNode } = require( '../../runtime/dumper-node' );
 		expect( Core.node( names.OUTPUT ) ).toBeInstanceOf( DumperNode );
 	} );
@@ -2230,8 +2237,9 @@ describe( 'TopologyConsole boot', () => {
 		expect( sent.textContent ).toMatch( /^remove_node n1$/ );
 	} );
 
-	it( 'live canvas: SchematicCanvas receives interactive=true in view mode', () => {
+	it( 'live canvas: SchematicCanvas receives interactive=true in view mode', async () => {
 		render( <TopologyConsole /> );
+		await act( async () => {} );
 		expect( mockCanvasProps.interactive ).toBe( true );
 	} );
 
@@ -2605,17 +2613,19 @@ describe( 'TopologyConsole boot', () => {
 		expect( typeof hooks.saveLayout ).toBe( 'function' );
 	} );
 
-	it( 'canvas background click does not dismiss the transcript (no consumed handler)', () => {
+	it( 'canvas background click does not dismiss the transcript (no consumed handler)', async () => {
 		render( <TopologyConsole /> );
+		await act( async () => {} );
 		// Canvas only deselects/autofits now; it never touches transcript.
 		expect( mockCanvasProps.onBackgroundClickConsumed ).toBeUndefined();
 		expect( mockCanvasProps.backgroundClickAutofitsOnly ).toBeUndefined();
 	} );
 
-	it( 'toast clears after 5 seconds', () => {
+	it( 'toast clears after 5 seconds', async () => {
 		jest.useFakeTimers();
 		try {
 			const { container, getByText } = render( <TopologyConsole /> );
+			await act( async () => {} );
 			fireEvent.click( getByText( 'save' ) );
 			act( () => {
 				jest.advanceTimersByTime( 5000 );
@@ -6047,32 +6057,37 @@ describe( 'TopologyConsole boot', () => {
 		// The skin is now the global `<html>.theme-<slug>` class.
 		const rootClass = () => document.documentElement.className;
 
-		it( 'defaults to theme-newspack when localStorage is empty', () => {
+		it( 'defaults to theme-newspack when localStorage is empty', async () => {
 			render( <TopologyConsole /> );
+			await act( async () => {} );
 			expect( rootClass() ).toContain( 'theme-newspack' );
 		} );
 
-		it( 'applies a valid stored skin on mount', () => {
+		it( 'applies a valid stored skin on mount', async () => {
 			window.localStorage.setItem( 'newspack-nodes:theme', 'blueprint' );
 			render( <TopologyConsole /> );
+			await act( async () => {} );
 			expect( rootClass() ).toContain( 'theme-blueprint' );
 		} );
 
-		it( 'falls back to theme-newspack for an unknown stored skin', () => {
+		it( 'falls back to theme-newspack for an unknown stored skin', async () => {
 			window.localStorage.setItem( 'newspack-nodes:theme', 'bogus' );
 			render( <TopologyConsole /> );
+			await act( async () => {} );
 			expect( rootClass() ).toContain( 'theme-newspack' );
 			expect( rootClass() ).not.toContain( 'theme-bogus' );
 		} );
 
-		it( 'no longer threads skin props to the header (skins moved to the REPL)', () => {
+		it( 'no longer threads skin props to the header (skins moved to the REPL)', async () => {
 			render( <TopologyConsole /> );
+			await act( async () => {} );
 			expect( lastHeaderProps.onThemeChange ).toBeUndefined();
 			expect( lastHeaderProps.themes ).toBeUndefined();
 		} );
 
-		it( 'set_skin REPL builtin updates the root class and persists', () => {
+		it( 'set_skin REPL builtin updates the root class and persists', async () => {
 			render( <TopologyConsole /> );
+			await act( async () => {} );
 			act( () => {
 				// Spaced label form resolves to the `crt` slug.
 				lastReplProps.onSubmit( 'set_skin CRT Phosphor' );
@@ -6086,28 +6101,23 @@ describe( 'TopologyConsole boot', () => {
 } );
 
 describe( 'topologyFromParam (deep-link validation)', () => {
-	afterEach( () => {
-		window.history.replaceState( {}, '', '/' );
+	const PARTITIONS = { 'kestrel-feed': 2, 'osprey-feed': 5 };
+
+	it( 'honors a link naming a topology the catalog knows', () => {
+		expect(
+			topologyFromParam( 'osprey-feed', PARTITIONS, [ 'kestrel-feed' ] )
+		).toBe( 'osprey-feed' );
 	} );
 
-	it( 'honors a deep link from the module-load SEED even when a sibling station bundle later clobbers window.NewspackNodesData', () => {
-		jest.isolateModules( () => {
-			// Seed BEFORE import so SEED_WORKERS captures it (as in prod).
-			window.NewspackNodesData = {
-				topologyWorkers: { alpha: 1, demo: 2 },
-				activeTopologies: [],
-			};
-			// eslint-disable-next-line global-require
-			const mod = require( '../TopologyConsole' );
-			// Sibling re-localized data without topologyWorkers (the clobber).
-			window.NewspackNodesData = { tree: 'event-dashboards' };
-			expect( mod.topologyFromParam( 'demo', 'alpha' ) ).toBe( 'demo' );
-		} );
+	it( 'falls back to the first topology in menu order for an unknown link', () => {
+		expect(
+			topologyFromParam( 'ghost', PARTITIONS, [ 'osprey-feed' ] )
+		).toBe( 'osprey-feed' );
 	} );
 
-	it( 'falls back when ?topology= is not a known topology', () => {
-		expect( topologyFromParam( 'ghost', 'fallback-topology' ) ).toBe(
-			'fallback-topology'
+	it( 'falls back the same way when no link is given', () => {
+		expect( topologyFromParam( null, PARTITIONS, [] ) ).toBe(
+			'kestrel-feed'
 		);
 	} );
 } );

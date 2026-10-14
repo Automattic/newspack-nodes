@@ -141,10 +141,9 @@ namespace Newspack_Nodes\Tests\Unit\Admin {
 			$this->assertStringContainsString( 'http://x/lazy/index.css', $entry['style'] );
 			$this->assertArrayNotHasKey( 'deps', $entry );
 			$this->assertArrayNotHasKey( 'styleDeps', $entry );
-			// The per-tab localize + the shared restUrl/nonce ride the entry so the
-			// injected bundle reads the same NewspackNodesData it would if enqueued.
-			$this->assertSame( 'zonk', $entry['data']['quux'] );
-			$this->assertArrayHasKey( 'restUrl', $entry['data'] );
+			// Only the per-tab extras ride the entry; restUrl and nonce stay on the
+			// shared NewspackNodesData, so a renewed nonce has one copy.
+			$this->assertSame( [ 'quux' => 'zonk' ], $entry['data'] );
 		}
 
 		public function test_lazy_bundle_does_no_work_on_an_unrelated_page(): void {

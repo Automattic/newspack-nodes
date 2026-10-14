@@ -23,6 +23,8 @@
  */
 
 import { PollerNode } from '../../runtime/poller-node';
+import { tabData } from '../../station/loadTabBundle';
+import consoleMeta from '../tabMeta';
 
 /**
  * Registry name the hook mounts this node under, and the address every
@@ -42,12 +44,14 @@ export const CATALOG_NODE = 'topology-catalog:fetch';
  */
 
 /**
- * `window` carrying the localize payload PHP writes before this bundle runs.
+ * The Console tab's localize payload, read through the station's accessor so
+ * a later footer localize replacing the shared global cannot strip it.
  *
- * @typedef {Window & {
- *     NewspackNodesData?: CatalogLocalizedData,
- * }} CatalogWindow
+ * @return {CatalogLocalizedData} The payload.
  */
+function catalogData() {
+	return tabData( consoleMeta.handle );
+}
 
 /**
  * One row of a `topologies dump` reply, as `Topologies_CI_Node::cmd_dump()`
@@ -83,11 +87,7 @@ export const CATALOG_NODE = 'topology-catalog:fetch';
  * @return {TopologyCatalog} The seed catalog.
  */
 export function seedFromGlobal() {
-	/** @type {CatalogLocalizedData} */
-	const data =
-		( typeof window !== 'undefined' &&
-			/** @type {CatalogWindow} */ ( window ).NewspackNodesData ) ||
-		{};
+	const data = catalogData();
 	return {
 		partitions: data.topologyWorkers || {},
 		active: data.activeTopologies || [],
@@ -131,12 +131,7 @@ function catalogFromList( list, defaultPartitions ) {
  * @return {number} Partition count.
  */
 function defaultPartitionCount() {
-	return (
-		( typeof window !== 'undefined' &&
-			/** @type {CatalogWindow} */ ( window ).NewspackNodesData
-				?.configNumPartitions ) ||
-		1
-	);
+	return catalogData().configNumPartitions || 1;
 }
 
 /**

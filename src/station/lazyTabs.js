@@ -29,20 +29,15 @@ import aggregatorMeta from '../event-aggregator/tabMeta';
 import { loadTabBundle } from './loadTabBundle';
 
 /**
- * Every lazy tab's shared descriptor beside the enqueue handle Admin localizes
- * its load recipe under. That handle is the only join between the two halves,
- * and it need not resemble the build directory — Aggregator ships from
+ * Every lazy tab's shared descriptor. Each carries the enqueue `handle` Admin
+ * localizes its load recipe under, which is the only join between the two
+ * halves and need not resemble the build directory — Aggregator ships from
  * `event-aggregator` under `newspack-nodes-aggregator-tab` — so a rename on the
- * PHP side has to land here too.
+ * PHP side has to land in that tab's `tabMeta.js` too.
  *
- * @type {Array<{meta:Object,handle:string}>}
+ * @type {Array<Omit<import('@newspack-nodes/shared/tabs/tabRegistry').TabDescriptor,'component'> & {handle:string}>}
  */
-const LAZY_TABS = [
-	{ meta: consoleMeta, handle: 'newspack-nodes-topology-console' },
-	{ meta: vaultMeta, handle: 'newspack-nodes-vault' },
-	{ meta: sessionsMeta, handle: 'newspack-nodes-sessions' },
-	{ meta: aggregatorMeta, handle: 'newspack-nodes-aggregator-tab' },
-];
+const LAZY_TABS = [ consoleMeta, vaultMeta, sessionsMeta, aggregatorMeta ];
 
 /**
  * A tab's stand-in until its bundle arrives: injects the bundle on mount and
@@ -76,10 +71,10 @@ function LazyTabPlaceholder( { handle } ) {
  * placeholder knows which bundle to inject without reading the registry back.
  */
 export function registerLazyTabs() {
-	for ( const { meta, handle } of LAZY_TABS ) {
+	for ( const meta of LAZY_TABS ) {
 		registerTab( {
 			...meta,
-			component: () => <LazyTabPlaceholder handle={ handle } />,
+			component: () => <LazyTabPlaceholder handle={ meta.handle } />,
 		} );
 	}
 }

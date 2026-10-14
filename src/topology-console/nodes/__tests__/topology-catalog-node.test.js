@@ -107,6 +107,35 @@ describe( 'TopologyCatalogNode', () => {
 		expect( seeded.catalog ).toBe( seed );
 	} );
 
+	// A later footer localize replaces the shared global after the console's
+	// recipe went in; the catalog reads the tab's own entry, not the global.
+	it( 'seeds and defaults from the lazy-tab entry once the global is replaced', () => {
+		window.NewspackNodesLazyTabs = {
+			'newspack-nodes-topology-console': {
+				src: 'http://x/console/index.js?ver=8b',
+				data: {
+					topologyWorkers: { 'zephyr-fleet': 6 },
+					activeTopologies: [ 'zephyr-fleet' ],
+					configNumPartitions: 9,
+				},
+			},
+		};
+		window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'later' };
+		try {
+			const lazy = new TopologyCatalogNode();
+			lazy.name = 'topology-catalog:lazy';
+			expect( lazy.catalog ).toEqual( {
+				partitions: { 'zephyr-fleet': 6 },
+				active: [ 'zephyr-fleet' ],
+				entries: [],
+			} );
+			lazy.fill( reply( [ { name: 'bare', active: false } ] ) );
+			expect( lazy.catalog.partitions ).toEqual( { bare: 9 } );
+		} finally {
+			delete window.NewspackNodesLazyTabs;
+		}
+	} );
+
 	it( 'dumpNode omits the catalog, keeps the bridge', () => {
 		node.fill( reply( LIST ) );
 		const dump = node.dumpNode();

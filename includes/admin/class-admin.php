@@ -303,11 +303,35 @@ class Admin {
 	}
 
 	/**
+	 * The `NewspackNodesData` payload an enqueued bundle localizes: the shared
+	 * `restUrl` and `nonce` under the per-bundle extras.
+	 *
+	 * A bundle may override either shared key, since the extras merge last. Both
+	 * fall back to a literal outside a WordPress runtime so building the payload
+	 * never fatals in a hermetic test harness.
+	 *
+	 * @param array<string,mixed> $localize Per-bundle extras (string keys).
+	 * @return array<string,mixed> The payload localized as `NewspackNodesData`.
+	 */
+	private static function localize_data( array $localize ): array {
+		$rest_url = \function_exists( 'rest_url' ) ? \rest_url() : '/wp-json/';
+		$nonce    = \function_exists( 'wp_create_nonce' ) ? \wp_create_nonce( 'wp_rest' ) : '';
+		return \array_merge(
+			[
+				'restUrl' => \esc_url_raw( $rest_url ),
+				'nonce'   => $nonce,
+			],
+			$localize
+		);
+	}
+
+	/**
 	 * Build the on-demand load recipe for one lazy station tab bundle: the
-	 * versioned script URL, the optional style URL, and the localize payload the
-	 * bundle reads (the same `NewspackNodesData` — restUrl and nonce under the
-	 * per-tab extras — it would receive if enqueued). Returns null when the bundle
-	 * has no built `index.js`, so a missing build never poisons the lazy map.
+	 * versioned script URL, the optional style URL, and the tab's own localize
+	 * extras, which the bundle reads through the station's `tabData()`. The
+	 * shared `restUrl` and `nonce` stay on `NewspackNodesData` alone, so a
+	 * renewed nonce has one copy. Returns null when the bundle has no built
+	 * `index.js`, so a missing build never poisons the lazy map.
 	 *
 	 * The version rides in the URL query rather than through `wp_enqueue_script`,
 	 * because the browser injects this script itself and never reaches WordPress's
@@ -330,7 +354,7 @@ class Admin {
 		[ , $version ] = self::bundle_manifest( $dir, $js, \NEWSPACK_NODES_VERSION );
 		$entry         = [
 			'src'  => "{$url}/index.js?ver=" . \rawurlencode( $version ),
-			'data' => self::localize_data( $localize ),
+			'data' => $localize,
 		];
 
 		$css = "{$dir}/index.css";
@@ -340,29 +364,6 @@ class Admin {
 		}
 
 		return $entry;
-	}
-
-	/**
-	 * The `NewspackNodesData` payload: the shared `restUrl` and `nonce` under the
-	 * per-bundle extras — one shape for enqueued and lazily-injected bundles alike.
-	 *
-	 * A bundle may override either shared key, since the extras merge last. Both
-	 * fall back to a literal outside a WordPress runtime so building the payload
-	 * never fatals in a hermetic test harness.
-	 *
-	 * @param array<string,mixed> $localize Per-bundle extras (string keys).
-	 * @return array<string,mixed> The payload localized as `NewspackNodesData`.
-	 */
-	private static function localize_data( array $localize ): array {
-		$rest_url = \function_exists( 'rest_url' ) ? \rest_url() : '/wp-json/';
-		$nonce    = \function_exists( 'wp_create_nonce' ) ? \wp_create_nonce( 'wp_rest' ) : '';
-		return \array_merge(
-			[
-				'restUrl' => \esc_url_raw( $rest_url ),
-				'nonce'   => $nonce,
-			],
-			$localize
-		);
 	}
 
 	/**

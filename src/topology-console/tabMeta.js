@@ -27,6 +27,9 @@ import { __ } from '@wordpress/i18n';
  * `overflow: hidden` — instead of the host's vertical scroll container. The
  * canvas sizes and scrolls itself, so the default container would wrap it in a
  * second, outer scrollbar.
+ *
+ * `handle` keys the recipe `Admin` localizes onto `NewspackNodesLazyTabs`; the
+ * Console reads its own payload back through `tabData( handle )`.
  */
 export default {
 	id: 'topology-console',
@@ -36,4 +39,5 @@ export default {
 	param: 'topology',
 	order: 15,
 	fullBleed: true,
+	handle: 'newspack-nodes-topology-console',
 };
