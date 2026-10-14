@@ -45,6 +45,7 @@ class SettingsSchemaTest extends TestCase {
 		'sse_max_streams',
 		'sse_reserved_slots',
 		'sse_retry_ms',
+		'http_retry_ms',
 		'sse_slot_ttl',
 		'on_demand_idle',
 		'topologies',
@@ -218,6 +219,8 @@ class SettingsSchemaTest extends TestCase {
 
 		$this->assertSame( 5, $fields['sse_idle_timeout']->default ?? null );
 		$this->assertSame( 5000, $fields['sse_retry_ms']->default ?? null );
+		$this->assertSame( 5000, $fields['http_retry_ms']->default ?? null );
+		$this->assertSame( 1, $fields['http_retry_ms']->min ?? null );
 		$this->assertSame( 30, $fields['sse_max_lifetime']->default ?? null );
 		$this->assertSame(
 			0,
