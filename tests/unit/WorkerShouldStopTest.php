@@ -366,4 +366,177 @@ class WorkerShouldStopTest extends TestCase {
 
 		$this->assertSame( $first->getLine(), $combined->getLine() );
 	}
+
+	public function test_failures_of_unwraps_stops_and_flattens_failures(): void {
+		$first  = new \RuntimeException( 'tsl-110' );
+		$second = new \RuntimeException( 'tsl-111' );
+		$plain  = new \RuntimeException( 'disk-112' );
+
+		$this->assertSame( [ $plain ], Worker_Should_Stop::failures_of( $plain ) );
+		$this->assertSame( [ $first, $second ], Worker_Should_Stop::failures_of( new Failures( [ $first, $second ] ) ) );
+		$this->assertSame(
+			[ $first, $second ],
+			Worker_Should_Stop::failures_of( new Worker_Should_Stop( 'outer-113', 0, new Worker_Should_Stop( 'inner-114', 0, new Failures( [ $first, $second ] ) ) ) ),
+			'a stop whose previous is a stop is walked to the end'
+		);
+		$this->assertSame( [], Worker_Should_Stop::failures_of( new Worker_Should_Stop( 'bare-115' ) ) );
+	}
+
+	public function test_causes_of_is_the_failures_or_the_throwable_itself(): void {
+		$bare  = new Worker_Should_Stop( 'bare-146' );
+		$inner = new \RuntimeException( 'disk-147' );
+
+		$this->assertSame( [ $bare ], Worker_Should_Stop::causes_of( $bare ) );
+		$this->assertSame( [ $inner ], Worker_Should_Stop::causes_of( new Worker_Should_Stop( 'deadline-148', 0, $inner ) ) );
+	}
+
+	public function test_a_stop_carrying_a_stop_combines_to_what_the_inner_one_carries(): void {
+		$deep = new \RuntimeException( 'deep-116' );
+
+		$combined = Worker_Should_Stop::combine( [ new Worker_Should_Stop( 'outer-117', 0, new Worker_Should_Stop( 'inner-118', 0, $deep ) ) ] );
+
+		$this->assertInstanceOf( Worker_Should_Stop::class, $combined );
+		$this->assertSame( $deep, $combined->getPrevious() );
+	}
+
+	/**
+	 * A chain of stops that ends in no failure still combines to a stop the
+	 * reader replays — plain, never clean, and never bare — rather than to the
+	 * `Failures` of nothing, which cannot be built.
+	 */
+	public function test_a_stop_carrying_a_bare_stop_combines_to_a_plain_carrying_stop(): void {
+		$outer = new Worker_Should_Stop( 'outer-131', 0, new Worker_Should_Stop( 'inner-132' ) );
+
+		$this->assertReplays( Worker_Should_Stop::combine( [ $outer ] ) );
+	}
+
+	public function test_a_clean_stop_carrying_a_bare_stop_combines_to_a_plain_carrying_stop(): void {
+		$clean = new Worker_Should_Stop_Clean( 'recycle-133', 0, new Worker_Should_Stop( 'deadline-134' ) );
+
+		$this->assertReplays( Worker_Should_Stop::combine( [ $clean ] ) );
+	}
+
+	public function test_that_clean_stop_beside_a_plain_stop_carrying_a_stop_combines_to_a_plain_carrying_stop(): void {
+		$clean = new Worker_Should_Stop_Clean( 'recycle-135', 0, new Worker_Should_Stop( 'deadline-136' ) );
+		$outer = new Worker_Should_Stop( 'outer-137', 0, new Worker_Should_Stop( 'inner-138' ) );
+
+		$this->assertReplays( Worker_Should_Stop::combine( [ $clean, $outer ] ) );
+	}
+
+	/**
+	 * A plain stop that carries something: no reader may commit past it.
+	 *
+	 * @param \Throwable|null $combined What `combine()` returned.
+	 */
+	private function assertReplays( ?\Throwable $combined ): void {
+		$this->assertInstanceOf( Worker_Should_Stop::class, $combined );
+		$this->assertFalse( Worker_Should_Stop::is_clean( $combined ), 'never clean' );
+		$this->assertFalse( Worker_Should_Stop::is_bare( $combined ), 'never bare' );
+	}
+
+	public function test_report_writes_one_line_per_cause_under_its_key(): void {
+		$lines   = $this->capture_stderr();
+		$tsl     = new \RuntimeException( 'tsl-91' );
+		$tsl2    = new \RuntimeException( 'tsl-92' );
+		$disk    = new \RuntimeException( 'disk-95' );
+		$bare    = new Worker_Should_Stop( 'deadline-99' );
+
+		Worker_Should_Stop::report( 'sweep-93', [
+			'plain-94' => $disk,
+			'stop-96'  => new Worker_Should_Stop( 'deadline-97', 0, new Failures( [ $tsl, $tsl2 ] ) ),
+			'bare-98'  => $bare,
+		] );
+
+		$this->assertSame(
+			[
+				'sweep-93: plain-94: ' . self::cause_text( $disk ),
+				'sweep-93: stop-96: ' . self::cause_text( $tsl ),
+				'sweep-93: stop-96: ' . self::cause_text( $tsl2 ),
+				'sweep-93: bare-98: ' . self::cause_text( $bare ),
+			],
+			self::stderr_lines( $lines )
+		);
+	}
+
+	public function test_report_walks_each_causes_previous_chain(): void {
+		$lines = $this->capture_stderr();
+		$root  = new \LogicException( 'root-120' );
+		$mid   = new \RuntimeException( 'mid-121', 0, $root );
+		$top   = new \RuntimeException( 'top-122', 0, $mid );
+
+		Worker_Should_Stop::report( 'sweep-123', [ 'step-124' => $top ] );
+
+		$this->assertSame(
+			[ 'sweep-123: step-124: ' . self::cause_text( $top ) . '; previous: ' . self::cause_text( $mid ) . '; previous: ' . self::cause_text( $root ) ],
+			self::stderr_lines( $lines )
+		);
+	}
+
+	public function test_report_with_no_label_writes_the_key_first(): void {
+		$lines = $this->capture_stderr();
+		$disk  = new \RuntimeException( 'disk-102' );
+
+		Worker_Should_Stop::report( '', [ 'step-101' => $disk ] );
+
+		$this->assertSame( [ 'step-101: ' . self::cause_text( $disk ) ], self::stderr_lines( $lines ) );
+	}
+
+	/**
+	 * A boundary's report must not itself escape: a `newspack_nodes/stderr`
+	 * listener that throws costs no line, and its failure goes to error_log().
+	 */
+	public function test_report_survives_a_throwing_stderr_listener(): void {
+		$lines     = $this->capture_stderr();
+		$error_log = $this->make_temp_dir( 'report-error-log-' ) . '/php-error.log';
+		$saved     = \ini_set( 'error_log', $error_log );
+		\add_action( 'newspack_nodes/stderr', static function (): void {
+			throw new \RuntimeException( 'listener refused-127' );
+		} );
+
+		try {
+			Worker_Should_Stop::report( 'sweep-125', [
+				'one-126' => new \RuntimeException( 'disk-128' ),
+				'two-129' => new \RuntimeException( 'disk-130' ),
+			] );
+		} finally {
+			\ini_set( 'error_log', (string) $saved );
+		}
+
+		$this->assertCount( 2, self::stderr_lines( $lines, 'sweep-125: ' ), 'every line still printed' );
+		$this->assertStringContainsString( 'listener refused-127', (string) \file_get_contents( $error_log ) );
+	}
+
+	/**
+	 * A stderr handler that throws must not lose the cause either: the line
+	 * goes to error_log() beside the handler's own failure.
+	 */
+	public function test_report_survives_a_throwing_stderr_handler_and_keeps_the_line(): void {
+		$error_log = $this->make_temp_dir( 'report-handler-log-' ) . '/php-error.log';
+		$saved     = \ini_set( 'error_log', $error_log );
+		\Newspack_Nodes\Core::set_stderr_handler( static function (): void {
+			throw new \RuntimeException( 'handler refused-140' );
+		} );
+
+		try {
+			Worker_Should_Stop::report( 'sweep-141', [
+				'one-142' => new \RuntimeException( 'disk-143' ),
+				'two-144' => new \RuntimeException( 'disk-145' ),
+			] );
+		} finally {
+			\ini_set( 'error_log', (string) $saved );
+		}
+
+		$logged = (string) \file_get_contents( $error_log );
+		$this->assertStringContainsString( 'sweep-141: one-142: disk-143', $logged );
+		$this->assertStringContainsString( 'sweep-141: two-144: disk-145', $logged, 'the next line is still attempted' );
+		$this->assertStringContainsString( 'handler refused-140', $logged );
+	}
+
+	public function test_report_writes_nothing_for_nothing_caught(): void {
+		$lines = $this->capture_stderr();
+
+		Worker_Should_Stop::report( 'sweep-100', [] );
+
+		$this->assertCount( 0, $lines );
+	}
 }

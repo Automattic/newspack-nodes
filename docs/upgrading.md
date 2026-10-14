@@ -6,6 +6,21 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`Bootstrap::on_demand_wake_map()` is removed.** Call
+  `Bootstrap::readable_wake_map()`, which answers `[ $map, $unreadable ]`:
+  the same map over the readable on-demand topologies, then what each
+  unreadable one threw, by name. Where the old call raised, raise the
+  failures yourself with `Worker_Should_Stop::raise( $unreadable )` — or,
+  at a top-level boundary, report them with `Worker_Should_Stop::report()`.
+
+- **`Worker_Should_Stop::combine()` walks a stop's chain to its end.** A
+  stop whose previous is itself a stop carrying a failure combines to a stop
+  whose `getPrevious()` is that failure, where it was raised as it came and
+  `getPrevious()` answered the inner stop. A reader that walked
+  `getPrevious()` past a stop to find the failure finds it one step sooner.
+  A chain ending in no failure still combines to a plain, non-bare stop, so
+  nothing commits past the record it stopped on.
+
 - **Every log stamp is spelled with `:`, and every broker pair with `=`.** A
   stamp is one FROM segment now, its parts joined by colons. Respell each
   stamp a subscription, a `?log=` link, a `File_Tail`, `dump_log`,

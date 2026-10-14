@@ -7,7 +7,7 @@
  * backend — a claim must never straddle tiers:
  *
  * - `local_first()`  — APCu, else memcached. For same-host hot surfaces: the
- *   command-auth nonce claim, and `Bootstrap::on_demand_wake_map()`, whose
+ *   command-auth nonce claim, and `Bootstrap::readable_wake_map()`, whose
  *   inputs are this host's own `.tsl` files. The web pool rides shared memory,
  *   and a CLI process (its own APCu segment, usually disabled) falls through
  *   to memcached.

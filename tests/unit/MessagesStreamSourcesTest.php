@@ -291,21 +291,87 @@ class MessagesStreamSourcesTest extends TestCase {
 		$this->assertSame( 'invalid subscription: offsets/Kea-6604.p2', $result->get_error_message() );
 	}
 
-	public function test_a_registry_that_will_not_read_propagates_as_a_server_error(): void {
-		$broken                       = new \RuntimeException( 'registry fault 7719' );
-		Log_Sources::$builtin_sources = static function () use ( $broken ): array {
-			throw $broken;
+	/**
+	 * A registry that will not read is the server's fault, never the
+	 * caller's: it answers a 500, not a 400 refusal, and not an uncaught
+	 * exception PHP turns into a fatal. The answer names no internals; the
+	 * cause, with its file and line, goes to the server's log.
+	 */
+	public function test_a_registry_that_will_not_read_answers_a_generic_server_error_and_logs_why(): void {
+		$fault                        = new \RuntimeException( 'registry fault 7719 in /srv/secret-7719' );
+		Log_Sources::$builtin_sources = static function () use ( $fault ): array {
+			throw $fault;
+		};
+		SSE_Out_Node::$acquire_slot   = fn (): array|false => $this->fail( 'a failed stream takes no slot' );
+		$req                          = new \WP_REST_Request( 'GET' );
+		$req->set_param( 'subscribe', 'sources:gyro' );
+		$lines = $this->capture_stderr();
+
+		$result = ( new SSE_Out_Node() )->stream( $req );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'sse_subscription_unavailable', $result->get_error_code() );
+		$this->assertSame( 500, $result->get_error_data()['status'] );
+		$this->assertSame( 'The subscription could not be resolved; the server log names why.', $result->get_error_message() );
+		$this->assertSame( [ 'stream: sources:gyro: ' . self::cause_text( $fault ) ], self::stderr_lines( $lines, 'registry fault 7719' ) );
+	}
+
+	/**
+	 * The subscribe CSV is caller text, so it reaches the log line with its
+	 * control characters rendered harmless and its length capped: a CR/LF
+	 * cannot forge a second log line, and a huge CSV cannot flood one.
+	 */
+	public function test_the_logged_subscribe_csv_carries_no_line_break_and_is_capped(): void {
+		Log_Sources::$builtin_sources = static function (): array {
+			throw new \RuntimeException( 'registry fault 7721' );
+		};
+		SSE_Out_Node::$acquire_slot   = fn (): array|false => $this->fail( 'a failed stream takes no slot' );
+		$req                          = new \WP_REST_Request( 'GET' );
+		$req->set_param( 'subscribe', "sources:gyro,sources:x\r\nFORGED-149," . \str_repeat( 'w', 5000 ) );
+		$lines = $this->capture_stderr();
+
+		( new SSE_Out_Node() )->stream( $req );
+
+		$logged = \array_values( \array_filter( $lines->getArrayCopy(), static fn ( string $line ): bool => \str_contains( $line, 'registry fault 7721' ) ) );
+		$this->assertCount( 1, $logged );
+		$line = \rtrim( $logged[0], "\n" );
+		$this->assertStringNotContainsString( "\r", $line );
+		$this->assertStringNotContainsString( "\n", $line );
+		$this->assertStringContainsString( 'FORGED-149', $line, 'rendered, not dropped' );
+		$this->assertLessThan( 1024, \strlen( $line ), 'the caller text is capped' );
+	}
+
+	public function test_an_active_topology_no_tsl_resolves_is_logged_by_name(): void {
+		$this->use_base_dir( $this->tmp );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'heron-9932' ];
+		\Newspack_Nodes\Config::reset();
+		$path                         = "{$this->tmp}/gyro-9932.log";
+		Log_Sources::$builtin_sources = static fn (): array => [ 'gyro' => $path ];
+		SSE_Out_Node::$acquire_slot   = fn (): array|false => $this->fail( 'a failed stream takes no slot' );
+		$req                          = new \WP_REST_Request( 'GET' );
+		$req->set_param( 'subscribe', 'sources:gyro' );
+		$lines = $this->capture_stderr();
+
+		$result = ( new SSE_Out_Node() )->stream( $req );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 500, $result->get_error_data()['status'] );
+		$this->assertStringNotContainsString( 'heron-9932', $result->get_error_message() );
+		$this->assertCount( 1, self::stderr_lines( $lines, "stream: sources:gyro: unknown topology 'heron-9932'" ) );
+	}
+
+	/** An engine bug is not a refusal: an `\Error` still fails the request loud. */
+	public function test_an_error_resolving_a_subscription_still_escapes(): void {
+		Log_Sources::$builtin_sources = static function (): array {
+			throw new \Error( 'engine bug 7720' );
 		};
 		SSE_Out_Node::$acquire_slot   = fn (): array|false => $this->fail( 'a failed stream takes no slot' );
 		$req                          = new \WP_REST_Request( 'GET' );
 		$req->set_param( 'subscribe', 'sources:gyro' );
 
-		try {
-			( new SSE_Out_Node() )->stream( $req );
-			$this->fail( 'the registry fault was turned into a refusal' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertSame( $broken, $e );
-		}
+		$this->expectException( \Error::class );
+		$this->expectExceptionMessage( 'engine bug 7720' );
+		( new SSE_Out_Node() )->stream( $req );
 	}
 
 	public function test_a_stream_reads_the_registry_once_for_a_source_it_opens(): void {

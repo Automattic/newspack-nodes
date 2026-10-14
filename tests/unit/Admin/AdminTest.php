@@ -591,6 +591,48 @@ class AdminTest extends TestCase {
 		$this->assertFileDoesNotExist( "{$this->base_dir}/locks/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
 	}
 
+	/**
+	 * The hook runs inside wp-admin's own options save, where a raise ends as
+	 * a critical-error page: every readable topology still takes its flag,
+	 * and each unresolved one is a stderr line naming the setting.
+	 */
+	public function test_saving_a_setting_with_an_unresolved_topology_reports_it_and_flags_the_rest(): void {
+		$this->register_fixture_topologies();
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'][] = 'heron-9933';
+		Config::reset();
+		$this->prepare_lock_dir( 'combined', 0 );
+		$lines                       = $this->capture_stderr();
+		$GLOBALS['_settings_errors'] = [];
+
+		( new Admin() )->maybe_request_worker_restart( 'newspack_nodes_max_segments' );
+
+		$this->assertFileExists( "{$this->base_dir}/locks/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
+		$reported = self::stderr_lines( $lines, 'heron-9933' );
+		$this->assertCount( 1, $reported );
+		$this->assertStringStartsWith( "settings: max_segments: unknown topology 'heron-9933': no .tsl resolves (", $reported[0] );
+	}
+
+	/**
+	 * options.php redirects after the save, so a stderr line alone never
+	 * reaches the operator who saved: the failure also rides the page's
+	 * settings errors, escaped, one notice per cause.
+	 */
+	public function test_saving_a_setting_the_fleet_never_hears_of_shows_a_settings_error(): void {
+		$this->register_fixture_topologies();
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'][] = 'heron-9936';
+		Config::reset();
+		$GLOBALS['_settings_errors'] = [];
+
+		( new Admin() )->maybe_request_worker_restart( 'newspack_nodes_max_segments' );
+
+		$errors = $GLOBALS['_settings_errors'];
+		$this->assertCount( 1, $errors );
+		$this->assertSame( 'newspack_nodes_max_segments', $errors[0]['setting'] );
+		$this->assertSame( 'error', $errors[0]['type'] );
+		$this->assertStringContainsString( 'max_segments', $errors[0]['message'] );
+		$this->assertStringContainsString( 'unknown topology &#039;heron-9936&#039;', $errors[0]['message'], 'escaped, because settings_errors() prints it raw' );
+	}
+
 	// ---- render_settings_page --------------------------------------------
 
 	public function test_render_settings_page_outputs_settings_fields_markup(): void {
@@ -1204,18 +1246,20 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 
 	// ---- maybe_request_worker_restart (configuration-error path) --------
 
-	public function test_maybe_request_worker_restart_propagates_an_unconfigurable_base_dir(): void {
+	public function test_maybe_request_worker_restart_reports_an_unconfigurable_base_dir(): void {
 		// Force Config::get_base_directory() to throw by writing a config file
 		// whose `base_directory` contains a null byte — Config::ensure_path()
 		// rejects these immediately. The option row is already written, so the
-		// save must learn that no worker heard of it.
+		// log must say that no worker heard of it, and the save page survives.
 		$conf = $this->base_dir . '/bad-base-dir.php';
 		\file_put_contents( $conf, "<?php\nreturn [ 'base_directory' => \"/tmp/has\\0null\" ];\n" );
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $conf );
 		Config::reset();
+		$lines = $this->capture_stderr();
 
-		$this->expectException( \RuntimeException::class );
 		( new Admin() )->maybe_request_worker_restart( 'newspack_nodes_base_directory' );
+
+		$this->assertCount( 1, self::stderr_lines( $lines, 'settings: base_directory: ' ), 'the failure is one line naming the setting' );
 	}
 
 	// ---- topologies: overlay-only, never a settings-form option -----------

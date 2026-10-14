@@ -168,6 +168,13 @@ class SSE_Out_Node extends Node {
 	public static ?\Closure $on_shutdown = null;
 
 	/**
+	 * Most bytes of a caller's `subscribe` CSV a log line carries. A real
+	 * one — a dashboard's handful of stamps, a Log Viewer glob — runs to a few
+	 * hundred, so 512 keeps every one whole and stops a crafted one flooding.
+	 */
+	private const LOG_SUBSCRIBE_BYTES = 512;
+
+	/**
 	 * Read only once a check has already failed, to name the cache backend and
 	 * the lease state in the diagnostic line. The healthy path never pays it.
 	 *
@@ -236,11 +243,12 @@ class SSE_Out_Node extends Node {
 	 * Every refusal here happens BEFORE `init_sse_headers()` so a refused
 	 * stream can still answer with a JSON `WP_Error`; once the event-stream
 	 * headers are out, none is sayable. Each subscription is resolved before
-	 * the slot, so a refusal resolving one throws refuses the whole stream;
-	 * any other throw, such as a registry that will not read, propagates.
+	 * the slot, so a refusal resolving one refuses the whole stream. A top-level
+	 * boundary: a server fault resolving one is reported and answers a generic
+	 * 500, and an `\Error` still escapes.
 	 *
 	 * @param \WP_REST_Request $request Request carrying `subscribe`, `positions`, `multi_writer`, `session` and `stream`.
-	 * @return \WP_Error|void WP_Error when a subscription is refused (400 `sse_subscription_invalid`), a position names no place (400 `sse_positions_invalid`), the session is refused (401), the stream id is malformed (400 `sse_stream_invalid`) or no slot is free (429); otherwise streams and exits.
+	 * @return \WP_Error|void WP_Error when a subscription is refused (400 `sse_subscription_invalid`) or will not resolve (500 `sse_subscription_unavailable`), a position names no place (400 `sse_positions_invalid`), the session is refused (401), the stream id is malformed (400 `sse_stream_invalid`) or no slot is free (429); otherwise streams and exits.
 	 */
 	public function stream( \WP_REST_Request $request ) {
 		$subscribe     = $request->get_param( 'subscribe' );
@@ -250,6 +258,9 @@ class SSE_Out_Node extends Node {
 			$resolved = $this->resolve_subscriptions( $subs );
 		} catch ( \InvalidArgumentException $e ) {
 			return new \WP_Error( 'sse_subscription_invalid', Core::message_of( $e ), [ 'status' => 400 ] );
+		} catch ( \RuntimeException $e ) {
+			Worker_Should_Stop::report( 'stream', [ self::loggable_subscribe( \implode( ',', $subs ) ) => $e ] );
+			return new \WP_Error( 'sse_subscription_unavailable', 'The subscription could not be resolved; the server log names why.', [ 'status' => 500 ] );
 		}
 		// `positions` is the ONLY resume input; the client assembles it.
 		$positions = $this->parse_positions( Core::as_string( $positions_raw ) );
@@ -413,10 +424,25 @@ class SSE_Out_Node extends Node {
 	 * @param array<int,string> $subs Subscription names.
 	 * @return list<Resolved_Sub> What each opens.
 	 * @throws \InvalidArgumentException The first refusal, teaching.
+	 * @throws \Throwable What a registry that will not read raised.
 	 */
 	private function resolve_subscriptions( array $subs ): array {
 		$base = $this->base_dir ?? Bootstrap::base_dir();
 		return \array_values( \array_map( fn ( string $sub ): array => $this->resolve_subscription( $sub, $base ), $subs ) );
+	}
+
+	/**
+	 * The caller's `subscribe` CSV as a log line may carry it: invalid UTF-8
+	 * scrubbed, each run of control characters one space, so a CR or LF
+	 * cannot forge a second line, and cut to `LOG_SUBSCRIBE_BYTES`.
+	 *
+	 * @param string $csv The subscriptions as the caller sent them.
+	 */
+	private static function loggable_subscribe( string $csv ): string {
+		$safe = (string) \preg_replace( '/\p{Cc}+/u', ' ', \mb_scrub( $csv, 'UTF-8' ) );
+		return \strlen( $safe ) > self::LOG_SUBSCRIBE_BYTES
+			? \mb_strcut( $safe, 0, self::LOG_SUBSCRIBE_BYTES, 'UTF-8' ) . '…'
+			: $safe;
 	}
 
 	/**
@@ -800,6 +826,7 @@ class SSE_Out_Node extends Node {
 	 * @return Resolved_Sub What it opens.
 	 * @throws \InvalidArgumentException On a subscription the guard refuses,
 	 *                                   or a source the registry lacks.
+	 * @throws \Throwable                What a registry that will not read raised.
 	 */
 	private function resolve_subscription( string $sub, string $base ): array {
 		[ $group, $name ] = Log_Discovery::split( $sub );
