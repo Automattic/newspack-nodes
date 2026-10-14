@@ -1376,7 +1376,7 @@ class TopologiesCITest extends TestCase {
 	/** The editor asks for the include's groups unexpanded; every other reader gets the members. */
 	public function test_get_ships_a_vault_group_without_its_members_on_request(): void {
 		$this->seed_vault_servers( [ 'tw0' => [ 'url' => 'https://tw0.example', 'group' => 'tw-edge' ] ] );
-		\file_put_contents( "{$this->stock}/pull-base.tsl", "make_node Vault_Group herons Remote_Source tw-edge o/{id} d/{id} egret.p{partition}:sink-9\n" );
+		\file_put_contents( "{$this->stock}/pull-base.tsl", "make_node Vault_Group herons Remote_Source tw-edge o/{id} d/{id} egret.p{partition}=sink-9\n" );
 		\file_put_contents( "{$this->stock}/pull-top.tsl", "include pull-base\n" );
 
 		$names = static fn ( array $r ): array => \array_column( $r['expanded']['nodes'], 'name' );
@@ -1388,7 +1388,7 @@ class TopologiesCITest extends TestCase {
 
 	public function test_expand_ships_a_vault_group_without_its_members_on_request(): void {
 		$this->seed_vault_servers( [ 'tw0' => [ 'url' => 'https://tw0.example', 'group' => 'tw-edge' ] ] );
-		\file_put_contents( "{$this->stock}/pull-base.tsl", "make_node Vault_Group herons Remote_Source tw-edge o/{id} d/{id} egret.p{partition}:sink-9\n" );
+		\file_put_contents( "{$this->stock}/pull-base.tsl", "make_node Vault_Group herons Remote_Source tw-edge o/{id} d/{id} egret.p{partition}=sink-9\n" );
 
 		$names = static fn ( array $r ): array => \array_column( $r['nodes'], 'name' );
 

@@ -244,7 +244,7 @@ class TopologyRegistryConflictsTest extends TestCase {
 	public function test_write_set_reads_remote_source_offsetlog_from_its_argument(): void {
 		$this->write_tsl(
 			'zebra-agg',
-			"make_node Remote_Source spoke-a zebra-vault <config:offsets_dir>/spoke-a.<topology> <config:deadletter_dir>/spoke-a firehose.p0:next\n"
+			"make_node Remote_Source spoke-a zebra-vault <config:offsets_dir>/spoke-a.<topology> <config:deadletter_dir>/spoke-a firehose.p0=next\n"
 		);
 
 		$set = Topology_Analyzer::write_set( 'zebra-agg' );
@@ -259,7 +259,7 @@ class TopologyRegistryConflictsTest extends TestCase {
 	public function test_write_set_reads_http_source_roots_from_its_arguments(): void {
 		$this->write_tsl(
 			'ibis-agg',
-			"make_node HTTP_Source pull-6113 ibis-vault offsets/pull-6113 deadletter/pull-6113 firehose.p0:next\n"
+			"make_node HTTP_Source pull-6113 ibis-vault offsets/pull-6113 deadletter/pull-6113 firehose.p0=next\n"
 		);
 
 		$set = Topology_Analyzer::write_set( 'ibis-agg' );

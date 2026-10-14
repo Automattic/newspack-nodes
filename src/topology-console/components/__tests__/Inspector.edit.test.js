@@ -985,7 +985,7 @@ describe( 'Inspector (edit mode)', () => {
 			'<config:offsets_dir>/<topology>.{id}',
 			'<config:deadletter_dir>/<topology>.{id}',
 			'firehose.p{partition}:remote-job-rewrite',
-			'sources/php:php-errors:partition',
+			'sources:php:php-errors:partition',
 		];
 		const tail = vaultGroupArgs.slice( 2 ).join( ' ' );
 		const groupCatalog = brokerSchemas

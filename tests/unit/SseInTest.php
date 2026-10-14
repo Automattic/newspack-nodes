@@ -275,10 +275,10 @@ class SseInTest extends TestCase {
 			$seen[] = $cursors;
 		};
 
-		$node->process_sse_chunk( self::connected_frame( 'SLOT 7 OWNER 42424243 CURSORS other.p3=1:2,firehose.p0=12:345,sources/php=:9188,bad.p1=x:3,short.p2=12' ) );
+		$node->process_sse_chunk( self::connected_frame( 'SLOT 7 OWNER 42424243 CURSORS other.p3=1:2,firehose.p0=12:345,sources:php=:9188,bad.p1=x:3,short.p2=12' ) );
 
 		$this->assertSame(
-			[ [ 'other.p3' => [ 'segment' => 1, 'offset' => 2 ], 'firehose.p0' => [ 'segment' => 12, 'offset' => 345 ], 'sources/php' => [ 'offset' => 9188 ] ] ],
+			[ [ 'other.p3' => [ 'segment' => 1, 'offset' => 2 ], 'firehose.p0' => [ 'segment' => 12, 'offset' => 345 ], 'sources:php' => [ 'offset' => 9188 ] ] ],
 			$seen
 		);
 		$this->assertTrue( $node->connection()['connected'] );
@@ -492,15 +492,15 @@ class SseInTest extends TestCase {
 	public function test_streams_states_every_subscription_and_its_position(): void {
 		[ $node ] = $this->configured_node();
 		$node->streams(
-			[ 'firehose.p3', 'sources/php', 'errors.*' ],
-			[ 'firehose.p3' => [ 'segment' => 41, 'offset' => 9077 ], 'sources/php' => [ 'offset' => 613 ], 'errors.p2' => 'skip' ]
+			[ 'firehose.p3', 'sources:php', 'errors.*' ],
+			[ 'firehose.p3' => [ 'segment' => 41, 'offset' => 9077 ], 'sources:php' => [ 'offset' => 613 ], 'errors.p2' => 'skip' ]
 		);
 
 		$query = $this->connect_and_read_query( $node );
 
-		$this->assertSame( 'firehose.p3,sources/php,errors.*', $query['subscribe'] );
+		$this->assertSame( 'firehose.p3,sources:php,errors.*', $query['subscribe'] );
 		$this->assertSame(
-			[ 'firehose.p3' => [ 'segment' => 41, 'offset' => 9077 ], 'sources/php' => [ 'offset' => 613 ], 'errors.p2' => 'skip' ],
+			[ 'firehose.p3' => [ 'segment' => 41, 'offset' => 9077 ], 'sources:php' => [ 'offset' => 613 ], 'errors.p2' => 'skip' ],
 			\json_decode( $query['positions'], true )
 		);
 	}

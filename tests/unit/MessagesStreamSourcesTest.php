@@ -13,7 +13,7 @@ use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Tests\TestCase;
 
 /**
- * /messages/stream opens a `sources/<name>` subscription as the Log_Sources
+ * /messages/stream opens a `sources:<name>` subscription as the Log_Sources
  * registry entry's Tail, stamped and resumed by that stamp. A caller names a
  * registry entry, never a path.
  */
@@ -43,12 +43,12 @@ class MessagesStreamSourcesTest extends TestCase {
 		\file_put_contents( $path, "abcdefgh\n" );
 		Log_Sources::$builtin_sources = static fn (): array => [ 'gyro' => $path ];
 
-		$tails = ( new SSE_Out_Node() )->open_subscription( 'sources/gyro', null );
+		$tails = ( new SSE_Out_Node() )->open_subscription( 'sources:gyro', null );
 
 		$this->assertCount( 1, $tails );
-		$tail = $tails[0];
+		$tail = \current( $tails );
 		$this->assertInstanceOf( Tail_Node::class, $tail );
-		$this->assertSame( 'sources/gyro', $tail->stamped_as() );
+		$this->assertSame( [ 'sources:gyro' ], \array_keys( $tails ) );
 		$this->assertInstanceOf( \Newspack_Nodes\File_Tail_Node::class, $tail );
 		$this->assertSame( $path, $this->read_private( $tail, 'source_file' ) );
 		// Ephemeral SSE reader: the browser holds the cursor, no durable state.
@@ -64,13 +64,13 @@ class MessagesStreamSourcesTest extends TestCase {
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
 
 		// First connect: tail from END, and advertise where that is.
-		$first = ( new SSE_Out_Node() )->open_subscription( 'sources/php', null )[0];
-		$token = 'sources/php=' . $first->cursor_position();
+		$first = ( new SSE_Out_Node() )->open_subscription( 'sources:php', null )[ 'sources:php' ];
+		$token = 'sources:php=' . $first->cursor_position();
 
 		// The reopen carries it as Last-Event-ID and sends no positions param.
 		$ctrl     = new SSE_Out_Node();
 		$resumed  = self::positions_from_token( $token );
-		$reopened = $ctrl->open_subscription( 'sources/php', $resumed )[0];
+		$reopened = $ctrl->open_subscription( 'sources:php', $resumed )[ 'sources:php' ];
 		$cap      = new Capture_Sink_Node();
 		$reopened->sink( $cap );
 		for ( $i = 0; $i < 5; $i++ ) {
@@ -88,11 +88,11 @@ class MessagesStreamSourcesTest extends TestCase {
 		\file_put_contents( $path, "line-one\nline-two\npartial-no-newline" );
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
 
-		$first = ( new SSE_Out_Node() )->open_subscription( 'sources/php', null )[0];
-		$token = 'sources/php=' . $first->cursor_position();
+		$first = ( new SSE_Out_Node() )->open_subscription( 'sources:php', null )[ 'sources:php' ];
+		$token = 'sources:php=' . $first->cursor_position();
 
 		$ctrl     = new SSE_Out_Node();
-		$reopened = $ctrl->open_subscription( 'sources/php', self::positions_from_token( $token ) )[0];
+		$reopened = $ctrl->open_subscription( 'sources:php', self::positions_from_token( $token ) )[ 'sources:php' ];
 		$cap      = new Capture_Sink_Node();
 		$reopened->sink( $cap );
 		// The first tick only fills the buffer; pump until it stops producing.
@@ -113,7 +113,7 @@ class MessagesStreamSourcesTest extends TestCase {
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
 
 		$ctrl = new SSE_Out_Node();
-		$tail = $ctrl->open_subscription( 'sources/php', self::positions_from_token( 'sources/php=:9' ) )[0];
+		$tail = $ctrl->open_subscription( 'sources:php', self::positions_from_token( 'sources:php=:9' ) )[ 'sources:php' ];
 
 		// The CLIENT named no generation, and its offset belongs to whichever
 		// one it was reading — pairing it with the live inode would pass the
@@ -133,14 +133,14 @@ class MessagesStreamSourcesTest extends TestCase {
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
 
 		// Connect at EOF and take the id the `connected` envelope would carry.
-		$first = ( new SSE_Out_Node() )->open_subscription( 'sources/php', null )[0];
-		$token = 'sources/php=' . $first->cursor_position();
+		$first = ( new SSE_Out_Node() )->open_subscription( 'sources:php', null )[ 'sources:php' ];
+		$token = 'sources:php=' . $first->cursor_position();
 
 		// The gap: lines written while nothing is connected.
 		\file_put_contents( $path, "gap-one\ngap-two\n", \FILE_APPEND );
 
 		$ctrl     = new SSE_Out_Node();
-		$reopened = $ctrl->open_subscription( 'sources/php', self::positions_from_token( $token ) )[0];
+		$reopened = $ctrl->open_subscription( 'sources:php', self::positions_from_token( $token ) )[ 'sources:php' ];
 		$cap      = new Capture_Sink_Node();
 		$reopened->sink( $cap );
 		for ( $i = 0; $i < 12; $i++ ) {
@@ -160,7 +160,7 @@ class MessagesStreamSourcesTest extends TestCase {
 		\file_put_contents( $path, "abcdefgh\n" );
 		Log_Sources::$builtin_sources = static fn (): array => [ 'gyro' => $path ];
 
-		$tail = ( new SSE_Out_Node() )->open_subscription( 'sources/gyro', null )[0];
+		$tail = ( new SSE_Out_Node() )->open_subscription( 'sources:gyro', null )[ 'sources:gyro' ];
 
 		// The inode reaches cursor_segment only when the handle opens on the
 		// first poll, and a stream that seeks to EOF and hangs up never polls
@@ -175,8 +175,8 @@ class MessagesStreamSourcesTest extends TestCase {
 		Log_Sources::$builtin_sources = static fn (): array => [ 'gyro' => $path ];
 
 		$tails = ( new SSE_Out_Node() )->open_subscription(
-			'sources/gyro',
-			[ 'sources/gyro' => [ 'segment' => 4242, 'offset' => 77 ] ]
+			'sources:gyro',
+			[ 'sources:gyro' => [ 'segment' => 4242, 'offset' => 77 ] ]
 		);
 
 		// File mode defers an array seek until the handle opens on first poll.
@@ -185,7 +185,7 @@ class MessagesStreamSourcesTest extends TestCase {
 				'inode'  => 4242,
 				'offset' => 77,
 			],
-			$this->read_private( $tails[0], 'file_seek_candidate' )
+			$this->read_private( \current( $tails ), 'file_seek_candidate' )
 		);
 	}
 
@@ -204,15 +204,15 @@ class MessagesStreamSourcesTest extends TestCase {
 		$this->use_base_dir( $this->tmp, [ 'topologies' => [ 'lstream' ] ] );
 
 		$tails = ( new SSE_Out_Node() )->open_subscription(
-			'sources/beacon-7e.p1',
-			[ 'sources/beacon-7e.p1' => [ 'segment' => 3, 'offset' => 9 ] ]
+			'sources:beacon-7e.p1',
+			[ 'sources:beacon-7e.p1' => [ 'segment' => 3, 'offset' => 9 ] ]
 		);
 
 		$this->assertCount( 1, $tails );
-		$tail = $tails[0];
+		$tail = \current( $tails );
 		$this->assertNotInstanceOf( \Newspack_Nodes\File_Tail_Node::class, $tail );
 		$this->assertSame( "{$this->tmp}/logs/beacon-7e.p1/beacon-7e", $this->read_private( $tail, 'source_file' ) );
-		$this->assertSame( 'sources/beacon-7e.p1', $tail->stamped_as() );
+		$this->assertSame( [ 'sources:beacon-7e.p1' ], \array_keys( $tails ) );
 		// Segmented seek seeds the cursor directly (Consumer's array branch).
 		$this->assertSame( 3, $this->read_private( $tail, 'cursor_segment' ) );
 		$this->assertSame( 9, $this->read_private( $tail, 'cursor_offset' ) );
@@ -226,7 +226,7 @@ class MessagesStreamSourcesTest extends TestCase {
 		$ctrl = new SSE_Out_Node();
 
 		try {
-			$ctrl->open_subscription( 'sources/nope-1189', null );
+			$ctrl->open_subscription( 'sources:nope-1189', null );
 			$this->fail( 'expected InvalidArgumentException' );
 		} catch ( \InvalidArgumentException $e ) {
 			$this->assertStringContainsString( 'unknown log source', $e->getMessage() );
@@ -239,7 +239,7 @@ class MessagesStreamSourcesTest extends TestCase {
 		Log_Sources::$builtin_sources = static fn (): array => [ 'gyro' => $path ];
 		$ctrl = new SSE_Out_Node();
 
-		foreach ( [ 'sources//etc/passwd', 'sources/../../etc/passwd', 'sources/gyro/../gyro' ] as $evil ) {
+		foreach ( [ 'sources:/etc/passwd', 'sources:../../etc/passwd', 'sources:gyro/../gyro' ] as $evil ) {
 			try {
 				$ctrl->open_subscription( $evil, null );
 				$this->fail( "expected InvalidArgumentException for {$evil}" );
@@ -254,7 +254,7 @@ class MessagesStreamSourcesTest extends TestCase {
 		Log_Sources::$builtin_sources = static fn (): array => [ 'gyro' => $log ];
 		SSE_Out_Node::$acquire_slot   = fn (): array|false => $this->fail( 'a refused stream takes no slot' );
 		$req = new \WP_REST_Request( 'GET' );
-		$req->set_param( 'subscribe', 'firehose.p0,sources/nope-1189' );
+		$req->set_param( 'subscribe', 'firehose.p0,sources:nope-1189' );
 
 		$result = ( new SSE_Out_Node() )->stream( $req );
 
@@ -298,7 +298,7 @@ class MessagesStreamSourcesTest extends TestCase {
 		};
 		SSE_Out_Node::$acquire_slot   = fn (): array|false => $this->fail( 'a failed stream takes no slot' );
 		$req                          = new \WP_REST_Request( 'GET' );
-		$req->set_param( 'subscribe', 'sources/gyro' );
+		$req->set_param( 'subscribe', 'sources:gyro' );
 
 		try {
 			( new SSE_Out_Node() )->stream( $req );
@@ -326,7 +326,7 @@ class MessagesStreamSourcesTest extends TestCase {
 			protected function init_sse_headers(): void {}
 		};
 		$req = new \WP_REST_Request( 'GET' );
-		$req->set_param( 'subscribe', 'sources/gyro' );
+		$req->set_param( 'subscribe', 'sources:gyro' );
 
 		\ob_start();
 		try {
@@ -353,7 +353,7 @@ class MessagesStreamSourcesTest extends TestCase {
 		\Newspack_Nodes\Partition_Node::$scandir = fn (): array => $this->fail( 'the check lists no segment' );
 		SSE_Out_Node::$acquire_slot              = static fn (): array|false => false;
 		$req                                     = new \WP_REST_Request( 'GET' );
-		$req->set_param( 'subscribe', 'sources/beacon-8f.jsonl' );
+		$req->set_param( 'subscribe', 'sources:beacon-8f.jsonl' );
 
 		try {
 			$result = ( new SSE_Out_Node() )->stream( $req );

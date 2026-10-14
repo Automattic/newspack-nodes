@@ -92,7 +92,7 @@ class MessagesStreamSlotPoolTest extends TestCase {
 
 		$ctrl = new SSE_Out_Node();
 		$req  = new \WP_REST_Request( 'GET' );
-		$req->set_param( 'subscribe', 'offsets/jobs.p3' );
+		$req->set_param( 'subscribe', 'offsets:jobs.p3' );
 		$ctrl->stream( $req );
 
 		$this->assertSame( 3, $captured );

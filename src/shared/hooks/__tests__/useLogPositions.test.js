@@ -113,8 +113,8 @@ describe( 'stepPosition', () => {
 	it( 'formats a cursor naming no generation as :<offset>', () => {
 		expect(
 			stepPosition(
-				link( { 'sources/php': { offset: 6731 } } ),
-				'sources/php',
+				link( { 'sources:php': { offset: 6731 } } ),
+				'sources:php',
 				null
 			)
 		).toBe( ':6731' );
@@ -391,7 +391,7 @@ describe( 'useLogStatusSegments', () => {
 		installFakeCommandWire( ( m ) =>
 			'dump_log' === m[ VALUE ]?.name
 				? {
-						log_id: 'sources/php',
+						log_id: 'sources:php',
 						segments: [ { id: 4242, size: 977 } ],
 						segment_count: 1,
 						total_size: 977,
@@ -400,7 +400,7 @@ describe( 'useLogStatusSegments', () => {
 		);
 		const { result } = renderHook( ( p ) => useLogStatusSegments( p ), {
 			initialProps: {
-				sub: 'sources/php',
+				sub: 'sources:php',
 				scope: 'quartz-segments',
 				graph: { group: 'quartz' },
 			},
@@ -436,7 +436,7 @@ describe( 'useLogStatusSegments', () => {
 			expect( result.current.source.segments ).toEqual( RAIL )
 		);
 		rerender( {
-			sub: 'sources/php',
+			sub: 'sources:php',
 			scope: 'quartz-segments',
 			graph: { group: 'quartz' },
 		} );

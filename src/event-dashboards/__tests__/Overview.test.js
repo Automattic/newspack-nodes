@@ -452,8 +452,8 @@ describe( 'Overview fleet board', () => {
 		useNodeField.mockReturnValue( {
 			consumers: {},
 			partitions: {
-				'offsets/ingest.p0': sized( 'offsets/ingest.p0', 292 ),
-				'deadletter/ingest.p0': sized( 'deadletter/ingest.p0', 5113 ),
+				'offsets:ingest.p0': sized( 'offsets:ingest.p0', 292 ),
+				'deadletter:ingest.p0': sized( 'deadletter:ingest.p0', 5113 ),
 			},
 		} );
 		useTopologyManager.mockReturnValue(
@@ -466,10 +466,10 @@ describe( 'Overview fleet board', () => {
 			( p ) => p.title === 'Partition Size'
 		).series;
 		expect( Object.keys( size ).sort() ).toEqual( [
-			'deadletter/ingest.p0',
-			'offsets/ingest.p0',
+			'deadletter:ingest.p0',
+			'offsets:ingest.p0',
 		] );
-		expect( size[ 'deadletter/ingest.p0' ].points[ 0 ].value ).toBe( 5113 );
+		expect( size[ 'deadletter:ingest.p0' ].points[ 0 ].value ).toBe( 5113 );
 	} );
 
 	it( 'feeds each panel its per-topic 24h series rolled up from the probe view, one point per bucket', () => {

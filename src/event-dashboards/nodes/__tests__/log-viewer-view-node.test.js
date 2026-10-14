@@ -61,7 +61,7 @@ test( 'a struct record whose VALUE has its own `name` still renders', () => {
 	);
 	v.fill(
 		envelopeMsg( {
-			from: 'offsets/combined.firehose.p0/firehose:consumer',
+			from: 'offsets:combined.firehose.p0/firehose:consumer',
 			value: { segment: 1338, offset: 658179, name: 'firehose:consumer' },
 		} )
 	);
@@ -631,7 +631,7 @@ test( 'adopts the first AVAILABLE catalog row when nothing is selected', () => {
 	node._control( {
 		action: 'logs',
 		logs: [
-			{ key: 'sources/debug', label: 'debug', available: false },
+			{ key: 'sources:debug', label: 'debug', available: false },
 			{ key: 'kea-7713.p3', label: 'kea-7713.p3', available: true },
 		],
 	} );
@@ -644,8 +644,8 @@ test( 'never adopts a catalog row that names no log', () => {
 		action: 'logs',
 		logs: [
 			{ label: 'broken-6620', available: false, error: 'no <nope:x>' },
-			{ key: 'sources/debug', label: 'debug', available: false },
+			{ key: 'sources:debug', label: 'debug', available: false },
 		],
 	} );
-	expect( node.selected ).toBe( 'sources/debug' );
+	expect( node.selected ).toBe( 'sources:debug' );
 } );

@@ -35,7 +35,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	/** The spoke service that answers a reader's step, fetch and discovery. */
 	public const RAW_LOGS_SERVICE = 'raw-logs';
 
-	/** The stamp this reader's lines carry: a partition dir or `sources/<name>`. */
+	/** The stamp this reader's lines carry: a partition dir or `sources:<name>`. */
 	protected string $stamp = '';
 
 	/** The broker routing this reader's lines; null until it adopts the reader. */
@@ -950,7 +950,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * Probe seam: this reader's Consumer record, through
 	 * `Durable_Reader::probe_record()`, as `Consumer_Node::probe_stats()` sends
 	 * its own. SOURCE names the spoke's log as this site does,
-	 * `remote/<vault_id>:<kind>`, never the spoke's bare stamp, which would name
+	 * `remote:<vault_id>:<stamp>`, never the spoke's bare stamp, which would name
 	 * a log of this site's own; READER is the id the broker composes from its
 	 * worker binding. Both come from the broker (`probe_names()`) as it names
 	 * this reader, and both are blank without one.
@@ -1167,7 +1167,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 			'category'     => 'Hidden',
 			'description'  => 'Durable reader for one stream a broker carries (built by the broker).',
 			'arguments'    => [
-				[ 'name' => 'stamp', 'type' => 'string', 'required' => true, 'description' => 'The stamp this stream\'s lines carry: a spoke partition dir or sources/<name>.' ],
+				[ 'name' => 'stamp', 'type' => 'string', 'required' => true, 'description' => 'The stamp this stream\'s lines carry: a spoke partition dir or sources:<name>.' ],
 				[ 'name' => 'offsetlog_dir', 'type' => 'string', 'required' => true, 'partition' => 'bound', 'description' => 'Directory for the durable read-cursor offsetlog.' ],
 				[ 'name' => 'deadletter_dir', 'type' => 'string', 'required' => true, 'partition' => 'bound', 'description' => 'Directory where poison records are quarantined.' ],
 			],

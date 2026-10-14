@@ -4,7 +4,7 @@
  * segments: a file source is one, its inode at the file's size.
  *
  * A seek needs no transport of its own.
- * `RemoteLink.addPairs( [ '<sub>:<target>' ], positions )` puts the seed on
+ * `RemoteLink.addPairs( [ '<sub>=<target>' ], positions )` puts the seed on
  * the stream URL as `&positions=`, the controller narrows each entry through
  * `SSE_Out::position_arg`, and the Consumer opens there through
  * `next_offset()`. Four seeds cover every control:
@@ -176,7 +176,7 @@ export default function useLogPositions( sub ) {
  * reply was in flight is dropped without a cancellation flag (ADR-7).
  *
  * @param {Object} o       Rail inputs.
- * @param {string} o.sub   The partition dir or `sources/<name>`; '' empties the rail and asks nothing.
+ * @param {string} o.sub   The partition dir or `sources:<name>`; '' empties the rail and asks nothing.
  * @param {string} o.scope Names this read's own nodes.
  * @param {Object} o.graph The `useStreamGraph` handle the rail browses, whose
  *                         group's Tap `dump_log` passes.

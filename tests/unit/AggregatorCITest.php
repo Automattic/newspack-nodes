@@ -103,7 +103,7 @@ class AggregatorCITest extends TestCase {
 		$lines = [
 			"var num_partitions = {$num_partitions}",
 			'make_node Remote_Job_Rewrite remote-job-rewrite',
-			'make_node Vault_Group firehose Remote_Source tw-edge <config:offsets_dir>/<topology>.{id} <config:deadletter_dir>/<topology>.{id} firehose.p{partition}:remote-job-rewrite',
+			'make_node Vault_Group firehose Remote_Source tw-edge <config:offsets_dir>/<topology>.{id} <config:deadletter_dir>/<topology>.{id} firehose.p{partition}=remote-job-rewrite',
 			...$written,
 		];
 		\file_put_contents( "{$this->tmp}/topologies/{$topology}.tsl", \implode( "\n", $lines ) . "\n" );
@@ -145,7 +145,7 @@ class AggregatorCITest extends TestCase {
 	}
 
 	public function test_list_servers_lists_a_written_reader_beside_the_group(): void {
-		$this->seed_group_topology( [ 'tw0', 'tw9' ], 1, 'aggregator', [ 'make_node Remote_Source spoke-x9 lone <config:offsets_dir>/x9 <config:deadletter_dir>/x9 firehose.p{partition}:remote-job-rewrite' ] );
+		$this->seed_group_topology( [ 'tw0', 'tw9' ], 1, 'aggregator', [ 'make_node Remote_Source spoke-x9 lone <config:offsets_dir>/x9 <config:deadletter_dir>/x9 firehose.p{partition}=remote-job-rewrite' ] );
 
 		$decoded = self::list_servers();
 
@@ -154,7 +154,7 @@ class AggregatorCITest extends TestCase {
 	}
 
 	public function test_list_servers_lists_a_wired_http_source(): void {
-		$this->seed_group_topology( [], 1, 'aggregator', [ 'make_node HTTP_Source pull-x6 lone <config:offsets_dir>/x6 <config:deadletter_dir>/x6 firehose.p{partition}:remote-job-rewrite' ] );
+		$this->seed_group_topology( [], 1, 'aggregator', [ 'make_node HTTP_Source pull-x6 lone <config:offsets_dir>/x6 <config:deadletter_dir>/x6 firehose.p{partition}=remote-job-rewrite' ] );
 		Core::$memd->set( \Newspack_Nodes\HTTP_Source_Node::status_key_for( 'pull-x6', 0 ), [ 'last_response' => 41940 ], 60 );
 
 		$decoded = self::list_servers();
@@ -225,9 +225,9 @@ class AggregatorCITest extends TestCase {
 
 	public function test_list_servers_reports_each_readers_cursor_from_the_probe_log(): void {
 		$this->seed_group_topology( [ 'tw0', 'tw9' ], 2 );
-		$this->seed_probe( 'aggregator.firehose:tw9:firehose.p1.p1', 'remote/tw9:firehose.p1', 12, 7311, null );
-		$this->seed_probe( 'aggregator.firehose:tw9:sources:php.p0', 'remote/tw9:sources:php', null, 40913, null );
-		$this->seed_probe( 'aggregator.firehose:tw0:firehose.p0.p0', 'remote/tw0:firehose.p0', 3, 88, null );
+		$this->seed_probe( 'aggregator.firehose:tw9:firehose.p1.p1', 'remote:tw9:firehose.p1', 12, 7311, null );
+		$this->seed_probe( 'aggregator.firehose:tw9:sources:php.p0', 'remote:tw9:sources:php', null, 40913, null );
+		$this->seed_probe( 'aggregator.firehose:tw0:firehose.p0.p0', 'remote:tw0:firehose.p0', 3, 88, null );
 		$this->seed_probe( 'aggregator.firehose.p1', 'firehose.p1', 4, 19, 5 );
 
 		$readers = \array_column( self::list_servers(), 'readers', 'id' );
@@ -235,7 +235,7 @@ class AggregatorCITest extends TestCase {
 		$this->assertSame(
 			[
 				[ 'stamp' => 'firehose.p1', 'partition' => 1, 'cursor' => '12:7311', 'distance' => null ],
-				[ 'stamp' => 'sources/php', 'partition' => 0, 'cursor' => ':40913', 'distance' => null ],
+				[ 'stamp' => 'sources:php', 'partition' => 0, 'cursor' => ':40913', 'distance' => null ],
 			],
 			$readers['firehose:tw9']
 		);
@@ -245,13 +245,13 @@ class AggregatorCITest extends TestCase {
 	/** A poll inside one probe cadence answers from the rows the last poll read. */
 	public function test_list_servers_reads_the_probe_log_once_a_probe_cadence(): void {
 		$this->seed_group_topology( [ 'tw9' ] );
-		$this->seed_probe( 'aggregator.firehose:tw9:firehose.p0.p0', 'remote/tw9:firehose.p0', 5, 8813, null );
+		$this->seed_probe( 'aggregator.firehose:tw9:firehose.p0.p0', 'remote:tw9:firehose.p0', 5, 8813, null );
 		self::list_servers();
 		$memd = Core::$memd;
 		VerbHarness::reset();
 		Core::$memd                           = $memd;
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
-		$this->seed_probe( 'aggregator.firehose:tw9:sources:php.p0', 'remote/tw9:sources:php', null, 61027, null );
+		$this->seed_probe( 'aggregator.firehose:tw9:sources:php.p0', 'remote:tw9:sources:php', null, 61027, null );
 
 		$readers = \array_column( self::list_servers(), 'readers', 'id' );
 
@@ -260,7 +260,7 @@ class AggregatorCITest extends TestCase {
 
 	public function test_summary_reads_no_probe_log_and_list_servers_does(): void {
 		$this->seed_group_topology( [ 'tw9' ] );
-		$this->seed_probe( 'aggregator.firehose:tw9:firehose.p0.p0', 'remote/tw9:firehose.p0', 5, 8813, null );
+		$this->seed_probe( 'aggregator.firehose:tw9:firehose.p0.p0', 'remote:tw9:firehose.p0', 5, 8813, null );
 		$scanned                        = [];
 		\Newspack_Nodes\Partition_Node::$scandir = static function ( string $dir ) use ( &$scanned ) {
 			$scanned[] = \basename( $dir );

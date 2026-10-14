@@ -165,7 +165,7 @@ POST  /wp-json/newspack-nodes/v1/health/runtime
 
 Narrow internal loopback endpoint [`wp nodes doctor`](cli.md#doctor-health-report) uses to read the two
 health rows whose answer depends on the PHP runtime asking: the cache backend
-the WEB runtime selects, and whether every `sources/<name>` its active
+the WEB runtime selects, and whether every `sources:<name>` its active
 topologies read resolves in its log-source registry, whose built-ins read the
 runtime's own ini and constants. A probe run under WP-CLI can report a posture
 no visitor and no worker ever gets, because WP-CLI selects its own backend and
@@ -231,7 +231,7 @@ The four fields of each are fixed: `id`, `label`, `status` and `messages`, and
 `Health_Checks::MESSAGE_BYTES` (512) bytes holding no control, line- or
 paragraph-separator character. The cache row is `good` or `critical`. The
 log-sources row is `critical` when an active topology's `File_Tail` follows a
-file that does not resolve on this host, such as a `sources/<name>` the
+file that does not resolve on this host, such as a `sources:<name>` the
 registry lacks, naming the topology and carrying the load's own refusal, and
 `good` otherwise. (`wp nodes doctor` synthesizes `recommended` for both rows when the
 loopback reply cannot be verified whole.) A failed check is a canonical
@@ -605,7 +605,7 @@ the same snapshot, so an alert can never name a fleet the dashboard does not
 show.
 
 The same log carries one Partition record per log a worker covers, its READER
-blank and its SOURCE the log's SSE stamp (`ingest.p0`, `offsets/ingest.p0`),
+blank and its SOURCE the log's SSE stamp (`ingest.p0`, `offsets:ingest.p0`),
 or its path under the runtime base outside those roots, holding the log's byte length (`END_BYTES`) and the disk it takes
 (`END_DISK_BYTES`). `consumers[]` keys by READER and skips them; the
 Overview's Partition Size and On Disk panels read them off the stream.
@@ -656,7 +656,7 @@ carries `name`, `class`, `fans_out`, `args`, `verbs`, `origin` and `via`; an edg
 `from`, `to`, `origin`, `roles` — `connect`, `config`, `pair`, or several — and, where a
 config role exists, `config_slots` naming the setter verbs that made it. A `pair` edge runs
 from a `Remote_Source`, or a `Vault_Group` of them, to the target one of its
-`<source>:<target>` pairs names, which the broker writes through that pair's reader; no
+`<source>=<target>` pairs names, which the broker writes through that pair's reader; no
 `connect_node` or `disconnect_node` adds or removes one. `origin` is a LIST because a diamond
 include is provided by several directly-declared includes, while `via` is only the first path
 a node entered through. `hulls` maps every topology in
@@ -922,7 +922,7 @@ null for an absent optional, or a list of typed members for a `variadic` one. So
 topologies get Home` and `command_node topologies get --name=Home` reach `cmd_get()`
 alike, as `[ 'name' => 'Home' ]`. `raw-logs dump_log` answers
 `{ log_id, segments: [ { id, size } ], segment_count, total_size }` for the one
-partition dir or `sources/<name>` registry source it inspects: a segmented
+partition dir or `sources:<name>` registry source it inspects: a segmented
 source answers its segments and their summed `total_size`, and a file source
 one segment, `{ id: <inode>, size: <bytes> }`, the slot its stream's ID
 breadcrumbs carry, or none while the file is absent or unreadable.
@@ -934,7 +934,7 @@ file's inode, or one of `start`, `recent` and `end`, never the `positions` JSON
 the SSE route takes; the two vocabularies share those three words and nothing
 else. A segment-less position reads at that offset in the file the path holds
 now, and a partition dir refuses it as a malformed position. It reads a partition
-dir or a `sources/<name>` registry source, and an unknown or empty `log` is
+dir or a `sources:<name>` registry source, and an unknown or empty `log` is
 refused with an error. See
 [Log Sources](#log-sources) for the read model and the struct it answers.
 `raw-logs read_block` binds `<log> <position> [--multi_writer=<bool>]`: the log
@@ -1021,8 +1021,8 @@ answers:
 ```
 
 The subscriptions are resolved first, before the session and the slot. A
-prefix no stamp carries (`logs/x`, `secrets/x`), a name the stream's guard
-refuses (`offsets/Kea-1`) and a `sources/<name>` the registry lacks refuse the
+prefix no stamp carries (`logs:x`, `secrets:x`), a name the stream's guard
+refuses (`offsets:Kea-1`) and a `sources:<name>` the registry lacks refuse the
 stream with the reason; a registry that will not read is a server error:
 
 ```json
@@ -1141,27 +1141,27 @@ each number.
 ## Log Sources
 
 ```
-GET   /wp-json/newspack-nodes/v1/messages/stream?subscribe=sources/<name>
+GET   /wp-json/newspack-nodes/v1/messages/stream?subscribe=sources:<name>
 ```
 
 A [`Log_Sources`](../includes/class-log-sources.php) registry entry streams from
-[`/messages/stream`](#sse-stream) as the subscription `sources/<name>`, beside
+[`/messages/stream`](#sse-stream) as the subscription `sources:<name>`, beside
 partitions on the same stream. The name is a fixed **registry NAME**, opened as
 a [`Tail_Node`](../includes/class-tail-node.php) reader instead of a Consumer;
 a caller can never supply a path, so there is no traversal surface. On the wire
 a source is a partition: same `msg` events, `retry` and `connected`
 envelopes, heartbeat cadence, flush framing, idle close and slot pool, with each
-frame's FROM `sources/<name>`. Its blocks are typed `TM_BATCH|TM_BYTESTREAM`,
+frame's FROM `sources:<name>`. Its blocks are typed `TM_BATCH|TM_BYTESTREAM`,
 because a source's lines are text: a client wraps each as the TM_BYTESTREAM a
 Tail emits, VALUE the line with its newline.
 
 ![The Log_Sources registry: the three families merged in priority order with the tail mode each carries, the picker row Log_Sources::catalog() builds and the footprint dump_log answers, the two classes Log_Sources::open_tail() maps the mode token to, the one read model behind raw-logs read_message and read_block with the struct read_message answers, the malformed position it refuses and the empty read it answers with a null message.](img/api-log-stream-sources.png)
 
 The same registry backs `raw-logs`. `list_logs` lists every source as a
-`sources/<name>` row after the partition dirs, each row carrying `available`;
-`dump_log sources/<name>` sizes one, as `{ log_id, segments, segment_count,
-total_size }`; `read_message sources/<name> <position>` single-steps it; and
-`read_block sources/<name> <position>` answers one raw block of up to 1 MiB. A
+`sources:<name>` row after the partition dirs, each row carrying `available`;
+`dump_log sources:<name>` sizes one, as `{ log_id, segments, segment_count,
+total_size }`; `read_message sources:<name> <position>` single-steps it; and
+`read_block sources:<name> <position>` answers one raw block of up to 1 MiB. A
 source whose segments will not list takes an unavailable row carrying `error`
 beside every readable source, so one failure never blanks the picker. An active
 topology that will not read takes one too, labelled for the topology and keyed
@@ -1177,8 +1177,8 @@ READ role, with no nonce.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `subscribe` | string | yes | CSV of subscriptions, any mix of partitions and `sources/<name>`. A `sources/` name the registry lacks is refused before the stream opens, as `400 sse_subscription_invalid` carrying the teaching `unknown log source` error that lists the names that exist. No globs — registry sources are fixed for the life of a stream, and Tail's missing-file grace covers a source that appears, rotates or truncates mid-stream. |
-| `positions` | string | no | Optional resume positions, same vocabulary as the partition subscriptions: a JSON object keyed by the whole `sources/<name>` stamp, each value a `{segment, offset}` object or a seek sentinel (`0` start, `-1` end, `-2` recent), with `start`, `recent` and `end` accepted as aliases. [`File_Tail_Node`](../includes/class-file-tail-node.php) folds `recent` to the start, because one file has no previous segment to fall back to. The shape round-trips unchanged from the client's perspective: for a segmented source `segment` is the segment id; for a file-mode source the file's inode occupies the same slot, and the cursor self-validates against the live file and degrades to 0 on mismatch. That validation happens on the FIRST POLL, not at subscribe time — `open_subscription()` seeks before the file is open, so the pair is held as a candidate, and `cursor_position()` echoes the client's own unvalidated value straight back into the `connected` envelope's CURSORS. An unchanged echo is therefore not an acknowledgement that the server accepted it. A candidate counts toward `compute_lag()` only while it still names the live generation and sits within the file: honouring a stale pre-rotation position would declare the new generation caught up and let the stream idle-close on its first tick without ever delivering it. Omit to start at `end` (live tail). |
+| `subscribe` | string | yes | CSV of subscriptions, any mix of partitions and `sources:<name>`. A `sources:` name the registry lacks is refused before the stream opens, as `400 sse_subscription_invalid` carrying the teaching `unknown log source` error that lists the names that exist. No globs — registry sources are fixed for the life of a stream, and Tail's missing-file grace covers a source that appears, rotates or truncates mid-stream. |
+| `positions` | string | no | Optional resume positions, same vocabulary as the partition subscriptions: a JSON object keyed by the whole `sources:<name>` stamp, each value a `{segment, offset}` object or a seek sentinel (`0` start, `-1` end, `-2` recent), with `start`, `recent` and `end` accepted as aliases. [`File_Tail_Node`](../includes/class-file-tail-node.php) folds `recent` to the start, because one file has no previous segment to fall back to. The shape round-trips unchanged from the client's perspective: for a segmented source `segment` is the segment id; for a file-mode source the file's inode occupies the same slot, and the cursor self-validates against the live file and degrades to 0 on mismatch. That validation happens on the FIRST POLL, not at subscribe time — `open_subscription()` seeks before the file is open, so the pair is held as a candidate, and `cursor_position()` echoes the client's own unvalidated value straight back into the `connected` envelope's CURSORS. An unchanged echo is therefore not an acknowledgement that the server accepted it. A candidate counts toward `compute_lag()` only while it still names the live generation and sits within the file: honouring a stale pre-rotation position would declare the new generation caught up and let the stream idle-close on its first tick without ever delivering it. Omit to start at `end` (live tail). |
 | `multi_writer` | boolean | no | Inert for a source: the seal-grace belongs to a Consumer, and a source resolves to a `Tail_Node`. |
 
 ## The substrate as client

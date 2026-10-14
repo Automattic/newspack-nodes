@@ -86,7 +86,7 @@ Command sessions sit outside that pool. [`Command_Auth`](../includes/class-comma
 
 ![From a visitor's request to the operator's terminal](img/2026-09-10-terminal-chain.png)
 
-A visitor's URL or `User-Agent` carrying the escape byte `0x1B` reaches `wp-content/debug.log` through a PHP notice, and `cmd raw-logs read_message sources/debug start` in `wp nodes cli` prints it to the operator's terminal. Every terminal writer passes its text through `Core::terminal_safe()`, which renders each control character as a visible token such as `<1B>`, inverse video on a TTY, because a stripped byte hides the attack from the reader. `CONTROL_CLASS` is `[\x00-\x08\x0B-\x1F\x7F-\x9F]`; `CONTROL_SCAN` adds the C1 range in UTF-8 (`\xC2[\x80-\x9F]`). `Stdout_Node::write_raw()` bypasses it for a caller composing a sequence on purpose, and the console's `clear` command is its only user.
+A visitor's URL or `User-Agent` carrying the escape byte `0x1B` reaches `wp-content/debug.log` through a PHP notice, and `cmd raw-logs read_message sources:debug start` in `wp nodes cli` prints it to the operator's terminal. Every terminal writer passes its text through `Core::terminal_safe()`, which renders each control character as a visible token such as `<1B>`, inverse video on a TTY, because a stripped byte hides the attack from the reader. `CONTROL_CLASS` is `[\x00-\x08\x0B-\x1F\x7F-\x9F]`; `CONTROL_SCAN` adds the C1 range in UTF-8 (`\xC2[\x80-\x9F]`). `Stdout_Node::write_raw()` bypasses it for a caller composing a sequence on purpose, and the console's `clear` command is its only user.
 
 **Rendering rather than refusing, for a UTF-8 terminal.** `terminal_safe()` refuses nothing, where [`Health_Probe_Client::valid_result()`](../includes/class-health-probe-client.php) refuses a remote health message carrying any control, line-separator or paragraph-separator character: that message has a fixed shape, and a log tail holds whatever the log holds. It defends UTF-8 mode, the mode every terminal reading these logs runs in; another mode means escaping every high byte and mangling every non-ASCII log line.
 
@@ -136,7 +136,7 @@ The logger's MCP server and profiler mu-plugin are two more doors, described in 
 
 Three need a paragraph each.
 
-**`read` reaches every registered log source.** `raw-logs read_message`, `raw-logs read_block` and a `sources/<name>` stream need only `read`, so any `read` holder can read the PHP error log. `READ_VERBS` holds the fourteen read-only builtins that `capability_for()` exempts from the `manage` floor on the command endpoint; none reads a log. That is by design: the capability's docblock says `read` reaches the raw firehose.
+**`read` reaches every registered log source.** `raw-logs read_message`, `raw-logs read_block` and a `sources:<name>` stream need only `read`, so any `read` holder can read the PHP error log. `READ_VERBS` holds the fourteen read-only builtins that `capability_for()` exempts from the `manage` floor on the command endpoint; none reads a log. That is by design: the capability's docblock says `read` reaches the raw firehose.
 
 **`log_sources` accepts any absolute path.** An administrator adds `name=/path`; `parse_entry()` refuses only a relative path, `..` and NUL. With the paragraph above, adding `wp-config.php` hands every `read` account the salts the command-signing secret and the Vault key derive from. Only `manage_options` can add a source, so this is a mistake rather than an escalation.
 

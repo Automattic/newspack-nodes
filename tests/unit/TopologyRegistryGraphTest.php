@@ -363,7 +363,7 @@ class TopologyRegistryGraphTest extends TestCase {
 	/** An HTTP_Source is a broker by the base, as the Vault reload finds one. */
 	public function test_nodes_of_type_finds_an_http_source_as_a_broker(): void {
 		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
-		$this->write_tsl( 'vicuna-http-pull', "make_node HTTP_Source pull:okapi okapi-5521 /var/vicuna/off /var/vicuna/dl ledger.p0:ledger-sink-5521\n" );
+		$this->write_tsl( 'vicuna-http-pull', "make_node HTTP_Source pull:okapi okapi-5521 /var/vicuna/off /var/vicuna/dl ledger.p0=ledger-sink-5521\n" );
 
 		$brokers = Topology_Analyzer::nodes_of_type( 'vicuna-http-pull', \Newspack_Nodes\Remote_Broker_Node::class );
 
@@ -376,7 +376,7 @@ class TopologyRegistryGraphTest extends TestCase {
 	public function test_graph_for_starts_a_broker_subclass_s_pairs_past_its_own_bound_arguments(): void {
 		require_once __DIR__ . '/../Helpers/fixtures/class-wombat-quad-source-node.php';
 		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\Fixtures\\' );
-		$this->write_tsl( 'quad-pull', "make_node Wombat_Quad_Source quad:okapi okapi-7 /var/quad/off /var/quad/dl cap.p0:cap-sink ledger.p0:ledger-sink tapir.p0:tapir-sink\n" );
+		$this->write_tsl( 'quad-pull', "make_node Wombat_Quad_Source quad:okapi okapi-7 /var/quad/off /var/quad/dl cap.p0=cap-sink ledger.p0=ledger-sink tapir.p0=tapir-sink\n" );
 
 		$graph = Topology_Analyzer::graph_for( 'quad-pull' );
 
@@ -393,7 +393,7 @@ class TopologyRegistryGraphTest extends TestCase {
 			( new \ReflectionProperty( \Newspack_Nodes\Command_Interpreter_Node::class, $property ) )->setValue( null, [] );
 		}
 		$this->assertNull( \Newspack_Nodes\Command_Interpreter_Node::resolve_class( 'Remote_Source' ), 'precondition: nothing resolves' );
-		$this->write_tsl( 'vicuna-cold', "make_node Remote_Source pull:okapi okapi-3307 /var/vicuna/off /var/vicuna/dl ledger.p0:ledger-sink-3307\n" );
+		$this->write_tsl( 'vicuna-cold', "make_node Remote_Source pull:okapi okapi-3307 /var/vicuna/off /var/vicuna/dl ledger.p0=ledger-sink-3307\n" );
 
 		$node = Topology_Analyzer::graph_for( 'vicuna-cold' )['nodes'][0];
 
@@ -403,14 +403,14 @@ class TopologyRegistryGraphTest extends TestCase {
 
 	/** A broker's spoke and pairs are read by name, quotes stripped; each pair draws an edge. */
 	public function test_graph_for_names_what_a_remote_source_pulls_and_where(): void {
-		$this->write_tsl( 'vicuna-pull', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl \"ledger.p{partition}:ledger-sink\" sources/php:php-errors:partition\n" );
+		$this->write_tsl( 'vicuna-pull', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl \"ledger.p{partition}=ledger-sink\" sources:php=php-errors:partition\n" );
 
 		$graph = Topology_Analyzer::graph_for( 'vicuna-pull' );
 		$node  = $graph['nodes'][0];
 
 		$this->assertSame( 'okapi-7', $node['vault_id'] );
 		$this->assertSame(
-			[ [ 'source' => 'ledger.p{partition}', 'target' => 'ledger-sink' ], [ 'source' => 'sources/php', 'target' => 'php-errors:partition' ] ],
+			[ [ 'source' => 'ledger.p{partition}', 'target' => 'ledger-sink' ], [ 'source' => 'sources:php', 'target' => 'php-errors:partition' ] ],
 			$node['pairs']
 		);
 		$this->assertArrayNotHasKey( 'reads', $node, 'a remote pull reads no local log' );
@@ -419,14 +419,14 @@ class TopologyRegistryGraphTest extends TestCase {
 	}
 
 	public function test_graph_for_skips_a_malformed_pair_without_failing(): void {
-		$this->write_tsl( 'vicuna-bad', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl ledger.p0 sources/php:php-errors\n" );
+		$this->write_tsl( 'vicuna-bad', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl ledger.p0 sources:php=php-errors\n" );
 
-		$this->assertSame( [ [ 'source' => 'sources/php', 'target' => 'php-errors' ] ], Topology_Analyzer::graph_for( 'vicuna-bad' )['nodes'][0]['pairs'] );
+		$this->assertSame( [ [ 'source' => 'sources:php', 'target' => 'php-errors' ] ], Topology_Analyzer::graph_for( 'vicuna-bad' )['nodes'][0]['pairs'] );
 	}
 
 	/** A pair the load would refuse draws no edge, so the graph shows only what loads. */
 	public function test_a_pair_the_runtime_refuses_draws_no_edge(): void {
-		$this->write_tsl( 'vicuna-orphan', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl :orphan-4 sources/php: ledger.p{partition}:ledger-sink-7\n" );
+		$this->write_tsl( 'vicuna-orphan', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl =orphan-4 sources:php= ledger.p{partition}=ledger-sink-7\n" );
 
 		$drawn = \array_map( static fn ( array $edge ): string => "{$edge[0]}>{$edge[1]}", Topology_Analyzer::graph_for( 'vicuna-orphan' )['edges'] );
 		$expanded = \array_map( static fn ( array $edge ): string => "{$edge['from']}>{$edge['to']}", Topology_Analyzer::expand( [ 'vicuna-orphan' ] )['edges'] );
@@ -437,7 +437,7 @@ class TopologyRegistryGraphTest extends TestCase {
 
 	/** A target naming `{partition}` draws its edge to the node as the TSL names it. */
 	public function test_a_pair_target_keeps_its_partition_token(): void {
-		$this->write_tsl( 'vicuna-lane', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl ledger.p{partition}:lane-sink.p{partition}\n" );
+		$this->write_tsl( 'vicuna-lane', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl ledger.p{partition}=lane-sink.p{partition}\n" );
 
 		$this->assertSame( [ [ 'pull:okapi', 'lane-sink.p{partition}' ] ], Topology_Analyzer::graph_for( 'vicuna-lane' )['edges'] );
 		$this->assertSame( [ 'lane-sink.p{partition}' ], \array_column( Topology_Analyzer::expand( [ 'vicuna-lane' ] )['edges'], 'to' ) );
@@ -448,7 +448,7 @@ class TopologyRegistryGraphTest extends TestCase {
 			'zeta_pairs',
 			static fn ( string $key ): ?string => 'lane' === $key ? 'quagga-lane' : null
 		);
-		$this->write_tsl( 'vicuna-token', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl '<zeta_pairs:lane>.p{partition}:lane-sink-3'\n" );
+		$this->write_tsl( 'vicuna-token', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl '<zeta_pairs:lane>.p{partition}=lane-sink-3'\n" );
 
 		$graph = Topology_Analyzer::graph_for( 'vicuna-token' );
 
@@ -458,7 +458,7 @@ class TopologyRegistryGraphTest extends TestCase {
 
 	/** A pair edge has a role of its own, and a disconnect on the broker leaves it. */
 	public function test_a_pair_edge_carries_the_pair_role_and_outlives_a_disconnect(): void {
-		$line = "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl ledger.p0:ledger-sink-5 errors.p0:errors-sink-6\n";
+		$line = "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl ledger.p0=ledger-sink-5 errors.p0=errors-sink-6\n";
 		$this->write_tsl( 'vicuna-cut', $line . "disconnect_node pull:okapi\n" );
 
 		$edges = Topology_Analyzer::graph_for( 'vicuna-cut' )['edges'];
@@ -476,7 +476,7 @@ class TopologyRegistryGraphTest extends TestCase {
 
 	/** The analyzer refuses the connect a load would refuse, so no reader draws it. */
 	public function test_a_connect_onto_a_broker_fails_the_topology(): void {
-		$this->write_tsl( 'vicuna-wired', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl ledger.p0:ledger-sink-5\nconnect_node pull:okapi tapir-sink-8\n" );
+		$this->write_tsl( 'vicuna-wired', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl ledger.p0=ledger-sink-5\nconnect_node pull:okapi tapir-sink-8\n" );
 
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'pull:okapi takes no target: Remote_Source declares has_target false' );
@@ -486,12 +486,12 @@ class TopologyRegistryGraphTest extends TestCase {
 	/** @return array<string,array{string,string}> Label => a `make_node` line naming `<partition>`, then the span it names. */
 	public static function angle_partition_lines(): array {
 		return [
-			'a bare pair source'          => [ "make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl sources/php:php-errors ledger.p<partition>:ledger-sink-5\n", 'ledger.p<partition>:ledger-sink-5' ],
+			'a bare pair source'          => [ "make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl sources:php=php-errors ledger.p<partition>:ledger-sink-5\n", 'ledger.p<partition>:ledger-sink-5' ],
 			'a double-quoted pair source' => [ "make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl \"jobs.p<partition>:jobs-sink-6\"\n", '"jobs.p<partition>:jobs-sink-6"' ],
 			'a single-quoted pair'        => [ "make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl 'jobs.p<partition>:jobs-sink-7'\n", "'jobs.p<partition>:jobs-sink-7'" ],
 			'a backticked pair'           => [ "make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl `jobs.p<partition>:jobs-sink-7`\n", '`jobs.p<partition>:jobs-sink-7`' ],
 			'a File_Tail source_file'     => [ "make_node File_Tail app:tail-6 /var/log/heron.<partition>.log /var/heron/off\n", '/var/log/heron.<partition>.log' ],
-			'a target'                    => [ "make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl jobs.p{partition}:jobs-sink.p<partition>\n", 'jobs.p{partition}:jobs-sink.p<partition>' ],
+			'a target'                    => [ "make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl jobs.p{partition}=jobs-sink.p<partition>\n", 'jobs.p{partition}=jobs-sink.p<partition>' ],
 		];
 	}
 
@@ -514,7 +514,7 @@ class TopologyRegistryGraphTest extends TestCase {
 	/** @return array<string,array{string,string}> Label => a line `make_node` refuses at load, then the refusal. */
 	public static function partition_layout_lines(): array {
 		return [
-			'an unmarked argument'   => [ "make_node Remote_Source pull:okapi okapi-{partition} /var/vicuna/off /var/vicuna/dl firehose.p0:ledger-sink\n", "vault_id takes no {partition}" ],
+			'an unmarked argument'   => [ "make_node Remote_Source pull:okapi okapi-{partition} /var/vicuna/off /var/vicuna/dl firehose.p0=ledger-sink\n", "vault_id takes no {partition}" ],
 			'a fixed offsetlog'      => [ "make_node File_Tail app:tail-8 /var/log/heron.{partition}.log /var/heron/off /var/heron/dl.{partition}\n", 'File_Tail app:tail-8: a per-partition source needs per-partition offsetlog and deadletter dirs; add {partition}' ],
 			'a fixed deadletter'     => [ "make_node File_Tail app:tail-8 /var/log/heron.{partition}.log /var/heron/off.{partition} /var/heron/dl\n", 'File_Tail app:tail-8: a per-partition source needs per-partition offsetlog and deadletter dirs; add {partition}' ],
 			'a Consumer, fixed offsetlog' => [ "make_node Consumer heron:consumer-8 /var/heron/log.p{partition} /var/heron/off /var/heron/dl.p{partition}\n", 'Consumer heron:consumer-8: a per-partition source needs per-partition offsetlog and deadletter dirs; add {partition}' ],
@@ -544,10 +544,10 @@ class TopologyRegistryGraphTest extends TestCase {
 	/** @return array<string,array{string}> Label => a line written in `{partition}`, or naming none. */
 	public static function brace_partition_lines(): array {
 		return [
-			'a pair source'                 => [ "make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl jobs.p{partition}:jobs-sink-7\n" ],
+			'a pair source'                 => [ "make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl jobs.p{partition}=jobs-sink-7\n" ],
 			'a per-worker File_Tail'        => [ "make_node File_Tail app:tail-7 /var/log/heron.{partition}.log /var/heron/off.{partition} /var/heron/dl.{partition}\n" ],
 			'a fixed File_Tail, fixed dirs' => [ "make_node File_Tail app:tail-7 /var/log/heron.log /var/heron/off /var/heron/dl\n" ],
-			'a target naming {partition}'   => [ "make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl jobs.p{partition}:jobs-sink.p{partition}\n" ],
+			'a target naming {partition}'   => [ "make_node Remote_Source pull:tapir tapir-3 /var/vicuna/off /var/vicuna/dl jobs.p{partition}=jobs-sink.p{partition}\n" ],
 		];
 	}
 

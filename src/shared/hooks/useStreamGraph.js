@@ -86,10 +86,10 @@ const NO_ROWS = [];
  *
  * @param {?string[]} subs The subscriptions; null names none.
  * @param {string}    tee  The graph's `<prefix>:stream`.
- * @return {string[]} The `<sub>:<tee>` pairs.
+ * @return {string[]} The `<sub>=<tee>` pairs.
  */
 const pairsFor = ( subs, tee ) =>
-	( subs ?? [] ).map( ( sub ) => `${ sub }:${ tee }` );
+	( subs ?? [] ).map( ( sub ) => `${ sub }=${ tee }` );
 
 CommandInterpreterNode.registerNodeClasses( {
 	CatalogListView: CatalogListViewNode,

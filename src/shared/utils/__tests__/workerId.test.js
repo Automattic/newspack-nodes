@@ -45,18 +45,38 @@ describe( 'workerOfFrom', () => {
 		],
 		[
 			'a worker behind a grouped stamp',
-			'offsets/x.p0/job-worker.p2/jobstats',
+			'offsets:x.p0/job-worker.p2/jobstats',
 			'job-worker.p2',
 		],
 		[ 'a bare probe behind a plain stamp', 'jobstats.p0/jobstats', '' ],
-		[ 'a bare probe behind a grouped stamp', 'offsets/x.p0/jobstats', '' ],
+		[ 'a bare probe behind a grouped stamp', 'offsets:x.p0/jobstats', '' ],
+		[
+			"a worker behind a broker reader's stamp",
+			'offsets:hub-9:firehose.p0/job-worker.p2/topicprobe',
+			'job-worker.p2',
+		],
+		[
+			'a worker named like a stamp, behind a registry stamp',
+			'sources:php/offsets:hub-9:firehose.p0.p3/requests:consumer',
+			'offsets:hub-9:firehose.p0.p3',
+		],
+		[
+			'a slash spelling reads its group as the stamp',
+			'offsets/x.p0/job-worker.p2/jobstats',
+			'',
+		],
+		[
+			'a cli reply trail names no worker',
+			'jobstats.p0/_output/_cli:4471',
+			'',
+		],
 		[ 'a padded partition', 'jobstats.p0/foo.p01/jobstats', '' ],
 		[ 'a longer trail', 'jobstats.p0/a/b/c', '' ],
 		[ 'a stamp alone', 'jobstats.p0', '' ],
 		[ 'an empty FROM', '', '' ],
 		[
 			'a deadletter group',
-			'deadletter/x.p0/tablestats.p7/tablestats',
+			'deadletter:x.p0/tablestats.p7/tablestats',
 			'tablestats.p7',
 		],
 	] )( '%s', ( _label, from, expected ) => {

@@ -369,7 +369,7 @@ class TopicProbeTest extends TestCase {
 		self::probe_into( $capture )->fire_cb();
 
 		$sources = \array_map( static fn ( array $m ): string => $m[ Message::VALUE ][ Probe_Record::SOURCE ], $capture->captured );
-		$this->assertSame( [ 'ingest.p0', 'offsets/ingest.p0', 'deadletter/ingest.p0', 'ipc/job-worker.p2/output' ], $sources );
+		$this->assertSame( [ 'ingest.p0', 'offsets:ingest.p0', 'deadletter:ingest.p0', 'ipc/job-worker.p2/output' ], $sources );
 	}
 
 	/** A Partition never written has no directory and nothing to report. */

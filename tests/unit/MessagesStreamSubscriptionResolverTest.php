@@ -52,7 +52,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$consumers = $ctrl->open_subscription( 'firehose.p0', [ 'firehose.p0' => Consumer_Node::SEEK_END ] );
 
 		$offset = new \ReflectionProperty( Consumer_Node::class, 'cursor_offset' );
-		$this->assertSame( \strlen( $line ), $offset->getValue( $consumers[0] ), 'seeked to the live end' );
+		$this->assertSame( \strlen( $line ), $offset->getValue( \current( $consumers ) ), 'seeked to the live end' );
 	}
 
 	public function test_a_position_string_resolves_as_that_place(): void {
@@ -67,7 +67,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 
 		$consumers = $ctrl->open_subscription( 'firehose.p0', [ 'firehose.p0' => '0:' . \strlen( $line ) ] );
 
-		$this->assertSame( '0:' . \strlen( $line ), $consumers[0]->cursor_position(), 'a position string reads as the place it names' );
+		$this->assertSame( '0:' . \strlen( $line ), \current( $consumers )->cursor_position(), 'a position string reads as the place it names' );
 	}
 
 	public function test_a_zero_position_resolves_to_the_start_of_the_log(): void {
@@ -86,7 +86,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		);
 
 		$offset = new \ReflectionProperty( Consumer_Node::class, 'cursor_offset' );
-		$this->assertSame( 0, $offset->getValue( $consumers[0] ), 'replays from the start, not the tail' );
+		$this->assertSame( 0, $offset->getValue( \current( $consumers ) ), 'replays from the start, not the tail' );
 	}
 
 	public function test_stream_refuses_a_position_word_it_does_not_know(): void {
@@ -186,7 +186,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 
 		$consumers = $ctrl->open_subscription( 'firehose.p0', null );
 
-		$this->assertTrue( $this->read_private( $consumers[0], 'multi_writer' ) );
+		$this->assertTrue( $this->read_private( \current( $consumers ), 'multi_writer' ) );
 	}
 
 	public function test_log_consumer_has_no_seal_grace_by_default(): void {
@@ -198,7 +198,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 
 		$consumers = $ctrl->open_subscription( 'requests.p0', null );
 
-		$this->assertFalse( $this->read_private( $consumers[0], 'multi_writer' ) );
+		$this->assertFalse( $this->read_private( \current( $consumers ), 'multi_writer' ) );
 	}
 
 	public function test_ipc_consumer_never_gets_seal_grace(): void {
@@ -212,7 +212,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$consumers = $ctrl->open_subscription( 'firehose-workers.p0', null );
 
 		$this->assertCount( 1, $consumers );
-		$this->assertFalse( $this->read_private( $consumers[0], 'multi_writer' ) );
+		$this->assertFalse( $this->read_private( \current( $consumers ), 'multi_writer' ) );
 	}
 
 	public function test_a_partition_appearing_mid_stream_gets_the_same_seal_grace(): void {
@@ -225,11 +225,11 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 
 		$consumers  = [];
 		$glob_owned = [];
-		foreach ( $ctrl->open_subscription( 'firehose.*', null ) as $c ) {
-			$c->name( $c->stamped_as() );
+		foreach ( $ctrl->open_subscription( 'firehose.*', null ) as $stamp => $c ) {
+			$c->name( $stamp );
 			$c->sink( $route );
-			$consumers[ $c->stamped_as() ]  = $c;
-			$glob_owned[ $c->stamped_as() ] = true;
+			$consumers[ $stamp ]  = $c;
+			$glob_owned[ $stamp ] = true;
 		}
 
 		\mkdir( "{$this->tmp}/logs/firehose.p1", 0755, true );
@@ -243,10 +243,10 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->tmp );
 
-		$consumers = $ctrl->open_subscription( 'offsets/combined.firehose.p0', null );
+		$consumers = $ctrl->open_subscription( 'offsets:combined.firehose.p0', null );
 
 		$this->assertCount( 1, $consumers );
-		$this->assertSame( 'offsets/combined.firehose.p0', $consumers[0]->stamped_as() );
+		$this->assertSame( [ 'offsets:combined.firehose.p0' ], \array_keys( $consumers ) );
 	}
 
 	/** A broker reader's stamp opens the reader dir under its root, and reads it. */
@@ -266,11 +266,11 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$consumers = $ctrl->open_subscription( $stamp, [ $stamp => 'start' ] );
 
 		$this->assertCount( 1, $consumers );
-		$this->assertSame( $stamp, $consumers[0]->stamped_as() );
+		$this->assertSame( [ $stamp ], \array_keys( $consumers ) );
 		try {
-			$this->assertSame( $line, $consumers[0]->raw_block( 4096 )['bytes'] );
+			$this->assertSame( $line, \current( $consumers )->raw_block( 4096 )['bytes'] );
 		} finally {
-			$consumers[0]->remove_node();
+			\current( $consumers )->remove_node();
 		}
 	}
 
@@ -291,48 +291,42 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->tmp );
 
-		$consumers = $ctrl->open_subscription( 'deadletter/combined.firehose.*', null );
+		$consumers = $ctrl->open_subscription( 'deadletter:combined.firehose.*', null );
 
 		$this->assertSame(
-			[ 'deadletter/combined.firehose.p0', 'deadletter/combined.firehose.p1' ],
-			\array_map( static fn ( $c ) => $c->stamped_as(), $consumers )
+			[ 'deadletter:combined.firehose.p0', 'deadletter:combined.firehose.p1' ],
+			\array_keys( $consumers )
 		);
 	}
 
 	public function test_explicit_logs_prefix_is_rejected_not_aliased(): void {
-		// `logs/x` would stamp identically to bare `x` yet skip the IPC-tail
-		// preference — two spellings, different sources. One spelling only.
+		// `logs:x` would name bare `x` twice; one spelling only.
 		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->tmp );
 
 		$this->expectException( \InvalidArgumentException::class );
-		$ctrl->open_subscription( 'logs/firehose.p0', null );
+		$ctrl->open_subscription( 'logs:firehose.p0', null );
 	}
 
-	public function test_a_log_dir_named_like_a_group_is_refused_by_name(): void {
-		// Bare, it would stamp as a group prefix and every frame would misread.
+	/** A stamp is one segment, so a log may take a group's name and reads as itself. */
+	public function test_a_log_dir_named_like_a_group_opens_as_itself(): void {
 		foreach ( [ 'offsets', 'deadletter', 'logs' ] as $group ) {
 			\mkdir( "{$this->tmp}/logs/{$group}", 0755, true );
 			$ctrl = new SSE_Out_Node();
 			$ctrl->set_base_dir( $this->tmp );
-			try {
-				$ctrl->open_subscription( $group, null );
-				$this->fail( "logs/{$group} opened" );
-			} catch ( \InvalidArgumentException $e ) {
-				$this->assertSame( "log dir {$group} is named like a group; rename it", $e->getMessage() );
-			}
+
+			$this->assertSame( [ $group ], \array_keys( $ctrl->open_subscription( $group, null ) ) );
 		}
 	}
 
-	public function test_a_glob_matching_a_log_dir_named_like_a_group_is_refused(): void {
+	public function test_a_glob_matches_a_log_dir_named_like_a_group(): void {
 		\mkdir( "{$this->tmp}/logs/orders.p0", 0755, true );
 		\mkdir( "{$this->tmp}/logs/offsets", 0755, true );
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->tmp );
 
-		$this->expectExceptionMessage( 'log dir offsets is named like a group; rename it' );
-		$ctrl->open_subscription( 'o*', null );
+		$this->assertSame( [ 'offsets', 'orders.p0' ], \array_keys( $ctrl->open_subscription( 'o*', null ) ) );
 	}
 
 	public function test_unknown_group_prefix_is_rejected(): void {
@@ -341,14 +335,14 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$ctrl->set_base_dir( $this->tmp );
 
 		$this->expectException( \InvalidArgumentException::class );
-		$ctrl->open_subscription( 'secrets/x.p0', null );
+		$ctrl->open_subscription( 'secrets:x.p0', null );
 	}
 
 	/** @return array<string,array{string}> Label => a group prefix naming no dir under it. */
 	public static function bare_group_prefixes(): array {
 		return [
-			'offsets'    => [ 'offsets/' ],
-			'deadletter' => [ 'deadletter/' ],
+			'offsets'    => [ 'offsets:' ],
+			'deadletter' => [ 'deadletter:' ],
 		];
 	}
 
@@ -402,13 +396,30 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 
 		$consumers = $ctrl->open_subscription( 'firehose.*', null );
 
-		$ref    = new \ReflectionProperty( Consumer_Node::class, 'stamp_override' );
-		$stamps = [];
-		foreach ( $consumers as $c ) {
-			$stamps[] = $ref->getValue( $c );
-		}
+		$stamps = \array_keys( $consumers );
 		\sort( $stamps );
 		$this->assertSame( [ 'firehose.p0', 'firehose.p1', 'firehose.p2' ], $stamps );
+	}
+
+	/** A reader named its colon stamp is one Router segment, so a reply TO its FROM reaches it. */
+	public function test_a_reply_to_a_stream_readers_from_reaches_it_through_the_router(): void {
+		\mkdir( "{$this->tmp}/offsets/combined.firehose.p0", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+		$reader = $ctrl->open_subscription( 'offsets:combined.firehose.p0', null )['offsets:combined.firehose.p0'];
+		$reader->without_config();
+		$reader->name( 'offsets:combined.firehose.p0' );
+		$sink = new \Newspack_Nodes\Tests\Capture_Sink_Node();
+		$reader->sink( $sink );
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$reply[ Message::TO ]    = 'offsets:combined.firehose.p0';
+		$reply[ Message::VALUE ] = 'reply-4471';
+
+		( new \Newspack_Nodes\Router_Node() )->fill( $reply );
+
+		$this->assertSame( [ 'reply-4471' ], \array_column( $sink->captured, Message::VALUE ) );
+		$this->assertSame( 1, $reader->counter() );
 	}
 
 	public function test_empty_glob_returns_no_consumers(): void {
@@ -432,16 +443,10 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 			[ 'firehose.p1' => [ 'segment' => 2, 'offset' => 5 ] ]
 		);
 
-		$stamp = new \ReflectionProperty( Consumer_Node::class, 'stamp_override' );
-		$segment   = new \ReflectionProperty( Consumer_Node::class, 'cursor_segment' );
-		$offset   = new \ReflectionProperty( Consumer_Node::class, 'cursor_offset' );
-		$seeded = null;
-		foreach ( $consumers as $c ) {
-			if ( 'firehose.p1' === $stamp->getValue( $c ) ) {
-				$seeded = $c;
-			}
-		}
-		$this->assertNotNull( $seeded, 'a consumer is stamped with the concrete dir name' );
+		$segment = new \ReflectionProperty( Consumer_Node::class, 'cursor_segment' );
+		$offset  = new \ReflectionProperty( Consumer_Node::class, 'cursor_offset' );
+		$seeded  = $consumers['firehose.p1'] ?? null;
+		$this->assertNotNull( $seeded, 'a consumer is keyed by the concrete dir name' );
 		$this->assertSame( 2, $segment->getValue( $seeded ) );
 		$this->assertSame( 5, $offset->getValue( $seeded ) );
 	}
@@ -457,11 +462,11 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 
 		$consumers  = [];
 		$glob_owned = [];
-		foreach ( $ctrl->open_subscription( 'firehose.*', null ) as $c ) {
-			$c->name( $c->stamped_as() );
+		foreach ( $ctrl->open_subscription( 'firehose.*', null ) as $stamp => $c ) {
+			$c->name( $stamp );
 			$c->sink( $route );
-			$consumers[ $c->stamped_as() ]  = $c;
-			$glob_owned[ $c->stamped_as() ] = true;
+			$consumers[ $stamp ]  = $c;
+			$glob_owned[ $stamp ] = true;
 		}
 		$this->assertSame( [ 'firehose.p0' ], \array_keys( $consumers ) );
 
@@ -486,18 +491,17 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 
 		$consumers  = [];
 		$glob_owned = [];
-		foreach ( $ctrl->open_subscription( 'firehose.*', null ) as $c ) {
-			$c->name( $c->stamped_as() );
+		foreach ( $ctrl->open_subscription( 'firehose.*', null ) as $stamp => $c ) {
+			$c->name( $stamp );
 			$c->sink( $route );
-			$consumers[ $c->stamped_as() ]  = $c;
-			$glob_owned[ $c->stamped_as() ] = true;
+			$consumers[ $stamp ]  = $c;
+			$glob_owned[ $stamp ] = true;
 		}
 		// An exact IPC consumer whose name MATCHES `firehose.*` (fnmatch true) but
 		// is NOT glob-owned, and has no logs/ dir. Pattern-match removal would drop
 		// it; ownership-based removal must keep it.
 		$exact = new Consumer_Node();
 		$exact->arguments( [ "{$this->tmp}/ipc/firehose.p9/output" ] );
-		$exact->set_stamp_as( 'firehose.p9' );
 		$exact->name( 'firehose.p9' );
 		$exact->sink( $route );
 		$consumers['firehose.p9'] = $exact;
@@ -530,7 +534,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$consumers = $ctrl->open_subscription( 'Kea-7713.p3', null );
 
 		$this->assertCount( 1, $consumers );
-		$this->assertStringStartsWith( "{$this->tmp}/ipc/Kea-7713.p3/output", $consumers[0]->arguments()[0] );
+		$this->assertStringStartsWith( "{$this->tmp}/ipc/Kea-7713.p3/output", \current( $consumers )->arguments()[0] );
 	}
 
 	public function test_ipc_subscription_falls_back_to_log_partition_when_no_worker(): void {
@@ -550,7 +554,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$this->assertContainsOnlyInstancesOf( Consumer_Node::class, $consumers );
 		$this->assertStringStartsWith(
 			"{$this->tmp}/logs/firehose.p0",
-			$consumers[0]->arguments()[0],
+			\current( $consumers )->arguments()[0],
 			'log fallback must tail the flat concrete partition dir, not the nested {name}.log/p{N}'
 		);
 	}
@@ -568,7 +572,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$this->assertCount( 1, $consumers );
 		$this->assertStringStartsWith(
 			"{$this->tmp}/ipc/demo-workers.p0/output",
-			$consumers[0]->arguments()[0],
+			\current( $consumers )->arguments()[0],
 			'must tail the persisting IPC output dir, not fall back to the log feed'
 		);
 	}
@@ -627,8 +631,8 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 			[ 'demo-workers.p3' => [ 'segment' => 7, 'offset' => $lengths[0] ] ]
 		);
 
-		$this->assertSame( "7:{$lengths[0]}", $consumers[0]->cursor_position(), 'seeded, not tail-seeked' );
-		$this->assertSame( [ 'reply-in-gap', 'later-output' ], $this->drained_values( $consumers[0] ) );
+		$this->assertSame( "7:{$lengths[0]}", \current( $consumers )->cursor_position(), 'seeded, not tail-seeked' );
+		$this->assertSame( [ 'reply-in-gap', 'later-output' ], $this->drained_values( \current( $consumers ) ) );
 	}
 
 	public function test_ipc_attach_with_no_position_tail_seeks(): void {
@@ -640,8 +644,8 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 
 		$consumers = $ctrl->open_subscription( 'demo-workers.p3', [ 'another-worker.p1' => [ 'segment' => 7, 'offset' => 0 ] ] );
 
-		$this->assertSame( '7:' . \array_sum( $lengths ), $consumers[0]->cursor_position() );
-		$this->assertSame( [], $this->drained_values( $consumers[0] ) );
+		$this->assertSame( '7:' . \array_sum( $lengths ), \current( $consumers )->cursor_position() );
+		$this->assertSame( [], $this->drained_values( \current( $consumers ) ) );
 	}
 
 	public function test_ipc_attach_resuming_into_a_deleted_segment_replays_from_the_oldest(): void {
@@ -657,7 +661,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 			[ 'demo-workers.p3' => [ 'segment' => 4, 'offset' => 91 ] ]
 		);
 
-		$this->assertSame( [ 'oldest-surviving', 'newest' ], $this->drained_values( $consumers[0] ) );
+		$this->assertSame( [ 'oldest-surviving', 'newest' ], $this->drained_values( \current( $consumers ) ) );
 	}
 
 	public function test_an_exact_name_no_dir_carries_opens_nothing(): void {
@@ -665,7 +669,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->tmp );
 
-		$this->assertSame( [], $ctrl->open_subscription( 'offsets/kea-7713.p3', null ) );
+		$this->assertSame( [], $ctrl->open_subscription( 'offsets:kea-7713.p3', null ) );
 	}
 
 	public function test_an_exact_name_the_guard_refuses_is_refused_though_its_dir_exists(): void {
@@ -686,7 +690,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 
 		$consumers = $ctrl->open_subscription( 'kea-7713.p3', null );
 
-		$this->assertSame( [ 'kea-7713.p3' ], \array_map( static fn ( $c ) => $c->stamped_as(), $consumers ) );
+		$this->assertSame( [ 'kea-7713.p3' ], \array_keys( $consumers ) );
 	}
 
 	public function test_invalid_subscription_throws(): void {
@@ -791,7 +795,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		);
 
 		$this->assertCount( 1, $consumers );
-		$consumer = $consumers[0];
+		$consumer = \current( $consumers );
 		// next_offset's array branch seeds cursor_segment / cursor_offset directly.
 		// Reflect on the protected fields to confirm the resolver routed
 		// the supplied position through (instead of silently falling
@@ -810,7 +814,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 
 		$consumers = $ctrl->open_subscription( 'kea-7713.*', [ 'kea-7713.p3' => SSE_Out_Node::SKIP ] );
 
-		$this->assertSame( [ 'kea-7713.p0' ], \array_map( static fn ( $c ) => $c->stamped_as(), $consumers ) );
+		$this->assertSame( [ 'kea-7713.p0' ], \array_keys( $consumers ) );
 	}
 
 	public function test_a_skipped_exact_stamp_opens_no_reader(): void {
@@ -828,7 +832,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$ctrl = new SSE_Out_Node();
 
 		try {
-			$this->assertSame( [], $ctrl->open_subscription( 'sources/gyro', [ 'sources/gyro' => SSE_Out_Node::SKIP ] ) );
+			$this->assertSame( [], $ctrl->open_subscription( 'sources:gyro', [ 'sources:gyro' => SSE_Out_Node::SKIP ] ) );
 		} finally {
 			\Newspack_Nodes\Log_Sources::$builtin_sources = null;
 		}

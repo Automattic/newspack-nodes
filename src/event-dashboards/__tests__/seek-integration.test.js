@@ -215,7 +215,7 @@ describe( 'Log Viewer over a file source', () => {
 	function fileFrame( id ) {
 		const m = newMessage();
 		m[ TYPE ] = TM_BYTESTREAM;
-		m[ FROM ] = 'sources/access';
+		m[ FROM ] = 'sources:access';
 		m[ ID ] = id;
 		m[ VALUE ] = `line ${ id }`;
 		return m;
@@ -236,10 +236,10 @@ describe( 'Log Viewer over a file source', () => {
 		// One available file source: inode 4242 at 977 bytes is the boundary.
 		boot( {
 			list_logs: [
-				{ key: 'sources/access', label: 'access', available: true },
+				{ key: 'sources:access', label: 'access', available: true },
 			],
 			dump_log: {
-				log_id: 'sources/access',
+				log_id: 'sources:access',
 				segments: [ { id: 4242, size: 977 } ],
 				segment_count: 1,
 				total_size: 977,
@@ -275,7 +275,7 @@ describe( 'Log Viewer over a file source', () => {
 		await act( async () => {
 			FakeEventSource.last.dispatch(
 				'connected',
-				pack( connectedEnvelope( 'sources/access' ) )
+				pack( connectedEnvelope( 'sources:access' ) )
 			);
 			FakeEventSource.last.dispatch(
 				'msg',
@@ -305,7 +305,7 @@ describe( 'Log Viewer over a file source', () => {
 		await act( async () => {
 			FakeEventSource.last.dispatch(
 				'connected',
-				pack( connectedEnvelope( 'sources/access' ) )
+				pack( connectedEnvelope( 'sources:access' ) )
 			);
 			FakeEventSource.last.dispatch(
 				'msg',

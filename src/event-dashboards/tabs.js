@@ -11,7 +11,7 @@
  * settles that tie alphabetically by label.
  *
  * The Log Viewer reads every log the substrate knows: packed partition
- * dirs and plain registry files alike, a file streamed as `sources/<name>`. It
+ * dirs and plain registry files alike, a file streamed as `sources:<name>`. It
  * declares `fullBleed`, owning a full-height split like the Console instead of
  * the host's scroll container, and claims the `log` query param, which the
  * host clears from the URL while another tab is active. It renders no debug

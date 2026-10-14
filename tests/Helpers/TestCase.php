@@ -561,7 +561,7 @@ abstract class TestCase extends PHPUnitTestCase {
 
 	/**
 	 * A raw block as a stream's reader sends it: its header, then its bytes,
-	 * both stamped FROM the stream. A `sources/` stamp is a Tail's, whose
+	 * both stamped FROM the stream. A `sources:` stamp is a Tail's, whose
 	 * lines are text.
 	 *
 	 * @param string   $stamp    The stream the block belongs to.
@@ -578,7 +578,7 @@ abstract class TestCase extends PHPUnitTestCase {
 			'offset'   => $offset,
 			'distance' => $distance ?? \strlen( $bytes ),
 			'reset'    => false,
-			'type'     => \str_starts_with( $stamp, 'sources/' ) ? Message::TM_BATCH | Message::TM_BYTESTREAM : Message::TM_BATCH,
+			'type'     => null !== \Newspack_Nodes\Log_Discovery::source_name( $stamp ) ? Message::TM_BATCH | Message::TM_BYTESTREAM : Message::TM_BATCH,
 		] );
 		$messages[0][ Message::FROM ] = $stamp;
 		$messages[1][ Message::FROM ] = $stamp;

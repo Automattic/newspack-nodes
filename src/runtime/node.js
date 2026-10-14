@@ -724,9 +724,15 @@ export class Node {
 	 * Register this node under `name`, or rename it if it already has one.
 	 *
 	 * @param {string} name The new name.
-	 * @throws {Error} When `name` is already registered in this registry.
+	 * @throws {Error} When `name` is already registered in this registry, or
+	 *   holds the Router's `/`.
 	 */
 	set name( name ) {
+		if ( String( name ).includes( '/' ) ) {
+			throw new Error(
+				`node name ${ name } holds a /, which the Router reads as a path separator`
+			);
+		}
 		const registry = this.registry;
 		const previous = this._name;
 		if ( name !== previous && null !== registry.node( name ) ) {

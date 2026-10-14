@@ -1,7 +1,7 @@
 <?php
 /**
  * Log_Sources: the fixed name → log-source registry behind `list_logs`,
- * `dump_log`, `read_message` and a `sources/<name>` subscription on
+ * `dump_log`, `read_message` and a `sources:<name>` subscription on
  * `/messages/stream`.
  *
  * A caller always addresses a source by registry NAME — never a path, so
@@ -28,7 +28,7 @@ namespace Newspack_Nodes;
  * Composes the registry and serves every read of a log by its stamp: the
  * picker `catalog()`, a log's `footprint()`, the single-step `read()`, and
  * the reader a subscription opens. Each branches on `Log_Discovery::split()`,
- * so a `sources/<name>` stamp resolves through the registry and any other
+ * so a `sources:<name>` stamp resolves through the registry and any other
  * through `Log_Discovery::dir_of()` (ADR-29). Static throughout, because the
  * registry resolves per request out of the options table and the active
  * topologies — there is nothing to hold between calls.
@@ -61,7 +61,7 @@ class Log_Sources {
 
 	/**
 	 * Every registry source as a picker row, keyed by the stamp it streams
-	 * under: `sources/<name>`, its name as the label, and whether a Tail
+	 * under: `sources:<name>`, its name as the label, and whether a Tail
 	 * would find bytes there now. A source whose segments will not list
 	 * takes an unavailable row carrying `error`, and an active topology that
 	 * will not read takes one labelled for the topology and keyed by no
@@ -175,7 +175,7 @@ class Log_Sources {
 	 * the file stamps its breadcrumbs with; it lists none while the file is
 	 * absent or unreadable.
 	 *
-	 * @param string $stamp A dir stamp or `sources/<name>`.
+	 * @param string $stamp A dir stamp or `sources:<name>`.
 	 * @return array{segments:list<array{id:int,size:int}>,total_size:int}
 	 * @throws \InvalidArgumentException On a stamp no dir or registry entry carries.
 	 */
@@ -266,7 +266,7 @@ class Log_Sources {
 	 * both registry modes drive identically; segment rolls, torn records and
 	 * length-blindness are subtle enough that a second copy drifts.
 	 *
-	 * @param string $log      A dir stamp or `sources/<name>`.
+	 * @param string $log      A dir stamp or `sources:<name>`.
 	 * @param string $position Magic token, or `[<segment>]:<offset>[:<length>]`.
 	 * @return array{source:string,message:array<array-key,mixed>|null,cursor:array{segment:int,offset:int},at_eof:bool}
 	 * @throws \InvalidArgumentException On a malformed position, a segment-less one on a
@@ -299,7 +299,7 @@ class Log_Sources {
 	 * the position. Splitting lines, torn and cut ones included, is the
 	 * reader's work at the other end.
 	 *
-	 * @param string $log          A dir stamp or `sources/<name>`.
+	 * @param string $log          A dir stamp or `sources:<name>`.
 	 * @param string $position     As `read()` takes it.
 	 * @param bool   $multi_writer Whether the log has more than one writer.
 	 * @return array{bytes:string,segment:?int,offset:int,distance:int,reset:bool,type:int}
@@ -316,7 +316,7 @@ class Log_Sources {
 	 * opened, naming `$verb`.
 	 *
 	 * @template T
-	 * @param string                       $log          A dir stamp or `sources/<name>`.
+	 * @param string                       $log          A dir stamp or `sources:<name>`.
 	 * @param string                       $position     Magic token, or `[<segment>]:<offset>[:<length>]`.
 	 * @param string                       $verb         The verb a refusal names.
 	 * @param bool                         $multi_writer The reader's seal-grace.
@@ -349,7 +349,7 @@ class Log_Sources {
 
 	/**
 	 * Open ONE named log as a durable reader stamped with that name: a
-	 * `sources/<name>` stamp as its registry entry's Tail, any other as the
+	 * `sources:<name>` stamp as its registry entry's Tail, any other as the
 	 * cursorless `Consumer_Node::scan()` over the dir it names, the reader the
 	 * stream opens, so a line that will not unpack is skipped and counted.
 	 * `read()`, the single-step read, opens its reader here; the stream
@@ -357,7 +357,7 @@ class Log_Sources {
 	 * `Log_Discovery::dir_of()` and `entry()`, so a name means one log
 	 * wherever it is read. No sidecar is built; the caller sets the cursor.
 	 *
-	 * @param string $log A dir stamp or `sources/<name>`.
+	 * @param string $log A dir stamp or `sources:<name>`.
 	 * @return Consumer_Node The reader, stamped `$log`.
 	 * @throws \InvalidArgumentException On a stamp no dir or registry entry carries.
 	 */
@@ -521,7 +521,7 @@ class Log_Sources {
 	}
 
 	/**
-	 * The file a `sources/<name>` path names, for a Tail a topology declares.
+	 * The file a `sources:<name>` path names, for a Tail a topology declares.
 	 * Only the built-in and config families answer: the topology family is
 	 * built by reading the active topologies, which a topology being loaded
 	 * cannot depend on, and its entries are segmented Logs, not files.

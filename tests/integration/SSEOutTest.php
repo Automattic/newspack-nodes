@@ -157,6 +157,32 @@ class SSEOutTest extends TestCase {
 		$this->rmdir_recursive( $base );
 	}
 
+	/** A stream reader is named its colon stamp, and stamps a block's FROM by that one segment. */
+	public function test_a_stream_reader_stamps_its_block_with_its_one_segment_name(): void {
+		$base = $this->make_temp_dir( 'msg-stream-stamp-' );
+		$p    = new Partition_Node();
+		$p->arguments( [ "{$base}/offsets/combined.firehose.p0" ] );
+		$line                   = Message::new_message();
+		$line[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$line[ Message::FROM ]  = 'requests:consumer';
+		$line[ Message::VALUE ] = "cursor-6631\n";
+		$p->fill( $line );
+		$p->flush();
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $base );
+		SSE_Out_Node::$check_slot = $this->boundedTicks( 20 );
+
+		\ob_start();
+		$ctrl->run_stream_loop( [ 'offsets:combined.firehose.p0' ], [ 'offsets:combined.firehose.p0' => 'start' ], 500 );
+		$events = $this->split_sse_events( (string) \ob_get_clean() );
+
+		$blocks = \array_values( \array_filter( \array_map( static fn ( array $e ): array => \json_decode( $e['data'], true ), $events ), static fn ( array $m ): bool => 0 !== ( $m[ Message::TYPE ] & Message::TM_BATCH ) ) );
+		$this->assertSame( [ 'offsets:combined.firehose.p0', 'offsets:combined.firehose.p0' ], \array_column( $blocks, Message::FROM ), 'the header and the batch' );
+		$this->assertSame( [ 'offsets:combined.firehose.p0/requests:consumer' ], \array_column( $this->client_records( $events )['records'], Message::FROM ) );
+
+		$this->rmdir_recursive( $base );
+	}
+
 	public function test_multi_partition_subscription_does_not_collide_on_consumer_name(): void {
 		// A multi-partition log subscription resolves to ONE Consumer per
 		// partition; they must get DISTINCT node names. Naming them all `$sub`

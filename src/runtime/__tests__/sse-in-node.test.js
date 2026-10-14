@@ -553,20 +553,20 @@ test( 'an explicitly closed stream stays closed on the next visible event', () =
 // Build a configured SseIn. `subscribe` is the only positional argument; the
 // transport coordinates (baseUrl + nonce) are set explicitly — they no longer
 // ride the make_node args, they come from the localized global by default.
-test( 'a grouped stamp keys resume positions by its full offsets/<dir> key', () => {
+test( 'a grouped stamp keys resume positions by its whole offsets:<dir> stamp', () => {
 	const { sse } = makeSseIn( {
-		subscribe: [ 'offsets/combined.firehose.p0' ],
+		subscribe: [ 'offsets:combined.firehose.p0' ],
 	} );
 	sse.start();
 	const m = newMessage();
 	m[ TYPE ] = TM_BYTESTREAM;
-	m[ FROM ] = 'offsets/combined.firehose.p0/producer';
+	m[ FROM ] = 'offsets:combined.firehose.p0/requests:consumer';
 	m[ ID ] = '3:100:50';
 	m[ VALUE ] = 'cursor frame';
 	FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );
 
 	expect( sse.seekMap() ).toEqual( {
-		'offsets/combined.firehose.p0': { segment: 3, offset: 150 },
+		'offsets:combined.firehose.p0': { segment: 3, offset: 150 },
 	} );
 } );
 
@@ -673,28 +673,28 @@ test( 'the connected envelope seeds positions for a zero-message stream', () => 
 } );
 
 test( 'a cursor naming no generation seeds the offset alone', () => {
-	const { sse } = makeSseIn( { subscribe: [ 'sources/php' ] } );
+	const { sse } = makeSseIn( { subscribe: [ 'sources:php' ] } );
 	sse.start();
 	FakeEventSource.last.dispatch(
 		'connected',
-		connectedFrame( { cursors: 'sources/php=:6731' } )
+		connectedFrame( { cursors: 'sources:php=:6731' } )
 	);
 
 	// Segment 0 would name a foreign inode, and the file would replay whole.
 	expect( sse.seekMap() ).toEqual( {
-		'sources/php': { offset: 6731 },
+		'sources:php': { offset: 6731 },
 	} );
 } );
 
 test( 'a cursor no position reads seeds nothing, as PHP skips it', () => {
 	const { sse } = makeSseIn( {
-		subscribe: [ 'firehose.p0', 'errors.p2', 'sources/php' ],
+		subscribe: [ 'firehose.p0', 'errors.p2', 'sources:php' ],
 	} );
 	sse.start();
 	FakeEventSource.last.dispatch(
 		'connected',
 		connectedFrame( {
-			cursors: 'firehose.p0=07:4410,errors.p2=end,sources/php=:8831',
+			cursors: 'firehose.p0=07:4410,errors.p2=end,sources:php=:8831',
 		} )
 	);
 
@@ -702,7 +702,7 @@ test( 'a cursor no position reads seeds nothing, as PHP skips it', () => {
 	expect( sse.seekMap() ).toEqual( {
 		'firehose.p0': -1,
 		'errors.p2': -1,
-		'sources/php': { offset: 8831 },
+		'sources:php': { offset: 8831 },
 	} );
 } );
 
@@ -2067,12 +2067,12 @@ describe( 'raw blocks', () => {
 	} );
 
 	test( "a source's block is lines of text, placed by their bytes", () => {
-		const { sse, routed } = makeSseIn( { subscribe: [ 'sources/php' ] } );
+		const { sse, routed } = makeSseIn( { subscribe: [ 'sources:php' ] } );
 		sse.start();
 
 		sendBlock(
 			FakeEventSource.last,
-			'sources/php',
+			'sources:php',
 			'77031:12',
 			'PHP Warning café 5521\nsecond 6604\n',
 			TM_BATCH | TM_BYTESTREAM
@@ -2084,7 +2084,7 @@ describe( 'raw blocks', () => {
 			[ TM_BYTESTREAM, 'PHP Warning café 5521\n', '77031:12:23' ],
 			[ TM_BYTESTREAM, 'second 6604\n', '77031:35:12' ],
 		] );
-		expect( routed[ 0 ][ FROM ] ).toBe( 'sources/php' );
+		expect( routed[ 0 ][ FROM ] ).toBe( 'sources:php' );
 	} );
 
 	test( 'a line a block cuts short is joined from the next', () => {

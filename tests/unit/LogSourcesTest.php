@@ -12,7 +12,7 @@ use Newspack_Nodes\Tests\TestCase;
 
 /**
  * The shared log-source registry behind `list_logs`, `dump_log`, `read_message`
- * and the `sources/<name>` stream.
+ * and the `sources:<name>` stream.
  *
  * Locks the {name => {path, mode}} entry shape and the three-family merge:
  * built-ins (file mode) → config `log_sources` (file mode) → active-topology
@@ -133,7 +133,7 @@ class LogSourcesTest extends TestCase {
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $real ];
 		$this->use_base_dir( $this->tmp, [ 'log_sources' => [ "phpalias={$link}" ] ] );
 
-		$this->assertSame( [ 'sources/php' ], \array_column( Log_Sources::catalog(), 'key' ) );
+		$this->assertSame( [ 'sources:php' ], \array_column( Log_Sources::catalog(), 'key' ) );
 		$this->assertSame( $link, Log_Sources::entry( 'phpalias' )['path'], 'the alias still resolves' );
 	}
 
@@ -151,7 +151,7 @@ class LogSourcesTest extends TestCase {
 			$this->assertSame( $debug, Log_Sources::file_source_path( $name ), "file lookup of {$name}" );
 			$this->assertSame( $debug, Log_Sources::entry( $name )['path'], "registry lookup of {$name}" );
 		}
-		$this->assertSame( [ 'sources/php' ], \array_column( Log_Sources::catalog(), 'key' ), 'the picker lists the file once, under the first name' );
+		$this->assertSame( [ 'sources:php' ], \array_column( Log_Sources::catalog(), 'key' ), 'the picker lists the file once, under the first name' );
 	}
 
 	// ── topology inference ─────────────────────────────────────────────────
@@ -282,7 +282,7 @@ class LogSourcesTest extends TestCase {
 
 		try {
 			$this->assertFalse( Log_Sources::is_available( [ 'path' => $path, 'mode' => Tail_Node::MODE_FILE ] ) );
-			$this->assertSame( [ 'segments' => [], 'total_size' => 0 ], Log_Sources::footprint( 'sources/sealed' ) );
+			$this->assertSame( [ 'segments' => [], 'total_size' => 0 ], Log_Sources::footprint( 'sources:sealed' ) );
 		} finally {
 			\chmod( $path, 0600 );
 		}
@@ -328,7 +328,7 @@ class LogSourcesTest extends TestCase {
 
 	/** The stepped read `raw-logs read_message` drives, over one registry source. */
 	private function read_source( string $name, string $position ): array {
-		return Log_Sources::read( "sources/{$name}", $position );
+		return Log_Sources::read( "sources:{$name}", $position );
 	}
 
 	public function test_catalog_lists_each_source_keyed_by_its_stamp(): void {
@@ -336,7 +336,7 @@ class LogSourcesTest extends TestCase {
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $present ];
 
 		$this->assertSame(
-			[ [ 'key' => 'sources/php', 'label' => 'php', 'available' => true ] ],
+			[ [ 'key' => 'sources:php', 'label' => 'php', 'available' => true ] ],
 			Log_Sources::catalog()
 		);
 	}
@@ -354,7 +354,7 @@ class LogSourcesTest extends TestCase {
 		\file_put_contents( "{$base}.3", \str_repeat( 'a', 977 ) );
 		\file_put_contents( "{$base}.3.idx", 'not-a-segment' );
 
-		$footprint = Log_Sources::footprint( 'sources/gate-decisions.jsonl' );
+		$footprint = Log_Sources::footprint( 'sources:gate-decisions.jsonl' );
 
 		$this->assertSame(
 			[
@@ -394,9 +394,9 @@ class LogSourcesTest extends TestCase {
 		}
 
 		$by_key = \array_column( $rows, null, 'key' );
-		$this->assertTrue( $by_key['sources/php']['available'] );
-		$this->assertFalse( $by_key['sources/gate-decisions.jsonl']['available'] );
-		$this->assertStringContainsString( 'listing failed-9912', $by_key['sources/gate-decisions.jsonl']['error'] );
+		$this->assertTrue( $by_key['sources:php']['available'] );
+		$this->assertFalse( $by_key['sources:gate-decisions.jsonl']['available'] );
+		$this->assertStringContainsString( 'listing failed-9912', $by_key['sources:gate-decisions.jsonl']['error'] );
 	}
 
 	/**
@@ -437,7 +437,7 @@ class LogSourcesTest extends TestCase {
 
 		$rows = Log_Sources::catalog();
 
-		$this->assertSame( [ 'sources/php' ], \array_column( $rows, 'key' ), 'no row streams the topology' );
+		$this->assertSame( [ 'sources:php' ], \array_column( $rows, 'key' ), 'no row streams the topology' );
 		$this->assertTrue( $rows[0]['available'] );
 		$this->assertSame( [ 'label' => 'lsrc-dangling', 'available' => false ], \array_diff_key( $rows[1], [ 'error' => true ] ) );
 		$this->assertStringContainsString( 'nope:x', $rows[1]['error'] );
@@ -451,7 +451,7 @@ class LogSourcesTest extends TestCase {
 		$rows = Log_Sources::catalog();
 
 		$this->assertCount( 2, $rows );
-		$this->assertSame( 'sources/shared-6613', $rows[0]['key'] );
+		$this->assertSame( 'sources:shared-6613', $rows[0]['key'] );
 		$this->assertTrue( $rows[0]['available'], 'the source keeps its own valid row' );
 		$this->assertArrayNotHasKey( 'error', $rows[0] );
 		$this->assertArrayNotHasKey( 'key', $rows[1], 'a topology is no stream' );
@@ -466,7 +466,7 @@ class LogSourcesTest extends TestCase {
 
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'nope:x' );
-		Log_Sources::footprint( 'sources/dangling-4471.log' );
+		Log_Sources::footprint( 'sources:dangling-4471.log' );
 	}
 
 	public function test_read_source_returns_the_line_at_a_position_in_a_segment(): void {
@@ -577,7 +577,7 @@ class LogSourcesTest extends TestCase {
 		$inode = (int) \fileinode( $path );
 		$this->assertSame(
 			[
-				'source'  => 'sources/php',
+				'source'  => 'sources:php',
 				'message' => null,
 				'cursor'  => [ 'segment' => $inode, 'offset' => 0 ],
 				'at_eof'  => true,

@@ -1444,6 +1444,47 @@ class NodeTest extends TestCase {
 		$n->name( '' );
 	}
 
+	/** `/` is the Router's separator, so a name holding one could never be addressed. */
+	public function test_name_holding_a_slash_throws_and_registers_nothing(): void {
+		$n = new Capture_Sink_Node();
+
+		try {
+			$n->name( 'a/b-77' );
+			$this->fail( 'a slash name registered' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame( 'node name a/b-77 holds a /, which the Router reads as a path separator', $e->getMessage() );
+		}
+		$this->assertNull( Core::node( 'a/b-77' ) );
+		$this->assertNull( Core::node( 'a/b-77:config' ) );
+		$this->assertSame( '', $n->name() );
+	}
+
+	/** A sibling's name is checked before its patron registers, so the pair stays whole. */
+	public function test_a_sibling_name_holding_a_slash_throws_before_the_patron_registers(): void {
+		$publish = static fn ( Node $patron, string $kind ): mixed => ( new \ReflectionMethod( Node::class, 'publish_sibling' ) )->invoke( $patron, $kind, new Capture_Sink_Node() );
+		$patron  = new Capture_Sink_Node();
+		$patron->name( 'kea-4471' );
+
+		try {
+			$publish( $patron, 'b/x' );
+			$this->fail( 'a slash sibling registered' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame( 'node name kea-4471:b/x holds a /, which the Router reads as a path separator', $e->getMessage() );
+		}
+		$this->assertNull( Core::node( 'kea-4471:b/x' ) );
+
+		$renamed = new Capture_Sink_Node();
+		$publish( $renamed, 'ok' );
+		try {
+			$renamed->name( 'c/d-9' );
+			$this->fail( 'a slash rename registered' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( 'c/d-9', $e->getMessage() );
+		}
+		$this->assertNull( Core::node( 'c/d-9' ) );
+		$this->assertNull( Core::node( 'c/d-9:ok' ) );
+	}
+
 	public function test_name_null_throws(): void {
 		// null is the other "no value" input — name(null) throws too.
 		$n = new Capture_Sink_Node();

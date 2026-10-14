@@ -101,3 +101,28 @@ describe( 'a Node registers where it belongs', () => {
 		expect( Core.nodes.size ).toBe( 0 );
 	} );
 } );
+
+describe( 'a node name', () => {
+	it( 'refuses a slash, the Router’s separator, and registers nothing', () => {
+		const tee = new TeeNode();
+
+		expect( () => {
+			tee.name = 'a/b-77';
+		} ).toThrow(
+			'node name a/b-77 holds a /, which the Router reads as a path separator'
+		);
+		expect( Core.node( 'a/b-77' ) ).toBeNull();
+		expect( tee.name ).not.toBe( 'a/b-77' );
+	} );
+
+	it( 'refuses a slash on a rename and keeps the old name', () => {
+		const tee = new TeeNode();
+		tee.name = 'kea-4471';
+
+		expect( () => {
+			tee.name = 'kea/4471';
+		} ).toThrow( /holds a \// );
+		expect( Core.node( 'kea-4471' ) ).toBe( tee );
+		expect( tee.name ).toBe( 'kea-4471' );
+	} );
+} );

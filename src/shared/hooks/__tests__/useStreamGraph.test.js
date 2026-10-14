@@ -115,7 +115,7 @@ function spyOnStream() {
  * @param {string} sub The subscription.
  * @return {string} Its `<sub>:<tee>` pair.
  */
-const pairOf = ( sub ) => `${ sub }:${ TEE }`;
+const pairOf = ( sub ) => `${ sub }=${ TEE }`;
 
 /**
  * The seeks the spied `addPairs` carried, in call order.
@@ -669,7 +669,7 @@ describe( 'one connection per page', () => {
 		expect( FakeEventSource.instances.length - before ).toBe( 1 );
 		expect( subscribed() ).toBe( 'topicprobe.p0' );
 		expect( Core.node( LINK ).pairs ).toEqual( [
-			'topicprobe.p0:backlog:stream',
+			'topicprobe.p0=backlog:stream',
 		] );
 	} );
 
@@ -689,8 +689,8 @@ describe( 'one connection per page', () => {
 		await flush();
 		expect( FakeEventSource.instances ).toHaveLength( 1 );
 		expect( Core.node( LINK ).pairs ).toEqual( [
-			'jobstats.p0:jobs:stream',
-			'jobstats.p0:ledger:stream',
+			'jobstats.p0=jobs:stream',
+			'jobstats.p0=ledger:stream',
 		] );
 	} );
 
@@ -732,7 +732,7 @@ describe( 'one connection per page', () => {
 			} ).not.toThrow();
 			await flush();
 			expect( Core.node( LINK ).pairs ).toContain(
-				'jobstats.p0:ledger:stream'
+				'jobstats.p0=ledger:stream'
 			);
 		} );
 	} );
@@ -897,8 +897,8 @@ describe( 'one connection per page', () => {
 		await flush();
 		expect( Core.node( '_command_interpreter' ) ).not.toBe( before );
 		expect( [ ...Core.node( LINK ).pairs ].sort() ).toEqual( [
-			'jobstats.p0:jobs:stream',
-			'topicprobe.p0:backlog:stream',
+			'jobstats.p0=jobs:stream',
+			'topicprobe.p0=backlog:stream',
 		] );
 		expect(
 			FakeEventSource.instances.filter( ( es ) => ! es.closed )
@@ -913,8 +913,8 @@ describe( 'one connection per page', () => {
 		await flush();
 		expect( FakeEventSource.instances ).toHaveLength( 1 );
 		expect( [ ...Core.node( LINK ).pairs ].sort() ).toEqual( [
-			'jobstats.p0:jobs:stream',
-			'topicprobe.p0:backlog:stream',
+			'jobstats.p0=jobs:stream',
+			'topicprobe.p0=backlog:stream',
 		] );
 	} );
 } );

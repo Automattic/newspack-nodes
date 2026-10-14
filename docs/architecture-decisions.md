@@ -1913,8 +1913,8 @@ Released in 2.82.0 and removed in 2.83.0 with ADR-27. It moved each partition's 
 **Status:** Accepted
 
 **Context:** A log stamp names one log everywhere: an SSE subscription, a record's FROM, a
-picker key, `read_message` and `dump_log` all use it. Eight sites wrote the `sources/<name>`
-stamp or parsed the `{group}/{name}` grammar by hand, across `Log_Sources`,
+picker key, `read_message` and `dump_log` all use it. Eight sites wrote the `sources:<name>`
+stamp or parsed the `{group}:{name}` grammar by hand, across `Log_Sources`,
 `Raw_Logs_CI_Node` and `SSE_Out_Node`, and two resolvers turned a stamp into a dir. The
 stream split the prefix, held the name to its guard and globbed the live tree;
 `Log_Discovery::dir_of()` scanned a memoized catalog and inverted `stamp_for()` over every
@@ -1924,16 +1924,14 @@ answered one question, and a refusal came back as a returned string in one place
 in another.
 
 **Decision:** [`Log_Discovery::stamp_for()`](../includes/class-log-discovery.php) is the one
-writer of a stamp, for the dir roots and for `sources/<name>`. A stamp has one reader of a
-subscription, `Log_Discovery::split()`, and one of a FROM trail, `dir_from_stamp()`, whose
+writer of a stamp, for the dir roots and for `sources:<name>`. A stamp has one splitter,
+`Log_Discovery::split()`, and a FROM trail's stamp one reader, `dir_from_stamp()`, whose
 twin [`splitStamp()`](../src/runtime/log-stamp.js) `tests/fixtures/log-stamps.json` holds to
-it. The two differ on `logs/x`: `split()` refuses it, because a subscription has one
-spelling, while `dir_from_stamp()` reads a FROM it did not write and takes `logs/x` as that
-two-segment stamp. One resolver per kind turns a stamp into a reader: a dir by direct path
+it. One resolver per kind turns a stamp into a reader: a dir by direct path
 under the stream's guard, `Log_Discovery::dir_of()`, a glob by `dirs_matching()` under the
 same guard and the same one join of `{base}/{group}/`, and a source through the registry,
 `Log_Sources::entry()`. A File_Tail a topology declares names a source as
-`sources/<name>` and reaches the narrower sibling `Log_Sources::file_source_path()`:
+`sources:<name>` and reaches the narrower sibling `Log_Sources::file_source_path()`:
 built-in and config files only, because the topology family reads the active
 topologies, which a loading topology cannot depend on, and its entries are segmented
 logs, not files. Its `known:` list therefore names those files alone, where `entry()`'s
@@ -1952,74 +1950,80 @@ the stream's message, and a dir named like a group is refused by name wherever i
 addressed without breaking a lookup of any other. An unreadable topology keeps its picker row
 with a label and an error but no key, because it names no log. `scripts/lint-contract.mjs`
 holds the rule mechanically: outside `class-log-discovery.php`, no PHP joins
-`SOURCES_PREFIX` to a slash, reads `GROUPS` or `STAMP_PREFIXES`, compares `'logs'` with
-`$group`, joins `{$group}/` into a path, or spells a `sources/`, `offsets/`, `deadletter/` or
-`remote/` literal.
+`SOURCES_PREFIX` to a `:`, reads `GROUPS` or `STAMP_PREFIXES`, compares `'logs'` with
+`$group`, joins `{$group}/` into a path, splits a stamp on `:` or `/` by hand, or spells a
+`sources/`, `offsets/`, `deadletter/` or `remote/` literal, which a stale spelling and a
+hand-joined path both are.
 
 **Revisit if:** a stamp must name something that is neither a dir nor a registry entry.
-
-**Amendment: a stamp's kind has one codec.** A broker publishes each reader as a sibling
-under the stamp's KIND, which is also that reader's name suffix and the basename of its cursor
-and dead-letter dirs: the stamp with `/` spelled `:`, because the Router splits a TO on `/` and
-a step reply returns addressed to the reader's name. [`Log_Discovery::kind_of()`](../includes/class-log-discovery.php)
-writes a kind and `stamp_of()` reads one back, `kindOf()` in `src/runtime/log-stamp.js` its JS
-twin, and `tests/fixtures/log-kinds.json` holds both directions to one case list. The broker
-builds a reader's slot through `kind_of()` and reads a kind dir under its offsetlog root
-through `stamp_of()`.
 
 **Amendment: a spoke's log has a name of its own.** A hub's broker reader reports its
 position on the hub's own probe log, and a spoke's `firehose.p0` is not the hub's: two logs
 sharing one stamp merged the spoke's read rate into the hub's series, and a spoke's `jobs.p0`
-into the hub's jobs backlog. So a remote log's name is `remote/<vault_id>:<kind>` — the spoke's
-Vault id, then the stamp's kind — which [`Log_Discovery::remote_for()`](../includes/class-log-discovery.php)
+into the hub's jobs backlog. So a remote log's name is `remote:<vault_id>:<stamp>` — the spoke's
+Vault id, then its stamp — which [`Log_Discovery::remote_for()`](../includes/class-log-discovery.php)
 writes and `remote_of()` reads back, held to the browser's `remoteOf()` in
 [`src/runtime/log-stamp.js`](../src/runtime/log-stamp.js) by `tests/fixtures/log-remotes.json`.
-Neither a Vault id nor a stamp carries `:`, so the first `:` parts the two. A remote name is no
+A Vault id carries no `:`, so the first `:` after the prefix parts the two. A remote name is no
 stamp: it exists only in the hub's probe channel, as a broker reader's SOURCE, and `remote_of()`
 is its one reader. The FROM trail and the SSE wire keep the spoke's stamp, so `REMOTE_PREFIX`
-stays out of `STAMP_PREFIXES`: no stamp reader, resolver or subscription ever meets one, and a
-local log dir may be named `remote`. A local stamp never opens `remote/`, because a bare stamp
-holds no `/`. Rejected: `remote/<vault_id>/<stamp>`, which a FROM reader would cut at the second
-segment if one ever met it.
+stays out of `STAMP_PREFIXES`: `split()` reads `remote:…` as a `logs` name, which `is_stamp()`
+refuses, so no resolver or subscription ever opens one, and a local log dir may be named `remote`.
+A file a `File_Tail` follows may carry a basename that parses as a remote name, which its record
+reports as SOURCE; both readers of `remote_of()`, `Aggregator_CI` and the Workers dashboard,
+also demand the row's READER equal the id the broker gives that stamp, which only the broker's
+own reader reports.
 
-**Amendment: a broker reader's dir has a stamp of its own, and it is one segment.** A broker
-nests one reader dir per kind under each of its roots ([ADR-31](#adr-31-a-broker-derives-its-readers-from-what-its-remote-sends)),
-`offsets/hub.tw0/firehose.p0` and `offsets/hub.tw0/sources:php`, and the root holds no segments.
-The catalog listed the root, which opened empty, and no stamp named a reader dir. Such a dir's
-stamp is `<group>:<root>:<kind>`, the kind as it sits on disk: `offsets:hub.tw0:firehose.p0`,
-`offsets:hub.tw0:sources:php`, `deadletter:hub.tw0:firehose.p0`. It holds no `/`, because a FROM
-stamp stays one segment: `dir_from_stamp()` and `splitStamp()` keep their rule, and a FROM trail
-after a stamp never reads as part of one. One parser, `Log_Discovery::reader_parts()`, cuts it at
-its first two colons, the group one of
-[`READER_GROUPS`](../includes/class-log-discovery.php) (`offsets`, `deadletter`, from which `GROUPS`
-is built) and the root holding no `/`, and `reader-stamps.json` holds it to `readerParts()` in
-`src/runtime/log-stamp.js`. Neither the group nor a root holds a `:`, so the rest is the kind.
-`stamp_for()` writes the stamp from the dir's `<root>/<kind>` under its group and refuses by name a
-root holding a `:`, which would read back as another root and kind. A broker root is a first-level
-dir under those roots holding no segment whose subdirs do, as `broker_roots()` finds it with one
-`GLOB_ERR` glob over the second level and a segment check on each candidate root, so a reader
-without a checkpoint yet and a root nested a level deeper are no readers. `groups()` lists the
-readers in the root's place and hands a first-level dir it cannot read to `unreadable()`, which
-the catalog lists as an unavailable row, and `dirs_matching()` skips the root, answering null on
-such a dir, so a glob opens no broker root and,
-carrying no reader stamp, none of its readers. `source_for()` gives a reader's two sidecars the
-catalog's stamp when `is_stamp()` admits it and their path otherwise, so a probe record names no
-stamp the catalog refuses. `split()` hands back the group and the
-`<root>/<kind>` path, so `dir_of()` and `dirs_matching()` resolve it under the same guard and the
-same join, and `stamp_for()` writes it back only in the colon form, so `offsets/hub.tw0/firehose.p0`
-is refused and a reader dir has one spelling. `is_stamp()` holds the root to `ROOT_PATTERN`, the
-characters a `<topology>.<vault_id>` root can carry, either case included, with no `/`, `:` or `..`,
-and the kind to a kind some stamp folds to, each within `MAX_STAMP_BYTES`, so no reader dir loses
-its stamp to its length; one whose root `ROOT_PATTERN` refuses, or whose kind no stamp folds to,
-has none, and lists as an unavailable row. A reader stamp is a dir, not a stream: no kind folds out of one, so `kind_of()`,
-`stamp_of()` and `kindOf()` refuse it rather than fold `offsets:hub:firehose.p0` into three dirs; no
-glob carries one, though a one-segment glob such as `o*` would otherwise; a broker pair, which cuts
-at its first `:`, refuses one as its source, in `Remote_Broker_Node` and the browser's `RemoteLink`
-alike; and a broker or a link handed one in a FROM drops it, rate-limited. Rejected:
-`reader/<group>/<root>/<kind's stamp>`, which wrote extra `/`s into a FROM stamp and needed a
-prefix to keep the trail readers apart; the bare `offsets/<root>/<kind>`, which a FROM trail could
-not tell from a two-segment stamp and its trail; and resolving the trail against a stream's own
-subscriptions, which no reader without them, such as `workerOfFrom()`, could do.
+**Amendment: a stamp is one segment, spelled with `:`.** A stamp was spelled with `/` between
+its parts (`offsets/performance.firehose.p0`, `sources/php`), while a broker reader's dir took
+`:` (`offsets:hub.tw0:firehose.p0`) and a kind codec folded every `/` into a `:` for a reader's
+slot and dir, so the Log Viewer listed both spellings side by side, and a FROM reader had to tell
+a two-segment stamp from a one-segment one by its first word. Now every stamp joins its parts
+with `:`, and so is one `/` segment, which is also one node name the Router can address:
+
+| Log | Stamp |
+|---|---|
+| `logs/firehose.p0` | `firehose.p0` |
+| `offsets/performance.firehose.p0` | `offsets:performance.firehose.p0` |
+| `deadletter/performance.firehose.p0` | `deadletter:performance.firehose.p0` |
+| a broker reader's `offsets/hub.tw0/firehose.p0` | `offsets:hub.tw0:firehose.p0` |
+| a broker reader's `offsets/hub.tw0/sources:php` | `offsets:hub.tw0:sources:php` |
+| the registry's `php` | `sources:php` |
+| a spoke's log on a hub (no dir) | `remote:<vault_id>:<stamp>` |
+
+`split()` cuts a stamp at its first `:` when what precedes it is one of
+[`STAMP_PREFIXES`](../includes/class-log-discovery.php) (`offsets`, `deadletter`, `sources`);
+every other stamp, `logs:x` and `remote:…` included, is a `logs` name `is_stamp()` judges, which
+refuses `:`, `/` and `..`. Under a reader group the rest names a dir directly when it holds no
+`:`, and a broker reader's `<root>/<stamp>` when it does: no name a dir may take holds `:`
+(`Log_Sources::NAME_PATTERN`, the root's `ROOT_PATTERN`), and `stamp_for()` refuses a dir whose
+first path segment holds one, so the rule reads no disk, and `stamp-dirs.json` holds it.
+`source_for()` names such a dir by its path rather than throwing, so a write quarantine dotted
+from a broker reader's dir still opens. A broker's root and a Consumer's cursor are both one flat
+name, which no shape tells apart, so `dir_of()` resolves a root to its empty dir rather than
+listing its children on every resolution; the catalog and a glob still skip it. A broker refuses
+a root that is its group's own, whose readers would land at the group's first level. A broker
+reader takes its stamp verbatim as its sibling slot `<broker>:<stamp>` and its dirs' basename, so
+the codec is gone. A log's stamp is held to `MAX_STAMP_BYTES` whole, and a broker reader's part
+by part, since its dir is `<root>/<stamp>`: the root and the stamp it reads each name one dir. A
+broker reads only a stamp that fits one dir name whole (`fits_a_dir_name()`), so an exact pair
+may name a broker reader's stamp as its source when it is that short. A glob's `*`
+matches within one stamp part, stopping at `:`, so no glob claims a broker reader, and a dir
+whose name holds a `:` is no glob match. A log may take a group's name: `offsets` alone is a
+`logs` dir, because a one-segment stamp never reads as a prefix.
+
+A streamed record's FROM is `<stamp>/<its own FROM>`, because the stream's reader prepends the
+name it stamps with, and the stamp is the trail's FIRST segment by position: `dir_from_stamp()`
+and `splitStamp()` take that segment and read nothing else, and `workerOfFrom()` the segment
+after it. No reader finds a stamp by its shape, because node names hold `:` as well
+(`requests:consumer`, `spokes:tw0:firehose.p0`, `_cli:4471`), and a trail's later segments are
+node names. A stream's reader is named its stamp (`SSE_Out_Node::attach_consumer()`), so a reply
+`TO=FROM` reaches it through the Router, and `Node::name()` refuses any name holding `/`.
+
+Rejected: keeping `/` and spelling only a broker reader with `:`, which listed two spellings and
+needed the codec; a disk read to tell `offsets:<name>` from `offsets:<root>:<stamp>`, which the
+names' own grammar answers; and bounding a reader stamp whole, which would leave a long spoke
+stamp under a real root with no stamp, though its dir names fit.
 
 ---
 
@@ -2112,7 +2116,7 @@ which point its object form goes and `parse()` reads every value.
 **Status:** Accepted
 
 **Context:** A [`Remote_Source_Node`](../includes/class-remote-source-node.php) carries every
-stream its `<source>:<target>` pairs name over one SSE connection, and reads each stream with
+stream its `<source>=<target>` pairs name over one SSE connection, and reads each stream with
 its own [`Remote_Consumer_Node`](../includes/class-remote-consumer-node.php). A pair's source
 may be a glob (`firehose.p*`), and which stamps match it is runtime data: the spoke names them,
 in each record's FROM and in its handshake's CURSORS. So the broker is the second node type to
@@ -2124,18 +2128,18 @@ the TSL can know which stamps a spoke will send.
 **Decision:** A broker builds a reader on first sight of a stamp a pair claims — in a routed
 line's FROM, in a handshake's CURSORS, or, for an exact pair, on its first tick — through the
 one builder, `consumer_for()`. The reader is patroned by the broker and published as its sibling
-`<broker>:<kind>`, so it stays off the canvas, keeps its own `:config` and opens from the
-broker's "…" in the console; `<kind>` is the stamp through `Log_Discovery::kind_of()`
-([ADR-29](#adr-29-a-log-stamp-has-one-writer-one-reader-and-one-resolver-per-kind)), so the sibling map
-is the one list of readers. Its cursor sits at `<offsetlog_root>/<kind>` and its dead letters at
-`<deadletter_root>/<kind>`. Static analysis does not flatten readers: `Topology_Analyzer`'s write
+`<broker>:<stamp>`, so it stays off the canvas, keeps its own `:config` and opens from the
+broker's "…" in the console; a stamp is one segment
+([ADR-29](#adr-29-a-log-stamp-has-one-writer-one-reader-and-one-resolver-per-kind)), so it is the slot
+as written, and the sibling map is the one list of readers. Its cursor sits at
+`<offsetlog_root>/<stamp>` and its dead letters at `<deadletter_root>/<stamp>`. Static analysis does not flatten readers: `Topology_Analyzer`'s write
 set claims both roots, so the conflict check and `wp nodes gc` cover every reader a glob builds
 later, and its graph draws one `pair` edge from the broker to each pair's target
 ([ADR-19](#adr-19-a-node-may-declare-a-destination-it-writes-without-routing)); the console's TSL
 reader draws the same edges for a file being edited, and the browser's `RemoteLink` splits its
 pairs alike, both through `splitPair()`, held to the PHP split by
 `tests/fixtures/pair-split.json`. The browser's `RemoteLink` follows the rule with a Tee in
-place of a reader: a stamp's Tee `<link>:<kind>` is built on the first record a pair claims,
+place of a reader: a stamp's Tee `<link>:<stamp>` is built on the first record a pair claims,
 and its targets are the pairs'. `MAX_READERS` (256) caps the stamps glob pairs may claim,
 counting the readers built in this process and the reader dirs earlier processes left under the
 offsetlog root, so a spoke inventing stamps cannot grow the graph or the disk without bound. An
@@ -2175,6 +2179,15 @@ builder and `MAX_READERS` caps both. The base both brokers share is `Remote_Brok
 analyzer, `Aggregator_CI` and the console recognize a broker by that class, or by its schema's
 variadic `pairs`, never by a name.
 
+
+**Amendment: a pair is `<source>=<target>`.** A pair cut at its first `:` outside `<…>`, which
+held while no source carried a `:`. A stamp now joins its parts with `:` (ADR-29), so a pair
+cuts at its first `=` instead: `firehose.p0=remote-job-rewrite`,
+`sources:php=php-errors:partition`, `offsets:hub.tw0:firehose.p0=cursor-sink`. Neither a stamp
+nor a `<ns:key>` token holds a `=`, the Shell tokenizer gives `=` no meaning outside a `var`
+statement, and `Command_Args` binds `--name=value` only in a token opening with `--`, so the cut
+needs no bracket depth. `Remote_Broker_Node::split_pair()` and the browser's `splitPair()` are
+the one split, held by `pair-split.json`, and a broker reader's stamp is a source like any other.
 ---
 
 ## ADR-32: A transport answers what it could not deliver

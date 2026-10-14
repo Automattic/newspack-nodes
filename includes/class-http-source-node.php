@@ -247,7 +247,7 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'I/O',
-			'description' => 'HTTP-pull broker: a durable reader per `source:target` pair, each fetching 1 MiB blocks from a spoke over /command (Vault-resolved); holds no SSE slot.',
+			'description' => 'HTTP-pull broker: a durable reader per `source=target` pair, each fetching 1 MiB blocks from a spoke over /command (Vault-resolved); holds no SSE slot.',
 		] );
 	}
 }

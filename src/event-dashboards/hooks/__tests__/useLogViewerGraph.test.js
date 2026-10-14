@@ -149,7 +149,7 @@ describe( 'useLogViewerGraph — exospine + RemoteLink wiring', () => {
 		// The link routes this graph's frames to the Tee, which fans to the view.
 		expect(
 			Core.node( LINK ).pairs.some( ( pair ) =>
-				pair.endsWith( `:${ TEE }` )
+				pair.endsWith( `=${ TEE }` )
 			)
 		).toBe( true );
 		expect( Core.node( TEE ).target ).toEqual( [ VIEW ] );
@@ -177,7 +177,7 @@ describe( 'useLogViewerGraph — exospine + RemoteLink wiring', () => {
 		// The link routes frames to the Tee, not straight to the view.
 		expect(
 			Core.node( LINK ).pairs.some( ( pair ) =>
-				pair.endsWith( `:${ TEE }` )
+				pair.endsWith( `=${ TEE }` )
 			)
 		).toBe( true );
 		// The Tee forwards to the view (pure pass-through, single target).
@@ -286,27 +286,27 @@ describe( 'useLogViewerGraph — exospine + RemoteLink wiring', () => {
 	test( 'lists registry sources beside the dirs, and defaults to the first AVAILABLE row', async () => {
 		installWire( {
 			list_logs: [
-				{ key: 'sources/debug', label: 'debug', available: false },
-				{ key: 'sources/php', label: 'php', available: true },
+				{ key: 'sources:debug', label: 'debug', available: false },
+				{ key: 'sources:php', label: 'php', available: true },
 			],
 		} );
 		mountGraph();
 		await act( async () => {} );
-		expect( Core.node( VIEW ).view.selected ).toBe( 'sources/php' );
+		expect( Core.node( VIEW ).view.selected ).toBe( 'sources:php' );
 		expect( FakeEventSource.last.url ).toContain(
-			`subscribe=${ encodeURIComponent( 'sources/php' ) }`
+			`subscribe=${ encodeURIComponent( 'sources:php' ) }`
 		);
 	} );
 
 	test( 'step while paused reads a source through raw-logs read_message', async () => {
 		const stepped = newMessage();
 		stepped[ TYPE ] = TM_BYTESTREAM;
-		stepped[ FROM ] = 'sources/php';
+		stepped[ FROM ] = 'sources:php';
 		stepped[ ID ] = '4242:100:20';
 		stepped[ VALUE ] = 'stepped line 977\n';
 		const payload = {
 			list_logs: [
-				{ key: 'sources/php', label: 'php', available: true },
+				{ key: 'sources:php', label: 'php', available: true },
 			],
 		};
 		const wire = installWire( payload );
@@ -314,13 +314,13 @@ describe( 'useLogViewerGraph — exospine + RemoteLink wiring', () => {
 		await act( async () => {} );
 		const live = newMessage();
 		live[ TYPE ] = TM_BYTESTREAM;
-		live[ FROM ] = 'sources/php';
+		live[ FROM ] = 'sources:php';
 		live[ ID ] = '4242:80:20';
 		live[ VALUE ] = 'seen live';
 		act( () => FakeEventSource.last.dispatch( 'msg', pack( live ) ) );
 		act( () => result.current.setPaused( true ) );
 		payload.read_message = {
-			source: 'sources/php',
+			source: 'sources:php',
 			message: [ ...stepped ],
 			cursor: { segment: 4242, offset: 120 },
 			at_eof: false,
@@ -336,7 +336,7 @@ describe( 'useLogViewerGraph — exospine + RemoteLink wiring', () => {
 			.find( ( m ) => 'read_message' === m[ VALUE ]?.name );
 		expect( cmd[ TO ] ).toContain( 'raw-logs' );
 		expect( cmd[ VALUE ].arguments ).toEqual( [
-			'sources/php',
+			'sources:php',
 			'4242:100',
 		] );
 	}, 15000 );

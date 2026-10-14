@@ -342,7 +342,7 @@ class AlertsTest extends TestCase {
 		$caught_up[ Probe_Record::END_SIZE ]       = 7311;
 		$caught_up[ Probe_Record::DISTANCE ]       = 0;
 		$unknown                                   = Probe_Record::BLANK;
-		$unknown[ Probe_Record::SOURCE ]           = 'remote/okapi-3:firehose.p0';
+		$unknown[ Probe_Record::SOURCE ]           = 'remote:okapi-3:firehose.p0';
 		$unknown[ Probe_Record::READER ]           = 'live-workers.firehose:okapi-3:firehose.p0.p0';
 		$unknown[ Probe_Record::CURSOR_SEGMENT ]   = 12;
 		$unknown[ Probe_Record::CURSOR_OFF ]       = 7311;
