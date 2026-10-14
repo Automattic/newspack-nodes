@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.109.1] - 2026-10-14
+
 ### Changed
 
 - **Ten log lines print on every occurrence instead of once per window.** Each named something an operator has to act on one at a time, and the rate limit kept only the first: every `DEAD-LETTER [<reason>] <node> at <breadcrumb> — <outcome>` line, so the log names each quarantined record to requeue; `requeued status not recorded at <locator>`; a Consumer's `served past deleted segments: rewound to <segment>:0` and a hub reader's `spoke served past deleted segments: asked …, served …`; the three `resolve_config_token:` warnings for a token that falls back to `''`, in PHP and in the browser shell's `resolveConfigToken()`; `make_node <type> <name>: non-scalar positional arg filtered`; a REPL's `Shell: include: file not found:`, `cannot open:` and `topology include cycle:` refusals; and `WARNING: running as root; skipping <write>`. Each line reads as before. What bounds them is the event itself — one per quarantined record, per rotation a reader fell behind, per statement in the loaded topology, per write a root CLI run skipped.
