@@ -5,8 +5,11 @@
  * draws, as the card the canvas would draw for it, live off the sidecar
  * poller's rows and its own rate map. Picking a card shows that sidecar's
  * Inspector; a card owning sidecars in turn draws a "…", and the grid that
- * opens hangs inside this one, below that card. The first card takes focus as
- * the grid opens, so a keyboard user chooses with no extra Tab.
+ * opens hangs inside this one, below that card. Focus stays on the canvas,
+ * which names this grid's active card; while it holds that card the canvas's
+ * keys are its own. An arrow picks the nearest card that way, the view
+ * following, Enter or Space picks the active card, and Enter on one owning
+ * sidecars opens their grid too.
  *
  * Everything is SVG laid out in world units, the canvas's own, so a grid card
  * is the size of a canvas card at every zoom, and it draws through the
@@ -16,13 +19,15 @@
 
 import { useEffect, useRef } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
+import { ARROWS, nearestInDirection } from '../utils/keyboardNav';
 import {
+	FocusRing,
 	NODE_SHADOW,
 	NodeCard,
 	NodeReadout,
 	SidecarsTrigger,
+	cardDomId,
 	formatNodeRate,
-	pressOnKey,
 	sparklinePath,
 } from './NodeCard';
 
@@ -92,6 +97,16 @@ function cardAt( at, i ) {
 }
 
 /**
+ * A card's box alone, as the canvas reveals it.
+ *
+ * @param {Box} card The card, with whatever else it carries.
+ * @return {Box} Its box.
+ */
+function boxOf( { x, y, w, h } ) {
+	return { x, y, w, h };
+}
+
+/**
  * The frame's outline: one path, so the notch and the body share one fill and
  * one stroke with no seam between them.
  *
@@ -132,8 +147,12 @@ function framePath( { tipX, tipY, gridX, gridY, gridW, gridH } ) {
  * @param {string}                                props.surface    The canvas's id prefix, whose clips and bloom the cards draw through.
  * @param {boolean}                               props.showDetail The canvas draws detail, so its cards do too, and bloom.
  * @param {?string}                               props.shown      The sidecar the Inspector shows; its card wears the selection.
+ * @param {?string}                               props.active     The card the canvas's keys act on, in whichever open grid holds it.
+ * @param {?string}                               props.entered    The owner whose grid the keys opened; that grid shows its first card as it opens.
  * @param {(name: string) => void}                props.onPick     Shows the chosen sidecar.
- * @param {(depth: number, name: string) => void} props.onOpen     A card's "…" was pressed: open its grid at that depth.
+ * @param {(depth: number, name: string) => void} props.onOpen     A card's "…" was pressed: open its grid at that depth, or close it.
+ * @param {(depth: number, name: string) => void} props.onEnter    Enter on a card owning sidecars: open its grid at that depth, never close it.
+ * @param {(box: Box) => void}                    props.onReveal   Pans the canvas just far enough to show a card.
  * @return {import('react').ReactElement} The popover's `<g>`.
  */
 export default function SidecarsPopover( {
@@ -146,13 +165,13 @@ export default function SidecarsPopover( {
 	surface,
 	showDetail,
 	shown,
+	active,
+	entered,
 	onPick,
 	onOpen,
+	onEnter,
+	onReveal,
 } ) {
-	const firstRef = useRef( null );
-	useEffect( () => {
-		firstRef.current?.focus( { preventScroll: true } );
-	}, [] );
 	const at = layout( anchor, sidecars.length );
 	const cards = sidecars.map( ( sidecar, i ) => {
 		const row = rows.get( sidecar.name );
@@ -171,6 +190,57 @@ export default function SidecarsPopover( {
 	const nested = cards.find(
 		( c ) => c.sidecar.name === owners[ depth + 1 ]
 	);
+	const activeCard = cards.find( ( c ) => c.sidecar.name === active );
+	const frameRef = useRef( null );
+	// What the canvas's keys read when they fire.
+	const keysRef = useRef( null );
+	keysRef.current = { cards, activeCard, depth, onPick, onEnter, onReveal };
+	useEffect( () => {
+		const svg = frameRef.current?.ownerSVGElement;
+		/**
+		 * A key on the canvas, which holds focus: this grid's while it holds
+		 * the active card, and before the canvas's own handler hears it.
+		 *
+		 * @param {KeyboardEvent} e The key.
+		 */
+		const onKey = ( e ) => {
+			const keys = keysRef.current;
+			const from = keys.activeCard;
+			const dir = ARROWS[ e.key ];
+			if (
+				! from ||
+				( ! dir && 'Enter' !== e.key && ' ' !== e.key ) ||
+				e.defaultPrevented ||
+				e.altKey ||
+				e.ctrlKey ||
+				e.metaKey
+			) {
+				return;
+			}
+			e.preventDefault();
+			if ( dir ) {
+				const next = nearestInDirection( keys.cards, from, dir );
+				if ( next ) {
+					keys.onPick( next.sidecar.name );
+					keys.onReveal( boxOf( next ) );
+				}
+				return;
+			}
+			keys.onPick( from.sidecar.name );
+			if ( 'Enter' === e.key && from.owns ) {
+				keys.onEnter( keys.depth + 1, from.sidecar.name );
+			}
+		};
+		svg?.addEventListener( 'keydown', onKey );
+		return () => svg?.removeEventListener( 'keydown', onKey );
+	}, [] );
+	// Opened from the keys, so the card they act on first is on screen.
+	useEffect( () => {
+		if ( entered === owners[ depth ] && cards[ 0 ] ) {
+			onReveal( boxOf( cards[ 0 ] ) );
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [] );
 	return (
 		<g
 			role="dialog"
@@ -179,6 +249,7 @@ export default function SidecarsPopover( {
 				__( 'Owned by %s', 'newspack-nodes' ),
 				owners[ depth ]
 			) }
+			ref={ frameRef }
 			className="topology-sidecars"
 			// A press here is the popover's, not the canvas's pan or drag.
 			onPointerDown={ ( ev ) => ev.stopPropagation() }
@@ -189,13 +260,16 @@ export default function SidecarsPopover( {
 					showDetail ? ' topology-nodes--bloom' : ''
 				}` }
 			>
-				{ cards.map( ( c, i ) => (
+				{ cards.map( ( c ) => (
 					<g
 						key={ c.sidecar.name }
-						ref={ 0 === i ? firstRef : undefined }
+						id={
+							c === activeCard
+								? cardDomId( surface, c.sidecar.name )
+								: undefined
+						}
 						className="topology-sidecars__card"
 						role="button"
-						tabIndex={ 0 }
 						aria-label={ sprintf(
 							// translators: 1: a node's name, 2: its class.
 							__( '%1$s (%2$s)', 'newspack-nodes' ),
@@ -204,9 +278,6 @@ export default function SidecarsPopover( {
 						) }
 						aria-current={ c.isShown || undefined }
 						onClick={ () => onPick( c.sidecar.name ) }
-						onKeyDown={ pressOnKey( () =>
-							onPick( c.sidecar.name )
-						) }
 					>
 						<NodeCard
 							surface={ surface }
@@ -260,6 +331,7 @@ export default function SidecarsPopover( {
 					</g>
 				</>
 			) }
+			{ activeCard && <FocusRing box={ activeCard } /> }
 			{ nested && (
 				<SidecarsPopover
 					key={ nested.sidecar.name }
@@ -272,8 +344,12 @@ export default function SidecarsPopover( {
 					surface={ surface }
 					showDetail={ showDetail }
 					shown={ shown }
+					active={ active }
+					entered={ entered }
 					onPick={ onPick }
 					onOpen={ onOpen }
+					onEnter={ onEnter }
+					onReveal={ onReveal }
 				/>
 			) }
 		</g>

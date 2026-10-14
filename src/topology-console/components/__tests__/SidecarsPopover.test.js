@@ -75,6 +75,10 @@ function canvas( { onCanvasDown = () => {}, rows = ROWS, ...props } = {} ) {
 				shown={ null }
 				onPick={ () => {} }
 				onOpen={ () => {} }
+				onEnter={ () => {} }
+				onReveal={ () => {} }
+				active={ null }
+				entered={ null }
 				{ ...props }
 			/>
 		</svg>
@@ -360,6 +364,7 @@ describe( 'SidecarsPopover', () => {
 			expect( dots.contains( cards[ 1 ] ) ).toBe( false );
 			expect( dots.getAttribute( 'role' ) ).toBe( 'button' );
 			expect( dots.getAttribute( 'aria-haspopup' ) ).toBe( 'dialog' );
+			expect( dots.getAttribute( 'tabindex' ) ).toBe( '-1' );
 			expect( dots.getAttribute( 'aria-label' ) ).toBe(
 				'Owned nodes of crawl-4471:seen'
 			);
@@ -424,7 +429,7 @@ describe( 'SidecarsPopover', () => {
 			).toBe( '512' );
 		} );
 
-		it( "draw and focus a new grid when another card's replaces the open one", () => {
+		it( "draw a new grid when another card's replaces the open one", () => {
 			const both = [
 				...OWNING,
 				{
@@ -446,7 +451,6 @@ describe( 'SidecarsPopover', () => {
 			expect( inner.getAttribute( 'aria-label' ) ).toBe(
 				'Owned by crawl-4471:curl'
 			);
-			expect( document.activeElement ).toBe( cardsOf( inner )[ 0 ] );
 		} );
 
 		it( 'hang no grid for an owner this one no longer lists', () => {
@@ -468,33 +472,29 @@ describe( 'SidecarsPopover', () => {
 	} );
 
 	describe( 'the pick control', () => {
-		it( 'is a focusable button named by node and class, first card focused on open', () => {
+		it( 'is a button named by node and class that takes no focus', () => {
+			const before = document.activeElement;
 			const cards = open();
 			expect( cards.map( ( c ) => c.getAttribute( 'role' ) ) ).toEqual( [
 				'button',
 				'button',
 			] );
-			expect( cards[ 1 ].getAttribute( 'tabindex' ) ).toBe( '0' );
+			expect( cards[ 1 ].hasAttribute( 'tabindex' ) ).toBe( false );
 			expect(
 				cards.map( ( c ) => c.getAttribute( 'aria-label' ) )
 			).toEqual( [
 				'crawl-4471:curl (Curl)',
 				'crawl-4471:seen (Table)',
 			] );
-			expect( document.activeElement ).toBe( cards[ 0 ] );
+			expect( document.activeElement ).toBe( before );
 		} );
 
-		it( 'picks on a click, Enter or Space, and keeps the focus a press gave it', () => {
+		it( 'picks on a click', () => {
 			const onPick = jest.fn();
 			const cards = open( { onPick } );
-			cards[ 1 ].focus();
 			fireEvent.click( cards[ 1 ] );
-			fireEvent.keyDown( cards[ 1 ], { key: 'Enter' } );
-			fireEvent.keyDown( cards[ 1 ], { key: ' ' } );
-			fireEvent.keyDown( cards[ 1 ], { key: 'Tab' } );
-			expect( onPick ).toHaveBeenCalledTimes( 3 );
+			expect( onPick ).toHaveBeenCalledTimes( 1 );
 			expect( onPick ).toHaveBeenCalledWith( 'crawl-4471:seen' );
-			expect( document.activeElement ).toBe( cards[ 1 ] );
 		} );
 
 		it( 'wears the canvas selection on the card the Inspector shows', () => {
@@ -509,6 +509,178 @@ describe( 'SidecarsPopover', () => {
 			).toBe( false );
 			expect( cards[ 0 ].getAttribute( 'aria-current' ) ).toBe( 'true' );
 			expect( cards[ 1 ].hasAttribute( 'aria-current' ) ).toBe( false );
+		} );
+	} );
+
+	describe( 'the keyboard', () => {
+		/** Four sidecars, laid out two by two. */
+		const FOUR = [
+			{ name: 'crawl-4471:curl', class: 'Curl' },
+			{ name: 'crawl-4471:seen', class: 'Table' },
+			{ name: 'crawl-4471:spool', class: 'Partition' },
+			{ name: 'crawl-4471:tail', class: 'Tail' },
+		];
+
+		/**
+		 * Press a key on the canvas, which holds focus while a grid is open.
+		 *
+		 * @param {string} k The key.
+		 * @return {KeyboardEvent} The event, to read back.
+		 */
+		const key = ( k ) => {
+			const ev = new window.KeyboardEvent( 'keydown', {
+				key: k,
+				bubbles: true,
+				cancelable: true,
+			} );
+			dialog().ownerSVGElement.dispatchEvent( ev );
+			return ev;
+		};
+
+		it.each( [
+			[ 0, 'ArrowRight', 1 ],
+			[ 0, 'ArrowDown', 2 ],
+			[ 3, 'ArrowLeft', 2 ],
+			[ 3, 'ArrowUp', 1 ],
+		] )(
+			'from active card %i, %s picks card %i and shows it',
+			( from, k, to ) => {
+				const onPick = jest.fn();
+				const onReveal = jest.fn();
+				const cards = open( {
+					sidecars: FOUR,
+					active: FOUR[ from ].name,
+					onPick,
+					onReveal,
+				} );
+				expect( key( k ).defaultPrevented ).toBe( true );
+				expect( onPick ).toHaveBeenCalledWith( FOUR[ to ].name );
+				const box = at( cards[ to ] );
+				expect( onReveal ).toHaveBeenCalledWith( {
+					x: box.x,
+					y: box.y,
+					w: NODE_W,
+					h: NODE_H,
+				} );
+			}
+		);
+
+		it( "stays put at the grid's edge, the key still its own", () => {
+			const onPick = jest.fn();
+			open( { sidecars: FOUR, active: FOUR[ 1 ].name, onPick } );
+			expect( key( 'ArrowRight' ).defaultPrevented ).toBe( true );
+			expect( key( 'ArrowUp' ).defaultPrevented ).toBe( true );
+			expect( onPick ).not.toHaveBeenCalled();
+		} );
+
+		it( 'takes no key while it holds no active card', () => {
+			const onPick = jest.fn();
+			open( { sidecars: FOUR, onPick } );
+			expect( key( 'ArrowRight' ).defaultPrevented ).toBe( false );
+			expect( key( 'Enter' ).defaultPrevented ).toBe( false );
+			expect( onPick ).not.toHaveBeenCalled();
+		} );
+
+		it( 'acts in the grid holding the active card alone', () => {
+			const onPick = jest.fn();
+			open( {
+				rows: OWNING,
+				onPick,
+				owners: [ 'crawl-4471', 'crawl-4471:seen' ],
+				active: 'crawl-4471:seen:log',
+			} );
+			expect( key( 'ArrowLeft' ).defaultPrevented ).toBe( true );
+			expect( onPick ).not.toHaveBeenCalled();
+		} );
+
+		it( "opens an active card's own grid on Enter, picking it; Space and a card owning none only pick", () => {
+			const onPick = jest.fn();
+			const onEnter = jest.fn();
+			const onOpen = jest.fn();
+			const { rerender } = render(
+				canvas( {
+					rows: OWNING,
+					onPick,
+					onEnter,
+					onOpen,
+					active: 'crawl-4471:seen',
+				} )
+			);
+			expect( key( 'Enter' ).defaultPrevented ).toBe( true );
+			expect( onPick ).toHaveBeenLastCalledWith( 'crawl-4471:seen' );
+			expect( onEnter ).toHaveBeenCalledWith( 1, 'crawl-4471:seen' );
+			key( ' ' );
+			rerender(
+				canvas( {
+					rows: OWNING,
+					onPick,
+					onEnter,
+					onOpen,
+					active: 'crawl-4471:curl',
+				} )
+			);
+			key( 'Enter' );
+			expect( onPick ).toHaveBeenCalledTimes( 3 );
+			expect( onPick ).toHaveBeenLastCalledWith( 'crawl-4471:curl' );
+			expect( onEnter ).toHaveBeenCalledTimes( 1 );
+			expect( onOpen ).not.toHaveBeenCalled();
+		} );
+
+		it( 'leaves a key another handler took', () => {
+			const onPick = jest.fn();
+			open( { sidecars: FOUR, active: FOUR[ 0 ].name, onPick } );
+			const take = ( e ) => e.preventDefault();
+			document.addEventListener( 'keydown', take, { capture: true } );
+			key( 'ArrowRight' );
+			document.removeEventListener( 'keydown', take, { capture: true } );
+			expect( onPick ).not.toHaveBeenCalled();
+		} );
+
+		it( 'names the active card by id and rings it at its size, outside the card that dims', () => {
+			const cards = open( {
+				sidecars: [
+					{
+						name: 'crawl-4471:a-name-far-longer-than-any-card-is-wide',
+						class: 'Table',
+					},
+					FOUR[ 1 ],
+				],
+				active: FOUR[ 1 ].name,
+			} );
+			expect( cards[ 1 ].id ).toBe(
+				`${ SURFACE }-card-crawl-4471%3Aseen`
+			);
+			expect( cards[ 0 ].id ).toBe( '' );
+			const rings = dialog().querySelectorAll( '.topology-node-focus' );
+			expect( rings ).toHaveLength( 1 );
+			expect(
+				rings[ 0 ].closest( '.topology-node, .topology-sidecars__card' )
+			).toBeNull();
+			const box = at( cards[ 1 ] );
+			expect(
+				[ 'x', 'y', 'width', 'height' ].map( ( a ) =>
+					Number( rings[ 0 ].getAttribute( a ) )
+				)
+			).toEqual( [ box.x, box.y, NODE_W, NODE_H ] );
+		} );
+
+		it( 'shows its first card on opening from the keys, and not from a click', () => {
+			const onReveal = jest.fn();
+			const cards = open( {
+				sidecars: FOUR,
+				onReveal,
+				entered: 'crawl-4471',
+			} );
+			const box = at( cards[ 0 ] );
+			expect( onReveal ).toHaveBeenCalledWith( {
+				x: box.x,
+				y: box.y,
+				w: NODE_W,
+				h: NODE_H,
+			} );
+			const clicked = jest.fn();
+			render( canvas( { sidecars: FOUR, onReveal: clicked } ) );
+			expect( clicked ).not.toHaveBeenCalled();
 		} );
 	} );
 

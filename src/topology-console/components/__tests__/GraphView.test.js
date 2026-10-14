@@ -91,6 +91,7 @@ jest.mock( '../SchematicCanvas', () => ( props ) => {
 					},
 					surface: 'topology-card-stub',
 					showDetail: ! global.__lod,
+					reveal: ( box ) => global.__revealed?.push( box ),
 				} ) }
 			</svg>
 			<button onClick={ () => props.onSelect( 'n1' ) }>select-n1</button>
@@ -972,6 +973,19 @@ describe( 'GraphView — sidecars', () => {
 	const flush = () => act( async () => {} );
 	const inspectorText = ( getByTestId ) =>
 		getByTestId( 'inspector' ).textContent;
+	const canvasSvg = () =>
+		document.body.querySelector( '[data-testid="canvas-svg"]' );
+
+	/**
+	 * Press a key on the canvas, focused first, as a keyboard user does.
+	 *
+	 * @param {string} key The key.
+	 */
+	const keyOnCanvas = async ( key ) => {
+		canvasSvg().focus();
+		fireEvent.keyDown( canvasSvg(), { key } );
+		await flush();
+	};
 
 	/**
 	 * Render GraphView over a graph, opening n1's "…" and picking `name`.
@@ -996,7 +1010,7 @@ describe( 'GraphView — sidecars', () => {
 		return rendered;
 	};
 
-	it( "lists the card's sidecars without selecting it, the first card focused", async () => {
+	it( "lists the card's sidecars without selecting it, the first card the keys' own", async () => {
 		const onSelectionChange = jest.fn();
 		const { getByText, getByTestId } = renderWithCatalog(
 			<GraphView
@@ -1014,7 +1028,8 @@ describe( 'GraphView — sidecars', () => {
 		expect( cards.map( ( c ) => c.getAttribute( 'aria-label' ) ) ).toEqual(
 			[ 'n1:curl (Curl)', 'n1:seen (Table)' ]
 		);
-		expect( document.activeElement ).toBe( cards[ 0 ] );
+		expect( global.__canvasProps.overlayActive ).toBe( 'n1:curl' );
+		expect( cards[ 0 ].id ).not.toBe( '' );
 		expect( onSelectionChange ).not.toHaveBeenCalled();
 		expect( inspectorText( getByTestId ) ).toBe(
 			'insp:remove-selectedopen-owneropen-seenverb'
@@ -1249,8 +1264,8 @@ describe( 'GraphView — sidecars', () => {
 					.querySelector( '.topology-sidecars__frame' )
 					.getAttribute( 'd' )
 			).toContain( ` L ${ x + NODE_W / 2 },${ y + CARD_H } L ` );
-			expect( document.activeElement ).toBe(
-				inner.querySelector( '.topology-sidecars__card' )
+			expect( global.__canvasProps.overlayActive ).toBe(
+				'n1:seen:offsetlog'
 			);
 			expect( sent[ sent.length - 1 ][ VALUE ].arguments ).toEqual( [
 				'-o',
@@ -1266,14 +1281,15 @@ describe( 'GraphView — sidecars', () => {
 			const { getByTestId } = await openNested();
 			const [ , inner ] = popovers();
 			const picked = inner.querySelector( '.topology-sidecars__card' );
-			picked.focus();
 			fireEvent.click( picked );
 			await flush();
 			expect( inspectorText( getByTestId ) ).toContain(
 				'insp:n1/sidecar:n1:seen:offsetlog'
 			);
 			expect( popovers() ).toHaveLength( 2 );
-			expect( document.activeElement ).toBe( picked );
+			expect( global.__canvasProps.overlayActive ).toBe(
+				'n1:seen:offsetlog'
+			);
 			expect( sent[ sent.length - 1 ][ VALUE ].arguments ).toEqual( [
 				'-o',
 				'n1:seen:offsetlog',
@@ -1282,18 +1298,47 @@ describe( 'GraphView — sidecars', () => {
 			] );
 		} );
 
-		it( 'closes the innermost on Esc, focus back on its "…", then the next', async () => {
+		it( 'closes the innermost on Esc, focus on the canvas, then the next', async () => {
 			await openNested();
-			const dots = popovers()[ 0 ].querySelector(
-				'.topology-node__sidecars'
-			);
 			fireEvent.keyDown( document, { key: 'Escape' } );
 			await flush();
 			expect( popovers() ).toHaveLength( 1 );
-			expect( document.activeElement ).toBe( dots );
+			expect( document.activeElement ).toBe( canvasSvg() );
 			fireEvent.keyDown( document, { key: 'Escape' } );
 			await flush();
 			expect( popovers() ).toHaveLength( 0 );
+		} );
+
+		it( "opens a grid card's own grid from Enter, showing its first card, and Enter there leaves both open", async () => {
+			global.__revealed = [];
+			try {
+				const { getByText } = renderWithCatalog(
+					<GraphView graph={ owned } frame={ Frame } resetKey="k" />
+				);
+				fireEvent.click( getByText( 'select-n1' ) );
+				act( () => global.__canvasProps.onEnterSidecars( 'n1' ) );
+				await flush();
+				answerSeen();
+				await keyOnCanvas( 'ArrowRight' );
+				await keyOnCanvas( 'Enter' );
+				expect( popovers() ).toHaveLength( 2 );
+				expect( global.__canvasProps.overlayActive ).toBe(
+					'n1:seen:offsetlog'
+				);
+				expect( global.__revealed.at( -1 ) ).toEqual( {
+					x: expect.any( Number ),
+					y: CANVAS_AT.n1.y + 2 * ( CARD_H + 24 ),
+					w: NODE_W,
+					h: NODE_H,
+				} );
+				await keyOnCanvas( 'Enter' );
+				expect( popovers() ).toHaveLength( 2 );
+				expect( global.__inspectorProps.sidecar ).toBe(
+					'n1:seen:offsetlog'
+				);
+			} finally {
+				delete global.__revealed;
+			}
 		} );
 
 		it.each( [
@@ -1422,7 +1467,7 @@ describe( 'GraphView — sidecars', () => {
 			expect( Core.node( SIDECAR_POLLER ) ).toBeFalsy();
 		} );
 
-		it( 'refocuses the "…" of an owner whose name a selector must escape', async () => {
+		it( 'names the active card of an owner whose name holds whitespace and quotes', async () => {
 			const odd = 'n1:say "hi" \\ 4u';
 			const oddGraph = {
 				nodes: [
@@ -1456,10 +1501,12 @@ describe( 'GraphView — sidecars', () => {
 			fireEvent.click( dots );
 			await flush();
 			expect( popovers() ).toHaveLength( 2 );
-			fireEvent.keyDown( document, { key: 'Escape' } );
-			await flush();
-			expect( popovers() ).toHaveLength( 1 );
-			expect( document.activeElement ).toBe( dots );
+			const [ log ] = popovers()[ 1 ].querySelectorAll(
+				'.topology-sidecars__card'
+			);
+			expect( global.__canvasProps.overlayActive ).toBe( `${ odd }:log` );
+			expect( log.id ).not.toMatch( /\s/ );
+			expect( document.getElementById( log.id ) ).toBe( log );
 		} );
 
 		it( 'closes a grid on its own "…" again', async () => {
@@ -1571,7 +1618,6 @@ describe( 'GraphView — sidecars', () => {
 		const pressed = document.body.querySelectorAll(
 			'.topology-sidecars__card'
 		)[ 1 ];
-		pressed.focus();
 		fireEvent.click( pressed );
 		await flush();
 		expect( inspectorText( getByTestId ) ).toContain(
@@ -1582,7 +1628,7 @@ describe( 'GraphView — sidecars', () => {
 			...document.body.querySelectorAll( '.topology-sidecars__card' ),
 		];
 		expect( cards ).toHaveLength( 2 );
-		expect( document.activeElement ).toBe( cards[ 1 ] );
+		expect( global.__canvasProps.overlayActive ).toBe( 'n1:seen' );
 		expect( cards[ 1 ].getAttribute( 'aria-current' ) ).toBe( 'true' );
 		expect(
 			cards[ 1 ]
@@ -1590,6 +1636,82 @@ describe( 'GraphView — sidecars', () => {
 				.classList.contains( 'is-selected' )
 		).toBe( true );
 		expect( global.__inspectorProps.onOpenSidecars ).toBeUndefined();
+	} );
+
+	it( 'an arrow in the grid shows the next sidecar, the grid open and the canvas panned to it', async () => {
+		global.__revealed = [];
+		try {
+			const { getByText, getByTestId } = renderWithCatalog(
+				<GraphView graph={ owned } frame={ Frame } resetKey="k" />
+			);
+			fireEvent.click( getByText( 'sidecars-n1' ) );
+			await flush();
+			await keyOnCanvas( 'ArrowRight' );
+			expect( inspectorText( getByTestId ) ).toContain(
+				'insp:n1/sidecar:n1:seen'
+			);
+			expect( global.__canvasProps.overlayActive ).toBe( 'n1:seen' );
+			expect( document.activeElement ).toBe( canvasSvg() );
+			expect( global.__revealed ).toEqual( [
+				expect.objectContaining( { w: NODE_W, h: NODE_H } ),
+			] );
+			expect(
+				document.body.querySelectorAll( '.topology-sidecars__card' )
+			).toHaveLength( 2 );
+		} finally {
+			delete global.__revealed;
+		}
+	} );
+
+	it( "opens a selected owner's grid from Enter on the canvas, showing its first card, and never closes it", async () => {
+		global.__revealed = [];
+		try {
+			const { getByText } = renderWithCatalog(
+				<GraphView graph={ owned } frame={ Frame } resetKey="k" />
+			);
+			fireEvent.click( getByText( 'select-n1' ) );
+			act( () => global.__canvasProps.onEnterSidecars( 'n1' ) );
+			await flush();
+			const [ first ] = document.body.querySelectorAll(
+				'.topology-sidecars__card'
+			);
+			expect( first.getAttribute( 'aria-label' ) ).toBe(
+				'n1:curl (Curl)'
+			);
+			expect( global.__canvasProps.overlayActive ).toBe( 'n1:curl' );
+			expect( global.__revealed ).toEqual( [
+				{
+					x: expect.any( Number ),
+					y: CANVAS_AT.n1.y + CARD_H + 24,
+					w: NODE_W,
+					h: NODE_H,
+				},
+			] );
+			act( () => global.__canvasProps.onEnterSidecars( 'n1' ) );
+			await flush();
+			expect(
+				document.body.querySelectorAll( '[role="dialog"]' )
+			).toHaveLength( 1 );
+			expect( global.__revealed ).toHaveLength( 1 );
+		} finally {
+			delete global.__revealed;
+		}
+	} );
+
+	it( 'closes a grid on Esc to the canvas, its owner still selected, with no \u201c\u2026\u201d drawn at low zoom', async () => {
+		global.__lod = true;
+		global.__dotsHidden = true;
+		const { getByText } = renderWithCatalog(
+			<GraphView graph={ owned } frame={ Frame } resetKey="k" />
+		);
+		fireEvent.click( getByText( 'select-n1' ) );
+		act( () => global.__canvasProps.onEnterSidecars( 'n1' ) );
+		await flush();
+		await keyOnCanvas( 'Escape' );
+		expect( document.body.querySelector( '[role="dialog"]' ) ).toBeNull();
+		expect( document.activeElement ).toBe( canvasSvg() );
+		expect( global.__canvasProps.selectedId ).toBe( 'n1' );
+		expect( global.__canvasProps.overlayActive ).toBeNull();
 	} );
 
 	it( "hangs the grid below its owner's card on the canvas", async () => {
@@ -1637,22 +1759,23 @@ describe( 'GraphView — sidecars', () => {
 		expect( document.body.querySelector( '[role="dialog"]' ) ).toBe( null );
 	} );
 
-	it( 'dismissing the list on Esc returns focus to its trigger', async () => {
+	it( 'dismissing the list on Esc returns focus to the canvas', async () => {
 		const { getByTestId } = renderWithCatalog(
 			<GraphView graph={ owned } frame={ Frame } resetKey="k" />
 		);
 		const trigger = getByTestId( 'sidecars-n1' );
 		fireEvent.click( trigger );
+		trigger.focus();
 		await flush();
 		fireEvent.keyDown( document, { key: 'Escape' } );
 		await flush();
 		expect(
 			document.body.querySelector( '.topology-sidecars__card' )
 		).toBe( null );
-		expect( document.activeElement ).toBe( trigger );
+		expect( document.activeElement ).toBe( canvasSvg() );
 	} );
 
-	it( "keeps the grid through a pick after the canvas redraws its owner's \u201c\u2026\u201d, and Esc focuses the new one", async () => {
+	it( "keeps the grid through a pick after the canvas redraws its owner's \u201c\u2026\u201d", async () => {
 		const { getByText, getByTestId, rerender } = renderWithCatalog(
 			<GraphView graph={ owned } frame={ Frame } resetKey="k" />
 		);
@@ -1673,7 +1796,6 @@ describe( 'GraphView — sidecars', () => {
 		fireEvent.keyDown( document, { key: 'Escape' } );
 		await flush();
 		expect( document.body.querySelector( '[role="dialog"]' ) ).toBeNull();
-		expect( document.activeElement ).toBe( redrawn );
 	} );
 
 	it( "focuses the canvas on Esc when the owner's \u201c\u2026\u201d is not drawn", async () => {
@@ -1723,11 +1845,8 @@ describe( 'GraphView — sidecars', () => {
 				<p>rows</p>
 			</ModalShell>
 		);
-		const card = document.activeElement;
-		expect( card.classList.contains( 'topology-sidecars__card' ) ).toBe(
-			true
-		);
-		fireEvent.keyDown( card, { key: 'Escape' } );
+		canvasSvg().focus();
+		fireEvent.keyDown( canvasSvg(), { key: 'Escape' } );
 		await flush();
 		expect( onDismiss ).toHaveBeenCalledTimes( 1 );
 		expect( grids() ).toHaveLength( 1 );
@@ -1736,11 +1855,8 @@ describe( 'GraphView — sidecars', () => {
 	it( 'leaves the grid to a dialog that takes the Esc, closing only the dialog', async () => {
 		await openGrid();
 		render( <OwnDialog /> );
-		const card = document.activeElement;
-		expect( card.classList.contains( 'topology-sidecars__card' ) ).toBe(
-			true
-		);
-		fireEvent.keyDown( card, { key: 'Escape' } );
+		canvasSvg().focus();
+		fireEvent.keyDown( canvasSvg(), { key: 'Escape' } );
 		await flush();
 		expect( document.body.querySelector( '.topology-modal' ) ).toBeNull();
 		expect( grids() ).toHaveLength( 1 );
@@ -1930,7 +2046,7 @@ describe( 'GraphView — sidecars', () => {
 		expect( onRemoveNode ).toHaveBeenCalledWith( 'n2' );
 	} );
 
-	it( 'removes nothing on Backspace from a grid card with its owner selected', async () => {
+	it( 'removes nothing on Backspace from the canvas while a grid is open on its selected owner', async () => {
 		const onRemoveNode = jest.fn();
 		const { getByText } = renderWithCatalog(
 			<GraphView
@@ -1943,10 +2059,8 @@ describe( 'GraphView — sidecars', () => {
 		fireEvent.click( getByText( 'select-n1' ) );
 		fireEvent.click( getByText( 'sidecars-n1' ) );
 		await flush();
-		const card = document.body.querySelector( '.topology-sidecars__card' );
-		expect( document.activeElement ).toBe( card );
-		fireEvent.keyDown( card, { key: 'Backspace' } );
-		fireEvent.keyDown( card, { key: 'Delete' } );
+		await keyOnCanvas( 'Backspace' );
+		await keyOnCanvas( 'Delete' );
 		expect( onRemoveNode ).not.toHaveBeenCalled();
 	} );
 

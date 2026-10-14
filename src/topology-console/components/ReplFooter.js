@@ -420,6 +420,11 @@ export default function ReplFooter( {
 		) {
 			tabStreak.current = 0;
 		}
+		// Esc leaves the prompt even with the transcript minimized.
+		if ( ev.key === 'Escape' ) {
+			inputRef.current?.blur();
+			return;
+		}
 		// Ctrl/Cmd+L clears the transcript, terminal-style.
 		if (
 			( ev.ctrlKey || ev.metaKey ) &&
@@ -611,6 +616,9 @@ export default function ReplFooter( {
 						setValue( ev.target.value );
 					} }
 					onKeyDown={ handleKeyDown }
+					// Off the Tab order, so Tab completes; `/` reaches it.
+					tabIndex={ -1 }
+					aria-keyshortcuts="/"
 					// Focus opens the transcript; Esc and the buttons close it.
 					onFocus={ () => setExpanded( true ) }
 					disabled={ ! canSend }

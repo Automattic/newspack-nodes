@@ -3,6 +3,7 @@
  */
 
 import { render, fireEvent, act } from '@testing-library/react';
+import { useState } from '@wordpress/element';
 import ReplFooter from '../ReplFooter';
 
 const baseProps = {
@@ -789,6 +790,64 @@ describe( 'ReplFooter', () => {
 			// The prompt input value is untouched.
 			expect( input.value ).toBe( '' );
 			document.body.removeChild( other );
+		} );
+	} );
+
+	describe( 'keyboard reach', () => {
+		/**
+		 * A footer whose host holds `expanded`, as both consoles do.
+		 *
+		 * @return {import('react').ReactElement} The footer.
+		 */
+		function Hosted() {
+			const [ expanded, setExpanded ] = useState( false );
+			return (
+				<ReplFooter
+					{ ...baseProps }
+					expanded={ expanded }
+					onExpandedChange={ setExpanded }
+				/>
+			);
+		}
+
+		it( 'keeps the prompt out of the Tab order, naming `/` as its way in', () => {
+			const { container } = render( <ReplFooter { ...baseProps } /> );
+			const input = findInput( container );
+			expect( input.getAttribute( 'tabindex' ) ).toBe( '-1' );
+			expect( input.getAttribute( 'aria-keyshortcuts' ) ).toBe( '/' );
+		} );
+
+		it( '`/` from the canvas focuses the prompt, and Esc leaves it', () => {
+			jest.useFakeTimers();
+			try {
+				const { container } = render( <Hosted /> );
+				const svg = document.createElementNS(
+					'http://www.w3.org/2000/svg',
+					'svg'
+				);
+				svg.setAttribute( 'tabindex', '0' );
+				document.body.appendChild( svg );
+				svg.focus();
+				fireEvent.keyDown( svg, { key: '/' } );
+				act( () => jest.runOnlyPendingTimers() );
+				const input = findInput( container );
+				expect( document.activeElement ).toBe( input );
+				fireEvent.keyDown( input, { key: 'Escape' } );
+				expect( document.activeElement ).not.toBe( input );
+				document.body.removeChild( svg );
+			} finally {
+				jest.useRealTimers();
+			}
+		} );
+
+		it( 'leaves the prompt on Esc with the transcript minimized', () => {
+			const { container } = render(
+				<ReplFooter { ...baseProps } expanded={ false } />
+			);
+			const input = findInput( container );
+			input.focus();
+			fireEvent.keyDown( input, { key: 'Escape' } );
+			expect( document.activeElement ).not.toBe( input );
 		} );
 	} );
 } );

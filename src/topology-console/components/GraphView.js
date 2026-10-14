@@ -55,7 +55,10 @@ function upTo( open, depth ) {
  * turn opens theirs inside it, below that card, so the open grids form a stack,
  * outermost first. A pick leaves every grid open. Another selection closes
  * them, as does a click off the canvas, unless it lands in the Inspector while
- * that shows a sidecar they list; Esc closes them one at a time. Another
+ * that shows a sidecar they list; Esc closes them one at a time, focus on the
+ * canvas. While a grid is open the canvas's keys act on its active card: the
+ * shown sidecar where the innermost grid lists it, else that grid's first.
+ * Enter opens a grid and never closes one; a "…" toggles its own. Another
  * selection, edit mode, or the owner leaving the graph also drops the sidecar,
  * and Delete removes nothing while it shows: the selected node is its owner,
  * not what the Inspector shows.
@@ -141,6 +144,8 @@ export default function GraphView( {
 	const [ sidecar, setSidecar ] = useState( null );
 	// The owners of the open "…" grids, outermost first.
 	const [ stack, setStack ] = useState( NONE );
+	// The owner whose grid the keys opened last, so it opens on screen.
+	const [ entered, setEntered ] = useState( null );
 	// The selection as of the last render, for the controlled re-sync.
 	const selectedRef = useRef( null );
 	selectedRef.current = selectedId;
@@ -272,6 +277,13 @@ export default function GraphView( {
 	}, [ grids, stack ] );
 	const gridOwner = grids[ 0 ];
 	const rootSidecars = gridOwner ? sidecarsOf( gridOwner ) : NONE;
+	const innermost = grids.at( -1 );
+	let gridActive = null;
+	if ( innermost ) {
+		gridActive = lists( innermost, shownSidecar )
+			? shownSidecar
+			: sidecarsOf( innermost )[ 0 ]?.name ?? null;
+	}
 	// An Inspector click keeps the grids while it shows a sidecar they list.
 	const showsGridSidecar =
 		!! shownSidecar &&
@@ -403,14 +415,11 @@ export default function GraphView( {
 			if ( e.target && e.target.isContentEditable ) {
 				return;
 			}
-			// Esc closes the innermost grid, focus back on its "…".
+			// Esc closes the innermost grid, focus back on the canvas.
 			if ( 'Escape' === e.key ) {
-				const innermost = grids.at( -1 );
-				if ( innermost ) {
+				if ( grids.length > 0 ) {
 					e.preventDefault();
-					( triggerOf( innermost ) ?? canvasRef.current )?.focus( {
-						preventScroll: true,
-					} );
+					canvasRef.current?.focus( { preventScroll: true } );
 					setStack( upTo( grids, grids.length - 1 ) );
 				}
 				return;
@@ -418,6 +427,7 @@ export default function GraphView( {
 			// A key from a grid or a dialog is theirs, never the selection's.
 			if (
 				shownSidecar ||
+				( grids.length > 0 && e.target === canvasRef.current ) ||
 				e.target?.closest?.( '[role="dialog"], .topology-modal' )
 			) {
 				return;
@@ -482,34 +492,34 @@ export default function GraphView( {
 		return () => document.removeEventListener( 'mousedown', onPress, true );
 	}, [ gridsOpen, showsGridSidecar ] );
 	/**
-	 * The "…" that opens `owner`'s grid, where the canvas or a grid draws it
-	 * now: the one pressed may since have been redrawn.
-	 *
-	 * @param {string} owner The grid's owner.
-	 * @return {SVGGElement|undefined} The "…", or undefined while none is drawn.
-	 */
-	const triggerOf = ( owner ) =>
-		[
-			...( canvasRef.current?.querySelectorAll( '[data-owner]' ) ??
-				NONE ),
-		].find( ( el ) => el.dataset.owner === owner );
-
-	/**
 	 * Open a "…" grid at a depth of the stack, closing any open deeper, or
 	 * close it when its own "…" is pressed again.
 	 *
 	 * @param {number} depth 0 for a canvas card's grid, one more per grid.
 	 * @param {string} owner Whose sidecars it shows.
 	 */
-	const openSidecars = useCallback(
-		( depth, owner ) =>
-			setStack( ( open ) =>
-				open[ depth ] === owner
-					? upTo( open, depth )
-					: [ ...open.slice( 0, depth ), owner ]
-			),
-		[]
-	);
+	const openSidecars = useCallback( ( depth, owner ) => {
+		setEntered( null );
+		setStack( ( open ) =>
+			open[ depth ] === owner
+				? upTo( open, depth )
+				: [ ...open.slice( 0, depth ), owner ]
+		);
+	}, [] );
+	/**
+	 * Open a grid from Enter, as `openSidecars` does, but never close it.
+	 *
+	 * @param {number} depth 0 for a canvas card's grid, one more per grid.
+	 * @param {string} owner Whose sidecars it shows.
+	 */
+	const enterSidecars = useCallback( ( depth, owner ) => {
+		setEntered( owner );
+		setStack( ( open ) =>
+			open[ depth ] === owner
+				? open
+				: [ ...open.slice( 0, depth ), owner ]
+		);
+	}, [] );
 	/**
 	 * Show a node: a canvas node by selecting it, an owned one in the selected
 	 * node's place.
@@ -546,7 +556,7 @@ export default function GraphView( {
 	 * @return {?import('react').ReactElement} The outermost popover, or null while the canvas has no box for its owner.
 	 */
 	const drawGrids = useCallback(
-		( { positionOf, surface, showDetail } ) => {
+		( { positionOf, surface, showDetail, reveal } ) => {
 			const anchor = positionOf( gridOwner );
 			return (
 				anchor && (
@@ -561,8 +571,12 @@ export default function GraphView( {
 						surface={ surface }
 						showDetail={ showDetail }
 						shown={ shownSidecar }
+						active={ gridActive }
+						entered={ entered }
 						onPick={ pickSidecar }
 						onOpen={ openSidecars }
+						onEnter={ enterSidecars }
+						onReveal={ reveal }
 					/>
 				)
 			);
@@ -574,8 +588,11 @@ export default function GraphView( {
 			rowById,
 			sidecarRateRef,
 			shownSidecar,
+			gridActive,
+			entered,
 			pickSidecar,
 			openSidecars,
+			enterSidecars,
 		]
 	);
 
@@ -622,7 +639,9 @@ export default function GraphView( {
 					onSelectEdge={ handleSelectEdge }
 					svgRef={ canvasRef }
 					onOpenSidecars={ ( owner ) => openSidecars( 0, owner ) }
+					onEnterSidecars={ ( owner ) => enterSidecars( 0, owner ) }
 					overlay={ grids.length > 0 ? drawGrids : undefined }
+					overlayActive={ gridActive }
 					hulls={ hulls }
 				/>
 			</Frame>

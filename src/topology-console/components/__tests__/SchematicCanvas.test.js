@@ -3,8 +3,11 @@
  * createSVGPoint / getScreenCTM with identity-transform math.
  */
 
-import { act, fireEvent } from '@testing-library/react';
+import { act, fireEvent, render } from '@testing-library/react';
+import { useState } from '@wordpress/element';
 import SchematicCanvas from '../SchematicCanvas';
+import ReplFooter from '../ReplFooter';
+import { NODE_H, NODE_W } from '../NodeCard';
 import { renderWithCatalog } from '../../__tests__/catalogTestUtils';
 
 /**
@@ -189,7 +192,7 @@ describe( 'SchematicCanvas', () => {
 			expect( buttons[ 0 ].getAttribute( 'aria-label' ) ).toBe(
 				'Owned nodes of a'
 			);
-			expect( buttons[ 0 ].getAttribute( 'tabindex' ) ).toBe( '0' );
+			expect( buttons[ 0 ].getAttribute( 'tabindex' ) ).toBe( '-1' );
 		} );
 
 		it( "clips an owner's id short of its \u201c\u2026\u201d, and a plain card's at the card edge", () => {
@@ -3577,6 +3580,444 @@ describe( 'SchematicCanvas', () => {
 			Number( led.getAttribute( 'r' ) );
 
 		expect( lockRight ).toBeLessThanOrEqual( ledLeft - 4 );
+	} );
+	describe( 'the keyboard', () => {
+		/** A centre card and a card each way, with a decoy nearer ahead. */
+		const AROUND = {
+			c: { x: 600, y: 400 },
+			r: { x: 1000, y: 400 },
+			l: { x: 200, y: 400 },
+			u: { x: 600, y: 100 },
+			d: { x: 600, y: 700 },
+			decoy: { x: 800, y: 700 },
+		};
+		const aroundParsed = {
+			nodes: Object.keys( AROUND ).map( ( id ) => ( {
+				id,
+				class: 'Tee',
+				sidecars:
+					'c' === id
+						? [ { name: 'c:config', class: 'Interpreter' } ]
+						: undefined,
+			} ) ),
+			edges: [],
+		};
+		const WIDE_VIEW = { x: -500, y: -500, w: 3000, h: 2100 };
+
+		/**
+		 * Render the canvas over AROUND, its selection held in state.
+		 *
+		 * @param {Object}   opts
+		 * @param {?string}  [opts.selected]         The node selected first.
+		 * @param {Object}   [opts.viewport]         The controlled viewport.
+		 * @param {Object}   [opts.props]            Extra canvas props.
+		 * @param {Function} [opts.onSelect]         Hears each selection.
+		 * @param {Function} [opts.onViewportChange] Hears each viewport.
+		 * @return {Object} What renderWithCatalog returns.
+		 */
+		const renderAround = ( {
+			selected = 'c',
+			viewport = WIDE_VIEW,
+			props = {},
+			onSelect = () => {},
+			onViewportChange = () => {},
+		} = {} ) => {
+			function Held() {
+				const [ id, setId ] = useState( selected );
+				return (
+					<SchematicCanvas
+						{ ...baseProps }
+						parsed={ aroundParsed }
+						selectedId={ id }
+						onSelect={ ( next ) => {
+							onSelect( next );
+							setId( next );
+						} }
+						onOpenSidecars={ () => {} }
+						onEnterSidecars={ () => {} }
+						{ ...props }
+					/>
+				);
+			}
+			return renderWithCatalog( <Held />, {
+				positionOverrides: AROUND,
+				onPositionChange: () => {},
+				viewport,
+				onViewportChange,
+			} );
+		};
+		const cardOf = ( container, id ) =>
+			[ ...container.querySelectorAll( '[data-node]' ) ].find(
+				( el ) => el.dataset.node === id
+			);
+		const focusCanvas = ( container ) => {
+			const svg = container.querySelector( 'svg' );
+			svg.focus();
+			return svg;
+		};
+
+		it.each( [
+			[ 'ArrowRight', 'r' ],
+			[ 'ArrowLeft', 'l' ],
+			[ 'ArrowUp', 'u' ],
+			[ 'ArrowDown', 'd' ],
+		] )(
+			'%s moves the selection to the card nearest that way, nearest the axis first',
+			( key, next ) => {
+				const onSelect = jest.fn();
+				const onViewportChange = jest.fn();
+				const { container } = renderAround( {
+					onSelect,
+					onViewportChange,
+				} );
+				const svg = focusCanvas( container );
+				fireEvent.keyDown( svg, { key } );
+				expect( onSelect ).toHaveBeenCalledWith( next );
+				expect( onViewportChange ).not.toHaveBeenCalled();
+				expect( document.activeElement ).toBe( svg );
+				expect( svg.getAttribute( 'aria-activedescendant' ) ).toBe(
+					cardOf( container, next ).id
+				);
+			}
+		);
+
+		it( 'stays put at an edge, selecting nothing and panning nothing', () => {
+			const onSelect = jest.fn();
+			const onViewportChange = jest.fn();
+			const { container } = renderAround( {
+				selected: 'r',
+				onSelect,
+				onViewportChange,
+			} );
+			const svg = focusCanvas( container );
+			const ev = new window.KeyboardEvent( 'keydown', {
+				key: 'ArrowRight',
+				bubbles: true,
+				cancelable: true,
+			} );
+			svg.dispatchEvent( ev );
+			expect( onSelect ).not.toHaveBeenCalled();
+			expect( onViewportChange ).not.toHaveBeenCalled();
+			expect( ev.defaultPrevented ).toBe( true );
+		} );
+
+		it( 'pans a selection off-screen just far enough into view', () => {
+			const onViewportChange = jest.fn();
+			const { container } = renderAround( {
+				viewport: { x: 450, y: 250, w: 700, h: 490 },
+				onViewportChange,
+			} );
+			fireEvent.keyDown( focusCanvas( container ), {
+				key: 'ArrowRight',
+			} );
+			expect( onViewportChange ).toHaveBeenLastCalledWith(
+				{ x: 1000 + NODE_W - 700, y: 250, w: 700, h: 490 },
+				expect.anything()
+			);
+		} );
+
+		it( 'pans by the card as drawn, floored on screen at low zoom', () => {
+			const proto = window.SVGSVGElement.prototype;
+			Object.defineProperty( proto, 'clientWidth', {
+				configurable: true,
+				get: () => 1000,
+			} );
+			Object.defineProperty( proto, 'clientHeight', {
+				configurable: true,
+				get: () => 700,
+			} );
+			try {
+				const onViewportChange = jest.fn();
+				const far = { c: AROUND.c, r: { x: 99900, y: 400 } };
+				function Far() {
+					const [ id, setId ] = useState( 'c' );
+					return (
+						<SchematicCanvas
+							{ ...baseProps }
+							parsed={ aroundParsed }
+							selectedId={ id }
+							onSelect={ setId }
+						/>
+					);
+				}
+				const { container } = renderWithCatalog( <Far />, {
+					positionOverrides: far,
+					onPositionChange: () => {},
+					viewport: { x: 0, y: 0, w: 100000, h: 70000 },
+					onViewportChange,
+				} );
+				fireEvent.keyDown( focusCanvas( container ), {
+					key: 'ArrowRight',
+				} );
+				// 2px at 0.01px per unit draws the card 200 units wide.
+				expect( onViewportChange ).toHaveBeenLastCalledWith(
+					{ x: 100, y: 0, w: 100000, h: 70000 },
+					expect.anything()
+				);
+			} finally {
+				delete proto.clientWidth;
+				delete proto.clientHeight;
+			}
+		} );
+
+		it( 'leaves a key another handler took', () => {
+			const onSelect = jest.fn();
+			const { container } = renderAround( { onSelect } );
+			const svg = focusCanvas( container );
+			svg.addEventListener( 'keydown', ( e ) => e.preventDefault() );
+			fireEvent.keyDown( svg, { key: 'ArrowRight' } );
+			expect( onSelect ).not.toHaveBeenCalled();
+		} );
+
+		it( 'only pans on hover, focus elsewhere: no selection, Enter or `0`', () => {
+			const onSelect = jest.fn();
+			const onEnterSidecars = jest.fn();
+			const onViewportChange = jest.fn();
+			const { container } = renderAround( {
+				onSelect,
+				onViewportChange,
+				props: { onEnterSidecars },
+			} );
+			hoverCanvas( container );
+			const button = document.createElement( 'button' );
+			document.body.appendChild( button );
+			button.focus();
+			fireEvent.keyDown( button, { key: 'ArrowRight' } );
+			expect( onSelect ).not.toHaveBeenCalled();
+			expect( onViewportChange ).toHaveBeenCalledTimes( 1 );
+			fireEvent.keyDown( button, { key: 'Enter' } );
+			fireEvent.keyDown( button, { key: '0' } );
+			expect( onEnterSidecars ).not.toHaveBeenCalled();
+			expect( onViewportChange ).toHaveBeenCalledTimes( 1 );
+			document.body.removeChild( button );
+		} );
+
+		it( "opens a selected owner's grid on Enter", () => {
+			const onEnterSidecars = jest.fn();
+			const onOpenSidecars = jest.fn();
+			const { container } = renderAround( {
+				props: { onEnterSidecars, onOpenSidecars },
+			} );
+			fireEvent.keyDown( focusCanvas( container ), { key: 'Enter' } );
+			expect( onEnterSidecars ).toHaveBeenCalledWith( 'c' );
+			expect( onOpenSidecars ).not.toHaveBeenCalled();
+		} );
+
+		it( 'opens nothing on Enter for a card with no sidecars', () => {
+			const onEnterSidecars = jest.fn();
+			const onSelect = jest.fn();
+			const { container } = renderAround( {
+				selected: 'r',
+				onSelect,
+				props: { onEnterSidecars },
+			} );
+			fireEvent.keyDown( focusCanvas( container ), { key: 'Enter' } );
+			expect( onEnterSidecars ).not.toHaveBeenCalled();
+			expect( onSelect ).not.toHaveBeenCalled();
+		} );
+
+		it( 'selects the card nearest the middle of the view on Enter, with nothing selected', () => {
+			const onSelect = jest.fn();
+			const { container } = renderAround( {
+				selected: null,
+				viewport: { x: 400, y: 500, w: 600, h: 420 },
+				onSelect,
+			} );
+			const svg = focusCanvas( container );
+			fireEvent.keyDown( svg, { key: 'Enter' } );
+			expect( onSelect ).toHaveBeenCalledWith( 'd' );
+			expect( svg.getAttribute( 'aria-activedescendant' ) ).toBe(
+				cardOf( container, 'd' ).id
+			);
+		} );
+
+		it( 'keeps the one Tab stop and focus on the canvas, naming the selected card', () => {
+			const { container } = renderAround();
+			const svg = container.querySelector( 'svg' );
+			const card = cardOf( container, 'c' );
+			expect( card.hasAttribute( 'tabindex' ) ).toBe( false );
+			expect( card.getAttribute( 'aria-label' ) ).toBe( 'c (Tee)' );
+			expect( card.id ).not.toBe( '' );
+			expect( svg.getAttribute( 'aria-activedescendant' ) ).toBe(
+				card.id
+			);
+			expect( cardOf( container, 'r' ).id ).toBe( '' );
+			expect(
+				[ ...container.querySelectorAll( '[tabindex]' ) ].map(
+					( el ) => [ el.tagName, el.getAttribute( 'tabindex' ) ]
+				)
+			).toEqual( [
+				[ 'svg', '0' ],
+				[ 'g', '-1' ],
+			] );
+		} );
+
+		it( 'keeps focus on the canvas when the selected card goes', () => {
+			const { container, rerenderWithCatalog } = renderWithCatalog(
+				<SchematicCanvas
+					{ ...baseProps }
+					parsed={ aroundParsed }
+					selectedId="c"
+				/>,
+				{ positionOverrides: AROUND, viewport: WIDE_VIEW }
+			);
+			const svg = focusCanvas( container );
+			rerenderWithCatalog(
+				<SchematicCanvas
+					{ ...baseProps }
+					parsed={ {
+						nodes: aroundParsed.nodes.filter(
+							( n ) => 'c' !== n.id
+						),
+						edges: [],
+					} }
+					selectedId={ null }
+				/>,
+				{ positionOverrides: AROUND, viewport: WIDE_VIEW }
+			);
+			expect( document.activeElement ).toBe( svg );
+			expect( svg.hasAttribute( 'aria-activedescendant' ) ).toBe( false );
+		} );
+
+		it( 'rings the selected card at its size, outside every layer that dims a card', () => {
+			const { container } = renderAround();
+			const rings = container.querySelectorAll( '.topology-node-focus' );
+			expect( rings ).toHaveLength( 1 );
+			const [ ring ] = rings;
+			expect( ring.parentNode.parentNode ).toBe(
+				container.querySelector( 'svg' )
+			);
+			expect(
+				ring.closest( '.topology-node, .topology-node-readout' )
+			).toBeNull();
+			expect(
+				[ 'x', 'y', 'width', 'height' ].map( ( a ) =>
+					Number( ring.getAttribute( a ) )
+				)
+			).toEqual( [ 600, 400, NODE_W, NODE_H ] );
+		} );
+
+		it( 'draws no ring with nothing selected', () => {
+			const { container } = renderAround( { selected: null } );
+			expect(
+				container.querySelector( '.topology-node-focus' )
+			).toBeNull();
+		} );
+
+		it( 'clears the selection on Esc, so the arrows pan again', () => {
+			const onDeselect = jest.fn();
+			const { container } = renderAround( { props: { onDeselect } } );
+			const svg = focusCanvas( container );
+			const ev = new window.KeyboardEvent( 'keydown', {
+				key: 'Escape',
+				bubbles: true,
+				cancelable: true,
+			} );
+			svg.dispatchEvent( ev );
+			expect( onDeselect ).toHaveBeenCalledTimes( 1 );
+			expect( ev.defaultPrevented ).toBe( true );
+		} );
+
+		it( 'leaves Esc to its host while an overlay draws, or with focus elsewhere', () => {
+			const onDeselect = jest.fn();
+			const { container } = renderAround( {
+				props: {
+					onDeselect,
+					overlay: () => <rect className="overlay-probe" />,
+				},
+			} );
+			fireEvent.keyDown( focusCanvas( container ), { key: 'Escape' } );
+			const plain = renderAround( {
+				selected: 'r',
+				props: { onDeselect },
+			} );
+			hoverCanvas( plain.container );
+			fireEvent.keyDown( document.body, { key: 'Escape' } );
+			expect( onDeselect ).not.toHaveBeenCalled();
+		} );
+
+		it( "keeps focus on the canvas when a click would focus a card's “…”", () => {
+			const { container } = renderAround();
+			const svg = focusCanvas( container );
+			cardOf( container, 'c' )
+				.querySelector( '.topology-node__sidecars' )
+				.focus();
+			expect( document.activeElement ).toBe( svg );
+		} );
+
+		it( "names the overlay's active card, and rings none of its own, while the overlay draws", () => {
+			const { container } = renderAround( {
+				props: {
+					overlay: () => <g className="overlay-probe" />,
+					overlayActive: 'c:config',
+				},
+			} );
+			const svg = container.querySelector( 'svg' );
+			const id = svg.getAttribute( 'aria-activedescendant' );
+			expect( id ).toMatch( /-card-c%3Aconfig$/ );
+			expect( cardOf( container, 'c' ).id ).toBe( '' );
+			expect(
+				container.querySelector( '.topology-node-focus' )
+			).toBeNull();
+		} );
+
+		it( '`0` with the canvas focused returns the view to its autofit', () => {
+			const onViewportChange = jest.fn();
+			const { container } = renderAround( {
+				selected: null,
+				viewport: { x: 4321, y: -987, w: 640, h: 448 },
+				onViewportChange,
+			} );
+			const svg = container.querySelector( 'svg' );
+			fireEvent.pointerDown( svg, { button: 0, clientX: 9, clientY: 9 } );
+			fireEvent.pointerUp( svg, { button: 0, clientX: 9, clientY: 9 } );
+			const [ fit ] = onViewportChange.mock.calls.at( -1 );
+			expect( fit.x ).not.toBe( 4321 );
+			onViewportChange.mockClear();
+			svg.focus();
+			fireEvent.keyDown( svg, { key: '0' } );
+			expect( onViewportChange ).toHaveBeenCalledTimes( 1 );
+			expect( onViewportChange.mock.calls[ 0 ][ 0 ] ).toEqual( fit );
+		} );
+
+		it( 'leaves Cmd-0, Ctrl-0 and Alt-0 to the browser', () => {
+			const onViewportChange = jest.fn();
+			const { container } = renderAround( {
+				selected: null,
+				viewport: { x: 4321, y: -987, w: 640, h: 448 },
+				onViewportChange,
+			} );
+			const svg = focusCanvas( container );
+			fireEvent.keyDown( svg, { key: '0', metaKey: true } );
+			fireEvent.keyDown( svg, { key: '0', ctrlKey: true } );
+			fireEvent.keyDown( svg, { key: '0', altKey: true } );
+			expect( onViewportChange ).not.toHaveBeenCalled();
+		} );
+
+		it( 'leaves a `0` typed in the REPL to the REPL', () => {
+			const onViewportChange = jest.fn();
+			const { container } = renderAround( {
+				selected: null,
+				viewport: { x: 4321, y: -987, w: 640, h: 448 },
+				onViewportChange,
+			} );
+			hoverCanvas( container );
+			const repl = render(
+				<ReplFooter
+					prompt="/"
+					canSend
+					onSubmit={ () => {} }
+					expanded
+					onExpandedChange={ () => {} }
+				/>
+			);
+			const input = repl.container.querySelector(
+				'.topology-repl__input'
+			);
+			input.focus();
+			fireEvent.keyDown( input, { key: '0' } );
+			expect( onViewportChange ).not.toHaveBeenCalled();
+		} );
 	} );
 } );
 
