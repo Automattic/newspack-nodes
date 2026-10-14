@@ -217,6 +217,17 @@ class ShellIncludeTest extends TestCase {
 		$this->assertContains( 'make_node Echo after-missing', $lines, 'an unresolvable include must log and continue, not abort the script' );
 	}
 
+	/** Each include a REPL refuses prints its own line, naming it. */
+	public function test_each_refused_include_prints_its_own_line(): void {
+		$errors = $this->capture_stderr();
+
+		$this->run_script( "include absent-petrel-5501\ninclude absent-fulmar-5502\n" );
+
+		$lines = \implode( '', (array) $errors );
+		$this->assertStringContainsString( 'Shell: include: file not found: absent-petrel-5501', $lines );
+		$this->assertStringContainsString( 'Shell: include: file not found: absent-fulmar-5502', $lines );
+	}
+
 	public function test_include_of_unknown_topology_throws_in_fatal_mode(): void {
 		// Loader-shaped: a missing include would boot a graph short every node
 		// it declares, so it fails loud like the cycle does.

@@ -732,6 +732,24 @@ describe( 'Shell node — var + interpolation', () => {
 		warn.mockRestore();
 	} );
 
+	it( 'each unresolved token warns on its own line', () => {
+		const { shell } = makeShell( { path: '' } );
+		shell.config = { spool_dir: '/srv/quarantine' };
+		const warn = jest
+			.spyOn( Core, '_stderr' )
+			.mockImplementation( () => {} );
+		send( shell, 'ping <config:tern_dir>relay' );
+		send( shell, 'ping <config:skua_dir>relay' );
+		const lines = warn.mock.calls.join( ' ' );
+		expect( lines ).toContain(
+			'resolve_config_token: resolver returned null for <config:tern_dir>'
+		);
+		expect( lines ).toContain(
+			'resolve_config_token: resolver returned null for <config:skua_dir>'
+		);
+		warn.mockRestore();
+	} );
+
 	it( 'stringifies a boolean config value the way PHP casts it', () => {
 		const { shell, filled } = makeShell( { path: '' } );
 		shell.config = { is_hub: false, is_spoke: true };

@@ -183,6 +183,21 @@ class DeadLetterQueueTest extends TestCase {
 		$this->assertCount( 1, \array_filter( $lines, static fn ( string $l ): bool => \str_contains( $l, 'DEAD-LETTER [crash]' ) ) );
 	}
 
+	/** Every quarantined record prints its own line, so each can be requeued. */
+	public function test_each_dead_letter_prints_its_own_line(): void {
+		$d = new Dead_Letter_Queue_Double();
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$errors = $this->capture_stderr();
+
+		$d->quarantine( $this->dl_message( 'gaff-5521', '61:0:10' ), 'throw' );
+		$d->quarantine( $this->dl_message( 'boom-5522', '62:0:10' ), 'throw' );
+
+		$lines = \implode( '', (array) $errors );
+		$this->assertStringContainsString( 'DEAD-LETTER [throw]', $lines );
+		$this->assertStringContainsString( ' at 61:0:10 — quarantined', $lines );
+		$this->assertStringContainsString( ' at 62:0:10 — quarantined', $lines );
+	}
+
 	/**
 	 * With nowhere to quarantine, the error that condemned the message is
 	 * the only record of it, so it raises rather than printing and dropping.
@@ -747,6 +762,56 @@ class DeadLetterQueueTest extends TestCase {
 		$this->assertSame( [ 'b-404' ], \array_column( $sink->captured, Message::VALUE ) );
 		$this->assertStringContainsString( 'requeued status not recorded', \implode( '', (array) $errors ) );
 		$this->assertSame( 'quarantined', $this->statuses( $d )['2:0:10'] );
+	}
+
+	/** Each requeue whose status write failed names its own locator. */
+	public function test_each_unrecorded_requeue_prints_its_own_line(): void {
+		$d      = $this->two_quarantined();
+		[ $newer, $older ] = \array_column( $d->list_deadletter( 50 )['rows'], 'locator' );
+		$errors = $this->capture_stderr();
+		Partition_Node::$fwrite = static function ( $fh, string $bytes ) {
+			$uri = (string) ( \stream_get_meta_data( $fh )['uri'] ?? '' );
+			return \str_ends_with( $uri, '.idx' ) ? false : \fwrite( $fh, $bytes );
+		};
+
+		try {
+			$d->requeue_deadletter( $newer );
+			$d->requeue_deadletter( $older );
+		} finally {
+			Partition_Node::$fwrite = null;
+		}
+
+		$lines = \implode( '', (array) $errors );
+		$this->assertStringContainsString( "requeued status not recorded at {$newer} — ", $lines );
+		$this->assertStringContainsString( "requeued status not recorded at {$older} — ", $lines );
+	}
+
+	/** The count doctor reports: every record no requeue or removal settled. */
+	public function test_quarantined_records_counts_what_no_tombstone_settles(): void {
+		$d = new Dead_Letter_Queue_Double();
+		$this->deliver_to( $d, new Capture_Sink_Node() );
+		$dlq = $d->build_dlq( "{$this->tmp}/dlq.p0" );
+		for ( $i = 1; $i <= 7; ++$i ) {
+			$d->quarantine( $this->dl_message( "tern-{$i}", "70:{$i}:10" ), 'throw' );
+		}
+		$locators = \array_column( $d->list_deadletter( 50 )['rows'], 'locator' );
+
+		$d->requeue_deadletter( $locators[1] );
+		$d->remove_deadletter( $locators[4] );
+
+		$this->assertSame( 5, Dead_Letter_Queue_Double::quarantined_records( $dlq ) );
+	}
+
+	/** A segment no index describes counts each of its lines: nothing can settle them. */
+	public function test_quarantined_records_counts_every_line_of_an_unindexed_segment(): void {
+		$dir = "{$this->tmp}/shared-dlq-8813.p0";
+		\mkdir( $dir, 0755, true );
+		\file_put_contents( "{$dir}/3.log", "one\ntwo\nthree\n" );
+		\file_put_contents( "{$dir}/4.log", "four\nfive\nsix\nseven\n" );
+		$dlq = new Partition_Node();
+		$dlq->arguments( [ $dir ] );
+
+		$this->assertSame( 7, Dead_Letter_Queue_Double::quarantined_records( $dlq ) );
 	}
 
 	public function test_remove_omits_the_record_from_the_list(): void {

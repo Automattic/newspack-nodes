@@ -550,6 +550,21 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertNotEmpty( \array_filter( $lines, static fn ( string $l ): bool => \str_contains( $l, 'deleted' ) && \str_contains( $l, '31:4404' ) ) );
 	}
 
+	/** Each reset block the spoke serves prints, naming what it served. */
+	public function test_each_reset_block_prints_its_own_line(): void {
+		[ , $reader, , $http ] = $this->fetching_reader();
+		$errors = $this->capture_stderr();
+		$reader->fire_cb();
+
+		self::answer( $reader, self::block_reply( [ 'firehose.p0', '31:4404' ], self::line( 'after-6621' ), null, '35:0', ' RESET 1' ) );
+		$asked = $this->last_fetch( $http );
+		self::answer( $reader, self::block_reply( $asked, self::line( 'after-6622' ), null, '38:0', ' RESET 1' ) );
+
+		$lines = \implode( '', (array) $errors );
+		$this->assertStringContainsString( 'spoke served past deleted segments: asked 31:4404, served 35:0', $lines );
+		$this->assertStringContainsString( "spoke served past deleted segments: asked {$asked[1]}, served 38:0", $lines );
+	}
+
 	/** A block of torn lines alone asks again at once, and each line is dead-lettered as it drains. */
 	public function test_a_block_of_torn_lines_alone_asks_again_at_once(): void {
 		[ , $reader, , $http ] = $this->fetching_reader();

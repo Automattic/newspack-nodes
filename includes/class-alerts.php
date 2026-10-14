@@ -43,7 +43,7 @@ class Alerts {
 	/** A consumer trails its source by more than `alert_lag_threshold` bytes. */
 	public const FAMILY_CONSUMER_LAG = 'consumer-lag';
 
-	/** Quarantined segments for one reader exceed `alert_deadletter_threshold`. */
+	/** Records still quarantined for one reader exceed `alert_deadletter_threshold`. */
 	public const FAMILY_DEAD_LETTERS = 'dead-letters';
 
 	/** Attention, not urgency: consumer lag, dead letters, a worker that never started, a batch that reported errors. */
@@ -287,7 +287,7 @@ class Alerts {
 				'key'      => "deadletter:{$reader}",
 				'family'   => self::FAMILY_DEAD_LETTERS,
 				'severity' => self::SEVERITY_WARNING,
-				'message'  => "{$count} dead-letter segment(s) quarantined for {$reader}; replay or clear them.",
+				'message'  => "{$count} dead-letter record(s) quarantined for {$reader}; replay or clear them.",
 				'reader'   => $reader,
 				'count'    => $count,
 			];

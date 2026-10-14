@@ -1141,7 +1141,7 @@ class Shell_Node extends Node {
 	 * this top-level script is a `#pragma once` no-op. `secure`/`insecure` lines
 	 * are skipped (see declares_secure_level()), and flush_pending() judges a
 	 * quote or continuation the file leaves open. A REPL reports each refusal
-	 * rate-limited and carries on; fatal_errors turns a missing or unopenable
+	 * and carries on; fatal_errors turns a missing or unopenable
 	 * include, the cycle and the open quote into throws. Every line of the file
 	 * runs whatever an earlier one threw, and the failures escape after the last.
 	 *
@@ -1197,7 +1197,7 @@ class Shell_Node extends Node {
 
 	/**
 	 * Refuse an include that cannot be read: a throw at worker boot, where a
-	 * graph missing the include's nodes must not start, and a rate-limited line
+	 * graph missing the include's nodes must not start, and a line per refusal
 	 * in the REPL, which is the operator's answer there.
 	 *
 	 * @param string $what   Refusal prefix, naming the reason.
@@ -1209,7 +1209,7 @@ class Shell_Node extends Node {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
 			throw new \RuntimeException( $what . $detail );
 		}
-		$this->print_less_often( $what, $detail );
+		$this->stderr( $what . $detail );
 	}
 
 	/**

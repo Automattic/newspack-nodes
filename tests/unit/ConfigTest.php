@@ -552,18 +552,16 @@ class ConfigTest extends TestCase {
 	 * workers run as the web user and cannot write what root owns. Denial is
 	 * non-fatal — the caller skips the write and carries on.
 	 */
-	public function test_write_denied_is_true_for_root_and_warns_once(): void {
+	public function test_write_denied_is_true_for_root_and_names_each_skipped_write(): void {
 		CLI::$uid_provider = static fn (): int => 0;
-		$lines             = [];
-		Core::set_stderr_handler( static function ( string $line ) use ( &$lines ): void {
-			$lines[] = $line;
-		} );
+		$errors            = $this->capture_stderr();
 
-		$this->assertTrue( Config::write_denied( 'restart flag' ) );
-		$this->assertTrue( Config::write_denied( 'restart flag' ) );
+		$this->assertTrue( Config::write_denied( 'restart flag 8801' ) );
+		$this->assertTrue( Config::write_denied( 'offset frame 8802' ) );
 
-		$hits = \array_filter( $lines, static fn ( $l ) => \str_contains( $l, 'running as root' ) );
-		$this->assertCount( 1, $hits, 'rate-limited: one line, not one per write' );
+		$lines = \implode( '', (array) $errors );
+		$this->assertStringContainsString( 'WARNING: running as root; skipping restart flag 8801 - ', $lines );
+		$this->assertStringContainsString( 'WARNING: running as root; skipping offset frame 8802 - ', $lines );
 	}
 
 	public function test_write_denied_is_false_for_any_non_root_uid(): void {

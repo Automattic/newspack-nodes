@@ -61,7 +61,7 @@ return [
     // a reader warns; the shipped 64 MiB is one segment.
     // 'alert_lag_threshold'        => 64 * 1024 * 1024,
 
-    // Quarantined dead-letter segments past which a reader warns; 0 = warn on
+    // Quarantined dead-letter records past which a reader warns; 0 = warn on
     // the first one.
     // 'alert_deadletter_threshold' => 0,
 

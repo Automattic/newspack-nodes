@@ -1508,16 +1508,16 @@ class WorkersCITest extends TestCase {
 	}
 
 	public function test_dump_graph_counts_deadletter_segments_across_all_dirs(): void {
-		// The DLQ-growth signal: dump_graph carries a `deadletter_segments` total,
-		// globbed from every `{base}/deadletter/*/*.log` quarantine dir. Both the
-		// substrate Alerts evaluator (local) and the fleet probe (remote) read it.
+		// The DLQ-growth signal: dump_graph carries a `deadletter_segments` total
+		// over every quarantine Log_Discovery lists under `deadletter`, beside
+		// each reader's records still quarantined, which Alerts reads.
 		$base = $this->arrange_base_dir();
 		// Two consumers each quarantined poison; one rolled to a second segment.
 		\mkdir( "{$base}/deadletter/jobs.job-worker.p0", 0755, true );
 		\mkdir( "{$base}/deadletter/firehose.request-builder.p0", 0755, true );
-		\file_put_contents( "{$base}/deadletter/jobs.job-worker.p0/0.log", 'x' );
-		\file_put_contents( "{$base}/deadletter/jobs.job-worker.p0/1.log", 'x' );
-		\file_put_contents( "{$base}/deadletter/firehose.request-builder.p0/0.log", 'x' );
+		\file_put_contents( "{$base}/deadletter/jobs.job-worker.p0/0.log", "a\nb\nc\n" );
+		\file_put_contents( "{$base}/deadletter/jobs.job-worker.p0/1.log", "d\ne\n" );
+		\file_put_contents( "{$base}/deadletter/firehose.request-builder.p0/0.log", "f\n" );
 
 		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
@@ -1525,14 +1525,59 @@ class WorkersCITest extends TestCase {
 
 		$this->assertArrayHasKey( 'deadletter_segments', $result );
 		$this->assertSame( 3, $result['deadletter_segments'] );
-		// Per-reader breakdown: the Alerts evaluator names the owning queue.
+		// Per-reader records: the Alerts evaluator names the owning queue.
 		$this->assertSame(
 			[
 				'firehose.request-builder.p0' => 1,
-				'jobs.job-worker.p0'          => 2,
+				'jobs.job-worker.p0'          => 5,
 			],
 			$result['deadletter_by_reader']
 		);
+	}
+
+	/** A broker reader's dir counts under its stamp's rest, apart from a namesake. */
+	public function test_dump_graph_keys_a_broker_reader_quarantine_by_its_stamp(): void {
+		$base = $this->arrange_base_dir();
+		\mkdir( "{$base}/deadletter/firehose.p0", 0755, true );
+		\mkdir( "{$base}/deadletter/hub.tw0/firehose.p0", 0755, true );
+		\file_put_contents( "{$base}/deadletter/firehose.p0/0.log", "a\nb\nc\nd\ne\n" );
+		\file_put_contents( "{$base}/deadletter/hub.tw0/firehose.p0/0.log", "f\ng\n" );
+		\file_put_contents( "{$base}/deadletter/hub.tw0/firehose.p0/1.log", "h\n" );
+
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+
+		$this->assertSame( [ 'firehose.p0' => 5, 'hub.tw0:firehose.p0' => 3 ], $result['deadletter_by_reader'] );
+		$this->assertSame( 3, $result['deadletter_segments'] );
+	}
+
+	/** A write quarantine named outside the stamp grammar counts under its dir name. */
+	public function test_dump_graph_counts_a_quarantine_no_stamp_names(): void {
+		$base = $this->arrange_base_dir();
+		\mkdir( "{$base}/deadletter/firehose.p0", 0755, true );
+		\mkdir( "{$base}/deadletter/hub.tw0/firehose.p0", 0755, true );
+		\mkdir( "{$base}/deadletter/offsets.hub.TucsonWeekly.firehose.p3", 0755, true );
+		\mkdir( "{$base}/deadletter/offsets.hub.coast-73.sources:php", 0755, true );
+		\file_put_contents( "{$base}/deadletter/firehose.p0/0.log", "a\nb\nc\nd\ne\n" );
+		\file_put_contents( "{$base}/deadletter/hub.tw0/firehose.p0/0.log", "f\n" );
+		\file_put_contents( "{$base}/deadletter/offsets.hub.TucsonWeekly.firehose.p3/0.log", "g\nh\ni\n" );
+		\file_put_contents( "{$base}/deadletter/offsets.hub.coast-73.sources:php/0.log", "j\nk\n" );
+
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+
+		$this->assertSame(
+			[
+				'firehose.p0'                          => 5,
+				'hub.tw0:firehose.p0'                  => 1,
+				'offsets.hub.TucsonWeekly.firehose.p3' => 3,
+				'offsets.hub.coast-73.sources:php'     => 2,
+			],
+			$result['deadletter_by_reader']
+		);
+		$this->assertSame( 4, $result['deadletter_segments'] );
 	}
 
 	public function test_dump_graph_reports_zero_deadletter_when_dir_absent(): void {

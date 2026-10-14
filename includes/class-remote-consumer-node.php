@@ -726,7 +726,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 			return;
 		}
 		if ( $header['reset'] ) {
-			$this->print_less_often( 'spoke served past deleted segments: ', ( null === $header['asked'] ? 'pushed' : "asked {$header['asked']}" ) . ", served {$id}" );
+			$this->stderr( 'spoke served past deleted segments: ' . ( null === $header['asked'] ? 'pushed' : "asked {$header['asked']}" ) . ", served {$id}" );
 		}
 		$segment = $header['segment'];
 		if ( null !== $segment ) {

@@ -4716,6 +4716,29 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( [ 'OFFSET 0:0 DISTANCE 13', "gunwale 4481\n" ], $this->values_in( "{$this->tmp}/deadletter.p0" ) );
 	}
 
+	/** Each rewind past deleted segments prints, naming where it landed. */
+	public function test_each_raw_block_rewind_prints_its_own_line(): void {
+		$dir = "{$this->tmp}/hawse-7702.p0";
+		\mkdir( $dir, 0755, true );
+		\file_put_contents( "{$dir}/4.log", "fore 4401\n" );
+		\file_put_contents( "{$dir}/7.log", "aft 7701\n" );
+		$c = Consumer_Node::scan( $dir );
+		$c->set_stamp_as( 'hawse-7702.p0' );
+		$c->set_raw_blocks( true );
+		$c->sink( new Capture_Sink_Node() );
+		$c->next_offset( [ 'segment' => 2, 'offset' => 0 ] );
+		$errors = $this->capture_stderr();
+
+		$c->raw_block( 1048576 );
+		\unlink( "{$dir}/4.log" );
+		$c->next_offset( [ 'segment' => 4, 'offset' => 0 ] );
+		$c->raw_block( 1048576 );
+
+		$lines = \implode( '', (array) $errors );
+		$this->assertStringContainsString( 'served past deleted segments: rewound to 4:0, the oldest left', $lines );
+		$this->assertStringContainsString( 'served past deleted segments: rewound to 7:0, the oldest left', $lines );
+	}
+
 	/** A block that would end inside a character ends before it, and the next begins with it. */
 	public function test_a_raw_block_ends_on_a_character_boundary(): void {
 		[ $c ] = $this->raw_scan( "ab \u{e9}\n" );

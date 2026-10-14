@@ -192,7 +192,7 @@ class Workers_CI_Node extends Service_CI_Node {
 		// On-disk log partitions: glob .pN dirs fresh (layout-agnostic).
 		$log_partitions = \count( @\glob( "{$log_base}/*", \GLOB_ONLYDIR ) ?: [] );
 
-		$deadletter_by_reader = self::deadletter_segments_by_reader( $base_dir );
+		[ $deadletter_segments, $deadletter_by_reader ] = self::deadletter_census( $base_dir );
 
 		$envelope = [
 			'workers'        => $workers,
@@ -203,7 +203,7 @@ class Workers_CI_Node extends Service_CI_Node {
 			'logs'           => $logs,
 			'logs_at'        => $logs_at,
 			'log_partitions' => $log_partitions,
-			'deadletter_segments'  => \array_sum( $deadletter_by_reader ),
+			'deadletter_segments'  => $deadletter_segments,
 			'deadletter_by_reader' => $deadletter_by_reader,
 			'num_partitions' => $num_partitions,
 			'max_segments'   => $max_segments,
@@ -215,22 +215,56 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Quarantined dead-letter segments per consumer, from each reader's
-	 * `{base}/deadletter/<reader>/{seg}.log` sibling — the DLQ-growth signal,
-	 * keyed by the owning reader so alerts can name the queue. Readers with
-	 * an empty (fully triaged) dir are omitted; absent dirs glob to nothing.
+	 * Every quarantine `Log_Discovery::groups()` lists under `deadletter`: its
+	 * segments, and per reader the records still quarantined — the DLQ-growth
+	 * signal. A dir a stamp names is keyed by the stamp's rest
+	 * (`performance.firehose.p0`, a broker reader's `hub.tw0:firehose.p0`), so
+	 * an alert names the queue the Log Viewer opens; any other, a Partition's
+	 * write quarantine named for a path outside the grammar among them, by its
+	 * dir name as listed, so it still alerts. Each count is the trait's
+	 * `quarantined_records()`, so a requeued or removed record does not count.
+	 * A dir holding no segment is omitted.
 	 *
 	 * @param string $base_dir Substrate base directory.
-	 * @return array<string,int> Reader id => quarantined segment count.
+	 * @return array{0:int,1:array<string,int>} Segments, then reader => records still quarantined.
 	 */
-	private static function deadletter_segments_by_reader( string $base_dir ): array {
+	private static function deadletter_census( string $base_dir ): array {
+		$group     = RuntimeConfig::DEADLETTER_SUBDIR;
+		$root      = Log_Discovery::root( $base_dir, $group );
+		$segments  = 0;
 		$by_reader = [];
-		foreach ( @\glob( RuntimeConfig::deadletter_dir( $base_dir ) . '/*/*.log' ) ?: [] as $segment ) {
-			$reader               = \basename( \dirname( $segment ) );
-			$by_reader[ $reader ] = ( $by_reader[ $reader ] ?? 0 ) + 1;
+		foreach ( Log_Discovery::groups()[ $group ] as $name ) {
+			$quarantine = new Partition_Node();
+			$quarantine->without_config();
+			try {
+				$quarantine->arguments( [ "{$root}/{$name}" ] );
+				$held = \count( $quarantine->get_segments() );
+				if ( $held > 0 ) {
+					$segments                                    += $held;
+					$by_reader[ self::deadletter_reader( $name ) ] = Partition_Node::quarantined_records( $quarantine );
+				}
+			} finally {
+				$quarantine->remove_node();
+			}
 		}
 		\ksort( $by_reader );
-		return $by_reader;
+		return [ $segments, $by_reader ];
+	}
+
+	/**
+	 * The reader a quarantine dir is counted under: its stamp's rest where
+	 * `stamp_for()` and `is_stamp()` admit one, else the dir name as listed.
+	 *
+	 * @param string $name A `deadletter` entry from `Log_Discovery::groups()`.
+	 * @return string The reader key.
+	 */
+	private static function deadletter_reader( string $name ): string {
+		try {
+			$stamp = Log_Discovery::stamp_for( RuntimeConfig::DEADLETTER_SUBDIR, $name );
+		} catch ( \InvalidArgumentException ) {
+			return $name;
+		}
+		return Log_Discovery::is_stamp( $stamp ) ? Log_Discovery::split( $stamp )[1] : $name;
 	}
 
 	/**

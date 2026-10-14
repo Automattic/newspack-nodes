@@ -264,6 +264,33 @@ class CoreTest extends TestCase {
 		);
 	}
 
+	/**
+	 * Each unresolved token prints its own line, since it falls back to ''.
+	 *
+	 * @return array<string,array{0:string,1:string}>
+	 */
+	public static function unresolvable_namespaces(): array {
+		return [
+			'unknown namespace' => [ 'unclaimed-4417', 'resolve_config_token: unknown namespace ' ],
+			'null resolver'     => [ 'nulling-4418', 'resolve_config_token: resolver returned null for ' ],
+			'non-scalar'        => [ 'listing-4419', 'resolve_config_token: resolver returned non-scalar for ' ],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'unresolvable_namespaces' )]
+	public function test_each_unresolved_token_prints_its_own_line( string $ns, string $head ): void {
+		Core::register_config_namespace( 'nulling-4418', static fn ( string $key ): mixed => null );
+		Core::register_config_namespace( 'listing-4419', static fn ( string $key ): array => [ $key ] );
+		$errors = $this->capture_stderr();
+
+		Core::resolve_config_token( $ns, 'tern_dir' );
+		Core::resolve_config_token( $ns, 'skua_dir' );
+
+		$lines = \implode( '', (array) $errors );
+		$this->assertStringContainsString( "{$head}<{$ns}:tern_dir>", $lines );
+		$this->assertStringContainsString( "{$head}<{$ns}:skua_dir>", $lines );
+	}
+
 	public function test_resolve_partition_template_substitutes_the_partition_and_config(): void {
 		// `{partition}` becomes $p, then `<ns:key>` config tokens resolve.
 		Core::register_config_namespace(

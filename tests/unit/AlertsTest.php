@@ -115,12 +115,11 @@ class AlertsTest extends TestCase {
 		\file_put_contents( "{$dir}/0.log", Message::packed( $message ) . "\n", FILE_APPEND );
 	}
 
-	private function seed_deadletter( string $base, string $reader, int $segments ): void {
+	/** Quarantine $records unindexed records for $reader, one per line, as a shared write-quarantine holds them. */
+	private function seed_deadletter( string $base, string $reader, int $records ): void {
 		$dir = "{$base}/deadletter/{$reader}";
 		\mkdir( $dir, 0755, true );
-		for ( $i = 0; $i < $segments; $i++ ) {
-			\file_put_contents( "{$dir}/{$i}.log", 'x' );
-		}
+		\file_put_contents( "{$dir}/0.log", \str_repeat( "x\n", $records ) );
 	}
 
 	/** @return array<int,array<string,mixed>> */
@@ -412,7 +411,7 @@ class AlertsTest extends TestCase {
 		$this->assertLessThanOrEqual( $before + 779, $expires_at );
 	}
 
-	public function test_deadletter_segments_yield_a_per_reader_warning(): void {
+	public function test_deadletter_records_yield_a_per_reader_warning(): void {
 		$base = $this->arrange( [ 'live-workers' ] );
 		$this->seed_heartbeat( $base, 'live-workers', 0 );
 		$this->seed_deadletter( $base, 'jobs.job-worker.p0', 4 );
@@ -425,6 +424,50 @@ class AlertsTest extends TestCase {
 		$this->assertSame( 4, $alert['count'] );
 		$this->assertSame( 'jobs.job-worker.p0', $alert['reader'] );
 		$this->assertStringContainsString( 'jobs.job-worker.p0', $alert['message'], 'the message names the owning queue' );
+	}
+
+	/** A reader's count is its records still quarantined, never its segments. */
+	public function test_deadletter_alert_counts_records_still_quarantined(): void {
+		$base = $this->arrange( [ 'live-workers' ] );
+		$this->seed_heartbeat( $base, 'live-workers', 0 );
+		$reader = new Alerts_Quarantine_Double();
+		$reader->open( "{$base}/deadletter/firehose.pelican-6604.p0" );
+		for ( $i = 1; $i <= 7; ++$i ) {
+			$reader->quarantine( "pelican-{$i}", "51:{$i}:10" );
+		}
+		$locators = \array_column( $reader->list_deadletter( 50 )['rows'], 'locator' );
+		$reader->remove_deadletter( $locators[0] );
+		$reader->remove_deadletter( $locators[3] );
+
+		$alert = $this->alerts_by_key( Alerts::evaluate() )['deadletter:firehose.pelican-6604.p0'];
+
+		$this->assertSame( 5, $alert['count'] );
+		$this->assertStringStartsWith( '5 dead-letter record(s) quarantined for firehose.pelican-6604.p0', $alert['message'] );
+	}
+
+	/** A broker reader's quarantine counts under its own stamp, beside a namesake. */
+	public function test_a_broker_reader_quarantine_alerts_under_its_own_stamp(): void {
+		$base = $this->arrange( [ 'live-workers' ] );
+		$this->seed_heartbeat( $base, 'live-workers', 0 );
+		$plain = new Alerts_Quarantine_Double();
+		$plain->name( 'plain-reader-7710' );
+		$plain->open( "{$base}/deadletter/firehose.p0" );
+		for ( $i = 1; $i <= 5; ++$i ) {
+			$plain->quarantine( "plain-{$i}", "21:{$i}:10" );
+		}
+		$plain->remove_deadletter( $plain->list_deadletter( 50 )['rows'][2]['locator'] );
+		$broker = new Alerts_Quarantine_Double();
+		$broker->name( 'broker-reader-7711' );
+		$broker->open( "{$base}/deadletter/hub.tw0/firehose.p0" );
+		for ( $i = 1; $i <= 3; ++$i ) {
+			$broker->quarantine( "broker-{$i}", "22:{$i}:10" );
+		}
+
+		$by_key = $this->alerts_by_key( Alerts::evaluate() );
+
+		$this->assertSame( 4, $by_key['deadletter:firehose.p0']['count'] );
+		$this->assertSame( 3, $by_key['deadletter:hub.tw0:firehose.p0']['count'] );
+		$this->assertStringStartsWith( '3 dead-letter record(s) quarantined for hub.tw0:firehose.p0;', $by_key['deadletter:hub.tw0:firehose.p0']['message'] );
 	}
 
 	public function test_each_quarantined_reader_alerts_independently(): void {
@@ -642,5 +685,25 @@ class AlertsTest extends TestCase {
 		$this->assertSame( 'batch b7 complete (3 jobs)', $value['m'] );
 		$this->assertSame( Alerts::SEVERITY_RESOLVED, $value['severity'] );
 		$this->assertIsFloat( $value['ts'] );
+	}
+}
+
+/** A reader's quarantine, written and triaged through the trait's own paths. */
+class Alerts_Quarantine_Double extends \Newspack_Nodes\Node {
+	use \Newspack_Nodes\Dead_Letter_Queue;
+
+	public function fill( array $message ): void {}
+
+	public function open( string $dir ): void {
+		$this->deadletter_dir = $dir;
+		$this->ensure_deadletter();
+	}
+
+	public function quarantine( string $value, string $id ): void {
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = $value;
+		$message[ Message::ID ]    = $id;
+		$this->dead_letter( $message, 'throw' );
 	}
 }

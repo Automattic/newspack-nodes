@@ -48,10 +48,10 @@
   <div class="key"><span class="k">log_partitions</span>the partition dirs actually on disk, a count</div>
   <div class="cav">Measured, not declared: it can disagree with <span class="mono">logs[]</span>.</div>
 
-  <div class="src"><b>The dead-letter dirs</b><span class="mono">deadletter/&lt;reader&gt;/*.log</span>, each quarantined segment counted once.</div>
+  <div class="src"><b>The dead-letter dirs</b>Every quarantine <span class="mono">Log_Discovery::groups()</span> lists under <span class="mono">deadletter</span>, a broker reader's <span class="mono">&lt;root&gt;/&lt;stamp&gt;</span> included.</div>
   <div class="ar">→</div>
-  <div class="key"><span class="k">deadletter_by_reader</span>reader id → quarantined segment count<br><span class="k">deadletter_segments</span>their sum</div>
-  <div class="cav">A reader whose dir is empty, every segment triaged, is omitted.</div>
+  <div class="key"><span class="k">deadletter_by_reader</span>reader → records still quarantined<br><span class="k">deadletter_segments</span>quarantined segments across every reader</div>
+  <div class="cav">A reader is its stamp less <span class="mono">deadletter:</span>, or its dir name where no stamp names it. A requeued or removed record does not count, and a dir holding no segment is omitted.</div>
 
   <div class="src"><b>Config and the clock</b>Read through the substrate config at call time.</div>
   <div class="ar">→</div>
