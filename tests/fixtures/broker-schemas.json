@@ -5,7 +5,7 @@
 			{ "name": "vault_id", "type": "vault_id", "required": true },
 			{ "name": "offsetlog_root", "type": "string", "required": true },
 			{ "name": "deadletter_root", "type": "string", "required": true },
-			{ "name": "pairs", "type": "string", "required": true, "variadic": true }
+			{ "name": "pairs", "type": "string", "required": false, "variadic": true }
 		]
 	},
 	{

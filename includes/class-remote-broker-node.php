@@ -81,6 +81,9 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 */
 	public const MAX_READERS = 256;
 
+	/** The verb that gives a broker a source, spelled once. */
+	public const ADD_SOURCE = 'add_source';
+
 	/** Broker tick (milliseconds): the Router's own, which it hitchhikes. */
 	private const TICK_INTERVAL_MS = 1000;
 
@@ -132,6 +135,17 @@ abstract class Remote_Broker_Node extends Timer_Node {
 
 	/** @var list<array{source:string,target:string}> The pairs this broker carries, in declaration order. */
 	protected array $pairs = [];
+
+	/**
+	 * Every source `add_source` took, as written and in order: what the dump
+	 * replays and the console draws, whichever partition reads each one.
+	 *
+	 * @var list<array{source:string,target:string}>
+	 */
+	private array $declared = [];
+
+	/** @var list<array{source:string,target:string}> The ones of `$declared` this worker reads, `{partition}` resolved. */
+	private array $added = [];
 
 	/** The worker partition this broker runs in, bound at load as Table_Node binds it; null outside a worker, which publishes no status. */
 	private ?int $bound_partition = null;
@@ -187,7 +201,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 * @api Dynamic entrypoint.
 	 * @param list<string>|null $args Positional tokens, or null to read them.
 	 * @return list<string>
-	 * @throws \InvalidArgumentException When a pair is malformed or none is named.
+	 * @throws \InvalidArgumentException When a pair is malformed.
 	 */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
@@ -206,7 +220,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 		// Subscribed where the vault config is captured: one lifetime.
 		$this->subscribe( Node_Names::FLEET, 'RELOAD', $this->reload( ... ) );
 		$this->bound_topology = Core::bound_topology();
-		$this->pairs          = $pairs;
+		$this->pairs          = [ ...$pairs, ...$this->added ];
 		$this->glob_stamps    = null;
 		foreach ( $this->readers() as $stamp => $child ) {
 			$pair = $this->pair_for( $stamp );
@@ -301,14 +315,10 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 *
 	 * @param list<string> $tokens The pair tokens as written.
 	 * @return list<array{source:string,target:string}>
-	 * @throws \InvalidArgumentException When a pair is malformed, none is
-	 *                                   named, or one names `{partition}`
-	 *                                   where none is bound.
+	 * @throws \InvalidArgumentException When a pair is malformed, or one names
+	 *                                   `{partition}` where none is bound.
 	 */
 	private function owned_pairs( array $tokens ): array {
-		if ( [] === $tokens ) {
-			throw new \InvalidArgumentException( self::refusal_prefix() . 'name at least one <source>=<target> pair' );
-		}
 		$owned = [];
 		foreach ( $tokens as $token ) {
 			if ( null === $this->bound_partition && Core::has_partition_token( $token ) ) {
@@ -326,6 +336,103 @@ abstract class Remote_Broker_Node extends Timer_Node {
 			}
 		}
 		return $owned;
+	}
+
+	/**
+	 * Read `$remote_log` into `$local_node`: claim its stamps as an argument
+	 * pair does, its reader built on the next tick. Every source is kept for
+	 * the dump, and read only where `Core::owns()` gives it to this worker
+	 * (ADR-33). A changed source list restarts the stream; an identical
+	 * repeat changes nothing.
+	 *
+	 * @param string $remote_log A spoke stamp, glob or `sources:<name>`, `{partition}` resolved here.
+	 * @param string $local_node The node its lines go to.
+	 * @throws \InvalidArgumentException When no spoke can stream the source, its
+	 *                                   reader would take a kept slot, or it names
+	 *                                   `{partition}` where none is bound.
+	 */
+	public function add_source( string $remote_log, string $local_node ): void {
+		$written = [ 'source' => $remote_log, 'target' => $local_node ];
+		if ( \in_array( $written, $this->declared, true ) ) {
+			return;
+		}
+		if ( null === $this->bound_partition && ( Core::has_partition_token( $remote_log ) || Core::has_partition_token( $local_node ) ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+			throw new \InvalidArgumentException( self::refusal_prefix() . self::ADD_SOURCE . " '{$remote_log}' '{$local_node}' names " . Core::PARTITION_TOKEN . ', but no partition is bound' );
+		}
+		$source           = self::checked_source(
+			Core::resolve_partition_template( $remote_log, $this->bound_partition ?? 0 ),
+			Core::resolve_partition_template( $local_node, $this->bound_partition ?? 0 ),
+			$remote_log
+		);
+		$this->declared[] = $written;
+		if ( ! Core::owns( $remote_log, $this->bound_partition ) ) {
+			return;
+		}
+		$this->added[]     = $source;
+		$this->pairs[]     = $source;
+		$this->glob_stamps = null;
+		$this->restream();
+	}
+
+	/**
+	 * An accepted `add_source`'s target, which a Vault_Group of this class
+	 * declares as an edge, as a pair argument's is.
+	 *
+	 * @param string       $verb   The verb.
+	 * @param list<string> $tokens Its argument tokens.
+	 * @return list<string>
+	 */
+	public static function command_targets( string $verb, array $tokens ): array {
+		$source = self::ADD_SOURCE === $verb ? static::source_of( $tokens ) : null;
+		return null === $source ? [] : [ $source['target'] ];
+	}
+
+	/**
+	 * One `add_source` command's source as written, when the verb would take
+	 * it; null otherwise, for a reader of a topology that must not fail on a
+	 * line the runtime would refuse. `{partition}` and config tokens are
+	 * resolved for the judgement and kept in the answer, as the TSL names
+	 * its nodes.
+	 *
+	 * @param list<string> $tokens The verb's argument tokens.
+	 * @return array{source:string,target:string}|null
+	 */
+	public static function source_of( array $tokens ): ?array {
+		$specs = Core::arr( Command_Interpreter_Node::declared_verbs( static::class )[ self::ADD_SOURCE ]['args'] ?? [] );
+		try {
+			$bound  = Command_Args::bind( $specs, $tokens );
+			$source = Core::as_string( $bound['remote_log'] );
+			$target = Core::as_string( $bound['local_node'] );
+			self::checked_source( Core::resolve_partition_template( $source, 0 ), $target, $source );
+		} catch ( \InvalidArgumentException | \RuntimeException $e ) {
+			return null;
+		}
+		return [ 'source' => $source, 'target' => $target ];
+	}
+
+	/**
+	 * Refuse a source `add_source()` would refuse, resolved as the broker
+	 * reads it, naming it as written.
+	 *
+	 * @param string $source  The source, resolved.
+	 * @param string $target  The target, resolved.
+	 * @param string $written The source as written, which a refusal names.
+	 * @return array{source:string,target:string}
+	 * @throws \InvalidArgumentException When no spoke can stream the source, or its reader would take a kept slot.
+	 */
+	private static function checked_source( string $source, string $target, string $written ): array {
+		// An exact source is the stamp of the one stream it carries.
+		$glob = Log_Discovery::is_glob( $source );
+		if ( ! ( $glob ? Log_Discovery::is_subscription( $source ) : Log_Discovery::fits_a_dir_name( $source ) ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+			throw new \InvalidArgumentException( self::refusal_prefix() . self::ADD_SOURCE . " names a source no spoke can stream: '{$written}'" );
+		}
+		if ( ! $glob && self::is_reserved( $source ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+			throw new \InvalidArgumentException( self::refusal_prefix() . self::ADD_SOURCE . " names a source whose reader takes a slot the broker keeps: '{$written}'" );
+		}
+		return [ 'source' => $source, 'target' => $target ];
 	}
 
 	/**
@@ -929,6 +1036,31 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	}
 
 	/**
+	 * `add_source` verb handler: give the patron a source.
+	 *
+	 * @param Command_Interpreter_Node $interpreter The auto-wired `:config` interpreter.
+	 * @param array<array-key,mixed>   $args        Bound verb arguments: remote_log, local_node.
+	 * @return string
+	 * @throws \InvalidArgumentException What `add_source()` refused.
+	 */
+	public static function cmd_add_source( Command_Interpreter_Node $interpreter, array $args ): string {
+		/** @var self $patron */
+		$patron = $interpreter->patron();
+		$patron->add_source( Core::as_string( $args['remote_log'] ), Core::as_string( $args['local_node'] ) );
+		return "ok\n";
+	}
+
+	/**
+	 * The targets the arguments' pairs name, then each `add_source` took, as
+	 * written, so the canvas draws one edge per source.
+	 *
+	 * @return list<string>
+	 */
+	protected function extra_targets(): array {
+		return [ ...parent::extra_targets(), ...\array_column( $this->declared, 'target' ) ];
+	}
+
+	/**
 	 * When the spoke last proved, by word on a live channel, that it has
 	 * nothing more to send than it sent, or the hub kept it quiet; null when
 	 * no channel says so. A pushed stream's heartbeat does, and keeps its
@@ -1009,9 +1141,13 @@ abstract class Remote_Broker_Node extends Timer_Node {
 		return $this->http_out?->bytes_written() ?? 0;
 	}
 
-	/** Round-trip the toggles after the `make_node` line. */
+	/** Round-trip each added source, then the toggles, after the `make_node` line. */
 	public function dump_config(): string {
-		return parent::dump_config() . $this->dump_toggles();
+		$out = parent::dump_config();
+		foreach ( $this->declared as [ 'source' => $source, 'target' => $target ] ) {
+			$out .= $this->config_line( self::ADD_SOURCE, $source, $target );
+		}
+		return $out . $this->dump_toggles();
 	}
 
 	/**
@@ -1031,9 +1167,20 @@ abstract class Remote_Broker_Node extends Timer_Node {
 				[ 'name' => 'vault_id',        'type' => 'vault_id', 'required' => true, 'description' => 'Which spoke to connect to — a Vault-registered server (URL + credentials).' ],
 				[ 'name' => 'offsetlog_root',  'type' => 'string',   'required' => true, 'partition' => 'bound', 'description' => 'Directory each reader\'s durable read-cursor offsetlog nests under, at <root>/<stamp>. Carry `<topology>` so two fleets pulling one spoke keep separate cursors.' ],
 				[ 'name' => 'deadletter_root', 'type' => 'string',   'required' => true, 'partition' => 'bound', 'description' => 'Directory each reader\'s quarantined poison records nest under, at <root>/<stamp>.' ],
-				[ 'name' => 'pairs', 'type' => 'string', 'required' => true, 'variadic' => true, 'description' => '`<source>=<target>` pairs: a spoke partition, glob or `sources:<name>`, then the node its lines go to.' ],
+				[ 'name' => 'pairs', 'type' => 'string', 'required' => false, 'variadic' => true, 'description' => '`<source>=<target>` pairs: a spoke partition, glob or `sources:<name>`, then the node its lines go to.' ],
 			],
 			'commands'     => [
+				[
+					'name'        => self::ADD_SOURCE,
+					'description' => 'Read a spoke log into a local node: a stamp, a glob or `sources:<name>`, `{partition}` resolved at the worker\'s. A repeat is a no-op.',
+					'args'        => [
+						[ 'name' => 'remote_log', 'type' => 'string', 'required' => true, 'description' => 'A spoke stamp, glob or `sources:<name>`.' ],
+						[ 'name' => 'local_node', 'type' => 'string', 'required' => true, 'description' => 'The node its lines go to.' ],
+					],
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_add_source( $interpreter, $args ),
+					// One call per source: the console renders a row each.
+					'multiple'    => true,
+				],
 				[
 					'name'        => 'set_multi_writer',
 					'description' => 'Ask the spoke to read its logs with the multi-writer seal-grace (shared logs, e.g. the firehose).',

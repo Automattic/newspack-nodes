@@ -1053,6 +1053,20 @@ class Node {
 	}
 
 	/**
+	 * The destinations one verb sent to this class's `:config` names for it
+	 * to write without routing through `target`: the verb twin of
+	 * `declared_targets()`, which a Vault_Group declares for each verb it
+	 * recorded. None by default.
+	 *
+	 * @param string       $verb   The verb.
+	 * @param list<string> $tokens Its argument tokens.
+	 * @return list<string>
+	 */
+	public static function command_targets( string $verb, array $tokens ): array {
+		return [];
+	}
+
+	/**
 	 * Whether this node takes a `{name}:config` interpreter: true unless its
 	 * builder called `without_config()`. A node building siblings of its own
 	 * reads it to carry the opt-out to them.
