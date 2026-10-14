@@ -2,14 +2,14 @@
 # This file is distributed under the GPL-2.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Newspack Nodes 2.107.0\n"
+"Project-Id-Version: Newspack Nodes 2.108.0\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/newspack-nodes\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-13T22:57:03+00:00\n"
+"POT-Creation-Date: 2026-10-14T04:54:44+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: newspack-nodes\n"
@@ -1727,11 +1727,11 @@ msgstr ""
 msgid "Reset %s to its default"
 msgstr ""
 
-#: src/topology-console/components/GraphView.js:583
+#: src/topology-console/components/GraphView.js:600
 msgid "Expand inspector"
 msgstr ""
 
-#: src/topology-console/components/GraphView.js:584
+#: src/topology-console/components/GraphView.js:601
 msgid "Collapse inspector"
 msgstr ""
 
@@ -2303,9 +2303,16 @@ msgid "Add"
 msgstr ""
 
 #. translators: %s: the node that owns them.
-#: src/topology-console/components/NodeCard.js:266
+#: src/topology-console/components/NodeCard.js:302
 #, js-format
 msgid "Owned nodes of %s"
+msgstr ""
+
+#. translators: 1: a node's name, 2: its class.
+#: src/topology-console/components/NodeCard.js:411
+#: src/topology-console/components/SidecarsPopover.js:275
+#, js-format
+msgid "%1$s (%2$s)"
 msgstr ""
 
 #: src/topology-console/components/NodePathInput.js:23
@@ -2382,33 +2389,33 @@ msgstr ""
 msgid "CLOSED"
 msgstr ""
 
-#: src/topology-console/components/ReplFooter.js:518
+#: src/topology-console/components/ReplFooter.js:523
 msgid "Drag to resize transcript"
 msgstr ""
 
-#: src/topology-console/components/ReplFooter.js:522
+#: src/topology-console/components/ReplFooter.js:527
 msgid "Resize transcript"
 msgstr ""
 
-#: src/topology-console/components/ReplFooter.js:550
-#: src/topology-console/components/ReplFooter.js:554
+#: src/topology-console/components/ReplFooter.js:555
+#: src/topology-console/components/ReplFooter.js:559
 msgid "Minimize transcript"
 msgstr ""
 
-#: src/topology-console/components/ReplFooter.js:570
+#: src/topology-console/components/ReplFooter.js:575
 msgid "Clear and minimize transcript (Ctrl+L clears only)"
 msgstr ""
 
-#: src/topology-console/components/ReplFooter.js:574
+#: src/topology-console/components/ReplFooter.js:579
 msgid "Clear and minimize transcript"
 msgstr ""
 
-#: src/topology-console/components/ReplFooter.js:606
+#: src/topology-console/components/ReplFooter.js:611
 msgid "Connecting…"
 msgstr ""
 
-#: src/topology-console/components/ReplFooter.js:633
-#: src/topology-console/components/ReplFooter.js:634
+#: src/topology-console/components/ReplFooter.js:641
+#: src/topology-console/components/ReplFooter.js:642
 msgid "Restore transcript"
 msgstr ""
 
@@ -2420,20 +2427,14 @@ msgstr ""
 msgid "Handles"
 msgstr ""
 
-#: src/topology-console/components/SchematicCanvas.js:1641
+#: src/topology-console/components/SchematicCanvas.js:1780
 msgid "Topology canvas"
 msgstr ""
 
 #. translators: %s: the node that owns the listed nodes.
-#: src/topology-console/components/SidecarsPopover.js:179
+#: src/topology-console/components/SidecarsPopover.js:249
 #, js-format
 msgid "Owned by %s"
-msgstr ""
-
-#. translators: 1: a node's name, 2: its class.
-#: src/topology-console/components/SidecarsPopover.js:201
-#, js-format
-msgid "%1$s (%2$s)"
 msgstr ""
 
 #: src/topology-console/components/TimelineView.js:121
