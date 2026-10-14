@@ -29,6 +29,7 @@ use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Log_Sources;
 use Newspack_Nodes\Settings_Schema;
 use Newspack_Nodes\Worker_Base;
+use Newspack_Nodes\Worker_Should_Stop;
 
 \defined( 'ABSPATH' ) || exit;
 
@@ -1372,12 +1373,10 @@ class Admin {
 	 * inside a long unit of work wherever `Event_Framework::pump()` asks, which
 	 * unwinds `fill()` by raising `Worker_Should_Stop`.
 	 *
-	 * The option row is already written when this runs, so a failure to
-	 * resolve the locks directory or land a flag propagates to the writer:
-	 * the save stands, and the error says the live fleet never heard of it.
+	 * A top-level boundary inside wp-admin's save: it reports what `plan()`
+	 * raises, each cause also a settings error options.php carries onto the page.
 	 *
 	 * @param string $option Option name (the full WP option key).
-	 * @throws \Throwable What `Restart_Planner::plan()` raised.
 	 */
 	public function maybe_request_worker_restart( string $option ): void {
 		if ( ! \str_starts_with( $option, self::OPTION_PREFIX ) ) {
@@ -1388,7 +1387,21 @@ class Admin {
 
 		$short = \substr( $option, \strlen( self::OPTION_PREFIX ) );
 
-		Restart_Planner::plan( Settings_Schema::get()->restart_for( $short ) );
+		try {
+			Restart_Planner::plan( Settings_Schema::get()->restart_for( $short ) );
+		} catch ( \Throwable $e ) {
+			Worker_Should_Stop::report( 'settings', [ $short => $e ] );
+			foreach ( Worker_Should_Stop::causes_of( $e ) as $cause ) {
+				\add_settings_error(
+					$option,
+					'newspack_nodes_restart_signal',
+					\esc_html(
+						/* translators: 1: setting key, 2: why the running workers were not told. */
+						\sprintf( \__( 'Saved %1$s, but the running workers were not told: %2$s', 'newspack-nodes' ), $short, Core::message_of( $cause ) )
+					)
+				);
+			}
+		}
 	}
 
 }

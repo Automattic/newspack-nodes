@@ -70,6 +70,7 @@ class OnDemandWakeTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
+		Partition_Node::$on_shutdown                = null;
 		Core::$curl_exec                            = $this->saved_curl_exec;
 		Core::$memd                                 = $this->saved_memd;
 		\Newspack_Nodes\Cache_Backend::$apcu_usable = null;
@@ -486,7 +487,7 @@ class OnDemandWakeTest extends TestCase {
 		$this->coordinator()->wake_on_demand( "{$this->tmp}/logs/ledger.p0", (float) \time() );
 
 		$this->assertSame( [ 'marmot-ledger.p0' ], $this->woken() );
-		$this->assertSame( [ 0 ], \array_column( Bootstrap::on_demand_wake_map()[ "{$this->tmp}/logs/ledger.p0" ], 'partition' ) );
+		$this->assertSame( [ 0 ], \array_column( Bootstrap::readable_wake_map()[0][ "{$this->tmp}/logs/ledger.p0" ], 'partition' ) );
 	}
 
 	/** A log written per partition has a reader in every worker, each its own. */
@@ -512,7 +513,7 @@ class OnDemandWakeTest extends TestCase {
 	public function test_a_resident_topology_is_absent_from_the_wake_map(): void {
 		$this->activate( 'marmot-resident', 0 );
 
-		$this->assertSame( [], Bootstrap::on_demand_wake_map() );
+		$this->assertSame( [], Bootstrap::readable_wake_map()[0] );
 	}
 
 	// ── the write-conflict gate ─────────────────────────────────────────────
@@ -619,7 +620,7 @@ class OnDemandWakeTest extends TestCase {
 	public function test_the_reader_lookup_is_cached_across_coordinators(): void {
 		$this->with_apcu();
 		$this->activate( 'marmot-ondemand', 23 );
-		Bootstrap::on_demand_wake_map();
+		Bootstrap::readable_wake_map();
 
 		$scans = 0;
 		\add_filter(
@@ -631,7 +632,7 @@ class OnDemandWakeTest extends TestCase {
 		);
 		Bootstrap::forget_on_demand_readers();
 
-		$map = Bootstrap::on_demand_wake_map();
+		$map = Bootstrap::readable_wake_map()[0];
 
 		$this->assertSame( 0, $scans, 'a warm cache walks no catalog' );
 		$this->assertSame(
@@ -644,14 +645,14 @@ class OnDemandWakeTest extends TestCase {
 	public function test_activating_a_topology_does_not_serve_the_old_answer(): void {
 		$this->with_apcu();
 		$this->activate( 'marmot-firehose', 23, 'firehose' );
-		$this->assertArrayNotHasKey( "{$this->tmp}/logs/jobintake.p1", Bootstrap::on_demand_wake_map() );
+		$this->assertArrayNotHasKey( "{$this->tmp}/logs/jobintake.p1", Bootstrap::readable_wake_map()[0] );
 
 		$this->activate( 'marmot-jobs', 23, 'jobintake' );
 		Bootstrap::forget_on_demand_readers();
 
 		$this->assertSame(
 			[ 'marmot-jobs' ],
-			\array_column( Bootstrap::on_demand_wake_map()[ "{$this->tmp}/logs/jobintake.p1" ] ?? [], 'type' )
+			\array_column( Bootstrap::readable_wake_map()[0][ "{$this->tmp}/logs/jobintake.p1" ] ?? [], 'type' )
 		);
 	}
 
@@ -676,7 +677,7 @@ class OnDemandWakeTest extends TestCase {
 		);
 		Bootstrap::forget_on_demand_readers();
 
-		$map = Bootstrap::on_demand_wake_map();
+		$map = Bootstrap::readable_wake_map()[0];
 
 		$this->assertSame( [ "{$this->tmp}/logs/jobintake.p1" ], \array_keys( $map ) );
 		$this->assertSame( [ 'marmot-ondemand' ], \array_column( $map[ "{$this->tmp}/logs/jobintake.p1" ], 'type' ) );
@@ -690,7 +691,7 @@ class OnDemandWakeTest extends TestCase {
 
 		$this->assertSame(
 			[ 'marmot-ondemand' ],
-			\array_column( Bootstrap::on_demand_wake_map()[ "{$this->tmp}/logs/jobintake.p1" ] ?? [], 'type' )
+			\array_column( Bootstrap::readable_wake_map()[0][ "{$this->tmp}/logs/jobintake.p1" ] ?? [], 'type' )
 		);
 	}
 
@@ -744,6 +745,71 @@ class OnDemandWakeTest extends TestCase {
 	}
 
 	/**
+	 * Write each partition with the exit flush unregistered, as in a fresh
+	 * request, and return the shutdown closure the first write registers.
+	 */
+	private function exit_flush_after_writing( string ...$dirs ): \Closure {
+		( new \ReflectionProperty( Partition_Node::class, 'wake_flush_registered' ) )->setValue( null, false );
+		$registered                    = [];
+		Partition_Node::$on_shutdown = static function ( \Closure $flush ) use ( &$registered ): void {
+			$registered[] = $flush;
+		};
+		foreach ( $dirs as $dir ) {
+			$this->write_partition( $dir );
+		}
+		$this->assertCount( 1, $registered, 'the first write registers the one exit flush' );
+		return $registered[0];
+	}
+
+	/**
+	 * A request's writes flush at exit, where a raise reaches nothing but PHP's
+	 * fatal handler: the readable readers are woken, and each unreadable
+	 * topology is a stderr line under the dir whose wake it failed.
+	 */
+	public function test_the_exit_flush_reports_an_unreadable_topology_instead_of_raising(): void {
+		$this->activate_unreadable( 'marmot-broken-6621' );
+		$this->activate( 'marmot-ondemand', 23, 'quokka' );
+		$flush = $this->exit_flush_after_writing( 'quokka.p1' );
+		$lines = $this->capture_stderr();
+
+		$flush();
+
+		$this->assertSame( [ 'marmot-ondemand.p1' ], $this->woken() );
+		$reported = self::stderr_lines( $lines, 'absent-marmot-broken-6621' );
+		$this->assertCount( 1, $reported );
+		$this->assertStringStartsWith( "wake: {$this->tmp}/logs/quokka.p1: ", $reported[0] );
+	}
+
+	/**
+	 * The coordinator is built at exit too, and a base that will not resolve
+	 * then is the same uncaught fatal: it is built once, and each pending dir
+	 * reports that one failure.
+	 */
+	public function test_the_exit_flush_reports_a_coordinator_that_will_not_build_under_each_dir(): void {
+		$this->activate( 'marmot-ondemand', 23, 'quokka' );
+		$flush    = $this->exit_flush_after_writing( 'quokka.p1', 'quokka.p2' );
+		$unusable = new \RuntimeException( 'base unusable-5521' );
+		$builds   = 0;
+		Bootstrap::$spawn_coordinator_factory = static function () use ( $unusable, &$builds ): \Newspack_Nodes\Spawn_Coordinator {
+			++$builds;
+			throw $unusable;
+		};
+		$lines = $this->capture_stderr();
+
+		$flush();
+
+		$this->assertSame( 1, $builds, 'the first build failure is remembered, never retried per dir' );
+		$this->assertSame(
+			[
+				"wake: {$this->tmp}/logs/quokka.p1: " . self::cause_text( $unusable ),
+				"wake: {$this->tmp}/logs/quokka.p2: " . self::cause_text( $unusable ),
+			],
+			self::stderr_lines( $lines, 'base unusable-5521' )
+		);
+		$this->assertSame( [], $this->woken() );
+	}
+
+	/**
 	 * The map answers for on-demand readers alone: an unknown active name and a
 	 * broken resident topology wake nothing, so they fail nothing here either.
 	 */
@@ -754,9 +820,11 @@ class OnDemandWakeTest extends TestCase {
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'][] = 'marmot-ghost-7702';
 		Topology_Registry::invalidate_config_cache();
 
+		[ $map, $unreadable ] = Bootstrap::readable_wake_map();
+		$this->assertSame( [], $unreadable );
 		$this->assertSame(
 			[ 'marmot-ondemand', 'marmot-ondemand' ],
-			\array_column( \array_merge( ...\array_values( Bootstrap::on_demand_wake_map() ) ), 'type' )
+			\array_column( \array_merge( ...\array_values( $map ) ), 'type' )
 		);
 	}
 
@@ -764,11 +832,8 @@ class OnDemandWakeTest extends TestCase {
 	public function test_a_map_with_an_unreadable_topology_is_not_cached(): void {
 		$this->with_apcu();
 		$this->activate_unreadable( 'marmot-broken-6620' );
-		$e = $this->caught(
-			fn () => Bootstrap::on_demand_wake_map(),
-			'the strict map raises the unreadable topology'
-		);
-		$this->assertStringContainsString( 'absent-marmot-broken-6620', $e->getMessage() );
+		$unreadable = Bootstrap::readable_wake_map()[1];
+		$this->assertStringContainsString( 'absent-marmot-broken-6620', $unreadable['marmot-broken-6620']->getMessage() );
 		\file_put_contents(
 			"{$this->stock}/marmot-broken-6620.tsl",
 			"var num_partitions = 2\nvar on_demand_idle = 31\nmake_node Consumer mended:in <config:logs_dir>/jobintake.p{partition} <config:offsets_dir>/mended.p{partition}\n"
@@ -778,7 +843,7 @@ class OnDemandWakeTest extends TestCase {
 
 		$this->assertSame(
 			[ 'marmot-broken-6620' ],
-			\array_column( Bootstrap::on_demand_wake_map()[ "{$this->tmp}/logs/jobintake.p1" ] ?? [], 'type' )
+			\array_column( Bootstrap::readable_wake_map()[0][ "{$this->tmp}/logs/jobintake.p1" ] ?? [], 'type' )
 		);
 	}
 

@@ -125,30 +125,14 @@ class Bootstrap {
 	private const ON_DEMAND_WAKE_TTL_S = 60;
 
 	/**
-	 * Resolved partition directory => the on-demand workers that TAIL it.
-	 *
-	 * The answer to "did this write land somewhere an absent worker is waiting
-	 * on", keyed by the concrete path so a writer needs no idea what it wrote.
-	 * Strict: an active topology whose graph will not read throws, after every
-	 * other was read. A caller that acts on the readable part first — the wake
-	 * paths — reads `readable_wake_map()` and raises its failures itself.
-	 *
-	 * @api Called from consumer plugins (cross-repo, invisible here).
-	 *
-	 * @return array<string,list<array<array-key,mixed>>>
-	 * @throws \Throwable Every unreadable topology, combined.
-	 */
-	public static function on_demand_wake_map(): array {
-		[ $map, $unreadable ] = self::readable_wake_map();
-		Worker_Should_Stop::raise( $unreadable );
-		return $map;
-	}
-
-	/**
-	 * The wake map over every READABLE on-demand topology, and what each
-	 * unreadable on-demand one threw instead of answering. Which topologies
-	 * read is `active_topologies()`'s answer; a resident one wakes nothing, so
-	 * its failure is not this map's to raise.
+	 * Resolved partition directory => the on-demand workers that TAIL it, over
+	 * every READABLE on-demand topology, and what each unreadable on-demand
+	 * one threw instead of answering. The answer to "did this write land
+	 * somewhere an absent worker is waiting on", keyed by the concrete path so
+	 * a writer needs no idea what it wrote. Which topologies read is
+	 * `active_topologies()`'s answer; a resident one wakes nothing, so its
+	 * failure is not this map's to report. Each caller acts on the readable
+	 * map first and raises or reports the failures itself.
 	 *
 	 * Built by SUBSTITUTION, never by parsing: each Consumer source template is
 	 * resolved through `Core::resolve_partition_template()` for that worker's
@@ -168,6 +152,8 @@ class Bootstrap {
 	 * fleet-wide `on_demand_idle` — and a stale miss costs one cron-cadence wake.
 	 * A map missing an unreadable topology is memoized for the request, failures
 	 * and all, and never cached: a cached partial map would hide the failure.
+	 *
+	 * @api Called from consumer plugins (cross-repo, invisible here).
 	 *
 	 * @return array{0: array<string,list<array<array-key,mixed>>>, 1: array<string,\Throwable>} The map, then each unreadable on-demand topology's failure by name.
 	 */
@@ -829,11 +815,8 @@ class Bootstrap {
 	 * dimension newspack-event-logger-nodes files its stats under. Nothing compares
 	 * against the literal; it is a label, not a worker type.
 	 *
-	 * `newspack_nodes/after_reconcile` fires whatever the steps threw, and
-	 * every failure escapes the cron callback after it, so a broken pass fails
-	 * loud once a minute rather than reporting a line and carrying on.
-	 *
-	 * @throws \Throwable What the steps and the `after_reconcile` subscribers threw.
+	 * A top-level boundary: it reports each step's failures, then fires
+	 * `after_reconcile`, whose subscriber closes the context the lines log under.
 	 */
 	public static function reconcile_fleet(): void {
 		if ( ! self::fleet_site() ) {
@@ -854,41 +837,47 @@ class Bootstrap {
 		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 		$_SERVER['NEWSPACK_NODES_WORKER_TYPE']      = 'reconcile';
 		$_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] = '0';
-		Worker_Should_Stop::raise(
-			Worker_Should_Stop::attempt(
-				self::run_reconcile_steps( ... ),
-				static fn () => \do_action( 'newspack_nodes/after_reconcile' )
-			)
+		Worker_Should_Stop::report(
+			'',
+			Worker_Should_Stop::attempt_each( self::reconcile_steps(), static fn ( \Closure $step ) => $step() )
 		);
+		try {
+			\do_action( 'newspack_nodes/after_reconcile' );
+		} catch ( \Throwable $e ) {
+			Worker_Should_Stop::report( '', [ 'after' => $e ] );
+		}
 	}
 
 	/**
-	 * Spawn ahead of the janitorial steps — it is the revival path and the only
-	 * time-critical one. Every step then runs whatever an earlier one threw,
-	 * because each one runs code a failure elsewhere must not starve:
-	 * `expand_workers()` fires the `topologies` filter, and `periodic` is
-	 * whatever subscribed. Alert emission and the delayed-jobs sweep are steps
-	 * of their own for the same reason, and the failures escape after the last.
+	 * The pass's steps by name, in order. Spawn runs ahead of the janitorial
+	 * steps — it is the revival path and the only time-critical one. Every
+	 * step runs whatever an earlier one threw, because each one runs code a
+	 * failure elsewhere must not starve: `expand_workers()` fires the
+	 * `topologies` filter, and `periodic` is whatever subscribed. Alert
+	 * emission and the delayed-jobs sweep are steps of their own for the same
+	 * reason. The steps share one coordinator, built by the first to need it,
+	 * so backlog-wake sees the spawns this pass already posted.
 	 *
-	 * @throws \Throwable What the steps threw, combined by `Worker_Should_Stop::raise()`.
+	 * @return array<string,\Closure(): mixed>
 	 */
-	private static function run_reconcile_steps(): void {
-		$coordinator = self::spawn_coordinator();
-		$base_dir    = self::base_dir();
-		$steps       = [
+	private static function reconcile_steps(): array {
+		$coordinator = null;
+		$shared      = static function () use ( &$coordinator ): Spawn_Coordinator {
+			return $coordinator ??= self::spawn_coordinator();
+		};
+		return [
 			// Third-party surface, so it runs as a step of its own.
 			'before'       => static fn () => \do_action( 'newspack_nodes/before_reconcile' ),
-			'spawn'        => static fn () => $coordinator->spawn_due_workers( Core::right_now() ),
+			'spawn'        => static fn () => $shared()->spawn_due_workers( Core::right_now() ),
 			// Revival: the one pass noticing an external producer's write.
-			'backlog-wake' => static fn () => $coordinator->wake_readers_with_backlog( Core::right_now() ),
-			'lock-dirs'    => static fn () => $coordinator->reconcile_lock_dirs(),
-			'retention'    => static fn () => Log_Cleaner::cleanup_orphan_partitions( $base_dir ),
-			'orphan-ipc'   => static fn () => $coordinator->cleanup_orphan_ipc(),
+			'backlog-wake' => static fn () => $shared()->wake_readers_with_backlog( Core::right_now() ),
+			'lock-dirs'    => static fn () => $shared()->reconcile_lock_dirs(),
+			'retention'    => static fn () => Log_Cleaner::cleanup_orphan_partitions( self::base_dir() ),
+			'orphan-ipc'   => static fn () => $shared()->cleanup_orphan_ipc(),
 			'alerts'       => static fn () => Alerts::emit(),
 			'job-delay'    => static fn () => Job_Delay::sweep(),
 			'periodic'     => static fn () => \do_action( 'newspack_nodes/periodic' ),
 		];
-		Worker_Should_Stop::raise( Worker_Should_Stop::attempt( ...$steps ) );
 	}
 
 	/** Unschedule the reconcile cron event. */

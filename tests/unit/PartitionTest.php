@@ -4092,6 +4092,20 @@ class PartitionTest extends TestCase {
 	}
 
 	/**
+	 * The router tick flushes every pass, so an idle flush must leave the tick
+	 * clock where the drain loop set it: a reader dating from `Core::$now`
+	 * would otherwise jump to the wall clock mid-tick.
+	 */
+	public function test_an_idle_flush_leaves_the_tick_clock_alone(): void {
+		Partition_Node::forget_pending_wakes();
+		Core::$now = 1717171.5;
+
+		Partition_Node::flush_pending_wakes();
+
+		$this->assertSame( 1717171.5, Core::$now );
+	}
+
+	/**
 	 * A wake that throws spares the others: every pending partition is
 	 * offered, and every failure escapes together after the last.
 	 */

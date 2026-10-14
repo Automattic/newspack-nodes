@@ -743,6 +743,30 @@ abstract class TestCase extends PHPUnitTestCase {
 		return $errors;
 	}
 
+	/**
+	 * The captured stderr lines containing `$needle`, each with its process
+	 * label (`<host> <process>[<pid>][<n>s]: `) cut off and its newline trimmed.
+	 *
+	 * @param \ArrayObject<int,string> $captured What `capture_stderr()` collected.
+	 * @param string                   $needle   Text a kept line contains; '' keeps every line.
+	 * @return list<string>
+	 */
+	protected static function stderr_lines( \ArrayObject $captured, string $needle = '' ): array {
+		$out = [];
+		foreach ( $captured as $line ) {
+			$line = \rtrim( (string) \preg_replace( '/^.*?\[\d+\]\[\d+s\]: /s', '', $line, 1 ) );
+			if ( '' === $needle || \str_contains( $line, $needle ) ) {
+				$out[] = $line;
+			}
+		}
+		return $out;
+	}
+
+	/** `<message> (<file>:<line>)`, as `Worker_Should_Stop::report()` spells one throwable. */
+	protected static function cause_text( \Throwable $e ): string {
+		return $e->getMessage() . ' (' . $e->getFile() . ':' . $e->getLine() . ')';
+	}
+
 	/** Read a private/protected property — these nodes expose internal state to tests via reflection, not getters. */
 	protected function read_private( object $obj, string $prop ): mixed {
 		$ref = new \ReflectionProperty( $obj, $prop );

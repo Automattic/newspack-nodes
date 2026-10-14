@@ -379,7 +379,7 @@ class Spawn_Coordinator {
 	 * minute cadence is the fallback tier rather than the mechanism. A producer
 	 * that just wrote work calls this.
 	 *
-	 * Only workers that TAIL `$dir` are woken — `Bootstrap::on_demand_wake_map()`
+	 * Only workers that TAIL `$dir` are woken — `Bootstrap::readable_wake_map()`
 	 * resolves that off the TSL and caches it — so queueing a job cannot boot a
 	 * firehose reader. The 15s throttle means a burst costs one spawn.
 	 *

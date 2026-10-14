@@ -63,11 +63,13 @@ class Worker_Should_Stop extends \RuntimeException {
 	 * Combine what several steps threw into the one throwable that escapes.
 	 *
 	 * Clean only when every catch is clean. A stop when any catch is a stop,
-	 * carrying every failure: each non-stop throwable, and each stop's own
-	 * previous. With no stop, the failures propagate as they are — the one, or
-	 * all of them as `Failures`, which flattens any `Failures` among them. No
-	 * failure is ever dropped, and a clean stop beside a failure is a plain
-	 * stop, so the reader replays (ADR-14).
+	 * carrying every failure `failures_of()` names: each non-stop throwable,
+	 * and for each stop the failure at the end of its chain, walked through
+	 * any stops it carries. With no stop, the failures propagate as they are —
+	 * the one, or all of them as `Failures`, which flattens any `Failures`
+	 * among them. No failure is ever dropped, and a clean stop beside a failure
+	 * is a plain stop, so the reader replays (ADR-14). A chain of stops ending
+	 * in no failure still combines to a plain stop carrying one, never bare.
 	 *
 	 * One instance counts once, however many ways it arrived: a memoized
 	 * failure two collectors caught, or a failure beside the stop carrying it.
@@ -77,6 +79,7 @@ class Worker_Should_Stop extends \RuntimeException {
 	 */
 	public static function combine( array $caught ): ?\Throwable {
 		$first    = null;
+		$distinct = 0;
 		$stops    = [];
 		$failures = [];
 		$clean    = true;
@@ -85,51 +88,73 @@ class Worker_Should_Stop extends \RuntimeException {
 			if ( isset( $seen[ \spl_object_id( $e ) ] ) ) {
 				continue;
 			}
-			$seen[ \spl_object_id( $e ) ] = true;
 			$first ??= $e;
-			$clean   = $clean && self::is_clean( $e );
-			$failure = $e;
+			++$distinct;
+			$clean = $clean && self::is_clean( $e );
 			if ( $e instanceof self ) {
 				$stops[] = $e;
-				$failure = $e->getPrevious();
-				if ( null === $failure || isset( $seen[ \spl_object_id( $failure ) ] ) ) {
-					continue;
-				}
-				$seen[ \spl_object_id( $failure ) ] = true;
 			}
-			$failures[] = $failure;
+			foreach ( self::failures_of( $e ) as $failure ) {
+				if ( ! isset( $seen[ \spl_object_id( $failure ) ] ) ) {
+					$seen[ \spl_object_id( $failure ) ] = true;
+					$failures[]                         = $failure;
+				}
+			}
+			$seen[ \spl_object_id( $e ) ] = true;
 		}
 		if ( null === $first || $clean ) {
 			return $first;
 		}
 		if ( [] === $stops ) {
-			return 1 === \count( $failures ) ? $first : new Failures( $failures );
+			return 1 === $distinct ? $first : new Failures( $failures );
 		}
 		return self::stop_carrying( $stops, $failures );
 	}
 
 	/**
 	 * The one plain stop that reports every failure: the first plain stop
-	 * already carrying exactly them — a `Failures` included — or, with none, a
-	 * bare one; else a fresh stop carrying the failure, or all of them as
-	 * `Failures`.
+	 * carrying exactly them directly — through a `Failures` or none at all —
+	 * else a fresh stop carrying the failure, or all of them as `Failures`.
+	 * One that carries them through another stop is replaced, so the stop's
+	 * previous is always a failure.
 	 *
 	 * @param non-empty-list<self> $stops    Every stop caught, in order.
-	 * @param list<\Throwable>     $failures Every failure caught, in order, unflattened.
+	 * @param list<\Throwable>     $failures Every failure caught, in order, flattened.
 	 */
 	private static function stop_carrying( array $stops, array $failures ): self {
 		foreach ( $stops as $stop ) {
-			$previous = $stop->getPrevious();
-			$carries  = null === $previous ? [] : [ $previous ];
-			if ( $carries === $failures && ! ( $stop instanceof Worker_Should_Stop_Clean ) ) {
+			if ( ! ( $stop instanceof Worker_Should_Stop_Clean )
+				&& ! ( $stop->getPrevious() instanceof self )
+				&& self::failures_of( $stop ) === $failures ) {
 				return $stop;
 			}
+		}
+		if ( [] === $failures ) {
+			return self::stop_carrying_a_stop( $stops );
 		}
 		$carried = 1 === \count( $failures ) ? $failures[0] : new Failures( $failures );
 		$stop       = new self( $stops[0]->getMessage(), 0, $carried );
 		$stop->file = $carried->getFile();
 		$stop->line = $carried->getLine();
 		return $stop;
+	}
+
+	/**
+	 * Every chain ended in a stop rather than a failure, and none is clean
+	 * with nothing beneath it: the first plain stop carrying one, as it came,
+	 * else a fresh plain stop carrying what the first clean one carried. It
+	 * is never bare, so no reader commits past the record it stopped on.
+	 *
+	 * @param non-empty-list<self> $stops Every stop caught, in order.
+	 */
+	private static function stop_carrying_a_stop( array $stops ): self {
+		$carrying = \array_values( \array_filter( $stops, static fn ( self $stop ): bool => null !== $stop->getPrevious() ) );
+		foreach ( $carrying as $stop ) {
+			if ( ! ( $stop instanceof Worker_Should_Stop_Clean ) ) {
+				return $stop;
+			}
+		}
+		return new self( $carrying[0]->getMessage(), 0, $carrying[0]->getPrevious() );
 	}
 
 	/**
@@ -142,6 +167,86 @@ class Worker_Should_Stop extends \RuntimeException {
 	 */
 	public static function is_clean( \Throwable $e ): bool {
 		return $e instanceof Worker_Should_Stop_Clean && null === $e->getPrevious();
+	}
+
+	/**
+	 * Write what a loop caught to stderr instead of raising it. A top-level
+	 * boundary reports, never raises: a cron callback, a shutdown function, a
+	 * hook with no caller to hand a result to, where a raise reaches no reader
+	 * and ends as an uncaught fatal. Nothing else calls this; every other loop
+	 * hands what it caught to `raise()`.
+	 *
+	 * One line per cause `causes_of()` names as
+	 * `<label>: <key>: <message> (<file>:<line>)`, then
+	 * `; previous: …` for each throwable down its `getPrevious()` chain, so
+	 * the line keeps everything an uncaught fatal printed but the stack. An
+	 * empty label writes `<key>: …` alone, for a caller whose process label
+	 * already names what ran. Every line is written, unthrottled.
+	 *
+	 * A report never escapes either: when writing a line throws — the stderr
+	 * handler or a `newspack_nodes/stderr` listener — the line and that
+	 * failure go to `error_log()` together, the last resort `Core::_stderr()`
+	 * itself takes on re-entry, and the next line is still attempted.
+	 *
+	 * @param string                   $label  What ran, e.g. `wake`; empty when the process label names it.
+	 * @param array<string,\Throwable> $caught What it caught, keyed by the step or item that threw it.
+	 */
+	public static function report( string $label, array $caught ): void {
+		$prefix = '' === $label ? '' : "{$label}: ";
+		foreach ( $caught as $key => $e ) {
+			foreach ( self::causes_of( $e ) as $cause ) {
+				$line = "{$prefix}{$key}: " . self::described( $cause );
+				try {
+					Core::stderr( $line );
+				} catch ( \Throwable $stderr ) {
+					// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+					\error_log( "report: stderr failed writing: {$line}; stderr failure: " . self::described( $stderr ) );
+				}
+			}
+		}
+	}
+
+	/**
+	 * `<message> (<file>:<line>)` for a throwable and each one down its
+	 * `getPrevious()` chain, joined by `; previous: `.
+	 *
+	 * @param \Throwable $e The cause.
+	 */
+	private static function described( \Throwable $e ): string {
+		$parts = [];
+		for ( $at = $e; null !== $at; $at = $at->getPrevious() ) {
+			$parts[] = Core::message_of( $at ) . ' (' . $at->getFile() . ':' . $at->getLine() . ')';
+		}
+		return \implode( '; previous: ', $parts );
+	}
+
+	/**
+	 * What a boundary reports one throwable as: the failures `failures_of()`
+	 * names, or the throwable itself when it names none — a bare stop.
+	 *
+	 * @param \Throwable $e What a step threw.
+	 * @return non-empty-list<\Throwable>
+	 */
+	public static function causes_of( \Throwable $e ): array {
+		return self::failures_of( $e ) ?: [ $e ];
+	}
+
+	/**
+	 * The failures one throwable stands for: a stop's previous, walked through
+	 * any stop it carries to the end, a `Failures`' members, and anything
+	 * else itself. A stop carrying nothing stands for none.
+	 *
+	 * @param \Throwable $e What a step threw.
+	 * @return list<\Throwable>
+	 */
+	public static function failures_of( \Throwable $e ): array {
+		while ( $e instanceof self ) {
+			$e = $e->getPrevious();
+			if ( null === $e ) {
+				return [];
+			}
+		}
+		return $e instanceof Failures ? $e->all() : [ $e ];
 	}
 
 	/**

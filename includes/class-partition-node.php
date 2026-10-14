@@ -185,6 +185,16 @@ class Partition_Node extends Timer_Node {
 	/** Guards the one shutdown-time flush registration per process. */
 	private static bool $wake_flush_registered = false;
 
+	/**
+	 * Shutdown-registration seam. Replaces `register_shutdown_function()`,
+	 * which the first write calls with the exit flush of pending wakes. Tests
+	 * capture the flush and invoke it.
+	 * Signature: `function ( \Closure $flush ): void`.
+	 *
+	 * @var \Closure(\Closure): void|null
+	 */
+	public static ?\Closure $on_shutdown = null;
+
 	/** @var string Packed messages awaiting one PIPE_BUF-atomic syswrite. */
 	protected string $batch = '';
 
@@ -519,7 +529,10 @@ class Partition_Node extends Timer_Node {
 		self::$pending_wakes[ $dir ] = $dir;
 		if ( ! self::$wake_flush_registered ) {
 			self::$wake_flush_registered = true;
-			\register_shutdown_function( [ self::class, 'flush_pending_wakes' ] );
+			// A shutdown function reports, never raises.
+			( self::$on_shutdown ?? static fn ( \Closure $flush ) => \register_shutdown_function( $flush ) )(
+				static fn () => Worker_Should_Stop::report( 'wake', self::attempt_pending_wakes() )
+			);
 		}
 	}
 
@@ -2322,6 +2335,46 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
+	 * Wake every on-demand worker tailing a partition written since the last
+	 * flush. Fire-and-forget; `Bootstrap::readable_wake_map()` caches the
+	 * lookup and `Spawn_Coordinator` throttles the spawn, so a partition nothing
+	 * on-demand tails costs one cached array read. Every pending partition is
+	 * offered its wake, and every failure raises together after the last.
+	 *
+	 * @api Called from the router tick and from `Worker_Base::release()`.
+	 * @throws \Throwable What the coordinator or any wake threw, combined.
+	 */
+	public static function flush_pending_wakes(): void {
+		Worker_Should_Stop::raise( self::attempt_pending_wakes() );
+	}
+
+	/**
+	 * Offer every pending partition its wake and return what each threw, by
+	 * dir. A coordinator that will not build is built once and fails every
+	 * pending wake, each under its own dir.
+	 *
+	 * @return array<string,\Throwable>
+	 */
+	private static function attempt_pending_wakes(): array {
+		// Every router tick lands here; an idle one must not re-read the clock.
+		if ( [] === self::$pending_wakes ) {
+			return [];
+		}
+		$pending             = self::$pending_wakes;
+		self::$pending_wakes = [];
+		try {
+			$coordinator = Bootstrap::spawn_coordinator();
+		} catch ( \Throwable $e ) {
+			return \array_fill_keys( \array_keys( $pending ), $e );
+		}
+		$now = Core::right_now();
+		return Worker_Should_Stop::attempt_each(
+			$pending,
+			static fn ( string $dir ): int => $coordinator->wake_on_demand( $dir, $now )
+		);
+	}
+
+	/**
 	 * When a segment's file was last written, unix seconds, as of the last
 	 * scan `get_segments()` made; null for a segment that scan did not list.
 	 *
@@ -2330,33 +2383,6 @@ class Partition_Node extends Timer_Node {
 	 */
 	public function segment_mtime( int $segment ): ?int {
 		return $this->segment_mtimes[ $segment ] ?? null;
-	}
-
-	/**
-	 * Wake every on-demand worker tailing a partition written since the last
-	 * flush. Fire-and-forget; `Bootstrap::on_demand_wake_map()` caches the
-	 * lookup and `Spawn_Coordinator` throttles the spawn, so a partition nothing
-	 * on-demand tails costs one cached array read. Every pending partition is
-	 * offered its wake, and every failure raises together after the last.
-	 *
-	 * @api Registered as a shutdown function; also called from the router tick
-	 *      and from `Worker_Base::release()`.
-	 * @throws \Throwable What the coordinator or any wake threw, combined.
-	 */
-	public static function flush_pending_wakes(): void {
-		if ( [] === self::$pending_wakes ) {
-			return;
-		}
-		$pending             = self::$pending_wakes;
-		self::$pending_wakes = [];
-		$coordinator         = Bootstrap::spawn_coordinator();
-		$now                 = Core::right_now();
-		Worker_Should_Stop::raise(
-			Worker_Should_Stop::attempt_each(
-				$pending,
-				static fn ( string $dir ): int => $coordinator->wake_on_demand( $dir, $now )
-			)
-		);
 	}
 
 	/** Drop pending wakes without posting them. Tests only. */

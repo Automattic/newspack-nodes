@@ -1504,31 +1504,54 @@ class BootstrapTest extends TestCase {
 	}
 
 	/**
-	 * `expand_workers()` fires the third-party `newspack_nodes/topologies`
-	 * filter. A provider that throws fails the pass loud — after every step
-	 * has run and `after_reconcile` has fired.
+	 * An active name no `.tsl` resolves — a deploy mid-reinstall, a stale
+	 * config entry — is reported once a pass per failing step, each line
+	 * naming one topology, and the cron callback returns.
 	 */
-	public function test_a_throwing_topologies_provider_escapes_the_pass_after_after_reconcile(): void {
+	public function test_reconcile_fleet_logs_each_unresolved_topology_and_returns(): void {
+		$dir = $this->make_temp_dir( 'cold-start-unresolved-' );
+		$this->use_base_dir( $dir );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'heron-9931', 'ibis-4471' ];
+		\Newspack_Nodes\Config::reset();
+		$periodic = 0;
+		\add_action( 'newspack_nodes/periodic', static function () use ( &$periodic ): void {
+			++$periodic;
+		} );
+		$lines = $this->capture_stderr();
+
+		Bootstrap::reconcile_fleet();
+
+		$reported = self::stderr_lines( $lines, 'unknown topology' );
+		$this->assertCount( 2, $reported, 'one line per topology, never a combined Failures' );
+		$this->assertMatchesRegularExpression( "/^retention: unknown topology 'heron-9931': no \\.tsl resolves \\(.*class-bootstrap\\.php:\\d+\\)$/", $reported[0] );
+		$this->assertMatchesRegularExpression( "/^retention: unknown topology 'ibis-4471': no \\.tsl resolves \\(.*class-bootstrap\\.php:\\d+\\)$/", $reported[1] );
+		$this->assertStringContainsString( ' reconcile[', $lines[0], 'the process label names the pass' );
+		$this->assertSame( 1, $periodic, 'every step still ran' );
+		$this->rmdir_recursive( $dir );
+	}
+
+	/**
+	 * `expand_workers()` fires the third-party `newspack_nodes/topologies`
+	 * filter. A provider that throws is reported line by line once every step
+	 * has run and `after_reconcile` has fired, and the cron callback returns.
+	 */
+	public function test_a_throwing_topologies_provider_is_reported_after_after_reconcile(): void {
 		$dir = $this->make_temp_dir( 'cold-start-hostile-' );
 		$this->use_base_dir( $dir );
-		\add_filter( 'newspack_nodes/topologies', static function (): array {
-			throw new \RuntimeException( 'hostile topology provider-6613' );
+		$hostile = new \RuntimeException( 'hostile topology provider-6613' );
+		\add_filter( 'newspack_nodes/topologies', static function () use ( $hostile ): array {
+			throw $hostile;
 		} );
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'cold-start-workers' ];
 		\Newspack_Nodes\Config::reset();
 		$after = 0;
 		\add_action( 'newspack_nodes/after_reconcile', function () use ( &$after ) { ++$after; } );
+		$lines = $this->capture_stderr();
 
-		$caught = null;
-		try {
-			Bootstrap::reconcile_fleet();
-		} catch ( \Throwable $e ) {
-			$caught = $e;
-		}
+		Bootstrap::reconcile_fleet();
 
 		$this->assertSame( 1, $after, 'the lifecycle action still fires' );
-		$this->assertNotNull( $caught, 'the provider failure escapes the pass' );
-		$this->assertStringContainsString( 'hostile topology provider-6613', $caught->getMessage() );
+		$this->assertContains( 'retention: ' . self::cause_text( $hostile ), self::stderr_lines( $lines ) );
 
 		$this->rmdir_recursive( $dir );
 	}
@@ -1631,10 +1654,10 @@ class BootstrapTest extends TestCase {
 
 	// ── reconcile_fleet: hostile input ───────────────────────────────────
 
-	public function test_a_throwing_before_reconcile_subscriber_costs_no_step_and_escapes_after_the_last(): void {
+	public function test_a_throwing_before_reconcile_subscriber_costs_no_step_and_is_reported(): void {
 		// `before_reconcile` is third-party surface — event-logger-nodes already
 		// subscribes. Its throw must not cost the spawn behind it, and must not
-		// be swallowed either: it escapes once every step has run.
+		// be swallowed either: it is reported once every step has run.
 		$dir = $this->cold_start_fleet( [
 			'cold-start-workers' => [ 'num_partitions' => 1, 'topology' => '/cs.tsl' ],
 		] );
@@ -1642,20 +1665,16 @@ class BootstrapTest extends TestCase {
 		\add_action( 'newspack_nodes/before_reconcile', static function () use ( $exploded ): void {
 			throw $exploded;
 		} );
+		$lines = $this->capture_stderr();
 
-		$caught = null;
-		try {
-			Bootstrap::reconcile_fleet();
-		} catch ( \Throwable $e ) {
-			$caught = $e;
-		}
+		Bootstrap::reconcile_fleet();
 
-		$this->assertSame( $exploded, $caught );
+		$this->assertSame( [ 'before: ' . self::cause_text( $exploded ) ], self::stderr_lines( $lines ) );
 		$this->assertCount( 1, $GLOBALS['_test_outbound_posts'] ?? [], 'the spawn still ran' );
 		$this->rmdir_recursive( $dir );
 	}
 
-	public function test_a_throwing_periodic_subscriber_costs_no_step_and_escapes_after_the_last(): void {
+	public function test_a_throwing_periodic_subscriber_costs_no_step_and_is_reported(): void {
 		// Third-party code: pyrobase and nuclear-gyrobase both subscribe.
 		$dir = $this->cold_start_fleet( [
 			'cold-start-workers' => [ 'num_partitions' => 1, 'topology' => '/cs.tsl' ],
@@ -1667,15 +1686,11 @@ class BootstrapTest extends TestCase {
 		} );
 		$after = 0;
 		\add_action( 'newspack_nodes/after_reconcile', function () use ( &$after ) { ++$after; } );
+		$lines = $this->capture_stderr();
 
-		$caught = null;
-		try {
-			Bootstrap::reconcile_fleet();
-		} catch ( \Throwable $e ) {
-			$caught = $e;
-		}
+		Bootstrap::reconcile_fleet();
 
-		$this->assertSame( $exploded, $caught );
+		$this->assertSame( [ 'periodic: ' . self::cause_text( $exploded ) ], self::stderr_lines( $lines ) );
 		$this->assertCount( 1, $GLOBALS['_test_outbound_posts'], 'the spawn already ran and stands' );
 		$this->assertDirectoryDoesNotExist( "{$dir}/ipc/retired-workers.p7", 'ipc reaping already ran and stands' );
 		$this->assertSame( 1, $after );
@@ -1697,20 +1712,18 @@ class BootstrapTest extends TestCase {
 		\add_action( 'newspack_nodes/periodic', static function () use ( &$fired ): void {
 			++$fired;
 		} );
+		$lines = $this->capture_stderr();
 
-		try {
-			Bootstrap::reconcile_fleet();
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'hostile topology provider', $e->getMessage() );
-		}
+		Bootstrap::reconcile_fleet();
 
 		$this->assertSame( 1, $fired, 'one failing step must not cost the others their window' );
+		$this->assertCount( 1, self::stderr_lines( $lines, 'retention: hostile topology provider (' ) );
 		$this->rmdir_recursive( $dir );
 	}
 
 	public function test_a_failed_alert_journal_costs_the_delay_sweep_nothing(): void {
 		// Alert emission and the delayed-jobs sweep are steps of their own, so
-		// one throwing leaves the other its window, and the pass then raises.
+		// one throwing leaves the other its window, and the pass reports it.
 		$dir = $this->cold_start_fleet( [
 			'cold-start-workers' => [ 'num_partitions' => 1, 'topology' => '/cs.tsl' ],
 		] );
@@ -1734,19 +1747,48 @@ class BootstrapTest extends TestCase {
 		// The sweep reads the tick clock: a minute on, the entry is due.
 		$saved_clock = Core::$clock;
 		Core::$clock = static fn (): float => $now + 60.0;
-		$caught      = null;
+		$lines       = $this->capture_stderr();
 		try {
 			Bootstrap::reconcile_fleet();
-		} catch ( \Throwable $e ) {
-			$caught = $e;
 		} finally {
 			Core::$clock = $saved_clock;
 			$journal->setValue( null, null );
 		}
 
-		$this->assertSame( $refused, $caught );
+		$this->assertContains( 'alerts: ' . self::cause_text( $refused ), self::stderr_lines( $lines ) );
 		$delivered = \file_get_contents( (string) ( \glob( "{$dir}/logs/jobintake.p0/*.log" )[0] ?? '' ) ) ?: '';
 		$this->assertStringContainsString( 'due-after-alerts-7781', $delivered, 'the delay sweep still ran' );
+		$this->rmdir_recursive( $dir );
+	}
+
+	/**
+	 * The steps' failures are reported BEFORE `after_reconcile` fires, because
+	 * a subscriber there — the event logger's — closes the job context the
+	 * lines belong under; the subscriber's own failure is reported after it.
+	 */
+	public function test_the_steps_are_reported_before_after_reconcile_and_its_failure_after(): void {
+		$dir      = $this->cold_start_fleet( [
+			'cold-start-workers' => [ 'num_partitions' => 1, 'topology' => '/cs.tsl' ],
+		] );
+		$periodic = new \RuntimeException( 'a periodic subscriber exploded-2207' );
+		$after    = new \RuntimeException( 'an after_reconcile subscriber exploded-2206' );
+		\add_action( 'newspack_nodes/periodic', static function () use ( $periodic ): void {
+			throw $periodic;
+		} );
+		$lines    = $this->capture_stderr();
+		$at_after = null;
+		\add_action( 'newspack_nodes/after_reconcile', static function () use ( $lines, $after, &$at_after ): void {
+			$at_after = self::stderr_lines( $lines );
+			throw $after;
+		} );
+
+		Bootstrap::reconcile_fleet();
+
+		$this->assertSame( [ 'periodic: ' . self::cause_text( $periodic ) ], $at_after );
+		$this->assertSame(
+			[ 'periodic: ' . self::cause_text( $periodic ), 'after: ' . self::cause_text( $after ) ],
+			self::stderr_lines( $lines )
+		);
 		$this->rmdir_recursive( $dir );
 	}
 

@@ -394,6 +394,7 @@ class Log_Sources {
 	 * @param string $name Registry name.
 	 * @return array{path: string, mode: string}
 	 * @throws \InvalidArgumentException On a name the registry lacks.
+	 * @throws \Throwable What an active topology that will not read raised.
 	 */
 	public static function entry( string $name ): array {
 		$registry = self::registry();

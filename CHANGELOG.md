@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`Worker_Should_Stop::report( $label, $caught )`, the logging counterpart of `raise()` for a top-level boundary.** It writes one stderr line per cause, `<label>: <key>: <message> (<file>:<line>)` followed by `; previous: …` for each throwable down the cause's `getPrevious()` chain, so a line keeps everything an uncaught fatal printed but the stack; an empty label writes `<key>: …` alone, for a caller whose process label already names what ran. When writing a line throws — the stderr handler or a `newspack_nodes/stderr` listener — the line and that failure go to `error_log()` together, and the next line is still attempted.
+- **`Worker_Should_Stop::failures_of( $e )`**, the failures one throwable stands for: a stop's previous, walked through any stop it carries to the end, a `Failures`' members, anything else itself. `combine()` unwraps through it.
+- **`Worker_Should_Stop::causes_of( $e )`**, what a boundary reports one throwable as: `failures_of()`, or the throwable itself when that names none, as a bare stop does. `report()` and the settings-save hook both read it.
+- **`Partition_Node::$on_shutdown`**, the shutdown-registration seam for the exit flush of pending wakes.
+
+### Changed
+
+- **`Worker_Should_Stop::combine()` walks a stop's chain to the failure at its end** (docs/stability.md item 11). A stop whose previous is a stop carrying a failure now combines to a stop carrying that failure, where it was raised as it came, carrying the inner stop; a reader reading the combined stop's `getPrevious()` now gets the failure. A chain of stops ending in no failure still combines to a plain, non-bare stop — the first plain stop carrying one, as before, or a fresh plain stop carrying what a clean stop carried — so a reader still replays.
+- **A failed reconcile pass logs its failures instead of dying as an uncaught exception.** `Bootstrap::reconcile_fleet()` still runs every step whatever an earlier one threw, then writes each failure to stderr through `report()`, one cause a line under the step that threw it, and only then fires `newspack_nodes/after_reconcile`, whose own failure is reported after it as `after: …`; it returns, where it raised everything out of the WP-Cron callback as a PHP fatal with a stack trace once a minute. The steps are reported first because the event logger's `after_reconcile` subscriber closes the job context the lines belong under. An active topology no `.tsl` resolves — a plugin mid-reinstall during a deploy, a stale name in the `topologies` setting — reads `retention: unknown topology 'job-spoke': no .tsl resolves (…/class-bootstrap.php:<line>)` behind the pass's `reconcile[<pid>]` process label. `wp nodes doctor`'s critical `worker-liveness` row and the `wp nodes status` warning still name it.
+- **Three more top-level boundaries report rather than fatal on the same raise.** A request's exit flush of on-demand wakes, the shutdown closure a Partition's first write registers, writes `wake: <dir>: <cause>` where an on-demand topology whose graph will not read, or a spawn coordinator that would not build, raised an uncaught fatal at the end of every request that wrote a log; a coordinator that will not build is built once and fails every pending wake. The router tick and `Worker_Base::release()` still raise. Saving a Nodes Runtime setting in wp-admin writes `settings: <key>: <cause>` and adds a settings error for each cause, which options.php carries onto the page, where an unreadable topology, an unusable locks directory or a flag that would not land took the save down as a critical-error page; the option stands and every readable topology still takes its flag. `GET /messages/stream` logs `stream: <subscribe>: <cause>`, the caller's CSV with each run of control characters a space and cut to 512 bytes, and answers `500 sse_subscription_unavailable` with a message naming no internals when a subscription meets a registry that will not read, where the raise escaped the REST callback; an `\Error` still escapes.
+
+### Removed
+
+- **`Bootstrap::on_demand_wake_map()`**, the strict wake map that raised every unreadable on-demand topology. Nothing but its own tests called it; read `Bootstrap::readable_wake_map()`, which answers the map over the readable topologies beside what each unreadable one threw, and raise or report those failures where you act on them.
+
 ## [2.109.1] - 2026-10-14
 
 ### Changed

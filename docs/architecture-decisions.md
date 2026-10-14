@@ -472,7 +472,7 @@ system — and whatever revives it can itself die.
 ([`Fleet_Node`](../includes/class-fleet-node.php)); WP-Cron catches a fleet with nothing left running, at minute cadence, via
 [`Bootstrap::reconcile_fleet()`](../includes/class-bootstrap.php).
 
-![Three spawners feed one gate. Tier 1: the shutdown in Worker_Base::execute, which releases the lock then self-respawns; and _fleet, which every 15 seconds (SCAN_INTERVAL_MS) spawns any worker whose lock dir is missing or heartbeat stale, at most MAX_SPAWNS_PER_TICK 4 per pass because each POST is a blocking cURL. Tier 2: Bootstrap::reconcile_fleet on WP-Cron once a minute, no per-pass cap. All three POST the HMAC-validated spawn endpoint, where is_recently_spawned enforces 15 seconds per slot and records last_spawn:{type}|{partition} through shared_first with a transient fallback at twice MIN_SPAWN_INTERVAL_S. The minute pass, Bootstrap::run_reconcile_steps(), runs nine steps in order, each attempted whatever an earlier one threw, then after_reconcile, then every failure raised together: before_reconcile, spawn_due_workers, wake_readers_with_backlog, lock-dir reconcile, retention, orphan-IPC reaping, alerts, the delayed-jobs sweep, newspack_nodes/periodic. Cards give the rejected dedicated supervisor and what N spawners buy.](img/adr-safety-net.png)
+![Three spawners feed one gate. Tier 1: the shutdown in Worker_Base::execute, which releases the lock then self-respawns; and _fleet, which every 15 seconds (SCAN_INTERVAL_MS) spawns any worker whose lock dir is missing or heartbeat stale, at most MAX_SPAWNS_PER_TICK 4 per pass because each POST is a blocking cURL. Tier 2: Bootstrap::reconcile_fleet on WP-Cron once a minute, no per-pass cap. All three POST the HMAC-validated spawn endpoint, where is_recently_spawned enforces 15 seconds per slot and records last_spawn:{type}|{partition} through shared_first with a transient fallback at twice MIN_SPAWN_INTERVAL_S. The minute pass, Bootstrap::reconcile_steps(), runs nine steps in order, each attempted whatever an earlier one threw, then every failure written to stderr one cause a line under the step that threw it, then after_reconcile: before_reconcile, spawn_due_workers, wake_readers_with_backlog, lock-dir reconcile, retention, orphan-IPC reaping, alerts, the delayed-jobs sweep, newspack_nodes/periodic. Cards give the rejected dedicated supervisor and what N spawners buy.](img/adr-safety-net.png)
 
 **Alternatives considered:** Self-respawn only — rejected: nothing catches a worker that dies
 before it can respawn. An OS-level process supervisor (systemd, a platform worker tier) —
@@ -778,6 +778,17 @@ writes the terminal whatever the drain threw, because terminal-last is a wire co
 raises both through `raise()`. The lifecycle attempts every step the same way: the reconcile
 pass, `Worker_Base`'s shutdown and its sweepers, `Core::cleanup_all_nodes()`, the probes'
 sweep and `Job_Intake::close()`.
+
+A top-level boundary reports what it caught instead of raising it, because nothing above it
+reads a raise and PHP would end the request on an uncaught fatal: the minute reconcile pass,
+a request's exit wake flush (the shutdown closure a Partition's first write registers), the
+wp-admin settings-save hook and the SSE stream's subscription resolve each hand their keyed
+failures to `Worker_Should_Stop::report()`. It writes one stderr line per cause
+`causes_of()` names — the same unwrapping, `failures_of()`, that `combine()` uses — with its
+file, line and `getPrevious()` chain; when writing a line throws, in the stderr handler or a
+listener, the line and that failure go to `error_log()` together. None of them is on a
+drain path, so no stop is swallowed: a worker flushes its own wakes in `release()`, before
+its exit flush runs.
 
 ![The rule as a decision: inside a broad catch on the drain path, a Worker_Should_Stop is re-thrown as control flow and anything else is propagated or translated into a result the caller sees; the failure prevented is a worker draining on past max_runtime or the memory watermark. Attempt-all loops — fan-out through Fanout_Targets, Settings_Sync, Vault_Group_Node::forward(), LRU_Cache eviction and HTTP_Out replies — attempt every step and raise everything caught after the last, Tap performing its passthrough first and adding its failure to the list. No carve-out: Job_Worker_Node's after_job joins a listener's throw to the job's own, and a before_job throw fails the job. Log_Manager::finish in event-logger-nodes writes the terminal whatever the drain threw, then raises both. A table for Worker_Should_Stop::combine shows nothing caught raising nothing, only bare clean stops raising the first clean stop, any stop among anything else raising a plain stop carrying every failure, and failures alone raising the one failure or all of them as Failures.](img/adr-stop-precedence.png)
 
