@@ -1176,8 +1176,8 @@ export class ShellNode extends Node {
 
 	/**
 	 * Resolve a `<ns:key>` token, mirroring PHP Core::resolve_config_token in its
-	 * non-strict form: an unresolvable token becomes '' with a rate-limited
-	 * warning, so a typo or a host that never handed the shell its map cannot
+	 * non-strict form: an unresolvable token becomes '' with a warning per
+	 * token, so a typo or a host that never handed the shell its map cannot
 	 * blank a path in silence. PHP resolves through a namespace REGISTRY; the
 	 * browser has exactly one namespace — `config`, the host-supplied map — so
 	 * every other namespace is unknown here.
@@ -1188,24 +1188,21 @@ export class ShellNode extends Node {
 	 */
 	resolveConfigToken( ns, key ) {
 		if ( 'config' !== ns ) {
-			Core.printLessOften(
-				'resolve_config_token: unknown namespace ',
-				`<${ ns }:${ key }>`
+			Core.stderr(
+				`resolve_config_token: unknown namespace <${ ns }:${ key }>`
 			);
 			return '';
 		}
 		const value = this.config[ key ];
 		if ( null === value || undefined === value ) {
-			Core.printLessOften(
-				'resolve_config_token: resolver returned null for ',
-				`<${ ns }:${ key }>`
+			Core.stderr(
+				`resolve_config_token: resolver returned null for <${ ns }:${ key }>`
 			);
 			return '';
 		}
 		if ( 'object' === typeof value || 'function' === typeof value ) {
-			Core.printLessOften(
-				'resolve_config_token: resolver returned non-scalar for ',
-				`<${ ns }:${ key }>`
+			Core.stderr(
+				`resolve_config_token: resolver returned non-scalar for <${ ns }:${ key }>`
 			);
 			return '';
 		}

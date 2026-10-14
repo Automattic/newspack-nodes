@@ -469,9 +469,9 @@ class Admin {
 		self::render_number( 'alert_lag_threshold', \__( 'Warn when a consumer falls more than this many bytes behind its partition end. 0 = warn on any lag.', 'newspack-nodes' ) );
 	}
 
-	/** Quarantined dead-letter segment count that raises an alert. */
+	/** Quarantined dead-letter record count that raises an alert. */
 	public static function alert_deadletter_threshold_callback(): void {
-		self::render_number( 'alert_deadletter_threshold', \__( 'Warn when more than this many dead-letter segments are quarantined. 0 = warn on the first.', 'newspack-nodes' ) );
+		self::render_number( 'alert_deadletter_threshold', \__( 'Warn when more than this many dead-letter records are quarantined. 0 = warn on the first.', 'newspack-nodes' ) );
 	}
 
 	/** Rate limit between alert-action emission bursts. */

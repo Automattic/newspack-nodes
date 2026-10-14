@@ -336,7 +336,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 			$this->read_bytes = self::READ_BLOCK_BYTES;
 		}
 		if ( $this->cursor_reset ) {
-			$this->print_less_often( 'served past deleted segments: ', "rewound to {$this->cursor_segment}:0, the oldest left" );
+			$this->stderr( "served past deleted segments: rewound to {$this->cursor_segment}:0, the oldest left" );
 		}
 		$bytes = self::json_safe( \substr( $this->buffer, 0, $max ) );
 		$block = [ 'bytes' => $bytes, 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset ];

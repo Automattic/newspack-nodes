@@ -28,7 +28,7 @@ namespace Newspack_Nodes;
  * Dead-letter mixin: what a using class owes, and what it gets back.
  *
  * The class must be a `Node`, because the quarantine is a patron-owned sibling built
- * through `Sidecar`, reported through `print_less_often()` and redelivered to `sink`.
+ * through `Sidecar`, reported through `stderr()` and redelivered to `sink`.
  * It supplies the directory by assigning `$deadletter_dir`, and calls
  * `ensure_deadletter()` before the first quarantine: `dead_letter()` writes to the
  * sibling that call built and never builds one, so a class that skips it reports a
@@ -240,8 +240,7 @@ trait Dead_Letter_Queue {
 	/**
 	 * Quarantine a poison message: write the replayable original to the `:deadletter`
 	 * sibling when one is configured and report it. The report goes out through
-	 * `print_less_often`, which reaches `error_log` via `Core::stderr` and collapses a
-	 * burst to one line per reason per node.
+	 * `stderr()`, one line per message, so the log names every record to requeue.
 	 *
 	 * With no quarantine configured, `$error` is the only record of the message, so
 	 * it raises: a reader's cursor stays put and the successor replays the message,
@@ -291,7 +290,7 @@ trait Dead_Letter_Queue {
 			}
 			$outcome = 'quarantined';
 		}
-		$this->print_less_often( "DEAD-LETTER [{$reason}] {$this->name} at ", $where, ' — ', $outcome, $why );
+		$this->stderr( "DEAD-LETTER [{$reason}] {$this->name} at {$where} — {$outcome}{$why}" );
 	}
 
 	/**
@@ -322,14 +321,13 @@ trait Dead_Letter_Queue {
 	 * triage metadata (reason, attempts, first_crash_ts, quarantine ts, source
 	 * breadcrumb, sidecar locator) plus its `status`: `quarantined`, or `requeued`
 	 * once a requeue's sink returned. A removed record is omitted, and a tombstone
-	 * is never a row of its own. `total` counts the records still quarantined — the
-	 * badge number — not the returned page. `unindexed_segments` counts .log
-	 * segments with no .idx companion, or an empty one, quarantined by a writer that wrote no index:
-	 * they stay out of `rows`, remain replayable via `wp nodes ingest`, and rotate
-	 * out within DEADLETTER_NUM_SEGMENTS. The queue is count-bounded, so the full
-	 * .idx pass behind the total stays cheap.
+	 * is never a row of its own. `total` counts the indexed records still
+	 * quarantined — the badge number — not the returned page. `unindexed_segments`
+	 * counts .log segments with no .idx companion, or an empty one, quarantined by a
+	 * writer that wrote no index: they stay out of `rows`, remain replayable via
+	 * `wp nodes ingest`, and rotate out within DEADLETTER_NUM_SEGMENTS.
 	 *
-	 * @param int $limit Rows to return; the walk still visits every record for the totals.
+	 * @param int $limit Rows to return; the walk still visits every record for the total.
 	 * @return array{rows: array<int,mixed>, total: int, unindexed_segments: int}
 	 */
 	public function list_deadletter( int $limit ): array {
@@ -337,6 +335,42 @@ trait Dead_Letter_Queue {
 		if ( null === $deadletter ) {
 			return [ 'rows' => [], 'total' => 0, 'unindexed_segments' => 0 ];
 		}
+		return [
+			...self::census( $deadletter, $limit ),
+			'unindexed_segments' => \count( self::unindexed_segments( $deadletter ) ),
+		];
+	}
+
+	/**
+	 * Records in $deadletter still quarantined: the count `wp nodes doctor` and
+	 * Site Health report. An indexed record counts until a requeue or removal
+	 * tombstone settles it, as `dl_list`'s `total` counts, and every line of an
+	 * unindexed segment counts, since nothing addresses those records to settle
+	 * them. It reads every .idx row and every unindexed segment, so the cost is
+	 * the queue's size, which DEADLETTER_MAX_SEGMENTS bounds.
+	 *
+	 * @param Partition_Node $deadletter The quarantine.
+	 * @return int Records no tombstone settled.
+	 */
+	public static function quarantined_records( Partition_Node $deadletter ): int {
+		$records = self::census( $deadletter, 0 )['total'];
+		foreach ( self::unindexed_segments( $deadletter ) as $segment ) {
+			$path = $deadletter->get_segment_path( $segment );
+			// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown -- A local quarantine segment, rotated at DEADLETTER_SEGMENT_SIZE.
+			$records += \substr_count( (string) @\file_get_contents( $path ), "\n" );
+		}
+		return $records;
+	}
+
+	/**
+	 * One walk of the index: the first $limit records a removal left, each with
+	 * its status, and how many indexed records no tombstone settled.
+	 *
+	 * @param Partition_Node $deadletter The quarantine.
+	 * @param int            $limit      Rows to return; 0 counts alone.
+	 * @return array{rows: array<int,mixed>, total: int}
+	 */
+	private static function census( Partition_Node $deadletter, int $limit ): array {
 		$rows  = [];
 		$total = 0;
 		self::walk_deadletter(
@@ -351,19 +385,29 @@ trait Dead_Letter_Queue {
 				if ( \count( $rows ) < $limit ) {
 					$rows[] = [ ...$row, 'status' => $status ];
 				}
-				return true; // Full pass: total needs every record.
+				return true;
 			}
 		);
-		$unindexed = 0;
+		return [ 'rows' => $rows, 'total' => $total ];
+	}
+
+	/**
+	 * Segments no index describes: no .idx companion, or an empty one.
+	 *
+	 * @param Partition_Node $deadletter The quarantine.
+	 * @return list<int> Their ids.
+	 */
+	private static function unindexed_segments( Partition_Node $deadletter ): array {
+		$ids = [];
 		foreach ( $deadletter->get_segments() as $s ) {
 			// get_handle() creates an .idx before its first line lands.
 			$idx = self::deadletter_index_path( $deadletter, $s['id'] );
 			\clearstatcache( true, $idx );
 			if ( 0 === (int) @\filesize( $idx ) ) {
-				++$unindexed;
+				$ids[] = $s['id'];
 			}
 		}
-		return [ 'rows' => $rows, 'total' => $total, 'unindexed_segments' => $unindexed ];
+		return $ids;
 	}
 
 	/**
@@ -421,7 +465,7 @@ trait Dead_Letter_Queue {
 		} catch ( Worker_Should_Stop $e ) {
 			throw $e;
 		} catch ( \Throwable $e ) {
-			$this->print_less_often( "DEAD-LETTER {$this->name} requeued status not recorded at ", $locator, ' — ', $e->getMessage() );
+			$this->stderr( "DEAD-LETTER {$this->name} requeued status not recorded at {$locator} — {$e->getMessage()}" );
 			return $ok . "warning: requeued status not recorded — {$e->getMessage()}\n";
 		}
 		return $ok;

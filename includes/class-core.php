@@ -286,7 +286,7 @@ class Core {
 	 * Resolve a `<ns:key>` topology token via its namespace resolver.
 	 *
 	 * Non-strict (shell interpolation, GC / dashboard path resolution): an
-	 * unresolvable token becomes '' with a rate-limited warning — a resolver that
+	 * unresolvable token becomes '' with a warning per token — a resolver that
 	 * RETURNS '' owns the key and its value is just empty. Strict (schema-arg
 	 * defaults) throws instead, so a wrong-namespace or typo'd token — the
 	 * <config:is_hub> footgun — fails loud at construction rather than silently
@@ -304,7 +304,7 @@ class Core {
 			if ( $strict ) {
 				throw new \RuntimeException( \esc_html( "unresolvable config token <{$ns}:{$key}>: unknown namespace" ) );
 			}
-			self::print_less_often( 'resolve_config_token: unknown namespace ', "<{$ns}:{$key}>" );
+			self::stderr( "resolve_config_token: unknown namespace <{$ns}:{$key}>" );
 			return '';
 		}
 		$value = $resolver( $key );
@@ -312,14 +312,14 @@ class Core {
 			if ( $strict ) {
 				throw new \RuntimeException( \esc_html( "unresolvable config token <{$ns}:{$key}>: not owned by its namespace" ) );
 			}
-			self::print_less_often( 'resolve_config_token: resolver returned null for ', "<{$ns}:{$key}>" );
+			self::stderr( "resolve_config_token: resolver returned null for <{$ns}:{$key}>" );
 			return '';
 		}
 		if ( ! \is_scalar( $value ) ) {
 			if ( $strict ) {
 				throw new \RuntimeException( \esc_html( "unresolvable config token <{$ns}:{$key}>: resolved to a non-scalar" ) );
 			}
-			self::print_less_often( 'resolve_config_token: resolver returned non-scalar for ', "<{$ns}:{$key}>" );
+			self::stderr( "resolve_config_token: resolver returned non-scalar for <{$ns}:{$key}>" );
 			return '';
 		}
 		if ( \is_bool( $value ) ) {

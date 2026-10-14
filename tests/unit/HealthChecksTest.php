@@ -191,9 +191,7 @@ class HealthChecksTest extends TestCase {
 	private function seed_deadletters( string $reader, int $count ): void {
 		$dir = "{$this->tmp}/deadletter/{$reader}";
 		\mkdir( $dir, 0700, true );
-		for ( $segment = 0; $segment < $count; ++$segment ) {
-			\file_put_contents( "{$dir}/{$segment}.log", 'health-deadletter-7319' );
-		}
+		\file_put_contents( "{$dir}/0.log", \str_repeat( "health-deadletter-7319\n", $count ) );
 	}
 
 	private function use_refused_base_directory( string $suffix ): void {

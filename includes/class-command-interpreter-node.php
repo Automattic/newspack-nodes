@@ -507,8 +507,8 @@ class Command_Interpreter_Node extends Node {
 	 *
 	 * The constructor is called with NO arguments (ADR-11): the tokens reach the
 	 * node through `arguments()`, and a subclass reads them in
-	 * `parse_schema_args()`. A non-scalar argument is dropped with a rate-limited
-	 * warning, because `arguments()` has to stay a flat token list for
+	 * `parse_schema_args()`. A non-scalar argument is dropped with a warning
+	 * naming the node, because `arguments()` has to stay a flat token list for
 	 * `dump_config()` to round-trip. Redeclaring a name with the same class and
 	 * the same tokens returns the node already registered, so reloading a topology
 	 * is idempotent while a genuine collision throws. A node born under a traced
@@ -533,11 +533,7 @@ class Command_Interpreter_Node extends Node {
 		}
 		$scalar_args = \array_filter( $args, '\is_scalar' );
 		if ( \count( $scalar_args ) !== \count( $args ) ) {
-			Core::print_less_often(
-				'make_node ',
-				"{$type} {$name}",
-				': non-scalar positional arg filtered (assign object deps as public properties)'
-			);
+			Core::stderr( "make_node {$type} {$name}: non-scalar positional arg filtered (assign object deps as public properties)" );
 		}
 		$arg_tokens = \array_map( static fn ( $a ): string => (string) $a, \array_values( $scalar_args ) );
 

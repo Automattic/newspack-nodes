@@ -719,11 +719,7 @@ class Config {
 		if ( 0 !== CLI::uid() ) {
 			return false;
 		}
-		Core::print_less_often(
-			'WARNING: running as root; skipping ',
-			$what,
-			' - a root-owned file would be unwritable by the workers'
-		);
+		Core::stderr( "WARNING: running as root; skipping {$what} - a root-owned file would be unwritable by the workers" );
 		return true;
 	}
 

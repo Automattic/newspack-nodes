@@ -3468,6 +3468,20 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertStringContainsString( 'Capture_Sink', $buf );
 	}
 
+	/** Each node whose object arg was filtered is named on its own line. */
+	public function test_each_filtered_make_node_prints_its_own_line(): void {
+		$errors      = $this->capture_stderr();
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+
+		$interpreter->make_node( 'Capture_Sink', 'dropped-obj-3301', new \stdClass() );
+		$interpreter->make_node( 'Capture_Sink', 'dropped-obj-3302', new \stdClass() );
+
+		$lines = \implode( '', (array) $errors );
+		$this->assertStringContainsString( 'make_node Capture_Sink dropped-obj-3301: non-scalar positional arg filtered', $lines );
+		$this->assertStringContainsString( 'make_node Capture_Sink dropped-obj-3302: non-scalar positional arg filtered', $lines );
+	}
+
 	public function test_dmesg_returns_recent_log_tail(): void {
 		// `dmesg` dumps Core's recent stderr tail — the PHP port of Perl
 		// Tachikoma's dmesg (join of @RECENT_LOG). Each entry already carries

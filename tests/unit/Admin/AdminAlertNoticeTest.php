@@ -91,7 +91,7 @@ class AdminAlertNoticeTest extends TestCase {
 		$base         = $this->arrange( 'live-workers' );
 		$this->seed_heartbeat( $base, 'live-workers', 0 );
 		\mkdir( "{$base}/deadletter/jobs.p0", 0755, true );
-		\file_put_contents( "{$base}/deadletter/jobs.p0/0.log", 'x' );
+		\file_put_contents( "{$base}/deadletter/jobs.p0/0.log", "x\n" );
 		$_GET['page'] = Admin::MENU_SLUG;
 
 		$html = $this->render();
