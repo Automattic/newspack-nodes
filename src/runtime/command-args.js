@@ -7,6 +7,9 @@
  * against the verb's declared `args` before its handler runs, so a handler
  * reads each argument by name.
  *
+ * `bindCommandArgs()` is the other direction, PHP `Command_Args::bind()` for a
+ * verb of string args, which a browser node binding its own verb reads.
+ *
  * Nothing here quotes or unescapes. Token boundaries are the array's, so a value
  * carrying spaces — a .tsl body, a layout positions JSON — stays whole inside its
  * own element, and quoting waits for serializeArg() in `runtime/node.js`, the one
@@ -45,4 +48,81 @@ export function formatCommandArgs( positional = [], options = {} ) {
 		tokens.push( `--${ key }=${ value }` );
 	}
 	return tokens;
+}
+
+/**
+ * Bind a verb's tokens against its declared string `args`, as PHP
+ * `Command_Args::bind()` binds them, and held to it by
+ * `tests/fixtures/add-source-args.json`: each arg by position, in declared
+ * order, or as `--name=value`, the two forms mixed. A blank token for a
+ * required arg reads as absent, and an absent arg binds null. Types,
+ * defaults, `variadic` and `secret` are PHP's alone: every value binds as
+ * the string it is.
+ *
+ * @param {Array<{name:string,required?:boolean}>} specs  The verb's `args`.
+ * @param {string[]}                               tokens Its tokens.
+ * @return {Object<string,?string>} Arg name => value, in declared order.
+ * @throws {Error} In PHP's words: an unknown option, a name given twice or
+ *   both by position and by name, a surplus positional, a bare flag, or a
+ *   missing required arg.
+ */
+export function bindCommandArgs( specs, tokens ) {
+	const given = new Map();
+	const named = new Set();
+	const count = tokens.filter( ( t ) => ! t.startsWith( '--' ) ).length;
+	let slot = 0;
+	for ( const token of tokens ) {
+		if ( token.startsWith( '--' ) ) {
+			const body = token.slice( 2 );
+			const eq = body.indexOf( '=' );
+			const name = -1 === eq ? body : body.slice( 0, eq );
+			if ( ! specs.some( ( spec ) => spec.name === name ) ) {
+				const takes = specs.map( ( spec ) => spec.name ).join( ', --' );
+				throw new Error(
+					`unknown option --${ name }; this verb takes --${ takes }`
+				);
+			}
+			if ( named.has( name ) ) {
+				throw new Error( `--${ name } given twice` );
+			}
+			if ( given.has( name ) ) {
+				throw new Error(
+					`${ name } given both by position and as --${ name }`
+				);
+			}
+			named.add( name );
+			given.set( name, -1 === eq ? true : body.slice( eq + 1 ) );
+			continue;
+		}
+		const name = specs[ slot++ ]?.name ?? '';
+		if ( '' === name ) {
+			throw new Error(
+				`too many arguments: ${ count } given, ${ specs.length } accepted`
+			);
+		}
+		if ( named.has( name ) ) {
+			throw new Error(
+				`${ name } given both by position and as --${ name }`
+			);
+		}
+		given.set( name, token );
+	}
+	/** @type {Object<string,?string>} */
+	const bound = {};
+	for ( const { name, required } of specs ) {
+		const value = given.get( name );
+		if ( true === value ) {
+			throw new Error(
+				`--${ name } needs a value: write --${ name }=<value>`
+			);
+		}
+		if ( undefined !== value && ! ( '' === value && required ) ) {
+			bound[ name ] = value;
+		} else if ( required ) {
+			throw new Error( `missing required argument: ${ name }` );
+		} else {
+			bound[ name ] = null;
+		}
+	}
+	return bound;
 }

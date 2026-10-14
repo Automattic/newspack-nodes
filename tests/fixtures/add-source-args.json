@@ -1,0 +1,18 @@
+[
+  ["both by position", ["firehose.p{partition}", "remote-job-rewrite"], { "remote_log": "firehose.p{partition}", "local_node": "remote-job-rewrite" }],
+  ["a source and a target keep their colons", ["sources:php", "php-errors:partition"], { "remote_log": "sources:php", "local_node": "php-errors:partition" }],
+  ["both by name", ["--remote_log=ibis.p1", "--local_node=ibis-sink"], { "remote_log": "ibis.p1", "local_node": "ibis-sink" }],
+  ["both by name, in either order", ["--local_node=ibis-sink", "--remote_log=ibis.p1"], { "remote_log": "ibis.p1", "local_node": "ibis-sink" }],
+  ["a positional then a name", ["kea.p3", "--local_node=kea-sink"], { "remote_log": "kea.p3", "local_node": "kea-sink" }],
+  ["a named value keeps every equals sign", ["--local_node=okapi=sink", "--remote_log=okapi.p4"], { "remote_log": "okapi.p4", "local_node": "okapi=sink" }],
+  ["a positional takes its slot, not the gap a name left", ["--remote_log=kea.p3", "kea-sink"], { "refused": "remote_log given both by position and as --remote_log" }],
+  ["a name after its own positional", ["tapir.p2", "tapir-sink", "--remote_log=tapir.p5"], { "refused": "remote_log given both by position and as --remote_log" }],
+  ["a name given twice", ["--remote_log=egret.p0", "--remote_log=egret.p1", "egret-sink"], { "refused": "--remote_log given twice" }],
+  ["no target", ["jobstats.p7"], { "refused": "missing required argument: local_node" }],
+  ["a blank target", ["jobstats.p7", ""], { "refused": "missing required argument: local_node" }],
+  ["an empty named source", ["--remote_log=", "--local_node=wren-sink"], { "refused": "missing required argument: remote_log" }],
+  ["nothing at all", [], { "refused": "missing required argument: remote_log" }],
+  ["a bare flag", ["heron.p6", "--local_node"], { "refused": "--local_node needs a value: write --local_node=<value>" }],
+  ["a surplus positional", ["marmot.p5", "marmot-sink", "marmot-extra"], { "refused": "too many arguments: 3 given, 2 accepted" }],
+  ["an option the verb does not declare", ["vole.p8", "vole-sink", "--slot=4"], { "refused": "unknown option --slot; this verb takes --remote_log, --local_node" }]
+]

@@ -474,6 +474,54 @@ class TopologyRegistryGraphTest extends TestCase {
 		$this->assertSame( [ 'vicuna-cut' ], $expanded['pull:okapi>errors-sink-6']['origin'] );
 	}
 
+	/** An `add_source` line draws the broker's pair edge and names its source. */
+	public function test_graph_for_reads_a_brokers_add_source_lines(): void {
+		$this->write_tsl(
+			'vicuna-added',
+			"make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl\n"
+			. "command_node pull:okapi:config add_source ledger.p{partition} lane-sink.p{partition}\n"
+			. "command_node pull:okapi:config add_source '<zeta_pairs:lane>.p3' ibis-sink-41\n"
+			. "command_node pull:okapi:config add_source .. orphan-4\n"
+		);
+		\Newspack_Nodes\Core::register_config_namespace(
+			'zeta_pairs',
+			static fn ( string $key ): ?string => 'lane' === $key ? 'quagga-lane' : null
+		);
+
+		$graph = Topology_Analyzer::graph_for( 'vicuna-added' );
+
+		$this->assertSame(
+			[
+				[ 'source' => 'ledger.p{partition}', 'target' => 'lane-sink.p{partition}' ],
+				[ 'source' => '<zeta_pairs:lane>.p3', 'target' => 'ibis-sink-41' ],
+			],
+			$graph['nodes'][0]['pairs']
+		);
+		$this->assertSame( [ [ 'pull:okapi', 'lane-sink.p{partition}' ], [ 'pull:okapi', 'ibis-sink-41' ] ], $graph['edges'] );
+	}
+
+	/** An added source's edge carries the pair role, in the console's expansion too. */
+	public function test_expand_draws_an_added_source_as_a_pair_edge(): void {
+		$this->write_tsl(
+			'vicuna-expand',
+			"make_node HTTP_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl\n"
+			. "command_node pull:okapi:config add_source errors.p0 errors-sink-6\n"
+			. "disconnect_node pull:okapi\n"
+		);
+
+		$edges = Topology_Analyzer::expand( [ 'vicuna-expand' ] )['edges'];
+
+		$this->assertSame( [ [ 'pull:okapi', 'errors-sink-6', [ 'pair' ] ] ], \array_map( static fn ( array $e ): array => [ $e['from'], $e['to'], $e['roles'] ], $edges ) );
+	}
+
+	/** A verb another class declares draws nothing, whatever its name. */
+	public function test_an_add_source_on_a_node_that_takes_none_draws_no_edge(): void {
+		$this->write_tsl( 'vicuna-echo', "make_node Echo okapi-echo\ncommand_node okapi-echo:config add_source ledger.p0 ledger-sink-5\n" );
+
+		$this->assertSame( [], Topology_Analyzer::graph_for( 'vicuna-echo' )['edges'] );
+		$this->assertSame( [], Topology_Analyzer::expand( [ 'vicuna-echo' ] )['edges'] );
+	}
+
 	/** The analyzer refuses the connect a load would refuse, so no reader draws it. */
 	public function test_a_connect_onto_a_broker_fails_the_topology(): void {
 		$this->write_tsl( 'vicuna-wired', "make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl ledger.p0=ledger-sink-5\nconnect_node pull:okapi tapir-sink-8\n" );

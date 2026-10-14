@@ -220,6 +220,20 @@ final class VaultGroupNodeTest extends TestCase {
 		);
 	}
 
+	public function test_the_console_fixture_mirrors_the_add_source_verb(): void {
+		$fixture = \json_decode( (string) \file_get_contents( __DIR__ . '/../fixtures/broker-schemas.json' ), true );
+		$shape   = static fn ( array $args ): array => \array_map(
+			static fn ( array $a ): array => [ $a['name'], $a['type'], ! empty( $a['required'] ) ],
+			$args
+		);
+		$entry   = \array_column( $fixture, null, 'shell_name' )['Remote_Source'];
+
+		$this->assertSame(
+			[ 'add_source' => $shape( Command_Interpreter_Node::declared_verbs( Remote_Source_Node::class )['add_source']['args'] ) ],
+			\array_column( \array_map( static fn ( array $c ): array => [ $c['name'], $shape( $c['args'] ) ], $entry['commands'] ), 1, 0 )
+		);
+	}
+
 	public function test_expand_is_the_one_spelling(): void {
 		$this->assertSame(
 			[ 'tw0' => [ [ 'tw0', 'a.tw0', 'b' ] ], 'tw9' => [ [ 'tw9', 'a.tw9', 'b' ] ] ],
