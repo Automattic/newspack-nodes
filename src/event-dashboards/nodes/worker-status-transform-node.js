@@ -10,21 +10,22 @@ import {
 import { reconstructWorkers } from './reconstructWorkers';
 
 /**
- * One rate step: a byte position, when it last advanced, and the rate that
- * advance produced. `reconstructWorkers` computes these and hands them back;
- * this node only carries them between polls.
+ * One live sample of a log: when its segments were stat'd, and each one's
+ * size, the baseline its write rate falls back on when no probe stands. `reconstructWorkers` computes these and hands them
+ * back; this node only carries them between polls.
  *
- * @typedef {{value:number,ts:number,rate:number}} RateStep
+ * @typedef {{at:number,sizes:Object<number,number>}} LiveSample
  */
 
 /**
  * Heartbeat intervals of silence that mean the tab was hidden, not the fleet
  * slow.
  *
- * Everything carried across a gap that long describes a window nobody watched:
- * every segment rotated away during it would animate out at once, and the rate
- * baselines predate a stretch of unobserved work. `_emitModel` drops all four
- * pieces of prior state and starts from this snapshot instead.
+ * Every segment rotated away during a gap that long would animate out at once,
+ * so `_emitModel` drops the prior segments and starts from this snapshot. The
+ * rates need no such reset: each divides a window its own probe timed, and
+ * an unprobed log's live samples span the gap per segment, so retention
+ * during it subtracts nothing.
  */
 const GAP_INTERVALS = 6;
 
@@ -50,14 +51,13 @@ const GAP_INTERVALS = 6;
  * sees the lean shape.
  *
  * `reconstructWorkers` is stateless, so this node carries everything spanning
- * two polls: the rate baselines it hands back on every call, the prior
- * snapshot's segment ids and data, the last sample timestamp, and the sticky
- * scalars a poll may omit. Rates run on the PROBE's cadence rather than the
- * poll's — `steppedRate` recomputes only when a byte position actually
- * advances — because the cursor and end positions come from a sweep slower
- * than the poll, and a poll-clock delta would read zero repeatedly and then
- * spike. Reads are keyed by reader and writes by concrete partition name,
- * which is how `TreeEntity` already reads them.
+ * two polls: the live samples of the logs it hands back on every call,
+ * the prior snapshot's segment ids and data, the last sample timestamp, and
+ * the sticky scalars a poll may omit. Both rates divide a window the probe
+ * timed itself — a reader's bytes read, a log's bytes grown — so a sweep
+ * slower than the poll never divides its work by the poll's interval. Reads
+ * are keyed by reader and writes by concrete partition name, which is how
+ * `TreeEntity` already reads them.
  *
  * The model's `prevSegments` is the PRIOR snapshot's segment ids, which is what
  * lets the render path tell a genuinely new segment from one already drawn;
@@ -88,17 +88,11 @@ export class WorkerStatusTransformNode extends Node {
 		 */
 		this._prevSegmentData = {};
 		/**
-		 * Read-rate baseline per reader id.
+		 * Live sample per log-partition name.
 		 *
-		 * @type {Object<string,RateStep>}
+		 * @type {Object<string,LiveSample>}
 		 */
-		this._prevRead = {};
-		/**
-		 * Write-rate baseline per concrete partition name.
-		 *
-		 * @type {Object<string,RateStep>}
-		 */
-		this._prevWrite = {};
+		this._prevLive = {};
 		/**
 		 * The last snapshot's `data.timestamp`, the clock the hidden-tab gap
 		 * is measured against. Null until the first reply arrives.
@@ -165,14 +159,14 @@ export class WorkerStatusTransformNode extends Node {
 	 * it to the target as `{ action: 'model', model }`.
 	 *
 	 * The order matters. The gap check runs first, against the PREVIOUS
-	 * snapshot's heartbeat interval, so a rebaseline discards the stale state
-	 * before `reconstructWorkers` deltas against it. The model then reads the
+	 * snapshot's heartbeat interval, so a stale segment set is discarded
+	 * before this snapshot is compared with it. The model then reads the
 	 * prior segment ids, and only afterwards does this node advance its own
 	 * state — reversed, every segment would look already-seen and nothing
 	 * would ever animate in.
 	 *
 	 * @param {Object} data The lean `dump_graph` payload: `graph`, `workers`,
-	 *                      `consumers`, `logs`, `timestamp`, the sticky
+	 *                      `consumers`, `logs`, `logs_at`, `timestamp`, the sticky
 	 *                      scalars (`segment_size`, `heartbeat_interval_s`,
 	 *                      `log_partitions`), `unparseable_lines`, the
 	 *                      lines the probe-log read skipped, and
@@ -189,7 +183,7 @@ export class WorkerStatusTransformNode extends Node {
 		/** @type {Object<string,Array<Object>>} */
 		const newRemoving = {};
 
-		// Hidden-tab gap (> GAP_INTERVALS): drop prev state, fresh baseline.
+		// Hidden-tab gap (> GAP_INTERVALS): drop the prior segment set.
 		const ts = data.timestamp;
 		const maxGapS = this._heartbeatIntervalS * GAP_INTERVALS;
 		if (
@@ -197,18 +191,13 @@ export class WorkerStatusTransformNode extends Node {
 			ts !== undefined &&
 			ts - this._lastSampleTs > maxGapS
 		) {
-			this._prevRead = {};
-			this._prevWrite = {};
 			this._prevSegments = {};
 			this._prevSegmentData = {};
 		}
 		this._lastSampleTs = ts !== undefined ? ts : this._lastSampleTs;
 
 		// Join graph, liveness, probe state and live segments into workers[].
-		const rebuilt = reconstructWorkers( data, {
-			read: this._prevRead,
-			write: this._prevWrite,
-		} );
+		const rebuilt = reconstructWorkers( data, this._prevLive );
 		const richWorkers = rebuilt.workers;
 		// FULL live per-partition segments; the bar derives regions itself.
 		const liveLogs = rebuilt.logs;
@@ -292,11 +281,10 @@ export class WorkerStatusTransformNode extends Node {
 			loading: false,
 		};
 
-		// Advance the segment + rate-delta prev-state for the next snapshot.
+		// Advance the segment + live-sample prev-state for the next snapshot.
 		this._prevSegments = newPrevSegments;
 		this._prevSegmentData = newPrevSegmentData;
-		this._prevRead = rebuilt.nextRead;
-		this._prevWrite = rebuilt.nextWrite;
+		this._prevLive = rebuilt.nextLive;
 
 		if ( ! this.sink ) {
 			return;

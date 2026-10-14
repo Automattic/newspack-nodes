@@ -16,6 +16,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Consumer_Node;
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Probe_Record;
 use Newspack_Nodes\Rest\Workers_CI_Node;
@@ -1129,6 +1130,133 @@ class WorkersCITest extends TestCase {
 		$this->assertSame( 128 + 256, $firehose['partitions'][0]['total_size'] );
 
 		\Newspack_Nodes\Topology_Registry::reset();
+	}
+
+	/**
+	 * A partition's row carries its newest fresh Partition record's growth
+	 * window — the bytes the log grew over that prober's own interval — so a
+	 * write rate divides ONE record. A partition no record names carries null.
+	 */
+	public function test_dump_graph_carries_each_partitions_growth_window(): void {
+		$base = $this->arrange_base_dir();
+		$this->declare_partitions( $base, 'demo-workers', [ 'firehose', 'requests' ] );
+		$this->seed_log_segment( $base, 'firehose', 0, 0, 128 );
+		$this->seed_log_segment( $base, 'requests', 0, 0, 64 );
+		$this->seed_partition_record( $base, 'firehose.p0', 6871, 15_250 );
+
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+
+		$by_name = \array_column( $result['logs'], 'partitions', 'name' );
+		$this->assertSame( [ 'grown' => 6871, 'elapsed_ms' => 15_250 ], $by_name['firehose.p0'][0]['probe'] );
+		$this->assertNull( $by_name['requests.p0'][0]['probe'] );
+	}
+
+	/**
+	 * A Log sink's catalog entry is named by its basename, but its Partition
+	 * record by its path under the base; the join keys both the one way, so
+	 * a probed sink carries its window too.
+	 */
+	public function test_dump_graph_carries_a_log_sinks_growth_window(): void {
+		$base = $this->arrange_base_dir();
+		$path = "{$base}/logs/gate/digest.md";
+		\mkdir( \dirname( $path ), 0755, true );
+		\file_put_contents( "{$path}.2", \str_repeat( 'a', 30 ) );
+		$stock = "{$base}/topologies";
+		\mkdir( $stock, 0755, true );
+		\file_put_contents( "{$stock}/aggregator.tsl", "make_node Log digest:log {$path} 100 7\n" );
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		$this->seed_partition_record( $base, 'logs/gate/digest.md', 613, 14_900 );
+
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+
+		$by_name = \array_column( $result['logs'], 'partitions', 'name' );
+		$this->assertSame( [ 'grown' => 613, 'elapsed_ms' => 14_900 ], $by_name['digest.md'][0]['probe'] );
+		\Newspack_Nodes\Topology_Registry::reset();
+	}
+
+	/**
+	 * The live segments a log no worker probes is rated from are stamped with
+	 * the moment after their stat, to the fraction of a second, so the span
+	 * between two polls is the span between the two stats.
+	 */
+	public function test_dump_graph_stamps_the_live_segments_after_their_stat(): void {
+		$this->arrange_base_dir();
+		$before = \microtime( true );
+
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+
+		$this->assertIsFloat( $result['logs_at'] );
+		$this->assertGreaterThanOrEqual( $before, $result['logs_at'] );
+		$this->assertLessThanOrEqual( \microtime( true ), $result['logs_at'] );
+	}
+
+	/**
+	 * The stamp is taken where the partition dirs were just stat'd — in the
+	 * snapshot, beside their catalog — not after the graph build and the Log
+	 * sinks, whose time would land between the stat and its clock.
+	 */
+	public function test_dump_graph_stamps_the_live_segments_before_the_graph_build(): void {
+		$this->arrange_base_dir();
+		$callers     = [];
+		Core::$clock = static function () use ( &$callers ): float {
+			$callers[] = \debug_backtrace( \DEBUG_BACKTRACE_IGNORE_ARGS, 3 )[2]['function'] ?? '';
+			return 1_800_000_000.0 + \count( $callers ) / 8;
+		};
+		try {
+			$interpreter      = new Workers_CI_Node();
+			$interpreter->cli = $this->stub_cli();
+			$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+		} finally {
+			Core::$clock = null;
+		}
+
+		$read = (int) \round( ( $result['logs_at'] - 1_800_000_000.0 ) * 8 ) - 1;
+		$this->assertSame( 'dump_snapshot', $callers[ $read ] );
+	}
+
+	/**
+	 * The growth windows the snapshot joins onto the logs stay inside it: the
+	 * envelope Alerts reads and the `dump_graph` reply carry no copy of them.
+	 */
+	public function test_the_growth_windows_stay_out_of_the_envelope(): void {
+		$base = $this->arrange_base_dir();
+		$this->declare_partitions( $base, 'demo-workers', [ 'firehose' ] );
+		$this->seed_partition_record( $base, 'firehose.p0', 6871, 15_250 );
+		$topologies = Bootstrap::get_topologies();
+
+		$envelope = Workers_CI_Node::collect_dump_metadata( $topologies, Bootstrap::split_readable( $topologies ) );
+
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+
+		$this->assertArrayNotHasKey( 'probed', $envelope );
+		$this->assertArrayNotHasKey( 'probed', $result );
+		$by_name = \array_column( $result['logs'], 'partitions', 'name' );
+		$this->assertSame( 6871, $by_name['firehose.p0'][0]['probe']['grown'], 'still joined onto its log' );
+	}
+
+	/** Append a fresh Partition record naming `$source` and its growth window. */
+	private function seed_partition_record( string $base_dir, string $source, int $grown, int $elapsed_ms ): void {
+		$record                              = Probe_Record::BLANK;
+		$record[ Probe_Record::SOURCE ]      = $source;
+		$record[ Probe_Record::GROWN_BYTES ] = $grown;
+		$record[ Probe_Record::ELAPSED_MS ]  = $elapsed_ms;
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_STRUCT;
+		$message[ Message::TIMESTAMP ] = \Newspack_Nodes\Core::right_now();
+		$message[ Message::VALUE ]     = $record;
+		$dir                           = "{$base_dir}/logs/topicprobe.p0";
+		if ( ! \is_dir( $dir ) ) {
+			\mkdir( $dir, 0755, true );
+		}
+		\file_put_contents( "{$dir}/0.log", Message::packed( $message ) . "\n", \FILE_APPEND );
 	}
 
 	public function test_dump_metadata_includes_request_scope_producer_logs(): void {

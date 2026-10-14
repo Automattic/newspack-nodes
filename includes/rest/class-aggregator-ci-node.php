@@ -189,14 +189,14 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	 * poll inside one would decode the same tail again. With no cache backend
 	 * every poll reads it.
 	 *
-	 * @return list<array{reader:string,source:string,partition:int,cursor_segment:int|null,cursor_offset:int,end_segment:int|null,end_size:int|null,distance:int|null,msgs:int}>
+	 * @return list<array{reader:string,source:string,partition:int,cursor_segment:int|null,cursor_offset:int,end_segment:int|null,end_size:int|null,distance:int|null,msgs:int,bytes_read:int,elapsed_ms:int}>
 	 */
 	private static function probed_rows(): array {
 		$cache = Cache_Backend::shared_first();
 		$key   = Cache_Backend::site_key( self::PROBED_ROWS_KEY );
 		$rows  = $cache?->get( $key );
 		if ( \is_array( $rows ) ) {
-			/** @var list<array{reader:string,source:string,partition:int,cursor_segment:int|null,cursor_offset:int,end_segment:int|null,end_size:int|null,distance:int|null,msgs:int}> $rows */
+			/** @var list<array{reader:string,source:string,partition:int,cursor_segment:int|null,cursor_offset:int,end_segment:int|null,end_size:int|null,distance:int|null,msgs:int,bytes_read:int,elapsed_ms:int}> $rows */
 			return $rows;
 		}
 		$rows = ( new CLI( Config::get_base_directory() ) )->consumer_rows()['rows'];

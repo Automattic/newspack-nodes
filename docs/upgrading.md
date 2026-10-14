@@ -48,6 +48,21 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   named its stamp, so `SSE_Out_Node::open_subscription()` answers its
   readers keyed by stamp.
 
+- **`Partition_Node::read_tail_frames_by()` is `fold_tail_frames( $dir,
+  $max_bytes, $fold )`.** It hands each whole record's VALUE and float
+  TIMESTAMP to `$fold` in write order and returns the unparseable-line count;
+  index inside the fold, keeping the record with the greatest TIMESTAMP, since
+  many writers share a log. `CLI::read_probe_frames()` answers `partitions`,
+  each log's newest Partition record covering at least
+  `CLI::PROBE_MIN_WINDOW_MS`, beside `records`, whose entries add a `window`;
+  both carry the float timestamp. `CLI::consumer_rows()` answers that
+  `partitions` too, as `{ grown, elapsed_ms }` by SOURCE.
+- **A Partition record carries a growth window.** `Probe_Record::GROWN_BYTES`
+  (13) is the bytes the log grew since that node's previous record, and
+  `ELAPSED_MS` the window; a first record carries 0 for both. `BLANK` has
+  fourteen slots. A reader differencing `END_BYTES` across records divides
+  one record's `GROWN_BYTES` by its `ELAPSED_MS` instead.
+
 - **A broker reader's sidecars report a new SOURCE.** The cursor and dead
   letters of a broker's reader, under `<offsetlog_root>/<kind>` and
   `<deadletter_root>/<kind>`, report `offsets:<root>:<kind>` and

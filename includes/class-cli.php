@@ -36,6 +36,13 @@ class CLI {
 	public const PROBE_TAIL_BYTES = 524288;
 
 	/**
+	 * The shortest growth window a log's write rate divides: a prober's first
+	 * sweep covers none, and a clean stop's last covers whatever was left, too
+	 * little time to tell a burst from a rate.
+	 */
+	public const PROBE_MIN_WINDOW_MS = 1000;
+
+	/**
 	 * uid-source seam replacing the one `posix_geteuid()` call. Every uid
 	 * question in the substrate resolves through `uid()`: the root refusal on
 	 * `wp nodes cli` and `run`, `Config`'s base-directory ownership assertion
@@ -100,17 +107,32 @@ class CLI {
 	 * NOT here: the dashboard joins these rows onto the `.tsl` graph by
 	 * `reader`/`source`, and `wp nodes status` renders them unattributed.
 	 *
-	 * `msgs` is the newest record's per-probe-interval count, not a cumulative.
+	 * `msgs` and `bytes_read` are what the reader sent and read over
+	 * `elapsed_ms`, all three summed over its newest records until they cover
+	 * a sweep interval: every count a row shows comes from that one window, a
+	 * read rate divides the reader's own windows rather than a difference of
+	 * two positions, and a clean stop's short last window joins the sweep
+	 * before it rather than zeroing or spiking the rate. The cadence that
+	 * judges staleness is read only once there is a record to judge, so an
+	 * empty probe log needs no readable `topic-probe` topology.
+	 *
+	 * `partitions` carries each log's newest fresh Partition record covering
+	 * at least `PROBE_MIN_WINDOW_MS`: the bytes it grew and the window that
+	 * covers, keyed by the log's SOURCE, so a write rate divides ONE record.
+	 * Each prober measures the whole log, so the newest stands for them all.
+	 * A stale record — nobody sweeping that log — is left out rather than
+	 * read as a log that stopped growing.
 	 *
 	 * The rows come out in the order the tail window first names each reader, so
 	 * a caller rendering a table sorts them. `unparseable_lines` is how many
 	 * tail lines `read_probe_frames()` skipped, which every renderer shows.
 	 *
-	 * @return array{rows: list<array{reader:string,source:string,partition:int,cursor_segment:int|null,cursor_offset:int,end_segment:int|null,end_size:int|null,distance:int|null,msgs:int}>, unparseable_lines: int} The rows, `reader` the id, and the skipped-line count.
+	 * @return array{rows: list<array{reader:string,source:string,partition:int,cursor_segment:int|null,cursor_offset:int,end_segment:int|null,end_size:int|null,distance:int|null,msgs:int,bytes_read:int,elapsed_ms:int}>, partitions: array<string,array{grown:int,elapsed_ms:int}>, unparseable_lines: int} The rows, `reader` the id, each fresh growth window, and the skipped-line count.
 	 */
 	public function consumer_rows(): array {
-		$rows = [];
-		$now  = (int) Core::right_now();
+		$rows   = [];
+		$now    = Core::right_now();
+		$stale  = null;
 		$tail   = $this->read_probe_frames();
 		$active = null;
 		foreach ( $tail['records'] as $reader => $frame ) {
@@ -120,6 +142,7 @@ class CLI {
 				continue;
 			}
 			$record = $frame['value'];
+			$window = $frame['window'];
 			$row    = [
 				'reader'         => $reader,
 				'source'         => Core::as_string( $record[ Probe_Record::SOURCE ] ?? '' ),
@@ -129,9 +152,12 @@ class CLI {
 				'end_segment'    => self::known_or_null( $record[ Probe_Record::END_SEGMENT ] ?? null ),
 				'end_size'       => self::known_or_null( $record[ Probe_Record::END_SIZE ] ?? null ),
 				'distance'       => self::known_or_null( $record[ Probe_Record::DISTANCE ] ?? null ),
-				'msgs'           => Core::as_int( $record[ Probe_Record::MSGS_DELTA ] ?? 0 ),
+				'msgs'           => \array_sum( \array_column( $window, 3 ) ),
+				'bytes_read'     => \array_sum( \array_column( $window, 1 ) ),
+				'elapsed_ms'     => \array_sum( \array_column( $window, 2 ) ),
 			];
-			if ( $now - $frame['timestamp'] > Topic_Probe_Node::stale_after_s() ) {
+			$stale ??= Topic_Probe_Node::stale_after_s();
+			if ( $now - $frame['timestamp'] > $stale ) {
 				$active ??= Bootstrap::get_topologies();
 				if ( ! \is_dir( Log_Discovery::root( $this->base_dir, 'offsets' ) . "/{$reader}" ) && ! self::reader_of_active( $reader, $active ) ) {
 					continue;
@@ -140,7 +166,17 @@ class CLI {
 			}
 			$rows[] = $row;
 		}
-		return [ 'rows' => $rows, 'unparseable_lines' => $tail['unparseable_lines'] ];
+		$partitions = [];
+		foreach ( $tail['partitions'] as $source => $frame ) {
+			$stale ??= Topic_Probe_Node::stale_after_s();
+			if ( $now - $frame['timestamp'] <= $stale ) {
+				$partitions[ $source ] = [
+					'grown'      => Core::as_int( $frame['value'][ Probe_Record::GROWN_BYTES ] ?? 0 ),
+					'elapsed_ms' => Core::as_int( $frame['value'][ Probe_Record::ELAPSED_MS ] ?? 0 ),
+				];
+			}
+		}
+		return [ 'rows' => $rows, 'partitions' => $partitions, 'unparseable_lines' => $tail['unparseable_lines'] ];
 	}
 
 	/**
@@ -169,8 +205,8 @@ class CLI {
 	 * class is instance-scoped, so the two disagree for any CLI built on another
 	 * tree — recomputing one base's rows against another's partitions.
 	 *
-	 * @param array{reader:string,source:string,partition:int,cursor_segment:int|null,cursor_offset:int,end_segment:int|null,end_size:int|null,distance:int|null,msgs:int} $row Stale row.
-	 * @return array{reader:string,source:string,partition:int,cursor_segment:int|null,cursor_offset:int,end_segment:int|null,end_size:int|null,distance:int|null,msgs:int}
+	 * @param array{reader:string,source:string,partition:int,cursor_segment:int|null,cursor_offset:int,end_segment:int|null,end_size:int|null,distance:int|null,msgs:int,bytes_read:int,elapsed_ms:int} $row Stale row.
+	 * @return array{reader:string,source:string,partition:int,cursor_segment:int|null,cursor_offset:int,end_segment:int|null,end_size:int|null,distance:int|null,msgs:int,bytes_read:int,elapsed_ms:int}
 	 * @throws \Throwable What reading the partition or its cursor off disk threw.
 	 */
 	private function relag_from_disk( array $row ): array {
@@ -194,7 +230,8 @@ class CLI {
 		$row['end_size']       = $lag['end_size'];
 		$row['distance']       = $lag['bytes_behind'];
 		// Nobody is reading: the rate is 0, not the last one seen.
-		$row['msgs'] = 0;
+		$row['msgs']       = 0;
+		$row['bytes_read'] = 0;
 		return $row;
 	}
 
@@ -230,32 +267,120 @@ class CLI {
 	/**
 	 * The latest stats record in the shared topicprobe log for each reader in
 	 * its tail, keyed by reader id — the basename of that consumer's offsetlog
-	 * dir, which is what tells two readers of one partition apart — each with
-	 * the snapshot time it was written at.
+	 * dir, which is what tells two readers of one partition apart — and for
+	 * each log a Partition record names, keyed by its SOURCE; each with the
+	 * snapshot time it was written at.
 	 *
 	 * The sole live-position source behind the dashboard and `wp nodes status`.
 	 * `Topic_Probe` appends one Consumer record per READY reader, and one
 	 * Partition record per log, every
 	 * `Topic_Probe_Node::declared_interval_s()` seconds, 15 by default, and a
 	 * record exists only while a worker is running to write one. A Partition
-	 * record names no reader, so the index leaves it out. The timestamp
-	 * is therefore the only thing separating a reporting reader from a departed
-	 * one, and departed is what `consumer_rows()` falls back on.
+	 * record names no reader, which is what files it under `partitions`. The
+	 * timestamp is therefore the only thing separating a reporting reader from
+	 * a departed one, and departed is what `consumer_rows()` falls back on.
 	 *
-	 * `Partition_Node::read_tail_frames_by()` scans the newest segment's last
+	 * Every worker appends to that one log, so "latest" means the newest sweep
+	 * instant, not the last line. A reader also keeps its `window`: the
+	 * `[ instant, bytes read, elapsed ms, messages ]` of its newest records
+	 * until they cover a sweep interval, oldest first. A log keeps only its
+	 * newest record covering `PROBE_MIN_WINDOW_MS`. The index builds as the
+	 * scan goes, in one pass, so a poll holds what each key needs, never every
+	 * record in the tail. The cadence the window covers is read at the first
+	 * Consumer record, never for a log holding none.
+	 *
+	 * `Partition_Node::fold_tail_frames()` scans the newest segment's last
 	 * `PROBE_TAIL_BYTES`, so a reader with no record inside that window is absent from the
 	 * map rather than stale: it drops out of the status table instead of being
 	 * re-measured off disk. Every Topic_Probe in the fleet appends to that one
 	 * log, so a line a short write tore is expected; it is skipped and counted.
 	 *
-	 * @return array{records: array<string,array{value:array<mixed>,timestamp:int}>, unparseable_lines: int} Reader id → its latest record and that record's snapshot time, and the skipped-line count.
+	 * @return array{records: array<string,array{value:array<mixed>,timestamp:float,window:list<array{0:float,1:int,2:int,3:int}>}>, partitions: array<string,array{value:array<mixed>,timestamp:float}>, unparseable_lines: int} Reader id → its latest record and read window, log → its latest whole-window Partition record, each with its snapshot time, and the skipped-line count.
 	 */
 	public function read_probe_frames(): array {
-		return Partition_Node::read_tail_frames_by(
+		$cover   = null;
+		$readers = [];
+		$index   = [ 'records' => [], 'partitions' => [], 'unparseable_lines' => 0 ];
+		$index['unparseable_lines'] = Partition_Node::fold_tail_frames(
 			Log_Discovery::root( $this->base_dir, 'logs' ) . '/' . Topic_Probe_Node::LOG_DIR,
-			Probe_Record::READER,
-			self::PROBE_TAIL_BYTES
+			self::PROBE_TAIL_BYTES,
+			static function ( array $value, float $timestamp ) use ( &$index, &$readers, &$cover ): void {
+				$reader = $value[ Probe_Record::READER ] ?? '';
+				if ( \is_string( $reader ) && '' !== $reader ) {
+					$cover ??= Topic_Probe_Node::declared_interval_s() * 1000;
+					$readers[ $reader ] ??= [ 'value' => $value, 'timestamp' => $timestamp, 'window' => [], 'head' => 0, 'covered' => 0 ];
+					self::fold_reader_frame( $readers[ $reader ], $value, $timestamp, $cover );
+					return;
+				}
+				$source = $value[ Probe_Record::SOURCE ] ?? '';
+				if (
+					\is_string( $source ) && '' !== $source
+					&& Core::as_int( $value[ Probe_Record::ELAPSED_MS ] ?? 0 ) >= self::PROBE_MIN_WINDOW_MS
+					&& $timestamp >= ( $index['partitions'][ $source ]['timestamp'] ?? -\INF )
+				) {
+					$index['partitions'][ $source ] = [ 'value' => $value, 'timestamp' => $timestamp ];
+				}
+			}
 		);
+		foreach ( $readers as $reader => $entry ) {
+			$index['records'][ $reader ] = [
+				'value'     => $entry['value'],
+				'timestamp' => $entry['timestamp'],
+				'window'    => \array_slice( $entry['window'], $entry['head'] ),
+			];
+		}
+		return $index;
+	}
+
+	/**
+	 * Fold one Consumer record into its reader's entry, in place: the newer
+	 * record by sweep instant stays the entry's, and the record's window joins
+	 * the reader's, which keeps its newest windows covering `$cover`, oldest
+	 * first from `head`. Records arrive almost in sweep order, so a window
+	 * appends, its covered sum runs alongside, a record older than a window
+	 * already covering is skipped, and the dropped head compacts away once it
+	 * outgrows the rest: one pass over the tail, not a sort per record.
+	 *
+	 * @param array{value:array<mixed>,timestamp:float,window:list<array{0:float,1:int,2:int,3:int}>,head:int,covered:int} $entry     The reader's entry so far.
+	 * @param array<mixed>                                                                                                 $value     The record.
+	 * @param float                                                                                                        $timestamp Its sweep instant.
+	 * @param int                                                                                                          $cover     Milliseconds the window must cover, one sweep interval.
+	 */
+	private static function fold_reader_frame( array &$entry, array $value, float $timestamp, int $cover ): void {
+		if ( $timestamp >= $entry['timestamp'] ) {
+			$entry['value']     = $value;
+			$entry['timestamp'] = $timestamp;
+		}
+		$head = $entry['head'];
+		if ( $entry['covered'] >= $cover && $timestamp < ( $entry['window'][ $head ][0] ?? -\INF ) ) {
+			return;
+		}
+		$span = [
+			$timestamp,
+			Core::as_int( $value[ Probe_Record::BYTES_READ_DELTA ] ?? 0 ),
+			Core::as_int( $value[ Probe_Record::ELAPSED_MS ] ?? 0 ),
+			Core::as_int( $value[ Probe_Record::MSGS_DELTA ] ?? 0 ),
+		];
+		$at = \count( $entry['window'] );
+		while ( $at > $head && $entry['window'][ $at - 1 ][0] > $timestamp ) {
+			--$at;
+		}
+		if ( \count( $entry['window'] ) === $at ) {
+			$entry['window'][] = $span;
+		} else {
+			\array_splice( $entry['window'], $at, 0, [ $span ] );
+		}
+		$entry['covered'] += $span[2];
+		$last              = \count( $entry['window'] ) - 1;
+		while ( $head < $last && $entry['covered'] - $entry['window'][ $head ][2] >= $cover ) {
+			$entry['covered'] -= $entry['window'][ $head ][2];
+			++$head;
+		}
+		if ( $head > $last / 2 ) {
+			$entry['window'] = \array_slice( $entry['window'], $head );
+			$head            = 0;
+		}
+		$entry['head'] = $head;
 	}
 
 	/**

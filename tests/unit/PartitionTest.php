@@ -2421,9 +2421,84 @@ class PartitionTest extends TestCase {
 				Probe_Record::BYTES_READ_DELTA => 0,
 				Probe_Record::ELAPSED_MS       => 0,
 				Probe_Record::END_DISK_BYTES   => self::allocated( "{$dir}/7.log" ) + self::allocated( "{$dir}/8.log" ),
+				Probe_Record::GROWN_BYTES      => 0,
 			],
 			$p->probe_stats()
 		);
+	}
+
+	/**
+	 * A Partition record is a self-contained window: the bytes the log grew
+	 * since this node's previous record, and the interval that covers. A
+	 * segment retention deleted meanwhile is gone, not shrunk, so it never
+	 * subtracts from the growth the way the falling END_BYTES would.
+	 */
+	public function test_probe_stats_reports_the_growth_over_its_own_window(): void {
+		$this->use_base_dir( $this->tmp );
+		$dir = "{$this->tmp}/logs/firehose.p3";
+		\mkdir( $dir, 0755, true );
+		\file_put_contents( "{$dir}/7.log", \str_repeat( 'f', 5003 ) );
+		\file_put_contents( "{$dir}/8.log", \str_repeat( 'g', 777 ) );
+		$p = new Partition_Node();
+		$p->arguments( [ $dir ] );
+		Core::$now = 7000.25;
+		$first     = $p->probe_stats();
+
+		\file_put_contents( "{$dir}/8.log", \str_repeat( 'h', 311 ), \FILE_APPEND );
+		\file_put_contents( "{$dir}/9.log", \str_repeat( 'i', 523 ) );
+		\unlink( "{$dir}/7.log" );
+		Core::$now = 7015.75;
+		$second    = $p->probe_stats();
+
+		$this->assertSame( [ 0, 0 ], [ $first[ Probe_Record::GROWN_BYTES ], $first[ Probe_Record::ELAPSED_MS ] ], 'a first sweep has no window' );
+		$this->assertSame( 311 + 523, $second[ Probe_Record::GROWN_BYTES ] );
+		$this->assertSame( 15_500, $second[ Probe_Record::ELAPSED_MS ] );
+		$this->assertSame( 777 + 311 + 523, $second[ Probe_Record::END_BYTES ], 'the level fell; the growth did not' );
+	}
+
+	/**
+	 * A segment smaller than it was is a log wiped and rewritten under a
+	 * reused id, so all of it is new.
+	 */
+	public function test_probe_stats_counts_a_shrunk_segment_whole(): void {
+		$this->use_base_dir( $this->tmp );
+		$dir = "{$this->tmp}/logs/firehose.p3";
+		\mkdir( $dir, 0755, true );
+		\file_put_contents( "{$dir}/8.log", \str_repeat( 'g', 777 ) );
+		$p = new Partition_Node();
+		$p->arguments( [ $dir ] );
+		Core::$now = 9000.0;
+		$p->probe_stats();
+
+		\file_put_contents( "{$dir}/8.log", \str_repeat( 'h', 211 ) );
+		Core::$now = 9015.0;
+
+		$this->assertSame( 211, $p->probe_stats()[ Probe_Record::GROWN_BYTES ] );
+	}
+
+	/**
+	 * A sweep that finds the log empty starts the window afresh, so what is
+	 * written after counts whole, over the span since the log was seen empty.
+	 */
+	public function test_probe_stats_restarts_the_window_at_an_empty_log(): void {
+		$this->use_base_dir( $this->tmp );
+		$dir = "{$this->tmp}/logs/firehose.p3";
+		\mkdir( $dir, 0755, true );
+		\file_put_contents( "{$dir}/0.log", \str_repeat( 'f', 5003 ) );
+		$p = new Partition_Node();
+		$p->arguments( [ $dir ] );
+		Core::$now = 8000.0;
+		$p->probe_stats();
+
+		\unlink( "{$dir}/0.log" );
+		Core::$now = 8010.0;
+		$this->assertNull( $p->probe_stats() );
+
+		\file_put_contents( "{$dir}/0.log", \str_repeat( 'g', 6113 ) );
+		Core::$now = 8015.0;
+		$record = $p->probe_stats();
+
+		$this->assertSame( [ 6113, 5000 ], [ $record[ Probe_Record::GROWN_BYTES ], $record[ Probe_Record::ELAPSED_MS ] ] );
 	}
 
 	/** A dir holding a colon has no stamp, so its records name its path and nothing throws. */
@@ -3948,38 +4023,40 @@ class PartitionTest extends TestCase {
 		);
 	}
 
-	public function test_read_tail_frames_by_returns_latest_record_per_key(): void {
-		// Topicprobe-style reader: index the newest segment's tail by a VALUE
-		// field, latest record wins (records append chronologically).
+	public function test_fold_tail_frames_hands_every_whole_record_in_order_with_its_instant(): void {
+		// Topicprobe-style reader: the newest segment's tail, oldest record
+		// first, each dated by its own Message TIMESTAMP, held by the fold.
 		$dir = "{$this->tmp}/probe";
 		$log = new Partition_Node();
 		$log->arguments( [ "{$dir}", (string) ( 64 * 1024 ), "2", "2", "0", "0" ] );
-		foreach (
-			[
-				[ 'offsetlog_dir' => 'a.p0', 'cursor_offset' => 1 ],
-				[ 'offsetlog_dir' => 'b.p0', 'cursor_offset' => 2 ],
-				[ 'offsetlog_dir' => '', 'cursor_offset' => 7 ],     // empty key → skipped
-				[ 'offsetlog_dir' => 'a.p0', 'cursor_offset' => 9 ], // newer a → wins
-			] as $value
-		) {
-			$message                   = Message::new_message();
-			$message[ Message::TYPE ]  = Message::TM_STRUCT;
-			$message[ Message::VALUE ] = $value;
+		$stamps = [];
+		foreach ( [ [ 'a.p0', 1 ], [ 'b.p0', 2 ], [ 'a.p0', 9 ] ] as [ $key, $offset ] ) {
+			$message                       = Message::new_message();
+			$message[ Message::TYPE ]      = Message::TM_STRUCT;
+			$message[ Message::TIMESTAMP ] = 1_700_000_000.25 + $offset;
+			$message[ Message::VALUE ]     = [ 'offsetlog_dir' => $key, 'cursor_offset' => $offset ];
 			$log->fill( $message );
+			$stamps[] = [ $offset, $message[ Message::TIMESTAMP ] ];
 		}
 		$log->flush();
 
-		$index = Partition_Node::read_tail_frames_by( $dir, 'offsetlog_dir', 65536 )['records'];
-		$this->assertSame( [ 'a.p0', 'b.p0' ], \array_keys( $index ) );
-		$this->assertSame( 9, $index['a.p0']['value']['cursor_offset'], 'latest record per key wins' );
-		$this->assertSame( 2, $index['b.p0']['value']['cursor_offset'] );
+		$seen = [];
+		Partition_Node::fold_tail_frames(
+			$dir,
+			65536,
+			static function ( array $value, float $timestamp ) use ( &$seen ): void {
+				$seen[] = [ $value['cursor_offset'], $timestamp ];
+			}
+		);
+
+		$this->assertSame( $stamps, $seen );
 	}
 
 	/**
 	 * A multi-writer tail can hold a line a short write tore: it is skipped
-	 * and COUNTED, and every whole record around it still indexes.
+	 * and COUNTED, and every whole record around it still reaches the fold.
 	 */
-	public function test_read_tail_frames_by_skips_and_counts_an_unparseable_line(): void {
+	public function test_fold_tail_frames_skips_and_counts_an_unparseable_line(): void {
 		$dir = "{$this->tmp}/probe";
 		$log = new Partition_Node();
 		$log->arguments( [ "{$dir}", (string) ( 64 * 1024 ), "2", "2", "0", "0" ] );
@@ -3994,18 +4071,24 @@ class PartitionTest extends TestCase {
 		\file_put_contents( "{$dir}/0.log", "[1,2,\"torn-4417\n[\"also torn\n", \FILE_APPEND );
 		$write( [ 'offsetlog_dir' => 'b.p0', 'cursor_offset' => 58 ] );
 
-		$tail = Partition_Node::read_tail_frames_by( $dir, 'offsetlog_dir', 65536 );
+		$offsets = [];
+		$torn    = Partition_Node::fold_tail_frames(
+			$dir,
+			65536,
+			static function ( array $value ) use ( &$offsets ): void {
+				$offsets[] = $value['cursor_offset'];
+			}
+		);
 
-		$this->assertSame( 2, $tail['unparseable_lines'], 'each torn line is counted' );
-		$this->assertSame( 31, $tail['records']['a.p0']['value']['cursor_offset'] );
-		$this->assertSame( 58, $tail['records']['b.p0']['value']['cursor_offset'], 'a record past the torn lines still indexes' );
+		$this->assertSame( 2, $torn, 'each torn line is counted' );
+		$this->assertSame( [ 31, 58 ], $offsets, 'a record past the torn lines still reads' );
 	}
 
-	public function test_read_tail_frames_by_raises_an_unreadable_log(): void {
+	public function test_fold_tail_frames_raises_an_unreadable_log(): void {
 		$this->use_base_dir( $this->tmp );
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'outside the runtime base directory' );
-		Partition_Node::read_tail_frames_by( "{$this->tmp}-elsewhere/logs/topicprobe.p0", 'offsetlog_dir', 65536 );
+		Partition_Node::fold_tail_frames( "{$this->tmp}-elsewhere/logs/topicprobe.p0", 65536, static function (): void {} );
 	}
 
 	/**

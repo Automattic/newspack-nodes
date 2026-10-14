@@ -7,21 +7,22 @@
  * cheaply. A Consumer record carries one reader's stats and names it in
  * READER; a Partition record carries one directory's size and leaves READER
  * blank, which is what marks it. A Partition record fills SOURCE,
- * END_SEGMENT, END_SIZE, END_BYTES and END_DISK_BYTES; a Consumer record
- * fills every slot but END_BYTES and END_DISK_BYTES. A slot a kind never
- * fills is 0. A Consumer record is SELF-CONTAINED:
- * MSGS_DELTA and BYTES_READ_DELTA are the work done since that reader's
- * previous sweep and ELAPSED_MS is the interval covering it, so a reader
- * divides ONE record and never differences across records — a worker
- * recycles roughly every 595 seconds, and differencing reads that recycle as
- * a counter reset. Every other slot is a position or a level read off disk,
+ * END_SEGMENT, END_SIZE, END_BYTES, END_DISK_BYTES, GROWN_BYTES and
+ * ELAPSED_MS; a Consumer record fills every slot but END_BYTES,
+ * END_DISK_BYTES and GROWN_BYTES. A slot a kind never fills is 0. Both kinds
+ * are SELF-CONTAINED: MSGS_DELTA, BYTES_READ_DELTA and GROWN_BYTES are the
+ * work done since that node's previous sweep and ELAPSED_MS is the interval
+ * covering it, so a reader divides ONE record and never differences across
+ * records — a worker recycles roughly every 595 seconds, and differencing
+ * reads that recycle as a counter reset. Every other slot is a position or a level read off disk,
  * correct as it stands across a restart. The Message TIMESTAMP is the sweep
  * instant, never duplicated here.
  *
- * Indices mirror `includes/class-probe-record.php`, which declares thirteen
- * slots. The four missing here — the cursor pair and the partition-end pair
- * — are PHP-write-only, rendered by `CLI::consumer_rows()` for `wp nodes
- * status`, which is why this file's numbering has gaps. The nine shared
+ * Indices mirror `includes/class-probe-record.php`, which declares fourteen
+ * slots. The five missing here — the cursor pair and the partition-end pair,
+ * rendered by `CLI::consumer_rows()` for `wp nodes status`, and GROWN_BYTES,
+ * which `dump_graph` divides into each log's `probe` — are PHP-only, which is
+ * why this file's numbering has gaps. The nine shared
  * values are pinned on both sides by `tests/unit/ProbeRecordLayoutsTest.php`,
  * because a reader one slot off misreads every field after it.
  */
@@ -76,9 +77,10 @@ export const CACHE_SIZE = 9;
 export const BYTES_READ_DELTA = 10;
 
 /**
- * Milliseconds the deltas above cover — the interval since this consumer's
- * previous sweep, which opens at the Consumer's construction, so the first
- * record covers time since birth.
+ * Milliseconds the deltas cover — the interval since this node's previous
+ * sweep. A Consumer's opens at its construction, so its first record covers
+ * time since birth; a Partition's opens at its first sweep, so its first
+ * record covers none.
  */
 export const ELAPSED_MS = 11;
 

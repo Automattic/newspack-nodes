@@ -30,6 +30,7 @@ import {
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
 import { WorkerStatusTransformNode } from '../worker-status-transform-node';
+import { globalRates } from '../../globalRates';
 
 beforeEach( () => Core.reset() );
 
@@ -473,162 +474,102 @@ describe( 'worker-status:transform — inputs_status carries full live segments 
 	} );
 } );
 
-describe( 'worker-status:transform — byte rates from cross-poll deltas', () => {
-	// Read rate = Δ(cursor byte pos)/Δts; write rate = Δ(end pos)/Δts.
-	const snapshot = (
-		ts,
-		cursorSegment,
-		cursorOffset,
-		segSizes,
-		endSegment,
-		endSize
-	) => ( {
-		graph: firehoseGraph(),
-		timestamp: ts,
-		workers: [ liveness( 'firehose-workers', 0 ) ],
-		consumers: [
-			consumerRow( 'firehose.p0', 'firehose.p0', 0, {
-				cursor_segment: cursorSegment,
-				cursor_offset: cursorOffset,
-				end_segment: endSegment,
-				end_size: endSize,
-			} ),
-		],
-		logs: [
-			logEntry(
-				'firehose.p0',
-				0,
-				segSizes.map( ( size, id ) => ( { id, size } ) )
-			),
-		],
-	} );
+describe( 'worker-status:transform — byte rates on the probe clock', () => {
+	// 37.5 MiB/s read, 12.5 MiB/s written, each sweep 15 seconds apart.
+	const READ = 39_321_600;
+	const WRITE = 13_107_200;
+	const SWEEP_S = 15;
 
-	test( 'first snapshot reports a zero read_rate and write_rate', () => {
-		const sink = capture();
-		const t = makeTransform( 'worker-status:transform' );
-		t.sink = sink.node;
-		withClock( () =>
-			t.fill( metadataMsg( snapshot( 1000, 0, 0, [ 100 ], 0, 100 ) ) )
+	// The poll at `ts` carries the newest sweep at or before it, made at `at`.
+	// Cursor and end advance with the sweeps, as a real reader's do.
+	const snapshot = ( ts, at ) => {
+		const read = READ * ( at - 1000 );
+		const end = WRITE * ( at - 1000 );
+		return {
+			graph: firehoseGraph(),
+			timestamp: ts,
+			workers: [ liveness( 'firehose-workers', 0 ) ],
+			consumers: [
+				consumerRow( 'firehose.p0', 'firehose.p0', 0, {
+					cursor_offset: read,
+					end_size: end,
+					bytes_read: READ * SWEEP_S,
+					elapsed_ms: SWEEP_S * 1000,
+				} ),
+			],
+			logs: [
+				{
+					...logEntry( 'firehose.p0', 0, [ { id: 0, size: end } ] ),
+					partitions: [
+						{
+							partition: 0,
+							segments: [ { id: 0, size: end } ],
+							total_size: end,
+							probe: {
+								grown: WRITE * SWEEP_S,
+								elapsed_ms: SWEEP_S * 1000,
+							},
+						},
+					],
+				},
+			],
+		};
+	};
+
+	// The Read and Write cards' sums for each emitted model.
+	const cards = ( sink ) =>
+		sink.got.map( ( m ) =>
+			globalRates(
+				m[ VALUE ].model.byteRates,
+				m[ VALUE ].model.writeRates
+			)
 		);
-		const { model } = sink.got[ 0 ][ VALUE ];
-		expect( model.byteRates[ 'firehose.p0' ] ).toBe( 0 );
-		expect( model.writeRates[ 'firehose.p0' ] ).toBe( 0 );
-	} );
 
-	test( 'read_rate = Δ(absolute cursor position)/Δts across two polls', () => {
+	test( 'a hidden gap followed by polls 5s apart reads the probe rate, not ~3x', () => {
 		const sink = capture();
 		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		withClock( () => {
-			// Poll 1: cursor at seg 0 offset 0 → abs pos 0.
-			t.fill( metadataMsg( snapshot( 1000, 0, 0, [ 100 ], 0, 100 ) ) );
-			// Poll 2 (Δ2s): abs pos = 100 + 50 = 150; Δ150 over 2s = 75 B/s.
-			t.fill(
-				metadataMsg( snapshot( 1002, 1, 50, [ 100, 90 ], 1, 80 ) )
-			);
+			t.fill( metadataMsg( snapshot( 1003, 1000.5 ) ) );
+			t.fill( metadataMsg( snapshot( 1008, 1000.5 ) ) );
+			// Hidden for ten minutes; the first poll back sees the sweep at
+			// 1600.5, and the next, five seconds on, the sweep after it.
+			t.fill( metadataMsg( snapshot( 1611, 1600.5 ) ) );
+			t.fill( metadataMsg( snapshot( 1616, 1615.5 ) ) );
+			t.fill( metadataMsg( snapshot( 1621, 1615.5 ) ) );
 		} );
-		const { model } = sink.got[ 1 ][ VALUE ];
-		expect( model.byteRates[ 'firehose.p0' ] ).toBe( 75 );
+		const [ , , back, next, held ] = cards( sink );
+		expect( back.readRate ).toBe( READ );
+		expect( next.readRate ).toBe( READ );
+		expect( held.readRate ).toBe( READ );
+		expect( back.writeRate ).toBe( WRITE );
+		expect( next.writeRate ).toBe( WRITE );
+		expect( held.writeRate ).toBe( WRITE );
 	} );
 
-	test( 'write_rate = Δ(partition total live bytes)/Δts across two polls', () => {
+	test( 'steady polling reads the probe rate on every poll', () => {
 		const sink = capture();
 		const t = makeTransform( 'worker-status:transform' );
 		t.sink = sink.node;
 		withClock( () => {
-			// Poll 1: total live = 100.
-			t.fill( metadataMsg( snapshot( 1000, 0, 0, [ 100 ], 0, 100 ) ) );
-			// Poll 2 (Δ4s): live 100+300=400; Δ300 over 4s = 75 B/s.
-			t.fill(
-				metadataMsg( snapshot( 1004, 0, 0, [ 100, 300 ], 1, 300 ) )
+			t.fill( metadataMsg( snapshot( 1985, 1981.5 ) ) );
+			[
+				[ 1990, 1981.5 ],
+				[ 1995, 1981.5 ],
+				[ 2000, 1996.5 ],
+				[ 2005, 1996.5 ],
+				[ 2010, 1996.5 ],
+				[ 2015, 2011.5 ],
+				[ 2020, 2011.5 ],
+				[ 2025, 2011.5 ],
+				[ 2030, 2026.5 ],
+			].forEach( ( [ ts, at ] ) =>
+				t.fill( metadataMsg( snapshot( ts, at ) ) )
 			);
 		} );
-		const { model } = sink.got[ 1 ][ VALUE ];
-		expect( model.writeRates[ 'firehose.p0' ] ).toBe( 75 );
-	} );
-
-	test( 'a cursor that goes backwards (worker restart) yields read_rate 0, never negative', () => {
-		const sink = capture();
-		const t = makeTransform( 'worker-status:transform' );
-		t.sink = sink.node;
-		withClock( () => {
-			// Poll 1: cursor well advanced.
-			t.fill(
-				metadataMsg( snapshot( 1000, 1, 50, [ 100, 100 ], 1, 100 ) )
-			);
-			// Poll 2: cursor reset to the start (restart).
-			t.fill(
-				metadataMsg( snapshot( 1002, 0, 0, [ 100, 100 ], 1, 100 ) )
-			);
-		} );
-		const { model } = sink.got[ 1 ][ VALUE ];
-		expect( model.byteRates[ 'firehose.p0' ] ).toBe( 0 );
-	} );
-
-	test( 'a zero time delta yields rate 0 (no divide-by-zero)', () => {
-		const sink = capture();
-		const t = makeTransform( 'worker-status:transform' );
-		t.sink = sink.node;
-		withClock( () => {
-			t.fill( metadataMsg( snapshot( 1000, 0, 0, [ 100 ], 0, 100 ) ) );
-			t.fill(
-				metadataMsg( snapshot( 1000, 1, 0, [ 100, 100 ], 1, 100 ) )
-			);
-		} );
-		const { model } = sink.got[ 1 ][ VALUE ];
-		expect( model.byteRates[ 'firehose.p0' ] ).toBe( 0 );
-		expect( model.writeRates[ 'firehose.p0' ] ).toBe( 0 );
-	} );
-
-	test( 'a long gap between snapshots (hidden tab) rebaselines rate to 0, not a one-frame spike', () => {
-		const sink = capture();
-		const t = makeTransform( 'worker-status:transform' );
-		t.sink = sink.node;
-		withClock( () => {
-			// Poll 1 establishes a baseline at ts 1000.
-			t.fill( metadataMsg( snapshot( 1000, 0, 0, [ 100 ], 0, 100 ) ) );
-			// Poll 2 resumes after a hidden gap: fresh baseline (rate 0).
-			t.fill(
-				metadataMsg( snapshot( 1000 + 600, 1, 50, [ 100, 90 ], 1, 80 ) )
-			);
-		} );
-		const { model } = sink.got[ 1 ][ VALUE ];
-		expect( model.byteRates[ 'firehose.p0' ] ).toBe( 0 );
-		expect( model.writeRates[ 'firehose.p0' ] ).toBe( 0 );
-	} );
-
-	test( 'after a gap rebaseline, the NEXT normal-cadence poll computes a real rate', () => {
-		const sink = capture();
-		const t = makeTransform( 'worker-status:transform' );
-		t.sink = sink.node;
-		withClock( () => {
-			t.fill( metadataMsg( snapshot( 1000, 0, 0, [ 100 ], 0, 100 ) ) );
-			// Gap → rebaseline at ts 1600, cursor abs pos = 100 + 50 = 150.
-			t.fill(
-				metadataMsg( snapshot( 1000 + 600, 1, 50, [ 100, 90 ], 1, 80 ) )
-			);
-			// Normal 2s cadence after the gap: Δ50 over 2s = 25 B/s.
-			t.fill(
-				metadataMsg( snapshot( 1602, 1, 100, [ 100, 110 ], 1, 110 ) )
-			);
-		} );
-		const { model } = sink.got[ 2 ][ VALUE ];
-		expect( model.byteRates[ 'firehose.p0' ] ).toBe( 25 );
-	} );
-
-	test( 'a normal-cadence gap (within bound) still computes a real rate', () => {
-		const sink = capture();
-		const t = makeTransform( 'worker-status:transform' );
-		t.sink = sink.node;
-		withClock( () => {
-			// Two polls 2s apart: within gap bound, cross-poll delta applies.
-			t.fill( metadataMsg( snapshot( 1000, 0, 0, [ 100 ], 0, 100 ) ) );
-			t.fill(
-				metadataMsg( snapshot( 1002, 1, 50, [ 100, 90 ], 1, 80 ) )
-			);
-		} );
-		const { model } = sink.got[ 1 ][ VALUE ];
-		expect( model.byteRates[ 'firehose.p0' ] ).toBe( 75 );
+		cards( sink ).forEach( ( card ) =>
+			expect( card ).toEqual( { readRate: READ, writeRate: WRITE } )
+		);
 	} );
 } );
 

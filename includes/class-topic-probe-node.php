@@ -24,8 +24,14 @@ namespace Newspack_Nodes;
  * its spoke reports past the spoke's own reader, and reports its end as null
  * (`Remote_Consumer_Node::probe_stats()`). Each
  * Partition with a live segment yields ONE Partition record, with a blank
- * READER: its size and the disk it takes. A log two nodes of this process
- * cover — a writer and a Consumer's `:source` — reports once a sweep.
+ * READER: its size and the disk it takes, and in GROWN_BYTES and ELAPSED_MS
+ * the bytes it grew since that Partition's previous record and the window
+ * that covers. A log two nodes of this process cover — a writer and a
+ * Consumer's `:source` — reports once a sweep.
+ *
+ * The sweep DRAINS each window, a Partition's as a Consumer's: a second
+ * prober in one process would split every window with this one, each
+ * reporting shorter windows and half the work.
  *
  * That log is the sole live-position source: `wp nodes status` and the dashboards
  * read it, never memcache. A record therefore exists only while a worker is
@@ -152,7 +158,7 @@ class Topic_Probe_Node extends Probe_Node {
 	 */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
-			'description' => 'Sweeps every Consumer and Partition in this process every N seconds; emits one stats snapshot per reader (seg:off, bytes_read, backlog) and per partition (size, disk) into the topicprobe log.',
+			'description' => 'Sweeps every Consumer and Partition in this process every N seconds; emits one stats snapshot per reader (seg:off, bytes_read, backlog) and per partition (size, disk, bytes grown) into the topicprobe log. Each sweep drains every node\'s window, so run one per process.',
 		] );
 	}
 }
