@@ -285,13 +285,6 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( [ 'kea-*', 'sources:php', 'offsets:kea-*' ], \array_column( $this->read_private( $node, 'pairs' ), 'source' ) );
 	}
 
-	public function test_a_broker_naming_no_pair_is_refused(): void {
-		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
-		$this->expectException( \InvalidArgumentException::class );
-		$this->expectExceptionMessage( 'name at least one <source>=<target> pair' );
-		$this->broker( 'remote-austin', [ 'austin', "{$offsets}/remote-austin", "{$offsets}/dead" ] );
-	}
-
 	public function test_pairs_of_skips_a_malformed_token(): void {
 		$this->assertSame(
 			[ [ 'source' => 'errors.*', 'target' => 'audit-77' ] ],
@@ -620,7 +613,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertArrayNotHasKey( 'hidden', $schema );
 		$this->assertSame( [ 'vault_id', 'offsetlog_root', 'deadletter_root', 'pairs' ], \array_column( $schema['arguments'], 'name' ) );
 		$this->assertSame( [ 'pairs' ], \array_column( \array_filter( $schema['arguments'], static fn ( array $a ): bool => ! empty( $a['variadic'] ) ), 'name' ) );
-		$this->assertSame( [ 'set_multi_writer', 'assume_clean_shutdown' ], \array_column( $schema['commands'], 'name' ) );
+		$this->assertSame( [ 'add_source', 'set_multi_writer', 'assume_clean_shutdown' ], \array_column( $schema['commands'], 'name' ) );
 		$this->assertSame( 'vault_id', $schema['arguments'][0]['type'] );
 		$this->assertFalse( $schema['accepts_fill'] );
 		$this->assertSame( 'Hidden', Remote_Broker_Node::node_schema()['category'], 'the base stays off the palette' );
@@ -694,6 +687,220 @@ class RemoteSourceNodeTest extends TestCase {
 		$node->fire();
 
 		$this->assertSame( [ 'sources:php', 'firehose.p3' ], \array_keys( $this->readers( $node ) ) );
+	}
+
+	// ---------------------------------------------------------------------
+	// add_source: a source the broker's :config takes.
+	// ---------------------------------------------------------------------
+
+	/** A named broker over its three bound tokens and no source, its first tick not yet run. */
+	private function bare_broker( string $name ): Remote_Source_Node {
+		$node = new Remote_Source_Node();
+		$node->name( $name );
+		$node->sink( Core::node( '_router' ) );
+		$node->arguments( \array_slice( $this->remote_args( $name ), 0, 3 ) );
+		return $node;
+	}
+
+	public function test_add_source_builds_its_reader_on_the_next_tick(): void {
+		$node = $this->bare_broker( 'remote-ibis' );
+
+		$this->assertSame( "ok\n", $node->interpreter()->dispatch( 'add_source', [ 'egret.p6', 'heron-4471' ] ) );
+		$node->fire();
+
+		$this->assertSame( [ 'egret.p6' ], \array_keys( $this->readers( $node ) ) );
+		$this->assertSame( 'heron-4471', Core::node( 'remote-ibis:egret.p6' )->target() );
+	}
+
+	public function test_add_source_dumps_one_line_per_source_after_the_make_node(): void {
+		$node = $this->bare_broker( 'remote-ibis' );
+		$node->interpreter()->dispatch( 'add_source', [ 'egret.p6', 'heron-4471' ] );
+		$node->interpreter()->dispatch( 'add_source', [ 'sources:php', 'ibis-errors-58' ] );
+		$node->interpreter()->dispatch( 'add_source', [ 'egret.p6', 'heron-4471' ] );
+		$node->set_multi_writer( true );
+
+		$lines = \explode( "\n", \trim( $node->dump_config() ) );
+
+		$this->assertStringStartsWith( 'make_node Remote_Source remote-ibis ', $lines[0] );
+		$this->assertSame(
+			[
+				'command_node remote-ibis:config add_source egret.p6 heron-4471',
+				'command_node remote-ibis:config add_source sources:php ibis-errors-58',
+				'command_node remote-ibis:config set_multi_writer true',
+			],
+			\array_values( \preg_grep( '/^command_node /', $lines ) )
+		);
+	}
+
+	/** @return array<string,array{string}> Label => a source no spoke can stream. */
+	public static function unstreamable_sources(): array {
+		return [
+			'an upper-case partition'         => [ 'Firehose.p0' ],
+			'a parent dir'                    => [ '..' ],
+			'a slash spelling'                => [ 'sources/php' ],
+			'a glob opening the name'         => [ '*' ],
+			'a grouped glob opening the name' => [ 'offsets:*' ],
+			'a glob over the source registry' => [ 'sources:ph*' ],
+			'a space'                         => [ 'fire hose.p0' ],
+			'an explicit logs prefix'         => [ 'logs:x' ],
+			'a colon in a log name'           => [ 'firehose.p3:audit-17' ],
+			'a reader stamp past a dir name'  => [ 'offsets:' . \str_repeat( 'r', 240 ) . ':firehose.p3' ],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'unstreamable_sources' )]
+	public function test_add_source_refuses_a_source_no_spoke_can_stream( string $source ): void {
+		$node = $this->bare_broker( 'remote-ibis' );
+
+		try {
+			$node->interpreter()->dispatch( 'add_source', [ $source, 'audit-17' ] );
+			$this->fail( 'expected the source to be refused' );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertSame( "Remote_Source: add_source names a source no spoke can stream: '{$source}'", \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
+		}
+		$this->assertStringNotContainsString( 'add_source', $node->dump_config(), 'a refused source is not kept' );
+	}
+
+	/** @return array<string,array{string}> Kind => a slot the broker keeps. */
+	public static function kept_slots(): array {
+		return \array_combine( Remote_Broker_Node::RESERVED_KINDS, \array_map( static fn ( string $kind ): array => [ $kind ], Remote_Broker_Node::RESERVED_KINDS ) );
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'kept_slots' )]
+	public function test_add_source_refuses_a_source_whose_reader_takes_a_kept_slot( string $slot ): void {
+		$node = $this->bare_broker( 'remote-ibis' );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( "Remote_Source: add_source names a source whose reader takes a slot the broker keeps: '{$slot}'" );
+		$node->interpreter()->dispatch( 'add_source', [ $slot, 'audit-17' ] );
+	}
+
+	/** One TSL line is refused alike on every partition: its source as written. */
+	public function test_add_source_names_a_refused_source_as_written(): void {
+		Core::$var['partition'] = '2';
+		$node = $this->bare_broker( 'remote-ibis' );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( "Remote_Source: add_source names a source no spoke can stream: 'Firehose.p{partition}'" );
+		$node->interpreter()->dispatch( 'add_source', [ 'Firehose.p{partition}', 'heron-4471' ] );
+	}
+
+	public function test_add_source_refuses_a_missing_local_node(): void {
+		$node = $this->bare_broker( 'remote-ibis' );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'missing required argument: local_node' );
+		$node->interpreter()->dispatch( 'add_source', [ 'egret.p6' ] );
+	}
+
+	/** A broker reader's stamp is a source like any other. */
+	public function test_add_source_takes_a_broker_reader_stamp(): void {
+		$node = $this->bare_broker( 'remote-ibis' );
+		$node->interpreter()->dispatch( 'add_source', [ 'offsets:hub.tw0:firehose.p0', 'audit-17' ] );
+		$node->fire();
+
+		$this->assertSame( [ 'offsets:hub.tw0:firehose.p0' ], \array_keys( $this->readers( $node ) ) );
+	}
+
+	/** Off p0 only a per-partition source is read, but every one is kept for the dump. */
+	public function test_add_source_off_partition_zero_reads_only_a_per_partition_source(): void {
+		Core::$var['partition'] = '2';
+		$node = $this->bare_broker( 'remote-ibis' );
+		$node->interpreter()->dispatch( 'add_source', [ 'sources:php', 'ibis-errors-58' ] );
+		$node->interpreter()->dispatch( 'add_source', [ 'egret.p{partition}', 'heron-4471' ] );
+		$node->fire();
+
+		$this->assertSame( [ 'egret.p2' ], \array_keys( $this->readers( $node ) ) );
+		$this->assertStringContainsString( "add_source sources:php ibis-errors-58\n", $node->dump_config() );
+		$this->assertStringContainsString( "add_source egret.p{partition} heron-4471\n", $node->dump_config() );
+	}
+
+	/** @return array<string,array{string,string}> Label => a source and a target, one naming {partition}. */
+	public static function per_partition_sources(): array {
+		return [
+			'a per-partition source' => [ 'egret.p{partition}', 'heron-4471' ],
+			'a per-partition target' => [ 'egret.p6', 'heron-{partition}' ],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'per_partition_sources' )]
+	public function test_add_source_outside_a_worker_refuses_a_per_partition_source( string $remote_log, string $local_node ): void {
+		unset( Core::$var['partition'] );
+		$node = $this->bare_broker( 'remote-ibis' );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( "Remote_Source: add_source '{$remote_log}' '{$local_node}' names {partition}, but no partition is bound" );
+		$node->interpreter()->dispatch( 'add_source', [ $remote_log, $local_node ] );
+	}
+
+	/** A source this partition does not read is recorded, and the live stream is left alone. */
+	public function test_an_unowned_add_source_keeps_the_stream(): void {
+		Core::$var['partition'] = '2';
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$asked = [];
+		$this->record_requests( $asked );
+		$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p{partition}=downstream' ) );
+		$this->drain_connect_queue();
+		$node = Core::node( 'remote-austin' );
+		$sse  = Core::node( 'remote-austin:sse-in' );
+		$this->assertSame( 'firehose.p2', \end( $asked )['subscribe'] );
+		$this->assertNotNull( $sse->test_get_handle() );
+
+		$node->interpreter()->dispatch( 'add_source', [ 'sources:php', 'ibis-errors-58' ] );
+
+		$this->assertNotNull( $sse->test_get_handle(), 'a source p2 does not read restarts nothing' );
+		$this->assertStringContainsString( "add_source sources:php ibis-errors-58\n", $node->dump_config() );
+	}
+
+	public function test_add_source_on_a_connected_broker_asks_for_the_new_stamp(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$asked = [];
+		$this->record_requests( $asked );
+		[ $node ] = $this->make_remote();
+		$this->drain_connect_queue();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$this->assertSame( 'firehose.p0', \end( $asked )['subscribe'] );
+
+		$node->interpreter()->dispatch( 'add_source', [ 'egret.p6', 'heron-4471' ] );
+		$this->assertNull( $sse->test_get_handle(), 'a new source restarts the stream' );
+		Core::$now = 640.0;
+		$node->fire();
+		$this->drain_connect_queue();
+
+		$this->assertSame( 'firehose.p0,egret.p6', \end( $asked )['subscribe'] );
+	}
+
+	public function test_a_repeated_add_source_keeps_the_stream(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$asked = [];
+		$this->record_requests( $asked );
+		[ $node ] = $this->make_remote();
+		$this->drain_connect_queue();
+		$node->interpreter()->dispatch( 'add_source', [ 'egret.p6', 'heron-4471' ] );
+		Core::$now = 640.0;
+		$node->fire();
+		$this->drain_connect_queue();
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		$node->interpreter()->dispatch( 'add_source', [ 'egret.p6', 'heron-4471' ] );
+
+		$this->assertNotNull( $sse->test_get_handle(), 'an identical source is a no-op' );
+	}
+
+	public function test_a_broker_displays_each_added_target(): void {
+		$node = $this->bare_broker( 'remote-ibis' );
+		$node->interpreter()->dispatch( 'add_source', [ 'egret.p6', 'heron-4471' ] );
+		$node->interpreter()->dispatch( 'add_source', [ 'sources:php', 'ibis-errors-58' ] );
+
+		$this->assertSame( [ 'heron-4471', 'ibis-errors-58' ], $node->display_targets() );
+	}
+
+	public function test_command_targets_names_an_accepted_add_source_alone(): void {
+		$this->assertSame( [ 'rewrite-31' ], Remote_Source_Node::command_targets( 'add_source', [ 'firehose.p{partition}', 'rewrite-31' ] ) );
+		$this->assertSame( [ 'rewrite-31' ], Remote_Source_Node::command_targets( 'add_source', [ '--local_node=rewrite-31', '--remote_log=firehose.p0' ] ) );
+		$this->assertSame( [], Remote_Source_Node::command_targets( 'add_source', [ '..', 'rewrite-31' ] ) );
+		$this->assertSame( [], Remote_Source_Node::command_targets( 'add_source', [ 'firehose.p0' ] ) );
+		$this->assertSame( [], Remote_Source_Node::command_targets( 'set_multi_writer', [ 'true' ] ) );
 	}
 
 	// ---------------------------------------------------------------------

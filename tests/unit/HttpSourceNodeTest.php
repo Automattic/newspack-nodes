@@ -949,6 +949,21 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertSame( 'raw-logs', $asked[0][ Message::TO ] );
 	}
 
+	public function test_a_glob_added_live_asks_for_the_catalog(): void {
+		$this->seed_austin();
+		$node = new HTTP_Source_Node();
+		$node->name( 'pull-austin' );
+		$node->sink( Core::node( '_router' ) );
+		$node->arguments( \array_slice( $this->remote_args( 'pull-austin' ), 0, 3 ) );
+		$node->fire();
+		$this->assertNull( Core::node( 'pull-austin:http-out' ), 'a broker owning no source builds no channel' );
+
+		$node->interpreter()->dispatch( 'add_source', [ 'kea.p*', 'herd-52' ] );
+		$node->fire();
+
+		$this->assertCount( 1, $this->catalog_asks( Core::node( 'pull-austin:http-out' ) ) );
+	}
+
 	/** The catalog is asked again one retry interval after its answer, on the broker's tick. */
 	public function test_the_catalog_is_asked_again_one_retry_interval_after_its_answer(): void {
 		$node = $this->globbing_broker();

@@ -178,6 +178,7 @@ final class VaultGroupNodeTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
+		unset( Core::$var['partition'] );
 		Core::$memd                 = null;
 		\Newspack_Nodes\Event_Framework::$curl_dispatch = null;
 		Event_Framework::reset();
@@ -281,12 +282,44 @@ final class VaultGroupNodeTest extends TestCase {
 		}
 	}
 
-	public function test_a_live_group_displays_its_child_class_pair_targets(): void {
+	public function test_a_live_group_displays_its_added_targets(): void {
 		$offsets = Config::get_offsets_directory();
 		$base    = \rtrim( Config::get_base_directory(), '/' );
-		$group   = ( new Command_Interpreter_Node() )->make_node( 'Vault_Group', 'spokes', 'Remote_Source', 'tw-edge', "{$offsets}/spokes.{id}", "{$base}/deadletter/spokes.{id}", 'firehose.p0=rewrite-31', 'jobfeed.p0=relay-58' );
+		$group   = ( new Command_Interpreter_Node() )->make_node( 'Vault_Group', 'spokes', 'Remote_Source', 'tw-edge', "{$offsets}/spokes.{id}", "{$base}/deadletter/spokes.{id}" );
+		$group->interpreter()->dispatch( 'add_source', [ 'firehose.p0', 'rewrite-31' ] );
+		$group->interpreter()->dispatch( 'add_source', [ 'jobfeed.p0', 'relay-58' ] );
 
 		$this->assertSame( [ 'rewrite-31', 'relay-58' ], $group->display_targets() );
+	}
+
+	public function test_add_source_on_the_group_reaches_every_child_and_replays_to_a_later_one(): void {
+		$offsets = Config::get_offsets_directory();
+		$base    = \rtrim( Config::get_base_directory(), '/' );
+		$group   = ( new Command_Interpreter_Node() )->make_node( 'Vault_Group', 'pull', 'Remote_Source', 'tw-edge', "{$offsets}/pull.{id}", "{$base}/deadletter/pull.{id}" );
+
+		$answers = $group->interpreter()->dispatch( 'add_source', [ 'egret.p6', 'heron-4471' ] );
+		$group->interpreter()->dispatch( 'add_source', [ 'egret.p6', 'heron-4471' ] );
+
+		$this->assertSame( [ 'pull:tw0' => "ok\n", 'pull:tw9' => "ok\n" ], $answers );
+		$this->assertSame( 1, \substr_count( $group->dump_config(), "command_node pull:config add_source egret.p6 heron-4471\n" ) );
+		Vault::get_instance()->add( 'tw5', [ 'url' => 'https://tw5.example', 'group' => 'tw-edge' ] );
+		$group->update_graph();
+		Core::node( 'pull:tw5' )->fire();
+		$this->assertSame( 'heron-4471', Core::node( 'pull:tw5:egret.p6' )->target() );
+	}
+
+	/** A source no partition but 0 reads is still recorded, so a p0 rebuild and the dump keep it. */
+	public function test_a_group_records_a_source_its_partition_does_not_read(): void {
+		Core::$var['partition'] = '3';
+		$offsets = Config::get_offsets_directory();
+		$base    = \rtrim( Config::get_base_directory(), '/' );
+		$group   = ( new Command_Interpreter_Node() )->make_node( 'Vault_Group', 'pull', 'Remote_Source', 'tw-edge', "{$offsets}/pull.{id}", "{$base}/deadletter/pull.{id}" );
+
+		$group->interpreter()->dispatch( 'add_source', [ 'sources:php', 'ibis-errors-58' ] );
+		Core::node( 'pull:tw0' )->fire();
+
+		$this->assertNull( Core::node( 'pull:tw0:sources:php' ) );
+		$this->assertStringContainsString( "command_node pull:config add_source sources:php ibis-errors-58\n", $group->dump_config() );
 	}
 
 	public function test_an_unknown_child_type_declares_no_targets(): void {

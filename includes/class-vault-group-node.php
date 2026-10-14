@@ -400,6 +400,21 @@ final class Vault_Group_Node extends Node {
 	}
 
 	/**
+	 * The group's own declared targets, then what each recorded verb names
+	 * for the child class (`Node::command_targets()`), so a group draws the
+	 * edges its members do whether or not it has any.
+	 *
+	 * @return list<string>
+	 */
+	protected function extra_targets(): array {
+		$targets = parent::extra_targets();
+		foreach ( $this->commands as [ $verb, $args ] ) {
+			$targets = [ ...$targets, ...$this->child_class::command_targets( $verb, $args ) ];
+		}
+		return $targets;
+	}
+
+	/**
 	 * Palette entry and configuration form: the child type, the group and the
 	 * child argument templates, a variadic the node reads itself; the verbs
 	 * are the child class's, so none are declared here.
