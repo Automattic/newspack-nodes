@@ -931,7 +931,8 @@ class Topology_Analyzer {
 	 * config token, resolved strictly — claims `table:<name>.p{partition}`,
 	 * the stem of its `{base}/tables/<name>.p{partition}.sqlite` file: that
 	 * file has one writer (ADR-6), so two topologies declaring the Table
-	 * conflict whatever their lines say. Every other backend writes no file. An
+	 * conflict whatever their lines say, a `Row_Table` and a keyed Table of
+	 * one name included. Every other backend writes no file. An
 	 * owned Table claims its file the same way, as owned_tables() declares it.
 	 *
 	 * @param string $name Topology name.
@@ -994,7 +995,11 @@ class Topology_Analyzer {
 				}
 				continue;
 			}
-			// One writer per SQLite file (ADR-6).
+			// One writer per SQLite file (ADR-6); a Row_Table is always SQLite.
+			if ( 'make_node' === $verb && self::type_is( $class, Row_Table_Node::class ) ) {
+				$seen[ 'table:' . ( $values[2] ?? '' ) . '.p' . Core::PARTITION_TOKEN ] = true;
+				continue;
+			}
 			if ( 'make_node' === $verb && self::type_is( $class, Table_Node::class ) && 'sqlite' === Core::resolve_config_tokens( $values[5] ?? '', true ) ) {
 				$seen[ 'table:' . ( $values[2] ?? '' ) . '.p' . Core::PARTITION_TOKEN ] = true;
 				continue;

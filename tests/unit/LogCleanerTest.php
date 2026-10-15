@@ -1084,6 +1084,22 @@ class LogCleanerTest extends TestCase {
 		$this->assertFileExists( $db );
 	}
 
+	public function test_keeps_a_declared_row_table_and_sweeps_an_undeclared_one(): void {
+		$this->declare_topology( 'wombat-w', "var num_partitions = 2\nmake_node Row_Table wombats-6620 Wombat\n" );
+		$kept  = [ ...$this->seed_table_files( 'wombats-6620', 0, 7200 ), ...$this->seed_table_files( 'wombats-6620', 1, 7200 ) ];
+		$ghost = $this->seed_table_files( 'numbats-4409', 0, 7200 );
+		$extra = $this->seed_table_files( 'wombats-6620', 2, 7200 );
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
+
+		foreach ( $kept as $file ) {
+			$this->assertFileExists( $file, 'an active topology declares it' );
+		}
+		foreach ( [ ...$ghost, ...$extra ] as $file ) {
+			$this->assertFileDoesNotExist( $file );
+		}
+	}
+
 	public function test_keeps_an_undeclared_table_written_inside_the_grace_unless_forced(): void {
 		$this->declare_topology( 'fox-w', "make_node Table lab-3:fox fox:p{partition} 919 sqlite\n" );
 		[ $db, $wal ] = $this->seed_table_files( 'lab-3:yak', 0, 7200 );

@@ -42,6 +42,9 @@ final class TopologyAnalyzerTablesTest extends TestCase {
 		$this->write_tsl( 'wombat-base', "make_node Row_Table wombats-6620 Wombat\nmake_node Table lab-7:kea kea:p{partition} 777 sqlite\n" );
 		$this->write_tsl( 'wombat-lab', "include wombat-base\nmake_node Row_Table numbats-4409 Numbat\n" );
 		$this->write_tsl( 'wombat-bare', "make_node Row_Table wombats-6620\n" );
+		$this->write_tsl( 'wombat-twin', "make_node Row_Table wombats-6620 Wombat\n" );
+		$this->write_tsl( 'wombat-keyed', "make_node Table wombats-6620 wombat:p{partition} 777 sqlite\n" );
+		$this->write_tsl( 'wombat-volatile', "make_node Table wombats-6620 wombat:p{partition} 777 memcache\n" );
 	}
 
 	protected function tearDown(): void {
@@ -153,5 +156,23 @@ final class TopologyAnalyzerTablesTest extends TestCase {
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'Row_Table wombats-6620 declares no schema' );
 		Topology_Analyzer::declared_row_tables( 'wombat-bare' );
+	}
+
+	public function test_a_row_table_claims_its_file_per_partition(): void {
+		$set = Topology_Analyzer::write_set( 'wombat-lab' );
+		$this->assertContains( 'table:wombats-6620.p{partition}', $set );
+		$this->assertContains( 'table:numbats-4409.p{partition}', $set );
+	}
+
+	public function test_two_topologies_declaring_one_row_table_conflict(): void {
+		$this->assertSame( [ 'table:wombats-6620.p{partition}' ], Topology_Analyzer::find_conflicts( [ 'wombat-lab', 'wombat-twin' ] )[0]['shared'] ?? [] );
+	}
+
+	public function test_a_row_table_and_a_sqlite_table_on_one_name_conflict(): void {
+		$this->assertSame( [ 'table:wombats-6620.p{partition}' ], Topology_Analyzer::find_conflicts( [ 'wombat-twin', 'wombat-keyed' ] )[0]['shared'] ?? [] );
+	}
+
+	public function test_a_row_table_and_a_volatile_table_on_one_name_do_not_conflict(): void {
+		$this->assertSame( [], Topology_Analyzer::find_conflicts( [ 'wombat-twin', 'wombat-volatile' ] ) );
 	}
 }
