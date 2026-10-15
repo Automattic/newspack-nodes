@@ -450,10 +450,10 @@ class SchemaReflectionTest extends TestCase {
 	public function test_a_variadic_argument_is_left_unbound_and_its_partition_token_unrefused(): void {
 		$node = new Variadic_Subject_Node();
 
-		$node->arguments( [ 'heron', 'egret.p{partition}=ibis', 'crane' ] );
+		$node->arguments( [ 'heron', 'egret.p{partition}-ibis', 'crane' ] );
 
 		$this->assertSame( 'heron', $node->head );
-		$this->assertSame( [ 'heron', 'egret.p{partition}=ibis', 'crane' ], $node->arguments() );
+		$this->assertSame( [ 'heron', 'egret.p{partition}-ibis', 'crane' ], $node->arguments() );
 
 		$this->expectException( \LogicException::class );
 		$node->written( 'tail' );

@@ -129,19 +129,6 @@ describe( 'carries', () => {
 	} );
 } );
 
-describe( 'splitPair parity with Remote_Broker_Node::split_pair()', () => {
-	const cases = JSON.parse(
-		readFileSync(
-			join( __dirname, '../../../tests/fixtures/pair-split.json' ),
-			'utf8'
-		)
-	);
-
-	it.each( cases )( '%s', ( _label, token, source, target ) => {
-		expect( splitPair( token ) ).toEqual( { source, target } );
-	} );
-} );
-
 describe( 'splitPair', () => {
 	it( 'keeps every colon of a view’s stream node in the target', () => {
 		expect( splitPair( 'heron.p7=heron-4410:stream' ) ).toEqual( {

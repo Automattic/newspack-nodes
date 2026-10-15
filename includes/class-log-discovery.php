@@ -505,7 +505,7 @@ final class Log_Discovery {
 	 * Whether a subscription is a glob, whose stamps only what the spoke
 	 * finds names: a `*` anywhere in it.
 	 *
-	 * @param string $sub A subscription, a pair's source as written.
+	 * @param string $sub A subscription, a broker's source as written.
 	 */
 	public static function is_glob( string $sub ): bool {
 		return \str_contains( $sub, '*' );
@@ -623,7 +623,7 @@ final class Log_Discovery {
 	 * stamp is a `logs` dir's name, whole. It judges nothing, so `logs:x`,
 	 * `remote:…` and `offsets/x` read as names `is_stamp()` then refuses, and
 	 * a caller's prefix never reaches a path. Only a stamp context reads
-	 * through it — a subscription, a pair's source, a catalog key — never a
+	 * through it — a subscription, a broker's source, a catalog key — never a
 	 * FROM trail, whose segments after the stamp are node names.
 	 *
 	 * @param string $stamp A stamp, or a subscription glob.

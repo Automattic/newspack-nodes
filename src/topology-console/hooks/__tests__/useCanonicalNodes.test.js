@@ -77,7 +77,7 @@ describe( 'useCanonicalNodes', () => {
 	it( 'reads a topology writing a broker against the class catalog', async () => {
 		send.mockReturnValue( {
 			name: 'hub-9',
-			tsl: 'make_node Remote_Source spoke-q3 lone o d egret.p0:sink-q\n',
+			tsl: 'make_node Remote_Source spoke-q3 lone o d\ncommand_node spoke-q3:config add_source egret.p0 sink-q\n',
 		} );
 		const { result } = renderHook( () =>
 			useCanonicalNodes( 'hub-9', ready )
@@ -100,7 +100,7 @@ describe( 'useCanonicalNodes', () => {
 		async ( _state, notReady ) => {
 			send.mockReturnValue( {
 				name: 'hub-9',
-				tsl: 'make_node Remote_Source spoke-q3 lone o d egret.p0:sink-q\n',
+				tsl: 'make_node Remote_Source spoke-q3 lone o d\ncommand_node spoke-q3:config add_source egret.p0 sink-q\n',
 			} );
 			const { result, rerender } = renderHook(
 				( { catalog } ) => useCanonicalNodes( 'hub-9', catalog ),

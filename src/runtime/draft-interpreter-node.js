@@ -309,7 +309,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 			return result;
 		}
 		if ( claimed ) {
-			// The claiming file's own pairs and sources replace the include's.
+			// The claiming file's own sources replace the include's.
 			this._seededEdges = this._seededEdges
 				.map( ( edge ) =>
 					edge.from === name

@@ -426,7 +426,7 @@ final class VaultGroupNodeTest extends TestCase {
 		$offsets = Config::get_offsets_directory();
 		$base    = \rtrim( Config::get_base_directory(), '/' );
 		$ci      = new Command_Interpreter_Node();
-		$group   = $ci->make_node( 'Vault_Group', 'pull', 'Remote_Source', 'tw-edge', "{$offsets}/pull.{id}", "{$base}/deadletter/pull.{id}", 'firehose.p0=downstream' );
+		$group   = $ci->make_node( 'Vault_Group', 'pull', 'Remote_Source', 'tw-edge', "{$offsets}/pull.{id}", "{$base}/deadletter/pull.{id}" );
 		foreach ( [ 'true', 'false', 'true' ] as $flag ) {
 			$group->interpreter()->dispatch( 'set_multi_writer', [ $flag ] );
 		}
@@ -441,7 +441,7 @@ final class VaultGroupNodeTest extends TestCase {
 		$offsets = Config::get_offsets_directory();
 		$base    = \rtrim( Config::get_base_directory(), '/' );
 		$ci      = new Command_Interpreter_Node();
-		$group   = $ci->make_node( 'Vault_Group', 'pull', 'Remote_Source', 'tw-edge', "{$offsets}/pull.{id}", "{$base}/deadletter/pull.{id}", 'firehose.p0=downstream' );
+		$group   = $ci->make_node( 'Vault_Group', 'pull', 'Remote_Source', 'tw-edge', "{$offsets}/pull.{id}", "{$base}/deadletter/pull.{id}" );
 		$answers = $group->interpreter()->dispatch( 'assume_clean_shutdown', [ 'true' ] );
 		$this->assertSame( [ 'pull:tw0', 'pull:tw9' ], \array_keys( $answers ) );
 		$this->assertStringContainsString( "command_node pull:config assume_clean_shutdown true\n", $group->dump_config() );
@@ -532,7 +532,7 @@ final class VaultGroupNodeTest extends TestCase {
 		$offsets = Config::get_offsets_directory();
 		$base    = \rtrim( Config::get_base_directory(), '/' );
 		$ci      = new Command_Interpreter_Node();
-		$group   = $ci->make_node( 'Vault_Group', 'pull', 'Remote_Source', 'arrives-later', "{$offsets}/pull.{id}", "{$base}/deadletter/pull.{id}", 'firehose.p0=downstream' );
+		$group   = $ci->make_node( 'Vault_Group', 'pull', 'Remote_Source', 'arrives-later', "{$offsets}/pull.{id}", "{$base}/deadletter/pull.{id}" );
 		$this->assertSame( [], $group->members() );
 
 		try {
@@ -745,7 +745,7 @@ final class VaultGroupNodeTest extends TestCase {
 		$offsets = Config::get_offsets_directory();
 		$base    = \rtrim( Config::get_base_directory(), '/' );
 		$ci      = new Command_Interpreter_Node();
-		$ci->make_node( 'Vault_Group', 'pull', 'Remote_Source', 'tw-edge', "{$offsets}/pull.{id}", "{$base}/deadletter/pull.{id}", 'firehose.p0=downstream' );
+		$ci->make_node( 'Vault_Group', 'pull', 'Remote_Source', 'tw-edge', "{$offsets}/pull.{id}", "{$base}/deadletter/pull.{id}" );
 		Vault::get_instance()->add( 'tw5', [ 'url' => 'https://tw5.example', 'group' => 'tw-edge' ] );
 		$this->signal_reload( $fleet, $lock_dir );
 		$this->assertInstanceOf( Remote_Source_Node::class, Core::node( 'pull:tw5' ) );
@@ -812,7 +812,8 @@ final class VaultGroupNodeTest extends TestCase {
 		$group = new Vault_Group_Node();
 		$group->name( 'pull' );
 		$group->sink( $sink );
-		$group->arguments( [ 'Remote_Source', 'tw-edge', "{$offsets}/pull.{id}", "{$base}/deadletter/pull.{id}", 'firehose.p0=downstream' ] );
+		$group->arguments( [ 'Remote_Source', 'tw-edge', "{$offsets}/pull.{id}", "{$base}/deadletter/pull.{id}" ] );
+		$group->interpreter()->dispatch( 'add_source', [ 'firehose.p0', 'downstream' ] );
 
 		$child = Core::node( 'pull:tw9' );
 		$this->assertInstanceOf( Remote_Source_Node::class, $child );

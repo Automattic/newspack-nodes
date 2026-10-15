@@ -11,12 +11,12 @@
 # a parity test has no Vault to read its members from. Each broker reads:
 #
 #   make_node Remote_Source spokes:<id> <vault-id> \
-#       <config:offsets_dir>/<topology>.<id> \
-#       <config:deadletter_dir>/<topology>.<id> \
-#       firehose.p{partition}=remote-job-rewrite sources:php=php-errors:partition
+#       <config:offsets_dir>/<topology>.<id> <config:deadletter_dir>/<topology>.<id>
+#   command_node spokes:<id>:config add_source firehose.p{partition} remote-job-rewrite
+#   command_node spokes:<id>:config add_source sources:php php-errors:partition
 #
-# Each trailing <source>=<target> pair names a stream to pull and the node it
-# feeds; the broker draws an edge to each target. The two roots are ARGUMENTS:
+# Each add_source line names a spoke log and the node its lines go to; the
+# broker draws an edge to each target. The two roots are ARGUMENTS:
 # every reader the broker builds nests its offsetlog and dead letters below
 # them, as <root>/<stamp>. Scope the cursor with `<topology>`: an offsetlog is a
 # reader's cursor and the reader is the FLEET, so two hubs pulling one spoke

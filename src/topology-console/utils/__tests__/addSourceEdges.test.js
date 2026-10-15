@@ -134,11 +134,15 @@ describe( 'a broker’s add_source lines', () => {
 					{
 						name: 'spokes',
 						class: 'Remote_Source',
-						args: [ 'tw0', 'o', 'd', 'wren.p2=sink-w' ],
+						args: [ 'tw0', 'o', 'd' ],
 						fans_out: false,
 						origin: [ 'hub-base' ],
 						via: [ 'hub-base' ],
 						verbs: [
+							{
+								verb: 'add_source',
+								args: [ 'wren.p2', 'sink-w' ],
+							},
 							{
 								verb: 'add_source',
 								args: [ 'egret.p0', 'sink-q' ],
@@ -260,5 +264,11 @@ describe( 'a broker’s add_source lines', () => {
 		expect( pairEdges( graph ) ).toEqual( [
 			{ from: 'spokes', to: 'sink-q', roles: [ 'pair' ] },
 		] );
+	} );
+
+	it( 'refuse a graph read with no catalog', () => {
+		expect( () => graphFromTsl( 'make_node Echo okapi-echo\n' ) ).toThrow(
+			/catalog/
+		);
 	} );
 } );

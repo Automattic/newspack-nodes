@@ -919,7 +919,7 @@ describe( 'reconstructWorkers — a broker hangs its readers under its own node'
 						kind: 'logic',
 						type: 'Remote_Source',
 						vault_id: 'okapi-3',
-						pairs: [
+						sources: [
 							{
 								source: 'firehose.p{partition}',
 								target: 'remote-job-rewrite',
@@ -931,7 +931,7 @@ describe( 'reconstructWorkers — a broker hangs its readers under its own node'
 						kind: 'logic',
 						type: 'Remote_Source',
 						vault_id: 'tapir-8',
-						pairs: [
+						sources: [
 							{
 								source: 'firehose.p{partition}',
 								target: 'remote-job-rewrite',
