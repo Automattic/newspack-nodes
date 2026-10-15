@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.110.2] - 2026-10-15
+
 ### Fixed
 
 - **`Bootstrap::on_demand_wake_map()` is back.** 2.110.0 removed it as called only by its own tests, but newspack-nuclear-gyrobase before 1.19.0 builds every Perl render's spawn environment from it, and nuclear reaches a site only with its own deploy, hours behind the substrate. A site that took 2.110.x before nuclear 1.19.0 died on every render with `Call to undefined method Newspack_Nodes\Bootstrap::on_demand_wake_map()`. It answers as in 2.109.1: `readable_wake_map()`'s map, raising every unreadable on-demand topology.
