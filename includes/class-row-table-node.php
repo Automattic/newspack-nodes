@@ -267,39 +267,6 @@ class Row_Table_Node extends Table_Node {
 	}
 
 	/**
-	 * Read a Row_Table across every partition the active topology declaring it
-	 * runs: each file at the schema's version attached read-only into one
-	 * connection as `p{N}`, handed to `$read` as a Row_Reader. The connection
-	 * closes when the last reference to the Row_Reader is released, not at a
-	 * fixed point: a `$read` that keeps the reader, or throws while the trace
-	 * still holds it, keeps the files open as long. A partition with no file
-	 * is not attached, so a fleet that has written nothing reads with no
-	 * aliases.
-	 *
-	 * @api The row tables' read path, for a verb answering from them.
-	 * @template T
-	 * @param string                  $table The Row_Table as its topology declares it.
-	 * @param \Closure(Row_Reader): T $read  The read.
-	 * @return T What `$read` returned.
-	 * @throws Table_Unavailable When no active topology declares the table,
-	 *                           pdo_sqlite is missing, or a file will not
-	 *                           attach or is no database.
-	 * @throws \RuntimeException When two active topologies declare it
-	 *                           differently, a keyed Table beside a Row_Table
-	 *                           included, or the process runs as root.
-	 */
-	public static function read( string $table, \Closure $read ): mixed {
-		$declared = Bootstrap::row_table_files( $table );
-		$class    = self::schema_class( $declared['schema'], $table );
-		try {
-			$reader = Sqlite_Arm::open_rows( $declared['files'], $class::version() );
-		} catch ( \PDOException | \LogicException $e ) {
-			throw new Table_Unavailable( \esc_html( "Row_Table {$table}: " . $e->getMessage() ), 0, $e );
-		}
-		return $read( $reader );
-	}
-
-	/**
 	 * The Row_Schema class a word names: `<prefix><word>_Row_Schema` in the
 	 * first registered namespace holding one.
 	 *
@@ -311,6 +278,37 @@ class Row_Table_Node extends Table_Node {
 	private static function schema_class( string $word, string $table ): string {
 		$fqcn = 1 === \preg_match( self::SCHEMA_WORD, $word ) ? Command_Interpreter_Node::resolve_named( $word, '_Row_Schema', Row_Schema::class ) : null;
 		return $fqcn ?? throw new \RuntimeException( \esc_html( "Row_Table {$table}: unknown schema {$word}: no registered namespace holds a {$word}_Row_Schema implementing Row_Schema" ) );
+	}
+
+	/**
+	 * Read the Row_Table the active topologies declare with `$schema` across
+	 * every partition they run (`Bootstrap::row_table()`): each file at the schema's version attached read-only into one
+	 * connection as `p{N}`, handed to `$read` as a Row_Reader. The connection
+	 * closes when the last reference to the Row_Reader is released, not at a
+	 * fixed point: a `$read` that keeps the reader, or throws while the trace
+	 * still holds it, keeps the files open as long. A partition with no file
+	 * is not attached, so a fleet that has written nothing reads with no
+	 * aliases.
+	 *
+	 * @api The row tables' read path, for a verb answering from them.
+	 * @template T
+	 * @param class-string<Row_Schema> $schema The schema the table holds.
+	 * @param \Closure(Row_Reader): T  $read   The read.
+	 * @return T What `$read` returned.
+	 * @throws Table_Unavailable When no active topology declares a table of
+	 *                           the schema, pdo_sqlite is missing, or a file
+	 *                           will not attach or is no database.
+	 * @throws \RuntimeException As `Bootstrap::row_table()`, or when the
+	 *                           process runs as root.
+	 */
+	public static function read( string $schema, \Closure $read ): mixed {
+		$table = Bootstrap::row_table( $schema );
+		try {
+			$reader = Sqlite_Arm::open_rows( $table['files'], $schema::version() );
+		} catch ( \PDOException | \LogicException $e ) {
+			throw new Table_Unavailable( \esc_html( "Row_Table {$table['name']}: " . $e->getMessage() ), 0, $e );
+		}
+		return $read( $reader );
 	}
 
 	/**

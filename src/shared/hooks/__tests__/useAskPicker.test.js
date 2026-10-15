@@ -34,7 +34,7 @@ function Harness( {
 			>
 				{ active ? 'cancel' : 'ask' }
 			</button>
-			<div data-testid="scope" data-ask="request:abc:2">
+			<div data-testid="scope" data-ask="request:abc">
 				<table>
 					<tbody>
 						<tr
@@ -118,7 +118,7 @@ test( 'a click resolves the descriptor chain innermost first', () => {
 	expect( onPick ).toHaveBeenCalledTimes( 1 );
 	expect( onPick.mock.calls[ 0 ][ 0 ] ).toEqual( [
 		'span:wp_loaded',
-		'request:abc:2',
+		'request:abc',
 	] );
 } );
 
@@ -279,7 +279,7 @@ test( 'enter asks, so the picker is not mouse-only', () => {
 
 	expect( onPick.mock.calls[ 0 ][ 0 ] ).toEqual( [
 		'span:wp_loaded',
-		'request:abc:2',
+		'request:abc',
 	] );
 } );
 
@@ -398,7 +398,7 @@ test( 'a second modified click on a pick takes it back out', () => {
 	expect( onUnpick ).toHaveBeenCalledTimes( 1 );
 	expect( onUnpick.mock.calls[ 0 ][ 0 ] ).toEqual( [
 		'span:wp_loaded',
-		'request:abc:2',
+		'request:abc',
 	] );
 	// Taking one back is still selecting: the picker stays armed.
 	expect(

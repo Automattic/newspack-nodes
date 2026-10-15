@@ -404,6 +404,56 @@ class TopologyRegistryTest extends TestCase {
 		$this->assertSame( '/tmp/np-a4-user-getter', Topology_Registry::user_dir() );
 	}
 
+	/**
+	 * A scoped read resolves the dir's own copy over a stock dir registered
+	 * after it, and leaves the resolution order as it found it.
+	 */
+	public function test_with_stock_dir_reads_its_own_copy_and_restores_the_order(): void {
+		$later = $this->make_temp_dir( 'tsl-stock-later-' );
+		\file_put_contents( "{$later}/only-stock.tsl", "make_node Echo kea-later-4419\n" );
+		$scoped = $this->make_temp_dir( 'tsl-stock-scoped-' );
+		\file_put_contents( "{$scoped}/kea-scoped-4419.tsl", "make_node Echo kea-4419\n" );
+		Topology_Registry::register_stock_dir( $this->stock );
+		Topology_Registry::register_stock_dir( $later );
+
+		$inside = Topology_Registry::with_stock_dir(
+			$this->stock,
+			static fn (): array => [ Topology_Registry::resolve( 'only-stock' ), Topology_Registry::resolve( 'kea-scoped-4419' ) ]
+		);
+		$scoped_inside = Topology_Registry::with_stock_dir( $scoped, static fn (): ?string => Topology_Registry::resolve( 'kea-scoped-4419' ) );
+
+		$this->assertSame( [ "{$this->stock}/only-stock.tsl", null ], $inside );
+		$this->assertSame( "{$scoped}/kea-scoped-4419.tsl", $scoped_inside );
+		$this->assertSame( "{$later}/only-stock.tsl", Topology_Registry::resolve( 'only-stock' ) );
+		$this->assertNull( Topology_Registry::resolve( 'kea-scoped-4419' ), 'the scoped dir is registered no longer' );
+		$this->rmdir_recursive( $later );
+		$this->rmdir_recursive( $scoped );
+	}
+
+	/** A read that throws restores the order and the parse caches all the same. */
+	public function test_with_stock_dir_restores_the_order_when_the_read_throws(): void {
+		$scoped = $this->make_temp_dir( 'tsl-stock-throws-' );
+		\file_put_contents( "{$scoped}/kea-throws-4420.tsl", "make_node Echo kea-4420\n" );
+		Topology_Registry::register_stock_dir( $this->stock );
+
+		try {
+			Topology_Registry::with_stock_dir(
+				$scoped,
+				static function (): never {
+					Topology_Analyzer::statements( 'kea-throws-4420' );
+					throw new \LogicException( 'kea-4420' );
+				}
+			);
+			$this->fail( 'the read threw' );
+		} catch ( \LogicException $e ) {
+			$this->assertSame( 'kea-4420', $e->getMessage() );
+		}
+
+		$this->assertNull( Topology_Registry::resolve( 'kea-throws-4420' ) );
+		$this->expectExceptionMessage( 'unknown topology: kea-throws-4420' );
+		Topology_Analyzer::statements( 'kea-throws-4420' );
+	}
+
 	public function test_register_stock_dir_ignores_empty_paths(): void {
 		Topology_Registry::reset();
 

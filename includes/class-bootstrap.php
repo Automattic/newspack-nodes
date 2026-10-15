@@ -119,6 +119,14 @@ class Bootstrap {
 	 */
 	private static array $node_tables = [];
 
+	/**
+	 * Each Row_Table `row_table()` resolved in this process, by schema, until
+	 * `forget_node_tables()` drops them with the parsed topologies.
+	 *
+	 * @var array<string,array{name: string, files: array<int,string>}>
+	 */
+	private static array $row_tables = [];
+
 	/** Wake-map key prefix; the active set's digest completes it and `Cache_Backend` scopes it. Rows carry offsetlog_dir. */
 	private const ON_DEMAND_WAKE_KEY = 'on_demand_wake_v2:';
 
@@ -531,33 +539,88 @@ class Bootstrap {
 	}
 
 	/**
-	 * A Row_Table's schema word and its SQLite file per partition, across
-	 * every ACTIVE topology declaring it, each with `partitions_of()` its
-	 * entry: declarations naming one schema union their partitions, as
-	 * node_tables() unions a Table's, and one naming another is a second
-	 * table under one name. Whether each file exists is the reader's to find.
+	 * The one Row_Table the active topologies declare with `$schema`: its name
+	 * and its SQLite file per partition, across every ACTIVE topology
+	 * declaring it, each with `partitions_of()` its entry. A reader finds its
+	 * table by schema, never by name. Whether each file exists is the reader's
+	 * to find. One read of the active set serves the lookup, and a schema
+	 * resolves once until `forget_node_tables()`.
 	 *
 	 * @api The row tables' read path, `Row_Table_Node::read()`.
 	 *
-	 * @param string $name The Row_Table as its topologies declare it.
-	 * @return array{schema: string, files: array<int,string>} Files by partition.
-	 * @throws Table_Unavailable When no active topology declares it as a Row_Table.
-	 * @throws \Throwable When two active topologies declare it differently, a
-	 *                    keyed Table beside a Row_Table included, the base
-	 *                    directory is unusable, or no readable topology
-	 *                    declares it and an active one will not read.
+	 * @param class-string<Row_Schema> $schema The schema the table holds.
+	 * @return array{name: string, files: array<int,string>} Files by partition.
+	 * @throws Table_Unavailable When no active topology declares one.
+	 * @throws \RuntimeException When an active topology will not read, before
+	 *                           anything resolves; when they declare several,
+	 *                           naming each; or when two declare its name
+	 *                           differently.
+	 * @throws \InvalidArgumentException As row_tables_of().
 	 */
-	public static function row_table_files( string $name ): array {
-		$partitions = self::resolve_table( $name, self::active_topologies() );
-		$schema     = 'row' === ( $partitions[0]['kind'] ?? null ) ? $partitions[0]['schema'] : null;
-		$files      = [];
-		foreach ( \array_keys( $partitions ) as $p ) {
-			$files[ $p ] = Table_Node::file( $name, $p );
+	public static function row_table( string $schema ): array {
+		if ( isset( self::$row_tables[ $schema ] ) ) {
+			return self::$row_tables[ $schema ];
 		}
-		return [
-			'schema' => $schema ?? throw new Table_Unavailable( \esc_html( "Row_Table {$name}: no active topology declares it" ) ),
-			'files'  => $files,
+		$active                    = self::active_topologies();
+		[ $readable, $unreadable ] = $active;
+		// An unreadable topology's declaration is never left out.
+		Worker_Should_Stop::raise( $unreadable );
+		$names = self::row_tables_of( $schema, ...\array_map( 'strval', \array_keys( $readable ) ) );
+		$word  = self::schema_word( $schema );
+		if ( [] === $names ) {
+			throw new Table_Unavailable( \esc_html( "no active topology declares a Row_Table of schema {$word}" ) );
+		}
+		if ( 1 < \count( $names ) ) {
+			throw new \RuntimeException( \esc_html( 'the active topologies declare ' . \count( $names ) . " Row_Tables of schema {$word}: " . \implode( ', ', $names ) ) );
+		}
+		$files = [];
+		foreach ( \array_keys( self::resolve_table( $names[0], $active ) ) as $p ) {
+			$files[ $p ] = Table_Node::file( $names[0], $p );
+		}
+		return self::$row_tables[ $schema ] = [
+			'name'  => $names[0],
+			'files' => $files,
 		];
+	}
+
+	/**
+	 * Every Row_Table the named topologies declare with `$schema`, each once,
+	 * in the order they declare them, whether or not the topologies run.
+	 *
+	 * @api Uninstall's read of a plugin's topologies, cross-repo.
+	 *
+	 * @param class-string<Row_Schema> $schema        The schema the tables hold.
+	 * @param string                   ...$topologies Topology names.
+	 * @return list<string>
+	 * @throws \InvalidArgumentException When `$schema` names no `*_Row_Schema`.
+	 * @throws \RuntimeException As `Topology_Analyzer::declared_tables()`.
+	 */
+	public static function row_tables_of( string $schema, string ...$topologies ): array {
+		$word  = self::schema_word( $schema );
+		$names = [];
+		foreach ( $topologies as $topology ) {
+			foreach ( Topology_Analyzer::declared_tables( $topology ) as $name => $declared ) {
+				if ( 'row' === $declared['kind'] && $word === $declared['schema']
+					&& $schema === Command_Interpreter_Node::resolve_named( $word, '_Row_Schema', Row_Schema::class ) ) {
+					$names[ $name ] = true;
+				}
+			}
+		}
+		return \array_map( 'strval', \array_keys( $names ) );
+	}
+
+	/**
+	 * The word a `.tsl` names `$schema` by: its short name less `_Row_Schema`.
+	 *
+	 * @param string $schema A Row_Schema class.
+	 * @throws \InvalidArgumentException When it names no `*_Row_Schema`.
+	 */
+	private static function schema_word( string $schema ): string {
+		$short = \substr( \strrchr( '\\' . $schema, '\\' ) ?: '', 1 );
+		if ( ! \str_ends_with( $short, '_Row_Schema' ) || ! \is_a( $schema, Row_Schema::class, true ) ) {
+			throw new \InvalidArgumentException( \esc_html( "{$schema} names no Row_Schema" ) );
+		}
+		return \substr( $short, 0, -\strlen( '_Row_Schema' ) );
 	}
 
 	/**
@@ -1295,13 +1358,14 @@ class Bootstrap {
 	}
 
 	/**
-	 * Drop every Table `node_tables()` resolved.
+	 * Drop every Table `node_tables()` and Row_Table `row_table()` resolved.
 	 * `Topology_Registry::reset_basename_cache()` calls it beside the parsed
 	 * topologies it drops, since a resolution reads the active set, the
 	 * `.tsl` files and the config tokens they name.
 	 */
 	public static function forget_node_tables(): void {
 		self::$node_tables = [];
+		self::$row_tables  = [];
 	}
 
 	/**

@@ -1137,8 +1137,9 @@ back to the record, store the answer back — has two consumers in `newspack-eve
 page cache over the page it builds. An idea two consumers in one plugin both need belongs lower
 down. The Partition half below was written for a third, event-logger-nodes' stats mirror, which
 needed key translation, TTL decay and a scope guard; the mirror's successor reads durable
-Tables ([ADR-24](#adr-24-a-tables-backend-is-chosen-per-table)) and calls neither `locate_by()` nor `read_many()`, which
-stay while a released event-logger-nodes still calls them. A restored entry needs the life it has
+Tables ([ADR-24](#adr-24-a-tables-backend-is-chosen-per-table)), and the live consumer of `locate_by()` and `read_many()` is
+event-logger-nodes' flame lookup, which resolves the listed rids of a URL or one request to
+their stored flames. A restored entry needs the life it has
 LEFT, and `Table_Node` fixes TTL at construction, so without a per-entry lifetime a consumer
 reaches past its own store to write, through
 [`Cache_Backend::shared_first()->set()`](../includes/class-cache-backend.php) with a hand-rolled `str_starts_with` namespace
@@ -1168,6 +1169,12 @@ back as the `{ value, ttl }` a backing answers, so the store's expiry is the one
 reader needs and no value carries a second.
 
 Finding WHICH durable record answers a key is the app's business, not the table's.
+The parser reads each line beside its segment id. One that answers false cuts
+`locate_by()`'s walk: the call answers null and the memo records nothing from it, so a
+reader with a time budget bounds a walk without remembering an absence it never
+established. One that answers true ends it with what it found, as a reader does that knows
+the older segments cannot hold what it wants; ELN's flame lookup ends at the first segment
+whose index `index_mtimes()` dates before its requests finished.
 `Partition_Node` treats index lines as opaque strings because the formatter that wrote them
 belongs to the caller (`with_index`), and a key is as opaque to Partition as a line is. The
 memo caches "this index did not answer for this key" per process and never "this record does
@@ -2439,7 +2446,7 @@ declares in the partition's SQLite file, `{base}/tables/{name}.p{N}.sqlite`. The
 worker is its one writer, through `ROWS` (insert, ignore, add; an ignore's `then` ops apply
 only when it inserted). A reader attaches every partition's file read-only into one
 connection and answers in one statement; `Spawn_Coordinator::MAX_PARTITIONS` (8) keeps that
-under SQLite's ten attachments. A verb answering from `read()` answers only rows its declared
+under SQLite's ten attachments. A reader finds its table by schema, never by name. A verb answering from `read()` answers only rows its declared
 role may read, as [ADR-23](#adr-23-a-request-carries-no-authority-of-its-own) bounds what a
 verb's mount may expose. A schema version mismatch discards the file at open.
 Retention is declared per table (`retain`, `retained_by`) and runs on the Table tick. The

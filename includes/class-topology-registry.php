@@ -252,6 +252,33 @@ class Topology_Registry {
 	}
 
 	/**
+	 * What `$read` answers with `$path` the first stock dir, so each name the
+	 * dir holds resolves to its copy there, over the parse caches emptied
+	 * before and after. The order the read found is restored whatever `$read`
+	 * does, so a plugin no longer loaded can read its own topologies and leave
+	 * nothing of itself registered.
+	 *
+	 * @api Uninstall's read of a plugin's own stock topologies, cross-repo.
+	 *
+	 * @template T
+	 * @param string       $path Directory holding `.tsl` files; a trailing slash is trimmed.
+	 * @param \Closure(): T $read The read.
+	 * @return T
+	 */
+	public static function with_stock_dir( string $path, \Closure $read ): mixed {
+		$path  = \rtrim( $path, '/' );
+		$saved = self::$stock_dirs;
+		self::$stock_dirs = [ $path, ...\array_values( \array_diff( $saved, [ $path ] ) ) ];
+		self::reset_basename_cache();
+		try {
+			return $read();
+		} finally {
+			self::$stock_dirs = $saved;
+			self::reset_basename_cache();
+		}
+	}
+
+	/**
 	 * Clear the dir registrations, the plugin guard and the parsed caches, so a
 	 * case starts from an empty registry.
 	 *

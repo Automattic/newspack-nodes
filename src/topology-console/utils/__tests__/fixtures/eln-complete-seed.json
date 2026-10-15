@@ -99,10 +99,6 @@
 					{
 						"verb": "void_warranty",
 						"args": []
-					},
-					{
-						"verb": "with_index",
-						"args": [ "request-index" ]
 					}
 				],
 				"origin": [ "performance" ],
