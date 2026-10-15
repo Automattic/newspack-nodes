@@ -39,6 +39,9 @@ final class TopologyAnalyzerTablesTest extends TestCase {
 		$this->write_tsl( 'crawl-bare', "make_node Crawler crawl-8821\n" );
 		$this->write_tsl( 'crawl-tokened', "make_node Crawler <topology>-crawl 4407\n" );
 		$this->write_tsl( 'yak-token', "make_node Table lab-7:yak yak:p{partition} 37 <lab:nope>\n" );
+		$this->write_tsl( 'wombat-base', "make_node Row_Table wombats-6620 Wombat\nmake_node Table lab-7:kea kea:p{partition} 777 sqlite\n" );
+		$this->write_tsl( 'wombat-lab', "include wombat-base\nmake_node Row_Table numbats-4409 Numbat\n" );
+		$this->write_tsl( 'wombat-bare', "make_node Row_Table wombats-6620\n" );
 	}
 
 	protected function tearDown(): void {
@@ -126,5 +129,29 @@ final class TopologyAnalyzerTablesTest extends TestCase {
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'Crawler crawl-8821 declares no TTL' );
 		Topology_Analyzer::declared_tables( 'crawl-bare' );
+	}
+
+	public function test_an_include_s_row_tables_are_declared_with_their_schema_words(): void {
+		$this->assertSame(
+			[
+				'wombats-6620' => 'Wombat',
+				'numbats-4409' => 'Numbat',
+			],
+			Topology_Analyzer::declared_row_tables( 'wombat-lab' )
+		);
+	}
+
+	public function test_a_row_table_is_no_keyed_table(): void {
+		$this->assertSame(
+			[ 'lab-7:kea' => [ 'namespace' => 'kea:p{partition}', 'ttl' => '777', 'backend' => 'sqlite' ] ],
+			Topology_Analyzer::declared_tables( 'wombat-lab' )
+		);
+		$this->assertSame( [], Topology_Analyzer::declared_row_tables( 'kea-lab' ) );
+	}
+
+	public function test_a_row_table_declaring_no_schema_is_refused(): void {
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'Row_Table wombats-6620 declares no schema' );
+		Topology_Analyzer::declared_row_tables( 'wombat-bare' );
 	}
 }

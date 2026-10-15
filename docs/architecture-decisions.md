@@ -1522,12 +1522,17 @@ A request may drive a running graph. A declared request answers TO=FROM through
 [`tachikoma-lineage.md`](tachikoma-lineage.md#a-declared-request-answers-in-an-envelope-tables-verbs-answer-bare)
 records.
 
-**Amendment:** a request carries a structure for `MSET`, `ADD` and `SADD` alone. A Table's
+**Amendment:** a request carries a structure for a Table's `MSET`, `ADD` and `SADD` and a
+Row_Table's `ROWS` alone. A Table's
 `MSET` and `ADD` carry `key => [ value, ttl ]` maps, and its `SADD` carries
 `set_key => [ [ member => value, … ], ttl ]` maps, that a string cannot hold without an
 encoding, so they travel as `TM_REQUEST | TM_STRUCT` with VALUE `[ 'MSET' => … ]`,
 `[ 'ADD' => … ]` or `[ 'SADD' => … ]`; every other request, `SMEMBERS` and `SSCAN` included, stays a
-string. Each of the three declares it on its `requests` entry, `'value' => 'struct'`, and
+string. A Row_Table's `ROWS` carries a list of row ops the same way, VALUE
+`[ 'ROWS' => [ [ op, table, row, then?, ids? ], … ] ]`, written in one transaction, and
+answers `TM_RESPONSE | TM_STRUCT` `[ 'verb' => 'ROWS', 'written' => …, 'ids' => … ]` or a
+`TM_ERROR` carrying the arm's message; a Row_Table refuses every keyed request, a keyed
+Table refuses `ROWS`, and a mount refuses it as it refuses every write. Each of the four declares it on its `requests` entry, `'value' => 'struct'`, and
 every sender reads that declaration: the console's verb dialog sends `TM_REQUEST | TM_STRUCT`
 for such an entry alone, and never infers one from the types of its args. `SMEMBERS` answers one message per set, as `MGET` answers one per key: `TM_STRUCT`
 with the set's `[ member, value ]` pairs, or `TM_BYTESTREAM "OVER <limit>"` and no members for

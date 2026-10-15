@@ -512,6 +512,52 @@ class Bootstrap {
 	}
 
 	/**
+	 * A Row_Table's schema word and its SQLite file per partition, across
+	 * every ACTIVE topology declaring it, each with `partitions_of()` its
+	 * entry: declarations naming one schema union their partitions, as
+	 * node_tables() unions a Table's, and one naming another is a second
+	 * table under one name. Whether each file exists is the reader's to find.
+	 *
+	 * @api The row tables' read path, `Row_Table_Node::read()`.
+	 *
+	 * @param string $name The Row_Table as its topologies declare it.
+	 * @return array{schema: string, files: array<int,string>} Files by partition.
+	 * @throws Table_Unavailable When no active topology declares it.
+	 * @throws \Throwable When two active topologies declare it with different
+	 *                    schemas, the base directory is unusable, or no
+	 *                    readable topology declares it and an active one will not read.
+	 */
+	public static function row_table_files( string $name ): array {
+		$schema = null;
+		$first  = '';
+		$out    = [];
+		foreach ( self::declaring( $name, self::active_topologies() ) as $topology => $entry ) {
+			$word = Topology_Analyzer::declared_row_tables( $topology )[ $name ] ?? null;
+			if ( null === $word ) {
+				continue;
+			}
+			if ( null !== $schema && $schema !== $word ) {
+				throw new \RuntimeException( \esc_html( "Row_Table {$name} is declared with schema {$schema} by {$first} and {$word} by {$topology}" ) );
+			}
+			if ( null === $schema ) {
+				$schema = $word;
+				$first  = $topology;
+			}
+			for ( $p = 0, $n = self::partitions_of( $entry ); $p < $n; ++$p ) {
+				$out[ $p ] ??= Table_Node::file( $name, $p );
+			}
+		}
+		if ( null === $schema ) {
+			throw new Table_Unavailable( \esc_html( "Row_Table {$name}: no active topology declares it" ) );
+		}
+		\ksort( $out );
+		return [
+			'schema' => $schema,
+			'files'  => $out,
+		];
+	}
+
+	/**
 	 * Which active topologies READ, answered once for every caller that reads
 	 * a graph: each readable name with its `get_topologies()` entry, and what
 	 * each other active name threw instead, keyed by name. A name with no

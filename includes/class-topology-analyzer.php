@@ -1103,6 +1103,7 @@ class Topology_Analyzer {
 	 * the arguments its `owned_table()` reads off the owner's line, which may
 	 * refuse it. Keyed by the name as written, as declares_node() reads it;
 	 * write_set() claims the file under the name with `<topology>` substituted.
+	 * A Row_Table holds no keyed entries, so declared_row_tables() answers it.
 	 *
 	 * @param string $name Topology name.
 	 * @return array<string,array{namespace: string, ttl: string, backend: string}>
@@ -1118,7 +1119,7 @@ class Topology_Analyzer {
 				continue;
 			}
 			$out = \array_merge( $out, self::owned_tables( $statement, $values ) );
-			if ( ! self::type_is( $values[1] ?? '', Table_Node::class ) ) {
+			if ( ! self::type_is( $values[1] ?? '', Table_Node::class ) || self::type_is( $values[1] ?? '', Row_Table_Node::class ) ) {
 				continue;
 			}
 			$table         = $values[2] ?? '';
@@ -1208,6 +1209,28 @@ class Topology_Analyzer {
 			throw new \RuntimeException( \esc_html( ( $statement['values'][1] ?? '' ) . ' declares owns but is not a palette class' ) );
 		}
 		return self::$owns_cache[ $fqcn ] = $owns;
+	}
+
+	/**
+	 * Every Row_Table a topology declares, its includes flattened in: name =>
+	 * the schema word as written. A Row_Table's schema has no default, so one
+	 * declaring none is refused here.
+	 *
+	 * @param string $name Topology name.
+	 * @return array<string,string>
+	 * @throws \RuntimeException On unknown include, cycle, conflicting
+	 *                           make_node, or a Row_Table declaring no schema.
+	 */
+	public static function declared_row_tables( string $name ): array {
+		$out = [];
+		foreach ( self::statements( $name )['statements'] as $statement ) {
+			$values = $statement['values'];
+			if ( 'make_node' === $statement['verb'] && self::type_is( $values[1] ?? '', Row_Table_Node::class ) ) {
+				$table         = $values[2] ?? '';
+				$out[ $table ] = $values[3] ?? throw new \RuntimeException( \esc_html( "Row_Table {$table} declares no schema" ) );
+			}
+		}
+		return $out;
 	}
 
 	/**

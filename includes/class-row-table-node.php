@@ -1,0 +1,355 @@
+<?php
+/**
+ * Row_Table
+ *
+ * A Table whose SQLite file holds the row tables a `Row_Schema` declares
+ * rather than keyed entries: `make_node Row_Table <name> <Schema>`, where
+ * `<Schema>` is a word naming `<Namespace>\<Schema>_Row_Schema` in a
+ * namespace `Command_Interpreter_Node::register_namespace()` registered. Its
+ * worker writes one file per partition, `{base}/tables/{name}.p{N}.sqlite`,
+ * through the `ROWS` request, one batch of ops in one transaction; every
+ * keyed request is refused. `read()` attaches every partition's file
+ * read-only into one connection, so a reader queries the fleet's rows in one
+ * statement and nothing merges them in PHP.
+ *
+ * The schema is checked before the file opens: identifiers, the closed set
+ * of column types, `add` columns outside the key, an INTEGER
+ * `autoincrement`, a `retain` and each `retained_by` reference served by an
+ * index or the key, TEXT `fts` columns no `add` folds, and every table
+ * purged by its own `retain` or by a `retained_by`.
+ *
+ * @package Newspack_Nodes
+ */
+
+namespace Newspack_Nodes;
+
+\defined( 'ABSPATH' ) || exit;
+
+/**
+ * Row_Table node — `make_node Row_Table <name> <Schema>`.
+ *
+ * @phpstan-import-type Row_Spec from Sqlite_Arm
+ */
+class Row_Table_Node extends Table_Node {
+
+	/** A table, column or index name a schema may declare. */
+	private const IDENTIFIER = '/^[a-z_][a-z0-9_]*$/D';
+
+	/** A column type a schema may declare. */
+	private const COLUMN_TYPE = '/^(INTEGER|REAL|TEXT|BLOB)( NOT NULL)?$/D';
+
+	/** A schema word: one name, so it cannot reach into another namespace. */
+	private const SCHEMA_WORD = '/^[A-Za-z][A-Za-z0-9_]*$/D';
+
+	/** A fold an `add` column may name; anything else would sum in silence. */
+	private const FOLD = '/^(sum|max)$/D';
+
+	/** How a ROWS request is answered. */
+	private const ROWS_REPLY = 'one TM_RESPONSE|TM_STRUCT [ verb => ROWS, written => <rows written or folded>, ids => [ <op index> => <id> ] ], or one TM_ERROR "ROWS: <why>", the batch rolled back';
+
+	/** The schema word this Row_Table was declared with. */
+	private string $schema = '';
+
+	/**
+	 * `<Schema>`: resolve the word, check the schema, then open the file at
+	 * its version with its tables declared. The kv TTL is the longest
+	 * `retain` window, in seconds. A refusal opens nothing.
+	 *
+	 * @param list<string>|null $args
+	 * @return list<string>
+	 * @throws \InvalidArgumentException With no schema word.
+	 * @throws \RuntimeException On a word naming no Row_Schema, a schema it
+	 *                           refuses, or a file SQLite refuses.
+	 * @throws Table_Unavailable When pdo_sqlite is missing.
+	 */
+	public function arguments( ?array $args = null ): array {
+		if ( null === $args ) {
+			return parent::arguments();
+		}
+		$values = $this->schema_values( $args );
+		$word   = Core::as_string( $values['schema'] );
+		$schema = self::schema_class( $word, $this->name );
+		$tables = $schema::tables();
+		$this->declare_store( $this->name, self::checked_window( $word, $tables ), 'sqlite', [ 'version' => $schema::version(), 'tables' => $tables ] );
+		$this->schema    = $word;
+		$this->arguments = $args;
+		return $args;
+	}
+
+	/**
+	 * Check every table a schema declares, then answer its longest `retain`
+	 * window in seconds, the kv TTL. Every name the file's DDL would take —
+	 * each table, index, FTS shadow and trigger, and the kv store's own — is
+	 * taken once, since `CREATE … IF NOT EXISTS` skips a second in silence.
+	 *
+	 * @param string                $word   The schema word, for a refusal.
+	 * @param array<string,Row_Spec> $tables Its tables.
+	 * @return int Seconds.
+	 * @throws \RuntimeException Naming the schema and the item it refuses.
+	 */
+	private static function checked_window( string $word, array $tables ): int {
+		if ( [] === $tables ) {
+			self::refuse_schema( $word, 'declares no table' );
+		}
+		$window = 0;
+		$taken  = \array_fill_keys( Sqlite_Arm::KV_NAMES, 'the kv store' );
+		foreach ( $tables as $table => $spec ) {
+			self::check_table( $word, $tables, $table, $spec );
+			foreach ( Sqlite_Arm::declared_names( $table, $spec ) as $name ) {
+				if ( isset( $taken[ $name ] ) ) {
+					self::refuse_schema( $word, "{$name} is taken twice, by {$taken[ $name ]} and by table {$table}" );
+				}
+				$taken[ $name ] = "table {$table}";
+			}
+			if ( isset( $spec['retain'] ) ) {
+				$window = \max( $window, $spec['retain'][1] * $spec['retain'][2] );
+			}
+		}
+		if ( 0 === $window ) {
+			self::refuse_schema( $word, 'retains no table, so no purge ever starts' );
+		}
+		return $window;
+	}
+
+	/**
+	 * Check one table's declaration against the rest of its schema.
+	 *
+	 * @param string                $word   The schema word.
+	 * @param array<string,Row_Spec> $tables Every table it declares.
+	 * @param string                $table  This table.
+	 * @param Row_Spec              $spec   Its declaration.
+	 * @throws \RuntimeException Naming the schema and the item it refuses.
+	 */
+	private static function check_table( string $word, array $tables, string $table, array $spec ): void {
+		$columns = $spec['columns'];
+		$add     = $spec['add'] ?? [];
+		$auto    = $spec['autoincrement'] ?? null;
+		self::check_name( $word, 'table', $table );
+		if ( [] === $columns ) {
+			self::refuse_schema( $word, "table {$table} declares no columns" );
+		}
+		foreach ( $columns as $column => $type ) {
+			self::check_name( $word, "table {$table} column", $column );
+			if ( 1 !== \preg_match( self::COLUMN_TYPE, $type ) ) {
+				self::refuse_schema( $word, "{$table}.{$column} type {$type} is not INTEGER, REAL, TEXT or BLOB, optionally NOT NULL" );
+			}
+		}
+		$named = [
+			'key' => $spec['key'] ?? [],
+			'add' => \array_map( 'strval', \array_keys( $add ) ),
+			'fts' => $spec['fts'] ?? [],
+		];
+		foreach ( $spec['indexes'] ?? [] as $index => $indexed ) {
+			self::check_name( $word, "table {$table} index", $index );
+			$named[ "index {$index}" ] = $indexed;
+		}
+		if ( null !== $auto ) {
+			$named['autoincrement'] = [ $auto ];
+		}
+		foreach ( $named as $what => $names ) {
+			foreach ( $names as $column ) {
+				if ( ! isset( $columns[ $column ] ) ) {
+					self::refuse_schema( $word, "{$table} {$what} names {$column}, which it declares no column for" );
+				}
+			}
+		}
+		foreach ( $add as $column => $fold ) {
+			if ( \in_array( $column, $named['key'], true ) ) {
+				self::refuse_schema( $word, "{$table} add folds {$column}, which its key holds" );
+			}
+			if ( 1 !== \preg_match( self::FOLD, $fold ) ) {
+				self::refuse_schema( $word, "{$table} add folds {$column} by {$fold}, not sum or max" );
+			}
+		}
+		if ( null !== $auto && ! \str_starts_with( $columns[ $auto ], 'INTEGER' ) ) {
+			self::refuse_schema( $word, "{$table} autoincrement {$auto} is no INTEGER column" );
+		}
+		foreach ( $named['fts'] as $column ) {
+			if ( ! \str_starts_with( $columns[ $column ], 'TEXT' ) || isset( $add[ $column ] ) ) {
+				self::refuse_schema( $word, "{$table} fts indexes {$column}, which is no TEXT column or is one an add folds" );
+			}
+		}
+		if ( [] !== $named['fts'] && null === $auto ) {
+			self::refuse_schema( $word, "{$table} fts needs an autoincrement column to key its shadow" );
+		}
+		self::check_purge( $word, $tables, $table, $spec );
+	}
+
+	/**
+	 * Check how a table purges: a `retain` whose column leads an index or the
+	 * key, with a window and a unit of at least one, or a `retained_by` whose
+	 * referencing column leads one in the table it names. One or the other.
+	 *
+	 * @param string                $word   The schema word.
+	 * @param array<string,Row_Spec> $tables Every table it declares.
+	 * @param string                $table  This table.
+	 * @param Row_Spec              $spec   Its declaration.
+	 * @throws \RuntimeException Naming the schema and the item it refuses.
+	 */
+	private static function check_purge( string $word, array $tables, string $table, array $spec ): void {
+		$retain      = $spec['retain'] ?? null;
+		$retained_by = $spec['retained_by'] ?? null;
+		if ( null === $retain && null === $retained_by ) {
+			self::refuse_schema( $word, "{$table} declares neither retain nor retained_by, so nothing ever purges it" );
+		}
+		if ( null !== $retain ) {
+			[ $column, $window, $unit ] = $retain;
+			if ( ! self::leads( $spec, $column ) ) {
+				self::refuse_schema( $word, "{$table} retains by {$column}, which leads no index or key" );
+			}
+			if ( $window < 1 || $unit < 1 ) {
+				self::refuse_schema( $word, "{$table} retains {$column} for a window or a unit below one" );
+			}
+		}
+		if ( null !== $retained_by ) {
+			[ $names, $column, $own ] = $retained_by;
+			if ( ! isset( $tables[ $names ] ) ) {
+				self::refuse_schema( $word, "{$table} is retained_by {$names}, which it declares no table for" );
+			}
+			if ( ! self::leads( $tables[ $names ], $column ) ) {
+				self::refuse_schema( $word, "{$table} is retained_by {$names}.{$column}, which leads no index or key there" );
+			}
+			if ( ! isset( $spec['columns'][ $own ] ) ) {
+				self::refuse_schema( $word, "{$table} is retained_by {$names} on {$own}, which it declares no column for" );
+			}
+		}
+	}
+
+	/**
+	 * Whether a column leads an index, the key, or is the autoincrement
+	 * rowid, so a seek on it costs no scan.
+	 *
+	 * @param Row_Spec $spec   A table's declaration.
+	 * @param string   $column The column.
+	 */
+	private static function leads( array $spec, string $column ): bool {
+		$leading = [ $spec['key'][0] ?? null, $spec['autoincrement'] ?? null ];
+		foreach ( $spec['indexes'] ?? [] as $indexed ) {
+			$leading[] = $indexed[0] ?? null;
+		}
+		return \in_array( $column, $leading, true );
+	}
+
+	/**
+	 * Refuse a name outside the identifier alphabet.
+	 *
+	 * @param string $word The schema word.
+	 * @param string $what What the name names.
+	 * @param string $name The name.
+	 * @throws \RuntimeException When it is out of the alphabet.
+	 */
+	private static function check_name( string $word, string $what, string $name ): void {
+		if ( 1 !== \preg_match( self::IDENTIFIER, $name ) ) {
+			self::refuse_schema( $word, "{$what} {$name} is not a lowercase identifier" );
+		}
+	}
+
+	/**
+	 * Refuse a schema, naming it and why.
+	 *
+	 * @param string $word The schema word.
+	 * @param string $why  Why.
+	 * @throws \RuntimeException Always.
+	 */
+	private static function refuse_schema( string $word, string $why ): never {
+		throw new \RuntimeException( \esc_html( "schema {$word}: {$why}" ) );
+	}
+
+	/**
+	 * Read a Row_Table across every partition the active topology declaring it
+	 * runs: each file at the schema's version attached read-only into one
+	 * connection as `p{N}`, handed to `$read` as a Row_Reader. The connection
+	 * closes when the last reference to the Row_Reader is released, not at a
+	 * fixed point: a `$read` that keeps the reader, or throws while the trace
+	 * still holds it, keeps the files open as long. A partition with no file
+	 * is not attached, so a fleet that has written nothing reads with no
+	 * aliases.
+	 *
+	 * @api The row tables' read path, for a verb answering from them.
+	 * @template T
+	 * @param string                  $table The Row_Table as its topology declares it.
+	 * @param \Closure(Row_Reader): T $read  The read.
+	 * @return T What `$read` returned.
+	 * @throws Table_Unavailable When no active topology declares the table,
+	 *                           pdo_sqlite is missing, or a file will not
+	 *                           attach or is no database.
+	 * @throws \RuntimeException When two active topologies declare it with
+	 *                           different schemas, or the process runs as root.
+	 */
+	public static function read( string $table, \Closure $read ): mixed {
+		$declared = Bootstrap::row_table_files( $table );
+		$class    = self::schema_class( $declared['schema'], $table );
+		try {
+			$db = Sqlite_Arm::open_rows( $declared['files'], $class::version() );
+		} catch ( \PDOException | \LogicException $e ) {
+			throw new Table_Unavailable( \esc_html( "Row_Table {$table}: " . $e->getMessage() ), 0, $e );
+		}
+		$list    = $db->query( 'PRAGMA database_list' );
+		$aliases = [];
+		foreach ( false === $list ? [] : $list->fetchAll( \PDO::FETCH_NUM ) as $row ) {
+			$alias = Core::as_string( Core::arr( $row )[1] ?? '' );
+			if ( 'main' !== $alias && 'temp' !== $alias ) {
+				$aliases[] = $alias;
+			}
+		}
+		return $read( new Row_Reader( $db, $aliases ) );
+	}
+
+	/**
+	 * The Row_Schema class a word names: `<prefix><word>_Row_Schema` in the
+	 * first registered namespace holding one.
+	 *
+	 * @param string $word  The schema word.
+	 * @param string $table The Row_Table, for the refusal.
+	 * @return class-string<Row_Schema>
+	 * @throws \RuntimeException When no registered namespace holds one.
+	 */
+	private static function schema_class( string $word, string $table ): string {
+		if ( 1 === \preg_match( self::SCHEMA_WORD, $word ) ) {
+			foreach ( Command_Interpreter_Node::registered_namespaces() as $prefix ) {
+				$fqcn = "{$prefix}{$word}_Row_Schema";
+				if ( \class_exists( $fqcn ) && \is_a( $fqcn, Row_Schema::class, true ) ) {
+					return $fqcn;
+				}
+			}
+		}
+		throw new \RuntimeException( \esc_html( "Row_Table {$table}: unknown schema {$word}: no registered namespace holds a {$word}_Row_Schema implementing Row_Schema" ) );
+	}
+
+	/**
+	 * The console's metadata row: the schema word beside the per-verb counters.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public function dump_metadata(): array {
+		return [ 'schema' => $this->schema ] + parent::dump_metadata();
+	}
+
+	/**
+	 * Palette entry and argument form. The `:config` verbs are a Table's;
+	 * the one request is ROWS. A Row_Table forwards nothing it stores, so it
+	 * declares no target.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public static function node_schema(): array {
+		return [
+			'category'    => 'Storage',
+			'description' => 'Row tables a Row_Schema declares, one SQLite file per partition; ROWS writes a batch, read() queries every partition at once.',
+			'arguments'   => [
+				[ 'name' => 'schema', 'type' => 'string', 'required' => true, 'description' => 'Word naming <Namespace>\\<Word>_Row_Schema in a registered namespace.' ],
+			],
+			'commands'    => parent::node_schema()['commands'],
+			'requests'    => [
+				[
+					'name'        => 'ROWS',
+					'description' => 'Write one batch of row ops in one transaction under a TM_REQUEST|TM_STRUCT list; a failed op rolls the batch back.',
+					'value'       => 'struct',
+					'args'        => [ [ 'name' => 'batch', 'type' => 'json', 'required' => true, 'description' => '[ [ op, table, row, then?, ids? ], … ]' ] ],
+					'reply_shape' => self::ROWS_REPLY,
+				],
+			],
+			'has_target'  => false,
+		];
+	}
+}
