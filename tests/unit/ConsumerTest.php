@@ -2376,6 +2376,62 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( [ 'in_flight' => [ 'r1' => 'a-state' ] ], $entry['cache']['request-builder'] ?? null );
 	}
 
+	/**
+	 * A node that only flushes before the cursor commits saves nothing and
+	 * restores nothing, so its boot is silent; a missing node still warns.
+	 */
+	public function test_a_flush_only_snapshot_node_boots_without_a_warning(): void {
+		$source = new Partition_Node();
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
+		$this->produce_line( $source, 'kereru' );
+
+		$boot = function ( bool $with_flusher ): Consumer_Node {
+			if ( $with_flusher ) {
+				( new Flush_Only_Probe() )->name( 'kaka-flusher' );
+			}
+			$c = new Consumer_Node();
+			$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
+			$c->name( 'kea:consumer' );
+			$c->sink( new Capture_Sink_Node() );
+			$c->add_snapshot_node( 'kaka-flusher' );
+			$this->pump_consumer( $c );
+			return $c;
+		};
+		$boot( true )->checkpoint();
+		$warnings = static fn (): array => \array_values(
+			\array_filter( Core::$recent_log, static fn ( string $line ): bool => \str_contains( $line, "snapshot node 'kaka-flusher'" ) )
+		);
+
+		Core::reset();
+		Core::$recent_log        = [];
+		Core::$recent_log_timers = [];
+		$boot( true )->checkpoint( true );
+		$this->assertSame( [], $warnings(), 'a flush-only node has nothing to restore' );
+
+		Core::reset();
+		Core::$recent_log        = [];
+		Core::$recent_log_timers = [];
+		$boot( false );
+		$this->assertCount( 1, $warnings(), 'a snapshot node that is not there still warns' );
+
+		Core::reset();
+		$kept = new Flush_Only_Probe();
+		$kept->name( 'kaka-flusher' );
+		$kept->state = [ 'counted' => 'tui-7' ];
+		$c = new Consumer_Node();
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
+		$c->name( 'kea:consumer' );
+		$c->sink( new Capture_Sink_Node() );
+		$c->add_snapshot_node( 'kaka-flusher' );
+		$this->pump_consumer( $c );
+		$c->checkpoint( true );
+		Core::reset();
+		Core::$recent_log        = [];
+		Core::$recent_log_timers = [];
+		$boot( true );
+		$this->assertCount( 1, $warnings(), 'state with no restore_state() still warns' );
+	}
+
 	public function test_a_stop_a_snapshot_save_reaches_waits_for_the_frame_to_commit(): void {
 		$source = new Partition_Node();
 		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
@@ -4912,6 +4968,16 @@ class Snapshot_Probe extends Node {
 	}
 	public function restore_state( array $saved ): void {
 		$this->state = $saved;
+	}
+}
+
+/** A snapshot node that flushes before the cursor commits and keeps no state. */
+class Flush_Only_Probe extends Node {
+	/** @var array<string, mixed> */
+	public array $state = [];
+	/** @return array<string, mixed> */
+	public function save_state(): array {
+		return $this->state;
 	}
 }
 

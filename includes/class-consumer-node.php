@@ -556,7 +556,9 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 	/**
 	 * Durable_Reader boot seam: Consumer's "where do I start" is a durable seek. Seed
 	 * the cursor from the offsetlog, restore each snapshot node's state (the whole
-	 * topology exists by the first poll), then apply the default_offset() seek when
+	 * topology exists by the first poll; a flush-only node, one with save_state()
+	 * and no restore_state() that saved nothing, boots silently, while a missing
+	 * node or unrestorable state warns), then apply the default_offset() seek when
 	 * there's no checkpoint and no explicit next_offset(). A durable checkpoint
 	 * OVERRIDES a pre-poll next_offset() (resume wins); with no checkpoint, that seek
 	 * stands.
@@ -571,6 +573,9 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 				if ( \is_array( $state ) && null !== $node && \method_exists( $node, 'restore_state' ) ) {
 					$node->restore_state( $state );
 					$restored = true;
+				} elseif ( [] === ( $state ?? [] ) && null !== $node && \method_exists( $node, 'save_state' ) && ! \method_exists( $node, 'restore_state' ) ) {
+					// A flush-only node keeps no state to restore.
+					continue;
 				} else {
 					$this->print_less_often( "WARNING: snapshot node '{$snapshot_name}' missing, stateless, or absent from the frame; skipping its restore" );
 					if ( \is_array( $state ) ) {
