@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.110.0] - 2026-10-14
+
 ### Added
 
 - **`add_source <remote log> <local node>` and `remove_source <remote log> <local node>`, the verbs a broker takes its sources by.** A declared verb on `Remote_Broker_Node`, so `Remote_Source`, `HTTP_Source` and a `Vault_Group` of either answer it. `<remote log>` is an exact stamp, a glob or `sources:<name>`, with `{partition}` resolved at the worker and ownership judged on the source as written (ADR-33); the refusals a pair made (a glob over a group, a stamp too long for a directory name, a reserved slot) stand, and `MAX_READERS` still caps a glob. A source goes to one target: a second target for a declared source is refused (`add_source 'egret.p6' already goes to 'heron-4471'`), and an identical repeat is a no-op. `remove_source` stops routing a source and retracts every reader no other source claims, leaving its offsetlog and dead letters on disk, and refuses a source not declared. `dump_config()` emits one `add_source` line per source after the `make_node`.
