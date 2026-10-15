@@ -20,7 +20,9 @@ use Newspack_Nodes\Sqlite_Arm;
 use Newspack_Nodes\Table_Node;
 use Newspack_Nodes\Table_Unavailable;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
+use Newspack_Nodes\Tests\Lab_Row_Schema;
 use Newspack_Nodes\Tests\TestCase;
+use Newspack_Nodes\Tests\Wombat_Row_Schema;
 use Newspack_Nodes\Topology_Registry;
 use PHPUnit\Framework\Attributes\CoversClass;
 
@@ -65,6 +67,8 @@ final class BootstrapNodeTablesTest extends TestCase {
 		$this->write_tsl( 'wombat-numbat', "make_node Row_Table wombats-6620 Numbat\n" );
 		$this->write_tsl( 'wombat-echo', "var num_partitions = 4\nmake_node Echo wombats-6620\n" );
 		$this->write_tsl( 'wombat-keyed', "make_node Table wombats-6620 wombat:p{partition} 777 sqlite\n" );
+		$this->write_tsl( 'quoll-a', "var num_partitions = 2\nmake_node Row_Table quoll-ledger-3194 Wombat\nmake_node Row_Table labs-5507 Lab\n" );
+		$this->write_tsl( 'quoll-b', "make_node Row_Table quoll-ledger-3194 Wombat\n" );
 	}
 
 	protected function tearDown(): void {
@@ -516,37 +520,30 @@ final class BootstrapNodeTablesTest extends TestCase {
 		Bootstrap::mount_table( [ 'lab&rook' ] );
 	}
 
-	public function test_a_row_table_s_files_resolve_per_partition_with_its_schema(): void {
+	public function test_a_row_table_resolves_by_schema_to_its_name_and_files(): void {
 		$this->activate( 'wombat-a' );
 		$this->assertSame(
 			[
-				'schema' => 'Wombat',
-				'files'  => [
+				'name'  => 'wombats-6620',
+				'files' => [
 					0 => $this->base . '/tables/wombats-6620.p0.sqlite',
 					1 => $this->base . '/tables/wombats-6620.p1.sqlite',
 				],
 			],
-			Bootstrap::row_table_files( 'wombats-6620' )
+			Bootstrap::row_table( Wombat_Row_Schema::class )
 		);
 	}
 
 	public function test_identical_row_table_declarations_union_their_partitions(): void {
 		$this->activate( 'wombat-echo', 'wombat-a', 'wombat-c' );
-		$this->assertSame( [ 0, 1, 2 ], \array_keys( Bootstrap::row_table_files( 'wombats-6620' )['files'] ) );
+		$this->assertSame( [ 0, 1, 2 ], \array_keys( Bootstrap::row_table( Wombat_Row_Schema::class )['files'] ) );
 	}
 
 	public function test_two_topologies_declaring_a_row_table_with_different_schemas_is_refused(): void {
 		$this->activate( 'wombat-a', 'wombat-numbat' );
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'Table wombats-6620 is declared differently by wombat-a and wombat-numbat' );
-		Bootstrap::row_table_files( 'wombats-6620' );
-	}
-
-	public function test_an_undeclared_row_table_is_unavailable(): void {
-		$this->activate( 'wombat-echo', 'kea-a' );
-		$this->expectException( Table_Unavailable::class );
-		$this->expectExceptionMessage( 'Row_Table wombats-6620: no active topology declares it' );
-		Bootstrap::row_table_files( 'wombats-6620' );
+		Bootstrap::row_table( Wombat_Row_Schema::class );
 	}
 
 	public function test_tables_of_answers_each_name_by_kind_per_partition(): void {
@@ -586,5 +583,72 @@ final class BootstrapNodeTablesTest extends TestCase {
 	public function test_a_row_table_is_no_keyed_table_to_resolve_or_mount(): void {
 		$this->activate( 'wombat-a' );
 		$this->assertSame( [ 'wombats-6620' => [] ], Bootstrap::node_tables( 'wombats-6620' ) );
+	}
+
+	public function test_a_row_table_declared_under_any_name_is_found_by_its_schema(): void {
+		$this->activate( 'kea-a', 'quoll-a', 'quoll-b' );
+		$this->assertSame( 'quoll-ledger-3194', Bootstrap::row_table( Wombat_Row_Schema::class )['name'] );
+		$this->assertSame( [ 0, 1 ], \array_keys( Bootstrap::row_table( Wombat_Row_Schema::class )['files'] ) );
+		$this->assertSame( 'labs-5507', Bootstrap::row_table( Lab_Row_Schema::class )['name'] );
+	}
+
+	public function test_two_row_tables_of_one_schema_are_refused_naming_both(): void {
+		$this->activate( 'wombat-a', 'quoll-a' );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'the active topologies declare 2 Row_Tables of schema Wombat: wombats-6620, quoll-ledger-3194' );
+		Bootstrap::row_table( Wombat_Row_Schema::class );
+	}
+
+	public function test_no_row_table_of_a_schema_is_unavailable(): void {
+		$this->activate( 'wombat-numbat', 'kea-a' );
+		$this->expectException( Table_Unavailable::class );
+		$this->expectExceptionMessage( 'no active topology declares a Row_Table of schema Wombat' );
+		Bootstrap::row_table( Wombat_Row_Schema::class );
+	}
+
+	public function test_an_unreadable_topology_raises_when_no_readable_one_declares_the_schema(): void {
+		$this->write_tsl( 'quoll-broken', "include quoll-nowhere-8810\n" );
+		$this->activate( 'quoll-broken', 'kea-a' );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'quoll-nowhere-8810' );
+		Bootstrap::row_table( Wombat_Row_Schema::class );
+	}
+
+	/** A declaration an unreadable topology may hold is never silently left out. */
+	public function test_an_unreadable_active_topology_raises_beside_a_readable_one(): void {
+		$this->write_tsl( 'quoll-broken', "include quoll-nowhere-8810\n" );
+		$this->activate( 'quoll-a', 'quoll-broken' );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'quoll-nowhere-8810' );
+		Bootstrap::row_table( Wombat_Row_Schema::class );
+	}
+
+	public function test_a_class_that_names_no_row_schema_is_refused(): void {
+		$this->activate( 'quoll-a' );
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'Newspack_Nodes\\Tests\\Capture_Sink_Node names no Row_Schema' );
+		Bootstrap::row_table( Capture_Sink_Node::class );
+	}
+
+	public function test_a_row_table_resolves_once_until_the_parsed_topologies_are_dropped(): void {
+		$this->activate( 'quoll-a' );
+		$reads         = 0;
+		$this->counter = static function ( array $topologies ) use ( &$reads ): array {
+			++$reads;
+			return $topologies;
+		};
+		\add_filter( 'newspack_nodes/topologies', $this->counter );
+		Bootstrap::row_table( Wombat_Row_Schema::class );
+		$this->assertSame( 'quoll-ledger-3194', Bootstrap::row_table( Wombat_Row_Schema::class )['name'] );
+		$this->assertSame( 1, $reads, 'a schema resolved in this request is not resolved again' );
+		$this->write_tsl( 'quoll-a', "make_node Row_Table quoll-moved-3194 Wombat\n" );
+		Topology_Registry::reset_basename_cache();
+		$this->assertSame( 'quoll-moved-3194', Bootstrap::row_table( Wombat_Row_Schema::class )['name'], 'a saved topology drops the memo' );
+	}
+
+	public function test_row_tables_of_reads_the_named_topologies_whether_or_not_they_run(): void {
+		$this->activate( 'kea-a' );
+		$this->assertSame( [ 'quoll-ledger-3194', 'wombats-6620' ], Bootstrap::row_tables_of( Wombat_Row_Schema::class, 'quoll-b', 'wombat-c', 'quoll-a', 'kea-a' ) );
+		$this->assertSame( [], Bootstrap::row_tables_of( Wombat_Row_Schema::class, 'kea-a' ) );
 	}
 }

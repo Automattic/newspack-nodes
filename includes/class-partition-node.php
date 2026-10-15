@@ -1489,12 +1489,21 @@ class Partition_Node extends Timer_Node {
 	 * A long-lived reader can therefore pay a re-walk mid-request; that costs
 	 * time, never a wrong answer.
 	 *
+	 * The parser reads each line beside its segment id, and may answer a
+	 * bool instead of an entry. False CUTS the walk, as a reader with a time
+	 * budget does: the call answers null, and the memo records no key as
+	 * searched and no growth as absorbed, so the next call walks again. True
+	 * ENDS it, as a reader that knows the rest of the index holds no wanted
+	 * key does: the call answers what it found, and the memo records only
+	 * those keys. An append is newer than any memo, so its walk reads past
+	 * a true to the end of the delta.
+	 *
 	 * @api Readers resolving many keys to positions before reading any of them.
-	 * @param \Closure(string): ?array{key: string, offset: int, length: int} $extract Line parser.
+	 * @param \Closure(string, int): (array{key: string, offset: int, length: int}|bool|null) $extract Line parser, given each line and its segment; false cuts the walk, true ends it.
 	 * @param list<string> $wanted Keys to resolve; empty reads nothing.
-	 * @return array<string,array{0: int, 1: int, 2: int}> key => [segment, offset, length].
+	 * @return array<string,array{0: int, 1: int, 2: int}>|null key => [segment, offset, length]; null when the parser cut the walk.
 	 */
-	public function locate_by( \Closure $extract, array $wanted ): array {
+	public function locate_by( \Closure $extract, array $wanted ): ?array {
 		// Read-side like scan_index(); asking for nothing records no miss.
 		if ( [] === $wanted ) {
 			return [];
@@ -1516,6 +1525,10 @@ class Partition_Node extends Timer_Node {
 		$newer  = ! $grew || $memo['extent'] === $extent
 			? []
 			: $this->absorb_growth( $extract, $memo, $extent, $keyset );
+		// A cut append walk leaves the memo where it was, retried next call.
+		if ( null === $newer ) {
+			return null;
+		}
 		if ( ! $grew ) {
 			// Discard whole: after one walk a key costs nothing to keep.
 			self::$locator_cache[ $dir ] = [ 'extent' => $extent, 'found' => [], 'searched' => [] ];
@@ -1531,9 +1544,16 @@ class Partition_Node extends Timer_Node {
 			// Fresh map: a by-ref memo separates wholly on the first write.
 			$new       = [];
 			$remaining = $seeking;
+			$cut       = false;
+			$ended     = false;
 			$this->scan_index(
-				static function ( string $line, int $segment ) use ( $extract, &$new, &$remaining ): bool {
-					$at = $extract( $line );
+				static function ( string $line, int $segment ) use ( $extract, &$new, &$remaining, &$cut, &$ended ): bool {
+					$at = $extract( $line, $segment );
+					if ( \is_bool( $at ) ) {
+						$cut   = ! $at;
+						$ended = $at;
+						return false;
+					}
 					if ( null === $at ) {
 						return true;
 					}
@@ -1549,10 +1569,14 @@ class Partition_Node extends Timer_Node {
 				},
 				true
 			);
+			// A cut walk searched nothing for certain; record none of it.
+			if ( $cut ) {
+				return null;
+			}
 			// `+=` merges in place; searched-not-found stays answered.
 			$memo              = &self::$locator_cache[ $dir ];
 			$memo['found']    += $new;
-			$memo['searched'] += $seeking;
+			$memo['searched'] += $ended ? \array_intersect_key( $seeking, $new ) : $seeking;
 			unset( $memo );
 		}
 		// Walk the QUERY: the memo accumulates across every batch.
@@ -1715,13 +1739,13 @@ class Partition_Node extends Timer_Node {
 	 * exactly it. Discarding the memo instead would not: the rebuilt extent
 	 * carries the advanced size, and the full walk skips the same file.
 	 *
-	 * @param \Closure(string): ?array{key: string, offset: int, length: int} $extract Line parser.
+	 * @param \Closure(string, int): (array{key: string, offset: int, length: int}|bool|null) $extract Line parser; false cuts the walk.
 	 * @param array{extent: array<int,array{0: int, 1: int}>, found: array<string,array{0: int, 1: int, 2: int}>, searched: array<string,int>} $memo Memo the delta is measured against.
 	 * @param array<int,array{0: int, 1: int}> $after Index extent now; an unread segment's entry is rolled back.
 	 * @param array<string,int> $answerable Keys the memo may record.
-	 * @return array<string,array{0: int, 1: int, 2: int}> key => [segment, offset, length].
+	 * @return array<string,array{0: int, 1: int, 2: int}>|null key => [segment, offset, length]; null when the parser cut the walk.
 	 */
-	private function absorb_growth( \Closure $extract, array $memo, array &$after, array $answerable ): array {
+	private function absorb_growth( \Closure $extract, array $memo, array &$after, array $answerable ): ?array {
 		$wanted = $memo['searched'] + $answerable;
 		$seen   = [];
 		$ids    = \array_keys( $after );
@@ -1745,8 +1769,12 @@ class Partition_Node extends Timer_Node {
 					if ( '' === $line ) {
 						continue;
 					}
-					$at = $extract( $line );
-					if ( null === $at || isset( $seen[ $at['key'] ] ) || ! isset( $wanted[ $at['key'] ] ) ) {
+					$at = $extract( $line, $id );
+					if ( false === $at ) {
+						return null;
+					}
+					// Appends postdate the memo, so an end reads them whole.
+					if ( ! \is_array( $at ) || isset( $seen[ $at['key'] ] ) || ! isset( $wanted[ $at['key'] ] ) ) {
 						continue;
 					}
 					$seen[ $at['key'] ] = [ $id, $at['offset'], $at['length'] ];

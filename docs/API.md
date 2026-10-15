@@ -468,7 +468,8 @@ page's cursor while members remain
 ([ADR-23](architecture-decisions.md#adr-23-a-request-carries-no-authority-of-its-own));
 [Other Node Primitives](architecture-guide.md#other-node-primitives) carries the
 Table protocol. A Row_Table mounts nowhere: `mount_tables` leaves it out, because only its
-worker answers `ROWS`, and a reader opens its files through `Row_Table_Node::read()`.
+worker answers `ROWS`, and a reader opens its files through `Row_Table_Node::read( $schema, … )`,
+naming the schema, which `Bootstrap::row_table()` resolves to the one table declaring it.
 
 Send that body as `text/plain; charset=UTF-8` — the [`COMMAND_CONTENT_TYPE`](../src/runtime/command-transport.js) the
 browser transport declares — and never as `application/json`; the diagram under

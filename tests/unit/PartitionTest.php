@@ -5488,6 +5488,71 @@ class PartitionTest extends TestCase {
 		$this->assertSame( [ 'k1' ], \array_keys( $found ) );
 	}
 
+	/**
+	 * A parser answering false cuts the walk: nothing more is read, the call
+	 * answers null, and the memo records no key as searched, so the next
+	 * call walks again and finds what the cut walk never reached.
+	 */
+	public function test_a_parser_answering_false_cuts_the_walk_and_forgets_it(): void {
+		$p     = $this->indexed_partition( 'cut', 6 );
+		$lines = 0;
+
+		$cut = $p->locate_by(
+			static function ( string $line ) use ( &$lines ): array|false|null {
+				return 2 < ++$lines ? false : self::unpack_index_line( $line );
+			},
+			[ 'k1', 'k5' ]
+		);
+
+		$this->assertNull( $cut, 'a cut walk answers null, never a part' );
+		$this->assertSame( 3, $lines, 'the walk stopped at the line that cut it' );
+		$this->assertSame(
+			[ 'k1', 'k5' ],
+			\array_keys( $p->locate_by( static fn ( string $line ): ?array => self::unpack_index_line( $line ), [ 'k1', 'k5' ] ) ),
+			'no key the cut walk missed is remembered as absent'
+		);
+	}
+
+	/**
+	 * A parser answering true ends the walk with what it found: the rest of
+	 * the index holds no wanted key. Only the keys found are remembered, so a
+	 * key the ended walk never reached is looked for again. The parser reads
+	 * each line's segment beside it.
+	 */
+	public function test_a_parser_answering_true_ends_the_walk_with_what_it_found(): void {
+		$p        = $this->indexed_partition( 'ended', 6 );
+		$lines    = 0;
+		$segments = [];
+
+		$ended = $p->locate_by(
+			static function ( string $line, int $segment ) use ( &$lines, &$segments ): array|bool|null {
+				$segments[ $segment ] = true;
+				return 2 < ++$lines ? true : self::unpack_index_line( $line );
+			},
+			[ 'k5', 'k1' ]
+		);
+
+		$this->assertSame( [ 'k5' ], \array_keys( $ended ), 'the walk ended past k5 and before k1' );
+		$this->assertSame( [ 0 ], \array_keys( $segments ) );
+		$this->assertSame(
+			[ 'k5', 'k1' ],
+			\array_keys( $p->locate_by( static fn ( string $line ): ?array => self::unpack_index_line( $line ), [ 'k5', 'k1' ] ) ),
+			'a key the ended walk did not reach is not remembered as absent'
+		);
+	}
+
+	/** A cut while absorbing an append leaves the memo where it was. */
+	public function test_a_parser_cutting_an_append_walk_keeps_the_old_extent(): void {
+		$p     = $this->indexed_partition( 'cutgrow', 2 );
+		$parse = static fn ( string $line ): ?array => self::unpack_index_line( $line );
+		$this->assertSame( [ 'k1' ], \array_keys( $p->locate_by( $parse, [ 'k1', 'k7' ] ) ) );
+		$this->write_keyed( $p, 'k7', 'appended 7' );
+		$p->flush();
+
+		$this->assertNull( $p->locate_by( static fn (): false => false, [ 'k1', 'k7' ] ) );
+		$this->assertSame( [ 'k1', 'k7' ], \array_keys( $p->locate_by( $parse, [ 'k1', 'k7' ] ) ), 'the append is absorbed on the next call' );
+	}
+
 	public function test_read_many_returns_each_located_record(): void {
 		$p        = $this->indexed_partition( 'readmany', 3 );
 		$locators = $p->locate_by(

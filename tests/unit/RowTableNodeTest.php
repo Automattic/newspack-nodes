@@ -101,7 +101,7 @@ final class RowTableNodeTest extends TestCase {
 	/** Every partition's visit count, through read(). */
 	private static function visits(): mixed {
 		return Row_Table_Node::read(
-			'wombats-6620',
+			Wombat_Row_Schema::class,
 			static fn ( Row_Reader $r ): array => $r->rows( 'SELECT count(*) FROM ( ' . \implode( ' UNION ALL ', \array_map( static fn ( string $a ): string => "SELECT * FROM {$a}.visits", $r->aliases() ) ) . ' )', [] )
 		);
 	}
@@ -365,7 +365,7 @@ final class RowTableNodeTest extends TestCase {
 		$this->assertSame( [ [ 2 ] ], self::visits() );
 		$this->assertSame(
 			[ 'p0', 'p3' ],
-			Row_Table_Node::read( 'wombats-6620', static fn ( Row_Reader $r ): array => $r->aliases() )
+			Row_Table_Node::read( Wombat_Row_Schema::class, static fn ( Row_Reader $r ): array => $r->aliases() )
 		);
 	}
 
@@ -375,21 +375,21 @@ final class RowTableNodeTest extends TestCase {
 		$this->activate( 'wombat-fleet' );
 		$this->assertSame(
 			[ [ 'rid-5502', 4.25 ] ],
-			Row_Table_Node::read( 'wombats-6620', static fn ( Row_Reader $r ): array => $r->rows( 'SELECT rid, ms FROM p3.visits WHERE bucket / 300 > ? ORDER BY rid LIMIT ?', [ 5966666, 1 ] ) ),
+			Row_Table_Node::read( Wombat_Row_Schema::class, static fn ( Row_Reader $r ): array => $r->rows( 'SELECT rid, ms FROM p3.visits WHERE bucket / 300 > ? ORDER BY rid LIMIT ?', [ 5966666, 1 ] ) ),
 			'an expression has no affinity, so a TEXT bind would compare above every INTEGER'
 		);
 	}
 
 	public function test_read_with_no_files_answers_empty_aliases(): void {
 		$this->activate( 'wombat-fleet' );
-		$this->assertSame( [], Row_Table_Node::read( 'wombats-6620', static fn ( Row_Reader $r ): array => $r->aliases() ) );
+		$this->assertSame( [], Row_Table_Node::read( Wombat_Row_Schema::class, static fn ( Row_Reader $r ): array => $r->aliases() ) );
 	}
 
 	public function test_read_of_a_row_table_no_active_topology_declares_is_unavailable(): void {
 		$this->activate();
 		$this->expectException( Table_Unavailable::class );
-		$this->expectExceptionMessage( 'Row_Table wombats-6620: no active topology declares it' );
-		Row_Table_Node::read( 'wombats-6620', static fn (): null => null );
+		$this->expectExceptionMessage( 'no active topology declares a Row_Table of schema Wombat' );
+		Row_Table_Node::read( Wombat_Row_Schema::class, static fn (): null => null );
 	}
 
 	public function test_read_without_pdo_sqlite_is_unavailable(): void {
@@ -397,21 +397,21 @@ final class RowTableNodeTest extends TestCase {
 		Sqlite_Arm::$available = static fn (): bool => false;
 		$this->expectException( Table_Unavailable::class );
 		$this->expectExceptionMessage( 'Row_Table wombats-6620: sqlite backend needs the pdo_sqlite extension' );
-		Row_Table_Node::read( 'wombats-6620', static fn (): null => null );
+		Row_Table_Node::read( Wombat_Row_Schema::class, static fn (): null => null );
 	}
 
 	public function test_read_of_a_file_that_is_no_database_is_unavailable(): void {
 		$this->activate( 'wombat-fleet' );
 		\mkdir( $this->base . '/tables' );
 		\file_put_contents( Table_Node::file( 'wombats-6620', 2 ), \str_repeat( 'not a database ', 512 ) );
-		$e = $this->caught( fn () => Row_Table_Node::read( 'wombats-6620', static fn (): null => null ), 'a junk file' );
+		$e = $this->caught( fn () => Row_Table_Node::read( Wombat_Row_Schema::class, static fn (): null => null ), 'a junk file' );
 		$this->assertInstanceOf( Table_Unavailable::class, $e );
 		$this->assertStringStartsWith( 'Row_Table wombats-6620: ', $e->getMessage() );
 	}
 
 	public function test_read_answers_what_its_reader_returns(): void {
 		$this->activate( 'wombat-fleet' );
-		$this->assertSame( 'kea-4471', Row_Table_Node::read( 'wombats-6620', static fn (): string => 'kea-4471' ) );
+		$this->assertSame( 'kea-4471', Row_Table_Node::read( Wombat_Row_Schema::class, static fn (): string => 'kea-4471' ) );
 	}
 
 	public function test_a_keyed_insert_through_fill_is_refused_and_goes_nowhere(): void {
@@ -462,6 +462,6 @@ final class RowTableNodeTest extends TestCase {
 	/** The burrows the table's own partition file holds. */
 	private function burrow_count( Row_Table_Node $table ): array {
 		$this->activate( 'wombat-fleet' );
-		return Row_Table_Node::read( 'wombats-6620', static fn ( Row_Reader $r ): array => $r->rows( 'SELECT count(*) FROM p3.burrows', [] ) );
+		return Row_Table_Node::read( Wombat_Row_Schema::class, static fn ( Row_Reader $r ): array => $r->rows( 'SELECT count(*) FROM p3.burrows', [] ) );
 	}
 }

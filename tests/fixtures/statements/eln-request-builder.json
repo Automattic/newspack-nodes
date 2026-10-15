@@ -278,22 +278,6 @@
         "raw": "command_node requests:partition:config void_warranty"
     },
     {
-        "verb": "command_node",
-        "values": [
-            "command_node",
-            "requests:partition:config",
-            "with_index",
-            "request-index"
-        ],
-        "spans": [
-            "command_node",
-            "requests:partition:config",
-            "with_index",
-            "request-index"
-        ],
-        "raw": "command_node requests:partition:config with_index request-index"
-    },
-    {
         "verb": "connect_node",
         "values": [
             "connect_node",

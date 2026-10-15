@@ -24,7 +24,6 @@ cmd request-builder:config set_errors_target errors:partition
 cmd request-builder:config set_inflight_target gyroscope:partition
 cmd request-builder:config set_completed_target completed:tee
 cmd requests:partition:config void_warranty
-cmd requests:partition:config with_index request-index
 connect_node completed:tee completed:partition
 connect_node completed:tee gyroscope:partition
 connect_node firehose:consumer request-builder
