@@ -90,17 +90,18 @@ class SessionsTest extends TestCase {
 	}
 
 	/**
-	 * One copy of a session's scope and expiry: its row's. Moving the row's
-	 * expiry moves what the listing says.
+	 * One copy of a session's scope and expiry: its row's. The listing reads
+	 * the life the row has left, so its expiry holds as time passes.
 	 */
 	public function test_the_listing_reads_scope_and_expiry_from_the_session_row(): void {
-		$session = Sessions::issue( 'kea-5151', Capabilities::TUNE, 900 );
-		Command_Auth::session_table()->touch( $session['handle'], 5151 );
+		Core::$clock = static fn (): float => 1790000000.0;
+		Sessions::issue( 'kea-5151', Capabilities::TUNE, 5151 );
+		Core::$clock = static fn (): float => 1790000417.0;
 
 		$row = Sessions::listing()[0];
 
 		$this->assertSame( Capabilities::TUNE, $row['scope'] );
-		$this->assertEqualsWithDelta( \time() + 5151, $row['expires'], 2, 'the row\'s moved expiry' );
+		$this->assertSame( 1790005151, $row['expires'], 'the row\'s expiry, not now plus the minted 5151' );
 	}
 
 	public function test_a_revoked_session_leaves_the_listing_and_stops_verifying(): void {

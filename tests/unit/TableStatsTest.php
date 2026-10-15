@@ -18,7 +18,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 #[CoversClass( Table_Node::class )]
 #[CoversClass( Durable_Arm::class )]
 final class TableStatsTest extends TestCase {
-	private const VERBS = [ 'GET', 'MGET', 'SMEMBERS', 'SSCAN', 'SMOVE', 'SREM', 'TOUCH', 'RM', 'MSET', 'ADD', 'SADD', 'INSERT', 'PURGE', 'CHECKPOINT' ];
+	private const VERBS = [ 'GET', 'SMOVE', 'SREM', 'RM', 'ADD', 'SADD', 'INSERT', 'SMEMBERS', 'PURGE', 'CHECKPOINT' ];
 
 	private string $dir = '';
 	private Table_Node $table;
@@ -118,32 +118,22 @@ final class TableStatsTest extends TestCase {
 	}
 
 	public function test_a_refused_request_counts_an_error_against_its_verb(): void {
-		$this->ask( 3000000, "TOUCH soon kea-41\n" );
-		$this->ask( 5000000, "TOUCH -7 kea-42\n" );
+		$this->ask( 3000000, "SMOVE soon word:kea word:owl\n" );
+		$this->ask( 5000000, "SMOVE -7 word:kea word:owl\n" );
 		$this->ask( 1000000, "GET kea-43\n" );
 
 		$stats = $this->table->stats();
-		$this->assertSame( 2, $stats['TOUCH']['errors'] );
-		$this->assertSame( 2, $stats['TOUCH']['calls'] );
+		$this->assertSame( 2, $stats['SMOVE']['errors'] );
+		$this->assertSame( 2, $stats['SMOVE']['calls'] );
 		$this->assertSame( 0, $stats['GET']['errors'] );
 	}
 
 	public function test_a_failed_read_counts_an_error(): void {
 		$this->insert( 1000000, 'kea-41', 'v-41' );
 		( new \PDO( 'sqlite:' . Table_Node::file( 'lab-7:kea', 3 ) ) )->exec( 'DROP TABLE kv' );
-		$this->ask( 2000000, "MGET kea-41 kea-42\n" );
 		$this->ask( 2000000, "GET kea-41\n" );
 
-		$this->assertSame( 1, $this->table->stats()['MGET']['errors'] );
 		$this->assertSame( 1, $this->table->stats()['GET']['errors'] );
-	}
-
-	public function test_a_failed_member_read_counts_an_error(): void {
-		$this->ask( 1000000, [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => 1 ] ] ] ] );
-		( new \PDO( 'sqlite:' . Table_Node::file( 'lab-7:kea', 3 ) ) )->exec( 'DROP TABLE members' );
-		$this->ask( 2000000, "SMEMBERS 9 word:kea\n" );
-
-		$this->assertSame( 1, $this->table->stats()['SMEMBERS']['errors'] );
 	}
 
 	public function test_an_unknown_verb_counts_no_row(): void {
@@ -152,9 +142,9 @@ final class TableStatsTest extends TestCase {
 	}
 
 	public function test_reset_stats_zeroes_the_errors(): void {
-		$this->ask( 3000000, "TOUCH soon kea-41\n" );
+		$this->ask( 3000000, "SMOVE soon word:kea word:owl\n" );
 		$this->table->reset_stats();
-		$this->assertSame( 0, $this->table->stats()['TOUCH']['errors'] );
+		$this->assertSame( 0, $this->table->stats()['SMOVE']['errors'] );
 	}
 
 	public function test_every_verb_starts_at_zero(): void {
@@ -162,18 +152,16 @@ final class TableStatsTest extends TestCase {
 	}
 
 	public function test_counters_tally_a_seeded_mix_of_verbs(): void {
-		$this->ask( 1250000, [ 'MSET' => [ 'sku-41' => [ 'a' ], 'sku 42' => [ 'b' ], 'sku-43' => [ 'c', 37 ] ] ] );
-		$this->ask( 2500000, "MGET sku-41 sku-42 sku-43\n" );
-		$this->ask( 4000000, "MGET sku-43\n" );
-		$this->ask( 750000, "GET sku-41 sku-43\n" );
+		$this->ask( 1250000, [ 'ADD' => [ 'sku-41' => [ 'a' ], 'sku 42' => [ 'b' ], 'sku-43' => [ 'c', 37 ] ] ] );
+		$this->ask( 750000, "GET sku-41\n" );
 		$this->ask( 500000, [ 'ADD' => [ 'sku-41' => [ 'x' ], 'sku-44' => [ 'y' ] ] ] );
-		$this->ask( 300000, "TOUCH 900 sku-41 sku-49\n" );
 		$this->ask( 200000, "RM sku-44 sku-49\n" );
 		$this->insert( 125000, 'sku-47', 'owl' );
 		$this->insert( 175000, 'sku-47', '' );
 		$this->ask( 3000000, [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => 1, 'u-43' => 3 ] ], 'word:owl' => [ [ 'u-47' => 7 ], 777 ], 'bad set' => [ [ 'u-9' => 9 ] ] ] ] );
-		$this->ask( 1100000, "SMEMBERS 9 word:kea word:emu\n" );
-		$this->ask( 900000, "SSCAN 1 word:kea\n" );
+		$this->table->members_of( [ 'word:kea', 'word:emu' ], 9 );
+		$this->ask( 400000, "SMOVE 1 word:kea word:emu\n" );
+		$this->ask( 600000, "SREM word:owl u-47 u-49\n" );
 		$this->ask( 5000000, "SCAN urltoken 5\n" );
 		$this->step  = 6000000;
 		Core::$clock = static fn (): float => 1790000038.0;
@@ -188,17 +176,13 @@ final class TableStatsTest extends TestCase {
 		$this->assertSame(
 			[
 				'GET'      => self::row( 1, 1, 1, 0.75, 0.75 ),
-				'MGET'     => self::row( 2, 4, 3, 6.5, 4.0 ),
-				'SMEMBERS' => self::row( 1, 2, 2, 1.1, 1.1 ),
-				'SSCAN'    => self::row( 1, 1, 1, 0.9, 0.9 ),
-				'SMOVE'    => self::row( 0, 0, 0, 0.0, 0.0 ),
-				'SREM'     => self::row( 0, 0, 0, 0.0, 0.0 ),
-				'TOUCH'    => self::row( 1, 2, 1, 0.3, 0.3 ),
+				'SMOVE'    => self::row( 1, 1, 1, 0.4, 0.4 ),
+				'SREM'     => self::row( 1, 2, 1, 0.6, 0.6 ),
 				'RM'       => self::row( 1, 2, 1, 0.2, 0.2 ),
-				'MSET'     => self::row( 1, 3, 2, 1.25, 1.25 ),
-				'ADD'      => self::row( 1, 2, 1, 0.5, 0.5 ),
+				'ADD'      => self::row( 2, 5, 3, 1.75, 1.25 ),
 				'SADD'     => self::row( 1, 3, 3, 3.0, 3.0 ),
 				'INSERT'   => self::row( 2, 2, 2, 0.3, 0.175 ),
+				'SMEMBERS' => self::row( 0, 2, 2, 0.0, 0.0 ),
 				'PURGE'    => self::row( 1, Table_Node::PURGE_BATCH_ROWS, 1, 6.0, 6.0 ),
 			],
 			self::without_bytes( $stats ),
@@ -207,22 +191,21 @@ final class TableStatsTest extends TestCase {
 	}
 
 	public function test_bytes_are_the_encoded_sizes_the_arm_stored_and_returned(): void {
-		$this->ask( 1000, [ 'MSET' => [ 'sku-41' => [ [ 'usd' => 1250, 'eur' => 1180 ] ], 'sku-43' => [ \str_repeat( 'kea', 41 ) ] ] ] );
+		$this->ask( 1000, [ 'ADD' => [ 'sku-41' => [ [ 'usd' => 1250, 'eur' => 1180 ] ] ] ] );
 		$kv = $this->stored_bytes( 'kv' );
-		$this->ask( 1000, "MGET sku-41 sku-43 sku-49\n" );
+		$this->ask( 1000, "GET sku-41\n" );
 		$this->insert( 1000, 'sku-47', \str_repeat( 'owl', 77 ) );
 		$inserted = $this->stored_bytes( 'kv' ) - $kv;
 		$this->ask( 1000, [ 'SADD' => [ 'word:kea' => [ [ 'u-41' => [ 'w' => 3 ], 'u-43' => 'emu' ] ] ] ] );
 		$members = $this->stored_bytes( 'members' );
-		$this->ask( 1000, "SMEMBERS 9 word:kea\n" );
 
 		$bytes = \array_map( static fn ( array $row ): int => $row['bytes'], $this->table->stats() );
 		$this->assertGreaterThan( 0, $kv );
 		$this->assertGreaterThan( 231, $inserted );
 		$this->assertGreaterThan( 0, $members );
 		$this->assertSame(
-			[ 'MGET' => $kv, 'SMEMBERS' => $members, 'MSET' => $kv, 'SADD' => $members, 'INSERT' => $inserted ],
-			\array_intersect_key( $bytes, \array_flip( [ 'MSET', 'MGET', 'INSERT', 'SADD', 'SMEMBERS' ] ) )
+			[ 'GET' => $kv, 'ADD' => $kv, 'SADD' => $members, 'INSERT' => $inserted ],
+			\array_intersect_key( $bytes, \array_flip( [ 'ADD', 'GET', 'INSERT', 'SADD' ] ) )
 		);
 	}
 
@@ -239,35 +222,35 @@ final class TableStatsTest extends TestCase {
 	}
 
 	public function test_the_stats_verb_answers_the_counters(): void {
-		$this->ask( 1500000, "MGET sku-41 sku-42\n" );
+		$this->ask( 1500000, "GET sku-42\n" );
 		$stats = Core::node( 'lab-7:kea:config' )->dispatch( 'stats' );
-		$this->assertSame( self::row( 1, 2, 0, 1.5, 1.5 ), $stats['MGET'] );
+		$this->assertSame( self::row( 1, 1, 0, 1.5, 1.5 ), $stats['GET'] );
 		$this->assertSame( $this->table->stats(), $stats );
 	}
 
 	public function test_reset_stats_answers_the_counters_it_zeroed(): void {
-		$this->ask( 1500000, "MGET sku-41 sku-42\n" );
+		$this->ask( 1500000, "GET sku-42\n" );
 		$config = Core::node( 'lab-7:kea:config' );
-		$this->assertSame( self::row( 1, 2, 0, 1.5, 1.5 ), $config->dispatch( 'reset_stats' )['MGET'] );
+		$this->assertSame( self::row( 1, 1, 0, 1.5, 1.5 ), $config->dispatch( 'reset_stats' )['GET'] );
 		$this->assertSame( self::zeroes(), $config->dispatch( 'stats' ) );
 	}
 
 	public function test_stats_only_reads_so_it_takes_no_action(): void {
-		$this->ask( 1500000, "MGET sku-41 sku-42\n" );
+		$this->ask( 1500000, "GET sku-42\n" );
 		$config = Core::node( 'lab-7:kea:config' );
 		try {
 			$config->dispatch( 'stats', [ 'reset' ] );
 			$this->fail( 'stats zeroed its counters' );
 		} catch ( \InvalidArgumentException $e ) {
-			$this->assertSame( 1, $this->table->stats()['MGET']['calls'], 'a refused stats zeroes nothing' );
+			$this->assertSame( 1, $this->table->stats()['GET']['calls'], 'a refused stats zeroes nothing' );
 		}
 	}
 
 	public function test_a_mount_keeps_its_own_counters_and_refuses_reset_stats(): void {
 		$this->table->store( 'sku-41', 'kea-41' );
 		$mount = Table_Node::mount( 'lab-7:kea', 3, [ 'namespace' => 'kea:p3', 'ttl' => 777, 'backend' => 'sqlite' ], $this->sink );
-		$this->ask( 900000, "MGET sku-41 sku-42\n", $mount );
-		$this->assertSame( self::row( 1, 2, 1, 0.9, 0.9 ), \array_replace( $mount->stats()['MGET'], [ 'bytes' => 0 ] ) );
+		$this->ask( 900000, "GET sku-41\n", $mount );
+		$this->assertSame( self::row( 1, 1, 1, 0.9, 0.9 ), \array_replace( $mount->stats()['GET'], [ 'bytes' => 0 ] ) );
 		$this->assertSame( self::zeroes(), $this->table->stats(), 'the worker Table counts only its own' );
 		try {
 			Core::node( 'lab-7:kea.p3:config' )->dispatch( 'reset_stats' );
@@ -275,7 +258,7 @@ final class TableStatsTest extends TestCase {
 		} catch ( \RuntimeException $e ) {
 			$this->assertSame( 'reset_stats: lab-7:kea.p3 is a mounted Table, which serves reads only', $e->getMessage() );
 		}
-		$this->assertSame( 1, $mount->stats()['MGET']['calls'], 'a refused reset zeroes nothing' );
+		$this->assertSame( 1, $mount->stats()['GET']['calls'], 'a refused reset zeroes nothing' );
 	}
 
 	/** Every stderr line written while `$run` runs, past the process identity. */
@@ -294,23 +277,23 @@ final class TableStatsTest extends TestCase {
 	}
 
 	public function test_a_traced_table_sums_each_tick_into_one_line_and_a_quiet_tick_into_none(): void {
-		$this->ask( 9000000, "MGET sku-40\n" );
+		$this->ask( 9000000, "GET sku-40\n" );
 		$this->table->debug_state( 1 );
-		$this->ask( 1250000, [ 'MSET' => [ 'sku-41' => [ 'a' ], 'sku-43' => [ 'c', 37 ] ] ] );
-		$this->ask( 2500000, "MGET sku-41\n" );
-		$this->ask( 4000000, "MGET sku-43\n" );
+		$this->ask( 1250000, [ 'ADD' => [ 'sku-41' => [ 'a' ], 'sku-43' => [ 'c', 37 ] ] ] );
+		$this->ask( 2500000, "GET sku-41\n" );
+		$this->ask( 4000000, "GET sku-43\n" );
 		$this->step = 6000000;
 		$first      = $this->stderr_of( static fn () => Table_Node::tick( 1790000000 ) );
-		$this->assertSame( [ 'lab-7:kea: DEBUG: MGET 2 6.5ms, MSET 1 1.25ms, PURGE 1 6ms, CHECKPOINT 1 6ms' ], $first, 'calls before the trace began are not in it' );
+		$this->assertSame( [ 'lab-7:kea: DEBUG: GET 2 6.5ms, ADD 1 1.25ms, PURGE 1 6ms, CHECKPOINT 1 6ms' ], $first, 'calls before the trace began are not in it' );
 		$this->assertSame( [], $this->stderr_of( static fn () => Table_Node::tick( 1790000001 ) ), 'nothing was called since' );
 	}
 
 	public function test_a_trace_turned_off_and_on_again_sums_from_when_it_came_back(): void {
 		Table_Node::tick( 1790000000 );
 		$this->table->debug_state( 1 );
-		$this->ask( 1250000, [ 'MSET' => [ 'sku-41' => [ 'a' ] ] ] );
+		$this->ask( 1250000, [ 'ADD' => [ 'sku-41' => [ 'a' ] ] ] );
 		$this->table->debug_state( 0 );
-		$this->ask( 2500000, "MGET sku-41\n" );
+		$this->ask( 2500000, "GET sku-41\n" );
 		$this->table->debug_state( 3 );
 		$this->ask( 750000, "GET sku-41\n" );
 		$this->assertSame( [ 'lab-7:kea: DEBUG: GET 1 0.75ms' ], $this->stderr_of( static fn () => Table_Node::tick( 1790000001 ) ) );
@@ -319,22 +302,22 @@ final class TableStatsTest extends TestCase {
 	public function test_a_trace_line_carries_the_calls_a_reset_landed_between(): void {
 		Table_Node::tick( 1790000000 );
 		$this->table->debug_state( 1 );
-		$this->ask( 2500000, "MGET sku-41\n" );
-		$this->ask( 2500000, "MGET sku-43\n" );
+		$this->ask( 2500000, "GET sku-41\n" );
+		$this->ask( 2500000, "GET sku-43\n" );
 		$this->table->reset_stats();
-		$this->ask( 750000, "MGET sku-47\n" );
-		$this->assertSame( [ 'lab-7:kea: DEBUG: MGET 3 5.75ms' ], $this->stderr_of( static fn () => Table_Node::tick( 1790000001 ) ) );
+		$this->ask( 750000, "GET sku-47\n" );
+		$this->assertSame( [ 'lab-7:kea: DEBUG: GET 3 5.75ms' ], $this->stderr_of( static fn () => Table_Node::tick( 1790000001 ) ) );
 	}
 
 	public function test_a_trace_across_a_reset_sums_what_came_after_it(): void {
 		Table_Node::tick( 1790000000 );
 		$this->table->debug_state( 1 );
-		$this->ask( 2500000, "MGET sku-41\n" );
-		$this->ask( 2500000, "MGET sku-43\n" );
-		$this->assertSame( [ 'lab-7:kea: DEBUG: MGET 2 5ms' ], $this->stderr_of( static fn () => Table_Node::tick( 1790000001 ) ) );
+		$this->ask( 2500000, "GET sku-41\n" );
+		$this->ask( 2500000, "GET sku-43\n" );
+		$this->assertSame( [ 'lab-7:kea: DEBUG: GET 2 5ms' ], $this->stderr_of( static fn () => Table_Node::tick( 1790000001 ) ) );
 		$this->table->reset_stats();
-		$this->ask( 750000, "MGET sku-47\n" );
-		$this->assertSame( [ 'lab-7:kea: DEBUG: MGET 1 0.75ms' ], $this->stderr_of( static fn () => Table_Node::tick( 1790000002 ) ) );
+		$this->ask( 750000, "GET sku-47\n" );
+		$this->assertSame( [ 'lab-7:kea: DEBUG: GET 1 0.75ms' ], $this->stderr_of( static fn () => Table_Node::tick( 1790000002 ) ) );
 	}
 
 	public function test_an_untraced_table_writes_no_trace_line(): void {
@@ -347,22 +330,22 @@ final class TableStatsTest extends TestCase {
 			$volatile->sink( $this->sink );
 			$lines = $this->stderr_of(
 				function () use ( $volatile ): void {
-					$this->ask( 1250000, [ 'MSET' => [ 'sku-41' => [ 'a' ] ] ] );
-					$this->ask( 1250000, [ 'MSET' => [ 'sku-41' => [ 'a' ] ] ], $volatile );
+					$this->ask( 1250000, [ 'ADD' => [ 'sku-41' => [ 'a' ] ] ] );
+					$this->ask( 1250000, [ 'ADD' => [ 'sku-41' => [ 'a' ] ] ], $volatile );
 					Table_Node::tick( 1790000000 );
 				}
 			);
 			$this->assertSame( [], \array_values( \array_filter( $lines, static fn ( string $line ): bool => \str_contains( $line, 'DEBUG:' ) ) ) );
 			$volatile->debug_state( 1 );
-			$this->ask( 2500000, "MGET sku-41\n", $volatile );
-			$this->assertSame( [ 'lab-7:owl: DEBUG: MGET 1 2.5ms' ], $this->stderr_of( static fn () => Table_Node::tick( 1790000001 ) ), 'a volatile Table traces on the tick too' );
+			$this->ask( 2500000, "GET sku-41\n", $volatile );
+			$this->assertSame( [ 'lab-7:owl: DEBUG: GET 1 2.5ms' ], $this->stderr_of( static fn () => Table_Node::tick( 1790000001 ) ), 'a volatile Table traces on the tick too' );
 		} finally {
 			Core::$memd = $memd;
 		}
 	}
 
 	public function test_dump_metadata_and_dump_node_carry_the_counters(): void {
-		$this->ask( 1500000, "MGET sku-41\n" );
+		$this->ask( 1500000, "GET sku-41\n" );
 		$this->assertSame( [ 'verb_stats' => $this->table->stats() ], $this->table->dump_metadata() );
 		$this->assertSame( $this->table->stats(), $this->table->dump_node()['verb_stats'] );
 	}
@@ -416,24 +399,24 @@ final class TableStatsTest extends TestCase {
 
 	public function test_two_drains_split_the_work_and_stats_keeps_the_running_total(): void {
 		$this->insert( 3000000, 'kea-41', 'v-41' );
-		$this->ask( 7000000, "MGET kea-41 kea-99\n" );
+		$this->ask( 7000000, "GET kea-41\n" );
 		$first = $this->drained_verbs();
-		$this->ask( 2000000, "MGET kea-41\n" );
+		$this->ask( 2000000, "GET kea-99\n" );
 		$second = $this->drained_verbs();
 
-		$this->assertEqualsCanonicalizing( [ 'INSERT', 'MGET' ], \array_keys( $first ) );
-		$this->assertSame( [ 1, 2, 1 ], \array_slice( $first['MGET'], 0, 3 ) );
-		$this->assertSame( 7.0, $first['MGET'][ Tablestats_Record::ROW_MS ] );
-		$this->assertSame( [ 'MGET' ], \array_keys( $second ) );
-		$this->assertSame( [ 1, 1, 1 ], \array_slice( $second['MGET'], 0, 3 ) );
-		$this->assertSame( 2.0, $second['MGET'][ Tablestats_Record::ROW_MAX_MS ] );
-		$this->assertSame( 2, $this->table->stats()['MGET']['calls'] );
-		$this->assertSame( 7.0, $this->table->stats()['MGET']['max_ms'] );
+		$this->assertEqualsCanonicalizing( [ 'INSERT', 'GET' ], \array_keys( $first ) );
+		$this->assertSame( [ 1, 1, 1 ], \array_slice( $first['GET'], 0, 3 ) );
+		$this->assertSame( 7.0, $first['GET'][ Tablestats_Record::ROW_MS ] );
+		$this->assertSame( [ 'GET' ], \array_keys( $second ) );
+		$this->assertSame( [ 1, 1, 0 ], \array_slice( $second['GET'], 0, 3 ) );
+		$this->assertSame( 2.0, $second['GET'][ Tablestats_Record::ROW_MAX_MS ] );
+		$this->assertSame( 2, $this->table->stats()['GET']['calls'] );
+		$this->assertSame( 7.0, $this->table->stats()['GET']['max_ms'] );
 	}
 
 	public function test_a_window_counts_its_errors(): void {
-		$this->ask( 3000000, "TOUCH soon kea-41\n" );
-		$this->assertSame( 1, $this->drained_verbs()['TOUCH'][ Tablestats_Record::ROW_ERRORS ] );
+		$this->ask( 3000000, "SMOVE soon word:kea word:owl\n" );
+		$this->assertSame( 1, $this->drained_verbs()['SMOVE'][ Tablestats_Record::ROW_ERRORS ] );
 	}
 
 	public function test_a_quiet_window_carries_no_verbs_and_its_elapsed_time(): void {

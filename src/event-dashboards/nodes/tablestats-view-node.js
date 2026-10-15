@@ -13,8 +13,8 @@ import { ProbeStreamViewNode, bucketTotals } from './probe-stream-view-node';
  */
 export const OP_PREFIX = 'op:';
 
-/** The operations whose keys asked and answered are reads. */
-const READS = [ 'GET', 'MGET' ];
+/** The operation whose keys asked and answered are reads. */
+const READ = 'GET';
 
 /** The scalars `_windowed` sums over the window, and the longest call. */
 const TOTALED = [
@@ -165,7 +165,7 @@ export class TablestatsViewNode extends ProbeStreamViewNode {
 			s.ms += this._delta( r[ Tbl.ROW_MS ] );
 			s.maxMs = Math.max( s.maxMs, this._delta( r[ Tbl.ROW_MAX_MS ] ) );
 			s[ OP_PREFIX + op ] = calls;
-			if ( READS.includes( op ) ) {
+			if ( READ === op ) {
 				s.readKeys += asked;
 				s.hitKeys += answered;
 			} else if ( 'PURGE' === op ) {

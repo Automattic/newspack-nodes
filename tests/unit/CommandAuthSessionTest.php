@@ -359,12 +359,11 @@ class CommandAuthSessionTest extends TestCase {
 	public function test_a_session_records_life_is_the_life_its_row_has_left(): void {
 		Core::$clock = static fn (): float => 1790000000.0;
 		$session     = Command_Auth::mint_session( Capabilities::READ, self::TTL );
-		$this->assertTrue( $this->store()->touch( $session['handle'], 5151 ) );
 		Core::$clock = static fn (): float => 1790000051.0;
 
 		$record = Command_Auth::load_session_record( $session['handle'] );
 
-		$this->assertSame( 5100, $record['ttl'] ?? null, 'the row\'s own expiry, moved, not a copy made at mint' );
+		$this->assertSame( self::TTL - 51, $record['ttl'] ?? null, 'the life the row has left, not the TTL copied at mint' );
 		$this->assertSame( [ 'key', 'scope', 'user', 'ttl', 'label', 'created' ], \array_keys( $record ) );
 	}
 

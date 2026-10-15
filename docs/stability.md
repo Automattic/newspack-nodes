@@ -17,10 +17,9 @@ Table builds. A consumer calls the contract's methods on the arm it is handed
 and never names an arm class. The Table surface a consumer reaches past the list
 is [`Table_Client`](../includes/class-table-client.php), `Bootstrap::node_tables()`
 and `Bootstrap::mount_table( array $names )`, and each moves inside a major as the
-rest do. `Table_Client`'s `@api` methods are `get_multi()`, `set_multi()`,
-`add_multi()`, `touch()`, `remove()`, `accepts()`, and the set-member four
+rest do. `Table_Client`'s `@api` methods are `add_multi()`, `remove()`,
+`accepts()`, and the set-member three
 `add_members( string $table, array $sets, int $ttl ): array`,
-`members( string $table, array $set_keys, int $limit, ?bool &$failed = null ): array`,
 `move_members( string $table, string $from, string $to, int $count, ?bool &$failed = null ): array` and
 `remove_members( string $table, string $set_key, array $members ): array`,
 which answer through a durable Table alone.

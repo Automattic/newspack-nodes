@@ -167,6 +167,19 @@ assert_clean "class-http-out-node.php's blocking probe may call sign_for(" "$d"
 d=$( fixture mint-send includes/class-widget-node.php '$m = Command_Auth::mint_for( $egress, $from, $to, $verb, $args );' )
 assert_clean "a mint through Command_Auth::mint_for( is not flagged" "$d"
 
+walk='$part->scan_index( fn ( $line ) => null, true );'
+d=$( fixture walk includes/class-widget-node.php "$walk" )
+assert_flags "an index walked outside Partition_Node is flagged" "$d" "[index-walk-outside-partition]"
+
+d=$( fixture walk-owner includes/class-partition-node.php "$walk" )
+assert_clean "class-partition-node.php may walk its own index" "$d"
+
+d=$( fixture walk-tombstones includes/trait-dead-letter-queue.php "$walk" )
+assert_clean "the dead-letter tombstone fold may walk every line" "$d"
+
+d=$( fixture locate includes/class-widget-node.php '$at = $part->locate_by( $extract, $rids );' )
+assert_clean "a lookup through locate_by( is not flagged" "$d"
+
 d=$( fixture op-id src/runtime/widget.js 'm[ ID ] = nextId++;' )
 assert_flags "a minted ID is flagged" "$d" "[op-id]"
 

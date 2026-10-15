@@ -1175,7 +1175,7 @@ describe( 'TablestatsViewNode', () => {
 		v.fill(
 			tablestatsMsg( {
 				verbs: {
-					MGET: row( 9, 40, 31, 0, 18, 6.5, 0 ),
+					GET: row( 9, 40, 31, 0, 18, 6.5, 0 ),
 					PURGE: row( 2, 10000, 4210, 0, 30, 21, 0 ),
 					CHECKPOINT: row( 1, 3712, 3700, 0, 12, 12, 0 ),
 				},
@@ -1187,10 +1187,10 @@ describe( 'TablestatsViewNode', () => {
 		const at = ( metric ) =>
 			chart( snap, metric, byKey )[ 'lab-7:kea.p3' ].points[ 0 ].value;
 		expect( f.opsDelta.last ).toBe( 12 );
-		expect( f[ `${ OP_PREFIX }MGET` ].last ).toBe( 9 );
+		expect( f[ `${ OP_PREFIX }GET` ].last ).toBe( 9 );
 		expect( f.misses.last ).toBe( 9 );
 		expect( at( 'opsRate' ) ).toBe( 4 );
-		expect( at( `${ OP_PREFIX }MGET` ) ).toBe( 3 );
+		expect( at( `${ OP_PREFIX }GET` ) ).toBe( 3 );
 		expect( at( 'missRate' ) ).toBe( 3 );
 		expect( at( 'meanMs' ) ).toBe( 5 );
 		expect( f.maxMs.last ).toBe( 21 );

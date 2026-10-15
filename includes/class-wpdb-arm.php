@@ -204,10 +204,8 @@ final class Wpdb_Arm extends Durable_Arm {
 	}
 
 	/** See Durable_Arm::select_member_rows(). */
-	protected function select_member_rows( string $set_key, int $limit, ?string $after ): array {
-		$statement = null === $after
-			? $this->member_statement( 'SELECT member, `value`, expires FROM %i WHERE namespace = %s AND set_key = %s AND expires > %d ORDER BY member LIMIT %d', $this->namespace, $set_key, self::now(), $limit )
-			: $this->member_statement( 'SELECT member, `value`, expires FROM %i WHERE namespace = %s AND set_key = %s AND member > %s AND expires > %d ORDER BY member LIMIT %d', $this->namespace, $set_key, $after, self::now(), $limit );
+	protected function select_member_rows( string $set_key, int $limit ): array {
+		$statement = $this->member_statement( 'SELECT member, `value`, expires FROM %i WHERE namespace = %s AND set_key = %s AND expires > %d ORDER BY member LIMIT %d', $this->namespace, $set_key, self::now(), $limit );
 		$out       = [];
 		foreach ( $this->rows( $statement ) as $row ) {
 			$out[] = [ Core::as_string( $row['member'] ), self::stored( $row['value'] ), Core::as_int( $row['expires'] ) ];
@@ -387,11 +385,6 @@ final class Wpdb_Arm extends Durable_Arm {
 			\base64_encode( $old ),
 			self::now()
 		);
-	}
-
-	/** See Durable_Arm::update_expiry(); MySQL counts an unmoved expiry as no change. */
-	protected function update_expiry( string $key, int $expires ): int {
-		return $this->run( 'UPDATE %i SET expires = %d WHERE namespace = %s AND cache_key = %s AND ' . self::LIVE, $expires, $this->namespace, $key, self::now() );
 	}
 
 	/** See Durable_Arm::delete_key(). */

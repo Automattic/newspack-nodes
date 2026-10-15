@@ -6,6 +6,33 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`Table_Node::lookup_multi()`, `store_multi()`, `touch()`,
+  `accumulator()`, `accumulate()`, `accumulated()`, `accumulating()` and
+  `reset()` are gone.** Read keys with `lookup()` or `GET`, write them with
+  `store()` or `add()`, and hold any state you are still folding in on your
+  own node. `Partition_Node::scan_index()` is no longer `@api`: find keys with
+  `locate_by()` and read them with `read_many()` (ADR-18).
+
+- **`Table_Client::get_multi()`, `members()`, `all_members()`, `set_multi()`
+  and `touch()` are gone, and a Table no longer answers `MGET`, `SMEMBERS`,
+  `SSCAN`, `TOUCH` or `MSET`.** A Table refuses each as an unknown verb, and
+  `MSET` with `only ADD and SADD take a structure`; a mount answers `GET`
+  alone, one key per request. What replaces each:
+  - `get_multi()`: no many-key read remains. Ask `GET <key>` once per key, or
+    call `Table_Node::lookup()` in process.
+  - `members()`, `all_members()`: no set read remains on the wire. In process,
+    `Table_Node::members_of()` reads up to `Table_Node::MAX_MEMBERS_LIMIT`
+    members of a set, with no paging past it.
+  - `set_multi()`: no overwriting write remains on the wire. `ADD`
+    (`Table_Client::add_multi()`) writes only keys that are absent; in
+    process, `Table_Node::store()` overwrites one key.
+  - `touch()`: nothing moves a key's expiry any more.
+
+  newspack-event-logger-nodes 0.133.0 still calls `get_multi()`, `members()`,
+  `all_members()` and `set_multi()`, and 0.134.0 stops. Deploy this release
+  and 0.134.0 together, inside one fleet hold (`wp nodes stop` … `wp nodes
+  start`).
+
 - **`Durable_Arm::purge( $now, $limit )` answers `{ rows, full }`.** A caller
   reading the rows deleted reads `['rows']`; `full` says whether more may
   wait, which the count alone cannot for a Row_Table. `Table_Node::purge()`

@@ -312,7 +312,7 @@ final class RowTableNodeTest extends TestCase {
 			[ [ 'ROWS' => self::visit( 'rid-5501', 1790000000 ) ], Message::TM_REQUEST ],
 			[ [ 'ROWS' => 'rid-5501' ], Message::TM_REQUEST | Message::TM_STRUCT ],
 			[ [ 'ROWS' => [ 'b' => [ 'insert', 'visits', [] ] ] ], Message::TM_REQUEST | Message::TM_STRUCT ],
-			[ [ 'ROWS' => [], 'MSET' => [] ], Message::TM_REQUEST | Message::TM_STRUCT ],
+			[ [ 'ROWS' => [], 'ADD' => [] ], Message::TM_REQUEST | Message::TM_STRUCT ],
 		] as [ $value, $type ] ) {
 			$replies = $this->ask( $table, $value, $type );
 			$this->assertSame( Message::TM_ERROR, $replies[0][ Message::TYPE ] );
@@ -324,13 +324,13 @@ final class RowTableNodeTest extends TestCase {
 		$table = $this->row_table( 'wombats-6620', 'Wombat' );
 		$this->assertSame( [ [ Message::TM_ERROR, '', "GET: unknown verb\n" ] ], self::shape( $this->ask( $table, "GET sku-41\n", Message::TM_REQUEST ) ) );
 		$this->assertSame(
-			[ [ Message::TM_ERROR, '', "MSET: only ROWS takes a structure\n" ] ],
-			self::shape( $this->ask( $table, [ 'MSET' => [ 'sku-41' => [ 7 ] ] ] ) )
+			[ [ Message::TM_ERROR, '', "ADD: only ROWS takes a structure\n" ] ],
+			self::shape( $this->ask( $table, [ 'ADD' => [ 'sku-41' => [ 7 ] ] ] ) )
 		);
 		$this->assertArrayNotHasKey( 'GET', $table->stats(), 'a Row_Table counts the verbs it declares' );
 	}
 
-	public function test_rows_on_a_keyed_table_is_refused_as_any_structure_but_mset_add_and_sadd(): void {
+	public function test_rows_on_a_keyed_table_is_refused_as_any_structure_but_add_and_sadd(): void {
 		Core::$var['partition'] = '3';
 		try {
 			$keyed = new Table_Node();
@@ -341,7 +341,7 @@ final class RowTableNodeTest extends TestCase {
 		}
 		$keyed->sink( $this->sink );
 		$replies = $this->ask( $keyed, [ 'ROWS' => self::visit( 'rid-5501', 1790000000 ) ] );
-		$this->assertSame( [ [ Message::TM_ERROR, '', "ROWS: only MSET, ADD and SADD take a structure\n" ] ], self::shape( $replies ) );
+		$this->assertSame( [ [ Message::TM_ERROR, '', "ROWS: only ADD and SADD take a structure\n" ] ], self::shape( $replies ) );
 		$this->assertArrayNotHasKey( 'ROWS', $keyed->stats(), 'only a Row_Table counts ROWS' );
 	}
 

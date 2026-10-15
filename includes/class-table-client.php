@@ -49,115 +49,11 @@ final class Table_Client {
 	}
 
 	/**
-	 * `MGET`: the values `$table` holds, by key; absent keys are absent.
-	 * An all-digit key comes back as an int array key, as PHP casts it.
-	 *
-	 * @api A node asking Tables: event-logger-nodes' `Stats_Store`.
-	 * @param string       $table  The Table's registered name.
-	 * @param list<string> $keys   Keys.
-	 * @param ?bool        $failed Set true when the read did not answer.
-	 * @param-out bool     $failed
-	 * @return array<array-key,mixed>
-	 * @throws \LogicException When an ask is in flight already.
-	 * @throws \RuntimeException When the asker has no name or no sink.
-	 */
-	public function get_multi( string $table, array $keys, ?bool &$failed = null ): array {
-		$failed = false;
-		$keys   = $this->nameable( $keys );
-		if ( [] === $keys ) {
-			return [];
-		}
-		$found = [];
-		foreach ( $this->counted( 'MGET', $this->ask( $table, Message::TM_REQUEST, 'MGET ' . \implode( ' ', $keys ) . "\n" ), $failed ) as $reply ) {
-			$found[ Core::as_string( $reply[ Message::KEY ], '' ) ] = $reply[ Message::VALUE ];
-		}
-		return $found;
-	}
-
-	/**
-	 * `SMEMBERS`: each set's live members by set key then member, in member
-	 * order, or null for a set holding more than `$limit`; a set with no live
-	 * member is absent. An all-digit set key or member comes back as an int
-	 * array key, as PHP casts it.
-	 *
-	 * @api A node asking Tables: event-logger-nodes' search index.
-	 * @param string       $table    The Table's registered name.
-	 * @param list<string> $set_keys Set keys.
-	 * @param int          $limit    Most members a set may hold and be answered,
-	 *                               from 1 to `Table_Node::MAX_MEMBERS_LIMIT`.
-	 * @param ?bool        $failed   Set true when the read did not answer.
-	 * @param-out bool     $failed
-	 * @return array<array-key,array<array-key,mixed>|null>
-	 * @throws \LogicException When an ask is in flight already.
-	 * @throws \RuntimeException When the asker has no name or no sink.
-	 */
-	public function members( string $table, array $set_keys, int $limit, ?bool &$failed = null ): array {
-		$failed   = false;
-		$set_keys = $this->nameable( $set_keys );
-		if ( [] === $set_keys ) {
-			return [];
-		}
-		$found = [];
-		$over  = Table_Node::OVER_LIMIT . " {$limit}\n";
-		foreach ( $this->counted( 'SMEMBERS', $this->ask( $table, Message::TM_REQUEST, "SMEMBERS {$limit} " . \implode( ' ', $set_keys ) . "\n" ), $failed ) as $reply ) {
-			$members = self::member_map( $reply, $over );
-			if ( false === $members ) {
-				$failed = true;
-				return [];
-			}
-			$found[ Core::as_string( $reply[ Message::KEY ], '' ) ] = $members;
-		}
-		return $found;
-	}
-
-	/**
-	 * Every live member of one set, read `SSCAN` page by page, each page
-	 * asking from the cursor the last named, so a set of any size reads
-	 * whole however `Table_Node::MAX_MEMBERS_LIMIT` caps one page. A set that
-	 * cannot be named is refused with a rate-limited line and asks nothing. An
-	 * all-digit member comes back as an int array key, as PHP casts it.
-	 *
-	 * @api A node reading a set past one page: event-logger-nodes' bucket index.
-	 * @param string   $table   The Table's registered name.
-	 * @param string   $set_key Set key.
-	 * @param int      $page    Most members one page answers, from 1 to
-	 *                          `Table_Node::MAX_MEMBERS_LIMIT`.
-	 * @param ?bool    $failed  Set true when any page did not answer.
-	 * @param-out bool $failed
-	 * @return array<array-key,mixed> Member => value, in member order; none
-	 *                                when a page failed, which never reads as
-	 *                                a short set.
-	 * @throws \LogicException When an ask is in flight already.
-	 * @throws \RuntimeException When the asker has no name or no sink.
-	 */
-	public function all_members( string $table, string $set_key, int $page, ?bool &$failed = null ): array {
-		$failed = false;
-		if ( [] === $this->nameable( [ $set_key ] ) ) {
-			return [];
-		}
-		$all    = [];
-		$cursor = '';
-		do {
-			$asked = "SSCAN {$page} {$set_key}" . ( '' === $cursor ? '' : " {$cursor}" ) . "\n";
-			foreach ( $this->counted( 'SSCAN', $this->ask( $table, Message::TM_REQUEST, $asked ), $failed, $cursor ) as $reply ) {
-				$members = self::member_map( $reply, '' );
-				if ( ! \is_array( $members ) ) {
-					$failed = true;
-					return [];
-				}
-				$all += $members;
-			}
-			if ( $failed ) {
-				return [];
-			}
-		} while ( '' !== $cursor );
-		return $all;
-	}
-
-	/**
 	 * `SMOVE`: move up to `$count` members of `$from` into `$to`. A set that
 	 * cannot be named is refused with a rate-limited line and asks nothing; a
-	 * move naming one set twice is the Table's to refuse, and fails.
+	 * move naming one set twice is the Table's to refuse, and fails. The move
+	 * failed on a TM_ERROR, a missing count, a count the set messages miss, or
+	 * a set that is no TM_STRUCT list of `[ member, value ]` pairs.
 	 *
 	 * @api A node moving members between sets: the Crawler_Node.
 	 * @param string   $table  The Table's registered name.
@@ -176,77 +72,34 @@ final class Table_Client {
 			Core::print_less_often( 'Table_Client: a move needs two nameable sets' );
 			return [];
 		}
-		foreach ( $this->counted( 'SMOVE', $this->ask( $table, Message::TM_REQUEST, "SMOVE {$count} {$from} {$to}\n" ), $failed ) as $reply ) {
-			$members = self::member_map( $reply, '' );
-			if ( ! \is_array( $members ) ) {
-				$failed = true;
-				return [];
-			}
-			return \array_map( 'strval', \array_keys( $members ) );
-		}
-		return [];
-	}
-
-	/**
-	 * One set's SMEMBERS answer: a TM_STRUCT list of `[ member, value ]`
-	 * pairs, or the over-limit marker naming the limit asked.
-	 *
-	 * @param array<int,mixed> $reply The set's message.
-	 * @param string           $over  The marker the asked limit gives.
-	 * @return array<array-key,mixed>|null|false Member => value, null past the
-	 *                                           limit, false for anything else.
-	 */
-	private static function member_map( array $reply, string $over ): array|null|false {
-		$value = $reply[ Message::VALUE ];
-		if ( 0 === ( Core::num_int( $reply[ Message::TYPE ] ) & Message::TM_STRUCT ) ) {
-			return $over === $value ? null : false;
-		}
-		if ( ! \is_array( $value ) || ! \array_is_list( $value ) ) {
-			return false;
-		}
-		$members = [];
-		foreach ( $value as $pair ) {
-			if ( ! \is_array( $pair ) || ! \array_is_list( $pair ) || 2 !== \count( $pair ) ) {
-				return false;
-			}
-			$members[ Core::as_string( $pair[0], '' ) ] = $pair[1];
-		}
-		return $members;
-	}
-
-	/**
-	 * A read's value messages; none and failed on a TM_ERROR, no count, or a
-	 * count they miss. An `SSCAN` count may name the next page's cursor.
-	 *
-	 * @param string                 $verb    The verb the count names.
-	 * @param list<array<int,mixed>> $replies What the ask collected.
-	 * @param bool                   $failed  Set true when the read did not answer.
-	 * @param string                 $cursor  Set to the cursor the count names, or ''.
-	 * @return list<array<int,mixed>>
-	 */
-	private function counted( string $verb, array $replies, bool &$failed, string &$cursor = '' ): array {
-		$values = [];
-		$count  = null;
-		$cursor = '';
-		$next   = 'SSCAN' === $verb ? '(?: (' . \preg_quote( Table_Node::AFTER, '/' ) . '\\S*))?' : '';
-		foreach ( $replies as $reply ) {
+		$sets     = [];
+		$answered = null;
+		foreach ( $this->ask( $table, Message::TM_REQUEST, "SMOVE {$count} {$from} {$to}\n" ) as $reply ) {
 			$type = Core::num_int( $reply[ Message::TYPE ] );
 			if ( 0 !== ( $type & Message::TM_ERROR ) ) {
 				$failed = true;
 				return [];
 			}
 			if ( 0 !== ( $type & Message::TM_INFO ) ) {
-				$count  = 1 === \preg_match( "/^{$verb} (\\d+){$next}\\n?$/D", Core::as_string( $reply[ Message::VALUE ], '' ), $m ) ? (int) $m[1] : null;
-				$cursor = $m[2] ?? '';
+				$answered = 1 === \preg_match( '/^SMOVE (\d+)\n?$/D', Core::as_string( $reply[ Message::VALUE ], '' ), $m ) ? (int) $m[1] : null;
 				continue;
 			}
-			$values[] = $reply;
+			$sets[] = $reply;
 		}
-		if ( \count( $values ) !== $count ) {
+		$value = $sets[0][ Message::VALUE ] ?? null;
+		if ( \count( $sets ) !== $answered || ( [] !== $sets && ( 0 === ( Core::num_int( $sets[0][ Message::TYPE ] ) & Message::TM_STRUCT ) || ! \is_array( $value ) || ! \array_is_list( $value ) ) ) ) {
 			$failed = true;
 			return [];
 		}
-		return $values;
+		$moved = [];
+		foreach ( \is_array( $value ) ? $value : [] as $pair ) {
+			if ( ! \is_array( $pair ) || ! \array_is_list( $pair ) || 2 !== \count( $pair ) ) {
+				$failed = true;
+				return [];
+			}
+			$moved[ Core::as_string( $pair[0], '' ) ] = true;
+		}
+		return \array_map( 'strval', \array_keys( $moved ) );
 	}
 
 	/**
@@ -265,20 +118,6 @@ final class Table_Client {
 			return [];
 		}
 		return $this->write_keys( $table, 'SREM', [ $set_key ], $members );
-	}
-
-	/**
-	 * `MSET`: each item under its TTL, or the Table's.
-	 *
-	 * @api A node asking Tables: event-logger-nodes' `Stats_Store`.
-	 * @param string                                    $table The Table's registered name.
-	 * @param array<array-key,array{0: mixed, 1?: int}> $items Key => [ value, ttl ].
-	 * @return list<string> The keys that landed.
-	 * @throws \LogicException When an ask is in flight already.
-	 * @throws \RuntimeException When the asker has no name or no sink.
-	 */
-	public function set_multi( string $table, array $items ): array {
-		return $this->write_struct( $table, 'MSET', $items );
 	}
 
 	/**
@@ -304,7 +143,7 @@ final class Table_Client {
 	 * `SADD`: each set's members, every set under `$ttl`; a re-added member's
 	 * value and expiry are replaced.
 	 *
-	 * @api A node asking Tables: event-logger-nodes' search index.
+	 * @api A node asking Tables: the Crawler_Node.
 	 * @param string                                   $table The Table's registered name.
 	 * @param array<array-key,array<array-key,mixed>> $sets  Set key => [ member => value ].
 	 * @param int                                      $ttl   Seconds each member lives, at least 1.
@@ -317,10 +156,10 @@ final class Table_Client {
 	}
 
 	/**
-	 * A structured write: `MSET`, `ADD` or `SADD`, under TM_REQUEST|TM_STRUCT.
+	 * A structured write: `ADD` or `SADD`, under TM_REQUEST|TM_STRUCT.
 	 *
 	 * @param string                 $table  The Table's registered name.
-	 * @param string                 $verb   `MSET`, `ADD` or `SADD`.
+	 * @param string                 $verb   `ADD` or `SADD`.
 	 * @param array<array-key,mixed> $items  Key => [ value, ttl ].
 	 * @param bool                   $failed Set true when the write did not answer.
 	 * @return list<string> The keys the write took effect on.
@@ -365,21 +204,6 @@ final class Table_Client {
 	}
 
 	/**
-	 * `TOUCH`: move each key's expiry to `$ttl` from now.
-	 *
-	 * @api A node asking Tables: event-logger-nodes' `Stats_Store`.
-	 * @param string       $table The Table's registered name.
-	 * @param int          $ttl   Seconds from now.
-	 * @param list<string> $keys  Keys.
-	 * @return list<string> The keys that were there to touch.
-	 * @throws \LogicException When an ask is in flight already.
-	 * @throws \RuntimeException When the asker has no name or no sink.
-	 */
-	public function touch( string $table, int $ttl, array $keys ): array {
-		return $this->write_keys( $table, 'TOUCH', [ (string) $ttl ], $keys );
-	}
-
-	/**
 	 * `RM`: delete each key.
 	 *
 	 * @api A node asking Tables: `Crawler_Node`.
@@ -394,10 +218,10 @@ final class Table_Client {
 	}
 
 	/**
-	 * A string write naming keys: `TOUCH <ttl>` or `RM`.
+	 * A string write naming keys: `SREM <set_key>` or `RM`.
 	 *
 	 * @param string       $table The Table's registered name.
-	 * @param string       $verb  `TOUCH` or `RM`.
+	 * @param string       $verb  `SREM` or `RM`.
 	 * @param list<string> $args  The verb's arguments ahead of the keys.
 	 * @param list<string> $keys  Keys.
 	 * @return list<string> The keys the write took effect on.

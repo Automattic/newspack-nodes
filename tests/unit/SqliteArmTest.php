@@ -88,7 +88,6 @@ final class SqliteArmTest extends TestCase {
 		try {
 			$this->assertFalse( $arm->add( 'sku-43', 1, 0 ) );
 			$this->assertNull( $arm->delete( 'sku-41' ), 'a delete the store did not answer is unknown, not absent' );
-			$this->assertNull( $arm->touch( 'sku-41', 777 ) );
 			$this->assertFalse( $arm->increment( 'sku-41' ) );
 			$this->assertFalse( $arm->compare_and_swap( 'sku-41', 5, 6 ) );
 			$this->assertSame( 0, $arm->purge( \time() + 9999, 10 )['rows'] );
@@ -330,17 +329,6 @@ final class SqliteArmTest extends TestCase {
 		$this->assertStringNotContainsString( 'SCAN', $detail );
 		$this->assertStringContainsString( 'ORDER BY member', $sql );
 		$this->assertStringNotContainsString( 'TEMP B-TREE', $detail, 'the key order serves ORDER BY member for free' );
-	}
-
-	public function test_a_member_page_seeks_past_its_cursor_through_the_primary_key(): void {
-		$arm = new Sqlite_Arm( $this->path(), 'kea:p3' );
-		$arm->add_members( [ 'word:w17' => [ [ 'https://kea.example/17/1' => 1 ], 777 ] ] );
-		$sql  = ( new \ReflectionClassConstant( Sqlite_Arm::class, 'MEMBERS_AFTER' ) )->getValue();
-		$plan = ( new \PDO( 'sqlite:' . $this->path() ) )->prepare( "EXPLAIN QUERY PLAN {$sql}" );
-		$plan->execute( [ 'word:w17', 'https://kea.example/17/0', 1, 7 ] );
-		$detail = \implode( "\n", \array_column( $plan->fetchAll( \PDO::FETCH_ASSOC ), 'detail' ) );
-		$this->assertStringContainsString( 'SEARCH members USING PRIMARY KEY (set_key=? AND member>?)', $detail );
-		$this->assertStringNotContainsString( 'TEMP B-TREE', $detail );
 	}
 
 	public function test_the_member_purge_seeks_expired_rows_through_the_expires_index(): void {
@@ -585,25 +573,13 @@ final class SqliteArmTest extends TestCase {
 		$this->assertSame( [ 'word:owl' ], $db->query( 'SELECT set_key FROM members' )->fetchAll( \PDO::FETCH_COLUMN ) );
 	}
 
-	// ── Batched deletes and touches: one write scope for the whole batch ──
+	// ── Batched deletes: one write scope for the whole batch ──
 
 	/** WAL frames `$op` writes: the log is written back first and restarts under it. */
 	private function frames_written_by( Sqlite_Arm $arm, \Closure $op ): int {
 		$arm->checkpoint();
 		$op();
 		return $arm->checkpoint()[0];
-	}
-
-	public function test_a_batched_touch_runs_one_write_scope(): void {
-		$arm = new Sqlite_Arm( $this->path(), 'kea:p3' );
-		Core::$clock = static fn (): float => 1790000000.0;
-		$arm->write_multi( [ 'sku-41' => 'kea-41', 'sku-43' => 'kea-43', 'sku-47' => 'kea-47' ], 37 );
-		$two = $this->frames_written_by( $arm, fn () => $this->assertSame( [ 'sku-41', 'sku-43' ], $arm->touch_multi( [ 'sku-41', 'sku-49', 'sku-43' ], 777 ) ) );
-		$one = $this->frames_written_by( $arm, fn () => $arm->touch_multi( [ 'sku-47' ], 778 ) );
-		$this->assertGreaterThan( 0, $one );
-		$this->assertSame( $one, $two, 'two keys dirty their pages once, in one BEGIN IMMEDIATE' );
-		$db = new \PDO( 'sqlite:' . $this->path() );
-		$this->assertSame( [ 1790000777, 1790000777, 1790000778 ], $db->query( 'SELECT expires FROM kv ORDER BY "key"' )->fetchAll( \PDO::FETCH_COLUMN ) );
 	}
 
 	public function test_a_batched_delete_runs_one_write_scope(): void {
@@ -624,7 +600,6 @@ final class SqliteArmTest extends TestCase {
 		$other->exec( 'BEGIN IMMEDIATE' );
 		try {
 			$this->assertSame( [], $arm->delete_multi( [] ) );
-			$this->assertSame( [], $arm->touch_multi( [], 777 ) );
 			$this->assertSame( 'sqlite ' . $file . ': ', $arm->last_failure(), 'no lock was asked for' );
 			$this->assertSame( [], $arm->delete_multi( [ 'sku-41' ] ), 'a real batch waits on the held lock and fails' );
 			$this->assertStringContainsString( 'locked', $arm->last_failure() );

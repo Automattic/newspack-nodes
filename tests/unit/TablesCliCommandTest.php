@@ -377,7 +377,7 @@ final class TablesCliCommandTest extends TestCase {
 		$ask                      = Message::new_message();
 		$ask[ Message::TYPE ]     = Message::TM_REQUEST;
 		$ask[ Message::FROM ]     = 'asker-9';
-		$ask[ Message::VALUE ]    = "MGET sku-9 sku-10\n";
+		$ask[ Message::VALUE ]    = "GET sku-9\n";
 		$table->fill( $ask );
 		$table->fill( $ask );
 
@@ -385,8 +385,8 @@ final class TablesCliCommandTest extends TestCase {
 
 		$row = $this->printed()[1];
 		$this->assertSame( [ 'lab-7:kea', 1, 'live' ], [ $row['Table'], $row['Partition'], $row['State'] ] );
-		$this->assertSame( 2, $row['Verbs']['MGET']['calls'] );
-		$this->assertArrayHasKey( 'total_ms', $row['Verbs']['MGET'] );
+		$this->assertSame( 2, $row['Verbs']['GET']['calls'] );
+		$this->assertArrayHasKey( 'total_ms', $row['Verbs']['GET'] );
 		$this->assertArrayNotHasKey( 'SADD', $row['Verbs'], 'a verb never called is left out' );
 		$this->assertSame( [ 'lab-7:kea:config stats' ], $this->answered, 'one stats asked, of the live owner alone' );
 		$this->assertNull( $this->printed()[0]['Verbs'], 'a down owner is asked nothing' );

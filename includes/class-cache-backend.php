@@ -486,15 +486,14 @@ abstract class Cache_Backend {
 	abstract public function delete( string $key ): ?bool;
 
 	/**
-	 * Extend many keys' expiry. One by one on a volatile arm, in one write
-	 * scope on a durable one.
+	 * The keys `$took` answers true for, in order.
 	 *
-	 * @param list<string> $keys The cache keys.
-	 * @param int          $ttl  New expiry in seconds; 0 = no expiry.
-	 * @return list<string> The keys that existed and whose expiry moved.
+	 * @param list<string>              $keys The cache keys.
+	 * @param \Closure(string): bool $took Whether the operation took effect on a key.
+	 * @return list<string>
 	 */
-	public function touch_multi( array $keys, int $ttl ): array {
-		return $this->taking( $keys, fn ( string $key ): bool => true === $this->touch( $key, $ttl ) );
+	protected function taking( array $keys, \Closure $took ): array {
+		return \array_values( \array_filter( $keys, $took ) );
 	}
 
 	/**
@@ -508,7 +507,8 @@ abstract class Cache_Backend {
 	 * APCu has no native touch, so that arm fetches and re-stores under the
 	 * new ttl. Those are two operations, and a write landing between them is
 	 * overwritten with the older value — use it where the value is a lease the
-	 * holder alone refreshes, as `SSE_Slot_Pool::touch()` does.
+	 * holder alone refreshes, as `SSE_Slot_Pool::touch()` does. A durable
+	 * arm refuses it: its rows keep the expiry they were written with.
 	 *
 	 * @param string $key The cache key.
 	 * @param int    $ttl New expiry in seconds; 0 = no expiry.
@@ -517,17 +517,6 @@ abstract class Cache_Backend {
 	 *                   did not answer.
 	 */
 	abstract public function touch( string $key, int $ttl ): ?bool;
-
-	/**
-	 * The keys `$took` answers true for, in order.
-	 *
-	 * @param list<string>              $keys The cache keys.
-	 * @param \Closure(string): bool $took Whether the operation took effect on a key.
-	 * @return list<string>
-	 */
-	protected function taking( array $keys, \Closure $took ): array {
-		return \array_values( \array_filter( $keys, $took ) );
-	}
 
 	/**
 	 * Selected backend name, for failure diagnostics.

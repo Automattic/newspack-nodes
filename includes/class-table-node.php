@@ -27,13 +27,9 @@
  * how a caller stays out of the key convention's business. Nothing about them
  * needs a graph: `Table_Node::table( $ns, $ttl )` builds one anywhere.
  *
- * Two tiers hang off that store, both off until a caller opts in. The
- * ACCUMULATOR holds values a caller is still folding into, bringing back
- * Tachikoma's buckets as a tier rather than as the store: a table is a
- * cross-process source of truth and held state is not, so opting in buys speed
- * and pays bounded staleness. The BACKING is the durable system of record a
+ * A BACKING, off until a caller opts in, is the durable system of record a
  * miss falls through to, which makes the table a cache of that record rather
- * than the record itself (ADR-18). See accumulator() and backed_by().
+ * than the record itself (ADR-18). See backed_by().
  *
  * @package Newspack_Nodes
  */
@@ -54,13 +50,12 @@ class Table_Node extends Node {
 	public const BACKENDS = [ 'auto', 'memcache', 'apcu', 'sqlite', 'wpdb' ];
 
 	/**
-	 * Most members one SMEMBERS or SSCAN page answers for a set: a ceiling on
-	 * what one read through a mount may cost, as the arm reads one row past
-	 * it. A set larger than this is read whole page by page through SSCAN.
+	 * Most members one members_of() read answers for a set, or one SMOVE
+	 * moves: a ceiling on what one call may cost.
 	 */
 	public const MAX_MEMBERS_LIMIT = 10000;
 
-	/** The limits SMEMBERS and members_of() admit, for a refusal to name. */
+	/** The limits SMOVE and members_of() admit, for a refusal to name. */
 	private const MEMBERS_LIMIT_RANGE = 'a whole number from 1 to ' . self::MAX_MEMBERS_LIMIT;
 
 	/** Seconds between one Table's purges. */
@@ -112,38 +107,17 @@ class Table_Node extends Node {
 	/** Most bytes of a refused verb a log line or its throttle key shows. */
 	private const SHOWN_VERB_BYTES = 64;
 
-	/** How every read request is answered. */
-	private const READ_REPLY = 'one message per value found, KEY set: TM_STRUCT for an array, TM_BYTESTREAM (a string) otherwise; then TM_INFO "<VERB> <n>", or one TM_ERROR "<VERB>: backend read failed"';
-
-	/** How a SMEMBERS request is answered. */
-	private const MEMBERS_REPLY = 'one message per set holding a live member, KEY the set key: TM_STRUCT, VALUE a list of [ member, value ] in member order, or TM_BYTESTREAM "OVER <limit>" past the limit; then TM_INFO "SMEMBERS <n>", or one TM_ERROR "SMEMBERS: backend read failed"';
-
-	/** How a SSCAN request is answered. */
-	private const PAGE_REPLY = 'one TM_STRUCT when the page holds a live member, KEY the set key, VALUE a list of [ member, value ] in member order; then TM_INFO "SSCAN <n>", with " after=<member>" when more remain, or one TM_ERROR "SSCAN: backend read failed"';
-
-	/**
-	 * The word that opens an SSCAN cursor, `after=<member>`: the member the
-	 * page starts after, percent-encoded, so a member holding whitespace, or
-	 * the empty member, is still one token. A reply names the next page's.
-	 */
-	public const AFTER = 'after=';
+	/** How a GET request is answered. */
+	private const READ_REPLY = 'one message per value found, KEY set: TM_STRUCT for an array, TM_BYTESTREAM (a string) otherwise; then TM_INFO "GET <n>", or one TM_ERROR "GET: backend read failed"';
 
 	/** How a SMOVE request is answered. */
 	private const MOVED_REPLY = 'one TM_STRUCT, KEY the from set, VALUE a list of [ member, value ] moved, lowest member first, then TM_INFO "SMOVE 1", or one TM_ERROR "SMOVE: backend write failed"';
 
 	/**
-	 * The word a SMEMBERS reply gives a set holding more than its limit, as
-	 * `OVER <limit>\n` under TM_BYTESTREAM: the set's answer as MGET gives a
-	 * string value, told from a member list by its type, and naming the
-	 * limit it passed so a reader can check it asked for that one.
-	 */
-	public const OVER_LIMIT = 'OVER';
-
-	/**
 	 * The verbs a mount answers: its declaring worker is the file's one writer
 	 * (ADR-6), and a request carries no authority beyond the mount (ADR-23).
 	 */
-	private const READ_VERBS = [ 'GET', 'MGET', 'SMEMBERS', 'SSCAN' ];
+	private const READ_VERBS = [ 'GET' ];
 
 	/** Why a mount refuses any other verb. */
 	private const READS_ONLY = 'a mounted Table serves reads only';
@@ -175,8 +149,8 @@ class Table_Node extends Node {
 	/** A verb's longest call since the probe last drained, in nanoseconds. */
 	private const WINDOW_MAX_NS = 7;
 
-	/** The verbs counted beside the requests: fill()'s keyed INSERT and the tick's. */
-	private const COUNTED = [ 'INSERT', 'PURGE', 'CHECKPOINT' ];
+	/** The verbs counted beside the requests: INSERT, members_of()'s SMEMBERS, and the tick's. */
+	private const COUNTED = [ 'INSERT', 'SMEMBERS', 'PURGE', 'CHECKPOINT' ];
 
 	/**
 	 * Each class's declared requests, read once from its node_schema(): verb
@@ -215,9 +189,6 @@ class Table_Node extends Node {
 
 	/** Whether this is a request-graph mount, which serves reads only. */
 	private bool $mounted = false;
-
-	/** In-memory accumulator, or null until accumulator() opts in. */
-	private ?LRU_Cache $buffer = null;
 
 	/** The tick this Table's next purge is due, in epoch seconds. */
 	private int $purge_due = 0;
@@ -297,7 +268,7 @@ class Table_Node extends Node {
 	 *
 	 * Re-calling this moves a live table, which is how a caller carries a
 	 * generation: name the table `pyrobase:g47` and a schema bump renames it to
-	 * `pyrobase:g48`, orphaning every key at BOTH tiers at once. That works
+	 * `pyrobase:g48`, orphaning every key at once. That works
 	 * because entries are keyed by the derived `key()`, not the bare key.
 	 *
 	 * @param list<string>|null $args
@@ -490,8 +461,8 @@ class Table_Node extends Node {
 	 * Answer one request, TO its FROM, FROM this Table, its ID echoed (ADR-7).
 	 * Reads send a message per value and a TM_INFO count, or one TM_ERROR when
 	 * a key went unread, so a failure never reads as absence. Writes send one
-	 * string TM_RESPONSE naming the keys they took effect on. MSET, ADD and
-	 * SADD alone carry a structure, under TM_REQUEST|TM_STRUCT. Anything else
+	 * string TM_RESPONSE naming the keys they took effect on. ADD and SADD
+	 * alone carry a structure, under TM_REQUEST|TM_STRUCT. Anything else
 	 * the Table cannot answer is refused out loud, through refuse().
 	 *
 	 * @param array<int,mixed> $request The TM_REQUEST.
@@ -541,15 +512,11 @@ class Table_Node extends Node {
 			return;
 		}
 		match ( $verb ) {
-			'GET'                 => $this->reply_values( $request, $verb, \array_slice( $words, 0, 1 ) ),
-			'MGET'                => $this->reply_values( $request, $verb, $words ),
-			'SMEMBERS'            => $this->reply_members( $request, $words ),
-			'SSCAN'               => $this->reply_page( $request, $words ),
-			'SMOVE'               => $this->reply_moved( $request, $words ),
-			'SREM'                => $this->reply_unmembered( $request, $words ),
-			'TOUCH'               => $this->reply_touch( $request, $words ),
-			'RM'                  => $this->reply_removed( $request, $words ),
-			default               => $this->refuse( $request, $verb, self::requests()[ $verb ] ?? 'declared but not answered' ),
+			'GET'   => $this->reply_value( $request, $words ),
+			'SMOVE' => $this->reply_moved( $request, $words ),
+			'SREM'  => $this->reply_unmembered( $request, $words ),
+			'RM'    => $this->reply_removed( $request, $words ),
+			default => $this->refuse( $request, $verb, self::requests()[ $verb ] ?? 'declared but not answered' ),
 		};
 	}
 
@@ -583,8 +550,8 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * `MSET`/`ADD`/`SADD`: a map of key => [ value, ttl ]; a SADD value is
-	 * its set's member map.
+	 * `ADD`/`SADD`: a map of key => [ value, ttl ]; a SADD value is its set's
+	 * member map.
 	 *
 	 * @param array<int,mixed>       $request The TM_REQUEST.
 	 * @param string                 $verb    A structured verb this class declares.
@@ -596,7 +563,7 @@ class Table_Node extends Node {
 			$this->reply_added( $request, $items );
 			return;
 		}
-		$landed = $this->write_items( $items, 'ADD' === $verb );
+		$landed = $this->add_items( $items );
 		$this->count_rows( $verb, \count( $items ), \count( $landed ) );
 		$this->reply_written( $request, $verb, $landed );
 	}
@@ -635,7 +602,7 @@ class Table_Node extends Node {
 	 * Every well-formed set in one arm call; an item TTL below one second, or
 	 * a value that is no member map, leaves the set out. A failed call is
 	 * re-sent set by set, except on an arm whose call lands whole or not at
-	 * all, as a failed MSET batch is. SADD counts member rows, not sets.
+	 * all. SADD counts member rows, not sets.
 	 *
 	 * @param Durable_Arm            $arm   The Table's arm.
 	 * @param array<array-key,mixed> $items Set key => [ [ member => value, … ], ttl? ].
@@ -681,92 +648,9 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * `SMEMBERS <limit> <set_key>…`: one message per set holding a live
-	 * member, KEY its set key, as MGET answers one per value: TM_STRUCT with a
-	 * list of `[ member, value ]` pairs in member order, or, for a set holding
-	 * more than `limit`, TM_BYTESTREAM `OVER <limit>` and no members; then the
-	 * count. A limit that is not a whole number from 1 to MAX_MEMBERS_LIMIT
-	 * is refused, and so is a backend that is not durable; a failed read
-	 * answers one error.
-	 *
-	 * @param array<int,mixed> $request The TM_REQUEST.
-	 * @param list<string>     $words   The limit, then set keys.
-	 * @throws \RuntimeException With no wired sink to reply through.
-	 */
-	private function reply_members( array $request, array $words ): void {
-		$limit = Core::canonical_decimal( \array_shift( $words ) ?? '', false );
-		if ( null === $limit || $limit > self::MAX_MEMBERS_LIMIT ) {
-			$this->refuse( $request, 'SMEMBERS', 'usage: SMEMBERS <limit> <set_key>…, limit ' . self::MEMBERS_LIMIT_RANGE );
-			return;
-		}
-		if ( ! $this->arm instanceof Durable_Arm ) {
-			$this->refuse( $request, 'SMEMBERS', $this->needs_durable() );
-			return;
-		}
-		$found = $this->read_members( $this->arm, $words, $limit );
-		if ( false === $found ) {
-			$this->count_error( 'SMEMBERS' );
-			$this->reply( $request, Message::TM_ERROR, '', "SMEMBERS: backend read failed\n" );
-			return;
-		}
-		foreach ( $found as $set_key => $members ) {
-			if ( null === $members ) {
-				$this->reply( $request, Message::TM_BYTESTREAM, (string) $set_key, self::OVER_LIMIT . " {$limit}\n" );
-				continue;
-			}
-			$this->reply( $request, Message::TM_STRUCT, (string) $set_key, self::member_pairs( $members ) );
-		}
-		$this->reply( $request, Message::TM_INFO, '', 'SMEMBERS ' . \count( $found ) . "\n" );
-	}
-
-	/**
-	 * `SSCAN <limit> <set_key> [after=<member>]`: one page of one set, up to
-	 * `limit` live members in member order past the cursor, as one TM_STRUCT
-	 * keyed by the set, as SMEMBERS answers a set, and none for a page with
-	 * no member; then the count, naming the next page's cursor while members
-	 * remain. A limit that is not a whole number from 1 to MAX_MEMBERS_LIMIT,
-	 * a missing set key and any word but one cursor after it are refused, and
-	 * so is a backend that is not durable; a failed read answers one error.
-	 * Counted as SSCAN: the members asked for, the members answered.
-	 *
-	 * @param array<int,mixed> $request The TM_REQUEST.
-	 * @param list<string>     $words   Limit, set key, then the cursor if any.
-	 * @throws \RuntimeException With no wired sink to reply through.
-	 */
-	private function reply_page( array $request, array $words ): void {
-		$limit   = Core::canonical_decimal( $words[0] ?? '', false );
-		$set_key = $words[1] ?? '';
-		$cursor  = $words[2] ?? null;
-		if ( null === $limit || $limit > self::MAX_MEMBERS_LIMIT || '' === $set_key || \count( $words ) > 3 || ( null !== $cursor && ! \str_starts_with( $cursor, self::AFTER ) ) ) {
-			$this->refuse( $request, 'SSCAN', 'usage: SSCAN <limit> <set_key> [' . self::AFTER . '<member>], limit ' . self::MEMBERS_LIMIT_RANGE );
-			return;
-		}
-		if ( ! $this->arm instanceof Durable_Arm ) {
-			$this->refuse( $request, 'SSCAN', $this->needs_durable() );
-			return;
-		}
-		$after = null === $cursor ? null : \rawurldecode( \substr( $cursor, \strlen( self::AFTER ) ) );
-		$page  = $this->arm->member_page( $this->key( $set_key ), $limit, $after );
-		if ( false === $page ) {
-			$this->count_error( 'SSCAN' );
-			$this->reply( $request, Message::TM_ERROR, '', "SSCAN: backend read failed\n" );
-			return;
-		}
-		[ $members, $more ] = $page;
-		$this->count_rows( 'SSCAN', $limit, \count( $members ) );
-		if ( [] === $members ) {
-			$this->reply( $request, Message::TM_INFO, '', "SSCAN 0\n" );
-			return;
-		}
-		$this->reply( $request, Message::TM_STRUCT, $set_key, self::member_pairs( $members ) );
-		$next = $more ? ' ' . self::AFTER . \rawurlencode( (string) \array_key_last( $members ) ) : '';
-		$this->reply( $request, Message::TM_INFO, '', "SSCAN 1{$next}\n" );
-	}
-
-	/**
 	 * `SMOVE <count> <from_set> <to_set>`: move up to count members, lowest
-	 * first, and answer them as SMEMBERS answers one set, then the count of
-	 * value messages sent. A count that is not a whole number from 1 to
+	 * first, and answer them as one TM_STRUCT keyed by the from set, a list
+	 * of `[ member, value ]` pairs, then the count of value messages sent. A count that is not a whole number from 1 to
 	 * MAX_MEMBERS_LIMIT is refused, and so are a move naming one set twice
 	 * and a backend that is not durable; a failed write answers one error.
 	 * Counted as SMOVE: the members asked for, the members moved.
@@ -846,8 +730,9 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * `SMEMBERS` for a caller outside a graph, down the path the request
-	 * takes: each set's live members, or null for a set past `$limit`.
+	 * Each set's live members in member order for a caller outside a graph,
+	 * or null for a set holding more than `$limit`; a set with no live member
+	 * is absent. Counted as SMEMBERS: the set keys asked, the members answered.
 	 *
 	 * @api Non-graph readers of an index, the command-session listing among them.
 	 * @param list<string> $set_keys Set keys.
@@ -856,7 +741,7 @@ class Table_Node extends Node {
 	 * @return array<array-key,array<array-key,mixed>|null>|null Set key => member
 	 *         => value; null when the store did not answer, which `last_failure()`
 	 *         names.
-	 * @throws \InvalidArgumentException On a limit SMEMBERS refuses.
+	 * @throws \InvalidArgumentException On a limit outside 1 to MAX_MEMBERS_LIMIT.
 	 * @throws \RuntimeException On a volatile backend, which holds no members.
 	 */
 	public function members_of( array $set_keys, int $limit ): ?array {
@@ -864,85 +749,49 @@ class Table_Node extends Node {
 		if ( $limit < 1 || $limit > self::MAX_MEMBERS_LIMIT ) {
 			throw new \InvalidArgumentException( 'members_of: limit ' . self::MEMBERS_LIMIT_RANGE );
 		}
-		$found = $this->read_members( $arm, $set_keys, $limit );
+		$found = $this->by_caller_key( $set_keys, static fn ( array $entry_keys ): array|false => $arm->members( $entry_keys, $limit ) );
+		$this->count_rows( 'SMEMBERS', \count( $set_keys ), false === $found ? 0 : \array_sum( \array_map( static fn ( ?array $members ): int => \count( $members ?? [] ), $found ) ) );
 		return false === $found ? null : $found;
 	}
 
 	/**
-	 * Each set's live members in member order, or null for a set holding
-	 * more than `$limit`, under the caller's set keys; a set with no live
-	 * member is absent. Counted as SMEMBERS: the set keys asked, the members
-	 * answered.
+	 * `GET <key>`: what the store holds for the key, one message when it holds
+	 * one, then the count. An array answers TM_STRUCT; anything else answers
+	 * its string under TM_BYTESTREAM. A request naming no key, or more than
+	 * one, is refused.
 	 *
-	 * @param Durable_Arm  $arm      The Table's arm.
-	 * @param list<string> $set_keys Set keys.
-	 * @param int          $limit    Most members a set may hold and be answered.
-	 * @return array<array-key,array<array-key,mixed>|null>|false False when
-	 *                                                            the store failed.
-	 */
-	private function read_members( Durable_Arm $arm, array $set_keys, int $limit ): array|false {
-		$found = $this->by_caller_key( $set_keys, static fn ( array $entry_keys ): array|false => $arm->members( $entry_keys, $limit ) );
-		$this->count_rows( 'SMEMBERS', \count( $set_keys ), false === $found ? 0 : \array_sum( \array_map( static fn ( ?array $members ): int => \count( $members ?? [] ), $found ) ) );
-		return $found;
-	}
-
-	/**
-	 * `GET`/`MGET`: what the store holds for `$keys`, a message per value then
-	 * the count. An array answers TM_STRUCT; anything else answers its string
-	 * under TM_BYTESTREAM.
-	 *
-	 * A read failed only when a key went unread: the cache did not answer and
-	 * no backing looked at the misses. It answers one error instead.
+	 * A read failed only when the key went unread: the cache did not answer and
+	 * no backing looked. It answers one error instead.
 	 *
 	 * @param array<int,mixed> $request The TM_REQUEST.
-	 * @param string           $verb    The verb answered.
-	 * @param list<string>     $keys    Keys.
+	 * @param list<string>     $words   The key.
 	 */
-	private function reply_values( array $request, string $verb, array $keys ): void {
-		$failed   = false;
-		$answered = false;
-		$found    = [] === $keys ? [] : $this->read_keys( $keys, $failed, $answered );
-		$this->count_rows( $verb, \count( $keys ), \count( $found ) );
-		if ( $failed && ! $answered ) {
-			$this->count_error( $verb );
-			$this->reply( $request, Message::TM_ERROR, '', "{$verb}: backend read failed\n" );
+	private function reply_value( array $request, array $words ): void {
+		if ( 1 !== \count( $words ) ) {
+			$this->refuse( $request, 'GET', 'usage: GET <key>' );
 			return;
 		}
-		foreach ( $found as $key => $stored ) {
-			$key = (string) $key;
+		$read = $this->read_one( $words[0] );
+		$this->count_rows( 'GET', 1, $read['found'] ? 1 : 0 );
+		if ( $read['failed'] ) {
+			$this->count_error( 'GET' );
+			$this->reply( $request, Message::TM_ERROR, '', "GET: backend read failed\n" );
+			return;
+		}
+		if ( $read['found'] ) {
+			$stored = $read['value'];
 			if ( \is_array( $stored ) ) {
-				$this->reply( $request, Message::TM_STRUCT, $key, $stored );
+				$this->reply( $request, Message::TM_STRUCT, $words[0], $stored );
 			} else {
-				$this->reply( $request, Message::TM_BYTESTREAM, $key, Core::as_string( $stored, '' ) );
+				$this->reply( $request, Message::TM_BYTESTREAM, $words[0], Core::as_string( $stored, '' ) );
 			}
 		}
-		$this->reply( $request, Message::TM_INFO, '', "{$verb} " . \count( $found ) . "\n" );
+		$this->reply( $request, Message::TM_INFO, '', 'GET ' . ( $read['found'] ? 1 : 0 ) . "\n" );
 	}
 
 	/**
-	 * `TOUCH <ttl> <keys…>`: the keys whose expiry moved. A ttl that is not
-	 * whole seconds, at least 1, is refused rather than read as some other
-	 * lifetime.
-	 *
-	 * @param array<int,mixed> $request The TM_REQUEST.
-	 * @param list<string>     $words   The TTL, then keys.
-	 * @throws \RuntimeException With no wired sink to reply through.
-	 */
-	private function reply_touch( array $request, array $words ): void {
-		$ttl = Core::canonical_decimal( \array_shift( $words ) ?? '', false );
-		if ( null === $ttl ) {
-			$this->refuse( $request, 'TOUCH', 'usage: TOUCH <ttl> <key>…, ttl in whole seconds, at least 1' );
-			return;
-		}
-		$words   = \array_values( \array_unique( $words ) );
-		$arm     = $this->arm();
-		$touched = null === $arm ? [] : $this->landed( $words, static fn ( array $keys ): array => $arm->touch_multi( $keys, $ttl ) );
-		$this->count_rows( 'TOUCH', \count( $words ), \count( $touched ) );
-		$this->reply_written( $request, 'TOUCH', $touched );
-	}
-
-	/**
-	 * `RM <keys…>`: the keys that were there to delete.
+	 * `RM <keys…>`: the keys that were there to delete, in request order,
+	 * the whole batch in one `delete_multi()` call.
 	 *
 	 * @param array<int,mixed> $request The TM_REQUEST.
 	 * @param list<string>     $words   Keys.
@@ -951,21 +800,13 @@ class Table_Node extends Node {
 	private function reply_removed( array $request, array $words ): void {
 		$words   = \array_values( \array_unique( $words ) );
 		$arm     = $this->arm();
-		$removed = null === $arm ? [] : $this->landed( $words, $arm->delete_multi( ... ) );
+		$removed = [];
+		if ( null !== $arm ) {
+			$keys    = \array_map( $this->key( ... ), $words );
+			$removed = \array_values( \array_intersect_key( $words, \array_intersect( $keys, $arm->delete_multi( $keys ) ) ) );
+		}
 		$this->count_rows( 'RM', \count( $words ), \count( $removed ) );
 		$this->reply_written( $request, 'RM', $removed );
-	}
-
-	/**
-	 * The request's keys an arm's batch verb answered, whole batch in one call.
-	 *
-	 * @param list<string>                         $words The keys as the request named them.
-	 * @param \Closure(list<string>): list<string> $batch An arm's `delete_multi()` or `touch_multi()`.
-	 * @return list<string> The words, in request order, that took effect.
-	 */
-	private function landed( array $words, \Closure $batch ): array {
-		$keys = \array_map( $this->key( ... ), $words );
-		return \array_values( \array_intersect_key( $words, \array_intersect( $keys, $batch( $keys ) ) ) );
 	}
 
 	/**
@@ -1018,68 +859,6 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * Read many keys at once, returning only those found, under the caller's keys.
-	 *
-	 * One backend round trip for the whole set, so a caller resolving a set of
-	 * ids pays one `getMulti` rather than N reads. Whatever the cache misses
-	 * goes to the durable backing in one more call when one is installed.
-	 *
-	 * A cache read that fails reads as all-miss and still falls through, so
-	 * `$failed` is how a caller merging onto the result learns that a key
-	 * absent from it went unread rather than unstored. `$failed` is true when
-	 * no cache backend answered the batch, whatever the backing then returned:
-	 * event-logger-nodes 0.108.0 reads it as "the cache failed". The protocol's
-	 * `MGET` says "a key went unread" instead, which a backing that answers
-	 * clears.
-	 *
-	 * @api For consumers released before they moved to `MGET` (event-logger-nodes
-	 *      0.108.0); removed once they floor at or above the release dropping it.
-	 * @param list<string> $keys   Keys within the table's namespace.
-	 * @param ?bool        $failed Set true when no cache backend answered.
-	 * @param-out bool     $failed
-	 * @return array<array-key,mixed> Values for the keys the cache or the
-	 *                                backing held; an absent key is absent from
-	 *                                the result, and an all-digit key is an int.
-	 */
-	public function lookup_multi( array $keys, ?bool &$failed = null ): array {
-		return $this->read_keys( $keys, $failed );
-	}
-
-	/**
-	 * Read many keys in one backend round trip, returning only those found,
-	 * under the caller's keys; the misses go to the backing in one more call.
-	 * A cache read that fails reads as all-miss and still falls through.
-	 *
-	 * @param list<string> $keys     Keys within the table's namespace.
-	 * @param ?bool        $failed   Set true when no cache backend answered.
-	 * @param ?bool        $answered Set true when a backing looked at the misses.
-	 * @param-out bool     $failed
-	 * @param-out bool     $answered
-	 * @return array<array-key,mixed> Values for the keys the cache or the
-	 *                                backing held; an absent key is absent from
-	 *                                the result, and an all-digit key is an int.
-	 */
-	private function read_keys( array $keys, ?bool &$failed, ?bool &$answered = null ): array {
-		$backend = $this->arm();
-		$failed  = null === $backend;
-		$found   = $this->by_caller_key(
-			$keys,
-			static function ( array $entry_keys ) use ( $backend, &$failed ): array {
-				return $backend?->read_multi( $entry_keys, $failed ) ?? [];
-			}
-		);
-		$found   = false === $found ? [] : $found;
-		// ONE backing call for every miss; per-key defeats this round trip.
-		$missed = [];
-		foreach ( $keys as $key ) {
-			if ( ! \array_key_exists( $key, $found ) ) {
-				$missed[] = $key;
-			}
-		}
-		return $found + $this->read_through( $missed, $answered );
-	}
-
-	/**
 	 * Cross-process write — the mirror of lookup(), and the same divergence.
 	 *
 	 * `fill()` is the graph's way in, but the processes that own a table's
@@ -1119,25 +898,22 @@ class Table_Node extends Node {
 		if ( $ttl < 1 ) {
 			$this->refuse_ttl( (string) $ttl );
 		}
-		return [] !== $this->write_items( [ $key => [ $value, $ttl ] ], true );
+		return [] !== $this->add_items( [ $key => [ $value, $ttl ] ] );
 	}
 
 	/**
-	 * `MSET`/`ADD`: each item under its own TTL, or the Table's; an item TTL
-	 * below one second leaves the item out. A failed MSET
-	 * batch is re-sent key by key, except on an arm whose batch lands whole or
-	 * not at all, where a retry would only wait out the same lock again.
+	 * `ADD`: each item under its own TTL, or the Table's, only where its key
+	 * holds no live entry; an item TTL below one second leaves the item out.
 	 *
 	 * @param array<array-key,mixed> $items Key => [ value, ttl? ].
-	 * @param bool                   $add   Write only where the key is absent.
-	 * @return list<string> The keys the write took effect on.
+	 * @return list<string> The keys added.
 	 */
-	private function write_items( array $items, bool $add ): array {
+	private function add_items( array $items ): array {
 		$arm = $this->arm();
 		if ( null === $arm ) {
 			return [];
 		}
-		$groups = [];
+		$landed = [];
 		foreach ( $items as $key => $item ) {
 			$item = Core::arr( $item );
 			$ttl  = $this->item_ttl( $item );
@@ -1145,28 +921,8 @@ class Table_Node extends Node {
 				$this->print_less_often( 'ERROR: refused a write item: ', (string) $key, ' needs a KEY without whitespace, a value, and a ttl in whole seconds, at least 1' );
 				continue;
 			}
-			$groups[ $ttl ][] = [ (string) $key, $item[0] ];
-		}
-		$landed = [];
-		foreach ( $groups as $ttl => $group ) {
-			if ( ! $add ) {
-				$entries = [];
-				foreach ( $group as [ $key, $stored ] ) {
-					$entries[ $this->key( $key ) ] = $stored;
-				}
-				if ( $arm->write_multi( $entries, $ttl ) ) {
-					\array_push( $landed, ...\array_column( $group, 0 ) );
-					continue;
-				}
-				if ( $arm->batch_is_atomic() ) {
-					continue;
-				}
-			}
-			foreach ( $group as [ $key, $stored ] ) {
-				$entry = $this->key( $key );
-				if ( $add ? $arm->add( $entry, $stored, $ttl ) : $arm->set( $entry, $stored, $ttl ) ) {
-					$landed[] = $key;
-				}
+			if ( $arm->add( $this->key( (string) $key ), $item[0], $ttl ) ) {
+				$landed[] = (string) $key;
 			}
 		}
 		return $landed;
@@ -1195,62 +951,6 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * Store many entries in one backend round trip — `MGET`'s other half, for
-	 * a writer whose cost is its KEY COUNT rather than its bytes.
-	 *
-	 * Whole-batch success only: neither backend reports per key. A caller that
-	 * must know which key was refused re-sends the batch through `store()`.
-	 *
-	 * @api Batch writers (a stats flush merging many buckets at once).
-	 * @param array<array-key,mixed> $items Key within the table's namespace =>
-	 *                                      value. An all-digit key arrives as an
-	 *                                      int; the cast takes it back.
-	 * @return bool True when the whole set landed; true for an empty set.
-	 */
-	public function store_multi( array $items ): bool {
-		if ( [] === $items ) {
-			return true;
-		}
-		$entries = [];
-		foreach ( $items as $key => $value ) {
-			$entries[ $this->key( (string) $key ) ] = $value;
-		}
-		return true === $this->arm()?->write_multi( $entries, $this->ttl );
-	}
-
-	/**
-	 * Fold a value into the accumulator. In memory only — `store()` persists.
-	 *
-	 * @api Callers folding many updates into a value before persisting it.
-	 * @param string $key   Key within the table's namespace.
-	 * @param mixed  $value Value to hold.
-	 * @throws \LogicException Without accumulator() first; dropping the value
-	 *                         silently would lose whatever it counted.
-	 */
-	public function accumulate( string $key, mixed $value ): void {
-		if ( null === $this->buffer ) {
-			throw new \LogicException( 'Table::accumulate() needs accumulator() first' );
-		}
-		$this->buffer->set( $this->key( $key ), $value );
-	}
-
-	/**
-	 * The accumulating value for a key, or what is stored when none is held.
-	 *
-	 * The fallback is what makes a cold key resumable: an entry evicted, or never
-	 * accumulated in this process, still folds onto what was last persisted.
-	 *
-	 * @api Callers reading the value they are still folding into.
-	 * @param string $key Key within the table's namespace.
-	 * @return mixed The held value, the stored one when nothing is held, or null
-	 *               when neither tier has it.
-	 */
-	public function accumulated( string $key ): mixed {
-		$held = $this->buffer?->get( $this->key( $key ) );
-		return null !== $held ? $held : $this->lookup( $key );
-	}
-
-	/**
 	 * Cross-process read: the whole point of keeping entries outside the worker.
 	 *
 	 * Only a HIT answers from the Table's arm. A miss, an expiry and a broken
@@ -1265,22 +965,40 @@ class Table_Node extends Node {
 	 *               no cache backend at all included.
 	 */
 	public function lookup( string $key ): mixed {
-		$entry_key = $this->key( $key );
-		$backend   = $this->arm();
-		// read() reports hit, miss and error; a null value alone cannot.
-		$read = $backend?->read( $entry_key );
-		if ( null !== $backend && Cache_Backend::READ_ERROR === ( $read['status'] ?? null ) ) {
-			// Null reads as "empty table" downstream; say the backend broke.
-			Core::print_less_often(
-				'Table: backend read error for ',
-				"{$this->namespace}:{$key}: ",
-				$backend->last_failure()
-			);
+		return $this->read_one( $key )['value'];
+	}
+
+	/**
+	 * One key's read: a HIT answers from the arm, and anything else falls
+	 * through to the backing. It failed when the arm did not answer, none
+	 * selected or READ_ERROR, and no backing looked, so `GET` tells a broken
+	 * read from an absent key; a READ_ERROR is logged, since null reads as
+	 * "empty table" downstream.
+	 *
+	 * @param string $key Key within the table's namespace.
+	 * @return array{found: bool, value: mixed, failed: bool} The value, null
+	 *         when none was found.
+	 */
+	private function read_one( string $key ): array {
+		$backend = $this->arm();
+		$status  = null;
+		if ( null !== $backend ) {
+			// read() reports hit, miss and error; a null value alone cannot.
+			$read   = $backend->read( $this->key( $key ) );
+			$status = $read['status'];
+			if ( Cache_Backend::READ_HIT === $status ) {
+				return [ 'found' => true, 'value' => $read['value'], 'failed' => false ];
+			}
+			if ( Cache_Backend::READ_ERROR === $status ) {
+				Core::print_less_often( 'Table: backend read error for ', "{$this->namespace}:{$key}: ", $backend->last_failure() );
+			}
 		}
-		if ( Cache_Backend::READ_HIT !== ( $read['status'] ?? null ) ) {
-			return $this->read_through( [ $key ] )[ $key ] ?? null;
-		}
-		return $read['value'];
+		$got = $this->read_through( [ $key ], $answered );
+		return [
+			'found'  => \array_key_exists( $key, $got ),
+			'value'  => $got[ $key ] ?? null,
+			'failed' => ( null === $backend || Cache_Backend::READ_ERROR === $status ) && ! $answered,
+		];
 	}
 
 	/**
@@ -1328,25 +1046,6 @@ class Table_Node extends Node {
 		// Best-effort: a dead backend must not turn a read into a miss.
 		$this->warm( $got );
 		return $out;
-	}
-
-	/**
-	 * Walk what is held, keyed by the caller's key, for a drain.
-	 *
-	 * Draining does NOT clear: a caller that persists whole values is idempotent
-	 * across drains, and clearing would discard accumulation between them.
-	 *
-	 * @api Drains persisting every held value at once.
-	 * @return iterable<string,mixed> Held values, under the caller's keys.
-	 */
-	public function accumulating(): iterable {
-		if ( null === $this->buffer ) {
-			return;
-		}
-		$prefix = $this->key( '' );
-		foreach ( $this->buffer->iterate() as $entry_key => $value ) {
-			yield \substr( (string) $entry_key, \strlen( $prefix ) ) => $value;
-		}
 	}
 
 	/**
@@ -1443,36 +1142,6 @@ class Table_Node extends Node {
 		foreach ( $groups as $ttl => $items ) {
 			$this->arm()?->write_multi( $items, $ttl );
 		}
-	}
-
-	/**
-	 * Cross-process presence check that refreshes the entry, never fetching
-	 * its value.
-	 *
-	 * The TTL is the call's, not the table's as in `store()`: a caller
-	 * refreshing an entry dates it to its own window, as `read_through()`
-	 * warms each entry for the lifetime it carries. It answers as
-	 * `Cache_Backend::touch()` does, so a timeout never reads as eviction.
-	 *
-	 * On APCu the backend fetches and re-stores, so it reads the value
-	 * after all and reverts a write landing between the two: safe only where
-	 * one process owns the entry's writes, as the flame builder owns its
-	 * partition's lists.
-	 *
-	 * @api Callers asking whether an entry still stands without reading it.
-	 * @param string $key Key within the table's namespace.
-	 * @param int    $ttl New expiry in seconds, at least 1.
-	 * @return bool|null True when the entry existed and its expiry moved,
-	 *                   false when it is confirmed absent, null when no
-	 *                   backend is selected or the backend did not answer.
-	 * @throws \InvalidArgumentException On a TTL below one second.
-	 */
-	public function touch( string $key, int $ttl ): ?bool {
-		if ( $ttl < 1 ) {
-			$this->refuse_ttl( (string) $ttl );
-		}
-		$entry_key = $this->key( $key );
-		return $this->arm()?->touch( $entry_key, $ttl );
 	}
 
 	/**
@@ -1781,11 +1450,11 @@ class Table_Node extends Node {
 
 	/**
 	 * The per-verb counters since the node was built or last reset. `asked`
-	 * and `answered` count keys, except SADD's member rows, SMEMBERS' member
-	 * rows answered, and PURGE's rows: `asked` the batches' room, `answered`
-	 * the rows deleted. `bytes` is what a durable arm encoded or decoded; a
-	 * volatile arm's serializer runs inside its extension, so it reads 0. A
-	 * call that threw still counts, with its time.
+	 * and `answered` count keys, except SADD's member rows, the member rows
+	 * members_of() answers as SMEMBERS, and PURGE's rows: `asked` the
+	 * batches' room, `answered` the rows deleted. `bytes` is what a durable
+	 * arm encoded or decoded; a volatile arm's serializer runs inside its
+	 * extension, so it reads 0. A call that threw still counts, with its time.
 	 *
 	 * @api The `stats` verb, dump_node() and dump_metadata() answer it.
 	 * @return array<string,array{calls:int,asked:int,answered:int,bytes:int,total_ms:float,max_ms:float,errors:int}>
@@ -2083,11 +1752,6 @@ class Table_Node extends Node {
 	 * A table outside any graph, for the callers `lookup()` / `store()` /
 	 * `forget()` exist for. Sugar for `new Table_Node()` plus `arguments()`.
 	 *
-	 * Deliberately NOT memoized: an accumulator's lifetime belongs to whoever
-	 * holds the table, and one rebuilt per call is empty every time — worse
-	 * than none. Callers wanting one memoize it themselves, which is what keeps
-	 * that lifetime visible at the call site instead of hidden in here.
-	 *
 	 * A `sqlite` table built here keeps partition 0's file, named for `$ns`.
 	 *
 	 * @api Non-graph readers and writers reach a table without a live worker.
@@ -2198,27 +1862,12 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * Opt in to an in-memory accumulator tier, and set its bounds.
-	 *
-	 * @api Callers folding many updates into a value before persisting it.
-	 * @param int $bucket_size Entries per bucket before rotation; LRU_Cache
-	 *                         clamps it to at least 1.
-	 * @param int $num_buckets Buckets retained, clamped to 1..100; capacity is
-	 *                         roughly the product.
-	 * @return self For chaining off table().
-	 */
-	public function accumulator( int $bucket_size, int $num_buckets ): self {
-		$this->buffer = new LRU_Cache( $bucket_size, $num_buckets );
-		return $this;
-	}
-
-	/**
 	 * Opt in to a durable system of record behind this table.
 	 *
-	 * A table is a CACHE of something when it has one: `lookup()`, `GET` and
-	 * `MGET` fall through on a miss, store what comes back, and
-	 * return it, so every caller reads one API and the durable tier is asked
-	 * once per miss rather than once per caller.
+	 * A table is a CACHE of something when it has one: `lookup()` and `GET`
+	 * fall through on a miss, store what comes back, and return it, so every
+	 * caller reads one API and the durable tier is asked once per miss rather
+	 * than once per caller.
 	 *
 	 * The closure takes the keys that missed and returns
 	 * `key => { value, ttl? }` for whichever of them the record still holds;
@@ -2237,11 +1886,6 @@ class Table_Node extends Node {
 	public function backed_by( \Closure $backing ): self {
 		$this->backing = $backing;
 		return $this;
-	}
-
-	/** Drop everything the accumulator holds; a no-op without accumulator(). */
-	public function reset(): void {
-		$this->buffer?->flush();
 	}
 
 	/**
@@ -2311,31 +1955,6 @@ class Table_Node extends Node {
 					'reply_shape' => self::READ_REPLY,
 				],
 				[
-					'name'        => 'MGET',
-					'description' => 'Many stored values in one read.',
-					'args'        => [ [ 'name' => 'keys', 'type' => 'string', 'required' => true, 'description' => 'Whitespace-separated keys.' ] ],
-					'reply_shape' => self::READ_REPLY,
-				],
-				[
-					'name'        => 'SMEMBERS',
-					'description' => 'Up to <limit> live members of each set, lowest member first, by an exact set-key seek; sqlite and wpdb alone hold members.',
-					'args'        => [
-						[ 'name' => 'limit', 'type' => 'int', 'required' => true, 'description' => 'Most members each set answers, from 1 to MAX_MEMBERS_LIMIT (10000).' ],
-						[ 'name' => 'set_keys', 'type' => 'string', 'required' => true, 'description' => 'Whitespace-separated set keys.' ],
-					],
-					'reply_shape' => self::MEMBERS_REPLY,
-				],
-				[
-					'name'        => 'SSCAN',
-					'description' => 'One page of one set: up to <limit> live members, lowest first, past the cursor, by an exact seek on ( set_key, member ); the reply names the next page\'s cursor while members remain. sqlite and wpdb alone hold members.',
-					'args'        => [
-						[ 'name' => 'limit', 'type' => 'int', 'required' => true, 'description' => 'Most members the page answers, from 1 to MAX_MEMBERS_LIMIT (10000).' ],
-						[ 'name' => 'set_key', 'type' => 'string', 'required' => true ],
-						[ 'name' => 'after', 'type' => 'string', 'required' => false, 'description' => 'after=<member>, percent-encoded: the cursor the previous page\'s reply named.' ],
-					],
-					'reply_shape' => self::PAGE_REPLY,
-				],
-				[
 					'name'        => 'SMOVE',
 					'description' => 'Move up to <count> members, lowest first, from one set to another, each keeping its value and expiry; sqlite and wpdb alone hold members.',
 					'args'        => [
@@ -2355,25 +1974,9 @@ class Table_Node extends Node {
 					'reply_shape' => self::WRITE_REPLY,
 				],
 				[
-					'name'        => 'TOUCH',
-					'description' => 'Move each key\'s expiry to <ttl> seconds from now.',
-					'args'        => [
-						[ 'name' => 'ttl', 'type' => 'int', 'required' => true ],
-						[ 'name' => 'keys', 'type' => 'string', 'required' => true ],
-					],
-					'reply_shape' => self::WRITE_REPLY,
-				],
-				[
 					'name'        => 'RM',
 					'description' => 'Delete each key.',
 					'args'        => [ [ 'name' => 'keys', 'type' => 'string', 'required' => true ] ],
-					'reply_shape' => self::WRITE_REPLY,
-				],
-				[
-					'name'        => 'MSET',
-					'description' => 'Store many keys under a TM_REQUEST|TM_STRUCT map; ttl defaults to the Table\'s.',
-					'value'       => 'struct',
-					'args'        => [ [ 'name' => 'map', 'type' => 'json', 'required' => true, 'description' => 'a map of key => [ value, ttl ]' ] ],
 					'reply_shape' => self::WRITE_REPLY,
 				],
 				[

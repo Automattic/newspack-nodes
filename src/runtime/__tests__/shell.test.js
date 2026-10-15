@@ -499,12 +499,12 @@ describe( 'Shell node — verb vocabulary (positional TM_* messages)', () => {
 
 	it( 'request_struct <node> <json> → TM_REQUEST|TM_STRUCT, VALUE as given', () => {
 		const { m } = drive(
-			'request_struct flame-stats:table \'{"MSET":{"kea-4417":["weka",913]}}\''
+			'request_struct flame-stats:table \'{"ADD":{"kea-4417":["weka",913]}}\''
 		);
 		expect( m[ TYPE ] ).toBe( TM_REQUEST | TM_STRUCT );
 		expect( m[ TO ] ).toBe( '_http/demo.p0/flame-stats:table' );
 		expect( m[ VALUE ] ).toEqual( {
-			MSET: { 'kea-4417': [ 'weka', 913 ] },
+			ADD: { 'kea-4417': [ 'weka', 913 ] },
 		} );
 	} );
 
@@ -525,7 +525,7 @@ describe( 'Shell node — verb vocabulary (positional TM_* messages)', () => {
 	} );
 
 	it( 'request_struct with invalid JSON → error signal, sends nothing', () => {
-		const { filled } = drive( "request_struct moa '{MSET:}'" );
+		const { filled } = drive( "request_struct moa '{ADD:}'" );
 		expect( printedText() ).toContain( 'request_struct: ' );
 		expect( filled ).toHaveLength( 0 );
 	} );
@@ -1574,7 +1574,7 @@ describe( 'parseStatements — static statements replay to runtime messages', ()
 		'send beacon short bytes',
 		'send_struct_node beacon \'{"depth":9}\'',
 		'request_node beacon fetch 7',
-		'request_struct_node beacon \'{"MSET":{"kea":["weka",37]}}\'',
+		'request_struct_node beacon \'{"ADD":{"kea":["weka",37]}}\'',
 		'request_struct beacon \'{"ADD":{"moa":["tui",53]}}\'',
 		'send_eof beacon',
 		'command_node beacon ping',
