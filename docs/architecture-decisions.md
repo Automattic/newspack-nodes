@@ -2287,24 +2287,24 @@ none of today. The blast radius, sender by sender, with what each does with one 
   failure, already reported.
 - **`Remote_Broker_Node::send_read()` from `Remote_Consumer_Node::request_step()`** (FROM the
   reader `<broker>:<kind>`; `raw-logs read_message`). The reader's `fill()` clears
-  `step_requested_at` on a reply echoing the step's arguments. A bounce echoing the step's arguments takes the refusal branch: it prints
-  `step refused` and forgives every owed step, so the operator's click is lost rather than
-  retried. It would need to keep the step owed on `undelivered`, as `FetcherNode` re-arms a read.
+  `step_requested_at` on a reply echoing the step's arguments. A bounce echoing the step's
+  arguments takes the refusal branch: it prints `step refused` and forgives every owed step, so
+  the operator's click is lost rather than retried. It would need to keep the step owed on
+  `undelivered`, as `FetcherNode` re-arms a read.
 - **`Remote_Consumer_Node::fetch()`** (FROM the reader `<broker>:<kind>`, under
   `HTTP_Source_Node`; `raw-logs read_block`). The reader's `fill()` settles a fetch on the
   raw block whose header echoes the position the fetch in flight asked; a command reply to
   `read_block` echoing its arguments, which only a refusal sends, is said rate-limited,
   published as the broker's `last_error`, and waited out for the broker's `retry_ms` before the
-  broker's tick asks again. Today the fetch's own clock re-sends it after
-  `REQUEST_TIMEOUT`; a bounce would wait a retry interval instead, so the reader would need to read
-  `undelivered` as a fetch to send again at once rather than a refusal.
+  broker's tick asks again. Today the fetch's own clock re-sends it after `REQUEST_TIMEOUT`; a
+  bounce would wait a retry interval instead, so the reader would need to read `undelivered` as a
+  fetch to send again at once rather than a refusal.
 - **`HTTP_Source_Node::ask_catalog()`** (FROM the broker; `raw-logs list_logs`), a third clock:
   the broker re-asks once `REQUEST_TIMEOUT` has passed since it asked. It needs no change under
-  this proposal: a bounce carries the `name`, takes the refusal branch, and waits out the broker's
-`retry_ms`. One
-  caveat: a dropped batch sets no `last_outcome()`, so `last_error` would read `Discovery refused:
-  Command not delivered: <reason>` beside HTTP_Out's own rate-limited line, the double report the
-  heartbeat bullet names.
+  this proposal: a bounce carries the `name`, takes the refusal branch, and waits out the
+  broker's `retry_ms`. One caveat: a dropped batch sets no `last_outcome()`, so `last_error`
+  would read `Discovery refused: Command not delivered: <reason>` beside HTTP_Out's own
+  rate-limited line, the double report the heartbeat bullet names.
 - **`Fanout_Targets::send_signed()` from `Settings_Sync_Node`** (FROM the node; the spoke's
   `settings` verbs). Its `fill()` returns on anything not TM_STRUCT, so the bounce is counted and
   dropped; the periodic re-push already covers a lost push. No change needed.

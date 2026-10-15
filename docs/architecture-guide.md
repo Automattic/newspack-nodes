@@ -1186,7 +1186,7 @@ Every rendered numeric setting declares an inclusive min and max, bound at the t
 | `remote_max_segments` | 0 – 64 |
 | `remote_min_lifetime`, `remote_lifetime` | 0 – 604800 s |
 | `alert_lag_threshold` | 0 – 10 GiB |
-| `alert_deadletter_threshold` | 0 – 4096 records |
+| `alert_deadletter_threshold` | 0 records or more, no ceiling |
 | `alert_emit_interval` | 1 – 86400 s |
 
 The remote geometry a hub pushes shares the local family's 4 GiB segment ceiling but caps its counts lower, 16 segments against 32. A ceiling here guards against a typed extra digit and nothing more: `Partition_Node` refuses only a size below 1, and a TSL topology names whatever size it wants. The six `sse_*` bounds live in [sse-host-budget.md](sse-host-budget.md).

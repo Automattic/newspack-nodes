@@ -71,6 +71,7 @@ class Topology_Analyzer {
 	 *
 	 * @return array{nodes: list<array{name: string,class: string,fans_out: bool,args: list<string>,verbs: list<array{verb: string,args: list<string>}>,origin: list<string>,via: list<string>}>, edges: list<array{from: string,to: string,origin: list<string>,roles: list<string>,config_slots?: list<string>}>, tree: array<string,mixed>, hulls: array<string,list<string>>}
 	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
+	 * @throws \InvalidArgumentException On a `make_node` line its class refuses, as the load would.
 	 */
 	public static function expand( array $include_names, bool $group_children = true ): array {
 		$nodes  = [];
@@ -304,6 +305,7 @@ class Topology_Analyzer {
 	 * @param string $name Topology name.
 	 * @return array{nodes: list<array<string,int|string|list<string>|list<array{source:string,target:string}>>>, edges: list<array{0:string,1:string}>}
 	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
+	 * @throws \InvalidArgumentException On a `make_node` line its class refuses, as the load would.
 	 */
 	public static function graph_for( string $name ): array {
 		if ( isset( self::$graph_cache[ $name ] ) ) {
@@ -732,6 +734,7 @@ class Topology_Analyzer {
 	 * @param array<string> $names Topology names to compare pairwise.
 	 * @return array<array{a: string,b: string,shared: array<string>}>
 	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
+	 * @throws \InvalidArgumentException On a `make_node` line its class refuses, as the load would.
 	 */
 	public static function find_conflicts( array $names ): array {
 		$names = \array_values( \array_unique( $names ) );
@@ -935,6 +938,7 @@ class Topology_Analyzer {
 	 * @return array<string> Sorted, namespaced token-form paths.
 	 * @throws \RuntimeException On unknown include, cycle, conflicting make_node,
 	 *                           or a Table backend token nothing resolves.
+	 * @throws \InvalidArgumentException On a `make_node` line its class refuses, as the load would.
 	 */
 	public static function write_set( string $name ): array {
 		if ( isset( self::$write_set_cache[ $name ] ) ) {
@@ -1104,6 +1108,7 @@ class Topology_Analyzer {
 	 * @return array<string,array{namespace: string, ttl: string, backend: string}>
 	 * @throws \RuntimeException On unknown include, cycle, conflicting make_node,
 	 *                           or a Table declaring no TTL.
+	 * @throws \InvalidArgumentException On a `make_node` line its class refuses, as the load would.
 	 */
 	public static function declared_tables( string $name ): array {
 		$out = [];
@@ -1323,6 +1328,7 @@ class Topology_Analyzer {
 	 *
 	 * @return array{statements: list<array{line: string,verb: string,values: list<string>,spans: list<string>,origin: ?string,origins: list<string>,via: list<string>}>, tree: array<string,mixed>}
 	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
+	 * @throws \InvalidArgumentException On a `make_node` line its class refuses, as the load would.
 	 */
 	public static function statements( string $name, array $extra_includes = [], bool $group_children = true ): array {
 		// Every static reader walks this tree; a re-walk re-reads every file.

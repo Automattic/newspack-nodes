@@ -741,6 +741,16 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertStringContainsString( 'value="/var/log/foo"', $html );
 	}
 
+	public function test_the_dead_letter_threshold_renders_with_no_record_ceiling(): void {
+		\ob_start();
+		( new Admin() )->alert_deadletter_threshold_callback();
+		$html = \ob_get_clean();
+
+		$this->assertStringContainsString( 'name="newspack_nodes_alert_deadletter_threshold"', $html );
+		$this->assertStringContainsString( 'min="0"', $html );
+		$this->assertStringContainsString( 'max="' . \PHP_INT_MAX . '"', $html );
+	}
+
 	// ---- num_partitions_callback (render_number_field, max=16 → small-text) --
 
 	public function test_num_partitions_callback_renders_number_input_with_bounds(): void {

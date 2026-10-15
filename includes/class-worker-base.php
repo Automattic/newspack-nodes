@@ -155,7 +155,8 @@ class Worker_Base {
 	 * @param string   $token     HMAC spawn token, used when `$token_provider` is unwired.
 	 * @return array{status: string, reason?: string} `skipped` plus the acquire
 	 *   failure, or `ok`.
-	 * @throws \Throwable A topology load failure or a `RuntimeException` from a
+	 * @throws \Throwable A topology load failure or a `RuntimeException` or
+	 *   `InvalidArgumentException` from a
 	 *   `newspack_nodes/worker_identified` listener, raised after the teardown
 	 *   and release with no self-respawn; otherwise whatever the run and the
 	 *   shutdown threw, raised only after the handoff, release and respawn.
@@ -184,10 +185,11 @@ class Worker_Base {
 					} catch ( Worker_Should_Stop $e ) {
 						// A stop IS a RuntimeException; never a load failure.
 						throw $e;
-					} catch ( \RuntimeException $e ) {
-						// @longform A malformed .tsl or a throwing announcement
-						// fails loud but CLEAN: lock freed, NO self-respawn (a
-						// hot loop on the same failure); a peer's scan retries.
+					} catch ( \RuntimeException | \InvalidArgumentException $e ) {
+						// @longform A malformed or refused .tsl line, or a
+						// throwing announcement, fails loud but CLEAN: lock
+						// freed, NO self-respawn (a hot loop on the same
+						// failure); a peer's scan retries.
 						$this->shutdown_handled = true;
 						Worker_Should_Stop::raise( [ $e, ...Worker_Should_Stop::attempt( ...$this->teardown() ) ] );
 					}

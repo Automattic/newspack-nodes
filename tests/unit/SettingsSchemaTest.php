@@ -255,6 +255,15 @@ class SettingsSchemaTest extends TestCase {
 		);
 	}
 
+	/** Dead letters count records, which have no natural ceiling, so a large threshold stores as written. */
+	public function test_the_dead_letter_threshold_admits_any_record_count(): void {
+		$clamp = Settings_Schema::get()->field_for_short( 'alert_deadletter_threshold' )?->sanitize_callback();
+
+		$this->assertIsCallable( $clamp );
+		$this->assertSame( 300000, $clamp( 300000 ) );
+		$this->assertSame( 0, $clamp( -7 ), 'the floor holds' );
+	}
+
 	/**
 	 * `register_args['type']` is what register_setting() tells WordPress the
 	 * option is. Six remote_* bounded ints declared `string` while three sibling

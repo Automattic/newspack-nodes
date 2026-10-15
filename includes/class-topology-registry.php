@@ -150,6 +150,7 @@ class Topology_Registry {
 	 *         conflict check could read, null when none.
 	 * @throws \RuntimeException When the name is unknown or activating it would
 	 *                           put two fleets on one log or offsetlog.
+	 * @throws \InvalidArgumentException When a line of the set's topologies is one its class refuses.
 	 */
 	public static function activate( string $name ): array {
 		if ( null === self::resolve( $name ) ) {

@@ -16,6 +16,8 @@
   ["an exact reader stamp is a source", [["add_source", ["offsets:hub.tw0:firehose.p0", "okapi-77"]]], ["okapi-77"]],
   ["a source taking the http-out slot is refused", [["add_source", ["http-out", "kite-2290"]]], {"refused": "add_source 'http-out' names a slot the node keeps for its own"}],
   ["a source taking the config slot is refused", [["add_source", ["config", "kite-2290"]]], {"refused": "add_source 'config' names a slot the node keeps for its own"}],
+  ["a source taking the sse-in slot is refused", [["add_source", ["sse-in", "kite-2290"]]], {"refused": "add_source 'sse-in' names a slot the node keeps for its own"}],
+  ["a source taking the null slot is refused", [["add_source", ["null", "kite-2290"]]], {"refused": "add_source 'null' names a slot the node keeps for its own"}],
   ["a glob may match a kept slot's name", [["add_source", ["sse-*", "kite-2290"]]], ["kite-2290"]],
   ["a source climbing out of its root is refused", [["add_source", ["..", "kite-2290"]]], {"refused": "add_source '..' names a source no spoke can stream"}],
   ["a glob over a reader group is refused", [["add_source", ["offsets:*", "kite-2290"]]], {"refused": "add_source 'offsets:*' names a source no spoke can stream"}],

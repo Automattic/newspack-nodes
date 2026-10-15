@@ -725,6 +725,42 @@ class WorkerBaseTest extends TestCase {
 		$this->assertSame( [], $posts, 'no self-respawn on a load failure' );
 	}
 
+	/**
+	 * A `make_node` the class refuses raises an InvalidArgumentException at
+	 * load; the worker fails exactly as on a parse error, so its successor
+	 * never respawns into the same refused line.
+	 */
+	public function test_execute_raises_a_refused_make_node_after_release_without_respawn(): void {
+		$posts = [];
+		$this->capture_spawn_posts( $posts );
+		$this->use_base_dir( $this->tmp );
+		$stock = $this->make_temp_dir( 'refused-load-stock-' );
+		\Newspack_Nodes\Topology_Registry::reset();
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		\file_put_contents( "{$stock}/pull-ibis-7731.tsl", "make_node Remote_Source pull:ibis ibis-4403 /var/ibis/off /var/ibis/dl egret.p3=heron-8812\n" );
+
+		$worker   = new TestableWorker( $this->tmp, 'pull-ibis-7731', 0 );
+		$lock     = "{$this->tmp}/locks/pull-ibis-7731.p0.lock.d";
+		$topology = static function ( $interpreter, int $partition ): void {
+			\Newspack_Nodes\Topology_Loader::load( 'pull-ibis-7731', $partition, $interpreter );
+		};
+
+		$e = null;
+		try {
+			$worker->execute( $topology, 'http://example/spawn', 'tok' );
+		} catch ( \InvalidArgumentException $refused ) {
+			$e = $refused;
+		} finally {
+			\Newspack_Nodes\Topology_Registry::reset();
+			$this->rmdir_recursive( $stock );
+		}
+
+		$this->assertNotNull( $e, 'the refused line escapes execute()' );
+		$this->assertStringContainsString( 'too many arguments: 4 given, 3 accepted', \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
+		$this->assertFalse( \is_dir( $lock ), 'lock released for the next attempt' );
+		$this->assertSame( [], $posts, 'no self-respawn on a refused make_node' );
+	}
+
 	public function test_execute_hands_the_slot_on_then_raises_a_shutdown_sweep_failure(): void {
 		$posts = [];
 		$this->capture_spawn_posts( $posts );

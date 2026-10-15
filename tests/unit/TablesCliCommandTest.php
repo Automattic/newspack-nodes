@@ -484,6 +484,17 @@ final class TablesCliCommandTest extends TestCase {
 		$this->assertContains( 'lab-7:kea', \array_column( $this->printed(), 'Table' ) );
 	}
 
+	public function test_an_inactive_topology_whose_line_its_class_refuses_is_warned_about_and_the_rest_lists(): void {
+		$this->write_tsl( 'emu-z', "make_node Remote_Source pull:ibis ibis-4403 /var/ibis/off /var/ibis/dl egret.p3=heron-8812\n" );
+
+		$this->command()->list_( [], [ 'format' => 'json' ] );
+
+		$this->assertCount( 1, $GLOBALS['_test_wp_cli_warns'] );
+		$this->assertStringStartsWith( 'emu-z: ', $GLOBALS['_test_wp_cli_warns'][0] );
+		$this->assertStringContainsString( 'too many arguments: 4 given, 3 accepted', \html_entity_decode( $GLOBALS['_test_wp_cli_warns'][0], \ENT_QUOTES ) );
+		$this->assertContains( 'lab-7:kea', \array_column( $this->printed(), 'Table' ) );
+	}
+
 	public function test_list_reads_the_counters_of_a_table_its_crawler_owns(): void {
 		$this->write_tsl( 'crawl-c', "make_node Crawler crawl-8812 5501\n" );
 		\update_option( 'newspack_nodes_topologies', [ 'kea-t', 'owl-w', 'crawl-c' ] );

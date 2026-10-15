@@ -286,7 +286,7 @@ class Tables_CLI_Command {
 				$declared = self::declarers( [ (string) $topology => Core::arr( $entry ) ] );
 			} catch ( Worker_Should_Stop $stop ) {
 				throw $stop;
-			} catch ( \RuntimeException $e ) {
+			} catch ( \RuntimeException | \InvalidArgumentException $e ) {
 				\WP_CLI::warning( "{$topology}: " . Core::message_of( $e ) );
 				continue;
 			}
