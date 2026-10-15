@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A contract-lint rule refuses a hand-walked index.** `index-walk-outside-partition` flags a `scan_index()` call outside `Partition_Node` and its dead-letter fold: `locate_by()` finds the keys and `read_many()` reads them (ADR-18).
 
+- **A list mirrored into the address bar as a repeated `?param=`.** `useQueryParamList( param, restore, encode )` in `@newspack-nodes/shared/hooks/useQueryParamState` is the list twin of `useQueryParamState`: `restore` receives every value the param holds, `[]` when absent, and the hook writes the encoded list back as one `?param=` per item, on mount, on each change and over every entry Back or Forward restores, keyed on the serialized list rather than the array, so a fresh array holding the same items writes nothing. An item may hold any character, `,` `&` `=` and `+` included. Beneath it, `getQueryParams( name )` reads every value through `URLSearchParams#getAll`, and `setQueryParams` takes a `string[]`, written as delete then one append per entry. An empty entry is skipped, as an empty scalar removes the param, so a list of none removes it, and a list the URL already holds is left where it stands.
+
 ### Changed
 
 - **`num_partitions` is capped at 8.** `Spawn_Coordinator::MAX_PARTITIONS` falls from 16 to 8 and every clamp reads it: the expansion of workers, the declared-count cap, `Job_Intake`, the spawn route, the settings field, the settings verb and the console's Settings panel. A reader that attaches every partition's SQLite file into one connection is bound by SQLite's limit of 10 attached databases, and 8 leaves room for the main file and a spare.

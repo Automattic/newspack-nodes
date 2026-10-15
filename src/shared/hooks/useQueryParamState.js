@@ -4,9 +4,10 @@
  * The URL twin of `usePersistedState`: the same restore and encode pair, with
  * `?param=` in place of localStorage, so a copied link reopens the same view.
  * The bar is the state's mirror, never its owner. It seeds the value once on
- * mount, and every later write goes through `setQueryParam`'s replaceState,
+ * mount, and every later write goes through `setQueryParams`' replaceState,
  * because a filter is state rather than navigation and earns no Back entry of
- * its own.
+ * its own. `useQueryParamList` is the twin for a list, written as one repeated
+ * `?param=` per item.
  *
  * A page can still push entries of its own — a `?url=`-style navigation — and
  * each carries the filters current when it was pushed. The view keeps its
@@ -18,7 +19,11 @@
  */
 
 import { useState, useEffect } from '@wordpress/element';
-import { getQueryParam, setQueryParam } from '../utils/queryParams';
+import {
+	getQueryParam,
+	getQueryParams,
+	setQueryParams,
+} from '../utils/queryParams';
 
 /**
  * Own a value mirrored into `?param=`.
@@ -40,16 +45,47 @@ export function useQueryParamState( param, restore, encode ) {
 	const [ value, setValue ] = useState( () =>
 		restore( getQueryParam( param ) )
 	);
-	const encoded = encode( value );
+	useWriteBack( param, encode( value ) );
+	return [ value, setValue ];
+}
+
+/**
+ * Own a value mirrored into a repeated `?param=a&param=b`, the list twin of
+ * `useQueryParamState`: one entry per item, so an item may hold any character.
+ *
+ * @template T
+ * @param {string}                 param   Query-string parameter name.
+ * @param {(raw: string[]) => T}   restore Decode and validate every value the
+ *                                         param holds; receives [] when absent.
+ * @param {(value: T) => string[]} encode  The param's values; [] omits it.
+ * @return {[T, import('react').Dispatch<import('react').SetStateAction<T>>]}
+ *   The value and React's own setter.
+ */
+export function useQueryParamList( param, restore, encode ) {
+	const [ value, setValue ] = useState( () =>
+		restore( getQueryParams( param ) )
+	);
+	useWriteBack( param, encode( value ) );
+	return [ value, setValue ];
+}
+
+/**
+ * Write what the bar should say, on mount, on each change and over every entry
+ * Back or Forward restores. Keyed on the serialized value, so a fresh array
+ * holding the same items writes nothing.
+ *
+ * @param {string}             param   Query-string parameter name.
+ * @param {?(string|string[])} encoded The param's value or values.
+ */
+function useWriteBack( param, encoded ) {
+	const key = JSON.stringify( encoded ?? null );
 
 	useEffect( () => {
-		const write = () => setQueryParam( param, encoded );
+		const write = () => setQueryParams( { [ param ]: JSON.parse( key ) } );
 		write();
 		window.addEventListener( 'popstate', write );
 		return () => window.removeEventListener( 'popstate', write );
-	}, [ param, encoded ] );
-
-	return [ value, setValue ];
+	}, [ param, key ] );
 }
 
 /**
