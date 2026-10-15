@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.111.1] - 2026-10-15
+
 ### Fixed
 
 - **A snapshot node that only flushes before the commit boots without a warning.** A node with `save_state()` and no `restore_state()` whose saved state is empty, such as event-logger-nodes' flame builder, which writes its rows inside the cursor's commit, no longer logs "missing, stateless, or absent from the frame" at every boot. A missing node, and saved state a node cannot restore, still warn and carry.
