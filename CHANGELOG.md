@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`num_partitions` is capped at 8.** `Spawn_Coordinator::MAX_PARTITIONS` falls from 16 to 8 and every clamp reads it: the expansion of workers, the declared-count cap, `Job_Intake`, the spawn route, the settings field, the settings verb and the console's Settings panel. A reader that attaches every partition's SQLite file into one connection is bound by SQLite's limit of 10 attached databases, and 8 leaves room for the main file and a spare.
+
 ## [2.110.2] - 2026-10-15
 
 ### Fixed

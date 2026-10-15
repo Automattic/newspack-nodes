@@ -998,7 +998,7 @@ class WorkersCITest extends TestCase {
 		$this->assertSame( 'down', $states['job-workers'] );
 	}
 
-	public function test_collect_dump_metadata_reads_the_topologies_as_often_for_nine_slots_as_for_three(): void {
+	public function test_collect_dump_metadata_reads_the_topologies_as_often_for_eight_slots_as_for_three(): void {
 		$this->arrange_base_dir();
 		$partitions = 3;
 		\add_filter(
@@ -1022,12 +1022,12 @@ class WorkersCITest extends TestCase {
 
 		$three       = self::dump_metadata();
 		$reads_three = $reads;
-		$partitions  = 9;
+		$partitions  = 8;
 		$reads       = 0;
-		$nine        = self::dump_metadata();
+		$eight       = self::dump_metadata();
 
 		$idle = static fn ( array $meta ): int => \count( \array_filter( $meta['workers'], static fn ( $w ) => 'idle' === $w['state'] ) );
-		$this->assertSame( [ 3, 9 ], [ $idle( $three ), $idle( $nine ) ] );
+		$this->assertSame( [ 3, 8 ], [ $idle( $three ), $idle( $eight ) ] );
 		$this->assertSame( $reads_three, $reads, 'classifying the slots costs no catalog read per slot' );
 	}
 

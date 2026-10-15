@@ -47,8 +47,8 @@ class Spawn_Coordinator {
 	 */
 	public const MAX_DEPTH = 5;
 
-	/** Upper bound on partitions per topology; expand_workers clamps the spawn count to it. */
-	public const MAX_PARTITIONS = 16;
+	/** Partitions a topology may run: a row reader attaches each partition's file, and SQLite attaches at most 10. */
+	public const MAX_PARTITIONS = 8;
 
 	/** Min interval between spawns of one worker. */
 	public const MIN_SPAWN_INTERVAL_S = 15;

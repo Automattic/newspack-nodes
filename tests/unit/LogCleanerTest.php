@@ -777,14 +777,14 @@ class LogCleanerTest extends TestCase {
 	/**
 	 * The GC clamped `num_partitions` to MAX_PARTITIONS while every PRODUCER
 	 * clamped it differently — `Job_Intake` and ELN's `Log_Manager` applied no
-	 * upper bound at all. Above the cap, producers wrote `jobintake.p16`+ that
+	 * upper bound at all. Above the cap, producers wrote `jobintake.p8`+ that
 	 * the declared set never enumerated, so the sweep deleted them one
 	 * DELETE_GRACE_S after their last write: live-data deletion past both of
 	 * the GC's fail-closed gates, since the root resolves and the set is
 	 * non-empty.
 	 *
 	 * The invariant is agreement — whatever a producer can write, the GC
-	 * declares. 21 is deliberately above MAX_PARTITIONS (16), so a producer
+	 * declares. 21 is deliberately above MAX_PARTITIONS (8), so a producer
 	 * that ignores the cap and one that honours it give different answers.
 	 */
 	public function test_every_partition_a_producer_writes_is_declared(): void {

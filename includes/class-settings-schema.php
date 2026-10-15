@@ -70,7 +70,7 @@ class Settings_Schema {
 					key: 'num_partitions',
 					type: 'int',
 					min: 1,
-					max: 16,
+					max: Spawn_Coordinator::MAX_PARTITIONS,
 					default: 1,
 					label: static fn(): string => \__( 'Num Partitions', 'newspack-nodes' ),
 					section: $storage,

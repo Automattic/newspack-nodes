@@ -117,12 +117,12 @@ describe( 'TopologySettingsPanel', () => {
 		expect( input.getAttribute( 'placeholder' ) ).toBe( '2' );
 	} );
 
-	it( 'clamps partitions to 1..16 and commits', () => {
+	it( 'clamps partitions to 1..8 and commits', () => {
 		const { interpreter } = setup( {} );
 		fireEvent.change( screen.getByLabelText( /partitions/i ), {
-			target: { value: '99' },
+			target: { value: '13' },
 		} );
-		expect( interpreter.frontmatter ).toEqual( { num_partitions: '16' } );
+		expect( interpreter.frontmatter ).toEqual( { num_partitions: '8' } );
 	} );
 
 	it( 'clearing partitions removes the key (config default)', () => {
