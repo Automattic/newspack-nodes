@@ -18,7 +18,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 #[CoversClass( Table_Node::class )]
 #[CoversClass( Durable_Arm::class )]
 final class TableStatsTest extends TestCase {
-	private const VERBS = [ 'GET', 'MGET', 'MSET', 'ADD', 'TOUCH', 'RM', 'INSERT', 'SADD', 'SMEMBERS', 'SSCAN', 'SMOVE', 'SREM', 'ROWS', 'PURGE', 'CHECKPOINT' ];
+	private const VERBS = [ 'GET', 'MGET', 'SMEMBERS', 'SSCAN', 'SMOVE', 'SREM', 'TOUCH', 'RM', 'MSET', 'ADD', 'SADD', 'INSERT', 'PURGE', 'CHECKPOINT' ];
 
 	private string $dir = '';
 	private Table_Node $table;
@@ -189,17 +189,16 @@ final class TableStatsTest extends TestCase {
 			[
 				'GET'      => self::row( 1, 1, 1, 0.75, 0.75 ),
 				'MGET'     => self::row( 2, 4, 3, 6.5, 4.0 ),
-				'MSET'     => self::row( 1, 3, 2, 1.25, 1.25 ),
-				'ADD'      => self::row( 1, 2, 1, 0.5, 0.5 ),
-				'TOUCH'    => self::row( 1, 2, 1, 0.3, 0.3 ),
-				'RM'       => self::row( 1, 2, 1, 0.2, 0.2 ),
-				'INSERT'   => self::row( 2, 2, 2, 0.3, 0.175 ),
-				'SADD'     => self::row( 1, 3, 3, 3.0, 3.0 ),
 				'SMEMBERS' => self::row( 1, 2, 2, 1.1, 1.1 ),
 				'SSCAN'    => self::row( 1, 1, 1, 0.9, 0.9 ),
 				'SMOVE'    => self::row( 0, 0, 0, 0.0, 0.0 ),
 				'SREM'     => self::row( 0, 0, 0, 0.0, 0.0 ),
-				'ROWS'     => self::row( 0, 0, 0, 0.0, 0.0 ),
+				'TOUCH'    => self::row( 1, 2, 1, 0.3, 0.3 ),
+				'RM'       => self::row( 1, 2, 1, 0.2, 0.2 ),
+				'MSET'     => self::row( 1, 3, 2, 1.25, 1.25 ),
+				'ADD'      => self::row( 1, 2, 1, 0.5, 0.5 ),
+				'SADD'     => self::row( 1, 3, 3, 3.0, 3.0 ),
+				'INSERT'   => self::row( 2, 2, 2, 0.3, 0.175 ),
 				'PURGE'    => self::row( 1, Table_Node::PURGE_BATCH_ROWS, 1, 6.0, 6.0 ),
 			],
 			self::without_bytes( $stats ),
@@ -222,7 +221,7 @@ final class TableStatsTest extends TestCase {
 		$this->assertGreaterThan( 231, $inserted );
 		$this->assertGreaterThan( 0, $members );
 		$this->assertSame(
-			[ 'MGET' => $kv, 'MSET' => $kv, 'INSERT' => $inserted, 'SADD' => $members, 'SMEMBERS' => $members ],
+			[ 'MGET' => $kv, 'SMEMBERS' => $members, 'MSET' => $kv, 'SADD' => $members, 'INSERT' => $inserted ],
 			\array_intersect_key( $bytes, \array_flip( [ 'MSET', 'MGET', 'INSERT', 'SADD', 'SMEMBERS' ] ) )
 		);
 	}

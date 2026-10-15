@@ -146,11 +146,12 @@ class Command_Interpreter_Node extends Node {
 	private static ?array $H = null;
 
 	/**
-	 * Memoized `resolve_class()` SUCCESSES: shell type → resolved FQCN. Misses are
-	 * never stored, so a type that only becomes resolvable after a later
-	 * `register_namespace()` still resolves — and the value is never null.
+	 * Memoized `resolve_named()` SUCCESSES: base, then name and suffix →
+	 * resolved FQCN. Misses are never stored, so a type that only becomes
+	 * resolvable after a later `register_namespace()` still resolves — and
+	 * the value is never null.
 	 *
-	 * @var array<string,class-string<Node>>
+	 * @var array<string,class-string>
 	 */
 	private static array $resolve_cache = [];
 
@@ -1395,28 +1396,47 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * Resolve a shell type token to the first registered concrete Node-subclass FQCN.
-	 *
-	 * Walks the registered namespace prefixes and returns the first
-	 * `{$prefix}{$type}_Node` (or the bare `{$prefix}Node` for the base type)
-	 * that exists, is a Node, and is NOT abstract. Abstract matches are skipped so
-	 * a concrete `{$type}_Node` under a later-scanned prefix still resolves —
-	 * otherwise `make_node` would see the abstract first and return null. Null when
-	 * no namespace yields a concrete match.
+	 * Resolve a shell type token to the first registered concrete Node-subclass
+	 * FQCN, through `resolve_named()`.
 	 *
 	 * @param string $type Shell name (e.g. `Tee`, `Tap`, or the bare `Node`).
 	 * @return class-string<Node>|null
 	 */
 	public static function resolve_class( string $type ): ?string {
+		// Base Node lacks `_Node`; `make_node Node` resolves directly.
+		return self::resolve_named( $type, 'Node' === $type ? '' : '_Node', Node::class );
+	}
+
+	/**
+	 * Resolve a word to the first registered concrete class it names: a shell
+	 * type token to its Node subclass, or a Row_Table's schema word to its
+	 * Row_Schema.
+	 *
+	 * Walks the registered namespace prefixes and returns the first
+	 * `{$prefix}{$name}{$suffix}` that exists, is a `$base`, and is NOT
+	 * abstract. Abstract matches are skipped so a concrete `{$name}_Node`
+	 * under a later-scanned prefix still resolves — otherwise `make_node`
+	 * would see the abstract first and return null. Null when no namespace
+	 * yields a concrete match.
+	 *
+	 * @api The Row_Table's schema word resolves through it.
+	 * @template T of object
+	 * @param string          $name   Shell name, or a schema word.
+	 * @param string          $suffix What the class name adds to the word: `_Node`, or `_Row_Schema`.
+	 * @param class-string<T> $base   The class or interface it must be.
+	 * @return class-string<T>|null
+	 */
+	public static function resolve_named( string $name, string $suffix, string $base ): ?string {
+		$key = "{$base} {$name}{$suffix}";
 		// Cache hits only; a miss resolves after later register_namespace().
-		if ( isset( self::$resolve_cache[ $type ] ) ) {
-			return self::$resolve_cache[ $type ];
+		if ( isset( self::$resolve_cache[ $key ] ) ) {
+			/** @var class-string<T> */
+			return self::$resolve_cache[ $key ];
 		}
 		foreach ( self::registered_namespaces() as $prefix ) {
-			// Base Node lacks `_Node`; `make_node Node` resolves directly.
-			$fqcn = ( 'Node' === $type ) ? $prefix . 'Node' : $prefix . $type . '_Node';
-			if ( \class_exists( $fqcn ) && \is_a( $fqcn, Node::class, true ) && ! ( new \ReflectionClass( $fqcn ) )->isAbstract() ) {
-				return self::$resolve_cache[ $type ] = $fqcn;
+			$fqcn = $prefix . $name . $suffix;
+			if ( \class_exists( $fqcn ) && \is_a( $fqcn, $base, true ) && ! ( new \ReflectionClass( $fqcn ) )->isAbstract() ) {
+				return self::$resolve_cache[ $key ] = $fqcn;
 			}
 		}
 		return null;

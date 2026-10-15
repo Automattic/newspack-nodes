@@ -39,6 +39,7 @@ use Newspack_Nodes\Rest\Spawn_Controller;
  * @phpstan-import-type HealthResult from Health_Checks
  *
  * @phpstan-type Worker_Descriptor array{type: string, partition: int, topology: mixed, stale_timeout: mixed, on_demand_idle: int}
+ * @phpstan-type Resolved_Table array{kind: 'table', namespace: string, ttl: int, backend: string}|array{kind: 'row', schema: string}
  */
 class Bootstrap {
 
@@ -493,7 +494,7 @@ class Bootstrap {
 	 * @api Called from consumer plugins (cross-repo, invisible here).
 	 *
 	 * @param string ...$names Table names as their topologies declare them.
-	 * @return array<string,array<int,array{namespace: string, ttl: int, backend: string}>> Name => partition => the Table; `[]` for a name no active topology declares.
+	 * @return array<string,array<int,array{namespace: string, ttl: int, backend: string}>> Name => partition => the Table; `[]` for a name no active topology declares as a keyed Table.
 	 * @throws \Throwable When two active topologies declare one differently, a TTL is not a whole number of at least 1 second, a token nothing resolves, the base directory is unusable, or no readable topology declares a name and an active one will not read.
 	 */
 	public static function node_tables( string ...$names ): array {
@@ -501,12 +502,30 @@ class Bootstrap {
 		if ( [] !== $unresolved ) {
 			$active = self::active_topologies();
 			foreach ( $unresolved as $name ) {
-				self::$node_tables[ $name ] = self::resolve_table( $name, $active );
+				self::$node_tables[ $name ] = self::keyed( self::resolve_table( $name, $active ) );
 			}
 		}
 		$out = [];
 		foreach ( $names as $name ) {
 			$out[ $name ] = self::$node_tables[ $name ];
+		}
+		return $out;
+	}
+
+	/**
+	 * A resolved Table's partitions as a keyed Table, its kind dropped; none
+	 * for a Row_Table.
+	 *
+	 * @param array<int,Resolved_Table> $partitions resolve_table().
+	 * @return array<int,array{namespace: string, ttl: int, backend: string}>
+	 */
+	private static function keyed( array $partitions ): array {
+		$out = [];
+		foreach ( $partitions as $p => $spec ) {
+			if ( 'table' === $spec['kind'] ) {
+				unset( $spec['kind'] );
+				$out[ $p ] = $spec;
+			}
 		}
 		return $out;
 	}
@@ -522,38 +541,22 @@ class Bootstrap {
 	 *
 	 * @param string $name The Row_Table as its topologies declare it.
 	 * @return array{schema: string, files: array<int,string>} Files by partition.
-	 * @throws Table_Unavailable When no active topology declares it.
-	 * @throws \Throwable When two active topologies declare it with different
-	 *                    schemas, the base directory is unusable, or no
-	 *                    readable topology declares it and an active one will not read.
+	 * @throws Table_Unavailable When no active topology declares it as a Row_Table.
+	 * @throws \Throwable When two active topologies declare it differently, a
+	 *                    keyed Table beside a Row_Table included, the base
+	 *                    directory is unusable, or no readable topology
+	 *                    declares it and an active one will not read.
 	 */
 	public static function row_table_files( string $name ): array {
-		$schema = null;
-		$first  = '';
-		$out    = [];
-		foreach ( self::declaring( $name, self::active_topologies() ) as $topology => $entry ) {
-			$word = Topology_Analyzer::declared_row_tables( $topology )[ $name ] ?? null;
-			if ( null === $word ) {
-				continue;
-			}
-			if ( null !== $schema && $schema !== $word ) {
-				throw new \RuntimeException( \esc_html( "Row_Table {$name} is declared with schema {$schema} by {$first} and {$word} by {$topology}" ) );
-			}
-			if ( null === $schema ) {
-				$schema = $word;
-				$first  = $topology;
-			}
-			for ( $p = 0, $n = self::partitions_of( $entry ); $p < $n; ++$p ) {
-				$out[ $p ] ??= Table_Node::file( $name, $p );
-			}
+		$partitions = self::resolve_table( $name, self::active_topologies() );
+		$schema     = 'row' === ( $partitions[0]['kind'] ?? null ) ? $partitions[0]['schema'] : null;
+		$files      = [];
+		foreach ( \array_keys( $partitions ) as $p ) {
+			$files[ $p ] = Table_Node::file( $name, $p );
 		}
-		if ( null === $schema ) {
-			throw new Table_Unavailable( \esc_html( "Row_Table {$name}: no active topology declares it" ) );
-		}
-		\ksort( $out );
 		return [
-			'schema' => $schema,
-			'files'  => $out,
+			'schema' => $schema ?? throw new Table_Unavailable( \esc_html( "Row_Table {$name}: no active topology declares it" ) ),
+			'files'  => $files,
 		];
 	}
 
@@ -633,12 +636,12 @@ class Bootstrap {
 
 	/**
 	 * The Tables `$names` resolve to across the given readable topologies
-	 * alone, uncached: the answer for topologies outside the active set, whose
-	 * Tables `node_tables()` does not see.
+	 * alone, uncached, by kind: the answer for topologies outside the active
+	 * set, whose Tables `node_tables()` does not see.
 	 *
 	 * @param array<string,array<array-key,mixed>> $readable Topology name => entry.
 	 * @param string                               ...$names Table names as their topologies declare them.
-	 * @return array<string,array<int,array{namespace: string, ttl: int, backend: string}>> Name => partition => the Table; `[]` for a name none declares.
+	 * @return array<string,array<int,Resolved_Table>> Name => partition => the Table; `[]` for a name none declares.
 	 * @throws \Throwable When those topologies declare one differently, or a TTL is not a whole number of at least 1 second.
 	 */
 	public static function tables_of( array $readable, string ...$names ): array {
@@ -650,41 +653,43 @@ class Bootstrap {
 	}
 
 	/**
-	 * One Table resolved across `$active`. Declarations that resolve alike
-	 * union their partitions, the way node_dirs() does, however each is
-	 * spelled; one resolving differently is a second Table under one name.
+	 * One Table resolved across `$active`, partition by partition: a keyed
+	 * Table's tokens resolved and its namespace per partition, or a
+	 * Row_Table's schema word. Declarations that resolve alike union their
+	 * partitions, the way node_dirs() does, however each is spelled; one
+	 * resolving differently, a keyed Table beside a Row_Table included, is a
+	 * second Table under one name.
 	 *
 	 * @param string                                                                       $name   Table name.
 	 * @param array{0: array<string,array<array-key,mixed>>, 1: array<string,\Throwable>} $active active_topologies().
-	 * @return array<int,array{namespace: string, ttl: int, backend: string}> Partition => the Table.
+	 * @return array<int,Resolved_Table> Partition => the Table.
 	 * @throws \Throwable As node_tables().
 	 */
 	private static function resolve_table( string $name, array $active ): array {
-		$out   = [];
-		$first = null;
+		$first      = null;
+		$partitions = 0;
 		foreach ( self::declaring( $name, $active ) as $topology => $entry ) {
 			$declared = Topology_Analyzer::declared_tables( $topology )[ $name ] ?? null;
 			if ( null === $declared ) {
 				continue;
 			}
-			$spec = [
+			$spec = 'row' === $declared['kind'] ? $declared : [
+				'kind'      => 'table',
 				'namespace' => \str_replace( [ '<topology>', '{topology}' ], $topology, Core::resolve_config_tokens( $declared['namespace'], true ) ),
 				'ttl'       => Core::canonical_decimal( Core::resolve_config_tokens( $declared['ttl'], true ), false )
 					?? throw new \RuntimeException( \esc_html( "Table {$name} declares a TTL that is not a whole number of at least 1 second: {$declared['ttl']}" ) ),
 				'backend'   => Core::resolve_config_tokens( $declared['backend'], true ),
 			];
-			if ( null !== $first && $first['spec'] !== $spec ) {
-				throw new \RuntimeException( \esc_html( "Table {$name} is declared differently by {$first['topology']} and {$topology}" ) );
+			if ( null !== $first && $first[0] !== $spec ) {
+				throw new \RuntimeException( \esc_html( "Table {$name} is declared differently by {$first[1]} and {$topology}" ) );
 			}
-			$first ??= [
-				'spec'     => $spec,
-				'topology' => $topology,
-			];
-			for ( $p = 0, $n = self::partitions_of( $entry ); $p < $n; ++$p ) {
-				$out[ $p ] ??= [ 'namespace' => Core::resolve_partition_template( $spec['namespace'], $p ) ] + $spec;
-			}
+			$first    ??= [ $spec, $topology ];
+			$partitions = \max( $partitions, self::partitions_of( $entry ) );
 		}
-		\ksort( $out );
+		$out = [];
+		for ( $p = 0; null !== $first && $p < $partitions; ++$p ) {
+			$out[ $p ] = 'table' === $first[0]['kind'] ? \array_replace( $first[0], [ 'namespace' => Core::resolve_partition_template( $first[0]['namespace'], $p ) ] ) : $first[0];
+		}
 		return $out;
 	}
 

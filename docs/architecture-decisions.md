@@ -1531,7 +1531,7 @@ encoding, so they travel as `TM_REQUEST | TM_STRUCT` with VALUE `[ 'MSET' => …
 `[ 'ADD' => … ]` or `[ 'SADD' => … ]`; every other request, `SMEMBERS` and `SSCAN` included, stays a
 string. A Row_Table's `ROWS` carries a list of row ops the same way, VALUE
 `[ 'ROWS' => [ [ op, table, row, then?, ids? ], … ] ]`, written in one transaction, and
-answers `TM_RESPONSE | TM_STRUCT` `[ 'verb' => 'ROWS', 'written' => …, 'ids' => … ]` or a
+answers as every Table write does, a bare `TM_RESPONSE` `ROWS <written>`, or a
 `TM_ERROR` carrying the arm's message; a Row_Table refuses every keyed request, a keyed
 Table refuses `ROWS`, and a mount refuses it as it refuses every write. Each of the four declares it on its `requests` entry, `'value' => 'struct'`, and
 every sender reads that declaration: the console's verb dialog sends `TM_REQUEST | TM_STRUCT`
@@ -2439,11 +2439,13 @@ declares in the partition's SQLite file, `{base}/tables/{name}.p{N}.sqlite`. The
 worker is its one writer, through `ROWS` (insert, ignore, add; an ignore's `then` ops apply
 only when it inserted). A reader attaches every partition's file read-only into one
 connection and answers in one statement; `Spawn_Coordinator::MAX_PARTITIONS` (8) keeps that
-under SQLite's ten attachments. A schema version mismatch discards the file at open.
+under SQLite's ten attachments. A verb answering from `read()` answers only rows its declared
+role may read, as [ADR-23](#adr-23-a-request-carries-no-authority-of-its-own) bounds what a
+verb's mount may expose. A schema version mismatch discards the file at open.
 Retention is declared per table (`retain`, `retained_by`) and runs on the Table tick. The
 file is claimed in the write set as `table:<name>.p{partition}`, as a `sqlite` Table's is, so
-`wp nodes activate` refuses two active topologies declaring one name, a keyed Table and a
-Row_Table included, and `wp nodes gc` keeps a declared Row_Table's files and sweeps an
+`wp nodes activate` refuses two active topologies declaring one name, a keyed `sqlite` Table
+and a Row_Table included, and `wp nodes gc` keeps a declared Row_Table's files and sweeps an
 undeclared one's. `wp nodes tables list` shows it with Backend `sqlite` and its schema word
 where a Table shows its TTL.
 

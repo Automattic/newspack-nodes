@@ -45,15 +45,14 @@ class Row_Table_Node extends Table_Node {
 	private const FOLD = '/^(sum|max)$/D';
 
 	/** How a ROWS request is answered. */
-	private const ROWS_REPLY = 'one TM_RESPONSE|TM_STRUCT [ verb => ROWS, written => <rows written or folded>, ids => [ <op index> => <id> ] ], or one TM_ERROR "ROWS: <why>", the batch rolled back';
+	private const ROWS_REPLY = 'one TM_RESPONSE "ROWS <rows written or folded>", or one TM_ERROR "ROWS: <why>", the batch rolled back';
 
 	/** The schema word this Row_Table was declared with. */
 	private string $schema = '';
 
 	/**
 	 * `<Schema>`: resolve the word, check the schema, then open the file at
-	 * its version with its tables declared. The kv TTL is the longest
-	 * `retain` window, in seconds. A refusal opens nothing.
+	 * its version with its tables declared. A refusal opens nothing.
 	 *
 	 * @param list<string>|null $args
 	 * @return list<string>
@@ -70,29 +69,44 @@ class Row_Table_Node extends Table_Node {
 		$word   = Core::as_string( $values['schema'] );
 		$schema = self::schema_class( $word, $this->name );
 		$tables = $schema::tables();
-		$this->declare_store( $this->name, self::checked_window( $word, $tables ), 'sqlite', [ 'version' => $schema::version(), 'tables' => $tables ] );
+		self::check_schema( $word, $tables );
+		$this->declare_store( $this->name, null, 'sqlite', [ 'version' => $schema::version(), 'tables' => $tables ] );
 		$this->schema    = $word;
 		$this->arguments = $args;
 		return $args;
 	}
 
 	/**
-	 * Check every table a schema declares, then answer its longest `retain`
-	 * window in seconds, the kv TTL. Every name the file's DDL would take —
-	 * each table, index, FTS shadow and trigger, and the kv store's own — is
-	 * taken once, since `CREATE … IF NOT EXISTS` skips a second in silence.
+	 * Refuse a keyed INSERT, which a Row_Table has no keyed store for, then
+	 * answer a request or forward as a Table does.
+	 *
+	 * @param array<int,mixed> $message The 7-field positional message array.
+	 * @throws \RuntimeException With no wired sink to forward or reply through.
+	 */
+	public function fill( array $message ): void {
+		if ( 0 === ( Core::num_int( $message[ Message::TYPE ] ) & Message::TM_REQUEST ) && '' !== Core::as_string( $message[ Message::KEY ], '' ) ) {
+			$this->print_less_often( "ERROR: refused an INSERT through Row_Table {$this->name}, which takes ROWS alone - from: ", Core::as_string( $message[ Message::FROM ], '' ) );
+			return;
+		}
+		parent::fill( $message );
+	}
+
+	/**
+	 * Check every table a schema declares, and that one retains, so a purge
+	 * starts. Every name the file's DDL would take — each table, index, FTS
+	 * shadow and trigger, and the kv store's own — is taken once, since
+	 * `CREATE … IF NOT EXISTS` skips a second in silence.
 	 *
 	 * @param string                $word   The schema word, for a refusal.
 	 * @param array<string,Row_Spec> $tables Its tables.
-	 * @return int Seconds.
 	 * @throws \RuntimeException Naming the schema and the item it refuses.
 	 */
-	private static function checked_window( string $word, array $tables ): int {
+	private static function check_schema( string $word, array $tables ): void {
 		if ( [] === $tables ) {
 			self::refuse_schema( $word, 'declares no table' );
 		}
-		$window = 0;
-		$taken  = \array_fill_keys( Sqlite_Arm::KV_NAMES, 'the kv store' );
+		$retains = false;
+		$taken   = \array_fill_keys( \array_keys( Sqlite_Arm::KV_DDL ), 'the kv store' );
 		foreach ( $tables as $table => $spec ) {
 			self::check_table( $word, $tables, $table, $spec );
 			foreach ( Sqlite_Arm::declared_names( $table, $spec ) as $name ) {
@@ -101,14 +115,11 @@ class Row_Table_Node extends Table_Node {
 				}
 				$taken[ $name ] = "table {$table}";
 			}
-			if ( isset( $spec['retain'] ) ) {
-				$window = \max( $window, $spec['retain'][1] * $spec['retain'][2] );
-			}
+			$retains = $retains || isset( $spec['retain'] );
 		}
-		if ( 0 === $window ) {
+		if ( ! $retains ) {
 			self::refuse_schema( $word, 'retains no table, so no purge ever starts' );
 		}
-		return $window;
 	}
 
 	/**
@@ -177,8 +188,8 @@ class Row_Table_Node extends Table_Node {
 
 	/**
 	 * Check how a table purges: a `retain` whose column leads an index or the
-	 * key, with a window and a unit of at least one, or a `retained_by` whose
-	 * referencing column leads one in the table it names. One or the other.
+	 * key, with a window and a unit of at least one, a `retained_by` whose
+	 * referencing column leads one in the table it names, or both.
 	 *
 	 * @param string                $word   The schema word.
 	 * @param array<string,Row_Spec> $tables Every table it declares.
@@ -273,26 +284,19 @@ class Row_Table_Node extends Table_Node {
 	 * @throws Table_Unavailable When no active topology declares the table,
 	 *                           pdo_sqlite is missing, or a file will not
 	 *                           attach or is no database.
-	 * @throws \RuntimeException When two active topologies declare it with
-	 *                           different schemas, or the process runs as root.
+	 * @throws \RuntimeException When two active topologies declare it
+	 *                           differently, a keyed Table beside a Row_Table
+	 *                           included, or the process runs as root.
 	 */
 	public static function read( string $table, \Closure $read ): mixed {
 		$declared = Bootstrap::row_table_files( $table );
 		$class    = self::schema_class( $declared['schema'], $table );
 		try {
-			$db = Sqlite_Arm::open_rows( $declared['files'], $class::version() );
+			$reader = Sqlite_Arm::open_rows( $declared['files'], $class::version() );
 		} catch ( \PDOException | \LogicException $e ) {
 			throw new Table_Unavailable( \esc_html( "Row_Table {$table}: " . $e->getMessage() ), 0, $e );
 		}
-		$list    = $db->query( 'PRAGMA database_list' );
-		$aliases = [];
-		foreach ( false === $list ? [] : $list->fetchAll( \PDO::FETCH_NUM ) as $row ) {
-			$alias = Core::as_string( Core::arr( $row )[1] ?? '' );
-			if ( 'main' !== $alias && 'temp' !== $alias ) {
-				$aliases[] = $alias;
-			}
-		}
-		return $read( new Row_Reader( $db, $aliases ) );
+		return $read( $reader );
 	}
 
 	/**
@@ -305,15 +309,45 @@ class Row_Table_Node extends Table_Node {
 	 * @throws \RuntimeException When no registered namespace holds one.
 	 */
 	private static function schema_class( string $word, string $table ): string {
-		if ( 1 === \preg_match( self::SCHEMA_WORD, $word ) ) {
-			foreach ( Command_Interpreter_Node::registered_namespaces() as $prefix ) {
-				$fqcn = "{$prefix}{$word}_Row_Schema";
-				if ( \class_exists( $fqcn ) && \is_a( $fqcn, Row_Schema::class, true ) ) {
-					return $fqcn;
-				}
-			}
+		$fqcn = 1 === \preg_match( self::SCHEMA_WORD, $word ) ? Command_Interpreter_Node::resolve_named( $word, '_Row_Schema', Row_Schema::class ) : null;
+		return $fqcn ?? throw new \RuntimeException( \esc_html( "Row_Table {$table}: unknown schema {$word}: no registered namespace holds a {$word}_Row_Schema implementing Row_Schema" ) );
+	}
+
+	/**
+	 * `ROWS`, the one structured verb a Row_Table declares: a list of row ops
+	 * written in one transaction, answered as every Table write is,
+	 * TM_RESPONSE `ROWS <written>`, or a TM_ERROR carrying the arm's message,
+	 * the whole batch rolled back. Counted as ROWS: the ops asked, the rows
+	 * written or folded.
+	 *
+	 * @param array<int,mixed>       $request The TM_REQUEST.
+	 * @param string                 $verb    `ROWS`.
+	 * @param array<array-key,mixed> $items   The ops.
+	 * @throws \RuntimeException With no wired sink to reply through.
+	 * @throws \LogicException Before the schema opened a file.
+	 */
+	protected function answer_struct( array $request, string $verb, array $items ): void {
+		$batch = \array_values( \array_filter( $items, \is_array( ... ) ) );
+		if ( ! \array_is_list( $items ) || \count( $batch ) !== \count( $items ) ) {
+			$this->refuse( $request, $verb, Core::as_string( self::requests()[ $verb ] ) );
+			return;
 		}
-		throw new \RuntimeException( \esc_html( "Row_Table {$table}: unknown schema {$word}: no registered namespace holds a {$word}_Row_Schema implementing Row_Schema" ) );
+		$arm = $this->arm();
+		if ( ! $arm instanceof Sqlite_Arm ) {
+			throw new \LogicException( \esc_html( "Row_Table {$this->name} holds no file until its schema arrives" ) );
+		}
+		try {
+			$written = $arm->write_rows( $batch );
+		} catch ( Worker_Should_Stop $stop ) {
+			throw $stop;
+		} catch ( \RuntimeException $e ) {
+			$this->count_rows( $verb, \count( $batch ), 0 );
+			$this->count_error( $verb );
+			$this->reply( $request, Message::TM_ERROR, '', "{$verb}: {$e->getMessage()}\n" );
+			return;
+		}
+		$this->count_rows( $verb, \count( $batch ), $written );
+		$this->reply_written( $request, $verb, [ (string) $written ] );
 	}
 
 	/**
@@ -345,7 +379,7 @@ class Row_Table_Node extends Table_Node {
 					'name'        => 'ROWS',
 					'description' => 'Write one batch of row ops in one transaction under a TM_REQUEST|TM_STRUCT list; a failed op rolls the batch back.',
 					'value'       => 'struct',
-					'args'        => [ [ 'name' => 'batch', 'type' => 'json', 'required' => true, 'description' => '[ [ op, table, row, then?, ids? ], … ]' ] ],
+					'args'        => [ [ 'name' => 'batch', 'type' => 'json', 'required' => true, 'description' => 'a list of [ op, table, row, then?, ids? ]' ] ],
 					'reply_shape' => self::ROWS_REPLY,
 				],
 			],

@@ -5,11 +5,13 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Echo_Node;
+use Newspack_Nodes\Row_Schema;
 use Newspack_Nodes\Tee_Node;
 use Newspack_Nodes\Rest\Classes_CI_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
 use Newspack_Nodes\Tests\TestCase;
+use Newspack_Nodes\Tests\Wombat_Row_Schema;
 
 class CommandInterpreterNamespaceTest extends TestCase {
 
@@ -94,6 +96,20 @@ class CommandInterpreterNamespaceTest extends TestCase {
 		} finally {
 			$ref->setValue( null, $snapshot );
 		}
+	}
+
+	public function test_resolve_named_resolves_a_suffix_against_a_base(): void {
+		require_once \dirname( __DIR__ ) . '/Helpers/fixtures/class-wombat-row-schema.php';
+		require_once \dirname( __DIR__ ) . '/Helpers/fixtures/class-dingo-row-schema.php';
+		$this->assertSame( Wombat_Row_Schema::class, Command_Interpreter_Node::resolve_named( 'Wombat', '_Row_Schema', Row_Schema::class ) );
+		$this->assertNull( Command_Interpreter_Node::resolve_named( 'Dingo', '_Row_Schema', Row_Schema::class ), 'a class that is no Row_Schema' );
+		$this->assertNull( Command_Interpreter_Node::resolve_class( 'Wombat' ), 'no Wombat_Node' );
+	}
+
+	public function test_resolve_named_caches_a_name_per_suffix(): void {
+		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
+		$this->assertSame( Tee_Node::class, Command_Interpreter_Node::resolve_class( 'Tee' ) );
+		$this->assertNull( Command_Interpreter_Node::resolve_named( 'Tee', '_Row_Schema', Row_Schema::class ) );
 	}
 
 	public function test_resolve_class_does_not_cache_a_miss(): void {

@@ -336,9 +336,9 @@ final class Table_Client {
 
 	/**
 	 * `ROWS`: one batch of row ops, written in one transaction by a
-	 * Row_Table. Its answer reaches the asker's `fill()`, which hands it to
-	 * `accepts()`; a refusal, or no answer, raises, since a row the batch
-	 * named may be gone.
+	 * Row_Table, which answers as every Table write does. Its answer reaches
+	 * the asker's `fill()`, which hands it to `accepts()`; a refusal, or no
+	 * answer, raises, since a row the batch named may be gone.
 	 *
 	 * @api A node writing row tables: event-logger-nodes' flame builder.
 	 * @param string                 $table The Row_Table's registered name.
@@ -351,16 +351,17 @@ final class Table_Client {
 		if ( [] === $batch ) {
 			return;
 		}
-		foreach ( $this->ask( $table, Message::TM_REQUEST | Message::TM_STRUCT, [ 'ROWS' => $batch ] ) as $reply ) {
-			$type = Core::num_int( $reply[ Message::TYPE ] );
-			if ( 0 !== ( $type & Message::TM_ERROR ) ) {
+		$replies = $this->ask( $table, Message::TM_REQUEST | Message::TM_STRUCT, [ 'ROWS' => $batch ] );
+		foreach ( $replies as $reply ) {
+			if ( 0 !== ( Core::num_int( $reply[ Message::TYPE ] ) & Message::TM_ERROR ) ) {
 				throw new \RuntimeException( \esc_html( "Table_Client: {$table} refused ROWS: " . \trim( Core::as_string( $reply[ Message::VALUE ], '' ) ) ) );
 			}
-			if ( 0 !== ( $type & Message::TM_RESPONSE ) && 'ROWS' === ( Core::arr( $reply[ Message::VALUE ] )['verb'] ?? null ) ) {
-				return;
-			}
 		}
-		throw new \RuntimeException( \esc_html( "Table_Client: {$table} did not answer ROWS" ) );
+		$failed = false;
+		$this->written( 'ROWS', $replies, $failed );
+		if ( $failed ) {
+			throw new \RuntimeException( \esc_html( "Table_Client: {$table} did not answer ROWS" ) );
+		}
 	}
 
 	/**

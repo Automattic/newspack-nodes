@@ -151,9 +151,6 @@ class Table_Node extends Node {
 	/** How every write request is answered. */
 	private const WRITE_REPLY = 'one TM_RESPONSE "<VERB> <keys…>" naming the keys it took effect on';
 
-	/** What a ROWS request carries, for a refusal to teach. */
-	private const ROWS_USAGE = 'needs TM_REQUEST|TM_STRUCT and VALUE [ ROWS => [ [ op, table, row, then?, ids? ], … ] ]';
-
 	/** A verb's calls, in its counter row. */
 	private const CALLS = 0;
 
@@ -178,35 +175,16 @@ class Table_Node extends Node {
 	/** A verb's longest call since the probe last drained, in nanoseconds. */
 	private const WINDOW_MAX_NS = 7;
 
-	/**
-	 * Every counted verb's row at zero: the requests, a Row_Table's ROWS,
-	 * fill()'s keyed INSERT, and the Router tick's PURGE and CHECKPOINT.
-	 */
-	private const ZERO_STATS = [
-		'GET'        => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
-		'MGET'       => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
-		'MSET'       => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
-		'ADD'        => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
-		'TOUCH'      => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
-		'RM'         => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
-		'INSERT'     => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
-		'SADD'       => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
-		'SMEMBERS'   => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
-		'SSCAN'      => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
-		'SMOVE'      => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
-		'SREM'       => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
-		'ROWS'       => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
-		'PURGE'      => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
-		'CHECKPOINT' => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
-	];
+	/** The verbs counted beside the requests: fill()'s keyed INSERT and the tick's. */
+	private const COUNTED = [ 'INSERT', 'PURGE', 'CHECKPOINT' ];
 
 	/**
-	 * What each structured verb carries, for a refusal to teach, read once
-	 * from the `struct` requests node_schema() declares.
+	 * Each class's declared requests, read once from its node_schema(): verb
+	 * => what a structure must carry, or null for a string verb.
 	 *
-	 * @var array<string,string>|null
+	 * @var array<string,array<string,string|null>>
 	 */
-	private static ?array $struct_usage = null;
+	private static array $requests = [];
 
 	/**
 	 * Monotonic-clock seam behind the per-verb timings, replacing
@@ -228,9 +206,6 @@ class Table_Node extends Node {
 
 	/** The arm a named backend opened; null for `auto`, which resolves per call. */
 	private ?Cache_Backend $arm = null;
-
-	/** Whether the arm holds a Row_Schema's tables, which answer ROWS alone. */
-	private bool $row_store = false;
 
 	/** The declared Table this node answers for; its own name unless mounted. */
 	private string $table = '';
@@ -264,7 +239,7 @@ class Table_Node extends Node {
 	 *
 	 * @var array<string,array{int,int,int,int,int,int,int,int}>
 	 */
-	private array $verb_stats = self::ZERO_STATS;
+	private array $verb_stats;
 
 	/**
 	 * The counters as the last trace line left them, held only while traced,
@@ -308,7 +283,8 @@ class Table_Node extends Node {
 	 */
 	public function __construct() {
 		parent::__construct();
-		$this->probe_ts = Core::$now;
+		$this->verb_stats = self::zero_stats();
+		$this->probe_ts   = Core::$now;
 		$this->auto_wire_interpreter();
 	}
 
@@ -379,10 +355,6 @@ class Table_Node extends Node {
 			$this->print_less_often( 'ERROR: refused an INSERT through a mounted Table - from: ', Core::as_string( $message[ Message::FROM ], '' ) );
 			return;
 		}
-		if ( $this->row_store && '' !== $key ) {
-			$this->print_less_often( "ERROR: refused an INSERT through Row_Table {$this->name}, which takes ROWS alone - from: ", Core::as_string( $message[ Message::FROM ], '' ) );
-			return;
-		}
 		if ( 0 !== ( $type & ( Message::TM_STRUCT | Message::TM_BYTESTREAM ) ) && Cache_Backend::refuses_key( $key ) ) {
 			$this->print_less_often( 'ERROR: refused an INSERT whose KEY is empty or holds whitespace' );
 			return;
@@ -396,25 +368,26 @@ class Table_Node extends Node {
 	/**
 	 * Open the store a declaration names and take it on: the arm first, so a
 	 * backend that will not open leaves the Table as it was, then its scope.
-	 * `$rows` declares a Row_Schema's tables in a `sqlite` file, which then
-	 * answers ROWS and refuses every keyed request.
+	 * `$rows` declares a Row_Schema's tables in a `sqlite` file.
 	 *
 	 * @param string    $namespace The namespace keys derive from.
-	 * @param int       $ttl       Lifetime of a write stating none, at least 1.
+	 * @param int|null  $ttl       Lifetime of a write stating none, at least 1;
+	 *                             null beside `$rows`, a store with no keyed write.
 	 * @param string    $backend   One of BACKENDS.
 	 * @param Rows|null $rows      The row tables, or none.
 	 * @throws \RuntimeException On a declaration the backend refuses.
 	 * @throws Table_Unavailable When the backend cannot open on this host.
 	 */
-	protected function declare_store( string $namespace, int $ttl, string $backend, ?array $rows ): void {
+	protected function declare_store( string $namespace, ?int $ttl, string $backend, ?array $rows ): void {
 		$this->bound_partition = Core::bound_partition();
 		$file                  = 'sqlite' === $backend ? $this->sqlite_file() : '';
 		$arm                   = $this->open( $backend, $namespace, $file, $rows );
 		$this->namespace       = $namespace;
-		$this->ttl             = $ttl;
+		if ( null !== $ttl ) {
+			$this->ttl = $ttl;
+		}
 		$this->backend         = $backend;
 		$this->arm             = $arm;
-		$this->row_store       = null !== $rows;
 		$this->sqlite_path     = $file;
 	}
 
@@ -489,8 +462,8 @@ class Table_Node extends Node {
 	private function sqlite_file(): string {
 		try {
 			$file = self::file( $this->table_name(), $this->file_partition() );
-			if ( $this->mounted && 0 === CLI::uid() ) {
-				throw new \RuntimeException( "a sqlite mount refuses to run as root: a root reader leaves -wal and -shm files beside {$file} that its worker cannot open" );
+			if ( $this->mounted ) {
+				Sqlite_Arm::refuse_root_reader( $file );
 			}
 			if ( ! $this->mounted || \is_dir( \dirname( $file ) ) ) {
 				Config::ensure_path( \dirname( $file ) );
@@ -517,10 +490,9 @@ class Table_Node extends Node {
 	 * Answer one request, TO its FROM, FROM this Table, its ID echoed (ADR-7).
 	 * Reads send a message per value and a TM_INFO count, or one TM_ERROR when
 	 * a key went unread, so a failure never reads as absence. Writes send one
-	 * string TM_RESPONSE naming the keys they took effect on. MSET, ADD, SADD
-	 * and a Row_Table's ROWS alone carry a structure, under
-	 * TM_REQUEST|TM_STRUCT. Anything else the Table cannot answer is refused
-	 * out loud, through refuse().
+	 * string TM_RESPONSE naming the keys they took effect on. MSET, ADD and
+	 * SADD alone carry a structure, under TM_REQUEST|TM_STRUCT. Anything else
+	 * the Table cannot answer is refused out loud, through refuse().
 	 *
 	 * @param array<int,mixed> $request The TM_REQUEST.
 	 * @throws \RuntimeException With no wired sink to reply through.
@@ -540,9 +512,9 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * Answer one request's verb: a mount refuses any write, ROWS and every
-	 * request to a Row_Table go to answer_rows(), a structure to
-	 * handle_struct(), and a string verb to its reply.
+	 * Answer one request's verb: a mount refuses any write, a structure goes
+	 * to handle_struct(), a string verb this class does not declare is
+	 * refused, and a declared one goes to its reply.
 	 *
 	 * @param array<int,mixed> $request The TM_REQUEST.
 	 * @param string           $verb    The verb: the first word, or the map's key.
@@ -556,16 +528,16 @@ class Table_Node extends Node {
 			$this->refuse( $request, $verb, self::READS_ONLY );
 			return;
 		}
-		if ( $this->row_store || 'ROWS' === $verb ) {
-			$this->answer_rows( $request, $verb, $value, $struct );
-			return;
-		}
 		if ( \is_array( $value ) ) {
 			$this->handle_struct( $request, $verb, $value, $struct );
 			return;
 		}
 		if ( $struct ) {
 			$this->refuse( $request, $verb, 'a string request carries no TM_STRUCT bit' );
+			return;
+		}
+		if ( ! \array_key_exists( $verb, self::requests() ) ) {
+			$this->refuse( $request, $verb, 'unknown verb' );
 			return;
 		}
 		match ( $verb ) {
@@ -577,78 +549,14 @@ class Table_Node extends Node {
 			'SREM'                => $this->reply_unmembered( $request, $words ),
 			'TOUCH'               => $this->reply_touch( $request, $words ),
 			'RM'                  => $this->reply_removed( $request, $words ),
-			default               => $this->refuse( $request, $verb, self::struct_usage()[ $verb ] ?? 'unknown verb' ),
+			default               => $this->refuse( $request, $verb, self::requests()[ $verb ] ?? 'declared but not answered' ),
 		};
 	}
 
 	/**
-	 * `ROWS`: one batch of row ops in one transaction, under
-	 * TM_REQUEST|TM_STRUCT with VALUE `[ 'ROWS' => [ op, … ] ]`, answered
-	 * TM_RESPONSE|TM_STRUCT `[ 'verb' => 'ROWS', 'written', 'ids' ]` or a
-	 * TM_ERROR carrying the arm's message, the whole batch rolled back. A
-	 * Row_Table refuses every other verb, and a keyed Table refuses ROWS.
-	 * Counted as ROWS: the ops asked, the rows written or folded.
-	 *
-	 * @param array<int,mixed> $request The TM_REQUEST.
-	 * @param string           $verb    The verb: the first word, or the map's key.
-	 * @param mixed            $value   The request's VALUE.
-	 * @param bool             $struct  Whether TYPE carries TM_STRUCT.
-	 * @throws \RuntimeException With no wired sink to reply through.
-	 */
-	private function answer_rows( array $request, string $verb, mixed $value, bool $struct ): void {
-		$arm = $this->arm;
-		if ( ! $this->row_store || ! $arm instanceof Sqlite_Arm ) {
-			$this->refuse( $request, $verb, "{$this->table_name()} is a keyed Table; only a Row_Table answers ROWS" );
-			return;
-		}
-		if ( 'ROWS' !== $verb ) {
-			$this->refuse( $request, $verb, "{$this->table_name()} is a Row_Table, which answers ROWS alone" );
-			return;
-		}
-		$batch = $struct ? self::row_ops( $value ) : null;
-		if ( null === $batch ) {
-			$this->refuse( $request, $verb, self::ROWS_USAGE );
-			return;
-		}
-		try {
-			$done = $arm->write_rows( $batch );
-		} catch ( Worker_Should_Stop $stop ) {
-			throw $stop;
-		} catch ( \RuntimeException $e ) {
-			$this->count_rows( 'ROWS', \count( $batch ), 0 );
-			$this->count_error( 'ROWS' );
-			$this->reply( $request, Message::TM_ERROR, '', "ROWS: {$e->getMessage()}\n" );
-			return;
-		}
-		$this->count_rows( 'ROWS', \count( $batch ), $done['written'] );
-		$this->reply( $request, Message::TM_RESPONSE | Message::TM_STRUCT, '', [ 'verb' => 'ROWS' ] + $done );
-	}
-
-	/**
-	 * The ops a ROWS VALUE carries: `[ 'ROWS' => [ op, … ] ]`, its one entry
-	 * a list of arrays.
-	 *
-	 * @param mixed $value The request's VALUE.
-	 * @return list<array<array-key,mixed>>|null The ops; null for any other shape.
-	 */
-	private static function row_ops( mixed $value ): ?array {
-		$batch = \is_array( $value ) && 1 === \count( $value ) ? ( $value['ROWS'] ?? null ) : null;
-		if ( ! \is_array( $batch ) || ! \array_is_list( $batch ) ) {
-			return null;
-		}
-		$ops = [];
-		foreach ( $batch as $op ) {
-			if ( ! \is_array( $op ) ) {
-				return null;
-			}
-			$ops[] = $op;
-		}
-		return $ops;
-	}
-
-	/**
-	 * `MSET`/`ADD`/`SADD`: one verb naming a map of key => [ value, ttl ],
-	 * under the TM_STRUCT bit; a SADD value is its set's member map.
+	 * A structured request: one verb this class declares a `struct` value
+	 * for, naming what it carries, under the TM_STRUCT bit, answered by
+	 * answer_struct().
 	 *
 	 * @param array<int,mixed>       $request The TM_REQUEST.
 	 * @param string                 $verb    The map's one key.
@@ -658,11 +566,12 @@ class Table_Node extends Node {
 	 */
 	private function handle_struct( array $request, string $verb, array $value, bool $struct ): void {
 		$items = $value[ $verb ] ?? null;
-		$usage = self::struct_usage();
+		$usage = \array_filter( self::requests(), static fn ( ?string $carries ): bool => null !== $carries );
+		$verbs = \array_keys( $usage );
 		$fault = match ( true ) {
 			! $struct                    => 'a structured request needs the TM_STRUCT bit',
 			1 !== \count( $value )       => 'a structured request names one verb',
-			! isset( $usage[ $verb ] )   => 'only ' . \implode( ', ', \array_slice( \array_keys( $usage ), 0, -1 ) ) . ' and ' . \array_key_last( $usage ) . ' take a structure',
+			! isset( $usage[ $verb ] )   => 1 === \count( $verbs ) ? "only {$verbs[0]} takes a structure" : 'only ' . \implode( ', ', \array_slice( $verbs, 0, -1 ) ) . ' and ' . \end( $verbs ) . ' take a structure',
 			! \is_array( $items )        => $usage[ $verb ],
 			default                      => null,
 		};
@@ -670,7 +579,19 @@ class Table_Node extends Node {
 			$this->refuse( $request, $verb, $fault );
 			return;
 		}
-		$items = Core::arr( $items );
+		$this->answer_struct( $request, $verb, Core::arr( $items ) );
+	}
+
+	/**
+	 * `MSET`/`ADD`/`SADD`: a map of key => [ value, ttl ]; a SADD value is
+	 * its set's member map.
+	 *
+	 * @param array<int,mixed>       $request The TM_REQUEST.
+	 * @param string                 $verb    A structured verb this class declares.
+	 * @param array<array-key,mixed> $items   What the verb carries.
+	 * @throws \RuntimeException With no wired sink to reply through.
+	 */
+	protected function answer_struct( array $request, string $verb, array $items ): void {
 		if ( 'SADD' === $verb ) {
 			$this->reply_added( $request, $items );
 			return;
@@ -678,25 +599,6 @@ class Table_Node extends Node {
 		$landed = $this->write_items( $items, 'ADD' === $verb );
 		$this->count_rows( $verb, \count( $items ), \count( $landed ) );
 		$this->reply_written( $request, $verb, $landed );
-	}
-
-	/**
-	 * What each structured verb carries: `needs a map of` its one argument,
-	 * for every request node_schema() declares a `struct` value.
-	 *
-	 * @return array<string,string> Verb => usage.
-	 */
-	private static function struct_usage(): array {
-		if ( null === self::$struct_usage ) {
-			self::$struct_usage = [];
-			foreach ( Core::arr( self::node_schema()['requests'] ) as $request ) {
-				$request = Core::arr( $request );
-				if ( 'struct' === ( $request['value'] ?? null ) ) {
-					self::$struct_usage[ Core::as_string( $request['name'] ) ] = 'needs a map of ' . Core::as_string( Core::arr( Core::arr( $request['args'] )[0] )['description'] );
-				}
-			}
-		}
-		return self::$struct_usage;
 	}
 
 	/**
@@ -1073,7 +975,7 @@ class Table_Node extends Node {
 	 * @param string           $verb    The verb answered.
 	 * @param list<string>     $keys    Keys.
 	 */
-	private function reply_written( array $request, string $verb, array $keys ): void {
+	protected function reply_written( array $request, string $verb, array $keys ): void {
 		$this->reply( $request, Message::TM_RESPONSE, '', \rtrim( $verb . ' ' . \implode( ' ', $keys ) ) . "\n" );
 	}
 
@@ -1088,7 +990,7 @@ class Table_Node extends Node {
 	 * @param string           $why     Why.
 	 * @throws \RuntimeException With no wired sink to reply through.
 	 */
-	private function refuse( array $request, string $verb, string $why ): void {
+	protected function refuse( array $request, string $verb, string $why ): void {
 		$shown = '' === $verb ? '(empty)' : \substr( $verb, 0, self::SHOWN_VERB_BYTES );
 		$this->count_error( $verb );
 		$this->print_less_often( "ERROR: bad request: {$shown}", ": {$why} - from: ", Core::as_string( $request[ Message::FROM ], '' ) );
@@ -1104,7 +1006,7 @@ class Table_Node extends Node {
 	 * @param mixed            $value   The reply's VALUE.
 	 * @throws \RuntimeException With no wired sink to reply through.
 	 */
-	private function reply( array $request, int $type, string $key, mixed $value ): void {
+	protected function reply( array $request, int $type, string $key, mixed $value ): void {
 		$reply                   = Message::new_message();
 		$reply[ Message::TYPE ]  = $type;
 		$reply[ Message::FROM ]  = $this->name;
@@ -1590,7 +1492,7 @@ class Table_Node extends Node {
 	 *
 	 * @return Cache_Backend|null Null when `auto` finds no backend.
 	 */
-	private function arm(): ?Cache_Backend {
+	protected function arm(): ?Cache_Backend {
 		return 'auto' === $this->backend ? Cache_Backend::shared_first() : $this->arm;
 	}
 
@@ -1832,7 +1734,7 @@ class Table_Node extends Node {
 	public function reset_stats(): array {
 		$this->refuse_if_mounted( 'reset_stats' );
 		$stats        = $this->stats();
-		$this->probed = $this->carried( $this->probed ?? self::ZERO_STATS );
+		$this->probed = $this->carried( $this->probed ?? self::zero_stats() );
 		if ( null !== $this->traced ) {
 			$this->traced = $this->carried( $this->traced );
 		}
@@ -1911,7 +1813,7 @@ class Table_Node extends Node {
 			return [];
 		}
 		$verbs = [];
-		foreach ( $this->window( $this->probed ?? self::ZERO_STATS ) as $verb => [ $calls, $asked, $answered, $bytes, $ns, $errors, $max_ns ] ) {
+		foreach ( $this->window( $this->probed ?? self::zero_stats() ) as $verb => [ $calls, $asked, $answered, $bytes, $ns, $errors, $max_ns ] ) {
 			$verbs[ $verb ] = [
 				Tablestats_Record::ROW_CALLS    => $calls,
 				Tablestats_Record::ROW_ASKED    => $asked,
@@ -1941,6 +1843,37 @@ class Table_Node extends Node {
 				Tablestats_Record::FILE_DISK_BYTES => null === $files ? null : $files['disk'],
 			],
 		];
+	}
+
+	/**
+	 * Every counted verb's row at zero: the requests this class declares,
+	 * fill()'s keyed INSERT, and the Router tick's PURGE and CHECKPOINT.
+	 *
+	 * @return array<string,array{int,int,int,int,int,int,int,int}>
+	 */
+	private static function zero_stats(): array {
+		return \array_fill_keys( [ ...\array_keys( self::requests() ), ...self::COUNTED ], [ 0, 0, 0, 0, 0, 0, 0, 0 ] );
+	}
+
+	/**
+	 * The requests this class's node_schema() declares, read once a class:
+	 * verb => `needs` and what its structure carries, or null for a string
+	 * verb.
+	 *
+	 * @return array<string,string|null>
+	 */
+	protected static function requests(): array {
+		if ( ! isset( self::$requests[ static::class ] ) ) {
+			$requests = [];
+			foreach ( Core::arr( static::node_schema()['requests'] ) as $request ) {
+				$request = Core::arr( $request );
+				$requests[ Core::as_string( $request['name'] ) ] = 'struct' === ( $request['value'] ?? null )
+					? 'needs ' . Core::as_string( Core::arr( Core::arr( $request['args'] )[0] )['description'] )
+					: null;
+			}
+			self::$requests[ static::class ] = $requests;
+		}
+		return self::$requests[ static::class ];
 	}
 
 	/**
@@ -2055,7 +1988,7 @@ class Table_Node extends Node {
 	 * @param int    $asked    Keys or rows asked.
 	 * @param int    $answered Keys or rows answered or written.
 	 */
-	private function count_rows( string $verb, int $asked, int $answered ): void {
+	protected function count_rows( string $verb, int $asked, int $answered ): void {
 		if ( ! isset( $this->verb_stats[ $verb ] ) ) {
 			return;
 		}
@@ -2069,7 +2002,7 @@ class Table_Node extends Node {
 	 *
 	 * @param string $verb The verb.
 	 */
-	private function count_error( string $verb ): void {
+	protected function count_error( string $verb ): void {
 		if ( isset( $this->verb_stats[ $verb ] ) ) {
 			++$this->verb_stats[ $verb ][ self::ERRORS ];
 		}
@@ -2433,21 +2366,21 @@ class Table_Node extends Node {
 					'name'        => 'MSET',
 					'description' => 'Store many keys under a TM_REQUEST|TM_STRUCT map; ttl defaults to the Table\'s.',
 					'value'       => 'struct',
-					'args'        => [ [ 'name' => 'map', 'type' => 'json', 'required' => true, 'description' => 'key => [ value, ttl ]' ] ],
+					'args'        => [ [ 'name' => 'map', 'type' => 'json', 'required' => true, 'description' => 'a map of key => [ value, ttl ]' ] ],
 					'reply_shape' => self::WRITE_REPLY,
 				],
 				[
 					'name'        => 'ADD',
 					'description' => 'Store many keys under a TM_REQUEST|TM_STRUCT map, each only where absent; ttl defaults to the Table\'s.',
 					'value'       => 'struct',
-					'args'        => [ [ 'name' => 'map', 'type' => 'json', 'required' => true, 'description' => 'key => [ value, ttl ]' ] ],
+					'args'        => [ [ 'name' => 'map', 'type' => 'json', 'required' => true, 'description' => 'a map of key => [ value, ttl ]' ] ],
 					'reply_shape' => self::WRITE_REPLY,
 				],
 				[
 					'name'        => 'SADD',
 					'description' => 'Upsert set members under a TM_REQUEST|TM_STRUCT map; ttl defaults to the Table\'s. sqlite and wpdb alone hold members.',
 					'value'       => 'struct',
-					'args'        => [ [ 'name' => 'map', 'type' => 'json', 'required' => true, 'description' => 'set key => [ [ member => value, … ], ttl ]' ] ],
+					'args'        => [ [ 'name' => 'map', 'type' => 'json', 'required' => true, 'description' => 'a map of set key => [ [ member => value, … ], ttl ]' ] ],
 					'reply_shape' => self::WRITE_REPLY,
 				],
 			],

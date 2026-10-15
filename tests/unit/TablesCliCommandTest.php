@@ -283,7 +283,7 @@ final class TablesCliCommandTest extends TestCase {
 
 		$this->command()->list_( [], [ 'format' => 'json' ] );
 
-		$this->assertSame( [ 'Row_Table wombats-6620 is declared with schema Wombat by wombat-t and Numbat by wombat-u' ], $GLOBALS['_test_wp_cli_warns'] );
+		$this->assertSame( [ 'Table wombats-6620 is declared differently by wombat-t and wombat-u' ], $GLOBALS['_test_wp_cli_warns'] );
 		$this->assertSame( [], $this->wombat_rows() );
 		$this->assertSame( 'lab-7:kea', $this->printed()[0]['Table'] );
 	}
@@ -296,7 +296,7 @@ final class TablesCliCommandTest extends TestCase {
 
 		$this->command()->list_( [], [ 'format' => 'json' ] );
 
-		$this->assertSame( [ 'wombats-6620 is declared as a keyed Table and as a Row_Table' ], $GLOBALS['_test_wp_cli_warns'] );
+		$this->assertSame( [ 'Table wombats-6620 is declared differently by wombat-t and wombat-k' ], $GLOBALS['_test_wp_cli_warns'] );
 		$this->assertSame( [], $this->wombat_rows() );
 		$this->assertSame( 'lab-7:kea', $this->printed()[0]['Table'] );
 	}
@@ -554,6 +554,18 @@ final class TablesCliCommandTest extends TestCase {
 		$kea = \array_filter( $this->printed(), static fn ( array $row ): bool => 'lab-7:kea' === $row['Table'] );
 		$this->assertSame( [ 'kea-t.p0', 'kea-t.p1', '-', '-' ], \array_column( \array_values( $kea ), 'Owner' ), 'the active declarer owns what it declares; the partitions beyond have no owner' );
 		$this->assertSame( [ 'down', 'down', 'inactive', 'inactive' ], \array_column( \array_values( $kea ), 'State' ) );
+	}
+
+	public function test_a_keyed_table_two_inactive_topologies_declare_differently_is_warned_about_and_the_rest_lists(): void {
+		$this->write_tsl( 'emu-z', "var num_partitions = 2\nmake_node Table lab-7:emu emu:p{partition} 4242 sqlite\n" );
+		$this->write_tsl( 'emu-q', "make_node Table lab-7:emu emu:p{partition} 9917 sqlite\n" );
+
+		$this->command()->list_( [], [ 'format' => 'json' ] );
+
+		$this->assertCount( 1, $GLOBALS['_test_wp_cli_warns'] );
+		$this->assertMatchesRegularExpression( '/^Table lab-7:emu is declared differently by emu-[qz] and emu-[qz]$/', $GLOBALS['_test_wp_cli_warns'][0] );
+		$this->assertNotContains( 'lab-7:emu', \array_column( $this->printed(), 'Table' ) );
+		$this->assertSame( 'lab-7:kea', $this->printed()[0]['Table'] );
 	}
 
 	public function test_an_inactive_topology_that_will_not_read_is_warned_about_and_the_rest_lists(): void {

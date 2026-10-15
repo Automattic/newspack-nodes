@@ -2,10 +2,11 @@
 /**
  * Row_Reader: one read across a Row_Table's partitions.
  *
- * `Row_Table_Node::read()` hands one to its closure: a query-only
- * connection with every partition file that exists attached read-only as
- * `p{N}`, and the aliases it attached, so a query names only those. The SQL
- * is the caller's own fixed vocabulary; every value binds.
+ * `Sqlite_Arm::open_rows()` builds one and `Row_Table_Node::read()` hands it
+ * to its closure: a query-only connection with every partition file that
+ * exists attached read-only as `p{N}`, and the aliases it attached, so a
+ * query names only those. The SQL is the caller's own fixed vocabulary;
+ * every value binds.
  *
  * @package Newspack_Nodes
  */
@@ -20,7 +21,7 @@ namespace Newspack_Nodes;
 final class Row_Reader {
 
 	/**
-	 * Hold the connection `read()` opened and the aliases it attached.
+	 * Hold the connection `open_rows()` opened and the aliases it attached.
 	 *
 	 * @param \PDO         $db      The query-only connection.
 	 * @param list<string> $aliases Each attached file's schema name, `p{N}`, in partition order.

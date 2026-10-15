@@ -22,6 +22,11 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * Static analysis of a topology's TSL.
+ *
+ * @phpstan-type Table_Declaration array{kind: 'table', namespace: string, ttl: string, backend: string}|array{kind: 'row', schema: string}
+ */
 class Topology_Analyzer {
 
 	/** @var array<string,array<string,string>> Memoized parsed `var` frontmatter by topology name. */
@@ -996,11 +1001,9 @@ class Topology_Analyzer {
 				continue;
 			}
 			// One writer per SQLite file (ADR-6); a Row_Table is always SQLite.
-			if ( 'make_node' === $verb && self::type_is( $class, Row_Table_Node::class ) ) {
-				$seen[ 'table:' . ( $values[2] ?? '' ) . '.p' . Core::PARTITION_TOKEN ] = true;
-				continue;
-			}
-			if ( 'make_node' === $verb && self::type_is( $class, Table_Node::class ) && 'sqlite' === Core::resolve_config_tokens( $values[5] ?? '', true ) ) {
+			$sqlite = 'make_node' === $verb && ( self::type_is( $class, Row_Table_Node::class )
+				|| ( self::type_is( $class, Table_Node::class ) && 'sqlite' === Core::resolve_config_tokens( $values[5] ?? '', true ) ) );
+			if ( $sqlite ) {
 				$seen[ 'table:' . ( $values[2] ?? '' ) . '.p' . Core::PARTITION_TOKEN ] = true;
 				continue;
 			}
@@ -1100,20 +1103,20 @@ class Topology_Analyzer {
 	}
 
 	/**
-	 * Every Table a topology declares, its includes flattened in: name => the
-	 * namespace, TTL and backend as written, an omitted backend read off
-	 * `Table_Node::node_schema()`. A Table's TTL has no default — the
-	 * `make_node` line is the one place it lives — so one declaring none is
-	 * refused here. A class whose `owns` declares a Table contributes it, with
-	 * the arguments its `owned_table()` reads off the owner's line, which may
-	 * refuse it. Keyed by the name as written, as declares_node() reads it;
-	 * write_set() claims the file under the name with `<topology>` substituted.
-	 * A Row_Table holds no keyed entries, so declared_row_tables() answers it.
+	 * Every Table a topology declares, its includes flattened in, by kind: a
+	 * keyed Table's namespace, TTL and backend as written, an omitted backend
+	 * read off `Table_Node::node_schema()`, or a Row_Table's schema word.
+	 * Neither a TTL nor a schema has a default — the `make_node` line is the
+	 * one place each lives — so one declaring none is refused here. A class
+	 * whose `owns` declares a Table contributes it, with the arguments its
+	 * `owned_table()` reads off the owner's line, which may refuse it. Keyed
+	 * by the name as written, as declares_node() reads it; write_set() claims
+	 * the file under the name with `<topology>` substituted.
 	 *
 	 * @param string $name Topology name.
-	 * @return array<string,array{namespace: string, ttl: string, backend: string}>
+	 * @return array<string,Table_Declaration>
 	 * @throws \RuntimeException On unknown include, cycle, conflicting make_node,
-	 *                           or a Table declaring no TTL.
+	 *                           a Table declaring no TTL, or a Row_Table no schema.
 	 * @throws \InvalidArgumentException On a `make_node` line its class refuses, as the load would.
 	 */
 	public static function declared_tables( string $name ): array {
@@ -1123,16 +1126,22 @@ class Topology_Analyzer {
 			if ( 'make_node' !== $statement['verb'] ) {
 				continue;
 			}
-			$out = \array_merge( $out, self::owned_tables( $statement, $values ) );
-			if ( ! self::type_is( $values[1] ?? '', Table_Node::class ) || self::type_is( $values[1] ?? '', Row_Table_Node::class ) ) {
-				continue;
+			$out   = \array_merge( $out, self::owned_tables( $statement, $values ) );
+			$class = $values[1] ?? '';
+			$table = $values[2] ?? '';
+			if ( self::type_is( $class, Row_Table_Node::class ) ) {
+				$out[ $table ] = [
+					'kind'   => 'row',
+					'schema' => $values[3] ?? throw new \RuntimeException( \esc_html( "Row_Table {$table} declares no schema" ) ),
+				];
+			} elseif ( self::type_is( $class, Table_Node::class ) ) {
+				$out[ $table ] = [
+					'kind'      => 'table',
+					'namespace' => $values[3] ?? '',
+					'ttl'       => $values[4] ?? throw new \RuntimeException( \esc_html( "Table {$table} declares no TTL" ) ),
+					'backend'   => $values[5] ?? self::schema_default( Table_Node::class, 'backend' ),
+				];
 			}
-			$table         = $values[2] ?? '';
-			$out[ $table ] = [
-				'namespace' => $values[3] ?? '',
-				'ttl'       => $values[4] ?? throw new \RuntimeException( \esc_html( "Table {$table} declares no TTL" ) ),
-				'backend'   => $values[5] ?? self::schema_default( Table_Node::class, 'backend' ),
-			];
 		}
 		return $out;
 	}
@@ -1163,7 +1172,7 @@ class Topology_Analyzer {
 	 *
 	 * @param array{verb: string, values: list<string>} $statement A walked statement.
 	 * @param list<string>                              $values    Its values, as the caller reads them.
-	 * @return array<string,array{namespace: string, ttl: string, backend: string}>
+	 * @return array<string,array{kind: 'table', namespace: string, ttl: string, backend: string}>
 	 * @throws \RuntimeException When the owner refuses its line, or is off the palette.
 	 */
 	private static function owned_tables( array $statement, array $values ): array {
@@ -1183,7 +1192,7 @@ class Topology_Analyzer {
 		$owner = $values[2] ?? '';
 		$out   = [];
 		foreach ( $suffixes as $suffix ) {
-			$out[ Node::sibling_name_of( $owner, $suffix ) ] = $fqcn::owned_table( $suffix, $owner, \array_slice( $values, 3 ) );
+			$out[ Node::sibling_name_of( $owner, $suffix ) ] = [ 'kind' => 'table' ] + $fqcn::owned_table( $suffix, $owner, \array_slice( $values, 3 ) );
 		}
 		return $out;
 	}
@@ -1214,28 +1223,6 @@ class Topology_Analyzer {
 			throw new \RuntimeException( \esc_html( ( $statement['values'][1] ?? '' ) . ' declares owns but is not a palette class' ) );
 		}
 		return self::$owns_cache[ $fqcn ] = $owns;
-	}
-
-	/**
-	 * Every Row_Table a topology declares, its includes flattened in: name =>
-	 * the schema word as written. A Row_Table's schema has no default, so one
-	 * declaring none is refused here.
-	 *
-	 * @param string $name Topology name.
-	 * @return array<string,string>
-	 * @throws \RuntimeException On unknown include, cycle, conflicting
-	 *                           make_node, or a Row_Table declaring no schema.
-	 */
-	public static function declared_row_tables( string $name ): array {
-		$out = [];
-		foreach ( self::statements( $name )['statements'] as $statement ) {
-			$values = $statement['values'];
-			if ( 'make_node' === $statement['verb'] && self::type_is( $values[1] ?? '', Row_Table_Node::class ) ) {
-				$table         = $values[2] ?? '';
-				$out[ $table ] = $values[3] ?? throw new \RuntimeException( \esc_html( "Row_Table {$table} declares no schema" ) );
-			}
-		}
-		return $out;
 	}
 
 	/**
