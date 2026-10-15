@@ -244,7 +244,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 			Shell_Node::parse_statements( $tsl );
 			$borrowed = Topology_Analyzer::expand( self::direct_includes_from_tsl( $tsl ) );
 			self::assert_no_borrowed_node_conflict( $tsl, $borrowed['nodes'] );
-		} catch ( \RuntimeException $e ) {
+		} catch ( \RuntimeException | \InvalidArgumentException $e ) {
 			// Topology_Analyzer::expand already esc_html's its thrown messages.
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
 			throw new \RuntimeException( "validation failed: {$e->getMessage()}" );

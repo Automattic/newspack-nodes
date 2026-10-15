@@ -641,7 +641,7 @@ class SchemaReflectionTest extends TestCase {
 
 		$this->assertSame( 'perches', $verbs['add_perch']['list'] ?? null );
 		$this->assertSame( 'perches', $verbs['remove_perch']['unlist'] ?? null );
-		$this->assertSame( 'add_perch', $verbs['remove_perch']['undoes'] ?? null );
+		$this->assertSame( 'perch', $verbs['remove_perch']['noun'] ?? null );
 		$this->assertSame( $verbs['add_perch']['args'], $verbs['remove_perch']['args'] );
 		$this->assertSame( [ [ 'name' => 'perch', 'type' => 'string', 'required' => true ] ], $verbs['remove_perch']['args'] );
 		$this->assertTrue( $verbs['remove_perch']['multiple'] ?? false );
@@ -718,24 +718,24 @@ class SchemaReflectionTest extends TestCase {
 	}
 
 	/**
-	 * An `unlist` declaration naming no add verb, by a missing or an empty
-	 * `undoes`, is refused when its `:config` is wired.
+	 * An `unlist` declaration naming no noun, by a missing or an empty
+	 * `noun`, is refused when its `:config` is wired.
 	 *
 	 * @param class-string<Node> $fixture The node declaring the broken `unlist`.
 	 */
-	#[\PHPUnit\Framework\Attributes\DataProvider( 'unlist_without_undoes' )]
-	public function test_an_unlist_verb_declared_without_undoes_fails_wiring_naming_it( string $fixture ): void {
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'unlist_without_noun' )]
+	public function test_an_unlist_verb_declared_without_a_noun_fails_wiring_naming_it( string $fixture ): void {
 		$this->expectException( \LogicException::class );
-		$this->expectExceptionMessage( 'drop_wren: an unlist verb declares no undoes' );
+		$this->expectExceptionMessage( 'drop_wren: an unlist verb declares no noun' );
 
 		new $fixture();
 	}
 
 	/** @return array<string,array{class-string<Node>}> */
-	public static function unlist_without_undoes(): array {
+	public static function unlist_without_noun(): array {
 		return [
-			'missing' => [ Unlist_Missing_Undoes_Node::class ],
-			'empty'   => [ Unlist_Empty_Undoes_Node::class ],
+			'missing' => [ Unlist_Missing_Noun_Node::class ],
+			'empty'   => [ Unlist_Empty_Noun_Node::class ],
 		];
 	}
 
@@ -1267,8 +1267,8 @@ class List_Subject_Node extends List_Host_Node {
 	}
 }
 
-/** A list whose `unlist` names its add through `drop_declaration()`. */
-abstract class Unlist_Undoes_Fixture_Node extends Node {
+/** A list whose `unlist` names its noun through `drop_declaration()`. */
+abstract class Unlist_Noun_Fixture_Node extends Node {
 	use Schema_Reflection;
 
 	/** @var list<string> */
@@ -1293,16 +1293,16 @@ abstract class Unlist_Undoes_Fixture_Node extends Node {
 	}
 }
 
-/** `drop_wren` declares no `undoes` at all. */
-class Unlist_Missing_Undoes_Node extends Unlist_Undoes_Fixture_Node {
+/** `drop_wren` declares no `noun` at all. */
+class Unlist_Missing_Noun_Node extends Unlist_Noun_Fixture_Node {
 	protected static function drop_declaration(): array {
 		return [];
 	}
 }
 
-/** `drop_wren` declares an empty `undoes`. */
-class Unlist_Empty_Undoes_Node extends Unlist_Undoes_Fixture_Node {
+/** `drop_wren` declares an empty `noun`. */
+class Unlist_Empty_Noun_Node extends Unlist_Noun_Fixture_Node {
 	protected static function drop_declaration(): array {
-		return [ 'undoes' => '' ];
+		return [ 'noun' => '' ];
 	}
 }

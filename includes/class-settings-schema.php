@@ -279,7 +279,8 @@ class Settings_Schema {
 					key: 'alert_deadletter_threshold',
 					type: 'int',
 					min: 0,
-					max: 4096,
+					// Records have no ceiling; the page demands a declared max.
+					max: \PHP_INT_MAX,
 					default: 0,
 					label: static fn(): string => \__( 'Dead-letter Threshold', 'newspack-nodes' ),
 					section: $alerting,

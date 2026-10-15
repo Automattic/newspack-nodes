@@ -461,10 +461,10 @@ trait Schema_Reflection {
 	 * The two verb declarations a list of one value stands for, for a
 	 * `node_schema()['commands']`: `add_{$noun}` appends its one arg, trimmed,
 	 * to `$property`, an identical repeat a no-op, and `remove_{$noun}`,
-	 * taking the same arg and naming the add it `undoes`, drops the entry
-	 * equal to it. A repeat changes nothing, as `add_source` treats one, so a
-	 * `Vault_Group`, which records a repeat once, rebuilds a child holding
-	 * what its live children hold. `auto_wire_interpreter()` synthesizes both
+	 * taking the same arg and carrying the `noun` its refusal names, drops
+	 * the entry equal to it. A repeat changes nothing, as `add_source` treats
+	 * one, so a `Vault_Group`, which records a repeat once, rebuilds a child
+	 * holding what its live children hold. `auto_wire_interpreter()` synthesizes both
 	 * handlers from their `list` / `unlist` keys, each refusing a blank, the
 	 * remove also a value no entry holds, and `dump_lists()` writes one
 	 * `add_{$noun}` line per entry. A variadic arg's tokens join with a space
@@ -492,7 +492,7 @@ trait Schema_Reflection {
 				'description' => "Undo {$add}: drop the entry equal to <{$val}>. Refused when none is.",
 				'args'        => [ $arg ],
 				'unlist'      => $property,
-				'undoes'      => $add,
+				'noun'        => $noun,
 				'multiple'    => true,
 			],
 		];
@@ -579,23 +579,23 @@ trait Schema_Reflection {
 	 * the verb's one arg, bound by name, into one trimmed entry, then append it
 	 * to the patron's `$prop` list unless an entry equals it, or drop the
 	 * entry equal to it. A blank entry is refused, and so is a removal no
-	 * entry matches, naming the noun of the add its declaration `undoes`.
+	 * entry matches, naming the `noun` its declaration carries.
 	 *
 	 * @param class-string<Node>     $class Class whose schema declares the verb.
 	 * @param string                 $name  The verb.
 	 * @param array<array-key,mixed> $verb  The verb's schema entry.
 	 * @param string                 $prop  The list property.
 	 * @return callable(Command_Interpreter_Node,array<array-key,mixed>):string The verb handler.
-	 * @throws \LogicException When an `unlist` declaration's `undoes` is missing or empty.
+	 * @throws \LogicException When an `unlist` declaration's `noun` is missing or empty.
 	 */
 	private static function declared_list( string $class, string $name, array $verb, string $prop ): callable {
 		$arg  = self::carrying_arg( $verb, $name );
 		$adds = isset( $verb['list'] );
-		$add  = $adds ? $name : Core::as_string( $verb['undoes'] ?? '' );
-		if ( '' === $add ) {
-			throw new \LogicException( \esc_html( "{$name}: an unlist verb declares no undoes" ) );
+		$noun = Core::as_string( $verb['noun'] ?? '' );
+		if ( ! $adds && '' === $noun ) {
+			throw new \LogicException( \esc_html( "{$name}: an unlist verb declares no noun" ) );
 		}
-		return static function ( Command_Interpreter_Node $interpreter, array $args ) use ( $class, $name, $prop, $arg, $adds, $add ): string {
+		return static function ( Command_Interpreter_Node $interpreter, array $args ) use ( $class, $name, $prop, $arg, $adds, $noun ): string {
 			$patron = self::patron_of( $interpreter, $class, $name );
 			$tokens = $args[ $arg ] ?? '';
 			$entry  = \trim( \implode( ' ', \array_map( Core::as_string( ... ), \is_array( $tokens ) ? $tokens : [ $tokens ] ) ) );
@@ -610,7 +610,7 @@ trait Schema_Reflection {
 				return "ok\n";
 			}
 			if ( ! $held ) {
-				throw Command_Args::undeclared( $name, [ $entry ], \preg_replace( '/^add_/', '', $add ) ?? $add, 'node' );
+				throw Command_Args::undeclared( $name, [ $entry ], $noun, 'node' );
 			}
 			$patron->{$prop} = Core::without( $entries, $entry );
 			return "ok\n";

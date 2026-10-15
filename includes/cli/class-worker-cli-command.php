@@ -437,7 +437,7 @@ class Worker_CLI_Command {
 
 		try {
 			$result = Topology_Registry::activate( $name );
-		} catch ( \RuntimeException $e ) {
+		} catch ( \RuntimeException | \InvalidArgumentException $e ) {
 			\WP_CLI::error( $e->getMessage() );
 			return;
 		}

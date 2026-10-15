@@ -507,6 +507,26 @@ class TopologiesCITest extends TestCase {
 		$this->assertStringContainsString( 'shared-tee', $result );
 	}
 
+	/**
+	 * An include whose `make_node` its class refuses — an InvalidArgumentException
+	 * at load — fails the save under the same prefix as a parse error.
+	 */
+	public function test_save_reports_an_included_line_the_class_refuses_as_a_validation_failure(): void {
+		\file_put_contents( "{$this->stock}/ibis-base-5108.tsl", "make_node Remote_Source pull:ibis ibis-4403 /var/ibis/off /var/ibis/dl egret.p3=heron-8812\n" );
+
+		$result = VerbHarness::fire(
+			new Topologies_CI_Node(),
+			'topologies',
+			'save',
+			[ 'ibis-top-5108', "include ibis-base-5108\nmake_node Echo e\n" ]
+		);
+
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( 'validation failed: ', $result );
+		$this->assertStringContainsString( 'too many arguments: 4 given, 3 accepted', \html_entity_decode( $result, \ENT_QUOTES ) );
+		$this->assertFileDoesNotExist( "{$this->user}/ibis-top-5108.tsl" );
+	}
+
 	/** An IDENTICAL redeclaration is legal — make_node collapses it. */
 	public function test_save_accepts_a_node_declared_identically_by_an_include(): void {
 		\file_put_contents( "{$this->stock}/zebra-base.tsl", "make_node Grep shared-grep giraffe-pattern\n" );

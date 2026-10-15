@@ -145,6 +145,20 @@ class CliActivateCommandTest extends TestCase {
 		$this->assertNotContains( 'beta', $active );
 	}
 
+	/** A line its class refuses fails the activation as a CLI error, not an uncaught throw. */
+	public function test_activate_reports_a_line_the_class_refuses_as_a_cli_error(): void {
+		\file_put_contents( "{$this->stock}/ibis-6214.tsl", "make_node Remote_Source pull:ibis ibis-4403 /var/ibis/off /var/ibis/dl egret.p3=heron-8812\n" );
+
+		$e = $this->caught(
+			fn () => ( new Worker_CLI_Command() )->activate( [ 'ibis-6214' ], [] ),
+			'expected WP_CLI::error to throw on a refused line'
+		);
+
+		$this->assertStringStartsWith( 'WP_CLI::error called: ', $e->getMessage() );
+		$this->assertStringContainsString( 'too many arguments: 4 given, 3 accepted', \html_entity_decode( $GLOBALS['_test_wp_cli_errors'][0] ?? '', \ENT_QUOTES ) );
+		$this->assertNotContains( 'ibis-6214', (array) \get_option( 'newspack_nodes_topologies', [] ) );
+	}
+
 	// ── deactivate ───────────────────────────────────────────────────────────
 
 	public function test_deactivate_removes_from_active_set_and_drains(): void {
