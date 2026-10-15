@@ -509,6 +509,25 @@ class OnDemandWakeTest extends TestCase {
 		$this->assertSame( [], $this->woken() );
 	}
 
+	/** The strict map answers what the readable map does when every topology reads. */
+	public function test_the_strict_map_answers_the_readable_map(): void {
+		$this->activate( 'marmot-ondemand', 23 );
+
+		$this->assertSame(
+			[ 'marmot-ondemand' ],
+			\array_column( Bootstrap::on_demand_wake_map()[ "{$this->tmp}/logs/jobintake.p1" ] ?? [], 'type' )
+		);
+	}
+
+	/** The strict map raises an unreadable topology instead of answering without it. */
+	public function test_the_strict_map_raises_an_unreadable_topology(): void {
+		$this->activate_unreadable( 'marmot-broken-4471' );
+
+		$e = $this->caught( fn () => Bootstrap::on_demand_wake_map(), 'the strict map raises the unreadable topology' );
+
+		$this->assertStringContainsString( 'absent-marmot-broken-4471', $e->getMessage() );
+	}
+
 	/** A resident topology never enters the map, so it can never be woken. */
 	public function test_a_resident_topology_is_absent_from_the_wake_map(): void {
 		$this->activate( 'marmot-resident', 0 );

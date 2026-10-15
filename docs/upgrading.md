@@ -117,13 +117,6 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   runs, as PHP's `dispatch()` does, so a handler reads them by name, and a
   rename of the node renames its `:config` with it.
 
-- **`Bootstrap::on_demand_wake_map()` is removed.** Call
-  `Bootstrap::readable_wake_map()`, which answers `[ $map, $unreadable ]`:
-  the same map over the readable on-demand topologies, then what each
-  unreadable one threw, by name. Where the old call raised, raise the
-  failures yourself with `Worker_Should_Stop::raise( $unreadable )` — or,
-  at a top-level boundary, report them with `Worker_Should_Stop::report()`.
-
 - **`Worker_Should_Stop::combine()` walks a stop's chain to its end.** A
   stop whose previous is itself a stop carrying a failure combines to a stop
   whose `getPrevious()` is that failure, where it was raised as it came and

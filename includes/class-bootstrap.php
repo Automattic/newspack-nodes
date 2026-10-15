@@ -125,6 +125,23 @@ class Bootstrap {
 	private const ON_DEMAND_WAKE_TTL_S = 60;
 
 	/**
+	 * `readable_wake_map()`'s map, strict: an active topology whose graph will
+	 * not read throws, after every other was read.
+	 *
+	 * @api Called from consumer plugins (cross-repo, invisible here): a
+	 *      newspack-nuclear-gyrobase before 1.19.0 builds every Perl render's
+	 *      spawn environment from it.
+	 *
+	 * @return array<string,list<array<array-key,mixed>>>
+	 * @throws \Throwable Every unreadable topology, combined.
+	 */
+	public static function on_demand_wake_map(): array {
+		[ $map, $unreadable ] = self::readable_wake_map();
+		Worker_Should_Stop::raise( $unreadable );
+		return $map;
+	}
+
+	/**
 	 * Resolved partition directory => the on-demand workers that TAIL it, over
 	 * every READABLE on-demand topology, and what each unreadable on-demand
 	 * one threw instead of answering. The answer to "did this write land
