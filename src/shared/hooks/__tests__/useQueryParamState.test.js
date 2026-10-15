@@ -13,6 +13,7 @@ import {
 	useQueryParamState,
 	useQueryParamChoice,
 	useQueryParamFlag,
+	useQueryParamList,
 } from '../useQueryParamState';
 import { renderHook, act } from '@testing-library/react';
 
@@ -24,6 +25,9 @@ function setLocation( href ) {
 
 const param = ( name ) =>
 	new URLSearchParams( window.location.search ).get( name );
+
+const params = ( name ) =>
+	new URLSearchParams( window.location.search ).getAll( name );
 
 describe( 'useQueryParamChoice', () => {
 	let pushSpy;
@@ -261,6 +265,94 @@ describe( 'useQueryParamState', () => {
 		act( () => result.current[ 1 ]( '' ) );
 		expect( param( 'q' ) ).toBeNull();
 		replaceSpy.mockRestore();
+		unmount();
+	} );
+} );
+
+describe( 'useQueryParamList', () => {
+	const UA = 'ua=Mozilla/5.0 (X11, Linux) a&b+c, d=e';
+	const keepKnown = ( raw ) => raw.filter( ( v ) => v.includes( '=' ) );
+	const asIs = ( list ) => list;
+
+	beforeEach( () => {
+		setLocation( '/wp-admin/admin.php?page=perf' );
+	} );
+
+	it( 'hands restore every value of the repeated param', () => {
+		const restore = jest.fn( keepKnown );
+		setLocation(
+			'/wp-admin/admin.php?page=perf&chip=status_class%3D5xx&chip=bogus&chip=' +
+				encodeURIComponent( UA )
+		);
+		const { result, unmount } = renderHook( () =>
+			useQueryParamList( 'chip', restore, asIs )
+		);
+		expect( restore ).toHaveBeenCalledWith( [
+			'status_class=5xx',
+			'bogus',
+			UA,
+		] );
+		expect( result.current[ 0 ] ).toEqual( [ 'status_class=5xx', UA ] );
+		// The value restore refused leaves the bar too.
+		expect( params( 'chip' ) ).toEqual( [ 'status_class=5xx', UA ] );
+		unmount();
+	} );
+
+	it( 'round-trips a list holding a comma through the bar', () => {
+		const first = renderHook( () =>
+			useQueryParamList( 'chip', keepKnown, asIs )
+		);
+		act( () => first.result.current[ 1 ]( [ 'status_class=5xx', UA ] ) );
+		expect( params( 'chip' ) ).toEqual( [ 'status_class=5xx', UA ] );
+		first.unmount();
+
+		const second = renderHook( () =>
+			useQueryParamList( 'chip', keepKnown, asIs )
+		);
+		expect( second.result.current[ 0 ] ).toEqual( [
+			'status_class=5xx',
+			UA,
+		] );
+		second.unmount();
+	} );
+
+	it( 'drops the param for an empty list', () => {
+		setLocation( '/wp-admin/admin.php?page=perf&chip=server%3Dedge-02' );
+		const { result, unmount } = renderHook( () =>
+			useQueryParamList( 'chip', keepKnown, asIs )
+		);
+		act( () => result.current[ 1 ]( [] ) );
+		expect( window.location.search ).toBe( '?page=perf' );
+		unmount();
+	} );
+
+	it( 'writes on a changed list, never on a fresh array of the same', () => {
+		const replaceSpy = jest.spyOn( window.history, 'replaceState' );
+		const { result, unmount } = renderHook( () =>
+			useQueryParamList( 'chip', keepKnown, asIs )
+		);
+		act( () => result.current[ 1 ]( [ 'server=edge-02' ] ) );
+		const writes = replaceSpy.mock.calls.length;
+		act( () => result.current[ 1 ]( [ 'server=edge-02' ] ) );
+		expect( replaceSpy.mock.calls.length ).toBe( writes );
+		replaceSpy.mockRestore();
+		unmount();
+	} );
+
+	it( 'puts the live list back over an entry Back restored', () => {
+		const { result, unmount } = renderHook( () =>
+			useQueryParamList( 'chip', keepKnown, asIs )
+		);
+		act( () => result.current[ 1 ]( [ UA ] ) );
+
+		setLocation( '/wp-admin/admin.php?page=perf&chip=worker%3D3&url=abc' );
+		act( () => {
+			window.dispatchEvent( new PopStateEvent( 'popstate' ) );
+		} );
+
+		expect( result.current[ 0 ] ).toEqual( [ UA ] );
+		expect( params( 'chip' ) ).toEqual( [ UA ] );
+		expect( param( 'url' ) ).toBe( 'abc' );
 		unmount();
 	} );
 } );

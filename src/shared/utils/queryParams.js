@@ -28,6 +28,20 @@ export function getQueryParam( name ) {
 }
 
 /**
+ * Read every value of a repeated query param, in the order the URL holds them.
+ *
+ * @param {string} name Param name.
+ * @return {string[]} The values; empty when absent or unreadable.
+ */
+export function getQueryParams( name ) {
+	try {
+		return new URLSearchParams( window.location.search ).getAll( name );
+	} catch ( _e ) {
+		return [];
+	}
+}
+
+/**
  * Set or remove a query param, leaving every other param and the fragment
  * untouched. `setQueryParams` with one entry; see it for the write rules.
  *
@@ -47,20 +61,33 @@ export function setQueryParam( name, value ) {
  * page nor leave a Back-button entry behind every click. `push` makes it a
  * navigation instead, for a view Back should return to. An empty value removes
  * the param instead of writing `?log=`, which keeps a bare link meaning
- * "whatever this dashboard opens on". A write that would leave the URL as it
- * is makes no history call at all, so a repeated write never stacks entries.
+ * "whatever this dashboard opens on". A list writes the param once per entry,
+ * `?chip=a&chip=b`, so a value may hold any character. An empty entry is
+ * skipped, as an empty value is, so a list of none removes the param; a list
+ * the URL already holds is left where it stands. A write that would leave the
+ * URL as it is makes no history call at all, so a repeated write never stacks
+ * entries.
  *
- * @param {Object<string, ?string>} params         Param names to new values;
- *                                                 null or '' removes one.
- * @param {Object}                  [options]      Options.
- * @param {boolean}                 [options.push] Push a history entry rather
- *                                                 than replace the current one.
+ * @param {Object<string, ?(string|string[])>} params         Param names to new
+ *                                                            values; null, ''
+ *                                                            or [] removes one,
+ *                                                            and a list skips ''.
+ * @param {Object}                             [options]      Options.
+ * @param {boolean}                            [options.push] Push a history entry rather
+ *                                                            than replace the current one.
  */
 export function setQueryParams( params, { push = false } = {} ) {
 	const { pathname, search, hash } = window.location;
 	const query = new URLSearchParams( search );
 	for ( const [ name, value ] of Object.entries( params ) ) {
-		if ( null === value || '' === value ) {
+		if ( Array.isArray( value ) ) {
+			const entries = value.filter( ( entry ) => '' !== entry );
+			const held = query.getAll( name );
+			if ( JSON.stringify( entries ) !== JSON.stringify( held ) ) {
+				query.delete( name );
+				entries.forEach( ( entry ) => query.append( name, entry ) );
+			}
+		} else if ( null === value || '' === value ) {
 			query.delete( name );
 		} else {
 			query.set( name, value );
