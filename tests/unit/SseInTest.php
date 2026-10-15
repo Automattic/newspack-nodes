@@ -284,6 +284,21 @@ class SseInTest extends TestCase {
 		$this->assertTrue( $node->connection()['connected'] );
 	}
 
+	public function test_connected_handshake_hands_the_patron_every_distance(): void {
+		[ $node ] = $this->configured_node();
+		$seen               = [];
+		$node->on_connected = static function ( array $starts ) use ( &$seen ): void {
+			$seen[] = $starts;
+		};
+
+		$node->process_sse_chunk( self::connected_frame( 'SLOT 7 OWNER 42424243 CURSORS firehose.p0=12:345,sources:php=4:9188,bad.p1=2:5 DISTANCES firehose.p0=6113,sources:php=0,bad.p1=-3,odd.p2=x,bare.p3,lone.p4=88' ) );
+
+		$this->assertSame(
+			[ [ 'firehose.p0' => [ 'segment' => 12, 'offset' => 345, 'distance' => 6113 ], 'sources:php' => [ 'segment' => 4, 'offset' => 9188, 'distance' => 0 ], 'bad.p1' => [ 'segment' => 2, 'offset' => 5 ] ] ],
+			$seen
+		);
+	}
+
 	public function test_a_handshake_naming_no_cursor_calls_nothing(): void {
 		[ $node ] = $this->configured_node();
 		$seen               = [];

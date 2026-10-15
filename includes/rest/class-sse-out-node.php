@@ -558,7 +558,7 @@ class SSE_Out_Node extends Node {
 					$active_lease,
 					$subs,
 					$interval,
-					self::cursor_pairs( $consumers )
+					$consumers
 				)
 			);
 			// Padding clears proxy buffers; a bare flush does not.
@@ -689,36 +689,6 @@ class SSE_Out_Node extends Node {
 		$cursors = self::cursor_pairs( $consumers );
 		$value   = 'COUNT ' . \array_sum( $counts ) . ( '' === $named ? '' : " COUNTS {$named}" ) . ( '' === $cursors ? '' : " CURSORS {$cursors}" );
 		$this->send_sse_event( 'unparseable_lines', $this->build_info_msg( 'unparseable_lines', $value ) );
-	}
-
-	/**
-	 * Every reader's resume point as the `CURSORS` token, through
-	 * `stamp_pairs()`: `stamp=segment:offset`.
-	 *
-	 * @param array<string,Consumer_Node> $consumers Attached readers, keyed by stamp.
-	 * @return string The pairs, or '' when none can be stated.
-	 */
-	private static function cursor_pairs( array $consumers ): string {
-		return self::stamp_pairs( \array_map( static fn ( Consumer_Node $c ): string => $c->cursor_position(), $consumers ) );
-	}
-
-	/**
-	 * One `stamp=value` per entry, comma-separated: the shape the `COUNTS`
-	 * and `CURSORS` tokens share. A stamp holding a space or a comma is left
-	 * out, because either would desync the flat `KEY VALUE` pairing it rides
-	 * in.
-	 *
-	 * @param array<string,int|string> $values Values, keyed by stamp.
-	 * @return string The pairs, or '' when none can be stated.
-	 */
-	private static function stamp_pairs( array $values ): string {
-		$pairs = [];
-		foreach ( $values as $stamp => $value ) {
-			if ( ! \strpbrk( $stamp, ' ,' ) ) {
-				$pairs[] = "{$stamp}={$value}";
-			}
-		}
-		return \implode( ',', $pairs );
 	}
 
 	/**
@@ -1105,16 +1075,18 @@ class SSE_Out_Node extends Node {
 	 * Build the `connected` envelope, the first application frame after the
 	 * `retry` schedule: the session whose replies this stream carries, when it
 	 * presented one, the lease it holds, the subscriptions echoed back, the
-	 * heartbeat cadence, and each subscription's starting cursor.
+	 * heartbeat cadence, each subscription's starting cursor, and the bytes
+	 * its log holds from there, which a reader starting caught up is told
+	 * here or not until the log grows.
 	 *
-	 * @param string|null               $session  Command session the stream presented, or null.
-	 * @param array{slot:int,owner:int} $lease    The lease this stream holds.
-	 * @param array<int,string>         $subs     Subscription names, as asked for.
-	 * @param int                       $interval Heartbeat cadence in milliseconds.
-	 * @param string                    $cursors  CSV `stamp=segment:offset` pairs, omitted when empty.
+	 * @param string|null                 $session   Command session the stream presented, or null.
+	 * @param array{slot:int,owner:int}   $lease     The lease this stream holds.
+	 * @param array<int,string>           $subs      Subscription names, as asked for.
+	 * @param int                         $interval  Heartbeat cadence in milliseconds.
+	 * @param array<string,Consumer_Node> $consumers Attached readers, keyed by stamp.
 	 * @return array<int,mixed> The 7-field positional Message.
 	 */
-	private function build_connected_msg( ?string $session, array $lease, array $subs, int $interval, string $cursors = '' ): array {
+	private function build_connected_msg( ?string $session, array $lease, array $subs, int $interval, array $consumers ): array {
 		$message                       = Message::new_message();
 		$message[ Message::TYPE ]      = Message::TM_INFO;
 		// connected fires before the drain seeds Core::$now; take a fresh read.
@@ -1129,11 +1101,55 @@ class SSE_Out_Node extends Node {
 			'SUBSCRIPTIONS', \implode( ',', $subs ),
 			'INTERVAL',      (string) $interval,
 		] );
+		// The lag read rewinds a deleted segment's cursor, so it goes first.
+		$distances = self::distance_pairs( $consumers );
 		// Where each subscription STARTS; the client advances its own after.
+		$cursors = self::cursor_pairs( $consumers );
 		if ( '' !== $cursors ) {
-			$message[ Message::VALUE ] .= ' CURSORS ' . $cursors;
+			$message[ Message::VALUE ] .= " CURSORS {$cursors} DISTANCES {$distances}";
 		}
 		return $message;
+	}
+
+	/**
+	 * Every reader's resume point as the `CURSORS` token, through
+	 * `stamp_pairs()`: `stamp=segment:offset`.
+	 *
+	 * @param array<string,Consumer_Node> $consumers Attached readers, keyed by stamp.
+	 * @return string The pairs, or '' when none can be stated.
+	 */
+	private static function cursor_pairs( array $consumers ): string {
+		return self::stamp_pairs( \array_map( static fn ( Consumer_Node $c ): string => $c->cursor_position(), $consumers ) );
+	}
+
+	/**
+	 * Every reader's backlog as the `DISTANCES` token, through
+	 * `stamp_pairs()`: `stamp=bytes`, what its log holds from its cursor.
+	 *
+	 * @param array<string,Consumer_Node> $consumers Attached readers, keyed by stamp.
+	 * @return string The pairs, or '' when none can be stated.
+	 */
+	private static function distance_pairs( array $consumers ): string {
+		return self::stamp_pairs( \array_map( static fn ( Consumer_Node $c ): int => $c->bytes_behind(), $consumers ) );
+	}
+
+	/**
+	 * One `stamp=value` per entry, comma-separated: the shape the `COUNTS`
+	 * and `CURSORS` tokens share. A stamp holding a space or a comma is left
+	 * out, because either would desync the flat `KEY VALUE` pairing it rides
+	 * in.
+	 *
+	 * @param array<string,int|string> $values Values, keyed by stamp.
+	 * @return string The pairs, or '' when none can be stated.
+	 */
+	private static function stamp_pairs( array $values ): string {
+		$pairs = [];
+		foreach ( $values as $stamp => $value ) {
+			if ( ! \strpbrk( $stamp, ' ,' ) ) {
+				$pairs[] = "{$stamp}={$value}";
+			}
+		}
+		return \implode( ',', $pairs );
 	}
 
 	/**

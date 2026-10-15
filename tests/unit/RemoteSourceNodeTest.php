@@ -471,6 +471,47 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertNull( $firehose->probe_stats()[ Probe_Record::DISTANCE ], 'silence leaves it unknown' );
 	}
 
+	/** A stream connecting caught up pushes nothing, so the handshake states its backlog. */
+	public function test_the_handshake_sets_each_readers_backlog_before_any_block(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin' ), [ 'firehose.p0', 'downstream' ], [ 'sources:php', 'php-errors' ] );
+		$this->drain_connect_queue();
+
+		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::connected_frame( 'SLOT 3 OWNER 31313131 CURSORS firehose.p0=8:4410,sources:php=4094521:2910400 DISTANCES firehose.p0=713,sources:php=0' ) );
+
+		$this->assertSame( 713, Core::node( 'remote-austin:firehose.p0' )->probe_stats()[ Probe_Record::DISTANCE ] );
+		$this->assertSame( 0, Core::node( 'remote-austin:sources:php' )->probe_stats()[ Probe_Record::DISTANCE ] );
+	}
+
+	/** A reconnect finds its reader standing, and its handshake still re-anchors the backlog. */
+	public function test_a_reconnects_handshake_re_anchors_a_standing_readers_backlog(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin' ), [ 'firehose.p0', 'downstream' ] );
+		$this->drain_connect_queue();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$sse->process_sse_chunk( self::connected_frame( 'SLOT 3 OWNER 31313131 CURSORS firehose.p0=8:4410 DISTANCES firehose.p0=713' ) );
+
+		$sse->process_sse_chunk( self::connected_frame( 'SLOT 3 OWNER 31313131 CURSORS firehose.p0=8:4410 DISTANCES firehose.p0=2207' ) );
+
+		$this->assertSame( 2207, Core::node( 'remote-austin:firehose.p0' )->probe_stats()[ Probe_Record::DISTANCE ] );
+	}
+
+	/** A start naming no generation places no backlog: the reader's place is unknown. */
+	public function test_a_handshake_distance_at_no_generation_is_not_taken(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin' ), [ 'sources:php', 'php-errors' ] );
+		$this->drain_connect_queue();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$sse->process_sse_chunk( self::connected_frame( 'SLOT 3 OWNER 31313131 CURSORS sources:php=4094521:100' ) );
+
+		$sse->process_sse_chunk( self::connected_frame( 'SLOT 3 OWNER 31313131 CURSORS sources:php=:9188 DISTANCES sources:php=5521' ) );
+
+		$this->assertNull( Core::node( 'remote-austin:sources:php' )->probe_stats()[ Probe_Record::DISTANCE ] );
+	}
+
 	/** A valve the hub shut keeps the spoke quiet, so every reader's last backlog stands. */
 	public function test_a_shut_valves_silence_leaves_the_backlog_standing(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
