@@ -2178,10 +2178,12 @@ as written, and the sibling map is the one list of readers. Its cursor sits at
 set claims both roots, so the conflict check and `wp nodes gc` cover every reader a glob builds
 later, and its graph draws one `pair` edge from the broker to each source's target
 ([ADR-19](#adr-19-a-node-may-declare-a-destination-it-writes-without-routing)); the console's TSL
-reader draws the same edges for a file being edited, and the browser's `RemoteLink` takes the
-same `{ stamp, target }` sources. The browser's `RemoteLink` follows the rule with a Tee in
-place of a reader: a stamp's Tee `<link>:<stamp>` is built on the first record a source claims,
-and its targets are the sources'. `MAX_READERS` (256) caps the stamps glob sources may claim,
+reader draws the same edges for a file being edited, and the browser's `RemoteLink` declares the
+same `{ stamp, target }` sources, one per stamp, folded by the same rule. A page view declares
+none of its own: it attaches as a target to its stamp's Tee, the hidden sibling
+`<link>:<stamp>`, which the first view builds with the stamp's source aimed at it and the last
+to leave retracts with that source, so a stamp fans out to its views through the Tee, as a PHP
+source fans out when its target is a Tee. `MAX_READERS` (256) caps the stamps glob sources may claim,
 counting the readers built in this process and the reader dirs earlier processes left under the
 offsetlog root, so a spoke inventing stamps cannot grow the graph or the disk without bound. An
 exact source is bounded by configuration and never counts.
@@ -2236,8 +2238,8 @@ so one group line reaches every spoke, and a broker's `dump_config()` emits one 
 line per source after its `make_node`. The analyzer and the console read those lines, in the
 order sent, through `Node::command_targets()`
 ([ADR-19](#adr-19-a-node-may-declare-a-destination-it-writes-without-routing)); the browser's
-`RemoteLink` takes its sources through `addSource()` and `removeSource()` and answers the same
-two verbs on its own `:config`. The `<source>=<target>` grammar, `split_pair()`, `splitPair()`
+`RemoteLink` takes its sources through `addSource()` and `removeSource()`, which refuse as the
+PHP verbs refuse, and its own `:config` answers the same two verbs through them. The `<source>=<target>` grammar, `split_pair()`, `splitPair()`
 and `pair-split.json` are gone.
 
 ---

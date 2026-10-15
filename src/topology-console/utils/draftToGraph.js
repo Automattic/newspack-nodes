@@ -71,8 +71,11 @@ function valueOf( span ) {
  * The sources a node's `add_source` and `remove_source` lines leave, as
  * written and in order: a broker's, or a Vault_Group's, which the group
  * forwards to its child class. Each line is bound as its verb binds it and
- * folded by `foldSource()` at partition 0, the one rule the link's verbs
- * and PHP `Remote_Broker_Node::fold_source()` apply. Where the load refuses
+ * folded by `foldSource()`, the one rule the link's verbs and PHP
+ * `Remote_Broker_Node::fold_source()` apply: at partition 0 for a class whose
+ * schema marks an argument `partition: 'bound'`, as a PHP broker's roots are,
+ * and with none bound for any other, as a browser link refuses
+ * `{partition}`. Where the load refuses
  * a line, and the analyzer the whole topology, this reader skips that line
  * and folds on, so a draft mid-edit keeps drawing; a class whose catalog
  * entry declares neither verb draws nothing.
@@ -86,8 +89,13 @@ function valueOf( span ) {
 function sourcesOf( className, spans, invocations, catalog ) {
 	const verbClass =
 		'Vault_Group' === className ? valueOf( spans[ 0 ] ?? '' ) : className;
-	const verbs =
-		catalog.find( ( c ) => c.shell_name === verbClass )?.commands ?? [];
+	const entry = catalog.find( ( c ) => c.shell_name === verbClass );
+	const verbs = entry?.commands ?? [];
+	const partition = ( entry?.arguments ?? [] ).some(
+		( argument ) => 'bound' === argument.partition
+	)
+		? 0
+		: null;
 	let sources = [];
 	for ( const inv of invocations ) {
 		const verb = [ ADD_SOURCE, REMOVE_SOURCE ].includes( inv.verb )
@@ -103,7 +111,7 @@ function sourcesOf( className, spans, invocations, catalog ) {
 				inv.verb,
 				bound.remote_log,
 				bound.local_node,
-				0
+				partition
 			);
 		} catch {
 			// The load refuses this line; the rest still draw.

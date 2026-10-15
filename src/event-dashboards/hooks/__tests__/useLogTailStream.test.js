@@ -53,7 +53,10 @@ describe( 'useLogTailStream', () => {
 		expect( Core.node( 'cachecozy:stream' ) ).toBeTruthy();
 		expect( Core.node( 'cachecozy:view' ) ).toBeTruthy();
 		expect( Core.node( '_stream' ).sources ).toEqual( [
-			{ stamp: 'cachecozy.p0', target: 'cachecozy:stream' },
+			{ stamp: 'cachecozy.p0', target: '_stream:cachecozy.p0' },
+		] );
+		expect( Core.node( '_stream:cachecozy.p0' ).target ).toEqual( [
+			'cachecozy:stream',
 		] );
 		expect( Core.node( '_stream' ).sseIn.subscribe ).toEqual( [
 			'cachecozy.p0',

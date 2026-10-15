@@ -3,8 +3,8 @@
 		"shell_name": "Remote_Source",
 		"arguments": [
 			{ "name": "vault_id", "type": "vault_id", "required": true },
-			{ "name": "offsetlog_root", "type": "string", "required": true },
-			{ "name": "deadletter_root", "type": "string", "required": true }
+			{ "name": "offsetlog_root", "type": "string", "required": true, "partition": "bound" },
+			{ "name": "deadletter_root", "type": "string", "required": true, "partition": "bound" }
 		],
 		"commands": [
 			{

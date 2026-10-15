@@ -230,7 +230,7 @@ final class VaultGroupNodeTest extends TestCase {
 	public function test_the_console_fixture_mirrors_both_broker_schemas(): void {
 		$fixture = \json_decode( (string) \file_get_contents( __DIR__ . '/../fixtures/broker-schemas.json' ), true );
 		$shape   = static fn ( array $arguments ): array => \array_map(
-			static fn ( array $a ): array => [ $a['name'], $a['type'], ! empty( $a['required'] ), ! empty( $a['variadic'] ) ],
+			static fn ( array $a ): array => [ $a['name'], $a['type'], ! empty( $a['required'] ), ! empty( $a['variadic'] ), $a['partition'] ?? null ],
 			$arguments
 		);
 

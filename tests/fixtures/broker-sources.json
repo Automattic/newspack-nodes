@@ -12,7 +12,7 @@
   ["a missing target is refused", [["add_source", ["egret.p6"]]], {"refused": "missing required argument: local_node"}],
   ["a surplus token is refused", [["add_source", ["kea.p1", "kite-2290"]], ["remove_source", ["kea.p1", "kite-2290", "stray-3"]]], {"refused": "too many arguments: 3 given, 2 accepted"}],
   ["another verb names nothing", [["set_multi_writer", ["true"]], ["add_source", ["sources:php", "php-errors:partition"]]], ["php-errors:partition"]],
-  ["a partition source is judged at partition 0", [["add_source", ["egret.p{partition}", "heron-{partition}"]]], ["heron-{partition}"]],
+  ["a partition source is judged at partition 0", [["add_source", ["egret.p{partition}", "heron-{partition}"]]], ["heron-{partition}"], {"unbound": {"refused": "add_source 'egret.p{partition}' 'heron-{partition}' names {partition}, but no partition is bound"}}],
   ["an exact reader stamp is a source", [["add_source", ["offsets:hub.tw0:firehose.p0", "okapi-77"]]], ["okapi-77"]],
   ["a source taking the http-out slot is refused", [["add_source", ["http-out", "kite-2290"]]], {"refused": "add_source 'http-out' names a slot the node keeps for its own"}],
   ["a source taking the config slot is refused", [["add_source", ["config", "kite-2290"]]], {"refused": "add_source 'config' names a slot the node keeps for its own"}],

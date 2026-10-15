@@ -13,7 +13,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   ships an `aggregator.tsl` still carrying pairs, which `make_node` refuses,
   so the topology reads as unreadable and the hub stops pulling its spokes;
   its bundled `useStreamGraph` calls `addPairs()`, which the page's `_stream`
-  link no longer has. Intelligence's bundle calls `addSource()`. Deploying
+  link no longer has. Intelligence's bundle calls `attachView()`. Deploying
   the substrate first leaves those consumers broken for as long as the gap
   lasts, and deploying them first leaves them dormant behind their floor.
 
@@ -91,14 +91,27 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   of the latest record is dropped; a `toggle` or `setter` verb still keeps its
   last write alone.
 
-- **The browser's `RemoteLink` takes sources.** `addPairs( [ '<stamp>=<target>' ],
-  positions )` becomes `addSource( stamp, target, positions )`, `removePairs()`
-  becomes `removeSource( stamp, target )`, `parkPairs()` becomes
-  `parkSource( stamp, target )`, and `link.pairs` becomes `link.sources`, a
-  list of `{ stamp, target }`. `splitPair()` is gone. A link's `:config`
-  answers `add_source` and `remove_source <remote_log> <local_node>`,
-  judged by `foldSource()` in `src/runtime/broker-sources.js` as a PHP
-  broker judges them, and `make_node` gives a `:config` to any browser node
+- **The browser's `RemoteLink` declares one source per stamp, and a view
+  attaches to the stamp's Tee.** Each view call changes name:
+  - `link.addPairs( [ '<stamp>=<target>' ], positions )` becomes
+    `link.attachView( stamp, target, positions )`, one call per pair; call
+    `link.checkView( stamp, target, positions )` on each first to attach
+    several all or none.
+  - `link.parkPairs( pairs )` becomes `link.parkView( stamp, target )`, and
+    `link.removePairs( pairs )` becomes `link.detachView( stamp, target )`.
+  - A test reading `link.pairs` reads `link.sources`, the declared
+    `{ stamp, target }` sources, one per stamp, a view's aimed at its Tee
+    `_stream:<stamp>`; the views on a stamp are that Tee's `target` list,
+    and `link.parked` lists the paused ones as `{ stamp, target }`.
+  - `link.addSource( stamp, target )` and `link.removeSource( stamp,
+    target )` are the `add_source` and `remove_source` verbs' handlers: a
+    second target for a declared stamp, or a view on a stamp a source sent
+    elsewhere, is refused.
+
+  `splitPair()` is gone. A link's `:config` answers `add_source` and
+  `remove_source <remote_log> <local_node>`, judged by `foldSource()` in
+  `src/runtime/broker-sources.js` as a PHP broker judges them, and
+  `make_node` gives a `:config` to any browser node
   whose schema declares a verb with a handler. That `:config` binds a
   verb's declared `args` through `bindCommandArgs()` before its handler
   runs, as PHP's `dispatch()` does, so a handler reads them by name, and a
