@@ -44,6 +44,8 @@ namespace Newspack_Nodes;
 
 /**
  * Table node — `make_node Table <name> <namespace> <ttl> [ auto|memcache|apcu|sqlite|wpdb ]`.
+ *
+ * @phpstan-import-type Rows from Sqlite_Arm
  */
 class Table_Node extends Node {
 	use Schema_Reflection;
@@ -149,6 +151,9 @@ class Table_Node extends Node {
 	/** How every write request is answered. */
 	private const WRITE_REPLY = 'one TM_RESPONSE "<VERB> <keys…>" naming the keys it took effect on';
 
+	/** What a ROWS request carries, for a refusal to teach. */
+	private const ROWS_USAGE = 'needs TM_REQUEST|TM_STRUCT and VALUE [ ROWS => [ [ op, table, row, then?, ids? ], … ] ]';
+
 	/** A verb's calls, in its counter row. */
 	private const CALLS = 0;
 
@@ -174,8 +179,8 @@ class Table_Node extends Node {
 	private const WINDOW_MAX_NS = 7;
 
 	/**
-	 * Every counted verb's row at zero: the requests, fill()'s keyed INSERT,
-	 * and the Router tick's PURGE and CHECKPOINT.
+	 * Every counted verb's row at zero: the requests, a Row_Table's ROWS,
+	 * fill()'s keyed INSERT, and the Router tick's PURGE and CHECKPOINT.
 	 */
 	private const ZERO_STATS = [
 		'GET'        => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
@@ -190,6 +195,7 @@ class Table_Node extends Node {
 		'SSCAN'      => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
 		'SMOVE'      => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
 		'SREM'       => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
+		'ROWS'       => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
 		'PURGE'      => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
 		'CHECKPOINT' => [ 0, 0, 0, 0, 0, 0, 0, 0 ],
 	];
@@ -222,6 +228,9 @@ class Table_Node extends Node {
 
 	/** The arm a named backend opened; null for `auto`, which resolves per call. */
 	private ?Cache_Backend $arm = null;
+
+	/** Whether the arm holds a Row_Schema's tables, which answer ROWS alone. */
+	private bool $row_store = false;
 
 	/** The declared Table this node answers for; its own name unless mounted. */
 	private string $table = '';
@@ -341,12 +350,8 @@ class Table_Node extends Node {
 		if ( ! \in_array( $backend, self::BACKENDS, true ) ) {
 			throw new \InvalidArgumentException( \esc_html( 'Table backend must be one of ' . \implode( ', ', self::BACKENDS ) . ", not {$backend}" ) );
 		}
-		$this->bound_partition = Core::bound_partition();
-		$file              = 'sqlite' === $backend ? $this->sqlite_file() : '';
-		$arm               = $this->open( $backend, $namespace, $file );
-		$this->assign_schema_args( $args, $values );
-		$this->arm         = $arm;
-		$this->sqlite_path = $file;
+		$this->declare_store( $namespace, Core::as_int( $values['ttl'] ), $backend, null );
+		$this->arguments = $args;
 		return $args;
 	}
 
@@ -374,6 +379,10 @@ class Table_Node extends Node {
 			$this->print_less_often( 'ERROR: refused an INSERT through a mounted Table - from: ', Core::as_string( $message[ Message::FROM ], '' ) );
 			return;
 		}
+		if ( $this->row_store && '' !== $key ) {
+			$this->print_less_often( "ERROR: refused an INSERT through Row_Table {$this->name}, which takes ROWS alone - from: ", Core::as_string( $message[ Message::FROM ], '' ) );
+			return;
+		}
 		if ( 0 !== ( $type & ( Message::TM_STRUCT | Message::TM_BYTESTREAM ) ) && Cache_Backend::refuses_key( $key ) ) {
 			$this->print_less_often( 'ERROR: refused an INSERT whose KEY is empty or holds whitespace' );
 			return;
@@ -382,6 +391,31 @@ class Table_Node extends Node {
 			$this->insert( $key, $message[ Message::VALUE ] );
 		}
 		parent::fill( $message );
+	}
+
+	/**
+	 * Open the store a declaration names and take it on: the arm first, so a
+	 * backend that will not open leaves the Table as it was, then its scope.
+	 * `$rows` declares a Row_Schema's tables in a `sqlite` file, which then
+	 * answers ROWS and refuses every keyed request.
+	 *
+	 * @param string    $namespace The namespace keys derive from.
+	 * @param int       $ttl       Lifetime of a write stating none, at least 1.
+	 * @param string    $backend   One of BACKENDS.
+	 * @param Rows|null $rows      The row tables, or none.
+	 * @throws \RuntimeException On a declaration the backend refuses.
+	 * @throws Table_Unavailable When the backend cannot open on this host.
+	 */
+	protected function declare_store( string $namespace, int $ttl, string $backend, ?array $rows ): void {
+		$this->bound_partition = Core::bound_partition();
+		$file                  = 'sqlite' === $backend ? $this->sqlite_file() : '';
+		$arm                   = $this->open( $backend, $namespace, $file, $rows );
+		$this->namespace       = $namespace;
+		$this->ttl             = $ttl;
+		$this->backend         = $backend;
+		$this->arm             = $arm;
+		$this->row_store       = null !== $rows;
+		$this->sqlite_path     = $file;
 	}
 
 	/**
@@ -411,20 +445,21 @@ class Table_Node extends Node {
 	 * file, and an arm refusing an invalid argument, are the declaration's
 	 * fault; any other refusal while an arm opens is the host's.
 	 *
-	 * @param string $backend   One of BACKENDS.
-	 * @param string $namespace The namespace a `wpdb` arm scopes its rows by.
-	 * @param string $file      The `sqlite` file `sqlite_file()` resolved; '' otherwise.
+	 * @param string    $backend   One of BACKENDS.
+	 * @param string    $namespace The namespace a `wpdb` arm scopes its rows by.
+	 * @param string    $file      The `sqlite` file `sqlite_file()` resolved; '' otherwise.
+	 * @param Rows|null $rows      The row tables a `sqlite` file declares, or none.
 	 * @return Cache_Backend|null The arm; null for `auto`, which resolves per call.
 	 * @throws \RuntimeException On a namespace the arm cannot hold.
 	 * @throws Table_Unavailable When the backend cannot open on this host.
 	 */
-	private function open( string $backend, string $namespace, string $file ): ?Cache_Backend {
+	private function open( string $backend, string $namespace, string $file, ?array $rows ): ?Cache_Backend {
 		try {
 			// arguments() admits BACKENDS alone, so the default arm is `auto`.
 			return match ( $backend ) {
 				'memcache' => Cache_Backend::memcache_arm() ?? throw new \LogicException( 'memcache backend has no memcached handle' ),
 				'apcu'     => Cache_Backend::apcu_arm() ?? throw new \LogicException( 'apcu backend is not usable here' ),
-				'sqlite'   => new Sqlite_Arm( $file, $namespace, read_only: $this->mounted ),
+				'sqlite'   => new Sqlite_Arm( $file, $namespace, read_only: $this->mounted, rows: $rows ),
 				'wpdb'     => new Wpdb_Arm( $namespace ),
 				default    => null === Cache_Backend::shared_first() ? throw new \LogicException( 'auto backend finds neither memcached nor APCu' ) : null,
 			};
@@ -482,9 +517,10 @@ class Table_Node extends Node {
 	 * Answer one request, TO its FROM, FROM this Table, its ID echoed (ADR-7).
 	 * Reads send a message per value and a TM_INFO count, or one TM_ERROR when
 	 * a key went unread, so a failure never reads as absence. Writes send one
-	 * string TM_RESPONSE naming the keys they took effect on. MSET, ADD and
-	 * SADD alone carry a structure, under TM_REQUEST|TM_STRUCT. Anything else
-	 * the Table cannot answer is refused out loud, through refuse().
+	 * string TM_RESPONSE naming the keys they took effect on. MSET, ADD, SADD
+	 * and a Row_Table's ROWS alone carry a structure, under
+	 * TM_REQUEST|TM_STRUCT. Anything else the Table cannot answer is refused
+	 * out loud, through refuse().
 	 *
 	 * @param array<int,mixed> $request The TM_REQUEST.
 	 * @throws \RuntimeException With no wired sink to reply through.
@@ -504,8 +540,9 @@ class Table_Node extends Node {
 	}
 
 	/**
-	 * Answer one request's verb: a mount refuses any write, a structure goes
-	 * to handle_struct(), and a string verb to its reply.
+	 * Answer one request's verb: a mount refuses any write, ROWS and every
+	 * request to a Row_Table go to answer_rows(), a structure to
+	 * handle_struct(), and a string verb to its reply.
 	 *
 	 * @param array<int,mixed> $request The TM_REQUEST.
 	 * @param string           $verb    The verb: the first word, or the map's key.
@@ -517,6 +554,10 @@ class Table_Node extends Node {
 		$struct = 0 !== ( Core::num_int( $request[ Message::TYPE ] ) & Message::TM_STRUCT );
 		if ( $this->mounted && ( \is_array( $value ) || ! \in_array( $verb, self::READ_VERBS, true ) ) ) {
 			$this->refuse( $request, $verb, self::READS_ONLY );
+			return;
+		}
+		if ( $this->row_store || 'ROWS' === $verb ) {
+			$this->answer_rows( $request, $verb, $value, $struct );
 			return;
 		}
 		if ( \is_array( $value ) ) {
@@ -538,6 +579,71 @@ class Table_Node extends Node {
 			'RM'                  => $this->reply_removed( $request, $words ),
 			default               => $this->refuse( $request, $verb, self::struct_usage()[ $verb ] ?? 'unknown verb' ),
 		};
+	}
+
+	/**
+	 * `ROWS`: one batch of row ops in one transaction, under
+	 * TM_REQUEST|TM_STRUCT with VALUE `[ 'ROWS' => [ op, … ] ]`, answered
+	 * TM_RESPONSE|TM_STRUCT `[ 'verb' => 'ROWS', 'written', 'ids' ]` or a
+	 * TM_ERROR carrying the arm's message, the whole batch rolled back. A
+	 * Row_Table refuses every other verb, and a keyed Table refuses ROWS.
+	 * Counted as ROWS: the ops asked, the rows written or folded.
+	 *
+	 * @param array<int,mixed> $request The TM_REQUEST.
+	 * @param string           $verb    The verb: the first word, or the map's key.
+	 * @param mixed            $value   The request's VALUE.
+	 * @param bool             $struct  Whether TYPE carries TM_STRUCT.
+	 * @throws \RuntimeException With no wired sink to reply through.
+	 */
+	private function answer_rows( array $request, string $verb, mixed $value, bool $struct ): void {
+		$arm = $this->arm;
+		if ( ! $this->row_store || ! $arm instanceof Sqlite_Arm ) {
+			$this->refuse( $request, $verb, "{$this->table_name()} is a keyed Table; only a Row_Table answers ROWS" );
+			return;
+		}
+		if ( 'ROWS' !== $verb ) {
+			$this->refuse( $request, $verb, "{$this->table_name()} is a Row_Table, which answers ROWS alone" );
+			return;
+		}
+		$batch = $struct ? self::row_ops( $value ) : null;
+		if ( null === $batch ) {
+			$this->refuse( $request, $verb, self::ROWS_USAGE );
+			return;
+		}
+		try {
+			$done = $arm->write_rows( $batch );
+		} catch ( Worker_Should_Stop $stop ) {
+			throw $stop;
+		} catch ( \RuntimeException $e ) {
+			$this->count_rows( 'ROWS', \count( $batch ), 0 );
+			$this->count_error( 'ROWS' );
+			$this->reply( $request, Message::TM_ERROR, '', "ROWS: {$e->getMessage()}\n" );
+			return;
+		}
+		$this->count_rows( 'ROWS', \count( $batch ), $done['written'] );
+		$this->reply( $request, Message::TM_RESPONSE | Message::TM_STRUCT, '', [ 'verb' => 'ROWS' ] + $done );
+	}
+
+	/**
+	 * The ops a ROWS VALUE carries: `[ 'ROWS' => [ op, … ] ]`, its one entry
+	 * a list of arrays.
+	 *
+	 * @param mixed $value The request's VALUE.
+	 * @return list<array<array-key,mixed>>|null The ops; null for any other shape.
+	 */
+	private static function row_ops( mixed $value ): ?array {
+		$batch = \is_array( $value ) && 1 === \count( $value ) ? ( $value['ROWS'] ?? null ) : null;
+		if ( ! \is_array( $batch ) || ! \array_is_list( $batch ) ) {
+			return null;
+		}
+		$ops = [];
+		foreach ( $batch as $op ) {
+			if ( ! \is_array( $op ) ) {
+				return null;
+			}
+			$ops[] = $op;
+		}
+		return $ops;
 	}
 
 	/**

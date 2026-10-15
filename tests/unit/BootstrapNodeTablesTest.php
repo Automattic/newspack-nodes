@@ -60,6 +60,10 @@ final class BootstrapNodeTablesTest extends TestCase {
 		$this->write_tsl( 'heron-token', "var num_partitions = 2\nmake_node Table lab-7:heron <lab:bin>:p{partition} 37 wpdb\n" );
 		$this->write_tsl( 'heron-literal', "var num_partitions = 3\nmake_node Table lab-7:heron kea-bin:p{partition} 37 wpdb\n" );
 		$this->write_tsl( 'heron-nope', "make_node Table lab-7:heron <lab:nope>:p{partition} 37 wpdb\n" );
+		$this->write_tsl( 'wombat-a', "var num_partitions = 2\nmake_node Row_Table wombats-6620 Wombat\n" );
+		$this->write_tsl( 'wombat-c', "var num_partitions = 3\nmake_node Row_Table wombats-6620 Wombat\n" );
+		$this->write_tsl( 'wombat-numbat', "make_node Row_Table wombats-6620 Numbat\n" );
+		$this->write_tsl( 'wombat-echo', "var num_partitions = 4\nmake_node Echo wombats-6620\n" );
 	}
 
 	protected function tearDown(): void {
@@ -509,5 +513,43 @@ final class BootstrapNodeTablesTest extends TestCase {
 		$this->expectException( \InvalidArgumentException::class );
 		$this->expectExceptionMessage( 'Table name lab&amp;rook cannot name a file' );
 		Bootstrap::mount_table( [ 'lab&rook' ] );
+	}
+
+	public function test_a_row_table_s_files_resolve_per_partition_with_its_schema(): void {
+		$this->activate( 'wombat-a' );
+		$this->assertSame(
+			[
+				'schema' => 'Wombat',
+				'files'  => [
+					0 => $this->base . '/tables/wombats-6620.p0.sqlite',
+					1 => $this->base . '/tables/wombats-6620.p1.sqlite',
+				],
+			],
+			Bootstrap::row_table_files( 'wombats-6620' )
+		);
+	}
+
+	public function test_identical_row_table_declarations_union_their_partitions(): void {
+		$this->activate( 'wombat-echo', 'wombat-a', 'wombat-c' );
+		$this->assertSame( [ 0, 1, 2 ], \array_keys( Bootstrap::row_table_files( 'wombats-6620' )['files'] ) );
+	}
+
+	public function test_two_topologies_declaring_a_row_table_with_different_schemas_is_refused(): void {
+		$this->activate( 'wombat-a', 'wombat-numbat' );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'Row_Table wombats-6620 is declared with schema Wombat by wombat-a and Numbat by wombat-numbat' );
+		Bootstrap::row_table_files( 'wombats-6620' );
+	}
+
+	public function test_an_undeclared_row_table_is_unavailable(): void {
+		$this->activate( 'wombat-echo', 'kea-a' );
+		$this->expectException( Table_Unavailable::class );
+		$this->expectExceptionMessage( 'Row_Table wombats-6620: no active topology declares it' );
+		Bootstrap::row_table_files( 'wombats-6620' );
+	}
+
+	public function test_a_row_table_is_no_keyed_table_to_resolve_or_mount(): void {
+		$this->activate( 'wombat-a' );
+		$this->assertSame( [ 'wombats-6620' => [] ], Bootstrap::node_tables( 'wombats-6620' ) );
 	}
 }

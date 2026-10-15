@@ -21,6 +21,8 @@ namespace Newspack_Nodes;
  * from the Table the ask in flight awaits is collected; a message from any
  * other Table the asker names — late, or never asked — is dropped aloud,
  * because a Table's reply is never the asker's input.
+ *
+ * @phpstan-import-type Row_Op from Sqlite_Arm
  */
 final class Table_Client {
 
@@ -330,6 +332,35 @@ final class Table_Client {
 			return [];
 		}
 		return $this->written( $verb, $this->ask( $table, Message::TM_REQUEST | Message::TM_STRUCT, [ $verb => $items ] ), $failed );
+	}
+
+	/**
+	 * `ROWS`: one batch of row ops, written in one transaction by a
+	 * Row_Table. Its answer reaches the asker's `fill()`, which hands it to
+	 * `accepts()`; a refusal, or no answer, raises, since a row the batch
+	 * named may be gone.
+	 *
+	 * @api A node writing row tables: event-logger-nodes' flame builder.
+	 * @param string                 $table The Row_Table's registered name.
+	 * @param list<Row_Op> $batch `[ op, table, row, then?, ids? ]` each, as `Sqlite_Arm::write_rows()` takes them.
+	 * @throws \LogicException When an ask is in flight already.
+	 * @throws \RuntimeException When the Row_Table refuses the batch or does
+	 *                           not answer, or the asker has no name or no sink.
+	 */
+	public function write_rows( string $table, array $batch ): void {
+		if ( [] === $batch ) {
+			return;
+		}
+		foreach ( $this->ask( $table, Message::TM_REQUEST | Message::TM_STRUCT, [ 'ROWS' => $batch ] ) as $reply ) {
+			$type = Core::num_int( $reply[ Message::TYPE ] );
+			if ( 0 !== ( $type & Message::TM_ERROR ) ) {
+				throw new \RuntimeException( \esc_html( "Table_Client: {$table} refused ROWS: " . \trim( Core::as_string( $reply[ Message::VALUE ], '' ) ) ) );
+			}
+			if ( 0 !== ( $type & Message::TM_RESPONSE ) && 'ROWS' === ( Core::arr( $reply[ Message::VALUE ] )['verb'] ?? null ) ) {
+				return;
+			}
+		}
+		throw new \RuntimeException( \esc_html( "Table_Client: {$table} did not answer ROWS" ) );
 	}
 
 	/**

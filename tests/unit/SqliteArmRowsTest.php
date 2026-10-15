@@ -82,6 +82,21 @@ final class SqliteArmRowsTest extends TestCase {
 		);
 	}
 
+	public function test_an_add_fold_outside_sum_and_max_folds_nothing(): void {
+		$tables                           = Wombat_Row_Schema::tables();
+		$tables['tallies']['add']['peak'] = 'avg';
+		$arm                              = new Sqlite_Arm( $this->path(), 'wombat:p3', rows: [ 'version' => 7, 'tables' => $tables ] );
+		$this->expectException( \UnhandledMatchError::class );
+		$arm->write_rows( [ [ 'add', 'tallies', [ 7341, 'heron', 3, 41.5 ] ] ] );
+	}
+
+	public function test_an_op_outside_insert_ignore_and_add_is_refused_naming_it(): void {
+		$arm = $this->rows_arm();
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'burrows: no such row op id' );
+		$arm->write_rows( [ [ 'id', 'burrows', [ 'kea-4471' ] ] ] );
+	}
+
 	public function test_an_ignored_duplicate_skips_its_then_ops(): void {
 		$arm  = $this->rows_arm();
 		$then = [ [ 'add', 'tallies', [ 7341, 'egret', 1, 2.5 ] ] ];

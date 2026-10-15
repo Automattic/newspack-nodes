@@ -7,11 +7,14 @@ use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Router_Node;
+use Newspack_Nodes\Row_Table_Node;
 use Newspack_Nodes\Table_Client;
 use Newspack_Nodes\Table_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+
+require_once \dirname( __DIR__ ) . '/Helpers/fixtures/class-wombat-row-schema.php';
 
 /** An asker that hands every message to its client first, and keeps the rest. */
 final class Table_Asker_Fixture_Node extends Node {
@@ -451,5 +454,56 @@ final class TableClientTest extends TestCase {
 		$this->asker->client->add_members( 'lab-7:kea', [ 'pend' => [ 'x-1' => 1 ] ], 900 );
 		$this->assertSame( [], $this->asker->client->remove_members( 'lab-7:kea', 'pend 3307', [ 'x-1' ] ), 'a set key holding whitespace would split into the set pend and members' );
 		$this->assertSame( [ 'pend' => [ 'x-1' => 1 ] ], $this->asker->client->members( 'lab-7:kea', [ 'pend' ], 9 ) );
+	}
+
+	/** A Wombat Row_Table on partition 3, sinking where the asker does. */
+	private function row_table( string $name ): void {
+		Core::$var['partition'] = '3';
+		try {
+			$node = new Row_Table_Node();
+			$node->name( $name );
+			$node->arguments( [ 'Wombat' ] );
+		} finally {
+			unset( Core::$var['partition'] );
+		}
+		$node->sink( $this->asker->sink() );
+	}
+
+	public function test_write_rows_asks_ROWS_with_the_batch(): void {
+		$this->row_table( 'lab-7:wombat' );
+		$heard                   = [];
+		$this->asker->on_message = static function ( array $message ) use ( &$heard ): void {
+			$heard[] = [ $message[ Message::TYPE ], $message[ Message::FROM ], $message[ Message::VALUE ] ];
+		};
+		$this->asker->client->write_rows( 'lab-7:wombat', [ [ 'ignore', 'burrows', [ null, 'sett-4471' ] ] ] );
+		$this->assertSame(
+			[ [ Message::TM_RESPONSE | Message::TM_STRUCT, 'lab-7:wombat', [ 'verb' => 'ROWS', 'written' => 1, 'ids' => [ 0 => 1 ] ] ] ],
+			$heard
+		);
+		$this->assertSame( [], $this->asker->folded, 'the answer is the client\'s, never the asker\'s input' );
+	}
+
+	public function test_write_rows_raises_what_the_table_refused(): void {
+		$this->row_table( 'lab-7:wombat' );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'lab-7:wombat refused ROWS: ROWS: moles: no such row table' );
+		$this->asker->client->write_rows( 'lab-7:wombat', [ [ 'insert', 'moles', [ 'sett-4471' ] ] ] );
+	}
+
+	public function test_write_rows_raises_when_no_answer_comes(): void {
+		$mute = new Capture_Sink_Node();
+		$mute->name( 'lab-7:mute.p3' );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'lab-7:mute.p3 did not answer ROWS' );
+		$this->asker->client->write_rows( 'lab-7:mute.p3', [ [ 'ignore', 'burrows', [ null, 'sett-4471' ] ] ] );
+	}
+
+	public function test_write_rows_of_no_ops_asks_nothing(): void {
+		$asked                   = 0;
+		$this->asker->on_message = static function () use ( &$asked ): void {
+			++$asked;
+		};
+		$this->asker->client->write_rows( 'lab-7:mute.p3', [] );
+		$this->assertSame( 0, $asked );
 	}
 }

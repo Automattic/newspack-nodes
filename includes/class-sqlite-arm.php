@@ -92,6 +92,12 @@ final class Sqlite_Arm extends Durable_Arm {
 	/** The page-cache pragma; a negative size counts KiB rather than pages. */
 	private const CACHE_PRAGMA = 'PRAGMA cache_size = -' . self::CACHE_KIB;
 
+	/** The names the `kv` and `members` tables and their indexes take in every file. */
+	public const KV_NAMES = [ 'kv', 'members', 'kv_expires', 'members_expires' ];
+
+	/** The row ops a batch may name. */
+	private const ROW_OPS = [ 'insert', 'ignore', 'add' ];
+
 	/** Keys bound per `IN ( … )`: under the 999 variables an older build allows. */
 	private const IN_CHUNK = 500;
 
@@ -197,9 +203,7 @@ final class Sqlite_Arm extends Durable_Arm {
 		private readonly bool $read_only = false,
 		private readonly ?array $rows = null
 	) {
-		if ( ! ( self::$available ?? static fn (): bool => \extension_loaded( 'pdo_sqlite' ) )() ) {
-			throw new \LogicException( 'sqlite backend needs the pdo_sqlite extension' );
-		}
+		self::require_driver();
 		if ( ! $read_only ) {
 			Config::ensure_path( \dirname( $path ) );
 		}
@@ -269,7 +273,8 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * row position with the id an earlier `ignore` in the batch resolved,
 	 * named by its batch index, so one batch can name a row it creates.
 	 *
-	 * @param list<Row_Op> $batch The ops.
+	 * @param list<array<array-key,mixed>> $batch The ops, each a Row_Op, as a
+	 *                                     request carries them.
 	 * @return array{written:int, ids:array<int,int>} Rows written or folded,
 	 *                                                and each top-level
 	 *                                                `ignore`'s id by index.
@@ -316,6 +321,10 @@ final class Sqlite_Arm extends Durable_Arm {
 		$table = Core::as_string( $op[1] ?? null );
 		$row   = Core::arr( $op[2] ?? null );
 		$spec  = $this->rows['tables'][ $table ] ?? throw new \RuntimeException( "{$table}: no such row table" );
+		if ( ! \in_array( $verb, self::ROW_OPS, true ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the node wrapping it escapes the message once.
+			throw new \RuntimeException( "{$table}: no such row op {$verb}" );
+		}
 		foreach ( Core::arr( $op[4] ?? null ) as $position => $from ) {
 			$from = Core::as_int( $from );
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the node wrapping it escapes the message once.
@@ -378,16 +387,29 @@ final class Sqlite_Arm extends Durable_Arm {
 		$columns = \array_keys( $spec['columns'] );
 		$key     = self::quoted_list( $spec['key'] ?? [] );
 		$insert  = "INSERT INTO {$t} ( " . self::quoted_list( $columns ) . ' ) VALUES ( ' . \implode( ', ', \array_fill( 0, \count( $columns ), '?' ) ) . ' )';
-		$fold    = static fn ( string $column, string $how ): string => self::quote( $column ) . ' = ' . ( 'max' === $how
-			? 'MAX( ' . self::quote( $column ) . ', excluded.' . self::quote( $column ) . ' )'
-			: self::quote( $column ) . ' + excluded.' . self::quote( $column ) );
 		return $this->row_sql[ "{$op} {$table}" ] = match ( $op ) {
 			'insert'      => $insert,
 			'ignore'      => "{$insert} ON CONFLICT ( {$key} ) DO NOTHING",
-			'add'         => "{$insert} ON CONFLICT ( {$key} ) DO UPDATE SET " . \implode( ', ', \array_map( $fold, \array_keys( $spec['add'] ?? [] ), $spec['add'] ?? [] ) ),
+			'add'         => "{$insert} ON CONFLICT ( {$key} ) DO UPDATE SET " . \implode( ', ', \array_map( self::fold( ... ), \array_keys( $spec['add'] ?? [] ), $spec['add'] ?? [] ) ),
 			'id'          => 'SELECT ' . self::quote( $spec['autoincrement'] ?? '' ) . " FROM {$t} WHERE " . \implode( ' AND ', \array_map( static fn ( string $c ): string => self::quote( $c ) . ' = ?', $spec['key'] ?? [] ) ),
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the node wrapping it escapes the message once.
 			default       => throw new \RuntimeException( "{$table}: no such row op {$op}" ),
+		};
+	}
+
+	/**
+	 * One `add` column's fold onto the row its key names: `sum` adds, `max`
+	 * keeps the larger; no other fold has a statement.
+	 *
+	 * @param string      $column The column.
+	 * @param 'sum'|'max' $how    The fold.
+	 * @return string The SET clause.
+	 */
+	private static function fold( string $column, string $how ): string {
+		$c = self::quote( $column );
+		return "{$c} = " . match ( $how ) {
+			'sum' => "{$c} + excluded.{$c}",
+			'max' => "MAX( {$c}, excluded.{$c} )",
 		};
 	}
 
@@ -540,6 +562,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * @param array<array-key,string> $files   Partition => file.
 	 * @param int                     $version The schema version a file must carry.
 	 * @return \PDO The connection.
+	 * @throws \LogicException Without pdo_sqlite.
 	 * @throws \RuntimeException On more files than a fleet has partitions, a
 	 *                           partition that is no integer, or a reader
 	 *                           running as root.
@@ -547,6 +570,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * @api The row tables' one read path.
 	 */
 	public static function open_rows( array $files, int $version ): \PDO {
+		self::require_driver();
 		if ( \count( $files ) > Spawn_Coordinator::MAX_PARTITIONS ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- two numbers.
 			throw new \RuntimeException( \count( $files ) . ' partition files, more than the ' . Spawn_Coordinator::MAX_PARTITIONS . ' partitions a fleet runs' );
@@ -610,6 +634,17 @@ final class Sqlite_Arm extends Durable_Arm {
 		}
 	}
 
+	/**
+	 * Refuse a host without pdo_sqlite, read through the `$available` seam.
+	 *
+	 * @throws \LogicException Without pdo_sqlite.
+	 */
+	private static function require_driver(): void {
+		if ( ! ( self::$available ?? static fn (): bool => \extension_loaded( 'pdo_sqlite' ) )() ) {
+			throw new \LogicException( 'sqlite backend needs the pdo_sqlite extension' );
+		}
+	}
+
 	/** See Durable_Arm::row_key(): `{namespace}:{key}`. */
 	public function row_key( string $key ): string {
 		return "{$this->namespace}:{$key}";
@@ -623,6 +658,26 @@ final class Sqlite_Arm extends Durable_Arm {
 	/** See Cache_Backend::batch_is_atomic(); every write runs in one transaction. */
 	public function batch_is_atomic(): bool {
 		return true;
+	}
+
+	/**
+	 * Every name one row table's DDL takes in the file's one namespace: the
+	 * table, its indexes, and with an `fts` shadow the shadow, the tables
+	 * FTS5 keeps beside it, and its triggers.
+	 *
+	 * @api Read by the node that checks a schema before its file opens.
+	 * @param string   $table The table.
+	 * @param Row_Spec $spec  Its declaration.
+	 * @return list<string>
+	 */
+	public static function declared_names( string $table, array $spec ): array {
+		$names = [ $table, ...\array_map( 'strval', \array_keys( $spec['indexes'] ?? [] ) ) ];
+		if ( [] !== ( $spec['fts'] ?? [] ) ) {
+			foreach ( [ '', '_data', '_idx', '_docsize', '_config', '_insert', '_delete' ] as $suffix ) {
+				$names[] = "{$table}_fts{$suffix}";
+			}
+		}
+		return $names;
 	}
 
 	/** See Durable_Arm::select_rows(). */
