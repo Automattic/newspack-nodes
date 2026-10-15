@@ -656,7 +656,7 @@ carries `name`, `class`, `fans_out`, `args`, `verbs`, `origin` and `via`; an edg
 `from`, `to`, `origin`, `roles` — `connect`, `config`, `pair`, or several — and, where a
 config role exists, `config_slots` naming the setter verbs that made it. A `pair` edge runs
 from a `Remote_Source`, or a `Vault_Group` of them, to the target one of its
-`<source>=<target>` pairs names, which the broker writes through that pair's reader; no
+`add_source` lines name, which the broker writes through that source's reader; no
 `connect_node` or `disconnect_node` adds or removes one. `origin` is a LIST because a diamond
 include is provided by several directly-declared includes, while `via` is only the first path
 a node entered through. `hulls` maps every topology in

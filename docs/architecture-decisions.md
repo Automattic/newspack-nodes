@@ -343,8 +343,8 @@ replies.
 
 `SSE_In` carries no such gate, because a subscription's records are not replies. `RemoteLink`
 takes each record through its SseIn's `onMessage` and hands it to its stamp's Tee, the hidden
-sibling `<link>:<kind>` whose targets are those of every `<stamp>:<target>` pair claiming the
-stamp. A link carrying no pairs, `RemoteIpc` among them, declines every record, so each keeps
+sibling `<link>:<kind>` whose targets are those of every `{ stamp, target }` source claiming the
+stamp. A link carrying no sources, `RemoteIpc` among them, declines every record, so each keeps
 its TO. A command reply, and a `TM_RESPONSE` or `TM_ERROR` carrying a TO, as `HttpOut`'s
 `acceptInbound()` reads a reply, keeps the TO the server addressed to its minter either way,
 because overwriting it would deliver the reply to a view instead of its receiver.
@@ -1237,6 +1237,15 @@ index.
 merged and ADR-7 is the decision in play; or if `edge` is reintroduced, which would absorb the
 physical-write case and leave only the conditional-TO one.
 
+**Amendment: a verb may name a destination too.** `Node::command_targets( $commands )` is the
+verb-side twin of `declared_targets()`. It takes the ordered list of `[ verb, tokens ]` commands
+sent to a node's `:config` and answers the destinations they leave once each has applied, so a
+verb that undoes another takes its destination back. `Topology_Analyzer` asks again after each
+`command_node` line and draws a `pair` edge to each destination the line adds, on the node or
+on a `Vault_Group` of its class, as it draws an argument's. A running node declares the same
+destinations through `extra_targets()`. The one class that answers is a broker, whose
+`add_source` and `remove_source` lines name its sources.
+
 ---
 
 ## ADR-20: A config default lives in CODE; every config file is an override surface
@@ -2019,8 +2028,8 @@ a root that is its group's own, whose readers would land at the group's first le
 reader takes its stamp verbatim as its sibling slot `<broker>:<stamp>` and its dirs' basename, so
 the codec is gone. A log's stamp is held to `MAX_STAMP_BYTES` whole, and a broker reader's part
 by part, since its dir is `<root>/<stamp>`: the root and the stamp it reads each name one dir. A
-broker reads only a stamp that fits one dir name whole (`fits_a_dir_name()`), so an exact pair
-may name a broker reader's stamp as its source when it is that short. A glob's `*`
+broker reads only a stamp that fits one dir name whole (`fits_a_dir_name()`), so an exact source
+may name a broker reader's stamp when it is that short. A glob's `*`
 matches within one stamp part, stopping at `:`, so no glob claims a broker reader, and a dir
 whose name holds a `:` is no glob match. A log may take a group's name: `offsets` alone is a
 `logs` dir, because a one-segment stamp never reads as a prefix.
@@ -2129,8 +2138,8 @@ which point its object form goes and `parse()` reads every value.
 **Status:** Accepted
 
 **Context:** A [`Remote_Source_Node`](../includes/class-remote-source-node.php) carries every
-stream its `<source>=<target>` pairs name over one SSE connection, and reads each stream with
-its own [`Remote_Consumer_Node`](../includes/class-remote-consumer-node.php). A pair's source
+stream its sources name over one SSE connection, and reads each stream with
+its own [`Remote_Consumer_Node`](../includes/class-remote-consumer-node.php). A source
 may be a glob (`firehose.p*`), and which stamps match it is runtime data: the spoke names them,
 in each record's FROM and in its handshake's CURSORS. So the broker is the second node type to
 build children from runtime state, which is [ADR-21](#adr-21-a-node-may-derive-its-children-from-the-vault-and-static-analysis-reads-it)'s
@@ -2138,8 +2147,8 @@ reopen condition. ADR-21 answers it for `Vault_Group` by flattening each member 
 statements static analysis reads; a broker's members cannot be flattened, because no reader of
 the TSL can know which stamps a spoke will send.
 
-**Decision:** A broker builds a reader on first sight of a stamp a pair claims — in a routed
-line's FROM, in a handshake's CURSORS, or, for an exact pair, on its first tick — through the
+**Decision:** A broker builds a reader on first sight of a stamp a source claims — in a routed
+line's FROM, in a handshake's CURSORS, or, for an exact source, on its first tick — through the
 one builder, `consumer_for()`. The reader is patroned by the broker and published as its sibling
 `<broker>:<stamp>`, so it stays off the canvas, keeps its own `:config` and opens from the
 broker's "…" in the console; a stamp is one segment
@@ -2147,16 +2156,15 @@ broker's "…" in the console; a stamp is one segment
 as written, and the sibling map is the one list of readers. Its cursor sits at
 `<offsetlog_root>/<stamp>` and its dead letters at `<deadletter_root>/<stamp>`. Static analysis does not flatten readers: `Topology_Analyzer`'s write
 set claims both roots, so the conflict check and `wp nodes gc` cover every reader a glob builds
-later, and its graph draws one `pair` edge from the broker to each pair's target
+later, and its graph draws one `pair` edge from the broker to each source's target
 ([ADR-19](#adr-19-a-node-may-declare-a-destination-it-writes-without-routing)); the console's TSL
-reader draws the same edges for a file being edited, and the browser's `RemoteLink` splits its
-pairs alike, both through `splitPair()`, held to the PHP split by
-`tests/fixtures/pair-split.json`. The browser's `RemoteLink` follows the rule with a Tee in
-place of a reader: a stamp's Tee `<link>:<stamp>` is built on the first record a pair claims,
-and its targets are the pairs'. `MAX_READERS` (256) caps the stamps glob pairs may claim,
+reader draws the same edges for a file being edited, and the browser's `RemoteLink` takes the
+same `{ stamp, target }` sources. The browser's `RemoteLink` follows the rule with a Tee in
+place of a reader: a stamp's Tee `<link>:<stamp>` is built on the first record a source claims,
+and its targets are the sources'. `MAX_READERS` (256) caps the stamps glob sources may claim,
 counting the readers built in this process and the reader dirs earlier processes left under the
 offsetlog root, so a spoke inventing stamps cannot grow the graph or the disk without bound. An
-exact pair is bounded by configuration and never counts.
+exact source is bounded by configuration and never counts.
 
 **Alternatives considered:** Flattening each reader statically, as `Vault_Group` does —
 rejected: the stamps are runtime data, so the flatten would have to guess which a glob matches,
@@ -2170,7 +2178,7 @@ broker, which rebuilds its readers from the stream, and the broker's "…" lists
 once it exists. A reader's configuration therefore goes through the broker's own
 verbs — `assume_clean_shutdown` reaches every reader present or built later — and a verb sent
 straight to one reader's `:config` is live-only, as a `Vault_Group` child's is. The analyzer reads a broker's roots and
-pairs, never its readers, so an analysis question about one reader — its exact cursor dir, its
+its `add_source` lines, never its readers, so an analysis question about one reader — its exact cursor dir, its
 lag — is answered at runtime: by the probe log, where each reader reports under
 `Remote_Broker_Node::reader_id()`.
 
@@ -2178,29 +2186,40 @@ lag — is answered at runtime: by the probe log, where each reader reports unde
 reader to its own target, or a verb on one reader that must survive a restart — at which point
 the reader becomes a declared node and the glob a configuration-time expansion.
 
-**Amendment: a reader of a source naming no partition runs once per fleet.** A pair whose
-source is written with no partition token builds its reader on one worker only, and a pair
+**Amendment: a reader of a source naming no partition runs once per fleet.** A source
+written with no partition token builds its reader on one worker only, and a source
 written `{partition}` builds one in every worker. [ADR-33](#adr-33-a-line-naming-no-partition-runs-once-per-fleet)
 states the rule for every node that reads a source, the broker included.
 
 **Amendment: a broker that fetches lists its stamps.** [`HTTP_Source_Node`](../includes/class-http-source-node.php)
-reads no stream, so no line or handshake names a stamp to it. It builds each exact pair's reader on
-its first tick, as `Remote_Source_Node` does, and a glob pair's from the spoke's `raw-logs list_logs` catalog, polled
-every `HTTP_Source_Node::EOF_POLL_SECONDS`: a broker builds a reader on first sight of a stamp a
-pair claims, whether its remote sends the stamp or lists it. `consumer_for()` stays the one
+reads no stream, so no line or handshake names a stamp to it. It builds each exact source's reader on
+its first tick, as `Remote_Source_Node` does, and a glob source's from the spoke's `raw-logs list_logs` catalog, polled
+every `retry_ms` (default `http_retry_ms`, 5000): a broker builds a reader on first sight of a stamp a
+source claims, whether its remote sends the stamp or lists it. `consumer_for()` stays the one
 builder and `MAX_READERS` caps both. The base both brokers share is `Remote_Broker_Node`, so the
 analyzer, `Aggregator_CI` and the console recognize a broker by that class, or by its schema's
-variadic `pairs`, never by a name.
+`add_source` verb, never by a name.
 
+**Amendment: a broker's sources come by `add_source`.** A broker takes `<vault_id>
+<offsetlog_root> <deadletter_root>` (`HTTP_Source` adds an optional `retry_ms`), and
+`make_node` refuses a surplus token, so a line still carrying a `<source>=<target>` pair reads
+as unreadable to the analyzer too. Each source is a verb on the broker's `:config`,
+`add_source <remote_log> <local_node>`: a stamp, a glob or `sources:<name>`, with `{partition}`
+resolved at the worker as [ADR-33](#adr-33-a-line-naming-no-partition-runs-once-per-fleet)
+resolves it, then the node its lines go to. A source goes to one target: a second target for
+a declared source is refused ("already goes to"), and a repeat of the same pair is a no-op.
+`remove_source <remote_log> <local_node>` is the inverse: it stops routing the source and
+retracts every reader no other source claims, leaving the reader's offsetlog and dead letters
+on disk. `Vault_Group_Node` forwards either verb to every member and records it
+([ADR-21](#adr-21-a-node-may-derive-its-children-from-the-vault-and-static-analysis-reads-it)),
+so one group line reaches every spoke, and a broker's `dump_config()` emits one `add_source`
+line per source after its `make_node`. The analyzer and the console read those lines, in the
+order sent, through `Node::command_targets()`
+([ADR-19](#adr-19-a-node-may-declare-a-destination-it-writes-without-routing)); the browser's
+`RemoteLink` takes its sources through `addSource()` and `removeSource()` and answers the same
+two verbs on its own `:config`. The `<source>=<target>` grammar, `split_pair()`, `splitPair()`
+and `pair-split.json` are gone.
 
-**Amendment: a pair is `<source>=<target>`.** A pair cut at its first `:` outside `<…>`, which
-held while no source carried a `:`. A stamp now joins its parts with `:` (ADR-29), so a pair
-cuts at its first `=` instead: `firehose.p0=remote-job-rewrite`,
-`sources:php=php-errors:partition`, `offsets:hub.tw0:firehose.p0=cursor-sink`. Neither a stamp
-nor a `<ns:key>` token holds a `=`, the Shell tokenizer gives `=` no meaning outside a `var`
-statement, and `Command_Args` binds `--name=value` only in a token opening with `--`, so the cut
-needs no bracket depth. `Remote_Broker_Node::split_pair()` and the browser's `splitPair()` are
-the one split, held by `pair-split.json`, and a broker reader's stamp is a source like any other.
 ---
 
 ## ADR-32: A transport answers what it could not deliver
@@ -2255,9 +2274,9 @@ none of today. The blast radius, sender by sender, with what each does with one 
   `HTTP_Source_Node`; `raw-logs read_block`). The reader's `fill()` settles a fetch on the
   raw block whose header echoes the position the fetch in flight asked; a command reply to
   `read_block` echoing its arguments, which only a refusal sends, is said rate-limited,
-  published as the broker's `last_error`, and waited out for `EOF_POLL_SECONDS` before the
+  published as the broker's `last_error`, and waited out for the broker's `retry_ms` before the
   broker's tick asks again. Today the fetch's own clock re-sends it after
-  `REQUEST_TIMEOUT`; a bounce would wait an EOF poll instead, so the reader would need to read
+  `REQUEST_TIMEOUT`; a bounce would wait a retry interval instead, so the reader would need to read
   `undelivered` as a fetch to send again at once rather than a refusal.
 - **`HTTP_Source_Node::ask_catalog()`** (FROM the broker; `raw-logs list_logs`), a third clock:
   the broker re-asks once `REQUEST_TIMEOUT` has passed since it asked. It needs no change under
@@ -2301,7 +2320,7 @@ file, a spoke's `firehose.p0` — therefore read it once per worker: every line 
 and N workers committing one offsetlog. A line meant to read one source per worker names its
 partition, but the Shell resolves `<partition>` before `make_node` runs, so the node sees
 `app.2.log` and cannot tell a per-worker file from a fixed one. Two nodes decided ownership
-two ways: [`Remote_Source_Node`](../includes/class-remote-source-node.php) kept a pair written
+two ways: [`Remote_Source_Node`](../includes/class-remote-source-node.php) kept a source written
 `{partition}` everywhere and a fixed one on partition 0, while
 [`File_Tail_Node`](../includes/class-file-tail-node.php) idled off partition 0 whatever its
 file, so `File_Tail t /var/log/app.{partition}.log` could not be written. And the two
@@ -2318,8 +2337,8 @@ wakes only the worker that reads a fixed source. Every durable reader asks it:
 [`Durable_Reader`](../includes/trait-durable-reader.php) judges the argument its class names
 through `source_argument()` — a `Consumer`'s `source_dir`, a `Tail`'s and `File_Tail`'s
 `source_file` — as written, in `idle_unless_owned()`, which each reader's `arguments()` calls
-before it builds anything. `Remote_Source_Node::owned_pairs()` asks it per pair and builds a
-reader only for a pair it owns, so that log stays out of `stream_request()`; a
+before it builds anything. `add_source` judges each source by the same rule, through `Core::owns()`, and
+builds a reader only for a source it owns, so that log stays out of `stream_request()`; a
 `Remote_Consumer_Node` names no source argument, because its broker already judged it, and
 never idles.
 
@@ -2332,7 +2351,7 @@ one resolver: it resolves a `bound` argument's `{partition}` at the bound partit
 `{topology}` at the bound fleet, and leaves an `each` argument to the node. Where neither is
 bound, outside a worker, a path naming either is refused rather than resolved at partition 0,
 which would name worker p0's own file; ownership keeps its rule that an unbound process owns a
-fixed source, and a `Remote_Source` pair naming `{partition}` is refused there as well. `{partition}` in an unmarked argument is refused by
+fixed source, and a `Remote_Source` source naming `{partition}` is refused there as well, by `add_source`. `{partition}` in an unmarked argument is refused by
 `Schema_Reflection::refuse_unmarked_partition()`, a static the analyzer calls too, so a line
 the load would refuse fails `wp nodes activate` and `topologies save` first. The
 node keeps the tokens as written in `$this->arguments`, so `written_argument()` answers what
