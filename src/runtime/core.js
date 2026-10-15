@@ -139,6 +139,13 @@ class CoreImpl {
 		this.recentLog = []; // bounded stderr tail for the dmesg verb
 		this._inStderr = false; // re-entry guard for the stderr reply-sink emit
 		this.initTime = this.now(); // uptime baseline (PHP Core::$init_time)
+		/**
+		 * `window.location.reload()` seam; tests assign a spy, null reloads.
+		 * Signature: `() => void`
+		 *
+		 * @type {?(() => void)}
+		 */
+		this.reload = null;
 		// Every live mount, in mount order; see mountExospine.
 		this.backboneMounts = [];
 		// Full-graph rebuild signal: bumping re-runs every graph effect.
@@ -484,6 +491,21 @@ class CoreImpl {
 const GLOBAL_KEY = '__newspackNodesCore';
 if ( ! window[ GLOBAL_KEY ] ) {
 	window[ GLOBAL_KEY ] = new CoreImpl();
+}
+
+/** Window property holding the one `pageshow` listener, apart from Core. */
+const PAGESHOW_KEY = '__newspackNodesPageshow';
+if ( ! window[ PAGESHOW_KEY ] ) {
+	// A restored page can resume with React's scheduler stalled: start afresh.
+	window[ PAGESHOW_KEY ] = ( event ) => {
+		if ( event.persisted ) {
+			const reload =
+				window[ GLOBAL_KEY ].reload ??
+				( () => window.location.reload() );
+			reload();
+		}
+	};
+	window.addEventListener( 'pageshow', window[ PAGESHOW_KEY ] );
 }
 
 /**

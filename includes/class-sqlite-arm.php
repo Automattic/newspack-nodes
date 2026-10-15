@@ -20,6 +20,14 @@
  * rewrite is an UPSERT, updating the row it finds in place. Every fixed
  * statement is prepared once per connection.
  *
+ * A `Row_Schema` declares row tables beside `kv`: the writer creates them
+ * with their keys, indexes and FTS5 shadows, stamps the file's
+ * `user_version`, and discards a file stamped with another version that
+ * holds any of them. `write_rows()` writes a batch of ops in one
+ * transaction, `purge()` reclaims rows past their window and rows nothing
+ * names, and `open_rows()` attaches every partition's file read-only into one
+ * reader connection.
+ *
  * @package Newspack_Nodes
  */
 
@@ -28,7 +36,21 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * One SQLite file: a `kv` table, and a `members` table of set members.
+ * One SQLite file: a `kv` table, a `members` table of set members, and the
+ * row tables a `Row_Schema` declares.
+ *
+ * @phpstan-type Row_Spec array{
+ *   columns: array<string,string>,
+ *   key?: list<string>,
+ *   add?: array<string,'sum'|'max'>,
+ *   indexes?: array<string,list<string>>,
+ *   retain?: array{0:string,1:int,2:int},
+ *   retained_by?: array{0:string,1:string,2:string},
+ *   autoincrement?: string,
+ *   fts?: list<string>
+ * }
+ * @phpstan-type Rows array{version:int, tables:array<string,Row_Spec>}
+ * @phpstan-type Row_Op array{0:string, 1:string, 2:list<scalar|null>, 3?:list<mixed>, 4?:array<int,int>}
  */
 final class Sqlite_Arm extends Durable_Arm {
 
@@ -59,6 +81,13 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * burst gives back everything above it.
 	 */
 	public const WAL_LIMIT_BYTES = 67108864;
+
+	/**
+	 * Page cache per attached file in an `open_rows()` reader, in KiB: 8 MiB,
+	 * so a reader attaching all `Spawn_Coordinator::MAX_PARTITIONS` files
+	 * stays inside the 64 MiB one Table connection may take.
+	 */
+	private const ROWS_CACHE_KIB = 8192;
 
 	/** The page-cache pragma; a negative size counts KiB rather than pages. */
 	private const CACHE_PRAGMA = 'PRAGMA cache_size = -' . self::CACHE_KIB;
@@ -125,6 +154,21 @@ final class Sqlite_Arm extends Durable_Arm {
 	private array $statements = [];
 
 	/**
+	 * Each row op's SQL, built once from the declared shape.
+	 *
+	 * @var array<string,string> "{op} {table}" => SQL.
+	 */
+	private array $row_sql = [];
+
+	/**
+	 * Each autoincrement table's key columns, as positions in its rows, in
+	 * key order, the order the `id` statement binds them.
+	 *
+	 * @var array<string,list<int>> Table => positions.
+	 */
+	private array $key_positions = [];
+
+	/**
 	 * Open the file as its writer: create it and its directory, enter WAL
 	 * mode and declare the `kv` table. A reader, `$read_only`, creates no
 	 * file, directory or table and switches no journal mode. With no file at
@@ -135,10 +179,14 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * table, fails each read instead. SQLite may add the `-wal` and `-shm`
 	 * files a WAL reader needs beside a file whose writer is not running.
 	 *
-	 * @param string $path            Database file.
-	 * @param string $namespace       The Table's namespace, which prefixes its keys.
-	 * @param int    $busy_timeout_ms Wait on a held write lock, in milliseconds.
-	 * @param bool   $read_only       Open as a reader rather than the writer.
+	 * `$rows` declares row tables beside `kv`, as a `Row_Schema`'s version
+	 * and tables, already validated by the node that owns the file.
+	 *
+	 * @param string    $path            Database file.
+	 * @param string    $namespace       The Table's namespace, which prefixes its keys.
+	 * @param int       $busy_timeout_ms Wait on a held write lock, in milliseconds.
+	 * @param bool      $read_only       Open as a reader rather than the writer.
+	 * @param Rows|null $rows            The declared row tables, or none.
 	 * @throws \LogicException Without pdo_sqlite.
 	 * @throws \RuntimeException When the directory or a path SQLite cannot open.
 	 */
@@ -146,7 +194,8 @@ final class Sqlite_Arm extends Durable_Arm {
 		private readonly string $path,
 		private readonly string $namespace,
 		private readonly int $busy_timeout_ms = self::BUSY_TIMEOUT_MS,
-		private readonly bool $read_only = false
+		private readonly bool $read_only = false,
+		private readonly ?array $rows = null
 	) {
 		if ( ! ( self::$available ?? static fn (): bool => \extension_loaded( 'pdo_sqlite' ) )() ) {
 			throw new \LogicException( 'sqlite backend needs the pdo_sqlite extension' );
@@ -198,11 +247,6 @@ final class Sqlite_Arm extends Durable_Arm {
 		return [ \max( 0, Core::as_int( $row[1] ?? 0 ) ), \max( 0, Core::as_int( $row[2] ?? 0 ) ) ];
 	}
 
-	/** See Cache_Backend::last_failure(). */
-	public function last_failure(): string {
-		return "sqlite {$this->path}: {$this->failure}";
-	}
-
 	/**
 	 * What one SQLite database takes in all: the byte length and the allocated
 	 * disk, each summed over the files `file_sizes()` names.
@@ -214,19 +258,246 @@ final class Sqlite_Arm extends Durable_Arm {
 		return self::totals( self::file_sizes( $path ) );
 	}
 
-	/** See Durable_Arm::row_key(): `{namespace}:{key}`. */
-	public function row_key( string $key ): string {
-		return "{$this->namespace}:{$key}";
+	/**
+	 * Write one batch of row ops in one `BEGIN IMMEDIATE` transaction. An op
+	 * is `[ verb, table, row, then?, ids? ]`, its row positional in the
+	 * table's declared column order. `insert` writes the row; `ignore` writes
+	 * it unless its key exists, and on a table with an `autoincrement` column
+	 * resolves the row's id, inserted or found; `add` writes it or folds its
+	 * `add` columns onto the row its key names. `then` ops run only when their
+	 * op wrote its row, so a replayed batch adds nothing twice. `ids` fills a
+	 * row position with the id an earlier `ignore` in the batch resolved,
+	 * named by its batch index, so one batch can name a row it creates.
+	 *
+	 * @param list<Row_Op> $batch The ops.
+	 * @return array{written:int, ids:array<int,int>} Rows written or folded,
+	 *                                                and each top-level
+	 *                                                `ignore`'s id by index.
+	 * @throws \RuntimeException Naming the table and SQLite's message; the
+	 *                           whole batch is rolled back.
+	 * @api The row tables' one write path.
+	 */
+	public function write_rows( array $batch ): array {
+		$table = '';
+		try {
+			return $this->write_scope(
+				function () use ( $batch, &$table ): array {
+					$out = [
+						'written' => 0,
+						'ids'     => [],
+					];
+					foreach ( $batch as $index => $op ) {
+						[ $written, $id ] = $this->write_op( $op, $out['ids'], $table );
+						$out['written']  += $written;
+						if ( null !== $id ) {
+							$out['ids'][ $index ] = $id;
+						}
+					}
+					return $out;
+				}
+			);
+		} catch ( \PDOException $e ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the node wrapping it escapes the message once.
+			throw new \RuntimeException( ( '' === $table ? $this->path : $table ) . ': ' . $e->getMessage(), 0, $e );
+		}
 	}
 
-	/** See Cache_Backend::backend_name(). */
-	public function backend_name(): string {
-		return 'sqlite';
+	/**
+	 * Write one op and, when it wrote its row, its `then` ops.
+	 *
+	 * @param array<array-key,mixed> $op    The op.
+	 * @param array<int,int>         $ids   Ids the batch's ignores resolved, by index.
+	 * @param string                 $table Set to the table being written.
+	 * @return array{0:int, 1:int|null} Rows written, and an `ignore`'s id.
+	 * @throws \RuntimeException On an undeclared table or an id no op resolved.
+	 */
+	private function write_op( array $op, array $ids, string &$table ): array {
+		$verb  = Core::as_string( $op[0] ?? null );
+		$table = Core::as_string( $op[1] ?? null );
+		$row   = Core::arr( $op[2] ?? null );
+		$spec  = $this->rows['tables'][ $table ] ?? throw new \RuntimeException( "{$table}: no such row table" );
+		foreach ( Core::arr( $op[4] ?? null ) as $position => $from ) {
+			$from = Core::as_int( $from );
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the node wrapping it escapes the message once.
+			$row[ $position ] = $ids[ $from ] ?? throw new \RuntimeException( "{$table}: batch op {$from} resolved no id" );
+		}
+		$stmt = $this->statement( $this->row_sql( $verb, $table, $spec ) );
+		$stmt->execute( \array_values( $row ) );
+		$written = $stmt->rowCount();
+		$id      = 'ignore' === $verb && isset( $spec['autoincrement'] ) ? $this->resolved_id( $table, $spec, $row, $written ) : null;
+		if ( 1 === $written ) {
+			foreach ( Core::arr( $op[3] ?? null ) as $then ) {
+				$written += $this->write_op( Core::arr( $then ), $ids, $table )[0];
+			}
+		}
+		return [ $written, $id ];
 	}
 
-	/** See Cache_Backend::batch_is_atomic(); every write runs in one transaction. */
-	public function batch_is_atomic(): bool {
-		return true;
+	/**
+	 * The `autoincrement` id of the row an `ignore` inserted, or of the row
+	 * whose key it found.
+	 *
+	 * @param string             $table   The table.
+	 * @param Row_Spec           $spec    Its declaration.
+	 * @param array<array-key,mixed> $row The row the ignore wrote.
+	 * @param int                $written Rows the ignore inserted.
+	 * @return int The id.
+	 * @throws \RuntimeException When no row holds the key.
+	 */
+	private function resolved_id( string $table, array $spec, array $row, int $written ): int {
+		if ( 1 === $written ) {
+			return Core::as_int( $this->handle()->lastInsertId() );
+		}
+		if ( ! isset( $this->key_positions[ $table ] ) ) {
+			$positions                     = \array_flip( \array_keys( $spec['columns'] ) );
+			$this->key_positions[ $table ] = \array_map( static fn ( string $column ): int => $positions[ $column ], $spec['key'] ?? [] );
+		}
+		$stmt = $this->statement( $this->row_sql( 'id', $table, $spec ) );
+		$stmt->execute( \array_map( static fn ( int $at ): mixed => $row[ $at ] ?? null, $this->key_positions[ $table ] ) );
+		$found = $stmt->fetchAll( \PDO::FETCH_COLUMN );
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the node wrapping it escapes the message once.
+		return Core::as_int( $found[0] ?? throw new \RuntimeException( "{$table}: an ignored row holds no id" ) );
+	}
+
+	/**
+	 * One statement's SQL for a declared table, built once: `insert`,
+	 * `ignore` and `add` write a row, and `id` reads an existing row's
+	 * `autoincrement` id by its key.
+	 *
+	 * @param string   $op    The statement.
+	 * @param string   $table The table.
+	 * @param Row_Spec $spec  Its declaration.
+	 * @return string The SQL.
+	 * @throws \RuntimeException On an op no statement answers.
+	 */
+	private function row_sql( string $op, string $table, array $spec ): string {
+		if ( isset( $this->row_sql[ "{$op} {$table}" ] ) ) {
+			return $this->row_sql[ "{$op} {$table}" ];
+		}
+		$t       = self::quote( $table );
+		$columns = \array_keys( $spec['columns'] );
+		$key     = self::quoted_list( $spec['key'] ?? [] );
+		$insert  = "INSERT INTO {$t} ( " . self::quoted_list( $columns ) . ' ) VALUES ( ' . \implode( ', ', \array_fill( 0, \count( $columns ), '?' ) ) . ' )';
+		$fold    = static fn ( string $column, string $how ): string => self::quote( $column ) . ' = ' . ( 'max' === $how
+			? 'MAX( ' . self::quote( $column ) . ', excluded.' . self::quote( $column ) . ' )'
+			: self::quote( $column ) . ' + excluded.' . self::quote( $column ) );
+		return $this->row_sql[ "{$op} {$table}" ] = match ( $op ) {
+			'insert'      => $insert,
+			'ignore'      => "{$insert} ON CONFLICT ( {$key} ) DO NOTHING",
+			'add'         => "{$insert} ON CONFLICT ( {$key} ) DO UPDATE SET " . \implode( ', ', \array_map( $fold, \array_keys( $spec['add'] ?? [] ), $spec['add'] ?? [] ) ),
+			'id'          => 'SELECT ' . self::quote( $spec['autoincrement'] ?? '' ) . " FROM {$t} WHERE " . \implode( ' AND ', \array_map( static fn ( string $c ): string => self::quote( $c ) . ' = ?', $spec['key'] ?? [] ) ),
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the node wrapping it escapes the message once.
+			default       => throw new \RuntimeException( "{$table}: no such row op {$op}" ),
+		};
+	}
+
+	/**
+	 * See Durable_Arm::purge(); with what the limit leaves, each row table's
+	 * rows past their `retain` window, each table in its own transaction with
+	 * the names its purge releases. A table whose purge fails is rolled back
+	 * and logged, and the rows earlier tables gave up still count.
+	 *
+	 * @param int $now   Epoch second.
+	 * @param int $limit Most rows to delete, every table together.
+	 * @return int Rows deleted.
+	 */
+	public function purge( int $now, int $limit ): int {
+		$purged = parent::purge( $now, $limit );
+		$tables = null === $this->rows ? [] : $this->rows['tables'];
+		foreach ( $tables as $table => $spec ) {
+			if ( $purged >= $limit || ! isset( $spec['retain'] ) ) {
+				continue;
+			}
+			try {
+				$purged += $this->write_scope( fn (): int => $this->purge_retained( $tables, $table, $spec['retain'], $now, $limit - $purged ) );
+			} catch ( \PDOException $e ) {
+				$this->failure = $e->getMessage();
+				Core::print_less_often( 'Table purge failed: ', $this->last_failure() );
+				return $purged;
+			}
+		}
+		return $purged;
+	}
+
+	/** See Cache_Backend::last_failure(). */
+	public function last_failure(): string {
+		return "sqlite {$this->path}: {$this->failure}";
+	}
+
+	/**
+	 * Delete one table's rows past its `retain` window, then release the
+	 * names they named: each `retained_by` table's rows whose column holds a
+	 * value the deleted rows returned and that no remaining row names. Only
+	 * released names are examined, so the work is bounded by what retention
+	 * deletes, never by the size of a names table. A table with N names
+	 * tables naming it deletes up to `$budget / ( N + 1 )` rows, so the names
+	 * those release fit in the budget too.
+	 *
+	 * @param array<string,Row_Spec>    $tables The declared tables.
+	 * @param string                    $table  The table purged.
+	 * @param array{0:string,1:int,2:int} $retain Its `retain`.
+	 * @param int                       $now    Epoch second.
+	 * @param int                       $budget Most rows, names included.
+	 * @return int Rows deleted.
+	 */
+	private function purge_retained( array $tables, string $table, array $retain, int $now, int $budget ): int {
+		$named_by = [];
+		foreach ( $tables as $names => $names_spec ) {
+			if ( isset( $names_spec['retained_by'] ) && $table === $names_spec['retained_by'][0] ) {
+				$named_by[ $names ] = $names_spec['retained_by'];
+			}
+		}
+		$take = \intdiv( $budget, 1 + \count( $named_by ) );
+		if ( 0 === $take ) {
+			return 0;
+		}
+		[ $column, $window, $unit ] = $retain;
+		$returning                  = \array_values( \array_unique( \array_column( $named_by, 1 ) ) );
+		$stmt                       = $this->statement( $this->retain_sql( $table, $column, $returning ) );
+		$stmt->bindValue( 1, \intdiv( $now, $unit ) - $window, \PDO::PARAM_INT );
+		$stmt->bindValue( 2, $take, \PDO::PARAM_INT );
+		$stmt->execute();
+		$gone    = $stmt->fetchAll( \PDO::FETCH_ASSOC );
+		// pdo_sqlite counts no changes for a statement with RETURNING.
+		$deleted = [] === $returning ? $stmt->rowCount() : \count( $gone );
+		foreach ( $named_by as $names => $retained_by ) {
+			$ids = \array_values( \array_filter( \array_column( $gone, $retained_by[1] ), static fn ( mixed $id ): bool => null !== $id ) );
+			if ( [] !== $ids ) {
+				$deleted += $this->run( $this->release_sql( $names, $retained_by ), [ (string) \wp_json_encode( $ids ) ] );
+			}
+		}
+		return $deleted;
+	}
+
+	/**
+	 * A names table's release: delete its rows holding one of a JSON array
+	 * of released values that no row of the referencing table still names.
+	 *
+	 * @param string                          $names       The names table.
+	 * @param array{0:string,1:string,2:string} $retained_by Its `retained_by`.
+	 * @return string The SQL.
+	 */
+	private function release_sql( string $names, array $retained_by ): string {
+		[ $ref, $ref_column, $own_column ] = $retained_by;
+		$n                                 = self::quote( $names );
+		$own                               = self::quote( $own_column );
+		return $this->row_sql[ "release {$names}" ] ??= "DELETE FROM {$n} WHERE {$own} IN ( SELECT value FROM json_each( ? ) )"
+			. ' AND NOT EXISTS ( SELECT 1 FROM ' . self::quote( $ref ) . ' AS ref WHERE ref.' . self::quote( $ref_column ) . " = {$n}.{$own} )";
+	}
+
+	/**
+	 * A table's retention DELETE, returning the columns its names tables
+	 * reference; binds the floor, then the most rows.
+	 *
+	 * @param string       $table     The table.
+	 * @param string       $column    Its `retain` column.
+	 * @param list<string> $returning Columns names tables reference.
+	 * @return string The SQL.
+	 */
+	private function retain_sql( string $table, string $column, array $returning ): string {
+		$t = self::quote( $table );
+		return $this->row_sql[ "retain {$table}" ] ??= "DELETE FROM {$t} WHERE rowid IN ( SELECT rowid FROM {$t} WHERE " . self::quote( $column ) . ' < ? LIMIT ? )'
+			. ( [] === $returning ? '' : ' RETURNING ' . self::quoted_list( $returning ) );
 	}
 
 	/**
@@ -257,6 +528,101 @@ final class Sqlite_Arm extends Durable_Arm {
 			// SQLite rolled back on its own error; nothing is left to end.
 			return;
 		}
+	}
+
+	/**
+	 * Open a reader across row-table files: a `:memory:` main with each
+	 * present file at `$version` attached read-only as `p{partition}`, each
+	 * with an 8 MiB page cache, and the connection set `query_only`. A file
+	 * absent, or at another version, is not attached, so a query names only
+	 * the schemas `PRAGMA database_list` reports.
+	 *
+	 * @param array<array-key,string> $files   Partition => file.
+	 * @param int                     $version The schema version a file must carry.
+	 * @return \PDO The connection.
+	 * @throws \RuntimeException On more files than a fleet has partitions, a
+	 *                           partition that is no integer, or a reader
+	 *                           running as root.
+	 * @throws \PDOException When a present file will not attach.
+	 * @api The row tables' one read path.
+	 */
+	public static function open_rows( array $files, int $version ): \PDO {
+		if ( \count( $files ) > Spawn_Coordinator::MAX_PARTITIONS ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- two numbers.
+			throw new \RuntimeException( \count( $files ) . ' partition files, more than the ' . Spawn_Coordinator::MAX_PARTITIONS . ' partitions a fleet runs' );
+		}
+		foreach ( \array_keys( $files ) as $partition ) {
+			if ( ! \is_int( $partition ) ) {
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the node wrapping it escapes the message once.
+				throw new \RuntimeException( "partition {$partition} is no integer" );
+			}
+		}
+		self::refuse_root_reader( \implode( ', ', $files ) );
+		$db = new \PDO( 'sqlite::memory:', null, null, [ \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION ] );
+		$db->exec( 'PRAGMA busy_timeout = ' . self::BUSY_TIMEOUT_MS );
+		foreach ( $files as $partition => $path ) {
+			\clearstatcache( true, $path );
+			if ( \file_exists( $path ) ) {
+				self::attach_read_only( $db, $path, "p{$partition}", $version );
+			}
+		}
+		$db->exec( 'PRAGMA query_only = ON' );
+		return $db;
+	}
+
+	/**
+	 * Attach the file at `$path` to `$db` as `$schema`, read-only: a `file:`
+	 * URI with `mode=ro`, which every connection PDO opens reads as a URI. It
+	 * creates nothing. A file at another `user_version` is detached again.
+	 * Under `open_basedir` PDO reads no URI and denies the attach.
+	 *
+	 * @param \PDO   $db      The connection.
+	 * @param string $path    The database file.
+	 * @param string $schema  The name the connection reads it under.
+	 * @param int    $version The schema version it must carry.
+	 * @throws \PDOException When the file will not attach.
+	 */
+	private static function attach_read_only( \PDO $db, string $path, string $schema, int $version ): void {
+		$attach = $db->prepare( "ATTACH DATABASE ? AS {$schema}" );
+		$attach->execute( [ 'file:' . \strtr( $path, [ '%' => '%25', '?' => '%3f', '#' => '%23' ] ) . '?mode=ro' ] );
+		$read = $db->prepare( "PRAGMA {$schema}.user_version" );
+		$read->execute();
+		if ( $version !== Core::as_int( $read->fetchAll( \PDO::FETCH_COLUMN )[0] ?? null ) ) {
+			$db->exec( "DETACH DATABASE {$schema}" );
+			return;
+		}
+		$db->exec( "PRAGMA {$schema}.cache_size = -" . self::ROWS_CACHE_KIB );
+	}
+
+	/**
+	 * Refuse a reader running as root: SQLite can add `-wal` and `-shm` files
+	 * beside a WAL database, and root's would lock the file's writer out.
+	 * Running as root is the operator's to fix, never a backend to degrade
+	 * past, so the refusal is a plain \RuntimeException.
+	 *
+	 * @param string $path The files the reader would open.
+	 * @throws \RuntimeException In a process running as root.
+	 */
+	private static function refuse_root_reader( string $path ): void {
+		if ( 0 === CLI::uid() ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the node wrapping it escapes the message once.
+			throw new \RuntimeException( "a sqlite mount refuses to run as root: a root reader leaves -wal and -shm files beside {$path} that its worker cannot open" );
+		}
+	}
+
+	/** See Durable_Arm::row_key(): `{namespace}:{key}`. */
+	public function row_key( string $key ): string {
+		return "{$this->namespace}:{$key}";
+	}
+
+	/** See Cache_Backend::backend_name(). */
+	public function backend_name(): string {
+		return 'sqlite';
+	}
+
+	/** See Cache_Backend::batch_is_atomic(); every write runs in one transaction. */
+	public function batch_is_atomic(): bool {
+		return true;
 	}
 
 	/** See Durable_Arm::select_rows(). */
@@ -333,7 +699,7 @@ final class Sqlite_Arm extends Durable_Arm {
 
 	/** See Durable_Arm::purge_rows(). */
 	protected function purge_rows( int $now, int $limit ): int {
-		return $this->delete_expired( self::KV_PURGE, $now, $limit );
+		return $this->delete_rows( self::KV_PURGE, $now, $limit );
 	}
 
 	/**
@@ -354,11 +720,7 @@ final class Sqlite_Arm extends Durable_Arm {
 		}
 		$sizes = self::file_sizes( $this->path );
 		try {
-			foreach ( \array_keys( $sizes ) as $file ) {
-				if ( ! @\unlink( $file ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
-					throw new \UnexpectedValueException( "could not unlink {$file}" );
-				}
-			}
+			self::unlink_files( $sizes );
 		} finally {
 			// Reopen even on a refusal: never write into an unlinked inode.
 			$this->statements  = [];
@@ -382,41 +744,24 @@ final class Sqlite_Arm extends Durable_Arm {
 		];
 	}
 
-	/**
-	 * The files one SQLite database is made of — the database, its `-wal` and
-	 * its `-shm` — each on disk now, with its `Core::file_footprint()`.
-	 *
-	 * @param string $path The database file.
-	 * @return array<string,array{bytes:int,disk:int,mtime:int}> File => sizes; a file not on disk is absent.
-	 */
-	public static function file_sizes( string $path ): array {
-		$sizes = [];
-		foreach ( [ $path, "{$path}-wal", "{$path}-shm" ] as $file ) {
-			$footprint = Core::file_footprint( $file );
-			if ( null !== $footprint ) {
-				$sizes[ $file ] = $footprint;
-			}
-		}
-		return $sizes;
-	}
-
 	/** See Durable_Arm::purge_member_rows(); the table has no rowid to name. */
 	protected function purge_member_rows( int $now, int $limit ): int {
-		return $this->delete_expired( self::MEMBERS_PURGE, $now, $limit );
+		return $this->delete_rows( self::MEMBERS_PURGE, $now, $limit );
 	}
 
 	/**
-	 * Delete up to `$limit` rows expired at `$now`, both bound as integers.
+	 * Run one purge statement, each value bound as an integer in order.
 	 *
-	 * @param string $sql   KV_PURGE or MEMBERS_PURGE.
-	 * @param int    $now   Epoch second.
-	 * @param int    $limit Most rows.
+	 * @param string $sql    A purge: KV_PURGE, MEMBERS_PURGE or a row table's.
+	 * @param int    ...$ints The bound values, the row limit last.
 	 * @return int Rows deleted.
 	 */
-	private function delete_expired( string $sql, int $now, int $limit ): int {
+	private function delete_rows( string $sql, int ...$ints ): int {
 		$stmt = $this->statement( $sql );
-		$stmt->bindValue( 1, $now, \PDO::PARAM_INT );
-		$stmt->bindValue( 2, $limit, \PDO::PARAM_INT );
+		$at = 1;
+		foreach ( $ints as $value ) {
+			$stmt->bindValue( $at++, $value, \PDO::PARAM_INT );
+		}
 		$stmt->execute();
 		return $stmt->rowCount();
 	}
@@ -530,16 +875,23 @@ final class Sqlite_Arm extends Durable_Arm {
 
 	/**
 	 * Open the connection: read-only, or as the writer in WAL mode with the
-	 * `kv` and `members` tables declared.
+	 * `kv` and `members` tables and any row tables declared. A writer whose
+	 * file is stamped with another row version unlinks it and opens anew.
 	 *
 	 * @return \PDO The connection.
 	 * @throws \PDOException When the file cannot open.
 	 * @throws \RuntimeException When the writer cannot enter WAL mode.
+	 * @throws \UnexpectedValueException When a stale file will not unlink.
 	 */
 	private function connect(): \PDO {
 		$flags = $this->read_only ? [ \PDO::SQLITE_ATTR_OPEN_FLAGS => \PDO::SQLITE_OPEN_READONLY ] : [];
 		$db    = new \PDO( 'sqlite:' . $this->path, null, null, [ \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION ] + $flags );
 		$db->exec( 'PRAGMA busy_timeout = ' . \max( 1, $this->busy_timeout_ms ) );
+		if ( ! $this->read_only && null !== $this->rows && self::stamped_otherwise( $db, $this->rows['version'] ) ) {
+			$db = null;
+			self::unlink_files( self::file_sizes( $this->path ) );
+			return $this->connect();
+		}
 		if ( $this->read_only ) {
 			try {
 				$db->exec( self::CACHE_PRAGMA );
@@ -564,6 +916,136 @@ final class Sqlite_Arm extends Durable_Arm {
 		$db->exec( 'CREATE TABLE IF NOT EXISTS members ( set_key TEXT NOT NULL, member TEXT NOT NULL, "value" BLOB NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY ( set_key, member ) ) WITHOUT ROWID' );
 		$db->exec( 'CREATE INDEX IF NOT EXISTS members_expires ON members ( expires )' );
 		$this->has_members = true;
+		if ( null !== $this->rows ) {
+			self::declare_rows( $db, $this->rows );
+		}
 		return $db;
+	}
+
+	/**
+	 * Declare each row table — its columns, key, indexes and FTS5 shadow with
+	 * the triggers keeping it in step — then stamp the file's version.
+	 *
+	 * @param \PDO $db   The writer's connection.
+	 * @param Rows $rows The declaration.
+	 */
+	private static function declare_rows( \PDO $db, array $rows ): void {
+		foreach ( $rows['tables'] as $table => $spec ) {
+			foreach ( self::table_ddl( $table, $spec ) as $sql ) {
+				$db->exec( $sql );
+			}
+		}
+		$db->exec( 'PRAGMA user_version = ' . $rows['version'] );
+	}
+
+	/**
+	 * One row table's DDL. An `autoincrement` column is its INTEGER PRIMARY
+	 * KEY and its key a UNIQUE constraint; without one the key is the
+	 * PRIMARY KEY. An FTS5 table `{table}_fts` over the `fts` columns reads
+	 * its content from the table by the `autoincrement` id, and triggers on
+	 * insert and delete keep its index in step; no op updates those columns.
+	 *
+	 * @param string   $table The table.
+	 * @param Row_Spec $spec  Its declaration.
+	 * @return list<string> The statements.
+	 * @throws \LogicException On an FTS shadow with no autoincrement column.
+	 */
+	private static function table_ddl( string $table, array $spec ): array {
+		$t    = self::quote( $table );
+		$auto = $spec['autoincrement'] ?? null;
+		$defs = [];
+		foreach ( $spec['columns'] as $column => $type ) {
+			$defs[] = self::quote( $column ) . ' ' . ( $column === $auto ? 'INTEGER PRIMARY KEY' : $type );
+		}
+		if ( [] !== ( $spec['key'] ?? [] ) ) {
+			$defs[] = ( null === $auto ? 'PRIMARY KEY' : 'UNIQUE' ) . ' ( ' . self::quoted_list( $spec['key'] ) . ' )';
+		}
+		$ddl = [ "CREATE TABLE IF NOT EXISTS {$t} ( " . \implode( ', ', $defs ) . ' )' ];
+		foreach ( $spec['indexes'] ?? [] as $index => $columns ) {
+			$ddl[] = 'CREATE INDEX IF NOT EXISTS ' . self::quote( $index ) . " ON {$t} ( " . self::quoted_list( $columns ) . ' )';
+		}
+		$fts = $spec['fts'] ?? [];
+		if ( [] === $fts ) {
+			return $ddl;
+		}
+		$id      = self::quote( $auto ?? throw new \LogicException( "{$table}: an fts shadow needs an autoincrement column" ) );
+		$shadow  = self::quote( "{$table}_fts" );
+		$columns = self::quoted_list( $fts );
+		$of      = static fn ( string $row ): string => \implode( ', ', \array_map( static fn ( string $c ): string => "{$row}." . self::quote( $c ), $fts ) );
+		$add     = "INSERT INTO {$shadow} ( rowid, {$columns} ) VALUES ( new.{$id}, {$of( 'new' )} );";
+		$drop    = "INSERT INTO {$shadow} ( {$shadow}, rowid, {$columns} ) VALUES ( 'delete', old.{$id}, {$of( 'old' )} );";
+		$trigger = static fn ( string $suffix, string $when, string $body ): string => 'CREATE TRIGGER IF NOT EXISTS ' . self::quote( "{$table}_fts_{$suffix}" ) . " {$when} ON {$t} BEGIN {$body} END";
+		$ddl[]   = "CREATE VIRTUAL TABLE IF NOT EXISTS {$shadow} USING fts5( {$columns}, content='" . \str_replace( "'", "''", $table ) . "', content_rowid='" . \str_replace( "'", "''", $auto ) . "' )";
+		$ddl[]   = $trigger( 'insert', 'AFTER INSERT', $add );
+		$ddl[]   = $trigger( 'delete', 'AFTER DELETE', $drop );
+		return $ddl;
+	}
+
+	/**
+	 * Names as a comma-separated list of quoted identifiers.
+	 *
+	 * @param list<string> $names The names.
+	 * @return string The list.
+	 */
+	private static function quoted_list( array $names ): string {
+		return \implode( ', ', \array_map( self::quote( ... ), $names ) );
+	}
+
+	/**
+	 * A name as a quoted SQL identifier.
+	 *
+	 * @param string $name The name.
+	 * @return string The identifier.
+	 */
+	private static function quote( string $name ): string {
+		return '"' . \str_replace( '"', '""', $name ) . '"';
+	}
+
+	/**
+	 * The files one SQLite database is made of — the database, its `-wal` and
+	 * its `-shm` — each on disk now, with its `Core::file_footprint()`.
+	 *
+	 * @param string $path The database file.
+	 * @return array<string,array{bytes:int,disk:int,mtime:int}> File => sizes; a file not on disk is absent.
+	 */
+	public static function file_sizes( string $path ): array {
+		$sizes = [];
+		foreach ( [ $path, "{$path}-wal", "{$path}-shm" ] as $file ) {
+			$footprint = Core::file_footprint( $file );
+			if ( null !== $footprint ) {
+				$sizes[ $file ] = $footprint;
+			}
+		}
+		return $sizes;
+	}
+
+	/**
+	 * Unlink the files a `file_sizes()` map names.
+	 *
+	 * @param array<string,array{bytes:int,disk:int,mtime:int}> $sizes File => sizes.
+	 * @throws \UnexpectedValueException On a file that will not unlink.
+	 */
+	private static function unlink_files( array $sizes ): void {
+		foreach ( \array_keys( $sizes ) as $file ) {
+			if ( ! @\unlink( $file ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
+				throw new \UnexpectedValueException( "could not unlink {$file}" );
+			}
+		}
+	}
+
+	/**
+	 * Whether the writer's file is stamped with a version other than
+	 * `$version`, so it must be discarded whatever tables it holds. An
+	 * unstamped file, 0, holds no row tables and is kept.
+	 *
+	 * @param \PDO $db      The writer's connection.
+	 * @param int  $version The declared version.
+	 * @return bool True when it must.
+	 */
+	private static function stamped_otherwise( \PDO $db, int $version ): bool {
+		$read = $db->prepare( 'PRAGMA user_version' );
+		$read->execute();
+		$at = Core::as_int( $read->fetchAll( \PDO::FETCH_COLUMN )[0] ?? null );
+		return 0 !== $at && $version !== $at;
 	}
 }

@@ -44,6 +44,72 @@ describe( 'cross-bundle singleton', () => {
 	} );
 } );
 
+describe( 'a page restored from the back/forward cache reloads', () => {
+	const pageshow = ( persisted ) =>
+		window.dispatchEvent(
+			new window.PageTransitionEvent( 'pageshow', { persisted } )
+		);
+
+	test( 'a persisted pageshow reloads the page', () => {
+		Core.reload = jest.fn();
+		pageshow( true );
+		expect( Core.reload ).toHaveBeenCalledTimes( 1 );
+	} );
+
+	test( 'a fresh pageshow leaves the page be', () => {
+		Core.reload = jest.fn();
+		pageshow( false );
+		expect( Core.reload ).not.toHaveBeenCalled();
+	} );
+
+	test( "a second bundle's import adds no second listener", () => {
+		jest.resetModules();
+		require( '../core' );
+		Core.reload = jest.fn();
+		pageshow( true );
+		expect( Core.reload ).toHaveBeenCalledTimes( 1 );
+	} );
+
+	test( 'a bundle finding a Core with no listener installs one', () => {
+		// An older bundle parked its own Core and never listened.
+		const older = {};
+		window.removeEventListener(
+			'pageshow',
+			window.__newspackNodesPageshow
+		);
+		delete window.__newspackNodesPageshow;
+		window.__newspackNodesCore = older;
+		try {
+			jest.resetModules();
+			require( '../core' );
+			older.reload = jest.fn();
+			pageshow( true );
+			expect( older.reload ).toHaveBeenCalledTimes( 1 );
+		} finally {
+			window.__newspackNodesCore = Core;
+			// Drop the registry whose modules bound the older Core.
+			jest.resetModules();
+		}
+	} );
+
+	test( 'with no seam set, a persisted pageshow navigates', () => {
+		const error = jest
+			.spyOn( console, 'error' )
+			.mockImplementation( () => {} );
+		try {
+			pageshow( true );
+			// jsdom refuses the navigation with a logged "Not implemented".
+			expect(
+				error.mock.calls.some( ( [ e ] ) =>
+					/navigation/.test( String( e ) )
+				)
+			).toBe( true );
+		} finally {
+			error.mockRestore();
+		}
+	} );
+} );
+
 test( 'stderr routes the formatted line to a registered _output sink', () => {
 	const spy = jest.spyOn( console, 'warn' ).mockImplementation( () => {} );
 	const captured = [];
