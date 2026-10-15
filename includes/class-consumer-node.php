@@ -591,10 +591,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 		}
 		$this->loaded_cache = null;
 		if ( ! $this->has_checkpoint() && ! $this->offset_set ) {
-			$default = $this->default_offset();
-			if ( null !== $default ) {
-				$this->next_offset( $default );
-			}
+			$this->next_offset( $this->default_offset() ?? self::SEEK_START );
 		}
 	}
 
@@ -648,8 +645,8 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 
 	/**
 	 * First-spawn seam: where the cursor starts when there is no durable checkpoint
-	 * and no explicit `next_offset()`. `null` leaves the constructed default of
-	 * 0:0, the start of the log, which is Consumer's behaviour; Tail returns
+	 * and no explicit `next_offset()`. `null` seeks the start of the log, the
+	 * oldest segment retention left, which is Consumer's behaviour; Tail returns
 	 * `'end'` so a fresh follower sees only what is appended after it starts.
 	 */
 	protected function default_offset(): ?string {
@@ -712,7 +709,8 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 
 			case self::SEEK_START:
 			default:
-				$this->cursor_segment = 0;
+				// The start is the oldest record retention left, not segment 0.
+				$this->cursor_segment = $segments[0]['id'] ?? 0;
 				$this->cursor_offset = 0;
 				break;
 		}

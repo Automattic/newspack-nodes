@@ -138,14 +138,13 @@ trait Curl_Transfer {
 	}
 
 	/**
-	 * Teardown: release every transfer still in flight. A transfer still
-	 * running is lost, so the count discarded goes out on one rate-limited line.
+	 * Teardown: release every transfer still in flight, silently. A teardown
+	 * is a planned exit, such as a worker ending its lifetime mid-crawl. The
+	 * crawler refetches what it left in flight on its next start; any other
+	 * owner loses those transfers, as ADR-3 accepts.
 	 */
 	protected function release_all(): void {
-		$discarded       = Event_Framework::instance()->release_curl( $this );
+		Event_Framework::instance()->release_curl( $this );
 		$this->in_flight = 0;
-		if ( $discarded > 0 ) {
-			$this->print_less_often( 'discarding ', (string) $discarded, ' transfers in flight' );
-		}
 	}
 }

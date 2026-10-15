@@ -163,7 +163,7 @@ class EventFrameworkTest extends TestCase {
 		$ef->release_curl( $owner );
 	}
 
-	public function test_release_curl_releases_one_owners_handles_and_counts_them(): void {
+	public function test_release_curl_releases_one_owners_handles_alone(): void {
 		$ef   = Event_Framework::instance();
 		$opts = [];
 		$this->capture_curl( $opts );
@@ -173,7 +173,8 @@ class EventFrameworkTest extends TestCase {
 		$ef->start_curl( $owner, [ \CURLOPT_URL => 'https://ef-66.example/2' ], 'ctx-67' );
 		$kept = $ef->start_curl( $other, [ \CURLOPT_URL => 'https://ef-68.example/' ], 'ctx-68' );
 
-		$this->assertSame( 2, $ef->release_curl( $owner ) );
+		$this->assertCount( 2, $ef->handles_of( $owner ) );
+		$ef->release_curl( $owner );
 
 		$this->assertSame( [], $ef->handles_of( $owner ) );
 		$this->assertSame( [ $kept ], $ef->handles_of( $other ) );

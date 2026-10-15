@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A seek to the start lands on the oldest segment retention left.** `Consumer_Node`'s `start` seek, and the start a reader with no checkpoint takes, set the cursor to segment 0, so once retention had deleted it every reader asked to replay from the start, such as the station overview on each reload, logged "served past deleted segments: rewound to N:0" and reported a reset. `start` now resolves to the oldest segment present, as `end` and `recent` read the live list; a checkpoint or an explicit position naming a deleted segment still rewinds and says so.
+
+### Removed
+
+- **The "discarding N transfers in flight" line at a curl node's teardown.** A teardown is a planned exit, such as a worker ending its lifetime mid-crawl. The crawler returns its `inflight` urls to `pending` on its next start, so it refetches what it dropped; a bare `Curl_Node` or `HTTP_Out_Node` loses its in-flight transfers, as ADR-3 already accepts, and durability belongs upstream of it. `Event_Framework::release_curl()` returns nothing.
+
 ## [2.111.1] - 2026-10-15
 
 ### Fixed
