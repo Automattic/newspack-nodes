@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.110.1] - 2026-10-15
+
 ### Fixed
 
 - **A hub reader of a quiet spoke stream knows its backlog from the connect.** A stream that starts caught up sends no raw block, so its `Remote_Consumer` had no `DISTANCE` until the spoke's log grew, and `wp nodes status` read its Behind as `unknown` for a quiet `sources:php` through each worker's whole life. The `connected` envelope now carries `DISTANCES <stamp>=<bytes>,…` beside `CURSORS`, the bytes each reader has yet to send, read through the new `Consumer_Node::bytes_behind()` before the cursors, so a cursor the read rewinds off a deleted segment is stated where its distance is measured from. `SSE_In_Node` adds each distance to its stamp's `CURSORS` entry as `distance`, and `Remote_Consumer_Node::adopt_stream_start()` anchors the backlog there, as a block's header does, on every connect. A start naming no segment anchors nothing. A raw block reports a rewind past deleted segments (`RESET 1`) that a lag read before it made, where the handshake's read used to swallow it.
