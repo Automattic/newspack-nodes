@@ -1009,8 +1009,9 @@ trait Durable_Reader {
 	/**
 	 * Names of nodes whose state rides in the offsetlog alongside the cursor
 	 * (Tachikoma's snapshot cache), keyed into the frame's `cache` map by name.
-	 * Empty = offset-only. Appended via add_snapshot_node. A node with no
-	 * snapshot concern leaves it [] and the restore branches no-op.
+	 * Empty = offset-only. Appended via add_snapshot_node, dropped via
+	 * remove_snapshot_node. A node with no snapshot concern leaves it [] and
+	 * the restore branches no-op.
 	 *
 	 * @var list<string>
 	 */
@@ -1182,6 +1183,23 @@ trait Durable_Reader {
 		}
 		$this->snapshot_nodes[] = $name;
 		$this->offsetlog?->void_warranty();
+	}
+
+	/**
+	 * Undo the `add_snapshot_node` that named `$name`: its state leaves every
+	 * later frame, and so does any state carried for it. The offsetlog keeps
+	 * its lifted cap, since its writer is still the sole one.
+	 *
+	 * @param string $name A node `add_snapshot_node` named.
+	 * @throws \InvalidArgumentException When this reader names no such snapshot node.
+	 */
+	public function remove_snapshot_node( string $name ): void {
+		if ( ! \in_array( $name, $this->snapshot_nodes, true ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+			throw new \InvalidArgumentException( "remove_snapshot_node '{$name}' names no snapshot node this reader declares" );
+		}
+		$this->snapshot_nodes = Core::without( $this->snapshot_nodes, $name );
+		$this->forget_snapshot( $name );
 	}
 
 	/**
@@ -1473,6 +1491,14 @@ trait Durable_Reader {
 	protected function time_travel_on_pause(): void {}
 
 	/**
+	 * Drop whatever state this reader carries for a snapshot node it no longer
+	 * names. Base no-op; a reader that carries state overrides it.
+	 *
+	 * @param string $name The removed snapshot node.
+	 */
+	protected function forget_snapshot( string $name ): void {}
+
+	/**
 	 * `add_snapshot_node` verb handler — append a snapshot-target node.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Owning interpreter; its patron is the reader.
@@ -1483,6 +1509,21 @@ trait Durable_Reader {
 		/** @var self $patron */
 		$patron = $interpreter->patron();
 		$patron->add_snapshot_node( Core::as_string( $args['node'] ) );
+		return "ok\n";
+	}
+
+	/**
+	 * `remove_snapshot_node` verb handler — stop co-committing a snapshot node.
+	 *
+	 * @param Command_Interpreter_Node $interpreter Owning interpreter; its patron is the reader.
+	 * @param array<array-key,mixed>   $args        Bound verb arguments: node.
+	 * @return string `"ok\n"`.
+	 * @throws \InvalidArgumentException What `remove_snapshot_node()` refused.
+	 */
+	public static function cmd_remove_snapshot_node( Command_Interpreter_Node $interpreter, array $args ): string {
+		/** @var self $patron */
+		$patron = $interpreter->patron();
+		$patron->remove_snapshot_node( Core::as_string( $args['node'] ) );
 		return "ok\n";
 	}
 
@@ -1552,6 +1593,14 @@ trait Durable_Reader {
 					[ 'name' => 'node', 'type' => 'node_name', 'required' => true ],
 				],
 				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_add_snapshot_node( $interpreter, $args ),
+			],
+			[
+				'name'        => 'remove_snapshot_node',
+				'description' => 'Undo one add_snapshot_node: the named node\'s state leaves every later frame, along with any state carried for it.',
+				'args'        => [
+					[ 'name' => 'node', 'type' => 'node_name', 'required' => true ],
+				],
+				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_remove_snapshot_node( $interpreter, $args ),
 			],
 			[
 				'name'        => 'set_line_mode',

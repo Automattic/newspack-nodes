@@ -580,6 +580,22 @@ where a verb's `variadic` IS bound, as a list, and may precede named arguments: 
 keeps the tail as raw tokens because a node such as `Remote_Source` or `Vault_Group` parses them
 into a structure of its own.
 
+**Amendment: a list of one value is a declaration too.** A verb declaring `toggle` or `setter`
+takes its handler from `declared_setter()` and its `dump_config()` line from `dump_toggles()` or
+`dump_setters()`. [`Schema_Reflection::list_verbs( $noun, $property, $arg, $description )`](../includes/trait-schema-reflection.php)
+adds the third kind, for a verb that appends to a list: it returns two declarations, `add_<noun>`
+carrying `list => <property>` and `remove_<noun>` carrying `unlist => <property>`, both taking
+`$arg`. `declared_list()` synthesizes both handlers: the add appends its trimmed argument, a
+variadic one's tokens joined with a space, keeping a duplicate; the remove drops the first identical
+entry. Each refuses a blank, and the remove refuses an entry none matches, naming the add verb.
+`dump_lists()` writes one `add_<noun>` line per entry left, so a replay rebuilds the list as the
+adds and removes left it, and a `Vault_Group` replays both as recorded
+([ADR-21](#adr-21-a-node-may-derive-its-children-from-the-vault-and-static-analysis-reads-it)). Both are declared in
+`node_schema()` rather than generated when the table is built, because the palette, `help` and the
+class catalog read `node_schema()` directly. A list whose add has a side effect beyond the append
+— `add_snapshot_node` lifting the offsetlog's cap, `add_setting` keying a map — keeps its
+hand-written pair.
+
 ---
 
 ## ADR-12: Dead-letter poison / crash lifecycle

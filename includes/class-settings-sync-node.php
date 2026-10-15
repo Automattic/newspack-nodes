@@ -6,8 +6,8 @@
  * watched change, and a worker Consumer tails that log into this node. The value
  * a spoke receives is therefore the one read at consume time, not the one the
  * admin request saw. `add_setting()` declares which local option reaches which
- * spoke under which remote name, and `dump_config()` replays those declarations
- * as TSL.
+ * spoke under which remote name, `remove_setting()` withdraws one, and
+ * `dump_config()` replays the declarations left as TSL.
  *
  * @package Newspack_Nodes
  */
@@ -48,7 +48,7 @@ class Settings_Sync_Node extends Timer_Node {
 	 * spoke's stripped option, which is that spoke's own config, and the spoke's
 	 * `remote_*` copy, which the spoke propagates onward to ITS spokes.
 	 *
-	 * @var array<string,array<int,array{to:string,remote:string}>>
+	 * @var array<string,list<array{to:string,remote:string}>>
 	 */
 	protected array $registry = [];
 
@@ -198,6 +198,33 @@ class Settings_Sync_Node extends Timer_Node {
 	}
 
 	/**
+	 * Undo the `add_setting` that registered this mapping: neither an event
+	 * nor the sweep pushes it again, and a local option left with no mapping
+	 * leaves the registry, so its events are dropped before any cache flush.
+	 *
+	 * @param string $local  Local option name.
+	 * @param string $to     Path the push is addressed TO.
+	 * @param string $remote Option name on the spoke.
+	 * @return string "ok\n".
+	 * @throws \InvalidArgumentException When no such mapping is registered.
+	 */
+	public function remove_setting( string $local, string $to, string $remote ): string {
+		$spec = [
+			'to'     => $to,
+			'remote' => $remote,
+		];
+		if ( ! \in_array( $spec, $this->registry[ $local ] ?? [], true ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+			throw new \InvalidArgumentException( "remove_setting '{$local}' '{$to}' '{$remote}' names no setting this node declares" );
+		}
+		$this->registry[ $local ] = Core::without( $this->registry[ $local ], $spec );
+		if ( [] === $this->registry[ $local ] ) {
+			unset( $this->registry[ $local ] );
+		}
+		return "ok\n";
+	}
+
+	/**
 	 * The base graph snippet plus one `command_node {name}:config add_setting …`
 	 * line per registry mapping, so a dump replays the whole mapping table.
 	 *
@@ -230,12 +257,31 @@ class Settings_Sync_Node extends Timer_Node {
 	}
 
 	/**
+	 * The `remove_setting` verb handler: drop the mapping from the patron node.
+	 *
+	 * @param Command_Interpreter_Node $interpreter The sibling `:config` interpreter.
+	 * @param array<array-key,mixed>   $args        Bound verb arguments: local_option, to, remote_option.
+	 * @return string Result line.
+	 * @throws \InvalidArgumentException What `remove_setting()` refused.
+	 */
+	public static function cmd_remove_setting( Command_Interpreter_Node $interpreter, array $args ): string {
+		/** @var self $patron */
+		$patron = $interpreter->patron();
+		return $patron->remove_setting( Core::as_string( $args['local_option'] ), Core::as_string( $args['to'] ), Core::as_string( $args['remote_option'] ) );
+	}
+
+	/**
 	 * Topology-console manifest: the palette entry, the constructor argument and
-	 * the `add_setting` verb form, merged over Timer_Node's.
+	 * the `add_setting` and `remove_setting` verb forms, merged over Timer_Node's.
 	 *
 	 * @return array<string,mixed>
 	 */
 	public static function node_schema(): array {
+		$setting_args = [
+			[ 'name' => 'local_option',  'type' => 'string', 'required' => true ],
+			[ 'name' => 'to',            'type' => 'string', 'required' => true ],
+			[ 'name' => 'remote_option', 'type' => 'string', 'required' => true ],
+		];
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'Control',
 			'description' => 'Pushes registered WP-option changes to connected spokes.',
@@ -246,13 +292,16 @@ class Settings_Sync_Node extends Timer_Node {
 				[
 					'name'        => 'add_setting',
 					'description' => 'Register a local-option → spoke mapping: <local_option> <TO> <remote_option>.',
-					'args'        => [
-						[ 'name' => 'local_option',  'type' => 'string', 'required' => true ],
-						[ 'name' => 'to',            'type' => 'string', 'required' => true ],
-						[ 'name' => 'remote_option', 'type' => 'string', 'required' => true ],
-					],
+					'args'        => $setting_args,
 					'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_add_setting( $interpreter, $args ),
-					'multiple' => true,
+					'multiple'    => true,
+				],
+				[
+					'name'        => 'remove_setting',
+					'description' => 'Undo one add_setting: <local_option> <TO> <remote_option>, as add_setting took them. Refused when none matches.',
+					'args'        => $setting_args,
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_remove_setting( $interpreter, $args ),
+					'multiple'    => true,
 				],
 			],
 			'has_target'  => true,

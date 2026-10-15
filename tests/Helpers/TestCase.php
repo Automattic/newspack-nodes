@@ -767,6 +767,24 @@ abstract class TestCase extends PHPUnitTestCase {
 		return $e->getMessage() . ' (' . $e->getFile() . ':' . $e->getLine() . ')';
 	}
 
+	/**
+	 * Replay every `command_node <name>:config <verb> …` line of a dump onto
+	 * $into's own `:config`, in order, tokenized as the Shell reads a line.
+	 *
+	 * @param string            $dump A `dump_config()` answer.
+	 * @param \Newspack_Nodes\Node $into The node the commands reach.
+	 */
+	protected function replay_config( string $dump, \Newspack_Nodes\Node $into ): void {
+		$shell = new \Newspack_Nodes\Shell_Node();
+		foreach ( \explode( "\n", $dump ) as $line ) {
+			$tokens = $shell->tokenize( $line );
+			if ( 'command_node' !== ( $tokens[0] ?? '' ) || ! \str_ends_with( $tokens[1] ?? '', ':config' ) ) {
+				continue;
+			}
+			$into->interpreter()->dispatch( $tokens[2], \array_slice( $tokens, 3 ) );
+		}
+	}
+
 	/** Read a private/protected property — these nodes expose internal state to tests via reflection, not getters. */
 	protected function read_private( object $obj, string $prop ): mixed {
 		$ref = new \ReflectionProperty( $obj, $prop );

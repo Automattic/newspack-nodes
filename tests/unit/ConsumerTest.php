@@ -3967,7 +3967,7 @@ class ConsumerTest extends TestCase {
 		$this->assertIsArray( $schema['commands'] );
 		// Set equality, NOT order: verb ordering is presentation, free to change.
 		$this->assertEqualsCanonicalizing(
-			[ 'add_snapshot_node', 'set_line_mode', 'seek_frame', 'pause', 'play', 'step', 'assume_clean_shutdown', 'dl_list', 'dl_show', 'dl_requeue', 'dl_remove', 'dl_purge', 'set_multi_writer' ],
+			[ 'add_snapshot_node', 'remove_snapshot_node', 'set_line_mode', 'seek_frame', 'pause', 'play', 'step', 'assume_clean_shutdown', 'dl_list', 'dl_show', 'dl_requeue', 'dl_remove', 'dl_purge', 'set_multi_writer' ],
 			\array_column( $schema['commands'], 'name' ),
 			'Consumer exposes the snapshot-cache + line-mode config verbs, the time-travel transport (`step` is a mutating command, not a request), the dead-letter triage verbs, and set_multi_writer (seal-grace)'
 		);
@@ -4578,6 +4578,108 @@ class ConsumerTest extends TestCase {
 			$c->dump_config(),
 			'dump_config must round-trip the snapshot node so a console-serialized topology still co-commits save_state'
 		);
+	}
+
+	public function test_remove_snapshot_node_stops_its_state_reaching_the_checkpoint(): void {
+		$source = new Partition_Node();
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
+		$this->produce_line( $source, 'hello' );
+		$heron        = new Snapshot_Probe();
+		$heron->name( 'heron-gate' );
+		$heron->state = [ 'recently_sent' => [ 'heron-77' => 3.5 ] ];
+		$kestrel      = new Snapshot_Probe();
+		$kestrel->name( 'kestrel-builder' );
+		$kestrel->state = [ 'in_flight' => [ 'k9' => 'kestrel-state' ] ];
+
+		$c = new Consumer_Node();
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
+		$c->name( 'firehose:consumer' );
+		$c->sink( new Capture_Sink_Node() );
+		$c->add_snapshot_node( 'heron-gate' );
+		$c->add_snapshot_node( 'kestrel-builder' );
+		$this->assertSame( "ok\n", $c->interpreter()->dispatch( 'remove_snapshot_node', [ 'heron-gate' ] ) );
+		$this->pump_consumer( $c );
+		$c->checkpoint();
+
+		$entry = $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" );
+		$this->assertArrayNotHasKey( 'heron-gate', Core::arr( $entry['cache'] ?? [] ) );
+		$this->assertSame( [ 'in_flight' => [ 'k9' => 'kestrel-state' ] ], $entry['cache']['kestrel-builder'] ?? null );
+	}
+
+	public function test_remove_snapshot_node_drops_the_state_carried_for_that_name(): void {
+		$source = new Partition_Node();
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
+		$this->produce_line( $source, 'hello' );
+		$builder        = new Snapshot_Probe();
+		$builder->name( 'request-builder' );
+		$builder->state = [ 'in_flight' => [ 'r4' => 'kept' ] ];
+		$gate           = new Snapshot_Probe();
+		$gate->name( 'plover-gate' );
+		$gate->state = [ 'recently_sent' => [ 'plover-12' => 8.25 ] ];
+
+		$a = new Consumer_Node();
+		$a->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
+		$a->name( 'firehose:consumer' );
+		$a->sink( new Capture_Sink_Node() );
+		$a->add_snapshot_node( 'request-builder' );
+		$a->add_snapshot_node( 'plover-gate' );
+		$this->pump_consumer( $a );
+		$a->checkpoint();
+
+		Core::reset();
+
+		$b = new Consumer_Node();
+		$b->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
+		$b->name( 'firehose:consumer' );
+		$b->sink( new Capture_Sink_Node() );
+		$b->add_snapshot_node( 'request-builder' );
+		$b->add_snapshot_node( 'plover-gate' );
+		$builder2 = new Snapshot_Probe();
+		$builder2->name( 'request-builder' );
+		// 'plover-gate' is not rebuilt, so its loaded state rides as carry.
+		$this->pump_consumer( $b );
+		$b->interpreter()->dispatch( 'remove_snapshot_node', [ 'plover-gate' ] );
+		// Graceful, as a clean stop commits: the cursor has not moved since boot.
+		$b->checkpoint( true );
+
+		$entry = $this->newest_offsetlog_entry( "{$this->tmp}/offsets.p0" );
+		$this->assertArrayNotHasKey( 'plover-gate', Core::arr( $entry['cache'] ?? [] ) );
+		$this->assertSame( [ 'in_flight' => [ 'r4' => 'kept' ] ], $entry['cache']['request-builder'] ?? null );
+	}
+
+	public function test_remove_snapshot_node_naming_no_snapshot_node_is_refused_naming_it(): void {
+		$c = new Consumer_Node();
+		$c->name( 'requests:consumer' );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
+		$c->add_snapshot_node( 'flame-builder' );
+
+		try {
+			$c->interpreter()->dispatch( 'remove_snapshot_node', [ 'osprey-gate' ] );
+			$this->fail( 'an undeclared snapshot node was removed' );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertSame( "remove_snapshot_node 'osprey-gate' names no snapshot node this reader declares", $e->getMessage() );
+		}
+		$this->assertSame( [ 'flame-builder' ], $this->read_private( $c, 'snapshot_nodes' ) );
+	}
+
+	public function test_a_removed_snapshot_node_leaves_the_dump_and_its_replay(): void {
+		$c = new Consumer_Node();
+		$c->name( 'requests:consumer' );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
+		$c->add_snapshot_node( 'flame-builder' );
+		$c->add_snapshot_node( 'sandpiper-gate' );
+		$c->interpreter()->dispatch( 'remove_snapshot_node', [ 'flame-builder' ] );
+
+		$dump = $c->dump_config();
+		$this->assertStringNotContainsString( 'flame-builder', $dump );
+		$this->assertStringContainsString( 'command_node requests:consumer:config add_snapshot_node sandpiper-gate', $dump );
+
+		Core::reset();
+		$replayed = new Consumer_Node();
+		$replayed->name( 'requests:consumer' );
+		$replayed->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
+		$this->replay_config( $dump, $replayed );
+		$this->assertSame( [ 'sandpiper-gate' ], $this->read_private( $replayed, 'snapshot_nodes' ) );
 	}
 
 	public function test_dump_config_omits_snapshot_node_when_unset(): void {
