@@ -21,7 +21,13 @@
  * row elements re-map only when the model commits.
  */
 
-import { useState, useEffect, useRef, useMemo } from '@wordpress/element';
+import {
+	useState,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useMemo,
+} from '@wordpress/element';
 import './LogRowList.scss';
 
 /** Rows pulled past each edge of the viewport, so a scroll shows no gap. */
@@ -136,6 +142,8 @@ export default function LogRowList( {
 	const listRef = useRef( null );
 	const contentRef = useRef( null );
 	const offsetRef = useRef( 0 );
+	// Scroll owed to the reader, applied on the commit that shifts the rows.
+	const scrollOwedRef = useRef( 0 );
 	const rafRef = useRef( null );
 	// Hysteresis state: whether new rows glide (true) or anchor scrollTop.
 	const glidingRef = useRef( true );
@@ -174,6 +182,7 @@ export default function LogRowList( {
 	useEffect( () => {
 		lastTopIdRef.current = 0;
 		offsetRef.current = 0;
+		scrollOwedRef.current = 0;
 		glidingRef.current = true;
 		modelPushedRef.current = {
 			visible: -1,
@@ -247,6 +256,7 @@ export default function LogRowList( {
 				lastTopIdRef.current = topId;
 				// Pending glide debt dies here too, or exit replays it.
 				offsetRef.current = 0;
+				scrollOwedRef.current = 0;
 				const end = Math.min( visible, DEBUG_MAX_ROWS );
 				// Report what debug actually shows; the toolbar reads x/total.
 				pushStats( end );
@@ -289,6 +299,11 @@ export default function LogRowList( {
 			const list = listRef.current;
 			if ( list ) {
 				if ( list.scrollTop >= rowHeight * STOP_GLIDE_ROWS ) {
+					if ( glidingRef.current ) {
+						// The reader left: the glide's debt becomes scroll.
+						scrollOwedRef.current -= offsetRef.current;
+						offsetRef.current = 0;
+					}
 					glidingRef.current = false;
 				} else if ( list.scrollTop < rowHeight * RESUME_GLIDE_ROWS ) {
 					glidingRef.current = true;
@@ -300,12 +315,13 @@ export default function LogRowList( {
 					// Hold rows in place; the offset decays smoothly to 0.
 					offsetRef.current -= newRows * rowHeight;
 				} else if ( list ) {
-					// @longform Hold the reader's position when scrolled into
-					// history. Exact, because `overflow-anchor: none` stops the
-					// browser correcting for the same rows a second time; with
-					// anchoring on both corrections land and every new row
-					// moves the reader by two.
-					list.scrollTop += newRows * rowHeight;
+					// @longform Hold the reader's position when scrolled
+					// into history, on the commit that shifts the rows, so
+					// the two land in one paint. Exact, because
+					// `overflow-anchor: none` stops the browser correcting
+					// for the same rows a second time; with anchoring on,
+					// every new row moves the reader by two.
+					scrollOwedRef.current += newRows * rowHeight;
 				}
 			}
 
@@ -325,7 +341,8 @@ export default function LogRowList( {
 			pushStats( visible );
 
 			// Window bounds from live geometry; pull ONLY those rows.
-			const scrollTop = list ? list.scrollTop : 0;
+			const scrollTop =
+				( list ? list.scrollTop : 0 ) + scrollOwedRef.current;
 			const height = list ? list.clientHeight : 0;
 			const offset = offsetRef.current;
 			// @longform Bind the ring into the window: the viewport's shifted
@@ -348,6 +365,7 @@ export default function LogRowList( {
 
 			const pushed = modelPushedRef.current;
 			if (
+				0 !== scrollOwedRef.current ||
 				node !== pushed.node ||
 				visible !== pushed.visible ||
 				start !== pushed.start ||
@@ -387,6 +405,14 @@ export default function LogRowList( {
 		rafRef.current = requestAnimationFrame( draw );
 		return () => cancelAnimationFrame( rafRef.current );
 	}, [ getNode, rowHeight, debug ] );
+
+	// The scroll owed lands with the rows it was owed for, before the paint.
+	useLayoutEffect( () => {
+		if ( listRef.current && 0 !== scrollOwedRef.current ) {
+			listRef.current.scrollTop += scrollOwedRef.current;
+		}
+		scrollOwedRef.current = 0;
+	}, [ model ] );
 
 	// Rows re-map only when the model commits, not on parent re-renders.
 	const renderedRows = useMemo(

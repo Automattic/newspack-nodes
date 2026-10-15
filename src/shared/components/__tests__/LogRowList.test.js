@@ -478,6 +478,74 @@ it( 'maintains scroll position when new rows arrive while scrolled down', () => 
 	expect( list.scrollTop ).toBe( 200 + 4 * 18 );
 } );
 
+it( 'moves the scroll position in the same commit that shifts the rows', () => {
+	const lines = rows( 50 );
+	const node = makeNode( lines );
+	let list = null;
+	const scrollAtRender = [];
+	const spyRow = ( row ) => {
+		scrollAtRender.push( list ? list.scrollTop : null );
+		return renderRow( row );
+	};
+	const { container } = render(
+		<LogRowList
+			getNode={ () => node }
+			rowHeight={ 18 }
+			renderRow={ spyRow }
+		/>
+	);
+	tickFrame();
+	list = container.querySelector( '.newspack-nodes-log-rows' );
+	list.scrollTop = 234;
+	tickFrame();
+	for ( let k = 0; k < 3; k++ ) {
+		lines.unshift( {
+			id: 51 + k,
+			partition: 0,
+			content: `kea-${ k }`,
+			isEven: false,
+		} );
+	}
+	scrollAtRender.length = 0;
+	tickFrame();
+	// The rows rendered at the old position; the scroll moved on their commit.
+	expect( scrollAtRender[ 0 ] ).toBe( 234 );
+	expect( list.scrollTop ).toBe( 234 + 3 * 18 );
+} );
+
+it( 'leaving the glide turns its remaining offset into scroll at once', () => {
+	const lines = rows( 60 );
+	const node = makeNode( lines );
+	const { container } = render(
+		<LogRowList
+			getNode={ () => node }
+			rowHeight={ 18 }
+			renderRow={ renderRow }
+		/>
+	);
+	tickFrame();
+	const list = container.querySelector( '.newspack-nodes-log-rows' );
+	const content = container.querySelector(
+		'.newspack-nodes-log-rows__content'
+	);
+	for ( let k = 1; k <= 10; k++ ) {
+		lines.unshift( {
+			id: 60 + k,
+			partition: 0,
+			content: `tui-${ k }`,
+			isEven: false,
+		} );
+	}
+	tickFrame();
+	// Gliding: the ten new rows hold off-screen, the debt barely decayed.
+	expect( content.style.transform ).toContain( '-178.2px' );
+	// Page down past the stop threshold.
+	list.scrollTop = 63;
+	tickFrame();
+	expect( content.style.transform ).toBe( '' );
+	expect( list.scrollTop ).toBeCloseTo( 63 + 178.2, 5 );
+} );
+
 // @longform Hysteresis on the smooth-scroll mode: gliding STOPS at twice the
 // row height and only RESUMES below one row height, so hovering near the
 // boundary can't flip modes every frame (upper = 2x lower, per the

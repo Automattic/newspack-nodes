@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A log scrolled into history holds still as new lines arrive.** `LogRowList`, behind the station's Log Viewer and event-logger-nodes' Request Log and Error Log, moved the reader's scroll position in the animation frame and the rows on React's later commit, so each burst pushed the view down a frame and snapped it back. The scroll owed now lands in a layout effect on the commit that shifts the rows, one paint for both. Scrolling away mid-glide, as a Page Down does, turns the glide's remaining offset into scroll at once rather than letting it wind down first. A consumer that bundles `@newspack-nodes/shared` takes the fix on its next build.
 - **A seek to the start lands on the oldest segment retention left.** `Consumer_Node`'s `start` seek, and the start a reader with no checkpoint takes, set the cursor to segment 0, so once retention had deleted it every reader asked to replay from the start, such as the station overview on each reload, logged "served past deleted segments: rewound to N:0" and reported a reset. `start` now resolves to the oldest segment present, as `end` and `recent` read the live list; a checkpoint or an explicit position naming a deleted segment still rewinds and says so.
 
 ### Removed
