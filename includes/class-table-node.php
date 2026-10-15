@@ -1408,7 +1408,7 @@ class Table_Node extends Node {
 	public function purge( int $limit ): int {
 		$this->refuse_if_mounted( 'purge' );
 		// A spent deadline runs one batch.
-		return $this->purge_batches( $this->durable( 'purge' ), (int) Core::right_now(), 0.0, $limit )[0];
+		return $this->purge_batches( $this->durable( 'purge' ), (int) Core::right_now(), 0.0, $limit )['rows'];
 	}
 
 	/**
@@ -1612,15 +1612,15 @@ class Table_Node extends Node {
 	/**
 	 * One Table's purge on the Router tick, in PURGE_BATCH_ROWS batches; the
 	 * rest waits a minute. A purge that stops with its last batch full leaves
-	 * the Table behind, and says so; the first short batch catches it up.
+	 * the Table behind, and says so; the first batch that is not full catches
+	 * it up.
 	 *
 	 * @param Durable_Arm $arm   The Table's arm.
 	 * @param int         $now   The tick, in epoch seconds.
 	 * @param float       $until The tick's deadline, shared by every Table.
 	 */
 	private function purge_tick( Durable_Arm $arm, int $now, float $until ): void {
-		[ $purged, $batches ]   = $this->purge_batches( $arm, $now, $until, self::PURGE_BATCH_ROWS );
-		$this->purge_behind     = $batches * self::PURGE_BATCH_ROWS === $purged;
+		[ 'rows' => $purged, 'batches' => $batches, 'full' => $this->purge_behind ] = $this->purge_batches( $arm, $now, $until, self::PURGE_BATCH_ROWS );
 		if ( $this->purge_behind ) {
 			$this->print_less_often( 'WARNING: purge is behind: ', "its last batch came back full after {$batches} batches, {$purged} rows; the next purge spends its backlog budget" );
 		}
@@ -1628,7 +1628,8 @@ class Table_Node extends Node {
 
 	/**
 	 * Delete expired rows `$batch` at a time, counted as one PURGE: a batch,
-	 * repeated while each comes back full and the deadline, read through
+	 * repeated while each comes back full, as the arm judges it, and the
+	 * deadline, read through
 	 * `Core::right_now()`, has not passed, so a spent deadline runs one. The
 	 * deadline is checked between batches, so one statement blocked on the
 	 * file's write lock can hold the tick for the arm's busy_timeout.
@@ -1637,7 +1638,9 @@ class Table_Node extends Node {
 	 * @param int         $now   Rows expired at this epoch second go.
 	 * @param float       $until The deadline.
 	 * @param int         $batch Rows one statement deletes at most.
-	 * @return array{0: int, 1: int} Rows deleted, and batches run.
+	 * @return array{rows: int, batches: int, full: bool} Rows deleted, batches
+	 *                                                    run, and whether the
+	 *                                                    last came back full.
 	 */
 	private function purge_batches( Durable_Arm $arm, int $now, float $until, int $batch ): array {
 		$started = self::monotonic_ns();
@@ -1647,14 +1650,18 @@ class Table_Node extends Node {
 		try {
 			do {
 				++$batches;
-				$rows    = $arm->purge( $now, $batch );
-				$purged += $rows;
-			} while ( Core::right_now() < $until && $batch === $rows );
+				$done    = $arm->purge( $now, $batch );
+				$purged += $done['rows'];
+			} while ( Core::right_now() < $until && $done['full'] );
 		} finally {
 			$this->count_rows( 'PURGE', $batches * $batch, $purged );
 			$this->count_call( 'PURGE', $started, $bytes );
 		}
-		return [ $purged, $batches ];
+		return [
+			'rows'    => $purged,
+			'batches' => $batches,
+			'full'    => $done['full'],
+		];
 	}
 
 	/**

@@ -351,6 +351,39 @@ final class RowTableNodeTest extends TestCase {
 		$this->assertSame( [ [ Message::TM_ERROR, '', "ROWS: a mounted Table serves reads only\n" ] ], self::shape( $replies ) );
 	}
 
+	/**
+	 * A backlog of rows whose names table halves their share of a batch
+	 * keeps the purge looping, and leaves it behind while a share fills.
+	 */
+	public function test_a_row_table_purge_loops_and_falls_behind_on_its_retained_share(): void {
+		Core::$clock = static fn (): float => 1790000000.0;
+		$table       = $this->row_table( 'wombats-6633', 'Wombat' );
+		$batch       = [];
+		for ( $i = 0; $i < 2 * Table_Node::PURGE_BATCH_ROWS + 6; ++$i ) {
+			$batch[] = [ 'insert', 'visits', [ "rid-{$i}", 1000, 0, 2.5 ] ];
+		}
+		$this->ask( $table, [ 'ROWS' => $batch ] );
+		$left   = static fn (): int => (int) ( new \PDO( 'sqlite:' . Table_Node::file( 'wombats-6633', 3 ) ) )->query( 'SELECT count(*) FROM visits' )->fetchColumn();
+		$reads  = 0;
+		Core::$clock = static function () use ( &$reads ): float {
+			return 1790000037.0 + 0.03 * $reads++;
+		};
+		$logged = [];
+		\add_action(
+			'newspack_nodes/stderr',
+			static function ( string $line ) use ( &$logged ): void {
+				$logged[] = $line;
+			}
+		);
+
+		Table_Node::tick( 1790000037 );
+		$this->assertSame( Table_Node::PURGE_BATCH_ROWS + 6, $left(), 'two batches, each a half-batch of visits' );
+		$this->assertStringContainsString( 'wombats-6633: WARNING: purge is behind', \implode( "\n", $logged ) );
+
+		Table_Node::tick( 1790000097 );
+		$this->assertSame( 0, $left(), 'the backlog budget runs until a share comes back short' );
+	}
+
 	public function test_a_row_table_dumps_the_line_that_built_it(): void {
 		$this->assertStringContainsString( 'make_node Row_Table wombats-6620 Wombat', $this->row_table( 'wombats-6620', 'Wombat' )->dump_config() );
 	}

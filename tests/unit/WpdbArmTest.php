@@ -165,8 +165,8 @@ final class WpdbArmTest extends TestCase {
 		$this->assertTrue( $p4->delete( 'sku-43' ) );
 		$this->assertSame( 'p3', $p3->get( 'sku-43' ) );
 		$p4->set( 'sku-47', 'p4', 37 );
-		$this->assertSame( 1, $p4->purge( 1790000037, 10 ), 'a purge reclaims its own namespace alone' );
-		$this->assertSame( 1, $p3->purge( 1790000037, 10 ), 'the p3 row expired alongside survived the p4 purge' );
+		$this->assertSame( 1, $p4->purge( 1790000037, 10 )['rows'], 'a purge reclaims its own namespace alone' );
+		$this->assertSame( 1, $p3->purge( 1790000037, 10 )['rows'], 'the p3 row expired alongside survived the p4 purge' );
 	}
 
 	public function test_a_namespace_no_column_can_hold_refuses_to_build(): void {
@@ -368,7 +368,7 @@ final class WpdbArmTest extends TestCase {
 		$this->db->deny['INSERT'] = 'Lock wait timeout exceeded';
 		$this->assertNull( $arm->delete( 'sku-41' ), 'a delete the server did not answer is unknown, not absent' );
 		$this->assertNull( $arm->touch( 'sku-41', 37 ), 'a touch the server did not answer is unknown, not absent' );
-		$this->assertSame( 0, $arm->purge( 1790099999, 10 ) );
+		$this->assertSame( 0, $arm->purge( 1790099999, 10 )['rows'] );
 		$this->assertFalse( $arm->set( 'sku-42', 1, 0 ) );
 		$this->assertFalse( $arm->add( 'sku-43', 1, 0 ) );
 		$this->assertStringContainsString( 'Lock wait timeout exceeded', $arm->last_failure() );
@@ -457,8 +457,8 @@ final class WpdbArmTest extends TestCase {
 		$p3->add_members( [ 'owl:set-7' => [ [ 'm-41' => 'p3' ], 37 ] ] );
 		$p4->add_members( [ 'owl:set-7' => [ [ 'm-43' => 'p4' ], 37 ] ] );
 		$this->assertSame( [ 'owl:set-7' => [ 'm-43' => 'p4' ] ], $p4->members( [ 'owl:set-7' ], 9 ) );
-		$this->assertSame( 1, $p4->purge( 1790000037, 10 ), 'a purge reclaims its own namespace alone' );
-		$this->assertSame( 1, $p3->purge( 1790000037, 10 ) );
+		$this->assertSame( 1, $p4->purge( 1790000037, 10 )['rows'], 'a purge reclaims its own namespace alone' );
+		$this->assertSame( 1, $p3->purge( 1790000037, 10 )['rows'] );
 	}
 
 	public function test_a_flush_deletes_its_own_namespace_alone(): void {
@@ -540,7 +540,7 @@ final class WpdbArmTest extends TestCase {
 		$arm         = new Wpdb_Arm( 'kea:p3' );
 		$arm->write_multi( [ 'kea-1' => 1, 'kea-2' => 2, 'kea-3' => 3, 'kea-4' => 4, 'kea-5' => 5 ], 37 );
 		$arm->add_members( [ 'owl:set-7' => [ [ 'm-1' => 1, 'm-2' => 2, 'm-3' => 3 ], 37 ] ] );
-		$this->assertSame( 4, $arm->purge( 1790000037, 4 ) );
+		$this->assertSame( 4, $arm->purge( 1790000037, 4 )['rows'] );
 		$counts = \array_map( fn ( string $t ): int => (int) $this->db->get_results( "SELECT COUNT(*) AS n FROM kea7_newspack_nodes_{$t}" )[0]['n'], [ 'table', 'members' ] );
 		$this->assertSame( [ 1, 3 ], $counts, 'a limit the keyed rows fill leaves every member' );
 	}

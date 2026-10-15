@@ -265,9 +265,11 @@ abstract class Durable_Arm extends Cache_Backend {
 	 *
 	 * @param int $now   Epoch second.
 	 * @param int $limit Most rows to delete, keyed and member rows together.
-	 * @return int Rows deleted; 0 when the store refused, which is logged.
+	 * @return array{rows:int, full:bool} Rows deleted, none when the store
+	 *                                    refused, which is logged; and whether
+	 *                                    they filled the limit, so more may wait.
 	 */
-	public function purge( int $now, int $limit ): int {
+	public function purge( int $now, int $limit ): array {
 		$limit  = \max( 0, $limit );
 		$purged = $this->attempt(
 			function () use ( $now, $limit ): int {
@@ -279,7 +281,10 @@ abstract class Durable_Arm extends Cache_Backend {
 		if ( null === $purged ) {
 			Core::print_less_often( 'Table purge failed: ', $this->last_failure() );
 		}
-		return $purged ?? 0;
+		return [
+			'rows' => $purged ?? 0,
+			'full' => 0 < $limit && $limit === $purged,
+		];
 	}
 
 	/**

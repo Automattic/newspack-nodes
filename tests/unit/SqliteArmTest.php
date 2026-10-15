@@ -75,7 +75,7 @@ final class SqliteArmTest extends TestCase {
 		$this->checkpoint();
 		$before = $this->footprint();
 		Core::$clock = static fn (): float => 1790000002.0;
-		$this->assertSame( 3000, $arm->purge( 1790000002, 5000 ) );
+		$this->assertSame( 3000, $arm->purge( 1790000002, 5000 )['rows'] );
 		$arm->vacuum();
 		$this->assertLessThan( $before, $this->footprint() );
 	}
@@ -91,7 +91,7 @@ final class SqliteArmTest extends TestCase {
 			$this->assertNull( $arm->touch( 'sku-41', 777 ) );
 			$this->assertFalse( $arm->increment( 'sku-41' ) );
 			$this->assertFalse( $arm->compare_and_swap( 'sku-41', 5, 6 ) );
-			$this->assertSame( 0, $arm->purge( \time() + 9999, 10 ) );
+			$this->assertSame( 0, $arm->purge( \time() + 9999, 10 )['rows'] );
 			$this->assertStringContainsString( 'locked', $arm->last_failure() );
 		} finally {
 			$other->exec( 'ROLLBACK' );
@@ -452,7 +452,7 @@ final class SqliteArmTest extends TestCase {
 		$arm->write_multi( [ 'kea-1' => 1, 'kea-2' => 2, 'kea-3' => 3, 'kea-4' => 4, 'kea-5' => 5 ], 37 );
 		$arm->add_members( [ 'owl:set-7' => [ [ 'm-1' => 1, 'm-2' => 2, 'm-3' => 3 ], 37 ] ] );
 		$count = fn ( string $table ): int => (int) ( new \PDO( 'sqlite:' . $this->path() ) )->query( "SELECT COUNT(*) FROM {$table}" )->fetchColumn();
-		$this->assertSame( 4, $arm->purge( 1790000037, 4 ) );
+		$this->assertSame( 4, $arm->purge( 1790000037, 4 )['rows'] );
 		$this->assertSame( [ 1, 3 ], [ $count( 'kv' ), $count( 'members' ) ], 'a limit the keyed rows fill leaves every member' );
 	}
 
