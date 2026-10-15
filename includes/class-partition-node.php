@@ -1602,9 +1602,10 @@ class Partition_Node extends Timer_Node {
 	 * another process's directory has no formatter of its own, and the
 	 * per-segment `file_exists` below already skips a log that carries no index.
 	 * Callback signature: fn(string $line, int $segment). Return false from the
-	 * callback to terminate the scan early.
+	 * callback to terminate the scan early. Substrate-internal: `locate_by()`
+	 * and the dead-letter fold walk through it, and a plugin finds keys
+	 * through `locate_by()` and reads them through `read_many()` (ADR-18).
 	 *
-	 * @api
 	 * @param callable $cb           Per-entry callback.
 	 * @param bool     $newest_first Iterate newest segment first when true.
 	 */

@@ -8,6 +8,11 @@ namespace Newspack_Nodes\Tests\Helpers;
  */
 abstract class DurableArmContract extends CacheBackendContract {
 
+	/** A durable row keeps the expiry it was written with. */
+	protected function slides_expiry(): bool {
+		return false;
+	}
+
 	public function test_purge_reclaims_expired_rows_a_batch_at_a_time(): void {
 		$arm = $this->arm();
 		$arm->write_multi( [ 'kea-p1' => 1, 'kea-p2' => 2, 'kea-p3' => 3 ], 37 );
@@ -81,26 +86,6 @@ abstract class DurableArmContract extends CacheBackendContract {
 		$this->assertSame( [ 'owl:set-7' => null, 'owl:set-9' => [ 'm-5' => 5, 'm-6' => 6, 'm-8' => 8 ] ], $arm->members( [ 'owl:set-7', 'owl:set-9' ], 3 ), 'four members are over a limit of 3; three are not' );
 		$this->assertSame( [], $arm->members( [ 'owl:set-7' ], 0 ), 'a limit of 0 reads nothing' );
 		$this->assertSame( [], $arm->members( [ 'owl:set-7' ], -5 ), 'a negative limit is no limit lifted' );
-	}
-
-	public function test_a_member_page_seeks_past_its_cursor_and_says_whether_more_remain(): void {
-		$arm = $this->arm();
-		$arm->add_members( [ 'owl:set-7' => [ [ 'm-5' => 5, 'm-1' => 1, 'm-4' => 4, 'm-2' => [ 'n' => 2 ], 'm-3' => 3 ], 777 ], 'owl:set-9' => [ [ 'm-0' => 0 ], 777 ] ] );
-		$this->assertSame( [ [ 'm-1' => 1, 'm-2' => [ 'n' => 2 ] ], true ], $arm->member_page( 'owl:set-7', 2, null ) );
-		$this->assertSame( [ [ 'm-3' => 3, 'm-4' => 4 ], true ], $arm->member_page( 'owl:set-7', 2, 'm-2' ) );
-		$this->assertSame( [ [ 'm-5' => 5 ], false ], $arm->member_page( 'owl:set-7', 2, 'm-4' ) );
-		$this->assertSame( [ [ 'm-3' => 3, 'm-4' => 4, 'm-5' => 5 ], false ], $arm->member_page( 'owl:set-7', 3, 'm-25' ), 'the cursor need not be a member' );
-		$this->assertSame( [ [], false ], $arm->member_page( 'owl:set-7', 2, 'm-5' ) );
-		$this->assertSame( [ [], false ], $arm->member_page( 'owl:set-8', 2, null ) );
-	}
-
-	public function test_a_member_page_hides_expired_members(): void {
-		$arm = $this->arm();
-		$arm->add_members( [ 'owl:set-7' => [ [ 'm-1' => 1, 'm-3' => 3 ], 37 ] ] );
-		$arm->add_members( [ 'owl:set-7' => [ [ 'm-2' => 2, 'm-4' => 4 ], 777 ] ] );
-		$this->clock += 37;
-		$this->assertSame( [ [ 'm-2' => 2 ], true ], $arm->member_page( 'owl:set-7', 1, null ) );
-		$this->assertSame( [ [ 'm-4' => 4 ], false ], $arm->member_page( 'owl:set-7', 1, 'm-2' ) );
 	}
 
 	public function test_members_come_back_in_member_order(): void {

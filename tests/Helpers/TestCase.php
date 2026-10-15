@@ -403,6 +403,29 @@ abstract class TestCase extends PHPUnitTestCase {
 	}
 
 	/**
+	 * Store `$items` in `$table` at its own TTL in one call to its arm, one
+	 * transaction on SQLite, so a test seeds thousands of rows in time.
+	 *
+	 * Reflection, because no public path writes a batch: `store()`, `ADD` and
+	 * a keyed INSERT each commit one key, and the purge tests seed 10,001 to
+	 * 60,003 rows, which per-key commits cannot write inside a test's budget.
+	 * It reaches the Table's own `arm()`, `key()` and `ttl`, so the rows land
+	 * exactly as the Table would store them.
+	 *
+	 * @param array<array-key,mixed> $items Key => value.
+	 */
+	protected static function seed_table( \Newspack_Nodes\Table_Node $table, array $items ): void {
+		$arm = ( new \ReflectionMethod( $table, 'arm' ) )->invoke( $table );
+		self::assertInstanceOf( \Newspack_Nodes\Cache_Backend::class, $arm, 'seed_table() needs a Table whose backend answers' );
+		$key     = new \ReflectionMethod( $table, 'key' );
+		$entries = [];
+		foreach ( $items as $item => $value ) {
+			$entries[ $key->invoke( $table, (string) $item ) ] = $value;
+		}
+		self::assertTrue( $arm->write_multi( $entries, ( new \ReflectionProperty( $table, 'ttl' ) )->getValue( $table ) ) );
+	}
+
+	/**
 	 * Point Config at a temp config file under $dir so that
 	 * `Config::load_config()['base_directory']` returns $dir for the rest of
 	 * this test. Mirrors the legacy pattern (`LOCAL_NEWSPACK_NODES_CONF`

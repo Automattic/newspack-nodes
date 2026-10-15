@@ -25,9 +25,7 @@
  *
  * Every shape that uses it wants promotion. A WORKING SET (the event logger's
  * in-flight requests, keyed by request id) reads eviction as "this one never
- * completed"; an ACCUMULATOR (`Table_Node`'s tier, per-URL aggregates) would
- * lose counts it has not drained. In both, a hit keeping an entry alive is
- * exactly right.
+ * completed", so a hit keeping an entry alive is exactly right.
  *
  * A variant of Tachikoma's bucket LRU — `Nodes/Table.pm` `lru_lookup`
  * (https://github.com/datapoke/tachikoma), in the shape our DN `ReqGrep.pm`
@@ -86,6 +84,7 @@ class LRU_Cache {
 	/**
 	 * Constructor.
 	 *
+	 * @api Sibling plugins build a working set: event-logger-nodes' request builder and reqgrep.
 	 * @param int $bucket_size Max items per bucket; clamped to at least 1.
 	 * @param int $num_buckets Max number of buckets; clamped to 1..MAX_BUCKETS.
 	 */
@@ -161,6 +160,7 @@ class LRU_Cache {
 	 * The first entry stored once an owner's clock has a time arms the timed
 	 * grid there, so its windows count from when it landed.
 	 *
+	 * @api Consumers write a working set one key at a time.
 	 * @param string $key   Cache key.
 	 * @param mixed  $value Value to store.
 	 */

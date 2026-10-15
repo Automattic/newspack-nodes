@@ -94,7 +94,9 @@ final class TableCheckpointTest extends TestCase {
 			}
 
 			public function fire_cb(): void {
-				$this->into->store_multi( TableCheckpointTest::flush() );
+				foreach ( TableCheckpointTest::flush() as $key => $value ) {
+					$this->into->store( $key, $value );
+				}
 			}
 		};
 		$flusher->name( 'flusher' );
@@ -123,7 +125,7 @@ final class TableCheckpointTest extends TestCase {
 	}
 
 	public function test_the_tick_step_leaves_the_tick_clock_as_the_tick_set_it(): void {
-		$this->table->store_multi( self::rows( 'kea', 40, 900 ) );
+		self::seed_table( $this->table, self::rows( 'kea', 40, 900 ) );
 		Core::$clock = static fn (): float => 1790000000.0;
 		Core::$now   = 1790004242.0;
 		Table_Node::tick( 1790004242 );
@@ -137,12 +139,12 @@ final class TableCheckpointTest extends TestCase {
 
 	public function test_ticks_inside_the_interval_do_not_checkpoint_and_the_one_at_it_does(): void {
 		$this->assertSame( 30, Table_Node::CHECKPOINT_INTERVAL_S );
-		$this->table->store_multi( self::rows( 'kea', 40, 900 ) );
+		self::seed_table( $this->table, self::rows( 'kea', 40, 900 ) );
 		Table_Node::tick( 1790000000 );
 		$this->assertSame( 1, $this->checkpoint_row()['calls'] );
 		$first = $this->checkpoint_row()['asked'];
 		for ( $second = 1; $second < 30; ++$second ) {
-			$this->table->store_multi( self::rows( "s{$second}", 3, 900 ) );
+			self::seed_table( $this->table, self::rows( "s{$second}", 3, 900 ) );
 			Table_Node::tick( 1790000000 + $second );
 		}
 		$this->assertSame( 1, $this->checkpoint_row()['calls'], 'twenty-nine ticks inside the interval' );
@@ -167,14 +169,14 @@ final class TableCheckpointTest extends TestCase {
 
 	public function test_one_checkpoint_per_table_per_tick(): void {
 		$owl = $this->worker_table( 'lab-7:owl', 'owl:p3' );
-		$this->table->store_multi( self::rows( 'kea', 40, 900 ) );
-		$owl->store_multi( self::rows( 'owl', 70, 900 ) );
+		self::seed_table( $this->table, self::rows( 'kea', 40, 900 ) );
+		self::seed_table( $owl, self::rows( 'owl', 70, 900 ) );
 		Table_Node::tick( 1790000000 );
 		$this->assertSame( [ 1, 1 ], [ $this->checkpoint_row()['calls'], $this->checkpoint_row( $owl )['calls'] ] );
 	}
 
 	public function test_a_mount_never_checkpoints(): void {
-		$this->table->store_multi( self::rows( 'kea', 40, 900 ) );
+		self::seed_table( $this->table, self::rows( 'kea', 40, 900 ) );
 		$this->table->remove_node();
 		$mount = Table_Node::mount( 'lab-7:kea', 3, [ 'namespace' => 'kea:p3', 'ttl' => 777, 'backend' => 'sqlite' ], new Capture_Sink_Node() );
 		Table_Node::tick( 1790000000 );
@@ -186,7 +188,7 @@ final class TableCheckpointTest extends TestCase {
 	}
 
 	public function test_a_tick_whose_purge_spent_the_budget_leaves_the_checkpoint_to_the_next(): void {
-		$this->table->store_multi( self::rows( 'kea', 40, 900 ) );
+		self::seed_table( $this->table, self::rows( 'kea', 40, 900 ) );
 		$reads       = 0;
 		Core::$clock = static function () use ( &$reads ): float {
 			return 1790000000.0 + 0.06 * $reads++;

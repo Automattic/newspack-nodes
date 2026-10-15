@@ -36,7 +36,7 @@ send_node beacon payload bytes
 send beacon short bytes
 send_struct_node beacon '{"depth":9}'
 request_node beacon fetch 7
-request_struct_node beacon '{"MSET":{"kea":["weka",37]}}'
+request_struct_node beacon '{"ADD":{"kea":["weka",37]}}'
 request_struct beacon '{"ADD":{"moa":["tui",53]}}'
 send_eof beacon
 command_node beacon ping

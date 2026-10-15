@@ -121,13 +121,17 @@ abstract class Durable_Arm extends Cache_Backend {
 	/**
 	 * See Cache_Backend::delete_multi(); an atomic arm holds the batch in one
 	 * write scope, and a statement that fails fails it, answering none. Any
-	 * other arm answers the keys that took effect, one by one.
+	 * other arm answers the keys that took effect, one by one. An empty batch
+	 * takes no write lock.
 	 */
 	public function delete_multi( array $keys ): array {
 		if ( ! $this->batch_is_atomic() ) {
 			return parent::delete_multi( $keys );
 		}
-		return $this->held( $keys, fn ( string $key ): bool => $this->delete_key( $key ) > 0 );
+		if ( [] === $keys ) {
+			return [];
+		}
+		return $this->attempt( fn (): array => $this->write_scope( fn (): array => $this->taking( $keys, fn ( string $key ): bool => $this->delete_key( $key ) > 0 ) ), [] );
 	}
 
 	/**
@@ -137,60 +141,6 @@ abstract class Durable_Arm extends Cache_Backend {
 	 * @return int Rows deleted.
 	 */
 	abstract protected function delete_key( string $key ): int;
-
-	/** See Cache_Backend::touch(); an unmoved expiry changes no row, so a zero re-reads. */
-	public function touch( string $key, int $ttl ): ?bool {
-		return $this->attempt( fn (): bool => $this->touched( $key, self::expires( $ttl ) ), null );
-	}
-
-	/**
-	 * See Cache_Backend::touch_multi(); an atomic arm holds the batch in one
-	 * write scope, and a statement that fails fails it, answering none. Any
-	 * other arm answers the keys that took effect, one by one.
-	 */
-	public function touch_multi( array $keys, int $ttl ): array {
-		if ( ! $this->batch_is_atomic() ) {
-			return parent::touch_multi( $keys, $ttl );
-		}
-		$expires = self::expires( $ttl );
-		return $this->held( $keys, fn ( string $key ): bool => $this->touched( $key, $expires ) );
-	}
-
-	/**
-	 * Move one key's expiry; a row already at it changes nothing, so a zero re-reads.
-	 *
-	 * @param string $key     Key.
-	 * @param int    $expires The new `expires` column.
-	 * @return bool Whether a live row holds the key.
-	 */
-	private function touched( string $key, int $expires ): bool {
-		return $this->update_expiry( $key, $expires ) > 0 || [] !== $this->select_rows( [ $key ] );
-	}
-
-	/**
-	 * Move a live row's expiry.
-	 *
-	 * @param string $key     Key.
-	 * @param int    $expires The new `expires` column.
-	 * @return int Rows changed.
-	 */
-	abstract protected function update_expiry( string $key, int $expires ): int;
-
-	/**
-	 * Run a per-key operation over a batch in one write scope. A statement
-	 * that fails fails the batch, which answers no keys; an empty batch takes
-	 * no write lock.
-	 *
-	 * @param list<string>              $keys The keys.
-	 * @param \Closure(string): bool $took Whether the operation took effect on a key.
-	 * @return list<string> The keys it took effect on.
-	 */
-	private function held( array $keys, \Closure $took ): array {
-		if ( [] === $keys ) {
-			return [];
-		}
-		return $this->attempt( fn (): array => $this->write_scope( fn (): array => $this->taking( $keys, $took ) ), [] );
-	}
 
 	/** See Cache_Backend::compare_and_swap(). */
 	public function compare_and_swap( string $key, int $expected, int $replacement ): bool {
@@ -436,7 +386,7 @@ abstract class Durable_Arm extends Cache_Backend {
 			function () use ( $set_keys, $limit ): array {
 				$out = [];
 				foreach ( \array_unique( $set_keys ) as $set_key ) {
-					$rows = $this->select_member_rows( $set_key, $limit + 1, null );
+					$rows = $this->select_member_rows( $set_key, $limit + 1 );
 					if ( [] !== $rows ) {
 						$out[ $set_key ] = \count( $rows ) > $limit ? null : $this->decoded( $rows );
 					}
@@ -450,37 +400,6 @@ abstract class Durable_Arm extends Cache_Backend {
 			Core::print_less_often( 'Table member read failed: ', $this->last_failure() );
 		}
 		return $found;
-	}
-
-	/**
-	 * `SSCAN`: one page of a set, up to `$limit` live members in member order
-	 * after `$after`, by an exact seek on `( set_key, member )` that reads one
-	 * row past the page to tell whether more remain. A null `$after` starts
-	 * at the set's lowest member; any other string seeks past it, whether or
-	 * not the set holds it. A limit below 1 reads nothing, and a failed read
-	 * is logged.
-	 *
-	 * @param string  $set_key Entry key of the set.
-	 * @param int     $limit   Most members the page answers.
-	 * @param ?string $after   The member the page starts after, or null.
-	 * @return array{0: array<array-key,mixed>, 1: bool}|false Member => value,
-	 *         and whether members remain past it; false when the store failed.
-	 */
-	public function member_page( string $set_key, int $limit, ?string $after ): array|false {
-		if ( $limit < 1 ) {
-			return [ [], false ];
-		}
-		$page = $this->attempt(
-			function () use ( $set_key, $limit, $after ): array {
-				$rows = $this->select_member_rows( $set_key, $limit + 1, $after );
-				return [ $this->decoded( \array_slice( $rows, 0, $limit ) ), \count( $rows ) > $limit ];
-			},
-			false
-		);
-		if ( false === $page ) {
-			Core::print_less_often( 'Table member read failed: ', $this->last_failure() );
-		}
-		return $page;
 	}
 
 	/**
@@ -510,7 +429,7 @@ abstract class Durable_Arm extends Cache_Backend {
 		return $this->attempt(
 			fn (): array => $this->write_scope(
 				function () use ( $from, $to, $count ): array {
-					$rows = $this->select_member_rows( $from, $count, null );
+					$rows = $this->select_member_rows( $from, $count );
 					if ( [] === $rows ) {
 						return [];
 					}
@@ -547,15 +466,13 @@ abstract class Durable_Arm extends Cache_Backend {
 	}
 
 	/**
-	 * Up to `$limit` live rows of one set in member order, raw stored bytes,
-	 * each past `$after` when it is not null.
+	 * Up to `$limit` live rows of one set in member order, raw stored bytes.
 	 *
-	 * @param string  $set_key Entry key of the set.
-	 * @param int     $limit   Most rows.
-	 * @param ?string $after   The member the rows start after, or null.
+	 * @param string $set_key Entry key of the set.
+	 * @param int    $limit   Most rows.
 	 * @return list<array{0:string,1:string,2:int}> [ member, bytes, expires ].
 	 */
-	abstract protected function select_member_rows( string $set_key, int $limit, ?string $after ): array;
+	abstract protected function select_member_rows( string $set_key, int $limit ): array;
 
 	/**
 	 * `SREM`: delete the named members of one set. An expired member the
@@ -630,6 +547,20 @@ abstract class Durable_Arm extends Cache_Backend {
 	 */
 	protected static function now(): int {
 		return (int) ( null !== Core::$clock ? ( Core::$clock )() : \time() );
+	}
+
+	/**
+	 * Refused: a durable row keeps the expiry it was written with. Only the
+	 * volatile arms that `local_first()` and `shared_first()` resolve slide
+	 * an expiry, for a lease its holder refreshes.
+	 *
+	 * @param string $key The cache key.
+	 * @param int    $ttl New expiry in seconds.
+	 * @return never
+	 * @throws \LogicException Always.
+	 */
+	public function touch( string $key, int $ttl ): never {
+		throw new \LogicException( 'a durable arm slides no expiry' );
 	}
 
 	/**

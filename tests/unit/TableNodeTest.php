@@ -81,14 +81,16 @@ class TableNodeTest extends TestCase {
 	}
 
 	/**
-	 * What an MGET of `$keys` answers, as key => value.
+	 * What one `GET` per key answers, as key => value.
 	 *
-	 * @return array<string,mixed>
+	 * @return array<array-key,mixed>
 	 */
-	private function mget( Table_Node $table, string ...$keys ): array {
+	private function read_back( Table_Node $table, string ...$keys ): array {
 		$sink = new Capture_Sink_Node();
 		$table->sink( $sink );
-		$table->fill( $this->request( 'MGET ' . \implode( ' ', $keys ) ) );
+		foreach ( $keys as $key ) {
+			$table->fill( $this->request( "GET {$key}" ) );
+		}
 		$found = [];
 		foreach ( $sink->captured as $reply ) {
 			if ( 0 === ( $reply[ Message::TYPE ] & ( Message::TM_INFO | Message::TM_ERROR ) ) ) {
@@ -200,7 +202,7 @@ class TableNodeTest extends TestCase {
 		[ $table, $sink ] = $this->table();
 		$info                   = Message::new_message();
 		$info[ Message::TYPE ]  = Message::TM_INFO;
-		$info[ Message::VALUE ] = "MGET 37\n";
+		$info[ Message::VALUE ] = "GET 37\n";
 
 		$table->fill( $info );
 
@@ -366,47 +368,6 @@ class TableNodeTest extends TestCase {
 		$this->assertNull( $table->lookup( 'sku-9' ) );
 	}
 
-	public function test_touch_moves_an_entry_s_expiry_to_the_call_s_ttl(): void {
-		// A caller refreshing an entry dates it to its own window, so the
-		// touch takes the call's lifetime where store() takes the table's.
-		$table = Table_Node::table( 'prices', 300 );
-		$table->store( 'sku-9', 'held' );
-		$this->memd->get_calls = 0;
-
-		$this->assertTrue( $table->touch( 'sku-9', 4471 ) );
-
-		$this->assertEqualsWithDelta(
-			\time() + 4471,
-			$this->memd->expiries()[ Cache_Backend::entry_key( 'prices', 'sku-9' ) ],
-			2
-		);
-		$this->assertSame( 'held', $table->lookup( 'sku-9' ), 'the value is left as it was' );
-		$this->assertSame( 1, $this->memd->touches, 'one touch' );
-		$this->assertSame( 1, $this->memd->get_calls, 'and the lookup its only read' );
-	}
-
-	public function test_touch_reports_an_absent_entry(): void {
-		$table = Table_Node::table( 'prices', 300 );
-
-		$this->assertFalse( $table->touch( 'sku-404', 4471 ) );
-		$this->assertArrayNotHasKey( Cache_Backend::entry_key( 'prices', 'sku-404' ), $this->memd->expiries() );
-	}
-
-	public function test_touch_reports_a_backend_error_as_unknown_not_absent(): void {
-		$table = Table_Node::table( 'prices', 300 );
-		$table->store( 'sku-9', 'held' );
-		$this->memd->fail_touch( Cache_Backend::entry_key( 'prices', 'sku-9' ), \Memcached::RES_CONNECTION_FAILURE );
-
-		$this->assertNull( $table->touch( 'sku-9', 4471 ) );
-	}
-
-	public function test_touch_reports_unknown_with_no_backend(): void {
-		$table      = Table_Node::table( 'prices', 300 );
-		Core::$memd = null;
-
-		$this->assertNull( $table->touch( 'sku-9', 4471 ) );
-	}
-
 	public function test_store_and_forget_survive_a_backend_that_went_away(): void {
 		// Every other cache path here fails soft; a ruleset save must not fatal
 		// because memcached died after the table was built. A table built with
@@ -448,62 +409,6 @@ class TableNodeTest extends TestCase {
 		$this->assertSame( [ 'usd' => 100 ], $table->lookup( 'sku-1' ), 'the stored value wins over the backing' );
 	}
 
-	public function test_store_multi_writes_every_entry_in_one_backend_call(): void {
-		// ELN's stats flush issues one read-modify-write per key and two of
-		// its loops are per URL, so the write path is where a full-window
-		// replay decays. Seeds distinct from every default: three skus,
-		// values 707/808/909.
-		$table = Table_Node::table( 'prices', 60 );
-
-		$this->assertTrue( $table->store_multi( [
-			'sku-707' => [ 'usd' => 707 ],
-			'sku-808' => [ 'usd' => 808 ],
-			'sku-909' => [ 'usd' => 909 ],
-		] ) );
-
-		$this->assertSame(
-			[ 'sku-707' => [ 'usd' => 707 ], 'sku-808' => [ 'usd' => 808 ], 'sku-909' => [ 'usd' => 909 ] ],
-			$this->mget( $table, 'sku-707', 'sku-808', 'sku-909' ),
-			'every entry must be readable back under the caller\'s own key'
-		);
-	}
-
-	public function test_store_multi_survives_an_all_digit_key(): void {
-		// PHP coerces an all-digit array key to int whatever the docblock says,
-		// and entry_key() takes a string. A url_hash can be all digits.
-		$table = Table_Node::table( 'prices', 60 );
-		$this->assertTrue( $table->store_multi( [ '9777777777777' => [ 'usd' => 41 ] ] ) );
-		$this->assertSame(
-			[ '9777777777777' => [ 'usd' => 41 ] ],
-			$this->mget( $table, '9777777777777' )
-		);
-	}
-
-	public function test_store_multi_writes_nothing_for_an_empty_set(): void {
-		$table = Table_Node::table( 'prices', 60 );
-		$this->assertTrue( $table->store_multi( [] ), 'an empty batch is a no-op, not a failure' );
-	}
-
-	public function test_mget_asks_the_backing_once_for_every_miss(): void {
-		$table = Table_Node::table( 'prices', 60 );
-		$table->store( 'sku-1', [ 'usd' => 100 ] );
-		$calls = 0;
-		$table->backed_by(
-			static function ( array $keys ) use ( &$calls ): array {
-				++$calls;
-				return [ 'sku-2' => [ 'value' => [ 'usd' => 200 ] ], 'sku-3' => [ 'value' => [ 'usd' => 300 ] ] ];
-			}
-		);
-
-		$found = $this->mget( $table, 'sku-1', 'sku-2', 'sku-3' );
-
-		$this->assertSame(
-			[ 'sku-1' => [ 'usd' => 100 ], 'sku-2' => [ 'usd' => 200 ], 'sku-3' => [ 'usd' => 300 ] ],
-			$found
-		);
-		$this->assertSame( 1, $calls, 'one backing call for every miss, not one per key' );
-	}
-
 	public function test_a_backing_entry_may_carry_its_own_remaining_lifetime(): void {
 		// A restored entry resumes the life it had left, not a fresh table TTL.
 		$table = Table_Node::table( 'prices', 600 );
@@ -528,11 +433,11 @@ class TableNodeTest extends TestCase {
 			}
 		);
 
-		$this->assertSame( [ 'sku-2' => [ 'usd' => 200 ] ], $this->mget( $table, 'sku-2', 'sku-5', 'sku-6' ) );
+		$this->assertSame( [ 'sku-2' => [ 'usd' => 200 ] ], $this->read_back( $table, 'sku-2', 'sku-5', 'sku-6' ) );
 		$this->assertNull( $table->lookup( 'sku-5' ) );
-		$this->assertSame( [ 'sku-2' => [ 'usd' => 200 ] ], $this->mget( $table, 'sku-2', 'sku-5', 'sku-6' ) );
+		$this->assertSame( [ 'sku-2' => [ 'usd' => 200 ] ], $this->read_back( $table, 'sku-2', 'sku-5', 'sku-6' ) );
 
-		$this->assertSame( [ [ 'sku-2', 'sku-5', 'sku-6' ], [ 'sku-5' ], [ 'sku-5', 'sku-6' ] ], $calls );
+		$this->assertSame( [ [ 'sku-2' ], [ 'sku-5' ], [ 'sku-6' ], [ 'sku-5' ], [ 'sku-5' ], [ 'sku-6' ] ], $calls );
 		$this->assertSame(
 			[ Cache_Backend::entry_key( 'prices', 'sku-2' ) ],
 			\array_keys( $this->memd->expiries() ),
@@ -556,7 +461,7 @@ class TableNodeTest extends TestCase {
 		$this->memd->set( Cache_Backend::entry_key( 'prices', 'sku-4471' ), "\0table:absent", 600 );
 
 		$this->assertSame( "\0table:absent", $table->lookup( 'sku-4471' ) );
-		$this->assertSame( [ 'sku-4471' => "\0table:absent" ], $this->mget( $table, 'sku-4471' ) );
+		$this->assertSame( [ 'sku-4471' => "\0table:absent" ], $this->read_back( $table, 'sku-4471' ) );
 		$this->assertSame( 0, $asked, 'a hit never reaches the backing' );
 	}
 
@@ -615,68 +520,6 @@ class TableNodeTest extends TestCase {
 		);
 	}
 
-	public function test_lookup_multi_returns_found_only_keyed_by_the_callers_key(): void {
-		$table = Table_Node::table( 'prices', 60 );
-		$table->store( 'sku-1', [ 'usd' => 100 ] );
-		$table->store( 'sku-3', [ 'usd' => 300 ] );
-
-		$this->assertSame(
-			[ 'sku-1' => [ 'usd' => 100 ], 'sku-3' => [ 'usd' => 300 ] ],
-			$table->lookup_multi( [ 'sku-1', 'sku-2', 'sku-3' ] ),
-			'absent keys are omitted, present ones keyed as the caller asked'
-		);
-	}
-
-	public function test_lookup_multi_reports_a_broken_batch_to_a_caller_that_asks(): void {
-		$table = Table_Node::table( 'prices', 60 );
-		$table->store( 'sku-6120', [ 'usd' => 6120 ] );
-		Core::$memd = new class() extends InMemoryMemcached {
-			public function getMulti( array $keys, int $get_flags = 0 ): array|false {
-				return false;
-			}
-		};
-
-		$failed = false;
-		$this->assertSame( [], $table->lookup_multi( [ 'sku-6120' ], $failed ) );
-		$this->assertTrue( $failed );
-	}
-
-	public function test_lookup_multi_reports_a_backing_rescue_as_a_failed_batch_still(): void {
-		$table = Table_Node::table( 'prices', 60 );
-		$table->backed_by( static fn ( array $keys ): array => [ 'sku-71' => [ 'value' => [ 'usd' => 71 ] ] ] );
-		Core::$memd = new class() extends InMemoryMemcached {
-			public function getMulti( array $keys, int $get_flags = 0 ): array|false {
-				return false;
-			}
-		};
-
-		$failed = false;
-		$this->assertSame( [ 'sku-71' => [ 'usd' => 71 ] ], $table->lookup_multi( [ 'sku-71', 'sku-72' ], $failed ) );
-		$this->assertTrue( $failed, 'no cache backend answered, whatever the backing returned' );
-	}
-
-	public function test_lookup_multi_reports_no_failure_for_a_read_that_answered(): void {
-		$table = Table_Node::table( 'prices', 60 );
-		$table->store( 'sku-5150', [ 'usd' => 5150 ] );
-
-		$failed = true;
-		$this->assertSame( [ 'sku-5150' => [ 'usd' => 5150 ] ], $table->lookup_multi( [ 'sku-5150', 'sku-absent' ], $failed ) );
-		$this->assertFalse( $failed );
-	}
-
-	public function test_lookup_multi_reports_a_lost_backend_as_a_failed_read(): void {
-		$table      = Table_Node::table( 'prices', 60 );
-		$prev       = Core::$memd;
-		Core::$memd = null;
-		try {
-			$failed = false;
-			$this->assertSame( [], $table->lookup_multi( [ 'sku-1' ], $failed ) );
-			$this->assertTrue( $failed, 'no backend answered, so nothing was read' );
-		} finally {
-			Core::$memd = $prev;
-		}
-	}
-
 	public function test_a_request_naming_an_unknown_verb_is_refused_to_its_asker(): void {
 		// A silent drop would read as an empty table; a refusal says why.
 		[ $table, $sink ] = $this->table();
@@ -697,11 +540,11 @@ class TableNodeTest extends TestCase {
 		$this->assertNull( $table->lookup( 'sku-9' ) );
 	}
 
-	/** The eleven verbs are catalogued for `help` and the Inspector, and answered by fill(). */
+	/** The six verbs are catalogued for `help` and the Inspector, and answered by fill(). */
 	public function test_the_verbs_are_declared_without_a_handler_and_help_lists_them(): void {
 		$requests = Table_Node::node_schema()['requests'];
 
-		$this->assertSame( [ 'GET', 'MGET', 'SMEMBERS', 'SSCAN', 'SMOVE', 'SREM', 'TOUCH', 'RM', 'MSET', 'ADD', 'SADD' ], \array_column( $requests, 'name' ) );
+		$this->assertSame( [ 'GET', 'SMOVE', 'SREM', 'RM', 'ADD', 'SADD' ], \array_column( $requests, 'name' ) );
 		foreach ( $requests as $request ) {
 			$this->assertArrayNotHasKey( 'handler', $request );
 			$this->assertNotSame( '', $request['reply_shape'] ?? '' );
@@ -719,8 +562,8 @@ class TableNodeTest extends TestCase {
 	public function test_each_structured_request_declares_its_one_json_map(): void {
 		$requests = \array_column( Table_Node::node_schema()['requests'], 'args', 'name' );
 		$values   = \array_column( Table_Node::node_schema()['requests'], 'value', 'name' );
-		$this->assertSame( [ 'MSET' => 'struct', 'ADD' => 'struct', 'SADD' => 'struct' ], $values, 'the three structured requests declare their VALUE, and no other request does' );
-		foreach ( [ 'MSET', 'ADD', 'SADD' ] as $verb ) {
+		$this->assertSame( [ 'ADD' => 'struct', 'SADD' => 'struct' ], $values, 'the two structured requests declare their VALUE, and no other request does' );
+		foreach ( [ 'ADD', 'SADD' ] as $verb ) {
 			$this->assertCount( 1, $requests[ $verb ], $verb );
 			$this->assertSame( [ 'name' => 'map', 'type' => 'json', 'required' => true ], \array_diff_key( $requests[ $verb ][0], [ 'description' => true ] ), $verb );
 			$this->assertStringContainsString( ' => [ ', $requests[ $verb ][0]['description'], "{$verb} describes its payload shape" );
@@ -768,79 +611,6 @@ class TableNodeTest extends TestCase {
 		// share a keyspace with every other unnamed table.
 		$this->expectException( \InvalidArgumentException::class );
 		Table_Node::table( '', 37 );
-	}
-
-	public function test_accumulating_yields_nothing_without_an_accumulator(): void {
-		$table = Table_Node::table( 'prices', 60 );
-
-		$this->assertSame( [], \iterator_to_array( $table->accumulating() ) );
-	}
-
-	// ── Accumulator: an opt-in in-memory tier the caller drains ────────────
-
-	private function accumulating_table(): Table_Node {
-		return Table_Node::table( 'agg', 60 )->accumulator( 1000, 5 );
-	}
-
-	public function test_accumulate_holds_the_value_without_writing_it(): void {
-		// The tier Flame_Builder needs: un-persisted state it folds into and
-		// drains on its own cadence, NOT a write-through cache of storage.
-		$table = $this->accumulating_table();
-
-		$table->accumulate( 'h1', [ 'count' => 3 ] );
-
-		$this->assertNull( $table->lookup( 'h1' ), 'accumulate() must not reach the backend' );
-		$this->assertSame( [ 'count' => 3 ], $table->accumulated( 'h1' ) );
-	}
-
-	public function test_accumulated_falls_back_to_stored_when_nothing_is_held(): void {
-		$table = $this->accumulating_table();
-		$table->store( 'h2', [ 'count' => 9 ] );
-
-		$this->assertSame( [ 'count' => 9 ], $table->accumulated( 'h2' ), 'a cold key reads through to storage' );
-	}
-
-	public function test_accumulating_walks_what_is_held_for_the_drain(): void {
-		$table = $this->accumulating_table();
-		$table->accumulate( 'h1', [ 'count' => 1 ] );
-		$table->accumulate( 'h2', [ 'count' => 2 ] );
-
-		$seen = [];
-		foreach ( $table->accumulating() as $key => $value ) {
-			$seen[ (string) $key ] = $value;
-		}
-
-		$this->assertSame( [ 'h1' => [ 'count' => 1 ], 'h2' => [ 'count' => 2 ] ], $seen );
-	}
-
-	public function test_a_drain_does_not_clear_what_is_held(): void {
-		// set_url_stats() overwrites the whole aggregate, so draining twice is
-		// idempotent; clearing here would lose the accumulation between flushes.
-		$table = $this->accumulating_table();
-		$table->accumulate( 'h1', [ 'count' => 1 ] );
-
-		foreach ( $table->accumulating() as $key => $value ) {
-			$table->store( (string) $key, $value );
-		}
-
-		$this->assertSame( [ 'count' => 1 ], $table->accumulated( 'h1' ), 'still held after the drain' );
-	}
-
-	public function test_reset_drops_what_is_held(): void {
-		$table = $this->accumulating_table();
-		$table->accumulate( 'h1', [ 'count' => 1 ] );
-
-		$table->reset();
-
-		$this->assertSame( [], \iterator_to_array( $table->accumulating() ) );
-	}
-
-	public function test_accumulating_without_opting_in_is_refused(): void {
-		// Silently dropping the value would lose counts; say so instead.
-		$table = Table_Node::table( 'agg', 60 );
-
-		$this->expectException( \LogicException::class );
-		$table->accumulate( 'h1', [ 'count' => 1 ] );
 	}
 
 	// ── Backends: a Table names where it keeps its entries ────────────────
@@ -1049,20 +819,6 @@ class TableNodeTest extends TestCase {
 		}
 	}
 
-	public function test_touch_refuses_a_ttl_below_one_second(): void {
-		$table = Table_Node::table( 'prices', 37 );
-		$table->store( 'sku-9', 'timed' );
-		foreach ( [ 0, -3 ] as $ttl ) {
-			try {
-				$table->touch( 'sku-9', $ttl );
-				$this->fail( "touch() took a TTL of {$ttl}" );
-			} catch ( \InvalidArgumentException $e ) {
-				$this->assertSame( "Table prices needs a TTL of at least 1 whole second, not {$ttl}", $e->getMessage() );
-			}
-		}
-		$this->assertEqualsWithDelta( \time() + 37, $this->memd->expiries()[ Cache_Backend::entry_key( 'prices', 'sku-9' ) ], 2, 'the refused touch left the expiry alone' );
-	}
-
 	public function test_the_ttl_positional_is_required_and_declares_no_default(): void {
 		$ttl = \array_values( \array_filter( Table_Node::node_schema()['arguments'], static fn ( array $arg ): bool => 'ttl' === $arg['name'] ) )[0];
 		$this->assertTrue( $ttl['required'] );
@@ -1227,7 +983,8 @@ class TableNodeTest extends TestCase {
 		$db                    = $this->use_wpdb();
 		$db->base_prefix       = 'kea7_';
 		$table = Table_Node::table( 'kea:p3', 37, 'wpdb' );
-		$this->assertTrue( $table->store_multi( [ 'sku-41' => [ 'usd' => 41 ], 'sku-43' => [ 'usd' => 43 ] ] ) );
+		$this->assertTrue( $table->store( 'sku-41', [ 'usd' => 41 ] ) );
+		$this->assertTrue( $table->store( 'sku-43', [ 'usd' => 43 ] ) );
 		$this->assertSame(
 			[ [ 'n' => 2 ] ],
 			$db->get_results( "SELECT COUNT(*) AS n FROM kea7_newspack_nodes_table WHERE namespace = 'kea:p3'" ),
@@ -1235,8 +992,7 @@ class TableNodeTest extends TestCase {
 		);
 		$this->assertSame( [], $this->memd->keys(), 'and nowhere in memcached' );
 		Core::$memd = null;
-		$this->assertSame( [ 'sku-41' => [ 'usd' => 41 ], 'sku-43' => [ 'usd' => 43 ] ], $this->mget( $table, 'sku-41', 'sku-43', 'sku-44' ) );
-		$this->assertTrue( $table->touch( 'sku-41', 777 ) );
+		$this->assertSame( [ 'sku-41' => [ 'usd' => 41 ], 'sku-43' => [ 'usd' => 43 ] ], $this->read_back( $table, 'sku-41', 'sku-43', 'sku-44' ) );
 		$table->forget( 'sku-43' );
 		$this->assertNull( $table->lookup( 'sku-43' ) );
 		$this->assertSame( [ 'kea:p3', '37', 'wpdb' ], $table->arguments() );
@@ -1286,8 +1042,6 @@ class TableNodeTest extends TestCase {
 	public function test_every_write_refuses_a_key_holding_whitespace(): void {
 		[ $table, $sink ] = $this->table();
 		$this->assertFalse( $table->store( 'sku 41', 1 ) );
-		$this->assertFalse( $table->store_multi( [ 'sku-43' => 1, "sku\n44" => 2 ] ) );
-		$this->assertNull( $table->lookup( 'sku-43' ) );
 		$table->fill( $this->keyed( "sku\t45", 'v' ) );
 		$this->assertSame( [], $sink->captured, 'a refused INSERT is neither stored nor forwarded' );
 		$this->assertNull( $table->lookup( "sku\t45" ) );
@@ -1350,7 +1104,8 @@ class TableNodeTest extends TestCase {
 		Core::$now        = $now;
 		$router           = $this->router();
 		[ $table, $rows ] = $this->durable( 37 );
-		$table->store_multi( [ 'sku-41' => 1, 'sku-42' => 2 ] );
+		$table->store( 'sku-41', 1 );
+		$table->store( 'sku-42', 2 );
 		$now      += 37;
 		Core::$now = $now;
 		$router->fire_cb();
@@ -1396,7 +1151,7 @@ class TableNodeTest extends TestCase {
 		for ( $i = 0; $i < 2 * Table_Node::PURGE_BATCH_ROWS + 1; ++$i ) {
 			$items[ "sku-{$i}" ] = $i;
 		}
-		$this->assertTrue( $table->store_multi( $items ) );
+		self::seed_table( $table, $items );
 		$reads       = 0;
 		Core::$clock = static function () use ( &$reads ): float {
 			return 1790000037.0 + 0.03 * $reads++;
@@ -1411,7 +1166,7 @@ class TableNodeTest extends TestCase {
 		for ( $i = 0; $i < $batches * Table_Node::PURGE_BATCH_ROWS + $extra; ++$i ) {
 			$items[ "{$tag}-{$i}" ] = $i;
 		}
-		$this->assertTrue( $table->store_multi( $items ) );
+		self::seed_table( $table, $items );
 	}
 
 	public function test_a_table_left_behind_spends_the_backlog_budget_until_a_batch_comes_back_short(): void {

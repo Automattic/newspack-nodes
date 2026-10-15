@@ -29,6 +29,11 @@ abstract class CacheBackendContract extends TestCase {
 		return true;
 	}
 
+	/** Whether `touch()` moves a live key's expiry, rather than refusing. */
+	protected function slides_expiry(): bool {
+		return true;
+	}
+
 	protected function setUp(): void {
 		parent::setUp();
 		$this->clock = self::T0;
@@ -56,7 +61,9 @@ abstract class CacheBackendContract extends TestCase {
 		$arm = $this->arm();
 		$arm->write_multi( [ 'kea-exp:n' => 41, 'kea-exp:c' => 43, 'kea-exp:t' => 1, 'kea-exp:d' => 2 ], 37 );
 		$this->clock += 37;
-		$this->assertFalse( $arm->touch( 'kea-exp:t', 777 ) );
+		if ( $this->slides_expiry() ) {
+			$this->assertFalse( $arm->touch( 'kea-exp:t', 777 ) );
+		}
 		$this->assertFalse( $arm->increment( 'kea-exp:n' ) );
 		$this->assertFalse( $arm->decrement( 'kea-exp:n' ) );
 		$this->assertFalse( $arm->compare_and_swap( 'kea-exp:c', 43, 47 ) );
@@ -94,6 +101,10 @@ abstract class CacheBackendContract extends TestCase {
 	public function test_touch_moves_expiry_and_reports_an_absent_key(): void {
 		$arm = $this->arm();
 		$arm->set( 'kea-touch', 'v', 37 );
+		if ( ! $this->slides_expiry() ) {
+			$this->expectException( \LogicException::class );
+			$this->expectExceptionMessage( 'a durable arm slides no expiry' );
+		}
 		$this->assertTrue( $arm->touch( 'kea-touch', 600 ) );
 		$this->assertFalse( $arm->touch( 'kea-never', 600 ) );
 		if ( $this->moves_clock() ) {
@@ -102,19 +113,13 @@ abstract class CacheBackendContract extends TestCase {
 		}
 	}
 
-	public function test_delete_multi_and_touch_multi_answer_the_keys_they_took_effect_on(): void {
+	public function test_delete_multi_answers_the_keys_it_took_effect_on(): void {
 		$arm = $this->arm();
 		$arm->write_multi( [ 'sku-41' => 'kea-41', 'sku-43' => 'kea-43' ], 37 );
-		$this->assertSame( [ 'sku-43', 'sku-41' ], $arm->touch_multi( [ 'sku-43', 'sku-47', 'sku-41' ], 777 ) );
-		if ( $this->moves_clock() ) {
-			$this->clock += 300;
-			$this->assertSame( 'kea-43', $arm->get( 'sku-43' ), 'the touch moved the expiry' );
-		}
 		$this->assertSame( [ 'sku-41' ], $arm->delete_multi( [ 'sku-47', 'sku-41' ] ) );
 		$this->assertFalse( $arm->get( 'sku-41' ) );
 		$this->assertSame( 'kea-43', $arm->get( 'sku-43' ) );
 		$this->assertSame( [], $arm->delete_multi( [] ) );
-		$this->assertSame( [], $arm->touch_multi( [], 777 ) );
 	}
 
 	public function test_the_arm_declares_whether_a_batch_is_atomic(): void {

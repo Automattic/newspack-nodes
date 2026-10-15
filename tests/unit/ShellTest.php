@@ -639,12 +639,12 @@ class ShellTest extends TestCase {
 
 	public function test_parse_request_struct_yields_TM_REQUEST_STRUCT_with_decoded_value(): void {
 		$shell   = new Shell_Node();
-		$message = $shell->parse( "request_struct flame-stats:table '{\"MSET\":{\"kea-4417\":[\"weka\",913]}}'" );
+		$message = $shell->parse( "request_struct flame-stats:table '{\"ADD\":{\"kea-4417\":[\"weka\",913]}}'" );
 
 		$this->assertNotNull( $message );
 		$this->assertSame( Message::TM_REQUEST | Message::TM_STRUCT, $message[ Message::TYPE ] );
 		$this->assertSame( 'flame-stats:table', $message[ Message::TO ] );
-		$this->assertSame( [ 'MSET' => [ 'kea-4417' => [ 'weka', 913 ] ] ], $message[ Message::VALUE ] );
+		$this->assertSame( [ 'ADD' => [ 'kea-4417' => [ 'weka', 913 ] ] ], $message[ Message::VALUE ] );
 	}
 
 	public function test_parse_request_struct_node_is_an_alias(): void {
@@ -660,7 +660,7 @@ class ShellTest extends TestCase {
 		$capture = $this->register_output_capture();
 		$shell   = new Shell_Node();
 
-		$this->assertNull( $shell->parse( "request_struct moa '{MSET:}'" ), 'Invalid JSON must not produce a message.' );
+		$this->assertNull( $shell->parse( "request_struct moa '{ADD:}'" ), 'Invalid JSON must not produce a message.' );
 		$this->assertStringContainsString( 'request_struct: ', $capture->captured[0][ Message::VALUE ] );
 	}
 

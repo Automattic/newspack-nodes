@@ -210,14 +210,14 @@
         "values": [
             "request_struct_node",
             "depot/beacon",
-            "{\"MSET\":{\"kea\":[\"weka\",37]}}"
+            "{\"ADD\":{\"kea\":[\"weka\",37]}}"
         ],
         "spans": [
             "request_struct_node",
             "depot/beacon",
-            "'{\"MSET\":{\"kea\":[\"weka\",37]}}'"
+            "'{\"ADD\":{\"kea\":[\"weka\",37]}}'"
         ],
-        "raw": "request_struct_node depot/beacon '{\"MSET\":{\"kea\":[\"weka\",37]}}'"
+        "raw": "request_struct_node depot/beacon '{\"ADD\":{\"kea\":[\"weka\",37]}}'"
     },
     {
         "verb": "send_eof",

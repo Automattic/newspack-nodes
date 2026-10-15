@@ -1149,7 +1149,7 @@ short.
 **Decision:** [`Table_Node::backed_by( \Closure $backing )`](../includes/class-table-node.php) on the read path, and
 [`Partition_Node::locate_by( \Closure $extract, array $wanted )`](../includes/class-partition-node.php) + `read_many()` underneath.
 
-![Eight hops across four lanes: the caller, Table_Node, the backing closure and Partition_Node. A miss, an expiry and a backend read error all fall through the backing; MGET asks once for every miss; the app calls locate_by with its line parser and the wanted keys, bounding the walk, and reads by key never by position; Partition walks the .idx sidecars newest-first so the first hit is the last write, skipping a segment whose index is unreadable; a class-level memo keyed by directory records what was found and what was searched and is discarded on a new extent or past MAX_LOCATOR_MEMO_KEYS 100,000; read_many reads one handle per segment; a spent ttl is served and not warmed while live entries are warmed grouped by lifetime, best-effort; a miss is never remembered, so every one reaches the backing; the caller cannot tell a backed miss from absent everywhere. Cards give the one wrong answer, the rejected shapes and why the remaining-TTL and newest-record rules are one rule.](img/adr-table-backing.png)
+![Eight hops across four lanes: the caller, Table_Node, the backing closure and Partition_Node. A miss, an expiry and a backend read error all fall through the backing, asked once with the keys a read missed; the app calls locate_by with its line parser and the wanted keys, bounding the walk, and reads by key never by position; Partition walks the .idx sidecars newest-first so the first hit is the last write, skipping a segment whose index is unreadable; a class-level memo keyed by directory records what was found and what was searched and is discarded on a new extent or past MAX_LOCATOR_MEMO_KEYS 100,000; read_many reads one handle per segment; a spent ttl is served and not warmed while live entries are warmed grouped by lifetime, best-effort; a miss is never remembered, so every one reaches the backing; the caller cannot tell a backed miss from absent everywhere. Cards give the one wrong answer, the rejected shapes and why the remaining-TTL and newest-record rules are one rule.](img/adr-table-backing.png)
 
 That does not reopen "one table, one lifetime", which governs what a CALLER stores: a
 backing is re-materializing an entry that already had a life, and handing it a fresh full
@@ -1188,7 +1188,7 @@ yet resolved — answers null, and the read is a miss; null and an empty answer 
 caller alike, and the table stores nothing on the strength of either. `tests/unit/TableNodeTest.php`
 pins each rule.
 
-A failed cache read is a failed read only when a key went unread: a `GET` or `MGET` request
+A failed cache read is a failed read only when a key went unread: a `GET` request
 answers `TM_ERROR` when the arm failed and no backing looked at the misses, so a read the
 backing answered is a read that succeeded.
 
@@ -1211,8 +1211,7 @@ misses cost a walk bounds that cost itself, where it knows which keys can still 
 
 **Consequences:** A table with a backing cannot report a miss the caller can
 distinguish from "absent everywhere" — that is the point. The backing is invoked on the read
-path, so a slow system of record becomes read latency; `MGET` batching keeps that to
-one walk per read rather than one per key. A key the record does not hold costs that walk on
+path, so a slow system of record becomes read latency, one walk per read. A key the record does not hold costs that walk on
 every read, because nothing records that it was absent.
 
 **Revisit if:** a backing whose cost makes synchronous read-through wrong — at which point the
@@ -1517,7 +1516,7 @@ gate, so a `node_schema()['requests']` entry declares no capability.
 A Table is the one node a request reaches without its worker. `topologies mount_tables`
 mounts every Table an active topology declares into the request graph through
 `Bootstrap::mount_table()`, and it too declares MANAGE by declaring no capability. A mount
-serves reads alone: it answers `GET`, `MGET`, `SMEMBERS` and `SSCAN`, and refuses every write request, an
+serves reads alone: it answers `GET`, and refuses every write request, an
 INSERT, and its `:config` interpreter's `flush` and `vacuum`, because the declaring worker is the
 Table's one writer ([ADR-6](#adr-6-crc32--31-bit-mask-partition-routing)). A `sqlite` mount
 opens its file read-only, creates nothing, and reads as empty until its worker has written
@@ -1530,25 +1529,22 @@ A request may drive a running graph. A declared request answers TO=FROM through
 [`tachikoma-lineage.md`](tachikoma-lineage.md#a-declared-request-answers-in-an-envelope-tables-verbs-answer-bare)
 records.
 
-**Amendment:** a request carries a structure for a Table's `MSET`, `ADD` and `SADD` and a
+**Amendment:** a request carries a structure for a Table's `ADD` and `SADD` and a
 Row_Table's `ROWS` alone. A Table's
-`MSET` and `ADD` carry `key => [ value, ttl ]` maps, and its `SADD` carries
+`ADD` carries `key => [ value, ttl ]` maps, and its `SADD` carries
 `set_key => [ [ member => value, … ], ttl ]` maps, that a string cannot hold without an
-encoding, so they travel as `TM_REQUEST | TM_STRUCT` with VALUE `[ 'MSET' => … ]`,
-`[ 'ADD' => … ]` or `[ 'SADD' => … ]`; every other request, `SMEMBERS` and `SSCAN` included, stays a
+encoding, so they travel as `TM_REQUEST | TM_STRUCT` with VALUE `[ 'ADD' => … ]` or
+`[ 'SADD' => … ]`; every other request, `SMOVE` and `SREM` included, stays a
 string. A Row_Table's `ROWS` carries a list of row ops the same way, VALUE
 `[ 'ROWS' => [ [ op, table, row, then?, ids? ], … ] ]`, written in one transaction, and
 answers as every Table write does, a bare `TM_RESPONSE` `ROWS <written>`, or a
 `TM_ERROR` carrying the arm's message; a Row_Table refuses every keyed request, a keyed
-Table refuses `ROWS`, and a mount refuses it as it refuses every write. Each of the four declares it on its `requests` entry, `'value' => 'struct'`, and
+Table refuses `ROWS`, and a mount refuses it as it refuses every write. Each of the three declares it on its `requests` entry, `'value' => 'struct'`, and
 every sender reads that declaration: the console's verb dialog sends `TM_REQUEST | TM_STRUCT`
-for such an entry alone, and never infers one from the types of its args. `SMEMBERS` answers one message per set, as `MGET` answers one per key: `TM_STRUCT`
-with the set's `[ member, value ]` pairs, or `TM_BYTESTREAM "OVER <limit>"` and no members for
-a set holding more than the limit, told from a member list by its type as `MGET` tells a
-string value from an array. `topologies mount_tables` mounts Tables into a request graph and
+for such an entry alone, and never infers one from the types of its args. `topologies mount_tables` mounts Tables into a request graph and
 declares MANAGE, as `connect_worker_input` does. A Table a verb below MANAGE mounts to read
 stays mounted for the rest of that POST: a later verb or request in it reads through the same
-mount, and `Bootstrap::mount_table()` keeps a mount already there and builds nothing. A verb may mount a Table only when every row it holds is data the verb's declared role may already read, because for the rest of the POST any caller holding that role can `MGET` any key, or `SMEMBERS` or `SSCAN` any set, through the mount; a Table holding more is mounted under MANAGE alone.
+mount, and `Bootstrap::mount_table()` keeps a mount already there and builds nothing. A verb may mount a Table only when every row it holds is data the verb's declared role may already read, because for the rest of the POST any caller holding that role can `GET` any key through the mount; a Table holding more is mounted under MANAGE alone.
 
 **Alternatives considered:** Signing requests as commands are signed — rejected: the mount
 already demands MANAGE of every outside caller before a request can reach a worker, so a
@@ -1560,9 +1556,9 @@ rejected: the handler runs in a worker, where no WordPress user is current, so
 Inside a worker, a node filling a request into another — a Timer firing `TICK` at a source —
 acts with the authority that loaded the topology. A verb whose caller must be told apart
 from another MANAGE holder by session scope is a command, because only a command carries
-the minter's session into the worker. A verb may mount a Table only when every row it holds is data the verb's declared role may already read, because for the rest of the POST any caller holding that role can `MGET` any key, or `SMEMBERS` or `SSCAN` any set, through the mount; a Table holding more is mounted under MANAGE alone. A mounting verb's output
-is not the bound: `HTTP_In` filters no message type, so a raw `MGET`, `SMEMBERS` or `SSCAN` in the same POST names any
-key or set, including one the verb never shows.
+the minter's session into the worker. A verb may mount a Table only when every row it holds is data the verb's declared role may already read, because for the rest of the POST any caller holding that role can `GET` any key through the mount; a Table holding more is mounted under MANAGE alone. A mounting verb's output
+is not the bound: `HTTP_In` filters no message type, so a raw `GET` in the same POST names any
+key, including one the verb never shows.
 
 **Revisit if:** anything writes into a worker's input Partition below MANAGE — a verb that
 mounts it under a lower role, or a second writer beside the attached cli — or a Table must be
@@ -1596,8 +1592,8 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
   write it.
 - The writer alone creates the file, enters WAL and declares its table. A request-graph mount
   opens it read-only and changes nothing in it. A partition
-  whose worker has not yet written has no file, and its mount reads as empty: every `GET` and
-  `MGET` finds nothing, and each read looks for the file again, so one the worker creates
+  whose worker has not yet written has no file, and its mount reads as empty: every `GET`
+  finds nothing, and each read looks for the file again, so one the worker creates
   mid-request is read from then on. Each partition mounts on its own, so one idle worker
   empties only its own partition. A path SQLite cannot open is `Table_Unavailable`; a file
   that opens but is no database, or holds no table, fails each read instead. A mount in a
@@ -1679,18 +1675,16 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
   4 KiB at open and 4.6 MB reading 500 random keys of a 266 MB file. `mmap_size` stays 0: it
   cost a fresh connection 0.5 ms per 500 random keys on eve and paid only on a warm one, and
   a mount's connection lives one request.
-- Set members are durable-only. `SADD` and `SMEMBERS` store and read one row per member in a
+- Set members are durable-only. `SADD` and `members_of()` store and read one row per member in a
   table of their own beside the keyed rows — `members` in the SQLite file,
   `{base_prefix}newspack_nodes_members` for wpdb — keyed `( set_key, member )`, so a member
   read is an exact set-key seek, `ORDER BY member` with a LIMIT one past the asked limit,
   at most `Table_Node::MAX_MEMBERS_LIMIT` + 1, and never a range. Each set is read and let
   go before the next, so a set past its limit costs its rows once, never all sets' at once,
-  and a row no serializer wrote fails the read as it fails a keyed read. `SSCAN` pages one
-  set past that ceiling: the same seek with `member > ?` from a cursor, the page's last
-  member percent-encoded as `after=<member>`, so no set is too large to read and none is read
-  by offset. `add_members()`, `members()`, `member_page()`, `move_members()` and
-  `remove_members()` are `Durable_Arm`'s alone, and a Table whose backend is not durable
-  refuses all five verbs as it refuses `vacuum`, on
+  and a row no serializer wrote fails the read as it fails a keyed read.
+  `add_members()`, `members()`, `move_members()` and `remove_members()` are `Durable_Arm`'s
+  alone, and a Table whose backend is not durable refuses `SADD`, `SMOVE`, `SREM` and
+  `members_of()` as it refuses `vacuum`, on
   `instanceof Durable_Arm`: `<VERB>: needs a durable backend; <table> is <backend>`. `SMOVE`
   and `SREM`, which move and delete members, are one transaction on sqlite; `SMOVE` on wpdb
   holds none, so a racing caller or a mid-move failure can leave a member in both sets. Nothing
@@ -1763,7 +1757,7 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
 per file appears.
 
 **Amendment:** a `sqlite` Table rewrites a row in place, prepares each fixed statement once,
-and runs the keys of one `TOUCH` or `RM` as one batch.
+and runs the keys of one `RM` as one batch.
 
 - A rewrite is an UPSERT: `kv` writes `INSERT … ON CONFLICT ( "key" ) DO UPDATE`, which keeps
   the row's rowid and so its autoindex entry, and `members` writes
@@ -1773,8 +1767,8 @@ and runs the keys of one `TOUCH` or `RM` as one batch.
   is prepared per call. UPSERT needs SQLite 3.24; eve's `pdo_sqlite` links 3.46.1. On eve,
   against a staging-shaped 671 MB file, an `MSET` call wrote 724 WAL frames as
   `INSERT OR REPLACE` and 540 as an UPSERT.
-- `Cache_Backend::delete_multi()` and `touch_multi()` take the keys of one request and answer
-  the ones that took effect. A volatile arm loops over `delete()` and `touch()`. `Durable_Arm`
+- `Cache_Backend::delete_multi()` takes the keys of one request and answers the ones that
+  took effect. A volatile arm loops over `delete()`. `Durable_Arm`
   runs the whole batch of an atomic arm in one `write_scope()`, so on SQLite it is one
   transaction for the request rather than one per key, and a statement that fails fails
   the batch: the arm answers no keys, and SQLite has rolled every one back. A non-atomic arm

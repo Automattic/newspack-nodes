@@ -160,7 +160,6 @@ final class WpdbArmTest extends TestCase {
 		$p4->set( 'sku-43', 'p4', 37 );
 		$this->assertFalse( $p4->get( 'sku-41' ) );
 		$this->assertFalse( $p4->delete( 'sku-41' ) );
-		$this->assertFalse( $p4->touch( 'sku-41', 777 ) );
 		$this->assertSame( 'p3', $p3->get( 'sku-41' ) );
 		$this->assertTrue( $p4->delete( 'sku-43' ) );
 		$this->assertSame( 'p3', $p3->get( 'sku-43' ) );
@@ -209,12 +208,11 @@ final class WpdbArmTest extends TestCase {
 		$this->assertSame( [ 'sku-41' => 8, 'sku-42' => 2 ], $arm->read_multi( [ 'sku-41', 'sku-42' ] ) );
 	}
 
-	public function test_a_batched_delete_or_touch_answers_the_keys_that_landed_before_a_failure(): void {
+	public function test_a_batched_delete_answers_the_keys_that_landed_before_a_failure(): void {
 		$arm = new Wpdb_Arm( 'kea:p3' );
 		$arm->write_multi( [ 'sku-41' => 'kea-41', 'sku-43' => 'kea-43' ], 777 );
 		$this->assertFalse( $arm->batch_is_atomic() );
 		$this->db->deny['sku-43'] = 'Lock wait timeout 4473';
-		$this->assertSame( [ 'sku-41' ], $arm->touch_multi( [ 'sku-41', 'sku-43' ], 900 ) );
 		$this->assertSame( [ 'sku-41' ], $arm->delete_multi( [ 'sku-41', 'sku-43' ] ) );
 		unset( $this->db->deny['sku-43'] );
 		$this->assertFalse( $arm->get( 'sku-41' ) );
@@ -367,7 +365,6 @@ final class WpdbArmTest extends TestCase {
 		$this->db->deny['UPDATE'] = 'Lock wait timeout exceeded';
 		$this->db->deny['INSERT'] = 'Lock wait timeout exceeded';
 		$this->assertNull( $arm->delete( 'sku-41' ), 'a delete the server did not answer is unknown, not absent' );
-		$this->assertNull( $arm->touch( 'sku-41', 37 ), 'a touch the server did not answer is unknown, not absent' );
 		$this->assertSame( 0, $arm->purge( 1790099999, 10 )['rows'] );
 		$this->assertFalse( $arm->set( 'sku-42', 1, 0 ) );
 		$this->assertFalse( $arm->add( 'sku-43', 1, 0 ) );
@@ -435,19 +432,6 @@ final class WpdbArmTest extends TestCase {
 		$this->assertCount( 2, $reads );
 		$this->assertStringContainsString( "WHERE namespace = 'kea:p3' AND set_key = 'owl:set-7' AND expires > ", $reads[0] );
 		$this->assertStringEndsWith( 'ORDER BY member LIMIT 14', $reads[0], 'one row past the limit tells a full set from one over it' );
-	}
-
-	public function test_a_member_page_seeks_past_its_cursor_on_the_primary_key(): void {
-		$arm = new Wpdb_Arm( 'kea:p3' );
-		$arm->add_members( [ 'owl:set-7' => [ [ 'm-41' => 1 ], 777 ] ] );
-		$this->db->sent = [];
-		$arm->member_page( 'owl:set-7', 13, 'm-29' );
-		$arm->member_page( 'owl:set-7', 13, null );
-		$reads = $this->sent( 'SELECT' );
-		$this->assertCount( 2, $reads );
-		$this->assertStringContainsString( "WHERE namespace = 'kea:p3' AND set_key = 'owl:set-7' AND member > 'm-29' AND expires > ", $reads[0] );
-		$this->assertStringEndsWith( 'ORDER BY member LIMIT 14', $reads[0], 'one row past the page tells whether more remain' );
-		$this->assertStringNotContainsString( 'member >', $reads[1], 'the first page seeks the set alone' );
 	}
 
 	public function test_two_namespaces_never_see_each_others_members(): void {

@@ -402,7 +402,7 @@ final class BootstrapNodeTablesTest extends TestCase {
 		Bootstrap::mount_table( [ 'lab-7:kea' ] );
 		$asker = new Capture_Sink_Node();
 		$asker->name( 'kea-asker' );
-		foreach ( [ 'RM sku-41', 'TOUCH 37 sku-41' ] as $write ) {
+		foreach ( [ 'RM sku-41', 'SREM word:kea u-41' ] as $write ) {
 			$request                   = Message::new_message();
 			$request[ Message::TYPE ]  = Message::TM_REQUEST;
 			$request[ Message::FROM ]  = 'kea-asker';
@@ -459,9 +459,9 @@ final class BootstrapNodeTablesTest extends TestCase {
 		$request[ Message::TYPE ]  = Message::TM_REQUEST;
 		$request[ Message::FROM ]  = 'kea-asker';
 		$request[ Message::TO ]    = 'lab-7:kea.p1';
-		$request[ Message::VALUE ] = "MGET sku-0 sku-1\n";
+		$request[ Message::VALUE ] = "GET sku-0\n";
 		Core::node( Node_Names::COMMAND_INTERPRETER )->fill( $request );
-		$this->assertSame( [ [ Message::TM_INFO, "MGET 0\n" ] ], \array_map( static fn ( array $m ): array => [ Core::num_int( $m[ Message::TYPE ] ), $m[ Message::VALUE ] ], $asker->captured ), 'no file is no data, not a failed read' );
+		$this->assertSame( [ [ Message::TM_INFO, "GET 0\n" ] ], \array_map( static fn ( array $m ): array => [ Core::num_int( $m[ Message::TYPE ] ), $m[ Message::VALUE ] ], $asker->captured ), 'no file is no data, not a failed read' );
 		$this->assertFileDoesNotExist( "{$this->base}/tables/lab-7:kea.p1.sqlite" );
 	}
 
