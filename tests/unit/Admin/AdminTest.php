@@ -159,10 +159,10 @@ class AdminTest extends TestCase {
 
 		$cb = $GLOBALS['_registered_settings']['newspack_nodes_num_partitions']['args']['sanitize_callback'];
 
-		$this->assertSame( 16, \call_user_func( $cb, '4177' ), 'above max must clamp to the declared max' );
+		$this->assertSame( 8, \call_user_func( $cb, '4177' ), 'above max must clamp to the declared max' );
 		$this->assertSame( 1, \call_user_func( $cb, '0' ), 'below min must clamp to the declared min' );
 		$this->assertSame( 1, \call_user_func( $cb, '-9' ) );
-		$this->assertSame( 9, \call_user_func( $cb, '9' ), 'an in-range value passes through' );
+		$this->assertSame( 7, \call_user_func( $cb, '7' ), 'an in-range value passes through' );
 	}
 
 	public function test_register_settings_clamps_the_remote_options_from_the_same_declaration(): void {
@@ -751,7 +751,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertStringContainsString( 'max="' . \PHP_INT_MAX . '"', $html );
 	}
 
-	// ---- num_partitions_callback (render_number_field, max=16 → small-text) --
+	// ---- num_partitions_callback (render_number_field, max=8 → small-text) --
 
 	public function test_num_partitions_callback_renders_number_input_with_bounds(): void {
 		$admin = new Admin();
@@ -764,7 +764,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertStringContainsString( 'name="newspack_nodes_num_partitions"', $html );
 		$this->assertStringContainsString( 'id="num_partitions"', $html );
 		$this->assertStringContainsString( 'min="1"', $html );
-		$this->assertStringContainsString( 'max="16"', $html );
+		$this->assertStringContainsString( 'max="8"', $html );
 		// max <= 999 → small-text input class.
 		$this->assertStringContainsString( 'class="small-text"', $html );
 		// Per-field reset toggle.

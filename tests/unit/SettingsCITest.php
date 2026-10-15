@@ -205,6 +205,13 @@ class SettingsCITest extends TestCase {
 		$this->assertSame( 13, $result['num_segments'] );
 	}
 
+	public function test_set_verb_refuses_nine_partitions(): void {
+		$result = VerbHarness::fire( new Settings_CI_Node(), 'settings', 'set', 'num_partitions 9' );
+
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( 'invalid value for setting', $result );
+	}
+
 	public function test_set_verb_rejects_a_value_outside_the_declared_bounds(): void {
 		$interpreter = new Settings_CI_Node();
 		$result      = VerbHarness::fire( $interpreter, 'settings', 'set', 'max_segments ' . \PHP_INT_MAX );

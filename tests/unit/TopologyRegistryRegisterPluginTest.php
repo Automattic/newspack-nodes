@@ -134,16 +134,16 @@ class TopologyRegistryRegisterPluginTest extends TestCase {
 		$this->assertSame( 4, $catalog['widget']['num_partitions'], 'omitted num_partitions resolves to the substrate option' );
 	}
 
-	public function test_catalog_num_partitions_clamps_to_16(): void {
+	public function test_catalog_num_partitions_clamps_to_8(): void {
 		$dir = $this->make_temp_dir();
 		$this->seed_topology( $dir, 'widget' );
-		\update_option( 'newspack_nodes_num_partitions', 99 );
+		\update_option( 'newspack_nodes_num_partitions', 13 );
 		\Newspack_Nodes\Config::reset();
 		Topology_Registry::register_plugin( 'Acme\\', $dir );
 
 		$catalog = \apply_filters( 'newspack_nodes/topologies', [] );
 
-		$this->assertSame( 16, $catalog['widget']['num_partitions'], 'num_partitions clamps to 16' );
+		$this->assertSame( 8, $catalog['widget']['num_partitions'], 'num_partitions clamps to 8' );
 	}
 
 	// ── spawn_worker: ungated, driven by the active set ───────────────────

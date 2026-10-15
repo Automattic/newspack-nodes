@@ -19,7 +19,7 @@
 
 <div class="grid">
 <div>
-  <div class="step"><span class="n">1</span><span><b>Build the declared set.</b> Every active topology's resolved directories, each counted to at most <span class="mono">Spawn_Coordinator::MAX_PARTITIONS</span>, 16; log directories also come from the <span class="mono">newspack_nodes/registered_log_producers</span> templates. A set that will not build comes back null, and then neither bucket is swept: the red card opposite.</span></div>
+  <div class="step"><span class="n">1</span><span><b>Build the declared set.</b> Every active topology's resolved directories, each counted to at most <span class="mono">Spawn_Coordinator::MAX_PARTITIONS</span>, 8; log directories also come from the <span class="mono">newspack_nodes/registered_log_producers</span> templates. A set that will not build comes back null, and then neither bucket is swept: the red card opposite.</span></div>
   <div class="dn">↓</div>
   <div class="step"><span class="n">2</span><span><b>Pick the buckets: first-level directories under two roots, and Table files.</b>
     <span class="buckets">
@@ -48,8 +48,8 @@
     <p><span class="mono">offsets/jobdelay-sweep.p0</span> is created by PHP and declared by no <span class="mono">.tsl</span>; the producer filter protects <span class="mono">logs/jobdelay.p0/</span> alone. Each sweep's checkpoint keeps it inside the hour, but <span class="mono">--force</span> removes it, and the next sweep starts at the head of <span class="mono">jobdelay.p0</span> and re-delivers every entry the log retains: delayed jobs and in-flight retry backoffs run again. Renaming the reader id by hand does the same.</p>
   </div>
   <div class="callout">
-    <h4>Victim: a Topic wider than 16 partitions</h4>
-    <p><span class="mono">Topic_Node</span> clamps <span class="mono">num_partitions</span> to at least 1 and no maximum, so a literal 32 writes 32 directories, while <span class="mono">Topology_Analyzer::declared_partition_count()</span> stops the declared count at 16. <span class="mono">Log_Cleaner::declared_log_dirs()</span> never hears of <span class="mono">foo.p16</span> and up, which are deleted once their hour of grace passes, and <span class="mono">resolved_node_dirs()</span> carries the same cap, so <span class="mono">Bootstrap::node_dirs()</span> hands a reader the first 16 alone. The <span class="mono">dir_template cannot expand to num_partitions</span> error fires only when a template produces FEWER directories. The <span class="mono">num_partitions</span> setting is bounded 1..16 for this reason; hold a hand-written <span class="mono">.tsl</span> literal to it.</p>
+    <h4>Victim: a Topic wider than 8 partitions</h4>
+    <p><span class="mono">Topic_Node</span> clamps <span class="mono">num_partitions</span> to at least 1 and no maximum, so a literal 32 writes 32 directories, while <span class="mono">Topology_Analyzer::declared_partition_count()</span> stops the declared count at 8. <span class="mono">Log_Cleaner::declared_log_dirs()</span> never hears of <span class="mono">foo.p8</span> and up, which are deleted once their hour of grace passes, and <span class="mono">resolved_node_dirs()</span> carries the same cap, so <span class="mono">Bootstrap::node_dirs()</span> hands a reader the first 8 alone. The <span class="mono">dir_template cannot expand to num_partitions</span> error fires only when a template produces FEWER directories. The <span class="mono">num_partitions</span> setting is bounded 1..8 for this reason; hold a hand-written <span class="mono">.tsl</span> literal to it.</p>
   </div>
 </div>
 </div>

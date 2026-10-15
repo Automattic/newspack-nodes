@@ -361,7 +361,7 @@ class SpawnControllerTest extends TestCase {
 			'huge' => [ 'num_partitions' => 9999, 'topology' => '/x.php' ],
 		] );
 		// Even with malformed topology, MAX_PARTITIONS still caps.
-		$this->assertFalse( $this->controller->validate_partition( 'huge', 16 ) );
+		$this->assertFalse( $this->controller->validate_partition( 'huge', 8 ) );
 		$this->assertFalse( $this->controller->validate_partition( 'huge', 100 ) );
 	}
 

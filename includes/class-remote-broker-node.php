@@ -79,7 +79,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 * leave a cursor dir for each across restarts. An exact source is bounded by
 	 * configuration and never counts. One broker carries one spoke's streams,
 	 * and a glob over a topic claims one stamp per partition: the cap is the
-	 * `num_partitions` maximum, 16, times a 16× margin for globs.
+	 * `num_partitions` maximum, 8, times a 32× margin for globs.
 	 */
 	public const MAX_READERS = 256;
 

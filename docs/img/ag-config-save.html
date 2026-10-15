@@ -40,7 +40,7 @@
 </div>
 
 <div class="doors">
-  <div class="d1"><h4>Door 1 · the settings page</h4><span class="mono">Field::sanitize_callback()</span> CLAMPS a bounded int silently: 900 typed into Num Partitions stores 16 with no notice. Every rendered numeric setting declares an inclusive min and max, and the bounds bind at the two doors alone, never on read.</div>
+  <div class="d1"><h4>Door 1 · the settings page</h4><span class="mono">Field::sanitize_callback()</span> CLAMPS a bounded int silently: 900 typed into Num Partitions stores 8 with no notice. Every rendered numeric setting declares an inclusive min and max, and the bounds bind at the two doors alone, never on read.</div>
   <div class="d2"><h4>Door 2 · the <span class="mono">settings</span> verb</h4><span class="mono">Settings_CI_Node::cmd_set()</span> REFUSES with <span class="mono">invalid value for setting: &lt;key&gt;</span>, because a programmatic caller must be told rather than handed another number. A <span class="mono">set</span> to the value already stored is a no-op, so Settings_Sync's sweep never recycles the fleet.</div>
   <div class="d3"><h4>No door · a file or a direct option write</h4>Taken as written, and nothing clamps it: <span class="mono">Partition_Node</span> throws only below a <span class="mono">segment_size</span> of 1, so a config file naming 5 gives five-byte segments. <span class="mono">SSE_Slot_Pool</span> is the one family that re-clamps on read.</div>
 </div>

@@ -103,7 +103,7 @@ class Field {
 		 * derives its clamp. Declared HERE because bounds belong to the
 		 * setting, not to one of its consumers: the settings page and the
 		 * `settings` service verb both read this one declaration, so an option
-		 * cannot mean 1..16 through the page and 1..2^30 through the verb.
+		 * cannot mean 1..8 through the page and 1..2^30 through the verb.
 		 *
 		 * @api
 		 */

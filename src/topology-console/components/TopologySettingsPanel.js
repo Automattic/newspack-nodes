@@ -48,7 +48,7 @@ const NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
  * `Bootstrap` clamps to it while expanding workers, so a larger declared count
  * spawns nothing extra and only misleads whoever reads the file.
  */
-const MAX_PARTITIONS = 16;
+const MAX_PARTITIONS = 8;
 
 /**
  * The frontmatter map as `[ name, value ]` pairs, in the map's own order.

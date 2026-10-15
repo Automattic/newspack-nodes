@@ -51,7 +51,7 @@ call presenting no valid one returns `403 Forbidden`.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `type` | string | yes | Worker type, which is also the topology name (see `wp nodes types`). The route's `validate_callback` refuses a type no ACTIVE topology declares, so an unknown one never reaches the handler. |
-| `partition` | int | yes | Partition index, 0-based. Must be below both the type's active partition count and `Spawn_Coordinator::MAX_PARTITIONS` (16). |
+| `partition` | int | yes | Partition index, 0-based. Must be below both the type's active partition count and `Spawn_Coordinator::MAX_PARTITIONS` (8). |
 | `nonce` | string | yes | Either the internal HMAC token or a WordPress nonce for the `newspack_nodes_spawn_worker` action — one field, two validators. |
 
 The internal token is

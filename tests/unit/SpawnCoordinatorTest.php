@@ -259,7 +259,7 @@ class SpawnCoordinatorTest extends TestCase {
 
 	public function test_constants_match_spec(): void {
 		$this->assertSame( 15, Spawn_Coordinator::MIN_SPAWN_INTERVAL_S );
-		$this->assertSame( 16, Spawn_Coordinator::MAX_PARTITIONS );
+		$this->assertSame( 8, Spawn_Coordinator::MAX_PARTITIONS );
 	}
 
 	// ── worker_needs_spawn: heartbeat-missing-but-dir-exists ─────────────
@@ -787,12 +787,12 @@ class SpawnCoordinatorTest extends TestCase {
 			'cold-start-workers' => [ 'num_partitions' => 1, 'topology' => '/cs.tsl' ],
 		] );
 		\mkdir( "{$this->tmp}/locks/retired-type.p0.lock.d", 0755, true );
-		\mkdir( "{$this->tmp}/locks/retired-type.p9.lock.d", 0755, true );
+		\mkdir( "{$this->tmp}/locks/retired-type.p7.lock.d", 0755, true );
 
 		( new Spawn_Coordinator( $this->tmp ) )->kill_readers( [ 'retired-type' ] );
 
 		$this->assertTrue( \Newspack_Nodes\Lock_Node::is_restart_pending( "{$this->tmp}/locks/retired-type.p0.lock.d" ) );
-		$this->assertTrue( \Newspack_Nodes\Lock_Node::is_restart_pending( "{$this->tmp}/locks/retired-type.p9.lock.d" ) );
+		$this->assertTrue( \Newspack_Nodes\Lock_Node::is_restart_pending( "{$this->tmp}/locks/retired-type.p7.lock.d" ) );
 	}
 
 	// ── the deploy hold ───────────────────────────────────────────────────

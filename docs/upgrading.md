@@ -6,6 +6,16 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`num_partitions` above 8 is clamped to 8 and refused by the settings
+  verb.** `Spawn_Coordinator::MAX_PARTITIONS` is 8, so a topology declaring
+  more spawns 8 workers, the settings page stores at most 8, `settings set
+  num_partitions 9` fails with `invalid value for setting`, and the spawn route
+  answers `400 invalid_partition` for partition 8 and up. Lower any stored
+  `newspack_nodes_num_partitions` option, `var num_partitions` line or
+  `'num_partitions'` topology entry above 8. A Topic declared wider than 8 still
+  writes its extra directories, which the log sweep reclaims as orphans after
+  their hour of grace.
+
 - **Deploy this release, newspack-event-logger-nodes at its 2.110.0 floor
   and newspack-intelligence rebuilt against it in ONE deploy.** The handshake
   holds only one way: a consumer whose floor is below 2.110.0 passes it and

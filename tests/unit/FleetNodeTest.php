@@ -127,9 +127,9 @@ class FleetNodeTest extends TestCase {
 	}
 
 	public function test_a_router_tick_inside_the_scan_interval_does_not_rescan(): void {
-		// Twelve partitions down against a four-per-pass cap: a second pass two
+		// Seven partitions down against a four-per-pass cap: a second pass two
 		// seconds later would post four MORE. Only the timer holds it at four.
-		$this->with_topology( [ 'ledger-workers' => [ 'num_partitions' => 12, 'topology' => '/ledger.php' ] ] );
+		$this->with_topology( [ 'ledger-workers' => [ 'num_partitions' => 7, 'topology' => '/ledger.php' ] ] );
 		$fleet = $this->mount_fleet();
 		$start = 1893456123.0;
 
@@ -208,7 +208,7 @@ class FleetNodeTest extends TestCase {
 		// Each POST is a BLOCKING curl (250ms). Unbounded, a cold fleet would
 		// spend the whole tick in syscalls instead of draining messages.
 		$this->with_topology( [
-			'ledger-workers' => [ 'num_partitions' => 12, 'topology' => '/ledger.php' ],
+			'ledger-workers' => [ 'num_partitions' => 7, 'topology' => '/ledger.php' ],
 		] );
 
 		Core::right_now();
