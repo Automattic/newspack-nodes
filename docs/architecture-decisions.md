@@ -1702,7 +1702,8 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
 - The purge catches up. A tick that stops with a Table's last batch full leaves it behind
   and says so in a rate-limited line. The Tables due on one tick share one deadline:
   `PURGE_BACKLOG_BUDGET_S` (250 ms) while any is behind, 50 ms otherwise, and the first
-  short batch catches a Table up. Every due Table runs at least one batch, so a tick holds
+  batch that is not full catches a Table up. A batch is full when a Row_Table's retained
+  table fills its share of it, not only when the rows sum to the batch. Every due Table runs at least one batch, so a tick holds
   the loop for one budget plus one batch a Table. The one 5,000-row batch a minute the
   normal budget guarantees sits below the ~5,300 rows a minute one partition's aggregate
   Table in event-logger-nodes expires at 12.0 M entries, ~4,200 of them search-index

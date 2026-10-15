@@ -59,26 +59,24 @@ final class Sqlite_Arm extends Durable_Arm {
 
 	/**
 	 * Page cache per connection, in KiB: 64 MiB, against SQLite's 2 MB
-	 * default. Staging's aggregate file is ~300 MB and its worker reads back
-	 * the current hour's keys before each write, a working set the default
-	 * evicts between messages: 500 random keys took 46 ms there against
-	 * 5.7 ms for adjacent ones. The worker's long-lived connection is the one
-	 * that keeps pages; a mount's lives one request. SQLite allocates a page
-	 * only when a statement touches it, so this is a ceiling: on eve a reader
-	 * grew 4 KiB at open and 4.6 MB reading 500 random keys of a 266 MB file.
-	 * `mmap_size` stays 0: on eve it cost a fresh connection 0.5 ms per 500
-	 * random keys and paid only on a warm one, which no mount is.
+	 * default. It bounds how much of a file a worker's long-lived connection
+	 * keeps between messages, so a write reading back the rows it is about to
+	 * fold finds their pages cached rather than read again; a mount's
+	 * connection lives one request. SQLite allocates a page only when a
+	 * statement touches it, so this is a ceiling, never an allocation at
+	 * open. `mmap_size` stays 0: a fresh connection, which every mount is,
+	 * pays to map a file that only a warm one reads back faster.
 	 */
 	public const CACHE_KIB = 65536;
 
 	/**
 	 * Bytes the writer's WAL file is cut back to once a checkpoint rewinds
 	 * it: 64 MiB. SQLite writes a rewound WAL from its start and otherwise
-	 * keeps the file at its high-water mark, so one stalled checkpoint or one
-	 * backfill would hold its size on disk for good. At staging's ~630 frames
-	 * a second one `Table_Node::CHECKPOINT_INTERVAL_S` writes ~75 MB, so a
-	 * steady interval regrows only its last ~10 MB past the cap, while a
-	 * burst gives back everything above it.
+	 * keeps the file at its high-water mark, so without this one stalled
+	 * checkpoint or one backfill would hold its size on disk for good. A
+	 * steady `Table_Node::CHECKPOINT_INTERVAL_S` regrows the WAL only by what
+	 * one interval writes past the cap, and a burst gives back everything
+	 * above it.
 	 */
 	public const WAL_LIMIT_BYTES = 67108864;
 
@@ -427,28 +425,40 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * See Durable_Arm::purge(); with what the limit leaves, each row table's
 	 * rows past their `retain` window, each table in its own transaction with
 	 * the names its purge releases. A table whose purge fails is rolled back
-	 * and logged, and the rows earlier tables gave up still count.
+	 * and logged, and the rows earlier tables gave up still count. The purge
+	 * is full when any table filled its share, or the limit ran out before a
+	 * table was read, because a share is a fraction of the limit and the rows
+	 * alone never reach it.
 	 *
 	 * @param int $now   Epoch second.
 	 * @param int $limit Most rows to delete, every table together.
-	 * @return int Rows deleted.
+	 * @return array{rows:int, full:bool}
 	 */
-	public function purge( int $now, int $limit ): int {
-		$purged = parent::purge( $now, $limit );
-		$tables = null === $this->rows ? [] : $this->rows['tables'];
+	public function purge( int $now, int $limit ): array {
+		[ 'rows' => $purged, 'full' => $full ] = parent::purge( $now, $limit );
+		$tables                                = null === $this->rows ? [] : $this->rows['tables'];
 		foreach ( $tables as $table => $spec ) {
-			if ( $purged >= $limit || ! isset( $spec['retain'] ) ) {
+			if ( ! isset( $spec['retain'] ) ) {
 				continue;
 			}
+			if ( $purged >= $limit ) {
+				$full = true;
+				break;
+			}
 			try {
-				$purged += $this->write_scope( fn (): int => $this->purge_retained( $tables, $table, $spec['retain'], $now, $limit - $purged ) );
+				[ $rows, $filled ] = $this->write_scope( fn (): array => $this->purge_retained( $tables, $table, $spec['retain'], $now, $limit - $purged ) );
 			} catch ( \PDOException $e ) {
 				$this->failure = $e->getMessage();
 				Core::print_less_often( 'Table purge failed: ', $this->last_failure() );
-				return $purged;
+				break;
 			}
+			$purged += $rows;
+			$full    = $full || $filled;
 		}
-		return $purged;
+		return [
+			'rows' => $purged,
+			'full' => $full,
+		];
 	}
 
 	/** See Cache_Backend::last_failure(). */
@@ -470,9 +480,10 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * @param array{0:string,1:int,2:int} $retain Its `retain`.
 	 * @param int                       $now    Epoch second.
 	 * @param int                       $budget Most rows, names included.
-	 * @return int Rows deleted.
+	 * @return array{0:int, 1:bool} Rows deleted, and whether the table's own
+	 *                              filled its share, so more may wait.
 	 */
-	private function purge_retained( array $tables, string $table, array $retain, int $now, int $budget ): int {
+	private function purge_retained( array $tables, string $table, array $retain, int $now, int $budget ): array {
 		$named_by = [];
 		foreach ( $tables as $names => $names_spec ) {
 			if ( isset( $names_spec['retained_by'] ) && $table === $names_spec['retained_by'][0] ) {
@@ -481,7 +492,7 @@ final class Sqlite_Arm extends Durable_Arm {
 		}
 		$take = \intdiv( $budget, 1 + \count( $named_by ) );
 		if ( 0 === $take ) {
-			return 0;
+			return [ 0, true ];
 		}
 		[ $column, $window, $unit ] = $retain;
 		$returning                  = \array_values( \array_unique( \array_column( $named_by, 1 ) ) );
@@ -492,13 +503,14 @@ final class Sqlite_Arm extends Durable_Arm {
 		$gone    = $stmt->fetchAll( \PDO::FETCH_ASSOC );
 		// pdo_sqlite counts no changes for a statement with RETURNING.
 		$deleted = [] === $returning ? $stmt->rowCount() : \count( $gone );
+		$full    = $take === $deleted;
 		foreach ( $named_by as $names => $retained_by ) {
 			$ids = \array_values( \array_filter( \array_column( $gone, $retained_by[1] ), static fn ( mixed $id ): bool => null !== $id ) );
 			if ( [] !== $ids ) {
 				$deleted += $this->run( $this->release_sql( $names, $retained_by ), [ (string) \wp_json_encode( $ids ) ] );
 			}
 		}
-		return $deleted;
+		return [ $deleted, $full ];
 	}
 
 	/**

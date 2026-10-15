@@ -6,6 +6,11 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`Durable_Arm::purge( $now, $limit )` answers `{ rows, full }`.** A caller
+  reading the rows deleted reads `['rows']`; `full` says whether more may
+  wait, which the count alone cannot for a Row_Table. `Table_Node::purge()`
+  still answers the rows.
+
 - **A Row_Table and a `sqlite` Table cannot share a name across active
   topologies.** Both claim `{base}/tables/<name>.p{N}.sqlite`, so
   `wp nodes activate` refuses the pair. Rename one. A Row_Table's files are kept by

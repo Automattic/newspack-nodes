@@ -13,9 +13,9 @@ abstract class DurableArmContract extends CacheBackendContract {
 		$arm->write_multi( [ 'kea-p1' => 1, 'kea-p2' => 2, 'kea-p3' => 3 ], 37 );
 		$arm->set( 'kea-forever', 4, 0 );
 		$this->clock += 37;
-		$this->assertSame( 2, $arm->purge( (int) $this->clock, 2 ) );
-		$this->assertSame( 1, $arm->purge( (int) $this->clock, 2 ) );
-		$this->assertSame( 0, $arm->purge( (int) $this->clock, 2 ) );
+		$this->assertSame( 2, $arm->purge( (int) $this->clock, 2 )['rows'] );
+		$this->assertSame( 1, $arm->purge( (int) $this->clock, 2 )['rows'] );
+		$this->assertSame( 0, $arm->purge( (int) $this->clock, 2 )['rows'] );
 		$this->assertSame( 4, $arm->get( 'kea-forever' ) );
 	}
 
@@ -135,9 +135,9 @@ abstract class DurableArmContract extends CacheBackendContract {
 		$arm->write_multi( [ 'kea-p1' => 1, 'kea-p2' => 2 ], 37 );
 		$arm->add_members( [ 'owl:set-7' => [ [ 'm-1' => 1, 'm-2' => 2 ], 37 ], 'owl:set-9' => [ [ 'm-3' => 3 ], 37 ], 'owl:set-11' => [ [ 'm-4' => 4 ], 777 ] ] );
 		$this->clock += 37;
-		$this->assertSame( 4, $arm->purge( (int) $this->clock, 4 ), 'kv rows and members share the one limit' );
-		$this->assertSame( 1, $arm->purge( (int) $this->clock, 4 ) );
-		$this->assertSame( 0, $arm->purge( (int) $this->clock, 4 ) );
+		$this->assertSame( 4, $arm->purge( (int) $this->clock, 4 )['rows'], 'kv rows and members share the one limit' );
+		$this->assertSame( 1, $arm->purge( (int) $this->clock, 4 )['rows'] );
+		$this->assertSame( 0, $arm->purge( (int) $this->clock, 4 )['rows'] );
 		$this->assertSame( [ 'owl:set-11' => [ 'm-4' => 4 ] ], $arm->members( [ 'owl:set-11' ], 9 ) );
 	}
 

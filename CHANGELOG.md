@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A Row_Table purge that falls behind says so and keeps going.** A table that `retained_by` names tables reference takes only its share of a batch, so its rows never filled one: a backlog stopped the purge after one batch and read as caught up. `Durable_Arm::purge()` answers `{ rows, full }`, full when the keyed and member rows fill the limit, a retained table fills its share, or the limit runs out before a table is read; the tick loops and judges a Table behind on `full`. `Table_Node::purge()` still answers the rows deleted.
+
 - **A dashboard Firefox restores from its back/forward cache reloads.** Firefox resumed such a page with React's scheduler stalled: a click still sent its command and the reply still reached its view node, but nothing outside a click or keypress ever rendered again, so every filter and sort looked dead. The runtime now installs one page-global `pageshow` listener that reloads any page restored from the cache, in every browser that restores one; Chrome loaded these wp-admin pages fresh on Back in testing, so there it did not fire. Every consumer inlines the runtime, so a page gets the listener once any one of its bundles is rebuilt against this release, whichever bundle created `Core`.
 
 ## [2.110.2] - 2026-10-15

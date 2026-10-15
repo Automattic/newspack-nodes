@@ -281,7 +281,7 @@ final class SqliteArmRowsTest extends TestCase {
 				[ 'add', 'tallies', [ 9000, 'heron', 2, 2.0 ] ],
 			]
 		);
-		$this->assertSame( 3, $arm->purge( 9100, 100 ) );
+		$this->assertSame( 3, $arm->purge( 9100, 100 )['rows'] );
 		$this->assertSame( [ [ 'rid-9000' ] ], $this->all( 'SELECT rid FROM visits' ) );
 		$this->assertSame( [ [ 9000 ] ], $this->all( 'SELECT bucket FROM tallies' ) );
 		$this->assertSame( [ [ 'emu-9' ] ], $this->all( 'SELECT name FROM burrows' ) );
@@ -304,11 +304,29 @@ final class SqliteArmRowsTest extends TestCase {
 				[ 'add', 'tallies', [ 1000, 'heron', 1, 1.0 ] ],
 			]
 		);
-		$this->assertSame( 4, $arm->purge( 9100, 4 ) );
+		$this->assertSame( 4, $arm->purge( 9100, 4 )['rows'] );
 		$this->assertSame( [], $this->all( 'SELECT * FROM kv' ) );
 		$this->assertSame( [ [ 'rid-1001' ] ], $this->all( 'SELECT rid FROM visits' ) );
 		$this->assertSame( [ [ 'emu-9' ] ], $this->all( 'SELECT name FROM burrows' ) );
 		$this->assertSame( [], $this->all( 'SELECT * FROM tallies' ) );
+	}
+
+	/**
+	 * A purge says when a retained table filled its share of the limit, so
+	 * a backlog its names tables hold under the limit reads as one.
+	 */
+	public function test_purge_says_a_retained_table_filled_its_take(): void {
+		$arm = $this->rows_arm();
+		$arm->write_rows(
+			[
+				[ 'insert', 'visits', [ 'rid-6630', 1000, 0, 1.5 ] ],
+				[ 'insert', 'visits', [ 'rid-6631', 1001, 0, 1.5 ] ],
+				[ 'insert', 'visits', [ 'rid-6632', 1002, 0, 1.5 ] ],
+			]
+		);
+
+		$this->assertSame( [ 'rows' => 2, 'full' => true ], $arm->purge( 9100, 4 ), 'two of the limit\'s four are the visits\' take' );
+		$this->assertSame( [ 'rows' => 1, 'full' => false ], $arm->purge( 9100, 4 ) );
 	}
 
 	public function test_a_released_name_still_named_by_a_surviving_row_stays(): void {
@@ -320,7 +338,7 @@ final class SqliteArmRowsTest extends TestCase {
 				[ 'insert', 'visits', [ 'rid-9000', 9000, null, 6.5 ], [], [ 2 => 0 ] ],
 			]
 		);
-		$this->assertSame( 1, $arm->purge( 9100, 100 ) );
+		$this->assertSame( 1, $arm->purge( 9100, 100 )['rows'] );
 		$this->assertSame( [ [ 'kea-4471' ] ], $this->all( 'SELECT name FROM burrows' ) );
 	}
 
@@ -341,7 +359,7 @@ final class SqliteArmRowsTest extends TestCase {
 			]
 		);
 		( new \PDO( 'sqlite:' . $this->path() ) )->exec( "DELETE FROM visits WHERE rid = 'rid-9001'" );
-		$this->assertSame( 0, $arm->purge( 9100, 100 ) );
+		$this->assertSame( 0, $arm->purge( 9100, 100 )['rows'] );
 		$this->assertSame( [ [ 'emu-9' ], [ 'kea-4471' ] ], $this->all( 'SELECT name FROM burrows ORDER BY name' ) );
 	}
 
@@ -355,7 +373,7 @@ final class SqliteArmRowsTest extends TestCase {
 				[ 'insert', 'slots', [ $floor, 'heron', 2 ] ],
 			]
 		);
-		$this->assertSame( 1, $arm->purge( $now, 100 ) );
+		$this->assertSame( 1, $arm->purge( $now, 100 )['rows'] );
 		$this->assertSame( [ [ $floor ] ], $this->all( 'SELECT slot FROM slots' ) );
 	}
 
@@ -368,7 +386,7 @@ final class SqliteArmRowsTest extends TestCase {
 			]
 		);
 		( new \PDO( 'sqlite:' . $this->path() ) )->exec( 'DROP TABLE tallies' );
-		$this->assertSame( 2, $arm->purge( 9100, 100 ), 'the visit and its released name' );
+		$this->assertSame( 2, $arm->purge( 9100, 100 )['rows'], 'the visit and its released name' );
 		$this->assertSame( [], $this->all( 'SELECT * FROM visits' ) );
 		$this->assertStringContainsString( 'tallies', $arm->last_failure() );
 	}
