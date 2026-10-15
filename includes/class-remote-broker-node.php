@@ -1,8 +1,8 @@
 <?php
 /**
  * Remote_Broker: one spoke's command channel and the durable readers its
- * `<source>=<target>` pairs claim — the half `Remote_Source` (one SSE
- * connection) and `HTTP_Source` (block fetches) share.
+ * sources claim — the half `Remote_Source` (one SSE connection) and
+ * `HTTP_Source` (block fetches) share.
  *
  * @package Newspack_Nodes
  */
@@ -15,12 +15,13 @@ namespace Newspack_Nodes;
  * Tachikoma's ConsumerBroker shape over the wire. A broker patrons two hidden
  * siblings, an `HTTP_Out_Node` (`<name>:http-out`) that carries its commands
  * and its readers' reads, and a `Null_Node` (`<name>:null`) that HTTP_Out
- * targets so unaddressed reply-leg traffic is discarded. Each stamp a pair
- * claims is read by its own `Remote_Consumer_Node`, published as the sibling
- * `<broker>:<stamp>`: the cursor, offsetlog, dead letters and debugger all
- * belong to that reader. Each tick, riding the Router's, builds each exact
- * pair's reader and hands a subclass its housekeeping, and `write_status()`
- * publishes the status snapshot a dashboard reads.
+ * targets so unaddressed reply-leg traffic is discarded. A source comes by
+ * the `add_source <remote_log> <local_node>` verb, and each stamp a source
+ * claims is read by its own `Remote_Consumer_Node`, published as the
+ * sibling `<broker>:<stamp>`: the cursor, offsetlog, dead letters and
+ * debugger all belong to that reader. Each tick, riding the Router's, builds
+ * each exact source's reader and hands a subclass its housekeeping, and
+ * `write_status()` publishes the status snapshot a dashboard reads.
  *
  * Credentials and URL come from the Vault entry the `<vault-id>` argument
  * names; a missing entry leaves the broker disconnected rather than building
@@ -42,9 +43,10 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	public const NULL_KIND = 'null';
 
 	/**
-	 * The sibling kinds no reader may take, shared by every broker: `parse_pair()`
-	 * judges a pair statically against this base, so one TSL line parses alike
-	 * in the analyzer and at runtime, whichever broker it names.
+	 * The sibling kinds no reader may take, shared by every broker:
+	 * `checked_source()` judges a source statically against this base, so one
+	 * TSL line parses alike in the analyzer and at runtime, whichever broker it
+	 * names.
 	 */
 	public const RESERVED_KINDS = [ self::SSE_IN_KIND, self::HTTP_OUT_KIND, self::NULL_KIND, self::CONFIG_KIND ];
 
@@ -70,11 +72,11 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	];
 
 	/**
-	 * The most stamps a broker's glob pairs claim, counting the readers built
-	 * in this process and the reader dirs a glob pair left under the offsetlog
+	 * The most stamps a broker's glob sources claim, counting the readers built
+	 * in this process and the reader dirs a glob source left under the offsetlog
 	 * root in an earlier one. A spoke names its stamps, so without it a glob
 	 * would build a reader and its nodes for every stamp a spoke invents, and
-	 * leave a cursor dir for each across restarts. An exact pair is bounded by
+	 * leave a cursor dir for each across restarts. An exact source is bounded by
 	 * configuration and never counts. One broker carries one spoke's streams,
 	 * and a glob over a topic claims one stamp per partition: the cap is the
 	 * `num_partitions` maximum, 16, times a 16× margin for globs.
@@ -136,8 +138,8 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 */
 	protected bool $multi_writer = false;
 
-	/** @var list<array{source:string,target:string}> The pairs this broker carries, in declaration order. */
-	protected array $pairs = [];
+	/** @var list<array{source:string,target:string}> The sources this worker reads, `{partition}` resolved, in declaration order. */
+	protected array $sources = [];
 
 	/**
 	 * Every source `add_source` took, as written and in order: what the dump
@@ -147,9 +149,6 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 */
 	private array $declared = [];
 
-	/** @var list<array{source:string,target:string}> The ones of `$declared` this worker reads, `{partition}` resolved. */
-	private array $added = [];
-
 	/** The worker partition this broker runs in, bound at load as Table_Node binds it; null outside a worker, which publishes no status. */
 	private ?int $bound_partition = null;
 
@@ -157,7 +156,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	private ?string $bound_topology = null;
 
 	/**
-	 * The stamps a glob pair has claimed, each with a reader here or a dir
+	 * The stamps a glob source has claimed, each with a reader here or a dir
 	 * under the offsetlog root; null until a glob first builds after
 	 * construction or a replay, which counts both again.
 	 *
@@ -181,8 +180,9 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	}
 
 	/**
-	 * Parse `<vault_id> <offsetlog_root> <deadletter_root> <source=target>…`,
-	 * arm the recurring tick, then reconcile the readers with a replay.
+	 * Parse `<vault_id> <offsetlog_root> <deadletter_root>`, arm the recurring
+	 * tick, then hand each reader its dirs with a replay. A source comes by
+	 * `add_source`, never an argument, so every source outlives a replay.
 	 *
 	 * A replay that moves the vault supersedes the url and credentials the
 	 * live patrons were configured from, and `ensure_channel()` is idempotent
@@ -196,23 +196,17 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 * registration: `fill()` drops anything but a command reply, and a
 	 * closure mints no message, so its identity is its provenance.
 	 *
-	 * A reader no pair matches any more hands its cursor off and is
-	 * retracted; each survivor takes its owning pair's target, and its dirs
-	 * when the roots moved. A changed source list restarts the stream, so the
-	 * next request states the new set; a changed target alone does not.
-	 *
 	 * @api Dynamic entrypoint.
 	 * @param list<string>|null $args Positional tokens, or null to read them.
 	 * @return list<string>
-	 * @throws \InvalidArgumentException When a pair is malformed.
+	 * @throws \InvalidArgumentException When a token is surplus, missing or mistyped, or a root is its group's.
 	 */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
 			return parent::arguments();
 		}
+		static::refuse_surplus( $this->name, $args );
 		$this->bound_partition = Core::bound_partition();
-		$pairs                 = $this->owned_pairs( self::variadic_in( $args ) );
-		$previous              = $this->pairs;
 		$previous_vault        = $this->vault_id;
 		$this->parse_schema_args( $args );
 		$this->refuse_group_roots();
@@ -223,13 +217,8 @@ abstract class Remote_Broker_Node extends Timer_Node {
 		// Subscribed where the vault config is captured: one lifetime.
 		$this->subscribe( Node_Names::FLEET, 'RELOAD', $this->reload( ... ) );
 		$this->bound_topology = Core::bound_topology();
-		$this->pairs          = [ ...$pairs, ...$this->added ];
 		$this->glob_stamps    = null;
 		$this->reconcile_readers();
-		// A target names no stream: only a changed source list restreams.
-		if ( \array_column( $previous, 'source' ) !== \array_column( $this->pairs, 'source' ) ) {
-			$this->restream();
-		}
 		return $args;
 	}
 
@@ -255,7 +244,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	}
 
 	/**
-	 * Each tick: build each exact pair's reader, then hand the subclass its
+	 * Each tick: build each exact source's reader, then hand the subclass its
 	 * housekeeping, so the readers exist before anything the subclass decides
 	 * from them.
 	 *
@@ -264,6 +253,23 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	public function fire(): void {
 		$this->ensure_exact_readers();
 		$this->housekeep();
+	}
+
+	/**
+	 * Refuse a token past the declared positionals, which `parse_schema_args()`
+	 * would ignore: a source comes by `add_source`, so a line still carrying
+	 * one would load with nothing to read. Static, so the analyzer refuses the
+	 * line a load would refuse.
+	 *
+	 * @param string       $name The node's name, for the refusal.
+	 * @param list<string> $args Positional tokens.
+	 * @throws \InvalidArgumentException Naming both counts.
+	 */
+	public static function refuse_surplus( string $name, array $args ): void {
+		$accepted = \count( Core::arr( static::node_schema()['arguments'] ?? [] ) );
+		if ( \count( $args ) > $accepted ) {
+			self::refuse_named( $name, 'too many arguments: ' . \count( $args ) . " given, {$accepted} accepted" );
+		}
 	}
 
 	/**
@@ -284,11 +290,11 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	}
 
 	/**
-	 * Build the reader of every exact pair; a glob's readers wait for a stamp
-	 * the remote names. `consumer_for()` returns a built reader as it is.
+	 * Build the reader of every exact source; a glob's readers wait for a
+	 * stamp the remote names. `consumer_for()` returns a built reader as it is.
 	 */
 	private function ensure_exact_readers(): void {
-		foreach ( $this->pairs as [ 'source' => $source ] ) {
+		foreach ( $this->sources as [ 'source' => $source ] ) {
 			if ( ! Log_Discovery::is_glob( $source ) ) {
 				$this->consumer_for( $source );
 			}
@@ -296,47 +302,13 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	}
 
 	/**
-	 * The pairs this worker reads, each with `{partition}` resolved at its
-	 * bound partition, and kept where `Core::owns()` holds for its source as
-	 * written: a source naming no partition reads once per fleet, and
-	 * elsewhere its pair builds no reader, joins no subscription and leaves no
-	 * dir (ADR-33). Every pair is checked wherever it is skipped, so a bad one
-	 * fails on every partition. Outside a worker a pair naming `{partition}`
-	 * is refused, because no partition's log is that process's own.
-	 *
-	 * @param list<string> $tokens The pair tokens as written.
-	 * @return list<array{source:string,target:string}>
-	 * @throws \InvalidArgumentException When a pair is malformed, or one names
-	 *                                   `{partition}` where none is bound.
-	 */
-	private function owned_pairs( array $tokens ): array {
-		$owned = [];
-		foreach ( $tokens as $token ) {
-			if ( null === $this->bound_partition && Core::has_partition_token( $token ) ) {
-				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-				throw new \InvalidArgumentException( self::refusal_prefix() . "pair '{$token}' names " . Core::PARTITION_TOKEN . ', but no partition is bound' );
-			}
-			$written = self::split_pair( $token );
-			$pair    = self::checked_pair(
-				Core::resolve_partition_template( $written['source'], $this->bound_partition ?? 0 ),
-				Core::resolve_partition_template( $written['target'], $this->bound_partition ?? 0 ),
-				$token
-			);
-			if ( Core::owns( $written['source'], $this->bound_partition ) ) {
-				$owned[] = $pair;
-			}
-		}
-		return $owned;
-	}
-
-	/**
-	 * Read `$remote_log` into `$local_node`: claim its stamps as an argument
-	 * pair does, its reader built on the next tick. Every source is kept for
-	 * the dump, and read only where `Core::owns()` gives it to this worker
-	 * (ADR-33). A changed source list restarts the stream; an identical
-	 * repeat changes nothing. A source goes to one target: a second is
-	 * refused on every partition, the source compared as written, so a glob
-	 * and an exact stamp it matches are two sources.
+	 * Read `$remote_log` into `$local_node`: claim its stamps, its reader
+	 * built on the next tick. Every source is kept for the dump, and read only
+	 * where `Core::owns()` gives it to this worker (ADR-33). A changed source
+	 * list restarts the stream; an identical repeat changes nothing. A source
+	 * goes to one target: a second is refused on every partition, the source
+	 * compared as written, so a glob and an exact stamp it matches are two
+	 * sources.
 	 *
 	 * @param string $remote_log A spoke stamp, glob or `sources:<name>`, `{partition}` resolved here.
 	 * @param string $local_node The node its lines go to.
@@ -347,7 +319,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 */
 	public function add_source( string $remote_log, string $local_node ): void {
 		$written = [ 'source' => $remote_log, 'target' => $local_node ];
-		foreach ( $this->written_sources() as [ 'source' => $source, 'target' => $target ] ) {
+		foreach ( $this->declared as [ 'source' => $source, 'target' => $target ] ) {
 			if ( $remote_log !== $source ) {
 				continue;
 			}
@@ -370,18 +342,17 @@ abstract class Remote_Broker_Node extends Timer_Node {
 		if ( ! Core::owns( $remote_log, $this->bound_partition ) ) {
 			return;
 		}
-		$this->added[]     = $source;
-		$this->pairs[]     = $source;
+		$this->sources[]   = $source;
 		$this->glob_stamps = null;
 		$this->restream();
 	}
 
 	/**
-	 * Undo the `add_source`, or the pair argument, that declared
-	 * `$remote_log` going to `$local_node`, both as written: the dump drops
-	 * it, and where `Core::owns()` gave it to this worker (ADR-33) its lines
-	 * stop routing, each reader it alone claimed hands its cursor off and is
-	 * retracted, its dirs left on disk, and the stream restarts without it.
+	 * Undo the `add_source` that declared `$remote_log` going to
+	 * `$local_node`, both as written: the dump drops it, and where
+	 * `Core::owns()` gave it to this worker (ADR-33) its lines stop routing,
+	 * each reader it alone claimed hands its cursor off and is retracted, its
+	 * dirs left on disk, and the stream restarts without it.
 	 *
 	 * @param string $remote_log The source, as `add_source` took it.
 	 * @param string $local_node Its target, as `add_source` took it.
@@ -389,16 +360,11 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 */
 	public function remove_source( string $remote_log, string $local_node ): void {
 		$written = [ 'source' => $remote_log, 'target' => $local_node ];
-		if ( ! \in_array( $written, $this->written_sources(), true ) ) {
+		if ( ! \in_array( $written, $this->declared, true ) ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
 			throw new \InvalidArgumentException( self::refusal_prefix() . self::REMOVE_SOURCE . " '{$remote_log}' '{$local_node}' names no source this broker declares" );
 		}
-		if ( \in_array( $written, $this->declared, true ) ) {
-			$this->declared = Core::without( $this->declared, $written );
-		} else {
-			$tail            = self::variadic_in( $this->arguments );
-			$this->arguments = [ ...\array_slice( $this->arguments, 0, \count( $this->arguments ) - \count( $tail ) ), ...Core::without( $tail, "{$remote_log}={$local_node}" ) ];
-		}
+		$this->declared = Core::without( $this->declared, $written );
 		if ( ! Core::owns( $remote_log, $this->bound_partition ) ) {
 			return;
 		}
@@ -406,8 +372,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 			'source' => Core::resolve_partition_template( $remote_log, $this->bound_partition ?? 0 ),
 			'target' => Core::resolve_partition_template( $local_node, $this->bound_partition ?? 0 ),
 		];
-		$this->added       = Core::without( $this->added, $source );
-		$this->pairs       = Core::without( $this->pairs, $source );
+		$this->sources     = Core::without( $this->sources, $source );
 		$this->glob_stamps = null;
 		$this->reconcile_readers();
 		$this->restream();
@@ -420,13 +385,13 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 */
 	private function reconcile_readers(): void {
 		foreach ( $this->readers() as $stamp => $child ) {
-			$pair = $this->pair_for( $stamp );
-			if ( null === $pair ) {
+			$source = $this->source_for( $stamp );
+			if ( null === $source ) {
 				$child->hand_off_cursor();
 				$this->retract_sibling( $stamp );
 				continue;
 			}
-			$child->connect_node( $pair['target'] );
+			$child->connect_node( $source['target'] );
 			if ( $this->reader_args( $stamp ) !== $child->arguments() ) {
 				$child->arguments( $this->reader_args( $stamp ) );
 			}
@@ -435,19 +400,8 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	}
 
 	/**
-	 * Every source this broker declares, as written and on every partition:
-	 * its pair arguments' and then each `add_source` took.
-	 *
-	 * @return list<array{source:string,target:string}>
-	 */
-	private function written_sources(): array {
-		return [ ...\array_map( self::split_pair( ... ), self::variadic_in( $this->arguments ) ), ...$this->declared ];
-	}
-
-	/**
 	 * The target of each source the commands leave declared, in order: the
-	 * edges a Vault_Group of this class and the analyzer draw, as a pair
-	 * argument's are.
+	 * edges a Vault_Group of this class and the analyzer draw.
 	 *
 	 * @param list<array{0:string,1:list<string>}> $commands Each verb and its argument tokens, in the order sent.
 	 * @return list<string>
@@ -548,11 +502,11 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	}
 
 	/**
-	 * The reader for a stamp, built on first sight when a pair claims it; null
+	 * The reader for a stamp, built on first sight when a source claims it; null
 	 * when none does. A spoke names the stamps it sends, and a stamp names a
 	 * sibling slot and a directory here, so the one builder refuses four,
 	 * rate-limited: a stamp outside the stream name grammar, one naming a slot
-	 * the broker keeps, one no pair claims, and a glob's past `MAX_READERS`.
+	 * the broker keeps, one no source claims, and a glob's past `MAX_READERS`.
 	 *
 	 * @param string $stamp A record's stamp.
 	 */
@@ -572,12 +526,12 @@ abstract class Remote_Broker_Node extends Timer_Node {
 			$this->print_less_often( 'refusing a stamp that names a slot the broker keeps' );
 			return null;
 		}
-		$pair = $this->pair_for( $stamp );
-		if ( null === $pair ) {
-			$this->print_less_often( 'dropping a line no pair claims: ', $stamp );
+		$source = $this->source_for( $stamp );
+		if ( null === $source ) {
+			$this->print_less_often( 'dropping a line no source claims: ', $stamp );
 			return null;
 		}
-		if ( Log_Discovery::is_glob( $pair['source'] ) && ! $this->claim_glob_stamp( $stamp ) ) {
+		if ( Log_Discovery::is_glob( $source['source'] ) && ! $this->claim_glob_stamp( $stamp ) ) {
 			$this->print_less_often( 'refusing a reader past MAX_READERS: ', (string) self::MAX_READERS );
 			return null;
 		}
@@ -586,7 +540,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 		$this->publish_sibling( $stamp, $child );
 		$child->sink( $this->sink );
 		$child->arguments( $this->reader_args( $stamp ) );
-		$child->connect_node( $pair['target'] );
+		$child->connect_node( $source['target'] );
 		$child->broker( $this );
 		$child->set_assume_clean_shutdown( $this->assume_clean_shutdown );
 		$this->http_out?->allow_replies_to( $child->name() );
@@ -605,10 +559,10 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	}
 
 	/**
-	 * Claim a stamp for a glob pair's reader: free when the stamp holds a
+	 * Claim a stamp for a glob source's reader: free when the stamp holds a
 	 * reader or a dir already, refused once `MAX_READERS` stamps are claimed.
 	 * The first claim, after construction or a replay, counts the glob
-	 * readers built here and the reader dirs a glob pair left under the
+	 * readers built here and the reader dirs a glob source left under the
 	 * offsetlog root, so the cap holds across a replay and a restart alike.
 	 *
 	 * @param string $stamp The stamp the reader would read.
@@ -626,7 +580,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	}
 
 	/**
-	 * The stamps a glob pair claims, among the readers built here and the
+	 * The stamps a glob source claims, among the readers built here and the
 	 * reader dirs under the offsetlog root, each dir's basename its stamp. A
 	 * reader with no checkpoint yet has no dir, so the readers count as well
 	 * as the disk.
@@ -637,8 +591,8 @@ abstract class Remote_Broker_Node extends Timer_Node {
 		$stamps = [ ...\array_keys( $this->readers() ), ...\array_map( '\basename', \glob( "{$this->offsetlog_root}/*", \GLOB_ONLYDIR ) ?: [] ) ];
 		$claimed = [];
 		foreach ( $stamps as $stamp ) {
-			$pair = $this->pair_for( $stamp );
-			if ( null !== $pair && Log_Discovery::is_glob( $pair['source'] ) ) {
+			$source = $this->source_for( $stamp );
+			if ( null !== $source && Log_Discovery::is_glob( $source['source'] ) ) {
 				$claimed[ $stamp ] = true;
 			}
 		}
@@ -657,16 +611,16 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	}
 
 	/**
-	 * The first pair, in declaration order, whose source is the stamp or a glob
+	 * The first source, in declaration order, that is the stamp or a glob
 	 * matching it.
 	 *
 	 * @param string $stamp A record's stamp.
 	 * @return array{source:string,target:string}|null
 	 */
-	protected function pair_for( string $stamp ): ?array {
-		foreach ( $this->pairs as $pair ) {
-			if ( Log_Discovery::carries( $pair['source'], $stamp ) ) {
-				return $pair;
+	protected function source_for( string $stamp ): ?array {
+		foreach ( $this->sources as $source ) {
+			if ( Log_Discovery::carries( $source['source'], $stamp ) ) {
+				return $source;
 			}
 		}
 		return null;
@@ -674,8 +628,8 @@ abstract class Remote_Broker_Node extends Timer_Node {
 
 	/**
 	 * Restart the readers' feed so the next request states the live set
-	 * again. A reader calls it when it pauses, plays or seeks, and a replay
-	 * when its source list moves.
+	 * again. A reader calls it when it pauses, plays or seeks, and
+	 * `add_source` when the source list moves.
 	 */
 	abstract public function restream(): void;
 
@@ -815,7 +769,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	}
 
 	/**
-	 * One tick's housekeeping, after the exact pairs' readers are built: keep
+	 * One tick's housekeeping, after the exact sources' readers are built: keep
 	 * the channel and the readers' feed up.
 	 */
 	abstract protected function housekeep(): void;
@@ -985,86 +939,6 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	}
 
 	/**
-	 * Each pair's target, written through that pair's reader rather than a
-	 * target of the broker's own, so the canvas and the analyzer draw one edge
-	 * per pair. Only a pair `pairs_of()` accepts names one, so the graph shows
-	 * no edge for a pair `make_node` refuses, and each target is as written.
-	 *
-	 * @param list<string> $args The `make_node` argument tokens, the name excluded.
-	 * @return list<string>
-	 */
-	public static function declared_targets( array $args ): array {
-		return \array_column( self::pairs_of( self::variadic_in( $args ) ), 'target' );
-	}
-
-	/**
-	 * Every pair among `$tokens` the runtime would accept, split as written,
-	 * for a reader of the topology that must not fail on a line the runtime
-	 * would refuse. A token is judged with its `{partition}` and config tokens
-	 * resolved, as the broker reads it, and kept with them, as the TSL names
-	 * its nodes; a token already resolved reads the same either way.
-	 *
-	 * @param list<string> $tokens Pair tokens.
-	 * @return list<array{source:string,target:string}>
-	 */
-	public static function pairs_of( array $tokens ): array {
-		$pairs = [];
-		foreach ( $tokens as $token ) {
-			try {
-				self::parse_pair( Core::resolve_partition_template( $token, 0 ) );
-			} catch ( \InvalidArgumentException $e ) {
-				continue;
-			}
-			$pairs[] = self::split_pair( $token );
-		}
-		return $pairs;
-	}
-
-	/**
-	 * Read one `<source>=<target>` token on its FIRST `=`: neither a stamp nor
-	 * a `<ns:key>` token carries one, while both a source (`sources:php`) and
-	 * a target (`php-errors:partition`) may carry `:`. A source no spoke could
-	 * stream is refused here, at configuration, rather than failing quietly
-	 * on every connect.
-	 *
-	 * @param string $token One pair token.
-	 * @return array{source:string,target:string}
-	 * @throws \InvalidArgumentException When either half is empty, or the source is no subscription.
-	 */
-	public static function parse_pair( string $token ): array {
-		[ 'source' => $source, 'target' => $target ] = self::split_pair( $token );
-		return self::checked_pair( $source, $target, $token );
-	}
-
-	/**
-	 * Refuse a split pair `parse_pair()` would refuse, naming the token as
-	 * written.
-	 *
-	 * @param string $source The source half.
-	 * @param string $target The target half.
-	 * @param string $token  The token the halves came from.
-	 * @return array{source:string,target:string}
-	 * @throws \InvalidArgumentException When either half is empty, or the source is no subscription.
-	 */
-	private static function checked_pair( string $source, string $target, string $token ): array {
-		if ( '' === $source || '' === $target ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-			throw new \InvalidArgumentException( self::refusal_prefix() . "a pair is <source>=<target>, got '{$token}'" );
-		}
-		// An exact source is the stamp of the one stream it carries.
-		$glob = Log_Discovery::is_glob( $source );
-		if ( ! ( $glob ? Log_Discovery::is_subscription( $source ) : Log_Discovery::fits_a_dir_name( $source ) ) ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-			throw new \InvalidArgumentException( self::refusal_prefix() . "pair names a source no spoke can stream: '{$token}'" );
-		}
-		if ( ! $glob && self::is_reserved( $source ) ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-			throw new \InvalidArgumentException( self::refusal_prefix() . "pair's reader names a slot the broker keeps: '{$token}'" );
-		}
-		return [ 'source' => $source, 'target' => $target ];
-	}
-
-	/**
 	 * Whether a stamp's reader would take a sibling slot the broker publishes
 	 * itself, which `publish_sibling()` refuses.
 	 *
@@ -1074,24 +948,9 @@ abstract class Remote_Broker_Node extends Timer_Node {
 		return \in_array( $stamp, self::RESERVED_KINDS, true );
 	}
 
-	/** A pair refusal's opening: the shell name of the broker class refusing it. */
+	/** A source refusal's opening: the shell name of the broker class refusing it. */
 	private static function refusal_prefix(): string {
 		return Command_Interpreter_Node::shell_name_for( static::class ) . ': ';
-	}
-
-	/**
-	 * Split a token at its first `=`; a token with none is all source. This
-	 * validates nothing, as `parse_pair()` does.
-	 *
-	 * @param string $token One pair token.
-	 * @return array{source:string,target:string}
-	 */
-	public static function split_pair( string $token ): array {
-		[ $source, $target ] = \explode( '=', $token, 2 ) + [ 1 => '' ];
-		return [
-			'source' => $source,
-			'target' => $target,
-		];
 	}
 
 	/**
@@ -1165,13 +1024,13 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	}
 
 	/**
-	 * The targets the arguments' pairs name, then each `add_source` took, as
-	 * written, so the canvas draws one edge per source.
+	 * Each added source's target, as written, so the canvas and the analyzer
+	 * draw one `pair` edge per source.
 	 *
 	 * @return list<string>
 	 */
 	protected function extra_targets(): array {
-		return [ ...parent::extra_targets(), ...\array_column( $this->declared, 'target' ) ];
+		return \array_column( $this->declared, 'target' );
 	}
 
 	/**
@@ -1266,7 +1125,8 @@ abstract class Remote_Broker_Node extends Timer_Node {
 
 	/**
 	 * Configuration form: the vault and the two roots each reader's dirs
-	 * nest under, then the pairs, and the two verbs that reach every reader.
+	 * nest under, and the verbs: `add_source` and `remove_source`, then the
+	 * two that reach every reader.
 	 *
 	 * @api Dynamic entrypoint.
 	 * @return array<string,mixed>
@@ -1278,14 +1138,13 @@ abstract class Remote_Broker_Node extends Timer_Node {
 		];
 		return [
 			'category'     => 'Hidden',
-			// Each pair names its destination, so Node refuses connect_node.
+			// Each source names its destination, so Node refuses connect_node.
 			'has_target'   => false,
-			'description'  => 'Broker base: one spoke\'s command channel and a durable reader per `source=target` pair.',
+			'description'  => 'Broker base: one spoke\'s command channel and a durable reader per source `add_source` names.',
 			'arguments'    => [
 				[ 'name' => 'vault_id',        'type' => 'vault_id', 'required' => true, 'description' => 'Which spoke to connect to — a Vault-registered server (URL + credentials).' ],
 				[ 'name' => 'offsetlog_root',  'type' => 'string',   'required' => true, 'partition' => 'bound', 'description' => 'Directory each reader\'s durable read-cursor offsetlog nests under, at <root>/<stamp>. Carry `<topology>` so two fleets pulling one spoke keep separate cursors.' ],
 				[ 'name' => 'deadletter_root', 'type' => 'string',   'required' => true, 'partition' => 'bound', 'description' => 'Directory each reader\'s quarantined poison records nest under, at <root>/<stamp>.' ],
-				[ 'name' => 'pairs', 'type' => 'string', 'required' => false, 'variadic' => true, 'description' => '`<source>=<target>` pairs: a spoke partition, glob or `sources:<name>`, then the node its lines go to.' ],
 			],
 			'commands'     => [
 				[

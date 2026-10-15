@@ -485,7 +485,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * the Aggregator reads a record's origin from. drain_line() has already pinned the cursor
 	 * from that crumb.
 	 *
-	 * `admit()` routes the line by the pair's target: a firehose record carries no TO, so an
+	 * `admit()` routes the line by the source's target: a firehose record carries no TO, so an
 	 * addressed line is refused. A refused line was still READ, so the cursor advances past it
 	 * as a forward does, and it is marked disposed, so the drain commits past it and ends any
 	 * poison or crash lineage. One bad record wedges nothing.
@@ -541,7 +541,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	}
 
 	/**
-	 * Route one record by the pair's target, the reader's declaration of where
+	 * Route one record by the source's target, the reader's declaration of where
 	 * its lines may go: a record the spoke ADDRESSED names a node in this graph
 	 * and is refused, consumed like a forward; an unaddressed one takes the
 	 * target.
@@ -1036,8 +1036,8 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	}
 
 	/**
-	 * A broker builds this reader only for a pair its worker owns, having
-	 * asked `Core::owns()` of the pair as written, so there is no source
+	 * A broker builds this reader only for a source its worker owns, having
+	 * asked `Core::owns()` of the source as written, so there is no source
 	 * argument to judge and the reader never idles (ADR-31).
 	 */
 	protected static function source_argument(): ?string {

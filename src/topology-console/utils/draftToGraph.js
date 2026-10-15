@@ -24,10 +24,8 @@
 
 import { bindCommandArgs } from '../../runtime/command-args';
 import { DraftInterpreterNode } from '../../runtime/draft-interpreter-node';
-import { splitPair } from '../../runtime/log-stamp';
 import { targetsOf } from '../../runtime/node';
 import { tokenize } from '../../runtime/shell-node';
-import { boundArguments } from '../../runtime/schema-reflection';
 import { CONFIG_TARGET_VERB_RE, withConfigEdges } from './consoleGraph';
 
 /**
@@ -68,66 +66,6 @@ const REMOVE_SOURCE = 'remove_source';
  */
 function valueOf( span ) {
 	return tokenize( String( span ) )[ 0 ] ?? '';
-}
-
-/**
- * How many leading arguments a class binds, read off its schema: the specs
- * before the trailing `variadic`.
- *
- * @param {Array<Object>} catalog   Class catalog entries.
- * @param {string}        className Shell class.
- * @return {number} The bound argument count.
- * @throws {Error} When the catalog holds no such class.
- */
-function boundCount( catalog, className ) {
-	const entry = catalog.find( ( c ) => c.shell_name === className );
-	if ( ! entry ) {
-		throw new Error( `The class catalog holds no ${ className }.` );
-	}
-	return boundArguments( entry.arguments ).length;
-}
-
-/**
- * Whether a class is a broker: its catalog entry declares the variadic
- * `pairs` argument that `Remote_Broker_Node` gives every broker.
- *
- * @param {Array<Object>} catalog   Class catalog entries.
- * @param {string}        className A shell class name.
- * @return {boolean} True for a broker.
- */
-function isBroker( catalog, className ) {
-	const entry = catalog.find( ( c ) => c.shell_name === className );
-	return Boolean(
-		entry?.arguments?.some( ( a ) => 'pairs' === a.name && a.variadic )
-	);
-}
-
-/**
- * The pair tokens a node's arguments carry: a broker's past its bound
- * arguments, and a `Vault_Group`'s past its own and the child's, since the
- * group passes each member `[ vault_id, ...child_args ]`. The group stands
- * for its members, which only the Vault names.
- *
- * @param {string}        className The node's shell class.
- * @param {Array<string>} spans     Its constructor arguments, as written.
- * @param {Array<Object>} catalog   Class catalog entries.
- * @return {Array<string>} The pair values, none for any other class.
- */
-function pairTokens( className, spans, catalog ) {
-	if ( isBroker( catalog, className ) ) {
-		return spans.map( valueOf ).slice( boundCount( catalog, className ) );
-	}
-	const childClass = valueOf( spans[ 0 ] ?? '' );
-	if ( 'Vault_Group' === className && isBroker( catalog, childClass ) ) {
-		return spans
-			.map( valueOf )
-			.slice(
-				boundCount( catalog, className ) +
-					boundCount( catalog, childClass ) -
-					1
-			);
-	}
-	return [];
 }
 
 /**
@@ -205,11 +143,10 @@ function withoutPairs( seeded, from, targets ) {
  * Every node in the interpreter's own registry becomes one record. The first
  * target is `target` and the rest are `also`, while `edges` carries a
  * `connect` entry for each of them, so a fan-out node keeps every connection
- * it declared. A broker draws a `pair` edge to each pair's target, skipping a
- * pair with an empty half as the broker refuses it, and to each target its
- * `add_source` and `remove_source` lines leave, read in order, once each; a
- * file's own `remove_source` takes back an include's source, and its seeded
- * edge with it. A borrowed node — one an include supplies — carries `origin`,
+ * it declared. A broker draws a `pair` edge to each target its `add_source`
+ * and `remove_source` lines leave, read in order, once each; a file's own
+ * `remove_source` takes back an include's source, and its seeded edge with
+ * it. A borrowed node — one an include supplies — carries `origin`,
  * `via` and `fansOut` as well, and the invocations that include supplied are
  * marked `seeded`: the flag is what lets the Inspector lock those rows and
  * drop them before a save writes the document's own half back.
@@ -268,17 +205,6 @@ export function draftToGraph( interpreter ) {
 		for ( const to of targets ) {
 			edges.push( { from: name, to, roles: [ 'connect' ] } );
 		}
-		const pairs = pairTokens(
-			node.shellClassName(),
-			node.arguments || [],
-			interpreter.catalog
-		)
-			.map( splitPair )
-			.filter( ( { source, target } ) => '' !== source && '' !== target );
-		// A borrowed broker's pair edges arrive seeded with its include.
-		for ( const { target } of borrowed ? [] : pairs ) {
-			edges.push( { from: name, to: target, roles: [ 'pair' ] } );
-		}
 		const targetsLeft = ( invocations ) =>
 			sourcesOf(
 				node.shellClassName(),
@@ -288,13 +214,13 @@ export function draftToGraph( interpreter ) {
 			).map( ( s ) => s.target );
 		const before = targetsLeft( included );
 		const after = targetsLeft( [ ...included, ...declared ] );
-		const kept = [ ...pairs.map( ( p ) => p.target ), ...after ];
 		// The file's own lines may take an include's sources back.
 		seeded = withoutPairs(
 			seeded,
 			name,
-			before.filter( ( to ) => ! kept.includes( to ) )
+			before.filter( ( to ) => ! after.includes( to ) )
 		);
+		// A borrowed broker's include sources arrive as seeded edges.
 		for ( const to of after ) {
 			if ( ! drawn( name, to ) ) {
 				edges.push( { from: name, to, roles: [ 'pair' ] } );
@@ -334,7 +260,7 @@ export function draftToGraph( interpreter ) {
  *
  * @param {string}  tsl                   Topology source.
  * @param {?Object} expansion             `topologies expand` result for its includes, or null.
- * @param {Array}   catalog               Class catalog: which classes fan out, where a broker's pairs start, and which take `add_source` and `remove_source`.
+ * @param {Array}   catalog               Class catalog: which classes fan out, and which take `add_source` and `remove_source`.
  * @param {Array}   [resolvedConfigEdges] Server-resolved `<ns:key>` targets.
  * @return {Object} The console's graph shape.
  */

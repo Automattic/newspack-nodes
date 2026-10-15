@@ -96,38 +96,45 @@ class RemoteConsumerNodeTest extends TestCase {
 		parent::seed_vault( $id, $entry );
 	}
 
-	/** @return list<string> Broker tokens: vault, the two roots, then one pair per argument. */
-	private function remote_args( string $name = 'remote-austin', string $vault = 'austin', string ...$pairs ): array {
+	/** @return list<string> Broker tokens: vault and the two roots. */
+	private function remote_args( string $name = 'remote-austin', string $vault = 'austin' ): array {
 		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
 		$base    = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' );
-		return [ $vault, "{$offsets}/{$name}", "{$base}/deadletter/{$name}", ...( [] === $pairs ? [ 'firehose.p0=downstream' ] : $pairs ) ];
+		return [ $vault, "{$offsets}/{$name}", "{$base}/deadletter/{$name}" ];
 	}
 
 	/**
-	 * A named broker sinking into _router, its first tick run so the exact
-	 * pair's reader exists; `downstream` is whatever the caller registered.
+	 * A named broker sinking into _router, given each source by `add_source`
+	 * (`firehose.p0` into `downstream` when none), its first tick run so each
+	 * exact source's reader exists; `downstream` is whatever the caller
+	 * registered.
 	 *
+	 * @param list<string> ...$sources Each `[ remote_log, local_node ]`.
 	 * @return array{0:Remote_Source_Node,1:Remote_Consumer_Node}
 	 */
-	private function make_broker( string $name = 'remote-austin', ?array $args = null ): array {
+	private function make_broker( string $name = 'remote-austin', ?array $args = null, array ...$sources ): array {
 		$broker = new Remote_Source_Node();
 		$broker->name( $name );
 		$broker->sink( Core::node( '_router' ) );
 		$broker->arguments( $args ?? $this->remote_args( $name ) );
+		foreach ( [] === $sources ? [ [ 'firehose.p0', 'downstream' ] ] : $sources as $source ) {
+			$broker->interpreter()->dispatch( 'add_source', $source );
+		}
 		$broker->fire();
 		return [ $broker, Core::node( "{$name}:firehose.p0" ) ];
 	}
 
 	/**
-	 * A broker over one `firehose.p0=downstream` pair and its reader, with a
-	 * capture sink named `downstream`.
+	 * `make_broker()` over its sources and its reader, with a capture sink
+	 * named `downstream`.
 	 *
+	 * @param list<string> ...$sources Each `[ remote_log, local_node ]`.
 	 * @return array{0:Remote_Source_Node,1:Remote_Consumer_Node,2:Capture_Sink_Node}
 	 */
-	private function make_remote( string $name = 'remote-austin', ?array $args = null ): array {
+	private function make_remote( string $name = 'remote-austin', ?array $args = null, array ...$sources ): array {
 		$sink = new Capture_Sink_Node();
 		$sink->name( 'downstream' );
-		return [ ...$this->make_broker( $name, $args ), $sink ];
+		return [ ...$this->make_broker( $name, $args, ...$sources ), $sink ];
 	}
 
 	/**
@@ -141,7 +148,7 @@ class RemoteConsumerNodeTest extends TestCase {
 		return [ ...$this->make_broker( $name, $args ), $spy ];
 	}
 
-	/** One record of the default pair's stream, pushed where its crumb places it. */
+	/** One record of the default source's stream, pushed where its crumb places it. */
 	private static function stream_frame( array $fields ): string {
 		return self::pushed_record( $fields );
 	}
@@ -583,7 +590,7 @@ class RemoteConsumerNodeTest extends TestCase {
 		$path = "{$this->base_dir}/php-error-6230.log";
 		\file_put_contents( $path, "line-one\nline-two\n" );
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
-		$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'sources:php=downstream' ) );
+		$this->make_remote( 'remote-austin', null, [ 'sources:php', 'downstream' ] );
 		$reader = Core::node( 'remote-austin:sources:php' );
 
 		// The spoke's handshake named no generation: `:<offset>`.
@@ -604,7 +611,7 @@ class RemoteConsumerNodeTest extends TestCase {
 
 	public function test_an_unknown_generation_writes_no_checkpoint(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'sources:php=downstream' ) );
+		$this->make_remote( 'remote-austin', null, [ 'sources:php', 'downstream' ] );
 		$reader = Core::node( 'remote-austin:sources:php' );
 		$reader->next_offset( Consumer_Node::SEEK_END );
 		$this->handshake( Core::node( 'remote-austin:sse-in' ), 'sources:php=:42' );
@@ -616,7 +623,7 @@ class RemoteConsumerNodeTest extends TestCase {
 
 	public function test_the_first_record_names_the_generation(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'sources:php=downstream' ) );
+		$this->make_remote( 'remote-austin', null, [ 'sources:php', 'downstream' ] );
 		$reader = Core::node( 'remote-austin:sources:php' );
 		$sse    = Core::node( 'remote-austin:sse-in' );
 		$reader->next_offset( Consumer_Node::SEEK_END );
@@ -927,7 +934,8 @@ class RemoteConsumerNodeTest extends TestCase {
 		$broker  = new Remote_Source_Node();
 		$broker->name( 'lighthouse-keeper' );
 		$broker->sink( Core::node( '_router' ) );
-		$broker->arguments( [ 'galveston', "{$offsets}/lighthouse-keeper", "{$base}/deadletter/lighthouse-keeper", 'beacon.p7=downstream' ] );
+		$broker->arguments( [ 'galveston', "{$offsets}/lighthouse-keeper", "{$base}/deadletter/lighthouse-keeper" ] );
+		$broker->interpreter()->dispatch( 'add_source', [ 'beacon.p7', 'downstream' ] );
 		$broker->fire();
 		$node = Core::node( 'lighthouse-keeper:beacon.p7' );
 
@@ -1771,6 +1779,7 @@ class RemoteConsumerNodeTest extends TestCase {
 		$broker = new Remote_Source_Node();
 		$broker->name( 'remote-austin' );
 		$broker->arguments( $this->remote_args() ); // no sink wired.
+		$broker->interpreter()->dispatch( 'add_source', [ 'firehose.p0', 'downstream' ] );
 		$broker->fire();
 		$sse = Core::node( 'remote-austin:sse-in' );
 
@@ -2124,7 +2133,7 @@ class RemoteConsumerNodeTest extends TestCase {
 
 	public function test_a_file_reader_with_an_unknown_generation_steps_at_its_offset(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'sources:php=downstream' ) );
+		$this->make_remote( 'remote-austin', null, [ 'sources:php', 'downstream' ] );
 		$node = Core::node( 'remote-austin:sources:php' );
 		$http = Core::node( 'remote-austin:http-out' );
 		$node->next_offset( [ 'segment' => 31, 'offset' => 4404 ] );
@@ -2158,9 +2167,9 @@ class RemoteConsumerNodeTest extends TestCase {
 	}
 
 	/** A reader paused at 31:4404 with one step out and owed. */
-	private function stepping_reader( ?array $args = null ): array {
+	private function stepping_reader( array ...$sources ): array {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		[ $broker, $node, $sink ] = $this->make_remote( 'remote-austin', $args );
+		[ $broker, $node, $sink ] = $this->make_remote( 'remote-austin', null, ...$sources );
 		$node->next_offset( [ 'segment' => 31, 'offset' => 4404 ] );
 		$node->pause();
 		$node->step();
@@ -2273,7 +2282,7 @@ class RemoteConsumerNodeTest extends TestCase {
 	}
 
 	public function test_a_bounce_of_a_stepped_record_is_no_step_reply(): void {
-		[ , $node ] = $this->stepping_reader( $this->remote_args( 'remote-austin', 'austin', 'firehose.p0=nowhere-6120' ) );
+		[ , $node ] = $this->stepping_reader( [ 'firehose.p0', 'nowhere-6120' ] );
 
 		$node->fill( self::step_reply( 'remote-austin:firehose.p0', self::stepped_record( '31:4404:61', 'unrouted-4173' ), 31, 4465 ) );
 

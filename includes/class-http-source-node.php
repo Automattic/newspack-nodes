@@ -10,7 +10,7 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * Pulls a spoke's logs as `Remote_Source` does — the same pairs, roots and
+ * Pulls a spoke's logs as `Remote_Source` does — the same sources, roots and
  * reader per stamp — but each reader fetches its own `raw-logs read_block`
  * over this broker's `HTTP_Out` instead of riding one SSE stream, so the
  * broker holds no slot from the spoke's `SSE_Slot_Pool` and sends no slot
@@ -20,7 +20,7 @@ namespace Newspack_Nodes;
  * reader asking in one tick rides one POST, so the patron's reply cap counts
  * the readers, each at one whole record's share.
  *
- * A glob pair learns its stamps from the spoke's `raw-logs list_logs`
+ * A glob source learns its stamps from the spoke's `raw-logs list_logs`
  * catalog, asked on the tick a retry interval after each answer.
  */
 class HTTP_Source_Node extends Remote_Broker_Node {
@@ -30,7 +30,8 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 
 	/**
 	 * Milliseconds a reader at the end, or refused, waits before asking again,
-	 * and the catalog between asks: `http_retry_ms`, read once a make_node.
+	 * and the catalog between asks: the `retry_ms` positional, `http_retry_ms`
+	 * by default.
 	 */
 	protected int $retry_ms = 0;
 
@@ -54,17 +55,17 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 	private ?string $catalog_refusal = null;
 
 	/**
-	 * Read `http_retry_ms` once, then take the broker's tokens.
+	 * Refuse a `retry_ms` of 0, which would spin the poll; the schema refuses
+	 * the rest.
 	 *
 	 * @api Dynamic entrypoint.
 	 * @param list<string>|null $args Positional tokens, or null to read them.
 	 * @return list<string>
-	 * @throws \RuntimeException When `http_retry_ms` is no whole number of at least 1.
+	 * @throws \InvalidArgumentException When `retry_ms` is 0, or a token the schema refuses.
 	 */
 	public function arguments( ?array $args = null ): array {
-		if ( null !== $args ) {
-			$this->retry_ms = Core::canonical_decimal( Config::value( 'http_retry_ms' ), false )
-				?? throw new \RuntimeException( 'http_retry_ms wants a whole number of at least 1' );
+		if ( null !== $args && 0 === $this->schema_values( $args )['retry_ms'] ) {
+			$this->refuse_argument( "retry_ms wants at least 1, got '0'" );
 		}
 		return parent::arguments( $args );
 	}
@@ -84,14 +85,14 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 	}
 
 	/**
-	 * One tick's housekeeping, after the exact pairs' readers are built: size
+	 * One tick's housekeeping, after the exact sources' readers are built: size
 	 * the channel's reply cap, end every wait fallen due, so readers due in one
 	 * second share one POST, and publish the status. A broker no Vault entry
-	 * names, or one whose partition owns no pair, builds no channel and
+	 * names, or one whose partition owns no source, builds no channel and
 	 * writes no snapshot.
 	 */
 	protected function housekeep(): void {
-		if ( [] === $this->pairs ) {
+		if ( [] === $this->sources ) {
 			return;
 		}
 		$http = $this->sized_channel();
@@ -106,14 +107,14 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 	}
 
 	/**
-	 * While a glob pair stands, ask the spoke for its catalog FROM this
+	 * While a glob source stands, ask the spoke for its catalog FROM this
 	 * broker's name: one ask at a time, a retry interval after the last answer,
 	 * and again once a lost one is as old as HTTP_Out's own timeout.
 	 *
 	 * @param HTTP_Out_Node $http The command channel.
 	 */
 	private function ask_catalog( HTTP_Out_Node $http ): void {
-		if ( ! $this->has_glob_pair() || Core::$now < $this->catalog_due ) {
+		if ( ! $this->has_glob_source() || Core::$now < $this->catalog_due ) {
 			return;
 		}
 		$message = $this->mint( $this->name, Remote_Consumer_Node::RAW_LOGS_SERVICE, 'list_logs', [] );
@@ -124,9 +125,9 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 		}
 	}
 
-	/** Whether any pair's source is a glob, whose stamps only the catalog names. */
-	private function has_glob_pair(): bool {
-		foreach ( $this->pairs as [ 'source' => $source ] ) {
+	/** Whether any source is a glob, whose stamps only the catalog names. */
+	private function has_glob_source(): bool {
+		foreach ( $this->sources as [ 'source' => $source ] ) {
 			if ( Log_Discovery::is_glob( $source ) ) {
 				return true;
 			}
@@ -207,8 +208,8 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 
 	/**
 	 * The spoke's catalog, the one reply this broker asks for FROM itself:
-	 * a reader for each key a pair claims, through the one builder, which
-	 * `MAX_READERS` caps for globs. A key no pair claims is the catalog's
+	 * a reader for each key a source claims, through the one builder, which
+	 * `MAX_READERS` caps for globs. A key no source claims is the catalog's
 	 * business, not a stray line, so it builds nothing and says nothing; a
 	 * refusal is said rate-limited. Either way the next ask waits a retry interval.
 	 *
@@ -230,7 +231,7 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 		$this->catalog_answered = [ 'at' => Core::$now, 'rtt' => Core::$now - $this->catalog_sent_at ];
 		foreach ( $rows as $row ) {
 			$key = Core::arr( $row )['key'] ?? null;
-			if ( \is_string( $key ) && null !== $this->pair_for( $key ) ) {
+			if ( \is_string( $key ) && null !== $this->source_for( $key ) ) {
 				$this->consumer_for( $key );
 			}
 		}
@@ -263,15 +264,21 @@ class HTTP_Source_Node extends Remote_Broker_Node {
 	public function restream(): void {}
 
 	/**
-	 * Palette entry: `Remote_Source`'s arguments and verbs over block fetches.
+	 * Palette entry: `Remote_Source`'s arguments and verbs over block fetches,
+	 * and the optional `retry_ms`.
 	 *
 	 * @api Dynamic entrypoint.
 	 * @return array<string,mixed>
 	 */
 	public static function node_schema(): array {
-		return \array_merge( parent::node_schema(), [
+		$schema = parent::node_schema();
+		return \array_merge( $schema, [
 			'category'    => 'I/O',
-			'description' => 'HTTP-pull broker: a durable reader per `source=target` pair, each fetching 1 MiB blocks from a spoke over /command (Vault-resolved); holds no SSE slot.',
+			'description' => 'HTTP-pull broker: a durable reader per source `add_source` names, each fetching 1 MiB blocks from a spoke over /command (Vault-resolved); holds no SSE slot.',
+			'arguments'   => [
+				...Core::arr( $schema['arguments'] ),
+				[ 'name' => 'retry_ms', 'type' => 'int', 'required' => false, 'default' => '<config:http_retry_ms>', 'description' => 'Milliseconds a reader at the end of its log, or refused, waits before asking again, and the catalog between asks; at least 1. Defaults to http_retry_ms.' ],
+			],
 		] );
 	}
 }

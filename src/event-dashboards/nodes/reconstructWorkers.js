@@ -7,7 +7,7 @@
  *
  * - `graph` is the declared `.tsl` structure, one `{nodes,edges}` per topology.
  *   A `consumer` node carries `reads`, its source-log template, and `reader`,
- *   its offsetlog template. A broker carries `pairs`; its readers are runtime
+ *   its offsetlog template. A broker carries `sources`; its readers are runtime
  *   children with no node of their own, so their rows hang under the broker.
  * - `workers` carries liveness alone, one row per (type, partition): its
  *   `state` (`CLI::worker_states()`'s word), heartbeat and start times.
@@ -105,7 +105,7 @@ const brokerReads = ( row, topology, broker ) => {
  * directly, with no logic node between, falls back to its own name. A broker
  * yields an entry too, flagged `broker`, whose handler is itself.
  *
- * @param {Object} graphTopo One topology's `{ nodes:[{name,kind,reads?,reader?}], edges:[[from,to]] }`.
+ * @param {Object} graphTopo One topology's `{ nodes:[{name,kind,reads?,reader?,sources?}], edges:[[from,to]] }`.
  * @return {Array<{name:string,broker?:boolean,sourceTemplate:string,readerTemplate:string,handlers:string[]}>} One entry
  *   per consumer node: its name, its source-log template, the offsetlog template that names its reader,
  *   and every handler its rows attach to. Both templates still carry their `{partition}`/`<topology>`
@@ -132,7 +132,7 @@ function consumerHandlers( graphTopo ) {
 
 	const out = [];
 	nodes.forEach( ( node ) => {
-		if ( Array.isArray( node.pairs ) ) {
+		if ( Array.isArray( node.sources ) ) {
 			out.push( {
 				name: node.name,
 				broker: true,

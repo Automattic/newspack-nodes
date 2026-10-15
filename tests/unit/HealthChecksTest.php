@@ -482,10 +482,10 @@ class HealthChecksTest extends TestCase {
 		$this->assertSame( 'Every file the active topologies\' File_Tails follow resolves on this host.', $row['messages'][0] );
 	}
 
-	/** A broker's pair names a source on its spoke, whose registry this host cannot read. */
-	public function test_a_broker_pair_source_is_the_spokes_to_resolve(): void {
+	/** A broker's add_source names a source on its spoke, whose registry this host cannot read. */
+	public function test_a_broker_add_source_is_the_spokes_to_resolve(): void {
 		\Newspack_Nodes\Log_Sources::$builtin_sources = static fn (): array => [];
-		$this->activate_topologies( [ 'okapi-hub-5523' => "make_node Remote_Source pull:okapi-5523 okapi-5523 /tmp/off-5523 /tmp/dl-5523 sources:okapi-5523=okapi-sink-5523\n" ] );
+		$this->activate_topologies( [ 'okapi-hub-5523' => "make_node Remote_Source pull:okapi-5523 okapi-5523 /tmp/off-5523 /tmp/dl-5523\ncommand_node pull:okapi-5523:config add_source sources:okapi-5523 okapi-sink-5523\n" ] );
 
 		$row = Health_Checks::runtime()[1];
 

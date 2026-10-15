@@ -984,8 +984,6 @@ describe( 'Inspector (edit mode)', () => {
 			'spoke',
 			'<config:offsets_dir>/<topology>.{id}',
 			'<config:deadletter_dir>/<topology>.{id}',
-			'firehose.p{partition}:remote-job-rewrite',
-			'sources:php:php-errors:partition',
 		];
 		const tail = vaultGroupArgs.slice( 2 ).join( ' ' );
 		const groupCatalog = brokerSchemas
@@ -1080,7 +1078,7 @@ describe( 'Inspector (edit mode)', () => {
 		} );
 	} );
 
-	it( 'a written Remote_Source shows deadletter_root alone and pairs apart', () => {
+	it( 'a written Remote_Source shows its three arguments and no pairs field', () => {
 		const sourceCatalog = brokerSchemas
 			.filter( ( c ) => 'Remote_Source' === c.shell_name )
 			.map( ( c ) => ( { ...c, commands: [] } ) );
@@ -1094,13 +1092,7 @@ describe( 'Inspector (edit mode)', () => {
 						{
 							id: 'src',
 							class: 'Remote_Source',
-							ctorArgs: [
-								'tw0',
-								'/ibis/offsets',
-								'/ibis/dead',
-								'egret.p0:heron',
-								'crane:stork',
-							],
+							ctorArgs: [ 'tw0', '/ibis/offsets', '/ibis/dead' ],
 						},
 					],
 					edges: [],
@@ -1111,9 +1103,7 @@ describe( 'Inspector (edit mode)', () => {
 		expect(
 			container.querySelector( '#topology-ctor-deadletter_root' ).value
 		).toBe( '/ibis/dead' );
-		expect( container.querySelector( '#topology-ctor-pairs' ).value ).toBe(
-			'egret.p0:heron crane:stork'
-		);
+		expect( container.querySelector( '#topology-ctor-pairs' ) ).toBeNull();
 	} );
 
 	it( 'CtorField: clears value via the × button', () => {

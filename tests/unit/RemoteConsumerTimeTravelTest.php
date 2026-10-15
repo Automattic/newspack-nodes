@@ -58,7 +58,7 @@ class RemoteConsumerTimeTravelTest extends TestCase {
 		};
 	}
 
-	/** A broker pulling `firehose.p0=downstream` from the austin vault entry, answered by its reader. */
+	/** A broker pulling `firehose.p0` into `downstream` from the austin vault entry, answered by its reader. */
 	private function make_remote( string $name = 'remote-austin' ): Remote_Consumer_Node {
 		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
 		$base    = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' );
@@ -67,7 +67,8 @@ class RemoteConsumerTimeTravelTest extends TestCase {
 		$broker = new Remote_Source_Node();
 		$broker->name( $name );
 		$broker->sink( Core::node( '_router' ) );
-		$broker->arguments( [ 'austin', "{$offsets}/{$name}", "{$base}/deadletter/{$name}", 'firehose.p0=downstream' ] );
+		$broker->arguments( [ 'austin', "{$offsets}/{$name}", "{$base}/deadletter/{$name}" ] );
+		$broker->interpreter()->dispatch( 'add_source', [ 'firehose.p0', 'downstream' ] );
 		$broker->fire();
 		return Core::node( "{$name}:firehose.p0" );
 	}

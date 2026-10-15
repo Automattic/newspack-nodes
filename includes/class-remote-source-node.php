@@ -13,17 +13,17 @@ use Newspack_Nodes\Rest\SSE_Out_Node;
 
 /**
  * An SSE-pull broker: one connection to a spoke carries every stream its
- * `<source>=<target>` pairs name, and each stamp it carries is read by its
- * own `Remote_Consumer_Node`.
+ * sources name, and each stamp it carries is read by its own
+ * `Remote_Consumer_Node`.
  *
- * The command channel, the pairs and the readers come from
+ * The command channel, the sources and the readers come from
  * `Remote_Broker_Node`. This class adds the stream: an `SSE_In` patron
  * (`<name>:sse-in`), the slot-keepalive heartbeat it mints every
  * ~HEARTBEAT_INTERVAL through the channel's HTTP_Out (whose reply self-routes
  * back into `fill()` for RTT bookkeeping), the staggered connect queue, and
  * the routing between the stream and the readers. `SSE_In` hands each raw
  * `msg` payload to `route()`, which reads its FROM stamp and hands it to the
- * reader the first matching pair owns, building that reader on first sight.
+ * reader the first matching source owns, building that reader on first sight.
  * A connect asks each live reader where its stream stands; a paused reader
  * drops out of the request and steps through `send_read()` over the HTTP_Out
  * instead. One valve meters the whole connection, on the bytes every reader
@@ -149,7 +149,7 @@ class Remote_Source_Node extends Remote_Broker_Node {
 	}
 
 	/**
-	 * What the next connect asks for: each exact pair whose reader is live,
+	 * What the next connect asks for: each exact source whose reader is live,
 	 * from that reader's own position, and each glob, with every reader it
 	 * already owns stated — a paused one as `SSE_Out_Node::SKIP`, so the glob
 	 * keeps finding new dirs while that one stays out. A new stream opens with
@@ -161,20 +161,20 @@ class Remote_Source_Node extends Remote_Broker_Node {
 		$this->pump_armed = true;
 		$subscribe        = [];
 		$positions        = [];
-		foreach ( $this->pairs as $pair ) {
-			$source = $pair['source'];
-			if ( ! Log_Discovery::is_glob( $source ) ) {
-				$child = $this->consumer_for( $source );
+		foreach ( $this->sources as $source ) {
+			$stamp = $source['source'];
+			if ( ! Log_Discovery::is_glob( $stamp ) ) {
+				$child = $this->consumer_for( $stamp );
 				if ( null !== $child && $child->is_live() ) {
-					$subscribe[]          = $source;
-					$positions[ $source ] = $child->connect_position();
+					$subscribe[]         = $stamp;
+					$positions[ $stamp ] = $child->connect_position();
 				}
 				continue;
 			}
-			$subscribe[] = $source;
-			foreach ( $this->readers() as $stamp => $child ) {
-				if ( $this->pair_for( $stamp ) === $pair ) {
-					$positions[ $stamp ] = $child->is_live() ? $child->connect_position() : SSE_Out_Node::SKIP;
+			$subscribe[] = $stamp;
+			foreach ( $this->readers() as $child_stamp => $child ) {
+				if ( $this->source_for( $child_stamp ) === $source ) {
+					$positions[ $child_stamp ] = $child->is_live() ? $child->connect_position() : SSE_Out_Node::SKIP;
 				}
 			}
 		}
@@ -256,13 +256,13 @@ class Remote_Source_Node extends Remote_Broker_Node {
 	}
 
 	/**
-	 * Connect while any exact pair's reader is live, or any glob may yet find a
-	 * dir. The tick builds each exact pair's reader before housekeeping, so
-	 * this only reads them.
+	 * Connect while any exact source's reader is live, or any glob may yet
+	 * find a dir. The tick builds each exact source's reader before
+	 * housekeeping, so this only reads them.
 	 */
 	protected function should_connect(): bool {
 		$connect = false;
-		foreach ( $this->pairs as [ 'source' => $source ] ) {
+		foreach ( $this->sources as [ 'source' => $source ] ) {
 			$live    = Log_Discovery::is_glob( $source ) || ( $this->reader( $source )?->is_live() ?? false );
 			$connect = $connect || $live;
 		}
@@ -543,7 +543,7 @@ class Remote_Source_Node extends Remote_Broker_Node {
 		return \array_merge( parent::node_schema(), [
 			// The base hides itself; this subclass belongs in the palette.
 			'category'    => 'I/O',
-			'description' => 'SSE-pull broker: one connection to a spoke carrying several streams, a durable reader per `source=target` pair (Vault-resolved).',
+			'description' => 'SSE-pull broker: one connection to a spoke carrying several streams, a durable reader per source `add_source` names (Vault-resolved).',
 		] );
 	}
 }

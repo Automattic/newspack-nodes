@@ -429,8 +429,8 @@ final class Health_Checks {
 	 * `File_Tail_Node::followed_path()`, so this row refuses what the load
 	 * refuses. A topology that will not read leaves its sources unchecked, so
 	 * the row is never good while one stands; `worker-liveness` names why. A
-	 * broker's pair names a source on its spoke, whose registry no check here
-	 * can read, so only a `File_Tail` counts.
+	 * broker's `add_source` names a source on its spoke, whose registry no
+	 * check here can read, so only a `File_Tail` counts.
 	 *
 	 * @return HealthResult
 	 * @throws Worker_Should_Stop When reading the topologies raises a cooperative stop.

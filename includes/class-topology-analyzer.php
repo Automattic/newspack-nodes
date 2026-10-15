@@ -291,9 +291,9 @@ class Topology_Analyzer {
 	 * the make_node `type` token and positional `args` list, quotes stripped as
 	 * the runtime binds them (+ the log a Partition/Topic writes or a Consumer
 	 * reads, from the path/source ARG — never a name suffix; + a broker's
-	 * `vault_id` and `pairs`, read from its arguments and its `add_source`
-	 * and `remove_source` lines, so another plugin names them rather than
-	 * counting positionals), and edges from `connect_node`, `command_node
+	 * `vault_id` and the `sources` its `add_source` and `remove_source` lines
+	 * leave, so another plugin names them rather than counting positionals),
+	 * and edges from `connect_node`, `command_node
 	 * <node>:config set_*target <target>` and each `pair` a class declares
 	 * (`declared_targets()`, `command_targets()`), with `disconnect_node`
 	 * and each verb that undoes another applied in evaluation order. A broken
@@ -324,7 +324,6 @@ class Topology_Analyzer {
 		$types     = [];
 		$sent      = [];
 		$brokers   = [];
-		$arg_pairs = [];
 		$edges     = [];
 		foreach ( self::statements( $name )['statements'] as $statement ) {
 			$verb   = $statement['verb'];
@@ -362,10 +361,9 @@ class Topology_Analyzer {
 					/** @var class-string<Remote_Broker_Node> $broker An unresolved name stands for the base class. */
 					$broker = \is_a( $fqcn, Remote_Broker_Node::class, true ) ? $fqcn : Remote_Broker_Node::class;
 					// It pulls REMOTE streams, so it claims no `reads`.
-					$arg_pairs[ $node_name ] = $broker::pairs_of( $broker::variadic_in( \array_slice( $values, 3 ) ) );
-					$node['vault_id']        = $values[3] ?? '';
-					$node['pairs']           = $arg_pairs[ $node_name ];
-					$brokers[ $node_name ]   = $broker;
+					$node['vault_id']      = $values[3] ?? '';
+					$node['sources']       = [];
+					$brokers[ $node_name ] = $broker;
 				}
 				$index[ $node_name ] = \count( $nodes );
 				$nodes[]             = $node;
@@ -393,7 +391,7 @@ class Topology_Analyzer {
 				}
 				self::draw_command( $edges, $sent, $node_name, [ $inner_verb, $args ], [ $name ] );
 				if ( isset( $brokers[ $node_name ] ) ) {
-					$nodes[ $index[ $node_name ] ]['pairs'] = [ ...$arg_pairs[ $node_name ], ...$brokers[ $node_name ]::sources_of( $sent[ $node_name ]['commands'] ) ];
+					$nodes[ $index[ $node_name ] ]['sources'] = $brokers[ $node_name ]::sources_of( $sent[ $node_name ]['commands'] );
 				}
 			}
 		}
@@ -593,7 +591,7 @@ class Topology_Analyzer {
 	 * Draw one `pair` edge from a node to each destination its class declares,
 	 * for every class: what its `make_node` arguments name
 	 * (`Node::declared_targets()`) or the verbs sent to its `:config` leave
-	 * (`Node::command_targets()`), a broker's pairs and sources, and nothing
+	 * (`Node::command_targets()`), a broker's sources, and nothing
 	 * for a class declaring none. The class gets its tokens as written and
 	 * judges them as a load would.
 	 *
@@ -924,7 +922,7 @@ class Topology_Analyzer {
 	 * after the node name) is a read, not a write, so it's excluded.
 	 *
 	 * A broker claims its two roots (`<node> <vault> <offsetlog_root>
-	 * <deadletter_root> <pairs…>`); every reader nests below them.
+	 * <deadletter_root>`); every reader nests below them.
 	 *
 	 * A `Table` whose backend resolves to `sqlite` — written literally or as a
 	 * config token, resolved strictly — claims `table:<name>.p{partition}`,
@@ -1009,7 +1007,7 @@ class Topology_Analyzer {
 					$seen[ 'deadletter:' . $values[5] ] = true;
 				}
 			}
-			// Broker: <node> <vault> <offsetlog_root> <deadletter_root> <pairs>
+			// Broker: <node> <vault> <offsetlog_root> <deadletter_root>
 			if ( 'make_node' === $verb && self::type_is( $class, Remote_Broker_Node::class ) ) {
 				// @longform Both roots are required; every reader nests under
 				// them, so claiming the root claims each reader's cursor and
@@ -1549,11 +1547,12 @@ class Topology_Analyzer {
 	}
 
 	/**
-	 * Refuse a `make_node` line whose partition layout the load would refuse:
-	 * `{partition}` in an argument its class marks no partition, or a durable
-	 * reader of a per-worker source beside a dir every worker would share.
-	 * Each check is the class's own static, the one the load calls. A class
-	 * token no namespace resolves refuses nothing.
+	 * Refuse a `make_node` line whose layout the load would refuse:
+	 * `{partition}` in an argument its class marks no partition, a durable
+	 * reader of a per-worker source beside a dir every worker would share, or
+	 * a broker token past its positionals. Each check is the class's own
+	 * static, the one the load calls. A class token no namespace resolves
+	 * refuses nothing.
 	 *
 	 * @param array{verb: string, values: list<string>} $statement A walked statement.
 	 * @throws \InvalidArgumentException When the class refuses the line.
@@ -1570,6 +1569,9 @@ class Topology_Analyzer {
 		}
 		if ( \method_exists( $fqcn, 'refuse_shared_dirs' ) ) {
 			$fqcn::refuse_shared_dirs( $name, $args );
+		}
+		if ( \method_exists( $fqcn, 'refuse_surplus' ) ) {
+			$fqcn::refuse_surplus( $name, $args );
 		}
 	}
 

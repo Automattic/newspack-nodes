@@ -84,6 +84,7 @@ return [
 
     // Milliseconds an HTTP_Source reader at the end of its log, or refused,
     // waits before asking again, and the broker between catalog asks.
+    // A make_node line's retry_ms overrides it for that broker.
     // 'http_retry_ms'              => 5000,
 
     // Sustained SSE streams this HOST allows; each holds a php-fpm child for
