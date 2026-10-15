@@ -304,9 +304,9 @@ class TableNodeTest extends TestCase {
 	}
 
 	public function test_store_reports_whether_the_write_landed(): void {
-		// A caller that shadows its writes durably — Stats_Store's mirror seam —
-		// must not record a set the backend refused, or a failed write is
-		// resurrected on cold boot as though it had succeeded.
+		// A caller that shadows its writes durably must not record a set the
+		// backend refused, or a failed write is resurrected on cold boot as
+		// though it had succeeded.
 		$table = Table_Node::table( 'prices', 60 );
 
 		$this->assertTrue( $table->store( 'sku-9', [ 'usd' => 1250 ] ), 'a landed write reports true' );

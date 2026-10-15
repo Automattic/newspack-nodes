@@ -38,7 +38,7 @@ final class Table_Client {
 	/**
 	 * Bind the client to the one node that asks through it.
 	 *
-	 * @api A node asking Tables: event-logger-nodes' `Stats_Store`.
+	 * @api A node asking Tables: `Crawler_Node`, and event-logger-nodes' flame builder.
 	 * @param Node         $asker  FROM, and the sink the ask leaves through.
 	 * @param list<string> $tables Tables the asker names before it asks them.
 	 */
@@ -382,7 +382,7 @@ final class Table_Client {
 	/**
 	 * `RM`: delete each key.
 	 *
-	 * @api A node asking Tables: event-logger-nodes' `Stats_Store`.
+	 * @api A node asking Tables: `Crawler_Node`.
 	 * @param string       $table The Table's registered name.
 	 * @param list<string> $keys  Keys.
 	 * @return list<string> The keys that were there to delete.
@@ -502,7 +502,7 @@ final class Table_Client {
 	 * Take a message a Table sent: collect the awaited Table's reply, and
 	 * swallow any other Table's with a rate-limited line.
 	 *
-	 * @api A node asking Tables: event-logger-nodes' `Stats_Store`.
+	 * @api A node asking Tables: `Crawler_Node`, and event-logger-nodes' flame builder.
 	 * @param array<int,mixed> $message Any message the asker received.
 	 * @return bool True when the message was a Table's, and so not the asker's input.
 	 */
