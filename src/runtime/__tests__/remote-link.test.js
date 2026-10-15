@@ -286,7 +286,7 @@ describe( 'RemoteLinkNode', () => {
 	it( 'a view adding sources supplies it, and `arguments` then reports it', async () => {
 		const { interpreter } = mountExospine();
 		const link = interpreter.makeNode( 'RemoteLink', 'late-link-812' );
-		link.addSource( 'quartz.p7', 'grebe:stream' );
+		link.attachView( 'quartz.p7', 'grebe:stream' );
 		await Promise.resolve();
 		expect( link.arguments ).toEqual( [ 'quartz.p7' ] );
 		expect( link.sseIn.subscribe ).toEqual( [ 'quartz.p7' ] );
@@ -301,7 +301,7 @@ describe( 'RemoteLinkNode', () => {
 			'gyroscope.p7',
 		] );
 		link.connect();
-		link.addSource( 'quartz.p3', 'grebe:stream' );
+		link.attachView( 'quartz.p3', 'grebe:stream' );
 		await Promise.resolve();
 		expect( link.arguments ).toEqual( [ 'quartz.p3' ] );
 		expect( link.sseIn.arguments ).toEqual( [ 'quartz.p3' ] );
@@ -629,13 +629,13 @@ describe( 'sources — the routes one link carries', () => {
 
 	it( 'opens ONE stream on the union of its sources’ stamps', async () => {
 		const { link } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream', {
+		link.attachView( 'jobstats.p0', 'jobs:stream', {
 			'jobstats.p0': SEEK_START,
 		} );
-		link.addSource( 'topicprobe.p0', 'backlog:stream', {
+		link.attachView( 'topicprobe.p0', 'backlog:stream', {
 			'topicprobe.p0': SEEK_START,
 		} );
-		link.addSource( 'errors.*', 'glob:stream' );
+		link.attachView( 'errors.*', 'glob:stream' );
 		expect( FakeEventSource.last ).toBeNull();
 		await flush();
 		expect( FakeEventSource.opened ).toBe( 1 );
@@ -645,16 +645,16 @@ describe( 'sources — the routes one link carries', () => {
 			'topicprobe.p0': SEEK_START,
 		} );
 		expect( link.sources ).toEqual( [
-			{ stamp: 'jobstats.p0', target: 'jobs:stream' },
-			{ stamp: 'topicprobe.p0', target: 'backlog:stream' },
-			{ stamp: 'errors.*', target: 'glob:stream' },
+			{ stamp: 'jobstats.p0', target: '_stream:jobstats.p0' },
+			{ stamp: 'topicprobe.p0', target: '_stream:topicprobe.p0' },
+			{ stamp: 'errors.*', target: '_stream:errors.*' },
 		] );
 	} );
 
 	it( 'hands each record to its stamp’s Tee, which feeds that stamp’s views only', async () => {
 		const { link, delivered } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
-		link.addSource( 'topicprobe.p0', 'backlog:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'topicprobe.p0', 'backlog:stream' );
 		await flush();
 		FakeEventSource.last.dispatch(
 			'msg',
@@ -675,7 +675,7 @@ describe( 'sources — the routes one link carries', () => {
 
 	it( 'delivers a record whatever TO it was stored with', async () => {
 		const { link, delivered } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
 		await flush();
 		const m = newMessage();
 		m[ TYPE ] = TM_STRUCT;
@@ -689,8 +689,8 @@ describe( 'sources — the routes one link carries', () => {
 
 	it( 'two views on one stamp share its one Tee, and ls -al shows both targets', async () => {
 		const { link, delivered } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
-		link.addSource( 'jobstats.p0', 'backlog:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'backlog:stream' );
 		await flush();
 		expect( subscribed() ).toBe( 'jobstats.p0' );
 		FakeEventSource.last.dispatch(
@@ -703,6 +703,9 @@ describe( 'sources — the routes one link carries', () => {
 			'jobs:stream',
 			'backlog:stream',
 		] );
+		expect( link.sources ).toEqual( [
+			{ stamp: 'jobstats.p0', target: '_stream:jobstats.p0' },
+		] );
 		const listing = Core.node( names.COMMAND_INTERPRETER ).dispatch( 'ls', [
 			'-al',
 			'^_stream:jobstats',
@@ -712,12 +715,11 @@ describe( 'sources — the routes one link carries', () => {
 		);
 	} );
 
-	it( 'a glob source builds a Tee per stamp on first sight', async () => {
+	it( 'a glob’s Tee takes every stamp it carries; an exact one’s, its own', async () => {
 		const { link, delivered } = makeShared();
-		link.addSource( 'errors.*', 'glob:stream' );
-		link.addSource( 'errors.p3', 'jobs:stream' );
+		link.attachView( 'errors.*', 'glob:stream' );
+		link.attachView( 'errors.p3', 'jobs:stream' );
 		await flush();
-		expect( Core.node( '_stream:errors.p3' ) ).toBeNull();
 		FakeEventSource.last.dispatch(
 			'msg',
 			record( 'errors.p3/x', '1:0:9' )
@@ -726,13 +728,13 @@ describe( 'sources — the routes one link carries', () => {
 			'msg',
 			record( 'errors.p5/x', '2:0:9' )
 		);
-		expect( Core.node( '_stream:errors.p3' ).target ).toEqual( [
+		expect( Core.node( '_stream:errors.*' ).target ).toEqual( [
 			'glob:stream',
+		] );
+		expect( Core.node( '_stream:errors.p3' ).target ).toEqual( [
 			'jobs:stream',
 		] );
-		expect( Core.node( '_stream:errors.p5' ).target ).toEqual( [
-			'glob:stream',
-		] );
+		expect( Core.node( '_stream:errors.p5' ) ).toBeNull();
 		expect( ids( delivered[ 'glob:stream' ] ) ).toEqual( [
 			'1:0:9',
 			'2:0:9',
@@ -745,7 +747,7 @@ describe( 'sources — the routes one link carries', () => {
 			'_stream: WARNING: no source claims the stamp - TM_BYTESTREAM from: kea.p7/x'
 		);
 		const { link, delivered } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
 		await flush();
 		FakeEventSource.last.dispatch( 'msg', record( 'kea.p7/x', '6:0:3' ) );
 		expect( delivered ).toEqual( {} );
@@ -757,7 +759,7 @@ describe( 'sources — the routes one link carries', () => {
 			'_stream: WARNING: no source claims the stamp - TM_BYTESTREAM'
 		);
 		const { link, delivered } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
 		await flush();
 		FakeEventSource.last.dispatch( 'msg', record( '', '4:0:12' ) );
 		expect( delivered ).toEqual( {} );
@@ -768,7 +770,7 @@ describe( 'sources — the routes one link carries', () => {
 			'_stream: WARNING: no source claims the stamp - TM_BYTESTREAM from: offsets:hub.tw0:firehose.p0/x'
 		);
 		const { link, delivered } = makeShared();
-		link.addSource( 'o*', 'glob:stream' );
+		link.attachView( 'o*', 'glob:stream' );
 		await flush();
 		expect( () =>
 			FakeEventSource.last.dispatch(
@@ -779,17 +781,12 @@ describe( 'sources — the routes one link carries', () => {
 		expect( delivered ).toEqual( {} );
 	} );
 
-	it( 'drops a glob stamp whose Tee would take the SseIn’s slot', async () => {
-		expectConsoleWarn(
-			'_stream: WARNING: the stamp names the slot the SseIn holds - TM_BYTESTREAM from: sse-in'
-		);
+	it( 'a glob carries a stamp named like the SseIn’s slot through its own Tee', async () => {
 		const { link, delivered } = makeShared();
-		link.addSource( 'sse*', 'glob:stream' );
+		link.attachView( 'sse*', 'glob:stream' );
 		await flush();
-		expect( () =>
-			FakeEventSource.last.dispatch( 'msg', record( 'sse-in', '2:0:4' ) )
-		).not.toThrow();
-		expect( delivered ).toEqual( {} );
+		FakeEventSource.last.dispatch( 'msg', record( 'sse-in', '2:0:4' ) );
+		expect( ids( delivered[ 'glob:stream' ] ) ).toEqual( [ '2:0:4' ] );
 		expect( Core.node( '_stream:sse-in' ) ).toBe( link.sseIn );
 	} );
 
@@ -799,7 +796,7 @@ describe( 'sources — the routes one link carries', () => {
 		const receiver = new Node();
 		receiver.name = 'status-receiver-6620';
 		receiver.fill = ( m ) => replies.push( m[ VALUE ] );
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
 		await flush();
 		const reply = newMessage();
 		reply[ TYPE ] = TM_COMMAND | TM_RESPONSE;
@@ -813,20 +810,23 @@ describe( 'sources — the routes one link carries', () => {
 		expect( delivered ).toEqual( {} );
 	} );
 
-	it( 'removing one view’s source drops only its edge; the other keeps streaming', async () => {
+	it( 'detaching one of a stamp’s views drops only its edge; the source stays', async () => {
 		const { link, delivered } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
-		link.addSource( 'jobstats.p0', 'backlog:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'backlog:stream' );
 		await flush();
 		const open = FakeEventSource.last;
 		open.dispatch( 'msg', record( 'jobstats.p0/x', '3:120:40' ) );
-		link.removeSource( 'jobstats.p0', 'jobs:stream' );
+		link.detachView( 'jobstats.p0', 'jobs:stream' );
 		await flush();
 		open.dispatch( 'msg', record( 'jobstats.p0/x', '3:160:25' ) );
 		expect( FakeEventSource.opened ).toBe( 1 );
 		expect( open.closed ).toBe( false );
 		expect( Core.node( '_stream:jobstats.p0' ).target ).toEqual( [
 			'backlog:stream',
+		] );
+		expect( link.sources ).toEqual( [
+			{ stamp: 'jobstats.p0', target: '_stream:jobstats.p0' },
 		] );
 		expect( ids( delivered[ 'jobs:stream' ] ) ).toEqual( [ '3:120:40' ] );
 		expect( ids( delivered[ 'backlog:stream' ] ) ).toEqual( [
@@ -835,24 +835,27 @@ describe( 'sources — the routes one link carries', () => {
 		] );
 	} );
 
-	it( 'removing a stamp’s last source unsubscribes it, keeps its place and retracts its Tee', async () => {
+	it( 'detaching a stamp’s last view removes its source, unsubscribes it, keeps its place and retracts its Tee', async () => {
 		const { link } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
-		link.addSource( 'topicprobe.p0', 'backlog:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'topicprobe.p0', 'backlog:stream' );
 		await flush();
 		FakeEventSource.last.dispatch(
 			'msg',
 			record( 'jobstats.p0/x', '3:120:40' )
 		);
-		link.removeSource( 'jobstats.p0', 'jobs:stream' );
+		link.detachView( 'jobstats.p0', 'jobs:stream' );
 		await flush();
 		expect( subscribed() ).toBe( 'topicprobe.p0' );
 		expect( Core.node( '_stream:jobstats.p0' ) ).toBeNull();
+		expect( link.sources ).toEqual( [
+			{ stamp: 'topicprobe.p0', target: '_stream:topicprobe.p0' },
+		] );
 		expect( link.sseIn.lastPositions[ 'jobstats.p0' ] ).toEqual( {
 			segment: 3,
 			offset: 160,
 		} );
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
 		await flush();
 		expect( FakeEventSource.opened ).toBe( 3 );
 		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
@@ -866,10 +869,10 @@ describe( 'sources — the routes one link carries', () => {
 			'_stream: WARNING: no source claims the stamp - TM_BYTESTREAM from: jobstats.p0/x'
 		);
 		const { link, delivered } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
-		link.addSource( 'topicprobe.p0', 'backlog:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'topicprobe.p0', 'backlog:stream' );
 		await flush();
-		link.removeSource( 'jobstats.p0', 'jobs:stream' );
+		link.detachView( 'jobstats.p0', 'jobs:stream' );
 		FakeEventSource.last.dispatch(
 			'msg',
 			record( 'jobstats.p0/x', '3:200:10' )
@@ -879,13 +882,13 @@ describe( 'sources — the routes one link carries', () => {
 
 	it( 'the last removed source closes the stream and its heartbeat lease', async () => {
 		const { link } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
 		await flush();
 		dispatchConnected( link, { slot: 6 } );
 		const hb = Core.node( names.HEARTBEAT );
 		expect( hb.slot ).toBe( 6 );
 		const open = FakeEventSource.last;
-		link.removeSource( 'jobstats.p0', 'jobs:stream' );
+		link.detachView( 'jobstats.p0', 'jobs:stream' );
 		await flush();
 		expect( open.closed ).toBe( true );
 		expect( hb.slot ).toBeNull();
@@ -895,24 +898,25 @@ describe( 'sources — the routes one link carries', () => {
 
 	it( 'refuses a seek on a stamp another view’s source claims, naming both, and adds nothing', () => {
 		const { link } = makeShared();
-		link.addSource( 'jobstats.*', 'jobs:stream' );
+		link.attachView( 'jobstats.*', 'jobs:stream' );
 		expect( () =>
-			link.addSource( 'jobstats.p0', 'backlog:stream', {
+			link.attachView( 'jobstats.p0', 'backlog:stream', {
 				'jobstats.p0': SEEK_START,
 			} )
 		).toThrow(
 			'RemoteLink: backlog:stream cannot seek jobstats.p0, which jobs:stream is streaming'
 		);
 		expect( link.sources ).toEqual( [
-			{ stamp: 'jobstats.*', target: 'jobs:stream' },
+			{ stamp: 'jobstats.*', target: '_stream:jobstats.*' },
 		] );
+		expect( Core.node( '_stream:jobstats.p0' ) ).toBeNull();
 	} );
 
 	it( 'refuses a tail on a stamp another view’s source claims', () => {
 		const { link } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
 		expect( () =>
-			link.addSource( 'jobstats.p0', 'backlog:stream', null )
+			link.attachView( 'jobstats.p0', 'backlog:stream', null )
 		).toThrow(
 			'RemoteLink: backlog:stream cannot seek jobstats.p0, which jobs:stream is streaming'
 		);
@@ -920,24 +924,111 @@ describe( 'sources — the routes one link carries', () => {
 
 	it( 'refuses a glob tail over a dir another view seeded this tick', () => {
 		const { link } = makeShared();
-		link.addSource( 'errors.p1', 'jobs:stream', { 'errors.p1': 0 } );
+		link.attachView( 'errors.p1', 'jobs:stream', { 'errors.p1': 0 } );
 		expect( () =>
-			link.addSource( 'errors.*', 'glob:stream', null )
+			link.attachView( 'errors.*', 'glob:stream', null )
 		).toThrow(
 			'RemoteLink: glob:stream cannot seek errors.p1, which jobs:stream is streaming'
 		);
 	} );
 
+	it( 'refuses a seek on a dir a source a cmd declared carries, naming its target', () => {
+		const { link } = makeShared();
+		link.addSource( 'egret.*', 'heron-6612:stream' );
+		expect( () =>
+			link.attachView( 'egret.p4', 'kite-2290:stream', {
+				'egret.p4': SEEK_START,
+			} )
+		).toThrow(
+			'RemoteLink: kite-2290:stream cannot seek egret.p4, which heron-6612:stream is streaming'
+		);
+		expect( Core.node( '_stream:egret.p4' ) ).toBeNull();
+		expect( link.sources ).toEqual( [
+			{ stamp: 'egret.*', target: 'heron-6612:stream' },
+		] );
+	} );
+
+	it( 'a view whose node left before its detach still takes its source and Tee', async () => {
+		const { link } = makeShared();
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'topicprobe.p0', 'backlog:stream' );
+		await flush();
+		Core.node( 'jobs:stream' ).removeNode();
+		FakeEventSource.last.dispatch(
+			'msg',
+			record( 'jobstats.p0/x', '4:310:22' )
+		);
+		expect( Core.node( '_stream:jobstats.p0' ).target ).toEqual( [] );
+		link.detachView( 'jobstats.p0', 'jobs:stream' );
+		link.forget( [ 'jobstats.p0' ] );
+		await flush();
+		expect( link.sources ).toEqual( [
+			{ stamp: 'topicprobe.p0', target: '_stream:topicprobe.p0' },
+		] );
+		expect( Core.node( '_stream:jobstats.p0' ) ).toBeNull();
+		expect( link.sseIn.places() ).not.toContain( 'jobstats.p0' );
+		expect( subscribed() ).toBe( 'topicprobe.p0' );
+	} );
+
+	it( 'a view attached after its stamp’s first record gets the next one', async () => {
+		const { link, delivered } = makeShared();
+		link.attachView( 'errors.*', 'glob:stream' );
+		await flush();
+		FakeEventSource.last.dispatch(
+			'msg',
+			record( 'errors.p3/x', '5:0:17' )
+		);
+		link.attachView( 'errors.p3', 'jobs:stream' );
+		FakeEventSource.last.dispatch(
+			'msg',
+			record( 'errors.p3/x', '5:17:19' )
+		);
+		link.parkView( 'errors.*', 'glob:stream' );
+		FakeEventSource.last.dispatch(
+			'msg',
+			record( 'errors.p3/x', '5:36:23' )
+		);
+		expect( ids( delivered[ 'glob:stream' ] ) ).toEqual( [
+			'5:0:17',
+			'5:17:19',
+		] );
+		expect( ids( delivered[ 'jobs:stream' ] ) ).toEqual( [
+			'5:17:19',
+			'5:36:23',
+		] );
+	} );
+
+	it( 'routes a stamp’s records from one lookup until a source changes', async () => {
+		const { link } = makeShared();
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
+		await flush();
+		const streaming = jest.spyOn( link, '_streaming' );
+		for ( const id of [ '6:0:11', '6:11:13', '6:24:17' ] ) {
+			FakeEventSource.last.dispatch(
+				'msg',
+				record( 'jobstats.p0/x', id )
+			);
+		}
+		expect( streaming ).toHaveBeenCalledTimes( 1 );
+		link.attachView( 'jobstats.p0', 'backlog:stream' );
+		FakeEventSource.last.dispatch(
+			'msg',
+			record( 'jobstats.p0/x', '6:41:19' )
+		);
+		expect( streaming ).toHaveBeenCalledTimes( 2 );
+		streaming.mockRestore();
+	} );
+
 	it( 'refuses a glob tail over a dir another view has read', async () => {
 		const { link } = makeShared();
-		link.addSource( 'errors.p3', 'jobs:stream' );
+		link.attachView( 'errors.p3', 'jobs:stream' );
 		await flush();
 		FakeEventSource.last.dispatch(
 			'msg',
 			record( 'errors.p3/x', '7:210:15' )
 		);
 		expect( () =>
-			link.addSource( 'errors.*', 'glob:stream', null )
+			link.attachView( 'errors.*', 'glob:stream', null )
 		).toThrow(
 			'RemoteLink: glob:stream cannot seek errors.p3, which jobs:stream is streaming'
 		);
@@ -948,7 +1039,7 @@ describe( 'sources — the routes one link carries', () => {
 			'_stream: WARNING: no source claims the stamp - TM_BYTESTREAM from: kea.p7/x'
 		);
 		const { link } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
 		await flush();
 		FakeEventSource.last.dispatch( 'msg', record( 'kea.p7/x', '6:0:3' ) );
 		FakeEventSource.last.dispatch( 'msg', record( 'kea.p8/x', '6:3:3' ) );
@@ -965,7 +1056,7 @@ describe( 'sources — the routes one link carries', () => {
 		const receiver = new Node();
 		receiver.name = 'fetch-receiver-7731';
 		receiver.fill = ( m ) => got.push( m[ VALUE ] );
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
 		await flush();
 		for ( const [ type, value ] of [
 			[ TM_ERROR, 'NOT_AVAILABLE bounce-4402' ],
@@ -987,7 +1078,7 @@ describe( 'sources — the routes one link carries', () => {
 
 	it( 'an undirected TM_ERROR on a claimed stamp goes through its Tee', async () => {
 		const { link, delivered } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
 		await flush();
 		const m = newMessage();
 		m[ TYPE ] = TM_ERROR;
@@ -998,21 +1089,22 @@ describe( 'sources — the routes one link carries', () => {
 		expect( ids( delivered[ 'jobs:stream' ] ) ).toEqual( [ '3:0:8' ] );
 	} );
 
-	it( 'parking a stamp’s last source unsubscribes it and retracts its Tee, keeping its claim', async () => {
+	it( 'parking a stamp’s last view unsubscribes it and empties its Tee, keeping its source', async () => {
 		const { link } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
-		link.addSource( 'topicprobe.p0', 'backlog:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'topicprobe.p0', 'backlog:stream' );
 		await flush();
 		FakeEventSource.last.dispatch(
 			'msg',
 			record( 'jobstats.p0/x', '3:120:40' )
 		);
-		link.parkSource( 'jobstats.p0', 'jobs:stream' );
+		link.parkView( 'jobstats.p0', 'jobs:stream' );
 		await flush();
 		expect( subscribed() ).toBe( 'topicprobe.p0' );
-		expect( Core.node( '_stream:jobstats.p0' ) ).toBeNull();
+		expect( Core.node( '_stream:jobstats.p0' ).target ).toEqual( [] );
 		expect( link.sources ).toEqual( [
-			{ stamp: 'topicprobe.p0', target: 'backlog:stream' },
+			{ stamp: 'jobstats.p0', target: '_stream:jobstats.p0' },
+			{ stamp: 'topicprobe.p0', target: '_stream:topicprobe.p0' },
 		] );
 		expect( link.parked ).toEqual( [
 			{ stamp: 'jobstats.p0', target: 'jobs:stream' },
@@ -1021,14 +1113,14 @@ describe( 'sources — the routes one link carries', () => {
 
 	it( 'a parked source feeds no edge while its stamp’s other view streams on', async () => {
 		const { link, delivered } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
-		link.addSource( 'jobstats.p0', 'backlog:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'backlog:stream' );
 		await flush();
 		FakeEventSource.last.dispatch(
 			'msg',
 			record( 'jobstats.p0/x', '3:0:40' )
 		);
-		link.parkSource( 'jobstats.p0', 'jobs:stream' );
+		link.parkView( 'jobstats.p0', 'jobs:stream' );
 		FakeEventSource.last.dispatch(
 			'msg',
 			record( 'jobstats.p0/x', '3:40:12' )
@@ -1045,11 +1137,11 @@ describe( 'sources — the routes one link carries', () => {
 
 	it( 'refuses a seek on a stamp a paused view claims, naming it', () => {
 		const { link } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
-		link.addSource( 'jobstats.p0', 'backlog:stream' );
-		link.parkSource( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'backlog:stream' );
+		link.parkView( 'jobstats.p0', 'jobs:stream' );
 		expect( () =>
-			link.addSource( 'jobstats.p0', 'backlog:stream', {
+			link.attachView( 'jobstats.p0', 'backlog:stream', {
 				'jobstats.p0': { segment: 4, offset: 96 },
 			} )
 		).toThrow(
@@ -1059,22 +1151,22 @@ describe( 'sources — the routes one link carries', () => {
 
 	it( 'a paused view keeps its place when the other view on its stamp leaves, and resumes there', async () => {
 		const { link } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
-		link.addSource( 'jobstats.p0', 'backlog:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'backlog:stream' );
 		await flush();
 		FakeEventSource.last.dispatch(
 			'msg',
 			record( 'jobstats.p0/x', '3:120:40' )
 		);
-		link.parkSource( 'jobstats.p0', 'jobs:stream' );
-		link.removeSource( 'jobstats.p0', 'backlog:stream' );
+		link.parkView( 'jobstats.p0', 'jobs:stream' );
+		link.detachView( 'jobstats.p0', 'backlog:stream' );
 		link.forget( [ 'jobstats.p0' ] );
 		await flush();
 		expect( link.sseIn.lastPositions[ 'jobstats.p0' ] ).toEqual( {
 			segment: 3,
 			offset: 160,
 		} );
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
 		await flush();
 		expect( link.parked ).toEqual( [] );
 		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
@@ -1084,12 +1176,12 @@ describe( 'sources — the routes one link carries', () => {
 
 	it( 'removing a parked source gives up its claim', () => {
 		const { link } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
-		link.parkSource( 'jobstats.p0', 'jobs:stream' );
-		link.removeSource( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
+		link.parkView( 'jobstats.p0', 'jobs:stream' );
+		link.detachView( 'jobstats.p0', 'jobs:stream' );
 		expect( link.parked ).toEqual( [] );
 		expect( () =>
-			link.addSource( 'jobstats.p0', 'backlog:stream', {
+			link.attachView( 'jobstats.p0', 'backlog:stream', {
 				'jobstats.p0': SEEK_START,
 			} )
 		).not.toThrow();
@@ -1097,10 +1189,10 @@ describe( 'sources — the routes one link carries', () => {
 
 	it( 'a view may seek a stamp whose other view removed its source', () => {
 		const { link } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
-		link.removeSource( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
+		link.detachView( 'jobstats.p0', 'jobs:stream' );
 		expect( () =>
-			link.addSource( 'jobstats.p0', 'backlog:stream', {
+			link.attachView( 'jobstats.p0', 'backlog:stream', {
 				'jobstats.p0': { segment: 2, offset: 81 },
 			} )
 		).not.toThrow();
@@ -1108,8 +1200,8 @@ describe( 'sources — the routes one link carries', () => {
 
 	it( 'a null seek tails that view’s dirs while the others resume', async () => {
 		const { link } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
-		link.addSource( 'topicprobe.p0', 'backlog:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'topicprobe.p0', 'backlog:stream' );
 		await flush();
 		FakeEventSource.last.dispatch(
 			'msg',
@@ -1119,7 +1211,7 @@ describe( 'sources — the routes one link carries', () => {
 			'msg',
 			record( 'topicprobe.p0/x', '8:600:30' )
 		);
-		link.addSource( 'jobstats.p0', 'jobs:stream', null );
+		link.attachView( 'jobstats.p0', 'jobs:stream', null );
 		await flush();
 		expect( FakeEventSource.opened ).toBe( 2 );
 		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
@@ -1130,13 +1222,13 @@ describe( 'sources — the routes one link carries', () => {
 
 	it( 'a seek added and removed in one tick is never asked for', async () => {
 		const { link } = makeShared();
-		link.addSource( 'topicprobe.p0', 'backlog:stream' );
-		link.addSource( 'jobstats.p0', 'jobs:stream', {
+		link.attachView( 'topicprobe.p0', 'backlog:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream', {
 			'jobstats.p0': SEEK_START,
 		} );
-		link.removeSource( 'jobstats.p0', 'jobs:stream' );
+		link.detachView( 'jobstats.p0', 'jobs:stream' );
 		link.forget( [ 'jobstats.p0' ] );
-		link.addSource( 'jobstats.p0', 'glob:stream' );
+		link.attachView( 'jobstats.p0', 'glob:stream' );
 		await flush();
 		expect( FakeEventSource.opened ).toBe( 1 );
 		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
@@ -1147,15 +1239,18 @@ describe( 'sources — the routes one link carries', () => {
 
 	it( 're-adding the same sources keeps the open stream', async () => {
 		const { link } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
 		await flush();
 		const open = FakeEventSource.last;
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
 		await flush();
 		expect( FakeEventSource.opened ).toBe( 1 );
 		expect( open.closed ).toBe( false );
 		expect( link.sources ).toEqual( [
-			{ stamp: 'jobstats.p0', target: 'jobs:stream' },
+			{ stamp: 'jobstats.p0', target: '_stream:jobstats.p0' },
+		] );
+		expect( Core.node( '_stream:jobstats.p0' ).target ).toEqual( [
+			'jobs:stream',
 		] );
 	} );
 
@@ -1163,12 +1258,12 @@ describe( 'sources — the routes one link carries', () => {
 		jest.useFakeTimers( { doNotFake: [ 'queueMicrotask' ] } );
 		try {
 			const { link } = makeShared();
-			link.addSource( 'jobstats.p0', 'jobs:stream' );
+			link.attachView( 'jobstats.p0', 'jobs:stream' );
 			await flush();
 			const refused = FakeEventSource.last;
 			refused.dispatch( 'error' );
 			expect( refused.closed ).toBe( true );
-			link.addSource( 'jobstats.p0', 'jobs:stream' );
+			link.attachView( 'jobstats.p0', 'jobs:stream' );
 			await flush();
 			expect( FakeEventSource.opened ).toBe( 1 );
 			jest.advanceTimersByTime( 2000 );
@@ -1181,10 +1276,10 @@ describe( 'sources — the routes one link carries', () => {
 
 	it( 're-adding in the same tick keeps the seek it has not stated yet', async () => {
 		const { link } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream', {
+		link.attachView( 'jobstats.p0', 'jobs:stream', {
 			'jobstats.p0': { segment: 6, offset: 14 },
 		} );
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
 		await flush();
 		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
 			'jobstats.p0': { segment: 6, offset: 14 },
@@ -1193,10 +1288,10 @@ describe( 'sources — the routes one link carries', () => {
 
 	it( 'a seed the handshake spent is not asked for again when its source returns', async () => {
 		const { link } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream', {
+		link.attachView( 'jobstats.p0', 'jobs:stream', {
 			'jobstats.p0': SEEK_START,
 		} );
-		link.addSource( 'topicprobe.p0', 'backlog:stream' );
+		link.attachView( 'topicprobe.p0', 'backlog:stream' );
 		await flush();
 		const m = newMessage();
 		m[ TYPE ] = TM_INFO;
@@ -1206,8 +1301,8 @@ describe( 'sources — the routes one link carries', () => {
 			'SUBSCRIPTIONS jobstats.p0,topicprobe.p0 INTERVAL 2000 ' +
 			'CURSORS jobstats.p0=6:0,topicprobe.p0=9:4471';
 		FakeEventSource.last.dispatch( 'connected', JSON.stringify( m ) );
-		link.removeSource( 'jobstats.p0', 'jobs:stream' );
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
+		link.detachView( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
 		await flush();
 		expect( FakeEventSource.opened ).toBe( 1 );
 		expect( link.sseIn.seekMap() ).toEqual( {
@@ -1218,14 +1313,14 @@ describe( 'sources — the routes one link carries', () => {
 
 	it( 'a view removed before its stream answered replays its seek when it returns', async () => {
 		const { link } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream', {
+		link.attachView( 'jobstats.p0', 'jobs:stream', {
 			'jobstats.p0': SEEK_START,
 		} );
-		link.addSource( 'topicprobe.p0', 'backlog:stream' );
+		link.attachView( 'topicprobe.p0', 'backlog:stream' );
 		await flush();
-		link.removeSource( 'jobstats.p0', 'jobs:stream' );
+		link.detachView( 'jobstats.p0', 'jobs:stream' );
 		await flush();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
 		await flush();
 		expect( FakeEventSource.opened ).toBe( 3 );
 		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
@@ -1236,19 +1331,19 @@ describe( 'sources — the routes one link carries', () => {
 
 	it( 'forget drops the place and count of a dir no source claims, so a later view tails', async () => {
 		const { link } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
-		link.addSource( 'topicprobe.p0', 'backlog:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'topicprobe.p0', 'backlog:stream' );
 		await flush();
 		FakeEventSource.last.dispatch(
 			'msg',
 			record( 'jobstats.p0/x', '3:120:40' )
 		);
 		skipped( 'COUNT 13 COUNTS jobstats.p0=6,topicprobe.p0=7' );
-		link.removeSource( 'jobstats.p0', 'jobs:stream' );
+		link.detachView( 'jobstats.p0', 'jobs:stream' );
 		link.forget( [ 'jobstats.p0' ] );
 		await flush();
 		expect( link.unparseableByStamp ).toEqual( { 'topicprobe.p0': 7 } );
-		link.addSource( 'jobstats.p0', 'glob:stream' );
+		link.attachView( 'jobstats.p0', 'glob:stream' );
 		await flush();
 		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
 			'topicprobe.p0': SEEK_END,
@@ -1258,14 +1353,14 @@ describe( 'sources — the routes one link carries', () => {
 
 	it( 'forget keeps a dir another source still claims, and the stream riding it', async () => {
 		const { link } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
-		link.addSource( 'jobstats.p0', 'backlog:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'backlog:stream' );
 		await flush();
 		FakeEventSource.last.dispatch(
 			'msg',
 			record( 'jobstats.p0/x', '5:80:12' )
 		);
-		link.removeSource( 'jobstats.p0', 'jobs:stream' );
+		link.detachView( 'jobstats.p0', 'jobs:stream' );
 		link.forget( [ 'jobstats.p0' ] );
 		await flush();
 		expect( FakeEventSource.opened ).toBe( 1 );
@@ -1277,14 +1372,14 @@ describe( 'sources — the routes one link carries', () => {
 
 	it( 'forgetting a place the open stream carries reopens even on the same set', async () => {
 		const { link } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream', {
+		link.attachView( 'jobstats.p0', 'jobs:stream', {
 			'jobstats.p0': SEEK_START,
 		} );
-		link.addSource( 'topicprobe.p0', 'backlog:stream' );
+		link.attachView( 'topicprobe.p0', 'backlog:stream' );
 		await flush();
-		link.removeSource( 'jobstats.p0', 'jobs:stream' );
+		link.detachView( 'jobstats.p0', 'jobs:stream' );
 		link.forget( [ 'jobstats.p0' ] );
-		link.addSource( 'jobstats.p0', 'glob:stream' );
+		link.attachView( 'jobstats.p0', 'glob:stream' );
 		await flush();
 		expect( FakeEventSource.opened ).toBe( 2 );
 		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
@@ -1295,7 +1390,7 @@ describe( 'sources — the routes one link carries', () => {
 
 	it( 'publishes its stream’s skipped lines by stamp', async () => {
 		const { link } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
 		await flush();
 		skipped( 'COUNT 11 COUNTS jobstats.p0=4,kea.p7=7' );
 		expect( link.unparseableByStamp ).toEqual( {
@@ -1308,11 +1403,11 @@ describe( 'sources — the routes one link carries', () => {
 
 	it( 'a stamp whose sources all went keeps its count while the others climb', async () => {
 		const { link } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
-		link.addSource( 'topicprobe.p0', 'backlog:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'topicprobe.p0', 'backlog:stream' );
 		await flush();
 		skipped( 'COUNT 9 COUNTS jobstats.p0=4,topicprobe.p0=5' );
-		link.removeSource( 'jobstats.p0', 'jobs:stream' );
+		link.detachView( 'jobstats.p0', 'jobs:stream' );
 		await flush();
 		skipped( 'COUNT 3 COUNTS topicprobe.p0=3' );
 		expect( link.unparseableByStamp ).toEqual( {
@@ -1323,7 +1418,7 @@ describe( 'sources — the routes one link carries', () => {
 
 	it( 'publishes a fresh map on every frame, so a reader re-renders', async () => {
 		const { link } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
 		await flush();
 		skipped( 'COUNT 3 COUNTS jobstats.p0=3' );
 		const published = link.unparseableByStamp;
@@ -1337,29 +1432,29 @@ describe( 'sources — the routes one link carries', () => {
 
 	it( 'removing sources it does not carry leaves the stream be', async () => {
 		const { link } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
 		await flush();
 		const open = FakeEventSource.last;
-		link.removeSource( 'jobstats.p0', 'backlog:stream' );
+		link.detachView( 'jobstats.p0', 'backlog:stream' );
 		await flush();
 		expect( open.closed ).toBe( false );
 		expect( FakeEventSource.opened ).toBe( 1 );
 	} );
 
-	it( 'refuses a source missing its stamp or its target', () => {
+	it( 'refuses a view missing its stamp or its target', () => {
 		const { link } = makeShared();
-		expect( () => link.addSource( 'jobstats.p0', '' ) ).toThrow(
-			"RemoteLink: add_source needs a stamp and a target, got 'jobstats.p0' ''"
+		expect( () => link.attachView( 'jobstats.p0', '' ) ).toThrow(
+			"RemoteLink: a view needs a stamp and a target, got 'jobstats.p0' ''"
 		);
-		expect( () => link.addSource( '', 'jobs:stream' ) ).toThrow(
-			"RemoteLink: add_source needs a stamp and a target, got '' 'jobs:stream'"
+		expect( () => link.attachView( '', 'jobs:stream' ) ).toThrow(
+			"RemoteLink: a view needs a stamp and a target, got '' 'jobs:stream'"
 		);
 		expect( link.sources ).toEqual( [] );
 	} );
 
 	it( 'carries a broker reader’s stamp as a source', async () => {
 		const { link, delivered } = makeShared();
-		link.addSource( 'offsets:hub.tw0:firehose.p0', 'jobs:stream' );
+		link.attachView( 'offsets:hub.tw0:firehose.p0', 'jobs:stream' );
 		await flush();
 		FakeEventSource.last.dispatch(
 			'msg',
@@ -1371,12 +1466,13 @@ describe( 'sources — the routes one link carries', () => {
 		).toEqual( [ 'jobs:stream' ] );
 	} );
 
-	it( 'refuses a source whose Tee would take the SseIn’s slot', () => {
+	it( 'refuses a view whose stamp’s Tee would take the SseIn’s slot', () => {
 		const { link } = makeShared();
-		expect( () => link.addSource( 'sse-in', 'jobs:stream' ) ).toThrow(
-			"RemoteLink: a source's Tee names the slot its SseIn holds: 'sse-in'"
+		expect( () => link.attachView( 'sse-in', 'jobs:stream' ) ).toThrow(
+			"add_source 'sse-in' names a slot the node keeps for its own"
 		);
 		expect( link.sources ).toEqual( [] );
+		expect( Core.node( '_stream:sse-in' ) ).toBeNull();
 	} );
 
 	it( 'states one view’s seek over its two sources once', async () => {
@@ -1386,8 +1482,8 @@ describe( 'sources — the routes one link carries', () => {
 			'jobstats.p0': { segment: 4, offset: 9 },
 			'topicprobe.p0': { segment: 7, offset: 2 },
 		};
-		link.addSource( 'jobstats.p0', 'jobs:stream', seed );
-		link.addSource( 'topicprobe.p0', 'jobs:stream', seed );
+		link.attachView( 'jobstats.p0', 'jobs:stream', seed );
+		link.attachView( 'topicprobe.p0', 'jobs:stream', seed );
 		await flush();
 		expect( reseek.mock.calls ).toEqual( [
 			[ [ 'jobstats.p0', 'topicprobe.p0' ], seed ],
@@ -1398,10 +1494,10 @@ describe( 'sources — the routes one link carries', () => {
 
 	it( 'a source added without a seek drops its view’s seek that names it not', async () => {
 		const { link } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream', {
+		link.attachView( 'jobstats.p0', 'jobs:stream', {
 			'jobstats.p0': { segment: 5, offset: 33 },
 		} );
-		link.addSource( 'topicprobe.p0', 'jobs:stream' );
+		link.attachView( 'topicprobe.p0', 'jobs:stream' );
 		await flush();
 		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
 			'jobstats.p0': SEEK_END,
@@ -1412,10 +1508,10 @@ describe( 'sources — the routes one link carries', () => {
 	it( 'removing one of a view’s sources keeps its seek while it holds another', async () => {
 		const { link } = makeShared();
 		const seed = { 'jobstats.p0': { segment: 2, offset: 70 } };
-		link.addSource( 'topicprobe.p0', 'backlog:stream' );
-		link.addSource( 'jobstats.p0', 'jobs:stream', seed );
-		link.addSource( 'errors.p1', 'jobs:stream', seed );
-		link.removeSource( 'errors.p1', 'jobs:stream' );
+		link.attachView( 'topicprobe.p0', 'backlog:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream', seed );
+		link.attachView( 'errors.p1', 'jobs:stream', seed );
+		link.detachView( 'errors.p1', 'jobs:stream' );
 		await flush();
 		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
 			'jobstats.p0': { segment: 2, offset: 70 },
@@ -1425,12 +1521,12 @@ describe( 'sources — the routes one link carries', () => {
 
 	it( 'parking a view’s last source drops the seek it has not stated', async () => {
 		const { link } = makeShared();
-		link.addSource( 'topicprobe.p0', 'backlog:stream' );
-		link.addSource( 'jobstats.p0', 'jobs:stream', {
+		link.attachView( 'topicprobe.p0', 'backlog:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream', {
 			'jobstats.p0': { segment: 8, offset: 3 },
 		} );
-		link.parkSource( 'jobstats.p0', 'jobs:stream' );
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
+		link.parkView( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
 		await flush();
 		expect( seeksOf( FakeEventSource.last.url ) ).toEqual( {
 			'jobstats.p0': SEEK_END,
@@ -1438,29 +1534,40 @@ describe( 'sources — the routes one link carries', () => {
 		} );
 	} );
 
-	it( 'checkSource refuses what addSource refuses, and changes nothing', () => {
+	it( 'checkView refuses what attachView refuses, and changes nothing', () => {
 		const { link } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
-		link.parkSource( 'jobstats.p0', 'jobs:stream' );
-		link.addSource( 'heron.p2', 'backlog:stream' );
-		const sources = [ ...link.sources ];
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
+		link.parkView( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'heron.p2', 'backlog:stream' );
+		link.addSource( 'kea.p5', 'heron-6612:stream' );
+		const tees = () =>
+			[ ...link.tees.values() ].map( ( tee ) => [ ...tee.target ] );
+		const before = tees();
 		const parked = [ ...link.parked ];
 
 		expect( () =>
-			link.checkSource( 'jobstats.p0', 'glob:stream', null )
+			link.checkView( 'jobstats.p0', 'glob:stream', null )
 		).toThrow(
 			'RemoteLink: glob:stream cannot seek jobstats.p0, which jobs:stream is streaming'
 		);
-		expect( () => link.checkSource( 'sse-in', 'glob:stream' ) ).toThrow(
-			"RemoteLink: a source's Tee names the slot its SseIn holds: 'sse-in'"
+		expect( () => link.checkView( 'sse-in', 'glob:stream' ) ).toThrow(
+			"add_source 'sse-in' names a slot the node keeps for its own"
+		);
+		expect( () => link.checkView( 'kea.p5', 'glob:stream' ) ).toThrow(
+			"add_source 'kea.p5' already goes to 'heron-6612:stream', not '_stream:kea.p5'"
 		);
 		expect( () =>
-			link.checkSource( 'egret.p4', 'glob:stream', {
+			link.checkView( 'egret.p4', 'glob:stream', {
 				'egret.p4': { segment: 1, offset: 6 },
 			} )
 		).not.toThrow();
-		expect( link.sources ).toEqual( sources );
+		expect( tees() ).toEqual( before );
 		expect( link.parked ).toEqual( parked );
+		expect( link.sources ).toEqual( [
+			{ stamp: 'jobstats.p0', target: '_stream:jobstats.p0' },
+			{ stamp: 'heron.p2', target: '_stream:heron.p2' },
+			{ stamp: 'kea.p5', target: 'heron-6612:stream' },
+		] );
 		expect( link._seeks.size ).toBe( 0 );
 	} );
 
@@ -1586,41 +1693,63 @@ describe( 'sources — the routes one link carries', () => {
 		).toThrow(
 			"add_source 'egret.p4' already goes to 'heron-6612:stream', not 'kite-2290:stream'"
 		);
-		link.parkSource( 'egret.p4', 'heron-6612:stream' );
-		expect( () =>
-			typeLine(
-				shell,
-				'cmd _stream:config add_source egret.p4 kite-2290:stream'
-			)
-		).toThrow( "already goes to 'heron-6612:stream'" );
-		typeLine(
-			shell,
-			'cmd _stream:config add_source egret.p4 heron-6612:stream'
-		);
 		await flush();
-		expect( link.sources ).toEqual( [] );
-		expect( link.parked ).toEqual( [
+		expect( link.sources ).toEqual( [
 			{ stamp: 'egret.p4', target: 'heron-6612:stream' },
 		] );
 	} );
 
-	it( 'the addSource method fans a stamp out to every view the cmd would refuse', () => {
+	it( 'the addSource method refuses a second target, as the cmd does', () => {
 		const { stream: link } = mountExospine();
 		link.addSource( 'egret.p4', 'heron-6612:stream' );
-		link.addSource( 'egret.p4', 'kite-2290:stream' );
+		link.addSource( 'egret.p4', 'heron-6612:stream' );
 
+		expect( () =>
+			link.addSource( 'egret.p4', 'kite-2290:stream' )
+		).toThrow(
+			"add_source 'egret.p4' already goes to 'heron-6612:stream', not 'kite-2290:stream'"
+		);
 		expect( link.sources ).toEqual( [
 			{ stamp: 'egret.p4', target: 'heron-6612:stream' },
-			{ stamp: 'egret.p4', target: 'kite-2290:stream' },
 		] );
+	} );
+
+	it( 'a view on a stamp a cmd sent elsewhere is refused, and adds nothing', () => {
+		const { stream: link } = mountExospine();
+		link.addSource( 'egret.p4', 'heron-6612:stream' );
+
 		expect( () =>
-			Core.node( '_stream:config' ).dispatch( 'add_source', [
-				'egret.p4',
-				'plover-31:stream',
-			] )
+			link.attachView( 'egret.p4', 'kite-2290:stream' )
 		).toThrow(
-			"already goes to 'heron-6612:stream', not 'plover-31:stream'"
+			"add_source 'egret.p4' already goes to 'heron-6612:stream', not '_stream:egret.p4'"
 		);
+		expect( Core.node( '_stream:egret.p4' ) ).toBeNull();
+		expect( link.sources ).toEqual( [
+			{ stamp: 'egret.p4', target: 'heron-6612:stream' },
+		] );
+	} );
+
+	it( 'a cmd add_source refuses another target for a paused view’s stamp', async () => {
+		const { stream: link, interpreter } = mountExospine();
+		const shell = typistOn( interpreter );
+		link.attachView( 'kea.p1', 'heron-6612:stream' );
+		link.parkView( 'kea.p1', 'heron-6612:stream' );
+
+		expect( () =>
+			typeLine(
+				shell,
+				'cmd _stream:config add_source kea.p1 kite-2290:stream'
+			)
+		).toThrow(
+			"add_source 'kea.p1' already goes to '_stream:kea.p1', not 'kite-2290:stream'"
+		);
+		await flush();
+		expect( link.sources ).toEqual( [
+			{ stamp: 'kea.p1', target: '_stream:kea.p1' },
+		] );
+		expect( link.parked ).toEqual( [
+			{ stamp: 'kea.p1', target: 'heron-6612:stream' },
+		] );
 	} );
 
 	it( 'a cmd remove_source refuses a source the link does not declare', () => {
@@ -1636,22 +1765,22 @@ describe( 'sources — the routes one link carries', () => {
 		).toThrow(
 			"remove_source 'egret.p4' 'kite-2290:stream' names no source this node declares"
 		);
-		link.parkSource( 'egret.p4', 'heron-6612:stream' );
+		expect( () =>
+			link.removeSource( 'ibis.p2', 'heron-6612:stream' )
+		).toThrow(
+			"remove_source 'ibis.p2' 'heron-6612:stream' names no source this node declares"
+		);
 		typeLine(
 			shell,
 			'cmd _stream:config remove_source egret.p4 heron-6612:stream'
 		);
-		expect( link.parked ).toEqual( [] );
+		expect( link.sources ).toEqual( [] );
 	} );
 
-	it.each(
-		sourceCommands.filter(
-			( [ , commands ] ) =>
-				! JSON.stringify( commands ).includes( '{partition}' )
-		)
-	)(
-		'a :config folds the commands as the PHP broker does: %s',
-		( label, commands, expected ) => {
+	it.each( sourceCommands )(
+		'a :config folds the commands as an unbound PHP broker does: %s',
+		// A rest column: jest reads a fourth named param as `done`.
+		( label, commands, expected, ...where ) => {
 			const link = new CommandInterpreterNode().makeNode(
 				'RemoteLink',
 				'okapi-link-5501'
@@ -1670,7 +1799,8 @@ describe( 'sources — the routes one link carries', () => {
 			}
 			link.removeNode();
 
-			expect( answer ).toEqual( expected );
+			// No browser binds a partition.
+			expect( answer ).toEqual( where[ 0 ]?.unbound ?? expected );
 		}
 	);
 
@@ -1732,7 +1862,7 @@ describe( 'sources — the routes one link carries', () => {
 
 	it( 'removeNode retracts every Tee, so a fresh link builds them again', async () => {
 		const { link } = makeShared();
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
 		await flush();
 		FakeEventSource.last.dispatch(
 			'msg',
@@ -1743,7 +1873,7 @@ describe( 'sources — the routes one link carries', () => {
 		const fresh = new RemoteLinkNode();
 		fresh.name = names.STREAM;
 		fresh.sink = Core.node( names.COMMAND_INTERPRETER );
-		fresh.addSource( 'jobstats.p0', 'jobs:stream' );
+		fresh.attachView( 'jobstats.p0', 'jobs:stream' );
 		await flush();
 		FakeEventSource.last.dispatch(
 			'msg',
@@ -1756,7 +1886,7 @@ describe( 'sources — the routes one link carries', () => {
 		const { link } = makeShared();
 		let closes = 0;
 		link.onClose = () => closes++;
-		link.addSource( 'jobstats.p0', 'jobs:stream' );
+		link.attachView( 'jobstats.p0', 'jobs:stream' );
 		link.removeNode();
 		await flush();
 		expect( FakeEventSource.last ).toBeNull();

@@ -3,6 +3,7 @@
  */
 
 import { graphFromTsl } from '../draftToGraph';
+import { RemoteLinkNode } from '../../../runtime/remote-link-node';
 import brokerSchemas from '../../../../tests/fixtures/broker-schemas.json';
 import sourceCommands from '../../../../tests/fixtures/broker-sources.json';
 
@@ -97,6 +98,34 @@ describe( 'a broker’s add_source lines', () => {
 
 		expect( pairEdges( graph ) ).toEqual( [
 			{ from: 'spoke-m2', to: 'kite-2290', roles: [ 'pair' ] },
+		] );
+	} );
+
+	it( 'draw no edge for a {partition} source on a browser link, which binds none', () => {
+		const schema = RemoteLinkNode.nodeSchema();
+		const linkCatalog = [
+			{
+				shell_name: 'RemoteLink',
+				arguments: schema.arguments,
+				commands: schema.commands.map(
+					( { name, args, multiple } ) => ( {
+						name,
+						args,
+						multiple,
+					} )
+				),
+			},
+		];
+		const graph = graphFromTsl(
+			'make_node RemoteLink plover-link-62\n' +
+				'command_node plover-link-62:config add_source egret.p{partition} heron-{partition}\n' +
+				'command_node plover-link-62:config add_source kea.p3 kite-4417\n',
+			null,
+			linkCatalog
+		);
+
+		expect( pairEdges( graph ) ).toEqual( [
+			{ from: 'plover-link-62', to: 'kite-4417', roles: [ 'pair' ] },
 		] );
 	} );
 

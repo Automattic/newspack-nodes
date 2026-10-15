@@ -8,22 +8,22 @@
  *
  *   <prefix>:stream  Pass-through Tee; copies frames to the view, is where a
  *                    debug-overlay `connect` taps the live stream, and is the
- *                    target of this graph's sources on the page link.
+ *                    view this graph attaches on the page link.
  *   <prefix>:view    `viewClass`, the view-model React reads. It trusts controls
  *                    from its own name, which is what `control()` stamps.
  *
  * The graph opens no connection of its own. It rides the page's one stream
- * link, the backbone's `_stream`, by adding each subscription as a source
- * routed to `<prefix>:stream`. The link hands each record to its stamp's Tee,
- * `_stream:<kind>`, whose targets are the graphs whose sources claim it, so
- * every stream graph on a page shares one EventSource.
+ * link, the backbone's `_stream`, by attaching `<prefix>:stream` as a view on
+ * each subscription. The link declares one source per stamp, aimed at the
+ * stamp's Tee, `_stream:<stamp>`, whose targets are the graphs attached to
+ * it, so every stream graph on a page shares one EventSource.
  *
  * A graph rides only while the tab is visible AND the user hasn't paused.
  * Pause takes the SAME path as the visibility gate — it is just "inactive" —
- * and parks the graph's sources: they leave the stream but keep their claim, so
+ * and parks the graph's views: they leave their Tees but keep their claim, so
  * no other graph seeks or forgets their stamps, and Play resumes where it
  * stopped. Pause outranks a refocus: a paused graph stays parked through
- * hide → show. An unmount removes the sources and `forget`s their
+ * hide → show. An unmount detaches the views and `forget`s their
  * subscriptions, so a later graph on them tails.
  *
  * Every control that re-points the stream goes through `resubscribe`: it RECORDS
@@ -82,22 +82,22 @@ const CATALOG_POLL_MS = 10000;
 const NO_ROWS = [];
 
 /**
- * Add each subscription to the link as one of this graph's sources, all or
- * none: every one is checked before any is added, so a refusal leaves the
- * link as it found it.
+ * Attach this graph to the link on each subscription, all or none: every one
+ * is checked before any is attached, so a refusal leaves the link as it
+ * found it.
  *
  * @param {Object}   link      The page link.
  * @param {string[]} subs      The subscriptions.
  * @param {string}   tee       The graph's `<prefix>:stream`.
- * @param {?Object=} positions The seek, as `addSource()` reads one.
- * @throws {Error} What `checkSource()` refused.
+ * @param {?Object=} positions The seek, as `attachView()` reads one.
+ * @throws {Error} What `checkView()` refused.
  */
-function addSources( link, subs, tee, positions ) {
+function attachViews( link, subs, tee, positions ) {
 	for ( const sub of subs ) {
-		link.checkSource( sub, tee, positions );
+		link.checkView( sub, tee, positions );
 	}
 	for ( const sub of subs ) {
-		link.addSource( sub, tee, positions );
+		link.attachView( sub, tee, positions );
 	}
 }
 
@@ -139,7 +139,7 @@ export function useStreamGraph( {
 	openAt,
 	clearOnOpen = false,
 } ) {
-	// The Tee the page link delivers to, which names this graph on the link.
+	// The view this graph attaches on the page link, which names it there.
 	const tee = `${ prefix }:stream`;
 	const linkRef = useRef( null );
 	const viewRef = useRef( null );
@@ -160,7 +160,7 @@ export function useStreamGraph( {
 
 	// The intended {subscribe, positions}: the source every ride reads.
 	const targetRef = useRef( null );
-	// The subscriptions this graph's sources last named, kept through a pause.
+	// The subscriptions this graph last attached to, kept through a pause.
 	const ridingRef = useRef( null );
 
 	// Read the latest declaration inside the once-only build and the effect.
@@ -185,7 +185,7 @@ export function useStreamGraph( {
 	// single-use consumption of the recorded seek cannot be reached around:
 	// once the link takes it, the target keeps its subscription and loses its
 	// positions, so the NEXT ride resumes where the page's stream read to. New
-	// sources go on before the old come off, so a refused seek changes nothing
+	// views attach before the old detach, so a refused seek changes nothing
 	// and a seek on a dir the old glob carried outlives the swap. With no link
 	// yet, the build reads the target.
 	const ride = useCallback(
@@ -201,9 +201,9 @@ export function useStreamGraph( {
 			const gone = ( ridingRef.current ?? [] ).filter(
 				( sub ) => ! subs.includes( sub )
 			);
-			addSources( link, subs, tee, positions );
+			attachViews( link, subs, tee, positions );
 			for ( const sub of gone ) {
-				link.removeSource( sub, tee );
+				link.detachView( sub, tee );
 			}
 			link.forget( gone );
 			ridingRef.current = subs;
@@ -268,7 +268,7 @@ export function useStreamGraph( {
 
 			return () => {
 				for ( const sub of ridingRef.current ?? [] ) {
-					stream.removeSource( sub, tee );
+					stream.detachView( sub, tee );
 				}
 				stream.forget( ridingRef.current ?? [] );
 				ridingRef.current = null;
@@ -289,7 +289,7 @@ export function useStreamGraph( {
 		}
 		if ( ! isActive ) {
 			for ( const sub of ridingRef.current ?? [] ) {
-				link.parkSource( sub, tee );
+				link.parkView( sub, tee );
 			}
 			return;
 		}
@@ -299,7 +299,7 @@ export function useStreamGraph( {
 		}
 	}, [ buildGen, isActive, ride, tee ] );
 
-	// Pause parks the sources (the effect above); the flag drives the UI.
+	// Pause parks the views (the effect above); the flag drives the UI.
 	const setPaused = useCallback(
 		( paused ) => {
 			// The ref flips NOW: a same-tick seek must record, not open.

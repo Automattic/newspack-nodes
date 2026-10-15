@@ -1007,6 +1007,38 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( $expected, $targets );
 	}
 
+	/** @return array<string,array{list<array{0:string,1:list<string>}>,list<string>|array{refused:string}}> Each case's answer where no partition is bound, as a browser link folds. */
+	public static function unbound_source_commands(): array {
+		$cases = \json_decode( (string) \file_get_contents( __DIR__ . '/../fixtures/broker-sources.json' ), true );
+		return \array_column( \array_map( static fn ( array $c ): array => [ $c[0], [ $c[1], $c[3]['unbound'] ?? $c[2] ] ], $cases ), 1, 0 );
+	}
+
+	/**
+	 * Folded with no partition bound, each run answers as the browser's link
+	 * does: `{partition}` is refused, and every other case as bound.
+	 *
+	 * @param list<array{0:string,1:list<string>}>  $commands Each verb and its tokens.
+	 * @param list<string>|array{refused:string}    $expected The targets left, or the refusal.
+	 */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'unbound_source_commands' )]
+	public function test_an_unbound_fold_answers_as_the_browser_link( array $commands, array $expected ): void {
+		$verbs   = Command_Interpreter_Node::declared_verbs( Remote_Source_Node::class );
+		$sources = [];
+		try {
+			foreach ( $commands as [ $verb, $tokens ] ) {
+				if ( ! isset( $verbs[ $verb ] ) || ! \in_array( $verb, [ Remote_Broker_Node::ADD_SOURCE, Remote_Broker_Node::REMOVE_SOURCE ], true ) ) {
+					continue;
+				}
+				$bound   = Command_Args::bind( Core::arr( $verbs[ $verb ]['args'] ), $tokens );
+				$sources = Remote_Broker_Node::fold_source( $sources, $verb, Core::as_string( $bound['remote_log'] ), Core::as_string( $bound['local_node'] ), null );
+			}
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertSame( $expected, [ 'refused' => \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) ] );
+			return;
+		}
+		$this->assertSame( $expected, \array_column( $sources, 'target' ) );
+	}
+
 	/**
 	 * A live broker answers each command run as the fold does: the targets it
 	 * displays, or the refusal its verb throws.
