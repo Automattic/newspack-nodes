@@ -460,12 +460,15 @@ trait Schema_Reflection {
 	/**
 	 * The two verb declarations a list of one value stands for, for a
 	 * `node_schema()['commands']`: `add_{$noun}` appends its one arg, trimmed,
-	 * to `$property` (a duplicate kept), and `remove_{$noun}`, taking the same
-	 * arg and naming the add it `undoes`, drops the first entry equal to it.
-	 * `auto_wire_interpreter()` synthesizes both handlers from their `list` /
-	 * `unlist` keys, each refusing a blank, the remove also a value no entry
-	 * holds, and `dump_lists()` writes one `add_{$noun}` line per entry. A
-	 * variadic arg's tokens join with a space into one entry.
+	 * to `$property`, an identical repeat a no-op, and `remove_{$noun}`,
+	 * taking the same arg and naming the add it `undoes`, drops the entry
+	 * equal to it. A repeat changes nothing, as `add_source` treats one, so a
+	 * `Vault_Group`, which records a repeat once, rebuilds a child holding
+	 * what its live children hold. `auto_wire_interpreter()` synthesizes both
+	 * handlers from their `list` / `unlist` keys, each refusing a blank, the
+	 * remove also a value no entry holds, and `dump_lists()` writes one
+	 * `add_{$noun}` line per entry. A variadic arg's tokens join with a space
+	 * into one entry.
 	 *
 	 * @param string                 $noun        The verbs' shared suffix.
 	 * @param string                 $property    The list property, a `list<string>`.
@@ -486,7 +489,7 @@ trait Schema_Reflection {
 			],
 			[
 				'name'        => "remove_{$noun}",
-				'description' => "Undo one {$add}: drop the first entry equal to <{$val}>. Refused when none is.",
+				'description' => "Undo {$add}: drop the entry equal to <{$val}>. Refused when none is.",
 				'args'        => [ $arg ],
 				'unlist'      => $property,
 				'undoes'      => $add,
@@ -574,9 +577,9 @@ trait Schema_Reflection {
 	/**
 	 * Synthesize the handler a `list` or `unlist` declaration stands for: join
 	 * the verb's one arg, bound by name, into one trimmed entry, then append it
-	 * to the patron's `$prop` list or drop the first entry equal to it. A blank
-	 * entry is refused, and so is a removal no entry matches, naming the add
-	 * verb the removal's declaration `undoes`.
+	 * to the patron's `$prop` list unless an entry equals it, or drop the
+	 * entry equal to it. A blank entry is refused, and so is a removal no
+	 * entry matches, naming the noun of the add its declaration `undoes`.
 	 *
 	 * @param class-string<Node>     $class Class whose schema declares the verb.
 	 * @param string                 $name  The verb.
@@ -601,13 +604,13 @@ trait Schema_Reflection {
 				throw new \InvalidArgumentException( "usage: {$name} <{$arg}>" );
 			}
 			$entries = \array_values( Core::arr( $patron->{$prop} ) );
+			$held    = \in_array( $entry, $entries, true );
 			if ( $adds ) {
-				$patron->{$prop} = [ ...$entries, $entry ];
+				$patron->{$prop} = $held ? $entries : [ ...$entries, $entry ];
 				return "ok\n";
 			}
-			if ( ! \in_array( $entry, $entries, true ) ) {
-				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-				throw new \InvalidArgumentException( "{$name} '{$entry}' names no entry {$add} gave" );
+			if ( ! $held ) {
+				throw Command_Args::undeclared( $name, [ $entry ], \preg_replace( '/^add_/', '', $add ) ?? $add, 'node' );
 			}
 			$patron->{$prop} = Core::without( $entries, $entry );
 			return "ok\n";

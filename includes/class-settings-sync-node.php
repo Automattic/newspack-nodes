@@ -214,8 +214,7 @@ class Settings_Sync_Node extends Timer_Node {
 			'remote' => $remote,
 		];
 		if ( ! \in_array( $spec, $this->registry[ $local ] ?? [], true ) ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-			throw new \InvalidArgumentException( "remove_setting '{$local}' '{$to}' '{$remote}' names no setting this node declares" );
+			throw Command_Args::undeclared( 'remove_setting', [ $local, $to, $remote ], 'setting', 'node' );
 		}
 		$this->registry[ $local ] = Core::without( $this->registry[ $local ], $spec );
 		if ( [] === $this->registry[ $local ] ) {

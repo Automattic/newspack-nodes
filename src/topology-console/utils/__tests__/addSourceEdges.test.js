@@ -100,8 +100,29 @@ describe( 'a broker’s add_source lines', () => {
 		] );
 	} );
 
-	it.each( sourceCommands )(
-		'fold the commands as the broker does: %s',
+	it( 'draw no edge for a source the broker refuses, and draw the rest', () => {
+		const graph = graphFromTsl(
+			'make_node Remote_Source spoke-z3 lone o d\n' +
+				'command_node spoke-z3:config add_source http-out kite-2290\n' +
+				'command_node spoke-z3:config add_source offsets:* kite-2291\n' +
+				'command_node spoke-z3:config add_source egret.p6 heron-4471\n' +
+				'command_node spoke-z3:config add_source egret.p6 kite-2292\n' +
+				'command_node spoke-z3:config remove_source kea.p1 kite-2293\n',
+			null,
+			brokerSchemas
+		);
+
+		expect( pairEdges( graph ) ).toEqual( [
+			{ from: 'spoke-z3', to: 'heron-4471', roles: [ 'pair' ] },
+		] );
+	} );
+
+	it.each(
+		sourceCommands.filter( ( [ , , expected ] ) =>
+			Array.isArray( expected )
+		)
+	)(
+		'fold the commands the broker takes as it does: %s',
 		( label, commands, targets ) => {
 			const graph = graphFromTsl(
 				[

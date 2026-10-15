@@ -215,7 +215,9 @@ final class Vault_Group_Node extends Node {
 	 * naming the child that refused, and after the loop every stop and refusal
 	 * is raised together, combined by `Worker_Should_Stop::raise()`. Record the
 	 * command when every child took it and it changed some child's
-	 * configuration, or when there is no child yet. It replaces every earlier
+	 * configuration, or when there is no child yet, where the child class's
+	 * `command_targets()` judges it as the analyzer would, so a group refuses
+	 * what its first child would refuse on replay. It replaces every earlier
 	 * record of the verb when $by_verb, so the last write wins on replay.
 	 * Any other command is appended unless it repeats the latest record,
 	 * because a later command may undo an earlier one — a `remove_source`
@@ -249,6 +251,9 @@ final class Vault_Group_Node extends Node {
 		);
 		Worker_Should_Stop::raise( $caught );
 		$command = [ $verb, $tokens ];
+		if ( [] === $children ) {
+			$this->child_class::command_targets( [ ...$this->commands, $command ] );
+		}
 		if ( $changed && ( $by_verb || \end( $this->commands ) !== $command ) ) {
 			$this->commands = [ ...\array_filter( $this->commands, static fn ( array $recorded ): bool => ! $by_verb || $recorded[0] !== $verb ), $command ];
 		}

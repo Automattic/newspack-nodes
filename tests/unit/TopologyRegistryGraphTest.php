@@ -403,21 +403,38 @@ class TopologyRegistryGraphTest extends TestCase {
 		$this->assertContains( [ 'pull:okapi', 'php-errors:partition' ], $graph['edges'] );
 	}
 
-	/** A source the load would refuse draws no edge, so the graph shows only what loads. */
-	public function test_a_source_the_runtime_refuses_draws_no_edge(): void {
+	/** @return array<string,array{string,string}> Label => a source line the load refuses, then its refusal. */
+	public static function refused_source_lines(): array {
+		return [
+			'a source no spoke can stream' => [ 'add_source .. orphan-4', "add_source '..' names a source no spoke can stream" ],
+			'a source with no target'      => [ 'add_source sources:php', 'missing required argument: local_node' ],
+		];
+	}
+
+	/**
+	 * A source line the load refuses refuses the graph, as the load does, so
+	 * the active set reads the topology as unreadable rather than drawing it.
+	 *
+	 * @param string $line    The refused command.
+	 * @param string $refusal What the verb refuses it with.
+	 */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'refused_source_lines' )]
+	public function test_a_source_the_runtime_refuses_refuses_the_graph( string $line, string $refusal ): void {
 		$this->write_tsl(
 			'vicuna-orphan',
 			"make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl\n"
-			. "command_node pull:okapi:config add_source .. orphan-4\n"
-			. "command_node pull:okapi:config add_source sources:php\n"
 			. "command_node pull:okapi:config add_source ledger.p{partition} ledger-sink-7\n"
+			. "command_node pull:okapi:config {$line}\n"
 		);
 
-		$drawn = \array_map( static fn ( array $edge ): string => "{$edge[0]}>{$edge[1]}", Topology_Analyzer::graph_for( 'vicuna-orphan' )['edges'] );
-		$expanded = \array_map( static fn ( array $edge ): string => "{$edge['from']}>{$edge['to']}", Topology_Analyzer::expand( [ 'vicuna-orphan' ] )['edges'] );
-
-		$this->assertSame( [ 'pull:okapi>ledger-sink-7' ], $drawn );
-		$this->assertSame( [ 'pull:okapi>ledger-sink-7' ], $expanded );
+		foreach ( [ static fn () => Topology_Analyzer::graph_for( 'vicuna-orphan' ), static fn () => Topology_Analyzer::expand( [ 'vicuna-orphan' ] ) ] as $read ) {
+			try {
+				$read();
+				$this->fail( 'expected the source line to refuse the graph' );
+			} catch ( \InvalidArgumentException $e ) {
+				$this->assertSame( $refusal, \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
+			}
+		}
 	}
 
 	/** A target naming `{partition}` draws its edge to the node as the TSL names it. */
@@ -466,7 +483,6 @@ class TopologyRegistryGraphTest extends TestCase {
 			"make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl\n"
 			. "command_node pull:okapi:config add_source ledger.p{partition} lane-sink.p{partition}\n"
 			. "command_node pull:okapi:config add_source '<zeta_pairs:lane>.p3' ibis-sink-41\n"
-			. "command_node pull:okapi:config add_source .. orphan-4\n"
 		);
 		\Newspack_Nodes\Core::register_config_namespace(
 			'zeta_pairs',

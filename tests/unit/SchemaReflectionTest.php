@@ -648,14 +648,14 @@ class SchemaReflectionTest extends TestCase {
 		$this->assertStringContainsString( 'add_perch', Core::as_string( $verbs['remove_perch']['description'] ?? '' ) );
 	}
 
-	public function test_a_list_add_appends_trimmed_entries_in_order_keeping_a_duplicate(): void {
+	public function test_a_list_add_appends_trimmed_entries_in_order_and_an_identical_repeat_is_a_no_op(): void {
 		$node = $this->list_node();
 
 		$this->assertSame( "ok\n", $node->interpreter()->dispatch( 'add_perch', [ 'osprey-3' ] ) );
 		$node->interpreter()->dispatch( 'add_perch', [ '  kite-8  ' ] );
-		$node->interpreter()->dispatch( 'add_perch', [ '--perch=osprey-3' ] );
+		$this->assertSame( "ok\n", $node->interpreter()->dispatch( 'add_perch', [ '--perch=osprey-3' ] ) );
 
-		$this->assertSame( [ 'osprey-3', 'kite-8', 'osprey-3' ], $this->read_private( $node, 'perches' ) );
+		$this->assertSame( [ 'osprey-3', 'kite-8' ], $this->read_private( $node, 'perches' ) );
 	}
 
 	public function test_a_variadic_list_add_joins_its_tokens_with_a_space(): void {
@@ -676,7 +676,7 @@ class SchemaReflectionTest extends TestCase {
 		$this->assertSame( [], $this->read_private( $node, 'perches' ) );
 	}
 
-	public function test_a_list_remove_drops_the_first_identical_entry(): void {
+	public function test_a_list_remove_drops_its_entry_however_often_it_was_added(): void {
 		$node = $this->list_node();
 		foreach ( [ 'osprey-3', 'kite-8', 'osprey-3' ] as $perch ) {
 			$node->interpreter()->dispatch( 'add_perch', [ $perch ] );
@@ -684,7 +684,7 @@ class SchemaReflectionTest extends TestCase {
 
 		$this->assertSame( "ok\n", $node->interpreter()->dispatch( 'remove_perch', [ ' osprey-3 ' ] ) );
 
-		$this->assertSame( [ 'kite-8', 'osprey-3' ], $this->read_private( $node, 'perches' ) );
+		$this->assertSame( [ 'kite-8' ], $this->read_private( $node, 'perches' ) );
 	}
 
 	public function test_a_list_remove_naming_no_entry_is_refused_naming_it(): void {
@@ -694,7 +694,7 @@ class SchemaReflectionTest extends TestCase {
 		$caught = $this->caught_any( fn () => $node->interpreter()->dispatch( 'remove_perch', [ 'heron-2' ] ) );
 
 		$this->assertInstanceOf( \InvalidArgumentException::class, $caught );
-		$this->assertSame( "remove_perch 'heron-2' names no entry add_perch gave", $caught->getMessage() );
+		$this->assertSame( "remove_perch 'heron-2' names no perch this node declares", $caught->getMessage() );
 		$this->assertSame( [ 'kite-8' ], $this->read_private( $node, 'perches' ) );
 	}
 

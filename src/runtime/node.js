@@ -721,11 +721,13 @@ export class Node {
 	}
 
 	/**
-	 * Register this node under `name`, or rename it if it already has one.
+	 * Register this node under `name`, or rename it if it already has one,
+	 * its `:config` with it, as PHP's `set_sibling_names()` renames a
+	 * patron's siblings.
 	 *
 	 * @param {string} name The new name.
-	 * @throws {Error} When `name` is already registered in this registry, or
-	 *   holds the Router's `/`.
+	 * @throws {Error} When `name`, or its `:config`'s, is already registered
+	 *   in its table, or holds the Router's `/`; nothing is renamed.
 	 */
 	set name( name ) {
 		if ( String( name ).includes( '/' ) ) {
@@ -735,17 +737,31 @@ export class Node {
 		}
 		const registry = this.registry;
 		const previous = this._name;
-		if ( name !== previous && null !== registry.node( name ) ) {
+		const config =
+			name !== previous &&
+			this.interpreter?.name === Node.siblingNameOf( previous, 'config' )
+				? this.interpreter
+				: null;
+		const configName = Node.siblingNameOf( name, 'config' );
+		const taken =
+			( name !== previous && null !== registry.node( name ) && name ) ||
+			( config &&
+				null !== config.registry.node( configName ) &&
+				configName );
+		if ( taken ) {
 			throw new Error(
-				`node name collision: ${ name } already registered`
+				`node name collision: ${ taken } already registered`
 			);
 		}
 		this._name = name;
 		if ( registry.node( previous ) === this ) {
 			registry.renameNode( previous, name );
-			return;
+		} else {
+			registry.registerNode( name, this );
 		}
-		registry.registerNode( name, this );
+		if ( config ) {
+			config.name = configName;
+		}
 	}
 
 	/**

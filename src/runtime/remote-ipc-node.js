@@ -19,8 +19,8 @@
  *    `connect_worker_input {reader}` so the stateless request-scope graph mounts
  *    the worker's input Partition before the command routes to it.
  *
- * It declares no pairs, so every record keeps the TO the worker addressed it
- * to.
+ * It declares no sources, so every record keeps the TO the worker addressed
+ * it to.
  *
  * Single live connection: a send boots this link's SseIn, closing whichever
  * RemoteIpc held it (the same swap the console does when the cwd changes worker).

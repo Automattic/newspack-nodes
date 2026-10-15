@@ -44,7 +44,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 
 	/**
 	 * The sibling kinds no reader may take, shared by every broker:
-	 * `checked_source()` judges a source statically against this base, so one
+	 * `fold_source()` judges a source statically against this base, so one
 	 * TSL line parses alike in the analyzer and at runtime, whichever broker it
 	 * names.
 	 */
@@ -305,44 +305,23 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 * Read `$remote_log` into `$local_node`: claim its stamps, its reader
 	 * built on the next tick. Every source is kept for the dump, and read only
 	 * where `Core::owns()` gives it to this worker (ADR-33). A changed source
-	 * list restarts the stream; an identical repeat changes nothing. A source
-	 * goes to one target: a second is refused on every partition, the source
-	 * compared as written, so a glob and an exact stamp it matches are two
-	 * sources.
+	 * list restarts the stream; an identical repeat changes nothing.
+	 * `fold_source()` judges the source, as the analyzer judges the line.
 	 *
 	 * @param string $remote_log A spoke stamp, glob or `sources:<name>`, `{partition}` resolved here.
 	 * @param string $local_node The node its lines go to.
-	 * @throws \InvalidArgumentException When the source already goes elsewhere,
-	 *                                   no spoke can stream it, its reader would
-	 *                                   take a kept slot, or it names
-	 *                                   `{partition}` where none is bound.
+	 * @throws \InvalidArgumentException What `fold_source()` refuses.
 	 */
 	public function add_source( string $remote_log, string $local_node ): void {
-		$written = [ 'source' => $remote_log, 'target' => $local_node ];
-		foreach ( $this->declared as [ 'source' => $source, 'target' => $target ] ) {
-			if ( $remote_log !== $source ) {
-				continue;
-			}
-			if ( $local_node === $target ) {
-				return;
-			}
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-			throw new \InvalidArgumentException( self::refusal_prefix() . self::ADD_SOURCE . " '{$remote_log}' already goes to '{$target}', not '{$local_node}'" );
+		$declared = self::fold_source( $this->declared, self::ADD_SOURCE, $remote_log, $local_node, $this->bound_partition );
+		if ( $declared === $this->declared ) {
+			return;
 		}
-		if ( null === $this->bound_partition && ( Core::has_partition_token( $remote_log ) || Core::has_partition_token( $local_node ) ) ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-			throw new \InvalidArgumentException( self::refusal_prefix() . self::ADD_SOURCE . " '{$remote_log}' '{$local_node}' names " . Core::PARTITION_TOKEN . ', but no partition is bound' );
-		}
-		$source           = self::checked_source(
-			Core::resolve_partition_template( $remote_log, $this->bound_partition ?? 0 ),
-			Core::resolve_partition_template( $local_node, $this->bound_partition ?? 0 ),
-			$remote_log
-		);
-		$this->declared[] = $written;
+		$this->declared = $declared;
 		if ( ! Core::owns( $remote_log, $this->bound_partition ) ) {
 			return;
 		}
-		$this->sources[]   = $source;
+		$this->sources[]   = $this->resolved( $remote_log, $local_node );
 		$this->glob_stamps = null;
 		$this->restream();
 	}
@@ -356,26 +335,32 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 *
 	 * @param string $remote_log The source, as `add_source` took it.
 	 * @param string $local_node Its target, as `add_source` took it.
-	 * @throws \InvalidArgumentException When this broker declares no such source.
+	 * @throws \InvalidArgumentException What `fold_source()` refuses.
 	 */
 	public function remove_source( string $remote_log, string $local_node ): void {
-		$written = [ 'source' => $remote_log, 'target' => $local_node ];
-		if ( ! \in_array( $written, $this->declared, true ) ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-			throw new \InvalidArgumentException( self::refusal_prefix() . self::REMOVE_SOURCE . " '{$remote_log}' '{$local_node}' names no source this broker declares" );
-		}
-		$this->declared = Core::without( $this->declared, $written );
+		$this->declared = self::fold_source( $this->declared, self::REMOVE_SOURCE, $remote_log, $local_node, $this->bound_partition );
 		if ( ! Core::owns( $remote_log, $this->bound_partition ) ) {
 			return;
 		}
-		$source            = [
-			'source' => Core::resolve_partition_template( $remote_log, $this->bound_partition ?? 0 ),
-			'target' => Core::resolve_partition_template( $local_node, $this->bound_partition ?? 0 ),
-		];
-		$this->sources     = Core::without( $this->sources, $source );
+		$this->sources     = Core::without( $this->sources, $this->resolved( $remote_log, $local_node ) );
 		$this->glob_stamps = null;
 		$this->reconcile_readers();
 		$this->restream();
+	}
+
+	/**
+	 * A source as this worker reads it, `{partition}` resolved at its
+	 * partition, or at 0 where none is bound and the source names none.
+	 *
+	 * @param string $remote_log The source, as written.
+	 * @param string $local_node Its target, as written.
+	 * @return array{source:string,target:string}
+	 */
+	private function resolved( string $remote_log, string $local_node ): array {
+		return [
+			'source' => Core::resolve_partition_template( $remote_log, $this->bound_partition ?? 0 ),
+			'target' => Core::resolve_partition_template( $local_node, $this->bound_partition ?? 0 ),
+		];
 	}
 
 	/**
@@ -405,6 +390,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 *
 	 * @param list<array{0:string,1:list<string>}> $commands Each verb and its argument tokens, in the order sent.
 	 * @return list<string>
+	 * @throws \InvalidArgumentException What `sources_of()` refuses.
 	 */
 	public static function command_targets( array $commands ): array {
 		return \array_column( static::sources_of( $commands ), 'target' );
@@ -412,80 +398,81 @@ abstract class Remote_Broker_Node extends Timer_Node {
 
 	/**
 	 * The sources a run of `add_source` and `remove_source` commands leaves
-	 * declared, as written and in order, each judged as the broker judges
-	 * it: an identical repeat, a second target for a source, a removal naming
-	 * no declared source and a line the verb refuses each change nothing.
-	 * For a reader of a topology that must not fail on a line the runtime
-	 * would refuse; the console's TSL reader folds them alike, held to this
-	 * by `tests/fixtures/broker-sources.json`.
+	 * declared, as written and in order, each bound as its verb binds it and
+	 * folded by `fold_source()` at partition 0, so a line the load refuses
+	 * refuses the run and the analyzer reads the topology as unreadable. The
+	 * browser's `sourcesOf()` folds the same, held to this by
+	 * `tests/fixtures/broker-sources.json`.
 	 *
 	 * @param list<array{0:string,1:list<string>}> $commands Each verb and its argument tokens, in the order sent.
 	 * @return list<array{source:string,target:string}>
+	 * @throws \InvalidArgumentException The first command the verb refuses.
 	 */
 	public static function sources_of( array $commands ): array {
 		$sources = [];
 		foreach ( $commands as [ $verb, $tokens ] ) {
-			$source = self::source_of( $verb, $tokens );
-			if ( null === $source ) {
+			if ( self::ADD_SOURCE !== $verb && self::REMOVE_SOURCE !== $verb ) {
 				continue;
 			}
-			if ( self::REMOVE_SOURCE === $verb ) {
-				$sources = Core::without( $sources, $source );
-			} elseif ( ! \in_array( $source['source'], \array_column( $sources, 'source' ), true ) ) {
-				$sources[] = $source;
-			}
+			$bound   = Command_Args::bind( Core::arr( Command_Interpreter_Node::declared_verbs( static::class )[ $verb ]['args'] ?? [] ), $tokens );
+			$sources = self::fold_source( $sources, $verb, Core::as_string( $bound['remote_log'] ), Core::as_string( $bound['local_node'] ), 0 );
 		}
 		return $sources;
 	}
 
 	/**
-	 * One `add_source` or `remove_source` command's source as written, when
-	 * the verb would bind it; null for any other verb or a line it refuses.
-	 * `{partition}` and config tokens are resolved for the judgement and kept
-	 * in the answer, as the TSL names its nodes.
+	 * The one source rule: the declared sources once one `add_source` or
+	 * `remove_source` applies, both as written. A source goes to one target,
+	 * compared as written, so a glob and an exact stamp it matches are two
+	 * sources; an identical repeat answers `$declared` unchanged; a removal
+	 * must name a declared source. An added source must be one a spoke can
+	 * stream and whose reader takes no slot the broker keeps, judged with
+	 * `{partition}` resolved at `$partition`. The runtime folds at its bound
+	 * partition, the analyzer at 0; the browser's `foldSource()` is the twin.
 	 *
-	 * @param string       $verb   The verb.
-	 * @param list<string> $tokens Its argument tokens.
-	 * @return array{source:string,target:string}|null
+	 * @param list<array{source:string,target:string}> $declared   The sources declared so far, as written.
+	 * @param string                                   $verb       `add_source` or `remove_source`.
+	 * @param string                                   $remote_log The source, as written.
+	 * @param string                                   $local_node Its target, as written.
+	 * @param int|null                                 $partition  The partition `{partition}` resolves at; null where none is bound.
+	 * @return list<array{source:string,target:string}>
+	 * @throws \InvalidArgumentException When the source already goes elsewhere,
+	 *                                   a removal names no declared source, no
+	 *                                   spoke can stream it, its reader would
+	 *                                   take a kept slot, or it names
+	 *                                   `{partition}` where none is bound.
 	 */
-	private static function source_of( string $verb, array $tokens ): ?array {
-		if ( self::ADD_SOURCE !== $verb && self::REMOVE_SOURCE !== $verb ) {
-			return null;
+	public static function fold_source( array $declared, string $verb, string $remote_log, string $local_node, ?int $partition ): array {
+		$written = [ 'source' => $remote_log, 'target' => $local_node ];
+		if ( self::REMOVE_SOURCE === $verb ) {
+			if ( ! \in_array( $written, $declared, true ) ) {
+				throw Command_Args::undeclared( $verb, [ $remote_log, $local_node ], 'source', 'node' );
+			}
+			return Core::without( $declared, $written );
 		}
-		$specs = Core::arr( Command_Interpreter_Node::declared_verbs( static::class )[ $verb ]['args'] ?? [] );
-		try {
-			$bound  = Command_Args::bind( $specs, $tokens );
-			$source = Core::as_string( $bound['remote_log'] );
-			$target = Core::as_string( $bound['local_node'] );
-			self::checked_source( Core::resolve_partition_template( $source, 0 ), $target, $source );
-		} catch ( \InvalidArgumentException | \RuntimeException $e ) {
-			return null;
+		$taken = \array_column( $declared, 'target', 'source' )[ $remote_log ] ?? null;
+		if ( $local_node === $taken ) {
+			return $declared;
 		}
-		return [ 'source' => $source, 'target' => $target ];
-	}
-
-	/**
-	 * Refuse a source `add_source()` would refuse, resolved as the broker
-	 * reads it, naming it as written.
-	 *
-	 * @param string $source  The source, resolved.
-	 * @param string $target  The target, resolved.
-	 * @param string $written The source as written, which a refusal names.
-	 * @return array{source:string,target:string}
-	 * @throws \InvalidArgumentException When no spoke can stream the source, or its reader would take a kept slot.
-	 */
-	private static function checked_source( string $source, string $target, string $written ): array {
-		// An exact source is the stamp of the one stream it carries.
-		$glob = Log_Discovery::is_glob( $source );
-		if ( ! ( $glob ? Log_Discovery::is_subscription( $source ) : Log_Discovery::fits_a_dir_name( $source ) ) ) {
+		$refuse = static function ( string $why ) use ( $verb, $remote_log ): never {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-			throw new \InvalidArgumentException( self::refusal_prefix() . self::ADD_SOURCE . " names a source no spoke can stream: '{$written}'" );
+			throw new \InvalidArgumentException( "{$verb} '{$remote_log}' {$why}" );
+		};
+		if ( null !== $taken ) {
+			$refuse( "already goes to '{$taken}', not '{$local_node}'" );
+		}
+		if ( null === $partition && ( Core::has_partition_token( $remote_log ) || Core::has_partition_token( $local_node ) ) ) {
+			$refuse( "'{$local_node}' names " . Core::PARTITION_TOKEN . ', but no partition is bound' );
+		}
+		$source = Core::resolve_partition_template( $remote_log, $partition ?? 0 );
+		$glob   = Log_Discovery::is_glob( $source );
+		if ( ! ( $glob ? Log_Discovery::is_subscription( $source ) : Log_Discovery::fits_a_dir_name( $source ) ) ) {
+			$refuse( 'names a source no spoke can stream' );
 		}
 		if ( ! $glob && self::is_reserved( $source ) ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-			throw new \InvalidArgumentException( self::refusal_prefix() . self::ADD_SOURCE . " names a source whose reader takes a slot the broker keeps: '{$written}'" );
+			$refuse( 'names a slot the node keeps for its own' );
 		}
-		return [ 'source' => $source, 'target' => $target ];
+		return [ ...$declared, $written ];
 	}
 
 	/**

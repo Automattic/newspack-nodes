@@ -63,24 +63,32 @@ TSL;
 		Topology_Analyzer::statements( 'pull-bare' );
 	}
 
-	/** @return array<string,array{string,string}> Label => a topology whose broker line still carries a pair, then the refusal. */
-	public static function pair_carrying_lines(): array {
+	/** @return array<string,array{string,string}> Label => a topology whose broker lines the load refuses, then the refusal. */
+	public static function refused_broker_lines(): array {
+		$direct = "make_node Remote_Source pull:ibis ibis-4403 /var/ibis/off /var/ibis/dl\n";
+		$group  = "make_node Vault_Group herons HTTP_Source tw-edge /var/ibis/off.{id} /var/ibis/dl.{id}\n";
 		return [
-			'a written Remote_Source'       => [ "make_node Remote_Source pull:ibis ibis-4403 /var/ibis/off /var/ibis/dl egret.p3=heron-8812\n", "Bad arguments for Remote_Source 'pull:ibis': too many arguments: 4 given, 3 accepted" ],
-			'an HTTP_Source past retry_ms'  => [ "make_node HTTP_Source pull:ibis ibis-4403 /var/ibis/off /var/ibis/dl 2600 egret.p3=heron-8812\n", "Bad arguments for HTTP_Source 'pull:ibis': too many arguments: 5 given, 4 accepted" ],
-			'a Vault_Group of brokers'      => [ "make_node Vault_Group herons Remote_Source tw-edge /var/ibis/off.{id} /var/ibis/dl.{id} egret.p3=heron-8812\n", "Bad arguments for Remote_Source 'herons:tw0': too many arguments: 4 given, 3 accepted" ],
+			'a written Remote_Source carrying a pair'  => [ "make_node Remote_Source pull:ibis ibis-4403 /var/ibis/off /var/ibis/dl egret.p3=heron-8812\n", "Bad arguments for Remote_Source 'pull:ibis': too many arguments: 4 given, 3 accepted" ],
+			'an HTTP_Source carrying a pair'          => [ "make_node HTTP_Source pull:ibis ibis-4403 /var/ibis/off /var/ibis/dl 2600 egret.p3=heron-8812\n", "Bad arguments for HTTP_Source 'pull:ibis': too many arguments: 5 given, 4 accepted" ],
+			'a Vault_Group of brokers carrying a pair' => [ "make_node Vault_Group herons Remote_Source tw-edge /var/ibis/off.{id} /var/ibis/dl.{id} egret.p3=heron-8812\n", "Bad arguments for Remote_Source 'herons:tw0': too many arguments: 4 given, 3 accepted" ],
+			'a broker source given a second target'    => [ $direct . "command_node pull:ibis:config add_source egret.p6 heron-8812\ncommand_node pull:ibis:config add_source egret.p6 kite-3307\n", "add_source 'egret.p6' already goes to 'heron-8812', not 'kite-3307'" ],
+			'a group source given a second target'     => [ $group . "command_node herons:config add_source egret.p6 heron-8812\ncommand_node herons:config add_source egret.p6 kite-3307\n", "add_source 'egret.p6' already goes to 'heron-8812', not 'kite-3307'" ],
+			'a broker removal naming no source'        => [ $direct . "command_node pull:ibis:config add_source egret.p6 heron-8812\ncommand_node pull:ibis:config remove_source egret.p6 kite-3307\n", "remove_source 'egret.p6' 'kite-3307' names no source this node declares" ],
+			'a group removal naming no source'         => [ $group . "command_node herons:config remove_source egret.p6 heron-8812\n", "remove_source 'egret.p6' 'heron-8812' names no source this node declares" ],
+			'a group source taking a kept slot'        => [ $group . "command_node herons:config add_source http-out heron-8812\n", "add_source 'http-out' names a slot the node keeps for its own" ],
 		];
 	}
 
 	/**
-	 * A broker line still carrying a pair is refused at load, so the active
-	 * set reads it as unreadable, as it reads any line the load refuses.
+	 * A broker line the load refuses — one still carrying a pair, a source's
+	 * second target, a removal naming no source — reads as unreadable in the
+	 * active set, so no worker spawns to refuse it on every respawn.
 	 *
 	 * @param string $tsl     The topology.
 	 * @param string $refusal What the load refuses it with.
 	 */
-	#[\PHPUnit\Framework\Attributes\DataProvider( 'pair_carrying_lines' )]
-	public function test_a_broker_line_carrying_a_pair_reads_as_unreadable( string $tsl, string $refusal ): void {
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'refused_broker_lines' )]
+	public function test_a_broker_line_the_load_refuses_reads_as_unreadable( string $tsl, string $refusal ): void {
 		$this->write_tsl( 'pull-ibis-6620', $tsl );
 		\update_option( 'newspack_nodes_topologies', [ 'pull-ibis-6620' ] );
 		Config::reset();

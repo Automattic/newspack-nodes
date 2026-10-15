@@ -1195,8 +1195,7 @@ trait Durable_Reader {
 	 */
 	public function remove_snapshot_node( string $name ): void {
 		if ( ! \in_array( $name, $this->snapshot_nodes, true ) ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
-			throw new \InvalidArgumentException( "remove_snapshot_node '{$name}' names no snapshot node this reader declares" );
+			throw Command_Args::undeclared( 'remove_snapshot_node', [ $name ], 'snapshot node', 'reader' );
 		}
 		$this->snapshot_nodes = Core::without( $this->snapshot_nodes, $name );
 		$this->forget_snapshot( $name );

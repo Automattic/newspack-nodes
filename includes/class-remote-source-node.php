@@ -162,16 +162,16 @@ class Remote_Source_Node extends Remote_Broker_Node {
 		$subscribe        = [];
 		$positions        = [];
 		foreach ( $this->sources as $source ) {
-			$stamp = $source['source'];
-			if ( ! Log_Discovery::is_glob( $stamp ) ) {
-				$child = $this->consumer_for( $stamp );
+			$subscription = $source['source'];
+			if ( ! Log_Discovery::is_glob( $subscription ) ) {
+				$child = $this->consumer_for( $subscription );
 				if ( null !== $child && $child->is_live() ) {
-					$subscribe[]         = $stamp;
-					$positions[ $stamp ] = $child->connect_position();
+					$subscribe[]                = $subscription;
+					$positions[ $subscription ] = $child->connect_position();
 				}
 				continue;
 			}
-			$subscribe[] = $stamp;
+			$subscribe[] = $subscription;
 			foreach ( $this->readers() as $child_stamp => $child ) {
 				if ( $this->source_for( $child_stamp ) === $source ) {
 					$positions[ $child_stamp ] = $child->is_live() ? $child->connect_position() : SSE_Out_Node::SKIP;

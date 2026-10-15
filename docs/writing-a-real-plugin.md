@@ -418,7 +418,7 @@ Each non-secret value is a `:config` verb, stored on the node and dumped back ou
 ...self::list_verbs( 'repo', 'repos', [ 'name' => 'repo', 'type' => 'string', 'required' => true ], 'Register a repo to fetch on TICK: <owner/name>.' ),
 ```
 
-That one line is `add_repo`, which appends its trimmed argument to `$repos` and refuses a blank, and `remove_repo`, which takes the same argument, drops the first identical entry and refuses one no entry matches. `dump_lists()`, called from the node's `dump_config()`, writes one `add_repo` line per entry left, so a replay rebuilds the list as the adds and removes left it. `add_url` and the LLM nodes' `add_profile`, whose variadic `text` tokens join into one entry, are declared the same way.
+That one line is `add_repo`, which appends its trimmed argument to `$repos`, takes an identical repeat as a no-op and refuses a blank, and `remove_repo`, which takes the same argument, drops that entry and refuses one no entry matches. `dump_lists()`, called from the node's `dump_config()`, writes one `add_repo` line per entry left, so a replay rebuilds the list as the adds and removes left it. `add_url` and the LLM nodes' `add_profile`, whose variadic `text` tokens join into one entry, are declared the same way.
 
 You set these in the topology console, or as `cmd <node>:config …` lines in the `.tsl` (shown in §5). Because every verb also round-trips through `dump_config()`, the console can serialize a live graph back to a topology that re-applies each verb in order. `config_line()` writes the canonical spelling, `command_node`; `cmd` and `command` are its aliases, and the shipped `.tsl` files use `cmd`.
 

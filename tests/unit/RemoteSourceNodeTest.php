@@ -712,7 +712,7 @@ class RemoteSourceNodeTest extends TestCase {
 			$node->interpreter()->dispatch( 'add_source', [ $source, 'audit-17' ] );
 			$this->fail( 'expected the source to be refused' );
 		} catch ( \InvalidArgumentException $e ) {
-			$this->assertSame( "Remote_Source: add_source names a source no spoke can stream: '{$source}'", \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
+			$this->assertSame( "add_source '{$source}' names a source no spoke can stream", \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
 		}
 		$this->assertStringNotContainsString( 'add_source', $node->dump_config(), 'a refused source is not kept' );
 	}
@@ -727,7 +727,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$node = $this->bare_broker( 'remote-ibis' );
 
 		$this->expectException( \InvalidArgumentException::class );
-		$this->expectExceptionMessage( "Remote_Source: add_source names a source whose reader takes a slot the broker keeps: '{$slot}'" );
+		$this->expectExceptionMessage( "add_source '{$slot}' names a slot the node keeps for its own" );
 		$node->interpreter()->dispatch( 'add_source', [ $slot, 'audit-17' ] );
 	}
 
@@ -737,7 +737,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$node = $this->bare_broker( 'remote-ibis' );
 
 		$this->expectException( \InvalidArgumentException::class );
-		$this->expectExceptionMessage( "Remote_Source: add_source names a source no spoke can stream: 'Firehose.p{partition}'" );
+		$this->expectExceptionMessage( "add_source 'Firehose.p{partition}' names a source no spoke can stream" );
 		$node->interpreter()->dispatch( 'add_source', [ 'Firehose.p{partition}', 'heron-4471' ] );
 	}
 
@@ -785,7 +785,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$node = $this->bare_broker( 'remote-ibis' );
 
 		$this->expectException( \InvalidArgumentException::class );
-		$this->expectExceptionMessage( "Remote_Source: add_source '{$remote_log}' '{$local_node}' names {partition}, but no partition is bound" );
+		$this->expectExceptionMessage( "add_source '{$remote_log}' '{$local_node}' names {partition}, but no partition is bound" );
 		$node->interpreter()->dispatch( 'add_source', [ $remote_log, $local_node ] );
 	}
 
@@ -862,7 +862,7 @@ class RemoteSourceNodeTest extends TestCase {
 			$node->interpreter()->dispatch( 'add_source', [ 'sources:php', 'kite-2290' ] );
 			$this->fail( 'expected the second target to be refused' );
 		} catch ( \InvalidArgumentException $e ) {
-			$this->assertSame( "Remote_Source: add_source 'sources:php' already goes to 'heron-4471', not 'kite-2290'", \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
+			$this->assertSame( "add_source 'sources:php' already goes to 'heron-4471', not 'kite-2290'", \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
 		}
 		$this->assertSame( [ 'heron-4471' ], $node->display_targets() );
 	}
@@ -948,7 +948,7 @@ class RemoteSourceNodeTest extends TestCase {
 			$node->interpreter()->dispatch( 'remove_source', $tokens );
 			$this->fail( 'expected the removal to be refused' );
 		} catch ( \InvalidArgumentException $e ) {
-			$this->assertSame( "Remote_Source: remove_source '{$bound['remote_log']}' '{$bound['local_node']}' names no source this broker declares", \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
+			$this->assertSame( "remove_source '{$bound['remote_log']}' '{$bound['local_node']}' names no source this node declares", \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
 		}
 		$this->assertSame( $before, $node->dump_config() );
 	}
@@ -980,21 +980,52 @@ class RemoteSourceNodeTest extends TestCase {
 	public function test_command_targets_names_an_accepted_add_source_alone(): void {
 		$this->assertSame( [ 'rewrite-31' ], Remote_Source_Node::command_targets( [ [ 'add_source', [ 'firehose.p{partition}', 'rewrite-31' ] ] ] ) );
 		$this->assertSame( [ 'rewrite-31' ], Remote_Source_Node::command_targets( [ [ 'add_source', [ '--local_node=rewrite-31', '--remote_log=firehose.p0' ] ] ] ) );
-		$this->assertSame( [], Remote_Source_Node::command_targets( [ [ 'add_source', [ '..', 'rewrite-31' ] ] ] ) );
-		$this->assertSame( [], Remote_Source_Node::command_targets( [ [ 'add_source', [ 'firehose.p0' ] ] ] ) );
 		$this->assertSame( [], Remote_Source_Node::command_targets( [ [ 'set_multi_writer', [ 'true' ] ] ] ) );
 	}
 
-	/** @return array<string,array{list<array{0:string,1:list<string>}>,list<string>}> The console's TSL reader reads these too. */
+	/** @return array<string,array{list<array{0:string,1:list<string>}>,list<string>|array{refused:string}}> The console's TSL reader and the link's verbs read these too. */
 	public static function source_commands(): array {
 		$cases = \json_decode( (string) \file_get_contents( __DIR__ . '/../fixtures/broker-sources.json' ), true );
 		return \array_column( \array_map( static fn ( array $c ): array => [ $c[0], [ $c[1], $c[2] ] ], $cases ), 1, 0 );
 	}
 
-	/** The commands apply in order, each as the verb would take it. */
+	/**
+	 * The commands apply in order, each as the verb would take it, and the
+	 * first the verb refuses refuses the run.
+	 *
+	 * @param list<array{0:string,1:list<string>}>  $commands Each verb and its tokens.
+	 * @param list<string>|array{refused:string}    $expected The targets left, or the refusal.
+	 */
 	#[\PHPUnit\Framework\Attributes\DataProvider( 'source_commands' )]
-	public function test_command_targets_names_what_the_commands_leave_standing( array $commands, array $targets ): void {
-		$this->assertSame( $targets, Remote_Source_Node::command_targets( $commands ) );
+	public function test_command_targets_names_what_the_commands_leave_standing( array $commands, array $expected ): void {
+		try {
+			$targets = Remote_Source_Node::command_targets( $commands );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertSame( $expected, [ 'refused' => \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) ] );
+			return;
+		}
+		$this->assertSame( $expected, $targets );
+	}
+
+	/**
+	 * A live broker answers each command run as the fold does: the targets it
+	 * displays, or the refusal its verb throws.
+	 *
+	 * @param list<array{0:string,1:list<string>}>  $commands Each verb and its tokens.
+	 * @param list<string>|array{refused:string}    $expected The targets left, or the refusal.
+	 */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'source_commands' )]
+	public function test_a_live_broker_folds_the_commands_as_the_analyzer_does( array $commands, array $expected ): void {
+		$node = $this->bare_broker( 'remote-okapi' );
+		try {
+			foreach ( $commands as [ $verb, $tokens ] ) {
+				$node->interpreter()->dispatch( $verb, $tokens );
+			}
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertSame( $expected, [ 'refused' => \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) ] );
+			return;
+		}
+		$this->assertSame( $expected, $node->display_targets() );
 	}
 
 	// ---------------------------------------------------------------------

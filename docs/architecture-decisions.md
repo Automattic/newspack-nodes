@@ -577,8 +577,8 @@ whose start is the bound count, so the schema declares where the tail begins onc
 declared anywhere else is refused with `Invalid argument specification: variadic argument <name>
 must be the last`. This differs from [ADR-25](#adr-25-a-verbs-arguments-are-bound-by-its-schema),
 where a verb's `variadic` IS bound, as a list, and may precede named arguments: a constructor
-keeps the tail as raw tokens because a node such as `Remote_Source` or `Vault_Group` parses them
-into a structure of its own.
+keeps the tail as raw tokens because a node such as `Vault_Group` parses them into a structure of
+its own.
 
 **Amendment: a list of one value is a declaration too.** A verb declaring `toggle` or `setter`
 takes its handler from `declared_setter()` and its `dump_config()` line from `dump_toggles()` or
@@ -586,8 +586,12 @@ takes its handler from `declared_setter()` and its `dump_config()` line from `du
 adds the third kind, for a verb that appends to a list: it returns two declarations, `add_<noun>`
 carrying `list => <property>` and `remove_<noun>` carrying `unlist => <property>`, both taking
 `$arg`. `declared_list()` synthesizes both handlers: the add appends its trimmed argument, a
-variadic one's tokens joined with a space, keeping a duplicate; the remove drops the first identical
-entry. Each refuses a blank, and the remove refuses an entry none matches, naming the add verb.
+variadic one's tokens joined with a space, and an identical repeat is a no-op, as `add_source`,
+`add_setting` and `add_snapshot_node` treat a repeat; the remove drops the entry. Each refuses a
+blank, and the remove refuses an entry none matches, in the family every removal refuses with,
+`remove_<noun> '<entry>' names no <noun> this node declares` (`Command_Args::undeclared()`).
+Because a `Vault_Group` records a command repeating its latest record once, a no-op repeat is what
+lets `add X; add X; remove X` leave a rebuilt child holding what its live siblings hold.
 `dump_lists()` writes one `add_<noun>` line per entry left, so a replay rebuilds the list as the
 adds and removes left it, and a `Vault_Group` replays both as recorded
 ([ADR-21](#adr-21-a-node-may-derive-its-children-from-the-vault-and-static-analysis-reads-it)). Both are declared in
@@ -2296,7 +2300,8 @@ none of today. The blast radius, sender by sender, with what each does with one 
   `undelivered` as a fetch to send again at once rather than a refusal.
 - **`HTTP_Source_Node::ask_catalog()`** (FROM the broker; `raw-logs list_logs`), a third clock:
   the broker re-asks once `REQUEST_TIMEOUT` has passed since it asked. It needs no change under
-  this proposal: a bounce carries the `name`, takes the refusal branch, and waits an EOF poll. One
+  this proposal: a bounce carries the `name`, takes the refusal branch, and waits out the broker's
+`retry_ms`. One
   caveat: a dropped batch sets no `last_outcome()`, so `last_error` would read `Discovery refused:
   Command not delivered: <reason>` beside HTTP_Out's own rate-limited line, the double report the
   heartbeat bullet names.

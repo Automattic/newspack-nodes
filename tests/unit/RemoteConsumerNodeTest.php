@@ -153,7 +153,7 @@ class RemoteConsumerNodeTest extends TestCase {
 		return self::pushed_record( $fields );
 	}
 
-	/** `msg_frame()`, stamped with the default pair's stream. */
+	/** `msg_frame()`, stamped with the default source's stream. */
 	private static function stream_msg( string $id, string $key, mixed $value ): string {
 		return self::stream_frame( [ Message::TYPE => Message::TM_STRUCT, Message::ID => $id, Message::KEY => $key, Message::VALUE => $value ] );
 	}
