@@ -57,8 +57,8 @@ final class TopologyAnalyzerTablesTest extends TestCase {
 	public function test_an_include_s_tables_are_declared_with_their_raw_tokens(): void {
 		$this->assertSame(
 			[
-				'lab-7:kea' => [ 'namespace' => 'kea:p{partition}', 'ttl' => '777', 'backend' => 'sqlite' ],
-				'lab-7:owl' => [ 'namespace' => 'owl:p{partition}', 'ttl' => '37', 'backend' => 'auto' ],
+				'lab-7:kea' => [ 'kind' => 'table', 'namespace' => 'kea:p{partition}', 'ttl' => '777', 'backend' => 'sqlite' ],
+				'lab-7:owl' => [ 'kind' => 'table', 'namespace' => 'owl:p{partition}', 'ttl' => '37', 'backend' => 'auto' ],
 			],
 			Topology_Analyzer::declared_tables( 'kea-lab' )
 		);
@@ -66,7 +66,7 @@ final class TopologyAnalyzerTablesTest extends TestCase {
 
 	public function test_an_omitted_backend_reads_the_schema_default(): void {
 		$this->assertSame(
-			[ 'lab-7:emu' => [ 'namespace' => 'emu:p{partition}', 'ttl' => '37', 'backend' => 'auto' ] ],
+			[ 'lab-7:emu' => [ 'kind' => 'table', 'namespace' => 'emu:p{partition}', 'ttl' => '37', 'backend' => 'auto' ] ],
 			Topology_Analyzer::declared_tables( 'emu-ttl' )
 		);
 	}
@@ -117,7 +117,7 @@ final class TopologyAnalyzerTablesTest extends TestCase {
 
 	public function test_a_crawler_declares_its_seen_table(): void {
 		$this->assertSame(
-			[ 'crawl-8821:seen' => [ 'namespace' => 'crawl-8821', 'ttl' => '4407', 'backend' => 'sqlite' ] ],
+			[ 'crawl-8821:seen' => [ 'kind' => 'table', 'namespace' => 'crawl-8821', 'ttl' => '4407', 'backend' => 'sqlite' ] ],
 			Topology_Analyzer::declared_tables( 'crawl-a' )
 		);
 	}
@@ -134,28 +134,21 @@ final class TopologyAnalyzerTablesTest extends TestCase {
 		Topology_Analyzer::declared_tables( 'crawl-bare' );
 	}
 
-	public function test_an_include_s_row_tables_are_declared_with_their_schema_words(): void {
+	public function test_an_include_s_row_tables_are_declared_by_kind_with_their_schema_words(): void {
 		$this->assertSame(
 			[
-				'wombats-6620' => 'Wombat',
-				'numbats-4409' => 'Numbat',
+				'wombats-6620' => [ 'kind' => 'row', 'schema' => 'Wombat' ],
+				'lab-7:kea'    => [ 'kind' => 'table', 'namespace' => 'kea:p{partition}', 'ttl' => '777', 'backend' => 'sqlite' ],
+				'numbats-4409' => [ 'kind' => 'row', 'schema' => 'Numbat' ],
 			],
-			Topology_Analyzer::declared_row_tables( 'wombat-lab' )
-		);
-	}
-
-	public function test_a_row_table_is_no_keyed_table(): void {
-		$this->assertSame(
-			[ 'lab-7:kea' => [ 'namespace' => 'kea:p{partition}', 'ttl' => '777', 'backend' => 'sqlite' ] ],
 			Topology_Analyzer::declared_tables( 'wombat-lab' )
 		);
-		$this->assertSame( [], Topology_Analyzer::declared_row_tables( 'kea-lab' ) );
 	}
 
 	public function test_a_row_table_declaring_no_schema_is_refused(): void {
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'Row_Table wombats-6620 declares no schema' );
-		Topology_Analyzer::declared_row_tables( 'wombat-bare' );
+		Topology_Analyzer::declared_tables( 'wombat-bare' );
 	}
 
 	public function test_a_row_table_claims_its_file_per_partition(): void {

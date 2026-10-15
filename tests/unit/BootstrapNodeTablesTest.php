@@ -64,6 +64,7 @@ final class BootstrapNodeTablesTest extends TestCase {
 		$this->write_tsl( 'wombat-c', "var num_partitions = 3\nmake_node Row_Table wombats-6620 Wombat\n" );
 		$this->write_tsl( 'wombat-numbat', "make_node Row_Table wombats-6620 Numbat\n" );
 		$this->write_tsl( 'wombat-echo', "var num_partitions = 4\nmake_node Echo wombats-6620\n" );
+		$this->write_tsl( 'wombat-keyed', "make_node Table wombats-6620 wombat:p{partition} 777 sqlite\n" );
 	}
 
 	protected function tearDown(): void {
@@ -537,7 +538,7 @@ final class BootstrapNodeTablesTest extends TestCase {
 	public function test_two_topologies_declaring_a_row_table_with_different_schemas_is_refused(): void {
 		$this->activate( 'wombat-a', 'wombat-numbat' );
 		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessage( 'Row_Table wombats-6620 is declared with schema Wombat by wombat-a and Numbat by wombat-numbat' );
+		$this->expectExceptionMessage( 'Table wombats-6620 is declared differently by wombat-a and wombat-numbat' );
 		Bootstrap::row_table_files( 'wombats-6620' );
 	}
 
@@ -546,6 +547,40 @@ final class BootstrapNodeTablesTest extends TestCase {
 		$this->expectException( Table_Unavailable::class );
 		$this->expectExceptionMessage( 'Row_Table wombats-6620: no active topology declares it' );
 		Bootstrap::row_table_files( 'wombats-6620' );
+	}
+
+	public function test_tables_of_answers_each_name_by_kind_per_partition(): void {
+		$row = [ 'kind' => 'row', 'schema' => 'Wombat' ];
+		$this->assertSame(
+			[
+				'wombats-6620' => [ $row, $row ],
+				'lab-7:kea'    => [ [ 'kind' => 'table', 'namespace' => 'kea:p0', 'ttl' => 777, 'backend' => 'sqlite' ] ],
+				'lab-7:nope'   => [],
+			],
+			Bootstrap::tables_of(
+				[
+					'wombat-echo' => [ 'num_partitions' => 1 ],
+					'wombat-c'    => [ 'num_partitions' => 2 ],
+					'kea-a'       => [ 'num_partitions' => 1 ],
+				],
+				'wombats-6620',
+				'lab-7:kea',
+				'lab-7:nope'
+			)
+		);
+	}
+
+	public function test_tables_of_refuses_a_name_declared_with_two_schemas(): void {
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'Table wombats-6620 is declared differently by wombat-numbat and wombat-a' );
+		Bootstrap::tables_of( [ 'wombat-numbat' => [], 'wombat-a' => [] ], 'wombats-6620' );
+	}
+
+	public function test_a_name_declared_as_a_keyed_table_and_as_a_row_table_is_declared_differently(): void {
+		$this->activate( 'wombat-a', 'wombat-keyed' );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'Table wombats-6620 is declared differently by wombat-a and wombat-keyed' );
+		Bootstrap::node_tables( 'wombats-6620' );
 	}
 
 	public function test_a_row_table_is_no_keyed_table_to_resolve_or_mount(): void {

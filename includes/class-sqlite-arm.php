@@ -92,8 +92,22 @@ final class Sqlite_Arm extends Durable_Arm {
 	/** The page-cache pragma; a negative size counts KiB rather than pages. */
 	private const CACHE_PRAGMA = 'PRAGMA cache_size = -' . self::CACHE_KIB;
 
-	/** The names the `kv` and `members` tables and their indexes take in every file. */
-	public const KV_NAMES = [ 'kv', 'members', 'kv_expires', 'members_expires' ];
+	/** Every file's `kv` and `members` tables and their indexes, by the name each takes. */
+	public const KV_DDL = [
+		'kv'              => 'CREATE TABLE IF NOT EXISTS kv ( "key" TEXT PRIMARY KEY, "value" BLOB NOT NULL, expires INTEGER NOT NULL )',
+		'kv_expires'      => 'CREATE INDEX IF NOT EXISTS kv_expires ON kv ( expires )',
+		'members'         => 'CREATE TABLE IF NOT EXISTS members ( set_key TEXT NOT NULL, member TEXT NOT NULL, "value" BLOB NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY ( set_key, member ) ) WITHOUT ROWID',
+		'members_expires' => 'CREATE INDEX IF NOT EXISTS members_expires ON members ( expires )',
+	];
+
+	/** The tables FTS5 keeps beside an `fts` shadow `{table}_fts`, as suffixes on it. */
+	private const FTS_TABLES = [ '_data', '_idx', '_docsize', '_config' ];
+
+	/** The triggers keeping a shadow in step, `{table}_fts_{name}`: name => when. */
+	private const FTS_TRIGGERS = [
+		'insert' => 'AFTER INSERT',
+		'delete' => 'AFTER DELETE',
+	];
 
 	/** The row ops a batch may name. */
 	private const ROW_OPS = [ 'insert', 'ignore', 'add' ];
@@ -275,30 +289,26 @@ final class Sqlite_Arm extends Durable_Arm {
 	 *
 	 * @param list<array<array-key,mixed>> $batch The ops, each a Row_Op, as a
 	 *                                     request carries them.
-	 * @return array{written:int, ids:array<int,int>} Rows written or folded,
-	 *                                                and each top-level
-	 *                                                `ignore`'s id by index.
+	 * @return int Rows written or folded.
 	 * @throws \RuntimeException Naming the table and SQLite's message; the
 	 *                           whole batch is rolled back.
 	 * @api The row tables' one write path.
 	 */
-	public function write_rows( array $batch ): array {
+	public function write_rows( array $batch ): int {
 		$table = '';
 		try {
 			return $this->write_scope(
-				function () use ( $batch, &$table ): array {
-					$out = [
-						'written' => 0,
-						'ids'     => [],
-					];
+				function () use ( $batch, &$table ): int {
+					$written = 0;
+					$ids     = [];
 					foreach ( $batch as $index => $op ) {
-						[ $written, $id ] = $this->write_op( $op, $out['ids'], $table );
-						$out['written']  += $written;
+						[ $rows, $id ] = $this->write_op( $op, $ids, $table );
+						$written      += $rows;
 						if ( null !== $id ) {
-							$out['ids'][ $index ] = $id;
+							$ids[ $index ] = $id;
 						}
 					}
-					return $out;
+					return $written;
 				}
 			);
 		} catch ( \PDOException $e ) {
@@ -556,42 +566,31 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * Open a reader across row-table files: a `:memory:` main with each
 	 * present file at `$version` attached read-only as `p{partition}`, each
 	 * with an 8 MiB page cache, and the connection set `query_only`. A file
-	 * absent, or at another version, is not attached, so a query names only
-	 * the schemas `PRAGMA database_list` reports.
+	 * absent, or at another version, is not attached, so the reader's
+	 * aliases name only the files it holds.
 	 *
-	 * @param array<array-key,string> $files   Partition => file.
-	 * @param int                     $version The schema version a file must carry.
-	 * @return \PDO The connection.
+	 * @param array<int,string> $files   Partition => file.
+	 * @param int               $version The schema version a file must carry.
+	 * @return Row_Reader The connection and the aliases it attached.
 	 * @throws \LogicException Without pdo_sqlite.
-	 * @throws \RuntimeException On more files than a fleet has partitions, a
-	 *                           partition that is no integer, or a reader
-	 *                           running as root.
+	 * @throws \RuntimeException In a process running as root.
 	 * @throws \PDOException When a present file will not attach.
 	 * @api The row tables' one read path.
 	 */
-	public static function open_rows( array $files, int $version ): \PDO {
+	public static function open_rows( array $files, int $version ): Row_Reader {
 		self::require_driver();
-		if ( \count( $files ) > Spawn_Coordinator::MAX_PARTITIONS ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- two numbers.
-			throw new \RuntimeException( \count( $files ) . ' partition files, more than the ' . Spawn_Coordinator::MAX_PARTITIONS . ' partitions a fleet runs' );
-		}
-		foreach ( \array_keys( $files ) as $partition ) {
-			if ( ! \is_int( $partition ) ) {
-				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the node wrapping it escapes the message once.
-				throw new \RuntimeException( "partition {$partition} is no integer" );
-			}
-		}
 		self::refuse_root_reader( \implode( ', ', $files ) );
 		$db = new \PDO( 'sqlite::memory:', null, null, [ \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION ] );
 		$db->exec( 'PRAGMA busy_timeout = ' . self::BUSY_TIMEOUT_MS );
+		$aliases = [];
 		foreach ( $files as $partition => $path ) {
 			\clearstatcache( true, $path );
-			if ( \file_exists( $path ) ) {
-				self::attach_read_only( $db, $path, "p{$partition}", $version );
+			if ( \file_exists( $path ) && self::attach_read_only( $db, $path, "p{$partition}", $version ) ) {
+				$aliases[] = "p{$partition}";
 			}
 		}
 		$db->exec( 'PRAGMA query_only = ON' );
-		return $db;
+		return new Row_Reader( $db, $aliases );
 	}
 
 	/**
@@ -604,18 +603,18 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * @param string $path    The database file.
 	 * @param string $schema  The name the connection reads it under.
 	 * @param int    $version The schema version it must carry.
+	 * @return bool Whether the file stays attached.
 	 * @throws \PDOException When the file will not attach.
 	 */
-	private static function attach_read_only( \PDO $db, string $path, string $schema, int $version ): void {
+	private static function attach_read_only( \PDO $db, string $path, string $schema, int $version ): bool {
 		$attach = $db->prepare( "ATTACH DATABASE ? AS {$schema}" );
 		$attach->execute( [ 'file:' . \strtr( $path, [ '%' => '%25', '?' => '%3f', '#' => '%23' ] ) . '?mode=ro' ] );
-		$read = $db->prepare( "PRAGMA {$schema}.user_version" );
-		$read->execute();
-		if ( $version !== Core::as_int( $read->fetchAll( \PDO::FETCH_COLUMN )[0] ?? null ) ) {
+		if ( $version !== self::user_version( $db, $schema ) ) {
 			$db->exec( "DETACH DATABASE {$schema}" );
-			return;
+			return false;
 		}
 		$db->exec( "PRAGMA {$schema}.cache_size = -" . self::ROWS_CACHE_KIB );
+		return true;
 	}
 
 	/**
@@ -624,10 +623,11 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * Running as root is the operator's to fix, never a backend to degrade
 	 * past, so the refusal is a plain \RuntimeException.
 	 *
+	 * @api Read by a mounted Table before its arm opens.
 	 * @param string $path The files the reader would open.
 	 * @throws \RuntimeException In a process running as root.
 	 */
-	private static function refuse_root_reader( string $path ): void {
+	public static function refuse_root_reader( string $path ): void {
 		if ( 0 === CLI::uid() ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the node wrapping it escapes the message once.
 			throw new \RuntimeException( "a sqlite mount refuses to run as root: a root reader leaves -wal and -shm files beside {$path} that its worker cannot open" );
@@ -673,7 +673,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	public static function declared_names( string $table, array $spec ): array {
 		$names = [ $table, ...\array_map( 'strval', \array_keys( $spec['indexes'] ?? [] ) ) ];
 		if ( [] !== ( $spec['fts'] ?? [] ) ) {
-			foreach ( [ '', '_data', '_idx', '_docsize', '_config', '_insert', '_delete' ] as $suffix ) {
+			foreach ( [ '', ...self::FTS_TABLES, ...\array_map( static fn ( string $name ): string => "_{$name}", \array_keys( self::FTS_TRIGGERS ) ) ] as $suffix ) {
 				$names[] = "{$table}_fts{$suffix}";
 			}
 		}
@@ -966,10 +966,9 @@ final class Sqlite_Arm extends Durable_Arm {
 		$db->exec( 'PRAGMA wal_autocheckpoint = 0' );
 		$db->exec( 'PRAGMA journal_size_limit = ' . self::WAL_LIMIT_BYTES );
 		$db->exec( self::CACHE_PRAGMA );
-		$db->exec( 'CREATE TABLE IF NOT EXISTS kv ( "key" TEXT PRIMARY KEY, "value" BLOB NOT NULL, expires INTEGER NOT NULL )' );
-		$db->exec( 'CREATE INDEX IF NOT EXISTS kv_expires ON kv ( expires )' );
-		$db->exec( 'CREATE TABLE IF NOT EXISTS members ( set_key TEXT NOT NULL, member TEXT NOT NULL, "value" BLOB NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY ( set_key, member ) ) WITHOUT ROWID' );
-		$db->exec( 'CREATE INDEX IF NOT EXISTS members_expires ON members ( expires )' );
+		foreach ( self::KV_DDL as $sql ) {
+			$db->exec( $sql );
+		}
 		$this->has_members = true;
 		if ( null !== $this->rows ) {
 			self::declare_rows( $db, $this->rows );
@@ -1029,10 +1028,11 @@ final class Sqlite_Arm extends Durable_Arm {
 		$of      = static fn ( string $row ): string => \implode( ', ', \array_map( static fn ( string $c ): string => "{$row}." . self::quote( $c ), $fts ) );
 		$add     = "INSERT INTO {$shadow} ( rowid, {$columns} ) VALUES ( new.{$id}, {$of( 'new' )} );";
 		$drop    = "INSERT INTO {$shadow} ( {$shadow}, rowid, {$columns} ) VALUES ( 'delete', old.{$id}, {$of( 'old' )} );";
-		$trigger = static fn ( string $suffix, string $when, string $body ): string => 'CREATE TRIGGER IF NOT EXISTS ' . self::quote( "{$table}_fts_{$suffix}" ) . " {$when} ON {$t} BEGIN {$body} END";
 		$ddl[]   = "CREATE VIRTUAL TABLE IF NOT EXISTS {$shadow} USING fts5( {$columns}, content='" . \str_replace( "'", "''", $table ) . "', content_rowid='" . \str_replace( "'", "''", $auto ) . "' )";
-		$ddl[]   = $trigger( 'insert', 'AFTER INSERT', $add );
-		$ddl[]   = $trigger( 'delete', 'AFTER DELETE', $drop );
+		foreach ( self::FTS_TRIGGERS as $name => $when ) {
+			$body  = 'insert' === $name ? $add : $drop;
+			$ddl[] = 'CREATE TRIGGER IF NOT EXISTS ' . self::quote( "{$table}_fts_{$name}" ) . " {$when} ON {$t} BEGIN {$body} END";
+		}
 		return $ddl;
 	}
 
@@ -1098,9 +1098,20 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * @return bool True when it must.
 	 */
 	private static function stamped_otherwise( \PDO $db, int $version ): bool {
-		$read = $db->prepare( 'PRAGMA user_version' );
-		$read->execute();
-		$at = Core::as_int( $read->fetchAll( \PDO::FETCH_COLUMN )[0] ?? null );
+		$at = self::user_version( $db, 'main' );
 		return 0 !== $at && $version !== $at;
+	}
+
+	/**
+	 * The `user_version` an open schema is stamped with; 0 when unstamped.
+	 *
+	 * @param \PDO   $db     The connection.
+	 * @param string $schema `main`, or an attached file's alias.
+	 * @return int The version.
+	 */
+	private static function user_version( \PDO $db, string $schema ): int {
+		$read = $db->prepare( "PRAGMA {$schema}.user_version" );
+		$read->execute();
+		return Core::as_int( $read->fetchColumn() );
 	}
 }

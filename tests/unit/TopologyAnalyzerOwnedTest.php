@@ -51,7 +51,7 @@ final class TopologyAnalyzerOwnedTest extends TestCase {
 	/** An owned Table takes the arguments its owner's declaration gives it. */
 	public function test_an_owned_table_is_declared_from_its_owner(): void {
 		$this->assertSame(
-			[ 'tally-8842:tally' => [ 'namespace' => 'tally-8842-tally', 'ttl' => '6131', 'backend' => 'wpdb' ] ],
+			[ 'tally-8842:tally' => [ 'kind' => 'table', 'namespace' => 'tally-8842-tally', 'ttl' => '6131', 'backend' => 'wpdb' ] ],
 			Topology_Analyzer::declared_tables( 'tally-owned' )
 		);
 	}
@@ -70,7 +70,7 @@ final class TopologyAnalyzerOwnedTest extends TestCase {
 	/** An owned Table subclass is a Table: declared, and its file claimed. */
 	public function test_an_owned_table_subclass_is_declared_and_claimed(): void {
 		$this->assertSame(
-			[ 'ledger-6650:ledger' => [ 'namespace' => 'ledger-6650-ledger', 'ttl' => '4127', 'backend' => 'sqlite' ] ],
+			[ 'ledger-6650:ledger' => [ 'kind' => 'table', 'namespace' => 'ledger-6650-ledger', 'ttl' => '4127', 'backend' => 'sqlite' ] ],
 			Topology_Analyzer::declared_tables( 'subtable-owned' )
 		);
 		$this->assertContains( 'table:ledger-6650:ledger.p{partition}', Topology_Analyzer::write_set( 'subtable-owned' ) );

@@ -134,6 +134,29 @@ final class TableProtocolTest extends TestCase {
 		$this->assertSame( [ [ Message::TM_ERROR, '', "SCAN: unknown verb\n" ] ], self::shape( $this->ask( "SCAN urltoken:ab:wo 5\n" ) ) );
 	}
 
+	public function test_a_structured_verb_sent_as_a_string_is_refused_with_what_it_carries(): void {
+		$this->assertSame( [ [ Message::TM_ERROR, '', "MSET: needs a map of key => [ value, ttl ]\n" ] ], self::shape( $this->ask( "MSET sku-41\n" ) ) );
+	}
+
+	public function test_a_declared_string_verb_no_reply_answers_is_refused_as_such(): void {
+		$peeking = new class() extends Table_Node {
+			public static function node_schema(): array {
+				$schema               = parent::node_schema();
+				$schema['requests'][] = [ 'name' => 'PEEK', 'description' => 'A verb declared and never answered.', 'args' => [], 'reply_shape' => 'none' ];
+				return $schema;
+			}
+		};
+		Core::$var['partition'] = '3';
+		try {
+			$peeking->name( 'lab-7:peek' );
+			$peeking->arguments( [ 'peek:p3', '777', 'sqlite' ] );
+		} finally {
+			unset( Core::$var['partition'] );
+		}
+		$peeking->sink( $this->sink );
+		$this->assertSame( [ [ Message::TM_ERROR, '', "PEEK: declared but not answered\n" ] ], self::shape( $this->ask( "PEEK sku-41\n", Message::TM_REQUEST, $peeking ) ) );
+	}
+
 	public function test_mset_answers_the_keys_that_landed(): void {
 		Core::$clock = static fn (): float => 1790000000.0;
 		$replies     = $this->ask( [ 'MSET' => [ 'sku-41' => [ 'a' ], 'sku 42' => [ 'b' ], 'sku-43' => [ 'c', 37 ] ] ], Message::TM_REQUEST | Message::TM_STRUCT );

@@ -266,18 +266,17 @@ class Tables_CLI_Command {
 	 * state as `wp nodes status` reads it. The owner is the first declarer's
 	 * worker holding its lock, active topologies first, since a worker of a
 	 * deactivated topology writes until it exits; else the first active
-	 * declarer's, as `node_tables()` unions the declarers; else none, read as
-	 * `inactive`. An inactive topology that will not read is warned about and
-	 * left out.
+	 * declarer's, as `tables_of()` unions the declarers; else none, read as
+	 * `inactive`. An inactive topology that will not read, and a name its
+	 * topologies declare differently, are warned about and left out.
 	 *
 	 * @return array<string,Slot>
-	 * @throws \Throwable As `Bootstrap::node_tables()`.
+	 * @throws \Throwable As `Bootstrap::get_topologies()`.
 	 */
 	private function slots(): array {
 		$configured   = Bootstrap::get_topologies();
 		[ $readable ] = Bootstrap::split_readable( $configured );
 		$declarers    = self::declarers( $readable );
-		$active_names = \array_map( 'strval', \array_keys( $declarers ) );
 		$parked       = [];
 		foreach ( Bootstrap::get_topology_catalog() as $topology => $entry ) {
 			if ( isset( $configured[ $topology ] ) ) {
@@ -298,24 +297,14 @@ class Tables_CLI_Command {
 				}
 			}
 		}
-		$tables = [] === $active_names ? [] : Bootstrap::node_tables( ...$active_names );
-		foreach ( Bootstrap::tables_of( $parked, ...\array_map( 'strval', \array_keys( $declarers ) ) ) as $name => $partitions ) {
-			foreach ( $partitions as $p => $spec ) {
-				$tables[ $name ][ $p ] ??= $spec;
-			}
-		}
-		$schemas = self::schemas( $readable + $parked );
-		foreach ( $schemas as $name => $word ) {
-			if ( [] !== ( $tables[ $name ] ?? [] ) ) {
-				\WP_CLI::warning( "{$name} is declared as a keyed Table and as a Row_Table" );
-				unset( $tables[ $name ], $schemas[ $name ] );
-				continue;
-			}
-			foreach ( \array_keys( $declarers[ $name ] ) as $p ) {
-				$tables[ $name ][ $p ] = [
-					'ttl'     => null,
-					'backend' => 'sqlite',
-				];
+		$tables = [];
+		foreach ( \array_keys( $declarers ) as $name ) {
+			try {
+				$tables[ $name ] = Bootstrap::tables_of( $readable + $parked, $name )[ $name ];
+			} catch ( Worker_Should_Stop $stop ) {
+				throw $stop;
+			} catch ( \RuntimeException $e ) {
+				\WP_CLI::warning( Core::message_of( $e ) );
 			}
 		}
 		$ids = [];
@@ -335,44 +324,14 @@ class Tables_CLI_Command {
 				$slots[ Table_Node::stem( $name, $p ) ] = [
 					'name'      => $name,
 					'partition' => $p,
-					'spec'      => $spec,
-					'schema'    => $schemas[ $name ] ?? null,
+					'spec'      => 'row' === $spec['kind'] ? [ 'ttl' => null, 'backend' => 'sqlite' ] : [ 'ttl' => $spec['ttl'], 'backend' => $spec['backend'] ],
+					'schema'    => 'row' === $spec['kind'] ? $spec['schema'] : null,
 					'owner'     => $owner,
 					'state'     => null === $owner ? 'inactive' : $states[ $owner ]['state'],
 				];
 			}
 		}
 		return $slots;
-	}
-
-	/**
-	 * Each Row_Table's schema word, across the given topologies. A name two
-	 * topologies declare with different schemas is warned about and left out.
-	 *
-	 * @param array<string,array<array-key,mixed>> $topologies Name => entry.
-	 * @return array<string,string> Row_Table name => schema word.
-	 * @throws \RuntimeException As `Topology_Analyzer::declared_row_tables()`.
-	 */
-	private static function schemas( array $topologies ): array {
-		$schemas = [];
-		$first   = [];
-		$refused = [];
-		foreach ( \array_keys( $topologies ) as $topology ) {
-			foreach ( Topology_Analyzer::declared_row_tables( $topology ) as $name => $word ) {
-				if ( isset( $refused[ $name ] ) ) {
-					continue;
-				}
-				if ( isset( $schemas[ $name ] ) && $schemas[ $name ] !== $word ) {
-					\WP_CLI::warning( "Row_Table {$name} is declared with schema {$schemas[ $name ]} by {$first[ $name ]} and {$word} by {$topology}" );
-					$refused[ $name ] = true;
-					unset( $schemas[ $name ] );
-					continue;
-				}
-				$schemas[ $name ] = $word;
-				$first[ $name ] ??= $topology;
-			}
-		}
-		return $schemas;
 	}
 
 	/**
@@ -385,7 +344,7 @@ class Tables_CLI_Command {
 	private static function declarers( array $topologies ): array {
 		$declarers = [];
 		foreach ( $topologies as $topology => $entry ) {
-			foreach ( \array_keys( Topology_Analyzer::declared_tables( $topology ) + Topology_Analyzer::declared_row_tables( $topology ) ) as $name ) {
+			foreach ( \array_keys( Topology_Analyzer::declared_tables( $topology ) ) as $name ) {
 				for ( $p = 0, $n = Bootstrap::partitions_of( $entry ); $p < $n; ++$p ) {
 					$declarers[ $name ][ $p ][] = CLI::worker_id( $topology, $p );
 				}

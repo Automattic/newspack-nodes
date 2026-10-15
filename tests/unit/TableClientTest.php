@@ -477,7 +477,7 @@ final class TableClientTest extends TestCase {
 		};
 		$this->asker->client->write_rows( 'lab-7:wombat', [ [ 'ignore', 'burrows', [ null, 'sett-4471' ] ] ] );
 		$this->assertSame(
-			[ [ Message::TM_RESPONSE | Message::TM_STRUCT, 'lab-7:wombat', [ 'verb' => 'ROWS', 'written' => 1, 'ids' => [ 0 => 1 ] ] ] ],
+			[ [ Message::TM_RESPONSE, 'lab-7:wombat', "ROWS 1\n" ] ],
 			$heard
 		);
 		$this->assertSame( [], $this->asker->folded, 'the answer is the client\'s, never the asker\'s input' );

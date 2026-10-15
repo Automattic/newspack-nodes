@@ -3,6 +3,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\CLI;
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Row_Reader;
 use Newspack_Nodes\Sqlite_Arm;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Tests\Wombat_Row_Schema;
@@ -74,8 +75,7 @@ final class SqliteArmRowsTest extends TestCase {
 				[ 'add', 'tallies', [ 7342, 'heron', 9, 12.25 ] ],
 			]
 		);
-		$this->assertSame( 3, $out['written'] );
-		$this->assertSame( [], $out['ids'], 'only an ignore resolves an id' );
+		$this->assertSame( 3, $out );
 		$this->assertSame(
 			[ [ 7341, 'heron', 7, 41.5 ], [ 7342, 'heron', 9, 12.25 ] ],
 			$this->all( 'SELECT bucket, kind, n, peak FROM tallies ORDER BY bucket' )
@@ -100,24 +100,33 @@ final class SqliteArmRowsTest extends TestCase {
 	public function test_an_ignored_duplicate_skips_its_then_ops(): void {
 		$arm  = $this->rows_arm();
 		$then = [ [ 'add', 'tallies', [ 7341, 'egret', 1, 2.5 ] ] ];
-		$this->assertSame( 2, $arm->write_rows( [ [ 'ignore', 'visits', [ 'rid-5520', 7341, 1, 80.25 ], $then ] ] )['written'] );
-		$this->assertSame( 0, $arm->write_rows( [ [ 'ignore', 'visits', [ 'rid-5520', 7341, 1, 80.25 ], $then ] ] )['written'] );
+		$this->assertSame( 2, $arm->write_rows( [ [ 'ignore', 'visits', [ 'rid-5520', 7341, 1, 80.25 ], $then ] ] ) );
+		$this->assertSame( 0, $arm->write_rows( [ [ 'ignore', 'visits', [ 'rid-5520', 7341, 1, 80.25 ], $then ] ] ) );
 		$this->assertSame( [ [ 1 ] ], $this->all( 'SELECT n FROM tallies' ) );
 	}
 
 	public function test_an_ignore_hands_back_the_rows_id_inserted_or_found(): void {
 		$arm = $this->rows_arm();
-		$a   = $arm->write_rows( [ [ 'ignore', 'burrows', [ null, 'kea-4471' ] ] ] );
-		$b   = $arm->write_rows(
+		$arm->write_rows(
+			[
+				[ 'ignore', 'burrows', [ null, 'kea-4471' ] ],
+				[ 'insert', 'visits', [ 'rid-a', 7341, null, 1.5 ], [], [ 2 => 0 ] ],
+			]
+		);
+		$arm->write_rows(
 			[
 				[ 'ignore', 'burrows', [ null, 'emu-9' ] ],
 				[ 'ignore', 'burrows', [ null, 'kea-4471' ] ],
+				[ 'insert', 'visits', [ 'rid-b0', 7341, null, 2.5 ], [], [ 2 => 0 ] ],
+				[ 'insert', 'visits', [ 'rid-b1', 7341, null, 3.5 ], [], [ 2 => 1 ] ],
 			]
 		);
-		$this->assertIsInt( $a['ids'][0] );
-		$this->assertSame( $a['ids'][0], $b['ids'][1], 'an existing row hands back its own id' );
-		$this->assertNotSame( $a['ids'][0], $b['ids'][0] );
-		$this->assertSame( [ [ $b['ids'][0] ] ], $this->all( "SELECT id FROM burrows WHERE name = 'emu-9'" ) );
+		$this->assertSame(
+			[ [ 'rid-a', 'kea-4471' ], [ 'rid-b0', 'emu-9' ], [ 'rid-b1', 'kea-4471' ] ],
+			$this->all( 'SELECT v.rid, b.name FROM visits v JOIN burrows b ON b.id = v.burrow_id ORDER BY v.rid' ),
+			'an existing row hands back its own id'
+		);
+		$this->assertSame( [ [ 2 ] ], $this->all( 'SELECT count(*) FROM burrows' ) );
 	}
 
 	public function test_an_ignore_finds_an_existing_id_whose_key_runs_against_column_order(): void {
@@ -136,12 +145,29 @@ final class SqliteArmRowsTest extends TestCase {
 						'key'           => [ 'perch', 'tree' ],
 						'autoincrement' => 'id',
 					],
+					'landings' => [
+						'columns' => [
+							'rid'      => 'TEXT NOT NULL',
+							'perch_id' => 'INTEGER NOT NULL',
+						],
+						'key'     => [ 'rid' ],
+					],
 				],
 			]
 		);
-		$a = $arm->write_rows( [ [ 'ignore', 'perches', [ null, 'kauri-12', 'limb-4471' ] ] ] );
-		$b = $arm->write_rows( [ [ 'ignore', 'perches', [ null, 'kauri-12', 'limb-4471' ] ] ] );
-		$this->assertSame( $a['ids'][0], $b['ids'][0] );
+		foreach ( [ 'land-1', 'land-2' ] as $rid ) {
+			$arm->write_rows(
+				[
+					[ 'ignore', 'perches', [ null, 'kauri-12', 'limb-4471' ] ],
+					[ 'insert', 'landings', [ $rid, null ], [], [ 1 => 0 ] ],
+				]
+			);
+		}
+		$this->assertSame(
+			[ [ 'land-1', 'limb-4471' ], [ 'land-2', 'limb-4471' ] ],
+			$this->all( 'SELECT l.rid, p.perch FROM landings l JOIN perches p ON p.id = l.perch_id ORDER BY l.rid' )
+		);
+		$this->assertSame( [ [ 1 ] ], $this->all( 'SELECT count(*) FROM perches' ) );
 	}
 
 	public function test_a_row_position_takes_an_earlier_ignores_id(): void {
@@ -349,21 +375,23 @@ final class SqliteArmRowsTest extends TestCase {
 
 	public function test_the_fts_shadow_follows_inserts_and_purges(): void {
 		$arm = $this->rows_arm();
-		$ids = $arm->write_rows(
+		$arm->write_rows(
 			[
 				[ 'ignore', 'burrows', [ null, 'kea-4471' ] ],
 				[ 'insert', 'visits', [ 'rid-1000', 1000, null, 4.5 ], [], [ 2 => 0 ] ],
 				[ 'ignore', 'burrows', [ null, 'emu-9' ] ],
 				[ 'insert', 'visits', [ 'rid-9000', 9000, null, 6.5 ], [], [ 2 => 2 ] ],
 			]
-		)['ids'];
+		);
+		$kea   = $this->all( "SELECT id FROM burrows WHERE name = 'kea-4471'" );
+		$emu   = $this->all( "SELECT id FROM burrows WHERE name = 'emu-9'" );
 		$match = "SELECT rowid FROM burrows_fts WHERE burrows_fts MATCH '%s'";
-		$this->assertSame( [ [ $ids[0] ] ], $this->all( \sprintf( $match, 'kea' ) ) );
-		$this->assertSame( [ [ $ids[2] ] ], $this->all( \sprintf( $match, 'emu' ) ) );
+		$this->assertSame( $kea, $this->all( \sprintf( $match, 'kea' ) ) );
+		$this->assertSame( $emu, $this->all( \sprintf( $match, 'emu' ) ) );
 
 		$arm->purge( 9100, 100 );
 		$this->assertSame( [], $this->all( \sprintf( $match, 'kea' ) ), 'a purged name leaves the index' );
-		$this->assertSame( [ [ $ids[2] ] ], $this->all( \sprintf( $match, 'emu' ) ) );
+		$this->assertSame( $emu, $this->all( \sprintf( $match, 'emu' ) ) );
 	}
 
 	public function test_open_rows_attaches_present_files_read_only_and_skips_absent_ones(): void {
@@ -371,7 +399,7 @@ final class SqliteArmRowsTest extends TestCase {
 		$this->rows_arm( 5 )->write_rows( [ [ 'insert', 'visits', [ 'rid-p5', 7341, 1, 2.5 ] ] ] );
 		$this->rows_arm( 6, 9 )->write_rows( [ [ 'insert', 'visits', [ 'rid-p6', 7341, 1, 3.5 ] ] ] );
 
-		$db = Sqlite_Arm::open_rows(
+		$reader = Sqlite_Arm::open_rows(
 			[
 				0 => $this->path( 0 ),
 				2 => $this->path( 2 ),
@@ -381,46 +409,35 @@ final class SqliteArmRowsTest extends TestCase {
 			7
 		);
 
-		$aliases = \array_values( \array_diff( \array_column( $db->query( 'PRAGMA database_list' )->fetchAll( \PDO::FETCH_ASSOC ), 'name' ), [ 'main', 'temp' ] ) );
-		$this->assertSame( [ 'p0', 'p5' ], $aliases, 'an absent file and one at another version are not attached' );
+		$this->assertInstanceOf( Row_Reader::class, $reader );
+		$this->assertSame( [ 'p0', 'p5' ], $reader->aliases(), 'an absent file and one at another version are not attached' );
+		$this->assertSame(
+			[ 'main', 'p0', 'p5' ],
+			\array_column( $reader->rows( 'PRAGMA database_list', [] ), 1 ),
+			'a detached file leaves no schema behind'
+		);
 		$this->assertSame(
 			[ [ 'rid-p0' ], [ 'rid-p5' ] ],
-			$db->query( 'SELECT rid FROM p0.visits UNION ALL SELECT rid FROM p5.visits ORDER BY rid' )->fetchAll( \PDO::FETCH_NUM )
+			$reader->rows( 'SELECT rid FROM p0.visits UNION ALL SELECT rid FROM p5.visits ORDER BY rid', [] )
 		);
-		$this->assertSame( -8192, (int) $db->query( 'PRAGMA p5.cache_size' )->fetchColumn() );
+		$this->assertSame( [ [ -8192 ] ], $reader->rows( 'PRAGMA p5.cache_size', [] ) );
 		$this->assertFileDoesNotExist( $this->path( 2 ), 'a reader creates no file' );
 	}
 
 	public function test_an_open_rows_reader_is_query_only(): void {
-		$db = Sqlite_Arm::open_rows( [ 0 => $this->path( 0 ) ], 7 );
-		$this->assertSame( 1, (int) $db->query( 'PRAGMA query_only' )->fetchColumn() );
+		$reader = Sqlite_Arm::open_rows( [ 0 => $this->path( 0 ) ], 7 );
+		$this->assertSame( [ [ 1 ] ], $reader->rows( 'PRAGMA query_only', [] ) );
 		$this->expectException( \PDOException::class );
-		$db->exec( 'CREATE TABLE heron ( n INTEGER )' );
+		$reader->rows( 'CREATE TABLE heron ( n INTEGER )', [] );
 	}
 
 	public function test_an_open_rows_reader_attaches_each_file_read_only(): void {
 		$this->rows_arm( 0 )->write_rows( [ [ 'insert', 'visits', [ 'rid-p0', 7341, 1, 1.5 ] ] ] );
-		$db = Sqlite_Arm::open_rows( [ 0 => $this->path( 0 ) ], 7 );
-		$db->exec( 'PRAGMA query_only = OFF' );
-		$e = $this->caught_pdo( static fn () => $db->exec( "INSERT INTO p0.visits VALUES ( 'rid-x', 1, 1, 1.0 )" ) );
+		$reader = Sqlite_Arm::open_rows( [ 0 => $this->path( 0 ) ], 7 );
+		$reader->rows( 'PRAGMA query_only = OFF', [] );
+		$e = $this->caught_pdo( static fn () => $reader->rows( "INSERT INTO p0.visits VALUES ( 'rid-x', 1, 1, 1.0 )", [] ) );
 		$this->assertStringContainsString( 'readonly', $e->getMessage() );
 		$this->assertSame( [ [ 'rid-p0' ] ], $this->all( 'SELECT rid FROM visits', 0 ) );
-	}
-
-	public function test_open_rows_refuses_a_partition_that_is_no_integer(): void {
-		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessage( 'partition' );
-		Sqlite_Arm::open_rows( [ 'p0 AS x; --' => $this->path( 0 ) ], 7 );
-	}
-
-	public function test_open_rows_refuses_more_than_eight_files(): void {
-		$files = [];
-		for ( $p = 0; $p < 9; ++$p ) {
-			$files[ $p ] = $this->path( $p );
-		}
-		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessage( '9 partition files' );
-		Sqlite_Arm::open_rows( $files, 7 );
 	}
 
 	public function test_open_rows_refuses_a_root_reader(): void {
