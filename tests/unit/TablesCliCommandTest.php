@@ -20,15 +20,19 @@ use Newspack_Nodes\Message;
 use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Router_Node;
+use Newspack_Nodes\Row_Table_Node;
 use Newspack_Nodes\Spawn_Coordinator;
 use Newspack_Nodes\Sqlite_Arm;
 use Newspack_Nodes\Table_Node;
 use Newspack_Nodes\Tables_CLI_Command;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
+use Newspack_Nodes\Tests\Wombat_Row_Schema;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Worker_Base;
 use PHPUnit\Framework\Attributes\CoversClass;
+
+require_once \dirname( __DIR__ ) . '/Helpers/fixtures/class-wombat-row-schema.php';
 
 #[CoversClass( Tables_CLI_Command::class )]
 #[CoversClass( CLI::class )]
@@ -223,6 +227,11 @@ final class TablesCliCommandTest extends TestCase {
 		return $disk;
 	}
 
+	/** @return list<array<string,mixed>> The printed rows of the Row_Table, by partition. */
+	private function wombat_rows(): array {
+		return \array_values( \array_filter( $this->printed(), static fn ( array $row ): bool => 'wombats-6620' === $row['Table'] ) );
+	}
+
 	private function command(): Tables_CLI_Command {
 		return new Tables_CLI_Command();
 	}
@@ -247,6 +256,79 @@ final class TablesCliCommandTest extends TestCase {
 			$this->printed()
 		);
 		$this->assertSame( 'json', \end( $GLOBALS['_test_wp_cli_tables'] )['format'] );
+	}
+
+	public function test_list_names_a_row_table_with_its_schema(): void {
+		$this->write_tsl( 'wombat-t', "var num_partitions = 2\nmake_node Row_Table wombats-6620 Wombat\n" );
+		\update_option( 'newspack_nodes_topologies', [ 'wombat-t' ] );
+		Config::reset();
+		$file = Table_Node::file( 'wombats-6620', 0 );
+
+		$this->command()->list_( [], [ 'format' => 'json' ] );
+
+		$this->assertSame(
+			[
+				[ 'Table' => 'wombats-6620', 'Partition' => 0, 'Backend' => 'sqlite', 'TTL' => 'Wombat', 'Owner' => 'wombat-t.p0', 'State' => 'down', 'Store' => $file, 'Bytes' => 0, 'Disk' => 0, 'Verbs' => null ],
+				[ 'Table' => 'wombats-6620', 'Partition' => 1, 'Backend' => 'sqlite', 'TTL' => 'Wombat', 'Owner' => 'wombat-t.p1', 'State' => 'down', 'Store' => Table_Node::file( 'wombats-6620', 1 ), 'Bytes' => 0, 'Disk' => 0, 'Verbs' => null ],
+			],
+			$this->wombat_rows()
+		);
+	}
+
+	public function test_list_warns_of_one_row_table_name_declared_with_two_schemas_and_lists_the_rest(): void {
+		$this->write_tsl( 'wombat-t', "make_node Row_Table wombats-6620 Wombat\n" );
+		$this->write_tsl( 'wombat-u', "make_node Row_Table wombats-6620 Numbat\n" );
+		\update_option( 'newspack_nodes_topologies', [ 'kea-t', 'wombat-t', 'wombat-u' ] );
+		Config::reset();
+
+		$this->command()->list_( [], [ 'format' => 'json' ] );
+
+		$this->assertSame( [ 'Row_Table wombats-6620 is declared with schema Wombat by wombat-t and Numbat by wombat-u' ], $GLOBALS['_test_wp_cli_warns'] );
+		$this->assertSame( [], $this->wombat_rows() );
+		$this->assertSame( 'lab-7:kea', $this->printed()[0]['Table'] );
+	}
+
+	public function test_list_warns_of_one_name_declared_as_a_keyed_table_and_a_row_table_and_lists_the_rest(): void {
+		$this->write_tsl( 'wombat-t', "make_node Row_Table wombats-6620 Wombat\n" );
+		$this->write_tsl( 'wombat-k', "make_node Table wombats-6620 wombat:p{partition} 777 sqlite\n" );
+		\update_option( 'newspack_nodes_topologies', [ 'kea-t', 'wombat-t', 'wombat-k' ] );
+		Config::reset();
+
+		$this->command()->list_( [], [ 'format' => 'json' ] );
+
+		$this->assertSame( [ 'wombats-6620 is declared as a keyed Table and as a Row_Table' ], $GLOBALS['_test_wp_cli_warns'] );
+		$this->assertSame( [], $this->wombat_rows() );
+		$this->assertSame( 'lab-7:kea', $this->printed()[0]['Table'] );
+	}
+
+	public function test_list_reads_a_live_row_tables_counters_over_its_command_channel(): void {
+		$this->write_tsl( 'wombat-t', "var num_partitions = 2\nmake_node Row_Table wombats-6620 Wombat\n" );
+		\update_option( 'newspack_nodes_topologies', [ 'wombat-t' ] );
+		Config::reset();
+		Core::$var['partition'] = '1';
+		try {
+			$table = new Row_Table_Node();
+			$table->name( 'wombats-6620' );
+			$table->arguments( [ 'Wombat' ] );
+		} finally {
+			unset( Core::$var['partition'] );
+		}
+		$table->sink( new Capture_Sink_Node() );
+		$this->answer_channel( 'wombat-t', 1 );
+		$ask                   = Message::new_message();
+		$ask[ Message::TYPE ]  = Message::TM_REQUEST | Message::TM_STRUCT;
+		$ask[ Message::FROM ]  = 'asker-9';
+		$ask[ Message::VALUE ] = [ 'ROWS' => [ [ 'insert', 'moles', [ 1 ] ] ] ];
+		$table->fill( $ask );
+		$table->fill( $ask );
+		$table->fill( $ask );
+
+		$this->command()->list_( [], [ 'format' => 'json' ] );
+
+		$row = $this->wombat_rows()[1];
+		$this->assertSame( [ 'wombats-6620', 1, 'live', 'Wombat' ], [ $row['Table'], $row['Partition'], $row['State'], $row['TTL'] ] );
+		$this->assertSame( 3, $row['Verbs']['ROWS']['calls'] );
+		$this->assertSame( [ 'wombats-6620:config stats' ], $this->answered );
 	}
 
 	/** The session store's row is its declaration: listing it opens nothing, so a store that will not open lists all the same. */

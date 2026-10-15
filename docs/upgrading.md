@@ -6,6 +6,11 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **A Row_Table and a `sqlite` Table cannot share a name across active
+  topologies.** Both claim `{base}/tables/<name>.p{N}.sqlite`, so
+  `wp nodes activate` refuses the pair. Rename one. A Row_Table's files are kept by
+  `wp nodes gc` only while an active topology declares it.
+
 - **`num_partitions` above 8 is clamped to 8 and refused by the settings
   verb.** `Spawn_Coordinator::MAX_PARTITIONS` is 8, so a topology declaring
   more spawns 8 workers, the settings page stores at most 8, `settings set

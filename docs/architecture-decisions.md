@@ -44,6 +44,7 @@ supersede.
 | [31](#adr-31-a-broker-derives-its-readers-from-what-its-remote-sends) | A broker derives its readers from what its remote sends |
 | [32](#adr-32-a-transport-answers-what-it-could-not-deliver) | Proposed: a transport answers what it could not deliver |
 | [33](#adr-33-a-line-naming-no-partition-runs-once-per-fleet) | A line naming no partition runs once per fleet |
+| [34](#adr-34-a-table-may-hold-declared-rows-sqlite-only) | A Table may hold declared rows (SQLite only) |
 
 ---
 
@@ -1715,7 +1716,7 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
   durable row, which then sat until its TTL, and it logged out every session with it.
 - Sessions on the cache tier — rejected: an eviction or a flush logs a client out with hours
   left on its session.
-- A SQL data model — out of scope: aggregates stay key-value.
+- A SQL data model — out of scope for a key-value Table: aggregates stay key-value there. [ADR-34](#adr-34-a-table-may-hold-declared-rows-sqlite-only) narrows this with a Row_Table, a separate node.
 
 **Consequences:**
 
@@ -2425,3 +2426,35 @@ ownership, as the broker has, names no source argument.
 failed over when partition 0 is down — at which point ownership becomes a lease rather than a
 partition number; or a topology must place a fixed reader on a partition other than 0.
 
+
+## ADR-34: A Table may hold declared rows (SQLite only)
+
+**Status:** Accepted
+
+**Context:** ELN's performance stats kept 20 pre-built key families in key-value Tables; a
+breakdown no family built could not be answered.
+
+**Decision:** `make_node Row_Table <name> <Schema>` keeps the tables a `<Word>_Row_Schema`
+declares in the partition's SQLite file, `{base}/tables/{name}.p{N}.sqlite`. The partition's
+worker is its one writer, through `ROWS` (insert, ignore, add; an ignore's `then` ops apply
+only when it inserted). A reader attaches every partition's file read-only into one
+connection and answers in one statement; `Spawn_Coordinator::MAX_PARTITIONS` (8) keeps that
+under SQLite's ten attachments. A schema version mismatch discards the file at open.
+Retention is declared per table (`retain`, `retained_by`) and runs on the Table tick. The
+file is claimed in the write set as `table:<name>.p{partition}`, as a `sqlite` Table's is, so
+`wp nodes activate` refuses two active topologies declaring one name, a keyed Table and a
+Row_Table included, and `wp nodes gc` keeps a declared Row_Table's files and sweeps an
+undeclared one's. `wp nodes tables list` shows it with Backend `sqlite` and its schema word
+where a Table shows its TTL.
+
+**Alternatives considered:** [ADR-24](#adr-24-a-tables-backend-is-chosen-per-table)'s "SQL data
+model — out of scope" stands for key-value Tables; this narrows it. A file shared by all
+partitions — rejected, writers would contend. A merge of per-partition answers in PHP —
+rejected, exact top-N needs every partition's full grouping.
+
+**Consequences:** A site runs at most 8 partitions of a topology declaring a Row_Table. A
+Row_Table answers `ROWS` alone and refuses every keyed request. The file cannot be read from
+another host.
+
+**Revisit if:** a Row_Table must be read from another host, or a site needs more than 8
+partitions.

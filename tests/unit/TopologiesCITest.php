@@ -146,6 +146,19 @@ class TopologiesCITest extends TestCase {
 		$this->assertInstanceOf( \Newspack_Nodes\Table_Node::class, \Newspack_Nodes\Core::node( 'lab-7:rook.p1' ), 'an included Table mounts too' );
 	}
 
+	public function test_mount_tables_leaves_a_row_table_unmounted(): void {
+		\file_put_contents( "{$this->stock}/wombat-a.tsl", "make_node Row_Table wombats-6620 Wombat\nmake_node Table lab-7:kea kea:p{partition} 777 sqlite\n" );
+		\update_option( 'newspack_nodes_topologies', [ 'wombat-a' ] );
+		Config::reset();
+		new \Newspack_Nodes\Sqlite_Arm( \Newspack_Nodes\Table_Node::file( 'lab-7:kea', 0 ), 'kea:p3' );
+		\Newspack_Nodes\Bootstrap::mount_request_graph();
+
+		$this->assertSame( '', ( new Topologies_CI_Node() )->dispatch( 'mount_tables', [ 'wombat-a' ] ) );
+
+		$this->assertInstanceOf( \Newspack_Nodes\Table_Node::class, \Newspack_Nodes\Core::node( 'lab-7:kea.p0' ) );
+		$this->assertNull( \Newspack_Nodes\Core::node( 'wombats-6620.p0' ), 'a Row_Table answers ROWS to its owner alone' );
+	}
+
 	public function test_mount_tables_refuses_an_inactive_topology(): void {
 		\file_put_contents( "{$this->stock}/kea-idle.tsl", "make_node Table lab-7:kea kea:p{partition} 777 sqlite\n" );
 		\Newspack_Nodes\Bootstrap::mount_request_graph();
