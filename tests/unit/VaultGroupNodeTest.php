@@ -220,16 +220,20 @@ final class VaultGroupNodeTest extends TestCase {
 		);
 	}
 
-	public function test_the_console_fixture_mirrors_the_add_source_verb(): void {
+	public function test_the_console_fixture_mirrors_the_source_verbs(): void {
 		$fixture = \json_decode( (string) \file_get_contents( __DIR__ . '/../fixtures/broker-schemas.json' ), true );
 		$shape   = static fn ( array $args ): array => \array_map(
 			static fn ( array $a ): array => [ $a['name'], $a['type'], ! empty( $a['required'] ) ],
 			$args
 		);
 		$entry   = \array_column( $fixture, null, 'shell_name' )['Remote_Source'];
+		$verbs   = Command_Interpreter_Node::declared_verbs( Remote_Source_Node::class );
 
 		$this->assertSame(
-			[ 'add_source' => $shape( Command_Interpreter_Node::declared_verbs( Remote_Source_Node::class )['add_source']['args'] ) ],
+			[
+				'add_source'    => $shape( $verbs['add_source']['args'] ),
+				'remove_source' => $shape( $verbs['remove_source']['args'] ),
+			],
 			\array_column( \array_map( static fn ( array $c ): array => [ $c['name'], $shape( $c['args'] ) ], $entry['commands'] ), 1, 0 )
 		);
 	}
@@ -320,6 +324,41 @@ final class VaultGroupNodeTest extends TestCase {
 		$group->update_graph();
 		Core::node( 'pull:tw5' )->fire();
 		$this->assertSame( 'heron-4471', Core::node( 'pull:tw5:egret.p6' )->target() );
+	}
+
+	/** A remove_source is recorded after the add_source it undoes, so a child built on RELOAD reads neither. */
+	public function test_a_source_added_then_removed_is_absent_from_a_child_built_on_reload(): void {
+		$offsets = Config::get_offsets_directory();
+		$base    = \rtrim( Config::get_base_directory(), '/' );
+		$group   = ( new Command_Interpreter_Node() )->make_node( 'Vault_Group', 'pull', 'Remote_Source', 'tw-edge', "{$offsets}/pull.{id}", "{$base}/deadletter/pull.{id}" );
+		$group->interpreter()->dispatch( 'add_source', [ 'egret.p6', 'heron-4471' ] );
+
+		$answers = $group->interpreter()->dispatch( 'remove_source', [ 'egret.p6', 'heron-4471' ] );
+		Vault::get_instance()->add( 'tw5', [ 'url' => 'https://tw5.example', 'group' => 'tw-edge' ] );
+		$group->update_graph();
+		Core::node( 'pull:tw5' )->fire();
+
+		$this->assertSame( [ 'pull:tw0' => "ok\n", 'pull:tw9' => "ok\n" ], $answers );
+		$this->assertNull( Core::node( 'pull:tw5:egret.p6' ) );
+		$this->assertStringNotContainsString( 'egret.p6', Core::node( 'pull:tw5' )->dump_config() );
+		$this->assertSame( [], $group->display_targets() );
+	}
+
+	/** A source added again after its removal is replayed last, so a child built on RELOAD reads it. */
+	public function test_a_source_added_removed_and_added_again_replays_in_order(): void {
+		$offsets = Config::get_offsets_directory();
+		$base    = \rtrim( Config::get_base_directory(), '/' );
+		$group   = ( new Command_Interpreter_Node() )->make_node( 'Vault_Group', 'pull', 'Remote_Source', 'tw-edge', "{$offsets}/pull.{id}", "{$base}/deadletter/pull.{id}" );
+		foreach ( [ 'add_source', 'remove_source', 'add_source' ] as $verb ) {
+			$group->interpreter()->dispatch( $verb, [ 'egret.p6', 'heron-4471' ] );
+		}
+
+		Vault::get_instance()->add( 'tw5', [ 'url' => 'https://tw5.example', 'group' => 'tw-edge' ] );
+		$group->update_graph();
+		Core::node( 'pull:tw5' )->fire();
+
+		$this->assertSame( 'heron-4471', Core::node( 'pull:tw5:egret.p6' )?->target() );
+		$this->assertSame( [ 'heron-4471' ], $group->display_targets() );
 	}
 
 	/** A source no partition but 0 reads is still recorded, so a p0 rebuild and the dump keep it. */

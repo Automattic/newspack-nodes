@@ -972,6 +972,23 @@ class Core {
 	}
 
 	/**
+	 * A list with its first entry strictly equal to `$item` dropped, when one
+	 * is; the list unchanged otherwise.
+	 *
+	 * @template T
+	 * @param list<T> $items The list.
+	 * @param T       $item  The entry to drop.
+	 * @return list<T>
+	 */
+	public static function without( array $items, mixed $item ): array {
+		$at = \array_search( $item, $items, true );
+		if ( false !== $at ) {
+			\array_splice( $items, $at, 1 );
+		}
+		return $items;
+	}
+
+	/**
 	 * Canonical scalar→float read of a mixed field; a non-scalar takes $default,
 	 * 0.0 unless the caller says otherwise.
 	 *

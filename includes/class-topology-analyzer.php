@@ -73,12 +73,12 @@ class Topology_Analyzer {
 	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
 	public static function expand( array $include_names, bool $group_children = true ): array {
-		$nodes        = [];
-		$edges        = [];
-		$verb_classes = [];
-		$walked       = self::statements( '', $include_names, $group_children );
+		$nodes  = [];
+		$edges  = [];
+		$sent   = [];
+		$walked = self::statements( '', $include_names, $group_children );
 		foreach ( $walked['statements'] as $statement ) {
-			self::absorb_statement( $statement, $statement['origins'], $nodes, $edges, $verb_classes );
+			self::absorb_statement( $statement, $statement['origins'], $nodes, $edges, $sent );
 		}
 		return [
 			'nodes' => \array_values( $nodes ),
@@ -161,17 +161,15 @@ class Topology_Analyzer {
 	 * @param list<string>                                                            $origins   Top-level includes providing it.
 	 * @param array<string,array{name: string,class: string,fans_out: bool,args: list<string>,verbs: list<array{verb: string,args: list<string>}>,origin: list<string>,via: list<string>}> $nodes Node map, by reference.
 	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}>      $edges Edge-state map, by reference.
-	 * @param array<string,class-string<Node>> $verb_classes Node name => the class its `:config` answers for, by reference.
+	 * @param array<string,array{class: class-string<Node>,targets: list<string>,commands: list<array{0:string,1:list<string>}>}> $sent The verbs sent to each node's `:config`, by reference (`declare_node()`).
 	 */
-	private static function absorb_statement( array $statement, array $origins, array &$nodes, array &$edges, array &$verb_classes ): void {
+	private static function absorb_statement( array $statement, array $origins, array &$nodes, array &$edges, array &$sent ): void {
 		$verb   = $statement['verb'];
 		$values = $statement['values'];
 		$spans  = $statement['spans'];
 		if ( 'make_node' === $verb ) {
-			$name                  = $values[2] ?? '';
-			$fqcn                  = self::node_class( $values[1] ?? '' );
-			$verb_classes[ $name ] = self::verb_class( $values );
-			self::draw_pairs( $edges, $name, $fqcn::declared_targets( \array_slice( $values, 3 ) ), $origins );
+			$name = $values[2] ?? '';
+			self::declare_node( $edges, $sent, $values, $origins );
 			if ( isset( $nodes[ $name ] ) ) {
 				$nodes[ $name ]['origin'] = self::union_origins( $nodes[ $name ]['origin'], $origins );
 				return;
@@ -213,8 +211,7 @@ class Topology_Analyzer {
 				return;
 			}
 			if ( $has_config ) {
-				$verb_class = $verb_classes[ $node_name ] ?? Node::class;
-				self::draw_pairs( $edges, $node_name, $verb_class::command_targets( $inner_verb, \array_slice( $values, 3 ) ), $origins );
+				self::draw_command( $edges, $sent, $node_name, [ $inner_verb, \array_slice( $values, 3 ) ], $origins );
 			}
 			// Every other verb rides on the node so the console can show it.
 			if ( isset( $nodes[ $node_name ] ) ) {
@@ -295,13 +292,14 @@ class Topology_Analyzer {
 	 * the runtime binds them (+ the log a Partition/Topic writes or a Consumer
 	 * reads, from the path/source ARG — never a name suffix; + a broker's
 	 * `vault_id` and `pairs`, read from its arguments and its `add_source`
-	 * lines, so another plugin names them rather than counting positionals),
-	 * and edges from `connect_node`, `command_node <node>:config set_*target
-	 * <target>` and each `pair` a class declares (`declared_targets()`,
-	 * `command_targets()`), with `disconnect_node` applied
-	 * in evaluation order. A broken include throws — the walk's memoized
-	 * failure, re-raised to every caller — rather than answering an empty
-	 * graph that reads as "declares nothing".
+	 * and `remove_source` lines, so another plugin names them rather than
+	 * counting positionals), and edges from `connect_node`, `command_node
+	 * <node>:config set_*target <target>` and each `pair` a class declares
+	 * (`declared_targets()`, `command_targets()`), with `disconnect_node`
+	 * and each verb that undoes another applied in evaluation order. A broken
+	 * include throws — the walk's memoized failure, re-raised to every caller
+	 * — rather than answering an empty graph that reads as "declares
+	 * nothing".
 	 *
 	 * @param string $name Topology name.
 	 * @return array{nodes: list<array<string,int|string|list<string>|list<array{source:string,target:string}>>>, edges: list<array{0:string,1:string}>}
@@ -321,13 +319,13 @@ class Topology_Analyzer {
 			$slash = \strrpos( $arg, '/' );
 			return false === $slash ? $arg : \substr( $arg, $slash + 1 );
 		};
-		$nodes        = [];
-		$index        = [];
-		$types        = [];
-		$verb_classes = [];
-		$brokers      = [];
-		$pairs        = [];
-		$edges        = [];
+		$nodes     = [];
+		$index     = [];
+		$types     = [];
+		$sent      = [];
+		$brokers   = [];
+		$arg_pairs = [];
+		$edges     = [];
 		foreach ( self::statements( $name )['statements'] as $statement ) {
 			$verb   = $statement['verb'];
 			$values = $statement['values'];
@@ -358,17 +356,16 @@ class Topology_Analyzer {
 					$node['path']         = $path;
 					$node['segment_size'] = self::literal_segment_size( $values ) ?? 0;
 				}
-				$fqcn                       = self::node_class( $class );
-				$verb_classes[ $node_name ] = self::verb_class( $values );
-				self::draw_pairs( $edges, $node_name, $fqcn::declared_targets( \array_slice( $values, 3 ) ), [ $name ] );
+				$fqcn = self::node_class( $class );
+				self::declare_node( $edges, $sent, $values, [ $name ] );
 				if ( self::type_is( $class, Remote_Broker_Node::class ) ) {
 					/** @var class-string<Remote_Broker_Node> $broker An unresolved name stands for the base class. */
 					$broker = \is_a( $fqcn, Remote_Broker_Node::class, true ) ? $fqcn : Remote_Broker_Node::class;
 					// It pulls REMOTE streams, so it claims no `reads`.
-					$pairs[ $node_name ]   = $broker::pairs_of( $broker::variadic_in( \array_slice( $values, 3 ) ) );
-					$node['vault_id']      = $values[3] ?? '';
-					$node['pairs']         = $pairs[ $node_name ];
-					$brokers[ $node_name ] = $broker;
+					$arg_pairs[ $node_name ] = $broker::pairs_of( $broker::variadic_in( \array_slice( $values, 3 ) ) );
+					$node['vault_id']        = $values[3] ?? '';
+					$node['pairs']           = $arg_pairs[ $node_name ];
+					$brokers[ $node_name ]   = $broker;
 				}
 				$index[ $node_name ] = \count( $nodes );
 				$nodes[]             = $node;
@@ -394,14 +391,9 @@ class Topology_Analyzer {
 					self::set_config_edge( $edges, $node_name, Core::resolve_config_tokens( $values[3] ?? '' ), $inner_verb, [ $name ] );
 					continue;
 				}
-				$verb_class = $verb_classes[ $node_name ] ?? Node::class;
-				self::draw_pairs( $edges, $node_name, $verb_class::command_targets( $inner_verb, $args ), [ $name ] );
-				$source = isset( $brokers[ $node_name ] ) && Remote_Broker_Node::ADD_SOURCE === $inner_verb
-					? $brokers[ $node_name ]::source_of( $args )
-					: null;
-				if ( null !== $source ) {
-					$pairs[ $node_name ][]                  = $source;
-					$nodes[ $index[ $node_name ] ]['pairs'] = $pairs[ $node_name ];
+				self::draw_command( $edges, $sent, $node_name, [ $inner_verb, $args ], [ $name ] );
+				if ( isset( $brokers[ $node_name ] ) ) {
+					$nodes[ $index[ $node_name ] ]['pairs'] = [ ...$arg_pairs[ $node_name ], ...$brokers[ $node_name ]::sources_of( $sent[ $node_name ]['commands'] ) ];
 				}
 			}
 		}
@@ -412,6 +404,43 @@ class Topology_Analyzer {
 				\array_values( $edges )
 			),
 		];
+	}
+
+	/**
+	 * Apply one verb sent to a node's `:config` as its class judges every
+	 * verb sent so far (`Node::command_targets()`): draw a `pair` edge to
+	 * each destination the verb adds, and take the role back from each it
+	 * drops that the node's arguments do not name, the edge with it when
+	 * nothing else holds it.
+	 *
+	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges Edge-state map, by reference.
+	 * @param array<string,array{class: class-string<Node>,targets: list<string>,commands: list<array{0:string,1:list<string>}>}> $sent The verbs sent to each node's `:config`, by reference.
+	 * @param string                         $node    The node whose `:config` takes the verb.
+	 * @param array{0:string,1:list<string>} $command The verb and its argument tokens.
+	 * @param list<string>                   $origins Top-level includes providing the line.
+	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges
+	 * @param-out array<string,array{class: class-string<Node>,targets: list<string>,commands: list<array{0:string,1:list<string>}>}> $sent
+	 */
+	private static function draw_command( array &$edges, array &$sent, string $node, array $command, array $origins ): void {
+		$record               = $sent[ $node ] ?? [ 'class' => Node::class, 'targets' => [], 'commands' => [] ];
+		$before               = $record['class']::command_targets( $record['commands'] );
+		$record['commands'][] = $command;
+		$after                = $record['class']::command_targets( $record['commands'] );
+		$sent[ $node ]        = $record;
+		$added                = $after;
+		foreach ( $before as $target ) {
+			$added = Core::without( $added, $target );
+		}
+		self::draw_pairs( $edges, $node, $added, $origins );
+		foreach ( \array_diff( $before, $after, $record['targets'] ) as $target ) {
+			$key = self::edge_key( $node, $target );
+			if ( isset( $edges[ $key ] ) ) {
+				$edges[ $key ]['origins']['pair'] = [];
+				if ( [] === $edges[ $key ]['origins']['connect'] && [] === $edges[ $key ]['origins']['config'] ) {
+					unset( $edges[ $key ] );
+				}
+			}
+		}
 	}
 
 	/**
@@ -537,9 +566,33 @@ class Topology_Analyzer {
 	}
 
 	/**
+	 * Record a `make_node` line's node: the class its `:config` answers for,
+	 * and the destinations its arguments name (`Node::declared_targets()`),
+	 * drawn as `pair` edges. A node declared again keeps the verbs already
+	 * sent to it.
+	 *
+	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges Edge-state map, by reference.
+	 * @param array<string,array{class: class-string<Node>,targets: list<string>,commands: list<array{0:string,1:list<string>}>}> $sent The verbs sent to each node's `:config`, by reference.
+	 * @param list<string> $values  The `make_node` statement's values.
+	 * @param list<string> $origins Top-level includes providing the line.
+	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges
+	 * @param-out array<string,array{class: class-string<Node>,targets: list<string>,commands: list<array{0:string,1:list<string>}>}> $sent
+	 */
+	private static function declare_node( array &$edges, array &$sent, array $values, array $origins ): void {
+		$name          = $values[2] ?? '';
+		$targets       = self::node_class( $values[1] ?? '' )::declared_targets( \array_slice( $values, 3 ) );
+		$sent[ $name ] = [
+			'class'    => self::verb_class( $values ),
+			'targets'  => $targets,
+			'commands' => $sent[ $name ]['commands'] ?? [],
+		];
+		self::draw_pairs( $edges, $name, $targets, $origins );
+	}
+
+	/**
 	 * Draw one `pair` edge from a node to each destination its class declares,
 	 * for every class: what its `make_node` arguments name
-	 * (`Node::declared_targets()`) or a verb sent to its `:config` names
+	 * (`Node::declared_targets()`) or the verbs sent to its `:config` leave
 	 * (`Node::command_targets()`), a broker's pairs and sources, and nothing
 	 * for a class declaring none. The class gets its tokens as written and
 	 * judges them as a load would.
@@ -595,7 +648,7 @@ class Topology_Analyzer {
 	 * @return string The edge's key in `$edges`.
 	 */
 	private static function ensure_edge( array &$edges, string $source, string $target ): string {
-		$key = $source . "\0" . $target;
+		$key = self::edge_key( $source, $target );
 		if ( ! isset( $edges[ $key ] ) ) {
 			$edges[ $key ] = [
 				'from'    => $source,
@@ -608,6 +661,16 @@ class Topology_Analyzer {
 			];
 		}
 		return $key;
+	}
+
+	/**
+	 * The key of the edge from `$source` to `$target` in an edge-state map.
+	 *
+	 * @param string $source Source node.
+	 * @param string $target Target node.
+	 */
+	private static function edge_key( string $source, string $target ): string {
+		return $source . "\0" . $target;
 	}
 
 	/**

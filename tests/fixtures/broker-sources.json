@@ -1,0 +1,14 @@
+[
+  ["an added source names its target", [["add_source", ["egret.p6", "heron-4471"]]], ["heron-4471"]],
+  ["a removal undoes its add", [["add_source", ["egret.p6", "heron-4471"]], ["remove_source", ["egret.p6", "heron-4471"]]], []],
+  ["an identical repeat is one source", [["add_source", ["egret.p6", "heron-4471"]], ["add_source", ["egret.p6", "heron-4471"]]], ["heron-4471"]],
+  ["a second target for a source is refused", [["add_source", ["egret.p6", "heron-4471"]], ["add_source", ["egret.p6", "kite-2290"]]], ["heron-4471"]],
+  ["a removal naming another target is refused", [["add_source", ["egret.p6", "heron-4471"]], ["remove_source", ["egret.p6", "kite-2290"]]], ["heron-4471"]],
+  ["a removal before its add undoes nothing", [["remove_source", ["egret.p6", "heron-4471"]], ["add_source", ["egret.p6", "heron-4471"]]], ["heron-4471"]],
+  ["a source added again after its removal", [["add_source", ["egret.p6", "heron-4471"]], ["remove_source", ["egret.p6", "heron-4471"]], ["add_source", ["egret.p6", "heron-4471"]]], ["heron-4471"]],
+  ["a glob and an exact stamp it matches are two sources", [["add_source", ["egret.*", "heron-4471"]], ["add_source", ["egret.p6", "kite-2290"]], ["remove_source", ["egret.*", "heron-4471"]]], ["kite-2290"]],
+  ["a named removal undoes a positional add", [["add_source", ["egret.p6", "heron-4471"]], ["remove_source", ["--local_node=heron-4471", "--remote_log=egret.p6"]]], []],
+  ["a target two sources share stands while either does", [["add_source", ["egret.p6", "heron-4471"]], ["add_source", ["kea.p1", "heron-4471"]], ["remove_source", ["egret.p6", "heron-4471"]]], ["heron-4471"]],
+  ["a line the binder refuses changes nothing", [["add_source", ["egret.p6"]], ["add_source", ["kea.p1", "kite-2290"]], ["remove_source", ["kea.p1", "kite-2290", "stray-3"]]], ["kite-2290"]],
+  ["another verb names nothing", [["set_multi_writer", ["true"]], ["add_source", ["sources:php", "php-errors:partition"]]], ["php-errors:partition"]]
+]
