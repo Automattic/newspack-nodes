@@ -34,7 +34,7 @@
 </style>
 <div class="sheet">
   <h1>One spoke and the hub: the life of one connection</h1>
-  <p class="sub">The hub is the HTTPS client in both directions. Its Remote_Source for the spoke <span class="mono">bend</span> is a broker, <span class="mono">spokes:bend</span>: one connection carries both streams its pairs name, the spoke's <span class="mono">firehose.p0</span> and <span class="mono">sources:php</span>, and a hidden reader per stream keeps that stream's cursor. <span class="mono">:sse-in</span> holds the long stream open, and <span class="mono">:http-out</span> posts one signed batch per tick. The hops are numbered in order.</p>
+  <p class="sub">The hub is the HTTPS client in both directions. Its Remote_Source for the spoke <span class="mono">bend</span> is a broker, <span class="mono">spokes:bend</span>: one connection carries both streams its sources name, the spoke's <span class="mono">firehose.p0</span> and <span class="mono">sources:php</span>, and a hidden reader per stream keeps that stream's cursor. <span class="mono">:sse-in</span> holds the long stream open, and <span class="mono">:http-out</span> posts one signed batch per tick. The hops are numbered in order.</p>
 
   <svg width="0" height="0" style="position:absolute"><defs>
     <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker>
@@ -60,7 +60,7 @@
     <div class="phase"><span>Connect <em>· the brokers start one every half second, so no spoke answers a burst with refusals</em></span></div>
 
     <div class="msg">
-      <div class="box" style="margin-left:150px;width:420px">First tick: builds and owns <span class="mono">:sse-in</span>, <span class="mono">:http-out</span> and <span class="mono">:null</span>, named after itself, and a reader for each exact pair, each with its own offsetlog and dead-letter partition under <span class="mono">&lt;topology&gt;.bend/&lt;stamp&gt;</span>.</div>
+      <div class="box" style="margin-left:150px;width:420px">First tick: builds and owns <span class="mono">:sse-in</span>, <span class="mono">:http-out</span> and <span class="mono">:null</span>, named after itself, and a reader for each exact source, each with its own offsetlog and dead-letter partition under <span class="mono">&lt;topology&gt;.bend/&lt;stamp&gt;</span>.</div>
     </div>
 
     <div class="msg">
@@ -86,7 +86,7 @@
         <div class="lab" style="margin-left:200px;width:192px"><span class="n">4</span>one record per event.</div>
       </div>
       <div class="arrow"><svg width="1052" height="16"><path d="M951 8 L760 8" stroke="#003DA5" stroke-width="1.8" marker-end="url(#ar)"/><path d="M754 8 L408 8" stroke="#003DA5" stroke-width="1.8" marker-end="url(#ar)"/><path d="M402 8 L232 8" stroke="#003DA5" stroke-width="1.8" marker-end="url(#ar)"/></svg></div>
-      <div class="box" style="margin-left:60px;width:520px;margin-top:6px">Each reader keeps the record's FROM as the spoke sent it and sends it to its pair's target, <span class="mono">firehose.p0</span> to <span class="mono">remote-job-rewrite</span> and <span class="mono">sources:php</span> to <span class="mono">php-errors:partition</span>. It checkpoints the record's ID to its own offsetlog and resumes from it on every reconnect; a record that will not parse is quarantined at that position, in its own dead-letter partition.</div>
+      <div class="box" style="margin-left:60px;width:520px;margin-top:6px">Each reader keeps the record's FROM as the spoke sent it and sends it to its source's target, <span class="mono">firehose.p0</span> to <span class="mono">remote-job-rewrite</span> and <span class="mono">sources:php</span> to <span class="mono">php-errors:partition</span>. It checkpoints the record's ID to its own offsetlog and resumes from it on every reconnect; a record that will not parse is quarantined at that position, in its own dead-letter partition.</div>
     </div>
 
     <div class="msg">

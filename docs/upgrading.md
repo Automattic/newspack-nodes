@@ -6,6 +6,64 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **A broker takes its sources by `add_source`, never as arguments.**
+  `make_node Remote_Source <name> <vault_id> <offsetlog_root>
+  <deadletter_root>` takes exactly those three after the name, and
+  `HTTP_Source` the same with an optional `retry_ms`; a surplus token is
+  refused, and the analyzer reads a topology carrying one as unreadable.
+  Rewrite each pair `<source>=<target>` as a line of its own,
+  `command_node <name>:config add_source <source> <target>`, on the broker
+  or on the `Vault_Group` building it. A source goes to one target: a second
+  `add_source` naming a declared source with another target is refused, and
+  an identical repeat is a no-op. `remove_source <source> <target>` takes a
+  declared source back.
+
+  ```
+  # before
+  make_node Vault_Group spokes Remote_Source spoke <root> <root> firehose.p{partition}=remote-job-rewrite sources:php=php-errors:partition
+  # after
+  make_node Vault_Group spokes Remote_Source spoke <root> <root>
+  command_node spokes:config add_source firehose.p{partition} remote-job-rewrite
+  command_node spokes:config add_source sources:php php-errors:partition
+  ```
+
+- **`HTTP_Source_Node::EOF_POLL_SECONDS` is gone.** The wait at the end of a
+  log, after a refusal and between catalog asks is the broker's `retry_ms`,
+  whose default is the `http_retry_ms` setting (5000); `retry_ms` is the
+  optional last argument of `make_node HTTP_Source`, at least 1. A read of
+  the constant becomes a read of `http_retry_ms` through `Config::value()`.
+  `Remote_Consumer_Node::fetch_when_due()` takes the wait in seconds as a
+  float, and `fetch_stats()` answers `waiting_since` where it answered
+  `fetch_after`.
+
+- **Removed from `Remote_Broker_Node`:** `split_pair()`, `parse_pair()`,
+  `pairs_of()`, `declared_targets()` and the protected `$pairs`, whose
+  successors are `$sources` and `source_for()` (for `pair_for()`) and
+  `command_targets()`. The `pairs` argument is gone from the broker schemas.
+  `tests/fixtures/pair-split.json` and its test go with them.
+
+- **`Node::command_targets( $commands )` is new**, the verb twin of
+  `declared_targets()`: a class answers the destinations the ordered list of
+  verbs sent to its `:config` leaves. `Topology_Analyzer::graph_for()` and
+  `expand()` name a broker's accepted sources under `sources`, where
+  `graph_for()` named them `pairs`.
+
+- **A `Vault_Group` records its commands in the order sent.** A command that
+  changed a child's configuration is recorded and replayed in sequence, so
+  a `remove_source` replays after the `add_source` it undoes. Only a repeat
+  of the latest record is dropped; a `toggle` or `setter` verb still keeps its
+  last write alone.
+
+- **The browser's `RemoteLink` takes sources.** `addPairs( [ '<stamp>=<target>' ],
+  positions )` becomes `addSource( stamp, target, positions )`, `removePairs()`
+  becomes `removeSource( stamp, target )`, `parkPairs()` becomes
+  `parkSource( stamp, target )`, and `link.pairs` becomes `link.sources`, a
+  list of `{ stamp, target }`. `splitPair()` is gone. A link's `:config`
+  answers `add_source` and `remove_source <remote_log> <local_node>`, which
+  `src/runtime/command-args.js` binds as the PHP verbs bind them
+  (`bindCommandArgs()`), and `make_node` gives a `:config` to any browser
+  node whose schema declares a verb with a handler.
+
 - **`Bootstrap::on_demand_wake_map()` is removed.** Call
   `Bootstrap::readable_wake_map()`, which answers `[ $map, $unreadable ]`:
   the same map over the readable on-demand topologies, then what each

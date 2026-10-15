@@ -1063,6 +1063,16 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertSame( "Bad arguments for HTTP_Source 'pull-austin': retry_ms wants at least 1, got '0'", $this->refused_build( fn () => $this->broker( 'pull-austin' ) ) );
 	}
 
+	/** A negative interval is no whole number, so the argument and the config both refuse it. */
+	public function test_a_negative_retry_interval_refuses_the_broker(): void {
+		$this->assertSame( "Bad arguments for HTTP_Source 'pull-austin': retry_ms wants a whole number, got '-5'", $this->refused_build( fn () => $this->broker( 'pull-austin', [ ...$this->remote_args( 'pull-austin' ), '-5' ] ) ) );
+
+		$GLOBALS['_wp_options']['newspack_nodes_http_retry_ms'] = -7;
+		\Newspack_Nodes\Config::reset();
+
+		$this->assertSame( "retry_ms wants a whole number, got '-7'", $this->refused_build( fn () => $this->broker( 'pull-dallas' ) ) );
+	}
+
 	public function test_retry_ms_overrides_the_config_for_one_broker(): void {
 		$this->seed_austin();
 		$node = $this->broker( 'pull-austin', [ ...$this->remote_args( 'pull-austin' ), '2600' ] );
