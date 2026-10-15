@@ -84,6 +84,9 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	/** The verb that gives a broker a source, spelled once. */
 	public const ADD_SOURCE = 'add_source';
 
+	/** The verb that takes a source back, spelled once. */
+	public const REMOVE_SOURCE = 'remove_source';
+
 	/** Broker tick (milliseconds): the Router's own, which it hitchhikes. */
 	private const TICK_INTERVAL_MS = 1000;
 
@@ -222,19 +225,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 		$this->bound_topology = Core::bound_topology();
 		$this->pairs          = [ ...$pairs, ...$this->added ];
 		$this->glob_stamps    = null;
-		foreach ( $this->readers() as $stamp => $child ) {
-			$pair = $this->pair_for( $stamp );
-			if ( null === $pair ) {
-				$child->hand_off_cursor();
-				$this->retract_sibling( $stamp );
-				continue;
-			}
-			$child->connect_node( $pair['target'] );
-			if ( $this->reader_args( $stamp ) !== $child->arguments() ) {
-				$child->arguments( $this->reader_args( $stamp ) );
-			}
-			$child->broker( $this );
-		}
+		$this->reconcile_readers();
 		// A target names no stream: only a changed source list restreams.
 		if ( \array_column( $previous, 'source' ) !== \array_column( $this->pairs, 'source' ) ) {
 			$this->restream();
@@ -343,18 +334,28 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 * pair does, its reader built on the next tick. Every source is kept for
 	 * the dump, and read only where `Core::owns()` gives it to this worker
 	 * (ADR-33). A changed source list restarts the stream; an identical
-	 * repeat changes nothing.
+	 * repeat changes nothing. A source goes to one target: a second is
+	 * refused on every partition, the source compared as written, so a glob
+	 * and an exact stamp it matches are two sources.
 	 *
 	 * @param string $remote_log A spoke stamp, glob or `sources:<name>`, `{partition}` resolved here.
 	 * @param string $local_node The node its lines go to.
-	 * @throws \InvalidArgumentException When no spoke can stream the source, its
-	 *                                   reader would take a kept slot, or it names
+	 * @throws \InvalidArgumentException When the source already goes elsewhere,
+	 *                                   no spoke can stream it, its reader would
+	 *                                   take a kept slot, or it names
 	 *                                   `{partition}` where none is bound.
 	 */
 	public function add_source( string $remote_log, string $local_node ): void {
 		$written = [ 'source' => $remote_log, 'target' => $local_node ];
-		if ( \in_array( $written, $this->declared, true ) ) {
-			return;
+		foreach ( $this->written_sources() as [ 'source' => $source, 'target' => $target ] ) {
+			if ( $remote_log !== $source ) {
+				continue;
+			}
+			if ( $local_node === $target ) {
+				return;
+			}
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+			throw new \InvalidArgumentException( self::refusal_prefix() . self::ADD_SOURCE . " '{$remote_log}' already goes to '{$target}', not '{$local_node}'" );
 		}
 		if ( null === $this->bound_partition && ( Core::has_partition_token( $remote_log ) || Core::has_partition_token( $local_node ) ) ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
@@ -376,30 +377,128 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	}
 
 	/**
-	 * An accepted `add_source`'s target, which a Vault_Group of this class
-	 * declares as an edge, as a pair argument's is.
+	 * Undo the `add_source`, or the pair argument, that declared
+	 * `$remote_log` going to `$local_node`, both as written: the dump drops
+	 * it, and where `Core::owns()` gave it to this worker (ADR-33) its lines
+	 * stop routing, each reader it alone claimed hands its cursor off and is
+	 * retracted, its dirs left on disk, and the stream restarts without it.
 	 *
-	 * @param string       $verb   The verb.
-	 * @param list<string> $tokens Its argument tokens.
-	 * @return list<string>
+	 * @param string $remote_log The source, as `add_source` took it.
+	 * @param string $local_node Its target, as `add_source` took it.
+	 * @throws \InvalidArgumentException When this broker declares no such source.
 	 */
-	public static function command_targets( string $verb, array $tokens ): array {
-		$source = self::ADD_SOURCE === $verb ? static::source_of( $tokens ) : null;
-		return null === $source ? [] : [ $source['target'] ];
+	public function remove_source( string $remote_log, string $local_node ): void {
+		$written = [ 'source' => $remote_log, 'target' => $local_node ];
+		if ( ! \in_array( $written, $this->written_sources(), true ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+			throw new \InvalidArgumentException( self::refusal_prefix() . self::REMOVE_SOURCE . " '{$remote_log}' '{$local_node}' names no source this broker declares" );
+		}
+		if ( \in_array( $written, $this->declared, true ) ) {
+			$this->declared = Core::without( $this->declared, $written );
+		} else {
+			$tail            = self::variadic_in( $this->arguments );
+			$this->arguments = [ ...\array_slice( $this->arguments, 0, \count( $this->arguments ) - \count( $tail ) ), ...Core::without( $tail, "{$remote_log}={$local_node}" ) ];
+		}
+		if ( ! Core::owns( $remote_log, $this->bound_partition ) ) {
+			return;
+		}
+		$source            = [
+			'source' => Core::resolve_partition_template( $remote_log, $this->bound_partition ?? 0 ),
+			'target' => Core::resolve_partition_template( $local_node, $this->bound_partition ?? 0 ),
+		];
+		$this->added       = Core::without( $this->added, $source );
+		$this->pairs       = Core::without( $this->pairs, $source );
+		$this->glob_stamps = null;
+		$this->reconcile_readers();
+		$this->restream();
 	}
 
 	/**
-	 * One `add_source` command's source as written, when the verb would take
-	 * it; null otherwise, for a reader of a topology that must not fail on a
-	 * line the runtime would refuse. `{partition}` and config tokens are
-	 * resolved for the judgement and kept in the answer, as the TSL names
-	 * its nodes.
+	 * Retract each reader no source claims any more, its cursor handed off
+	 * and its dirs left on disk, and hand each survivor the target, dirs and
+	 * names of the source that claims it.
+	 */
+	private function reconcile_readers(): void {
+		foreach ( $this->readers() as $stamp => $child ) {
+			$pair = $this->pair_for( $stamp );
+			if ( null === $pair ) {
+				$child->hand_off_cursor();
+				$this->retract_sibling( $stamp );
+				continue;
+			}
+			$child->connect_node( $pair['target'] );
+			if ( $this->reader_args( $stamp ) !== $child->arguments() ) {
+				$child->arguments( $this->reader_args( $stamp ) );
+			}
+			$child->broker( $this );
+		}
+	}
+
+	/**
+	 * Every source this broker declares, as written and on every partition:
+	 * its pair arguments' and then each `add_source` took.
 	 *
-	 * @param list<string> $tokens The verb's argument tokens.
+	 * @return list<array{source:string,target:string}>
+	 */
+	private function written_sources(): array {
+		return [ ...\array_map( self::split_pair( ... ), self::variadic_in( $this->arguments ) ), ...$this->declared ];
+	}
+
+	/**
+	 * The target of each source the commands leave declared, in order: the
+	 * edges a Vault_Group of this class and the analyzer draw, as a pair
+	 * argument's are.
+	 *
+	 * @param list<array{0:string,1:list<string>}> $commands Each verb and its argument tokens, in the order sent.
+	 * @return list<string>
+	 */
+	public static function command_targets( array $commands ): array {
+		return \array_column( static::sources_of( $commands ), 'target' );
+	}
+
+	/**
+	 * The sources a run of `add_source` and `remove_source` commands leaves
+	 * declared, as written and in order, each judged as the broker judges
+	 * it: an identical repeat, a second target for a source, a removal naming
+	 * no declared source and a line the verb refuses each change nothing.
+	 * For a reader of a topology that must not fail on a line the runtime
+	 * would refuse; the console's TSL reader folds them alike, held to this
+	 * by `tests/fixtures/broker-sources.json`.
+	 *
+	 * @param list<array{0:string,1:list<string>}> $commands Each verb and its argument tokens, in the order sent.
+	 * @return list<array{source:string,target:string}>
+	 */
+	public static function sources_of( array $commands ): array {
+		$sources = [];
+		foreach ( $commands as [ $verb, $tokens ] ) {
+			$source = self::source_of( $verb, $tokens );
+			if ( null === $source ) {
+				continue;
+			}
+			if ( self::REMOVE_SOURCE === $verb ) {
+				$sources = Core::without( $sources, $source );
+			} elseif ( ! \in_array( $source['source'], \array_column( $sources, 'source' ), true ) ) {
+				$sources[] = $source;
+			}
+		}
+		return $sources;
+	}
+
+	/**
+	 * One `add_source` or `remove_source` command's source as written, when
+	 * the verb would bind it; null for any other verb or a line it refuses.
+	 * `{partition}` and config tokens are resolved for the judgement and kept
+	 * in the answer, as the TSL names its nodes.
+	 *
+	 * @param string       $verb   The verb.
+	 * @param list<string> $tokens Its argument tokens.
 	 * @return array{source:string,target:string}|null
 	 */
-	public static function source_of( array $tokens ): ?array {
-		$specs = Core::arr( Command_Interpreter_Node::declared_verbs( static::class )[ self::ADD_SOURCE ]['args'] ?? [] );
+	private static function source_of( string $verb, array $tokens ): ?array {
+		if ( self::ADD_SOURCE !== $verb && self::REMOVE_SOURCE !== $verb ) {
+			return null;
+		}
+		$specs = Core::arr( Command_Interpreter_Node::declared_verbs( static::class )[ $verb ]['args'] ?? [] );
 		try {
 			$bound  = Command_Args::bind( $specs, $tokens );
 			$source = Core::as_string( $bound['remote_log'] );
@@ -1051,6 +1150,21 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	}
 
 	/**
+	 * `remove_source` verb handler: take a source back from the patron.
+	 *
+	 * @param Command_Interpreter_Node $interpreter The auto-wired `:config` interpreter.
+	 * @param array<array-key,mixed>   $args        Bound verb arguments: remote_log, local_node.
+	 * @return string
+	 * @throws \InvalidArgumentException What `remove_source()` refused.
+	 */
+	public static function cmd_remove_source( Command_Interpreter_Node $interpreter, array $args ): string {
+		/** @var self $patron */
+		$patron = $interpreter->patron();
+		$patron->remove_source( Core::as_string( $args['remote_log'] ), Core::as_string( $args['local_node'] ) );
+		return "ok\n";
+	}
+
+	/**
 	 * The targets the arguments' pairs name, then each `add_source` took, as
 	 * written, so the canvas draws one edge per source.
 	 *
@@ -1158,6 +1272,10 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 * @return array<string,mixed>
 	 */
 	public static function node_schema(): array {
+		$source_args = [
+			[ 'name' => 'remote_log', 'type' => 'string', 'required' => true, 'description' => 'A spoke stamp, glob or `sources:<name>`.' ],
+			[ 'name' => 'local_node', 'type' => 'string', 'required' => true, 'description' => 'The node its lines go to.' ],
+		];
 		return [
 			'category'     => 'Hidden',
 			// Each pair names its destination, so Node refuses connect_node.
@@ -1172,13 +1290,17 @@ abstract class Remote_Broker_Node extends Timer_Node {
 			'commands'     => [
 				[
 					'name'        => self::ADD_SOURCE,
-					'description' => 'Read a spoke log into a local node: a stamp, a glob or `sources:<name>`, `{partition}` resolved at the worker\'s. A repeat is a no-op.',
-					'args'        => [
-						[ 'name' => 'remote_log', 'type' => 'string', 'required' => true, 'description' => 'A spoke stamp, glob or `sources:<name>`.' ],
-						[ 'name' => 'local_node', 'type' => 'string', 'required' => true, 'description' => 'The node its lines go to.' ],
-					],
+					'description' => 'Read a spoke log into a local node: a stamp, a glob or `sources:<name>`, `{partition}` resolved at the worker\'s. A repeat is a no-op; a second target for the source is refused.',
+					'args'        => $source_args,
 					'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_add_source( $interpreter, $args ),
 					// One call per source: the console renders a row each.
+					'multiple'    => true,
+				],
+				[
+					'name'        => self::REMOVE_SOURCE,
+					'description' => 'Stop reading a source add_source gave, named as add_source took it: its readers go, their cursors and dead letters stay on disk.',
+					'args'        => $source_args,
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_remove_source( $interpreter, $args ),
 					'multiple'    => true,
 				],
 				[

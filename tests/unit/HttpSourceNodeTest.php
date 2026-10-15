@@ -949,6 +949,42 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertSame( 'raw-logs', $asked[0][ Message::TO ] );
 	}
 
+	/** A removed source's reader goes, so the tick that ends the waits asks only the rest. */
+	public function test_a_removed_sources_reader_stops_fetching(): void {
+		$this->seed_austin();
+		$node = $this->broker( 'pull-austin' );
+		$node->interpreter()->dispatch( 'add_source', [ 'egret.p6', 'heron-4471' ] );
+		$node->fire();
+		$http = Core::node( 'pull-austin:http-out' );
+		foreach ( $this->readers( $node ) as $stamp => $reader ) {
+			$reader->fire_cb();
+			self::answer( $reader, self::block_reply( $this->last_fetch_of( $http, $stamp ), '', null, '9:' . ( 2290 ) ) );
+		}
+		$asked = \count( $this->fetches( $http ) );
+
+		$node->interpreter()->dispatch( 'remove_source', [ 'egret.p6', 'heron-4471' ] );
+		Core::$now += self::RETRY_S + 0.1;
+		$node->fire();
+
+		$this->assertNull( Core::node( 'pull-austin:egret.p6' ) );
+		$this->assertSame( [ 'firehose.p0' ], \array_column( \array_slice( $this->fetches( $http ), $asked ), 0 ) );
+	}
+
+	/** With its glob removed, the broker stops asking the spoke's catalog. */
+	public function test_a_removed_glob_asks_for_the_catalog_no_more(): void {
+		$node = $this->globbing_broker();
+		$node->fire();
+		$http = Core::node( 'pull-austin:http-out' );
+		Core::$now = 501.2;
+		$node->fill( self::catalog_reply( [] ) );
+
+		$node->interpreter()->dispatch( 'remove_source', [ 'jobstats.p*', 'stats' ] );
+		Core::$now = 508.6;
+		$node->fire();
+
+		$this->assertCount( 1, $this->catalog_asks( $http ) );
+	}
+
 	public function test_a_glob_added_live_asks_for_the_catalog(): void {
 		$this->seed_austin();
 		$node = new HTTP_Source_Node();

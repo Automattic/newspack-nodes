@@ -514,6 +514,36 @@ class TopologyRegistryGraphTest extends TestCase {
 		$this->assertSame( [ [ 'pull:okapi', 'errors-sink-6', [ 'pair' ] ] ], \array_map( static fn ( array $e ): array => [ $e['from'], $e['to'], $e['roles'] ], $edges ) );
 	}
 
+	/** A `remove_source` after its `add_source` takes the edge and the claim back, in the graph and the expansion. */
+	public function test_a_removed_source_draws_no_edge_and_claims_nothing(): void {
+		$this->write_tsl(
+			'vicuna-removed',
+			"make_node Remote_Source pull:okapi okapi-7 /var/vicuna/off /var/vicuna/dl ledger.p0=ledger-sink-5\n"
+			. "command_node pull:okapi:config add_source errors.p0 errors-sink-6\n"
+			. "command_node pull:okapi:config add_source ledger.p1 ledger-sink-5\n"
+			. "command_node pull:okapi:config add_source kea.p3 kea-sink-9\n"
+			. "command_node pull:okapi:config add_source kea.p3 kea-sink-9\n"
+			. "command_node pull:okapi:config remove_source errors.p0 errors-sink-6\n"
+			. "command_node pull:okapi:config remove_source ledger.p1 ledger-sink-5\n"
+		);
+
+		$graph = Topology_Analyzer::graph_for( 'vicuna-removed' );
+
+		$this->assertSame(
+			[
+				[ 'source' => 'ledger.p0', 'target' => 'ledger-sink-5' ],
+				[ 'source' => 'kea.p3', 'target' => 'kea-sink-9' ],
+			],
+			$graph['nodes'][0]['pairs'],
+			'a repeat is claimed once, a removal not at all'
+		);
+		$this->assertSame( [ [ 'pull:okapi', 'ledger-sink-5' ], [ 'pull:okapi', 'kea-sink-9' ] ], $graph['edges'], 'a target the pair argument still names keeps its edge' );
+		$this->assertSame(
+			[ [ 'pull:okapi', 'ledger-sink-5' ], [ 'pull:okapi', 'kea-sink-9' ] ],
+			\array_map( static fn ( array $e ): array => [ $e['from'], $e['to'] ], Topology_Analyzer::expand( [ 'vicuna-removed' ] )['edges'] )
+		);
+	}
+
 	/** A verb another class declares draws nothing, whatever its name. */
 	public function test_an_add_source_on_a_node_that_takes_none_draws_no_edge(): void {
 		$this->write_tsl( 'vicuna-echo', "make_node Echo okapi-echo\ncommand_node okapi-echo:config add_source ledger.p0 ledger-sink-5\n" );

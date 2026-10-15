@@ -1347,7 +1347,9 @@ edges draw on it in every view, the live canvas and both flattens alike.
 
 Group configuration goes through the group: a verb sent to `<group>:config` reaches every
 child and, when every child accepted it and it changed a child's configuration, is recorded
-last-write-wins. A per-child verb sent straight to `<group>:<id>:config` is LIVE-ONLY — no
+in the order sent, so a `remove_source` replays after the `add_source` it undoes; a `toggle` or
+`setter` verb keeps only its last write, and a command repeating the latest record is not
+recorded twice. A per-child verb sent straight to `<group>:<id>:config` is LIVE-ONLY — no
 dump replays it, because `dump_config` replays the group and its recorded commands, never a
 child.
 

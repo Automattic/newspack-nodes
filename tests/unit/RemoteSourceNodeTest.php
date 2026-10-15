@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use Newspack_Nodes\Command_Args;
 use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Consumer_Node;
@@ -613,7 +614,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertArrayNotHasKey( 'hidden', $schema );
 		$this->assertSame( [ 'vault_id', 'offsetlog_root', 'deadletter_root', 'pairs' ], \array_column( $schema['arguments'], 'name' ) );
 		$this->assertSame( [ 'pairs' ], \array_column( \array_filter( $schema['arguments'], static fn ( array $a ): bool => ! empty( $a['variadic'] ) ), 'name' ) );
-		$this->assertSame( [ 'add_source', 'set_multi_writer', 'assume_clean_shutdown' ], \array_column( $schema['commands'], 'name' ) );
+		$this->assertSame( [ 'add_source', 'remove_source', 'set_multi_writer', 'assume_clean_shutdown' ], \array_column( $schema['commands'], 'name' ) );
 		$this->assertSame( 'vault_id', $schema['arguments'][0]['type'] );
 		$this->assertFalse( $schema['accepts_fill'] );
 		$this->assertSame( 'Hidden', Remote_Broker_Node::node_schema()['category'], 'the base stays off the palette' );
@@ -887,6 +888,154 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertNotNull( $sse->test_get_handle(), 'an identical source is a no-op' );
 	}
 
+	/** @return array<string,array{string}> Label => the worker partition. */
+	public static function owning_and_not(): array {
+		return [
+			'p0, which reads it'          => [ '0' ],
+			'p3, which does not read it' => [ '3' ],
+		];
+	}
+
+	/** A declared source goes to one target, whichever partition is asked. */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'owning_and_not' )]
+	public function test_add_source_refuses_a_second_target_for_a_declared_source( string $partition ): void {
+		Core::$var['partition'] = $partition;
+		$node = $this->bare_broker( 'remote-ibis' );
+		$node->interpreter()->dispatch( 'add_source', [ 'sources:php', 'heron-4471' ] );
+
+		try {
+			$node->interpreter()->dispatch( 'add_source', [ 'sources:php', 'kite-2290' ] );
+			$this->fail( 'expected the second target to be refused' );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertSame( "Remote_Source: add_source 'sources:php' already goes to 'heron-4471', not 'kite-2290'", \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
+		}
+		$this->assertSame( [ 'heron-4471' ], $node->display_targets() );
+	}
+
+	/** A pair argument declares its source as surely as add_source does. */
+	public function test_add_source_refuses_a_second_target_for_a_pair_arguments_source(): void {
+		$node = $this->broker( 'remote-ibis' );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( "Remote_Source: add_source 'firehose.p0' already goes to 'downstream', not 'kite-2290'" );
+		$node->interpreter()->dispatch( 'add_source', [ 'firehose.p0', 'kite-2290' ] );
+	}
+
+	/** A glob and an exact stamp it matches are two sources, each with its own target. */
+	public function test_add_source_takes_an_exact_stamp_a_declared_glob_matches(): void {
+		$node = $this->bare_broker( 'remote-ibis' );
+		$node->interpreter()->dispatch( 'add_source', [ 'egret.*', 'heron-4471' ] );
+
+		$this->assertSame( "ok\n", $node->interpreter()->dispatch( 'add_source', [ 'egret.p6', 'kite-2290' ] ) );
+		$this->assertSame( [ 'heron-4471', 'kite-2290' ], $node->display_targets() );
+	}
+
+	// ---------------------------------------------------------------------
+	// remove_source: add_source undone.
+	// ---------------------------------------------------------------------
+
+	/** A removed source's reader hands its cursor off and goes, the stream drops its stamp, and the dump forgets it. */
+	public function test_remove_source_on_a_connected_broker_retracts_its_reader_and_restreams(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$asked = [];
+		$this->record_requests( $asked );
+		[ $node ] = $this->make_remote();
+		$node->interpreter()->dispatch( 'add_source', [ 'egret.p6', 'heron-4471' ] );
+		$node->fire();
+		$this->drain_connect_queue();
+		$this->assertSame( 'firehose.p0,egret.p6', \end( $asked )['subscribe'] );
+		Core::node( 'remote-austin:egret.p6' )->next_offset( [ 'segment' => 4471, 'offset' => 2290 ] );
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		$this->assertSame( "ok\n", $node->interpreter()->dispatch( 'remove_source', [ 'egret.p6', 'heron-4471' ] ) );
+
+		$this->assertNull( Core::node( 'remote-austin:egret.p6' ), 'its reader is retracted' );
+		$this->assertSame( [ 'firehose.p0' ], \array_keys( $this->readers( $node ) ) );
+		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
+		$this->assertSame( [ 4471, 2290 ], $this->frame_in( "{$offsets}/remote-austin/egret.p6" ), 'its cursor stays on disk' );
+		$this->assertNull( $sse->test_get_handle(), 'a removed source restarts the stream' );
+		$this->assertStringNotContainsString( 'egret.p6', $node->dump_config() );
+		Core::$now = 640.0;
+		$node->fire();
+		$this->drain_connect_queue();
+		$this->assertSame( 'firehose.p0', \end( $asked )['subscribe'] );
+	}
+
+	/** A glob removed takes only the readers no other source claims; a survivor takes its claimant's target. */
+	public function test_removing_a_glob_retracts_only_the_readers_it_alone_claimed(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		Core::$now = 5000.0;
+		$node = $this->bare_broker( 'remote-austin' );
+		$node->interpreter()->dispatch( 'add_source', [ 'errors.*', 'heron-4471' ] );
+		$node->interpreter()->dispatch( 'add_source', [ 'errors.p2', 'kite-2290' ] );
+		$node->fire();
+		$this->drain_connect_queue();
+		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::connected_frame( 'SLOT 3 OWNER 31313131 CURSORS errors.p0=4:10,errors.p2=8:20' ) );
+		$kept = Core::node( 'remote-austin:errors.p2' );
+		$this->assertSame( 'heron-4471', $kept->target(), 'the glob, declared first, claims the stamp' );
+
+		$node->interpreter()->dispatch( 'remove_source', [ 'errors.*', 'heron-4471' ] );
+
+		$this->assertSame( [ 'errors.p2' ], \array_keys( $this->readers( $node ) ) );
+		$this->assertSame( $kept, Core::node( 'remote-austin:errors.p2' ), 'the survivor is the same reader' );
+		$this->assertSame( 'kite-2290', $kept->target() );
+	}
+
+	/** @return array<string,array{list<string>}> Label => a remove_source naming no declared source. */
+	public static function undeclared_removals(): array {
+		return [
+			'a source never added'       => [ [ 'egret.p6', 'heron-4471' ] ],
+			'a source going elsewhere'   => [ [ 'sources:php', 'heron-4471' ] ],
+			'a target given by name'    => [ [ 'sources:php', '--local_node=ibis-errors-58.p0' ] ],
+		];
+	}
+
+	/** A removal naming no declared source is refused, naming it as written, and changes nothing. */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'undeclared_removals' )]
+	public function test_remove_source_refuses_a_source_not_declared( array $tokens ): void {
+		$node = $this->bare_broker( 'remote-ibis' );
+		$node->interpreter()->dispatch( 'add_source', [ 'sources:php', 'ibis-errors-58' ] );
+		$before = $node->dump_config();
+		$bound  = Command_Args::bind( Command_Interpreter_Node::declared_verbs( Remote_Source_Node::class )['add_source']['args'], $tokens );
+
+		try {
+			$node->interpreter()->dispatch( 'remove_source', $tokens );
+			$this->fail( 'expected the removal to be refused' );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertSame( "Remote_Source: remove_source '{$bound['remote_log']}' '{$bound['local_node']}' names no source this broker declares", \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
+		}
+		$this->assertSame( $before, $node->dump_config() );
+	}
+
+	/** A pair argument's source is removed as an added one is, and leaves the make_node line. */
+	public function test_remove_source_takes_a_pair_arguments_source(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node ] = $this->make_remote( 'remote-austin', $this->remote_args( 'remote-austin', 'austin', 'firehose.p0=downstream', 'sources:php=php-errors-77' ) );
+
+		$node->interpreter()->dispatch( 'remove_source', [ 'sources:php', 'php-errors-77' ] );
+
+		$this->assertSame( [ 'firehose.p0' ], \array_keys( $this->readers( $node ) ) );
+		$this->assertStringNotContainsString( 'sources:php', $node->dump_config() );
+		$this->assertStringContainsString( ' firehose.p0=downstream', $node->dump_config() );
+		$this->assertSame( [ 'downstream' ], $node->display_targets() );
+	}
+
+	/** Ownership is judged on the source as written: off p0, a per-partition source's reader goes, a fixed one's dump line alone. */
+	public function test_remove_source_off_partition_zero_judges_the_source_as_written(): void {
+		Core::$var['partition'] = '2';
+		$node = $this->bare_broker( 'remote-ibis' );
+		$node->interpreter()->dispatch( 'add_source', [ 'egret.p{partition}', 'heron-4471' ] );
+		$node->interpreter()->dispatch( 'add_source', [ 'sources:php', 'ibis-errors-58' ] );
+		$node->fire();
+		$this->assertSame( [ 'egret.p2' ], \array_keys( $this->readers( $node ) ) );
+
+		$node->interpreter()->dispatch( 'remove_source', [ 'sources:php', 'ibis-errors-58' ] );
+		$node->interpreter()->dispatch( 'remove_source', [ 'egret.p{partition}', 'heron-4471' ] );
+
+		$this->assertSame( [], $this->readers( $node ) );
+		$this->assertStringNotContainsString( 'add_source', $node->dump_config() );
+	}
+
 	public function test_a_broker_displays_each_added_target(): void {
 		$node = $this->bare_broker( 'remote-ibis' );
 		$node->interpreter()->dispatch( 'add_source', [ 'egret.p6', 'heron-4471' ] );
@@ -896,11 +1045,23 @@ class RemoteSourceNodeTest extends TestCase {
 	}
 
 	public function test_command_targets_names_an_accepted_add_source_alone(): void {
-		$this->assertSame( [ 'rewrite-31' ], Remote_Source_Node::command_targets( 'add_source', [ 'firehose.p{partition}', 'rewrite-31' ] ) );
-		$this->assertSame( [ 'rewrite-31' ], Remote_Source_Node::command_targets( 'add_source', [ '--local_node=rewrite-31', '--remote_log=firehose.p0' ] ) );
-		$this->assertSame( [], Remote_Source_Node::command_targets( 'add_source', [ '..', 'rewrite-31' ] ) );
-		$this->assertSame( [], Remote_Source_Node::command_targets( 'add_source', [ 'firehose.p0' ] ) );
-		$this->assertSame( [], Remote_Source_Node::command_targets( 'set_multi_writer', [ 'true' ] ) );
+		$this->assertSame( [ 'rewrite-31' ], Remote_Source_Node::command_targets( [ [ 'add_source', [ 'firehose.p{partition}', 'rewrite-31' ] ] ] ) );
+		$this->assertSame( [ 'rewrite-31' ], Remote_Source_Node::command_targets( [ [ 'add_source', [ '--local_node=rewrite-31', '--remote_log=firehose.p0' ] ] ] ) );
+		$this->assertSame( [], Remote_Source_Node::command_targets( [ [ 'add_source', [ '..', 'rewrite-31' ] ] ] ) );
+		$this->assertSame( [], Remote_Source_Node::command_targets( [ [ 'add_source', [ 'firehose.p0' ] ] ] ) );
+		$this->assertSame( [], Remote_Source_Node::command_targets( [ [ 'set_multi_writer', [ 'true' ] ] ] ) );
+	}
+
+	/** @return array<string,array{list<array{0:string,1:list<string>}>,list<string>}> The console's TSL reader reads these too. */
+	public static function source_commands(): array {
+		$cases = \json_decode( (string) \file_get_contents( __DIR__ . '/../fixtures/broker-sources.json' ), true );
+		return \array_column( \array_map( static fn ( array $c ): array => [ $c[0], [ $c[1], $c[2] ] ], $cases ), 1, 0 );
+	}
+
+	/** The commands apply in order, each as the verb would take it. */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'source_commands' )]
+	public function test_command_targets_names_what_the_commands_leave_standing( array $commands, array $targets ): void {
+		$this->assertSame( $targets, Remote_Source_Node::command_targets( $commands ) );
 	}
 
 	// ---------------------------------------------------------------------

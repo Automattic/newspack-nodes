@@ -1053,17 +1053,21 @@ class Node {
 	}
 
 	/**
-	 * The destinations one verb sent to this class's `:config` names for it
-	 * to write without routing through `target`: the verb twin of
-	 * `declared_targets()`, which a Vault_Group declares for each verb it
-	 * recorded and `Topology_Analyzer` reads off each `command_node` line and
-	 * draws as `pair` edges, so the two cannot drift. None by default.
+	 * The destinations a node of this class writes without routing through
+	 * `target`, as the verbs sent to its `:config` leave them once each has
+	 * applied in order: the verb-side twin of `declared_targets()`, so a verb
+	 * that undoes another takes its destination back. None by default.
 	 *
-	 * @param string       $verb   The verb.
-	 * @param list<string> $tokens Its argument tokens.
+	 * A Vault_Group declares these for the commands it recorded.
+	 * `Topology_Analyzer` asks again after each `command_node` line and draws
+	 * a `pair` edge to each destination the line adds, and takes back each
+	 * one it drops that the node's arguments do not name, so the runtime and
+	 * the drawing judge a verb by one rule.
+	 *
+	 * @param list<array{0:string,1:list<string>}> $commands Each verb and its argument tokens, in the order sent.
 	 * @return list<string>
 	 */
-	public static function command_targets( string $verb, array $tokens ): array {
+	public static function command_targets( array $commands ): array {
 		return [];
 	}
 

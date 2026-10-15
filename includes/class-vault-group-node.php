@@ -19,9 +19,9 @@
  * every child's interpreter and the reply maps each child's name to its answer,
  * while a refusal from any child throws, naming each one that refused. A
  * command every child accepted and that changed some child's `dump_config()`
- * — configuration, not a read — is recorded, last write winning, replayed to
- * each later child and dumped on the group; so is one sent while the group has
- * no children. A child `toggle` or `setter` verb keeps one record, its latest.
+ * — configuration, not a read — is recorded in order, replayed to each later
+ * child and dumped on the group; so is one sent while the group has no
+ * children. A child `toggle` or `setter` verb keeps one record, its latest.
  * A verb sent straight to one child's own `:config` is live-only.
  * `connect_node` and `debug_state` on the group reach every child; a message
  * filled into the group is dropped, since only a fan-out source reaches them.
@@ -216,8 +216,10 @@ final class Vault_Group_Node extends Node {
 	 * is raised together, combined by `Worker_Should_Stop::raise()`. Record the
 	 * command when every child took it and it changed some child's
 	 * configuration, or when there is no child yet. It replaces every earlier
-	 * record of the verb when $by_verb, and of an identical command otherwise,
-	 * so the last write wins on replay.
+	 * record of the verb when $by_verb, so the last write wins on replay.
+	 * Any other command is appended unless it repeats the latest record,
+	 * because a later command may undo an earlier one — a `remove_source`
+	 * its `add_source` — and the replay must meet them in the order sent.
 	 *
 	 * @param string                 $verb The child verb.
 	 * @param array<array-key,mixed> $args    Its argument tokens.
@@ -246,9 +248,9 @@ final class Vault_Group_Node extends Node {
 			}
 		);
 		Worker_Should_Stop::raise( $caught );
-		if ( $changed ) {
-			$command        = [ $verb, $tokens ];
-			$this->commands = [ ...\array_filter( $this->commands, static fn ( array $recorded ): bool => $by_verb ? $recorded[0] !== $verb : $recorded !== $command ), $command ];
+		$command = [ $verb, $tokens ];
+		if ( $changed && ( $by_verb || \end( $this->commands ) !== $command ) ) {
+			$this->commands = [ ...\array_filter( $this->commands, static fn ( array $recorded ): bool => ! $by_verb || $recorded[0] !== $verb ), $command ];
 		}
 		return $answers;
 	}
@@ -400,18 +402,14 @@ final class Vault_Group_Node extends Node {
 	}
 
 	/**
-	 * The group's own declared targets, then what each recorded verb names
+	 * The group's own declared targets, then what its recorded verbs leave
 	 * for the child class (`Node::command_targets()`), so a group draws the
 	 * edges its members do whether or not it has any.
 	 *
 	 * @return list<string>
 	 */
 	protected function extra_targets(): array {
-		$targets = parent::extra_targets();
-		foreach ( $this->commands as [ $verb, $args ] ) {
-			$targets = [ ...$targets, ...$this->child_class::command_targets( $verb, $args ) ];
-		}
-		return $targets;
+		return [ ...parent::extra_targets(), ...$this->child_class::command_targets( $this->commands ) ];
 	}
 
 	/**

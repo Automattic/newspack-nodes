@@ -57,6 +57,9 @@ function invocation( inv ) {
 /** The verb a broker's `:config` takes a source by. */
 const ADD_SOURCE = 'add_source';
 
+/** The verb a broker's `:config` gives a source back by. */
+const REMOVE_SOURCE = 'remove_source';
+
 /**
  * The value a span holds, as the runtime reads it: a quoted span unquoted.
  *
@@ -128,39 +131,72 @@ function pairTokens( className, spans, catalog ) {
 }
 
 /**
- * The targets the file's own `add_source` lines on a node's `:config` name,
- * each line bound as the verb binds it: a broker's, or a Vault_Group's,
- * which the group forwards to its child class. A line the binder refuses
- * draws nothing, as the verb refuses it, and so does every line on a class
- * whose catalog entry declares no `add_source`.
+ * The sources a node's `add_source` and `remove_source` lines leave, as
+ * written and in order: a broker's, or a Vault_Group's, which the group
+ * forwards to its child class. Each line is bound as its verb binds it and
+ * judged as PHP `Remote_Broker_Node::sources_of()` judges it, held to it by
+ * `tests/fixtures/broker-sources.json`: an identical repeat, a second target
+ * for a source, a removal naming no declared source and a line the binder
+ * refuses each change nothing, and so does every line on a class whose
+ * catalog entry declares neither verb.
  *
- * @param {string}        className The node's shell class.
- * @param {Array<string>} spans     Its constructor arguments, as written.
- * @param {Array<Object>} declared  The file's own invocations on the node.
- * @param {Array<Object>} catalog   Class catalog entries.
- * @return {Array<string>} The targets, in line order.
+ * @param {string}        className   The node's shell class.
+ * @param {Array<string>} spans       Its constructor arguments, as written.
+ * @param {Array<Object>} invocations Its invocations, in reading order.
+ * @param {Array<Object>} catalog     Class catalog entries.
+ * @return {Array<{source:string,target:string}>} The sources, in order.
  */
-function sourceTargets( className, spans, declared, catalog ) {
+function sourcesOf( className, spans, invocations, catalog ) {
 	const verbClass =
 		'Vault_Group' === className ? valueOf( spans[ 0 ] ?? '' ) : className;
-	const verb = catalog
-		.find( ( c ) => c.shell_name === verbClass )
-		?.commands?.find( ( c ) => ADD_SOURCE === c.name );
-	if ( ! verb ) {
-		return [];
-	}
-	return declared
-		.filter( ( inv ) => inv.viaConfig && ADD_SOURCE === inv.verb )
-		.flatMap( ( inv ) => {
-			try {
-				return [
-					bindCommandArgs( verb.args, inv.args.map( valueOf ) )
-						.local_node,
-				];
-			} catch {
-				return [];
+	const verbs =
+		catalog.find( ( c ) => c.shell_name === verbClass )?.commands ?? [];
+	const sources = [];
+	for ( const inv of invocations ) {
+		const verb = [ ADD_SOURCE, REMOVE_SOURCE ].includes( inv.verb )
+			? verbs.find( ( c ) => c.name === inv.verb )
+			: null;
+		if ( ! inv.viaConfig || ! verb ) {
+			continue;
+		}
+		let bound;
+		try {
+			bound = bindCommandArgs( verb.args, inv.args.map( valueOf ) );
+		} catch {
+			continue;
+		}
+		const at = sources.findIndex( ( s ) => s.source === bound.remote_log );
+		if ( REMOVE_SOURCE !== inv.verb ) {
+			if ( -1 === at ) {
+				sources.push( {
+					source: bound.remote_log,
+					target: bound.local_node,
+				} );
 			}
-		} );
+		} else if ( -1 !== at && sources[ at ].target === bound.local_node ) {
+			sources.splice( at, 1 );
+		}
+	}
+	return sources;
+}
+
+/**
+ * Seeded edges with the `pair` role taken off each edge from `from` to a
+ * target in `targets`, and an edge left with no role dropped.
+ *
+ * @param {Array<Object>} seeded  The seeded edges.
+ * @param {string}        from    The node the edges leave.
+ * @param {Array<string>} targets The targets to take back.
+ * @return {Array<Object>} The seeded edges that stand.
+ */
+function withoutPairs( seeded, from, targets ) {
+	return seeded
+		.map( ( e ) =>
+			e.from === from && targets.includes( e.to )
+				? { ...e, roles: e.roles.filter( ( r ) => 'pair' !== r ) }
+				: e
+		)
+		.filter( ( e ) => e.roles.length > 0 );
 }
 
 /**
@@ -170,9 +206,10 @@ function sourceTargets( className, spans, declared, catalog ) {
  * target is `target` and the rest are `also`, while `edges` carries a
  * `connect` entry for each of them, so a fan-out node keeps every connection
  * it declared. A broker draws a `pair` edge to each pair's target, skipping a
- * pair with an empty half as the broker refuses it, and to each target the
- * file's own `add_source` lines name, once each. A borrowed node — one an
- * include supplies — carries `origin`,
+ * pair with an empty half as the broker refuses it, and to each target its
+ * `add_source` and `remove_source` lines leave, read in order, once each; a
+ * file's own `remove_source` takes back an include's source, and its seeded
+ * edge with it. A borrowed node — one an include supplies — carries `origin`,
  * `via` and `fansOut` as well, and the invocations that include supplied are
  * marked `seeded`: the flag is what lets the Inspector lock those rows and
  * drop them before a save writes the document's own half back.
@@ -192,7 +229,7 @@ export function draftToGraph( interpreter ) {
 	const nodes = [];
 	const edges = [];
 	const configOverrides = [];
-	const seeded = interpreter.seededEdges();
+	let seeded = interpreter.seededEdges();
 	const drawn = ( from, to ) =>
 		[ ...edges, ...seeded ].some(
 			( e ) =>
@@ -201,6 +238,7 @@ export function draftToGraph( interpreter ) {
 
 	for ( const [ name, node ] of interpreter.childRegistry.nodes ) {
 		const declared = interpreter.declaredInvocationsFor( name );
+		const included = interpreter.seededInvocationsFor( name );
 		const borrowed = true === node.borrowed;
 		const targets = targetsOf( node );
 		nodes.push( {
@@ -213,7 +251,7 @@ export function draftToGraph( interpreter ) {
 			also: targets.slice( 1 ),
 			ctorArgs: ( node.arguments || [] ).slice(),
 			verbInvocations: [
-				...interpreter.seededInvocationsFor( name ).map( ( inv ) => ( {
+				...included.map( ( inv ) => ( {
 					...invocation( inv ),
 					seeded: true,
 				} ) ),
@@ -230,26 +268,34 @@ export function draftToGraph( interpreter ) {
 		for ( const to of targets ) {
 			edges.push( { from: name, to, roles: [ 'connect' ] } );
 		}
-		// A borrowed broker's pair edges arrive seeded with its include.
-		const pairs = borrowed
-			? []
-			: pairTokens(
-					node.shellClassName(),
-					node.arguments || [],
-					interpreter.catalog
-			  );
-		for ( const { source, target } of pairs.map( splitPair ) ) {
-			if ( '' !== source && '' !== target ) {
-				edges.push( { from: name, to: target, roles: [ 'pair' ] } );
-			}
-		}
-		// The file's own lines; an include's arrive seeded.
-		for ( const to of sourceTargets(
+		const pairs = pairTokens(
 			node.shellClassName(),
 			node.arguments || [],
-			declared,
 			interpreter.catalog
-		) ) {
+		)
+			.map( splitPair )
+			.filter( ( { source, target } ) => '' !== source && '' !== target );
+		// A borrowed broker's pair edges arrive seeded with its include.
+		for ( const { target } of borrowed ? [] : pairs ) {
+			edges.push( { from: name, to: target, roles: [ 'pair' ] } );
+		}
+		const targetsLeft = ( invocations ) =>
+			sourcesOf(
+				node.shellClassName(),
+				node.arguments || [],
+				invocations,
+				interpreter.catalog
+			).map( ( s ) => s.target );
+		const before = targetsLeft( included );
+		const after = targetsLeft( [ ...included, ...declared ] );
+		const kept = [ ...pairs.map( ( p ) => p.target ), ...after ];
+		// The file's own lines may take an include's sources back.
+		seeded = withoutPairs(
+			seeded,
+			name,
+			before.filter( ( to ) => ! kept.includes( to ) )
+		);
+		for ( const to of after ) {
 			if ( ! drawn( name, to ) ) {
 				edges.push( { from: name, to, roles: [ 'pair' ] } );
 			}
@@ -288,7 +334,7 @@ export function draftToGraph( interpreter ) {
  *
  * @param {string}  tsl                   Topology source.
  * @param {?Object} expansion             `topologies expand` result for its includes, or null.
- * @param {Array}   catalog               Class catalog: which classes fan out, where a broker's pairs start, and which take `add_source`.
+ * @param {Array}   catalog               Class catalog: which classes fan out, where a broker's pairs start, and which take `add_source` and `remove_source`.
  * @param {Array}   [resolvedConfigEdges] Server-resolved `<ns:key>` targets.
  * @return {Object} The console's graph shape.
  */

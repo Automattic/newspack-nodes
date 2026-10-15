@@ -4,6 +4,7 @@
 
 import { graphFromTsl } from '../draftToGraph';
 import brokerSchemas from '../../../../tests/fixtures/broker-schemas.json';
+import sourceCommands from '../../../../tests/fixtures/broker-sources.json';
 
 const pairEdges = ( graph ) =>
 	graph.edges.filter( ( e ) => e.roles.includes( 'pair' ) );
@@ -78,6 +79,98 @@ describe( 'a broker’s add_source lines', () => {
 
 		expect( pairEdges( graph ) ).toEqual( [
 			{ from: 'spokes', to: 'remote-job-rewrite', roles: [ 'pair' ] },
+		] );
+	} );
+
+	it( 'draw nothing for a source a later remove_source takes back', () => {
+		const graph = graphFromTsl(
+			'make_node Remote_Source spoke-m2 lone o d\n' +
+				'command_node spoke-m2:config add_source egret.p6 heron-4471\n' +
+				'command_node spoke-m2:config add_source kea.p1 kite-2290\n' +
+				'command_node spoke-m2:config remove_source egret.p6 heron-4471\n' +
+				'make_node Vault_Group spokes "Remote_Source" spoke o/{id} d/{id}\n' +
+				'command_node spokes:config add_source firehose.p{partition} remote-job-rewrite\n' +
+				'command_node spokes:config remove_source --remote_log=firehose.p{partition} --local_node=remote-job-rewrite\n',
+			null,
+			brokerSchemas
+		);
+
+		expect( pairEdges( graph ) ).toEqual( [
+			{ from: 'spoke-m2', to: 'kite-2290', roles: [ 'pair' ] },
+		] );
+	} );
+
+	it.each( sourceCommands )(
+		'fold the commands as the broker does: %s',
+		( label, commands, targets ) => {
+			const graph = graphFromTsl(
+				[
+					'make_node Remote_Source spoke-f1 lone o d',
+					...commands.map(
+						( [ verb, tokens ] ) =>
+							`command_node spoke-f1:config ${ verb } ${ tokens.join(
+								' '
+							) }`
+					),
+				].join( '\n' ),
+				null,
+				brokerSchemas
+			);
+
+			expect( pairEdges( graph ).map( ( e ) => e.to ) ).toEqual(
+				targets
+			);
+		}
+	);
+
+	it( 'drop an include’s source the file removes, keeping a target another still names', () => {
+		const graph = graphFromTsl(
+			'include hub-base\n' +
+				'command_node spokes:config remove_source egret.p0 sink-q\n' +
+				'command_node spokes:config remove_source kea.p1 sink-k\n' +
+				'command_node spokes:config remove_source heron.p4 sink-w\n',
+			{
+				nodes: [
+					{
+						name: 'spokes',
+						class: 'Remote_Source',
+						args: [ 'tw0', 'o', 'd', 'wren.p2=sink-w' ],
+						fans_out: false,
+						origin: [ 'hub-base' ],
+						via: [ 'hub-base' ],
+						verbs: [
+							{
+								verb: 'add_source',
+								args: [ 'egret.p0', 'sink-q' ],
+							},
+							{
+								verb: 'add_source',
+								args: [ 'kea.p1', 'sink-k' ],
+							},
+							{
+								verb: 'add_source',
+								args: [ 'ibis.p3', 'sink-k' ],
+							},
+							{
+								verb: 'add_source',
+								args: [ 'heron.p4', 'sink-w' ],
+							},
+						],
+					},
+				],
+				edges: [
+					{ from: 'spokes', to: 'sink-w', roles: [ 'pair' ] },
+					{ from: 'spokes', to: 'sink-q', roles: [ 'pair' ] },
+					{ from: 'spokes', to: 'sink-k', roles: [ 'pair' ] },
+				],
+				tree: { 'hub-base': {} },
+			},
+			brokerSchemas
+		);
+
+		expect( pairEdges( graph ) ).toEqual( [
+			{ from: 'spokes', to: 'sink-w', roles: [ 'pair' ] },
+			{ from: 'spokes', to: 'sink-k', roles: [ 'pair' ] },
 		] );
 	} );
 
