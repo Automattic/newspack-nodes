@@ -152,7 +152,7 @@ Flag NAMES come from `Message::TYPE_NAMES` through `Message::type_labels()`, mir
 
 - Constructors and `arguments()` set `$this->arguments` directly; `Node::dump_config()` reads it to emit a round-trippable `make_node <type> <name> <args>` line through `Node::serialize_args()`. Forget it and the round trip silently builds a different node.
 - A node with runtime-mutable config overrides `dump_config()` to emit replay verbs from its own STATE. `Partition_Node` is the reference: it emits `allow_large_writes` or `void_warranty`, plus the `with_index` formatter name.
-- `Schema_Reflection`'s declarative `toggle` and `setter` kinds synthesize both the handler and the `dump_config` fragment from one declaration. Prefer a declaration over a hand-rolled handler-plus-fragment pair.
+- `Schema_Reflection`'s declarative `toggle` and `setter` kinds, and the `add_<noun>` / `remove_<noun>` pair `list_verbs()` declares, synthesize both the handler and the `dump_config` fragment from one declaration. Prefer a declaration over a hand-rolled handler-plus-fragment pair.
 - A diff reintroducing a side-channel invocation ledger (`mark_verb_invoked()`, `$invoked_verbs`) is wrong: config lives in the node.
 
 ### 8d. Tachikoma rule #2 — everything sinks into the interpreter

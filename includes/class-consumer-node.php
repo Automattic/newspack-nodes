@@ -974,6 +974,16 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 	}
 
 	/**
+	 * Drop the state carried for a snapshot node this reader no longer names,
+	 * so it rides no later frame.
+	 *
+	 * @param string $name The removed snapshot node.
+	 */
+	protected function forget_snapshot( string $name ): void {
+		unset( $this->snapshot_carry[ $name ] );
+	}
+
+	/**
 	 * Send raw blocks instead of records: each poll reads one block through
 	 * `raw_block()` and sends it as `block_messages()` builds it, stamped,
 	 * targeted and handed to the sink as a record would be, for the far end to

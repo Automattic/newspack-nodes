@@ -634,6 +634,140 @@ class SchemaReflectionTest extends TestCase {
 		$commands['set_relay_target']( $foreign, [ 'target' => 'binnacle:partition' ] );
 	}
 
+	// ── declarative list verbs: one declaration, an add, a remove and a dump ──
+
+	public function test_list_verbs_declare_an_add_and_a_remove_taking_one_arg(): void {
+		$verbs = Command_Interpreter_Node::declared_verbs( List_Subject_Node::class );
+
+		$this->assertSame( 'perches', $verbs['add_perch']['list'] ?? null );
+		$this->assertSame( 'perches', $verbs['remove_perch']['unlist'] ?? null );
+		$this->assertSame( 'add_perch', $verbs['remove_perch']['undoes'] ?? null );
+		$this->assertSame( $verbs['add_perch']['args'], $verbs['remove_perch']['args'] );
+		$this->assertSame( [ [ 'name' => 'perch', 'type' => 'string', 'required' => true ] ], $verbs['remove_perch']['args'] );
+		$this->assertTrue( $verbs['remove_perch']['multiple'] ?? false );
+		$this->assertStringContainsString( 'add_perch', Core::as_string( $verbs['remove_perch']['description'] ?? '' ) );
+	}
+
+	public function test_a_list_add_appends_trimmed_entries_in_order_keeping_a_duplicate(): void {
+		$node = $this->list_node();
+
+		$this->assertSame( "ok\n", $node->interpreter()->dispatch( 'add_perch', [ 'osprey-3' ] ) );
+		$node->interpreter()->dispatch( 'add_perch', [ '  kite-8  ' ] );
+		$node->interpreter()->dispatch( 'add_perch', [ '--perch=osprey-3' ] );
+
+		$this->assertSame( [ 'osprey-3', 'kite-8', 'osprey-3' ], $this->read_private( $node, 'perches' ) );
+	}
+
+	public function test_a_variadic_list_add_joins_its_tokens_with_a_space(): void {
+		$node = $this->list_node();
+
+		$node->interpreter()->dispatch( 'add_motto', [ 'Fly', 'low', 'tonight.' ] );
+
+		$this->assertSame( [ 'Fly low tonight.' ], $this->read_private( $node, 'mottos' ) );
+	}
+
+	public function test_a_blank_list_add_is_refused_and_adds_nothing(): void {
+		$node = $this->list_node();
+
+		$caught = $this->caught_any( fn () => $node->interpreter()->dispatch( 'add_perch', [ '   ' ] ) );
+
+		$this->assertInstanceOf( \InvalidArgumentException::class, $caught );
+		$this->assertSame( 'usage: add_perch <perch>', $caught->getMessage() );
+		$this->assertSame( [], $this->read_private( $node, 'perches' ) );
+	}
+
+	public function test_a_list_remove_drops_the_first_identical_entry(): void {
+		$node = $this->list_node();
+		foreach ( [ 'osprey-3', 'kite-8', 'osprey-3' ] as $perch ) {
+			$node->interpreter()->dispatch( 'add_perch', [ $perch ] );
+		}
+
+		$this->assertSame( "ok\n", $node->interpreter()->dispatch( 'remove_perch', [ ' osprey-3 ' ] ) );
+
+		$this->assertSame( [ 'kite-8', 'osprey-3' ], $this->read_private( $node, 'perches' ) );
+	}
+
+	public function test_a_list_remove_naming_no_entry_is_refused_naming_it(): void {
+		$node = $this->list_node();
+		$node->interpreter()->dispatch( 'add_perch', [ 'kite-8' ] );
+
+		$caught = $this->caught_any( fn () => $node->interpreter()->dispatch( 'remove_perch', [ 'heron-2' ] ) );
+
+		$this->assertInstanceOf( \InvalidArgumentException::class, $caught );
+		$this->assertSame( "remove_perch 'heron-2' names no entry add_perch gave", $caught->getMessage() );
+		$this->assertSame( [ 'kite-8' ], $this->read_private( $node, 'perches' ) );
+	}
+
+	public function test_dump_lists_writes_one_line_per_entry_and_a_replay_leaves_the_removed_absent(): void {
+		$node = $this->list_node();
+		$node->interpreter()->dispatch( 'add_perch', [ 'osprey-3' ] );
+		$node->interpreter()->dispatch( 'add_perch', [ 'kite-8' ] );
+		$node->interpreter()->dispatch( 'add_motto', [ 'Fly', 'low.' ] );
+		$node->interpreter()->dispatch( 'remove_perch', [ 'osprey-3' ] );
+
+		$dump = $node->dump_config();
+		$this->assertStringContainsString( "command_node list-probe:config add_perch kite-8\n", $dump );
+		$this->assertStringContainsString( "command_node list-probe:config add_motto 'Fly low.'\n", $dump );
+		$this->assertStringNotContainsString( 'osprey-3', $dump );
+		$this->assertStringNotContainsString( 'remove_perch', $dump );
+
+		$replayed = $this->list_node( 'list-replay' );
+		$this->replay_config( $dump, $replayed );
+		$this->assertSame( [ 'kite-8' ], $this->read_private( $replayed, 'perches' ) );
+		$this->assertSame( [ 'Fly low.' ], $this->read_private( $replayed, 'mottos' ) );
+	}
+
+	/**
+	 * An `unlist` declaration naming no add verb, by a missing or an empty
+	 * `undoes`, is refused when its `:config` is wired.
+	 *
+	 * @param class-string<Node> $fixture The node declaring the broken `unlist`.
+	 */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'unlist_without_undoes' )]
+	public function test_an_unlist_verb_declared_without_undoes_fails_wiring_naming_it( string $fixture ): void {
+		$this->expectException( \LogicException::class );
+		$this->expectExceptionMessage( 'drop_wren: an unlist verb declares no undoes' );
+
+		new $fixture();
+	}
+
+	/** @return array<string,array{class-string<Node>}> */
+	public static function unlist_without_undoes(): array {
+		return [
+			'missing' => [ Unlist_Missing_Undoes_Node::class ],
+			'empty'   => [ Unlist_Empty_Undoes_Node::class ],
+		];
+	}
+
+	public function test_a_list_verb_aimed_at_a_foreign_node_refuses(): void {
+		$node     = $this->list_node();
+		$commands = $node->interpreter()->commands();
+		$foreign  = new Command_Interpreter_Node();
+		$foreign->name( 'wrong-node:config' );
+		$foreign->patron( new Node() );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'add_perch' );
+		$commands['add_perch']( $foreign, [ 'perch' => 'osprey-3' ] );
+	}
+
+	/** A named, wired List_Subject_Node. */
+	private function list_node( string $name = 'list-probe' ): List_Subject_Node {
+		$node = new List_Subject_Node();
+		$node->name( $name );
+		return $node;
+	}
+
+	/** What $fn threw, whatever its class; the test fails when it throws nothing. */
+	private function caught_any( callable $fn ): \Throwable {
+		try {
+			$fn();
+		} catch ( \Throwable $e ) {
+			return $e;
+		}
+		$this->fail( 'nothing was refused' );
+	}
+
 	/** A node whose only verb is a declarative string setter. */
 	private function setter_node(): object {
 		return new class extends Node {
@@ -1097,5 +1231,78 @@ class Variadic_Subject_Node extends Node {
 				[ 'name' => 'tail', 'type' => 'string', 'variadic' => true ],
 			],
 		];
+	}
+}
+
+/** The trait's user, as `Source_Node` is: its subclass declares the lists. */
+abstract class List_Host_Node extends Node {
+	use Schema_Reflection;
+
+	public function __construct() {
+		parent::__construct();
+		$this->auto_wire_interpreter();
+	}
+
+	public function dump_config(): string {
+		return parent::dump_config() . $this->dump_lists();
+	}
+}
+
+/** Two declarative lists, one of single tokens and one of joined text. */
+class List_Subject_Node extends List_Host_Node {
+	/** @var list<string> */
+	protected array $perches = [];
+
+	/** @var list<string> */
+	protected array $mottos = [];
+
+	public static function node_schema(): array {
+		return [
+			'category' => 'Test',
+			'commands' => [
+				...self::list_verbs( 'perch', 'perches', [ 'name' => 'perch', 'type' => 'string', 'required' => true ], 'Add a perch: <perch>.' ),
+				...self::list_verbs( 'motto', 'mottos', [ 'name' => 'text', 'type' => 'string', 'required' => true, 'variadic' => true ], 'Add a motto: <text>.' ),
+			],
+		];
+	}
+}
+
+/** A list whose `unlist` names its add through `drop_declaration()`. */
+abstract class Unlist_Undoes_Fixture_Node extends Node {
+	use Schema_Reflection;
+
+	/** @var list<string> */
+	protected array $wrens = [];
+
+	public function __construct() {
+		parent::__construct();
+		$this->auto_wire_interpreter();
+	}
+
+	/** @return array<string,mixed> The `drop_wren` declaration. */
+	abstract protected static function drop_declaration(): array;
+
+	public static function node_schema(): array {
+		$arg = [ [ 'name' => 'wren', 'type' => 'string', 'required' => true ] ];
+		return [
+			'commands' => [
+				[ 'name' => 'add_wren', 'args' => $arg, 'list' => 'wrens' ],
+				[ 'name' => 'drop_wren', 'args' => $arg, 'unlist' => 'wrens', ...static::drop_declaration() ],
+			],
+		];
+	}
+}
+
+/** `drop_wren` declares no `undoes` at all. */
+class Unlist_Missing_Undoes_Node extends Unlist_Undoes_Fixture_Node {
+	protected static function drop_declaration(): array {
+		return [];
+	}
+}
+
+/** `drop_wren` declares an empty `undoes`. */
+class Unlist_Empty_Undoes_Node extends Unlist_Undoes_Fixture_Node {
+	protected static function drop_declaration(): array {
+		return [ 'undoes' => '' ];
 	}
 }

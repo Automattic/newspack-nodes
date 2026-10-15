@@ -169,6 +169,70 @@ class SettingsSyncNodeTest extends TestCase {
 		$this->assertContains( [ 'newspack_nodes_remote_max_segments', '5' ], $args );
 	}
 
+	public function test_remove_setting_stops_pushing_that_mapping_and_keeps_the_other(): void {
+		\update_option( 'newspack_nodes_remote_max_segments', 13 );
+		$sink = new Capture_Sink_Node();
+		$node = $this->wired_node( $sink );
+		$node->add_setting( 'newspack_nodes_remote_max_segments', 'settings', 'newspack_nodes_max_segments' );
+		$node->add_setting( 'newspack_nodes_remote_max_segments', 'settings', 'newspack_nodes_remote_max_segments' );
+
+		$this->assertSame( "ok\n", $node->interpreter()->dispatch( 'remove_setting', [ 'newspack_nodes_remote_max_segments', 'settings', 'newspack_nodes_max_segments' ] ) );
+		$node->fire();
+
+		$this->assertSame(
+			[ [ 'newspack_nodes_remote_max_segments', '13' ] ],
+			\array_map( static fn ( $m ) => $m[ Message::VALUE ]['arguments'], $sink->captured )
+		);
+	}
+
+	public function test_removing_a_local_options_last_mapping_stops_its_events_pushing(): void {
+		\update_option( 'newspack_nodes_max_segments', 21 );
+		$sink = new Capture_Sink_Node();
+		$node = $this->wired_node( $sink );
+		$node->add_setting( 'newspack_nodes_max_segments', 'settings', 'newspack_nodes_max_segments' );
+		$node->interpreter()->dispatch( 'remove_setting', [ 'newspack_nodes_max_segments', 'settings', 'newspack_nodes_max_segments' ] );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
+		$msg[ Message::VALUE ] = [ 'option' => 'newspack_nodes_max_segments' ];
+		$node->fill( $msg );
+
+		$this->assertSame( [], $sink->captured );
+		$this->assertSame( [], $this->read_private( $node, 'registry' ) );
+	}
+
+	public function test_remove_setting_naming_no_mapping_is_refused_naming_it(): void {
+		$node = new Settings_Sync_Node();
+		$node->name( 'settings-sync' );
+		$node->add_setting( 'gannet_option', 'settings', 'gannet_remote' );
+
+		try {
+			$node->interpreter()->dispatch( 'remove_setting', [ 'gannet_option', 'settings', 'tern_remote' ] );
+			$this->fail( 'an undeclared mapping was removed' );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertSame( "remove_setting 'gannet_option' 'settings' 'tern_remote' names no setting this node declares", $e->getMessage() );
+		}
+		$this->assertCount( 1, $this->read_private( $node, 'registry' )['gannet_option'] );
+	}
+
+	public function test_a_removed_setting_leaves_the_dump_and_its_replay(): void {
+		$node = new Settings_Sync_Node();
+		$node->name( 'settings-sync' );
+		$node->add_setting( 'gannet_option', 'settings', 'gannet_remote' );
+		$node->add_setting( 'gannet_option', 'settings', 'tern_remote' );
+		$node->interpreter()->dispatch( 'remove_setting', [ 'gannet_option', 'settings', 'gannet_remote' ] );
+
+		$dump = $node->dump_config();
+		$this->assertStringNotContainsString( 'gannet_remote', $dump );
+		$this->assertStringContainsString( 'command_node settings-sync:config add_setting gannet_option settings tern_remote', $dump );
+
+		Core::reset();
+		$replayed = new Settings_Sync_Node();
+		$replayed->name( 'settings-sync' );
+		$this->replay_config( $dump, $replayed );
+		$this->assertSame( [ 'gannet_option' => [ [ 'to' => 'settings', 'remote' => 'tern_remote' ] ] ], $this->read_private( $replayed, 'registry' ) );
+	}
+
 	public function test_add_setting_dedupes_exact_duplicate_mappings(): void {
 		$node = new Settings_Sync_Node();
 		$node->name( 'settings-sync' );
