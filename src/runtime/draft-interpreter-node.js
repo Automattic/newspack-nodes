@@ -640,6 +640,12 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	}
 
 	/**
+	 * A draft describes a node, so it builds no `:config`: that interpreter
+	 * is the live graph's, and a document holding one would save it as a line.
+	 */
+	_wireConfig() {}
+
+	/**
 	 * Every verb invocation a node carries, in declaration order.
 	 *
 	 * The expansion's first, then the file's — reading order, and the order

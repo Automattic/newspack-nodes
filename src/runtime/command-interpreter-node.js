@@ -398,6 +398,7 @@ export class CommandInterpreterNode extends Node {
 			throw error;
 		}
 		node.sink = this;
+		this._wireConfig( node );
 		// The sink dump_config may omit: the one make_node wired.
 		if ( ( this.debugState ?? 0 ) > 0 ) {
 			// Trace level is stamped from outside; no class declares it.
@@ -405,6 +406,46 @@ export class CommandInterpreterNode extends Node {
 				this.debugState;
 		}
 		return node;
+	}
+
+	/**
+	 * Give a node this interpreter builds its `:config`. A draft overrides
+	 * it, since a document describes nodes and never holds their interpreters.
+	 *
+	 * @param {Node} node The node just named and sunk.
+	 */
+	_wireConfig( node ) {
+		CommandInterpreterNode.wireConfig( node );
+	}
+
+	/**
+	 * Build `node`'s `:config`, the twin of PHP `auto_wire_interpreter()`: an
+	 * interpreter answering the verbs its schema declares with a handler and
+	 * no others, in the node's own table, patroned by it and sinking where it
+	 * sinks, so a reply goes back TO its asker. A node declaring none gets
+	 * none.
+	 *
+	 * @param {Node} node A named node.
+	 */
+	static wireConfig( node ) {
+		const ctor = /** @type {any} */ ( node.constructor );
+		const verbs = Object.fromEntries(
+			( ctor.nodeSchema?.().commands ?? [] )
+				.filter( ( verb ) => 'function' === typeof verb.handler )
+				.map( ( verb ) => [ verb.name, verb.handler ] )
+		);
+		if ( 0 === Object.keys( verbs ).length ) {
+			return;
+		}
+		const config = new CommandInterpreterNode();
+		config._commands = verbs;
+		if ( node.registry !== Core.registry ) {
+			config.registry = node.registry;
+		}
+		config.patron = node;
+		config.name = Node.siblingNameOf( node.name, 'config' );
+		config.sink = node.sink;
+		node.interpreter = config;
 	}
 
 	/**

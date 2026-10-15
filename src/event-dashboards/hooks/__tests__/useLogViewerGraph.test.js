@@ -148,9 +148,7 @@ describe( 'useLogViewerGraph — exospine + RemoteLink wiring', () => {
 		await act( async () => {} );
 		// The link routes this graph's frames to the Tee, which fans to the view.
 		expect(
-			Core.node( LINK ).pairs.some( ( pair ) =>
-				pair.endsWith( `=${ TEE }` )
-			)
+			Core.node( LINK ).sources.some( ( s ) => TEE === s.target )
 		).toBe( true );
 		expect( Core.node( TEE ).target ).toEqual( [ VIEW ] );
 		expect( Core.node( HEARTBEAT ).target ).toBe( `${ HTTP }/workers` );
@@ -176,9 +174,7 @@ describe( 'useLogViewerGraph — exospine + RemoteLink wiring', () => {
 		expect( tee.sink ).toBe( interpreter );
 		// The link routes frames to the Tee, not straight to the view.
 		expect(
-			Core.node( LINK ).pairs.some( ( pair ) =>
-				pair.endsWith( `=${ TEE }` )
-			)
+			Core.node( LINK ).sources.some( ( s ) => TEE === s.target )
 		).toBe( true );
 		// The Tee forwards to the view (pure pass-through, single target).
 		expect( tee.target ).toEqual( [ VIEW ] );

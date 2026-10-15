@@ -17,6 +17,7 @@ import {
 	VALUE,
 	TM_STRUCT,
 	RemoteLinkNode,
+	SseInNode,
 	mountExospine,
 } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
@@ -97,34 +98,34 @@ const flush = () => act( async () => {} );
  * Watch how the graph rides the page link. The SseIn re-states its own tracked
  * offset either way, so only the link's calls say which decision was taken.
  *
- * @return {Object} The link, with `addPairs`, `parkPairs`, `removePairs` and
- *   `forget` spied.
+ * @return {Object} The link, with `addSource`, `parkSource`, `removeSource`
+ *   and `forget` spied.
  */
 function spyOnStream() {
 	const link = Core.node( LINK );
-	jest.spyOn( link, 'addPairs' );
-	jest.spyOn( link, 'parkPairs' );
-	jest.spyOn( link, 'removePairs' );
+	jest.spyOn( link, 'addSource' );
+	jest.spyOn( link, 'parkSource' );
+	jest.spyOn( link, 'removeSource' );
 	jest.spyOn( link, 'forget' );
 	return link;
 }
 
 /**
- * This graph's pair for one subscription.
+ * This graph's source record for one subscription.
  *
  * @param {string} sub The subscription.
- * @return {string} Its `<sub>:<tee>` pair.
+ * @return {{stamp:string,target:string}} Its record on the link.
  */
-const pairOf = ( sub ) => `${ sub }=${ TEE }`;
+const sourceOf = ( sub ) => ( { stamp: sub, target: TEE } );
 
 /**
- * The seeks the spied `addPairs` carried, in call order.
+ * The seeks the spied `addSource` carried, in call order.
  *
- * @param {Object} link The page link, its `addPairs` spied.
+ * @param {Object} link The page link, its `addSource` spied.
  * @return {Array} Each call's positions argument.
  */
 const seeksAdded = ( link ) =>
-	link.addPairs.mock.calls.map( ( [ , positions ] ) => positions );
+	link.addSource.mock.calls.map( ( [ , , positions ] ) => positions );
 
 describe( 'the declared graph', () => {
 	test( 'builds stream → view and rides the page link with its subscription', async () => {
@@ -134,7 +135,9 @@ describe( 'the declared graph', () => {
 		expect( Core.node( TEE ).target ).toEqual( [ VIEW ] );
 		expect( Core.node( VIEW ) ).toBeInstanceOf( ProbeViewNode );
 		expect( Core.node( VIEW ).controlFrom ).toBe( VIEW );
-		expect( Core.node( LINK ).pairs ).toEqual( [ pairOf( SUBSCRIBE ) ] );
+		expect( Core.node( LINK ).sources ).toEqual( [
+			sourceOf( SUBSCRIBE ),
+		] );
 		expect( opened() ).toContain( `subscribe=${ SUBSCRIBE }` );
 	} );
 
@@ -254,20 +257,17 @@ describe( 'the declared graph', () => {
 	} );
 
 	test( 'an openAt of null tails, as the link reads null', async () => {
-		const addPairs = jest.spyOn( RemoteLinkNode.prototype, 'addPairs' );
+		const addSource = jest.spyOn( RemoteLinkNode.prototype, 'addSource' );
 		try {
 			mount( { openAt: null } );
 			await flush();
-			expect( addPairs ).toHaveBeenCalledWith(
-				[ pairOf( SUBSCRIBE ) ],
-				null
-			);
+			expect( addSource ).toHaveBeenCalledWith( SUBSCRIBE, TEE, null );
 		} finally {
-			addPairs.mockRestore();
+			addSource.mockRestore();
 		}
 	} );
 
-	test( 'teardown removes and forgets the graph’s pairs and leaves the page link standing', async () => {
+	test( 'teardown removes and forgets the graph’s sources and leaves the page link standing', async () => {
 		const owner = mountExospine( () => {} );
 		const { unmount } = mount();
 		await flush();
@@ -275,19 +275,17 @@ describe( 'the declared graph', () => {
 		const stream = FakeEventSource.instances.at( -1 );
 		act( () => unmount() );
 		await flush();
-		expect( link.removePairs ).toHaveBeenCalledWith( [
-			pairOf( SUBSCRIBE ),
-		] );
+		expect( link.removeSource ).toHaveBeenCalledWith( SUBSCRIBE, TEE );
 		expect( link.forget ).toHaveBeenCalledWith( [ SUBSCRIBE ] );
 		expect( Core.node( LINK ) ).toBe( link );
-		expect( link.pairs ).toEqual( [] );
+		expect( link.sources ).toEqual( [] );
 		expect( stream.closed ).toBe( true );
 		owner.teardown();
 	} );
 } );
 
 describe( 'the gate', () => {
-	test( 'a hidden page parks the graph’s pairs, closing its stream', async () => {
+	test( 'a hidden page parks the graph’s sources, closing its stream', async () => {
 		const { rerender } = mount();
 		await flush();
 		const link = spyOnStream();
@@ -295,10 +293,8 @@ describe( 'the gate', () => {
 		mockPageVisible = false;
 		act( () => rerender() );
 		await flush();
-		expect( link.parkPairs ).toHaveBeenCalledWith( [
-			pairOf( SUBSCRIBE ),
-		] );
-		expect( link.parked ).toEqual( [ pairOf( SUBSCRIBE ) ] );
+		expect( link.parkSource ).toHaveBeenCalledWith( SUBSCRIBE, TEE );
+		expect( link.parked ).toEqual( [ sourceOf( SUBSCRIBE ) ] );
 		expect( link.forget ).not.toHaveBeenCalled();
 		expect( es.closed ).toBe( true );
 	} );
@@ -316,7 +312,7 @@ describe( 'the gate', () => {
 		} );
 	} );
 
-	test( 'Play re-adds the pairs without restating the seek it already read past', async () => {
+	test( 'Play re-adds the sources without restating the seek it already read past', async () => {
 		const { result } = mount( { subscribe: null } );
 		act( () => result.current.resubscribe( [ 'a.p1' ], null ) );
 		await flush();
@@ -324,10 +320,11 @@ describe( 'the gate', () => {
 		act( () => result.current.setPaused( true ) );
 		act( () => result.current.setPaused( false ) );
 		// A pause parks; Play states no seek, so it resumes where it read to.
-		expect( link.parkPairs ).toHaveBeenCalledWith( [ pairOf( 'a.p1' ) ] );
+		expect( link.parkSource ).toHaveBeenCalledWith( 'a.p1', TEE );
 		expect( link.forget ).not.toHaveBeenCalledWith( [ 'a.p1' ] );
-		expect( link.addPairs ).toHaveBeenLastCalledWith(
-			[ pairOf( 'a.p1' ) ],
+		expect( link.addSource ).toHaveBeenLastCalledWith(
+			'a.p1',
+			TEE,
 			undefined
 		);
 	} );
@@ -353,12 +350,9 @@ describe( 'the gate', () => {
 		);
 		const link = spyOnStream();
 		act( () => result.current.setPaused( false ) );
-		expect( link.addPairs ).toHaveBeenLastCalledWith(
-			[ pairOf( 'a.p1' ) ],
-			{
-				'a.p1': 'start',
-			}
-		);
+		expect( link.addSource ).toHaveBeenLastCalledWith( 'a.p1', TEE, {
+			'a.p1': 'start',
+		} );
 		// The seek is spent; the next Play resumes the tail it reached.
 		act( () => result.current.setPaused( true ) );
 		act( () => result.current.setPaused( false ) );
@@ -384,10 +378,7 @@ describe( 'the gate', () => {
 		await flush();
 		const link = spyOnStream();
 		act( () => result.current.resubscribe( [ 'a.p1' ], null ) );
-		expect( link.addPairs ).toHaveBeenCalledWith(
-			[ pairOf( 'a.p1' ) ],
-			null
-		);
+		expect( link.addSource ).toHaveBeenCalledWith( 'a.p1', TEE, null );
 	} );
 
 	// @longform The symmetric hole: play flips the gate refs synchronously, so
@@ -443,7 +434,7 @@ describe( 'the gate', () => {
 				{ segments: [ { id: 6, size: 4096 } ] }
 			)
 		);
-		expect( link.addPairs ).toHaveBeenCalledWith( [ pairOf( 'a.p1' ) ], {
+		expect( link.addSource ).toHaveBeenCalledWith( 'a.p1', TEE, {
 			'a.p1': 'start',
 		} );
 		// The boundary the replay catches up to rides the control.
@@ -478,21 +469,34 @@ describe( 'the gate', () => {
 		} );
 	} );
 
-	test( 'a re-pointed graph adds its new pairs, then drops and forgets the old', async () => {
+	test( 'a re-pointed graph adds its new sources, then drops and forgets the old', async () => {
 		const { result } = mount( { subscribe: null } );
 		act( () => result.current.resubscribe( [ 'a.p1' ], null ) );
 		await flush();
 		const link = spyOnStream();
 		act( () => result.current.resubscribe( [ 'b.p2' ], null ) );
-		expect( link.addPairs ).toHaveBeenCalledWith(
-			[ pairOf( 'b.p2' ) ],
+		expect( link.addSource ).toHaveBeenCalledWith( 'b.p2', TEE, null );
+		expect( link.removeSource ).toHaveBeenLastCalledWith( 'a.p1', TEE );
+		expect( link.forget ).toHaveBeenLastCalledWith( [ 'a.p1' ] );
+		expect( link.sources ).toEqual( [ sourceOf( 'b.p2' ) ] );
+	} );
+
+	test( 'two tail seeks in one tick leave the second stated', async () => {
+		const { result } = mount( { subscribe: null } );
+		act( () => result.current.resubscribe( [ 'a.p1' ], null ) );
+		await flush();
+		const reseek = jest.spyOn( SseInNode.prototype, 'reseek' );
+		act( () => {
+			result.current.resubscribe( [ 'b.p2' ], null );
+			result.current.resubscribe( [ 'c.p3' ], null );
+		} );
+		await flush();
+		expect( reseek ).toHaveBeenCalledWith(
+			expect.arrayContaining( [ 'c.p3' ] ),
 			null
 		);
-		expect( link.removePairs ).toHaveBeenLastCalledWith( [
-			pairOf( 'a.p1' ),
-		] );
-		expect( link.forget ).toHaveBeenLastCalledWith( [ 'a.p1' ] );
-		expect( link.pairs ).toEqual( [ pairOf( 'b.p2' ) ] );
+		expect( opened() ).toContain( 'subscribe=c.p3' );
+		reseek.mockRestore();
 	} );
 
 	test( 'a pick made while paused forgets what the graph rode once Play applies it', async () => {
@@ -504,7 +508,7 @@ describe( 'the gate', () => {
 		const link = spyOnStream();
 		act( () => result.current.setPaused( false ) );
 		expect( link.forget ).toHaveBeenCalledWith( [ 'a.p1' ] );
-		expect( link.pairs ).toEqual( [ pairOf( 'b.p2' ) ] );
+		expect( link.sources ).toEqual( [ sourceOf( 'b.p2' ) ] );
 	} );
 
 	test( 'a glob re-pointed onto one of its dirs opens that dir at the seek', async () => {
@@ -523,7 +527,9 @@ describe( 'the gate', () => {
 		expect( JSON.parse( url.searchParams.get( 'positions' ) ) ).toEqual( {
 			'errors.p3': { segment: 2, offset: 64 },
 		} );
-		expect( Core.node( LINK ).pairs ).toEqual( [ pairOf( 'errors.p3' ) ] );
+		expect( Core.node( LINK ).sources ).toEqual( [
+			sourceOf( 'errors.p3' ),
+		] );
 	} );
 
 	test( 'a glob narrowed onto one dir forgets the places and counts of its others', async () => {
@@ -559,7 +565,7 @@ describe( 'the gate', () => {
 		// The tail drops errors.p3's place; forget drops errors.p5's.
 		expect( link.sseIn.places() ).toEqual( [] );
 		expect( link.unparseableByStamp ).toEqual( { 'errors.p3': 4 } );
-		expect( link.pairs ).toEqual( [ pairOf( 'errors.p3' ) ] );
+		expect( link.sources ).toEqual( [ sourceOf( 'errors.p3' ) ] );
 	} );
 
 	test( 'a redundant re-render while streaming does NOT reopen', async () => {
@@ -668,8 +674,8 @@ describe( 'one connection per page', () => {
 		await flush();
 		expect( FakeEventSource.instances.length - before ).toBe( 1 );
 		expect( subscribed() ).toBe( 'topicprobe.p0' );
-		expect( Core.node( LINK ).pairs ).toEqual( [
-			'topicprobe.p0=backlog:stream',
+		expect( Core.node( LINK ).sources ).toEqual( [
+			{ stamp: 'topicprobe.p0', target: 'backlog:stream' },
 		] );
 	} );
 
@@ -688,9 +694,9 @@ describe( 'one connection per page', () => {
 		follow( 'ledger' );
 		await flush();
 		expect( FakeEventSource.instances ).toHaveLength( 1 );
-		expect( Core.node( LINK ).pairs ).toEqual( [
-			'jobstats.p0=jobs:stream',
-			'jobstats.p0=ledger:stream',
+		expect( Core.node( LINK ).sources ).toEqual( [
+			{ stamp: 'jobstats.p0', target: 'jobs:stream' },
+			{ stamp: 'jobstats.p0', target: 'ledger:stream' },
 		] );
 	} );
 
@@ -731,8 +737,64 @@ describe( 'one connection per page', () => {
 				act( () => ledger.result.current.setPaused( false ) );
 			} ).not.toThrow();
 			await flush();
-			expect( Core.node( LINK ).pairs ).toContain(
-				'jobstats.p0=ledger:stream'
+			expect( Core.node( LINK ).sources ).toContainEqual( {
+				stamp: 'jobstats.p0',
+				target: 'ledger:stream',
+			} );
+		} );
+
+		const refuseSecond = ( result ) =>
+			expect( () =>
+				act( () =>
+					result.current.resubscribe(
+						[ 'jobstats.p0', 'heron.p2' ],
+						null
+					)
+				)
+			).toThrow(
+				`${ TEE } cannot seek heron.p2, which other-8810:stream is streaming`
+			);
+
+		test( 'refused on its second source, leaves sources, parked and their order as they were', async () => {
+			const { result } = mount( { subscribe: 'jobstats.p0' } );
+			await flush();
+			const link = Core.node( LINK );
+			link.addSource( 'alpha.p1', 'other-3307:stream' );
+			link.addSource( 'heron.p2', 'other-8810:stream' );
+			link.parkSource( 'jobstats.p0', TEE );
+			link.addSource( 'omega.p9', 'other-5521:stream', {
+				'omega.p9': { segment: 3, offset: 11 },
+			} );
+			const sources = [ ...link.sources ];
+			const parked = [ ...link.parked ];
+			const seeks = [ ...link._seeks ];
+
+			refuseSecond( result );
+			expect( link.sources ).toEqual( sources );
+			expect( link.parked ).toEqual( parked );
+			expect( link.parked ).toEqual( [ sourceOf( 'jobstats.p0' ) ] );
+			expect( [ ...link._seeks ] ).toEqual( seeks );
+		} );
+
+		test( 'refused on its second source, keeps the seek an earlier ride this tick left', async () => {
+			const { result } = mount( { subscribe: 'jobstats.p0' } );
+			await flush();
+			const link = Core.node( LINK );
+			link.addSource( 'heron.p2', 'other-8810:stream' );
+			const earlier = { 'jobstats.p0': { segment: 12, offset: 905 } };
+			act( () =>
+				result.current.resubscribe( [ 'jobstats.p0' ], earlier )
+			);
+
+			refuseSecond( result );
+			expect( link._seeks.get( TEE ) ).toEqual( {
+				subscribe: [ 'jobstats.p0' ],
+				positions: earlier,
+			} );
+			await flush();
+			const url = new URL( opened(), 'https://x.test' );
+			expect( JSON.parse( url.searchParams.get( 'positions' ) ) ).toEqual(
+				expect.objectContaining( earlier )
 			);
 		} );
 	} );
@@ -896,26 +958,32 @@ describe( 'one connection per page', () => {
 		act( () => Core.bumpGraphGeneration() );
 		await flush();
 		expect( Core.node( '_command_interpreter' ) ).not.toBe( before );
-		expect( [ ...Core.node( LINK ).pairs ].sort() ).toEqual( [
-			'jobstats.p0=jobs:stream',
-			'topicprobe.p0=backlog:stream',
-		] );
+		expect( Core.node( LINK ).sources ).toEqual(
+			expect.arrayContaining( [
+				{ stamp: 'jobstats.p0', target: 'jobs:stream' },
+				{ stamp: 'topicprobe.p0', target: 'backlog:stream' },
+			] )
+		);
+		expect( Core.node( LINK ).sources ).toHaveLength( 2 );
 		expect(
 			FakeEventSource.instances.filter( ( es ) => ! es.closed )
 		).toHaveLength( 1 );
 	} );
 
-	test( 'StrictMode double-mount adds each pair once and opens one stream', async () => {
+	test( 'StrictMode double-mount adds each source once and opens one stream', async () => {
 		const { StrictMode, createElement } = require( '@wordpress/element' );
 		mountTwo( ( { children } ) =>
 			createElement( StrictMode, null, children )
 		);
 		await flush();
 		expect( FakeEventSource.instances ).toHaveLength( 1 );
-		expect( [ ...Core.node( LINK ).pairs ].sort() ).toEqual( [
-			'jobstats.p0=jobs:stream',
-			'topicprobe.p0=backlog:stream',
-		] );
+		expect( Core.node( LINK ).sources ).toEqual(
+			expect.arrayContaining( [
+				{ stamp: 'jobstats.p0', target: 'jobs:stream' },
+				{ stamp: 'topicprobe.p0', target: 'backlog:stream' },
+			] )
+		);
+		expect( Core.node( LINK ).sources ).toHaveLength( 2 );
 	} );
 } );
 

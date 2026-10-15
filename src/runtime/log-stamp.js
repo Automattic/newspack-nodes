@@ -1,13 +1,11 @@
 /**
- * log-stamp — the JS readers of a log stamp and a broker pair, each the twin
- * of a `Log_Discovery` or `Remote_Broker_Node` reader and held to it by a
- * shared fixture.
+ * log-stamp — the JS readers of a log stamp, each the twin of a
+ * `Log_Discovery` reader and held to it by a shared fixture.
  *
  * `Log_Discovery::stamp_for()` writes a `logs` dir bare, an `offsets` or
  * `deadletter` dir as `{group}:{dir}`, a broker reader's dir as
  * `{group}:{root}:{stamp}`, and a registry source as `sources:{name}`, so a
- * stamp is always one `/` segment. A pair is `<stamp>=<target>`
- * (`splitPair()`).
+ * stamp is always one `/` segment.
  */
 
 /** `Log_Discovery::REMOTE_PREFIX`: a spoke's log is `remote:<vault_id>:<stamp>`. */
@@ -97,19 +95,4 @@ export function remoteOf( name ) {
 		text.includes( '/' )
 		? null
 		: { vaultId, stamp };
-}
-
-/**
- * Split a `<source>=<target>` pair at its first `=`; a token with none is all
- * source. The twin of PHP `Remote_Broker_Node::split_pair()`, held to it by
- * `tests/fixtures/pair-split.json`; it validates nothing.
- *
- * @param {string} token One pair token.
- * @return {{source:string,target:string}} The two halves.
- */
-export function splitPair( token ) {
-	const at = token.indexOf( '=' );
-	return -1 === at
-		? { source: token, target: '' }
-		: { source: token.slice( 0, at ), target: token.slice( at + 1 ) };
 }

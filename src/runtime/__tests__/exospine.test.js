@@ -98,7 +98,8 @@ test( 'a hitchhiker removed with the graph unregisters itself from the kept Rout
 function removeAllButRouter() {
 	for ( const name of [ ...Core.nodes.keys() ] ) {
 		if ( names.ROUTER !== name ) {
-			Core.node( name ).removeNode();
+			// A node's :config went with it.
+			Core.node( name )?.removeNode();
 		}
 	}
 }
@@ -807,8 +808,9 @@ describe( 'the shared stream link', () => {
 		expect( stream ).toBeInstanceOf( RemoteLinkNode );
 		expect( spine.stream ).toBe( stream );
 		expect( stream.sink ).toBe( Core.node( names.COMMAND_INTERPRETER ) );
-		expect( stream.pairs ).toEqual( [] );
-		// Bare: it opens nothing until a view adds a pair.
+		expect( stream.sources ).toEqual( [] );
+		expect( Core.node( '_stream:config' ).patron ).toBe( stream );
+		// Bare: it opens nothing until a view adds a source.
 		expect( stream.sseIn ).toBeNull();
 		expect( ClosableEventSource.instances ).toHaveLength( 0 );
 		spine.teardown();
@@ -834,11 +836,12 @@ describe( 'the shared stream link', () => {
 
 	test( 'teardown of the owner removes the link and closes its stream', async () => {
 		const spine = mountExospine( () => {} );
-		spine.stream.addPairs( [ 'wren.p6=plover:stream' ] );
+		spine.stream.addSource( 'wren.p6', 'plover:stream' );
 		await Promise.resolve();
 		expect( ClosableEventSource.instances ).toHaveLength( 1 );
 		spine.teardown();
 		expect( Core.node( names.STREAM ) ).toBeNull();
+		expect( Core.node( '_stream:config' ) ).toBeNull();
 		expect( ClosableEventSource.instances[ 0 ].closed ).toBe( true );
 	} );
 

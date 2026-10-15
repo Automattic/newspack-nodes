@@ -77,6 +77,21 @@ describe( 'draftToGraph', () => {
 		expect( zebra.target ).toBe( 'ocelot' );
 		expect( zebra.also ).toEqual( [ 'quokka' ] );
 	} );
+
+	it( 'a RemoteLink a draft makes holds no :config, so the document never writes one', () => {
+		const interpreter = new DraftInterpreterNode();
+		interpreter.catalog = [
+			{ shell_name: 'RemoteLink', arguments: [], commands: [] },
+		];
+		interpreter.load( 'make_node RemoteLink kite-link-7712\n' );
+
+		expect(
+			draftToGraph( interpreter ).nodes.map( ( n ) => n.id )
+		).toEqual( [ 'kite-link-7712' ] );
+		expect(
+			interpreter.childRegistry.node( 'kite-link-7712:config' )
+		).toBeNull();
+	} );
 } );
 
 describe( 'verb rows carry their provenance', () => {
