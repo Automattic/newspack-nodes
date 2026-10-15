@@ -242,6 +242,17 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 	}
 
 	/**
+	 * The bytes the log holds from where this reader stands: a raw block's
+	 * `DISTANCE`, stated before any block is read, for the `connected`
+	 * envelope's DISTANCES token.
+	 *
+	 * @return int Bytes from the cursor to the log's end.
+	 */
+	public function bytes_behind(): int {
+		return $this->compute_lag( false )['bytes_behind'];
+	}
+
+	/**
 	 * Idle seam: when the source last grew for a reader caught up on it, as
 	 * `idle_since()` reports it; File_Tail answers off its one file.
 	 *
@@ -322,7 +333,6 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 	 */
 	public function raw_block( int $max ): array {
 		$this->ensure_initialized();
-		$this->cursor_reset = false;
 		// One read takes the block; a roll to the next segment takes one more.
 		$this->read_bytes = $max;
 		try {
@@ -342,7 +352,10 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 		$block = [ 'bytes' => $bytes, 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset ];
 		$this->cursor_offset += \strlen( $bytes );
 		$this->buffer         = '';
-		return $block + [ 'distance' => \strlen( $bytes ) + $this->compute_lag( false )['bytes_behind'], 'reset' => $this->cursor_reset, 'type' => static::BATCH_TYPE ];
+		$block               += [ 'distance' => \strlen( $bytes ) + $this->compute_lag( false )['bytes_behind'], 'reset' => $this->cursor_reset, 'type' => static::BATCH_TYPE ];
+		// A rewind an earlier lag read made is this block's to report.
+		$this->cursor_reset = false;
+		return $block;
 	}
 
 	/**

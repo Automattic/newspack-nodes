@@ -1041,7 +1041,7 @@ stream with the reason; a registry that will not read is a server error:
 
 #### Subscription grammar
 
-![How one subscribe name resolves: the group split against Log_Discovery::GROUPS, the character-class check that leaves * as the only wildcard, the worker-IPC path and the partition-dir glob with the multi-writer seal grace; the connected envelope drawn as six KEY VALUE slots with what SSE_In_Node rejects; and how a client advances each cursor from the ID breadcrumb of every record and sends it back as positions, with the three seek sentinels.](img/api-sse-subscribe-and-resume.png)
+![How one subscribe name resolves: the group split against Log_Discovery::GROUPS, the character-class check that leaves * as the only wildcard, the worker-IPC path and the partition-dir glob with the multi-writer seal grace; the connected envelope drawn as seven KEY VALUE slots with what SSE_In_Node rejects; and how a client advances each cursor from the ID breadcrumb of every record and sends it back as positions, with the three seek sentinels.](img/api-sse-subscribe-and-resume.png)
 
 ### Response
 
@@ -1078,11 +1078,18 @@ implementation for consuming one.
 #### The `connected` envelope
 
 ```
-SESSION <handle> SLOT <slot> OWNER <owner> SUBSCRIPTIONS <csv> INTERVAL <ms> CURSORS <csv>
+SESSION <handle> SLOT <slot> OWNER <owner> SUBSCRIPTIONS <csv> INTERVAL <ms> CURSORS <csv> DISTANCES <csv>
 ```
 
 `SESSION` echoes the session the stream presented and is omitted when it
-presented none. A flat space-separated `KEY VALUE` string rather than JSON, because a TM_INFO
+presented none. `DISTANCES` rides with `CURSORS`, one `stamp=<bytes>` pair
+for each, the bytes that reader has yet to send: a raw block's `DISTANCE`
+stated before any block, because a stream starting caught up sends none, and a
+hub reader would otherwise read its backlog as unknown until the log grew. A
+file source whose named generation has rotated counts the whole current file,
+which its first read rewinds to.
+
+A flat space-separated `KEY VALUE` string rather than JSON, because a TM_INFO
 VALUE is never an array; the slots, their validation by `SSE_In_Node` through
 [`Core::canonical_decimal()`](../includes/class-core.php), and the resume loop they seed are in the
 subscription diagram above.

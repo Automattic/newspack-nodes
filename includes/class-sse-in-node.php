@@ -80,11 +80,11 @@ class SSE_In_Node extends Node implements Curl_Owner {
 	/**
 	 * Handshake seam, set by the patron. The spoke's `connected` envelope names, in
 	 * CURSORS, where each stream actually begins, which is how a tail or sentinel
-	 * seek resolves; this hands every `stamp => {segment?, offset}` pair to the
-	 * patron, which owns the cursors. An envelope naming none (an older spoke)
-	 * calls nothing.
+	 * seek resolves, and in DISTANCES the bytes its log holds from there; this
+	 * hands every `stamp => {segment?, offset, distance?}` start to the patron,
+	 * which owns the cursors. An envelope naming no cursor calls nothing.
 	 *
-	 * Signature: `function ( array $cursors ): void`.
+	 * Signature: `function ( array $starts ): void`.
 	 *
 	 * @var \Closure|null
 	 */
@@ -645,32 +645,40 @@ class SSE_In_Node extends Node implements Curl_Owner {
 		$this->connected_at = Core::$now ?: Core::right_now();
 		// OWNER is a fencing token; omit it from debug/state payloads and logs.
 		$this->set_state( 'CONNECTED', "SLOT {$slot}" );
-		$cursors = self::cursors_of( Core::as_string( $info['CURSORS'] ?? '' ) );
-		if ( [] !== $cursors && null !== $this->on_connected ) {
-			( $this->on_connected )( $cursors );
+		$starts = self::stamp_values_of( Core::as_string( $info['CURSORS'] ?? '' ), Log_Position::parse( ... ) );
+		foreach ( self::stamp_values_of( Core::as_string( $info['DISTANCES'] ?? '' ), Core::canonical_decimal( ... ) ) as $stamp => $distance ) {
+			if ( isset( $starts[ $stamp ] ) ) {
+				$starts[ $stamp ]['distance'] = $distance;
+			}
+		}
+		if ( [] !== $starts && null !== $this->on_connected ) {
+			( $this->on_connected )( $starts );
 		}
 		return true;
 	}
 
 	/**
-	 * Every `stamp=<position>` pair of a frame's CURSORS token, each position
-	 * read by `Log_Position::parse()`. A file-mode source whose generation is
-	 * not known yet writes `stamp=:offset`, so its entry carries no
-	 * `segment`; a pair naming no place is skipped.
+	 * Every `stamp=<value>` pair of a frame's CURSORS or DISTANCES token, each
+	 * value read by `$read`: `Log_Position::parse()` for a cursor, where a
+	 * file-mode source whose generation is not known yet writes `stamp=:offset`
+	 * and so carries no `segment`, `Core::canonical_decimal()` for a distance.
+	 * A pair `$read` answers null for is skipped.
 	 *
-	 * @param string $token The token, empty when the spoke sent none.
-	 * @return array<string,array{segment?:int,offset:int}>
+	 * @template T
+	 * @param string                  $token The token, empty when the spoke sent none.
+	 * @param \Closure(string): (T|null) $read  Reads one value.
+	 * @return array<string,T>
 	 */
-	private static function cursors_of( string $token ): array {
-		$cursors = [];
+	private static function stamp_values_of( string $token, \Closure $read ): array {
+		$values = [];
 		foreach ( \explode( ',', $token ) as $pair ) {
-			[ $stamp, $position ] = \array_pad( \explode( '=', $pair, 2 ), 2, '' );
-			$at                   = Log_Position::parse( $position );
-			if ( '' !== $stamp && null !== $at ) {
-				$cursors[ $stamp ] = $at;
+			[ $stamp, $raw ] = \array_pad( \explode( '=', $pair, 2 ), 2, '' );
+			$value           = $read( $raw );
+			if ( '' !== $stamp && null !== $value ) {
+				$values[ $stamp ] = $value;
 			}
 		}
-		return $cursors;
+		return $values;
 	}
 
 	/**

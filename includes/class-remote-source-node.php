@@ -134,10 +134,10 @@ class Remote_Source_Node extends Remote_Broker_Node {
 			Vault::require_ssl()
 		);
 		$sse->set_multi_writer( $this->multi_writer );
-		$sse->on_connected = function ( array $cursors ): void {
-			/** @var array<string,array{segment?:int,offset:int}> $cursors */
-			foreach ( $cursors as $stamp => $cursor ) {
-				$this->consumer_for( $stamp )?->adopt_stream_start( $cursor );
+		$sse->on_connected = function ( array $starts ): void {
+			/** @var array<string,array{segment?:int,offset:int,distance?:int}> $starts */
+			foreach ( $starts as $stamp => $start ) {
+				$this->consumer_for( $stamp )?->adopt_stream_start( $start );
 			}
 		};
 		$sse->on_message = function ( string $raw ): void {

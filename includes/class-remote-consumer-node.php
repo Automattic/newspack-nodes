@@ -633,13 +633,21 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * cursor reaches them first. A cursor naming no segment leaves the
 	 * generation unknown rather than writing segment 0.
 	 *
-	 * @param array{segment?:int,offset:int} $cursor This stream's CURSORS entry.
+	 * The bytes the spoke's log holds from that start, when it says, are the
+	 * backlog's anchor, as a block's header is: a stream starting caught up
+	 * sends no block, and its reader would stand unknown until the log grew.
+	 * A start naming no segment anchors nothing.
+	 *
+	 * @param array{segment?:int,offset:int,distance?:int} $start This stream's CURSORS entry, with its DISTANCES entry when the spoke stated one.
 	 */
-	public function adopt_stream_start( array $cursor ): void {
+	public function adopt_stream_start( array $start ): void {
+		if ( isset( $start['segment'], $start['distance'] ) ) {
+			$this->anchor_backlog( $start['segment'], $start['offset'], $start['distance'] );
+		}
 		if ( null === $this->pending_seek || null !== $this->held_end() ) {
 			return;
 		}
-		$this->stand_at( $cursor );
+		$this->stand_at( $start );
 	}
 
 	/**
@@ -731,7 +739,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 		$segment = $header['segment'];
 		if ( null !== $segment ) {
 			$this->take_block( $segment, $header['offset'], $bytes, $text );
-			$this->distance = [ 'segment' => $segment, 'offset' => $header['offset'], 'distance' => $header['distance'], 'at' => Core::$now ];
+			$this->anchor_backlog( $segment, $header['offset'], $header['distance'] );
 		} elseif ( '' !== $bytes ) {
 			if ( null === $header['asked'] ) {
 				$this->print_less_often( 'a block with bytes names no segment: ', $id );
@@ -752,6 +760,18 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 		$this->fetch_answered  = [ 'at' => Core::$now, 'rtt' => Core::$now - $asked['at'] ];
 		$this->waiting_since   = '' === $bytes ? Core::$now : null;
 		$this->fetch();
+	}
+
+	/**
+	 * Anchor the backlog where the spoke measured it: the bytes its log holds
+	 * from a place, as a block's header or the handshake states them.
+	 *
+	 * @param int $segment  Where the spoke measured from.
+	 * @param int $offset   Its offset in that segment.
+	 * @param int $distance The bytes from there to the log's end.
+	 */
+	private function anchor_backlog( int $segment, int $offset, int $distance ): void {
+		$this->distance = [ 'segment' => $segment, 'offset' => $offset, 'distance' => $distance, 'at' => Core::$now ];
 	}
 
 	/**

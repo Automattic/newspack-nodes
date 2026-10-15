@@ -515,6 +515,94 @@ class SSEOutTest extends TestCase {
 		$this->rmdir_recursive( $base );
 	}
 
+	/** Each stream's backlog rides the handshake: the bytes its reader has yet to send. */
+	public function test_connected_states_each_streams_distance_from_its_start(): void {
+		$this->set_sse_config( 7, 4500 );
+		$base = $this->make_temp_dir( 'sse-connected-distance-' );
+		$dir  = "{$base}/logs/firehose.p0";
+		\mkdir( $dir, 0755, true );
+		\file_put_contents( "{$dir}/0.log", \str_repeat( "{}\n", 2917 ) );
+		$ctrl                     = new SSE_Out_Node();
+		$ctrl->set_base_dir( $base );
+		$capped                   = false;
+		SSE_Out_Node::$check_slot = $this->safety_cap( $capped );
+
+		\ob_start();
+		$ctrl->run_stream_loop( [ 'firehose.*' ], [ 'firehose.p0' => '0:1206' ], 60000 );
+		$out = (string) \ob_get_clean();
+
+		$this->assertStringContainsString( 'CURSORS firehose.p0=0:1206 DISTANCES firehose.p0=7545', $out );
+
+		$this->rmdir_recursive( $base );
+	}
+
+	/** A cursor on a segment retention deleted is stated where its distance is measured from. */
+	public function test_connected_states_a_rewound_cursor_with_its_distance(): void {
+		$this->set_sse_config( 7, 4500 );
+		$base = $this->make_temp_dir( 'sse-connected-rewound-' );
+		\mkdir( "{$base}/logs/firehose.p0", 0755, true );
+		\mkdir( "{$base}/logs/firehose.p1", 0755, true );
+		\file_put_contents( "{$base}/logs/firehose.p0/0.log", \str_repeat( "{}\n", 41 ) );
+		\file_put_contents( "{$base}/logs/firehose.p1/5.log", \str_repeat( "{}\n", 703 ) );
+		$ctrl                     = new SSE_Out_Node();
+		$ctrl->set_base_dir( $base );
+		$capped                   = false;
+		SSE_Out_Node::$check_slot = $this->safety_cap( $capped );
+
+		\ob_start();
+		$ctrl->run_stream_loop( [ 'firehose.*' ], [ 'firehose.p0' => '0:0', 'firehose.p1' => '2:7' ], 60000 );
+		$out = (string) \ob_get_clean();
+
+		$this->assertStringContainsString( 'CURSORS firehose.p0=0:0,firehose.p1=5:0 DISTANCES firehose.p0=123,firehose.p1=2109', $out );
+		$this->assertStringContainsString( 'OFFSET 5:0 DISTANCE 2109 RESET 1', $out, 'the rewind the handshake read still reaches the first block' );
+
+		$this->rmdir_recursive( $base );
+	}
+
+	/** A file source states its backlog from the place its stream starts. */
+	public function test_connected_states_a_file_sources_distance(): void {
+		$this->set_sse_config( 7, 4500 );
+		$base = $this->make_temp_dir( 'sse-connected-source-' );
+		$file = "{$base}/heron-errors-6617.log";
+		\file_put_contents( $file, \str_repeat( "PHP Notice: heron 6617\n", 37 ) );
+		\Newspack_Nodes\Log_Sources::$builtin_sources = static fn (): array => [ 'heron' => $file ];
+		$inode                    = (int) \fileinode( $file );
+		$ctrl                     = new SSE_Out_Node();
+		$ctrl->set_base_dir( $base );
+		$capped                   = false;
+		SSE_Out_Node::$check_slot = $this->safety_cap( $capped );
+
+		\ob_start();
+		$ctrl->run_stream_loop( [ 'sources:heron' ], [ 'sources:heron' => "{$inode}:115" ], 60000 );
+		$out = (string) \ob_get_clean();
+
+		$this->assertStringContainsString( "CURSORS sources:heron={$inode}:115 DISTANCES sources:heron=736", $out );
+
+		$this->rmdir_recursive( $base );
+	}
+
+	/** A file source asked at a generation that rotated away counts the whole current file. */
+	public function test_connected_counts_a_rotated_file_source_whole(): void {
+		$this->set_sse_config( 7, 4500 );
+		$base = $this->make_temp_dir( 'sse-connected-rotated-' );
+		$file = "{$base}/heron-errors-6617.log";
+		\file_put_contents( $file, \str_repeat( "PHP Notice: heron 6617\n", 37 ) );
+		\Newspack_Nodes\Log_Sources::$builtin_sources = static fn (): array => [ 'heron' => $file ];
+		$gone                     = (int) \fileinode( $file ) + 4409;
+		$ctrl                     = new SSE_Out_Node();
+		$ctrl->set_base_dir( $base );
+		$capped                   = false;
+		SSE_Out_Node::$check_slot = $this->safety_cap( $capped );
+
+		\ob_start();
+		$ctrl->run_stream_loop( [ 'sources:heron' ], [ 'sources:heron' => "{$gone}:115" ], 60000 );
+		$out = (string) \ob_get_clean();
+
+		$this->assertStringContainsString( "CURSORS sources:heron={$gone}:115 DISTANCES sources:heron=851", $out );
+
+		$this->rmdir_recursive( $base );
+	}
+
 	/** A torn line rides its block to the client, which skips it; the server parses nothing. */
 	public function test_a_torn_line_reaches_the_client_which_skips_it(): void {
 		$base = $this->make_temp_dir( 'sse-unparseable-' );

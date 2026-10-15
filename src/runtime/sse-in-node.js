@@ -1083,7 +1083,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	 * A file source that has not seen its generation states `dir=:offset`,
 	 * and its seed carries no `segment`: 0 would name a foreign inode. Each
 	 * position is read by `parsePosition()`, and one naming no place is
-	 * skipped, as PHP `SSE_In_Node::cursors_of()` skips it.
+	 * skipped, as PHP `SSE_In_Node::stamp_values_of()` skips it.
 	 *
 	 * @param {*} token `dir=<position>` pairs, comma-separated.
 	 */
