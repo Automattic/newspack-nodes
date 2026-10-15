@@ -7,9 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Declared row tables beside `kv` in a SQLite Table file.** A `Row_Schema` names its version and its tables — columns in row order, a conflict key, `add` columns folded by `sum` or `max`, indexes, a `retain` window, a `retained_by` reference, an `autoincrement` id and an FTS5 shadow — and `new Sqlite_Arm( …, rows: [ 'version' => …, 'tables' => … ] )` declares them at open and stamps the file's `user_version`. A writer whose file is stamped with another version unlinks it and opens a new one, whatever tables it holds; an unstamped file keeps its `kv` rows. `Sqlite_Arm::write_rows()` runs a batch of `insert`, `ignore` and `add` ops in one `BEGIN IMMEDIATE`: an `ignore` hands back its row's id, inserted or found, a later op in the batch can fill a row position with that id, `then` ops run only when their op wrote its row, so a replayed batch adds nothing twice, and any failure rolls the batch back and throws a `\RuntimeException` naming the table. `purge()` reclaims, within its limit and after `kv` and `members`, each table's rows past their `retain` window, one transaction per table; that DELETE returns the values its `retained_by` names tables reference, and only those names are checked and released once no remaining row names them, so the work is bounded by what retention deletes, never by a names table's size. `Sqlite_Arm::open_rows( $files, $version )` opens one `query_only` reader with every present partition file at that version attached read-only as `p{N}`, each with an 8 MiB page cache, and refuses more than `Spawn_Coordinator::MAX_PARTITIONS` files and a root reader.
+
 ### Changed
 
 - **`num_partitions` is capped at 8.** `Spawn_Coordinator::MAX_PARTITIONS` falls from 16 to 8 and every clamp reads it: the expansion of workers, the declared-count cap, `Job_Intake`, the spawn route, the settings field, the settings verb and the console's Settings panel. A reader that attaches every partition's SQLite file into one connection is bound by SQLite's limit of 10 attached databases, and 8 leaves room for the main file and a spare.
+
+### Fixed
+
+- **A dashboard Firefox restores from its back/forward cache reloads.** Firefox resumed such a page with React's scheduler stalled: a click still sent its command and the reply still reached its view node, but nothing outside a click or keypress ever rendered again, so every filter and sort looked dead. The runtime now installs one page-global `pageshow` listener that reloads any page restored from the cache, in every browser that restores one; Chrome loaded these wp-admin pages fresh on Back in testing, so there it did not fire. Every consumer inlines the runtime, so a page gets the listener once any one of its bundles is rebuilt against this release, whichever bundle created `Core`.
 
 ## [2.110.2] - 2026-10-15
 
