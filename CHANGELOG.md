@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.111.2] - 2026-10-15
+
 ### Fixed
 
 - **A log scrolled into history holds still as new lines arrive.** `LogRowList`, behind the station's Log Viewer and event-logger-nodes' Request Log and Error Log, moved the reader's scroll position in the animation frame and the rows on React's later commit, so each burst pushed the view down a frame and snapped it back. The scroll owed now lands in a layout effect on the commit that shifts the rows, one paint for both. Scrolling away mid-glide, as a Page Down does, turns the glide's remaining offset into scroll at once rather than letting it wind down first. A consumer that bundles `@newspack-nodes/shared` takes the fix on its next build.
