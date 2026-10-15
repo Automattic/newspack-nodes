@@ -4,12 +4,12 @@
  * segments: a file source is one, its inode at the file's size.
  *
  * A seek needs no transport of its own.
- * `RemoteLink.addPairs( [ '<sub>=<target>' ], positions )` puts the seed on
- * the stream URL as `&positions=`, the controller narrows each entry through
+ * `RemoteLink.addSource( <sub>, <target>, positions )` puts the seed on the
+ * stream URL as `&positions=`, the controller narrows each entry through
  * `SSE_Out::position_arg`, and the Consumer opens there through
  * `next_offset()`. Four seeds cover every control:
  *
- * - Live and follow add their pair with `null` positions, which `seekMap()`
+ * - Live and follow add their source with `null` positions, which `seekMap()`
  *   states as the tail sentinel, `SEEK_END`.
  * - Browsing a segment sends `{ [sub]: { segment, offset: 0 } }`. For a file
  *   source the segment slot holds the file's inode.

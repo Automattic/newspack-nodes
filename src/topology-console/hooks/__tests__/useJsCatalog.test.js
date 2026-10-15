@@ -44,6 +44,38 @@ describe( 'useJsCatalog', () => {
 		] );
 	} );
 
+	it( 'carries a class’s verbs without their handlers', () => {
+		const { result } = renderHook( () => useJsCatalog() );
+		const link = result.current.classes.find(
+			( c ) => 'RemoteLink' === c.shell_name
+		);
+		const tee = result.current.classes.find(
+			( c ) => 'Tee' === c.shell_name
+		);
+		const source = {
+			description: expect.any( String ),
+			args: [
+				expect.objectContaining( {
+					name: 'remote_log',
+					type: 'string',
+					required: true,
+				} ),
+				expect.objectContaining( {
+					name: 'local_node',
+					type: 'string',
+					required: true,
+				} ),
+			],
+			multiple: true,
+		};
+
+		expect( link.commands ).toEqual( [
+			{ name: 'add_source', ...source },
+			{ name: 'remove_source', ...source },
+		] );
+		expect( tee.commands ).toEqual( [] );
+	} );
+
 	it( 'each entry has shell_name + category (the Palette grouping fields)', () => {
 		const { result } = renderHook( () => useJsCatalog() );
 		for ( const c of result.current.classes ) {

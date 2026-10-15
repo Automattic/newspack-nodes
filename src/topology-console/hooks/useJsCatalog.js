@@ -28,6 +28,12 @@ import { isHidden } from '../../runtime/node';
 const NO_FORMATTERS = [];
 
 /**
+ * The flags a command entry keeps, each as `true` where set, as PHP
+ * `Classes_CI_Node::COMMAND_FIELDS` keeps them.
+ */
+const COMMAND_FLAGS = [ 'multiple', 'hidden', 'action' ];
+
+/**
  * True when `cls` is `base` itself or extends it.
  *
  * `fans_out` and `is_interpreter` are read from the CLASS, as PHP's
@@ -48,7 +54,7 @@ const derivedFrom = ( base, cls ) =>
  * The classes the browser's own `make_node` can build, as one palette catalog.
  *
  * Each entry is `{shell_name, category, description, accepts_fill, has_target,
- * fans_out, is_interpreter, arguments}`. The port flags come from the class's
+ * fans_out, is_interpreter, arguments, commands}`. The port flags come from the class's
  * `nodeSchema()` — the JS port of PHP `node_schema()` — and SchematicCanvas
  * draws the in and out ports from them; both default to true when the schema
  * omits them, matching PHP `Node::node_schema()`'s base default and the
@@ -97,6 +103,17 @@ export function useJsCatalog() {
 				is_interpreter: derivedFrom( CommandInterpreterNode, cls ),
 				// The ADD modal renders a field per declared ctor argument.
 				arguments: schema.arguments ?? [],
+				// Verbs as PHP's strip_entries() ships them: no handler.
+				commands: ( schema.commands ?? [] ).map( ( verb ) => ( {
+					name: verb.name,
+					description: verb.description ?? '',
+					args: verb.args ?? [],
+					...Object.fromEntries(
+						COMMAND_FLAGS.filter( ( f ) => verb[ f ] ).map(
+							( f ) => [ f, true ]
+						)
+					),
+				} ) ),
 			} ) )
 			// The [category, shell_name] order PHP's usort produces.
 			.sort(

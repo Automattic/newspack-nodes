@@ -21,14 +21,18 @@
  * RemoteIpc extends this class with the worker-relay send and the
  * single-connection steal.
  *
- * A page's shared link carries every stream graph on the page as
- * `<stamp>=<target>` pairs, the grammar PHP `Remote_Broker_Node::parse_pair()`
- * reads. It asks the server for the pairs' sources, and hands each record to
- * its stamp's Tee, the hidden sibling `<link>:<stamp>`, whose targets are those
- * of every pair claiming the stamp, as `Remote_Source::route()` hands one to
- * its stamp's reader. A view pausing parks its pairs, which keep their claim
- * and their places; one leaving removes them and `forget`s their places.
- * Every change in one tick joins one reconnect.
+ * A page's shared link carries every stream graph on the page as sources,
+ * `{ stamp, target }` records. Its views add theirs through `addSource()`,
+ * which fans a stamp out to every view adding it. Its `:config` answers
+ * `add_source` and `remove_source` with the PHP broker's rules instead: one
+ * target per stamp, an identical repeat a no-op, and a removal naming no
+ * declared source refused. It asks the server for the sources' stamps, and
+ * hands each record to its stamp's Tee, the hidden sibling `<link>:<stamp>`,
+ * whose targets are those of every source claiming the stamp, as
+ * `Remote_Source::route()` hands one to its stamp's reader. A view pausing
+ * parks its sources, which keep their claim and their places; one leaving
+ * removes them and `forget`s their places. Every change in one tick joins one
+ * reconnect.
  *
  * Mirrors the PHP `Remote_Source_Node`, a patron owning an `SSE_In_Node` and an
  * `HTTP_Out_Node`. The durable offsetlog that distinguishes aggregation is a
@@ -44,11 +48,56 @@ import { SseInNode } from './sse-in-node';
 import { TeeNode } from './tee-node';
 import { defaultTransport } from './command-transport';
 import { TO, TYPE, TM_COMMAND, TM_ERROR, TM_RESPONSE } from './message';
-import { anyCarries, isGlob, splitPair } from './log-stamp';
+import { anyCarries, isGlob } from './log-stamp';
+import { bindCommandArgs } from './command-args';
 import names from './reserved-node-names.json';
 
 /** The sibling slot the link's SseIn takes, as PHP's `SSE_IN_KIND`. */
 const SSE_IN_KIND = 'sse-in';
+
+/** The two args `add_source` and `remove_source` bind, as PHP declares them. */
+const SOURCE_ARGS = [
+	{
+		name: 'remote_log',
+		type: 'string',
+		required: true,
+		description: 'A stamp or glob the stream carries.',
+	},
+	{
+		name: 'local_node',
+		type: 'string',
+		required: true,
+		description: 'The node its records go to.',
+	},
+];
+
+/**
+ * A route the link carries: records stamped `stamp` go to `target`.
+ *
+ * @typedef {{stamp:string,target:string}} Source
+ */
+
+/**
+ * Whether `records` holds the source `stamp` → `target`.
+ *
+ * @param {Source[]} records Sources.
+ * @param {string}   stamp   A stamp or glob.
+ * @param {string}   target  A node path.
+ * @return {boolean} True when held.
+ */
+const holds = ( records, stamp, target ) =>
+	records.some( ( r ) => r.stamp === stamp && r.target === target );
+
+/**
+ * `records` without the source `stamp` → `target`.
+ *
+ * @param {Source[]} records Sources.
+ * @param {string}   stamp   A stamp or glob.
+ * @param {string}   target  A node path.
+ * @return {Source[]} The rest, in order.
+ */
+const without = ( records, stamp, target ) =>
+	records.filter( ( r ) => ! ( r.stamp === stamp && r.target === target ) );
 
 /**
  * A resume seed: the next-record `{segment, offset}` for each partition
@@ -71,7 +120,7 @@ const SSE_IN_KIND = 'sse-in';
  * A seek one view asked for, which the next reopen states.
  *
  * @typedef {Object} Seek
- * @property {string[]}  subscribe The sources its pairs name.
+ * @property {string[]}  subscribe The stamps of the sources it names.
  * @property {?SeekSeed} positions Null tails them; a seed seeks them.
  */
 
@@ -85,8 +134,9 @@ const SSE_IN_KIND = 'sse-in';
  * `send()` builds the children, and each of those refuses while no
  * subscription has been supplied. Records arrive on the link's own `sink` and
  * `target`, so a consumer wires a RemoteLink exactly as it wires any other
- * source node. A link carrying views takes its subscription from their pairs
- * instead: `addPairs()` and `removePairs()` reopen it on their sources.
+ * source node. A link carrying views takes its subscription from their
+ * sources instead: `addSource()` and `removeSource()` reopen it on their
+ * stamps.
  */
 export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 	/**
@@ -132,18 +182,18 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 		 */
 		this.onClose = null;
 		/**
-		 * The routes this link carries, as `<stamp>=<target>` tokens in the
-		 * order they were added. Empty for a single-target link.
+		 * The routes this link carries, in the order they were added. Empty
+		 * for a single-target link.
 		 *
-		 * @type {string[]}
+		 * @type {Source[]}
 		 */
-		this.pairs = [];
+		this.sources = [];
 		/**
-		 * The pairs of paused views: they feed no Tee and open no
+		 * The sources of paused views: they feed no Tee and open no
 		 * subscription, but still claim their stamps, so no other view seeks
 		 * one and no `forget()` drops its place.
 		 *
-		 * @type {string[]}
+		 * @type {Source[]}
 		 */
 		this.parked = [];
 		/**
@@ -154,12 +204,13 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 		 */
 		this.tees = new Map();
 		/**
-		 * The seek each view asked for and the next reopen states, by target.
+		 * The seek each view asked for and the next reopen states, by target:
+		 * one per view, stated once over every stamp it names.
 		 *
 		 * @type {Map<string,Seek>}
 		 */
 		this._seeks = new Map();
-		// One reopen per tick: later pair changes join a queued one.
+		// One reopen per tick: later source changes join a queued one.
 		this._restartQueued = false;
 		// A place the open stream carries was forgotten, so reopen.
 		this._moved = false;
@@ -220,7 +271,7 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 	 * backbone is left for the graph to tear down.
 	 */
 	removeNode() {
-		this.pairs = [];
+		this.sources = [];
 		this.parked = [];
 		this._seeks.clear();
 		this._syncTees();
@@ -259,110 +310,68 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 	}
 
 	/**
-	 * Carry `tokens`, each a `<stamp>=<target>` pair: ask the server for each
-	 * source, and route each record a pair claims to its target through the
-	 * stamp's Tee. A pair already carried is kept once. The stream reopens
-	 * once this tick's changes are in, and not at all when they change
-	 * nothing.
+	 * Carry the source `stamp` → `target`: ask the server for the stamp, and
+	 * route each record it claims to the target through the stamp's Tee. A
+	 * source already carried is kept once, and a stamp may go to several
+	 * targets, one per view adding it, where the `add_source` verb takes one.
+	 * The stream reopens once this tick's changes are in, and not at all when
+	 * they change nothing.
 	 *
-	 * A seek is refused, before anything changes, on a stamp a pair with
-	 * another target claims, a parked one included: one stream holds one
-	 * place per stamp, so the seek would move that view too. The pairs are
-	 * asked rather than the Tees, because a Tee is built on its stamp's first
-	 * record and a seek comes before one.
-	 *
-	 * @param {string[]}   tokens    The pairs; one view's, as a rule.
-	 * @param {?SeekSeed=} positions Omitted, their dirs resume where they
-	 *                               read to; null tails them; a seed seeks.
-	 * @throws {Error} On a token that is no pair, one whose Tee would take the
-	 *                 SseIn's slot, or a seek on a stamp another view streams.
+	 * @param {string}     stamp     A stamp or glob.
+	 * @param {string}     target    The node path its records go to.
+	 * @param {?SeekSeed=} positions Omitted, its dirs resume where they read
+	 *                               to; null tails them; a seed seeks.
+	 * @throws {Error} What `checkSource()` refuses, before anything changes.
 	 */
-	addPairs( tokens, positions ) {
-		const byTarget = new Map();
-		for ( const token of tokens ) {
-			const { source, target } = this._checkedPair( token );
-			byTarget.set( target, [
-				...( byTarget.get( target ) ?? [] ),
-				source,
-			] );
+	addSource( stamp, target, positions ) {
+		this.checkSource( stamp, target, positions );
+		if ( ! holds( this.sources, stamp, target ) ) {
+			this.sources = [ ...this.sources, { stamp, target } ];
 		}
-		if ( undefined !== positions ) {
-			for ( const [ target, sources ] of byTarget ) {
-				for ( const stamp of this._moves( sources, positions ) ) {
-					const other = this._targetsOf( stamp, [
-						...this.pairs,
-						...this.parked,
-					] ).find( ( claimant ) => claimant !== target );
-					if ( other ) {
-						throw new Error(
-							`RemoteLink: ${ target } cannot seek ${ stamp }, which ${ other } is streaming`
-						);
-					}
-				}
-			}
-		}
-		this.pairs = [ ...new Set( [ ...this.pairs, ...tokens ] ) ];
-		this.parked = this.parked.filter(
-			( token ) => ! tokens.includes( token )
-		);
-		for ( const [ target, sources ] of byTarget ) {
-			const pending = this._seeks.get( target );
-			if ( undefined !== positions ) {
-				this._seeks.set( target, { subscribe: sources, positions } );
-			} else if (
-				pending?.subscribe.join( ',' ) !== sources.join( ',' )
-			) {
-				this._seeks.delete( target );
-			}
-		}
+		this.parked = without( this.parked, stamp, target );
+		this._noteSeek( stamp, target, positions );
 		this._syncTees();
 		this._queueRestart();
 	}
 
 	/**
-	 * Stop carrying `tokens` for now, as a view pausing does: they leave the
-	 * Tees and the subscription as `removePairs()` has them leave, and keep
-	 * their claim, so the `addPairs()` that plays them resumes where their
-	 * stamps' stream read to.
+	 * Stop carrying a source and keep its claim, as a view pausing does: it
+	 * leaves the
+	 * Tees and the subscription as `removeSource()` has it leave, so the
+	 * `addSource()` that plays it resumes where its stamp's stream read to.
 	 *
-	 * @param {string[]} tokens The pairs to park; one not carried is ignored.
+	 * @param {string} stamp  A stamp or glob; one not carried is ignored.
+	 * @param {string} target Its node path.
 	 */
-	parkPairs( tokens ) {
-		const carried = tokens.filter( ( token ) =>
-			this.pairs.includes( token )
-		);
-		this.removePairs( carried );
-		this.parked.push( ...carried );
+	parkSource( stamp, target ) {
+		if ( ! holds( this.sources, stamp, target ) ) {
+			return;
+		}
+		this.removeSource( stamp, target );
+		this.parked = [ ...this.parked, { stamp, target } ];
 	}
 
 	/**
-	 * Stop carrying `tokens` and give up their claim, parked or not, as a
-	 * view leaving does. Each Tee loses the edges they gave it and goes with
-	 * its last; a stamp no pair carries leaves the subscription and its place
-	 * stays until `forget()`. A seek not yet asked for goes with its target's
-	 * last pair.
+	 * Stop carrying a source and give up its claim, parked or not, as a view
+	 * leaving does. Each Tee loses the edge it gave and goes with its last;
+	 * a stamp no source carries leaves the subscription and its place stays
+	 * until `forget()`. A seek not yet asked for goes with its target's last
+	 * source.
 	 *
-	 * @param {string[]} tokens The pairs to drop; one not held is ignored.
+	 * @param {string} stamp  A stamp or glob; one not held is ignored.
+	 * @param {string} target Its node path.
 	 */
-	removePairs( tokens ) {
-		const gone = tokens.filter(
-			( token ) =>
-				this.pairs.includes( token ) || this.parked.includes( token )
-		);
-		if ( 0 === gone.length ) {
+	removeSource( stamp, target ) {
+		if (
+			! holds( this.sources, stamp, target ) &&
+			! holds( this.parked, stamp, target )
+		) {
 			return;
 		}
-		this.pairs = this.pairs.filter( ( token ) => ! gone.includes( token ) );
-		this.parked = this.parked.filter(
-			( token ) => ! gone.includes( token )
-		);
-		const riding = new Set(
-			this.pairs.map( ( token ) => splitPair( token ).target )
-		);
-		for ( const { target } of gone.map( splitPair ) ) {
-			if ( ! riding.has( target ) ) {
-				this._seeks.delete( target );
-			}
+		this.sources = without( this.sources, stamp, target );
+		this.parked = without( this.parked, stamp, target );
+		if ( ! this.sources.some( ( r ) => r.target === target ) ) {
+			this._seeks.delete( target );
 		}
 		this._syncTees();
 		this._queueRestart();
@@ -370,7 +379,7 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 
 	/**
 	 * Forget what the stream holds for the dirs `subscribe` carries and no
-	 * pair claims, a parked one included: their seeds, read positions and
+	 * source claims, a parked one included: their seeds, read positions and
 	 * skipped-line counts, as a view leaving for good does, so a later view
 	 * on them tails. Dropping a place the open stream carries makes the next
 	 * reopen happen even on the same set, or a replay one view asked for runs
@@ -382,7 +391,7 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 		if ( ! this.sseIn || 0 === subscribe.length ) {
 			return;
 		}
-		const claimed = this._sources( [ ...this.pairs, ...this.parked ] );
+		const claimed = this._stamps( [ ...this.sources, ...this.parked ] );
 		const lost = ( dir ) =>
 			anyCarries( subscribe, dir ) && ! anyCarries( claimed, dir );
 		const open = this.subscribe.split( ',' );
@@ -399,27 +408,72 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 	}
 
 	/**
-	 * Read one token through `splitPair()`, refusing what PHP
-	 * `Remote_Broker_Node::parse_pair()` refuses that a link can meet: an
-	 * empty half, and a stamp whose Tee would take the SseIn's slot.
+	 * Refuse what `addSource()` refuses, changing nothing, so a caller adding
+	 * several can ask of each before adding any.
 	 *
-	 * @param {string} token One pair.
-	 * @return {{source:string,target:string}} Its halves.
-	 * @throws {Error} Naming the token.
+	 * An empty stamp or target is refused, and a stamp whose Tee would take
+	 * the SseIn's slot, as PHP `Remote_Broker_Node::add_source()` refuses
+	 * them. So is a seek on a stamp a source with another target claims, a
+	 * parked one included: one stream holds one place per stamp, so the seek
+	 * would move that view too. The sources are asked rather than the Tees,
+	 * because a Tee is built on its stamp's first record and a seek comes
+	 * before one.
+	 *
+	 * @param {string}     stamp     A stamp or glob.
+	 * @param {string}     target    The node path its records go to.
+	 * @param {?SeekSeed=} positions The seek, as `addSource()` reads one.
+	 * @throws {Error} Naming the stamp, and the view a seek would move.
 	 */
-	_checkedPair( token ) {
-		const pair = splitPair( token );
-		if ( '' === pair.source || '' === pair.target ) {
+	checkSource( stamp, target, positions ) {
+		if ( '' === stamp || '' === target ) {
 			throw new Error(
-				`RemoteLink: a pair is <stamp>=<target>, got '${ token }'`
+				`RemoteLink: add_source needs a stamp and a target, got '${ stamp }' '${ target }'`
 			);
 		}
-		if ( SSE_IN_KIND === pair.source ) {
+		if ( SSE_IN_KIND === stamp ) {
 			throw new Error(
-				`RemoteLink: a pair's Tee names the slot its SseIn holds: '${ token }'`
+				`RemoteLink: a source's Tee names the slot its SseIn holds: '${ stamp }'`
 			);
 		}
-		return pair;
+		if ( undefined === positions ) {
+			return;
+		}
+		for ( const moved of this._moves( [ stamp ], positions ) ) {
+			const other = this._targetsOf( moved, [
+				...this.sources,
+				...this.parked,
+			] ).find( ( claimant ) => claimant !== target );
+			if ( other ) {
+				throw new Error(
+					`RemoteLink: ${ target } cannot seek ${ moved }, which ${ other } is streaming`
+				);
+			}
+		}
+	}
+
+	/**
+	 * Keep each view's one seek: a source added with the seek its view's
+	 * pending one holds joins it, so the reopen states it once over every
+	 * stamp; another seek replaces it. A source added with none drops a
+	 * pending seek that does not name its stamp, which the view has left.
+	 *
+	 * @param {string}     stamp     A stamp or glob.
+	 * @param {string}     target    Its view's node path.
+	 * @param {?SeekSeed=} positions The seek it comes with, if any.
+	 */
+	_noteSeek( stamp, target, positions ) {
+		const pending = this._seeks.get( target );
+		if ( undefined === positions ) {
+			if ( pending && ! pending.subscribe.includes( stamp ) ) {
+				this._seeks.delete( target );
+			}
+			return;
+		}
+		const kept = pending?.positions === positions ? pending.subscribe : [];
+		this._seeks.set( target, {
+			subscribe: kept.includes( stamp ) ? kept : [ ...kept, stamp ],
+			positions,
+		} );
 	}
 
 	/**
@@ -427,7 +481,7 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 	 * each exact source and every dir a glob among them holds a place for, by
 	 * a seed or a read position, the seeks others ask for next included.
 	 *
-	 * @param {string[]}  sources   The sources the view's pairs name.
+	 * @param {string[]}  sources   The stamps the view's sources name.
 	 * @param {?SeekSeed} positions Its seek; null tails.
 	 * @return {string[]} The stamps.
 	 */
@@ -448,12 +502,12 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 	}
 
 	/**
-	 * Point each built Tee at the targets of the pairs claiming its stamp,
-	 * retracting one no pair claims any longer.
+	 * Point each built Tee at the targets of the sources claiming its stamp,
+	 * retracting one no source claims any longer.
 	 */
 	_syncTees() {
 		for ( const [ stamp, tee ] of this.tees ) {
-			const targets = this._targetsOf( stamp, this.pairs );
+			const targets = this._targetsOf( stamp, this.sources );
 			if ( 0 === targets.length ) {
 				tee.removeNode();
 				this.tees.delete( stamp );
@@ -476,13 +530,13 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 	}
 
 	/**
-	 * Open the stream on every pair's source, or close it when none is left.
+	 * Open the stream on every source's stamp, or close it when none is left.
 	 * A stream on the same set with no seek pending and no place forgotten is
 	 * left alone, open or waiting out its reopen, so a re-render costs no
 	 * reconnect and cannot cut a backoff short.
 	 */
 	_restart() {
-		const sources = this._sources( this.pairs );
+		const sources = this._stamps( this.sources );
 		if ( 0 === sources.length ) {
 			if ( this.sseIn ) {
 				this.close();
@@ -512,14 +566,12 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 	}
 
 	/**
-	 * @param {string[]} tokens Pairs.
-	 * @return {string[]} Each pair's source, named once and sorted, so the
+	 * @param {Source[]} records Sources.
+	 * @return {string[]} Each source's stamp, named once and sorted, so the
 	 *   same set always reads the same.
 	 */
-	_sources( tokens ) {
-		return [
-			...new Set( tokens.map( ( token ) => splitPair( token ).source ) ),
-		].sort();
+	_stamps( records ) {
+		return [ ...new Set( records.map( ( r ) => r.stamp ) ) ].sort();
 	}
 
 	/**
@@ -595,11 +647,11 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 	/**
 	 * The SseIn's `onMessage`: hand a record to its stamp's Tee, built on first
 	 * sight, as PHP `Remote_Source::route()` hands one to its reader. A link
-	 * with no pairs declines every record. Every link declines a reply, which
+	 * with no sources declines every record. Every link declines a reply, which
 	 * the server addressed to its minter (TO=FROM, ADR-7): a command reply,
 	 * and a TM_RESPONSE or TM_ERROR carrying a TO, as `HttpOut` reads one, so
 	 * a Router bounce reaches the node it answers. The SseIn sends a declined
-	 * record by its TO. A record no pair claims is dropped, rate-limited, and
+	 * record by its TO. A record no source claims is dropped, rate-limited, and
 	 * the drop line's FROM names its stamp.
 	 *
 	 * @param {Array}  message The positional Message just received.
@@ -609,7 +661,7 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 	_route( message, stamp ) {
 		const type = message[ TYPE ];
 		if (
-			0 === this.pairs.length ||
+			0 === this.sources.length ||
 			type & TM_COMMAND ||
 			( message[ TO ] && type & ( TM_RESPONSE | TM_ERROR ) )
 		) {
@@ -627,7 +679,7 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 			}
 			tee = this._buildTee( stamp );
 			if ( ! tee ) {
-				this.dropMessage( message, 'no pair claims the stamp' );
+				this.dropMessage( message, 'no source claims the stamp' );
 				return true;
 			}
 		}
@@ -638,13 +690,14 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 	}
 
 	/**
-	 * Build a stamp's Tee on its first record, or none when no pair claims it.
+	 * Build a stamp's Tee on its first record, or none when no source claims
+	 * it.
 	 *
 	 * @param {string} stamp A record's stamp.
 	 * @return {?TeeNode} The Tee.
 	 */
 	_buildTee( stamp ) {
-		const targets = this._targetsOf( stamp, this.pairs );
+		const targets = this._targetsOf( stamp, this.sources );
 		if ( 0 === targets.length ) {
 			return null;
 		}
@@ -655,18 +708,17 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 	}
 
 	/**
-	 * @param {string}   stamp  A record's stamp.
-	 * @param {string[]} tokens Pairs.
+	 * @param {string}   stamp   A record's stamp.
+	 * @param {Source[]} records Sources.
 	 * @return {string[]} The targets of those claiming it, each named once,
 	 *   in their order.
 	 */
-	_targetsOf( stamp, tokens ) {
+	_targetsOf( stamp, records ) {
 		return [
 			...new Set(
-				tokens
-					.map( splitPair )
-					.filter( ( { source } ) => anyCarries( [ source ], stamp ) )
-					.map( ( { target } ) => target )
+				records
+					.filter( ( r ) => anyCarries( [ r.stamp ], stamp ) )
+					.map( ( r ) => r.target )
 			),
 		];
 	}
@@ -801,7 +853,9 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 
 	/**
 	 * Console-palette entry. It borrows SseIn's argument list, since the
-	 * subscription is the one thing that configures both.
+	 * subscription is the one thing that configures both, and declares the
+	 * `add_source` and `remove_source` its `:config` answers, by the PHP
+	 * broker's rules.
 	 *
 	 * @return {Object} The node schema.
 	 */
@@ -822,7 +876,85 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 					? { ...argument, required: false }
 					: argument
 			),
-			commands: [],
+			commands: [
+				sourceVerb(
+					'add_source',
+					'Route a stamp or glob to a local node. A repeat is a no-op; a second target for the stamp is refused.',
+					cmdAddSource
+				),
+				sourceVerb(
+					'remove_source',
+					'Stop routing a source add_source gave, named as add_source took it.',
+					cmdRemoveSource
+				),
+			],
 		};
 	}
+}
+
+/**
+ * One of the two source verbs, declared as PHP's broker declares it, whose
+ * handler binds its two args as `Command_Args::bind()` does and applies them
+ * to the `:config`'s patron.
+ *
+ * @param {string}                                                 name        The verb.
+ * @param {string}                                                 description What it does.
+ * @param {(link:RemoteLinkNode,stamp:string,target:string)=>void} apply       What it calls.
+ * @return {Object} The schema's command entry.
+ */
+function sourceVerb( name, description, apply ) {
+	return {
+		name,
+		description,
+		args: SOURCE_ARGS,
+		// One call per source: the console renders a row each.
+		multiple: true,
+		handler: ( config, args ) => {
+			const bound = bindCommandArgs( SOURCE_ARGS, args );
+			apply( config.patron, bound.remote_log, bound.local_node );
+			return 'ok';
+		},
+	};
+}
+
+/**
+ * `add_source`'s rule, the PHP broker's: a stamp the link declares, parked
+ * or not, goes to one target, so an identical repeat changes nothing and a
+ * second target is refused.
+ *
+ * @param {RemoteLinkNode} link   The `:config`'s patron.
+ * @param {string}         stamp  A stamp or glob.
+ * @param {string}         target The node path its records go to.
+ * @throws {Error} Naming the target the stamp already goes to.
+ */
+function cmdAddSource( link, stamp, target ) {
+	const declared = [ ...link.sources, ...link.parked ];
+	if ( holds( declared, stamp, target ) ) {
+		return;
+	}
+	const taken = declared.find( ( r ) => r.stamp === stamp );
+	if ( taken ) {
+		throw new Error(
+			`RemoteLink: add_source '${ stamp }' already goes to '${ taken.target }', not '${ target }'`
+		);
+	}
+	link.addSource( stamp, target );
+}
+
+/**
+ * `remove_source`'s rule, the PHP broker's: a source the link does not
+ * declare, parked or not, is refused as written.
+ *
+ * @param {RemoteLinkNode} link   The `:config`'s patron.
+ * @param {string}         stamp  A stamp or glob.
+ * @param {string}         target Its node path.
+ * @throws {Error} Naming the source.
+ */
+function cmdRemoveSource( link, stamp, target ) {
+	if ( ! holds( [ ...link.sources, ...link.parked ], stamp, target ) ) {
+		throw new Error(
+			`RemoteLink: remove_source '${ stamp }' '${ target }' names no source this link declares`
+		);
+	}
+	link.removeSource( stamp, target );
 }
