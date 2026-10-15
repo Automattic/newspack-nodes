@@ -40,6 +40,7 @@ import {
 import { ShellNode } from '../shell-node';
 import names from '../reserved-node-names.json';
 import brokerSchemas from '../../../tests/fixtures/broker-schemas.json';
+import sourceCommands from '../../../tests/fixtures/broker-sources.json';
 
 class FakeEventSource {
 	constructor( url ) {
@@ -1583,7 +1584,7 @@ describe( 'sources — the routes one link carries', () => {
 				'cmd _stream:config add_source egret.p4 kite-2290:stream'
 			)
 		).toThrow(
-			"RemoteLink: add_source 'egret.p4' already goes to 'heron-6612:stream', not 'kite-2290:stream'"
+			"add_source 'egret.p4' already goes to 'heron-6612:stream', not 'kite-2290:stream'"
 		);
 		link.parkSource( 'egret.p4', 'heron-6612:stream' );
 		expect( () =>
@@ -1633,7 +1634,7 @@ describe( 'sources — the routes one link carries', () => {
 				'cmd _stream:config remove_source egret.p4 kite-2290:stream'
 			)
 		).toThrow(
-			"RemoteLink: remove_source 'egret.p4' 'kite-2290:stream' names no source this link declares"
+			"remove_source 'egret.p4' 'kite-2290:stream' names no source this node declares"
 		);
 		link.parkSource( 'egret.p4', 'heron-6612:stream' );
 		typeLine(
@@ -1641,6 +1642,53 @@ describe( 'sources — the routes one link carries', () => {
 			'cmd _stream:config remove_source egret.p4 heron-6612:stream'
 		);
 		expect( link.parked ).toEqual( [] );
+	} );
+
+	it.each(
+		sourceCommands.filter(
+			( [ , commands ] ) =>
+				! JSON.stringify( commands ).includes( '{partition}' )
+		)
+	)(
+		'a :config folds the commands as the PHP broker does: %s',
+		( label, commands, expected ) => {
+			const link = new CommandInterpreterNode().makeNode(
+				'RemoteLink',
+				'okapi-link-5501'
+			);
+			let answer;
+			try {
+				// The link answers its two source verbs alone.
+				for ( const [ verb, tokens ] of commands.filter( ( [ v ] ) =>
+					[ 'add_source', 'remove_source' ].includes( v )
+				) ) {
+					link.interpreter.dispatch( verb, tokens );
+				}
+				answer = link.sources.map( ( s ) => s.target );
+			} catch ( e ) {
+				answer = { refused: e.message };
+			}
+			link.removeNode();
+
+			expect( answer ).toEqual( expected );
+		}
+	);
+
+	it( 'a :config refuses {partition}, which no browser binds', () => {
+		const link = new CommandInterpreterNode().makeNode(
+			'RemoteLink',
+			'okapi-link-5502'
+		);
+
+		expect( () =>
+			link.interpreter.dispatch( 'add_source', [
+				'egret.p{partition}',
+				'heron-31',
+			] )
+		).toThrow(
+			"add_source 'egret.p{partition}' 'heron-31' names {partition}, but no partition is bound"
+		);
+		link.removeNode();
 	} );
 
 	it( 'declares add_source and remove_source as the PHP broker does', () => {

@@ -199,6 +199,110 @@ describe( 'makeNode with a class', () => {
 	} );
 } );
 
+// A node's :config binds a verb's declared args before its handler runs, as
+// PHP's dispatch() does (ADR-25), and is renamed with its patron.
+describe( 'a wired :config', () => {
+	class PerchSpyNode extends Node {
+		static nodeSchema() {
+			return {
+				commands: [
+					{
+						name: 'perch',
+						args: [
+							{ name: 'bird', type: 'string', required: true },
+							{ name: 'branch', type: 'string', required: false },
+						],
+						handler: ( config, args ) => {
+							config.patron.heard = args;
+							return 'ok';
+						},
+					},
+					{
+						name: 'preen',
+						handler: ( config, args ) => {
+							config.patron.heard = args;
+							return 'ok';
+						},
+					},
+				],
+			};
+		}
+	}
+
+	it( 'hands a handler its declared args bound by name', () => {
+		const node = new CommandInterpreterNode().makeNode(
+			PerchSpyNode,
+			'osprey-perch-41'
+		);
+
+		node.interpreter.dispatch( 'perch', [ '--branch=oak-7', 'kite-3' ] );
+
+		expect( node.heard ).toEqual( { bird: 'kite-3', branch: 'oak-7' } );
+	} );
+
+	it( 'binds a command message’s args before the handler runs', () => {
+		const node = new CommandInterpreterNode().makeNode(
+			PerchSpyNode,
+			'osprey-perch-42'
+		);
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND | TM_NOREPLY;
+		m[ LOCAL ] = true;
+		m[ VALUE ] = { name: 'perch', arguments: [ 'heron-9' ] };
+
+		node.interpreter.fill( m );
+
+		expect( node.heard ).toEqual( { bird: 'heron-9', branch: null } );
+	} );
+
+	it( 'refuses a declared verb’s tokens the binder refuses', () => {
+		const node = new CommandInterpreterNode().makeNode(
+			PerchSpyNode,
+			'osprey-perch-43'
+		);
+
+		expect( () => node.interpreter.dispatch( 'perch', [] ) ).toThrow(
+			'missing required argument: bird'
+		);
+	} );
+
+	it( 'hands a verb declaring no args its tokens', () => {
+		const node = new CommandInterpreterNode().makeNode(
+			PerchSpyNode,
+			'osprey-perch-44'
+		);
+
+		node.interpreter.dispatch( 'preen', [ 'wing', 'tail' ] );
+
+		expect( node.heard ).toEqual( [ 'wing', 'tail' ] );
+	} );
+
+	it( 'follows its patron’s rename, freeing the old name', () => {
+		const interpreter = new CommandInterpreterNode();
+		const node = interpreter.makeNode( PerchSpyNode, 'tern-perch-51' );
+
+		node.name = 'tern-perch-52';
+
+		expect( Core.node( 'tern-perch-52:config' ) ).toBe( node.interpreter );
+		expect( Core.node( 'tern-perch-51:config' ) ).toBeNull();
+		expect( interpreter.makeNode( PerchSpyNode, 'tern-perch-51' ) ).toBe(
+			Core.node( 'tern-perch-51' )
+		);
+	} );
+
+	it( 'refuses a rename whose :config name is taken, renaming nothing', () => {
+		const interpreter = new CommandInterpreterNode();
+		const node = interpreter.makeNode( PerchSpyNode, 'tern-perch-61' );
+		interpreter.makeNode( Node, 'tern-perch-62:config' );
+
+		expect( () => {
+			node.name = 'tern-perch-62';
+		} ).toThrow( 'node name collision: tern-perch-62:config' );
+		expect( Core.node( 'tern-perch-61' ) ).toBe( node );
+		expect( Core.node( 'tern-perch-61:config' ) ).toBe( node.interpreter );
+	} );
+} );
+
 describe( 'a refusal replies TM_ERROR', () => {
 	// A machine consumer must tell refusal from success without parsing English.
 	it.each( [

@@ -23,16 +23,19 @@
  *
  * A page's shared link carries every stream graph on the page as sources,
  * `{ stamp, target }` records. Its views add theirs through `addSource()`,
- * which fans a stamp out to every view adding it. Its `:config` answers
- * `add_source` and `remove_source` with the PHP broker's rules instead: one
- * target per stamp, an identical repeat a no-op, and a removal naming no
- * declared source refused. It asks the server for the sources' stamps, and
- * hands each record to its stamp's Tee, the hidden sibling `<link>:<stamp>`,
- * whose targets are those of every source claiming the stamp, as
- * `Remote_Source::route()` hands one to its stamp's reader. A view pausing
- * parks its sources, which keep their claim and their places; one leaving
- * removes them and `forget`s their places. Every change in one tick joins one
- * reconnect.
+ * which fans a stamp out to every view adding it, so a stamp may go to
+ * several targets. Its `:config` answers `add_source` and `remove_source`
+ * by the PHP broker's rule instead, folding through the one `foldSource()`
+ * the console's TSL reader folds through: one target per stamp, an
+ * identical repeat a no-op, a removal naming no declared source refused,
+ * and a source a spoke cannot stream, one taking a kept slot or one naming
+ * `{partition}`, which no browser binds, refused. It asks the server for the
+ * sources' stamps, and hands each record to its stamp's Tee, the hidden
+ * sibling `<link>:<stamp>`, whose targets are those of every source claiming
+ * the stamp, as `Remote_Source::route()` hands one to its stamp's reader. A
+ * view pausing parks its sources, which keep their claim and their places;
+ * one leaving removes them and `forget`s their places. Every change in one
+ * tick joins one reconnect.
  *
  * Mirrors the PHP `Remote_Source_Node`, a patron owning an `SSE_In_Node` and an
  * `HTTP_Out_Node`. The durable offsetlog that distinguishes aggregation is a
@@ -49,27 +52,16 @@ import { TeeNode } from './tee-node';
 import { defaultTransport } from './command-transport';
 import { TO, TYPE, TM_COMMAND, TM_ERROR, TM_RESPONSE } from './message';
 import { anyCarries, isGlob } from './log-stamp';
-import { bindCommandArgs } from './command-args';
+import {
+	ADD_SOURCE,
+	REMOVE_SOURCE,
+	SOURCE_ARGS,
+	foldSource,
+} from './broker-sources';
 import names from './reserved-node-names.json';
 
 /** The sibling slot the link's SseIn takes, as PHP's `SSE_IN_KIND`. */
 const SSE_IN_KIND = 'sse-in';
-
-/** The two args `add_source` and `remove_source` bind, as PHP declares them. */
-const SOURCE_ARGS = [
-	{
-		name: 'remote_log',
-		type: 'string',
-		required: true,
-		description: 'A stamp or glob the stream carries.',
-	},
-	{
-		name: 'local_node',
-		type: 'string',
-		required: true,
-		description: 'The node its records go to.',
-	},
-];
 
 /**
  * A route the link carries: records stamped `stamp` go to `target`.
@@ -336,9 +328,9 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 
 	/**
 	 * Stop carrying a source and keep its claim, as a view pausing does: it
-	 * leaves the
-	 * Tees and the subscription as `removeSource()` has it leave, so the
-	 * `addSource()` that plays it resumes where its stamp's stream read to.
+	 * leaves the Tees and the subscription as `removeSource()` has it leave,
+	 * so the `addSource()` that plays it resumes where its stamp's stream
+	 * read to.
 	 *
 	 * @param {string} stamp  A stamp or glob; one not carried is ignored.
 	 * @param {string} target Its node path.
@@ -855,7 +847,7 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 	 * Console-palette entry. It borrows SseIn's argument list, since the
 	 * subscription is the one thing that configures both, and declares the
 	 * `add_source` and `remove_source` its `:config` answers, by the PHP
-	 * broker's rules.
+	 * broker's rule, `foldSource()`.
 	 *
 	 * @return {Object} The node schema.
 	 */
@@ -878,14 +870,12 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 			),
 			commands: [
 				sourceVerb(
-					'add_source',
-					'Route a stamp or glob to a local node. A repeat is a no-op; a second target for the stamp is refused.',
-					cmdAddSource
+					ADD_SOURCE,
+					'Route a stamp or glob to a local node. A repeat is a no-op; a second target for the stamp is refused.'
 				),
 				sourceVerb(
-					'remove_source',
-					'Stop routing a source add_source gave, named as add_source took it.',
-					cmdRemoveSource
+					REMOVE_SOURCE,
+					'Stop routing a source add_source gave, named as add_source took it.'
 				),
 			],
 		};
@@ -894,67 +884,36 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 
 /**
  * One of the two source verbs, declared as PHP's broker declares it, whose
- * handler binds its two args as `Command_Args::bind()` does and applies them
- * to the `:config`'s patron.
+ * bound args `foldSource()` judges over every source the link declares,
+ * parked or not, as a PHP broker folds its own, before the method applies
+ * them. An identical repeat changes nothing.
  *
- * @param {string}                                                 name        The verb.
- * @param {string}                                                 description What it does.
- * @param {(link:RemoteLinkNode,stamp:string,target:string)=>void} apply       What it calls.
+ * @param {string} name        `add_source` or `remove_source`.
+ * @param {string} description What it does.
  * @return {Object} The schema's command entry.
  */
-function sourceVerb( name, description, apply ) {
+function sourceVerb( name, description ) {
 	return {
 		name,
 		description,
 		args: SOURCE_ARGS,
 		// One call per source: the console renders a row each.
 		multiple: true,
-		handler: ( config, args ) => {
-			const bound = bindCommandArgs( SOURCE_ARGS, args );
-			apply( config.patron, bound.remote_log, bound.local_node );
+		handler: ( config, { remote_log: stamp, local_node: target } ) => {
+			const link = config.patron;
+			const declared = [ ...link.sources, ...link.parked ].map(
+				( r ) => ( { source: r.stamp, target: r.target } )
+			);
+			if (
+				foldSource( declared, name, stamp, target, null ) !== declared
+			) {
+				if ( ADD_SOURCE === name ) {
+					link.addSource( stamp, target );
+				} else {
+					link.removeSource( stamp, target );
+				}
+			}
 			return 'ok';
 		},
 	};
-}
-
-/**
- * `add_source`'s rule, the PHP broker's: a stamp the link declares, parked
- * or not, goes to one target, so an identical repeat changes nothing and a
- * second target is refused.
- *
- * @param {RemoteLinkNode} link   The `:config`'s patron.
- * @param {string}         stamp  A stamp or glob.
- * @param {string}         target The node path its records go to.
- * @throws {Error} Naming the target the stamp already goes to.
- */
-function cmdAddSource( link, stamp, target ) {
-	const declared = [ ...link.sources, ...link.parked ];
-	if ( holds( declared, stamp, target ) ) {
-		return;
-	}
-	const taken = declared.find( ( r ) => r.stamp === stamp );
-	if ( taken ) {
-		throw new Error(
-			`RemoteLink: add_source '${ stamp }' already goes to '${ taken.target }', not '${ target }'`
-		);
-	}
-	link.addSource( stamp, target );
-}
-
-/**
- * `remove_source`'s rule, the PHP broker's: a source the link does not
- * declare, parked or not, is refused as written.
- *
- * @param {RemoteLinkNode} link   The `:config`'s patron.
- * @param {string}         stamp  A stamp or glob.
- * @param {string}         target Its node path.
- * @throws {Error} Naming the source.
- */
-function cmdRemoveSource( link, stamp, target ) {
-	if ( ! holds( [ ...link.sources, ...link.parked ], stamp, target ) ) {
-		throw new Error(
-			`RemoteLink: remove_source '${ stamp }' '${ target }' names no source this link declares`
-		);
-	}
-	link.removeSource( stamp, target );
 }

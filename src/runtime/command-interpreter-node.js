@@ -11,6 +11,7 @@
  */
 
 import { isCommandAsk, isCommandStruct, markLocal } from './command-auth';
+import { bindCommandArgs } from './command-args';
 import { Node } from './node';
 import { TeeNode } from './tee-node';
 import { TapNode } from './tap-node';
@@ -422,8 +423,10 @@ export class CommandInterpreterNode extends Node {
 	 * Build `node`'s `:config`, the twin of PHP `auto_wire_interpreter()`: an
 	 * interpreter answering the verbs its schema declares with a handler and
 	 * no others, in the node's own table, patroned by it and sinking where it
-	 * sinks, so a reply goes back TO its asker. A node declaring none gets
-	 * none.
+	 * sinks, so a reply goes back TO its asker. A verb declaring `args` has
+	 * its tokens bound by `bindCommandArgs()` before its handler runs, as
+	 * PHP's `dispatch()` binds them (ADR-25); one declaring none gets its
+	 * tokens. A node declaring no verb gets no `:config`.
 	 *
 	 * @param {Node} node A named node.
 	 */
@@ -432,7 +435,17 @@ export class CommandInterpreterNode extends Node {
 		const verbs = Object.fromEntries(
 			( ctor.nodeSchema?.().commands ?? [] )
 				.filter( ( verb ) => 'function' === typeof verb.handler )
-				.map( ( verb ) => [ verb.name, verb.handler ] )
+				.map( ( verb ) => [
+					verb.name,
+					verb.args
+						? ( config, args, envelope ) =>
+								verb.handler(
+									config,
+									bindCommandArgs( verb.args, args ),
+									envelope
+								)
+						: verb.handler,
+				] )
 		);
 		if ( 0 === Object.keys( verbs ).length ) {
 			return;

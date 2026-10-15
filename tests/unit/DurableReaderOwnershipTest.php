@@ -107,7 +107,7 @@ class DurableReaderOwnershipTest extends TestCase {
 
 	/**
 	 * A reader the broker builds is owned by the broker's choice, which asked
-	 * `owns()` of the pair, so it reads on any partition.
+	 * `owns()` of the source, so it reads on any partition.
 	 */
 	public function test_off_partition_zero_a_brokers_reader_is_owned(): void {
 		$reader = $this->built( Remote_Consumer_Node::class, 'pull:firehose.p0', [ 'firehose.p0', "{$this->tmp}/pull-off/firehose.p0", "{$this->tmp}/pull-dead/firehose.p0" ], 6 );

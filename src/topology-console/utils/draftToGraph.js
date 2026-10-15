@@ -22,6 +22,11 @@
  * says, so they are not something the draft knows.
  */
 
+import {
+	ADD_SOURCE,
+	REMOVE_SOURCE,
+	foldSource,
+} from '../../runtime/broker-sources';
 import { bindCommandArgs } from '../../runtime/command-args';
 import { DraftInterpreterNode } from '../../runtime/draft-interpreter-node';
 import { targetsOf } from '../../runtime/node';
@@ -52,12 +57,6 @@ function invocation( inv ) {
 	};
 }
 
-/** The verb a broker's `:config` takes a source by. */
-const ADD_SOURCE = 'add_source';
-
-/** The verb a broker's `:config` gives a source back by. */
-const REMOVE_SOURCE = 'remove_source';
-
 /**
  * The value a span holds, as the runtime reads it: a quoted span unquoted.
  *
@@ -72,11 +71,11 @@ function valueOf( span ) {
  * The sources a node's `add_source` and `remove_source` lines leave, as
  * written and in order: a broker's, or a Vault_Group's, which the group
  * forwards to its child class. Each line is bound as its verb binds it and
- * judged as PHP `Remote_Broker_Node::sources_of()` judges it, held to it by
- * `tests/fixtures/broker-sources.json`: an identical repeat, a second target
- * for a source, a removal naming no declared source and a line the binder
- * refuses each change nothing, and so does every line on a class whose
- * catalog entry declares neither verb.
+ * folded by `foldSource()` at partition 0, the one rule the link's verbs
+ * and PHP `Remote_Broker_Node::fold_source()` apply. Where the load refuses
+ * a line, and the analyzer the whole topology, this reader skips that line
+ * and folds on, so a draft mid-edit keeps drawing; a class whose catalog
+ * entry declares neither verb draws nothing.
  *
  * @param {string}        className   The node's shell class.
  * @param {Array<string>} spans       Its constructor arguments, as written.
@@ -89,7 +88,7 @@ function sourcesOf( className, spans, invocations, catalog ) {
 		'Vault_Group' === className ? valueOf( spans[ 0 ] ?? '' ) : className;
 	const verbs =
 		catalog.find( ( c ) => c.shell_name === verbClass )?.commands ?? [];
-	const sources = [];
+	let sources = [];
 	for ( const inv of invocations ) {
 		const verb = [ ADD_SOURCE, REMOVE_SOURCE ].includes( inv.verb )
 			? verbs.find( ( c ) => c.name === inv.verb )
@@ -97,22 +96,17 @@ function sourcesOf( className, spans, invocations, catalog ) {
 		if ( ! inv.viaConfig || ! verb ) {
 			continue;
 		}
-		let bound;
 		try {
-			bound = bindCommandArgs( verb.args, inv.args.map( valueOf ) );
+			const bound = bindCommandArgs( verb.args, inv.args.map( valueOf ) );
+			sources = foldSource(
+				sources,
+				inv.verb,
+				bound.remote_log,
+				bound.local_node,
+				0
+			);
 		} catch {
-			continue;
-		}
-		const at = sources.findIndex( ( s ) => s.source === bound.remote_log );
-		if ( REMOVE_SOURCE !== inv.verb ) {
-			if ( -1 === at ) {
-				sources.push( {
-					source: bound.remote_log,
-					target: bound.local_node,
-				} );
-			}
-		} else if ( -1 !== at && sources[ at ].target === bound.local_node ) {
-			sources.splice( at, 1 );
+			// The load refuses this line; the rest still draw.
 		}
 	}
 	return sources;

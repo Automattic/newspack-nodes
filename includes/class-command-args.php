@@ -332,4 +332,22 @@ class Command_Args {
 		}
 		return $tokens;
 	}
+
+	/**
+	 * The refusal of a removal naming nothing its add gave, in the one wording
+	 * every remove verb refuses with: `<verb> '<arg>'… names no <noun> this
+	 * <holder> declares`, each argument quoted as given. The browser's
+	 * `foldSource()` spells its removal the same.
+	 *
+	 * @param string       $verb   The removal verb.
+	 * @param list<string> $args   Its arguments, as given.
+	 * @param string       $noun   What the add verb gives, e.g. `source`.
+	 * @param string       $holder What declares it, e.g. `node`.
+	 * @return \InvalidArgumentException For the caller to throw.
+	 */
+	public static function undeclared( string $verb, array $args, string $noun, string $holder ): \InvalidArgumentException {
+		$quoted = \implode( ' ', \array_map( static fn ( string $arg ): string => "'{$arg}'", $args ) );
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
+		return new \InvalidArgumentException( "{$verb} {$quoted} names no {$noun} this {$holder} declares" );
+	}
 }

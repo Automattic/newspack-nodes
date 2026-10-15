@@ -11,6 +11,27 @@
 /** `Log_Discovery::REMOTE_PREFIX`: a spoke's log is `remote:<vault_id>:<stamp>`. */
 const REMOTE_PREFIX = 'remote';
 
+/** `Log_Discovery::READER_GROUPS`: the roots a broker reader's dir sits under. */
+const READER_GROUPS = [ 'offsets', 'deadletter' ];
+
+/** `Log_Discovery::SOURCES_PREFIX`: a registry entry is `sources:<name>`. */
+const SOURCES_PREFIX = 'sources';
+
+/** `Log_Discovery::STAMP_PREFIXES`: what may precede a stamp's first `:`. */
+const STAMP_PREFIXES = [ ...READER_GROUPS, SOURCES_PREFIX ];
+
+/**
+ * `Log_Discovery::MAX_STAMP_BYTES`: NAME_MAX, the longest dir name. A stamp
+ * either check admits is ASCII, so its `length` counts its bytes.
+ */
+const MAX_STAMP_BYTES = 255;
+
+/** `Log_Sources::NAME_PATTERN`: a log's or a source's name. */
+const NAME_PATTERN = /^[a-z0-9_-][a-z0-9_.-]*$/;
+
+/** `Log_Discovery::ROOT_PATTERN`: a broker root's name. */
+const ROOT_PATTERN = /^[A-Za-z0-9_-][A-Za-z0-9_.-]*$/;
+
 /**
  * Split a streamed record's FROM into its stamp and the trail after it. The
  * stamp is the first segment by position alone: every segment after it is a
@@ -34,6 +55,94 @@ export function splitStamp( from ) {
  */
 export function isGlob( sub ) {
 	return sub.includes( '*' );
+}
+
+/**
+ * A stamp's group and the rest, as PHP `Log_Discovery::split()` cuts it: at
+ * its first `:` when one of `STAMP_PREFIXES` precedes it, else a `logs` name
+ * whole.
+ *
+ * @param {string} stamp A stamp, or a subscription glob.
+ * @return {[string,string]} The group, then the rest.
+ */
+function split( stamp ) {
+	const at = stamp.indexOf( ':' );
+	return -1 !== at && STAMP_PREFIXES.includes( stamp.slice( 0, at ) )
+		? [ stamp.slice( 0, at ), stamp.slice( at + 1 ) ]
+		: [ 'logs', stamp ];
+}
+
+/**
+ * Whether a string fits `MAX_STAMP_BYTES` and matches `pattern` with no
+ * `..` in it: a name, as `Log_Sources::is_valid_name()` reads one, or a
+ * broker root.
+ *
+ * @param {string} name    A candidate name.
+ * @param {RegExp} pattern The pattern it must match whole.
+ * @return {boolean} True when it names one dir.
+ */
+function fits( name, pattern ) {
+	return (
+		name.length <= MAX_STAMP_BYTES &&
+		! name.includes( '..' ) &&
+		pattern.test( name )
+	);
+}
+
+/**
+ * Whether a string is a stamp a record may carry, as PHP
+ * `Log_Discovery::is_stamp()` reads one: a `logs` or `sources:` name, or
+ * under a reader group such a name or a broker reader's `<root>:<stamp>`,
+ * each part within `MAX_STAMP_BYTES` and the whole too.
+ *
+ * @param {string} stamp A candidate stamp.
+ * @return {boolean} True when it names one dir and nothing above it.
+ */
+function isStamp( stamp ) {
+	const [ group, rest ] = split( stamp );
+	const at = READER_GROUPS.includes( group ) ? rest.indexOf( ':' ) : -1;
+	if ( -1 !== at ) {
+		return (
+			fits( rest.slice( 0, at ), ROOT_PATTERN ) &&
+			fitsADirName( rest.slice( at + 1 ) )
+		);
+	}
+	return stamp.length <= MAX_STAMP_BYTES && fits( rest, NAME_PATTERN );
+}
+
+/**
+ * Whether a stamp may name a dir of its own, as PHP
+ * `Log_Discovery::fits_a_dir_name()` reads one: a stamp within
+ * `MAX_STAMP_BYTES` whole, as a broker reader's dir, named the stamp it
+ * reads, must be.
+ *
+ * @param {string} stamp A candidate stamp.
+ * @return {boolean} True when it may name a dir.
+ */
+export function fitsADirName( stamp ) {
+	return stamp.length <= MAX_STAMP_BYTES && isStamp( stamp );
+}
+
+/**
+ * Whether a spoke would open a subscription, as PHP
+ * `Log_Discovery::is_subscription()` reads one: a stamp, or a glob whose
+ * rest is one name once each `*` stands for a name character, opening with
+ * no `*` and none under `sources:`.
+ *
+ * @param {string} sub A candidate subscription.
+ * @return {boolean} True when the spoke would resolve it.
+ */
+export function isSubscription( sub ) {
+	if ( ! isGlob( sub ) ) {
+		return isStamp( sub );
+	}
+	const [ group, rest ] = split( sub );
+	return (
+		sub.length <= MAX_STAMP_BYTES &&
+		SOURCES_PREFIX !== group &&
+		! rest.startsWith( '*' ) &&
+		fits( rest.replaceAll( '*', 'a' ), NAME_PATTERN )
+	);
 }
 
 /** Each glob subscription `carries()` has met, compiled once. */

@@ -390,10 +390,10 @@ class Topology_Analyzer {
 					continue;
 				}
 				self::draw_command( $edges, $sent, $node_name, [ $inner_verb, $args ], [ $name ] );
-				if ( isset( $brokers[ $node_name ] ) ) {
-					$nodes[ $index[ $node_name ] ]['sources'] = $brokers[ $node_name ]::sources_of( $sent[ $node_name ]['commands'] );
-				}
 			}
+		}
+		foreach ( $brokers as $node_name => $broker ) {
+			$nodes[ $index[ $node_name ] ]['sources'] = $broker::sources_of( $sent[ $node_name ]['commands'] ?? [] );
 		}
 		return self::$graph_cache[ $name ] = [
 			'nodes' => $nodes,
@@ -609,7 +609,7 @@ class Topology_Analyzer {
 
 	/**
 	 * Add `$origins` to one role of an edge, creating the edge: `connect` for a
-	 * `connect_node`, `pair` for a broker's pair.
+	 * `connect_node`, `pair` for a destination a class declares.
 	 *
 	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>,pair: list<string>}}> $edges Edge-state map, by reference.
 	 * @param string           $source  Source node.

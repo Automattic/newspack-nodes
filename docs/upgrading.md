@@ -6,6 +6,17 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **Deploy this release, newspack-event-logger-nodes at its 2.110.0 floor
+  and newspack-intelligence rebuilt against it in ONE deploy.** The handshake
+  holds only one way: a consumer whose floor is below 2.110.0 passes it and
+  then breaks. Event-logger-nodes 0.132.x (floor 2.109.0) on this substrate
+  ships an `aggregator.tsl` still carrying pairs, which `make_node` refuses,
+  so the topology reads as unreadable and the hub stops pulling its spokes;
+  its bundled `useStreamGraph` calls `addPairs()`, which the page's `_stream`
+  link no longer has. Intelligence's bundle calls `addSource()`. Deploying
+  the substrate first leaves those consumers broken for as long as the gap
+  lasts, and deploying them first leaves them dormant behind their floor.
+
 - **A broker takes its sources by `add_source`, never as arguments.**
   `make_node Remote_Source <name> <vault_id> <offsetlog_root>
   <deadletter_root>` takes exactly those three after the name, and
@@ -16,7 +27,14 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   or on the `Vault_Group` building it. A source goes to one target: a second
   `add_source` naming a declared source with another target is refused, and
   an identical repeat is a no-op. `remove_source <source> <target>` takes a
-  declared source back.
+  declared source back. A line the load refuses — a second target, a
+  removal naming no declared source, a source no spoke can stream or one
+  taking a slot the broker keeps — makes the analyzer read the whole
+  topology as unreadable: no worker spawns for it, and `wp nodes doctor`
+  reports it critical, rather than a worker refusing it on every respawn.
+  `wp nodes activate` still writes the option before the spawn pass
+  raises, so fix the line and activate again. A memberless
+  `Vault_Group` refuses the same line its first member would.
 
   ```
   # before
@@ -44,9 +62,28 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 - **`Node::command_targets( $commands )` is new**, the verb twin of
   `declared_targets()`: a class answers the destinations the ordered list of
-  verbs sent to its `:config` leaves. `Topology_Analyzer::graph_for()` and
-  `expand()` name a broker's accepted sources under `sources`, where
-  `graph_for()` named them `pairs`.
+  verbs sent to its `:config` leaves, and throws on a command the verb
+  refuses. `Topology_Analyzer::graph_for()` and `expand()` name a broker's
+  accepted sources under `sources`, where `graph_for()` named them `pairs`.
+  `Remote_Broker_Node::fold_source()` is the one source rule, which the
+  runtime verbs, `sources_of()` and the browser's `foldSource()` apply.
+
+- **A source refusal names no class, and every removal speaks one family.**
+  `add_source` refuses `add_source '<source>' names a source no spoke can
+  stream`, `… names a slot the node keeps for its own` and `… already goes
+  to '<target>', not '<other>'`, where each opened with `Remote_Source: `.
+  A removal naming nothing refuses `<verb> '<arg>'… names no <noun> this
+  <holder> declares`: `remove_source` says `this node`, where it said `this
+  broker`, and a declarative list's `remove_<noun>` says `names no <noun>
+  this node declares`, where it said `names no entry add_<noun> gave`. A
+  test or a caller matching the old words changes them.
+
+- **A declarative list's identical repeat is a no-op.** `add_<noun>` from
+  `Schema_Reflection::list_verbs()` keeps one entry per value, as
+  `add_source`, `add_setting` and `add_snapshot_node` do, where it kept a
+  duplicate; `remove_<noun>` drops that entry. A `Vault_Group`, which
+  records a repeat of its latest command once, then rebuilds a child holding
+  what its live children hold.
 
 - **A `Vault_Group` records its commands in the order sent.** A command that
   changed a child's configuration is recorded and replayed in sequence, so
@@ -59,10 +96,13 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   becomes `removeSource( stamp, target )`, `parkPairs()` becomes
   `parkSource( stamp, target )`, and `link.pairs` becomes `link.sources`, a
   list of `{ stamp, target }`. `splitPair()` is gone. A link's `:config`
-  answers `add_source` and `remove_source <remote_log> <local_node>`, which
-  `src/runtime/command-args.js` binds as the PHP verbs bind them
-  (`bindCommandArgs()`), and `make_node` gives a `:config` to any browser
-  node whose schema declares a verb with a handler.
+  answers `add_source` and `remove_source <remote_log> <local_node>`,
+  judged by `foldSource()` in `src/runtime/broker-sources.js` as a PHP
+  broker judges them, and `make_node` gives a `:config` to any browser node
+  whose schema declares a verb with a handler. That `:config` binds a
+  verb's declared `args` through `bindCommandArgs()` before its handler
+  runs, as PHP's `dispatch()` does, so a handler reads them by name, and a
+  rename of the node renames its `:config` with it.
 
 - **`Bootstrap::on_demand_wake_map()` is removed.** Call
   `Bootstrap::readable_wake_map()`, which answers `[ $map, $unreadable ]`:

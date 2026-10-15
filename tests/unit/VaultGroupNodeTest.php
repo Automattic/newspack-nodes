@@ -146,6 +146,29 @@ final class Knob_Spy_Node extends Node {
 	}
 }
 
+/** A child holding one declarative list, `add_perch` / `remove_perch`. */
+final class Perch_List_Node extends Node {
+	use Schema_Reflection;
+
+	/** @var list<string> What `add_perch` gave. */
+	public array $perches = [];
+
+	public function __construct() {
+		parent::__construct();
+		$this->auto_wire_interpreter();
+	}
+
+	public function dump_config(): string {
+		return parent::dump_config() . $this->dump_lists();
+	}
+
+	public static function node_schema(): array {
+		return [
+			'commands' => self::list_verbs( 'perch', 'perches', [ 'name' => 'perch', 'type' => 'string', 'required' => true ], 'Add a perch.' ),
+		] + parent::node_schema();
+	}
+}
+
 #[CoversClass( Vault_Group_Node::class )]
 final class VaultGroupNodeTest extends TestCase {
 
@@ -457,6 +480,38 @@ final class VaultGroupNodeTest extends TestCase {
 
 		$this->assertSame( [ 'edge:tw0', 'edge:tw9' ], \array_keys( $answers ) );
 		$this->assertStringNotContainsString( 'peek', $group->dump_config(), 'a command that changes no child dump records nothing' );
+	}
+
+	/** A list add repeated, then removed, leaves a live child and a rebuilt one alike. */
+	public function test_a_repeated_list_add_then_its_remove_leaves_a_rebuilt_child_as_the_live_ones(): void {
+		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\Unit\\' );
+		$group = ( new Command_Interpreter_Node() )->make_node( 'Vault_Group', 'perches', 'Perch_List', 'tw-edge' );
+		foreach ( [ 'add_perch', 'add_perch', 'remove_perch' ] as $verb ) {
+			$group->interpreter()->dispatch( $verb, [ 'osprey-3' ] );
+		}
+
+		Vault::get_instance()->add( 'tw5', [ 'url' => 'https://tw5.example', 'group' => 'tw-edge' ] );
+		$group->update_graph();
+
+		$this->assertSame( [], Core::node( 'perches:tw0' )->perches );
+		$this->assertSame( [], Core::node( 'perches:tw5' )->perches );
+	}
+
+	/** A group with no member yet refuses a source its child class would refuse, and records nothing. */
+	public function test_an_empty_group_refuses_a_source_its_children_would_refuse(): void {
+		$offsets = Config::get_offsets_directory();
+		$base    = \rtrim( Config::get_base_directory(), '/' );
+		$group   = ( new Command_Interpreter_Node() )->make_node( 'Vault_Group', 'pull', 'Remote_Source', 'arrives-later', "{$offsets}/pull.{id}", "{$base}/deadletter/pull.{id}" );
+		$group->interpreter()->dispatch( 'add_source', [ 'egret.p6', 'heron-4471' ] );
+
+		try {
+			$group->interpreter()->dispatch( 'add_source', [ 'egret.p6', 'kite-2290' ] );
+			$this->fail( 'expected the second target to be refused' );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertSame( "add_source 'egret.p6' already goes to 'heron-4471', not 'kite-2290'", \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) );
+		}
+		$this->assertSame( [ 'heron-4471' ], $group->display_targets() );
+		$this->assertStringNotContainsString( 'kite-2290', $group->dump_config() );
 	}
 
 	public function test_a_verb_sent_to_an_empty_group_is_recorded_once(): void {
