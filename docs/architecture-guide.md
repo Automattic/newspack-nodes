@@ -665,7 +665,7 @@ $ef->stop_check();                        // …the same decision, unthrottled
 $ef->start_curl( $owner, $opts, $context ); // make, attach and hold a handle; null on failure
 $ef->register_curl_easy( $owner, $easy, $context ); // re-attach one already made
 $ef->unregister_curl_easy( $easy );       // detach and drop its record
-$ef->release_curl( $owner ): int;         // every handle one owner holds
+$ef->release_curl( $owner );              // every handle one owner holds
 $ef->handles_of( $owner ): array;         // those handles, in start order
 $ef->curl_handles();              // per-node rows for `list_handles`
 $ef->install_signal_handlers();   // SIGTERM/SIGINT -> Core::$shutting_down

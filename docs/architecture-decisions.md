@@ -200,7 +200,7 @@ TM_ERROR, queueing nothing. [`HTTP_Out_Node`](../includes/class-http-out-node.ph
 by time alone: each flush tick starts its own POST, so several may be in flight to one
 spoke at once, each bounded by `REQUEST_TIMEOUT`. A transfer still in flight at stop is
 lost: [`Curl_Transfer::release_all()`](../includes/trait-curl-transfer.php) releases every
-handle and logs one rate-limited line counting the transfers it discarded. A cursor upstream
+handle, silently, because a stop is a planned exit such as a worker's lifetime ending. A cursor upstream
 has already advanced past the message that started it, so durability belongs upstream of such
 a node — a producer that must not lose a fetch writes it to a log and replays what it never
 saw answered. The revisit condition above stands for every other node; for a window-holding

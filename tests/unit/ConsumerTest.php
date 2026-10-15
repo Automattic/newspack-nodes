@@ -4194,19 +4194,14 @@ class ConsumerTest extends TestCase {
 		$c->sink( $cap );
 
 		// Park cursor at NEWEST segment, off=size so nothing to read.
-		$ref      = new \ReflectionClass( $c );
-		$seg_prop = $ref->getProperty( 'cursor_segment' );
-		$off_prop = $ref->getProperty( 'cursor_offset' );
-
 		$newest = \end( $segments );
-		$seg_prop->setValue( $c, (int) $newest['id'] );
-		$off_prop->setValue( $c, (int) $newest['size'] );
+		$c->next_offset( [ 'segment' => (int) $newest['id'], 'offset' => (int) $newest['size'] ] );
 
 		$c->poll();
 
 		$this->assertCount( 0, $cap->captured, 'no new bytes → no emissions' );
 		// at_eof should be true after poll.
-		$at_eof_prop = $ref->getProperty( 'at_eof' );
+		$at_eof_prop = ( new \ReflectionClass( $c ) )->getProperty( 'at_eof' );
 		$this->assertTrue( $at_eof_prop->getValue( $c ) );
 	}
 
@@ -4872,6 +4867,29 @@ class ConsumerTest extends TestCase {
 		$c->poll();
 
 		$this->assertSame( [ 'OFFSET 0:0 DISTANCE 13', "gunwale 4481\n" ], $this->values_in( "{$this->tmp}/deadletter.p0" ) );
+	}
+
+	/** The start, sought or taken by default, is the oldest segment left. */
+	public function test_a_seek_to_the_start_serves_the_oldest_segment_without_a_rewind(): void {
+		$dir = "{$this->tmp}/bilge-3306.p0";
+		\mkdir( $dir, 0755, true );
+		\file_put_contents( "{$dir}/3.log", "keel 3301\n" );
+		\file_put_contents( "{$dir}/6.log", "stern 6601\n" );
+		foreach ( [ 'start', Consumer_Node::SEEK_START, 'none' ] as $seek ) {
+			$c = Consumer_Node::scan( $dir );
+			$c->set_stamp_as( 'bilge-3306.p0' );
+			$c->set_raw_blocks( true );
+			$c->sink( new Capture_Sink_Node() );
+			if ( 'none' !== $seek ) {
+				$c->next_offset( $seek );
+			}
+			$errors = $this->capture_stderr();
+
+			$block = $c->raw_block( 1048576 );
+
+			$this->assertSame( [ 3, 0, false ], [ $block['segment'], $block['offset'], $block['reset'] ], "seek {$seek}" );
+			$this->assertStringNotContainsString( 'served past deleted segments', \implode( '', (array) $errors ), "seek {$seek}" );
+		}
 	}
 
 	/** Each rewind past deleted segments prints, naming where it landed. */

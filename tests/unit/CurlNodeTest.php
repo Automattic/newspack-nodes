@@ -411,7 +411,11 @@ class CurlNodeTest extends TestCase {
 		$this->assertSame( [], $lines, 'the TM_ERROR is the one report' );
 	}
 
-	public function test_remove_node_counts_the_transfers_it_discards(): void {
+	/**
+	 * A teardown releases every transfer still in flight without a word: it
+	 * is a planned exit, and the crawler requeues what it left in flight.
+	 */
+	public function test_remove_node_releases_its_transfers_in_flight_silently(): void {
 		$lines = [];
 		Core::set_stderr_handler( static function ( $line ) use ( &$lines ): void {
 			$lines[] = $line;
@@ -419,22 +423,12 @@ class CurlNodeTest extends TestCase {
 		$node = $this->curl();
 		$this->fetch( $node, $this->url_message( 'http://lost.example:8090/a-91' ) );
 		$this->fetch( $node, $this->url_message( 'http://lost.example:8090/b-92' ) );
+		$this->assertSame( 2, $node->transfers_in_flight() );
 
 		$node->remove_node();
 
-		$discards = \array_values( \array_filter( $lines, static fn ( string $line ): bool => \str_contains( $line, 'in flight' ) ) );
-		$this->assertCount( 1, $discards );
-		$this->assertStringContainsString( 'discarding 2 transfers in flight', $discards[0] );
-	}
-
-	public function test_remove_node_with_nothing_in_flight_logs_nothing(): void {
-		$lines = [];
-		Core::set_stderr_handler( static function ( $line ) use ( &$lines ): void {
-			$lines[] = $line;
-		} );
-
-		$this->curl()->remove_node();
-
+		$this->assertSame( 0, $node->transfers_in_flight() );
+		$this->assertSame( [], \Newspack_Nodes\Event_Framework::instance()->handles_of( $node ) );
 		$this->assertSame( [], $lines );
 	}
 

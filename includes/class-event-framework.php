@@ -444,14 +444,11 @@ class Event_Framework {
 	 * Release every handle one node holds — its teardown, or a stop.
 	 *
 	 * @param Node $owner The node whose transfers go.
-	 * @return int How many were released.
 	 */
-	public function release_curl( Node $owner ): int {
-		$handles = $this->handles_of( $owner );
-		foreach ( $handles as $easy ) {
+	public function release_curl( Node $owner ): void {
+		foreach ( $this->handles_of( $owner ) as $easy ) {
 			$this->unregister_curl_easy( $easy );
 		}
-		return \count( $handles );
 	}
 
 	/**
