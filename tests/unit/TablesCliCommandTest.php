@@ -166,7 +166,7 @@ final class TablesCliCommandTest extends TestCase {
 		$reader->sink(
 			new Callback_Node(
 				function ( array $command ) use ( $replies, $answers ): void {
-					$this->assertTrue( Command_Auth::verify( $command ), 'the CLI signs what it sends a worker' );
+					$this->assertTrue( Command_Auth::verify( $command, \time(), \time() ), 'the CLI signs what it sends a worker' );
 					$verb             = Core::as_string( $command[ Message::VALUE ]['name'] );
 					$this->answered[] = Core::as_string( $command[ Message::TO ] ) . " {$verb}";
 					$this->asked_from[] = Core::as_string( $command[ Message::FROM ] );

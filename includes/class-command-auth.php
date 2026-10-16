@@ -32,8 +32,9 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 /**
- * Static signer and verifier — no instance state, so a Shell, a worker or a
- * REST handler reaches it without wiring a node.
+ * Static signer and verifier, so a Shell, a worker or a REST handler reaches
+ * it without wiring a node. Its one instance is a `/command` batch, bound
+ * into the closure `batch_verifier()` answers.
  *
  * @phpstan-type Session_Record array{key:string,scope:string,user:int,ttl:int,label:string,created:int}
  */
@@ -124,15 +125,11 @@ class Command_Auth {
 	private static ?Table_Node $table = null;
 
 	/**
-	 * The sessions the current batch has read, by handle; `batch_verifier()`
-	 * empties it as each batch begins.
+	 * The sessions one batch has read, by handle.
 	 *
 	 * @var array<string,Session_Record|null>
 	 */
-	private static array $batch = [];
-
-	/** The clock a batch began at; every command in it verifies against it. */
-	private static ?int $batch_now = null;
+	private array $read = [];
 
 	/**
 	 * Expired session rows one mint deletes. No worker's tick purges a Table
@@ -141,6 +138,14 @@ class Command_Auth {
 	 * a backlog left while nothing minted.
 	 */
 	private const SESSION_PURGE_ROWS = 64;
+
+	/**
+	 * One batch, the instance a `batch_verifier()` closure is bound to.
+	 *
+	 * @param int $arrival When the batch arrived; every command in it is judged fresh against it.
+	 */
+	private function __construct( private readonly int $arrival ) {
+	}
 
 	/**
 	 * Stamp an `auth` envelope onto a command Message's VALUE, under the
@@ -335,6 +340,26 @@ class Command_Auth {
 	}
 
 	/**
+	 * Authorize closure for ONE batch of commands, the `/command` POST, bound
+	 * to the batch it builds: that batch holds its arrival, the clock read
+	 * here, and the sessions it has read, so k commands under one handle cost
+	 * one read and a batch begun beside it touches neither. Every command's freshness is judged at
+	 * that arrival: the commands dispatch one after another, so against the
+	 * clock at each one's turn a slow verb would age the commands behind it
+	 * past MAX_PAST_S. The wall clock at its turn still bounds a command: one
+	 * reached BATCH_MAX_AGE_S (140 s) or more after it was signed is refused,
+	 * because its nonce claim, taken at the first verification, lasts
+	 * NONCE_TTL_S. Build one per batch, never one per process, or a revoke
+	 * would not bite until the process ends and every signature would age
+	 * against one stale clock.
+	 *
+	 * @return \Closure(Command_Interpreter_Node, array<int,mixed>): bool
+	 */
+	public static function batch_verifier(): \Closure {
+		return ( new self( (int) Core::right_now() ) )->authorize_batch( ... );
+	}
+
+	/**
 	 * Authorize closure for a process that verifies commands one at a time: a
 	 * worker, or the SSE stream. Each session is read afresh, so a revoke
 	 * bites the next command.
@@ -343,27 +368,6 @@ class Command_Auth {
 	 */
 	public static function verifier(): \Closure {
 		return \Closure::fromCallable( [ self::class, 'authorize_command' ] );
-	}
-
-	/**
-	 * Authorize closure for ONE batch of commands, the `/command` POST: each
-	 * session is read once until the next batch begins, so k commands under
-	 * one handle cost one read, and every command verifies its timestamp
-	 * against the clock read here, the batch's arrival. The commands dispatch
-	 * one after another, so against the clock at each one's turn a slow verb
-	 * would age the commands behind it past MAX_PAST_S. The wall clock still
-	 * bounds a batch: a command whose turn comes BATCH_MAX_AGE_S (140 s) or
-	 * more after it was signed is refused, because its nonce claim, taken at the
-	 * first verification, lasts NONCE_TTL_S. Build one per batch, never one
-	 * per process, or a revoke would not bite until the process ends and
-	 * every signature would age against one stale clock.
-	 *
-	 * @return \Closure(Command_Interpreter_Node, array<int,mixed>): bool
-	 */
-	public static function batch_verifier(): \Closure {
-		self::$batch     = [];
-		self::$batch_now = (int) Core::right_now();
-		return \Closure::fromCallable( [ self::class, 'authorize_batch' ] );
 	}
 
 	/** Clamp a requested lifetime into [SESSION_TTL_MIN_S, SESSION_TTL_MAX_S]. */
@@ -403,6 +407,32 @@ class Command_Auth {
 	}
 
 	/**
+	 * `authorize_command()` for this batch: each session through the batch's
+	 * own reads, freshness judged at its arrival and bounded by the wall
+	 * clock at the command's turn.
+	 *
+	 * @param Command_Interpreter_Node $interpreter Node handling the command.
+	 * @param array<int,mixed>         $message     Command to authorize.
+	 */
+	private function authorize_batch( Command_Interpreter_Node $interpreter, array $message ): bool {
+		return isset( $message[ Message::LOCAL ] )
+			|| self::verify( $message, $this->arrival, (int) Core::right_now(), $interpreter, $this->batch_record( ... ) );
+	}
+
+	/**
+	 * The session a handle names, read once a batch.
+	 *
+	 * @param string $handle Session handle.
+	 * @return Session_Record|null
+	 */
+	private function batch_record( string $handle ): ?array {
+		if ( ! \array_key_exists( $handle, $this->read ) ) {
+			$this->read[ $handle ] = self::load_session_record( $handle );
+		}
+		return $this->read[ $handle ];
+	}
+
+	/**
 	 * The verifier policy: accept an in-process (LOCAL) command, else require a
 	 * valid HMAC. Named (not an inline closure) so its int-keyed Message type is
 	 * honored end-to-end.
@@ -418,42 +448,11 @@ class Command_Auth {
 	 * @param array<int,mixed>         $message     Command to authorize.
 	 */
 	private static function authorize_command( Command_Interpreter_Node $interpreter, array $message ): bool {
-		return isset( $message[ Message::LOCAL ] )
-			|| self::verify( $message, null, $interpreter );
-	}
-
-	/**
-	 * `authorize_command()`, resolving each session through the batch's own
-	 * reads and judging freshness at the batch's arrival, after refusing a
-	 * command BATCH_MAX_AGE_S old or older on the wall at its own turn.
-	 *
-	 * @param Command_Interpreter_Node $interpreter Node handling the command.
-	 * @param array<int,mixed>         $message     Command to authorize.
-	 */
-	private static function authorize_batch( Command_Interpreter_Node $interpreter, array $message ): bool {
 		if ( isset( $message[ Message::LOCAL ] ) ) {
 			return true;
 		}
-		$ts = $message[ Message::TIMESTAMP ] ?? null;
-		if ( \is_numeric( $ts ) && (int) Core::right_now() - (int) $ts >= self::BATCH_MAX_AGE_S ) {
-			$interpreter->drop_message( $message, self::STALE );
-			Capabilities::$session_scope = Capabilities::NONE;
-			return false;
-		}
-		return self::verify( $message, self::$batch_now, $interpreter, self::batch_record( ... ) );
-	}
-
-	/**
-	 * The session a handle names, read once a batch.
-	 *
-	 * @param string $handle Session handle.
-	 * @return Session_Record|null
-	 */
-	private static function batch_record( string $handle ): ?array {
-		if ( ! \array_key_exists( $handle, self::$batch ) ) {
-			self::$batch[ $handle ] = self::load_session_record( $handle );
-		}
-		return self::$batch[ $handle ];
+		$now = \time();
+		return self::verify( $message, $now, $now, $interpreter );
 	}
 
 	/**
@@ -468,18 +467,19 @@ class Command_Auth {
 	 * replayed nonce.
 	 *
 	 * @param array<int,mixed>              $message     Message to verify.
-	 * @param int|null                      $now         Verification time; defaults to time().
+	 * @param int                           $now         When the command arrived, a batch's arrival.
+	 * @param int                           $turn        The wall clock at the command's turn.
 	 * @param Command_Interpreter_Node|null $interpreter Node to log a refusal through.
 	 * @param (\Closure(string): (Session_Record|null))|null $load
 	 *        The session a handle names; null reads it from the store.
 	 */
-	public static function verify( array $message, ?int $now = null, ?Command_Interpreter_Node $interpreter = null, ?\Closure $load = null ): bool {
+	public static function verify( array $message, int $now, int $turn, ?Command_Interpreter_Node $interpreter = null, ?\Closure $load = null ): bool {
 		// @longform ONE exit for the ceiling. `check()` installs the verified
 		// session's scope on the way through, and this closes it on EVERY
 		// refusal — the mutation is global and only interpret() restores it,
 		// so a caller outside that lifetime (a sibling plugin, a test) cannot
 		// leave a wider ceiling standing than the command that failed.
-		$ok = self::check( $message, $now, $interpreter, $load ?? self::load_session_record( ... ) );
+		$ok = self::check( $message, $now, $turn, $interpreter, $load ?? self::load_session_record( ... ) );
 		if ( ! $ok ) {
 			Capabilities::$session_scope = Capabilities::NONE;
 		}
@@ -565,11 +565,12 @@ class Command_Auth {
 	 * owns what happens to it on refusal.
 	 *
 	 * @param array<int,mixed>              $message     Message to verify.
-	 * @param int|null                      $now         Verification time; defaults to time().
+	 * @param int                           $now         When the command arrived, a batch's arrival.
+	 * @param int                           $turn        The wall clock at the command's turn.
 	 * @param Command_Interpreter_Node|null $interpreter Node to log a refusal through.
 	 * @param \Closure(string): (Session_Record|null) $load The session a handle names.
 	 */
-	private static function check( array $message, ?int $now, ?Command_Interpreter_Node $interpreter, \Closure $load ): bool {
+	private static function check( array $message, int $now, int $turn, ?Command_Interpreter_Node $interpreter, \Closure $load ): bool {
 		$type  = $message[ Message::TYPE ]      ?? null;
 		$ts    = $message[ Message::TIMESTAMP ] ?? null;
 		$value = $message[ Message::VALUE ]     ?? null;
@@ -586,10 +587,9 @@ class Command_Auth {
 		}
 		$nonce_in = $auth['nonce'];
 		$nonce    = Core::as_string( $nonce_in );
-		$now      = $now ?? \time();
 
-		// Freshness: not stale, not implausibly in the future.
-		if ( $now - $ts > self::MAX_PAST_S || $ts - $now > self::MAX_FUTURE_S ) {
+		// Stale at arrival, implausibly ahead, or outliving its nonce claim.
+		if ( $now - $ts > self::MAX_PAST_S || $ts - $now > self::MAX_FUTURE_S || $turn - $ts >= self::BATCH_MAX_AGE_S ) {
 			$interpreter?->drop_message( $message, self::STALE );
 			return false;
 		}

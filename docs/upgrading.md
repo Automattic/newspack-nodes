@@ -6,6 +6,13 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`Command_Auth::verify()` takes the clock as two required arguments,
+  before the interpreter.** `verify( $message, $now, $interpreter, $load )`
+  becomes `verify( $message, $now, $turn, $interpreter, $load )`, and `$now`
+  no longer defaults to `time()`. Pass the command's arrival as `$now` and
+  the wall clock at its turn as `$turn`; verifying one command at a time,
+  read `time()` once and pass it as both.
+
 - **`Table_Node::lookup_multi()`, `store_multi()`, `touch()`,
   `accumulator()`, `accumulate()`, `accumulated()`, `accumulating()` and
   `reset()` are gone.** Read keys with `lookup()` or `GET`, write them with

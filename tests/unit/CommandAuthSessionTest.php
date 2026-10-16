@@ -270,6 +270,34 @@ class CommandAuthSessionTest extends TestCase {
 		$this->assertFalse( ( Command_Auth::batch_verifier() )( $interpreter, $late ), 'a later batch arrives past the window' );
 	}
 
+	/** A batch begun while another runs leaves the first one's arrival alone. */
+	public function test_a_batch_keeps_its_arrival_while_another_begins(): void {
+		$signed = 1790009100;
+		$this->session_at( $signed );
+		$command     = $this->signed_at( $signed );
+		$interpreter = new \Newspack_Nodes\Command_Interpreter_Node();
+
+		Core::$clock = static fn (): float => $signed + 2.0;
+		$first       = Command_Auth::batch_verifier();
+		Core::$clock = static fn (): float => (float) ( $signed + Command_Auth::MAX_PAST_S + 11 );
+		Command_Auth::batch_verifier();
+		$this->assertTrue( $first( $interpreter, $command ), 'the first batch still arrived 2 s after the signature' );
+	}
+
+	/** A batch begun while another runs leaves the first one's reads alone. */
+	public function test_a_batch_keeps_its_session_reads_while_another_begins(): void {
+		$session = Command_Auth::mint_session( Capabilities::TUNE, self::TTL );
+		Command_Auth::remember_session( 'spoke-4242', $session['handle'], $session['secret'] );
+		$interpreter = new \Newspack_Nodes\Command_Interpreter_Node();
+		$first       = Command_Auth::batch_verifier();
+		$this->assertTrue( $first( $interpreter, $this->signed_at( \time() ) ) );
+		$before = \count( $this->db->sent );
+
+		Command_Auth::batch_verifier();
+		$this->assertTrue( $first( $interpreter, $this->signed_at( \time() ) ) );
+		$this->assertCount( 0, \array_slice( $this->db->sent, $before ), 'the first batch reads its session once' );
+	}
+
 	public function test_a_malformed_handle_never_reaches_the_store(): void {
 		Command_Auth::session_table();
 		$before = \count( $this->db->sent );
@@ -279,7 +307,7 @@ class CommandAuthSessionTest extends TestCase {
 			$value                   = $m[ Message::VALUE ];
 			$value['auth']['handle'] = $handle;
 			$m[ Message::VALUE ]     = $value;
-			$this->assertFalse( Command_Auth::verify( $m, 1000 ), \var_export( $handle, true ) );
+			$this->assertFalse( Command_Auth::verify( $m, 1000, 1000 ), \var_export( $handle, true ) );
 			$this->assertNull( Command_Auth::load_session_record( $handle ) );
 		}
 		$this->assertSame( [], \array_slice( $this->db->sent, $before ), 'no statement for a handle no mint could make' );
@@ -384,7 +412,7 @@ class CommandAuthSessionTest extends TestCase {
 		$value['auth']['handle'] = 'deadbeefdeadbeefdeadbeefdeadbeef';
 		$m[ Message::VALUE ]     = $value;
 
-		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
+		$this->assertFalse( Command_Auth::verify( $m, 1000, 1000 ) );
 	}
 
 	public function test_a_missing_session_refusal_is_quiet(): void {
@@ -432,7 +460,7 @@ class CommandAuthSessionTest extends TestCase {
 			'auth'      => [ 'nonce' => \str_repeat( 'a', 32 ), 'handle' => $session['handle'] ],
 		];
 
-		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
+		$this->assertFalse( Command_Auth::verify( $m, 1000, 1000 ) );
 	}
 
 	/** The same-site minter path — Shell/`wp nodes cli` — must keep working untouched. */
@@ -441,7 +469,7 @@ class CommandAuthSessionTest extends TestCase {
 		Command_Auth::sign( $m );
 
 		$this->assertArrayNotHasKey( 'handle', $m[ Message::VALUE ]['auth'] );
-		$this->assertTrue( Command_Auth::verify( $m, 1000 ) );
+		$this->assertTrue( Command_Auth::verify( $m, 1000, 1000 ) );
 	}
 
 	public function test_sign_for_round_trips_under_the_remembered_session(): void {
@@ -452,7 +480,7 @@ class CommandAuthSessionTest extends TestCase {
 		Command_Auth::sign_for( 'spoke-a', $m );
 
 		$this->assertSame( $session['handle'], $m[ Message::VALUE ]['auth']['handle'] );
-		$this->assertTrue( Command_Auth::verify( $m, 1000 ) );
+		$this->assertTrue( Command_Auth::verify( $m, 1000, 1000 ) );
 	}
 
 	/**
@@ -474,7 +502,7 @@ class CommandAuthSessionTest extends TestCase {
 		$value['auth']['handle'] = $b['handle'];
 		$m[ Message::VALUE ]     = $value;
 
-		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
+		$this->assertFalse( Command_Auth::verify( $m, 1000, 1000 ) );
 	}
 
 	public function test_a_session_records_life_is_the_life_its_row_has_left(): void {
@@ -529,7 +557,7 @@ class CommandAuthSessionTest extends TestCase {
 		Command_Auth::sign_for( 'spoke-never-authed', $m );
 
 		$this->assertArrayNotHasKey( 'auth', $m[ Message::VALUE ] );
-		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
+		$this->assertFalse( Command_Auth::verify( $m, 1000, 1000 ) );
 	}
 
 	/**
@@ -548,7 +576,7 @@ class CommandAuthSessionTest extends TestCase {
 		unset( $value['auth']['handle'] );
 		$m[ Message::VALUE ] = $value;
 
-		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
+		$this->assertFalse( Command_Auth::verify( $m, 1000, 1000 ) );
 	}
 
 	public function test_remember_session_rejects_empty_required_inputs(): void {

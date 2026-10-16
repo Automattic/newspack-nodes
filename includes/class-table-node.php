@@ -1591,7 +1591,7 @@ class Table_Node extends Node {
 	}
 
 	/** The directory a base holds its Tables' SQLite files in. */
-	private static function dir( string $base ): string {
+	protected static function dir( string $base ): string {
 		return "{$base}/tables";
 	}
 
@@ -1616,10 +1616,24 @@ class Table_Node extends Node {
 	 *                                   separator, NUL, `..` or a leading dot.
 	 */
 	public static function stem( string $table, int $partition ): string {
-		if ( 1 !== \preg_match( '/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/D', $table ) || \str_contains( $table, '..' ) ) {
-			throw new \InvalidArgumentException( "Table name {$table} cannot name a file" );
+		return self::file_name( 'Table', $table ) . ".p{$partition}";
+	}
+
+	/**
+	 * A name that can name a file under the Tables' directory: one leading
+	 * letter or digit, then letters, digits and `_.:-`, and no `..`.
+	 *
+	 * @param string $what What the name names, for the refusal.
+	 * @param string $name The name.
+	 * @return string `$name`.
+	 * @throws \InvalidArgumentException On a path separator, NUL, `..` or a
+	 *                                   leading dot.
+	 */
+	protected static function file_name( string $what, string $name ): string {
+		if ( 1 !== \preg_match( '/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/D', $name ) || \str_contains( $name, '..' ) ) {
+			throw new \InvalidArgumentException( "{$what} name {$name} cannot name a file" );
 		}
-		return "{$table}.p{$partition}";
+		return $name;
 	}
 
 	/**

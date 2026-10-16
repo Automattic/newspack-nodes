@@ -47,6 +47,12 @@ class Row_Table_Node extends Table_Node {
 	/** How a ROWS request is answered. */
 	private const ROWS_REPLY = 'one TM_RESPONSE "ROWS <rows written or folded>", or one TM_ERROR "ROWS: <why>", the batch rolled back';
 
+	/** A name ending as a Table partition's file stem does, `.p{N}`. */
+	private const PARTITION_STEM = '/\.p-?[0-9]+$/D';
+
+	/** Joins a snapshot's name to a build's id; no Table or snapshot name holds it. */
+	private const BUILD_JOIN = '+';
+
 	/** The schema word this Row_Table was declared with. */
 	private string $schema = '';
 
@@ -281,6 +287,143 @@ class Row_Table_Node extends Table_Node {
 	}
 
 	/**
+	 * Publish the snapshot `$name`, `{base}/tables/{name}.sqlite`, built from
+	 * the Row_Table the active topologies declare with `$schema`: a uniquely
+	 * named build file beside it, written through `Sqlite_Arm::build_rows()`
+	 * with every partition's file attached read-only, is handed to `$build`
+	 * as a Row_Reader and renamed over the snapshot when `$build` answers
+	 * anything but false. The build file goes in a `finally`, so a build that
+	 * throws or answers false leaves the last publish standing. A fleet with
+	 * no `tables` directory, or no partition file to attach, builds nothing
+	 * and answers false. One publisher per name: two racing builds of it
+	 * each publish, the later rename winning.
+	 *
+	 * @api The row tables' build path, for a job publishing a derived file.
+	 * @template T
+	 * @param class-string<Row_Schema> $schema The schema the table holds.
+	 * @param string                   $name   The snapshot's name.
+	 * @param \Closure(Row_Reader): T  $build  The build.
+	 * @return T|false What `$build` returned, or false when nothing attached.
+	 * @throws \InvalidArgumentException As `snapshot_file()`.
+	 * @throws Table_Unavailable As `read()`, or when the build file will not
+	 *                           open.
+	 * @throws \RuntimeException As `Bootstrap::row_table()`, when the process
+	 *                           runs as root, or when the rename fails.
+	 */
+	public static function build( string $schema, string $name, \Closure $build ): mixed {
+		$file  = self::snapshot_file( $name );
+		$table = Bootstrap::row_table( $schema );
+		if ( ! \is_dir( \dirname( $file ) ) ) {
+			return false;
+		}
+		$building = self::snapshot_file( $name, \bin2hex( \random_bytes( 8 ) ) );
+		try {
+			try {
+				$builder = Sqlite_Arm::build_rows( $building, $table['files'], $schema::version() );
+			} catch ( \PDOException | \LogicException $e ) {
+				throw new Table_Unavailable( \esc_html( "Row_Table {$table['name']}: " . $e->getMessage() ), 0, $e );
+			}
+			if ( [] === $builder->aliases() ) {
+				return false;
+			}
+			$built = $build( $builder );
+			unset( $builder );
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_rename -- the publish is one atomic rename within the Tables' directory.
+			if ( false !== $built && ! @\rename( $building, $file ) ) {
+				throw new \RuntimeException( \esc_html( "snapshot {$name} would not publish: " . ( \error_get_last()['message'] ?? 'rename failed' ) ) );
+			}
+			return $built;
+		} finally {
+			self::delete_file( $building );
+		}
+	}
+
+	/**
+	 * Open the published snapshot `$name` as `Sqlite_Arm::open_immutable()`
+	 * opens a file, `immutable`, aliased `main`; null when none is published.
+	 *
+	 * @api The read path of a snapshot `build()` publishes.
+	 * @param string $name The snapshot's name.
+	 * @return Row_Reader|null The query-only connection, or null.
+	 * @throws \InvalidArgumentException As `snapshot_file()`.
+	 * @throws Table_Unavailable When the file is no database, or pdo_sqlite
+	 *                           is missing.
+	 */
+	public static function open_snapshot( string $name ): ?Row_Reader {
+		$file = self::snapshot_file( $name );
+		\clearstatcache( true, $file );
+		if ( ! \file_exists( $file ) ) {
+			return null;
+		}
+		try {
+			return Sqlite_Arm::open_immutable( $file );
+		} catch ( \PDOException | \LogicException $e ) {
+			throw new Table_Unavailable( \esc_html( "snapshot {$name}: " . $e->getMessage() ), 0, $e );
+		}
+	}
+
+	/**
+	 * Delete the snapshot `$name` and every build of it a crash left behind.
+	 *
+	 * @api Uninstall's erasure of a snapshot a job publishes.
+	 * @param string $name The snapshot's name.
+	 * @return list<string> The files deleted.
+	 * @throws \InvalidArgumentException As `snapshot_file()`.
+	 * @throws \RuntimeException When a file stands that will not delete.
+	 */
+	public static function remove_snapshot( string $name ): array {
+		$files   = [ self::snapshot_file( $name ), ...( \glob( self::snapshot_file( $name, '*' ) ) ?: [] ) ];
+		$deleted = [];
+		foreach ( $files as $file ) {
+			if ( self::delete_file( $file ) ) {
+				$deleted[] = $file;
+			}
+		}
+		return $deleted;
+	}
+
+	/**
+	 * The file of the snapshot `$name`, `{base}/tables/{name}.sqlite`, or of
+	 * one build of it, `{name}+{build}.sqlite`: the one spelling `build()`
+	 * writes and `remove_snapshot()` globs. No Table name holds `+`, so a
+	 * build is never a published file or a Table's.
+	 *
+	 * @param string      $name  The snapshot's name.
+	 * @param string|null $build A build's id, or `*` to glob them.
+	 * @return string The path.
+	 * @throws \InvalidArgumentException On a name `Table_Node::stem()` refuses,
+	 *                                   or one ending `.p{N}`, which a Table
+	 *                                   partition's file would take.
+	 */
+	private static function snapshot_file( string $name, ?string $build = null ): string {
+		self::file_name( 'snapshot', $name );
+		if ( 1 === \preg_match( self::PARTITION_STEM, $name ) ) {
+			throw new \InvalidArgumentException( \esc_html( "snapshot name {$name} is a Table partition's file" ) );
+		}
+		$stem = null === $build ? $name : $name . self::BUILD_JOIN . $build;
+		return self::dir( Bootstrap::base_dir() ) . "/{$stem}.sqlite";
+	}
+
+	/**
+	 * Delete `$file` when it stands.
+	 *
+	 * @param string $file A snapshot or a build of one.
+	 * @return bool Whether it stood and is gone.
+	 * @throws \RuntimeException When it stands and will not delete.
+	 */
+	private static function delete_file( string $file ): bool {
+		\clearstatcache( true, $file );
+		if ( ! \file_exists( $file ) ) {
+			return false;
+		}
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink -- a snapshot file of the Tables' own directory.
+		if ( ! @\unlink( $file ) ) {
+			throw new \RuntimeException( \esc_html( "snapshot file {$file} will not delete: " . ( \error_get_last()['message'] ?? 'unlink failed' ) ) );
+		}
+		return true;
+	}
+
+	/**
 	 * Read the Row_Table the active topologies declare with `$schema` across
 	 * every partition they run (`Bootstrap::row_table()`): each file at the schema's version attached read-only into one
 	 * connection as `p{N}`, handed to `$read` as a Row_Reader. The connection
@@ -309,32 +452,6 @@ class Row_Table_Node extends Table_Node {
 			throw new Table_Unavailable( \esc_html( "Row_Table {$table['name']}: " . $e->getMessage() ), 0, $e );
 		}
 		return $read( $reader );
-	}
-
-	/**
-	 * Build a file from the Row_Table the active topologies declare with
-	 * `$schema`: `read()`'s twin over `Sqlite_Arm::build_rows()`, every
-	 * partition's file attached read-only into a connection writing `$file`,
-	 * handed to `$build` as a Row_Reader. The caller publishes the file.
-	 *
-	 * @api The row tables' build path, for a job publishing a derived file.
-	 * @template T
-	 * @param class-string<Row_Schema> $schema The schema the table holds.
-	 * @param string                   $file   The file to build.
-	 * @param \Closure(Row_Reader): T  $build  The build.
-	 * @return T What `$build` returned.
-	 * @throws Table_Unavailable As `read()`, or when `$file` will not open.
-	 * @throws \RuntimeException As `Bootstrap::row_table()`, or when the
-	 *                           process runs as root.
-	 */
-	public static function build( string $schema, string $file, \Closure $build ): mixed {
-		$table = Bootstrap::row_table( $schema );
-		try {
-			$builder = Sqlite_Arm::build_rows( $file, $table['files'], $schema::version() );
-		} catch ( \PDOException | \LogicException $e ) {
-			throw new Table_Unavailable( \esc_html( "Row_Table {$table['name']}: " . $e->getMessage() ), 0, $e );
-		}
-		return $build( $builder );
 	}
 
 	/**
