@@ -64,8 +64,9 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * fold finds their pages cached rather than read again; a mount's
 	 * connection lives one request. SQLite allocates a page only when a
 	 * statement touches it, so this is a ceiling, never an allocation at
-	 * open. `mmap_size` stays 0: a fresh connection, which every mount is,
-	 * pays to map a file that only a warm one reads back faster.
+	 * open. `mmap_size` stays 0 here: for a Table's point reads a fresh
+	 * connection, which every mount is, pays to map a file that only a warm
+	 * one reads back faster. `open_rows()` scans, and maps.
 	 */
 	public const CACHE_KIB = 65536;
 
@@ -86,6 +87,17 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * stays inside the 64 MiB one Table connection may take.
 	 */
 	private const ROWS_CACHE_KIB = 8192;
+
+	/**
+	 * Bytes of each attached file an `open_rows()` reader maps: SQLite's
+	 * default `SQLITE_MAX_MMAP_SIZE`, which a build may lower but rarely
+	 * raises. A day's scan touches more pages than `ROWS_CACHE_KIB` holds,
+	 * and each page it misses is a `pread()` back into the file; mapped, a
+	 * page the kernel holds is read in place, with no syscall and no copy.
+	 * On a host where a syscall is dear, Atomic's, that turns a minute's
+	 * scan into seconds.
+	 */
+	private const ROWS_MMAP_BYTES = 2147418112;
 
 	/** The page-cache pragma; a negative size counts KiB rather than pages. */
 	private const CACHE_PRAGMA = 'PRAGMA cache_size = -' . self::CACHE_KIB;
@@ -574,9 +586,12 @@ final class Sqlite_Arm extends Durable_Arm {
 	/**
 	 * Open a reader across row-table files: a `:memory:` main with each
 	 * present file at `$version` attached read-only as `p{partition}`, each
-	 * with an 8 MiB page cache, and the connection set `query_only`. A file
-	 * absent, or at another version, is not attached, so the reader's
-	 * aliases name only the files it holds.
+	 * with an 8 MiB page cache and mapped, and the connection set
+	 * `query_only` with its temporary B-trees in memory. A file absent, or
+	 * at another version, is not attached, so the reader's aliases name
+	 * only the files it holds. Those B-trees take SQLite's `malloc`, outside
+	 * PHP's `memory_limit`: deduplicating 740,000 32-character keys, a day's
+	 * distinct URLs across eln's four partitions, grows the process 32 MB.
 	 *
 	 * @param array<int,string> $files   Partition => file.
 	 * @param int               $version The schema version a file must carry.
@@ -591,6 +606,7 @@ final class Sqlite_Arm extends Durable_Arm {
 		self::refuse_root_reader( \implode( ', ', $files ) );
 		$db = new \PDO( 'sqlite::memory:', null, null, [ \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION ] );
 		$db->exec( 'PRAGMA busy_timeout = ' . self::BUSY_TIMEOUT_MS );
+		$db->exec( 'PRAGMA temp_store = MEMORY' );
 		$aliases = [];
 		foreach ( $files as $partition => $path ) {
 			\clearstatcache( true, $path );
@@ -623,6 +639,7 @@ final class Sqlite_Arm extends Durable_Arm {
 			return false;
 		}
 		$db->exec( "PRAGMA {$schema}.cache_size = -" . self::ROWS_CACHE_KIB );
+		$db->exec( "PRAGMA {$schema}.mmap_size = " . self::ROWS_MMAP_BYTES );
 		return true;
 	}
 
