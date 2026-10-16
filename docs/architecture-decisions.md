@@ -1737,11 +1737,14 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
   co-tenant install sharing `{base}` deletes the other install's Tables the same way.
 - A Table built outside a graph, `Table_Node::table( $ns, $ttl, 'sqlite' )`, is opened by
   every web and CLI process that builds it, so its file has no one writer. Such a Table names
-  `wpdb`.
+  `wpdb`, unless one worker alone builds it and names it into its graph, as a job queued to
+  one partition does; that worker's Router tick then purges and checkpoints it, and its
+  readers mount it read-only.
 - The purge walks the named Tables of a worker's graph and skips a request-graph mount. A
-  durable Table that `table()` builds is never purged by the tick: reads ignore its expired
-  rows, but they stay on disk until its own writer calls `purge()`, as the session mint
-  does. Any other durable Table that must be reclaimed is declared in a topology.
+  durable Table that `table()` builds and no graph names is never purged by the tick: reads
+  ignore its expired rows, but they stay on disk until its own writer calls `purge()`, as
+  the session mint does. Any other durable Table that must be reclaimed is declared in a
+  topology.
 - The purge deletes expired rows and nothing else, `vacuum` returns free pages and deletes no
   row, and `flush` empties the Table. A row written under an earlier key — the salted one
   before 2.79.0, or a `wpdb` Table's `{namespace}:{key}` before 2.79.1 — is unreachable,
