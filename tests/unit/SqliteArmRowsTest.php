@@ -476,4 +476,73 @@ final class SqliteArmRowsTest extends TestCase {
 		$this->expectExceptionMessage( 'refuses to run as root' );
 		Sqlite_Arm::open_rows( [ 0 => $this->path( 0 ) ], 7 );
 	}
+
+	public function test_build_rows_writes_its_own_file_from_the_attached_partitions(): void {
+		$this->rows_arm( 0 )->write_rows( [ [ 'insert', 'visits', [ 'rid-p0', 7341, 1, 1.5 ] ] ] );
+		$this->rows_arm( 4 )->write_rows( [ [ 'insert', 'visits', [ 'rid-p4', 7341, 1, 2.5 ] ] ] );
+		$built = "{$this->dir}/tables/kea-snapshot-6107.sqlite";
+
+		$reader = Sqlite_Arm::build_rows( $built, [ 0 => $this->path( 0 ), 4 => $this->path( 4 ) ], 7 );
+		$this->assertSame( [ 'p0', 'p4' ], $reader->aliases() );
+		$reader->rows( 'CREATE TABLE heron AS SELECT rid FROM p0.visits UNION ALL SELECT rid FROM p4.visits', [] );
+		unset( $reader );
+
+		$this->assertSame( [ [ 'rid-p0' ], [ 'rid-p4' ] ], ( new \PDO( "sqlite:{$built}" ) )->query( 'SELECT rid FROM heron ORDER BY rid' )->fetchAll( \PDO::FETCH_NUM ) );
+	}
+
+	public function test_build_rows_maps_its_file_and_sorts_in_memory_with_the_partitions_read_only(): void {
+		$this->rows_arm( 0 )->write_rows( [ [ 'insert', 'visits', [ 'rid-p0', 7341, 1, 1.5 ] ] ] );
+		$reader = Sqlite_Arm::build_rows( "{$this->dir}/tables/kea-snapshot-6108.sqlite", [ 0 => $this->path( 0 ) ], 7 );
+
+		$this->assertSame( [ [ 0 ] ], $reader->rows( 'PRAGMA query_only', [] ) );
+		$this->assertSame( [ [ 2 ] ], $reader->rows( 'PRAGMA temp_store', [] ) );
+		$this->assertSame( [ [ 2147418112 ] ], $reader->rows( 'PRAGMA main.mmap_size', [] ) );
+		$this->assertSame( [ [ 'off' ] ], $reader->rows( 'PRAGMA main.journal_mode', [] ) );
+		$this->assertSame( [ [ -262144 ] ], $reader->rows( 'PRAGMA main.cache_size', [] ) );
+		$this->assertSame( [ [ 2147418112 ] ], $reader->rows( 'PRAGMA p0.mmap_size', [] ) );
+		$this->assertStringContainsString( 'readonly', $this->caught_pdo( static fn () => $reader->rows( "INSERT INTO p0.visits VALUES ( 'rid-x', 7341, 1, 0.5 )", [] ) )->getMessage() );
+	}
+
+	public function test_build_rows_refuses_a_root_builder_naming_every_file_it_would_touch(): void {
+		$built             = "{$this->dir}/tables/kea-snapshot-6109.sqlite";
+		CLI::$uid_provider = static fn (): int => 0;
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( "sqlite refuses to run as root: a root process leaves files beside {$built}, {$this->path( 2 )}, {$this->path( 6 )} that its worker cannot open" );
+		Sqlite_Arm::build_rows( $built, [ 2 => $this->path( 2 ), 6 => $this->path( 6 ) ], 7 );
+	}
+
+	/**
+	 * A WAL file read through a plain read-only connection takes its `-shm`
+	 * lock and opens a `-wal`; read immutably it takes neither.
+	 */
+	public function test_open_snapshot_reads_a_published_file_immutably(): void {
+		$file = "{$this->dir}/tables/kea-snapshot-6110.sqlite";
+		@\mkdir( \dirname( $file ), 0777, true );
+		$writer = new \PDO( "sqlite:{$file}" );
+		$this->assertSame( 'wal', $writer->query( 'PRAGMA journal_mode = WAL' )->fetchColumn() );
+		$writer->exec( 'CREATE TABLE heron ( n INTEGER ); INSERT INTO heron VALUES ( 6110 )' );
+		$writer = null;
+		$this->assertFileDoesNotExist( "{$file}-shm", 'the writer closed its lock' );
+		$this->assertFileDoesNotExist( "{$file}-wal", 'the writer checkpointed its log' );
+
+		$reader = Sqlite_Arm::open_snapshot( $file );
+
+		$this->assertSame( [ 'main' ], $reader->aliases() );
+		$this->assertSame( [ [ 6110 ] ], $reader->rows( 'SELECT n FROM heron', [] ) );
+		$this->assertSame( [ [ 1 ] ], $reader->rows( 'PRAGMA query_only', [] ) );
+		$this->assertSame( [ [ 2147418112 ] ], $reader->rows( 'PRAGMA main.mmap_size', [] ) );
+		$this->assertFileDoesNotExist( "{$file}-shm", 'an immutable reader takes no lock' );
+		$this->assertFileDoesNotExist( "{$file}-wal", 'an immutable reader opens no log' );
+	}
+
+	public function test_open_snapshot_of_no_file_throws(): void {
+		$absent = "{$this->dir}/tables/kea-snapshot-absent-6111.sqlite";
+		@\mkdir( \dirname( $absent ), 0777, true );
+		try {
+			Sqlite_Arm::open_snapshot( $absent );
+			$this->fail( 'an absent snapshot opened' );
+		} catch ( \PDOException ) {
+			$this->assertFileDoesNotExist( $absent, 'a snapshot reader creates no file' );
+		}
+	}
 }

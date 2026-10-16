@@ -880,7 +880,7 @@ back to the bare LOCAL test), checked for EVERY command in `interpret()`; a refu
 `unauthorized: <verb>` instead of dispatching. The minter signs; the ingress only verifies;
 and which key signs IS the destination binding.
 
-![The signing string as four signed slots, ts, name, arguments and nonce, beside two excluded ones, TYPE and TO/FROM, with the reason each is left out. Two tiers: the client tier's Message::LOCAL at index 7, stamped by a Shell and by cmd_reply_to and sliced off before any wire; the server tier's Command_Auth::verifier, which accepts LOCAL or an envelope at VALUE['auth'] checked for age within 20 seconds past and 10 ahead, a matching HMAC, a nonce claimed once at NONCE_TTL_S 60 through local_first, and a handle whose scope Command_Auth::check() installs as the command's ceiling. Two keys: the per-site secret with no handle for the attached cli over IPC, and a session key from POST /v1/auth with a 16-byte handle, a 32-byte key, add() never set(), TTL 3600 clamped to 60..86400; sign_for( $destination ) pins a command to one remote and a missing session kicks ensure_session() instead of emitting. Six rejected shapes close the sheet.](img/adr-minter-signs.png)
+![The signing string as four signed slots, ts, name, arguments and nonce, beside two excluded ones, TYPE and TO/FROM, with the reason each is left out. Two tiers: the client tier's Message::LOCAL at index 7, stamped by a Shell and by cmd_reply_to and sliced off before any wire; the server tier's Command_Auth::verifier, which accepts LOCAL or an envelope at VALUE['auth'] checked for age within 20 seconds past and 10 ahead, a matching HMAC, a nonce claimed once at NONCE_TTL_S 150 through local_first, and a handle whose scope Command_Auth::check() installs as the command's ceiling. Two keys: the per-site secret with no handle for the attached cli over IPC, and a session key from POST /v1/auth with a 16-byte handle, a 32-byte key, add() never set(), TTL 3600 clamped to 60..86400; sign_for( $destination ) pins a command to one remote and a missing session kicks ensure_session() instead of emitting. Six rejected shapes close the sheet.](img/adr-minter-signs.png)
 
 In-process, `Message::LOCAL` (index 7) is the client tier. Two sites stamp it: a `Shell_Node`
 on the command it mints from a console line, and `Command_Interpreter_Node::cmd_reply_to()` on
@@ -905,7 +905,7 @@ disclosed as `secret` because that is the field name `Core::is_secret_property()
 and every redactor on both sides of the wire asks that one rule. The TTL is
 `SESSION_TTL_S` (3600) unless the request asks for its own, clamped to 60..86400. Freshness is
 an age check (`MAX_PAST_S` 20, `MAX_FUTURE_S` 10). The nonce is claimed once with an atomic
-`add()` at `NONCE_TTL_S` 60 through `Cache_Backend::local_first()`, because a claim only has
+`add()` at `NONCE_TTL_S` 150 through `Cache_Backend::local_first()`, because a claim only has
 to be unique to the process that verifies it; sessions go through `shared_first()`, because a
 session minted in a web request must resolve in a worker.
 
@@ -1738,12 +1738,11 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
   co-tenant install sharing `{base}` deletes the other install's Tables the same way.
 - A Table built outside a graph, `Table_Node::table( $ns, $ttl, 'sqlite' )`, is opened by
   every web and CLI process that builds it, so its file has no one writer. Such a Table names
-  `wpdb`, except under the amendment below, where one worker alone builds it.
+  `wpdb`.
 - The purge walks the named Tables of a worker's graph and skips a request-graph mount. A
-  durable Table that `table()` builds and no graph names is never purged by the tick: reads
-  ignore its expired rows, but they stay on disk until its own writer calls `purge()`, as
-  the session mint does. Any other durable Table that must be reclaimed is declared in a
-  topology.
+  durable Table that `table()` builds is never purged by the tick: reads ignore its expired
+  rows, but they stay on disk until its own writer calls `purge()`, as the session mint
+  does. Any other durable Table that must be reclaimed is declared in a topology.
 - The purge deletes expired rows and nothing else, `vacuum` returns free pages and deletes no
   row, and `flush` empties the Table. A row written under an earlier key — the salted one
   before 2.79.0, or a `wpdb` Table's `{namespace}:{key}` before 2.79.1 — is unreachable,
@@ -1757,22 +1756,6 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
 
 **Revisit if:** a durable Table must be read from another host at volume, or a second writer
 per file appears.
-
-**Amendment: one worker may build a `sqlite` Table outside a topology.** Event-logger-nodes
-decision 37 stores the Overview's default answers in `flame-facts.job`, a Table the
-`eln_overview_prefetch` job builds with `Table_Node::table()`. The job is queued to
-partition 0's JobWorker alone, so one process writes the file.
-
-- A Table built outside a graph may name `sqlite` when one worker alone builds it and names it
-  into its own graph, as a job queued to one partition does. That worker's Router tick then
-  purges and checkpoints it, and its readers mount it read-only.
-- Rejected: `wpdb`, which decision 37 records as the alternative declined in favour of a
-  SQLite file beside the row store's; and a topology declaration, which would claim the file
-  in the write set but cannot say that a job, not a node, builds it.
-- Cost: `Topology_Analyzer::write_set()` and `Bootstrap::node_tables()` do not see the Table,
-  so no conflict gate claims its file, and uninstall and every reader name it by hand.
-- Reopen if a second process builds the Table, or the job stops being queued to one
-  partition.
 
 **Amendment:** a `sqlite` Table rewrites a row in place, prepares each fixed statement once,
 and runs the keys of one `RM` as one batch.
@@ -2482,6 +2465,13 @@ memory (`temp_store = MEMORY`), outside PHP's `memory_limit`. On eln, with four 
 partitions read through an 8 MiB cache each, a distinct-URL count across them took 88 s,
 nearly all system time; with both pragmas it took 5.6 s, and event-logger-nodes' `overview`
 and `urls` answers fell from 99 s and 130 s to 19 s and 33 s.
+
+A job may build a derived file from the row tables through `Row_Table_Node::build()`, which
+attaches every partition's file read-only, as `read()` does, into a connection writing the
+build file with its journal off. The job publishes the file whole by rename, and its readers
+open it with `Sqlite_Arm::open_snapshot()`, `immutable`, because nothing writes a published
+file again. No topology declares the file, so `Log_Cleaner::sweep_tables()` deletes it once
+it has been quiet an hour: a file the job republishes stays, and one it stops publishing goes.
 
 **Revisit if:** a Row_Table must be read from another host, or a site needs more than 8
 partitions.

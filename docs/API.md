@@ -466,6 +466,9 @@ mount is named `{table}.p{N}` and serves one read alone, `GET`
 Table protocol. A Row_Table mounts nowhere: `mount_tables` leaves it out, because only its
 worker answers `ROWS`, and a reader opens its files through `Row_Table_Node::read( $schema, … )`,
 naming the schema, which `Bootstrap::row_table()` resolves to the one table declaring it.
+`Row_Table_Node::build( $schema, $file, … )` attaches the same files read-only into a
+connection writing `$file`, for a job publishing a derived file, and
+`Sqlite_Arm::open_snapshot( $file )` reads a published one, `immutable`.
 
 Send that body as `text/plain; charset=UTF-8` — the [`COMMAND_CONTENT_TYPE`](../src/runtime/command-transport.js) the
 browser transport declares — and never as `application/json`; the diagram under

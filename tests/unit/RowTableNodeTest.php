@@ -447,6 +447,43 @@ final class RowTableNodeTest extends TestCase {
 		$this->assertSame( 'kea-4471', Row_Table_Node::read( Wombat_Row_Schema::class, static fn (): string => 'kea-4471' ) );
 	}
 
+	public function test_build_attaches_every_partition_and_answers_what_its_builder_returns(): void {
+		foreach ( [ '1' => 'rid-5511', '3' => 'rid-5513' ] as $p => $rid ) {
+			$table = $this->row_table( 'wombats-6620', 'Wombat', (string) $p );
+			$this->assertSame( Message::TM_RESPONSE, $this->ask( $table, [ 'ROWS' => self::visit( $rid, 1790000000 ) ] )[0][ Message::TYPE ] );
+			$table->remove_node();
+		}
+		$this->activate( 'wombat-fleet' );
+		$built = "{$this->base}/tables/wombat-build-4471.sqlite";
+
+		$aliases = Row_Table_Node::build(
+			Wombat_Row_Schema::class,
+			$built,
+			static function ( Row_Reader $r ): array {
+				$r->rows( 'CREATE TABLE heron AS SELECT rid FROM p1.visits UNION ALL SELECT rid FROM p3.visits', [] );
+				return $r->aliases();
+			}
+		);
+
+		$this->assertSame( [ 'p1', 'p3' ], $aliases );
+		$this->assertSame( [ [ 'rid-5511' ], [ 'rid-5513' ] ], ( new \PDO( "sqlite:{$built}" ) )->query( 'SELECT rid FROM heron ORDER BY rid' )->fetchAll( \PDO::FETCH_NUM ) );
+	}
+
+	public function test_build_without_pdo_sqlite_is_unavailable(): void {
+		$this->activate( 'wombat-fleet' );
+		Sqlite_Arm::$available = static fn (): bool => false;
+		$this->expectException( Table_Unavailable::class );
+		$this->expectExceptionMessage( 'Row_Table wombats-6620: sqlite backend needs the pdo_sqlite extension' );
+		Row_Table_Node::build( Wombat_Row_Schema::class, "{$this->base}/tables/wombat-build-4472.sqlite", static fn (): null => null );
+	}
+
+	public function test_build_into_a_file_that_will_not_open_is_unavailable(): void {
+		$this->activate( 'wombat-fleet' );
+		$e = $this->caught( fn () => Row_Table_Node::build( Wombat_Row_Schema::class, "{$this->base}/no-such-dir-4473/wombat-build.sqlite", static fn (): null => null ), 'a build file in no directory' );
+		$this->assertInstanceOf( Table_Unavailable::class, $e );
+		$this->assertStringStartsWith( 'Row_Table wombats-6620: ', $e->getMessage() );
+	}
+
 	public function test_a_keyed_insert_through_fill_is_refused_and_goes_nowhere(): void {
 		$lines = [];
 		\add_action(

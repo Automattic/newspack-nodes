@@ -149,6 +149,127 @@ class CommandAuthSessionTest extends TestCase {
 		$this->assertFalse( ( Command_Auth::batch_verifier() )( $interpreter, $m ), 'the next batch reads the revoke' );
 	}
 
+	/** A command signed under `spoke-4242`'s session at `$ts`. */
+	private function signed_at( int $ts ): array {
+		$m                       = $this->command();
+		$m[ Message::TIMESTAMP ] = $ts;
+		Command_Auth::sign_for( 'spoke-4242', $m );
+		return $m;
+	}
+
+	/** Mint and remember a session at `$at`, so its row is live then. */
+	private function session_at( int $at ): void {
+		Core::$clock = static fn (): float => (float) $at;
+		$session     = Command_Auth::mint_session( Capabilities::TUNE, self::TTL );
+		Command_Auth::remember_session( 'spoke-4242', $session['handle'], $session['secret'] );
+	}
+
+	/**
+	 * A batch dispatches its commands one after another, so a slow verb ages
+	 * the ones behind it: every command verifies against the batch's arrival.
+	 */
+	public function test_a_batch_verifies_every_command_against_its_arrival(): void {
+		$signed = 1790007300;
+		$this->session_at( $signed );
+		$first       = $this->signed_at( $signed );
+		$second      = $this->signed_at( $signed );
+		$interpreter = new \Newspack_Nodes\Command_Interpreter_Node();
+
+		Core::$clock = static fn (): float => $signed + 5.0;
+		$verify      = Command_Auth::batch_verifier();
+		$this->assertTrue( $verify( $interpreter, $first ) );
+		Core::$clock = static fn (): float => (float) ( $signed + 5 + Command_Auth::MAX_PAST_S + 9 );
+		$this->assertTrue( $verify( $interpreter, $second ), 'the slow first command does not age the second' );
+	}
+
+	public function test_a_command_older_than_the_window_at_arrival_is_still_refused(): void {
+		$arrival = 1790007600;
+		$this->session_at( $arrival );
+		$stale = $this->signed_at( $arrival - Command_Auth::MAX_PAST_S - 1 );
+
+		Core::$clock = static fn (): float => (float) $arrival;
+		$this->assertFalse( ( Command_Auth::batch_verifier() )( new \Newspack_Nodes\Command_Interpreter_Node(), $stale ) );
+	}
+
+	/**
+	 * The nonce claim lasts NONCE_TTL_S from first verification while a
+	 * batch's freshness never ages, so the batch path also refuses a command
+	 * past NONCE_TTL_S - MAX_FUTURE_S of wall age at its own turn: a replay
+	 * queued behind slow verbs past its nonce claim finds that claim expired.
+	 */
+	public function test_a_replay_queued_past_the_nonce_claim_is_refused(): void {
+		$claims                    = [];
+		Command_Auth::$claim_nonce = static function ( string $nonce, int $ttl ) use ( &$claims ): bool {
+			$now = ( Core::$clock )();
+			if ( isset( $claims[ $nonce ] ) && $claims[ $nonce ] > $now ) {
+				return false;
+			}
+			$claims[ $nonce ] = $now + $ttl;
+			return true;
+		};
+		$signed = 1790008200;
+		$this->session_at( $signed );
+		$command     = $this->signed_at( $signed );
+		$interpreter = new class() extends \Newspack_Nodes\Command_Interpreter_Node {
+			/** @var string[] */
+			public array $dropped = [];
+			public function drop_message( array $message, string $error ): void {
+				$this->dropped[] = $error;
+			}
+		};
+
+		Core::$clock = static fn (): float => $signed + 4.0;
+		$verify      = Command_Auth::batch_verifier();
+		$this->assertTrue( $verify( $interpreter, $command ) );
+		Core::$clock = static fn (): float => (float) ( $signed + 4 + Command_Auth::NONCE_TTL_S + 7 );
+		$this->assertFalse( $verify( $interpreter, $command ), 'the replay outlived its claim' );
+		$this->assertSame( [ 'verification failed: timestamp out of range' ], $interpreter->dropped );
+	}
+
+	/**
+	 * A batch outlives the host's 120 s gateway: a command whose turn comes
+	 * 130 s after it was signed, inside BATCH_MAX_AGE_S, still verifies.
+	 */
+	public function test_a_command_reached_inside_the_gateway_timeout_verifies(): void {
+		$signed = 1790008500;
+		$this->session_at( $signed );
+		$command = $this->signed_at( $signed );
+
+		Core::$clock = static fn (): float => $signed + 3.0;
+		$verify      = Command_Auth::batch_verifier();
+		Core::$clock = static fn (): float => $signed + 130.0;
+		$this->assertTrue( $verify( new \Newspack_Nodes\Command_Interpreter_Node(), $command ) );
+	}
+
+	/**
+	 * The claim taken at the earliest first verification, MAX_FUTURE_S before
+	 * the signature, expires NONCE_TTL_S later, the very second a command
+	 * reaches the batch's age bound, so that second is refused too.
+	 */
+	public function test_a_command_reaching_the_batch_age_bound_is_refused(): void {
+		$signed = 1790008800;
+		$this->session_at( $signed );
+		$command = $this->signed_at( $signed );
+
+		Core::$clock = static fn (): float => $signed + 6.0;
+		$verify      = Command_Auth::batch_verifier();
+		Core::$clock = static fn (): float => (float) ( $signed + Command_Auth::NONCE_TTL_S - Command_Auth::MAX_FUTURE_S );
+		$this->assertFalse( $verify( new \Newspack_Nodes\Command_Interpreter_Node(), $command ) );
+	}
+
+	public function test_each_batch_reads_its_own_clock(): void {
+		$signed = 1790007900;
+		$this->session_at( $signed );
+		$early       = $this->signed_at( $signed );
+		$late        = $this->signed_at( $signed );
+		$interpreter = new \Newspack_Nodes\Command_Interpreter_Node();
+
+		Core::$clock = static fn (): float => $signed + 3.0;
+		$this->assertTrue( ( Command_Auth::batch_verifier() )( $interpreter, $early ) );
+		Core::$clock = static fn (): float => (float) ( $signed + Command_Auth::MAX_PAST_S + 7 );
+		$this->assertFalse( ( Command_Auth::batch_verifier() )( $interpreter, $late ), 'a later batch arrives past the window' );
+	}
+
 	public function test_a_malformed_handle_never_reaches_the_store(): void {
 		Command_Auth::session_table();
 		$before = \count( $this->db->sent );

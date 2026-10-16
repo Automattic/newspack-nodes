@@ -480,7 +480,7 @@ final class BootstrapNodeTablesTest extends TestCase {
 		\Newspack_Nodes\CLI::$uid_provider = static fn (): int => 0;
 		$e = $this->caught( static fn () => Bootstrap::mount_table( [ 'lab-7:kea' ] ), 'a root process mounted a Table' );
 		$this->assertNotInstanceOf( Table_Unavailable::class, $e, 'running as root is the operator\'s to fix, not a backend to degrade past' );
-		$this->assertSame( "Table lab-7:kea: a sqlite mount refuses to run as root: a root reader leaves -wal and -shm files beside {$this->base}/tables/lab-7:kea.p0.sqlite that its worker cannot open", $e->getMessage() );
+		$this->assertSame( "Table lab-7:kea: sqlite refuses to run as root: a root process leaves files beside {$this->base}/tables/lab-7:kea.p0.sqlite that its worker cannot open", $e->getMessage() );
 		$this->assertNull( Core::node( 'lab-7:kea.p0' ) );
 	}
 

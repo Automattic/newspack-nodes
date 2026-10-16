@@ -46,13 +46,26 @@ class Command_Auth {
 	public const MAX_PAST_S = 20;
 
 	/**
-	 * Single-use nonce TTL. Must comfortably outlive the FULL acceptance span
-	 * (MAX_PAST_S + MAX_FUTURE_S = 30s of verifier-wall time): the nonce entry is
-	 * claimed at first-verify time, not at ts, so a clock-skewed verifier whose
-	 * entry expires while the freshness window is still open would otherwise let a
-	 * replay through at the boundary. 60s doubles that span.
+	 * Single-use nonce TTL. The nonce entry is claimed at first-verify time,
+	 * not at ts, so it must outlive every span in which the same command can
+	 * still verify, or a replay finds its claim expired. That is the FULL
+	 * acceptance span (MAX_PAST_S + MAX_FUTURE_S = 30s of verifier-wall time)
+	 * for a clock-skewed verifier, and BATCH_MAX_AGE_S (140s) for a command
+	 * queued behind slow verbs in one `/command` batch, which a host's 120s
+	 * gateway timeout bounds.
 	 */
-	public const NONCE_TTL_S = 60;
+	public const NONCE_TTL_S = 150;
+
+	/**
+	 * Wall age at which a command in a batch is refused at its own turn,
+	 * 140s: a claim taken at the earliest first verification, MAX_FUTURE_S
+	 * before the signature, expires that very second, so no replay outlasts
+	 * its claim, and it covers a batch a 120s gateway lets run to its end.
+	 */
+	private const BATCH_MAX_AGE_S = self::NONCE_TTL_S - self::MAX_FUTURE_S;
+
+	/** The refusal of a command signed outside its freshness window. */
+	private const STALE = 'verification failed: timestamp out of range';
 
 	/**
 	 * Single-use claim seam. `function ( string $nonce, int $ttl ): bool` — true
@@ -117,6 +130,9 @@ class Command_Auth {
 	 * @var array<string,Session_Record|null>
 	 */
 	private static array $batch = [];
+
+	/** The clock a batch began at; every command in it verifies against it. */
+	private static ?int $batch_now = null;
 
 	/**
 	 * Expired session rows one mint deletes. No worker's tick purges a Table
@@ -332,13 +348,21 @@ class Command_Auth {
 	/**
 	 * Authorize closure for ONE batch of commands, the `/command` POST: each
 	 * session is read once until the next batch begins, so k commands under
-	 * one handle cost one read. Build one per batch, never one per process,
-	 * or a revoke would not bite until the process ends.
+	 * one handle cost one read, and every command verifies its timestamp
+	 * against the clock read here, the batch's arrival. The commands dispatch
+	 * one after another, so against the clock at each one's turn a slow verb
+	 * would age the commands behind it past MAX_PAST_S. The wall clock still
+	 * bounds a batch: a command whose turn comes BATCH_MAX_AGE_S (140 s) or
+	 * more after it was signed is refused, because its nonce claim, taken at the
+	 * first verification, lasts NONCE_TTL_S. Build one per batch, never one
+	 * per process, or a revoke would not bite until the process ends and
+	 * every signature would age against one stale clock.
 	 *
 	 * @return \Closure(Command_Interpreter_Node, array<int,mixed>): bool
 	 */
 	public static function batch_verifier(): \Closure {
-		self::$batch = [];
+		self::$batch     = [];
+		self::$batch_now = (int) Core::right_now();
 		return \Closure::fromCallable( [ self::class, 'authorize_batch' ] );
 	}
 
@@ -400,14 +424,23 @@ class Command_Auth {
 
 	/**
 	 * `authorize_command()`, resolving each session through the batch's own
-	 * reads.
+	 * reads and judging freshness at the batch's arrival, after refusing a
+	 * command BATCH_MAX_AGE_S old or older on the wall at its own turn.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Node handling the command.
 	 * @param array<int,mixed>         $message     Command to authorize.
 	 */
 	private static function authorize_batch( Command_Interpreter_Node $interpreter, array $message ): bool {
-		return isset( $message[ Message::LOCAL ] )
-			|| self::verify( $message, null, $interpreter, self::batch_record( ... ) );
+		if ( isset( $message[ Message::LOCAL ] ) ) {
+			return true;
+		}
+		$ts = $message[ Message::TIMESTAMP ] ?? null;
+		if ( \is_numeric( $ts ) && (int) Core::right_now() - (int) $ts >= self::BATCH_MAX_AGE_S ) {
+			$interpreter->drop_message( $message, self::STALE );
+			Capabilities::$session_scope = Capabilities::NONE;
+			return false;
+		}
+		return self::verify( $message, self::$batch_now, $interpreter, self::batch_record( ... ) );
 	}
 
 	/**
@@ -557,7 +590,7 @@ class Command_Auth {
 
 		// Freshness: not stale, not implausibly in the future.
 		if ( $now - $ts > self::MAX_PAST_S || $ts - $now > self::MAX_FUTURE_S ) {
-			$interpreter?->drop_message( $message, 'verification failed: timestamp out of range' );
+			$interpreter?->drop_message( $message, self::STALE );
 			return false;
 		}
 
