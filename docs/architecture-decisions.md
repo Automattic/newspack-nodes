@@ -1737,9 +1737,7 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
   co-tenant install sharing `{base}` deletes the other install's Tables the same way.
 - A Table built outside a graph, `Table_Node::table( $ns, $ttl, 'sqlite' )`, is opened by
   every web and CLI process that builds it, so its file has no one writer. Such a Table names
-  `wpdb`, unless one worker alone builds it and names it into its graph, as a job queued to
-  one partition does; that worker's Router tick then purges and checkpoints it, and its
-  readers mount it read-only.
+  `wpdb`, except under the amendment below, where one worker alone builds it.
 - The purge walks the named Tables of a worker's graph and skips a request-graph mount. A
   durable Table that `table()` builds and no graph names is never purged by the tick: reads
   ignore its expired rows, but they stay on disk until its own writer calls `purge()`, as
@@ -1758,6 +1756,22 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
 
 **Revisit if:** a durable Table must be read from another host at volume, or a second writer
 per file appears.
+
+**Amendment: one worker may build a `sqlite` Table outside a topology.** Event-logger-nodes
+decision 37 stores the Overview's default answers in `flame-facts.job`, a Table the
+`eln_overview_prefetch` job builds with `Table_Node::table()`. The job is queued to
+partition 0's JobWorker alone, so one process writes the file.
+
+- A Table built outside a graph may name `sqlite` when one worker alone builds it and names it
+  into its own graph, as a job queued to one partition does. That worker's Router tick then
+  purges and checkpoints it, and its readers mount it read-only.
+- Rejected: `wpdb`, which decision 37 records as the alternative declined in favour of a
+  SQLite file beside the row store's; and a topology declaration, which would claim the file
+  in the write set but cannot say that a job, not a node, builds it.
+- Cost: `Topology_Analyzer::write_set()` and `Bootstrap::node_tables()` do not see the Table,
+  so no conflict gate claims its file, and uninstall and every reader name it by hand.
+- Reopen if a second process builds the Table, or the job stops being queued to one
+  partition.
 
 **Amendment:** a `sqlite` Table rewrites a row in place, prepares each fixed statement once,
 and runs the keys of one `RM` as one batch.
