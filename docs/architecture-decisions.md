@@ -1672,9 +1672,10 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
   aggregate file is ~300 MB, and its worker reads the current hour's keys back before each
   write; 500 random keys took 46 ms there against 5.7 ms for adjacent ones. SQLite allocates
   a cache page when a statement touches it, so the size is a ceiling: on eve a reader grew
-  4 KiB at open and 4.6 MB reading 500 random keys of a 266 MB file. `mmap_size` stays 0: it
-  cost a fresh connection 0.5 ms per 500 random keys on eve and paid only on a warm one, and
-  a mount's connection lives one request.
+  4 KiB at open and 4.6 MB reading 500 random keys of a 266 MB file. A Table connection's `mmap_size` stays 0:
+  it cost a fresh connection 0.5 ms per 500 random keys on eve and paid only on a warm one,
+  and a mount's connection lives one request. A Row_Table reader scans, and maps
+  ([ADR-34](#adr-34-a-table-may-hold-declared-rows-sqlite-only)).
 - Set members are durable-only. `SADD` and `members_of()` store and read one row per member in a
   table of their own beside the keyed rows — `members` in the SQLite file,
   `{base_prefix}newspack_nodes_members` for wpdb — keyed `( set_key, member )`, so a member
@@ -2475,7 +2476,12 @@ rejected, exact top-N needs every partition's full grouping.
 
 **Consequences:** A site runs at most 8 partitions of a topology declaring a Row_Table. A
 Row_Table answers `ROWS` alone and refuses every keyed request. The file cannot be read from
-another host.
+another host. A reader scans a day of rows where a Table reads keys, so `open_rows()` maps
+each attached file (`mmap_size`, SQLite's default 2 GiB cap) and keeps temporary B-trees in
+memory (`temp_store = MEMORY`), outside PHP's `memory_limit`. On eln, with four ~470 MB
+partitions read through an 8 MiB cache each, a distinct-URL count across them took 88 s,
+nearly all system time; with both pragmas it took 5.6 s, and event-logger-nodes' `overview`
+and `urls` answers fell from 99 s and 130 s to 19 s and 33 s.
 
 **Revisit if:** a Row_Table must be read from another host, or a site needs more than 8
 partitions.

@@ -442,6 +442,17 @@ final class SqliteArmRowsTest extends TestCase {
 		$this->assertFileDoesNotExist( $this->path( 2 ), 'a reader creates no file' );
 	}
 
+	public function test_an_open_rows_reader_maps_each_file_and_sorts_in_memory(): void {
+		$this->rows_arm( 0 )->write_rows( [ [ 'insert', 'visits', [ 'rid-p0', 7341, 1, 1.5 ] ] ] );
+		$this->rows_arm( 3 )->write_rows( [ [ 'insert', 'visits', [ 'rid-p3', 7341, 1, 2.5 ] ] ] );
+
+		$reader = Sqlite_Arm::open_rows( [ 0 => $this->path( 0 ), 3 => $this->path( 3 ) ], 7 );
+
+		$this->assertSame( [ [ 2 ] ], $reader->rows( 'PRAGMA temp_store', [] ), 'temporary B-trees are set to live in memory' );
+		$this->assertSame( [ [ 2147418112 ] ], $reader->rows( 'PRAGMA p0.mmap_size', [] ) );
+		$this->assertSame( [ [ 2147418112 ] ], $reader->rows( 'PRAGMA p3.mmap_size', [] ) );
+	}
+
 	public function test_an_open_rows_reader_is_query_only(): void {
 		$reader = Sqlite_Arm::open_rows( [ 0 => $this->path( 0 ) ], 7 );
 		$this->assertSame( [ [ 1 ] ], $reader->rows( 'PRAGMA query_only', [] ) );

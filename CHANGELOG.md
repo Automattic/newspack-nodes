@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A row-table read maps its files and sorts in memory.** `Sqlite_Arm::open_rows()` read each attached partition through an 8 MiB page cache, so a day's scan re-read most pages with a `pread()` each, and every `DISTINCT`, `GROUP BY` and `UNION` B-tree spilled to a temp file past its page cache. On Atomic, where those syscalls are dear, that made event-logger-nodes' Overview `urls` answer take 130 s and its `overview` 99 s, past the host's 120 s gateway. The reader now maps each attached file (`mmap_size`, up to SQLite's default 2 GiB cap) and keeps temporary B-trees in memory (`temp_store = MEMORY`). On eln those answers take 33 s and 19 s, and system time across all five default questions fell from 194 s to 4.5 s. The long reads also held old WAL snapshots, which stalled the flame builders' checkpoints; shorter reads hold them shorter.
+
 ## [2.111.2] - 2026-10-15
 
 ### Fixed
