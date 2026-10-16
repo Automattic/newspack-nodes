@@ -51,7 +51,7 @@ class CommandAuthTest extends TestCase {
 		$m = $this->command();
 		$m[ Message::TIMESTAMP ] = 1000;
 		Command_Auth::sign( $m );
-		$this->assertTrue( Command_Auth::verify( $m, 1000 ) );
+		$this->assertTrue( Command_Auth::verify( $m, 1000, 1000 ) );
 	}
 
 	public function test_sign_and_verify_round_trip_a_noreply_command(): void {
@@ -63,7 +63,7 @@ class CommandAuthTest extends TestCase {
 		$m[ Message::TIMESTAMP ] = 1000;
 		Command_Auth::sign( $m );
 		$this->assertIsArray( $m[ Message::VALUE ]['auth'] );
-		$this->assertTrue( Command_Auth::verify( $m, 1000 ) );
+		$this->assertTrue( Command_Auth::verify( $m, 1000, 1000 ) );
 	}
 
 	public function test_sign_is_a_noop_on_a_command_response(): void {
@@ -81,7 +81,7 @@ class CommandAuthTest extends TestCase {
 		$m[ Message::TIMESTAMP ] = 1000;
 		Command_Auth::sign( $m );
 		$m[ Message::VALUE ]['name'] = 'remove_node';
-		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
+		$this->assertFalse( Command_Auth::verify( $m, 1000, 1000 ) );
 	}
 
 	public function test_verify_rejects_tampered_arguments(): void {
@@ -89,7 +89,7 @@ class CommandAuthTest extends TestCase {
 		$m[ Message::TIMESTAMP ] = 1000;
 		Command_Auth::sign( $m );
 		$m[ Message::VALUE ]['arguments'] = [ 'Tee', 'evil' ];
-		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
+		$this->assertFalse( Command_Auth::verify( $m, 1000, 1000 ) );
 	}
 
 	public function test_verify_rejects_signature_too_old(): void {
@@ -97,7 +97,7 @@ class CommandAuthTest extends TestCase {
 		$m[ Message::TIMESTAMP ] = 1000;
 		Command_Auth::sign( $m );
 		// 21s later — past the 20s acceptance window.
-		$this->assertFalse( Command_Auth::verify( $m, 1021 ) );
+		$this->assertFalse( Command_Auth::verify( $m, 1021, 1021 ) );
 	}
 
 	public function test_verify_accepts_within_past_window(): void {
@@ -105,7 +105,7 @@ class CommandAuthTest extends TestCase {
 		$m[ Message::TIMESTAMP ] = 1000;
 		Command_Auth::sign( $m );
 		// 19s later — still inside the 20s window.
-		$this->assertTrue( Command_Auth::verify( $m, 1019 ) );
+		$this->assertTrue( Command_Auth::verify( $m, 1019, 1019 ) );
 	}
 
 	public function test_verify_rejects_future_signature_beyond_skew(): void {
@@ -113,7 +113,7 @@ class CommandAuthTest extends TestCase {
 		$m[ Message::TIMESTAMP ] = 1000;
 		Command_Auth::sign( $m );
 		// Verifier clock 11s behind the signer — beyond the 10s skew tolerance.
-		$this->assertFalse( Command_Auth::verify( $m, 989 ) );
+		$this->assertFalse( Command_Auth::verify( $m, 989, 989 ) );
 	}
 
 	public function test_verify_rejects_replayed_nonce(): void {
@@ -129,19 +129,19 @@ class CommandAuthTest extends TestCase {
 		$m = $this->command();
 		$m[ Message::TIMESTAMP ] = 1000;
 		Command_Auth::sign( $m );
-		$this->assertTrue( Command_Auth::verify( $m, 1000 ), 'first use accepted' );
-		$this->assertFalse( Command_Auth::verify( $m, 1000 ), 'replay rejected' );
+		$this->assertTrue( Command_Auth::verify( $m, 1000, 1000 ), 'first use accepted' );
+		$this->assertFalse( Command_Auth::verify( $m, 1000, 1000 ), 'replay rejected' );
 	}
 
 	public function test_verify_rejects_missing_auth_envelope(): void {
 		$m = $this->command(); // never signed
-		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
+		$this->assertFalse( Command_Auth::verify( $m, 1000, 1000 ) );
 	}
 
 	public function test_verify_rejects_garbled_auth(): void {
 		$m = $this->command();
 		$m[ Message::VALUE ]['auth'] = [ 'ts' => 1000 ]; // missing sig + nonce
-		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
+		$this->assertFalse( Command_Auth::verify( $m, 1000, 1000 ) );
 	}
 
 	public function test_verify_fails_closed_without_memcache(): void {
@@ -155,7 +155,7 @@ class CommandAuthTest extends TestCase {
 		$m = $this->command();
 		$m[ Message::TIMESTAMP ] = 1000;
 		Command_Auth::sign( $m );
-		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
+		$this->assertFalse( Command_Auth::verify( $m, 1000, 1000 ) );
 		$this->assertStringContainsString( 'memcache', \strtolower( $captured ) );
 	}
 
@@ -184,7 +184,7 @@ class CommandAuthTest extends TestCase {
 	public function test_non_command_value_without_name_is_rejected_by_verify(): void {
 		$m                   = Message::new_message();
 		$m[ Message::VALUE ] = 'not a command struct';
-		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
+		$this->assertFalse( Command_Auth::verify( $m, 1000, 1000 ) );
 	}
 
 	public function test_nonce_ttl_outlives_full_acceptance_window(): void {
@@ -213,13 +213,13 @@ class CommandAuthTest extends TestCase {
 		Command_Auth::sign( $m );
 
 		$m[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_STRUCT;
-		$this->assertTrue( Command_Auth::verify( $m, 1000 ), 'flags are not signed' );
+		$this->assertTrue( Command_Auth::verify( $m, 1000, 1000 ), 'flags are not signed' );
 
 		// The semantics are, and that is the property that matters.
 		$value              = $m[ Message::VALUE ];
 		$value['arguments'] = [ 'Tee', 'evil' ];
 		$m[ Message::VALUE ] = $value;
-		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
+		$this->assertFalse( Command_Auth::verify( $m, 1000, 1000 ) );
 	}
 
 	/** Adding TM_RESPONSE does not sneak past: the predicate refuses it outright. */
@@ -229,7 +229,7 @@ class CommandAuthTest extends TestCase {
 		Command_Auth::sign( $m );
 		$m[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_RESPONSE;
 
-		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
+		$this->assertFalse( Command_Auth::verify( $m, 1000, 1000 ) );
 	}
 
 	public function test_sign_refuses_unencodable_arguments(): void {
@@ -239,7 +239,7 @@ class CommandAuthTest extends TestCase {
 		$m[ Message::TIMESTAMP ] = 1000;
 		Command_Auth::sign( $m );
 		$this->assertArrayNotHasKey( 'auth', $m[ Message::VALUE ] );
-		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
+		$this->assertFalse( Command_Auth::verify( $m, 1000, 1000 ) );
 	}
 	/**
 	 * wp_salt() distrusts the raw constant: it substitutes a DB-generated value

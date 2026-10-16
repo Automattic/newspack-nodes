@@ -45,6 +45,7 @@ supersede.
 | [32](#adr-32-a-transport-answers-what-it-could-not-deliver) | Proposed: a transport answers what it could not deliver |
 | [33](#adr-33-a-line-naming-no-partition-runs-once-per-fleet) | A line naming no partition runs once per fleet |
 | [34](#adr-34-a-table-may-hold-declared-rows-sqlite-only) | A Table may hold declared rows (SQLite only) |
+| [35](#adr-35-a-job-may-publish-a-derived-sqlite-file-whole-and-its-readers-open-it-immutable) | A job may publish a derived SQLite file whole, and its readers open it immutable |
 
 ---
 
@@ -1008,6 +1009,18 @@ the session too, qualified by a stream id the client names: a reconnect takes it
 lease over and rotates the owner, while two streams on one page keep two leases. The old
 process's next check fails and reads the lease as `superseded`, so it closes quietly rather
 than holding a second slot until it notices the drop.
+
+**Amendment:** a `/command` batch judges freshness at its arrival. The commands of one POST
+dispatch one after another, so judged against the clock at each one's turn a slow verb would
+age every command behind it past `MAX_PAST_S`. `Command_Auth::batch_verifier()` binds the
+closure it answers to the batch it builds, which holds the clock read as the batch arrives
+and the sessions the batch has read, so no clock is static and a batch begun beside another
+changes neither. The wall clock still bounds each command: one whose turn comes
+`NONCE_TTL_S − MAX_FUTURE_S` (140 s) or more after its timestamp is refused, so no replay
+queued in one batch outlives its nonce claim, which the first verification takes for
+`NONCE_TTL_S` (150 s). One freshness test refuses all three, past `MAX_PAST_S` at arrival,
+more than `MAX_FUTURE_S` ahead, or 140 s at its turn, each as `timestamp out of range`
+through `verify()`, the one refusal exit, which leaves `Capabilities::NONE` standing.
 
 ---
 
@@ -2466,12 +2479,61 @@ partitions read through an 8 MiB cache each, a distinct-URL count across them to
 nearly all system time; with both pragmas it took 5.6 s, and event-logger-nodes' `overview`
 and `urls` answers fell from 99 s and 130 s to 19 s and 33 s.
 
-A job may build a derived file from the row tables through `Row_Table_Node::build()`, which
-attaches every partition's file read-only, as `read()` does, into a connection writing the
-build file with its journal off. The job publishes the file whole by rename, and its readers
-open it with `Sqlite_Arm::open_snapshot()`, `immutable`, because nothing writes a published
-file again. No topology declares the file, so `Log_Cleaner::sweep_tables()` deletes it once
-it has been quiet an hour: a file the job republishes stays, and one it stops publishing goes.
+A job may publish a file derived from the row tables; [ADR-35](#adr-35-a-job-may-publish-a-derived-sqlite-file-whole-and-its-readers-open-it-immutable) carries it.
 
 **Revisit if:** a Row_Table must be read from another host, or a site needs more than 8
 partitions.
+
+---
+
+## ADR-35: A job may publish a derived SQLite file whole, and its readers open it immutable
+
+**Status:** Accepted
+
+**Context:** A Row_Table reader scans a day of rows where a Table reads keys
+([ADR-34](#adr-34-a-table-may-hold-declared-rows-sqlite-only)), so a question a dashboard
+asks every poll costs that scan every poll: on eln, event-logger-nodes' `urls` answer took
+33 s with every file mapped. A job can run the scan once an interval and keep what it
+derives, but a job is no worker and no topology declares it, so where it keeps the result
+decides who may write it, who may read it and what reclaims it.
+
+**Decision:** `Row_Table_Node::build( $schema, $name, $build )` publishes the snapshot
+`{base}/tables/<name>.sqlite`, in the directory `Table_Node` owns. It builds a uniquely named
+file beside it, `<name>+<16 hex digits>.sqlite`, through `Sqlite_Arm::build_rows()`: every
+partition file of the Row_Table the schema resolves to attached read-only, as `read()`
+attaches them, into a connection writing the build file with its journal off. `$build`
+fills the file through the `Row_Reader` it is handed. When it answers anything but `false`,
+one `rename()` puts the build over `<name>.sqlite`; a `finally` removes the build file, a
+no-op once renamed, so a build that throws or answers `false` leaves the last publish
+standing. A fleet with no `tables` directory, or no partition file to attach, builds
+nothing and answers `false`. `Row_Table_Node::open_snapshot( $name )` resolves the same
+path and opens it through `Sqlite_Arm::open_immutable()`, `mode=ro&immutable=1`, taking no
+lock and reading no journal because nothing writes a published file again; it answers null
+when nothing is published. `Row_Table_Node::remove_snapshot( $name )` deletes the published
+file and every build of it a crash left, for uninstall. All three refuse, with an
+`\InvalidArgumentException`, a name `Table_Node::stem()` refuses and a name ending `.p{N}`,
+which a Table partition's file would take; no Table name holds `+`, so a build is never a
+published file or a Table's. One publisher per name.
+
+**Alternatives considered:**
+
+- A keyed `sqlite` Table built outside a graph — rejected: every process that builds it
+  opens it, so its file has no one writer
+  ([ADR-24](#adr-24-a-tables-backend-is-chosen-per-table)).
+- The derived rows in wpdb — rejected: a day's URL table on the site's own database,
+  rewritten every interval, for a dashboard one host serves.
+- A declared Row_Table — rejected: its writer is a worker writing through `ROWS`, and the
+  writer here is a job.
+
+**Consequences:** No conflict gate claims the file. No topology declares it, so
+`wp nodes activate` cannot refuse a second publisher, and one publisher per name is the
+publisher's to keep: two racing builds both publish, the later rename winning. Retention is
+the quiet-hour sweep. `Log_Cleaner::sweep_tables()` deletes a database no active topology
+declares once its files have been quiet `Log_Cleaner::DELETE_GRACE_S` (3600 s), so a file
+each publish refreshes stays, and one no one publishes goes, with any build a crash left. A
+reader sees the last publish, up to two intervals stale when a build runs the length of
+one, and bounding that is the publisher's. A reader holding the old file keeps reading it
+across a rename. The file cannot be read from another host, as a Row_Table's cannot.
+
+**Revisit if:** a second publisher per name appears, or a build outlasts the interval its
+readers allow.

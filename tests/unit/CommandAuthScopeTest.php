@@ -84,7 +84,7 @@ class CommandAuthScopeTest extends TestCase {
 		$m = $this->command();
 		Command_Auth::sign_for( 'agent', $m );
 
-		$this->assertTrue( Command_Auth::verify( $m, 1000 ) );
+		$this->assertTrue( Command_Auth::verify( $m, 1000, 1000 ) );
 		$this->assertSame( Capabilities::READ, Capabilities::$session_scope );
 	}
 
@@ -94,7 +94,7 @@ class CommandAuthScopeTest extends TestCase {
 		$m = $this->command();
 		Command_Auth::sign( $m );
 
-		$this->assertTrue( Command_Auth::verify( $m, 1000 ) );
+		$this->assertTrue( Command_Auth::verify( $m, 1000, 1000 ) );
 		$this->assertNull(
 			Capabilities::$session_scope,
 			'a per-site-secret command carries the minter authority, not the last session'
@@ -112,7 +112,7 @@ class CommandAuthScopeTest extends TestCase {
 		$value['auth']['sig'] = \str_repeat( '0', 64 );
 		$m[ Message::VALUE ]  = $value;
 
-		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
+		$this->assertFalse( Command_Auth::verify( $m, 1000, 1000 ) );
 		$this->assertSame(
 			Capabilities::NONE,
 			Capabilities::$session_scope,
@@ -129,7 +129,7 @@ class CommandAuthScopeTest extends TestCase {
 		$value['auth']['handle'] = 'deadbeefdeadbeefdeadbeefdeadbeef';
 		$m[ Message::VALUE ]     = $value;
 
-		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
+		$this->assertFalse( Command_Auth::verify( $m, 1000, 1000 ) );
 		$this->assertSame( Capabilities::NONE, Capabilities::$session_scope );
 		$this->assertFalse( Capabilities::scope_covers( Capabilities::NONE, Capabilities::READ ) );
 	}
@@ -140,12 +140,12 @@ class CommandAuthScopeTest extends TestCase {
 
 		$m = $this->command();
 		Command_Auth::sign_for( 'agent', $m );
-		$this->assertTrue( Command_Auth::verify( $m, 1000 ) );
+		$this->assertTrue( Command_Auth::verify( $m, 1000, 1000 ) );
 
 		Command_Auth::revoke_session( $session['handle'] );
 
 		$again = $this->command();
 		Command_Auth::sign_for( 'agent', $again );
-		$this->assertFalse( Command_Auth::verify( $again, 1000 ) );
+		$this->assertFalse( Command_Auth::verify( $again, 1000, 1000 ) );
 	}
 }

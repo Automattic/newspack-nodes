@@ -711,17 +711,18 @@ final class Sqlite_Arm extends Durable_Arm {
 	}
 
 	/**
-	 * Open a published file nothing writes again: read-only and `immutable`,
-	 * so the reader takes no lock and reads no journal, mapped, and
-	 * `query_only`. The one `main` alias names it.
+	 * Open a file nothing writes again: read-only and `immutable`, so the
+	 * reader takes no lock and reads no journal, mapped, and `query_only`.
+	 * The one `main` alias names it. `Row_Table_Node::open_snapshot()` is
+	 * the snapshot entry, resolving a snapshot's name to the file.
 	 *
-	 * @param string $file The published file.
+	 * @param string $file The file.
 	 * @return Row_Reader The query-only connection, aliased `main`.
 	 * @throws \LogicException Without pdo_sqlite.
 	 * @throws \PDOException When the file is absent or no database.
-	 * @api The read path of a file a job publishes whole.
+	 * @api Opened by `Row_Table_Node::open_snapshot()`.
 	 */
-	public static function open_snapshot( string $file ): Row_Reader {
+	public static function open_immutable( string $file ): Row_Reader {
 		self::require_driver();
 		$db = new \PDO( 'sqlite:' . self::read_only_uri( $file ) . '&immutable=1', null, null, [ \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION ] );
 		$db->exec( 'PRAGMA main.cache_size = -' . self::ROWS_CACHE_KIB );

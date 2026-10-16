@@ -447,41 +447,251 @@ final class RowTableNodeTest extends TestCase {
 		$this->assertSame( 'kea-4471', Row_Table_Node::read( Wombat_Row_Schema::class, static fn (): string => 'kea-4471' ) );
 	}
 
-	public function test_build_attaches_every_partition_and_answers_what_its_builder_returns(): void {
-		foreach ( [ '1' => 'rid-5511', '3' => 'rid-5513' ] as $p => $rid ) {
-			$table = $this->row_table( 'wombats-6620', 'Wombat', (string) $p );
-			$this->assertSame( Message::TM_RESPONSE, $this->ask( $table, [ 'ROWS' => self::visit( $rid, 1790000000 ) ] )[0][ Message::TYPE ] );
+	/** Seed `rid` visits in partitions 1 and 3. */
+	private function seed_partitions( string ...$rids ): void {
+		foreach ( [ '1', '3' ] as $i => $p ) {
+			$table = $this->row_table( 'wombats-6620', 'Wombat', $p );
+			$this->assertSame( Message::TM_RESPONSE, $this->ask( $table, [ 'ROWS' => self::visit( $rids[ $i ], 1790000000 ) ] )[0][ Message::TYPE ] );
 			$table->remove_node();
 		}
-		$this->activate( 'wombat-fleet' );
-		$built = "{$this->base}/tables/wombat-build-4471.sqlite";
+	}
 
-		$aliases = Row_Table_Node::build(
+	/** A build of `$name` that writes `heron` from both partitions' rids. */
+	private static function build_heron( string $name, mixed $answer = 'kea-7101' ): mixed {
+		return Row_Table_Node::build(
 			Wombat_Row_Schema::class,
-			$built,
-			static function ( Row_Reader $r ): array {
+			$name,
+			static function ( Row_Reader $r ) use ( $answer ): mixed {
 				$r->rows( 'CREATE TABLE heron AS SELECT rid FROM p1.visits UNION ALL SELECT rid FROM p3.visits', [] );
-				return $r->aliases();
+				return $answer;
 			}
 		);
+	}
 
-		$this->assertSame( [ 'p1', 'p3' ], $aliases );
-		$this->assertSame( [ [ 'rid-5511' ], [ 'rid-5513' ] ], ( new \PDO( "sqlite:{$built}" ) )->query( 'SELECT rid FROM heron ORDER BY rid' )->fetchAll( \PDO::FETCH_NUM ) );
+	/** What the published `heron` holds, read straight off the file. */
+	private function heron( string $name ): array {
+		return ( new \PDO( "sqlite:{$this->base}/tables/{$name}.sqlite" ) )->query( 'SELECT rid FROM heron ORDER BY rid' )->fetchAll( \PDO::FETCH_NUM );
+	}
+
+	/** Every database the tables directory holds, by basename, journals left out. */
+	private function tables_dir(): array {
+		$files = \array_map( 'basename', \glob( "{$this->base}/tables/*.sqlite" ) ?: [] );
+		\sort( $files );
+		return $files;
+	}
+
+	public function test_build_publishes_its_name_whole_and_answers_what_its_builder_returns(): void {
+		$this->seed_partitions( 'rid-5511', 'rid-5513' );
+		$this->activate( 'wombat-fleet' );
+
+		$this->assertSame( 'kea-7101', self::build_heron( 'heron-snap-7101' ) );
+
+		$this->assertSame( [ [ 'rid-5511' ], [ 'rid-5513' ] ], $this->heron( 'heron-snap-7101' ) );
+		$this->assertSame( [ 'heron-snap-7101.sqlite', 'wombats-6620.p1.sqlite', 'wombats-6620.p3.sqlite' ], $this->tables_dir(), 'the build file is gone' );
+	}
+
+	public function test_build_hands_its_builder_every_attached_partition(): void {
+		$this->seed_partitions( 'rid-5521', 'rid-5523' );
+		$this->activate( 'wombat-fleet' );
+		$this->assertSame( [ 'p1', 'p3' ], Row_Table_Node::build( Wombat_Row_Schema::class, 'heron-snap-7102', static fn ( Row_Reader $r ): array => $r->aliases() ) );
+	}
+
+	public function test_a_build_answering_false_leaves_the_published_file_and_no_build(): void {
+		$this->seed_partitions( 'rid-5531', 'rid-5533' );
+		$this->activate( 'wombat-fleet' );
+		self::build_heron( 'heron-snap-7103' );
+		$this->ask( $this->row_table( 'wombats-6620', 'Wombat', '1' ), [ 'ROWS' => self::visit( 'rid-5539', 1790000300 ) ] );
+
+		$this->assertFalse( self::build_heron( 'heron-snap-7103', false ) );
+
+		$this->assertSame( [ [ 'rid-5531' ], [ 'rid-5533' ] ], $this->heron( 'heron-snap-7103' ), 'the last publish stands' );
+		$this->assertSame( [ 'heron-snap-7103.sqlite', 'wombats-6620.p1.sqlite', 'wombats-6620.p3.sqlite' ], $this->tables_dir() );
+	}
+
+	public function test_a_build_that_throws_leaves_the_published_file_and_no_build(): void {
+		$this->seed_partitions( 'rid-5541', 'rid-5543' );
+		$this->activate( 'wombat-fleet' );
+		self::build_heron( 'heron-snap-7104' );
+
+		$e = $this->caught(
+			static fn () => Row_Table_Node::build(
+				Wombat_Row_Schema::class,
+				'heron-snap-7104',
+				static fn (): never => throw new \RuntimeException( 'kestrel-7104' )
+			),
+			'the builder threw'
+		);
+
+		$this->assertSame( 'kestrel-7104', $e->getMessage() );
+		$this->assertSame( [ [ 'rid-5541' ], [ 'rid-5543' ] ], $this->heron( 'heron-snap-7104' ) );
+		$this->assertSame( [ 'heron-snap-7104.sqlite', 'wombats-6620.p1.sqlite', 'wombats-6620.p3.sqlite' ], $this->tables_dir() );
+	}
+
+	public function test_a_build_that_will_not_publish_says_so_and_leaves_no_build(): void {
+		$this->seed_partitions( 'rid-5551', 'rid-5553' );
+		$this->activate( 'wombat-fleet' );
+		\mkdir( "{$this->base}/tables/heron-snap-7105.sqlite" );
+
+		$e = $this->caught( static fn () => self::build_heron( 'heron-snap-7105' ), 'a directory stands where the file publishes' );
+
+		$this->assertStringContainsString( 'heron-snap-7105 would not publish', $e->getMessage() );
+		$this->assertSame( [ 'heron-snap-7105.sqlite', 'wombats-6620.p1.sqlite', 'wombats-6620.p3.sqlite' ], $this->tables_dir() );
+	}
+
+	public function test_a_fleet_with_no_tables_directory_builds_nothing_and_answers_false(): void {
+		$this->activate( 'wombat-fleet' );
+		$built = false;
+		$this->assertFalse(
+			Row_Table_Node::build(
+				Wombat_Row_Schema::class,
+				'heron-snap-7106',
+				static function () use ( &$built ): string {
+					$built = true;
+					return 'kea-7106';
+				}
+			)
+		);
+		$this->assertFalse( $built, 'the builder never ran' );
+		$this->assertDirectoryDoesNotExist( "{$this->base}/tables" );
+	}
+
+	public function test_a_fleet_with_no_partition_file_builds_nothing_and_answers_false(): void {
+		$this->activate( 'wombat-fleet' );
+		\mkdir( "{$this->base}/tables" );
+		\file_put_contents( "{$this->base}/tables/otter-7107.p0.sqlite", '' );
+		$built = false;
+		$this->assertFalse(
+			Row_Table_Node::build(
+				Wombat_Row_Schema::class,
+				'heron-snap-7107',
+				static function () use ( &$built ): string {
+					$built = true;
+					return 'kea-7107';
+				}
+			)
+		);
+		$this->assertFalse( $built, 'the builder never ran' );
+		$this->assertSame( [ 'otter-7107.p0.sqlite' ], $this->tables_dir(), 'no build file is left' );
+	}
+
+	public function test_build_of_a_row_table_no_active_topology_declares_is_unavailable(): void {
+		$this->activate();
+		$this->expectException( Table_Unavailable::class );
+		$this->expectExceptionMessage( 'no active topology declares a Row_Table of schema Wombat' );
+		self::build_heron( 'heron-snap-7108' );
 	}
 
 	public function test_build_without_pdo_sqlite_is_unavailable(): void {
 		$this->activate( 'wombat-fleet' );
+		\mkdir( "{$this->base}/tables" );
 		Sqlite_Arm::$available = static fn (): bool => false;
 		$this->expectException( Table_Unavailable::class );
 		$this->expectExceptionMessage( 'Row_Table wombats-6620: sqlite backend needs the pdo_sqlite extension' );
-		Row_Table_Node::build( Wombat_Row_Schema::class, "{$this->base}/tables/wombat-build-4472.sqlite", static fn (): null => null );
+		self::build_heron( 'heron-snap-7109' );
 	}
 
-	public function test_build_into_a_file_that_will_not_open_is_unavailable(): void {
+	public function test_a_build_file_that_will_not_open_is_unavailable(): void {
 		$this->activate( 'wombat-fleet' );
-		$e = $this->caught( fn () => Row_Table_Node::build( Wombat_Row_Schema::class, "{$this->base}/no-such-dir-4473/wombat-build.sqlite", static fn (): null => null ), 'a build file in no directory' );
+		\mkdir( "{$this->base}/tables", 0555 );
+		try {
+			$e = $this->caught( static fn () => self::build_heron( 'heron-snap-7110' ), 'a tables directory no build can write' );
+		} finally {
+			\chmod( "{$this->base}/tables", 0755 );
+		}
 		$this->assertInstanceOf( Table_Unavailable::class, $e );
 		$this->assertStringStartsWith( 'Row_Table wombats-6620: ', $e->getMessage() );
+	}
+
+	public function test_open_snapshot_reads_what_build_published(): void {
+		$this->seed_partitions( 'rid-5561', 'rid-5563' );
+		$this->activate( 'wombat-fleet' );
+		self::build_heron( 'heron-snap-7111' );
+
+		$reader = Row_Table_Node::open_snapshot( 'heron-snap-7111' );
+
+		$this->assertInstanceOf( Row_Reader::class, $reader );
+		$this->assertSame( [ 'main' ], $reader->aliases() );
+		$this->assertSame( [ [ 'rid-5561' ], [ 'rid-5563' ] ], $reader->rows( 'SELECT rid FROM heron ORDER BY rid', [] ) );
+		$this->assertSame( [ [ 1 ] ], $reader->rows( 'PRAGMA query_only', [] ) );
+	}
+
+	public function test_open_snapshot_of_a_name_never_published_answers_null(): void {
+		$this->assertNull( Row_Table_Node::open_snapshot( 'heron-snap-7112' ), 'no tables directory' );
+		\mkdir( "{$this->base}/tables" );
+		$this->assertNull( Row_Table_Node::open_snapshot( 'heron-snap-7112' ), 'no file in it' );
+		$this->assertSame( [], $this->tables_dir(), 'a reader creates nothing' );
+	}
+
+	public function test_open_snapshot_of_a_file_that_is_no_database_is_unavailable(): void {
+		\mkdir( "{$this->base}/tables" );
+		\file_put_contents( "{$this->base}/tables/heron-snap-7113.sqlite", \str_repeat( 'not a database ', 512 ) );
+		$e = $this->caught( static fn () => Row_Table_Node::open_snapshot( 'heron-snap-7113' ), 'a junk file' );
+		$this->assertInstanceOf( Table_Unavailable::class, $e );
+		$this->assertStringStartsWith( 'snapshot heron-snap-7113: ', $e->getMessage() );
+	}
+
+	public function test_remove_snapshot_deletes_the_published_file_and_leaves_every_other(): void {
+		$this->seed_partitions( 'rid-5571', 'rid-5573' );
+		$this->activate( 'wombat-fleet' );
+		self::build_heron( 'heron-snap-7114' );
+		self::build_heron( 'heron-snap-7114-tern' );
+
+		$this->assertSame( [ "{$this->base}/tables/heron-snap-7114.sqlite" ], Row_Table_Node::remove_snapshot( 'heron-snap-7114' ) );
+
+		$this->assertSame( [ 'heron-snap-7114-tern.sqlite', 'wombats-6620.p1.sqlite', 'wombats-6620.p3.sqlite' ], $this->tables_dir() );
+		$this->assertSame( [], Row_Table_Node::remove_snapshot( 'heron-snap-7114' ), 'nothing is left to delete' );
+	}
+
+	public function test_remove_snapshot_deletes_a_build_left_behind(): void {
+		$this->seed_partitions( 'rid-5581', 'rid-5583' );
+		$this->activate( 'wombat-fleet' );
+		$removed = [];
+		$this->assertFalse(
+			Row_Table_Node::build(
+				Wombat_Row_Schema::class,
+				'heron-snap-7115',
+				static function () use ( &$removed ): bool {
+					$removed = Row_Table_Node::remove_snapshot( 'heron-snap-7115' );
+					return false;
+				}
+			)
+		);
+
+		$this->assertCount( 1, $removed, 'the build in flight is the one file of the name' );
+		$this->assertStringStartsWith( "{$this->base}/tables/heron-snap-7115", $removed[0] );
+		$this->assertStringEndsWith( '.sqlite', $removed[0] );
+		$this->assertNotSame( "{$this->base}/tables/heron-snap-7115.sqlite", $removed[0] );
+	}
+
+	/** @return array<string,array{string}> Names a snapshot may not take. */
+	public static function refused_snapshot_names(): array {
+		return [
+			'a Table partition file'  => [ 'wombats-6620.p3' ],
+			'a negative partition'    => [ 'wombats-6620.p-1' ],
+			'a path separator'        => [ 'tables/heron-7116' ],
+			'a parent directory'      => [ 'heron..7116' ],
+			'a leading dot'           => [ '.heron-7116' ],
+			'nothing'                 => [ '' ],
+		];
+	}
+
+	#[DataProvider( 'refused_snapshot_names' )]
+	public function test_a_name_a_table_file_could_take_or_no_file_could_is_refused( string $name ): void {
+		$this->activate( 'wombat-fleet' );
+		$entries = [
+			'build'  => static fn () => Row_Table_Node::build( Wombat_Row_Schema::class, $name, static fn (): string => 'kea-7116' ),
+			'open'   => static fn () => Row_Table_Node::open_snapshot( $name ),
+			'remove' => static fn () => Row_Table_Node::remove_snapshot( $name ),
+		];
+		foreach ( $entries as $entry => $call ) {
+			try {
+				$call();
+				$this->fail( "{$entry} took {$name}" );
+			} catch ( \InvalidArgumentException $e ) {
+				$this->assertStringContainsString( $name, $e->getMessage(), $entry );
+			}
+		}
+		$this->assertDirectoryDoesNotExist( "{$this->base}/tables" );
 	}
 
 	public function test_a_keyed_insert_through_fill_is_refused_and_goes_nowhere(): void {

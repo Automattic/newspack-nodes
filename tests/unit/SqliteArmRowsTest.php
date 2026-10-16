@@ -515,7 +515,7 @@ final class SqliteArmRowsTest extends TestCase {
 	 * A WAL file read through a plain read-only connection takes its `-shm`
 	 * lock and opens a `-wal`; read immutably it takes neither.
 	 */
-	public function test_open_snapshot_reads_a_published_file_immutably(): void {
+	public function test_open_immutable_reads_a_published_file_immutably(): void {
 		$file = "{$this->dir}/tables/kea-snapshot-6110.sqlite";
 		@\mkdir( \dirname( $file ), 0777, true );
 		$writer = new \PDO( "sqlite:{$file}" );
@@ -525,7 +525,7 @@ final class SqliteArmRowsTest extends TestCase {
 		$this->assertFileDoesNotExist( "{$file}-shm", 'the writer closed its lock' );
 		$this->assertFileDoesNotExist( "{$file}-wal", 'the writer checkpointed its log' );
 
-		$reader = Sqlite_Arm::open_snapshot( $file );
+		$reader = Sqlite_Arm::open_immutable( $file );
 
 		$this->assertSame( [ 'main' ], $reader->aliases() );
 		$this->assertSame( [ [ 6110 ] ], $reader->rows( 'SELECT n FROM heron', [] ) );
@@ -535,11 +535,11 @@ final class SqliteArmRowsTest extends TestCase {
 		$this->assertFileDoesNotExist( "{$file}-wal", 'an immutable reader opens no log' );
 	}
 
-	public function test_open_snapshot_of_no_file_throws(): void {
+	public function test_open_immutable_of_no_file_throws(): void {
 		$absent = "{$this->dir}/tables/kea-snapshot-absent-6111.sqlite";
 		@\mkdir( \dirname( $absent ), 0777, true );
 		try {
-			Sqlite_Arm::open_snapshot( $absent );
+			Sqlite_Arm::open_immutable( $absent );
 			$this->fail( 'an absent snapshot opened' );
 		} catch ( \PDOException ) {
 			$this->assertFileDoesNotExist( $absent, 'a snapshot reader creates no file' );
