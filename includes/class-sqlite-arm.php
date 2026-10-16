@@ -99,6 +99,12 @@ final class Sqlite_Arm extends Durable_Arm {
 	 */
 	private const ROWS_MMAP_BYTES = 2147418112;
 
+	/**
+	 * Page cache of the file a `build_rows()` connection writes, in KiB:
+	 * 256 MiB, so indexing a day's URL rows re-reads them from memory.
+	 */
+	private const BUILD_CACHE_KIB = 262144;
+
 	/** The page-cache pragma; a negative size counts KiB rather than pages. */
 	private const CACHE_PRAGMA = 'PRAGMA cache_size = -' . self::CACHE_KIB;
 
@@ -607,6 +613,51 @@ final class Sqlite_Arm extends Durable_Arm {
 		$db = new \PDO( 'sqlite::memory:', null, null, [ \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION ] );
 		$db->exec( 'PRAGMA busy_timeout = ' . self::BUSY_TIMEOUT_MS );
 		$db->exec( 'PRAGMA temp_store = MEMORY' );
+		$aliases = self::attach_all( $db, $files, $version );
+		$db->exec( 'PRAGMA query_only = ON' );
+		return new Row_Reader( $db, $aliases );
+	}
+
+	/**
+	 * Open a connection that builds a new SQLite file from the row tables:
+	 * `$file` as a writable `main`, journal off, with a 256 MiB page cache and
+	 * mapped, each present partition file attached read-only as `open_rows()`
+	 * attaches it, and temporary B-trees in memory. The caller publishes the
+	 * file; a crash leaves it unpublished.
+	 *
+	 * @param string            $file    The file to build, absent or empty.
+	 * @param array<int,string> $files   Partition => file.
+	 * @param int               $version The schema version a partition file must carry.
+	 * @return Row_Reader The writable connection and the aliases it attached.
+	 * @throws \LogicException Without pdo_sqlite.
+	 * @throws \RuntimeException In a process running as root.
+	 * @throws \PDOException When `$file` will not open or a partition will not attach.
+	 * @api The row tables' one build path.
+	 */
+	public static function build_rows( string $file, array $files, int $version ): Row_Reader {
+		self::require_driver();
+		self::refuse_root_reader( \implode( ', ', [ $file, ...\array_values( $files ) ] ) );
+		$db = new \PDO( 'sqlite:' . $file, null, null, [ \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION ] );
+		$db->exec( 'PRAGMA busy_timeout = ' . self::BUSY_TIMEOUT_MS );
+		$db->exec( 'PRAGMA journal_mode = OFF' );
+		$db->exec( 'PRAGMA synchronous = OFF' );
+		$db->exec( 'PRAGMA main.cache_size = -' . self::BUILD_CACHE_KIB );
+		$db->exec( 'PRAGMA main.mmap_size = ' . self::ROWS_MMAP_BYTES );
+		$db->exec( 'PRAGMA temp_store = MEMORY' );
+		return new Row_Reader( $db, self::attach_all( $db, $files, $version ) );
+	}
+
+	/**
+	 * Attach each present file at `$version` to `$db` read-only as
+	 * `p{partition}`; a file absent, or at another version, is not attached.
+	 *
+	 * @param \PDO              $db      The connection.
+	 * @param array<int,string> $files   Partition => file.
+	 * @param int               $version The schema version a file must carry.
+	 * @return list<string> The aliases attached, in partition order.
+	 * @throws \PDOException When a present file will not attach.
+	 */
+	private static function attach_all( \PDO $db, array $files, int $version ): array {
 		$aliases = [];
 		foreach ( $files as $partition => $path ) {
 			\clearstatcache( true, $path );
@@ -614,15 +665,13 @@ final class Sqlite_Arm extends Durable_Arm {
 				$aliases[] = "p{$partition}";
 			}
 		}
-		$db->exec( 'PRAGMA query_only = ON' );
-		return new Row_Reader( $db, $aliases );
+		return $aliases;
 	}
 
 	/**
-	 * Attach the file at `$path` to `$db` as `$schema`, read-only: a `file:`
-	 * URI with `mode=ro`, which every connection PDO opens reads as a URI. It
-	 * creates nothing. A file at another `user_version` is detached again.
-	 * Under `open_basedir` PDO reads no URI and denies the attach.
+	 * Attach the file at `$path` to `$db` as `$schema`, read-only through
+	 * `read_only_uri()`. It creates nothing. A file at another `user_version`
+	 * is detached again.
 	 *
 	 * @param \PDO   $db      The connection.
 	 * @param string $path    The database file.
@@ -633,7 +682,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	 */
 	private static function attach_read_only( \PDO $db, string $path, string $schema, int $version ): bool {
 		$attach = $db->prepare( "ATTACH DATABASE ? AS {$schema}" );
-		$attach->execute( [ 'file:' . \strtr( $path, [ '%' => '%25', '?' => '%3f', '#' => '%23' ] ) . '?mode=ro' ] );
+		$attach->execute( [ self::read_only_uri( $path ) ] );
 		if ( $version !== self::user_version( $db, $schema ) ) {
 			$db->exec( "DETACH DATABASE {$schema}" );
 			return false;
@@ -644,20 +693,56 @@ final class Sqlite_Arm extends Durable_Arm {
 	}
 
 	/**
-	 * Refuse a reader running as root: SQLite can add `-wal` and `-shm` files
-	 * beside a WAL database, and root's would lock the file's writer out.
+	 * Refuse a sqlite process running as root: SQLite adds files beside a
+	 * database it opens, `-wal` and `-shm` beside a WAL file, and a build
+	 * writes its own file, and root's would lock the file's worker out.
 	 * Running as root is the operator's to fix, never a backend to degrade
 	 * past, so the refusal is a plain \RuntimeException.
 	 *
 	 * @api Read by a mounted Table before its arm opens.
-	 * @param string $path The files the reader would open.
+	 * @param string $path The files the process would open, comma-joined.
 	 * @throws \RuntimeException In a process running as root.
 	 */
 	public static function refuse_root_reader( string $path ): void {
 		if ( 0 === CLI::uid() ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain text; the node wrapping it escapes the message once.
-			throw new \RuntimeException( "a sqlite mount refuses to run as root: a root reader leaves -wal and -shm files beside {$path} that its worker cannot open" );
+			throw new \RuntimeException( "sqlite refuses to run as root: a root process leaves files beside {$path} that its worker cannot open" );
 		}
+	}
+
+	/**
+	 * Open a published file nothing writes again: read-only and `immutable`,
+	 * so the reader takes no lock and reads no journal, mapped, and
+	 * `query_only`. The one `main` alias names it.
+	 *
+	 * @param string $file The published file.
+	 * @return Row_Reader The query-only connection, aliased `main`.
+	 * @throws \LogicException Without pdo_sqlite.
+	 * @throws \PDOException When the file is absent or no database.
+	 * @api The read path of a file a job publishes whole.
+	 */
+	public static function open_snapshot( string $file ): Row_Reader {
+		self::require_driver();
+		$db = new \PDO( 'sqlite:' . self::read_only_uri( $file ) . '&immutable=1', null, null, [ \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION ] );
+		$db->exec( 'PRAGMA main.cache_size = -' . self::ROWS_CACHE_KIB );
+		$db->exec( 'PRAGMA main.mmap_size = ' . self::ROWS_MMAP_BYTES );
+		$db->exec( 'PRAGMA query_only = ON' );
+		// Read a page now, so an absent file or no database throws at open.
+		$db->query( 'SELECT 1 FROM sqlite_master LIMIT 1' );
+		return new Row_Reader( $db, [ 'main' ] );
+	}
+
+	/**
+	 * The `file:` URI that opens `$path` read-only, `mode=ro`, with the three
+	 * characters a URI path reserves escaped; it creates nothing. Every
+	 * connection PDO opens reads a URI, except under `open_basedir`, where
+	 * PDO denies it.
+	 *
+	 * @param string $path The database file.
+	 * @return string The URI, ending in its `?mode=ro` query.
+	 */
+	private static function read_only_uri( string $path ): string {
+		return 'file:' . \strtr( $path, [ '%' => '%25', '?' => '%3f', '#' => '%23' ] ) . '?mode=ro';
 	}
 
 	/**

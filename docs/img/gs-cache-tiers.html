@@ -37,7 +37,7 @@ h2 { font-size:15px; margin:0 0 10px; }
   <div class="card">
     <h2><span class="mono">Cache_Backend::local_first()</span></h2>
     <div class="order"><div class="t apcu"><b>APCu</b>same host, fastest</div><span class="arrow">else →</span><div class="t memd"><b>Memcached</b></div></div>
-    <p>For a same-host surface, where a claim only has to be unique to the process that verifies it: the single-use command nonce (<span class="mono">Command_Auth</span>, claimed for 60 s), and the on-demand wake map <span class="mono">Bootstrap</span> caches.</p>
+    <p>For a same-host surface, where a claim only has to be unique to the process that verifies it: the single-use command nonce (<span class="mono">Command_Auth</span>, claimed for 150 s), and the on-demand wake map <span class="mono">Bootstrap</span> caches.</p>
   </div>
   <div class="card">
     <h2><span class="mono">Cache_Backend::shared_first()</span></h2>

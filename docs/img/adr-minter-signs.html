@@ -59,7 +59,7 @@
       <div class="chk">
         <span><b>age</b> at most <span class="mono">MAX_PAST_S</span> 20 s old, <span class="mono">MAX_FUTURE_S</span> 10 s ahead</span>
         <span><b>sig</b> matches the HMAC recomputed under the resolved key</span>
-        <span><b>nonce</b> claimed by an atomic <span class="mono">add()</span> at <span class="mono">NONCE_TTL_S</span> 60, via <span class="mono">local_first()</span>: unique to the verifying process, so APCu is the faster answer</span>
+        <span><b>nonce</b> claimed by an atomic <span class="mono">add()</span> at <span class="mono">NONCE_TTL_S</span> 150, via <span class="mono">local_first()</span>: unique to the verifying process, so APCu is the faster answer</span>
         <span><b>handle</b> rides outside the signed string; <span class="mono">Command_Auth::check()</span> installs the session's scope as <span class="mono">Capabilities::$session_scope</span>, the ceiling for this one command, which <span class="mono">verify()</span> slams to NONE on refusal and <span class="mono">interpret()</span> restores</span>
       </div>
       <p>Most refusals name themselves through the handling interpreter's <span class="mono">drop_message</span>: wrong type, bad envelope, stale or skewed timestamp, unencodable arguments (logged as invalid signature), signature mismatch; an unknown or expired handle and a replayed nonce log nothing; a missing cache backend logs through <span class="mono">print_less_often()</span>, an environment fault rather than a verdict. <span class="mono">HTTP_In</span> latches any refusal, so a batch with one answers <b>401</b>.</p>

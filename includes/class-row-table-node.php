@@ -312,6 +312,32 @@ class Row_Table_Node extends Table_Node {
 	}
 
 	/**
+	 * Build a file from the Row_Table the active topologies declare with
+	 * `$schema`: `read()`'s twin over `Sqlite_Arm::build_rows()`, every
+	 * partition's file attached read-only into a connection writing `$file`,
+	 * handed to `$build` as a Row_Reader. The caller publishes the file.
+	 *
+	 * @api The row tables' build path, for a job publishing a derived file.
+	 * @template T
+	 * @param class-string<Row_Schema> $schema The schema the table holds.
+	 * @param string                   $file   The file to build.
+	 * @param \Closure(Row_Reader): T  $build  The build.
+	 * @return T What `$build` returned.
+	 * @throws Table_Unavailable As `read()`, or when `$file` will not open.
+	 * @throws \RuntimeException As `Bootstrap::row_table()`, or when the
+	 *                           process runs as root.
+	 */
+	public static function build( string $schema, string $file, \Closure $build ): mixed {
+		$table = Bootstrap::row_table( $schema );
+		try {
+			$builder = Sqlite_Arm::build_rows( $file, $table['files'], $schema::version() );
+		} catch ( \PDOException | \LogicException $e ) {
+			throw new Table_Unavailable( \esc_html( "Row_Table {$table['name']}: " . $e->getMessage() ), 0, $e );
+		}
+		return $build( $builder );
+	}
+
+	/**
 	 * `ROWS`, the one structured verb a Row_Table declares: a list of row ops
 	 * written in one transaction, answered as every Table write is,
 	 * TM_RESPONSE `ROWS <written>`, or a TM_ERROR carrying the arm's message,

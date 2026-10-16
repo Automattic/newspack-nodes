@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A job can build a file from the row tables, and its readers open it immutably.** `Row_Table_Node::build( $schema, $file, $build )` is `read()`'s twin: it attaches every partition file of the Row_Table the schema resolves to read-only, as `read()` does, into a connection writing `$file`, hands it to `$build` as a `Row_Reader`, answers what `$build` returns, and throws `Table_Unavailable` when pdo_sqlite is missing or a file will not open. Under it, `Sqlite_Arm::build_rows( $file, $files, $version )` opens `$file` writable with its journal off, mapped, with a 256 MiB page cache and temporary B-trees in memory, and refuses a root builder. `Sqlite_Arm::open_snapshot( $file )` opens a published file `mode=ro&immutable=1`, mapped and `query_only`, aliased `main`, taking no lock because nothing writes it again; an absent file throws `\PDOException` and is not created.
+
+### Fixed
+
+- **A slow command no longer voids the signatures queued behind it in one `/command` POST.** `HTTP_In_Node` dispatches a batch's commands one after another, and `Command_Auth::batch_verifier()` checked each signature's timestamp against the clock at that command's turn, so a verb that ran long aged every command behind it past `MAX_PAST_S` (20 s). eln.newspackstaging.com logged 78 refusals of this shape, every one "verification failed: timestamp out of range", 36–38 s into a POST. A batch verifier reads the clock once, as the batch begins, and every command in it verifies against that arrival; a command already outside the window at arrival is still refused, and the next batch reads its own clock. The wall clock still bounds a batch: a command whose turn comes 140 s or more after it was signed is refused, also as "timestamp out of range", because its single-use nonce claim, taken at the first verification, lasts `NONCE_TTL_S`, and a replay queued behind slow verbs past that claim would otherwise verify twice. `NONCE_TTL_S` rises from 60 s to 150 s so that 140 s bound covers a batch a host's 120 s gateway lets run to its end, Atomic's included.
+
+### Changed
+
+- **The sqlite root refusal names every file the process would touch.** It reads `sqlite refuses to run as root: a root process leaves files beside <paths> that its worker cannot open`, for a mount, a row-table reader and a build alike; a build names its own file and each partition file it would attach.
+
+### Removed
+
+- **ADR-24's amendment admitting a `sqlite` Table one worker builds outside a topology.** A Table built with `Table_Node::table()` names `wpdb`; a job deriving a file from the row tables builds it through `Row_Table_Node::build()` and publishes it for `open_snapshot()` readers instead.
+
 ## [2.111.3] - 2026-10-16
 
 ### Fixed
