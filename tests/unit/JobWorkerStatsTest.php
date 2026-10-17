@@ -224,7 +224,7 @@ class JobWorkerStatsTest extends TestCase {
 	}
 
 	public function test_probe_stats_reports_the_interval_its_deltas_cover(): void {
-		// ELAPSED_MS is the window since this identity's previous sweep, so the
+		// ELAPSED_MS is the window since the worker's previous sweep, so the
 		// record is self-contained and the reader never needs a prior timestamp.
 		$jw = new Job_Worker_Node();
 		$this->register_job_handler( $jw, 'ingest', fn () => null );
@@ -238,6 +238,32 @@ class JobWorkerStatsTest extends TestCase {
 			23000,
 			$this->record_for( $jw, 'ingest' )[ Jobstats_Record::ELAPSED_MS ]
 		);
+	}
+
+	/**
+	 * An identity's first record covers the worker's whole sweep window: one
+	 * 4 ms run ten seconds into it is one run over ten seconds.
+	 */
+	public function test_a_first_run_reports_the_window_since_the_previous_sweep(): void {
+		$jw        = $this->timed_worker( [ 0.004 ] );
+		Core::$now = 1_700_000_490.0;
+		$this->assertSame( [], $jw->probe_stats(), 'the sweep before any run' );
+
+		$jw->fill( $this->job_message( 'timed' ) );
+		$record = $this->record_for( $jw, 'timed' );
+
+		$this->assertSame( 1, $record[ Jobstats_Record::RUNS_DELTA ] );
+		$this->assertSame( 10004, $record[ Jobstats_Record::ELAPSED_MS ] );
+	}
+
+	/** Before its first sweep, a worker's window opens when it was built. */
+	public function test_a_worker_never_swept_reports_the_window_since_it_was_built(): void {
+		Core::$now = 1_700_000_480.0;
+		$jw        = $this->timed_worker( [ 0.25 ] );
+
+		$jw->fill( $this->job_message( 'timed' ) );
+
+		$this->assertSame( 20250, $this->record_for( $jw, 'timed' )[ Jobstats_Record::ELAPSED_MS ] );
 	}
 
 	public function test_probe_stats_keeps_reporting_an_idle_identity_with_zero_deltas(): void {

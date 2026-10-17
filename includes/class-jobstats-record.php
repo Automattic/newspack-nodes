@@ -91,7 +91,7 @@ class Jobstats_Record {
 	 */
 	public const LAST_MESSAGE = 11;
 
-	/** Milliseconds the deltas above cover — the interval since this identity's previous sweep, which opens at its first run. */
+	/** Milliseconds the deltas above cover — the interval since the worker's previous sweep, or since its build before its first. */
 	public const ELAPSED_MS = 12;
 
 	/**

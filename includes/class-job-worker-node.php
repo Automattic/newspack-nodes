@@ -82,7 +82,7 @@ if ( ! \defined( 'ABSPATH' ) ) {
  * the GET_HEALTH reply back out. Per-identity run stats accumulate in memory and
  * leave through the probe_stats() seam a `Job_Probe` sweeps.
  *
- * @phpstan-type Job_Stat array{handler:string,runs:int,errors:int,duration_ms:float,queue_ms:float,items_ok:int,items_err:int,last_ts:int,last_duration_ms:int,max_duration_ms:int,last_status:string,last_message:string,probe_ts:float}
+ * @phpstan-type Job_Stat array{handler:string,runs:int,errors:int,duration_ms:float,queue_ms:float,items_ok:int,items_err:int,last_ts:int,last_duration_ms:int,max_duration_ms:int,last_status:string,last_message:string}
  */
 class Job_Worker_Node extends Node {
 	use Schema_Reflection;
@@ -125,12 +125,19 @@ class Job_Worker_Node extends Node {
 	/**
 	 * Per-identity job-stats accumulator. Keyed by `handler:id` (top-level `id`
 	 * present) or `handler`; each entry holds THIS probe window's counters (drained
-	 * by probe_stats), the instant that window opened, and the last-run detail.
-	 * The Job_Probe sweeps it via probe_stats() into the durable jobstats.p0 log.
+	 * by probe_stats) and the last-run detail. The Job_Probe sweeps it via
+	 * probe_stats() into the durable jobstats.p0 log.
 	 *
 	 * @var array<string,Job_Stat>
 	 */
 	private array $job_stats = [];
+
+	/**
+	 * When the window `probe_stats()` drains opened: the previous sweep, or
+	 * this worker's build. One per worker, so an identity's first run is
+	 * counted over the sweep it fell in, never over the instant after it.
+	 */
+	private float $probe_ts;
 
 	/**
 	 * Handlers for `k:"job"` entries, keyed by handler name.
@@ -149,6 +156,7 @@ class Job_Worker_Node extends Node {
 	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(). */
 	public function __construct() {
 		parent::__construct();
+		$this->probe_ts = Core::$now;
 
 		// Eager-load handlers: plugins_loaded has fired by TSL eval time.
 		$this->load_handlers_from_filters();
@@ -435,8 +443,7 @@ class Job_Worker_Node extends Node {
 	}
 
 	/**
-	 * Fold one run's outcome and duration into the per-identity accumulator, opening
-	 * that identity's window at its FIRST run rather than at worker start. The
+	 * Fold one run's outcome and duration into the per-identity accumulator. The
 	 * counters climb until probe_stats() drains them, so a record ships the work of
 	 * one window and a reader divides instead of differencing.
 	 *
@@ -461,8 +468,6 @@ class Job_Worker_Node extends Node {
 			'max_duration_ms'  => 0,
 			'last_status'      => '',
 			'last_message'     => '',
-			// Window opens at the first run, not at worker start.
-			'probe_ts'         => Core::$now,
 		];
 
 		++$s['runs'];
@@ -581,7 +586,9 @@ class Job_Worker_Node extends Node {
 	 * @return array<int,array<int,int|string>> Jobstats_Record-indexed positional arrays.
 	 */
 	public function probe_stats(): array {
-		$records = [];
+		$elapsed_ms     = (int) \round( \max( 0.0, Core::$now - $this->probe_ts ) * 1000 );
+		$this->probe_ts = Core::$now;
+		$records        = [];
 		foreach ( $this->job_stats as $identity => $s ) {
 			$record                                      = [];
 			$record[ Jobstats_Record::IDENTITY ]              = $identity;
@@ -596,7 +603,7 @@ class Job_Worker_Node extends Node {
 			$record[ Jobstats_Record::LAST_DURATION_MS ] = $s['last_duration_ms'];
 			$record[ Jobstats_Record::LAST_STATUS ]      = $s['last_status'];
 			$record[ Jobstats_Record::LAST_MESSAGE ]     = $s['last_message'];
-			$record[ Jobstats_Record::ELAPSED_MS ]       = (int) \round( \max( 0.0, Core::$now - $s['probe_ts'] ) * 1000 );
+			$record[ Jobstats_Record::ELAPSED_MS ]       = $elapsed_ms;
 			$record[ Jobstats_Record::MAX_DURATION_MS ]  = $s['max_duration_ms'];
 			$records[]                                   = $record;
 			$this->job_stats[ $identity ]                = $this->drained( $s );
@@ -606,8 +613,7 @@ class Job_Worker_Node extends Node {
 
 	/**
 	 * Re-baseline one identity's accumulator after its record ships: the
-	 * counters and the window's longest run reset to zero and the window
-	 * reopens at now. Last-run detail is untouched — the table shows it
+	 * counters and the window's longest run reset to zero. Last-run detail is untouched — the table shows it
 	 * whether or not the identity ran this interval.
 	 *
 	 * @param Job_Stat $s The identity's accumulator entry.
@@ -621,7 +627,6 @@ class Job_Worker_Node extends Node {
 		$s['items_ok']        = 0;
 		$s['items_err']       = 0;
 		$s['max_duration_ms'] = 0;
-		$s['probe_ts']        = Core::$now;
 		return $s;
 	}
 

@@ -5,7 +5,7 @@
  * A `Job_Probe` sweep emits one record per job identity as a small POSITIONAL
  * array (no keys), so the dashboard replays a 24-hour window of it over SSE
  * cheaply. Each record is SELF-CONTAINED: fields 2..7 are the work done since
- * that identity's previous sweep and ELAPSED_MS is the interval covering it,
+ * the worker's previous sweep and ELAPSED_MS is the interval covering it,
  * so a reader divides ONE record and never differences across records — a
  * worker recycles roughly every 595 seconds, and differencing reads that
  * recycle as a counter reset. Fields 8..11 are the last-run detail, which
@@ -86,8 +86,8 @@ export const LAST_STATUS = 10;
 export const LAST_MESSAGE = 11;
 
 /**
- * Milliseconds the deltas above cover — the interval since this identity's
- * previous sweep, which opens at its first run.
+ * Milliseconds the deltas above cover — the interval since the worker's
+ * previous sweep, or since its build before its first.
  */
 export const ELAPSED_MS = 12;
 
