@@ -2458,7 +2458,15 @@ connection and answers in one statement; `Spawn_Coordinator::MAX_PARTITIONS` (8)
 under SQLite's ten attachments. A reader finds its table by schema, never by name. A verb answering from `read()` answers only rows its declared
 role may read, as [ADR-23](#adr-23-a-request-carries-no-authority-of-its-own) bounds what a
 verb's mount may expose. A schema version mismatch discards the file at open.
-Retention is declared per table (`retain`, `retained_by`) and runs on the Table tick. The
+Retention is declared per table and runs on the Table tick, as a `retain` window or a
+`retained_by` list of `[ table, its column, own column ]` references. The referencing column
+leads an index or the key in its table, and the own column is the lookup table's
+`autoincrement` column or one-column key, so each released value deletes at most one row by a
+seek. A lookup row is released when a purge deletes rows naming it, and deleted once no
+listed table still names it; its deletion releases the rows it alone named in turn, so a
+`requests` purge releases `urls` rows and those release `servers` rows. Only the values the
+deleted rows returned are examined, every release fits the purge's budget, and a chain of
+references returning to a table on it, a table naming itself included, is refused. The
 file is claimed in the write set as `table:<name>.p{partition}`, as a `sqlite` Table's is, so
 `wp nodes activate` refuses two active topologies declaring one name, a keyed `sqlite` Table
 and a Row_Table included, and `wp nodes gc` keeps a declared Row_Table's files and sweeps an

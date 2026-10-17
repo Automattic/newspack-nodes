@@ -15,8 +15,8 @@
  * The schema is checked before the file opens: identifiers, the closed set
  * of column types, `add` columns outside the key, an INTEGER
  * `autoincrement`, a `retain` and each `retained_by` reference served by an
- * index or the key, TEXT `fts` columns no `add` folds, and every table
- * purged by its own `retain` or by a `retained_by`.
+ * index or the key, TEXT `fts` columns no `add` folds, every table purged by
+ * its own `retain` or by a `retained_by`, and no `retained_by` cycle.
  *
  * @package Newspack_Nodes
  */
@@ -133,6 +133,27 @@ class Row_Table_Node extends Table_Node {
 		if ( ! $retains ) {
 			self::refuse_schema( $word, 'retains no table, so no purge ever starts' );
 		}
+		foreach ( \array_keys( $tables ) as $table ) {
+			self::check_acyclic( $word, $tables, [ $table ] );
+		}
+	}
+
+	/**
+	 * Refuse a `retained_by` chain that returns to a table on it, which no
+	 * release would ever bound.
+	 *
+	 * @param string                 $word   The schema word.
+	 * @param array<string,Row_Spec> $tables Every table it declares.
+	 * @param non-empty-list<string> $chain  The tables followed so far.
+	 * @throws \RuntimeException Naming the schema and the cycle.
+	 */
+	private static function check_acyclic( string $word, array $tables, array $chain ): void {
+		foreach ( $tables[ \end( $chain ) ]['retained_by'] ?? [] as [ $names ] ) {
+			if ( \in_array( $names, $chain, true ) ) {
+				self::refuse_schema( $word, "{$chain[0]} is retained_by a cycle: " . \implode( ', ', [ ...$chain, $names ] ) );
+			}
+			self::check_acyclic( $word, $tables, [ ...$chain, $names ] );
+		}
 	}
 
 	/**
@@ -201,8 +222,10 @@ class Row_Table_Node extends Table_Node {
 
 	/**
 	 * Check how a table purges: a `retain` whose column leads an index or the
-	 * key, with a window and a unit of at least one, a `retained_by` whose
-	 * referencing column leads one in the table it names, or both.
+	 * key, with a window and a unit of at least one, `retained_by` entries
+	 * each naming a declared table whose referencing column leads one there
+	 * and this table's autoincrement column or one-column key, so a released
+	 * value deletes one row by a seek, or both.
 	 *
 	 * @param string                $word   The schema word.
 	 * @param array<string,Row_Spec> $tables Every table it declares.
@@ -212,8 +235,8 @@ class Row_Table_Node extends Table_Node {
 	 */
 	private static function check_purge( string $word, array $tables, string $table, array $spec ): void {
 		$retain      = $spec['retain'] ?? null;
-		$retained_by = $spec['retained_by'] ?? null;
-		if ( null === $retain && null === $retained_by ) {
+		$retained_by = $spec['retained_by'] ?? [];
+		if ( null === $retain && [] === $retained_by ) {
 			self::refuse_schema( $word, "{$table} declares neither retain nor retained_by, so nothing ever purges it" );
 		}
 		if ( null !== $retain ) {
@@ -225,16 +248,18 @@ class Row_Table_Node extends Table_Node {
 				self::refuse_schema( $word, "{$table} retains {$column} for a window or a unit below one" );
 			}
 		}
-		if ( null !== $retained_by ) {
-			[ $names, $column, $own ] = $retained_by;
+		foreach ( $retained_by as [ $names, $column, $own ] ) {
 			if ( ! isset( $tables[ $names ] ) ) {
-				self::refuse_schema( $word, "{$table} is retained_by {$names}, which it declares no table for" );
+				self::refuse_schema( $word, "{$table} is retained_by {$names}.{$column}, which it declares no table for" );
 			}
 			if ( ! self::leads( $tables[ $names ], $column ) ) {
 				self::refuse_schema( $word, "{$table} is retained_by {$names}.{$column}, which leads no index or key there" );
 			}
 			if ( ! isset( $spec['columns'][ $own ] ) ) {
-				self::refuse_schema( $word, "{$table} is retained_by {$names} on {$own}, which it declares no column for" );
+				self::refuse_schema( $word, "{$table} is retained_by {$names}.{$column} on {$own}, which it declares no column for" );
+			}
+			if ( ( $spec['autoincrement'] ?? null ) !== $own && [ $own ] !== ( $spec['key'] ?? [] ) ) {
+				self::refuse_schema( $word, "{$table} is retained_by {$names}.{$column} on {$own}, which is neither its autoincrement column nor a one-column key" );
 			}
 		}
 	}
