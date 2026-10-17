@@ -1707,8 +1707,10 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
   mount of a file its writer declared before members reads every set as empty, as it reads
   a file that is not there. The purge deletes expired members inside the same per-batch
   limit as expired keyed rows.
-- The purge catches up. A tick that stops with a Table's last batch full leaves it behind
-  and says so in a rate-limited line. The Tables due on one tick share one deadline:
+- The purge catches up. A tick that stops with a Table's last batch full leaves it behind,
+  and says so in a rate-limited line once its oldest expired row has waited more than
+  `PURGE_LAG_WARN_S` (an hour) past its expiry, because a full batch is the steady state
+  of a busy Table keeping pace. The Tables due on one tick share one deadline:
   `PURGE_BACKLOG_BUDGET_S` (250 ms) while any is behind, 50 ms otherwise, and the first
   batch that is not full catches a Table up. A batch is full when a Row_Table's retained
   table fills its share of it, not only when the rows sum to the batch. Every due Table runs at least one batch, so a tick holds

@@ -377,6 +377,53 @@ final class SqliteArmRowsTest extends TestCase {
 		$this->assertSame( [ [ $floor ] ], $this->all( 'SELECT slot FROM slots' ) );
 	}
 
+	/**
+	 * A retained row expires the moment its column falls below the floor,
+	 * at `( column + window + 1 ) × unit`, so its lag counts from there in
+	 * seconds; the arm's lag is the largest over kv and every retained table.
+	 */
+	public function test_purge_lag_counts_a_retained_row_from_the_moment_it_left_its_window(): void {
+		$arm   = $this->rows_arm();
+		$now   = 1790000250;
+		$floor = \intdiv( $now, 300 ) - 24;
+		$arm->write_rows(
+			[
+				[ 'insert', 'slots', [ $floor - 3, 'heron', 1 ] ],
+				[ 'insert', 'slots', [ $floor, 'heron', 2 ] ],
+			]
+		);
+		$this->assertSame( 750, $arm->purge_lag( $now ), 'two whole slots and the 150 s into the current one' );
+
+		$arm->write_rows( [ [ 'insert', 'visits', [ 'rid-5101', $now - 3601 - 5101, 0, 1.5 ] ] ] );
+		$this->assertSame( 5101, $arm->purge_lag( $now ), 'the visit left its window first' );
+
+		Core::$clock = static fn (): float => 1789991250.0;
+		$arm->set( 'kea-old', 1, 1 );
+		$this->assertSame( 8999, $arm->purge_lag( $now ), 'a keyed row counts beside the row tables' );
+
+		$arm->purge( $now, 100 );
+		$this->assertSame( 0, $arm->purge_lag( $now ), 'a store holding only live rows has no lag' );
+	}
+
+	public function test_a_lag_the_store_cannot_read_is_logged_and_answers_none(): void {
+		$arm = $this->rows_arm();
+		$now = 1790000250;
+		$arm->write_rows( [ [ 'insert', 'visits', [ 'rid-5101', $now - 3601 - 5101, 0, 1.5 ] ] ] );
+		$this->assertSame( 5101, $arm->purge_lag( $now ) );
+		( new \PDO( 'sqlite:' . $this->path() ) )->exec( 'DROP TABLE tallies' );
+		$logged = [];
+		\add_action(
+			'newspack_nodes/stderr',
+			static function ( string $line ) use ( &$logged ): void {
+				$logged[] = $line;
+			}
+		);
+		$this->assertSame( 0, $arm->purge_lag( $now ), 'a failed read answers no lag' );
+		$this->assertCount( 1, $logged );
+		$this->assertStringContainsString( 'Table purge lag read failed: sqlite ' . $this->path() . ': ', $logged[0] );
+		$this->assertStringContainsString( 'tallies', $logged[0] );
+	}
+
 	public function test_a_failed_purge_still_counts_the_rows_its_earlier_tables_gave_up(): void {
 		$arm = $this->rows_arm();
 		$arm->write_rows(

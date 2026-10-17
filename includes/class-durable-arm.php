@@ -256,6 +256,34 @@ abstract class Durable_Arm extends Cache_Backend {
 	abstract protected function purge_rows( int $now, int $limit ): int;
 
 	/**
+	 * How long the oldest row expired at `$now` has waited past its expiry:
+	 * how far a purge that ended full is behind. Each store answers in one
+	 * seek a table; `Table_Node::purge_tick()` asks only when a purge's last
+	 * batch came back full.
+	 *
+	 * @param int $now Epoch second.
+	 * @return int Seconds; 0 when no row waits, or when the store refused,
+	 *             which is logged.
+	 */
+	public function purge_lag( int $now ): int {
+		$expired = $this->attempt( fn (): ?int => $this->oldest_expiry( $now ), false );
+		if ( false === $expired ) {
+			Core::print_less_often( 'Table purge lag read failed: ', $this->last_failure() );
+			return 0;
+		}
+		return null === $expired ? 0 : \max( 0, $now - $expired );
+	}
+
+	/**
+	 * The epoch second the oldest row expired at `$now` expired, whatever
+	 * the arm keeps it in.
+	 *
+	 * @param int $now Epoch second.
+	 * @return int|null Null when no row has expired.
+	 */
+	abstract protected function oldest_expiry( int $now ): ?int;
+
+	/**
 	 * Empty this arm's store, keyed and member rows, live or expired: an
 	 * operator's `flush`. Each arm answers what it knows without counting:
 	 * `Sqlite_Arm` the bytes its old files held, `Wpdb_Arm` the rows its
