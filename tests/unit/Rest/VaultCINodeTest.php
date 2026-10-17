@@ -909,7 +909,6 @@ class VaultCINodeTest extends TestCase {
 				'name'    => 'get',
 				'payload' => [
 					'registered_hooks' => [ 'wp_footer_zeta', 'save_post_zeta' ],
-					'custom_events'    => [ 'newspack_zeta_event' ],
 					'lag'              => 8675309,
 					'version'          => '9.9.9-probe',
 				],
