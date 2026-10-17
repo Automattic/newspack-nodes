@@ -118,6 +118,21 @@ function uiRelay( ui, message ) {
 }
 
 /**
+ * Aim `_http`'s unaddressed-reply target. A REPL aims it at its `_output`
+ * while mounted and back at `_null` on teardown: `_output` exists only while
+ * a console is open, and a target naming an unregistered node turns every
+ * unaddressed server reply into a NOT_AVAILABLE bounce with nowhere to go.
+ *
+ * @param {string} target Node name to stamp an unaddressed reply with.
+ */
+export function aimHttp( target ) {
+	const http = Core.node( names.HTTP );
+	if ( http ) {
+		http.target = target;
+	}
+}
+
+/**
  * Construct and register the backbone, then run `build` against it.
  *
  * THE CONSUMER CONTRACT IS ONE LINE: hand `mountExospine` a `build` callback that

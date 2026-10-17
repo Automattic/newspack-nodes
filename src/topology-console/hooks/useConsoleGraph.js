@@ -42,7 +42,7 @@ import { useEffect, useRef, useState } from '@wordpress/element';
 import { Core } from '../../runtime/core';
 import { useGraphGeneration } from '../../runtime/react';
 import { Node } from '../../runtime/node';
-import { mountExospine } from '../../runtime/exospine';
+import { aimHttp, mountExospine } from '../../runtime/exospine';
 import { DumperNode } from '../../runtime/dumper-node';
 import { StdoutNode } from '../../runtime/stdout-node';
 import { OutgoingGateNode } from '../core/outgoingGate';
@@ -171,6 +171,7 @@ export function useConsoleGraph( {
 		dumper.debugLevelRef = debugLevelRefRef.current;
 		dumper.name = names.OUTPUT;
 		dumper.sink = interpreter;
+		aimHttp( names.OUTPUT );
 		// Persist on every change; restore what the last session left.
 		const transcriptListenerId = 'useConsoleGraph/transcript';
 		dumper.register( 'transcript', transcriptListenerId, () => {
@@ -281,6 +282,7 @@ export function useConsoleGraph( {
 				remote.removeNode();
 			}
 			cwdNode.removeNode();
+			aimHttp( names.NULL );
 			// The backbone effect above owns the spine; this is a no-op.
 			teardownSpine();
 			setSseSession( null );
