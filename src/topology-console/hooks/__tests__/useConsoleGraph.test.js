@@ -202,6 +202,19 @@ describe( 'useConsoleGraph — graph topology', () => {
 		expect( httpOf().target ).toBe( names.OUTPUT );
 	} );
 
+	it( 'keeps _http aimed at its _output across a Reset Graph', async () => {
+		renderGraph();
+		await act( async () => Core.bumpGraphGeneration() );
+		expect( httpOf().target ).toBe( names.OUTPUT );
+	} );
+
+	it( 'aims _http back at _null when its view goes, the backbone standing', () => {
+		const { rerender } = renderGraph();
+		rerender( { topology: 'demo', partition: 0, enabled: false } );
+		expect( httpOf() ).not.toBeNull();
+		expect( httpOf().target ).toBe( names.NULL );
+	} );
+
 	it( 'creates one RemoteIpc per active worker (plus the session worker)', () => {
 		renderGraph( {
 			topology: 'demo',
