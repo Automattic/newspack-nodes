@@ -334,3 +334,63 @@ describe( 'field bridge', () => {
 		expect( dump ).toHaveProperty( 'setStateCache' );
 	} );
 } );
+
+describe( 'resumeAt', () => {
+	it( 'is the boundary after the last row shown, past filtered rows but not paused drops', () => {
+		const v = makeView();
+		v.fill( rowMsg( 'kea-1', '7:100:40' ) );
+		v.fill( controlMsg( { action: 'filter', term: 'kea' } ) );
+		v.fill( rowMsg( 'tui-2', '7:140:25' ) );
+		v.fill( controlMsg( { action: 'pause', paused: true } ) );
+		v.fill( rowMsg( 'kea-3', '7:165:30' ) );
+		v.fill( rowMsg( 'kea-4', '7:195:30' ) );
+
+		expect( v.resumeAt() ).toEqual( { segment: 7, offset: 165 } );
+	} );
+
+	it( 'holds while paused, so a filtered row cannot carry it past a dropped one', () => {
+		const v = makeView();
+		v.fill( rowMsg( 'kea-1', '7:100:40' ) );
+		v.fill( controlMsg( { action: 'filter', term: 'kea' } ) );
+		v.fill( controlMsg( { action: 'pause', paused: true } ) );
+		v.fill( rowMsg( 'kea-2', '7:140:25' ) );
+		v.fill( rowMsg( 'tui-3', '7:165:30' ) );
+
+		expect( v.resumeAt() ).toEqual( { segment: 7, offset: 140 } );
+	} );
+
+	it( 'is null after a follow, so a pause there tails', () => {
+		const v = makeView();
+		v.fill( rowMsg( 'kea-9', '2:0:30' ) );
+		v.fill( controlMsg( { action: 'follow' } ) );
+
+		expect( v.resumeAt() ).toBeNull();
+	} );
+
+	it( 'advances with a stepped row', () => {
+		const v = makeView();
+		v.fill( controlMsg( { action: 'pause', paused: true } ) );
+		v.fill( controlMsg( { action: 'step', frames: 1 } ) );
+		v.fill( rowMsg( 'kea-5', '9:0:44' ) );
+
+		expect( v.resumeAt() ).toEqual( { segment: 9, offset: 44 } );
+	} );
+
+	it( 'is null before any row, after a select or a browse, and over a glob', () => {
+		const v = makeView();
+		expect( v.resumeAt() ).toBeNull();
+		v.fill( rowMsg( 'kea-6', '3:10:20' ) );
+		v.fill( controlMsg( { action: 'select', dir: 'audit.p7' } ) );
+		expect( v.resumeAt() ).toBeNull();
+		v.fill( rowMsg( 'kea-7', '3:30:20' ) );
+		v.fill(
+			controlMsg(
+				browseControl( { segments: [ { id: 3, size: 900 } ] } )
+			)
+		);
+		expect( v.resumeAt() ).toBeNull();
+		v.fill( controlMsg( { action: 'select', dir: '' } ) );
+		v.fill( rowMsg( 'kea-8', '3:50:20' ) );
+		expect( v.resumeAt() ).toBeNull();
+	} );
+} );

@@ -306,8 +306,14 @@ export function useStreamGraph( {
 			isPausedRef.current = paused;
 			setIsPaused( paused );
 			control( { action: 'pause', paused } );
+			// Resume after the last row shown, not where the link read to.
+			const at = paused ? viewRef.current?.resumeAt?.() : null;
+			const subs = targetRef.current?.subscribe ?? [];
+			if ( at && 1 === subs.length ) {
+				resubscribe( subs, { [ subs[ 0 ] ]: at } );
+			}
 		},
-		[ control ]
+		[ control, resubscribe ]
 	);
 
 	// A seek is BOTH halves: the view's mode and the stream's move.
