@@ -61,10 +61,8 @@ it( 'shows the on-disk log-partition count', () => {
 	expect( card( container, 'partitions' ) ).toContain( '11' );
 } );
 
-it( 'shows "all systems ok" when healthy, and the worst count otherwise', () => {
-	expect( card( renderCards().container, 'health' ) ).toContain(
-		'all systems ok'
-	);
+it( 'shows "ok" when healthy, and the worst count otherwise', () => {
+	expect( card( renderCards().container, 'health' ) ).toContain( 'ok' );
 	const sick = renderCards( {
 		topologies: [
 			topo( 'a', { health: 'stalled' } ),
@@ -92,7 +90,7 @@ it( 'shows the summed message read rate from the probe consumers', () => {
 		},
 	} );
 	expect( card( container, 'msgrate' ) ).toContain( '10/s' );
-	expect( card( container, 'msgrate' ) ).toContain( 'Messages read/s' );
+	expect( card( container, 'msgrate' ) ).toContain( 'Msgs read/s' );
 } );
 
 it( 'shows the summed offsetlog cache size, and no average, from the probe consumers', () => {
@@ -227,6 +225,6 @@ it( 'formats the 24h messages + bytes read from the probe consumers', () => {
 	// Σ 1500 msgs; Σ 15000 B ≈ 15 KB (decimal dropped ≥10).
 	expect( card( container, 'messages' ) ).toContain( '1.5K' );
 	expect( card( container, 'bytes' ) ).toContain( '15 KB' );
-	expect( card( container, 'messages' ) ).toContain( 'Messages read · 24h' );
+	expect( card( container, 'messages' ) ).toContain( 'Msgs read · 24h' );
 	expect( card( container, 'bytes' ) ).toContain( 'Bytes read · 24h' );
 } );
