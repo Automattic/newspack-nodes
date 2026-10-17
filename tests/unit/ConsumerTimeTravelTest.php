@@ -515,10 +515,10 @@ class ConsumerTimeTravelTest extends TestCase {
 		$this->assertSame( 'PAUSED', $c->dump_metadata()['polling'], '`step` leaves the polling signal PAUSED' );
 	}
 
-	public function test_step_command_returns_cursor_and_eof_json(): void {
+	public function test_step_command_returns_cursor_and_eof_struct(): void {
 		// `step` is a COMMAND (it mutates: emits + advances the durable cursor), so
 		// it dispatches through the auth-gated {name}:config interpreter. Its reply
-		// is the {seg,off,at_eof} array as a JSON string for the UI to parse.
+		// is the {segment,offset,at_eof} struct, unencoded.
 		$source = new Partition_Node();
 		$source->arguments( [ "{$this->tmp}/data/p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'only' );

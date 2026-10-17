@@ -274,7 +274,7 @@ class Insights_CI_Node extends Service_CI_Node {
 
 > **← two Partition readers.** [`Partition_Node::read_latest_value_at( $offsetlog_dir )`](../includes/class-partition-node.php) reads the newest committed record's VALUE from an offsetlog in one call. It wraps the 20-line segment walk you would otherwise write — construct a `Partition_Node`, set `arguments`, `get_segments( true )`, take the newest segment, `read_at`, split lines, `Message::unpacked`, pull `VALUE` — and falls back a segment when the newest one rotated but was never written. **`Partition_Node::read_latest_snapshot_cache( $offsets_dir, $glob, $node )`** does the rest of the descent on top of it: it globs the `p*` snapshot dirs, descends into each `cache[<node>]['items']`, and flattens the lists (`$cache_key` and `$items_key` default to `cache` and `items`). That is why `read_snapshot_items()` above is one line: you ask the Partition for its latest snapshot instead of walking segments. It re-globs on every call, which is why `items()` memoizes.
 
-Now the three verbs. Each is a one-line `handler` that shapes one slice off the **memoized** `items()` and JSON-encodes it. Because a `Service_CI` verb runs *on the CI itself*, the interpreter handed to each handler **is** this node — so `$ci->items()` shares the per-request memo across all three:
+Now the three verbs. Each is a one-line `handler` that shapes one slice off the **memoized** `items()` and answers it as a struct. Because a `Service_CI` verb runs *on the CI itself*, the interpreter handed to each handler **is** this node — so `$ci->items()` shares the per-request memo across all three:
 
 ```php
 public static function node_schema(): array {
@@ -282,8 +282,8 @@ public static function node_schema(): array {
 	// is the shared per-request memo. dispatch() gates every verb on the role its
 	// schema entry declares in `capability`, defaulting to MANAGE — so a verb that
 	// declares nothing demands the strictest role, and a per-slice gate here would
-	// only stack a second check. slice_verb() is the base-class helper: it wraps a
-	// shape callable into a verb handler that json-encodes the shaped slice.
+	// only stack a second check. Each handler is a shape closure: dispatch hands
+	// it the CI, and the array it returns is the reply's struct.
 	return \array_merge( parent::node_schema(), [
 		'category'    => 'Service',
 		'description' => 'Reads the scored-pipeline offsetlog snapshot; serves the dashboard insights slices.',
@@ -292,19 +292,19 @@ public static function node_schema(): array {
 				'name'        => 'counts',
 				'description' => 'Return per-source item counts: { sources: { source: count } }.',
 				'args'        => [],
-				'handler'     => self::slice_verb( static fn ( self $ci ): array => [ 'sources' => self::shape_sources( $ci->items() ) ] ),
+				'handler'     => static fn ( self $ci ): array => [ 'sources' => self::shape_sources( $ci->items() ) ],
 			],
 			[
 				'name'        => 'top',
 				'description' => 'Return the top-10 items by score: { top: [ { source, title, score } ] }.',
 				'args'        => [],
-				'handler'     => self::slice_verb( static fn ( self $ci ): array => [ 'top' => self::shape_top( $ci->items() ) ] ),
+				'handler'     => static fn ( self $ci ): array => [ 'top' => self::shape_top( $ci->items() ) ],
 			],
 			[
 				'name'        => 'accumulated',
 				'description' => 'Return the total accumulated item count: { accumulated: N }.',
 				'args'        => [],
-				'handler'     => self::slice_verb( static fn ( self $ci ): array => [ 'accumulated' => \count( $ci->items() ) ] ),
+				'handler'     => static fn ( self $ci ): array => [ 'accumulated' => \count( $ci->items() ) ],
 			],
 		],
 	] );
@@ -329,7 +329,7 @@ add_action( 'newspack_nodes/request_graph_ready', __NAMESPACE__ . '\\mount_insig
 
 The `require_once` is not the autoloader repeated. Composer's classmap is refreshed only by a hand-run `composer dump-autoload -o`, so a class added or renamed since the last dump would have `make_node` answering `unknown class` from inside a live request. Requiring the file makes the mount independent of how fresh the classmap is — which is why §8's `composer dump-autoload -o` step notes this one node as its exception. Delete the line and you have coupled every dashboard request to a build step nobody runs.
 
-Each verb returns its **slice as a JSON string** — `counts` gives `{sources}`, `top` gives `{top}`, `accumulated` gives `{accumulated}`. No transform node, no second round-trip; the browser's three fetches each get a finished slice in the POST response body. That choice — small slices, synchronous reads — is what makes the client three pure polls with no SSE.
+Each verb returns its **slice as a struct**, which the wire encodes once with the rest of the reply — `counts` gives `{sources}`, `top` gives `{top}`, `accumulated` gives `{accumulated}`. No transform node, no second round-trip; the browser's three fetches each get a finished slice in the POST response body. That choice — small slices, synchronous reads — is what makes the client three pure polls with no SSE.
 
 You can verify this half **with no browser** — it's plain PHP:
 
@@ -443,17 +443,17 @@ export class SliceViewNode extends ReactBridge( Node ) {
 		if ( ! value || 'object' !== typeof value ) {
 			return;   // transient garbage keeps the prior slice
 		}
-		const slice = this._parse( value.payload );   // VALUE.payload is the slice's JSON string
+		const slice = this._parse( value.payload );   // VALUE.payload is the slice's struct
 		if ( null !== slice ) {
 			// Retires last tick's spinner and error; useNodeField re-reads.
 			this.setField( 'view', { ...this.settled, ...slice } );
 		}
 	}
-	// _parse(): JSON.parse with a try/catch, returns null on garbage.
+	// _parse(): an object payload IS the slice; anything else returns null.
 }
 ```
 
-Three branches, three failure rules, and none of them blanks the widget. A **control** is recognised by who sent it (`controlFrom`), never by what its payload looks like — [ADR-7](architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies) addressing applied to controls, so a reply carrying an `action` field is still a reply. The base takes three: `loading` spins while keeping the data on screen, `clear` resets to the empty slice, and `error` surfaces a caller-side failure without blanking the data. A dashboard that drives its own view names that origin through `addSliceFetcher`'s `controlFrom`; most views omit it, and a view with no origin can take no control at all. A **TM_ERROR** keeps the slice already in `view` and adds `error` while clearing `loading`, so the data survives the failure and nothing is left spinning — what reaches the screen is then the widget's call, and §5's three all choose to render the notice in place of the data. An **unparseable payload** keeps the prior slice untouched. `_parse()` reports what it cannot use by returning null, never by throwing: `fill()` runs synchronously in the drain with no per-message try/catch, so a throw aborts the whole turn.
+Three branches, three failure rules, and none of them blanks the widget. A **control** is recognised by who sent it (`controlFrom`), never by what its payload looks like — [ADR-7](architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies) addressing applied to controls, so a reply carrying an `action` field is still a reply. The base takes three: `loading` spins while keeping the data on screen, `clear` resets to the empty slice, and `error` surfaces a caller-side failure without blanking the data. A dashboard that drives its own view names that origin through `addSliceFetcher`'s `controlFrom`; most views omit it, and a view with no origin can take no control at all. A **TM_ERROR** keeps the slice already in `view` and adds `error` while clearing `loading`, so the data survives the failure and nothing is left spinning — what reaches the screen is then the widget's call, and §5's three all choose to render the notice in place of the data. A **payload that is no object** keeps the prior slice untouched. `_parse()` reports what it cannot use by returning null, never by throwing: `fill()` runs synchronously in the drain with no per-message try/catch, so a throw aborts the whole turn.
 
 > **Three more message helpers.** `@newspack-nodes/runtime` re-exports `payloadOf` alongside the field constants, and three of its siblings measure or label a message rather than parse one. `typeLabels( type )` returns one label per flag set in a TYPE bitmask, and an empty array when no known flag matches — the Dumper renders that case as `TM_UNKNOWN(0x…)` itself. `byteLength( str )` measures a string in UTF-8 bytes the way PHP's `strlen()` does, through `Blob` rather than the `TextEncoder` jsdom lacks; the command transport and `HttpOut` weigh their wire traffic with it. `valueSize( m )` measures a message's VALUE through it — UTF-8 bytes for a string, and the character length of the JSON encoding, an estimate rather than a wire-exact count, for a struct or a command object.
 
@@ -472,19 +472,19 @@ export class SourceCountsViewNode extends SliceViewNode {
 
 > The `errorMessage` import is a substrate helper too: **[`@newspack-nodes/shared/errorMessage`](../src/shared/errorMessage.js)** coerces a `TM_ERROR` payload (string / `{message}` / anything) to readable text in one place every dashboard view node shares.
 
-**Three subclasses whose whole content is a literal are three declarations.** `sliceView( { empty, parse, json, description } )` returns the class those values imply, and `registerSliceViews( views )` declares a bundle's views, registers their names, and hands the classes back:
+**Three subclasses whose whole content is a literal are three declarations.** `sliceView( { empty, parse, description } )` returns the class those values imply, and `registerSliceViews( views )` declares a bundle's views, registers their names, and hands the classes back:
 
 ```js
 import { registerSliceViews } from '@newspack-nodes/shared/nodes/slice-view-node';
 
 export const views = registerSliceViews( {
-	SourceCountsView: { json: true, empty: { sources: {} } },
-	TopTableView:     { json: true, empty: { top: [] } },
-	AccumulatedView:  { json: true, empty: { accumulated: 0 } },
+	SourceCountsView: { empty: { sources: {} } },
+	TopTableView:     { empty: { top: [] } },
+	AccumulatedView:  { empty: { accumulated: 0 } },
 } );
 ```
 
-`json: true` is what these three verbs require, and it is the one flag a subclass never needs: `slice_verb()` JSON-encodes, so the payload lands as a string, and a declaration decodes it only when told to — the substrate's own Aggregator views set the flag for the same reason, while the Vault and Sessions catalogs answer a live struct and omit it. A declaration also takes a `parse` that reshapes the decoded body, and a `description` for the palette tile.
+Each handler answers the struct its shape returns, so a declaration with no `parse` publishes that struct whole. A declaration also takes a `parse` that reshapes the payload, and a `description` for the palette tile.
 
 A substrate view that is only its slice is declared this way, the Topology Console's two catalogs among them. Subclass only for a view that owns more than its slice: its own `fill()`, a ring buffer, a timer, a teardown. That is what the Event Dashboards bundle writes out beside its one declaration, and the example keeps one file per view because a tutorial has to show the class before it shows the shorthand. Either way the classes are what the graph is built from, and the names are for TSL and the console palette.
 

@@ -378,7 +378,7 @@ class Command_Interpreter_Node extends Node {
 	 * @param string           $name     Verb name.
 	 * @param list<string>     $args     Pre-split argument tokens.
 	 * @param array<int,mixed> $envelope Inbound TM_COMMAND message, or [] for inline calls.
-	 * @return mixed Verb result: a string for most verbs, an array for the struct-returning ones (`dump_metadata` and the `-s` forms of `list_timers` / `list_handles` / `list_profiles`).
+	 * @return mixed The handler's return value, a string or a struct, unencoded.
 	 */
 	public function dispatch( string $name, array $args = [], array $envelope = [] ): mixed {
 		Capabilities::require_verb( $this->capability_for( $name ) );

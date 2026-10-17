@@ -165,29 +165,19 @@ export class SliceViewNode extends ReactBridge( Node ) {
 
 	/**
 	 * Parse a slice verb's reply payload into the slice this view publishes.
-	 * Subclasses override it to reshape the decoded JSON, calling `super`.
+	 * The verb answers a struct, so the base takes an object payload as the
+	 * slice itself. Subclasses override it to reshape that struct.
 	 *
 	 * Report a payload you cannot use by returning null, never by throwing:
 	 * `fill()` runs synchronously in the drain and the Router dispatches it
 	 * with no per-message try/catch, so a throw aborts the whole turn that
 	 * delivered the reply.
 	 *
-	 * @param {*} payload The reply VALUE's `payload` field. The base decodes
-	 *                    it only when it is a JSON string; a verb answering a
-	 *                    struct comes through unencoded, and `sliceView()`'s
-	 *                    `json` flag says which of the two a view expects.
-	 * @return {Object|null} The parsed slice, or null to keep the prior one.
+	 * @param {*} payload The reply VALUE's `payload` field.
+	 * @return {Object|null} The slice, or null to keep the prior one.
 	 */
 	_parse( payload ) {
-		if ( 'string' !== typeof payload ) {
-			return null;
-		}
-		try {
-			const slice = JSON.parse( payload );
-			return slice && 'object' === typeof slice ? slice : null;
-		} catch ( e ) {
-			return null;
-		}
+		return payload && 'object' === typeof payload ? payload : null;
 	}
 
 	/**
@@ -217,18 +207,12 @@ export class SliceViewNode extends ReactBridge( Node ) {
  *
  * @param {Object}                          o               The declaration.
  * @param {Object}                          o.empty         The shaped-but-empty model, copied per node.
- * @param {(payload: any) => (Object|null)} [o.parse]       Maps a reply onto the model; null keeps the model already on screen. Omit it for a view whose reply IS its slice.
- * @param {boolean}                         [o.json]        True when the verb answers a JSON STRING — `parse` then receives the decoded body.
+ * @param {(payload: any) => (Object|null)} [o.parse]       Maps a reply onto the model; null keeps the model already on screen. Omit it for a view whose object reply IS its slice.
  * @param {string}                          [o.description] Overrides the palette description.
  * @return {typeof SliceViewNode} The view class.
  */
-export function sliceView( {
-	empty,
-	parse = ( payload ) => payload,
-	json = false,
-	description,
-} ) {
-	return class extends SliceViewNode {
+export function sliceView( { empty, parse, description } ) {
+	const View = class extends SliceViewNode {
 		/**
 		 * A fresh copy per node, because every view this declaration builds
 		 * closes over the one `empty` literal: handing that literal out would
@@ -238,21 +222,6 @@ export function sliceView( {
 		 */
 		emptySlice() {
 			return { ...empty };
-		}
-		/**
-		 * Run the declared `parse`, decoding the payload first when the verb
-		 * answers a JSON string.
-		 *
-		 * @param {*} payload The reply VALUE's `payload` field.
-		 * @return {Object|null} The slice, or null to keep the prior one.
-		 */
-		_parse( payload ) {
-			if ( ! json ) {
-				return parse( payload );
-			}
-			// null is the base saying it could not decode, not a payload.
-			const body = super._parse( payload );
-			return null === body ? null : parse( body );
 		}
 		/**
 		 * The base schema, carrying the declared description when there is
@@ -265,6 +234,11 @@ export function sliceView( {
 			return description ? { ...schema, description } : schema;
 		}
 	};
+	// With no declared `parse`, the base takes an object payload whole.
+	if ( parse ) {
+		View.prototype._parse = parse;
+	}
+	return View;
 }
 
 /**

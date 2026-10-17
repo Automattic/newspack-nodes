@@ -6,7 +6,7 @@ import { SliceViewNode } from '@newspack-nodes/shared/nodes/slice-view-node';
  * publishes through `useNodeField( 'source-counts:view', 'view' )`.
  *
  * The `counts` verb on `Insights_CI_Demo_Node` answers
- * `{ sources: { <source>: <count> } }` as JSON, which is already the render
+ * the struct `{ sources: { <source>: <count> } }`, which is already the render
  * model, so this view inherits `SliceViewNode`'s parse unchanged and declares
  * only the empty shape.
  *

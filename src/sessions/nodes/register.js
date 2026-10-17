@@ -18,7 +18,6 @@ import { registerSliceViews } from '@newspack-nodes/shared/nodes/slice-view-node
  * still serves TSL and the console palette.
  */
 export const views = registerSliceViews( {
-	// `list` answers a live struct, decoded already — hence no `json` flag.
 	SessionListView: {
 		empty: {
 			sessions: null,

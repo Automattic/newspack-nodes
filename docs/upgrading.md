@@ -6,6 +6,20 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`Service_CI_Node::slice_verb()` is removed, and `sliceView()` takes no
+  `json` flag.** A slice verb's reply is its struct, encoded once by the wire.
+  Pass each shape closure as the verb's `handler` directly:
+  `'handler' => self::slice_verb( static fn ( self $ci ): array => … )`
+  becomes `'handler' => static fn ( self $ci ): array => …`, because dispatch
+  hands a handler the CI first. `SliceViewNode._parse()` takes an object
+  payload as the slice and answers null for a string: drop `json: true` from
+  every `sliceView()` declaration, and guard the object shape in a `parse`
+  that read a string. A PHP test that `json_decode()`s a slice verb's reply
+  reads the array directly. A consumer still calling `slice_verb()` fatals on
+  its first schema read on this release, so the consumer's updated release
+  deploys with it. Passing shapes as handlers calls no new API, so its
+  `version_at_least()` floor stays where it is.
+
 - **A Row_Table's `retained_by` is a list of `[ table, column, own ]`
   references, and the single shape is refused.** A schema declaring
   `'retained_by' => [ 'requests', 'url_id', 'id' ]` fails the schema check

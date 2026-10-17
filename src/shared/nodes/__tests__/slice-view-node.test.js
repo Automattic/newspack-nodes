@@ -58,7 +58,7 @@ describe( 'SliceViewNode', () => {
 
 	test( 'parses a 200 reply into the slice and publishes it', () => {
 		const v = makeView();
-		v.fill( reply( JSON.stringify( { sources: { releases: 2 } } ) ) );
+		v.fill( reply( { sources: { releases: 2 } } ) );
 		expect( v.view ).toEqual( { sources: { releases: 2 } } );
 	} );
 
@@ -73,7 +73,7 @@ describe( 'SliceViewNode', () => {
 	test( 'a TM_ERROR keeps the slice already on screen and stops loading', () => {
 		const v = new LoadingCountsView();
 		v.name = 'counts:view';
-		v.fill( reply( JSON.stringify( { sources: { releases: 7 } } ) ) );
+		v.fill( reply( { sources: { releases: 7 } } ) );
 		const m = reply( 'counts read failed' );
 		m[ TYPE ] = TM_COMMAND | TM_RESPONSE | TM_ERROR;
 
@@ -88,7 +88,7 @@ describe( 'SliceViewNode', () => {
 		const m = reply( 'counts read failed' );
 		m[ TYPE ] = TM_COMMAND | TM_RESPONSE | TM_ERROR;
 		v.fill( m );
-		v.fill( reply( JSON.stringify( { sources: { releases: 3 } } ) ) );
+		v.fill( reply( { sources: { releases: 3 } } ) );
 		expect( v.counter ).toBe( 2 );
 	} );
 
@@ -112,23 +112,23 @@ describe( 'SliceViewNode', () => {
 		expect( new SliceViewNode().view ).toEqual( {} );
 	} );
 
-	test( 'an object reply whose payload is not a string keeps the prior slice', () => {
+	test( 'a scalar payload keeps the prior slice', () => {
 		const v = makeView();
-		v.fill( reply( JSON.stringify( { sources: { a: 1 } } ) ) );
+		v.fill( reply( { sources: { a: 1 } } ) );
 		v.fill( reply( 12345 ) );
 		expect( v.view ).toEqual( { sources: { a: 1 } } );
 	} );
 
-	test( 'an object reply whose payload is invalid JSON keeps the prior slice', () => {
+	test( 'a JSON-string payload is not a slice: the base never decodes', () => {
 		const v = makeView();
-		v.fill( reply( JSON.stringify( { sources: { a: 1 } } ) ) );
-		v.fill( reply( '{not valid json' ) );
+		v.fill( reply( { sources: { a: 1 } } ) );
+		v.fill( reply( JSON.stringify( { sources: { a: 'decoded-9902' } } ) ) );
 		expect( v.view ).toEqual( { sources: { a: 1 } } );
 	} );
 
 	test( 'a non-error unparseable string reply keeps the prior slice', () => {
 		const v = makeView();
-		v.fill( reply( JSON.stringify( { sources: { a: 1 } } ) ) );
+		v.fill( reply( { sources: { a: 1 } } ) );
 		const garbage = newMessage();
 		garbage[ TYPE ] = TM_COMMAND | TM_RESPONSE;
 		garbage[ VALUE ] = 'not a json object';
@@ -187,32 +187,6 @@ describe( 'sliceView', () => {
 		expect( v.view.vaults ).toEqual( [ { id: 'wombat-4471' } ] );
 	} );
 
-	// Some verbs answer a JSON string, some a live object; `json` is which.
-	test( 'decodes a JSON-string payload first when json is declared', () => {
-		const SummaryView = sliceView( {
-			json: true,
-			empty: { connected: 0, error: null },
-			parse: ( body ) => ( { connected: body.connected, error: null } ),
-		} );
-		const v = new SummaryView();
-		v.name = 'summary:view';
-		v.fill( reply( JSON.stringify( { connected: 7 } ) ) );
-		expect( v.view.connected ).toBe( 7 );
-	} );
-
-	test( 'a json view keeps the prior model on an undecodable payload', () => {
-		const SummaryView = sliceView( {
-			json: true,
-			empty: { connected: 0, error: null },
-			parse: ( body ) => ( { connected: body.connected, error: null } ),
-		} );
-		const v = new SummaryView();
-		v.name = 'summary:view';
-		v.fill( reply( JSON.stringify( { connected: 7 } ) ) );
-		v.fill( reply( '{not valid json' ) );
-		expect( v.view.connected ).toBe( 7 );
-	} );
-
 	test( 'carries a declared description into the node schema', () => {
 		const Described = sliceView( {
 			empty: {},
@@ -251,7 +225,7 @@ describe( 'SliceViewNode control seam', () => {
 
 	test( 'a loading control from the driver spins without losing the slice', () => {
 		const v = controlled();
-		v.fill( reply( JSON.stringify( { sources: { releases: 7331 } } ) ) );
+		v.fill( reply( { sources: { releases: 7331 } } ) );
 		v.fill( control( 'counts:driver', { action: 'loading' } ) );
 
 		expect( v.view ).toEqual( {
@@ -263,7 +237,7 @@ describe( 'SliceViewNode control seam', () => {
 
 	test( 'a clear control resets to the empty slice', () => {
 		const v = controlled();
-		v.fill( reply( JSON.stringify( { sources: { releases: 7331 } } ) ) );
+		v.fill( reply( { sources: { releases: 7331 } } ) );
 		v.fill( control( 'counts:driver', { action: 'clear' } ) );
 
 		expect( v.view ).toEqual( {
@@ -275,7 +249,7 @@ describe( 'SliceViewNode control seam', () => {
 
 	test( 'an error control surfaces its message and keeps the data', () => {
 		const v = controlled();
-		v.fill( reply( JSON.stringify( { sources: { releases: 7331 } } ) ) );
+		v.fill( reply( { sources: { releases: 7331 } } ) );
 		v.fill(
 			control( 'counts:driver', {
 				action: 'error',
@@ -305,7 +279,7 @@ describe( 'SliceViewNode control seam', () => {
 	test( 'controls are ignored entirely when no driver is declared', () => {
 		const v = new DrivenView();
 		v.name = 'counts:view';
-		v.fill( reply( JSON.stringify( { sources: { releases: 7331 } } ) ) );
+		v.fill( reply( { sources: { releases: 7331 } } ) );
 		v.fill( control( '', { action: 'clear' } ) );
 
 		expect( v.view.sources ).toEqual( { releases: 7331 } );
@@ -315,7 +289,7 @@ describe( 'SliceViewNode control seam', () => {
 		// Every declaration used to spell `loading: false, error: null` itself.
 		const v = controlled();
 		v.fill( control( 'counts:driver', { action: 'loading' } ) );
-		v.fill( reply( JSON.stringify( { sources: { releases: 4219 } } ) ) );
+		v.fill( reply( { sources: { releases: 4219 } } ) );
 
 		expect( v.view ).toEqual( {
 			sources: { releases: 4219 },
@@ -327,12 +301,11 @@ describe( 'SliceViewNode control seam', () => {
 	test( 'a slice that sets loading itself wins over the default', () => {
 		const Paged = sliceView( {
 			empty: { rows: [], loading: false, error: null },
-			json: true,
 			parse: ( body ) => ( { rows: body.rows, loading: true } ),
 		} );
 		const v = new Paged();
 		v.name = 'paged:view';
-		v.fill( reply( JSON.stringify( { rows: [ 'a' ] } ) ) );
+		v.fill( reply( { rows: [ 'a' ] } ) );
 
 		expect( v.view ).toEqual( {
 			rows: [ 'a' ],
@@ -343,25 +316,27 @@ describe( 'SliceViewNode control seam', () => {
 } );
 
 describe( 'sliceView without a parse', () => {
-	test( 'a decode-only declaration publishes the decoded body', () => {
-		const Counts = sliceView( { empty: { sources: {} }, json: true } );
+	test( 'a declaration with no parse publishes the struct payload', () => {
+		const Counts = sliceView( { empty: { sources: {} } } );
 		const v = new Counts();
 		v.name = 'counts:view';
-		v.fill( reply( JSON.stringify( { sources: { releases: 8264 } } ) ) );
+		v.fill( reply( { sources: { releases: 8264 } } ) );
 
 		expect( v.view ).toEqual( {
 			sources: { releases: 8264 },
 		} );
 	} );
 
-	test( 'a decode-only declaration keeps the prior slice on garbage', () => {
-		const Counts = sliceView( { empty: { sources: {} }, json: true } );
+	test( 'a declaration with no parse keeps the prior slice on a string', () => {
+		const Counts = sliceView( { empty: { sources: {} } } );
 		const v = new Counts();
 		v.name = 'counts:view';
-		v.fill( reply( JSON.stringify( { sources: { releases: 8264 } } ) ) );
-		v.fill( reply( 'not json' ) );
+		v.fill( reply( { sources: { releases: 8264 } } ) );
+		v.fill(
+			reply( JSON.stringify( { sources: { releases: 'x-6610' } } ) )
+		);
 
-		expect( v.view.sources ).toEqual( { releases: 8264 } );
+		expect( v.view ).toEqual( { sources: { releases: 8264 } } );
 	} );
 } );
 
@@ -371,7 +346,7 @@ describe( 'SliceViewNode field bridge', () => {
 		const seen = [];
 		v.register( 'view', 'probe-3917', () => seen.push( v.view ) );
 		const before = v.view;
-		v.fill( reply( JSON.stringify( { sources: { releases: 3917 } } ) ) );
+		v.fill( reply( { sources: { releases: 3917 } } ) );
 
 		expect( v.view ).not.toBe( before );
 		expect( seen ).toEqual( [ { sources: { releases: 3917 } } ] );
@@ -380,7 +355,7 @@ describe( 'SliceViewNode field bridge', () => {
 
 	test( 'dumpNode omits the view but keeps the bridge tables', () => {
 		const v = makeView();
-		v.fill( reply( JSON.stringify( { sources: { releases: 5521 } } ) ) );
+		v.fill( reply( { sources: { releases: 5521 } } ) );
 		const dump = v.dumpNode();
 
 		expect( dump ).not.toHaveProperty( 'view' );

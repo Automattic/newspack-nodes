@@ -22,6 +22,16 @@ describe( 'parseMetadata', () => {
 		} );
 	} );
 
+	it( 'reads no JSON string: a dump_metadata payload is a struct', () => {
+		expect(
+			parseMetadata(
+				JSON.stringify( {
+					'heron-3317': { class: 'Echo', counter: 4 },
+				} )
+			)
+		).toEqual( { nodes: [], edges: [], pwd: '', profiling: false } );
+	} );
+
 	it( 'extracts the reply path from the _header section and excludes it from nodes', () => {
 		const { nodes, pwd } = parseMetadata( {
 			_header: {

@@ -285,35 +285,26 @@ const SCAFFOLDING = new Set( [
  * { nodes, edges }. `target` is a string or array (Tee fan-out); the backbone
  * is hidden and everything else is shown.
  *
- * @param {Object|string} payload dump_metadata reply payload.
+ * @param {?Object} payload dump_metadata reply payload.
  * @return {MetadataGraph} Canvas-ready graph.
  */
 export function parseMetadata( payload ) {
-	let raw;
-	if ( payload && typeof payload === 'object' ) {
-		raw = payload;
-	} else if ( typeof payload === 'string' ) {
-		try {
-			raw = JSON.parse( payload );
-		} catch ( e ) {
-			return { nodes: [], edges: [], pwd: '', profiling: false };
-		}
-	} else {
+	if ( ! payload || typeof payload !== 'object' ) {
 		return { nodes: [], edges: [], pwd: '', profiling: false };
 	}
 
 	// `_header` reserved key: `pwd` = reply path, `profiling` = router state.
 	const rawPwd =
-		raw._header && typeof raw._header.pwd === 'string'
-			? raw._header.pwd
+		payload._header && typeof payload._header.pwd === 'string'
+			? payload._header.pwd
 			: '';
 	const pwd = canonicalReverseCwd( rawPwd );
-	const profiling = raw._header?.profiling === true;
+	const profiling = payload._header?.profiling === true;
 
 	/** @type {MetadataGraphNode[]} */
 	const nodes = [];
 	const edges = [];
-	for ( const [ name, meta ] of Object.entries( raw ) ) {
+	for ( const [ name, meta ] of Object.entries( payload ) ) {
 		if ( SCAFFOLDING.has( name ) || '_header' === name ) {
 			continue;
 		}
@@ -501,28 +492,17 @@ export class MetadataNode extends PollerNode {
 	 * envelope — keep the raw name→meta map on `rawMap`, which the console's
 	 * connect and disconnect handlers read and the two optimistic patchers
 	 * rewrite, rescale the cadence to the graph size, and publish the parsed
-	 * graph as both `snapshot` and `metadata`. Anything that does not decode
-	 * to an object is dropped.
+	 * graph as both `snapshot` and `metadata`. Anything but an object is
+	 * dropped.
 	 *
-	 * @param {*} meta The unwrapped payload: a name→meta object, or its JSON.
+	 * @param {*} meta The unwrapped payload: a name→meta object.
 	 */
 	publish( meta ) {
-		if ( meta === null || meta === undefined || meta === '' ) {
+		if ( ! meta || typeof meta !== 'object' ) {
 			return;
 		}
-		let incoming = meta;
-		if ( typeof meta === 'string' ) {
-			try {
-				incoming = JSON.parse( meta );
-			} catch ( e ) {
-				return;
-			}
-		}
-		if ( ! incoming || typeof incoming !== 'object' ) {
-			return;
-		}
-		this.rawMap = incoming;
-		const parsed = parseMetadata( incoming );
+		this.rawMap = meta;
+		const parsed = parseMetadata( meta );
 		this.pollIntervalMs = computePollIntervalMs( parsed.nodes.length );
 		// Re-arm only when the cadence moved; the recurring timer stays armed.
 		if (

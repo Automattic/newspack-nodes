@@ -36,15 +36,14 @@ export const views = registerSliceViews( {
 | Key | What it declares |
 |---|---|
 | `empty` | The shaped-but-empty model, copied per node so one view's mutation never surfaces in the next. |
-| `parse` | The map from reply to model. Returning `null` keeps the model already on screen; omit `parse` when the reply *is* the slice. |
-| `json` | That the verb answers a JSON **string**, so `parse` receives the decoded body. A verb answering a struct comes through unencoded — leave it off. |
+| `parse` | The map from reply to model. It receives the verb's struct as the wire decoded it, and returning `null` keeps the model already on screen. Omit `parse` when the reply *is* the slice: an object payload then publishes whole, and anything else keeps the model on screen. |
 | `description` | The `help <Name>` description, the only part of the schema a declaration can restate. It reaches no palette tile, because `sliceView()` overrides the description and never the inherited `Hidden` category. |
 
 Omitting `parse` moves the shape guard to the widget. The view then publishes
 whatever the verb answered, over the status fields the empty model declares, so
 no field of your own shape is guaranteed. The example's `SourceCountsViewNode`
 declares neither `loading` nor `error`, which leaves its published model the
-decoded JSON wholesale; `<SourceCounts/>` carries the only guard on that path,
+verb's struct wholesale; `<SourceCounts/>` carries the only guard on that path,
 reading `slice.sources ?? {}` on top of the `{ sources: {} }` default that covers
 the render before the node exists. A widget must default every slice field it
 reaches into — `Object.entries( undefined )` throws inside render and unmounts
@@ -86,7 +85,7 @@ AccumulatedViewNode } )`, importing `CommandInterpreterNode` from
 `useNodeField( 'accumulated:view', 'view' )`.
 
 `examples/example-ai-newsletter`'s three views subclass for that shape alone;
-each would read as a declaration carrying `json: true`. A view that earns a
+each would read as a declaration carrying only `empty`. A view that earns a
 class owns a ring, a timer or its own `fill()`, and one holding a timer cancels
 it in `removeNode()` before calling `super.removeNode()`: a torn-down node whose
 timer still fires publishes into a graph the dashboard has already replaced.
@@ -132,7 +131,7 @@ same rule. The shared hooks derive every name from the subject you hand them:
 
 ## The `view` field
 
-![The base SliceViewNode.fill() as a decision chain. Every message first bumps this.counter. A message whose FROM is controlFrom goes to _control(), where loading raises the spinner and clears the error, clear resets to emptySlice(), error stops the spinner with value.error or 'Operation failed', and an unknown verb changes nothing. Otherwise a TM_ERROR becomes { ...view, error, loading: false }, keeping the slice on screen. Otherwise an object VALUE goes to _parse( value.payload ), which JSON-decodes a string in a try/catch and runs a declared parse; a slice becomes view = { ...settled, ...slice }, rebuilt rather than merged, while null or a non-object VALUE returns and keeps the prior slice. Every publishing branch hands a new object to setField( 'view', … ); the field is the current model, so a widget that mounts late reads it off the node. Beneath: preserve origin-then-TYPE order in an override, garbage keeps the prior slice, recovery needs no reload, and CommandResultNode, the one-shot mirror, notifies every reply on result with the same seven fields.](img/wvn-fill-branches.png)
+![The base SliceViewNode.fill() as a decision chain. Every message first bumps this.counter. A message whose FROM is controlFrom goes to _control(), where loading raises the spinner and clears the error, clear resets to emptySlice(), error stops the spinner with value.error or 'Operation failed', and an unknown verb changes nothing. Otherwise a TM_ERROR becomes { ...view, error, loading: false }, keeping the slice on screen. Otherwise an object VALUE goes to _parse( value.payload ), which takes an object payload as the slice or runs a declared parse; a slice becomes view = { ...settled, ...slice }, rebuilt rather than merged, while null or a non-object VALUE returns and keeps the prior slice. Every publishing branch hands a new object to setField( 'view', … ); the field is the current model, so a widget that mounts late reads it off the node. Beneath: preserve origin-then-TYPE order in an override, garbage keeps the prior slice, recovery needs no reload, and CommandResultNode, the one-shot mirror, notifies every reply on result with the same seven fields.](img/wvn-fill-branches.png)
 
 The model lives in the node's **`view`** field, the field
 `useNodeField( '<subject>:view', 'view' )` reads. A node publishes a field
@@ -207,8 +206,9 @@ total, branch by branch as the sheet under the `view` field traces; preserve its
 if you override: origin, then TYPE, then shape. A `TM_ERROR` VALUE is a bare
 string, which `errorMessage()` coerces to readable text, and the example's three
 cards test `slice.error` first and render the notice alone. `_parse` receives
-the reply VALUE's `payload` field and decodes it only when it is a string,
-try/catching the `JSON.parse`; if you parse anything yourself, do the same.
+the reply VALUE's `payload` field, the verb's struct, and answers null for
+anything that is not an object; a parse of your own guards its shape the same
+way.
 
 Never `throw` to signal a bad reply — `return`, and either surface an error
 slice or keep the prior one. Count what arrives, too: a terminal node has no
@@ -256,7 +256,7 @@ registers is an import and nothing more: no TSL line can name it.
 | `CatalogListViewNode` | `CatalogListView` | [`src/shared/nodes/catalog-list-view-node.js`](../src/shared/nodes/catalog-list-view-node.js) | A `sliceView()` declaration; a picker's rows, published under `items` for `useLogCatalog` |
 | `LogStreamViewNode` | — | [`src/shared/nodes/log-stream-view-node.js`](../src/shared/nodes/log-stream-view-node.js) | `ReactBridge( Node )`; the log-stream base — a newest-first ring capped at `maxLines` (100,000 by default), pause and step, decaying lines/s, seek breadcrumbs, and the `pause` / `step` / `connection` / `browse` / `follow` / `clear` / `filter` / `select` controls. Subclasses implement `shapeRow()` and extend `_control()`, `viewModel()` and `matchesFilter()` |
 | — | `ClassCatalogView`, `TopologyListView` | [`src/topology-console/nodes/register.js`](../src/topology-console/nodes/register.js) | `sliceView()` declarations; the palette's classes and formatters, and the OPEN dialog's topologies |
-| — | `AggregatorSummaryView`, `AggregatorServersView` | [`src/event-aggregator/nodes/register.js`](../src/event-aggregator/nodes/register.js) | `sliceView()` declarations, both `json: true`; the header strip and the server cards |
+| — | `AggregatorSummaryView`, `AggregatorServersView` | [`src/event-aggregator/nodes/register.js`](../src/event-aggregator/nodes/register.js) | `sliceView()` declarations; the header strip and the server cards |
 | — | `SessionListView` | [`src/sessions/nodes/register.js`](../src/sessions/nodes/register.js) | A `sliceView()` declaration; the issued sessions, the TTL ceiling and the scope ladder in one slice |
 | — | `VaultListView` | [`src/vault/nodes/register.js`](../src/vault/nodes/register.js) | A `sliceView()` declaration; the credential table |
 | — | `TopologyManagerView` | [`src/event-dashboards/nodes/register.js`](../src/event-dashboards/nodes/register.js) | A `sliceView()` declaration, the only one overriding `description`; the Topology Manager list |

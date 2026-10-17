@@ -124,9 +124,9 @@ class AggregatorCITest extends TestCase {
 		Core::$memd->set( Remote_Source_Node::status_key_for( "firehose:{$id}", $partition ), $snapshot, 60 );
 	}
 
-	/** @return list<array<string, mixed>> The decoded `list_servers` slice. */
+	/** @return list<array<string, mixed>> The `list_servers` slice. */
 	private static function list_servers(): array {
-		return \json_decode( VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'list_servers' ), true );
+		return VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'list_servers' );
 	}
 
 	// ---------------------------------------------------------------------
@@ -291,7 +291,7 @@ class AggregatorCITest extends TestCase {
 		VerbHarness::reset();
 		Core::$memd                           = new InMemoryMemcached();
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
-		$summary                              = \json_decode( VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'summary' ), true );
+		$summary                              = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'summary' );
 		$this->assertSame( 1, $summary['total'] );
 		$this->assertSame( [ 'marmot-hub', 'vole-unregistered' ], \array_keys( $summary['unreadable'] ) );
 		$this->assertStringContainsString( 'orphaned-topology-2291', $summary['unreadable']['marmot-hub'] );
@@ -316,9 +316,8 @@ class AggregatorCITest extends TestCase {
 	// views, each fed by its own slice verb. `summary` is the header slice:
 	// connected/total counts + the snapshot clock — computed server-side from
 	// the SAME per-node partition snapshot `status` builds, so the dashboard
-	// header reads a tiny JSON blob instead of recomputing the count from the
-	// full partition payload. slice_verb returns a JSON STRING (the substrate
-	// SliceViewNode contract), so VerbHarness gets the encoded string back.
+	// header reads a tiny struct instead of recomputing the count from the
+	// full partition payload. The handler answers the struct unencoded.
 	// ---------------------------------------------------------------------
 
 	public function test_summary_verb_returns_zero_counts_when_no_remote_sources_wired(): void {
@@ -327,11 +326,10 @@ class AggregatorCITest extends TestCase {
 		$interpreter = new Aggregator_CI_Node();
 		$result      = VerbHarness::fire( $interpreter, 'aggregator', 'summary' );
 
-		$this->assertIsString( $result );
-		$decoded = \json_decode( $result, true );
-		$this->assertSame( 0, $decoded['connected'] );
-		$this->assertSame( 0, $decoded['total'], 'lone and aux sit outside the group' );
-		$this->assertIsInt( $decoded['server_now'] );
+		$this->assertIsArray( $result );
+		$this->assertSame( 0, $result['connected'] );
+		$this->assertSame( 0, $result['total'], 'lone and aux sit outside the group' );
+		$this->assertIsInt( $result['server_now'] );
 	}
 
 	public function test_summary_verb_counts_servers_with_at_least_one_connected_partition(): void {
@@ -342,7 +340,7 @@ class AggregatorCITest extends TestCase {
 		self::seed_status( 'tw0', 1, [ 'connected' => false ] );
 
 		$interpreter = new Aggregator_CI_Node();
-		$decoded     = \json_decode( VerbHarness::fire( $interpreter, 'aggregator', 'summary' ), true );
+		$decoded     = VerbHarness::fire( $interpreter, 'aggregator', 'summary' );
 
 		$this->assertSame( 1, $decoded['connected'] );
 		$this->assertSame( 2, $decoded['total'] );
@@ -358,7 +356,7 @@ class AggregatorCITest extends TestCase {
 		self::seed_status( 'tw9', 0, [ 'connected' => false, 'last_error' => 'connection refused 8531' ] );
 
 		$interpreter = new Aggregator_CI_Node();
-		$decoded     = \json_decode( VerbHarness::fire( $interpreter, 'aggregator', 'summary' ), true );
+		$decoded     = VerbHarness::fire( $interpreter, 'aggregator', 'summary' );
 
 		$this->assertSame( 1, $decoded['connected'] );
 		$this->assertSame( 1, $decoded['idle'], 'a stream closed at EOF is idle, not down' );
@@ -369,10 +367,7 @@ class AggregatorCITest extends TestCase {
 		$this->seed_group_topology( [ 'tw9' ] );
 
 		$before  = \time();
-		$decoded = \json_decode(
-			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'summary' ),
-			true
-		);
+		$decoded = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'summary' );
 		$after   = \time();
 
 		$this->assertGreaterThanOrEqual( $before, $decoded['server_now'] );
@@ -392,8 +387,7 @@ class AggregatorCITest extends TestCase {
 	//
 	// The servers slice carries the full per-server partition snapshot the
 	// server cards render. Same discovery + memcache read as `status`, but
-	// returned as a SEQUENTIAL ARRAY (the React server-card list maps over it)
-	// and encoded as a JSON STRING (SliceViewNode contract).
+	// returned as a SEQUENTIAL ARRAY (the React server-card list maps over it).
 	// ---------------------------------------------------------------------
 
 	/** The verb is `list_servers`; the noun-first name is refused, not aliased. */
@@ -454,7 +448,7 @@ class AggregatorCITest extends TestCase {
 		$servers_slice = self::list_servers();
 		VerbHarness::reset();
 		$reseed();
-		$summary = \json_decode( VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'summary' ), true );
+		$summary = VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'summary' );
 
 		// summary's total matches the server-card count; connected matches the rollup.
 		$this->assertSame( \count( $servers_slice ), $summary['total'] );

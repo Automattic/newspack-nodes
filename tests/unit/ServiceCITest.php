@@ -1,7 +1,7 @@
 <?php
 /**
  * ServiceCITest: unit tests for the Service_CI base class — the shared
- * verb-helper seams (require_valid_name, slice_verb, probe_command)
+ * verb-helper seams (require_valid_name, probe_command)
  * that substrate + application interpreters both reach for. Tests exercise each
  * helper via a transparent subclass that exposes them publicly so the
  * helpers can be asserted in isolation, without dragging in VerbHarness +
@@ -141,39 +141,20 @@ class ServiceCITest extends TestCase {
 		$this->assertSame( "ok\n", $result );
 	}
 
-	// ── slice_verb: shape fn → JSON-returning handler ────────────────────────
+	// ── a shape closure as the handler: the CI in, its struct out ────────────
 
-	public function test_slice_verb_builds_handler_that_json_encodes_the_shape(): void {
-		$handler = ServiceCITestProbe::slice_verb_probe(
-			static fn ( Command_Interpreter_Node $ci ): array => [ 'ok' => 1 ]
-		);
-		$interpreter = new ServiceCITestProbe();
-
-		$this->assertSame( '{"ok":1}', $handler( $interpreter, [] ) );
-	}
-
-	public function test_slice_verb_passes_the_interpreter_to_the_shape(): void {
-		$ci = new ServiceCITestProbe();
-		$ci->name( 'probe-named' );
-		$handler = ServiceCITestProbe::slice_verb_probe(
-			static fn ( Command_Interpreter_Node $self ): array => [ 'name' => $self->name() ]
-		);
-
-		$this->assertSame( '{"name":"probe-named"}', $handler( $ci, [] ) );
-	}
-
-	public function test_slice_verb_handler_is_gated_when_registered_through_schema(): void {
-		// The slice handler never self-gates; dispatch() refuses it without the cap.
-		$result = VerbHarness::fire( new ServiceCISliceVerbProbe(), 'probe', 'slice' );
+	public function test_a_shape_handler_is_gated_when_registered_through_schema(): void {
+		// The shape never self-gates; dispatch() refuses it without the cap.
+		$result = VerbHarness::fire( new ServiceCIShapeHandlerProbe(), 'probe', 'slice' );
 		$this->assertSame( "permission denied: manage capability required\n", $result );
 	}
 
-	public function test_slice_verb_handler_runs_through_schema_with_manage_options(): void {
+	public function test_a_shape_handler_receives_the_ci_and_answers_its_struct_unencoded(): void {
 		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
 
-		$result = VerbHarness::fire( new ServiceCISliceVerbProbe(), 'probe', 'slice' );
+		$result = VerbHarness::fire( new ServiceCIShapeHandlerProbe(), 'probe-6618', 'slice' );
 
-		$this->assertSame( "{\"sliced\":true}\n", $result );
+		$this->assertSame( [ 'sliced' => 'avocet-2290', 'name' => 'probe-6618' ], $result );
 	}
 
 	/**
@@ -429,10 +410,6 @@ class ServiceCITestProbe extends Service_CI_Node {
 		return self::require_valid_name( $name, $pattern );
 	}
 
-	public static function slice_verb_probe( callable $shape ): \Closure {
-		return self::slice_verb( $shape );
-	}
-
 	public static function probe_command_probe( array $server, string $to, string $verb, array $verb_args = [] ): array {
 		return HTTP_Out_Node::probe_command( 'test-spoke', $server, $to, $verb, $verb_args );
 	}
@@ -457,16 +434,16 @@ class ServiceCITestProbe extends Service_CI_Node {
 	}
 }
 
-/** Registers a slice_verb()-built handler via node_schema to exercise the central gate end-to-end. */
-class ServiceCISliceVerbProbe extends Service_CI_Node {
+/** Registers a one-parameter shape closure as a verb handler, to exercise the central gate end-to-end. */
+class ServiceCIShapeHandlerProbe extends Service_CI_Node {
 	public static function node_schema(): array {
 		return [
 			'category' => 'Hidden',
 			'commands' => [
 				[
 					'name'        => 'slice',
-					'description' => 'A slice_verb()-built handler that JSON-encodes a fixed shape.',
-					'handler'     => self::slice_verb( static fn ( Command_Interpreter_Node $ci ): array => [ 'sliced' => true ] ),
+					'description' => 'A shape closure answering a fixed struct and the CI it was handed.',
+					'handler'     => static fn ( self $ci ): array => [ 'sliced' => 'avocet-2290', 'name' => $ci->name() ],
 				],
 			],
 		];

@@ -15,14 +15,14 @@ import PublisherInsightsPage from '../PublisherInsightsPage';
 const ROUTER = '_router';
 
 const populated = {
-	counts: JSON.stringify( { sources: { releases: 2, community: 1 } } ),
-	top: JSON.stringify( {
+	counts: { sources: { releases: 2, community: 1 } },
+	top: {
 		top: [
 			{ source: 'releases', title: 'Big release', score: 9.5 },
 			{ source: 'community', title: 'Hot thread', score: 4 },
 		],
-	} ),
-	accumulated: JSON.stringify( { accumulated: 3 } ),
+	},
+	accumulated: { accumulated: 3 },
 };
 
 // The seam is the wire; the page's graph POSTs and unpacks for real.
@@ -88,9 +88,9 @@ describe( 'PublisherInsightsPage', () => {
 		// Drive the real reply path (renderAndTick), not the constructor seed —
 		// this proves an empty server reply lands in the views and renders empty.
 		installWire( {
-			counts: JSON.stringify( { sources: {} } ),
-			top: JSON.stringify( { top: [] } ),
-			accumulated: JSON.stringify( { accumulated: 0 } ),
+			counts: { sources: {} },
+			top: { top: [] },
+			accumulated: { accumulated: 0 },
 		} );
 		await renderAndTick();
 		await waitFor( () =>

@@ -1361,7 +1361,7 @@ class HttpSourceNodeTest extends TestCase {
 		// The verb harness builds a graph of its own, _router included.
 		Core::node( '_router' )->remove_node();
 
-		$summary = \json_decode( \Newspack_Nodes\Tests\Helpers\VerbHarness::fire( new \Newspack_Nodes\Rest\Aggregator_CI_Node(), 'aggregator', 'summary' ), true );
+		$summary = \Newspack_Nodes\Tests\Helpers\VerbHarness::fire( new \Newspack_Nodes\Rest\Aggregator_CI_Node(), 'aggregator', 'summary' );
 		$this->assertSame( 1, $summary['total'] );
 		$this->assertSame( 0, $summary['idle'], 'a refusal is no end-of-log wait' );
 		$this->assertSame( 0, $summary['connected'] );

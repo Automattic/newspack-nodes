@@ -5,17 +5,17 @@
  *
  * A service interpreter declares each verb ONCE, in `node_schema()`, and this
  * base turns that declaration into a working command surface: a dispatch table
- * derived from the schema, and the helpers the verbs share
- * (`require_valid_name`, `slice_verb`). `Command_Interpreter_Node::dispatch()`
+ * derived from the schema, and the helper the verbs share
+ * (`require_valid_name`). `Command_Interpreter_Node::dispatch()`
  * refuses each verb against the role its schema names (ADR-26) and binds its
  * declared `args` before the handler runs, so a handler neither checks a role
  * nor parses. A hand-built verb table beside the schema names every verb
  * twice, and the two drift.
  *
- * The helpers are `protected static` so a verb-table closure reaches them as
- * `self::method()`. `self::` resolves at compile time inside the closure's
- * containing method, so a STATIC closure — which cannot `use ( $this )` —
- * still finds them. No instance method exists; the helpers need none.
+ * The helper is `protected static` so a verb-table closure reaches it as
+ * `self::require_valid_name()`. `self::` resolves at compile time inside the
+ * closure's containing method, so a STATIC closure — which cannot
+ * `use ( $this )` — still finds it.
  *
  * The file sits beside `class-command-interpreter-node.php` rather than under
  * `includes/rest/` because application interpreters outside REST inherit it
@@ -80,28 +80,6 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 			$table[ $name ] = $handler;
 		}
 		return $table;
-	}
-
-	/**
-	 * Build a read-only slice verb from a shape callable, so a CI's slice verbs
-	 * are two or three lines sharing one memoized read instead of each
-	 * repeating the JSON-encode dance.
-	 *
-	 * The returned handler carries the verb-handler signature
-	 * ( Command_Interpreter_Node, array, array ) — for a Service CI verb the
-	 * interpreter IS this node — hands that node to $shape, and JSON-encodes
-	 * what comes back. A shape reads the CI's memoized snapshot (for example
-	 * `$ci->items()`) and returns the one slice it owns, so slices polled
-	 * separately still agree about what they saw. The handler never self-gates:
-	 * `dispatch()` refuses a caller below the role its schema entry declares.
-	 *
-	 * @param callable $shape A `function ( Command_Interpreter_Node $ci ): mixed` returning the slice payload.
-	 * @return \Closure The verb handler.
-	 */
-	protected static function slice_verb( callable $shape ): \Closure {
-		return static function ( Command_Interpreter_Node $self, array $args = [], array $envelope = [] ) use ( $shape ): string {
-			return (string) \wp_json_encode( $shape( $self ) );
-		};
 	}
 
 	/**

@@ -42,9 +42,7 @@ function installWire( { summary = {}, servers = [], rollup = null } = {} ) {
 		if ( 'probe' === name ) {
 			return rollup;
 		}
-		return 'summary' === name
-			? JSON.stringify( summary )
-			: JSON.stringify( servers );
+		return 'summary' === name ? summary : servers;
 	} );
 }
 
