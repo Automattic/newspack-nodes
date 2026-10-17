@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **A slice verb answers its struct, encoded once, and `Service_CI_Node::slice_verb()` is removed.** The helper JSON-encoded a shape's array into a string the wire then encoded a second time and the browser decoded twice; without the encode it only forwarded, so a CI passes its shape closure as the verb's `handler`, which dispatch hands the CI first. The Aggregator's `summary` and `list_servers` answer structs, and so do the example's `counts`, `top` and `accumulated`. A consumer still calling `slice_verb()` fatals on its first schema read.
+- **`sliceView()` takes no `json` flag, and `SliceViewNode._parse()` decodes nothing.** The base takes an object payload as the slice and answers null for anything else, a JSON string included; a declaration with no `parse` does the same, and a declared `parse` receives the payload as the wire decoded it. The Aggregator's two views guard their shape in `parse`, so a payload of the wrong shape keeps the slice on screen.
+- **`parseMetadata()` and the `_metadata` node read only a struct.** `dump_metadata` answers an object from PHP and from the browser interpreter alike, so the string branch that JSON-decoded a payload is gone, and a string payload parses to the empty graph.
+
 ## [2.113.0] - 2026-10-17
 
 ### Fixed

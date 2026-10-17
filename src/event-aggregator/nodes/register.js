@@ -6,8 +6,8 @@
  * on its own `view` state for a React widget: `summary` feeds the header strip,
  * `list_servers` feeds the server cards. Two views rather than one give each
  * slice its own reply path, so a card list that fails leaves the header counts
- * on screen. Both verbs answer a JSON string, which is what `json: true`
- * declares.
+ * on screen. Each parse takes the verb's struct and refuses any other shape,
+ * keeping the slice already on screen.
  */
 
 import { registerSliceViews } from '@newspack-nodes/shared/nodes/slice-view-node';
@@ -22,7 +22,6 @@ import { registerSliceViews } from '@newspack-nodes/shared/nodes/slice-view-node
 export const views = registerSliceViews( {
 	// Counts come from the server, so the header needs no card payload.
 	AggregatorSummaryView: {
-		json: true,
 		empty: {
 			connected: 0,
 			idle: 0,
@@ -33,29 +32,30 @@ export const views = registerSliceViews( {
 			loading: true,
 			lastRefresh: null,
 		},
-		parse: ( body ) => ( {
-			connected: body.connected || 0,
-			idle: body.idle || 0,
-			total: body.total || 0,
-			// Seconds, and the clock the cards' "ago" strings use.
-			serverNow: body.server_now ?? null,
-			// Each active topology that will not read, name => why.
-			unreadable: body.unreadable ?? {},
-			error: null,
-			loading: false,
-			// Browser milliseconds: when the reply landed, not the snapshot.
-			lastRefresh: Date.now(),
-		} ),
+		parse: ( body ) =>
+			body && 'object' === typeof body
+				? {
+						connected: body.connected || 0,
+						idle: body.idle || 0,
+						total: body.total || 0,
+						// Seconds, and the clock the cards' "ago" strings use.
+						serverNow: body.server_now ?? null,
+						// Each active topology that will not read, name => why.
+						unreadable: body.unreadable ?? {},
+						error: null,
+						loading: false,
+						// Browser ms: when the reply landed, not the snapshot.
+						lastRefresh: Date.now(),
+				  }
+				: null,
 	},
 
 	// The cards: the snapshot the summary counts, as a sequential array.
 	AggregatorServersView: {
-		json: true,
 		empty: { servers: null, error: null, loading: true },
-		parse: ( body ) => ( {
-			servers: Array.isArray( body ) ? body : [],
-			error: null,
-			loading: false,
-		} ),
+		parse: ( body ) =>
+			Array.isArray( body )
+				? { servers: body, error: null, loading: false }
+				: null,
 	},
 } );

@@ -46,7 +46,7 @@
 
 <div class="nd q" id="q3" style="left:0;top:440px;width:200px"><span class="t">VALUE an object?</span><span class="k">only an object carries a parseable slice</span></div>
 
-<div class="nd q" id="q4" style="left:260px;top:440px;width:300px"><span class="t">_parse( value.payload ) → null?</span><span class="k">a string is <span class="mono">JSON.parse</span>d in a try/catch and must decode to an object; a declared <span class="mono">parse</span> runs on the decoded body when <span class="mono">json</span>, else on the raw payload; null on anything it cannot use</span></div>
+<div class="nd q" id="q4" style="left:260px;top:440px;width:300px"><span class="t">_parse( value.payload ) → null?</span><span class="k">the base takes an object payload as the slice; a declared <span class="mono">parse</span> runs on the payload instead; null on anything it cannot use</span></div>
 <div class="nd keep" id="drop2" style="left:260px;top:560px;width:300px"><span class="t">return — the prior slice stays on screen</span><span class="k">transient garbage never blanks a widget</span></div>
 
 <div class="nd out" id="pub" style="left:670px;top:440px;width:382px"><span class="t">view = { ...settled, ...slice }</span><span class="k">Rebuilt, not merged: <span class="mono">settled</span> holds the resting value of each status field the empty model declares — <span class="mono">loading: false</span>, <span class="mono">error: null</span> — so this tick's reply retires last tick's spinner and error. Anything published into the slice by other means is gone at the next reply; a field belongs in the slice only when the next reply should retire it.</span></div>
@@ -58,7 +58,7 @@
   <div class="card">
     <h3>Preserve the order if you override</h3>
     <div class="chip"><b>Origin first, then TYPE.</b> Sniffing a payload for a control swallows whole streams; testing TM_ERROR after the shape check would drop a bare-string refusal as garbage, leaving any spinner running and no error on screen.</div>
-    <div class="chip"><b>Garbage keeps the prior slice.</b> <span class="mono">_parse</span> reports what it cannot use by returning null, never by throwing; if you decode anything yourself, wrap it the same way.</div>
+    <div class="chip"><b>Garbage keeps the prior slice.</b> <span class="mono">_parse</span> reports what it cannot use by returning null, never by throwing; a parse of your own does the same.</div>
     <div class="chip"><b>Recovery without a reload.</b> The next parsed reply rebuilds from <span class="mono">settled</span>, which carries no <span class="mono">error</span>, so the card draws its data again on that tick.</div>
   </div>
   <div class="card">

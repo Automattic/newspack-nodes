@@ -150,10 +150,10 @@ class Insights_CI_Demo_Node extends Service_CI_Node {
 	/**
 	 * Palette entry plus the three slice verbs the dashboard polls.
 	 *
-	 * `Service_CI_Node::slice_verb()` builds each handler: it hands the interpreter — for
-	 * a Service_CI verb that IS this node — to the shape closure and JSON-encodes what the
-	 * closure returns. Every shape reads `items()`, so the three verbs of one batch share
-	 * a single offsetlog read.
+	 * Each handler is a shape closure: dispatch hands it the interpreter — for a
+	 * Service_CI verb that IS this node — and its array is the reply's struct. Every
+	 * shape reads `items()`, so the three verbs of one batch share a single offsetlog
+	 * read.
 	 *
 	 * Authorization belongs to `dispatch()`, which refuses a caller below the role each
 	 * verb's schema declares (ADR-26). These three declare none, so all of them require
@@ -170,19 +170,19 @@ class Insights_CI_Demo_Node extends Service_CI_Node {
 					'name'        => 'counts',
 					'description' => 'Return per-source item counts: { sources: { source: count } }.',
 					'args'        => [],
-					'handler'     => self::slice_verb( static fn ( self $ci ): array => [ 'sources' => self::shape_sources( $ci->items() ) ] ),
+					'handler'     => static fn ( self $ci ): array => [ 'sources' => self::shape_sources( $ci->items() ) ],
 				],
 				[
 					'name'        => 'top',
 					'description' => 'Return the top-10 items by score: { top: [ { source, title, score } ] }.',
 					'args'        => [],
-					'handler'     => self::slice_verb( static fn ( self $ci ): array => [ 'top' => self::shape_top( $ci->items() ) ] ),
+					'handler'     => static fn ( self $ci ): array => [ 'top' => self::shape_top( $ci->items() ) ],
 				],
 				[
 					'name'        => 'accumulated',
 					'description' => 'Return the total accumulated item count: { accumulated: N }.',
 					'args'        => [],
-					'handler'     => self::slice_verb( static fn ( self $ci ): array => [ 'accumulated' => \count( $ci->items() ) ] ),
+					'handler'     => static fn ( self $ci ): array => [ 'accumulated' => \count( $ci->items() ) ],
 				],
 			],
 		] );

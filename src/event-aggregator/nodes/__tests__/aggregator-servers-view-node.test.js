@@ -1,7 +1,7 @@
 /**
  * aggregator servers:view tests — the de-god SERVER-CARDS slice. Owns ONLY the
  * per-server partition snapshot the server cards render. Fed by its own
- * `list_servers` slice verb (FROM=servers:view), it parses the JSON-string
+ * `list_servers` slice verb (FROM=servers:view), it maps the struct
  * payload (a sequential array of server snapshots) into `{ servers }` and
  * publishes via setState('view', …) for the <AggregatorServers> widget. No
  * counts, no snapshot clock — that's the summary slice's job.
@@ -26,14 +26,11 @@ function makeView() {
 	return node;
 }
 
-// A reply Message as the slice verb emits: VALUE.payload = JSON array string.
+// A reply Message as the slice verb emits: VALUE.payload = the server array.
 function reply( serversArray ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_COMMAND | TM_RESPONSE;
-	m[ VALUE ] = {
-		name: 'list_servers',
-		payload: JSON.stringify( serversArray ),
-	};
+	m[ VALUE ] = { name: 'list_servers', payload: serversArray };
 	return m;
 }
 
@@ -100,16 +97,17 @@ describe( 'AggregatorServersViewNode', () => {
 	} );
 } );
 
-// The base returns null for a payload it cannot decode, and the subclass passes
-// that through so the prior slice stands — the guard the collapse onto
-// SliceViewNode introduced and nothing exercised.
-test( 'an undecodable payload keeps the slice it already published', () => {
+// A payload that is no array parses to null, so the prior slice stands.
+test( 'a string payload keeps the slice it already published', () => {
 	const v = makeView();
 	v.fill( reply( [ { id: 'a' } ] ) );
 
 	const broken = newMessage();
 	broken[ TYPE ] = TM_COMMAND | TM_RESPONSE;
-	broken[ VALUE ] = { name: 'list_servers', payload: '{not json' };
+	broken[ VALUE ] = {
+		name: 'list_servers',
+		payload: JSON.stringify( [ { id: 'shrike-5530' } ] ),
+	};
 	v.fill( broken );
 
 	expect( v.view.servers ).toEqual( [ { id: 'a' } ] );

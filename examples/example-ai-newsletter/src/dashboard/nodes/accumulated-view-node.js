@@ -15,7 +15,7 @@ import { SliceViewNode } from '@newspack-nodes/shared/nodes/slice-view-node';
  * what keeps a failed read off the sibling cards — a single view holding
  * `{ counts, top, accumulated }` would publish one slice's error to all three.
  *
- * The verb answers this slice as JSON and nothing reshapes it, so the base
+ * The verb answers this slice as a struct and nothing reshapes it, so the base
  * class's `_parse()` stands and the empty model is all this class supplies.
  *
  * `register.js` registers the class as `AccumulatedView`, the name a TSL

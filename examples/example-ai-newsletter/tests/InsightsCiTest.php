@@ -64,19 +64,18 @@ final class InsightsCiTest extends TestCase {
 
 	public function test_counts_verb_returns_sources_slice_only(): void {
 		$ci      = $this->ci_with_snapshot( self::SEED );
-		$decoded = \json_decode( (string) $ci->dispatch( 'counts' ), true );
+		$decoded = $ci->dispatch( 'counts' );
 		$this->assertSame( [ 'sources' => [ 'releases' => 2, 'community' => 1 ] ], $decoded );
 	}
 
 	public function test_top_verb_returns_top_slice_sorted_desc(): void {
 		$ci      = $this->ci_with_snapshot( self::SEED );
-		$decoded = \json_decode( (string) $ci->dispatch( 'top' ), true );
+		$decoded = $ci->dispatch( 'top' );
 		$this->assertSame( [ 'top' ], \array_keys( $decoded ) );
-		// JSON serializes 6.0 as `6`; compare the score numerically, not by PHP type.
-		$this->assertEquals( 6.0, $decoded['top'][0]['score'] );
+		$this->assertSame( 6.0, $decoded['top'][0]['score'] );
 		$this->assertSame( 'Roundup Block ships', $decoded['top'][0]['title'] );
-		$this->assertEquals( 5.0, $decoded['top'][1]['score'] );
-		$this->assertEquals( 4.0, $decoded['top'][2]['score'] );
+		$this->assertSame( 5.0, $decoded['top'][1]['score'] );
+		$this->assertSame( 4.0, $decoded['top'][2]['score'] );
 	}
 
 	public function test_top_verb_caps_at_ten(): void {
@@ -85,14 +84,14 @@ final class InsightsCiTest extends TestCase {
 			$items[] = [ 'source' => 'releases', 'title' => "Item $i", 'summary' => 's', 'score' => (float) $i ];
 		}
 		$ci      = $this->ci_with_snapshot( $items );
-		$decoded = \json_decode( (string) $ci->dispatch( 'top' ), true );
+		$decoded = $ci->dispatch( 'top' );
 		$this->assertCount( 10, $decoded['top'] );
-		$this->assertEquals( 24.0, $decoded['top'][0]['score'] ); // highest first
+		$this->assertSame( 24.0, $decoded['top'][0]['score'] ); // highest first
 	}
 
 	public function test_accumulated_verb_returns_count_slice_only(): void {
 		$ci      = $this->ci_with_snapshot( self::SEED );
-		$decoded = \json_decode( (string) $ci->dispatch( 'accumulated' ), true );
+		$decoded = $ci->dispatch( 'accumulated' );
 		$this->assertSame( [ 'accumulated' => 3 ], $decoded );
 	}
 
@@ -104,15 +103,15 @@ final class InsightsCiTest extends TestCase {
 			$items[] = [ 'source' => 'releases', 'title' => "Item $i " . \str_repeat( 'x', 80 ), 'summary' => 's', 'score' => (float) $i ];
 		}
 		$ci = $this->ci_with_snapshot( $items );
-		$this->assertSame( 60, \json_decode( (string) $ci->dispatch( 'accumulated' ), true )['accumulated'] );
-		$this->assertEquals( 59.0, \json_decode( (string) $ci->dispatch( 'top' ), true )['top'][0]['score'] );
+		$this->assertSame( 60, $ci->dispatch( 'accumulated' )['accumulated'] );
+		$this->assertSame( 59.0, $ci->dispatch( 'top' )['top'][0]['score'] );
 	}
 
 	public function test_empty_snapshot_yields_empty_slices(): void {
 		$ci = $this->ci_with_snapshot( [] );
-		$this->assertSame( [ 'sources' => [] ], \json_decode( (string) $ci->dispatch( 'counts' ), true ) );
-		$this->assertSame( [ 'top' => [] ], \json_decode( (string) $ci->dispatch( 'top' ), true ) );
-		$this->assertSame( [ 'accumulated' => 0 ], \json_decode( (string) $ci->dispatch( 'accumulated' ), true ) );
+		$this->assertSame( [ 'sources' => [] ], $ci->dispatch( 'counts' ) );
+		$this->assertSame( [ 'top' => [] ], $ci->dispatch( 'top' ) );
+		$this->assertSame( [ 'accumulated' => 0 ], $ci->dispatch( 'accumulated' ) );
 	}
 
 	public function test_three_verbs_share_one_memoized_read(): void {

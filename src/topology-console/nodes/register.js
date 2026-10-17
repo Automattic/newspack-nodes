@@ -4,8 +4,7 @@
  * Each owns one polled catalog and nothing else: the palette's Node classes
  * and formatter names, and the OPEN dialog's saved topologies. Neither needs
  * more than an empty model and a guard-then-map parse, which is what
- * `sliceView()` takes as a declaration. Both verbs answer a decoded struct
- * rather than a JSON string, so neither declares `json`.
+ * `sliceView()` takes as a declaration.
  *
  * A parse returns null on a shape it cannot use, keeping the slice already on
  * screen; the next tick is the retry. A stale list beats an empty one.

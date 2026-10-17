@@ -21,10 +21,10 @@
  *   probe          — the button-triggered deep probe of ONE spoke, and the
  *                    only verb here that reaches the network.
  *
- * Both slices answer a JSON STRING through `Service_CI_Node::slice_verb()`,
- * the shape a browser SliceViewNode parses, and both read the one
- * `build_snapshot()` builder — so the header's counts and the cards they
- * summarize are derived identically rather than by two roll-ups that drift.
+ * Each slice's handler returns its struct, the slice a browser SliceViewNode
+ * publishes, and both read the one `build_snapshot()` builder — so the
+ * header's counts and the cards they summarize are derived identically rather
+ * than by two roll-ups that drift.
  * The readers are no part of that snapshot: `summary` counts connections
  * alone, so `list_servers` reads and decodes the probe tail by itself.
  * The dashboard batches the pair into a single POST, so they also answer from
@@ -308,7 +308,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 					'capability'  => Capabilities::READ,
 					'description' => 'De-god header slice: connected/idle/total counts, the snapshot clock, and each unreadable topology by name (computed from the status snapshot).',
 					'args'        => [],
-					'handler'     => self::slice_verb( static function (): array {
+					'handler'     => static function (): array {
 						[ $snapshot, $unreadable ] = self::build_snapshot();
 						$connected                 = 0;
 						$idle      = 0;
@@ -327,14 +327,14 @@ class Aggregator_CI_Node extends Service_CI_Node {
 							'server_now' => \time(),
 							'unreadable' => \array_map( Core::message_of( ... ), $unreadable ),
 						];
-					} ),
+					},
 				],
 				[
 					'name'        => 'list_servers',
 					'capability'  => Capabilities::READ,
 					'description' => 'De-god server-cards slice: the status snapshot as a sequential array, each broker with its readers off the probe log.',
 					'args'        => [],
-					'handler'     => self::slice_verb( static fn (): array => self::with_readers( self::build_snapshot()[0] ) ),
+					'handler'     => static fn (): array => self::with_readers( self::build_snapshot()[0] ),
 				],
 				[
 					// No capability declared, so the gate demands MANAGE.

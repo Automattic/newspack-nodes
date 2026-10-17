@@ -1,7 +1,7 @@
 /**
  * aggregator summary:view tests — the de-god HEADER slice. Owns ONLY the
  * connected/total counts + snapshot clock the dashboard header renders. Fed by
- * its own `summary` slice verb (FROM=summary:view), it parses the JSON-string
+ * its own `summary` slice verb (FROM=summary:view), it maps the struct
  * payload `{ connected, total, server_now }` into its slice and publishes via
  * setState('view', …) for the <AggregatorSummary> widget. No server cards, no
  * partition data — that's the servers slice's job.
@@ -26,11 +26,11 @@ function makeView() {
 	return node;
 }
 
-// A reply Message as the slice verb emits: VALUE.payload = JSON string.
+// A reply Message as the slice verb emits: VALUE.payload = the summary struct.
 function reply( payload ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_COMMAND | TM_RESPONSE;
-	m[ VALUE ] = { name: 'summary', payload: JSON.stringify( payload ) };
+	m[ VALUE ] = { name: 'summary', payload };
 	return m;
 }
 
@@ -101,14 +101,17 @@ describe( 'AggregatorSummaryViewNode', () => {
 	} );
 } );
 
-// Same guard on the summary slice: an undecodable payload must not blank it.
-test( 'an undecodable payload keeps the slice it already published', () => {
+// Same guard on the summary slice: a non-struct payload must not blank it.
+test( 'a string payload keeps the slice it already published', () => {
 	const v = makeView();
 	v.fill( reply( { connected: 3, idle: 1, total: 4 } ) );
 
 	const broken = newMessage();
 	broken[ TYPE ] = TM_COMMAND | TM_RESPONSE;
-	broken[ VALUE ] = { name: 'summary', payload: '{not json' };
+	broken[ VALUE ] = {
+		name: 'summary',
+		payload: JSON.stringify( { connected: 8807, total: 8807 } ),
+	};
 	v.fill( broken );
 
 	expect( v.view.connected ).toBe( 3 );

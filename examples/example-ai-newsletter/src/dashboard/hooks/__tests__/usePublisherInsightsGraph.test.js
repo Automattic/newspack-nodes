@@ -35,9 +35,9 @@ function setVisibility( state ) {
 
 // echoes a reply addressed back along FROM, payload keyed by the posted verb.
 const emptyPayloads = {
-	counts: JSON.stringify( { sources: {} } ),
-	top: JSON.stringify( { top: [] } ),
-	accumulated: JSON.stringify( { accumulated: 0 } ),
+	counts: { sources: {} },
+	top: { top: [] },
+	accumulated: { accumulated: 0 },
 };
 
 // The seam is the WIRE: the graph packs, POSTs and unpacks for real, so
@@ -181,11 +181,11 @@ describe( 'usePublisherInsightsGraph — batched poll', () => {
 
 	test( 'each slice reply routes back to its own view node and lands in its slice', async () => {
 		installWire( {
-			counts: JSON.stringify( { sources: { releases: 2 } } ),
-			top: JSON.stringify( {
+			counts: { sources: { releases: 2 } },
+			top: {
 				top: [ { source: 'releases', title: 'X', score: 5 } ],
-			} ),
-			accumulated: JSON.stringify( { accumulated: 7 } ),
+			},
+			accumulated: { accumulated: 7 },
 		} );
 		renderHook( () => usePublisherInsightsGraph() );
 		await act( async () => {

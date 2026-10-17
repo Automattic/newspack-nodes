@@ -39,14 +39,14 @@ describe( 'source-counts:view', () => {
 
 	test( 'parses a counts reply into the sources slice and publishes it', () => {
 		const v = makeView();
-		v.fill( countsReply( JSON.stringify( { sources: { releases: 2 } } ) ) );
+		v.fill( countsReply( { sources: { releases: 2 } } ) );
 		expect( v.view ).toEqual( { sources: { releases: 2 } } );
 	} );
 
 	test( 'a later reply replaces the published slice', () => {
 		const v = makeView();
-		v.fill( countsReply( JSON.stringify( { sources: { a: 1 } } ) ) );
-		v.fill( countsReply( JSON.stringify( { sources: { b: 9 } } ) ) );
+		v.fill( countsReply( { sources: { a: 1 } } ) );
+		v.fill( countsReply( { sources: { b: 9 } } ) );
 		expect( v.view ).toEqual( { sources: { b: 9 } } );
 	} );
 
@@ -58,10 +58,10 @@ describe( 'source-counts:view', () => {
 		expect( v.view.error ).toMatch( /counts read failed/ );
 	} );
 
-	test( 'ignores an unparseable payload (keeps the prior slice)', () => {
+	test( 'ignores a string payload (keeps the prior slice)', () => {
 		const v = makeView();
-		v.fill( countsReply( JSON.stringify( { sources: { a: 1 } } ) ) );
-		v.fill( countsReply( 'not json' ) );
+		v.fill( countsReply( { sources: { a: 1 } } ) );
+		v.fill( countsReply( JSON.stringify( { sources: { kite: 4407 } } ) ) );
 		expect( v.view ).toEqual( { sources: { a: 1 } } );
 	} );
 } );

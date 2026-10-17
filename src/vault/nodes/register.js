@@ -17,7 +17,7 @@ import { registerSliceViews } from '@newspack-nodes/shared/nodes/slice-view-node
  * still serves TSL and the console palette.
  */
 export const views = registerSliceViews( {
-	// An id-keyed struct, decoded already — no `json` flag; take the rows.
+	// An id-keyed struct; take the rows.
 	VaultListView: {
 		empty: { servers: null, loading: true, error: null },
 		parse: ( body ) =>

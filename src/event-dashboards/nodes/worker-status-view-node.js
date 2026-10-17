@@ -29,8 +29,8 @@ const emptyModel = () => ( {
  *
  * A `SliceViewNode` whose slice arrives already parsed: `worker-status:transform`
  * sits on the receiver-Tee edge ahead of it and mints a TM_STRUCT carrying the
- * enriched model, so there is no JSON payload for the base `_parse()` to
- * decode. `fill()` therefore dispatches the struct actions itself and defers
+ * enriched model, an action rather than a reply for the base `_parse()` to
+ * read. `fill()` therefore dispatches the struct actions itself and defers
  * every TM_ERROR to the base — which keeps the model already on screen, adds
  * `error`, and clears `loading`.
  *

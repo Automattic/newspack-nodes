@@ -87,6 +87,20 @@ describe( 'Metadata node', () => {
 		expect( node.metadata.nodes ).toHaveLength( 1 );
 	} );
 
+	it( 'ignores a JSON-string payload: dump_metadata answers a struct', () => {
+		const node = new MetadataNode();
+		node.fill(
+			msg( TM_COMMAND | TM_RESPONSE, {
+				name: 'dump_metadata',
+				payload: JSON.stringify( {
+					'osprey-6614': { class: 'Echo', counter: 9 },
+				} ),
+			} )
+		);
+		expect( node.metadata ).toBeNull();
+		expect( node.rawMap ).toBeNull();
+	} );
+
 	it( 'ignores an empty / null payload (no canvas churn)', () => {
 		const node = new MetadataNode();
 		node.fill( msg( TM_STRUCT, '' ) );
