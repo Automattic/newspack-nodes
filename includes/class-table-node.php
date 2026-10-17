@@ -1763,6 +1763,16 @@ class Table_Node extends Node {
 	}
 
 	/**
+	 * Whether `$name` ends as `stem()` ends a name, `.p{N}`.
+	 *
+	 * @param string $name A file name.
+	 * @return bool True when a Table partition's file would take it.
+	 */
+	public static function is_partition_stem( string $name ): bool {
+		return 1 === \preg_match( '/\.p-?[0-9]+$/D', $name );
+	}
+
+	/**
 	 * A table outside any graph, for the callers `lookup()` / `store()` /
 	 * `forget()` exist for. Sugar for `new Table_Node()` plus `arguments()`.
 	 *

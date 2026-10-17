@@ -545,4 +545,18 @@ final class SqliteArmRowsTest extends TestCase {
 			$this->assertFileDoesNotExist( $absent, 'a snapshot reader creates no file' );
 		}
 	}
+
+	public function test_remove_database_unlinks_the_file_with_its_log_and_index_and_answers_them(): void {
+		$file = "{$this->dir}/tables/kea-remove-6112.sqlite";
+		@\mkdir( \dirname( $file ), 0777, true );
+		foreach ( [ $file, "{$file}-wal", "{$file}-shm", "{$file}-journal" ] as $f ) {
+			\file_put_contents( $f, 'x' );
+		}
+		$this->assertSame( [ $file, "{$file}-wal", "{$file}-shm" ], Sqlite_Arm::remove_database( $file ) );
+		$this->assertFileDoesNotExist( $file );
+		$this->assertFileDoesNotExist( "{$file}-wal" );
+		$this->assertFileDoesNotExist( "{$file}-shm" );
+		$this->assertFileExists( "{$file}-journal", 'only the database, its -wal and its -shm go' );
+		$this->assertSame( [], Sqlite_Arm::remove_database( $file ), 'an absent database removes nothing' );
+	}
 }
