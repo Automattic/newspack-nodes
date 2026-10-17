@@ -18,7 +18,7 @@
  * partition each counted, so the message and 24h cards say "read": a log two
  * workers read counts twice there. The Write card counts each partition's
  * head once, so it is the one bytes-written figure.
- * The "Messages read/s", "Backlog" and "Total Cache" cards are LIVE: each sums
+ * The "Msgs read/s", "Backlog" and "Total Cache" cards are LIVE: each sums
  * every live reader's newest sample, the same series its Overview chart
  * stacks, counting a reader only while it names a source and that sample is
  * within a minute of the newest message seen (`streamHead`, `liveTotal`).
@@ -74,7 +74,7 @@ function Card( { mod, value, label, extraClass = '' } ) {
  * level among the ACTIVE topologies and how many sit there ("2 stalled"), and
  * tints itself through a `nodes-card--health-{level}` modifier. Stalled
  * outranks behind, so a fleet carrying both reports the stalled count; a fleet
- * with neither reads "all systems ok".
+ * with neither reads "ok".
  *
  * @param {Object}  props
  * @param {?Array}  props.topologies    Topology rows from `useTopologyManager`.
@@ -99,7 +99,7 @@ function SummaryCards( {
 	const partitionHeadS = streamHead( partitions );
 
 	/** @type {string} */
-	let healthLabel = __( 'all systems ok', 'newspack-nodes' );
+	let healthLabel = __( 'ok', 'newspack-nodes' );
 	if ( fleet.stalledCount > 0 ) {
 		healthLabel = sprintf(
 			// translators: %d: number of stalled topologies.
@@ -167,7 +167,7 @@ function SummaryCards( {
 				value={ formatMsgRate(
 					liveTotal( consumers, headS, 'msgRate' )
 				) }
-				label={ __( 'Messages read/s', 'newspack-nodes' ) }
+				label={ __( 'Msgs read/s', 'newspack-nodes' ) }
 			/>
 			<Card
 				mod="backlog"
@@ -179,7 +179,7 @@ function SummaryCards( {
 			<Card
 				mod="messages"
 				value={ formatCount( totals.msgs ) }
-				label={ __( 'Messages read · 24h', 'newspack-nodes' ) }
+				label={ __( 'Msgs read · 24h', 'newspack-nodes' ) }
 			/>
 			<Card
 				mod="bytes"

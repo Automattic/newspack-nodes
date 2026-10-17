@@ -1,6 +1,6 @@
 /**
  * Sum the Topic_Probe view's per-bucket deltas into the 24h totals behind the
- * SummaryCards "Messages read · 24h" and "Bytes read · 24h" cards.
+ * SummaryCards "Msgs read · 24h" and "Bytes read · 24h" cards.
  *
  * A bucket holds one CONSUMER's account of the windows one worker swept in
  * it: `msgs`/`bytes` tally what it moved. The total is every reader's deltas
