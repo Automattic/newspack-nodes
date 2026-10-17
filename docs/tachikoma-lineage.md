@@ -317,6 +317,10 @@ Upstream has no Graphite node: `TopicProbeToGraphite.pm` formats the lines and s
 
 **Why:** `msg_sent` upstream is a cumulative counter, so latest-wins loses nothing there. `msgs_delta` and `bytes_read_delta` are per-sweep work that `Consumer_Node::probe_stats()` has already re-baselined, so consecutive records PARTITION the emit window and the window's truth is their sum — keeping the latest would report one sweep out of however many the window held. The `SUMMED` constant names those two. `distance` (backlog bytes) and `cache_size` (offsetlog segment size) are levels rather than work done, and keep upstream's latest-wins sampling.
 
+### An owned link admits a non-reply addressed to its owner
+
+`Nodes/Socket.pm`'s owner clause drops every addressed message that is not a `TM_RESPONSE` while an owner is set, the owner's own name included, and Tachikoma's request/reply clients sidestep it by owning nothing: `ConsumerBroker.pm` builds its socket with no owner, so a `GET`'s bare `TM_BATCH` routes home by its TO. The browser's `_http` is that client socket, but it also needs an owner, so the server's unaddressed output (a `log` line) lands somewhere: a REPL aims it at its `_output` while mounted, and at `_null` otherwise. Its wire-inbound clause therefore admits a non-reply addressed to the owner itself, which is how `read_block`'s `TM_INFO` and `TM_BATCH`, and a Table's bare values, reach the REPL that asked. Every other addressed non-reply is still refused, so the remote still cannot pick its own destination inside the graph.
+
 ### A probe's FROM carries its worker; upstream's carries the bare node name
 
 `TopicProbe.pm` stamps FROM with the bare node name and puts the writer's location in the payload: a `hostname:` field and the prefix argument. [`Probe_Node`](../includes/class-probe-node.php) stamps FROM `{worker-id}/{probe-name}` through `Probe_Node::from()` when a worker is bound, and the bare name when none is. This applies to `Topic_Probe_Node`, `Job_Probe_Node` and `Table_Probe_Node` alike.
