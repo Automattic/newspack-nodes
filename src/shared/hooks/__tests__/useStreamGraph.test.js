@@ -1068,6 +1068,20 @@ describe( 'useSteppedRead', () => {
 		expect( Core.node( 'kestrel:shell' ).counter ).toBe( 1 );
 	} );
 
+	test( 'a pause steps from the row the view last showed, not where the link read to', async () => {
+		const { result } = mountStepped();
+		act( () => result.current.graph.resubscribe( [ 'a.p1' ], null ) );
+		Core.node( VIEW ).resumeAt = () => ( { segment: 6, offset: 412 } );
+		act( () => result.current.graph.setPaused( true ) );
+		act( () => result.current.step() );
+		await waitFor( () =>
+			expect( stepArgs() ).toEqual( [ [ 'a.p1', '6:412' ] ] )
+		);
+		expect( result.current.graph.targetRef.current.positions ).toEqual( {
+			'a.p1': { segment: 6, offset: 412 },
+		} );
+	} );
+
 	test( 'steps from the magic start token a Replay seeks', async () => {
 		const { result } = mountStepped();
 		act( () => {

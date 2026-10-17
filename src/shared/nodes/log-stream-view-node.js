@@ -4,6 +4,7 @@ import { VALUE, ID } from '../../runtime/message';
 import { SeekTracker } from './seekTracker';
 import { RateSmoother } from '../rateSmoother';
 import { isControl } from '../helpers/controlMsg';
+import { parseCrumb } from '../../runtime/log-position';
 
 /**
  * Default ring cap, and with it the ceiling on a view's memory: every live row
@@ -75,6 +76,8 @@ export class LogStreamViewNode extends ReactBridge( Node ) {
 		this.filter = '';
 		// Breadcrumb arming: a `select` naming a dir sets it, a glob clears it.
 		this.seekActive = true;
+		// Crumb of the last record passed: shown, or filtered while running.
+		this.passed = null;
 		// Seek/live feedback (rail highlight + replay→live flip).
 		this.seek = new SeekTracker();
 		/**
@@ -132,6 +135,7 @@ export class LogStreamViewNode extends ReactBridge( Node ) {
 		if ( 'select' === action ) {
 			this.seekActive = undefined === value.dir ? true : !! value.dir;
 			this.seek.select();
+			this.passed = null;
 			this._clear();
 		} else if ( 'pause' === action ) {
 			this.paused = value.paused;
@@ -143,10 +147,12 @@ export class LogStreamViewNode extends ReactBridge( Node ) {
 		} else if ( 'browse' === action ) {
 			// Replaying: capture the live boundary to detect catch-up against.
 			this.seek.browse( value.segments );
+			this.passed = null;
 			// A rewind starts clean: replays must not mix into the live tail.
 			this._clear();
 		} else if ( 'follow' === action ) {
 			this.seek.follow();
+			this.passed = null;
 		} else if ( 'clear' === action ) {
 			this._clear();
 		} else if ( 'filter' === action ) {
@@ -170,7 +176,24 @@ export class LogStreamViewNode extends ReactBridge( Node ) {
 			return;
 		}
 		this._trackPosition( message );
-		this._appendRow( row );
+		if ( this._appendRow( row ) ) {
+			this.passed = message[ ID ];
+		}
+	}
+
+	/**
+	 * Where a paused stream resumes: the boundary after the last record the
+	 * ring passed, so a record a pause dropped is read again, never skipped.
+	 * Null before any record, and while breadcrumbs are not tracked, since a
+	 * glob's crumbs name no one subscription's position.
+	 *
+	 * @return {?{segment:number,offset:number}} The resume position.
+	 */
+	resumeAt() {
+		const crumb = this.seekTracking() ? parseCrumb( this.passed ) : null;
+		return crumb
+			? { segment: crumb.segment, offset: crumb.offset + crumb.length }
+			: null;
 	}
 
 	/**
@@ -234,6 +257,9 @@ export class LogStreamViewNode extends ReactBridge( Node ) {
 	 *
 	 * @param {Object} fields Row fields from `shapeRow()`; the monotonic `id`
 	 *                        and the `isEven` stripe are stamped on top.
+	 * @return {boolean} Whether the row was passed for good: false when the
+	 *                   paused belt dropped it, or the filter did while paused,
+	 *                   so a resume reads it again.
 	 */
 	_appendRow( fields ) {
 		// The gate precedes the belt: a dropped row must not spend step budget.
@@ -241,12 +267,12 @@ export class LogStreamViewNode extends ReactBridge( Node ) {
 			'' !== this.filter &&
 			! this.matchesFilter( fields, this.filter )
 		) {
-			return;
+			return ! this.paused;
 		}
 		// Paused belt: drop frames, unless a step budget admits them.
 		if ( this.paused ) {
 			if ( this.stepBudget <= 0 ) {
-				return;
+				return false;
 			}
 			this.stepBudget -= 1;
 		}
@@ -256,6 +282,7 @@ export class LogStreamViewNode extends ReactBridge( Node ) {
 		fields.isEven = this.lineCounter % 2 === 0;
 		this._writeRow( fields );
 		this.lpsSmoother.add( 1, Date.now() );
+		return true;
 	}
 
 	/**
