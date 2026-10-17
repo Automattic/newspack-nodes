@@ -24,6 +24,26 @@ abstract class DurableArmContract extends CacheBackendContract {
 		$this->assertSame( 4, $arm->get( 'kea-forever' ) );
 	}
 
+	/**
+	 * The purge lag is how long the oldest row expired at `$now` has waited
+	 * past its expiry, keyed rows and members alike; a live row, a row that
+	 * never expires and a store holding no expired row answer nothing.
+	 */
+	public function test_purge_lag_is_the_oldest_expired_rows_wait_past_its_expiry(): void {
+		$arm = $this->arm();
+		$arm->set( 'kea-forever', 4, 0 );
+		$arm->set( 'kea-live', 5, 9001 );
+		$this->assertSame( 0, $arm->purge_lag( (int) $this->clock + 4417 ), 'no row has expired' );
+
+		$arm->set( 'kea-old', 1, 37 );
+		$arm->add_members( [ 'owl:set-7' => [ [ 'm-1' => 1 ], 641 ] ] );
+		$this->assertSame( 4417 - 37, $arm->purge_lag( (int) $this->clock + 4417 ), 'the keyed row expired first' );
+
+		$arm->delete( 'kea-old' );
+		$this->assertSame( 4417 - 641, $arm->purge_lag( (int) $this->clock + 4417 ), 'then the member' );
+		$this->assertSame( 0, $arm->purge_lag( (int) $this->clock + 641 ), 'a row at its expiry has waited no time' );
+	}
+
 	public function test_read_entries_answer_each_live_rows_value_and_remaining_life(): void {
 		$arm = $this->arm();
 		$arm->set( 'kea-e1', [ 'n' => 41 ], 777 );

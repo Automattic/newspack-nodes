@@ -6,6 +6,22 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **A Row_Table's `retained_by` is a list of `[ table, column, own ]`
+  references, and the single shape is refused.** A schema declaring
+  `'retained_by' => [ 'requests', 'url_id', 'id' ]` fails the schema check
+  before the file opens, with `<table> retained_by entry 0 (requests) is no
+  [ table, column, own ] list: retained_by is a list of them`, so its
+  Row_Table never builds and its topology fails to load. Wrap each reference
+  in a list: `'retained_by' => [ [ 'requests', 'url_id', 'id' ] ]`, adding
+  one entry per table that names this one. A consumer declaring its own
+  `Row_Schema` makes that change and raises its `version_at_least()` floor
+  to this release.
+
+  newspack-event-logger-nodes 0.137.0 declares the single shape on its
+  `flame-facts` schema, and 0.138.0 declares the list. Deploy this release
+  and 0.138.0 together, inside one fleet hold (`wp nodes stop` … `wp nodes
+  start`): either one alone stops the flame builder's stats on every site.
+
 - **`Command_Auth::verify()` takes the clock as two required arguments,
   before the interpreter.** `verify( $message, $now, $interpreter, $load )`
   becomes `verify( $message, $now, $turn, $interpreter, $load )`, and `$now`

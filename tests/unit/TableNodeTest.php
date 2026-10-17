@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
@@ -9,6 +10,7 @@ use Newspack_Nodes\Node;
 use Newspack_Nodes\Sqlite_Arm;
 use Newspack_Nodes\Table_Node;
 use Newspack_Nodes\Table_Unavailable;
+use Newspack_Nodes\Tablestats_Record;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
 use Newspack_Nodes\Tests\TestCase;
@@ -1178,18 +1180,10 @@ class TableNodeTest extends TestCase {
 		Core::$clock = static function () use ( &$reads ): float {
 			return 1790000037.0 + 0.03 * $reads++;
 		};
-		$logged = [];
-		\add_action(
-			'newspack_nodes/stderr',
-			static function ( string $line ) use ( &$logged ): void {
-				$logged[] = $line;
-			}
-		);
 		$this->assertSame( 0.25, Table_Node::PURGE_BACKLOG_BUDGET_S );
 
 		Table_Node::tick( 1790000037 );
 		$this->assertSame( 10 * Table_Node::PURGE_BATCH_ROWS + 3, $rows(), 'a tick on time spends 50 ms: two batches' );
-		$this->assertStringContainsString( 'lab-7:kea: WARNING: purge is behind: its last batch came back full after 2 batches, 10000 rows', \implode( "\n", $logged ) );
 
 		Table_Node::tick( 1790000097 );
 		$this->assertSame( Table_Node::PURGE_BATCH_ROWS + 3, $rows(), 'a tick behind spends the backlog budget: nine batches, and stops there' );
@@ -1200,6 +1194,53 @@ class TableNodeTest extends TestCase {
 		$this->expiring( $table, 3, 0, 'emu' );
 		Table_Node::tick( 1790000217 );
 		$this->assertSame( Table_Node::PURGE_BATCH_ROWS, $rows(), 'caught up, the next tick spends 50 ms again' );
+	}
+
+	/**
+	 * A purge that ends full warns only when its oldest expired row has
+	 * waited more than PURGE_LAG_WARN_S past its expiry: a full batch on a
+	 * Table keeping pace is the steady state, not a backlog.
+	 *
+	 * @return array<string,array{0:int,1:?string}>
+	 */
+	public static function purge_lags(): array {
+		return [
+			'ten minutes behind logs nothing' => [ 600, null ],
+			'an hour behind logs nothing'     => [ 3600, null ],
+			'a second past an hour warns'     => [ 3601, 'lab-7:kea: WARNING: purge is 1.0 h behind: its oldest expired row has waited that long past its expiry after 2 batches deleted 10000 rows' ],
+			'two hours behind warns'          => [ 7200, 'lab-7:kea: WARNING: purge is 2.0 h behind: its oldest expired row has waited that long past its expiry after 2 batches deleted 10000 rows; the next purge spends its backlog budget' ],
+		];
+	}
+
+	#[DataProvider( 'purge_lags' )]
+	public function test_a_full_purge_warns_only_past_an_hour_of_lag( int $lag, ?string $warning ): void {
+		$this->base_dir( 'table-lag-' );
+		Core::$clock      = static fn (): float => 1790000000.0;
+		[ $table, $rows ] = $this->durable( 37 );
+		$this->expiring( $table, 3, 41, 'sku' );
+		$reads       = 0;
+		Core::$clock = static function () use ( &$reads, $lag ): float {
+			return 1790000037.0 + $lag + 0.03 * $reads++;
+		};
+		$logged = [];
+		\add_action(
+			'newspack_nodes/stderr',
+			static function ( string $line ) use ( &$logged ): void {
+				$logged[] = $line;
+			}
+		);
+		$this->assertSame( 3600, Table_Node::PURGE_LAG_WARN_S );
+
+		Table_Node::tick( 1790000037 + $lag );
+		$this->assertSame( Table_Node::PURGE_BATCH_ROWS + 41, $rows(), 'two full batches: the purge ended behind' );
+		$this->assertSame( 1, $table->probe_stats()[0][ Tablestats_Record::PURGE_BEHIND ], 'the Table is behind either way, so the backlog budget stands' );
+		$purge_lines = \array_values( \array_filter( $logged, static fn ( string $line ): bool => \str_contains( $line, 'purge is' ) ) );
+		if ( null === $warning ) {
+			$this->assertSame( [], $purge_lines );
+		} else {
+			$this->assertCount( 1, $purge_lines );
+			$this->assertStringContainsString( $warning, $purge_lines[0] );
+		}
 	}
 
 	public function test_tables_behind_share_one_tick_deadline(): void {

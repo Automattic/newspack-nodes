@@ -223,7 +223,7 @@ class Row_Table_Node extends Table_Node {
 	/**
 	 * Check how a table purges: a `retain` whose column leads an index or the
 	 * key, with a window and a unit of at least one, `retained_by` entries
-	 * each naming a declared table whose referencing column leads one there
+	 * each a `[ table, column, own ]` list naming a declared table whose referencing column leads one there
 	 * and this table's autoincrement column or one-column key, so a released
 	 * value deletes one row by a seek, or both.
 	 *
@@ -248,7 +248,12 @@ class Row_Table_Node extends Table_Node {
 				self::refuse_schema( $word, "{$table} retains {$column} for a window or a unit below one" );
 			}
 		}
-		foreach ( $retained_by as [ $names, $column, $own ] ) {
+		foreach ( $retained_by as $at => $reference ) {
+			$malformed = self::malformed_reference( $reference );
+			if ( null !== $malformed ) {
+				self::refuse_schema( $word, "{$table} retained_by entry {$at} ({$malformed}) is no [ table, column, own ] list: retained_by is a list of them" );
+			}
+			[ $names, $column, $own ] = $reference;
 			if ( ! isset( $tables[ $names ] ) ) {
 				self::refuse_schema( $word, "{$table} is retained_by {$names}.{$column}, which it declares no table for" );
 			}
@@ -262,6 +267,23 @@ class Row_Table_Node extends Table_Node {
 				self::refuse_schema( $word, "{$table} is retained_by {$names}.{$column} on {$own}, which is neither its autoincrement column nor a one-column key" );
 			}
 		}
+	}
+
+	/**
+	 * What a `retained_by` entry is when it is not the list of three strings,
+	 * `[ table, column, own ]`, a release follows: a consumer's schema is
+	 * read as declared, whatever its PHPDoc promises.
+	 *
+	 * @param mixed $reference The entry, as the schema declared it.
+	 * @return string|null The entry as a refusal shows it: a scalar's value,
+	 *                     else its type; null for a reference.
+	 */
+	private static function malformed_reference( mixed $reference ): ?string {
+		if ( \is_array( $reference ) && \array_is_list( $reference ) && 3 === \count( $reference )
+			&& [] === \array_filter( $reference, static fn ( mixed $part ): bool => ! \is_string( $part ) ) ) {
+			return null;
+		}
+		return \is_scalar( $reference ) ? (string) $reference : \get_debug_type( $reference );
 	}
 
 	/**

@@ -225,26 +225,6 @@ final class Wpdb_Arm extends Durable_Arm {
 		return false === $bytes ? '' : $bytes;
 	}
 
-	/**
-	 * A statement's result rows.
-	 *
-	 * @param string $statement The bound statement.
-	 * @return list<array<array-key,mixed>>
-	 * @throws \UnexpectedValueException When the server refused it.
-	 */
-	private function rows( string $statement ): array {
-		$db   = self::db();
-		$rows = $db->get_results( $statement, 'ARRAY_A' );
-		if ( '' !== $db->last_error && self::heal() ) {
-			$rows = $db->get_results( $statement, 'ARRAY_A' );
-		}
-		if ( '' !== $db->last_error || ! \is_array( $rows ) ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- The server's text is the failure record; it is escaped where shown.
-			throw new \UnexpectedValueException( $db->last_error );
-		}
-		return \array_map( Core::arr( ... ), $rows );
-	}
-
 	/** See Durable_Arm::delete_member(). */
 	protected function delete_member( string $set_key, string $member ): int {
 		return self::execute( $this->member_statement( 'DELETE FROM %i WHERE namespace = %s AND set_key = %s AND member = %s', $this->namespace, $set_key, $member ) );
@@ -395,6 +375,39 @@ final class Wpdb_Arm extends Durable_Arm {
 	/** See Durable_Arm::purge_rows(). */
 	protected function purge_rows( int $now, int $limit ): int {
 		return $this->run( 'DELETE FROM %i WHERE namespace = %s AND ' . self::EXPIRED . ' LIMIT %d', $this->namespace, $now, $limit );
+	}
+
+	/**
+	 * See Durable_Arm::oldest_expiry(): one seek a table, on its
+	 * `namespace_expires` index.
+	 */
+	protected function oldest_expiry( int $now ): ?int {
+		$expiries = [
+			...\array_column( $this->rows( $this->statement( 'SELECT MIN( expires ) AS expires FROM %i WHERE namespace = %s AND ' . self::EXPIRED, $this->namespace, $now ) ), 'expires' ),
+			...\array_column( $this->rows( $this->member_statement( 'SELECT MIN( expires ) AS expires FROM %i WHERE namespace = %s AND expires <= %d', $this->namespace, $now ) ), 'expires' ),
+		];
+		$expiries = \array_map( Core::as_int( ... ), \array_filter( $expiries, static fn ( mixed $expiry ): bool => null !== $expiry ) );
+		return [] === $expiries ? null : \min( $expiries );
+	}
+
+	/**
+	 * A statement's result rows.
+	 *
+	 * @param string $statement The bound statement.
+	 * @return list<array<array-key,mixed>>
+	 * @throws \UnexpectedValueException When the server refused it.
+	 */
+	private function rows( string $statement ): array {
+		$db   = self::db();
+		$rows = $db->get_results( $statement, 'ARRAY_A' );
+		if ( '' !== $db->last_error && self::heal() ) {
+			$rows = $db->get_results( $statement, 'ARRAY_A' );
+		}
+		if ( '' !== $db->last_error || ! \is_array( $rows ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- The server's text is the failure record; it is escaped where shown.
+			throw new \UnexpectedValueException( $db->last_error );
+		}
+		return \array_map( Core::arr( ... ), $rows );
 	}
 
 	/**

@@ -208,6 +208,22 @@ final class RowTableNodeTest extends TestCase {
 				$t['tallies']['retained_by'] = [ [ 'visits', 'bucket', 'bucket' ] ];
 				return $t;
 			}, 'tallies is retained_by visits.bucket on bucket, which is neither its autoincrement column nor a one-column key' ],
+			'a retained_by in the single shape' => [ static function ( array $t ): array {
+				$t['burrows']['retained_by'] = [ 'visits', 'burrow_id', 'id' ];
+				return $t;
+			}, 'burrows retained_by entry 0 (visits) is no [ table, column, own ] list: retained_by is a list of them' ],
+			'a retained_by entry of two'       => [ static function ( array $t ): array {
+				$t['burrows']['retained_by'] = [ [ 'visits', 'burrow_id' ] ];
+				return $t;
+			}, 'burrows retained_by entry 0 (array) is no [ table, column, own ] list' ],
+			'a retained_by entry keyed by name' => [ static function ( array $t ): array {
+				$t['burrows']['retained_by'] = [ [ 'table' => 'visits', 'column' => 'burrow_id', 'own' => 'id' ] ];
+				return $t;
+			}, 'burrows retained_by entry 0 (array) is no [ table, column, own ] list' ],
+			'a retained_by entry naming a number' => [ static function ( array $t ): array {
+				$t['burrows']['retained_by'][] = [ 'visits', 'burrow_id', 4417 ];
+				return $t;
+			}, 'burrows retained_by entry 1 (array) is no [ table, column, own ] list' ],
 			'a retained_by cycle'              => [ static function ( array $t ): array {
 				$t['visits']['retained_by'] = [ [ 'burrows', 'id', 'rid' ] ];
 				return $t;
@@ -374,15 +390,30 @@ final class RowTableNodeTest extends TestCase {
 	}
 
 	/**
-	 * A backlog of rows whose names table halves their share of a batch
-	 * keeps the purge looping, and leaves it behind while a share fills.
+	 * A visit left its window `$lag` seconds before the tick: the `visits`
+	 * retain is `[ bucket, 3600, 1 ]`, so bucket `c` expires at `c + 3601`.
+	 *
+	 * @return array<string,array{0:int,1:?string}>
 	 */
-	public function test_a_row_table_purge_loops_and_falls_behind_on_its_retained_share(): void {
+	public static function purge_lags(): array {
+		return [
+			'ten minutes behind logs nothing' => [ 600, null ],
+			'two hours behind warns'          => [ 7200, 'wombats-6633: WARNING: purge is 2.0 h behind: its oldest expired row has waited that long past its expiry after 2 batches deleted 5000 rows' ],
+		];
+	}
+
+	/**
+	 * A backlog of rows whose names table halves their share of a batch
+	 * keeps the purge looping, and leaves it behind while a share fills; it
+	 * warns only once the oldest of them is more than an hour past its window.
+	 */
+	#[DataProvider( 'purge_lags' )]
+	public function test_a_row_table_purge_loops_and_falls_behind_on_its_retained_share( int $lag, ?string $warning ): void {
 		Core::$clock = static fn (): float => 1790000000.0;
 		$table       = $this->row_table( 'wombats-6633', 'Wombat' );
 		$batch       = [];
 		for ( $i = 0; $i < 2 * Table_Node::PURGE_BATCH_ROWS + 6; ++$i ) {
-			$batch[] = [ 'insert', 'visits', [ "rid-{$i}", 1000, 0, 2.5 ] ];
+			$batch[] = [ 'insert', 'visits', [ "rid-{$i}", 1790000037 - 3601 - $lag, 0, 2.5 ] ];
 		}
 		$this->ask( $table, [ 'ROWS' => $batch ] );
 		$left   = static fn (): int => (int) ( new \PDO( 'sqlite:' . Table_Node::file( 'wombats-6633', 3 ) ) )->query( 'SELECT count(*) FROM visits' )->fetchColumn();
@@ -400,7 +431,13 @@ final class RowTableNodeTest extends TestCase {
 
 		Table_Node::tick( 1790000037 );
 		$this->assertSame( Table_Node::PURGE_BATCH_ROWS + 6, $left(), 'two batches, each a half-batch of visits' );
-		$this->assertStringContainsString( 'wombats-6633: WARNING: purge is behind', \implode( "\n", $logged ) );
+		$purge_lines = \array_values( \array_filter( $logged, static fn ( string $line ): bool => \str_contains( $line, 'purge is' ) ) );
+		if ( null === $warning ) {
+			$this->assertSame( [], $purge_lines );
+		} else {
+			$this->assertCount( 1, $purge_lines );
+			$this->assertStringContainsString( $warning, $purge_lines[0] );
+		}
 
 		Table_Node::tick( 1790000097 );
 		$this->assertSame( 0, $left(), 'the backlog budget runs until a share comes back short' );

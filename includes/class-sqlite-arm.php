@@ -164,6 +164,9 @@ final class Sqlite_Arm extends Durable_Arm {
 	/** Expired members through `members_expires`, deleted by key; binds now, limit. */
 	private const MEMBERS_PURGE = 'DELETE FROM members WHERE ( set_key, member ) IN ( SELECT set_key, member FROM members WHERE expires <= ? LIMIT ? )';
 
+	/** The oldest expiry of an expired keyed row or member; binds now, now. */
+	private const OLDEST_EXPIRY = 'SELECT MIN( expires ) FROM ( SELECT MIN( expires ) AS expires FROM kv WHERE ' . self::EXPIRED . ' UNION ALL SELECT MIN( expires ) FROM members WHERE expires <= ? )';
+
 	/**
 	 * Extension seam: whether `pdo_sqlite` is loaded. Null reads the real
 	 * `extension_loaded()`; tests pin it false to reach the refusal.
@@ -462,17 +465,13 @@ final class Sqlite_Arm extends Durable_Arm {
 	 */
 	public function purge( int $now, int $limit ): array {
 		[ 'rows' => $purged, 'full' => $full ] = parent::purge( $now, $limit );
-		$tables                                = null === $this->rows ? [] : $this->rows['tables'];
-		foreach ( $tables as $table => $spec ) {
-			if ( ! isset( $spec['retain'] ) ) {
-				continue;
-			}
+		foreach ( $this->retained() as $table => $retain ) {
 			if ( $purged >= $limit ) {
 				$full = true;
 				break;
 			}
 			try {
-				[ $rows, $filled ] = $this->write_scope( fn (): array => $this->purge_retained( $table, $spec['retain'], $now, $limit - $purged ) );
+				[ $rows, $filled ] = $this->write_scope( fn (): array => $this->purge_retained( $table, $retain, $now, $limit - $purged ) );
 			} catch ( \PDOException $e ) {
 				$this->failure = $e->getMessage();
 				Core::print_less_often( 'Table purge failed: ', $this->last_failure() );
@@ -511,10 +510,9 @@ final class Sqlite_Arm extends Durable_Arm {
 		if ( 0 === $take ) {
 			return [ 0, true ];
 		}
-		[ $column, $window, $unit ] = $retain;
-		$returning                  = $this->releases[ $table ]['returning'];
-		$stmt                       = $this->statement( $this->retain_sql( $table, $column, $returning ) );
-		$stmt->bindValue( 1, \intdiv( $now, $unit ) - $window, \PDO::PARAM_INT );
+		$returning = $this->releases[ $table ]['returning'];
+		$stmt      = $this->statement( $this->retain_sql( $table, $retain[0], $returning ) );
+		$stmt->bindValue( 1, self::retain_floor( $retain, $now ), \PDO::PARAM_INT );
 		$stmt->bindValue( 2, $take, \PDO::PARAM_INT );
 		[ $deleted, $gone ] = self::deleted( $stmt, $returning );
 		return [ $deleted + $this->release( $table, $gone ), $take === $deleted ];
@@ -960,6 +958,64 @@ final class Sqlite_Arm extends Durable_Arm {
 	}
 
 	/**
+	 * See Durable_Arm::oldest_expiry(). A retained row expires the second its
+	 * column falls below the floor, `( column + window + 1 ) × unit`, and
+	 * that column leads an index or the key, so each `MIN()` is one seek.
+	 */
+	protected function oldest_expiry( int $now ): ?int {
+		$expiries = [ $this->oldest( self::OLDEST_EXPIRY, $now, $now ) ];
+		foreach ( $this->retained() as $table => $retain ) {
+			[ $column, $window, $unit ] = $retain;
+			$oldest                     = $this->oldest( 'SELECT MIN( ' . self::quote( $column ) . ' ) FROM ' . self::quote( $table ) );
+			if ( null !== $oldest && $oldest < self::retain_floor( $retain, $now ) ) {
+				$expiries[] = ( $oldest + $window + 1 ) * $unit;
+			}
+		}
+		$expiries = \array_filter( $expiries, static fn ( ?int $expiry ): bool => null !== $expiry );
+		return [] === $expiries ? null : \min( $expiries );
+	}
+
+	/**
+	 * The lowest column value a `retain` keeps at `$now`; a row below it
+	 * purges.
+	 *
+	 * @param array{0:string,1:int,2:int} $retain A `retain`.
+	 * @param int                         $now    Epoch second.
+	 * @return int The floor, in the column's unit.
+	 */
+	private static function retain_floor( array $retain, int $now ): int {
+		return \intdiv( $now, $retain[2] ) - $retain[1];
+	}
+
+	/**
+	 * Each row table that declares a `retain`, with it.
+	 *
+	 * @return array<string,array{0:string,1:int,2:int}> Table => its `retain`.
+	 */
+	private function retained(): array {
+		$retained = [];
+		foreach ( null === $this->rows ? [] : $this->rows['tables'] as $table => $spec ) {
+			if ( isset( $spec['retain'] ) ) {
+				$retained[ $table ] = $spec['retain'];
+			}
+		}
+		return $retained;
+	}
+
+	/**
+	 * The one value a `MIN()` answers, read to its end, so a cached
+	 * statement holds no read snapshot open past this call.
+	 *
+	 * @param string $sql     The statement.
+	 * @param int    ...$ints The bound values.
+	 * @return int|null Null when it found no row.
+	 */
+	private function oldest( string $sql, int ...$ints ): ?int {
+		$value = $this->bound( $sql, ...$ints )->fetchAll( \PDO::FETCH_COLUMN )[0] ?? null;
+		return null === $value ? null : Core::as_int( $value );
+	}
+
+	/**
 	 * See Durable_Arm::discard(): the file, not its rows. A Table partition
 	 * owns its file, and its writer is the file's one writer (ADR-6), so the
 	 * writer unlinks the database and its `-wal` and `-shm`, drops its
@@ -1007,20 +1063,31 @@ final class Sqlite_Arm extends Durable_Arm {
 	}
 
 	/**
-	 * Run one purge statement, each value bound as an integer in order.
+	 * Run one purge statement, its values bound as `bound()` binds them.
 	 *
-	 * @param string $sql    A purge: KV_PURGE, MEMBERS_PURGE or a row table's.
+	 * @param string $sql     A purge: KV_PURGE or MEMBERS_PURGE.
 	 * @param int    ...$ints The bound values, the row limit last.
 	 * @return int Rows deleted.
 	 */
 	private function delete_rows( string $sql, int ...$ints ): int {
+		return $this->bound( $sql, ...$ints )->rowCount();
+	}
+
+	/**
+	 * Run one statement, each value bound as an integer in order.
+	 *
+	 * @param string $sql     The statement.
+	 * @param int    ...$ints The bound values.
+	 * @return \PDOStatement The executed statement.
+	 */
+	private function bound( string $sql, int ...$ints ): \PDOStatement {
 		$stmt = $this->statement( $sql );
-		$at = 1;
+		$at   = 1;
 		foreach ( $ints as $value ) {
 			$stmt->bindValue( $at++, $value, \PDO::PARAM_INT );
 		}
 		$stmt->execute();
-		return $stmt->rowCount();
+		return $stmt;
 	}
 
 	/** See Durable_Arm::upsert_members(); a member already there is updated in place. */

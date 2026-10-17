@@ -81,6 +81,14 @@ class Table_Node extends Node {
 	public const PURGE_BACKLOG_BUDGET_S = 0.25;
 
 	/**
+	 * Seconds the oldest expired row may wait past its expiry, once a purge
+	 * ends full, before the Table warns. A full batch is the steady state of
+	 * a busy Table keeping pace: on the staging hub's flame-facts partitions
+	 * the oldest expired `timings` row sat 0.1 h past its window.
+	 */
+	public const PURGE_LAG_WARN_S = 3600;
+
+	/**
 	 * Seconds between one Table's WAL checkpoints. A checkpoint copies each
 	 * page in the WAL back once, however many writes dirtied it since the
 	 * last, so a hot page costs one copy an interval rather than one a tick.
@@ -1281,8 +1289,9 @@ class Table_Node extends Node {
 	/**
 	 * One Table's purge on the Router tick, in PURGE_BATCH_ROWS batches; the
 	 * rest waits a minute. A purge that stops with its last batch full leaves
-	 * the Table behind, and says so; the first batch that is not full catches
-	 * it up.
+	 * the Table behind, and the first batch that is not full catches it up.
+	 * Behind, it asks the arm how long its oldest expired row has waited, and
+	 * warns past PURGE_LAG_WARN_S.
 	 *
 	 * @param Durable_Arm $arm   The Table's arm.
 	 * @param int         $now   The tick, in epoch seconds.
@@ -1290,8 +1299,10 @@ class Table_Node extends Node {
 	 */
 	private function purge_tick( Durable_Arm $arm, int $now, float $until ): void {
 		[ 'rows' => $purged, 'batches' => $batches, 'full' => $this->purge_behind ] = $this->purge_batches( $arm, $now, $until, self::PURGE_BATCH_ROWS );
-		if ( $this->purge_behind ) {
-			$this->print_less_often( 'WARNING: purge is behind: ', "its last batch came back full after {$batches} batches, {$purged} rows; the next purge spends its backlog budget" );
+		$lag = $this->purge_behind ? $arm->purge_lag( $now ) : 0;
+		if ( $lag > self::PURGE_LAG_WARN_S ) {
+			$hours = \sprintf( '%.1f', $lag / 3600 );
+			$this->print_less_often( 'WARNING: purge is ', "{$hours} h behind: its oldest expired row has waited that long past its expiry after {$batches} batches deleted {$purged} rows; the next purge spends its backlog budget" );
 		}
 	}
 
