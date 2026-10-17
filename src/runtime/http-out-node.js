@@ -266,6 +266,9 @@ export class HttpOutNode extends Node {
 	 * output (a `log` broadcast, say) belongs to the target, while an addressed
 	 * non-reply arriving while a target is set is the remote picking its own
 	 * destination inside us — refused. With no target neither arm engages.
+	 * So a verb answering bare non-responses (`read_block`, a Table's GET,
+	 * SMOVE or SREM) cannot be asked from the browser while `_http` holds a
+	 * target; a first such caller has to change this rule, or its replies.
 	 *
 	 * Everything arriving takes our name on its FROM first, so what comes in
 	 * carries a path back out through us. Inbound only — a command going out
