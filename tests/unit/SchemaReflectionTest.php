@@ -644,7 +644,9 @@ class SchemaReflectionTest extends TestCase {
 		$this->assertSame( 'perch', $verbs['remove_perch']['noun'] ?? null );
 		$this->assertSame( $verbs['add_perch']['args'], $verbs['remove_perch']['args'] );
 		$this->assertSame( [ [ 'name' => 'perch', 'type' => 'string', 'required' => true ] ], $verbs['remove_perch']['args'] );
-		$this->assertTrue( $verbs['remove_perch']['multiple'] ?? false );
+		$this->assertTrue( $verbs['add_perch']['multiple'] ?? false );
+		$this->assertTrue( $verbs['remove_perch']['action'] ?? false );
+		$this->assertArrayNotHasKey( 'multiple', $verbs['remove_perch'] );
 		$this->assertStringContainsString( 'add_perch', Core::as_string( $verbs['remove_perch']['description'] ?? '' ) );
 	}
 

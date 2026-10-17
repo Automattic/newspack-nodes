@@ -21,7 +21,7 @@
 					{ "name": "remote_log", "type": "string", "required": true },
 					{ "name": "local_node", "type": "string", "required": true }
 				],
-				"multiple": true
+				"action": true
 			}
 		]
 	},

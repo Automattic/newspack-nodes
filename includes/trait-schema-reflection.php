@@ -493,7 +493,7 @@ trait Schema_Reflection {
 				'args'        => [ $arg ],
 				'unlist'      => $property,
 				'noun'        => $noun,
-				'multiple'    => true,
+				'action'      => true,
 			],
 		];
 	}

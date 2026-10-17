@@ -249,15 +249,16 @@ final class VaultGroupNodeTest extends TestCase {
 			static fn ( array $a ): array => [ $a['name'], $a['type'], ! empty( $a['required'] ) ],
 			$args
 		);
+		$verb    = static fn ( array $c ): array => [ $shape( $c['args'] ), $c['multiple'] ?? false, $c['action'] ?? false ];
 		$entry   = \array_column( $fixture, null, 'shell_name' )['Remote_Source'];
 		$verbs   = Command_Interpreter_Node::declared_verbs( Remote_Source_Node::class );
 
 		$this->assertSame(
 			[
-				'add_source'    => $shape( $verbs['add_source']['args'] ),
-				'remove_source' => $shape( $verbs['remove_source']['args'] ),
+				'add_source'    => $verb( $verbs['add_source'] ),
+				'remove_source' => $verb( $verbs['remove_source'] ),
 			],
-			\array_column( \array_map( static fn ( array $c ): array => [ $c['name'], $shape( $c['args'] ) ], $entry['commands'] ), 1, 0 )
+			\array_column( \array_map( static fn ( array $c ): array => [ $c['name'], $verb( $c ) ], $entry['commands'] ), 1, 0 )
 		);
 	}
 

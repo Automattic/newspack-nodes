@@ -66,12 +66,11 @@ describe( 'useJsCatalog', () => {
 					required: true,
 				} ),
 			],
-			multiple: true,
 		};
 
 		expect( link.commands ).toEqual( [
-			{ name: 'add_source', ...source },
-			{ name: 'remove_source', ...source },
+			{ name: 'add_source', ...source, multiple: true },
+			{ name: 'remove_source', ...source, action: true },
 		] );
 		expect( tee.commands ).toEqual( [] );
 	} );

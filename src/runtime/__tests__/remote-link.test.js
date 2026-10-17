@@ -1825,6 +1825,7 @@ describe( 'sources — the routes one link carries', () => {
 		const shape = ( verb ) => ( {
 			name: verb.name,
 			multiple: verb.multiple,
+			action: verb.action,
 			args: verb.args.map( ( { name, type, required } ) => ( {
 				name,
 				type,

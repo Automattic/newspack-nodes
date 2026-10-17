@@ -968,11 +968,16 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 			commands: [
 				sourceVerb(
 					ADD_SOURCE,
-					'Route a stamp or glob to a local node. A repeat is a no-op; a second target for the stamp is refused.'
+					'Route a stamp or glob to a local node. A repeat is a no-op; a second target for the stamp is refused.',
+					{ multiple: true },
+					( link, stamp, target ) => link.addSource( stamp, target )
 				),
 				sourceVerb(
 					REMOVE_SOURCE,
-					'Stop routing a source add_source gave, named as add_source took it.'
+					'Stop routing a source add_source gave, named as add_source took it.',
+					{ action: true },
+					( link, stamp, target ) =>
+						link.removeSource( stamp, target )
 				),
 			],
 		};
@@ -980,26 +985,23 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 }
 
 /**
- * One of the two source verbs, declared as PHP's broker declares it, whose
- * bound args go to the link's own `addSource()` or `removeSource()`.
+ * One of the two source verbs, declared as PHP's broker declares it, its
+ * bound args handed to `apply` with the link.
  *
- * @param {string} name        `add_source` or `remove_source`.
- * @param {string} description What it does.
+ * @param {string}                                                name        `add_source` or `remove_source`.
+ * @param {string}                                                description What it does.
+ * @param {Object}                                                flags       Its console flags, as PHP's broker declares them.
+ * @param {(link: Object, stamp: string, target: string) => void} apply       The link's own `addSource()` or `removeSource()` call.
  * @return {Object} The schema's command entry.
  */
-function sourceVerb( name, description ) {
+function sourceVerb( name, description, flags, apply ) {
 	return {
 		name,
 		description,
 		args: SOURCE_ARGS,
-		// One call per source: the console renders a row each.
-		multiple: true,
+		...flags,
 		handler: ( config, { remote_log: stamp, local_node: target } ) => {
-			if ( ADD_SOURCE === name ) {
-				config.patron.addSource( stamp, target );
-			} else {
-				config.patron.removeSource( stamp, target );
-			}
+			apply( config.patron, stamp, target );
 			return 'ok';
 		},
 	};

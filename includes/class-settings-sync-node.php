@@ -300,7 +300,7 @@ class Settings_Sync_Node extends Timer_Node {
 					'description' => 'Undo one add_setting: <local_option> <TO> <remote_option>, as add_setting took them. Refused when none matches.',
 					'args'        => $setting_args,
 					'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_remove_setting( $interpreter, $args ),
-					'multiple'    => true,
+					'action'      => true,
 				],
 			],
 			'has_target'  => true,

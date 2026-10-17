@@ -1147,7 +1147,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 					'description' => 'Stop reading a source add_source gave, named as add_source took it: its readers go, their cursors and dead letters stay on disk.',
 					'args'        => $source_args,
 					'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_remove_source( $interpreter, $args ),
-					'multiple'    => true,
+					'action'      => true,
 				],
 				[
 					'name'        => 'set_multi_writer',
