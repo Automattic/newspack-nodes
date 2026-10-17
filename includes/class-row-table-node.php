@@ -47,9 +47,6 @@ class Row_Table_Node extends Table_Node {
 	/** How a ROWS request is answered. */
 	private const ROWS_REPLY = 'one TM_RESPONSE "ROWS <rows written or folded>", or one TM_ERROR "ROWS: <why>", the batch rolled back';
 
-	/** A name ending as a Table partition's file stem does, `.p{N}`. */
-	private const PARTITION_STEM = '/\.p-?[0-9]+$/D';
-
 	/** Joins a snapshot's name to a build's id; no Table or snapshot name holds it. */
 	private const BUILD_JOIN = '+';
 
@@ -334,7 +331,7 @@ class Row_Table_Node extends Table_Node {
 			}
 			return $built;
 		} finally {
-			self::delete_file( $building );
+			Sqlite_Arm::remove_database( $building );
 		}
 	}
 
@@ -375,9 +372,7 @@ class Row_Table_Node extends Table_Node {
 		$files   = [ self::snapshot_file( $name ), ...( \glob( self::snapshot_file( $name, '*' ) ) ?: [] ) ];
 		$deleted = [];
 		foreach ( $files as $file ) {
-			if ( self::delete_file( $file ) ) {
-				$deleted[] = $file;
-			}
+			\array_push( $deleted, ...Sqlite_Arm::remove_database( $file ) );
 		}
 		return $deleted;
 	}
@@ -397,30 +392,11 @@ class Row_Table_Node extends Table_Node {
 	 */
 	private static function snapshot_file( string $name, ?string $build = null ): string {
 		self::file_name( 'snapshot', $name );
-		if ( 1 === \preg_match( self::PARTITION_STEM, $name ) ) {
+		if ( Table_Node::is_partition_stem( $name ) ) {
 			throw new \InvalidArgumentException( \esc_html( "snapshot name {$name} is a Table partition's file" ) );
 		}
 		$stem = null === $build ? $name : $name . self::BUILD_JOIN . $build;
 		return self::dir( Bootstrap::base_dir() ) . "/{$stem}.sqlite";
-	}
-
-	/**
-	 * Delete `$file` when it stands.
-	 *
-	 * @param string $file A snapshot or a build of one.
-	 * @return bool Whether it stood and is gone.
-	 * @throws \RuntimeException When it stands and will not delete.
-	 */
-	private static function delete_file( string $file ): bool {
-		\clearstatcache( true, $file );
-		if ( ! \file_exists( $file ) ) {
-			return false;
-		}
-		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink -- a snapshot file of the Tables' own directory.
-		if ( ! @\unlink( $file ) ) {
-			throw new \RuntimeException( \esc_html( "snapshot file {$file} will not delete: " . ( \error_get_last()['message'] ?? 'unlink failed' ) ) );
-		}
-		return true;
 	}
 
 	/**

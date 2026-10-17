@@ -757,6 +757,19 @@ final class Sqlite_Arm extends Durable_Arm {
 		}
 	}
 
+	/**
+	 * Unlink a database with its `-wal` and `-shm`, whichever stand.
+	 *
+	 * @param string $path The database file.
+	 * @return list<string> The files unlinked.
+	 * @throws \UnexpectedValueException On a file that will not unlink.
+	 */
+	public static function remove_database( string $path ): array {
+		$sizes = self::file_sizes( $path );
+		self::unlink_files( $sizes );
+		return \array_keys( $sizes );
+	}
+
 	/** See Durable_Arm::row_key(): `{namespace}:{key}`. */
 	public function row_key( string $key ): string {
 		return "{$this->namespace}:{$key}";
