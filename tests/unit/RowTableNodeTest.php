@@ -184,17 +184,38 @@ final class RowTableNodeTest extends TestCase {
 				return $t;
 			}, 'slot' ],
 			'a retained_by naming no table'    => [ static function ( array $t ): array {
-				$t['burrows']['retained_by'] = [ 'sightings', 'burrow_id', 'id' ];
+				$t['burrows']['retained_by'][] = [ 'sightings', 'burrow_id', 'id' ];
 				return $t;
-			}, 'sightings' ],
+			}, 'sightings.burrow_id' ],
 			'a retained_by column no index leads there' => [ static function ( array $t ): array {
 				unset( $t['visits']['indexes']['visits_burrow'] );
 				return $t;
-			}, 'burrow_id' ],
-			'a retained_by own column undeclared' => [ static function ( array $t ): array {
-				$t['burrows']['retained_by'] = [ 'visits', 'burrow_id', 'den_id' ];
+			}, 'visits.burrow_id' ],
+			'a second retained_by column no index leads there' => [ static function ( array $t ): array {
+				$t['burrows']['retained_by'][] = [ 'tallies', 'kind', 'id' ];
 				return $t;
-			}, 'den_id' ],
+			}, 'tallies.kind' ],
+			'a retained_by own column undeclared' => [ static function ( array $t ): array {
+				$t['burrows']['retained_by'][] = [ 'tallies', 'bucket', 'den_id' ];
+				return $t;
+			}, 'tallies.bucket on den_id' ],
+			'a retained_by own column no unique key holds' => [ static function ( array $t ): array {
+				$t['burrows']['columns']['nick'] = 'TEXT';
+				$t['burrows']['retained_by'][]   = [ 'tallies', 'bucket', 'nick' ];
+				return $t;
+			}, 'burrows is retained_by tallies.bucket on nick, which is neither its autoincrement column nor a one-column key' ],
+			'a retained_by own column a two-column key leads' => [ static function ( array $t ): array {
+				$t['tallies']['retained_by'] = [ [ 'visits', 'bucket', 'bucket' ] ];
+				return $t;
+			}, 'tallies is retained_by visits.bucket on bucket, which is neither its autoincrement column nor a one-column key' ],
+			'a retained_by cycle'              => [ static function ( array $t ): array {
+				$t['visits']['retained_by'] = [ [ 'burrows', 'id', 'rid' ] ];
+				return $t;
+			}, 'burrows is retained_by a cycle: burrows, visits, burrows' ],
+			'a table retained_by itself'       => [ static function ( array $t ): array {
+				$t['burrows']['retained_by'][] = [ 'burrows', 'id', 'id' ];
+				return $t;
+			}, 'burrows is retained_by a cycle: burrows, burrows' ],
 			'an fts column that is no TEXT'    => [ static function ( array $t ): array {
 				$t['burrows']['fts'] = [ 'id' ];
 				return $t;
@@ -256,7 +277,7 @@ final class RowTableNodeTest extends TestCase {
 			}, 'burrows_fts_insert' ],
 			'tables that only release each other' => [ static function ( array $t ): array {
 				$visits                = $t['visits'];
-				$visits['retained_by'] = [ 'burrows', 'id', 'burrow_id' ];
+				$visits['retained_by'] = [ [ 'burrows', 'id', 'rid' ] ];
 				unset( $visits['retain'] );
 				return [
 					'burrows' => $t['burrows'],
@@ -383,6 +404,170 @@ final class RowTableNodeTest extends TestCase {
 
 		Table_Node::tick( 1790000097 );
 		$this->assertSame( 0, $left(), 'the backlog budget runs until a share comes back short' );
+	}
+
+	/**
+	 * A names table two tables reference: `names` rows named by `left_rows`
+	 * and `right_rows`, each purged by its own window.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function shared_names(): array {
+		$referencing = static fn ( string $side ): array => [
+			'columns' => [
+				'rid'     => 'TEXT NOT NULL',
+				'bucket'  => 'INTEGER NOT NULL',
+				'name_id' => 'INTEGER NOT NULL',
+			],
+			'key'     => [ 'rid' ],
+			'indexes' => [
+				"{$side}_bucket" => [ 'bucket' ],
+				"{$side}_name"   => [ 'name_id' ],
+			],
+			'retain'  => [ 'bucket', 100, 1 ],
+		];
+		return [
+			'names'      => [
+				'columns'       => [
+					'id'   => 'INTEGER',
+					'name' => 'TEXT NOT NULL',
+				],
+				'key'           => [ 'name' ],
+				'autoincrement' => 'id',
+				'retained_by'   => [ [ 'left_rows', 'name_id', 'id' ], [ 'right_rows', 'name_id', 'id' ] ],
+			],
+			'left_rows'  => $referencing( 'left' ),
+			'right_rows' => $referencing( 'right' ),
+		];
+	}
+
+	/** @return list<list<mixed>> Every row a statement answers on the Table's partition file. */
+	private static function lab_rows( string $sql ): array {
+		return ( new \PDO( 'sqlite:' . Table_Node::file( 'labs-3307', 3 ) ) )->query( $sql )->fetchAll( \PDO::FETCH_NUM );
+	}
+
+	/**
+	 * A names row stays while any table it is retained_by still names it,
+	 * and goes when the last of them purges the row naming it.
+	 */
+	public function test_a_name_two_tables_reference_goes_only_when_neither_names_it(): void {
+		Lab_Row_Schema::$tables = self::shared_names();
+		$table                  = $this->row_table( 'labs-3307', 'Lab' );
+		$this->ask(
+			$table,
+			[
+				'ROWS' => [
+					[ 'ignore', 'names', [ 7, 'kea-7' ] ],
+					[ 'ignore', 'names', [ 8, 'emu-8' ] ],
+					[ 'insert', 'left_rows', [ 'rid-l1', 1000, 7 ] ],
+					[ 'insert', 'left_rows', [ 'rid-l2', 1001, 7 ] ],
+					[ 'insert', 'left_rows', [ 'rid-l3', 1002, 8 ] ],
+					[ 'insert', 'right_rows', [ 'rid-r1', 3000, 7 ] ],
+				],
+			]
+		);
+
+		Core::$clock = static fn (): float => 2500.0;
+		$this->assertSame( 4, $table->purge( 1000 ), 'three left rows, and emu-8 only they named' );
+		$this->assertSame( [ [ 7, 'kea-7' ] ], self::lab_rows( 'SELECT id, name FROM names' ), 'a right row still names kea-7' );
+
+		Core::$clock = static fn (): float => 3500.0;
+		$this->assertSame( 2, $table->purge( 1000 ), 'the right row, and kea-7 with it' );
+		$this->assertSame( [], self::lab_rows( 'SELECT * FROM names' ) );
+	}
+
+	/**
+	 * A chain of references: `servers` retained_by `urls.server_id`, and
+	 * `urls` retained_by `requests.url_id`, which `requests` purges by bucket.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function request_chain(): array {
+		return [
+			'servers'  => [
+				'columns'       => [
+					'id'   => 'INTEGER',
+					'host' => 'TEXT NOT NULL',
+				],
+				'key'           => [ 'host' ],
+				'autoincrement' => 'id',
+				'retained_by'   => [ [ 'urls', 'server_id', 'id' ] ],
+			],
+			'urls'     => [
+				'columns'       => [
+					'id'        => 'INTEGER',
+					'path'      => 'TEXT NOT NULL',
+					'server_id' => 'INTEGER NOT NULL',
+				],
+				'key'           => [ 'path' ],
+				'indexes'       => [ 'urls_server' => [ 'server_id' ] ],
+				'autoincrement' => 'id',
+				'retained_by'   => [ [ 'requests', 'url_id', 'id' ] ],
+			],
+			'requests' => [
+				'columns' => [
+					'rid'    => 'TEXT NOT NULL',
+					'bucket' => 'INTEGER NOT NULL',
+					'url_id' => 'INTEGER NOT NULL',
+				],
+				'key'     => [ 'rid' ],
+				'indexes' => [
+					'requests_bucket' => [ 'bucket' ],
+					'requests_url'    => [ 'url_id' ],
+				],
+				'retain'  => [ 'bucket', 100, 1 ],
+			],
+		];
+	}
+
+	/**
+	 * A release cascades: `requests` purging releases the `urls` rows only
+	 * they named, and those release the `servers` rows only they named.
+	 */
+	public function test_a_release_cascades_to_the_names_its_released_rows_alone_named(): void {
+		Lab_Row_Schema::$tables = self::request_chain();
+		$table                  = $this->row_table( 'labs-3307', 'Lab' );
+		$this->ask(
+			$table,
+			[
+				'ROWS' => [
+					[ 'ignore', 'servers', [ 41, 'kea.example' ] ],
+					[ 'ignore', 'servers', [ 42, 'emu.example' ] ],
+					[ 'ignore', 'urls', [ 61, '/kea-alone', 41 ] ],
+					[ 'ignore', 'urls', [ 62, '/emu-old', 42 ] ],
+					[ 'ignore', 'urls', [ 63, '/emu-new', 42 ] ],
+					[ 'insert', 'requests', [ 'rid-k1', 1000, 61 ] ],
+					[ 'insert', 'requests', [ 'rid-e1', 1001, 62 ] ],
+					[ 'insert', 'requests', [ 'rid-e2', 3000, 63 ] ],
+				],
+			]
+		);
+
+		Core::$clock = static fn (): float => 2500.0;
+		$this->assertSame( 5, $table->purge( 1000 ), 'two requests, their two urls, and kea.example' );
+		$this->assertSame( [ [ 'rid-e2' ] ], self::lab_rows( 'SELECT rid FROM requests' ) );
+		$this->assertSame( [ [ 63, '/emu-new' ] ], self::lab_rows( 'SELECT id, path FROM urls' ) );
+		$this->assertSame( [ [ 42, 'emu.example' ] ], self::lab_rows( 'SELECT id, host FROM servers' ), '/emu-new still names emu.example' );
+	}
+
+	/**
+	 * A cascade's releases count against the purge's limit: a table takes
+	 * its limit over one plus every release its deletions can reach.
+	 */
+	public function test_a_cascading_purge_takes_a_share_leaving_room_for_every_release(): void {
+		Lab_Row_Schema::$tables = self::request_chain();
+		$table                  = $this->row_table( 'labs-3307', 'Lab' );
+		$ops                    = [];
+		for ( $i = 1; $i <= 7; ++$i ) {
+			$ops[] = [ 'ignore', 'servers', [ 40 + $i, "kea-{$i}.example" ] ];
+			$ops[] = [ 'ignore', 'urls', [ 60 + $i, "/kea-{$i}", 40 + $i ] ];
+			$ops[] = [ 'insert', 'requests', [ "rid-{$i}", 1000 + $i, 60 + $i ] ];
+		}
+		$this->ask( $table, [ 'ROWS' => $ops ] );
+
+		Core::$clock = static fn (): float => 2500.0;
+		$this->assertSame( 6, $table->purge( 7 ), 'two requests of the seven, their urls and their servers' );
+		$this->assertSame( [ [ 5, 5, 5 ] ], self::lab_rows( 'SELECT ( SELECT count(*) FROM requests ), ( SELECT count(*) FROM urls ), count(*) FROM servers' ) );
 	}
 
 	public function test_a_row_table_dumps_the_line_that_built_it(): void {

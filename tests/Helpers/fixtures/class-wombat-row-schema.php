@@ -26,7 +26,7 @@ final class Wombat_Row_Schema implements \Newspack_Nodes\Row_Schema {
 				],
 				'key'           => [ 'name' ],
 				'autoincrement' => 'id',
-				'retained_by'   => [ 'visits', 'burrow_id', 'id' ],
+				'retained_by'   => [ [ 'visits', 'burrow_id', 'id' ] ],
 				'fts'           => [ 'name' ],
 			],
 			'visits'  => [

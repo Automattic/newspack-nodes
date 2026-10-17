@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **A Row_Table's `retained_by` is a list of references, and a release cascades.** Each entry is `[ table, its column, own column ]`, and a lookup row is deleted only once no listed table still names it, so one `servers` table can be named by `urls.server_id`, `requests.server_id` and more. A released row's deletion returns the columns its own names tables reference and releases those in turn: a `requests` purge releases the `urls` rows only it named, and those release the `servers` rows only they named. A retained table takes its batch over one plus every release its deletions can reach, so the cascade fits the purge's budget. The schema check refuses each entry naming an undeclared table, a column leading no index or key there, or an own column that is undeclared or neither the table's `autoincrement` column nor a one-column key, and refuses a chain of references returning to a table on it, a table naming itself included. The single-reference shape is gone: a schema declaring `retained_by => [ table, column, own ]` must wrap it in a list.
+
 ## [2.112.1] - 2026-10-16
 
 ### Fixed

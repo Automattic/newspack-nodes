@@ -45,7 +45,7 @@ namespace Newspack_Nodes;
  *   add?: array<string,'sum'|'max'>,
  *   indexes?: array<string,list<string>>,
  *   retain?: array{0:string,1:int,2:int},
- *   retained_by?: array{0:string,1:string,2:string},
+ *   retained_by?: list<array{0:string,1:string,2:string}>,
  *   autoincrement?: string,
  *   fts?: list<string>
  * }
@@ -202,6 +202,16 @@ final class Sqlite_Arm extends Durable_Arm {
 	private array $key_positions = [];
 
 	/**
+	 * Each row table's releases, read once from the declared tables: the
+	 * columns a DELETE of its rows returns, how many releases one deleted
+	 * row can reach, and the names tables those columns release, by each
+	 * one's own column.
+	 *
+	 * @var array<string,array{returning:list<string>,reach:int,names:array<string,array<string,list<string>>>}>
+	 */
+	private array $releases = [];
+
+	/**
 	 * Open the file as its writer: create it and its directory, enter WAL
 	 * mode and declare the `kv` table. A reader, `$read_only`, creates no
 	 * file, directory or table and switches no journal mode. With no file at
@@ -231,6 +241,7 @@ final class Sqlite_Arm extends Durable_Arm {
 		private readonly ?array $rows = null
 	) {
 		self::require_driver();
+		$this->releases = null === $rows ? [] : self::releases( $rows['tables'] );
 		if ( ! $read_only ) {
 			Config::ensure_path( \dirname( $path ) );
 		}
@@ -461,7 +472,7 @@ final class Sqlite_Arm extends Durable_Arm {
 				break;
 			}
 			try {
-				[ $rows, $filled ] = $this->write_scope( fn (): array => $this->purge_retained( $tables, $table, $spec['retain'], $now, $limit - $purged ) );
+				[ $rows, $filled ] = $this->write_scope( fn (): array => $this->purge_retained( $table, $spec['retain'], $now, $limit - $purged ) );
 			} catch ( \PDOException $e ) {
 				$this->failure = $e->getMessage();
 				Core::print_less_often( 'Table purge failed: ', $this->last_failure() );
@@ -483,65 +494,97 @@ final class Sqlite_Arm extends Durable_Arm {
 
 	/**
 	 * Delete one table's rows past its `retain` window, then release the
-	 * names they named: each `retained_by` table's rows whose column holds a
-	 * value the deleted rows returned and that no remaining row names. Only
-	 * released names are examined, so the work is bounded by what retention
-	 * deletes, never by the size of a names table. A table with N names
-	 * tables naming it deletes up to `$budget / ( N + 1 )` rows, so the names
-	 * those release fit in the budget too.
+	 * names they named. Only the values the deleted rows returned are
+	 * examined, so the work is bounded by what retention deletes, never by
+	 * the size of a names table. The table deletes up to `$budget` over one
+	 * plus every release its deletions can reach, so the cascade fits too.
 	 *
-	 * @param array<string,Row_Spec>    $tables The declared tables.
-	 * @param string                    $table  The table purged.
+	 * @param string                      $table  The table purged.
 	 * @param array{0:string,1:int,2:int} $retain Its `retain`.
-	 * @param int                       $now    Epoch second.
-	 * @param int                       $budget Most rows, names included.
+	 * @param int                         $now    Epoch second.
+	 * @param int                         $budget Most rows, names included.
 	 * @return array{0:int, 1:bool} Rows deleted, and whether the table's own
 	 *                              filled its share, so more may wait.
 	 */
-	private function purge_retained( array $tables, string $table, array $retain, int $now, int $budget ): array {
-		$named_by = [];
-		foreach ( $tables as $names => $names_spec ) {
-			if ( isset( $names_spec['retained_by'] ) && $table === $names_spec['retained_by'][0] ) {
-				$named_by[ $names ] = $names_spec['retained_by'];
-			}
-		}
-		$take = \intdiv( $budget, 1 + \count( $named_by ) );
+	private function purge_retained( string $table, array $retain, int $now, int $budget ): array {
+		$take = \intdiv( $budget, 1 + $this->releases[ $table ]['reach'] );
 		if ( 0 === $take ) {
 			return [ 0, true ];
 		}
 		[ $column, $window, $unit ] = $retain;
-		$returning                  = \array_values( \array_unique( \array_column( $named_by, 1 ) ) );
+		$returning                  = $this->releases[ $table ]['returning'];
 		$stmt                       = $this->statement( $this->retain_sql( $table, $column, $returning ) );
 		$stmt->bindValue( 1, \intdiv( $now, $unit ) - $window, \PDO::PARAM_INT );
 		$stmt->bindValue( 2, $take, \PDO::PARAM_INT );
-		$stmt->execute();
-		$gone    = $stmt->fetchAll( \PDO::FETCH_ASSOC );
-		// pdo_sqlite counts no changes for a statement with RETURNING.
-		$deleted = [] === $returning ? $stmt->rowCount() : \count( $gone );
-		$full    = $take === $deleted;
-		foreach ( $named_by as $names => $retained_by ) {
-			$ids = \array_values( \array_filter( \array_column( $gone, $retained_by[1] ), static fn ( mixed $id ): bool => null !== $id ) );
-			if ( [] !== $ids ) {
-				$deleted += $this->run( $this->release_sql( $names, $retained_by ), [ (string) \wp_json_encode( $ids ) ] );
-			}
-		}
-		return [ $deleted, $full ];
+		[ $deleted, $gone ] = self::deleted( $stmt, $returning );
+		return [ $deleted + $this->release( $table, $gone ), $take === $deleted ];
 	}
 
 	/**
-	 * A names table's release: delete its rows holding one of a JSON array
-	 * of released values that no row of the referencing table still names.
+	 * Release the names rows the deleted rows of `$table` named and no row
+	 * of any table they are `retained_by` still names, then, in turn, the
+	 * names the released rows alone named.
 	 *
-	 * @param string                          $names       The names table.
-	 * @param array{0:string,1:string,2:string} $retained_by Its `retained_by`.
+	 * @param string       $table The table rows left.
+	 * @param array<mixed> $gone  The deleted rows, as the columns they returned.
+	 * @return int Rows released, the cascade's included.
+	 */
+	private function release( string $table, array $gone ): int {
+		$released = 0;
+		foreach ( $this->releases[ $table ]['names'] as $names => $by_own ) {
+			foreach ( $by_own as $own => $columns ) {
+				$ids = [];
+				foreach ( $columns as $column ) {
+					$ids = [ ...$ids, ...\array_filter( \array_column( $gone, $column ), static fn ( mixed $id ): bool => null !== $id ) ];
+				}
+				if ( [] === $ids ) {
+					continue;
+				}
+				$stmt = $this->statement( $this->release_sql( $names, $own ) );
+				$stmt->bindValue( 1, (string) \wp_json_encode( $ids ) );
+				[ $deleted, $freed ] = self::deleted( $stmt, $this->releases[ $names ]['returning'] );
+				$released           += $deleted + $this->release( $names, $freed );
+			}
+		}
+		return $released;
+	}
+
+	/**
+	 * Run a bound DELETE, counting its rows and keeping what it returned.
+	 *
+	 * @param \PDOStatement $stmt      The bound statement.
+	 * @param list<string>  $returning The columns it returns, if any.
+	 * @return array{0:int, 1:array<mixed>} The rows deleted, and what they returned.
+	 */
+	private static function deleted( \PDOStatement $stmt, array $returning ): array {
+		$stmt->execute();
+		$gone = $stmt->fetchAll( \PDO::FETCH_ASSOC );
+		// pdo_sqlite counts no changes for a statement with RETURNING.
+		return [ [] === $returning ? $stmt->rowCount() : \count( $gone ), $gone ];
+	}
+
+	/**
+	 * A names table's release on its own column: delete its rows holding one
+	 * of a JSON array of released values that no row of any table it is
+	 * `retained_by` still names, returning the columns its own names tables
+	 * reference.
+	 *
+	 * @param string $names The names table.
+	 * @param string $own   Its column the values match.
 	 * @return string The SQL.
 	 */
-	private function release_sql( string $names, array $retained_by ): string {
-		[ $ref, $ref_column, $own_column ] = $retained_by;
-		$n                                 = self::quote( $names );
-		$own                               = self::quote( $own_column );
-		return $this->row_sql[ "release {$names}" ] ??= "DELETE FROM {$n} WHERE {$own} IN ( SELECT value FROM json_each( ? ) )"
-			. ' AND NOT EXISTS ( SELECT 1 FROM ' . self::quote( $ref ) . ' AS ref WHERE ref.' . self::quote( $ref_column ) . " = {$n}.{$own} )";
+	private function release_sql( string $names, string $own ): string {
+		$n         = self::quote( $names );
+		$returning = $this->releases[ $names ]['returning'];
+		return $this->row_sql[ "release {$names} {$own}" ] ??= "DELETE FROM {$n} WHERE " . self::quote( $own ) . ' IN ( SELECT value FROM json_each( ? ) )'
+			. \implode(
+				'',
+				\array_map(
+					static fn ( array $by ): string => ' AND NOT EXISTS ( SELECT 1 FROM ' . self::quote( $by[0] ) . ' AS ref WHERE ref.' . self::quote( $by[1] ) . " = {$n}." . self::quote( $by[2] ) . ' )',
+					$this->rows['tables'][ $names ]['retained_by'] ?? []
+				)
+			)
+			. ( [] === $returning ? '' : ' RETURNING ' . self::quoted_list( $returning ) );
 	}
 
 	/**
@@ -803,6 +846,45 @@ final class Sqlite_Arm extends Durable_Arm {
 			}
 		}
 		return $names;
+	}
+
+	/**
+	 * Each declared table's releases: the `retained_by` entries naming it,
+	 * by names table and own column, the columns they reference, and how
+	 * many releases one of its deleted rows reaches down the chain.
+	 *
+	 * @param array<string,Row_Spec> $tables The declared tables.
+	 * @return array<string,array{returning:list<string>,reach:int,names:array<string,array<string,list<string>>>}>
+	 */
+	private static function releases( array $tables ): array {
+		$named_by = [];
+		foreach ( $tables as $names => $spec ) {
+			foreach ( $spec['retained_by'] ?? [] as [ $ref, $ref_column, $own ] ) {
+				$named_by[ $ref ][ $names ][ $own ][] = $ref_column;
+			}
+		}
+		$reach    = static function ( string $table ) use ( &$reach, $named_by ): int {
+			$n = 0;
+			foreach ( $named_by[ $table ] ?? [] as $names => $by_own ) {
+				$n += \count( \array_merge( ...\array_values( $by_own ) ) ) * ( 1 + $reach( $names ) );
+			}
+			return $n;
+		};
+		$releases = [];
+		foreach ( \array_keys( $tables ) as $table ) {
+			$returning = [];
+			foreach ( $named_by[ $table ] ?? [] as $by_own ) {
+				foreach ( $by_own as $columns ) {
+					$returning = [ ...$returning, ...$columns ];
+				}
+			}
+			$releases[ $table ] = [
+				'returning' => \array_values( \array_unique( $returning ) ),
+				'reach'     => $reach( $table ),
+				'names'     => $named_by[ $table ] ?? [],
+			];
+		}
+		return $releases;
 	}
 
 	/** See Durable_Arm::select_rows(). */

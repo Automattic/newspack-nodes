@@ -32,13 +32,18 @@ interface Row_Schema {
 	 * on. `add` names the columns an `add` folds on conflict, by `sum` or
 	 * `max`. `retain` is `[ column, window, seconds per unit ]`: a row whose
 	 * column is below `floor( now / unit ) − window` purges. `retained_by` is
-	 * `[ table, its column, own column ]`: rows released when retention
-	 * purges the rows that name them, each deleted once no row of that table
-	 * names it. Every names row is written in the batch of a row naming it,
-	 * so retention is the only way one is orphaned, and a row orphaned any
-	 * other way is never examined. `autoincrement` is the INTEGER PRIMARY KEY column an `ignore`
-	 * hands back. `fts` lists the columns an FTS5 shadow, `{table}_fts`,
-	 * indexes, keyed by the `autoincrement` column.
+	 * a list of `[ table, its column, own column ]` references, where its
+	 * column leads an index or the key there and the own column is this
+	 * table's `autoincrement` column or one-column key: a row is released
+	 * when a purge deletes rows naming it, and deleted once no row of any
+	 * table it lists names it. A released row's own deletion releases the
+	 * rows it named in turn, so a release cascades down a chain of
+	 * references, and a chain may not return to a table on it. Every names
+	 * row is written in the batch of a row naming it, so a purge is the only
+	 * way one is orphaned, and a row orphaned any other way is never
+	 * examined. `autoincrement` is the INTEGER PRIMARY KEY column an
+	 * `ignore` hands back. `fts` lists the columns an FTS5 shadow,
+	 * `{table}_fts`, indexes, keyed by the `autoincrement` column.
 	 *
 	 * @return array<string, array{
 	 *   columns: array<string,string>,
@@ -46,7 +51,7 @@ interface Row_Schema {
 	 *   add?: array<string,'sum'|'max'>,
 	 *   indexes?: array<string,list<string>>,
 	 *   retain?: array{0:string,1:int,2:int},
-	 *   retained_by?: array{0:string,1:string,2:string},
+	 *   retained_by?: list<array{0:string,1:string,2:string}>,
 	 *   autoincrement?: string,
 	 *   fts?: list<string>
 	 * }>
