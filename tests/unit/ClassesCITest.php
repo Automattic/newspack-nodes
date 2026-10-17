@@ -175,33 +175,6 @@ class ClassesCITest extends TestCase {
 		}
 	}
 
-	public function test_list_preserves_the_multiple_flag_on_a_multi_verb(): void {
-		// A `multiple: true` verb (settings-sync's add_setting wires N independent
-		// mappings) must carry that flag through the catalog strip, or the topology
-		// console renders only one row instead of all N.
-		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
-		$settings_sync = null;
-		foreach ( $result['classes'] as $entry ) {
-			if ( 'Settings_Sync' === $entry['shell_name'] ) {
-				$settings_sync = $entry;
-				break;
-			}
-		}
-		$this->assertNotNull( $settings_sync, 'Settings_Sync must appear in the catalog' );
-		$add_setting = null;
-		foreach ( $settings_sync['commands'] as $verb ) {
-			if ( 'add_setting' === $verb['name'] ) {
-				$add_setting = $verb;
-				break;
-			}
-		}
-		$this->assertNotNull( $add_setting, 'add_setting verb must be in the catalog' );
-		$this->assertTrue(
-			$add_setting['multiple'] ?? false,
-			'add_setting must carry multiple:true through the catalog strip'
-		);
-	}
-
 	/**
 	 * HTTP_Out's `allow_replies_to` is the second multi verb, and the one an
 	 * operator meets most: a hub egress needs `settings-sync` AND, under
@@ -233,6 +206,32 @@ class ClassesCITest extends TestCase {
 			$verb['multiple'] ?? false,
 			'allow_replies_to must carry multiple:true, or the console caps it at one declaration'
 		);
+	}
+
+	/**
+	 * An `add_*` verb declares one entry of many, so the editor renders a row
+	 * per call; its `remove_*` undoes one on a live node, so the editor never
+	 * offers it as configuration and the live panel and the REPL do.
+	 */
+	public function test_every_add_verb_is_multiple_and_every_remove_verb_an_action(): void {
+		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
+		$wrong  = [];
+		$seen   = [];
+		foreach ( $result['classes'] as $entry ) {
+			foreach ( $entry['commands'] as $verb ) {
+				$name                                     = "{$entry['shell_name']}::{$verb['name']}";
+				$seen[ \strtok( $verb['name'], '_' ) ][] = $name;
+				if ( \str_starts_with( $verb['name'], 'add_' ) && true !== ( $verb['multiple'] ?? false ) ) {
+					$wrong[] = "{$name} is not multiple";
+				}
+				if ( \str_starts_with( $verb['name'], 'remove_' ) && ( true !== ( $verb['action'] ?? false ) || isset( $verb['multiple'] ) ) ) {
+					$wrong[] = "{$name} is no single action";
+				}
+			}
+		}
+		$this->assertContains( 'Settings_Sync::add_setting', $seen['add'] ?? [], 'class discovery found the add verbs' );
+		$this->assertContains( 'Settings_Sync::remove_setting', $seen['remove'] ?? [], 'class discovery found the remove verbs' );
+		$this->assertSame( [], $wrong );
 	}
 
 	public function test_list_carries_the_action_flag_on_an_action_verb(): void {

@@ -1592,6 +1592,7 @@ trait Durable_Reader {
 					[ 'name' => 'node', 'type' => 'node_name', 'required' => true ],
 				],
 				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_add_snapshot_node( $interpreter, $args ),
+				'multiple'    => true,
 			],
 			[
 				'name'        => 'remove_snapshot_node',
@@ -1600,6 +1601,7 @@ trait Durable_Reader {
 					[ 'name' => 'node', 'type' => 'node_name', 'required' => true ],
 				],
 				'handler'     => static fn ( Command_Interpreter_Node $interpreter, array $args ): string => self::cmd_remove_snapshot_node( $interpreter, $args ),
+				'action'      => true,
 			],
 			[
 				'name'        => 'set_line_mode',

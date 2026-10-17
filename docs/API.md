@@ -838,7 +838,11 @@ dispatches against the root table; a non-empty TO routes to the named CI.
 **`node_schema()` shape.** A CI's `node_schema()` returns a `Service`-category
 schema: `{ category, description, arguments, commands }`, where each `commands`
 entry is `{ name, description, capability, args, handler }` plus the optional
-console flags `multiple`, `hidden` and `action`, and each arg is
+console flags `multiple`, `hidden` and `action`. A verb with none is configuration the
+editor writes into a `.tsl` and also a verb a live node takes; `multiple` makes it one row
+per call, as every `add_*` is; `action` keeps it out of the editor and in the live panel
+and the REPL, as every `remove_*` is; `hidden` drops its button from the Inspector, though
+the REPL and the Inspector's own controls still send it. Each arg is
 `{ name, type, required }` plus an optional `default` (for example,
 `workers restart`'s `partition`, defaulting to `-1`) and an optional `secret`.
 A node schema may also

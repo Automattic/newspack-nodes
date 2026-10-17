@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - The Jobs tab's run rate no longer spikes to hundreds of runs a second. A job identity's first window opened when its first run on a worker ended, so a sweep a few milliseconds later charted one run over those milliseconds: `eln_overview_prefetch`, one run every 120 seconds, read 250/s. `Job_Worker_Node` now keeps one window per worker, opened at its previous sweep or at its build, so every record covers the sweep it fell in.
 
+### Changed
+- The topology editor offers every `add_*` verb as a row per call and no `remove_*` verb at all: `add_snapshot_node` on Consumer, Remote_Consumer, Tail and File_Tail is `multiple`, as `add_setting` and `add_source` were, and `remove_snapshot_node`, `remove_setting`, `remove_source` (PHP and the JS remote link) and every `list_verbs()` remove declare `action`, so they stay in the live panel and the REPL. A test holds every class in the substrate's catalog to the rule, and the JS remote link matches PHP's broker.
+
 ## [2.112.0] - 2026-10-16
 
 ### Added
