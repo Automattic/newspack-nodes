@@ -25,6 +25,7 @@ import {
 	useState,
 } from '@wordpress/element';
 import { Core } from '../runtime/core';
+import { aimHttp } from '../runtime/exospine';
 import { splitStatements } from '../runtime/shell-node';
 import { makeSkinHost } from '../topology-console/core/skinCommands';
 import { DumperNode } from '../runtime/dumper-node';
@@ -101,21 +102,6 @@ function wireStdout( shell, dumper, onSetSkin ) {
 		print: ( text ) => dumper.appendText( text ),
 	} );
 	return stdout;
-}
-
-/**
- * Aim `_http`'s unaddressed-reply target. `_output` exists only while a console
- * is open, so the black hole holds the target the rest of the time: a target
- * naming an unregistered node turns every unaddressed server reply into a
- * NOT_AVAILABLE bounce the graph has nowhere to put.
- *
- * @param {string} target Node name to stamp an unaddressed reply with.
- */
-function aimHttp( target ) {
-	const http = Core.node( names.HTTP );
-	if ( http ) {
-		http.target = target;
-	}
 }
 
 /**

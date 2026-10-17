@@ -197,6 +197,11 @@ describe( 'useConsoleGraph — graph topology', () => {
 		);
 	} );
 
+	it( 'aims _http at its _output, so a reply leg addressed there lands', () => {
+		renderGraph();
+		expect( httpOf().target ).toBe( names.OUTPUT );
+	} );
+
 	it( 'creates one RemoteIpc per active worker (plus the session worker)', () => {
 		renderGraph( {
 			topology: 'demo',

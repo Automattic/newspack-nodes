@@ -265,7 +265,11 @@ export class HttpOutNode extends Node {
 	 * addressing OUR graph, and `target` decides what that means: unaddressed
 	 * output (a `log` broadcast, say) belongs to the target, while an addressed
 	 * non-reply arriving while a target is set is the remote picking its own
-	 * destination inside us — refused. With no target neither arm engages.
+	 * destination inside us — refused, unless it names the target itself, as a
+	 * bare reply to a REPL's asker does: `read_block`'s TM_INFO and TM_BATCH,
+	 * or a Table's values. Socket.pm drops even that one, and
+	 * docs/tachikoma-lineage.md argues the difference. With no target neither
+	 * arm engages.
 	 *
 	 * Everything arriving takes our name on its FROM first, so what comes in
 	 * carries a path back out through us. Inbound only — a command going out
@@ -297,7 +301,7 @@ export class HttpOutNode extends Node {
 		if ( ! this.target ) {
 			return true;
 		}
-		if ( message[ TO ] ) {
+		if ( message[ TO ] && message[ TO ] !== this.target ) {
 			this.dropMessage(
 				message,
 				`message addressed while target is set to ${ this.target }`
