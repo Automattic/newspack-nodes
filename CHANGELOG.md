@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A published snapshot is synced before the rename.** `Row_Table_Node::build()` fsyncs the build file, whose journal and synchronous writes are off, once the builder connection is released and before the rename publishes it; a sync that fails throws `snapshot <name> would not sync` and publishes nothing, so a host crash can no longer leave a torn file for immutable readers.
+- **`Command_Auth::verifier()` reads the same clock as the batch verifier.** A single command was judged against `time()` and a batch against `Core::right_now()`; both now read `Core::right_now()`, so a pinned `Core::$clock` governs both.
 - **A slow command no longer voids the signatures queued behind it in one `/command` POST.** `Command_Auth::batch_verifier()` checked each signature against the clock at that command's turn, so a long verb aged the commands behind it past `MAX_PAST_S` (20 s); eln.newspackstaging.com logged 78 such "timestamp out of range" refusals. A batch now verifies every command against the batch's arrival, and refuses one whose turn comes 140 s or more after it was signed; `NONCE_TTL_S` rises from 60 s to 150 s to cover it.
 
 ### Changed

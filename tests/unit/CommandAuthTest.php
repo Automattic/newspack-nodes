@@ -167,6 +167,19 @@ class CommandAuthTest extends TestCase {
 		$this->assertTrue( $verify( new Command_Interpreter_Node(), $m ) );
 	}
 
+	public function test_verifier_judges_freshness_against_the_pinned_core_clock(): void {
+		Core::$clock = static fn (): float => 1_900_000_000.0;
+		try {
+			$m                       = $this->command();
+			$m[ Message::TIMESTAMP ] = 1_900_000_000;
+			Command_Auth::sign( $m );
+			$verify = Command_Auth::verifier();
+			$this->assertTrue( $verify( new Command_Interpreter_Node(), $m ) );
+		} finally {
+			Core::$clock = null;
+		}
+	}
+
 	public function test_verifier_closure_accepts_in_process_local_without_signature(): void {
 		// LOCAL can't cross IPC, so a verifier trusts its own in-process commands.
 		$m = $this->command(); // unsigned

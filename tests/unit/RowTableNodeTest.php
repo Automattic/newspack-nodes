@@ -47,6 +47,7 @@ final class RowTableNodeTest extends TestCase {
 
 	protected function tearDown(): void {
 		Sqlite_Arm::$available = null;
+		Row_Table_Node::$fsync = null;
 		\delete_option( 'newspack_nodes_topologies' );
 		Config::reset();
 		Topology_Registry::reset();
@@ -494,6 +495,36 @@ final class RowTableNodeTest extends TestCase {
 		$this->seed_partitions( 'rid-5521', 'rid-5523' );
 		$this->activate( 'wombat-fleet' );
 		$this->assertSame( [ 'p1', 'p3' ], Row_Table_Node::build( Wombat_Row_Schema::class, 'heron-snap-7102', static fn ( Row_Reader $r ): array => $r->aliases() ) );
+	}
+
+	public function test_build_syncs_the_build_file_before_it_publishes(): void {
+		$this->seed_partitions( 'rid-5561', 'rid-5563' );
+		$this->activate( 'wombat-fleet' );
+		$seen = [];
+		$base = $this->base;
+		Row_Table_Node::$fsync = static function ( string $file ) use ( &$seen, $base ): bool {
+			$seen[] = [ $file, \file_exists( "{$base}/tables/heron-snap-7106.sqlite" ), \is_file( $file ) ];
+			return true;
+		};
+
+		self::build_heron( 'heron-snap-7106' );
+
+		$this->assertCount( 1, $seen );
+		$this->assertStringStartsWith( "{$this->base}/tables/heron-snap-7106+", $seen[0][0] );
+		$this->assertFalse( $seen[0][1], 'nothing published yet' );
+		$this->assertTrue( $seen[0][2], 'the build file stood' );
+		$this->assertFileExists( "{$this->base}/tables/heron-snap-7106.sqlite" );
+	}
+
+	public function test_a_build_that_will_not_sync_throws_and_publishes_nothing(): void {
+		$this->seed_partitions( 'rid-5571', 'rid-5573' );
+		$this->activate( 'wombat-fleet' );
+		Row_Table_Node::$fsync = static fn ( string $file ): bool => false;
+
+		$e = $this->caught( static fn () => self::build_heron( 'heron-snap-7107' ), 'the sync failed' );
+
+		$this->assertStringContainsString( 'heron-snap-7107 would not sync', $e->getMessage() );
+		$this->assertSame( [ 'wombats-6620.p1.sqlite', 'wombats-6620.p3.sqlite' ], $this->tables_dir() );
 	}
 
 	public function test_a_build_answering_false_leaves_the_published_file_and_no_build(): void {

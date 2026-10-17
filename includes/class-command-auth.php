@@ -451,7 +451,7 @@ class Command_Auth {
 		if ( isset( $message[ Message::LOCAL ] ) ) {
 			return true;
 		}
-		$now = \time();
+		$now = (int) Core::right_now();
 		return self::verify( $message, $now, $now, $interpreter );
 	}
 

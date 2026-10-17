@@ -47,6 +47,16 @@ class Row_Table_Node extends Table_Node {
 	/** How a ROWS request is answered. */
 	private const ROWS_REPLY = 'one TM_RESPONSE "ROWS <rows written or folded>", or one TM_ERROR "ROWS: <why>", the batch rolled back';
 
+	/**
+	 * Build-file sync seam: `build()` syncs the finished build to disk before
+	 * the rename publishes it. Tests reassign it to record the order of sync
+	 * and publish, or to fail it.
+	 * Signature: `function ( string $file ): bool`, true once synced.
+	 *
+	 * @var (\Closure(string): bool)|null
+	 */
+	public static ?\Closure $fsync = null;
+
 	/** Joins a snapshot's name to a build's id; no Table or snapshot name holds it. */
 	private const BUILD_JOIN = '+';
 
@@ -305,7 +315,7 @@ class Row_Table_Node extends Table_Node {
 	 * @throws Table_Unavailable As `read()`, or when the build file will not
 	 *                           open.
 	 * @throws \RuntimeException As `Bootstrap::row_table()`, when the process
-	 *                           runs as root, or when the rename fails.
+	 *                           runs as root, or when the sync or the rename fails.
 	 */
 	public static function build( string $schema, string $name, \Closure $build ): mixed {
 		$file  = self::snapshot_file( $name );
@@ -325,6 +335,9 @@ class Row_Table_Node extends Table_Node {
 			}
 			$built = $build( $builder );
 			unset( $builder );
+			if ( false !== $built ) {
+				self::sync( $building, $name );
+			}
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_rename -- the publish is one atomic rename within the Tables' directory.
 			if ( false !== $built && ! @\rename( $building, $file ) ) {
 				throw new \RuntimeException( \esc_html( "snapshot {$name} would not publish: " . ( \error_get_last()['message'] ?? 'rename failed' ) ) );
@@ -332,6 +345,23 @@ class Row_Table_Node extends Table_Node {
 			return $built;
 		} finally {
 			Sqlite_Arm::remove_database( $building );
+		}
+	}
+
+	/** Sync the build file to disk, throwing when it will not. */
+	private static function sync( string $building, string $name ): void {
+		$sync = self::$fsync ?? static function ( string $file ): bool {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- the build file sits in the Tables' directory.
+			$handle = \fopen( $file, 'r+' );
+			if ( false === $handle ) {
+				return false;
+			}
+			$synced = \fsync( $handle );
+			\fclose( $handle );
+			return $synced;
+		};
+		if ( ! $sync( $building ) ) {
+			throw new \RuntimeException( \esc_html( "snapshot {$name} would not sync" ) );
 		}
 	}
 
