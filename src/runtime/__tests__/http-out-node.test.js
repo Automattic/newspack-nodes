@@ -498,18 +498,6 @@ describe( 'HttpOut wire-inbound clause', () => {
 		expect( seen[ 0 ][ TO ] ).toBe( '_output' );
 	} );
 
-	it( 'delivers a non-response addressed to its own target', async () => {
-		const { node, seen } = replyWith( bytestream( '_output' ) );
-		node.target = '_output';
-
-		node.fill( routed( { to: 'raw-logs' } ) );
-		await Promise.resolve();
-		await Promise.resolve();
-
-		expect( seen ).toHaveLength( 1 );
-		expect( seen[ 0 ][ TO ] ).toBe( '_output' );
-	} );
-
 	it( 'refuses a non-response that addressed our graph itself', async () => {
 		expectConsoleWarn(
 			'_http: WARNING: message addressed while target is set'

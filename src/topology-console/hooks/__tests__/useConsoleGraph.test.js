@@ -197,7 +197,7 @@ describe( 'useConsoleGraph — graph topology', () => {
 		);
 	} );
 
-	it( 'aims _http at its _output, so a reply leg addressed there lands', () => {
+	it( 'aims _http at its _output, so unaddressed server output lands there', () => {
 		renderGraph();
 		expect( httpOf().target ).toBe( names.OUTPUT );
 	} );
