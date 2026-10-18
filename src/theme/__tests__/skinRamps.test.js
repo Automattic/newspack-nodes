@@ -11,6 +11,7 @@ import * as sass from 'sass';
 import { JSDOM } from 'jsdom';
 import selectorParser from 'postcss-selector-parser';
 import { THEMES } from '../../shared/theme';
+import { PHOSPHOR_COUNT } from '../../shared/utils/formatUtils';
 import { renderToStaticMarkup } from 'react-dom/server';
 import SidecarsPopover from '../../topology-console/components/SidecarsPopover';
 // Babel/Jest already installs the parser used to discover real SVG text nodes.
@@ -2692,7 +2693,7 @@ describe( 'theme skin ramps', () => {
 
 describe( "CRT's data greens and the true-color variant", () => {
 	const PHOSPHOR = Array.from(
-		{ length: 8 },
+		{ length: PHOSPHOR_COUNT },
 		( _, i ) => `--phosphor-${ i + 1 }`
 	);
 	const PHOSPHOR_INK = PHOSPHOR.map( ( token ) =>
@@ -2740,6 +2741,29 @@ describe( "CRT's data greens and the true-color variant", () => {
 				token.startsWith( '--phosphor' )
 			)
 		).toEqual( [] );
+		// The helpers cycle on PHOSPHOR_COUNT; no green past it goes unused.
+		expect(
+			skinMaps.get( 'crt' )[ `--phosphor-${ PHOSPHOR_COUNT + 1 }` ]
+		).toBeUndefined();
+	} );
+
+	it( 'sets every pair of neighbouring greens apart in lightness, the wrap included', () => {
+		const skin = effectiveSkin( 'crt' );
+		const lightness = PHOSPHOR.map( ( token ) =>
+			luminance( resolvedColor( skin, token ) )
+		);
+		const close = lightness
+			.map( ( l, i ) => {
+				const next = lightness[ ( i + 1 ) % lightness.length ];
+				return [
+					PHOSPHOR[ i ],
+					( Math.max( l, next ) + 0.05 ) /
+						( Math.min( l, next ) + 0.05 ),
+				];
+			} )
+			.filter( ( [ , ratio ] ) => ratio < 1.3 )
+			.map( ( [ token ] ) => token );
+		expect( close ).toEqual( [] );
 	} );
 
 	it( 'draws eight distinct greens legible on CRT paper, each with a legible ink', () => {

@@ -643,17 +643,18 @@ $with-variant: ();
 }
 $skins: $with-variant;
 
-// CRT's data greens and their label inks. No other skin defines them, so a
-// data mark painted `var(--phosphor-N, <its color>)` keeps its color there.
+// CRT's data greens and their label inks, light and dark alternating so no
+// two neighbours draw alike. No other skin defines them, so a data mark
+// painted `var(--phosphor-N, <its color>)` keeps its color there.
 $phosphor: (
 	(#7dffa0, #010a05),
-	(#b6ff6a, #010a05),
-	(#41e07a, #010a05),
-	(#e4ffb0, #010a05),
 	(#2fa85a, #010a05),
-	(#c8ffe0, #010a05),
+	(#e4ffb0, #010a05),
 	(#7fcf4a, #010a05),
-	(#1f8a4c, #010a05)
+	(#b6ff6a, #010a05),
+	(#1f8a4c, #010a05),
+	(#c8ffe0, #010a05),
+	(#41e07a, #010a05)
 );
 
 @for $i from 1 through list.length($phosphor) {
