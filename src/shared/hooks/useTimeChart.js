@@ -21,6 +21,7 @@ import { useCallback, useEffect, useRef } from '@wordpress/element';
 import * as d3 from 'd3';
 
 import { useContainerRefit } from './useContainerRefit';
+import { cycledToken } from '../utils/formatUtils';
 
 /**
  * Window `buildTimeSlots()` covers when its caller names none: 24 hours.
@@ -120,9 +121,12 @@ const SKIN_COLORS = 8;
  * @return {string} A CSS colour value.
  */
 export const chartColor = ( index ) =>
-	`var(--chart-${ ( index % SKIN_COLORS ) + 1 }, ${
+	cycledToken(
+		'chart',
+		SKIN_COLORS,
+		index,
 		PALETTE[ index % PALETTE.length ]
-	})`;
+	);
 
 /**
  * Build the five-minute slots a chart's time axis is drawn over.

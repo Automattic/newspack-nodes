@@ -351,6 +351,20 @@ export const spanBaseName = ( name ) => {
 const trimAscii = ( value ) =>
 	value.replace( /^[ \t\n\r\v\f]+|[ \t\n\r\v\f]+$/g, '' );
 
+/**
+ * The token a place in a cycled set names, as a CSS value with a fallback for
+ * a skin that does not define it: `var(--<prefix>-<n>, <fallback>)`, where n
+ * runs 1 to `count` and starts again past it.
+ *
+ * @param {string} prefix   The token's name before its number.
+ * @param {number} count    Tokens in the set.
+ * @param {number} index    The place, from 0.
+ * @param {string} fallback The value where the token is not defined.
+ * @return {string} A CSS value; set it with `.style()`, never `.attr()`.
+ */
+export const cycledToken = ( prefix, count, index, fallback ) =>
+	`var(--${ prefix }-${ ( index % count ) + 1 }, ${ fallback })`;
+
 /** Places in CRT's fixed set of data greens, `--phosphor-1` to `--phosphor-8`. */
 export const PHOSPHOR_COUNT = 8;
 
@@ -363,7 +377,7 @@ export const PHOSPHOR_COUNT = 8;
  * @return {string} A CSS color value; set it with `.style()`, never `.attr()`.
  */
 export const phosphorColor = ( index, color ) =>
-	`var(--phosphor-${ ( index % PHOSPHOR_COUNT ) + 1 }, ${ color })`;
+	cycledToken( 'phosphor', PHOSPHOR_COUNT, index, color );
 
 /**
  * The ink for text drawn on `phosphorColor( index, … )`.
@@ -373,7 +387,7 @@ export const phosphorColor = ( index, color ) =>
  * @return {string} A CSS color value.
  */
 export const phosphorInk = ( index, ink ) =>
-	`var(--phosphor-ink-${ ( index % PHOSPHOR_COUNT ) + 1 }, ${ ink })`;
+	cycledToken( 'phosphor-ink', PHOSPHOR_COUNT, index, ink );
 
 /**
  * The chart-fill colors for the four HTTP status classes and the unknown one,
