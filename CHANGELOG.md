@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The station Overview's Health card reads `ok` when every topology is healthy, where it read `all systems ok`, and its two read cards are labelled `Msgs read/s` and `Msgs read · 24h`.
+
 ## [2.114.0] - 2026-10-17
 
 ### Changed

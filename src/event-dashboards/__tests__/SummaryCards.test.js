@@ -62,7 +62,11 @@ it( 'shows the on-disk log-partition count', () => {
 } );
 
 it( 'shows "ok" when healthy, and the worst count otherwise', () => {
-	expect( card( renderCards().container, 'health' ) ).toContain( 'ok' );
+	expect(
+		renderCards().container.querySelector(
+			'.nodes-card--health .nodes-card__value'
+		).textContent
+	).toBe( 'ok' );
 	const sick = renderCards( {
 		topologies: [
 			topo( 'a', { health: 'stalled' } ),
