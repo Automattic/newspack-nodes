@@ -2689,3 +2689,90 @@ describe( 'theme skin ramps', () => {
 		expect( pastel[ '--canvas' ] ).toBe( 'var(--paper)' );
 	} );
 } );
+
+describe( "CRT's data greens and the true-color variant", () => {
+	const PHOSPHOR = Array.from(
+		{ length: 8 },
+		( _, i ) => `--phosphor-${ i + 1 }`
+	);
+	const PHOSPHOR_INK = PHOSPHOR.map( ( token ) =>
+		token.replace( 'phosphor', 'phosphor-ink' )
+	);
+	// A `:is()` list names each skin it holds; compare one selector per skin.
+	const expandIs = ( selector ) => {
+		const match = /:is\(([^()]*\.theme-[^()]*)\)/.exec( selector );
+		if ( ! match ) {
+			return [ selector ];
+		}
+		return match[ 1 ]
+			.split( ',' )
+			.flatMap( ( part ) =>
+				expandIs( selector.replace( match[ 0 ], part.trim() ) )
+			);
+	};
+
+	it( 'lists crt-color right after crt', () => {
+		expect( EXPECTED_SKINS[ EXPECTED_SKINS.indexOf( 'crt' ) + 1 ] ).toBe(
+			'crt-color'
+		);
+	} );
+
+	it( "gives crt-color CRT's tokens without the phosphor set", () => {
+		const crt = { ...skinMaps.get( 'crt' ) };
+		for ( const token of [ ...PHOSPHOR, ...PHOSPHOR_INK ] ) {
+			delete crt[ token ];
+		}
+		expect( skinMaps.get( 'crt-color' ) ).toEqual( crt );
+	} );
+
+	it( 'defines the phosphor set under crt alone', () => {
+		for ( const [ slug, tokens ] of skinMaps ) {
+			const has = [ ...PHOSPHOR, ...PHOSPHOR_INK ].filter(
+				( token ) => undefined !== tokens[ token ]
+			);
+			expect( [ slug, has ] ).toEqual( [
+				slug,
+				'crt' === slug ? [ ...PHOSPHOR, ...PHOSPHOR_INK ] : [],
+			] );
+		}
+		expect(
+			Object.keys( commonRules[ 0 ] || {} ).filter( ( token ) =>
+				token.startsWith( '--phosphor' )
+			)
+		).toEqual( [] );
+	} );
+
+	it( 'draws eight distinct greens legible on CRT paper, each with a legible ink', () => {
+		const skin = effectiveSkin( 'crt' );
+		const paper = resolvedColor( skin, '--paper-3' );
+		const fills = PHOSPHOR.map( ( token ) => resolvedColor( skin, token ) );
+		expect( new Set( fills.map( colorKey ) ).size ).toBe( 8 );
+		fills.forEach( ( fill, i ) => {
+			expect( [ PHOSPHOR[ i ], contrast( fill, paper ) >= 3 ] ).toEqual( [
+				PHOSPHOR[ i ],
+				true,
+			] );
+			const ink = resolvedColor( skin, PHOSPHOR_INK[ i ] );
+			expect( [
+				PHOSPHOR_INK[ i ],
+				contrast( ink, fill ) >= 4.5,
+			] ).toEqual( [ PHOSPHOR_INK[ i ], true ] );
+		} );
+	} );
+
+	it( 'gives every .theme-crt rule a .theme-crt-color twin', () => {
+		const selectors = [ uiRules, graphRules ]
+			.flat()
+			.flatMap( ( rule ) => rule.selectors )
+			.flatMap( expandIs );
+		const crt = selectors.filter( ( s ) =>
+			/\.theme-crt(?![-\w])/.test( s )
+		);
+		expect( crt.length ).toBeGreaterThan( 0 );
+		for ( const selector of crt ) {
+			expect( selectors ).toContain(
+				selector.replace( /\.theme-crt(?![-\w])/g, '.theme-crt-color' )
+			);
+		}
+	} );
+} );

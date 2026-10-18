@@ -5,6 +5,8 @@
 import fs from 'fs';
 import path from 'path';
 import {
+	phosphorColor,
+	phosphorInk,
 	STATUS_COLORS,
 	formatDuration,
 	getDurationClass,
@@ -359,5 +361,25 @@ describe( 'spanBaseName parity with Flame_Tree::base_name()', () => {
 
 	it.each( cases )( '%s', ( _label, name, expected ) => {
 		expect( spanBaseName( name ) ).toBe( expected );
+	} );
+} );
+
+describe( 'phosphorColor', () => {
+	it( 'wraps a color in its place in the CRT set, cycling past eight', () => {
+		expect( phosphorColor( 0, '#a1b2c3' ) ).toBe(
+			'var(--phosphor-1, #a1b2c3)'
+		);
+		expect( phosphorColor( 6, '#a1b2c3' ) ).toBe(
+			'var(--phosphor-7, #a1b2c3)'
+		);
+		expect( phosphorColor( 8, '#a1b2c3' ) ).toBe(
+			'var(--phosphor-1, #a1b2c3)'
+		);
+	} );
+
+	it( 'wraps an ink the same way', () => {
+		expect( phosphorInk( 10, '#0b140d' ) ).toBe(
+			'var(--phosphor-ink-3, #0b140d)'
+		);
 	} );
 } );

@@ -351,6 +351,30 @@ export const spanBaseName = ( name ) => {
 const trimAscii = ( value ) =>
 	value.replace( /^[ \t\n\r\v\f]+|[ \t\n\r\v\f]+$/g, '' );
 
+/** Places in CRT's fixed set of data greens, `--phosphor-1` to `--phosphor-8`. */
+export const PHOSPHOR_COUNT = 8;
+
+/**
+ * A data mark's color: CRT's green for its place, else its own color. Only
+ * `.theme-crt` defines the tokens, so every other skin takes the fallback.
+ *
+ * @param {number} index The mark's place in its surface, from 0.
+ * @param {string} color The color it draws on every other skin.
+ * @return {string} A CSS color value; set it with `.style()`, never `.attr()`.
+ */
+export const phosphorColor = ( index, color ) =>
+	`var(--phosphor-${ ( index % PHOSPHOR_COUNT ) + 1 }, ${ color })`;
+
+/**
+ * The ink for text drawn on `phosphorColor( index, … )`.
+ *
+ * @param {number} index The mark's place, from 0.
+ * @param {string} ink   The ink it takes on every other skin.
+ * @return {string} A CSS color value.
+ */
+export const phosphorInk = ( index, ink ) =>
+	`var(--phosphor-ink-${ ( index % PHOSPHOR_COUNT ) + 1 }, ${ ink })`;
+
 /**
  * The chart-fill colors for the four HTTP status classes and the unknown one,
  * read by every bar, dot and legend swatch that splits traffic by status.

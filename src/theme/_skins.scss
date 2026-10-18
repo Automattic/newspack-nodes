@@ -1,3 +1,4 @@
+@use "sass:list";
 @use "sass:map";
 @use "sass:meta";
 
@@ -629,6 +630,36 @@ $skins: (
 	@for $i from 1 through 8 {
 		$skins: map.set($skins, $slug, chart-#{$i}, var(--np-chart-#{$i}));
 	}
+}
+
+// The true-color variant: CRT's tokens, its data drawn in its own colors,
+// emitted right after CRT, in picker order.
+$with-variant: ();
+@each $slug, $tokens in $skins {
+	$with-variant: map.set($with-variant, $slug, $tokens);
+	@if crt == $slug {
+		$with-variant: map.set($with-variant, crt-color, $tokens);
+	}
+}
+$skins: $with-variant;
+
+// CRT's data greens and their label inks. No other skin defines them, so a
+// data mark painted `var(--phosphor-N, <its color>)` keeps its color there.
+$phosphor: (
+	(#7dffa0, #010a05),
+	(#b6ff6a, #010a05),
+	(#41e07a, #010a05),
+	(#e4ffb0, #010a05),
+	(#2fa85a, #010a05),
+	(#c8ffe0, #010a05),
+	(#7fcf4a, #010a05),
+	(#1f8a4c, #010a05)
+);
+
+@for $i from 1 through list.length($phosphor) {
+	$pair: list.nth($phosphor, $i);
+	$skins: map.set($skins, crt, phosphor-#{$i}, list.nth($pair, 1));
+	$skins: map.set($skins, crt, phosphor-ink-#{$i}, list.nth($pair, 2));
 }
 
 #{$skin-root} {
