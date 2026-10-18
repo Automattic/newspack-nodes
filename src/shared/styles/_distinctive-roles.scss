@@ -377,7 +377,7 @@
 	letter-spacing: 0.04em;
 }
 
-.theme-crt :where(.newspack-nodes-ui) .topology-brand {
+:is(.theme-crt, .theme-crt-color) :where(.newspack-nodes-ui) .topology-brand {
 	filter: drop-shadow(0 0 2px var(--ink))
 		drop-shadow(0 0 8px color-mix(in srgb, var(--ink) 45%, transparent));
 	font-size: 24px;

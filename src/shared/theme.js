@@ -51,6 +51,10 @@ export const THEMES = [
 		label: __( 'Cyanotype Blueprint', 'newspack-nodes' ),
 	},
 	{ slug: 'crt', label: __( 'CRT Phosphor Terminal', 'newspack-nodes' ) },
+	{
+		slug: 'crt-color',
+		label: __( 'CRT Phosphor Terminal (true color)', 'newspack-nodes' ),
+	},
 	{ slug: 'swiss', label: __( 'Swiss Brutalist', 'newspack-nodes' ) },
 	{ slug: 'synthwave', label: __( 'Synthwave Outrun', 'newspack-nodes' ) },
 	{ slug: 'nord', label: __( 'Nord Frost', 'newspack-nodes' ) },

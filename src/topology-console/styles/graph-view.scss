@@ -2151,7 +2151,7 @@
 
 // 01 — Cyanotype Blueprint
 // 02 — CRT Phosphor Terminal
-.theme-crt .topology-app {
+:is(.theme-crt, .theme-crt-color) .topology-app {
 	.topology-canvas::after {
 		content: "";
 		position: absolute;

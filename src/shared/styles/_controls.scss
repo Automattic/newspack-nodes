@@ -167,7 +167,7 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 	}
 }
 
-$np-dark-skins: blueprint, crt, synthwave, nord, aurora, neotokyo, scada;
+$np-dark-skins: blueprint, crt, crt-color, synthwave, nord, aurora, neotokyo, scada;
 
 @each $skin in $np-dark-skins {
 	.theme-#{$skin}
