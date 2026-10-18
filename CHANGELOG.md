@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.115.0] - 2026-10-18
+
 ### Added
 - **A true-color CRT skin, and CRT's data greens as tokens.** `crt-color`, "CRT Phosphor Terminal (true color)", follows `crt` in the picker with CRT's tokens and chrome. `crt` alone defines `--phosphor-1` to `--phosphor-8` and their label inks `--phosphor-ink-1` to `--phosphor-ink-8`, eight distinct greens legible on its paper, light and dark alternating so no two neighbouring places draw alike; `phosphorColor( index, color )` and `phosphorInk( index, ink )` wrap a data mark's color and ink in them, so a mark drawn through them is green on CRT and keeps its own color on every other skin, `crt-color` included.
 
