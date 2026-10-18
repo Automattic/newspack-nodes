@@ -5,6 +5,7 @@
 import fs from 'fs';
 import path from 'path';
 import {
+	cycledToken,
 	phosphorColor,
 	phosphorInk,
 	STATUS_COLORS,
@@ -380,6 +381,20 @@ describe( 'phosphorColor', () => {
 	it( 'wraps an ink the same way', () => {
 		expect( phosphorInk( 10, '#0b140d' ) ).toBe(
 			'var(--phosphor-ink-3, #0b140d)'
+		);
+	} );
+} );
+
+describe( 'cycledToken', () => {
+	it( 'names the token for a place, cycling past the count, with its fallback', () => {
+		expect( cycledToken( 'kea', 3, 0, '#a1b2c3' ) ).toBe(
+			'var(--kea-1, #a1b2c3)'
+		);
+		expect( cycledToken( 'kea', 3, 5, '#a1b2c3' ) ).toBe(
+			'var(--kea-3, #a1b2c3)'
+		);
+		expect( cycledToken( 'kea', 3, 6, '#a1b2c3' ) ).toBe(
+			'var(--kea-1, #a1b2c3)'
 		);
 	} );
 } );
