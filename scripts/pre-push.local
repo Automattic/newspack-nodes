@@ -14,6 +14,7 @@ SELF_TESTS=(
 	"test-coverage-gate.sh" "the per-class coverage gate"
 	"test-coverage-gate-js.sh" "the per-file JS coverage gate"
 	"test-pre-push.sh" "the pre-push hook"
+	"test-bump-version.sh" "the version bump"
 )
 
 push_gates() {

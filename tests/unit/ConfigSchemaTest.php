@@ -145,7 +145,7 @@ class ConfigSchemaTest extends TestCase {
 	 *
 	 * `setup/newspack-nodes.sh` copies the operator's server config over that
 	 * exact path after install, so the file is theirs, not ours. Throwing here
-	 * runs at `plugins_loaded:-10001` and takes down every request including
+	 * runs at `plugins_loaded:-11001` and takes down every request including
 	 * wp-admin, recoverable only over SSH — the 2026-07-13 outage shape. It is
 	 * reported instead: rate-limited to stderr, and in Site Health / doctor.
 	 */
