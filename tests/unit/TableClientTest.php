@@ -178,7 +178,7 @@ final class TableClientTest extends TestCase {
 		$this->assertSame( [], $this->kea()->members_of( [ 'word:kea' ], 9 ) );
 	}
 
-	public function test_a_moved_set_that_is_no_list_of_struct_pairs_fails_the_move(): void {
+	public function test_a_moved_set_that_is_not_a_list_of_struct_pairs_fails_the_move(): void {
 		$liar = new Scripted_Member_Table_Fixture_Node();
 		$liar->name( 'lab-7:liar.p3' );
 		$liar->sink( $this->asker->sink() );
@@ -243,7 +243,7 @@ final class TableClientTest extends TestCase {
 		$mute = new Capture_Sink_Node();
 		$mute->name( 'lab-7:mute.p3' );
 		$this->assertSame( [], $this->asker->client->move_members( 'lab-7:mute.p3', 'pend-3307', 'fly-3307', 9, $failed ) );
-		$this->assertTrue( $failed, 'no count is no answer' );
+		$this->assertTrue( $failed, 'no count means no answer' );
 		$this->assertSame( [], $this->asker->client->remove( 'lab-7:mute.p3', [ 'sku-41' ] ) );
 	}
 
@@ -260,7 +260,7 @@ final class TableClientTest extends TestCase {
 		$this->assertSame( [], $this->asker->client->add_multi( 'lab-7:gone.p3', [ 'sku-62' => [ 'a' ] ], $failed ) );
 		$this->assertTrue( $failed, 'NOT_AVAILABLE refuses the ADD' );
 		$this->assertSame( [], $this->asker->client->add_multi( 'lab-7:mute.p3', [ 'sku-63' => [ 'b' ] ], $failed ) );
-		$this->assertTrue( $failed, 'no response is no answer' );
+		$this->assertTrue( $failed, 'no response means no answer' );
 	}
 
 	public function test_an_exchange_closes_when_the_send_returns_unanswered(): void {

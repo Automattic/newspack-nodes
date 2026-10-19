@@ -11,7 +11,7 @@
  * somebody has already chased down, so the teardown lives here and no suite
  * can leak one.
  *
- * The second invariant is `timer-hazard.js`'s: a node armed while
+ * The second invariant belongs to `timer-hazard.js`: a node armed while
  * `setInterval` was real cannot fire from `advanceTimersByTime`, so the graph
  * never ticks and the test passes for the wrong reason. That guard decides;
  * this file feeds it the arm, dispose, timer-swap and per-test teardown hooks.

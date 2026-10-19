@@ -184,7 +184,7 @@ class Remote_Source_Node extends Remote_Broker_Node {
 	/**
 	 * Route one raw block, or its header, to the reader its FROM stamp names,
 	 * which splits the block into records. A frame that will not unpack has
-	 * nothing to route by, and one that is no raw block belongs to no stream
+	 * nothing to route by, and one that is not a raw block belongs to no stream
 	 * this broker reads: both are dropped, rate-limited. `consumer_for()`
 	 * refuses the rest.
 	 *
@@ -199,7 +199,7 @@ class Remote_Source_Node extends Remote_Broker_Node {
 		}
 		$from = Core::as_string( $message[ Message::FROM ] );
 		if ( ! ( Core::int( $message[ Message::TYPE ] ) & Message::TM_BATCH ) ) {
-			$this->print_less_often( 'dropping a frame that is no raw block: ', $from );
+			$this->print_less_often( 'dropping a frame that is not a raw block: ', $from );
 			return;
 		}
 		$child = $this->consumer_for( Log_Discovery::dir_from_stamp( $from ) );

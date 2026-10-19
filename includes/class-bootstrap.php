@@ -157,7 +157,7 @@ class Bootstrap {
 	 * somewhere an absent worker is waiting on", keyed by the concrete path so
 	 * a writer needs no idea what it wrote. Which topologies read is
 	 * `active_topologies()`'s answer; a resident one wakes nothing, so its
-	 * failure is not this map's to report. Each caller acts on the readable
+	 * failure is not for this map to report. Each caller acts on the readable
 	 * map first and raises or reports the failures itself.
 	 *
 	 * Built by SUBSTITUTION, never by parsing: each Consumer source template is
@@ -542,8 +542,8 @@ class Bootstrap {
 	 * The one Row_Table the active topologies declare with `$schema`: its name
 	 * and its SQLite file per partition, across every ACTIVE topology
 	 * declaring it, each with `partitions_of()` its entry. A reader finds its
-	 * table by schema, never by name. Whether each file exists is the reader's
-	 * to find. One read of the active set serves the lookup, and a schema
+	 * table by schema, never by name. Whether each file exists is for the
+	 * reader to find. One read of the active set serves the lookup, and a schema
 	 * resolves once until `forget_node_tables()`.
 	 *
 	 * @api The row tables' read path, `Row_Table_Node::read()`.

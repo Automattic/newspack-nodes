@@ -458,7 +458,7 @@ test( '_null swallows what it is filled with', () => {
 	expect( nul.counter ).toBe( 1 );
 } );
 
-// A page whose only graph is a passenger's — a lone Request node behind a
+// A page whose only graph belongs to a passenger — a lone Request node behind a
 // front-end panel — still has to put the backbone away when that panel goes.
 // Nobody else will: the router self-arms a 1s timer at construction.
 describe( 'mountExospine — a passenger-only page', () => {

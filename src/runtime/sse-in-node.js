@@ -1098,7 +1098,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 
 	/**
 	 * Add skipped lines to the running total, published as UNPARSEABLE_LINES,
-	 * and to each stamp's own count. A stamp's count that is no positive whole
+	 * and to each stamp's own count. A stamp's count that is not a positive whole
 	 * number adds nothing to it.
 	 *
 	 * @param {number}                  total   Lines skipped in all.

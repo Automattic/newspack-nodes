@@ -315,7 +315,6 @@ export default function LogStreamViewer( {
 			) }
 
 			<SearchControl
-				__nextHasNoMarginBottom
 				className="newspack-nodes-search-input"
 				label={ __( 'Filter the stream', 'newspack-nodes' ) }
 				placeholder={

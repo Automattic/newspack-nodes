@@ -478,7 +478,7 @@ system — and whatever revives it can itself die.
 
 **Alternatives considered:** Self-respawn only — rejected: nothing catches a worker that dies
 before it can respawn. An OS-level process supervisor (systemd, a platform worker tier) —
-unavailable. A DEDICATED supervisor process as the middle tier — rejected: it is no supervisor
+unavailable. A DEDICATED supervisor process as the middle tier — rejected: it is not a supervisor
 in the OS sense, since it can neither signal a worker, reap it, nor restart it in place. All it
 does is poll lock-dir mtimes and POST to an HTTP endpoint, and polling is work the pollees do
 for each other; the throttle that makes three spawners safe makes N safe. Revival must not
@@ -649,7 +649,7 @@ dead-letter the message on sight: [`Job_Delay::sweep()`](../includes/class-job-d
 every failed delivery, raises them after the drain and skips the checkpoint, so an intake write
 that failed once replays next pass instead of landing in the sweep's quarantine.
 
-A quarantine that cannot be written is no quarantine. `dead_letter()` then raises the write
+A quarantine that cannot be written is not a quarantine. `dead_letter()` then raises the write
 failure combined with the error that condemned the message, through
 `Worker_Should_Stop::raise()` ([ADR-14](#adr-14-cooperative-stop-propagates-through-broad-catches)),
 so both escape the drain and the cursor stays on the message for the successor to replay. A
@@ -791,7 +791,7 @@ rule to a snapshot node's message, after turning each held bare plain stop
 A fan-out offers every item a stop included, because each target must see the message. A long
 work loop is the other contract: `Worker_Should_Stop::attempt_until_stop()` collects every
 failure the same way but returns at the first stop, so the stop is honoured before the next
-item's work begins and the items never offered are the successor's to replay.
+item's work begins and the items never offered are left for the successor to replay.
 
 No site carves itself out. Two look as if they do. `Job_Worker_Node`'s `after_job` fires
 whether the handler returned or threw, and a listener that throws joins the job's own outcome
@@ -1169,8 +1169,8 @@ backing is re-materializing an entry that already had a life, and handing it a f
 TTL would extend what it is restoring. A spent remainder (`ttl <= 0`) is SERVED and not
 warmed: a stated `ttl` bounds the cache and decays from the write, which says nothing about how
 long the record is still read. Refusing it would make an evicted hourly URL index unrecoverable
-from the fine buckets it derives from. What a re-materialized entry is warmed for is the
-BACKING's to state, and the same call site is where a footprint bound belongs. Warming is
+from the fine buckets it derives from. The BACKING states what a re-materialized entry is warmed
+for, and the same call site is where a footprint bound belongs. Warming is
 best-effort: a backend that went away must still serve the record the backing read, or a cache
 failure becomes a data failure.
 
@@ -1309,7 +1309,7 @@ without one declares nothing at all, and the first `Config::value()` throws
 [`newspack-nodes-config.php`](../newspack-nodes-config.php), and the operator's — is an override surface and nothing more, and
 an unrecognized key there is REPORTED, never thrown: `newspack-nodes.sh`, `newspack-pyrobase.sh`
 and `newspack-nuclear-gyrobase.sh` all `cp -f` the deployment's own file over the shipped
-path, so that file is the operator's, not ours. The first read is at `plugins_loaded:-11001`,
+path, so that file belongs to the operator, not to us. The first read is at `plugins_loaded:-11001`,
 where a throw would take down every request including wp-admin the day a key is renamed,
 recoverable only over SSH; the report is rate-limited and surfaces in Site Health and
 `wp nodes doctor` as `config-keys`. It covers the shipped file alone:
@@ -1609,8 +1609,8 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
   finds nothing, and each read looks for the file again, so one the worker creates
   mid-request is read from then on. Each partition mounts on its own, so one idle worker
   empties only its own partition. A path SQLite cannot open is `Table_Unavailable`; a file
-  that opens but is no database, or holds no table, fails each read instead. A mount in a
-  process running as root is refused as a plain `\RuntimeException`, the operator's to fix,
+  that opens but is not a database, or holds no table, fails each read instead. A mount in a
+  process running as root is refused as a plain `\RuntimeException`, for the operator to fix,
   because a root reader can leave `-wal` and `-shm` files its worker cannot open.
 - `wpdb` is one shared table, `{base_prefix}newspack_nodes_table`, keyed by namespace, for
   low-volume Tables every host must read, beside `{base_prefix}newspack_nodes_members` for
@@ -1696,7 +1696,7 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
   at most `Table_Node::MAX_MEMBERS_LIMIT` + 1, and never a range. Each set is read and let
   go before the next, so a set past its limit costs its rows once, never all sets' at once,
   and a row no serializer wrote fails the read as it fails a keyed read.
-  `add_members()`, `members()`, `move_members()` and `remove_members()` are `Durable_Arm`'s
+  `add_members()`, `members()`, `move_members()` and `remove_members()` belong to `Durable_Arm`
   alone, and a Table whose backend is not durable refuses `SADD`, `SMOVE`, `SREM` and
   `members_of()` as it refuses `vacuum`, on
   `instanceof Durable_Arm`: `<VERB>: needs a durable backend; <table> is <backend>`. `SMOVE`
@@ -1815,7 +1815,7 @@ filled fields by position, so a blank middle field shifted every later value int
 slot.
 
 **Decision:** `Command_Interpreter_Node::dispatch()` binds a verb's tokens against the `args`
-its schema declares — a service CI's own schema, a `:config` interpreter's patron's — through
+its schema declares — a service CI's own schema, or for a `:config` interpreter its patron's schema — through
 `Command_Args::bind()`, before `$around_dispatch` runs, as the unknown-verb refusal does, and
 hands the handler the bound values by name. A handler never parses.
 
@@ -1906,7 +1906,7 @@ dead letters. The one scope check on a worker verb was written by hand inside
 
 **Decision:** `Command_Interpreter_Node::dispatch()` refuses every verb, before anything else
 runs, against the role its schema declares: the `capability` of the verb's `commands` entry —
-a service CI's own schema, a `:config` interpreter's patron's — and MANAGE when the entry
+a service CI's own schema, or for a `:config` interpreter its patron's schema — and MANAGE when the entry
 declares none. A verb no schema names — the base interpreter's vocabulary, and the `help`
 every interpreter answers — demands MANAGE, except the read-only builtins `READ_VERBS` lists,
 which answer READ. One function, `Capabilities::require_verb()`, makes the decision:
@@ -2024,13 +2024,13 @@ hand-joined path both are.
 **Revisit if:** a stamp must name something that is neither a dir nor a registry entry.
 
 **Amendment: a spoke's log has a name of its own.** A hub's broker reader reports its
-position on the hub's own probe log, and a spoke's `firehose.p0` is not the hub's: two logs
+position on the hub's own probe log, and a spoke's `firehose.p0` is not the hub's own log: two logs
 sharing one stamp merged the spoke's read rate into the hub's series, and a spoke's `jobs.p0`
 into the hub's jobs backlog. So a remote log's name is `remote:<vault_id>:<stamp>` — the spoke's
 Vault id, then its stamp — which [`Log_Discovery::remote_for()`](../includes/class-log-discovery.php)
 writes and `remote_of()` reads back, held to the browser's `remoteOf()` in
 [`src/runtime/log-stamp.js`](../src/runtime/log-stamp.js) by `tests/fixtures/log-remotes.json`.
-A Vault id carries no `:`, so the first `:` after the prefix parts the two. A remote name is no
+A Vault id carries no `:`, so the first `:` after the prefix parts the two. A remote name is not a
 stamp: it exists only in the hub's probe channel, as a broker reader's SOURCE, and `remote_of()`
 is its one reader. The FROM trail and the SSE wire keep the spoke's stamp, so `REMOTE_PREFIX`
 stays out of `STAMP_PREFIXES`: `split()` reads `remote:…` as a `logs` name, which `is_stamp()`
@@ -2068,14 +2068,14 @@ first path segment holds one, so the rule reads no disk, and `stamp-dirs.json` h
 from a broker reader's dir still opens. A broker's root and a Consumer's cursor are both one flat
 name, which no shape tells apart, so `dir_of()` resolves a root to its empty dir rather than
 listing its children on every resolution; the catalog and a glob still skip it. A broker refuses
-a root that is its group's own, whose readers would land at the group's first level. A broker
+a root that belongs to its group, whose readers would land at the group's first level. A broker
 reader takes its stamp verbatim as its sibling slot `<broker>:<stamp>` and its dirs' basename, so
 the codec is gone. A log's stamp is held to `MAX_STAMP_BYTES` whole, and a broker reader's part
 by part, since its dir is `<root>/<stamp>`: the root and the stamp it reads each name one dir. A
 broker reads only a stamp that fits one dir name whole (`fits_a_dir_name()`), so an exact source
 may name a broker reader's stamp when it is that short. A glob's `*`
 matches within one stamp part, stopping at `:`, so no glob claims a broker reader, and a dir
-whose name holds a `:` is no glob match. A log may take a group's name: `offsets` alone is a
+whose name holds a `:` is not a glob match. A log may take a group's name: `offsets` alone is a
 `logs` dir, because a one-segment stamp never reads as a prefix.
 
 A streamed record's FROM is `<stamp>/<its own FROM>`, because the stream's reader prepends the
@@ -2129,7 +2129,7 @@ So the browser and the hub could disagree on what one entry said. The seek words
 `:<offset>`, because segment 0 names a real segment or a foreign inode, and a null length writes
 a position rather than a breadcrumb. `parse( string $position )` is the one reader, one anchored
 match. It answers the place, its length included when present, or null; every number is a
-canonical decimal that fits an int. A word is no place: the two readers that speak the words,
+canonical decimal that fits an int. A word is not a place: the two readers that speak the words,
 `Log_Sources::read()` and `SSE_Out_Node::position_arg()`, look one up in `WORDS` first. `crumb()`
 narrows `parse()` to a breadcrumb, which names its segment and its length. Each
 caller states its own refusal, as `CLI::parse_worker_id()` lets its callers do
@@ -2393,7 +2393,7 @@ never idles.
 marks the arguments that take one: `'partition' => 'bound'` on a reader's source, an
 offsetlog or dead-letter dir, a Partition or Log path, a Table namespace and a link's
 subscription, and `'partition' => 'each'` on a Topic's `dir_template`, where the token means
-each of its N partitions rather than the worker's. `Schema_Reflection::schema_values()` is the
+each of its N partitions rather than the worker's partition. `Schema_Reflection::schema_values()` is the
 one resolver: it resolves a `bound` argument's `{partition}` at the bound partition and its
 `{topology}` at the bound fleet, and leaves an `each` argument to the node. Where neither is
 bound, outside a worker, a path naming either is refused rather than resolved at partition 0,
@@ -2504,7 +2504,7 @@ partitions.
 ([ADR-34](#adr-34-a-table-may-hold-declared-rows-sqlite-only)), so a question a dashboard
 asks every poll costs that scan every poll: on eln, event-logger-nodes' `urls` answer took
 33 s with every file mapped. A job can run the scan once an interval and keep what it
-derives, but a job is no worker and no topology declares it, so where it keeps the result
+derives, but a job is not a worker and no topology declares it, so where it keeps the result
 decides who may write it, who may read it and what reclaims it.
 
 **Decision:** `Row_Table_Node::build( $schema, $name, $build )` publishes the snapshot
@@ -2523,7 +2523,7 @@ when nothing is published. `Row_Table_Node::remove_snapshot( $name )` deletes th
 file and every build of it a crash left, for uninstall. All three refuse, with an
 `\InvalidArgumentException`, a name `Table_Node::stem()` refuses and a name ending `.p{N}`,
 which a Table partition's file would take; no Table name holds `+`, so a build is never a
-published file or a Table's. One publisher per name.
+published file or a Table's file. One publisher per name.
 
 **Alternatives considered:**
 
@@ -2536,13 +2536,13 @@ published file or a Table's. One publisher per name.
   writer here is a job.
 
 **Consequences:** No conflict gate claims the file. No topology declares it, so
-`wp nodes activate` cannot refuse a second publisher, and one publisher per name is the
-publisher's to keep: two racing builds both publish, the later rename winning. Retention is
+`wp nodes activate` cannot refuse a second publisher, and one publisher per name is for
+the publisher to keep: two racing builds both publish, the later rename winning. Retention is
 the quiet-hour sweep. `Log_Cleaner::sweep_tables()` deletes a database no active topology
 declares once its files have been quiet `Log_Cleaner::DELETE_GRACE_S` (3600 s), so a file
 each publish refreshes stays, and one no one publishes goes, with any build a crash left. A
 reader sees the last publish, up to two intervals stale when a build runs the length of
-one, and bounding that is the publisher's. A reader holding the old file keeps reading it
+one, and bounding that is the publisher's job. A reader holding the old file keeps reading it
 across a rename. The file cannot be read from another host, as a Row_Table's cannot.
 
 **Revisit if:** a second publisher per name appears, or a build outlasts the interval its

@@ -314,7 +314,7 @@ class SseInCoverageTest extends TestCase {
 		);
 	}
 
-	public function test_a_refusal_body_that_is_no_wp_error_reports_the_status_alone(): void {
+	public function test_a_refusal_body_that_is_not_a_wp_error_reports_the_status_alone(): void {
 		[ $node ] = $this->configured_node();
 		$handle   = $this->connect( $node );
 		$this->set_http_code( $node, 502 );

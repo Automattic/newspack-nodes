@@ -811,7 +811,7 @@ class CoreTest extends TestCase {
 			$classify->invoke( null, \CURLE_OPERATION_TIMEDOUT, 96, 96, 'Operation timed out' ),
 			'a timeout after the request went out is the contract working'
 		);
-		$this->assertNull( $classify->invoke( null, 0, 0, 96, '' ), 'no error is no error' );
+		$this->assertNull( $classify->invoke( null, 0, 0, 96, '' ), 'no error classifies as no error' );
 		$this->assertSame(
 			'Could not resolve host',
 			$classify->invoke( null, \CURLE_COULDNT_RESOLVE_HOST, 0, 96, 'Could not resolve host' )
@@ -986,7 +986,7 @@ class CoreTest extends TestCase {
 	}
 
 	public function test_terminal_safe_passes_the_character_one_codepoint_above_the_c1_block_through(): void {
-		// U+00A0 NO-BREAK SPACE is C2 A0, one codepoint past the block, and is no
+		// U+00A0 NO-BREAK SPACE is C2 A0, one codepoint past the block, and is not a
 		// control at all. The BEL is there to defeat the fast path, so the render
 		// pass really runs over the A0.
 		$this->assertSame( "kame\u{00A0}moraine<07>", Core::terminal_safe( "kame\u{00A0}moraine\x07" ) );

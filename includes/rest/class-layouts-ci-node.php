@@ -167,7 +167,7 @@ class Layouts_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Whether a decoded `positions` value is one a layout may hold: a map, or
+	 * Whether a layout may hold a decoded `positions` value: a map, or
 	 * exactly AUTO. A non-empty JSON list decodes to an array too, so the list
 	 * shape is refused; `{}` decodes to `[]`, which stands as the empty map.
 	 *

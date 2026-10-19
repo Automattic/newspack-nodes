@@ -124,7 +124,7 @@ class Value_Timeout_Node extends Timer_Node {
 	 *
 	 * The node keeps values, not messages, so the trailing send is minted
 	 * fresh: `stamp_message()` puts this node in FROM, the TIMESTAMP is the
-	 * sweep's — what an age sieve downstream should judge — and `parent::fill()`
+	 * sweep's time — what an age sieve downstream should judge — and `parent::fill()`
 	 * stamps TO from `target`, so it routes exactly like a forwarded arrival.
 	 * Re-arming `recently_sent` at the same moment is what caps a sustained
 	 * stream at one send per window.

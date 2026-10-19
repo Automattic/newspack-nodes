@@ -154,7 +154,7 @@ class ReconcileTest extends TestCase {
 		);
 	}
 
-	/** A lock is a directory; a file named like one is no worker's lock. */
+	/** A lock is a directory; a file named like one is not a worker's lock. */
 	public function test_worker_lock_dirs_lists_directories_only(): void {
 		$this->make_lock( 'kea-7713.p3' );
 		\touch( "{$this->tmp}/locks/foo.bar.p41.lock.d" );
@@ -199,7 +199,7 @@ class ReconcileTest extends TestCase {
 		$this->assertDirectoryDoesNotExist( "{$this->tmp}/ipc/foo.bar.p41" );
 	}
 
-	/** An ipc dir no `worker_id()` spells is not a worker's, and is not reaped. */
+	/** An ipc dir no `worker_id()` spells belongs to no worker, and is not reaped. */
 	public function test_it_leaves_an_ipc_dir_no_worker_id_spells(): void {
 		$this->ledger( 1 );
 		\mkdir( "{$this->tmp}/ipc/kea-7713.p07/input", 0755, true );

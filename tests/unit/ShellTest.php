@@ -210,7 +210,7 @@ class ShellTest extends TestCase {
 		$this->assertStringContainsString( "ghost=\n", $capture->captured[0][ Message::VALUE ] );
 	}
 
-	/** `print` writes its argument verbatim — the newline is the caller's. */
+	/** `print` writes its argument verbatim — the caller supplies the newline. */
 	public function test_print_writes_verbatim_without_appending_a_newline(): void {
 		$capture = $this->register_output_capture();
 		$shell   = new Shell_Node();
@@ -929,7 +929,7 @@ class ShellTest extends TestCase {
 	}
 
 	public function test_parse_print_still_renders_control_bytes_at_the_terminal(): void {
-		// The bypass is the `clear` builtin's alone: `print` echoes whatever the
+		// Only the `clear` builtin takes the bypass: `print` echoes whatever the
 		// operator typed, so it stays on the rendering path.
 		$mem    = \fopen( 'php://memory', 'r+' );
 		$stdout = new \Newspack_Nodes\Stdout_Node( $mem, false );

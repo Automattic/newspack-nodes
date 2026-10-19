@@ -379,8 +379,8 @@ export class RouterNode extends TimerNode {
 	 *
 	 * The window is the microtask checkpoint closing the current commit, and
 	 * the ask is cleared before the tick runs, so an ask arriving afterwards is
-	 * a later tick rather than a lost one. An ask from inside a tick is that
-	 * tick's: `fireCb()` fires the timers marked due before the flush.
+	 * a later tick rather than a lost one. An ask from inside a tick belongs to that
+	 * tick: `fireCb()` fires the timers marked due before the flush.
 	 *
 	 * @return {void}
 	 */

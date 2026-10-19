@@ -225,7 +225,7 @@ class ClassesCITest extends TestCase {
 					$wrong[] = "{$name} is not multiple";
 				}
 				if ( \str_starts_with( $verb['name'], 'remove_' ) && ( true !== ( $verb['action'] ?? false ) || isset( $verb['multiple'] ) ) ) {
-					$wrong[] = "{$name} is no single action";
+					$wrong[] = "{$name} is not a single action";
 				}
 			}
 		}
@@ -468,7 +468,7 @@ class ClassesCITest extends TestCase {
 		);
 	}
 
-	/** What a class builds for itself is the analyzer's to read, never the catalog's. */
+	/** What a class builds for itself is for the analyzer to read, never the catalog. */
 	public function test_dump_ships_no_owns(): void {
 		$result  = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );
 		$by_name = \array_column( $result['classes'], null, 'shell_name' );

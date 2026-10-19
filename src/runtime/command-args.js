@@ -10,7 +10,7 @@
  * `bindCommandArgs()` is the other direction, PHP `Command_Args::bind()` for a
  * verb of string args, which a browser node binding its own verb reads.
  *
- * Nothing here quotes or unescapes. Token boundaries are the array's, so a value
+ * Nothing here quotes or unescapes. Token boundaries belong to the array, so a value
  * carrying spaces — a .tsl body, a layout positions JSON — stays whole inside its
  * own element, and quoting waits for serializeArg() in `runtime/node.js`, the one
  * place tokens re-join into a line.
@@ -55,8 +55,8 @@ export function formatCommandArgs( positional = [], options = {} ) {
  * `Command_Args::bind()` binds them, and held to it by
  * `tests/fixtures/add-source-args.json`: each arg by position, in declared
  * order, or as `--name=value`, the two forms mixed. A blank token for a
- * required arg reads as absent, and an absent arg binds null. Types,
- * defaults, `variadic` and `secret` are PHP's alone: every value binds as
+ * required arg reads as absent, and an absent arg binds null. Only PHP
+ * reads types, defaults, `variadic` and `secret`: every value binds as
  * the string it is.
  *
  * @param {Array<{name:string,required?:boolean}>} specs  The verb's `args`.

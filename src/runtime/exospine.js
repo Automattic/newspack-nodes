@@ -381,7 +381,7 @@ export function mountExospine( build, { passenger = false } = {} ) {
 		builtNames = [ ...Core.nodes.keys() ].filter(
 			( name ) => ! before.has( name )
 		);
-		// After the snapshot, so a Tap is no node of this build's own.
+		// After the snapshot, so a Tap does not count as a node of this build.
 		claimGroups(
 			groupsTargetedBy( builtNames.map( ( name ) => Core.node( name ) ) )
 		);

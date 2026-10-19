@@ -403,7 +403,7 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertSame( [ "PHP Warning 5521\n", "not json 6604\n" ], \array_column( $php->captured, Message::VALUE ) );
 		$this->assertSame( [ 'sources:php', 'sources:php' ], \array_column( $php->captured, Message::FROM ) );
 		$this->assertSame( [ '77031:12:17', '77031:29:14' ], \array_column( $php->captured, Message::ID ) );
-		$this->assertSame( 0, $this->count_log_records( $this->dlq( 'sources:php' ) ), 'text is no torn record' );
+		$this->assertSame( 0, $this->count_log_records( $this->dlq( 'sources:php' ) ), 'text is not a torn record' );
 	}
 
 	/** Each relayed record names the log the spoke read and its exact place there. */
@@ -1063,7 +1063,7 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertSame( "Bad arguments for HTTP_Source 'pull-austin': retry_ms wants at least 1, got '0'", $this->refused_build( fn () => $this->broker( 'pull-austin' ) ) );
 	}
 
-	/** A negative interval is no whole number, so the argument and the config both refuse it. */
+	/** A negative interval is not a whole number, so the argument and the config both refuse it. */
 	public function test_a_negative_retry_interval_refuses_the_broker(): void {
 		$this->assertSame( "Bad arguments for HTTP_Source 'pull-austin': retry_ms wants a whole number, got '-5'", $this->refused_build( fn () => $this->broker( 'pull-austin', [ ...$this->remote_args( 'pull-austin' ), '-5' ] ) ) );
 
@@ -1094,7 +1094,7 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertSame( "Bad arguments for HTTP_Source 'pull-austin': retry_ms wants at least 1, got '0'", $this->refused_build( fn () => $this->broker( 'pull-austin', [ ...$this->remote_args( 'pull-austin' ), '0' ] ) ) );
 	}
 
-	/** A pair in slot 3 is no number of milliseconds. */
+	/** A pair in slot 3 is not a number of milliseconds. */
 	public function test_a_pair_where_retry_ms_goes_is_refused(): void {
 		$this->assertSame( "Bad arguments for HTTP_Source 'pull-austin': retry_ms wants a whole number, got 'firehose.p0=downstream'", $this->refused_build( fn () => $this->broker( 'pull-austin', [ ...$this->remote_args( 'pull-austin' ), 'firehose.p0=downstream' ] ) ) );
 	}
@@ -1201,7 +1201,7 @@ class HttpSourceNodeTest extends TestCase {
 	}
 
 	/** Only an answer naming `list_logs` is the catalog. */
-	public function test_a_reply_naming_another_verb_is_no_catalog(): void {
+	public function test_a_reply_naming_another_verb_is_not_a_catalog(): void {
 		$node = $this->globbing_broker();
 		$node->fire();
 		$reply                           = self::catalog_reply( [ 'jobstats.p4' ] );
@@ -1363,7 +1363,7 @@ class HttpSourceNodeTest extends TestCase {
 
 		$summary = \Newspack_Nodes\Tests\Helpers\VerbHarness::fire( new \Newspack_Nodes\Rest\Aggregator_CI_Node(), 'aggregator', 'summary' );
 		$this->assertSame( 1, $summary['total'] );
-		$this->assertSame( 0, $summary['idle'], 'a refusal is no end-of-log wait' );
+		$this->assertSame( 0, $summary['idle'], 'a refusal is not an end-of-log wait' );
 		$this->assertSame( 0, $summary['connected'] );
 	}
 

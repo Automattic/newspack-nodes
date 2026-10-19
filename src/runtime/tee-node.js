@@ -26,7 +26,7 @@ import { attemptEach, raise } from './failures';
  * path-shaped target lives as long as its head node does. Every live target is
  * attempted whatever an earlier one threw, so one broken branch cannot silence
  * the others, and everything caught is raised after the last, as the PHP twin
- * raises it (ADR-14): a failed branch is the caller's to see, never a log line.
+ * raises it (ADR-14): a failed branch is for the caller to see, never a log line.
  */
 export class TeeNode extends Node {
 	/**

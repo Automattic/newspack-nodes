@@ -105,7 +105,7 @@ abstract class DurableArmContract extends CacheBackendContract {
 		$arm->add_members( [ 'owl:set-7' => [ [ 'm-1' => 1, 'm-2' => 2, 'm-3' => 3, 'm-4' => 4 ], 777 ], 'owl:set-9' => [ [ 'm-5' => 5, 'm-6' => 6, 'm-8' => 8 ], 777 ] ] );
 		$this->assertSame( [ 'owl:set-7' => null, 'owl:set-9' => [ 'm-5' => 5, 'm-6' => 6, 'm-8' => 8 ] ], $arm->members( [ 'owl:set-7', 'owl:set-9' ], 3 ), 'four members are over a limit of 3; three are not' );
 		$this->assertSame( [], $arm->members( [ 'owl:set-7' ], 0 ), 'a limit of 0 reads nothing' );
-		$this->assertSame( [], $arm->members( [ 'owl:set-7' ], -5 ), 'a negative limit is no limit lifted' );
+		$this->assertSame( [], $arm->members( [ 'owl:set-7' ], -5 ), 'a negative limit does not lift the limit' );
 	}
 
 	public function test_members_come_back_in_member_order(): void {

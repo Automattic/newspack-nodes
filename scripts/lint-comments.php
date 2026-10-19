@@ -522,7 +522,7 @@ function check_file( string $file ): array {
 		if ( is_longform( $text ) || is_directive( $text ) ) {
 			continue;
 		}
-		// A ledger entry's width is the declaration's, not a sentence's.
+		// The declaration, not a sentence, sets a ledger entry's width.
 		if ( $is_ledger && isset( $entry_lines[ $line ] ) ) {
 			continue;
 		}

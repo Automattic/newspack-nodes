@@ -138,11 +138,11 @@ class LogDiscoveryTest extends TestCase {
 	public function test_source_for_keeps_the_path_of_a_reader_no_stamp_names(): void {
 		$this->assertSame( 'offsets/hub:tw0/firehose.p3', Log_Discovery::source_for( 'offsets/hub:tw0/firehose.p3' ) );
 		$this->assertSame( 'offsets/hub tw0/firehose.p3', Log_Discovery::source_for( 'offsets/hub tw0/firehose.p3' ), 'a root ROOT_PATTERN refuses' );
-		$this->assertSame( 'deadletter/hub.tw0/Firehose.p3', Log_Discovery::source_for( 'deadletter/hub.tw0/Firehose.p3' ), 'a kind that is no stamp' );
+		$this->assertSame( 'deadletter/hub.tw0/Firehose.p3', Log_Discovery::source_for( 'deadletter/hub.tw0/Firehose.p3' ), 'a kind that is not a stamp' );
 		$this->assertSame( 'logs/gate/offsets/x', Log_Discovery::source_for( 'logs/gate/offsets/x' ) );
 	}
 
-	/** A dir holding a segment is a Partition's, whatever else sits in it. */
+	/** A dir holding a segment belongs to a Partition, whatever else sits in it. */
 	public function test_groups_lists_a_dir_holding_a_segment_as_itself(): void {
 		$this->seed_segment( 'offsets/job-spoke.jobs.p6/stray-71', 5 );
 		$this->seed_segment( 'offsets/job-spoke.jobs.p6', 12 );
@@ -152,7 +152,7 @@ class LogDiscoveryTest extends TestCase {
 		$groups = Log_Discovery::groups();
 
 		$this->assertSame( [ 'job-spoke.jobs.p6' ], $groups['offsets'] );
-		$this->assertSame( [ 'hub.coast-73/firehose.p3' ], $groups['deadletter'], 'a stray file is no segment' );
+		$this->assertSame( [ 'hub.coast-73/firehose.p3' ], $groups['deadletter'], 'a stray file is not a segment' );
 	}
 
 	/**
@@ -169,7 +169,7 @@ class LogDiscoveryTest extends TestCase {
 
 		$groups = Log_Discovery::groups();
 
-		$this->assertSame( [ 'jobintake.p2' ], $groups['logs'], 'a lock dir inside a log is no reader' );
+		$this->assertSame( [ 'jobintake.p2' ], $groups['logs'], 'a lock dir inside a log is not a reader' );
 		$this->assertSame(
 			[ 'hub.tucson-41/firehose.p3', 'hub.tucson-41/sources:php', 'performance.requests.p2' ],
 			$groups['offsets']

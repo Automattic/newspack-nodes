@@ -539,7 +539,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * @throws \RuntimeException When the name is not file-name safe or unknown, or activating it would put two fleets on one log.
 	 */
 	public static function cmd_activate( array $args ): array {
-		// Only the name is checked here; the rest is Topology_Registry's.
+		// Only the name is checked here; Topology_Registry checks the rest.
 		return Topology_Registry::activate( self::require_valid_name( Core::as_string( $args['name'] ) ) );
 	}
 

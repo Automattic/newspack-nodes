@@ -139,7 +139,7 @@ const formatRtt = ( rtt ) => {
  * The status modifier for one RTT reading: `error` above 500ms, `warning`
  * above 200ms, `success` below, and `muted` when the spoke has answered no
  * round trip yet. It modifies the shared `newspack-nodes-status` class, so the
- * colours are the design system's rather than this dashboard's.
+ * design system sets the colours rather than this dashboard.
  *
  * @param {?number} rtt Round-trip time in milliseconds.
  * @return {string} One of muted|error|warning|success.

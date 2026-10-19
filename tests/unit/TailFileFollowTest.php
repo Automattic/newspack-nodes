@@ -192,7 +192,7 @@ class TailFileFollowTest extends TestCase {
 		$cap = new Capture_Sink_Node();
 		$t   = $this->follow( $path );
 		$t->sink( $cap );
-		// No 'segment' key names no generation: the offset is the current file's.
+		// No 'segment' key names no generation: the offset is in the current file.
 		$t->next_offset( [ 'offset' => 11 ] );
 		$this->pump( $t );
 
@@ -789,7 +789,7 @@ class TailFileFollowTest extends TestCase {
 
 		$stats = $t->probe_stats();
 
-		$this->assertNull( $stats[ \Newspack_Nodes\Probe_Record::CURSOR_SEGMENT ], 'inode 0 is no generation' );
+		$this->assertNull( $stats[ \Newspack_Nodes\Probe_Record::CURSOR_SEGMENT ], 'inode 0 is not a generation' );
 		$this->assertNull( $stats[ \Newspack_Nodes\Probe_Record::END_SEGMENT ] );
 	}
 

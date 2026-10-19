@@ -19,7 +19,7 @@ namespace Newspack_Nodes;
  * the `add_source <remote_log> <local_node>` verb, and each stamp a source
  * claims is read by its own `Remote_Consumer_Node`, published as the
  * sibling `<broker>:<stamp>`: the cursor, offsetlog, dead letters and
- * debugger all belong to that reader. Each tick, riding the Router's, builds
+ * debugger all belong to that reader. Each tick, riding the Router's tick, builds
  * each exact source's reader and hands a subclass its housekeeping, and
  * `write_status()` publishes the status snapshot a dashboard reads.
  *
@@ -199,7 +199,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 * @api Dynamic entrypoint.
 	 * @param list<string>|null $args Positional tokens, or null to read them.
 	 * @return list<string>
-	 * @throws \InvalidArgumentException When a token is surplus, missing or mistyped, or a root is its group's.
+	 * @throws \InvalidArgumentException When a token is surplus, missing or mistyped, or a root is the group root itself.
 	 */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
@@ -273,7 +273,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	}
 
 	/**
-	 * Refuse a root that is its group's own: each reader's dir is
+	 * Refuse a root that belongs to its group: each reader's dir is
 	 * `<root>/<stamp>`, so it would land at the group's first level, where a
 	 * dir holding the stamp's `:` has no stamp of its own.
 	 *
@@ -425,8 +425,8 @@ abstract class Remote_Broker_Node extends Timer_Node {
 	 * `remove_source` applies, both as written. A source goes to one target,
 	 * compared as written, so a glob and an exact stamp it matches are two
 	 * sources; an identical repeat answers `$declared` unchanged; a removal
-	 * must name a declared source. An added source must be one a spoke can
-	 * stream and whose reader takes no slot the broker keeps, judged with
+	 * must name a declared source. A spoke must be able to stream an added
+	 * source, and its reader must take no slot the broker keeps, judged with
 	 * `{partition}` resolved at `$partition`. The runtime folds at its bound
 	 * partition, the analyzer at 0; the browser's `foldSource()` is the twin.
 	 *
@@ -536,7 +536,7 @@ abstract class Remote_Broker_Node extends Timer_Node {
 
 	/**
 	 * The reader a stamp's slot holds in the sibling map, or null; builds
-	 * nothing, and a slot holding anything else is no reader.
+	 * nothing, and a slot holding anything else is not a reader.
 	 *
 	 * @param string $stamp A record's stamp.
 	 */

@@ -11,7 +11,7 @@
  *
  * Reads and writes go through `shared/utils/storage`, so a disabled or full
  * localStorage never throws — a reader falls back to its empty default and a
- * writer does nothing. Decoding the JSON is this module's own, and carries its
+ * writer does nothing. Decoding the JSON belongs to this module, and carries its
  * own guard.
  */
 

@@ -569,7 +569,7 @@ scanDirectories:
     - ../newspack-nodes/includes
 ```
 
-Copy `scripts/` wholesale as well, and let Composer's `post-install-cmd` wire its hooks. `wp nodes scaffold plugin` writes none of it, so a scaffolded plugin has no method-order gate until you copy cache-cozy's.
+Copy `scripts/` wholesale as well, and let Composer's `post-install-cmd` wire its hooks. `wp nodes scaffold plugin` writes none of it, so a scaffolded plugin has no method-order gate until you copy cache-cozy's gate.
 
 ### d. Release it
 

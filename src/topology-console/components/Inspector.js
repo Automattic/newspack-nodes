@@ -292,7 +292,7 @@ function BrowserProcessStats() {
  * @param {Object}  props
  * @param {Array}   props.nodes      Node metadata, for a worker or remote graph.
  * @param {Object}  props.rateSeries `{ in, out, read, write }` sample rings.
- * @param {boolean} [props.local]    The graph is the browser's own, so read IoTelemetry.
+ * @param {boolean} [props.local]    The graph belongs to the browser, so read IoTelemetry.
  * @return {import('react').ReactElement} The stats header.
  */
 function ProcessStatsHeader( { nodes, rateSeries, local } ) {
@@ -969,7 +969,7 @@ function LockedForm( {
  *
  * A borrowed node's INCLUDE half is read-only — that configuration belongs to
  * the topology that defines it — while the lines THIS document aims at the
- * node are this document's to edit. Event-logger-nodes' `hub-control.tsl` is
+ * node are for this document to edit. Event-logger-nodes' `hub-control.tsl` is
  * exactly that shape: `include settings-sync`, then `add_setting` lines aimed
  * at the included node. `handleUpdateVerbs` drops the seeded half before it
  * writes, so an edit here can only change the file's own declarations.
@@ -2305,7 +2305,7 @@ export default function Inspector( {
 			</aside>
 		);
 	}
-	// A sidecar's edges are its own row's.
+	// A sidecar's edges come from its own row.
 	const graph = sidecar ? sidecarGraph : parsed;
 	// Display union less registration edges — listeners, not destinations.
 	const displayEdges = graph.edges.filter(
@@ -2318,7 +2318,7 @@ export default function Inspector( {
 	// The node's valid registration events (catalog) — drives Register modal.
 	const catalogEntry = catalog.find( ( c ) => c.shell_name === node.class );
 	const regEvents = catalogEntry?.registrations ?? [];
-	// The ROUTING value: an extra is no edge disconnect_node removes (ADR-19).
+	// ROUTING value: an extra is not an edge disconnect_node removes (ADR-19).
 	const editorTargets = targetsOf( node ).map( ( to ) => ( {
 		from: node.id,
 		to,
@@ -2779,7 +2779,7 @@ export default function Inspector( {
 					) }
 				</div>
 			</Section>
-			{ /* Class verbs; a reserved anchor's config is not the user's. */ }
+			{ /* Class verbs; a reserved anchor's config does not belong to the user. */ }
 			{ ! isReserved( node ) &&
 				( () => {
 					const schema = catalog.find(

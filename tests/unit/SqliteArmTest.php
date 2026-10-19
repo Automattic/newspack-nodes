@@ -249,7 +249,7 @@ final class SqliteArmTest extends TestCase {
 	public function test_a_reader_of_a_file_not_there_reads_nothing_and_creates_nothing(): void {
 		$reader = new Sqlite_Arm( $this->path(), 'kea:p3', read_only: true );
 		$this->assertSame( [], $reader->read_multi( [ 'sku-41', 'sku-42' ], $failed ) );
-		$this->assertFalse( $failed, 'no file is no data, not a failed read' );
+		$this->assertFalse( $failed, 'no file means no data, not a failed read' );
 		$this->assertSame( Cache_Backend::READ_MISS, $reader->read( 'sku-41' )['status'] );
 		$this->assertFalse( $reader->set( 'sku-43', 'kea-43', 0 ), 'a reader writes nothing' );
 		$this->assertDirectoryDoesNotExist( "{$this->dir}/tables", 'a reader creates no directory' );
@@ -392,12 +392,12 @@ final class SqliteArmTest extends TestCase {
 		$this->assertSame( [ 'owl:set-7' => [ 'm-41' => 'kea' ] ], $fresh->members( [ 'owl:set-7' ], 9 ) );
 	}
 
-	public function test_a_reader_of_a_file_that_is_no_database_opens_and_fails_each_read(): void {
+	public function test_a_reader_of_a_file_that_is_not_a_database_opens_and_fails_each_read(): void {
 		\mkdir( \dirname( $this->path() ), 0700, true );
 		\file_put_contents( $this->path(), \str_repeat( 'kea-not-sqlite ', 300 ) );
 		$reader = new Sqlite_Arm( $this->path(), 'kea:p3', read_only: true );
 		$this->assertSame( Cache_Backend::READ_ERROR, $reader->read( 'sku-41' )['status'] );
-		$this->assertFalse( $reader->members( [ 'owl:set-7' ], 9 ), 'a file that is no database fails the member read too' );
+		$this->assertFalse( $reader->members( [ 'owl:set-7' ], 9 ), 'a file that is not a database fails the member read too' );
 	}
 
 	public function test_a_reader_opened_before_its_file_reads_members_once_it_appears(): void {

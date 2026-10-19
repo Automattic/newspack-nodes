@@ -174,7 +174,7 @@ export function commandTransport( { baseUrl, nonce, renewNonce = null } ) {
 				'ERROR: dropped an unparseable /command response line'
 			);
 		}
-		// Inbound bytes and counts; the error TALLY is HttpOut's.
+		// Inbound bytes and counts; HttpOut keeps the error TALLY.
 		IoTelemetry.recordIn( byteLength( text ), messages.length );
 		if ( false === r.ok ) {
 			// A 401 refused our session.

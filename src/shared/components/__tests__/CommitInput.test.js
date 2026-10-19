@@ -74,6 +74,23 @@ const noSpace = ( draft ) =>
 const PERCHES = [ 'heron/p3', { value: 'osprey/p1', label: 'Osprey' } ];
 
 describe( 'CommitInput', () => {
+	it( "keeps the caller's description, and adds its refusal's to it", () => {
+		const { input } = mount( {
+			value: '',
+			'aria-describedby': 'kea-help-7316',
+			validate: ( d ) => ( 'bad' === d ? 'no' : null ),
+			refuseWhileTyping: true,
+		} );
+
+		expect( input.getAttribute( 'aria-describedby' ) ).toBe(
+			'kea-help-7316'
+		);
+		type( input, 'bad' );
+		expect( input.getAttribute( 'aria-describedby' ) ).toBe(
+			`kea-help-7316 ${ input.id }-refusal`
+		);
+	} );
+
 	it( 'shows the committed value until something is typed', () => {
 		const { input } = mount( { value: 'kestrel/p7', onCommit: jest.fn() } );
 		expect( input.value ).toBe( 'kestrel/p7' );

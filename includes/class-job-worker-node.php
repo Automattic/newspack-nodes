@@ -405,8 +405,8 @@ class Job_Worker_Node extends Node {
 	}
 
 	/**
-	 * Classify a handler's return value into an outcome. The thresholds are
-	 * `\Newspack_Pyrobase\Cron\CronManager::job_handler()`'s: `success_count`
+	 * Classify a handler's return value into an outcome. The thresholds come from
+	 * `\Newspack_Pyrobase\Cron\CronManager::job_handler()`: `success_count`
 	 * defaults to -1 (the "no stats reported" sentinel), `error_count` to 0, and
 	 * errors with no items processed is the only error. The status vocabulary
 	 * diverges — pyrobase reads errors ALONGSIDE items as `partial` where this

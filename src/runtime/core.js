@@ -270,8 +270,8 @@ class CoreImpl {
 	/**
 	 * Prepend a `YYYY-MM-DD HH:MM:SS <zone> <argv0>: ` prefix to every line,
 	 * in the reader's own zone like Tachikoma's Node.pm:459
-	 * `strftime( '%F %T %Z', localtime )`. In a browser that zone is the
-	 * viewer's, which is what makes a line here comparable to the tab beside it.
+	 * `strftime( '%F %T %Z', localtime )`. In a browser that is the
+	 * viewer's zone, which is what makes a line here comparable to the tab beside it.
 	 *
 	 * @param {?string} msg  Text to prefix; omitted returns the bare prefix.
 	 * @param {?number} [at] Seconds to stamp; defaults to now. A caller

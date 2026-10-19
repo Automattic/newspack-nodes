@@ -105,7 +105,7 @@ class PartitionArgumentsTest extends TestCase {
 		$this->assertSame( 'evlog:p5', $this->prop( $table, 'namespace' ) );
 	}
 
-	/** A Topic's `{partition}` is each of its N partitions, not the worker's. */
+	/** A Topic's `{partition}` is each of its N partitions, not the worker's partition. */
 	public function test_a_topic_builds_each_partition_from_its_template(): void {
 		Core::$var['partition'] = '5';
 		$topic                  = new Topic_Node();

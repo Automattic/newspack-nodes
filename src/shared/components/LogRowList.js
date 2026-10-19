@@ -108,8 +108,8 @@ export const DEBUG_MAX_ROWS = 500;
  * One-row renderer: the element standing in for a row of the pulled window.
  *
  * It is handed straight to `Array.map`, so the window index and the window
- * array follow the row — unread by contract, and that index is the WINDOW's,
- * not the ring's.
+ * array follow the row — unread by contract, and that index counts in the WINDOW,
+ * not the ring.
  *
  * @callback RenderRow
  * @param {Object} row One row, as the view node yields it from the ring.

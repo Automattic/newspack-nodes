@@ -346,8 +346,8 @@ function joinDepartures( state, offered ) {
  * remounted one ignores what was offered before it mounted, so nothing waits
  * on a bar that is not drawn.
  *
- * The motion baseline is this component's too, because the cursor is this
- * topology's own and no earlier stage of the graph holds THIS tree's widths.
+ * This component owns the motion baseline too, because the cursor belongs to
+ * this topology and no earlier stage of the graph holds THIS tree's widths.
  * It advances once per poll, keyed by `prevSegments`, so a re-render between
  * polls plans against the same baseline as the poll's own render.
  *
@@ -364,7 +364,7 @@ const LogRows = memo( function LogRows( {
 	prevSegments,
 	removingSegments,
 } ) {
-	// A departure offered before this row mounted is not this row's to draw.
+	// A departure offered before this row mounted is not for this row to draw.
 	const [ departures, setDepartures ] = useState( () => ( {
 		held: new Map(),
 		gone: new Set(

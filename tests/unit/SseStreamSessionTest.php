@@ -203,7 +203,7 @@ class SseStreamSessionTest extends TestCase {
 		$events = $this->run_ipc_stream( null, [], false );
 
 		$this->assertSame( 'superseded', $events['disconnect'][0][ Message::KEY ] ?? null );
-		$this->assertSame( [], $logged, 'a routine reconnect is no error' );
+		$this->assertSame( [], $logged, 'a routine reconnect is not an error' );
 	}
 
 	public function test_a_lost_lease_still_reports_its_diagnostic(): void {

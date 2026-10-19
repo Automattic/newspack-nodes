@@ -4,7 +4,7 @@
  *
  * The offsetlog and the dead-letter queue are the same thing wearing different
  * geometry — a patron-linked Partition that a node owns, whose dir is an
- * ARGUMENT (empty disables it) and whose sink is its patron's. This is that
+ * ARGUMENT (empty disables it) and which shares its patron's sink. This is that
  * shape, once, for the two traits that reach it: `Durable_Reader` builds the
  * offsetlog, `Dead_Letter_Queue` the quarantine. A using class must be a Node,
  * because the sidecar takes `$this` as its patron and copies the patron's own

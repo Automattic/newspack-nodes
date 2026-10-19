@@ -15,8 +15,8 @@
  * directory of their own, and a bare `{file}` is never written; and its
  * `fill()` drops control messages instead of writing them. Segments, monotonic
  * rotation, the three retention rules, the rotate and write locks,
- * `allow_large_writes()` / `void_warranty()` and the batch/flush path are the
- * parent's, unchanged but for the paths they use. Mirrors
+ * `allow_large_writes()` / `void_warranty()` and the batch/flush path come
+ * from the parent, unchanged but for the paths they use. Mirrors
  * Tachikoma::Nodes::Log, which writes VALUEs too.
  *
  * @package Newspack_Nodes

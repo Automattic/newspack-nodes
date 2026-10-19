@@ -20,7 +20,7 @@ import { Core } from '../../../runtime/core';
 
 const INCLUDES = path.resolve( __dirname, '../../../../includes' );
 
-// The transcript cap IS the Dumper's, so a restored transcript agrees with it.
+// The transcript cap IS the Dumper's cap, so a restored transcript agrees with it.
 const MAX_PERSISTED_TRANSCRIPT = TRANSCRIPT_MAX;
 const MAX_PERSISTED_HISTORY = 100;
 

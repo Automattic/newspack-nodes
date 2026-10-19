@@ -10,7 +10,7 @@
  *
  * Each consumer keeps its own copy: the mapper's target is
  * `<rootDir>/jest.style-mock.js`, and jest's rootDir is the directory holding
- * the config it loaded — this example's, not the substrate's.
+ * the config it loaded — this example's config, not the substrate's.
  *
  * One shape of import escapes it. ../../src/build-kit/alias-map.cjs emits the
  * `^@newspack-nodes/shared/(.*)$` mapper ahead of the style mock, jest takes

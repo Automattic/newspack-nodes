@@ -804,7 +804,7 @@ class Core {
 	 * bug, refused by name rather than read as no partition.
 	 *
 	 * @return int|null The bound partition, or null when none is.
-	 * @throws \LogicException When the bound value is no canonical decimal.
+	 * @throws \LogicException When the bound value is not a canonical decimal.
 	 */
 	public static function bound_partition(): ?int {
 		if ( ! \array_key_exists( 'partition', self::$var ) ) {

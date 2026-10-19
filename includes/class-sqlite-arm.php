@@ -94,7 +94,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * raises. A day's scan touches more pages than `ROWS_CACHE_KIB` holds,
 	 * and each page it misses is a `pread()` back into the file; mapped, a
 	 * page the kernel holds is read in place, with no syscall and no copy.
-	 * On a host where a syscall is dear, Atomic's, that turns a minute's
+	 * On a host where a syscall is dear, such as Atomic, that turns a minute's
 	 * scan into seconds.
 	 */
 	private const ROWS_MMAP_BYTES = 2147418112;
@@ -221,7 +221,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * the path it reads nothing and fails every write, and each read looks
 	 * again, so a file its writer creates while the arm lives is read from
 	 * then on. It opens with `busy_timeout` alone, so only a path SQLite
-	 * cannot open refuses here; a file that is no database, or holds no `kv`
+	 * cannot open refuses here; a file that is not a database, or holds no `kv`
 	 * table, fails each read instead. SQLite may add the `-wal` and `-shm`
 	 * files a WAL reader needs beside a file whose writer is not running.
 	 *
@@ -602,8 +602,8 @@ final class Sqlite_Arm extends Durable_Arm {
 
 	/**
 	 * See Durable_Arm::write_scope(): one transaction holding the write lock
-	 * from its start, so a read inside sees what it writes over. The file is
-	 * this arm's own, so no caller's transaction shares the connection.
+	 * from its start, so a read inside sees what it writes over. This arm owns
+	 * the file, so no caller's transaction shares the connection.
 	 */
 	protected function write_scope( \Closure $work ): mixed {
 		$this->handle()->exec( 'BEGIN IMMEDIATE' );
@@ -737,7 +737,7 @@ final class Sqlite_Arm extends Durable_Arm {
 	 * Refuse a sqlite process running as root: SQLite adds files beside a
 	 * database it opens, `-wal` and `-shm` beside a WAL file, and a build
 	 * writes its own file, and root's would lock the file's worker out.
-	 * Running as root is the operator's to fix, never a backend to degrade
+	 * Running as root is for the operator to fix, never a backend to degrade
 	 * past, so the refusal is a plain \RuntimeException.
 	 *
 	 * @api Read by a mounted Table before its arm opens.

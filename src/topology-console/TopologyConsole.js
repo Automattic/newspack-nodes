@@ -351,7 +351,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		( raw ) => topologyFromParam( raw, topologyWorkers, activeTopologies ),
 		( name ) => name || null
 	);
-	// p0 is every topology's, so the bar leaves it out.
+	// Every topology has p0, so the bar leaves it out.
 	const [ partition, setPartition ] = useQueryParamState(
 		'partition',
 		partitionFromParam,
@@ -565,7 +565,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		}
 		// A re-seed is a reload: dump against the old expansion, load the new.
 		const prev = seededExpansionRef.current;
-		// The expansion has to be THIS document's, or a save writes it empty.
+		// Unless THIS document owns the expansion, a save writes it empty.
 		const isOurs = expansionMatchesIncludes( expansion, draft.includes );
 		if (
 			isOurs &&

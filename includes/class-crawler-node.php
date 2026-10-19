@@ -235,7 +235,7 @@ final class Crawler_Node extends Timer_Node {
 	}
 
 	/**
-	 * Take a seed: one that is no absolute http(s) url, or that holds
+	 * Take a seed: one that is not an absolute http(s) url, or that holds
 	 * whitespace, answers a TM_ERROR copy to target; a valid one is normalized
 	 * as a link is and discovered, and the crawler refills. A seen one answers
 	 * a TM_INFO copy keyed by its url, and one whose `ADD` the Table refuses
@@ -279,7 +279,7 @@ final class Crawler_Node extends Timer_Node {
 	 * origin, so it and a page's link to the same url share one seen key.
 	 *
 	 * @param string $value The trimmed seed.
-	 * @return string|null Null when it is no absolute http(s) url, or holds whitespace.
+	 * @return string|null Null when it is not an absolute http(s) url, or holds whitespace.
 	 */
 	private static function seed_url( string $value ): ?string {
 		try {

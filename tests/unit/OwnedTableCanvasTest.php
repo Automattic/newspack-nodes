@@ -137,7 +137,7 @@ final class OwnedTableCanvasTest extends TestCase {
 		$this->assertSame( '', $meta['crawl-4471']['target'] );
 	}
 
-	public function test_a_schema_hidden_sibling_is_no_sidecar_and_answers_no_name(): void {
+	public function test_a_schema_hidden_sibling_is_not_a_sidecar_and_answers_no_name(): void {
 		$owner = $this->silent_owner();
 
 		$meta  = $this->ci->dispatch( 'dump_metadata' );
@@ -151,7 +151,7 @@ final class OwnedTableCanvasTest extends TestCase {
 	}
 
 	/** A published sibling with no patron draws on the canvas, as a Vault_Group's child does. */
-	public function test_a_published_sibling_with_no_patron_draws_and_is_no_sidecar(): void {
+	public function test_a_published_sibling_with_no_patron_draws_and_is_not_a_sidecar(): void {
 		$this->silent_owner();
 
 		$meta = $this->ci->dispatch( 'dump_metadata' );

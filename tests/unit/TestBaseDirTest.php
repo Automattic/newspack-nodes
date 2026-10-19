@@ -69,7 +69,7 @@ class TestBaseDirTest extends TestCase {
 		$this->assertDirectoryDoesNotExist( $this->child_base()['base'] );
 	}
 
-	/** A base a consumer named is the consumer's: the substrate leaves it. */
+	/** A base a consumer named belongs to the consumer: the substrate leaves it. */
 	public function test_a_bootstrap_leaves_a_base_it_did_not_name(): void {
 		$named = $this->make_temp_dir( 'kea-named-8813-' );
 

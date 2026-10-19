@@ -279,7 +279,7 @@ const langOf = ( file ) => {
  */
 const isTestPath = ( file ) => /__tests__|\/tests\//.test( file );
 
-/** Is this a file the gate scans: a JS or PHP source that is no test? */
+/** Is this a file the gate scans: a JS or PHP source that is not a test? */
 const isScanned = ( file ) => langOf( file ) && ! isTestPath( file );
 
 /**

@@ -130,8 +130,8 @@ export function stepPosition( link, sub, positions ) {
  * the SSE positions seed it just selected, because every caller needs that seed
  * in the same tick to hand to `seek()`; derived state arrives a render too late.
  *
- * The displayed Live/Replay mode is the VIEW's (`SeekTracker.mode`), not this
- * hook's — one concept, one state machine.
+ * The displayed Live/Replay mode belongs to the VIEW (`SeekTracker.mode`), not
+ * this hook — one concept, one state machine.
  *
  * @param {string} sub The subscription (partition dir or log-source name).
  * @return {{segmentId: ?(number|string), follow: () => null, browseSegment: (id: number) => Object<string,{segment:number,offset:number}>, replay: () => Object<string,string>}}
@@ -238,7 +238,7 @@ export function useLogStatusSegments( { sub, scope, graph } ) {
  *                                                          it and no rail timer is armed.
  * @param {string}                    [o.railName]          Timer node name for the refresh tick;
  *                                                          only a rail with a `refresh` arms one.
- * @param {string}                    o.mode                Displayed 'live' | 'replay' (the view's).
+ * @param {string}                    o.mode                Displayed 'live' | 'replay' (the view's mode).
  * @param {?number}                   o.lastReceivedSegment Segment the last record arrived from.
  * @param {Function}                  o.seek                `( sub, positions, source? ) => void`.
  * @param {(paused: boolean) => void} o.setPaused           Pause the stream for time travel.

@@ -63,7 +63,7 @@ final class LogDiscoveryIsStampTest extends TestCase {
 			'a reader whose root climbs'         => [ 'offsets:..:firehose.p3', false ],
 			'a reader whose root is dot-led'     => [ 'offsets:.hub:firehose.p3', false ],
 			'a reader whose kind climbs'         => [ 'offsets:hub.tucson-41:..', false ],
-			'a reader whose kind is no stamp'    => [ 'offsets:hub.tucson-41:kea:okapi', false ],
+			'a reader whose kind is not a stamp' => [ 'offsets:hub.tucson-41:kea:okapi', false ],
 			'a reader whose kind holds a slash'  => [ 'offsets:hub.tucson-41:sources/php', false ],
 			'a reader with a space in its root'  => [ 'offsets:hub tw0:firehose.p3', false ],
 			'a reader with a glob kind'          => [ 'offsets:hub.tucson-41:firehose.*', false ],

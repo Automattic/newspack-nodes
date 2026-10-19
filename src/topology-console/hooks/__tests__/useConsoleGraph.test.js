@@ -928,7 +928,7 @@ describe( 'useConsoleGraph — station transcript persistence [87]', () => {
 } );
 
 describe( 'useConsoleGraph — lifecycle', () => {
-	// The backbone is the page's and stands either way; what `enabled=false`
+	// The backbone belongs to the page and stands either way; what `enabled=false`
 	// means is no VIEW nodes and no stream. Edit mode still saves, deletes and
 	// expands, and those commands need somewhere to sink.
 	it( 'short-circuits when enabled=false: no view nodes, status closed', () => {

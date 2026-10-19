@@ -419,8 +419,8 @@ final class Vault_Group_Node extends Node {
 
 	/**
 	 * Palette entry and configuration form: the child type, the group and the
-	 * child argument templates, a variadic the node reads itself; the verbs
-	 * are the child class's, so none are declared here.
+	 * child argument templates, a variadic the node reads itself; the child
+	 * class declares the verbs, so none are declared here.
 	 *
 	 * @api Dynamic entrypoint.
 	 * @return array<string,mixed>

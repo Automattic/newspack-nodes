@@ -97,7 +97,7 @@ describe( 'AggregatorServersViewNode', () => {
 	} );
 } );
 
-// A payload that is no array parses to null, so the prior slice stands.
+// A payload that is not an array parses to null, so the prior slice stands.
 test( 'a string payload keeps the slice it already published', () => {
 	const v = makeView();
 	v.fill( reply( [ { id: 'a' } ] ) );

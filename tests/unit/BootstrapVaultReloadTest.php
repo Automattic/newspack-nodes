@@ -124,8 +124,8 @@ class BootstrapVaultReloadTest extends TestCase {
 		$this->assertFileDoesNotExist( $this->flag( 'quiet-lab', Lock_Node::RESTART_FLAG ) );
 	}
 
-	/** A broker is recognized by its base class, so one that is no Remote_Source is signalled too. */
-	public function test_a_broker_that_is_no_remote_source_is_signalled(): void {
+	/** A broker is recognized by its base class, so one that is not a Remote_Source is signalled too. */
+	public function test_a_broker_that_is_not_a_remote_source_is_signalled(): void {
 		require_once \dirname( __DIR__ ) . '/Helpers/fixtures/class-tapir-fetch-node.php';
 		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\Fixtures\\' );
 		$this->write_tsl( 'fetch-lab', "make_node Tapir_Fetch tapir-fetcher vault-6152 /tmp/o /tmp/d\n" );

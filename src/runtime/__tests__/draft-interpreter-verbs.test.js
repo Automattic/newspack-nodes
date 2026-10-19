@@ -832,7 +832,7 @@ describe( 'remove_include takes what the include brought', () => {
 
 describe( 'a borrowed node the file re-sinks', () => {
 	it( 'keeps the set_sink line', () => {
-		// The node is the include's, but the LINE is the file's — same rule
+		// The node belongs to the include, the LINE to the file — same rule
 		// that keeps a `command_node` aimed at a borrowed node.
 		const baseline = {
 			nodes: [ { name: 'borrowed', class: 'Echo', origin: [ 's' ] } ],

@@ -210,7 +210,7 @@ export function useExpandedIncludes( includes, { groupChildren = true } = {} ) {
  * @param {?Object}  expansion `topologies expand` result; a missing one
  *                             matches only a document declaring no includes.
  * @param {string[]} includes  The document's direct includes.
- * @return {boolean} True when the expansion is this document's.
+ * @return {boolean} True when the expansion belongs to this document.
  */
 export function expansionMatchesIncludes( expansion, includes ) {
 	const tree = expansion?.tree ?? {};

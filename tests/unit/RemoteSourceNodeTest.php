@@ -147,7 +147,7 @@ class RemoteSourceNodeTest extends TestCase {
 	// The tick, the transports and the arguments.
 	// ---------------------------------------------------------------------
 
-	/** The broker's tick is the Router's own, which it hitchhikes once a second. */
+	/** The broker's tick is the Router's own tick, which it hitchhikes once a second. */
 	public function test_the_tick_rides_the_router_once_a_second(): void {
 		$node = $this->broker( 'remote-tick-6619' );
 
@@ -311,7 +311,7 @@ class RemoteSourceNodeTest extends TestCase {
 		}
 		$this->assertSame( '', $node->target() );
 		$this->assertSame( 'downstream', $child->target(), 'each reader keeps its source target' );
-		$this->assertFalse( Core::class_fans_out( Remote_Source_Node::class ), 'a broker is no fan-out' );
+		$this->assertFalse( Core::class_fans_out( Remote_Source_Node::class ), 'a broker is not a fan-out' );
 		$this->assertFalse( Remote_Source_Node::node_schema()['has_target'] );
 	}
 
@@ -531,7 +531,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 60417, $firehose->probe_stats()[ Probe_Record::DISTANCE ] );
 	}
 
-	/** A record sent alone, outside a block, is no stream's: dropped, and said. */
+	/** A record sent alone, outside a block, belongs to no stream: dropped, and said. */
 	public function test_a_record_frame_reaches_no_reader(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$errors = $this->capture_stderr();
@@ -540,7 +540,7 @@ class RemoteSourceNodeTest extends TestCase {
 		Core::node( 'remote-austin:sse-in' )->process_sse_chunk( self::sse_frame( 'msg', [ Message::TYPE => Message::TM_BYTESTREAM, Message::FROM => 'firehose.p0', Message::ID => '3:0:12', Message::VALUE => 'bilge-1197' ] ) );
 
 		$this->assertSame( 0, $child->buffered_bytes() );
-		$this->assertStringContainsString( 'dropping a frame that is no raw block', \implode( '', $errors->getArrayCopy() ) );
+		$this->assertStringContainsString( 'dropping a frame that is not a raw block', \implode( '', $errors->getArrayCopy() ) );
 	}
 
 	public function test_first_tick_creates_and_configures_sse_in_patron(): void {

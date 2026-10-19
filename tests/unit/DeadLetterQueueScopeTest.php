@@ -37,7 +37,7 @@ class DeadLetterQueueScopeTest extends TestCase {
 			$this->assertNotContains(
 				$reader_only,
 				$partition,
-				"Partition_Node uses Dead_Letter_Queue alone and reads nothing; {$reader_only} is Durable_Reader's"
+				"Partition_Node uses Dead_Letter_Queue alone and reads nothing; {$reader_only} belongs to Durable_Reader"
 			);
 		}
 	}

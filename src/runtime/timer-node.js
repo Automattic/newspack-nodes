@@ -36,8 +36,8 @@ import {
  * share a tick again. The offset itself only keeps the grid off :00, where every
  * other cron already is.
  *
- * @testonly Exported for tests that pin a clock to a boundary; the grid is
- * TimerNode's alone, and `lint-contract`'s `grid-math` rule keeps it that way.
+ * @testonly Exported for tests that pin a clock to a boundary; the grid
+ * belongs to TimerNode alone, and `lint-contract`'s `grid-math` rule keeps it that way.
  */
 export const GRID_PHASE_MS = 360;
 

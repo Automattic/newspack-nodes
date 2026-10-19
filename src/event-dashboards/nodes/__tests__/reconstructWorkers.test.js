@@ -620,7 +620,7 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 			p1.nextLive
 		);
 		expect( p2.writeRates[ src ] ).toBe( 0 );
-		// A clock that ran backward is no span either.
+		// A clock that ran backward does not make a span either.
 		const p3 = reconstructWorkers(
 			unprobed( [ { id: 4, size: 700 } ], 999.75 ),
 			p2.nextLive

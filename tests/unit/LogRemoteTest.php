@@ -94,7 +94,7 @@ final class LogRemoteTest extends TestCase {
 		$this->assertTrue( Log_Discovery::is_stamp( 'remote' ) );
 	}
 
-	public function test_a_remote_name_is_no_stamp_or_subscription_the_wire_carries(): void {
+	public function test_a_remote_name_is_neither_a_stamp_nor_a_subscription_the_wire_carries(): void {
 		$this->assertFalse( Log_Discovery::is_stamp( 'remote:austin-9' ) );
 		$this->assertFalse( Log_Discovery::is_subscription( 'remote:austin-9' ) );
 		$this->assertFalse( Log_Discovery::is_stamp( 'remote:austin-9:firehose.p0' ) );

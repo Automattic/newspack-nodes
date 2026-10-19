@@ -80,7 +80,7 @@ class StdoutNodeTest extends TestCase {
 
 	public function test_fill_writes_nothing_for_an_array_value(): void {
 		// The canonical scalar read every terminal sink shares (Stderr_Node
-		// already used it): a non-scalar VALUE is not this sink's to render,
+		// already used it): a non-scalar VALUE is not for this sink to render,
 		// so it writes nothing rather than the useless word `Array`.
 		$this->assertSame( '', $this->fill_value( [ 'a', 'b' ] ) );
 	}
@@ -132,7 +132,7 @@ class StdoutNodeTest extends TestCase {
 	}
 
 	public function test_fill_adds_no_ansi_off_a_terminal(): void {
-		// A php://memory stream is no terminal, so the token stands alone.
+		// A php://memory stream is not a terminal, so the token stands alone.
 		$this->assertStringNotContainsString( "\033[7m", $this->fill_value( "\x1Bx" ) );
 	}
 

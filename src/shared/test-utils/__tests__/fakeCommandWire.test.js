@@ -108,7 +108,7 @@ test( 'replies route back TO = FROM, so a caller needs no correlator', async () 
 } );
 
 // PHP's check() refuses a command it cannot verify and interpret() answers
-// it as unauthorized; only a VALUE that is no command struct goes unanswered.
+// it as unauthorized; only a VALUE that is not a command struct goes unanswered.
 const forgedCommand = ( value, type = TM_COMMAND ) => {
 	const m = newMessage();
 	m[ TYPE ] = type;
@@ -137,7 +137,7 @@ test.each( [
 	[ 'a string VALUE', 'ls' ],
 	[ 'a VALUE without a name', { arguments: [] } ],
 ] )(
-	'answers nothing to %s, which is no command struct',
+	'answers nothing to %s, which is not a command struct',
 	async ( label, value ) => {
 		const replyFor = jest.fn( () => 'ok' );
 		const wire = makeFakeCommandWire( replyFor );

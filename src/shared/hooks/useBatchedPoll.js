@@ -21,7 +21,7 @@
  *
  * The caller supplies a `build( { interpreter, tee } )` adding ONLY the
  * dashboard-specific nodes, typically one `addSliceFetcher` per slice. The
- * egress target path stays the caller's: the exospine provides `_http` and
+ * caller still names the egress target path: the exospine provides `_http` and
  * the Tap of each group a slice's target names, and the caller names the group
  * and the server CI mount owning the verb, which `egressPath( group, ci )`
  * spells.

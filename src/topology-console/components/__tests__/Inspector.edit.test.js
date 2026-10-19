@@ -182,7 +182,7 @@ describe( 'Inspector (edit mode)', () => {
 	it( 'lets the document edit its OWN verbs on a borrowed node', () => {
 		// stock hub-control.tsl is exactly this: `include settings-sync` plus
 		// `cmd settings-sync:config add_setting ...` lines aimed at it. The
-		// include's half stays read-only; the file's half is the file's.
+		// include's half stays read-only; the file's half belongs to the file.
 		const onUpdateVerbs = jest.fn();
 		const props = {
 			...baseProps,

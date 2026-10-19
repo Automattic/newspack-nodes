@@ -81,7 +81,7 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 	const { makeSkinHost } = require( '../core/skinCommands' );
 	const { THEMES, getStoredTheme, applySkin } = require( '../themes' );
 	const reserved = require( '../../runtime/reserved-node-names.json' );
-	// View nodes only: the backbone is the page's and outlives edit mode,
+	// View nodes only: the backbone belongs to the page and outlives edit mode,
 	// exactly as the real hook's separate backbone effect leaves it standing.
 	const NAMES = [
 		reserved.OUTPUT,
@@ -5970,7 +5970,7 @@ describe( 'TopologyConsole boot', () => {
 				( n ) => n.id === 'n1'
 			);
 			expect( node ).toBeDefined();
-			// The DOCUMENT's, not borrowed — so a save still writes it.
+			// It belongs to the DOCUMENT, not borrowed — so a save still writes it.
 			expect( node.origin ).toBeUndefined();
 			// And nothing the PARENT's expansion carried leaked in with it.
 			expect(

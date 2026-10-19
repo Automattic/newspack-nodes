@@ -4,7 +4,7 @@
  * `usePersistedState` and `usePersistedChoice` run the same four steps: read
  * the key, validate what came back against what the UI still offers, fall
  * back when nothing usable survived, then write it back in an effect. Only
- * the codec and the cardinality differ, so both are the caller's: `restore`
+ * the codec and the cardinality differ, so the caller supplies both: `restore`
  * decodes and validates, `encode` serializes. `usePersistedFlag` stores a
  * boolean only when the reader toggles it.
  *
@@ -17,7 +17,7 @@ import { readStorage, writeStorage } from '../utils/storage';
 /**
  * Own a value persisted under `key`.
  *
- * The setter is React's own, so it takes either a value or an updater —
+ * The setter comes from React, so it takes either a value or an updater —
  * `useColumnPicker` toggles one column off the previous selection that way.
  *
  * `encode` joins the write effect's dependencies, so pass a stable reference

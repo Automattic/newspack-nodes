@@ -11,7 +11,7 @@ import {
  * defaults and the same hidden backbone a remote reply carries, so one canvas
  * draws either.
  *
- * The graph is the BROWSER's, its reserved scaffolding included, and no worker
+ * The graph belongs to the BROWSER, its reserved scaffolding included, and no worker
  * graph holds that scaffolding. So this is what a local canvas paints from
  * until a reply lands (`useGraphSource`'s `coreFallback`), never a stand-in
  * for a worker's `dump_metadata`.

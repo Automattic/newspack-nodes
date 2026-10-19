@@ -319,7 +319,7 @@ class CapsCliCommandTest extends TestCase {
 
 	/**
 	 * A host with application passwords disabled still gets its user; the
-	 * credential is the operator's to create by hand, and saying so beats
+	 * credential is for the operator to create by hand, and saying so beats
 	 * failing after the role is already set.
 	 */
 	public function test_a_refused_application_password_warns_rather_than_fails(): void {

@@ -5,7 +5,7 @@
  * sends them, and the reply lands on this hook's own result node because the
  * server echoes TO=FROM. Nothing here mints a POST of its own.
  *
- * The outbox is the FETCHER's, the same one a polled slice throttles itself
+ * The outbox is the FETCHER's outbox, the same one a polled slice throttles itself
  * with — one mechanism for "what have I asked and not been answered", not two.
  * This hook adds only what a caller waiting on an answer needs: what each send
  * is ABOUT, and whether a write queues behind the last one or replaces it.
@@ -188,7 +188,7 @@ export function useCommandOnce( {
 	const [ model, setModel ] = useState( null );
 
 	useNodeEvent( view, 'result', ( reply ) => {
-		// A transport refusal is no answer: a read keeps asking.
+		// A transport refusal is not an answer: a read keeps asking.
 		if ( retry && reply.undelivered ) {
 			return;
 		}

@@ -313,8 +313,8 @@ class Worker_Should_Stop extends \RuntimeException {
 	 * A long work loop that honours a cooperative stop promptly: offer `$fn`
 	 * each item in order, collect every failure under its item's key, and at
 	 * the first `Worker_Should_Stop` return at once with everything caught so
-	 * far, the stop included. The items it never offered are the successor's
-	 * to replay. The items' keys must be unique, as an array's are.
+	 * far, the stop included. The items it never offered are left for
+	 * the successor to replay. The items' keys must be unique, as an array's are.
 	 *
 	 * @api Stable surface (docs/stability.md item 11).
 	 * @template K of array-key

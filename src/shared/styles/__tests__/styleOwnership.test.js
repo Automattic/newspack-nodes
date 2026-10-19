@@ -1923,7 +1923,7 @@ describe( 'canonical appearance ownership', () => {
 
 	it( 'gives the shared header ONE resting height, owned by the header', () => {
 		// Every host mounts the same header — station, console, debug overlay and
-		// a consumer's standalone dashboard — so the height is the header's, not
+		// a consumer's standalone dashboard — so the header sets the height, not
 		// a declaration each host repeats and one of them gets wrong.
 		expect(
 			declarationsForSelector( graphStylesheet, '.topology-header' )

@@ -88,8 +88,8 @@ function inOut( inbound, outbound ) {
  * Under them sit the same two Tachikoma-style rate panels the station Overview shows
  * (Message Rate, Byte Rate) with In/Out series in place of per-topic, a button
  * that zeroes the telemetry, and the lines this browser classified, newest
- * first, behind err/warn/dbg chips. Those lines are the overlay's own, never the
- * server's, which is what the "Messages (this browser)" heading says out loud.
+ * first, behind err/warn/dbg chips. Those lines come from the overlay itself, never
+ * from the server, which is what the "Messages (this browser)" heading says out loud.
  *
  * Header-less: the panel owns the one shared header above the tab bar, so this
  * tab renders only the scrolling body, on the station's card, panel and chart

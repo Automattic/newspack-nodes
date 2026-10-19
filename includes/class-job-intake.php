@@ -284,8 +284,8 @@ class Job_Intake {
 	 * Cache keys for the batch fan-in counters and the unique-enqueue gate.
 	 * Site-scoped through Cache_Backend: one fleet spans many containers and
 	 * must agree on them, while a co-tenant install on the same memcached must
-	 * not join in. Builders, not prefixes — a scope the caller has to remember
-	 * to apply is one a caller eventually forgets.
+	 * not join in. Builders, not prefixes — a caller eventually forgets a scope
+	 * it has to remember to apply.
 	 */
 	public static function batch_count_key( string $batch ): string {
 		return Cache_Backend::site_key( 'job-batch:' . $batch );

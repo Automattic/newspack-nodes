@@ -52,8 +52,8 @@ export const SOURCE_ARGS = [
  * `remove_source` applies, as PHP `Remote_Broker_Node::fold_source()` folds
  * them. A source goes to one target, compared as written; an identical
  * repeat answers `declared` itself; a removal must name a declared source;
- * an added source must be one a spoke can stream and whose reader takes no
- * slot a broker keeps, judged with `{partition}` resolved at `partition`.
+ * a spoke must be able to stream an added source, and its reader must take
+ * no slot a broker keeps, judged with `{partition}` resolved at `partition`.
  * A `<ns:key>` config token, which PHP resolves and the browser cannot,
  * stands for one name character, as a glob's `*` does in `isSubscription()`.
  *

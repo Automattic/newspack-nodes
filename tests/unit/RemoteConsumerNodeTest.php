@@ -1754,7 +1754,7 @@ class RemoteConsumerNodeTest extends TestCase {
 		$this->assertLessThan( 333 + 200, $node->largest_msg_sent(), 'measured as one line, not a sum' );
 	}
 
-	public function test_a_two_part_id_is_no_crumb(): void {
+	public function test_a_two_part_id_is_not_a_crumb(): void {
 		// Every producer stamps seg:off:len; seg:off is only a viewer's lookup address.
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
@@ -2281,7 +2281,7 @@ class RemoteConsumerNodeTest extends TestCase {
 		$this->assertStringContainsString( 'no record at firehose.p0 31:4404-5582', \implode( '', Core::$recent_log ) );
 	}
 
-	public function test_a_bounce_of_a_stepped_record_is_no_step_reply(): void {
+	public function test_a_bounce_of_a_stepped_record_is_not_a_step_reply(): void {
 		[ , $node ] = $this->stepping_reader( [ 'firehose.p0', 'nowhere-6120' ] );
 
 		$node->fill( self::step_reply( 'remote-austin:firehose.p0', self::stepped_record( '31:4404:61', 'unrouted-4173' ), 31, 4465 ) );
@@ -2318,7 +2318,7 @@ class RemoteConsumerNodeTest extends TestCase {
 		$this->assertNull( $this->read_private( $node, 'step_requested_at' ), 'the reply settled the request' );
 	}
 
-	public function test_a_message_that_is_no_command_reply_settles_no_step(): void {
+	public function test_a_message_that_is_not_a_command_reply_settles_no_step(): void {
 		[ , $node, $sink ] = $this->stepping_reader();
 		$echo                     = self::step_reply( 'remote-austin:firehose.p0', self::stepped_record( '31:4404:61', 'forged-5124' ), 31, 4465 );
 		$echo[ Message::TYPE ]    = Message::TM_STRUCT;

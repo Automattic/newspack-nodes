@@ -252,7 +252,7 @@ trait Dead_Letter_Queue {
 	 * `fill()` returns nothing, so it is asked first, else a refused record
 	 * would be reported quarantined.
 	 *
-	 * A write that fails is no quarantine, so nothing is reported and the failure
+	 * A write that fails is not a quarantine, so nothing is reported and the failure
 	 * raises through `Worker_Should_Stop::raise()`, combined with `$error`: the error
 	 * the quarantine would have recorded escapes beside the one that stopped it. A
 	 * reader's cursor stays put, and the successor replays the message; a stop during

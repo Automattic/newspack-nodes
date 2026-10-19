@@ -259,7 +259,7 @@ class RawLogsCITest extends TestCase {
 				[
 					'label'     => 'hub.tucson-41/Firehose.p3',
 					'available' => false,
-					'error'     => 'log dir hub.tucson-41/Firehose.p3 is no stamp a stream can name; rename it',
+					'error'     => 'log dir hub.tucson-41/Firehose.p3 is not a stamp a stream can name; rename it',
 				],
 				[ 'key' => 'offsets:hub.tucson-41:firehose.p3', 'label' => 'offsets:hub.tucson-41:firehose.p3', 'available' => true ],
 				[
@@ -361,7 +361,7 @@ class RawLogsCITest extends TestCase {
 				[
 					'label'     => 'Kea-5512.p4',
 					'available' => false,
-					'error'     => 'log dir Kea-5512.p4 is no stamp a stream can name; rename it',
+					'error'     => 'log dir Kea-5512.p4 is not a stamp a stream can name; rename it',
 				],
 				[ 'key' => 'offsets:kea-5512.p4', 'label' => 'offsets:kea-5512.p4', 'available' => true ],
 			],

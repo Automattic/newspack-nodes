@@ -663,7 +663,7 @@ class CommandAuthSessionTest extends TestCase {
 		$this->assertSame( [], Command_Auth::load_session_records( [] ) );
 	}
 
-	/** A read the store refused is no answer, never an empty directory. */
+	/** A read the store refused is not an answer, never an empty directory. */
 	public function test_load_session_records_throws_when_the_store_refuses_the_read(): void {
 		$handle                    = Command_Auth::mint_session( Capabilities::READ, self::TTL )['handle'];
 		$this->db->deny['SELECT cache_key'] = 'Lost connection 4817';
@@ -677,7 +677,7 @@ class CommandAuthSessionTest extends TestCase {
 	 * A row a mint writes carries its label and when it was minted; a row
 	 * lacking either is not a session, whatever its key and scope.
 	 */
-	public function test_a_row_without_its_label_or_created_is_no_session(): void {
+	public function test_a_row_without_its_label_or_created_is_not_a_session(): void {
 		$full = [ 'k' => \str_repeat( 'b', 64 ), 's' => Capabilities::TUNE, 'u' => 7731, 'l' => 'weka-7731', 'c' => 1790001234 ];
 		$handles = [];
 		foreach ( [ 'l', 'c' ] as $i => $drop ) {
@@ -741,8 +741,8 @@ class CommandAuthSessionTest extends TestCase {
 		$this->assertSame( self::TTL, Command_Auth::bounded_ttl( self::TTL ) );
 	}
 
-	/** A row not shaped as a mint writes it verifies nothing; it is no session. */
-	public function test_a_row_in_any_other_shape_is_no_session(): void {
+	/** A row not shaped as a mint writes it verifies nothing; it is not a session. */
+	public function test_a_row_in_any_other_shape_is_not_a_session(): void {
 		$this->seed( '88230000000000000000000000000001', [ 's' => 'read', 'u' => 0 ] );
 		$this->seed( '88250000000000000000000000000002', [ 'k' => self::KEY, 'u' => 0 ] );
 		$this->seed( '88270000000000000000000000000003', self::KEY );

@@ -196,7 +196,7 @@ function SessionRow( { session, answer, busy, onRevoke } ) {
  *
  * The label is validated here and only here — an unlabelled mint works, but
  * `Sessions::issue()` declines to list it, so the operator would leave with a
- * key and no row to revoke it from. Every other refusal is the server's and
+ * key and no row to revoke it from. Every other refusal comes from the server and
  * arrives as the answer this form shows.
  *
  * Success does not close the dialog. The parent swaps it for the key dialog,

@@ -139,7 +139,7 @@ export function useConsoleGraph( {
 	const workersKey = workers.join( ',' );
 
 	// @longform
-	// The backbone is the PAGE's, not the stream's: it stands for as long as
+	// The backbone belongs to the PAGE, not the stream: it stands as long as
 	// the console is mounted, and only a graph-generation bump replaces it.
 	// Edit mode stops the stream and drops every view node, but a save, a
 	// delete and an include expansion all happen in edit mode — tearing the
@@ -244,7 +244,7 @@ export function useConsoleGraph( {
 		const consoleShell = new ShellNode();
 		consoleShell.path = reader;
 		consoleShell.sink = outgoingGate;
-		// The skins are the host's: stylesheet and storage both.
+		// The skins belong to the host: stylesheet and storage both.
 		consoleShell.host = makeSkinHost( {
 			skins: THEMES,
 			currentSkin: getStoredTheme,

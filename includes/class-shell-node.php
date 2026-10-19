@@ -106,7 +106,7 @@ class Shell_Node extends Node {
 	 * static front-end applies, to token[0] and only token[0], so a topology
 	 * written with the short form reads the same as the long form to every static
 	 * analysis. parse() needs no table: duplicate `case` labels are its aliases,
-	 * as duplicate `%BUILTINS` keys are Tachikoma's. This canonicalization is a
+	 * as duplicate `%BUILTINS` keys are in Tachikoma. This canonicalization is a
 	 * deliberate divergence — `make`/`connect`/`disconnect` are the INTERPRETER's
 	 * aliases, and consumers match `'make_node' === $statement['verb']`.
 	 *

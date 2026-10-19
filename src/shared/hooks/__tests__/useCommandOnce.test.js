@@ -38,8 +38,8 @@ let replyFor;
 let clock;
 
 /**
- * Mount the hook, then stop the Router's own 1s slot: the heartbeat is the
- * test's to drive, one `tick()` at a time, never the wall clock's.
+ * Mount the hook, then stop the Router's own 1s slot: the heartbeat is for
+ * the test to drive, one `tick()` at a time, never for the wall clock.
  *
  * @param {Object} options useCommandOnce options.
  * @return {Object} The renderHook handle.

@@ -32,8 +32,8 @@ exemption.
 Two consequences drive the defaults:
 
 - **The blast radius is the site's readers, not the offending connection.** A
-  stream holds its worker to the end, and the request that pays is the next
-  reader's. There is no per-client shedding to hide behind, which is why the
+  stream holds its worker to the end, and the next reader's request is the one
+  that pays. There is no per-client shedding to hide behind, which is why the
   cap must bind before the platform's does.
 - **Burst capacity cannot be spent on something sustained.** Bursting above the
   configured allocation is explicitly not guaranteed, and sites that lean on it
@@ -192,8 +192,8 @@ pool shrinks, and 45 seconds is the wall. The floor is **three**
 [`Command_Auth::has_session()`](../includes/class-command-auth.php) is false,
 and that reads the hub's own session map, which `HTTP_Out` empties when a poke
 comes back 401; `maybe_request_session()` then gates the ask as the diagram
-shows. The refresh
-is the client's alone: a browser pokes from its
+shows. Only the client
+refreshes: a browser pokes from its
 [`_heartbeat` node](../src/runtime/heartbeat-node.js), a machine pull from
 `Remote_Source_Node`, and the server checks the lease on every drain iteration
 and extends nothing.
@@ -205,7 +205,7 @@ opposite directions: on Atomic one pool host serves many sites, so a
 machine-only key would put all of them on one budget; in dndocker one site spans
 many containers over a shared database and memcached, so a site-only key would
 collapse those instead. The machine half is [`gethostname()`](https://www.php.net/manual/en/function.gethostname.php), never
-`SERVER_NAME`, because a namespace the caller picks is no rate limit. The site
+`SERVER_NAME`, because a namespace the caller picks is not a rate limit. The site
 half is twelve hex characters over `DB_NAME`, the network table prefix and the
 install's rotatable cache salt.
 

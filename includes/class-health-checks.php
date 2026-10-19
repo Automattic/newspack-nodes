@@ -112,7 +112,7 @@ final class Health_Checks {
 	 * fleet families report that instead. An evaluator that throws — a topology
 	 * catalog that will not build — is reported the same way, as critical and
 	 * carrying its message, so it too costs the fleet rows and nothing else. A
-	 * single topology that will not read is no such failure: `Alerts` answers
+	 * single topology that will not read is not such a failure: `Alerts` answers
 	 * it as one critical worker-liveness row, and the rest still evaluate.
 	 *
 	 * `wp nodes doctor` passes the web runtime's two rows over the loopback,

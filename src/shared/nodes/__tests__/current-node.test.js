@@ -114,7 +114,7 @@ describe( 'CurrentNode', () => {
 		expect( forwarded ).toEqual( [] );
 	} );
 
-	// A transform shapes data; a refusal is the view's to show as it came.
+	// A transform shapes data; a refusal is for the view to show as it came.
 	it( 'sends a refusal to the view', () => {
 		fetcher.send( [ '--search', 'wombat-4471' ] );
 		gate.fill( reply( '', [ '--search', 'wombat-4471' ], TM_ERROR ) );
@@ -172,7 +172,7 @@ describe( 'CurrentNode', () => {
 		expect( forwarded[ 0 ][ TO ] ).toBe( 'urls:view/spoke-0932' );
 	} );
 
-	it( 'drops a reply that is no error and echoes no arguments', () => {
+	it( 'drops a reply that is not an error and echoes no arguments', () => {
 		fetcher.send( [ 'spoke-0417' ], 'spoke-0417' );
 		gate.fill( bare( 'spoke-0417', TM_COMMAND | TM_RESPONSE ) );
 		expect( forwarded ).toEqual( [] );

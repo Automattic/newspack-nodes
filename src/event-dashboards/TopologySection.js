@@ -20,7 +20,7 @@ const TopologySection = memo(
 	/**
 	 * Renders one `TreeEntity` per root entity, spreading every prop into each,
 	 * so one call paints a whole subtree. `section.tree` is all this component
-	 * reads; the rest of the props are the tree's.
+	 * reads; the rest of the props go to the tree.
 	 *
 	 * @param {Object}                       props                  Component props.
 	 * @param {Object}                       props.section          One `buildTopologySections` section; its `tree` holds the root entities.

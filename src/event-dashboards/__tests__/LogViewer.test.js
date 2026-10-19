@@ -33,7 +33,7 @@ jest.mock( '@newspack-nodes/shared/components/LogBrowser', () => ( {
 } ) );
 
 // Own suite exercises this hook; mock it — 1 call/render = a render probe.
-// The rail's `dump_log` resolver is the substrate's and has its own suite;
+// The rail's `dump_log` resolver belongs to the substrate and has its own suite;
 // here it is a fixture, so these tests stay about what the viewer WIRES.
 const mockRefreshSegments = jest.fn();
 let mockRail = [];

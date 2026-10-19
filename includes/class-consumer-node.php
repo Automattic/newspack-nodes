@@ -353,7 +353,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 		$this->cursor_offset += \strlen( $bytes );
 		$this->buffer         = '';
 		$block               += [ 'distance' => \strlen( $bytes ) + $this->compute_lag( false )['bytes_behind'], 'reset' => $this->cursor_reset, 'type' => static::BATCH_TYPE ];
-		// A rewind an earlier lag read made is this block's to report.
+		// A rewind an earlier lag read made is for this block to report.
 		$this->cursor_reset = false;
 		return $block;
 	}
@@ -362,7 +362,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter, Position_Report
 	 * Bytes JSON carries exactly, so a block's length and every place in it
 	 * survive its encoding: a character the block would cut ends it before
 	 * that character, which the next block begins with, and each byte that is
-	 * no part of a character becomes one `?`. JSON would turn either into the
+	 * not part of a character becomes one `?`. JSON would turn either into the
 	 * three bytes of U+FFFD.
 	 *
 	 * @param string $bytes The bytes read.

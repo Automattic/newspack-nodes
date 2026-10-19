@@ -135,7 +135,7 @@ class FanoutTargetsTest extends TestCase {
 		$this->assertSame( [], $node->target() );
 	}
 
-	/** The fan-out setter refuses a list the schema says it takes no part of. */
+	/** The fan-out setter refuses a list when the schema declares no target. */
 	public function test_target_setter_refuses_a_fan_out_declaring_no_target(): void {
 		$node = new class() extends Node {
 			use Fanout_Targets;

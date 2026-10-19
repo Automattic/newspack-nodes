@@ -132,7 +132,6 @@ export default function ConfigAudit( { headerControlsSlot } ) {
 				</span>
 			</span>
 			<SearchControl
-				__nextHasNoMarginBottom
 				className="newspack-nodes-search-input"
 				label={ __( 'Filter option names', 'newspack-nodes' ) }
 				placeholder={ __( 'Filter option names…', 'newspack-nodes' ) }

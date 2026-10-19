@@ -102,7 +102,7 @@ class CommandInterpreterNamespaceTest extends TestCase {
 		require_once \dirname( __DIR__ ) . '/Helpers/fixtures/class-wombat-row-schema.php';
 		require_once \dirname( __DIR__ ) . '/Helpers/fixtures/class-dingo-row-schema.php';
 		$this->assertSame( Wombat_Row_Schema::class, Command_Interpreter_Node::resolve_named( 'Wombat', '_Row_Schema', Row_Schema::class ) );
-		$this->assertNull( Command_Interpreter_Node::resolve_named( 'Dingo', '_Row_Schema', Row_Schema::class ), 'a class that is no Row_Schema' );
+		$this->assertNull( Command_Interpreter_Node::resolve_named( 'Dingo', '_Row_Schema', Row_Schema::class ), 'a class that is not a Row_Schema' );
 		$this->assertNull( Command_Interpreter_Node::resolve_class( 'Wombat' ), 'no Wombat_Node' );
 	}
 

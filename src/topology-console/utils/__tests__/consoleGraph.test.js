@@ -278,7 +278,7 @@ describe( 'withConfigEdges', () => {
 			],
 		} );
 
-		// A role the fold does not own passes through, and is no connection.
+		// A role the fold does not own passes through, and is not a connection.
 		expect( out.edges ).toContainEqual( pair );
 		expect( edgeHasConnectRole( pair ) ).toBe( false );
 	} );

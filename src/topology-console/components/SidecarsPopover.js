@@ -251,7 +251,7 @@ export default function SidecarsPopover( {
 			) }
 			ref={ frameRef }
 			className="topology-sidecars"
-			// A press here is the popover's, not the canvas's pan or drag.
+			// The popover owns a press here, not the canvas's pan or drag.
 			onPointerDown={ ( ev ) => ev.stopPropagation() }
 		>
 			<path className="topology-sidecars__frame" d={ framePath( at ) } />

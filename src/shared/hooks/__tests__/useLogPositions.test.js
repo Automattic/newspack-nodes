@@ -146,7 +146,7 @@ describe( 'stepPosition', () => {
  * The actions now RETURN what they compute. `mode` went with it: it was a
  * second state machine over `SeekTracker.mode`'s concept with a divergent
  * vocabulary ('browse' vs 'replay'), and all three consumers display the
- * view's, not this one.
+ * view's mode, not this one.
  */
 describe( 'the actions return the seed they compute', () => {
 	it( 'browseSegment returns that segment position', () => {

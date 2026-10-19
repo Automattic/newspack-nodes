@@ -69,7 +69,7 @@ final class Log_Discovery {
 	/**
 	 * The prefix naming a spoke's log in this site's own probe channel,
 	 * `remote:<vault_id>:<stamp>`, which `remote_for()` writes and
-	 * `remote_of()` alone reads. It is no stamp prefix: a remote name is a
+	 * `remote_of()` alone reads. It is not a stamp prefix: a remote name is a
 	 * probe record's SOURCE, never a FROM, a subscription or a dir.
 	 */
 	public const REMOTE_PREFIX = 'remote';
@@ -153,8 +153,8 @@ final class Log_Discovery {
 	 * Each dir a subscription glob matches under `$base`, keyed by the stamp
 	 * `stamp_for()` writes for its path under the root, under the guard
 	 * `dir_of()` applies; `*` matches within one stamp part, so a dir whose
-	 * name holds a `:` is no match, as `carries()` reads it, and an exact
-	 * reader stamp matches its own dir. A broker's root is no match, as the
+	 * name holds a `:` is not a match, as `carries()` reads it, and an exact
+	 * reader stamp matches its own dir. A broker's root is not a match, as the
 	 * catalog lists none, and a glob reaches none of its readers, since no
 	 * glob names a root. A match whose stamp `is_stamp()` refuses is left out,
 	 * so a glob opens no dir `dir_of()` would refuse. A glob I/O fault
@@ -355,8 +355,8 @@ final class Log_Discovery {
 	/**
 	 * The broker roots among the dirs `$pattern` matches, each with its
 	 * readers' stamps, sorted: a dir holding no segment whose subdirs do. A
-	 * subdir holding none is no reader yet, and a root nested a level deeper
-	 * is none at all. One glob reads every match and its subdirs, and a
+	 * subdir holding none is not a reader yet, and a root nested a level deeper
+	 * is not one at all. One glob reads every match and its subdirs, and a
 	 * segment check runs on each candidate root alone. `GLOB_ERR` stops a
 	 * glob on a dir that will not read rather than skipping it, so that
 	 * answers null.

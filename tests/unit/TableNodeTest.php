@@ -572,7 +572,7 @@ class TableNodeTest extends TestCase {
 		}
 	}
 
-	/** Verbs are case-sensitive, as Tachikoma's are: `get` is no verb, and is refused. */
+	/** Verbs are case-sensitive, as Tachikoma's are: `get` is not a verb, and is refused. */
 	public function test_a_lowercase_get_is_refused(): void {
 		[ $table, $sink ] = $this->table();
 		$table->fill( $this->keyed( 'sku-7713', "kea\n" ) );

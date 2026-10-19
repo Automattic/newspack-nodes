@@ -16,8 +16,8 @@ const MAX_SCROLLBAR_W = 40;
  *
  * A zero `clientWidth` — jsdom, and a page mid-layout — would otherwise report
  * the whole viewport as gutter and blank the page behind viewport-wide
- * padding. A negative difference is no gutter at all, and one above
- * `MAX_SCROLLBAR_W` is no scrollbar a browser draws. Every refusal returns 0,
+ * padding. A negative difference is not a gutter at all, and one above
+ * `MAX_SCROLLBAR_W` is not a scrollbar any browser draws. Every refusal returns 0,
  * which lays the page out as if it had none: wrong by at most a gutter's
  * width, where trusting a bad reading is wrong without bound.
  *

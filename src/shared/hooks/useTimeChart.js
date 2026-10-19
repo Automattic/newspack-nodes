@@ -279,7 +279,7 @@ export const drawAxes = ( g, { x, y, innerH, tickCount, yFormat, yLabel } ) => {
  * @param {Object} params.x      D3 x scale over `dates`.
  * @return {{append: () => Object, left: (idx: number) => number, width: number}}
  * `append` adds an unplaced column rect to `g`; `left` is slot `idx`'s
- * column's x; `width` is one column's.
+ * column's x; `width` is one column's width.
  */
 const slotColumns = ( g, { innerW, innerH, dates, x } ) => {
 	const width = innerW / dates.length;
