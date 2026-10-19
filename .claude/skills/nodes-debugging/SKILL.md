@@ -194,7 +194,7 @@ For a worker that is busy rather than spinning, `profile on` makes `_router` tim
 
 ## On-disk layout
 
-Everything hangs off `base_directory`, `/tmp/newspack-nodes` by default and one path per install in dndocker: `/volumes/pyrobase/tmp/newspack-nodes` on `eve-pyrobase1-1`, `/volumes/gyropyro/tmp/newspack-nodes` on `eve-gyrobase1-1`. `doctor`'s `filesystem` and `ownership` rows both print the path that resolved.
+Everything hangs off `base_directory`, `/tmp/newspack-nodes` by default. Both dndocker installs keep the default, each in its own container, so `eve-pyrobase1-1` and `eve-gyrobase1-1` hold separate trees at the same path. `doctor`'s `filesystem` and `ownership` rows both print the path that resolved.
 
 ```
 {base}/
