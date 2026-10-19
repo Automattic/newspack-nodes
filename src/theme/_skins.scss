@@ -625,13 +625,6 @@ $skins: (
 	),
 );
 
-// Both Newspack skins draw the one `--np-chart-*` palette.
-@each $slug in (newspack, newspack-brand) {
-	@for $i from 1 through 8 {
-		$skins: map.set($skins, $slug, chart-#{$i}, var(--np-chart-#{$i}));
-	}
-}
-
 // The true-color variant: CRT's tokens, its data drawn in its own colors,
 // emitted right after CRT, in picker order.
 $with-variant: ();
@@ -642,6 +635,13 @@ $with-variant: ();
 	}
 }
 $skins: $with-variant;
+
+// Both Newspack skins and CRT's true-color variant draw `--np-chart-*`.
+@each $slug in (newspack, newspack-brand, crt-color) {
+	@for $i from 1 through 8 {
+		$skins: map.set($skins, $slug, chart-#{$i}, var(--np-chart-#{$i}));
+	}
+}
 
 // CRT's data greens and their label inks, light and dark alternating so no
 // two neighbours draw alike. No other skin defines them, so a data mark
