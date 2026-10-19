@@ -119,16 +119,16 @@ const COMMON_DERIVED_TOKENS = {
 	'--muted-text': 'color-mix(in srgb, var(--status-text) 60%, var(--ink-3))',
 	'--font-terminal': 'var(--font-mono)',
 };
+// The eight chart roles a skin points at the Newspack chart palette.
+const NP_CHART_OVERRIDES = Object.fromEntries(
+	Array.from( { length: 8 }, ( _, i ) => [
+		`--chart-${ i + 1 }`,
+		`var(--np-chart-${ i + 1 })`,
+	] )
+);
 const ALLOWED_DERIVED_OVERRIDES = {
 	newspack: {
-		'--chart-1': 'var(--np-chart-1)',
-		'--chart-2': 'var(--np-chart-2)',
-		'--chart-3': 'var(--np-chart-3)',
-		'--chart-4': 'var(--np-chart-4)',
-		'--chart-5': 'var(--np-chart-5)',
-		'--chart-6': 'var(--np-chart-6)',
-		'--chart-7': 'var(--np-chart-7)',
-		'--chart-8': 'var(--np-chart-8)',
+		...NP_CHART_OVERRIDES,
 		'--font-terminal': 'var(--np-font-mono)',
 		'--modal-radius': '6px',
 		'--modal-shadow': '0 3px 30px rgba(0, 0, 0, 0.7019607843137254)',
@@ -136,20 +136,14 @@ const ALLOWED_DERIVED_OVERRIDES = {
 		'--status-text': '#666',
 	},
 	'newspack-brand': {
-		'--chart-1': 'var(--np-chart-1)',
-		'--chart-2': 'var(--np-chart-2)',
-		'--chart-3': 'var(--np-chart-3)',
-		'--chart-4': 'var(--np-chart-4)',
-		'--chart-5': 'var(--np-chart-5)',
-		'--chart-6': 'var(--np-chart-6)',
-		'--chart-7': 'var(--np-chart-7)',
-		'--chart-8': 'var(--np-chart-8)',
+		...NP_CHART_OVERRIDES,
 		'--font-terminal': '"jetbrains mono", ui-monospace, monospace',
 		'--modal-radius': '6px',
 		'--modal-shadow': '0 3px 30px rgba(0, 0, 0, 0.7019607843137254)',
 		'--muted-text': '#717171',
 		'--status-text': '#666',
 	},
+	'crt-color': NP_CHART_OVERRIDES,
 	synthwave: {
 		'--font-terminal': '"spline sans mono", monospace',
 	},
@@ -2718,12 +2712,35 @@ describe( "CRT's data greens and the true-color variant", () => {
 		);
 	} );
 
-	it( "gives crt-color CRT's tokens without the phosphor set", () => {
+	it( "gives crt-color CRT's tokens without the phosphor set, its --chart-N the Newspack palette", () => {
 		const crt = { ...skinMaps.get( 'crt' ) };
 		for ( const token of [ ...PHOSPHOR, ...PHOSPHOR_INK ] ) {
 			delete crt[ token ];
 		}
+		for ( let i = 1; i <= 8; i++ ) {
+			crt[ `--chart-${ i }` ] = `var(--np-chart-${ i })`;
+		}
 		expect( skinMaps.get( 'crt-color' ) ).toEqual( crt );
+	} );
+
+	it( 'draws the Newspack chart palette on crt-color, 3:1 on its canvas and paper', () => {
+		const skin = effectiveSkin( 'crt-color' );
+		for ( const surface of [ '--paper', '--canvas' ] ) {
+			const paper = resolvedColor( skin, surface );
+			for ( let i = 1; i <= 8; i++ ) {
+				const role = `--chart-${ i }`;
+				const color = resolvedColor( skin, role );
+				expect( [ role, color ] ).toEqual( [
+					role,
+					parseColor( themeTokens[ `--np-chart-${ i }` ] ),
+				] );
+				expect( [
+					role,
+					surface,
+					contrast( color, paper ) >= 3,
+				] ).toEqual( [ role, surface, true ] );
+			}
+		}
 	} );
 
 	it( 'defines the phosphor set under crt alone', () => {
