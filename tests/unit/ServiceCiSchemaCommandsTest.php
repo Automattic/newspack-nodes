@@ -76,7 +76,7 @@ class Malformed_Verbs_CI_Node extends Service_CI_Node {
 					'description' => 'Declared in the catalog but carries no handler.',
 					'args'        => [],
 				],
-				// Not an array at all → carries no name, so it is no verb.
+				// Not an array at all → carries no name, so it is not a verb.
 				'stray-scalar-4417',
 				[
 					// Empty-string name → never keyed, never dispatchable.

@@ -512,7 +512,7 @@ class HTTPInTest extends TestCase {
 		$this->assertSame( [ 401 ], $codes );
 	}
 
-	/** The 401 is the refusal's, not the boundary's: an accepted command answers 200. */
+	/** The refusal, not the boundary, answers 401: an accepted command answers 200. */
 	public function test_an_accepted_command_does_not_answer_401(): void {
 		$this->build_graph_sans_output();
 

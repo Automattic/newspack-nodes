@@ -78,7 +78,7 @@ class SettingsSyncTopologyTest extends TestCase {
 	}
 
 	/**
-	 * Every option this topology pushes must be one the receiving spoke's `set`
+	 * Every option this topology pushes must be an option the receiving spoke's `set`
 	 * verb accepts. The two lists drifted silently: cmd_set's allowlist held
 	 * only the LOCAL axis names, so every remote_* push a hub ever made was
 	 * refused as an unknown setting, and nothing said so until the reply leg

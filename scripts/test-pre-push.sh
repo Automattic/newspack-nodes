@@ -49,8 +49,8 @@ container_gates() { :; }
 LOCAL
 printf '#!/bin/sh\nexit 0\n' > "$tmp/bin/npm"
 # `docker ps` lists whatever STUB_CONTAINERS names, then STUB_FILLER more
-# lines; its status is the listing's, as a real docker killed by SIGPIPE
-# reports. Every other call succeeds.
+# lines and exits with the listing's status, as a real docker killed by
+# SIGPIPE reports. Every other call succeeds.
 cat > "$tmp/bin/docker" <<'STUB'
 #!/bin/sh
 [ "$1" = ps ] || exit 0

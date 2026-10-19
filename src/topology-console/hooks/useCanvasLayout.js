@@ -19,7 +19,7 @@ import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { autoLayout, placeBelow } from '../utils/autoLayout';
 
 /**
- * The saved layout that is no map: a fresh autoLayout of the graph on screen.
+ * The saved layout that is not a map: a fresh autoLayout of the graph on screen.
  * `Layouts_CI_Node::AUTO` is its server twin, matched exactly.
  */
 export const LAYOUT_AUTO = 'auto';
@@ -488,7 +488,7 @@ export function useCanvasLayout( {
 			return undefined;
 		}
 
-		// Already initialized for this scope; growth is the effect below's.
+		// Already initialized for this scope; the effect below handles growth.
 		if ( state.positions !== null && state.key === storageKey ) {
 			return undefined;
 		}

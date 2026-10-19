@@ -70,7 +70,7 @@ table.c td.g { color:#1E5B1E; font-weight:600; white-space:nowrap; }
 <div class="three">
   <div class="card">
     <h3>Frontmatter is read statically</h3>
-    <p><span class="mono">var</span> lines <span class="mono">Topology_Analyzer::frontmatter()</span> parses without executing the file; <span class="mono">synthesize_entry()</span> folds three into the catalog: <span class="mono">num_partitions</span>, <span class="mono">stale_timeout</span>, <span class="mono">on_demand_idle</span>, each through the validated <span class="mono">Core::num_int</span>. Zero or negative takes the fleet default for the first two — zero partitions is no fleet, a zero timeout is respawn churn — while 0 is <span class="mono">on_demand_idle</span>'s meaningful "stay resident".</p>
+    <p><span class="mono">var</span> lines <span class="mono">Topology_Analyzer::frontmatter()</span> parses without executing the file; <span class="mono">synthesize_entry()</span> folds three into the catalog: <span class="mono">num_partitions</span>, <span class="mono">stale_timeout</span>, <span class="mono">on_demand_idle</span>, each through the validated <span class="mono">Core::num_int</span>. Zero or negative takes the fleet default for the first two — zero partitions make no fleet, a zero timeout is respawn churn — while 0 is <span class="mono">on_demand_idle</span>'s meaningful "stay resident".</p>
   </div>
   <div class="card">
     <h3>The write set decides co-activation</h3>

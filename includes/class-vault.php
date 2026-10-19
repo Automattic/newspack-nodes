@@ -264,8 +264,8 @@ class Vault {
 	 * loaded; the password is stripped of control characters. Both cap at 256
 	 * bytes.
 	 *
-	 * A password arriving with `ENCRYPTED_PREFIX` is one the caller read back out
-	 * of storage, so it is verified rather than re-sealed, and dropped when it no
+	 * A password arriving with `ENCRYPTED_PREFIX` was read back out of storage
+	 * by the caller, so it is verified rather than re-sealed, and dropped when it no
 	 * longer opens under the current key.
 	 *
 	 * The group, when set, must obey `is_valid_id()`; an invalid one refuses the

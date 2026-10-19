@@ -395,7 +395,7 @@ class Table_Node extends Node {
 	 * The arm a named backend opens, once: a Table whose backend cannot open
 	 * throws when its arguments arrive, naming itself. Resolving the `sqlite`
 	 * file, and an arm refusing an invalid argument, are the declaration's
-	 * fault; any other refusal while an arm opens is the host's.
+	 * fault; any other refusal while an arm opens is the host's fault.
 	 *
 	 * @param string    $backend   One of BACKENDS.
 	 * @param string    $namespace The namespace a `wpdb` arm scopes its rows by.
@@ -429,8 +429,8 @@ class Table_Node extends Node {
 	 * `ensure_path()`, so a base or `{base}/tables` that is unusable refuses
 	 * the declaration before any arm opens. A mount creates nothing: it adopts
 	 * a directory that is there, and with none the mount reads as empty. A
-	 * mount refuses a process running as root, which is the operator's to fix
-	 * as a foreign `{base}/tables` is: SQLite can add `-wal` and `-shm` files
+	 * mount refuses a process running as root, which is for the operator to
+	 * fix as a foreign `{base}/tables` is: SQLite can add `-wal` and `-shm` files
 	 * beside a WAL database, and root's would lock its worker out.
 	 *
 	 * @return string The file.
@@ -608,7 +608,7 @@ class Table_Node extends Node {
 
 	/**
 	 * Every well-formed set in one arm call; an item TTL below one second, or
-	 * a value that is no member map, leaves the set out. A failed call is
+	 * a value that is not a member map, leaves the set out. A failed call is
 	 * re-sent set by set, except on an arm whose call lands whole or not at
 	 * all. SADD counts member rows, not sets.
 	 *
@@ -875,8 +875,8 @@ class Table_Node extends Node {
 	 * arm and build the stored key by hand, which puts the key
 	 * convention and the backend choice in every caller.
 	 *
-	 * Fails soft when no backend answers, as every read here does. The TTL
-	 * is the table's, not the call's — one table, one lifetime.
+	 * Fails soft when no backend answers, as every read here does. The table,
+	 * not the call, sets the TTL — one table, one lifetime.
 	 *
 	 * @api Non-graph writers store table values without a live worker.
 	 * @param string $key   Key within the table's namespace.
@@ -1025,7 +1025,7 @@ class Table_Node extends Node {
 	 * record is still READ — refusing one made an evicted hourly URL index
 	 * unrecoverable from the fine buckets it derives from, with the data on disk
 	 * the whole time. So it costs the entry its cache slot, not the read, and
-	 * what a re-materialized entry is warmed for is the BACKING's to state.
+	 * the BACKING states what a re-materialized entry is warmed for.
 	 *
 	 * A key the backing did not return writes nothing, so the next read of it
 	 * asks the backing again. A backing that answers NULL could not look — out
@@ -1059,7 +1059,7 @@ class Table_Node extends Node {
 	/**
 	 * Each live entry among `$keys` with the life it has left, in one read of
 	 * a durable backend: the `{ value, ttl? }` a backing answers (ADR-18), so
-	 * one copy of an entry's expiry, the store's, answers every reader. A key
+	 * one copy of an entry's expiry, the one in the store, answers every reader. A key
 	 * no live entry holds is absent; nothing falls through to a backing.
 	 *
 	 * @api Readers whose entry's remaining life is part of the answer.

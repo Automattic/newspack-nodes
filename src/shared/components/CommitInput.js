@@ -81,6 +81,7 @@ const picked = ( event, before, after, suggestions ) => {
  * @property {string}                                                           [refusalClassName]  Class on the refusal; the shared error status by default.
  * @property {string}                                                           [id]                Input id; one is minted when absent.
  * @property {(event: import('react').KeyboardEvent<HTMLInputElement>) => void} [onKeyDown]         The caller's keys, after the field's own.
+ * @property {string}                                                           [aria-describedby]  What else describes the box; a shown refusal joins it.
  */
 
 /**
@@ -144,6 +145,7 @@ export default function CommitInput( {
 	refusalClassName = 'newspack-nodes-status is-error',
 	id,
 	onKeyDown,
+	'aria-describedby': describedBy,
 	...inputProps
 } ) {
 	const mintedId = useId();
@@ -244,7 +246,11 @@ export default function CommitInput( {
 				list={ suggestions.length ? listId : undefined }
 				value={ text }
 				aria-invalid={ refusal ? true : undefined }
-				aria-describedby={ refusal ? refusalId : undefined }
+				aria-describedby={
+					[ describedBy, refusal && refusalId ]
+						.filter( Boolean )
+						.join( ' ' ) || undefined
+				}
 				onChange={ ( event ) => {
 					const raw = event.target.value;
 					const next = raw.trim();

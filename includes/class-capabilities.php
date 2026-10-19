@@ -14,8 +14,8 @@
  *       fn ( $map ) => [ 'read' => 'edit_posts' ] + $map );
  *
  * Verbs declare their role in `node_schema()` (`'capability' => 'read'`,
- * default manage) — a service CI in its own, a `:config` interpreter in its
- * patron's — and `Command_Interpreter_Node::dispatch()` refuses every verb
+ * default manage) — a service CI in its own schema, a `:config` interpreter in its
+ * patron's schema — and `Command_Interpreter_Node::dispatch()` refuses every verb
  * through `require_verb()` against the role declared (ADR-26). The base
  * interpreter's own vocabulary declares nothing, so it demands MANAGE, except
  * the read-only builtins `READ_VERBS` lists, which answer READ. REST

@@ -1127,7 +1127,7 @@ class JobWorkerTest extends TestCase {
 			$holder->close();
 		}
 
-		$this->assertSame( $poison, $caught, 'contention is no failure of its own' );
+		$this->assertSame( $poison, $caught, 'contention is not a failure of its own' );
 	}
 
 	public function test_worker_should_stop_is_never_retried(): void {

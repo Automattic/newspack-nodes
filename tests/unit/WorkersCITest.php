@@ -965,7 +965,7 @@ class WorkersCITest extends TestCase {
 		$workers          = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' )['workers'];
 
 		$this->assertCount( 1, $reads );
-		$this->assertNotContains( 'kea-departed', \array_column( $workers, 'type' ), 'a departed lock is no dashboard slot' );
+		$this->assertNotContains( 'kea-departed', \array_column( $workers, 'type' ), 'a departed lock is not a dashboard slot' );
 		$this->assertSame( 'live', \array_column( $workers, 'state', 'type' )['demo-workers'] );
 	}
 
@@ -1698,7 +1698,7 @@ class WorkersCITest extends TestCase {
 
 	// The filter FILLS IN what the scan could not see. The two sources are
 	// disjoint — whatever builds a partition sets its geometry — so a name the
-	// scan did find is not the filter's to restate.
+	// scan did find is not for the filter to restate.
 	public function test_a_declared_segment_size_is_not_restated_by_the_filter(): void {
 		$base  = $this->arrange_base_dir();
 		$stock = "{$base}/topologies";

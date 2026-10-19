@@ -74,7 +74,7 @@
 <div class="two">
   <div class="card">
     <h3>Gated at dispatch, never in a handler</h3>
-    <p><span class="mono">dispatch()</span> reads the role the schema declares under the verb NAME — a service CI's own schema, a <span class="mono">:config</span> interpreter's patron's — and manage for a name the schema does not declare, so a table replaced after construction is still gated at the declaration's role. Where no user is logged in, as in a worker, the session's scope alone decides.</p>
+    <p><span class="mono">dispatch()</span> reads the role the schema declares under the verb NAME — a service CI's own schema, or for a <span class="mono">:config</span> interpreter its patron's schema — and manage for a name the schema does not declare, so a table replaced after construction is still gated at the declaration's role. Where no user is logged in, as in a worker, the session's scope alone decides.</p>
     <p style="margin:0">A refusal THROWS <span class="mono">permission denied: &lt;role&gt; capability required</span>, and <span class="mono">interpret()</span> wraps it as <span class="mono">TM_COMMAND|TM_ERROR</span>. A scoped session lowers the ceiling for one command and can only subtract.</p>
   </div>
   <div class="card">

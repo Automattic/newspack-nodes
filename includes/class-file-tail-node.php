@@ -73,7 +73,7 @@ class File_Tail_Node extends Tail_Node {
 	/**
 	 * Store the token array, resolve the file this worker follows, then arm
 	 * the reader unless `Durable_Reader::idle_unless_owned()` idles it: a file
-	 * written with `{partition}` is each worker's own, and a fixed one is
+	 * written with `{partition}` belongs to each worker, and a fixed one is
 	 * read once per fleet (ADR-33). There is no source Partition — the
 	 * segment model cannot identify a single inode — so the shared
 	 * Durable_Reader spine is armed directly.
@@ -626,7 +626,7 @@ class File_Tail_Node extends Tail_Node {
 	}
 
 	/**
-	 * Palette entry: Tail's, carrying the file-mode description. Arguments, verbs
+	 * Palette entry: the one Tail declares, carrying the file-mode description. Arguments, verbs
 	 * and category are inherited verbatim.
 	 *
 	 * @return array<string,mixed>

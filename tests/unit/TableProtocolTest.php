@@ -636,7 +636,7 @@ final class TableProtocolTest extends TestCase {
 		$this->assertSame( [ 'kea:p3:sku-43' ], self::committed_keys() );
 	}
 
-	// ── flush: every row and member, MANAGE by declaring nothing, the writer's alone ──
+	// ── flush: every row and member, MANAGE by declaring nothing, for the writer alone ──
 
 	/** The `flush` verb as a worker's `:config` interpreter answers it. */
 	private function flush_verb( string $table = 'lab-7:kea' ): mixed {

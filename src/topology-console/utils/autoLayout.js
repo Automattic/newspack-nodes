@@ -337,7 +337,7 @@ const ANY_ROW = Object.freeze( [ -Infinity, Infinity ] );
 /** Empty rows between two blocks stacked in one column of the canvas. */
 const BLOCK_GAP = 1;
 
-/** Fewer nodes than a poll's timer, tee and fetcher is no slice to band. */
+/** Fewer nodes than a poll's timer, tee and fetcher make no slice to band. */
 const SLICE_MIN = 3;
 
 /** Past this a part is a sheet of its own, not one slice sharing an egress. */
@@ -1066,7 +1066,7 @@ const clearWires = (
  * here. Any other is laid out with its band: beside its first successor it has
  * nowhere to go, and a wire to a further column crosses the ones between
  * wherever it sits, so its wires keep their placeholders. Its seat stays left of every node
- * it feeds that is no hub, and right of any hub it feeds from further left, so
+ * it feeds that is not a hub, and right of any hub it feeds from further left, so
  * no wire of its runs backward but one into a hub. The candidates are its
  * current seat and each column in that range, at rows within `SEAT_ROWS` of
  * the midpoint of what it feeds. A seat is clear when no card sits within a row of
@@ -3124,7 +3124,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 				} );
 			slotsOf( feeders, left.spans, 0 );
 			slotsOf( consumers, right.spans, shift );
-			// @longform A wire to a hub is no wire inside a band, so the band's
+			// @longform A wire to a hub is not a wire inside a band, so the band's
 			// own pass cannot see it: a chain's head feeding the hub directly
 			// runs its wire along the chain's row, through the chain. Each band
 			// clears its cards off its own hub wires here. Only its own: a
@@ -3193,7 +3193,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 			// @longform Last, once every card and wire a seat must clear is
 			// placed, and still downward only: above its band's top a source
 			// takes the one row between two stacked bands. A row opened for a
-			// source is its band's own, and may be the band's top.
+			// source belongs to its band, and may be the band's top.
 			const top = ( id ) => {
 				const rest = bandOf[ id ].members.filter(
 					( m ) => ! seatedLast.has( m ) || cutSeats.has( m )
@@ -3408,7 +3408,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 		return { ...b, ...stepped( best ) };
 	} );
 
-	// A lone card is no group of its own: it takes one row and no gap.
+	// A lone card forms no group of its own: it takes one row and no gap.
 	const lone = ( b ) => 2 === b.width && 1 === b.height;
 	const limit = stackRows(
 		blocks.map( ( b ) =>
@@ -3559,7 +3559,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 	// each column it covers holds, above it or below, in the leftmost columns
 	// `within` admits that fit, nearest the canvas's middle row. Every column
 	// it covers must already hold something, so it never lands in the gap
-	// column between two stacks, and none may be a hub's, where a card would
+	// column between two stacks, and no hub may own one, where a card would
 	// read as one more wire into the hub. The column either side must show it
 	// no unwired port and no wire across its rows, so no card beside it reads
 	// as wired to it.

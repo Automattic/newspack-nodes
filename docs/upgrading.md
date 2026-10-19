@@ -377,7 +377,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
     pairs keep their claim, and `link.detach( target )` becomes
     `link.removePairs( <those pairs> )` plus `link.forget( subscribe )`.
   - A test reading `link.graphs.get( '<prefix>:stream' )` reads `link.pairs`,
-    the tokens in add order, or `link.parked` for a paused view's.
+    the tokens in add order, or `link.parked` for a paused view's tokens.
   - The link hands each record to its stamp's `_stream:<kind>`, a
     patron-owned `TeeNode`.
   - `routeTo` is `onMessage( message, stamp )`, which answers true for a
@@ -816,7 +816,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   at activation; `include topic-probe` instead.
 - **`Partition_Node::read_tail_frames_by()` takes `$max_bytes` with no
   default.** Name the window; `CLI::PROBE_TAIL_BYTES` (512 KiB) is the status
-  tail's.
+  tail's window.
 - **The `Partition_Node::write_quarantine_key()` seam is the public
   `identity_path()`.** A subclass overriding it renames the override and makes
   it public; its path under the runtime base names the log's Partition record.
@@ -904,7 +904,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   A client reading `live` or matching `state` drops that read. A store read that
   fails throws `Session_Store_Unavailable` where it listed every row dead.
 - **Re-mint every command session minted before this release.** A session row
-  now carries its label and when it was minted, and a row without both is no
+  now carries its label and when it was minted, and a row without both is not a
   session, so every key minted by 2.79.0 stops verifying: a dashboard re-auths
   on its own, and an MCP client needs a fresh `wp nodes session issue`. The
   listing reads an index in the session Table, not the `newspack_nodes_sessions`
@@ -991,7 +991,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   and its baseline test config reads `base_directory` from it. The substrate
   bootstrap keeps a base already named, and `TestCase::tearDown()` restores the
   `LOCAL_NEWSPACK_NODES_CONF` captured on the first setUp, so the consumer stays
-  on its own config and base; the base is the consumer's to remove.
+  on its own config and base; the base is for the consumer to remove.
 - **Release nodes 2.77.0, event-logger-nodes 0.111.0 and intelligence 0.12.0
   together, and deploy them together.** The binder below hands every
   schema-declared verb its arguments by name, and the two consumers' released

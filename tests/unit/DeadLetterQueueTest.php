@@ -256,7 +256,7 @@ class DeadLetterQueueTest extends TestCase {
 	}
 
 	/**
-	 * A quarantine that cannot be written is no quarantine: the write failure
+	 * A quarantine that cannot be written is not a quarantine: the write failure
 	 * escapes beside the error that condemned the message, and nothing claims
 	 * the message was dropped and moved past.
 	 */

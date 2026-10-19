@@ -890,7 +890,7 @@ export class RemoteLinkNode extends ReactBridge( SchemaReflection( Node ) ) {
 
 	/**
 	 * Composite stat delegation: the records arrive on the SseIn child, so its
-	 * tally is this link's. Before a stream exists the base counter stands.
+	 * tally is this link's tally. Before a stream exists the base counter stands.
 	 *
 	 * @return {number} Records received.
 	 */

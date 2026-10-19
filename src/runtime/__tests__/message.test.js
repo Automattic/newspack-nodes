@@ -241,6 +241,6 @@ test.each( infoPairCases )(
 	}
 );
 
-test( 'infoPairs refuses a VALUE that is no string', () => {
+test( 'infoPairs refuses a VALUE that is not a string', () => {
 	expect( infoPairs( { OFFSET: '3:0' } ) ).toBeNull();
 } );

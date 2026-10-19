@@ -663,7 +663,7 @@ const EdgeWire = memo(
  * @param {(include: string) => void}                                [props.onSelectHull]    A hull was pressed.
  * @param {(id: string, trigger: SVGElement) => void}                [props.onOpenSidecars]  A card's "…" was pressed; omitted draws none.
  * @param {(id: string) => void}                                     [props.onEnterSidecars] Enter on a selected owner: open its sidecars, never close them.
- * @param {(canvas: CanvasOverlayArgs) => import('react').ReactNode} [props.overlay]         Draws over the cards, in world units, so it pans and zooms with them. While it draws something, a background click deselects rather than autofitting, so its host can close it, and the keys that pick, Enter and Esc are the overlay's.
+ * @param {(canvas: CanvasOverlayArgs) => import('react').ReactNode} [props.overlay]         Draws over the cards, in world units, so it pans and zooms with them. While it draws something, a background click deselects rather than autofitting, so its host can close it, and the keys that pick, Enter and Esc go to the overlay.
  * @param {?string}                                                  [props.overlayActive]   The overlay's card its keys act on, which the canvas names as its active card while the overlay draws.
  * @param {{current: ?SVGSVGElement}}                                [props.svgRef]          Takes the canvas `<svg>`, for a host that asks whether an event landed on it.
  * @return {import('react').ReactElement} The canvas `<svg>`.

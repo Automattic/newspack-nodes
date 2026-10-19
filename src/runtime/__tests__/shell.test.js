@@ -1618,7 +1618,7 @@ describe( 'parseStatements — static statements replay to runtime messages', ()
 		);
 	} );
 
-	// The skin builtins are the browser REPL's alone. A statement list reads a
+	// Only the browser REPL has the skin builtins. A statement list reads a
 	// TOPOLOGY, which the PHP loader runs, so it must read them as PHP will —
 	// modelling this parse()'s extra verbs would misreport a real `.tsl`.
 	it( 'reads the browser-only skin verbs as the cwd commands PHP sends', () => {

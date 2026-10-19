@@ -88,7 +88,7 @@ function includeClosure( name, byName, seen = new Set() ) {
  * Renders the dock: a filter box over the node classes the catalog registers,
  * grouped by category, plus — in edit mode — the topologies that can be dragged
  * in as includes. Catalog data comes from CatalogContext and the collapse state
- * from ChromeContext; only the drop callbacks are the consumer's.
+ * from ChromeContext; only the drop callbacks come from the consumer.
  *
  * @param {Object}   props                    Component props.
  * @param {boolean}  [props.loading]          Catalog fetch is in flight; the dock shows a placeholder until classes arrive. Default false.
@@ -269,7 +269,6 @@ export default function Palette( {
 			{ toggle }
 			<aside className="topology-palette">
 				<SearchControl
-					__nextHasNoMarginBottom
 					size="compact"
 					value={ query }
 					onChange={ setQuery }

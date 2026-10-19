@@ -13,9 +13,9 @@
     ["a segment-less offset", ":9124", {"offset": 9124}],
     ["a segment-less offset with a length", ":9124:206", {"offset": 9124, "length": 206}],
     ["a padded length", "47:3318:0206", null],
-    ["the start word is no position", "start", null],
-    ["the recent word is no position", "recent", null],
-    ["the end word is no position", "end", null],
+    ["the start word is not a position", "start", null],
+    ["the recent word is not a position", "recent", null],
+    ["the end word is not a position", "end", null],
     ["an empty string", "", null],
     ["a bare number", "47", null],
     ["a segment with no offset", "47:", null],
@@ -28,7 +28,7 @@
     ["a padded offset", "47:05", null],
     ["a hex offset", "5:0x10", null],
     ["an empty length", "47:3318:", null],
-    ["a length that is no number", "47:3318:x", null],
+    ["a length that is not a number", "47:3318:x", null],
     ["four fields", "47:3318:206:9", null],
     ["a word in the wrong case", "End", null],
     ["an unknown word", "middle", null],
@@ -41,7 +41,7 @@
     ["a padded segment", "047:3318:206", null],
     ["a breadcrumb names its segment", ":3318:206", null],
     ["a breadcrumb carries its length", "47:3318", null],
-    ["a word is no breadcrumb", "end", null],
+    ["a word is not a breadcrumb", "end", null],
     ["a command reply's opaque ID", "byckewr4dozme4rx5j1erloi1tjvmo29", null]
   ]
 }

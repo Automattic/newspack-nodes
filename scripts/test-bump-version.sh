@@ -20,7 +20,7 @@ DROP_IN_OLD=0.1.0
 
 # fixture NAME DROP_IN_SHAPE [DROP_IN_VERSION] — a throwaway plugin whose
 # wrapper names a drop-in: `header` carries a version line and a second,
-# indented one that is no header, `headless` carries none, and `missing`
+# indented one that is not a header, `headless` carries none, and `missing`
 # leaves the file out.
 fixture() {
 	local dir="$tmp/$1"
@@ -63,7 +63,7 @@ for from in "$DROP_IN_OLD" 1 0.6.3-rc.1; do
 	check "a drop-in at $from: the bump exits 0" 0 "$?"
 	check "a drop-in at $from: its header moves with the plugin" "$NEW" "$( version_of "$dir/mu-plugins/00-kea.php" )"
 	check "a drop-in at $from: the plugin header moves" "$NEW" "$( version_of "$dir/kea.php" )"
-	check "a drop-in at $from: a line that is no header stays" 1 "$( grep -c 'Version: 2.0 of the wire format' "$dir/mu-plugins/00-kea.php" )"
+	check "a drop-in at $from: a line that is not a header stays" 1 "$( grep -c 'Version: 2.0 of the wire format' "$dir/mu-plugins/00-kea.php" )"
 done
 
 for shape in headless missing; do

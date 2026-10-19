@@ -25,7 +25,7 @@
  * publishes, and both read the one `build_snapshot()` builder — so the
  * header's counts and the cards they summarize are derived identically rather
  * than by two roll-ups that drift.
- * The readers are no part of that snapshot: `summary` counts connections
+ * The readers do not count toward that snapshot: `summary` counts connections
  * alone, so `list_servers` reads and decodes the probe tail by itself.
  * The dashboard batches the pair into a single POST, so they also answer from
  * one request.

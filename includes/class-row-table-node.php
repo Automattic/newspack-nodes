@@ -207,11 +207,11 @@ class Row_Table_Node extends Table_Node {
 			}
 		}
 		if ( null !== $auto && ! \str_starts_with( $columns[ $auto ], 'INTEGER' ) ) {
-			self::refuse_schema( $word, "{$table} autoincrement {$auto} is no INTEGER column" );
+			self::refuse_schema( $word, "{$table} autoincrement {$auto} is not an INTEGER column" );
 		}
 		foreach ( $named['fts'] as $column ) {
 			if ( ! \str_starts_with( $columns[ $column ], 'TEXT' ) || isset( $add[ $column ] ) ) {
-				self::refuse_schema( $word, "{$table} fts indexes {$column}, which is no TEXT column or is one an add folds" );
+				self::refuse_schema( $word, "{$table} fts indexes {$column}, which is not a TEXT column or is a column an add folds" );
 			}
 		}
 		if ( [] !== $named['fts'] && null === $auto ) {
@@ -420,7 +420,7 @@ class Row_Table_Node extends Table_Node {
 	 * @param string $name The snapshot's name.
 	 * @return Row_Reader|null The query-only connection, or null.
 	 * @throws \InvalidArgumentException As `snapshot_file()`.
-	 * @throws Table_Unavailable When the file is no database, or pdo_sqlite
+	 * @throws Table_Unavailable When the file is not a database, or pdo_sqlite
 	 *                           is missing.
 	 */
 	public static function open_snapshot( string $name ): ?Row_Reader {
@@ -458,7 +458,7 @@ class Row_Table_Node extends Table_Node {
 	 * The file of the snapshot `$name`, `{base}/tables/{name}.sqlite`, or of
 	 * one build of it, `{name}+{build}.sqlite`: the one spelling `build()`
 	 * writes and `remove_snapshot()` globs. No Table name holds `+`, so a
-	 * build is never a published file or a Table's.
+	 * build is never a published file or a Table's file.
 	 *
 	 * @param string      $name  The snapshot's name.
 	 * @param string|null $build A build's id, or `*` to glob them.
@@ -493,7 +493,7 @@ class Row_Table_Node extends Table_Node {
 	 * @return T What `$read` returned.
 	 * @throws Table_Unavailable When no active topology declares a table of
 	 *                           the schema, pdo_sqlite is missing, or a file
-	 *                           will not attach or is no database.
+	 *                           will not attach or is not a database.
 	 * @throws \RuntimeException As `Bootstrap::row_table()`, or when the
 	 *                           process runs as root.
 	 */
@@ -554,7 +554,7 @@ class Row_Table_Node extends Table_Node {
 	}
 
 	/**
-	 * Palette entry and argument form. The `:config` verbs are a Table's;
+	 * Palette entry and argument form. The `:config` verbs are the ones a Table answers;
 	 * the one request is ROWS. A Row_Table forwards nothing it stores, so it
 	 * declares no target.
 	 *

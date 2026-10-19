@@ -1401,7 +1401,7 @@ class ConsumerTest extends TestCase {
 	}
 
 	public function test_a_failed_quarantine_escapes_and_leaves_the_cursor_on_the_poison(): void {
-		// A quarantine that cannot be written is no quarantine: the handler's
+		// A quarantine that cannot be written is not a quarantine: the handler's
 		// error and the write failure escape together, and the cursor stays on
 		// the poison so the successor replays it rather than commit past a record
 		// that never landed anywhere.
@@ -4967,7 +4967,7 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( [], $sink->captured );
 	}
 
-	/** A raw reader carries no per-record work: an unparseable line is the client's to count. */
+	/** A raw reader carries no per-record work: an unparseable line is for the client to count. */
 	public function test_a_raw_reader_counts_no_unparseable_lines(): void {
 		[ $c ] = $this->raw_scan( "torn 3318\n" );
 

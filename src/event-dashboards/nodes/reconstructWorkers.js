@@ -210,8 +210,8 @@ const grownBytes = ( before, after ) =>
  * the previous poll's, over the stat clock `logs_at` stamps after the stat.
  *
  * A poll carrying no clock measures nothing and keeps the old baseline, so
- * the next poll spans both. A clock no later than the baseline's is no span
- * either: it reads 0 and becomes the baseline.
+ * the next poll spans both. A clock no later than the baseline's does not
+ * make a span either: it reads 0 and becomes the baseline.
  *
  * @param {{at:number,sizes:Object<number,number>}|undefined} prev     The previous poll's sample.
  * @param {Array<{id:number,size:number}>}                    segments The live segments now.

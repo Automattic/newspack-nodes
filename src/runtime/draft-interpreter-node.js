@@ -481,7 +481,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	_cmdRemoveInclude( args ) {
 		const name = args[ 0 ] ?? '';
 		this.includes = this.includes.filter( ( n ) => n !== name );
-		// Its nodes go with it, or a save writes them out as the file's.
+		// Its nodes go with it, or a save writes them out as the file's own.
 		const orphaned = [];
 		for ( const [ node, held ] of this.childRegistry.nodes ) {
 			const origin = held.origin ?? [];
@@ -591,7 +591,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 				edges.push( `connect_node ${ name } ${ t }` );
 			}
 		}
-		// Declarations for a name no node carries — still the file's.
+		// Declarations for a name no node carries still belong to the file.
 		for ( const [ orphan, list ] of this._invocations ) {
 			if ( this.childRegistry.node( orphan ) ) {
 				continue;
@@ -641,7 +641,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 
 	/**
 	 * A draft describes a node, so it builds no `:config`: that interpreter
-	 * is the live graph's, and a document holding one would save it as a line.
+	 * belongs to the live graph, and a document holding one would save it as a line.
 	 */
 	_wireConfig() {}
 

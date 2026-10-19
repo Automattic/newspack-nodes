@@ -355,7 +355,7 @@ class HTTP_In_Node extends Node {
 	 * Build the request-scope graph if this process has none yet (idempotent),
 	 * and name this instance `_output` so replies land in the HTTP body.
 	 *
-	 * Only the naming is this door's own. `Bootstrap::mount_request_graph()`
+	 * This door owns only the naming. `Bootstrap::mount_request_graph()`
 	 * builds `_router` and `_command_interpreter` and fires
 	 * `newspack_nodes/request_graph_ready` for the service CIs, shared with every
 	 * other command door so no door ends up with a different verb surface behind

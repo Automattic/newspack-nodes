@@ -584,7 +584,7 @@ abstract class TestCase extends PHPUnitTestCase {
 
 	/**
 	 * A raw block as a stream's reader sends it: its header, then its bytes,
-	 * both stamped FROM the stream. A `sources:` stamp is a Tail's, whose
+	 * both stamped FROM the stream. A `sources:` stamp names a Tail, whose
 	 * lines are text.
 	 *
 	 * @param string   $stamp    The stream the block belongs to.

@@ -507,7 +507,7 @@ if ( ! function_exists( 'status_header' ) ) {
 // ── WP option / esc helpers — Config tests require these. ──────────────────
 
 if ( ! function_exists( 'get_option' ) ) {
-	// The `options` cache model is wp-object-cache-stub.php's; see its docblock.
+	// The `options` cache model comes from wp-object-cache-stub.php; see its docblock.
 	$GLOBALS['_wp_options'] = [];
 	function get_option( string $key, mixed $default = false ): mixed {
 		// Test seam: lets a test simulate the production wpdb->query → query-filter

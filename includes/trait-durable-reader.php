@@ -387,7 +387,7 @@ trait Durable_Reader {
 	 * the backlog, each in the log's own bytes and null where the reader cannot
 	 * know it, and the cache size — and the counters as the work done since
 	 * the previous call, with the interval it covers, so a reader divides ONE
-	 * record. The partition's own size is a Partition record's, so `END_BYTES`
+	 * record. The partition's own size rides a Partition record, so `END_BYTES`
 	 * and `END_DISK_BYTES` keep `Probe_Record::BLANK`'s 0. A DRAINING read.
 	 *
 	 * @param string $source What the record is about, as the reader names its log.
@@ -1418,7 +1418,7 @@ trait Durable_Reader {
 
 	/**
 	 * Idle unless this worker owns the source as its TSL wrote it (ADR-33): a
-	 * source naming `{partition}` is each worker's own, and a fixed one is
+	 * source naming `{partition}` belongs to each worker, and a fixed one is
 	 * read on worker p0 alone. An idle reader keeps no dirs, so a replay that
 	 * idles it retracts its sidecars and returns it to its never-polled state,
 	 * and it writes no stderr line, because idling is normal operation.

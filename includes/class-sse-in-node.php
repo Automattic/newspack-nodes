@@ -16,7 +16,7 @@
  * and `check_stale()`. The patron owns durable position persistence and any status
  * memcache write — SSE_In keeps only the in-memory cursor + connection state.
  *
- * The wire is `SSE_Out`'s: `connected`, `msg`, `heartbeat`, `retry` and
+ * `SSE_Out` defines the wire: `connected`, `msg`, `heartbeat`, `retry` and
  * `disconnect`, each carrying one packed 7-field Message. Its
  * `unparseable_lines` belongs to a worker's IPC stream, which no patron pulls.
  *
@@ -245,7 +245,7 @@ class SSE_In_Node extends Node implements Curl_Owner {
 		if ( null !== $this->on_connecting ) {
 			( $this->on_connecting )();
 		}
-		// Nothing to pull is no request, and no refusal worth recording.
+		// Nothing to pull means no request, and no refusal worth recording.
 		if ( [] === $this->subscribe ) {
 			return false;
 		}

@@ -145,7 +145,7 @@ class Partition_Node extends Timer_Node {
 	 * Directories the locator memo holds slots for before it is dropped whole.
 	 *
 	 * The key cap above bounds ONE slot; without this the ceiling is that
-	 * number times however many directories a process touches, which is no
+	 * number times however many directories a process touches, which is not a
 	 * ceiling. A dashboard fans across one mirror per partition and a worker
 	 * reads one, so this is several times what either needs — it exists so a
 	 * process that walks many partitions cannot accumulate a slot per dir.
@@ -856,8 +856,8 @@ class Partition_Node extends Timer_Node {
 	/**
 	 * Append one line to the current segment's companion index with no record
 	 * behind it: an annotation on records already written, such as a dead-letter
-	 * tombstone. It rotates out with that segment, and its meaning is the
-	 * caller's, as every index line's is.
+	 * tombstone. It rotates out with that segment, and the caller assigns
+	 * its meaning, as with every index line.
 	 *
 	 * Precondition: this process is the index's sole writer, asserted by
 	 * `void_warranty()` or proven by a held `allow_large_writes()` lock, because
@@ -1951,7 +1951,7 @@ class Partition_Node extends Timer_Node {
 	 * Probe seam: the Partition record `Topic_Probe` sends for this log — its
 	 * name, then its `footprint()`, then the bytes it grew since this node's
 	 * previous record and the interval that covers. READER stays blank, which
-	 * marks the record a Partition's, and every slot a Partition does not fill
+	 * marks the record as a Partition record, and every slot a Partition does not fill
 	 * keeps `Probe_Record::BLANK`'s 0. A DRAINING read, as a Consumer's is: the
 	 * window re-baselines, so a first record covers no window at all, and a
 	 * sweep finding the log empty re-baselines it on nothing.
@@ -2436,7 +2436,7 @@ class Partition_Node extends Timer_Node {
 	 */
 	public function requeue_deadletter( string $locator ): never {
 		unset( $locator );
-		throw new \RuntimeException( "requeue unavailable — this is a write quarantine, not a reader's" );
+		throw new \RuntimeException( "requeue unavailable — this quarantine belongs to a writer, not a reader" );
 	}
 
 	/**

@@ -7,7 +7,7 @@
  * `SseInNode`, the command transport, `HttpOutNode` for wire error frames, and
  * `Core.stderr` for classified WARNING / ERROR / debug lines. Two surfaces
  * read: the debug overlay's Overview tab, and the topology console Inspector's
- * header when the graph on screen is the browser's own.
+ * header when the graph on screen belongs to the browser.
  *
  * The accumulator is per PAGE, not per node, because the feeders do not
  * outlive the readers. Boundary nodes are torn down and rebuilt on every tab

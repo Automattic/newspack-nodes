@@ -162,7 +162,7 @@ describe( 'autoLayout — the Performance dashboard in the debug overlay', () =>
 
 	it( 'seats the overview slices a whole number of rows apart', () => {
 		const { at } = layOutPerformanceOverlay();
-		// The Tap is no slice card: it centres on its fan-in, a half row.
+		// The Tap is not a slice card: it centres on its fan-in, a half row.
 		const views = TAP_COLUMN.filter( ( id ) => 'overview:shell' !== id );
 		const top = at[ FETCHERS[ 0 ] ].y;
 		for ( const id of [ ...FETCHERS, ...views ] ) {

@@ -144,7 +144,7 @@
     </div>
     <div class="callout">
       <h4><span class="mono">wp nodes memcache flush</span> restarts the fleet</h4>
-      <p>It rotates the install's cache salt, orphaning every Newspack plugin key at once and no co-tenant's. The restart follows because a live worker keeps writing under the old prefix until it respawns.</p>
+      <p>It rotates the install's cache salt, orphaning every Newspack plugin key at once and leaving every co-tenant's keys alone. The restart follows because a live worker keeps writing under the old prefix until it respawns.</p>
     </div>
   </div>
 </div>

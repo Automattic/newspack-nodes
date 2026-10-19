@@ -806,7 +806,7 @@ class PartitionTest extends TestCase {
 	/**
 	 * A lock retraction that throws still empties the `lock` slot. Left
 	 * occupied, the dead lock rides the next rename back into the registry
-	 * under the new name, and it is no longer the Partition's to publish over.
+	 * under the new name, and it is no longer for the Partition to publish over.
 	 */
 	public function test_a_throwing_lock_retraction_frees_the_slot_and_large_writes_re_arm(): void {
 		$this->use_base_dir( $this->tmp );
@@ -2310,7 +2310,7 @@ class PartitionTest extends TestCase {
 		$this->assertFalse( \is_dir( "{$this->tmp}.p0" ), 'get_segments must not create the dir' );
 	}
 
-	/** The segment list is ids and byte lengths; the disk is footprint()'s. */
+	/** The segment list is ids and byte lengths; footprint() reports the disk. */
 	public function test_get_segments_lists_each_segments_id_and_size(): void {
 		$dir = "{$this->tmp}/sized.p0";
 		\mkdir( $dir );
@@ -2729,7 +2729,7 @@ class PartitionTest extends TestCase {
 	/**
 	 * Garbage collection does no I/O: a destructor that flushed could throw
 	 * from wherever the last reference happened to drop, so an unflushed batch
-	 * is the owner's to tear down, and destroying the node raises nothing.
+	 * is for the owner to tear down, and destroying the node raises nothing.
 	 */
 	public function test_destroying_a_partition_whose_flush_would_fail_raises_nothing(): void {
 		$p = new Partition_Node();
@@ -3896,7 +3896,7 @@ class PartitionTest extends TestCase {
 	}
 
 	/**
-	 * A final frame that will not unpack is no cursor: returning null would
+	 * A final frame that will not unpack is not a cursor: returning null would
 	 * restart the reader at its default seek, so the unpack error raises.
 	 */
 	public function test_read_latest_value_at_raises_an_unparseable_final_frame(): void {
@@ -5355,7 +5355,7 @@ class PartitionTest extends TestCase {
 	 *
 	 * `MAX_LOCATOR_MEMO_KEYS` caps one directory's slot; without a cap on the
 	 * slots themselves the real ceiling is that number times however many
-	 * directories a process touches, which is no ceiling at all. A reader that
+	 * directories a process touches, which is not a ceiling at all. A reader that
 	 * presents a whole read window per partition fills a slot fast.
 	 */
 	public function test_the_memo_is_bounded_across_directories(): void {

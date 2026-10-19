@@ -8,7 +8,7 @@ use Newspack_Nodes\Tests\TestCase;
 /**
  * The one contract every Cache_Backend arm keeps. A subclass builds its arm;
  * an arm whose expiry a test cannot move says so through `moves_clock()`.
- * What only a durable arm does — list, purge, vacuum — is DurableArmContract's.
+ * What only a durable arm does — list, purge, vacuum — belongs to DurableArmContract.
  */
 abstract class CacheBackendContract extends TestCase {
 

@@ -62,8 +62,8 @@ if [ -n "$SUBSTRATE_PIN" ]; then
 	SUBSTRATE_VERSION_TO_PIN=$(substrate_version "$SUBSTRATE_DIR")
 fi
 
-# A drop-in's header line; the check and the rewrite share it, so a header
-# that passes the check is one the rewrite takes.
+# A drop-in's header line; the check and the rewrite share it, so any header
+# that passes the check can be rewritten.
 DROP_IN_HEADER='^\( \* Version:[[:space:]]*\)[0-9][0-9A-Za-z.-]*[[:space:]]*$'
 
 # A drop-in the bump cannot rewrite refuses it before anything is edited.

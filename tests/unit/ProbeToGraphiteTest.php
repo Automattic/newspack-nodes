@@ -179,7 +179,7 @@ class ProbeToGraphiteTest extends TestCase {
 		$this->assertCount( 12, explode( "\n", rtrim( $this->sink->captured[4][ Message::VALUE ], "\n" ) ) );
 	}
 
-	/** A Partition record names no reader, so it is no reader's metric. */
+	/** A Partition record names no reader, so its metric belongs to no reader. */
 	/**
 	 * A null DISTANCE is a backlog the reader cannot know, as a broker's reader
 	 * reports it, so the window sends no distance line rather than a 0 that

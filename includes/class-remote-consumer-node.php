@@ -207,7 +207,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * What reaches this reader: a raw block and its header, pushed by the
 	 * stream or answering a fetch; the spoke's refusal of a block fetch,
 	 * matched by the arguments it echoes; the answer to a step; and the
-	 * Router's bounce of a line whose target names no node, which is no command
+	 * Router's bounce of a line whose target names no node, which is not a command
 	 * and settles nothing. An answer echoing the arguments a step would send
 	 * now settles the request; any other is stale, a seek having moved the
 	 * position since, and leaves the step in flight, so its late arrival
@@ -219,7 +219,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * one poll per owed step; the reply's cursor is then where the reader
 	 * stands, since it places even a record carrying no crumb. No record owes
 	 * nothing more and still takes the cursor, which moves past a line the
-	 * spoke could not unpack. A payload that is no struct is a refusal: it owes
+	 * spoke could not unpack. A payload that is not a struct is a refusal: it owes
 	 * nothing and leaves the cursor where it is.
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
@@ -1012,7 +1012,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	 * compared for sameness alone, because a file source's are inodes. Null
 	 * before the spoke first says, or once `DISTANCE_STALE_SECONDS` pass with
 	 * no word: a header, or the broker hearing that nothing more waits. A
-	 * quiet the hub keeps, a full reader or a shut valve, is no silence.
+	 * quiet the hub keeps, a full reader or a shut valve, is not silence.
 	 */
 	private function backlog(): ?int {
 		$distance = $this->distance;

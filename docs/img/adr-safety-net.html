@@ -75,7 +75,7 @@
 <div class="two">
   <div class="callout">
     <h4>Rejected: a dedicated supervisor process as the middle tier</h4>
-    <p>It is no supervisor in the OS sense: it can neither signal a worker, reap it, nor restart it in place. All it does is poll lock-dir mtimes and POST to an HTTP endpoint, and polling is work the pollees do for each other. Revival must not depend on a single process; peer scanning honors that more completely while giving back a permanently resident PHP-FPM child. Self-respawn alone was rejected too, since nothing catches a worker that dies before it can respawn, and an OS-level supervisor is unavailable on the platform.</p>
+    <p>It is not a supervisor in the OS sense: it can neither signal a worker, reap it, nor restart it in place. All it does is poll lock-dir mtimes and POST to an HTTP endpoint, and polling is work the pollees do for each other. Revival must not depend on a single process; peer scanning honors that more completely while giving back a permanently resident PHP-FPM child. Self-respawn alone was rejected too, since nothing catches a worker that dies before it can respawn, and an OS-level supervisor is unavailable on the platform.</p>
   </div>
   <div class="ok">
     <h4>What N independent spawners buy</h4>

@@ -65,7 +65,7 @@
   </div>
   <div class="callout" style="flex:1">
     <h4>One host's local filesystem only</h4>
-    <p>The PIPE_BUF promise is the kernel's, for its own filesystem. A network mount voids it, and the lockless append with it.</p>
+    <p>The kernel makes the PIPE_BUF promise, for its own filesystem. A network mount voids it, and the lockless append with it.</p>
   </div>
 </div>
 

@@ -412,7 +412,7 @@ class CliTest extends TestCase {
 	}
 
 	/**
-	 * `kea-7713.p03` is no spelling of partition 3: attaching it would hand
+	 * `kea-7713.p03` does not spell partition 3: attaching it would hand
 	 * back an IPC tree the running `kea-7713.p3` never reads.
 	 */
 	public function test_attach_to_worker_refuses_a_padded_id_beside_a_live_worker(): void {
@@ -940,7 +940,7 @@ class CliTest extends TestCase {
 
 		$rows = ( new CLI( $this->tmp ) )->consumer_rows()['rows'];
 
-		$this->assertSame( 0, $rows[0]['distance'], 'no cursor is no opinion' );
+		$this->assertSame( 0, $rows[0]['distance'], 'no cursor means no opinion' );
 	}
 
 	public function test_consumer_rows_raises_a_stale_row_whose_disk_read_fails(): void {
@@ -1042,7 +1042,7 @@ class CliTest extends TestCase {
 		$this->assertSame( 31, $row['msgs'] );
 	}
 
-	/** A Partition record names no reader, so it is no Consumer row. */
+	/** A Partition record names no reader, so it is not a Consumer row. */
 	public function test_consumer_rows_skip_a_partition_record(): void {
 		$this->seed_probe_record( [ 'reader' => '', 'source' => 'ledger.p4', 'end_segment' => 6, 'end_size' => 3371 ] );
 		$this->seed_probe_record( [ 'reader' => 'jobs.ledger.p4', 'source' => 'ledger.p4' ] );

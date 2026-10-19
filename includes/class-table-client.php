@@ -51,9 +51,9 @@ final class Table_Client {
 	/**
 	 * `SMOVE`: move up to `$count` members of `$from` into `$to`. A set that
 	 * cannot be named is refused with a rate-limited line and asks nothing; a
-	 * move naming one set twice is the Table's to refuse, and fails. The move
+	 * move naming one set twice is for the Table to refuse, and fails. The move
 	 * failed on a TM_ERROR, a missing count, a count the set messages miss, or
-	 * a set that is no TM_STRUCT list of `[ member, value ]` pairs.
+	 * a set that is not a TM_STRUCT list of `[ member, value ]` pairs.
 	 *
 	 * @api A node moving members between sets: the Crawler_Node.
 	 * @param string   $table  The Table's registered name.
@@ -328,7 +328,7 @@ final class Table_Client {
 	 *
 	 * @api A node asking Tables: `Crawler_Node`, and event-logger-nodes' flame builder.
 	 * @param array<int,mixed> $message Any message the asker received.
-	 * @return bool True when the message was a Table's, and so not the asker's input.
+	 * @return bool True when a Table sent the message, so it is not the asker's input.
 	 */
 	public function accepts( array $message ): bool {
 		$from = Core::as_string( $message[ Message::FROM ], '' );

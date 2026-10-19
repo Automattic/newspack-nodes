@@ -493,7 +493,7 @@ describe( 'Inspector — the edited topology, nothing selected', () => {
 		expect( onSelect ).toHaveBeenCalledTimes( 2 );
 	} );
 
-	it( 'leaves an edge to a target that is no node out of the interface', () => {
+	it( 'leaves an edge to a target that is not a node out of the interface', () => {
 		show( {
 			parsed: {
 				nodes: [ { id: 'lone-echo', class: 'Echo' } ],

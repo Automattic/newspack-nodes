@@ -1066,7 +1066,7 @@ describe( 'autoLayout', () => {
 	it( 'raises a sink to the furthest consumer sharing its feeder', () => {
 		// `zz` is one column deep and `w0` five, both fed by `x`. Seating `zz`
 		// by its own depth alone would split `x`'s successors across columns,
-		// and a source whose successors span columns is no pair to seat level
+		// and a source whose successors span columns is not a pair to seat level
 		// with them — which is how `x` drifted three rows off its own sink.
 		const out = autoLayout( {
 			nodes: [
@@ -1099,7 +1099,7 @@ describe( 'autoLayout', () => {
 	it( 'seats a sink beside its feeder, in the column of the consumer it shares it with, and an isolated node below the band', () => {
 		// errors shares request_builder with completed_tee, so it sits in
 		// completed_tee's column, short of the band's last; the edgeless _repl
-		// is no part of the band and stacks under it at column 0.
+		// does not count toward the band and stacks under it at column 0.
 		const out = autoLayout( {
 			nodes: [
 				{ id: 'consumer' },
@@ -1203,8 +1203,8 @@ describe( 'autoLayout', () => {
 		expect( x.d ).toBeGreaterThan( x.b );
 	} );
 
-	it( "counts no card's wire to itself among its feeders", () => {
-		// n4's wire to itself would lift its fan-in to a hub's four.
+	it( "never counts a card's wire to itself among its feeders", () => {
+		// n4's wire to itself would lift its fan-in to the four a hub has.
 		const x = xsOf(
 			'n4>n5 n5>n4 n3>n2 n5>n0 n1>n3 n4>n4 n2>n1 n1>n5 n3>n4 n0>n4'
 		);
@@ -2738,7 +2738,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 	} );
 
 	it( 'reseats a source whose fallback moved no card, as any other', () => {
-		// A seat that cut nothing is no opened row: the block reseats b1src
+		// A seat that cut nothing does not open a row: the block reseats b1src
 		// level with b1l4n0 rather than holding its band-level seat.
 		const edges = [
 			[ 'b0l0n1', 'b0l1n0' ],
@@ -3302,7 +3302,7 @@ describe( 'autoLayout — hub bands', () => {
 
 	it( 'opens the gap before any node three wires enter, hub or not', () => {
 		// The debug station's egress: six remotes and `_http` drain `_output`,
-		// which is no hub, since `_http` alone besides it is fed. `_http` takes
+		// which is not a hub, since `_http` alone besides it is fed. `_http` takes
 		// two wires, so its column keeps an ordinary step.
 		const remotes = [ 'agg.p0', 'c.p0', 'c.p1', 'c.p2', 'c.p3', 'ni.p0' ];
 		const edges = [

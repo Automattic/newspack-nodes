@@ -1,7 +1,7 @@
 /**
  * DraftContext — the draft document's React seam.
  *
- * The claim under test is Stage 2's: edit mode sends the SAME commands live
+ * The claim under test comes from Stage 2: edit mode sends the SAME commands live
  * mode does, to a different interpreter. So the mutation door takes a TSL
  * LINE, and what comes back is a read of a real node graph — not a reducer's
  * opinion of one. The provider carries the document now, because the

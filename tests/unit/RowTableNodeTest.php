@@ -119,7 +119,7 @@ final class RowTableNodeTest extends TestCase {
 		$this->assertFileDoesNotExist( $this->base . '/tables/wombats-6620.p3.sqlite' );
 	}
 
-	public function test_a_schema_class_that_is_no_row_schema_is_refused(): void {
+	public function test_a_schema_class_that_is_not_a_row_schema_is_refused(): void {
 		$e = $this->caught( fn () => $this->row_table( 'wombats-6620', 'Dingo' ), 'a Dingo_Row_Schema that implements nothing' );
 		$this->assertStringContainsString( 'Dingo', $e->getMessage() );
 	}
@@ -166,7 +166,7 @@ final class RowTableNodeTest extends TestCase {
 				$t['visits']['indexes']['Visits-Ms'] = [ 'ms' ];
 				return $t;
 			}, 'Visits-Ms' ],
-			'an autoincrement column that is no INTEGER' => [ static function ( array $t ): array {
+			'an autoincrement column that is not an INTEGER' => [ static function ( array $t ): array {
 				$t['burrows']['autoincrement'] = 'name';
 				$t['burrows']['fts']           = [];
 				return $t;
@@ -232,7 +232,7 @@ final class RowTableNodeTest extends TestCase {
 				$t['burrows']['retained_by'][] = [ 'burrows', 'id', 'id' ];
 				return $t;
 			}, 'burrows is retained_by a cycle: burrows, burrows' ],
-			'an fts column that is no TEXT'    => [ static function ( array $t ): array {
+			'an fts column that is not TEXT'   => [ static function ( array $t ): array {
 				$t['burrows']['fts'] = [ 'id' ];
 				return $t;
 			}, 'id' ],
@@ -656,7 +656,7 @@ final class RowTableNodeTest extends TestCase {
 		Row_Table_Node::read( Wombat_Row_Schema::class, static fn (): null => null );
 	}
 
-	public function test_read_of_a_file_that_is_no_database_is_unavailable(): void {
+	public function test_read_of_a_file_that_is_not_a_database_is_unavailable(): void {
 		$this->activate( 'wombat-fleet' );
 		\mkdir( $this->base . '/tables' );
 		\file_put_contents( Table_Node::file( 'wombats-6620', 2 ), \str_repeat( 'not a database ', 512 ) );
@@ -875,7 +875,7 @@ final class RowTableNodeTest extends TestCase {
 		$this->assertSame( [], $this->tables_dir(), 'a reader creates nothing' );
 	}
 
-	public function test_open_snapshot_of_a_file_that_is_no_database_is_unavailable(): void {
+	public function test_open_snapshot_of_a_file_that_is_not_a_database_is_unavailable(): void {
 		\mkdir( "{$this->base}/tables" );
 		\file_put_contents( "{$this->base}/tables/heron-snap-7113.sqlite", \str_repeat( 'not a database ', 512 ) );
 		$e = $this->caught( static fn () => Row_Table_Node::open_snapshot( 'heron-snap-7113' ), 'a junk file' );

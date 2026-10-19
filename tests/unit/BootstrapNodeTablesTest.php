@@ -227,7 +227,7 @@ final class BootstrapNodeTablesTest extends TestCase {
 		Bootstrap::node_tables( 'lab-7:yak' );
 	}
 
-	public function test_a_node_of_the_same_name_that_is_no_table_contributes_nothing(): void {
+	public function test_a_node_of_the_same_name_that_is_not_a_table_contributes_nothing(): void {
 		$this->activate( 'owl-echo', 'owl-a' );
 		$this->assertSame( [ 0, 1 ], \array_keys( Bootstrap::node_tables( 'lab-7:owl' )['lab-7:owl'] ) );
 	}
@@ -461,7 +461,7 @@ final class BootstrapNodeTablesTest extends TestCase {
 		$request[ Message::TO ]    = 'lab-7:kea.p1';
 		$request[ Message::VALUE ] = "GET sku-0\n";
 		Core::node( Node_Names::COMMAND_INTERPRETER )->fill( $request );
-		$this->assertSame( [ [ Message::TM_INFO, "GET 0\n" ] ], \array_map( static fn ( array $m ): array => [ Core::num_int( $m[ Message::TYPE ] ), $m[ Message::VALUE ] ], $asker->captured ), 'no file is no data, not a failed read' );
+		$this->assertSame( [ [ Message::TM_INFO, "GET 0\n" ] ], \array_map( static fn ( array $m ): array => [ Core::num_int( $m[ Message::TYPE ] ), $m[ Message::VALUE ] ], $asker->captured ), 'no file means no data, not a failed read' );
 		$this->assertFileDoesNotExist( "{$this->base}/tables/lab-7:kea.p1.sqlite" );
 	}
 
@@ -580,7 +580,7 @@ final class BootstrapNodeTablesTest extends TestCase {
 		Bootstrap::node_tables( 'wombats-6620' );
 	}
 
-	public function test_a_row_table_is_no_keyed_table_to_resolve_or_mount(): void {
+	public function test_a_row_table_is_not_a_keyed_table_to_resolve_or_mount(): void {
 		$this->activate( 'wombat-a' );
 		$this->assertSame( [ 'wombats-6620' => [] ], Bootstrap::node_tables( 'wombats-6620' ) );
 	}

@@ -2,9 +2,11 @@
 @use "field-scope" as scope;
 
 .newspack-nodes-ui.newspack-nodes-ui {
-	input:not(.components-input-control__input, .topology-repl__input):not(
-			#{scope.$not-a-field}
-		),
+	input:not(
+			.components-input-control__input,
+			.topology-repl__input,
+			.newspack-nodes-token-field__entry
+		):not(#{scope.$not-a-field}),
 	select:not(.components-input-control__input),
 	textarea {
 		&:focus {
@@ -36,11 +38,13 @@
 
 	.components-input-control__container:has(
 			.components-input-control__input:focus
-		) {
+		),
+	.newspack-nodes-token-field:has(.newspack-nodes-token-field__entry:focus) {
 		@include focus.ring;
 	}
 
-	input.topology-repl__input:focus {
+	input.topology-repl__input:focus,
+	input.newspack-nodes-token-field__entry:focus {
 		@include focus.no-ring;
 	}
 
@@ -74,7 +78,7 @@
 		@include focus.no-ring;
 	}
 
-	// InputControl recolors its backdrop on focus; the ring is the container's.
+	// InputControl recolors its backdrop on focus; the container draws the ring.
 	.components-input-control__container:focus-within
 		.components-input-control__backdrop {
 		border-color: var(--np-field-border);

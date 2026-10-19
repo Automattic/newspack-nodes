@@ -116,7 +116,7 @@ class CacheBackendTest extends TestCase {
 
 		$this->assertTrue( $backend->touch( 'touch-hit', 4471 ) );
 		$this->assertFalse( $backend->touch( 'touch-miss', 4471 ), 'a confirmed miss' );
-		$this->assertNull( $backend->touch( 'touch-error', 4471 ), 'a backend that did not answer is no miss' );
+		$this->assertNull( $backend->touch( 'touch-error', 4471 ), 'a backend that did not answer is not a miss' );
 		$this->assertEqualsWithDelta( \time() + 83, $memd->expiries()['touch-error'], 2, 'and moved nothing' );
 	}
 
@@ -504,8 +504,8 @@ class CacheBackendTest extends TestCase {
 	/**
 	 * Every shared surface routes through the scope, so a co-tenant install
 	 * cannot read or clobber this one's state. Builders rather than raw
-	 * prefixes because a scope a caller has to remember to apply is one a
-	 * caller eventually forgets.
+	 * prefixes because a caller eventually forgets a scope it has to remember
+	 * to apply.
 	 *
 	 * The provider hands over BUILDERS, called inside the test: PHPUnit runs a
 	 * provider before any test, so a key built there freezes whatever salt was

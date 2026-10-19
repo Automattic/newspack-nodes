@@ -686,7 +686,7 @@ class Config {
 	 *
 	 * With an external object cache the writer already stored the value there,
 	 * so only this process's runtime copy is flushed: deleting a key would
-	 * evict the shared entry. Without one the cache is this process's alone,
+	 * evict the shared entry. Without one the cache belongs to this process alone,
 	 * and flushing the `options` group keeps every other group.
 	 *
 	 * @api

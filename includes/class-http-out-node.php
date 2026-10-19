@@ -391,8 +391,8 @@ class HTTP_Out_Node extends Timer_Node implements Curl_Owner {
 	 * bits ride with it: the remote sets those bits, so keying off them let a
 	 * spoke pick its arm out of the allowlist. It matches the WHOLE path, so a
 	 * declaration admits one destination rather than a subtree. Nothing declared
-	 * means nothing addressed passes. Unaddressed output — a `log` broadcast, say — is the
-	 * target's, and with no target it goes on to the sink as it stands.
+	 * means nothing addressed passes. Unaddressed output — a `log` broadcast, say — goes to the
+	 * target, and with no target it goes on to the sink as it stands.
 	 *
 	 * @param array<int,mixed> $reply Reply Message, mutated in place.
 	 * @return bool True if the reply may be forwarded to the sink.
@@ -406,7 +406,7 @@ class HTTP_Out_Node extends Timer_Node implements Curl_Owner {
 		if ( '' !== $to ) {
 			return $this->admit_addressed( $reply );
 		}
-		// Single-valued, like Tachikoma's owner; the array form is Tee's.
+		// Single-valued, like Tachikoma's owner; Tee takes the array form.
 		$target = $this->target();
 		if ( \is_string( $target ) && '' !== $target ) {
 			$reply[ Message::TO ] = $target;

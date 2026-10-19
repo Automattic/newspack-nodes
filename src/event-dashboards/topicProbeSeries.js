@@ -201,7 +201,7 @@ export const maxOf = ( points ) =>
  * the metric's `num`, a figure that does not apply to it, charts no point,
  * and a group with no point charts no series.
  *
- * Whether a group splits per worker is the caller's to say, because it
+ * Whether a group splits per worker is for the caller to say, because it
  * depends on the key, not the metric: a job identity or an Overview source
  * names no worker, so two workers' buckets of it chart apart as
  * `<key> · <worker>`, while a Table charts whole, because its level counts

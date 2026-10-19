@@ -100,7 +100,7 @@ on every dashboard request. Catch it, or let the surrounding controller's catch 
    binds before it evaluates the file, the `{partition}` a node resolves in
    the arguments its schema marks, and the `<ns:key>`
    form each namespace resolves through the resolver it registered at boot —
-   `<config:KEY>` is the substrate's, and a consumer adds its own through
+   the substrate owns `<config:KEY>`, and a consumer adds its own through
    `Core::register_config_namespace()`. The grammar is one grammar in both
    ports: [`src/runtime/shell-node.js`](../src/runtime/shell-node.js)'s `parseStatements` is held to
    `parse_statements()` by the shared [`tests/fixtures/statements/`](../tests/fixtures/statements) corpus,
@@ -263,7 +263,7 @@ on every dashboard request. Catch it, or let the surrounding controller's catch 
     authenticating its own credential installs the session's scope as a ceiling
     for one command, as event-logger-nodes' [`MCP_Controller`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/includes/app/class-mcp-controller.php) does, and NONE is
     what a refusal installs. `highest_held()`, `scope_covers()` and
-    `operator_list_excludes()` are the substrate's own and stay outside this
+    `operator_list_excludes()` belong to the substrate and stay outside this
     contract.
 
 Not frozen: any class, method, JS module, dashboard markup, SCSS or option name

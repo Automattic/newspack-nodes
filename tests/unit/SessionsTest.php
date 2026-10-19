@@ -90,7 +90,7 @@ class SessionsTest extends TestCase {
 	}
 
 	/**
-	 * One copy of a session's scope and expiry: its row's. The listing reads
+	 * One copy of a session's scope and expiry, kept in its row. The listing reads
 	 * the life the row has left, so its expiry holds as time passes.
 	 */
 	public function test_the_listing_reads_scope_and_expiry_from_the_session_row(): void {

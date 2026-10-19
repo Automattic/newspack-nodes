@@ -88,7 +88,7 @@ final class VaultTest extends TestCase {
 		$vault = Vault::get_instance();
 		$this->assertFalse( $vault->add( 'spoke-7713', [ 'url' => 'https://admin:s3cret7713@spoke.example' ] ) );
 		$this->assertFalse( $vault->add( 'spoke-7714', [ 'url' => 'https://admin@spoke.example' ] ) );
-		$this->assertTrue( $vault->add( 'spoke-7715', [ 'url' => 'https://spoke-7715.example/a@b' ] ), 'an @ in the path is no userinfo' );
+		$this->assertTrue( $vault->add( 'spoke-7715', [ 'url' => 'https://spoke-7715.example/a@b' ] ), 'an @ in the path is not userinfo' );
 		$this->assertFalse( $vault->update( 'spoke-7715', [ 'url' => 'https://kea:moa7713@spoke-7715.example' ] ) );
 		$vault->reset_cache();
 

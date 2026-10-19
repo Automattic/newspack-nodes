@@ -1,6 +1,6 @@
 <?php
 /**
- * A broker that is no Remote_Source: a direct Remote_Broker subclass, for
+ * A broker that is not a Remote_Source: a direct Remote_Broker subclass, for
  * pinning that what recognizes a broker does so by the base class.
  *
  * @package Newspack_Nodes

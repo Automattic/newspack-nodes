@@ -3,7 +3,7 @@
  *
  * The distinction it has to keep, and the one the reducer never could: a
  * borrowed node is DESCRIBED by the include that supplies it, so it renders on
- * the canvas but is not the document's to declare.
+ * the canvas but is not for the document to declare.
  */
 
 import { draftToGraph, graphFromTsl } from '../draftToGraph';

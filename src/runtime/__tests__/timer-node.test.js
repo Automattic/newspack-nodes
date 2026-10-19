@@ -333,7 +333,7 @@ describe( 'hitchhike + throttle (setTimer(ms) with ms >= 1000)', () => {
 	// request about a second after the one it was meant to suppress.
 	test( 'markFired holds off a full interval, and stays on the grid', () => {
 		const epoch = 1_700_000_000_000;
-		// Arm 10ms before a boundary: the next one is no interval at all.
+		// Arm 10ms before a boundary: the next one is not an interval at all.
 		jest.setSystemTime(
 			( Math.floor( ( epoch - GRID_PHASE_MS ) / 5000 ) + 2 ) * 5000 +
 				GRID_PHASE_MS -

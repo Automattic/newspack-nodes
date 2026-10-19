@@ -76,7 +76,7 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 						'label'     => $key,
 						'available' => true,
 					]
-					: Log_Sources::error_row( $name, "log dir {$name} is no stamp a stream can name; rename it" );
+					: Log_Sources::error_row( $name, "log dir {$name} is not a stamp a stream can name; rename it" );
 			}
 			foreach ( Log_Discovery::unreadable()[ $group ] as $name ) {
 				$result[] = Log_Sources::error_row( $name, "log dir {$name} cannot be read; check its owner and mode" );

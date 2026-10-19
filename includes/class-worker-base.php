@@ -147,7 +147,7 @@ class Worker_Base {
 	 * first, so whichever runs first wins; without that flag a clean exit would
 	 * hand cursors off, tear the graph down, release and respawn twice over.
 	 *
-	 * A stop is this method's to handle, so only the failure a stop carries as
+	 * A stop is for this method to handle, so only the failure a stop carries as
 	 * its previous escapes, beside anything else the run or the shutdown threw.
 	 *
 	 * @param callable $topology  Topology closure, called as `( $interpreter, $partition )`.
@@ -349,7 +349,7 @@ class Worker_Base {
 	/**
 	 * Where a worker's IPC tree lives: `{base}/ipc/{type}.p{N}`, or one `$leg`
 	 * under it. One definition, because the fleet's own scaffolding and anything
-	 * asking about another worker must agree — this layout is the SUBSTRATE's,
+	 * asking about another worker must agree — the SUBSTRATE owns this layout,
 	 * unlike a TSL path template, so constructing it here is not the layout
 	 * assumption a `.p<N>` parse would be.
 	 *

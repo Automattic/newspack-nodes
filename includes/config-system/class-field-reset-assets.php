@@ -19,7 +19,7 @@ namespace Newspack_Nodes\Config_System;
  * `admin_enqueue_scripts` handler.
  *
  * `enqueue()` supplies the behaviour and the UI sheet that paints a marked
- * toggle; the markup is each admin's own, written to the module's contract of
+ * toggle; each admin owns the markup, written to the module's contract of
  * a `data-nn-reset="<mark name>"` wrapper around a `data-nn-reset-toggle`
  * button (`Settings_Renderer` emits it here, pyrobase inline in its settings
  * admin) inside a `.newspack-nodes-ui` page wrapper, which is what scopes the

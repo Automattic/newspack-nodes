@@ -165,7 +165,7 @@ export class HttpOutNode extends Node {
 	 * A synchronous reply is fed into the sink, which routes it by TO. A POST
 	 * that never landed answers each entry with a TM_ERROR to its minter,
 	 * since silence is indistinguishable from a 202 routed onward. A receiver
-	 * that throws is no failed POST: every reply is still delivered, and what
+	 * that throws does not fail the POST: every reply is still delivered, and what
 	 * the receivers threw rejects the returned promise after the last.
 	 *
 	 * @param {Array<Array>} entries Positional command Messages, TO routed.

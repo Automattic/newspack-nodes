@@ -334,8 +334,8 @@ class CLI {
 
 	/**
 	 * Fold one Consumer record into its reader's entry, in place: the newer
-	 * record by sweep instant stays the entry's, and the record's window joins
-	 * the reader's, which keeps its newest windows covering `$cover`, oldest
+	 * record by sweep instant stays in the entry, and the record's window joins
+	 * the reader's windows, of which the reader keeps the newest covering `$cover`, oldest
 	 * first from `head`. Records arrive almost in sweep order, so a window
 	 * appends, its covered sum runs alongside, a record older than a window
 	 * already covering is skipped, and the dropped head compacts away once it
@@ -505,7 +505,7 @@ class CLI {
 	 *
 	 * @param string $worker_id Worker id.
 	 * @return array{0:string,1:int}|null Type and partition; null when the id
-	 *                                    is no worker's spelling.
+	 *                                    does not spell a worker id.
 	 */
 	public static function parse_worker_id( string $worker_id ): ?array {
 		if ( ! \preg_match( '/^([^\/\x00]+)\.p(0|[1-9][0-9]*)$/D', $worker_id, $m ) ) {
@@ -551,7 +551,7 @@ class CLI {
 	 *
 	 * A lock dir carrying neither file reports 0 for both times rather than
 	 * null, so the status table selects its dash off a plain `> 0`. The
-	 * staleness verdict is `Lock_Node`'s, which reads a missing heartbeat as
+	 * staleness verdict comes from `Lock_Node`, which reads a missing heartbeat as
 	 * stale once the lock dir is past the orphan grace.
 	 *
 	 * @param string $dir           The `.lock.d` directory.

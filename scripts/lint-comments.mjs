@@ -4,8 +4,8 @@
  * Arguments are files or directories — lint-staged passes the staged paths,
  * `npm run lint:js` passes `.`. `scripts/lint-comments.php` is the PHP half of
  * the same gate; a rule the two spell differently is a rule neither enforces,
- * so each function with a counterpart names it. Placement, generic spacing and
- * `--fix` are the PHP half's alone.
+ * so each function with a counterpart names it. Only the PHP half handles
+ * placement, generic spacing and `--fix`.
  *
  * LENGTH: a `//` line and a non-doc slash-star comment are one line and at
  * most 80 columns, and two adjacent comment lines are a paragraph wanting a

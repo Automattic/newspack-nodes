@@ -454,7 +454,7 @@ class LogSourcesTest extends TestCase {
 		$this->assertSame( 'sources:shared-6613', $rows[0]['key'] );
 		$this->assertTrue( $rows[0]['available'], 'the source keeps its own valid row' );
 		$this->assertArrayNotHasKey( 'error', $rows[0] );
-		$this->assertArrayNotHasKey( 'key', $rows[1], 'a topology is no stream' );
+		$this->assertArrayNotHasKey( 'key', $rows[1], 'a topology is not a stream' );
 		$this->assertSame( 'shared-6613', $rows[1]['label'] );
 		$this->assertFalse( $rows[1]['available'] );
 		$this->assertStringContainsString( 'nope:x', $rows[1]['error'] );

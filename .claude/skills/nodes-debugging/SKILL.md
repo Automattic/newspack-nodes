@@ -98,7 +98,7 @@ list_handles [-s]           # ID COUNT TYPE NAME — the cURL-multi handles the 
 profile [on|off]            # toggle _router dispatch profiling (per-node self time)
 list_profiles [-s] [<glob>] # that profile table, slowest average first; `total` for the total row
 trace [<node>] [<level>]    # set a node's debug_state; `*` hits every node, bare toggles this
-                            #   interpreter's, and make_node inherits the level. A traced node
+                            #   interpreter's state, and make_node inherits the level. A traced node
                             #   writes a flat `<node>: DEBUG: <event> <payload>` line on its
                             #   stderr chain at every set_state(), but only while a _router is
                             #   mounted — a hand-built test graph without one caches the state
@@ -123,7 +123,7 @@ disconnect_node <node> [<target>] # undoes that (alias: disconnect)
 register / unregister <source> <target> <event>
 ```
 
-Reach for `connect_node <node>` with no target first: it wires that node's output to your session, and `disconnect_node <node>` takes it back. Mind which kind of node you point at, though. A fan-out node — Tee or Tap — APPENDS your session to its target list and keeps delivering everywhere else; every other node REPLACES its single target, so connecting to one steers its production traffic at you until you disconnect. Settings_Sync appends like the other two and then skips you: it pushes only to a target whose head resolves to an `HTTP_Out_Node` carrying a live signing session, and a REPL session's head is no such node, so your target earns the rate-limited `no session for <target>; skipping` and nothing else. Watch its pushes on the spoke, not from here.
+Reach for `connect_node <node>` with no target first: it wires that node's output to your session, and `disconnect_node <node>` takes it back. Mind which kind of node you point at, though. A fan-out node — Tee or Tap — APPENDS your session to its target list and keeps delivering everywhere else; every other node REPLACES its single target, so connecting to one steers its production traffic at you until you disconnect. Settings_Sync appends like the other two and then skips you: it pushes only to a target whose head resolves to an `HTTP_Out_Node` carrying a live signing session, and a REPL session's head is not such a node, so your target earns the rate-limited `no session for <target>; skipping` and nothing else. Watch its pushes on the spoke, not from here.
 
 The `Tee → Dumper → Grep → Stderr` debug tap the substrate is designed around ships in no topology; build it in the REPL. `make_node` sinks each new node into the interpreter, so the wiring is a target chain and nothing else:
 
@@ -214,7 +214,7 @@ The offsetlog and dead-letter directory names are not fixed by the substrate: th
 
 `heartbeat` holds the owner's pid and its mtime is the liveness signal `status` reads; `started` is the acquisition time behind Uptime. Three flag files steer a holder from a process holding no instance: `restart` recycles it, `stop` empties the slot, `reload` re-reads config without exiting. `Lock_Node` claims a directory with `mkdir` rather than `flock`, because `mkdir` is POSIX-atomic on the NFS, tmpfs and bind mounts this runs on; a stale steal renames the old directory aside first, and a `.stealing.` leftover is scratch from an interrupted steal that the reconcile pass reaps.
 
-The IPC tree is the substrate's own: `input/` is a Partition the cli writes commands into, `input.offsets/` is that consumer's durable offsetlog so a respawned worker resumes rather than replaying, and `output/` is the `_repl` Partition the attached cli tails. The IPC-input Consumer stamps `FROM = _repl`, which is the whole reply path — the interpreter answers `TO = FROM` and Router hands the answer to `_repl`. Addressing is the correlation (ADR-7); nothing else pairs a reply with its command.
+The IPC tree belongs to the substrate: `input/` is a Partition the cli writes commands into, `input.offsets/` is that consumer's durable offsetlog so a respawned worker resumes rather than replaying, and `output/` is the `_repl` Partition the attached cli tails. The IPC-input Consumer stamps `FROM = _repl`, which is the whole reply path — the interpreter answers `TO = FROM` and Router hands the answer to `_repl`. Addressing is the correlation (ADR-7); nothing else pairs a reply with its command.
 
 A `{seg}.idx` sidecar appears only when a Partition has a `with_index()` formatter set. A dead-letter queue always installs one — it is the triage metadata `dl_list` pages through — and a data partition usually has none, so its absence under `logs/` is normal rather than corruption.
 

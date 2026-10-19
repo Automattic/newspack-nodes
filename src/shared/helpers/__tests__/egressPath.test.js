@@ -35,7 +35,7 @@ describe( 'egressPath( group, ci )', () => {
 		expect( egressPath( 'quokka', 'wombat-ci' ) ).not.toMatch( /_shell/ );
 	} );
 
-	test( 'refuses a group that is no string, so no `42:shell` Tap exists', () => {
+	test( 'refuses a group that is not a string, so no `42:shell` Tap exists', () => {
 		expect( () => egressPath( 42, 'wombat-ci' ) ).toThrow( TypeError );
 		expect( () => egressPath( [ 'quokka' ], 'wombat-ci' ) ).toThrow(
 			TypeError

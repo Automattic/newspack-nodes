@@ -108,7 +108,7 @@ function polygonArea( poly ) {
  * Geometry for one include's members: the rounded path, and the area that
  * orders it against the siblings it overlaps.
  *
- * The area is the polygon's, not its bounding box's. Two members far apart
+ * This measures the polygon's area, not its bounding box's. Two members far apart
  * span a large box around a thin hull, so a box-based tiebreak would call that
  * hull the biggest and paint it first, burying it. Equal-depth siblings paint
  * biggest-first, which leaves the smaller region on top and clickable.

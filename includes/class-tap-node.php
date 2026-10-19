@@ -11,7 +11,7 @@
  * command the anonymous Shell sends walks through it, so a session can watch
  * its own traffic.
  *
- * Failure handling is Tee's: it attempts every target, then the passthrough,
+ * It handles failure as Tee does: it attempts every target, then the passthrough,
  * and raises everything they threw, combined by `Worker_Should_Stop::raise()`.
  * Completing the fan-out is what keeps at-least-once: a target skipped by an
  * early throw never receives the message once the poison path dead-letters it

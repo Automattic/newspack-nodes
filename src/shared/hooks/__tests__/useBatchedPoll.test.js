@@ -815,7 +815,7 @@ describe( 'useBatchedPoll — intervalMs is required', () => {
 
 	// Below the hitchhike threshold TimerNode takes an own slot, which fires
 	// OUTSIDE the lock/flush bracket — one POST per slice per tick, no batch.
-	test( 'throws below the 1000 hitchhike threshold — that is no batch at all', () => {
+	test( 'throws below the 1000 hitchhike threshold — that is not a batch at all', () => {
 		expect( call( 750 ) ).toThrow( /1000/ );
 	} );
 

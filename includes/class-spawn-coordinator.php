@@ -300,7 +300,7 @@ class Spawn_Coordinator {
 				if ( ! $this->is_absent( $worker ) ) {
 					continue;
 				}
-				// No durable cursor is no opinion, not "all of it is behind".
+				// No durable cursor: no opinion, not "all of it is behind".
 				$cursor = Core::as_string( $worker['offsetlog_dir'] ?? '' );
 				if ( '' === $cursor ) {
 					continue;
@@ -504,7 +504,7 @@ class Spawn_Coordinator {
 	/**
 	 * Reap ipc dirs for workers no longer in the fleet. A live worker's lock dir
 	 * defers its own removal, so a worker mid-recycle keeps its IPC, and a dir
-	 * whose name `CLI::parse_worker_id()` refuses is no worker's and stays.
+	 * whose name `CLI::parse_worker_id()` refuses belongs to no worker and stays.
 	 */
 	public function cleanup_orphan_ipc(): void {
 		$active = [];

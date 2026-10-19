@@ -380,7 +380,7 @@ class HttpOutTest extends TestCase {
 
 	/**
 	 * An addressed reply passes only when `allow_replies_to` declares its
-	 * whole path. The reply bit is the REMOTE's to set, so it buys no
+	 * whole path. The reply bit is for the REMOTE to set, so it buys no
 	 * addressing: every node sinks into `_command_interpreter` and then
 	 * `_router` (ADR-7), so an undeclared TO would be routed — on a live
 	 * aggregator hub, to any of thirty names, `_router`,
@@ -1216,7 +1216,7 @@ class HttpOutTest extends TestCase {
 		);
 	}
 
-	public function test_an_accepted_post_is_no_error(): void {
+	public function test_an_accepted_post_is_not_an_error(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 202, 'body' => '', 'redirect' => '' ];
 

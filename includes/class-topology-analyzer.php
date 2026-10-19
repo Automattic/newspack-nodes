@@ -1738,7 +1738,7 @@ class Topology_Analyzer {
 		return $subtree;
 	}
 
-	/** Drop every parsed cache; the source dirs are Topology_Registry's. */
+	/** Drop every parsed cache; Topology_Registry owns the source dirs. */
 	public static function reset_caches(): void {
 		self::$segment_size_overrides_cache = [];
 		self::$write_set_cache              = [];

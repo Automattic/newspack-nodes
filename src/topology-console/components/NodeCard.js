@@ -280,7 +280,7 @@ export function FocusRing( { box } ) {
 /**
  * The "…" on an owner's card, a button opening the sidecars the canvas never
  * draws. It sits at the same spot of every card that draws one, the canvas's
- * and the grid's, in the card's own coordinates. It is no Tab stop: Enter on
+ * and the grid's, in the card's own coordinates. It is not a Tab stop: Enter on
  * its card opens the same grid.
  *
  * @param {Object}                                                    props

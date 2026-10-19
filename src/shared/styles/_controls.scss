@@ -15,7 +15,9 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 
 	input:not([type="checkbox"]):not([type="radio"]):not(
 			.components-input-control__input
-		):not(.topology-repl__input):not(#{scope.$not-a-field}),
+		):not(.topology-repl__input):not(.newspack-nodes-token-field__entry):not(
+			#{scope.$not-a-field}
+		),
 	select:not(.components-input-control__input),
 	textarea {
 		appearance: none;
@@ -29,6 +31,42 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 		-webkit-text-fill-color: var(--np-field-ink);
 		box-shadow: none;
 		padding: 6px 10px;
+		font-size: 12px;
+		line-height: 1.4;
+
+		&::placeholder {
+			color: var(--np-field-muted);
+			-webkit-text-fill-color: var(--np-field-muted);
+			opacity: 1;
+		}
+	}
+
+	// A token field: tokens and the box they are typed into share one frame,
+	// which wears the field's chrome; the entry box inside it wears none.
+	// The frame rings while the box has focus, a token's button its own.
+	.newspack-nodes-token-field {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 4px;
+		box-sizing: border-box;
+		min-height: 40px;
+		padding: 4px;
+		background-color: var(--np-field-surface);
+		border: 1px solid var(--np-field-border);
+		border-radius: var(--field-radius, 0);
+		cursor: text;
+	}
+
+	.newspack-nodes-token-field__entry {
+		flex: 1 1 16ch;
+		min-width: 16ch;
+		padding: 4px 6px;
+		background-color: transparent;
+		border: 0;
+		box-shadow: none;
+		color: var(--np-field-ink);
+		-webkit-text-fill-color: var(--np-field-ink);
 		font-size: 12px;
 		line-height: 1.4;
 

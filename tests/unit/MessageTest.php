@@ -129,7 +129,7 @@ class MessageTest extends TestCase {
 		$this->assertSame( 1700004418.0, Message::packed_head_timestamp( \substr( Message::packed( $m ), 0, 64 ) ) );
 	}
 
-	public function test_packed_head_timestamp_is_null_for_what_is_no_packed_head(): void {
+	public function test_packed_head_timestamp_is_null_for_what_is_not_a_packed_head(): void {
 		$this->assertNull( Message::packed_head_timestamp( '' ) );
 		$this->assertNull( Message::packed_head_timestamp( 'plain log line 6113' ) );
 		$this->assertNull( Message::packed_head_timestamp( '"quoted",1700000000.5,x' ) );

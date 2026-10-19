@@ -73,7 +73,7 @@ class Auth_Controller {
 	 * caller to gate first.
 	 *
 	 * A session the store cannot hold answers 503 `session_store_unavailable`,
-	 * because the outage is the server's rather than the caller's. The backend's
+	 * because the fault lies with the server rather than the caller. The backend's
 	 * own cause goes to the log, never into the response.
 	 *
 	 * @param \WP_REST_Request $req Request carrying the optional `scope`, `ttl` and `label`.

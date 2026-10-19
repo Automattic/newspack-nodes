@@ -367,8 +367,8 @@ class Command_Interpreter_Node extends Node {
 	 * follows, then the unknown-verb throw; all three sit BEFORE the verb
 	 * table, so they cover a subclass's own table as well as the shared one.
 	 *
-	 * A verb whose schema declares `args` — a service CI's own, or a `:config`
-	 * interpreter's patron's — has its tokens bound by `Command_Args::bind()`
+	 * A verb whose schema declares `args` — a service CI's own schema, or for a
+	 * `:config` interpreter its patron's schema — has its tokens bound by `Command_Args::bind()`
 	 * before `$around_dispatch`, as an unknown verb is refused before it, so the
 	 * handler receives the values by NAME, a binding refusal is the verb's own
 	 * TM_ERROR, and no wrapper renders a command that does not fit — a secret
@@ -753,7 +753,7 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * The schema declaring this interpreter's verbs: its patron's, or its own.
+	 * The schema declaring this interpreter's verbs: its patron's schema, or its own.
 	 *
 	 * @return array<string,mixed>
 	 */
@@ -1835,7 +1835,7 @@ class Command_Interpreter_Node extends Node {
 	 * Whether a node is session scaffolding, or a sibling one published, at
 	 * any remove. It walks `publisher()`, never `patron()`: a patron owns no
 	 * teardown — a partition may patron itself, and the interpreter patrons
-	 * transient scratch — while a publisher's teardown is the sibling's.
+	 * transient scratch — while the sibling owns a publisher's teardown.
 	 *
 	 * @param Node $node The node a remove names.
 	 */

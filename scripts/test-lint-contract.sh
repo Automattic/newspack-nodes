@@ -110,7 +110,7 @@ d=$( fixture stamp-root includes/class-widget.php '$dir = Log_Discovery::root( $
 assert_clean "a root joined through Log_Discovery::root() is not flagged" "$d"
 
 d=$( fixture stamp-key includes/class-widget.php '$k = "remote:{$name}:p{$partition}";' )
-assert_clean "a colon key that is no stamp is not flagged" "$d"
+assert_clean "a colon key that is not a stamp is not flagged" "$d"
 
 d=$( fixture stamp-route includes/class-widget.php '$parts = \explode( '"'"'/'"'"', $to, 2 );' )
 assert_clean "a TO path split on its slash is not flagged" "$d"

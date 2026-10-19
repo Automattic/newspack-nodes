@@ -80,8 +80,8 @@ afterEach( () => {
  * jsdom supplies neither TextEncoder nor TextDecoder, and its `crypto` carries
  * `getRandomValues` but no `subtle`. The command signer reaches TextEncoder
  * through the `utf8ToBytes` in @noble/hashes and mints its nonce from
- * `getRandomValues`, so a missing `subtle` is the tell that `crypto` is
- * jsdom's and the whole object gives way to Node's webcrypto. These are
+ * `getRandomValues`, so a missing `subtle` is the tell that `crypto` comes
+ * from jsdom and the whole object gives way to Node's webcrypto. These are
  * Node's own implementations rather than stubs, so the suite exercises the
  * primitives the browser will run.
  */

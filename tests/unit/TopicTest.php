@@ -417,8 +417,8 @@ class TopicTest extends TestCase {
 	/**
 	 * `arguments()` is a replay setter, so a Topic can be handed a SMALLER
 	 * geometry than the one it already materialized partitions under. Those
-	 * partitions are still this Topic's, still registered and still holding
-	 * file handles: a rename that walks the declared range alone leaves one
+	 * partitions still belong to this Topic, are still registered and still
+	 * hold file handles: a rename that walks the declared range alone leaves one
 	 * squatting the old spelling while `{new}:p{i}` resolves to nothing.
 	 */
 	public function test_a_partition_past_a_shrunken_geometry_still_follows_a_rename(): void {

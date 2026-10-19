@@ -381,7 +381,7 @@ class ConfigTest extends TestCase {
 
 	#[\PHPUnit\Framework\Attributes\RunInSeparateProcess]
 	public function test_invalidate_options_cache_without_an_external_cache_flushes_only_the_options_group(): void {
-		// No drop-in: core's cache is this process's alone, and pyrobase keeps
+		// No drop-in: core's cache belongs to this process alone, and pyrobase keeps
 		// in-process state in other groups a full flush would drop.
 		require_once __DIR__ . '/../Helpers/wp-object-cache-stub.php';
 		$GLOBALS['_wp_using_ext_object_cache'] = false;

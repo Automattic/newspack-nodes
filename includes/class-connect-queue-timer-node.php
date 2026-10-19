@@ -7,7 +7,7 @@
  * closure per fire and removes itself when the queue runs dry, so the node
  * exists only while there is work.
  *
- * The payoff is Tachikoma's: an aggregator brings every `Remote_Source_Node`
+ * The payoff is the one Tachikoma gets: an aggregator brings every `Remote_Source_Node`
  * up in one tick, and a spoke whose `SSE_Slot_Pool` has no free slot answers
  * each connect with HTTP 429. Spread over the queue, they arrive one per
  * `INTERVAL_MS`.

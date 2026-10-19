@@ -820,7 +820,7 @@ none: a missing edge is not evidence that nothing is listening.
 
 A composite node reports its PATRONS' I/O, not its own. Once
 a `Remote_Source_Node`'s patrons exist, `counter` is `SSE_In`'s frame count,
-`bytes_read` and `lgst_msg` are `SSE_In`'s, `bytes_written` is `HTTP_Out`'s, and
+`bytes_read` and `lgst_msg` come from `SSE_In`, `bytes_written` from `HTTP_Out`, and
 the link's own relay increments are masked — so a rate or throughput figure read
 off a Remote_Source row measures the wire, not the node. Before
 the patrons are built, on a fresh drop or a spoke with no Vault entry, both byte
@@ -912,7 +912,7 @@ returns `{ classes[], formatters[] }`, each class carrying `shell_name`, `fqcn`,
 The non-serializable `handler` — a command's and a request's — and the
 server-enforced `capability` are stripped on the way out. `formatters[]` is [`Formatters::list_names()`](../includes/class-formatters.php) sorted, and it is
 the option list the console renders for any `node_schema()` argument declared
-`type: formatter_name` — today only `with_index`'s. The substrate registers no
+`type: formatter_name` — today only the one `with_index` takes. The substrate registers no
 formatters of its own, so on an install carrying no consumer plugin that calls
 `Formatters::register()` the array is empty, the console falls back to a
 free-text input, and a `with_index` verb raises `unknown formatter: <name>` for
@@ -1290,7 +1290,7 @@ TM_RESPONSE copy whose VALUE is that Location, absolute as libcurl reports it
 | `curl error <n> (<curl_strerror>) <url>` | The transfer failed: a timeout, a refused connection, a redirect past the limit or a scheme outside it, or the body cap's short write. |
 | `invalid url <value>` | VALUE is not an absolute http(s) url with a host. |
 | `invalid url carrying userinfo` | VALUE carries userinfo before its host, as `Vault::url_carries_credentials()` reads it; the url, which may hold a credential, is left out. PHP and libcurl split an authority holding two `@` at different ones, so the origin read here need not be the host fetched. |
-| `vault entries <id>, <id>… share origin <origin> <url>` | Two or more entries of the vault group sit on the url's origin, so no one credential is the url's. |
+| `vault entries <id>, <id>… share origin <origin> <url>` | Two or more entries of the vault group sit on the url's origin, so no one credential belongs to the url. |
 | `vault_require_ssl set but url is not https <url>` | The url is plaintext, an entry of the vault group sits on its origin, and `vault_require_ssl` is set. |
 | `no event loop <url>` | The process is not inside a drain loop, so no transfer could ever complete. |
 | `busy: <N> requests in flight <url>` | `MAX_IN_FLIGHT` transfers are already running; nothing is queued. |
@@ -1418,7 +1418,7 @@ The crawler answers a seed itself in three cases:
 | TM_ERROR | `ADD to <name>:seen failed <url>` | The `{name}:seen` Table refused the seed's `ADD` or left it unanswered, so nothing shows the url seen. KEY is that url, and nothing is fetched. |
 
 Each is a copy of the seed with its whole TYPE and its VALUE replaced and its
-TO cleared, sent to `target`, so FROM and ID are the seeder's. Every TM_ERROR Curl answers (see [`Curl_Node`](#curl_node--any-https-url))
+TO cleared, sent to `target`, so FROM and ID stay as the seeder set them. Every TM_ERROR Curl answers (see [`Curl_Node`](#curl_node--any-https-url))
 reaches `target` as well, KEY set to the url. An answered url is done, TM_ERROR
 included: it is never retried, so a permanent 404 cannot loop, and it is not
 fetched again until its `ttl` expires.

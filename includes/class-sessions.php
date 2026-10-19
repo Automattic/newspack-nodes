@@ -8,7 +8,7 @@
  * connected and revoke it.
  *
  * Everything lives in the session Table. A session's row carries its key,
- * scope, user, label and when it was minted, and its expiry is the row's own.
+ * scope, user, label and when it was minted, and its expiry belongs to the row.
  * A labelled session's handle is also a member of one set, `INDEX`, in the
  * same Table and under the same lifetime, because a Table key-range scan is
  * rejected (ADR-24) and a set read by its key is how a durable Table

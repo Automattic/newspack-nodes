@@ -93,7 +93,7 @@ class Topology_Registry {
 	 * `var num_partitions = "12abc"` into 12 here and into the default there.
 	 *
 	 * A `num_partitions` or `stale_timeout` declared zero or negative takes the
-	 * caller's default too, because neither can run: zero partitions is no fleet
+	 * caller's default too, because neither can run: zero partitions make no fleet
 	 * at all, and a zero stale timeout makes every worker in the fleet read as
 	 * instantly stale, which is continuous respawn churn. `on_demand_idle` is
 	 * exempt — 0 is its meaningful "stay resident" value.

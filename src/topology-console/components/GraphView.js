@@ -88,7 +88,7 @@ function upTo( open, depth ) {
  * @param {boolean}                [props.inspectorCollapsed] Collapse the inspector to a slim expand-rail. Consumer-owned state, mirroring the palette. Default false.
  * @param {Function}               [props.onInspectorToggle]  () — the collapse/expand chevron was clicked; the consumer flips its own `inspectorCollapsed`.
  * @param {?Set<string>}           [props.driftIds]           Runtime drift, painted distinctly: on a worker, its live nodes outside its registered .tsl; on the browser graph, the nodes the console made (`useGraphReset`'s `userNodeIds`). Null means no drift information.
- * @param {boolean}                [props.local]              The graph is the browser's own, so the no-node header reads wire-accurate IoTelemetry, as the overlay's Overview tab does, instead of rolling up dump_metadata. Default false (remote or worker scope).
+ * @param {boolean}                [props.local]              The graph belongs to the browser, so the no-node header reads wire-accurate IoTelemetry, as the overlay's Overview tab does, instead of rolling up dump_metadata. Default false (remote or worker scope).
  * @param {number}                 [props.debugLevel]         Live Dumper verbosity; the Inspector's no-node Debug toggle lights at 1 and Verbose at 2. Default 0.
  * @param {Array}                  [props.hulls]              One soft hull per include, `{ include, depth, nodeIds }[]`. Forwarded to SchematicCanvas, and the scope `hullNodes` reads for the selected hull's sparklines.
  * @param {string}                 [props.currentTopology]    The topology being edited; the Palette refuses to drag it, or any topology that includes it, onto itself.
@@ -424,7 +424,7 @@ export default function GraphView( {
 				}
 				return;
 			}
-			// A key from a grid or a dialog is theirs, never the selection's.
+			// A grid or a dialog owns its keys; the selection never gets them.
 			if (
 				shownSidecar ||
 				( grids.length > 0 && e.target === canvasRef.current ) ||

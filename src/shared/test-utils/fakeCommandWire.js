@@ -59,7 +59,7 @@ import {
  * `authorize_and_latch()` refuses one — a signature the minter forgot is the
  * regression this double exists to make loud (ADR-15). Only the presence of
  * `auth.sig` is checked; the double holds no key, so it verifies nothing. The
- * order is PHP's: `interpret()` drops a VALUE that is no command struct
+ * order follows PHP: `interpret()` drops a VALUE that is not a command struct
  * (`isCommandStruct()`), signed or not, unanswered; `check()` then refuses an
  * unsigned command, or one it cannot verify at all ("wrong type", a
  * non-numeric TIMESTAMP), and `interpret()` answers it `unauthorized: <name>`

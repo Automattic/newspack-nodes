@@ -152,7 +152,7 @@ describe( 'the command transport feeds IoTelemetry "out" and "in"', () => {
 	} );
 
 	/**
-	 * The BYTES and the COUNTS are the transport's, because it is the thing
+	 * The BYTES and the COUNTS belong to the transport, because it is the thing
 	 * that reads the wire. The error TALLY is not: HttpOut owns it, since it
 	 * stamps the FROM the row names and it can tell a refusal the transport
 	 * FABRICATED from an answer the server actually sent. See `the ERRORS

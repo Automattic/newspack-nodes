@@ -764,7 +764,7 @@ export class ShellNode extends Node {
 			return null;
 		}
 
-		// Shell3:1363 — verbatim; the newline is the caller's. No `echo`.
+		// Shell3:1363 — verbatim; the caller supplies the newline. No `echo`.
 		if ( 'print' === verb ) {
 			this.stdout( join( 0 ) );
 			return null;
@@ -828,7 +828,7 @@ export class ShellNode extends Node {
 			return null;
 		}
 
-		// Skins are the host's: it owns the stylesheet, the shell does not.
+		// Skins belong to the host: it owns the stylesheet, the shell does not.
 		if ( 'list_skins' === verb ) {
 			this.host.listSkins?.();
 			return null;
@@ -1241,7 +1241,7 @@ export class ShellNode extends Node {
 	 * Stamp a fresh Message's envelope: FROM is the override or else this
 	 * session's reply path, TO is `prefix( to )`, and KEY, ID and TIMESTAMP take
 	 * their overrides only when filled, so a blank one keeps the mint's value.
-	 * Blank is PHP's: empty, null or absent; whitespace is a value.
+	 * Blank means what PHP means: empty, null or absent; whitespace is a value.
 	 * The one stamp both minters share — the builtins with the `message.*` vars,
 	 * the Compose modal with its form — so a forged field means one thing.
 	 * Forging ID and TIMESTAMP is deliberate: replaying a message is how a

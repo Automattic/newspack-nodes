@@ -131,7 +131,7 @@ test( 'a closing retry of 0 reopens a busy stream at once', () => {
 } );
 
 test.each( [ '', ' ', '4.5', '-0', '07' ] )(
-	'a retry of %j is no schedule, so the reopen backs off',
+	'a retry of %j is not a schedule, so the reopen backs off',
 	( junk ) => {
 		jest.useFakeTimers();
 		const { sse } = makeSseIn();

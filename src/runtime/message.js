@@ -204,7 +204,7 @@ export function pack( m ) {
  * raw block's header — into a map, as PHP `Message::info_pairs()` does.
  *
  * @param {*} value The VALUE.
- * @return {?Object<string,string>} Each KEY to the token after it, or null when a KEY has no VALUE or the VALUE is no string.
+ * @return {?Object<string,string>} Each KEY to the token after it, or null when a KEY has no VALUE or the VALUE is not a string.
  */
 export function infoPairs( value ) {
 	if ( 'string' !== typeof value ) {

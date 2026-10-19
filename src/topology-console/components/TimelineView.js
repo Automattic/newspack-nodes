@@ -116,7 +116,6 @@ export default function TimelineView( { transcript = [], actions = null } ) {
 			<div className="timeline-view__filters">
 				{ actions }
 				<SearchControl
-					__nextHasNoMarginBottom
 					size="compact"
 					placeholder={ __( 'filter node…', 'newspack-nodes' ) }
 					value={ nodeFilter }
@@ -124,7 +123,6 @@ export default function TimelineView( { transcript = [], actions = null } ) {
 					label={ __( 'Filter timeline by node', 'newspack-nodes' ) }
 				/>
 				<SearchControl
-					__nextHasNoMarginBottom
 					size="compact"
 					placeholder={ __( 'filter event…', 'newspack-nodes' ) }
 					value={ eventFilter }
