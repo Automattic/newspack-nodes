@@ -303,8 +303,9 @@ class SchemaReflectionTest extends TestCase {
 
 	public function test_parse_schema_args_refuses_a_non_numeric_int_token(): void {
 		// (int) 'abc' is 0, and 0 is a live value for every retention knob and
-		// every timer cadence — a typo'd make_node token became a disabled rule
-		// or a free-spinning own slot with no trace. It must fail at construction.
+		// every timer cadence — a typo'd make_node token would become a disabled
+		// rule or a free-spinning own slot with no trace. It must fail at
+		// construction.
 		$node = $this->numeric_node();
 		$node->name( 'numeric-probe' );
 

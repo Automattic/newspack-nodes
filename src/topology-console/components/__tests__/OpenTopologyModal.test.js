@@ -9,8 +9,8 @@ import OpenTopologyModal from '../OpenTopologyModal';
 const noop = () => {};
 
 describe( 'OpenTopologyModal', () => {
-	// One shell for every dialog: the picker used to carry a private copy, so
-	// fixes to the shared one (portal, skin root, anchoring) never reached it.
+	// One shell for every dialog: a private copy in the picker would miss
+	// every fix to the shared one (portal, skin root, anchoring).
 	it( 'marks the actual wide dialog frame as a canonical modal', () => {
 		render(
 			<OpenTopologyModal

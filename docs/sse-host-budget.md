@@ -24,10 +24,9 @@ request, and the stream that holds the worker sees neither.
 The platform may also put the site into defensive mode on its own: the edge
 location that saw the refusals answers every visitor through it with a
 browser challenge for a minute at a time, extended while the overload lasts.
-Newspack sites carry an opt-out from that mode, made during its tuning in
-February 2025, and nothing in this repository can confirm the opt-out still
-stands, so treat it as a reprieve that can be withdrawn rather than as an
-exemption.
+Newspack sites carry an opt-out from that mode, and nothing in this
+repository can confirm the opt-out still stands, so treat it as a reprieve
+that can be withdrawn rather than as an exemption.
 
 Two consequences drive the defaults:
 

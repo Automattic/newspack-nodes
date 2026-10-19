@@ -78,14 +78,14 @@ class CommandInterpreterNamespaceTest extends TestCase {
 		// When the same `<Type>_Node` is abstract under an earlier-scanned prefix
 		// and concrete under a later one, resolve_class must skip the abstract and
 		// return the concrete FQCN — otherwise make_node sees the abstract and
-		// returns null (the old loop `continue`d past abstract matches).
+		// returns null.
 		require_once \dirname( __DIR__ ) . '/Helpers/fixtures/class-abstract-probe-node.php';
 		require_once \dirname( __DIR__ ) . '/Helpers/fixtures/class-concrete-probe-node.php';
 
 		$ref      = new \ReflectionProperty( Command_Interpreter_Node::class, 'namespaces' );
 		$snapshot = $ref->getValue();
 		try {
-			// Abstract prefix registered FIRST so the buggy resolver hits it first.
+			// Abstract prefix registered FIRST so the resolver meets it first.
 			Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\Fixtures\\AbstractProbe\\' );
 			Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\Fixtures\\ConcreteProbe\\' );
 

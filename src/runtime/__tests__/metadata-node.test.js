@@ -189,9 +189,9 @@ describe( 'Metadata node', () => {
 			expect( m[ FROM ] ).toBe( '_metadata' );
 		} );
 
-		// The cadence itself belongs to TimerNode now: `fireCb` decides when
+		// The cadence itself belongs to TimerNode: `fireCb` decides when
 		// `fire()` runs, on the shared grid, and these cases are covered where
-		// that lives (timer-node.test.js). What is left here is what Metadata
+		// that lives (timer-node.test.js). What is tested here is what Metadata
 		// itself does with a tick: mint the verb at the live cwd.
 		it( 'mints dump_metadata at the cwd every time it is fired', () => {
 			const node = new MetadataNode();
@@ -513,8 +513,8 @@ describe( 'Metadata node', () => {
 
 	describe( 'parseMetadata hides process scaffolding', () => {
 		it( 'drops the backbone but keeps the TSL-declared Topic_Probe visible', () => {
-			// The probe moved into topology TSL (`include topic-probe`): it is
-			// an ordinary declared node now and renders like one.
+			// The probe is declared in topology TSL (`include topic-probe`): it
+			// is an ordinary declared node and renders like one.
 			const { nodes, edges } = parseMetadata( {
 				_command_interpreter: {
 					class: 'Command_Interpreter',

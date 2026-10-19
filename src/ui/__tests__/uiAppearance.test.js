@@ -563,8 +563,8 @@ describe( 'canonical UI appearance', () => {
 			expect( rule?.declarations.outline ).toBe(
 				'2px solid var(--ink,var(--np-text,currentcolor))'
 			);
-			// Still overrides WordPress's own focus shadow — with our halo now,
-			// rather than by zeroing it.
+			// Overrides WordPress's own focus shadow with our halo, rather than
+			// by zeroing it.
 			expect( rule?.declarations[ 'box-shadow' ] ).toBe(
 				'0 0 0 1px var(--paper,var(--np-surface))'
 			);

@@ -23,7 +23,7 @@ use Newspack_Nodes\Tests\TestCase;
  * The patron linkage is captured INSIDE the drain predicate (via the
  * $check_slot seam, consulted on iteration 1 while the graph is fully
  * built) because run_stream_loop's `finally` removes every node — and
- * remove_node() now nulls patron — before the loop returns.
+ * remove_node() nulls patron — before the loop returns.
  */
 #[CoversClass( SSE_Out_Node::class )]
 class SseOutSiblingPatronTest extends TestCase {

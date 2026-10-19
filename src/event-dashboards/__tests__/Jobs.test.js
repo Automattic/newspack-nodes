@@ -49,7 +49,7 @@ function model() {
 				key: 'cron:films',
 				handler: 'cron',
 				// Windowed totals differ from the newest cumulative record so a
-				// table still reading `latest` (the bug) is caught.
+				// table reading `latest` is caught.
 				windowed: {
 					runs: 12,
 					errors: 5,

@@ -135,9 +135,9 @@ class SseInTest extends TestCase {
 	}
 
 	public function test_msg_frame_handed_raw_to_delivery_seam(): void {
-		// SSE_In no longer unpacks or forwards a `msg` — it hands the RAW `data:` payload (the
+		// SSE_In neither unpacks nor forwards a `msg` — it hands the RAW `data:` payload (the
 		// packed line, byte-identical to the remote's on-disk encoding) to the owner's on_message
-		// seam. It no longer tracks a per-message cursor; the owner owns the durable position.
+		// seam. It tracks no per-message cursor; the owner owns the durable position.
 		[ $node ] = $this->configured_node();
 		$captured = [];
 		$node->on_message = static function ( string $raw ) use ( &$captured ): void {
@@ -158,9 +158,8 @@ class SseInTest extends TestCase {
 
 	public function test_a_msg_frame_never_reaches_the_sink(): void {
 		// Delivery is the `on_message` seam only; the patron owns unpack, FROM
-		// stamping, target and the sink fill. The class docblock used to claim
-		// this node "forwards them to its sink with TO=target", and the patron
-		// assigned a sink and target this node has never read.
+		// stamping, target and the sink fill. A sink and target assigned to this
+		// node are never read.
 		[ $node ]  = $this->configured_node();
 		$sink      = new Capture_Sink_Node();
 		$delivered = [];
@@ -204,8 +203,8 @@ class SseInTest extends TestCase {
 	}
 
 	public function test_unparseable_frame_handed_raw_to_delivery_seam(): void {
-		// A torn/non-envelope `msg` frame is handed to the owner as raw bytes (SSE_In no longer
-		// unpacks it); the owner's forward_line owns the unparse/DLQ. Nothing is dropped here.
+		// A torn/non-envelope `msg` frame is handed to the owner as raw bytes (SSE_In does not
+		// unpack it); the owner's forward_line owns the unparse/DLQ. Nothing is dropped here.
 		[ $node ] = $this->configured_node();
 		$captured = null;
 		$node->on_message = static function ( string $raw ) use ( &$captured ): void {
@@ -545,10 +544,10 @@ class SseInTest extends TestCase {
 	}
 
 	public function test_connect_states_the_tail_seek_instead_of_omitting_it(): void {
-		// Omission used to mean "tail", which left {0,0} — the START of the log —
-		// unrepresentable: a source restoring a 0:0 checkpoint sent nothing and the
-		// spoke seeked to `end`, skipping its whole backlog. The seek now rides as
-		// Tachikoma's -1.
+		// The tail seek rides as Tachikoma's -1 rather than being omitted. Were
+		// omission to mean "tail", {0,0} — the START of the log — would be
+		// unrepresentable: a source restoring a 0:0 checkpoint would send nothing
+		// and the spoke would seek to `end`, skipping its whole backlog.
 		[ $node ] = $this->configured_node();
 		$node->streams( [ 'firehose.p0' ], [ 'firehose.p0' => Consumer_Node::SEEK_END ] );
 

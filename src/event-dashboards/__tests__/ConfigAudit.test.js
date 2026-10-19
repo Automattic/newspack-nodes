@@ -30,8 +30,8 @@ function model() {
 	};
 }
 
-// The wiring the deleted hook used to own: Config Audit is a timeline, so it
-// replays the whole retention rather than tailing from now.
+// Config Audit is a timeline, so it replays the whole retention rather than
+// tailing from now.
 it( 'tails settings.p0 in history mode, into the audit view', () => {
 	const { useLogTailStream } = require( '../hooks/useLogTailStream' );
 	const { views } = require( '../nodes/register' );
@@ -78,7 +78,7 @@ describe( 'ConfigAudit', () => {
 			...container.querySelectorAll( '.nodes-config-audit__time' ),
 		].map( ( el ) => el.textContent );
 		// Both rows carry the full local date + zone — audit rows span days,
-		// and a bare clock time (formerly UTC, unlabeled) was ambiguous.
+		// and a bare clock time with no zone is ambiguous.
 		const d = new Date( FIXED_TS * 1000 );
 		const expected = `${ d.toLocaleDateString(
 			'en-CA'

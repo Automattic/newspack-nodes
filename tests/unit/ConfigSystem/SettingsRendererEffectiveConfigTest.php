@@ -115,7 +115,7 @@ class SettingsRendererEffectiveConfigTest extends TestCase {
 	}
 
 	public function test_unset_remote_field_reports_file_default(): void {
-		// remote_* are now overlaid like every other setting: when unset, load_config
+		// remote_* are overlaid like every other setting: when unset, load_config
 		// carries the config-file default, and the Effective cell shows it — uniform
 		// with every other field, no blank cell.
 		$rows = $this->rows_by_key();
@@ -128,7 +128,7 @@ class SettingsRendererEffectiveConfigTest extends TestCase {
 	}
 
 	public function test_stored_remote_field_reports_stored_value(): void {
-		// remote_segment_size is now overlaid: a stored value is overlaid into
+		// remote_segment_size is overlaid: a stored value is overlaid into
 		// load_config, so the Effective cell shows the stored value via the uniform path.
 		\update_option( 'newspack_nodes_remote_segment_size', 67108864 );
 		Config::reset();

@@ -11,7 +11,7 @@ use Newspack_Nodes\Tests\TestCase;
 /**
  * Topology conflict detection: two enabled topologies must not both WRITE the
  * same file (a data partition or a Consumer offsetlog). Two writers to one file
- * corrupt it — the hazard void_warranty() no longer catches with a lock, so it's
+ * corrupt it — a hazard void_warranty() does not catch with a lock, so it's
  * caught upfront at enable-time + fleet-spawn-time instead.
  */
 #[CoversClass( Topology_Registry::class )]
@@ -165,9 +165,8 @@ class TopologyRegistryConflictsTest extends TestCase {
 
 	/**
 	 * write_set() is the conflict gate: it stops two fleets writing one log.
-	 * It scanned the RAW file, so a topology that only `include`s others (ELN's
-	 * combined.tsl is now exactly that) reported an EMPTY write set — and the
-	 * gate silently passed anything.
+	 * A scan of the RAW file would report an EMPTY write set for a topology
+	 * that only `include`s others, and the gate would silently pass anything.
 	 */
 	public function test_write_set_sees_through_includes(): void {
 		$this->write_tsl(
@@ -236,8 +235,8 @@ class TopologyRegistryConflictsTest extends TestCase {
 	}
 
 	/**
-	 * [147] Remote_Source's offsetlog is an ARGUMENT now, not a path write_set
-	 * reconstructs from the old hardcoded convention. Reading the convention
+	 * Remote_Source's offsetlog is an ARGUMENT, not a path write_set
+	 * reconstructs from a naming convention. Reading a convention
 	 * instead of the arg means the conflict gate and the GC both look at a cursor
 	 * the node doesn't actually use — and a `<topology>`-scoped one is invisible.
 	 */
@@ -251,7 +250,7 @@ class TopologyRegistryConflictsTest extends TestCase {
 
 		$this->assertContains( 'offsetlog:<config:offsets_dir>/spoke-a.zebra-agg', $set );
 		$this->assertContains( 'deadletter:<config:deadletter_dir>/spoke-a', $set );
-		// NOT the reconstructed legacy path.
+		// NOT the path the naming convention would reconstruct.
 		$this->assertNotContains( 'offsetlog:<config:offsets_dir>/spoke-a.firehose.p0', $set );
 	}
 
@@ -271,11 +270,12 @@ class TopologyRegistryConflictsTest extends TestCase {
 	/**
 	 * The write set is a SAFETY gate: it feeds `find_conflicts` (two fleets
 	 * writing one log) and `Log_Cleaner`'s declared-dir set (what the GC must
-	 * not sweep). It identified writers by string-comparing the TSL token
-	 * against 'Partition' / 'Topic' / 'Consumer' / 'Remote_Source', while the
-	 * layout code in the same class resolves the token to an FQCN and asks the
-	 * type system. So a plugin that SUBCLASSES Partition wrote a real log that
-	 * no conflict check saw and that the GC did not know was declared.
+	 * not sweep). It identifies writers the way the layout code in the same
+	 * class does: it resolves the TSL token to an FQCN and asks the type
+	 * system. String-comparing the token against 'Partition' / 'Topic' /
+	 * 'Consumer' / 'Remote_Source' would let a plugin that SUBCLASSES Partition
+	 * write a real log no conflict check sees and the GC does not know is
+	 * declared.
 	 */
 	public function test_a_partition_subclass_is_a_writer_in_the_write_set(): void {
 		require_once __DIR__ . '/../Helpers/fixtures/class-wombat-partition-node.php';

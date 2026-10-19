@@ -1,24 +1,24 @@
 /**
- * Regression for the white-screen on switching to the Console tab while the
- * debug overlay is open: `Uncaught Error: node name collision: _output already
+ * Switching to the Console tab while the debug overlay is open must not
+ * white-screen on `Uncaught Error: node name collision: _output already
  * registered`.
  *
  * The overlay registers `_output` (DumperNode) during render (useDebugRepl's
  * build-before-render); the Console-style tab registers `_output` in a mount
- * useEffect. The station gates the overlay off the Console tab via `activeTabId`,
- * but that id was set from a useEffect — one commit LATE. So on switch the
- * Console mounts (and tries to register `_output`) while the overlay is still
- * rendered (still holds `_output`) → collision → white screen.
+ * useEffect. The station gates the overlay off the Console tab via
+ * `activeTabId`. Set from a useEffect, that id would land one commit LATE, so
+ * on switch the Console would mount (and register `_output`) while the overlay
+ * still holds `_output`.
  *
- * The fix drives onActiveTabChange synchronously from the tab onClick so the
- * overlay unmounts in the SAME commit the Console mounts; React runs passive
- * cleanups (overlay's _output removal) before passive effects (Console's
- * _output registration), so there is no collision.
+ * The station drives onActiveTabChange synchronously from the tab onClick, so
+ * the overlay unmounts in the SAME commit the Console mounts; React runs
+ * passive cleanups (overlay's _output removal) before passive effects
+ * (Console's _output registration), so there is no collision.
  *
- * The earlier tests stubbed tabs with trivial `() => <div/>` components, which
- * never registered `_output` — that is why this slipped. This test mounts the
- * real overlay (its real useDebugRepl registers `_output`) and a faithful
- * console-ish tab that registers a real runtime `_output` node on mount.
+ * A tab stubbed as a trivial `() => <div/>` never registers `_output`, so this
+ * test mounts the real overlay (its real useDebugRepl registers `_output`) and
+ * a faithful console-ish tab that registers a real runtime `_output` node on
+ * mount.
  */
 import { useEffect } from '@wordpress/element';
 import { render, fireEvent } from '@testing-library/react';
@@ -132,7 +132,7 @@ describe( 'Station _output collision on switch-to-Console', () => {
 		fireEvent.click( getByRole( 'button', { name: /node debugger/i } ) );
 		expect( Core.node( names.OUTPUT ) ).not.toBeNull();
 
-		// Switch to Console; before the fix this threw a `_output` collision.
+		// Switch to Console; this must not throw a `_output` collision.
 		expect( () =>
 			fireEvent.click( getByRole( 'tab', { name: 'Console' } ) )
 		).not.toThrow();

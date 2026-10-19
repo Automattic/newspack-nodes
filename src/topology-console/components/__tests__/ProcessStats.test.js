@@ -1,9 +1,8 @@
 /**
  * ProcessStats — the Inspector's sparkline rows.
  *
- * The geometry used to be computed against a module constant (60) rather than
- * against the data, which one of the two callers violates by 12x: the browser
- * scope feeds `IoTelemetry.getSeries()`, whose ring holds 720 samples.
+ * The geometry is computed against the data, not a module constant (60): the
+ * browser scope feeds `IoTelemetry.getSeries()`, whose ring holds 720 samples.
  */
 
 import { render } from '@testing-library/react';
@@ -32,7 +31,7 @@ describe( 'ProcessStatsView throughput', () => {
 				} }
 			/>
 		);
-		// Bare "K"/"G" suffixes were this component's own third scaler.
+		// The shared byte formatter's units, not bare "K"/"G" suffixes.
 		expect( container.textContent ).toContain( '1.5 KB' );
 		expect( container.textContent ).toContain( '1 TB' );
 	} );
@@ -54,7 +53,7 @@ describe( 'SparklineRow geometry', () => {
 		const points = xs( d );
 
 		expect( points ).toHaveLength( 720 );
-		// A constant-60 step put the first 660 points at negative x, clipped.
+		// A constant-60 step would put the first 660 points at negative x.
 		expect( Math.min( ...points ) ).toBe( 0 );
 		expect( Math.max( ...points ) ).toBeCloseTo( 270, 1 );
 	} );

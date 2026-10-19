@@ -58,7 +58,7 @@ class SpawnControllerTest extends TestCase {
 		\add_filter( 'newspack_nodes/topologies', function () use ( $topologies ) {
 			return $topologies;
 		} );
-		// Catalog registration no longer activates a topology; declare the
+		// Catalog registration does not activate a topology; declare the
 		// catalogued names as the active operator overlay so validation/spawn
 		// (which gate on get_topologies()) honor them.
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = \array_keys( $topologies );

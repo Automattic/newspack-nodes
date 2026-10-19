@@ -253,10 +253,10 @@ class ConfigUtilsTest extends TestCase {
 
 	public function test_load_config_file_survives_a_file_that_assigns_config(): void {
 		// A `require` runs in the INCLUDING function's variable scope, and this
-		// loader's first parameter is named $config. gyropyro's shipped config
-		// opens `$config = require '<base>';` to override one key, which landed
-		// on the caller's 32 schema defaults and cut them to the base file's
-		// handful. Seeds distinct from every real key and default.
+		// loader's first parameter is named $config. A config that opens
+		// `$config = require '<base>';` to override one key would land on the
+		// caller's schema defaults and cut them to the base file's handful.
+		// Seeds distinct from every real key and default.
 		$conf = $this->temp_dir . '/assigns-config.php';
 		\file_put_contents(
 			$conf,

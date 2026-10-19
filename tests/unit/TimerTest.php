@@ -15,7 +15,7 @@ use Newspack_Nodes\Timer_Node;
  * (RouterTimerTest) don't reach: arguments() string parsing, key stamping,
  * own-slot lifecycle, the fire() message shape + owner/CI guard + counter++,
  * the no-sink early return in fire_cb, oneshot, and the inherited Node::fill
- * passthrough (Timer no longer overrides fill — TIMER is a direct fire_cb
+ * passthrough (Timer does not override fill — TIMER is a direct fire_cb
  * dispatch from the Router, never a routed message).
  */
 #[CoversClass( Timer_Node::class )]
@@ -442,7 +442,7 @@ class TimerTest extends TestCase {
 		$this->assertSame( 0, $timer->counter() );
 	}
 
-	// ── inherited Node::fill passthrough (Timer no longer overrides fill) ──────
+	// ── inherited Node::fill passthrough (Timer does not override fill) ───────
 
 	public function test_non_timer_message_forwards_without_firing(): void {
 		$timer = new Timer_Node();
@@ -458,7 +458,7 @@ class TimerTest extends TestCase {
 	}
 
 	public function test_timer_info_message_forwards_and_does_not_fire(): void {
-		// A TM_INFO/KEY=TIMER message is no longer intercepted by fill() — Timer
+		// A TM_INFO/KEY=TIMER message is not intercepted by fill() — Timer
 		// inherits Node::fill (forward to sink). TIMER fires only via the Router's
 		// direct fire_cb dispatch, never through a routed message.
 		$timer = new Timer_Node();

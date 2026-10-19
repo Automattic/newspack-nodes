@@ -449,7 +449,7 @@ class TableNodeTest extends TestCase {
 
 	/**
 	 * A table reserves no value: whatever sits in an entry's slot is data,
-	 * the string an older substrate used to mark an absence included.
+	 * whatever string might look like an absence marker included.
 	 */
 	public function test_no_stored_value_is_reserved(): void {
 		$table = Table_Node::table( 'prices', 600 );

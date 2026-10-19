@@ -3,7 +3,7 @@
  * Tests for `wp nodes status` and `wp nodes cli` (Cli_Command WP-CLI wrapper).
  *
  * The stdin-reading driver (readline / fgets / EOF round-trip / tab-completion)
- * now lives in `TTY_In_Node` and is exercised by `TTYInNodeTest`. Here we cover
+ * lives in `TTY_In_Node` and is exercised by `TTYInNodeTest`. Here we cover
  * the command wrapper itself:
  *
  *  - root-uid guard for `cli`

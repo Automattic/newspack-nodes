@@ -79,7 +79,7 @@
 	-webkit-font-smoothing: antialiased;
 	overflow: hidden;
 
-	// Grid is painted inside the SVG canvas now (.topology-grid-line),
+	// Grid is painted inside the SVG canvas (.topology-grid-line),
 	// in SVG-space so it pans/zooms with the content. The .topology-app
 	// keeps its paper background but no overlay grid.
 
@@ -357,8 +357,8 @@
 	&__footer {
 		// position:sticky anchors to the SCROLLPORT (palette container with
 		// overflow-y:auto), not the scrolling content; margin-top:auto pushes
-		// it to the bottom inside the flex column. Was position:absolute which
-		// anchored to the content and scrolled with the list.
+		// it to the bottom inside the flex column. position:absolute would
+		// anchor to the content and scroll with the list.
 		position: sticky;
 		bottom: 0;
 		margin-top: auto;
@@ -1524,8 +1524,8 @@
 	vertical-align: baseline;
 }
 
-// These controls were raw native buttons before adopting the canonical
-// `.button` role. Keep their component-owned boxes stronger than wp-admin's
+// These controls take the canonical `.button` role. Keep their
+// component-owned boxes stronger than wp-admin's
 // min-height, line-height, and padding without taking back any appearance.
 .newspack-nodes-ui.newspack-nodes-ui {
 	.button:where(
@@ -2016,7 +2016,7 @@
 	// Cobalt leads every chrome accent; red stays for real errors. The title
 	// band is a translucent neutral (same approach as Brand's Morganite band)
 	// so it doesn't paint over the inner half of the selection border the way
-	// an opaque fill did — the top edge keeps its full stroke width.
+	// an opaque fill would — the top edge keeps its full stroke width.
 	.topology-node__header {
 		fill: rgba(0, 0, 0, 0.06);
 	}
@@ -2138,7 +2138,7 @@
 
 	// Rounded controls (DESIGN.product): only the routing / edit-row INPUTS stay
 	// rounded. Every button is square on newspack (base radius 0) — including the
-	// delete button, which used to round here. Command buttons take a 1px border.
+	// delete button. Command buttons take a 1px border.
 	.topology-edit-row__input {
 		border-radius: 8px;
 	}
@@ -2530,7 +2530,7 @@
 		font: inherit;
 		white-space: pre-wrap;
 		// Wrap at whitespace; only break inside a token when it alone can't fit
-		// (vs `break-all`, which broke mid-word mid-line and shattered the
+		// (vs `break-all`, which breaks mid-word mid-line and shatters the
 		// space-padded tab-completion grid). Keeps the tabulated candidate
 		// columns aligned as the panel reflows.
 		overflow-wrap: anywhere;
@@ -2639,7 +2639,7 @@
 // narrow column: TYPE|TIMESTAMP, FROM|TO, ID|KEY, then VALUE across both.
 // @longform Two rhythms, not one. `row-gap` is the TIGHT one, because the
 // TM_* flags are part of the TYPE above them and reading as a field of their
-// own is exactly what a uniform gap did. The gap BETWEEN fields is that plus
+// own is exactly what a uniform gap would do. The gap BETWEEN fields is that plus
 // the label's own margin, which the flag row does not take — so the pair a
 // label belongs to stays together and the next field still clears it.
 .topology-modal__body--pairs {

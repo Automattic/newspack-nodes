@@ -1,7 +1,6 @@
 /**
  * tslArgs — the quoting + default-filling rule the live-drop modal shares with
- * what the editor writes. Split out of `serializeTsl` when the draft
- * interpreter's `dumpDocument` replaced its graph-rendering half.
+ * what the editor writes.
  */
 
 import {

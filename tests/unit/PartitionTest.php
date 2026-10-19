@@ -1104,7 +1104,7 @@ class PartitionTest extends TestCase {
 	}
 
 	public function test_debounced_mode_acquires_the_lock_lazily_on_first_write(): void {
-		// [65]: debounced allow_large_writes does NOT grab the lock at setup — only
+		// Debounced allow_large_writes does NOT grab the lock at setup — only
 		// when a write actually arrives, so an idle partition holds nothing.
 		\Newspack_Nodes\Core::$now = 1000.0;
 		$p = $this->debounced_partition( "{$this->tmp}.p0", 100 );
@@ -1125,7 +1125,7 @@ class PartitionTest extends TestCase {
 	}
 
 	public function test_debounced_mode_releases_the_lock_after_an_idle_interval(): void {
-		// [65]: once writes stop, a fire() past the debounce window releases the
+		// Once writes stop, a fire() past the debounce window releases the
 		// lock so other writers can take it. The timer debounces the unlock.
 		\Newspack_Nodes\Core::$now = 1000.0;
 		$p = $this->debounced_partition( "{$this->tmp}.p0", 100 );
@@ -1230,7 +1230,7 @@ class PartitionTest extends TestCase {
 	}
 
 	public function test_debounced_large_write_arms_the_release_timer(): void {
-		// Regression [65]: a > PIPE_BUF write (the whole reason for the mode) takes
+		// A > PIPE_BUF write (the whole reason for the mode) takes
 		// fill()'s early-return branch. It must STILL arm the debounce timer — the
 		// release runs only from fire(), so without an armed timer the lock is held
 		// for life and debounced mode silently degenerates to acquire-and-hold.
@@ -1246,11 +1246,10 @@ class PartitionTest extends TestCase {
 
 	public function test_debounced_oversize_drop_still_arms_the_release_timer(): void {
 		// An oversize message is dropped after the lock is acquired; the release must
-		// still be scheduled so the lock isn't stranded by a doomed write [65].
+		// still be scheduled so the lock isn't stranded by a doomed write.
 		\Newspack_Nodes\Core::$now = 1000.0;
 		$p = $this->debounced_partition( "{$this->tmp}.p0", 100 );
-		// Sized off the constant: an 11MB literal here stopped being oversize when
-		// the large-write cap rose to 32 MiB, and the test passed on the write path.
+		// Sized off the constant, so it stays oversize whatever the cap.
 		$oversize = $this->produce( \str_repeat( 'z', Partition_Node::MAX_LARGE_LINE_SIZE + 1 ) );
 		$p->fill( $oversize );
 		$this->assertSame(
@@ -1330,7 +1329,7 @@ class PartitionTest extends TestCase {
 		for ( $i = 0; $i < 30; ++$i ) {
 			$this->produce_into( $p, \str_repeat( 'x', 100 ) );
 		}
-		// Old behavior created {$this->tmp}/logs/locks ; new behavior must not.
+		// No locks dir is created under the logs tree.
 		$this->assertDirectoryDoesNotExist( "{$this->tmp}/logs/locks" );
 		// Rotation still happened.
 		$this->assertGreaterThan( 1, \count( $p->get_segments( true ) ) );
@@ -1389,8 +1388,7 @@ class PartitionTest extends TestCase {
 	public function test_retention_lifetime_prunes_old_below_num_segments_to_min_segments(): void {
 		// min_seg=2 num_seg=3 min_life=100000 lifetime=5: aged segments prune to
 		// min_segments via the age rule, EVEN THOUGH the huge min_lifetime would keep
-		// them under the count rule. (The old age gate, keyed on the min_lifetime
-		// position, would keep all of them — this is the genuinely-new behavior.)
+		// them under the count rule.
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "3", "0", "100000", "5" ] );
 		for ( $i = 0; $i < 10; ++$i ) {
@@ -1696,11 +1694,6 @@ class PartitionTest extends TestCase {
 		// the segment rotates (segment_size default is 16MB). Per-record
 		// DoS protection lives one layer up (Consumer/Tail enforce
 		// MAX_LINE_BUFFER_SIZE on the \n-delimited line buffer).
-		//
-		// Regression: a hardcoded 10MB gate silently returned '' once
-		// length exceeded 10MB, dropping consumer rows from
-		// Workers_CI::dump_metadata, resetting Consumer cursors on
-		// restart, and breaking StreamMerger hub-position restore.
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 16 * 1024 * 1024 ), "2", "4", "86400", "0" ] );
 		\mkdir( "{$this->tmp}.p0", 0755, true );
@@ -3990,7 +3983,7 @@ class PartitionTest extends TestCase {
 	public function test_seam_methods_return_partition_defaults(): void {
 		// Partition's seams describe a DIRECTORY layout writing the packed envelope.
 		// Log overrides these six; pinning the defaults here keeps Partition's own
-		// contract stable as the seams get introduced.
+		// contract stable.
 		$probe = new class() extends \Newspack_Nodes\Partition_Node {
 			public function probe_segment_dir(): string {
 				return $this->segment_dir(); }
@@ -4460,9 +4453,8 @@ class PartitionTest extends TestCase {
 	}
 
 	public function test_rotation_does_one_directory_scan_not_two(): void {
-		// do_rotate's spawn path used to force-scan twice: once for next_id and
-		// once again inside cleanup_segments. With the cache maintained, the
-		// post-create list is known, so cleanup must NOT force a second scan.
+		// With the cache maintained, do_rotate's post-create list is known, so
+		// cleanup_segments must NOT force a second scan after the one for next_id.
 		$p = new class() extends Partition_Node {
 			public int $forced_scans = 0;
 			public function get_segments( bool $force_refresh = false, ?float $now = null ): array {
@@ -4522,8 +4514,7 @@ class PartitionTest extends TestCase {
 
 	public function test_offsetlog_segment_size_one_keeps_cache_warm(): void {
 		// The offsetlog runs segment_size=1, so every checkpoint rotates. After
-		// N writes the cache must stay non-null and match the alive segments —
-		// the regression the user observed (segments_cache: null forever).
+		// N writes the cache must stay non-null and match the alive segments.
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", "1", "2", "4", "0", "0", "0" ] );
 		for ( $i = 0; $i < 8; ++$i ) {
@@ -4634,8 +4625,8 @@ class PartitionTest extends TestCase {
 	}
 
 	public function test_truncate_after_works_on_a_write_lock_held_partition(): void {
-		// The old write_lock guard had it backwards: holding the exclusivity
-		// lock means there is no peer append to race. Guard removed.
+		// Holding the exclusivity lock means there is no peer append to race,
+		// so a write-lock holder may truncate.
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", "1", "2", "100", "0", "0", "0" ] );
 		$p->name( 'src' );
@@ -4740,8 +4731,8 @@ class PartitionTest extends TestCase {
 	/**
 	 * Segments carry the request firehose, IPC transcripts and every logged
 	 * record. fopen() honors the process umask, which on a typical web SAPI is
-	 * 022 — so they landed 0644, readable by any local account. The tree is 0700
-	 * and ownership-gated now, but the file mode is wrong on its own terms.
+	 * 022 and would leave them 0644, readable by any local account. The tree is
+	 * 0700 and ownership-gated, and the file mode holds on its own terms too.
 	 */
 	public function test_segment_files_are_not_world_readable(): void {
 		$this->use_base_dir( $this->tmp );
@@ -4765,9 +4756,10 @@ class PartitionTest extends TestCase {
 	}
 
 	/**
-	 * A required storage parameter arriving as 0 was floored to 1, which is a
-	 * ONE-BYTE segment: every write exceeds it, so every write rotates. Required
-	 * config fails LOUD rather than limping on a silently-substituted value.
+	 * A required storage parameter arriving as 0 throws. Floored to 1 it would
+	 * be a ONE-BYTE segment: every write exceeds it, so every write rotates.
+	 * Required config fails LOUD rather than limping on a silently-substituted
+	 * value.
 	 */
 	public function test_a_zero_segment_size_throws_instead_of_flooring_to_one_byte(): void {
 		$p = new Partition_Node();
@@ -4784,9 +4776,9 @@ class PartitionTest extends TestCase {
 	/**
 	 * A ROTATED segment is created as private as the first one.
 	 *
-	 * `get_handle()` wraps its `fopen` in `umask( 0077 )`; the rotation path
-	 * created the next segment with `touch()` outside that guard, so under the
-	 * usual 022 every segment after the first landed world-readable — and a
+	 * `get_handle()` wraps its `fopen` in `umask( 0077 )`, and the rotation
+	 * path must create the next segment inside that guard too, or under the
+	 * usual 022 every segment after the first lands world-readable — and a
 	 * firehose segment carries request URLs and env values.
 	 *
 	 * The umask is PINNED to 022 for the duration: a runner whose own umask is
@@ -5296,13 +5288,12 @@ class PartitionTest extends TestCase {
 	 * A reader with no formatter of its own answers from the writer's index.
 	 *
 	 * `locate_by()` is read-side: the formatter WRITES `.idx` rows, and a reader
-	 * over another process's directory has none. It used to return immediately
-	 * for such an instance, which is why the memo — keyed by DIRECTORY and
-	 * static — had to be protected from it: a blind instance that finds nothing
-	 * would record every key as searched-and-absent, and a second instance WITH
-	 * a formatter would read those as answered misses for the life of the
-	 * process. Reading the real index removes the hazard rather than guarding
-	 * it: the entries the blind reader records are true.
+	 * over another process's directory has none. The memo is keyed by
+	 * DIRECTORY and static, so a blind instance that found nothing would record
+	 * every key as searched-and-absent, and a second instance WITH a formatter
+	 * would read those as answered misses for the life of the process. Reading
+	 * the real index removes the hazard: the entries the blind reader records
+	 * are true.
 	 */
 	public function test_a_reader_without_a_formatter_answers_from_the_written_index(): void {
 		// The records must exist FIRST: an append moves the extent, which would

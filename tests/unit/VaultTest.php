@@ -143,7 +143,7 @@ final class VaultTest extends TestCase {
 		$vault->add( 'a', [ 'url' => 'https://a.com' ] );
 		$vault->add( 'b', [ 'url' => 'https://b.com' ] );
 		$vault->reset_cache();
-		// Presence in the vault = enabled; get_enabled() is now an alias for get_all().
+		// Presence in the vault = enabled; get_enabled() is an alias for get_all().
 		$this->assertArrayHasKey( 'a', $vault->get_enabled() );
 		$this->assertArrayHasKey( 'b', $vault->get_enabled() );
 	}
@@ -497,9 +497,9 @@ final class VaultTest extends TestCase {
 
 	/**
 	 * `credential_header_for()` is the array-shaped door onto `credential_header()`
-	 * — the rule three transports each used to spell themselves, until the
-	 * blocking probe's copy forgot Bearer entirely and left a token-only spoke
-	 * reachable by the graph but not by the operator's own test.
+	 * — one rule for all three transports, so no copy can drop Bearer and leave
+	 * a token-only spoke reachable by the graph but not by the operator's own
+	 * test.
 	 */
 	public function test_credential_header_for_prefers_basic_over_a_bearer_token(): void {
 		$this->assertSame(

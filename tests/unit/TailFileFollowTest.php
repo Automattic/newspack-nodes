@@ -662,10 +662,10 @@ class TailFileFollowTest extends TestCase {
 
 	/**
 	 * The two source shapes are two CLASSES, not one class with a mode flag —
-	 * so a File_Tail owns no source Partition and says so by name. The parent's
-	 * bare "not initialized" sent a reader hunting for a missing arguments()
-	 * call; worse, nothing enforced the invariant at all, so the next
-	 * Consumer_Node method to read source() would have fataled in a worker.
+	 * so a File_Tail owns no source Partition and says so by name. A bare "not
+	 * initialized" would send a reader hunting for a missing arguments() call,
+	 * and with the invariant unenforced the next Consumer_Node method to read
+	 * source() would fatal in a worker.
 	 */
 	public function test_a_file_follower_has_no_source_partition_and_refuses_by_name(): void {
 		$t = $this->follow( "{$this->tmp}/debug.log" );

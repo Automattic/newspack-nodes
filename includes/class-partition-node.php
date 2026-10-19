@@ -1258,8 +1258,8 @@ class Partition_Node extends Timer_Node {
 	 *
 	 * Segments are 0600, but a traversable directory still publishes the
 	 * listing, and a segment name is an offset — how much was written, and when
-	 * it rotated. A mode passed to `mkdir` applies once, so an install that
-	 * predates this keeps 0755 forever unless a writer fixes it on the way past;
+	 * it rotated. A mode passed to `mkdir` applies once, so a directory created
+	 * 0755 keeps that mode forever unless a writer fixes it on the way past;
 	 * nothing else probes permissions. Only the LEAF tightens: `mkdir` with
 	 * `$recursive` applies the mode to every ancestor it creates, and the base
 	 * tree is shared, so 0700 there would lock out a differing uid. Group and

@@ -352,7 +352,7 @@
 		}
 	}
 
-	// Native lists migrated from WP widefat retain its quiet row rhythm without
+	// Native lists keep WP widefat's quiet row rhythm without
 	// changing the denser canonical tables used elsewhere.
 	.newspack-nodes-table--undivided {
 		background: transparent;
@@ -841,8 +841,8 @@
 // WordPress owns `.widefat` with rooted wp-admin selectors. Keep only this
 // stock-table bridge above that specificity; custom roles stay consumer-level.
 .newspack-nodes-ui.newspack-nodes-ui {
-	// The box model is ours, not the host page's: this used to arrive only via
-	// `.topology-app`, so a dashboard without it fell back to content-box.
+	// The box model is ours, not the host page's, so a dashboard without
+	// `.topology-app` still gets border-box.
 	*,
 	*::before,
 	*::after {

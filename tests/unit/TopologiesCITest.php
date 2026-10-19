@@ -1,12 +1,11 @@
 <?php
 /**
- * TopologiesCITest: unit tests for Topologies_CI, the M3 service-interpreter that
- * replaces the legacy TopologiesController. Mirrors LayoutsCITest's
- * VerbHarness pattern and TopologiesControllerTest's per-test stock/user
- * directory fixture (Topology_Registry::register_stock_dir() +
+ * TopologiesCITest: unit tests for Topologies_CI, the topologies service
+ * interpreter. Uses LayoutsCITest's VerbHarness pattern and a per-test
+ * stock/user directory fixture (Topology_Registry::register_stock_dir() +
  * register_user_dir() on temp dirs created in setUp).
  *
- * The interpreter returns raw payloads (decoded JSON) rather than the legacy
+ * The interpreter returns raw payloads (decoded JSON), not
  * {code, message, status} envelopes. Errors bubble as RuntimeException;
  * CommandInterpreter::interpret() catches them and emits TM_COMMAND |
  * TM_ERROR. VerbHarness::fire() unwraps the success payload and
@@ -14,10 +13,8 @@
  * exception + decoded shape" on success and "string + message" on
  * failure.
  *
- * The list verb has both read and write callers; the spec says read
- * permission, so list does NOT require manage_options. save + delete
- * require manage_options. get requires read permission (manage_options
- * in legacy, but matching read of list).
+ * dump and get require read permission; save and delete require
+ * manage_options.
  *
  * @package Newspack_Nodes
  */
@@ -111,7 +108,7 @@ class TopologiesCITest extends TestCase {
 		$result = ( new Topologies_CI_Node() )->dispatch( 'connect_worker_input', [ 'firehose-workers.p0' ] );
 
 		$this->assertSame( '', $result, 'connect_worker_input must not emit a reply' );
-		// The named worker's input Partition is now a node in the request graph,
+		// The named worker's input Partition is a node in the request graph,
 		// so an attached command (TO=`firehose-workers.p0`) in the same /command
 		// batch resolves and writes to the worker — instead of NOT_AVAILABLE.
 		$this->assertInstanceOf(
@@ -207,7 +204,7 @@ class TopologiesCITest extends TestCase {
 		$this->assertSame( [ 'stockbase' ], $row['includes'], 'each row nests its include list' );
 	}
 
-	/** The verb is `dump`; nothing answers to the old name, per docs/stability.md. */
+	/** The verb is `dump`; nothing answers to `list`, per docs/stability.md. */
 	public function test_list_is_refused_as_an_unknown_command(): void {
 		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'list' );
 
@@ -377,10 +374,10 @@ class TopologiesCITest extends TestCase {
 	}
 
 	/**
-	 * A user file no longer shadows stock, so `get` shows what actually RUNS —
+	 * A user file does not shadow stock, so `get` shows what actually RUNS —
 	 * the stock body. `source` still reports both copies exist, because they do;
-	 * a stale user file left over from before the precedence change is exactly
-	 * what an operator needs to see.
+	 * a user file that resolution ignores is exactly what an operator needs to
+	 * see.
 	 */
 	public function test_get_returns_the_stock_body_that_actually_runs(): void {
 		\file_put_contents( "{$this->stock}/dual.tsl", "make_node Echo stock\n" );
@@ -401,9 +398,9 @@ class TopologiesCITest extends TestCase {
 	}
 
 	/**
-	 * Refuse the write rather than accept a file resolution will ignore. Saving
-	 * a stock name used to override it; now it would sit inert on disk while
-	 * the editor reported success.
+	 * Refuse the write rather than accept a file resolution will ignore. Saved
+	 * under a stock name, it would sit inert on disk while the editor reported
+	 * success.
 	 */
 	public function test_save_refuses_a_name_a_stock_dir_already_provides(): void {
 		\file_put_contents( "{$this->stock}/dual.tsl", "make_node Echo stock\n" );
@@ -488,7 +485,7 @@ class TopologiesCITest extends TestCase {
 		);
 	}
 
-	/** Nothing shadows any more: a save that lands is a name stock does not own. */
+	/** Nothing shadows: a save that lands is a name stock does not own. */
 	public function test_save_never_reports_shadowing_stock(): void {
 		$result = VerbHarness::fire(
 			new Topologies_CI_Node(),
@@ -635,7 +632,7 @@ class TopologiesCITest extends TestCase {
 
 	public function test_save_accepts_large_body_under_one_mib(): void {
 		// A real captured graph (hundreds of KiB of make_node lines) is well
-		// over the old 64 KiB guard but under the 1 MiB cap — it must save.
+		// over 64 KiB but under the 1 MiB cap — it must save.
 		// The guard measures BYTES, so the padding rides in the node names:
 		// 200 declarations weigh more than 10,000 bare ones and parse in a
 		// fiftieth of the time, which keeps the case inside its budget.
@@ -1163,8 +1160,8 @@ class TopologiesCITest extends TestCase {
 	}
 
 	public function test_save_succeeds_without_arming_a_gc_flag(): void {
-		// The GC now runs every fleet config-check tick against the
-		// config-declared set, so save no longer arms a dirty flag — it just
+		// The GC runs every fleet config-check tick against the
+		// config-declared set, so save arms no dirty flag — it just
 		// persists the topology.
 		$result = VerbHarness::fire(
 			new Topologies_CI_Node(),

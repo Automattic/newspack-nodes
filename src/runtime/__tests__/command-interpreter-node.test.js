@@ -405,9 +405,9 @@ test( 'verb throwing returns TM_COMMAND|TM_ERROR with the message', () => {
  *
  * `_respond()` addresses a reply TO the request's FROM, so an errored command
  * that arrived with an empty FROM produces a TM_COMMAND|TM_ERROR with an empty
- * TO — which the command test read as a fresh command and interpreted again,
- * unbounded and synchronously. PHP's `is_request_command()` masks TM_ERROR
- * beside TM_RESPONSE for exactly this; the JS half did not.
+ * TO — which a command test blind to TM_ERROR would read as a fresh command and
+ * interpret again, unbounded and synchronously. PHP's `is_request_command()`
+ * masks TM_ERROR beside TM_RESPONSE for exactly this, and so does the JS half.
  */
 test( 'TM_COMMAND|TM_ERROR is forwarded, never interpreted', () => {
 	const sink = new Node();
@@ -1514,8 +1514,8 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		} );
 	} );
 
-	// The verb is `trace` (renamed from `debug_state`); the reply strings still
-	// report the underlying `debug_state` node property, which is unchanged.
+	// The verb is `trace`; the reply strings report the `debug_state`
+	// node property, but no verb answers to `debug_state`.
 	describe( 'trace (formerly debug_state)', () => {
 		it( 'the old `debug_state` verb name no longer resolves', () => {
 			const interpreter = makeInterpreter();
@@ -1723,10 +1723,10 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		it( 'help WITHOUT the completion key returns the full tabulated help, one section', () => {
 			const interpreter = makeInterpreter();
 			const out = dispatch( interpreter, 'help', '' );
-			// One unified section; the old SHELL BUILTINS list is folded in.
+			// One unified section, with no separate SHELL BUILTINS list.
 			expect( out ).toContain( '### COMMANDS ###' );
 			expect( out ).not.toContain( '### SHELL BUILTINS ###' );
-			// Shell builtins now appear in the single command table.
+			// Shell builtins appear in the single command table.
 			expect( out ).toContain( 'send_struct' );
 			expect( out ).toContain( 'debug_level' );
 			expect( out ).toContain( 'request_struct' );

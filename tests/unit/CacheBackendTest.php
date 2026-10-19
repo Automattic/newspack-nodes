@@ -404,8 +404,8 @@ class CacheBackendTest extends TestCase {
 	}
 
 	public function test_apcu_only_host_keeps_claim_surfaces_functional(): void {
-		// The stock Atomic posture: APCu present, no memcached. Previously
-		// fail-closed surfaces now work.
+		// The stock Atomic posture: APCu present, no memcached. The claim
+		// surfaces work on APCu alone.
 		if ( ! \function_exists( 'apcu_enabled' ) || ! \apcu_enabled() ) {
 			$this->markTestSkipped( 'APCu not usable in this SAPI' );
 		}

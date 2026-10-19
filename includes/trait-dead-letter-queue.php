@@ -1,6 +1,6 @@
 <?php
 /**
- * Dead_Letter_Queue: quarantine plus fair-shot attempt accounting (dead-letter [42]).
+ * Dead_Letter_Queue: quarantine plus fair-shot attempt accounting.
  *
  * This trait carries the reusable half of ADR-12: the `:deadletter` sibling Partition
  * and its triage index, the `dead_letter()` writer, the wrap that turns a raw source

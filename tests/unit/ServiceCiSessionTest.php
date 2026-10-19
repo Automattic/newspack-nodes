@@ -13,8 +13,8 @@ use Newspack_Nodes\Message;
 /**
  * First contact with a spoke is itself a command, so it needs a session: /auth
  * must precede `discovery get`. And the credentials that authenticate to /auth
- * now bootstrap every session key, which is why the missing require_ssl check
- * lands in the same slice.
+ * bootstrap every session key, so the probe refuses a plaintext spoke under
+ * require_ssl.
  */
 #[CoversClass( Service_CI_Node::class )]
 class ServiceCiSessionTest extends TestCase {

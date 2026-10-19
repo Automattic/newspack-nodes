@@ -313,8 +313,9 @@ describe( 'LogViewer', () => {
 	} );
 
 	it( 'sends the toolbar filter to the view node as an ingest control', async () => {
-		// The ring must hold only what is displayed: filtering at render left
-		// non-matches consuming slots, so a rare match aged out of the buffer.
+		// The ring must hold only what is displayed: filtering at render would
+		// leave non-matches consuming slots, so a rare match ages out of the
+		// buffer.
 		const node = registerViewFixture( { logs: [] } );
 		const { container } = await renderViewer();
 		const input = container.querySelector(
@@ -583,8 +584,8 @@ describe( 'LogViewer', () => {
 	} );
 
 	// VALUE is the payload; every other column is metadata about it, and reads
-	// dimmer so the eye lands on the record. The shared debug row already did
-	// this for ID — the column-driven cells have to keep it.
+	// dimmer so the eye lands on the record. The shared debug row does this
+	// for ID, and the column-driven cells have to match it.
 	it( 'dims every non-VALUE column and leaves VALUE at full contrast', async () => {
 		registerViewFixture( {
 			logs: [ { key: 'firehose', label: 'Firehose' } ],

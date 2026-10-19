@@ -1,6 +1,6 @@
 <?php
 /**
- * The supervisor process is gone; nothing may still be named after it.
+ * No supervisor process exists; nothing may be named after one.
  *
  * @package Newspack_Nodes\Tests\Unit
  */
@@ -12,13 +12,13 @@ use PHPUnit\Framework\TestCase;
 /**
  * This reads every file in eight trees — ~1000 files, ~10 MB — so its cost is the repo's
  * size, not any unit's: 0.5s of the ten-second budget under coverage, and it grows with
- * the repo. It has aborted mid-suite under the old one-second budget, and `failOnRisky`
+ * the repo. Under a one-second budget it aborts mid-suite, and `failOnRisky`
  * makes such an abort a failed run rather than a repo-wide guard that silently stopped
  * guarding. Narrow the trees or the files read before reaching for a size attribute.
  */
 class SpawnCoordinatorNamingTest extends TestCase {
 
-	/** Trees the rename must have reached; CHANGELOG history is checked separately. */
+	/** Trees no retired supervisor name may appear in; the history docs are exempt. */
 	private const SCANNED = [ 'includes', 'src', 'tests', 'docs', 'topologies', 'examples', 'scripts', '.claude' ];
 
 	/** Docs whose job is to name retired surfaces so a consumer can rewrite them. */

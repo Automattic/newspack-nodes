@@ -59,10 +59,10 @@ class GrepNodeTest extends TestCase {
 	/**
 	 * A struct VALUE with a nested non-UTF-8 string (e.g. a job `parameters`
 	 * field carrying raw latin1 SQL text) makes the stringify fallback's
-	 * wp_json_encode() fail. Before this fix, the failure silently coerced to
-	 * '' via a bare (string) cast — an empty subject fails the default `.`
-	 * pattern (any single character), so the message is dropped with no
-	 * diagnostic and no relation to the actual byte-encoding cause.
+	 * wp_json_encode() fail. Coerced silently to '' via a bare (string) cast,
+	 * the empty subject would fail the default `.` pattern (any single
+	 * character), dropping the message with no diagnostic and no relation to
+	 * the actual byte-encoding cause.
 	 */
 	public function test_forwards_struct_value_with_invalid_utf8_instead_of_silently_dropping(): void {
 		$g = new Grep_Node();

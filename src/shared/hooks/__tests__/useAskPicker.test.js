@@ -198,9 +198,9 @@ test( 'clicking something unaskable never asks about the page', () => {
 } );
 
 /**
- * A missed click used to disarm silently, which reads as the picker being
- * broken and hands the next click to the element underneath — on a flame graph
- * that zooms. Staying armed lets the second click land, and the `?` cursor is
+ * A missed click that disarmed silently would read as the picker being broken
+ * and hand the next click to the element underneath — on a flame graph that
+ * zooms. Staying armed lets the second click land, and the `?` cursor is
  * what says the picker is still on.
  */
 test( 'a missed click leaves the picker armed', () => {

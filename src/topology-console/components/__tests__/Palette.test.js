@@ -644,7 +644,7 @@ describe( 'Palette — Topologies section is edit-only', () => {
 describe( 'Palette — search filters the Topologies section', () => {
 	const classes = [ { shell_name: 'Echo', category: 'Generic' } ];
 	// Names distinct from every other fixture here, so an unfiltered
-	// topologies dump (the bug) fails this loudly instead of coinciding.
+	// topologies dump fails this loudly instead of coinciding.
 	const topologies = [
 		{ name: 'aggregator', includes: [] },
 		{ name: 'flame-builder', includes: [] },

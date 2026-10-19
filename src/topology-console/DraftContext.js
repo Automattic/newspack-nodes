@@ -12,7 +12,7 @@
  *   **TSL edits one thing per line; an editor holds the whole map.**
  *
  * `command_node` only ever appends and has no removal spelling, so "these are
- * now the verbs" needs `replaceVerbs`. `secure` sets a level and a bare
+ * the verbs" needs `replaceVerbs`. `secure` sets a level and a bare
  * `secure` means 1, while `insecure` declares a third state rather than
  * removing the line, so "undeclared" needs `clearSecure`. `replaceFrontmatter`
  * is the weaker case: `var <name> =` DOES delete, so it is expressible as a

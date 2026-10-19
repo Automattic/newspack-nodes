@@ -107,9 +107,9 @@ class SettingsSyncNodeTest extends TestCase {
 	}
 
 	/**
-	 * Settings_Sync now mints one SIGNED command per spoke, so the harness wires a
+	 * Settings_Sync mints one SIGNED command per spoke, so the harness wires a
 	 * real egress node and gives it a session — a target it cannot sign for is
-	 * skipped, which is the point of the change.
+	 * skipped.
 	 */
 	private function wired_node( Capture_Sink_Node $sink ): Settings_Sync_Node {
 		$sink->name( '_command_interpreter' );
@@ -565,7 +565,7 @@ class SettingsSyncNodeTest extends TestCase {
 	}
 
 	public function test_arguments_arms_recurring_timer(): void {
-		// A 300s cadence (interval_ms > 1000) now hitchhikes the Router TIMER and
+		// A 300s cadence (interval_ms > 1000) hitchhikes the Router TIMER and
 		// throttles in fire_cb() — a real worker drain always has a _router.
 		$router = new \Newspack_Nodes\Router_Node();
 		$router->name( \Newspack_Nodes\Node_Names::ROUTER );

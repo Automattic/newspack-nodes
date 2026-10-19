@@ -160,8 +160,8 @@ class ShellTest extends TestCase {
 
 	public function test_a_quoted_value_keeps_its_trailing_newline(): void {
 		// The tokenizer already stripped surrounding whitespace, so whatever
-		// reaches the value IS the value. Trimming here ate a terminator the
-		// caller had deliberately quoted in.
+		// reaches the value IS the value. Trimming here would eat a terminator
+		// the caller deliberately quoted in.
 		$shell = new Shell_Node();
 
 		$shell->parse( 'var foo = "bar\n"' );
@@ -228,7 +228,7 @@ class ShellTest extends TestCase {
 		$this->assertSame( "hello\n", $capture->captured[0][ Message::VALUE ] );
 	}
 
-	/** `echo` is gone — Tachikoma has no such verb. */
+	/** `echo` is not a builtin — Tachikoma has no such verb. */
 	public function test_echo_is_not_a_builtin(): void {
 		$shell   = new Shell_Node();
 		$message = $shell->parse( 'echo hello' );
@@ -1116,7 +1116,7 @@ class ShellTest extends TestCase {
 	}
 
 	public function test_fill_send_verb_emits_bytestream_payload_without_reparsing(): void {
-		// Regression: `send <node> <data>` parses to a TM_BYTESTREAM whose VALUE
+		// `send <node> <data>` parses to a TM_BYTESTREAM whose VALUE
 		// is the payload. That bytestream must reach the SINK as-is — it must NOT
 		// be re-filled into the Shell (which would re-parse the payload as a fresh
 		// command line, turning `send _output test` into `unknown command: test`).
@@ -1140,8 +1140,7 @@ class ShellTest extends TestCase {
 		// One grammar rule, ONE definition: a line continues only on an ODD run
 		// of trailing backslashes. `tell n1 back\\` ends in an escaped literal,
 		// so the loader parses it whole and the topology `save` verb must not
-		// reject it as unterminated. parse_statements() is that one definition —
-		// the second copy (validate_line) was deleted, not the rule.
+		// reject it as unterminated. parse_statements() is that one definition.
 		$line  = 'tell n1 back\\\\';
 		$shell = new Shell_Node();
 		$this->assertCount( 1, Shell_Node::parse_statements( $line ) );
@@ -1616,8 +1615,8 @@ class ShellTest extends TestCase {
 	}
 
 	public function test_split_statements_does_not_split_semicolons_inside_comments(): void {
-		// Bug regression: a `;` in a `# comment` line was treated as a
-		// statement separator, breaking the second half off as a verb.
+		// A `;` in a `# comment` line is not a statement separator, which
+		// would break the second half off as a verb.
 		$shell = new Shell_Node();
 		$this->assertSame(
 			[ '# warning; jobs can be slow', 'var foo = 1' ],

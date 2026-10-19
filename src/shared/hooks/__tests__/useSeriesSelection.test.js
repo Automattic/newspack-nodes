@@ -57,7 +57,7 @@ it( 'a series the chart no longer carries leaves the effective set', () => {
 	act( () => result.current.onSelect( 'jobs.p0', false ) );
 	act( () => result.current.onSelect( 'firehose.p1', true ) );
 
-	// The breakdown switched: jobs.p0 is gone, firehose.p1 stays picked.
+	// The breakdown switches: jobs.p0 drops out, firehose.p1 stays picked.
 	rerender( { labels: [ 'firehose.p0', 'firehose.p1' ] } );
 	expect( [ ...result.current.selected ] ).toEqual( [ 'firehose.p1' ] );
 	expect( result.current.isShown( 'firehose.p0' ) ).toBe( false );

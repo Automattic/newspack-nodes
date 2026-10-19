@@ -4,9 +4,6 @@
  * `list_logs` (catalog) + `dump_log` (per-partition metadata)
  * verbs the Raw Logs admin dashboard subscribes to.
  *
- * Replaces the verbs' previous home on the application's Performance_CI;
- * patterns here mirror the legacy PerformanceCITest firehose_* tests.
- *
  * @package Newspack_Nodes
  */
 
@@ -118,7 +115,7 @@ class RawLogsCITest extends TestCase {
 	}
 
 	public function test_dump_log_verb_returns_single_dir_summary(): void {
-		// `log` is now a CONCRETE partition dir name; the verb stats THAT one
+		// `log` is a CONCRETE partition dir name; the verb stats THAT one
 		// dir's segments (no num_partitions loop, no nested `/p{N}`).
 		\mkdir( $this->tmp . '/logs/firehose.p0', 0755, true );
 

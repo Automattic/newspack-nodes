@@ -377,7 +377,7 @@ class IngestCliCommandTest extends TestCase {
 	// -------------------------------------------------------------------------
 
 	public function test_ingest_with_no_files_reads_zero_records_from_empty_stdin(): void {
-		// Omitting <file>... no longer errors outright — it falls back to reading
+		// Omitting <file>... does not error outright — it falls back to reading
 		// packed records from stdin. An empty, non-tty stdin stream yields zero
 		// records and no error (the interactive-terminal guard is a separate path).
 		$mem = \fopen( 'php://memory', 'r+' );

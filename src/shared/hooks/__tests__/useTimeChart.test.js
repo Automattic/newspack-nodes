@@ -69,10 +69,9 @@ describe( 'useTimeChart constants', () => {
 	} );
 
 	it( 'defaults the retention window without reading any host global', () => {
-		// This is the substrate's canonical shared surface. It used to read
-		// `window.eventLoggerDashboards`, a global only newspack-event-logger-nodes
-		// sets — so every other consumer silently got the 24h fallback, and the
-		// value froze at import time whatever the host later localized.
+		// This is the substrate's canonical shared surface, so it must not
+		// read `window.eventLoggerDashboards`, a global only
+		// newspack-event-logger-nodes sets.
 		expect( DEFAULT_RETENTION_SECONDS ).toBe( 86400 );
 		expect(
 			readFileSync(

@@ -5,8 +5,7 @@
  * their own layout). Edit mode keys by the TOPOLOGY being edited, NOT the cwd:
  * an unactivated topology has no running worker to `cd` onto, so the cwd would
  * otherwise collide every edited topology onto one key (and stomp the live
- * local-scope layout). See the regression these guard against in
- * TopologyConsole's open/edit handlers.
+ * local-scope layout). TopologyConsole's open/edit handlers rely on it.
  */
 
 import { layoutStorageKey } from '../TopologyConsole';

@@ -2,7 +2,7 @@
 /**
  * VerbHarness: test fixture for service-CommandInterpreter (interpreter) verbs.
  *
- * Every M3 interpreter test uses this to fire a TM_COMMAND envelope through the
+ * Every service-interpreter test uses this to fire a TM_COMMAND envelope through the
  * substrate's normal dispatch path (interpreter → base interpreter → Router → HTTP_In) and
  * pull the verb's return value back out as a decoded PHP value. Tests
  * therefore exercise the same plumbing the live REST controller does —
@@ -14,9 +14,9 @@
  * accompanying reset() (called from tearDown) clears Core's registry so
  * the next test's graph construction doesn't collide on names.
  *
- * Ported verbatim from newspack-event-logger-nodes (only the namespace
- * declaration differs); both event-logger interpreters (M2) and substrate interpreters
- * (M3) use the same dispatch surface, so the harness has the same shape.
+ * newspack-event-logger-nodes carries the same harness (only the namespace
+ * declaration differs); its interpreters and the substrate's use the same
+ * dispatch surface, so the harness has the same shape.
  *
  * @package Newspack_Nodes
  */

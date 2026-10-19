@@ -3,8 +3,7 @@
  * SchemaTest: the shared declarative config Schema — one Field per setting, the
  * SINGLE source every consumer (overlay key-list, option_names, delete-on-blank
  * set, reset list, worker-restart classification, register/render loops) derives
- * from. Replaces the parallel hand-listed arrays each plugin's Config + Admin
- * used to keep in lockstep.
+ * from, so no plugin's Config and Admin keep parallel hand-listed arrays.
  *
  * The WP-Settings-API stubs a Schema registers into (register_setting /
  * add_settings_section / add_settings_field) are shared from tests/bootstrap.php.
@@ -203,7 +202,7 @@ namespace Newspack_Nodes\Tests\Unit\ConfigSystem {
 		}
 
 		public function test_overlay_keys_includes_every_non_empty_key_field(): void {
-			// Every settable field now overlays the config file uniformly — there is
+			// Every settable field overlays the config file uniformly — there is
 			// no per-field opt-out. overlay_keys() returns every field with a non-empty
 			// key (rendered options AND overlay-only ui=false keys), excluding only the
 			// keyless display-only fields.

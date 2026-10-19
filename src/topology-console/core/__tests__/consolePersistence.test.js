@@ -124,10 +124,11 @@ describe( 'consolePersistence [87]', () => {
 /**
  * Vault CRUD is dispatched through the `vault:shell` Tap so it is observable
  * via `connect vault:shell` — and anything typed into the REPL is echoed verbatim as a
- * `sent` entry. Either way the transcript carried `--auth_password=hunter2`
- * into localStorage with no expiry. The server deliberately never returns that
- * password (Vault_CI_Node::public_shape strips it), so the browser was storing
- * in cleartext exactly what the API refuses to hand back.
+ * `sent` entry. Either way an unredacted transcript would carry
+ * `--auth_password=hunter2` into localStorage with no expiry. The server
+ * deliberately never returns that password (Vault_CI_Node::public_shape strips
+ * it), so the browser would store in cleartext exactly what the API refuses to
+ * hand back.
  */
 describe( 'transcript redaction', () => {
 	beforeEach( () => window.localStorage.clear() );
@@ -220,8 +221,8 @@ describe( 'transcript redaction', () => {
 	} );
 
 	/**
-	 * The bare-token pass ran last and unguarded, so it re-ate the quoted
-	 * redaction the first pass had just produced and swallowed the closing
+	 * The bare-token pass runs last, so unguarded it would re-eat the quoted
+	 * redaction the first pass had just produced and swallow the closing
 	 * quote. Only an exact-output assertion sees it; `not.toContain` cannot.
 	 */
 	it( 'leaves the quoting balanced when the whole token was quoted', () => {
@@ -250,8 +251,9 @@ describe( 'transcript redaction', () => {
 
 /**
  * History is written from the same keystroke as the transcript echo, and
- * ReplFooter hands it the verbatim typed line — so the passphrase masked under
- * `:transcript` sat in cleartext under `:history`, with no expiry.
+ * ReplFooter hands it the verbatim typed line — so unless history is redacted
+ * too, the passphrase masked under `:transcript` sits in cleartext under
+ * `:history`, with no expiry.
  */
 describe( 'history redaction', () => {
 	beforeEach( () => window.localStorage.clear() );

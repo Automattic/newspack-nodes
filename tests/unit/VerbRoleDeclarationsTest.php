@@ -18,10 +18,10 @@ use Newspack_Nodes\Tests\TestCase;
 /**
  * Every substrate service verb states its role, and this is the statement.
  *
- * Service_CI_Node defaults an undeclared verb to MANAGE, so the whole surface
- * used to be manage BY OMISSION — which is why the log aggregator needed an
- * administrator's application password to pull a read-only stream. The table
- * below is the deliberate version of that, cut by BLAST RADIUS: `read` changes
+ * Service_CI_Node defaults an undeclared verb to MANAGE, so a surface that
+ * declared nothing would be manage BY OMISSION, and a read-only stream would
+ * need an administrator's application password. The table below states each
+ * role deliberately, cut by BLAST RADIUS: `read` changes
  * nothing, `tune` writes values a schema already bounds, `manage` takes the
  * site down or hands out access.
  */

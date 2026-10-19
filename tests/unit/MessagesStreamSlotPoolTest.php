@@ -383,7 +383,7 @@ class MessagesStreamSlotPoolTest extends TestCase {
 		// Consumer's first fire() is scheduled at POLL_INTERVAL_EOF_MS=100ms.
 		// Drain iterates between events; we need enough iterations that the
 		// timer fires AND its read+callback path completes within the loop.
-		// 3 was empirically flaky under load; 10 leaves room for slow CI.
+		// 10 leaves room for slow CI; 3 is flaky under load.
 		SSE_Out_Node::$check_slot = $this->boundedTicks( 10 );
 
 		// Capture all router fills so we can assert the message landed on

@@ -119,8 +119,8 @@ class OnDemandExitTest extends TestCase {
 
 	/**
 	 * A jobs.p0 → Consumer → Job_Worker graph whose log stopped growing before
-	 * the window opened — the shape that let the consumer vote itself idle while
-	 * it was still holding the line.
+	 * the window opened — the shape in which a consumer could vote itself idle
+	 * while still holding the line.
 	 *
 	 * @param callable $handler The `slow` job handler under test.
 	 * @param bool     $seed    False writes an empty log (a worker handed nothing).
@@ -187,10 +187,10 @@ class OnDemandExitTest extends TestCase {
 	}
 
 	/**
-	 * The reported bug. The consumer's lag discounted the buffered line as
-	 * consumed while the cursor only advances in drain_buffer()'s finally, so a
-	 * job outlasting the window took a `Worker_Should_Stop` from `pump()`
-	 * mid-work, replayed, and was killed again every generation.
+	 * The cursor only advances in drain_buffer()'s finally, so the consumer's
+	 * lag counts the buffered line as owed. Discounted as consumed, a job
+	 * outlasting the window would take a `Worker_Should_Stop` from `pump()`
+	 * mid-work, replay, and be killed again every generation.
 	 */
 	public function test_a_running_job_holds_the_worker_open(): void {
 		$during = $this->continued_mid_job( $this->job_graph( static fn () => null ) );

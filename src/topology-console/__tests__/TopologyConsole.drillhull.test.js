@@ -71,8 +71,8 @@ jest.mock( '../hooks/useCatalogs', () => ( {
 	} ),
 } ) );
 jest.mock( '../hooks/useLayout', () => ( {
-	// Faked over the promises the fixtures still seed: what settles becomes the
-	// handler the console now does its work in. The two senders are STABLE, as
+	// Faked over the promises the fixtures seed: what settles becomes the
+	// handler the console does its work in. The two senders are STABLE, as
 	// the real hook's are — a fresh identity per render re-runs the console's
 	// fetch effect, which sets state, which renders again.
 	useLayout: ( handlers = {} ) => {
@@ -274,8 +274,8 @@ describe( 'TopologyConsole — drilling into a hull', () => {
 	} );
 
 	it( 'a DELETED topology leaves no draft to discard', async () => {
-		// Same hole as save: the file is gone, but the draft that named it was
-		// left in place with a stale baseline, so view mode read dirty.
+		// As with save: the file is gone, so the draft that named it must go
+		// too, or its stale baseline makes view mode read dirty.
 		globalThis.__drillHooks.fetchTopology.mockResolvedValue( {
 			name: 'beta',
 			source: 'user',
@@ -359,9 +359,9 @@ describe( 'TopologyConsole — drilling into a hull', () => {
 	} );
 
 	it( 'the OPEN dialog guards a dirty draft, as drilling in does', async () => {
-		// Both paths run the same `openForEdit`, which REPLACES the draft, but
-		// only the hull drill-in asked first — so the primary path silently
-		// destroyed edited work while the secondary one guarded it.
+		// Both paths run the same `openForEdit`, which REPLACES the draft, so
+		// both must ask first, or the primary path silently destroys edited
+		// work.
 		globalThis.__drillHooks.fetchTopology.mockResolvedValue( {
 			name: 'beta',
 			source: 'user',

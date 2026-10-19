@@ -106,7 +106,7 @@ class ConfigTest extends TestCase {
 	}
 
 	public function test_memcache_servers_wp_option_override_applies(): void {
-		// The admin sanitizer now stores the typed (array) shape, so the raw
+		// The admin sanitizer stores the typed (array) shape, so the raw
 		// overlay yields an array and no read-time coercion is needed.
 		\update_option( 'newspack_nodes_memcache_servers', [ 'test-host:11211' ] );
 		Config::reset();
@@ -153,7 +153,7 @@ class ConfigTest extends TestCase {
 
 	public function test_value_returns_schema_default_when_option_unset(): void {
 		// Declared-but-unset (no WP option) resolves the declared file default,
-		// distinct from the old `?? 1` fallback the migration drops.
+		// seeded distinct from any `?? 1` fallback.
 		$conf = $this->temp_dir . '/np-default.php';
 		\file_put_contents( $conf, "<?php return [ 'num_partitions' => 9 ];\n" );
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $conf );
@@ -165,7 +165,7 @@ class ConfigTest extends TestCase {
 	public function test_value_resolves_config_file_only_key(): void {
 		// vault_verify_ssl is a config-file default, NOT a Settings_Schema key.
 		// The file IS a declaration, so value() must resolve it — returning the
-		// declared value, distinct from the old `?? true` silent fallback.
+		// declared value, seeded distinct from a `?? true` silent fallback.
 		$conf = $this->temp_dir . '/vault-ssl.php';
 		\file_put_contents( $conf, "<?php return [ 'vault_verify_ssl' => false ];\n" );
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $conf );
@@ -200,8 +200,8 @@ class ConfigTest extends TestCase {
 	}
 
 	public function test_value_reads_own_key_without_runtime_wiring(): void {
-		// The staging fatal: Log_Manager's firehose init reads num_partitions on a
-		// frontend request and value() threw "unknown config key". 7 is distinct
+		// Log_Manager's firehose init reads num_partitions on a frontend request,
+		// where value() must not throw "unknown config key". 7 is distinct
 		// from the shipped default (1), so a config that silently ignores the
 		// option overlay fails this too.
 		$conf = $this->temp_dir . '/unwired.php';
@@ -217,7 +217,7 @@ class ConfigTest extends TestCase {
 		// own file scope. So declaration is PULLED: whenever the substrate derives
 		// its declared set it fires DECLARE_ACTION, and consumers declare there.
 		// Without the pull, a consumer key read before the consumer's own boot hook
-		// throws "unknown config key" — the staging fatal, one layer up.
+		// throws "unknown config key".
 		\add_action( Config::DECLARE_ACTION, $this->consumer_declaration );
 		$this->simulate_unwired_request();
 		$this->assertTrue( Config::is_declared( 'acme_consumer_key' ) );
@@ -310,7 +310,7 @@ class ConfigTest extends TestCase {
 		Config::reset();
 		\update_option( 'newspack_nodes_num_partitions', '8' );
 		$config = Config::load_config();
-		// Options are read raw now (no read-time coercion); the stored numeric
+		// Options are read raw (no read-time coercion); the stored numeric
 		// string passes through unchanged.
 		$this->assertSame( '8', $config['num_partitions'] );
 	}
@@ -479,11 +479,10 @@ class ConfigTest extends TestCase {
 	}
 
 	/**
-	 * The runtime tree is adopted, not just created: ensure_path() skipped mkdir
-	 * for a pre-existing directory and never looked at who owned it. Anyone who
-	 * won the race to `mkdir -m 0777 /tmp/newspack-nodes` owned every log, lock,
-	 * offset and topology under it. `wp nodes doctor` already computed this
-	 * comparison advisorily; it is a runtime gate now.
+	 * The runtime tree is adopted, not just created: ensure_path() checks who
+	 * owns a pre-existing directory. Otherwise anyone who won the race to
+	 * `mkdir -m 0777 /tmp/newspack-nodes` would own every log, lock, offset and
+	 * topology under it. `wp nodes doctor` makes the same comparison.
 	 */
 	public function test_ensure_path_refuses_a_directory_owned_by_another_uid(): void {
 		$path = $this->temp_dir . '/foreign';

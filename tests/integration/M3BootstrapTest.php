@@ -1,7 +1,7 @@
 <?php
 /**
  * M3BootstrapTest: end-to-end integration check that the substrate
- * plugin file registers the three M3 service-interpreters (Classes_CI, Layouts_CI,
+ * plugin file registers the three service-interpreters (Classes_CI, Layouts_CI,
  * Topologies_CI) AND attaches a `newspack_nodes/request_graph_ready`
  * callback that constructs each one through `$base_interpreter->make_node(...)`.
  *

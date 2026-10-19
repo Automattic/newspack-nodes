@@ -172,7 +172,7 @@ class WorkerBaseTest extends TestCase {
 
 	public function test_should_continue_stamps_timeout_stop_reason(): void {
 		// A max_runtime stop is categorized 'timeout' so the shutdown path applies the
-		// cooperative-stop fair-shot rule (dead-letter [42]), not a blanket graceful handoff.
+		// cooperative-stop fair-shot rule, not a blanket graceful handoff.
 		$w = new TestableWorker( $this->tmp, 'test-worker', 0, max_runtime: 1 );
 		$w->acquire();
 		$w->set_start_time_for_test( \hrtime( true ) / 1e9 - 2.0 );
@@ -343,11 +343,10 @@ class WorkerBaseTest extends TestCase {
 	}
 
 	public function test_should_continue_beats_the_lock(): void {
-		// [189] The ONE beat. A SIGALRM used to shadow it, on the belief a signal
-		// would carry the heartbeat through work that yields nothing — but it
-		// cannot fire while the parent blocks in proc_open for a render, and
-		// where it did fire it suppressed this and cut short any interruptible
-		// sleep. The engine keeps its own lease warm instead.
+		// The ONE beat. No SIGALRM shadows it: a signal cannot fire while the
+		// parent blocks in proc_open for a render, and where it fires it
+		// suppresses this beat and cuts short any interruptible sleep. The
+		// engine keeps its own lease warm instead.
 		$w = new TestableWorker( $this->tmp, 'test-worker', 0 );
 		$w->acquire();
 		$hb_path = "{$this->tmp}/locks/test-worker.p0.lock.d/heartbeat";
@@ -959,7 +958,7 @@ class WorkerBaseTest extends TestCase {
 	/**
 	 * The invariant lives in release() because every exit path goes through it —
 	 * the finally, the shutdown handler, and the load-failure branch. Stated in
-	 * each of those instead, it was added to two and missed the third.
+	 * each of those instead, it would have to be kept in step three times.
 	 */
 	public function test_release_flushes_pending_wakes_before_dropping_the_lock(): void {
 		$worker = new TestableWorker( $this->tmp, 'relflush', 0 );

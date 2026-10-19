@@ -33,7 +33,7 @@ class VaultCINodeTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
-		// A probe now requires a live session for its destination; seed the ids
+		// A probe requires a live session for its destination; seed the ids
 		// this file probes so the $http_call stubs answer only the /command leg.
 		foreach ( self::SEEDED_SESSIONS as $spoke ) {
 			Command_Auth::remember_session( $spoke, \str_repeat( '3', 32 ), 'probe-session-key' );

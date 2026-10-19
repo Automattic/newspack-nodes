@@ -11,10 +11,9 @@
 
 @use "base";
 
-// The embedded live subtree AND the per-partition pills now hoisted into the
-// card heading (`.topology-partition`, `.connector-heartbeat`, the tree rows)
-// are styled by worker-status.scss; pull it in here since the standalone Worker
-// Status dashboard that used to load it was removed.
+// The embedded live subtree AND the per-partition pills in the card heading
+// (`.topology-partition`, `.connector-heartbeat`, the tree rows) are styled by
+// worker-status.scss; this is the stylesheet that loads it.
 @use "worker-status";
 
 .nodes-tm {

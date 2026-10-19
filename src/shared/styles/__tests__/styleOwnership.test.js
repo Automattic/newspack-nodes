@@ -712,9 +712,9 @@ describe( 'canonical appearance ownership', () => {
 
 	it( 'lays a button out above WordPress own display, once, for everyone', () => {
 		// `.wp-core-ui .button` sets `display: inline-block` and is two classes
-		// deep, so any single-class component rule that tried to lay a button
-		// out silently did nothing — the contents stayed one run of inline
-		// text. The shared layer wins that once so no component re-fights it,
+		// deep, so any single-class component rule laying a button out would
+		// silently do nothing — the contents stay one run of inline text. The
+		// shared layer wins that once so no component re-fights it,
 		// and specificity is invisible in the rule that needs it, so it is
 		// pinned here.
 		const sheet = compile( UI_ENTRY );
@@ -1670,9 +1670,9 @@ describe( 'canonical appearance ownership', () => {
 		// @longform The list compensates scrollTop itself when new rows arrive
 		// above a reader scrolled into history. Browser scroll anchoring does
 		// the SAME correction for the growing spacer, and the two stack: every
-		// new row moved the reader by two, so the page slid up. jsdom does not
-		// implement anchoring, so no behavioural test can catch this — the
-		// declaration is the only thing standing between us and the bug.
+		// new row would move the reader by two, so the page slides up. jsdom
+		// does not implement anchoring, so no behavioural test can catch this —
+		// the declaration is the only guard.
 		expect(
 			declarationsForSelector(
 				logRowListStylesheet,
@@ -2516,10 +2516,10 @@ describe( 'canonical appearance ownership', () => {
  * has to say `box-sizing` too, or `width: 100%` renders 22px wider than its
  * container — and a container with `overflow-y: auto` (per spec `overflow-x`
  * then computes to `auto` as well) grows a horizontal scrollbar across its
- * whole width. The Save-topology modal did exactly that.
+ * whole width, as the Save-topology modal would.
  *
- * `_buttons.scss` already sets it beside its own border and padding; the field
- * rule is the one that omitted it.
+ * `_buttons.scss` sets it beside its own border and padding, and so must the
+ * field rule.
  */
 describe( 'shared field chrome', () => {
 	const uiStylesheet = postcss.parse( sass.compile( UI_ENTRY ).css, {
@@ -2552,8 +2552,8 @@ describe( 'shared field chrome', () => {
 	// and the next reader chasing a modal-width bug believes the wrong cause.
 	// Measured live: the body's content box is 390px, the input fills it at
 	// width:100%, and WP admin's own `margin: 1px` on inputs makes its MARGIN
-	// box 392 — exactly the 2px the body was offering to scroll. Zeroing the
-	// inline margin takes the overflow to 0; clipping the axis only hid it.
+	// box 392 — exactly the 2px the body offers to scroll. Zeroing the inline
+	// margin takes the overflow to 0; clipping the axis only hides it.
 	it( 'zeroes the modal input inline margin so width:100% fits', () => {
 		const declared = declarationsForSelector(
 			graphStylesheet,

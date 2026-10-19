@@ -26,8 +26,7 @@ describe( 'formatters', () => {
 		expect( formatBytes( null ) ).toBe( '0 B' );
 		expect( formatBytes( undefined ) ).toBe( '0 B' );
 	} );
-	// Absorbed from the deleted formatBytes shim's suite: the log-browser size
-	// column's own cases, which this ladder now renders.
+	// The log-browser size column's own cases, which this ladder renders.
 	it( 'formatBytes renders whole bytes below the KB rung', () => {
 		expect( formatBytes( 512 ) ).toBe( '512 B' );
 		expect( formatBytes( 1023 ) ).toBe( '1023 B' );

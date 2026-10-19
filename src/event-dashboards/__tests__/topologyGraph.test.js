@@ -1114,8 +1114,8 @@ describe( 'collectLogPartitions — per-topology cursor + recorded end merge', (
 
 // `topic-probe.tsl` is included by seven topologies, so a `topicprobe` node
 // exists in each. Overview renders every topology against ONE shared fold set,
-// so a key that names only the tree path made folding it in one row fold it in
-// all of them.
+// so a key that names only the tree path would make folding it in one row fold
+// it in all of them.
 it( 'scopes an entity key by topology, so a shared node name cannot collide', () => {
 	// `logic` is what a Topic_Probe resolves to; the key IS the persisted
 	// contract, so pin both strings rather than only their difference.

@@ -67,8 +67,8 @@ describe( 'useTopologyList', () => {
 		expect( Core.node( 'topologies:shell' ).counter ).toBe( 1 );
 	} );
 
-	// A save used to owe the catalog a `reload()`. The tick carries the new
-	// entry on its own, so what the dialog shows converges without being told.
+	// A save owes the catalog no `reload()`. The tick carries the new entry
+	// on its own, so what the dialog shows converges without being told.
 	it( 'picks up a new entry without being reloaded', async () => {
 		const { result } = renderHook( () =>
 			useTopologyList( { enabled: true } )
@@ -90,8 +90,8 @@ describe( 'useTopologyList', () => {
 		);
 	} );
 
-	// And it hands out nothing to trigger it with: the `reload()` a save used to
-	// call forwarded to nothing, which is one more thing for a caller to read.
+	// And it hands out nothing to trigger it with: a `reload()` would forward
+	// to nothing, which is one more thing for a caller to read.
 	it( 'hands out no reload — the tick is the only refresh', async () => {
 		const { result } = renderHook( () =>
 			useTopologyList( { enabled: true } )
@@ -180,9 +180,8 @@ describe( 'useTopology', () => {
 		] );
 	} );
 
-	// Half a loaded page is the failure this replaces: the old awaited fetch
-	// was sent once, and an ask that never came back left the editor open on
-	// nothing at all. This one asks again until an answer lands.
+	// An ask that never comes back must not leave the editor open on nothing
+	// at all, so the hook asks again until an answer lands.
 	it( 'keeps asking until the answer actually lands', async () => {
 		replyFor.mockImplementationOnce( () => undefined );
 		const { result } = renderHook( () => useTopology( { scope: 'test' } ) );

@@ -1,6 +1,6 @@
 /**
- * SseInNode tests — the SSE receive-ingress node (formerly the SseConnector,
- * now merged in: SseInNode extends Node directly). It opens an EventSource,
+ * SseInNode tests — the SSE receive-ingress node, which extends Node
+ * directly. It opens an EventSource,
  * snoops the `connected` handshake string for `session()` + the complete slot
  * lease, runs the heartbeat watchdog / reconnect logic, and forwards each
  * parsed positional Message into its sink. Composed by RemoteLink as its
@@ -551,7 +551,7 @@ test( 'an explicitly closed stream stays closed on the next visible event', () =
 } );
 
 // Build a configured SseIn. `subscribe` is the only positional argument; the
-// transport coordinates (baseUrl + nonce) are set explicitly — they no longer
+// transport coordinates (baseUrl + nonce) are set explicitly — they do not
 // ride the make_node args, they come from the localized global by default.
 test( 'a grouped stamp keys resume positions by its whole offsets:<dir> stamp', () => {
 	const { sse } = makeSseIn( {
@@ -917,10 +917,10 @@ describe( 'seekMap — what this node asks each subscription for', () => {
 
 // @longform A dashboard that asks to replay from the START of the log is
 // asking for the WHOLE chart. Switch tabs quickly enough and the slot pool
-// refuses the stream with a 429 before a single frame arrives — and the reopen
-// used to overwrite the stated seek with "wherever we got to", which for a
-// stream that got nowhere is the tail. The chart then filled from `end`: one
-// live point instead of a day of history, and only a full reload fixed it.
+// refuses the stream with a 429 before a single frame arrives. A reopen that
+// overwrote the stated seek with "wherever we got to", which for a stream that
+// got nowhere is the tail, would fill the chart from `end`: one live point
+// instead of a day of history, until a full reload.
 test( 'a stream refused before its first frame still asks to replay from the start', () => {
 	jest.useFakeTimers();
 	const { sse } = makeSseIn( { subscribe: [ 'jobstats.p0' ] } );
@@ -1431,7 +1431,7 @@ test( 'start() called twice closes the first EventSource before opening the seco
 // A half-open socket never auto-reconnects; a heartbeat watchdog forces it.
 
 // @longform
-// The watchdog is a Timer now, not a hand-rolled setInterval: it arms through
+// The watchdog is a Timer, not a hand-rolled setInterval: it arms through
 // setTimer() and its body is fire(), so stopTimer/removeNode dispose it like
 // every other timer in the graph. Unnamed, so setTimer takes an own slot —
 // name the node and the same call hitchhikes the Router tick instead.
@@ -1481,9 +1481,9 @@ test( 'a stream wedged in CONNECTING is still force-reconnected eventually', () 
 // @longform
 // The server closes an idle stream and advertises `retry:`, so the browser sits
 // in CONNECTING for that whole window. FORCE_AFTER_MS is 10s and the advertised
-// gap is 15s, so the watchdog fired FIVE SECONDS before the browser's own
-// reconnect — on every cycle — logging an error and doubling the backoff for a
-// stream that was working exactly as designed. The watchdog exists for
+// gap is 15s, so a watchdog firing then would beat the browser's own reconnect
+// by FIVE SECONDS on every cycle, logging an error and doubling the backoff for
+// a stream working exactly as designed. The watchdog exists for
 // HALF-OPEN sockets (readyState OPEN, no data); a browser between connections
 // is not that, which is what the `error` handler already assumes.
 test( 'the watchdog stands down while the browser is reconnecting', () => {
@@ -1796,8 +1796,8 @@ test( 'close() stops the watchdog (no reconnect, no throw long after close)', ()
 // where the server started it, and every reopen resumes from there rather than
 // replaying what this client already holds. What separates that from the
 // refused-before-the-handshake case is exactly this envelope — which is why a
-// blanket "reopen always tail-follows" threw away the seed of a stream that had
-// read nothing at all.
+// blanket "reopen always tail-follows" would throw away the seed of a stream
+// that had read nothing at all.
 test( 'a forced reconnect resumes from the cursor the handshake stated, not the seed', () => {
 	jest.useFakeTimers();
 	try {

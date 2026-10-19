@@ -562,11 +562,9 @@ class TopologyRegistryExpandTest extends TestCase {
 
 	/**
 	 * `expand()` and `graph_for()` are two walks over one statement stream, and
-	 * they had drifted on this exact line: expand built the config-target with
-	 * `implode( ' ', array_slice( $values, 3 ) )` while graph_for used
-	 * `$values[3] ?? ''`. The RUNTIME reads `$args[0]` — a single token — so
-	 * graph_for matched it and expand did not. The same TSL line yielded a
-	 * different edge target depending on which reader you asked.
+	 * both must read the config-target as the RUNTIME does: `$args[0]`, a single
+	 * token, not the trailing tokens joined. Otherwise the same TSL line yields a
+	 * different edge target depending on which reader you ask.
 	 */
 	public function test_both_walks_agree_on_a_config_target_with_trailing_tokens(): void {
 		$this->write_tsl(

@@ -48,7 +48,7 @@ trait Sidecar {
 		$partition->arguments( \array_map( '\strval', [ $dir, ...$geometry ] ) );
 		// Sole assignment when arguments() replays after the sink is wired.
 		$partition->sink( $this->sink );
-		// A sidecar quarantining its own writes would recurse ([159]).
+		// A sidecar quarantining its own writes would recurse.
 		$partition->without_write_deadletter();
 		return $partition;
 	}

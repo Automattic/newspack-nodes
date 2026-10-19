@@ -118,8 +118,7 @@ class LockTest extends TestCase {
 		$this->assertTrue( true );
 	}
 
-	// Lock::with_lock() was removed — per-write callback locking was the wrong
-	// abstraction (the user explicitly killed it). Locking now happens once at
+	// Lock has no per-write callback locking: locking happens once at
 	// allow_large_writes() time on the Partition, with a heartbeat Timer
 	// keeping the lock fresh; see PartitionTest::test_allow_large_writes_*.
 
@@ -683,7 +682,7 @@ class LockTest extends TestCase {
 		$this->assertFalse( $lock->verify_ownership() );
 		$this->assertFalse( $lock->is_held(), 'is_held must flip false so release() no-ops' );
 
-		// release() is now defensive — the lock dir on disk belongs to "them".
+		// release() is defensive — the lock dir on disk belongs to "them".
 		$lock->release();
 		// Directory must still be there (we didn't force-release someone else's).
 		$this->assertTrue( \is_dir( "{$this->tmp}/test.lock.d" ) );

@@ -4,7 +4,7 @@
  *
  * Every reader — the fleet's spawn count, the canonical per-topology count, the
  * catalog synthesizer and the health probe — must answer with the same number
- * for the same topology, whatever spelling of the clamp it used to carry.
+ * for the same topology, from one clamp.
  *
  * @package Newspack_Nodes
  */

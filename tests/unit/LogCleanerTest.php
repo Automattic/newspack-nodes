@@ -125,8 +125,8 @@ class LogCleanerTest extends TestCase {
 	public function test_aborts_the_sweep_when_an_active_topology_cannot_resolve(): void {
 		// Mid-deploy: the topologies OPTION persists while the owning plugin's
 		// stock dir is momentarily unregistered, so the declared set silently
-		// loses that plugin's dirs. Sweeping against the degraded set is what
-		// deleted errors.p0 (twice) -- an unresolvable ACTIVE name aborts.
+		// loses that plugin's dirs. Sweeping against the degraded set would
+		// delete their live logs, so an unresolvable ACTIVE name aborts.
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
 		$active   = $GLOBALS['_wp_options']['newspack_nodes_topologies'];
 		$active[] = 'vicuna-unregistered';
@@ -203,8 +203,8 @@ class LogCleanerTest extends TestCase {
 	}
 
 	public function test_sweeps_topicprobe_when_no_declaring_topology_is_active(): void {
-		// topicprobe.p0 is TSL-declared now (the topic-probe include), not
-		// whitelisted — undeclared, it GCs like any other retired dir.
+		// topicprobe.p0 is TSL-declared (the topic-probe include), not
+		// whitelisted — undeclared, it GCs like any other orphan dir.
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
 		$probe = $this->seed_log_partition( 'topicprobe', 0 );
 
@@ -234,9 +234,9 @@ class LogCleanerTest extends TestCase {
 	}
 
 	public function test_sweeps_jobstats_when_no_declaring_topology_is_active(): void {
-		// jobstats.p0 is now TSL-declared (topologies/job-worker.tsl), not whitelisted.
+		// jobstats.p0 is TSL-declared (topologies/job-worker.tsl), not whitelisted.
 		// When no active topology declares it, it is an orphan and GCs like any other
-		// deactivated topology's log — the correct behavior after revoking the mount.
+		// deactivated topology's log.
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
 		$jobstats = $this->seed_log_partition( 'jobstats', 0 );
 
@@ -285,7 +285,7 @@ class LogCleanerTest extends TestCase {
 
 	public function test_producer_template_expands_the_partition_token_wherever_it_sits(): void {
 		// A producer registers a PATH TEMPLATE in the .tsl write_set vocabulary, so
-		// its layout is its own — the substrate no longer spells `{name}.p{N}` for it.
+		// its layout is its own — the substrate does not spell `{name}.p{N}` for it.
 		\add_filter(
 			'newspack_nodes/registered_log_producers',
 			static fn (): array => [ '<config:logs_dir>/{partition}-req' ]
@@ -501,8 +501,8 @@ class LogCleanerTest extends TestCase {
 
 	public function test_a_recently_active_undeclared_dir_is_spared(): void {
 		// The delete grace: an undeclared dir with fresh writes is NEVER swept
-		// — the declared set can transiently lose entries mid-deploy/restart
-		// (this ate a healthy errors.p0 + alerts.p0), and an active dir is
+		// — the declared set can transiently lose entries mid-deploy/restart,
+		// and an active dir is
 		// never a true orphan. It collects on a later sweep once quiet.
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
 		$fresh = "{$this->tmp}/logs/undeclared-live.p0";
@@ -559,7 +559,7 @@ class LogCleanerTest extends TestCase {
 
 	public function test_sweeps_undeclared_non_partition_dir(): void {
 		// Layout-agnostic: keep ONLY declared first-level dirs. An undeclared dir
-		// whose name has no `.p{N}` suffix is now an orphan and IS swept.
+		// whose name has no `.p{N}` suffix is an orphan and IS swept.
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
 
 		\mkdir( "{$this->tmp}/logs/notapartition", 0755, true );
@@ -673,7 +673,7 @@ class LogCleanerTest extends TestCase {
 
 	public function test_sweeps_offsets_when_the_last_topology_is_deactivated(): void {
 		// Deactivating the last topology empties the offset bucket, and an empty
-		// bucket used to skip the sweep — so a fleet with everything inactive
+		// bucket still sweeps — otherwise a fleet with everything inactive
 		// could never reclaim a cursor, however long it sat. No topology active
 		// means no consumer running, which is exactly when it is safe to.
 		$this->declare_inactive_topology(
@@ -703,11 +703,11 @@ class LogCleanerTest extends TestCase {
 		$this->assertDirectoryDoesNotExist( "{$this->tmp}/offsets/notapartition" );
 	}
 
-	// ── liveness-free: locks are no longer consulted ───────────────────────
+	// ── liveness-free: locks are not consulted ─────────────────────────────
 
 	public function test_no_longer_reads_lock_dirs(): void {
 		// An undeclared log dir WITH a matching lock dir is STILL deleted —
-		// the GC ignores locks now (the orange is gone).
+		// the GC ignores locks.
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
 
 		$ghost = $this->seed_log_partition( 'ghost', 0 );
@@ -775,13 +775,11 @@ class LogCleanerTest extends TestCase {
 	}
 
 	/**
-	 * The GC clamped `num_partitions` to MAX_PARTITIONS while every PRODUCER
-	 * clamped it differently — `Job_Intake` and ELN's `Log_Manager` applied no
-	 * upper bound at all. Above the cap, producers wrote `jobintake.p8`+ that
-	 * the declared set never enumerated, so the sweep deleted them one
-	 * DELETE_GRACE_S after their last write: live-data deletion past both of
-	 * the GC's fail-closed gates, since the root resolves and the set is
-	 * non-empty.
+	 * A GC clamping `num_partitions` differently from a PRODUCER deletes live
+	 * data: above its cap, producers write `jobintake.p8`+ that the declared
+	 * set never enumerates, so the sweep deletes them one DELETE_GRACE_S after
+	 * their last write, past both of the GC's fail-closed gates, since the
+	 * root resolves and the set is non-empty.
 	 *
 	 * The invariant is agreement — whatever a producer can write, the GC
 	 * declares. 21 is deliberately above MAX_PARTITIONS (8), so a producer
@@ -932,16 +930,16 @@ class LogCleanerTest extends TestCase {
 	}
 
 	/**
-	 * DATA LOSS: retention drives off Topology_Analyzer::resolved_resource_dirs(),
-	 * which reads write_set(). That scanned the RAW .tsl, so an include-only
-	 * topology (ELN's combined.tsl is now two `include` lines) declared NOTHING —
-	 * and the GC ATE its live logs and offsetlogs as orphans.
+	 * DATA LOSS guard: retention drives off
+	 * Topology_Analyzer::resolved_resource_dirs(), which reads write_set(). A
+	 * scan of the RAW .tsl would have an include-only topology declare NOTHING,
+	 * and the GC would eat its live logs and offsetlogs as orphans.
 	 *
 	 * The second active topology is load-bearing: with an EMPTY declared set the
 	 * cleaner skips the sweep entirely (fail-safe), so an include-only topology
 	 * alone is never at risk. It takes a neighbour that DOES declare dirs to make
 	 * the set non-empty, run the sweep, and delete the borrowed dirs. That is the
-	 * live fleet exactly: combined (include-only) beside job-worker + settings-sync.
+	 * live fleet shape: an include-only topology beside job-worker + settings-sync.
 	 */
 	public function test_keeps_the_dirs_an_included_topology_declares(): void {
 		$this->declare_topology( 'neighbour', $this->partition_tsl( 'neighbour' ) );

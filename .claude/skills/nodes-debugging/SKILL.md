@@ -48,7 +48,7 @@ Read three of the rest carefully, because each fails silently everywhere else:
 
 - **`housekeeping`** asks only whether `newspack_nodes/reconcile` is scheduled. That minute pass carries retention, orphan reaping, alert emission, the delayed-jobs sweep, every `newspack_nodes/periodic` subscriber and cold-start worker revival. Lose it and every other check stays green.
 - **`ownership`** compares the base directory's owner against this process's effective uid. A mismatch is almost always a past root run; the recovery is `chown -R <web-user> {base_dir}`.
-- **`config-keys`** names keys in `newspack-nodes-config.php` that `Settings_Schema` no longer declares. The value you set is not in effect, and nothing else says so.
+- **`config-keys`** names keys in `newspack-nodes-config.php` that `Settings_Schema` does not declare. The value you set is not in effect, and nothing else says so.
 
 No row reads `DISABLE_WP_CRON` or any other cron setting. A platform invoking `wp-cron.php` externally is healthy, and `worker-liveness` measures the lock heartbeats themselves rather than a proxy for them.
 

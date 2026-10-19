@@ -5,7 +5,7 @@
  * first) and renders ONLY the on-screen virtualization window each rAF frame via
  * `lineAt(i)` — it never materializes the whole ring (the 100k-buffer caveat).
  * It reports `{ total, visible, lps }` up to the consumer's toolbar and does the
- * new-row smooth-scroll compensation the old canvas renderer did.
+ * new-row smooth-scroll compensation.
  */
 
 import { render, act } from '@testing-library/react';

@@ -33,7 +33,7 @@ beforeEach( () => {
 } );
 
 describe( 'useVaults', () => {
-	// The `fetched` latch was set BEFORE the request, so one failure blocked
+	// A `fetched` latch set BEFORE the request would let one failure block
 	// the vault list for the life of the page.
 	it( 're-establishes the vault list after an auth invalidation', async () => {
 		replyFor.mockImplementationOnce( () => new Error( 'refused-9931' ) );

@@ -1,7 +1,7 @@
 /**
- * AggregatorStatus UI-surface tests — the thin view over the DE-GOD aggregator
- * node graph. The single god `aggregator:view` is gone; the dashboard now reads
- * two independent per-concern slices, each from its own view node:
+ * AggregatorStatus UI-surface tests — the thin view over the aggregator node
+ * graph. The dashboard reads two independent per-concern slices, each from its
+ * own view node:
  *
  *   summary:view → <AggregatorSummary> (header: counts + snapshot clock)
  *   servers:view → <AggregatorServers> (server cards + partition grids)
@@ -131,7 +131,7 @@ const DEAD = [
 
 // A spoke still connected and answering round trips when a frame broke
 // mid-stream: SSE_In sets last_error without dropping `connected`, the one
-// state where the badge the error displaces was reading success.
+// state where the badge the error displaces would read success.
 const MIDSTREAM_ERROR = 'Buffer overflow (no newline in 65536 bytes)';
 const CONNECTED_AND_BROKEN = [
 	{
@@ -172,7 +172,7 @@ function fixtureNode( name, model ) {
 	return node;
 }
 
-// Register the two per-concern slice fixtures the de-god dashboard reads.
+// Register the two per-concern slice fixtures the dashboard reads.
 function registerSlices( { summary = {}, servers = {} } = {} ) {
 	fixtureNode( 'summary:view', {
 		connected: 0,

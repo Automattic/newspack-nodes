@@ -202,7 +202,7 @@ class TopologyRegistryRegisterPluginTest extends TestCase {
 
 	/**
 	 * The REAL runner, not the seam: every other test overrides `$spawn_runner`,
-	 * so the descriptor -> Worker_Base mapping it performs was never executed.
+	 * so the descriptor -> Worker_Base mapping it performs runs only here.
 	 * A lock dir with a fresh heartbeat makes `acquire()` refuse, so `execute()`
 	 * returns `skipped` immediately — the mapping runs, no worker is drained.
 	 */

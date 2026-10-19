@@ -1,9 +1,9 @@
 /**
  * useRouterTick tests — the shared "call me on the router heartbeat" primitive.
  *
- * The bug it exists for: every dashboard poller owned a private setInterval, so
- * a page ran N competing heartbeats none of which the graph could see, pause, or
- * batch. The Router already owns exactly ONE 1s slot and dispatches to every
+ * A private setInterval per poller would run N competing heartbeats none of
+ * which the graph could see, pause, or batch. The Router owns exactly ONE 1s
+ * slot and dispatches to every
  * TIMER-registered node; a poller that rides it costs no additional timer and
  * stops when the graph stops.
  */
@@ -108,9 +108,9 @@ describe( 'useRouterTick', () => {
 		expect( onTick.mock.calls.length ).toBe( afterTwo + 1 );
 	} );
 
-	// A throwing callback used to abort RouterNode.notifyTimer mid-iteration and
-	// escape into setInterval — starving every timer registered after it, on
-	// every subsequent tick. Private slots could not do that to each other.
+	// A throwing callback must not abort RouterNode.notifyTimer mid-iteration
+	// and escape into setInterval, which would starve every timer registered
+	// after it, on every subsequent tick.
 	it( 'a throwing callback cannot starve other timers', () => {
 		const survivor = jest.fn();
 
@@ -155,9 +155,9 @@ describe( 'useRouterTick', () => {
 	} );
 
 	/**
-	 * A poller is a PASSENGER. Mounting its own exospine made it the backbone
-	 * OWNER whenever its hook was declared before the graph's — which on the
-	 * console flipped Reset-Graph onto a catalog poller.
+	 * A poller is a PASSENGER. Mounting its own exospine would make it the
+	 * backbone OWNER whenever its hook was declared before the graph's — which
+	 * on the console would hand Reset-Graph to a catalog poller.
 	 */
 	it( 'never becomes the backbone owner', () => {
 		renderHook( () =>
@@ -193,9 +193,9 @@ describe( 'useRouterTick', () => {
 	// @longform
 	// The console mounts BARE — `mountExospine()` with no build callback — and
 	// only a build-delegated mount bumps graphGeneration. Keying the passenger's
-	// re-attach on that bump left `useTopologyCatalog` (declared before
-	// `useConsoleGraph`) permanently unarmed on the one page this was written
-	// for: its mount fetch ran, then it never polled again.
+	// re-attach on that bump would leave `useTopologyCatalog` (declared before
+	// `useConsoleGraph`) permanently unarmed there: its mount fetch would run,
+	// then it would never poll again.
 	it( 'arms when a BARE mount brings the backbone up', () => {
 		const onTick = jest.fn();
 
@@ -212,10 +212,9 @@ describe( 'useRouterTick', () => {
 	} );
 
 	// @longform
-	// TimerNode.setTimer already handles sub-second: below 1000 it gives the node
-	// its OWN slot at exactly that interval. The first cut passed no argument in
-	// that branch, discarding the caller's interval and running everything at the
-	// Router's 1s — which then got written up as a limitation of the mechanism.
+	// TimerNode.setTimer handles sub-second: below 1000 it gives the node its
+	// OWN slot at exactly that interval, so the hook passes the caller's
+	// interval through rather than running everything at the Router's 1s.
 	it( 'honours a sub-second interval instead of rounding it to the router tick', () => {
 		const onTick = jest.fn();
 

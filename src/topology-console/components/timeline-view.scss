@@ -2,7 +2,7 @@
 // A fixed header sits outside the one scrollable body (the row body owns the
 // only scrollbar), so the header/body columns stay aligned via a shared grid
 // template without sticky positioning. Console light-surface tokens (the modal
-// body is --paper-2, not the dark REPL pane it used to live in).
+// body is --paper-2, not the dark REPL pane).
 
 .timeline-view {
 	font: 400 11px/1.5 var(--font-terminal);

@@ -137,8 +137,8 @@ describe( 'SliceViewNode', () => {
 	} );
 } );
 
-// Nine views were a class file each, all the same two methods: an empty-model
-// literal and a guard-then-map parse. That is a declaration, not a class.
+// A view whose whole content is an empty-model literal and a guard-then-map
+// parse is a declaration, not a class.
 describe( 'sliceView', () => {
 	const VaultCatalogView = sliceView( {
 		empty: { vaults: null, loading: true, error: null },
@@ -286,7 +286,7 @@ describe( 'SliceViewNode control seam', () => {
 	} );
 
 	test( 'a parsed slice is loaded and clean unless it says otherwise', () => {
-		// Every declaration used to spell `loading: false, error: null` itself.
+		// No declaration has to spell `loading: false, error: null` itself.
 		const v = controlled();
 		v.fill( control( 'counts:driver', { action: 'loading' } ) );
 		v.fill( reply( { sources: { releases: 4219 } } ) );

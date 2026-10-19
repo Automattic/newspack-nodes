@@ -478,10 +478,11 @@ class LruCacheTest extends TestCase {
 
 	/**
 	 * The grid fixes the PHASE, but a boundary crossed while no worker was
-	 * alive still has to be repaid. `next_window` was left out of get_state(),
-	 * so each generation re-derived it from its own start and skipped every
+	 * alive still has to be repaid, so get_state() carries `next_window`.
+	 * Re-derived from each generation's own start instead, it would skip every
 	 * window the gap covered — with 30s generations against a 200s window that
-	 * is most of them, and the catch-up loop never fired in the restart path.
+	 * is most of them, and the catch-up loop would never fire in the restart
+	 * path.
 	 */
 	public function test_windows_missed_while_no_process_was_alive_are_repaid(): void {
 		$evicted  = [];

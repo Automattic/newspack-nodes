@@ -16,7 +16,7 @@ var on_demand_idle = 30
 include topic-probe
 
 # A throwing job handler propagates back to the Consumer, which quarantines the
-# job to its :deadletter sibling (dead-letter [42]) instead of silently dropping it.
+# job to its :deadletter sibling instead of silently dropping it.
 make_node Consumer jobs:consumer <config:logs_dir>/jobs.p{partition} <config:offsets_dir>/<topology>.jobs.p{partition} <config:deadletter_dir>/<topology>.jobs.p{partition}
 make_node Job_Worker job-worker
 

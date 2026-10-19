@@ -506,7 +506,7 @@ describe( 'DebugOverlay', () => {
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
 		const panel = body.querySelector( '.nodes-debug__panel' );
 		const beforeWidth = panel.style.width;
-		// The skin <select> is gone; the skip path also covers header buttons.
+		// The skip path covers header buttons.
 		const headerBtn = body.querySelector( '.topology-mode__btn' );
 		fireEvent.doubleClick( headerBtn );
 		// Skip branch — maximize MUST NOT fire on header-control targets.
@@ -708,7 +708,7 @@ describe( 'DebugOverlay', () => {
 	} );
 
 	it( 'fresh open with empty localStorage lays the COMPLETE graph out once (isolated nodes on the right)', async () => {
-		// s->t + iso isolated; iso must land right, not left (was the bug).
+		// s->t + iso isolated; iso must land right, not left.
 		window.localStorage.clear();
 		mountExospine();
 		const s = new Node();

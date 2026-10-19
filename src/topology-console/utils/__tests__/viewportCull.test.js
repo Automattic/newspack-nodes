@@ -60,7 +60,7 @@ describe( 'isEdgeVisible', () => {
 	} );
 
 	it( 'renders an edge whose target is on-screen (source off)', () => {
-		// Bug: an edge to an in-view node was culled when its source left.
+		// An edge to an in-view node stays when its source leaves the view.
 		expect( isEdgeVisible( 'c', 'a', vis ) ).toBe( true );
 	} );
 

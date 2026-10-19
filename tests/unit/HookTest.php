@@ -36,7 +36,7 @@ class HookTest extends TestCase {
 
 	public function test_action_mode_fires_do_action(): void {
 		$received = null;
-		// do_action now receives the message VALUE (payload), not the whole envelope.
+		// do_action receives the message VALUE (payload), not the whole envelope.
 		\add_action( 'newspack_nodes/test_action', function ( $value ) use ( &$received ) {
 			$received = $value;
 		} );
@@ -95,7 +95,7 @@ class HookTest extends TestCase {
 	}
 
 	public function test_filter_mode_replaces_value(): void {
-		// apply_filters now receives the message VALUE and its return becomes the
+		// apply_filters receives the message VALUE and its return becomes the
 		// new VALUE; a scalar (non-list) return marks the message TM_BYTESTREAM.
 		\add_filter( 'newspack_nodes/test_filter', static fn( $value ) => 'transformed' );
 

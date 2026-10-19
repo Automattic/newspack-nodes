@@ -19,7 +19,7 @@ const mockCaptured = { consoleShell: null, modal: null };
 jest.mock( '../../topology-console/components/ConsoleShell', () => ( {
 	__esModule: true,
 	default: function ConsoleShellDouble( props ) {
-		// The catalogs reach the canvas through context now, not canvasProps.
+		// The catalogs reach the canvas through context, not canvasProps.
 		const {
 			useCatalog,
 		} = require( '../../topology-console/CatalogContext' );

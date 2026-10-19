@@ -285,8 +285,8 @@ const isScanned = ( file ) => langOf( file ) && ! isTestPath( file );
 /**
  * The roots the no-argument scan walks: the plugin's own JS, and any bundled
  * example's. An example is the code a reader copies, so a violation there
- * teaches itself onward; scanning only `src/` let one sit in the AI-newsletter
- * example while `npm run lint:js` reported clean. `walk()` returns nothing for
+ * teaches itself onward, and scanning only `src/` would let one sit there
+ * while `npm run lint:js` reports clean. `walk()` returns nothing for
  * a root that does not exist, so a plugin with no examples scans the same.
  */
 const SCAN_ROOTS = [ 'src', 'examples', 'includes' ];

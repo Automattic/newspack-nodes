@@ -92,7 +92,7 @@ class TopologiesActivateTest extends TestCase {
 		$this->assertTrue( $result['active'] );
 		$this->assertSame( 2, $result['spawned'] );
 
-		// The active-set option now contains the name.
+		// The active-set option contains the name.
 		$this->assertContains( 'alpha', (array) \get_option( 'newspack_nodes_topologies', [] ) );
 
 		// spawn_fleet POSTed one spawn per partition.
@@ -221,7 +221,7 @@ class TopologiesActivateTest extends TestCase {
 		// Active topology A and a topology B that WRITES the same partition log —
 		// activating B would put two fleets on one log and corrupt it. The verb
 		// must reject (TM_ERROR) BEFORE writing the option or spawning, so the
-		// regression that let the manager toggle create the conflict stays closed.
+		// manager toggle cannot create the conflict.
 		$partition = 'make_node Partition requests:partition <config:logs_dir>/requests.p{partition} <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>';
 		\file_put_contents( "{$this->stock}/alpha.tsl", "var num_partitions = 2\n{$partition}\n" );
 		\file_put_contents( "{$this->stock}/beta.tsl", "var num_partitions = 2\nmake_node Partition requests:partition <config:logs_dir>/requests.p{partition} 1048576 2 4 0 0\n" );
@@ -299,7 +299,7 @@ class TopologiesActivateTest extends TestCase {
 		$this->assertSame( 'alpha', $result['name'] );
 		$this->assertFalse( $result['active'] );
 
-		// Option no longer contains the name.
+		// The option does not contain the name.
 		$this->assertNotContains( 'alpha', (array) \get_option( 'newspack_nodes_topologies', [] ) );
 
 		// kill_readers dropped a restart flag on each live lock dir.

@@ -2,10 +2,10 @@
 /**
  * OnDemandWakeTest: enqueue implies spawn.
  *
- * Once `worker_needs_spawn()` stops resurrecting an absent on-demand worker,
+ * `worker_needs_spawn()` does not resurrect an absent on-demand worker, so
  * something else has to bring it back, and cron at minute cadence is the
  * fallback tier rather than the mechanism — a job that waits up to 60s for a
- * tick is worse than the resident worker it replaced. The producer already
+ * tick is worse than a resident worker. The producer already
  * reaches `Spawn_Coordinator` for the throttle, so it wakes the fleet itself.
  *
  * Fire-and-forget throughout: the blocking enqueue form can wait on a partition

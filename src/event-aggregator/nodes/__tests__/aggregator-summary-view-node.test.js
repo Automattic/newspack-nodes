@@ -1,5 +1,5 @@
 /**
- * aggregator summary:view tests — the de-god HEADER slice. Owns ONLY the
+ * aggregator summary:view tests — the HEADER slice. Owns ONLY the
  * connected/total counts + snapshot clock the dashboard header renders. Fed by
  * its own `summary` slice verb (FROM=summary:view), it maps the struct
  * payload `{ connected, total, server_now }` into its slice and publishes via

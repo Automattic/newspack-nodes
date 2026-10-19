@@ -11,9 +11,7 @@ use Newspack_Nodes\Tests\TestCase;
 /**
  * Disk-discovery primitive — readdir the first-level dirs under `{base}/logs`
  * and return the concrete dir basename list verbatim (flat partition-in-name
- * layout: `firehose.p0`).
- * Replaces the application's hardcoded log catalogs + `num_logs` filter callback
- * (which used to return `$count + 6`).
+ * layout: `firehose.p0`), so no application hardcodes a log catalog.
  */
 #[CoversClass( Log_Discovery::class )]
 class LogDiscoveryTest extends TestCase {

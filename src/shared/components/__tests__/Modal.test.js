@@ -1,6 +1,6 @@
 /**
- * The shared plain-DOM modal shell. Dashboards had been declaring their own
- * backdrop + dialog box with per-dashboard selectors; this is the one control.
+ * The shared plain-DOM modal shell: the one backdrop + dialog box control,
+ * in place of per-dashboard selectors.
  */
 
 import { render, screen, fireEvent } from '@testing-library/react';
@@ -62,9 +62,9 @@ test( 'the listener is removed on unmount', () => {
 	expect( onClose ).not.toHaveBeenCalled();
 } );
 
-// ModalShell in the topology console had grown its own copy of this: the same
-// three skin classes, the same `display: contents`, the same document guard and
-// the same body target. Two spellings of one contract drift; this is the one.
+// The topology console's ModalShell renders through this too, rather than its
+// own copy of the three skin classes, the `display: contents`, the document
+// guard and the body target. Two spellings of one contract drift; this is one.
 test( 'ModalPortal is the shared host both dialogs render through', () => {
 	const { container } = render(
 		<div style={ { position: 'fixed', zIndex: 99 } }>

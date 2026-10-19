@@ -533,11 +533,6 @@ class CoreTest extends TestCase {
 		$this->assertSame( [ 'a', 'b' ], CoreTest_RecordingNode::$log );
 	}
 
-	// Retired: the registry is now Node-typed (Core::register_node(string, Node)),
-	// so every registered value is a Node and always has remove_node(). The
-	// duck-typed-skip path that test_cleanup_all_nodes_skips_objects_without_remove_node
-	// exercised (a non-Node object in the registry) is unreachable.
-
 	public function test_cleanup_all_nodes_tears_every_node_down_then_raises_each_failure(): void {
 		// Every node is attempted; both failures escape together after the last.
 		CoreTest_RecordingNode::$log = [];
@@ -652,8 +647,8 @@ class CoreTest extends TestCase {
 	}
 
 	public function test_log_prefix_no_args_returns_dated_prefix(): void {
-		// log_prefix is the timestamp only now — the "<host> <$0>[<pid>]: " process identity
-		// split out into log_midfix. With no args it returns just the prefix (no newline).
+		// log_prefix is the timestamp only — the "<host> <$0>[<pid>]: " process identity
+		// is log_midfix. With no args it returns just the prefix (no newline).
 		$prefix = Core::log_prefix();
 		$this->assertMatchesRegularExpression( '/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC $/', $prefix );
 	}
@@ -696,10 +691,10 @@ class CoreTest extends TestCase {
 	}
 
 	public function test_stderr_midfixes_text_before_the_handler(): void {
-		// Core::stderr now applies the process-identity midfix (host argv0[pid]:)
+		// Core::stderr applies the process-identity midfix (host argv0[pid]:)
 		// ONCE, centrally, before handing to the stderr handler — the handler adds
-		// only the timestamp prefix (log_prefix). Previously the midfix lived in
-		// the handler, which diverged the dmesg ring (recent_log) from live output.
+		// only the timestamp prefix (log_prefix), so the dmesg ring (recent_log)
+		// matches live output.
 		// The full composition is covered by test_log_prefix_and_midfix_compose_the_full_line.
 		$buf = '';
 		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
@@ -708,8 +703,8 @@ class CoreTest extends TestCase {
 	}
 
 	public function test_stderr_midfixes_even_already_dated_text(): void {
-		// The old Tachikoma date-guard (write already-YYYY-MM-DD text verbatim) is
-		// gone: the midfix is applied once in Core::stderr for EVERY line, so text
+		// Unlike Tachikoma, there is no date-guard writing already-dated text
+		// verbatim: the midfix is applied once in Core::stderr for EVERY line, so text
 		// that happens to start with a date is midfixed like anything else — the
 		// host/pid midfix leads, the embedded date trails in the body.
 		$buf = '';
@@ -841,11 +836,11 @@ class CoreTest extends TestCase {
 
 	/**
 	 * The budget has to cover the TLS handshake, or the request is never sent.
-	 * At 10ms total the spawn POST died mid-handshake on every site with a real
-	 * certificate: TCP connected in under a millisecond but appconnect landed at
-	 * ~17ms, so curl aborted before writing a byte. Nothing reached the access
-	 * log, and CURLE_OPERATION_TIMEDOUT is counted as success, so nothing reached
-	 * the error log either — the fleet simply never started, in silence.
+	 * TCP connects in under a millisecond, but appconnect lands at ~17ms on a
+	 * site with a real certificate, so a 10ms budget aborts before curl writes a
+	 * byte. Nothing would reach the access log, and CURLE_OPERATION_TIMEDOUT is
+	 * counted as success, so nothing would reach the error log either — the
+	 * fleet would never start, in silence.
 	 */
 	public function test_the_spawn_post_budget_survives_a_tls_handshake(): void {
 		$opts = ( new \ReflectionMethod( Core::class, 'post_curl_options' ) )
@@ -891,7 +886,7 @@ class CoreTest extends TestCase {
 	/**
 	 * Core and Node both prefix every LINE of a multi-line message, then chomp
 	 * and re-append one newline. The midfixes differ on purpose — Core names the
-	 * process, Node names the node — but that application rule was written twice.
+	 * process, Node names the node — but both apply it through apply_midfix().
 	 */
 	public function test_apply_midfix_prefixes_every_line_and_ends_with_one_newline(): void {
 		$this->assertSame(

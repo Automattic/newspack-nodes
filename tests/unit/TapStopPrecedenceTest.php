@@ -109,8 +109,8 @@ class TapStopPrecedenceTest extends TestCase {
 	}
 
 	/**
-	 * The change. A Clean stop from a tap used to abort before the passthrough,
-	 * so the consumer committed PAST a message the pipeline never saw.
+	 * A Clean stop from a tap does not abort before the passthrough, or the
+	 * consumer would commit PAST a message the pipeline never saw.
 	 */
 	public function test_a_clean_stop_from_a_tap_still_lets_the_message_through(): void {
 		$this->thrower( 'snapshot', new Worker_Should_Stop_Clean( 'clean recycle' ) );

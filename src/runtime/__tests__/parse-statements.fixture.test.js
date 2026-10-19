@@ -1,8 +1,8 @@
 /**
  * Cross-language golden pin (JS side). The statement-list fixtures under
- * tests/fixtures/statements/*.json were generated ONCE from PHP
- * Shell_Node::parse_statements(); the PHP StatementFrontEndParityTest asserts
- * PHP still reproduces them, and this asserts JS parseStatements() reproduces
+ * tests/fixtures/statements/*.json are PHP Shell_Node::parse_statements()
+ * output, committed; the PHP StatementFrontEndParityTest asserts PHP
+ * reproduces them, and this asserts JS parseStatements() reproduces
  * the identical JSON from the identical .tsl input. Drift in either tokenizer
  * or front-end that isn't mirrored fails one side immediately.
  *
@@ -45,7 +45,7 @@ const TSL_SOURCES = Object.fromEntries(
 const GOLDEN_NAMES = namesIn( 'tests/fixtures/statements', '.json' ).sort();
 
 // The pin is on what both front ends PARSE. A line NUMBER is diagnostic only,
-// and pinning it made every comment edit in a shipped .tsl a fixture
+// and pinning it would make every comment edit in a shipped .tsl a fixture
 // regeneration — churn between an author and a comment, not a guarantee.
 const withoutLines = ( statements ) =>
 	statements.map( ( { line, ...rest } ) => rest );

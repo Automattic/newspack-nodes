@@ -73,8 +73,8 @@ describe( 'Station', () => {
 		expect( provider.className ).toBe(
 			'newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui'
 		);
-		// The surface class IS the station's paint, since the inline background
-		// went; dropping it would leave it transparent over WP-admin white.
+		// The surface class IS the station's paint, with no inline background;
+		// dropping it would leave it transparent over WP-admin white.
 		expect( station.classList ).toContain( 'newspack-nodes-page-surface' );
 		expect( station.classList ).not.toContain( 'newspack-nodes-theme' );
 		expect( station.classList ).not.toContain( 'newspack-nodes-ui' );

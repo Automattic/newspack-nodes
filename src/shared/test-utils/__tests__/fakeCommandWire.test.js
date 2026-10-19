@@ -68,8 +68,8 @@ test( 'a batch carries the whole message, not just the verb name', async () => {
 	expect( wire.batches[ 0 ][ 0 ][ FROM ] ).toBe( 'rules:in' );
 } );
 
-// ADR-15: the MINTER signs. A new minter that forgets shipped once already,
-// and the wire double is the one place that catches the next one for free.
+// ADR-15: the MINTER signs, and the wire double is the one place that catches
+// a new minter that forgets, for free.
 test( 'refuses an unsigned request command the way the interpreter does', async () => {
 	const wire = makeFakeCommandWire( () => 'ok' );
 	const res = await wire( '/command', {

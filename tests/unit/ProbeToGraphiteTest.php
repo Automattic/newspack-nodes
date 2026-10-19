@@ -98,8 +98,8 @@ class ProbeToGraphiteTest extends TestCase {
 	/**
 	 * A positive sub-millisecond cadence must never truncate to an own 0 ms
 	 * slot, whose next_fire never exceeds now: the drain then stops sleeping
-	 * and fires the node on every iteration. Assert the MODE too — a fix that
-	 * floored the number but stayed on its own slot would still spin.
+	 * and fires the node on every iteration. Assert the MODE too — a floored
+	 * number that stayed on its own slot would still spin.
 	 */
 	public function test_arguments_floors_subsecond_interval_onto_the_router_hitchhike(): void {
 		$this->node->arguments( [ 'eve', '0.0005' ] );

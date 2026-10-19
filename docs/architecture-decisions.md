@@ -1,7 +1,7 @@
 # Architecture Decision Records
 
-The load-bearing design decisions of the substrate. "Fixing" one usually reintroduces a bug
-already paid for. Each record states the constraint that forced the choice, what was weighed
+The load-bearing design decisions of the substrate. "Fixing" one usually reintroduces the
+failure it prevents. Each record states the constraint that forces the choice, what is weighed
 against it, what it costs, and a concrete condition that would reopen it. A **Revisit if** is
 a sufficient tripwire, not the only door — any argument on the merits also reopens a decision.
 
@@ -55,7 +55,7 @@ supersede.
 
 **Context:** A node graph is only composable if any node can hand a message to any other node
 without knowing its type. Per-node methods (`write()` vs `process()`) make callers
-special-case, and a node can no longer be swapped without touching them.
+special-case, and a node cannot be swapped without touching them.
 
 **Decision:** Every node has exactly one entry point: `fill( array $message )`, by value. No
 parallel `write()` / `read()` / `process()` API, no convenience wrappers.
@@ -94,7 +94,8 @@ which a step's reply shares. Its `Durable_Reader` buffer holds raw lines, its de
 sizes are the line's bytes, and its cursor comes from the line's place in the block, so it keeps
 both forms, and no line is decoded twice.
 
-The cost was measured on a hub's real path. A broker's reader drained into the hub's
+Handing each line to the reader through `fill()`, packed or decoded, would fold a second encode
+or decode into every line. That fold's cost was measured on a hub's real path. A broker's reader drained into the hub's
 downstream: `Remote_Job_Rewrite_Node::fill()`, then a four-partition `Topic`, then its
 `Partition`s writing to disk. 20,000 TM_STRUCT records of 1,599 bytes each passed through
 it, and each figure is the median of three runs. The runs used PHP 8.4.26 in
@@ -104,12 +105,8 @@ cost 20.48 µs, 3.70 µs more and 22.1% of the path. A decoded `fill()` cost 21.
 5.21 µs more and 31.0%. Into a `Null_Node` instead of the hub, the line cost 6.32 µs, and the
 fold added 3.57 µs (56%) or 4.78 µs (76%). The fold's own cost, about 3.6 to 5.2 µs a line, is
 the same in both. It costs more than a fifth of the real per-line path, and the budget
-for folding was 5%.
-
-This amendment once licensed `receive()` as a second public entry point, because the broker
-decoded each record to route it by FROM and a hand-off through `fill()` cost a second encode or
-decode. A raw block met its reopen condition: it reaches the reader through `fill()` already in
-the one form the split needs.
+for folding is 5%. A raw block reaches the reader through `fill()` already in the one form the
+split needs, so the split adds no second entry point.
 
 **Revisit if:** the reader's buffer stops holding raw lines, or a broker routes anything finer
 than a block.
@@ -190,11 +187,11 @@ defect. Slot-based flow control belongs at the producer that needs it, never gra
 
 **Revisit if:** a producer needs genuinely decoupled queueing, **or** the drain stops being
 single-threaded, **or** offset advance is decoupled from delivery (async handlers, in-flight
-windows) — each breaks the "delivered = safe to advance" coincidence the removal rests on.
+windows) — each breaks the "delivered = safe to advance" coincidence the decision rests on.
 
 **Amendment:** a node that owns non-blocking I/O may hold an in-flight window, because its
-`fill()` returns before the transfer it starts completes, so delivery and completion are no
-longer one call stack. The node chooses how the window is bounded, and says so.
+`fill()` returns before the transfer it starts completes, so delivery and completion are not
+one call stack. The node chooses how the window is bounded, and says so.
 [`Curl_Node`](../includes/class-curl-node.php) caps it by count, which is flow control at the
 producer: it holds at most `MAX_IN_FLIGHT` fetches and answers the next with a `busy:`
 TM_ERROR, queueing nothing. [`HTTP_Out_Node`](../includes/class-http-out-node.php) caps it
@@ -607,8 +604,7 @@ hand-written pair.
 ## ADR-12: Dead-letter poison / crash lifecycle
 
 **Status:** Accepted. Shared by `Consumer_Node` and `Remote_Consumer_Node`, a broker's reader for one stream, via the
-[`Dead_Letter_Queue`](../includes/trait-dead-letter-queue.php) and [`Durable_Reader`](../includes/trait-durable-reader.php) traits. Roadmap item [42] (the "(dead-letter [42])"
-[CHANGELOG](../CHANGELOG.md) tags).
+[`Dead_Letter_Queue`](../includes/trait-dead-letter-queue.php) and [`Durable_Reader`](../includes/trait-durable-reader.php) traits.
 
 **Context:** A durable reader (Consumer tailing a Partition; Remote_Consumer reading one stream
 of a remote SSE connection) can hit a *poison* message that always fails downstream. Two failure shapes: a
@@ -819,8 +815,8 @@ its exit flush runs.
 `Worker_Should_Stop_Clean`, so one explicit-first catch on the parent already covers both. A
 third, unrelated one can share that pattern, or introduce the base then. Ranking what an
 attempt-all loop caught and raising the one throwable an `outranks()` comparison judged safest
-— rejected: every failure but the winner was dropped, so a fan-out reported one target's
-failure however many had failed, and which one depended on the ranking rather than on what
+— rejected: it drops every failure but the winner, so a fan-out reports one target's
+failure however many failed, and which one depends on the ranking rather than on what
 broke. `combine()` raises all of them instead.
 
 **Consequences:** Cooperative stop is guaranteed on every drain path, not just the direct
@@ -1000,8 +996,8 @@ authorized between two sites that share no secret, **or** session state needs to
 cache tier it lives in.
 
 **Amendment:** a browser's stream presents its command session, `session=<handle>`, and that
-handle is the head its attached replies carry ([ADR-7](#adr-7-sink-vs-target-and-tofrom-replies)). Verification is unchanged: the
-head rides in FROM, which is never signed. On the stream side
+handle is the head its attached replies carry ([ADR-7](#adr-7-sink-vs-target-and-tofrom-replies)). Verification never reads it:
+the head rides in FROM, which is never signed. On the stream side
 [`SSE_Out_Node`](../includes/rest/class-sse-out-node.php) resolves the presented handle through
 `load_session_record()` and answers `401 sse_session_refused` unless the record is live and
 was minted by the user the request authenticated as. The slot lease is keyed by
@@ -1148,9 +1144,7 @@ of a period and the grid would need its own scale.
 back to the record, store the answer back — has two consumers in `newspack-event-logger-nodes`:
 [`Rule_Set::hooks_for()`](https://github.com/Automattic/newspack-event-logger-nodes/blob/v0.96.0/includes/class-rule-set.php) over a non-autoloaded option, and the `performance` CI's `urls`
 page cache over the page it builds. An idea two consumers in one plugin both need belongs lower
-down. The Partition half below was written for a third, event-logger-nodes' stats mirror, which
-needed key translation, TTL decay and a scope guard; the mirror's successor reads durable
-Tables ([ADR-24](#adr-24-a-tables-backend-is-chosen-per-table)), and the live consumer of `locate_by()` and `read_many()` is
+down. The Partition half below serves `locate_by()` and `read_many()` to
 event-logger-nodes' flame lookup, which resolves the listed rids of a URL or one request to
 their stored flames. A restored entry needs the life it has
 LEFT, and `Table_Node` fixes TTL at construction, so without a per-entry lifetime a consumer
@@ -1218,8 +1212,8 @@ fixed-width layout would land in the substrate, and the formatter is the caller'
 (`with_index`). Letting the backing write through `store()` — rejected: `store()` applies the
 table's TTL, which is exactly what a restore must not do. Remembering an absence in the table,
 as a marker in the key's cache slot — rejected: the slot is shared with the values writers
-store there, so keeping one reader's marker from hiding a writer's value took four rules and a
-non-atomic `replace_absent()` with two races of its own, and no caller needs it. A backing whose
+store there, so keeping one reader's marker from hiding a writer's value takes four rules and a
+non-atomic replace with two races of its own, and no caller needs it. A backing whose
 misses cost a walk bounds that cost itself, where it knows which keys can still gain a record.
 
 **Consequences:** A table with a backing cannot report a miss the caller can
@@ -1229,7 +1223,7 @@ every read, because nothing records that it was absent.
 
 **Revisit if:** a backing whose cost makes synchronous read-through wrong — at which point the
 fill belongs on a queue rather than in `lookup()` — or a caller whose repeated absent keys cost
-more than its backing can bound. Remembering them in the table again needs a marker no writer's
+more than its backing can bound. Remembering them in the table needs a marker no writer's
 value can collide with and no other table sharing the key can read as a value or a miss.
 
 ---
@@ -1294,14 +1288,13 @@ destinations through `extra_targets()`. The one class that answers is a broker, 
 
 **Context:** When the valid key set derives from the config FILE —
 `array_keys( load_config_defaults() )` — the file is at once the override surface and the
-declaration, and that coupling fails two ways, both of which have shipped. Forward: a deploy
-preserves the operator's file, so a key added after it was copied never appears there, and a
-default living only in the file reads null forever; `sse_idle_timeout` sat inert that way,
-silently, for weeks. Backward: an operator's typo declares itself; `base_directroy` becomes a
+declaration, and that coupling fails two ways. Forward: a deploy preserves the operator's
+file, so a key added after it was copied never appears there, and a default living only in the
+file reads null forever. Backward: an operator's typo declares itself; `base_directroy` becomes a
 valid key, the real `base_directory` falls back, and the runtime writes its whole tree
 somewhere else with nothing in the log. With the file as the declaration, an environment
 without one declares nothing at all, and the first `Config::value()` throws
-`unknown config key` on every request, wp-admin included, as Nuclear Gyrobase's did.
+`unknown config key` on every request, wp-admin included.
 
 **Decision:** The schema declares every key AND its default, in code, and
 [`Config::declare_keys()`](../includes/class-config.php) derives the valid key set from
@@ -1358,9 +1351,9 @@ declaration, not a value in a file.
 **Status:** Accepted
 
 **Context:** A hub pulls every spoke's firehose through one `Remote_Source` and pushes
-settings to every spoke through one `HTTP_Out`, and each was a hand-repeated TSL leg per spoke.
-The spoke list therefore lived twice — in the [Vault](../includes/class-vault.php), which holds
-each spoke's URL and credentials, and in the TSL — and adding a spoke meant editing the Vault,
+settings to every spoke through one `HTTP_Out`. Written as a hand-repeated TSL leg per spoke,
+the spoke list lives twice — in the [Vault](../includes/class-vault.php), which holds each
+spoke's URL and credentials, and in the TSL — and adding a spoke means editing the Vault,
 regenerating the TSL, redeploying and restarting. Static analysis reads only TSL text: the
 write set, `find_conflicts()`, `Log_Cleaner`'s GC and the console graph all take their nodes
 from the flattened statements, so a node that builds children at runtime is invisible to every
@@ -1404,7 +1397,7 @@ child.
 
 **Alternatives considered:** Generating the TSL from the Vault — rejected: the list still lives
 twice, and a spoke added to the Vault stays unwired until someone regenerates, redeploys and
-restarts; the generator had also drifted, emitting `include` names no topology defines.
+restarts.
 Hand-written legs per spoke — rejected: that is the problem. Patroned children — rejected: a
 patroned node leaves the canvas for its owner's "…", so per-spoke state and edges would move
 off the canvas exactly where an operator diagnosing one spoke looks.
@@ -1412,7 +1405,7 @@ Runtime-only expansion, leaving the flatten alone — rejected: the write set wo
 every member's offsetlog and deadletter, and `wp nodes gc` would sweep live cursors once
 `Log_Cleaner::DELETE_GRACE_S` passed.
 
-**Consequences:** Analyzer output is no longer a pure function of the TSL text: it depends on
+**Consequences:** Analyzer output is not a pure function of the TSL text: it depends on
 the Vault too, so the `newspack_nodes/vault/changed` handler resets the analyzer's
 per-process caches before planning. A spoke dropped from its group has its cursor swept once
 `DELETE_GRACE_S` passes, like any directory no active topology declares. Group semantics are
@@ -1436,13 +1429,11 @@ cache reset no longer reaches every reader.
 **Status:** Accepted
 
 **Context:** A worker's id, `{type}.p{N}`, names its lock dir, its IPC tree, its liveness
-keys, its REPL partition and its stop label. Each site that needed an id spelled it, and each
-site that read one back carried a grammar of its own. They disagreed.
-`connect_worker_input` and the SSE pool pick accepted only `[a-z0-9_-]+` types, so a dotted
-or uppercase topology was refused or pooled under partition -1. `wp nodes cli`,
-`wp nodes status` and the lock reconcile cast the partition through `(int)`, so `kea.p03`
-read as `kea.p3` and an attach landed on an IPC tree no worker reads. Two grammars that
-disagree let one pass retire a directory another pass never sees.
+keys, its REPL partition and its stop label. A site that spells an id itself, or reads one back
+through a grammar of its own, drifts from the rest: a reader accepting only `[a-z0-9_-]+`
+types refuses a dotted or uppercase topology or pools it under partition -1, and one casting
+the partition through `(int)` reads `kea.p03` as `kea.p3` and attaches to an IPC tree no worker
+reads. Two grammars that disagree let one pass retire a directory another pass never sees.
 
 **Decision:** [`CLI::worker_id()`](../includes/class-cli.php) is the only writer of the id
 and `CLI::parse_worker_id()` the only reader. The reader accepts exactly the strings the
@@ -1484,7 +1475,7 @@ which costs three layout changes and their parity pins for what FROM already car
 
 **Alternatives considered:** One regex constant shared by every site — rejected: it shares a
 pattern, not the decision, and each site still wraps it in its own trim, cast and fallback,
-which is where `kea.p03` became `kea.p3`. A lenient reader that normalizes a padded partition
+which is where `kea.p03` becomes `kea.p3`. A lenient reader that normalizes a padded partition
 — rejected: the normalized id names a lock dir the writer never made, so the attach succeeds
 against an IPC tree nothing reads.
 
@@ -1557,7 +1548,7 @@ every sender reads that declaration: the console's verb dialog sends `TM_REQUEST
 for such an entry alone, and never infers one from the types of its args. `topologies mount_tables` mounts Tables into a request graph and
 declares MANAGE, as `connect_worker_input` does. A Table a verb below MANAGE mounts to read
 stays mounted for the rest of that POST: a later verb or request in it reads through the same
-mount, and `Bootstrap::mount_table()` keeps a mount already there and builds nothing. A verb may mount a Table only when every row it holds is data the verb's declared role may already read, because for the rest of the POST any caller holding that role can `GET` any key through the mount; a Table holding more is mounted under MANAGE alone.
+mount, and `Bootstrap::mount_table()` keeps a mount already there and builds nothing.
 
 **Alternatives considered:** Signing requests as commands are signed — rejected: the mount
 already demands MANAGE of every outside caller before a request can reach a worker, so a
@@ -1584,10 +1575,10 @@ request (the POST) that made it.
 
 **Status:** Accepted
 
-**Context:** Tables sat on the shared cache tier, and memcache evicts. event-logger-nodes grew
-a durable mirror, a sweep, held frames and restore lifetimes to repair the loss, and each
-review round found holes in the last repair. Storage reached through helper instances built
-inside classes was also invisible to `ls`, `dump_node` and the console.
+**Context:** A Table on the shared cache tier loses entries, because memcache evicts, and
+repairing that loss above the Table takes a durable mirror, a sweep, held frames and restore
+lifetimes, each with holes of its own. Storage reached through helper instances built inside
+classes is invisible to `ls`, `dump_node` and the console.
 
 **Decision:** `make_node Table <name> <namespace> <ttl> [auto|memcache|apcu|sqlite|wpdb]`.
 
@@ -1724,14 +1715,14 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
 
 **Alternatives considered:**
 
-- Repairing memcache loss further — rejected: see the Context.
+- Repairing memcache loss above the Table — rejected: see the Context.
 - Members on a volatile arm — rejected: an evicted member vanishes from its set without a
   trace, so a member read could not tell a whole set from a partial one.
 - A key-range SCAN over kv — rejected: reads scale with the range, not the set.
 - One durable store for every Table — rejected: nonces and page caches want a cache's speed
   and eviction.
-- Salting durable keys — rejected: a rotation meant to flush the caches orphaned every
-  durable row, which then sat until its TTL, and it logged out every session with it.
+- Salting durable keys — rejected: a rotation meant to flush the caches orphans every
+  durable row, which then sits until its TTL, and logs out every session with it.
 - Sessions on the cache tier — rejected: an eviction or a flush logs a client out with hours
   left on its session.
 - A SQL data model — out of scope for a key-value Table: aggregates stay key-value there. [ADR-34](#adr-34-a-table-may-hold-declared-rows-sqlite-only) narrows this with a Row_Table, a separate node.
@@ -1759,9 +1750,7 @@ inside classes was also invisible to `ls`, `dump_node` and the console.
   rows, but they stay on disk until its own writer calls `purge()`, as the session mint
   does. Any other durable Table that must be reclaimed is declared in a topology.
 - The purge deletes expired rows and nothing else, `vacuum` returns free pages and deletes no
-  row, and `flush` empties the Table. A row written under an earlier key — the salted one
-  before 2.79.0, or a `wpdb` Table's `{namespace}:{key}` before 2.79.1 — is unreachable,
-  expires on the TTL it was written with, and the purge reclaims it in turn.
+  row, and `flush` empties the Table.
 - A flushed session store revokes every issued session at once; `wp nodes session revoke
   --all` is that flush.
 - A `wpdb` purge is scoped by the Table's own namespace, so rows under a namespace no active
@@ -1793,10 +1782,9 @@ and runs the keys of one `RM` as one batch.
 Frames are the cost that transfers: staging pays about 160 µs a WAL frame in a commit and
 53 µs in a checkpoint, 20 to 40 times eve.
 
-A transaction held across requests, bracketed by `BEGIN` and `COMMIT`, was built and dropped
-before release. Its only caller moved to a Ledger, and a hold needs a lifecycle (the tick, a
-stop, a teardown, `vacuum`, `flush`) plus a poison state for a transaction SQLite ends itself,
-all for a caller that no longer exists.
+A transaction held across requests, bracketed by `BEGIN` and `COMMIT`, is rejected: no caller
+needs one, and a hold needs a lifecycle (the tick, a stop, a teardown, `vacuum`, `flush`) plus
+a poison state for a transaction SQLite ends itself.
 
 ---
 
@@ -1804,15 +1792,12 @@ all for a caller that no longer exists.
 
 **Status:** Accepted
 
-**Context:** A verb's `args` declaration fed the console, `help` and `classes dump`, and the
-runtime ignored it. Each handler re-read its tokens by hand — `Command_Args::parse()`,
-`$args[0]`, `split_first_token()` — and was free to disagree with what it advertised.
-`sessions create chris-claude tune 86400` minted `manage` for an hour, because the handler
-read scope and ttl only as options while the schema ordered them positionally. `raw-logs
-read_message` declared `log` required and never refused its absence, and `vault` hand-rolled
-the unknown-option refusal its schema could have stated. The console's verb dialog joined its
-filled fields by position, so a blank middle field shifted every later value into the wrong
-slot.
+**Context:** A verb's `args` declaration feeds the console, `help` and `classes dump`. A
+handler that re-reads its tokens by hand is free to disagree with that declaration: one reading
+scope and TTL only as options would mint `manage` for an hour from
+`sessions create chris-claude tune 86400` while its schema orders them positionally, and a
+`required` arg no handler refuses would go missing in silence. A form joining its filled fields
+by position would shift every value after a blank field into the wrong slot.
 
 **Decision:** `Command_Interpreter_Node::dispatch()` binds a verb's tokens against the `args`
 its schema declares — a service CI's own schema, or for a `:config` interpreter its patron's schema — through
@@ -1870,8 +1855,8 @@ hands the handler the bound values by name. A handler never parses.
 
 **Consequences:**
 
-- The handler signature changed for every consumer: `$args` is `array<string,mixed>`, one key
-  per declared arg, and a handler reads it through the `Core` coercions.
+- A handler's `$args` is `array<string,mixed>`, one key per declared arg, and a handler reads
+  it through the `Core` coercions.
 - The declaration is load-bearing. A wrong `required`, type or order is a runtime bug, not a
   palette blemish.
 - Binding runs after the verb's role check
@@ -1882,8 +1867,6 @@ hands the handler the bound values by name. A handler never parses.
   mis-slotted secret. `SessionsCINodeTest` pins the order.
 - A binding refusal is not a dispatch span: like an unknown verb, it never reaches
   `$around_dispatch`.
-- `Command_Args::parse()`, `Service_CI_Node::split_first_token()` and `require_option_int()`
-  are gone, and with them the browser's `parseCommandArgs()`.
 
 **Revisit if:** a verb needs a grammar the declaration cannot state — a repeated named option,
 a named list — or `dispatch()` stops being the one door a verb enters through.
@@ -1894,15 +1877,12 @@ a named list — or `dispatch()` stops being the one door a verb enters through.
 
 **Status:** Accepted
 
-**Context:** Roles were enforced in two places, and neither reached a worker. `Service_CI_Node`
-wrapped each handler in `Capabilities::require()` for the role its schema declared, and
-`dispatch()` held the base interpreter's vocabulary to a `required_capability` floor that
-only `HTTP_In` pinned. A `:config` interpreter — a Table's, a Consumer's, every patron's —
-gated nothing, in a worker or in a request graph, so a session's scope, which
-[ADR-15](#adr-15-command-authorization-local-taint--the-minter-signs) makes a ceiling, bounded
-no worker verb: a READ session signed for a spoke could `vacuum` its Tables or `dl_purge` its
-dead letters. The one scope check on a worker verb was written by hand inside
-`Table_Node::flush()`.
+**Context:** A role enforced where a service CI builds its table, or as an endpoint floor only
+`HTTP_In` pins, never reaches a worker. A `:config` interpreter — a Table's, a Consumer's,
+every patron's — would then gate nothing, in a worker or in a request graph, so a session's
+scope, which [ADR-15](#adr-15-command-authorization-local-taint--the-minter-signs) makes a
+ceiling, would bound no worker verb: a READ session signed for a spoke could `vacuum` its
+Tables or `dl_purge` its dead letters.
 
 **Decision:** `Command_Interpreter_Node::dispatch()` refuses every verb, before anything else
 runs, against the role its schema declares: the `capability` of the verb's `commands` entry —
@@ -1928,13 +1908,13 @@ refused verb never reaches `$around_dispatch`.
 
 **Alternatives considered:**
 
-- A role check in each handler — rejected: it drifts verb by verb, and `Table_Node::flush()`'s
-  was the only one ever written.
+- A role check in each handler — rejected: it drifts verb by verb, and a handler that omits
+  one gates nothing.
 - Gating in `Service_CI_Node`'s table build — rejected: it misses every `:config` verb, which
   no service CI builds.
-- Keep `required_capability` as an endpoint floor — rejected: with MANAGE the role of every
-  undeclared verb, the floor `HTTP_In` pinned is what `dispatch()` now does unprompted, and a
-  floor a worker left null was the hole.
+- An endpoint floor on the interpreter — rejected: with MANAGE the role of every undeclared
+  verb, `dispatch()` already holds that floor everywhere, and a floor a worker leaves null is
+  the hole.
 - A role per argument, `stats` at read and `stats reset` at manage — rejected: a role belongs
   to a verb, so the reset is its own verb, `reset_stats`.
 
@@ -1942,18 +1922,15 @@ refused verb never reaches `$around_dispatch`.
 
 - A READ or TUNE session reaches a worker's verbs only where they declare that role: `stats`,
   `dl_list`, `dl_show` and the base `READ_VERBS`. Every other `:config` verb, and the graph
-  vocabulary, demands MANAGE of a session in a worker, where it demanded nothing before.
-- A service CI's `help` answers READ, as the base interpreter's does, where
-  `Service_CI_Node` held it at MANAGE.
-- `Service_CI_Node::gate_table()`, its `commands()` override and `require_manage_options()`
-  are gone, as is `Command_Interpreter_Node::$required_capability`.
+  vocabulary, demands MANAGE of a session in a worker.
+- A service CI's `help` answers READ, as the base interpreter's does.
 - A consumer's `:config` verbs follow the same rule; event-logger-nodes' and intelligence's
   declare nothing, so each demands MANAGE.
 - A verb refused by role emits no dispatch span, because `$around_dispatch` never runs.
 - A `Vault_Group_Node` forwards its child class's verbs through an interpreter whose patron is
   the group, whose schema declares none of them, so the group holds each at MANAGE; the
   child's own interpreter then applies the child's declared role.
-- A test reaching a verb as a REST request would has to make a user current. With none
+- A test reaching a verb the way a REST request would has to make a user current. With none
   current the scope decides, so an unscoped test command runs at MANAGE.
 
 **Revisit if:** a worker gains a current user — `require_verb()` would then ask that user's
@@ -1964,13 +1941,13 @@ arguments in a way a second verb cannot split.
 
 ## ADR-27: Withdrawn: a Ledger of write-once rows
 
-Released in 2.80.0 and removed in 2.83.0, with the `Ledger_Node` it governed. A Ledger kept stats as write-once delta rows clustered by time and aggregated every read. A page ranking a day's URLs had to regroup every row in the window: on staging, five groupings over about 1.8M rows took 75 s and wrote 2.5 GB of temporary B-tree. The stats returned to Tables. The number stays retired.
+Withdrawn: stats live in Tables, on the backend [ADR-24](#adr-24-a-tables-backend-is-chosen-per-table) chooses per Table.
 
 ---
 
 ## ADR-28: Withdrawn: a Ledger file per partition
 
-Released in 2.82.0 and removed in 2.83.0 with ADR-27. It moved each partition's Ledger rows into a file of its own, after one shared file made every partition's APPEND wait on another's write lock. The number stays retired.
+Withdrawn with [ADR-27](#adr-27-withdrawn-a-ledger-of-write-once-rows): stats live in Tables, on the backend [ADR-24](#adr-24-a-tables-backend-is-chosen-per-table) chooses per Table.
 
 ---
 
@@ -1979,15 +1956,12 @@ Released in 2.82.0 and removed in 2.83.0 with ADR-27. It moved each partition's 
 **Status:** Accepted
 
 **Context:** A log stamp names one log everywhere: an SSE subscription, a record's FROM, a
-picker key, `read_message` and `dump_log` all use it. Eight sites wrote the `sources:<name>`
-stamp or parsed the `{group}:{name}` grammar by hand, across `Log_Sources`,
-`Raw_Logs_CI_Node` and `SSE_Out_Node`, and two resolvers turned a stamp into a dir. The
-stream split the prefix, held the name to its guard and globbed the live tree;
-`Log_Discovery::dir_of()` scanned a memoized catalog and inverted `stamp_for()` over every
-dir. They disagreed: the step accepted names the stream's guard refuses, read a scan as old
-as the process, and threw on every lookup once a `logs/sources` dir existed. Two footprints
-answered one question, and a refusal came back as a returned string in one place and a throw
-in another.
+picker key, `read_message` and `dump_log` all use it. A site that writes the
+`sources:<name>` stamp or parses the `{group}:{name}` grammar by hand drifts from the rest, and
+so does a second resolver: one that scans a memoized catalog and inverts `stamp_for()` over
+every dir accepts names the stream's guard refuses, reads a scan as old as the process, and
+breaks on a dir named like a group. Two footprints then answer one question, and a refusal
+comes back as a returned string in one place and a throw in another.
 
 **Decision:** [`Log_Discovery::stamp_for()`](../includes/class-log-discovery.php) is the one
 writer of a stamp, for the dir roots and for `sources:<name>`. A stamp has one splitter,
@@ -2025,8 +1999,8 @@ hand-joined path both are.
 
 **Amendment: a spoke's log has a name of its own.** A hub's broker reader reports its
 position on the hub's own probe log, and a spoke's `firehose.p0` is not the hub's own log: two logs
-sharing one stamp merged the spoke's read rate into the hub's series, and a spoke's `jobs.p0`
-into the hub's jobs backlog. So a remote log's name is `remote:<vault_id>:<stamp>` — the spoke's
+sharing one stamp would merge the spoke's read rate into the hub's series, and a spoke's
+`jobs.p0` into the hub's jobs backlog. So a remote log's name is `remote:<vault_id>:<stamp>` — the spoke's
 Vault id, then its stamp — which [`Log_Discovery::remote_for()`](../includes/class-log-discovery.php)
 writes and `remote_of()` reads back, held to the browser's `remoteOf()` in
 [`src/runtime/log-stamp.js`](../src/runtime/log-stamp.js) by `tests/fixtures/log-remotes.json`.
@@ -2040,12 +2014,9 @@ reports as SOURCE; both readers of `remote_of()`, `Aggregator_CI` and the Worker
 also demand the row's READER equal the id the broker gives that stamp, which only the broker's
 own reader reports.
 
-**Amendment: a stamp is one segment, spelled with `:`.** A stamp was spelled with `/` between
-its parts (`offsets/performance.firehose.p0`, `sources/php`), while a broker reader's dir took
-`:` (`offsets:hub.tw0:firehose.p0`) and a kind codec folded every `/` into a `:` for a reader's
-slot and dir, so the Log Viewer listed both spellings side by side, and a FROM reader had to tell
-a two-segment stamp from a one-segment one by its first word. Now every stamp joins its parts
-with `:`, and so is one `/` segment, which is also one node name the Router can address:
+**Amendment: a stamp is one segment, spelled with `:`.** Every stamp joins its parts with `:`,
+and so is one `/` segment, which is also one node name the Router can address, and the Log
+Viewer lists one spelling for a log however it is reached:
 
 | Log | Stamp |
 |---|---|
@@ -2070,7 +2041,7 @@ name, which no shape tells apart, so `dir_of()` resolves a root to its empty dir
 listing its children on every resolution; the catalog and a glob still skip it. A broker refuses
 a root that belongs to its group, whose readers would land at the group's first level. A broker
 reader takes its stamp verbatim as its sibling slot `<broker>:<stamp>` and its dirs' basename, so
-the codec is gone. A log's stamp is held to `MAX_STAMP_BYTES` whole, and a broker reader's part
+no codec translates it. A log's stamp is held to `MAX_STAMP_BYTES` whole, and a broker reader's part
 by part, since its dir is `<root>/<stamp>`: the root and the stamp it reads each name one dir. A
 broker reads only a stamp that fits one dir name whole (`fits_a_dir_name()`), so an exact source
 may name a broker reader's stamp when it is that short. A glob's `*`
@@ -2086,8 +2057,8 @@ after it. No reader finds a stamp by its shape, because node names hold `:` as w
 node names. A stream's reader is named its stamp (`SSE_Out_Node::attach_consumer()`), so a reply
 `TO=FROM` reaches it through the Router, and `Node::name()` refuses any name holding `/`.
 
-Rejected: keeping `/` and spelling only a broker reader with `:`, which listed two spellings and
-needed the codec; a disk read to tell `offsets:<name>` from `offsets:<root>:<stamp>`, which the
+Rejected: spelling only a broker reader with `:` and every other stamp with `/`, which lists two
+spellings and needs a codec between them; a disk read to tell `offsets:<name>` from `offsets:<root>:<stamp>`, which the
 names' own grammar answers; and bounding a reader stamp whole, which would leave a long spoke
 stamp under a real root with no stamp, though its dir names fit.
 
@@ -2102,25 +2073,9 @@ breadcrumb, a `CURSORS` entry in the stream's `connected` and `unparseable_lines
 `read_message` argument, a value in the `positions` map a stream opens with, a paused reader's
 step and a pasted Jump. The breadcrumb is the same grammar carrying the record's length,
 `<segment>:<offset>:<length>`, and that length is why a position may carry a third field.
-Eight sites wrote it:
-
-- `Consumer_Node::cursor_position()` wrote `<segment>:<offset>`.
-- `File_Tail_Node` and `Remote_Consumer_Node` wrote `:<offset>` for a generation not known yet,
-  and the browser's `stepPosition()` did the same.
-- `Tail_Node`, `Durable_Reader` and `Dead_Letter_Queue` wrote breadcrumbs, the last twice.
-
-Seven sites read it, each under a grammar of its own:
-
-- `Log_Sources::read()` took padded digits and a `:<length>`.
-- `SSE_In_Node`'s CURSORS reader took canonical decimals and no length.
-- `Remote_Consumer_Node::crumb_of()` took padded digits.
-- The browser's `_seedPositions()` took whatever `Number()` parses.
-- Its breadcrumb readers in `SseInNode` and `SeekTracker`, and the Jump box's
-  `parseOffsetJump()`, each kept a regex.
-- `SSE_Out_Node::position_arg()` passed a string through as a word.
-
-So the browser and the hub could disagree on what one entry said. The seek words lived on
-`Log_Sources`, and their resolution to a sentinel on `Consumer_Node`.
+Those surfaces write and read positions in PHP and in the browser alike, and a site keeping a
+grammar of its own — padded digits in one, canonical decimals in another, whatever `Number()`
+parses in a third — lets the browser and the hub disagree on what one entry says.
 
 **Decision:** [`Log_Position`](../includes/class-log-position.php) owns the grammar:
 `<segment>:<offset>`, the segment-less `:<offset>`, either with a `:<length>`, and the words in
@@ -2157,9 +2112,8 @@ log is, and a position is where a reader stands inside one.
 
 **Consequences:** A position one surface writes reads the same on every other: a padded number,
 a sign, another base or an empty `:<length>` names no position anywhere. So `read_message`
-refuses `047:5`, which it used to read as segment 47, and a record whose ID is `07:12:9` carries
-no breadcrumb on either side. A `CURSORS` entry carrying a length is read where it was skipped,
-and a `positions` string naming a place seeks there instead of to the start. The browser bounds
+refuses `047:5`, and a record whose ID is `07:12:9` carries no breadcrumb on either side. A
+`CURSORS` entry carrying a length is read, and a `positions` string naming a place seeks there. The browser bounds
 a number at `Number.MAX_SAFE_INTEGER` and PHP at `PHP_INT_MAX`, so the fixture keeps out of
 the gap between them.
 
@@ -2248,8 +2202,8 @@ analyzer, `Aggregator_CI` and the console recognize a broker by that class, or b
 
 **Amendment: a broker's sources come by `add_source`.** A broker takes `<vault_id>
 <offsetlog_root> <deadletter_root>` (`HTTP_Source` adds an optional `retry_ms`), and
-`make_node` refuses a surplus token, so a line still carrying a `<source>=<target>` pair reads
-as unreadable to the analyzer too. Each source is a verb on the broker's `:config`,
+`make_node` refuses a surplus token, so a line carrying a `<source>=<target>` pair is refused
+and reads as unreadable to the analyzer too. Each source is a verb on the broker's `:config`,
 `add_source <remote_log> <local_node>`: a stamp, a glob or `sources:<name>`, with `{partition}`
 resolved at the worker as [ADR-33](#adr-33-a-line-naming-no-partition-runs-once-per-fleet)
 resolves it, then the node its lines go to. A source goes to one target: a second target for
@@ -2263,8 +2217,7 @@ line per source after its `make_node`. The analyzer and the console read those l
 order sent, through `Node::command_targets()`
 ([ADR-19](#adr-19-a-node-may-declare-a-destination-it-writes-without-routing)); the browser's
 `RemoteLink` takes its sources through `addSource()` and `removeSource()`, which refuse as the
-PHP verbs refuse, and its own `:config` answers the same two verbs through them. The `<source>=<target>` grammar, `split_pair()`, `splitPair()`
-and `pair-split.json` are gone.
+PHP verbs refuse, and its own `:config` answers the same two verbs through them.
 
 ---
 
@@ -2363,17 +2316,16 @@ between marking a bounce `undelivered` as possibly applied and keeping a per-sen
 
 **Context:** A topology mounts once per worker partition, so every `make_node` line builds a
 node in every worker. A line reading a source that names no partition — `sources/php`, a fixed
-file, a spoke's `firehose.p0` — therefore read it once per worker: every line relayed N times,
+file, a spoke's `firehose.p0` — would read it once per worker: every line relayed N times,
 and N workers committing one offsetlog. A line meant to read one source per worker names its
 partition, but the Shell resolves `<partition>` before `make_node` runs, so the node sees
-`app.2.log` and cannot tell a per-worker file from a fixed one. Two nodes decided ownership
-two ways: [`Remote_Source_Node`](../includes/class-remote-source-node.php) kept a source written
-`{partition}` everywhere and a fixed one on partition 0, while
-[`File_Tail_Node`](../includes/class-file-tail-node.php) idled off partition 0 whatever its
-file, so `File_Tail t /var/log/app.{partition}.log` could not be written. And the two
-spellings, `<partition>` resolved by the Shell and `{partition}` by the node, needed a refusal
-of the first in sources, which the analyzer made per class, counting arguments by offset and
-judging quote rules a single-quoted `'<partition>'` escaped.
+`app.2.log` and cannot tell a per-worker file from a fixed one. Two nodes deciding ownership two
+ways — one keeping a `{partition}` source everywhere and a fixed one on partition 0, another
+idling off partition 0 whatever its file — would leave a line such as
+`File_Tail t /var/log/app.{partition}.log` meaning different things on each. And two
+spellings, `<partition>` resolved by the Shell and `{partition}` by the node, need a per-class
+refusal of the first in sources, which counts arguments by offset and which a single-quoted
+`'<partition>'` escapes.
 
 **Decision:** What a node reads is defined by its TSL, and one predicate reads it.
 [`Core::owns( $written, $partition )`](../includes/class-core.php) is true when the source as written
@@ -2421,11 +2373,11 @@ parsed on every partition, so a bad one fails everywhere.
 rejected: a hub pulling a multi-partition spoke's firehose needs a worker per partition, and
 the pin would take them with the fixed reader. A lock on the shared offsetlog — rejected: it
 would serialize readers that should not exist, and every worker would still build its node,
-connect and hold its slot. Keeping the per-class refusal in the analyzer — rejected: it names
-classes, counts offsets the classes own, and judged values where the Shell judges quotes.
-Keeping both spellings with a refusal of the eager one in sources — rejected: the refusal
-needed a per-class override, an analyzer pass and a quote rule a single-quoted token escaped,
-where one spelling needs none of them.
+connect and hold its slot. A per-class refusal in the analyzer — rejected: it names classes,
+counts offsets the classes own, and judges values where the Shell judges quotes. Both
+spellings with a refusal of the eager one in sources — rejected: the refusal needs a per-class
+override, an analyzer pass and a quote rule a single-quoted token escapes, where one spelling
+needs none of them.
 
 **Consequences:** A per-worker source is written `{partition}`; a topology writing
 `<partition>` anywhere fails to load, in the analyzer, the editor and `wp nodes doctor`. A fixed
@@ -2444,13 +2396,15 @@ ownership, as the broker has, names no source argument.
 failed over when partition 0 is down — at which point ownership becomes a lease rather than a
 partition number; or a topology must place a fixed reader on a partition other than 0.
 
+---
 
 ## ADR-34: A Table may hold declared rows (SQLite only)
 
 **Status:** Accepted
 
-**Context:** ELN's performance stats kept 20 pre-built key families in key-value Tables; a
-breakdown no family built could not be answered.
+**Context:** A key-value Table answers only the breakdowns its pre-built key families carry,
+so a breakdown no family builds, in ELN's performance stats or anywhere else, cannot be
+answered.
 
 **Decision:** `make_node Row_Table <name> <Schema>` keeps the tables a `<Word>_Row_Schema`
 declares in the partition's SQLite file, `{base}/tables/{name}.p{N}.sqlite`. The partition's
@@ -2486,8 +2440,8 @@ another host. A reader scans a day of rows where a Table reads keys, so `open_ro
 each attached file (`mmap_size`, SQLite's default 2 GiB cap) and keeps temporary B-trees in
 memory (`temp_store = MEMORY`), outside PHP's `memory_limit`. On eln, with four ~470 MB
 partitions read through an 8 MiB cache each, a distinct-URL count across them took 88 s,
-nearly all system time; with both pragmas it took 5.6 s, and event-logger-nodes' `overview`
-and `urls` answers fell from 99 s and 130 s to 19 s and 33 s.
+nearly all system time, and with both pragmas 5.6 s; event-logger-nodes' `overview` and `urls`
+answers take 19 s and 33 s with them against 99 s and 130 s without.
 
 A job may publish a file derived from the row tables; [ADR-35](#adr-35-a-job-may-publish-a-derived-sqlite-file-whole-and-its-readers-open-it-immutable) carries it.
 

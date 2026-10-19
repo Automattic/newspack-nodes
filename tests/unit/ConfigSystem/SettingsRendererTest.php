@@ -2,9 +2,9 @@
 /**
  * SettingsRendererTest: the shared field-markup renderers — the per-field reset
  * wrapper (`data-nn-reset` + `↺`) plus the generic number / directory / textarea
- * / checkbox-list controls. One home for the markup the three plugins used to
- * copy-paste, and the place the half-wired `data-nn-reset-default` checkbox hint
- * is finally emitted (so a checkbox ↺ restores the shipped default, not "all off").
+ * / checkbox-list controls. One home for the markup the three plugins share,
+ * and the place the `data-nn-reset-default` checkbox hint is emitted (so a
+ * checkbox ↺ restores the shipped default, not "all off").
  *
  * @package Newspack_Nodes
  */

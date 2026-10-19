@@ -1,8 +1,7 @@
 /**
- * useAggregatorStatusGraph tests — the de-god Aggregator Status graph built on
- * the substrate batched-poll toolkit (useBatchedPoll + addSliceFetcher). The
- * single god `status` poll feeding one `aggregator:view` is gone; in its place
- * two independent slice paths:
+ * useAggregatorStatusGraph tests — the Aggregator Status graph built on the
+ * substrate batched-poll toolkit (useBatchedPoll + addSliceFetcher): two
+ * independent slice paths:
  *
  *   <tee> → summary:fetch (Fetcher, FROM=summary:in) → aggregator:shell/_http/aggregator
  *           summary:in (Tee) → summary:view (AggregatorSummaryView)
@@ -91,7 +90,7 @@ describe( 'useAggregatorStatusGraph — batched-poll backbone + slice wiring', (
 		] ) {
 			expect( Core.node( name ) ).toBeTruthy();
 		}
-		// The verb-first spellings are gone: a name is `<subject>:<role>`.
+		// No verb-first spelling: a name is `<subject>:<role>`.
 		for ( const name of [
 			'fetch-summary',
 			'fetch-servers',

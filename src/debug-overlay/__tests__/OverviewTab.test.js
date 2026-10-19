@@ -156,7 +156,7 @@ test( "stamps each message from its stored ts, in the reader's own zone", () => 
 	expect(
 		panel.querySelector( '.nodes-overview__msg-text' ).textContent
 	).toBe( `${ localStamp( at ) } browser: ERROR: boom` );
-	// The stamp replaced the age; two clocks per row is what it read as.
+	// The stamp stands in for the age, so a row carries one clock.
 	expect( panel.querySelector( '.nodes-overview__msg-age' ) ).toBeNull();
 } );
 

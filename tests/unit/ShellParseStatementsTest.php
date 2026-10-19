@@ -218,8 +218,7 @@ class ShellParseStatementsTest extends TestCase {
 	}
 
 	public function test_var_values_are_quote_stripped_like_every_other_token(): void {
-		// The legacy static regex captured quotes verbatim; the runtime never
-		// did. One semantics now — enumerated as the FIX, not papered over.
+		// The static reader strips quotes as the runtime does: one semantics.
 		$statements = Shell_Node::parse_statements( "var greeting = \"hello and more\"\n" );
 		$this->assertSame( 'var', $statements[0]['verb'] );
 		$this->assertSame( [ 'var', 'greeting', '=', 'hello and more' ], $statements[0]['values'] );

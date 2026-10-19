@@ -9,7 +9,7 @@
 # release.yml. A stale pin still builds — it just inlines older shared code —
 # so the workflow goes green while the zip ships pre-change assets. The two
 # must pin identically, which is why this lives in one file: the same logic
-# written twice is the drift that caused the bug it prevents.
+# written twice would drift.
 
 SUBSTRATE_REPO="Automattic/newspack-nodes"
 

@@ -428,9 +428,8 @@ abstract class TestCase extends PHPUnitTestCase {
 	/**
 	 * Point Config at a temp config file under $dir so that
 	 * `Config::load_config()['base_directory']` returns $dir for the rest of
-	 * this test. Mirrors the legacy pattern (`LOCAL_NEWSPACK_NODES_CONF`
-	 * pointing at a per-test config file) — replaces the old
-	 * `add_filter('newspack_nodes/base_dir', fn() => $this->tmp)` shortcut.
+	 * this test, through `LOCAL_NEWSPACK_NODES_CONF` pointing at a per-test
+	 * config file.
 	 */
 	protected function use_base_dir( string $dir, array $extras = [] ): void {
 		$config = \array_merge( [ 'base_directory' => $dir ], $extras );
@@ -523,9 +522,8 @@ abstract class TestCase extends PHPUnitTestCase {
 
 	/**
 	 * Build a TM_BYTESTREAM Message wrapping $value (and optional $key).
-	 * Convenience for tests that previously called `$p->write("foo\n")` directly
-	 * and now need to go through `$p->fill(...)` since Partition::write was
-	 * removed in favor of the canonical packed wire format contract.
+	 * A Partition takes writes only through `$p->fill(...)`, in the canonical
+	 * packed wire format.
 	 *
 	 * Returned via a local variable so callers can pass it straight into
 	 * `fill( array $message )` without tripping PHP's "Only variables should
@@ -705,10 +703,9 @@ abstract class TestCase extends PHPUnitTestCase {
 	}
 
 	/**
-	 * Read a Partition's segment contents and return the unpacked VALUE strings
-	 * — what tests previously asserted on raw `file_get_contents()` for. Each
-	 * line in the segment is a packed Tachikoma Message; this returns the
-	 * VALUEs in order.
+	 * Read a Partition's segment contents and return the unpacked VALUE
+	 * strings. Each line in the segment is a packed Tachikoma Message; this
+	 * returns the VALUEs in order.
 	 *
 	 * @return array<int,mixed>
 	 */
@@ -742,8 +739,8 @@ abstract class TestCase extends PHPUnitTestCase {
 	/**
 	 * Register a job handler the way production does — via the
 	 * `newspack_nodes/{job,remote_job}_handlers` filter — then reload the
-	 * worker's maps. Replaces the removed set_local_handler / set_remote_handler /
-	 * register_handler test-only setters so tests exercise the real load path.
+	 * worker's maps, so tests exercise the real load path rather than a
+	 * test-only setter.
 	 */
 	protected function register_job_handler( \Newspack_Nodes\Job_Worker_Node $jw, string $name, callable $cb, bool $remote = false ): void {
 		$hook = $remote ? 'newspack_nodes/remote_job_handlers' : 'newspack_nodes/job_handlers';

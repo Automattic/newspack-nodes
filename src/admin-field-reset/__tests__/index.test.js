@@ -1,8 +1,8 @@
 /**
  * Tests for the per-field reset toggle, focused on the pending-reset visual:
  * arming a reset must show the field's DEFAULT, not blanket-clear it. A
- * default-enabled checkbox that reads as unchecked while a reset is pending is
- * the bug — Save restores the default, but the pending state lied about it.
+ * default-enabled checkbox that read as unchecked while a reset is pending
+ * would misstate what Save does, which is restore the default.
  */
 
 import { initFieldReset } from '../index.js';

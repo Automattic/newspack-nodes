@@ -11,9 +11,9 @@
 // actually mounted in the STATION. The page slug `newspack-nodes-station` is the
 // station page, where the console is just one tab among several (the
 // Topology Manager is a long scrollable list). Gating on the body class alone
-// leaked these page-level rules (notably `#wpfooter { display: none }` +
+// would leak these page-level rules (notably `#wpfooter { display: none }` +
 // `#wpbody-content { padding-bottom: 0 }`) onto the station page whenever the
-// console bundle was enqueued, breaking page scroll on the manager tab. The
+// console bundle is enqueued, breaking page scroll on the manager tab. The
 // floating debug OVERLAY also renders a `.topology-app` (its Inspector), so a
 // bare `body:has(.topology-app)` would trigger these rules on any dashboard
 // page the moment the overlay opens. Scope to `.nodes-station` (the station
@@ -112,7 +112,7 @@ body:has(.nodes-station .topology-app) {
 	position: fixed;
 	top: 80px;
 	right: 95px;
-	// High z so it floats above the station chrome it now overlaps as a fixed
+	// High z so it floats above the station chrome it overlaps as a fixed
 	// dropdown (header, tab bar, canvas controls); still below the plain-DOM
 	// modal backdrop (z 100000).
 	z-index: 1000;

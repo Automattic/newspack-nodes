@@ -1,15 +1,14 @@
 /**
  * dumpDocument — writing the document back out.
  *
- * The replacement for `serializeTsl`, and a different KIND of thing: the
- * serializer rendered a graph literal, this writes what an interpreter holds.
- * So every case here builds the document the way the console does — by running
+ * It writes what an interpreter holds, not a graph literal. So every case here
+ * builds the document the way the console does — by running
  * statements — and the oracle is the same one the substrate uses: a dump that
  * re-evaluates to itself.
  *
- * Argument quoting moved to `tslArgs.test.js`; schema defaults are applied
- * where the args are EDITED now, not at serialization, so a document says what
- * it was given.
+ * Argument quoting is tested in `tslArgs.test.js`; schema defaults are applied
+ * where the args are EDITED, not at serialization, so a document says what it
+ * was given.
  */
 
 import { DraftInterpreterNode } from '../../../runtime/draft-interpreter-node';

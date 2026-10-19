@@ -42,7 +42,7 @@ const SAMPLE_SERVERS = [
 let model;
 let publish = () => {};
 
-// The graph hook owns the table's model now; the fixture seeds what it returns.
+// The graph hook owns the table's model; the fixture seeds what it returns.
 function registerViewFixture( overrides = {} ) {
 	model = {
 		servers: null,
@@ -65,7 +65,7 @@ function setInput( input, value ) {
 	} );
 }
 
-// The add-server form now lives in a modal; open it before touching its fields.
+// The add-server form lives in a modal; open it before touching its fields.
 function openAddModal( container ) {
 	act( () => {
 		container

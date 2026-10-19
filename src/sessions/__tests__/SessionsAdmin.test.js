@@ -144,7 +144,7 @@ it( 'marks only the outstanding row busy', () => {
 
 // Everything below covers the surfaces a reader of this screen actually uses:
 // the create form (validation, the args it sends), the one-time key panel, and
-// the states the table can be in. They were reachable only by hand before.
+// the states the table can be in.
 
 const openCreate = ( container ) =>
 	act( () =>

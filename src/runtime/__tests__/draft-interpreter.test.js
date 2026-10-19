@@ -1,10 +1,10 @@
 /**
  * The draft is an interpreter, not a second implementation of one.
  *
- * Stage 2's central claim: edit mode and live mode send the SAME commands to
- * different command interpreters, and the difference is a cwd. This pins the
- * half that had never been demonstrated — that a real interpreter can hold a
- * server topology the browser cannot run, and hand it back byte-for-byte.
+ * Edit mode and live mode send the SAME commands to different command
+ * interpreters, and the difference is a cwd. This pins that a real
+ * interpreter can hold a server topology the browser cannot run, and hand it
+ * back byte-for-byte.
  *
  * The classes below (Topic, Partition, Consumer, Flame_Builder) have no JS
  * implementation. They resolve to stubs; every structural verb still applies.
@@ -293,9 +293,8 @@ describe( 'a draft interpreter holding a server topology', () => {
 } );
 
 /**
- * An `include` expands BEFORE the file's own lines run — that ordering is the
- * whole reason the console needed a bespoke fold beside the parser. Seeding the
- * interpreter from the expand baseline puts the ordering back where the runtime
+ * An `include` expands BEFORE the file's own lines run. Seeding the
+ * interpreter from the expand baseline keeps that ordering where the runtime
  * keeps it: the included nodes exist by the time a `connect_node` names one.
  *
  * The borrowed nodes carry provenance (`origin`), which is what makes them

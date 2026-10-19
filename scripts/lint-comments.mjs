@@ -41,7 +41,7 @@ const TAB_WIDTH = 4;
  * Unit tests are exempt by the project's own standard; the rest hold vendored
  * or generated files nobody hand-edits. `walkFiles` prunes four of these
  * directories on its own, but lint-staged names files directly, and those
- * never went through the walk.
+ * never go through the walk.
  *
  * @param {string} p Path to check.
  * @return {boolean} True when the file is not linted.

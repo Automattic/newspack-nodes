@@ -1,8 +1,8 @@
 /**
  * useCommandOnce — a mutation that rides the batch.
  *
- * Save, delete and activate used to mint their own POST from a React callback,
- * outside the router's lock/flush bracket, and hand back a Promise. Riding the
+ * Save, delete and activate ride the tick rather than minting their own POST
+ * from a React callback, outside the router's lock/flush bracket. Riding the
  * tick is what puts them in the same request as everything else that tick; the
  * hard part is that a mutation must go EXACTLY ONCE, which is the opposite of a
  * poll's "ask again until it lands".
@@ -113,9 +113,8 @@ afterEach( () => {
 } );
 
 describe( 'useCommandOnce', () => {
-	// The egress path was spelled five ways across 21 call sites — a literal, a
-	// template over `names`, a per-file TARGET const. The hook takes the CI
-	// mount and builds it, and names its own nodes after the verb.
+	// The hook takes the CI mount and builds the egress path, so no call site
+	// spells it, and names its own nodes after the verb.
 	it( 'builds its egress path and node names from the group and CI mount', async () => {
 		renderSave();
 		await act( async () => {} );
@@ -138,9 +137,9 @@ describe( 'useCommandOnce', () => {
 		] );
 	} );
 
-	// A stale `target` used to be silently ignored, which pointed a Fetcher at
-	// the bare egress and lost every reply. An option the hook does not take
-	// is a mistake, and it says so.
+	// A stale `target` would point a Fetcher at the bare egress and lose
+	// every reply. An option the hook does not take is a mistake, and it says
+	// so.
 	it( 'refuses an option it no longer takes', () => {
 		// React logs the throw as it unwinds; the next beforeEach re-spies.
 		console.error = () => {};
@@ -556,10 +555,10 @@ describe( 'useCommandOnce', () => {
 		expect( result.current.error ).toContain( 'vault sealed' );
 	} );
 
-	// A row's spinner has to last until the ANSWER, not until the send. The
-	// outbox used to drop a write the moment it went on the wire, so a screen
-	// that re-renders on its own clock (the aggregator's per-tick clock) showed
-	// the row go idle mid-flight and re-enabled its button.
+	// A row's spinner has to last until the ANSWER, not until the send. An
+	// outbox dropping a write the moment it went on the wire would let a screen
+	// that re-renders on its own clock (the aggregator's per-tick clock) show
+	// the row go idle mid-flight and re-enable its button.
 	it( 'stays busy from the run until the reply lands, not until it is sent', async () => {
 		const held = [];
 		replyFor.mockImplementation(
@@ -985,8 +984,8 @@ describe( 'useCommandOnce', () => {
 
 	// A Reset Graph rebuilds the result node, whose `seq` starts again at 1
 	// while the hook's watermark survives in a ref. Reading the restart as
-	// "already seen" swallowed every reply until the count caught up — and on
-	// a promise nobody ever settles.
+	// "already seen" would swallow every reply until the count caught up — and
+	// on a promise nobody ever settles.
 	it( 'keeps answering after a rebuild restarts the reply count', async () => {
 		const onDone = jest.fn();
 		const { result } = mount( {

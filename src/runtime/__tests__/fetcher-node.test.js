@@ -328,11 +328,9 @@ const replyNaming = ( path = '', args = [], value = {} ) => {
 /**
  * The outbox: one ask outstanding at a time.
  *
- * A dashboard on a one-second refresh used to put a command on the wire every
- * second whether or not the last one had been answered, so a slow verb built a
- * queue of identical asks the server was still working through. An ask now
- * stands in the Fetcher's outbox until its reply settles it, and a trigger that
- * finds one there mints nothing.
+ * An ask stands in the Fetcher's outbox until its reply settles it, and a
+ * trigger that finds one there mints nothing, so a dashboard on a one-second
+ * refresh does not build a queue of identical asks behind a slow verb.
  */
 describe( 'FetcherNode — the outbox', () => {
 	const mount = ( verb = 'counts' ) => {

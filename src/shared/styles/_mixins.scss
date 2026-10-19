@@ -1,11 +1,9 @@
 /**
  * Shared dashboard mixins — the error banner, the table grid, and the
- * themed-widefat re-skin. The toolbar-control mixins that used to live here
- * (chrome buttons, search input, column picker, stats display) moved to real
- * classes in `inputs.scss` — see the toolbar-control-normalization design doc.
+ * themed-widefat re-skin. The toolbar controls (search input, column picker,
+ * stats display) are real classes in `_toolbar.scss`, not mixins.
  *
- * Pure dedup: bodies are the event-dashboards originals, byte-for-byte. Mixin
- * definitions emit no CSS until `@include`d, so carrying the full canonical set
+ * Mixin definitions emit no CSS until `@include`d, so carrying the full canonical set
  * here (including ones a given dashboard doesn't use) adds zero output.
  */
 

@@ -112,7 +112,7 @@ describe( 'reconstructWorkers — fan-out attaches every processor', () => {
 		const entities = flatten( sections[ 0 ].tree );
 		const byName = ( name ) =>
 			entities.find( ( e ) => 'node' === e.kind && e.name === name );
-		// Regression guard: picking only the first handler drops job-router.
+		// Every handler counts: picking only the first would drop job-router.
 		expect( byName( 'request-builder' )?.workers ?? [] ).toHaveLength( 1 );
 		expect( byName( 'job-router' )?.workers ?? [] ).toHaveLength( 1 );
 	} );
@@ -800,10 +800,10 @@ describe( 'reconstructWorkers — hides ghost readers of an undeclared partition
 	} );
 } );
 
-// The reader template carries `<topology>` now (the fleet-scoped cursor). The
-// client substituted only `{partition}`, so `firehose.<topology>.p0` never
-// matched the live reader `firehose.combined.p0` — no cursor, and every segment
-// bar on the topologies dashboard painted grey.
+// The reader template carries `<topology>` (the fleet-scoped cursor). A client
+// substituting only `{partition}` would never match `firehose.<topology>.p0` to
+// the live reader `firehose.combined.p0` — no cursor, and every segment bar on
+// the topologies dashboard painted grey.
 const TOPOLOGY_TOKEN_GRAPH = {
 	combined: {
 		nodes: [

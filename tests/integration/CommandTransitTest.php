@@ -69,7 +69,7 @@ class CommandTransitTest extends TestCase {
 		$router->name( Node_Names::ROUTER );
 
 		// A make_node command, minted "now" so it lands inside the freshness window,
-		// then signed — TIMESTAMP is now baked into the HMAC canonical.
+		// then signed — TIMESTAMP is baked into the HMAC canonical.
 		$cmd                       = Message::new_message();
 		$cmd[ Message::TYPE ]      = Message::TM_COMMAND;
 		$cmd[ Message::TIMESTAMP ] = \time();

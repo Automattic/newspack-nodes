@@ -1,13 +1,9 @@
 /**
  * alias-map tests — the ONE resolver for the `@newspack-nodes/*` surface.
  *
- * The map used to exist three times: each consumer's `scripts/build.mjs` spelled
- * out absolute paths for esbuild, and `jest.cjs` built its own regex mappers. The
- * release pitfall that cost us two shipped-stale releases is a direct consequence
- * — a consumer's `release.yml` had to set FOUR independent `NEWSPACK_NODES_*` env
- * vars, and omitting one resolved to a nonexistent sibling path.
- *
- * One base in, both derivations out, so the two can no longer disagree.
+ * esbuild's absolute paths and jest's regex mappers both derive from this one
+ * map, off one `NEWSPACK_NODES_SRC` base, so a consumer's `release.yml` sets one
+ * variable and the two derivations cannot disagree.
  */
 
 const path = require( 'node:path' );
@@ -59,7 +55,7 @@ describe( 'jestModuleNameMapper', () => {
 
 /**
  * The reason the resolver exists: esbuild and jest must agree on where a given
- * alias points. Before this they were independent literals, free to drift.
+ * alias points, and two independent literals would be free to drift.
  */
 describe( 'the two derivations agree', () => {
 	it( 'resolves runtime and shared to the same targets', () => {
@@ -93,10 +89,9 @@ describe( 'assertBase', () => {
 } );
 
 /**
- * The retired names must be REFUSED, not ignored. The first cut only threw when
- * NEWSPACK_NODES_SRC was absent — so a half-migrated workflow, or a leftover
- * shell export beside a correct SRC, sailed through silently. That is the exact
- * shape of the two releases that shipped green against the wrong substrate.
+ * The retired names must be REFUSED, not ignored, even beside a correct
+ * NEWSPACK_NODES_SRC — or a half-migrated workflow, or a leftover shell export,
+ * sails through silently and ships green against the wrong substrate.
  */
 describe( 'assertNoRetiredOverrides', () => {
 	it( 'throws even when NEWSPACK_NODES_SRC is also set', () => {

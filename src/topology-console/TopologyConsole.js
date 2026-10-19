@@ -166,7 +166,7 @@ function buildPathOptions( partitions, active ) {
 /** @typedef {import('@newspack-nodes/shared/utils/workerId').AttachedWorker} AttachedWorker */
 
 /**
- * Re-exported so the console's surface still carries it. The implementation
+ * Re-exported so the console's surface carries it. The implementation
  * lives in `utils/scope` because `useConsoleGraph` needs it too, and a hook
  * importing this component would close an import cycle.
  */

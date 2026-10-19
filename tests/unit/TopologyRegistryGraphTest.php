@@ -271,9 +271,9 @@ class TopologyRegistryGraphTest extends TestCase {
 	/**
 	 * Kind classification must ask the type system, not string-match the token.
 	 * `Tail_Node extends Consumer_Node`, so a Tail IS a durable reader with a
-	 * source + offsetlog — but the literal `match` called it 'logic', which drops
+	 * source + offsetlog — and a literal `match` would call it 'logic', dropping
 	 * it out of `consumer_positions()`, the list `Bootstrap` reads to report
-	 * reader lag. A Partition subclass fell out the same way, so its real log was
+	 * reader lag. A Partition subclass would fall out the same way, its real log
 	 * invisible to the console, the GC's declared set and the conflict gate.
 	 */
 	public function test_graph_for_classifies_consumer_and_partition_subclasses_by_lineage(): void {

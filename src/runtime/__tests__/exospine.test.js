@@ -175,8 +175,8 @@ describe( 'mountExospine( build )', () => {
 	} );
 
 	// Reset Graph removes every node and THEN bumps, so a passenger's rebuild
-	// can fire with no backbone at all. Building onto nothing threw and took
-	// the page's React tree with it; the backbone-up signal is what rebuilds.
+	// can fire with no backbone at all. Building onto nothing would throw and
+	// take the page's React tree with it; the backbone-up signal rebuilds.
 	test( 'a rebuild with no backbone waits rather than throwing', () => {
 		const owner = mountExospine();
 		let builds = 0;

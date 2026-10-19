@@ -177,8 +177,8 @@ class MessageTest extends TestCase {
 	}
 
 	public function test_unpacked_throws_on_too_many_fields(): void {
-		// Stricter than the former `>= 7`: a trailing field on the wire is now
-		// rejected, not silently accepted.
+		// Exactly seven fields: a trailing field on the wire is rejected, not
+		// silently accepted.
 		$this->expectException( \InvalidArgumentException::class );
 		Message::unpacked( '[0,0,"","","","","","extra"]' );
 	}
@@ -239,11 +239,11 @@ class MessageTest extends TestCase {
 
 	/**
 	 * A VALUE containing a bare non-UTF-8 byte (e.g. a logged SQL string built
-	 * from a latin1 column) must not destroy the whole frame. Before this fix,
-	 * wp_json_encode() returning false on invalid UTF-8 made packed() emit '' —
-	 * an empty wire frame that a consumer's unpacked('') then rejected with a
-	 * misleading "expected a 7-element positional array" error three steps from
-	 * the real cause. The frame must survive (mangled) and stay decodable.
+	 * from a latin1 column) must not destroy the whole frame. An empty frame
+	 * from a failed wp_json_encode() would reach a consumer's unpacked('') and
+	 * fail with a misleading "expected a 7-element positional array" error three
+	 * steps from the real cause. The frame must survive (mangled) and stay
+	 * decodable.
 	 */
 	public function test_packed_survives_invalid_utf8_value_instead_of_emitting_empty_frame(): void {
 		$m                   = Message::new_message();

@@ -173,9 +173,9 @@ class SettingsSchemaTest extends TestCase {
 	}
 
 	/**
-	 * The four remote-spoke settings are registered + resettable options and now
-	 * overlay the config file uniformly like every other setting (the per-field
-	 * overlay opt-out is gone).
+	 * The four remote-spoke settings are registered + resettable options and
+	 * overlay the config file uniformly like every other setting (there is no
+	 * per-field overlay opt-out).
 	 */
 	public function test_remote_settings_are_overlaid_like_every_setting(): void {
 		$schema = Settings_Schema::get();
@@ -210,8 +210,8 @@ class SettingsSchemaTest extends TestCase {
 		// newspack-nodes-config.php is null on every EXISTING deployment,
 		// permanently: a deploy preserves the operator's config file, so a key
 		// added later never appears in it. SSE_Out reads `$idle_timeout > 0`,
-		// so null read as "disabled" and the idle close shipped inert. The
-		// Field is now the only home for the value; the file only documents it.
+		// so null would read as "disabled" and the idle close ship inert. The
+		// Field is the only home for the value; the file only documents it.
 		$fields = [];
 		foreach ( Settings_Schema::get()->fields() as $field ) {
 			$fields[ $field->key ] = $field;
@@ -232,7 +232,7 @@ class SettingsSchemaTest extends TestCase {
 	 * The storage geometry's ceiling is a guard against a typo, not a runtime
 	 * limit: Partition refuses only a size below 1, a TSL topology already
 	 * names any size it likes, and Tachikoma's own Partition caps nothing. A
-	 * 512 MiB ceiling was simply lower than an operator's real answer.
+	 * 512 MiB ceiling is lower than an operator's real answer.
 	 */
 	public function test_segment_size_admits_the_sizes_an_operator_asks_for(): void {
 		$fields = [];

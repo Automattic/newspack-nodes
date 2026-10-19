@@ -151,8 +151,8 @@ class AdminTest extends TestCase {
 	}
 
 	/**
-	 * The save path must enforce the SAME bounds the `settings` verb does —
-	 * 4177 partitions is refused there and used to be stored here.
+	 * The save path must enforce the SAME bounds the `settings` verb does, so
+	 * 4177 partitions is refused on both.
 	 */
 	public function test_register_settings_clamps_an_int_option_to_its_declared_bounds(): void {
 		( new Admin() )->register_settings();
@@ -322,7 +322,7 @@ class AdminTest extends TestCase {
 
 	public function test_register_settings_does_not_render_topologies_checkboxes(): void {
 		// The Topology Manager's active toggle is the sole activation UI; the
-		// settings page no longer renders a topologies field or its section.
+		// settings page renders no topologies field and no section for one.
 		$admin = new Admin();
 		$admin->register_settings();
 
@@ -906,8 +906,8 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 	// ---- remote_* sanitizers ---------------------------------------------
 
 	public function test_the_remote_bounds_come_from_the_field_not_a_hand_written_method(): void {
-		// The six sanitize_remote_* methods restated bounds the Field declares;
-		// Schema derives them now, so a resurrected copy is a second definition.
+		// Schema derives the remote bounds from the Field, so a hand-written
+		// sanitize_remote_* method would be a second definition.
 		foreach ( [ 'num_segments', 'min_segments', 'max_segments', 'segment_size', 'min_lifetime', 'lifetime' ] as $axis ) {
 			$this->assertFalse(
 				\method_exists( Admin::class, "sanitize_remote_{$axis}" ),
@@ -1069,7 +1069,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 	}
 
 	public function test_total_storage_callback_counts_logs_from_disk(): void {
-		// The dir-count factor reads from `Log_Discovery::on_disk()`, which now
+		// The dir-count factor reads from `Log_Discovery::on_disk()`, which
 		// returns concrete per-partition dirs. Seed five so the breakdown shows
 		// `× 5 log partitions`.
 		foreach ( [ 'a.p0', 'b.p0', 'c.p0', 'd.p0', 'e.p0' ] as $name ) {
@@ -1087,7 +1087,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 	}
 
 	public function test_total_storage_callback_does_not_double_count_partitions(): void {
-		// `Log_Discovery::on_disk()` now returns CONCRETE per-partition dir
+		// `Log_Discovery::on_disk()` returns CONCRETE per-partition dir
 		// names, so the partition dimension is already in the dir count. The
 		// estimate must be segment_size × the hard cap × dir_count — NOT
 		// multiplied by num_partitions a second time. num_segments=3 < the hard
@@ -1107,8 +1107,8 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$admin->total_storage_callback();
 		$html = \ob_get_clean();
 
-		// 10 MB × 4 segments × 3 dirs = 120 MB. The buggy formula would
-		// multiply by num_partitions (4) again => 480 MB.
+		// 10 MB × 4 segments × 3 dirs = 120 MB. Multiplying by num_partitions
+		// (4) a second time would give 480 MB.
 		$this->assertStringContainsString( '120 MB', $html );
 		$this->assertStringNotContainsString( '480 MB', $html );
 	}
@@ -1176,7 +1176,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 	}
 
 	public function test_blank_memcache_textarea_save_deletes_row(): void {
-		// The exact recurrence guard for this incident: a blank memcache textarea
+		// A blank memcache textarea
 		// must delete the row (file default wins), NOT store [] (which nulls the
 		// shared handle).
 		$admin = new Admin();
@@ -1327,7 +1327,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertSame( 'dashicons-networking', $entry['icon'] );
 		$this->assertSame( 81, $entry['position'] );
 		// Callback must point at render_station_page — the top-level "Nodes" entry is
-		// the station now (Console + Topologies tabs), not the bare console.
+		// the station (Console + Topologies tabs), not the bare console.
 		$this->assertIsArray( $entry['callback'] );
 		$this->assertInstanceOf( Admin::class, $entry['callback'][0] );
 		$this->assertSame( 'render_station_page', $entry['callback'][1] );
@@ -1349,11 +1349,11 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$admin->render_station_page();
 		$html = \ob_get_clean();
 
-		// The top-level "Nodes" page is the station now — its React tree
+		// The top-level "Nodes" page is the station — its React tree
 		// mounts on the station id and carries the Console + Topologies tabs.
 		$this->assertStringContainsString( 'id="newspack-nodes-station"', $html );
 		$this->assertStringContainsString( 'class="newspack-nodes-station-page"', $html );
-		// The standalone console mount is gone — the console loads as a station tab.
+		// No standalone console mount: the console loads as a station tab.
 		$this->assertStringNotContainsString( 'id="newspack-nodes-topology-console"', $html );
 	}
 
@@ -1378,7 +1378,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 	// ---- register_topology_console_tab_bundle ----------------------------
 
 	public function test_register_topology_console_tab_bundle_appends_console_bundle_with_localize(): void {
-		// The console now loads as a contributor tab bundle on the station page; the
+		// The console loads as a contributor tab bundle on the station page; the
 		// bundle entry carries the partition snapshot the React dropdown reads.
 		$tmp = $this->make_temp_dir( 'tsl-console-bundle-' );
 		\file_put_contents( "{$tmp}/synthetic.tsl", "var num_partitions = 3\n" );
@@ -1606,9 +1606,8 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 	// ---- register_event_dashboard_pages ----------------------------------
 
 	public function test_register_event_dashboard_pages_registers_no_standalone_submenu(): void {
-		// Raw Logs was folded into the station as a `host:'station'` tab (like
-		// the Worker Status and Topology Manager dashboards before it), so
-		// register_event_dashboard_pages now registers no standalone submenu.
+		// Raw Logs, Worker Status and Topology Manager are `host:'station'`
+		// tabs, so register_event_dashboard_pages registers no standalone submenu.
 		$admin = new Admin();
 		$admin->register_event_dashboard_pages();
 
@@ -1616,8 +1615,8 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 	}
 
 	public function test_register_event_dashboard_pages_does_not_register_workers_submenu(): void {
-		// The standalone Worker Status dashboard is gone — the station tab is the
-		// sole worker-status home now.
+		// The station tab is the sole worker-status home; no standalone
+		// Worker Status dashboard registers.
 		$admin = new Admin();
 		$admin->register_event_dashboard_pages();
 
@@ -1625,8 +1624,8 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 	}
 
 	public function test_register_event_dashboard_pages_does_not_register_separate_hub_submenu(): void {
-		// The station is the top-level "Nodes" page now (render_station_page), so there
-		// is no standalone Station submenu under STATION_MENU_SLUG anymore.
+		// The station is the top-level "Nodes" page (render_station_page), so there
+		// is no standalone Station submenu under STATION_MENU_SLUG.
 		$admin = new Admin();
 		$admin->register_event_dashboard_pages();
 
@@ -1643,7 +1642,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 	}
 
 	public function test_enqueue_event_dashboards_assets_enqueues_for_hub_page(): void {
-		// Raw Logs is a station tab now, so the event-dashboards bundle (which
+		// Raw Logs is a station tab, so the event-dashboards bundle (which
 		// registers the Raw Logs + Topology Manager tabs) loads on the top-level
 		// "Nodes" station page — not a standalone Raw Logs page.
 		$asset_path = \NEWSPACK_NODES_DIR . 'build/event-dashboards/index.js';
@@ -1658,8 +1657,8 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertArrayHasKey( $handle, $GLOBALS['_enqueued_scripts'] );
 		$enq = $GLOBALS['_enqueued_scripts'][ $handle ];
 		$this->assertStringEndsWith( 'build/event-dashboards/index.js', (string) $enq['src'] );
-		// Deps now come from the wp-scripts manifest (index.asset.php), not the
-		// old hardcoded fallback — assert against the shipped manifest.
+		// Deps come from the wp-scripts manifest (index.asset.php), so assert
+		// against the shipped manifest.
 		$manifest = require \NEWSPACK_NODES_DIR . 'build/event-dashboards/index.asset.php';
 		$this->assertSame( \array_values( $manifest['dependencies'] ), $enq['deps'] );
 		$this->assertTrue( $enq['in_footer'] );
@@ -1677,8 +1676,8 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 	}
 
 	public function test_enqueue_event_dashboards_assets_skips_removed_workers_page(): void {
-		// The standalone Worker Status dashboard is gone, so the event-dashboards
-		// bundle must NOT enqueue on its old page slug.
+		// No standalone Worker Status dashboard exists, so the event-dashboards
+		// bundle must NOT enqueue on the `newspack-nodes-workers` slug.
 		$_GET = [ 'page' => 'newspack-nodes-workers' ];
 
 		( new Admin() )->enqueue_event_dashboards_assets();
@@ -1692,7 +1691,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$asset_path = \NEWSPACK_NODES_DIR . 'build/station/index.js';
 		$this->assertFileExists( $asset_path, 'station build asset missing — run `npm run build` before tests' );
 
-		// The station bundle loads on the top-level "Nodes" page now.
+		// The station bundle loads on the top-level "Nodes" page.
 		$_GET = [ 'page' => Admin::STATION_MENU_SLUG ];
 
 		( new Admin() )->enqueue_station_assets();

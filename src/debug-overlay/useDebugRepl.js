@@ -174,7 +174,7 @@ function buildInfra( shell, debugLevelRef, onSetSkin ) {
 		saveDebugUi( next );
 		return true;
 	} );
-	// Seed the transcript and interpreter debug_state from storage [87].
+	// Seed the transcript and interpreter debug_state from storage.
 	dumper.restore( loadTranscript() );
 	if ( interpreter ) {
 		interpreter.debugState = loadDebugState();
@@ -242,9 +242,9 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 	// Stable refs so re-renders don't rebuild the Shell or remap the Dumper.
 	const shellRef = useRef( null );
 	const dumperRef = useRef( null );
-	// Seeded from localStorage so verbosity survives a reload [87].
+	// Seeded from localStorage so verbosity survives a reload.
 	const debugLevelRef = useRef( loadDebugLevel() );
-	// Last-persisted debug_state; sendLine writes only on change [87].
+	// Last-persisted debug_state; sendLine writes only on change.
 	const lastDebugStateRef = useRef( loadDebugState() );
 	// A ref, so the memoized build always calls the live skin applier.
 	const onSetSkinRef = useRef( onSetSkin );
@@ -388,7 +388,7 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 				Core.node( names.METADATA )?.markDue();
 				setCwd( s.path );
 			}
-			// `trace` mutates the interpreter's debug_state; persist [87].
+			// `trace` mutates the interpreter's debug_state; persist it.
 			const ci = Core.node( names.COMMAND_INTERPRETER );
 			const ds = ci ? ci.debugState ?? 0 : 0;
 			if ( ds !== lastDebugStateRef.current ) {

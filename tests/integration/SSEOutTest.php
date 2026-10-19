@@ -1,9 +1,9 @@
 <?php
 /**
- * Integration coverage for the M5-cutover SSE controller's drain loop.
+ * Integration coverage for the SSE controller's drain loop.
  *
- * Task 18 — the route registration, CSV splitter, and subscription
- * resolver are covered by the Task-17 unit suite. This file exercises
+ * The route registration, CSV splitter, and subscription resolver are
+ * covered by MessagesStreamSubscriptionResolverTest. This file exercises
  * the drain-loop body itself: `connected` envelope, then per-line
  * forwarding from log-partition Consumers wired into the SSE-process
  * substrate graph (Router + HTTP_Filter + Callback sink).
@@ -198,8 +198,8 @@ class SSEOutTest extends TestCase {
 		SSE_Out_Node::$check_slot = $this->boundedTicks( 2 );
 
 		\ob_start();
-		// Two partitions → two Consumers. With the bug this throws before the
-		// drain; fixed, it streams to completion and emits the connected envelope.
+		// Two partitions → two Consumers. It streams to completion and emits the
+		// connected envelope.
 		$ctrl->run_stream_loop( [ 'gyroscope.*' ], null, 500 );
 		$out = \ob_get_clean();
 
@@ -351,7 +351,7 @@ class SSEOutTest extends TestCase {
 
 		// An EVENT, not the protocol `retry:` field: that field is what makes the
 		// browser reconnect on its own — and a browser-made reconnect is the only
-		// thing that sends `Last-Event-ID`. The client owns the schedule now.
+		// thing that sends `Last-Event-ID`. The client owns the schedule.
 		$this->assertStringNotContainsString( 'retry: 4500', $out, 'the protocol field would restore browser-managed reconnect' );
 		$retry_at = \strpos( $out, 'event: retry' );
 		$this->assertNotFalse( $retry_at, 'the stream must advertise its reopen schedule' );
@@ -993,7 +993,7 @@ class SSEOutTest extends TestCase {
 		$out = (string) \ob_get_clean();
 		$this->assertFalse( $capped, 'the stream must close on its idle timeout' );
 
-		// A client's job now: seed from the `connected` envelope's CURSORS, then
+		// The client's job: seed from the `connected` envelope's CURSORS, then
 		// advance each subscription from its own FROM + ID breadcrumb. There is
 		// no `id:` line to echo — that is what fed Last-Event-ID.
 		$values  = [];

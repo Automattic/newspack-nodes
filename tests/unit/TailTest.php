@@ -38,7 +38,7 @@ class TailTest extends TestCase {
 	}
 
 	public function test_crawl_head_sacrifice_works_for_the_tail_subclass(): void {
-		// Regression: the crawl head-sacrifice lives in the shared drain_buffer, NOT
+		// The crawl head-sacrifice lives in the shared drain_buffer, NOT
 		// forward_line (which Tail overrides to emit raw bytes). A Tail that enters
 		// crawl must still skip the poison head instead of re-emitting it every boot.
 		$file = "{$this->tmp}/data.log";
@@ -99,7 +99,7 @@ class TailTest extends TestCase {
 	}
 
 	public function test_default_starts_at_end_then_emits_only_appended_bytes(): void {
-		// THE BUG FIX: a fresh Tail with no durable cursor starts at end-of-file —
+		// A fresh Tail with no durable cursor starts at end-of-file —
 		// pre-existing content is NOT re-read; only bytes appended after start emit.
 		$file = "{$this->tmp}/data.log";
 		$this->write_segment( $file, 0, "old1\nold2\n" );

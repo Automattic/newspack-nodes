@@ -1,19 +1,14 @@
 <?php
 /**
- * AggregatorCITest: unit tests for Aggregator_CI, the substrate service-CI that
- * collapses two legacy controllers (AggregatorController +
- * AggregatorStatusController) which both registered under
- * newspack-nodes-aggregator/v1.
+ * AggregatorCITest: unit tests for Aggregator_CI, the hub-side aggregator
+ * service-CI.
  *
  * Three verbs:
- *   status  — per-server partition status (lifted from
- *             AggregatorStatusController::get_status, the purpose-built
- *             body that AggregatorController's stub delegated to).
- *   health  — cache reachability + timestamp (lifted from
- *             AggregatorController::health).
- *   servers — sequential array of registered servers with public-safe
- *             shape (lifted from AggregatorController::list_servers).
- *             Distinct from Servers_CI.list which returns a keyed map.
+ *   summary      — connected/idle/total counts, the snapshot clock, and each
+ *                  unreadable topology by name.
+ *   list_servers — the status snapshot as a sequential array, each broker
+ *                  with its readers off the probe log.
+ *   probe        — an on-demand deep probe of one spoke.
  *
  * @package Newspack_Nodes
  */
@@ -43,7 +38,7 @@ class AggregatorCITest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
-		// A probe now requires a live session for its destination; seed the ids
+		// A probe requires a live session for its destination; seed the ids
 		// this file probes so the $http_call stubs answer only the /command leg.
 		foreach ( self::SEEDED_SESSIONS as $spoke ) {
 			Command_Auth::remember_session( $spoke, \str_repeat( '3', 32 ), 'probe-session-key' );
@@ -474,8 +469,8 @@ class AggregatorCITest extends TestCase {
 			$this->assertArrayHasKey( $name, $verbs, "node_schema must list the '{$name}' verb" );
 			$this->assertIsCallable( $verbs[ $name ]['handler'] );
 		}
-		// The raw `status` / legacy `servers` / `health` verbs were removed — the
-		// de-god slices `summary` + `list_servers` are the only live surface.
+		// No `status`, `servers` or `health` verb — the slices `summary` and
+		// `list_servers` are the read surface.
 		foreach ( [ 'status', 'health', 'servers' ] as $removed ) {
 			$this->assertArrayNotHasKey( $removed, $verbs, "removed verb '{$removed}' must not be listed" );
 		}

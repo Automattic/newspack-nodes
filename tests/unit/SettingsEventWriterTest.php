@@ -217,9 +217,9 @@ class SettingsEventWriterTest extends TestCase {
 	}
 
 	public function test_writer_partition_args_declare_the_retention_axes(): void {
-		// The settings log used to pass `2 86400` — a LIFETIME landing on the
-		// num_segments slot, licensing 86400 segments. The count target is 2, the
-		// day-long lifespan is the AGE rule; the hard cap derives to 2 × num_segments.
+		// The count target is 2 and the day-long lifespan is the AGE rule, never a
+		// LIFETIME landing on the num_segments slot and licensing 86400 segments;
+		// the hard cap derives to 2 × num_segments.
 		$part = new Partition_Node();
 		$part->arguments( Settings_Event_Writer::partition_args( $this->make_temp_dir() . '/settings.p0' ) );
 
@@ -323,12 +323,13 @@ class SettingsEventWriterTest extends TestCase {
 	}
 
 	/**
-	 * The writer arms its option hooks at plugin load, but `<config:*>` was only
-	 * registered by the lazy `ensure_runtime_wired()`. An option change before
-	 * anything wired the runtime — early in a `wp nodes cli` run — hit a strict
-	 * schema default (`<config:max_segments>`), threw "unknown namespace", and
-	 * the settings event was DROPPED with only a rate-limited line to show for
-	 * it. Arming the hooks has to arm what resolving their args needs.
+	 * The writer arms its option hooks at plugin load, so it registers
+	 * `<config:*>` itself rather than waiting for the lazy
+	 * `ensure_runtime_wired()`. Otherwise an option change before anything wired
+	 * the runtime — early in a `wp nodes cli` run — would hit a strict schema
+	 * default (`<config:max_segments>`), throw "unknown namespace", and DROP the
+	 * settings event with only a rate-limited line to show for it. Arming the
+	 * hooks has to arm what resolving their args needs.
 	 */
 	public function test_init_registers_the_config_token_namespace(): void {
 		Core::$config_resolvers = [];
@@ -340,7 +341,7 @@ class SettingsEventWriterTest extends TestCase {
 
 		Settings_Event_Writer::init();
 
-		// Strict: the throw is the bug, and an owned key must come back.
+		// Strict: a throw fails the test, and an owned key must come back.
 		$this->assertSame(
 			'0',
 			Core::resolve_config_token( 'config', 'max_segments', true )

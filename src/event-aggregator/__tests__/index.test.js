@@ -1,8 +1,8 @@
 /**
  * event-aggregator/index — registers the Aggregator station tab
- * (side-effect import of `./tabs`) and mounts no standalone React tree. The
- * former ELN createRoot status-page mount is gone — Aggregator is a station tab
- * now, so the entry must never call createRoot regardless of stray DOM nodes.
+ * (side-effect import of `./tabs`) and mounts no standalone React tree.
+ * Aggregator is a station tab, so the entry must never call createRoot
+ * regardless of stray DOM nodes.
  * Mirrors vault/__tests__/index.test.js.
  */
 
