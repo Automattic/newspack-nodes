@@ -356,3 +356,193 @@ describe( 'useQueryParamList', () => {
 		unmount();
 	} );
 } );
+
+describe( 'written', () => {
+	beforeEach( () => {
+		setLocation(
+			'/wp-admin/admin.php?page=perf&url_metric=memory&url_bucket=2026-09-29-14-30&url_chip=method%3DPURGE&url_chip=country%3DSG&url_workers=1'
+		);
+	} );
+
+	const mount = ( hook, written ) =>
+		renderHook( ( props ) => hook( props ), {
+			initialProps: { written },
+		} );
+
+	describe( 'useQueryParamChoice', () => {
+		const useChoice = ( props ) =>
+			useQueryParamChoice( 'url_metric', METRICS, 'volume', props );
+
+		it( 'holds the linked choice but leaves it off the bar', () => {
+			const { result, unmount } = mount( useChoice, false );
+			expect( result.current[ 0 ] ).toBe( 'memory' );
+			expect( param( 'url_metric' ) ).toBeNull();
+			unmount();
+		} );
+
+		it( 'still validates the held choice', () => {
+			setLocation( '/wp-admin/admin.php?page=perf&url_metric=bogus' );
+			const { result, unmount } = mount( useChoice, false );
+			expect( result.current[ 0 ] ).toBe( 'volume' );
+			unmount();
+		} );
+
+		it( 'writes a pick once written, and drops it when unwritten', () => {
+			const { result, rerender, unmount } = mount( useChoice, false );
+			act( () => result.current[ 1 ]( 'cumulative' ) );
+			expect( param( 'url_metric' ) ).toBeNull();
+
+			rerender( { written: true } );
+			expect( param( 'url_metric' ) ).toBe( 'cumulative' );
+
+			rerender( { written: false } );
+			expect( param( 'url_metric' ) ).toBeNull();
+			expect( result.current[ 0 ] ).toBe( 'cumulative' );
+			unmount();
+		} );
+	} );
+
+	describe( 'useQueryParamState', () => {
+		const useBucket = ( props ) =>
+			useQueryParamState(
+				'url_bucket',
+				( raw ) => raw ?? '',
+				String,
+				props
+			);
+
+		it( 'holds the linked value but leaves it off the bar', () => {
+			const { result, unmount } = mount( useBucket, false );
+			expect( result.current[ 0 ] ).toBe( '2026-09-29-14-30' );
+			expect( param( 'url_bucket' ) ).toBeNull();
+			unmount();
+		} );
+
+		it( 'writes the value once written, and drops it when unwritten', () => {
+			const { result, rerender, unmount } = mount( useBucket, false );
+			act( () => result.current[ 1 ]( '2026-10-04-13-35' ) );
+			expect( param( 'url_bucket' ) ).toBeNull();
+
+			rerender( { written: true } );
+			expect( param( 'url_bucket' ) ).toBe( '2026-10-04-13-35' );
+
+			rerender( { written: false } );
+			expect( param( 'url_bucket' ) ).toBeNull();
+			expect( result.current[ 0 ] ).toBe( '2026-10-04-13-35' );
+			unmount();
+		} );
+	} );
+
+	describe( 'useQueryParamList', () => {
+		const useChips = ( props ) =>
+			useQueryParamList(
+				'url_chip',
+				( raw ) => raw,
+				( l ) => l,
+				props
+			);
+
+		it( 'holds the linked list but leaves it off the bar', () => {
+			const { result, unmount } = mount( useChips, false );
+			expect( result.current[ 0 ] ).toEqual( [
+				'method=PURGE',
+				'country=SG',
+			] );
+			expect( params( 'url_chip' ) ).toEqual( [] );
+			unmount();
+		} );
+
+		it( 'writes the list once written, and drops it when unwritten', () => {
+			const { result, rerender, unmount } = mount( useChips, false );
+			act( () => result.current[ 1 ]( [ 'worker=3' ] ) );
+			expect( params( 'url_chip' ) ).toEqual( [] );
+
+			rerender( { written: true } );
+			expect( params( 'url_chip' ) ).toEqual( [ 'worker=3' ] );
+
+			rerender( { written: false } );
+			expect( params( 'url_chip' ) ).toEqual( [] );
+			expect( result.current[ 0 ] ).toEqual( [ 'worker=3' ] );
+			unmount();
+		} );
+	} );
+
+	describe( 'useQueryParamFlag', () => {
+		it( 'holds the linked flag off the bar until written', () => {
+			const { result, rerender, unmount } = mount(
+				( props ) => useQueryParamFlag( 'url_workers', props ),
+				false
+			);
+			expect( result.current[ 0 ] ).toBe( true );
+			expect( param( 'url_workers' ) ).toBeNull();
+
+			rerender( { written: true } );
+			expect( param( 'url_workers' ) ).toBe( '1' );
+			unmount();
+		} );
+	} );
+} );
+
+describe( 'a value naming nothing flipping written', () => {
+	it.each( [
+		[
+			'an empty list',
+			( props ) =>
+				useQueryParamList(
+					'url_chip',
+					() => [],
+					( l ) => l,
+					props
+				),
+		],
+		[
+			'a list of empty entries',
+			( props ) =>
+				useQueryParamList(
+					'url_chip',
+					() => [ '' ],
+					( l ) => l,
+					props
+				),
+		],
+		[
+			'an empty string',
+			( props ) =>
+				useQueryParamState( 'url_bucket', () => '', String, props ),
+		],
+	] )( '%s writes nothing and keeps its popstate listener', ( _, hook ) => {
+		setLocation( '/wp-admin/admin.php?page=perf&url=h7' );
+		const { rerender, unmount } = renderHook( ( props ) => hook( props ), {
+			initialProps: { written: true },
+		} );
+		const replaceSpy = jest.spyOn( window.history, 'replaceState' );
+		const addSpy = jest.spyOn( window, 'addEventListener' );
+
+		rerender( { written: false } );
+		rerender( { written: true } );
+
+		expect( replaceSpy ).not.toHaveBeenCalled();
+		expect( addSpy ).not.toHaveBeenCalledWith(
+			'popstate',
+			expect.any( Function )
+		);
+		replaceSpy.mockRestore();
+		addSpy.mockRestore();
+		unmount();
+	} );
+} );
+
+describe( 'a list holding missing entries', () => {
+	it( 'writes only the entries it holds', () => {
+		setLocation( '/wp-admin/admin.php?page=perf' );
+		const { unmount } = renderHook( () =>
+			useQueryParamList(
+				'url_chip',
+				() => [ 'worker=3', undefined, null ],
+				( l ) => l
+			)
+		);
+		expect( params( 'url_chip' ) ).toEqual( [ 'worker=3' ] );
+		unmount();
+	} );
+} );
