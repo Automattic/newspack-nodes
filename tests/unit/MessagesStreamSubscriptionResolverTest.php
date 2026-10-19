@@ -11,14 +11,13 @@ use Newspack_Nodes\Rest\SSE_Out_Node;
 use Newspack_Nodes\Tests\TestCase;
 
 /**
- * Unit tests for the M5-cutover SSE controller's subscription resolver.
+ * Unit tests for the SSE controller's subscription resolver.
  *
  * Locks the contract for `open_subscription` (one Consumer per log
  * partition; exactly one Consumer per IPC reader; throw on anything
  * that doesn't match either shape) and the trivial CSV parsing of
  * `parse_subscriptions`. The route registration is just enough to
- * surface signature regressions — the drain-loop body itself lands in
- * Task 18.
+ * surface a signature change; the drain-loop body is tested elsewhere.
  */
 #[CoversClass( SSE_Out_Node::class )]
 class MessagesStreamSubscriptionResolverTest extends TestCase {
@@ -37,7 +36,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 	}
 
 	public function test_a_seek_sentinel_position_resolves_as_a_seek(): void {
-		// The wire states every seek as a number now, so -1 must reach
+		// The wire states every seek as a number, so -1 must reach
 		// next_offset() as -1 and land at the live end — not as the string
 		// '-1' by way of a stringify, and not silently as `start`.
 		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
@@ -71,7 +70,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 	}
 
 	public function test_a_zero_position_resolves_to_the_start_of_the_log(): void {
-		// The bug the sentinels close: 0 is a place, not an absent value.
+		// 0 is a place, not an absent value.
 		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;

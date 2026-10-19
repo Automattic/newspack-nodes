@@ -1,9 +1,9 @@
 /**
  * Shared design tokens for the dashboard stylesheets. Surfaces/text/borders are
  * read straight from the skin CSS custom properties (`var(--paper*)`,
- * `var(--ink*)`, `var(--cyan*)`) at the call site now — the old `$dark-*` /
- * `$light-*` / `$term-*` SCSS aliases were deleted. What remains here is the set
- * that genuinely earns a name: semantic status colors, focus, and sizing.
+ * `var(--ink*)`, `var(--cyan*)`) at the call site, with no SCSS alias. What
+ * lives here is the set that genuinely earns a name: semantic status colors,
+ * focus, and sizing.
  */
 
 // Status colors (HTTP) — functional.

@@ -4,8 +4,7 @@
  * the axis under `maxPoints`), then fill each bucket per the metric's mode:
  * LEVEL gauges (backlog/cacheSize) HOLD the last value across empty buckets
  * (0 before the first sample); RATE metrics zero-fill and re-divide the bucket's
- * summed work by its summed weight. This kills the phase-offset sawtooth the old
- * raw-union + `?? 0` path drew. No DOM.
+ * summed work by its summed weight, so no phase-offset sawtooth appears. No DOM.
  */
 
 import { buildAlignedSeries } from '../buildAlignedSeries';

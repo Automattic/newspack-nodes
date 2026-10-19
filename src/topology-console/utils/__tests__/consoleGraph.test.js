@@ -1,9 +1,9 @@
 /**
- * consoleGraph — the graph helpers that outlived the draft reducer.
+ * consoleGraph — the graph helpers the draft interpreter does not own.
  *
- * What is left after the draft interpreter took the mutation half and the
- * dirty-check: the canvas's `_repl` anchor, and unique-name generation. None
- * of them mutate a document; they are all reads over one.
+ * The canvas's `_repl` anchor, and unique-name generation; the draft
+ * interpreter owns mutation and the dirty-check. None of them mutate a
+ * document; they are all reads over one.
  */
 
 import {

@@ -164,8 +164,8 @@ describe( 'RemoteIpcNode', () => {
 	} );
 
 	// The Router brackets every tick in _http.lock()/flush() (router-node.js),
-	// so N poller sends to one worker ride ONE POST — and each was dragging its
-	// own identical mount.
+	// so N poller sends to one worker ride ONE POST, which needs one mount,
+	// not one identical mount per send.
 	it( 'mounts the worker once per batch however many commands ride it', () => {
 		const { interpreter } = mountExospine();
 		const node = makeRemoteIpc( 'aggregator-hub.p0', interpreter );

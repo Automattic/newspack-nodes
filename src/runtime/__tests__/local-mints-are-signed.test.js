@@ -85,7 +85,7 @@ describe( 'Remote_IPC bundles a signed connect', () => {
 		node.reader = 'combined.p0';
 		node.pid = () => 7;
 		node.connect = () => {};
-		// The ONE `_http` boundary; RemoteIpc no longer aliases it per-link.
+		// The ONE `_http` boundary; RemoteIpc does not alias it per-link.
 		// The REAL node, not a literal: RemoteIpc asks it about the batch.
 		const http = new HttpOutNode();
 		http.client = {

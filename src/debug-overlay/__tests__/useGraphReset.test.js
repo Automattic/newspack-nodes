@@ -147,7 +147,7 @@ describe( 'useGraphReset', () => {
 		} );
 		act( () => gate.fill( commandMsg( 'make_node', 'Tee my-tee' ) ) );
 		act( () => gate.fill( commandMsg( 'remove_node', 'my-tee' ) ) );
-		// Dirty stays (the removal IS an edit); the node no longer counts.
+		// Dirty stays (the removal IS an edit); the node does not count.
 		rerender( opts( gate, { nodes: [] } ) );
 		expect( result.current.canResetGraph ).toBe( true );
 		rerender( opts( makeGate(), { nodes: [], shell: new ShellNode() } ) );

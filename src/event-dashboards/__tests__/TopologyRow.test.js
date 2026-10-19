@@ -3,7 +3,7 @@
  * pills + source/health badges + a topology-level collapse chevron + the shared
  * controls) over the live TopologySection subtree. The REAL TopologySection is
  * rendered (NOT mocked) so the node-row / segment-bar / within-tree-fold coverage
- * migrated from the old TopologyManager suite stays honest. consoleHref's
+ * stays honest. consoleHref's
  * deep-link shapes are exercised here too.
  */
 
@@ -212,7 +212,7 @@ describe( 'TopologyRow — folded mode', () => {
 	it( 'counts up against CONFIGURED partitions, not the ones that reported', () => {
 		// A worker process that is gone entirely does not report a row at all —
 		// it is absent, not `down`. Using the reporting count as the
-		// denominator made a 4-partition topology running 2 workers read
+		// denominator would make a 4-partition topology running 2 workers read
 		// "ALL LIVE", the exact opposite of the truth.
 		const props = rowProps( {
 			folded: true,
@@ -486,9 +486,9 @@ describe( 'TopologyRow', () => {
 		expect( container.querySelector( '.worker-segment-h' ) ).toBeTruthy();
 	} );
 
-	// The reported bug: Overview shares ONE fold set across every row, and
-	// `topic-probe.tsl` is included by seven topologies, so a key naming only
-	// the tree path folded the same-named entity in all of them at once.
+	// Overview shares ONE fold set across every row, and `topic-probe.tsl` is
+	// included by seven topologies, so a key naming only the tree path would
+	// fold the same-named entity in all of them at once.
 	it( 'folding an entity in one topology leaves its namesake in another open', () => {
 		const row = ( name ) =>
 			rowProps( {

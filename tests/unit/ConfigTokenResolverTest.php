@@ -101,7 +101,7 @@ class ConfigTokenResolverTest extends TestCase {
 	}
 
 	public function test_substrate_config_namespace_resolves_deadletter_dir(): void {
-		// Topologies wire poison quarantine via <config:deadletter_dir>/... (dead-letter [42]).
+		// Topologies wire poison quarantine via <config:deadletter_dir>/....
 		Config::register_token_namespace();
 		$this->assertStringEndsWith( '/deadletter', Core::resolve_config_token( 'config', 'deadletter_dir' ) );
 	}

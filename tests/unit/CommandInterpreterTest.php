@@ -1091,7 +1091,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_tabulate_terminates_its_last_row(): void {
-		// The write seam no longer appends, so each producer ends its own block
+		// The write seam appends nothing, so each producer ends its own block
 		// (Tachikoma: every verb is responsible for its trailing newline).
 		$out = Command_Interpreter_Node::tabulate(
 			[ 'l', 'l' ],
@@ -1203,8 +1203,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_old_debug_state_verb_name_no_longer_resolves(): void {
-		// The verb renamed to `trace`; the reply strings still report the
-		// unchanged `debug_state` node property, but the old verb is gone.
+		// The verb is `trace`; the reply strings report the `debug_state`
+		// node property, but no verb answers to `debug_state`.
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
@@ -1944,10 +1944,10 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->name( '_command_interpreter' );
 
 		$out = $interpreter->dispatch( 'help' );
-		// One unified section; the former separate SHELL BUILTINS list is folded in.
+		// One unified section; there is no separate SHELL BUILTINS list.
 		$this->assertStringContainsString( '### COMMANDS ###', $out );
 		$this->assertStringNotContainsString( '### SHELL BUILTINS ###', $out );
-		// Shell builtins now appear in the single command table.
+		// Shell builtins appear in the single command table.
 		$this->assertStringContainsString( 'send_struct', $out );
 		$this->assertStringContainsString( 'debug_level', $out );
 		$this->assertStringContainsString( 'request_struct', $out );
@@ -2269,7 +2269,7 @@ class CommandInterpreterTest extends TestCase {
 		$message[ Message::VALUE ] = 'twelve bytes';
 		$alice->fill( $message );
 
-		// dump_metadata returns a live PHP structure now — no JSON string to decode.
+		// dump_metadata returns a live PHP structure — no JSON string to decode.
 		$decoded = $interpreter->dispatch( 'dump_metadata' );
 
 		$this->assertIsArray( $decoded );
@@ -2601,8 +2601,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_default_ci_still_has_default_verbs_after_refactor(): void {
-		// Regression: moving $C from class-level static to instance must
-		// not break the bare `_command_interpreter`'s built-in verbs.
+		// $C is per instance, and the bare `_command_interpreter` still
+		// carries the built-in verbs.
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 		$result = $interpreter->dispatch( 'ls' );
@@ -3049,8 +3049,7 @@ class CommandInterpreterTest extends TestCase {
 
 	public function test_uptime_renders_clock_prefix_in_HHMMSS(): void {
 		// The output is `HH:MM:SS  up <elapsed>` — covers the gmdate()
-		// clock-segment branch that wasn't asserted on by the existing
-		// uptime suite (which only checked the elapsed portion).
+		// clock-segment branch beside the elapsed portion.
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 		// 2023-11-14T22:13:20+00:00.
@@ -3694,10 +3693,10 @@ class CommandInterpreterTest extends TestCase {
 	 * Secure levels ACCUMULATE: level 3 disables everything 1 and 2 disable.
 	 * Tachikoma's `CommandInterpreter::disabled()` folds level 1's commands into
 	 * 2 and 2's into 3 when the map is assigned, so its per-level lookup is
-	 * already cumulative. The port kept the per-level map and dropped the fold,
-	 * so `make_node` — refused at 1 — became permitted again at 2 and 3.
+	 * already cumulative. A per-level map without that fold would permit
+	 * `make_node` — refused at 1 — again at 2 and 3.
 	 *
-	 * The one-way ratchet is what made that unrecoverable: `secure` refuses to
+	 * The one-way ratchet makes that unrecoverable: `secure` refuses to
 	 * descend, so a process that climbed past 1 could never re-acquire the
 	 * protection it silently lost.
 	 */

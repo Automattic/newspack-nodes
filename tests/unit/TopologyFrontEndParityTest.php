@@ -1,11 +1,10 @@
 <?php
 /**
- * Front-end golden pin: the observable Topology_Registry outputs that the swap
- * from the legacy normalize_lines() pipeline to Shell_Node::parse_statements()
- * must leave undisturbed, asserted directly against the SHIPPED bundled .tsl
- * (not synthetic fixtures). Covers the trailing-`;` `var` fix — the runtime
- * Shell splits on unquoted `;`, so `var num_partitions = 1;` frontmatter reads
- * identically with the semicolon now stripped at the front-end.
+ * Front-end golden pin: the observable Topology_Registry outputs of the
+ * Shell_Node::parse_statements() front-end, asserted directly against the
+ * SHIPPED bundled .tsl (not synthetic fixtures). Covers a trailing-`;` `var`
+ * — the runtime Shell splits on unquoted `;`, so `var num_partitions = 1;`
+ * frontmatter reads identically with the semicolon stripped at the front-end.
  *
  * @package Newspack_Nodes
  */
@@ -84,7 +83,7 @@ class TopologyFrontEndParityTest extends TestCase {
 		);
 	}
 
-	/** graph_for golden on the stress fixture: node names + fan-out edges survive the swap. */
+	/** graph_for golden on the stress fixture: node names + fan-out edges. */
 	public function test_graph_for_golden_on_stress_fixture(): void {
 		$graph = Topology_Analyzer::graph_for( 'request-builder' );
 		$names = \array_column( $graph['nodes'], 'name' );

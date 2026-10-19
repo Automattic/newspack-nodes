@@ -42,7 +42,7 @@ class HTTPInTest extends TestCase {
 		// /command request holds it, so the harness must too.
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
 		$this->status_codes                   = [];
-		// Ingress no longer signs, so a request must arrive signed like a real
+		// Ingress does not sign, so a request must arrive signed like a real
 		// client's. Same-site secret() signing is the `wp nodes cli` path.
 		Command_Auth::$claim_nonce = static fn ( string $nonce, int $ttl ): bool => true;
 	}
@@ -88,8 +88,7 @@ class HTTPInTest extends TestCase {
 	/**
 	 * Translate the named fields a test expresses into a packed 7-element
 	 * positional Message array (the wire shape `Message::unpacked()` requires)
-	 * — the same named→positional mapping the controller's now-deleted
-	 * `normalize_body_to_message()` used to perform, relocated into the harness.
+	 * — a named→positional mapping that lives in the harness alone.
 	 *
 	 * @param array<string,mixed> $fields Any of type/from/to/id/key/value (all optional).
 	 * @return array<int,mixed> A 7-element positional Message.
@@ -106,7 +105,7 @@ class HTTPInTest extends TestCase {
 		// string. Only the envelope/wire (Message::packed) is JSON. Don't
 		// string-cast: that would flatten an array VALUE to "Array".
 		$message[ Message::VALUE ] = $fields['value'] ?? '';
-		// Ingress no longer signs, so a request arrives signed like a real
+		// Ingress does not sign, so a request arrives signed like a real
 		// client's. `sign => false` lets a test supply its own envelope.
 		if ( false !== ( $fields['sign'] ?? true ) ) {
 			Command_Auth::sign( $message );
@@ -145,19 +144,11 @@ class HTTPInTest extends TestCase {
 	}
 
 	/**
-	 * A command that already carries a session envelope must reach the graph with
-	 * its handle intact. `stamp()` replaces the whole `auth` array, so an
-	 * unconditional re-sign at ingress strips the handle and re-keys the message
-	 * to the local secret — which means an expired or revoked session executes
-	 * anyway, and the verify-by-handle branch is unreachable on the only live
-	 * wire ingress.
-	 */
-	/**
-	 * The flag day. HTTP_In used to sign whatever arrived, on the grounds that
-	 * WordPress had already authenticated the caller — which made the boundary an
-	 * oracle: authority came from ARRIVAL, so anything reaching it acquired
-	 * authority regardless of what put it there. Every minter now signs, so
-	 * ingress signing is gone and an unsigned command stays unsigned.
+	 * HTTP_In signs nothing. Signing whatever arrived, on the grounds that
+	 * WordPress had already authenticated the caller, would make the boundary an
+	 * oracle: authority would come from ARRIVAL, so anything reaching it would
+	 * acquire authority regardless of what put it there. Every minter signs, so
+	 * an unsigned command stays unsigned.
 	 */
 	public function test_dispatch_does_not_sign_an_unsigned_command(): void {
 		$base_interpreter = $this->build_graph();
@@ -189,6 +180,13 @@ class HTTPInTest extends TestCase {
 		);
 	}
 
+	/**
+	 * A command that already carries a session envelope reaches the graph with
+	 * its handle intact. `stamp()` replaces the whole `auth` array, so a re-sign
+	 * at ingress would strip the handle and re-key the message to the local
+	 * secret: an expired or revoked session would execute anyway, and the
+	 * verify-by-handle branch would be unreachable on the only live wire ingress.
+	 */
 	public function test_dispatch_leaves_an_already_signed_session_envelope_alone(): void {
 		$base_interpreter = $this->build_graph();
 		$capture          = new Capture_Sink_Node();
@@ -325,12 +323,11 @@ class HTTPInTest extends TestCase {
 	}
 
 	/**
-	 * Ingress used to re-anchor TIMESTAMP to the server clock before signing, so
-	 * a browser 20+s skewed still verified. It cannot any more: the minter signs
+	 * Ingress cannot re-anchor TIMESTAMP to the server clock: the minter signs
 	 * TIMESTAMP, so it is signed material and re-anchoring would destroy the
-	 * signature. The tolerance moved to the mint — /auth reports the server clock
-	 * and the client aligns to it — so what ingress must now do is REFUSE a stale
-	 * command rather than quietly rescue it.
+	 * signature. The skew tolerance lives at the mint — /auth reports the server
+	 * clock and the client aligns to it — so ingress REFUSES a stale command
+	 * rather than quietly rescuing it.
 	 */
 	public function test_a_stale_client_timestamp_is_refused_not_rescued(): void {
 		$base_interpreter = $this->build_graph();
@@ -477,8 +474,9 @@ class HTTPInTest extends TestCase {
 	 * `fill()` decides the status on the FIRST write and the status is spent
 	 * once the body starts, which is why `authorize_and_latch()` raises its
 	 * latch ahead of the verifier. Answering a refused message inside the
-	 * routing loop wrote that first frame before a later unauthorized command
-	 * had been seen, so the batch answered 200 and the 401 never ran.
+	 * routing loop would write that first frame before a later unauthorized
+	 * command had been seen, so the batch would answer 200 and the 401 never
+	 * run.
 	 */
 	public function test_a_boundary_refusal_does_not_pre_empt_the_batch_401(): void {
 		$this->build_graph_sans_output();

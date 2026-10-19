@@ -1,7 +1,7 @@
 /**
- * useLogTailStream tests — the ONE parameterised probe-log tail. The per-log
- * hooks were byte-identical copies of this graph differing only in their names,
- * their subscription and their view class, so what is asserted here is the
+ * useLogTailStream tests — the ONE parameterised probe-log tail. Each log
+ * differs only in its names, its subscription and its view class, so what is
+ * asserted here is the
  * derivation itself: `<name>:stream → <name>:view` riding the page link, the seek
  * `mode` picks, and that an unrecognised mode fails LOUD instead of silently
  * tail-seeking away a replay.

@@ -21,12 +21,11 @@
  * The HMAC comes from @noble/hashes rather than crypto.subtle, because it must
  * be SYNCHRONOUS. WebCrypto returns promises as an API choice — HMAC-SHA256
  * over a few hundred bytes is microseconds of arithmetic, not work worth
- * deferring — and making the Shell's dispatch() async to await one moves every
- * graph mutation a microtask later, failing 105 tests across twelve suites and
- * reordering renders in the console. JS has no way to block on a promise
- * (Perl's Tachikoma::drain swaps in a sync framework and re-enters the loop;
- * JS's loop is the runtime and is not re-entrant), so the fix is to have no
- * async operation at all.
+ * deferring — and making the Shell's dispatch() async to await one would move
+ * every graph mutation a microtask later and reorder renders in the console.
+ * JS has no way to block on a promise (Perl's Tachikoma::drain swaps in a sync
+ * framework and re-enters the loop; JS's loop is the runtime and is not
+ * re-entrant), so the signer has no async operation at all.
  */
 
 import { Core } from './core';

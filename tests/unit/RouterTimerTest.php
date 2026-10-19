@@ -86,9 +86,9 @@ class RouterTimerTest extends TestCase {
 	}
 
 	/**
-	 * Regression for "TIMER hitchhike fires once then dies" bug: the original closure-based
-	 * implementation returned void → null → falsy, so Node::notify auto-unregistered the
-	 * listener after tick 1. Node-name dispatch keeps the registration alive across ticks.
+	 * A hitchhiked TIMER fires on every tick. A closure listener returning void → null →
+	 * falsy would have Node::notify auto-unregister it after tick 1; node-name dispatch
+	 * keeps the registration alive across ticks.
 	 */
 	public function test_hitchhiked_timer_fires_on_every_tick_not_just_first(): void {
 		$router = new Router_Node();
@@ -121,7 +121,7 @@ class RouterTimerTest extends TestCase {
 		$plain->name( 'plain' ); // registers in Core; Capture_Sink_Node has no fire_cb().
 		$router->register( 'TIMER', 'plain' );
 
-		// Pre-guard this fataled with "undefined method Node::fire_cb()". The
+		// Unguarded this fatals with "undefined method Node::fire_cb()". The
 		// guard skips the non-Timer registrant, so the call returns normally.
 		$router->notify_timer();
 
@@ -186,9 +186,9 @@ class RouterTimerTest extends TestCase {
 	}
 
 	/**
-	 * Regression: stop_timer must clean up Router-hitchhike registrations as well as
-	 * EventFramework slots. Previously stop_timer only deleted from EventFramework, leaving
-	 * the registration in Router's TIMER list, so the Timer kept firing forever.
+	 * stop_timer must clean up Router-hitchhike registrations as well as
+	 * EventFramework slots. A registration left in Router's TIMER list keeps the Timer
+	 * firing forever.
 	 */
 	public function test_stop_timer_unregisters_from_router_when_hitchhiked(): void {
 		$router = new Router_Node();

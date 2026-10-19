@@ -843,7 +843,7 @@ class HttpSourceNodeTest extends TestCase {
 		$this->assertSame( 0.38, $this->snapshot()['last_rtt'] );
 	}
 
-	/** An answer older than four retry intervals no longer reads as connected. */
+	/** An answer older than four retry intervals does not read as connected. */
 	public function test_the_status_ages_out_a_stale_answer(): void {
 		[ $node, $reader ] = $this->fetching_reader();
 		$reader->fire_cb();

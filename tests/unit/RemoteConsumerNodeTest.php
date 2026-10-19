@@ -1084,7 +1084,7 @@ class RemoteConsumerNodeTest extends TestCase {
 	}
 
 	// ---------------------------------------------------------------------
-	// Poison / crash lifecycle ([42]) — Consumer-style fair-shot + crawl.
+	// Poison / crash lifecycle — Consumer-style fair-shot + crawl.
 	// ---------------------------------------------------------------------
 
 	public function test_downstream_throw_dead_letters_immediately_and_advances(): void {

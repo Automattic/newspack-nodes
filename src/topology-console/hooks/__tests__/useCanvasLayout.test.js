@@ -224,10 +224,10 @@ describe( 'useCanvasLayout', () => {
 	} );
 
 	it( 'drops a stored coordinate that is not finite, keeping the rest', () => {
-		// A NaN row serializes to null, so a browser that hit the auto-layout
-		// NaN bug has one persisted. `modified` makes the dirty browser copy win
-		// over any server layout, so without a sanitize on read those cards stay
-		// off-graph forever — Reset Layout was the only way back.
+		// A NaN row serializes to null, and a persisted one outlives whatever
+		// wrote it. `modified` makes the dirty browser copy win over any server
+		// layout, so without a sanitize on read those cards stay off-graph
+		// until a Reset Layout.
 		window.localStorage.setItem(
 			KEY,
 			JSON.stringify( {

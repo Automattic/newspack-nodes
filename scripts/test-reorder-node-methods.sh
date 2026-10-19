@@ -482,7 +482,7 @@ assert_before "js standalone: source order kept (alpha before beta)" "$js_sa" al
 
 # ---- (C) the base Node class itself (name 'Node', no superclass) gets node policy ----
 # A shared helper authored ABOVE its callers must sink below them under node policy.
-# The base class was previously excluded, so it was left untouched (helper on top).
+# The base class is not excluded, so its helper must not stay on top.
 cat > "$tmp/class-base-node.php" <<'PHP'
 <?php
 class Node {

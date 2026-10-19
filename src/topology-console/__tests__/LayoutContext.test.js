@@ -2,13 +2,12 @@
  * LayoutContext — where the canvas is looking, and where nodes sit.
  *
  * `positionOverrides` / `onPositionChange` / `viewport` / `onViewportChange`
- * were threaded TopologyConsole → ConsoleShell → GraphView → SchematicCanvas.
- * GraphView declares all four and reads none: each appears exactly twice, once
- * in the signature and once forwarding on. That is the same test the catalogs
- * passed, and the reason the chrome props mostly failed it.
+ * ride context rather than TopologyConsole → ConsoleShell → GraphView →
+ * SchematicCanvas props, because GraphView would only forward all four and
+ * read none.
  *
- * Layout is per-cwd already (`scopeFromCwd` keys the storage), so it survives
- * Stage 2 unchanged — a draft gets its own layout scope for free.
+ * Layout is per-cwd (`scopeFromCwd` keys the storage), so a draft gets its own
+ * layout scope for free.
  */
 
 import { renderHook } from '@testing-library/react';

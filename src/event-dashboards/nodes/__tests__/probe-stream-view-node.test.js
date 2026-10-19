@@ -754,7 +754,7 @@ describe( 'TopicProbeViewNode', () => {
 			// Outage (gap>ttl): shift the lease by the outage, don't reset it.
 			jest.advanceTimersByTime( 1500 );
 			v.fill( probeMsg( { reader: 'live.p0', ts: 110 } ) ); // rt=2000
-			// Another outage-free fill: dead.p0 (past ttl) is now gone.
+			// Another outage-free fill: dead.p0 (past ttl) drops out.
 			jest.advanceTimersByTime( 600 );
 			v.fill( probeMsg( { reader: 'live.p0', ts: 111 } ) ); // rt=2600
 			const snap = v.snapshot( v.modelKey );

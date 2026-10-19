@@ -12,12 +12,13 @@
 #   2. No newspack-ai-newsletter slug in docs/ or README.md — the real sibling
 #      plugin is newspack-intelligence. (example-ai-newsletter is a different,
 #      legitimate name and is intentionally NOT matched.)
-#   3. No aggregator verb removed in 0.47.1 (status / health / servers) on the
+#   3. No retired aggregator verb (status / health / servers) on the
 #      Aggregator_CI_Node row in docs/API.md.
 #   4. Retention arity proxy: every doc make_node line passing
-#      <config:segment_size> also passes <config:min_segments> (the new tail
-#      always pairs them; the old 3-arg form did not).
-#   5. newspack_event_logger_nodes_rules_schema_version - deleted.
+#      <config:segment_size> also passes <config:min_segments> (the retention
+#      tail always pairs them, so a line passing one alone is stale).
+#   5. No newspack_event_logger_nodes_rules_schema_version option outside
+#      docs/upgrading.md.
 #   6. A consumer's substrate version floor matches what its loader enforces.
 #   7. No per-rule diagnostic described as on by default where Rule declares
 #      every one false.
@@ -25,7 +26,7 @@
 #      in AGENTS.md's decision table.
 #   9. No prose saying instrumentation or a callback asks has_instance(); the
 #      callbacks ask started_instance(), and has_instance() is the test API.
-#      Narrow by design: it matches the two phrasings that drifted, not a
+#      Narrow by design: it matches two drift-prone phrasings, not a
 #      synonym for "asks" or a named callback as the subject.
 #  10. Every docs/tachikoma-lineage.md table row naming a divergence carries
 #      "(see below)", pointing at the Deliberate divergences section arguing it.
@@ -62,8 +63,8 @@ hits=$(grep -rnE 'newspack_event_logger_nodes_rules_schema_version' docs README.
 
 # 6. substrate version floor: the prose must name the value the loader enforces.
 # A no-op in the substrate itself (nothing there calls version_at_least). Nothing
-# scripts the floor — bump-version.sh repins release.yml, not this — so ELN's
-# prose silently sat a whole major behind its own loader.
+# scripts the floor — bump-version.sh repins release.yml, not this — so only
+# this check keeps the prose on the loader's value.
 floor=$(grep -hoE "version_at_least\( *'[0-9]+\.[0-9]+\.[0-9]+'" ./*.php 2>/dev/null \
 	| grep -oE "[0-9]+\.[0-9]+\.[0-9]+" | head -1 || true)
 if [ -n "$floor" ]; then
@@ -74,7 +75,7 @@ fi
 
 # 7. No per-rule diagnostic is on by default where a plugin declares rules:
 # event-logger-nodes' Rule declares every flag false, so prose saying otherwise
-# describes a default that no longer exists. A plugin without that class has
+# describes a default the code does not declare. A plugin without that class has
 # nothing to match and passes.
 if [ -f includes/class-rule.php ]; then
 	hits=$(grep -rniE '(on by default|absent means on|default on\b)' README.md AGENTS.md docs .claude/skills includes/class-rule.php \
@@ -97,7 +98,7 @@ fi
 
 # 9. Instrumentation's gate is started_instance(): has_instance() is the test
 # API, and prose saying instrumentation or a callback asks it — the name right
-# after the verb, or "this" beside it — names a gate the callbacks no longer
+# after the verb, or "this" beside it — names a gate the callbacks do not
 # ask. A plugin without the logger has nothing to match and passes.
 if [ -f includes/class-log-manager.php ]; then
 	hits=$(grep -rn 'has_instance' README.md AGENTS.md docs .claude/skills includes \

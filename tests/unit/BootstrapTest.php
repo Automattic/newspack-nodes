@@ -29,7 +29,7 @@ class BootstrapTest extends TestCase {
 		Bootstrap::$fleet_enabled_override = null;
 		Bootstrap::$spawn_coordinator_factory          = null;
 		// Config is statically cached — clear so each test sees fresh option
-		// values. get_topologies() now reads Config::load_config()['num_partitions']
+		// values. get_topologies() reads Config::load_config()['num_partitions']
 		// to default synthesized entries, so stale cache here leaks
 		// num_partitions across tests.
 		\Newspack_Nodes\Config::reset();
@@ -50,7 +50,7 @@ class BootstrapTest extends TestCase {
 			$topologies['my-group'] = [ 'num_partitions' => 2, 'topology' => '/path/to/file.php' ];
 			return $topologies;
 		} );
-		// Catalog membership no longer implies active; declare my-group active.
+		// Catalog membership does not imply active; declare my-group active.
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'my-group' ];
 		\Newspack_Nodes\Config::reset();
 
@@ -1556,10 +1556,10 @@ class BootstrapTest extends TestCase {
 		$this->rmdir_recursive( $dir );
 	}
 
-	// ── reconcile_fleet: the housekeeping it absorbed ────────────────────
+	// ── reconcile_fleet: housekeeping ────────────────────────────────────
 
 	public function test_reconcile_fleet_fires_the_periodic_hook(): void {
-		// Housekeeping no longer rides a job on the `job-worker` pool, so it runs
+		// Housekeeping rides no job on the `job-worker` pool, so it runs
 		// even when the fleet is down — which is when disk most needs reclaiming.
 		$dir   = $this->cold_start_fleet( [
 			'cold-start-workers' => [ 'num_partitions' => 1, 'topology' => '/cs.tsl' ],
@@ -1603,8 +1603,7 @@ class BootstrapTest extends TestCase {
 	}
 
 	public function test_reconcile_fleet_runs_log_retention(): void {
-		// DELETE_GRACE_S is 3600 and the pass is a minute apart, so retention ran
-		// 240 times per eligible deletion on the old 15s sweep.
+		// DELETE_GRACE_S is 3600 and the pass is a minute apart.
 		$dir = $this->make_temp_dir( 'cold-start-retention-' );
 		$this->use_base_dir( $dir );
 		\Newspack_Nodes\Config::register_token_namespace();
@@ -1878,7 +1877,7 @@ class BootstrapTest extends TestCase {
 	public function test_init_memcached_nulls_handle_on_empty_servers(): void {
 		// Empty servers must NULL the handle, not build a fallback — null is what
 		// command-auth's `instanceof` check keys on to log + fail closed. A
-		// non-null fallback would silently fail closed (the bug this replaces).
+		// non-null fallback would silently fail closed.
 		$GLOBALS['_wp_options']['newspack_nodes_memcache_servers'] = [];
 		\Newspack_Nodes\Config::reset();
 		$saved_memd = Core::$memd;

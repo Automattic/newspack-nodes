@@ -220,9 +220,8 @@ class DumperTest extends TestCase {
 
 	public function test_TM_INFO_prints_payload_without_prefix(): void {
 		// TM_INFO renders as a plain async bytestream — same as default
-		// TM_BYTESTREAM. The former `INFO[from]: ...` prefix was
-		// redundant noise; debug_level 1 already prepends a
-		// `TM_INFO from <from>:` header when verbosity is wanted.
+		// TM_BYTESTREAM, with no `INFO[from]: ...` prefix; debug_level 1
+		// prepends a `TM_INFO from <from>:` header when verbosity is wanted.
 		[ $dumper, $cap ] = $this->fresh();
 
 		$message                   = Message::new_message();
@@ -556,7 +555,7 @@ class DumperTest extends TestCase {
 	}
 
 	public function test_debug_level_2_trims_trailing_newline_before_closing_brace(): void {
-		// A VALUE ending in a newline used to render a blank (indented) line
+		// A VALUE ending in a newline would render a blank (indented) line
 		// wedged before `}`. Trim it so exactly one newline separates them.
 		[ $dumper, $cap ] = $this->fresh();
 		$dumper->set_debug_level( 2 );

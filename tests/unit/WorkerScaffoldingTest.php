@@ -66,8 +66,8 @@ class WorkerScaffoldingTest extends TestCase {
 	}
 
 	public function test_build_scaffolding_does_not_mount_topic_probe(): void {
-		// The probe moved to TSL (`include topic-probe` per topology): worker
-		// scaffolding no longer hardwires it, so a graph without the include
+		// The probe is wired in TSL (`include topic-probe` per topology): worker
+		// scaffolding does not hardwire it, so a graph without the include
 		// runs probe-free and the probe rides the ordinary declared-set path.
 		$w = new Worker_Base( $this->tmp, 'test', 0 );
 		$w->build_scaffolding();
@@ -77,9 +77,9 @@ class WorkerScaffoldingTest extends TestCase {
 	}
 
 	public function test_build_scaffolding_does_not_mount_job_probe(): void {
-		// The jobstats probe/log are no longer auto-mounted here: only the job-worker
-		// topology runs a Job_Worker, so the scaffolding sweep found nothing everywhere
-		// else. Jobstats is now wired declaratively in topologies/job-worker.tsl.
+		// The jobstats probe/log are not auto-mounted here: only the job-worker
+		// topology runs a Job_Worker, so a scaffolding sweep would find nothing everywhere
+		// else. Jobstats is wired declaratively in topologies/job-worker.tsl.
 		$w = new Worker_Base( $this->tmp, 'test', 0 );
 		$w->build_scaffolding();
 
@@ -179,7 +179,7 @@ class WorkerScaffoldingTest extends TestCase {
 	public function test_cooperative_stop_routes_durable_consumer_to_a_fair_shot_strike(): void {
 		// When the worker stops cooperatively (timeout/memory), the shutdown must route
 		// its durable work consumers through the fair-shot rule — stamping the reason —
-		// NOT the blanket graceful handoff used for a clean recycle (dead-letter [42]).
+		// NOT the blanket graceful handoff used for a clean recycle.
 		$source = new Partition_Node();
 		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$msg                                   = \Newspack_Nodes\Message::new_message();

@@ -3,16 +3,15 @@
  * `dump_graph` reply (VALUE=`{ name, payload }`, payload=the snapshot) into
  * an enriched `{ action:'model', model }`.
  *
- * Post-migration the dump_graph payload is LEAN and POSITIONAL: PHP no longer
- * pre-joins worker attribution. The transform now REBUILDS the old rich
- * `workers[]` array (the shape `topologyGraph.buildTopologySections`,
- * `TreeEntity`, and `SegmentBar` were written against) by joining the four new
- * inputs — `graph` (.tsl structure), `workers` (liveness only), `consumers`
- * (per-reader probe STATE), and `logs` (live segment lists) — entirely here,
- * so everything downstream stays unchanged.
+ * The dump_graph payload is LEAN and POSITIONAL: PHP does not pre-join worker
+ * attribution. The transform BUILDS the rich `workers[]` array (the shape
+ * `topologyGraph.buildTopologySections`, `TreeEntity`, and `SegmentBar` read)
+ * by joining the four inputs — `graph` (.tsl structure), `workers` (liveness
+ * only), `consumers` (per-reader probe STATE), and `logs` (live segment
+ * lists) — entirely here.
  *
- * Read/write byte rates are now CLIENT-SIDE deltas across two polls (the probe
- * no longer rides a rate on each descriptor), so the rate tests feed two
+ * Read/write byte rates are CLIENT-SIDE deltas across two polls (the probe
+ * carries no rate on each descriptor), so the rate tests feed two
  * consecutive snapshots and assert the computed deltas. Date.now is NOT read
  * for the delta — `data.timestamp` is the clock — but it seeds the sticky
  * currentTime, so we pin it for determinism.

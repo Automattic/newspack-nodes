@@ -130,9 +130,9 @@ class RouterTest extends TestCase {
 		$this->assertSame( "NOT_AVAILABLE\n", $err[ Message::VALUE ] );
 		$this->assertSame( '', $err[ Message::TO ] );
 		// Tachikoma's own addressing: `$response->[FROM] = $message->[TO]`.
-		// Nothing keys on the Router as the sender any more — `HTTP_Out` used
-		// to, to tell a self-minted bounce from a forwarded error, and that
-		// guard is gone because `send_error()` already refuses to answer one.
+		// Nothing keys on the Router as the sender: `send_error()` already
+		// refuses to answer an error, so no node needs to tell a self-minted
+		// bounce from a forwarded one.
 		$this->assertSame( 'nonexistent', $err[ Message::FROM ] );
 	}
 
@@ -180,7 +180,7 @@ class RouterTest extends TestCase {
 	 * A non-scalar TO is NOT_AVAILABLE, not "unaddressed". The empty-TO guard
 	 * compares the RAW value, so an array TO falls through it, coerces to '',
 	 * and finds no node. Coercing BEFORE that guard — the tempting shape when
-	 * the coercion was inlined for speed — silently reclassifies it as a drop,
+	 * the coercion is inlined for speed — silently reclassifies it as a drop,
 	 * and the producer stops being told its destination did not resolve.
 	 */
 	public function test_a_non_scalar_to_is_unavailable_not_unaddressed(): void {

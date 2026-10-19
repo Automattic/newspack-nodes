@@ -1,5 +1,5 @@
 /**
- * F2 regression: a brand-new install with NO topologies (empty
+ * A brand-new install with NO topologies (empty
  * topologyWorkers, so the catalog is empty and the initial `topology` is
  * empty). Entering edit mode builds a blank/untitled draft whose
  * effectiveTopologyName is '' — the server-layout fetch short-circuits, so the
@@ -72,8 +72,8 @@ jest.mock( '../hooks/useCatalogs', () => ( {
 	} ),
 } ) );
 jest.mock( '../hooks/useLayout', () => ( {
-	// Faked over the promises the fixtures still seed: what settles becomes the
-	// handler the console now does its work in. The two senders are STABLE, as
+	// Faked over the promises the fixtures seed: what settles becomes the
+	// handler the console does its work in. The two senders are STABLE, as
 	// the real hook's are — a fresh identity per render re-runs the console's
 	// fetch effect, which sets state, which renders again.
 	useLayout: ( handlers = {} ) => {

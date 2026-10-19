@@ -188,7 +188,7 @@ describe( 'useDebugRepl', () => {
 	} );
 
 	it( 'binds shell.sink to the _shell Tap at build time, before render — so dispatch never null-resolves', () => {
-		// Build-before-render: useState initializer binds shell.sink now.
+		// Build-before-render: the useState initializer binds shell.sink.
 		const { teardown } = mountExospine();
 		const shell = new ShellNode();
 		shell.path = '';
@@ -261,12 +261,8 @@ describe( 'useDebugRepl', () => {
 		act( () => Core.bumpGraphGeneration() );
 
 		// @longform
-		// This used to assert a FRESH router and called itself "the critical
-		// ordering": a rebuild replaced the Router, so `_metadata` had to
-		// re-register on the new one, and the new one had to exist before the
-		// async re-register or the overlay froze. A rebuild keeps the Router
-		// now, so the ordering hazard the assertion guarded cannot arise —
-		// there is nothing to re-register onto.
+		// A rebuild keeps the Router, so `_metadata` stays registered on it
+		// and there is nothing to re-register onto.
 		expect( Core.node( names.ROUTER ) ).toBe( firstRouter );
 		expect( names.METADATA in firstRouter.registrations.TIMER ).toBe(
 			true
@@ -456,12 +452,12 @@ describe( 'useDebugRepl', () => {
 	} );
 
 	/**
-	 * ONE dispatch path. The overlay used to inject its own `sendVerb`-based
-	 * dispatcher into useGraphHandlers while the console injected `sendLine`,
-	 * so an Inspector action never reached the persist/cwd bookkeeping that
-	 * lives on sendLine. `trace * 0` was the visible cost: the toggle worked,
-	 * nothing was written, and the next load seeded the stale level back onto
-	 * the interpreter, which stamps it onto every node made afterwards.
+	 * ONE dispatch path. The overlay injects `sendLine` into useGraphHandlers,
+	 * as the console does, so an Inspector action reaches the persist/cwd
+	 * bookkeeping that lives on sendLine. A second dispatcher would let
+	 * `trace * 0` toggle without writing, and the next load would seed the
+	 * stale level back onto the interpreter, which stamps it onto every node
+	 * made afterwards.
 	 */
 	it( 'persists debug_state through sendLine, the one dispatch path [87]', () => {
 		const { teardown } = mountExospine();
@@ -498,9 +494,9 @@ describe( 'useDebugRepl', () => {
 
 	/**
 	 * The echoed command carries the prompt it was typed AT, so a transcript
-	 * reads back as the session did. The overlay hard-coded `/`, so every line
-	 * echoed `/>` no matter where the shell was — the topology console, sharing
-	 * this transcript shape, has always passed its cwd.
+	 * reads back as the session did. A hard-coded `/` would echo `/>` no
+	 * matter where the shell was; the overlay passes its cwd, as the topology
+	 * console, sharing this transcript shape, does.
 	 */
 	it( 'echoes each line with the prompt it was typed at, not a fixed root', () => {
 		const { teardown } = mountExospine();

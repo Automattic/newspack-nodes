@@ -16,7 +16,7 @@ use Newspack_Nodes\Tests\TestCase;
  * A stream presents the command session it signs with, and its replies are
  * addressed to that session rather than to the process serving it: the
  * handle must be live and the requesting user's own, the lease is keyed by
- * it, and the `connected` envelope echoes it where the pid used to ride.
+ * it, and the `connected` envelope echoes it.
  */
 #[CoversClass( SSE_Out_Node::class )]
 class SseStreamSessionTest extends TestCase {

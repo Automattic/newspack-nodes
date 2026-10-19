@@ -63,9 +63,9 @@ describe( 'the command transport.fromGlobal', () => {
 
 /**
  * unpack() hands back a blank message for any line that is not a 7-field array,
- * and postBatch used to fill every line straight into the graph — so one bad
- * response line became a ghost message with no TYPE, no FROM and no TO, and
- * surfaced as `_router: WARNING: message not addressed`. Reject it at the wire.
+ * so a postBatch filling every line straight into the graph would turn one bad
+ * response line into a ghost message with no TYPE, no FROM and no TO, surfacing
+ * as `_router: WARNING: message not addressed`. Reject it at the wire.
  */
 describe( 'the command transport.postBatch — unparseable response lines', () => {
 	const okLine = JSON.stringify( [
@@ -361,9 +361,9 @@ describe( 'the command transport — HTTP failures', () => {
 } );
 
 /**
- * A refusal at the REST boundary and a worker that answered with nothing both
- * used to collapse to null, so the console blamed the worker for an expired
- * session — and sent an operator into haproxy logs for a browser-side
+ * A refusal at the REST boundary and a worker that answered with nothing must
+ * not both collapse to null, or the console blames the worker for an expired
+ * session — and sends an operator into haproxy logs for a browser-side
  * condition. send() must tell them apart.
  */
 describe( 'the command transport — refused batches', () => {
@@ -390,9 +390,9 @@ describe( 'the command transport — refused batches', () => {
 } );
 
 // @longform
-// A refused POST used to answer nothing at all, which is indistinguishable
-// from a 202 the server routed onward — so a node waiting on a reply waited
-// out its whole deadline for a failure the transport already knew about.
+// A refused POST that answered nothing at all would be indistinguishable from
+// a 202 the server routed onward, so a node waiting on a reply would wait out
+// its whole deadline for a failure the transport already knew about.
 describe( 'the command transport — a refusal answers the minter', () => {
 	afterEach( () => {
 		delete global.fetch;

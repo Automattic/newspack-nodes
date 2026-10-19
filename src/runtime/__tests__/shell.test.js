@@ -2,7 +2,7 @@
  * Shell node tests — typed-line parse → positional TM_* Message filled into the
  * sink, with FROM=`_http/<ssePid>/<reply-node>` and TO=prefix(path). Builtins
  * (clear/debug_level) return a local-signal object instead of filling. Mirrors
- * the verb vocabulary of the substrate PHP Shell + the old utils/shell.js.
+ * the verb vocabulary of the substrate PHP Shell.
  */
 
 import {
@@ -371,8 +371,9 @@ describe( 'Shell node — local builtins', () => {
 		expect( out.debugLevelRef.current ).toBe( 0 );
 	} );
 
-	// Without a Dumper the verb did nothing AND said nothing — the normal case
-	// for a Shell driving a TSL in worker scope. PHP names the missing node.
+	// Without a Dumper — the normal case for a Shell driving a TSL in worker
+	// scope — the verb must not do nothing AND say nothing. PHP names the
+	// missing node.
 	it( 'debug_level reports the missing output node instead of going quiet', () => {
 		const { shell } = makeShell();
 		Core.unregisterNode( '_output' );

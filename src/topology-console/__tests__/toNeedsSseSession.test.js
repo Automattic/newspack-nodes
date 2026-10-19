@@ -5,8 +5,8 @@
  * the server's HTTP_Filter), so only that form must wait on a connected session.
  * A local-root command (`''`) interprets in-browser; the direct `_http` boundary
  * form replies synchronously in the POST body — none of those need the stream.
- * Regression guard for #12: the three `!sseSession` gates used to block EVERY send
- * when the stream was closed, stranding `cd /` + `ls` with "[no SSE session yet]".
+ * A gate blocking EVERY send while the stream is closed would strand `cd /` +
+ * `ls` with "[no SSE session yet]".
  */
 
 import { toNeedsSseSession } from '../TopologyConsole';

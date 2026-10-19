@@ -131,9 +131,9 @@ describe( 'verb rows carry their provenance', () => {
 } );
 
 describe( 'targetsOf — one owner', () => {
-	// This file kept a private copy of the runtime's targetsOf, and the two had
-	// already drifted: the runtime filters falsy entries, this one did not. A
-	// fan-out node carrying an empty slot therefore drew an edge to nowhere.
+	// draftToGraph reads the runtime's targetsOf rather than a private copy,
+	// and the runtime filters falsy entries, so a fan-out node carrying an
+	// empty slot draws no edge to nowhere.
 	it( 'draws no edge for an empty entry in a fan-out target list', () => {
 		const d = new DraftInterpreterNode();
 		d.catalog = [];

@@ -1,5 +1,5 @@
 /**
- * localStorage persistence for the console's session state [87]: the debug
+ * localStorage persistence for the console's session state: the debug
  * overlay's transcript, the topology console's station transcript, the REPL command
  * history, `debug_level`, and the interpreter's `debug_state`.
  *

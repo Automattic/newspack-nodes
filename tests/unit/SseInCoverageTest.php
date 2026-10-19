@@ -535,7 +535,7 @@ class SseInCoverageTest extends TestCase {
 	// ----- msg delivery (raw seam) -----
 
 	public function test_msg_delivered_raw_regardless_of_id_shape(): void {
-		// SSE_In no longer parses the ID or tracks a per-message cursor — any msg is handed raw to
+		// SSE_In neither parses the ID nor tracks a per-message cursor — any msg is handed raw to
 		// the delivery seam and the connect position stays put (the owner owns the durable cursor).
 		[ $node ] = $this->configured_node();
 		$captured = [];
@@ -563,8 +563,8 @@ class SseInCoverageTest extends TestCase {
 	// ----- delivery seam -----
 
 	public function test_msg_without_delivery_seam_does_not_throw(): void {
-		// SSE_In no longer forwards to a sink, so a msg with no owner-wired delivery seam is a
-		// silent drop — never a throw (the null-sink fail-loud now lives in the owner's forward_line).
+		// SSE_In does not forward to a sink, so a msg with no owner-wired delivery seam is a
+		// silent drop — never a throw (the null-sink fail-loud lives in the owner's forward_line).
 		$node = new SSE_In_Node();
 		$node->name( 'sse-in' );
 		$node->configure( 'https://austin.example', '', '', '', [], false );

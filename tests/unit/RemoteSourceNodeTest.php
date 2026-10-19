@@ -374,8 +374,8 @@ class RemoteSourceNodeTest extends TestCase {
 	public function test_valve_backpressures_only_on_buffer_water_marks(): void {
 		// Edge-triggered buffer management: DISARM only when the buffer crosses above
 		// high-water, RE-ARM only when it drains back below low-water. The valve stays
-		// OPEN through normal flow (the old disarm-on-every-line gate stop-started the
-		// spoke and lagged the hub 10-20s). No disarm on an empty buffer, no arm per poll.
+		// OPEN through normal flow (a disarm on every line would stop-start the
+		// spoke and lag the hub). No disarm on an empty buffer, no arm per poll.
 		[ $node, $child ] = $this->make_remote();
 		$sse = new class() extends SSE_In_Node {
 			public int $arms    = 0;
@@ -1870,7 +1870,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 		// No further reply; advance past the HEARTBEAT_INTERVAL*4 staleness window.
 		// The Status badge must not latch 'success' on a stale timestamp, so the
-		// snapshot ages the response out to null (mirrors the old clear-on-disconnect).
+		// snapshot ages the response out to null.
 		Core::$now = 1000.0 + ( Remote_Source_Node::HEARTBEAT_INTERVAL * 4 ) + 5;
 		$node->fire();
 		$status = $this->status_of( $node );

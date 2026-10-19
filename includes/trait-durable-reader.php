@@ -3,7 +3,7 @@
  * Durable_Reader: the durable log-reader spine — offsetlog cursor, timer-driven
  * buffered pump, and the pause/step/seek time-travel debugger, in ONE unit.
  *
- * The three are one trait because they are one mechanism ([159]): the pump advances
+ * The three are one trait because they are one mechanism: the pump advances
  * the cursor, the offsetlog commits it as a keyframe, and the debugger seeks by
  * repositioning it. Consumer_Node and Remote_Consumer_Node take all three together.
  *
@@ -243,7 +243,7 @@ trait Durable_Reader {
 	 * The cursor this process booted on, frozen by poll_init once init_position() has
 	 * seeded it. Advancing past it is "forward progress" — the poison region is behind
 	 * the reader, so attempts resets to the healthy baseline. Also the fair-shot proxy
-	 * for cooperative-stop strikes ([42]).
+	 * for cooperative-stop strikes.
 	 */
 	protected int $boot_cursor_segment = 0;
 
@@ -308,7 +308,7 @@ trait Durable_Reader {
 	 * True once a downstream fill() raised Worker_Should_Stop through forward_line — the
 	 * worker was actively DISPATCHING a message when the cooperative stop hit. The
 	 * fair-shot strike requires this: a merely-buffered (never-dispatched) head is a
-	 * message that just arrived, not one that consumed a lifetime ([42]).
+	 * message that just arrived, not one that consumed a lifetime.
 	 */
 	protected bool $stopped_in_fill = false;
 
@@ -886,7 +886,7 @@ trait Durable_Reader {
 	}
 
 	/**
-	 * Cooperative-stop checkpoint ([42]): the fair-shot rule for a timeout / memory
+	 * Cooperative-stop checkpoint: the fair-shot rule for a timeout / memory
 	 * stop. Called at worker shutdown INSTEAD of the graceful checkpoint() when the
 	 * stop was cooperative — it decides whether the in-flight message earned a strike.
 	 *

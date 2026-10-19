@@ -1,8 +1,7 @@
 /**
  * vault/index — registers the Vault station tab (side-effect import of
- * `./tabs`) and mounts no standalone React tree. The former ELN createRoot
- * settings-page mount is gone — Vault is a station tab now, so the entry must never
- * call createRoot regardless of stray DOM nodes.
+ * `./tabs`) and mounts no standalone React tree. Vault is a station tab, so the
+ * entry must never call createRoot regardless of stray DOM nodes.
  */
 
 describe( 'vault/index', () => {

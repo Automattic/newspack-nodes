@@ -60,8 +60,8 @@ it( 'shows how many lines its link reports skipped as unparseable', () => {
 } );
 
 // Every other toolbar control travels as a message through the consumer's
-// graph; Clear used to poke the node's ring, which left the id stamp and the
-// rate smoother loaded and was overwritten within 250ms by the next frame.
+// graph; Clear too, because poking the node's ring would leave the id stamp and
+// the rate smoother loaded, overwritten within 250ms by the next frame.
 it( 'sends Clear through the consumer, not into the node', () => {
 	const onClear = jest.fn();
 	const node = { lines: [ { id: 1 } ] };
@@ -435,7 +435,7 @@ it( 're-sends the filter when the graph is rebuilt', () => {
 
 it( 'types without an onFilter consumer rather than throwing', () => {
 	// Published through @newspack-nodes/shared, where knip cannot see a
-	// changed export: an unmigrated adopter must not die on a keystroke.
+	// changed export: an adopter passing no onFilter must not die on a keystroke.
 	const { container } = render( <LogStreamViewer { ...BASE } /> );
 
 	expect( () =>

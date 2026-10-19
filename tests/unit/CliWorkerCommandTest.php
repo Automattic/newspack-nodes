@@ -113,7 +113,7 @@ class CliWorkerCommandTest extends TestCase {
 				return $topologies;
 			}
 		);
-		// Catalog registration alone no longer activates a topology; declare it
+		// Catalog registration alone does not activate a topology; declare it
 		// in the operator overlay so get_topologies()/expand_workers() honor it.
 		$active                                                = $GLOBALS['_wp_options']['newspack_nodes_topologies'] ?? [];
 		$active[]                                              = $type;
@@ -436,8 +436,8 @@ class CliWorkerCommandTest extends TestCase {
 
 	/**
 	 * A fleet that goes quiet during the FINAL poll interval must not abort the
-	 * deploy: the verdict was computed before the last sleep, so it named workers
-	 * that were already gone.
+	 * deploy: a verdict computed before the last sleep would name workers that
+	 * are already gone.
 	 */
 	public function test_stop_rechecks_after_the_last_sleep_before_failing(): void {
 		$this->register_topology( 'firehose-workers', 1 );
@@ -815,11 +815,9 @@ class CliWorkerCommandTest extends TestCase {
 		( new Worker_CLI_Command() )->run( [ 'bogus-topology' ], [] );
 	}
 
-	// Integration coverage of "WorkerCliCommand runs a TSL topology to
-	// completion" sat here pre-A3 but no longer fits cleanly:
+	// No integration test runs a TSL topology to completion here:
 	//
-	//  - The old shape returned a PHP closure that could set the
-	//    restart flag inline; TSL loads can't.
+	//  - A TSL load cannot set the restart flag inline.
 	//  - Pre-arming the marker before run() doesn't work — Lock's
 	//    orphan-grace + force_release_at delete the dir contents
 	//    (including the marker) before the worker acquires.
@@ -1106,7 +1104,7 @@ class CliWorkerCommandTest extends TestCase {
 
 	public function test_run_delegates_quiet_to_wp_cli_global(): void {
 		// Quiet is WP-CLI's global concern: its Quiet logger no-ops log/success
-		// when --quiet is set. The command no longer special-cases a `quiet`
+		// when --quiet is set. The command does not special-case a `quiet`
 		// arg — so a stray one is ignored and the calls still fire (the runtime
 		// logger, not the command, decides whether they print).
 		$stock_dir = "{$this->tmp}/stock";

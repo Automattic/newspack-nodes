@@ -743,7 +743,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 			// CONNECTING: we own that reopen, on the server's schedule.
 			this._scheduleReopen();
 		} );
-		// The reopen schedule, as data — the protocol `retry:` field is gone.
+		// The reopen schedule, as data rather than the protocol `retry:` field.
 		es.addEventListener( 'retry', ( e ) => {
 			if ( stale() ) {
 				return;

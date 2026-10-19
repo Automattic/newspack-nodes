@@ -1,12 +1,11 @@
 <?php
 /**
- * SettingsCITest: unit tests for Settings_CI, the substrate service-CI that
- * replaces the legacy SettingsController.
+ * SettingsCITest: unit tests for Settings_CI, the substrate settings service-CI.
  *
- * Asserts value-equivalence with the legacy `update_setting` writer for the
- * seven substrate-owned integer keys (num_partitions, segment_size,
- * min_segments, num_segments, min_lifetime, lifetime, max_segments), plus the additive
- * `get` verb that returns the same surface as a snapshot. Substrate config is seeded via
+ * Asserts the writer for the seven substrate-owned integer keys
+ * (num_partitions, segment_size, min_segments, num_segments, min_lifetime,
+ * lifetime, max_segments), plus the `get` verb that returns the same surface
+ * as a snapshot. Substrate config is seeded via
  * `TestCase::use_base_dir()`, mirroring StatusCITest / AggregatorCITest.
  *
  * @package Newspack_Nodes
@@ -254,8 +253,7 @@ class SettingsCITest extends TestCase {
 	}
 
 	/**
-	 * Catalog-visibility guard (carried over from the ELN ServiceCiHandlerGuardTest
-	 * when this CI moved here): a future edit dropping node_schema's `category` to
+	 * Catalog-visibility guard: an edit dropping node_schema's `category` to
 	 * ''/'Hidden' would silently hide Settings_CI from the Inspector/palette while
 	 * every other test stayed green. Fire the substrate `classes dump` and assert
 	 * the CI surfaces under 'Service'.

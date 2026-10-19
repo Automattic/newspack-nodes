@@ -4,10 +4,9 @@
  *
  * Deriving either from `newspack-nodes-config.php` means an install whose file
  * predates a key declares nothing for it, and the first `Config::value()` read
- * throws "unknown config key" — fataling every request. Nuclear Gyrobase took
- * the live site down that way on 2026-07-13; the substrate's version of the
- * same bug was quieter, because a key absent from an operator's older file
- * resolved to null forever and the feature shipped inert.
+ * throws "unknown config key" — fataling every request. Or, quieter, a key
+ * absent from an operator's older file resolves to null forever and the
+ * feature ships inert.
  *
  * So: Settings_Schema declares every key AND its default, and the config file
  * is a commented ledger of the same values — an override surface, never the
@@ -59,9 +58,8 @@ class ConfigSchemaTest extends TestCase {
 	/**
 	 * Every key the substrate reads through `Config::value()` is schema-declared.
 	 *
-	 * The stronger form of the old bootstrap-only scrape: a key read anywhere in
-	 * the plugin but declared nowhere throws at the read, and the config file
-	 * can no longer supply the declaration.
+	 * A key read anywhere in the plugin but declared nowhere throws at the
+	 * read, and the config file cannot supply the declaration.
 	 */
 	public function test_the_schema_declares_every_key_the_substrate_reads(): void {
 		$declared = Settings_Schema::get()->overlay_keys();
@@ -146,8 +144,8 @@ class ConfigSchemaTest extends TestCase {
 	 * `setup/newspack-nodes.sh` copies the operator's server config over that
 	 * exact path after install, so the file is theirs, not ours. Throwing here
 	 * runs at `plugins_loaded:-11001` and takes down every request including
-	 * wp-admin, recoverable only over SSH — the 2026-07-13 outage shape. It is
-	 * reported instead: rate-limited to stderr, and in Site Health / doctor.
+	 * wp-admin, recoverable only over SSH. It is reported instead:
+	 * rate-limited to stderr, and in Site Health / doctor.
 	 */
 	public function test_an_unknown_shipped_key_is_reported_not_thrown(): void {
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF' );

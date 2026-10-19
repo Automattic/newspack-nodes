@@ -1,11 +1,10 @@
 /**
  * DraftContext — the draft document's React seam.
  *
- * The claim under test comes from Stage 2: edit mode sends the SAME commands live
- * mode does, to a different interpreter. So the mutation door takes a TSL
- * LINE, and what comes back is a read of a real node graph — not a reducer's
- * opinion of one. The provider carries the document now, because the
- * interpreter owns it.
+ * The claim under test: edit mode sends the SAME commands live mode does, to
+ * a different interpreter. So the mutation door takes a TSL LINE, and what
+ * comes back is a read of a real node graph — not a reducer's opinion of one.
+ * The provider carries the document, because the interpreter owns it.
  */
 
 import { renderHook, act } from '@testing-library/react';
@@ -91,10 +90,10 @@ describe( 'useDraftInterpreter', () => {
 	} );
 
 	/**
-	 * The editor guard used to scan only the DOCUMENT's own verbs, while the
-	 * live seed's `withResolvedConfigEdges` scans the composed graph — so an
-	 * include seeding `set_stats_target <config:…>` was refused live and
-	 * accepted in the editor, and a save wrote routing never shown.
+	 * The editor guard scans the composed graph, as the live seed's
+	 * `withResolvedConfigEdges` does, not only the DOCUMENT's own verbs — or
+	 * an include seeding `set_stats_target <config:…>` is refused live and
+	 * accepted in the editor, and a save writes routing never shown.
 	 */
 	it( 'refuses an unresolved token target seeded by an include', () => {
 		const { result } = renderHook( () => useDraftInterpreter() );
@@ -206,10 +205,9 @@ describe( 'useDraftInterpreter', () => {
 	} );
 
 	it( 'knows whether it has diverged from what was stored', () => {
-		// The baseline used to live in TopologyConsole, assigned at six call
-		// sites and read at two. Two of the six forgot the pairing and shipped:
-		// a save left the document reading dirty for the rest of the session,
-		// so the next drill-in offered to discard work already on disk.
+		// The interpreter owns the baseline. A save that left the document
+		// reading dirty would make the next drill-in offer to discard work
+		// already on disk.
 		const { result } = renderHook( () => useDraftInterpreter() );
 		expect( result.current.isDirty ).toBe( false );
 
@@ -320,7 +318,7 @@ describe( 'useDraft', () => {
 		expect( result.current.run ).toBe( draft.run );
 		expect( result.current.graph ).toBe( draft.graph );
 		// The interpreter itself is NOT on the surface — reaching past these
-		// operations is how the last design drifted.
+		// operations would be a second way to change the document.
 		expect( result.current.interpreter ).toBeUndefined();
 	} );
 
@@ -343,8 +341,8 @@ describe( 'useDraft', () => {
 
 describe( 'revertIncludes', () => {
 	it( 'returns null when nothing was stale, so a caller cannot spin', () => {
-		// It used to commit regardless, minting a new graph every call. An
-		// effect keyed on graph identity then re-ran forever — which is what
+		// Committing regardless would mint a new graph every call, and an
+		// effect keyed on graph identity would re-run forever — which is what
 		// a persistent expand error does.
 		const { result } = renderHook( () => useDraftInterpreter() );
 		act( () => {

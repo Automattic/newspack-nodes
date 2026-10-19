@@ -233,7 +233,7 @@ class HealthChecksTest extends TestCase {
 		);
 	}
 
-	// ── housekeeping: the reconcile cron it now depends on ─────────────────
+	// ── housekeeping: the reconcile cron it depends on ─────────────────────
 
 	/** Register a stock topology dir and activate $names, with $tsl contents. */
 	private function activate_topologies( array $tsl ): void {
@@ -259,7 +259,7 @@ class HealthChecksTest extends TestCase {
 	}
 
 	public function test_housekeeping_is_critical_when_the_reconcile_cron_is_missing(): void {
-		// The cron pass is now the ONLY thing that runs retention, orphan
+		// The cron pass is the ONLY thing that runs retention, orphan
 		// partition/IPC reaping, alert emission, the delayed-jobs sweep and every
 		// `periodic` subscriber — and it is the cold-start revival tier besides.
 		// A vetoed or cleared event stops all of it while every other check
@@ -933,8 +933,8 @@ class HealthChecksTest extends TestCase {
 	}
 
 	public function test_alerts_declare_their_family_rather_than_encoding_it_in_the_key(): void {
-		// Health_Checks used to re-derive the taxonomy by str_starts_with on
-		// the key, so renaming a key prefix for readability fataled Site Health.
+		// Deriving the taxonomy by str_starts_with on the key would let a key
+		// prefix renamed for readability fatal Site Health.
 		$rows = [
 			'consumer_lag:reader'     => Alerts::FAMILY_CONSUMER_LAG,
 			'deadletter:reader'       => Alerts::FAMILY_DEAD_LETTERS,

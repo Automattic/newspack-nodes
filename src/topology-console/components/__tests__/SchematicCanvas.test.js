@@ -83,7 +83,7 @@ describe( 'SchematicCanvas', () => {
 		};
 	} );
 
-	// positionOverrides is the COMPLETE map now; supply autoLayout positions.
+	// positionOverrides is the COMPLETE map; supply autoLayout positions.
 	const baseProps = {
 		parsed,
 		selectedId: null,
@@ -3573,7 +3573,7 @@ describe( 'SchematicCanvas', () => {
 		const lock = container.querySelector( '.topology-node__lock' );
 		const led = container.querySelector( '.topology-node__led' );
 		// The lock is start-anchored 12px type, so it runs x → x + 12; the LED's
-		// left edge is cx − r. They used to overlap by ~1.5px.
+		// left edge is cx − r, so the two must not overlap.
 		const lockRight = Number( lock.getAttribute( 'x' ) ) + 12;
 		const ledLeft =
 			Number( led.getAttribute( 'cx' ) ) -
@@ -4599,7 +4599,7 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		);
 		// Ignore mount-measure onViewportChange calls; watch only the reflow.
 		onViewportChange.mockClear();
-		// The obstruction is AMBIENT now, so re-provide it — `rerender` alone
+		// The obstruction is AMBIENT, so re-provide it — `rerender` alone
 		// replays the value the wrapper was built with.
 		rerenderWithCatalog( <SchematicCanvas { ...lodProps } />, {
 			...ambient,
@@ -4705,7 +4705,7 @@ describe( 'SchematicCanvas — hull interaction', () => {
 	// A hull's whole point is to read as ONE thing, so a hover lights it: idle
 	// dimming is suspended inside it and the wires between its members stop
 	// reading as idle. Every node here is idle (empty rate map) and the wire
-	// between them is non-flowing, which is the case that used to render the
+	// between them is non-flowing, the case that would otherwise render the
 	// hovered group as bright boxes strung on faded wire. @longform
 	const liveHullProps = {
 		...hullProps,
@@ -4942,8 +4942,7 @@ describe( 'SchematicCanvas — hull interaction', () => {
 	// member then moves by that one delta: snapping each member's own position
 	// would quantise away the cluster's internal offsets and reshape the group,
 	// while snapping the raw delta would preserve whatever off-grid offset the
-	// members already had -- and hull drags used to commit an unsnapped delta, so
-	// off-grid clusters are out there to be tidied.
+	// members already had, and off-grid clusters exist to be tidied.
 	const dragHullBy = ( container, x, y ) => {
 		const hull = container.querySelector( '.topology-hull' );
 		fireEvent.pointerDown( hull, { clientX: 0, clientY: 0, pointerId: 1 } );

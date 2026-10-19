@@ -3,8 +3,8 @@
  * Dumper node tests — the `_output` node. `_router` delivers typed-command
  * replies as POSITIONAL Messages; the Dumper renders each into the transcript,
  * mirroring the substrate cli Dumper. Transcript-only (canvas metadata + uptime
- * are their own nodes). Ports the old utils/dumperRender.test.js cases to the
- * node, plus the dump_node structured-render + no-[object Object] guards.
+ * are their own nodes). Covers the render cases, plus the dump_node
+ * structured-render + no-[object Object] guards.
  */
 
 import {

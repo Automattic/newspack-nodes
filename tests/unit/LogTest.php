@@ -59,7 +59,7 @@ class LogTest extends TestCase {
 	public function test_arguments_resolves_config_defaults_for_missing_optional_tokens(): void {
 		// Optional args default to <config:*> tokens, resolved from config and
 		// coerced to int; 1024/2 are the test-config values, distinct from the
-		// DEFAULT_* constants (67108864/4) they used to fall back to.
+		// DEFAULT_* constants (67108864/4).
 		$log = new Log_Node();
 		$log->arguments( [ "{$this->tmp}/out.log" ] );
 		$ref = new \ReflectionClass( $log );
@@ -159,7 +159,7 @@ class LogTest extends TestCase {
 
 	public function test_TM_EOF_is_dropped_and_keeps_node_writable(): void {
 		// Append-only: EOF is a producer-shutdown signal; Log expects more data later
-		// and must NOT close/remove the node (overwrite mode is gone).
+		// and must NOT close/remove the node (there is no overwrite mode).
 		$log = new Log_Node();
 		$log->arguments( [ "{$this->tmp}/out.log" ] );
 		$log->name( 'mylog' );
@@ -192,8 +192,8 @@ class LogTest extends TestCase {
 
 	public function test_value_over_pipe_buf_is_dropped_without_void_warranty(): void {
 		// Log inherits Partition's 4KB PIPE_BUF cap (atomic-write discipline, ADR-4).
-		// An oversize VALUE is dropped, NOT written — a deliberate
-		// change from the old uncapped Log. Operators opt out via void_warranty().
+		// An oversize VALUE is dropped, NOT written. Operators opt out via
+		// void_warranty().
 		$log = new Log_Node();
 		$log->arguments( [ "{$this->tmp}/out.log" ] );
 		$this->write_value( $log, \str_repeat( 'x', Partition_Node::MAX_LINE_SIZE + 1 ) );

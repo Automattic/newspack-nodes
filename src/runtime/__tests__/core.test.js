@@ -351,8 +351,9 @@ describe( 'graphGeneration — full-rebuild signal', () => {
 } );
 
 // A Router is never removed — it is the page's one heartbeat — so a reset that
-// only swapped the registry left it ticking against nothing, and a test file
-// accumulated one orphaned heartbeat per test until the run ran out of memory.
+// only swapped the registry would leave it ticking against nothing, and a test
+// file would accumulate one orphaned heartbeat per test until the run ran out
+// of memory.
 describe( 'Core.reset', () => {
 	it( 'stops the timers of the nodes it discards', () => {
 		const { TimerNode } = require( '../timer-node' );

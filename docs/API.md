@@ -290,7 +290,7 @@ The `/command` endpoint applies its own per-user limit
 `RATE_LIMIT_WINDOW_S = 1` second per user, answering `429 rate_limited` on
 overflow. Memcached counts expiry in whole seconds, so at one second a slot
 frees within the second it was claimed in, and the budget is close to one
-bucket per cache tick; what the limiter adds over the old transient counter
+bucket per cache tick; what the limiter adds over a transient counter
 is the atomic claim. When neither memcached nor APCu answers, the door admits
 and logs one rate-limited warning, because every dashboard, Status poll and
 hub push rides `/command`, and a dead cache must not take them all down. The

@@ -295,9 +295,8 @@ class JobIntakeTest extends TestCase {
 
 	public function test_static_queue_carries_the_id_through_to_the_entry(): void {
 		// The large-write counterpart of feed()'s id, and the same position in
-		// the signature. It used to be hardwired null here, so a job over
-		// PIPE_BUF lost the identity its jobstats are keyed by while the small
-		// one beside it kept it.
+		// the signature, so a job over PIPE_BUF keeps the identity its jobstats
+		// are keyed by, as the small one beside it does.
 		$this->assertTrue(
 			Job_Intake::queue( 'cron', 'films-seed-5501', [ 'opt' => 1 ], null, $this->tmp, 1 )
 		);
@@ -414,7 +413,7 @@ class JobIntakeTest extends TestCase {
 
 	public function test_writes_to_different_partitions_do_not_contend(): void {
 		// Per-Partition locking means a writer on p0 doesn't block a writer
-		// on p1 — the legacy host-wide intake lock used to gate both.
+		// on p1 — no host-wide intake lock gates both.
 		$first = new Job_Intake( $this->tmp, num_partitions: 4 );
 		$first->partition( 0 );
 		$this->assertTrue( $first->write_job( 'a', null, [] ) );
@@ -558,15 +557,16 @@ class JobIntakeTest extends TestCase {
 	}
 
 	/**
-	 * A leak the router shouted about once per job:
+	 * A leaked registration makes the router shout once per job:
 	 *   `_router: WARNING: jobintake.<pid>-<n>.p0:heartbeat forgot to unregister`
 	 *
 	 * A locked Partition arms a `:heartbeat` Timer that REGISTERS with _router for
 	 * TIMER (only when the Event_Framework is draining — i.e. in a worker, which
-	 * is why no unit test caught it). Tearing the Partition down left that
-	 * registration behind, pointing at a name that no longer resolves, so every
-	 * tick the router walked a dangling entry and shouted. The Partition owns the
-	 * sibling; remove_node() must remove it (Timer::remove_node() unregisters).
+	 * is why this test drains). Tearing the Partition down without removing it
+	 * would leave that registration pointing at a name that no longer resolves,
+	 * so every tick the router would walk a dangling entry and shout. The
+	 * Partition owns the sibling; remove_node() must remove it
+	 * (Timer::remove_node() unregisters).
 	 */
 	public function test_removing_a_locked_partition_unregisters_its_heartbeat(): void {
 		$router = new Router_Node();

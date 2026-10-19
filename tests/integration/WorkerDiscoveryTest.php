@@ -92,7 +92,7 @@ class WorkerDiscoveryTest extends TestCase {
 	public function test_register_worker_partition_rejects_invalid_reader_id(): void {
 		$base = $this->make_temp_dir( 'worker-disc-' );
 		// Path-traversal / wrong shape — rejected without mounting (the id is
-		// now client-supplied via the connect_worker_input command argument).
+		// client-supplied via the connect_worker_input command argument).
 		$this->assertFalse( Bootstrap::register_worker_partition( '../../etc/passwd', $base ) );
 		$this->assertFalse( Bootstrap::register_worker_partition( 'no-partition-suffix', $base ) );
 	}

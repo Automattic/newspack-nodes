@@ -118,9 +118,10 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 	}
 
 	public function test_a_topic_declares_its_OWN_partition_count_not_the_workers(): void {
-		// aggregator-fdn runs ONE worker but its Topic re-partitions to four, so
-		// firehose.p1..p3 were undeclared — invisible on the dashboard, and
-		// orphans to Log_Cleaner::sweep(), which deletes undeclared dirs.
+		// A topology can run ONE worker while its Topic re-partitions to four;
+		// firehose.p1..p3 must be declared, or they are invisible on the
+		// dashboard and orphans to Log_Cleaner::sweep(), which deletes
+		// undeclared dirs.
 		$this->write_tsl(
 			'agg',
 			"make_node Topic firehose:topic <config:logs_dir>/firehose.p{partition} 4\n"

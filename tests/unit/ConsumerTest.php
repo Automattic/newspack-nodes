@@ -323,9 +323,10 @@ class ConsumerTest extends TestCase {
 	 * A line READ into the buffer but not yet dispatched is still owed work.
 	 *
 	 * Lag is measured from the cursor, which only advances in drain_buffer()'s
-	 * `finally`, after `fill()` returns. Discounting the buffer had the consumer
-	 * voting itself caught up — and so idle — for the whole downstream call, a
-	 * job handler or a request assembly, which stopped on-demand workers mid-job.
+	 * `finally`, after `fill()` returns. Discounting the buffer would have the
+	 * consumer vote itself caught up — and so idle — for the whole downstream
+	 * call, a job handler or a request assembly, stopping on-demand workers
+	 * mid-job.
 	 */
 	public function test_idle_since_is_null_while_a_buffered_line_is_being_dispatched(): void {
 		$source = new Partition_Node();
@@ -349,7 +350,7 @@ class ConsumerTest extends TestCase {
 
 	public function test_arguments_builds_deadletter_sibling_when_dir_given(): void {
 		// A third positional arg names the quarantine dir for poison messages
-		// (dead-letter [42]); the Consumer auto-builds a `:deadletter` sibling
+		// (the dead-letter queue); the Consumer auto-builds a `:deadletter` sibling
 		// Partition there, the same way it builds `:offsetlog`.
 		$c = new Consumer_Node();
 		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
@@ -590,8 +591,7 @@ class ConsumerTest extends TestCase {
 	public function test_lag_of_re_reads_a_segment_recreated_smaller_than_the_cursor(): void {
 		// The partition was wiped and refilled: segment 0 exists again, so the
 		// missing-segment snap does not fire, but the cursor points past its new
-		// end. Unclamped that subtracts to zero and reads as caught up — the
-		// optimistic silence this measurement exists to remove.
+		// end. Unclamped that subtracts to zero and reads as caught up.
 		$lag = Consumer_Node::lag_of( [ [ 'id' => 0, 'size' => 700 ] ], 0, 5000 );
 
 		$this->assertSame( 700, $lag['bytes_behind'] );
@@ -678,8 +678,8 @@ class ConsumerTest extends TestCase {
 
 	public function test_probe_stats_bytes_delta_survives_a_retention_segment_delete(): void {
 		// BYTES_READ_DELTA counts bytes the consumer actually READ, so retention
-		// deleting a segment (which shrinks END_BYTES) cannot make it negative —
-		// the second reset that differencing END_BYTES used to suffer.
+		// deleting a segment (which shrinks END_BYTES) cannot make it negative,
+		// as differencing END_BYTES would.
 		$source = new Partition_Node();
 		$source->arguments( [ "{$this->tmp}/data.p0", "512", "1", "86400" ] );
 		$source->fill( $this->produce( \str_repeat( 'a', 400 ) ) );
@@ -771,7 +771,7 @@ class ConsumerTest extends TestCase {
 		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 		$message[ Message::VALUE ] = $value;
 		$partition->fill( $message );
-		// Partition::fill batches in memory now — force on-disk visibility
+		// Partition::fill batches in memory — force on-disk visibility
 		// so the Consumer's poll() picks up the bytes synchronously.
 		$partition->flush();
 	}
@@ -1690,7 +1690,7 @@ class ConsumerTest extends TestCase {
 		// A plain Consumer→Partition chain (no snapshot node to raise Clean) writes
 		// durably before the stop, so assume_clean_shutdown treats a plain
 		// Worker_Should_Stop like a clean one: commit past the in-flight message rather
-		// than replay it. That's the fix for the aggregator / Consumer→Partition dup.
+		// than replay it, so a Consumer→Partition chain writes no duplicate.
 		$source = new Partition_Node();
 		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'A' );
@@ -2118,7 +2118,7 @@ class ConsumerTest extends TestCase {
 	}
 
 	public function test_below_threshold_strike_frame_carries_no_quarantine_marker(): void {
-		// New-hazard guard: a below-threshold strike frame (still had fair shots left) must carry
+		// A below-threshold strike frame (still had fair shots left) must carry
 		// NO quarantine marker, or the successor would silently drop a message that still had
 		// shots (data loss). The successor boots ONTO it and re-forwards it.
 		$source = new Partition_Node();
@@ -2539,7 +2539,7 @@ class ConsumerTest extends TestCase {
 		$c2->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 		$c2->name( 'firehose:consumer' );
 		$c2->sink( new Capture_Sink_Node() );
-		// Order-independence (the bug this fixes): the snapshot node is named BEFORE
+		// Order-independence: the snapshot node is named BEFORE
 		// it is built, exactly as a per-node-serialized topology emits it. Recording
 		// the name must NOT try to restore yet — there is no node to restore into.
 		$c2->add_snapshot_node( 'request-builder' );
@@ -3066,8 +3066,8 @@ class ConsumerTest extends TestCase {
 		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 
 		// Stale cursor past EOF, plus a stale partial line LONGER than the
-		// recreated segment — the old remainder subtraction would clamp
-		// bytes_behind back to 0 and re-mask the wedge.
+		// recreated segment — subtracting the remainder would clamp
+		// bytes_behind back to 0 and mask the wedge.
 		$stale_off = 5774576; // any value past the recreated segment's size
 		$ref       = new \ReflectionClass( $c );
 		$offset       = $ref->getProperty( 'cursor_offset' );
@@ -3205,7 +3205,7 @@ class ConsumerTest extends TestCase {
 	public function test_poll_preserves_producer_KEY(): void {
 		// Consumer MUST NOT overwrite the producer's KEY. KEY is the routing
 		// key — rid for firehose entries, handler for jobintake. Overwriting
-		// it to seg:offset (as Consumer used to do) breaks RequestBuilder's
+		// it to seg:offset breaks RequestBuilder's
 		// rid grouping and any multi-partition queue keyed on handler.
 		$source = new Partition_Node();
 		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64*1024 ), "4", "86400" ] );
@@ -3688,8 +3688,8 @@ class ConsumerTest extends TestCase {
 		// Lag is measured from the CURSOR: bytes that have been read into the
 		// buffer are not yet emitted, and the cursor only advances in
 		// drain_buffer()'s finally, after fill() returns. Discounting the buffer
-		// reported a consumer as caught up (and so idle) for the whole of a long
-		// downstream dispatch, which stopped on-demand workers mid-job.
+		// would report a consumer as caught up (and so idle) for the whole of a
+		// long downstream dispatch, stopping on-demand workers mid-job.
 		$source = new Partition_Node();
 		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'hello' );
@@ -4013,8 +4013,8 @@ class ConsumerTest extends TestCase {
 	public function test_node_schema_declares_io_category_and_no_request_verbs(): void {
 		// Topology console reads node_schema() to render the palette entry.
 		// Consumer is in the I/O category and declares no request verbs, so the
-		// editor offers none: the read verbs were folded into dump_metadata, and
-		// lag is read off probe_stats() rather than asked for over the wire.
+		// editor offers none: the read surface is dump_metadata, and lag is
+		// read off probe_stats() rather than asked for over the wire.
 		$schema = Consumer_Node::node_schema();
 		$this->assertIsArray( $schema );
 		$this->assertSame( 'I/O', $schema['category'] );
@@ -4209,8 +4209,8 @@ class ConsumerTest extends TestCase {
 		// A genuinely corrupt on-disk line (here a too-few-fields array that
 		// Message::unpacked() rejects) followed by a valid packed line. The drain
 		// loop must quarantine the bad line and still emit the following valid
-		// one, not abort the poll. Written raw because packed() now slices to 7
-		// fields, so it can no longer be coaxed into emitting a malformed line.
+		// one, not abort the poll. Written raw because packed() slices to 7
+		// fields, so it cannot be coaxed into emitting a malformed line.
 		$this->seed_corrupt_then_good_line();
 
 		$c = new Consumer_Node();

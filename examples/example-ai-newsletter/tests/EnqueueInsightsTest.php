@@ -1,6 +1,6 @@
 <?php
 /**
- * EnqueueInsightsTest: the example's Publisher Insights enqueue now delegates
+ * EnqueueInsightsTest: the example's Publisher Insights enqueue delegates
  * to the substrate's shared Admin::enqueue_react_page() registrar.
  *
  * Recording stubs (function_exists-guarded) capture the enqueue/localize calls
@@ -113,7 +113,7 @@ namespace Example_AI_Newsletter\Tests {
 			);
 
 			// Delegation-specific: the registrar activates RTL when index-rtl.css
-			// ships (the old hand-rolled enqueue never did).
+			// ships.
 			if ( \file_exists( \dirname( __DIR__ ) . '/build/dashboard/index-rtl.css' ) ) {
 				$this->assertSame( 'replace', $GLOBALS['_style_data'][ $handle ]['rtl'] ?? null );
 			}

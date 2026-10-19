@@ -123,10 +123,10 @@ beforeEach( () => {
 
 describe( 'useTopologyManager', () => {
 	it( 'throttles the batched poll to refreshMs instead of every router tick', async () => {
-		// refreshMs was only ever wired to the freshness bump; useBatchedPoll
-		// got no intervalMs at all, and omitted means "fire every router tick"
-		// — so the station Overview polled the server at 1Hz while the staleness
-		// calculation judged it against a multi-second cadence.
+		// refreshMs reaches useBatchedPoll as its intervalMs, not only the
+		// freshness bump: omitted means "fire every router tick", which would
+		// poll the server at 1Hz while the staleness calculation judged it
+		// against a multi-second cadence.
 		buildClient();
 		renderHook( () => useTopologyManager( {} ) );
 		await act( async () => {} );
@@ -458,7 +458,7 @@ describe( 'useTopologyManager', () => {
 				'topology-manager:fetch',
 			] )
 		);
-		// The verb-first and run-together spellings are gone.
+		// No verb-first or run-together spelling.
 		for ( const name of [
 			'fetch-workers',
 			'fetch-topologies',

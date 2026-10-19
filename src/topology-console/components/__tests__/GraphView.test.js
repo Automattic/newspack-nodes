@@ -405,7 +405,7 @@ describe( 'GraphView', () => {
 	} );
 
 	// The console mirrors GraphView's selection straight back as `selection`,
-	// so an edge click — which reports the NODE selection as null — used to
+	// so an edge click — which reports the NODE selection as null — must not
 	// echo in as an external clear and wipe the edge the user just picked.
 	it( 'keeps an edge selected after a node selection, through the controlled round-trip', () => {
 		const onRemoveEdge = jest.fn();
@@ -721,11 +721,11 @@ describe( 'GraphView — hull selection', () => {
 	} );
 
 	/**
-	 * The graph-wide series used to be differenced from the AGGREGATE totals,
-	 * so one worker's respawn (its cumulative counter back to zero) was netted
-	 * against every other node's growth and the whole fleet reported a
-	 * wrong-but-positive rate for that tick. Per-node deltas clamp only the
-	 * node that reset.
+	 * The graph-wide series sums per-node deltas rather than differencing the
+	 * AGGREGATE totals, which would net one worker's respawn (its cumulative
+	 * counter back to zero) against every other node's growth and report a
+	 * wrong-but-positive rate for the whole fleet. Per-node deltas clamp only
+	 * the node that reset.
 	 */
 	it( 'charges a counter reset to the node that reset, not to the fleet', () => {
 		withClock( ( tick ) => {
@@ -743,9 +743,9 @@ describe( 'GraphView — hull selection', () => {
 
 	// @longform A sparkline point is a dump_metadata SNAPSHOT, and the canvas
 	// graph is rebuilt far more often than one arrives — a catalog republishing
-	// was enough. Sampling per rebuild filed four empty points for every real
-	// one, so the chart read as a spike every fifth second and its 60-point ring
-	// covered a minute instead of the five its label claims.
+	// is enough. Sampling per rebuild would file four empty points for every
+	// real one, so the chart would read as a spike every fifth second and its
+	// 60-point ring would cover a minute instead of the five its label claims.
 	it( 'records one sample per metadata snapshot, not per canvas rebuild', () => {
 		withClock( ( tick ) => {
 			const metadata = new MetadataNode();

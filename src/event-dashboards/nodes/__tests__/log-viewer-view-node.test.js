@@ -81,8 +81,8 @@ test( 'a step control admits exactly one envelope through a pause', () => {
 } );
 
 // Every column the Cols picker offers is one of the seven positional message
-// fields (ADR-2). The row kept only three of them, so TYPE / TIMESTAMP / FROM /
-// TO had nowhere to come from.
+// fields (ADR-2), so the row carries all seven, or TYPE / TIMESTAMP / FROM / TO
+// have nowhere to come from.
 test( 'rows carry all seven message fields', () => {
 	const view = makeView( 'log-viewer:view' );
 	const m = envelopeMsg( {
@@ -204,7 +204,7 @@ test( 'raw keeps multi-line bytestreams past the 1000-char content clip, capped 
 	expect( v.lines[ 0 ].raw.endsWith( '...' ) ).toBe( true );
 } );
 
-// --- Envelope-shaping branches inlined from the deleted log-viewer:transform. ---
+// --- Envelope-shaping branches. ---
 
 test( 'string VALUE passes through verbatim as the line content', () => {
 	const v = makeView( 'log-viewer:view' );
@@ -259,7 +259,7 @@ test( 'an envelope with null VALUE is dropped', () => {
 	expect( v.lines ).toHaveLength( 0 );
 } );
 
-// --- Existing buffer / control behavior, fed by raw envelopes now. ---
+// --- Buffer / control behavior, fed by raw envelopes. ---
 
 test( 'appends rows newest-first and caps the buffer (node.lines, no publish)', () => {
 	const v = makeView( 'log-viewer:view' );

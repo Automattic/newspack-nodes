@@ -361,7 +361,7 @@ describe( 'useGraphHandlers', () => {
 	it( 'onInspectorAction send_struct dispatches send_struct with the (quoted) JSON payload', () => {
 		const { result, dispatch } = renderHandlers( {} );
 		result.current.onInspectorAction( 'send_struct', 'a', '{"k":1}' );
-		// Single-quoted JSON stays one token for the tokenizer [#32].
+		// Single-quoted JSON stays one token for the tokenizer.
 		expect( dispatch ).toHaveBeenCalledWith( `send_struct a '{"k":1}'` );
 	} );
 

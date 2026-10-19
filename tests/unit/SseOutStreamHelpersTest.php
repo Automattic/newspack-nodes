@@ -9,9 +9,7 @@ use Newspack_Nodes\Rest\SSE_Out_Node;
 /**
  * Unit tests for SSE_Out_Node's inlined Server-Sent Events wire helpers —
  * the minimal SSE-emitting substrate the `/messages/stream` controller uses
- * to write SSE wire-format output. (These helpers formerly lived in the
- * deleted SSE_Stream_Trait; they were inlined when SSE_Out_Node became the
- * trait's sole consumer.)
+ * to write SSE wire-format output.
  *
  * Behaviors under test (matched 1:1 with the helpers' responsibilities):
  *  - init_sse_headers() drains every active output buffer (so the SSE
@@ -28,7 +26,7 @@ use Newspack_Nodes\Rest\SSE_Out_Node;
 final class SseOutStreamHelpersTest extends TestCase {
 
 	/**
-	 * Build an anonymous SSE_Out_Node subclass exposing the now-protected
+	 * Build an anonymous SSE_Out_Node subclass exposing the protected
 	 * SSE helper methods. SSE_Out_Node's node_schema() declares no
 	 * handler-bearing verbs, so the base ctor builds no sibling interpreter
 	 * and registers no node — construction is inert for a pure unit test.
@@ -162,7 +160,7 @@ final class SseOutStreamHelpersTest extends TestCase {
 	public function test_send_sse_event_emits_empty_payload_as_empty_object(): void {
 		$out = $this->host()->call_send( 'heartbeat', [] );
 		// PHP's json_encode on empty array yields `[]` (not `{}`), and that's
-		// the wire shape the helper emits. Lock the contract so a regression
+		// the wire shape the helper emits. Lock the contract so a switch
 		// to associative encoding doesn't surprise the JS client.
 		$this->assertStringContainsString( "data: []\n\n", $out );
 	}

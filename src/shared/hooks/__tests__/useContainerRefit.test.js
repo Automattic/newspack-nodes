@@ -1,6 +1,6 @@
 /**
  * Tests for useContainerRefit — the observe-or-window refit every chart and
- * canvas in the tree was hand-rolling.
+ * canvas in the tree shares.
  */
 
 import { renderHook, act } from '@testing-library/react';
@@ -200,8 +200,8 @@ describe( 'useContainerRefit', () => {
 
 	it( 'compares the CONTENT box, so padding does not read as a resize', () => {
 		// clientWidth is the padding box and is integer-rounded; contentRect
-		// is neither. Seeding from one and comparing against the other made
-		// the seed unmatchable, and the redundant rebuild ran anyway.
+		// is neither. Seeding from one and comparing against the other would
+		// make the seed unmatchable and run the redundant rebuild anyway.
 		const el = sized( 620, 206 );
 		el.style.padding = '3px 10px';
 		withObserver( box( 600, 200 ) );

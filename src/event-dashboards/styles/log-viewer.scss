@@ -1,10 +1,10 @@
 /**
  * Log Viewer Styles
  *
- * Light Newspack toolbar/chrome above the shared `LogRowList` pane. The pane and
- * its rows theme light/dark via the --paper/--ink tokens in LogRowList.scss (the
- * light theme the old canvas renderer could not give); here we add only the root
- * layout and the partition (`P<n>`) column the envelope rows carry.
+ * Light Newspack toolbar/chrome above the shared `LogRowList` pane. The pane
+ * and its rows theme light/dark via the --paper/--ink tokens in
+ * LogRowList.scss; here we add only the root layout and the partition (`P<n>`)
+ * column the envelope rows carry.
  */
 
 @use "base";

@@ -1,8 +1,8 @@
 <?php
 /**
- * MigratedServiceCiHandlerGuardTest: cross-interpreter guards for the three substrate
- * service interpreters migrated off bespoke `__construct`/`verb_table` command setup
- * onto the schema-driven mechanism (handlers live in node_schema()['commands'][]).
+ * MigratedServiceCiHandlerGuardTest: cross-interpreter guards for three substrate
+ * service interpreters whose commands are schema-driven (handlers live in
+ * node_schema()['commands'][]), not set up in a bespoke `__construct`/`verb_table`.
  *
  * Two contracts, asserted for Raw_Logs_CI, Layouts_CI, and Workers_CI:
  *
@@ -10,9 +10,9 @@
  *      single source of truth, so a verb without one would be invisible to
  *      Service_CI_Node::commands_from_schema() and dispatch to nothing.
  *
- *   2. Constructing the interpreter emits NO "no callable handler" warning — proves the
- *      migration didn't drop a handler in the move (commands_from_schema warns +
- *      skips any named verb that lacks a callable handler).
+ *   2. Constructing the interpreter emits NO "no callable handler" warning — proves
+ *      no verb lacks a handler (commands_from_schema warns + skips any named verb
+ *      that lacks a callable handler).
  *
  * @package Newspack_Nodes
  */

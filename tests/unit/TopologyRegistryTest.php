@@ -38,12 +38,12 @@ class TopologyRegistryTest extends TestCase {
 	}
 
 	/**
-	 * A stock name resolves ONLY from a stock dir. The user dir used to win on a
-	 * bare is_file(), so anyone who could write there replaced the graph the
+	 * A stock name resolves ONLY from a stock dir. Were the user dir to win on a
+	 * bare is_file(), anyone who could write there would replace the graph the
 	 * plugin ships — under a name already marked active, executed by every
 	 * worker spawn. Extending a stock topology does not need the override: name
-	 * the file something else and `include` the stock one, which the old
-	 * precedence actively prevented (including the name you shadow is a cycle).
+	 * the file something else and `include` the stock one, which a shadowing
+	 * precedence would prevent (including the name you shadow is a cycle).
 	 */
 	public function test_a_user_file_cannot_shadow_a_stock_topology(): void {
 		Topology_Registry::register_stock_dir( $this->stock );
@@ -85,10 +85,10 @@ class TopologyRegistryTest extends TestCase {
 
 	/**
 	 * The registry lives in `includes/`, so it can always name its own stock
-	 * dir. Bootstrap used to hold that path and register it inside the LAZY
-	 * `ensure_runtime_wired()` — while consumers register theirs at plugin
-	 * load — so a request that wired neither tier saw the consumer topologies
-	 * and not the substrate's, and their `include topic-probe` threw.
+	 * dir. Registered inside the LAZY `ensure_runtime_wired()` instead — while
+	 * consumers register theirs at plugin load — a request that wired neither
+	 * tier would see the consumer topologies and not the substrate's, and their
+	 * `include topic-probe` would throw.
 	 */
 	public function test_register_builtin_registers_the_substrates_own_topologies(): void {
 		$this->assertNull( Topology_Registry::resolve( 'topic-probe' ), 'reset leaves nothing registered' );
@@ -238,8 +238,8 @@ class TopologyRegistryTest extends TestCase {
 
 	public function test_frontmatter_skips_a_compound_operator_instead_of_inventing_a_key(): void {
 		// The static reader splits on the FIRST `=` with no operator awareness,
-		// so `//=` used to yield the key `num_partitions //` — a junk entry,
-		// and the real key absent. It still does not APPLY the operator (the
+		// so `//=` could yield the key `num_partitions //` — a junk entry,
+		// and the real key absent. It does not APPLY the operator (the
 		// executed Shell does), but it must not invent a name for it.
 		\file_put_contents(
 			"{$this->stock}/aggregator.tsl",
@@ -515,10 +515,9 @@ class TopologyRegistryTest extends TestCase {
 	}
 
 	/**
-	 * A NESTED layout puts `{partition}` below the first level. The
-	 * `.p(?:{partition}|\d+)$` suffix regex — sitting under a comment claiming
-	 * the method is layout-agnostic — matched nothing there, so the override was
-	 * dropped and the dashboard reported the global default. The key is the
+	 * A NESTED layout puts `{partition}` below the first level, where a
+	 * `.p(?:{partition}|\d+)$` suffix regex matches nothing, so the override
+	 * would be dropped and the dashboard report the global default. The key is the
 	 * concrete first-level dir under logs_dir, the SAME reduction
 	 * `resolved_resource_dirs()` and `Log_Cleaner` name their dirs by.
 	 */

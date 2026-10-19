@@ -1,6 +1,6 @@
 /**
- * useBatchedPoll tests — the shared batched-poll toolkit (helper H3). It owns ALL
- * the poll-dashboard boilerplate the example used to hand-wire: the group's
+ * useBatchedPoll tests — the shared batched-poll toolkit. It owns ALL
+ * the poll-dashboard boilerplate: the group's
  * `<group>:shell` Tap + `_http` HttpOut, the fan-out Tee + router-hitchhike Timer, the lock/flush bracket
  * (so one router TIMER tick's commands batch into ONE POST), and the page-visibility
  * start/stop of the Timer. The caller's `build` only adds the dashboard's own nodes.
@@ -262,11 +262,10 @@ describe( 'useBatchedPoll — initial poll on mount', () => {
 		expect( wire.batches.length ).toBe( 1 );
 	} );
 
-	// @longform The first load already refuses to spend a tick it could not
-	// sign. Every LATER tick has the same problem and had no such guard: a
-	// session that turns over mid-session leaves the next tick unsigned, and
-	// spending it costs a whole cadence — half a minute on a catalog — before
-	// anything asks again.
+	// @longform The first load refuses to spend a tick it could not sign, and
+	// so does every LATER tick: a session that turns over mid-session leaves
+	// the next tick unsigned, and spending it would cost a whole cadence — half
+	// a minute on a catalog — before anything asks again.
 	test( 'a tick that cannot sign does not spend the cadence', async () => {
 		const wire = installWire();
 		renderHook( () =>
@@ -309,10 +308,10 @@ describe( 'useBatchedPoll — initial poll on mount', () => {
 	} );
 
 	// @longform "Costs nothing" has to mean the NODES too. A disabled slice
-	// still built its Tee, Fetcher, view and Timer under the names the enabled
-	// one uses — so the moment two surfaces on one page held the same catalog,
-	// one of them disabled, the second mount collided on a name and took the
-	// screen down with it.
+	// that built its Tee, Fetcher, view and Timer under the names the enabled
+	// one uses would, the moment two surfaces on one page held the same
+	// catalog, one of them disabled, collide on a name and take the screen down
+	// with it.
 	test( 'enabled:false builds no nodes either', async () => {
 		installWire();
 		renderHook( () =>
@@ -485,9 +484,9 @@ describe( 'useBatchedPoll — the batching bracket', () => {
 	// @longform
 	// The first load TRIGGERS the Router's tick rather than opening a bracket
 	// of its own. The Router is the page's one heartbeat and the only thing
-	// that brackets a tick; a mount that lock/flushed for itself was a second
-	// bracket owner, and the slices it left out — another dashboard's poll,
-	// due on the same tick — paid for a second POST.
+	// that brackets a tick; a mount that lock/flushed for itself would be a
+	// second bracket owner, and the slices it left out — another dashboard's
+	// poll, due on the same tick — would pay for a second POST.
 	test( 'the first load rides the ROUTER tick, so everything due shares its POST', async () => {
 		const wire = installWire();
 		// A second poller, already mounted and due.
@@ -721,17 +720,10 @@ describe( 'useBatchedPoll — intervalMs (hitchhike + throttle cadence)', () => 
 	} );
 
 	/**
-	 * Was 'no intervalMs keeps the every-tick hitchhike'. It pinned the silent
-	 * fallback, which is the defect: omitting the knob adopted the router's
-	 * sub-second cadence, so the poll ran every tick. Omission now throws; see
-	 * the 'intervalMs is required' block.
-	 */
-	/**
-	 * At exactly 1000 armTimer called a BARE setTimer(), which sets
-	 * interval_ms from `router.interval_ms` — so the dashboard's cadence was
-	 * silently whatever the router happened to run. It matches today only
-	 * because ROUTER_TICK_MS is also 1000. TimerNode hitchhikes at >= 1000, so
-	 * 1000 must be passed through like any other value.
+	 * A BARE setTimer() sets interval_ms from `router.interval_ms`, which would
+	 * make the dashboard's cadence whatever the router runs; it agrees at 1000
+	 * only because ROUTER_TICK_MS is also 1000. TimerNode hitchhikes at >= 1000,
+	 * so 1000 must be passed through like any other value.
 	 */
 	test( 'a 1000 cadence is honoured, not inherited from the router tick', async () => {
 		const { rerender } = renderHook(
@@ -786,13 +778,9 @@ describe( 'useBatchedPoll — teardown', () => {
 } );
 
 /**
- * The cadence knob had a silent fallback to the MOST expensive value: an
- * omitted `intervalMs` armed a bare `setTimer()`, firing every router tick at
- * 1Hz. CHANGELOG v2.5.0 records that shipping once, with `useTopologyManager`
- * hammering its CI at 1Hz while `deriveConnected` judged staleness in seconds.
- * Of five consumers only one was unconditionally safe: two passed
- * `parseInt(…) || 0`, which LOOKS configured and lands on 1Hz, and one omitted
- * it entirely. Required config fails loud.
+ * An omitted `intervalMs` would fall back to the MOST expensive value: a bare
+ * `setTimer()`, firing every router tick at 1Hz. A `parseInt(…) || 0` LOOKS
+ * configured and lands on 1Hz too. Required config fails loud.
  */
 describe( 'useBatchedPoll — intervalMs is required', () => {
 	// The guard runs before the first hook call, so it is a plain precondition
@@ -827,10 +815,9 @@ describe( 'useBatchedPoll — intervalMs is required', () => {
 /**
  * A filter change wants an immediate refresh. The tick already fans to every
  * slice inside the router's lock/flush bracket, with each slice's argsFn()
- * reading live refs — so firing it early IS the operation. Consumers that
- * rebuilt that bracket around hand-sent copies of the same verbs (three times
- * in one file, each re-finding `_http` by hardcoded name) were re-implementing
- * this.
+ * reading live refs — so firing it early IS the operation, and a consumer
+ * rebuilding that bracket around hand-sent copies of the same verbs would be
+ * re-implementing this.
  */
 describe( 'useBatchedPoll — pollNow()', () => {
 	test( 'fires every slice off-cadence in ONE POST', async () => {

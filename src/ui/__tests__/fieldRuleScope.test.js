@@ -103,7 +103,7 @@ describe( 'field styling scope', () => {
 
 	// The `@longform` note in _focus.scss: buttons ring on KEYBOARD focus only,
 	// or the ring sits on whatever you last clicked. Its `button` selector does
-	// not cover <input type="submit">, which took the text-field branch.
+	// not cover <input type="submit">, which must not take the text-field branch.
 	it( 'does not give a submit button a plain :focus ring', () => {
 		const ringed = [];
 		stylesheet.walkRules( ( rule ) => {

@@ -494,7 +494,7 @@ describe( 'Inspector (view mode)', () => {
 		expect( btn.className ).not.toContain( 'is-active' );
 		fireEvent.click( btn );
 		expect( calls ).toContainEqual( [ 'command', null, 'debug_level 1' ] );
-		// It is a toggle, not the old stateless dump of the bare verb.
+		// It is a toggle, not a stateless dump of the bare verb.
 		expect( calls ).not.toContainEqual( [
 			'command',
 			null,
@@ -1004,8 +1004,8 @@ describe( 'Inspector (view mode)', () => {
 			{ from: 'echo', to: 'sink' },
 		],
 	};
-	// Fixtures still describe the catalogs; the component reads them from
-	// context now, so split them at the render boundary.
+	// Fixtures describe the catalogs; the component reads them from
+	// context, so split them at the render boundary.
 	const renderNode = ( extra = {} ) => {
 		const props = { ...baseProps, ...extra };
 		const { catalog, formatters, vaults, composeTargets, ...rest } = props;
@@ -1438,7 +1438,7 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'renders array-valued constructor arguments without crashing [token-array]', () => {
-		// node.arguments is a token array (list<string>) post-migration; the
+		// node.arguments is a token array (list<string>); the
 		// read-only Constructor view must consume it as tokens, not a string.
 		const { container } = renderWithCatalog(
 			<Inspector

@@ -277,7 +277,7 @@ jest.mock( '../hooks/useCatalogs', () => ( {
 	},
 	// Stubbed so the vault catalog answers rather than sitting unresolved.
 	useVaults: () => ( { vaults: [], loading: false, error: null } ),
-	// The slice, faked over the promise the fixtures still seed: `open()` asks
+	// The slice, faked over the promise the fixtures seed: `open()` asks
 	// `fetchTopology`, and what it resolves becomes the published answer.
 	useTopology: ( opts ) => {
 		const { useCallback, useState } = require( '@wordpress/element' );
@@ -330,8 +330,8 @@ jest.mock( '../hooks/useTopologyCatalog', () => ( {
 	},
 } ) );
 jest.mock( '../hooks/useLayout', () => ( {
-	// Faked over the promises the fixtures still seed: what settles becomes the
-	// handler the console now does its work in. The two senders are STABLE, as
+	// Faked over the promises the fixtures seed: what settles becomes the
+	// handler the console does its work in. The two senders are STABLE, as
 	// the real hook's are — a fresh identity per render re-runs the console's
 	// fetch effect, which sets state, which renders again.
 	useLayout: ( handlers = {} ) => {
@@ -382,8 +382,8 @@ jest.mock( '../hooks/useLayout', () => ( {
 		return { fetchLayout, saveLayout };
 	},
 } ) );
-// The one-shots, faked over the promises the fixtures still seed: what settles
-// becomes the `onDone` the console now does its work in.
+// The one-shots, faked over the promises the fixtures seed: what settles
+// becomes the `onDone` the console does its work in.
 jest.mock( '../hooks/useSaveTopology', () => ( {
 	useSaveTopology: ( onDone ) =>
 		globalThis.__fakeOneShot( 'saveTopology', 'save' )( onDone ),
@@ -398,8 +398,8 @@ let lastInspectorProps = null;
 let lastHeaderProps = null;
 jest.mock( '../components/SchematicCanvas', () => {
 	// Pure renderer: useCanvasLayout owns positions; mock records props. The
-	// real canvas reads layout + chrome from context now, so the double must
-	// too, or these assertions test a prop chain it stopped using.
+	// real canvas reads layout + chrome from context, so the double must
+	// too, or these assertions test a prop chain the canvas does not use.
 	return function SchematicCanvasDouble( props ) {
 		const { useLayoutContext } = require( '../LayoutContext' );
 		const { useChrome } = require( '../ChromeContext' );
@@ -632,8 +632,8 @@ jest.mock( '../../shared/components/Header', () => ( {
 } ) );
 let lastPaletteProps = null;
 jest.mock( '../components/Palette', () => ( props ) => {
-	// The real Palette reads its catalogs from context now, so the double
-	// must too, or these assertions test the prop chain it stopped using.
+	// The real Palette reads its catalogs from context, so the double
+	// must too, or these assertions test a prop chain it does not use.
 	const { useCatalog } = require( '../CatalogContext' );
 	lastPaletteProps = { ...props, ...useCatalog() };
 	return (
@@ -1062,7 +1062,6 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'new' ) );
 		} );
-		// Regression: handleNew's { nodes: [] } draft lacked the _repl anchor.
 		expect(
 			document.querySelector( '.topology-canvas-building' )
 		).toBeNull();
@@ -2023,7 +2022,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'a worker cwd during the connecting window keeps _cwd pointed at the worker (not local)', async () => {
-		// _cwd tracks the cwd verbatim (was '' while connecting — misleading).
+		// _cwd tracks the cwd verbatim, not '' while connecting.
 		globalThis.__connecting = true;
 		try {
 			window.history.replaceState( {}, '', '/?topology=demo' );
@@ -2267,7 +2266,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'reset-graph preserves cwd (rebuild rehomes Shell.path to default; reset must restore the user cwd)', async () => {
-		// Reset-graph must rebuild AND keep cwd at '/' (was snapped back).
+		// Reset-graph must rebuild AND keep cwd at '/'.
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { findByText } = render( <TopologyConsole /> );
 		act( () => {
@@ -2616,7 +2615,7 @@ describe( 'TopologyConsole boot', () => {
 	it( 'canvas background click does not dismiss the transcript (no consumed handler)', async () => {
 		render( <TopologyConsole /> );
 		await act( async () => {} );
-		// Canvas only deselects/autofits now; it never touches transcript.
+		// Canvas only deselects/autofits; it never touches transcript.
 		expect( mockCanvasProps.onBackgroundClickConsumed ).toBeUndefined();
 		expect( mockCanvasProps.backgroundClickAutofitsOnly ).toBeUndefined();
 	} );
@@ -3046,7 +3045,6 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'edit mode: renaming a node preserves the num_partitions frontmatter on save', async () => {
-		// Regression: rename rebuilt { nodes, edges } and dropped frontmatter.
 		hooks.fetchTopology.mockResolvedValueOnce( {
 			tsl: 'var num_partitions = 4\nmake_node Echo n1\n',
 			name: 'demo',
@@ -4046,10 +4044,10 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'Discard leaves edit mode with no modal and no stale editing target', async () => {
-		// Discard used to only flip the mode, leaving the dirty draft alive;
-		// the next action that replaced it re-asked, in LIVE, about a topology
-		// the operator could no longer see. The drop itself is asserted on the
-		// interpreter (draft-interpreter-verbs); this covers the flow.
+		// Discard drops the dirty draft as well as flipping the mode, so no
+		// later action re-asks, in LIVE, about a topology the operator cannot
+		// see. The drop itself is asserted on the interpreter
+		// (draft-interpreter-verbs); this covers the flow.
 		hooks.fetchTopology.mockResolvedValue( {
 			tsl: 'make_node Echo n1\n',
 			name: 'demo',
@@ -4078,7 +4076,7 @@ describe( 'TopologyConsole boot', () => {
 
 		expect( getByTestId( 'header' ).dataset.mode ).toBe( 'view' );
 		expect( queryByText( 'confirm' ) ).toBeNull();
-		// Genuinely dropped: the console is no longer editing anything, so
+		// Genuinely dropped: the console is not editing anything, so
 		// nothing later can re-ask about a draft the operator cannot see.
 
 		// Re-entering edit starts from the file, not the abandoned draft.
@@ -5179,7 +5177,7 @@ describe( 'TopologyConsole boot', () => {
 		const EMPTY_EXPANSION = { nodes: [], edges: [], tree: {}, hulls: {} };
 
 		// @longform The server ALWAYS ships `expanded` with a get
-		// (Topologies_CI::get), and the console now requires it — loading a
+		// (Topologies_CI::get), and the console requires it — loading a
 		// document without one marks every included node as declared by this
 		// document, and the next save writes the borrowed graph into the file.
 		// So this refuses to
@@ -5278,9 +5276,9 @@ describe( 'TopologyConsole boot', () => {
 		}
 
 		it( 'shows hulls in LIVE mode from the VIEWED topology, not a stale draft', async () => {
-			// Hulls were derived from draft.includes, which survives leaving edit
-			// mode — so an include dragged into one topology painted a hull over a
-			// DIFFERENT topology's live graph. Live must read the viewed topology's
+			// draft.includes survives leaving edit mode, so hulls derived from it
+			// would paint an include dragged into one topology over a DIFFERENT
+			// topology's live graph. Live must read the viewed topology's
 			// own includes (topologies dump carries them) and its expand baseline.
 			hooks.catalog = {
 				partitions: { demo: 1 },
@@ -5501,8 +5499,8 @@ describe( 'TopologyConsole boot', () => {
 			// The included topology wires its own nodes together. Those edges must
 			// land in the draft, or the serializer sees them "removed" and writes a
 			// disconnect_node for an edge the user never touched — which then tears
-			// the borrowed topology apart at boot. (Caught in a live browser run;
-			// the earlier drop test used an edge-less baseline and missed it.)
+			// the borrowed topology apart at boot. An edge-less baseline would
+			// miss it.
 			mockTopologyGet( 'wombat-top', 'make_node Echo own-echo\n' );
 			mockTopologyExpand( [ 'job-intake' ], {
 				nodes: [
@@ -5853,8 +5851,8 @@ describe( 'TopologyConsole boot', () => {
 				) {
 					return null;
 				}
-				// `args` is a token array; the old string compare never
-				// matched, so BOTH drops got the combined expansion.
+				// `args` is a token array; a string compare never matches,
+				// and BOTH drops would get the combined expansion.
 				const asked = []
 					.concat( msg.args )
 					.filter( ( token ) => ! token.startsWith( '--' ) )
@@ -6054,7 +6052,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	describe( 'skin theme', () => {
-		// The skin is now the global `<html>.theme-<slug>` class.
+		// The skin is the global `<html>.theme-<slug>` class.
 		const rootClass = () => document.documentElement.className;
 
 		it( 'defaults to theme-newspack when localStorage is empty', async () => {

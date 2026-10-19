@@ -1,6 +1,6 @@
 /**
- * topology-console/index — the standalone console page was removed in 5b; the
- * Console is a station tab now. The bundle entry's only job is to register that tab
+ * topology-console/index — the Console is a station tab, with no standalone
+ * page. The bundle entry's only job is to register that tab
  * when it loads (no standalone createRoot mount, no DOMContentLoaded wiring).
  */
 

@@ -1,5 +1,5 @@
 /**
- * Regression: tab completion must survive Reset Graph.
+ * Tab completion must survive Reset Graph.
  *
  * useDebugRepl rebuilds `_completion` (a fresh CompletionNode) on every
  * graph-generation bump. The DebugOverlay subscribes to its published

@@ -169,7 +169,7 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'onInspectorAction handles tail / disconnect / trace (parity with the console)', () => {
-		// Routes 5 non-invoke actions like console; overlay used to drop them.
+		// Routes 5 non-invoke actions like the console does.
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.name = 'a';
@@ -275,7 +275,7 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'commitDrop is silent on position when no onPositionChange is provided', () => {
-		// Back-compat: no onPositionChange must not crash; make_node fires.
+		// No onPositionChange must not crash; make_node fires.
 		const { teardown } = mountExospine();
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );

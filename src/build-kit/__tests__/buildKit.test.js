@@ -56,9 +56,9 @@ describe( 'build-kit pure exports', () => {
 		expect( typeof kit.buildDashboards ).toBe( 'function' );
 	} );
 
-	// The hint names the ONE knob. It used to synthesize a per-alias variable
-	// name — all four of which assertNoRetiredOverrides now refuses, so the
-	// message sent the operator into a second, different failure.
+	// The hint names the ONE knob. A per-alias variable name is one
+	// assertNoRetiredOverrides refuses, so naming one would send the operator
+	// into a second, different failure.
 	test( 'assertAliasPathsExist names the missing alias and NEWSPACK_NODES_SRC', () => {
 		expect( () =>
 			kit.assertAliasPathsExist( {

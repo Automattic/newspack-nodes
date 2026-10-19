@@ -97,9 +97,9 @@ describe( 'browser command signing', () => {
 		expect( authGeneration() ).toBe( settled );
 	} );
 
-	// /auth was the one request that could not recover from a stale nonce: it
-	// 403s, throws, and burns the re-auth backoff — so the session cannot be
-	// re-minted at the one moment it must be.
+	// On a stale nonce /auth 403s, throws, and burns the re-auth backoff, so
+	// without a renewal the session cannot be re-minted at the one moment it
+	// must be.
 	it( 'renews a stale REST nonce and retries /auth once', async () => {
 		__setAuthFetch( null ); // exercise the real postAuth
 		const previousEndpoint = apiFetch.nonceEndpoint;
@@ -154,9 +154,9 @@ describe( 'browser command signing', () => {
 		}
 	} );
 
-	// The server tells us the lifetime; discarding it meant the only way to
-	// learn a session had died was to have a command refused — and that command
-	// was lost. 900 is distinct from the 3600 default, so a hard-coded TTL fails.
+	// The server tells us the lifetime; discarding it would leave a refused
+	// command as the only way to learn a session had died — and that command
+	// lost. 900 is distinct from the 3600 default, so a hard-coded TTL fails.
 	it( 'treats a session past its issued lifetime as absent', async () => {
 		let clockMs = 1_000_000;
 		setClock( () => clockMs );
@@ -322,10 +322,10 @@ describe( 'browser command signing', () => {
 } );
 
 /**
- * The minter signs TIMESTAMP, so ingress can no longer re-anchor a skewed
- * client's clock — the signature covers it. /auth reports the server's clock
- * instead and the minter aligns to it, which preserves the skew tolerance the
- * old ingress re-stamp provided.
+ * The minter signs TIMESTAMP, so ingress cannot re-anchor a skewed client's
+ * clock — the signature covers it. /auth reports the server's clock instead
+ * and the minter aligns to it, which keeps a skewed client inside the
+ * verifier's age window.
  */
 describe( 'clock alignment', () => {
 	const SERVER_NOW = 1771000000;
@@ -671,7 +671,7 @@ describe( 'postAuth transport', () => {
 /**
  * A server that ANSWERS but hands back nothing usable is not the same as an
  * unreachable one: the round trip counts as attempted, so an unsigned command
- * is now worth a diagnostic, and the backoff arms so we don't re-ask per tick.
+ * is worth a diagnostic, and the backoff arms so we don't re-ask per tick.
  */
 describe( 'an answered but unusable /auth', () => {
 	beforeEach( () => {

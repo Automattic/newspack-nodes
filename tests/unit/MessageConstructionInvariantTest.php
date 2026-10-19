@@ -10,7 +10,7 @@
  *   - a KEYED literal `[ Message::TYPE => ... ]` (only new_message() may do this), and
  *   - a POSITIONAL literal `[ Message::TM_*, <timestamp>, ... ]` (a TM_ type
  *     constant followed by a numeric/clock second field — the shape that drifts
- *     in, e.g. the HookNodeTest literal this guard was written after).
+ *     in).
  *
  * Reach: it catches the idioms that actually occur. It CANNOT catch a fully
  * bare-number literal with no `Message::` token (`[ 1, 1.7e9, '', … ]`) — a

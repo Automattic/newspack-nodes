@@ -1,13 +1,12 @@
 <?php
 /**
- * Cutover test for the stock `job-intake.tsl` topology.
+ * Test for the stock `job-intake.tsl` topology.
  *
- * Pins the load-bearing invariant of moving Job_Intake to the substrate: a job
- * written through `Job_Intake::queue()` into jobintake.log is drained by the
- * `job-intake` topology's Consumer into jobs.log, and the durable offsetlog
- * frame lands at `job-intake.jobintake.p<N>` — the `{topology}.{source}` cursor layout the
- * job-router leg used, so a real deploy resumes from the existing cursor with
- * no re-read and no gap.
+ * Pins its load-bearing invariant: a job written through `Job_Intake::queue()`
+ * into jobintake.log is drained by the `job-intake` topology's Consumer into
+ * jobs.log, and the durable offsetlog frame lands at `job-intake.jobintake.p<N>`
+ * — the `{topology}.{source}` cursor layout, so a deploy resumes from the
+ * existing cursor with no re-read and no gap.
  */
 
 namespace Newspack_Nodes\Tests\Integration;

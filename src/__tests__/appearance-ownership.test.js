@@ -9,9 +9,9 @@
  * the rule finds nothing. Geometry inline is fine, because geometry is often
  * computed; appearance is not.
  *
- * Ported from newspack-event-logger-nodes, which has carried this contract for
- * longer. Only the inline half came across — the rest of that file pins
- * stylesheet rules belonging to the Event Logger's own dashboards.
+ * newspack-event-logger-nodes holds the same contract; this file pins its
+ * inline half alone, because the stylesheet rules there belong to the Event
+ * Logger's own dashboards.
  *
  * An exception goes in ALLOWLIST with the reason. A value the component
  * genuinely computes — a series colour, a gradient over live data — is a real

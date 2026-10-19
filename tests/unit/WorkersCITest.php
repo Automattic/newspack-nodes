@@ -1,11 +1,9 @@
 <?php
 /**
- * WorkersCITest: unit tests for Workers_CI, the M2 service-interpreter that
- * replaces the legacy WorkersController + FirehoseController::heartbeat.
+ * WorkersCITest: unit tests for Workers_CI, the workers service interpreter.
  *
- * These tests establish the pattern every other M2 interpreter test will
- * follow: instantiate the interpreter with stubbed dependencies, fire a verb
- * through VerbHarness, assert on the decoded payload.
+ * Each test instantiates the interpreter with stubbed dependencies, fires a
+ * verb through VerbHarness, and asserts on the decoded payload.
  *
  * @package Newspack_Nodes
  */
@@ -100,7 +98,7 @@ class WorkersCITest extends TestCase {
 				return $topologies;
 			}
 		);
-		// Catalog registration no longer activates; declare the active set so
+		// Catalog registration does not activate; declare the active set so
 		// get_topologies()/the dump_metadata enumerate path sees these fleets.
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [
 			'demo-workers',
@@ -114,8 +112,8 @@ class WorkersCITest extends TestCase {
 
 	/**
 	 * Seed a Topic_Probe record at logs/topicprobe.p0 for a `{source}.p{partition}`
-	 * consumer — the single enumeration + cursor source dump_metadata now reads.
-	 * Accepts the legacy offsetlog-shaped `$extra` (seg/off/source_log/name) and
+	 * consumer — the single enumeration + cursor source dump_metadata reads.
+	 * Accepts an offsetlog-shaped `$extra` (seg/off/source_log/name) and
 	 * maps it onto the probe record's fields. Appends so several seeds accumulate.
 	 */
 	private function seed_probe_record( string $base_dir, string $source_basename, int $partition, array $extra = [] ): void {
@@ -189,7 +187,7 @@ class WorkersCITest extends TestCase {
 		}
 		\file_put_contents( "{$stock}/{$topology}.tsl", $lines );
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
-		// Retention + dashboard catalog now follow the ACTIVE set, not the disk glob.
+		// Retention + dashboard catalog follow the ACTIVE set, not the disk glob.
 		$active                                              = $GLOBALS['_wp_options']['newspack_nodes_topologies'] ?? [];
 		$active[]                                            = $topology;
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = \array_values( \array_unique( $active ) );
@@ -208,8 +206,8 @@ class WorkersCITest extends TestCase {
 	}
 
 	public function test_dump_metadata_verb_is_no_longer_registered(): void {
-		// The dashboard payload verb was renamed dump_metadata -> dump_graph;
-		// the old name must dispatch to nothing. CommandInterpreter throws
+		// The dashboard payload verb is dump_graph; dump_metadata must
+		// dispatch to nothing. CommandInterpreter throws
 		// "unknown command: <name>" and wraps it as TM_COMMAND|TM_ERROR, so
 		// the harness surfaces the error-message string.
 		$this->arrange_base_dir();
@@ -391,7 +389,7 @@ class WorkersCITest extends TestCase {
 			$this->assertContains( $declared, $catalog, "declared log '{$declared}' missing from catalog" );
 		}
 		// The whitelisted non-.tsl log (only CONSUMED by topologies) must resolve.
-		// topicprobe.p0 is TSL-declared now (the topic-probe include) and rides
+		// topicprobe.p0 is TSL-declared (the topic-probe include) and rides
 		// the declared-set loop above when a declaring topology is active.
 		$this->assertContains( 'settings.p0', $catalog );
 
@@ -399,7 +397,7 @@ class WorkersCITest extends TestCase {
 	}
 
 	public function test_dump_graph_logs_carry_the_real_enumerated_partition_number(): void {
-		// Headline regression: each concrete per-partition log dir's `partition`
+		// Each concrete per-partition log dir's `partition`
 		// field must be its enumerated partition index, NOT a hardcoded 0. The
 		// dashboard joins logs[] to consumers[] on `${name}#${partition}`; a
 		// hardcoded 0 makes P1+ miss the join and ignore the consumer offset.
@@ -536,9 +534,9 @@ class WorkersCITest extends TestCase {
 		$memd                            = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
 		\Newspack_Nodes\Core::$memd      = $memd;
 		\Newspack_Nodes\SSE_Slot_Pool::$ttl = 47;
-		// Acquire through the WIRED seam, exactly as SSE_Out does. Reaching past
-		// it and passing a namespace by hand let this test agree with a caller
-		// that had drifted onto a retired one — both wrong, and green.
+		// Acquire through the WIRED seam, exactly as SSE_Out does. Passing a
+		// namespace by hand would let this test agree with a caller that had
+		// drifted onto the wrong one — both wrong, and green.
 		\Newspack_Nodes\SSE_Slot_Pool::wire();
 		$lease = ( \Newspack_Nodes\Rest\SSE_Out_Node::$acquire_slot )( -1 );
 		$this->assertIsArray( $lease );
@@ -815,10 +813,9 @@ class WorkersCITest extends TestCase {
 	}
 
 	// -------------------------------------------------------------------------
-	// dump_metadata verb — the operator-grade payload ported from the legacy
-	// WorkersController::get_workers. Dashboard-#5 (event-dashboards /
-	// WorkerStatus.js) consumes this; .list stays minimal for CLI / topology
-	// callers.
+	// dump_graph verb — the operator-grade payload the Worker Status
+	// dashboard (event-dashboards / WorkerStatus.js) consumes; .list stays
+	// minimal for CLI / topology callers.
 	// -------------------------------------------------------------------------
 
 	public function test_dump_metadata_returns_every_top_level_key(): void {
@@ -1412,7 +1409,7 @@ class WorkersCITest extends TestCase {
 		// lives in a topology declaring 1 partition; even when the global
 		// default is 2, the dashboard must show only P0 — no phantom P1 slot.
 		$base = $this->arrange_base_dir();
-		// Raise the GLOBAL default to 2 — this is what the buggy code padded to.
+		// Raise the GLOBAL default to 2 — the count a phantom slot would pad to.
 		$this->use_base_dir(
 			$base,
 			[
@@ -1653,9 +1650,7 @@ class WorkersCITest extends TestCase {
 	}
 
 	public function test_dump_metadata_rejects_unauthorized(): void {
-		// Legacy WorkersController gated through read_permissions_check ==
-		// manage_options. dump_metadata enforces the same gate so the
-		// REST -> interpreter swap is a no-op for callers.
+		// The verb is gated on manage_options.
 		$this->arrange_base_dir();
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		$interpreter     = new Workers_CI_Node();
@@ -1667,15 +1662,15 @@ class WorkersCITest extends TestCase {
 	}
 
 	/**
-	 * Tachikoma uniform-construction parity: the substrate `make_node` no
-	 * longer forwards positional ctor args (it filters to scalar-only and
-	 * the simplified path calls `new $fqcn()` then `arguments()`). The
+	 * Tachikoma uniform-construction parity: the substrate `make_node`
+	 * forwards no positional ctor args (it filters to scalar-only and
+	 * calls `new $fqcn()` then `arguments()`). The
 	 * programmatic dependency — Cli — must therefore reach the interpreter via
 	 * public property assignment AFTER construction, not through the ctor.
 	 *
 	 * This pins that contract: a bare `new Workers_CI_Node()` succeeds, and
 	 * `$interpreter->cli = ...` plus a verb dispatch threads the assigned dep
-	 * into the handler exactly as the ctor used to.
+	 * into the handler.
 	 */
 	public function test_constructible_via_no_arg_ctor_and_public_property_assignment(): void {
 		$fake_cli = new class {

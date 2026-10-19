@@ -1,5 +1,5 @@
 /**
- * vault:view tests — the credential-LIST view node (de-god split). It owns ONLY
+ * vault:view tests — the credential-LIST view node. It owns ONLY
  * the server table slice (`servers` / `loading` / `error`). The TEST-result
  * concern lives in a SEPARATE view node (`vault:test`) — this node knows
  * nothing about test probes.

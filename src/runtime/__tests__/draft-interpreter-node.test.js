@@ -1,13 +1,13 @@
 /**
  * DraftInterpreterNode — the console's edit buffer as an interpreter.
  *
- * Stage 2's claim is that edit mode and live mode send the same commands to
- * different interpreters and the difference is a cwd. This is the edit-mode
+ * Edit mode and live mode send the same commands to different interpreters,
+ * and the difference is a cwd. This is the edit-mode
  * one: it owns its own name table, answers the graph verbs against stubs for
  * classes the browser cannot build, and answers the DOCUMENT verbs — `var`,
  * `include`, `remove_include`, `secure` — which touch no node table at all.
  *
- * `dumpDocument()` replaces `serializeTsl`. It is not `dump_config`: a topology
+ * `dumpDocument()` writes the document. It is not `dump_config`: a topology
  * file has a required statement order (vars, includes, nodes, edges, `secure`
  * last, because `secure 1` disables `make_node`) and `dump_config` groups by
  * node instead.
@@ -208,8 +208,8 @@ describe( 'command_node — one statement, two readings', () => {
 
 describe( 'the two verbs an editor needs and TSL only appends', () => {
 	it( "set_arguments replaces a node's constructor args", () => {
-		// The one real gap the parity table found: Tachikoma has it, aliased
-		// `set`, and we never ported it. An editor rewriting ctor args needs it.
+		// Tachikoma has it, aliased `set`, and an editor rewriting ctor args
+		// needs it.
 		const d = draft();
 		d.run( 'make_node Partition firehose old.log 100' );
 
@@ -297,7 +297,7 @@ describe( 'dumpDocument', () => {
 
 	// An `include` is the only thing a fresh load starts from, so it is the
 	// only thing an edge can be dropped FROM. With no includes, an edge the
-	// document no longer declares is simply a line not written.
+	// document does not declare is simply a line not written.
 	const EXPANSION = {
 		nodes: [
 			{ name: 'fan', class: 'Tee', fans_out: true, origin: [ 'shared' ] },

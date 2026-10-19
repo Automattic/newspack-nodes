@@ -106,8 +106,9 @@ class MessagesStreamSourcesTest extends TestCase {
 	public function test_a_reopened_tail_advertises_its_pending_seek_not_zero(): void {
 		// THE replay loop: on a reopen the position lands in file_seek_candidate
 		// and cursor_offset stays 0 until the first poll opens the handle. A
-		// cursor_position() reading cursor_offset therefore advertises `:0`, the
-		// client echoes `:0`, and every reopen after that replays the whole file.
+		// cursor_position() reading cursor_offset would advertise `:0`, the
+		// client would echo `:0`, and every reopen after that would replay the
+		// whole file.
 		$path = "{$this->tmp}/php-error.log";
 		\file_put_contents( $path, "line-one\nline-two\n" );
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];

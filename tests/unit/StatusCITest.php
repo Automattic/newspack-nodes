@@ -1,11 +1,10 @@
 <?php
 /**
- * StatusCITest: unit tests for Status_CI, the substrate service-CI that
- * replaces the legacy StatusController.
+ * StatusCITest: unit tests for Status_CI, the substrate status service-CI.
  *
- * Asserts value-equivalence with the legacy `get_status()` payload — same
- * status / runtime_version / num_partitions / topologies / cache_available /
- * timestamp fields and the same defaults. Substrate config is seeded via
+ * Asserts the status payload — its status / runtime_version /
+ * num_partitions / topologies / cache_available / timestamp fields and
+ * their defaults. Substrate config is seeded via
  * `TestCase::use_base_dir()`, mirroring AggregatorCITest.
  *
  * @package Newspack_Nodes

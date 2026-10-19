@@ -317,10 +317,9 @@ class NodeTest extends TestCase {
 
 	public function test_drop_message_renders_array_value_with_invalid_utf8_instead_of_blank_payload(): void {
 		// A struct VALUE nested string may carry raw non-UTF-8 bytes (e.g. a
-		// latin1 SQL fragment). Before this fix, the json-encode fallback's
-		// (string) cast silently swallowed the encode failure to '' — the
-		// audit line for a DROPPED message would print an empty "payload: ",
-		// hiding exactly the byte that caused the trouble.
+		// latin1 SQL fragment). A json-encode fallback that cast the encode
+		// failure to '' would print an empty "payload: " on the audit line for
+		// a DROPPED message, hiding exactly the byte that caused the trouble.
 		$buf = '';
 		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
 		$n   = new Capture_Sink_Node();
@@ -1096,7 +1095,7 @@ class NodeTest extends TestCase {
 
 		$this->assertStringContainsString( 'forgot to unregister', $buf );
 
-		// The dead registration is now removed — verify by reflecting on
+		// The dead registration is removed — verify by reflecting on
 		// the registrations array.
 		$ref = new \ReflectionProperty( $producer, 'registrations' );
 		$regs = $ref->getValue( $producer );

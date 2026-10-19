@@ -7,7 +7,7 @@
 # class-body level — a section header, a `//` note between methods, a docblock
 # whose method was deleted — documents nothing and is a violation.
 #
-# Two traps this guards, both of which produced wrong answers while being built:
+# Two traps this guards:
 #
 # (A) `Foo::class` emits T_CLASS. Read as a class declaration it re-anchors the
 #     class-body depth onto the NEXT brace, so ordinary comments inside method
@@ -141,8 +141,8 @@ assert_clean 'comments inside closures are function scope' \
 	"$tmp/class-nested-node.php"
 
 # An anonymous class body IS a class body, and closing it must restore the
-# enclosing one — a scalar class-depth stopped tracking the outer class here,
-# so every later stray in the file went unreported.
+# enclosing one — a scalar class-depth would stop tracking the outer class
+# here, and every later stray in the file would go unreported.
 cat > "$tmp/class-anon-node.php" <<'PHP'
 <?php
 class Anon_Node {
@@ -166,7 +166,7 @@ assert_flags 'the enclosing class is still tracked after an anonymous class' \
 
 # A comment inside a class-level initializer annotates the entry it sits on;
 # there is no docblock form for one array element. Brackets do not change brace
-# depth, so these read as class-body strays until expression depth is tracked.
+# depth, so these would read as class-body strays without expression depth.
 cat > "$tmp/class-initializer-node.php" <<'PHP'
 <?php
 class Initializer_Node {
@@ -181,9 +181,9 @@ assert_clean 'comments inside a class-level initializer are not strays' \
 	"$tmp/class-initializer-node.php"
 
 # A `phpcs:` line between a docblock and its method does NOT orphan the
-# docblock. Skipping only whitespace when looking ahead read this as an orphan
-# and deleted it — taking its @param/@return with it, which PHPStan then
-# reported as missing types across the file.
+# docblock. Skipping only whitespace when looking ahead reads this as an orphan
+# and deletes it — taking its @param/@return with it, which PHPStan then
+# reports as missing types across the file.
 cat > "$tmp/class-directive-gap-node.php" <<'PHP'
 <?php
 class Directive_Gap_Node {
@@ -247,8 +247,9 @@ PHP
 assert_clean 'file-level comments are not class-body strays' "$tmp/bootstrap-file.php"
 
 # ---- generics: prose with a bare `<` is not a generic type ----
-# `n<10` opens no type. Treating it as one ran the collapse to end of line, so
-# the gate flagged plain English AND `--fix` ate the spaces after its commas.
+# `n<10` opens no type. Treating it as one would run the collapse to end of
+# line, so the gate would flag plain English AND `--fix` would eat the spaces
+# after its commas.
 cat > "$tmp/class-prose-node.php" <<'PHP'
 <?php
 class Prose_Node {
@@ -305,8 +306,8 @@ PHP
 assert_clean 'prose whose angle brackets balance is not a generic' "$tmp/class-balanced-node.php"
 
 # ---- generics: a real type is still caught after an unbalanced `<` ----
-# The stray `n<` used to swallow the rest of the line, so the genuine generic
-# behind it went ungated.
+# The stray `n<` must not swallow the rest of the line, or the genuine generic
+# behind it goes ungated.
 cat > "$tmp/class-shadowed-node.php" <<'PHP'
 <?php
 class Shadowed_Node {
@@ -431,8 +432,8 @@ PHP
 assert_clean 'prose naming @longform is not the marker (php)' \
 	"$tmp/class-mentions-node.php"
 
-# The tag used to exempt a whole docblock from the prose-after-tags rule, which
-# hid real violations. Naming the tag must not buy that exemption back.
+# Naming the tag must not exempt a whole docblock from the prose-after-tags
+# rule, which would hide real violations.
 cat > "$tmp/class-tagged-trailer-node.php" <<'PHP'
 <?php
 class Tagged_Trailer_Node {
@@ -478,7 +479,7 @@ PHP
 assert_clean 'a one-line docblock carrying a real tag passes (php)' \
 	"$tmp/class-oneline-clean-node.php"
 
-# ---- the JS twin must agree, since JSDoc is where this was found ----
+# ---- the JS twin must agree ----
 command -v node >/dev/null 2>&1 || { echo "✗ node not found on PATH"; exit 2; }
 
 assert_flags_js() {
@@ -567,8 +568,8 @@ JS
 assert_clean_js 'prose naming @longform is not the marker (js)' \
 	"$tmp/mentions.js"
 
-# The opening line is where the JS twin read the tag, so that is where the
-# exemption it used to buy has to be proven gone.
+# The opening line is where the JS twin reads the tag, so that is where the
+# exemption has to be proven absent.
 cat > "$tmp/tagged-trailer.js" <<'JS'
 /** Does the thing, and mentions `@longform` in passing.
  *

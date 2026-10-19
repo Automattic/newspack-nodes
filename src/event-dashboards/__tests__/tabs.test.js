@@ -1,7 +1,7 @@
 /**
  * tabs.js registers the station tabs the event-dashboards bundle owns:
- * the Overview landing (order 0 — the default first paint, now folding in the
- * old Topologies tab's per-topology detail tree) and Log Viewer (order 20).
+ * the Overview landing (order 0 — the default first paint, carrying the
+ * per-topology detail tree) and Log Viewer (order 20).
  * Importing the module (for its side effect) must put them in the shared
  * registry under host 'station'.
  */

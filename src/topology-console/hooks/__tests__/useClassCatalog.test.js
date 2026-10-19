@@ -93,8 +93,7 @@ describe( 'useClassCatalog', () => {
 		expect( result.current.formatters ).toEqual( [ 'Bytes' ] );
 	} );
 
-	// A failure used to be memoised forever, so even an explicit retry got the
-	// same rejected promise back. The poll has no promise to memoise: the next
+	// The poll has no promise to memoise, so a failure is not kept: the next
 	// tick asks again, with nothing to reset and nobody to ask.
 	it( 'recovers from a failure on the next tick', async () => {
 		replyFor.mockImplementationOnce( () => new Error( 'refused-8823' ) );

@@ -185,9 +185,9 @@ describe( 'getStateColor', () => {
 	} );
 
 	it( 'colors a query span and an outbound-HTTP span apart from the default', () => {
-		// Both are named `base: detail`, so they resolve on the base — and both
-		// were falling through to the same grey as `request`, which made the
-		// two most expensive things in a trace the two least visible.
+		// Both are named `base: detail`, so they resolve on the base. Falling
+		// through to the same grey as `request` would make the two most
+		// expensive things in a trace the two least visible.
 		expect( getStateColor( 'sql: SELECT wp_posts' ) ).toBe( '#8E24AA' );
 		// The categorizer's own HTTP color, so a span reads like an HTTP hook.
 		expect( getStateColor( 'http: api.example.com' ) ).toBe( '#42A5F5' );

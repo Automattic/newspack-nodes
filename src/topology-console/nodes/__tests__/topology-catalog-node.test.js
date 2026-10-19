@@ -1,9 +1,8 @@
 /**
- * TopologyCatalogNode tests — the Path menu's catalog, now a graph node.
+ * TopologyCatalogNode tests — the Path menu's catalog, as a graph node.
  *
- * It was a hook calling a one-shot client, i.e. its own POST every tick
- * beside the batched one the console already sends. As a node it emits through
- * `_http` during the Router's TIMER notify, inside the same lock.
+ * As a node it emits through `_http` during the Router's TIMER notify, inside
+ * the same lock as the console's batched POST, rather than sending its own.
  */
 
 import { Core } from '../../../runtime/core';

@@ -31,7 +31,7 @@ class ServiceCITest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
-		// A probe now requires a live session for its destination; seed the ids
+		// A probe requires a live session for its destination; seed the ids
 		// this file probes so the $http_call stubs answer only the /command leg.
 		foreach ( self::SEEDED_SESSIONS as $spoke ) {
 			Command_Auth::remember_session( $spoke, \str_repeat( '3', 32 ), 'probe-session-key' );
@@ -274,7 +274,7 @@ class ServiceCITest extends TestCase {
 		ServiceCITestProbe::probe_command_probe( [ 'url' => 'https://e.com' ], 'workers', 'dump_graph', [ 'p0' ] );
 
 		$this->assertSame( 'workers', $seen_body[ Message::TO ] );
-		// VALUE also carries the auth envelope now; assert the semantics.
+		// VALUE also carries the auth envelope; assert the semantics.
 		$this->assertSame( 'dump_graph', $seen_body[ Message::VALUE ]['name'] );
 		$this->assertSame( [ 'p0' ], $seen_body[ Message::VALUE ]['arguments'] );
 	}
@@ -476,7 +476,7 @@ class ServiceCINonArrayVerbProbe extends Service_CI_Node {
 
 /**
  * Installs a verb table AFTER construction, the way a subclass or an external
- * holder can — the path that used to bypass the capability wrap entirely.
+ * holder can — a path that must not bypass the capability wrap.
  */
 class ServiceCILateTableProbe extends Service_CI_Node {
 

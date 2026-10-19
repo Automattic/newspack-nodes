@@ -210,7 +210,7 @@ function materializeServerPositions( serverLayout, nodes ) {
  * Drop every stored entry that is not a finite `{x, y}` pair.
  *
  * Storage is not trusted input: a NaN coordinate serializes to null, and the
- * stored copy outlives the bug that wrote it. `modified` makes the browser copy
+ * stored copy outlives any bug that wrote it. `modified` makes the browser copy
  * beat the server layout, and the one-shot init skips a non-null map, so the
  * card would stay off-graph. Dropping the bad entries lets the tuck re-place
  * them.

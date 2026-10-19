@@ -2,10 +2,9 @@
  * HttpOut tests — the outbound `/command` POST boundary. `_router` (or the link
  * that owns it) delivers a single positional Message with TO already routed;
  * HttpOut POSTs it verbatim. The worker-attach `connect_worker_input` bundling
- * moved up into RemoteIpc, which asks `onceInBatch()` rather than sending it
- * every time, so HttpOut itself is dumb: POST what it's given, route every
- * synchronous reply back into its sink (replies route by TO now — there is no
- * `_sse` convergence node).
+ * lives in RemoteIpc, which asks `onceInBatch()` rather than sending it every
+ * time, so HttpOut itself is dumb: POST what it's given, route every
+ * synchronous reply back into its sink (replies route by TO).
  */
 
 import { HttpOutNode } from '../http-out-node';
@@ -435,7 +434,7 @@ describe( 'HttpOut wire-inbound clause', () => {
 		return m;
 	};
 
-	/** The `log` broadcast: minted unaddressed, dropped by _router until now. */
+	/** The `log` broadcast: minted unaddressed, so _router drops it untargeted. */
 	it( 'stamps TO=target on an unaddressed non-response', async () => {
 		const { node, seen } = replyWith( bytestream() );
 		node.target = '_output';
@@ -815,9 +814,9 @@ describe( 'the ERRORS tile', () => {
 	} );
 
 	/**
-	 * A malformed `arguments` used to take the whole batch down: the spread
-	 * threw inside the reply loop, the catch answered EVERY command with
-	 * "Command not delivered", and the server's real replies were dropped.
+	 * A malformed `arguments` must not take the whole batch down: a spread
+	 * throwing inside the reply loop would let the catch answer EVERY command
+	 * with "Command not delivered" and drop the server's real replies.
 	 */
 	it( 'survives a reply whose arguments are not a list', async () => {
 		const snap = await tallyOf( {

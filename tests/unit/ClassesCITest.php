@@ -1,9 +1,8 @@
 <?php
 /**
- * ClassesCITest: unit tests for Classes_CI, the M3 service-interpreter that
- * replaces the legacy ClassesController. Sets the substrate pattern
- * every other M3 interpreter test (Layouts_CI, Topologies_CI) will follow:
- * instantiate the interpreter (no ctor args — substrate state is global),
+ * ClassesCITest: unit tests for Classes_CI, the node-class catalog service
+ * interpreter. Like the Layouts_CI and Topologies_CI tests, each test
+ * instantiates the interpreter (no ctor args — substrate state is global),
  * fire a verb through VerbHarness, assert on the decoded payload.
  *
  * @package Newspack_Nodes
@@ -96,7 +95,7 @@ class ClassesCITest extends TestCase {
 		$this->assertIsArray( $result['classes'][0]['commands'], 'each class carries its nested schema half' );
 	}
 
-	/** The verb is `dump`; nothing answers to the old name, per docs/stability.md. */
+	/** The verb is `dump`; nothing answers to `list`, per docs/stability.md. */
 	public function test_list_is_refused_as_an_unknown_command(): void {
 		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'list' );
 
@@ -138,7 +137,7 @@ class ClassesCITest extends TestCase {
 	}
 
 	public function test_list_strips_verb_handlers_to_plain_serializable_fields(): void {
-		// Topologies_CI now carries `handler` closures inside its node_schema
+		// Topologies_CI carries `handler` closures inside its node_schema
 		// verbs[]; the catalog must inline only {name,description,args} so the
 		// payload stays a plain, serializable structure.
 		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'dump' );

@@ -1723,8 +1723,9 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 
 	it( "keeps a wire from a band straight to its hub off the band's own chain", () => {
 		// chronogram's router feeds a two-step chain to the hub AND the hub
-		// directly; the direct wire ran along the chain's row, through both
-		// of its cards, because a wire to a hub is not a wire inside the band.
+		// directly; the direct wire would run along the chain's row, through
+		// both of its cards, because a wire to a hub is not a wire inside the
+		// band.
 		const edges = [];
 		for ( const job of JOBS ) {
 			edges.push(
@@ -1925,8 +1926,8 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 
 	it( 'keeps a wire from a hub into a consumer chain off the chain', () => {
 		// The hub feeds the chain's tail directly as well as its head: the
-		// direct wire skips the head and the middle, and was drawn through
-		// both, since only wires INTO a hub were cleared.
+		// direct wire skips the head and the middle, and clearing only wires
+		// INTO a hub would draw it through both.
 		const edges = [];
 		for ( const f of [ 'a', 'b', 'c', 'd' ] ) {
 			edges.push(
@@ -1994,7 +1995,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 
 	it( 'keeps a fan-out source beside its fan, not across the chain it shares', () => {
 		// discovery-collector feeds only the spokes; on column 0 its 24
-		// wires spanned column 1, and settings-sync was pushed past them all.
+		// wires would span column 1 and push settings-sync past them all.
 		const graph = hubControl();
 		const g = gridOf( graph );
 		const spokeRows = SPOKES.map( ( id ) => g[ id ].row );
@@ -2026,8 +2027,8 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		expect( drawn( nodes, graph.edges ).over ).toEqual( [] );
 	} );
 
-	// Seeded random graphs whose packing once stacked a block onto one that
-	// had taken room in the canvas, and ran a wire between blocks over it.
+	// Seeded random graphs whose packing can stack a block onto one that has
+	// taken room in the canvas, and run a wire between blocks over it.
 	const seedGraph = ( seed ) => ( {
 		nodes: SEEDS[ seed ].nodes.map( ( id ) => ( { id } ) ),
 		edges: SEEDS[ seed ].edges.map( ( [ from, to ] ) => ( { from, to } ) ),
@@ -2224,8 +2225,8 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 	);
 
 	it( 'keeps a late source in the seat the spread opened beside it', () => {
-		// A wire nudge that ignored k2src's seat crowded it, and it was
-		// reseated three columns back, its wire running over the band.
+		// A wire nudge that ignored k2src's seat would crowd it and reseat it
+		// three columns back, its wire running over the band.
 		const graph = seedGraph( 'c134623' );
 		const { nodes } = autoLayout( graph );
 		const at = Object.fromEntries(
@@ -2846,8 +2847,8 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 	} );
 
 	it( 'keeps the cards off the long wires of a node only a hub feeds', () => {
-		// a is fed by the hub alone, so inside its band it had no feeder:
-		// taken for a source, its wire to c took no placeholder and ran
+		// a is fed by the hub alone, so inside its band it has no feeder:
+		// taken for a source, its wire to c would take no placeholder and run
 		// through b.
 		const edges = [ 0, 1, 2, 3, 4 ].map( ( i ) => ( {
 			from: `f${ i }`,
@@ -2912,8 +2913,8 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 	};
 
 	it( 'keeps the placeholders of a source that feeds more than one column', () => {
-		// k2l0n0 feeds columns 2 and 4. Seated last, its wires lost their
-		// placeholders, and those to column 4 ran over two of its own
+		// k2l0n0 feeds columns 2 and 4. Seated last, its wires would lose their
+		// placeholders, and those to column 4 would run over two of its own
 		// successors in column 2.
 		const graph = seedGraph( '82291' );
 		const { nodes } = autoLayout( graph );
@@ -2925,8 +2926,8 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 	} );
 
 	it( 'seats a source left of every node it feeds', () => {
-		// s feeds a1 and a3; seated by cost alone it took column 2, above
-		// a2, and drew its wire to a1 backward.
+		// s feeds a1 and a3; seated by cost alone it would take column 2,
+		// above a2, and draw its wire to a1 backward.
 		const g = gridOf(
 			chain( [
 				[ 's', 'a1' ],
@@ -2962,8 +2963,8 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 	} );
 
 	it( 'keeps a sink fed only by a source level with it', () => {
-		// zz has no feeder but x, so no sweep could seat it from x while x
-		// had no row, and it dropped to the bottom of its column.
+		// zz has no feeder but x, so no sweep can seat it from x while x has
+		// no row, and it would drop to the bottom of its column.
 		const edges = [];
 		for ( let i = 0; i < 6; i++ ) {
 			edges.push( { from: 's', to: `m${ i }` } );
@@ -2996,8 +2997,8 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 	it( 'seats a source right of the widest column beside what it feeds', () => {
 		// x feeds only w0, so it takes column 2, right of the six-card column
 		// the rows spring from, and no sweep seeds it: stacked under its
-		// column's p cards it sat rows from w0, and a re-spread to seat it
-		// moved n0 after w0 had centred on it.
+		// column's p cards it would sit rows from w0, and a re-spread to seat
+		// it would move n0 after w0 had centred on it.
 		const edges = [];
 		for ( let i = 0; i < 6; i++ ) {
 			edges.push( { from: 's', to: `m${ i }` } );
@@ -3618,10 +3619,10 @@ describe( 'autoLayout — hub bands', () => {
 	} );
 
 	// @longform A band wired to two hubs picks one home and keeps its wires to
-	// the other, whose block the packer places on its own — so the wire had
-	// nothing holding its direction and ran right to left. A wire between two
-	// blocks means they are one block, and these three seeds each drew such a
-	// wire backward before that held.
+	// the other, whose block the packer would place on its own — leaving the
+	// wire nothing holding its direction, so it runs right to left. A wire
+	// between two blocks means they are one block, and these three seeds each
+	// carry such a wire.
 	it.each( [ '29924', '703214', 'c134623' ] )(
 		'draws no wire backward across what were two blocks (seed %s)',
 		( seed ) => {
@@ -3688,7 +3689,7 @@ describe( 'autoLayout — hub bands', () => {
 		// Parts of five and six nodes qualify and the two-node one abstains,
 		// so the egress leaves its band and the sheet stays four columns, plus
 		// two half steps where three wires meet — refusing on the stray part
-		// ran it to eight.
+		// would run it to eight.
 		expect( wide ).toBeLessThanOrEqual( 5 );
 	} );
 

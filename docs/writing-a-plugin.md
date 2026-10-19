@@ -85,7 +85,7 @@ if ( ! \method_exists( '\Newspack_Nodes\Bootstrap', 'version_at_least' )
 }
 ```
 
-[`version_at_least()`](../includes/class-bootstrap.php) exists only from substrate 0.54.0 on, so the `method_exists` guard is what covers anything older: that substrate has no notice to show, and your plugin goes dormant in silence. Set your floor to the oldest substrate you test against, not the newest you have.
+The `method_exists` guard covers a substrate too old to carry [`version_at_least()`](../includes/class-bootstrap.php): that substrate has no notice to show, and your plugin goes dormant in silence. Set your floor to the oldest substrate you test against, not the newest you have.
 
 (You can also skip the hand-written files entirely: `wp nodes scaffold plugin <slug>` writes `<slug>/` into the current directory — so run it from `wp-content/plugins/` — holding five starter files in this walkthrough's shapes: bootstrap, classmap `composer.json`, one working node, a topology, and a README. `wp nodes scaffold node <Class_Name>` writes one class into `includes/` — or beside you when you already stand in `includes/` — and `wp nodes scaffold topology <slug>` writes one `<slug>.tsl` into the current directory. None of them ever overwrites. See [cli.md](cli.md).)
 

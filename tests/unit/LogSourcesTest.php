@@ -297,11 +297,10 @@ class LogSourcesTest extends TestCase {
 	}
 
 	/**
-	 * "Has segments" had two definitions in one file: `is_available()` asked the
-	 * RAW glob, which matches the companion `{file}.{seg}.idx` a Log writes,
-	 * while every other segmented read filtered to a purely-numeric suffix. So
-	 * an orphaned `.idx` left behind after retention swept its data segment
-	 * printed `AVAILABLE yes` / `BYTES -` for a source whose tail then answered
+	 * "Has segments" has one definition: a purely-numeric suffix. The RAW glob
+	 * also matches the companion `{file}.{seg}.idx` a Log writes, so an
+	 * orphaned `.idx` left behind after retention swept its data segment would
+	 * print `AVAILABLE yes` / `BYTES -` for a source whose tail then answers
 	 * `log unavailable`.
 	 */
 	public function test_is_available_ignores_an_orphaned_index_companion(): void {
@@ -531,8 +530,8 @@ class LogSourcesTest extends TestCase {
 	/**
 	 * The Replay control seeks with the magic 'start' token, and Step then reads
 	 * at the SAME position — so the read verb must speak the same position
-	 * vocabulary as the seek transport. It used to reject the token as
-	 * malformed, which is why pause → Replay → Step did nothing.
+	 * vocabulary as the seek transport. Rejecting the token as malformed would
+	 * make pause → Replay → Step do nothing.
 	 */
 	public function test_read_source_accepts_the_magic_start_position(): void {
 		$path = $this->write_fixed_width_log( 3, 59 );

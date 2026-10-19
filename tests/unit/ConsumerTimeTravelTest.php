@@ -321,7 +321,7 @@ class ConsumerTimeTravelTest extends TestCase {
 	}
 
 	// ============================================================================
-	// `seek_frame` (now keyed by offsetlog segment id, from dump_metadata frames[].id)
+	// `seek_frame` (keyed by offsetlog segment id, from dump_metadata frames[].id)
 	// ============================================================================
 
 	public function test_seek_frame_restores_state_and_moves_cursor(): void {
@@ -728,7 +728,7 @@ class ConsumerTimeTravelTest extends TestCase {
 
 	public function test_seek_then_play_then_checkpoint_keeps_offsetlog_monotonic(): void {
 		// End-to-end: after seek→play→checkpoint the new frame appends AFTER the
-		// rewind point and the old future frames are gone — a single coherent,
+		// rewind point and the abandoned future frames are gone — a single coherent,
 		// monotonic forward timeline.
 		Core::$now = 9300.0;
 		$c = new Consumer_Node();
@@ -812,13 +812,13 @@ class ConsumerTimeTravelTest extends TestCase {
 	}
 
 	// ============================================================================
-	// Regression: the Consumer answers no request verbs at all.
+	// The Consumer answers no request verbs at all.
 	// ============================================================================
 
 	/**
-	 * The read verbs folded into dump_metadata are gone, and so is GET_LAG —
-	 * which had no production caller. `requests` is absent from the schema
-	 * rather than empty, so nothing renders a request section for a Consumer.
+	 * The read surface is dump_metadata, and there is no GET_LAG. `requests` is
+	 * absent from the schema rather than empty, so nothing renders a request
+	 * section for a Consumer.
 	 */
 	public function test_the_consumer_declares_no_request_verbs(): void {
 		$schema = Consumer_Node::node_schema();

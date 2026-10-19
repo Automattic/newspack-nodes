@@ -22,7 +22,7 @@ class JobWorkerTopologyResolveTest extends TestCase {
 	}
 
 	public function test_job_worker_tsl_wires_the_jobstats_probe_and_log(): void {
-		// The jobstats sweep is declarative now: job-worker.tsl declares the shared
+		// The jobstats sweep is declarative: job-worker.tsl declares the shared
 		// jobstats.p0 Partition (1 MiB × 2, min-lifetime 86400, max-lifetime 0), a
 		// 15s Job_Probe, and steers the probe at the log via connect_node.
 		Topology_Registry::register_stock_dir( \dirname( __DIR__, 2 ) . '/topologies' );

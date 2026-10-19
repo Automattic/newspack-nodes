@@ -3,7 +3,7 @@
 # test-fix-blank-lines.sh — tests for the vertical-whitespace fixer.
 #
 # The rule: at most ONE blank line in a row. Runs longer than that are holes
-# left where something used to be — `reorder-node-methods.php` moves method
+# left where code moved out — `reorder-node-methods.php` moves method
 # spans under a whole-file byte histogram, which by design preserves every
 # newline, so a method moved out leaves its blank lines behind.
 #
@@ -54,8 +54,7 @@ check "keeps every non-blank line" \
 
 # --- the line AFTER the hole keeps its indentation ---------------------------
 # A whitespace token runs to the first code on the next line, so the next
-# line's indent sits at the tail of the run. Eating it unindents that line —
-# which is exactly what the first version of this script did to six files.
+# line's indent sits at the tail of the run. Eating it unindents that line.
 cat > "$tmp/indent.php" <<'PHP'
 <?php
 class Example {

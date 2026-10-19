@@ -1,11 +1,10 @@
 /**
  * replCeilingFromAppHeight — derives the REPL transcript's max height from the
  * measured `.topology-app` grid height. The console grid is `1fr 38px` (canvas
- * / repl-bar): the console's header moved up to the shared station header above the
- * tabs, so the grid no longer reserves a header row (the old collapsed 0-height
- * `header` track has been removed). The transcript fills the canvas row, so the
- * ceiling is appHeight − repl-bar (38) − resize-handle overhang (4). Subtracting
- * a 64px header here was the bug that stranded the transcript 64px below the tab
+ * / repl-bar): the console's header lives in the shared station header above
+ * the tabs, so the grid reserves no header row. The transcript fills the canvas
+ * row, so the ceiling is appHeight − repl-bar (38) − resize-handle overhang (4).
+ * Subtracting a 64px header here would strand the transcript 64px below the tab
  * bar.
  */
 

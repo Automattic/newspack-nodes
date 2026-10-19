@@ -1,8 +1,7 @@
 /**
  * event-dashboards/index — registers the station tabs (side-effect import
- * of `./tabs`) and mounts no standalone React tree. Log Viewer is now a station tab,
- * so the former `#newspack-nodes-rawlogs` standalone mount is gone. Assert the
- * entry never calls createRoot regardless of stray DOM nodes.
+ * of `./tabs`) and mounts no standalone React tree: Log Viewer is a station tab.
+ * Assert the entry never calls createRoot regardless of stray DOM nodes.
  */
 
 describe( 'event-dashboards/index', () => {

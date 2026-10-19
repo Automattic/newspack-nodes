@@ -111,8 +111,8 @@ class TTYInNodeTest extends TestCase {
 
 	public function test_non_readline_redraws_prompt_after_each_delivered_line(): void {
 		// readline-missing-but-TTY mode (has_readline=false, show_prompts=true): the
-		// prompt must be re-drawn after every processed line, matching the old reader
-		// which reset prompt_displayed per line. The ctor draws the initial prompt,
+		// prompt must be re-drawn after every processed line, resetting
+		// prompt_displayed per line. The ctor draws the initial prompt,
 		// then each delivered line draws one more.
 		$shell = new Shell_Node();
 		$shell->sink( new Capture_Sink_Node() );
@@ -182,7 +182,7 @@ class TTYInNodeTest extends TestCase {
 	}
 
 	public function test_constructor_does_not_seed_completion_queries(): void {
-		// Regression: with has_readline=true the ctor must NOT fire the completion
+		// With has_readline=true the ctor must NOT fire the completion
 		// seed queries. run_repl seeds them only AFTER set_completion_sink is wired;
 		// seeding in the ctor round-trips the replies while the intercept is still
 		// null, dumping the whole verb/node list to the terminal at REPL launch.
@@ -360,7 +360,7 @@ class TTYInNodeTest extends TestCase {
 	public function test_send_completion_queries_is_a_noop_without_a_sink(): void {
 		// The null-sink guard: a reader whose sink is unwired must swallow the
 		// completion queries rather than fatal. Wiring the sink afterwards shows
-		// the same call now dispatches — proving the first call was suppressed.
+		// the same call then dispatches — proving the first call was suppressed.
 		$shell = new Shell_Node();
 		$cap   = new Capture_Sink_Node();
 		$shell->sink( $cap );

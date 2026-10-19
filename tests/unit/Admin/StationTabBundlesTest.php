@@ -51,9 +51,9 @@ namespace Newspack_Nodes\Tests\Unit\Admin {
 		}
 
 		public function test_enqueues_registered_bundle_on_the_hub_page(): void {
-			// The top-level "Nodes" station is the sole overlay/tab-bearing page now —
-			// Raw Logs became a `host:'station'` tab, so its former standalone page is
-			// gone. The station is where every contributor bundle enqueues.
+			// The top-level "Nodes" station is the sole overlay/tab-bearing page —
+			// Raw Logs is a `host:'station'` tab with no standalone page. The station
+			// is where every contributor bundle enqueues.
 			$this->register_bundle();
 			$_GET['page'] = Admin::STATION_MENU_SLUG;
 			( new Admin() )->enqueue_station_tab_bundles();

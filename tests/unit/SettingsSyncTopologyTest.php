@@ -50,7 +50,7 @@ class SettingsSyncTopologyTest extends TestCase {
 		$this->assertContains( 'newspack_nodes_segment_size', $map['newspack_nodes_remote_segment_size'] ?? [] );
 		$this->assertContains( 'newspack_nodes_min_lifetime', $map['newspack_nodes_remote_min_lifetime'] ?? [] );
 		$this->assertContains( 'newspack_nodes_lifetime', $map['newspack_nodes_remote_lifetime'] ?? [] );
-		// The reborn remote_max_segments now pushes the spoke's HARD cap.
+		// remote_max_segments pushes the spoke's HARD cap.
 		$this->assertContains( 'newspack_nodes_max_segments', $map['newspack_nodes_remote_max_segments'] ?? [] );
 	}
 
@@ -79,10 +79,9 @@ class SettingsSyncTopologyTest extends TestCase {
 
 	/**
 	 * Every option this topology pushes must be an option the receiving spoke's `set`
-	 * verb accepts. The two lists drifted silently: cmd_set's allowlist held
-	 * only the LOCAL axis names, so every remote_* push a hub ever made was
-	 * refused as an unknown setting, and nothing said so until the reply leg
-	 * started surfacing errors.
+	 * verb accepts. Two lists can drift silently: an allowlist holding only
+	 * the LOCAL axis names would refuse every remote_* push as an unknown
+	 * setting.
 	 */
 	public function test_every_pushed_option_is_accepted_by_the_spoke_set_verb(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
@@ -95,7 +94,7 @@ class SettingsSyncTopologyTest extends TestCase {
 		);
 
 		foreach ( $pushed as $option ) {
-			// Bounds are per-field now (Settings_Schema owns them), so one
+			// Bounds are per-field (Settings_Schema owns them), so one
 			// magic value cannot fit every option — 4177 partitions is
 			// correctly refused. Take each field's own ceiling, which is
 			// distinct from its default for every pushed key, so a silently

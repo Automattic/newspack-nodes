@@ -493,7 +493,7 @@ export function useGraphHandlers( {
 			} else if ( 'tell' === action ) {
 				dispatch( `tell_node ${ nodeId } ${ payload }` );
 			} else if ( 'send_struct' === action ) {
-				// Quote the JSON so the tokenizer keeps it one token [#32].
+				// Quote the JSON so the tokenizer keeps it one token.
 				const json = quoteToken( payload );
 				dispatch( `send_struct ${ nodeId } ${ json }` );
 			} else if ( 'send_eof' === action ) {

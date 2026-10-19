@@ -1,11 +1,11 @@
 /**
  * CatalogContext — the server-side catalogs the canvas, palette and inspector
- * all read. They were threaded TopologyConsole → ConsoleShell → GraphView →
- * child, four levels, with GraphView reading none of the six itself.
+ * all read, carried by context rather than through four levels of props, since
+ * GraphView reads none of the six itself.
  *
  * Mode-independent on purpose: unlike the mutation handlers, a class list is
  * the same list whether you are editing a topology or watching a live worker.
- * That is what makes these safe to lift out of the prop chain.
+ * That is what makes these safe to keep out of the prop chain.
  */
 
 import { renderHook } from '@testing-library/react';

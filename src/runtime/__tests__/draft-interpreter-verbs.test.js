@@ -1,10 +1,9 @@
 /**
  * The draft's mutation vocabulary IS the TSL grammar.
  *
- * These cases were the `draftGraph` mutator suite — `addNode`, `removeNode`,
- * `moveNode`, `connectDraftEdge`, `updateNodeArgs`… — a parallel set of graph
- * functions with the same NAMES as verbs but their own semantics. They are the
- * verbs now, so each case runs the statement and reads the node table.
+ * There is no parallel set of graph mutators with the same NAMES as verbs but
+ * their own semantics: the verbs are the mutators, so each case runs the
+ * statement and reads the node table.
  *
  * Every no-op case matters as much as the mutating ones: an editor that
  * silently renames a node onto an existing one loses a node.
@@ -520,8 +519,8 @@ describe( 'var follows the canonical frontmatter grammar', () => {
 
 	it( 'deletes the key when `=` carries no value', () => {
 		// Shell3.pm:2839, and both live engines: `var <name> =` DELETES.
-		// Asserting ABSENCE, not '': setting the empty string is exactly the
-		// bug, and it round-trips as a `var` line the document never had.
+		// Asserting ABSENCE, not '': setting the empty string would be wrong,
+		// and would round-trip as a `var` line the document never had.
 		const d = draft( 'var retention_grace = 17' );
 
 		d.run( 'var retention_grace =' );
@@ -803,7 +802,7 @@ describe( 'remove_include takes what the include brought', () => {
 
 	it( 'drops the nodes it supplied, so a save cannot name them', () => {
 		// Left behind, they are written out as `connect_node borrowedA
-		// borrowedB` for nodes the file no longer declares.
+		// borrowedB` for nodes the file does not declare.
 		const d = draft( 'include shared\ninclude kept', SHARED );
 
 		d.run( 'remove_include shared' );

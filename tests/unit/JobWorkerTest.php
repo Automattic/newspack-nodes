@@ -121,7 +121,7 @@ class JobWorkerTest extends TestCase {
 	}
 
 	public function test_after_job_action_fires_even_when_handler_throws(): void {
-		// after_job runs in a finally, so it fires even though the handler throw now
+		// after_job runs in a finally, so it fires even though the handler throw
 		// propagates (for the Consumer to quarantine) — an app logger suspended in
 		// before_job is always resumed.
 		$jw = new Job_Worker_Node();
@@ -458,7 +458,7 @@ class JobWorkerTest extends TestCase {
 	}
 
 	public function test_handler_throw_propagates_out_of_fill_for_quarantine(): void {
-		// A throwing job handler is poison: fill() no longer swallows it — the
+		// A throwing job handler is poison: fill() does not swallow it — the
 		// exception propagates so the driving Consumer quarantines the job to its
 		// deadletter sibling (a job entry is TM_STRUCT data, so it flows un-caught
 		// back through router + interpreter to the Consumer's forward_line). The job
@@ -550,8 +550,8 @@ class JobWorkerTest extends TestCase {
 		// @longform Neither kind warns. A spoke's Job_Router produces jobs into
 		// its own jobs.log that only the hub can run — rewrite-remote-job runs
 		// hub-side — so a spoke sees every hub-destined job as an unownable
-		// `job` and warned once per job for work completing fine elsewhere. The
-		// remote_job branch was already silent for the mirror-image reason.
+		// `job`, and a warning would fire once per job for work completing fine
+		// elsewhere. The remote_job branch is silent for the mirror-image reason.
 		$jw = new class() extends Job_Worker_Node {
 			/** @var string[] */
 			public array $warnings = [];
@@ -926,7 +926,7 @@ class JobWorkerTest extends TestCase {
 			$jw->fill( $message );
 		}
 		$this->assertCount( 1, $flush_observed, 'first flush fires at jobs == interval' );
-		// CACHE_FLUSH payload is now a flat string (the job count).
+		// CACHE_FLUSH payload is a flat string (the job count).
 		$this->assertSame( '3', $flush_observed[0] );
 
 		for ( $i = 0; $i < 2; ++$i ) {

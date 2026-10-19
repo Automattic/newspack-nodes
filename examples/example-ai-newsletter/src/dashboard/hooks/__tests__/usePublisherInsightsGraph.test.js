@@ -88,7 +88,7 @@ describe( 'usePublisherInsightsGraph — graph wiring', () => {
 			expect( node ).toBeTruthy();
 			expect( node.sink ).toBe( interpreter );
 		}
-		// Every name is `<subject>:<role>`; the verb-first spellings are gone.
+		// Every name is `<subject>:<role>`; none is spelled verb-first.
 		for ( const name of [ 'fetch-counts', 'countsIn', 'fetch-acc' ] ) {
 			expect( Core.node( name ) ).toBeNull();
 		}

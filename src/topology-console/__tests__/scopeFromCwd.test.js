@@ -3,7 +3,7 @@
  * header + the viewport/positions localStorage keys follow `cd` instead of
  * inheriting the last worker's stale topology/partition React state.
  *
- * Worker cwds are now the bare `{topology}.p{N}` (no `_sse/` prefix — the worker's
+ * Worker cwds are the bare `{topology}.p{N}` (no `_sse/` prefix — the worker's
  * name IS the address).
  */
 

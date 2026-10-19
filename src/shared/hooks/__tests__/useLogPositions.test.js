@@ -87,9 +87,8 @@ describe( 'useLogPositions', () => {
 
 /**
  * The position a Step reads from. Replay seeks with the magic 'start' token, so
- * the cursor is a STRING there — the two step() implementations both required an
- * object and silently returned, which is why pause → Replay → Step did nothing.
- * One resolver now serves both.
+ * the cursor is a STRING there, and a step() requiring an object would silently
+ * return, leaving pause → Replay → Step doing nothing. One resolver serves both.
  */
 describe( 'stepPosition', () => {
 	const link = ( resume ) => ( { cursor: ( sub ) => resume?.[ sub ] } );
@@ -136,17 +135,11 @@ describe( 'stepPosition', () => {
 } );
 
 /**
- * The derived `positions` was the module's headline product and NO consumer
- * read it — structurally, not by oversight: `browseSegment( id )` calls
- * `setSegmentId`, so the new positions only exist on the NEXT render, while
- * every call site needs the seed in the SAME tick to hand to `seek()`. All
- * three therefore set the state, discarded its product, and recomputed the
- * identical object from the click argument.
- *
- * The actions now RETURN what they compute. `mode` went with it: it was a
- * second state machine over `SeekTracker.mode`'s concept with a divergent
- * vocabulary ('browse' vs 'replay'), and all three consumers display the
- * view's mode, not this one.
+ * The actions RETURN the seed they compute. `browseSegment( id )` calls
+ * `setSegmentId`, so derived positions would only exist on the NEXT render,
+ * while every call site needs the seed in the SAME tick to hand to `seek()`.
+ * The hook keeps no `mode` of its own: the consumers display the view's
+ * `SeekTracker.mode`.
  */
 describe( 'the actions return the seed they compute', () => {
 	it( 'browseSegment returns that segment position', () => {
@@ -473,8 +466,8 @@ describe( 'useLogStatusSegments', () => {
 		await waitFor( () => expect( asked ).toEqual( [ [ DIR ] ] ) );
 	} );
 
-	// A `source` whose identity changed every render re-ran every effect that
-	// took it, which is a render loop one dependency away.
+	// A `source` whose identity changed every render would re-run every effect
+	// that took it, which is a render loop one dependency away.
 	it( 'keeps one source identity while the rail has not moved', async () => {
 		installFakeCommandWire( () => ( { segments: RAIL } ) );
 		const { result, rerender } = renderHook(

@@ -376,7 +376,7 @@ class AlertsTest extends TestCase {
 		// Configured threshold well below the 64 MiB constant default.
 		$base = $this->arrange( [ 'live-workers' ], [ 'alert_lag_threshold' => 12345678 ] );
 		$this->seed_heartbeat( $base, 'live-workers', 0 );
-		// Above the configured 12345678, but below the old 67108864 constant.
+		// Above the configured 12345678, but below the 67108864 constant.
 		$this->seed_probe_distance( $base, 'firehose', 12345679 );
 
 		$by_key = $this->alerts_by_key( Alerts::evaluate() );

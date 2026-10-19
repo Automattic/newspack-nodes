@@ -1,8 +1,8 @@
 /**
  * useGraphSurface — the shared chrome the topology console AND the debug overlay
  * both hand to ConsoleShell, so the inspector + transcript-overlay + palette
- * wiring lives in ONE place (previously each consumer assembled its own copy and
- * the overlay kept missing features). Wraps usePanelChrome and adds the
+ * wiring lives in ONE place rather than a copy per consumer. Wraps
+ * usePanelChrome and adds the
  * transcript-overlay + repl-expand state, exposing ready-to-spread
  * the replChromeProps fragment.
  */

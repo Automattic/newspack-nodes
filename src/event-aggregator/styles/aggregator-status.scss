@@ -341,7 +341,7 @@
 }
 
 // HTTP code rides the Status line as a quiet mono caption beside the response
-// badge — informative on an error code, unobtrusive on a 200 (no longer a
+// badge — informative on an error code, unobtrusive on a 200 (not a
 // competing green pill).
 .aggregator-http-code {
 	font-family: base.$mono-font;

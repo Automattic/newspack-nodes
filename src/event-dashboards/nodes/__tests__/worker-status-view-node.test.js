@@ -2,8 +2,7 @@
  * worker-status:view tests — the render-state node React reads via
  * useNodeState('worker-status:view','view').
  *
- * Post-migration to substrate `_http`, the view follows the canonical
- * serversView pattern:
+ * On substrate `_http`, the view follows the canonical serversView pattern:
  *   - TM_ERROR goes to the base, which surfaces it on the view model's
  *     `error` without blanking what is on screen. A restart's failure lands
  *     on ITS own node, so this one only ever sees the poll's and broadcasts.

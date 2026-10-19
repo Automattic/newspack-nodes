@@ -44,7 +44,7 @@
 	display: flex;
 	flex-direction: column;
 
-	// The InspectorTab's root wrapper. It now sits between the panel and
+	// The InspectorTab's root wrapper. It sits between the panel and
 	// .topology-app — TabHost wraps the active tab in
 	// .nodes-tab-host__tab-content.is-full-bleed (flex column, flex:1), so this
 	// wrapper must keep growing the chain: become a flex column that lets its
@@ -130,8 +130,8 @@
 
 // display:contents so the drag wrapper is invisible to layout — the inner
 // .topology-header lays out directly in the overlay panel (the console header
-// moved to the shared station/panel header, so it is no longer a `.topology-app`
-// grid child) while the pointerdown handler still bubbles up.
+// lives in the shared station/panel header, not as a `.topology-app` grid
+// child) while the pointerdown handler still bubbles up.
 .nodes-debug__header-drag {
 	display: contents;
 	cursor: move;

@@ -66,7 +66,7 @@ class TopologyLoaderTest extends TestCase {
 	}
 
 	public function test_load_builds_graph_under_worker_verifier_policy(): void {
-		// Regression: a worker installs the HMAC verifier as the process-wide
+		// A worker installs the HMAC verifier as the process-wide
 		// authorize policy, THEN loads its topology in-process via Shell. The
 		// Shell stamps LOCAL (no HMAC); the verifier must accept LOCAL-tainted
 		// in-process commands or the worker boots with an empty graph.

@@ -1,6 +1,6 @@
 <?php
 /**
- * M3CommandDispatchE2ETest: M3 acceptance test for the whole substrate stack.
+ * M3CommandDispatchE2ETest: acceptance test for the whole substrate stack.
  *
  * Proves that every substrate interpreter mounted by the substrate plugin's
  * `newspack_nodes/request_graph_ready` listener (Classes_CI, Layouts_CI,
@@ -45,7 +45,7 @@ class M3CommandDispatchE2ETest extends TestCase {
 		// dataProvider iterations don't double-register the same hook (which
 		// would collide on node names on the second tick — `name()` throws
 		// on collision and `make_node()` always constructs a fresh instance).
-		// Mirrors M2's pattern in newspack-event-logger-nodes.
+		// Mirrors the same pattern in newspack-event-logger-nodes.
 		$GLOBALS['_wp_actions'] = [];
 		\add_action( 'newspack_nodes/request_graph_ready', 'newspack_nodes_mount_substrate_cis' );
 
@@ -88,7 +88,7 @@ class M3CommandDispatchE2ETest extends TestCase {
 		$this->assertSame(
 			$response_flags,
 			$message[ Message::TYPE ] & ( $response_flags | Message::TM_ERROR ),
-			// VALUE is a live array now — json-encode it for the failure
+			// VALUE is a live array — json-encode it for the failure
 			// message so the diagnostic is readable, not "Array".
 			"verb '{$verb}' returned TM_ERROR or wrong type. VALUE was: " . (string) \wp_json_encode( $message[ Message::VALUE ] )
 		);
@@ -96,8 +96,8 @@ class M3CommandDispatchE2ETest extends TestCase {
 
 	/**
 	 * The substrate's bundled WP_REST_Request stub already exposes
-	 * get_body() / set_body() / set_header(), so unlike M2 (event-logger-
-	 * nodes) no anonymous-class subclass is needed here.
+	 * get_body() / set_body() / set_header(), so unlike event-logger-nodes'
+	 * suite no anonymous-class subclass is needed here.
 	 */
 	private function build_request( string $to, string $verb, mixed $payload, array $args = [] ): \WP_REST_Request {
 		// The controller requires a packed 7-element positional Message
@@ -113,7 +113,7 @@ class M3CommandDispatchE2ETest extends TestCase {
 		$message[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => $args, 'payload' => $payload ];
 
 		$req = new \WP_REST_Request();
-		// Ingress no longer signs; a request arrives signed like a real client's.
+		// Ingress does not sign; a request arrives signed like a real client's.
 		Command_Auth::sign( $message );
 		$req->set_body( Message::packed( $message ) );
 		// JSONL-as-text/plain is the command contract (the controller ignores

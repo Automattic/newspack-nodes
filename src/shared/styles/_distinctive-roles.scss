@@ -351,7 +351,7 @@
 		&::before {
 			content: "";
 			// An empty pseudo-element's min-content is 0, so as a flex item it
-			// would compress in a narrow header; the glyph used to floor it.
+			// would compress in a narrow header.
 			flex-shrink: 0;
 			width: 32px;
 			height: 32px;

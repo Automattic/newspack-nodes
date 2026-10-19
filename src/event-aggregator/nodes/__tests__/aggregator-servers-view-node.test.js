@@ -1,5 +1,5 @@
 /**
- * aggregator servers:view tests — the de-god SERVER-CARDS slice. Owns ONLY the
+ * aggregator servers:view tests — the SERVER-CARDS slice. Owns ONLY the
  * per-server partition snapshot the server cards render. Fed by its own
  * `list_servers` slice verb (FROM=servers:view), it maps the struct
  * payload (a sequential array of server snapshots) into `{ servers }` and
@@ -86,7 +86,7 @@ describe( 'AggregatorServersViewNode', () => {
 		const model = v.view;
 		expect( model.error ).toBe( 'aggregator down' );
 		expect( model.loading ).toBe( false );
-		// Prior servers kept on transient error (parity with old view).
+		// Prior servers kept on transient error.
 		expect( model.servers ).toHaveLength( 2 );
 	} );
 

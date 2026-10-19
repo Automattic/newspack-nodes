@@ -305,8 +305,8 @@ floor to the release that made the change, so a consumer running against an
 older substrate goes dormant rather than calling the old shape.
 [`Partition_Node::locate_by( \Closure $extract, array $wanted )`](../includes/class-partition-node.php)
 is the worked case: `$wanted`, the key set that bounds the index walk, is
-required, and event-logger-nodes 0.108.0, its one caller, floors past the
-release that added it.
+required, and event-logger-nodes, its one caller, declares a floor that
+requires it.
 
 ## How a frozen name changes
 

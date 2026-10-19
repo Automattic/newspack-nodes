@@ -48,8 +48,8 @@ class SseSlotPoolTest extends TestCase {
 		// The budget is a property of the hosting platform, not of the
 		// substrate: a spoke that can sustain ~10 concurrent PHP-FPM children
 		// before the platform starts refusing must be able to say so, and a
-		// default baked into the class is how the shipped 10 ended up meaning
-		// "10 PER USER, unbounded in total" on every stack at once.
+		// default baked into the class would mean the same number on every
+		// stack at once.
 		SSE_Slot_Pool::$max_slots   = null;
 		SSE_Slot_Pool::$max_streams = null;
 		SSE_Slot_Pool::$ttl         = null;
@@ -803,9 +803,8 @@ class SseSlotPoolTest extends TestCase {
 	public function test_the_wired_pool_separates_sites_that_share_a_machine(): void {
 		// Atomic hands every co-located site the same gethostname() (the pool
 		// host), and a hub authenticates as user 1 from one IP on all of them, so
-		// a machine-only key collapsed 15 sites onto ONE 10-slot budget — five of
-		// them permanently 429'd. Proven in the field: two sites reported the
-		// identical random owner id for one slot. The machine half still has to
+		// a machine-only key would collapse every site onto ONE slot budget and
+		// leave most of them permanently 429'd. The machine half still has to
 		// survive; dndocker is the mirror image, many containers sharing one site,
 		// one database and one memcached.
 		Core::$memd = new InMemoryMemcached();
@@ -1128,8 +1127,8 @@ class SseSlotPoolTest extends TestCase {
 		SSE_Slot_Pool::$ttl         = null;
 
 		// Three host slots, but each identity is allowed all three. Under a
-		// per-identity pool every identity got its own three and the host was
-		// unbounded; the whole point of the global cap is that they contend.
+		// per-identity pool every identity would get its own three and the host
+		// be unbounded; the whole point of the global cap is that they contend.
 		$leases = [];
 		foreach ( [ '11:aaaa1111', '22:bbbb2222', '33:cccc3333' ] as $identity ) {
 			$leases[ $identity ] = SSE_Slot_Pool::acquire( 'host-cap', $identity, 3, 3, 83 );

@@ -6,7 +6,7 @@
  * fake SseIn + a real HttpOut + Heartbeat), and the anonymous Shell are real.
  * Reserved node names come from runtime/reserved-node-names.json.
  *
- * The worker attachment is now one RemoteIpc per active worker (named `{topology}.p{N}`);
+ * The worker attachment is one RemoteIpc per active worker (named `{topology}.p{N}`);
  * the session's own worker is always present. The active RemoteIpc owns the single
  * live SseIn — `lastConnector` is its composed SseIn child (`{reader}:sse-in`).
  */
@@ -68,7 +68,7 @@ jest.mock( '../../../runtime/sse-in-node', () => {
 			this.startCount = 0;
 			lastConnector = this;
 		}
-		// Read-back of the ctor-time config now living as public properties.
+		// Read-back of the ctor-time config, held as public properties.
 		get opts() {
 			return {
 				subscribe: this.subscribe,
@@ -305,10 +305,9 @@ describe( 'useConsoleGraph — graph topology', () => {
 	} );
 
 	// Tachikoma rule #2: everything sinks into the interpreter, which sinks into
-	// the router; ONLY the router has neither. `_stdout` was the exception —
-	// StdoutNode overrides fill() and never reads its sink, so nothing broke and
-	// nothing noticed, while PHP's TTY_Out_Node has been sunk into the
-	// interpreter all along. `ls -als` showed it as the one node out of shape.
+	// the router; ONLY the router has neither. `_stdout` is sunk into the
+	// interpreter too, as PHP's TTY_Out_Node is, although StdoutNode overrides
+	// fill() and never reads its sink, so an unsunk one would break nothing.
 	it( 'sinks every named node into the interpreter; only _router has none', () => {
 		renderGraph();
 
@@ -332,10 +331,10 @@ describe( 'useConsoleGraph — graph topology', () => {
 	} );
 
 	/**
-	 * The gate came back as a permanently-stable ref, so a rebuild replaced it
-	 * without the consumer's configure-effect re-running: the NEW gate kept
-	 * sseGuard / onRefused null, and a worker-addressed command
-	 * went out with no SSE session instead of being refused.
+	 * A permanently-stable ref to the gate would let a rebuild replace it
+	 * without the consumer's configure-effect re-running: the NEW gate would
+	 * keep sseGuard / onRefused null, and a worker-addressed command would go
+	 * out with no SSE session instead of being refused.
 	 */
 	it( 'hands back the LIVE gate, so a rebuild is visible to the consumer', () => {
 		const { result, rerender } = renderGraph( { topology: 'demo' } );
@@ -510,8 +509,8 @@ describe( 'useConsoleGraph — visibility-gated streaming', () => {
 
 	it( 'stops the router tick when hidden, so every poller stops with it', async () => {
 		// Pollers hitchhike the tick — dump_metadata (1s), uptime (5s), dmesg
-		// (10s), topologies dump (10s). Only the SSE was gated, so a hidden
-		// console kept POSTing all of them. (The heartbeat was already silent:
+		// (10s), topologies dump (10s). Gating only the SSE would leave a
+		// hidden console POSTing all of them. (The heartbeat is silent anyway:
 		// closing the stream calls clearSlot, which stopTimers on the last
 		// lease.) Gating the tick they share stops them coherently.
 		renderGraph( { streamEnabled: true } );

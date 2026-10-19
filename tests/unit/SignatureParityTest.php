@@ -11,9 +11,9 @@
  * `verification failed: signature mismatch` — but no SINGLE-language test can
  * catch it, because each language is internally consistent: PHP signs and
  * verifies with PHP, the browser with itself. Only a shared fixture crosses the
- * boundary. The slash/unicode escaping bug this file exists to prevent was
- * real — PHP's wp_json_encode() defaults escape both, JSON.stringify escapes
- * neither. The vectors deliberately include a path, non-ASCII, a quote, a
+ * boundary. Slash and unicode escaping is the live hazard: PHP's
+ * wp_json_encode() defaults escape both, JSON.stringify escapes neither. The
+ * vectors deliberately include a path, non-ASCII, a quote, a
  * backslash and an empty argument list. TYPE is carried in the vectors but NOT
  * signed — matching Tachikoma's Command::sign, which covers
  * `id:timestamp:name:arguments:payload` — so flags can be OR'd in after the

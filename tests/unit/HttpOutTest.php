@@ -651,8 +651,8 @@ class HttpOutTest extends TestCase {
 
 	/**
 	 * A Router BOUNCE crosses the wire like anything else, because a remote
-	 * sender learns its message never routed only by receiving one. The loop
-	 * this used to be guarded against cannot form: `Router_Node::send_error()`
+	 * sender learns its message never routed only by receiving one. A bounce
+	 * loop cannot form: `Router_Node::send_error()`
 	 * returns on a message that is already TM_ERROR, so the far side answers a
 	 * bounce with nothing and it stops after one hop. That guard is the whole
 	 * defence, and it lives where the bounce is born rather than at the wire.
@@ -1117,8 +1117,8 @@ class HttpOutTest extends TestCase {
 	public function test_on_curl_done_done_without_handle_is_ignored(): void {
 		// A CURLMSG_DONE info lacking a CurlHandle returns early. Seed one in-flight
 		// request first so the guard has something to leave alone: the no-handle
-		// message must NOT touch it (a regression that unset by a null/zero id, or
-		// cleared inflight on this path, would drop the live request).
+		// message must NOT touch it (unsetting by a null/zero id, or clearing
+		// inflight on this path, would drop the live request).
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		$before          = \Newspack_Nodes\Event_Framework::instance()->handles_of( $node );
 		$this->assertCount( 1, $before );

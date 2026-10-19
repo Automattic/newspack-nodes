@@ -1,8 +1,8 @@
 /**
- * NodeRegistry — the name→node table, split out of Core.
+ * NodeRegistry — the name→node table, apart from Core.
  *
- * Core was two things wearing one name: this table, and process state (clock,
- * rate-limited stderr, generation counters, teardown). The same seam Perl has,
+ * Core holds process state (clock, rate-limited stderr, generation counters,
+ * teardown); this table is separate. The same seam Perl has,
  * where `%Tachikoma::Nodes` is the table and `$Tachikoma::Now` is not — and
  * Tachikoma's answer to a second namespace is a Job, i.e. a second process with
  * its own table. What isolates is the table, not the clock.

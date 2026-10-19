@@ -1,7 +1,7 @@
 /**
  * Header — top bar with a single cwd "Path" selector and the view/edit
- * mode toggle. The skin picker was removed (skins now switch via the
- * undocumented `set_skin` REPL builtin). Edit-only buttons appear
+ * mode toggle, and no skin picker (skins switch via the undocumented
+ * `set_skin` REPL builtin). Edit-only buttons appear
  * conditionally; the EDIT button shows only when canEdit (cwd names a
  * worker); LIVE LED pulses when streamStatus === 'open'.
  */
