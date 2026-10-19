@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.115.2] - 2026-10-19
+
 ### Changed
 - **The shared version bump takes a `DROP_IN` knob.** A plugin whose drop-in ships as its own release asset names it in its `scripts/bump-version.sh`, and `scripts/lib/bump-version.sh` moves the drop-in's `Version:` header with the plugin's, then checks it took. A drop-in that is missing or has no header to rewrite refuses the whole bump before anything is edited. `scripts/test-bump-version.sh` holds it, and `pre-push` runs it with the other self-tests. newspack-cache-cozy and newspack-event-logger-nodes set it in place of their own `bump_extra`.
 
