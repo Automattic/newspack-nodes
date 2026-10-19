@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Every `useQueryParam*` hook takes `{ written }`.** `useQueryParamState`, `useQueryParamList`, `useQueryParamChoice` and `useQueryParamFlag` each accept it as their last argument. While `written` is false the value is restored, held and validated as before but left off the address bar; turning it true writes the value, and turning it back removes it. It defaults to true, so every existing caller is unchanged, and no consumer needs a gated encoder of its own. A value naming nothing — `''`, `[]` or a list of empty entries — flips `written` without a write, and a list's missing entries never reach the bar as `null`.
+
 ## [2.116.0] - 2026-10-19
 
 ### Added
