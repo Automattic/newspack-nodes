@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.115.1] - 2026-10-18
+
 ### Fixed
 - The `crt-color` skin draws chart series in the Newspack chart palette, `--np-chart-1` to `--np-chart-8`, as the Newspack skins do, where it drew CRT's green ramp: the station's charts and every `--chart-N` series, ELN's Request Volume by server included. Each color clears 3:1 on CRT's paper.
 
