@@ -62,19 +62,17 @@ describe( 'autoLayout — the event logger’s complete worker', () => {
 		);
 	} );
 
-	it( 'seats the REPL singletons in column 0, above firehose:consumer', () => {
-		const { at } = layOut();
-		const head = at[ 'firehose:consumer' ];
-		for ( const id of [ '_repl', '_repl:input' ] ) {
-			expect( [ id, at[ id ].x ] ).toEqual( [ id, head.x ] );
-			expect( [ id, at[ id ].y < head.y ] ).toEqual( [ id, true ] );
-		}
-		// The canvas's top two rows, clear of the wire column 1 carries.
-		const top = Math.min( ...Object.values( at ).map( ( p ) => p.y ) );
-		expect( [ at._repl.y, at[ '_repl:input' ].y ] ).toEqual( [
-			top,
-			top + Y_STEP,
-		] );
+	it( 'stacks the REPL singletons a row apart, clear of every wire', () => {
+		const { at, edges } = layOut();
+		expect( at[ '_repl:input' ] ).toEqual( {
+			x: at._repl.x,
+			y: at._repl.y + Y_STEP,
+		} );
+		expect(
+			drawnCost( at, edges ).over.filter( ( hit ) =>
+				/ over _repl(:input)?$/.test( hit )
+			)
+		).toEqual( [] );
 	} );
 
 	it( 'stacks the topicprobe chain at the bottom with the other three', () => {

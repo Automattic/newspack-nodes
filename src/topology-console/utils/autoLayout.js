@@ -85,7 +85,19 @@
  * node across that boundary — into a hub, out of a Tee, or neither — so
  * converging and diverging wires have room to fan. A wire running on past
  * the next column crowds no boundary. Each block opens its own half steps and
- * packs by the width it draws, so a gap moves no card outside its block.
+ * packs by the width it draws, so a gap moves no card outside its block. A
+ * card that alone feeds its one successor then sits a column's step before
+ * that successor's column, so the half step opens before a chain, not inside
+ * it, wherever that runs no wire over a card the block drawn column by column
+ * keeps clear.
+ *
+ * A FAN is a card's three or more wires into the next column, and it reads as
+ * one: its targets in the anchor column keep one unbroken run, gathered where
+ * the first of them sits, the cards between them moved past it. Left of the
+ * anchor, a card with a wire running past the next column seats level with
+ * it, so the long wire runs flat past the cards it crosses and the short one
+ * bends; a card with none, alone in fanning into targets no late source
+ * feeds, seats between the first two of them.
  */
 
 import { NODE_H, NODE_W } from '../components/NodeCard';
@@ -294,6 +306,20 @@ const byId = ( a, b ) => String( a ).localeCompare( String( b ) );
 
 /** Wires to one adjacent column before a half step opens at that boundary. */
 const GAP_MIN_WIRES = 3;
+
+/**
+ * The neighbours `nb` holds in column `c`, where they number `GAP_MIN_WIRES`
+ * or more: a fan, which opens a half step and reads as one; none otherwise.
+ *
+ * @param {Array<string>}         nb  A card's neighbours on one side.
+ * @param {Object<string,number>} col Columns.
+ * @param {number}                c   The column beside the card.
+ * @return {Array<string>} The fan's cards, or none.
+ */
+const fanInto = ( nb, col, c ) => {
+	const to = nb.filter( ( n ) => col[ n ] === c );
+	return to.length >= GAP_MIN_WIRES ? to : [];
+};
 
 /** A hub's floor fan-in; below it a node is ordinary however sparse the graph. */
 const HUB_MIN_FAN_IN = 4;
@@ -1552,7 +1578,7 @@ const transpose = ( columns, col, pred, succ, pos ) => {
 
 /**
  * The card one card alone feeds, when that card feeds it alone, from the
- * column right before it: a nudge carries it along on the same row.
+ * column right before it.
  *
  * @param {Object<string,Array<string>>} succ Successors.
  * @param {Object<string,Array<string>>} pred Predecessors.
@@ -1958,6 +1984,73 @@ const layoutComponent = ( ids, graph, pin = {}, twins = false ) => {
 	const exchanged = transpose( columns, col, pred, succ, pos );
 	const kept = columns.map( ( c ) => [ ...c ] );
 	const sweptCol = { ...col };
+	// @longform Where each late source waits: the column before what it feeds,
+	// so the row spread straddles it with a card fanning to the same column.
+	// Only left of the anchor: right of it, rows seat from the left, and
+	// re-spreading a column once the next has centred on it bends chains.
+	/** @type {Object<string,number>} */
+	const waits = {};
+	for ( const id of later ) {
+		const at = sweptCol[ succ[ id ][ 0 ] ] - 1;
+		if ( at < anchor ) {
+			waits[ id ] = at;
+		}
+	}
+	// @longform The fans as the late sources wait: the cards each card fans
+	// into, and the cards fanning into what no other card fans into and no
+	// late source feeds, whose seat would take the row the fan leaves.
+	const waiting = { ...sweptCol, ...waits };
+	/** @type {Map<string, Array<string>>} */
+	const fans = new Map();
+	for ( const id of ids ) {
+		const to = fanInto(
+			succ[ id ].filter( ( n ) => real.has( n ) ),
+			waiting,
+			waiting[ id ] + 1
+		);
+		if ( to.length ) {
+			fans.set( id, to );
+		}
+	}
+	const fansAlone = new Set(
+		[ ...fans ]
+			.filter( ( [ id, to ] ) =>
+				to.every( ( n ) =>
+					pred[ n ].every(
+						( p ) =>
+							p === id ||
+							( ! later.has( p ) &&
+								! fans.get( p )?.includes( n ) )
+					)
+				)
+			)
+			.map( ( [ id ] ) => id )
+	);
+	// @longform The anchor in `ranked`, each fan's targets one unbroken run
+	// where the first of them sits, the cards between them moved past it, so
+	// a fan reads as one.
+	const runs = [ ...fans.values() ]
+		.filter( ( to ) => waiting[ to[ 0 ] ] === anchor )
+		.map( ( to ) => new Set( to ) );
+	const gathered = ( ranked ) =>
+		runs.reduce( ( list, fan ) => {
+			const first = list.findIndex( ( id ) => fan.has( id ) );
+			if ( first < 0 ) {
+				return list;
+			}
+			const rest = list.slice( first );
+			return [
+				...list.slice( 0, first ),
+				...rest.filter( ( id ) => fan.has( id ) ),
+				...rest.filter( ( id ) => ! fan.has( id ) ),
+			];
+		}, ranked );
+	// Each entry's long wires: its placeholders, the wires crossing a column.
+	/** @type {Object<string,Array<string>>} */
+	const longOf = {};
+	for ( const id of laid ) {
+		longOf[ id ] = succ[ id ].filter( ( n ) => ! real.has( n ) );
+	}
 	// Rows for one column order, from the late sources to the wire clearing.
 	const settle = ( order, pull = true ) => {
 		order.forEach( ( c, k ) => ( columns[ k ] = [ ...c ] ) );
@@ -1967,21 +2060,14 @@ const layoutComponent = ( ids, graph, pin = {}, twins = false ) => {
 		Object.assign( col, sweptCol );
 		unseated.clear();
 		later.forEach( ( id ) => unseated.add( id ) );
-		// @longform A late source sweeps from column 0, then waits beside what
-		// it feeds, so the row spread straddles it with a card fanning to the
-		// same column. Only left of the anchor: right of it, rows seat from the
-		// left, and re-spreading a column once the next has centred on it bends
-		// chains.
-		for ( const id of later ) {
-			const at = col[ succ[ id ][ 0 ] ] - 1;
-			if ( at < anchor ) {
-				columns[ col[ id ] ] = columns[ col[ id ] ].filter(
-					( x ) => x !== id
-				);
-				col[ id ] = at;
-				columns[ at ].push( id );
-				unseated.delete( id );
-			}
+		// A late source sweeps from column 0, then waits beside what it feeds.
+		for ( const [ id, at ] of Object.entries( waits ) ) {
+			columns[ col[ id ] ] = columns[ col[ id ] ].filter(
+				( x ) => x !== id
+			);
+			col[ id ] = at;
+			columns[ at ].push( id );
+			unseated.delete( id );
 		}
 		reindex();
 
@@ -2014,9 +2100,22 @@ const layoutComponent = ( ids, graph, pin = {}, twins = false ) => {
 					spreadSet( columns[ c ], r );
 				}
 			}
+			// @longform Left of the anchor a card seats level with its long
+			// wires where it has any; else one alone in fanning into its
+			// targets seats between the first two.
 			for ( let c = anchor - 1; c >= 0; c-- ) {
 				for ( const id of columns[ c ] ) {
-					const nb = rowsOf( r, succ[ id ] );
+					const long = rowsOf( r, longOf[ id ] );
+					const fan =
+						! long.length && fansAlone.has( id )
+							? rowsOf( r, fans.get( id ) )
+							: [];
+					if ( fan.length > 1 ) {
+						const [ first, second ] = fan.sort( ( a, z ) => a - z );
+						r[ id ] = ( first + second ) / 2;
+						continue;
+					}
+					const nb = long.length ? long : rowsOf( r, succ[ id ] );
 					if ( nb.length ) {
 						r[ id ] = midMinMax( nb );
 					}
@@ -2091,7 +2190,12 @@ const layoutComponent = ( ids, graph, pin = {}, twins = false ) => {
 		const anchorKey = ( id ) =>
 			median( rowsOf( row, ( sinkSide ? pred : succ )[ id ] ) );
 		const buildOrder = ( sign ) =>
-			stableSort( columns[ anchor ], ( id ) => sign * anchorKey( id ) );
+			gathered(
+				stableSort(
+					columns[ anchor ],
+					( id ) => sign * anchorKey( id )
+				)
+			);
 		const firstAtTop = ( ord ) => {
 			const first = ord
 				.slice()
@@ -2575,16 +2679,15 @@ const columnX = ( ids, col, succ, pred ) =>
  */
 const halfSteps = ( ids, col, succ, pred ) => {
 	const counted = new Set( ids );
-	const wiresTo = ( nb, c ) => nb.filter( ( n ) => col[ n ] === c ).length;
 	/** @type {Map<number, number>} */
 	const opening = new Map();
 	// Add `by` at each boundary card `id` opens, as `columnX` tests it.
 	const tally = ( id, by ) => {
 		const c = col[ id ];
-		if ( wiresTo( pred[ id ], c - 1 ) >= GAP_MIN_WIRES ) {
+		if ( fanInto( pred[ id ], col, c - 1 ).length ) {
 			opening.set( c, ( opening.get( c ) ?? 0 ) + by );
 		}
-		if ( wiresTo( succ[ id ], c + 1 ) >= GAP_MIN_WIRES ) {
+		if ( fanInto( succ[ id ], col, c + 1 ).length ) {
 			opening.set( c + 1, ( opening.get( c + 1 ) ?? 0 ) + by );
 		}
 	};
@@ -2613,20 +2716,141 @@ const halfSteps = ( ids, col, succ, pred ) => {
 /**
  * Canvas position of every card in a block drawn in grid units.
  *
- * @param {{col: Object<string,number>, row: Object<string,number>}} d    The block's grid.
- * @param {Object<string,Array<string>>}                             succ Successors.
- * @param {Object<string,Array<string>>}                             pred Predecessors.
+ * @param {{halfOf: Object<string,number>, row: Object<string,number>}} d The block's half columns and rows.
  * @return {Object<string,{x: number, y: number}>} Position by card id.
  */
-const drawnAt = ( d, succ, pred ) => {
-	const cards = Object.keys( d.col );
-	const xOf = columnX( cards, d.col, succ, pred );
+const drawnAt = ( d ) => {
 	/** @type {Object<string,{x: number, y: number}>} */
 	const at = {};
-	for ( const id of cards ) {
-		at[ id ] = { x: xOf( d.col[ id ] ), y: d.row[ id ] * Y_STEP };
+	for ( const id of Object.keys( d.halfOf ) ) {
+		at[ id ] = {
+			x: X_PAD + d.halfOf[ id ] * HALF_X,
+			y: d.row[ id ] * Y_STEP,
+		};
 	}
 	return at;
+};
+
+/**
+ * The wires drawn among a block's cards.
+ *
+ * @param {Object<string,*>}             within Any map keyed by the block's cards.
+ * @param {Object<string,Array<string>>} succ   Successors.
+ * @return {Array<{from: string, to: string}>} Each wire whose both ends are in the block.
+ */
+const wiresWithin = ( within, succ ) =>
+	Object.keys( within ).flatMap( ( from ) =>
+		succ[ from ]
+			.filter( ( to ) => within[ to ] !== undefined )
+			.map( ( to ) => ( { from, to } ) )
+	);
+
+/**
+ * A wire's label in a drawing's account, `from→to`.
+ *
+ * @param {{from: string, to: string}} w The wire.
+ * @return {string} Its label.
+ */
+const wireLabel = ( w ) => `${ w.from }\u2192${ w.to }`;
+
+/**
+ * A wire's run over a card in a drawing's account, `from→to over id`.
+ *
+ * @param {{from: string, to: string}} w  The wire.
+ * @param {string}                     id The card it runs over.
+ * @return {string} The label.
+ */
+const overLabel = ( w, id ) => `${ wireLabel( w ) } over ${ id }`;
+
+/**
+ * Each card's half column with every chain's head stepped into the half step
+ * before its follower's column: a card that alone feeds its one successor
+ * sits a column's step before that column, so a half step opening between
+ * their columns opens before the chain, not inside it, and no card reaches
+ * past its own column's half step. A card stays where its step would run a
+ * wire over a card the block drawn column by column keeps clear.
+ *
+ * @param {{col: Object<string,number>, row: Object<string,number>, halfOf: Object<string,number>}} d       The block, each card in its column's first half column, unstepped.
+ * @param {{at: Object<string,{x: number, y: number}>, index: ReturnType<typeof columnIndex>}}      drawing Where its cards stand so, and its columns.
+ * @param {Object<string,Array<string>>}                                                            succ    Successors.
+ * @param {Object<string,Array<string>>}                                                            pred    Predecessors.
+ * @return {Object<string,number>} Each card's half column as drawn.
+ */
+const stepChains = ( { col, row, halfOf: unstepped }, drawing, succ, pred ) => {
+	const follows = soleFollower( succ, pred, col );
+	const held = new Set();
+	// Rebuilt, never rewritten: rewriting an entry slows every later layout.
+	const place = () => {
+		/** @type {Object<string,number>} */
+		const at = {};
+		for ( const id of Object.keys( col ) ) {
+			const next = follows( id );
+			at[ id ] =
+				next === undefined || held.has( id )
+					? unstepped[ id ]
+					: unstepped[ next ] - 2;
+		}
+		return at;
+	};
+	let halfOf = place();
+	const stepped = () =>
+		Object.keys( col ).filter( ( id ) => halfOf[ id ] !== unstepped[ id ] );
+	let check = stepped();
+	if ( ! check.length ) {
+		return unstepped;
+	}
+	// Each column's wires, every wire under each column it reaches.
+	/** @type {Map<number, Array<{from: string, to: string}>>} */
+	const reaching = new Map();
+	for ( const w of wiresWithin( col, succ ) ) {
+		const [ lo, hi ] = [ col[ w.from ], col[ w.to ] ].sort(
+			( m, n ) => m - n
+		);
+		for ( let c = lo; c <= hi; c++ ) {
+			memo( reaching, c, () => [] ).push( w );
+		}
+	}
+	// Only a wire reaching a stepped card's column can change.
+	const wires = ( ids ) => [
+		...new Set(
+			[ ...new Set( ids.map( ( id ) => col[ id ] ) ) ].flatMap(
+				( c ) => reaching.get( c ) ?? []
+			)
+		),
+	];
+	// Each wire over a card among `list`, by label, with its three cards.
+	const overs = (
+		list,
+		at = drawnAt( { halfOf, row } ),
+		index = columnIndex( at )
+	) => {
+		/** @type {Map<string, Array<string>>} */
+		const found = new Map();
+		for ( const w of list ) {
+			cardsUnder( at, index, w, ( _, o ) =>
+				found.set( overLabel( w, o ), [ w.from, w.to, o ] )
+			);
+		}
+		return found;
+	};
+	const before = overs( wires( check ), drawing.at, drawing.index );
+	while ( check.length ) {
+		const back = new Set();
+		for ( const [ key, ends ] of overs( wires( check ) ) ) {
+			for ( const id of before.has( key ) ? [] : ends ) {
+				if ( halfOf[ id ] !== unstepped[ id ] ) {
+					back.add( id );
+				}
+			}
+		}
+		if ( ! back.size ) {
+			break;
+		}
+		back.forEach( ( id ) => held.add( id ) );
+		halfOf = place();
+		check = [ ...stepped(), ...back ];
+	}
+	return halfOf;
 };
 
 /**
@@ -2638,17 +2862,7 @@ const drawnAt = ( d, succ, pred ) => {
  * @return {[number, number]} The wires crossing, then the cards a wire runs over.
  */
 const drawingCost = ( at, succ, index ) =>
-	walkDrawing(
-		at,
-		Object.keys( at ).flatMap( ( from ) =>
-			succ[ from ]
-				.filter( ( to ) => at[ to ] !== undefined )
-				.map( ( to ) => ( { from, to } ) )
-		),
-		undefined,
-		undefined,
-		index
-	);
+	walkDrawing( at, wiresWithin( at, succ ), undefined, undefined, index );
 
 /**
  * Lay a graph out as packed blocks: each hub group's bands stacked with the
@@ -3007,7 +3221,6 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 				);
 			}
 			normalizeRows( Object.keys( br ), br );
-			// Each card's half column as drawn, its block's half steps taken.
 			let widest = 0;
 			let bottom = 0;
 			for ( const id of Object.keys( bc ) ) {
@@ -3020,6 +3233,12 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 			const halfCol = {};
 			for ( let c = 0; c <= widest; c++ ) {
 				halfCol[ c ] = Math.round( ( drawnX( c ) - X_PAD ) / HALF_X );
+			}
+			// Each card's half column as drawn, its block's half steps taken.
+			/** @type {Object<string,number>} */
+			const halfOf = {};
+			for ( const id of all ) {
+				halfOf[ id ] = halfCol[ bc[ id ] ];
 			}
 			/** @type {Object<number,[number, number]>} */
 			const hull = {};
@@ -3041,19 +3260,26 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 			return {
 				col: bc,
 				halfCol,
+				halfOf,
 				row: br,
 				hull: halved( hull, halfCol, [ 0, 1 ] ),
 				width: halfCol[ widest ] + 2,
 				height: bottom + 1,
 			};
 		};
+		// @longform The block with its chains stepped. Its hull holds each
+		// column whole, so a step into a half step leaves no room there.
+		const stepped = ( { drawn, at, index } ) => ( {
+			...drawn,
+			halfOf: stepChains( drawn, { at, index }, succ, pred ),
+		} );
 		// Whether cost `a` beats `z`: fewer wires crossing, then cards covered.
 		const fewer = ( a, z ) =>
 			a[ 0 ] < z[ 0 ] || ( a[ 0 ] === z[ 0 ] && a[ 1 ] < z[ 1 ] );
 		// The block `pick` draws, where its cards stand, and what it costs.
 		const judge = ( pick, seated ) => {
 			const drawn = draw( pick, seated );
-			const at = drawnAt( drawn, succ, pred );
+			const at = drawnAt( drawn );
 			const index = columnIndex( at );
 			return {
 				pick,
@@ -3107,7 +3333,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 			}
 		}
 		if ( ! pins.size ) {
-			return { ...b, ...best.drawn };
+			return { ...b, ...stepped( best ) };
 		}
 		// @longform One band at a time, each against the block as drawn so
 		// far, and only one whose wire to a hub runs over a card of any band;
@@ -3179,7 +3405,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 			}
 			[ best, list ] = [ pass.now, pass.untried ];
 		}
-		return { ...b, ...best.drawn };
+		return { ...b, ...stepped( best ) };
 	} );
 
 	// A lone card is no group of its own: it takes one row and no gap.
@@ -3211,10 +3437,13 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 		const rc = {};
 		/** @type {Object<string,number>} */
 		const rr = {};
+		/** @type {Object<string,number>} */
+		const rh = {};
 		run.forEach( ( b, k ) => {
 			for ( const id of Object.keys( b.col ) ) {
 				rc[ id ] = b.col[ id ];
 				rr[ id ] = k * step;
+				rh[ id ] = b.halfOf[ id ];
 			}
 		} );
 		/** @type {Object<number,[number, number]>} */
@@ -3226,6 +3455,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 			key: run[ 0 ].key,
 			col: rc,
 			halfCol: run[ 0 ].halfCol,
+			halfOf: rh,
 			row: rr,
 			hull,
 			width: run[ 0 ].width,
@@ -3269,7 +3499,7 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 	};
 	const place = ( b, atCol, atRow ) => {
 		for ( const id of Object.keys( b.col ) ) {
-			col[ id ] = atCol + b.halfCol[ b.col[ id ] ];
+			col[ id ] = atCol + b.halfOf[ id ];
 			row[ id ] = atRow + b.row[ id ];
 			if ( hubs.has( id ) ) {
 				hubCols.add( col[ id ] ).add( col[ id ] + 1 );
@@ -3417,8 +3647,10 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
 		} else {
 			stackOn( b );
 		}
+		// Each card's column whole, as its hull holds it, a stepped card's too.
 		for ( const id of Object.keys( b.col ) ) {
-			filled.add( col[ id ] ).add( col[ id ] + 1 );
+			const h = col[ id ] - b.halfOf[ id ] + b.halfCol[ b.col[ id ] ];
+			filled.add( h ).add( h + 1 );
 		}
 	}
 
@@ -3451,7 +3683,6 @@ const layoutBands = ( ids, succ, pred, hubs ) => {
  * @testonly The export alone; the layout counts through `walkDrawing`.
  */
 export function drawnCost( at, wires ) {
-	const label = ( w ) => `${ w.from }\u2192${ w.to }`;
 	/** @type {Array<string>} */
 	const crossings = [];
 	/** @type {Array<string>} */
@@ -3459,8 +3690,9 @@ export function drawnCost( at, wires ) {
 	walkDrawing(
 		at,
 		wires,
-		( a, b ) => crossings.push( `${ label( a ) } \u00d7 ${ label( b ) }` ),
-		( w, id ) => over.push( `${ label( w ) } over ${ id }` )
+		( a, b ) =>
+			crossings.push( `${ wireLabel( a ) } \u00d7 ${ wireLabel( b ) }` ),
+		( w, id ) => over.push( overLabel( w, id ) )
 	);
 	return { crossings, over };
 }
@@ -3662,7 +3894,7 @@ export function autoLayout( parsed ) {
 	const seen = new Set();
 	for ( const e of edges ) {
 		// Skip a dangling edge, a wire to itself, and a wire declared twice.
-		const key = `${ e.from }\u2192${ e.to }`;
+		const key = wireLabel( e );
 		if (
 			! nodeSet.has( e.from ) ||
 			! nodeSet.has( e.to ) ||
