@@ -2,14 +2,14 @@
 # This file is distributed under the GPL-2.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Newspack Nodes 2.115.2\n"
+"Project-Id-Version: Newspack Nodes 2.116.0\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/newspack-nodes\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-19T10:28:11+00:00\n"
+"POT-Creation-Date: 2026-10-19T12:53:24+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: newspack-nodes\n"
@@ -435,7 +435,7 @@ msgid "Errors"
 msgstr ""
 
 #: src/debug-overlay/tabs/OverviewTab.js:243
-#: src/shared/components/LogStreamViewer.js:383
+#: src/shared/components/LogStreamViewer.js:382
 msgid "Debug"
 msgstr ""
 
@@ -630,45 +630,45 @@ msgid_plural "%d changes"
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/event-dashboards/ConfigAudit.js:137
+#: src/event-dashboards/ConfigAudit.js:136
 msgid "Filter option names"
 msgstr ""
 
-#: src/event-dashboards/ConfigAudit.js:138
+#: src/event-dashboards/ConfigAudit.js:137
 msgid "Filter option names…"
 msgstr ""
 
-#: src/event-dashboards/ConfigAudit.js:156
+#: src/event-dashboards/ConfigAudit.js:155
 #: src/event-dashboards/tabs.js:69
 #: src/event-dashboards/__tests__/tabs.test.js:89
 msgid "Config Audit"
 msgstr ""
 
-#: src/event-dashboards/ConfigAudit.js:163
+#: src/event-dashboards/ConfigAudit.js:162
 msgid "Values are recorded only for allowlisted options; other changes record the option name only."
 msgstr ""
 
-#: src/event-dashboards/ConfigAudit.js:172
+#: src/event-dashboards/ConfigAudit.js:171
 msgid "No option names match the filter."
 msgstr ""
 
-#: src/event-dashboards/ConfigAudit.js:176
+#: src/event-dashboards/ConfigAudit.js:175
 msgid "No configuration changes recorded yet."
 msgstr ""
 
-#: src/event-dashboards/ConfigAudit.js:185
+#: src/event-dashboards/ConfigAudit.js:184
 msgid "Time (UTC)"
 msgstr ""
 
-#: src/event-dashboards/ConfigAudit.js:186
+#: src/event-dashboards/ConfigAudit.js:185
 msgid "Option"
 msgstr ""
 
-#: src/event-dashboards/ConfigAudit.js:187
+#: src/event-dashboards/ConfigAudit.js:186
 msgid "Old"
 msgstr ""
 
-#: src/event-dashboards/ConfigAudit.js:188
+#: src/event-dashboards/ConfigAudit.js:187
 msgid "New"
 msgstr ""
 
@@ -760,7 +760,7 @@ msgid "Message type flags"
 msgstr ""
 
 #: src/event-dashboards/LogViewer.js:96
-#: src/topology-console/components/TimelineView.js:140
+#: src/topology-console/components/TimelineView.js:138
 msgid "Time"
 msgstr ""
 
@@ -1473,64 +1473,64 @@ msgstr[1] ""
 msgid "%s lines/s"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:320
+#: src/shared/components/LogStreamViewer.js:319
 msgid "Filter the stream"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:322
+#: src/shared/components/LogStreamViewer.js:321
 msgid "Filter…"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:334
+#: src/shared/components/LogStreamViewer.js:333
 msgid "Jump to an offset"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:335
+#: src/shared/components/LogStreamViewer.js:334
 msgid "seg:offset"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:341
+#: src/shared/components/LogStreamViewer.js:340
 msgid "Jump: paste a message ID (seg:off:len) or a bare offset, Enter pauses and steps that message"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:353
+#: src/shared/components/LogStreamViewer.js:352
 msgid "Resume streaming"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:354
+#: src/shared/components/LogStreamViewer.js:353
 msgid "Pause streaming"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:365
+#: src/shared/components/LogStreamViewer.js:364
 #: src/topology-console/components/TimeTravelPanel.js:329
 msgid "Step one message"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:366
+#: src/shared/components/LogStreamViewer.js:365
 msgid "Step one message (paused only)"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:378
+#: src/shared/components/LogStreamViewer.js:377
 msgid "Debug rows: ID · KEY · VALUE, pretty structs, full lines"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:391
+#: src/shared/components/LogStreamViewer.js:390
 msgid "Clear all lines"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:393
+#: src/shared/components/LogStreamViewer.js:392
 msgid "Clear"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:404
+#: src/shared/components/LogStreamViewer.js:403
 msgid "Hide the browse rail"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:405
+#: src/shared/components/LogStreamViewer.js:404
 msgid "Show the browse rail"
 msgstr ""
 
-#: src/shared/components/LogStreamViewer.js:426
+#: src/shared/components/LogStreamViewer.js:425
 msgid "Connection lost. Reconnecting…"
 msgstr ""
 
@@ -1915,7 +1915,7 @@ msgid "Register a listener on %s"
 msgstr ""
 
 #: src/topology-console/components/Inspector.js:1570
-#: src/topology-console/components/TimelineView.js:146
+#: src/topology-console/components/TimelineView.js:144
 msgid "Event"
 msgstr ""
 
@@ -1961,7 +1961,7 @@ msgid "Arguments"
 msgstr ""
 
 #: src/topology-console/components/Inspector.js:1789
-#: src/topology-console/components/TimelineView.js:149
+#: src/topology-console/components/TimelineView.js:147
 msgid "Payload"
 msgstr ""
 
@@ -2444,27 +2444,27 @@ msgstr ""
 msgid "Owned by %s"
 msgstr ""
 
-#: src/topology-console/components/TimelineView.js:121
+#: src/topology-console/components/TimelineView.js:120
 msgid "filter node…"
 msgstr ""
 
-#: src/topology-console/components/TimelineView.js:124
+#: src/topology-console/components/TimelineView.js:123
 msgid "Filter timeline by node"
 msgstr ""
 
-#: src/topology-console/components/TimelineView.js:129
+#: src/topology-console/components/TimelineView.js:127
 msgid "filter event…"
 msgstr ""
 
-#: src/topology-console/components/TimelineView.js:132
+#: src/topology-console/components/TimelineView.js:130
 msgid "Filter timeline by event"
 msgstr ""
 
-#: src/topology-console/components/TimelineView.js:143
+#: src/topology-console/components/TimelineView.js:141
 msgid "Node"
 msgstr ""
 
-#: src/topology-console/components/TimelineView.js:173
+#: src/topology-console/components/TimelineView.js:171
 msgid "No traces yet — toggle Trace on a node (the Inspector’s Trace button) to populate the timeline."
 msgstr ""
 

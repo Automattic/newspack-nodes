@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.116.0] - 2026-10-19
+
 ### Added
 - **A shared token field.** `.newspack-nodes-token-field` frames a row of tokens and the box they are typed into as one field, wearing the field's surface, border and radius, with the focus ring on the frame while the box has focus, and a token's own button ringing alone; `.newspack-nodes-token-field__entry` marks the box, which the text-field and focus rules leave bare. A consumer composes it from its own token markup.
 
