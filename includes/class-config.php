@@ -291,8 +291,8 @@ class Config {
 	 * This plugin's own file scope reads config at load, before any consumer
 	 * sorting after it has loaded, and a consumer sorting before newspack-nodes
 	 * cannot touch this class at its own file scope; either route therefore
-	 * declares AFTER the first read — the firehose reads num_partitions at
-	 * `plugins_loaded:-10001` — and the fail-loud value() gate refuses a real
+	 * declares AFTER the first read — the event logger reads num_partitions at
+	 * `plugins_loaded:-11001` — and the fail-loud value() gate refuses a real
 	 * key. Pulling it here means the keys exist by construction whenever anyone
 	 * asks.
 	 *
@@ -613,7 +613,7 @@ class Config {
 	 *
 	 * `setup/newspack-nodes.sh` copies the deployment's own config over the
 	 * shipped path, so this file belongs to the operator. Throwing runs at
-	 * `plugins_loaded:-10001` and would take down every request, wp-admin
+	 * `plugins_loaded:-11001` and would take down every request, wp-admin
 	 * included, the day a key is renamed — recoverable only over SSH. Loud
 	 * means visible: stderr once per key set, plus Site Health and doctor.
 	 *

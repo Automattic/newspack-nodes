@@ -1638,8 +1638,8 @@ option schema.
 
 Register the hook at PLUGIN FILE SCOPE, not from a deferred `plugins_loaded`
 loader. The substrate PULLS the declaration from inside a read, and that read can
-precede the loader: event-logger-nodes' profiler logs its first line at
-[`plugins_loaded`](https://developer.wordpress.org/reference/hooks/plugins_loaded/)`:-10001`, well ahead of a loader at priority 11, and `value()`
+precede the loader: event-logger-nodes builds its logger at
+[`plugins_loaded`](https://developer.wordpress.org/reference/hooks/plugins_loaded/)`:-11001`, well ahead of a loader at priority 11, and `value()`
 would throw on a real key. A plugin whose slug sorts before `newspack-nodes`
 loads while no substrate class exists, so it hooks the literal action name rather
 than the `Config::DECLARE_ACTION` constant.

@@ -1309,7 +1309,7 @@ without one declares nothing at all, and the first `Config::value()` throws
 [`newspack-nodes-config.php`](../newspack-nodes-config.php), and the operator's — is an override surface and nothing more, and
 an unrecognized key there is REPORTED, never thrown: `newspack-nodes.sh`, `newspack-pyrobase.sh`
 and `newspack-nuclear-gyrobase.sh` all `cp -f` the deployment's own file over the shipped
-path, so that file is the operator's, not ours. The first read is at `plugins_loaded:-10001`,
+path, so that file is the operator's, not ours. The first read is at `plugins_loaded:-11001`,
 where a throw would take down every request including wp-admin the day a key is renamed,
 recoverable only over SSH; the report is rate-limited and surfaces in Site Health and
 `wp nodes doctor` as `config-keys`. It covers the shipped file alone:

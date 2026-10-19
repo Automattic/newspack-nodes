@@ -14,6 +14,9 @@
 #   bump_extra VERSION   plugin-specific rewrites (run inside PLUGIN_DIR)
 #   show_extra           extra verification output
 #   SUBSTRATE_PIN        release workflow path; repins the substrate when set
+#   DROP_IN              a drop-in shipped as its own release asset, relative to
+#                        PLUGIN_DIR, whose `Version:` header moves with the
+#                        plugin's, so a site's copy names the release it came from
 #
 # Path assumption, deliberately the only one: the substrate is a SIBLING
 # checkout of the plugin. Nothing here knows about dndocker's layout, so a
@@ -59,6 +62,16 @@ if [ -n "$SUBSTRATE_PIN" ]; then
 	SUBSTRATE_VERSION_TO_PIN=$(substrate_version "$SUBSTRATE_DIR")
 fi
 
+# A drop-in's header line; the check and the rewrite share it, so a header
+# that passes the check is one the rewrite takes.
+DROP_IN_HEADER='^\( \* Version:[[:space:]]*\)[0-9][0-9A-Za-z.-]*[[:space:]]*$'
+
+# A drop-in the bump cannot rewrite refuses it before anything is edited.
+if [ -n "$DROP_IN" ]; then
+	[ -f "$DROP_IN" ] || die "Drop-in not found: $PLUGIN_DIR/$DROP_IN"
+	grep -q "$DROP_IN_HEADER" "$DROP_IN" || die "No Version: header to rewrite in $DROP_IN"
+fi
+
 echo "Current: $CURRENT"
 echo "New:     $NEW_VERSION"
 echo ""
@@ -81,6 +94,11 @@ if [ -n "$SUBSTRATE_PIN" ]; then
 	echo "Updated $SUBSTRATE_PIN (substrate pin)"
 fi
 
+if [ -n "$DROP_IN" ]; then
+	sed -i '' "s/$DROP_IN_HEADER/\\1$NEW_VERSION/" "$DROP_IN"
+	echo "Updated $DROP_IN (drop-in header)"
+fi
+
 if command -v bump_extra >/dev/null 2>&1; then
 	bump_extra "$NEW_VERSION"
 fi
@@ -101,6 +119,10 @@ fi
 if [ -n "$SUBSTRATE_PIN" ]; then
 	echo "Substrate pin:"
 	show_substrate_pin "$SUBSTRATE_PIN"
+fi
+if [ -n "$DROP_IN" ]; then
+	echo "Drop-in header:"
+	grep " \* Version:" "$DROP_IN"
 fi
 if command -v show_extra >/dev/null 2>&1; then
 	show_extra
