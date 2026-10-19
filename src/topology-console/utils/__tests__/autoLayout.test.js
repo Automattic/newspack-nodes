@@ -2104,22 +2104,18 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		expect( inside ).toEqual( [] );
 	} );
 
-	it( 'judges a pull against the order its block picked, not the sweeps’', () => {
-		// The block keeps a band's exchanged order; weighed against that
-		// order unpulled, the pull draws 10 crossings and 5 cards covered.
+	it( 'judges a pull against the order its block picked, not the band’s own', () => {
+		// The block keeps the sweeps' plain order; weighed against that order
+		// unpulled, the pull draws 9 crossings and no card covered, where
+		// against the band's exchanged order it draws 11 and covers 1.
 		const pairs = (
-			'b0l0n0>b0l1n0 b0l0n0>b0l1n1 b0l1n0>b0l2n0 b0l1n1>b0l2n1 ' +
-			'b0l1n0>b0l2n2 b0l2n2>b0l3n0 b0l2n0>b0l3n0 b0l3n0>b0l4n0 ' +
-			'b0l3n0>b0l4n1 b0l4n0>hub b1l0n0>b1l1n0 b1l0n1>b1l1n1 ' +
-			'b1l0n0>b1l1n1 b1l0n0>b1l1n2 b1l1n2>b1l2n0 b1l1n1>b1l2n1 ' +
-			'b1l1n0>b1l2n2 b1l1n1>b1l2n3 b1l2n0>b1l3n0 b1l2n1>b1l3n1 ' +
-			'b1l2n2>b1l3n2 b1l2n0>b1l3n3 b1l3n0>b1l4n0 b1l3n0>b1l4n1 ' +
-			'b1l3n1>b1l4n2 b1l3n1>b1l4n3 b1l3n0>b1l4n3 b1l4n2>b1l5n0 ' +
-			'b1l4n0>b1l5n0 b1l4n0>b1l5n1 b1l4n3>b1l5n2 b1l4n1>b1l5n3 ' +
-			'b1l5n0>hub b1l0n0>hub b1src>b1l5n0 b2l0n1>b2l1n0 ' +
-			'b2l0n1>b2l1n1 b2l0n1>b2l1n2 b2l0n0>b2l1n2 b2l1n0>hub ' +
-			'b2l0n0>hub b3l0n1>b3l1n0 b3l1n0>b3l2n0 b3l1n0>b3l2n1 ' +
-			'b3l1n0>b3l2n2 b3l1n0>b3l2n3 b3l2n0>hub'
+			'b0l0n0>b0l1n0 b0l0n0>b0l1n1 b0l0n0>b0l1n2 b0l0n0>b0l1n3 ' +
+			'b0l1n0>b0l2n0 b0l0n0>b0l2n0 b0l1n2>b0l2n1 b0l1n3>b0l2n2 ' +
+			'b0l1n3>b0l2n3 b0l2n3>b0l3n0 b0l2n2>b0l3n1 b0l3n0>hub ' +
+			'b0l0n0>hub b1l0n1>b1l1n0 b1l0n1>b1l1n1 b1l0n2>b1l1n2 ' +
+			'b1l1n0>hub b2l0n0>b2l1n0 b2l0n0>b2l1n1 b2l0n0>b2l1n2 ' +
+			'b2l0n0>b2l1n3 b2l1n2>b2l2n0 b2l1n0>b2l2n0 b2l1n0>b2l2n1 ' +
+			'b2l2n0>hub b2l0n0>hub'
 		)
 			.split( ' ' )
 			.map( ( p ) => p.split( '>' ) );
@@ -2130,22 +2126,23 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		} );
 		const cost = drawn( nodes, edges );
 		expect( [ cost.crossings.length, cost.over.length ] ).toEqual( [
-			10, 5,
+			9, 0,
 		] );
 	} );
 
 	it( 'judges a pin trial on its pulled layout alone', () => {
 		// A pin trial carries no unpulled twin, so the block's judgement of
-		// its pulls cannot swap a pinned band back: 2 crossings, 1 covered.
+		// its pulls cannot swap a pinned band back: 7 crossings, 1 covered,
+		// where a twin draws 8 and covers 2.
 		const pairs = (
-			'b2l0n0>b2l1n0 b2l0n0>b2l1n2 b2l0n0>b2l1n3 b2l1n2>b2l2n0 ' +
-			'b2l1n3>b2l2n1 b2l1n0>b2l2n2 b2l2n0>b2l3n0 b2l2n0>b2l3n1 ' +
-			'b2l2n2>b2l3n2 b2l2n0>b2l3n3 b2l3n0>hub b3l0n0>b3l1n0 ' +
-			'b3l0n0>b3l1n1 b3l0n0>b3l1n2 b3l1n0>b3l2n0 b3l1n1>b3l2n1 ' +
-			'b3l1n2>b3l2n2 b3l1n1>b3l2n3 b3l2n3>b3l3n0 b3l3n0>b3l4n0 ' +
-			'b3l3n0>b3l4n1 b3l3n0>b3l4n2 b3l0n0>hub b5l0n0>b5l1n0 ' +
-			'b5l0n0>b5l1n1 b5l0n0>b5l1n2 b5l1n0>hub b6l0n1>b6l1n0 ' +
-			'b6l0n0>b6l1n0 b6l0n1>b6l1n2 b6l1n0>hub'
+			'b0l0n1>b0l1n0 b0l0n1>b0l1n1 b0l0n1>b0l1n2 b0l0n1>b0l1n3 ' +
+			'b0l1n1>b0l2n0 b0l1n0>b0l2n1 b0l0n0>b0l2n1 b0l1n0>b0l2n2 ' +
+			'b0l1n2>b0l2n3 b0l0n1>b0l2n3 b0l2n3>b0l3n0 b0l3n0>hub ' +
+			'b0l0n0>hub b1l0n2>b1l1n0 b1l0n1>b1l1n1 b1l0n1>b1l1n2 ' +
+			'b1l1n1>b1l2n0 b1l0n0>b1l2n0 b1l2n0>b1l3n0 b1l1n2>b1l3n0 ' +
+			'b1l2n0>b1l3n1 b1l2n0>b1l3n2 b1l2n0>b1l3n3 b1l3n0>b1l4n0 ' +
+			'b1l3n3>b1l4n1 b1l4n0>hub b1l0n0>hub b2l0n0>b2l1n0 ' +
+			'b2l1n0>hub'
 		)
 			.split( ' ' )
 			.map( ( p ) => p.split( '>' ) );
@@ -2156,7 +2153,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		} );
 		const cost = drawn( nodes, edges );
 		expect( [ cost.crossings.length, cost.over.length ] ).toEqual( [
-			2, 1,
+			7, 1,
 		] );
 	} );
 
@@ -2692,7 +2689,7 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 
 	it( 'judges pin trials across five tiles of seed 134623 to fewer crossings', () => {
 		// The cheaper drawing picks the moves, the block seated in full keeps
-		// them, and every move it left is tried in full: 441 crossings, 216
+		// them, and every move it left is tried in full: 457 crossings, 184
 		// cards covered, with each tile's bands stacked as tight as their
 		// columns allow and no nudge leaving a band's own rows.
 		const seed = SEEDS[ '134623' ];
@@ -2712,7 +2709,31 @@ describe( 'autoLayout — hubs beside their feeders, blocks packed', () => {
 		} );
 		const cost = drawn( nodes, edges );
 		expect( [ cost.crossings.length, cost.over.length ] ).toEqual( [
-			441, 216,
+			457, 184,
+		] );
+	} );
+
+	it( 'tries a pin again after a later pass moves another', () => {
+		// A pin clear at its turn is tried again in full after each pass that
+		// moves one: 6 crossings and 3 cards covered, where trying it no more
+		// leaves 7 and 5.
+		const { at, edges } = laidOut(
+			'b0l0n0>b0l1n0 b0l0n0>b0l1n1 b0l0n0>b0l1n2 b0l0n2>b0l1n3 ' +
+				'b0l0n0>b0l1n3 b0l1n3>b0l2n0 b0l1n1>b0l2n1 b0l0n3>b0l2n1 ' +
+				'b0l1n0>b0l2n2 b0l1n1>b0l2n3 b0l0n0>b0l2n3 b0l2n0>hub ' +
+				'b1l0n1>b1l1n0 b1l0n0>b1l1n1 b1l1n1>b1l2n0 b1l1n0>b1l2n1 ' +
+				'b1l0n0>b1l2n1 b1l2n0>hub b1l0n0>hub b1src>b1l2n0 ' +
+				'b2l0n1>b2l1n0 b2l0n0>b2l1n0 b2l0n0>b2l1n1 b2l0n1>b2l1n2 ' +
+				'b2l0n2>b2l1n2 b2l0n2>b2l1n3 b2l1n0>b2l2n0 b2l0n0>b2l2n0 ' +
+				'b2l2n0>b2l3n0 b2l2n0>b2l3n1 b2l3n1>b2l4n0 b2l2n0>b2l4n0 ' +
+				'b2l3n0>b2l4n1 b2l2n0>b2l4n1 b2l4n0>hub b2src>b2l4n0 ' +
+				'b3l0n0>b3l1n0 b3l0n0>b3l1n1 b3l0n0>b3l1n2 b3l0n0>b3l1n3 ' +
+				'b3l1n3>b3l2n0 b3l1n3>b3l2n1 b3l1n3>b3l2n2 b3l2n0>hub ' +
+				'b3src>b3l2n0'
+		);
+		const cost = drawnCost( at, edges );
+		expect( [ cost.crossings.length, cost.over.length ] ).toEqual( [
+			6, 3,
 		] );
 	} );
 
@@ -3917,6 +3938,91 @@ describe( 'autoLayout — a seat measures the half steps earlier seats opened', 
 } );
 
 describe( 'autoLayout — a seat measures the half step its own move closes', () => {
+	it( 'seats a card that fans level with its long wire', () => {
+		// e fans alone into f0 to f3 and runs one wire on to x0. Level with
+		// that wire it draws 2 crossings, where between its fan's first two
+		// targets it draws 5.
+		const { at, edges } = laidOut(
+			't>e e>f0 f0>g0 h0>g0 e>f1 e>f2 f2>g2 e>f3 f3>g3 k0>k1 k1>k2 ' +
+				'e>x0 k2>x0'
+		);
+		const cost = drawnCost( at, edges );
+		expect( [ cost.crossings.length, cost.over.length ] ).toEqual( [
+			2, 0,
+		] );
+	} );
+
+	it( 'packs no block into the half step a chain head steps into', () => {
+		// a:c0 steps into the half step a:tee's fan opens; lone0 stays out of
+		// it, as out of any half step between two columns.
+		const graph = wired(
+			'a:tee>a:f0 a:in0>a:f0 a:tee>a:f1 a:in1>a:f1 a:tee>a:f2 ' +
+				'a:in2>a:f2 a:timer>a:tee a:src0>a:c0 a:c0>a:v0 a:in0>a:c0 ' +
+				'a:src1>a:c1 a:c1>a:v1 a:in1>a:c1 z0:0>z0:1'
+		);
+		graph.nodes.push( { id: 'lone0' } );
+		const at = Object.fromEntries(
+			autoLayout( graph ).nodes.map( ( n ) => [ n.id, n.position ] )
+		);
+		expect( at[ 'a:c0' ].x - at[ 'a:tee' ].x ).toBe( X_STEP / 2 );
+		expect( [
+			at.lone0.x,
+			at.lone0.x > at[ 'a:tee' ].x && at.lone0.x < at[ 'a:f0' ].x,
+		] ).toEqual( [ at.lone0.x, false ] );
+	} );
+
+	it.each( [
+		[
+			'k0l1n0>hub k2l1n0>hub k4l0n1>k4l1n0 k4l0n1>k4l1n1 ' +
+				'k4l0n1>k4l1n3 k4l0n2>k4l1n3 k4l1n0>k4l2n0 k4l1n0>k4l2n1 ' +
+				'k4l1n1>k4l2n1 k4l1n0>k4l2n2 k4l2n0>k4l3n0 k4l2n2>k4l3n1 ' +
+				'k4l2n2>k4l3n2 k4l2n0>k4l3n3 k4l2n1>k4l3n4 k4l3n0>k4c0x0 ' +
+				'k4c0x1>k4c0x2 k4c0x2>k4l3n0 k4l0n2>k4c1x0 k4c1x0>k4c1x1 ' +
+				'k4c1x1>k4c1x2 k4c1x2>k4c1x3 k4l3n0>hub k5l4n3>k5l5n0 ' +
+				'k5l0n1>k5c0x0 k5c0x0>k5c0x1 k5c0x1>k5c0x2 k5c0x2>k5l5n0 ' +
+				'k5l5n0>hub k5src>k5l5n0',
+		],
+		[
+			'k0l4n0>hub k2l0n4>k2l1n0 k2l0n1>k2l1n0 k2l0n3>k2l1n2 ' +
+				'k2l0n4>k2l1n3 k2l0n3>k2l1n4 k2l0n1>k2l1n4 k2l1n0>k2c0x0 ' +
+				'k2c0x0>k2c0x1 k2c0x1>k2c0x2 k2l1n0>hub k4l0n0>k4l1n2 ' +
+				'k4l1n2>k4l2n0 k4l2n0>k4l3n0 k4l1n2>k4l3n0 k4l2n0>k4l3n1 ' +
+				'k4l2n0>k4l3n2 k4l0n2>k4l3n3 k4l3n4>k4l4n0 k4l3n4>k4l4n1 ' +
+				'k4l3n3>k4l4n2 k4l3n1>k4l4n1 k4l3n1>k4l4n2 k4l3n1>k4l4n3 ' +
+				'k4l4n0>hub',
+		],
+	] )( 'steps no chain head onto a card of the next column', ( wires ) => {
+		// A head steps a step short of its follower's column, wherever its
+		// follower steps, so no card reaches past its own column's half step.
+		const { at } = laidOut( wires );
+		const ids = Object.keys( at );
+		const overlapping = ids.flatMap( ( a ) =>
+			ids
+				.filter(
+					( b ) =>
+						a < b &&
+						Math.abs( at[ a ].x - at[ b ].x ) < NODE_W &&
+						Math.abs( at[ a ].y - at[ b ].y ) < NODE_H
+				)
+				.map( ( b ) => `${ a } ${ b }` )
+		);
+		expect( overlapping ).toEqual( [] );
+	} );
+
+	it( 'seats no fan by its first targets where a late source feeds it (seed 87109)', () => {
+		// k1src, seated last, feeds k1l3n3 of k1l2n0's fan; k1l2n0 keeps its
+		// fan's middle, and k1src's wire crosses none of the fan's.
+		const edges = SEEDS[ '87109' ].edges.map( ( [ from, to ] ) => ( {
+			from,
+			to,
+		} ) );
+		const { nodes } = autoLayout( {
+			nodes: SEEDS[ '87109' ].nodes.map( ( id ) => ( { id } ) ),
+			edges,
+		} );
+		expect( drawn( nodes, edges ).crossings ).toEqual( [] );
+	} );
+
 	it( 'seats a fanning source clear of the cards beside the column it leaves', () => {
 		// k2l0n0 fans into column 2: its seat in column 0 closes the half
 		// step its wires open from column 1, and its wire to k2l2n0 clears
@@ -4249,7 +4355,7 @@ describe( 'autoLayout — tight bands, a row between groups, a card beside its f
 			[ 'topology-manager:timer', 1, 6.5 ],
 			[ 'topology-manager:tee', 2, 6.5 ],
 			[ 'worker-status:fetch', 3, 7 ],
-			[ 'worker-status:in', 0, 7.5 ],
+			[ 'worker-status:in', 0, 7 ],
 			[ 'worker-status:in:current', 1, 8 ],
 			[ 'worker-status:transform', 2, 8 ],
 			[ 'worker-status:view', 3, 8 ],

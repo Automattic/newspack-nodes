@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **`autoLayout()` draws a fan as one, and runs long wires flat.** A fan is a card's three or more wires into the next column. Its targets in a band's busiest column keep one unbroken run. Left of the busiest column, a card with a wire running past the next column seats level with it, so the long wire runs flat past the cards it crosses, and a card with none, alone in fanning into targets no late source feeds, seats between the first two of them. Once a block is drawn, a card that alone feeds its one successor sits a column's step before that successor's column, so a half step opens before a chain rather than inside it, except where that would run a wire over a card. The Performance dashboard's station graph lays out as drawn by hand; the complete worker's REPL cards no longer sit in column 0, and the fleet board's `worker-status:in` sits level with its fetcher. Nothing in the layout reads a node's name or class beyond an alphabetical tie-break.
+
 ## [2.115.0] - 2026-10-18
 
 ### Added
