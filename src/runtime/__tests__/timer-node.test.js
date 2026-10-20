@@ -500,17 +500,70 @@ describe( 'hitchhike + throttle (setTimer(ms) with ms >= 1000)', () => {
 		r.stopTimer();
 	} );
 
-	test( 'no-ms hitchhike fires every tick — the cadence is never > 1000, so no throttle', () => {
+	// @longform A timer at the tick's own cadence skips an extra tick less
+	// than nine tenths of a second after its last fire, and fires one a hair
+	// early; a slower one keeps its grid.
+	describe( 'a timer at the tick cadence', () => {
+		const kereru = 1_790_000_100_000 + GRID_PHASE_MS;
+
+		function tickTimer( name, ms ) {
+			const r = makeRouter();
+			const t = new TimerNode();
+			t.name = name;
+			t.sink = { fill: () => {} };
+			t.target = '_output';
+			t.setTimer( ms );
+			return { r, t };
+		}
+
+		test( 'skips a tick half a second after its fire', () => {
+			const { r, t } = tickTimer( 'kereru:tick', 1000 );
+			jest.setSystemTime( kereru );
+			r.notifyTimer();
+			jest.setSystemTime( kereru + 500 );
+			r.notifyTimer();
+			expect( t.fireCount ).toBe( 1 );
+			t.stopTimer();
+		} );
+
+		test( 'fires a tick 0.95s after its fire', () => {
+			const { r, t } = tickTimer( 'pukeko:tick', 1000 );
+			jest.setSystemTime( kereru );
+			r.notifyTimer();
+			jest.setSystemTime( kereru + 950 );
+			r.notifyTimer();
+			expect( t.fireCount ).toBe( 2 );
+			t.stopTimer();
+		} );
+
+		test( 'a 10s timer fires at 10s and not at 9s, on its grid', () => {
+			const { r, t } = tickTimer( 'kokako:slow', 10000 );
+			jest.setSystemTime( kereru );
+			r.notifyTimer();
+			jest.setSystemTime( kereru + 9000 );
+			r.notifyTimer();
+			expect( t.fireCount ).toBe( 1 );
+			jest.setSystemTime( kereru + 10000 );
+			r.notifyTimer();
+			expect( t.fireCount ).toBe( 2 );
+			t.stopTimer();
+		} );
+	} );
+
+	test( 'no-ms hitchhike fires on every cadence tick', () => {
 		const r = makeRouter();
+		r.interval_ms = 1000;
 		const t = new TimerNode();
 		t.name = 'every-tick';
 		const sent = [];
 		t.sink = { fill: ( m ) => sent.push( m ) };
 		t.target = '_output';
 		t.setTimer();
-		r.notifyTimer();
-		r.notifyTimer();
-		r.notifyTimer();
+		expect( t.interval_ms ).toBe( 1000 );
+		for ( let i = 0; i < 3; i++ ) {
+			jest.setSystemTime( 1_790_000_200_000 + i * 1000 );
+			r.notifyTimer();
+		}
 		expect( sent ).toHaveLength( 3 );
 		t.stopTimer();
 	} );

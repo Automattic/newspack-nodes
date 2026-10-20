@@ -101,6 +101,7 @@ describe( 'Remote_IPC bundles a signed connect', () => {
 		typed[ TO ] = '';
 		typed[ VALUE ] = { name: 'ls', arguments: [] };
 		node.fill( typed );
+		http.flush();
 
 		const connect = sent.find(
 			( m ) => 'connect_worker_input' === m[ VALUE ]?.name

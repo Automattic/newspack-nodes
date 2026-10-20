@@ -28,9 +28,9 @@
  * read. PHP has no Remote_Ipc and steals nothing: each Remote_Source patrons its
  * own HTTP_Out, so several links connect at once.
  *
- * Both messages route through the process-wide `_http` singleton as ONE POST
- * (lock/flush), so the per-request mount and the command land in the same server
- * process. The mount serves that whole POST rather than this send, so `_http` —
+ * Both messages route through the process-wide `_http` singleton, which holds
+ * every send of one task for ONE POST, so the per-request mount and the command
+ * land in the same server process. The mount serves that whole POST rather than this send, so `_http` —
  * which owns the POST — is asked whether it has already been sent.
  */
 
@@ -117,39 +117,28 @@ export class RemoteIpcNode extends RemoteLinkNode {
 		command[ TO ] =
 			'' === remainder ? reader : `${ reader }/${ remainder }`;
 
-		// One POST: ride a pre-existing lock, else open one around this pair.
+		// _http holds both in the one POST every send of this task joins.
 		const h = Core.node( names.HTTP );
 		if ( ! h ) {
 			// Mid-rebuild: no reply is deliverable, but silence reads as a 202.
 			this.dropMessage( message, 'no sink' );
 			return;
 		}
-		const pre = h.locked;
-		h.lock();
 
-		try {
-			// Idempotent and serves the whole POST, so it rides once per batch.
-			const mount = `mount:${ reader }`;
-			if ( h.onceInBatch( mount ) ) {
-				// Our own mint beside the Shell's; TO after — it isn't signed.
-				const connect = this.command( 'connect_worker_input', [
-					reader,
-				] );
-				if ( null === connect ) {
-					return; // unauthenticated; re-auth is under way
-				}
-				connect[ TO ] = 'topologies';
-				h.fill( connect );
-				h.claimInBatch( mount );
+		// Idempotent and serves the whole POST, so it rides once per batch.
+		const mount = `mount:${ reader }`;
+		if ( h.onceInBatch( mount ) ) {
+			// Our own mint beside the Shell's; TO after — it isn't signed.
+			const connect = this.command( 'connect_worker_input', [ reader ] );
+			if ( null === connect ) {
+				return; // unauthenticated; re-auth is under way
 			}
-
-			h.fill( command );
-		} finally {
-			// Whoever opened the lock owes the flush, on every way out.
-			if ( ! pre ) {
-				h.flush();
-			}
+			connect[ TO ] = 'topologies';
+			h.fill( connect );
+			h.claimInBatch( mount );
 		}
+
+		h.fill( command );
 	}
 
 	/**

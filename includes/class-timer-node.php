@@ -160,8 +160,12 @@ class Timer_Node extends Node {
 	 *
 	 * The throttle is the price of the hitchhike. The tick arrives at the
 	 * Router's cadence, so a registrant that asked for a longer one drops the
-	 * ticks in between. Every dispatch records `last_fire_time`, which the
-	 * throttle measures from.
+	 * ticks in between, and one riding the tick's own cadence drops an extra
+	 * tick asked for less than a tick after its last fire. It skips while less
+	 * than its interval, less a tenth of the Router's tick, has passed since
+	 * `last_fire_time`, which every dispatch records: a tick arriving a hair
+	 * early still fires, and a slower timer keeps its rate, the tolerance
+	 * being a tenth of the tick rather than of its interval.
 	 */
 	public function fire_cb(): void {
 		if ( $this->oneshot ) {
@@ -170,8 +174,9 @@ class Timer_Node extends Node {
 		if ( null === $this->sink ) {
 			return;
 		}
-		if ( 'router' === $this->mode && $this->interval_ms > self::router_interval_ms()
-			&& Core::$now - $this->last_fire_time < $this->interval_ms / 1000.0 ) {
+		$tick_ms = self::router_interval_ms();
+		if ( 'router' === $this->mode && $this->interval_ms >= $tick_ms
+			&& Core::$now - $this->last_fire_time < ( $this->interval_ms - 0.1 * $tick_ms ) / 1000.0 ) {
 			return;
 		}
 		$this->last_fire_time = Core::$now;

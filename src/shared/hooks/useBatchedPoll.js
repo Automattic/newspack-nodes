@@ -46,7 +46,7 @@ import {
 	useNodeField,
 } from '@newspack-nodes/runtime';
 import { addSliceFetcher } from '../helpers/addSliceFetcher';
-import { armTimer, pollTimerNow } from '../helpers/armTimer';
+import { armTimer, keepUnsignedDue, pollTimerNow } from '../helpers/armTimer';
 import { egressPath } from '../helpers/egressPath';
 import usePageVisibility from './usePageVisibility';
 
@@ -70,13 +70,6 @@ import usePageVisibility from './usePageVisibility';
  * second copy of that state to fall out of step with it.
  */
 const FIRST_LOAD_LISTENER = 'useBatchedPoll:first-load';
-
-/**
- * Listener id for the permanent unsigned-tick retry. A tick firing before the
- * command session exists mints nothing, so it is re-offered on the next tick
- * rather than waited out for a whole interval.
- */
-const UNSIGNED_LISTENER = 'useBatchedPoll:unsigned';
 
 /**
  * Default cadence for a catalog slice, in milliseconds.
@@ -209,11 +202,7 @@ export function useBatchedPoll( opts ) {
 			fireTickRef.current = fireTick;
 
 			// An unsigned tick minted nothing, so re-offer it on the next.
-			timer.register( 'FIRE', UNSIGNED_LISTENER, () => {
-				if ( ! hasSession() ) {
-					timer.markDue();
-				}
-			} );
+			keepUnsignedDue( timer );
 
 			// @longform The first load lands on the first SIGNED tick, then
 			// retires itself by answering false. A paused mount armed only

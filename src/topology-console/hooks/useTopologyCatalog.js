@@ -35,6 +35,7 @@ import {
 	useState,
 } from '@wordpress/element';
 import { egressPath } from '@newspack-nodes/shared/helpers/egressPath';
+import { pollTimerNow } from '@newspack-nodes/shared/helpers/armTimer';
 import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
 import { useNodeField } from '../../runtime/react';
@@ -97,7 +98,12 @@ export function useTopologyCatalog() {
 		return teardown;
 	}, [] );
 
-	const reload = useCallback( () => Core.node( CATALOG_NODE )?.fire(), [] );
+	const reload = useCallback( () => {
+		const node = Core.node( CATALOG_NODE );
+		if ( node ) {
+			pollTimerNow( node );
+		}
+	}, [] );
 
 	return {
 		partitions: catalog.partitions,

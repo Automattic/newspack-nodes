@@ -818,9 +818,13 @@ const answerCommand = ( m ) => {
 globalThis.__answerBatch = ( entries ) => answerBatch( entries, answerCommand );
 
 import TopologyConsole, { topologyFromParam } from '../TopologyConsole';
+import { nextTask as oneTask } from '@newspack-nodes/shared/test-utils/nextTask';
 
 // The handle jest.setup.js issues every test's command session under.
 const HARNESS_SESSION = 'e2e11111e2e22222e2e33333e2e44444';
+
+// An unlocked send leaves on the next task, as it does in production.
+const nextTask = () => act( oneTask );
 
 // Build a positional Message; default TO routes to the Dumper transcript.
 function posMsg( { type, value, from = 'worker', to = names.OUTPUT } ) {
@@ -1005,6 +1009,7 @@ describe( 'TopologyConsole boot', () => {
 		act( () => {
 			fireEvent.click( getByText( 'complete-verb' ) );
 		} );
+		await nextTask();
 		const completions = globalThis.__httpPosts.filter(
 			( m ) => m[ KEY ] === 'completion'
 		);
@@ -1029,6 +1034,7 @@ describe( 'TopologyConsole boot', () => {
 		act( () => {
 			fireEvent.click( getByText( 'complete-arg' ) );
 		} );
+		await nextTask();
 		const completions = globalThis.__httpPosts.filter(
 			( m ) => m[ KEY ] === 'completion'
 		);
@@ -3321,6 +3327,7 @@ describe( 'TopologyConsole boot', () => {
 				byName: {},
 			} );
 		} );
+		await nextTask();
 		const posted = globalThis.__httpPosts.find(
 			( m ) => m[ VALUE ] && m[ VALUE ].name === 'GET_HEALTH'
 		);
@@ -3351,6 +3358,7 @@ describe( 'TopologyConsole boot', () => {
 				byName: {},
 			} );
 		} );
+		await nextTask();
 		const posted = globalThis.__httpPosts.find(
 			( m ) => m[ TYPE ] === TM_REQUEST && m[ VALUE ] === 'GET_HEALTH'
 		);
@@ -3400,6 +3408,7 @@ describe( 'TopologyConsole boot', () => {
 		expect( refusal ).toBeNull();
 		expect( shellFill ).not.toHaveBeenCalled();
 		shellFill.mockRestore();
+		await nextTask();
 		const posted = globalThis.__httpPosts.find(
 			( m ) => m[ VALUE ] && m[ VALUE ].name === 'GET_HEALTH'
 		);
@@ -3446,6 +3455,7 @@ describe( 'TopologyConsole boot', () => {
 			expect( refusal ).toBe(
 				'[no SSE session yet] retry once CONNECTED'
 			);
+			await nextTask();
 			expect(
 				globalThis.__httpPosts.find(
 					( m ) => m[ VALUE ] && m[ VALUE ].name === 'GET_HEALTH'

@@ -13,6 +13,7 @@ import { renderHook, act } from '@testing-library/react';
 import { Core, mountExospine, TO } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { TapNode } from '../../../runtime/tap-node';
+import { TimerNode } from '../../../runtime/timer-node';
 import names from '../../../runtime/reserved-node-names.json';
 import {
 	CATALOG_NODE,
@@ -137,7 +138,7 @@ describe( 'useTopologyCatalog', () => {
 		expect( Core.rebuildable ).toBe( true );
 	} );
 
-	it( 're-attaches to the backbone a Reset Graph puts up', () => {
+	it( 're-attaches to the backbone a Reset Graph puts up', async () => {
 		const { result } = mountCatalog();
 		act( () => {
 			host = mountExospine( () => {} );
@@ -156,6 +157,7 @@ describe( 'useTopologyCatalog', () => {
 		// The hook re-rendered onto the new node, so reload reaches it.
 		const fire = jest.spyOn( after, 'fire' ).mockImplementation( () => {} );
 		act( () => result.current.reload() );
+		await settle();
 		expect( fire ).toHaveBeenCalledTimes( 1 );
 	} );
 
@@ -186,6 +188,40 @@ describe( 'useTopologyCatalog', () => {
 		rerender();
 
 		expect( Core.node( CATALOG_NODE ) ).toBe( first );
+	} );
+
+	it( 'reload() sends a poll already marked due once, not again on the next tick', async () => {
+		const { result } = mountCatalog();
+		await settle();
+		replyFor.mockClear();
+		// A frozen clock keeps the 10s grid boundary out of reach of the tick.
+		jest.spyOn( Core, 'now' ).mockReturnValue( 1792400007.25 );
+		Core.node( CATALOG_NODE ).markDue();
+
+		act( () => result.current.reload() );
+		await settle();
+		act( () => Core.node( names.ROUTER ).fireCb() );
+		await settle();
+
+		expect( replyFor ).toHaveBeenCalledTimes( 1 );
+	} );
+
+	it( 'reload() after a cadence tick re-fires no 1s hitchhiker', async () => {
+		const { result } = mountCatalog();
+		await settle();
+		jest.spyOn( Core, 'now' ).mockReturnValue( 1792400011.62 );
+		const uptime = new TimerNode();
+		uptime.name = 'uptime-probe:7731';
+		uptime.sink = { fill: () => {} };
+		uptime.setTimer( 1000 );
+		act( () => Core.node( names.ROUTER ).fireCb() );
+		const catalogFires = Core.node( CATALOG_NODE ).fireCount;
+
+		act( () => result.current.reload() );
+		await settle();
+
+		expect( uptime.fireCount ).toBe( 1 );
+		expect( Core.node( CATALOG_NODE ).fireCount ).toBe( catalogFires + 1 );
 	} );
 
 	it( 'reload() is inert once the catalog has unmounted', () => {

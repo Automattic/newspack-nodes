@@ -39,6 +39,7 @@ import {
 } from '../message';
 import { ShellNode } from '../shell-node';
 import names from '../reserved-node-names.json';
+import { nextTask } from '@newspack-nodes/shared/test-utils/nextTask';
 import brokerSchemas from '../../../tests/fixtures/broker-schemas.json';
 import sourceCommands from '../../../tests/fixtures/broker-sources.json';
 
@@ -416,7 +417,7 @@ describe( 'RemoteLinkNode', () => {
 		expect( link.pid ).toBeUndefined();
 	} );
 
-	it( 'routes send() out through the shared `_http` with the address intact', () => {
+	it( 'routes send() out through the shared `_http` with the address intact', async () => {
 		const { link, posted } = makeLink();
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
@@ -424,6 +425,7 @@ describe( 'RemoteLinkNode', () => {
 		m[ TO ] = 'raw-logs';
 		m[ VALUE ] = { name: 'list_logs', arguments: [] };
 		link.send( m );
+		await nextTask();
 		expect( posted ).toHaveLength( 1 );
 		expect( posted[ 0 ][ TO ] ).toBe( 'raw-logs' );
 		expect( posted[ 0 ][ FROM ] ).toBe( 'dash:view' );

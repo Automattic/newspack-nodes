@@ -28,6 +28,31 @@
 /* eslint-env jest */
 
 if ( 'undefined' !== typeof window ) {
+	// @longform
+	// jsdom has no MessageChannel, which HttpOut posts its held flush through.
+	// This one delivers each message on a 0ms timeout captured before any
+	// suite fakes timers: a browser's channel task is not a timer, so fake
+	// timers neither hold it nor fire it, and a real 0ms wait set after a post
+	// still runs after its delivery.
+	if ( 'undefined' === typeof global.MessageChannel ) {
+		const deliverLater = global.setTimeout;
+		const linkPorts = ( from, to ) => {
+			from.postMessage = ( data ) =>
+				deliverLater( () => to.onmessage?.( { data } ), 0 );
+		};
+		// Ports carry only what a channel task needs, not all of MessagePort.
+		global.MessageChannel = /** @type {*} */ (
+			class MessageChannel {
+				constructor() {
+					this.port1 = { onmessage: null };
+					this.port2 = { onmessage: null };
+					linkPorts( this.port1, this.port2 );
+					linkPorts( this.port2, this.port1 );
+				}
+			}
+		);
+	}
+
 	const { SseInNode } = require( '../runtime/sse-in-node' );
 	const { TimerNode } = require( '../runtime/timer-node' );
 	const { createTimerHazardGuard, firstFrame } = require( './timer-hazard' );

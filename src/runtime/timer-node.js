@@ -42,6 +42,12 @@ import {
 export const GRID_PHASE_MS = 360;
 
 /**
+ * How early, in seconds, a Router tick may arrive and still fire a timer at
+ * the tick's own cadence: a tenth of the 1s tick, as PHP's `Timer_Node` takes.
+ */
+const EARLY_TICK_S = 0.1;
+
+/**
  * The first grid boundary strictly after `after`.
  *
  * The grid is a pure function of the wall clock, so two surfaces
@@ -162,10 +168,13 @@ export class TimerNode extends Node {
 	 * here against the shared wall-clock grid, never against elapsed time since
 	 * its own last fire (ADR-17): the tick that reaches `fire()` is the first at
 	 * or past the next boundary, so two nodes on one cadence fire on the same
-	 * tick however far apart they were armed. An own slot already fires at
-	 * `interval_ms` and skips the test. Every dispatch records `lastFireTime`,
-	 * which `setTimer()` keeps, so a retuned hitchhiker waits for the boundary
-	 * after its last fire rather than firing on the next tick.
+	 * tick however far apart they were armed. A hitchhiker at the tick's own
+	 * cadence skips an extra tick, such as one `requestTick()` asked for, that
+	 * lands less than 0.9s after its last fire, so a tick a hair early still
+	 * fires it. An own slot already fires at `interval_ms` and skips both
+	 * tests. Every dispatch records `lastFireTime`, which `setTimer()` keeps,
+	 * so a retuned hitchhiker waits from its last fire rather than firing on
+	 * the next tick.
 	 */
 	fireCb() {
 		if ( this.oneshot ) {
@@ -176,11 +185,11 @@ export class TimerNode extends Node {
 		}
 		const now = Core.now();
 		// Paces the 1s router tick; an own slot already fires at interval_ms.
-		if (
-			'router' === this.mode &&
-			this.interval_ms > 1000 &&
-			now < nextBoundary( this.lastFireTime, this.interval_ms )
-		) {
+		const early =
+			this.interval_ms > 1000
+				? now < nextBoundary( this.lastFireTime, this.interval_ms )
+				: now - this.lastFireTime < 1 - EARLY_TICK_S;
+		if ( 'router' === this.mode && this.interval_ms >= 1000 && early ) {
 			return;
 		}
 		this.lastFireTime = now;
@@ -325,8 +334,8 @@ export class TimerNode extends Node {
 	 * "this changed, poll now". The grid resumes from wherever that fire lands.
 	 * Asked from inside a tick, the Router fires it before that tick's flush.
 	 *
-	 * Only a hitchhiker above the 1s tick reads `lastFireTime`, so this changes
-	 * nothing for an own slot.
+	 * Only a hitchhiker reads `lastFireTime`, so this changes nothing for an
+	 * own slot.
 	 *
 	 * @return {void}
 	 */
@@ -342,7 +351,10 @@ export class TimerNode extends Node {
 	 * Not `lastFireTime = now`: the next boundary after an arbitrary instant is
 	 * anywhere in `(0, interval]`, so arming just before one fires again a tick
 	 * later — the duplicate request this exists to suppress. It counts from the
-	 * NEXT boundary instead: a full interval at minimum, still on the grid.
+	 * NEXT boundary instead: a full interval at minimum, still on the grid. A
+	 * timer at the tick's own cadence measures elapsed time rather than the
+	 * grid, so its next fire waits until 0.9s past that boundary, at least
+	 * nine tenths of its interval.
 	 *
 	 * @return {void}
 	 */

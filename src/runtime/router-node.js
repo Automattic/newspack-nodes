@@ -37,9 +37,9 @@ import names from './reserved-node-names.json';
  *
  * The value is load-bearing at both ends. `TimerNode.setTimer()` sends any
  * interval of at least 1000ms to the Router rather than to a slot of its own,
- * and `TimerNode.fireCb()` throttles a hitchhiker only when its interval
- * EXCEEDS the tick — so a poller armed at exactly this cadence fires on every
- * tick with no throttle of its own.
+ * and `TimerNode.fireCb()` throttles a hitchhiker above it to its grid and one
+ * at exactly this cadence only against an extra tick under 0.9s after its
+ * last fire — so a poller armed at this cadence fires on every cadence tick.
  */
 export const ROUTER_TICK_MS = 1000;
 
@@ -374,8 +374,7 @@ export class RouterNode extends TimerNode {
 	 *
 	 * A mount that wants its first load says so here rather than opening a
 	 * bracket of its own. Three mounts in one commit are three asks and one
-	 * tick — running one each would send a tick-cadence hitchhiker's command
-	 * once per asker, since only an interval ABOVE the tick throttles.
+	 * tick, so their commands share one lock and flush rather than one each.
 	 *
 	 * The window is the microtask checkpoint closing the current commit, and
 	 * the ask is cleared before the tick runs, so an ask arriving afterwards is

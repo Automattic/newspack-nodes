@@ -6,6 +6,12 @@ import {
 	__setAuthFetch,
 } from '../command-auth';
 import { CommandInterpreterNode } from '../command-interpreter-node';
+import { Node } from '../node';
+import { mountExospine } from '../exospine';
+import names from '../reserved-node-names.json';
+import { makeFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
+import { nextTask } from '@newspack-nodes/shared/test-utils/nextTask';
+import { keepUnsignedDue } from '@newspack-nodes/shared/helpers/armTimer';
 import { Core } from '../core';
 import {
 	newMessage,
@@ -953,4 +959,64 @@ test( 'settled is not a declared node-name registration', () => {
 	expect( FetcherNode.nodeSchema().registrations ?? [] ).not.toContain(
 		'settled'
 	);
+} );
+
+/**
+ * A tick the Fetcher cannot send for want of a session leaves its ask parked.
+ * A timer kept due by `keepUnsignedDue()` fires on the tick the session's
+ * arrival asks for, whatever its throttle, and that tick sends the ask.
+ */
+describe( 'FetcherNode — an ask parked for want of a session', () => {
+	afterEach( () => {
+		forgetSession();
+		__setAuthFetch( null );
+		Core.reset();
+	} );
+
+	test( 'is sent by the tick the session landing asks for, on a 1s timer', async () => {
+		const wire = makeFakeCommandWire( () => ( { rid: 'kakapo-6610' } ) );
+		global.fetch = wire;
+		forgetSession();
+		__setAuthFetch( async () => null );
+		const { interpreter } = mountExospine();
+		const router = Core.node( names.ROUTER );
+		router.stopTimer();
+		const fetcher = interpreter.makeNode( 'Fetcher', 'kakapo-6610:fetch', [
+			'kakapo-6610:in',
+			'dump_request',
+			'kakapo-6610',
+		] );
+		fetcher.target = '_http/performance';
+		const answered = [];
+		const receiver = new Node();
+		receiver.name = 'kakapo-6610:in';
+		receiver.fill = ( m ) => answered.push( m[ VALUE ] );
+		const timer = interpreter.makeNode( 'Timer', 'kakapo-6610:timer' );
+		timer.connectNode( 'kakapo-6610:fetch' );
+		timer.setTimer( 1000 );
+		keepUnsignedDue( timer );
+		jest.spyOn( Core, 'now' ).mockReturnValue( 1792400021.4 );
+
+		router.fireCb();
+		expect( timer.fireCount ).toBe( 1 );
+		expect( fetcher.outbox ).toEqual( [] );
+
+		forgetSession();
+		__setAuthFetch( async () => ( {
+			handle: 'dddd4444dddd4444dddd4444dddd4444',
+			secret: 'kakapo-6610-key',
+			expires_in: 3600,
+		} ) );
+		await ensureSession();
+		await nextTask();
+
+		const asked = wire.batches
+			.flat()
+			.filter( ( m ) => 'dump_request' === m[ VALUE ]?.name );
+		expect( asked ).toHaveLength( 1 );
+		expect( asked[ 0 ][ VALUE ].arguments ).toEqual( [ 'kakapo-6610' ] );
+		expect( answered ).toEqual( [
+			expect.objectContaining( { payload: { rid: 'kakapo-6610' } } ),
+		] );
+	} );
 } );

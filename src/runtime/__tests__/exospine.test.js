@@ -8,6 +8,7 @@ import { DumperNode } from '../dumper-node';
 import { CallbackNode } from '../callback-node';
 import { TapNode } from '../tap-node';
 import { RemoteLinkNode } from '../remote-link-node';
+import { nextTask } from '@newspack-nodes/shared/test-utils/nextTask';
 import {
 	newMessage,
 	TYPE,
@@ -865,7 +866,7 @@ describe( 'mountExospine — the backbone outlives its owner', () => {
 		( { interpreter } ) =>
 			interpreter.makeNode( 'Node', name ).connectNode( path );
 
-	test( 'the owner leaving keeps the backbone, and the other mount’s commands still go out', () => {
+	test( 'the owner leaving keeps the backbone, and the other mount’s commands still go out', async () => {
 		const owner = mountExospine( () => {} );
 		const stays = mountExospine(
 			asking( 'kiwi-4417:ask', 'kiwi:shell/_http/workers' )
@@ -899,6 +900,7 @@ describe( 'mountExospine — the backbone outlives its owner', () => {
 		m[ TYPE ] = TM_COMMAND;
 		m[ VALUE ] = { name: 'list', arguments: [ 'wren-209' ] };
 		Core.node( 'kiwi-4417:ask' ).fill( m );
+		await nextTask();
 		expect( posted.map( ( p ) => p[ VALUE ] ) ).toEqual( [
 			{ name: 'list', arguments: [ 'wren-209' ] },
 		] );

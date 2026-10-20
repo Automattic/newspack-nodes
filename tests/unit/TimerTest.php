@@ -381,25 +381,87 @@ class TimerTest extends TestCase {
 		$router->stop_timer();
 	}
 
-	public function test_no_ms_hitchhike_fires_every_tick_without_throttle(): void {
+	/**
+	 * A timer at the tick's own cadence skips an extra tick that lands less
+	 * than nine tenths of a tick after its last fire.
+	 */
+	public function test_a_tick_cadence_hitchhike_skips_a_tick_half_a_second_after_its_fire(): void {
+		$timer = $this->hitchhiker( 'kea-tick', 1000, null );
+
+		Core::$now = 1700.0;
+		$timer->fire_cb();
+		Core::$now = 1700.5;
+		$timer->fire_cb();
+
+		$this->assertSame( 1, $timer->get_fire_count() );
+		$timer->stop_timer();
+	}
+
+	/** A tick arriving a hair early still fires a timer at the tick's cadence. */
+	public function test_a_tick_cadence_hitchhike_fires_a_tick_a_hair_early(): void {
+		$timer = $this->hitchhiker( 'tui-tick', 1000, null );
+
+		Core::$now = 1700.0;
+		$timer->fire_cb();
+		Core::$now = 1700.95;
+		$timer->fire_cb();
+
+		$this->assertSame( 2, $timer->get_fire_count() );
+		$timer->stop_timer();
+	}
+
+	/**
+	 * The tolerance is a tenth of the TICK, not of the interval, so a slower
+	 * timer keeps its rate: a 10s timer fires a tick early, never a second.
+	 */
+	public function test_a_slow_hitchhike_fires_at_its_interval_and_not_a_second_early(): void {
+		$timer = $this->hitchhiker( 'moa-slow', 1000, 10000 );
+
+		Core::$now = 1800.0;
+		$timer->fire_cb();
+		Core::$now = 1809.0;
+		$timer->fire_cb();
+		$this->assertSame( 1, $timer->get_fire_count(), '9s after its fire' );
+
+		Core::$now = 1809.95;
+		$timer->fire_cb();
+		$this->assertSame( 2, $timer->get_fire_count(), 'within a tenth of a tick of 10s' );
+		$timer->stop_timer();
+	}
+
+	/** The tolerance follows the Router's own cadence. */
+	public function test_the_tolerance_is_a_tenth_of_the_routers_tick(): void {
+		$timer = $this->hitchhiker( 'weka-slow-router', 2000, null );
+		$this->assertSame( 2000, $timer->interval_ms );
+
+		Core::$now = 1900.0;
+		$timer->fire_cb();
+		Core::$now = 1901.75;
+		$timer->fire_cb();
+		$this->assertSame( 1, $timer->get_fire_count(), 'short of 1.8s' );
+
+		Core::$now = 1901.85;
+		$timer->fire_cb();
+		$this->assertSame( 2, $timer->get_fire_count(), 'past 1.8s' );
+		$timer->stop_timer();
+	}
+
+	/**
+	 * A named hitchhiker on a Router ticking every `$tick_ms`.
+	 *
+	 * @param string   $name    The timer's name.
+	 * @param int      $tick_ms The Router's cadence.
+	 * @param int|null $ms      The timer's interval; null rides the tick.
+	 */
+	private function hitchhiker( string $name, int $tick_ms, ?int $ms ): Timer_Node {
 		$router = new Router_Node();
 		$router->name( '_router' );
-		$router->interval_ms = 1000;
+		$router->interval_ms = $tick_ms;
 		$timer = new Timer_Node();
-		$timer->name( 'every-tick' );
-		$capture = new Capture_Sink_Node();
-		$timer->sink( $capture );
-		$timer->set_timer();
-
-		Core::$now = 1.0;
-		$timer->fire_cb();
-		Core::$now = 1.1;
-		$timer->fire_cb();
-		Core::$now = 1.2;
-		$timer->fire_cb();
-
-		$this->assertCount( 3, $capture->captured );
-		$timer->stop_timer();
+		$timer->name( $name );
+		$timer->sink( new Capture_Sink_Node() );
+		$timer->set_timer( $ms );
+		return $timer;
 	}
 
 	public function test_oneshot_goes_inactive_after_one_fire(): void {
