@@ -74,23 +74,26 @@ const EMPTY_SERVERS = {
 	loading: true,
 };
 
+/** What a timings cell shows for a reading the spoke has not reported. */
+const ABSENT = '—';
+
 /**
  * Render a Unix timestamp as an age, or as a date once an age stops meaning
  * anything: seconds under the minute, minutes under the hour, and the local
  * date and time beyond that, where a bare clock reading could be any day.
  *
- * @param {?number} timestamp Unix timestamp in seconds; falsy renders "-".
+ * @param {?number} timestamp Unix timestamp in seconds; falsy renders "—".
  * @param {?number} [now]     The server's snapshot clock, which is what an age
  *                            is measured against so client drift cannot age a
  *                            healthy spoke. Omitted or null measures against
  *                            the browser clock — right for a browser-minted
  *                            timestamp such as `lastRefresh`, and the state
  *                            before the summary slice's first reply.
- * @return {string} The age, the local date and time, or "-".
+ * @return {string} The age, the local date and time, or "—".
  */
 const formatTime = ( timestamp, now ) => {
 	if ( ! timestamp ) {
-		return '-';
+		return ABSENT;
 	}
 
 	const ref = now ?? Date.now() / 1000;
@@ -223,18 +226,24 @@ const formatCountdown = ( timestamp, now ) => {
 };
 
 /**
- * One labelled reading inside a timings line: its label, then its value.
+ * One cell of a partition's timings grid: its label over its value, which
+ * is clipped to one line with the whole reading in its title.
  *
- * @param {Object} props          Component props.
- * @param {string} props.label    The reading's label.
- * @param {*}      props.children The value.
+ * @param {Object} props             Component props.
+ * @param {string} props.label       The reading's label.
+ * @param {string} [props.title]     The whole reading, for hover.
+ * @param {string} [props.className] A class beside the cell's own.
+ * @param {*}      props.children    The value.
  * @return {import('react').ReactElement} Rendered component.
  */
-function Stat( { label, children } ) {
+function Stat( { label, title, className = '', children } ) {
 	return (
-		<span className="aggregator-stat">
+		<span className={ `aggregator-stat ${ className }`.trim() }>
 			<span className="newspack-nodes-stat-label">{ label }</span>
-			<span className="newspack-nodes-stat-value aggregator-stat-value">
+			<span
+				className="newspack-nodes-stat-value aggregator-stat-value"
+				title={ title }
+			>
 				{ children }
 			</span>
 		</span>
@@ -326,11 +335,13 @@ function hostOf( url ) {
 }
 
 /**
- * One partition's timings on one line: since when it streams (or when it
- * last tried, or when it reopens), the server heartbeat, the round trip with
- * its RTT verdict, and the status — the error that explains it outranking
- * the response badge — with the HTTP code beside it. A card holding several
- * partitions labels each line and gives it the partition's own state pill.
+ * One partition's timings as a fixed grid of five cells, the same on every
+ * card: since when it streams (or when it last tried, or when it reopens),
+ * the server heartbeat, the round trip with its RTT verdict, the status —
+ * the error that explains it outranking the response badge — and the HTTP
+ * code. A reading not yet reported shows a dash rather than dropping its
+ * cell. On a card holding several partitions a head row above the cells
+ * names the partition and gives it its own state pill.
  *
  * @param {Object}  props        Component props.
  * @param {?string} props.label  `p<N>` on a multi-partition card, else null.
@@ -349,40 +360,59 @@ function PartitionLine( { label, status, now } ) {
 	const errorMessage = shortError( status.last_error );
 	const rtt = status.last_rtt;
 	const rttFormatted = formatRtt( rtt );
+	const since = idle
+		? formatCountdown( status.scheduled_reconnect_at, now )
+		: formatTime( status.last_connection_attempt, now );
+	const heartbeat = formatTime( status.last_sse_heartbeat, now );
+	const responded = formatTime( status.last_response, now );
+	const httpCode = String( status.last_http_code || ABSENT );
 
 	return (
 		<div className="aggregator-partition-line">
 			{ label && (
-				<>
+				<div className="aggregator-partition-head">
 					<span className="aggregator-partition-label">
 						{ label }
 					</span>
 					<StateBadge state={ connectionStatus }>
 						{ connectionStatus }
 					</StateBadge>
-				</>
+				</div>
 			) }
-			<Stat label={ attemptLabel( idle, connected ) }>
-				{ idle
-					? formatCountdown( status.scheduled_reconnect_at, now )
-					: formatTime( status.last_connection_attempt, now ) }
+			<Stat label={ attemptLabel( idle, connected ) } title={ since }>
+				{ since }
 			</Stat>
-			<Stat label={ __( 'Server HB', 'newspack-nodes' ) }>
-				{ formatTime( status.last_sse_heartbeat, now ) }
+			<Stat
+				label={ __( 'Server HB', 'newspack-nodes' ) }
+				title={ heartbeat }
+			>
+				{ heartbeat }
 			</Stat>
-			<Stat label={ __( 'Round trip', 'newspack-nodes' ) }>
+			<Stat
+				label={ __( 'Round trip', 'newspack-nodes' ) }
+				title={
+					rttFormatted
+						? `${ rttFormatted }ms ${ responded }`
+						: responded
+				}
+			>
 				{ rttFormatted && (
-					<span
-						className={ `newspack-nodes-status aggregator-rtt small ${ getRttClass(
-							rtt
-						) }` }
-					>
-						{ rttFormatted }ms
-					</span>
+					<>
+						<span
+							className={ `newspack-nodes-status aggregator-rtt small ${ getRttClass(
+								rtt
+							) }` }
+						>
+							{ rttFormatted }ms
+						</span>{ ' ' }
+					</>
 				) }
-				{ formatTime( status.last_response, now ) }
+				{ responded }
 			</Stat>
-			<Stat label={ __( 'Status', 'newspack-nodes' ) }>
+			<Stat
+				label={ __( 'Status', 'newspack-nodes' ) }
+				className="is-wide"
+			>
 				{ /* The error outranks the response it explains. */ }
 				{ errorMessage ? (
 					<span
@@ -398,11 +428,9 @@ function PartitionLine( { label, status, now } ) {
 						{ responseStatus }
 					</span>
 				) }
-				{ status.last_http_code && (
-					<span className="aggregator-http-code">
-						HTTP { status.last_http_code }
-					</span>
-				) }
+			</Stat>
+			<Stat label={ __( 'HTTP', 'newspack-nodes' ) } title={ httpCode }>
+				{ httpCode }
 			</Stat>
 		</div>
 	);
@@ -556,6 +584,11 @@ function ServerCard( { server, now, answer, probing, onProbe } ) {
 	return (
 		<div
 			className={ `newspack-nodes-card newspack-nodes-card--elevated aggregator-server-card is-${ health }` }
+			style={
+				partitionKeys.length > 1
+					? { gridRow: `span ${ partitionKeys.length }` }
+					: undefined
+			}
 		>
 			<div className="aggregator-server-header">
 				<span className="aggregator-server-id" title={ server.id }>

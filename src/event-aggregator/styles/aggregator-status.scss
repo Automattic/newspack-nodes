@@ -76,11 +76,12 @@
 // Server Grid — one card per spoke, as many across as the width holds
 // =============================================================================
 
+// Equal rows; a multi-partition card spans a row per partition (inline).
 .aggregator-status-servers {
 	display: grid;
 	grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+	grid-auto-rows: 1fr;
 	gap: 12px;
-	align-items: start;
 }
 
 .aggregator-status-empty {
@@ -168,6 +169,7 @@
 // =============================================================================
 
 .aggregator-fleet-probe-button {
+	margin-top: auto;
 	align-self: flex-end;
 }
 
@@ -207,15 +209,21 @@
 }
 
 // =============================================================================
-// Partition timings, one line each
+// Partition timings: five cells on a fixed 3 × 2 grid, status two wide
 // =============================================================================
 
 .aggregator-partition-line {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: 4px 12px;
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 6px 8px;
 	font-size: 11px;
+}
+
+.aggregator-partition-head {
+	grid-column: 1 / -1;
+	display: flex;
+	align-items: center;
+	gap: 8px;
 }
 
 .aggregator-partition-label {
@@ -226,16 +234,28 @@
 }
 
 .aggregator-stat {
-	display: inline-flex;
-	align-items: center;
-	gap: 4px;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+
+	&.is-wide {
+		grid-column: span 2;
+	}
 }
 
 .aggregator-stat-value {
 	font-family: base.$mono-font;
-	display: inline-flex;
-	align-items: center;
-	gap: 6px;
+	height: 18px;
+	line-height: 18px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+
+	.newspack-nodes-status-badge {
+		line-height: 12px;
+		vertical-align: middle;
+	}
 }
 
 .aggregator-status-badge {
@@ -308,15 +328,6 @@
 }
 
 .aggregator-rtt.small {
-	font-size: 10px;
-	color: var(--ink-3);
-}
-
-// HTTP code rides the Status line as a quiet mono caption beside the response
-// badge — informative on an error code, unobtrusive on a 200 (not a
-// competing green pill).
-.aggregator-http-code {
-	font-family: base.$mono-font;
 	font-size: 10px;
 	color: var(--ink-3);
 }
