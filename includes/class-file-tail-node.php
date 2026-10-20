@@ -569,7 +569,7 @@ class File_Tail_Node extends Tail_Node {
 	 * file not there names no generation, since inode 0 would name another.
 	 *
 	 * @param positive-int $max The most bytes to return.
-	 * @return array{bytes:string,segment:?int,offset:int,distance:int,reset:bool,type:int}
+	 * @return array{bytes:string,segment:?int,offset:int,distance:int,reset:bool}
 	 */
 	public function raw_block( int $max ): array {
 		$this->ensure_initialized();

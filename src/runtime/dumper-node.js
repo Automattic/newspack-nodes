@@ -32,6 +32,7 @@ import {
 	ID,
 	KEY,
 	VALUE,
+	TM_BATCH,
 	TM_BYTESTREAM,
 	TM_EOF,
 	TM_PING,
@@ -221,7 +222,9 @@ function renderMessage( message ) {
 		).toFixed( 2 );
 		return { kind: 'info', text: `round trip time: ${ rtt } ms` };
 	}
+	// A raw block, a partition's packed lines included, shows as its bytes.
 	if (
+		has( type, TM_BATCH ) ||
 		has( type, TM_BYTESTREAM ) ||
 		has( type, TM_STRUCT ) ||
 		has( type, TM_INFO ) ||
@@ -538,8 +541,8 @@ export class DumperNode extends ReactBridge( Node ) {
 	/**
 	 * Move the verbosity dial and publish it in one step, so the ref `fill()`
 	 * reads and the React toggle that displays it can never disagree. Callers are
-	 * the Shell's `debug_level` builtin and the console's restore of a persisted
-	 * level. A level outside the range is clamped rather than refused, because
+	 * the Shell's `debug_level` builtin and the overlay's mount, which publishes
+	 * 0. A level outside the range is clamped rather than refused, because
 	 * the Shell has already refused anything above MAX_DEBUG_LEVEL.
 	 *
 	 * @param {number} level Requested level, clamped to 0..MAX_DEBUG_LEVEL.

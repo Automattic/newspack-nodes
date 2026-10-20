@@ -2010,7 +2010,7 @@ describe( 'SseIn — no-arg ctor + schema-driven arguments', () => {
 
 // A raw block as a stream's reader sends it: a header placing it, then its
 // bytes, both `batch` events stamped with the stream they belong to.
-function sendBlock( es, stamp, at, bytes, type = TM_BATCH, headerAt = at ) {
+function sendBlock( es, stamp, at, bytes, headerAt = at ) {
 	if ( null !== headerAt ) {
 		const header = newMessage();
 		header[ TYPE ] = TM_INFO | TM_BATCH;
@@ -2021,7 +2021,7 @@ function sendBlock( es, stamp, at, bytes, type = TM_BATCH, headerAt = at ) {
 		es.dispatch( 'msg', JSON.stringify( header ) );
 	}
 	const batch = newMessage();
-	batch[ TYPE ] = type;
+	batch[ TYPE ] = TM_BATCH;
 	batch[ FROM ] = stamp;
 	batch[ ID ] = at;
 	batch[ VALUE ] = bytes;
@@ -2066,6 +2066,37 @@ describe( 'raw blocks', () => {
 		} );
 	} );
 
+	test( 'a block from a stamp no subscription carries reaches its asker whole', () => {
+		const { sse, routed } = makeSseIn( { subscribe: [ 'sources:php' ] } );
+		sse.start();
+
+		// A `read_block` reply: FROM the interpreter that answered, TO the asker.
+		const reply = ( type, value, id = '' ) => {
+			const m = newMessage();
+			m[ TYPE ] = type;
+			m[ FROM ] = 'raw-logs';
+			m[ TO ] = '_output/kea-5521';
+			m[ ID ] = id;
+			m[ VALUE ] = value;
+			FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );
+		};
+		reply(
+			TM_INFO | TM_BATCH,
+			'OFFSET 77031:12 DISTANCE 23 ASKED 77031:12'
+		);
+		reply( TM_BATCH, 'PHP Warning café 5521\n', '77031:12' );
+
+		expect( routed.map( ( m ) => [ m[ TYPE ], m[ VALUE ] ] ) ).toEqual( [
+			[
+				TM_INFO | TM_BATCH,
+				'OFFSET 77031:12 DISTANCE 23 ASKED 77031:12',
+			],
+			[ TM_BATCH, 'PHP Warning café 5521\n' ],
+		] );
+		expect( sse.unparseableByStamp[ 'raw-logs' ] ?? 0 ).toBe( 0 );
+		expect( sse.lastPositions[ 'raw-logs' ] ).toBeUndefined();
+	} );
+
 	test( "a source's block is lines of text, placed by their bytes", () => {
 		const { sse, routed } = makeSseIn( { subscribe: [ 'sources:php' ] } );
 		sse.start();
@@ -2074,8 +2105,7 @@ describe( 'raw blocks', () => {
 			FakeEventSource.last,
 			'sources:php',
 			'77031:12',
-			'PHP Warning café 5521\nsecond 6604\n',
-			TM_BATCH | TM_BYTESTREAM
+			'PHP Warning café 5521\nsecond 6604\n'
 		);
 
 		expect(
@@ -2393,7 +2423,6 @@ describe( 'raw block parity with Remote_Consumer_Node', () => {
 				stamp,
 				block.at,
 				block.bytes,
-				block.text ? TM_BATCH | TM_BYTESTREAM : TM_BATCH,
 				undefined === block.header ? block.at : block.header
 			);
 		}

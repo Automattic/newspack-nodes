@@ -5,7 +5,13 @@
 
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { anyCarries, isGlob, remoteOf, splitStamp } from '../log-stamp';
+import {
+	anyCarries,
+	isGlob,
+	remoteOf,
+	sourceName,
+	splitStamp,
+} from '../log-stamp';
 
 describe( 'isGlob, as Log_Discovery::is_glob()', () => {
 	test( 'a star anywhere in a subscription makes it a glob', () => {
@@ -26,6 +32,19 @@ describe( 'splitStamp parity with Log_Discovery::dir_from_stamp()', () => {
 
 	it.each( cases )( '%s', ( _label, from, dir ) => {
 		expect( splitStamp( from ).dir ).toBe( dir );
+	} );
+} );
+
+describe( 'sourceName parity with Log_Discovery::source_name()', () => {
+	const cases = JSON.parse(
+		readFileSync(
+			join( __dirname, '../../../tests/fixtures/source-names.json' ),
+			'utf8'
+		)
+	);
+
+	it.each( cases )( '%s', ( _label, stamp, name ) => {
+		expect( sourceName( stamp ) ).toBe( name );
 	} );
 } );
 

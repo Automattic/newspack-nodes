@@ -581,7 +581,6 @@ abstract class TestCase extends PHPUnitTestCase {
 			'offset'   => $offset,
 			'distance' => $distance ?? \strlen( $bytes ),
 			'reset'    => false,
-			'type'     => null !== \Newspack_Nodes\Log_Discovery::source_name( $stamp ) ? Message::TM_BATCH | Message::TM_BYTESTREAM : Message::TM_BATCH,
 		] );
 		$messages[0][ Message::FROM ] = $stamp;
 		$messages[1][ Message::FROM ] = $stamp;

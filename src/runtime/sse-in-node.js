@@ -52,7 +52,7 @@ import {
 	unpack,
 	unpacked,
 } from './message';
-import { anyCarries, isGlob, splitStamp } from './log-stamp';
+import { anyCarries, isGlob, sourceName, splitStamp } from './log-stamp';
 import { formatPosition, parseCrumb, parsePosition } from './log-position';
 
 /**
@@ -845,7 +845,11 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 				return;
 			}
 			const { dir } = splitStamp( message[ FROM ] );
-			if ( message[ TYPE ] & TM_BATCH && message[ TYPE ] & TM_INFO ) {
+			// A block no subscription carries is a reply, e.g. `read_block`'s.
+			const block =
+				0 !== ( message[ TYPE ] & TM_BATCH ) &&
+				anyCarries( this.subscribe, dir );
+			if ( block && message[ TYPE ] & TM_INFO ) {
 				this._heads[ dir ] = infoPairs( message[ VALUE ] )?.OFFSET;
 				return;
 			}
@@ -853,7 +857,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 			const size = byteLength( e.data );
 			this.bytesRead += size;
 			this.largestMsgSent = Math.max( this.largestMsgSent, size );
-			if ( message[ TYPE ] & TM_BATCH ) {
+			if ( block ) {
 				return this._takeBlock( message, size, stale );
 			}
 			this._trackPosition( message, dir );
@@ -867,8 +871,8 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 	 * two held to `tests/fixtures/raw-blocks.json`. A batch no header placed
 	 * is dropped. A line the last block cut short is joined when this one
 	 * continues it, and torn when it does not. Each whole line is unpacked, or
-	 * wrapped as a TM_BYTESTREAM when the block's type says its lines are
-	 * text, then stamped FROM the stream and ID'd with its place in the
+	 * wrapped as a TM_BYTESTREAM when its stamp names a `sources:` entry,
+	 * whose lines are text, then stamped FROM the stream and ID'd with its place in the
 	 * spoke's bytes. A torn line is counted for its stream, since a view has
 	 * no quarantine, and the resume point moves past it either way. What
 	 * follows the last newline waits for the next block, and a reopen asks
@@ -917,7 +921,7 @@ export class SseInNode extends SchemaReflection( TimerNode ) {
 		}
 		// An ASCII block's bytes are its characters: no line needs measuring.
 		const ascii = byteLength( text ) === text.length;
-		const isText = 0 !== ( block[ TYPE ] & TM_BYTESTREAM );
+		const isText = null !== sourceName( dir );
 		let delivered = 0;
 		let pos = 0;
 		let nl;

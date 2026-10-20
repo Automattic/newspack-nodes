@@ -34,13 +34,6 @@ namespace Newspack_Nodes;
 class Tail_Node extends Consumer_Node {
 
 	/**
-	 * A raw block of a Tail is lines of text, each a TM_BYTESTREAM once split.
-	 *
-	 * @var int
-	 */
-	public const BATCH_TYPE = Message::TM_BATCH | Message::TM_BYTESTREAM;
-
-	/**
 	 * Segmented source: the `{file}.{seg}` layout this class reads.
 	 *
 	 * Both tokens name a SOURCE, not a mode flag on this node. A `Log_Sources`

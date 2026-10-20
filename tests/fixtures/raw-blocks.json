@@ -115,8 +115,7 @@
       [
         {
           "at": "77031:12",
-          "bytes": "PHP Warning café 5521\nsecond 6604\n",
-          "text": true
+          "bytes": "PHP Warning café 5521\nsecond 6604\n"
         }
       ],
       {

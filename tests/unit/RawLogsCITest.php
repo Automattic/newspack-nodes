@@ -602,7 +602,7 @@ class RawLogsCITest extends TestCase {
 		[ $batch, $info ] = $this->read_block( [ 'sources:kea', "{$inode}:6" ] );
 
 		$this->assertSame( "line 3301\nsecond line 7719\n", $batch[ Message::VALUE ] );
-		$this->assertSame( Message::TM_BATCH | Message::TM_BYTESTREAM, $batch[ Message::TYPE ], 'a source\'s lines are text' );
+		$this->assertSame( Message::TM_BATCH, $batch[ Message::TYPE ], 'a source\'s block is a TM_BATCH like any other' );
 		$this->assertSame( "{$inode}:6", $info['OFFSET'] );
 		$this->assertSame( (string) \strlen( "line 3301\nsecond line 7719\n" ), $info['DISTANCE'] );
 	}

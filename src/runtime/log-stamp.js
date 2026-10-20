@@ -111,6 +111,22 @@ function isStamp( stamp ) {
 }
 
 /**
+ * The registry name a `sources:` stamp carries, as PHP
+ * `Log_Discovery::source_name()` reads it; null for any other stamp, or for
+ * a string no stamp names.
+ *
+ * @param {string} stamp A stamp.
+ * @return {?string} The name after the prefix, or null.
+ */
+export function sourceName( stamp ) {
+	if ( ! isStamp( stamp ) ) {
+		return null;
+	}
+	const [ group, name ] = split( stamp );
+	return SOURCES_PREFIX === group ? name : null;
+}
+
+/**
  * Whether a stamp may name a dir of its own, as PHP
  * `Log_Discovery::fits_a_dir_name()` reads one: a stamp within
  * `MAX_STAMP_BYTES` whole, as a broker reader's dir, named the stamp it

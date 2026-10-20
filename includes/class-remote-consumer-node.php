@@ -230,7 +230,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 			if ( $type & Message::TM_INFO ) {
 				$this->take_header( Core::as_string( $message[ Message::VALUE ] ) );
 			} else {
-				$this->take_batch( Core::as_string( $message[ Message::ID ] ), Core::as_string( $message[ Message::VALUE ] ), 0 !== ( $type & Message::TM_BYTESTREAM ) );
+				$this->take_batch( Core::as_string( $message[ Message::ID ] ), Core::as_string( $message[ Message::VALUE ] ) );
 			}
 			return;
 		}
@@ -718,16 +718,16 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 	}
 
 	/**
-	 * Take the bytes a header announced: split them into records and take the
+	 * Take the bytes a header announced: split them into records, text lines
+	 * on a `sources:` stamp and packed records on any other, and take the
 	 * header's distance as the backlog's anchor. A block answering a fetch
 	 * settles it, and the reader asks again at once, or after a retry interval when
 	 * the block was empty.
 	 *
 	 * @param string $id    Where the bytes begin, `segment:offset`.
 	 * @param string $bytes The raw bytes.
-	 * @param bool   $text  Whether its lines are text, each a TM_BYTESTREAM, rather than packed records.
 	 */
-	private function take_batch( string $id, string $bytes, bool $text ): void {
+	private function take_batch( string $id, string $bytes ): void {
 		$header       = $this->header;
 		$this->header = null;
 		if ( null === $header || Log_Position::format( $header['segment'], $header['offset'], null ) !== $id ) {
@@ -738,7 +738,7 @@ class Remote_Consumer_Node extends Timer_Node implements Position_Reporter {
 		}
 		$segment = $header['segment'];
 		if ( null !== $segment ) {
-			$this->take_block( $segment, $header['offset'], $bytes, $text );
+			$this->take_block( $segment, $header['offset'], $bytes, null !== Log_Discovery::source_name( $this->stamp ) );
 			$this->anchor_backlog( $segment, $header['offset'], $header['distance'] );
 		} elseif ( '' !== $bytes ) {
 			if ( null === $header['asked'] ) {
