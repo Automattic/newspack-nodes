@@ -18,6 +18,7 @@ import SidecarsPopover from '../../topology-console/components/SidecarsPopover';
 // eslint-disable-next-line import/no-extraneous-dependencies
 import { parse as parseJavaScript } from '@babel/parser';
 import postcss from 'postcss';
+import postcssScss from 'postcss-scss';
 
 const ROOT = path.resolve( __dirname, '../../..' );
 const THEME_SCSS = path.join( ROOT, 'src/theme/newspack-theme.scss' );
@@ -2741,6 +2742,34 @@ describe( "CRT's data greens and the true-color variant", () => {
 				] ).toEqual( [ role, surface, true ] );
 			}
 		}
+	} );
+
+	it( "paints a crossed backlog crt-color's Newspack red, CRT's own oxide", () => {
+		const sheet = postcssScss.parse(
+			fs.readFileSync(
+				path.join(
+					ROOT,
+					'src/event-dashboards/styles/worker-status.scss'
+				),
+				'utf8'
+			)
+		);
+		let fill;
+		sheet.walkRules( '.segment-fill-h', ( rule ) =>
+			rule.each( ( node ) => {
+				if ( 'decl' === node.type && 'background' === node.prop ) {
+					fill = node.value;
+				}
+			} )
+		);
+		const paint = ( slug ) =>
+			colorKey( resolveCssColor( fill, effectiveSkin( slug ) ) );
+		expect( paint( 'crt-color' ) ).toBe(
+			colorKey( parseColor( themeTokens[ '--np-chart-4' ] ) )
+		);
+		expect( paint( 'crt' ) ).toBe(
+			colorKey( resolvedColor( effectiveSkin( 'crt' ), '--oxide' ) )
+		);
 	} );
 
 	it( 'defines the phosphor set under crt alone', () => {
