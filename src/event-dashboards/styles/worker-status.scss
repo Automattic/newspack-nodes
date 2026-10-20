@@ -226,7 +226,7 @@ $segment-fill-step: 0.3s;
 
 .segment-fill-h {
 	height: 100%;
-	background: base.$dead-bg; // Red - unprocessed
+	background: var(--chart-4); // Red - backlog crossed into a later segment
 	transition:
 		width $segment-fill-step ease,
 		background-color $segment-fill-step ease;

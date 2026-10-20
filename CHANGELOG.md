@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **A backlog that crossed into a later segment paints the chart red.** The segment bar's red fill reads `--chart-4` in place of `--oxide`. On crt-color it is the Newspack red `#d63638` instead of CRT's lime oxide, and on newspack-brand `#d63638` instead of `#b32d2e`; every other skin's `--chart-4` is its oxide, so they paint as before. The shared `$dead-bg` token, whose only user this was, is gone.
+
 ## [2.118.0] - 2026-10-20
 
 ### Changed
