@@ -2,14 +2,14 @@
 # This file is distributed under the GPL-2.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Newspack Nodes 2.117.1\n"
+"Project-Id-Version: Newspack Nodes 2.118.0\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/newspack-nodes\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-10-20T01:31:00+00:00\n"
+"POT-Creation-Date: 2026-10-20T06:45:46+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: newspack-nodes\n"
@@ -1979,7 +1979,7 @@ msgid "Current-scope timers + handles as live sortable grids"
 msgstr ""
 
 #: src/topology-console/components/Inspector.js:2020
-#: src/topology-console/components/InspectorViewModal.js:41
+#: src/topology-console/components/InspectorViewModal.js:42
 msgid "Runtime"
 msgstr ""
 
@@ -1988,7 +1988,7 @@ msgid "Per-node throughput + Router profiling as a sortable grid"
 msgstr ""
 
 #: src/topology-console/components/Inspector.js:2031
-#: src/topology-console/components/InspectorViewModal.js:42
+#: src/topology-console/components/InspectorViewModal.js:43
 msgid "Profiler"
 msgstr ""
 
@@ -2014,22 +2014,22 @@ msgid "Toggles"
 msgstr ""
 
 #: src/topology-console/components/Inspector.js:2071
-#: src/topology-console/components/InspectorViewModal.js:105
+#: src/topology-console/components/InspectorViewModal.js:112
 msgid "Stop tracing every node — `trace * 0`"
 msgstr ""
 
 #: src/topology-console/components/Inspector.js:2075
-#: src/topology-console/components/InspectorViewModal.js:109
+#: src/topology-console/components/InspectorViewModal.js:116
 msgid "Trace every node — `trace * 1`"
 msgstr ""
 
 #: src/topology-console/components/Inspector.js:2082
-#: src/topology-console/components/InspectorViewModal.js:116
+#: src/topology-console/components/InspectorViewModal.js:123
 msgid "stop trace"
 msgstr ""
 
 #: src/topology-console/components/Inspector.js:2083
-#: src/topology-console/components/InspectorViewModal.js:117
+#: src/topology-console/components/InspectorViewModal.js:124
 msgid "trace"
 msgstr ""
 
@@ -2042,12 +2042,12 @@ msgid "Profile every _router dispatch — `profile on`"
 msgstr ""
 
 #: src/topology-console/components/Inspector.js:2116
-#: src/topology-console/components/ProfilerView.js:161
+#: src/topology-console/components/ProfilerView.js:179
 msgid "stop profiling"
 msgstr ""
 
 #: src/topology-console/components/Inspector.js:2117
-#: src/topology-console/components/ProfilerView.js:162
+#: src/topology-console/components/ProfilerView.js:180
 msgid "profile"
 msgstr ""
 
@@ -2153,7 +2153,7 @@ msgid "Triage (%d)"
 msgstr ""
 
 #: src/topology-console/components/Inspector.js:2592
-#: src/topology-console/components/InspectorViewModal.js:44
+#: src/topology-console/components/InspectorViewModal.js:45
 msgid "Triage"
 msgstr ""
 
@@ -2274,7 +2274,7 @@ msgstr ""
 msgid "Send %1$s to %2$s:"
 msgstr ""
 
-#: src/topology-console/components/InspectorViewModal.js:43
+#: src/topology-console/components/InspectorViewModal.js:44
 msgid "Event Timeline"
 msgstr ""
 
