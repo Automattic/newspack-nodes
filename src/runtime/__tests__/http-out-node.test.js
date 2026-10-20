@@ -1,12 +1,14 @@
 /**
  * HttpOut tests — the outbound `/command` POST boundary. `_router` (or the link
  * that owns it) delivers a single positional Message with TO already routed;
- * HttpOut POSTs it verbatim. The worker-attach `connect_worker_input` bundling
- * lives in RemoteIpc, which asks `onceInBatch()` rather than sending it every
- * time, so HttpOut itself is dumb: POST what it's given, route every
- * synchronous reply back into its sink (replies route by TO).
+ * HttpOut POSTs it verbatim, one batch per task. The worker-attach
+ * `connect_worker_input` bundling lives in RemoteIpc, which asks
+ * `onceInBatch()` rather than sending it every time, so HttpOut itself is
+ * dumb: POST what it's given, route every synchronous reply back into its
+ * sink (replies route by TO).
  */
 
+import { nextTask } from '@newspack-nodes/shared/test-utils/nextTask';
 import { HttpOutNode } from '../http-out-node';
 import { MAX_FROM_SIZE } from '../node';
 import names from '../reserved-node-names.json';
@@ -48,8 +50,7 @@ const inboundFrom = async ( from, type = TM_RESPONSE ) => {
 	out[ TYPE ] = TM_COMMAND;
 	out[ TO ] = 'foo';
 	node.fill( out );
-	await Promise.resolve();
-	await Promise.resolve();
+	await nextTask();
 	return { sink, batch: postBatch.mock.calls[ 0 ]?.[ 0 ] };
 };
 
@@ -73,13 +74,26 @@ function routed( {
 	return m;
 }
 
+// A command pack() refuses: JSON has no BigInt.
+function unpackableAsk( id ) {
+	return routed( {
+		to: 'insights',
+		from: `${ id }:ask`,
+		value: {
+			name: 'dump_url',
+			arguments: [ id ],
+			offset: 9007199254740993n,
+		},
+	} );
+}
+
 describe( 'HttpOut', () => {
 	afterEach( () => {
 		const { Core } = require( '../core' );
 		Core.reset();
 	} );
 
-	it( 'records bytesWritten + largestMsgSent for the packed POST body', () => {
+	it( 'records bytesWritten + largestMsgSent for the packed POST body', async () => {
 		const { node } = makeNode();
 		const m = routed( {
 			to: 'echo',
@@ -87,6 +101,7 @@ describe( 'HttpOut', () => {
 		} );
 		const size = byteLength( pack( m ) );
 		node.fill( m );
+		await nextTask();
 		expect( node.bytesWritten ).toBe( size );
 		expect( node.largestMsgSent ).toBe( size );
 	} );
@@ -102,28 +117,30 @@ describe( 'HttpOut', () => {
 		const onTheWire = byteLength( pack( reply ) );
 		postBatch.mockResolvedValue( [ reply ] );
 		node.fill( routed( { to: 'demo.p0' } ) );
-		await new Promise( ( r ) => setTimeout( r, 0 ) );
+		await nextTask();
 		expect( node.bytesRead ).toBe( onTheWire );
 	} );
 
-	it( 'packs each message once and hands the packed lines to postBatch (no double-serialize)', () => {
+	it( 'packs each message once and hands the packed lines to postBatch (no double-serialize)', async () => {
 		const { node, postBatch } = makeNode();
 		const m = routed( { to: 'demo.p0' } );
 		node.fill( m );
+		await nextTask();
 		// Second arg is the pre-packed JSONL lines — postBatch must reuse them.
 		expect( postBatch.mock.calls[ 0 ][ 1 ] ).toEqual( [ pack( m ) ] );
 	} );
 
-	it( 'POSTs the routed Message verbatim (no connect_worker_input prepend)', () => {
+	it( 'POSTs the routed Message verbatim (no connect_worker_input prepend)', async () => {
 		const { node, postBatch } = makeNode();
 		node.fill( routed( { to: 'demo.p0' } ) );
+		await nextTask();
 		const batch = batchOf( postBatch );
 		expect( batch ).toHaveLength( 1 );
 		expect( batch[ 0 ][ TO ] ).toBe( 'demo.p0' );
 		expect( batch[ 0 ][ VALUE ].name ).toBe( 'ls' );
 	} );
 
-	it( 'POSTs a server-CI target (workers) verbatim', () => {
+	it( 'POSTs a server-CI target (workers) verbatim', async () => {
 		const { node, postBatch } = makeNode();
 		node.fill(
 			routed( {
@@ -132,34 +149,38 @@ describe( 'HttpOut', () => {
 				value: { name: 'heartbeat', arguments: '1 10 0' },
 			} )
 		);
+		await nextTask();
 		const batch = batchOf( postBatch );
 		expect( batch ).toHaveLength( 1 );
 		expect( batch[ 0 ][ TO ] ).toBe( 'workers' );
 		expect( batch[ 0 ][ VALUE ].name ).toBe( 'heartbeat' );
 	} );
 
-	it( 'leaves the reply FROM untouched', () => {
+	it( 'leaves the reply FROM untouched', async () => {
 		const { node, postBatch } = makeNode();
 		node.fill( routed( { to: 'demo.p0', from: '_http/555/_metadata' } ) );
+		await nextTask();
 		const batch = batchOf( postBatch );
 		expect( batch[ 0 ][ FROM ] ).toBe( '_http/555/_metadata' );
 	} );
 
-	it( 'forwards a TM_PING positional message verbatim (no re-typing)', () => {
+	it( 'forwards a TM_PING positional message verbatim (no re-typing)', async () => {
 		const { node, postBatch } = makeNode();
 		node.fill(
 			routed( { to: 'demo.p0', type: TM_PING, value: 1700000000.5 } )
 		);
+		await nextTask();
 		const batch = batchOf( postBatch );
 		expect( batch[ 0 ][ TYPE ] ).toBe( TM_PING );
 		expect( batch[ 0 ][ VALUE ] ).toBe( 1700000000.5 );
 	} );
 
-	it( 'fill() is fire-and-forget (returns nothing) and still POSTs', () => {
+	it( 'fill() is fire-and-forget (returns nothing) and still POSTs', async () => {
 		const { node, postBatch } = makeNode();
 		postBatch.mockResolvedValueOnce( [] ); // bare 202 → no reply Messages
 		const out = node.fill( routed( { to: 'demo.p0' } ) );
 		expect( out ).toBeUndefined();
+		await nextTask();
 		expect( postBatch ).toHaveBeenCalledTimes( 1 );
 	} );
 
@@ -187,8 +208,8 @@ describe( 'HttpOut', () => {
 		reply[ VALUE ] = 'sync-reply';
 		postBatch.mockResolvedValueOnce( [ reply ] ); // JSONL → Message array
 
-		await node.fill( routed( { to: '' } ) ); // bare POST
-		await Promise.resolve(); // flush the intake microtask
+		node.fill( routed( { to: '' } ) ); // bare POST
+		await nextTask();
 
 		expect( got ).toHaveLength( 1 );
 		expect( got[ 0 ][ VALUE ] ).toBe( 'sync-reply' );
@@ -208,8 +229,8 @@ describe( 'HttpOut', () => {
 		b[ VALUE ] = 'response';
 		postBatch.mockResolvedValueOnce( [ a, b ] );
 
-		await node.fill( routed( { to: '' } ) );
-		await Promise.resolve();
+		node.fill( routed( { to: '' } ) );
+		await nextTask();
 
 		expect( got.map( ( m ) => m[ VALUE ] ) ).toEqual( [
 			'log line',
@@ -226,8 +247,8 @@ describe( 'HttpOut', () => {
 		node.sink = sink;
 
 		postBatch.mockResolvedValueOnce( null );
-		await node.fill( routed( { to: 'demo.p0' } ) );
-		await Promise.resolve();
+		node.fill( routed( { to: 'demo.p0' } ) );
+		await nextTask();
 
 		expect( got ).toHaveLength( 0 );
 	} );
@@ -262,13 +283,228 @@ describe( 'HttpOut', () => {
 		expect( node.locked ).toBe( false );
 	} );
 
-	it( 'POSTs the bare command when addressed to _http itself (cd /_http)', () => {
+	it( 'sends from one task ride one POST on the next task', async () => {
+		const { node, postBatch } = makeNode();
+		const ask = ( verb ) =>
+			routed( {
+				to: 'insights',
+				from: 'url:fetch',
+				value: { name: verb, arguments: [ 'kea-5521' ] },
+			} );
+
+		node.fill( ask( 'dump_url' ) );
+		node.fill( ask( 'query' ) );
+		expect( postBatch ).not.toHaveBeenCalled();
+
+		await nextTask();
+		expect( batchOf( postBatch ).map( ( m ) => m[ VALUE ].name ) ).toEqual(
+			[ 'dump_url', 'query' ]
+		);
+		expect( node.locked ).toBe( false );
+	} );
+
+	it( 'a send outside a tick joins a tick in the same task', async () => {
+		const { RouterNode } = require( '../router-node' );
+		const { Core } = require( '../core' );
+		const router = new RouterNode();
+		router.name = names.ROUTER;
+		const { node, postBatch } = makeNode();
+		const timer = {
+			name: 'rules:timer',
+			fireCb: () =>
+				node.fill(
+					routed( {
+						to: 'rules',
+						from: 'rules:fetch',
+						value: { name: 'dump_rules', arguments: [] },
+					} )
+				),
+		};
+		router.registrations.TIMER = { [ timer.name ]: true };
+		Core.registerNode( timer.name, timer );
+
+		node.fill(
+			routed( {
+				to: 'insights',
+				from: 'url:fetch',
+				value: { name: 'dump_url', arguments: [ 'ruru-7731' ] },
+			} )
+		);
+		router.requestTick();
+
+		await nextTask();
+		expect( batchOf( postBatch ).map( ( m ) => m[ VALUE ].name ) ).toEqual(
+			[ 'dump_url', 'dump_rules' ]
+		);
+
+		await nextTask();
+		expect( postBatch ).toHaveBeenCalledTimes( 1 );
+	} );
+
+	it( 'a held send leaves on the next task even while timers stand still', async () => {
+		// A hidden tab throttles a 0ms timer; fake timers hold one outright.
+		jest.useFakeTimers();
+		try {
+			const { node, postBatch } = makeNode();
+			node.fill(
+				routed( {
+					to: 'insights',
+					from: 'kahu:fetch',
+					value: { name: 'dump_url', arguments: [ 'kahu-6612' ] },
+				} )
+			);
+
+			await nextTask();
+			expect( batchOf( postBatch )[ 0 ][ VALUE ] ).toEqual( {
+				name: 'dump_url',
+				arguments: [ 'kahu-6612' ],
+			} );
+		} finally {
+			jest.useRealTimers();
+		}
+	} );
+
+	it( 'removeNode posts what it still holds', async () => {
+		const { node, postBatch } = makeNode();
+		node.fill(
+			routed( {
+				to: 'insights',
+				from: 'url:fetch',
+				value: { name: 'forget_url', arguments: [ 'tui-8830' ] },
+			} )
+		);
+		expect( postBatch ).not.toHaveBeenCalled();
+
+		node.removeNode();
+		expect( batchOf( postBatch ).map( ( m ) => m[ VALUE ] ) ).toEqual( [
+			{ name: 'forget_url', arguments: [ 'tui-8830' ] },
+		] );
+
+		await nextTask();
+		expect( postBatch ).toHaveBeenCalledTimes( 1 );
+	} );
+
+	it( 'a message that will not pack fails alone', async () => {
+		const { node, postBatch } = makeNode();
+		const answered = [];
+		node.sink = { fill: ( m ) => answered.push( m ) };
+		const unpackable = unpackableAsk( 'ruru-7731' );
+		const packable = routed( {
+			to: 'insights',
+			from: 'kea-5521:ask',
+			value: { name: 'query', arguments: [ 'kea-5521' ] },
+		} );
+
+		await expect( node._post( [ unpackable, packable ] ) ).rejects.toThrow(
+			/BigInt/
+		);
+
+		expect( batchOf( postBatch ) ).toEqual( [ packable ] );
+		expect( answered ).toHaveLength( 1 );
+		expect( answered[ 0 ][ TYPE ] ).toBe( TM_COMMAND | TM_ERROR );
+		expect( answered[ 0 ][ TO ] ).toBe( 'ruru-7731:ask' );
+		expect( answered[ 0 ][ VALUE ] ).toEqual(
+			expect.objectContaining( {
+				name: 'dump_url',
+				arguments: [ 'ruru-7731' ],
+				undelivered: true,
+			} )
+		);
+	} );
+
+	it( 'a batch of nothing but unpackable messages rejects with the pack error itself', async () => {
+		const { node, postBatch } = makeNode();
+		node.sink = { fill: () => {} };
+
+		const rejected = node._post( [ unpackableAsk( 'moa-2208' ) ] );
+
+		await expect( rejected ).rejects.toBeInstanceOf( TypeError );
+		await expect( rejected ).rejects.toThrow( /BigInt/ );
+		expect( postBatch ).not.toHaveBeenCalled();
+	} );
+
+	it( "raises what a receiver throws on an unpackable message's refusal", async () => {
+		const { node } = makeNode();
+		node.sink = {
+			fill: () => {
+				throw new Error( 'transcript refused kea-3390' );
+			},
+		};
+		const packable = routed( {
+			to: 'insights',
+			from: 'kea-3390:ask',
+			value: { name: 'query', arguments: [ 'kea-3390' ] },
+		} );
+
+		const rejected = node._post( [
+			unpackableAsk( 'kea-3390' ),
+			packable,
+		] );
+
+		await expect( rejected ).rejects.toBeInstanceOf( AggregateError );
+		await expect( rejected ).rejects.toMatchObject( {
+			errors: [
+				expect.any( TypeError ),
+				expect.objectContaining( {
+					message: 'transcript refused kea-3390',
+				} ),
+			],
+		} );
+	} );
+
+	it( 'removeNode leaves nothing to post once the node is gone', async () => {
+		expectConsoleWarn( 'WARNING: node removed' );
+		const { node, postBatch } = makeNode();
+		const resent = routed( {
+			to: 'insights',
+			from: 'tui-4410:ask',
+			value: { name: 'dump_url', arguments: [ 'tui-4410' ] },
+		} );
+		// A minter answering its refusal by asking again, mid-teardown.
+		node.sink = { fill: () => node.fill( resent ) };
+		const posts = [];
+		const post = node._post.bind( node );
+		node._post = ( batch ) => {
+			posts.push( post( batch ) );
+			return posts.at( -1 );
+		};
+		node.fill( unpackableAsk( 'tui-4410' ) );
+
+		node.removeNode();
+		await expect( posts[ 0 ] ).rejects.toThrow( /BigInt/ );
+		await nextTask();
+
+		expect( posts ).toHaveLength( 1 );
+		expect( postBatch ).not.toHaveBeenCalled();
+		expect( node.buffer ).toEqual( [] );
+	} );
+
+	it( 'Core.reset() cancels a flush still held', async () => {
+		const { Core } = require( '../core' );
+		const { node, postBatch } = makeNode();
+		node.fill(
+			routed( {
+				to: 'insights',
+				from: 'pou-5157:ask',
+				value: { name: 'dump_url', arguments: [ 'pou-5157' ] },
+			} )
+		);
+		expect( Core.node( '_http' ) ).toBe( node );
+
+		Core.reset();
+		await nextTask();
+
+		expect( postBatch ).not.toHaveBeenCalled();
+	} );
+
+	it( 'POSTs the bare command when addressed to _http itself (cd /_http)', async () => {
 		const { node, postBatch } = makeNode();
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
 		m[ TO ] = ''; // _router peeled _http, nothing follows → the boundary
 		m[ VALUE ] = { name: 'ls', arguments: '' };
 		node.fill( m );
+		await nextTask();
 		const batch = batchOf( postBatch );
 		expect( batch ).toHaveLength( 1 );
 		expect( batch[ 0 ][ VALUE ].name ).toBe( 'ls' );
@@ -288,8 +524,8 @@ describe( 'HttpOut', () => {
 			reply[ VALUE ] = 'sync-reply';
 			postBatch.mockResolvedValueOnce( [ reply ] );
 
-			await node.fill( routed( { to: '' } ) );
-			await Promise.resolve();
+			node.fill( routed( { to: '' } ) );
+			await nextTask();
 
 			expect( seen ).toHaveLength( 1 );
 			expect( seen[ 0 ][ VALUE ] ).toBe( 'sync-reply' );
@@ -305,8 +541,7 @@ describe( 'HttpOut', () => {
 			await expect(
 				( async () => {
 					node.fill( routed( { to: '' } ) );
-					await Promise.resolve();
-					await Promise.resolve();
+					await nextTask();
 				} )()
 			).resolves.toBeUndefined();
 		} );
@@ -349,7 +584,7 @@ describe( 'HttpOut', () => {
 				expect( node.client ).toBeNull();
 
 				node.fill( routed( { to: 'demo.p0' } ) );
-				await new Promise( ( r ) => setTimeout( r, 0 ) );
+				await nextTask();
 
 				expect( typeof node.client.postBatch ).toBe( 'function' );
 				// The transport is closed over the localized base + nonce, so
@@ -375,13 +610,14 @@ describe( 'HttpOut', () => {
 			expect( HttpOutNode.nodeSchema().has_target ).toBe( true );
 		} );
 
-		it( 'accepts the client as a public property and POSTs through it', () => {
+		it( 'accepts the client as a public property and POSTs through it', async () => {
 			const postBatch = jest.fn().mockResolvedValue( [] );
 			const client = { postBatch };
 			const node = new HttpOutNode();
 			node.client = client;
 			node.name = '_http';
 			node.fill( routed( { to: 'demo.p0' } ) );
+			await nextTask();
 			expect( postBatch ).toHaveBeenCalledTimes( 1 );
 		} );
 
@@ -397,7 +633,7 @@ describe( 'HttpOut', () => {
 				.spyOn( node, 'printLessOften' )
 				.mockImplementation( () => {} );
 			node.fill( routed( { to: 'demo.p0' } ) );
-			await new Promise( ( r ) => setTimeout( r, 0 ) );
+			await nextTask();
 			expect( spy ).toHaveBeenCalled();
 			expect( spy.mock.calls[ 0 ][ 0 ] ).toMatch( /^ERROR:.*boom 502/ );
 			spy.mockRestore();
@@ -440,8 +676,7 @@ describe( 'HttpOut wire-inbound clause', () => {
 		node.target = '_output';
 
 		node.fill( routed( { to: 'topologies' } ) );
-		await Promise.resolve();
-		await Promise.resolve();
+		await nextTask();
 
 		expect( seen ).toHaveLength( 1 );
 		expect( seen[ 0 ][ TO ] ).toBe( '_output' );
@@ -457,8 +692,7 @@ describe( 'HttpOut wire-inbound clause', () => {
 		node.target = '_output';
 
 		node.fill( routed( { to: 'topologies' } ) );
-		await Promise.resolve();
-		await Promise.resolve();
+		await nextTask();
 
 		expect( seen ).toHaveLength( 1 );
 		expect( seen[ 0 ][ TO ] ).toBe( 'settings-sync' );
@@ -473,8 +707,7 @@ describe( 'HttpOut wire-inbound clause', () => {
 		node.target = '_output';
 
 		node.fill( routed( { to: 'topologies' } ) );
-		await Promise.resolve();
-		await Promise.resolve();
+		await nextTask();
 
 		expect( seen ).toHaveLength( 1 );
 		expect( seen[ 0 ][ TO ] ).toBe( 'settings-sync' );
@@ -490,8 +723,7 @@ describe( 'HttpOut wire-inbound clause', () => {
 		node.target = '_output';
 
 		node.fill( routed( { to: 'topologies' } ) );
-		await Promise.resolve();
-		await Promise.resolve();
+		await nextTask();
 
 		expect( seen ).toHaveLength( 1 );
 		expect( seen[ 0 ][ TO ] ).toBe( '_output' );
@@ -502,8 +734,7 @@ describe( 'HttpOut wire-inbound clause', () => {
 		node.target = '_output';
 
 		node.fill( routed( { to: 'raw-logs' } ) );
-		await Promise.resolve();
-		await Promise.resolve();
+		await nextTask();
 
 		expect( seen ).toHaveLength( 1 );
 		expect( seen[ 0 ][ TO ] ).toBe( '_output' );
@@ -519,8 +750,7 @@ describe( 'HttpOut wire-inbound clause', () => {
 		node.target = '_output';
 
 		node.fill( routed( { to: 'topologies' } ) );
-		await Promise.resolve();
-		await Promise.resolve();
+		await nextTask();
 
 		expect( seen ).toEqual( [] );
 	} );
@@ -532,8 +762,7 @@ describe( 'HttpOut wire-inbound clause', () => {
 		node.target = '_output';
 
 		node.fill( routed( { to: 'topologies' } ) );
-		await Promise.resolve();
-		await Promise.resolve();
+		await nextTask();
 
 		expect( seen ).toHaveLength( 1 );
 		expect( seen[ 0 ][ TO ] ).toBe( 'topologies:view' );
@@ -544,8 +773,7 @@ describe( 'HttpOut wire-inbound clause', () => {
 		const { node, seen } = replyWith( bytestream() );
 
 		node.fill( routed( { to: 'topologies' } ) );
-		await Promise.resolve();
-		await Promise.resolve();
+		await nextTask();
 
 		expect( seen ).toHaveLength( 1 );
 		expect( seen[ 0 ][ TO ] ).toBe( '' );
@@ -574,7 +802,7 @@ describe( 'HttpOut — an undelivered command', () => {
 				value: { name: 'dump', arguments: [] },
 			} )
 		);
-		await new Promise( ( r ) => setTimeout( r, 0 ) );
+		await nextTask();
 
 		expect( sent ).toHaveLength( 1 );
 		expect( sent[ 0 ][ TYPE ] & TM_ERROR ).toBeTruthy();
@@ -630,7 +858,7 @@ describe( 'HttpOut — an undelivered command', () => {
 		node.fill(
 			routed( { to: 'topologies', from: '', value: { name: 'dump' } } )
 		);
-		await new Promise( ( r ) => setTimeout( r, 0 ) );
+		await nextTask();
 
 		expect( sent ).toEqual( [] );
 	} );
@@ -712,7 +940,7 @@ describe( 'outbound errors', () => {
 		bounce[ VALUE ] = 'NOT_AVAILABLE\n';
 
 		node.fill( bounce );
-		await Promise.resolve();
+		await nextTask();
 
 		expect( postBatch ).toHaveBeenCalledTimes( 1 );
 	} );
@@ -727,7 +955,7 @@ describe( 'outbound errors', () => {
 		composed[ TO ] = 'foo';
 
 		node.fill( composed );
-		await Promise.resolve();
+		await nextTask();
 
 		expect( postBatch ).toHaveBeenCalledTimes( 1 );
 	} );
@@ -739,7 +967,7 @@ describe( 'outbound errors', () => {
 		out[ TO ] = 'foo';
 
 		node.fill( out );
-		await Promise.resolve();
+		await nextTask();
 
 		expect( postBatch ).toHaveBeenCalledTimes( 1 );
 	} );
@@ -768,8 +996,7 @@ describe( 'the ERRORS tile', () => {
 		out[ TYPE ] = TM_COMMAND;
 		out[ TO ] = 'foo';
 		node.fill( out );
-		await Promise.resolve();
-		await Promise.resolve();
+		await nextTask();
 		return IoTelemetry.snapshot();
 	};
 
@@ -863,8 +1090,7 @@ describe( 'the ERRORS tile', () => {
 		out[ TYPE ] = TM_COMMAND;
 		out[ TO ] = 'foo';
 		node.fill( out );
-		await Promise.resolve();
-		await Promise.resolve();
+		await nextTask();
 
 		expect( IoTelemetry.snapshot().errors ).toBe( 0 );
 	} );
@@ -949,11 +1175,10 @@ describe( 'inbound FROM stamping', () => {
 		out[ TYPE ] = TM_COMMAND;
 		out[ TO ] = 'foo';
 		node.fill( out );
-		await Promise.resolve();
+		await nextTask();
 		node.removeNode();
 		land();
-		await Promise.resolve();
-		await Promise.resolve();
+		await nextTask();
 
 		expect( sink.fill ).not.toHaveBeenCalled();
 	} );

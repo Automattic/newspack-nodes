@@ -100,6 +100,9 @@ final class CrawlerNodeTest extends TestCase {
 	/** @var array<string,array<int,mixed>> The opts each url's dispatch was handed. */
 	private array $opts = [];
 
+	/** The test clock's last tick, so each tick lands a second after it. */
+	private float $tick_at = 0.0;
+
 	/** @var array<string,string> The Location each url answers a 301 with. */
 	private array $locations = [];
 
@@ -268,7 +271,7 @@ final class CrawlerNodeTest extends TestCase {
 
 		Core::$var['partition'] = '3';
 		$crawler->arguments( [ '9100' ] );
-		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->ticks( $crawler, 1 );
 
 		$this->assertSame( [ $url, $url ], $this->dispatched, 'the discarded fetch is recovered' );
 	}
@@ -351,7 +354,7 @@ final class CrawlerNodeTest extends TestCase {
 		$crawler->name( 'crawl-renamed-88' );
 		$this->bodies[ $url ] = '<a href="/after-18">x</a>';
 		$this->in_drain( fn () => $this->complete_curl( $minted ) );
-		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->ticks( $crawler, 1 );
 
 		$this->assertSame( [], $this->pages->captured, 'the answer minted under the old name reaches nothing' );
 		$this->assertSame( [ $url, $url ], $this->dispatched, 'recovery refetches it' );
@@ -372,7 +375,7 @@ final class CrawlerNodeTest extends TestCase {
 		$crawler->name( 'crawl-renamed-88' );
 		$urls = \array_map( static fn ( int $i ): string => \sprintf( '%s/w-%02d', self::SITE, $i ), \range( 1, Curl_Node::MAX_IN_FLIGHT ) );
 		$this->seen( $crawler )->add_members( [ 'pending' => [ \array_fill_keys( $urls, 1 ), 900 ] ] );
-		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->ticks( $crawler, 1 );
 
 		$this->assertCount( 1 + Curl_Node::MAX_IN_FLIGHT, $this->dispatched, 'the released fetch holds no slot' );
 	}
@@ -593,7 +596,7 @@ final class CrawlerNodeTest extends TestCase {
 		$this->assertCount( 40 - Curl_Node::MAX_IN_FLIGHT, $this->members( $crawler, 'pending' ) );
 		$this->assertCount( Curl_Node::MAX_IN_FLIGHT, $this->members( $crawler, 'inflight' ) );
 		$moves = $this->seen( $crawler )->stats()['SMOVE'];
-		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->ticks( $crawler, 1 );
 		$this->assertSame( $moves, $this->seen( $crawler )->stats()['SMOVE'], 'a tick with a full window asks the Table nothing' );
 
 		$this->complete( $this->dispatched[1] );
@@ -649,7 +652,7 @@ final class CrawlerNodeTest extends TestCase {
 		$this->assertSame( [], $this->pages->captured );
 		$this->assertArrayHasKey( $url, $this->members( $crawler, 'pending' ) );
 
-		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->ticks( $crawler, 1 );
 
 		$this->assertSame( [ $url ], $this->dispatched );
 		$this->assertSame( [], $this->members( $crawler, 'pending' ) );
@@ -665,7 +668,7 @@ final class CrawlerNodeTest extends TestCase {
 		$urls    = \array_map( static fn ( int $i ): string => \sprintf( '%s/q-%02d', self::SITE, $i ), \range( 1, 20 ) );
 		$this->seen( $crawler )->add_members( [ 'pending' => [ \array_fill_keys( $urls, 1 ), 900 ] ] );
 
-		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->ticks( $crawler, 1 );
 
 		$first = \array_slice( $urls, 0, Curl_Node::MAX_IN_FLIGHT );
 		$this->assertSame( $first, $this->dispatched, 'one tick answers one window of urls' );
@@ -680,7 +683,7 @@ final class CrawlerNodeTest extends TestCase {
 		$this->assertSame( [], $this->members( $crawler, 'inflight' ) );
 		$this->assertSame( \array_slice( $urls, Curl_Node::MAX_IN_FLIGHT ), \array_map( 'strval', \array_keys( $this->members( $crawler, 'pending' ) ) ) );
 
-		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->ticks( $crawler, 1 );
 
 		$this->assertSame( $urls, $this->dispatched, 'the next tick takes the rest' );
 		$this->assertSame( [], $this->members( $crawler, 'pending' ) );
@@ -697,11 +700,11 @@ final class CrawlerNodeTest extends TestCase {
 		$crawler->remove_node();
 
 		$crawler = $this->wide();
-		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->ticks( $crawler, 1 );
 
 		$this->assertSame( [ self::SITE . '/f-1', self::SITE . '/f-2', self::SITE . '/f-3' ], $this->dispatched, 'the first tick fetches all three' );
 
-		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->ticks( $crawler, 1 );
 
 		$this->assertCount( 3, $this->dispatched, 'the second tick adds nothing' );
 	}
@@ -720,11 +723,11 @@ final class CrawlerNodeTest extends TestCase {
 		$recovery = static fn ( mixed $value ): bool => \is_string( $value ) && \str_contains( $value, ' inflight pending' );
 		Core::register_node( 'crawl-4471:seen', new Crawler_Filtering_Table_Fixture_Node( $seen, $recovery ) );
 
-		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->ticks( $crawler, 1 );
 
 		$this->assertSame( [], $this->dispatched, 'nothing is fetched while recovery is owed' );
 		Core::register_node( 'crawl-4471:seen', $seen );
-		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->ticks( $crawler, 1 );
 
 		$this->assertSame( [ $queued, $url ], $this->dispatched, 'the failed recovery runs again' );
 	}
@@ -736,7 +739,7 @@ final class CrawlerNodeTest extends TestCase {
 		$crawler->remove_node();
 		$crawler = $this->wide();
 
-		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->ticks( $crawler, 1 );
 
 		$this->assertCount( Curl_Node::MAX_IN_FLIGHT, $this->dispatched );
 		$this->assertCount( Curl_Node::MAX_IN_FLIGHT, $this->members( $crawler, 'inflight' ), 'only the fetches in flight remain there' );
@@ -748,10 +751,19 @@ final class CrawlerNodeTest extends TestCase {
 		return \array_sum( \array_column( $this->seen( $crawler )->stats(), 'calls' ) );
 	}
 
-	/** Fire the crawler's tick $times times, each inside a drain. */
+	/**
+	 * Fire the crawler's tick $times times, each inside a drain and at least a
+	 * tick after the last, so the Timer's throttle never takes one for an extra.
+	 */
 	private function ticks( Crawler_Node $crawler, int $times ): void {
 		for ( $i = 0; $i < $times; $i++ ) {
-			$this->in_drain( static fn () => $crawler->fire_cb() );
+			$this->in_drain(
+				function () use ( $crawler ): void {
+					$this->tick_at = \max( Core::$now, $this->tick_at + 1.0 );
+					Core::$now     = $this->tick_at;
+					$crawler->fire_cb();
+				}
+			);
 		}
 	}
 
@@ -856,7 +868,7 @@ final class CrawlerNodeTest extends TestCase {
 		$crawler = $this->wide();
 
 		$this->in_drain( fn () => $this->seed( $crawler, self::SITE . '/s-9' ) );
-		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->ticks( $crawler, 1 );
 
 		$this->assertSame( [ self::SITE . '/f-1', self::SITE . '/s-9' ], $this->dispatched );
 	}
@@ -910,7 +922,7 @@ final class CrawlerNodeTest extends TestCase {
 		$this->assertCount( 4, $this->dispatched, 'three starts after the seed' );
 		$this->assertSame( 3, $curl->transfers_in_flight(), 'three live transfers' );
 		$this->assertCount( 3, $this->members( $crawler, 'inflight' ) );
-		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->ticks( $crawler, 1 );
 		$this->assertCount( 4, $this->dispatched, 'a tick with three in flight starts none' );
 
 		$this->complete( $this->dispatched[2] );
@@ -927,7 +939,7 @@ final class CrawlerNodeTest extends TestCase {
 
 		$this->assertSame( [ self::SITE . '/', self::SITE . '/d-1' ], $this->dispatched );
 		$this->assertSame( 1, Core::node( 'crawl-4471:curl' )?->transfers_in_flight() );
-		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->ticks( $crawler, 1 );
 		$this->assertCount( 2, $this->dispatched, 'a tick with one in flight starts none' );
 
 		$this->complete( self::SITE . '/d-1' );
@@ -966,13 +978,13 @@ final class CrawlerNodeTest extends TestCase {
 
 		$this->in_drain( fn () => $this->seed( $crawler, self::SITE . '/' ) );
 		$this->assertSame( [], $this->dispatched, 'a seed waits for the tick' );
-		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->ticks( $crawler, 1 );
 		$this->assertSame( [ self::SITE . '/' ], $this->dispatched );
 
 		Core::$clock = static fn (): float => 1790000000.75;
 		$this->complete( self::SITE . '/', $this->links_body( '/u-1', '/u-2' ) );
 		$this->assertCount( 1, $this->dispatched, 'an answer waits for the tick' );
-		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->ticks( $crawler, 1 );
 
 		$this->assertSame( [ self::SITE . '/', self::SITE . '/u-1' ], $this->dispatched, 'one start a tick' );
 	}
@@ -987,14 +999,14 @@ final class CrawlerNodeTest extends TestCase {
 		};
 
 		$at( 1790000000.0 );
-		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->ticks( $crawler, 1 );
 		$crawler->arguments( [ '7203', '', '3000', '3' ] );
 		$at( 1790000000.5 );
-		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->ticks( $crawler, 1 );
 
 		$this->assertCount( 1, $this->dispatched, 'the retuned timer waits 3s from its last fire' );
 		$at( 1790000003.5 );
-		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->ticks( $crawler, 1 );
 		$this->assertCount( 2, $this->dispatched );
 	}
 
@@ -1009,7 +1021,7 @@ final class CrawlerNodeTest extends TestCase {
 		$urls    = \array_map( static fn ( int $i ): string => self::SITE . "/z-{$i}", \range( 1, 5 ) );
 		$this->seen( $crawler )->add_members( [ 'pending' => [ \array_fill_keys( $urls, 1 ), 900 ] ] );
 
-		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->ticks( $crawler, 1 );
 
 		$this->assertCount( 3, $starts );
 		$this->assertCount( 1, \array_unique( $starts ), 'three starts on one tick' );
@@ -1033,7 +1045,7 @@ final class CrawlerNodeTest extends TestCase {
 		$crawler->arguments( [ '7203', '', '0', '3' ] );
 		$this->assertSame( 'router', $crawler->timer_mode() );
 		$this->assertSame( Crawler_Node::TICK_MS, $crawler->interval_ms );
-		$this->in_drain( static fn () => $crawler->fire_cb() );
+		$this->ticks( $crawler, 1 );
 		$this->assertCount( 3, $this->dispatched, 'the new concurrency fills the window' );
 	}
 

@@ -94,9 +94,9 @@ export class PollerNode extends ReactBridge( TimerNode ) {
 
 	/**
 	 * One tick: mint the configured poll and emit it to `this.target`. A
-	 * mounting view wanting its first reading now marks the poller due and
-	 * asks the Router for a tick (`armTimer()`), so it rides that tick's POST;
-	 * a reload may call it directly, as the topology catalog's does.
+	 * mounting view wanting its first reading now, or a reload such as the
+	 * topology catalog's, marks the poller due and asks the Router for a tick
+	 * through `pollTimerNow()`, so it rides that tick's POST.
 	 *
 	 * A sinkless node, and a tick whose mint is refused, emit nothing and
 	 * count nothing — `counter` is messages passed on.

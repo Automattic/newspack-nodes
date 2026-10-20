@@ -1,4 +1,5 @@
 import names from '../../runtime/reserved-node-names.json';
+import { hasSession } from '../../runtime/command-auth';
 
 /** @typedef {import('../../runtime/timer-node').TimerNode} TimerNode */
 
@@ -35,4 +36,30 @@ export function armTimer( timer, intervalMs ) {
 	if ( resuming && 'router' === timer.mode ) {
 		pollTimerNow( timer );
 	}
+}
+
+/**
+ * The FIRE listener id `keepUnsignedDue()` registers under, so registering it
+ * twice on one Timer replaces the first rather than adding a second.
+ */
+const UNSIGNED_LISTENER = 'keepUnsignedDue';
+
+/**
+ * Keep a Timer due after a tick it fired with no command session.
+ *
+ * Such a tick mints nothing — a Fetcher behind it parks its ask — so the poll
+ * is still owed. Due, the Timer fires on the tick a landing session asks for,
+ * whatever its throttle or grid say, and that tick sends what was parked. Call
+ * it once on every Timer whose tick reaches a Fetcher; a Poller or Heartbeat
+ * mints itself and marks itself due instead.
+ *
+ * @param {TimerNode} timer The Timer driving the Fetchers.
+ * @return {void}
+ */
+export function keepUnsignedDue( timer ) {
+	timer.register( 'FIRE', UNSIGNED_LISTENER, () => {
+		if ( ! hasSession() ) {
+			timer.markDue();
+		}
+	} );
 }

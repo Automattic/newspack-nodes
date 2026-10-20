@@ -24,6 +24,7 @@ import { ShellNode } from '../../../runtime/shell-node';
 import names from '../../../runtime/reserved-node-names.json';
 import * as wire from '../../../runtime/message';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
+import { nextTask as oneTask } from '@newspack-nodes/shared/test-utils/nextTask';
 
 // The wire wraps the payload into a reply Message itself.
 const reply = ( payload ) => payload;
@@ -145,6 +146,9 @@ const tickRouter = () =>
 		Core.node( names.ROUTER ).fireCb();
 		await Promise.resolve();
 	} );
+
+// An unlocked send leaves on the next task, as it does in production.
+const nextTask = () => act( oneTask );
 
 // The console mounts the expand hook beside this one, and it is what answers a
 // key the seed's include-expansion fallback parks. Mirror that here.
@@ -776,6 +780,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		act( () => {
 			typeLine( result.current.shell, 'ls -al' );
 		} );
+		await nextTask();
 		expect( postBatch ).toHaveBeenCalledTimes( 1 );
 		const batch = postBatch.mock.calls[ 0 ][ 0 ];
 		const { FROM, TO, VALUE } = require( '../../../runtime/message' );
@@ -862,6 +867,7 @@ describe( 'useConsoleGraph — _cwd re-stamping routes every scope', () => {
 		act( () => {
 			Core.node( names.COMMAND_INTERPRETER ).fill( cwdPoll() );
 		} );
+		await nextTask();
 		expect( postBatch ).toHaveBeenCalledTimes( 1 );
 		const batch = postBatch.mock.calls[ 0 ][ 0 ];
 		const routed = batch.find(
@@ -875,9 +881,11 @@ describe( 'useConsoleGraph — _cwd re-stamping routes every scope', () => {
 		);
 	} );
 
-	it( 'the local root (_cwd.target = "") interprets the poll in-browser (no POST)', () => {
+	it( 'the local root (_cwd.target = "") interprets the poll in-browser (no POST)', async () => {
 		renderGraph();
 		act( () => lastConnector.emitConnected() );
+		// The mount's own sends leave before the spy goes in.
+		await nextTask();
 		const postBatch = jest.fn().mockResolvedValue( [] );
 		httpOf().client = { postBatch };
 		// cd /: the gating effect leaves `_cwd.target` empty (local root).
@@ -885,6 +893,7 @@ describe( 'useConsoleGraph — _cwd re-stamping routes every scope', () => {
 		act( () => {
 			Core.node( names.COMMAND_INTERPRETER ).fill( cwdPoll() );
 		} );
+		await nextTask();
 		expect( postBatch ).not.toHaveBeenCalled();
 		expect( Core.node( names.METADATA ).metadata ).toBeDefined();
 	} );

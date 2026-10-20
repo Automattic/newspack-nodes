@@ -9,7 +9,7 @@
  * resolves). It adds the worker-relay send + the single live-connection steal.
  * A send boots/steals the single live EventSource (closing whichever RemoteIpc
  * held it), then routes `[connect_worker_input → topologies, command → {bare
- * reader}]` through the shared `_http` as ONE POST. The reply-node FROM wrap
+ * reader}]` through the shared `_http`, which holds both for ONE POST. The reply-node FROM wrap
  * (`_sse:{session}/{node}`) — the server's HTTP_Filter wire contract — lives here.
  */
 
@@ -37,6 +37,7 @@ import {
 } from '../message';
 import names from '../reserved-node-names.json';
 import { __setAuthFetch, ensureSession, forgetSession } from '../command-auth';
+import { nextTask } from '@newspack-nodes/shared/test-utils/nextTask';
 
 const LEASE_OWNER = '9007199254740993';
 
@@ -62,6 +63,7 @@ class FakeEventSource {
 }
 
 let posted;
+let batches;
 
 beforeEach( () => {
 	Core.reset();
@@ -69,11 +71,13 @@ beforeEach( () => {
 	FakeEventSource.last = null;
 	RemoteIpcNode.active = null;
 	posted = [];
+	batches = [];
 } );
 
 // Every POST this suite makes lands in `posted`.
 const capturingClient = () => ( {
 	postBatch: ( messages ) => {
+		batches.push( messages );
 		posted.push( ...messages );
 		return Promise.resolve( [] );
 	},
@@ -180,6 +184,19 @@ describe( 'RemoteIpcNode', () => {
 		expect( posted ).toHaveLength( 3 );
 	} );
 
+	it( 'mounts the worker once for every send of one task, in one POST', async () => {
+		const { interpreter } = mountExospine();
+		const node = makeRemoteIpc( 'aggregator-hub.p0', interpreter );
+
+		node.fill( command( { from: '_metadata' } ) );
+		node.fill( command( { from: 'uptime' } ) );
+		await nextTask();
+
+		expect( batches ).toHaveLength( 1 );
+		expect( mounts() ).toBe( 1 );
+		expect( posted ).toHaveLength( 3 );
+	} );
+
 	it( 'mounts the worker again in the next batch', () => {
 		// The memo is keyed to the batch, not to the node: a later tick must
 		// re-mount, or its command routes to a graph that never mounted one.
@@ -223,7 +240,7 @@ describe( 'RemoteIpcNode', () => {
 		expect( Core.node( 'indigo-ipc-731:sse-in' ) ).toBe( null );
 	} );
 
-	it( 'a palette make preserves a distinct reader across dumpConfig replay and routes through it', () => {
+	it( 'a palette make preserves a distinct reader across dumpConfig replay and routes through it', async () => {
 		const { interpreter } = mountExospine();
 		interpreter.dispatch( 'make_node', [
 			'RemoteIpc',
@@ -251,6 +268,7 @@ describe( 'RemoteIpcNode', () => {
 		Core.node( names.HTTP ).client = capturingClient();
 		dispatchConnected( reopened, { slot: 13 } );
 		reopened.fill( command( { from: names.OUTPUT } ) );
+		await nextTask();
 
 		expect( reopened.arguments ).toEqual( [ 'combined.p7' ] );
 		expect( reopened.target ).toBe( 'cerulean-replies-619' );
@@ -323,40 +341,43 @@ describe( 'RemoteIpcNode', () => {
 	} );
 
 	/** command() returns null unauthenticated; the caller must not deref it. */
-	it( 'is a no-op with no session, rather than throwing', () => {
+	it( 'is a no-op with no session, rather than throwing', async () => {
 		const { interpreter } = mountExospine();
 		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		node.fill( command() ); // boot the link while authenticated
+		await nextTask();
 		const sentWhileAuthed = posted.length;
 		forgetSession();
 
 		expect( () => node.fill( command() ) ).not.toThrow();
+		await nextTask();
 		expect( posted.length ).toBe( sentWhileAuthed );
 	} );
 
-	it( 'leaves _http unlocked when an unauthenticated send bails', () => {
-		// This node opened the lock, so it owes the flush even on the way out:
-		// otherwise _http stays locked and every direct fill() buffers silently
-		// until the next Router tick happens to flush it.
+	it( 'leaves _http holding nothing when an unauthenticated send bails', async () => {
+		// A command whose mount was refused must not wait in the batch: it
+		// would route to a worker the server never attached.
 		const { interpreter } = mountExospine();
 		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		node.fill( command() ); // boot the link while authenticated
+		await nextTask();
 		forgetSession();
 		const http = Core.node( names.HTTP );
-		expect( http.locked ).toBe( false );
 
 		node.fill( command() );
 
-		expect( http.locked ).toBe( false );
+		expect( http.buffer ).toEqual( [] );
+		expect( http.flushQueued ).toBe( false );
 	} );
 
-	it( 'does not mark the batch mounted when the mint fails', () => {
+	it( 'does not mark the batch mounted when the mint fails', async () => {
 		// A mount that never reached the buffer must leave the batch unclaimed.
 		// Otherwise the next send in it skips a mount that never went out, and
 		// its command routes to a worker the server never attached.
 		const { interpreter } = mountExospine();
 		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		node.fill( command() ); // boot the link while authenticated
+		await nextTask();
 		const http = Core.node( names.HTTP );
 
 		http.lock(); // the Router's bracket: outlives an individual send
@@ -384,11 +405,12 @@ describe( 'RemoteIpcNode', () => {
 		expect( mounted ).toEqual( [ 'aggregator-hub.p0', 'combined.p3' ] );
 	} );
 
-	it( 'mounts again when _http itself is replaced', () => {
+	it( 'mounts again when _http itself is replaced', async () => {
 		// A rebuilt backbone is a new POST boundary, so the worker must remount.
 		const { interpreter } = mountExospine();
 		const node = makeRemoteIpc( 'aggregator-hub.p0', interpreter );
 		node.fill( command( { from: '_metadata' } ) );
+		await nextTask();
 		const before = mounts();
 
 		// Exactly what exospine teardown does before rebuilding the backbone.
@@ -397,7 +419,9 @@ describe( 'RemoteIpcNode', () => {
 		fresh.client = capturingClient();
 		fresh.name = names.HTTP;
 		node.fill( command( { from: '_metadata' } ) );
+		await nextTask();
 
+		expect( before ).toBe( 1 );
 		expect( mounts() ).toBe( before + 1 );
 	} );
 
@@ -442,10 +466,14 @@ describe( 'RemoteIpcNode', () => {
 		expect( activeStream.closed ).toBe( false );
 	} );
 
-	it( 'bundles connect_worker_input before the command, through the shared `_http`', () => {
+	it( 'bundles connect_worker_input before the command in ONE POST, through the shared `_http`', async () => {
 		const { interpreter } = mountExospine();
 		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		node.fill( command() );
+		expect( posted ).toEqual( [] );
+
+		await nextTask();
+		expect( batches ).toHaveLength( 1 );
 		expect( posted ).toHaveLength( 2 );
 		expect( posted[ 0 ][ VALUE ] ).toMatchObject( {
 			name: 'connect_worker_input',
@@ -469,32 +497,36 @@ describe( 'RemoteIpcNode', () => {
 		expect( Core.node( names.HEARTBEAT ).slot ).toBe( 3 );
 	} );
 
-	it( 'wraps a reply-node FROM into the session reply address, before any handshake', () => {
+	it( 'wraps a reply-node FROM into the session reply address, before any handshake', async () => {
 		const { interpreter } = mountExospine();
 		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		node.fill( command( { from: names.OUTPUT } ) );
+		await nextTask();
 		expect( posted[ 1 ][ FROM ] ).toBe(
 			`${ names.SSE }:${ HARNESS_SESSION }/${ names.OUTPUT }`
 		);
 		expect( node.pid ).toBeUndefined();
 	} );
 
-	it( 'drops a command it cannot address while no session is live, naming why', () => {
+	it( 'drops a command it cannot address while no session is live, naming why', async () => {
 		expectConsoleWarn(
 			'aggregator.p0: WARNING: no command session to address its reply'
 		);
 		const { interpreter } = mountExospine();
 		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		node.fill( command() ); // boot the link while authenticated
+		await nextTask();
 		const sent = posted.length;
 		forgetSession();
 
 		node.fill( command( { from: names.OUTPUT } ) );
+		await nextTask();
 
+		expect( sent ).toBe( 2 );
 		expect( posted ).toHaveLength( sent );
 	} );
 
-	it( 'heads an Inspector request with the session, and its reply reaches the console', () => {
+	it( 'heads an Inspector request with the session, and its reply reaches the console', async () => {
 		const { interpreter } = mountExospine();
 		const replies = [];
 		const output = new Node();
@@ -508,6 +540,7 @@ describe( 'RemoteIpcNode', () => {
 		request[ VALUE ] = 'GET_HEALTH';
 
 		node.fill( request );
+		await nextTask();
 
 		const sent = posted.find( ( m ) => TM_REQUEST === m[ TYPE ] );
 		expect( sent[ FROM ] ).toBe(
@@ -525,7 +558,7 @@ describe( 'RemoteIpcNode', () => {
 		expect( replies ).toContain( 'health-reply-4471' );
 	} );
 
-	it( 'heads an Inspector send with the session too', () => {
+	it( 'heads an Inspector send with the session too', async () => {
 		const { interpreter } = mountExospine();
 		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		const send = newMessage();
@@ -535,6 +568,7 @@ describe( 'RemoteIpcNode', () => {
 		send[ VALUE ] = 'payload-4471';
 
 		node.fill( send );
+		await nextTask();
 
 		const sent = posted.find( ( m ) => TM_BYTESTREAM === m[ TYPE ] );
 		expect( sent[ FROM ] ).toBe(
@@ -582,7 +616,7 @@ describe( 'RemoteIpcNode', () => {
 		} );
 	} );
 
-	it( 'delivers the reply to a command sent before a reconnect', () => {
+	it( 'delivers the reply to a command sent before a reconnect', async () => {
 		const { interpreter } = mountExospine();
 		const replies = [];
 		const output = new Node();
@@ -591,6 +625,7 @@ describe( 'RemoteIpcNode', () => {
 		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		node.target = names.OUTPUT;
 		node.fill( command( { from: names.OUTPUT } ) );
+		await nextTask();
 		const sentFrom = posted[ 1 ][ FROM ];
 		dispatchConnected( node, { slot: 2 } );
 		const record = newMessage();
@@ -629,29 +664,33 @@ describe( 'RemoteIpcNode', () => {
 		expect( replies ).toContain( 'reply-after-reconnect-4471' );
 	} );
 
-	it( 'appends a sub-node remainder to the command TO (bare reader/sub)', () => {
+	it( 'appends a sub-node remainder to the command TO (bare reader/sub)', async () => {
 		const { interpreter } = mountExospine();
 		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		node.fill( command( { to: 'request-builder' } ) );
+		await nextTask();
 		expect( posted[ 1 ][ TO ] ).toBe( 'aggregator.p0/request-builder' );
 	} );
 
-	it( 'wraps ANY non-empty FROM into the reply address (every worker reply needs demux)', () => {
+	it( 'wraps ANY non-empty FROM into the reply address (every worker reply needs demux)', async () => {
 		const { interpreter } = mountExospine();
 		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		node.fill( command() );
+		await nextTask();
 		dispatchConnected( node, { slot: 1 } );
 		posted.length = 0;
 		node.fill( command( { from: '_command_interpreter' } ) );
+		await nextTask();
 		expect( posted[ 1 ][ FROM ] ).toBe(
 			`${ names.SSE }:${ HARNESS_SESSION }/_command_interpreter`
 		);
 	} );
 
-	it( 'leaves an empty FROM unwrapped (no trailing-slash address)', () => {
+	it( 'leaves an empty FROM unwrapped (no trailing-slash address)', async () => {
 		const { interpreter } = mountExospine();
 		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		node.fill( command( { from: '' } ) );
+		await nextTask();
 		expect( posted[ 1 ][ FROM ] ).toBe( '' );
 	} );
 

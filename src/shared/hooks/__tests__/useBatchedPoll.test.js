@@ -10,6 +10,7 @@
 
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
+import { nextTask } from '@newspack-nodes/shared/test-utils/nextTask';
 import { useEffect } from '@wordpress/element';
 import {
 	Core,
@@ -244,6 +245,7 @@ describe( 'useBatchedPoll — initial poll on mount', () => {
 		const wire = installWire();
 		renderPoll( {} );
 		await act( async () => {} );
+		await act( nextTask );
 		expect( wire.batches.length ).toBe( 0 );
 	} );
 
@@ -283,10 +285,14 @@ describe( 'useBatchedPoll — initial poll on mount', () => {
 
 		// The session turns over; the next tick can sign nothing.
 		forgetSession();
-		timer.lastFireTime = Core.now();
-		act( () => timer.notify( 'FIRE', Core.now() ) );
+		__setAuthFetch( async () => null );
+		timer.lastFireTime = Core.now() - 60;
+		act( () => Core.node( ROUTER ).fireCb() );
 
+		expect( timer.fireCount ).toBe( 2 );
 		expect( timer.lastFireTime ).toBe( 0 );
+		expect( timer.due ).toBe( true );
+		expect( wire.batches.length ).toBe( 1 );
 	}, 20000 );
 
 	test( 'enabled:false costs no request at all — not even the first load', async () => {
@@ -302,6 +308,7 @@ describe( 'useBatchedPoll — initial poll on mount', () => {
 		);
 		await act( async () => {} );
 
+		await act( nextTask );
 		// `paused` deliberately still delivers ONE first load; a surface that
 		// is never opened must cost nothing, which is a different gate.
 		expect( wire.batches.length ).toBe( 0 );
@@ -364,6 +371,7 @@ describe( 'useBatchedPoll — initial poll on mount', () => {
 			{ initialProps: { enabled: false } }
 		);
 		await act( async () => {} );
+		await act( nextTask );
 		expect( wire.batches.length ).toBe( 0 );
 
 		rerender( { enabled: true } );
@@ -394,6 +402,7 @@ describe( 'useBatchedPoll — initial poll on mount', () => {
 
 		renderPoll( { paused: true } );
 		await act( async () => {} );
+		await act( nextTask );
 		expect( wire.batches ).toHaveLength( 0 );
 
 		await act( async () => {
@@ -445,6 +454,7 @@ describe( 'useBatchedPoll — initial poll on mount', () => {
 			} )
 		);
 		await act( async () => {} );
+		await act( nextTask );
 		expect( wire.batches.length ).toBe( 0 ); // hidden ⇒ nothing yet
 
 		await act( async () => {
@@ -509,10 +519,15 @@ describe( 'useBatchedPoll — the batching bracket', () => {
 		);
 		await act( async () => {} );
 		wire.batches.length = 0;
+		// A tick later, so the 1s poller is owed its next fire.
+		const now = jest
+			.spyOn( Core, 'now' )
+			.mockReturnValue( Date.now() / 1000 + 1 );
 
 		// This mount's first load fires the page, not just itself.
 		renderPoll( {} );
 		await act( async () => {} );
+		now.mockRestore();
 
 		expect( wire.batches.length ).toBe( 1 );
 		const verbs = wire.batches[ 0 ].map( ( m ) => m[ VALUE ].name ).sort();
@@ -520,9 +535,7 @@ describe( 'useBatchedPoll — the batching bracket', () => {
 	} );
 
 	// Three polls mounting in one commit is three asks to be included, not
-	// three ticks: a slice at exactly the tick's cadence has no throttle to
-	// protect it, so it would send once per foreign mount — the duplication
-	// the batch exists to prevent.
+	// three ticks, so their first loads share one POST.
 	test( 'many mounts in one commit share ONE tick', async () => {
 		const wire = installWire();
 		const mountOne = ( n ) =>
@@ -581,6 +594,7 @@ describe( 'useBatchedPoll — the batching bracket', () => {
 		await act( async () => {
 			Core.node( ROUTER ).fireCb();
 		} );
+		await act( nextTask );
 		expect( wire.batches.length ).toBe( 0 );
 		expect( Core.node( HTTP ).locked ).toBe( false );
 	} );
@@ -611,6 +625,7 @@ describe( 'useBatchedPoll — page-visibility gate', () => {
 		expect( observations ).toEqual( [
 			{ batches: 0, mode: 'inactive', intervalMs: 0 },
 		] );
+		await act( nextTask );
 		expect( wire.batches ).toHaveLength( 0 );
 		expect( Core.node( 'visibility-race:timer' ).mode ).toBe( 'inactive' );
 	} );
@@ -627,6 +642,7 @@ describe( 'useBatchedPoll — page-visibility gate', () => {
 		await act( async () => {
 			Core.node( ROUTER ).fireCb();
 		} );
+		await act( nextTask );
 		expect( wire.batches.length ).toBe( 0 );
 
 		// Visible again: the resume polls at once, with no router tick needed.
@@ -662,6 +678,7 @@ describe( 'useBatchedPoll — paused gate', () => {
 		await act( async () => {
 			Core.node( ROUTER ).fireCb();
 		} );
+		await act( nextTask );
 		expect( wire.batches.length ).toBe( 0 );
 
 		// Resume: the unpause posts one batched POST at once.
@@ -716,6 +733,7 @@ describe( 'useBatchedPoll — intervalMs (hitchhike + throttle cadence)', () => 
 		} );
 		expect( Core.node( 'insights:timer' ).interval_ms ).toBe( 30000 );
 		expect( Core.node( 'insights:timer' ).mode ).toBe( 'router' );
+		await act( nextTask );
 		expect( wire.batches ).toHaveLength( 0 );
 	} );
 

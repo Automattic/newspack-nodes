@@ -2,9 +2,11 @@
  * HttpOut — the outbound `/command` POST boundary on the browser side.
  * `mountExospine` mounts one per graph as `_http`, and every sender — a
  * RemoteLink or RemoteIpc, the Router's own tick, the console spine — fills it
- * with a single positional Message whose TO is already routed. `fill()` POSTs
- * that Message verbatim, or buffers it while locked so one Router TIMER tick's
- * emissions ride out in ONE request.
+ * with a single positional Message whose TO is already routed. `fill()` holds
+ * the Message, and one `flush()` POSTs everything held as ONE request: the
+ * Router's at the end of a tick, or this node's own on the next task, so a
+ * tick's emissions and whatever the same task sent outside one, such as a
+ * view's `askNow()` on mount, leave together.
  *
  * On the way out it inspects nothing: every message goes as handed. The
  * worker-attach `connect_worker_input` bundling lives in RemoteIpc, which
@@ -62,6 +64,39 @@ function failureReply( sent, reason ) {
 }
 
 /**
+ * The channel `postTask()` posts on, opened on its first call.
+ *
+ * @type {?MessageChannel}
+ */
+let channel = null;
+
+/**
+ * What `postTask()` has posted and not yet run, in posting order.
+ *
+ * @type {Array<function(): void>}
+ */
+const posted = [];
+
+/**
+ * Run `callback` on a task of its own, after every microtask of this one.
+ *
+ * A channel message rather than a 0ms timeout, because a hidden tab throttles
+ * timers to one a second, and to one a minute once it has been hidden five
+ * minutes; a held send must not wait that out. React's scheduler posts its
+ * work the same way.
+ *
+ * @param {function(): void} callback Runs once, on the next task.
+ */
+function postTask( callback ) {
+	if ( null === channel ) {
+		channel = new MessageChannel();
+		channel.port1.onmessage = () => posted.shift()();
+	}
+	posted.push( callback );
+	channel.port2.postMessage( null );
+}
+
+/**
  * One log line for a TM_ERROR reply: `<who failed>: <what was asked>: <why>`.
  *
  * The node named is the FROM, stamped — the TO is whoever ASKED, which is our
@@ -100,7 +135,8 @@ function errorEntry( message ) {
 }
 
 /**
- * The `_http` node — POSTs whatever it is filled with, routes what comes back.
+ * The `_http` node — POSTs what it is filled with, one batch per task, and
+ * routes what comes back.
  * See the module docblock above for the lock/flush batching and the intake
  * rules.
  */
@@ -115,16 +151,20 @@ export class HttpOutNode extends Node {
 		super();
 		// Unset is fine: _post() defaults to the localized transport.
 		this.client = null;
-		// When locked, fill() buffers; flush() drains it as ONE postBatch.
+		// fill() buffers; flush() drains it as ONE postBatch.
 		this.locked = false;
 		this.buffer = [];
+		// A flush of what fill() held unlocked is posted for the next task.
+		this.flushQueued = false;
 		// Keys claimed in the open batch. Owned here: it dies with the batch.
 		this.claimed = new Set();
 	}
 
 	/**
-	 * POST the routed Message (or buffer it while locked); feed any synchronous
-	 * reply back into the sink.
+	 * Hold the routed Message for the batch: the open one while locked, else
+	 * a flush on the next task, which a tick in this task makes sooner, so
+	 * every send of one task leaves in one POST. Any synchronous reply is fed
+	 * back into the sink.
 	 *
 	 * An error crosses the wire like anything else, a Router bounce included:
 	 * a remote sender learns its message never routed only by receiving one.
@@ -136,11 +176,25 @@ export class HttpOutNode extends Node {
 	 */
 	fill( message ) {
 		this.counter++;
-		if ( this.locked ) {
-			this.buffer.push( message );
-			return;
+		this.buffer.push( message );
+		if ( ! this.locked && ! this.flushQueued ) {
+			this.flushQueued = true;
+			postTask( () => this.flushQueued && this.flush() );
 		}
-		this._post( [ message ] );
+	}
+
+	/**
+	 * POST anything still held before the node goes, so a send made in the
+	 * task that tears it down is not lost. A send that flush provokes, such
+	 * as a minter re-asking on its refusal, has no graph left to answer it,
+	 * so it is dropped rather than posted from a detached node.
+	 */
+	removeNode() {
+		this.flush();
+		super.removeNode();
+		this.stopTimer();
+		this.buffer.forEach( ( m ) => this.dropMessage( m, 'node removed' ) );
+		this.buffer = [];
 	}
 
 	/**
@@ -149,6 +203,7 @@ export class HttpOutNode extends Node {
 	 */
 	flush() {
 		this.locked = false;
+		this.flushQueued = false;
 		// The batch is over, so what it carried is over with it.
 		this.claimed.clear();
 		if ( 0 === this.buffer.length ) {
@@ -164,9 +219,11 @@ export class HttpOutNode extends Node {
 	 *
 	 * A synchronous reply is fed into the sink, which routes it by TO. A POST
 	 * that never landed answers each entry with a TM_ERROR to its minter,
-	 * since silence is indistinguishable from a 202 routed onward. A receiver
-	 * that throws does not fail the POST: every reply is still delivered, and what
-	 * the receivers threw rejects the returned promise after the last.
+	 * since silence is indistinguishable from a 202 routed onward, and so does
+	 * one that will not pack, which leaves the rest to go. A receiver that
+	 * throws does not fail the POST: every reply is still delivered, and what
+	 * the packing and the receivers threw rejects the returned promise after
+	 * the last.
 	 *
 	 * @param {Array<Array>} entries Positional command Messages, TO routed.
 	 * @return {Promise<void>} Settles once every reply is delivered.
@@ -177,22 +234,38 @@ export class HttpOutNode extends Node {
 			this.client = defaultTransport();
 		}
 		// Pack ONCE: byte tally AND the POST body; postBatch reuses them.
-		const packed = entries.map( ( m ) => pack( m ) );
+		const sendable = [];
+		const packed = [];
+		const unpacked = attemptEach( entries, ( m ) => {
+			try {
+				packed.push( pack( m ) );
+				sendable.push( m );
+			} catch ( e ) {
+				raise( [ e, ...this.answerUndelivered( [ m ], e ) ] );
+			}
+		} );
 		// Write boundary: tally the packed wire size of what we POST.
 		for ( const line of packed ) {
 			const size = byteLength( line );
 			this.bytesWritten += size;
 			this.largestMsgSent = Math.max( this.largestMsgSent, size );
 		}
-		return Promise.resolve( this.client.postBatch( entries, packed ) ).then(
+		if ( 0 === sendable.length ) {
+			return new Promise( () => raise( unpacked ) );
+		}
+		return new Promise( ( resolve ) =>
+			resolve( this.client.postBatch( sendable, packed ) )
+		).then(
 			( messages ) => {
 				// Torn down mid-flight: nothing left to route to.
 				if ( '' === this.name ) {
+					raise( unpacked );
 					return;
 				}
 				// A bare 202 resolves null: routed onward, nothing to route.
-				raise(
-					attemptEach( messages ?? [], ( message ) => {
+				raise( [
+					...unpacked,
+					...attemptEach( messages ?? [], ( message ) => {
 						// Read boundary: tally the wire size of each reply.
 						this.bytesRead += byteLength( pack( message ) );
 						this.counter++;
@@ -201,33 +274,48 @@ export class HttpOutNode extends Node {
 						}
 						this.tallyError( message );
 						this.sink?.fill( message );
-					} )
-				);
+					} ),
+				] );
 			},
 			( err ) => {
 				// Surface /command failures, rate-limited to avoid flood.
 				this.printLessOften(
 					`ERROR: HttpOut POST failed: ${ err?.message ?? err }`
 				);
-				// @longform
-				// And tell whoever minted each one. A POST that never landed
-				// answers nothing, which reads exactly like a 202 routed
-				// onward — so a node awaiting its reply would sit out its
-				// whole deadline for a failure already known here.
-				raise(
-					attemptEach(
-						entries.filter( ( sent ) => sent[ FROM ] ),
-						( sent ) =>
-							this.sink?.fill(
-								failureReply(
-									sent,
-									err?.message ?? String( err )
-								)
-							)
-					)
-				);
+				raise( [
+					...unpacked,
+					...this.answerUndelivered( sendable, err ),
+				] );
 			}
 		);
+	}
+
+	/**
+	 * Answer each command that never reached the server with a TM_ERROR to
+	 * its minter. A command that never landed answers nothing, which reads
+	 * exactly like a 202 routed onward, so a node awaiting its reply would
+	 * sit out its whole deadline for a failure already known here.
+	 *
+	 * @param {Array<Array>} sent The commands, those with no FROM skipped.
+	 * @param {*}            err  Why they never landed.
+	 * @return {Error[]} What the receivers threw.
+	 */
+	answerUndelivered( sent, err ) {
+		return attemptEach(
+			sent.filter( ( m ) => m[ FROM ] ),
+			( m ) =>
+				this.sink?.fill(
+					failureReply( m, err?.message ?? String( err ) )
+				)
+		);
+	}
+
+	/**
+	 * Cancel the flush posted for the next task. `Core.reset()` calls this on
+	 * every node, so a send held in one test cannot post in the next.
+	 */
+	stopTimer() {
+		this.flushQueued = false;
 	}
 
 	/**
@@ -313,8 +401,9 @@ export class HttpOutNode extends Node {
 	}
 
 	/**
-	 * Buffer every subsequent `fill()` until `flush()`, so one drain tick's
-	 * emissions ride out in a single request.
+	 * Hold every subsequent `fill()` for `flush()` alone, so one drain tick's
+	 * emissions ride out in a single request without the next task's flush
+	 * cutting the batch in two.
 	 */
 	lock() {
 		this.locked = true;
