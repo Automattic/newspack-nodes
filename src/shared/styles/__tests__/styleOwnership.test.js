@@ -1854,7 +1854,7 @@ describe( 'canonical appearance ownership', () => {
 		}
 	} );
 
-	it( 'preserves compact Aggregator line geometry without local label sizing', () => {
+	it( 'lays Aggregator cards out at one height, timings in a fixed grid', () => {
 		const stylesheet = compile(
 			path.join(
 				NODES_SRC,
@@ -1873,17 +1873,45 @@ describe( 'canonical appearance ownership', () => {
 		} );
 
 		expect(
+			declarationsForSelector( stylesheet, '.aggregator-status-servers' )
+		).toEqual(
+			expect.objectContaining( {
+				display: 'grid',
+				'grid-auto-rows': '1fr',
+			} )
+		);
+		expect(
+			declarationsForSelector( stylesheet, '.aggregator-status-servers' )[
+				'align-items'
+			]
+		).toBeUndefined();
+		expect(
+			declarationsForSelector(
+				stylesheet,
+				'.aggregator-fleet-probe-button'
+			)
+		).toEqual( { 'margin-top': 'auto', 'align-self': 'flex-end' } );
+		expect(
 			declarationsForSelector( stylesheet, '.aggregator-partition-line' )
-		).toEqual( expect.objectContaining( { 'font-size': '11px' } ) );
+		).toEqual(
+			expect.objectContaining( {
+				display: 'grid',
+				'grid-template-columns': 'repeat(3, minmax(0, 1fr))',
+				'font-size': '11px',
+			} )
+		);
 		expect( labelRules ).toEqual( [] );
 		expect(
 			declarationsForSelector( stylesheet, '.aggregator-stat-value' )
-		).toEqual( {
-			'font-family': 'var(--np-font-mono)',
-			display: 'inline-flex',
-			'align-items': 'center',
-			gap: '6px',
-		} );
+		).toEqual(
+			expect.objectContaining( {
+				'font-family': 'var(--np-font-mono)',
+				height: '18px',
+				overflow: 'hidden',
+				'text-overflow': 'ellipsis',
+				'white-space': 'nowrap',
+			} )
+		);
 	} );
 
 	it( 'lets the header controls span, so a widening readout moves nothing', () => {

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Every Aggregator card is the same height, with Probe at its bottom right.** A partition's timings wrapped to two lines or three depending on which readings it had, so cards in one row differed and their Probe buttons sat at different heights. The timings are now a fixed grid of five cells — attempt, reconnect or connected; server heartbeat; round trip; status; HTTP — in the same order on every card, each clipped to one line with the whole reading on hover, and a reading not yet reported shows `—` in its cell. The HTTP code has a cell of its own instead of riding beside the status badge. The grid's rows are all one height, so every one-partition card measures the same, and a card with several partitions spans one row per partition.
+
 ## [2.120.0] - 2026-10-20
 
 ### Changed

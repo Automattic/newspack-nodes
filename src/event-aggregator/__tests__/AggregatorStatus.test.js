@@ -463,7 +463,10 @@ describe( 'AggregatorStatus', () => {
 			status.querySelector( '.aggregator-response-badge' )
 		).toBeNull();
 		expect( status.textContent ).not.toContain( 'pending' );
-		expect( status.textContent ).toContain( 'HTTP 409' );
+		expect(
+			stat( container.querySelector( '.aggregator-server-card' ), 'HTTP' )
+				.textContent
+		).toBe( 'HTTP409' );
 	} );
 
 	it( 'replaces even a succeeding heartbeat badge, the error being the reading that matters', () => {
@@ -595,8 +598,8 @@ describe( 'AggregatorStatus', () => {
 		expect( errLine.textContent ).toContain( 'timed out' );
 		expect( errLine.textContent ).not.toContain( 'HTTP 504' );
 		expect(
-			container.querySelector( '.aggregator-http-code' ).textContent
-		).toContain( 'HTTP 504' );
+			stat( partitionLine( container, 'p1' ), 'HTTP' ).textContent
+		).toBe( 'HTTP504' );
 	} );
 
 	it( "rails each card by its worst partition's health", () => {
@@ -983,7 +986,7 @@ describe( 'AggregatorStatus', () => {
 			'37.3ms',
 			'3s ago',
 			'success',
-			'HTTP 207',
+			'207',
 		] ) {
 			expect( lines[ 0 ].textContent ).toContain( reading );
 		}
@@ -998,6 +1001,113 @@ describe( 'AggregatorStatus', () => {
 			[ 'firehose 1.5 KB', 'firehose 14:9021' ],
 			[ 'php 67 MB', 'sources:php :40913' ],
 		] );
+	} );
+
+	it( 'lays every partition out as the same five cells, a dash for each absent value', () => {
+		registerSlices( {
+			summary: { serverNow: IDLE_CLOCK, loading: false },
+			servers: {
+				servers: [
+					{
+						id: 'yak-1',
+						url: 'https://yak.example.test',
+						partitions: {
+							0: {
+								connected: true,
+								last_connection_attempt: IDLE_CLOCK - 130,
+								last_sse_heartbeat: IDLE_CLOCK - 9,
+								last_response: IDLE_CLOCK - 3,
+								last_rtt: 37.25,
+								last_http_code: 207,
+							},
+						},
+					},
+					{
+						id: 'yak-2',
+						url: 'https://yak2.example.test',
+						partitions: {
+							0: {
+								connected: false,
+								scheduled_reconnect_at: IDLE_CLOCK + 11,
+							},
+						},
+					},
+					{
+						id: 'yak-3',
+						url: 'https://yak3.example.test',
+						partitions: {
+							0: {
+								connected: false,
+								connecting: true,
+								last_connection_attempt: IDLE_CLOCK - 4,
+							},
+						},
+					},
+				],
+				loading: false,
+			},
+		} );
+		const { container } = mount();
+		const cells = [
+			...container.querySelectorAll( '.aggregator-server-card' ),
+		].map( ( card ) =>
+			[
+				...card.querySelectorAll(
+					'.aggregator-partition-line .aggregator-stat'
+				),
+			].map( ( cell ) => [
+				cell.querySelector( '.newspack-nodes-stat-label' ).textContent,
+				cell.querySelector( '.newspack-nodes-stat-value' ).textContent,
+			] )
+		);
+
+		expect( cells ).toEqual( [
+			[
+				[ 'Connected', '2m ago' ],
+				[ 'Server HB', '9s ago' ],
+				[ 'Round trip', '37.3ms 3s ago' ],
+				[ 'Status', 'success' ],
+				[ 'HTTP', '207' ],
+			],
+			[
+				[ 'Reconnects', 'in 11s' ],
+				[ 'Server HB', '—' ],
+				[ 'Round trip', '—' ],
+				[ 'Status', 'pending' ],
+				[ 'HTTP', '—' ],
+			],
+			[
+				[ 'Attempt', '4s ago' ],
+				[ 'Server HB', '—' ],
+				[ 'Round trip', '—' ],
+				[ 'Status', 'pending' ],
+				[ 'HTTP', '—' ],
+			],
+		] );
+	} );
+
+	it( 'spans a grid row per partition, so the uniform rows stay one card tall', () => {
+		registerSlices( {
+			servers: {
+				servers: [
+					...SAMPLE_SERVERS,
+					{
+						id: 'ibex-3',
+						url: 'https://ibex.example.test',
+						partitions: { 0: {}, 1: {}, 2: {} },
+					},
+					...CONNECTED_AND_BROKEN,
+				],
+				loading: false,
+			},
+		} );
+		const { container } = mount();
+
+		expect(
+			[ ...container.querySelectorAll( '.aggregator-server-card' ) ].map(
+				( card ) => card.style.gridRow
+			)
+		).toEqual( [ 'span 2', '', 'span 3', '' ] );
 	} );
 
 	it( 'lists one labelled line per partition and sums them in the header badge', () => {
