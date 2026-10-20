@@ -84,8 +84,9 @@ export function nextBoundary( after, intervalMs ) {
  * one of 1000ms or more, registers 'TIMER' on `_router` and rides the tick the
  * graph already pays for, `fireCb()` throttling that ride down to the cadence
  * the node asked for. Everything else — a sub-second cadence, an unnamed node,
- * the Router itself — takes a `setInterval` slot of its own and needs a
- * concrete interval.
+ * the Router itself — takes a slot of its own and needs a concrete interval:
+ * a `setInterval`, or for the Router a timeout re-armed for just after each
+ * grid boundary.
  *
  * The hitchhike is a DIRECT call: `RouterNode.notifyTimer()` resolves each
  * registered name to its node and calls `fireCb()` on it. No message is routed,
@@ -103,8 +104,10 @@ export class TimerNode extends Node {
 	 */
 	constructor() {
 		super();
-		// The setInterval handle of an own slot; null whenever none is armed.
+		// The own slot's timer handle; null whenever none is armed.
 		this._handle = null;
+		// The grid boundary the Router's armed tick is due at; 0 before one.
+		this._tickAt = 0;
 		// An own property, so SchemaReflection can assign the declared arg.
 		this.interval_ms = 0;
 		// 'inactive' | 'event_framework' (own slot) | 'router' (hitchhike).
@@ -173,8 +176,9 @@ export class TimerNode extends Node {
 	 * cadence reads the same grid with a tenth of a tick's slack: it skips a
 	 * tick landing more than 0.1s short of the boundary after its last fire,
 	 * such as an extra one `requestTick()` asked for, so a tick at least 0.9s
-	 * after the last fire always fires, and a late fire costs the next cadence
-	 * tick nothing unless it ran late past a boundary. A tick within that
+	 * after the last fire always fires. The Router ticks just after each
+	 * boundary, so a fire stamped late costs the next tick nothing unless it
+	 * was stamped after the boundary that tick is due at. A tick within that
 	 * tenth fires, so an extra tick just short of the boundary and the cadence
 	 * tick after it both fire.
 	 * An own slot already fires at `interval_ms` and skips both tests. Every
@@ -234,8 +238,8 @@ export class TimerNode extends Node {
 	/**
 	 * Arm the timer in one of the two modes. A named non-Router node asking
 	 * for no interval, or for one of at least 1000ms, registers 'TIMER' on
-	 * `_router` and rides its tick; everything else takes its own setInterval
-	 * slot, which requires a concrete interval. Any live slot is cleared
+	 * `_router` and rides its tick; everything else takes a slot of its own,
+	 * which requires a concrete interval. Any live slot is cleared
 	 * first, so re-arming never leaks one.
 	 *
 	 * `oneshot` is for a ONE-TIME wakeup — a debounce, a deadline, a
@@ -287,7 +291,7 @@ export class TimerNode extends Node {
 			this.oneshot = oneshot;
 			return;
 		}
-		// Clear any live slot before re-arming, else a setInterval leaks.
+		// Clear any live slot before re-arming, else its timer leaks.
 		if ( 'router' === this.mode || null !== this._handle ) {
 			this.stopTimer();
 		}
@@ -295,15 +299,41 @@ export class TimerNode extends Node {
 			// Own-slot needs a concrete interval; only isRouter reaches null.
 			throw new Error( 'Own-slot timer requires an interval (ms)' );
 		}
-		this._handle = setInterval( () => this.fireCb(), ms );
 		this.interval_ms = ms;
 		this.mode = 'event_framework';
 		// After the re-arm stopTimer above, which resets the flag.
 		this.oneshot = oneshot;
+		if ( this.isRouter ) {
+			this._tickAt = 0;
+			this._armGridTick();
+		} else {
+			this._handle = setInterval( () => this.fireCb(), ms );
+		}
 	}
 
 	/**
-	 * Disarm before teardown, so neither a setInterval slot nor a Router
+	 * Arm the Router's next tick for just after the next grid boundary, past
+	 * both now and the boundary the last tick was due at: a late tick does not
+	 * shift the next, and no boundary ticks twice. The next tick is armed
+	 * before this one fires, so a tick that throws still leaves the next.
+	 */
+	_armGridTick() {
+		const now = Core.now();
+		this._tickAt = nextBoundary(
+			Math.max( now, this._tickAt ),
+			this.interval_ms
+		);
+		this._handle = setTimeout(
+			() => {
+				this._armGridTick();
+				this.fireCb();
+			},
+			Math.ceil( ( this._tickAt - now ) * 1000 )
+		);
+	}
+
+	/**
+	 * Disarm before teardown, so neither an own slot nor a Router
 	 * 'TIMER' registration outlives the node.
 	 */
 	removeNode() {
@@ -313,7 +343,7 @@ export class TimerNode extends Node {
 
 	/**
 	 * Disarm whichever slot is active — unregister from the Router's 'TIMER'
-	 * list, or clear the interval handle — and reset `interval_ms` and the
+	 * list, or clear the slot's handle — and reset `interval_ms` and the
 	 * oneshot flag. Stopping from inside a fire is safe: the Router iterates a
 	 * snapshot of its registration keys.
 	 */
@@ -330,7 +360,7 @@ export class TimerNode extends Node {
 			return;
 		}
 		if ( null !== this._handle ) {
-			clearInterval( this._handle );
+			( this.isRouter ? clearTimeout : clearInterval )( this._handle );
 			this._handle = null;
 		}
 	}

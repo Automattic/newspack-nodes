@@ -215,7 +215,7 @@ class Event_Framework {
 				if ( $node->oneshot ) {
 					unset( $this->timers[ $id ] );
 				} else {
-					$node->next_fire = Core::$now + ( $node->interval_ms / 1000.0 );
+					$node->next_fire = $node->next_fire_after( Core::$now );
 				}
 				$node->fire_cb();
 			}
@@ -289,6 +289,8 @@ class Event_Framework {
 	 *
 	 * Yields IDLE_TIMEOUT_US when no timer is armed, and 0 when one is already
 	 * overdue, which drops the tick's wait to nothing so the timer fires at once.
+	 * It rounds up, so a wait never ends a fraction of a microsecond short of
+	 * a fire time that is not a whole microsecond away, as a grid boundary is.
 	 *
 	 * @return int Microseconds, never negative.
 	 */
@@ -298,7 +300,7 @@ class Event_Framework {
 		}
 		$soonest = PHP_INT_MAX;
 		foreach ( $this->timers as $t ) {
-			$delta_us = (int) ( ( $t->next_fire - Core::$now ) * 1_000_000 );
+			$delta_us = (int) \ceil( ( $t->next_fire - Core::$now ) * 1_000_000 );
 			if ( $delta_us < $soonest ) {
 				$soonest = $delta_us;
 			}
@@ -577,7 +579,7 @@ class Event_Framework {
 	public function set_timer( Timer_Node $node ): void {
 		$id = \spl_object_id( $node );
 		// Seed next_fire; else it stays 0.0 and the timer busy-loops.
-		$node->next_fire     = Core::$now + ( $node->interval_ms / 1000.0 );
+		$node->next_fire     = $node->next_fire_after( Core::$now );
 		$this->timers[ $id ] = $node;
 	}
 

@@ -61,6 +61,40 @@ class EventFrameworkTest extends TestCase {
 		$this->assertGreaterThan( 0, $timer_node->fired );
 	}
 
+	/**
+	 * A fire time a fraction of a microsecond away is waited out in one sleep,
+	 * not spun on: the wait rounds up.
+	 */
+	public function test_a_fire_time_short_of_a_whole_microsecond_is_waited_out(): void {
+		$t                                      = 1700.25;
+		\Newspack_Nodes\Core::$clock           = static function () use ( &$t ): float {
+			return $t;
+		};
+		\Newspack_Nodes\Event_Framework::$sleep = static function ( int $us ) use ( &$t ): void {
+			$t += $us / 1_000_000;
+		};
+		\Newspack_Nodes\Core::right_now();
+		$timer_node = new class() extends \Newspack_Nodes\Timer_Node {
+			public int $fired = 0;
+			public function fire_cb(): void {
+				++$this->fired;
+			}
+		};
+		$timer_node->interval_ms = 1000;
+		$ef                      = Event_Framework::instance();
+		$ef->set_timer( $timer_node );
+		$timer_node->next_fire = 1700.2500004;
+
+		$loops = 0;
+		$ef->drain(
+			static function () use ( $timer_node, &$loops ): bool {
+				return 0 === $timer_node->fired && ++$loops < 4;
+			}
+		);
+
+		$this->assertSame( 1, $timer_node->fired );
+	}
+
 	public function test_oneshot_timer_fires_exactly_once(): void {
 		$ef = Event_Framework::instance();
 

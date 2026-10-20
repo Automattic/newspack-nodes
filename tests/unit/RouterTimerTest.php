@@ -230,4 +230,105 @@ class RouterTimerTest extends TestCase {
 		$this->assertSame( 0, $timer->counter(), 'stop_timer must unregister immediately so the Timer never fires' );
 		$this->assertSame( 'inactive', $timer->timer_mode());
 	}
+
+	/** The Router's own ticks land on the grid's boundaries, whatever the arming phase. */
+	public function test_the_router_ticks_on_grid_boundaries_from_any_start_phase(): void {
+		$ticks = $this->router_ticks( 1700.73, 3 );
+
+		$this->assertSame( [ 1701.36, 1702.36, 1703.36 ], $this->to_the_microsecond( $ticks ) );
+	}
+
+	/** A late tick does not shift the ones after it. */
+	public function test_a_late_router_tick_does_not_shift_the_next(): void {
+		$ticks = $this->router_ticks( 1700.73, 3, 0.3 );
+
+		$this->assertSame( [ 1701.36, 1702.66, 1703.36 ], $this->to_the_microsecond( $ticks ), 'only the second tick is late' );
+	}
+
+	/**
+	 * With the tick on the grid, a one-second timer whose fire was stamped late
+	 * by slow work ahead of it in the same tick still fires on the next tick.
+	 * Off the grid, the same 0.7s carried the fire past a boundary and cost it.
+	 */
+	public function test_an_aligned_tick_fires_a_one_second_timer_stamped_late_in_its_tick(): void {
+		$probe = null;
+		$ticks = $this->router_ticks( 1700.73, 2, 0.0, $probe, 0.7 );
+
+		$this->assertSame( [ 1701.36, 1702.36 ], $this->to_the_microsecond( $ticks ) );
+		$this->assertSame( 2, $probe->get_fire_count(), 'it fires on both ticks' );
+	}
+
+	/**
+	 * Tick times to the microsecond: a wait rounds up, so a tick lands at most
+	 * a microsecond past its boundary.
+	 *
+	 * @param list<float> $ticks Tick times, in seconds.
+	 * @return list<float> The same, rounded.
+	 */
+	private function to_the_microsecond( array $ticks ): array {
+		return \array_map( static fn ( float $t ): float => \round( $t, 6 ), $ticks );
+	}
+
+	/**
+	 * Arm a Router on a clock the test holds, from `$start`, with two
+	 * hitchhikers at the tick's own cadence — the first records each tick and
+	 * does the tick's work, the probe behind it — and drain until it has
+	 * ticked `$count` times.
+	 *
+	 * @param float           $start Where the clock starts.
+	 * @param int             $count Ticks to drain.
+	 * @param float           $late  Seconds the wait after the first tick oversleeps.
+	 * @param Timer_Node|null $probe Out: the hitchhiker the ticks fired.
+	 * @param float           $work  Seconds a hitchhiker ahead of the probe moves
+	 *                               the clock on during the first tick.
+	 * @return list<float> The clock at each Router tick.
+	 */
+	private function router_ticks( float $start, int $count, float $late = 0.0, ?Timer_Node &$probe = null, float $work = 0.0 ): array {
+		$t                      = $start;
+		$waits                  = 0;
+		Core::$clock            = static function () use ( &$t ): float {
+			return $t;
+		};
+		Event_Framework::$sleep = static function ( int $us ) use ( &$t, &$waits, $late ): void {
+			$t += $us / 1_000_000 + ( 1 === $waits ? $late : 0.0 );
+			++$waits;
+		};
+		Core::right_now();
+		Core::$secure_level = 1;
+		$router             = new Router_Node();
+		$router->name( '_router' );
+		$router->set_timer( Router_Node::DEFAULT_TICK_MS );
+		$slow       = new Timer_Node();
+		$slow->name( 'kea-slow-work' );
+		$slow_sink     = new class() extends Capture_Sink_Node {
+			/** @var \Closure(): void Runs on each fill. */
+			public \Closure $on_fill;
+
+			public function fill( array $message ): void {
+				( $this->on_fill )();
+			}
+		};
+		$ticks              = [];
+		$slow_sink->on_fill = static function () use ( &$t, &$work, &$ticks ): void {
+			$ticks[] = Core::$now;
+			$t      += $work;
+			$work = 0.0;
+			Core::right_now();
+		};
+		$slow->sink( $slow_sink );
+		$slow->set_timer();
+		$probe = new Timer_Node();
+		$probe->name( 'kiwi-probe' );
+		$probe->sink( new Capture_Sink_Node() );
+		$probe->set_timer();
+
+		$loops = 0;
+		Event_Framework::instance()->drain(
+			static function () use ( $count, &$ticks, &$loops ): bool {
+				return \count( $ticks ) < $count && ++$loops < 50;
+			}
+		);
+		$router->stop_timer();
+		return $ticks;
+	}
 }

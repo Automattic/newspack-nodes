@@ -466,21 +466,18 @@ class TimerTest extends TestCase {
 	}
 
 	/**
-	 * A fire stamped late enough to cross the next boundary still costs a
-	 * tick landing more than a tenth of a tick before the boundary after it.
+	 * A fire stamped late past a boundary still fires on the next tick, which
+	 * the Router lands just after the boundary following it.
 	 */
-	public function test_a_tick_cadence_hitchhike_late_past_a_boundary_skips_the_next_tick(): void {
+	public function test_a_tick_cadence_hitchhike_late_past_a_boundary_fires_on_the_next_tick(): void {
 		$timer = $this->hitchhiker( 'ruru-crossed', 1000, null );
 
 		Core::$now = 1701.41;
 		$timer->fire_cb();
-		Core::$now = 1701.86;
+		Core::$now = 1702.37;
 		$timer->fire_cb();
-		$this->assertSame( 1, $timer->get_fire_count(), 'short of 1702.26' );
 
-		Core::$now = 1702.86;
-		$timer->fire_cb();
-		$this->assertSame( 2, $timer->get_fire_count(), 'the tick after it fires' );
+		$this->assertSame( 2, $timer->get_fire_count() );
 		$timer->stop_timer();
 	}
 

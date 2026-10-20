@@ -38,9 +38,11 @@ import names from './reserved-node-names.json';
  * The value is load-bearing at both ends. `TimerNode.setTimer()` sends any
  * interval of at least 1000ms to the Router rather than to a slot of its own,
  * and `TimerNode.fireCb()` throttles a hitchhiker above it to its grid, and
- * one at exactly this cadence to the same grid less a tenth of a tick — so a
- * poller armed at this cadence fires on every cadence tick unless the fire
- * before it ran late past a grid boundary.
+ * one at exactly this cadence to the same grid less a tenth of a tick. The
+ * Router's own tick lands just after each boundary of that grid, so a poller
+ * armed at this cadence fires on every tick unless its last fire was stamped
+ * after the boundary that tick is due at, which takes a tick whose work ran
+ * past a whole second.
  */
 export const ROUTER_TICK_MS = 1000;
 
@@ -101,8 +103,9 @@ export class RouterNode extends TimerNode {
 	static _profileStack = [];
 
 	/**
-	 * Arm the Router's own 1s slot. Every other Timer hitchhikes that tick, so
-	 * the Router cannot hitchhike itself — `isRouter` is what opts it out.
+	 * Arm the Router's own slot, ticking just after each boundary of the 1s
+	 * grid. Every other Timer hitchhikes that tick, so the Router cannot
+	 * hitchhike itself — `isRouter` is what opts it out.
 	 */
 	constructor() {
 		super();

@@ -28,7 +28,7 @@
 <div class="seq" id="seq">
 <svg class="wire" id="wire"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#003DA5"/></marker></defs></svg>
 
-<div class="lane card" data-lane="0"><h3><span class="mono">_router</span></h3><p>Fires every <span class="mono">ROUTER_TICK_MS</span>, 1,000 ms, on its own slot.</p></div>
+<div class="lane card" data-lane="0"><h3><span class="mono">_router</span></h3><p>Fires just after each <span class="mono">ROUTER_TICK_MS</span> boundary of the 1,000 ms grid, on its own slot.</p></div>
 <div class="lane card" data-lane="1"><h3>Timer → Tee</h3><p><span class="mono">insights:timer</span> rides the Router's TIMER channel; <span class="mono">insights:tee</span> fans its tick.</p></div>
 <div class="lane card" data-lane="2"><h3>Three Fetchers</h3><p>Each holds one configured verb and an outbox of asks in flight.</p></div>
 <div class="lane card" data-lane="3"><h3><span class="mono">insights:shell</span> → <span class="mono">_http</span></h3><p>The group's observe-only Tap, then the <span class="mono">HttpOut</span> egress that buffers while locked.</p></div>
@@ -36,7 +36,7 @@
 
 <div class="hop" data-arrow="0,3" data-cap="lock()" data-span="0,3"><span class="n">1</span><span class="mono">RouterNode.fireCb()</span> opens the bracket: <span class="mono">_http.lock()</span>, so every <span class="mono">fill()</span> reaching <span class="mono">_http</span> buffers instead of posting.</div>
 
-<div class="hop" data-arrow="0,1" data-cap="notifyTimer()" data-span="0,3"><span class="n">2</span><span class="mono">notifyTimer()</span> calls each TIMER registrant's <span class="mono">fireCb()</span> directly. A cadence of exactly 1,000 ms fires on every tick unless the fire before it ran late past a grid boundary; above it the Timer throttles to its interval on the shared wall-clock grid (ADR-17), so two surfaces on one cadence meet on the same tick.</div>
+<div class="hop" data-arrow="0,1" data-cap="notifyTimer()" data-span="0,3"><span class="n">2</span><span class="mono">notifyTimer()</span> calls each TIMER registrant's <span class="mono">fireCb()</span> directly. A cadence of exactly 1,000 ms fires on every tick unless its last fire was stamped after the boundary that tick is due at; above it the Timer throttles to its interval on the shared wall-clock grid (ADR-17), so two surfaces on one cadence meet on the same tick.</div>
 
 <div class="hop" data-arrow="1,2" data-cap="trigger ×3" data-span="1,3"><span class="n">3</span>The Tee fans the tick to the three Fetchers. A Fetcher reads nothing off its trigger: type, VALUE and addressing are ignored.</div>
 

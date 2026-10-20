@@ -554,13 +554,10 @@ describe( 'hitchhike + throttle (setTimer(ms) with ms >= 1000)', () => {
 			t.stopTimer();
 		} );
 
-		test( 'a fire late past the next boundary costs a tick landing well short of the one after', () => {
+		test( 'a fire late past a boundary fires on the next tick, just after the boundary after it', () => {
 			const { r, t } = tickTimer( 'ruru:crossed', 1000 );
-			// Ticks at half past the boundary; this fire ran 0.55s late.
 			tickAt( r, kereru + 1050 );
-			tickAt( r, kereru + 1500 );
-			expect( t.fireCount ).toBe( 1 );
-			tickAt( r, kereru + 2500 );
+			tickAt( r, onTick + 2000 );
 			expect( t.fireCount ).toBe( 2 );
 			t.stopTimer();
 		} );

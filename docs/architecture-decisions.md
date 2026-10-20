@@ -1117,8 +1117,12 @@ bucket rotation survive a process restart with its predecessor's phase intact. T
 held to it by `tests/fixtures/grid-boundaries.json`. In both ports a timer whose interval
 equals the Router's tick reads the grid less a tenth of a tick: it skips a tick landing more
 than that short of the boundary after its last fire, so an extra tick asked for early in the
-second skips while a late fire leaves the next cadence tick its fire unless it ran late past a
-boundary. A PHP timer slower than the tick paces from its last fire, less a tenth of a tick.
+second skips. The Router's own tick lands just after each boundary of the same grid in both
+ports — a `setTimeout` re-armed for the next boundary in JS, `Timer_Node::next_fire_after()` in
+`Event_Framework` — never twice for one boundary, and a late tick does not shift the next. A
+fire stamped late in its tick therefore leaves the next tick its fire, unless it was stamped
+after the boundary that tick is due at. A PHP timer slower than the tick paces from its last
+fire, less a tenth of a tick.
 
 **Alternatives considered:** Pacing each timer from its own last fire — rejected: when a
 surface opens then decides which second it polls in, so a 5s catalog opened at :02 and another
