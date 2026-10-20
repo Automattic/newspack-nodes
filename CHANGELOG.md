@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.120.0] - 2026-10-20
+
 ### Changed
 - **The station's Aggregator tab lays its spokes out as a grid of compact cards.** Each spoke was a full-width card holding a card per partition and a row per reader, so a spoke with its usual one partition was mostly empty and seven filled a screen. A card now carries the spoke id and its connection badge, its host (the full URL on hover), one line of timings per partition — since when it streams, the server heartbeat, the round trip with its verdict, and the status with its HTTP code or the error that explains it — one line of its readers' lag, each reader's stamp and cursor on hover, and the Probe button. The grid sets as many cards across as the width holds, at least 300 px each. A spoke with several partitions labels each line `p0`, `p1` and so on with that partition's own badge, and its header badge sums them as `<up>/<total> up`, counting idle as up. The card's left rail takes its worst partition's health, so one partition down marks the card.
 
