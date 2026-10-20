@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **The Event Timeline's trace button stays out of the REPL, as the Profiler's profile button does.** It sent `trace * 1` as a typed command, so the command and its `debug_state 1 on <n> nodes` reply joined the REPL transcript the timeline itself parses. It now sends through `sendFromUi()`, the Profiler's path moved into a named export of `ProfilerView`: minted by `_metadata`, FROM bare `_ui`, TO `_cwd`, and echoed with its reply only while `debug_ui` is on. The Inspector's Trace and Profiling toggles stay REPL commands.
+
+### Removed
+- **The debug overlay no longer stores `debug_level` or the interpreter's `debug_state`.** A reload starts the REPL's verbosity and the browser's nodes' trace levels at 0; a worker's nodes keep a level a `trace` set until that worker restarts. `consolePersistence` drops `loadDebugLevel()`, `saveDebugLevel()`, `loadDebugState()` and `saveDebugState()`; the transcript, the history and the `debug_ui` choice are still stored.
+
 ## [2.117.1] - 2026-10-19
 
 ### Removed

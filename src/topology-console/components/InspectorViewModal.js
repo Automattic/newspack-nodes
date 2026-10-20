@@ -18,9 +18,10 @@ import { useEffect, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { ModalShell } from './Modal';
 import RuntimeView from './RuntimeView';
-import ProfilerView from './ProfilerView';
+import ProfilerView, { sendFromUi } from './ProfilerView';
 import TimelineView from './TimelineView';
 import TriageView from './TriageView';
+import { Core } from '../../runtime/core';
 import { useNodeField } from '../../runtime/react';
 import names from '../../runtime/reserved-node-names.json';
 
@@ -48,7 +49,10 @@ const VIEW_TITLES = {
  * The Timeline body: the transcript subscription plus the all-nodes Trace
  * toggle. Only a traced node emits the `DEBUG:` lines the timeline parses, so
  * the switch that fills the grid sits beside it. The toggle sends `trace * 0`
- * or `trace * 1` and reads tracing as on when any node reports a `debugState`
+ * or `trace * 1` through `sendFromUi()`, as the Profiler's button sends
+ * `profile`, so neither the command nor its reply joins the transcript the
+ * grid parses unless `debug_ui` is on; the Inspector's own Trace toggle stays
+ * a REPL command. Tracing reads as on when any node reports a `debugState`
  * above zero.
  *
  * `_metadata` needs a poll or two to report the new level, so the button holds
@@ -59,11 +63,9 @@ const VIEW_TITLES = {
  * The effect keys on `metadata` alone so that each poll costs one tolerance;
  * adding `optimistic` to the deps would spend it on the render that set it.
  *
- * @param {Object}   props
- * @param {Function} [props.onAction] Console action dispatcher; sends the trace verb.
  * @return {import('react').ReactElement} The timeline grid, with the toggle in its filter row.
  */
-function TimelineHost( { onAction } ) {
+function TimelineHost() {
 	const transcript =
 		useNodeField( names.OUTPUT, 'transcript' ) ?? EMPTY_TRANSCRIPT;
 	const metadata = useNodeField( names.METADATA, 'metadata' );
@@ -86,9 +88,14 @@ function TimelineHost( { onAction } ) {
 	}, [ metadata ] );
 	const traceOn = null !== optimistic ? optimistic : serverTraceOn;
 	const toggleTrace = () => {
+		const level = traceOn ? 0 : 1;
 		disagreeRef.current = 0;
 		setOptimistic( ! traceOn );
-		onAction?.( 'trace', '*', traceOn ? 0 : 1 );
+		const poller = Core.node( names.METADATA );
+		if ( sendFromUi( poller, 'trace', [ '*', String( level ) ] ) ) {
+			// Reflect the level now; `*` fans out in ONE publish.
+			poller.optimisticPatchAll( { debug_state: level } );
+		}
 	};
 	return (
 		<TimelineView
@@ -129,7 +136,7 @@ function TimelineHost( { onAction } ) {
  * @param {Object}   props
  * @param {string}   props.view       Which body to render.
  * @param {Object}   [props.node]     The selected node; Triage reads its dead-letter queue.
- * @param {Function} [props.onAction] Console action dispatcher, handed to Timeline and Triage.
+ * @param {Function} [props.onAction] Console action dispatcher, handed to Triage.
  * @return {import('react').ReactElement} The body for this view.
  */
 function ViewBody( { view, node, onAction } ) {
@@ -142,7 +149,7 @@ function ViewBody( { view, node, onAction } ) {
 	if ( 'triage' === view ) {
 		return <TriageView node={ node } onAction={ onAction } />;
 	}
-	return <TimelineHost onAction={ onAction } />;
+	return <TimelineHost />;
 }
 
 /**
@@ -154,7 +161,7 @@ function ViewBody( { view, node, onAction } ) {
  * @param {string|null} props.view       Which view to open: `runtime`, `stats`, `timeline` or `triage`; null or an unknown key means closed.
  * @param {Object}      [props.node]     The selected node, whose dead-letter queue Triage reads.
  * @param {() => void}  props.onDismiss  Runs on ESC, backdrop click and the close button.
- * @param {Function}    [props.onAction] Console action dispatcher for Timeline's trace verb and Triage's dead-letter verbs.
+ * @param {Function}    [props.onAction] Console action dispatcher for Triage's dead-letter verbs.
  * @return {import('react').ReactElement|null} The modal, or null when closed.
  */
 export default function InspectorViewModal( {

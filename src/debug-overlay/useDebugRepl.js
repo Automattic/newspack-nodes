@@ -13,8 +13,8 @@
  * transcript or the verbosity dial — the transcript is a Dumper field read
  * through `useNodeField`, the dial a state slot read through `useNodeState` —
  * while
- * localStorage carries the transcript, the debug level and the interpreter's
- * `debug_state` across a reload.
+ * localStorage carries the transcript and the `debug_ui` choice across a
+ * reload; the debug level and every `debug_state` start at 0.
  */
 
 import {
@@ -42,12 +42,8 @@ import { THEMES, getStoredTheme } from '../topology-console/themes';
 import {
 	loadTranscript,
 	saveTranscript,
-	loadDebugLevel,
-	saveDebugLevel,
 	loadDebugUi,
 	saveDebugUi,
-	loadDebugState,
-	saveDebugState,
 } from '../topology-console/core/consolePersistence';
 
 /**
@@ -125,8 +121,8 @@ function wireStdout( shell, dumper, onSetSkin ) {
  * in the local realm.
  *
  * @param {Object}   shell         Shell owned by the overlay's Inspector tab.
- * @param {Object}   debugLevelRef Ref carrying the restored REPL verbosity; the
- *                                 Dumper reads it per delivered message.
+ * @param {Object}   debugLevelRef Ref carrying the REPL verbosity; the Dumper
+ *                                 reads it per delivered message.
  * @param {Function} onSetSkin     Applies a resolved skin slug.
  * @return {{ dumper: Object, gate: OutgoingGateNode, teardown: Function }} The
  *   `_output` Dumper, the gate bound as `shell.sink`, and a teardown that drops
@@ -157,7 +153,7 @@ function buildInfra( shell, debugLevelRef, onSetSkin ) {
 	dumper.debugLevelRef = debugLevelRef;
 	dumper.name = names.OUTPUT;
 	dumper.sink = interpreter;
-	// Publish the restored level so the Verbose toggle reads it like any slice.
+	// Publish the level so the Verbose toggle reads it like any slice.
 	dumper.setDebugLevel( debugLevelRef.current );
 	dumper.setDebugUi( loadDebugUi() );
 	// These listeners only persist; React reads the Dumper through the hooks.
@@ -166,19 +162,11 @@ function buildInfra( shell, debugLevelRef, onSetSkin ) {
 		saveTranscript( dumper.transcript );
 		return true;
 	} );
-	dumper.register( 'debug_level', listenerId, ( next ) => {
-		saveDebugLevel( next );
-		return true;
-	} );
 	dumper.register( 'debug_ui', listenerId, ( next ) => {
 		saveDebugUi( next );
 		return true;
 	} );
-	// Seed the transcript and interpreter debug_state from storage.
 	dumper.restore( loadTranscript() );
-	if ( interpreter ) {
-		interpreter.debugState = loadDebugState();
-	}
 	let completion;
 	let metadata;
 	let cwdNode;
@@ -201,7 +189,6 @@ function buildInfra( shell, debugLevelRef, onSetSkin ) {
 	const teardown = () => {
 		aimHttp( names.NULL );
 		dumper.unregister( 'transcript', listenerId );
-		dumper.unregister( 'debug_level', listenerId );
 		dumper.unregister( 'debug_ui', listenerId );
 		stdout.removeNode();
 		// metadata.removeNode() stops its timer, unregistering it from _router.
@@ -236,16 +223,14 @@ function buildInfra( shell, debugLevelRef, onSetSkin ) {
  *   until mounted, for the Reset Graph tap; `append` and `clear` write the
  *   transcript directly, `cwd` mirrors `shell.path` and `setPath` changes it,
  *   `ready` is true once the infra nodes are mounted, and `debugLevel` is the
- *   persisted REPL verbosity.
+ *   REPL verbosity.
  */
 export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 	// Stable refs so re-renders don't rebuild the Shell or remap the Dumper.
 	const shellRef = useRef( null );
 	const dumperRef = useRef( null );
-	// Seeded from localStorage so verbosity survives a reload.
-	const debugLevelRef = useRef( loadDebugLevel() );
-	// Last-persisted debug_state; sendLine writes only on change.
-	const lastDebugStateRef = useRef( loadDebugState() );
+	// The verbosity dial the Dumper reads per message; 0 on every mount.
+	const debugLevelRef = useRef( 0 );
 	// A ref, so the memoized build always calls the live skin applier.
 	const onSetSkinRef = useRef( onSetSkin );
 	onSetSkinRef.current = onSetSkin;
@@ -359,8 +344,8 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 
 	/**
 	 * THE dispatch path: split a typed line into statements, run each one, and
-	 * do the bookkeeping a line can trigger — mirror a `cd` onto `_cwd` and the
-	 * reactive cwd, and persist the `debug_state` a `trace` moved.
+	 * do the bookkeeping a line can trigger: mirror a `cd` onto `_cwd` and the
+	 * reactive cwd.
 	 *
 	 * A held continuation — an open quote or a trailing backslash — owns the
 	 * whole next line, so the line is not split on `;`. That semicolon is part
@@ -387,13 +372,6 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 				// A new directory repaints now, not at the end of the cadence.
 				Core.node( names.METADATA )?.markDue();
 				setCwd( s.path );
-			}
-			// `trace` mutates the interpreter's debug_state; persist it.
-			const ci = Core.node( names.COMMAND_INTERPRETER );
-			const ds = ci ? ci.debugState ?? 0 : 0;
-			if ( ds !== lastDebugStateRef.current ) {
-				lastDebugStateRef.current = ds;
-				saveDebugState( ds );
 			}
 		},
 		[ dispatchStatement, cwd ]

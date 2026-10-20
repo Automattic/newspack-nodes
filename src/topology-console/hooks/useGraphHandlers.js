@@ -217,9 +217,9 @@ function composeMessage( form, shell ) {
  *
  * Every gesture but `invoke` and a compose becomes a command line handed to
  * `dispatch`, which both consumers point at their own `sendLine`. That is the
- * path the REPL prompt uses, and it owns the transcript echo, the cwd mirror
- * and the `debug_state` persist; a second dispatch path would let a gesture
- * such as `trace` skip all three.
+ * path the REPL prompt uses, and it owns the transcript echo and the cwd
+ * mirror; a second dispatch path would let a gesture such as `trace` skip
+ * both.
  *
  * A compose mints its own message through `shell.envelope()`, asks `sseGuard`,
  * and signs it; then `sendMinted()`, the send tail it shares with `invoke`,

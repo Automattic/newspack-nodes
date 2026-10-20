@@ -10,6 +10,7 @@ import { Core } from '../../../runtime/core';
 import { DumperNode } from '../../../runtime/dumper-node';
 import names from '../../../runtime/reserved-node-names.json';
 import { MetadataNode } from '../../../runtime/metadata-node';
+import { FROM, TO, VALUE } from '../../../runtime/message';
 import InspectorViewModal from '../InspectorViewModal';
 
 beforeEach( () => {
@@ -89,8 +90,19 @@ function seedMetadata( nodes ) {
 	act( () => meta.setField( 'metadata', { nodes, edges: [], pwd: '' } ) );
 }
 
+// The interpreter's fills, captured; it answers nothing.
+function captureInterpreter() {
+	const sent = [];
+	Core.registerNode( names.COMMAND_INTERPRETER, {
+		name: names.COMMAND_INTERPRETER,
+		fill: ( m ) => sent.push( m ),
+	} );
+	return sent;
+}
+
 test( 'the Timeline view carries the all-nodes Trace toggle; Runtime does not', () => {
 	seedMetadata( [ { id: 'alpha', debugState: 0 } ] );
+	const sent = captureInterpreter();
 	const onAction = jest.fn();
 	const { getByText, queryByText, rerender } = render(
 		<InspectorViewModal
@@ -101,7 +113,12 @@ test( 'the Timeline view carries the all-nodes Trace toggle; Runtime does not', 
 	);
 	fireEvent.click( getByText( 'trace' ) );
 	expect( getByText( 'stop trace' ) ).not.toBeNull();
-	expect( onAction ).toHaveBeenCalledWith( 'trace', '*', 1 );
+	expect(
+		sent.map( ( m ) => [ m[ VALUE ].name, m[ VALUE ].arguments ] )
+	).toEqual( [ [ 'trace', [ '*', '1' ] ] ] );
+	expect( onAction ).not.toHaveBeenCalled();
+	// The Runtime view's poller builds on the real interpreter.
+	Core.unregisterNode( names.COMMAND_INTERPRETER );
 	rerender(
 		<InspectorViewModal
 			view="runtime"
@@ -148,17 +165,47 @@ test( 'two disagreeing polls surrender the Trace override (verb failed)', () => 
 
 test( 'stop trace fires the all-nodes trace at level 0 when tracing', () => {
 	seedMetadata( [ { id: 'alpha', debugState: 3 } ] );
-	const onAction = jest.fn();
+	const sent = captureInterpreter();
 	const { getByText } = render(
-		<InspectorViewModal
-			view="timeline"
-			onDismiss={ () => {} }
-			onAction={ onAction }
-		/>
+		<InspectorViewModal view="timeline" onDismiss={ () => {} } />
 	);
 	fireEvent.click( getByText( 'stop trace' ) );
-	expect( onAction ).toHaveBeenCalledWith( 'trace', '*', 0 );
+	expect( sent.map( ( m ) => m[ VALUE ].arguments ) ).toEqual( [
+		[ '*', '0' ],
+	] );
 	expect( getByText( 'trace' ) ).not.toBeNull();
+} );
+
+describe( 'the Timeline trace button is UI-bound', () => {
+	const click = ( debugUi ) => {
+		const output = new DumperNode();
+		output.name = names.OUTPUT;
+		output.setDebugUi( debugUi );
+		seedMetadata( [ { id: 'kiwi-7731', debugState: 0 } ] );
+		const sent = captureInterpreter();
+		const { getByText } = render(
+			<InspectorViewModal view="timeline" onDismiss={ () => {} } />
+		);
+		fireEvent.click( getByText( 'trace' ) );
+		const texts = ( output.transcript ?? [] ).map( ( e ) => e.text );
+		return { sent, texts };
+	};
+
+	test( 'its reply returns through bare _ui to the viewed scope', () => {
+		const [ trace ] = click( false ).sent;
+		expect( trace[ FROM ] ).toBe( names.UI );
+		expect( trace[ TO ] ).toBe( names.CWD );
+	} );
+
+	test( 'it echoes nothing while debug_ui is off', () => {
+		expect( click( false ).texts ).toEqual( [] );
+	} );
+
+	test( 'it echoes the command while debug_ui is on', () => {
+		expect( click( true ).texts ).toContain(
+			`command_node ${ names.CWD } trace * 1`
+		);
+	} );
 } );
 
 test( 'the Triage view renders the node DLQ table inside a wide modal', () => {
