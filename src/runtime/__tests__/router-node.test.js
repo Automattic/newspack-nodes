@@ -1,5 +1,5 @@
 import { RouterNode } from '../router-node';
-import { TimerNode } from '../timer-node';
+import { TimerNode, GRID_PHASE_MS } from '../timer-node';
 import { Node } from '../node';
 import { Core } from '../core';
 import {
@@ -233,6 +233,73 @@ describe( 'Router TIMER (notify_timer — direct fire_cb dispatch)', () => {
 		} finally {
 			jest.useRealTimers();
 		}
+	} );
+
+	describe( 'on the wall-clock grid', () => {
+		// A boundary of the 1s grid, and a start 0.73s past it.
+		const takahe = 1_790_000_300_000 + GRID_PHASE_MS;
+
+		function ticking() {
+			jest.useFakeTimers();
+			jest.setSystemTime( takahe + 730 );
+			const r = new RouterNode();
+			r.name = '_router';
+			const at = [];
+			const fire = r.fireCb.bind( r );
+			jest.spyOn( r, 'fireCb' ).mockImplementation( () => {
+				at.push( Date.now() - takahe );
+				fire();
+			} );
+			return { r, at };
+		}
+
+		test( 'ticks just after each boundary, whatever phase it was armed at', () => {
+			const { r, at } = ticking();
+			try {
+				jest.advanceTimersByTime( 3000 );
+				expect( at ).toHaveLength( 3 );
+				at.forEach( ( ms, i ) => {
+					expect( ms ).toBeGreaterThanOrEqual( 1000 * ( i + 1 ) );
+					expect( ms ).toBeLessThanOrEqual( 1000 * ( i + 1 ) + 1 );
+				} );
+			} finally {
+				r.stopTimer();
+				jest.useRealTimers();
+			}
+		} );
+
+		test( 'a late tick does not shift the next', () => {
+			const { r, at } = ticking();
+			try {
+				jest.advanceTimersByTime( 271 );
+				// The next tick runs 0.3s late, as a busy main thread makes it.
+				jest.setSystemTime( Date.now() + 300 );
+				jest.advanceTimersByTime( 1000 );
+				jest.advanceTimersByTime( 700 );
+				expect( at ).toHaveLength( 3 );
+				expect( at[ 1 ] ).toBeGreaterThanOrEqual( 2300 );
+				expect( at[ 2 ] ).toBeGreaterThanOrEqual( 3000 );
+				expect( at[ 2 ] ).toBeLessThanOrEqual( 3001 );
+			} finally {
+				r.stopTimer();
+				jest.useRealTimers();
+			}
+		} );
+
+		test( 'fires once for a boundary, however early its timeout runs', () => {
+			const { r, at } = ticking();
+			try {
+				jest.advanceTimersByTime( 271 );
+				// The clock reads short of the next boundary as its tick runs.
+				jest.setSystemTime( Date.now() - 5 );
+				jest.advanceTimersByTime( 1000 );
+				jest.advanceTimersByTime( 10 );
+				expect( at ).toHaveLength( 2 );
+			} finally {
+				r.stopTimer();
+				jest.useRealTimers();
+			}
+		} );
 	} );
 
 	test( 'a registered name with no live node is warned and dropped (forgot to unregister)', () => {

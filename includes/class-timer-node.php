@@ -53,8 +53,8 @@ class Timer_Node extends Node {
 
 	/**
 	 * Cadence in milliseconds, 0 while disarmed. Public because
-	 * `Event_Framework` re-seeds `next_fire` from it on every recurring fire and
-	 * `list_timers` tabulates it.
+	 * `next_fire_after()` re-seeds `next_fire` from it on every recurring fire
+	 * and `list_timers` tabulates it.
 	 */
 	public int $interval_ms = 0;
 
@@ -173,11 +173,12 @@ class Timer_Node extends Node {
 	 * its interval. A timer at the tick's own cadence reads the wall-clock
 	 * grid instead, as the JS twin does: it skips a tick landing more than a
 	 * tenth of a tick short of the grid boundary after its last fire, so a
-	 * tick at least nine tenths of a tick after that fire always fires. A
-	 * fire stamped late in its tick, by a dispatch ahead of it moving
-	 * `Core::$now` on, costs the next tick nothing unless the delay carried
-	 * it past a grid boundary that the next tick lands more than a tenth of a
-	 * tick before; a hand-driven extra tick short of the boundary skips.
+	 * tick at least nine tenths of a tick after that fire always fires. The
+	 * Router ticks just after each boundary (`next_fire_after()`), so a fire
+	 * stamped late in its tick, by a dispatch ahead of it moving `Core::$now`
+	 * on, costs the next tick nothing unless it was stamped after the boundary
+	 * that tick is due at; a hand-driven extra tick short of the boundary
+	 * skips.
 	 */
 	public function fire_cb(): void {
 		if ( $this->oneshot ) {
@@ -232,6 +233,23 @@ class Timer_Node extends Node {
 			$this->sink->fill( $message );
 		}
 		$this->notify( 'FIRE', Core::$now );
+	}
+
+	/**
+	 * When this own slot fires next, armed or last scanned at `$now`: one
+	 * interval on, or for the Router the first grid boundary after both `$now`
+	 * and the boundary it was due at, so every tick lands just after a
+	 * boundary, a late tick does not shift the next, and none fires twice for
+	 * one boundary.
+	 *
+	 * @param float $now The loop's clock at the arm or the scan.
+	 * @return float The next fire, in seconds.
+	 */
+	public function next_fire_after( float $now ): float {
+		if ( $this instanceof Router_Node ) {
+			return self::next_boundary( \max( $now, $this->next_fire ), $this->interval_ms );
+		}
+		return $now + $this->interval_ms / 1000.0;
 	}
 
 	/**

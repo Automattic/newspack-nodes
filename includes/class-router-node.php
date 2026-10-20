@@ -31,8 +31,10 @@ class Router_Node extends Timer_Node {
 
 	/**
 	 * Tick cadence in milliseconds, armed by `Worker_Base::build_scaffolding()`.
-	 * `Timer_Node` also reads it as the assumed cadence when no Router is mounted,
-	 * so a timer arming in a graph without one still resolves a mode.
+	 * The tick lands just after each boundary of the grid at this cadence
+	 * (`Timer_Node::next_fire_after()`). `Timer_Node` also reads it as the
+	 * assumed cadence when no Router is mounted, so a timer arming in a graph
+	 * without one still resolves a mode.
 	 */
 	public const DEFAULT_TICK_MS = 1000;
 
