@@ -36,6 +36,7 @@ import { mountExospine } from '../../../runtime/exospine';
 import { Node } from '../../../runtime/node';
 import { useNodeField } from '../../../runtime/react';
 import names from '../../../runtime/reserved-node-names.json';
+import { holdRouterCadence } from '@newspack-nodes/shared/test-utils/holdRouterCadence';
 
 // Minimal FakeEventSource — same shape as the substrate's sse-in-node.test.
 class FakeEventSource {
@@ -59,6 +60,8 @@ class FakeEventSource {
 
 beforeEach( () => {
 	Core.reset();
+	// Every POST counted here is one a test asked for.
+	holdRouterCadence();
 	FakeEventSource.last = null;
 	FakeEventSource.instances = [];
 	global.EventSource = FakeEventSource;
@@ -399,6 +402,8 @@ describe( 'useLogViewerGraph — heartbeat slot bridge', () => {
 		try {
 			const wire = installWire( { list_logs: oneLogReply() } );
 			mountGraph();
+			// Arm the held Router's cadence on the fake clock it advances.
+			Core.node( ROUTER ).setTimer( 1000 );
 			await act( async () => {} ); // settle list_logs → EventSource opens
 			act( () => {
 				FakeEventSource.last.dispatch(

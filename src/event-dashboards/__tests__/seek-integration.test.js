@@ -30,6 +30,7 @@ import {
 } from '../../runtime/message';
 import { commandReply } from '../../shared/test-utils/fakeCommandWire';
 import { Core } from '../../runtime/core';
+import { holdRouterCadence } from '../../shared/test-utils/holdRouterCadence';
 
 let logBrowserProps;
 jest.mock( '@newspack-nodes/shared/components/LogBrowser', () => ( {
@@ -109,6 +110,8 @@ function connectedEnvelope( subscription ) {
 
 function boot( payloadByVerb ) {
 	Core.reset();
+	// Every tick here is one a test asked for; the heartbeat rides none.
+	holdRouterCadence();
 	FakeEventSource.last = null;
 	global.EventSource = FakeEventSource;
 	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };

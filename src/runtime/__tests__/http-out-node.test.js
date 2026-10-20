@@ -308,6 +308,8 @@ describe( 'HttpOut', () => {
 		const { Core } = require( '../core' );
 		const router = new RouterNode();
 		router.name = names.ROUTER;
+		// Only the asked-for tick: a grid boundary passing must add none.
+		router.stopTimer();
 		const { node, postBatch } = makeNode();
 		const timer = {
 			name: 'rules:timer',

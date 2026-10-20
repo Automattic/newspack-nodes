@@ -388,9 +388,15 @@ test( 'requestTick coalesces many asks in one commit into ONE tick', async () =>
 // verb — must ride the bracket it is already in. A fresh tick would open a
 // second lock/flush and put that one command in a POST of its own.
 describe( 'a tick asked for during a tick', () => {
+	afterEach( () => jest.restoreAllMocks() );
+
 	function tickHarness() {
+		// Mid-second and held: a grid boundary passing between two ticks would
+		// fire a timer nobody asked for.
+		jest.spyOn( Core, 'now' ).mockReturnValue( 1_790_000_100.86 );
 		const router = new RouterNode();
 		router.name = '_router';
+		router.stopTimer();
 		const http = new Node();
 		http.name = '_http';
 		http.brackets = [];

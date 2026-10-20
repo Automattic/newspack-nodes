@@ -11,7 +11,7 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 import { Core, VALUE } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { useTopologyList, useTopology } from '../useCatalogs';
-import { runClockFast } from '@newspack-nodes/shared/test-utils/fastClock';
+import { steppedClock } from '@newspack-nodes/shared/test-utils/steppedClock';
 
 // Distinct from every default so a wrong-field read fails rather than coincides.
 const LISTED = {
@@ -20,13 +20,19 @@ const LISTED = {
 };
 const FETCHED = { name: 'demo', source: 'user', tsl: 'make_node Echo e' };
 
+// The list's own cadence: one of these moves it to its next poll.
+const CATALOG_S = 30;
+// Past the 5s an unanswered read waits before asking again.
+const REASK_S = 6;
+
 let replyFor;
+let clock;
 
 const verbs = () => replyFor.mock.calls.map( ( [ m ] ) => m[ VALUE ].name );
 
 beforeEach( () => {
 	Core.reset();
-	runClockFast();
+	clock = steppedClock();
 	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
 	replyFor = jest.fn( ( m ) =>
 		'get' === m[ VALUE ].name ? FETCHED : LISTED
@@ -81,12 +87,12 @@ describe( 'useTopologyList', () => {
 			topologies: [ { name: 'wombat-8823', source: 'user' } ],
 			user_dir: '/wp/uploads/topologies',
 		} ) );
-		await waitFor(
-			() =>
-				expect( result.current.topologies ).toEqual( [
-					{ name: 'wombat-8823', source: 'user' },
-				] ),
-			{ timeout: 4000 }
+		await clock.tick( CATALOG_S );
+
+		await waitFor( () =>
+			expect( result.current.topologies ).toEqual( [
+				{ name: 'wombat-8823', source: 'user' },
+			] )
 		);
 	} );
 
@@ -124,7 +130,8 @@ describe( 'useTopologyList', () => {
 		);
 
 		replyFor.mockImplementation( () => null );
-		await new Promise( ( r ) => setTimeout( r, 1200 ) );
+		await clock.tick( CATALOG_S );
+		await waitFor( () => expect( replyFor ).toHaveBeenCalledTimes( 2 ) );
 
 		expect( result.current.topologies ).toEqual( LISTED.topologies );
 		expect( result.current.userDir ).toBe( '/wp/uploads/topologies' );
@@ -188,12 +195,14 @@ describe( 'useTopology', () => {
 		act( () => {
 			result.current.open( 'demo' );
 		} );
+		await waitFor( () => expect( replyFor ).toHaveBeenCalledTimes( 1 ) );
+		await clock.tick( REASK_S );
 
-		await waitFor(
-			() => expect( result.current.topology?.name ).toBe( 'demo' ),
-			{ timeout: 6000 }
+		await waitFor( () =>
+			expect( result.current.topology?.name ).toBe( 'demo' )
 		);
-	}, 15000 );
+		expect( replyFor ).toHaveBeenCalledTimes( 2 );
+	} );
 
 	// Once it lands, the slice stops — a topology the operator is editing must
 	// not be re-fetched under them every second.
@@ -207,9 +216,10 @@ describe( 'useTopology', () => {
 		} );
 
 		const settledCalls = replyFor.mock.calls.length;
-		await new Promise( ( r ) => setTimeout( r, 2200 ) );
+		await clock.tick( REASK_S );
+		await clock.tick( REASK_S );
 		expect( replyFor ).toHaveBeenCalledTimes( settledCalls );
-	}, 15000 );
+	} );
 
 	// The answer to the LAST open() is what a caller reads as its own; the
 	// previous topology's body sitting in the view node is not that.
